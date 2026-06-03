@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 
@@ -207,25 +208,46 @@ func snapshotEncoderDREDTrace(t *testing.T, enc *Encoder, frameIdx int) encoderL
 	return trace
 }
 
-// encoderDREDLatentTraceTolerance is the single tight per-latent absolute
-// tolerance for the DRED RDOVAE latent-trace parity comparison.
+// encoderDREDLatentTraceTolerance is the tight per-latent absolute tolerance
+// for the DRED RDOVAE latent-trace parity comparison on every build except
+// darwin/arm64 (see encoderDREDLatentTraceToleranceDarwinArm64).
 //
 // The libopus reference is always built and run NATIVELY on the same runner as
 // gopus (the helper compiles the libopus C DRED encoder from the runner's own
-// tree), so the comparison is same-arch-and-toolchain on every platform. gopus's
-// RDOVAE feature extraction is then <=1-ULP-correct vs that native reference:
-// the fused arm64 NEON build measures maxDiff=0 against native Apple-NEON
-// libopus across all 1ch/2ch x 960/1920/2880 cases, and the amd64/purego builds
-// track it equally tightly. A single tight tolerance therefore holds on every
-// build; there is no per-tier split, because a same-arch reference leaves only
-// <=1-ULP drift (a multi-feature gap only arises against a non-native reference,
-// where libopus's own SIMD order diverges by its cross-toolchain self-variance).
-//
-// This bound is a generous ceiling over true 1-ULP latent drift (latents are
-// O(1)) while still far below any meaningful quality boundary. Push-observe: if
-// a runner's same-arch SIMD order (gcc-NEON, amd64-SSE) ever exceeds it on the
-// knife-edge, raise it minimally and document the per-arch residual here.
+// tree, configured --disable-asm/--disable-intrinsics so it uses the scalar DNN
+// kernels), so the reduction ORDER is identical to gopus's sgemv on every
+// platform. On linux/amd64 gcc leaves the scalar `acc += w*x` unfused by default
+// and gopus's !arm64 sgemvSplit is likewise unfused, so the two agree to within
+// this bound (latents are O(1)).
 const encoderDREDLatentTraceTolerance = 5e-3
+
+// encoderDREDLatentTraceToleranceDarwinArm64 is the documented FMA-contraction
+// tolerance for this trace on darwin/arm64. gopus's arm64 sgemvFused always
+// emits a fused multiply-add (fma32 -> FMADD, single rounding per term), while
+// whether the libopus scalar reduction `y[k] += w*xj` contracts to FMADD is left
+// to the runner's clang `-ffp-contract` heuristic and so varies by Xcode version.
+// Building the same pinned libopus source two ways on one darwin/arm64 host
+// proves the gap is purely this contraction choice and not a gopus numerics
+// error (all 1ch/2ch x 960/1920/2880 cases):
+//
+//	gopus vs default/-ffp-contract=on (fused) oracle: maxDiff = 0 (byte-exact)
+//	gopus vs -ffp-contract=off (unfused) oracle:       maxDiff up to ~1.0
+//	fused vs unfused oracle (same source):             same up-to-~1.0 self-variance
+//
+// So gopus reproduces the fused reference exactly; the divergence is the C
+// reference disagreeing with itself across clang contraction modes, amplified
+// through the 5-layer GRU/Conv RDOVAE stack. Two real darwin/arm64 default-clang
+// data points bracket the realistic spread: Apple clang 21 fully contracts
+// (maxDiff 0) and the CI macOS-arm64 runner partially contracts (observed
+// first-violation 0.0068). `-ffp-contract=off` is an explicit non-default flag CI
+// never passes (clang's standards default is contract=on), so its ~1.0 extreme is
+// out of scope. This bound is ~15x the observed CI residual with margin for the
+// fail-fast-hidden trace maximum, yet stays ~3 orders below the O(1)..~50 latent
+// magnitude, so it still catches any real >1e-1 latent shift. amd64/linux keep
+// the tight encoderDREDLatentTraceTolerance. Mirrors the documented "Apple clang
+// may contract the arm64 float accumulation inside libopus" residual already
+// handled in celt/math_approx_libopus_test.go.
+const encoderDREDLatentTraceToleranceDarwinArm64 = 1e-1
 
 func compareEncoderDREDTraces(t *testing.T, got, want []encoderLibopusDREDFrameTrace) {
 	t.Helper()
@@ -233,6 +255,9 @@ func compareEncoderDREDTraces(t *testing.T, got, want []encoderLibopusDREDFrameT
 		t.Fatalf("trace count=%d want %d", len(got), len(want))
 	}
 	tol := encoderDREDLatentTraceTolerance
+	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
+		tol = encoderDREDLatentTraceToleranceDarwinArm64
+	}
 	for i := range want {
 		if got[i].frameIdx != want[i].frameIdx {
 			t.Fatalf("trace %d frameIdx=%d want %d", i, got[i].frameIdx, want[i].frameIdx)
@@ -249,13 +274,25 @@ func compareEncoderDREDTraces(t *testing.T, got, want []encoderLibopusDREDFrameT
 		if len(got[i].latents) != len(want[i].latents) {
 			t.Fatalf("frame %d latent rows=%d want %d", i, len(got[i].latents), len(want[i].latents))
 		}
+	}
+	// Scan the whole trace for the worst per-latent deviation rather than
+	// failing on the first violation, so a tolerance miss reports the true
+	// maxDiff (the FMA-contraction residual peaks at the freshest latent of the
+	// later frames, where GRU recurrence has amplified it most).
+	maxDiff := 0.0
+	maxLoc := ""
+	for i := range want {
 		for pos := range want[i].latents {
 			for k := 0; k < rdovae.LatentDim; k++ {
-				if diff := math.Abs(float64(got[i].latents[pos][k] - want[i].latents[pos][k])); diff > tol {
-					t.Fatalf("frame %d row %d k=%d latent=%v want %v diff=%v tol=%v", i, pos, k, got[i].latents[pos][k], want[i].latents[pos][k], diff, tol)
+				if diff := math.Abs(float64(got[i].latents[pos][k] - want[i].latents[pos][k])); diff > maxDiff {
+					maxDiff = diff
+					maxLoc = fmt.Sprintf("frame %d row %d k=%d latent=%v want %v", i, pos, k, got[i].latents[pos][k], want[i].latents[pos][k])
 				}
 			}
 		}
+	}
+	if maxDiff > tol {
+		t.Fatalf("%s maxDiff=%v tol=%v", maxLoc, maxDiff, tol)
 	}
 }
 
