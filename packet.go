@@ -10,20 +10,33 @@ type Mode = types.Mode
 // Bandwidth is an alias for types.Bandwidth representing the audio bandwidth.
 type Bandwidth = types.Bandwidth
 
-// Re-export mode constants for convenience.
+// Opus coding modes, re-exported from the types package. Each TOC configuration
+// (0-31) maps to exactly one mode per RFC 6716 Section 3.1.
 const (
-	ModeSILK   = types.ModeSILK   // SILK-only mode (configs 0-11)
-	ModeHybrid = types.ModeHybrid // Hybrid SILK+CELT (configs 12-15)
-	ModeCELT   = types.ModeCELT   // CELT-only mode (configs 16-31)
+	// ModeSILK is the SILK-only mode, used for speech (TOC configs 0-11).
+	ModeSILK = types.ModeSILK
+	// ModeHybrid is the hybrid SILK+CELT mode, used for wideband speech and
+	// music (TOC configs 12-15).
+	ModeHybrid = types.ModeHybrid
+	// ModeCELT is the CELT-only mode, used for music and low delay (TOC configs
+	// 16-31).
+	ModeCELT = types.ModeCELT
 )
 
-// Re-export bandwidth constants for convenience.
+// Opus audio bandwidths, re-exported from the types package. The bandwidth sets
+// the upper edge of the coded spectrum; each is paired with a nominal internal
+// sample rate.
 const (
-	BandwidthNarrowband    = types.BandwidthNarrowband    // 4kHz audio, 8kHz sample rate
-	BandwidthMediumband    = types.BandwidthMediumband    // 6kHz audio, 12kHz sample rate
-	BandwidthWideband      = types.BandwidthWideband      // 8kHz audio, 16kHz sample rate
-	BandwidthSuperwideband = types.BandwidthSuperwideband // 12kHz audio, 24kHz sample rate
-	BandwidthFullband      = types.BandwidthFullband      // 20kHz audio, 48kHz sample rate
+	// BandwidthNarrowband covers audio up to 4 kHz (8 kHz internal rate).
+	BandwidthNarrowband = types.BandwidthNarrowband
+	// BandwidthMediumband covers audio up to 6 kHz (12 kHz internal rate).
+	BandwidthMediumband = types.BandwidthMediumband
+	// BandwidthWideband covers audio up to 8 kHz (16 kHz internal rate).
+	BandwidthWideband = types.BandwidthWideband
+	// BandwidthSuperwideband covers audio up to 12 kHz (24 kHz internal rate).
+	BandwidthSuperwideband = types.BandwidthSuperwideband
+	// BandwidthFullband covers audio up to 20 kHz (48 kHz internal rate).
+	BandwidthFullband = types.BandwidthFullband
 )
 
 // TOC represents the parsed Table of Contents byte from an Opus packet.

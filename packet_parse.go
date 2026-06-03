@@ -6,9 +6,15 @@ const maxOpusFrameBytes = 1275
 
 // Errors returned by packet parsing functions.
 var (
-	ErrPacketTooShort    = errors.New("opus: packet too short")
+	// ErrPacketTooShort indicates the packet is missing bytes required to parse
+	// its TOC, frame-count, length, or padding fields.
+	ErrPacketTooShort = errors.New("opus: packet too short")
+	// ErrInvalidFrameCount indicates a code 3 packet declared a frame count
+	// outside the valid 1-48 range (RFC 6716 Section 3.2.5).
 	ErrInvalidFrameCount = errors.New("opus: invalid frame count (M > 48)")
-	ErrInvalidPacket     = errors.New("opus: invalid packet structure")
+	// ErrInvalidPacket indicates the packet violates the RFC 6716 framing rules,
+	// for example inconsistent frame lengths or a total duration above 120 ms.
+	ErrInvalidPacket = errors.New("opus: invalid packet structure")
 )
 
 // PacketInfo contains parsed information about an Opus packet.

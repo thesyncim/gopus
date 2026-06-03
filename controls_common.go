@@ -1,18 +1,35 @@
 package gopus
 
 // ExpertFrameDuration mirrors libopus OPUS_SET/GET_EXPERT_FRAME_DURATION values.
+//
+// It selects the duration the encoder uses for each Opus frame, overriding the
+// duration implied by the per-call sample count. A requested duration takes
+// effect only when it fits within the samples passed to Encode; a longer
+// duration than the input provides is rejected with ErrInvalidFrameSize. The
+// numeric values match the libopus OPUS_FRAMESIZE_* constants.
 type ExpertFrameDuration int
 
 const (
-	ExpertFrameDurationArg   ExpertFrameDuration = 5000
+	// ExpertFrameDurationArg keeps the frame duration implied by the per-call
+	// sample count (libopus OPUS_FRAMESIZE_ARG). This is the default.
+	ExpertFrameDurationArg ExpertFrameDuration = 5000
+	// ExpertFrameDuration2_5Ms forces 2.5 ms frames (CELT-capable modes only).
 	ExpertFrameDuration2_5Ms ExpertFrameDuration = 5001
-	ExpertFrameDuration5Ms   ExpertFrameDuration = 5002
-	ExpertFrameDuration10Ms  ExpertFrameDuration = 5003
-	ExpertFrameDuration20Ms  ExpertFrameDuration = 5004
-	ExpertFrameDuration40Ms  ExpertFrameDuration = 5005
-	ExpertFrameDuration60Ms  ExpertFrameDuration = 5006
-	ExpertFrameDuration80Ms  ExpertFrameDuration = 5007
+	// ExpertFrameDuration5Ms forces 5 ms frames (CELT-capable modes only).
+	ExpertFrameDuration5Ms ExpertFrameDuration = 5002
+	// ExpertFrameDuration10Ms forces 10 ms frames.
+	ExpertFrameDuration10Ms ExpertFrameDuration = 5003
+	// ExpertFrameDuration20Ms forces 20 ms frames.
+	ExpertFrameDuration20Ms ExpertFrameDuration = 5004
+	// ExpertFrameDuration40Ms forces 40 ms frames.
+	ExpertFrameDuration40Ms ExpertFrameDuration = 5005
+	// ExpertFrameDuration60Ms forces 60 ms frames.
+	ExpertFrameDuration60Ms ExpertFrameDuration = 5006
+	// ExpertFrameDuration80Ms forces 80 ms frames.
+	ExpertFrameDuration80Ms ExpertFrameDuration = 5007
+	// ExpertFrameDuration100Ms forces 100 ms frames.
 	ExpertFrameDuration100Ms ExpertFrameDuration = 5008
+	// ExpertFrameDuration120Ms forces 120 ms frames.
 	ExpertFrameDuration120Ms ExpertFrameDuration = 5009
 )
 

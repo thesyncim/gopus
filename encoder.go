@@ -73,13 +73,23 @@ const (
 )
 
 const (
-	// BitrateAuto uses libopus OPUS_AUTO bitrate selection.
+	// BitrateAuto lets the encoder pick the bitrate from the sample rate,
+	// channel count, and application (libopus OPUS_AUTO). It is the default.
 	BitrateAuto = encoder.BitrateAuto
-	// BitrateMax uses libopus OPUS_BITRATE_MAX packet budgeting.
+	// BitrateMax tells the encoder to use as many bits as the output buffer
+	// allows for each frame (libopus OPUS_BITRATE_MAX).
 	BitrateMax = encoder.BitrateMax
+)
 
-	InBandFECDisabled  = encoder.InBandFECDisabled
-	InBandFECEnabled   = encoder.InBandFECEnabled
+// In-band FEC modes for SetInBandFEC. These mirror the libopus
+// OPUS_SET_INBAND_FEC values.
+const (
+	// InBandFECDisabled turns in-band forward error correction off (value 0).
+	InBandFECDisabled = encoder.InBandFECDisabled
+	// InBandFECEnabled enables in-band FEC for all signal types (value 1).
+	InBandFECEnabled = encoder.InBandFECEnabled
+	// InBandFECMusicSafe enables in-band FEC only for speech-like content,
+	// leaving music frames untouched (value 2).
 	InBandFECMusicSafe = encoder.InBandFECMusicSafe
 )
 
