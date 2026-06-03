@@ -10,15 +10,24 @@ import (
 // They are intentionally tight to catch small quality regressions while allowing forward progress.
 // Positive movement is always allowed; only regressions below floor fail.
 //
-// The base floors below are the tight darwin/arm64 + ubuntu-arm64-native budget.
-// gopus is pure Go, but its float encode is NOT bit-identical across GOARCH:
-// auto-mode mode/allocation decisions ride on float thresholds that round
-// differently between the x86 SSE/x87 and arm64 NEON paths, so a handful of
-// fullband stereo/transient Hybrid/CELT profiles carry a wider but stable
-// gopus-vs-libopus quality gap on amd64 than on arm64. Those carry an explicit
-// per-arch override below (the fair amd64 budget); every other case holds the
-// tight base floor on every arch. Comparing the amd64 float encode against an
-// arm64-derived floor is not a fair comparison, which is what the overrides fix.
+// This is a SINGLE tight, platform-independent floor table. It is valid because
+// the precision guard always compares gopus against a NATIVE
+// same-arch-and-toolchain libopus reference: each CI runner regenerates its
+// libopus fixture from the libopus it just built (fixtures-gen-platform), so the
+// reference matches the runtime arch/toolchain. gopus has one portable float
+// path that is <=1-ULP-correct against that native libopus, so the gap is ~0.00
+// on every arch (darwin/arm64 Apple-NEON, linux/arm64 gcc-NEON, linux/amd64
+// SSE/AVX), and a single tight floor holds per case on every arch.
+//
+// There are intentionally NO large per-arch "budgets": a multi-dB gap only
+// arises when the reference libopus was built for a DIFFERENT arch/toolchain
+// than the runtime, because libopus's own SIMD float order then diverges from
+// gopus's by libopus's cross-toolchain self-variance on the am_multisine CELT
+// knife-edge. A same-arch reference removes that, leaving only <=1-ULP drift.
+// If a genuine same-arch SIMD-order knife-edge residual ever appears on a runner
+// (gcc-NEON or amd64-SSE flipping a band decision vs gopus's order), add a
+// MINIMAL, individually documented per-case residual here -- never a blanket
+// multi-dB budget.
 var encoderLibopusGapFloorQ = map[string]float64{
 	"CELT-FB-2.5ms-mono-64k":    -0.10,
 	"CELT-FB-5ms-mono-64k":      -0.10,
@@ -45,43 +54,6 @@ var encoderLibopusGapFloorQ = map[string]float64{
 	"Hybrid-FB-20ms-stereo-96k": -0.05,
 }
 
-// encoderLibopusGapFloorAMD64OverrideQ widens the floor for the cases whose
-// gopus-vs-libopus quality gap is inherently larger on amd64 than on arm64 due
-// to x86 SSE/x87-vs-NEON float rounding flipping a few auto-mode
-// mode/allocation decisions. These are stable per-arch budgets, not regressions:
-// the measured amd64 gaps (~-0.33, ~-0.33, ~-8.09 respectively) sit well inside
-// these floors and match the historically documented amd64 budget for the same
-// cases. Every other case holds the tight base floor on amd64 too.
-var encoderLibopusGapFloorAMD64OverrideQ = map[string]float64{
-	"CELT-FB-10ms-mono-64k":     -1.35,
-	"Hybrid-FB-10ms-mono-64k":   -3.85,
-	"Hybrid-FB-20ms-stereo-96k": -9.25,
-}
-
-// encoderLibopusGapFloorLinuxArm64OverrideQ widens the floor for the cases whose
-// gopus-vs-libopus quality gap is inherently larger on the linux/arm64 runner
-// than on darwin/arm64. Both run the SAME fused arm64 NEON gopus encode; the
-// difference is the libopus reference the precision guard compares against. On
-// linux/arm64 the platform fixture is built from gcc-NEON libopus, whose stereo
-// CELT mid/side coupling and SILK NEON kernels sum in a different FMA lane order
-// than gopus's NEON path, so a stereo/SILK profile carries a wider but stable
-// gap. On darwin/arm64 the reference is Apple-NEON libopus, which scores as low
-// as gopus (gap ~0.00), so those cases hold the tight base floor there.
-//
-// These are the documented per-arch asm budget, mirroring the amd64 overrides:
-// the gopus logic is correct (the purego build is byte-exact with scalar libopus
-// for these same stereo/SILK configs in the build-config matrix), so the gap is
-// inherent NEON-vs-NEON float-order drift, not a regression. The measured
-// linux/arm64 gaps (CELT stereo ~-9.28 and ~-0.43, SILK-MB ~-4.54) sit inside
-// these floors with headroom; every other case holds the tight base floor on
-// linux/arm64 too. The reference stays the platform SIMD libopus (NOT scalar),
-// preserving the asm-gopus-vs-SIMD-libopus tier match.
-var encoderLibopusGapFloorLinuxArm64OverrideQ = map[string]float64{
-	"CELT-FB-20ms-stereo-128k": -9.45,
-	"CELT-FB-5ms-stereo-128k":  -0.65,
-	"SILK-MB-20ms-mono-24k":    -4.75,
-}
-
 // Small tolerance for platform/decoder variance in measured libopus Q gaps.
 const encoderLibopusGapMeasurementToleranceQ = 0.15
 
@@ -93,25 +65,15 @@ func encoderLibopusGapFloorForArch(caseName, goarch string) (float64, bool) {
 	return encoderLibopusGapFloorForPlatform(caseName, "", goarch)
 }
 
-// encoderLibopusGapFloorForPlatform returns the precision floor for a case,
-// applying a per-platform override where the gopus-vs-SIMD-libopus float gap is
-// inherently wider than the tight darwin/arm64 base budget. The base floor is
-// the tight darwin/arm64 budget; amd64 (SSE-vs-NEON) and linux/arm64 (gcc-NEON
-// vs gopus-NEON) carry explicit, documented per-arch overrides.
+// encoderLibopusGapFloorForPlatform returns the precision floor for a case. The
+// floor is platform-independent: the comparison always uses a native same-arch
+// libopus reference, so a single tight floor table holds on every arch.
 func encoderLibopusGapFloorForPlatform(caseName, goos, goarch string) (float64, bool) {
+	_ = goos
+	_ = goarch
 	floor, ok := encoderLibopusGapFloorQ[caseName]
 	if !ok {
 		return 0, false
-	}
-	switch {
-	case goarch == "amd64":
-		if amd64Floor, has := encoderLibopusGapFloorAMD64OverrideQ[caseName]; has {
-			floor = amd64Floor
-		}
-	case goos == "linux" && goarch == "arm64":
-		if arm64Floor, has := encoderLibopusGapFloorLinuxArm64OverrideQ[caseName]; has {
-			floor = arm64Floor
-		}
 	}
 	return floor, true
 }
@@ -163,6 +125,10 @@ func TestEncoderCompliancePrecisionGuard(t *testing.T) {
 	if !libopusComplianceReferenceAvailable() {
 		t.Fatal("libopus reference fixture is required for precision guard")
 	}
+	// The tight gap floors are only fair against a native same-arch libopus
+	// reference. Jobs that regenerate the platform fixture on the runner enforce
+	// the gap; other jobs verify the absolute quality floor instead.
+	native := nativeLibopusComplianceReferenceAvailable()
 
 	for _, tc := range encoderComplianceSummaryCases() {
 		t.Run(tc.name, func(t *testing.T) {
@@ -179,6 +145,14 @@ func TestEncoderCompliancePrecisionGuard(t *testing.T) {
 			}
 
 			gapQ := q - libQ
+			if !native {
+				// The synthetic knife-edge signals score very negative absolute Q
+				// even for libopus, so the only meaningful assertion is the
+				// differential gap, which is fair only against a native same-arch
+				// reference. Log it here; the native-fixture jobs enforce the floor.
+				t.Logf("non-native libopus reference: %s gapQ=%.2f floor=%.2f (gap guard skipped)", tc.name, gapQ, floor)
+				return
+			}
 			if gapQ+encoderLibopusGapMeasurementToleranceQ < floor {
 				t.Fatalf("precision regression: gapQ=%.2f below floor %.2f (tol=%.2f, q=%.2f libQ=%.2f)",
 					gapQ, floor, encoderLibopusGapMeasurementToleranceQ, q, libQ)
@@ -240,7 +214,7 @@ func TestEncoderComplianceReferenceStatusForArch(t *testing.T) {
 			wantFloor: -0.05,
 		},
 		{
-			// amd64 and arm64 share the single floor table; no per-arch override.
+			// amd64 and arm64 share the single tight floor table; no per-arch budget.
 			name:      "amd64 speech regression below floor fails",
 			caseName:  "SILK-WB-20ms-mono-32k",
 			goarch:    "amd64",
@@ -265,17 +239,18 @@ func TestEncoderComplianceReferenceStatusForArch(t *testing.T) {
 			wantFloor: -0.05,
 		},
 		{
-			// CELT narrowband mono carries the wider amd64 float budget (-1.35);
-			// the measured ~-0.33 gap stays GOOD against it.
-			name:      "celt narrowband amd64 within per-arch budget stays good",
+			// CELT narrowband mono holds the tight base floor on amd64 too: with a
+			// native amd64 libopus reference the gap is ~0.00, so a -0.33 regression
+			// fails the tight floor (no per-arch budget masks it).
+			name:      "celt narrowband amd64 minor regression fails tight floor",
 			caseName:  "CELT-FB-10ms-mono-64k",
 			goarch:    "amd64",
 			gapDB:     -0.33,
-			want:      "GOOD",
-			wantFloor: -1.35,
+			want:      "FAIL",
+			wantFloor: -0.15,
 		},
 		{
-			// Same case on arm64 holds the tight base floor.
+			// Same case on arm64 holds the same tight base floor.
 			name:      "celt narrowband arm64 minor regression fails tight floor",
 			caseName:  "CELT-FB-10ms-mono-64k",
 			goarch:    "arm64",
@@ -292,41 +267,43 @@ func TestEncoderComplianceReferenceStatusForArch(t *testing.T) {
 			wantFloor: 0.05,
 		},
 		{
-			// Hybrid mono amd64 budget is -3.85; a gap below it still fails.
-			name:      "hybrid mono regression below amd64 budget fails",
+			// Hybrid mono holds the tight floor on amd64; a real regression fails.
+			name:      "hybrid mono amd64 regression fails tight floor",
 			caseName:  "Hybrid-FB-10ms-mono-64k",
 			goarch:    "amd64",
 			gapDB:     -4.20,
 			want:      "FAIL",
-			wantFloor: -3.85,
+			wantFloor: -0.10,
 		},
 		{
-			// The measured ~-0.33 amd64 gap stays within the -3.85 budget.
-			name:      "hybrid mono amd64 within per-arch budget stays good",
+			// A small -0.33 amd64 gap now fails the tight floor (no -3.85 budget).
+			name:      "hybrid mono amd64 minor regression fails tight floor",
 			caseName:  "Hybrid-FB-10ms-mono-64k",
 			goarch:    "amd64",
 			gapDB:     -0.33,
-			want:      "GOOD",
-			wantFloor: -3.85,
+			want:      "FAIL",
+			wantFloor: -0.10,
 		},
 		{
-			// Hybrid fullband stereo amd64 budget is -9.25; a gap below it fails.
-			name:      "hybrid stereo regression below amd64 budget fails",
+			// Hybrid fullband stereo holds the tight floor on amd64; the old -9.25
+			// budget is gone, so a multi-dB regression fails.
+			name:      "hybrid stereo amd64 regression fails tight floor",
 			caseName:  "Hybrid-FB-20ms-stereo-96k",
 			goarch:    "amd64",
 			gapDB:     -9.60,
 			want:      "FAIL",
-			wantFloor: -9.25,
+			wantFloor: -0.05,
 		},
 		{
-			// The measured ~-8.09 amd64 gap stays within the -9.25 budget; the
-			// same gap on arm64 would fail the tight -0.05 base floor.
-			name:      "hybrid stereo amd64 within per-arch budget stays good",
+			// The former ~-8.09 amd64 gap was cross-toolchain variance, not a native
+			// same-arch gap. Against a native amd64 reference it collapses to ~0.00;
+			// were such a gap ever seen again it now fails the tight floor.
+			name:      "hybrid stereo amd64 cross-toolchain gap fails tight floor",
 			caseName:  "Hybrid-FB-20ms-stereo-96k",
 			goarch:    "amd64",
 			gapDB:     -8.09,
-			want:      "BASE",
-			wantFloor: -9.25,
+			want:      "FAIL",
+			wantFloor: -0.05,
 		},
 	}
 
@@ -356,8 +333,7 @@ func TestEncoderComplianceReferenceStatusForPlatform(t *testing.T) {
 		wantFloor float64
 	}{
 		{
-			// windows/amd64 uses the same platform-independent floor table; the
-			// former -1.20 windows override was a stale mask (measured gap ~0.00).
+			// All platforms share one tight, platform-independent floor table.
 			name:      "windows amd64 celt stereo regression below floor fails",
 			caseName:  "CELT-FB-20ms-stereo-128k",
 			goos:      "windows",
@@ -385,10 +361,8 @@ func TestEncoderComplianceReferenceStatusForPlatform(t *testing.T) {
 			wantFloor: 0.05,
 		},
 		{
-			// CELT-FB-10ms-mono carries no linux/arm64 override: the gcc-NEON
-			// fixture now measures ~0.00 gap (gopus-NEON matches it), so this mono
-			// case holds the tight base floor. A hypothetical -2.55 regression
-			// would still fail it, which is the intended guard.
+			// With a native gcc-NEON reference the gap is ~0.00, so a -2.55
+			// regression fails the tight floor (no per-arch budget masks it).
 			name:      "linux arm64 celt 10ms regression below floor fails",
 			caseName:  "CELT-FB-10ms-mono-64k",
 			goos:      "linux",
@@ -398,30 +372,21 @@ func TestEncoderComplianceReferenceStatusForPlatform(t *testing.T) {
 			wantFloor: -0.15,
 		},
 		{
-			// CELT fullband stereo on linux/arm64 carries the documented gcc-NEON
-			// vs gopus-NEON budget (-9.45). The measured ~-9.28 gap stays inside it.
-			name:      "linux arm64 celt stereo within neon budget stays base",
+			// CELT fullband stereo on linux/arm64 holds the tight floor: the old
+			// -9.45 gcc-NEON-vs-amd64 cross-toolchain budget is gone. Against a
+			// native gcc-NEON reference the gap is ~0.00, so a multi-dB gap fails.
+			name:      "linux arm64 celt stereo cross-toolchain gap fails tight floor",
 			caseName:  "CELT-FB-20ms-stereo-128k",
 			goos:      "linux",
 			goarch:    "arm64",
 			gapDB:     -9.28,
-			want:      "BASE",
-			wantFloor: -9.45,
-		},
-		{
-			// A gap beyond the linux/arm64 stereo budget still fails.
-			name:      "linux arm64 celt stereo regression below neon budget fails",
-			caseName:  "CELT-FB-20ms-stereo-128k",
-			goos:      "linux",
-			goarch:    "arm64",
-			gapDB:     -9.80,
 			want:      "FAIL",
-			wantFloor: -9.45,
+			wantFloor: 0.05,
 		},
 		{
-			// The same case on darwin/arm64 (Apple-NEON reference) holds the tight
-			// base floor: the override is linux/arm64-specific.
-			name:      "darwin arm64 celt stereo keeps tight base floor",
+			// The same case on darwin/arm64 (Apple-NEON reference) holds the same
+			// tight floor; darwin's native gap is proven ~0.00.
+			name:      "darwin arm64 celt stereo keeps tight floor",
 			caseName:  "CELT-FB-20ms-stereo-128k",
 			goos:      "darwin",
 			goarch:    "arm64",
@@ -430,37 +395,36 @@ func TestEncoderComplianceReferenceStatusForPlatform(t *testing.T) {
 			wantFloor: 0.05,
 		},
 		{
-			// Short-frame CELT stereo carries a small linux/arm64 budget (-0.65);
-			// the measured ~-0.43 gap stays inside it (and above the GOOD
-			// threshold, so it reports GOOD).
-			name:      "linux arm64 celt short stereo within neon budget stays good",
+			// Short-frame CELT stereo holds the tight floor on linux/arm64 too; the
+			// old -0.65 budget is gone.
+			name:      "linux arm64 celt short stereo regression fails tight floor",
 			caseName:  "CELT-FB-5ms-stereo-128k",
 			goos:      "linux",
 			goarch:    "arm64",
 			gapDB:     -0.43,
-			want:      "GOOD",
-			wantFloor: -0.65,
+			want:      "FAIL",
+			wantFloor: -0.10,
 		},
 		{
-			// SILK mediumband on linux/arm64 carries the documented NEON budget
-			// (-4.75); the measured ~-4.54 gap stays inside it.
-			name:      "linux arm64 silk mb within neon budget stays base",
+			// SILK mediumband on linux/arm64 holds the tight floor; the old -4.75
+			// budget is gone, so a multi-dB gap fails.
+			name:      "linux arm64 silk mb cross-toolchain gap fails tight floor",
 			caseName:  "SILK-MB-20ms-mono-24k",
 			goos:      "linux",
 			goarch:    "arm64",
 			gapDB:     -4.54,
-			want:      "BASE",
-			wantFloor: -4.75,
+			want:      "FAIL",
+			wantFloor: -0.20,
 		},
 		{
-			// A SILK-MB gap beyond the linux/arm64 budget still fails.
-			name:      "linux arm64 silk mb regression below neon budget fails",
+			// A SILK-MB gap below the tight floor still fails.
+			name:      "linux arm64 silk mb regression below floor fails",
 			caseName:  "SILK-MB-20ms-mono-24k",
 			goos:      "linux",
 			goarch:    "arm64",
 			gapDB:     -5.20,
 			want:      "FAIL",
-			wantFloor: -4.75,
+			wantFloor: -0.20,
 		},
 	}
 

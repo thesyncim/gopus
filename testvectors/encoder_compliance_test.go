@@ -281,6 +281,11 @@ func TestEncoderComplianceSummary(t *testing.T) {
 
 	cases := encoderComplianceSummaryCases()
 	refAvailable := libopusComplianceReferenceAvailable()
+	// The (gopus Q - libopus Q) gap floors are only fair against a native
+	// same-arch libopus reference (see nativeLibopusComplianceReferenceAvailable).
+	// Against a non-native/stale reference the gap is logged but not gated; the
+	// native-fixture CI jobs enforce it.
+	enforceGap := nativeLibopusComplianceReferenceAvailable()
 
 	type caseResult struct {
 		q      float64
@@ -309,10 +314,15 @@ func TestEncoderComplianceSummary(t *testing.T) {
 						res.gapQ = q - libQ
 						status, floor := encoderComplianceReferenceStatusForCase(tc.name, res.gapQ)
 						res.status = status
-						if status == "FAIL" {
-							t.Errorf("precision floor miss for %s: gap=%.2f Q floor=%.2f Q tol=%.2f Q", tc.name, res.gapQ, floor, encoderLibopusGapMeasurementToleranceQ)
-						} else {
+						switch {
+						case status != "FAIL":
 							res.passed = true
+						case enforceGap:
+							t.Errorf("precision floor miss for %s: gap=%.2f Q floor=%.2f Q tol=%.2f Q", tc.name, res.gapQ, floor, encoderLibopusGapMeasurementToleranceQ)
+						default:
+							// Non-native/stale reference: log the gap, do not gate it.
+							res.passed = true
+							t.Logf("non-native libopus reference: %s gap=%.2f Q floor=%.2f Q (gap guard skipped)", tc.name, res.gapQ, floor)
 						}
 					}
 				}

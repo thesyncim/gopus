@@ -207,29 +207,32 @@ func snapshotEncoderDREDTrace(t *testing.T, enc *Encoder, frameIdx int) encoderL
 	return trace
 }
 
-// encoderDREDLatentTraceToleranceForTier returns the per-latent absolute
+// encoderDREDLatentTraceTolerance is the single tight per-latent absolute
 // tolerance for the DRED RDOVAE latent-trace parity comparison.
 //
-// On the bit-exact tier (amd64 + purego) the latents track the libopus C
-// reference tightly. On the fused arm64 NEON tier a small float drift in the
-// RDOVAE encoder feature extraction accumulates through the GRU/conv stack: the
-// measured worst case (2ch_1920) is ~0.0068, so the fused tier carries a wider
-// but still tiny tolerance that covers it with headroom while staying far below
-// any meaningful quality boundary. This mirrors the carried-DRED payload tiering
-// (dredPayloadByteExactTier) rather than weakening the strict comparison.
-func encoderDREDLatentTraceToleranceForTier() float64 {
-	if dredLatentsByteExactTier {
-		return 5e-3
-	}
-	return 1.2e-2
-}
+// The libopus reference is always built and run NATIVELY on the same runner as
+// gopus (the helper compiles the libopus C DRED encoder from the runner's own
+// tree), so the comparison is same-arch-and-toolchain on every platform. gopus's
+// RDOVAE feature extraction is then <=1-ULP-correct vs that native reference:
+// the fused arm64 NEON build measures maxDiff=0 against native Apple-NEON
+// libopus across all 1ch/2ch x 960/1920/2880 cases, and the amd64/purego builds
+// track it equally tightly. A single tight tolerance therefore holds on every
+// build; there is no per-tier split, because a same-arch reference leaves only
+// <=1-ULP drift (a multi-feature gap only arises against a non-native reference,
+// where libopus's own SIMD order diverges by its cross-toolchain self-variance).
+//
+// This bound is a generous ceiling over true 1-ULP latent drift (latents are
+// O(1)) while still far below any meaningful quality boundary. Push-observe: if
+// a runner's same-arch SIMD order (gcc-NEON, amd64-SSE) ever exceeds it on the
+// knife-edge, raise it minimally and document the per-arch residual here.
+const encoderDREDLatentTraceTolerance = 5e-3
 
 func compareEncoderDREDTraces(t *testing.T, got, want []encoderLibopusDREDFrameTrace) {
 	t.Helper()
 	if len(got) != len(want) {
 		t.Fatalf("trace count=%d want %d", len(got), len(want))
 	}
-	tol := encoderDREDLatentTraceToleranceForTier()
+	tol := encoderDREDLatentTraceTolerance
 	for i := range want {
 		if got[i].frameIdx != want[i].frameIdx {
 			t.Fatalf("trace %d frameIdx=%d want %d", i, got[i].frameIdx, want[i].frameIdx)
