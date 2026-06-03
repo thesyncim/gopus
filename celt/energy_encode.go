@@ -366,7 +366,7 @@ func computeBandRMSFloat32(coeffs []float32, start, end int) float32 {
 
 // celtSqrt mirrors libopus celt_sqrt in the float build: (float)sqrt((double)x).
 // C promotes the float argument to double, takes the double-precision sqrt, then
-// narrows back to float, so the Go equivalent rounds through float64 the same way.
+// narrows back to float; the Go path mirrors that double round-trip via math.Sqrt.
 func celtSqrt(x float32) float32 {
 	return float32(math.Sqrt(float64(x)))
 }
