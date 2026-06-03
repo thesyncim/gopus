@@ -425,21 +425,6 @@ func (e *Encoder) Tell() int {
 	return int(e.nbitsTotal) - int(ilog(e.rng))
 }
 
-// FillToBudget advances the internal bit counter so [Encoder.Tell] reports
-// totalBits, mirroring libopus's silent-frame trick
-// (enc->nbits_total += total_bits - ec_tell(enc)) in celt_encode_with_ec: it
-// "pretends we've filled all the remaining bits with zeros" so every subsequent
-// budget-gated field is starved while the rest of the pipeline still runs. The
-// already-written bytes are unchanged; only the accounting moves. A non-positive
-// or shrinking request is a no-op so it can never roll the counter backwards.
-func (e *Encoder) FillToBudget(totalBits int) {
-	delta := totalBits - e.Tell()
-	if delta <= 0 {
-		return
-	}
-	e.nbitsTotal += int32(delta)
-}
-
 // TellFrac returns the number of bits written to the combined stream so far in
 // 1/8th-bit (BITRES) precision; divide by 8 to compare with [Encoder.Tell].
 // It is the bit-exact port of libopus ec_tell_frac, including the eight-entry

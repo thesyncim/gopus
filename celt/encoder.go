@@ -753,6 +753,15 @@ func (e *Encoder) SetPrevEnergyWithPrevFloat32(prev, energies []float32) {
 	copy(e.prevEnergy, energies)
 }
 
+func (e *Encoder) setPrevEnergyWithPrevGLog(prev, energies []celtGLog) {
+	if len(prev) == len(e.prevEnergy2) {
+		copy(e.prevEnergy2, prev)
+	} else {
+		copy(e.prevEnergy2, e.prevEnergy)
+	}
+	copy(e.prevEnergy, energies)
+}
+
 // OverlapBuffer returns the overlap buffer for MDCT analysis.
 // Size is Overlap * channels samples.
 func (e *Encoder) OverlapBuffer() []float32 {
@@ -1550,7 +1559,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 
 // computeAllocationScratch computes bit allocation using scratch buffers (zero-alloc).
 // This is the zero-allocation version of ComputeAllocationWithEncoder.
-func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3, nbBands int, cap, offsets []int32, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int, silentFrame bool) *AllocationResult {
+func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3, nbBands int, cap, offsets []int32, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) *AllocationResult {
 	maxNb := MaxBands
 	if e.perMode != nil {
 		maxNb = e.perMode.nbEBands
@@ -1594,20 +1603,7 @@ func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3,
 		result.Caps[i] = 0
 	}
 
-	if nbBands == 0 {
-		return result
-	}
-	// A silent frame "pretends the budget is full" and lands here with
-	// totalBitsQ3<=0; it MUST still run interp_bits2pulses. libopus
-	// clt_compute_allocation clamps total to >=0 and runs the bisection anyway,
-	// skipping bands down to a low codedBands and coding the skip/stereo
-	// reservations, which is what slews lastCodedBands and produces the silent-frame
-	// byte stream that matches libopus (cltComputeAllocationEncode clamps
-	// internally). A non-silent frame with a non-positive budget keeps the
-	// early-return (CodedBands=nbBands), the behavior the non-silent low-budget path
-	// already had; routing it through interp_bits2pulses is reserved for the silent
-	// path only.
-	if totalBitsQ3 <= 0 && !silentFrame {
+	if nbBands == 0 || totalBitsQ3 <= 0 {
 		return result
 	}
 

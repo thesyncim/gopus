@@ -425,40 +425,22 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	if tell == 1 {
 		if isSilence {
 			re.EncodeBit(1, 15)
-			// libopus celt_encode_with_ec does NOT short-circuit a silent frame: it
-			// codes the silence flag, then "pretends we've filled all the remaining
-			// bits with zeros" (sets total_bits=tell so every optional field is
-			// starved), but still runs the WHOLE pipeline. That state evolution is
-			// load-bearing: each silent frame's clt_compute_allocation slews
-			// lastCodedBands down, quant_coarse_energy advances delayedIntra and
-			// stores the clamped silent energyError, spreading/temporal-VBR update
-			// spread_decision/spec_avg, and the oldBandE/oldLogE/oldLogE2 rotation
-			// runs. A shortcut that only reset a subset of those flips a PVQ near-tie
-			// in the post-silence recovery frames. So fall through to the normal
-			// pipeline with the pretend-full budget and apply the silent-frame
-			// oldBandE=-28 overwrite at the end (celt_encoder.c silence handling).
-			// In VBR there is no need to send more than the 2-byte minimum.
-			if e.vbr && e.targetBitrate != opusBitrateMax {
-				targetBytes = e.applyVBRSilenceTarget(frameSize, targetBytes)
-				targetBits = targetBytes * 8
-				e.frameBits = int32(targetBits)
-				re.Shrink(uint32(targetBytes))
-				if re.Error() != 0 {
-					return nil, ErrEncodingFailed
-				}
+			// libopus celt_encode_with_ec does NOT short-circuit a silent frame:
+			// after coding the silence flag it pretends the budget is full (no band
+			// bits are spent) but still runs the full pipeline, so run_prefilter()
+			// shifts prefilter_mem and consec_transient advances via
+			// transient_got_disabled. Replicate that state evolution here (the
+			// prefilter runs with enabled=false, which only shifts the comb-filter
+			// history) so the encoder state carried into the post-silence recovery
+			// frame matches libopus and the recovery encode stays byte-exact.
+			maxPitchRatio := float32(1.0)
+			if e.analysisValid {
+				maxPitchRatio = e.analysisMaxPitchRatio
 			}
-			// Pretend the budget is full so every later budget-gated field (transient/
-			// intra/spread/dynalloc/trim/anti-collapse) and the band/energy quantizers
-			// see zero remaining bits, while the pipeline still runs to evolve all
-			// cross-frame state. libopus: total_bits=nbCompressedBytes*8 and
-			// enc->nbits_total += total_bits-ec_tell(enc). targetBits stays the real
-			// output size so the allocation budget math (targetBits - tell) matches.
-			targetBits = targetBytes * 8
-			e.frameBits = int32(targetBits)
-			re.FillToBudget(targetBits)
-		} else {
-			re.EncodeBit(0, 15)
+			e.runPrefilter(preemph, frameSize, e.TapsetDecision(), false, tfEstimate, targetBytes, toneFreq, toneishness, maxPitchRatio)
+			return e.finishEncodedSilenceFrame(re, frameSize, targetBytes)
 		}
+		re.EncodeBit(0, 15)
 	} else {
 		isSilence = false
 	}
@@ -1014,30 +996,25 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	}
 	var spread int
 	if re.Tell()+4 <= targetBits {
-		// Match libopus spread control policy and, critically, update the persistent
-		// st->spread_decision in EVERY branch (celt_encoder.c lines 2304-2345): the
-		// value is the hysteresis seed for the next frame's spreading_decision, so a
-		// branch that left it stale (e.g. a starved/silent frame) would desync the
-		// recovery frame's spread.
+		// Match libopus spread control policy:
 		// - LFE: fixed normal
 		// - Hybrid: fixed none/normal/aggressive based on complexity+transient
 		// - CELT-only low-complexity/low-rate/transient shortcuts
 		if e.lfe {
-			e.tapsetDecision = 0
-			e.spreadDecision = spreadNormal
+			spread = spreadNormal
 		} else if e.IsHybrid() {
 			if e.complexity == 0 {
-				e.spreadDecision = spreadNone
+				spread = spreadNone
 			} else if transient {
-				e.spreadDecision = spreadNormal
+				spread = spreadNormal
 			} else {
-				e.spreadDecision = spreadAggressive
+				spread = spreadAggressive
 			}
 		} else if shortBlocks > 1 || e.complexity < 3 || effectiveBytes < 10*codedChannels {
 			if e.complexity == 0 {
-				e.spreadDecision = spreadNone
+				spread = spreadNone
 			} else {
-				e.spreadDecision = spreadNormal
+				spread = spreadNormal
 			}
 		} else {
 			// For non-transient frames with sufficient bits, analyze the signal
@@ -1051,22 +1028,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 				// Defensive fallback for unexpected sizing issues.
 				spreadWeights = computeSpreadWeights(analysisEnergies, nbBands, codedChannels, lsbDepth)
 			}
-			// libopus stores the RETURN value: st->spread_decision =
-			// spreading_decision(...). The function early-returns SPREAD_NONE/NORMAL
-			// (narrow last band, empty bands) WITHOUT writing e.spreadDecision, so the
-			// return value is the coded decision; reading e.spreadDecision instead
-			// would use the stale prior value and flip the spread field. The call
-			// still updates e.tapsetDecision/e.hfAverage/e.tonalAverage.
-			e.spreadDecision = int32(e.SpreadingDecisionWithWeights(normSpread, nbBands, codedChannels, frameSize, updateHF, spreadWeights))
+			spread = e.SpreadingDecisionWithWeights(normSpread, nbBands, codedChannels, frameSize, updateHF, spreadWeights)
 		}
-		spread = int(e.spreadDecision)
 		re.EncodeICDF(spread, spreadICDF, 5)
 	} else {
-		// Not enough budget to code the spread field: libopus forces
-		// st->spread_decision = SPREAD_NORMAL (celt_encoder.c line 2347), which also
-		// reseeds the next frame's hysteresis. A silent frame's pretend-full budget
-		// lands here every frame, so leaving it stale desyncs the recovery spread.
-		e.spreadDecision = spreadNormal
 		spread = spreadNormal
 	}
 	// Step 11.3: Initialize caps for allocation (zero-alloc)
@@ -1223,7 +1188,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		}
 		re.EncodeICDF(allocTrim, trimICDF, 7)
 	}
-	if e.vbr && !isSilence {
+	if e.vbr {
 		targetBytes = e.computeFinalVBRTargetBytes(frameSize, tfEstimate, e.lastPitchChange, re.TellFrac(), totalBoost, targetBytes)
 		targetBits = targetBytes * 8
 		e.frameBits = int32(targetBits)
@@ -1338,7 +1303,6 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			lm,
 			int(e.lastCodedBands),
 			signalBandwidth,
-			isSilence,
 		)
 	}
 	if e.lastCodedBands != 0 {
@@ -1670,16 +1634,6 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		}
 	}
 	e.setPrevEnergyWithPrevCoded(prev1LogE, quantizedEnergies, nbBands, codedChannels)
-	if isSilence {
-		// libopus celt_encoder.c: on a silent frame oldBandE is overwritten to
-		// -28 dB before the oldLogE/oldLogE2 rotation. setPrevEnergyWithPrevCoded
-		// has already moved the pre-frame oldLogE into oldLogE2 (prevEnergy2); now
-		// force oldBandE/oldLogE (prevEnergy) to the -28 floor so the post-silence
-		// recovery frame predicts from the same state libopus carries.
-		for i := range e.prevEnergy {
-			e.prevEnergy[i] = -28.0
-		}
-	}
 	e.IncrementFrameCount()
 	if transient || transientGotDisabled {
 		e.consecTransient++
@@ -1687,8 +1641,6 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		e.consecTransient = 0
 	}
 
-	e.celtETrace(false, transient, transientGotDisabled, nbBands, codedChannels)
-	e.celtETracePacket(bytes)
 	return bytes, nil
 }
 
@@ -2000,6 +1952,45 @@ func computeMDCTWithHistoryScratchStereoROverlap(samples, history []float32, sho
 	mdctForwardOverlapF32Scratch(input, overlap, coeffs[:frameSize],
 		scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
 	return coeffs[:frameSize]
+}
+
+func (e *Encoder) finishEncodedSilenceFrame(re *rangecoding.Encoder, frameSize, targetBytes int) ([]byte, error) {
+	if e.vbr && e.targetBitrate != opusBitrateMax {
+		targetBytes = e.applyVBRSilenceTarget(frameSize, targetBytes)
+		re.Shrink(uint32(targetBytes))
+		if re.Error() != 0 {
+			return nil, ErrEncodingFailed
+		}
+		e.frameBits = int32(targetBytes * 8)
+	}
+	e.lastTellFrac = targetBytes * 8 << bitRes
+
+	prev1LogE := e.scratch.prev1LogE
+	if len(prev1LogE) < len(e.prevEnergy) {
+		prev1LogE = make([]celtGLog, len(e.prevEnergy))
+		e.scratch.prev1LogE = prev1LogE
+	}
+	prev1LogE = prev1LogE[:len(e.prevEnergy)]
+	copy(prev1LogE, e.prevEnergy)
+
+	silenceE := ensureGLogSlice(&e.scratch.coarseOldStart, len(e.prevEnergy))
+	for i := range silenceE {
+		silenceE[i] = -28.0
+	}
+	e.setPrevEnergyWithPrevGLog(prev1LogE, silenceE)
+	for i := range e.energyError {
+		e.energyError[i] = 0
+	}
+	e.lastDynalloc = DynallocResult{}
+	// libopus codes a silent frame with the budget pretended full, so the
+	// transient flag never fits: transient_got_disabled=1 and consec_transient
+	// advances (celt_encoder.c: "if (isTransient || transient_got_disabled)
+	// st->consec_transient++"). The shortcut previously reset it to 0, which
+	// diverged the post-silence recovery frame's transient/anti-collapse state.
+	e.consecTransient++
+	e.IncrementFrameCount()
+	e.rng = re.Range()
+	return re.Done(), nil
 }
 
 func (e *Encoder) applyVBRSilenceTarget(frameSize, targetBytes int) int {
