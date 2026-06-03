@@ -2,6 +2,7 @@ package ogg
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
 )
 
@@ -841,6 +842,42 @@ func TestOpusTagsErrors(t *testing.T) {
 				d := make([]byte, 16)
 				copy(d, "OpusTags")
 				d[8] = 100 // Vendor length 100 but not enough data
+				return d
+			}(),
+		},
+		{
+			// Vendor length 0xFFFFFFFF. On 32-bit platforms int(0xFFFFFFFF)
+			// is -1, so an offset+length bound check wraps negative and the
+			// subsequent slice would panic; the bound must reject it instead.
+			name: "vendor length overflow (uint32 max)",
+			data: func() []byte {
+				d := make([]byte, 16)
+				copy(d, "OpusTags")
+				binary.LittleEndian.PutUint32(d[8:12], 0xFFFFFFFF)
+				return d
+			}(),
+		},
+		{
+			// Comment length 0xFFFFFFFF with a single declared comment. Same
+			// 32-bit wrap hazard as the vendor field, on the comment path.
+			name: "comment length overflow (uint32 max)",
+			data: func() []byte {
+				d := make([]byte, 20)
+				copy(d, "OpusTags")
+				binary.LittleEndian.PutUint32(d[8:12], 0)           // vendor len 0
+				binary.LittleEndian.PutUint32(d[12:16], 1)          // 1 comment
+				binary.LittleEndian.PutUint32(d[16:20], 0xFFFFFFFF) // comment len
+				return d
+			}(),
+		},
+		{
+			// Vendor length one byte past the buffer end exercises the exact
+			// boundary of the remaining-bytes comparison.
+			name: "vendor length one past end",
+			data: func() []byte {
+				d := make([]byte, 16)
+				copy(d, "OpusTags")
+				binary.LittleEndian.PutUint32(d[8:12], uint32(len(d)-12+1))
 				return d
 			}(),
 		},

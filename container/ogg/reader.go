@@ -23,9 +23,16 @@ type Reader struct {
 // readerBufferSize is the size of the internal read buffer.
 const readerBufferSize = 64 * 1024 // 64KB
 
-// NewReader creates a new OggReader and parses the Ogg Opus headers.
-// It reads the ID header (OpusHead) and comment header (OpusTags) immediately.
-// Returns an error if the stream is not a valid Ogg Opus stream.
+// NewReader creates a Reader over r and parses the Ogg Opus headers up front:
+// it reads the beginning-of-stream page carrying OpusHead and the following
+// page(s) carrying OpusTags, exposing them via the Header and Tags fields. The
+// comment header may span multiple pages and is reassembled before returning.
+//
+// It returns ErrNilReader if r is nil, ErrInvalidPage or ErrBadCRC if the
+// leading pages are malformed or corrupt, and ErrInvalidHeader if the OpusHead
+// or OpusTags packets are not well-formed. If r also implements io.ReadSeeker,
+// the Reader records the offset of the first audio page so SeekGranule can be
+// used later.
 func NewReader(r io.Reader) (*Reader, error) {
 	if r == nil {
 		return nil, ErrNilReader
@@ -107,9 +114,16 @@ func NewReader(r io.Reader) (*Reader, error) {
 	return or, nil
 }
 
-// ReadPacket reads the next Opus packet from the stream.
-// Returns the packet data, the packet's Ogg granule position, and any error.
-// Returns io.EOF when the end of stream is reached.
+// ReadPacket reads the next Opus packet from the stream, reassembling packets
+// that span page boundaries via the lacing table. It returns the packet bytes,
+// the granule position attributed to that packet (derived from the page granule
+// and the per-packet duration), and any error.
+//
+// The returned slice is freshly allocated and owned by the caller; it is not
+// overwritten by later reads. Packets from logical bitstreams whose serial
+// number differs from the first stream are skipped. ReadPacket returns io.EOF
+// once the end-of-stream page has been consumed and no buffered packets remain;
+// a malformed or truncated page surfaces the underlying parse error.
 func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
 	// Drain any pending packets first.
 	if len(or.pending) > 0 {
@@ -161,8 +175,14 @@ func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
 	}
 }
 
-// ReadPacketInto reads the next Opus packet into dst.
-// Returns the number of bytes copied and the packet's Ogg granule position.
+// ReadPacketInto reads the next Opus packet into dst, avoiding the per-packet
+// allocation of ReadPacket. It returns the number of bytes copied and the
+// packet's granule position.
+//
+// If the packet does not fit in dst it returns ErrPacketTooLarge with n == 0;
+// note the packet has already been consumed from the stream in that case, so
+// dst should be sized to the largest expected Opus packet. Other errors,
+// including io.EOF at end of stream, are propagated from ReadPacket.
 func (or *Reader) ReadPacketInto(dst []byte) (n int, granulePos uint64, err error) {
 	packet, granule, err := or.ReadPacket()
 	if err != nil {

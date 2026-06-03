@@ -4,8 +4,13 @@ import (
 	"encoding/binary"
 )
 
+// expectedDemixingMatrixSize returns the byte length of a mapping-family-3
+// demixing matrix for the given layout: 2*channels*(streams+coupled) S16LE
+// coefficients. The stream and coupled counts are widened to int before being
+// summed so the addition cannot wrap a uint8, which would otherwise yield a
+// short matrix size for malformed headers.
 func expectedDemixingMatrixSize(channels, streams, coupled uint8) int {
-	return 2 * int(channels) * int(streams+coupled)
+	return 2 * int(channels) * (int(streams) + int(coupled))
 }
 
 // Opus header constants per RFC 7845.
@@ -150,8 +155,17 @@ func (h *OpusHead) Encode() []byte {
 	return data
 }
 
-// ParseOpusHead parses an OpusHead from bytes.
-// Returns ErrInvalidHeader if the data is malformed.
+// ParseOpusHead parses an OpusHead identification header (RFC 7845 §5.1) from
+// data. The returned header owns copies of its channel-mapping table and
+// demixing matrix, so data may be reused afterwards.
+//
+// It returns ErrInvalidHeader when data is too short, lacks the "OpusHead"
+// magic, declares a version other than 1, has a zero channel count, or carries
+// a mapping family whose required fields (stream/coupled counts, channel
+// mapping, or RFC 8486 demixing matrix) are missing, truncated, or internally
+// inconsistent (for example coupled streams exceeding total streams, a mapping
+// index outside the decoded streams, or more than two channels for mapping
+// family 0).
 func ParseOpusHead(data []byte) (*OpusHead, error) {
 	if len(data) < opusHeadMinSize {
 		return nil, ErrInvalidHeader
@@ -296,8 +310,19 @@ func (t *OpusTags) Encode() []byte {
 	return data
 }
 
-// ParseOpusTags parses an OpusTags from bytes.
-// Returns ErrInvalidHeader if the data is malformed.
+// ParseOpusTags parses an OpusTags comment header (RFC 7845 §5.2, Vorbis
+// comment layout) from data. The vendor string and comments are copied into
+// the returned struct, so data may be reused afterwards.
+//
+// Comments are returned as a key=value map split on the first '=' in each
+// entry; an entry with no '=' is skipped. The length fields are unsigned 32-bit
+// and bounds-checked against the remaining input, so an over-long vendor or
+// comment length yields ErrInvalidHeader rather than reading past the buffer.
+//
+// It returns ErrInvalidHeader when data is too short, lacks the "OpusTags"
+// magic, or declares a vendor, comment count, or comment length that extends
+// past the end of data. Trailing bytes after the declared comments (RFC 7845
+// framing padding) are ignored.
 func ParseOpusTags(data []byte) (*OpusTags, error) {
 	// Minimum size: 8 (magic) + 4 (vendor len) + 4 (comment count) = 16
 	if len(data) < 16 {
@@ -311,11 +336,15 @@ func ParseOpusTags(data []byte) (*OpusTags, error) {
 
 	offset := 8
 
-	// Read vendor string length.
+	// Read vendor string length. The length fields are unsigned 32-bit and may
+	// exceed the buffer, so every bound is checked against the bytes remaining
+	// after offset. The comparison uses uint64 to stay overflow-safe even where
+	// int is 32 bits, where int(0xFFFFFFFF) would wrap to a negative value and
+	// silently pass an offset+length check before slicing.
 	vendorLen := binary.LittleEndian.Uint32(data[offset : offset+4])
 	offset += 4
 
-	if offset+int(vendorLen) > len(data) {
+	if uint64(vendorLen) > uint64(len(data)-offset) {
 		return nil, ErrInvalidHeader
 	}
 
@@ -340,7 +369,7 @@ func ParseOpusTags(data []byte) (*OpusTags, error) {
 		commentLen := binary.LittleEndian.Uint32(data[offset : offset+4])
 		offset += 4
 
-		if offset+int(commentLen) > len(data) {
+		if uint64(commentLen) > uint64(len(data)-offset) {
 			return nil, ErrInvalidHeader
 		}
 		comment := string(data[offset : offset+int(commentLen)])

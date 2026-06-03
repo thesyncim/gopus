@@ -89,9 +89,15 @@ func BuildSegmentTable(packetLen int) []byte {
 	return segments
 }
 
-// ParseSegmentTable extracts packet lengths from a segment table.
-// Returns a slice of packet lengths. A segment value of 255 indicates
-// the packet continues; a value less than 255 ends the packet.
+// ParseSegmentTable reconstructs packet lengths from an Ogg lacing table
+// (RFC 3533 §6). Each lacing value of 255 means the packet continues into the
+// next segment; the first value below 255 terminates a packet whose length is
+// the running sum of its segments. The returned slice holds one entry per
+// completed packet.
+//
+// A table that ends on a 255 value describes a packet continued on the next
+// page; that incomplete trailing packet is not included in the result. An empty
+// table returns nil.
 func ParseSegmentTable(segments []byte) []int {
 	if len(segments) == 0 {
 		return nil
@@ -135,8 +141,15 @@ func (p *Page) PacketLengths() []int {
 	return ParseSegmentTable(p.Segments)
 }
 
-// Packets extracts individual packets from the payload.
-// Uses PacketLengths() to split the payload into packets.
+// Packets splits the page payload into individual packet byte slices using the
+// lacing lengths from PacketLengths.
+//
+// The returned slices alias p.Payload; they remain valid only as long as the
+// page is not modified. A packet whose final lacing value is 255 continues onto
+// the next page and is not returned here. If the payload is shorter than the
+// segment table claims, the final packet is truncated to the bytes actually
+// present and parsing stops, so a malformed page never produces a slice outside
+// p.Payload.
 func (p *Page) Packets() [][]byte {
 	lengths := p.PacketLengths()
 	if len(lengths) == 0 {
@@ -193,10 +206,26 @@ func (p *Page) Encode() []byte {
 	return data
 }
 
-// ParsePage parses an Ogg page from bytes.
-// Returns the parsed page, number of bytes consumed, and any error.
-// Returns ErrInvalidPage if the magic signature is missing or data is truncated.
-// Returns ErrBadCRC if the CRC checksum does not match.
+// ParsePage parses a single Ogg page (RFC 3533 §6) from the front of data.
+// It returns the parsed page, the number of bytes consumed (the full page
+// length, header plus segment table plus payload), and any error.
+//
+// data may contain more than one page or trailing bytes; only the first page
+// is consumed and callers should advance by the returned count. The returned
+// Page owns copies of its segment table and payload, so the input slice may be
+// reused or overwritten afterwards.
+//
+// Errors:
+//
+//   - ErrInvalidPage if data is shorter than a page header, the "OggS" capture
+//     pattern is missing, or the declared segment table or payload extends past
+//     the end of data (a truncated or incomplete page).
+//   - ErrBadCRC if the page CRC-32 does not match the bytes on the wire,
+//     indicating corruption.
+//
+// A truncated page yields ErrInvalidPage with a zero consumed count; the caller
+// can distinguish "need more data" from genuine corruption by buffering more
+// input and retrying.
 func ParsePage(data []byte) (*Page, int, error) {
 	// Check minimum size for header.
 	if len(data) < pageHeaderSize {
