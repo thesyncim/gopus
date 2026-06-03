@@ -1,8 +1,8 @@
-// Package multistream implements the multistream decoder for Opus surround sound.
-// Multistream packets contain multiple elementary Opus streams (SILK/CELT/Hybrid)
-// that are decoded independently and routed to output channels via a mapping table.
+// Channel-mapping-table helpers: the default (Vorbis/family 1) layouts and the
+// routines that interpret a mapping byte into a (stream, channel-in-stream) pair.
 //
 // Reference: RFC 7845 Section 5.1.1 (Channel Mapping)
+
 package multistream
 
 import "errors"

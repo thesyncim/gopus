@@ -207,6 +207,8 @@ func (d *streamState) Reset() {
 	d.resetOSCEPostfilterState()
 }
 
+// SetIgnoreExtensions toggles opaque in-band packet-extension handling for this
+// stream's decoder.
 func (d *streamState) SetIgnoreExtensions(ignore bool) {
 	d.ignoreExtensions = ignore
 }
@@ -235,15 +237,20 @@ func (d *streamState) Gain() int {
 	return int(d.decodeGainQ8)
 }
 
+// SetPhaseInversionDisabled enables or disables stereo phase inversion in this
+// stream's CELT and Hybrid decoders.
 func (d *streamState) SetPhaseInversionDisabled(disabled bool) {
 	d.celtDec.SetPhaseInversionDisabled(disabled)
 	d.hybridDec.SetPhaseInversionDisabled(disabled)
 }
 
+// PhaseInversionDisabled reports whether stereo phase inversion is disabled.
 func (d *streamState) PhaseInversionDisabled() bool {
 	return d.celtDec.PhaseInversionDisabled()
 }
 
+// SetComplexity sets this stream's decode complexity (0-10); out-of-range values
+// return ErrInvalidComplexity.
 func (d *streamState) SetComplexity(complexity int) error {
 	if complexity < 0 || complexity > 10 {
 		return ErrInvalidComplexity
@@ -258,6 +265,7 @@ func (d *streamState) SetComplexity(complexity int) error {
 	return nil
 }
 
+// Complexity returns this stream's decode complexity setting.
 func (d *streamState) Complexity() int {
 	return int(d.complexity)
 }
@@ -801,6 +809,9 @@ func (d *Decoder) Reset() {
 	d.resetDREDRuntimeState()
 }
 
+// SetIgnoreExtensions toggles libopus-style opaque packet-extension handling for
+// every elementary stream. When true, opaque in-band extensions (including any
+// DRED side payloads) carried in packet padding are ignored rather than parsed.
 func (d *Decoder) SetIgnoreExtensions(ignore bool) {
 	d.ignoreExtensions = ignore
 	for _, dec := range d.decoders {
@@ -811,6 +822,7 @@ func (d *Decoder) SetIgnoreExtensions(ignore bool) {
 	}
 }
 
+// IgnoreExtensions reports whether opaque packet-extension handling is disabled.
 func (d *Decoder) IgnoreExtensions() bool {
 	return d.ignoreExtensions
 }
@@ -823,6 +835,9 @@ func (d *Decoder) firstStreamState() *streamState {
 	return st
 }
 
+// SetGain sets the decoder output gain in Q8 dB units, applied uniformly to every
+// elementary stream (libopus OPUS_SET_GAIN semantics). Valid range is
+// [-32768, 32767]; out-of-range values return ErrInvalidGain.
 func (d *Decoder) SetGain(gainQ8 int) error {
 	if gainQ8 < -32768 || gainQ8 > 32767 {
 		return ErrInvalidGain
@@ -835,6 +850,7 @@ func (d *Decoder) SetGain(gainQ8 int) error {
 	return nil
 }
 
+// Gain returns the decoder output gain in Q8 dB units (OPUS_GET_GAIN).
 func (d *Decoder) Gain() int {
 	if st := d.firstStreamState(); st != nil {
 		return st.Gain()
@@ -842,6 +858,9 @@ func (d *Decoder) Gain() int {
 	return 0
 }
 
+// SetPhaseInversionDisabled disables (or re-enables) stereo phase inversion for
+// every coupled stream, mirroring OPUS_SET_PHASE_INVERSION_DISABLED. Disabling it
+// trades stereo quality for better mono downmix behaviour.
 func (d *Decoder) SetPhaseInversionDisabled(disabled bool) {
 	for _, dec := range d.decoders {
 		if st, ok := dec.(*streamState); ok {
@@ -850,6 +869,7 @@ func (d *Decoder) SetPhaseInversionDisabled(disabled bool) {
 	}
 }
 
+// PhaseInversionDisabled reports whether stereo phase inversion is disabled.
 func (d *Decoder) PhaseInversionDisabled() bool {
 	if st := d.firstStreamState(); st != nil {
 		return st.PhaseInversionDisabled()
@@ -857,6 +877,8 @@ func (d *Decoder) PhaseInversionDisabled() bool {
 	return false
 }
 
+// SetComplexity sets the decoder complexity (0-10) for every elementary stream,
+// mirroring OPUS_SET_COMPLEXITY. Out-of-range values return ErrInvalidComplexity.
 func (d *Decoder) SetComplexity(complexity int) error {
 	if complexity < 0 || complexity > 10 {
 		return ErrInvalidComplexity
@@ -871,6 +893,7 @@ func (d *Decoder) SetComplexity(complexity int) error {
 	return nil
 }
 
+// Complexity returns the decoder complexity setting (OPUS_GET_COMPLEXITY).
 func (d *Decoder) Complexity() int {
 	if st := d.firstStreamState(); st != nil {
 		return st.Complexity()
@@ -878,6 +901,8 @@ func (d *Decoder) Complexity() int {
 	return 0
 }
 
+// Bandwidth returns the audio bandwidth of the last decoded packet, taken from
+// the first stream (OPUS_GET_BANDWIDTH). Defaults to fullband before any decode.
 func (d *Decoder) Bandwidth() types.Bandwidth {
 	if st := d.firstStreamState(); st != nil {
 		return st.Bandwidth()
@@ -885,6 +910,9 @@ func (d *Decoder) Bandwidth() types.Bandwidth {
 	return types.BandwidthFullband
 }
 
+// LastPacketDuration returns the duration in samples (at the decoder sample rate)
+// of the last decoded packet, taken from the first stream
+// (OPUS_GET_LAST_PACKET_DURATION).
 func (d *Decoder) LastPacketDuration() int {
 	if st := d.firstStreamState(); st != nil {
 		return st.LastPacketDuration()
@@ -892,6 +920,9 @@ func (d *Decoder) LastPacketDuration() int {
 	return 0
 }
 
+// GetFinalRange returns the XOR of every elementary stream's range-coder final
+// state, mirroring libopus opus_multistream_decoder_ctl(OPUS_GET_FINAL_RANGE).
+// It is used to verify bit-exact decode against another implementation.
 func (d *Decoder) GetFinalRange() uint32 {
 	var finalRange uint32
 	for _, dec := range d.decoders {
@@ -902,6 +933,8 @@ func (d *Decoder) GetFinalRange() uint32 {
 	return finalRange
 }
 
+// FinalRange returns the combined range-coder final state for the last decoded
+// packet. It is an alias for GetFinalRange.
 func (d *Decoder) FinalRange() uint32 {
 	return d.GetFinalRange()
 }
