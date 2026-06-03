@@ -210,7 +210,7 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	for _, inc := range cfg.IncludeDirs {
 		args = append(args, "-I", inc)
 	}
-	if cfg.ForceScalarRef {
+	if cfg.ForceScalarRef || scalarRef {
 		// libopus's config.h has no include guard, so each compiled .c re-defines
 		// the x86 feature macros (OPUS_X86_MAY_HAVE_SSE4_1, ...) -- clearing them
 		// via -include is undone. Instead pre-define the SIMD headers' own include
@@ -230,6 +230,12 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 		libs = []string{"-lm"}
 	}
 	args = append(args, libs...)
+	if scalarRef && runtime.GOOS == "linux" {
+		// Some helpers link the scalar libopus.a (which pulls celt.o defining
+		// celt_fatal) while their own source also provides a no-op celt_fatal stub.
+		// Let the stub win rather than erroring on the duplicate symbol (GNU ld).
+		args = append(args, "-Wl,--allow-multiple-definition")
+	}
 	if cfg.DeadStrip {
 		if runtime.GOOS == "darwin" {
 			args = append(args, "-Wl,-dead_strip")
@@ -324,15 +330,18 @@ func helperReferenceLibMissing(libs []string, refDir string) bool {
 // their bodies (which override the SILK/CELT kernel macros with RTCD dispatch
 // tables) are skipped, leaving the scalar _c kernel macros from silk/main.h and
 // celt headers in effect. MAIN_SSE_H guards silk/x86/main_sse.h (the SILK FLP
-// inner-product / VQ_WMat_EC dispatch). This works even though config.h lacks an
-// include guard and is re-included per translation unit.
+// inner-product / VQ_WMat_EC dispatch); VQ_SSE_H, PITCH_SSE_H and CELT_LPC_SSE_H
+// guard the celt/x86 headers that redirect op_pvq_search, the pitch
+// inner-products, and celt_lpc/celt_fir to their _sse* forms (whose objects are
+// absent from a --disable-intrinsics scalar libopus.a). This works even though
+// config.h lacks an include guard and is re-included per translation unit.
 func forceScalarRefDefines() []string {
-	return []string{"-DMAIN_SSE_H=1"}
+	return []string{"-DMAIN_SSE_H=1", "-DVQ_SSE_H=1", "-DPITCH_SSE_H=1", "-DCELT_LPC_SSE_H=1"}
 }
 
 func helperConfigDigest(cfg CHelperConfig, refDir, srcPath string) string {
 	h := sha256.New()
-	helperHashString(h, "v2")
+	helperHashString(h, "v3")
 	helperHashString(h, cfg.OutputBase)
 	helperHashString(h, cfg.SourceFile)
 	helperHashString(h, fmt.Sprintf("dead-strip=%t", cfg.DeadStrip))
