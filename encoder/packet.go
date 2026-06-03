@@ -1,7 +1,6 @@
-// Package encoder provides packet assembly functions for combining TOC bytes
-// with encoded frame data to create complete Opus packets per RFC 6716.
-//
-// Reference: RFC 6716 Section 3
+// This file provides packet assembly functions for combining TOC bytes with
+// encoded frame data to create complete Opus packets per RFC 6716 Section 3.
+
 package encoder
 
 import (

@@ -7,24 +7,45 @@ const WeightsScale = 1.0 / 128.0
 const MaxNeurons = 32
 
 // AnalysisDenseLayer represents a fully connected layer in the analysis MLP.
+// It mirrors libopus DenseLayer (src/mlp.h); weights are stored as the original
+// 8-bit quantized values and dequantized with WeightsScale on first use.
 type AnalysisDenseLayer struct {
-	Bias         []int8
+	// Bias holds one int8 bias per output neuron (libopus "bias").
+	Bias []int8
+	// InputWeights is the row-major NbInputs*NbNeurons int8 weight matrix
+	// (libopus "input_weights").
 	InputWeights []int8
-	NbInputs     int
-	NbNeurons    int
-	Sigmoid      bool
+	// NbInputs is the layer input dimension (libopus "nb_inputs").
+	NbInputs int
+	// NbNeurons is the layer output dimension (libopus "nb_neurons").
+	NbNeurons int
+	// Sigmoid selects the output activation: true for logistic sigmoid, false for
+	// tansig (libopus "sigmoid").
+	Sigmoid bool
 
+	// inputWeightsF32 caches the dequantized InputWeights to avoid repeated
+	// int8->float32 conversion.
 	inputWeightsF32 []float32
 }
 
-// AnalysisGRULayer represents a Gated Recurrent Unit layer.
+// AnalysisGRULayer represents a Gated Recurrent Unit layer of the music/speech
+// classifier. It mirrors libopus GRULayer (src/mlp.h) and feeds its hidden state
+// back through TonalityAnalysisState.RNNState across frames.
 type AnalysisGRULayer struct {
-	Bias             []int8
-	InputWeights     []int8
+	// Bias holds the int8 biases for the GRU gates (libopus "bias").
+	Bias []int8
+	// InputWeights is the int8 input-to-gate weight matrix (libopus
+	// "input_weights").
+	InputWeights []int8
+	// RecurrentWeights is the int8 state-to-gate weight matrix (libopus
+	// "recurrent_weights").
 	RecurrentWeights []int8
-	NbInputs         int
-	NbNeurons        int
+	// NbInputs is the input dimension (libopus "nb_inputs").
+	NbInputs int
+	// NbNeurons is the hidden-state dimension (libopus "nb_neurons").
+	NbNeurons int
 
+	// inputWeightsF32 and recurrentWeightsF32 cache the dequantized weights.
 	inputWeightsF32     []float32
 	recurrentWeightsF32 []float32
 }

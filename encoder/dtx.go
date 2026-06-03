@@ -1,4 +1,4 @@
-// Package encoder implements DTX (Discontinuous Transmission) for the Opus encoder.
+// This file implements DTX (Discontinuous Transmission) for the Opus encoder.
 // DTX saves bandwidth during silence by emitting 1-byte TOC-only packets,
 // allowing the decoder to activate its internal Comfort Noise Generation (CNG).
 //
@@ -10,6 +10,7 @@
 // The SILK multi-band VAD is NOT used for Opus-level DTX (only for SILK-internal DTX).
 //
 // Reference: RFC 6716 Section 2.1.9, libopus opus_encoder.c, silk/define.h
+
 package encoder
 
 // DTX Constants matching libopus silk/define.h and opus_encoder.c

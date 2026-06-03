@@ -8,17 +8,30 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
+// Tonality-analyzer dimensions mirroring the #defines in libopus src/analysis.h.
 const (
-	NbFrames          = 8
-	NbTBands          = 18
-	NbTonalSkipBands  = 9
-	AnalysisBufSize   = 720 // 30ms at 24kHz
+	// NbFrames is the number of past short-time frames retained in the per-band
+	// energy history rings (E/logE). Mirrors NB_FRAMES.
+	NbFrames = 8
+	// NbTBands is the number of tonality sub-bands analysed by the detector.
+	// Mirrors NB_TBANDS.
+	NbTBands = 18
+	// NbTonalSkipBands is the number of low sub-bands skipped when summing
+	// tonality (they are dominated by pitch). Mirrors NB_TONAL_SKIP_BANDS.
+	NbTonalSkipBands = 9
+	// AnalysisBufSize is the analyzer input buffer length, 30ms at 24kHz.
+	// Mirrors ANALYSIS_BUF_SIZE.
+	AnalysisBufSize = 720 // 30ms at 24kHz
+	// DetectSize is the depth of the per-frame AnalysisInfo ring used to defer
+	// the music/speech decision behind the analyzer lookahead. Mirrors
+	// DETECT_SIZE.
 	DetectSize        = 100
 	transitionPenalty = float32(10.0)
 	celtSigScale      = float32(32768.0)
-	// The FFT output is now normalised by 1/480 inside fft480 (matching
-	// libopus opus_fft), so SCALE_ENER reduces to libopus' (1/32768/32768);
-	// the 1/480^2 is no longer folded in here.
+	// analysisFFTEnergyScale folds the residual factor of libopus' SCALE_ENER
+	// into the band-energy accumulation. The FFT output is normalised by 1/480
+	// inside fft480 (matching libopus opus_fft), so SCALE_ENER reduces to
+	// libopus' (1/32768/32768) and the 1/480^2 is not folded in here.
 	analysisFFTEnergyScale = float32(1.0)
 	analysisAtanScale      = float32(0.5 / math.Pi)
 	analysisPi4            = float32(math.Pi * math.Pi * math.Pi * math.Pi)
@@ -433,57 +446,147 @@ func analysisFastAtan2f(y, x float32) float32 {
 	return num / den
 }
 
+// AnalysisInfo is the per-frame output of the tonality analyzer ("the brain").
+// It mirrors the AnalysisInfo struct in libopus celt/celt.h and carries the
+// music/speech probability, tonality and bandwidth estimates that opus_encoder.c
+// consumes for mode, bandwidth and rate decisions. The encoder keeps the most
+// recent value in Encoder.lastAnalysisInfo.
 type AnalysisInfo struct {
-	Valid            bool
-	Tonality         float32
-	TonalitySlope    float32
-	NoisySpeech      float32
+	// Valid reports whether this entry holds a computed result (libopus "valid").
+	// A zero AnalysisInfo (Valid==false) means "analysis not run / disabled".
+	Valid bool
+	// Tonality is the frame tonality estimate in [0,1] (libopus "tonality").
+	Tonality float32
+	// TonalitySlope is the inter-band tonality slope (libopus "tonality_slope").
+	TonalitySlope float32
+	// NoisySpeech is the noisiness estimate; high values bias toward SILK/VoIP.
+	// Mirrors libopus "noisiness".
+	NoisySpeech float32
+	// StationarySpeech is the analyzer's stationary-speech estimate used by the
+	// SILK/CELT bridge heuristics.
 	StationarySpeech float32
-	MusicProb        float32
-	MusicProbMin     float32
-	MusicProbMax     float32
-	VADProb          float32
-	Loudness         float32
-	BandwidthIndex   int32
-	Bandwidth        types.Bandwidth
-	Activity         float32
-	MaxPitchRatio    float32
-	LeakBoost        [19]uint8
+	// MusicProb is the smoothed probability that the frame is music, in [0,1]
+	// (libopus "music_prob"); the primary CELT-vs-SILK mode driver.
+	MusicProb float32
+	// MusicProbMin is the lower confidence bound of the music probability
+	// (libopus "music_prob_min").
+	MusicProbMin float32
+	// MusicProbMax is the upper confidence bound of the music probability
+	// (libopus "music_prob_max").
+	MusicProbMax float32
+	// VADProb is the analyzer voice-activity probability, libopus
+	// "activity_probability"; also feeds Opus-level DTX.
+	VADProb float32
+	// Loudness is the frame loudness estimate used by surround/level logic.
+	Loudness float32
+	// BandwidthIndex is the detected signal bandwidth as a sub-band index
+	// (libopus "bandwidth"); see Bandwidth for the decoded value.
+	BandwidthIndex int32
+	// Bandwidth is BandwidthIndex decoded to an Opus bandwidth used to clamp the
+	// encoder's chosen bandwidth.
+	Bandwidth types.Bandwidth
+	// Activity is the raw frame activity estimate (libopus "activity").
+	Activity float32
+	// MaxPitchRatio is the maximum cross-frame pitch ratio (libopus
+	// "max_pitch_ratio"), used by the CELT pitch/leak boost.
+	MaxPitchRatio float32
+	// LeakBoost holds the per-band Q6 leak-boost coefficients (libopus
+	// "leak_boost[LEAK_BANDS]") forwarded to CELT dynalloc.
+	LeakBoost [19]uint8
 }
 
+// TonalityAnalysisState is the persistent state of the Opus tonality analyzer,
+// mirroring the TonalityAnalysisState struct in libopus src/analysis.h. It holds
+// the FFT phase history, per-band energy rings and the MLP/GRU recurrent state
+// that produce a music/speech AnalysisInfo for each frame. Exported fields keep
+// the libopus member names (CamelCased) so the port stays auditable against
+// src/analysis.c; unexported scratch fields are Go-only reuse buffers and carry
+// no analyzer state across Reset.
 type TonalityAnalysisState struct {
-	Fs               int32
-	LSBDepth         int32
-	Angle            [240]float32
-	DAngle           [240]float32
-	D2Angle          [240]float32
-	InMem            [AnalysisBufSize]float32
-	MemFill          int32
+	// Fs is the analyzer input sample rate in Hz (libopus "Fs").
+	Fs int32
+	// LSBDepth is the input bit depth (8..24) used to set the noise floor
+	// (libopus tracks this via the run_analysis lsb_depth argument).
+	LSBDepth int32
+	// Angle is the per-bin FFT phase from the previous analysis step (libopus
+	// "angle"); it begins the TONALITY_ANALYSIS_RESET_START region.
+	Angle [240]float32
+	// DAngle is the first difference of Angle, the per-bin phase rate (libopus
+	// "d_angle").
+	DAngle [240]float32
+	// D2Angle is the second difference of Angle, the per-bin phase acceleration
+	// used for the tonality estimate (libopus "d2_angle").
+	D2Angle [240]float32
+	// InMem is the analyzer input ring buffer (libopus "inmem").
+	InMem [AnalysisBufSize]float32
+	// MemFill is the number of usable samples currently in InMem (libopus
+	// "mem_fill").
+	MemFill int32
+	// PrevBandTonality carries the previous frame's per-band tonality for
+	// temporal smoothing (libopus "prev_band_tonality").
 	PrevBandTonality [NbTBands]float32
-	PrevTonality     float32
-	PrevBandwidth    int32
-	E                [NbFrames][NbTBands]float32
-	SqrtE            [NbFrames][NbTBands]float32
-	LogE             [NbFrames][NbTBands]float32
-	LowE             [NbTBands]float32
-	HighE            [NbTBands]float32
-	MeanE            [NbTBands + 1]float32
-	Mem              [32]float32
-	CMean            [8]float32
-	Std              [9]float32
-	ETracker         float32
-	LowECount        float32
-	ECount           int32
-	Count            int32
-	AnalysisOffset   int32
-	WritePos         int32
-	ReadPos          int32
-	ReadSubframe     int32
-	HPEnerAccum      float32
-	Initialized      bool
-	RNNState         [MaxNeurons]float32
-	DownmixState     [3]float32
-	Info             [DetectSize]AnalysisInfo
+	// PrevTonality carries the previous frame's summed tonality (libopus
+	// "prev_tonality").
+	PrevTonality float32
+	// PrevBandwidth is the previously detected bandwidth index (libopus
+	// "prev_bandwidth"), used for bandwidth hysteresis.
+	PrevBandwidth int32
+	// E is the NbFrames-deep ring of per-band linear energies (libopus "E").
+	E [NbFrames][NbTBands]float32
+	// SqrtE is a Go-side cache of the per-band magnitudes (sqrt of E) for the
+	// current frame, avoiding repeated square roots.
+	SqrtE [NbFrames][NbTBands]float32
+	// LogE is the NbFrames-deep ring of per-band log energies (libopus "logE").
+	LogE [NbFrames][NbTBands]float32
+	// LowE is the long-term per-band energy floor used by the noise/tone
+	// classifier (libopus "lowE").
+	LowE [NbTBands]float32
+	// HighE is the long-term per-band energy ceiling used by the noise/tone
+	// classifier (libopus "highE").
+	HighE [NbTBands]float32
+	// MeanE is the per-band running mean energy (libopus "meanE").
+	MeanE [NbTBands + 1]float32
+	// Mem is the feature smoothing memory feeding the MLP (libopus "mem").
+	Mem [32]float32
+	// CMean is the running mean of the MLP feature vector (libopus "cmean").
+	CMean [8]float32
+	// Std is the running standard deviation of the MLP features (libopus "std").
+	Std [9]float32
+	// ETracker is the slow energy follower used for loudness/activity (libopus
+	// "Etracker").
+	ETracker float32
+	// LowECount is the fractional count of recent low-energy frames (libopus
+	// "lowECount").
+	LowECount float32
+	// ECount is the per-band energy ring write index (libopus "E_count").
+	ECount int32
+	// Count is the number of frames analysed since reset, saturating at
+	// ANALYSIS_COUNT_MAX (libopus "count").
+	Count int32
+	// AnalysisOffset is the sample offset between the analyzer position and the
+	// current encode frame, carried across RunAnalysis calls.
+	AnalysisOffset int32
+	// WritePos is the write index into the Info ring (libopus "write_pos").
+	WritePos int32
+	// ReadPos is the read index into the Info ring (libopus "read_pos").
+	ReadPos int32
+	// ReadSubframe is the subframe within the Info entry being consumed (libopus
+	// "read_subframe").
+	ReadSubframe int32
+	// HPEnerAccum accumulates high-pass energy for the loudness estimate
+	// (libopus "hp_ener_accum").
+	HPEnerAccum float32
+	// Initialized reports whether the slow init has run (libopus "initialized").
+	Initialized bool
+	// RNNState is the GRU hidden state of the music/speech classifier (libopus
+	// "rnn_state").
+	RNNState [MaxNeurons]float32
+	// DownmixState is the stereo->mono downmix filter memory (libopus
+	// "downmix_state").
+	DownmixState [3]float32
+	// Info is the DetectSize-deep ring of per-frame results, read back behind the
+	// analyzer lookahead (libopus "info").
+	Info [DetectSize]AnalysisInfo
 
 	// Scratch buffers for zero-allocation analysis
 	scratchMono        []float32
@@ -498,6 +601,10 @@ type TonalityAnalysisState struct {
 	scratchNoisiness   [240]float32
 }
 
+// NewTonalityAnalysisState allocates and initializes a tonality analyzer for the
+// given input sample rate (Hz). It corresponds to libopus tonality_analysis_init()
+// followed by tonality_analysis_reset(): LSBDepth defaults to 24 and all
+// reset-scoped state is cleared.
 func NewTonalityAnalysisState(fs int) *TonalityAnalysisState {
 	s := &TonalityAnalysisState{
 		Fs:             int32(fs),
@@ -508,6 +615,10 @@ func NewTonalityAnalysisState(fs int) *TonalityAnalysisState {
 	return s
 }
 
+// Reset clears all reset-scoped analyzer state (the libopus
+// TONALITY_ANALYSIS_RESET_START region onward) while preserving the configured
+// sample rate, LSB depth and reusable scratch allocations. It mirrors libopus
+// tonality_analysis_reset() and must be called on any input discontinuity.
 func (s *TonalityAnalysisState) Reset() {
 	// Match libopus tonality_analysis_reset(): clear all reset-scoped analysis
 	// state while preserving reusable configuration/scratch allocations.
@@ -530,6 +641,9 @@ func (s *TonalityAnalysisState) Reset() {
 	}
 }
 
+// SetLSBDepth sets the analyzer's assumed input bit depth, clamped to the Opus
+// range [8,24]. It controls the noise floor used by the tonality estimator and
+// mirrors the lsb_depth value libopus passes into run_analysis.
 func (s *TonalityAnalysisState) SetLSBDepth(depth int) {
 	if depth < 8 {
 		depth = 8
@@ -1480,6 +1594,14 @@ func (s *TonalityAnalysisState) tonalityGetInfo(frameSize int) AnalysisInfo {
 	return out
 }
 
+// RunAnalysis feeds one frame of interleaved float PCM through the tonality
+// analyzer and returns the AnalysisInfo to use for the current frame. It mirrors
+// libopus run_analysis() (src/analysis.c): the input is split into 20ms
+// (Fs/50-sample) chunks fed to tonalityAnalysis, AnalysisOffset is advanced so
+// the analyzer stays frameSize samples behind the encode position, and the
+// matured result is read back via tonalityGetInfo. frameSize is the encode frame
+// length in samples at Fs; channels is 1 or 2. Passing an empty pcm slice only
+// reads back the buffered result without advancing the analyzer.
 func (s *TonalityAnalysisState) RunAnalysis(pcm []float32, frameSize int, channels int) AnalysisInfo {
 	if channels <= 0 {
 		channels = 1
@@ -1546,6 +1668,10 @@ func (s *TonalityAnalysisState) RunAnalysis(pcm []float32, frameSize int, channe
 	return s.tonalityGetInfo(frameSize)
 }
 
+// GetInfo returns the most recently written per-frame AnalysisInfo, i.e. the
+// entry just behind WritePos in the Info ring. Unlike tonality_get_info() in
+// libopus it does not advance or average over subframes; it is a read-only peek
+// at the latest result for callers that drive RunAnalysis directly.
 func (s *TonalityAnalysisState) GetInfo() AnalysisInfo {
 	readPos := int((s.WritePos + int32(DetectSize) - 1) % int32(DetectSize))
 	return s.Info[readPos]

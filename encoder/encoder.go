@@ -1,9 +1,41 @@
-// Package encoder implements the unified Opus encoder per RFC 6716.
-// It orchestrates SILK and CELT sub-encoders for hybrid mode encoding,
-// which combines SILK (0-8kHz) with CELT (8-20kHz) for super-wideband
-// and fullband speech encoding.
+// Package encoder implements the unified Opus encoder defined by RFC 6716. It is
+// a behavior-for-behavior Go port of the orchestration layer in libopus 1.6.1
+// (src/opus_encoder.c): it owns the SILK and CELT sub-encoders, decides which of
+// the three coding modes to use for each frame, runs the rate/bandwidth control
+// loop, and assembles the final Opus packet.
 //
-// Reference: RFC 6716 Section 3.2
+// # Coding modes
+//
+// Every Opus frame is coded in exactly one mode (RFC 6716 Section 2):
+//
+//   - SILK-only (configs 0-11): linear-prediction speech coder for narrowband
+//     through wideband, the lowest-rate VoIP path.
+//   - Hybrid (configs 12-15): SILK codes the 0-8kHz core while CELT codes the
+//     8-20kHz high band, for super-wideband and fullband speech.
+//   - CELT-only (configs 16-31): transform coder for music and low-latency audio.
+//
+// ModeAuto lets the encoder choose per frame from signal type, bitrate and the
+// tonality analyzer, mirroring the decision chain in opus_encoder.c.
+//
+// # Pipeline
+//
+// Encode and its variants run the libopus opus_encode_native pipeline for one
+// frame: optional variable high-pass / DC rejection on the input, the tonality
+// analysis ("the brain", see TonalityAnalysisState), mode and bandwidth
+// selection, delay compensation and mode-transition prefill, the SILK/CELT/Hybrid
+// bridge, the VBR/CBR/CVBR rate controller, DTX activity detection, and packet
+// assembly (see BuildPacket). Sub-encoders and large scratch buffers are created
+// lazily and reused across frames so steady-state encoding is allocation-free.
+//
+// # Determinism and parity
+//
+// The package is written to match libopus output frame-for-frame: the internal
+// numeric types deliberately mirror the C types (opus_val16/opus_val32/opus_res),
+// and FinalRange exposes the range-coder state so output can be checked against a
+// reference encoder. Set the same controls (bitrate, complexity, VBR, FEC, DTX,
+// bandwidth) in the same order as libopus to reproduce its bitstream.
+//
+// References: RFC 6716; libopus 1.6.1 src/opus_encoder.c, src/analysis.c.
 package encoder
 
 import (
@@ -64,9 +96,16 @@ const (
 	extensionScratchPacketBytes = 3826
 )
 
+// In-band FEC configuration values accepted by Encoder.SetInBandFEC, matching
+// the libopus OPUS_SET_INBAND_FEC argument (src/opus_encoder.c).
 const (
-	InBandFECDisabled  = 0
-	InBandFECEnabled   = 1
+	// InBandFECDisabled turns in-band forward error correction off.
+	InBandFECDisabled = 0
+	// InBandFECEnabled enables LBRR-based FEC for all SILK/Hybrid frames that
+	// carry speech (libopus value 1).
+	InBandFECEnabled = 1
+	// InBandFECMusicSafe enables FEC but lets the encoder suppress it on frames
+	// classified as music, trading resilience for quality (libopus value 2).
 	InBandFECMusicSafe = 2
 )
 
@@ -825,9 +864,35 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float32, frameSize int, analy
 	})
 }
 
+// encodeOpusResWithAnalysisMaxBytes is the core single-frame encode pipeline,
+// the Go counterpart of libopus opus_encode_native (src/opus_encoder.c). All
+// public Encode* entry points funnel here after converting their input to the
+// internal opusRes representation.
+//
+// inputPCM is one frame of interleaved samples (frameSize per channel);
+// maxDataBytes is the caller's output budget after packet-size clamping; and
+// refreshAnalysis, if non-nil, runs the tonality analyzer on the untouched input
+// before any high-pass/DC/LSB processing, matching libopus run_analysis ordering.
+//
+// The function applies LSB quantization and the variable high-pass / DC-reject
+// filters, refreshes the SILK variable-HP-cutoff smoother in the
+// hp_cutoff-before-silk_Encode order libopus uses, handles the "too little
+// space" TOC-only fast path, selects the coding mode and bandwidth (auto chain or
+// forced mode), performs delay compensation and mode-transition prefill, drives
+// the SILK/CELT/Hybrid sub-encoders under the active rate-control mode, and
+// returns the assembled packet (or nil when more lookahead input is still
+// buffered). It returns ErrInvalidFrameSize / ErrEncodingFailed for malformed
+// requests and never panics on valid configuration.
 func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSize int, maxDataBytes int, refreshAnalysis func()) ([]byte, error) {
 	channels := int(e.channels)
 	sampleRate := int(e.sampleRate)
+	// A non-positive frame size is never a valid Opus duration; reject it before
+	// any sampleRate/frameSize division (libopus opus_encode_native returns
+	// OPUS_BAD_ARG). Without this guard frameSize==0 passes the length check below
+	// (expectedLen==0) and divides by zero in the frame-rate computation.
+	if frameSize <= 0 {
+		return nil, ErrInvalidFrameSize
+	}
 	expectedLen := frameSize * channels
 	if len(inputPCM) != expectedLen {
 		return nil, ErrInvalidFrameSize
@@ -1466,6 +1531,12 @@ func (e *Encoder) buildDTXPacket(frameSize int) ([]byte, error) {
 	return e.buildDTXPacketForMode(frameSize, actualMode)
 }
 
+// buildDTXPacketForMode assembles the minimal TOC-only packet emitted when DTX
+// fires, using the supplied actualMode so the TOC config matches the mode the
+// frame would otherwise have used. For SILK it is a single code-0 frame; for
+// CELT/Hybrid frames longer than 20ms it builds N zero-length 20ms sub-frames so
+// the repacketizer collapses them exactly as libopus does (code 1 for two
+// sub-frames, code 3 for three).
 func (e *Encoder) buildDTXPacketForMode(frameSize int, actualMode Mode) ([]byte, error) {
 	packetBW := e.effectiveBandwidth()
 	if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
@@ -2818,10 +2889,20 @@ func (e *Encoder) celtPredictionModeForFrame() int {
 	return e.celtPredictionMode()
 }
 
+// encodeSILKFrameWithDRED encodes one SILK-only frame, reserving dredBitrate for
+// an attached DRED payload, with no explicit packet-byte cap. It delegates to
+// encodeSILKFrameWithDREDAndMax with maxPacketBytes==0 (no cap).
 func (e *Encoder) encodeSILKFrameWithDRED(pcm []opusRes, lookahead []opusRes, frameSize, originalBitrate, dredBitrate int) ([]byte, error) {
 	return e.encodeSILKFrameWithDREDAndMax(pcm, lookahead, frameSize, originalBitrate, dredBitrate, 0)
 }
 
+// encodeSILKFrameWithDREDAndMax runs the SILK sub-encoder for one frame and is
+// the SILK leg of the SILK/CELT/Hybrid bridge (libopus opus_encode_native's
+// silk_Encode call). pcm is the frame and lookahead the trailing samples SILK
+// needs for its lookahead; originalBitrate is the pre-DRED target and dredBitrate
+// the bits reserved for DRED, so the SILK budget is derived from their
+// difference. maxPacketBytes, when >0, caps the SILK payload (used by the
+// multi-frame and low-space paths). It returns the raw SILK frame bytes.
 func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []opusRes, lookahead []opusRes, frameSize, originalBitrate, dredBitrate, maxPacketBytes int) ([]byte, error) {
 	e.ensureSILKEncoder()
 	pcm32 := e.scratchPCM32[:len(pcm)]
@@ -3106,6 +3187,9 @@ func (e *Encoder) silkMaxBitsForPacketBytes(frameSize, silkBitrate, maxPacketByt
 	return maxBits
 }
 
+// encodeCELTFrameWithBitrateAndMaxPayload encodes one CELT-only frame at the
+// given bitrate and payload cap with no DRED reservation. It delegates to
+// encodeCELTFrameWithBitrateMaxPayloadAndDRED with dredBitrate==0.
 func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []opusRes, frameSize int, bitrate int, maxPayloadBytes int) ([]byte, error) {
 	return e.encodeCELTFrameWithBitrateMaxPayloadAndDRED(pcm, frameSize, bitrate, maxPayloadBytes, 0)
 }
@@ -3125,6 +3209,12 @@ func (e *Encoder) celtDREDPayloadCap(maxPayloadBytes, dredBitrate, frameSize int
 	return maxPayloadBytes
 }
 
+// encodeCELTFrameWithBitrateMaxPayloadAndDRED runs the CELT sub-encoder for one
+// frame and is the CELT leg of the SILK/CELT/Hybrid bridge (libopus
+// celt_encode_with_ec). bitrate is the CELT target, maxPayloadBytes the output
+// cap, and dredBitrate the bits reserved for an attached DRED payload (the CELT
+// cap is reduced via celtDREDPayloadCap). It configures the native-Fs upsample
+// factor before encoding and returns the raw CELT frame bytes.
 func (e *Encoder) encodeCELTFrameWithBitrateMaxPayloadAndDRED(pcm []opusRes, frameSize int, bitrate int, maxPayloadBytes int, dredBitrate int) ([]byte, error) {
 	e.ensureCELTEncoder()
 	// CELT-only consumes native-Fs frame sizes; the float CELT encoder upsamples

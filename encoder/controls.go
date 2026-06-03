@@ -1,7 +1,7 @@
-// Package encoder provides bitrate and bandwidth control for the Opus encoder.
-// This file implements VBR/CBR/CVBR modes and bitrate management per RFC 6716.
-//
-// Reference: RFC 6716 Section 2.1.1
+// This file provides bitrate and bandwidth control for the Opus encoder:
+// VBR/CBR/CVBR mode selection and bitrate management per RFC 6716 Section 2.1.1,
+// mirroring the rate-control helpers in libopus src/opus_encoder.c.
+
 package encoder
 
 // BitrateMode specifies how the encoder manages packet sizes.

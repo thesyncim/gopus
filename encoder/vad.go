@@ -1,5 +1,5 @@
-// Package encoder implements multi-band Voice Activity Detection (VAD) for DTX.
-// This implementation matches libopus SILK VAD behavior from silk/VAD.c.
+// This file implements multi-band Voice Activity Detection (VAD) for DTX,
+// matching libopus SILK VAD behavior from silk/VAD.c.
 //
 // The VAD splits the signal into 4 frequency bands using analysis filter banks:
 //   - Band 0: 0-1 kHz
@@ -11,6 +11,7 @@
 // speech activity probability.
 //
 // Reference: libopus silk/VAD.c, silk/define.h
+
 package encoder
 
 import (

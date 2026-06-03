@@ -13,14 +13,26 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
-// StereoWidthMem holds state for the stateful compute_stereo_width() function.
-// Matches libopus StereoWidthState.
+// StereoWidthMem holds the running cross-correlation state for the stateful
+// compute_stereo_width() estimator. It mirrors libopus StereoWidthState
+// (src/opus_encoder.c) and persists across frames so the stereo->mono and
+// bandwidth decisions see a smoothed width.
 type StereoWidthMem struct {
-	XX            opusVal32
-	XY            opusVal32
-	YY            opusVal32
+	// XX is the leaky-integrated left-channel auto-correlation energy (libopus
+	// "XX").
+	XX opusVal32
+	// XY is the leaky-integrated left/right cross-correlation energy (libopus
+	// "XY").
+	XY opusVal32
+	// YY is the leaky-integrated right-channel auto-correlation energy (libopus
+	// "YY").
+	YY opusVal32
+	// SmoothedWidth is the time-smoothed stereo-width estimate in [0,1] (libopus
+	// "smoothed_width").
 	SmoothedWidth opusVal16
-	MaxFollower   opusVal16
+	// MaxFollower is the decaying peak-follower that limits how fast the width may
+	// drop (libopus "max_follower").
+	MaxFollower opusVal16
 }
 
 // Bandwidth threshold tables from libopus opus_encoder.c lines 151-174.
