@@ -18,7 +18,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -346,12 +345,4 @@ func printResults(label string, times []time.Duration, durationSec float64) {
 	bestRTF := durationSec / best.Seconds()
 	avgRTF := durationSec / avg.Seconds()
 	fmt.Printf("%s: best %s (%.2fx realtime), avg %s (%.2fx)\n", label, best, bestRTF, avg, avgRTF)
-}
-
-func init() {
-	if path := os.Getenv("OPUS_DEMO_PATH"); path != "" {
-		if filepath.IsAbs(path) {
-			_ = path
-		}
-	}
 }

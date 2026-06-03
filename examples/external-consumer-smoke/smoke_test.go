@@ -119,3 +119,54 @@ func TestExternalConsumerRED(t *testing.T) {
 		t.Fatalf("redundant payload = %x, want %x", blocks[0].Payload, history[0].Payload)
 	}
 }
+
+// TestExternalConsumerPacketLossConcealment verifies a downstream module can run
+// packet loss concealment via Decode(nil) after decoding a real packet, using
+// only the public top-level API.
+func TestExternalConsumerPacketLossConcealment(t *testing.T) {
+	const (
+		sampleRate = 48000
+		channels   = 1
+		frameSize  = 960
+	)
+
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{
+		SampleRate:  sampleRate,
+		Channels:    channels,
+		Application: gopus.ApplicationAudio,
+	})
+	if err != nil {
+		t.Fatalf("NewEncoder: %v", err)
+	}
+
+	cfg := gopus.DefaultDecoderConfig(sampleRate, channels)
+	dec, err := gopus.NewDecoder(cfg)
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+
+	pcmIn := make([]float32, frameSize*channels)
+	for i := range pcmIn {
+		pcmIn[i] = float32(0.5 * math.Sin(2*math.Pi*440*float64(i)/sampleRate))
+	}
+
+	packet, err := enc.EncodeFloat32(pcmIn)
+	if err != nil {
+		t.Fatalf("EncodeFloat32: %v", err)
+	}
+
+	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
+	if _, err := dec.Decode(packet, pcmOut); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+
+	// Conceal one lost frame: nil packet data drives PLC, sized to one frame.
+	concealBuf := make([]float32, frameSize*channels)
+	n, err := dec.Decode(nil, concealBuf)
+	if err != nil {
+		t.Fatalf("Decode(nil) PLC: %v", err)
+	}
+	if n != frameSize {
+		t.Fatalf("PLC samples = %d, want %d", n, frameSize)
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"strings"
 
 	"github.com/thesyncim/gopus"
 )
@@ -58,12 +59,13 @@ func main() {
 		*signal, *bitrate/1000, *channels)
 
 	original := generateSignal(*signal, *duration, *channels)
-	decoded, err := roundtrip(original, config)
+	decoded, delay, err := roundtrip(original, config)
 	if err != nil {
 		log.Fatalf("Roundtrip failed: %v", err)
 	}
 
-	printQualityReport(original, decoded)
+	origAligned, decAligned := alignForCompare(original, decoded, delay, *channels)
+	printQualityReport(origAligned, decAligned)
 }
 
 // Quality thresholds for pass/fail determination.
@@ -89,24 +91,25 @@ func runAllTests(duration float64) {
 	fmt.Printf("Thresholds: SNR > %.0f dB, Correlation > %.1f\n\n", snrThreshold, corrThreshold)
 	fmt.Printf("%-25s %-8s %9s %8s %10s %6s\n",
 		"Config", "Signal", "SNR (dB)", "Corr", "Peak Err", "Status")
-	fmt.Println(string(make([]byte, 75)))
+	fmt.Println(strings.Repeat("-", 75))
 
 	passed, failed := 0, 0
 
 	for _, config := range configs {
 		for _, sig := range signals {
 			original := generateSignal(sig, duration, config.Channels)
-			decoded, err := roundtrip(original, config)
+			decoded, delay, err := roundtrip(original, config)
 			if err != nil {
 				fmt.Printf("%-25s %-8s %9s %8s %10s %6s\n",
 					config.Name, sig, "-", "-", "-", "ERROR")
 				failed++
 				continue
 			}
+			origAligned, decAligned := alignForCompare(original, decoded, delay, config.Channels)
 
-			snr := calculateSNR(original, decoded)
-			corr := calculateCorrelation(original, decoded)
-			peakErr := calculatePeakError(original, decoded)
+			snr := calculateSNR(origAligned, decAligned)
+			corr := calculateCorrelation(origAligned, decAligned)
+			peakErr := calculatePeakError(origAligned, decAligned)
 
 			// Determine pass/fail
 			status := "FAIL"
@@ -123,15 +126,9 @@ func runAllTests(duration float64) {
 	}
 
 	// Summary
-	fmt.Println(string(make([]byte, 75)))
+	fmt.Println(strings.Repeat("-", 75))
 	fmt.Printf("\nSummary: %d/%d tests passed (%.0f%%)\n",
 		passed, passed+failed, 100*float64(passed)/float64(passed+failed))
-
-	if failed > 0 {
-		fmt.Println("\n[!] Known issue: gopus decoder quality is in development.")
-		fmt.Println("    See: .planning/STATE.md 'Known Gaps' section")
-		fmt.Println("    Track: github.com/thesyncim/gopus/issues")
-	}
 }
 
 // generateSignal creates a test signal.
@@ -198,29 +195,31 @@ func generateSignal(signalType string, duration float64, channels int) []float32
 	return pcm
 }
 
-// roundtrip encodes and decodes audio.
-func roundtrip(original []float32, config TestConfig) ([]float32, error) {
+// roundtrip encodes and decodes audio, returning the decoded PCM and the
+// encoder's algorithmic delay in samples per channel. The delay must be removed
+// before comparing decoded output against the original (see alignForCompare).
+func roundtrip(original []float32, config TestConfig) (decoded []float32, delay int, err error) {
 	// Create encoder
 	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: sampleRate, Channels: config.Channels, Application: config.Application})
 	if err != nil {
-		return nil, fmt.Errorf("create encoder: %w", err)
+		return nil, 0, fmt.Errorf("create encoder: %w", err)
 	}
 	if err := enc.SetBitrate(config.Bitrate); err != nil {
-		return nil, fmt.Errorf("set bitrate: %w", err)
+		return nil, 0, fmt.Errorf("set bitrate: %w", err)
 	}
 
 	// Create decoder
 	cfg := gopus.DefaultDecoderConfig(sampleRate, config.Channels)
 	dec, err := gopus.NewDecoder(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("create decoder: %w", err)
+		return nil, 0, fmt.Errorf("create decoder: %w", err)
 	}
 	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
 	// Process in frames
 	frameSamples := frameSize * config.Channels
 	numFrames := len(original) / frameSamples
-	decoded := make([]float32, 0, len(original))
+	decoded = make([]float32, 0, len(original))
 
 	for i := 0; i < numFrames; i++ {
 		start := i * frameSamples
@@ -230,19 +229,38 @@ func roundtrip(original []float32, config TestConfig) ([]float32, error) {
 		// Encode
 		packet, err := enc.EncodeFloat32(frame)
 		if err != nil {
-			return nil, fmt.Errorf("encode frame %d: %w", i, err)
+			return nil, 0, fmt.Errorf("encode frame %d: %w", i, err)
 		}
 
 		// Decode
 		n, err := dec.Decode(packet, pcmOut)
 		if err != nil {
-			return nil, fmt.Errorf("decode frame %d: %w", i, err)
+			return nil, 0, fmt.Errorf("decode frame %d: %w", i, err)
 		}
 
 		decoded = append(decoded, pcmOut[:n*config.Channels]...)
 	}
 
-	return decoded, nil
+	return decoded, enc.Lookahead(), nil
+}
+
+// alignForCompare removes the encoder delay from the decoded signal and trims
+// both signals to a common length so quality metrics line up sample for sample.
+// Opus adds an algorithmic delay (lookahead), so the decoder output lags the
+// input by Lookahead() samples per channel; skipping that prefix is what makes
+// SNR and correlation meaningful.
+func alignForCompare(original, decoded []float32, delay, channels int) (origAligned, decAligned []float32) {
+	skip := delay * channels
+	if skip > len(decoded) {
+		skip = len(decoded)
+	}
+	decoded = decoded[skip:]
+
+	n := len(original)
+	if len(decoded) < n {
+		n = len(decoded)
+	}
+	return original[:n], decoded[:n]
 }
 
 // printQualityReport prints detailed quality metrics.

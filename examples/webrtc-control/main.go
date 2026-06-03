@@ -11,7 +11,6 @@ import (
 	"embed"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -33,7 +32,7 @@ func main() {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(data)
+		_, _ = w.Write(data)
 	})
 
 	http.HandleFunc("/offer", handleOffer)
@@ -152,5 +151,5 @@ func handleOffer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprint(w, string(resp))
+	_, _ = w.Write(resp)
 }
