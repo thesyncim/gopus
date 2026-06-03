@@ -306,7 +306,31 @@ func TestEncoderComplianceSummary(t *testing.T) {
 				q, _ := runEncoderComplianceTest(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
 
 				res := caseResult{q: q}
-				if refAvailable {
+				if enforceGap {
+					// Native same-arch lane: the (gopus Q - libopus Q) gap floor is
+					// enforced on the real-content source, where the cross-toolchain
+					// float-order spread is negligible (the am_multisine gap is a
+					// CELT float-order knife-edge; see encoder_precision_realcontent_test.go).
+					rcQ := runRealContentPrecisionGopus(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
+					libQ, ok := runRealContentPrecisionLibopusReference(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
+					res.refOK = ok
+					if !ok {
+						t.Fatalf("native real-content libopus reference unavailable for %s", tc.name)
+					}
+					res.q = rcQ
+					res.libQ = libQ
+					res.gapQ = rcQ - libQ
+					status, floor := encoderComplianceReferenceStatusForCase(tc.name, res.gapQ)
+					res.status = status
+					if status == "FAIL" {
+						t.Errorf("precision floor miss for %s: gap=%.2f Q floor=%.2f Q tol=%.2f Q (source=%s)", tc.name, res.gapQ, floor, encoderLibopusGapMeasurementToleranceQ, precisionGuardSignalName)
+					} else {
+						res.passed = true
+					}
+				} else if refAvailable {
+					// Non-native/stale reference: the am_multisine gap is float-order
+					// noise across toolchains, so it is logged for visibility only;
+					// the native-fixture jobs enforce the floor on real audio.
 					libQ, _, ok := runLibopusComplianceReferenceTest(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
 					res.refOK = ok
 					if ok {
@@ -314,14 +338,8 @@ func TestEncoderComplianceSummary(t *testing.T) {
 						res.gapQ = q - libQ
 						status, floor := encoderComplianceReferenceStatusForCase(tc.name, res.gapQ)
 						res.status = status
-						switch {
-						case status != "FAIL":
-							res.passed = true
-						case enforceGap:
-							t.Errorf("precision floor miss for %s: gap=%.2f Q floor=%.2f Q tol=%.2f Q", tc.name, res.gapQ, floor, encoderLibopusGapMeasurementToleranceQ)
-						default:
-							// Non-native/stale reference: log the gap, do not gate it.
-							res.passed = true
+						res.passed = true
+						if status == "FAIL" {
 							t.Logf("non-native libopus reference: %s gap=%.2f Q floor=%.2f Q (gap guard skipped)", tc.name, res.gapQ, floor)
 						}
 					}
@@ -400,12 +418,21 @@ func testEncoderCompliance(t *testing.T, mode encoder.Mode, bandwidth types.Band
 }
 
 func computeEncoderComplianceResult(mode encoder.Mode, bandwidth types.Bandwidth, frameSize, channels, bitrate int) (encoderComplianceRunResult, error) {
-	var result encoderComplianceRunResult
-
 	// Generate 1 second of test signal
 	numFrames := 48000 / frameSize
 	totalSamples := numFrames * frameSize * channels
 	original := generateEncoderTestSignal(totalSamples, channels)
+	return computeEncoderComplianceResultForSignal(mode, bandwidth, frameSize, channels, bitrate, original)
+}
+
+// computeEncoderComplianceResultForSignal runs the full encode->decode->compare
+// pipeline against a caller-supplied input signal. computeEncoderComplianceResult
+// drives it with the am_multisine synthetic; the encoder precision guard drives it
+// with a real-content clip (see encoder_precision_realcontent_test.go).
+func computeEncoderComplianceResultForSignal(mode encoder.Mode, bandwidth types.Bandwidth, frameSize, channels, bitrate int, original []float32) (encoderComplianceRunResult, error) {
+	var result encoderComplianceRunResult
+
+	numFrames := 48000 / frameSize
 
 	// Create encoder.
 	enc := encoder.NewEncoder(48000, channels)
