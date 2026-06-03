@@ -1,8 +1,19 @@
 package rangecoding
 
-// Encoder implements the range encoder per RFC 6716 Section 4.1.
-// This is a bit-exact port of libopus celt/entenc.c.
-// The encoder is the symmetric inverse of the decoder.
+// Encoder implements the Opus range encoder (RFC 6716 Section 4.1), a bit-exact
+// port of the libopus ec_enc context and the functions in celt/entenc.c. It is
+// the exact symmetric inverse of [Decoder].
+//
+// Lifecycle: call [Encoder.Init] with a destination buffer, emit symbols with
+// the Encode/EncodeBin/EncodeBit/EncodeICDF* methods and raw bits with
+// [Encoder.EncodeRawBits], then call [Encoder.Done] to flush and obtain the
+// packet. Range-coded symbols are written forward from the start of the buffer
+// while raw bits are written backward from the end; [Encoder.Done] merges them.
+//
+// The field widths match libopus ec_ctx exactly because the integer
+// wrap/truncation behavior is part of the bit-exact contract (see the package
+// doc and the state-type parity test). In particular rem uses -1 as the
+// "no buffered byte yet" sentinel, so it is signed.
 type Encoder struct {
 	buf        []byte // Output buffer (pre-allocated)
 	storage    uint32 // Buffer capacity
@@ -163,10 +174,15 @@ func (e *Encoder) writeByte(b byte) {
 	e.offs++
 }
 
-// Encode encodes a symbol with cumulative frequencies [fl, fh) out of ft.
-// fl is the cumulative frequency of symbols before this one.
-// fh is the cumulative frequency up to and including this symbol.
-// ft is the total frequency count.
+// Encode encodes a symbol that occupies the cumulative-frequency interval
+// [fl, fh) out of a total frequency ft, the core range-coder primitive of
+// RFC 6716 Section 4.1.2. It is the bit-exact port of libopus ec_encode and the
+// inverse of [Decoder.Decode] followed by [Decoder.Update].
+//
+// fl is the sum of the frequencies of all symbols preceding this one, fh is fl
+// plus this symbol's frequency, and ft is the sum of all symbol frequencies.
+// Callers must ensure 0 <= fl < fh <= ft. The range is subdivided by the scale
+// factor r = rng/ft, after which the encoder renormalizes.
 func (e *Encoder) Encode(fl, fh, ft uint32) {
 	r := e.rng / ft
 	if fl > 0 {
@@ -178,8 +194,10 @@ func (e *Encoder) Encode(fl, fh, ft uint32) {
 	e.normalize()
 }
 
-// EncodeBin encodes a symbol with power-of-two total frequency (1<<bits).
-// This mirrors libopus ec_encode_bin.
+// EncodeBin encodes a symbol whose model interval is [fl, fh) when the total
+// frequency is the power of two 1<<bits, the bit-exact port of libopus
+// ec_encode_bin and the inverse of [Decoder.DecodeBin]+[Decoder.Update]. Using a
+// power-of-two total lets the scale factor be a shift instead of a division.
 func (e *Encoder) EncodeBin(fl, fh uint32, bits uint) {
 	if bits == 0 {
 		return
@@ -275,10 +293,15 @@ func (e *Encoder) EncodeBit(val int, logp uint) {
 	e.normalize()
 }
 
-// Done finalizes the encoding and returns the encoded bytes.
-// After calling Done, the encoder should not be used without re-initializing.
+// Done finalizes the stream and returns the encoded packet. It emits the
+// minimum number of bits needed to unambiguously identify the final range
+// interval, flushes any buffered carry byte and pending raw bits, and merges
+// the forward range-coded bytes with the backward raw-bit bytes into one packet.
 //
-// This follows libopus celt/entenc.c ec_enc_done exactly.
+// This is the bit-exact port of libopus ec_enc_done. The returned slice aliases
+// the buffer passed to [Encoder.Init]; copy it if it must outlive the next use
+// of the buffer. After Done the encoder must be re-initialized before reuse.
+// Check [Encoder.Error] for buffer overflow during encoding.
 func (e *Encoder) Done() []byte {
 	// Compute how many bits we need to output to uniquely identify the interval.
 	l := EC_CODE_BITS - int(ilog(e.rng))
@@ -395,13 +418,17 @@ func (e *Encoder) Done() []byte {
 	return e.buf[:packedSize]
 }
 
-// Tell returns the number of bits written so far.
+// Tell returns the number of bits written to the combined stream so far,
+// rounded up to the nearest whole bit. This is the libopus ec_tell macro
+// (nbits_total - EC_ILOG(rng)) and counts both range-coded symbols and raw bits.
 func (e *Encoder) Tell() int {
 	return int(e.nbitsTotal) - int(ilog(e.rng))
 }
 
-// TellFrac returns the number of bits written with 1/8 bit precision.
-// The value is in 1/8 bits, so divide by 8 to compare with Tell().
+// TellFrac returns the number of bits written to the combined stream so far in
+// 1/8th-bit (BITRES) precision; divide by 8 to compare with [Encoder.Tell].
+// It is the bit-exact port of libopus ec_tell_frac, including the eight-entry
+// correction table that refines the fractional bit count from the range.
 func (e *Encoder) TellFrac() int {
 	correction := [8]uint32{35733, 38967, 42495, 46340, 50535, 55109, 60097, 65535}
 
@@ -456,7 +483,10 @@ func (e *Encoder) Ext() uint32 {
 	return e.ext
 }
 
-// Error returns the encoder error flag. Non-zero indicates an error.
+// Error returns the encoder error flag (libopus ec_ctx.error). A non-zero value
+// means the output did not fit in the buffer passed to [Encoder.Init] (the
+// forward range-coded and backward raw-bit streams collided), so the produced
+// packet is truncated and not decodable.
 func (e *Encoder) Error() int {
 	return int(e.err)
 }
@@ -585,9 +615,12 @@ func (e *Encoder) PatchInitialBits(val uint32, nbits uint) {
 	}
 }
 
-// EncodeUniform encodes a uniformly distributed value in the range [0, ft).
-// This is used for fine energy bits and PVQ indices.
-// Reference: libopus celt/entenc.c ec_enc_uint()
+// EncodeUniform encodes a uniformly distributed integer val in the range
+// [0, ft). It is the bit-exact port of libopus ec_enc_uint and the inverse of
+// [Decoder.DecodeUniform]. For ft larger than 1<<EC_UINT_BITS the high
+// EC_UINT_BITS bits are range-coded and the low bits are written as raw bits, so
+// large uniform values consume part of each stream. Used for fine energy bits,
+// PVQ indices, and similar uniformly distributed fields.
 func (e *Encoder) EncodeUniform(val uint32, ft uint32) {
 	if ft <= 1 {
 		return // Only one possible value, nothing to encode
@@ -624,8 +657,11 @@ func (e *Encoder) encodeUniformInternal(val uint32, ft uint32) {
 	e.normalize()
 }
 
-// EncodeRawBits writes raw bits to the end of the buffer.
-// This is the inverse of DecodeRawBits.
+// EncodeRawBits writes the low `bits` bits of val directly to the raw-bit stream
+// at the end of the buffer, bypassing the range coder. It is the bit-exact port
+// of libopus ec_enc_bits and the inverse of [Decoder.DecodeRawBits]. Raw bits
+// grow backward from the end of the packet while range-coded symbols grow
+// forward from the start; [Encoder.Done] reconciles the two streams.
 func (e *Encoder) EncodeRawBits(val uint32, bits uint) {
 	if bits == 0 {
 		return

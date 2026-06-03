@@ -4,8 +4,23 @@ import "math/bits"
 
 var tellFracCorrection = [8]uint32{35733, 38967, 42495, 46340, 50535, 55109, 60097, 65535}
 
-// Decoder implements the range decoder per RFC 6716 Section 4.1.
-// This is a bit-exact port of libopus entdec.c.
+// Decoder implements the Opus range decoder (RFC 6716 Section 4.1), a bit-exact
+// port of the libopus ec_dec context and the functions in celt/entdec.c. It is
+// the exact symmetric inverse of [Encoder]: initializing a Decoder with the
+// output of [Encoder.Done] and issuing the matching decode calls reproduces the
+// original symbol sequence, with ec_tell staying in lockstep.
+//
+// Decoding a range-coded symbol is two steps, matching libopus: call
+// [Decoder.Decode] (or DecodeBin) to read the cumulative frequency, locate the
+// symbol in the model, then call [Decoder.Update] with that symbol's
+// [fl, fh) interval. The DecodeICDF*, DecodeBit, and DecodeUniform helpers fuse
+// both steps for the common cases. Raw bits are read from the end of the buffer
+// with [Decoder.DecodeRawBits].
+//
+// The decoder is robust to truncated or malformed input: reads past the end of
+// the buffer return zero bytes (per the RFC), so no method panics or indexes out
+// of bounds on arbitrary input. Out-of-range coded values set the error flag
+// reported by [Decoder.Error]. The field widths match libopus ec_ctx exactly.
 type Decoder struct {
 	buf        []byte // Input buffer
 	storage    uint32 // Buffer size
@@ -21,8 +36,11 @@ type Decoder struct {
 	err        int32  // Error flag; libopus ec_ctx.error is C int.
 }
 
-// Init initializes the decoder with the given byte buffer.
-// This follows libopus ec_dec_init exactly.
+// Init initializes the decoder to read from buf, the bit-exact port of libopus
+// ec_dec_init. It reads the first byte, seeds the range and value registers, and
+// renormalizes so the decoder is ready for the first symbol. buf is treated as
+// read-only and may be any length, including empty; reads past its end yield
+// zero bytes per RFC 6716 Section 4.1.
 func (d *Decoder) Init(buf []byte) {
 	d.buf = buf
 	d.storage = uint32(len(buf))
@@ -1033,13 +1051,17 @@ func (d *Decoder) DecodeBit(logp uint) int {
 	return ret
 }
 
-// Tell returns the number of bits consumed so far.
+// Tell returns the number of bits consumed from the combined stream so far,
+// rounded up to the nearest whole bit. This is the libopus ec_tell macro
+// (nbits_total - EC_ILOG(rng)) and counts both range-coded symbols and raw bits.
+// It stays in lockstep with [Encoder.Tell] on the encoding side.
 func (d *Decoder) Tell() int {
 	return int(d.nbitsTotal) - ilog(d.rng)
 }
 
-// TellFrac returns the number of bits consumed with 1/8 bit precision.
-// The value is in 1/8 bits, so divide by 8 to compare with Tell().
+// TellFrac returns the number of bits consumed from the combined stream so far
+// in 1/8th-bit (BITRES) precision; divide by 8 to compare with [Decoder.Tell].
+// It is the bit-exact port of libopus ec_tell_frac and matches [Encoder.TellFrac].
 func (d *Decoder) TellFrac() int {
 	nbits := int(d.nbitsTotal) << 3
 	l := ilog(d.rng)
@@ -1057,13 +1079,17 @@ func (d *Decoder) State() (uint32, uint32) {
 	return d.rng, d.val
 }
 
-// ilog computes the integer log base 2 (position of highest set bit + 1).
-// Returns 0 for input 0.
+// ilog returns the index of the most significant set bit plus one (so
+// ilog(0)==0, ilog(1)==1, ilog(0x80000000)==32). It is the EC_ILOG primitive
+// used by ec_tell and the renormalization/finalization math.
 func ilog(x uint32) int {
 	return bits.Len32(x)
 }
 
-// Error returns the error flag. Non-zero indicates a decoding error.
+// Error returns the decoder error flag (libopus ec_ctx.error). A non-zero value
+// means malformed input was detected, currently an out-of-range value reported
+// by [Decoder.DecodeUniform]. Note that, per the RFC, reading past the end of a
+// truncated buffer is not an error: it yields zero bytes.
 func (d *Decoder) Error() int {
 	return int(d.err)
 }
@@ -1121,9 +1147,13 @@ func (d *Decoder) Offs() uint32 {
 	return d.offs
 }
 
-// DecodeUniform decodes a uniformly distributed value in the range [0, ft).
-// This is used for fine energy bits and PVQ indices.
-// Reference: libopus celt/entdec.c ec_dec_uint()
+// DecodeUniform decodes a uniformly distributed integer in [0, ft), the
+// bit-exact port of libopus ec_dec_uint and the inverse of
+// [Encoder.EncodeUniform]. For ft larger than 1<<EC_UINT_BITS the high
+// EC_UINT_BITS bits come from the range coder and the low bits from the raw-bit
+// stream. If the reconstructed value exceeds ft-1 (only possible on malformed
+// input) the error flag is set and ft-1 is returned. Used for fine energy bits,
+// PVQ indices, and similar fields.
 //
 //go:nosplit
 func (d *Decoder) DecodeUniform(ft uint32) uint32 {
@@ -1328,14 +1358,20 @@ func (d *Decoder) decode(ft uint32) uint32 {
 	return ft - (s + 1)
 }
 
-// Decode returns the current cumulative frequency value without updating state.
-// This mirrors libopus ec_decode().
+// Decode returns the cumulative frequency fs (in [0, ft)) of the current symbol
+// without advancing the decoder, the bit-exact port of libopus ec_decode. The
+// caller maps fs to a symbol whose model interval [fl, fh) satisfies
+// fl <= fs < fh, then must call [Decoder.Update] with that interval to consume
+// the symbol. Decode caches the scale factor used by the paired Update.
 func (d *Decoder) Decode(ft uint32) uint32 {
 	return d.decode(ft)
 }
 
-// DecodeBin decodes a symbol when the total frequency is 1<<bits.
-// This mirrors libopus ec_decode_bin.
+// DecodeBin returns the cumulative frequency of the current symbol when the
+// total frequency is the power of two 1<<bits, the bit-exact port of libopus
+// ec_decode_bin. Like [Decoder.Decode] it does not advance the decoder; pair it
+// with [Decoder.Update] using ft = 1<<bits. Using a power-of-two total lets the
+// scale factor be a shift instead of a division.
 //
 //go:nosplit
 func (d *Decoder) DecodeBin(bits uint) uint32 {
@@ -1363,8 +1399,11 @@ func (d *Decoder) update(fl, fh, ft uint32) {
 	d.normalize()
 }
 
-// Update applies the range update using the provided cumulative frequencies.
-// This mirrors libopus ec_dec_update().
+// Update consumes the symbol whose model interval is [fl, fh) out of total ft,
+// advancing the decoder and renormalizing. It must be called after [Decoder.Decode]
+// (or DecodeBin) with the interval selected from the returned cumulative
+// frequency, and it reuses the scale factor cached by that call. This is the
+// bit-exact port of libopus ec_dec_update and the inverse of [Encoder.Encode].
 //
 //go:nosplit
 func (d *Decoder) Update(fl, fh, ft uint32) {
@@ -1388,9 +1427,11 @@ func (d *Decoder) DecodeSymbol(fl, fh, ft uint32) {
 	d.update(fl, fh, ft)
 }
 
-// DecodeRawBits reads raw bits from the end of the buffer.
-// This is used for fine energy bits and PVQ sign bits.
-// Reference: libopus celt/entdec.c ec_dec_bits()
+// DecodeRawBits reads `bits` raw bits from the raw-bit stream at the end of the
+// buffer and returns them, the bit-exact port of libopus ec_dec_bits and the
+// inverse of [Encoder.EncodeRawBits]. These bits bypass the range coder; reads
+// past the start of the available raw region yield zero. Used for fine energy
+// bits, PVQ sign bits, and similar fields.
 func (d *Decoder) DecodeRawBits(bits uint) uint32 {
 	if bits == 0 {
 		return 0
