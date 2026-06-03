@@ -6,6 +6,9 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
+// ActivityHistorySize is the length of the encoder voice-activity history at
+// 2.5 ms (400 Hz) resolution, mirroring the activity_mem[DRED_MAX_FRAMES*4]
+// buffer libopus keeps in src/opus_encoder.c.
 const ActivityHistorySize = 4 * MaxFrames
 
 const dredLaplaceFTBits = 15

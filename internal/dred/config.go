@@ -1,3 +1,19 @@
+// Package dred implements libopus Deep Redundancy (DRED): the in-band
+// extension that carries a heavily compressed RDOVAE representation of recent
+// speech so a decoder can recover audio lost to packet loss.
+//
+// It covers the full DRED lifecycle: encoder-side feature extraction and latent
+// encoding (encode.go, encoder_buffer.go, latent_generator.go), the 16 kHz
+// resampler the encoder feeds (convert16k.go), payload framing and parsing
+// (header.go, parsed.go, entropy.go), and decoder-side latent decoding plus
+// recovery scheduling (decode.go, recovery.go). The RDOVAE network itself lives
+// in the rdovae subpackage. Everything mirrors libopus 1.6.1 dnn/dred_*.c
+// bit-for-bit and is held in place by the package and decoder DRED parity
+// tests.
+//
+// DRED code paths are gated in the parent codec; this package is always
+// compiled, while the heavy libopus differential parity tests are tag-gated
+// behind gopus_dred / gopus_extra_controls.
 package dred
 
 // Constants mirrored from libopus 1.6.1 dnn/dred_config.h.

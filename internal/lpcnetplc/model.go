@@ -6,6 +6,12 @@ import (
 	"github.com/thesyncim/gopus/internal/dnnblob"
 )
 
+// LPCNet PLC feature-prediction model dimensions, copied verbatim from libopus
+// 1.6.1 dnn/plc_data.h (with NumBands from dnn/freq.h). This is the small GRU
+// network that predicts the next LPCNet feature vector during packet loss;
+// InputSize covers the band energies, the feature vector and the lost-flag, and
+// the two GRU stages feed the output dense layer. The activation* values are
+// the in-network activation selector shared with the runtime.
 const (
 	NumBands    = 18
 	InputSize   = 2*NumBands + NumFeatures + 1
@@ -22,6 +28,11 @@ const (
 
 var errInvalidModel = errors.New("lpcnetplc: invalid model")
 
+// LinearLayer is the typed Go projection of one libopus LinearLayer weight
+// bundle. Bias/Subias/Scale are float32 records; the weight payload is either
+// int8 (paired with Scale) or float32, matching the libopus linear_init
+// selection rules. The same shape is reused by every dense/GRU layer in the
+// LPCNet PLC, FARGAN and PitchDNN models.
 type LinearLayer struct {
 	Bias         dnnblob.Float32View
 	Subias       dnnblob.Float32View
@@ -32,6 +43,9 @@ type LinearLayer struct {
 	NbOutputs    int
 }
 
+// LinearLayerSpec names the blob records that make up one LinearLayer and its
+// input/output dimensions, mirroring the libopus linear_init argument tuple.
+// Empty record names mark components a layer does not carry.
 type LinearLayerSpec struct {
 	Name         string
 	Bias         string
@@ -43,6 +57,9 @@ type LinearLayerSpec struct {
 	NbOutputs    int
 }
 
+// Model holds the LPCNet PLC feature-prediction layers: the input dense layer,
+// two GRU stages (input + recurrent weights each) and the output dense layer,
+// matching the PLCModel struct in dnn/plc_data.h.
 type Model struct {
 	DenseIn  LinearLayer
 	DenseOut LinearLayer

@@ -1,11 +1,15 @@
-// Package bwe binds the libopus OSCE blind-bandwidth-extension (BBWENet)
-// model weights from a validated dnnblob.Blob into typed Go layers. The model
-// dimensions and required weight-record names mirror libopus 1.6.1
-// `dnn/bbwenet_data.{h,c}` and `dnn/nndsp.c`.
+// Package bwe implements the libopus OSCE blind-bandwidth-extension network
+// (BBWENet), which extends 16 kHz decoded speech up to 48 kHz.
 //
-// Phase 1: this package only loads the model layers from the blob; the
-// runtime forward pass lives in runtime.go and is currently a no-op stub
-// pending the Phase 2 implementation that wires bbwenet.c through Go.
+// LoadModel binds the model weights from a validated dnnblob.Blob into typed
+// Go layers. The model dimensions and required weight-record names mirror
+// libopus 1.6.1 dnn/bbwenet_data.{h,c} and dnn/nndsp.c.
+//
+// State.Process runs the BBWENet forward pass from libopus dnn/osce.c: the
+// feature network produces per-subframe latent conditioning vectors, which
+// drive a cascade of adaptive-convolution (AF1/AF2/AF3) and adaptive-shaping
+// (TDShape) stages plus learned upsampling, transforming a 16 kHz input frame
+// into a 48 kHz output frame.
 package bwe
 
 import (

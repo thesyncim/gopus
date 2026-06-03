@@ -7,6 +7,9 @@ import "github.com/thesyncim/gopus/internal/opusmath"
 // TraceStage identifies an opt-in LACE diagnostic checkpoint.
 type TraceStage int
 
+// LACE trace stages, numbered to match the C trace helper checkpoint enum.
+// Each value names a point in lace_process_20ms_frame whose intermediate buffer
+// ProcessTrace snapshots for differential debugging against libopus.
 const (
 	TraceStageInput TraceStage = iota + 1
 	TraceStageFeatures

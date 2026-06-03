@@ -1,13 +1,18 @@
-// Package lace binds the libopus OSCE LACE / NoLACE postfilter model weights
-// from a validated dnnblob.Blob into typed Go layers. The model dimensions
-// and required weight-record names mirror libopus 1.6.1 `dnn/lace_data.{h,c}`
-// and `dnn/nolace_data.{h,c}`.
+// Package lace implements the libopus OSCE LACE and NoLACE neural postfilters
+// that enhance decoded SILK speech.
 //
-// Phase 1: this package only loads the model layers from the blob; the
-// runtime forward pass is intentionally out of scope. Once loaded the
-// `Model` value exposes typed views over the underlying float / int8 weight
-// records so a future Phase 2 forward pass can run without re-parsing the
-// blob.
+// Load binds the model weights from a validated dnnblob.Blob into typed Go
+// layers; the Model value exposes views over the underlying float / int8
+// weight records so the forward pass runs without re-parsing the blob. The
+// model dimensions and required weight-record names mirror libopus 1.6.1
+// dnn/lace_data.{h,c} and dnn/nolace_data.{h,c}.
+//
+// LACEState.Process and NoLACEState.Process run the per-frame forward passes
+// from libopus dnn/osce.c (lace_process_20ms_frame /
+// nolace_process_20ms_frame) and the adaptive comb/shaping DSP from
+// dnn/nndsp.c. Both operate on 16 kHz signal frames driven by per-subframe
+// feature vectors, the encoded bit count and pitch periods, matching the
+// inputs libopus derives from the SILK decoder state.
 package lace
 
 import (
@@ -110,10 +115,9 @@ type NoLACEModel struct {
 }
 
 // Model is the combined LACE + NoLACE binding. libopus carries both
-// postfilters together (osce_init creates a `LACE` and a `NoLACE` state
-// inside `OSCEModel`) and the upstream weights blob ships with both
-// manifests present, so callers always get both when SupportsOSCE() is
-// true. Phase 1 just exposes the typed layers.
+// postfilters together (osce_init creates a LACE and a NoLACE state inside
+// OSCEModel) and the upstream weights blob ships with both manifests present,
+// so callers always get both when SupportsOSCE() is true.
 type Model struct {
 	LACE   LACEModel
 	NoLACE NoLACEModel

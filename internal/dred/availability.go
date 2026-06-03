@@ -30,6 +30,10 @@ func (h Header) Availability(maxDredSamples, sampleRate int) Availability {
 	}
 }
 
+// Availability reports the request-bounded DRED coverage for a fully parsed
+// payload. It refines Header.Availability by clamping MaxLatents (and the
+// derived AvailableSamples) to the number of latents actually present in the
+// payload.
 func (p Parsed) Availability(maxDredSamples, sampleRate int) Availability {
 	avail := p.Header.Availability(maxDredSamples, sampleRate)
 	if avail.MaxLatents > p.PayloadLatents {

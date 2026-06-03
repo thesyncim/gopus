@@ -34,6 +34,10 @@ const (
 
 var errInvalidPitchDNNModel = errors.New("lpcnetplc: invalid pitchdnn model")
 
+// Conv2DLayer is the typed Go projection of one libopus Conv2dLayer weight
+// bundle used by PitchDNN's cross-correlation conv stages. Weights are always
+// float32; KTime and KHeight are the kernel extents over the time and feature
+// axes, matching conv2d_init in dnn/nnet.h.
 type Conv2DLayer struct {
 	Bias         dnnblob.Float32View
 	FloatWeights dnnblob.Float32View
@@ -43,6 +47,8 @@ type Conv2DLayer struct {
 	KHeight      int
 }
 
+// Conv2DLayerSpec names the blob records and dimensions for one Conv2DLayer,
+// mirroring the libopus conv2d_init argument tuple.
 type Conv2DLayerSpec struct {
 	Name         string
 	Bias         string
@@ -53,6 +59,10 @@ type Conv2DLayerSpec struct {
 	KHeight      int
 }
 
+// PitchDNNModel holds the PitchDNN weight layers: two dense IF-upsamplers, two
+// conv2d cross-correlation stages, a downsampler, a GRU (input + recurrent) and
+// a final dense layer. Field order and the bound record names mirror the
+// PitchDNN struct and init_pitchdnn in dnn/pitchdnn_data.{h,c}.
 type PitchDNNModel struct {
 	DenseIFUpsampler1 LinearLayer
 	DenseIFUpsampler2 LinearLayer

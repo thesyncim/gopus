@@ -467,6 +467,11 @@ func quantizeInput(x float32) int8 {
 	return dnnmath.Cgemv8x4QuantizeInputScalar(x)
 }
 
-type FloatTensor = dnnblob.Float32View
-type IntTensor = dnnblob.Int32View
-type Int8Tensor = dnnblob.Int8View
+// FloatTensor, IntTensor and Int8Tensor are convenience aliases for the
+// dnnblob views over the float32, int32 and int8 weight records the RDOVAE
+// runtime reads.
+type (
+	FloatTensor = dnnblob.Float32View
+	IntTensor   = dnnblob.Int32View
+	Int8Tensor  = dnnblob.Int8View
+)

@@ -9,10 +9,9 @@ import (
 	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
-// Per-frame and per-subframe dimensions for the libopus 1.6.1 BBWENet pipeline.
-// Phase 2a wires the layers end-to-end as a structural skeleton: the model
-// produces output of the correct length (3x input) and propagates non-zero
-// signal through every block, but does not yet bit-match libopus.
+// Per-frame and per-subframe dimensions for the libopus 1.6.1 BBWENet
+// pipeline, copied verbatim from the dnn/bbwenet_data.h layer geometry and
+// the dnn/nndsp.c adaconv/adashape constants.
 const (
 	// Sample-rate ratios. The BBWENet pipeline is a 3x upsampler:
 	// 16 kHz lowband -> 48 kHz wideband.
@@ -83,8 +82,8 @@ const (
 )
 
 // State carries the persistent BBWENet runtime state libopus keeps inside
-// `BBWENetState` (dnn/osce_structs.h). Phase 2a populates the conv/gru/tdshape
-// working buffers used by a single forward pass.
+// BBWENetState (dnn/osce_structs.h): the bound model plus the conv / GRU /
+// tdshape working buffers and overlap windows reused across forward passes.
 type State struct {
 	model *Model
 
@@ -216,16 +215,15 @@ var errBWERuntimeFeatures = errors.New("osce/bwe: invalid features length (expec
 // at 16 kHz; features must hold num_frames=len(in16k)/160 vectors of
 // FeatureDim floats each. out48k must hold 3 * len(in16k) float32 samples.
 //
-// Phase 2a status: every layer of the libopus pipeline (feature net conv1/
-// conv2/tconv/GRU + three AdaConv stages + two AdaShape blocks + the
-// interleaved upsamp_2x and interpol_3_2 resamplers + the Valin activation)
-// is exercised in the correct order with model weights from the loaded blob.
-// The implementation is a faithful translation of the bbwe_feature_net /
-// bbwenet_process_frames sequence, but has not yet been compared sample-for-
-// sample against libopus and may drift due to differences in math intrinsics.
+// The forward pass mirrors libopus bbwe_feature_net / bbwenet_process_frames
+// (dnn/osce.c): the feature net (conv1 / conv2 / tconv / GRU) produces the
+// per-subframe conditioning, which drives three AdaConv stages, two AdaShape
+// blocks, the interleaved upsamp_2x and interpol_3_2 resamplers and the Valin
+// activation, in that order. Output agrees with libopus to within float32
+// roundoff, gated by the BWE forward-pass parity tests.
 func (s *State) Process(in16k, out48k, features []float32) error {
 	if s == nil || s.model == nil {
-		return errBWERuntimeNotImplemented
+		return errBWENoModel
 	}
 	if len(in16k) != 160 && len(in16k) != 320 {
 		return errBWERuntimeFrameSize
@@ -348,8 +346,8 @@ func bweFloatToInt16(x float32) int16 {
 	return opusmath.Float32ToInt16OSCEOutputScale(x)
 }
 
-// errBWERuntimeNotImplemented is returned by Process when no model is bound.
-var errBWERuntimeNotImplemented = errors.New("osce/bwe: no model bound")
+// errBWENoModel is returned by Process when no model is bound.
+var errBWENoModel = errors.New("osce/bwe: no model bound")
 
 // ensureWindows lazily computes the Hann overlap windows used by all three
 // AdaConv stages (matches libopus compute_overlap_window).

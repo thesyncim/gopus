@@ -2,6 +2,10 @@ package dred
 
 import "github.com/thesyncim/gopus/rangecoding"
 
+// DRED latent geometry, mirroring libopus dnn/dred_rdovae_constants.h.
+// StateDim is the RDOVAE initial-state vector width, LatentDim the per-frame
+// latent width and LatentStride the stored stride (LatentDim plus the
+// per-latent quantizer-level byte).
 const (
 	StateDim     = 50
 	LatentDim    = 25

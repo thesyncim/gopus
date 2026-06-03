@@ -1,9 +1,26 @@
+// Package rdovae implements the libopus RDOVAE (rate-distortion-optimized
+// variational auto-encoder) used by Deep Redundancy (DRED).
+//
+// The encoder compresses 20-feature LPCNet frames into quantized latent and
+// state vectors; the decoder reconstructs feature frames from those latents.
+// Both the encoder (encoder_model.go / encoder_runtime.go) and decoder
+// (model.go / runtime.go) bind their weights from a validated dnnblob.Blob and
+// mirror libopus 1.6.1 dnn/dred_rdovae_{enc,dec}.c and dnn/dred_rdovae_*_data.c
+// bit-for-bit, held in place by the package and decoder DRED parity tests.
 package rdovae
 
 import "github.com/thesyncim/gopus/internal/dnnblob"
 
+// SparseBlockSize is the libopus block-sparse weight tile width
+// (SPARSE_BLOCK_SIZE in dnn/parse_lpcnet_weights.c): block-sparse layers store
+// nonzero weights in 32-output blocks.
 const SparseBlockSize = 32
 
+// RDOVAE model dimensions, copied verbatim from libopus 1.6.1
+// dnn/dred_rdovae_constants.h and the dred_rdovae_{enc,dec}_data layer specs.
+// They size the dense/GRU/conv stages of both the encoder and decoder and the
+// quantized latent/state representation (LatentDim, StateDim and their padded
+// widths, plus NumQuantLevels quantizer entries).
 const (
 	NumFeatures       = 20
 	LatentDim         = 25

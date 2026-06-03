@@ -7,6 +7,12 @@ import (
 	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
+// FARGAN conditioning-network dimensions, copied verbatim from libopus 1.6.1
+// dnn/fargan.h and dnn/fargan_data.h. The conditioning network embeds the
+// pitch period, then runs two dense layers around a delayed conv1d to produce
+// the per-subframe conditioning vectors that drive the FARGAN signal network.
+// PitchMinPeriod / PitchMaxPeriod bound the pitch-period search shared with the
+// pitch-prediction buffer.
 const (
 	FARGANPEmbedInputs     = 224
 	FARGANPEmbedOutSize    = 12
@@ -25,6 +31,9 @@ const (
 
 var errInvalidFARGANModel = errors.New("lpcnetplc: invalid fargan model")
 
+// FARGANConditionerModel holds the FARGAN conditioning-network weight layers:
+// the pitch embedding, two dense layers and the delayed conv1d, matching the
+// cond_net members libopus binds in init_fargan (dnn/fargan_data.c).
 type FARGANConditionerModel struct {
 	PEmbed LinearLayer
 	Dense1 LinearLayer
@@ -32,6 +41,9 @@ type FARGANConditionerModel struct {
 	Dense2 LinearLayer
 }
 
+// FARGANConditionerState is the persistent conditioning-network state: the
+// conv1d delay-line memory and the last pitch period, mirroring the cond
+// members of libopus FARGANState.
 type FARGANConditionerState struct {
 	condConv1State [FARGANCondConv1State]float32
 	lastPeriod     int

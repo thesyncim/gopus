@@ -5,6 +5,11 @@ import (
 	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
+// FARGAN signal-network dimensions, copied verbatim from libopus 1.6.1
+// dnn/fargan.h and dnn/fargan_data.h. FARGAN is the framewise auto-regressive
+// GAN vocoder that synthesizes time-domain PCM from LPCNet feature vectors;
+// these constants size the GLU conv, the three recurrent GRU stages and the
+// skip/output dense layers that make up sig_net.
 const (
 	FARGANSubframeSize       = 40
 	FARGANFrameSize          = FARGANNBSubframes * FARGANSubframeSize
@@ -33,6 +38,12 @@ const (
 	farganMaxActivation      = SigNetFWC0ConvOutSize
 )
 
+// FARGANModel holds every weight layer libopus binds for the FARGAN vocoder:
+// the conditioning network (PEmbed / Dense1 / Conv1 / Dense2 / CondGainDense)
+// plus the signal network's GLU conv, three GRU stages with their GLU gates,
+// and the skip and output dense layers. Field order and the record names bound
+// in LoadFARGANModel mirror the FARGAN struct and init_fargan in
+// dnn/fargan_data.{h,c}.
 type FARGANModel struct {
 	PEmbed        LinearLayer
 	Dense1        LinearLayer
@@ -56,6 +67,12 @@ type FARGANModel struct {
 	GainDenseOut  LinearLayer
 }
 
+// FARGANState is the persistent FARGAN runtime state, mirroring the recurrent
+// members of libopus FARGANState (dnn/fargan.h): the de-emphasis memory, the
+// pitch prediction buffer, the conditioning conv state, the GLU-conv memory,
+// the three GRU hidden states and the last pitch period. contInitialized
+// tracks whether PrimeContinuity has seeded the buffers, matching libopus'
+// cont_initialized flag.
 type FARGANState struct {
 	contInitialized bool
 	deemphMem       float32
@@ -90,6 +107,9 @@ type farganScratch struct {
 	quant       [farganMaxLinearInputs]int16
 }
 
+// FARGAN is the caller-owned FARGAN vocoder: a bound model plus its recurrent
+// state and pre-allocated scratch, so repeated synthesis stays allocation-free.
+// It mirrors how libopus embeds FARGANState in the LPCNet PLC decoder.
 type FARGAN struct {
 	model   *FARGANModel
 	state   FARGANState
@@ -264,10 +284,14 @@ var farganModelLayerSpecs = func() []LinearLayerSpec {
 	return specs
 }()
 
+// FARGANModelLayerSpecs returns the libopus-shaped conditioning and signal
+// layer specs the FARGAN runtime binds from a validated blob.
 func FARGANModelLayerSpecs() []LinearLayerSpec {
 	return farganModelLayerSpecs
 }
 
+// LoadFARGANModel binds the libopus FARGAN conditioning and signal layers from
+// a validated blob into a reusable FARGANModel.
 func LoadFARGANModel(blob *dnnblob.Blob) (*FARGANModel, error) {
 	if blob == nil {
 		return nil, errInvalidFARGANModel
@@ -324,6 +348,7 @@ func LoadFARGANModel(blob *dnnblob.Blob) (*FARGANModel, error) {
 	return &model, nil
 }
 
+// SetModel binds a validated FARGAN model and clears retained synthesis state.
 func (f *FARGAN) SetModel(blob *dnnblob.Blob) error {
 	model, err := LoadFARGANModel(blob)
 	if err != nil {
@@ -347,10 +372,12 @@ func (f *FARGAN) SetModelPreservingState(blob *dnnblob.Blob) error {
 	return nil
 }
 
+// Loaded reports whether a FARGAN model is currently retained.
 func (f *FARGAN) Loaded() bool {
 	return f != nil && f.model != nil
 }
 
+// Reset clears recurrent synthesis state while preserving the bound model.
 func (f *FARGAN) Reset() {
 	if f == nil {
 		return
@@ -358,6 +385,10 @@ func (f *FARGAN) Reset() {
 	f.state = FARGANState{}
 }
 
+// PrimeContinuity seeds the FARGAN recurrent buffers from past PCM and the
+// preceding feature vectors, mirroring libopus fargan_cont() (dnn/fargan.c).
+// It returns the number of warm-up samples consumed so synthesis can continue
+// seamlessly from the decoder history.
 func (f *FARGAN) PrimeContinuity(pcm0, features0 []float32) int {
 	if f == nil || f.model == nil || len(pcm0) < FARGANContSamples || len(features0) < ContVectors*NumFeatures {
 		return 0
@@ -389,6 +420,11 @@ func (f *FARGAN) PrimeContinuity(pcm0, features0 []float32) int {
 	return FARGANContSamples
 }
 
+// Synthesize generates one FARGAN frame (FARGANFrameSize samples) of PCM into
+// pcm from a single LPCNet feature vector, mirroring libopus fargan_synthesize
+// (dnn/fargan.c). It runs the conditioning network once, then the signal
+// network per subframe, and returns the number of samples written (0 if the
+// runtime is not primed via PrimeContinuity).
 func (f *FARGAN) Synthesize(pcm, features []float32) int {
 	if f == nil || f.model == nil || !f.state.contInitialized || len(pcm) < FARGANFrameSize || len(features) < NumFeatures {
 		return 0

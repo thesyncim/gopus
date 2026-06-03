@@ -10,17 +10,15 @@ import (
 )
 
 // LACE / NoLACE forward-pass constants are copied verbatim from libopus
-// 1.6.1 `dnn/lace_data.h` and `dnn/nolace_data.h`. Both postfilters run on
-// 20 ms frames at 16 kHz (320 samples in, 320 out -- postfilter, not
-// upsampler) split into 4 subframes of 80 samples each.
+// 1.6.1 dnn/lace_data.h and dnn/nolace_data.h. Both postfilters run on 20 ms
+// frames at 16 kHz (320 samples in, 320 out -- postfilter, not upsampler)
+// split into 4 subframes of 80 samples each.
 //
-// Phase 2a status: this file wires every documented LACE / NoLACE layer
-// (feature net + AdaComb x2 + AdaConv chain + AdaShape x3 + the NoLACE
-// post-conv refinements) end-to-end as a structural skeleton. The
-// implementation is a faithful Go translation of `lace_process_20ms_frame`
-// and `nolace_process_20ms_frame` from `dnn/osce.c`, but has not yet been
-// compared sample-for-sample against libopus and may drift slightly due
-// to differences in math intrinsics.
+// The forward pass is a Go translation of lace_process_20ms_frame and
+// nolace_process_20ms_frame from dnn/osce.c: feature net, two AdaComb stages,
+// the AdaConv chain, three AdaShape blocks and the NoLACE post-conv
+// refinements. Output matches libopus, gated by the LACE / NoLACE forward-pass
+// parity tests.
 const (
 	// Sample rates: LACE/NoLACE are 16 kHz postfilters.
 	SampleRate = 16000
