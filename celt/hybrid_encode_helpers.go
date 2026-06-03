@@ -273,6 +273,36 @@ func (e *Encoder) QuantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, 
 	)
 }
 
+// DecideStereoParams mirrors the stereo-mode parameter decision in
+// celt_encode_with_ec (celt_encoder.c, the C==2 block right after dynalloc):
+// it runs the intensity-band hysteresis decision against the persistent
+// st->intensity state, clamps it to [start, end], and runs stereo_analysis for
+// the dual_stereo flag (MS-only for 2.5 ms frames). The CELT-only encoder runs
+// this inline; the hybrid encoder must call it so its high-band stereo coupling
+// matches libopus instead of defaulting intensity to nbBands.
+//
+// Returns the chosen intensity band and dual_stereo flag. normL/normR are the
+// normalised bands; equivRate is the libopus equiv_rate.
+func (e *Encoder) DecideStereoParams(normL, normR []celtNorm, equivRate, lm, nbBands, start, end int) (intensity int, dualStereo bool) {
+	dualStereo = false
+	if lm != 0 {
+		dualStereo = stereoAnalysisDecision(normL, normR, lm, nbBands)
+	}
+	e.intensity = int32(hysteresisDecisionInt(
+		equivRate/1000,
+		celtIntensityThresholds[:],
+		celtIntensityHysteresis[:],
+		int(e.intensity),
+	))
+	if int(e.intensity) < start {
+		e.intensity = int32(start)
+	}
+	if int(e.intensity) > end {
+		e.intensity = int32(end)
+	}
+	return int(e.intensity), dualStereo
+}
+
 // LastCodedBands returns the last coded band count used for allocation skip decisions.
 func (e *Encoder) LastCodedBands() int {
 	return int(e.lastCodedBands)

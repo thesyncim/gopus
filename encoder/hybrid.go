@@ -1834,6 +1834,15 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetP
 	nbCompressedBytesForEquiv := (totalBits + 7) >> 3
 	equivRate := celt.ComputeEquivRate(nbCompressedBytesForEquiv, channels, lm, e.celtEncoder.Bitrate())
 	signalBandwidth := e.celtEncoder.SignalBandwidthForAllocation(nbBands, equivRate)
+	// Stereo mode parameters: libopus runs the intensity-band hysteresis decision
+	// and stereo_analysis (dual_stereo) for C==2 in celt_encode_with_ec right after
+	// dynalloc, clamping intensity to [start, end]. For hybrid, start is
+	// HybridCELTStartBand, so the low-bitrate hysteresis result is clamped up to
+	// start (all high bands become intensity-stereo). Defaulting intensity to
+	// nbBands (as before) diverged the high-band stereo coupling from libopus.
+	if channels == 2 {
+		intensity, dualStereo = e.celtEncoder.DecideStereoParams(normL, normR, equivRate, lm, nbBands, start, end)
+	}
 
 	allocResult := e.celtEncoder.ComputeAllocationHybridScratch(
 		re,

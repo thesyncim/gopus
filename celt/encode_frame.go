@@ -425,6 +425,19 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	if tell == 1 {
 		if isSilence {
 			re.EncodeBit(1, 15)
+			// libopus celt_encode_with_ec does NOT short-circuit a silent frame:
+			// after coding the silence flag it pretends the budget is full (no band
+			// bits are spent) but still runs the full pipeline, so run_prefilter()
+			// shifts prefilter_mem and consec_transient advances via
+			// transient_got_disabled. Replicate that state evolution here (the
+			// prefilter runs with enabled=false, which only shifts the comb-filter
+			// history) so the encoder state carried into the post-silence recovery
+			// frame matches libopus and the recovery encode stays byte-exact.
+			maxPitchRatio := float32(1.0)
+			if e.analysisValid {
+				maxPitchRatio = e.analysisMaxPitchRatio
+			}
+			e.runPrefilter(preemph, frameSize, e.TapsetDecision(), false, tfEstimate, targetBytes, toneFreq, toneishness, maxPitchRatio)
 			return e.finishEncodedSilenceFrame(re, frameSize, targetBytes)
 		}
 		re.EncodeBit(0, 15)
@@ -1969,8 +1982,12 @@ func (e *Encoder) finishEncodedSilenceFrame(re *rangecoding.Encoder, frameSize, 
 		e.energyError[i] = 0
 	}
 	e.lastDynalloc = DynallocResult{}
-	e.lastPitchChange = false
-	e.consecTransient = 0
+	// libopus codes a silent frame with the budget pretended full, so the
+	// transient flag never fits: transient_got_disabled=1 and consec_transient
+	// advances (celt_encoder.c: "if (isTransient || transient_got_disabled)
+	// st->consec_transient++"). The shortcut previously reset it to 0, which
+	// diverged the post-silence recovery frame's transient/anti-collapse state.
+	e.consecTransient++
 	e.IncrementFrameCount()
 	e.rng = re.Range()
 	return re.Done(), nil
