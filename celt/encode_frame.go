@@ -967,13 +967,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 				}
 			}
 		}
-		tfEncode(re, start, end, transient, tfRes, lm)
-
-		// Convert tfRes to actual TF change values
-		for i := start; i < end; i++ {
-			idx := 4*boolToInt(transient) + 2*tfSelect + int(tfRes[i])
-			tfRes[i] = int32(tfSelectTable[lm][idx])
-		}
+		// tf_encode applies the budget guard, tf_select reservation, and the
+		// tfSelectTable conversion in one pass, matching libopus tf_encode().
+		TFEncodeWithSelect(re, start, end, transient, tfRes, lm, tfSelect)
 	}
 	// Step 11.2: Compute and encode spread decision
 	// Match libopus gating: only encode if there's budget for the decision.

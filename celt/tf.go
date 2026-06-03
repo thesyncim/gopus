@@ -816,11 +816,15 @@ func TFEncode(re *rangecoding.Encoder, start, end int, isTransient bool, tfRes [
 	tfEncode(re, start, end, isTransient, tfRes, lm)
 }
 
-// tfEncode encodes time-frequency resolution flags for each band.
-// This is the inverse of tfDecode.
+// tfEncode encodes time-frequency resolution flags for each band with the
+// default tf_select of 0. This is the inverse of tfDecode.
 //
-// For simplicity (default case), we encode all zeros meaning no TF changes.
-// The tfRes parameter can specify per-band TF values if needed.
+// It delegates to TFEncodeWithSelect so the entropy budget guard, tf_select
+// reservation, and the tfSelectTable rewrite all match libopus tf_encode()
+// (celt/celt_encoder.c) exactly. The budget guard is load-bearing at minimum
+// packet sizes: when the coder runs out of bits mid-band, libopus stops coding
+// tf change bits and forces tf_res[i] to the running value, so an encoder that
+// keeps coding would overrun and desynchronise the decoder's allocation.
 //
 // Parameters:
 //   - re: range encoder
@@ -832,52 +836,12 @@ func tfEncode(re *rangecoding.Encoder, start, end int, isTransient bool, tfRes [
 	if re == nil {
 		return
 	}
-
-	// Initial logp depends on transient mode
-	logp := 4
-	if isTransient {
-		logp = 2
+	if tfRes == nil {
+		zero := make([]int32, end)
+		TFEncodeWithSelect(re, start, end, isTransient, zero, lm, 0)
+		return
 	}
-
-	// Reserve bit for tfSelect if lm > 0
-	tfSelectRsv := lm > 0
-	tfChanged := 0
-	curr := 0
-
-	for i := start; i < end; i++ {
-		// Target value for this band (0 if no tfRes provided)
-		target := 0
-		if tfRes != nil && i < len(tfRes) {
-			target = int(tfRes[i])
-		}
-
-		// Encode whether current differs from previous
-		change := 0
-		if target != curr {
-			change = 1
-			curr = target
-			tfChanged = 1
-		}
-
-		re.EncodeBit(change, uint(logp))
-
-		// Update logp for next band
-		if isTransient {
-			logp = 4
-		} else {
-			logp = 5
-		}
-	}
-
-	// Encode tfSelect if reserved and there's a meaningful choice
-	if tfSelectRsv {
-		idx0 := tfSelectTable[lm][4*boolToInt(isTransient)+0+tfChanged]
-		idx1 := tfSelectTable[lm][4*boolToInt(isTransient)+2+tfChanged]
-		if idx0 != idx1 {
-			// Encode tfSelect = 0 (default)
-			re.EncodeBit(0, 1)
-		}
-	}
+	TFEncodeWithSelect(re, start, end, isTransient, tfRes, lm, 0)
 }
 
 func tfDecode(start, end int, isTransient bool, tfRes []int32, lm int, rd *rangecoding.Decoder) {
