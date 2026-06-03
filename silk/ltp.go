@@ -1,7 +1,9 @@
 package silk
 
-// ltpSynthesis applies long-term prediction to excitation for voiced frames.
-// Per RFC 6716 Section 4.2.7.9.1.
+// ltpSynthesis applies long-term prediction to excitation for voiced frames,
+// per RFC 6716 Section 4.2.7.9.1. This is a float-domain reference of the LTP
+// step; the bit-exact decode path instead runs LTP inside silkDecodeCore
+// (silk/decode_core.c). It is retained only for unit tests.
 //
 // LTP predicts current samples from pitch-delayed past output using a 5-tap filter.
 // The prediction is added to the excitation to incorporate pitch periodicity.
@@ -61,9 +63,10 @@ func (d *Decoder) ltpSynthesis(excitation []int32, pitchLag int, ltpCoeffs []int
 	}
 }
 
-// updateHistory adds samples to the circular output history buffer.
-// This must be called after synthesizing each subframe to maintain
-// history for LTP lookback in subsequent subframes/frames.
+// updateHistory adds float samples to the circular output history buffer used
+// by the float reference LTP helpers (ltpSynthesis / getHistorySample). The
+// bit-exact decode path uses updateHistoryInt16 instead; this variant is
+// exercised only by unit tests.
 func (d *Decoder) updateHistory(samples []float32) {
 	historyLen := len(d.outputHistory)
 	for _, s := range samples {
@@ -101,8 +104,9 @@ func (d *Decoder) updateHistoryInt16(samples []int16) {
 	d.historyIndex = idx
 }
 
-// getHistorySample retrieves a sample from the output history buffer.
-// Offset is how many samples back from the current position (positive = past).
+// getHistorySample retrieves a sample from the float output history buffer,
+// offset samples back from the current write position (positive = past). Used by
+// the float reference LTP helpers and their unit tests.
 func (d *Decoder) getHistorySample(offset int) float32 {
 	historyLen := len(d.outputHistory)
 	idx := d.historyIndex - offset

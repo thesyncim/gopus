@@ -1,10 +1,9 @@
 package silk
 
-// scaleExcitation applies gain to excitation signal for one subframe.
-// Per RFC 6716 Section 4.2.7.9.
-//
-// The gain is in Q16 format. The excitation is scaled to Q0 (PCM units)
-// and returned in the same array (modified in place).
+// scaleExcitation applies a Q16 gain to an excitation signal for one subframe,
+// scaling to Q0 (PCM units) in place. This is a standalone helper used by unit
+// tests; the bit-exact decode path applies gains inside silkDecodeCore
+// (silk/decode_core.c) rather than calling this.
 func scaleExcitation(excitation []int32, gain int32) {
 	for i := range excitation {
 		// Multiply by Q16 gain and return to Q0.

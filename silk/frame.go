@@ -64,6 +64,9 @@ func FrameDurationFromTOC(tocFrameSize int) FrameDuration {
 	return FrameDurationFromSamples(tocFrameSize, 48000)
 }
 
+// FrameDurationFromSamples returns the SILK frame duration corresponding to a
+// frame of samples at sampleRate, falling back to Frame20ms for any size that is
+// not a valid SILK frame (10/20/40/60 ms) or for a non-positive rate.
 func FrameDurationFromSamples(samples, sampleRate int) FrameDuration {
 	if sampleRate <= 0 {
 		return Frame20ms

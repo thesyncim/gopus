@@ -6,6 +6,13 @@ const (
 	invScaleQ16Val = (1 << 16) * qgainRangeQ7 / (nLevelsQGain - 1)
 )
 
+// silkGainsDequant reconstructs the per-subframe linear gains (Q16) from their
+// quantization indices. The first subframe of an independently coded frame uses
+// an absolute index (clamped against the previous gain); all other subframes
+// delta-decode from the running index, with a doubled step size for large
+// increases. The running index is clamped to the gain table and converted to a
+// linear gain via silkLog2Lin. Mirrors libopus silk/gain_quant.c
+// silk_gains_dequant.
 func silkGainsDequant(gainsQ16 *[maxNbSubfr]int32, indices *[maxNbSubfr]int8, prevIndex *int8, conditional bool, nbSubfr int) {
 	prev := int(*prevIndex)
 	for k := 0; k < nbSubfr; k++ {

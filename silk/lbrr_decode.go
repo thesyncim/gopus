@@ -11,6 +11,9 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
+// preparePacketRangeDecoder initializes a range decoder over a SILK packet and
+// resolves the packet's frame layout (frames per packet, subframes per frame)
+// from the requested API-rate frame size. Shared setup for the FEC entry points.
 func preparePacketRangeDecoder(data []byte, frameSizeSamples, sampleRate int) (rangecoding.Decoder, int, int, error) {
 	var rd rangecoding.Decoder
 	rd.Init(data)
@@ -154,6 +157,11 @@ func (d *Decoder) DecodeFEC(
 	return output, nil
 }
 
+// decodeStereoFECFrames recovers a stereo packet's frames from LBRR data: per
+// frame it decodes the stereo prediction (when present), decodes each channel's
+// LBRR frame or runs concealment when that channel has no LBRR, unmixes mid/side
+// to left/right, and resamples to the API rate. Mirrors the stereo LBRR path of
+// libopus silk/dec_API.c silk_Decode (lostFlag = FLAG_DECODE_LBRR).
 func (d *Decoder) decodeStereoFECFrames(
 	rd *rangecoding.Decoder,
 	stMid, stSide *decoderState,
@@ -290,6 +298,10 @@ func (d *Decoder) decodeStereoFECFrames(
 	return output, nil
 }
 
+// decodeFECLostFrameInto fills frameOut with packet-loss concealment for a frame
+// that has no LBRR data inside an FEC packet, keeping the decoder's loss cadence
+// aligned with libopus decode_fec (it runs the normal PLC concealment for that
+// sub-frame instead of decoding redundant data).
 func (d *Decoder) decodeFECLostFrameInto(channel int, st *decoderState, frameOut []int16) {
 	if st == nil || len(frameOut) == 0 {
 		return

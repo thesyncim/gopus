@@ -4,9 +4,10 @@ package silk
 // Opus API expects 48kHz output.
 // Upsampling factors: NB=6x, MB=4x, WB=3x.
 
-// upsampleTo48k resamples SILK output to 48kHz using simple linear interpolation.
-// This is not the highest quality resampling but is sufficient for initial implementation.
-// A future optimization could use polyphase resampling for higher quality.
+// upsampleTo48k resamples SILK output to 48 kHz using simple linear
+// interpolation. The bit-exact decode path does NOT use this: it resamples
+// through LibopusResampler (silk/resampler*.c). This helper is a lightweight
+// approximation kept for tests and non-bit-exact callers.
 func upsampleTo48k(samples []float32, srcRate int) ([]float32, error) {
 	return upsampleTo48kWithScratch(samples, srcRate, nil)
 }

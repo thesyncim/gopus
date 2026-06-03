@@ -2,6 +2,10 @@ package silk
 
 import "github.com/thesyncim/gopus/rangecoding"
 
+// initFrameDecodeState resets the per-packet decode counters on a channel state
+// and configures it for the packet's frame layout and internal sample rate.
+// Mirrors the per-packet state setup at the top of libopus silk/dec_API.c
+// silk_Decode.
 func initFrameDecodeState(st *decoderState, fsKHz, framesPerPacket, nbSubfr int) {
 	st.nFramesDecoded = 0
 	st.nFramesPerPacket = int32(framesPerPacket)
@@ -9,6 +13,10 @@ func initFrameDecodeState(st *decoderState, fsKHz, framesPerPacket, nbSubfr int)
 	silkDecoderSetFs(st, fsKHz)
 }
 
+// frameCondCoding returns the conditional-coding mode for a mono frame: the
+// first frame in a packet is coded independently, later frames conditionally on
+// the previous frame. Mirrors the condCoding selection in libopus
+// silk/dec_API.c silk_Decode.
 func frameCondCoding(frameIndex int) int {
 	if frameIndex > 0 {
 		return codeConditionally
@@ -16,6 +24,10 @@ func frameCondCoding(frameIndex int) int {
 	return codeIndependently
 }
 
+// lbrrCondCoding returns the conditional-coding mode for an LBRR (FEC) frame: it
+// may only code conditionally on the previous frame when that previous LBRR
+// frame was actually present. Mirrors the LBRR condCoding selection in libopus
+// silk/dec_API.c silk_Decode.
 func lbrrCondCoding(st *decoderState, frameIndex int) int {
 	if frameIndex > 0 && st.LBRRFlags[frameIndex-1] != 0 {
 		return codeConditionally
@@ -23,6 +35,11 @@ func lbrrCondCoding(st *decoderState, frameIndex int) int {
 	return codeIndependently
 }
 
+// sideFrameCondCoding returns the conditional-coding mode for a stereo
+// side-channel frame. The first frame is independent; after a mid-only frame
+// the side channel must code independently without LTP scaling so it does not
+// reference state that was never decoded. Mirrors the side-channel condCoding
+// selection in libopus silk/dec_API.c silk_Decode.
 func sideFrameCondCoding(frameIndex int, prevDecodeOnlyMiddle int32) int {
 	if frameIndex == 0 {
 		return codeIndependently
@@ -166,6 +183,11 @@ func (d *Decoder) skipStereoLBRRFrames(rd *rangecoding.Decoder, stMid, stSide *d
 	}
 }
 
+// decodeFrameCoreInto decodes one SILK frame end to end into frameOut at the
+// internal SILK rate: it range-decodes the indices and excitation pulses,
+// dequantizes the synthesis parameters and runs the LTP/LPC synthesis core,
+// recording the number of consumed bits in the returned control struct. Mirrors
+// the decode portion of libopus silk/decode_frame.c silk_decode_frame.
 func (d *Decoder) decodeFrameCoreInto(
 	st *decoderState,
 	rd *rangecoding.Decoder,
@@ -191,6 +213,12 @@ func (d *Decoder) decodeFrameCoreInto(
 	return ctrl
 }
 
+// finalizeDecodedChannelFrame runs the post-synthesis bookkeeping for one
+// decoded SILK frame: it updates the LTP/output history and outBuf, applies
+// comfort-noise generation, runs PLC frame gluing, refreshes the PLC/CNG and
+// optional postfilter state, clears the loss counter and advances the
+// per-packet frame index. Mirrors the tail of libopus silk/decode_frame.c
+// silk_decode_frame (silk_CNG, silk_PLC_glue_frames and state updates).
 func (d *Decoder) finalizeDecodedChannelFrame(channel int, st *decoderState, ctrl *decoderControl, frameOut []int16, updateHistory bool) {
 	if updateHistory {
 		d.updateHistoryInt16(frameOut)
@@ -227,11 +255,17 @@ func (d *Decoder) finalizeDecodedChannelFrame(channel int, st *decoderState, ctr
 	st.nFramesDecoded++
 }
 
+// decodeLBRRFrameInto decodes one LBRR (FEC) redundant frame and runs the same
+// post-synthesis finalization as a normal frame. Mirrors the LBRR-frame decode
+// branch of libopus silk/dec_API.c silk_Decode (lostFlag = FLAG_DECODE_LBRR).
 func (d *Decoder) decodeLBRRFrameInto(channel int, st *decoderState, rd *rangecoding.Decoder, frameIndex int, frameOut []int16, updateHistory bool) {
 	ctrl := d.decodeFrameCoreInto(st, rd, frameOut, lbrrCondCoding(st, frameIndex), true)
 	d.finalizeDecodedChannelFrame(channel, st, &ctrl, frameOut, updateHistory)
 }
 
+// maybeResetStereoSideChannel resets the side-channel decoder state on the
+// transition from a mid-only frame back to a full stereo frame, matching the
+// decode_only_middle handling in libopus silk/dec_API.c silk_Decode.
 func (d *Decoder) maybeResetStereoSideChannel(decodeOnlyMiddle int, stSide *decoderState) {
 	if decodeOnlyMiddle == 0 && d.prevDecodeOnlyMiddle == 1 {
 		resetSideChannelState(stSide)

@@ -1,5 +1,9 @@
 package silk
 
+// silkNLSFUnpack unpacks, for a given first-stage NLSF codebook index, the
+// per-coefficient entropy-table selectors (ecIx) and backward predictor
+// coefficients (predQ8) used by the second-stage residual decode. Mirrors
+// libopus silk/NLSF_unpack.c silk_NLSF_unpack.
 func silkNLSFUnpack(ecIx []int16, predQ8 []uint8, cb *nlsfCB, cb1Index int) {
 	order := int(cb.order)
 	ecSelPtr := cb.ecSel[cb1Index*order/2:]
@@ -13,6 +17,10 @@ func silkNLSFUnpack(ecIx []int16, predQ8 []uint8, cb *nlsfCB, cb1Index int) {
 	}
 }
 
+// silkNLSFResidualDequant dequantizes the second-stage NLSF residual indices
+// into Q10 residuals, running the backward predictor from high to low index and
+// applying the quantization step size and level adjustment. Mirrors libopus
+// silk/NLSF_residual_dequant.c silk_NLSF_residual_dequant.
 func silkNLSFResidualDequant(xQ10 []int16, indices []int8, predQ8 []uint8, quantStepSizeQ16 int16, order int) {
 	var outQ10 int32
 	for i := order - 1; i >= 0; i-- {
@@ -28,6 +36,11 @@ func silkNLSFResidualDequant(xQ10 []int16, indices []int8, predQ8 []uint8, quant
 	}
 }
 
+// silkNLSFDecode reconstructs the normalized line-spectral-frequency vector
+// (Q15) from its codebook indices: it unpacks the predictor/entropy selectors,
+// dequantizes the residual, adds the first-stage codebook vector weighted by the
+// inverse codebook weights, and stabilizes the result to a valid ordered set.
+// Mirrors libopus silk/NLSF_decode.c silk_NLSF_decode.
 func silkNLSFDecode(nlsfQ15 []int16, indices []int8, cb *nlsfCB) {
 	var ecIx [maxLPCOrder]int16
 	var predQ8 [maxLPCOrder]uint8
@@ -86,6 +99,11 @@ func silkNLSFDecodeInto(nlsfQ15 []int16, indices []int8, cb *nlsfCB, ecIx []int1
 	silkNLSFStabilize(nlsfQ15[:order], cb.deltaMinQ15, order)
 }
 
+// silkNLSFStabilize enforces the minimum spacing (deltaMin) between adjacent
+// NLSF coefficients and the [0, 1) range, first by iteratively widening the
+// tightest gap and, if that does not converge within the loop budget, by a
+// sorting fallback. This guarantees a stable LPC filter. Mirrors libopus
+// silk/NLSF_stabilize.c silk_NLSF_stabilize.
 func silkNLSFStabilize(nlsfQ15 []int16, deltaMinQ15 []int16, order int) {
 	const maxLoops = 20
 	for loops := 0; loops < maxLoops; loops++ {
@@ -155,6 +173,9 @@ func silkNLSFStabilize(nlsfQ15 []int16, deltaMinQ15 []int16, order int) {
 	}
 }
 
+// silkInsertionSortInt16 sorts the first n elements ascending in place. Used by
+// the NLSF stabilization fallback. Mirrors the values-only variant of libopus
+// silk/insertion_sort.c silk_insertion_sort_increasing.
 func silkInsertionSortInt16(a []int16, n int) {
 	for i := 1; i < n; i++ {
 		key := a[i]

@@ -2,6 +2,10 @@ package silk
 
 import "github.com/thesyncim/gopus/rangecoding"
 
+// silkStereoDecodePred range-decodes the two stereo prediction weights (Q13)
+// for a frame: a joint index selects the coarse quantization cells and two
+// uniform indices select the sub-step within each cell. Mirrors libopus
+// silk/stereo_decode_pred.c silk_stereo_decode_pred.
 func silkStereoDecodePred(rd *rangecoding.Decoder, predQ13 []int32) {
 	ix := [2][3]int{}
 	n := rd.DecodeICDF8Linear(silk_stereo_pred_joint_iCDF)
@@ -21,10 +25,20 @@ func silkStereoDecodePred(rd *rangecoding.Decoder, predQ13 []int32) {
 	predQ13[0] -= predQ13[1]
 }
 
+// silkStereoDecodeMidOnly range-decodes the mid-only flag, which signals that
+// the side channel was not coded for this frame. Mirrors libopus
+// silk/stereo_decode_pred.c silk_stereo_decode_mid_only.
 func silkStereoDecodeMidOnly(rd *rangecoding.Decoder) int {
 	return rd.DecodeICDF2_8(64)
 }
 
+// silkStereoMSToLR converts a decoded mid/side frame back to left/right. It
+// prepends the two-sample mid/side history, interpolates the stereo prediction
+// weights across the first stereo_interp_len_ms over the frame, reconstructs the
+// predicted side signal, and finally forms L = mid+side, R = mid-side. The
+// frameLength samples are written starting at index 1 of mid/side (the +2 buffers
+// carry one sample of history on each side). Mirrors libopus
+// silk/stereo_MS_to_LR.c silk_stereo_MS_to_LR.
 func silkStereoMSToLR(state *stereoDecState, mid []int16, side []int16, predQ13 []int32, fsKHz int, frameLength int) {
 	copy(mid, state.sMid[:])
 	copy(side, state.sSide[:])

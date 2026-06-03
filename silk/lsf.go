@@ -1,10 +1,10 @@
 package silk
 
-// stabilizeLSF ensures minimum spacing between adjacent LSF values.
-// Per RFC 6716 Section 4.2.7.5.5.
-//
-// LSF values must be in increasing order with minimum gaps to ensure
-// a stable LPC filter. Also clamps to [0, pi] range.
+// stabilizeLSF enforces minimum spacing between adjacent LSF values (RFC 6716
+// Section 4.2.7.5.5) so the resulting LPC filter is stable, clamping to the
+// valid range and bubble-sorting into order. The bit-exact decode path uses
+// silkNLSFStabilize (silk/NLSF_stabilize.c) instead; this simpler variant is
+// exercised only by unit tests.
 func stabilizeLSF(lsf []int16, isWideband bool) {
 	lpcOrder := len(lsf)
 
@@ -47,8 +47,9 @@ func stabilizeLSF(lsf []int16, isWideband bool) {
 	}
 }
 
-// lsfToLPC converts LSF coefficients to LPC coefficients.
-// LSF input is in Q15 format [0, 32767]. LPC output is in Q12 format.
+// lsfToLPC converts LSF (Q15) coefficients to LPC (Q12) coefficients, preferring
+// the bit-exact silkNLSF2A (silk/NLSF2A.c) and falling back to lsfToLPCDirect on
+// instability. Used by unit tests; the decode path calls silkNLSF2A directly.
 func lsfToLPC(lsfQ15 []int16) []int16 {
 	lpcOrder := len(lsfQ15)
 	lpcQ12 := make([]int16, lpcOrder)
@@ -58,8 +59,11 @@ func lsfToLPC(lsfQ15 []int16) []int16 {
 	return lsfToLPCDirect(lsfQ15)
 }
 
-// lsfToLPCDirect converts LSF to LPC using the direct algorithm.
-// Per RFC 6716 Section 4.2.7.5.6.
+// lsfToLPCDirect converts LSF (Q15) to LPC (Q12) by building the symmetric and
+// antisymmetric LSF polynomials directly, per RFC 6716 Section 4.2.7.5.6. The
+// decode path uses it as the stability fallback when silkNLSF2A
+// (silk/NLSF2A.c) cannot produce a stable filter (see silkDecodeParameters and
+// the CNG/LSF-quantize paths).
 func lsfToLPCDirect(lsfQ15 []int16) []int16 {
 	lpcOrder := len(lsfQ15)
 	lpcQ12 := make([]int16, lpcOrder)

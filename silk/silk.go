@@ -14,13 +14,24 @@ var (
 	ErrDecodeFailed     = errors.New("silk: frame decode failed")
 )
 
+// finalizeSuccessfulDecode resets the shared PLC fade state after a good packet
+// and records the frame size and channel count so a subsequent lost packet
+// conceals at the right geometry. Called at the end of every successful public
+// decode.
 func (d *Decoder) finalizeSuccessfulDecode(frameSizeSamples, channels int) {
 	d.plcState.Reset()
 	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, channels)
 }
 
-// Decode decodes a SILK mono frame and returns PCM at the decoder API rate.
-// If data is nil, performs Packet Loss Concealment (PLC) instead of decoding.
+// Decode decodes one SILK mono packet and returns PCM at the decoder API rate.
+// If data is nil it performs Packet Loss Concealment (PLC) for a lost packet
+// instead of decoding. Mirrors the mono path of libopus silk/dec_API.c
+// silk_Decode followed by the SILK resampler.
+//
+// The function never panics on malformed or truncated data: the range decoder
+// keeps producing symbols past the end of the buffer, and the resulting
+// out-of-range indices are bounded inside the SILK decoder. Valid input is
+// bit-exact with libopus.
 //
 // Parameters:
 //   - data: raw SILK frame data (without TOC byte), or nil for PLC
@@ -98,8 +109,12 @@ func (d *Decoder) Decode(
 	return output, nil
 }
 
-// DecodeStereo decodes a SILK stereo frame and returns PCM at the decoder API rate.
-// If data is nil, performs Packet Loss Concealment (PLC) instead of decoding.
+// DecodeStereo decodes one SILK stereo packet and returns PCM at the decoder
+// API rate. If data is nil it performs Packet Loss Concealment (PLC) for a lost
+// packet instead of decoding. Mirrors the stereo path of libopus
+// silk/dec_API.c silk_Decode (mid/side decode plus silk/stereo_MS_to_LR.c)
+// followed by the SILK resampler. Like Decode it never panics on malformed
+// input and is bit-exact with libopus on valid input.
 //
 // Returns interleaved stereo samples [L0, R0, L1, R1, ...] at the decoder API rate.
 func (d *Decoder) DecodeStereo(
@@ -1150,6 +1165,12 @@ func (d *Decoder) RecordPLCLossStereo(left, right []float32) {
 	d.recordPLCLossForState(&d.state[1], right)
 }
 
+// recordPLCLossForState applies the per-channel state updates for a concealed
+// frame: it bumps the loss counter, converts the concealment to int16, updates
+// the LTP/output history and outBuf, runs comfort-noise generation and PLC
+// frame-energy gluing, and writes the (possibly CNG-modified) result back into
+// concealed. Mirrors the lost-frame bookkeeping of libopus silk/decode_frame.c
+// (silk_CNG and silk_PLC_glue_frames on a concealed frame).
 func (d *Decoder) recordPLCLossForState(st *decoderState, concealed []float32) {
 	if st == nil {
 		return
@@ -1227,6 +1248,12 @@ func (d *Decoder) applyDeepPLCHistoryMono(st *decoderState, concealed []float32)
 	setSLPCQ14HistoryQ14(st, history[:historyIdx])
 }
 
+// ApplyDeepPLCLossMono records a mono lost frame whose concealment was produced
+// externally (the deep/neural PLC), writing concealed into rendered and updating
+// the channel-0 SILK loss state, pitch lag and LPC history so a following good
+// frame glues correctly. It still advances the standard SILK PLC state to keep
+// the pitch lag consistent. Returns the number of samples written. Used by the
+// hybrid DRED/DeepPLC path; the standard SILK concealment is decodePLC.
 func (d *Decoder) ApplyDeepPLCLossMono(concealed, rendered []float32, lagPrev int) int {
 	if d == nil || len(concealed) == 0 || len(rendered) < len(concealed) {
 		return 0
@@ -1320,14 +1347,24 @@ func (d *Decoder) DecodePLCStereoInto(bandwidth Bandwidth, frameSizeSamples int,
 	if len(output) < frameSizeSamples*2 {
 		return 0, ErrDecodeFailed
 	}
-	// Get fade factor for this loss
-	fadeFactor := d.plcState.RecordLoss()
-	// Match libopus silk_PLC_conceal() input cadence: use decoder-state lossCnt.
-	lossCnt := d.state[0].lossCnt
 
 	// Get native sample count from the API-rate frame size.
 	config := GetBandwidthConfig(bandwidth)
 	nativeSamples := frameSizeSamples * config.SampleRate / d.outputSampleRate()
+	// A frame size that maps to zero native samples (e.g. frameSizeSamples 0)
+	// has nothing to conceal. Return before touching PLC/decoder state: the
+	// stereo MS->LR pass (silkStereoMSToLR) assumes frameLength >= the
+	// interpolation window and would read past the mid/side history otherwise.
+	// Every valid SILK frame size yields nativeSamples >= 80, so this never
+	// fires on real input.
+	if nativeSamples <= 0 {
+		return 0, nil
+	}
+
+	// Get fade factor for this loss
+	fadeFactor := d.plcState.RecordLoss()
+	// Match libopus silk_PLC_conceal() input cadence: use decoder-state lossCnt.
+	lossCnt := d.state[0].lossCnt
 
 	// libopus stereo PLC keeps operating in mid/side space and only converts
 	// back to left/right through silk_stereo_MS_to_LR before resampling.

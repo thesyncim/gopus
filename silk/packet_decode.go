@@ -2,6 +2,11 @@ package silk
 
 import "github.com/thesyncim/gopus/rangecoding"
 
+// frameParams maps a SILK frame duration to the number of 20 ms SILK frames in
+// the packet and the number of 5 ms subframes per frame. A 10 ms frame has one
+// frame of two subframes; 20/40/60 ms have one/two/three frames of four
+// subframes each. Mirrors the nb_subfr / nFramesPerPacket setup in libopus
+// silk/dec_API.c silk_Decode.
 func frameParams(duration FrameDuration) (framesPerPacket int, nbSubfr int, err error) {
 	switch duration {
 	case Frame10ms:
@@ -25,6 +30,8 @@ func frameParams(duration FrameDuration) (framesPerPacket int, nbSubfr int, err 
 	return framesPerPacket, nbSubfr, nil
 }
 
+// roundUpShellFrame rounds a frame length up to a whole number of 16-sample
+// shell-coder blocks, the granularity at which pulses are decoded.
 func roundUpShellFrame(length int) int {
 	return (length + shellCodecFrameLength - 1) & ^(shellCodecFrameLength - 1)
 }
@@ -76,6 +83,11 @@ func decodeVADAndLBRRFlags(rd *rangecoding.Decoder, st *decoderState, framesPerP
 	decodeLBRRFlagsSymbol(rd, st, framesPerPacket)
 }
 
+// resetSideChannelState re-initializes the stereo side-channel decoder state
+// when the side channel resumes after one or more mid-only frames, clearing the
+// output and LPC history and restoring the default lag/gain/signal-type. Mirrors
+// the side-channel reset in libopus silk/dec_API.c silk_Decode (the
+// decode_only_middle transition).
 func resetSideChannelState(st *decoderState) {
 	for i := range st.outBuf {
 		st.outBuf[i] = 0

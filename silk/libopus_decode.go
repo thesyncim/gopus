@@ -2,6 +2,11 @@ package silk
 
 import "github.com/thesyncim/gopus/rangecoding"
 
+// silkDecoderSetFs configures the per-channel decoder state for an internal
+// SILK sample rate of fsKHz (8, 12 or 16). It selects the pitch-contour and
+// pitch-lag iCDF tables, the NLSF codebook and LPC order, and resets the
+// continuity buffers when the rate changes. Mirrors libopus
+// silk/decoder_set_fs.c silk_decoder_set_fs.
 func silkDecoderSetFs(st *decoderState, fsKHz int) {
 	st.subfrLength = int32(subFrameLengthMs * fsKHz)
 	frameLength := st.nbSubfr * st.subfrLength
@@ -58,6 +63,11 @@ func silkDecoderSetFs(st *decoderState, fsKHz int) {
 	}
 }
 
+// silkDecodeIndices range-decodes all side-information indices for one SILK
+// frame: signal type and quantization offset, the per-subframe gain indices,
+// the NLSF (LSF) vector indices with interpolation factor, and for voiced
+// frames the pitch lag, contour, LTP filter and LTP-scaling indices, plus the
+// excitation seed. Mirrors libopus silk/decode_indices.c silk_decode_indices.
 func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, condCoding int) {
 	var ix int
 	if vadFlag {
@@ -159,6 +169,11 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 	st.indices.Seed = int8(rd.DecodeICDF8Unchecked(silk_uniform4_iCDF))
 }
 
+// silkDecodeShellSplit decodes one node of the pulse-location shell coder: given
+// a parent pulse count p it range-decodes how many pulses fall in the left half
+// and returns (left, p-left). Mirrors the per-level decode_split steps of
+// libopus silk/shell_coder.c silk_shell_decoder.
+//
 //go:nosplit
 func silkDecodeShellSplit(rd *rangecoding.Decoder, p int32, rows *[17][]uint8) (int16, int16) {
 	if p > 0 {
@@ -181,6 +196,10 @@ func silkDecodeShellSplit(rd *rangecoding.Decoder, p int32, rows *[17][]uint8) (
 	return 0, 0
 }
 
+// silkShellDecoder decodes the locations of pulses4 pulses within a 16-sample
+// shell block by recursively splitting the count down a binary tree of
+// silkDecodeShellSplit calls. Mirrors libopus silk/shell_coder.c
+// silk_shell_decoder.
 func silkShellDecoder(pulses []int16, rd *rangecoding.Decoder, pulses4 int32) {
 	// These are small fixed-size arrays, using stack allocation via array
 	var pulses3 [2]int16
@@ -209,6 +228,9 @@ func silkShellDecoder(pulses []int16, rd *rangecoding.Decoder, pulses4 int32) {
 	pulses[14], pulses[15] = silkDecodeShellSplit(rd, int32(pulses1[7]), &silk_shell_code_table0_rows)
 }
 
+// silkDecodeSigns range-decodes and applies the sign of every non-zero pulse,
+// selecting the sign iCDF by signal type, quantization offset and the block's
+// pulse count. Mirrors libopus silk/decode_pulses.c silk_decode_signs.
 func silkDecodeSigns(rd *rangecoding.Decoder, pulses []int16, length int, signalType int, quantOffsetType int, sumPulses []int32) {
 	qPtr := 0
 	idx := 7 * (quantOffsetType + (signalType << 1))
@@ -229,6 +251,10 @@ func silkDecodeSigns(rd *rangecoding.Decoder, pulses []int16, length int, signal
 	}
 }
 
+// silkDecodePulses decodes the full excitation pulse vector for one SILK frame:
+// the per-block pulse counts (with the LSB-extension escape), the pulse
+// locations via the shell coder, the low-order amplitude bits and finally the
+// signs. Mirrors libopus silk/decode_pulses.c silk_decode_pulses.
 func silkDecodePulses(rd *rangecoding.Decoder, pulses []int16, signalType int, quantOffsetType int, frameLength int) {
 	silkDecodePulsesWithScratch(rd, pulses, signalType, quantOffsetType, frameLength, nil, nil)
 }
@@ -298,6 +324,10 @@ func silkDecodePulsesWithScratch(rd *rangecoding.Decoder, pulses []int16, signal
 	silkDecodeSigns(rd, pulses, frameLength, signalType, quantOffsetType, sumPulses)
 }
 
+// silkDecodePitch turns the decoded absolute pitch-lag index and contour index
+// into a per-subframe pitch-lag array, adding the contour-codebook offsets and
+// clamping each lag to [pe_min_lag, pe_max_lag]. Mirrors libopus
+// silk/decode_pitch.c silk_decode_pitch.
 func silkDecodePitch(lagIndex int16, contourIndex int8, pitchL []int32, fsKHz int, nbSubfr int) {
 	var lagCB [][]int8
 	var cbkSize int
@@ -333,6 +363,10 @@ func silkDecodePitch(lagIndex int16, contourIndex int8, pitchL []int32, fsKHz in
 	}
 }
 
+// silkBwExpander applies bandwidth expansion (chirp) to a set of int16 AR
+// (LPC) coefficients, moving the poles toward the origin to widen formant
+// bandwidths. Used after a lost frame to stabilize the recovered filter.
+// Mirrors libopus silk/bwexpander.c silk_bwexpander.
 func silkBwExpander(ar []int16, chirpQ16 int32) {
 	if len(ar) == 0 {
 		return
@@ -345,6 +379,12 @@ func silkBwExpander(ar []int16, chirpQ16 int32) {
 	ar[len(ar)-1] = int16(silkRSHIFT_ROUND(silkMUL(chirpQ16, int32(ar[len(ar)-1])), 16))
 }
 
+// silkDecodeParameters dequantizes the decoded indices into the synthesis
+// control parameters: per-subframe gains (Q16), the two interpolated LPC
+// coefficient sets (Q12) obtained via NLSF decode and NLSF2A, and for voiced
+// frames the pitch lags, LTP filter coefficients (Q14) and LTP scale (Q14). On
+// a lost-frame recovery it also bandwidth-expands the LPC. Mirrors libopus
+// silk/decode_parameters.c silk_decode_parameters.
 func silkDecodeParameters(st *decoderState, ctrl *decoderControl, condCoding int) {
 	nbSubfr := int(st.nbSubfr)
 	lpcOrder := int(st.lpcOrder)
@@ -404,6 +444,10 @@ func silkDecodeParameters(st *decoderState, ctrl *decoderControl, condCoding int
 	}
 }
 
+// silkLPCAnalysisFilter runs the whitening (analysis) LPC filter used by the
+// decoder to rebuild the LTP state buffer from past output. Mirrors libopus
+// silk/LPC_analysis_filter.c silk_LPC_analysis_filter. The order-16 case is
+// hoisted into silkLPCAnalysisFilterOrder16 for the WB hot path.
 func silkLPCAnalysisFilter(out []int16, in []int16, B []int16, length int, order int) {
 	if order == 16 && length >= 16 {
 		silkLPCAnalysisFilterOrder16(out, in, B, length)
@@ -657,6 +701,12 @@ func synthesizeLPCGeneric(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq []in
 	}
 }
 
+// silkDecodeCore reconstructs one SILK frame's PCM from the decoded pulses and
+// control parameters. It rebuilds the gain-scaled excitation (applying the
+// quantization offset, rate-dither adjustment and per-sample sign from the LCG
+// seed), then for each subframe applies long-term prediction (voiced) followed
+// by short-term LPC synthesis, carrying the LPC and LTP state across subframes.
+// Mirrors libopus silk/decode_core.c silk_decode_core.
 func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses []int16) {
 	offsetQ10 := silk_Quantization_Offsets_Q10[int(st.indices.signalType)>>1][int(st.indices.quantOffsetType)]
 	interpFlag := st.indices.NLSFInterpCoefQ2 < 4
@@ -764,10 +814,17 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 	copy(st.sLPCQ14Buf[:], sLPC[:maxLPCOrder])
 }
 
+// silkRand advances the SILK linear congruential generator used to derive
+// excitation signs and CNG noise. Mirrors the silk_RAND macro in
+// libopus silk/SigProc_FIX.h.
 func silkRand(seed int32) int32 {
 	return seed*196314165 + 907633515
 }
 
+// silkUpdateOutBuf shifts the decoder output history buffer (outBuf) by one
+// frame and appends the freshly decoded frame at the end, preserving the
+// ltp_mem_length samples the next frame's LTP analysis filter needs. Mirrors
+// the out_buf update at the bottom of libopus silk/decode_core.c.
 func silkUpdateOutBuf(st *decoderState, frame []int16) {
 	if st.ltpMemLength == 0 || st.frameLength == 0 {
 		return

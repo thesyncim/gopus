@@ -26,6 +26,9 @@ func silkCNGReset(st *decoderState) {
 	st.cng.randSeed = 3176576
 }
 
+// silkCNGExc fills a comfort-noise excitation buffer (Q14) by randomly sampling
+// the stored excitation history with the LCG seed. Mirrors libopus silk/CNG.c
+// silk_CNG_exc.
 func silkCNGExc(dstQ14 []int32, excBufQ14 []int32, length int, randSeed *int32) {
 	if length <= 0 || randSeed == nil {
 		return
@@ -82,6 +85,11 @@ func shouldUpdateCNGHistory(st *decoderState, ctrl *decoderControl) bool {
 	return st.lossCnt == 0 && st.prevSignalType == typeNoVoiceActivity && ctrl != nil
 }
 
+// updateCNGHistory refreshes the comfort-noise model from the most recent
+// no-voice-activity frame: it smooths the stored NLSFs toward the frame's
+// NLSFs, copies the highest-gain subframe's excitation into the CNG excitation
+// history, and smooths the CNG gain. Mirrors the history-update block of libopus
+// silk/CNG.c silk_CNG.
 func updateCNGHistory(st *decoderState, ctrl *decoderControl) {
 	order := cngLPCOrder(st)
 	for i := 0; i < order; i++ {
@@ -121,6 +129,12 @@ func updateCNGHistory(st *decoderState, ctrl *decoderControl) {
 	}
 }
 
+// applyCNGLostFrame synthesizes comfort noise for a lost or inactive frame and
+// adds it to frame in place: it derives the CNG gain from the PLC random scale
+// and the smoothed CNG gain, generates a CNG excitation, runs it through the LPC
+// filter built from the smoothed CNG NLSFs, and accumulates the result. Returns
+// false (no CNG applied) when the frame is not a loss frame. Mirrors the
+// synthesis block of libopus silk/CNG.c silk_CNG.
 func (d *Decoder) applyCNGLostFrame(channel int, st *decoderState, frame []int16) bool {
 	if st.lossCnt == 0 {
 		return false
@@ -145,8 +159,18 @@ func (d *Decoder) applyCNGLostFrame(channel int, st *decoderState, frame []int16
 
 	order := cngLPCOrder(st)
 
+	// libopus silk_CNG works on a single SILK frame (frame_length <= 320), so
+	// the common case fits the stack array. Public PLC entry points can request
+	// a multi-frame concealment span in one call (frameSizeSamples > one SILK
+	// frame); fall back to a heap slice so the synthesis buffer never overflows.
+	// The computed CNG values are identical either way for frames that fit.
 	var cngSigQ14 [maxFrameLength + maxLPCOrder]int32
-	sig := cngSigQ14[:maxLPCOrder+len(frame)]
+	var sig []int32
+	if maxLPCOrder+len(frame) <= len(cngSigQ14) {
+		sig = cngSigQ14[:maxLPCOrder+len(frame)]
+	} else {
+		sig = make([]int32, maxLPCOrder+len(frame))
+	}
 	silkCNGExc(sig[maxLPCOrder:], st.cng.excBufQ14[:], len(frame), &st.cng.randSeed)
 
 	var aQ12 [maxLPCOrder]int16

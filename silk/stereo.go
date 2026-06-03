@@ -11,8 +11,10 @@ package silk
 // The encoder quantizes and encodes the indices, the decoder decodes
 // indices and dequantizes to get the prediction weights.
 
-// stereoUnmix converts mid-side decoded samples to left-right.
-// Per RFC 6716 Section 4.2.8.
+// stereoUnmix converts mid-side decoded samples to left-right in the float
+// domain, per RFC 6716 Section 4.2.8. This is a simplified reference helper used
+// by unit tests; the bit-exact decode path performs MS->LR with weight
+// interpolation in silkStereoMSToLR (silk/stereo_MS_to_LR.c).
 //
 // Basic mid-side: L = M + S, R = M - S
 // With prediction weights:
@@ -20,7 +22,7 @@ package silk
 //   - S' = S + pred
 //   - L = M + S', R = M - S'
 //
-// For simplicity, we use the basic formula when weights are zero.
+// For simplicity, the basic formula is used when weights are zero.
 func stereoUnmix(mid, side []float32, w0, w1 int16, left, right []float32) error {
 	if len(mid) != len(side) || len(mid) != len(left) || len(mid) != len(right) {
 		return ErrMismatchedLengths

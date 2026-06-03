@@ -16,6 +16,10 @@ var nlsf2aOrdering10 = [10]int{
 	0, 9, 6, 3, 4, 5, 8, 1, 2, 7,
 }
 
+// silkNLSF2AFindPoly builds one of the two symmetric/antisymmetric LSF
+// polynomials P(z) or Q(z) from the cosine-domain LSF values, used by
+// silkNLSF2A to form the LPC coefficients. Mirrors the silk_NLSF2A_find_poly
+// helper in libopus silk/NLSF2A.c.
 func silkNLSF2AFindPoly(out []int32, cLSF []int32, dd int) {
 	out[0] = silkLSHIFT(1, nlsf2aQA)
 	out[1] = -cLSF[0]
@@ -29,6 +33,12 @@ func silkNLSF2AFindPoly(out []int32, cLSF []int32, dd int) {
 	}
 }
 
+// silkNLSF2A converts a normalized line-spectral-frequency vector (Q15) to LPC
+// short-term prediction coefficients (Q12). It maps each NLSF to the cosine
+// domain via the fixed-point cosine table, forms the P/Q polynomials, combines
+// them into the AR coefficients, fits them into int16 Q12, and bandwidth-expands
+// until the filter is stable. Returns false for an unsupported order or short
+// buffer so the caller can fall back. Mirrors libopus silk/NLSF2A.c silk_NLSF2A.
 func silkNLSF2A(aQ12 []int16, nlsfQ15 []int16, order int) bool {
 	if order != 10 && order != 16 {
 		return false
@@ -91,6 +101,9 @@ func silkNLSF2A(aQ12 []int16, nlsfQ15 []int16, order int) bool {
 	return true
 }
 
+// silkBwExpander32 is the int32 (Q-domain) bandwidth-expansion (chirp) filter
+// used while fitting and stabilizing LPC coefficients. Mirrors libopus
+// silk/bwexpander_32.c silk_bwexpander_32.
 func silkBwExpander32(ar []int32, order int, chirpQ16 int32) {
 	if order <= 0 {
 		return
@@ -103,6 +116,9 @@ func silkBwExpander32(ar []int32, order int, chirpQ16 int32) {
 	ar[order-1] = silkSMULWW(chirpQ16, ar[order-1])
 }
 
+// silkLPCFit converts wide Q-domain LPC coefficients to int16 Q12, repeatedly
+// bandwidth-expanding if any coefficient would saturate, so the rounded int16
+// filter stays representable. Mirrors libopus silk/LPC_fit.c silk_LPC_fit.
 func silkLPCFit(aQout []int16, aQin []int32, qOut, qIn, order int) {
 	if order <= 0 || len(aQout) < order || len(aQin) < order {
 		return
@@ -149,6 +165,11 @@ func silkLPCFit(aQout []int16, aQin []int32, qOut, qIn, order int) {
 	}
 }
 
+// silkLPCInversePredGain computes the inverse prediction power gain (Q30) of an
+// int16 Q12 LPC filter, returning 0 if the filter is unstable (gain too large
+// or DC response out of range). silkNLSF2A uses a zero result as the
+// stability-failure signal. Mirrors libopus silk/LPC_inv_pred_gain.c
+// silk_LPC_inverse_pred_gain.
 func silkLPCInversePredGain(aQ12 []int16, order int) int32 {
 	if order <= 0 || len(aQ12) < order || order > maxLPCOrder {
 		return 0
@@ -171,6 +192,11 @@ func silkMul32FracQ(a32, b32 int32, q int) int32 {
 	return int32(silkRSHIFT_ROUND64(silkSMULL(a32, b32), q))
 }
 
+// silkLPCInversePredGainQA computes the inverse prediction power gain (Q30) from
+// LPC coefficients already in the QA fixed-point domain, via the Levinson
+// step-down (reflection-coefficient) recursion, returning 0 on instability.
+// Mirrors the LPC_inverse_pred_gain_QA helper in libopus
+// silk/LPC_inv_pred_gain.c.
 func silkLPCInversePredGainQA(aQA []int32, order int) int32 {
 	if order <= 0 || len(aQA) < order {
 		return 0
