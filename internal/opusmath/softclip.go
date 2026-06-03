@@ -1,7 +1,18 @@
 package opusmath
 
-// PCMSoftClip applies the libopus soft clipping algorithm in-place.
-// It expects interleaved samples in the range of roughly [-1, 1].
+// PCMSoftClip applies libopus opus_pcm_soft_clip() (src/opus.c) in place to n
+// interleaved frames of the given channel count. It expects samples in roughly
+// [-1, 1] and smoothly attenuates excursions past +/-1 (hard-limiting only
+// beyond +/-2) instead of clipping, carrying the per-channel adaptation
+// coefficient across calls in declipMem (one entry per channel, the C float
+// declip_mem[]).
+//
+// The whole routine runs in float32 to match the reference: the quadratic
+// soft-knee (v + a*v*v), the peak search, and the coefficient update
+// a = (maxval-1)/(maxval*maxval) plus the 2.4e-7 nudge are all single precision,
+// as is the boundary-continuity ramp. If every sample is already within [-1, 1]
+// and all declipMem entries are zero, it returns without modifying x, exactly as
+// libopus short-circuits.
 func PCMSoftClip(x []float32, n, channels int, declipMem []float32) {
 	if channels < 1 || n < 1 || len(x) == 0 || len(declipMem) < channels {
 		return
@@ -167,6 +178,9 @@ applySoftClip:
 	}
 }
 
+// float32Abs is the single-precision absolute value used by the soft-clip peak
+// search, matching libopus' fabsf(). It is kept local so the comparisons stay in
+// float32 rather than promoting through the generic util.Abs.
 func float32Abs(v float32) float32 {
 	if v < 0 {
 		return -v

@@ -1,14 +1,36 @@
-// Package fixedpoint holds the gopus fixed-point CELT/SILK kernels: pure-integer
-// math ported from libopus celt/mathops.h and celt/mathops.c (FIXED_POINT path).
-// Each kernel operates entirely in the integer domain with no floating-point and
-// reproduces the libopus integer arithmetic bit-for-bit. The package is not
-// imported by the default float build; fixed-point consumers select it behind
-// the gopus_fixedpoint build tag.
+// Package fixedpoint is the gopus FIXED_POINT CELT codec: a pure-integer port of
+// libopus' CELT encoder and decoder for the static 48000/960 mode. Everything
+// runs in the integer domain with no floating-point and reproduces the libopus
+// integer arithmetic bit-for-bit. The package is not part of the default float
+// build; it is compiled only behind the gopus_fixedpoint build tag, so its
+// consumers select the integer codec at build time.
 //
-// Q-notation used here matches libopus:
+// The port covers the whole FIXED_POINT CELT pipeline, each file naming the
+// libopus translation unit it mirrors:
 //
-//	Q14: 1.0 = 1<<14 = 16384
+//   - integer math kernels (celt/mathops.h, celt/mathops.c): log2/exp2, sqrt,
+//     rcp, cos, ilog2 — see celt_math.go and celt_mathops.go;
+//   - the MDCT and KISS-FFT (celt/mdct.c, celt/kiss_fft.c) plus the precomputed
+//     48000/960 twiddle/window tables;
+//   - band energy, normalisation, PVQ pulse search and the entropy-coupled band
+//     quantiser (celt/bands.c, celt/vq.c, celt/quant_bands.c);
+//   - the encoder and decoder drivers, prefilter/comb filter, transient and
+//     dynalloc analysis, anti-collapse, de-emphasis and PLC (celt/celt_encoder.c,
+//     celt/celt_decoder.c, celt/celt.c).
+//
+// Why the integer widths matter: in libopus' FIXED_POINT build celt_norm and
+// opus_val32 are int32, opus_val16 is int16 and opus_val64/accumulators are
+// int64. The macros that truncate an operand to int16 before a 16x16 or 16x32
+// multiply (MULT16_16, MULT16_16_Q15, MAC16_16, MULT16_32_Q15, ...) and the
+// rounded/arithmetic shifts (PSHR32, VSHR32, ROUND16) are reproduced with those
+// exact Go integer types. Using a wider type anywhere would skip the truncation
+// or overflow wraparound the reference depends on and break bit-exactness, so
+// the operand widths in this package are load-bearing, not incidental.
+//
+// Q-notation used throughout matches libopus (1.0 represented as 1<<n):
+//
 //	Q10: 1.0 = 1<<10 = 1024
+//	Q14: 1.0 = 1<<14 = 16384
 //	Q15: 1.0 = 1<<15 = 32768
 //	Q16: 1.0 = 1<<16 = 65536
 package fixedpoint

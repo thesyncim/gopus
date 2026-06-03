@@ -23,10 +23,15 @@ import (
 // macros that truncate operands to int16 before multiplying are reproduced
 // exactly (mult16x16, mac16x16, mult16x16Q15i32, mult16x32Q15, ...).
 
-const (
-	q15one     int16 = 32767 // Q15ONE / Q15_ONE
-	spreadNone       = 0     // SPREAD_NONE
-)
+// q15one is libopus Q15ONE (celt/arch.h, FIXED_POINT): 1.0 in Q15. It is the
+// int16 unit used by the PVQ rotation-angle math, always widened with
+// int32(q15one) before multiplying.
+const q15one int16 = 32767
+
+// spreadNone is SPREAD_NONE (celt/bands.h). The remaining SPREAD_* symbols are
+// declared with the spreading-decision and bands kernels. Like its siblings it
+// is an untyped int constant compared against int spread values.
+const spreadNone = 0
 
 // spreadFactor mirrors the static SPREAD_FACTOR[3] table in exp_rotation.
 var spreadFactor = [3]int{15, 10, 5}

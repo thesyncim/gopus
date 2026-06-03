@@ -84,6 +84,12 @@ issues:
       text: "SA4006:"
       linters:
         - staticcheck
+    # FIXED_POINT median_of_5 twin: the t0/t3 swap mirrors libopus structure and
+    # the bit-exact port is LOCKED; see the ineffassign rule above.
+    - path: ^internal/fixedpoint/celt_dynalloc_analysis\.go$
+      text: "SA4006:"
+      linters:
+        - staticcheck
     - path: ^encoder/encoder\.go$
       text: "SA4006:"
       linters:
@@ -105,6 +111,14 @@ issues:
         - errcheck
         - ineffassign
     - path: ^celt/(bands|bands_quant|channel_adapters|decoder_flow_helpers|dynalloc|encode_frame|pvq_search|qext_alloc)\.go$
+      linters:
+        - ineffassign
+    # FIXED_POINT twins of the CELT kernels: the flagged stores are faithful
+    # mirrors of libopus structure (median_of_5 swaps both halves, comb_filter
+    # clamps both T0/T1, xcorr_kernel_c's final tail advances its pointers,
+    # run_prefilter resets gain1) where one half is unused by the caller. The
+    # bit-exact port is LOCKED, so the redundant store is kept, not the lint.
+    - path: ^internal/fixedpoint/celt_(dynalloc_analysis|encode|pitch|plc)\.go$
       linters:
         - ineffassign
     - path: ^multistream/framing\.go$
