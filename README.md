@@ -1,10 +1,20 @@
 # gopus
 
 Pure-Go Opus codec — RFC 6716 / RFC 8251, bit-exact and quality parity with
-pinned libopus 1.6.1, drop-in for the C library.
+pinned libopus 1.6.1, a drop-in for the C library with no cgo.
 
-No cgo, no dependencies. Encoder, decoder, multistream, projection/ambisonics,
-Ogg and RTP RED — with caller-owned, zero-allocation hot paths.
+Encoder, decoder, multistream, projection/ambisonics, Ogg, and RTP RED — all in
+plain Go, with caller-owned, zero-allocation encode and decode hot paths.
+
+- **Pure Go, no cgo, no dependencies** — `go get` and build; cross-compiles like
+  any Go package.
+- **RFC 6716 + RFC 8251** — SILK, CELT, and Hybrid, with automatic mode
+  selection.
+- **Faithful to libopus 1.6.1** — codec math and bitstream decisions are matched
+  to the pinned reference, proven by a live C oracle (see
+  [Parity & testing](#parity--testing)).
+- **Built for real-time** — the encode/decode loops reuse caller buffers and
+  allocate nothing.
 
 ## Install
 
@@ -12,7 +22,7 @@ Ogg and RTP RED — with caller-owned, zero-allocation hot paths.
 go get github.com/thesyncim/gopus
 ```
 
-Requires Go 1.25+.
+Requires Go 1.25 or newer.
 
 ## Quick start
 
@@ -73,24 +83,31 @@ func main() {
 }
 ```
 
+`int16` and `int24` PCM use the same shape (`EncodeInt16` / `DecodeInt16`,
+`EncodeInt24` / `DecodeInt24`). Tune the encoder through libopus-style CTL
+methods (`SetBitrate`, `SetVBR`, `SetComplexity`, `SetInBandFEC`, …).
+
 See [examples/](examples/) for Ogg files, ffmpeg interop, RED loss recovery,
 WebRTC control, and benchmarks.
 
 ## Features
 
-- SILK, CELT, and Hybrid coding, with automatic mode selection.
-- Sample rates 8, 12, 16, 24, and 48 kHz (native sub-48 kHz encode, no upsampling).
-- Mono, stereo, multistream, and projection/ambisonics
-  (`NewProjectionEncoder` / `NewProjectionDecoder`, mapping families 0/1/3/255).
-- Frame sizes 2.5–120 ms.
-- CBR, VBR, CVBR, low-delay, and DTX.
-- Packet loss concealment, in-band FEC / LBRR.
-- `container/ogg` (Ogg read/write) and `container/red` (RFC 2198 RTP RED
-  parse / build / recover).
-- `float32`, `int16`, and `int24` PCM (`EncodeInt24` / `DecodeInt24`) on both the
-  single-stream and multistream paths.
-- The full libopus public surface: 50 CTLs, packet parsing, soft clipping, and
-  matching error codes.
+| Area | gopus |
+| --- | --- |
+| Coding modes | SILK, CELT, Hybrid, with automatic mode selection |
+| Sample rates | 8, 12, 16, 24, 48 kHz (native sub-48 kHz encode, no upsampling) |
+| Channels | Mono, stereo, multistream, projection / ambisonics |
+| Frame sizes | 2.5–120 ms |
+| Bitrate control | CBR, VBR, CVBR, low-delay, DTX |
+| Resilience | Packet loss concealment, in-band FEC / LBRR |
+| PCM formats | `float32`, `int16`, `int24` (single-stream and multistream) |
+| Containers | `container/ogg` (Ogg read/write), `container/red` (RFC 2198 RTP RED parse/build/recover) |
+| libopus surface | Full public API: the libopus CTL surface, packet parsing, soft clipping, and matching error codes |
+
+Multistream lives in `github.com/thesyncim/gopus/multistream`
+(`NewMultistreamEncoder` / `NewMultistreamDecoder`), including projection /
+ambisonics (`multistream.NewProjectionEncoder` /
+`multistream.NewProjectionDecoder`, mapping families 0/1/3/255).
 
 ## Optional features behind build tags
 
@@ -158,27 +175,54 @@ make test-extra-controls-parity
 make test-custom-parity
 ```
 
-## Status / parity
+## Performance
 
-gopus is codec-complete against libopus 1.6.1: the full public API and 50 CTLs,
-plus the optional surface mirrored tag-for-flag (above). The pinned
+gopus is built for real-time use, where steady allocation is the enemy:
+
+- **Zero-allocation hot paths.** `Encode` / `Decode` (and their `int16` / `int24`
+  variants) reuse caller-owned buffers; all scratch is pre-allocated at
+  construction, so a steady-state encode or decode loop performs no heap
+  allocations.
+- **SIMD where libopus has it.** On amd64 the float pitch cross-correlation uses
+  an AVX2 kernel that mirrors libopus's `celt_pitch_xcorr_avx2`, computing several
+  correlation lags per FMA instead of one scalar FMA per element — bit-identical
+  output, materially faster stereo CELT and Hybrid encode.
+
+Run the benchmarks for numbers on your machine:
+
+```sh
+go run ./examples/bench-encode
+go run ./examples/bench-decode
+```
+
+`make bench-guard` runs the benchmark guardrails used in CI.
+
+## Parity & testing
+
+gopus is codec-complete against libopus 1.6.1: the full public API and CTL
+surface, plus the optional surface mirrored tag-for-flag (above). The pinned
 `tmp_check/opus-1.6.1/` is the reference — when behavior is uncertain, gopus
 matches libopus unless fixture evidence says otherwise.
 
-Parity is proven on two tiers: isolated kernels (range coder, NLSF/LPC/gain,
-PVQ/bands, MDCT/KISS-FFT, resamplers, DNN matmuls) are compared **bit-for-bit**
-against a live libopus C oracle, and every public decode entry point is two-sided
-differential-fuzzed against it. End-to-end audio is judged by libopus's own
-`opus_compare` (RFC 8251's conformance metric), tier-matched so gopus tracks the
-reference at least as closely as libopus tracks itself across builds. SILK decode
-is bit-exact; CELT/Hybrid sit inside the near-exact envelope.
+Parity is proven on two tiers, against a live libopus C oracle:
+
+- **Bit-exact kernel oracles.** Isolated kernels (range coder, NLSF/LPC/gain,
+  PVQ/bands, MDCT/KISS-FFT, resamplers, DNN matmuls) are compared bit-for-bit
+  against C. Every public decode entry point is two-sided differential-fuzzed
+  against the same oracle.
+- **`opus_compare` quality on real audio.** End-to-end audio is judged by
+  libopus's own `opus_compare` (RFC 8251's conformance metric), tier-matched so
+  gopus tracks the reference at least as closely as libopus tracks itself across
+  builds. SILK decode is bit-exact; CELT/Hybrid sit inside the near-exact
+  envelope. The encoder precision guard runs on representative real recordings,
+  where `opus_compare` Q is a genuine quality measure.
 
 One residual is documented: a few CELT float kernels drift by ≤1 ULP on
 darwin/arm64 (a per-arch float budget). amd64/CI is bit-exact; the default arm64
 build is quality-gated for that tail, exactly as libopus's NEON path is relative
 to its own scalar build.
 
-Pre-v1: no release tagged yet (see below).
+Pre-v1: no release tagged yet (see [Trust And Verification](#trust-and-verification)).
 
 ## Verification
 
