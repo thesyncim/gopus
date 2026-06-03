@@ -1,6 +1,6 @@
 //go:build gopus_fixedpoint
 
-package gopus
+package gopus_test
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
@@ -172,7 +173,7 @@ func runMSFixedEncodeParity(t *testing.T, sampleRate, channels, frameSize, frame
 		return
 	}
 
-	enc, err := NewMultistreamEncoderDefault(sampleRate, channels, ApplicationAudio)
+	enc, err := gopus.NewMultistreamEncoderDefault(sampleRate, channels, gopus.ApplicationAudio)
 	if err != nil {
 		t.Fatalf("NewMultistreamEncoderDefault(%d, %d): %v", sampleRate, channels, err)
 	}

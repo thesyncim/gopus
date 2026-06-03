@@ -1,6 +1,7 @@
-package gopus
+package gopus_test
 
 import (
+	"github.com/thesyncim/gopus"
 	"reflect"
 	"testing"
 )
@@ -8,12 +9,12 @@ import (
 func TestWrapperRuntimeStateFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
 	int32Type := reflect.TypeOf(int32(0))
 
-	checkWrapperFieldsHaveType(t, reflect.TypeOf(Encoder{}), int32Type,
+	checkWrapperFieldsHaveType(t, reflect.TypeOf(gopus.Encoder{}), int32Type,
 		"sampleRate",
 		"channels",
 		"frameSize",
 	)
-	checkWrapperFieldsHaveType(t, reflect.TypeOf(Decoder{}), int32Type,
+	checkWrapperFieldsHaveType(t, reflect.TypeOf(gopus.Decoder{}), int32Type,
 		"sampleRate",
 		"channels",
 		"lastFrameSize",
@@ -21,12 +22,12 @@ func TestWrapperRuntimeStateFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
 		"lastDataLen",
 		"complexity",
 	)
-	checkWrapperFieldsHaveType(t, reflect.TypeOf(MultistreamEncoder{}), int32Type,
+	checkWrapperFieldsHaveType(t, reflect.TypeOf(gopus.MultistreamEncoder{}), int32Type,
 		"sampleRate",
 		"channels",
 		"frameSize",
 	)
-	checkWrapperFieldsHaveType(t, reflect.TypeOf(MultistreamDecoder{}), int32Type,
+	checkWrapperFieldsHaveType(t, reflect.TypeOf(gopus.MultistreamDecoder{}), int32Type,
 		"sampleRate",
 		"channels",
 		"lastFrameSize",

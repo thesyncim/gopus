@@ -1,8 +1,9 @@
 //go:build gopus_extra_controls && !gopus_qext
 
-package gopus
+package gopus_test
 
 import (
+	"github.com/thesyncim/gopus"
 	"reflect"
 	"slices"
 	"testing"
@@ -26,7 +27,7 @@ func TestExtraControlsBuildPublicAPIContract(t *testing.T) {
 	}{
 		{
 			name: "Encoder",
-			got:  &Encoder{},
+			got:  &gopus.Encoder{},
 			want: []string{
 				"Application", "Bandwidth", "Bitrate", "BitrateMode", "Channels", "Complexity",
 				"DREDDuration", "DTXEnabled", "Encode", "EncodeFloat32", "EncodeInt16",
@@ -43,7 +44,7 @@ func TestExtraControlsBuildPublicAPIContract(t *testing.T) {
 		},
 		{
 			name: "Decoder",
-			got:  &Decoder{},
+			got:  &gopus.Decoder{},
 			want: []string{
 				"Bandwidth", "Channels", "Complexity", "Decode", "DecodeDRED", "DecodeDREDInt24",
 				"DecodeInt16", "DecodeInt24", "DecodeInt24Slice", "DecodeWithFEC", "FinalRange",
@@ -55,7 +56,7 @@ func TestExtraControlsBuildPublicAPIContract(t *testing.T) {
 		},
 		{
 			name: "MultistreamEncoder",
-			got:  &MultistreamEncoder{},
+			got:  &gopus.MultistreamEncoder{},
 			want: []string{
 				"Application", "Bandwidth", "Bitrate", "BitrateMode", "Channels", "Complexity",
 				"CoupledStreams", "DREDDuration", "DTXEnabled", "Encode", "EncodeFloat32",
@@ -72,7 +73,7 @@ func TestExtraControlsBuildPublicAPIContract(t *testing.T) {
 		},
 		{
 			name: "MultistreamDecoder",
-			got:  &MultistreamDecoder{},
+			got:  &gopus.MultistreamDecoder{},
 			want: []string{
 				"Bandwidth", "Channels", "Complexity", "CoupledStreams", "Decode", "DecodeInt16",
 				"DecodeInt24", "DecodeInt24Slice", "FinalRange",
@@ -84,12 +85,12 @@ func TestExtraControlsBuildPublicAPIContract(t *testing.T) {
 		},
 		{
 			name: "DREDDecoder",
-			got:  &DREDDecoder{},
+			got:  &gopus.DREDDecoder{},
 			want: []string{"ModelLoaded", "Parse", "Process", "SetDNNBlob"},
 		},
 		{
 			name: "DRED",
-			got:  &DRED{},
+			got:  &gopus.DRED{},
 			want: []string{
 				"Availability", "Clear", "Empty", "FeatureCount", "FeatureWindow",
 				"FillFeatures", "FillLatents", "FillQuantizerLevels", "FillState",
@@ -99,14 +100,14 @@ func TestExtraControlsBuildPublicAPIContract(t *testing.T) {
 		},
 		{
 			name: "Reader",
-			got:  &Reader{},
+			got:  &gopus.Reader{},
 			want: []string{
 				"Channels", "LastGranulePos", "Read", "Reset", "SampleRate",
 			},
 		},
 		{
 			name: "Writer",
-			got:  &Writer{},
+			got:  &gopus.Writer{},
 			want: []string{
 				"Channels", "Close", "Flush", "Reset", "SampleRate", "SetBitrate",
 				"SetComplexity", "SetDTX", "SetFEC", "Write",

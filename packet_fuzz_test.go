@@ -1,6 +1,9 @@
-package gopus
+package gopus_test
 
-import "testing"
+import (
+	"github.com/thesyncim/gopus"
+	"testing"
+)
 
 func FuzzParsePacket_NoPanic(f *testing.F) {
 	f.Add([]byte{0xF8, 0x11, 0x22, 0x33})
@@ -11,8 +14,8 @@ func FuzzParsePacket_NoPanic(f *testing.F) {
 		if len(data) == 0 {
 			return
 		}
-		info, err := ParsePacket(data)
-		_ = ParseTOC(data[0])
+		info, err := gopus.ParsePacket(data)
+		_ = gopus.ParseTOC(data[0])
 		if err != nil {
 			return
 		}

@@ -1,6 +1,6 @@
 //go:build gopus_qext
 
-package gopus
+package gopus_test
 
 import (
 	"math"

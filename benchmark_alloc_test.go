@@ -5,9 +5,10 @@
 // hot paths. Convenience helpers such as EncodeFloat32 allocate by design and
 // are benchmarked separately so the two paths do not get conflated.
 
-package gopus
+package gopus_test
 
 import (
+	"github.com/thesyncim/gopus"
 	"math"
 	"runtime"
 	"testing"
@@ -58,7 +59,7 @@ func generateBenchSineWave(samples int) []float32 {
 	return pcm
 }
 
-func warmDecoderFloat32Benchmark(b *testing.B, dec *Decoder, packet []byte, pcm []float32, label string) {
+func warmDecoderFloat32Benchmark(b *testing.B, dec *gopus.Decoder, packet []byte, pcm []float32, label string) {
 	b.Helper()
 	if _, err := dec.Decode(packet, pcm); err != nil {
 		b.Fatalf("%s warmup: %v", label, err)
@@ -67,7 +68,7 @@ func warmDecoderFloat32Benchmark(b *testing.B, dec *Decoder, packet []byte, pcm 
 	runtime.Gosched()
 }
 
-func warmDecoderInt16Benchmark(b *testing.B, dec *Decoder, packet []byte, pcm []int16, label string) {
+func warmDecoderInt16Benchmark(b *testing.B, dec *gopus.Decoder, packet []byte, pcm []int16, label string) {
 	b.Helper()
 	if _, err := dec.DecodeInt16(packet, pcm); err != nil {
 		b.Fatalf("%s warmup: %v", label, err)
@@ -79,7 +80,7 @@ func warmDecoderInt16Benchmark(b *testing.B, dec *Decoder, packet []byte, pcm []
 // BenchmarkDecoderDecode_CELT benchmarks CELT-only decoding.
 // Target: 0 allocs/op
 func BenchmarkDecoderDecode_CELT(b *testing.B) {
-	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		b.Fatalf("NewDecoder: %v", err)
 	}
@@ -102,7 +103,7 @@ func BenchmarkDecoderDecode_CELT(b *testing.B) {
 // BenchmarkDecoderDecode_Hybrid benchmarks Hybrid mode decoding.
 // Target: 0 allocs/op
 func BenchmarkDecoderDecode_Hybrid(b *testing.B) {
-	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		b.Fatalf("NewDecoder: %v", err)
 	}
@@ -125,7 +126,7 @@ func BenchmarkDecoderDecode_Hybrid(b *testing.B) {
 // BenchmarkDecoderDecode_SILK benchmarks SILK-only decoding.
 // Target: 0 allocs/op
 func BenchmarkDecoderDecode_SILK(b *testing.B) {
-	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		b.Fatalf("NewDecoder: %v", err)
 	}
@@ -148,7 +149,7 @@ func BenchmarkDecoderDecode_SILK(b *testing.B) {
 // BenchmarkDecoderDecodeInt16 benchmarks int16 decoding.
 // Target: 0 allocs/op
 func BenchmarkDecoderDecodeInt16(b *testing.B) {
-	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		b.Fatalf("NewDecoder: %v", err)
 	}
@@ -171,7 +172,7 @@ func BenchmarkDecoderDecodeInt16(b *testing.B) {
 // BenchmarkDecoderDecode_PLC benchmarks Packet Loss Concealment.
 // Target: 0 allocs/op
 func BenchmarkDecoderDecode_PLC(b *testing.B) {
-	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		b.Fatalf("NewDecoder: %v", err)
 	}
@@ -196,7 +197,7 @@ func BenchmarkDecoderDecode_PLC(b *testing.B) {
 // BenchmarkDecoderDecode_Stereo benchmarks stereo decoding.
 // Target: 0 allocs/op
 func BenchmarkDecoderDecode_Stereo(b *testing.B) {
-	dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	if err != nil {
 		b.Fatalf("NewDecoder: %v", err)
 	}
@@ -225,7 +226,7 @@ func BenchmarkDecoderDecode_Stereo(b *testing.B) {
 // BenchmarkEncoderEncode_CallerBuffer benchmarks float32 encoding with caller-owned output.
 // Target: 0 allocs/op
 func BenchmarkEncoderEncode_CallerBuffer(b *testing.B) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 1, Application: gopus.ApplicationAudio})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
@@ -251,7 +252,7 @@ func BenchmarkEncoderEncode_CallerBuffer(b *testing.B) {
 
 // BenchmarkEncoderEncodeFloat32_Allocating benchmarks the allocating convenience path.
 func BenchmarkEncoderEncodeFloat32_Allocating(b *testing.B) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 1, Application: gopus.ApplicationAudio})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
@@ -277,7 +278,7 @@ func BenchmarkEncoderEncodeFloat32_Allocating(b *testing.B) {
 // BenchmarkEncoderEncodeInt16 benchmarks int16 encoding.
 // Target: 0 allocs/op
 func BenchmarkEncoderEncodeInt16(b *testing.B) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 1, Application: gopus.ApplicationAudio})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
@@ -308,7 +309,7 @@ func BenchmarkEncoderEncodeInt16(b *testing.B) {
 // BenchmarkEncoderEncode_Stereo benchmarks stereo encoding.
 // Target: 0 allocs/op
 func BenchmarkEncoderEncode_Stereo(b *testing.B) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationAudio})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
@@ -340,7 +341,7 @@ func BenchmarkEncoderEncode_Stereo(b *testing.B) {
 // BenchmarkEncoderEncode_VoIP benchmarks VoIP mode encoding (SILK).
 // Target: 0 allocs/op
 func BenchmarkEncoderEncode_VoIP(b *testing.B) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 1, Application: gopus.ApplicationVoIP})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
@@ -367,7 +368,7 @@ func BenchmarkEncoderEncode_VoIP(b *testing.B) {
 // BenchmarkEncoderEncode_LowDelay benchmarks low-delay mode encoding (CELT).
 // Target: 0 allocs/op
 func BenchmarkEncoderEncode_LowDelay(b *testing.B) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationLowDelay})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 1, Application: gopus.ApplicationLowDelay})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
@@ -395,26 +396,26 @@ func BenchmarkEncoderEncode_LowDelay(b *testing.B) {
 // by the libopus-relative encoder guard.
 // Target: 0 allocs/op
 func BenchmarkEncoderEncode_RestrictedCELTCBR(b *testing.B) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationRestrictedCelt})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationRestrictedCelt})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
 	if err := enc.SetFrameSize(960); err != nil {
 		b.Fatalf("SetFrameSize: %v", err)
 	}
-	if err := enc.SetBandwidth(BandwidthFullband); err != nil {
+	if err := enc.SetBandwidth(gopus.BandwidthFullband); err != nil {
 		b.Fatalf("SetBandwidth: %v", err)
 	}
 	if err := enc.SetBitrate(128000); err != nil {
 		b.Fatalf("SetBitrate: %v", err)
 	}
-	if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
+	if err := enc.SetBitrateMode(gopus.BitrateModeCBR); err != nil {
 		b.Fatalf("SetBitrateMode: %v", err)
 	}
 	if err := enc.SetComplexity(10); err != nil {
 		b.Fatalf("SetComplexity: %v", err)
 	}
-	if err := enc.SetSignal(SignalMusic); err != nil {
+	if err := enc.SetSignal(gopus.SignalMusic); err != nil {
 		b.Fatalf("SetSignal: %v", err)
 	}
 
@@ -441,26 +442,26 @@ func BenchmarkEncoderEncode_RestrictedCELTCBR(b *testing.B) {
 // benchmark contract honest: every measured operation starts a new stream.
 // Target: 0 allocs/op
 func BenchmarkEncoderEncode_RestrictedCELTCBRAfterReset(b *testing.B) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationRestrictedCelt})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationRestrictedCelt})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
 	if err := enc.SetFrameSize(960); err != nil {
 		b.Fatalf("SetFrameSize: %v", err)
 	}
-	if err := enc.SetBandwidth(BandwidthFullband); err != nil {
+	if err := enc.SetBandwidth(gopus.BandwidthFullband); err != nil {
 		b.Fatalf("SetBandwidth: %v", err)
 	}
 	if err := enc.SetBitrate(128000); err != nil {
 		b.Fatalf("SetBitrate: %v", err)
 	}
-	if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
+	if err := enc.SetBitrateMode(gopus.BitrateModeCBR); err != nil {
 		b.Fatalf("SetBitrateMode: %v", err)
 	}
 	if err := enc.SetComplexity(10); err != nil {
 		b.Fatalf("SetComplexity: %v", err)
 	}
-	if err := enc.SetSignal(SignalMusic); err != nil {
+	if err := enc.SetSignal(gopus.SignalMusic); err != nil {
 		b.Fatalf("SetSignal: %v", err)
 	}
 
@@ -489,26 +490,26 @@ func BenchmarkEncoderEncode_RestrictedCELTCBRAfterReset(b *testing.B) {
 // per-case operation in tools/encoderbenchcmp.
 // Target: 0 allocs/op
 func BenchmarkEncoderEncode_RestrictedCELTCBRStreamAfterReset(b *testing.B) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationRestrictedCelt})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationRestrictedCelt})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
 	if err := enc.SetFrameSize(960); err != nil {
 		b.Fatalf("SetFrameSize: %v", err)
 	}
-	if err := enc.SetBandwidth(BandwidthFullband); err != nil {
+	if err := enc.SetBandwidth(gopus.BandwidthFullband); err != nil {
 		b.Fatalf("SetBandwidth: %v", err)
 	}
 	if err := enc.SetBitrate(128000); err != nil {
 		b.Fatalf("SetBitrate: %v", err)
 	}
-	if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
+	if err := enc.SetBitrateMode(gopus.BitrateModeCBR); err != nil {
 		b.Fatalf("SetBitrateMode: %v", err)
 	}
 	if err := enc.SetComplexity(10); err != nil {
 		b.Fatalf("SetComplexity: %v", err)
 	}
-	if err := enc.SetSignal(SignalMusic); err != nil {
+	if err := enc.SetSignal(gopus.SignalMusic); err != nil {
 		b.Fatalf("SetSignal: %v", err)
 	}
 
@@ -544,26 +545,26 @@ func BenchmarkEncoderEncode_RestrictedCELTCBRStreamAfterReset(b *testing.B) {
 // short-frame CELT per-case operation in tools/encoderbenchcmp.
 // Target: 0 allocs/op
 func BenchmarkEncoderEncode_RestrictedCELT5msCBRStreamAfterReset(b *testing.B) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationRestrictedCelt})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 1, Application: gopus.ApplicationRestrictedCelt})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
 	if err := enc.SetFrameSize(240); err != nil {
 		b.Fatalf("SetFrameSize: %v", err)
 	}
-	if err := enc.SetBandwidth(BandwidthFullband); err != nil {
+	if err := enc.SetBandwidth(gopus.BandwidthFullband); err != nil {
 		b.Fatalf("SetBandwidth: %v", err)
 	}
 	if err := enc.SetBitrate(64000); err != nil {
 		b.Fatalf("SetBitrate: %v", err)
 	}
-	if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
+	if err := enc.SetBitrateMode(gopus.BitrateModeCBR); err != nil {
 		b.Fatalf("SetBitrateMode: %v", err)
 	}
 	if err := enc.SetComplexity(10); err != nil {
 		b.Fatalf("SetComplexity: %v", err)
 	}
-	if err := enc.SetSignal(SignalMusic); err != nil {
+	if err := enc.SetSignal(gopus.SignalMusic); err != nil {
 		b.Fatalf("SetSignal: %v", err)
 	}
 
@@ -599,26 +600,26 @@ func BenchmarkEncoderEncode_RestrictedCELT5msCBRStreamAfterReset(b *testing.B) {
 // per-case operation in tools/encoderbenchcmp.
 // Target: 0 allocs/op
 func BenchmarkEncoderEncode_RestrictedSILKCBRStreamAfterReset(b *testing.B) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationRestrictedSilk})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 1, Application: gopus.ApplicationRestrictedSilk})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
 	if err := enc.SetFrameSize(960); err != nil {
 		b.Fatalf("SetFrameSize: %v", err)
 	}
-	if err := enc.SetBandwidth(BandwidthWideband); err != nil {
+	if err := enc.SetBandwidth(gopus.BandwidthWideband); err != nil {
 		b.Fatalf("SetBandwidth: %v", err)
 	}
 	if err := enc.SetBitrate(32000); err != nil {
 		b.Fatalf("SetBitrate: %v", err)
 	}
-	if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
+	if err := enc.SetBitrateMode(gopus.BitrateModeCBR); err != nil {
 		b.Fatalf("SetBitrateMode: %v", err)
 	}
 	if err := enc.SetComplexity(10); err != nil {
 		b.Fatalf("SetComplexity: %v", err)
 	}
-	if err := enc.SetSignal(SignalVoice); err != nil {
+	if err := enc.SetSignal(gopus.SignalVoice); err != nil {
 		b.Fatalf("SetSignal: %v", err)
 	}
 
@@ -653,12 +654,12 @@ func BenchmarkEncoderEncode_RestrictedSILKCBRStreamAfterReset(b *testing.B) {
 // BenchmarkRoundTrip benchmarks encode + decode round trip.
 // Target: 0 allocs/op
 func BenchmarkRoundTrip(b *testing.B) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 1, Application: gopus.ApplicationAudio})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
 
-	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		b.Fatalf("NewDecoder: %v", err)
 	}
@@ -687,12 +688,12 @@ func BenchmarkRoundTrip(b *testing.B) {
 // Target: 0 allocs/op
 func BenchmarkDecoderDecode_MultiFrame(b *testing.B) {
 	// First encode two frames, then decode the multi-frame packet
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationLowDelay})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 1, Application: gopus.ApplicationLowDelay})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
 
-	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		b.Fatalf("NewDecoder: %v", err)
 	}
@@ -734,7 +735,7 @@ func BenchmarkStreamReader(b *testing.B) {
 	}
 
 	source := &mockPacketReader{packets: packets}
-	reader, err := NewReader(DefaultDecoderConfig(48000, 1), source, FormatFloat32LE)
+	reader, err := gopus.NewReader(gopus.DefaultDecoderConfig(48000, 1), source, gopus.FormatFloat32LE)
 	if err != nil {
 		b.Fatalf("NewReader: %v", err)
 	}
@@ -783,10 +784,10 @@ var longPacketDurations = []struct {
 	{"120ms", 5760},
 }
 
-func benchmarkLongPacketEncode(b *testing.B, app Application, mode EncoderMode, bw Bandwidth, bitrate, channels int) {
+func benchmarkLongPacketEncode(b *testing.B, app gopus.Application, mode gopus.EncoderMode, bw gopus.Bandwidth, bitrate, channels int) {
 	for _, d := range longPacketDurations {
 		b.Run(d.name, func(b *testing.B) {
-			enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: channels, Application: app})
+			enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: channels, Application: app})
 			if err != nil {
 				b.Fatalf("NewEncoder: %v", err)
 			}
@@ -827,18 +828,18 @@ func benchmarkLongPacketEncode(b *testing.B, app Application, mode EncoderMode, 
 // BenchmarkEncoderEncode_LongPacketCELT measures the long CELT multi-frame
 // caller-buffer encode path. Target: 0 allocs/op.
 func BenchmarkEncoderEncode_LongPacketCELT(b *testing.B) {
-	benchmarkLongPacketEncode(b, ApplicationAudio, EncoderModeCELT, BandwidthFullband, 128000, 1)
+	benchmarkLongPacketEncode(b, gopus.ApplicationAudio, gopus.EncoderModeCELT, gopus.BandwidthFullband, 128000, 1)
 }
 
 // BenchmarkEncoderEncode_LongPacketHybrid measures the long hybrid multi-frame
 // caller-buffer encode path. Target: 0 allocs/op.
 func BenchmarkEncoderEncode_LongPacketHybrid(b *testing.B) {
-	benchmarkLongPacketEncode(b, ApplicationAudio, EncoderModeHybrid, BandwidthFullband, 64000, 1)
+	benchmarkLongPacketEncode(b, gopus.ApplicationAudio, gopus.EncoderModeHybrid, gopus.BandwidthFullband, 64000, 1)
 }
 
 // BenchmarkEncoderEncode_LongPacketSILK measures the long SILK multi-frame
 // caller-buffer encode path (80/100/120 ms split into 20/40/60 ms SILK frames).
 // Target: 0 allocs/op.
 func BenchmarkEncoderEncode_LongPacketSILK(b *testing.B) {
-	benchmarkLongPacketEncode(b, ApplicationVoIP, EncoderModeSILK, BandwidthWideband, 24000, 1)
+	benchmarkLongPacketEncode(b, gopus.ApplicationVoIP, gopus.EncoderModeSILK, gopus.BandwidthWideband, 24000, 1)
 }

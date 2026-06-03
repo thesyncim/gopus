@@ -1,4 +1,4 @@
-package gopus
+package gopus_test
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/extsupport"
 )
 
@@ -32,13 +33,13 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	optionalDoc := mustReadDocForTest(t, "README.md")
 	for _, tc := range []struct {
 		name   string
-		ext    OptionalExtension
+		ext    gopus.OptionalExtension
 		status string
 	}{
-		{name: "DNN blob loading", ext: OptionalExtensionDNNBlob, status: "Supported under `gopus_dred` / `gopus_extra_controls`"},
-		{name: "QEXT", ext: OptionalExtensionQEXT, status: "Supported under `gopus_qext`"},
-		{name: "DRED", ext: OptionalExtensionDRED, status: "Supported under `gopus_dred` (control + standalone)"},
-		{name: "OSCE BWE", ext: OptionalExtensionOSCEBWE, status: "Supported under `gopus_extra_controls`"},
+		{name: "DNN blob loading", ext: gopus.OptionalExtensionDNNBlob, status: "Supported under `gopus_dred` / `gopus_extra_controls`"},
+		{name: "QEXT", ext: gopus.OptionalExtensionQEXT, status: "Supported under `gopus_qext`"},
+		{name: "DRED", ext: gopus.OptionalExtensionDRED, status: "Supported under `gopus_dred` (control + standalone)"},
+		{name: "OSCE BWE", ext: gopus.OptionalExtensionOSCEBWE, status: "Supported under `gopus_extra_controls`"},
 	} {
 		wantLine := fmt.Sprintf("| %s | %s | `%s` |", tc.name, tc.status, optionalExtensionDocSymbol(tc.ext))
 		if !containsDocText(optionalDoc, wantLine) {
@@ -73,15 +74,15 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	}
 }
 
-func optionalExtensionDocSymbol(ext OptionalExtension) string {
+func optionalExtensionDocSymbol(ext gopus.OptionalExtension) string {
 	switch ext {
-	case OptionalExtensionDRED:
+	case gopus.OptionalExtensionDRED:
 		return "OptionalExtensionDRED"
-	case OptionalExtensionDNNBlob:
+	case gopus.OptionalExtensionDNNBlob:
 		return "OptionalExtensionDNNBlob"
-	case OptionalExtensionQEXT:
+	case gopus.OptionalExtensionQEXT:
 		return "OptionalExtensionQEXT"
-	case OptionalExtensionOSCEBWE:
+	case gopus.OptionalExtensionOSCEBWE:
 		return "OptionalExtensionOSCEBWE"
 	default:
 		return string(ext)
@@ -95,20 +96,20 @@ func assertOptionalExtensionDocsMatchSupport(t *testing.T, optionalDoc string) {
 	// loaders (built only under ENABLE_DRED/ENABLE_OSCE/ENABLE_DEEP_PLC). The
 	// default build reports no support; -tags gopus_dred / gopus_extra_controls
 	// turn it on alongside the DRED/OSCE runtime hooks.
-	if SupportsOptionalExtension(OptionalExtensionDNNBlob) != extsupport.DNNBlob {
-		t.Fatalf("SupportsOptionalExtension(DNNBlob)=%v want %v", SupportsOptionalExtension(OptionalExtensionDNNBlob), extsupport.DNNBlob)
+	if gopus.SupportsOptionalExtension(gopus.OptionalExtensionDNNBlob) != extsupport.DNNBlob {
+		t.Fatalf("SupportsOptionalExtension(DNNBlob)=%v want %v", gopus.SupportsOptionalExtension(gopus.OptionalExtensionDNNBlob), extsupport.DNNBlob)
 	}
-	if SupportsOptionalExtension(OptionalExtensionDNNBlob) && !strings.Contains(optionalDoc, "go test -tags gopus_dred ./...") {
+	if gopus.SupportsOptionalExtension(gopus.OptionalExtensionDNNBlob) && !strings.Contains(optionalDoc, "go test -tags gopus_dred ./...") {
 		t.Fatal("README.md missing DNN blob tag guidance")
 	}
-	if SupportsOptionalExtension(OptionalExtensionOSCEBWE) {
+	if gopus.SupportsOptionalExtension(gopus.OptionalExtensionOSCEBWE) {
 		t.Fatal("OptionalExtensionOSCEBWE documented as extra-control parity only but current build reports support")
 	}
 
-	if SupportsOptionalExtension(OptionalExtensionQEXT) && !strings.Contains(optionalDoc, "go test -tags gopus_qext ./...") {
+	if gopus.SupportsOptionalExtension(gopus.OptionalExtensionQEXT) && !strings.Contains(optionalDoc, "go test -tags gopus_qext ./...") {
 		t.Fatal("README.md missing QEXT tag guidance")
 	}
-	if SupportsOptionalExtension(OptionalExtensionDRED) && !strings.Contains(optionalDoc, "go test -tags gopus_dred ./...") {
+	if gopus.SupportsOptionalExtension(gopus.OptionalExtensionDRED) && !strings.Contains(optionalDoc, "go test -tags gopus_dred ./...") {
 		t.Fatal("README.md missing DRED tag guidance")
 	}
 }

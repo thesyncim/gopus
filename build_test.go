@@ -1,4 +1,4 @@
-package gopus
+package gopus_test
 
 import (
 	"go/parser"

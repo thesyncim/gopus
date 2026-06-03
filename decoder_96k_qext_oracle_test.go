@@ -1,6 +1,6 @@
 //go:build gopus_qext
 
-package gopus
+package gopus_test
 
 import (
 	"encoding/binary"
@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/benchutil"
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/rangecoding"
@@ -100,7 +101,7 @@ func testNative96kDecodeMatchesQEXTOracle(t *testing.T, channels int) {
 		t.Fatal("oracle returned no PCM")
 	}
 
-	dec, err := NewDecoder(DefaultDecoderConfig(96000, channels))
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(96000, channels))
 	if err != nil {
 		t.Fatalf("NewDecoder(96000, %d): %v", channels, err)
 	}
@@ -312,7 +313,7 @@ func TestNative96kDecodeCrossFramePostfilterParity(t *testing.T) {
 				t.Fatal("oracle returned no PCM")
 			}
 
-			dec, err := NewDecoder(DefaultDecoderConfig(96000, ch))
+			dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(96000, ch))
 			if err != nil {
 				t.Fatalf("NewDecoder(96000, %d): %v", ch, err)
 			}

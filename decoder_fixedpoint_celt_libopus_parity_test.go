@@ -1,12 +1,13 @@
 //go:build gopus_fixedpoint
 
-package gopus
+package gopus_test
 
 import (
 	"math"
 	"math/rand"
 	"testing"
 
+	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
@@ -140,7 +141,7 @@ func TestDecoderFixedPointCELTParity(t *testing.T) {
 				return
 			}
 
-			dec, err := NewDecoder(DefaultDecoderConfig(48000, channels))
+			dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 			if err != nil {
 				t.Fatalf("new decoder: %v", err)
 			}
@@ -166,7 +167,7 @@ func TestDecoderFixedPointCELTParity(t *testing.T) {
 			// same packets. Each int24 sample is the opus_res value, so applying
 			// RES2INT16 (SAT16(PSHR32(a, 8))) must reproduce the libopus int16
 			// reference exactly.
-			dec24, err := NewDecoder(DefaultDecoderConfig(48000, channels))
+			dec24, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 			if err != nil {
 				t.Fatalf("new int24 decoder: %v", err)
 			}

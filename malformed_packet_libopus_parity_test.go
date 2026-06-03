@@ -13,7 +13,7 @@
 //   OPUS_BUFFER_TOO_SMALL (-2) → ErrBufferTooSmall
 //   positive result          → decode succeeded (no error expected)
 
-package gopus
+package gopus_test
 
 import (
 	"errors"
@@ -21,6 +21,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
@@ -143,9 +144,9 @@ func probeMalformedDecodeErrors(cases []malformedPacketCase) ([]libopusDecodeErr
 //	packet_parse.go ErrPacketTooShort, ErrInvalidFrameCount, ErrInvalidPacket
 //	decoder_misc.go packetFrameCount
 func isGopusInvalidPacketErr(err error) bool {
-	return errors.Is(err, ErrInvalidPacket) ||
-		errors.Is(err, ErrPacketTooShort) ||
-		errors.Is(err, ErrInvalidFrameCount)
+	return errors.Is(err, gopus.ErrInvalidPacket) ||
+		errors.Is(err, gopus.ErrPacketTooShort) ||
+		errors.Is(err, gopus.ErrInvalidFrameCount)
 }
 
 // ---- test corpus -----------------------------------------------------------
@@ -199,7 +200,7 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 		format:       malformedFormatFloat32,
 		sampleRate:   48000,
 		channels:     1,
-		wantGopusErr: ErrInvalidPacket,
+		wantGopusErr: gopus.ErrInvalidPacket,
 	})
 
 	// Code 1: zero payload → both frames are size 0 → PLC, not error.
@@ -222,7 +223,7 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 		format:       malformedFormatFloat32,
 		sampleRate:   48000,
 		channels:     1,
-		wantGopusErr: ErrInvalidPacket,
+		wantGopusErr: gopus.ErrInvalidPacket,
 	})
 
 	// Code 2: size field itself truncated (len<1 for parse_size).
@@ -235,7 +236,7 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 		format:       malformedFormatFloat32,
 		sampleRate:   48000,
 		channels:     1,
-		wantGopusErr: ErrPacketTooShort,
+		wantGopusErr: gopus.ErrPacketTooShort,
 	})
 
 	// Code 2: two-byte size field present but second byte missing.
@@ -247,7 +248,7 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 		format:       malformedFormatFloat32,
 		sampleRate:   48000,
 		channels:     1,
-		wantGopusErr: ErrPacketTooShort,
+		wantGopusErr: gopus.ErrPacketTooShort,
 	})
 
 	// ---- Code-3 M=0 --------------------------------------------------------
@@ -259,7 +260,7 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 		format:       malformedFormatFloat32,
 		sampleRate:   48000,
 		channels:     1,
-		wantGopusErr: ErrInvalidFrameCount,
+		wantGopusErr: gopus.ErrInvalidFrameCount,
 	})
 
 	// ---- Code-3 M>48 -------------------------------------------------------
@@ -271,7 +272,7 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 		format:       malformedFormatFloat32,
 		sampleRate:   48000,
 		channels:     1,
-		wantGopusErr: ErrInvalidFrameCount,
+		wantGopusErr: gopus.ErrInvalidFrameCount,
 	})
 	cases = append(cases, malformedPacketCase{
 		name:         "code3_M_63",
@@ -279,7 +280,7 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 		format:       malformedFormatFloat32,
 		sampleRate:   48000,
 		channels:     1,
-		wantGopusErr: ErrInvalidFrameCount,
+		wantGopusErr: gopus.ErrInvalidFrameCount,
 	})
 
 	// ---- Code-3 >120 ms total duration ------------------------------------
@@ -294,7 +295,7 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 		format:       malformedFormatFloat32,
 		sampleRate:   48000,
 		channels:     1,
-		wantGopusErr: ErrInvalidPacket,
+		wantGopusErr: gopus.ErrInvalidPacket,
 	})
 
 	// ---- Code-3 CBR uneven payload ----------------------------------------
@@ -307,7 +308,7 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 		format:       malformedFormatFloat32,
 		sampleRate:   48000,
 		channels:     1,
-		wantGopusErr: ErrInvalidPacket,
+		wantGopusErr: gopus.ErrInvalidPacket,
 	})
 
 	// CBR: zero payload divided by M=3 is fine (0/3=0)
@@ -330,7 +331,7 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 		format:       malformedFormatFloat32,
 		sampleRate:   48000,
 		channels:     1,
-		wantGopusErr: ErrInvalidPacket,
+		wantGopusErr: gopus.ErrInvalidPacket,
 	})
 
 	// ---- Code-3 padding overflow ------------------------------------------
@@ -345,7 +346,7 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 		format:       malformedFormatFloat32,
 		sampleRate:   48000,
 		channels:     1,
-		wantGopusErr: ErrInvalidPacket,
+		wantGopusErr: gopus.ErrInvalidPacket,
 	})
 
 	// padding present but pad-length byte itself missing (len==0 when reading pad byte).
@@ -358,7 +359,7 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 		format:       malformedFormatFloat32,
 		sampleRate:   48000,
 		channels:     1,
-		wantGopusErr: ErrPacketTooShort,
+		wantGopusErr: gopus.ErrPacketTooShort,
 	})
 
 	// ---- Code-3 len<1 after TOC (missing frame-count byte) ----------------
@@ -369,7 +370,7 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 		format:       malformedFormatFloat32,
 		sampleRate:   48000,
 		channels:     1,
-		wantGopusErr: ErrPacketTooShort,
+		wantGopusErr: gopus.ErrPacketTooShort,
 	})
 
 	// ---- Last-frame size > 1275 -------------------------------------------
@@ -387,7 +388,7 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 		format:       malformedFormatFloat32,
 		sampleRate:   48000,
 		channels:     1,
-		wantGopusErr: ErrInvalidPacket,
+		wantGopusErr: gopus.ErrInvalidPacket,
 	})
 
 	// ---- Buffer too small (OPUS_BUFFER_TOO_SMALL) -------------------------
@@ -417,7 +418,7 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 		format:       malformedFormatFloat32,
 		sampleRate:   48000,
 		channels:     1,
-		wantGopusErr: ErrInvalidPacket,
+		wantGopusErr: gopus.ErrInvalidPacket,
 	})
 
 	return cases
@@ -533,7 +534,7 @@ func TestMalformedPacketErrorCodeParity(t *testing.T) {
 		tc := tc
 		want := oracleResults[i]
 		t.Run(tc.name, func(t *testing.T) {
-			dec, decErr := NewDecoder(DefaultDecoderConfig(tc.sampleRate, tc.channels))
+			dec, decErr := gopus.NewDecoder(gopus.DefaultDecoderConfig(tc.sampleRate, tc.channels))
 			if decErr != nil {
 				t.Fatalf("NewDecoder: %v", decErr)
 			}
@@ -579,7 +580,7 @@ func TestMalformedPacketErrorCodeParity(t *testing.T) {
 
 			case want.code == libopusErrBufTooSmall:
 				// libopus returned OPUS_BUFFER_TOO_SMALL → gopus must return ErrBufferTooSmall.
-				if !errors.Is(gopusErr, ErrBufferTooSmall) {
+				if !errors.Is(gopusErr, gopus.ErrBufferTooSmall) {
 					t.Errorf("libopus OPUS_BUFFER_TOO_SMALL (-2), gopus=%v want ErrBufferTooSmall", gopusErr)
 				}
 
@@ -624,7 +625,7 @@ func TestMalformedPacketBufferTooSmallParity(t *testing.T) {
 		tc := tc
 		wantCode := oracleCodes[i]
 		t.Run(tc.name, func(t *testing.T) {
-			dec, decErr := NewDecoder(DefaultDecoderConfig(tc.sampleRate, tc.channels))
+			dec, decErr := gopus.NewDecoder(gopus.DefaultDecoderConfig(tc.sampleRate, tc.channels))
 			if decErr != nil {
 				t.Fatalf("NewDecoder: %v", decErr)
 			}
@@ -634,7 +635,7 @@ func TestMalformedPacketBufferTooSmallParity(t *testing.T) {
 			_, gopusErr := dec.Decode(tc.packet, pcm)
 
 			if wantCode == libopusErrBufTooSmall {
-				if !errors.Is(gopusErr, ErrBufferTooSmall) {
+				if !errors.Is(gopusErr, gopus.ErrBufferTooSmall) {
 					t.Errorf("libopus OPUS_BUFFER_TOO_SMALL, gopus=%v want ErrBufferTooSmall", gopusErr)
 				}
 			} else if wantCode >= 0 {
@@ -660,7 +661,7 @@ func TestMalformedPacketInt16Parity(t *testing.T) {
 			format:       malformedFormatInt16,
 			sampleRate:   48000,
 			channels:     1,
-			wantGopusErr: ErrInvalidPacket,
+			wantGopusErr: gopus.ErrInvalidPacket,
 		},
 		{
 			name:         "int16_code3_M_zero",
@@ -668,7 +669,7 @@ func TestMalformedPacketInt16Parity(t *testing.T) {
 			format:       malformedFormatInt16,
 			sampleRate:   48000,
 			channels:     1,
-			wantGopusErr: ErrInvalidFrameCount,
+			wantGopusErr: gopus.ErrInvalidFrameCount,
 		},
 		{
 			name:         "int16_code3_missing_frame_count",
@@ -676,7 +677,7 @@ func TestMalformedPacketInt16Parity(t *testing.T) {
 			format:       malformedFormatInt16,
 			sampleRate:   48000,
 			channels:     1,
-			wantGopusErr: ErrPacketTooShort,
+			wantGopusErr: gopus.ErrPacketTooShort,
 		},
 		{
 			name:         "int16_code2_frame1_overflow",
@@ -684,7 +685,7 @@ func TestMalformedPacketInt16Parity(t *testing.T) {
 			format:       malformedFormatInt16,
 			sampleRate:   48000,
 			channels:     1,
-			wantGopusErr: ErrInvalidPacket,
+			wantGopusErr: gopus.ErrInvalidPacket,
 		},
 	}
 
@@ -698,7 +699,7 @@ func TestMalformedPacketInt16Parity(t *testing.T) {
 		tc := tc
 		want := oracleResults[i]
 		t.Run(tc.name, func(t *testing.T) {
-			dec, decErr := NewDecoder(DefaultDecoderConfig(tc.sampleRate, tc.channels))
+			dec, decErr := gopus.NewDecoder(gopus.DefaultDecoderConfig(tc.sampleRate, tc.channels))
 			if decErr != nil {
 				t.Fatalf("NewDecoder: %v", decErr)
 			}
@@ -731,7 +732,7 @@ func TestMalformedPacketInt24Parity(t *testing.T) {
 			format:       malformedFormatInt24,
 			sampleRate:   48000,
 			channels:     1,
-			wantGopusErr: ErrInvalidPacket,
+			wantGopusErr: gopus.ErrInvalidPacket,
 		},
 		{
 			name:         "int24_code3_M_63",
@@ -739,7 +740,7 @@ func TestMalformedPacketInt24Parity(t *testing.T) {
 			format:       malformedFormatInt24,
 			sampleRate:   48000,
 			channels:     1,
-			wantGopusErr: ErrInvalidFrameCount,
+			wantGopusErr: gopus.ErrInvalidFrameCount,
 		},
 		{
 			name:         "int24_code3_cbr_uneven",
@@ -747,7 +748,7 @@ func TestMalformedPacketInt24Parity(t *testing.T) {
 			format:       malformedFormatInt24,
 			sampleRate:   48000,
 			channels:     1,
-			wantGopusErr: ErrInvalidPacket,
+			wantGopusErr: gopus.ErrInvalidPacket,
 		},
 	}
 
@@ -761,7 +762,7 @@ func TestMalformedPacketInt24Parity(t *testing.T) {
 		tc := tc
 		want := oracleResults[i]
 		t.Run(tc.name, func(t *testing.T) {
-			dec, decErr := NewDecoder(DefaultDecoderConfig(tc.sampleRate, tc.channels))
+			dec, decErr := gopus.NewDecoder(gopus.DefaultDecoderConfig(tc.sampleRate, tc.channels))
 			if decErr != nil {
 				t.Fatalf("NewDecoder: %v", decErr)
 			}
@@ -802,7 +803,7 @@ func TestMalformedPacketAllRatesAndChannels(t *testing.T) {
 					format:       malformedFormatFloat32,
 					sampleRate:   rate,
 					channels:     ch,
-					wantGopusErr: ErrInvalidPacket,
+					wantGopusErr: gopus.ErrInvalidPacket,
 				}
 				res, err := probeMalformedDecodeErrors([]malformedPacketCase{tc})
 				if err != nil {
@@ -813,7 +814,7 @@ func TestMalformedPacketAllRatesAndChannels(t *testing.T) {
 					t.Logf("libopus returned %d (not OPUS_INVALID_PACKET) — skipping", res[0].code)
 					return
 				}
-				dec, decErr := NewDecoder(DefaultDecoderConfig(rate, ch))
+				dec, decErr := gopus.NewDecoder(gopus.DefaultDecoderConfig(rate, ch))
 				if decErr != nil {
 					t.Fatalf("NewDecoder: %v", decErr)
 				}
