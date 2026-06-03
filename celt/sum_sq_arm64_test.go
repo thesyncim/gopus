@@ -27,6 +27,29 @@ func TestComputeBandRMSUsesArm64LibopusInnerProdOrder(t *testing.T) {
 	for i, v := range x {
 		laneInput[i] = float64(v)
 	}
+
+	got := computeBandRMS(x, 0, len(x))
+
+	if celtFusedFloat {
+		// The fused arm64 build matches scalar libopus compute_band_energies +
+		// amp2Log2: a scalar-order, no-FMA sum-of-squares then
+		// celt_log2(celt_sqrt(sum)). This is the dynalloc-boost fix; the NEON
+		// lane-ordered shortcut is deliberately not used here.
+		scalarSum := float32(1e-27) + celtBandSumSqScalarNoFMA(x)
+		want := celtLog2(celtSqrt(scalarSum))
+		if got != want {
+			t.Fatalf("computeBandRMS=%v, want %v from scalar-order celt_log2(celt_sqrt(sum))", got, want)
+		}
+
+		laneShortcut := float32(0.5) * celtLog2(float32(1e-27)+celtInnerProdF32LibopusOrder(x))
+		if got == laneShortcut {
+			t.Fatalf("fused computeBandRMS unexpectedly equals the NEON lane-order 0.5*log2 shortcut: %v", got)
+		}
+		return
+	}
+
+	// The bit-exact builds (purego, amd64) keep the libopus inner-product order
+	// plus the 0.5*celt_log2(sum) shortcut.
 	laneSum := float32(sumOfSquaresF64toF32(laneInput, len(laneInput)))
 	seqSumNoEpsilon := sequentialSumOfSquaresF64toF32ForTest(laneInput)
 	if laneSum == seqSumNoEpsilon {
@@ -35,8 +58,6 @@ func TestComputeBandRMSUsesArm64LibopusInnerProdOrder(t *testing.T) {
 
 	sum := float32(1e-27) + laneSum
 	want := float32(0.5) * celtLog2(sum)
-
-	got := computeBandRMS(x, 0, len(x))
 	if got != want {
 		t.Fatalf("computeBandRMS=%v, want %v from arm64 lane-order sum", got, want)
 	}

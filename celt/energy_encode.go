@@ -3,7 +3,11 @@
 
 package celt
 
-import "github.com/thesyncim/gopus/rangecoding"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/rangecoding"
+)
 
 const (
 	lfeBandClamp     = 1e-4
@@ -335,13 +339,15 @@ func computeBandRMS(coeffs []float32, start, end int) float32 {
 		return float32(0.5) * celtLog2(float32(1e-27))
 	}
 
+	c := coeffs[start:end:end]
+	if celtFusedFloat {
+		sumSq := float32(1e-27) + celtBandSumSqScalarNoFMA(c)
+		return celtLog2(celtSqrt(sumSq))
+	}
+
 	// Compute sum of squares with the same accumulation order libopus uses
 	// for celt_inner_prod() on the active architecture.
-	c := coeffs[start:end:end]
 	sumSq := float32(1e-27) + celtInnerProdF32LibopusOrder(c)
-
-	// Keep the existing float32 shortcut: strict libopus-backed quality
-	// fixtures regress on this tree when using sqrt(sumSq) before celtLog2.
 	return float32(0.5) * celtLog2(sumSq)
 }
 
@@ -350,8 +356,36 @@ func computeBandRMSFloat32(coeffs []float32, start, end int) float32 {
 		return float32(0.5) * celtLog2(float32(1e-27))
 	}
 	c := coeffs[start:end:end]
+	if celtFusedFloat {
+		sumSq := float32(1e-27) + celtBandSumSqScalarNoFMA(c)
+		return celtLog2(celtSqrt(sumSq))
+	}
 	sumSq := float32(1e-27) + celtInnerProdF32LibopusOrder(c)
 	return float32(0.5) * celtLog2(sumSq)
+}
+
+// celtSqrt mirrors libopus celt_sqrt in the float build: (float)sqrt((double)x).
+// C promotes the float argument to double, takes the double-precision sqrt, then
+// narrows back to float, so the Go equivalent rounds through float64 the same way.
+func celtSqrt(x float32) float32 {
+	return float32(math.Sqrt(float64(x)))
+}
+
+// celtBandSumSqScalarNoFMA accumulates the band sum-of-squares in scalar order,
+// matching libopus celt_inner_prod_c (xy = MAC16_16(xy, x[i], x[i]), i.e. a plain
+// float32 multiply followed by a float32 add per element). The Float32bits
+// round-trip is a rounding barrier that stops a fused build (celtFusedFloat) from
+// contracting x*x + sum into a single FMADD, so the band energy that feeds the
+// dynalloc boost decision tracks the scalar reference instead of the NEON
+// lane-ordered inner product. Band energy is computed once per frame, so the lost
+// FMA is negligible.
+func celtBandSumSqScalarNoFMA(x []float32) float32 {
+	var sum float32
+	for i := range x {
+		p := math.Float32frombits(math.Float32bits(x[i] * x[i]))
+		sum = math.Float32frombits(math.Float32bits(sum + p))
+	}
+	return sum
 }
 
 func celtInnerProdF32LibopusOrder(x []float32) float32 {
