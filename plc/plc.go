@@ -1,16 +1,52 @@
-// Package plc implements Packet Loss Concealment (PLC) for Opus.
-// PLC generates plausible audio when packets are lost, preventing jarring
-// silence or glitches. This is essential for real-time audio applications
-// over unreliable networks.
+// Package plc implements Opus-level Packet Loss Concealment (PLC): the
+// machinery that synthesizes plausible audio for frames whose packets were
+// lost, dropped, or arrived too late. Concealment avoids the jarring silence
+// and clicks that would otherwise occur, which is essential for real-time
+// audio over unreliable transports.
 //
-// Reference: RFC 6716 Section 4.2.8 (PLC), libopus silk/dec_API.c
+// # Layout
 //
-// Most applications should use the top-level gopus decoder APIs instead of
-// importing plc directly. This package exposes low-level implementation
-// details and may change before the first release.
+// The package is organized around the three Opus operating modes, matching how
+// libopus 1.6.1 splits concealment between its two codec layers:
+//
+//   - State (this file) is the mode-agnostic loss bookkeeping and fade-out
+//     cadence: how many consecutive frames have been lost and the residual
+//     gain to apply. It coordinates which per-mode routine runs.
+//   - silk_plc.go ports the SILK speech concealment from libopus silk/PLC.c
+//     (silk_PLC_conceal / silk_PLC_update) plus the fixed-point helpers from
+//     silk/Inlines.h and silk/MacroCount.h that it depends on. This is the
+//     bit-exact path used for SILK and the low band of Hybrid frames.
+//   - celt_plc.go provides the CELT (music / fullband) concealment: band-energy
+//     decay with per-band noise fill and IMDCT resynthesis, mirroring the
+//     spectral-fold strategy of celt/celt_decoder.c celt_decode_lost. It also
+//     serves the high band of Hybrid frames (ConcealCELTHybrid).
+//
+// # libopus references
+//
+//   - RFC 6716 Section 4.2.8 (Packet Loss Concealment)
+//   - libopus silk/PLC.c, silk/PLC.h (SILK concealment + constants)
+//   - libopus celt/celt_decoder.c (celt_decode_lost, the CELT loss path)
+//   - libopus silk/dec_API.c (silk_Decode loss/FEC dispatch)
+//
+// # Type discipline
+//
+// State and SILKPLCState mirror the libopus C struct field widths exactly
+// (opus_int32 -> int32, opus_int16 -> int16, opus_val16 -> float32), because
+// the fixed-point SILK path relies on intermediate truncation and overflow
+// behavior that only reproduces with matching integer widths. type_parity_test.go
+// guards these widths.
+//
+// # Stability
+//
+// Most applications should use the top-level gopus decoder APIs, which drive
+// this package internally with decoder-owned state. The interfaces and
+// functions here are low-level implementation details and may change before the
+// first release.
 package plc
 
-// Mode indicates which Opus mode to use for concealment.
+// Mode indicates which Opus operating mode the last good frame used, and hence
+// which concealment routine to drive for the lost frame. It corresponds to the
+// SILK / CELT / Hybrid split that libopus selects in src/opus_decoder.c.
 type Mode int32
 
 const (
@@ -27,19 +63,27 @@ const (
 	ModeHybrid
 )
 
-// MaxConcealedFrames is the maximum consecutive frames to conceal
-// before fading to silence. ~100ms at 20ms frames = 5 frames.
-// After this many frames, the output should be near-silent.
+// MaxConcealedFrames is the consecutive-loss count past which State.IsExhausted
+// reports the stream as concealed-out and callers should emit silence. Roughly
+// 100ms at 20ms frames (5 frames). This is the gopus-level safety ceiling on
+// top of the per-mode attenuation; libopus has no single equivalent constant
+// but bounds concealment growth similarly (e.g. celt loss_duration clamping in
+// celt/celt_decoder.c).
 const MaxConcealedFrames = 5
 
-// FadePerFrame is the default gain reduction per lost frame (linear).
-// Keep this mild; mode-specific concealment (especially SILK/Hybrid) already
-// applies its own attenuation cadence and should not be hard-faded here.
+// FadePerFrame is the per-loss linear gain reduction applied by
+// State.RecordLoss to its mode-agnostic fadeFactor. It is deliberately mild
+// because the per-mode routines (SILK silk_PLC_conceal harm/rand attenuation,
+// CELT band-energy decay) already fade their own output; this factor only
+// coordinates an overall envelope and must not double-attenuate hard.
 const FadePerFrame float32 = 0.57
 
-// State tracks PLC state across frames.
-// It maintains information about consecutive losses and coordinates
-// the fade-out behavior for concealment.
+// State tracks mode-agnostic PLC bookkeeping across frames: the consecutive
+// loss count, the last good frame's mode/size/channels, and the overall fade
+// envelope. It is the gopus-level coordinator that decides which per-mode
+// concealment routine (ConcealSILK / ConcealCELT / ConcealCELTHybrid) to drive
+// and with what residual gain. The numerically exact loss state for SILK lives
+// separately in SILKPLCState (the port of libopus silk_PLC_struct).
 type State struct {
 	// lostCount tracks consecutive lost packets.
 	// Reset to 0 when a good packet is received.
@@ -82,15 +126,15 @@ func (s *State) Reset() {
 	s.fadeFactor = 1.0
 }
 
-// RecordLoss records a lost packet and returns the current fade factor.
-// Call this before generating concealment audio to get the correct gain.
+// RecordLoss records one lost packet and returns the updated fade factor to
+// apply to the concealment audio for this frame. Call it once per lost frame
+// before generating concealment.
 //
-// The fade factor decays exponentially:
-//   - First loss: fadeFactor = 1.0 * FadePerFrame = 0.5
-//   - Second loss: fadeFactor = 0.5 * FadePerFrame = 0.25
-//   - After MaxConcealedFrames: fadeFactor approaches 0
-//
-// Returns: current fade factor to apply to concealment audio
+// The factor decays geometrically by FadePerFrame each call and is snapped to
+// exactly 0 once it drops below 0.001, so extended loss settles to silence:
+//   - First loss:  fadeFactor = 1.0 * FadePerFrame
+//   - Second loss: fadeFactor = FadePerFrame^2
+//   - After several losses: fadeFactor == 0
 func (s *State) RecordLoss() float32 {
 	s.lostCount++
 
@@ -111,11 +155,11 @@ func (s *State) LostCount() int {
 	return int(s.lostCount)
 }
 
-// FadeFactor returns the current fade level (0.0 to 1.0).
-// This is the gain to apply to concealment audio.
-//   - 1.0: Full volume (no loss yet recorded)
-//   - 0.5: One packet lost
-//   - 0.0: After several consecutive losses (silent)
+// FadeFactor returns the current fade level (0.0 to 1.0), the gain to apply to
+// concealment audio:
+//   - 1.0: full volume, no loss recorded yet (or freshly reset)
+//   - between 0 and 1: decaying after one or more consecutive losses
+//   - 0.0: concealed out after several consecutive losses (silent)
 func (s *State) FadeFactor() float32 {
 	return s.fadeFactor
 }

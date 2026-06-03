@@ -1,5 +1,20 @@
 package plc
 
+// SILK-side concealment for the plc package.
+//
+// ConcealSILKWithLTP / SILKPLCState / UpdateFromGoodFrame are a faithful Go port
+// of the SILK packet-loss concealer in libopus silk/PLC.c (silk_PLC_conceal and
+// silk_PLC_update), driven by the silk_PLC_struct state. The fixed-point helpers
+// below (smulwb, smlawb, silk_INVERSE32_varQ, silk_LPC_inverse_pred_gain,
+// silk_bwexpander, etc.) port the macros from silk/SigProc_FIX.h, silk/Inlines.h
+// and silk/MacroCount.h that the concealer depends on; their integer widths are
+// chosen to reproduce libopus truncation and saturation bit-for-bit.
+//
+// ConcealSILK / concealVoicedSILK / concealUnvoicedSILK are a simpler float
+// fallback used when only the minimal SILKDecoderState (no LTP/excitation
+// history) is available; the bit-exact path is ConcealSILKWithLTP.
+//
+// Reference: libopus silk/PLC.c, silk/PLC.h, RFC 6716 Section 4.2.8.
 import (
 	"math"
 	"math/bits"
@@ -7,59 +22,77 @@ import (
 	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
-// Constants from libopus silk/PLC.h
+// Constants from libopus silk/PLC.h and silk/define.h, governing the SILK
+// concealment cadence (attenuation, pitch drift, buffer sizes). Values match
+// the C macros exactly.
 const (
-	// ltpOrder is the number of LTP filter taps (5-tap filter).
+	// ltpOrder is the number of LTP (long-term prediction) filter taps;
+	// libopus LTP_ORDER (silk/define.h).
 	ltpOrder = 5
 
-	// maxLPCOrder is the maximum LPC order (16 for WB, 10 for NB/MB).
+	// maxLPCOrder is the maximum LPC order (16 for WB, 10 for NB/MB);
+	// libopus MAX_LPC_ORDER (silk/define.h).
 	maxLPCOrder = 16
 
-	// bweCoef is the bandwidth expansion coefficient for LPC during PLC.
-	// Applied to prevent filter instability during concealment.
+	// bweCoef is the bandwidth-expansion coefficient applied to the previous
+	// LPC before concealment to pull the poles inward and keep the filter
+	// stable; libopus BWE_COEF (silk/PLC.h).
 	bweCoef float32 = 0.99
 
-	// vPitchGainStartMinQ14 is the minimum LTP gain (0.7 in Q14).
-	// LTP gains below this are scaled up for better concealment.
+	// vPitchGainStartMinQ14 is the minimum starting LTP gain (0.7 in Q14);
+	// gains below this are scaled up. libopus V_PITCH_GAIN_START_MIN_Q14.
 	vPitchGainStartMinQ14 = 11469
 
-	// vPitchGainStartMaxQ14 is the maximum LTP gain (0.95 in Q14).
-	// LTP gains above this are scaled down to prevent instability.
+	// vPitchGainStartMaxQ14 is the maximum starting LTP gain (0.95 in Q14);
+	// gains above this are scaled down. libopus V_PITCH_GAIN_START_MAX_Q14.
 	vPitchGainStartMaxQ14 = 15565
 
-	// maxPitchLagMs is the maximum pitch lag in milliseconds.
+	// maxPitchLagMs is the pitch-lag ceiling in milliseconds used by the drift
+	// clamp; libopus MAX_PITCH_LAG_MS (silk/PLC.h).
 	maxPitchLagMs = 18
 
-	// randBufSize is the size of the random noise buffer.
+	// randBufSize is the size of the excitation-derived random noise buffer;
+	// libopus RAND_BUF_SIZE (silk/PLC.h).
 	randBufSize = 128
 
-	// randBufMask is used for random buffer index masking.
+	// randBufMask masks a random index into randBuf; libopus RAND_BUF_MASK.
 	randBufMask = randBufSize - 1
 
-	// pitchDriftFacQ16 is the pitch lag drift factor (0.01 in Q16).
-	// Pitch lag slowly increases during extended loss.
+	// pitchDriftFacQ16 is the per-subframe pitch-lag drift factor (0.01 in
+	// Q16), slowly lengthening the lag during extended loss; libopus
+	// PITCH_DRIFT_FAC_Q16 (silk/PLC.h).
 	pitchDriftFacQ16 = 655
 
-	// log2InvLPCGainHighThres/log2InvLPCGainLowThres mirror libopus PLC.h.
+	// log2InvLPCGainHighThres and log2InvLPCGainLowThres bound the unvoiced
+	// LPC-gain downscale (8 dB / 24 dB); libopus LOG2_INV_LPC_GAIN_HIGH_THRES
+	// and LOG2_INV_LPC_GAIN_LOW_THRES (silk/PLC.h).
 	log2InvLPCGainHighThres = 3
 	log2InvLPCGainLowThres  = 8
 
-	// Constants for fixed-point LPC inverse prediction gain.
-	lpcInvPredQA        = 24
-	lpcInvPredALimitQ24 = 16773023 // SILK_FIX_CONST(0.99975, 24)
-	minInvPredGainQ30   = 107374   // SILK_FIX_CONST(1 / 1e4, 30)
+	// Fixed-point parameters for the LPC inverse-prediction-gain computation,
+	// ported from libopus silk_LPC_inverse_pred_gain (silk/LPC_inv_pred_gain.c).
+	lpcInvPredQA        = 24       // working precision (QA)
+	lpcInvPredALimitQ24 = 16773023 // SILK_FIX_CONST(0.99975, 24): reflection-coef limit
+	minInvPredGainQ30   = 107374   // SILK_FIX_CONST(1 / 1e4, 30): stability floor
 
-	// Attenuation constants (Q15 format)
+	// Per-frame attenuation gains in Q15, indexed by loss count (first lost
+	// frame vs. subsequent). harm_* attenuate the LTP (harmonic) contribution,
+	// rand_* the random-noise contribution; V is voiced, UV unvoiced. These are
+	// HARM_ATT_Q15, PLC_RAND_ATTENUATE_V_Q15 and PLC_RAND_ATTENUATE_UV_Q15
+	// from libopus silk/PLC.c.
 	harmAttQ15_0   = 32440 // 0.99 - first lost frame
 	harmAttQ15_1   = 31130 // 0.95 - subsequent frames
-	randAttVQ15_0  = 31130 // 0.95 - voiced first frame
-	randAttVQ15_1  = 26214 // 0.8 - voiced subsequent
-	randAttUVQ15_0 = 32440 // 0.99 - unvoiced first frame
-	randAttUVQ15_1 = 29491 // 0.9 - unvoiced subsequent
+	randAttVQ15_0  = 31130 // 0.95 - voiced, first frame
+	randAttVQ15_1  = 26214 // 0.8 - voiced, subsequent
+	randAttUVQ15_0 = 32440 // 0.99 - unvoiced, first frame
+	randAttUVQ15_1 = 29491 // 0.9 - unvoiced, subsequent
 )
 
-// SILKDecoderState provides access to SILK decoder state needed for PLC.
-// This interface allows PLC to access decoder state without importing the silk package.
+// SILKDecoderState is the minimal SILK decoder view required by the float
+// fallback concealer (ConcealSILK): the previous LPC envelope, its order, the
+// last voicing decision, and the output history for pitch repetition. It lets
+// the plc package conceal without importing the silk package. The bit-exact
+// concealer needs the richer SILKDecoderStateExtended instead.
 type SILKDecoderState interface {
 	// PrevLPCValues returns the LPC filter state from the last frame.
 	PrevLPCValues() []float32
@@ -73,38 +106,47 @@ type SILKDecoderState interface {
 	HistoryIndex() int
 }
 
-// SILKPitchLagProvider optionally exposes the previous pitch lag from the
-// underlying decoder state.
+// SILKPitchLagProvider optionally exposes the decoder's most recent pitch lag
+// (libopus lagPrev), letting the float fallback concealer use the tracked lag
+// instead of re-estimating it by autocorrelation.
 type SILKPitchLagProvider interface {
 	GetLagPrev() int
 }
 
-// SILKSignalTypeProvider optionally exposes libopus signal type tracking.
-// Returns 0=inactive, 1=unvoiced, 2=voiced.
+// SILKSignalTypeProvider optionally exposes the libopus prevSignalType tracking:
+// 0=inactive, 1=unvoiced, 2=voiced.
 type SILKSignalTypeProvider interface {
 	GetLastSignalType() int
 }
 
-// SILKSLPCQ14Provider optionally exposes the decoder's LPC synthesis history
-// buffer in Q14 (most recent lpcOrder samples).
+// SILKSLPCQ14Provider optionally exposes the decoder's LPC synthesis history in
+// Q14 (libopus sLPC_Q14_buf, the most recent lpcOrder samples) so concealment
+// can seed LPC synthesis from real decoder state rather than the float envelope.
 type SILKSLPCQ14Provider interface {
 	GetSLPCQ14HistoryQ14() []int32
 }
 
-// SILKSLPCQ14Setter optionally allows PLC concealment to write back the
-// decoder LPC synthesis history (Q14), matching libopus PLC state cadence.
+// SILKSLPCQ14Setter optionally lets concealment write the advanced LPC
+// synthesis history (Q14) back to the decoder's sLPC_Q14_buf, matching the
+// state cadence libopus silk_PLC_conceal applies after each concealed frame.
 type SILKSLPCQ14Setter interface {
 	SetSLPCQ14HistoryQ14(history []int32)
 }
 
-// SILKOutBufProvider optionally exposes decoder outBuf history in Q0
-// (typically the last ltp_mem_length samples used by libopus PLC rewhitening).
+// SILKOutBufProvider optionally exposes the decoder's output history in Q0
+// (libopus outBuf, the last ltp_mem_length samples) used for the LPC-analysis
+// rewhitening step of silk_PLC_conceal. Preferred over the float OutputHistory
+// because it is the exact integer input libopus rewhitens.
 type SILKOutBufProvider interface {
 	GetOutBufHistoryQ0() []int16
 }
 
-// SILKDecoderStateExtended provides extended SILK decoder state access for LTP-aware PLC.
-// Implementations should provide this interface for full LTP coefficient support.
+// SILKDecoderStateExtended is the full SILK decoder view consumed by the
+// bit-exact concealer ConcealSILKWithLTP. It exposes everything
+// silk_PLC_conceal reads from silk_decoder_state / silk_decoder_control in
+// libopus: LTP coefficients and scale, pitch lag, subframe gains, LPC
+// coefficients, the excitation history (exc_Q14), and the frame geometry
+// (sample rate, subframe length, subframe count, LTP memory length).
 type SILKDecoderStateExtended interface {
 	SILKDecoderState
 
@@ -143,8 +185,12 @@ type SILKDecoderStateExtended interface {
 	GetLTPMemoryLength() int
 }
 
-// SILKPLCState stores persistent state for SILK PLC across lost frames.
-// This mirrors the silk_PLC_struct from libopus.
+// SILKPLCState is the persistent SILK concealment state carried across lost
+// frames, a Go port of silk_PLC_struct from libopus silk/structs.h. Field
+// Q-formats match the C struct exactly (see type_parity_test.go), because the
+// concealer's fixed-point math depends on the precise widths. It is updated
+// from each good frame by UpdateFromGoodFrame (silk_PLC_update) and advanced on
+// each loss by ConcealSILKWithLTP (silk_PLC_conceal).
 type SILKPLCState struct {
 	// LTP coefficients from the last good voiced frame (Q14)
 	LTPCoefQ14 [ltpOrder]int16
@@ -187,7 +233,9 @@ type SILKPLCState struct {
 	LastFrameLost bool
 }
 
-// NewSILKPLCState creates a new SILK PLC state with default values.
+// NewSILKPLCState returns a SILKPLCState initialized to the libopus
+// silk_PLC_Reset defaults (unit gains, 16 kHz WB geometry, unit random scale,
+// zero seed), with the pitch lag pre-seeded to half a 16 kHz 20 ms frame.
 func NewSILKPLCState() *SILKPLCState {
 	return &SILKPLCState{
 		// Default pitch lag: half frame length in Q8
@@ -211,7 +259,9 @@ func NewSILKPLCState() *SILKPLCState {
 	}
 }
 
-// Reset resets the PLC state for a new stream.
+// Reset clears the PLC state for a new stream, mirroring libopus silk_PLC_Reset:
+// the pitch lag is set to half the frame length in Q8, gains and random scale
+// to unity, and the cached LTP/LPC coefficients and loss flag are zeroed.
 func (s *SILKPLCState) Reset(frameLength int) {
 	s.PitchLQ8 = int32(frameLength) << 7 // Half frame length in Q8
 
@@ -235,9 +285,14 @@ func (s *SILKPLCState) Reset(frameLength int) {
 	s.LastFrameLost = false
 }
 
-// UpdateFromGoodFrame updates PLC state from a successfully decoded frame.
-// This should be called after each good frame to prepare for potential future losses.
-// This mirrors silk_PLC_update from libopus.
+// UpdateFromGoodFrame refreshes the concealment state from a successfully
+// decoded frame so a subsequent loss can extrapolate from it; call it after
+// every good SILK frame. It is a port of silk_PLC_update (libopus silk/PLC.c):
+// for voiced frames it picks the subframe with the strongest LTP gain, centers
+// that gain on the middle tap, and clamps it to the
+// [vPitchGainStartMinQ14, vPitchGainStartMaxQ14] band; for unvoiced frames it
+// clears the LTP taps and sets an 18 ms default pitch lag. The last two
+// subframe gains and the LPC coefficients are always cached.
 func (s *SILKPLCState) UpdateFromGoodFrame(
 	signalType int, // 0=inactive, 1=unvoiced, 2=voiced
 	pitchL []int32, // Pitch lags for each subframe
@@ -268,7 +323,16 @@ func (s *SILKPLCState) UpdateFromGoodFrame(
 		var ltpGainQ14 int32
 		var tempLtpGainQ14 int32
 
-		for j := 0; j*subfrLength < int(pitchL[nbSubfr-1]) && j < nbSubfr; j++ {
+		// libopus always calls silk_PLC_update with a consistent nb_subfr (2 or
+		// 4) and full-length parameter arrays. Skip the search on degenerate
+		// inputs (nb_subfr < 1 or short pitch/LTP arrays) so it cannot index out
+		// of bounds; this leaves ltpGainQ14 == 0, the same as finding no pitch
+		// pulse. Valid inputs run the loop exactly as before.
+		voicedInputsOK := nbSubfr >= 1 &&
+			len(pitchL) >= nbSubfr &&
+			len(ltpCoefQ14) >= nbSubfr*ltpOrder
+
+		for j := 0; voicedInputsOK && j*subfrLength < int(pitchL[nbSubfr-1]) && j < nbSubfr; j++ {
 			tempLtpGainQ14 = 0
 			subfrIdx := nbSubfr - 1 - j
 
@@ -326,25 +390,33 @@ func (s *SILKPLCState) UpdateFromGoodFrame(
 	s.LastFrameLost = false
 }
 
-// ConcealSILK generates concealment audio for a lost SILK frame.
+// ConcealSILK is the float fallback concealer for a lost SILK frame, used when
+// only the minimal SILKDecoderState is available. It follows the RFC 6716
+// Section 4.2.8 strategy in floating point rather than the bit-exact
+// fixed-point path:
 //
-// SILK PLC strategy (per RFC 6716 Section 4.2.8):
-//  1. Reuse LPC coefficients from last frame
-//  2. For voiced frames: continue pitch prediction with decaying gain
-//  3. For unvoiced frames: generate comfort noise
-//  4. Apply fade factor to output
+//  1. Reuse the previous frame's LPC envelope.
+//  2. Voiced: repeat the pitch period from output history with a decaying gain.
+//  3. Unvoiced: generate LPC-shaped comfort noise.
+//  4. Apply the overall fade factor.
 //
-// This provides smooth transitions during packet loss by maintaining
-// the spectral characteristics of the last successfully decoded frame.
+// This keeps transitions smooth by preserving the last good frame's spectral
+// character, but it is NOT the byte-exact libopus path; prefer
+// ConcealSILKWithLTP (a port of silk_PLC_conceal) when the extended decoder
+// state is available.
 //
 // Parameters:
-//   - dec: SILK decoder state from last good frame
-//   - frameSize: samples to generate at native SILK rate (8/12/16kHz)
-//   - fadeFactor: gain multiplier (0.0 to 1.0)
+//   - dec: SILK decoder state from the last good frame
+//   - frameSize: samples to generate at the native SILK rate (8/12/16 kHz)
+//   - fadeFactor: overall gain multiplier (0.0 to 1.0)
 //
-// Returns: concealed samples at native SILK rate
+// Returns the concealed mono samples at the native SILK rate.
 func ConcealSILK(dec SILKDecoderState, frameSize int, fadeFactor float32) []float32 {
-	if dec == nil || frameSize <= 0 {
+	if frameSize <= 0 {
+		// Nothing to generate; a negative size would also panic make().
+		return []float32{}
+	}
+	if dec == nil {
 		return make([]float32, frameSize)
 	}
 
@@ -379,43 +451,70 @@ func ConcealSILK(dec SILKDecoderState, frameSize int, fadeFactor float32) []floa
 	return output
 }
 
-// ConcealSILKWithLTP generates concealment using full LTP coefficient support.
-// This is the enhanced version that uses LTP coefficients for better quality.
+// ConcealSILKWithLTP is the bit-exact SILK concealer: a Go port of
+// silk_PLC_conceal (libopus silk/PLC.c) that generates one lost frame's residual
+// and synthesizes it through the LPC filter, advancing plcState exactly as
+// libopus does so consecutive losses behave identically. The pipeline is:
+//
+//  1. Select loss-count attenuation gains (harm/rand) by voicing.
+//  2. Bandwidth-expand the cached LPC (silk_bwexpander) in place.
+//  3. On the first loss, set the random scale from the LTP gain (voiced) or
+//     downscale it by the LPC inverse prediction gain (unvoiced).
+//  4. Build the random-noise source from the lower-energy excitation subframe.
+//  5. Rewhiten and scale the LTP state, then run LTP synthesis per subframe,
+//     attenuating gains and drifting the pitch lag each subframe.
+//  6. Run LPC synthesis, scale by the previous gain, and saturate to int16.
+//
+// When the decoder implements the optional SILKOutBufProvider /
+// SILKSLPCQ14Provider / SILKSLPCQ14Setter interfaces, the integer outBuf and
+// LPC synthesis history are used and written back, which is what makes the
+// output byte-exact with libopus rather than approximate.
 //
 // Parameters:
-//   - dec: Extended SILK decoder state from last good frame
-//   - plcState: PLC state (will be updated)
-//   - lossCnt: Number of consecutive lost frames (0 for first loss)
-//   - frameSize: samples to generate at native SILK rate
+//   - dec: extended SILK decoder state from the last good frame
+//   - plcState: persistent concealment state, updated in place
+//   - lossCnt: consecutive lost-frame count (0 for the first loss)
+//   - frameSize: samples to generate at the native SILK rate
 //
-// Returns: concealed samples at native SILK rate (int16 Q0 format)
+// Returns the concealed mono samples at the native SILK rate (int16 Q0).
 func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lossCnt int, frameSize int) []int16 {
-	if dec == nil || plcState == nil || frameSize <= 0 {
+	if frameSize <= 0 {
+		// Nothing to generate; a negative size would also panic make().
+		return []int16{}
+	}
+	if dec == nil || plcState == nil {
 		return make([]int16, frameSize)
 	}
 
 	fsKHz := dec.GetSampleRateKHz()
-	if fsKHz == 0 {
+	if fsKHz <= 0 {
 		fsKHz = 16
 	}
 
 	nbSubfr := dec.GetNumSubframes()
-	if nbSubfr == 0 {
+	if nbSubfr <= 0 {
 		nbSubfr = 4
 	}
 
 	subfrLength := dec.GetSubframeLength()
-	if subfrLength == 0 {
+	if subfrLength <= 0 {
 		subfrLength = 80
 	}
 
+	// libopus LPC_order is always in [10, MAX_LPC_ORDER]. Clamp degenerate
+	// decoder reports so the fixed-size PrevLPCQ12 / sLPC_Q14 buffers and the
+	// PrevLPCQ12[:lpcOrder] slices below stay in bounds; the valid range is
+	// unaffected.
 	lpcOrder := dec.LPCOrder()
-	if lpcOrder == 0 {
+	if lpcOrder <= 0 {
 		lpcOrder = 16
+	}
+	if lpcOrder > maxLPCOrder {
+		lpcOrder = maxLPCOrder
 	}
 
 	ltpMemLength := dec.GetLTPMemoryLength()
-	if ltpMemLength == 0 {
+	if ltpMemLength <= 0 {
 		ltpMemLength = 320
 	}
 
@@ -671,6 +770,11 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 	return output
 }
 
+// silkPLCBufferAt reads sLTP_Q14 at idx, returning 0 for out-of-range indices.
+// libopus indexes this buffer through pointer arithmetic that is always in
+// bounds given its assertions; the explicit guard keeps the Go port safe when
+// degenerate geometry (e.g. a tiny ltp_mem_length) pushes pred_lag_ptr out of
+// range, without altering the value for the valid in-range case.
 func silkPLCBufferAt(buf []int32, idx int) int32 {
 	if idx < 0 || idx >= len(buf) {
 		return 0
@@ -678,8 +782,10 @@ func silkPLCBufferAt(buf []int32, idx int) int32 {
 	return buf[idx]
 }
 
-// concealVoicedSILK generates concealment for voiced (pitched) speech.
-// It extrapolates the pitch pattern from previous frames.
+// concealVoicedSILK is the voiced branch of the float fallback concealer
+// (ConcealSILK): it repeats the pitch period from the decoder's output history
+// with a per-sample decay and a touch of dither to avoid pure periodicity. With
+// no usable history it falls back to the unvoiced comfort-noise path.
 func concealVoicedSILK(dec SILKDecoderState, output []float32, prevLPC []float32, order int, fade float32, rng *uint32) {
 	// Get history for pitch repetition
 	history := dec.OutputHistory()
@@ -708,12 +814,10 @@ func concealVoicedSILK(dec SILKDecoderState, output []float32, prevLPC []float32
 	// Generate voiced excitation by repeating pitch period
 	excitation := make([]float32, len(output))
 	for i := range excitation {
-		// Get sample from pitch-delayed history
-		srcIdx := histIdx - pitchLag + (i % pitchLag)
-		for srcIdx < 0 {
-			srcIdx += histLen
-		}
-		srcIdx = srcIdx % histLen
+		// Get sample from pitch-delayed history (posMod keeps the index in
+		// [0, histLen) even if histIdx is a degenerate negative value, and is
+		// identical to the previous wrap loop for valid non-negative indices).
+		srcIdx := posMod(histIdx-pitchLag+(i%pitchLag), histLen)
 
 		// Copy with decay
 		excitation[i] = history[srcIdx] * fade
@@ -730,8 +834,10 @@ func concealVoicedSILK(dec SILKDecoderState, output []float32, prevLPC []float32
 	}
 }
 
-// concealUnvoicedSILK generates concealment for unvoiced (noise-like) speech.
-// It produces comfort noise shaped by the previous LPC filter.
+// concealUnvoicedSILK is the unvoiced branch of the float fallback concealer
+// (ConcealSILK): it generates white noise and shapes it with a lightweight IIR
+// derived from the previous LPC envelope, clamping the output for stability so
+// the comfort noise carries the spectral tilt of the last good frame.
 func concealUnvoicedSILK(output []float32, prevLPC []float32, order int, fade float32, rng *uint32) {
 	// Generate white noise excitation
 	excitation := make([]float32, len(output))
@@ -771,8 +877,24 @@ func concealUnvoicedSILK(output []float32, prevLPC []float32, order int, fade fl
 	}
 }
 
-// estimatePitchFromHistory tries to find the pitch period in recent history.
-// Uses simple autocorrelation to detect periodicity.
+// posMod returns the non-negative remainder of x modulo m (m must be > 0). For
+// non-negative x it equals x % m exactly, so it preserves behavior for the
+// valid in-range history indices; for a degenerate negative index it wraps into
+// [0, m) instead of returning Go's negative remainder, keeping array accesses in
+// bounds.
+func posMod(x, m int) int {
+	r := x % m
+	if r < 0 {
+		r += m
+	}
+	return r
+}
+
+// estimatePitchFromHistory estimates the pitch period (in samples) of the
+// recent output history by a plain autocorrelation peak search over a typical
+// speech pitch range, used by the float fallback concealer only when the
+// decoder does not expose a tracked lag. It returns a safe default when the
+// history is too short or no clear peak is found.
 func estimatePitchFromHistory(history []float32, histIdx, histLen int) int {
 	// Search range: 32 to 288 samples (typical pitch range)
 	// At 16kHz: 32 samples = 2ms (500Hz), 288 samples = 18ms (55Hz)
@@ -799,8 +921,8 @@ func estimatePitchFromHistory(history []float32, histIdx, histLen int) int {
 		var corr float32
 
 		for i := 0; i < analysisLen-lag; i++ {
-			idx1 := (histIdx - analysisLen + i + histLen) % histLen
-			idx2 := (histIdx - analysisLen + i + lag + histLen) % histLen
+			idx1 := posMod(histIdx-analysisLen+i, histLen)
+			idx2 := posMod(histIdx-analysisLen+i+lag, histLen)
 			corr += history[idx1] * history[idx2]
 		}
 
@@ -817,16 +939,23 @@ func estimatePitchFromHistory(history []float32, histIdx, histLen int) int {
 	return bestLag
 }
 
-// ConcealSILKStereo generates concealment for a stereo SILK frame.
-// It applies the same PLC algorithm to both channels.
+// ConcealSILKStereo conceals a stereo SILK frame using the float fallback path.
+// It runs the mono concealer once and duplicates the result to both channels;
+// it does not reconstruct the SILK mid/side stereo prediction, so it is a
+// fallback for the simple SILKDecoderState only.
 //
 // Parameters:
-//   - dec: SILK decoder state (used for both channels)
-//   - frameSize: samples per channel at native SILK rate
-//   - fadeFactor: gain multiplier (0.0 to 1.0)
+//   - dec: SILK decoder state, applied to both channels
+//   - frameSize: samples per channel at the native SILK rate
+//   - fadeFactor: overall gain multiplier (0.0 to 1.0)
 //
-// Returns: left and right channel concealed samples
+// Returns the left and right concealed channels.
 func ConcealSILKStereo(dec SILKDecoderState, frameSize int, fadeFactor float32) (left, right []float32) {
+	if frameSize <= 0 {
+		// Nothing to generate; a negative size would also panic make().
+		return []float32{}, []float32{}
+	}
+
 	// For stereo, apply mono PLC to both channels
 	// A more sophisticated approach would use the stereo prediction weights
 	mono := ConcealSILK(dec, frameSize, fadeFactor)
@@ -841,24 +970,38 @@ func ConcealSILKStereo(dec SILKDecoderState, frameSize int, fadeFactor float32) 
 	return left, right
 }
 
-// Helper functions for fixed-point arithmetic (matching libopus)
+// Fixed-point arithmetic helpers ported from the libopus SILK macros
+// (silk/SigProc_FIX.h and silk/Inlines.h). Each reproduces the exact
+// truncation, rounding and saturation of its C counterpart; the integer widths
+// are load-bearing for bit-exact concealment and must not be widened.
 
+// silkRand advances the SILK PLC linear-congruential noise seed; libopus
+// silk_RAND (silk/SigProc_FIX.h). Overflow wraps as in C int32 arithmetic.
 func silkRand(seed int32) int32 {
 	return seed*196314165 + 907633515
 }
 
+// smulwb returns (a * (int16)b) >> 16: 32-bit times the low 16 bits of b,
+// keeping the high word; libopus silk_SMULWB.
 func smulwb(a, b int32) int32 {
 	return int32((int64(a) * int64(int16(b))) >> 16)
 }
 
+// smulww returns (a * b) >> 16: the high word of a full 32x32 product in Q16;
+// libopus silk_SMULWW.
 func smulww(a, b int32) int32 {
 	return int32((int64(a) * int64(b)) >> 16)
 }
 
+// smlawb returns a + smulwb(b, c); libopus silk_SMLAWB. As in libopus this
+// rounds toward -inf, which is why the concealer pre-loads a +2 bias.
 func smlawb(a, b, c int32) int32 {
 	return a + smulwb(b, c)
 }
 
+// rshiftRound returns a right-shifted by shift with round-to-nearest (ties up);
+// libopus silk_RSHIFT_ROUND. The shift==1 special case avoids overflow in the
+// rounding add on large-magnitude values.
 func rshiftRound(a int32, shift int) int32 {
 	if shift <= 0 {
 		return a
@@ -871,6 +1014,7 @@ func rshiftRound(a int32, shift int) int32 {
 	return ((a >> (shift - 1)) + 1) >> 1
 }
 
+// sat16 clamps a to the int16 range; libopus silk_SAT16.
 func sat16(a int32) int16 {
 	if a > 32767 {
 		return 32767
@@ -881,6 +1025,7 @@ func sat16(a int32) int16 {
 	return int16(a)
 }
 
+// addSat32 returns a + b saturated to the int32 range; libopus silk_ADD_SAT32.
 func addSat32(a, b int32) int32 {
 	res := int64(a) + int64(b)
 	if res > math.MaxInt32 {
@@ -892,6 +1037,8 @@ func addSat32(a, b int32) int32 {
 	return int32(res)
 }
 
+// lshiftSat32 returns a << shift saturated to the int32 range; libopus
+// silk_LSHIFT_SAT32.
 func lshiftSat32(a int32, shift int) int32 {
 	if shift == 0 {
 		return a
@@ -907,6 +1054,9 @@ func lshiftSat32(a int32, shift int) int32 {
 	return a << shift
 }
 
+// inverse32VarQ returns an approximation of 1/b in Q(qRes) using one
+// Newton refinement step; libopus silk_INVERSE32_varQ (silk/Inlines.h). The
+// concealer uses it to invert the previous gain when scaling the LTP state.
 func inverse32VarQ(b, qRes int32) int32 {
 	if b == 0 {
 		return math.MaxInt32
@@ -939,10 +1089,14 @@ func inverse32VarQ(b, qRes int32) int32 {
 	return 0
 }
 
+// smmul returns the top 32 bits of the 64-bit product a*b (i.e. (a*b) >> 32);
+// libopus silk_SMMUL.
 func smmul(a, b int32) int32 {
 	return int32((int64(a) * int64(b)) >> 32)
 }
 
+// rshiftRound64 is the 64-bit form of rshiftRound (round-to-nearest right
+// shift); libopus silk_RSHIFT_ROUND64.
 func rshiftRound64(a int64, shift int) int64 {
 	if shift <= 0 {
 		return a
@@ -953,6 +1107,7 @@ func rshiftRound64(a int64, shift int) int64 {
 	return ((a >> (shift - 1)) + 1) >> 1
 }
 
+// subSat32 returns a - b saturated to the int32 range; libopus silk_SUB_SAT32.
 func subSat32(a, b int32) int32 {
 	v := int64(a) - int64(b)
 	if v > math.MaxInt32 {
@@ -964,10 +1119,13 @@ func subSat32(a, b int32) int32 {
 	return int32(v)
 }
 
+// mul32FracQ returns a*b rounded down to Q(q) from the 64-bit product; libopus
+// silk_MUL32_FRAC_Q.
 func mul32FracQ(a, b int32, q uint) int32 {
 	return int32(rshiftRound64(int64(a)*int64(b), int(q)))
 }
 
+// abs32Int returns the absolute value of a; libopus silk_abs (int32).
 func abs32Int(a int32) int32 {
 	if a < 0 {
 		return -a
@@ -975,6 +1133,8 @@ func abs32Int(a int32) int32 {
 	return a
 }
 
+// clz32 returns the count of leading zero bits in a (32 for zero); libopus
+// silk_CLZ32.
 func clz32(a int32) int {
 	if a == 0 {
 		return 32
@@ -982,6 +1142,12 @@ func clz32(a int32) int {
 	return bits.LeadingZeros32(uint32(a))
 }
 
+// lpcInversePredGainQ30 returns the inverse prediction gain (1/prediction gain)
+// in Q30 for the Q12 LPC coefficients, a stability proxy used in the unvoiced
+// first-loss random-scale downscale. It ports silk_LPC_inverse_pred_gain
+// (libopus silk/LPC_inv_pred_gain.c): it returns 0 for an unstable filter
+// (including a DC response at or above unity) so the caller treats it as
+// maximally unstable.
 func lpcInversePredGainQ30(aQ12 []int16, order int) int32 {
 	if order <= 0 {
 		return 1 << 30
@@ -1005,6 +1171,11 @@ func lpcInversePredGainQ30(aQ12 []int16, order int) int32 {
 	return lpcInversePredGainQAC(aQA[:order], order)
 }
 
+// lpcInversePredGainQAC is the QA-domain core of lpcInversePredGainQ30: the
+// Levinson-style reflection-coefficient recursion from
+// silk_LPC_inverse_pred_gain_QA_c (libopus silk/LPC_inv_pred_gain.c). It
+// returns 0 as soon as a reflection coefficient or running gain leaves the
+// stable region. aQA is consumed (modified) in place.
 func lpcInversePredGainQAC(aQA []int32, order int) int32 {
 	invGainQ30 := int32(1 << 30)
 
@@ -1060,6 +1231,7 @@ func lpcInversePredGainQAC(aQA []int32, order int) int32 {
 	return invGainQ30
 }
 
+// minInt32 returns the smaller of two int32 values; libopus silk_min_32.
 func minInt32(a, b int32) int32 {
 	if a < b {
 		return a
@@ -1067,6 +1239,7 @@ func minInt32(a, b int32) int32 {
 	return b
 }
 
+// maxInt32 returns the larger of two int32 values; libopus silk_max_32.
 func maxInt32(a, b int32) int32 {
 	if a > b {
 		return a
@@ -1074,6 +1247,10 @@ func maxInt32(a, b int32) int32 {
 	return b
 }
 
+// bwExpandQ12 applies bandwidth expansion (chirp) to the Q12 LPC coefficients
+// ar in place, scaling tap k by coef^(k+1); libopus silk_bwexpander
+// (silk/bwexpander.c). The concealer uses it with bweCoef to pull the previous
+// LPC poles inward and keep the synthesis filter stable across losses.
 func bwExpandQ12(ar []int16, coef float32) {
 	if len(ar) == 0 {
 		return
@@ -1090,8 +1267,19 @@ func bwExpandQ12(ar []int16, coef float32) {
 	ar[last] = int16(rshiftRound(chirpQ16*int32(ar[last]), 16))
 }
 
+// computeEnergy returns the summed-square energy (with its associated headroom
+// shift) of length gain-scaled excitation samples starting at offset. It
+// combines the gain scaling of silk_PLC_energy with the two-pass shift
+// selection of silk_sum_sqr_shift (libopus silk/sum_sqr_shift.c): a first pass
+// picks a shift that prevents accumulator overflow, the second accumulates at
+// that shift. The concealer compares the two candidate subframes' energies to
+// choose the random-noise source. A degenerate range returns (0, 0).
 func computeEnergy(exc []int32, gainQ10 int32, length, offset int) (energy int32, shift int) {
-	if length <= 0 || offset >= len(exc) {
+	// libopus calls this with offset = (nb_subfr-2)*subfr_length, which is
+	// non-negative for the valid nb_subfr of 2 or 4. A degenerate nb_subfr (< 2)
+	// makes the offset negative; reject that (and any empty range) up front so
+	// the indexed reads below stay in bounds.
+	if length <= 0 || offset < 0 || offset >= len(exc) {
 		return 0, 0
 	}
 
@@ -1140,6 +1328,11 @@ func computeEnergy(exc []int32, gainQ10 int32, length, offset int) (energy int32
 	return nrg, shft
 }
 
+// lpcAnalysisFilter runs the LPC analysis (whitening) filter over float input
+// history to produce the int16 residual used to rewhiten the LTP state. It is
+// the fallback for decoders that expose only the float OutputHistory; the
+// integer lpcAnalysisFilterInt16 over outBuf is preferred and bit-exact. Ports
+// silk_LPC_analysis_filter (libopus silk/LPC_analysis_filter.c).
 func lpcAnalysisFilter(out []int16, in []float32, B []int16, length, order, startIdx int) {
 	for i := 0; i < order && i < length; i++ {
 		out[i] = 0
@@ -1175,6 +1368,11 @@ func lpcAnalysisFilter(out []int16, in []float32, B []int16, length, order, star
 	}
 }
 
+// lpcAnalysisFilterInt16 runs the LPC analysis (whitening) filter over the
+// decoder's integer output history (outBuf, Q0) to produce the int16 residual
+// for LTP-state rewhitening. This is the bit-exact path, matching
+// silk_LPC_analysis_filter (libopus silk/LPC_analysis_filter.c) on the same
+// integer inputs libopus uses.
 func lpcAnalysisFilterInt16(out []int16, in []int16, B []int16, length, order int) {
 	for i := 0; i < order && i < length; i++ {
 		out[i] = 0

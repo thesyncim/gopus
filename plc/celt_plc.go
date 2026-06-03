@@ -1,21 +1,41 @@
 package plc
 
+// CELT-side concealment for the plc package.
+//
+// This mirrors the spectral-fold loss strategy of libopus celt/celt_decoder.c
+// celt_decode_lost: when a CELT frame is lost, the previous frame's per-band
+// energies are decayed and the bands are refilled with shaped noise, then run
+// through the normal IMDCT + overlap-add synthesis so the concealed frame keeps
+// the spectral envelope of the last good frame while fading out. Hybrid frames
+// conceal only the CELT high bands here; the low band is handled by the SILK
+// path (silk_plc.go), matching the libopus Hybrid layer split.
 import "github.com/thesyncim/gopus/internal/opusmath"
 
-// EnergyDecayPerFrame is the energy decay factor per lost frame.
-// Applied to band energies to gradually fade concealment.
+// EnergyDecayPerFrame is the linear factor applied to each band's energy per
+// lost CELT frame so the concealed spectrum fades over consecutive losses.
+// This plays the role of the per-frame energy decay in celt_decode_lost
+// (libopus celt/celt_decoder.c), here expressed directly on the linear band
+// energies rather than libopus' log-domain backgroundLogE decay.
 const EnergyDecayPerFrame = 0.85
 
+// pow10F32 returns 10^x in float32, used to convert stored band energies from
+// the dB (log10) domain to linear power. Delegates to opusmath.Pow10F32.
 func pow10F32(x float32) float32 {
 	return opusmath.Pow10F32(x)
 }
 
+// sqrtF32 returns the float32 square root, used to turn a band's target linear
+// power into an amplitude scale for the noise fill. Delegates to opusmath.SqrtF32.
 func sqrtF32(x float32) float32 {
 	return opusmath.SqrtF32(x)
 }
 
-// CELTDecoderState provides access to CELT decoder state needed for PLC.
-// This interface allows PLC to access decoder state without importing the celt package.
+// CELTDecoderState is the minimal view of a CELT decoder that concealment
+// reads and writes: channel count, per-band energies (oldBandE in libopus
+// celt/celt_decoder.c), the noise-fill RNG seed (st->rng), the de-emphasis
+// filter memory, and the IMDCT overlap buffer. Exposing it as an interface lets
+// the plc package conceal without importing the celt package (avoiding an
+// import cycle), while still mutating the live decoder state across losses.
 type CELTDecoderState interface {
 	// Channels returns the number of channels (1 or 2).
 	Channels() int
@@ -35,11 +55,18 @@ type CELTDecoderState interface {
 	SetOverlapBuffer(samples []float32)
 }
 
+// celtPreemphSetter is an optional capability of a CELTDecoderState that lets
+// the concealer persist the de-emphasis filter memory it advanced, so the
+// filter stays continuous into the next decoded frame.
 type celtPreemphSetter interface {
 	SetPreemphState(samples []float32)
 }
 
-// CELTBandInfo provides band configuration for CELT PLC.
+// CELTBandInfo describes the CELT critical-band layout the concealer needs:
+// how many bands exist, where the Hybrid high band starts, and the bin span of
+// each band at a given frame size. It corresponds to the eBands / mode tables
+// in libopus celt/modes.c and celt/static_modes_float.h, exposed here as plain
+// callbacks so the plc package need not import the celt package.
 type CELTBandInfo struct {
 	// MaxBands is the maximum number of frequency bands.
 	MaxBands int
@@ -57,6 +84,9 @@ type CELTBandInfo struct {
 	Overlap int
 }
 
+// defaultCELTEffBands returns the number of effective coded bands for a given
+// CELT frame size (2.5/5/10/20 ms at 48 kHz), matching the per-LM band counts
+// libopus derives from mode->effEBands / mode->nbShortMdcts.
 func defaultCELTEffBands(frameSize int) int {
 	switch frameSize {
 	case 120:
@@ -72,6 +102,9 @@ func defaultCELTEffBands(frameSize int) int {
 	}
 }
 
+// defaultCELTBandStart returns the first MDCT bin of a CELT band at the given
+// frame size. The constants are the eBands boundaries from libopus
+// celt/modes.c scaled by frameSize/960 (LM-relative band edges).
 func defaultCELTBandStart(band, frameSize int) int {
 	switch band {
 	case 0:
@@ -123,6 +156,8 @@ func defaultCELTBandStart(band, frameSize int) int {
 	}
 }
 
+// defaultCELTBandEnd returns the exclusive end bin of a CELT band, which is the
+// start of the next band (clamped to the frame size for the last band).
 func defaultCELTBandEnd(band, frameSize int) int {
 	if band < 0 || band >= 21 {
 		return frameSize
@@ -130,10 +165,15 @@ func defaultCELTBandEnd(band, frameSize int) int {
 	return defaultCELTBandStart(band+1, frameSize)
 }
 
+// defaultCELTValidFrameSize reports whether frameSize is one of the four legal
+// CELT block sizes at 48 kHz (2.5/5/10/20 ms).
 func defaultCELTValidFrameSize(frameSize int) bool {
 	return frameSize == 120 || frameSize == 240 || frameSize == 480 || frameSize == 960
 }
 
+// defaultCELTBandInfo returns the standard 21-band CELT layout (Hybrid high
+// band starting at band 17, 120-sample overlap) used by the concealer when the
+// caller does not supply a custom CELTBandInfo.
 func defaultCELTBandInfo() CELTBandInfo {
 	return CELTBandInfo{
 		MaxBands:        21,
@@ -146,35 +186,46 @@ func defaultCELTBandInfo() CELTBandInfo {
 	}
 }
 
-// CELTSynthesizer provides synthesis functionality for CELT PLC.
+// CELTSynthesizer turns the noise-filled MDCT coefficients into time-domain
+// samples via IMDCT + windowing + overlap-add, the same back end the normal
+// CELT decode uses (libopus celt/celt_decoder.c celt_synthesis). It is supplied
+// by the decoder so concealment reuses the live window/overlap state.
 type CELTSynthesizer interface {
-	// Synthesize performs IMDCT synthesis for mono.
+	// SynthesizeFloat32 performs IMDCT synthesis for a mono frame.
 	SynthesizeFloat32(coeffs []float32, transient bool, shortBlocks int) []float32
-	// SynthesizeStereo performs IMDCT synthesis for stereo.
+	// SynthesizeStereoFloat32 performs IMDCT synthesis for a stereo frame,
+	// returning interleaved L/R samples.
 	SynthesizeStereoFloat32(coeffsL, coeffsR []float32, transient bool, shortBlocks int) []float32
 }
 
+// celtConcealmentConfig selects between fullband CELT concealment (all coded
+// bands filled) and Hybrid concealment (only the high bands from
+// CELTBandInfo.HybridStartBand, since SILK conceals the low band).
 type celtConcealmentConfig struct {
 	hybrid bool
 }
 
-// ConcealCELT generates concealment audio for a lost CELT frame.
+// ConcealCELT generates a full-band concealment frame for a lost CELT packet,
+// mirroring the spectral-fold loss path of libopus celt/celt_decoder.c
+// celt_decode_lost:
 //
-// CELT PLC strategy:
-//  1. Copy energy from previous frame with decay
-//  2. Fill bands with noise at decayed energy levels
-//  3. Apply normal IMDCT synthesis
-//  4. Apply fade factor to output
+//  1. Decay the previous frame's per-band energies (EnergyDecayPerFrame).
+//  2. Refill every coded band with noise shaped to the decayed energy.
+//  3. Run the normal IMDCT + overlap-add synthesis.
+//  4. Apply de-emphasis, threading the decoder filter state.
 //
-// This maintains the spectral shape of the last frame while fading out.
+// The result keeps the spectral envelope of the last good frame while fading
+// out, and the decoder's energy and RNG state are advanced so consecutive
+// losses continue to decay. A nil decoder yields a silent mono frame; a
+// fully faded gain yields silence sized for the decoder's channel count.
 //
 // Parameters:
-//   - dec: CELT decoder state from last good frame
-//   - synth: CELT synthesizer for IMDCT
-//   - frameSize: samples to generate at 48kHz (120, 240, 480, or 960)
-//   - fadeFactor: gain multiplier (0.0 to 1.0)
+//   - dec: CELT decoder state from the last good frame (read and updated)
+//   - synth: CELT synthesizer for IMDCT (nil yields silence)
+//   - frameSize: samples to generate at 48 kHz (120, 240, 480, or 960)
+//   - fadeFactor: overall gain multiplier (0.0 to 1.0)
 //
-// Returns: concealed samples at 48kHz
+// Returns the concealed samples at 48 kHz, interleaved if stereo.
 func ConcealCELT(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fadeFactor float32) []float32 {
 	if dec == nil {
 		return make([]float32, frameSize)
@@ -208,8 +259,8 @@ func ConcealCELT(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fad
 
 	if channels == 2 {
 		// Stereo: generate coefficients for both channels
-		coeffsL = generateNoiseBands(concealEnergy[:bandInfo.MaxBands], nbBands, frameSize, &rng, fadeFactor, &bandInfo)
-		coeffsR = generateNoiseBands(concealEnergy[bandInfo.MaxBands:], nbBands, frameSize, &rng, fadeFactor, &bandInfo)
+		coeffsL = generateNoiseBands(celtChannelEnergies(concealEnergy, 0, bandInfo.MaxBands), nbBands, frameSize, &rng, fadeFactor, &bandInfo)
+		coeffsR = generateNoiseBands(celtChannelEnergies(concealEnergy, 1, bandInfo.MaxBands), nbBands, frameSize, &rng, fadeFactor, &bandInfo)
 	} else {
 		// Mono: single set of coefficients
 		coeffs = generateNoiseBands(concealEnergy, nbBands, frameSize, &rng, fadeFactor, &bandInfo)
@@ -238,8 +289,31 @@ func ConcealCELT(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fad
 	return samples
 }
 
-// generateNoiseBands creates noise-filled MDCT coefficients scaled by band energies.
-// Each band gets random noise normalized and scaled to the target energy level.
+// celtChannelEnergies returns the maxBands band energies for channel ch
+// (0 = first/left, 1 = second/right) from the interleaved-by-channel
+// concealEnergy buffer, always returning exactly maxBands entries. For a
+// correctly sized stereo buffer (len >= 2*maxBands) this is exactly
+// concealEnergy[ch*maxBands : ch*maxBands+maxBands]; if the decoder handed back
+// a short energy buffer, the missing tail is zero-padded so the noise fill
+// treats those bands as silent rather than indexing out of bounds. Valid-input
+// behavior is unchanged because the per-band fill reads at most maxBands bands.
+func celtChannelEnergies(concealEnergy []float32, ch, maxBands int) []float32 {
+	out := make([]float32, maxBands)
+	start := ch * maxBands
+	for i := 0; i < maxBands; i++ {
+		if src := start + i; src < len(concealEnergy) {
+			out[i] = concealEnergy[src]
+		}
+	}
+	return out
+}
+
+// generateNoiseBands builds a full frame of MDCT coefficients by filling each
+// coded band [0, nbBands) with unit-norm noise scaled to that band's target
+// amplitude. Per band the stored dB energy is converted to linear power, scaled
+// by fadeFactor^2 (energy is amplitude squared), and the coefficient scale is
+// its square root. This is the fullband counterpart of the spectral noise fill
+// in libopus celt_decode_lost; generateNoiseHybridBands is the high-band variant.
 func generateNoiseBands(energies []float32, nbBands, frameSize int, rng *uint32, fadeFactor float32, bandInfo *CELTBandInfo) []float32 {
 	// Number of MDCT bins = frameSize (CELT convention)
 	coeffs := make([]float32, frameSize)
@@ -286,8 +360,10 @@ func generateNoiseBands(energies []float32, nbBands, frameSize int, rng *uint32,
 	return coeffs
 }
 
-// generateNoiseBand creates a random vector for a band.
-// Uses LCG from CELT decoder for deterministic noise.
+// generateNoiseBand draws bandWidth pseudo-random samples in roughly [-1, 1]
+// using the same linear congruential generator CELT uses for its noise fill
+// (celt_rng, libopus celt/celt.h), so concealment noise is deterministic and
+// advances the shared decoder RNG seed identically.
 func generateNoiseBand(rng *uint32, bandWidth int) []float32 {
 	noise := make([]float32, bandWidth)
 
@@ -303,7 +379,9 @@ func generateNoiseBand(rng *uint32, bandWidth int) []float32 {
 	return noise
 }
 
-// normalizeVector normalizes a vector to unit L2 norm.
+// normalizeVector rescales v in place to unit L2 norm so a band's noise fill
+// carries unit energy before being scaled to the band's target amplitude. A
+// near-zero vector is left untouched to avoid division by zero.
 func normalizeVector(v []float32) {
 	// Compute L2 norm
 	var norm float32
@@ -324,8 +402,13 @@ func normalizeVector(v []float32) {
 	}
 }
 
+// applyDeemphasisPLCToDecoderFloat32 runs the CELT de-emphasis (the inverse of
+// the encoder pre-emphasis, a one-pole filter with coefficient 0.85) over the
+// concealed samples in place, threading and updating the decoder's per-channel
+// filter memory so the concealed frame joins seamlessly with surrounding
+// decoded frames. Mirrors the deemphasis step of libopus celt/celt_decoder.c.
 func applyDeemphasisPLCToDecoderFloat32(samples []float32, dec CELTDecoderState, channels int) {
-	if dec == nil || len(samples) == 0 {
+	if dec == nil || len(samples) == 0 || channels < 1 {
 		return
 	}
 	state := dec.PreemphState()
@@ -360,16 +443,19 @@ func applyDeemphasisPLCToDecoderFloat32(samples []float32, dec CELTDecoderState,
 	}
 }
 
-// ConcealCELTHybrid generates concealment for CELT in hybrid mode.
-// Only bands 17-21 are filled with noise (bands 0-16 are handled by SILK).
+// ConcealCELTHybrid generates the CELT-layer concealment for a lost Hybrid
+// frame, filling only the high bands (from CELTBandInfo.HybridStartBand, bands
+// 17-21); the SILK path conceals the low band, matching the libopus Hybrid
+// layer split (src/opus_decoder.c routing into celt/silk). It is otherwise the
+// same decay + noise-fill + synthesis + de-emphasis pipeline as ConcealCELT.
 //
 // Parameters:
-//   - dec: CELT decoder state from last good frame
-//   - synth: CELT synthesizer for IMDCT
-//   - frameSize: samples to generate at 48kHz (480 or 960 for hybrid)
-//   - fadeFactor: gain multiplier (0.0 to 1.0)
+//   - dec: CELT decoder state from the last good frame (read and updated)
+//   - synth: CELT synthesizer for IMDCT (nil yields silence)
+//   - frameSize: samples to generate at 48 kHz (480 or 960 for Hybrid)
+//   - fadeFactor: overall gain multiplier (0.0 to 1.0)
 //
-// Returns: concealed high-frequency samples at 48kHz
+// Returns the concealed high-frequency samples at 48 kHz, interleaved if stereo.
 func ConcealCELTHybrid(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fadeFactor float32) []float32 {
 	if dec == nil {
 		return make([]float32, frameSize)
@@ -387,13 +473,16 @@ func ConcealCELTHybrid(dec CELTDecoderState, synth CELTSynthesizer, frameSize in
 	return out
 }
 
-// ConcealCELTHybridRawInto generates hybrid concealment into a pre-allocated
-// buffer without applying de-emphasis. This lets decoder-owned paths apply
-// postfilter/de-emphasis in libopus order.
+// ConcealCELTHybridRawInto writes Hybrid CELT concealment into the caller's dst
+// buffer and, unlike ConcealCELTHybrid, does not apply de-emphasis. This lets a
+// decoder-owned path interleave postfilter/comb-filter and de-emphasis in the
+// exact libopus order (celt/celt_decoder.c) over the combined SILK+CELT signal.
+// dst is written up to frameSize*channels samples and zero-padded beyond.
 func ConcealCELTHybridRawInto(dst []float32, dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fadeFactor float32) {
 	writeCELTConcealment(dst, dec, synth, frameSize, fadeFactor, celtConcealmentConfig{hybrid: true})
 }
 
+// minInt returns the smaller of two ints.
 func minInt(a, b int) int {
 	if a < b {
 		return a
@@ -401,8 +490,11 @@ func minInt(a, b int) int {
 	return b
 }
 
-// writeCELTConcealment centralizes the raw PLC path used by the fullband and
-// hybrid entry points.
+// writeCELTConcealment is the shared core behind the fullband and Hybrid CELT
+// entry points: it decays the band energies, synthesizes a noise-filled frame
+// into dst (without de-emphasis), and commits the decayed energies and advanced
+// RNG seed back to the decoder. A nil decoder or fully faded gain yields
+// silence. cfg.hybrid selects high-band-only fill.
 func writeCELTConcealment(
 	dst []float32,
 	dec CELTDecoderState,
@@ -431,6 +523,8 @@ func writeCELTConcealment(
 	dec.SetRNG(rng)
 }
 
+// buildCELTConcealmentEnergies returns a copy of the previous band energies
+// scaled by EnergyDecayPerFrame, the decayed envelope used for this lost frame.
 func buildCELTConcealmentEnergies(prevEnergy []float32) []float32 {
 	concealEnergy := make([]float32, len(prevEnergy))
 	for i := range prevEnergy {
@@ -439,6 +533,11 @@ func buildCELTConcealmentEnergies(prevEnergy []float32) []float32 {
 	return concealEnergy
 }
 
+// synthesizeCELTConcealment builds noise-filled MDCT coefficients at the
+// decayed band energies (mono or stereo, fullband or Hybrid high-band) and runs
+// them through the supplied synthesizer. It returns the time-domain samples and
+// the advanced RNG seed. With a nil synthesizer it returns nil samples and the
+// advanced seed so callers can still commit RNG state.
 func synthesizeCELTConcealment(
 	dec CELTDecoderState,
 	synth CELTSynthesizer,
@@ -455,12 +554,14 @@ func synthesizeCELTConcealment(
 	var coeffs []float32
 	var coeffsL, coeffsR []float32
 	if channels == 2 {
+		energyL := celtChannelEnergies(concealEnergy, 0, bandInfo.MaxBands)
+		energyR := celtChannelEnergies(concealEnergy, 1, bandInfo.MaxBands)
 		if hybrid {
-			coeffsL = generateNoiseHybridBands(concealEnergy[:bandInfo.MaxBands], nbBands, frameSize, &rng, fadeFactor, &bandInfo)
-			coeffsR = generateNoiseHybridBands(concealEnergy[bandInfo.MaxBands:], nbBands, frameSize, &rng, fadeFactor, &bandInfo)
+			coeffsL = generateNoiseHybridBands(energyL, nbBands, frameSize, &rng, fadeFactor, &bandInfo)
+			coeffsR = generateNoiseHybridBands(energyR, nbBands, frameSize, &rng, fadeFactor, &bandInfo)
 		} else {
-			coeffsL = generateNoiseBands(concealEnergy[:bandInfo.MaxBands], nbBands, frameSize, &rng, fadeFactor, &bandInfo)
-			coeffsR = generateNoiseBands(concealEnergy[bandInfo.MaxBands:], nbBands, frameSize, &rng, fadeFactor, &bandInfo)
+			coeffsL = generateNoiseBands(energyL, nbBands, frameSize, &rng, fadeFactor, &bandInfo)
+			coeffsR = generateNoiseBands(energyR, nbBands, frameSize, &rng, fadeFactor, &bandInfo)
 		}
 	} else if hybrid {
 		coeffs = generateNoiseHybridBands(concealEnergy, nbBands, frameSize, &rng, fadeFactor, &bandInfo)
@@ -477,6 +578,8 @@ func synthesizeCELTConcealment(
 	return synth.SynthesizeFloat32(coeffs, false, 1), rng
 }
 
+// copyCELTConcealment copies up to outLen synthesized samples into dst,
+// zero-padding any remainder (and emitting all-zero when there are no samples).
 func copyCELTConcealment(dst, samples []float32, outLen int) {
 	if len(samples) == 0 {
 		zeroCELTConcealment(dst, outLen)
@@ -490,6 +593,8 @@ func copyCELTConcealment(dst, samples []float32, outLen int) {
 	}
 }
 
+// zeroCELTConcealment zeroes the first limit samples of dst (clamped to its
+// length), used to emit silence when concealment has no signal to produce.
 func zeroCELTConcealment(dst []float32, limit int) {
 	if limit > len(dst) {
 		limit = len(dst)
@@ -499,7 +604,10 @@ func zeroCELTConcealment(dst []float32, limit int) {
 	}
 }
 
-// generateNoiseHybridBands generates noise for hybrid mode (bands 17-21 only).
+// generateNoiseHybridBands is the Hybrid-mode noise fill: identical to
+// generateNoiseBands but starting at bandInfo.HybridStartBand (band 17), so only
+// the CELT high band is concealed and bins below it stay zero. The SILK path
+// reconstructs the low band of a Hybrid frame.
 func generateNoiseHybridBands(energies []float32, nbBands, frameSize int, rng *uint32, fadeFactor float32, bandInfo *CELTBandInfo) []float32 {
 	coeffs := make([]float32, frameSize)
 

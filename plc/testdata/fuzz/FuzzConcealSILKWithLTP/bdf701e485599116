@@ -1,0 +1,10 @@
+go test fuzz v1
+byte('\x10')
+uint16(80)
+byte('\x19')
+uint16(320)
+rune('`')
+byte('\x1e')
+rune('ŀ')
+uint16(0)
+uint32(305419896)

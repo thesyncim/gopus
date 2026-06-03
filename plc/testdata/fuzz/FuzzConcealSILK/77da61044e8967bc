@@ -1,0 +1,7 @@
+go test fuzz v1
+byte('c')
+rune('Ü')
+uint16(32768)
+bool(true)
+uint16(146)
+int32(-5)
