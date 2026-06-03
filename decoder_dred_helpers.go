@@ -869,46 +869,6 @@ func (d *Decoder) primeDREDCELTEntryHistory(mode Mode, primeAnalysis bool) int {
 	return total
 }
 
-func (d *Decoder) prepareDRED48kNeuralEntry(frameSize int, mode Mode, primeAnalysis bool) internaldred.FeatureWindow {
-	if !d.ensureDREDNeuralConcealmentRuntime() {
-		return internaldred.FeatureWindow{}
-	}
-	r := d.dredRecoveryState()
-	b := d.dred48kBridgeState()
-	if d == nil || r == nil || b == nil || d.channels < 1 || d.channels > 2 || (mode != ModeCELT && mode != ModeHybrid) {
-		return internaldred.FeatureWindow{}
-	}
-	queued := d.prepareCachedDREDNeuralConcealment(frameSize)
-	if d.celtDecoder == nil || d.celtDecoder.LastPLCFrameWasNeural() {
-		return queued
-	}
-	if r.dredPLC.FECFillPos() > r.dredPLC.FECReadPos() {
-		primeAnalysis = false
-	}
-	d.primeDREDCELTEntryHistory(mode, primeAnalysis)
-	return queued
-}
-
-func (d *Decoder) prepareCachedDREDNeuralConcealment(frameSizeSamples int) internaldred.FeatureWindow {
-	if !d.ensureDREDNeuralConcealmentRuntime() {
-		return internaldred.FeatureWindow{}
-	}
-	p := d.dredPayloadState()
-	r := d.dredRecoveryState()
-	if r == nil || frameSizeSamples <= 0 {
-		return internaldred.FeatureWindow{}
-	}
-	if p == nil || p.dredCache.Empty() || !p.dredModelLoaded || d.ignoreExtensions {
-		return internaldred.FeatureWindow{}
-	}
-	decodeOffsetSamples := r.dredRecovery + frameSizeSamples
-	maxDredSamples := d.maxCachedDREDSamples()
-	if maxDredSamples <= 0 {
-		maxDredSamples = frameSizeSamples
-	}
-	return d.queueCachedDREDRecovery(maxDredSamples, decodeOffsetSamples, frameSizeSamples)
-}
-
 func (d *Decoder) generateDREDNeuralFrames16k(dst []float32, samplesPerChannel int) bool {
 	if !d.ensureDREDNeuralConcealmentRuntime() {
 		return false
@@ -939,35 +899,6 @@ func (d *Decoder) generateDREDNeuralFrames16k(dst []float32, samplesPerChannel i
 		}
 	}
 	return true
-}
-
-func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel int) bool {
-	queued := d.prepareDRED48kNeuralEntry(samplesPerChannel, d.prevMode, false)
-	if !d.applyPreparedDREDNeuralConcealment(pcm, samplesPerChannel) {
-		return false
-	}
-	if queued.NeededFeatureFrames > 0 || queued.RecoverableFeatureFrames > 0 || queued.MissingPositiveFrames > 0 {
-		d.finishActiveDREDRecovery(samplesPerChannel)
-	}
-	return true
-}
-
-func (d *Decoder) applyPreparedDREDNeuralConcealment(pcm []float32, samplesPerChannel int) bool {
-	if !d.ensureDREDNeuralConcealmentRuntime() {
-		return false
-	}
-	r := d.dredRecoveryState()
-	b := d.dred48kBridgeState()
-	if r == nil || d.dredNeuralState() == nil {
-		return false
-	}
-	if len(pcm) < samplesPerChannel {
-		return false
-	}
-	if b != nil {
-		return d.applyDREDNeuralConcealment48kMono(pcm, samplesPerChannel)
-	}
-	return false
 }
 
 func (d *Decoder) advanceHybridDREDLowbandState(frameSizeSamples int, lowbandSnapshot *silk.DeepPLCLowbandSnapshot) bool {
