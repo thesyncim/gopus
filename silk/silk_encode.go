@@ -213,6 +213,12 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 
 		leftFrame := left[start:end]
 		rightFrame := right[start:end]
+		// Fold this frame's LBRR header bits into the shared nBitsUsedLBRR moving
+		// average before deriving the target rate, matching libopus enc_API.c (the
+		// EMA update precedes silk_stereo_LR_to_MS). Only the frame that wrote the
+		// packet LBRR header carries non-zero bits; later frames reset it to zero so
+		// they do not re-subtract the already-paid LBRR overhead.
+		enc.applyLBRRReservoirUpdate()
 		frameRate := stereoAllocationTargetRate(enc, int(packetRate), frameLength*nFrames, re.Tell())
 		if frameRate > 0 {
 			totalRate = frameRate

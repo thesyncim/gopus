@@ -188,16 +188,14 @@ func (e *Encoder) encodeLBRRData(re *rangecoding.Encoder, nChannels int, include
 		e.encodeLBRRPulses(re, i)
 	}
 
-	// Update LBRR bits tracking (exponential moving average).
-	// Matches libopus enc_API.c lines 406-425.
-	currNBitsUsedLBRR := re.Tell() - lbrrBitsStart
-	if currNBitsUsedLBRR < 10 {
-		e.nBitsUsedLBRR = 0
-	} else if e.nBitsUsedLBRR < 10 {
-		e.nBitsUsedLBRR = int32(currNBitsUsedLBRR)
-	} else {
-		e.nBitsUsedLBRR = (e.nBitsUsedLBRR + int32(currNBitsUsedLBRR)) / 2
-	}
+	// Record the LBRR header bits emitted for this frame. libopus enc_API.c folds
+	// these into the nBitsUsedLBRR exponential moving average inside the per-frame
+	// rate-control loop (lines 406-425), with curr_nBitsUsedLBRR re-zeroed each
+	// frame; only the frame that writes the packet's LBRR header has non-zero bits.
+	// The EMA update + nBits subtraction runs in EncodeFrame so every frame of a
+	// multi-frame packet applies it (frames after the first see curr=0 and reset
+	// the EMA, matching libopus exactly).
+	e.currNBitsUsedLBRR = int32(re.Tell() - lbrrBitsStart)
 
 	// Clear LBRR flags after encoding (they apply to the previous packet)
 	for i := range e.lbrrFlags {
@@ -209,6 +207,24 @@ func (e *Encoder) encodeLBRRData(re *rangecoding.Encoder, nChannels int, include
 // If includeHeader is false, the caller is responsible for reserving header bits.
 func (e *Encoder) EncodeLBRRData(re *rangecoding.Encoder, nChannels int, includeHeader bool) {
 	e.encodeLBRRData(re, nChannels, includeHeader)
+}
+
+// applyLBRRReservoirUpdate folds this frame's LBRR header bits (currNBitsUsedLBRR)
+// into the nBitsUsedLBRR exponential moving average and consumes the count. This
+// is the per-frame update libopus enc_API.c runs inside the rate-control loop
+// (lines 418-424); the frame that writes the packet's LBRR header carries the raw
+// bits, every later frame in the packet sees curr==0 and resets the EMA to zero.
+// It must run exactly once per frame, before that frame's target-rate is derived.
+func (e *Encoder) applyLBRRReservoirUpdate() {
+	curr := e.currNBitsUsedLBRR
+	if curr < 10 {
+		e.nBitsUsedLBRR = 0
+	} else if e.nBitsUsedLBRR < 10 {
+		e.nBitsUsedLBRR = curr
+	} else {
+		e.nBitsUsedLBRR = (e.nBitsUsedLBRR + curr) / 2
+	}
+	e.currNBitsUsedLBRR = 0
 }
 
 // encodeLBRRFlagSymbol writes per-frame LBRR flags for one channel and returns the flag.
@@ -272,14 +288,11 @@ func encodeStereoLBRRPacket(
 		}
 	}
 
-	currNBitsUsedLBRR := re.Tell() - lbrrBitsStart
-	if currNBitsUsedLBRR < 10 {
-		midEnc.nBitsUsedLBRR = 0
-	} else if midEnc.nBitsUsedLBRR < 10 {
-		midEnc.nBitsUsedLBRR = int32(currNBitsUsedLBRR)
-	} else {
-		midEnc.nBitsUsedLBRR = (midEnc.nBitsUsedLBRR + int32(currNBitsUsedLBRR)) / 2
-	}
+	// Record the whole-section LBRR header bits for this packet; the EMA update +
+	// nBits subtraction runs per-frame in the encode body (libopus enc_API.c),
+	// where frames after the first see curr=0 and reset the EMA. The stereo target
+	// rate keys off the mid encoder's nBitsUsedLBRR, so the raw count lives there.
+	midEnc.currNBitsUsedLBRR = int32(re.Tell() - lbrrBitsStart)
 
 	for i := range midEnc.lbrrFlags {
 		midEnc.lbrrFlags[i] = 0

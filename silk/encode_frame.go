@@ -71,16 +71,32 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		}
 	}
 
+	// Fold this frame's LBRR header bits into the nBitsUsedLBRR exponential moving
+	// average. libopus enc_API.c does this every frame of the packet inside the
+	// rate-control loop (lines 414-425): curr_nBitsUsedLBRR is re-zeroed each
+	// iteration, so only the frame that wrote the packet's LBRR header has non-zero
+	// bits. Frames after it therefore see curr < 10 and reset the EMA to zero,
+	// which is what stops them from subtracting the (already paid for) LBRR
+	// overhead from their own target rate. The encodeLBRRData header writer stores
+	// the raw count in currNBitsUsedLBRR; consume + zero it here. Stereo packets
+	// run this update in their own orchestration before stereoAllocationTargetRate,
+	// so skip the per-channel encode body to avoid a second update with curr==0.
+	if e.stereoCondMid == nil {
+		e.applyLBRRReservoirUpdate()
+	}
+
 	// Update target SNR based on configured bitrate and frame size.
 	// Matches libopus silk/enc_API.c rate control logic (lines 411-443).
 	if e.preAdjustedTargetRateBps > 0 {
+		// The pre-adjusted target is a per-channel rate already produced by the
+		// stereo orchestration's silk_stereo_LR_to_MS split (channelRate_bps in
+		// libopus enc_API.c). libopus feeds it straight into silk_control_SNR with
+		// no [5000, bitRate] clamp: the LIMIT(TargetRate_bps, bitRate, 5000) is
+		// applied to the pre-split total, not the per-channel rates. The side
+		// channel routinely lands below 5000 (e.g. 2750 bps), which must map to
+		// SNR_dB_Q7 == 0; clamping it up to 5000 here over-shapes the side frame
+		// and diverges from libopus.
 		targetRate := e.preAdjustedTargetRateBps
-		if e.targetRateBps > 0 && targetRate > e.targetRateBps {
-			targetRate = e.targetRateBps
-		}
-		if targetRate < 5000 {
-			targetRate = 5000
-		}
 		e.lastControlTargetRateBps = targetRate
 		e.controlSNR(int(targetRate), numSubframes)
 		e.preAdjustedTargetRateBps = 0

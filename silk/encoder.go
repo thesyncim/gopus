@@ -239,10 +239,11 @@ type Encoder struct {
 
 	// Rate control loop scratch buffers
 	// Bit reservoir and rate control state (libopus parity)
-	nBitsExceeded int32 // Bits produced in excess of target
-	nBitsUsedLBRR int32 // Exponential moving average of LBRR overhead bits
-	maxBits       int32 // Maximum bits allowed for current frame
-	useVBR        bool
+	nBitsExceeded     int32 // Bits produced in excess of target
+	nBitsUsedLBRR     int32 // Exponential moving average of LBRR overhead bits
+	currNBitsUsedLBRR int32 // LBRR header bits emitted for the current frame (libopus enc_API.c curr_nBitsUsedLBRR; non-zero only on the frame that writes the packet's LBRR header)
+	maxBits           int32 // Maximum bits allowed for current frame
+	useVBR            bool
 
 	// LP variable cutoff filter scratch buffer
 	scratchLPInt16 []int16 // LP filter: int16 conversion for biquad filter
