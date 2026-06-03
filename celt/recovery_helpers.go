@@ -972,27 +972,9 @@ func xcorrKernel4Float32SSEOrder(x, y []float32, sum *[4]float32, length int) {
 func pitchXCorrFloat32AVX2FMAOrder(x, y, xcorr []float32, length, maxPitch int) {
 	i := 0
 	for ; i < maxPitch-7; i += 8 {
-		var sums [8][8]float32
-		j := 0
-		for ; j < length-7; j += 8 {
-			for lane := 0; lane < 8; lane++ {
-				xv := x[j+lane]
-				for corr := 0; corr < 8; corr++ {
-					sums[corr][lane] = pitchFMADD32(xv, y[i+j+lane+corr], sums[corr][lane])
-				}
-			}
-		}
-		if j != length {
-			for lane := 0; lane < length-j; lane++ {
-				xv := x[j+lane]
-				for corr := 0; corr < 8; corr++ {
-					sums[corr][lane] = pitchFMADD32(xv, y[i+j+lane+corr], sums[corr][lane])
-				}
-			}
-		}
-		for corr := 0; corr < 8; corr++ {
-			xcorr[i+corr] = reduceAVX2PitchSum(sums[corr])
-		}
+		var sums [8]float32
+		pitchXcorrKernelAVX8(x[:length], y[i:i+length+7], &sums, length)
+		copy(xcorr[i:i+8], sums[:])
 	}
 	for ; i < maxPitch; i++ {
 		xcorr[i] = innerProdFloat32SSEOrder(x, y[i:], length)
