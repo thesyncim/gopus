@@ -27,6 +27,18 @@ const (
 
 	// testVectorDir is where test vectors are extracted
 	testVectorDir = "testdata/opus_testvectors"
+
+	// testVectorFetchAttempts bounds how many times the download+extract is
+	// retried before giving up, to ride out transient network/extract flakes
+	// (truncated bodies, mid-stream resets) on shared CI runners.
+	testVectorFetchAttempts = 3
+
+	// minVectorFileBytes is a conservative non-trivial-size floor used to detect
+	// a truncated extract. The smallest real RFC 8251 vector file is ~56 KiB
+	// (testvector12.bit); a partially written file is far smaller. This floor
+	// only rejects gross truncation, so it does not depend on exact upstream
+	// sizes.
+	minVectorFileBytes = 1024
 )
 
 // testVectorNames lists all 12 official test vectors
@@ -132,8 +144,15 @@ func readPCMFile(filename string) ([]int16, error) {
 }
 
 // ensureTestVectors downloads and extracts test vectors if needed.
+//
+// The fetch is retried a few times across the primary and fallback URLs and each
+// attempt is validated for completeness (all expected files present and of a
+// plausible, non-trivial size) before it is accepted. This guards the shared CI
+// runners against transient download/extract flakes that can leave a truncated
+// vector on disk and surface as a spurious final-range mismatch.
 func ensureTestVectors(t testing.TB) error {
-	// Check if test vectors already exist and are complete
+	// Check if test vectors already exist and are complete (a previously
+	// truncated cache fails this and triggers a fresh download below).
 	if ok, err := testVectorsComplete(); err != nil {
 		return err
 	} else if ok {
@@ -148,11 +167,37 @@ func ensureTestVectors(t testing.TB) error {
 		return fmt.Errorf("failed to create testdata dir: %w", err)
 	}
 
+	var fetchErrs []string
+	for attempt := 1; attempt <= testVectorFetchAttempts; attempt++ {
+		if attempt > 1 {
+			t.Logf("Re-fetching RFC 8251 test vectors (attempt %d/%d)", attempt, testVectorFetchAttempts)
+		}
+		if err := downloadAndExtractTestVectors(); err != nil {
+			fetchErrs = append(fetchErrs, fmt.Sprintf("attempt %d: %v", attempt, err))
+			continue
+		}
+		if ok, err := testVectorsComplete(); err != nil {
+			return err
+		} else if !ok {
+			fetchErrs = append(fetchErrs, fmt.Sprintf("attempt %d: extracted vectors incomplete or truncated", attempt))
+			continue
+		}
+		t.Log("Test vectors downloaded and extracted successfully")
+		return nil
+	}
+
+	return fmt.Errorf("failed to fetch complete test vectors after %d attempts: %s",
+		testVectorFetchAttempts, strings.Join(fetchErrs, "; "))
+}
+
+// downloadAndExtractTestVectors performs one download+extract pass, trying the
+// primary URL then the fallback. It clears any partial prior extract first so a
+// failed attempt never leaves a mix of stale and fresh files.
+func downloadAndExtractTestVectors() error {
 	if err := os.RemoveAll(testVectorDir); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove existing test vectors: %w", err)
 	}
 
-	// Download and extract the archive.
 	var downloadErrs []string
 	for _, url := range []string{testVectorURL, testVectorFallbackURL} {
 		resp, err := http.Get(url)
@@ -177,23 +222,16 @@ func ensureTestVectors(t testing.TB) error {
 			downloadErrs = append(downloadErrs, fmt.Sprintf("%s: extract: %v", url, err))
 			continue
 		}
-		downloadErrs = nil
-		break
-	}
-	if len(downloadErrs) != 0 {
-		return fmt.Errorf("failed to download test vectors (network unavailable?): %s", strings.Join(downloadErrs, "; "))
+		return nil
 	}
 
-	if ok, err := testVectorsComplete(); err != nil {
-		return err
-	} else if !ok {
-		return fmt.Errorf("downloaded test vectors are incomplete")
-	}
-
-	t.Log("Test vectors downloaded and extracted successfully")
-	return nil
+	return fmt.Errorf("download failed (network unavailable?): %s", strings.Join(downloadErrs, "; "))
 }
 
+// testVectorsComplete reports whether every expected vector file is present and
+// of a plausible, non-trivial size. The size floor (minVectorFileBytes) rejects
+// a truncated extract that would otherwise pass a bare existence/non-empty check
+// yet decode to a different final range.
 func testVectorsComplete() (bool, error) {
 	for _, name := range testVectorNames {
 		for _, ext := range []string{".bit", ".dec"} {
@@ -205,7 +243,7 @@ func testVectorsComplete() (bool, error) {
 				}
 				return false, fmt.Errorf("failed to stat %s: %w", path, err)
 			}
-			if info.Size() == 0 {
+			if info.Size() < minVectorFileBytes {
 				return false, nil
 			}
 		}

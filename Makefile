@@ -56,7 +56,12 @@ BENCH_TESTVECTORS_COMPARE_CASES ?= all
 BENCH_TESTVECTORS_COMPARE_PATHS ?= all
 BENCH_TESTVECTORS_COMPARE_TIME_FLAG = $(if $(BENCH_TESTVECTORS_COMPARE_TIMES),-benchtimes=$(BENCH_TESTVECTORS_COMPARE_TIMES),-benchtime=$(BENCH_TESTVECTORS_COMPARE_TIME))
 BENCH_LIBOPUS_GUARD_TIME ?= 1s
-BENCH_LIBOPUS_GUARD_COUNT ?= 3
+# Median ns/sample over this many runs is what the libopus-relative guard ratio
+# is computed from (both gopus and the libopus C helper report the median). A
+# higher count makes that median robust to shared-runner scheduling noise so the
+# ratio does not straddle the guard threshold from run to run; the threshold and
+# tolerances below are unchanged.
+BENCH_LIBOPUS_GUARD_COUNT ?= 7
 BENCH_LIBOPUS_GUARD_RATIO ?= 3.25
 BENCH_LIBOPUS_GUARD_ALLOCS ?= 0
 BENCH_ENCODER_LIBOPUS_GUARD_RATIO ?= 3.25
