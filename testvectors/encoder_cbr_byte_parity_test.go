@@ -435,8 +435,12 @@ func assertCBRByteParityForCase(t *testing.T, tc cbrTestCase, oraclePath string)
 		}
 	}
 
-	isArm64 := runtime.GOARCH == "arm64"
-	strict := !isArm64 || tc.strictArm64
+	// SILK cells (tc.strictArm64) are byte-exact on every build (integer/
+	// range-coded core). CELT/Hybrid cells carry the documented ≤1-ULP CELT
+	// float-analysis boundary on the pure-Go builds (arm64 FMA, amd64-purego vs
+	// scalar libopus); only the amd64 asm/SIMD build is held strictly bit-exact.
+	// See encoderCELTFloatBoundaryBuild and project_arm64_celt_1ulp_drift.md.
+	strict := tc.strictArm64 || !encoderCELTFloatBoundaryBuild()
 
 	if len(diffFrames) == 0 {
 		t.Logf("PASS: %d packets byte-exact vs libopus CBR oracle", len(wantPackets))
@@ -456,12 +460,21 @@ func assertCBRByteParityForCase(t *testing.T, tc cbrTestCase, oraclePath string)
 		t.Fatalf("CBR byte parity FAIL: %d/%d packets differ (arch=%s/%s)",
 			len(diffFrames), len(wantPackets), runtime.GOOS, runtime.GOARCH)
 	} else {
-		// arm64 residual: document but do not fail.
-		// Root cause: CELT sub-band FMA contraction differs from clang
-		// -ffp-contract=on by ≤1 ULP.  See project_arm64_celt_1ulp_drift.md.
-		t.Logf("RESIDUAL (arm64 FMA drift): %d/%d packets differ — "+
-			"root cause: CELT float FMA contraction vs clang -ffp-contract=on "+
-			"(project_arm64_celt_1ulp_drift.md); amd64/CI gate holds",
+		// Pure-Go CELT/Hybrid residual: documented ≤1-ULP CELT float boundary
+		// (arm64 FMA contraction vs clang -ffp-contract=on; amd64-purego Go float
+		// vs gcc scalar libopus). The CBR byte budget is fixed, so a near-tie flip
+		// changes only the late raw bits at an equal length — a structural
+		// regression that changes a packet length still fails hard below.
+		// See project_arm64_celt_1ulp_drift.md.
+		for _, fi := range diffFrames {
+			if len(gotPackets[fi]) != len(wantPackets[fi]) {
+				t.Fatalf("CBR packet LENGTH mismatch frame %d: gopus=%d libopus=%d (arch=%s/%s) — "+
+					"a CBR length divergence is structural, not the ≤1-ULP float boundary",
+					fi, len(gotPackets[fi]), len(wantPackets[fi]), runtime.GOOS, runtime.GOARCH)
+			}
+		}
+		t.Logf("RESIDUAL (pure-Go CELT float boundary): %d/%d packets differ in late raw bits "+
+			"(equal length) — project_arm64_celt_1ulp_drift.md; amd64 asm/CI gate holds",
 			len(diffFrames), len(wantPackets))
 	}
 }
@@ -556,12 +569,12 @@ func TestEncoderCBRByteParitySummary(t *testing.T) {
 	}
 
 	type rowResult struct {
-		name        string
-		total       int
-		diffs       int
-		skipped     bool
-		isArm64     bool
-		strictArm64 bool
+		name          string
+		total         int
+		diffs         int
+		skipped       bool
+		floatBoundary bool
+		strictArm64   bool
 	}
 	results := make([]rowResult, len(cbrTestMatrix()))
 
@@ -602,16 +615,19 @@ func TestEncoderCBRByteParitySummary(t *testing.T) {
 					}
 				}
 
-				isArm64 := runtime.GOARCH == "arm64"
+				floatBoundary := encoderCELTFloatBoundaryBuild()
 				results[i] = rowResult{
-					name:        tc.name,
-					total:       len(wantPackets),
-					diffs:       diffs,
-					isArm64:     isArm64,
-					strictArm64: tc.strictArm64,
+					name:          tc.name,
+					total:         len(wantPackets),
+					diffs:         diffs,
+					floatBoundary: floatBoundary,
+					strictArm64:   tc.strictArm64,
 				}
 
-				strict := !isArm64 || tc.strictArm64
+				// SILK (strictArm64) is byte-exact on every build; CELT/Hybrid carry
+				// the documented ≤1-ULP CELT float boundary on the pure-Go builds, so
+				// only the amd64 asm/SIMD build holds them strictly bit-exact.
+				strict := tc.strictArm64 || !floatBoundary
 				if diffs > 0 && strict {
 					t.Errorf("%s: %d/%d packets differ (FAIL)", tc.name, diffs, len(wantPackets))
 				}
@@ -633,8 +649,8 @@ func TestEncoderCBRByteParitySummary(t *testing.T) {
 		case r.diffs == 0:
 			t.Logf("%-35s %7d %7d %6s", r.name, r.total, 0, "OK")
 			pass++
-		case r.isArm64 && !r.strictArm64:
-			t.Logf("%-35s %7d %7d %6s (arm64 FMA residual)", r.name, r.total, r.diffs, "~")
+		case r.floatBoundary && !r.strictArm64:
+			t.Logf("%-35s %7d %7d %6s (pure-Go CELT float residual)", r.name, r.total, r.diffs, "~")
 			residual++
 		default:
 			t.Logf("%-35s %7d %7d %6s", r.name, r.total, r.diffs, "FAIL")

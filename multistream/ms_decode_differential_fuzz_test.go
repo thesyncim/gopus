@@ -35,14 +35,17 @@
 //   - sample-count / layout mismatch: HARD FAIL on every arch (integer-derived
 //     framing with no float boundary).
 //
-//   - steady-state PCM value mismatch within the documented per-arch budget:
-//     tolerated and logged. On amd64 (the CI gate) the float decode path is
-//     exact, so the budget is zero (bit-exact required). On darwin/arm64 a ≤1-ULP
-//     CELT float drift (project_arm64_celt_1ulp_drift) can flip a single
-//     per-stream sample, which propagates through the (≤1-magnitude)
-//     mapping/coupling/demix coefficients to a comparably small output
-//     difference. The float budget is 1e-6 (observed ≤1.7e-7) and the int16
-//     budget is 1 unit.
+//   - steady-state PCM value mismatch within the documented per-build budget:
+//     tolerated and logged. On the amd64 asm/SIMD build (the strict reference) the
+//     float decode path matches the SIMD libopus oracle bit-for-bit, so the budget
+//     is zero. The pure-Go builds carry the documented ≤1-ULP CELT float drift
+//     (project_arm64_celt_1ulp_drift): darwin/arm64 FMA contraction, and the
+//     amd64 pure-Go build's Go float backend vs the scalar libopus oracle. It can
+//     flip a single per-stream sample, which propagates through the (≤1-magnitude)
+//     mapping/coupling/demix coefficients to a comparably small output difference
+//     (arm64 ≤1.7e-7; amd64-purego only denormal-magnitude ~1e-34 residue on
+//     near-silent short frames). The float budget is 1e-6 and the int16 budget is
+//     1 unit.
 //
 //   - steady-state PCM value mismatch beyond the budget: HARD FAIL on every arch
 //     (a real decode bug in per-stream decode, mapping/coupling, surround gain,
@@ -67,8 +70,9 @@ import (
 
 const (
 	// decodeFloatBudget is the maximum tolerated steady-state per-sample float32
-	// difference on the documented darwin/arm64 ≤1-ULP CELT drift target. amd64 is
-	// bit-exact (the budget collapses to zero there — see decodeBudgetActive).
+	// difference on the pure-Go builds' documented ≤1-ULP CELT drift target. The
+	// amd64 asm/SIMD build is bit-exact (the budget collapses to zero there — see
+	// decodeBudgetActive).
 	decodeFloatBudget = 1e-6
 	// decodeInt16Budget is the matching steady-state int16 budget (one unit).
 	decodeInt16Budget = 1
@@ -81,11 +85,15 @@ const (
 	transitionGrossInt16Bound = 19661
 )
 
-// decodeBudgetActive reports whether the documented per-arch float/int16 decode
-// budget applies (darwin/arm64 only). On every other arch a steady-state value
-// mismatch is a hard failure.
+// decodeBudgetActive reports whether the documented per-build float/int16 decode
+// budget applies: the pure-Go float backend (arm64 FMA, and amd64-purego Go float
+// vs the scalar libopus oracle) carries the documented ≤1-ULP CELT decode drift,
+// which on near-silent short frames shows up as a few denormal-magnitude
+// (~1e-34) per-sample differences far below the 1e-6 budget. The amd64 asm/SIMD
+// build is held bit-exact (budget collapses to zero), and the gross-regression
+// transition bound stays hard on every build. See project_arm64_celt_1ulp_drift.md.
 func decodeBudgetActive() bool {
-	return armEncodeFloatDrift()
+	return armEncodeFloatDrift() || !gopusBuildIsAsm
 }
 
 // streamModeClass classifies an Opus TOC config (TOC>>3) into the coding-mode

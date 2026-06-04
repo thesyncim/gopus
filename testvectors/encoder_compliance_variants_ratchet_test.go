@@ -52,6 +52,16 @@ func TestBuildBaselineCaseCapsPositiveGapFloorAtParity(t *testing.T) {
 	}
 }
 
+// hybridStereo96kAMMultisineFloorAMD64 is the expected amd64 gapQ floor for the
+// HYBRID-FB-20ms-stereo-96k am_multisine knife-edge case: the tight asm/SIMD floor
+// on the asm build, and the documented looser pure-Go floor on the pure-Go build.
+func hybridStereo96kAMMultisineFloorAMD64() float64 {
+	if !gopusBuildIsAsm {
+		return encoderVariantMinGapFloorPureGoOverrideQ[encoderVariantCaseKey("HYBRID-FB-20ms-stereo-96k", "am_multisine_v1")]
+	}
+	return amd64EncoderVariantGapFloorQ
+}
+
 func TestEncoderVariantThresholdForArchAppliesAMD64Overrides(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -158,6 +168,11 @@ func TestEncoderVariantThresholdForArchAppliesAMD64Overrides(t *testing.T) {
 			want: -1.5,
 		},
 		{
+			// The amd64 asm/SIMD build holds the tight -1.5 floor (it matches the
+			// SIMD variants fixture). The pure-Go build tracks the scalar libopus and
+			// takes the documented looser floor for this Hybrid-FB knife-edge case
+			// where libopus is itself arch-unstable (see
+			// encoderVariantMinGapFloorPureGoOverrideQ).
 			name: "amd64 hybrid stereo tight floor",
 			tc: encoderComplianceVariantsFixtureCase{
 				Name:     "HYBRID-FB-20ms-stereo-96k",
@@ -166,7 +181,7 @@ func TestEncoderVariantThresholdForArchAppliesAMD64Overrides(t *testing.T) {
 				Channels: 2,
 			},
 			arch: "amd64",
-			want: -1.5,
+			want: hybridStereo96kAMMultisineFloorAMD64(),
 		},
 		{
 			name: "arm64 hybrid stereo tight floor",
