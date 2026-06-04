@@ -121,6 +121,11 @@ func signalTypeFromState(st *decoderState) int {
 	return int(st.indices.signalType)
 }
 
+// silkPLCChannelView adapts one channel of a Decoder to the
+// plc.SILKDecoderStateExtended interface consumed by ConcealSILKWithLTP. It
+// holds only the decoder pointer and an immutable channel index; the GetX
+// accessors below read the live per-channel decoder state on demand so the PLC
+// concealment path observes the most recent decoded frame without copying.
 type silkPLCChannelView struct {
 	d  *Decoder
 	ch int

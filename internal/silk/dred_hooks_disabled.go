@@ -9,8 +9,12 @@ const (
 
 type dredHookState struct{}
 
+// SetRawMonoFrameHook is a no-op in the default build; the raw mono frame hook
+// is only wired under the gopus_dred or gopus_extra_controls tags.
 func (d *Decoder) SetRawMonoFrameHook(_ RawMonoFrameHook) {}
 
+// SetDeepPLCLossMonoHook is a no-op in the default build; the deep-PLC loss hook
+// is only wired under the gopus_dred or gopus_extra_controls tags.
 func (d *Decoder) SetDeepPLCLossMonoHook(_ DeepPLCLossMonoHook) {}
 
 func (d *Decoder) fireRawMonoFrameHook(_ int, _ *decoderState, _ []int16) {}

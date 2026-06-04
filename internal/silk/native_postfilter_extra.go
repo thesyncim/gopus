@@ -4,12 +4,17 @@ package silk
 
 const nativePostfilterEnabled = true
 
+// NativePostfilterHook is invoked once per decoded frame with the channel index,
+// the int16 output samples (modifiable in place) and the latest decoder control
+// parameters. Returning true signals that the hook handled post-filtering.
 type NativePostfilterHook func(channel int, samples []int16, ctrl LatestDecoderControl) bool
 
 type nativePostfilterExtras struct {
 	hook NativePostfilterHook
 }
 
+// SetNativePostfilterHook installs the per-frame native post-filter callback;
+// available only under the gopus_extra_controls tag. Pass nil to disable.
 func (d *Decoder) SetNativePostfilterHook(hook NativePostfilterHook) {
 	d.nativePostfilter.hook = hook
 }

@@ -2,6 +2,9 @@
 
 package silk
 
+// DecoderStateSnapshot captures the per-channel SILK decoder state needed to
+// save and restore a decoder around DRED/deep-PLC concealment, exposed only
+// under the gopus_dred and gopus_extra_controls tags.
 type DecoderStateSnapshot struct {
 	LagPrev        int32
 	LastGainIndex  int
@@ -16,6 +19,10 @@ type DecoderStateSnapshot struct {
 	ResamplerDelay [96]float32
 }
 
+// SnapshotDecoderState returns a DecoderStateSnapshot for the given channel,
+// converting the live fixed-point decoder state to the float representation used
+// by the snapshot. It returns the zero snapshot for a nil decoder or an
+// out-of-range channel.
 func (d *Decoder) SnapshotDecoderState(bandwidth Bandwidth, channel int) DecoderStateSnapshot {
 	if d == nil || channel < 0 || channel >= len(d.state) {
 		return DecoderStateSnapshot{}

@@ -215,6 +215,9 @@ func newDownsamplingResampler(fsIn, fsOut int, forEncoder bool) *DownsamplingRes
 	return r
 }
 
+// CopyFrom copies src's configuration and filter state into r, leaving r ready
+// to continue resampling exactly as src would. It is a no-op if either receiver
+// or src is nil.
 func (r *DownsamplingResampler) CopyFrom(src *DownsamplingResampler) {
 	if r == nil || src == nil {
 		return
@@ -325,6 +328,9 @@ func (r *DownsamplingResampler) ProcessInto(in []float32, out []float32) int {
 	return outLen
 }
 
+// ProcessInt16Into resamples int16 input into the pre-allocated float32 buffer
+// out and returns the number of samples written. It mirrors ProcessInto but
+// takes the input directly as int16, avoiding a float conversion on the way in.
 func (r *DownsamplingResampler) ProcessInt16Into(in []int16, out []float32) int {
 	if len(in) == 0 {
 		return 0

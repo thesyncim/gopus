@@ -827,6 +827,10 @@ type resamplerPair struct {
 	right *LibopusResampler
 }
 
+// DeepPLCLowbandSnapshot is an opaque capture of the mono low-band decoder
+// state (channel 0, including the wideband resampler and SILK PLC state) taken
+// before deep-PLC concealment so the decoder can be rolled back and advanced
+// over concealed samples.
 type DeepPLCLowbandSnapshot struct {
 	stereo        stereoDecState
 	state         decoderState
@@ -916,6 +920,9 @@ func (d *Decoder) updateMonoHistoryFromInt16(samples []int16) {
 	d.stereo.sMid[1] = samples[0]
 }
 
+// SnapshotDeepPLCLowbandMono captures the current mono low-band decoder state
+// for later restore, returning nil if the decoder or its wideband resampler is
+// unavailable.
 func (d *Decoder) SnapshotDeepPLCLowbandMono() *DeepPLCLowbandSnapshot {
 	if d == nil {
 		return nil
@@ -939,6 +946,9 @@ func (d *Decoder) SnapshotDeepPLCLowbandMono() *DeepPLCLowbandSnapshot {
 	return snap
 }
 
+// RestoreDeepPLCLowbandMono restores the mono low-band decoder state previously
+// captured by SnapshotDeepPLCLowbandMono. It is a no-op for a nil decoder or
+// snapshot.
 func (d *Decoder) RestoreDeepPLCLowbandMono(s *DeepPLCLowbandSnapshot) {
 	if d == nil || s == nil {
 		return
@@ -975,6 +985,9 @@ func (d *Decoder) RestoreDeepPLCLowbandMono(s *DeepPLCLowbandSnapshot) {
 	}
 }
 
+// AdvanceDeepPLCLowbandMono feeds concealed low-band samples through the mono
+// wideband resampler to advance the decoder's resampler state, returning false
+// if the decoder, input, or resampler is unavailable.
 func (d *Decoder) AdvanceDeepPLCLowbandMono(concealed []float32) bool {
 	if d == nil || len(concealed) == 0 {
 		return false

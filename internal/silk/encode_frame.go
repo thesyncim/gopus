@@ -1068,10 +1068,18 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 	return pulses, seedOut
 }
 
+// EncodePacketWithFEC encodes one SILK packet (up to maxFramesPerPacket 20 ms
+// frames) from pcm, prepending in-band FEC (LBRR) for the previous frame.
+// lookahead supplies the analysis tail and vadFlags the per-frame voice-activity
+// decisions. It is shorthand for EncodePacketWithFECWithVADStates with no
+// explicit VAD states.
 func (e *Encoder) EncodePacketWithFEC(pcm []float32, lookahead []float32, vadFlags []bool) []byte {
 	return e.EncodePacketWithFECWithVADStates(pcm, lookahead, vadFlags, nil)
 }
 
+// EncodePacketWithFECWithVADStates is EncodePacketWithFEC with externally
+// supplied per-frame VAD states; when vadStates is nil the encoder derives the
+// VAD decisions from vadFlags and its own analysis.
 func (e *Encoder) EncodePacketWithFECWithVADStates(pcm []float32, lookahead []float32, vadFlags []bool, vadStates []VADFrameState) []byte {
 	e.ResetPacketState()
 	config := GetBandwidthConfig(e.bandwidth)
