@@ -132,10 +132,6 @@ func assertDTXByteExact(t *testing.T, label, mode string, wantPackets []dtxOracl
 		if !bytes.Equal(got, want) {
 			diffFrames++
 			if firstDiff == "" {
-				maxLen := len(want)
-				if len(got) > maxLen {
-					maxLen = len(got)
-				}
 				firstDiff = fmt.Sprintf("frame %d: gopus_len=%d libopus_len=%d toc gopus=0x%02x libopus=0x%02x",
 					i, len(got), len(want), tocByte(got), tocByte(want))
 			}
