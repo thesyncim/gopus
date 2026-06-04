@@ -373,17 +373,18 @@ func celtSqrt(x float32) float32 {
 
 // celtBandSumSqScalarNoFMA accumulates the band sum-of-squares in scalar order,
 // matching libopus celt_inner_prod_c (xy = MAC16_16(xy, x[i], x[i]), i.e. a plain
-// float32 multiply followed by a float32 add per element). The Float32bits
-// round-trip is a rounding barrier that stops a fused build (celtFusedFloat) from
-// contracting x*x + sum into a single FMADD, so the band energy that feeds the
-// dynalloc boost decision tracks the scalar reference instead of the NEON
-// lane-ordered inner product. Band energy is computed once per frame, so the lost
-// FMA is negligible.
+// float32 multiply followed by a float32 add per element). Materializing each
+// square through a Float32bits round-trip stops a fused build (celtFusedFloat)
+// from contracting sum + x*x into a single FMADD, so the band energy that feeds
+// the dynalloc boost decision tracks the scalar reference instead of the NEON
+// lane-ordered inner product. With the square materialized, the accumulating add
+// has no multiply left to fuse, so it needs no separate barrier. Band energy is
+// computed once per frame, so the lost FMA is negligible.
 func celtBandSumSqScalarNoFMA(x []float32) float32 {
 	var sum float32
 	for i := range x {
 		p := math.Float32frombits(math.Float32bits(x[i] * x[i]))
-		sum = math.Float32frombits(math.Float32bits(sum + p))
+		sum += p
 	}
 	return sum
 }
