@@ -1,3 +1,8 @@
+// Package cpufeat detects optional CPU instruction-set extensions at process
+// start and exposes them through the AMD64 and ARM64 variables so the codec can
+// gate its SIMD code paths at runtime. Detection runs in architecture-specific
+// init functions; on the purego build, or on an architecture other than the one
+// queried, the corresponding variable stays at its zero value (no extensions).
 package cpufeat
 
 // AMD64Features reports which optional amd64 instruction-set extensions the
