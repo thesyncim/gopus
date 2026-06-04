@@ -24,13 +24,13 @@ DEFAULT_ALLOWLIST = Path("tools/type_parity_allowlist.tsv")
 
 RUNTIME_ROOTS = (
     Path("."),
-    Path("celt"),
-    Path("encoder"),
-    Path("hybrid"),
+    Path("internal/celt"),
+    Path("internal/encoder"),
+    Path("internal/hybrid"),
     Path("multistream"),
-    Path("plc"),
-    Path("silk"),
-    Path("rangecoding"),
+    Path("internal/plc"),
+    Path("internal/silk"),
+    Path("internal/rangecoding"),
     Path("internal/dnnmath"),
     Path("internal/dred"),
     Path("internal/osce"),
@@ -171,7 +171,11 @@ def scan() -> dict[FindingKey, Finding]:
         except UnicodeDecodeError:
             lines = path.read_text(encoding="latin-1").splitlines()
         is_oracle_probe = any("gopus_libopus_oracle" in line for line in lines[:5])
-        check_int_width = path.parts and path.parts[0] in {"celt", "encoder", "plc", "silk"}
+        check_int_width = (
+            len(path.parts) >= 2
+            and path.parts[0] == "internal"
+            and path.parts[1] in {"celt", "encoder", "plc", "silk"}
+        )
         for idx, line in enumerate(lines, start=1):
             if not FINDING_RE.search(line) and (
                 is_oracle_probe or not check_int_width or not INT_FINDING_RE.search(line)

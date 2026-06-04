@@ -356,16 +356,16 @@ def main() -> int:
         c_arrays["CELT_PVQ_U_DATA"] = pvq_override
 
     go_files = [
-        "celt/tables.go",
-        "celt/alloc_tables.go",
-        "celt/bands_quant.go",
-        "celt/postfilter.go",
-        "celt/cwrs.go",
-        "encoder/hybrid.go",
-        "silk/libopus_tables.go",
-        "silk/resample_down_fir.go",
-        "silk/resample_libopus.go",
-        "silk/control_snr.go",
+        "internal/celt/tables.go",
+        "internal/celt/alloc_tables.go",
+        "internal/celt/bands_quant.go",
+        "internal/celt/postfilter.go",
+        "internal/celt/cwrs.go",
+        "internal/encoder/hybrid.go",
+        "internal/silk/libopus_tables.go",
+        "internal/silk/resample_down_fir.go",
+        "internal/silk/resample_libopus.go",
+        "internal/silk/control_snr.go",
     ]
     go_arrays = extract_go_arrays(go_files)
 

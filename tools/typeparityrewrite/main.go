@@ -157,7 +157,7 @@ rewritten by explicit rules, which is useful for tools and tests.
 
 Example rewrites.tsv:
   # path_glob	from	to	contexts	note
-  celt/...	float64	celtSig	types,assignments	CELT signal scratch
+  internal/celt/...	float64	celtSig	types,assignments	CELT signal scratch
   tools/gen_opusdec_crossval_fixture.go	float64	float32	types,assignments	crossval PCM
 
 `)

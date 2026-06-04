@@ -252,12 +252,12 @@ func defaultBuildSymbols(t *testing.T) string {
 	src := "package main\n\n" +
 		"import (\n" +
 		"\t_ \"github.com/thesyncim/gopus\"\n" +
-		"\t_ \"github.com/thesyncim/gopus/celt\"\n" +
-		"\t_ \"github.com/thesyncim/gopus/encoder\"\n" +
-		"\t_ \"github.com/thesyncim/gopus/hybrid\"\n" +
+		"\t_ \"github.com/thesyncim/gopus/internal/celt\"\n" +
+		"\t_ \"github.com/thesyncim/gopus/internal/encoder\"\n" +
+		"\t_ \"github.com/thesyncim/gopus/internal/hybrid\"\n" +
 		"\t_ \"github.com/thesyncim/gopus/multistream\"\n" +
-		"\t_ \"github.com/thesyncim/gopus/rangecoding\"\n" +
-		"\t_ \"github.com/thesyncim/gopus/silk\"\n" +
+		"\t_ \"github.com/thesyncim/gopus/internal/rangecoding\"\n" +
+		"\t_ \"github.com/thesyncim/gopus/internal/silk\"\n" +
 		")\n\n" +
 		"func main() {}\n"
 	if err := os.WriteFile(filepath.Join(probeDir, "main.go"), []byte(src), 0o644); err != nil {
@@ -335,7 +335,7 @@ func TestDefaultBinaryHasNoGatedFeatureSymbols(t *testing.T) {
 		"internal/osce":        "gopus_extra_controls (ENABLE_OSCE)",
 		"internal/osce/lace":   "gopus_extra_controls (ENABLE_OSCE)",
 		"internal/osce/bwe":    "gopus_extra_controls (ENABLE_OSCE_BWE)",
-		"celt/custom":          "gopus_custom (CUSTOM_MODES)",
+		"internal/celt/custom": "gopus_custom (CUSTOM_MODES)",
 		"internal/fixedpoint":  "gopus_fixedpoint",
 	}
 	for pkg, tag := range forbiddenPkgs {
