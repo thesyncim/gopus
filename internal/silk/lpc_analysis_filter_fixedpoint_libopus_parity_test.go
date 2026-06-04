@@ -3,13 +3,9 @@
 package silk
 
 import (
-	"fmt"
 	"math/rand"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -32,70 +28,6 @@ func fixedRefPath(elem ...string) string {
 	return filepath.Join(append(base, elem...)...)
 }
 
-var (
-	libopusSILKFixedLPCOnce sync.Once
-	libopusSILKFixedLPCBin  string
-	libopusSILKFixedLPCErr  error
-)
-
-// buildLibopusSILKFixedLPCHelper ensures the FIXED_POINT libopus reference
-// exists, then compiles tools/csrc/libopus_silk_fixed_lpc_analysis_info.c
-// against it. Recipe: LIBOPUS_ENABLE_FIXED=1 ./tools/ensure_libopus.sh builds
-// tmp_check/opus-<v>-fixed/.libs/libopus.a (config.h defines FIXED_POINT).
-func buildLibopusSILKFixedLPCHelper() (string, error) {
-	libopusSILKFixedLPCOnce.Do(func() {
-		_, file, _, _ := runtime.Caller(0)
-		repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-
-		refDir := fixedRefPath()
-		staticLib := fixedRefPath(".libs", "libopus.a")
-		if _, err := os.Stat(staticLib); err != nil {
-			cmd := exec.Command("bash", filepath.Join("tools", "ensure_libopus.sh"))
-			cmd.Dir = repoRoot
-			cmd.Env = append(os.Environ(), "LIBOPUS_ENABLE_FIXED=1")
-			if out, berr := cmd.CombinedOutput(); berr != nil {
-				libopusSILKFixedLPCErr = fmt.Errorf("ensure fixed libopus: %w (%s)", berr, out)
-				return
-			}
-		}
-		if _, err := os.Stat(staticLib); err != nil {
-			libopusSILKFixedLPCErr = fmt.Errorf("fixed libopus static lib missing: %w", err)
-			return
-		}
-
-		cc, err := libopustooling.FindCCompiler()
-		if err != nil {
-			libopusSILKFixedLPCErr = err
-			return
-		}
-
-		src := filepath.Join(repoRoot, "tools", "csrc", "libopus_silk_fixed_lpc_analysis_info.c")
-		outDir := filepath.Join(os.TempDir(), "gopus_libopus_test_helpers")
-		if err := os.MkdirAll(outDir, 0o755); err != nil {
-			libopusSILKFixedLPCErr = err
-			return
-		}
-		out := filepath.Join(outDir, fmt.Sprintf("gopus_silk_fixed_lpc_%s_%s", runtime.GOOS, runtime.GOARCH))
-
-		args := []string{
-			"-std=c99", "-O2", "-DHAVE_CONFIG_H",
-			"-I", refDir,
-			"-I", filepath.Join(refDir, "include"),
-			"-I", filepath.Join(refDir, "celt"),
-			"-I", filepath.Join(refDir, "silk"),
-			src, staticLib, "-lm",
-			"-o", out,
-		}
-		cmd := exec.Command(cc, args...)
-		if combined, cerr := cmd.CombinedOutput(); cerr != nil {
-			libopusSILKFixedLPCErr = fmt.Errorf("build silk fixed lpc helper: %w (%s)", cerr, combined)
-			return
-		}
-		libopusSILKFixedLPCBin = out
-	})
-	return libopusSILKFixedLPCBin, libopusSILKFixedLPCErr
-}
-
 type silkFixedLPCAnalysisCase struct {
 	name string
 	d    int
@@ -104,7 +36,7 @@ type silkFixedLPCAnalysisCase struct {
 }
 
 func probeLibopusSILKFixedLPCAnalysis(cases []silkFixedLPCAnalysisCase) ([][]int16, error) {
-	binPath, err := buildLibopusSILKFixedLPCHelper()
+	binPath, err := buildFixedSILKOracle("libopus_silk_fixed_lpc_analysis_info.c", "lpc")
 	if err != nil {
 		return nil, err
 	}

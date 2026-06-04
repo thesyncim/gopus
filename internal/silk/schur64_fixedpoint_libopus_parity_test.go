@@ -3,85 +3,16 @@
 package silk
 
 import (
-	"fmt"
 	"math/rand"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 const (
 	libopusSILKFixedSchur64InputMagic  = "GS6I"
 	libopusSILKFixedSchur64OutputMagic = "GS6O"
 )
-
-var (
-	libopusSILKFixedSchur64Once sync.Once
-	libopusSILKFixedSchur64Bin  string
-	libopusSILKFixedSchur64Err  error
-)
-
-// buildLibopusSILKFixedSchur64Helper ensures the FIXED_POINT libopus reference
-// exists, then compiles tools/csrc/libopus_silk_fixed_schur64_info.c against it.
-func buildLibopusSILKFixedSchur64Helper() (string, error) {
-	libopusSILKFixedSchur64Once.Do(func() {
-		_, file, _, _ := runtime.Caller(0)
-		repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-
-		refDir := fixedRefPath()
-		staticLib := fixedRefPath(".libs", "libopus.a")
-		if _, err := os.Stat(staticLib); err != nil {
-			cmd := exec.Command("bash", filepath.Join("tools", "ensure_libopus.sh"))
-			cmd.Dir = repoRoot
-			cmd.Env = append(os.Environ(), "LIBOPUS_ENABLE_FIXED=1")
-			if out, berr := cmd.CombinedOutput(); berr != nil {
-				libopusSILKFixedSchur64Err = fmt.Errorf("ensure fixed libopus: %w (%s)", berr, out)
-				return
-			}
-		}
-		if _, err := os.Stat(staticLib); err != nil {
-			libopusSILKFixedSchur64Err = fmt.Errorf("fixed libopus static lib missing: %w", err)
-			return
-		}
-
-		cc, err := libopustooling.FindCCompiler()
-		if err != nil {
-			libopusSILKFixedSchur64Err = err
-			return
-		}
-
-		src := filepath.Join(repoRoot, "tools", "csrc", "libopus_silk_fixed_schur64_info.c")
-		outDir := filepath.Join(os.TempDir(), "gopus_libopus_test_helpers")
-		if err := os.MkdirAll(outDir, 0o755); err != nil {
-			libopusSILKFixedSchur64Err = err
-			return
-		}
-		out := filepath.Join(outDir, fmt.Sprintf("gopus_silk_fixed_schur64_%s_%s", runtime.GOOS, runtime.GOARCH))
-
-		args := []string{
-			"-std=c99", "-O2", "-DHAVE_CONFIG_H",
-			"-I", refDir,
-			"-I", filepath.Join(refDir, "include"),
-			"-I", filepath.Join(refDir, "celt"),
-			"-I", filepath.Join(refDir, "silk"),
-			src, staticLib, "-lm",
-			"-o", out,
-		}
-		cmd := exec.Command(cc, args...)
-		if combined, cerr := cmd.CombinedOutput(); cerr != nil {
-			libopusSILKFixedSchur64Err = fmt.Errorf("build silk fixed schur64 helper: %w (%s)", cerr, combined)
-			return
-		}
-		libopusSILKFixedSchur64Bin = out
-	})
-	return libopusSILKFixedSchur64Bin, libopusSILKFixedSchur64Err
-}
 
 type silkFixedSchur64Case struct {
 	name  string
@@ -96,7 +27,7 @@ type silkFixedSchur64Result struct {
 }
 
 func probeLibopusSILKFixedSchur64(cases []silkFixedSchur64Case) ([]silkFixedSchur64Result, error) {
-	binPath, err := buildLibopusSILKFixedSchur64Helper()
+	binPath, err := buildFixedSILKOracle("libopus_silk_fixed_schur64_info.c", "schur64")
 	if err != nil {
 		return nil, err
 	}

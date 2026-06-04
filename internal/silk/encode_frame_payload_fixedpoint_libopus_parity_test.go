@@ -7,15 +7,9 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/internal/libopustooling"
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
@@ -23,67 +17,6 @@ const (
 	libopusSILKFixedEncodeFramePayloadInputMagic  = "GEPI"
 	libopusSILKFixedEncodeFramePayloadOutputMagic = "GEPO"
 )
-
-var (
-	libopusSILKFixedEncodeFramePayloadOnce sync.Once
-	libopusSILKFixedEncodeFramePayloadBin  string
-	libopusSILKFixedEncodeFramePayloadErr  error
-)
-
-func buildLibopusSILKFixedEncodeFramePayloadHelper() (string, error) {
-	libopusSILKFixedEncodeFramePayloadOnce.Do(func() {
-		_, file, _, _ := runtime.Caller(0)
-		repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-
-		refDir := fixedRefPath()
-		staticLib := fixedRefPath(".libs", "libopus.a")
-		if _, err := os.Stat(staticLib); err != nil {
-			cmd := exec.Command("bash", filepath.Join("tools", "ensure_libopus.sh"))
-			cmd.Dir = repoRoot
-			cmd.Env = append(os.Environ(), "LIBOPUS_ENABLE_FIXED=1")
-			if out, berr := cmd.CombinedOutput(); berr != nil {
-				libopusSILKFixedEncodeFramePayloadErr = fmt.Errorf("ensure fixed libopus: %w (%s)", berr, out)
-				return
-			}
-		}
-		if _, err := os.Stat(staticLib); err != nil {
-			libopusSILKFixedEncodeFramePayloadErr = fmt.Errorf("fixed libopus static lib missing: %w", err)
-			return
-		}
-
-		cc, err := libopustooling.FindCCompiler()
-		if err != nil {
-			libopusSILKFixedEncodeFramePayloadErr = err
-			return
-		}
-
-		src := filepath.Join(repoRoot, "tools", "csrc", "libopus_silk_fixed_encode_frame_payload_info.c")
-		outDir := filepath.Join(os.TempDir(), "gopus_libopus_test_helpers")
-		if err := os.MkdirAll(outDir, 0o755); err != nil {
-			libopusSILKFixedEncodeFramePayloadErr = err
-			return
-		}
-		out := filepath.Join(outDir, fmt.Sprintf("gopus_silk_fixed_encode_frame_payload_%s_%s", runtime.GOOS, runtime.GOARCH))
-
-		args := []string{
-			"-std=c99", "-O2", "-DHAVE_CONFIG_H",
-			"-I", refDir,
-			"-I", filepath.Join(refDir, "include"),
-			"-I", filepath.Join(refDir, "celt"),
-			"-I", filepath.Join(refDir, "silk"),
-			"-I", filepath.Join(refDir, "silk", "fixed"),
-			src, staticLib, "-lm",
-			"-o", out,
-		}
-		cmd := exec.Command(cc, args...)
-		if combined, cerr := cmd.CombinedOutput(); cerr != nil {
-			libopusSILKFixedEncodeFramePayloadErr = fmt.Errorf("build silk fixed encode frame payload helper: %w (%s)", cerr, combined)
-			return
-		}
-		libopusSILKFixedEncodeFramePayloadBin = out
-	})
-	return libopusSILKFixedEncodeFramePayloadBin, libopusSILKFixedEncodeFramePayloadErr
-}
 
 // silkFixedEncodeFramePayloadCase extends the analysis case with the
 // rate-control / entropy / LBRR inputs.
@@ -116,7 +49,7 @@ type silkFixedEncodeFramePayloadResult struct {
 }
 
 func probeLibopusSILKFixedEncodeFramePayload(cases []silkFixedEncodeFramePayloadCase) ([]silkFixedEncodeFramePayloadResult, error) {
-	binPath, err := buildLibopusSILKFixedEncodeFramePayloadHelper()
+	binPath, err := buildFixedSILKOracle("libopus_silk_fixed_encode_frame_payload_info.c", "encode_frame_payload")
 	if err != nil {
 		return nil, err
 	}

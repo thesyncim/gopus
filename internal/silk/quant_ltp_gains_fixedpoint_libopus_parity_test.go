@@ -5,15 +5,9 @@ package silk
 import (
 	"fmt"
 	"math/rand"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 const (
@@ -23,70 +17,6 @@ const (
 	quantLTPKindQuant = uint32(0)
 	quantLTPKindScale = uint32(1)
 )
-
-var (
-	libopusSILKFixedQuantLTPGainsOnce sync.Once
-	libopusSILKFixedQuantLTPGainsBin  string
-	libopusSILKFixedQuantLTPGainsErr  error
-)
-
-// buildLibopusSILKFixedQuantLTPGainsHelper ensures the FIXED_POINT libopus
-// reference exists, then compiles
-// tools/csrc/libopus_silk_fixed_quant_ltp_gains_info.c against it.
-func buildLibopusSILKFixedQuantLTPGainsHelper() (string, error) {
-	libopusSILKFixedQuantLTPGainsOnce.Do(func() {
-		_, file, _, _ := runtime.Caller(0)
-		repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-
-		refDir := fixedRefPath()
-		staticLib := fixedRefPath(".libs", "libopus.a")
-		if _, err := os.Stat(staticLib); err != nil {
-			cmd := exec.Command("bash", filepath.Join("tools", "ensure_libopus.sh"))
-			cmd.Dir = repoRoot
-			cmd.Env = append(os.Environ(), "LIBOPUS_ENABLE_FIXED=1")
-			if out, berr := cmd.CombinedOutput(); berr != nil {
-				libopusSILKFixedQuantLTPGainsErr = fmt.Errorf("ensure fixed libopus: %w (%s)", berr, out)
-				return
-			}
-		}
-		if _, err := os.Stat(staticLib); err != nil {
-			libopusSILKFixedQuantLTPGainsErr = fmt.Errorf("fixed libopus static lib missing: %w", err)
-			return
-		}
-
-		cc, err := libopustooling.FindCCompiler()
-		if err != nil {
-			libopusSILKFixedQuantLTPGainsErr = err
-			return
-		}
-
-		src := filepath.Join(repoRoot, "tools", "csrc", "libopus_silk_fixed_quant_ltp_gains_info.c")
-		outDir := filepath.Join(os.TempDir(), "gopus_libopus_test_helpers")
-		if err := os.MkdirAll(outDir, 0o755); err != nil {
-			libopusSILKFixedQuantLTPGainsErr = err
-			return
-		}
-		out := filepath.Join(outDir, fmt.Sprintf("gopus_silk_fixed_quant_ltp_gains_%s_%s", runtime.GOOS, runtime.GOARCH))
-
-		args := []string{
-			"-std=c99", "-O2", "-DHAVE_CONFIG_H",
-			"-I", refDir,
-			"-I", filepath.Join(refDir, "include"),
-			"-I", filepath.Join(refDir, "celt"),
-			"-I", filepath.Join(refDir, "silk"),
-			"-I", filepath.Join(refDir, "silk", "fixed"),
-			src, staticLib, "-lm",
-			"-o", out,
-		}
-		cmd := exec.Command(cc, args...)
-		if combined, cerr := cmd.CombinedOutput(); cerr != nil {
-			libopusSILKFixedQuantLTPGainsErr = fmt.Errorf("build silk fixed quant ltp gains helper: %w (%s)", cerr, combined)
-			return
-		}
-		libopusSILKFixedQuantLTPGainsBin = out
-	})
-	return libopusSILKFixedQuantLTPGainsBin, libopusSILKFixedQuantLTPGainsErr
-}
 
 type silkFixedQuantLTPCase struct {
 	name         string
@@ -121,7 +51,7 @@ type silkFixedScaleCtrlResult struct {
 }
 
 func probeLibopusSILKFixedQuantLTP(quant []silkFixedQuantLTPCase, scale []silkFixedScaleCtrlCase) ([]silkFixedQuantLTPResult, []silkFixedScaleCtrlResult, error) {
-	binPath, err := buildLibopusSILKFixedQuantLTPGainsHelper()
+	binPath, err := buildFixedSILKOracle("libopus_silk_fixed_quant_ltp_gains_info.c", "quant_ltp_gains")
 	if err != nil {
 		return nil, nil, err
 	}

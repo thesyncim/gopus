@@ -5,15 +5,9 @@ package silk
 import (
 	"fmt"
 	"math/rand"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 const (
@@ -25,68 +19,6 @@ const (
 	nsqSLPCLen    = maxSubFrameLength + nsqLpcBufLength // sLPC_Q14
 	nsqSLTPQ15Len = 2 * maxFrameLengthNSQ               // sLTP_Q15
 )
-
-var (
-	libopusSILKFixedNSQOnce sync.Once
-	libopusSILKFixedNSQBin  string
-	libopusSILKFixedNSQErr  error
-)
-
-// buildLibopusSILKFixedNSQHelper ensures the FIXED_POINT libopus reference
-// exists, then compiles tools/csrc/libopus_silk_fixed_nsq_info.c against it.
-func buildLibopusSILKFixedNSQHelper() (string, error) {
-	libopusSILKFixedNSQOnce.Do(func() {
-		_, file, _, _ := runtime.Caller(0)
-		repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-
-		refDir := fixedRefPath()
-		staticLib := fixedRefPath(".libs", "libopus.a")
-		if _, err := os.Stat(staticLib); err != nil {
-			cmd := exec.Command("bash", filepath.Join("tools", "ensure_libopus.sh"))
-			cmd.Dir = repoRoot
-			cmd.Env = append(os.Environ(), "LIBOPUS_ENABLE_FIXED=1")
-			if out, berr := cmd.CombinedOutput(); berr != nil {
-				libopusSILKFixedNSQErr = fmt.Errorf("ensure fixed libopus: %w (%s)", berr, out)
-				return
-			}
-		}
-		if _, err := os.Stat(staticLib); err != nil {
-			libopusSILKFixedNSQErr = fmt.Errorf("fixed libopus static lib missing: %w", err)
-			return
-		}
-
-		cc, err := libopustooling.FindCCompiler()
-		if err != nil {
-			libopusSILKFixedNSQErr = err
-			return
-		}
-
-		src := filepath.Join(repoRoot, "tools", "csrc", "libopus_silk_fixed_nsq_info.c")
-		outDir := filepath.Join(os.TempDir(), "gopus_libopus_test_helpers")
-		if err := os.MkdirAll(outDir, 0o755); err != nil {
-			libopusSILKFixedNSQErr = err
-			return
-		}
-		out := filepath.Join(outDir, fmt.Sprintf("gopus_silk_fixed_nsq_%s_%s", runtime.GOOS, runtime.GOARCH))
-
-		args := []string{
-			"-std=c99", "-O2", "-DHAVE_CONFIG_H",
-			"-I", refDir,
-			"-I", filepath.Join(refDir, "include"),
-			"-I", filepath.Join(refDir, "celt"),
-			"-I", filepath.Join(refDir, "silk"),
-			src, staticLib, "-lm",
-			"-o", out,
-		}
-		cmd := exec.Command(cc, args...)
-		if combined, cerr := cmd.CombinedOutput(); cerr != nil {
-			libopusSILKFixedNSQErr = fmt.Errorf("build silk fixed nsq helper: %w (%s)", cerr, combined)
-			return
-		}
-		libopusSILKFixedNSQBin = out
-	})
-	return libopusSILKFixedNSQBin, libopusSILKFixedNSQErr
-}
 
 type silkFixedNSQCase struct {
 	name            string
@@ -131,7 +63,7 @@ type silkFixedNSQResult struct {
 }
 
 func probeLibopusSILKFixedNSQ(cases []silkFixedNSQCase) ([]silkFixedNSQResult, error) {
-	binPath, err := buildLibopusSILKFixedNSQHelper()
+	binPath, err := buildFixedSILKOracle("libopus_silk_fixed_nsq_info.c", "nsq")
 	if err != nil {
 		return nil, err
 	}

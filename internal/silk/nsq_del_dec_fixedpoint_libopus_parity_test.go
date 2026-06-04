@@ -5,15 +5,9 @@ package silk
 import (
 	"fmt"
 	"math/rand"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 const (
@@ -23,66 +17,6 @@ const (
 	libopusSILKFixedNSQDelDecScaleInputMagic  = "GDSI"
 	libopusSILKFixedNSQDelDecScaleOutputMagic = "GDSO"
 )
-
-var (
-	libopusSILKFixedNSQDelDecOnce sync.Once
-	libopusSILKFixedNSQDelDecBin  string
-	libopusSILKFixedNSQDelDecErr  error
-)
-
-func buildLibopusSILKFixedNSQDelDecHelper() (string, error) {
-	libopusSILKFixedNSQDelDecOnce.Do(func() {
-		_, file, _, _ := runtime.Caller(0)
-		repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-
-		refDir := fixedRefPath()
-		staticLib := fixedRefPath(".libs", "libopus.a")
-		if _, err := os.Stat(staticLib); err != nil {
-			cmd := exec.Command("bash", filepath.Join("tools", "ensure_libopus.sh"))
-			cmd.Dir = repoRoot
-			cmd.Env = append(os.Environ(), "LIBOPUS_ENABLE_FIXED=1")
-			if out, berr := cmd.CombinedOutput(); berr != nil {
-				libopusSILKFixedNSQDelDecErr = fmt.Errorf("ensure fixed libopus: %w (%s)", berr, out)
-				return
-			}
-		}
-		if _, err := os.Stat(staticLib); err != nil {
-			libopusSILKFixedNSQDelDecErr = fmt.Errorf("fixed libopus static lib missing: %w", err)
-			return
-		}
-
-		cc, err := libopustooling.FindCCompiler()
-		if err != nil {
-			libopusSILKFixedNSQDelDecErr = err
-			return
-		}
-
-		src := filepath.Join(repoRoot, "tools", "csrc", "libopus_silk_fixed_nsq_del_dec_info.c")
-		outDir := filepath.Join(os.TempDir(), "gopus_libopus_test_helpers")
-		if err := os.MkdirAll(outDir, 0o755); err != nil {
-			libopusSILKFixedNSQDelDecErr = err
-			return
-		}
-		out := filepath.Join(outDir, fmt.Sprintf("gopus_silk_fixed_nsq_del_dec_%s_%s", runtime.GOOS, runtime.GOARCH))
-
-		args := []string{
-			"-std=c99", "-O2", "-DHAVE_CONFIG_H",
-			"-I", refDir,
-			"-I", filepath.Join(refDir, "include"),
-			"-I", filepath.Join(refDir, "celt"),
-			"-I", filepath.Join(refDir, "silk"),
-			src, staticLib, "-lm",
-			"-o", out,
-		}
-		cmd := exec.Command(cc, args...)
-		if combined, cerr := cmd.CombinedOutput(); cerr != nil {
-			libopusSILKFixedNSQDelDecErr = fmt.Errorf("build silk fixed nsq del dec helper: %w (%s)", cerr, combined)
-			return
-		}
-		libopusSILKFixedNSQDelDecBin = out
-	})
-	return libopusSILKFixedNSQDelDecBin, libopusSILKFixedNSQDelDecErr
-}
 
 type silkFixedNSQDelDecCase struct {
 	name            string
@@ -185,7 +119,7 @@ func readState(reader *libopustest.OracleReader, d *nsqDelDecStateFixed) {
 }
 
 func probeLibopusSILKFixedNSQDelDec(cases []silkFixedNSQDelDecCase) ([]silkFixedNSQDelDecResult, error) {
-	binPath, err := buildLibopusSILKFixedNSQDelDecHelper()
+	binPath, err := buildFixedSILKOracle("libopus_silk_fixed_nsq_del_dec_info.c", "nsq_del_dec")
 	if err != nil {
 		return nil, err
 	}
@@ -533,66 +467,6 @@ func TestSILKNoiseShapeQuantizerDelDecFixedLibopusParity(t *testing.T) {
 	}
 }
 
-var (
-	libopusSILKFixedNSQDelDecScaleOnce sync.Once
-	libopusSILKFixedNSQDelDecScaleBin  string
-	libopusSILKFixedNSQDelDecScaleErr  error
-)
-
-func buildLibopusSILKFixedNSQDelDecScaleHelper() (string, error) {
-	libopusSILKFixedNSQDelDecScaleOnce.Do(func() {
-		_, file, _, _ := runtime.Caller(0)
-		repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-
-		refDir := fixedRefPath()
-		staticLib := fixedRefPath(".libs", "libopus.a")
-		if _, err := os.Stat(staticLib); err != nil {
-			cmd := exec.Command("bash", filepath.Join("tools", "ensure_libopus.sh"))
-			cmd.Dir = repoRoot
-			cmd.Env = append(os.Environ(), "LIBOPUS_ENABLE_FIXED=1")
-			if out, berr := cmd.CombinedOutput(); berr != nil {
-				libopusSILKFixedNSQDelDecScaleErr = fmt.Errorf("ensure fixed libopus: %w (%s)", berr, out)
-				return
-			}
-		}
-		if _, err := os.Stat(staticLib); err != nil {
-			libopusSILKFixedNSQDelDecScaleErr = fmt.Errorf("fixed libopus static lib missing: %w", err)
-			return
-		}
-
-		cc, err := libopustooling.FindCCompiler()
-		if err != nil {
-			libopusSILKFixedNSQDelDecScaleErr = err
-			return
-		}
-
-		src := filepath.Join(repoRoot, "tools", "csrc", "libopus_silk_fixed_nsq_del_dec_scale_info.c")
-		outDir := filepath.Join(os.TempDir(), "gopus_libopus_test_helpers")
-		if err := os.MkdirAll(outDir, 0o755); err != nil {
-			libopusSILKFixedNSQDelDecScaleErr = err
-			return
-		}
-		out := filepath.Join(outDir, fmt.Sprintf("gopus_silk_fixed_nsq_del_dec_scale_%s_%s", runtime.GOOS, runtime.GOARCH))
-
-		args := []string{
-			"-std=c99", "-O2", "-DHAVE_CONFIG_H",
-			"-I", refDir,
-			"-I", filepath.Join(refDir, "include"),
-			"-I", filepath.Join(refDir, "celt"),
-			"-I", filepath.Join(refDir, "silk"),
-			src, staticLib, "-lm",
-			"-o", out,
-		}
-		cmd := exec.Command(cc, args...)
-		if combined, cerr := cmd.CombinedOutput(); cerr != nil {
-			libopusSILKFixedNSQDelDecScaleErr = fmt.Errorf("build silk fixed nsq del dec scale helper: %w (%s)", cerr, combined)
-			return
-		}
-		libopusSILKFixedNSQDelDecScaleBin = out
-	})
-	return libopusSILKFixedNSQDelDecScaleBin, libopusSILKFixedNSQDelDecScaleErr
-}
-
 type silkFixedNSQDelDecScaleCase struct {
 	name          string
 	subfrLength   int
@@ -624,7 +498,7 @@ type silkFixedNSQDelDecScaleResult struct {
 }
 
 func probeLibopusSILKFixedNSQDelDecScale(cases []silkFixedNSQDelDecScaleCase) ([]silkFixedNSQDelDecScaleResult, error) {
-	binPath, err := buildLibopusSILKFixedNSQDelDecScaleHelper()
+	binPath, err := buildFixedSILKOracle("libopus_silk_fixed_nsq_del_dec_scale_info.c", "nsq_del_dec_scale")
 	if err != nil {
 		return nil, err
 	}

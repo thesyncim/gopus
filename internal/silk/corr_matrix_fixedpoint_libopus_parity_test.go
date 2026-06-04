@@ -3,87 +3,16 @@
 package silk
 
 import (
-	"fmt"
 	"math/rand"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 const (
 	libopusSILKFixedCorrMatrixInputMagic  = "GCMI"
 	libopusSILKFixedCorrMatrixOutputMagic = "GCMO"
 )
-
-var (
-	libopusSILKFixedCorrMatrixOnce sync.Once
-	libopusSILKFixedCorrMatrixBin  string
-	libopusSILKFixedCorrMatrixErr  error
-)
-
-// buildLibopusSILKFixedCorrMatrixHelper ensures the FIXED_POINT libopus
-// reference exists, then compiles
-// tools/csrc/libopus_silk_fixed_corr_matrix_info.c against it.
-func buildLibopusSILKFixedCorrMatrixHelper() (string, error) {
-	libopusSILKFixedCorrMatrixOnce.Do(func() {
-		_, file, _, _ := runtime.Caller(0)
-		repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-
-		refDir := fixedRefPath()
-		staticLib := fixedRefPath(".libs", "libopus.a")
-		if _, err := os.Stat(staticLib); err != nil {
-			cmd := exec.Command("bash", filepath.Join("tools", "ensure_libopus.sh"))
-			cmd.Dir = repoRoot
-			cmd.Env = append(os.Environ(), "LIBOPUS_ENABLE_FIXED=1")
-			if out, berr := cmd.CombinedOutput(); berr != nil {
-				libopusSILKFixedCorrMatrixErr = fmt.Errorf("ensure fixed libopus: %w (%s)", berr, out)
-				return
-			}
-		}
-		if _, err := os.Stat(staticLib); err != nil {
-			libopusSILKFixedCorrMatrixErr = fmt.Errorf("fixed libopus static lib missing: %w", err)
-			return
-		}
-
-		cc, err := libopustooling.FindCCompiler()
-		if err != nil {
-			libopusSILKFixedCorrMatrixErr = err
-			return
-		}
-
-		src := filepath.Join(repoRoot, "tools", "csrc", "libopus_silk_fixed_corr_matrix_info.c")
-		outDir := filepath.Join(os.TempDir(), "gopus_libopus_test_helpers")
-		if err := os.MkdirAll(outDir, 0o755); err != nil {
-			libopusSILKFixedCorrMatrixErr = err
-			return
-		}
-		out := filepath.Join(outDir, fmt.Sprintf("gopus_silk_fixed_corrmatrix_%s_%s", runtime.GOOS, runtime.GOARCH))
-
-		args := []string{
-			"-std=c99", "-O2", "-DHAVE_CONFIG_H",
-			"-I", refDir,
-			"-I", filepath.Join(refDir, "include"),
-			"-I", filepath.Join(refDir, "celt"),
-			"-I", filepath.Join(refDir, "silk"),
-			"-I", filepath.Join(refDir, "silk", "fixed"),
-			src, staticLib, "-lm",
-			"-o", out,
-		}
-		cmd := exec.Command(cc, args...)
-		if combined, cerr := cmd.CombinedOutput(); cerr != nil {
-			libopusSILKFixedCorrMatrixErr = fmt.Errorf("build silk fixed corr matrix helper: %w (%s)", cerr, combined)
-			return
-		}
-		libopusSILKFixedCorrMatrixBin = out
-	})
-	return libopusSILKFixedCorrMatrixBin, libopusSILKFixedCorrMatrixErr
-}
 
 type silkFixedCorrMatrixCase struct {
 	name  string
@@ -101,7 +30,7 @@ type silkFixedCorrMatrixResult struct {
 }
 
 func probeLibopusSILKFixedCorrMatrix(cases []silkFixedCorrMatrixCase) ([]silkFixedCorrMatrixResult, error) {
-	binPath, err := buildLibopusSILKFixedCorrMatrixHelper()
+	binPath, err := buildFixedSILKOracle("libopus_silk_fixed_corr_matrix_info.c", "corrmatrix")
 	if err != nil {
 		return nil, err
 	}
