@@ -125,8 +125,12 @@ func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int32
 		}
 
 		// Using K+0.8 guarantees we cannot get more than K pulses.
-		// Reference: libopus vq.c lines 266-267
-		rcp := (float32(k) + 0.8) / sum
+		// libopus computes rcp = MULT16_32_Q16(K+0.8f, celt_rcp(sum)), i.e. the
+		// reciprocal of sum is formed first (celt_rcp(x)=1.f/x) and then multiplied,
+		// not a single division. (K+0.8f)*(1.f/sum) and (K+0.8f)/sum are distinct
+		// IEEE-754 results, so reproduce the reciprocal-then-multiply exactly.
+		// Reference: libopus vq.c lines 266-270, mathops.h celt_rcp.
+		rcp := (float32(k) + 0.8) * (1.0 / sum)
 		for j := 0; j < n; j++ {
 			// It's important to round towards zero here (floor for positive values)
 			// Reference: libopus vq.c line 274
