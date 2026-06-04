@@ -1253,6 +1253,8 @@ type encoderScratch struct {
 	coarseError       []celtGLog
 	coarseDecisionE   []celtGLog
 	analysisEnergies  []celtGLog
+	silenceEnergyVBR  []celtGLog
+	silenceFreqVBR    []float32
 	prev1LogE         []celtGLog
 
 	// Normalized coefficient buffers

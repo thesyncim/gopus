@@ -1135,13 +1135,23 @@ func (e *Encoder) applyStereoWidthFade(samples []opusRes, widthQ14Prev, widthQ14
 	g1 := opusVal16(1) - opusVal16(widthQ14Prev)*(1.0/16384.0)
 	g2 := opusVal16(1) - opusVal16(widthQ14)*(1.0/16384.0)
 
-	overlap := hybridOverlap
+	// libopus stereo_fade(): inc = max(1, 48000/Fs), overlap = overlap48/inc,
+	// window sampled at window[i*inc]. The 48 kHz core window is hybridOverlap=120
+	// long; at native sub-48k rates the crossfade spans 120/inc samples.
+	inc := 1
+	if e.sampleRate > 0 && e.sampleRate < 48000 {
+		inc = 48000 / int(e.sampleRate)
+		if inc < 1 {
+			inc = 1
+		}
+	}
+	overlap := hybridOverlap / inc
 	if overlap > frameSize {
 		overlap = frameSize
 	}
 
-	window := celt.GetWindowBufferF32(overlap)
-	if window == nil || len(window) < overlap {
+	window := celt.GetWindowBufferF32(hybridOverlap)
+	if window == nil || len(window) < (overlap-1)*inc+1 {
 		// Fallback: no window available, apply constant g2
 		for i := 0; i < frameSize; i++ {
 			diff := opusVal32(0.5) * (samples[i*2] - samples[i*2+1])
@@ -1153,7 +1163,7 @@ func (e *Encoder) applyStereoWidthFade(samples []opusRes, widthQ14Prev, widthQ14
 	}
 
 	for i := 0; i < overlap; i++ {
-		w := opusVal16(window[i])
+		w := opusVal16(window[i*inc])
 		w2 := w * w
 		g := g1*(1.0-w2) + g2*w2
 		diff := opusVal32(0.5) * (samples[i*2] - samples[i*2+1])

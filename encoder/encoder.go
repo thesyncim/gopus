@@ -1239,9 +1239,14 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		celtPCM := e.prepareCELTPCM(framePCM, frameSize)
 		e.maybePrefillCELTOnModeTransition(actualMode, celtPCM, frameSize)
 		if frameSize > f20 {
-			// Long CELT packets are encoded as multi-frame packets.
+			// Long CELT packets are encoded as multi-frame packets. The stereo
+			// width fade is applied per 20 ms sub-frame inside the loop (matching
+			// libopus' per-sub-frame opus_encode_native recursion), not here.
 			packet, err = e.encodeCELTMultiFramePacket(framePCM, vadPCM, celtPCM, frameSize, int(e.bitrate), int(encodingBitrate), dredBitrate, dredExtraDelay, maxDataBytes)
 		} else {
+			// libopus runs stereo_fade() on pcm_buf after the delay-buffer copy
+			// and the mode-transition prefill, before the main celt_encode_with_ec.
+			celtPCM = e.applyCELTStereoWidthFade(celtPCM, frameSize)
 			originalBitrate := e.bitrate
 			if encodingBitrate != originalBitrate {
 				e.bitrate = encodingBitrate
@@ -2677,6 +2682,53 @@ func (e *Encoder) prepareCELTPCM(framePCM []opusRes, frameSize int) []opusRes {
 	return e.applyDelayCompensation(framePCM, frameSize)
 }
 
+// applyCELTStereoWidthFade reproduces the CELT-only branch of the libopus
+// opus_encode_float() stereo width reduction (opus_encoder.c): for a stereo
+// non-surround stream it derives silk_mode.stereoWidth_Q14 from equiv_rate and,
+// when either the previous applied width or the new target is below full width,
+// runs stereo_fade() on the (delay-compensated) CELT input before celt_encode.
+// celtPCM is modified in place and returned. frameSize is the per-frame size at
+// the API rate driving the equiv_rate frame_rate (the 20 ms sub-frame size for
+// multi-frame packets, exactly as libopus recurses opus_encode_native per
+// sub-frame). The hybrid leg applies the same fade via applyStereoWidthFade;
+// this is the missing CELT-only counterpart.
+func (e *Encoder) applyCELTStereoWidthFade(celtPCM []opusRes, frameSize int) []opusRes {
+	if e.channels != 2 || len(e.celtEnergyMask) > 0 {
+		return celtPCM
+	}
+	if frameSize <= 0 || int(e.sampleRate) <= 0 {
+		return celtPCM
+	}
+	frameRate := int32(int(e.sampleRate) / frameSize)
+	equivRate := e.computeEquivRate(e.bitrate, int32(e.streamChannels), frameRate, e.bitrateMode != ModeCBR, ModeCELT, int32(e.complexity), int32(e.packetLoss))
+
+	// silk_mode.stereoWidth_Q14 from equiv_rate (opus_encoder.c). This branch is
+	// only taken for MODE_CELT_ONLY here, so the mode!=HYBRID guard always holds.
+	var widthQ14 int32
+	switch {
+	case equivRate > 32000:
+		widthQ14 = 16384
+	case equivRate < 16000:
+		widthQ14 = 0
+	default:
+		widthQ14 = 16384 - 2048*(32000-equivRate)/(equivRate-14000)
+	}
+
+	if e.hybridState == nil {
+		e.hybridState = &HybridState{
+			prevHBGain:         1.0,
+			stereoWidthQ14:     16384,
+			silkStereoWidthQ14: 16384,
+		}
+	}
+	e.hybridState.silkStereoWidthQ14 = int16(widthQ14)
+	if e.hybridState.stereoWidthQ14 < (1<<14) || widthQ14 < (1 << 14) {
+		celtPCM = e.applyStereoWidthFade(celtPCM, e.hybridState.stereoWidthQ14, int16(widthQ14))
+		e.hybridState.stereoWidthQ14 = int16(widthQ14)
+	}
+	return celtPCM
+}
+
 // selectMode determines the actual encoding mode based on settings and content.
 func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 	if e.restrictedSilkApp {
@@ -3537,7 +3589,12 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 			firstFrameMaxBytes = currMax
 		}
 		maxPayload := currMax - 1
-		frameData, err := e.encodeCELTFrameWithBitrateMaxPayloadAndDRED(celtPCM[start:end], f20, int(e.bitrate), maxPayload, dredBitrate)
+		// libopus recurses opus_encode_native per 20 ms sub-frame, so stereo_fade
+		// runs (and its width state evolves) once per sub-frame on that sub-frame's
+		// CELT input. Apply it here on the sub-frame slice, mirroring the
+		// single-frame path.
+		subCeltPCM := e.applyCELTStereoWidthFade(celtPCM[start:end], f20)
+		frameData, err := e.encodeCELTFrameWithBitrateMaxPayloadAndDRED(subCeltPCM, f20, int(e.bitrate), maxPayload, dredBitrate)
 		if err != nil {
 			e.bitrate = savedBitrate
 			return nil, err

@@ -438,6 +438,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 				maxPitchRatio = e.analysisMaxPitchRatio
 			}
 			e.runPrefilter(preemph, frameSize, e.TapsetDecision(), false, tfEstimate, targetBytes, toneFreq, toneishness, maxPitchRatio)
+			if !e.IsHybrid() {
+				e.updateTemporalVBRSilence(nbBands, codedChannels)
+			}
 			return e.finishEncodedSilenceFrame(re, frameSize, targetBytes)
 		}
 		re.EncodeBit(0, 15)
@@ -1966,6 +1969,58 @@ func computeMDCTWithHistoryScratchStereoROverlap(samples, history []float32, sho
 	return coeffs[:frameSize]
 }
 
+// updateTemporalVBRSilence advances the temporal-VBR running average (st->spec_avg)
+// for a silent frame. libopus does NOT short-circuit a silent frame: it runs the
+// full pipeline (compute_mdcts on the ~zero input, compute_band_energies, ...,
+// the temporal-VBR block at celt_encoder.c lines 2186-2202) so spec_avg keeps
+// decaying toward the silence floor while DTX/silence frames are emitted. The
+// gopus silence fast path returns early, so this reproduces just that spec_avg
+// update on the silence-floor band energies, keeping the value carried into the
+// post-silence recovery frame's VBR target bit-exact with libopus. start is 0
+// (CELT-only) and a silent frame is never transient, so offset is 0.
+func (e *Encoder) updateTemporalVBRSilence(nbBands, codedChannels int) {
+	if e.lfe || nbBands <= 0 {
+		return
+	}
+	bandEnd := nbBands
+	silenceFreq := ensureFloat32Slice(&e.scratch.silenceFreqVBR, nbBands*codedChannels)
+	for i := range silenceFreq {
+		silenceFreq[i] = 0
+	}
+	silenceE := ensureGLogSlice(&e.scratch.silenceEnergyVBR, nbBands*codedChannels)
+	e.computeBandEnergiesGLogActive(silenceFreq, nbBands, nbBands, codedChannels, 1, silenceE)
+
+	follow := float32(-10.0)
+	frameAvg := float32(0.0)
+	for i := 0; i < bandEnd; i++ {
+		v := float32(silenceE[i])
+		if follow-1.0 > v {
+			follow = follow - 1.0
+		} else {
+			follow = v
+		}
+		if codedChannels == 2 && nbBands+i < len(silenceE) {
+			v2 := float32(silenceE[nbBands+i])
+			if v2 > follow {
+				follow = v2
+			}
+		}
+		frameAvg += follow
+	}
+	if bandEnd > 0 {
+		frameAvg /= float32(bandEnd)
+	}
+	temporalVBR := frameAvg - float32(e.specAvg)
+	if temporalVBR > 3.0 {
+		temporalVBR = 3.0
+	}
+	if temporalVBR < -1.5 {
+		temporalVBR = -1.5
+	}
+	e.specAvg = celtGLog(float32(e.specAvg) + float32(0.02)*temporalVBR)
+	e.lastTemporalVBR = celtGLog(temporalVBR)
+}
+
 func (e *Encoder) finishEncodedSilenceFrame(re *rangecoding.Encoder, frameSize, targetBytes int) ([]byte, error) {
 	if e.vbr && e.targetBitrate != opusBitrateMax {
 		targetBytes = e.applyVBRSilenceTarget(frameSize, targetBytes)
@@ -2000,6 +2055,20 @@ func (e *Encoder) finishEncodedSilenceFrame(re *rangecoding.Encoder, frameSize, 
 	// st->consec_transient++"). The shortcut previously reset it to 0, which
 	// diverged the post-silence recovery frame's transient/anti-collapse state.
 	e.consecTransient++
+	// libopus runs clt_compute_allocation on the silent frame too (with the
+	// 2-byte budget), which yields codedBands==1, then slews lastCodedBands toward
+	// it by at most ±1 (celt_encoder.c: lastCodedBands = IMIN(lcb+1, IMAX(lcb-1,
+	// codedBands))). Over a silence run this decays lastCodedBands down to 1; the
+	// gopus silence fast path skips the allocator, so apply the same slew with the
+	// silent-frame codedBands==1 to keep the value (which feeds the post-silence
+	// recovery frame's compute_vbr coded_bins) bit-exact with libopus.
+	const silenceCodedBands = 1
+	if e.lastCodedBands != 0 {
+		lcb := int(e.lastCodedBands)
+		e.lastCodedBands = int32(min(lcb+1, max(lcb-1, silenceCodedBands)))
+	} else {
+		e.lastCodedBands = silenceCodedBands
+	}
 	e.IncrementFrameCount()
 	e.rng = re.Range()
 	return re.Done(), nil
