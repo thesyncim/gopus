@@ -713,6 +713,49 @@ func cwrsi32(n, k int, i uint32, y []int32, u []uint32) uint32 {
 	return yy
 }
 
+// cwrsiTableLookup32 decodes the pulse vector for index i by reading U(n,k)
+// directly from the static table, mirroring libopus celt/cwrs.c cwrsi. At
+// position j the row-based cwrsi32 holds u == U(n-j, ·), so each access u[idx]
+// equals pvqUTableLookupFast(n-j, idx); reading those by lookup as nCur (=n-j)
+// decrements lets us skip materializing and stepping the U-row (ncwrsUrow + the
+// per-position uprev), which dominate CELT band decode. Bit-identical to
+// ncwrsUrow+cwrsi32, valid only when canUseCWRSFast(n,k) covers every lookup.
+func cwrsiTableLookup32(n, k int, i uint32, y []int32) uint32 {
+	if n <= 0 || k <= 0 || len(y) < n {
+		return 0
+	}
+	var yy uint32
+	for j := 0; j < n; j++ {
+		nCur := n - j
+		p := pvqUTableLookupFast(nCur, k+1)
+		sign := 0
+		if i >= p {
+			sign = -1
+			i -= p
+		}
+		k0 := k
+		for k > 0 {
+			p = pvqUTableLookupFast(nCur, k)
+			if p <= i {
+				break
+			}
+			k--
+		}
+		if k == 0 {
+			p = 0
+		}
+		i -= p
+		yj := k0 - k
+		val := yj
+		if sign != 0 {
+			val = -yj
+		}
+		y[j] = int32(val)
+		yy += uint32(yj * yj)
+	}
+	return yy
+}
+
 func icwrs1(y int) (uint32, int) {
 	k := abs(y)
 	if y < 0 {
@@ -1070,6 +1113,9 @@ func decodePulsesInto32(index uint32, n, k int, y []int32, scratch *bandDecodeSc
 		y[0] = int32(y0)
 		y[1] = int32(y1)
 		return uint32(y0*y0 + y1*y1)
+	}
+	if canUseCWRSFast(n, k) {
+		return cwrsiTableLookup32(n, k, index, y)
 	}
 	var u []uint32
 	if scratch != nil {

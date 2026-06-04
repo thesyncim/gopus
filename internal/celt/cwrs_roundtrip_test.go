@@ -350,3 +350,54 @@ func pulseKey(p []int) string {
 	}
 	return string(b)
 }
+
+// TestCWRSTableLookupDecodeMatchesRowBased proves cwrsiTableLookup32 is
+// bit-identical to the row-based ncwrsUrow+cwrsi32 path it replaces, across the
+// (n,k) range gated by canUseCWRSFast and a full/sampled sweep of indices.
+func TestCWRSTableLookupDecodeMatchesRowBased(t *testing.T) {
+	for n := 3; n <= 40; n++ {
+		for k := 3; k <= 30; k++ {
+			if !canUseCWRSFast(n, k) {
+				continue
+			}
+			v := PVQ_V(n, k)
+			if v == 0 {
+				continue
+			}
+			var idxs []uint32
+			if v <= 20000 {
+				idxs = make([]uint32, v)
+				for i := range idxs {
+					idxs[i] = uint32(i)
+				}
+			} else {
+				idxs = []uint32{0, 1, 2, v - 1, v - 2, v / 2, v / 3, v / 7, v - v/3}
+				x := uint32(n*131 + k)
+				for s := 0; s < 32; s++ {
+					x = x*2654435761 + 12345
+					idxs = append(idxs, x%v)
+				}
+			}
+			yTab := make([]int32, n)
+			yRow := make([]int32, n)
+			u := make([]uint32, k+2)
+			for _, i := range idxs {
+				for z := range yTab {
+					yTab[z] = 0
+					yRow[z] = 0
+				}
+				yyTab := cwrsiTableLookup32(n, k, i, yTab)
+				ncwrsUrow(n, k, u)
+				yyRow := cwrsi32(n, k, i, yRow, u)
+				if yyTab != yyRow {
+					t.Fatalf("n=%d k=%d i=%d: yy table=%d row=%d", n, k, i, yyTab, yyRow)
+				}
+				for z := 0; z < n; z++ {
+					if yTab[z] != yRow[z] {
+						t.Fatalf("n=%d k=%d i=%d: y[%d] table=%d row=%d", n, k, i, z, yTab[z], yRow[z])
+					}
+				}
+			}
+		}
+	}
+}
