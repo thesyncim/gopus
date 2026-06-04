@@ -874,6 +874,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 
 	// Step 11.1: Compute and encode TF (time-frequency) resolution
 	// Note: 'end' was already set earlier during patch_transient_decision
+	//
+	// effectiveBytes for VBR is the bitrate-derived budget (vbr_rate>>(3+BITRES)),
+	// used by dynalloc/TF analysis. libopus celt_encoder.c line 1908/1922.
 	effectiveBytes := 0
 	if e.vbr {
 		baseBits := e.bitrateToBits(frameSize)
@@ -881,7 +884,16 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	} else {
 		effectiveBytes = e.cbrPayloadBytes(frameSize)
 	}
-	equivRate := ComputeEquivRate(effectiveBytes, codedChannels, lm, int(e.targetBitrate))
+	// equiv_rate is computed from nbCompressedBytes (the per-frame output-byte cap),
+	// NOT effectiveBytes: for VBR they differ (cap can be a byte below the
+	// bitrate-derived budget for multi-frame packets), and the stereo intensity
+	// hysteresis keys off equiv_rate/1000, so the byte count must match libopus.
+	// Reference: libopus celt/celt_encoder.c line 1925.
+	equivRateBytes := effectiveBytes
+	if e.vbr {
+		equivRateBytes = e.vbrMaxPayloadBytes(frameSize)
+	}
+	equivRate := ComputeEquivRate(equivRateBytes, codedChannels, lm, int(e.targetBitrate))
 
 	// Step 11.0.7: Compute dynalloc analysis for VBR and bit allocation
 	// This computes maxDepth, offsets, importance, and spread_weight.

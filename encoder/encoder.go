@@ -1240,7 +1240,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		e.maybePrefillCELTOnModeTransition(actualMode, celtPCM, frameSize)
 		if frameSize > f20 {
 			// Long CELT packets are encoded as multi-frame packets.
-			packet, err = e.encodeCELTMultiFramePacket(framePCM, vadPCM, celtPCM, frameSize, int(e.bitrate), int(encodingBitrate), dredBitrate, dredExtraDelay)
+			packet, err = e.encodeCELTMultiFramePacket(framePCM, vadPCM, celtPCM, frameSize, int(e.bitrate), int(encodingBitrate), dredBitrate, dredExtraDelay, maxDataBytes)
 		} else {
 			originalBitrate := e.bitrate
 			if encodingBitrate != originalBitrate {
@@ -3382,6 +3382,19 @@ func (e *Encoder) resetPacketFrameScratch() {
 	e.scratchQEXTPayloadBytes = e.scratchQEXTPayloadBytes[:0]
 }
 
+// ensurePacketScratch grows the assembled-packet buffer so a multi-frame packet
+// up to n bytes fits. The default buffer holds a single 1275-byte Opus packet,
+// but a long CELT/SILK/Hybrid packet at a high bitrate (e.g. 120 ms at 128 kb/s,
+// ~1920 bytes) needs the caller's larger out_data_bytes budget, exactly as
+// libopus assembles into the caller's buffer.
+func (e *Encoder) ensurePacketScratch(n int) {
+	if cap(e.scratchPacket) >= n {
+		e.scratchPacket = e.scratchPacket[:cap(e.scratchPacket)]
+		return
+	}
+	e.scratchPacket = make([]byte, n)
+}
+
 // keepFrame copies frame into the reusable scratchFrameBytes backing buffer and
 // returns a length-capped subslice. The range coder output buffer is reused
 // across subframes, so the copy gives each kept frame stable storage. The
@@ -3406,7 +3419,7 @@ func (e *Encoder) keepQEXTPayload(payload []byte) []byte {
 
 // encodeCELTMultiFramePacket encodes long CELT packets by splitting into
 // 20ms CELT frames and packing them with Opus multi-frame framing.
-func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRes, celtPCM []opusRes, frameSize, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay int) ([]byte, error) {
+func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRes, celtPCM []opusRes, frameSize, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay, outDataBytes int) ([]byte, error) {
 	f20 := e.frame20ms()
 	if frameSize <= f20 || frameSize%f20 != 0 {
 		return nil, ErrInvalidFrameSize
@@ -3429,12 +3442,22 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 	frames := e.scratchFrameSlots[:frameCount]
 	sameSize := true
 	prevSize := -1
-	packetTargetBytes := e.targetBytesForBitrate(originalBitrate, frameSize)
-	if packetTargetBytes < 1 {
-		packetTargetBytes = 1
+	// libopus opus_encoder.c: VBR (and bitrate==MAX) sizes the repacketizer by the
+	// full output buffer; CBR caps it to IMIN(cbr_bytes, out_data_bytes). Using the
+	// bitrate-derived size for VBR would shrink each sub-frame's curr_max ceiling by
+	// ~1 byte and desync the per-frame CELT VBR target. (bitrate==MAX resolves to a
+	// rate whose cbr_bytes exceeds out_data_bytes, so the IMIN below still yields the
+	// full buffer for that case.)
+	repacketizeLen := outDataBytes
+	if e.bitrateMode == ModeCBR {
+		cbrBytes := e.targetBytesForBitrate(originalBitrate, frameSize)
+		if cbrBytes > outDataBytes {
+			cbrBytes = outDataBytes
+		}
+		repacketizeLen = cbrBytes
 	}
-	if packetTargetBytes > maxSilkPacketBytes {
-		packetTargetBytes = maxSilkPacketBytes
+	if repacketizeLen < 1 {
+		repacketizeLen = 1
 	}
 	maxHeaderBytes := 3
 	if frameCount > 2 {
@@ -3443,10 +3466,14 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 	if extsupport.QEXT && e.qextActive() {
 		maxHeaderBytes += frameCount
 	}
-	maxLenSum := frameCount + packetTargetBytes - maxHeaderBytes
+	maxLenSum := frameCount + repacketizeLen - maxHeaderBytes
 	if maxLenSum < frameCount {
 		maxLenSum = frameCount
 	}
+	// The assembled packet (header + sum of sub-frame payloads) is bounded by
+	// maxLenSum+maxHeaderBytes; grow the output buffer so a high-bitrate long
+	// packet that exceeds the default single-packet size still fits.
+	e.ensurePacketScratch(maxLenSum + maxHeaderBytes)
 	subframeBitrate := int(e.bitrate)
 	if encodingBitrate > 0 {
 		subframeBitrate = encodingBitrate
