@@ -8,8 +8,8 @@
 // hand claps, and other impulsive audio.
 //
 // The encoder path uses TransientAnalysis, which mirrors libopus' transient
-// masking metric, and PatchTransientDecision, which mirrors the frequency-domain
-// second pass used by libopus.
+// masking metric, and PatchTransientDecisionWithScratch, which mirrors the
+// frequency-domain second pass used by libopus.
 //
 // Reference: libopus celt/celt_encoder.c transient_analysis(), patch_transient_decision()
 
@@ -1046,38 +1046,10 @@ func (e *Encoder) DetectTransient(pcm []float32, frameSize int) bool {
 	return e.TransientAnalysis(pcm, frameSize, false).IsTransient
 }
 
-// GetShortBlockCount returns the number of short blocks for a given frame size.
-// This is the ShortBlocks value from ModeConfig when transient is detected.
-func GetShortBlockCount(frameSize int) int {
-	mode := GetModeConfig(frameSize)
-	return mode.ShortBlocks
-}
-
-// PatchTransientDecision looks for sudden increases of energy to decide whether
-// we need to patch the transient decision. This is a "second chance" to detect
-// transients that the time-domain transient_analysis() may have missed.
-//
-// This is particularly important for the first frame where the time-domain
-// analysis may fail due to zero-padded buffers, but the frequency-domain
-// energy increase from silence to signal is obvious.
-//
-// Parameters:
-//   - newE: current frame's band log-energies (log2 domain)
-//   - oldE: previous frame's band log-energies (log2 domain)
-//   - nbEBands: number of effective bands
-//   - start: first band to consider (usually 0)
-//   - end: last band + 1 to consider (usually nbEBands)
-//   - channels: number of channels (1 or 2)
-//
-// Returns: true if mean energy increase > 1.0 dB and transient should be forced
-//
-// Reference: libopus celt/celt_encoder.c patch_transient_decision()
-func PatchTransientDecision(newE []celtGLog, oldE []celtGLog, nbEBands, start, end, channels int) bool {
-	return PatchTransientDecisionWithScratch(newE, oldE, nbEBands, start, end, channels, nil)
-}
-
-// PatchTransientDecisionWithScratch is PatchTransientDecision using caller-owned
-// scratch for the spread-old-energy workspace.
+// PatchTransientDecisionWithScratch looks for sudden energy increases to decide
+// whether to force short blocks, taking the spread-old-energy workspace from
+// caller-owned scratch. It mirrors libopus celt/celt_encoder.c
+// patch_transient_decision().
 func PatchTransientDecisionWithScratch(newE []celtGLog, oldE []celtGLog, nbEBands, start, end, channels int, spreadOld []celtGLog) bool {
 	if len(newE) < end || len(oldE) < end {
 		return false

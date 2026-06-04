@@ -143,28 +143,3 @@ func ApplyWindow(samples []float32, overlap int) {
 		}
 	}
 }
-
-// ApplyWindowSymmetric applies window assuming symmetric IMDCT output.
-// This is optimized for the CELT case where the IMDCT output has known symmetry.
-func ApplyWindowSymmetric(samples []float32, overlap int) {
-	ApplyWindow(samples, overlap)
-}
-
-// WindowEnergy computes the total energy of a windowed segment.
-// Used for level normalization.
-func WindowEnergy(overlap int) float32 {
-	var energy float32
-	for i := 0; i < overlap; i++ {
-		w := VorbisWindow(i, overlap)
-		energy += w * w
-	}
-	// The other half contributes equally
-	return 2 * energy
-}
-
-// GetWindow returns the standard CELT overlap window (120 samples).
-// This is used for gain fading in hybrid mode to ensure smooth transitions.
-// Returns nil if the window is not available.
-func GetWindow() []float32 {
-	return GetWindowBuffer(Overlap)
-}

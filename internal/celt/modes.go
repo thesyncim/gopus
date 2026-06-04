@@ -1,7 +1,5 @@
 package celt
 
-import "errors"
-
 // ModeConfig contains frame-size-dependent configuration for CELT decoding.
 // Parameters vary based on frame duration (2.5ms to 20ms).
 type ModeConfig struct {
@@ -102,17 +100,6 @@ type CustomModeConfig struct {
 	Preemph       [4]float32
 }
 
-// ModeConfig derives the frame-size-dependent ModeConfig for this custom mode.
-func (c CustomModeConfig) ModeConfig() ModeConfig {
-	return ModeConfig{
-		FrameSize:   c.FrameSize,
-		ShortBlocks: c.NbShortMdcts,
-		LM:          c.LM,
-		EffBands:    c.EffBands,
-		MDCTSize:    c.FrameSize,
-	}
-}
-
 // ScaledBandStartBase returns the MDCT bin index for the start of a band given
 // an explicit base short-MDCT size. With base == 120 this matches
 // ScaledBandStart for the static 48 kHz modes.
@@ -130,28 +117,6 @@ func ScaledBandEndBase(band, frameSize, base int) int {
 		return 0
 	}
 	return EBands[band+1] * (frameSize / base)
-}
-
-// FrameSizeFromDuration returns the frame size in samples for a given duration
-// in milliseconds. Valid durations: 2.5, 5, 10, 20ms.
-func FrameSizeFromDuration(durationMs float32) (int, error) {
-	switch {
-	case durationMs == 2.5:
-		return 120, nil
-	case durationMs == 5.0:
-		return 240, nil
-	case durationMs == 10.0:
-		return 480, nil
-	case durationMs == 20.0:
-		return 960, nil
-	default:
-		return 0, errors.New("invalid CELT frame duration")
-	}
-}
-
-// DurationFromFrameSize returns the frame duration in milliseconds.
-func DurationFromFrameSize(frameSize int) float32 {
-	return float32(frameSize) / 48.0 // 48kHz sample rate
 }
 
 // CELTBandwidth represents the audio bandwidth for CELT coding.
@@ -273,10 +238,4 @@ func LMToFrameSize(lm int) int {
 	default:
 		return 960
 	}
-}
-
-// FrameSizeToLM converts frame size to LM (log mode) index.
-func FrameSizeToLM(frameSize int) int {
-	cfg := GetModeConfig(frameSize)
-	return cfg.LM
 }

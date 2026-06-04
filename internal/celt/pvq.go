@@ -128,35 +128,6 @@ func ThetaToGains(itheta, qn int) (mid, side opusVal16) {
 	return mid, side
 }
 
-// ApplyMidSideRotation rotates mid-side vectors to left-right.
-// mid: mid channel coefficients
-// side: side channel coefficients
-// midGain, sideGain: rotation gains from theta
-// Returns: left and right channel coefficients
-func ApplyMidSideRotation(mid, side []celtNorm, midGain, sideGain opusVal16) (left, right []celtNorm) {
-	n := len(mid)
-	if len(side) != n {
-		// Mismatch - return mid to both
-		return mid, mid
-	}
-
-	left = make([]celtNorm, n)
-	right = make([]celtNorm, n)
-
-	for i := 0; i < n; i++ {
-		// Left = mid*cos(theta) + side*sin(theta)
-		// Right = mid*cos(theta) - side*sin(theta)
-		m := mid[i]
-		s := side[i]
-		mg := midGain
-		sg := sideGain
-		left[i] = celtNorm(mg*m + sg*s)
-		right[i] = celtNorm(mg*m - sg*s)
-	}
-
-	return left, right
-}
-
 // DecodeIntensityStereo decodes intensity stereo for a band.
 // mid: the mid channel coefficients
 // Returns: left and right with optional sign inversion on right.

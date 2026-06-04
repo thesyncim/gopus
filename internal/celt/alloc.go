@@ -477,17 +477,6 @@ func InitCapsInto(caps []int32, nbBands, lm, channels int) {
 	initCapsInto(caps, nbBands, lm, channels)
 }
 
-// InitCapsForHybrid initializes band caps for hybrid mode.
-// In hybrid mode, bands before startBand get zero cap (no bits allocated).
-func InitCapsForHybrid(nbBands, lm, channels, startBand int) []int32 {
-	caps := initCaps(nbBands, lm, channels)
-	// Zero out caps for bands handled by SILK
-	for i := 0; i < startBand && i < len(caps); i++ {
-		caps[i] = 0
-	}
-	return caps
-}
-
 // ComputeAllocationWithEncoder computes bit allocation in Q3 and encodes the stereo params
 // to the range encoder. This is the encoding counterpart to ComputeAllocationWithDecoder.
 // prev is the last coded band count used for skip hysteresis (0 = no history).
@@ -643,75 +632,6 @@ func ComputeAllocationWithEncoderStartInto(sc *AllocEncodeScratch, re *rangecodi
 	finePriority := result.FinePriority
 
 	codedBands := cltComputeAllocationEncode(re, start, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
-		totalBitsQ3, &balance, pulses, fineBits, finePriority, channels, lm, prev, signalBandwidth)
-
-	result.CodedBands = codedBands
-	result.Balance = balance
-	result.Intensity = intensityVal
-	result.DualStereo = dualVal != 0
-
-	return result
-}
-
-// ComputeAllocationHybrid computes bit allocation for hybrid mode CELT encoding.
-// In hybrid mode, CELT only encodes bands 17-21 (start=HybridCELTStartBand).
-// This properly sets bits for bands 0-16 to 0.
-func ComputeAllocationHybrid(re *rangecoding.Encoder, totalBitsQ3, nbBands, channels int, cap, offsets []int32, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) AllocationResult {
-	if nbBands > MaxBands {
-		nbBands = MaxBands
-	}
-	if nbBands < 0 {
-		nbBands = 0
-	}
-	if channels < 1 {
-		channels = 1
-	}
-	if channels > 2 {
-		channels = 2
-	}
-	if lm < 0 {
-		lm = 0
-	}
-	if lm > 3 {
-		lm = 3
-	}
-
-	result := AllocationResult{
-		BandBits:     make([]int32, nbBands),
-		FineBits:     make([]int32, nbBands),
-		FinePriority: make([]int32, nbBands),
-		Caps:         make([]int32, nbBands),
-		Balance:      0,
-		CodedBands:   nbBands,
-		Intensity:    0,
-		DualStereo:   false,
-	}
-
-	if nbBands == 0 || totalBitsQ3 <= 0 {
-		return result
-	}
-
-	if cap == nil || len(cap) < nbBands {
-		cap = initCaps(nbBands, lm, channels)
-	}
-	copy(result.Caps, cap[:nbBands])
-
-	if offsets == nil {
-		offsets = make([]int32, nbBands)
-	}
-
-	intensityVal := intensity
-	dualVal := 0
-	if dualStereo {
-		dualVal = 1
-	}
-	balance := 0
-	pulses := result.BandBits
-	fineBits := result.FineBits
-	finePriority := result.FinePriority
-
-	// Use HybridCELTStartBand (17) as the start band for hybrid mode
-	codedBands := cltComputeAllocationEncode(re, HybridCELTStartBand, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
 		totalBitsQ3, &balance, pulses, fineBits, finePriority, channels, lm, prev, signalBandwidth)
 
 	result.CodedBands = codedBands

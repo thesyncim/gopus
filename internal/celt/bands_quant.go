@@ -877,16 +877,6 @@ func extractCollapseMask(pulses []int32, n, b int) int {
 	return mask
 }
 
-// normalizeResidual normalizes the pulse vector to have the specified gain.
-// If yy > 0, it uses the pre-computed energy (sum of squares) from PVQ search.
-// Otherwise, it computes the energy from the pulses.
-// This matches libopus normalise_residual() which receives yy as a parameter.
-func normalizeResidual(pulses []int, gain opusVal16, yy opusVal16) []celtNorm {
-	out := make([]celtNorm, len(pulses))
-	normalizeResidualInto(out, pulses, gain, yy)
-	return out
-}
-
 // normalizeResidualInto normalizes the pulse vector into a pre-allocated output buffer.
 func normalizeResidualInto(out []celtNorm, pulses []int, gain opusVal16, yy opusVal16) {
 	n := len(pulses)
@@ -1871,18 +1861,6 @@ func celtFloatMulAdd(a, b, c float32) float32 {
 	return a*b + c
 }
 
-func celtAddSquares4(sum, x0, x1, x2, x3 float32) float32 {
-	p0 := x0 * x0
-	p1 := x1 * x1
-	p2 := x2 * x2
-	p3 := x3 * x3
-	sum += p0
-	sum += p1
-	sum += p2
-	sum += p3
-	return sum
-}
-
 func celtInnerProdSSEStyle(x, y []celtNorm) float32 {
 	return celtInnerProdSSEStyleAsm(x, y)
 }
@@ -1907,24 +1885,6 @@ func celtInnerProdSSEStyleGo(x, y []celtNorm) float32 {
 
 func celtInnerProdSSEStyleNorm(x, y []celtNorm) float32 {
 	return celtInnerProdSSEStyleAsm(x, y)
-}
-
-func celtInnerProdSSEStyleNormGo(x, y []celtNorm) float32 {
-	var acc [4]float32
-	i := 0
-	for ; i < len(x)-3; i += 4 {
-		for lane := 0; lane < 4; lane++ {
-			product := float32(x[i+lane]) * float32(y[i+lane])
-			acc[lane] += product
-		}
-	}
-	sum0 := acc[0] + acc[2]
-	sum1 := acc[1] + acc[3]
-	sum := sum0 + sum1
-	for ; i < len(x); i++ {
-		sum = celtFloatMulAdd(float32(x[i]), float32(y[i]), sum)
-	}
-	return sum
 }
 
 // celtInnerProdNeonStyle reproduces libopus arm/pitch_neon_intr.c

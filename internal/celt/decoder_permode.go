@@ -142,23 +142,6 @@ func (e *Encoder) EnablePerModeTables(nbEBands, scaleBase int, eBands []int16, l
 	e.perMode = buildPerModeTables(nbEBands, scaleBase, eBands, logN, allocVectors, cacheIndex, cacheBits, cacheCaps)
 }
 
-// modeNbEBands returns the active band count: the per-mode table's nbEBands when
-// a per-mode custom layout is installed, otherwise the static MaxBands.
-func (e *Encoder) modeNbEBands() int {
-	if e.perMode != nil {
-		return e.perMode.nbEBands
-	}
-	return MaxBands
-}
-
-// modeEdges returns the active band-edge slice (length modeNbEBands()+1).
-func (e *Encoder) modeEdges() []int {
-	if e.perMode != nil {
-		return e.perMode.eBands
-	}
-	return EBands[:]
-}
-
 // modeBandWidth returns the active band width (eBands[i+1]-eBands[i]) for band i.
 func (e *Encoder) modeBandWidth(band int) int {
 	if e.perMode != nil {

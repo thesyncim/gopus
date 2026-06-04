@@ -17,20 +17,6 @@ func (d *Decoder) synthOverlapLen() int {
 	return Overlap
 }
 
-// customModeActive reports whether a non-standard Opus Custom mode is driving
-// the decoder. Always false in the default build (customScaleBase stays zero).
-func (d *Decoder) customModeActive() bool { return d.customScaleBase > 0 }
-
-// scaleBase returns the short-MDCT base used to scale band-bin edges. It is
-// Overlap (120) for the 48 kHz modes and the custom mode's short-MDCT size for
-// the Fs==400*shortMdctSize family.
-func (d *Decoder) scaleBase() int {
-	if d.customScaleBase > 0 {
-		return d.customScaleBase
-	}
-	return Overlap
-}
-
 // modeConfig returns the frame-size-dependent ModeConfig for the active mode.
 // For a custom mode in the Fs==400*shortMdctSize family it derives LM from the
 // short-block decomposition (frameSize/customScaleBase), so 20 ms family frames
@@ -148,61 +134,6 @@ func OverlapAdd(current, prevOverlap []float32, overlap int) (output, newOverlap
 	copy(newOverlap, current[frameSize:frameSize+overlap])
 
 	return output, newOverlap
-}
-
-// OverlapAddShortOverlap combines overlap for CELT short-overlap IMDCT output.
-// current length is frameSize + overlap, output length is frameSize.
-func OverlapAddShortOverlap(current, prevOverlap []float32, frameSize, overlap int) (output, newOverlap []float32) {
-	if frameSize <= 0 || overlap < 0 {
-		return nil, prevOverlap
-	}
-	if len(current) < frameSize+overlap {
-		return nil, prevOverlap
-	}
-
-	output = make([]float32, frameSize)
-
-	for i := 0; i < overlap && i < len(prevOverlap); i++ {
-		output[i] = prevOverlap[i] + current[i]
-	}
-	for i := len(prevOverlap); i < overlap; i++ {
-		output[i] = current[i]
-	}
-
-	copy(output[overlap:], current[overlap:frameSize])
-
-	newOverlap = make([]float32, overlap)
-	copy(newOverlap, current[frameSize:frameSize+overlap])
-
-	return output, newOverlap
-}
-
-// OverlapAddInPlace performs overlap-add modifying prevOverlap in place.
-// This variant avoids allocation for the overlap buffer.
-//
-// Returns: output samples only (prevOverlap is modified to contain new overlap)
-func OverlapAddInPlace(current []float32, prevOverlap []float32, overlap int) []float32 {
-	n := len(current) // 2*frameSize from IMDCT
-	if n < 2*overlap || len(prevOverlap) < overlap {
-		return current
-	}
-
-	// Output is frameSize = n/2 samples
-	frameSize := n / 2
-	output := make([]float32, frameSize)
-
-	// First 'overlap' samples: sum with previous
-	for i := 0; i < overlap; i++ {
-		output[i] = prevOverlap[i] + current[i]
-	}
-
-	// Middle samples: direct copy from current[overlap : frameSize]
-	copy(output[overlap:], current[overlap:frameSize])
-
-	// Update prevOverlap with new tail: current[frameSize : frameSize+overlap]
-	copy(prevOverlap, current[frameSize:frameSize+overlap])
-
-	return output
 }
 
 func synthesizeChannelWithOverlapScratchF32(coeffs []float32, prevOverlap []celtSig, overlap int, transient bool, shortBlocks int, out []float32, scratchF32 *imdctScratchF32, shortCoeffs []float32) (output []float32) {
@@ -507,28 +438,4 @@ func (d *Decoder) WindowAndOverlap(imdctOut []float32) []float32 {
 	}
 
 	return output
-}
-
-// SynthesizeWithConfig performs synthesis with explicit configuration.
-// Useful for testing or non-standard configurations.
-func SynthesizeWithConfig(coeffs []float32, overlap int, transient bool, shortBlocks int, prevOverlap []float32) (output, newOverlap []float32) {
-	if len(coeffs) == 0 {
-		return nil, prevOverlap
-	}
-	prevSig := make([]celtSig, overlap)
-	for i := 0; i < overlap && i < len(prevOverlap); i++ {
-		prevSig[i] = celtSig(prevOverlap[i])
-	}
-	out := make([]float32, len(coeffs)+overlap)
-	shortCoeffs := make([]float32, len(coeffs))
-	var scratch imdctScratchF32
-	output = synthesizeChannelWithOverlapScratchF32(coeffs, prevSig, overlap, transient, shortBlocks, out, &scratch, shortCoeffs)
-	if len(output) == 0 {
-		return nil, prevOverlap
-	}
-	newOverlap = make([]float32, overlap)
-	if overlap > 0 && len(out) >= len(coeffs)+overlap {
-		copy(newOverlap, out[len(coeffs):len(coeffs)+overlap])
-	}
-	return output, newOverlap
 }

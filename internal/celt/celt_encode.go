@@ -35,27 +35,6 @@ func EncodeStereo(pcm []float32, frameSize int) ([]byte, error) {
 	return enc.EncodeFrame(pcm, frameSize)
 }
 
-// EncodeWithEncoder encodes mono PCM using the provided encoder.
-// Allows stateful encoding with custom encoder instances.
-func EncodeWithEncoder(enc *Encoder, pcm []float32, frameSize int) ([]byte, error) {
-	if enc == nil {
-		return nil, ErrEncodingFailed
-	}
-	return enc.EncodeFrame(pcm, frameSize)
-}
-
-// EncodeStereoWithEncoder encodes stereo PCM using the provided encoder.
-// Allows stateful encoding with custom encoder instances.
-func EncodeStereoWithEncoder(enc *Encoder, pcm []float32, frameSize int) ([]byte, error) {
-	if enc == nil {
-		return nil, ErrEncodingFailed
-	}
-	if enc.Channels() != 2 {
-		return nil, ErrEncodingFailed
-	}
-	return enc.EncodeFrame(pcm, frameSize)
-}
-
 // EncodeFrames encodes multiple consecutive frames.
 // Useful for encoding a stream of audio data.
 // pcmFrames: slice of PCM frames, each with frameSize samples
@@ -67,29 +46,6 @@ func EncodeFrames(pcmFrames [][]float32, frameSize int) ([][]byte, error) {
 	}
 
 	enc := NewEncoder(1)
-
-	packets := make([][]byte, len(pcmFrames))
-	for i, pcm := range pcmFrames {
-		packet, err := enc.EncodeFrame(pcm, frameSize)
-		if err != nil {
-			return packets[:i], err
-		}
-		packets[i] = packet
-	}
-
-	return packets, nil
-}
-
-// EncodeStereoFrames encodes multiple consecutive stereo frames.
-// pcmFrames: slice of interleaved stereo PCM frames
-// frameSize: samples per frame per channel
-// Returns: slice of encoded packets
-func EncodeStereoFrames(pcmFrames [][]float32, frameSize int) ([][]byte, error) {
-	if len(pcmFrames) == 0 {
-		return nil, nil
-	}
-
-	enc := NewEncoder(2)
 
 	packets := make([][]byte, len(pcmFrames))
 	for i, pcm := range pcmFrames {

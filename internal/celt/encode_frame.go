@@ -1751,56 +1751,6 @@ func ComputeMDCTWithHistory(samples, history []float32, shortBlocks int) []float
 	return MDCT(input)
 }
 
-// ComputeMDCTWithHistoryInto computes MDCT using a history buffer for overlap,
-// assembling the input into the caller-provided scratch buffer.
-// scratch must have capacity >= len(samples)+Overlap.
-// history is updated in-place with the current frame's tail.
-func ComputeMDCTWithHistoryInto(scratch, samples, history []float32, shortBlocks int) []float32 {
-	if len(samples) == 0 {
-		return nil
-	}
-
-	overlap := Overlap
-	if overlap > len(samples) {
-		overlap = len(samples)
-	}
-	input := scratch[:len(samples)+overlap]
-
-	// Copy history overlap into the head of the input buffer.
-	if overlap > 0 && len(history) > 0 {
-		if len(history) >= overlap {
-			copy(input[:overlap], history[len(history)-overlap:])
-		} else {
-			start := overlap - len(history)
-			for i := 0; i < start; i++ {
-				input[i] = 0
-			}
-			copy(input[start:overlap], history)
-		}
-	} else {
-		for i := 0; i < overlap; i++ {
-			input[i] = 0
-		}
-	}
-
-	// Append current frame samples after the overlap.
-	copy(input[overlap:], samples)
-
-	// Update history with the current frame tail (overlap samples).
-	if overlap > 0 && len(history) > 0 {
-		if len(history) >= overlap {
-			copy(history, samples[len(samples)-overlap:])
-		} else {
-			copy(history, samples[len(samples)-len(history):])
-		}
-	}
-
-	if shortBlocks > 1 {
-		return MDCTShort(input, shortBlocks)
-	}
-	return MDCT(input)
-}
-
 // computeMDCTWithHistoryScratch computes MDCT using a history buffer with scratch buffers.
 // This is the zero-allocation version that uses pre-allocated buffers.
 func computeMDCTWithHistoryScratch(samples, history []float32, shortBlocks int, scratch *encoderScratch) []float32 {

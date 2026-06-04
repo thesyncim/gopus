@@ -957,23 +957,6 @@ func (e *Encoder) scaleBase() int {
 	return Overlap
 }
 
-// binScaleFrameSize returns a synthetic frame size V such that the package
-// ScaledBand* helpers (which compute eBands[i]*(V/120)) yield the libopus
-// eBands[i]<<LM bin edges for the active mode. For the 48 kHz modes V==frameSize
-// (scaleBase==120). For the family V = 120 * (frameSize/scaleBase) = 120<<LM, so
-// the band-bin scaling is corrected while buffer sizes keep using frameSize.
-func (e *Encoder) binScaleFrameSize(frameSize int) int {
-	base := e.scaleBase()
-	if base == Overlap {
-		return frameSize
-	}
-	return Overlap * (frameSize / base)
-}
-
-// customModeActive reports whether a non-standard Opus Custom mode is driving
-// the encoder. Always false in the default build.
-func (e *Encoder) customModeActive() bool { return e.customScaleBase > 0 }
-
 // modeConfig returns the frame-size-dependent ModeConfig for the active mode.
 // For a custom mode in the Fs==400*shortMdctSize family it derives LM from the
 // short-block decomposition (frameSize/customScaleBase) rather than the 48 kHz

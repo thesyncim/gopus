@@ -549,12 +549,6 @@ func kissFFT32(x []complex64) []complex64 {
 	return out
 }
 
-// KissFFT32To performs a forward complex FFT into out using the libopus-style
-// Kiss FFT implementation. out must have length >= len(x).
-func KissFFT32To(out []complex64, x []complex64) {
-	kissFFT32To(out, x, nil)
-}
-
 // KissCpx is an exported alias of the internal Kiss FFT complex scratch type.
 // It allows callers to provide reusable scratch buffers and avoid per-call
 // allocations in hot paths.

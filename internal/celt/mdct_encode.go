@@ -251,13 +251,6 @@ func applyMDCTWindow(samples []float32) {
 	}
 }
 
-// MDCTForwardWithOverlap is the exported version of mdctForwardOverlap for testing.
-// Input: samples with length frameSize+overlap
-// Returns: MDCT coefficients of length frameSize
-func MDCTForwardWithOverlap(samples []float32, overlap int) []float32 {
-	return mdctForwardOverlap(samples, overlap)
-}
-
 // MDCTForwardWithOverlapFloat32 computes the CELT float-build MDCT without
 // widening caller-owned signal scratch.
 func MDCTForwardWithOverlapFloat32(samples []float32, overlap int) []float32 {
@@ -614,23 +607,6 @@ func mdctScratchF32Coeffs(samples []float32, scratch *encoderScratch) []float32 
 	return nil
 }
 
-func mdctScratchIntoF32Coeffs(samples []float32, coeffs []float32, scratch *encoderScratch) []float32 {
-	if len(samples) == 0 {
-		return nil
-	}
-
-	if len(samples) > Overlap {
-		frameSize := len(samples) - Overlap
-		if ValidFrameSize(frameSize) && len(coeffs) >= frameSize {
-			mdctForwardOverlapF32Scratch(samples, Overlap, coeffs,
-				scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
-			return coeffs[:frameSize]
-		}
-	}
-
-	return nil
-}
-
 // mdctShortScratch computes the short-block MDCT using scratch buffers.
 func mdctShortScratch(samples []float32, shortBlocks int, scratch *encoderScratch) []float32 {
 	if shortBlocks <= 1 {
@@ -680,24 +656,6 @@ func mdctShortScratchF32Coeffs(samples []float32, shortBlocks int, scratch *enco
 		frameSize := len(samples) - Overlap
 		if ValidFrameSize(frameSize) && frameSize%shortBlocks == 0 {
 			return mdctForwardShortOverlapScratchF32Coeffs(samples, Overlap, shortBlocks, scratch)
-		}
-	}
-
-	return nil
-}
-
-func mdctShortScratchIntoF32Coeffs(samples []float32, shortBlocks int, output []float32, scratch *encoderScratch) []float32 {
-	if shortBlocks <= 1 {
-		return mdctScratchIntoF32Coeffs(samples, output, scratch)
-	}
-	if len(samples) == 0 {
-		return nil
-	}
-
-	if len(samples) > Overlap {
-		frameSize := len(samples) - Overlap
-		if ValidFrameSize(frameSize) && frameSize%shortBlocks == 0 && len(output) >= frameSize {
-			return mdctForwardShortOverlapScratchIntoF32Coeffs(samples, Overlap, shortBlocks, output, scratch)
 		}
 	}
 

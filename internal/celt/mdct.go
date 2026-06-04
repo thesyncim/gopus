@@ -64,16 +64,6 @@ func IMDCT(spectrum []float32) []float32 {
 	return IMDCTDirect(spectrum)
 }
 
-// IMDCTOverlap computes the CELT IMDCT with short overlap using a zero
-// previous overlap buffer. Output length is N + overlap.
-func IMDCTOverlap(spectrum []float32, overlap int) []float32 {
-	if len(spectrum) == 0 {
-		return nil
-	}
-	prev := make([]float32, overlap)
-	return imdctOverlapWithPrev(spectrum, prev, overlap)
-}
-
 // IMDCTOverlapWithPrev computes CELT IMDCT using the provided overlap history.
 // The returned slice includes frameSize+overlap samples.
 func IMDCTOverlapWithPrev(spectrum, prevOverlap []float32, overlap int) []float32 {
@@ -311,40 +301,6 @@ func imdctOverlapWithPrevScratchF32[S ~float32](out []float32, spectrum []float3
 		return
 	}
 	copy(out[:needed], outF32[:needed])
-}
-
-// imdctInPlace performs IMDCT directly into a shared output buffer at the given offset.
-// This matches libopus's clt_mdct_backward behavior for short block processing.
-//
-// The function writes to out[blockStart:blockStart+n2+overlap/2], where n2 = len(spectrum).
-// The TDAC windowing blends out[blockStart:blockStart+overlap] with existing data.
-//
-// Parameters:
-//   - spectrum: MDCT coefficients for this short block
-//   - out: shared output buffer that already contains previous block/frame data
-//   - blockStart: starting position in out for this block
-//   - overlap: overlap size (typically 120 for CELT at 48kHz)
-func imdctInPlace(spectrum []float32, out []float32, blockStart, overlap int) {
-	imdctInPlaceScratch(spectrum, out, blockStart, overlap, nil)
-}
-
-func imdctInPlaceScratch(spectrum []float32, out []float32, blockStart, overlap int, scratch *imdctScratch) {
-	n2 := len(spectrum)
-	if n2 == 0 {
-		return
-	}
-	if overlap < 0 {
-		overlap = 0
-	}
-
-	imdctInPlaceScratchF32Spectrum(spectrum, out, blockStart, overlap, scratch)
-}
-
-// ImdctInPlaceExported exports imdctInPlace for testing.
-//
-// This helper exists for tests and codec-development tooling and may change.
-func ImdctInPlaceExported(spectrum []float32, out []float32, blockStart, overlap int) {
-	imdctInPlace(spectrum, out, blockStart, overlap)
 }
 
 // IMDCTShort computes IMDCT for transient frames with multiple short blocks.

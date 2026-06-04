@@ -810,12 +810,6 @@ func TFEncodeWithSelect(re *rangecoding.Encoder, start, end int, isTransient boo
 	}
 }
 
-// TFEncode is a convenience wrapper around tfEncode for callers outside the celt package.
-// It encodes TF resolution flags without running TF analysis.
-func TFEncode(re *rangecoding.Encoder, start, end int, isTransient bool, tfRes []int32, lm int) {
-	tfEncode(re, start, end, isTransient, tfRes, lm)
-}
-
 // tfEncode encodes time-frequency resolution flags for each band with the
 // default tf_select of 0. This is the inverse of tfDecode.
 //
@@ -890,11 +884,5 @@ func tfDecode(start, end int, isTransient bool, tfRes []int32, lm int, rd *range
 }
 
 func tfDecode32(start, end int, isTransient bool, tfRes []int32, lm int, rd *rangecoding.Decoder) {
-	tfDecode(start, end, isTransient, tfRes, lm, rd)
-}
-
-// TFDecodeForTest exposes tfDecode for cross-package tests (e.g., CGO comparisons).
-// It should not be used in production code.
-func TFDecodeForTest(start, end int, isTransient bool, tfRes []int32, lm int, rd *rangecoding.Decoder) {
 	tfDecode(start, end, isTransient, tfRes, lm, rd)
 }

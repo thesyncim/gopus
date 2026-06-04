@@ -144,8 +144,8 @@ func (e *Encoder) OffsetsScratch(nbBands int) []int32 {
 	return ensureInt32Slice(&e.scratch.offsets, nbBands)
 }
 
-// ComputeAllocationHybridScratch computes hybrid bit allocation using encoder scratch.
-// This mirrors ComputeAllocationHybrid but avoids per-call allocations.
+// ComputeAllocationHybridScratch computes hybrid bit allocation, drawing its
+// working buffers from the encoder scratch to avoid per-call allocations.
 func (e *Encoder) ComputeAllocationHybridScratch(re *rangecoding.Encoder, totalBitsQ3, nbBands int, cap, offsets []int32, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) *AllocationResult {
 	if nbBands > MaxBands {
 		nbBands = MaxBands

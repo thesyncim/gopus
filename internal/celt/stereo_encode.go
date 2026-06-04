@@ -158,25 +158,6 @@ func ConvertToMidSide(left, right []celtNorm) (mid, side []celtNorm) {
 	return mid, side
 }
 
-// ConvertToMidSideInPlace converts L/R to M/S in-place.
-// The left array becomes mid, right array becomes side.
-// More efficient when copies are not needed.
-func ConvertToMidSideInPlace(left, right []celtNorm) {
-	n := len(left)
-	if len(right) < n {
-		n = len(right)
-	}
-
-	const invSqrt2 = float32(0.7071067811865476)
-
-	for i := 0; i < n; i++ {
-		l := float32(left[i])
-		r := float32(right[i])
-		left[i] = celtNorm((l + r) * invSqrt2)  // mid
-		right[i] = celtNorm((l - r) * invSqrt2) // side
-	}
-}
-
 // ConvertMidSideToLR converts mid/side to L/R representation.
 // This is the inverse of ConvertToMidSide.
 //
@@ -216,26 +197,6 @@ func ConvertMidSideToLR(mid, side []celtNorm) (left, right []celtNorm) {
 		// Same for R: R = (M-S)/sqrt(2)
 		left[i] = celtNorm((float32(mid[i]) + float32(side[i])) * invSqrt2)
 		right[i] = celtNorm((float32(mid[i]) - float32(side[i])) * invSqrt2)
-	}
-
-	return left, right
-}
-
-// DeinterleaveStereo separates interleaved stereo samples into L and R arrays.
-// Input: [L0, R0, L1, R1, ...]
-// Output: [L0, L1, ...], [R0, R1, ...]
-func DeinterleaveStereo(interleaved []celtNorm) (left, right []celtNorm) {
-	if len(interleaved) < 2 {
-		return nil, nil
-	}
-
-	n := len(interleaved) / 2
-	left = make([]celtNorm, n)
-	right = make([]celtNorm, n)
-
-	for i := 0; i < n; i++ {
-		left[i] = interleaved[i*2]
-		right[i] = interleaved[i*2+1]
 	}
 
 	return left, right
@@ -307,24 +268,6 @@ func InterleaveStereoInto(left, right, interleaved []celtNorm) {
 	}
 }
 
-// InterleaveStereo combines separate L and R arrays into interleaved format.
-// Input: [L0, L1, ...], [R0, R1, ...]
-// Output: [L0, R0, L1, R1, ...]
-func InterleaveStereo(left, right []celtNorm) []celtNorm {
-	n := len(left)
-	if len(right) < n {
-		n = len(right)
-	}
-	if n == 0 {
-		return nil
-	}
-
-	interleaved := make([]celtNorm, n*2)
-	InterleaveStereoInto(left[:n], right[:n], interleaved)
-
-	return interleaved
-}
-
 // InterleaveStereoF32 combines separate float-build L and R arrays into
 // interleaved format.
 func InterleaveStereoF32(left, right []float32) []float32 {
@@ -361,39 +304,4 @@ func InterleaveStereoIntoF32(left, right, interleaved []float32) {
 		interleaved[2*i] = left[i]
 		interleaved[2*i+1] = right[i]
 	}
-}
-
-// ComputeStereoAngle computes the stereo angle from L/R energies.
-// Returns theta in radians [0, pi/2] representing the stereo image width.
-// theta = 0: mono (all energy in mid)
-// theta = pi/4: balanced stereo
-// theta = pi/2: pure side (opposite channels)
-func ComputeStereoAngle(energyL, energyR celtEner) float32 {
-	if energyL <= 0 && energyR <= 0 {
-		return 0 // Silent
-	}
-
-	// Convert to mid/side energies
-	// energyM = (sqrt(energyL) + sqrt(energyR))^2 / 2 approximately
-	// energyS = (sqrt(energyL) - sqrt(energyR))^2 / 2 approximately
-	// For energy-based estimation, use direct ratio
-
-	// theta = atan2(energyS, energyM) approximately
-	// A simpler heuristic: theta ~ pi/4 * |energyL - energyR| / (energyL + energyR)
-	totalEnergy := energyL + energyR
-	if totalEnergy < 1e-30 {
-		return 0
-	}
-
-	// Stereo correlation: high when energies are similar
-	// Low when very different (wide stereo or hard-panned)
-	diff := energyL - energyR
-	if diff < 0 {
-		diff = -diff
-	}
-	balance := float32(diff / totalEnergy)
-
-	// Map to angle: balance=0 -> theta=pi/4, balance=1 -> theta=0 or pi/2
-	// For encoding purposes, we use mid-side where theta controls M/S balance
-	return (float32(3.141592653589793) / 4) * (1 - balance)
 }

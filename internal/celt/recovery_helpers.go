@@ -991,10 +991,6 @@ func reduceAVX2PitchSum(sum [8]float32) float32 {
 	return noFMA32Add(noFMA32Add(s04, s15), noFMA32Add(s26, s37))
 }
 
-func innerProdSig(x, y []celtSig, length int) float32 {
-	return innerProdFloat32(x, y, length)
-}
-
 func innerProdFloat32(x, y []float32, length int) float32 {
 	if length <= 0 {
 		return 0

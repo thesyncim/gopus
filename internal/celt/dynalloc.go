@@ -674,37 +674,6 @@ func DynallocAnalysis(
 	return result
 }
 
-// DynallocAnalysisSimple is a convenience wrapper for common mono encoding scenarios.
-// It uses default parameters appropriate for typical audio encoding.
-//
-// Parameters:
-//   - bandLogE: current frame band energies (log2 domain)
-//   - nbBands: number of frequency bands
-//   - lm: log2 of frame size multiplier
-//   - effectiveBytes: total available bytes
-//
-// Returns: DynallocResult with maxDepth suitable for VBR floor_depth calculation
-func DynallocAnalysisSimple(bandLogE []celtGLog, nbBands, lm, effectiveBytes int) DynallocResult {
-	// Use bandLogE as both primary and secondary energies (no separate transient MDCT)
-	// Use default 16-bit depth and mono
-	logN := make([]int16, nbBands)
-	for i := 0; i < nbBands && i < len(LogN); i++ {
-		logN[i] = int16(LogN[i])
-	}
-
-	return DynallocAnalysis(
-		bandLogE, bandLogE, nil, // bandLogE2 = bandLogE, no oldBandE
-		nbBands, 0, nbBands, 1, 16, lm,
-		logN,
-		effectiveBytes,
-		false, true, false, false, // not transient, VBR, not constrained, not LFE
-		-1.0, 0.0,
-		nil,
-		false,
-		nil,
-	)
-}
-
 // min returns the minimum of two integers.
 func min(a, b int) int {
 	if a < b {
