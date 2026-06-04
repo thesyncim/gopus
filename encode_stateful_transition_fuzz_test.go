@@ -442,13 +442,13 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 
 				if bytes.Equal(g.Packet, o.Packet) {
 					if g.FinalRange != o.FinalRange {
-						if runtime.GOARCH == "amd64" {
+						if runtime.GOARCH == "amd64" && !testPuregoBuild {
 							t.Errorf("%s: packets byte-equal but final_range differs gopus=%08x libopus=%08x (UNEXPECTED on amd64)",
 								label, g.FinalRange, o.FinalRange)
 						} else {
 							rangeOnlyResiduals++
 							t.Logf("%s: packets byte-equal, final_range differs gopus=%08x libopus=%08x — "+
-								"documented arm64 CELT range-tail residual (bytes match)",
+								"documented pure-Go CELT range-tail residual (bytes match)",
 								label, g.FinalRange, o.FinalRange)
 						}
 					}
@@ -469,13 +469,13 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 				fb := firstByteDiff(g.Packet, o.Packet)
 
 				// Same mode class, different TOC byte: a packet-FRAMING (code field)
-				// divergence. On amd64 the float path is exact so this is a HARD FAIL.
-				// On arm64 a framing flip that rides on a sub-frame length difference
+				// divergence. On the amd64-asm build the float path is exact so this is a HARD FAIL.
+				// On every pure-Go build a framing flip that rides on a sub-frame length difference
 				// is the documented downstream symptom of the float boundary (the
 				// >20 ms repacketizer's equal-vs-unequal code 1/2 choice), logged as a
 				// residual — same policy as the sibling harness.
 				if byte0(g.Packet) != byte0(o.Packet) {
-					if runtime.GOARCH == "amd64" {
+					if runtime.GOARCH == "amd64" && !testPuregoBuild {
 						framingFails++
 						t.Errorf("%s: PACKET FRAMING divergence gopus toc=%02x(len=%d) libopus toc=%02x(len=%d) "+
 							"br=%d vbr=%d — same mode class, different TOC framing (UNEXPECTED on amd64)",
@@ -483,15 +483,15 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 						continue
 					}
 					framingResiduals++
-					t.Logf("%s: framing differs gopus toc=%02x(len=%d) libopus toc=%02x(len=%d) — arm64 "+
+					t.Logf("%s: framing differs gopus toc=%02x(len=%d) libopus toc=%02x(len=%d) — pure-Go "+
 						"multiframe (>20 ms) repacketization code flip downstream of the float boundary",
 						label, byte0(g.Packet), len(g.Packet), byte0(o.Packet), len(o.Packet))
 					continue
 				}
 
-				// Payload byte mismatch with matching TOC. amd64: HARD FAIL (bit-exact
-				// required). arm64: documented <=1-ULP float-analysis boundary.
-				if runtime.GOARCH == "amd64" {
+				// Payload byte mismatch with matching TOC. amd64-asm: HARD FAIL (bit-exact
+				// required). Pure-Go (arm64 + amd64-purego): documented <=1-ULP boundary.
+				if runtime.GOARCH == "amd64" && !testPuregoBuild {
 					if gClass == 0 {
 						silkByteFails++
 						t.Errorf("%s: SILK payload BYTE MISMATCH at byte %d (len g=%d o=%d, range g=%08x o=%08x) "+
@@ -769,7 +769,7 @@ func TestEncodeStatefulDTXRunFuzz(t *testing.T) {
 							}
 							if bytes.Equal(pkt, o.Packet) {
 								if enc.FinalRange() != o.FinalRange {
-									if runtime.GOARCH == "amd64" {
+									if runtime.GOARCH == "amd64" && !testPuregoBuild {
 										t.Errorf("%s: packets byte-equal but final_range differs gopus=%08x libopus=%08x (UNEXPECTED on amd64)",
 											label, enc.FinalRange(), o.FinalRange)
 									} else {
@@ -790,7 +790,7 @@ func TestEncodeStatefulDTXRunFuzz(t *testing.T) {
 							}
 							fb := firstByteDiff(pkt, o.Packet)
 							if byte0(pkt) != byte0(o.Packet) {
-								if runtime.GOARCH == "amd64" {
+								if runtime.GOARCH == "amd64" && !testPuregoBuild {
 									byteFails++
 									t.Errorf("%s: PACKET FRAMING divergence gopus toc=%02x(len=%d) libopus toc=%02x(len=%d) (UNEXPECTED on amd64)",
 										label, byte0(pkt), len(pkt), byte0(o.Packet), len(o.Packet))
@@ -799,7 +799,7 @@ func TestEncodeStatefulDTXRunFuzz(t *testing.T) {
 								}
 								continue
 							}
-							if runtime.GOARCH == "amd64" {
+							if runtime.GOARCH == "amd64" && !testPuregoBuild {
 								byteFails++
 								t.Errorf("%s: %s payload BYTE MISMATCH at byte %d (len g=%d o=%d range g=%08x o=%08x) — "+
 									"UNEXPECTED on amd64 (bit-exact required)",
@@ -807,7 +807,7 @@ func TestEncodeStatefulDTXRunFuzz(t *testing.T) {
 								continue
 							}
 							residuals++
-							t.Logf("%s: %s payload differs at byte %d (len g=%d o=%d) — documented arm64 <=1-ULP float boundary",
+							t.Logf("%s: %s payload differs at byte %d (len g=%d o=%d) — documented pure-Go <=1-ULP float boundary",
 								label, modeClassName(gClass), fb, len(pkt), len(o.Packet))
 						}
 						casesRun++
