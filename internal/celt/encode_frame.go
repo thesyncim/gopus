@@ -259,6 +259,10 @@ func applyUpsampleMDCTScaling(coeffs []float32, upsample int) {
 	}
 }
 
+// EncodeFrame encodes one CELT frame of float32 PCM and returns the packet
+// bytes. pcm is interleaved when the encoder is stereo. frameSize is given at
+// the encoder's API sample rate; at sub-48 kHz rates the input is upsampled to
+// the 48 kHz core block internally.
 func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	channels := int(e.channels)
 

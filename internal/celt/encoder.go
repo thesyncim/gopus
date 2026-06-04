@@ -706,6 +706,9 @@ func (e *Encoder) PrevEnergy() []celtGLog {
 	return out
 }
 
+// CopyPrevEnergyFloat32 copies the previous frame's band energies into dst as
+// float32, reusing dst when its capacity is sufficient. The same layout as
+// PrevEnergy is used.
 func (e *Encoder) CopyPrevEnergyFloat32(dst []float32) []float32 {
 	if cap(dst) < len(e.prevEnergy) {
 		dst = make([]float32, len(e.prevEnergy))
@@ -744,6 +747,10 @@ func (e *Encoder) SetPrevEnergyWithPrev(prev, energies []celtGLog) {
 	copy(e.prevEnergy, energies)
 }
 
+// SetPrevEnergyWithPrevFloat32 is the float32 form of SetPrevEnergyWithPrev: it
+// sets the two-frames-ago energies from prev (falling back to the current
+// prevEnergy when prev has the wrong length) and the previous-frame energies
+// from energies.
 func (e *Encoder) SetPrevEnergyWithPrevFloat32(prev, energies []float32) {
 	if len(prev) == len(e.prevEnergy2) {
 		copy(e.prevEnergy2, prev)

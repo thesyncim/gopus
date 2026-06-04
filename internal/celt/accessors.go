@@ -37,6 +37,8 @@ func (d *Decoder) PostfilterTapset() int {
 	return int(d.postfilterTapset)
 }
 
+// PostfilterState is a snapshot of the decoder postfilter parameters for the
+// current and previous frame.
 type PostfilterState struct {
 	Period         int
 	Gain           float32
@@ -46,6 +48,8 @@ type PostfilterState struct {
 	PreviousTapset int
 }
 
+// PostfilterState returns the current and previous postfilter parameters. It
+// returns the zero value when d is nil.
 func (d *Decoder) PostfilterState() PostfilterState {
 	if d == nil {
 		return PostfilterState{}

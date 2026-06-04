@@ -226,6 +226,8 @@ func (d *Decoder) Synthesize(coeffs []float32, transient bool, shortBlocks int) 
 	return output[:len(coeffs)]
 }
 
+// SynthesizeFloat32 is Synthesize using decoder-owned scratch for the output,
+// performing IMDCT, windowing and overlap-add for the decoded coefficients.
 func (d *Decoder) SynthesizeFloat32(coeffs []float32, transient bool, shortBlocks int) []float32 {
 	if len(coeffs) == 0 {
 		return nil
@@ -398,6 +400,8 @@ func (d *Decoder) SynthesizeStereo(coeffsL, coeffsR []float32, transient bool, s
 	return stereo[:n*2]
 }
 
+// SynthesizeStereoFloat32 is SynthesizeStereo using decoder-owned scratch,
+// returning interleaved L/R output.
 func (d *Decoder) SynthesizeStereoFloat32(coeffsL, coeffsR []float32, transient bool, shortBlocks int) []float32 {
 	if len(coeffsL) == 0 || len(coeffsR) == 0 {
 		return nil

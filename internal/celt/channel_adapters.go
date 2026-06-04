@@ -73,10 +73,15 @@ func (d *Decoder) DecodeFrameWithPacketStereoToFloat32(data []byte, frameSize in
 	return err
 }
 
+// DecodeFrameAtAPIRate decodes a frame and returns PCM at the decoder's API
+// sample rate, choosing packet stereo from the decoder channel count.
 func (d *Decoder) DecodeFrameAtAPIRate(data []byte, frameSize int) ([]float32, error) {
 	return d.DecodeFrameWithPacketStereoAtAPIRate(data, frameSize, d.channels == 2)
 }
 
+// DecodeFrameWithPacketStereoAtAPIRate decodes a frame at the internal 48 kHz
+// rate and downsamples to the decoder's API rate. frameSize is given at the API
+// rate; the internal block is frameSize*downsampleFactor.
 func (d *Decoder) DecodeFrameWithPacketStereoAtAPIRate(data []byte, frameSize int, packetStereo bool) ([]float32, error) {
 	downsample := d.downsampleFactor()
 	if downsample <= 1 {
@@ -100,6 +105,9 @@ func (d *Decoder) DecodeFrameWithPacketStereoAtAPIRate(data []byte, frameSize in
 	return out, nil
 }
 
+// DecodeFrameWithPacketStereoToFloat32AtAPIRate decodes into the caller-provided
+// out slice at the decoder's API sample rate, downsampling from the internal
+// 48 kHz block when required.
 func (d *Decoder) DecodeFrameWithPacketStereoToFloat32AtAPIRate(data []byte, frameSize int, packetStereo bool, out []float32) error {
 	downsample := d.downsampleFactor()
 	if downsample <= 1 {
@@ -597,6 +605,9 @@ func (d *Decoder) DecodeFrameHybridWithPacketStereo(rd *rangecoding.Decoder, fra
 	return d.decodeStereoPacketToMonoHybrid(rd, frameSize)
 }
 
+// DecodeFrameHybridWithPacketStereoToFloat32 decodes the CELT half of a hybrid
+// frame from an in-progress range decoder into out, handling packet/decoder
+// channel-count mismatches.
 func (d *Decoder) DecodeFrameHybridWithPacketStereoToFloat32(rd *rangecoding.Decoder, frameSize int, packetStereo bool, out []float32) error {
 	outLen := frameSize * int(d.channels)
 	if len(out) < outLen {

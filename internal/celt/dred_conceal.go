@@ -109,6 +109,10 @@ func (d *Decoder) ConcealDRED48kToFloat32(
 	return d.ConcealDRED48kDownsampleToFloat32(out, frameSize, 1, lastNeural, plcPCM, plcFill, plcPreemphMem, generate)
 }
 
+// ConcealDRED48kDownsampleToFloat32 is ConcealDRED48kToFloat32 with an explicit
+// downsample factor: it conceals the lost frame at the 48 kHz neural rate and
+// emits frameSize/downsample output samples per channel. It returns false when
+// DRED concealment is not the chosen frame type or the arguments are invalid.
 func (d *Decoder) ConcealDRED48kDownsampleToFloat32(
 	out []float32,
 	frameSize int,
@@ -163,6 +167,9 @@ func (d *Decoder) ConcealPLCNeural48kToFloat32(
 	return d.ConcealPLCNeural48kDownsampleToFloat32(out, frameSize, 1, lastNeural, plcPCM, plcFill, plcPreemphMem, generate)
 }
 
+// ConcealPLCNeural48kDownsampleToFloat32 is ConcealPLCNeural48kToFloat32 with an
+// explicit downsample factor: it runs neural PLC concealment at the 48 kHz rate
+// and emits frameSize/downsample output samples per channel.
 func (d *Decoder) ConcealPLCNeural48kDownsampleToFloat32(
 	out []float32,
 	frameSize int,

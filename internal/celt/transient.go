@@ -463,6 +463,8 @@ func (e *Encoder) TransientAnalysis(pcm []float32, frameSize int, allowWeakTrans
 		e.scratch.transientEnergy)
 }
 
+// TransientAnalysisF32 is an alias for TransientAnalysis kept for the float32
+// naming convention used elsewhere in the encoder API.
 func (e *Encoder) TransientAnalysisF32(pcm []float32, frameSize int, allowWeakTransients bool) TransientAnalysisResult {
 	return e.TransientAnalysis(pcm, frameSize, allowWeakTransients)
 }
