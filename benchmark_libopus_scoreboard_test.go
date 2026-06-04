@@ -30,11 +30,12 @@
 //     (gopus skips most stream resets that the libopus self-timed pass includes).
 //     For the authoritative apples-to-apples ratio use TestScoreboardSummary,
 //     which times a full reset+batch pass on BOTH sides.
-//   - Matched work: both encode the same number of frames of the same duration.
-//     gopus frame sizes are 48 kHz-relative (F in {120,480,960,2880} = 2.5/10/20/
-//     60 ms) and gopus consumes F samples of 48 kHz-rate PCM per frame; libopus
-//     consumes the rate-R equivalent (F*R/48000 samples) per frame. The audio is
-//     the same signal class at the same duration (not bit-identical).
+//   - Matched work: both sides encode the same number of frames of the same
+//     duration and consume the SAME native-Fs PCM. gopus and libopus now share the
+//     native-Fs input contract (opus_encode(Fs)), so a frame of duration D at rate
+//     R is D*R native samples on both sides (a 2.5/10/20/60 ms config is referenced
+//     by its 48 kHz-relative size F in {120,480,960,2880} and the native size is
+//     F*R/48000). The audio is bit-identical between the two sides.
 
 package gopus_test
 
@@ -71,7 +72,7 @@ type scoreboardConfig struct {
 	ForceMode  string // libopus --force-mode token
 	Rate       int    // API sample rate
 	Channels   int
-	Frame48    int     // gopus frame size in 48 kHz-relative samples (120/480/960/2880)
+	Frame48    int     // duration handle as a 48 kHz-relative sample count (120/480/960/2880); the actual per-side frame size is nativeFrame()
 	DurMS      float64 // frame duration in ms
 	Bitrate    int
 	Bandwidth  gopus.Bandwidth
@@ -82,9 +83,11 @@ type scoreboardConfig struct {
 	SignalName string // testsignal corpus class
 }
 
-// libFrame returns the libopus per-frame sample count at the API rate for this
-// config's duration (gopus Frame48 is 48 kHz-relative).
-func (c scoreboardConfig) libFrame() int { return c.Frame48 * c.Rate / 48000 }
+// nativeFrame returns the per-channel frame size in native-Fs samples (D*R) that
+// BOTH gopus and libopus consume for this config's duration. gopus and libopus
+// share the native-Fs input contract (opus_encode(Fs)): the Frame48 handle is
+// 48 kHz-relative, so the native size is Frame48*R/48000.
+func (c scoreboardConfig) nativeFrame() int { return c.Frame48 * c.Rate / 48000 }
 
 // frameCount returns the number of frames in one measured batch.
 func (c scoreboardConfig) frameCount() int {
@@ -288,19 +291,18 @@ func parseLibopusBenchRow(out []byte) (libopusRow, error) {
 	return libopusRow{NsPerPacket: nsPkt, NsPerSample: nsSmp, XRealtime: xrt}, nil
 }
 
-// genGopusPCM builds nFrames*Frame48*channels samples of 48 kHz-rate PCM for the
-// gopus encoder (gopus consumes 48 kHz-relative frames).
+// genGopusPCM builds nFrames*nativeFrame*channels samples of native-Fs PCM for the
+// gopus encoder (gopus consumes native-Fs frames, like libopus opus_encode(Fs)).
 func genGopusPCM(c scoreboardConfig, nFrames int) ([]float32, error) {
-	samples := nFrames * c.Frame48 * c.Channels
-	return testsignal.GenerateCorpusSignal(c.SignalName, 48000, samples, c.Channels)
+	samples := nFrames * c.nativeFrame() * c.Channels
+	return testsignal.GenerateCorpusSignal(c.SignalName, c.Rate, samples, c.Channels)
 }
 
-// genLibopusPCMBytes builds the rate-R interleaved float32 LE PCM the libopus
-// encode helper reads (matched duration / frame count).
+// genLibopusPCMBytes builds the native-Fs interleaved float32 LE PCM the libopus
+// encode helper reads. It is the byte-for-byte serialization of genGopusPCM's
+// signal so both sides encode bit-identical audio.
 func genLibopusPCMBytes(c scoreboardConfig, nFrames int) ([]byte, error) {
-	lf := c.libFrame()
-	samples := nFrames * lf * c.Channels
-	pcm, err := testsignal.GenerateCorpusSignal(c.SignalName, c.Rate, samples, c.Channels)
+	pcm, err := genGopusPCM(c, nFrames)
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +325,7 @@ func newGopusEncoder(c scoreboardConfig) (*gopus.Encoder, error) {
 	if err := enc.SetMode(c.Mode); err != nil {
 		return nil, err
 	}
-	if err := enc.SetFrameSize(c.Frame48); err != nil {
+	if err := enc.SetFrameSize(c.nativeFrame()); err != nil {
 		return nil, err
 	}
 	if err := enc.SetBitrate(c.Bitrate); err != nil {
@@ -366,7 +368,7 @@ func runLibopusEncode(tb testing.TB, c scoreboardConfig, nFrames int) (libopusRo
 		"--mode", "encode",
 		"--rate", strconv.Itoa(c.Rate),
 		"--channels", strconv.Itoa(c.Channels),
-		"--frame-size", strconv.Itoa(c.libFrame()),
+		"--frame-size", strconv.Itoa(c.nativeFrame()),
 		"--bitrate", strconv.Itoa(c.Bitrate),
 		"--application", c.LibopusApp,
 		"--bandwidth", c.LibopusBW,
@@ -428,7 +430,7 @@ func encodeGopusBatch(tb testing.TB, c scoreboardConfig, pcm []float32, nFrames 
 	if err != nil {
 		tb.Fatalf("new gopus encoder (%s): %v", c.name(), err)
 	}
-	samplesPerFrame := c.Frame48 * c.Channels
+	samplesPerFrame := c.nativeFrame() * c.Channels
 	packets := make([][]byte, 0, nFrames)
 	var bit bytes.Buffer
 	scratch := make([]byte, scoreboardMaxPacketBytes)
@@ -464,7 +466,7 @@ func BenchmarkScoreboardEncode(b *testing.B) {
 			if err != nil {
 				b.Fatalf("new gopus encoder: %v", err)
 			}
-			samplesPerFrame := c.Frame48 * c.Channels
+			samplesPerFrame := c.nativeFrame() * c.Channels
 			out := make([]byte, scoreboardMaxPacketBytes)
 
 			// libopus reference (self-timed, independent of b.N).
@@ -528,8 +530,8 @@ func BenchmarkScoreboardDecode(b *testing.B) {
 			if err != nil {
 				b.Fatalf("new gopus decoder: %v", err)
 			}
-			// Output buffer large enough for the longest frame at this rate.
-			maxOut := c.Frame48 * c.Rate / 48000 * c.Channels
+			// Output buffer large enough for one decoded frame at the API rate.
+			maxOut := c.nativeFrame() * c.Channels
 			pcmOut := make([]float32, maxOut)
 
 			lib, ok := runLibopusDecode(b, c, bit)
@@ -638,7 +640,7 @@ func TestScoreboardSummary(t *testing.T) {
 		if err != nil {
 			t.Fatalf("new gopus encoder (%s): %v", c.name(), err)
 		}
-		samplesPerFrame := c.Frame48 * c.Channels
+		samplesPerFrame := c.nativeFrame() * c.Channels
 		out := make([]byte, scoreboardMaxPacketBytes)
 		encGopusNs := timeGopus(func() {
 			enc.Reset()
@@ -656,7 +658,7 @@ func TestScoreboardSummary(t *testing.T) {
 		if err != nil {
 			t.Fatalf("new gopus decoder (%s): %v", c.name(), err)
 		}
-		maxOut := c.Frame48 * c.Rate / 48000 * c.Channels
+		maxOut := c.nativeFrame() * c.Channels
 		pcmOut := make([]float32, maxOut)
 		decGopusNs := timeGopus(func() {
 			dec.Reset()
