@@ -396,9 +396,9 @@ func TestDecoderPublicDecodeDRED16kMatchesLibopus(t *testing.T) {
 				t.Fatalf("LastPacketDuration()=%d want API-rate frame %d", gotDuration, n)
 			}
 
-			pcmTol, plcTol, farganTol, celtTol := tc.pcmTol, tc.plcTol, tc.farganTol, tc.celtTol
-			if pcmTol == 0 {
-				pcmTol, plcTol, farganTol, celtTol = decoderDREDLiveSequenceTolerances(tc.cfg.FrameSize)
+			plcTol, farganTol, celtTol := tc.plcTol, tc.farganTol, tc.celtTol
+			if tc.pcmTol == 0 {
+				_, plcTol, farganTol, celtTol = decoderDREDLiveSequenceTolerances(tc.cfg.FrameSize)
 			}
 			gotPCM := pcm[:got*dec.Channels()]
 			wantPCM := want.pcm[:got*dec.Channels()]

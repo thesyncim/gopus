@@ -136,9 +136,8 @@ func TestDecoderCachedStereoCELTDREDAPIRateMatchesLiveSequenceOracle(t *testing.
 				t.Fatalf("explicit DRED decode=%d want %d", got, n)
 			}
 
-			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(packetInfo.sampleRate / 50)
+			_, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(packetInfo.sampleRate / 50)
 			if sampleRate == 8000 {
-				pcmTol = max(pcmTol, 1.5e-2)
 				plcTol = max(plcTol, 2e-2)
 				farganTol = max(farganTol, 3e-1)
 				celtTol = max(celtTol, 1.5e-2)
@@ -190,8 +189,7 @@ func TestDecoderCachedCELTDREDRequestedPLCDurationMatchesLiveSequenceOracle(t *t
 				t.Fatalf("explicit DRED decode=%d want %d", got, n)
 			}
 
-			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(packetInfo.sampleRate / 50)
-			pcmTol = max(pcmTol, 4e-2)
+			_, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(packetInfo.sampleRate / 50)
 			plcTol = max(plcTol, 8e-3)
 			farganTol = max(farganTol, 1.1e-1)
 			celtTol = max(celtTol, 8e-3)
