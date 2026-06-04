@@ -373,19 +373,6 @@ func (e *Encoder) resetFixedState() {
 	}
 }
 
-// fixedNbSubfr derives the subframe count for the current frame from the
-// per-frame sample count (4 for 20 ms, 2 for 10 ms).
-func fixedNbSubfr(frameSamples, fsKHz int) int {
-	subfr := frameSamples / (subFrameLengthMs * fsKHz)
-	if subfr < 1 {
-		subfr = 1
-	}
-	if subfr > maxNbSubfr {
-		subfr = maxNbSubfr
-	}
-	return subfr
-}
-
 // buildFixedInputBuf converts the float frame to int16 (RES2INT16 / FLOAT2INT16)
 // and applies silk_LP_variable_cutoff, returning the int16 frame that libopus
 // places at inputBuf+1 just before insertion into x_buf.

@@ -14,10 +14,6 @@ package silk
 // float round-trip) to guarantee the inputBuf the encode body consumes equals
 // what libopus enc_API.c produces.
 
-// fixedStereoActive reports whether the integer SILK stereo front-end is
-// selected. Under the gopus_fixedpoint build it is always on.
-func (e *Encoder) fixedStereoActive() bool { return true }
-
 // resetStereoSideFixedState clears the integer side-channel encode state when
 // stereo side coding resumes after one or more mid-only frames, mirroring
 // libopus enc_API.c (silk/enc_API.c lines 453-463): sShape (harm/tilt smoothers

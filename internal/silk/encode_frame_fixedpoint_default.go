@@ -10,10 +10,6 @@ type silkEncoderFixedFields struct{}
 // Always false in the default build.
 func (e *Encoder) fixedEncodeActive() bool { return false }
 
-// fixedStereoActive reports whether the integer SILK stereo front-end is
-// selected. Always false in the default build.
-func (e *Encoder) fixedStereoActive() bool { return false }
-
 // silkFixedEncodeBuild reports whether the integer SILK encode path is compiled
 // in. False in the default (float) build.
 const silkFixedEncodeBuild = false
