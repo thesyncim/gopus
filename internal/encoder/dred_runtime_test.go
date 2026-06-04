@@ -406,6 +406,12 @@ func TestEncoderBackfillsDREDActivityFromSILKNoDecision(t *testing.T) {
 	enc.SetMode(ModeSILK)
 	enc.SetBandwidth(types.BandwidthWideband)
 	enc.SetBitrate(16000)
+	// Complexity below 7 disables the tonality analysis, so opus_encode_frame_native
+	// leaves activity at VAD_NO_DECISION and resolves the DRED activity from the SILK
+	// signalType (opus_encoder.c:1252 gate, :1888 init, :2235-2240 fixup). This is the
+	// path backfillDREDActivityForFrame mirrors; with a sufficiently quiet input SILK
+	// codes TYPE_NO_VOICE_ACTIVITY (signalType 0), so the activity memory backfills 0.
+	enc.SetComplexity(4)
 	enc.SetDNNBlob(mustMakeLoadableDREDEncoderBlob(t))
 	if err := enc.SetDREDDuration(4); err != nil {
 		t.Fatalf("SetDREDDuration error: %v", err)
