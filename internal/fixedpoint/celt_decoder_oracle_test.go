@@ -7,7 +7,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 

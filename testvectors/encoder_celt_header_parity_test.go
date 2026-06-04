@@ -5,10 +5,10 @@ import (
 	"math"
 	"testing"
 
-	"github.com/thesyncim/gopus/celt"
-	"github.com/thesyncim/gopus/encoder"
+	"github.com/thesyncim/gopus/internal/celt"
+	"github.com/thesyncim/gopus/internal/encoder"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 	"github.com/thesyncim/gopus/internal/testsignal"
-	"github.com/thesyncim/gopus/rangecoding"
 )
 
 type celtPostfilterHeader struct {

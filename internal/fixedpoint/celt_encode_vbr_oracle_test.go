@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // encodeFloatCompositionDrift reports whether a full-packet divergence is the

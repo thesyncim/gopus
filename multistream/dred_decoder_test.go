@@ -11,12 +11,12 @@ import (
 	"slices"
 	"testing"
 
-	internalenc "github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
+	internalenc "github.com/thesyncim/gopus/internal/encoder"
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
-	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 	"github.com/thesyncim/gopus/types"
 )
 

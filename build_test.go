@@ -39,13 +39,13 @@ func TestBuildAllPackages(t *testing.T) {
 	packages := []string{
 		".",
 		"./container/ogg",
-		"./rangecoding",
-		"./silk",
-		"./celt",
-		"./hybrid",
-		"./plc",
+		"./internal/rangecoding",
+		"./internal/silk",
+		"./internal/celt",
+		"./internal/hybrid",
+		"./internal/plc",
 		"./multistream",
-		"./encoder",
+		"./internal/encoder",
 		"./types",
 	}
 
@@ -186,10 +186,10 @@ func TestDefaultBuildIsZeroCostForGatedFeatures(t *testing.T) {
 		t.Skip("skipping dep-graph check in short mode")
 	}
 
-	// Public packages whose default build must stay neural/feature free. This
-	// covers the root package plus every importable sub-package a consumer can
-	// pull in directly.
-	publicPkgs := []string{".", "./encoder", "./multistream", "./hybrid", "./silk", "./celt"}
+	// Packages whose default build must stay neural/feature free. This covers
+	// the consumer-importable root and multistream packages plus the internal
+	// codec packages they pull in.
+	publicPkgs := []string{".", "./internal/encoder", "./multistream", "./internal/hybrid", "./internal/silk", "./internal/celt"}
 
 	// Packages that mirror libopus code gated behind a compile flag. None may
 	// appear in the default (untagged) import graph of any public package.
@@ -201,7 +201,7 @@ func TestDefaultBuildIsZeroCostForGatedFeatures(t *testing.T) {
 		modulePrefix + "internal/osce",        // ENABLE_OSCE
 		modulePrefix + "internal/osce/lace",   // ENABLE_OSCE (LACE / NoLACE)
 		modulePrefix + "internal/osce/bwe",    // ENABLE_OSCE_BWE
-		modulePrefix + "celt/custom",          // CUSTOM_MODES
+		modulePrefix + "internal/celt/custom", // CUSTOM_MODES
 		modulePrefix + "internal/fixedpoint",  // gopus_fixedpoint (integer CELT codec)
 	}
 
@@ -298,13 +298,13 @@ func TestDefaultBinaryHasNoFixedPointSymbols(t *testing.T) {
 	forbidden := []string{
 		"github.com/thesyncim/gopus/internal/fixedpoint",
 		// Package-local shims that live in //go:build gopus_fixedpoint files.
-		"github.com/thesyncim/gopus/celt.MaxPulsesBitsExport",
-		"github.com/thesyncim/gopus/celt.DecodeCELTAllocation",
-		"github.com/thesyncim/gopus/celt.TFDecode",
-		"github.com/thesyncim/gopus/rangecoding.(*Decoder).SkipToTell",
-		"github.com/thesyncim/gopus/rangecoding.(*Encoder).SkipToTell",
-		"github.com/thesyncim/gopus/rangecoding.(*Encoder).Snapshot",
-		"github.com/thesyncim/gopus/rangecoding.(*Encoder).Restore",
+		"github.com/thesyncim/gopus/internal/celt.MaxPulsesBitsExport",
+		"github.com/thesyncim/gopus/internal/celt.DecodeCELTAllocation",
+		"github.com/thesyncim/gopus/internal/celt.TFDecode",
+		"github.com/thesyncim/gopus/internal/rangecoding.(*Decoder).SkipToTell",
+		"github.com/thesyncim/gopus/internal/rangecoding.(*Encoder).SkipToTell",
+		"github.com/thesyncim/gopus/internal/rangecoding.(*Encoder).Snapshot",
+		"github.com/thesyncim/gopus/internal/rangecoding.(*Encoder).Restore",
 	}
 	for _, sym := range forbidden {
 		if strings.Contains(syms, sym) {
@@ -354,12 +354,12 @@ func TestDefaultBinaryHasNoGatedFeatureSymbols(t *testing.T) {
 	// and must be dead-code-eliminated / absent from the default link.
 	forbiddenShims := map[string]string{
 		// gopus_qext: native 96 kHz / extension-band CELT shims.
-		"github.com/thesyncim/gopus/celt.(*Decoder).SetQEXTPayload": "gopus_qext",
-		"github.com/thesyncim/gopus/celt.(*Encoder).SetQEXTEnabled": "gopus_qext",
-		"github.com/thesyncim/gopus/celt.(*Encoder).QEXTEnabled":    "gopus_qext",
+		"github.com/thesyncim/gopus/internal/celt.(*Decoder).SetQEXTPayload": "gopus_qext",
+		"github.com/thesyncim/gopus/internal/celt.(*Encoder).SetQEXTEnabled": "gopus_qext",
+		"github.com/thesyncim/gopus/internal/celt.(*Encoder).QEXTEnabled":    "gopus_qext",
 		// gopus_dred / gopus_extra_controls: neural conceal entry points.
-		"github.com/thesyncim/gopus/celt.(*Decoder).ConcealDRED48kToFloat32":      "gopus_dred",
-		"github.com/thesyncim/gopus/celt.(*Decoder).ConcealPLCNeural48kToFloat32": "gopus_extra_controls",
+		"github.com/thesyncim/gopus/internal/celt.(*Decoder).ConcealDRED48kToFloat32":      "gopus_dred",
+		"github.com/thesyncim/gopus/internal/celt.(*Decoder).ConcealPLCNeural48kToFloat32": "gopus_extra_controls",
 	}
 	for sym, tag := range forbiddenShims {
 		if strings.Contains(syms, sym) {

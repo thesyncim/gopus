@@ -18,7 +18,7 @@ package fixedpoint
 // truncating multiply macros (MULT16_16, MULT16_16_Q14/Q15, MAC16_32_Q15) cast
 // their 16-bit operand(s) to int16 first; that truncation is reproduced exactly.
 
-import "github.com/thesyncim/gopus/rangecoding"
+import "github.com/thesyncim/gopus/internal/rangecoding"
 
 // tfSelectTable ports celt/celt.c tf_select_table[4][8] (signed char). Indexed
 // by LM (0..3); the inner index is 4*isTransient + 2*tf_select + tf_res.

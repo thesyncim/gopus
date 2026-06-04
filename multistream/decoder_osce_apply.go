@@ -6,7 +6,7 @@ import (
 	"github.com/thesyncim/gopus/internal/opusmath"
 	osceBWE "github.com/thesyncim/gopus/internal/osce/bwe"
 	osceLACE "github.com/thesyncim/gopus/internal/osce/lace"
-	"github.com/thesyncim/gopus/silk"
+	"github.com/thesyncim/gopus/internal/silk"
 )
 
 // applyOSCEPostSilk runs the OSCE BWE 16 kHz -> 48 kHz forward pass on the

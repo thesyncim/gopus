@@ -18,13 +18,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 const (
-	defaultOpusdecCrossvalFixturePath = "celt/testdata/opusdec_crossval_fixture.json"
+	defaultOpusdecCrossvalFixturePath = "internal/celt/testdata/opusdec_crossval_fixture.json"
 	opusdecCrossvalFixtureOutEnv      = "GOPUS_OPUSDEC_CROSSVAL_FIXTURE_OUT"
 	allowPathOpusdecFallbackEnv       = "GOPUS_OPUSDEC_CROSSVAL_ALLOW_PATH_FALLBACK"
 )

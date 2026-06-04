@@ -29,7 +29,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
-	silkpkg "github.com/thesyncim/gopus/silk"
+	silkpkg "github.com/thesyncim/gopus/internal/silk"
 )
 
 // TestDecoderCachedCELTDRED16kExplicitMatchesLiveSequenceOracle gates the

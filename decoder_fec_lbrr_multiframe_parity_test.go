@@ -24,7 +24,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // fecMultiframeStereoPuregoTol bounds the amd64 pure-Go float-output drift of a

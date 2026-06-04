@@ -6,12 +6,12 @@ import (
 	"math"
 	"testing"
 
-	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
 	"github.com/thesyncim/gopus/internal/qualitycompare"
-	silkpkg "github.com/thesyncim/gopus/silk"
+	silkpkg "github.com/thesyncim/gopus/internal/silk"
 )
 
 // assertDecodedPCMQuality is the canonical end-to-end audio gate for this file's

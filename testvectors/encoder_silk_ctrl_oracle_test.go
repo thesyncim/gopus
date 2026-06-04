@@ -23,7 +23,7 @@ import (
 
 	gopus "github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/silk"
+	"github.com/thesyncim/gopus/internal/silk"
 	"github.com/thesyncim/gopus/types"
 )
 

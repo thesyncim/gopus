@@ -3,11 +3,11 @@
 package gopus
 
 import (
-	"github.com/thesyncim/gopus/celt"
-	"github.com/thesyncim/gopus/hybrid"
+	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
-	"github.com/thesyncim/gopus/rangecoding"
-	"github.com/thesyncim/gopus/silk"
+	"github.com/thesyncim/gopus/internal/hybrid"
+	"github.com/thesyncim/gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/silk"
 )
 
 const (

@@ -1,6 +1,6 @@
 package testvectors
 
-import "github.com/thesyncim/gopus/celt"
+import "github.com/thesyncim/gopus/internal/celt"
 
 // vorbisWindowFull returns the full-length Vorbis window value for a window of size n2.
 // It mirrors the CELT half-window (overlap) to build a full 2*overlap window.

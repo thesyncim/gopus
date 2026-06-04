@@ -58,8 +58,8 @@ func TestAssemblyValidationContract(t *testing.T) {
 
 func TestCELTLegacyFloat64AssemblyRequiresOptInTag(t *testing.T) {
 	legacyFloat64ASM := []string{
-		"celt/scale_float64_arm64.go",
-		"celt/scale_float64_arm64.s",
+		"internal/celt/scale_float64_arm64.go",
+		"internal/celt/scale_float64_arm64.s",
 	}
 	for _, path := range legacyFloat64ASM {
 		raw, err := os.ReadFile(path)

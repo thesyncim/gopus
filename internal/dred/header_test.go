@@ -3,7 +3,7 @@ package dred
 import (
 	"testing"
 
-	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 func makeHeaderPayloadForTest(t *testing.T, q0, dq, qmax, extraOffset, dredFrameOffset, dredOffset int) []byte {

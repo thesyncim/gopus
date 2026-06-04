@@ -8,7 +8,7 @@ import (
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
-	silkpkg "github.com/thesyncim/gopus/silk"
+	silkpkg "github.com/thesyncim/gopus/internal/silk"
 )
 
 const (

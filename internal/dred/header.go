@@ -3,7 +3,7 @@ package dred
 import (
 	"errors"
 
-	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 var errInvalidHeader = errors.New("dred: invalid experimental header")

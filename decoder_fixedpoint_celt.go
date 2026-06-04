@@ -3,9 +3,9 @@
 package gopus
 
 import (
-	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/fixedpoint"
-	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // celtDecodeFixedAPIRate runs the FIXED_POINT integer CELT decoder

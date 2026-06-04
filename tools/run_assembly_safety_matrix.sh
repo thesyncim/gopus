@@ -27,17 +27,17 @@ case "${host_arch}" in
       run_lane "amd64 ${goamd64} root assembly contract" \
         env GOWORK=off GOAMD64="${goamd64}" go test . -run "${ROOT_ASM_RE}" -count=1
       run_lane "amd64 ${goamd64} celt assembly parity" \
-        env GOWORK=off GOAMD64="${goamd64}" go test ./celt -run "${CELT_ASM_RE}" -count=1
+        env GOWORK=off GOAMD64="${goamd64}" go test ./internal/celt -run "${CELT_ASM_RE}" -count=1
       run_lane "amd64 ${goamd64} silk assembly parity" \
-        env GOWORK=off GOAMD64="${goamd64}" go test ./silk -run "${SILK_ASM_RE}" -count=1
+        env GOWORK=off GOAMD64="${goamd64}" go test ./internal/silk -run "${SILK_ASM_RE}" -count=1
       run_lane "amd64 ${goamd64} dnnmath assembly parity" \
         env GOWORK=off GOAMD64="${goamd64}" go test ./internal/dnnmath -run "${DNN_ASM_RE}" -count=1
       run_lane "amd64 ${goamd64} purego assembly references" \
-        env GOWORK=off GOAMD64="${goamd64}" go test -tags=purego . ./celt ./silk ./internal/dnnmath -run "${ROOT_ASM_RE}|${CELT_ASM_RE}|${SILK_ASM_RE}|${DNN_ASM_RE}" -count=1
+        env GOWORK=off GOAMD64="${goamd64}" go test -tags=purego . ./internal/celt ./internal/silk ./internal/dnnmath -run "${ROOT_ASM_RE}|${CELT_ASM_RE}|${SILK_ASM_RE}|${DNN_ASM_RE}" -count=1
       run_lane "amd64 ${goamd64} assembly fuzz smoke" \
-        env GOWORK=off GOAMD64="${goamd64}" go test ./celt -run '^$' -fuzz FuzzCELTAssemblyWrappersMatchReference -fuzztime "${ASM_FUZZTIME}" -count=1
+        env GOWORK=off GOAMD64="${goamd64}" go test ./internal/celt -run '^$' -fuzz FuzzCELTAssemblyWrappersMatchReference -fuzztime "${ASM_FUZZTIME}" -count=1
       run_lane "amd64 ${goamd64} silk assembly fuzz smoke" \
-        env GOWORK=off GOAMD64="${goamd64}" go test ./silk -run '^$' -fuzz FuzzSilkAssemblyKernelsMatchReference -fuzztime "${ASM_FUZZTIME}" -count=1
+        env GOWORK=off GOAMD64="${goamd64}" go test ./internal/silk -run '^$' -fuzz FuzzSilkAssemblyKernelsMatchReference -fuzztime "${ASM_FUZZTIME}" -count=1
       run_lane "amd64 ${goamd64} dnnmath assembly fuzz smoke" \
         env GOWORK=off GOAMD64="${goamd64}" go test ./internal/dnnmath -run '^$' -fuzz FuzzReciprocalEstimate32FiniteAndBounded -fuzztime "${ASM_FUZZTIME}" -count=1
       run_lane "amd64 ${goamd64} parity" \
@@ -50,27 +50,27 @@ case "${host_arch}" in
     ;;
   arm64)
     run_lane "arm64 assembly vet" \
-      env GOWORK=off go vet . ./celt ./silk ./internal/dnnmath
+      env GOWORK=off go vet . ./internal/celt ./internal/silk ./internal/dnnmath
     run_lane "linux/arm64 assembly vet" \
-      env GOWORK=off GOOS=linux GOARCH=arm64 go vet . ./celt ./silk ./internal/dnnmath
+      env GOWORK=off GOOS=linux GOARCH=arm64 go vet . ./internal/celt ./internal/silk ./internal/dnnmath
     run_lane "arm64 opt-in tone LPC assembly vet" \
-      env GOWORK=off go vet -tags=gopus_neon_tone_lpc_corr ./celt
+      env GOWORK=off go vet -tags=gopus_neon_tone_lpc_corr ./internal/celt
     run_lane "linux/arm64 opt-in tone LPC assembly vet" \
-      env GOWORK=off GOOS=linux GOARCH=arm64 go vet -tags=gopus_neon_tone_lpc_corr ./celt
+      env GOWORK=off GOOS=linux GOARCH=arm64 go vet -tags=gopus_neon_tone_lpc_corr ./internal/celt
     run_lane "arm64 root assembly contract" \
       env GOWORK=off go test . -run "${ROOT_ASM_RE}" -count=1
     run_lane "arm64 celt assembly parity" \
-      env GOWORK=off go test ./celt -run "${CELT_ASM_RE}" -count=1
+      env GOWORK=off go test ./internal/celt -run "${CELT_ASM_RE}" -count=1
     run_lane "arm64 silk assembly parity" \
-      env GOWORK=off go test ./silk -run "${SILK_ASM_RE}" -count=1
+      env GOWORK=off go test ./internal/silk -run "${SILK_ASM_RE}" -count=1
     run_lane "arm64 dnnmath assembly parity" \
       env GOWORK=off go test ./internal/dnnmath -run "${DNN_ASM_RE}" -count=1
     run_lane "arm64 purego assembly references" \
-      env GOWORK=off go test -tags=purego . ./celt ./silk ./internal/dnnmath -run "${ROOT_ASM_RE}|${CELT_ASM_RE}|${SILK_ASM_RE}|${DNN_ASM_RE}" -count=1
+      env GOWORK=off go test -tags=purego . ./internal/celt ./internal/silk ./internal/dnnmath -run "${ROOT_ASM_RE}|${CELT_ASM_RE}|${SILK_ASM_RE}|${DNN_ASM_RE}" -count=1
     run_lane "arm64 celt assembly fuzz smoke" \
-      env GOWORK=off go test ./celt -run '^$' -fuzz FuzzCELTAssemblyWrappersMatchReference -fuzztime "${ASM_FUZZTIME}" -count=1
+      env GOWORK=off go test ./internal/celt -run '^$' -fuzz FuzzCELTAssemblyWrappersMatchReference -fuzztime "${ASM_FUZZTIME}" -count=1
     run_lane "arm64 silk assembly fuzz smoke" \
-      env GOWORK=off go test ./silk -run '^$' -fuzz FuzzSilkAssemblyKernelsMatchReference -fuzztime "${ASM_FUZZTIME}" -count=1
+      env GOWORK=off go test ./internal/silk -run '^$' -fuzz FuzzSilkAssemblyKernelsMatchReference -fuzztime "${ASM_FUZZTIME}" -count=1
     run_lane "arm64 dnnmath assembly fuzz smoke" \
       env GOWORK=off go test ./internal/dnnmath -run '^$' -fuzz FuzzReciprocalEstimate32FiniteAndBounded -fuzztime "${ASM_FUZZTIME}" -count=1
     run_lane "arm64 parity" \

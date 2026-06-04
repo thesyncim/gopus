@@ -4,7 +4,7 @@ package gopus
 
 import (
 	internaldred "github.com/thesyncim/gopus/internal/dred"
-	"github.com/thesyncim/gopus/silk"
+	"github.com/thesyncim/gopus/internal/silk"
 )
 
 func (d *Decoder) explicitDREDResultForDecode(dred *DRED) internaldred.Result {

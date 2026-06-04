@@ -10,7 +10,7 @@ import (
 
 	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/internal/opusmath"
-	"github.com/thesyncim/gopus/plc"
+	"github.com/thesyncim/gopus/internal/plc"
 )
 
 // ensureDecodedStreamsScratch returns a reusable [][]float32 header sized to

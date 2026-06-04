@@ -3,7 +3,7 @@ package gopus
 import (
 	"testing"
 
-	celtpkg "github.com/thesyncim/gopus/celt"
+	celtpkg "github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 

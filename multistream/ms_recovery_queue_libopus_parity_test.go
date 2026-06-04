@@ -14,7 +14,7 @@ package multistream
 import (
 	"testing"
 
-	internalenc "github.com/thesyncim/gopus/encoder"
+	internalenc "github.com/thesyncim/gopus/internal/encoder"
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/qualitycompare"
 	"github.com/thesyncim/gopus/types"

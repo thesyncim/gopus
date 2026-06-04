@@ -4,8 +4,8 @@ import (
 	"math"
 	"testing"
 
-	"github.com/thesyncim/gopus/celt"
-	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/internal/celt"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 func TestCoarseEnergyRoundTrip(t *testing.T) {

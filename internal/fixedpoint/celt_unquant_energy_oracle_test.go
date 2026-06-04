@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // TestUnquantEnergyOracle checks the FIXED_POINT energy unquantizers

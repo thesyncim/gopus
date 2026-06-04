@@ -21,7 +21,7 @@ import (
 	"math"
 	"testing"
 
-	internalenc "github.com/thesyncim/gopus/encoder"
+	internalenc "github.com/thesyncim/gopus/internal/encoder"
 	"github.com/thesyncim/gopus/types"
 )
 

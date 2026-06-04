@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/celt"
 )
 
 // TestMDCTShortOverlapRoundTrip tests MDCT/IMDCT with CELT short overlap (120 samples).

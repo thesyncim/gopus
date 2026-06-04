@@ -3,12 +3,12 @@
 package multistream
 
 import (
-	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/internal/fixedpoint"
 	"github.com/thesyncim/gopus/internal/opusmath"
-	"github.com/thesyncim/gopus/plc"
-	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/internal/plc"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // DecodeToResFixed decodes a multistream packet and returns the libopus

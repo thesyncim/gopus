@@ -3,8 +3,8 @@
 package fixedpoint
 
 import (
-	"github.com/thesyncim/gopus/celt"
-	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/internal/celt"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // This file assembles the FIXED_POINT celt_encode_with_ec driver

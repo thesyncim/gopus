@@ -15,7 +15,7 @@ import (
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/benchutil"
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // hd96kDecodeArm64Tol bounds the documented darwin/arm64 CELT cosine/rsqrt

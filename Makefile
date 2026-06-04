@@ -422,7 +422,7 @@ ensure-libopus-scalar:
 # is covered byte-exact by the testvectors CELT gates.
 test-custom-parity: ensure-libopus-custom-scalar
 	$(GO_WORK_ENV) GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_REF_SCALAR=1 \
-		$(GO) test -tags 'gopus_custom gopus_libopus_oracle purego' -count=1 ./celt/custom/...
+		$(GO) test -tags 'gopus_custom gopus_libopus_oracle purego' -count=1 ./internal/celt/custom/...
 
 # Live (fixture-free) gopus-vs-libopus decode parity on the extended synthetic
 # corpus signal classes across SILK/Hybrid/CELT mono+stereo configs, plus the
@@ -565,7 +565,7 @@ fixtures-gen-platform: ensure-libopus
 	GOPUS_DECODER_RATE_MATRIX_FIXTURE_OUT="testvectors/testdata/libopus_decoder_rate_matrix_fixture_$${suffix}.json" $(GO_WORK_ENV) $(GO) run tools/gen_libopus_decoder_rate_matrix_fixture.go; \
 	GOPUS_ENCODER_PACKETS_FIXTURE_OUT="testvectors/testdata/encoder_compliance_libopus_packets_fixture_$${suffix}.json" $(GO_WORK_ENV) $(GO) run tools/gen_libopus_encoder_packet_fixture.go; \
 	GOPUS_ENCODER_VARIANTS_FIXTURE_OUT="testvectors/testdata/encoder_compliance_libopus_variants_fixture_$${suffix}.json" $(GO_WORK_ENV) $(GO) run tools/gen_libopus_encoder_variants_fixture.go; \
-	GOPUS_OPUSDEC_CROSSVAL_FIXTURE_OUT="celt/testdata/opusdec_crossval_fixture_$${suffix}.json" $(GO_WORK_ENV) $(GO) run tools/gen_opusdec_crossval_fixture.go; \
+	GOPUS_OPUSDEC_CROSSVAL_FIXTURE_OUT="internal/celt/testdata/opusdec_crossval_fixture_$${suffix}.json" $(GO_WORK_ENV) $(GO) run tools/gen_opusdec_crossval_fixture.go; \
 	make fixtures-assert-platform
 
 fixtures-assert-platform:
@@ -579,11 +579,11 @@ fixtures-assert-platform:
 		"testvectors/testdata/libopus_decoder_rate_matrix_fixture_$${suffix}.json" \
 		"testvectors/testdata/encoder_compliance_libopus_packets_fixture_$${suffix}.json" \
 		"testvectors/testdata/encoder_compliance_libopus_variants_fixture_$${suffix}.json" \
-		"celt/testdata/opusdec_crossval_fixture_$${suffix}.json"; do \
+		"internal/celt/testdata/opusdec_crossval_fixture_$${suffix}.json"; do \
 		test -s "$${path}" || { echo "missing generated platform fixture: $${path}" >&2; exit 1; }; \
 	done; \
 	GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=fast $(GO_WORK_ENV) $(GO) test ./testvectors -run '^(TestRequiredPlatformFixturesPresent|TestFixtureGeneratorsUseLibopusOpusDemo|TestEncoder(PacketFixtureStableOrdering|VariantsFixtureStableOrdering)|TestPlatformFixture)' -count=1; \
-	GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=fast $(GO_WORK_ENV) $(GO) test ./celt -run '^(TestOpusdecCrossvalRequiredPlatformFixturePresent|TestOpusdecCrossvalFixtureCoverage|TestOpusdecCrossvalFixtureMatrix|TestOpusdecCrossvalPlatformFixturePath|TestOpusdecCrossvalRequirePlatformFixtureDisablesFallback)' -count=1
+	GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=fast $(GO_WORK_ENV) $(GO) test ./internal/celt -run '^(TestOpusdecCrossvalRequiredPlatformFixturePresent|TestOpusdecCrossvalFixtureCoverage|TestOpusdecCrossvalFixtureMatrix|TestOpusdecCrossvalPlatformFixturePath|TestOpusdecCrossvalRequirePlatformFixtureDisablesFallback)' -count=1
 
 # Regenerate linux/amd64-specific fixture files in a cached linux/amd64 container.
 fixtures-gen-linux-amd64: docker-build-exhaustive
@@ -631,4 +631,4 @@ clean-vectors:
 
 # Run kernel-level benchmarks for CELT and SILK DSP functions.
 bench-kernels:
-	$(GO_WORK_ENV) $(GO) test -bench=. -benchmem -count=5 ./celt/ ./silk/
+	$(GO_WORK_ENV) $(GO) test -bench=. -benchmem -count=5 ./internal/celt/ ./internal/silk/

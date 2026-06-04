@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/celt"
 )
 
 // TestSynthesisMatch verifies that the short-overlap IMDCT path matches

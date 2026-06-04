@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // TestCELTEncodeWithECOracle checks the FIXED_POINT celt_encode_with_ec CBR

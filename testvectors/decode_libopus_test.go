@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus"
-	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/celt"
 )
 
 func TestDecodeLibopusPacket(t *testing.T) {

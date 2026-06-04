@@ -6,7 +6,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/thesyncim/gopus/plc"
+	"github.com/thesyncim/gopus/internal/plc"
 	"github.com/thesyncim/gopus/types"
 )
 

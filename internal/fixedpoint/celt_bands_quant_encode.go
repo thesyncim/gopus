@@ -3,8 +3,8 @@
 package fixedpoint
 
 import (
-	"github.com/thesyncim/gopus/celt"
-	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/internal/celt"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // This file ports the CELT FIXED_POINT band-shape encode (quant_all_bands

@@ -49,16 +49,16 @@ func TestGeneratedFilesDeclareGeneratedMarkerBeforePackage(t *testing.T) {
 	requireTestTier(t, testTierFast)
 
 	paths := []string{
-		filepath.Join("..", "celt", "kissfft32_lpcnet_320_static.go"),
-		filepath.Join("..", "celt", "math_utils_tables_static.go"),
-		filepath.Join("..", "celt", "window_tables_static.go"),
+		filepath.Join("..", "internal", "celt", "kissfft32_lpcnet_320_static.go"),
+		filepath.Join("..", "internal", "celt", "math_utils_tables_static.go"),
+		filepath.Join("..", "internal", "celt", "window_tables_static.go"),
 		filepath.Join("..", "container", "ogg", "projection_demixing_defaults_data.go"),
 		filepath.Join("..", "internal", "dnnblob", "model_manifests_generated.go"),
 		filepath.Join("..", "internal", "dred", "stats_deadzone_tables.go"),
 		filepath.Join("..", "internal", "dred", "stats_tables.go"),
 		filepath.Join("..", "internal", "lpcnetplc", "analysis_tables_generated.go"),
 		filepath.Join("..", "multistream", "projection_mixing_defaults_data.go"),
-		filepath.Join("..", "silk", "libopus_tables.go"),
+		filepath.Join("..", "internal", "silk", "libopus_tables.go"),
 	}
 	for _, p := range paths {
 		p := p

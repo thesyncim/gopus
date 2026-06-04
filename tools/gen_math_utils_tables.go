@@ -58,7 +58,7 @@ func emitIntArray(w *bufio.Writer, name string, vals []int) {
 }
 
 func main() {
-	out := flag.String("out", "celt/math_utils_tables_static.go", "output file path")
+	out := flag.String("out", "internal/celt/math_utils_tables_static.go", "output file path")
 	flag.Parse()
 
 	cos := make([]int, bitexactThetaMax+1)

@@ -2,7 +2,7 @@
 
 package gopus
 
-import "github.com/thesyncim/gopus/silk"
+import "github.com/thesyncim/gopus/internal/silk"
 
 func (d *Decoder) installOSCELACESilkPostfilterHook(_ Mode, _ silk.Bandwidth, _ bool) func() {
 	return func() {}

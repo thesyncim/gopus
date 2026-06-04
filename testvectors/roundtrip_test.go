@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/celt"
 )
 
 // TestGopusRoundTrip tests encoding and decoding with our own encoder/decoder.

@@ -2,7 +2,7 @@
 
 package gopus
 
-import "github.com/thesyncim/gopus/silk"
+import "github.com/thesyncim/gopus/internal/silk"
 
 // maybeApplyOSCEBWEPostSilk is a no-op outside of the explicit
 // `gopus_extra_controls` build. Default builds keep the OSCE BWE

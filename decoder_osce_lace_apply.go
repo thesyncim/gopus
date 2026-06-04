@@ -4,7 +4,7 @@ package gopus
 
 import (
 	osceLACE "github.com/thesyncim/gopus/internal/osce/lace"
-	"github.com/thesyncim/gopus/silk"
+	"github.com/thesyncim/gopus/internal/silk"
 )
 
 // osceLACEMode picks the decoder-complexity selected OSCE method.

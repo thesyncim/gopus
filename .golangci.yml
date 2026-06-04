@@ -70,17 +70,17 @@ issues:
       linters:
         - gosimple
     # Existing trace-hook placeholders currently trip SA9003 in CELT internals.
-    - path: ^celt/
+    - path: ^internal/celt/
       text: "SA9003:"
       linters:
         - staticcheck
     # CELT parity trace hooks deliberately return unexported instrumentation
     # types consumed only by in-package libopus parity tests.
-    - path: ^celt/(plc|synthesis)_stage_trace\.go$
+    - path: ^internal/celt/(plc|synthesis)_stage_trace\.go$
       text: "unexported-return:"
       linters:
         - revive
-    - path: ^celt/(bands|dynalloc|encode_frame|pvq_search|qext_alloc)\.go$
+    - path: ^internal/celt/(bands|dynalloc|encode_frame|pvq_search|qext_alloc)\.go$
       text: "SA4006:"
       linters:
         - staticcheck
@@ -90,11 +90,11 @@ issues:
       text: "SA4006:"
       linters:
         - staticcheck
-    - path: ^encoder/encoder\.go$
+    - path: ^internal/encoder/encoder\.go$
       text: "SA4006:"
       linters:
         - staticcheck
-    - path: ^silk/(libopus_decode|pitch_detect)\.go$
+    - path: ^internal/silk/(libopus_decode|pitch_detect)\.go$
       text: "SA4006:"
       linters:
         - staticcheck
@@ -106,11 +106,11 @@ issues:
     - path: ^tools/gen_opusdec_crossval_fixture\.go$
       linters:
         - errcheck
-    - path: ^encoder/encoder\.go$
+    - path: ^internal/encoder/encoder\.go$
       linters:
         - errcheck
         - ineffassign
-    - path: ^celt/(bands|bands_quant|channel_adapters|decoder_flow_helpers|dynalloc|encode_frame|pvq_search|qext_alloc)\.go$
+    - path: ^internal/celt/(bands|bands_quant|channel_adapters|decoder_flow_helpers|dynalloc|encode_frame|pvq_search|qext_alloc)\.go$
       linters:
         - ineffassign
     # FIXED_POINT twins of the CELT kernels: the flagged stores are faithful
@@ -124,6 +124,6 @@ issues:
     - path: ^multistream/framing\.go$
       linters:
         - ineffassign
-    - path: ^silk/(libopus_decode|pitch_detect)\.go$
+    - path: ^internal/silk/(libopus_decode|pitch_detect)\.go$
       linters:
         - ineffassign

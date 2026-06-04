@@ -11,7 +11,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/thesyncim/gopus/encoder"
+	"github.com/thesyncim/gopus/internal/encoder"
 	"github.com/thesyncim/gopus/types"
 )
 

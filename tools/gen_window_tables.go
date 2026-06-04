@@ -62,7 +62,7 @@ func emitFloat32Array(w *bufio.Writer, name, typeExpr string, vals []float32) {
 }
 
 func main() {
-	out := flag.String("out", "celt/window_tables_static.go", "output file path")
+	out := flag.String("out", "internal/celt/window_tables_static.go", "output file path")
 	flag.Parse()
 
 	overlaps := []int{120, 240, 480, 960}

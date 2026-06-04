@@ -4,14 +4,14 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/thesyncim/gopus/celt"
-	"github.com/thesyncim/gopus/hybrid"
+	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/extsupport"
+	"github.com/thesyncim/gopus/internal/hybrid"
 	"github.com/thesyncim/gopus/internal/opusmath"
-	"github.com/thesyncim/gopus/plc"
-	"github.com/thesyncim/gopus/rangecoding"
-	"github.com/thesyncim/gopus/silk"
+	"github.com/thesyncim/gopus/internal/plc"
+	"github.com/thesyncim/gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/silk"
 	"github.com/thesyncim/gopus/types"
 )
 

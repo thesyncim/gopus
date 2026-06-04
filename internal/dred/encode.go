@@ -3,7 +3,7 @@ package dred
 import (
 	"github.com/thesyncim/gopus/internal/dnnmath"
 	"github.com/thesyncim/gopus/internal/opusmath"
-	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // ActivityHistorySize is the length of the encoder voice-activity history at

@@ -1,10 +1,10 @@
 package gopus
 
 import (
-	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/extsupport"
-	"github.com/thesyncim/gopus/rangecoding"
-	"github.com/thesyncim/gopus/silk"
+	"github.com/thesyncim/gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/silk"
 )
 
 var celtSilenceFrame2B = [...]byte{0xFF, 0xFF}

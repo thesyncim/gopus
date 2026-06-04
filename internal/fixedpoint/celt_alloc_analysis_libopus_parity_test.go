@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // eband5ms is the libopus 5ms band layout (celt/static_modes_fixed_arm.h /

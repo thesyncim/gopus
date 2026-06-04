@@ -2,7 +2,7 @@
 
 package fixedpoint
 
-import "github.com/thesyncim/gopus/rangecoding"
+import "github.com/thesyncim/gopus/internal/rangecoding"
 
 // This file ports the entropy-coder-driven FIXED_POINT CELT energy quantizers
 // from celt/quant_bands.c: quant_coarse_energy (including the two-pass

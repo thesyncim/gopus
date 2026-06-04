@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // algQuantRanges spans the celt_norm magnitudes alg_quant sees: post-MDCT

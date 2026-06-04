@@ -1,9 +1,9 @@
 package gopus
 
 import (
-	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/extsupport"
-	"github.com/thesyncim/gopus/silk"
+	"github.com/thesyncim/gopus/internal/silk"
 )
 
 func (d *Decoder) decodePLCForFEC(pcm []float32, frameSize int) (int, error) {

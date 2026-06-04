@@ -33,7 +33,7 @@ package lace
 // kernel via the celt package.
 
 import (
-	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
