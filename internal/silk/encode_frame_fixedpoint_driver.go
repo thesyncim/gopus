@@ -434,11 +434,9 @@ func (e *Encoder) encodeFrameFixedBody(
 	insert := st.xBuf[xFrame+laShape : xFrame+laShape+frameSamples]
 	copy(insert, inputBuf)
 
-	predictLPCOrder := int(e.pitchEstimationLPCOrder)
+	predictLPCOrder := 10
 	if int(e.lpcOrder) == 16 {
 		predictLPCOrder = 16
-	} else {
-		predictLPCOrder = 10
 	}
 	pitchEstLPCOrder := int(e.pitchEstimationLPCOrder)
 	if pitchEstLPCOrder > predictLPCOrder {

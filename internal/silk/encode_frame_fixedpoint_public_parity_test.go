@@ -210,8 +210,8 @@ func rebuildPublicSILKPacket(bw Bandwidth, fsKHz int, cbr bool, snap FixedPreEnc
 	helper := &Encoder{}
 	helper.silkEncodeFramePayloadFIX(ps)
 
-	// Patch VAD + LBRR flags (vadFlag=1, lbrrFlag=0).
-	re.PatchInitialBits(uint32(1<<1)|0, 2)
+	// Patch VAD + LBRR flags (vadFlag=1 in bit 1, lbrrFlag=0 in bit 0).
+	re.PatchInitialBits(uint32(1<<1), 2)
 	nBytesOut := (re.Tell() + 7) >> 3
 	raw := re.Done()
 	if nBytesOut > len(raw) {
