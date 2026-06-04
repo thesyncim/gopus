@@ -1,6 +1,10 @@
 package celt
 
-import "github.com/thesyncim/gopus/internal/opusmath"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
+)
 
 // NOTE ON APPARENT CODE DUPLICATION:
 // The butterfly functions (kfBfly2, kfBfly3, kfBfly4, kfBfly5) and complex
@@ -41,17 +45,21 @@ func kissHalfSub(a, b float32) float32 {
 	return a - 0.5*b
 }
 
-//go:noinline
+// kissScaleMul, kissAdd, and kissSub are the FFT's float32 multiply/add/subtract
+// primitives. kissScaleMul materializes the product through a Float32bits round-trip
+// so a surrounding butterfly t = w*f followed by f ± t cannot contract into a single
+// FMADD (which would diverge from scalar libopus); with the product materialized the
+// add and subtract have no multiply left to fuse and need no barrier. Unlike a
+// //go:noinline call these inline, shedding the per-operation call overhead while
+// staying bit-identical to the scalar reference on every build.
 func kissScaleMul(a, b float32) float32 {
-	return a * b
+	return math.Float32frombits(math.Float32bits(a * b))
 }
 
-//go:noinline
 func kissAdd(a, b float32) float32 {
 	return a + b
 }
 
-//go:noinline
 func kissSub(a, b float32) float32 {
 	return a - b
 }
