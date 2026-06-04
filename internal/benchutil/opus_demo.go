@@ -1,3 +1,6 @@
+// Package benchutil locates the pinned libopus reference binaries (opus_demo,
+// opus_compare) and writes the raw-PCM and bitstream input files the parity and
+// benchmark tooling feeds to them.
 package benchutil
 
 import (
@@ -124,6 +127,8 @@ func FrameSizeArg(frameSize int) (string, error) {
 	}
 }
 
+// WriteRepeatedRawFloat32 writes samples to path as little-endian raw float32,
+// repeated repeat times, in the interleaved PCM layout opus_demo reads.
 func WriteRepeatedRawFloat32(path string, samples []float32, repeat int) error {
 	if repeat < 1 {
 		return fmt.Errorf("repeat must be >= 1")

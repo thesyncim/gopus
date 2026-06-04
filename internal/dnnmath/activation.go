@@ -1,3 +1,7 @@
+// Package dnnmath provides the activation, exponent and input-quantization
+// kernels libopus' neural-network code (DRED, OSCE) relies on. Each kernel keeps
+// a scalar path that mirrors the generic libopus build and, on arm64, a NEON
+// path matching the SIMD reference so the DNN output is bit-exact per tier.
 package dnnmath
 
 import (
