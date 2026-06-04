@@ -35,11 +35,6 @@ func (e *Encoder) fixedCELTFinalRange() (uint32, bool) {
 	return 0, false
 }
 
-// fixedCELTUsedForTOC reports whether the last frame was produced by the integer
-// CELT path, gating the API-rate -> 48 kHz TOC frame-size conversion (the integer
-// path consumes API-rate frame sizes, the float path 48 kHz-equivalent ones).
-func (e *Encoder) fixedCELTUsedForTOC() bool { return e.fixedCELTUsed }
-
 // clearFixedCELTUsed resets the integer-CELT-used flag at the start of each
 // packet so a stale value from a previous CELT frame cannot mis-gate the TOC
 // frame-size conversion for a subsequent SILK/Hybrid frame.
