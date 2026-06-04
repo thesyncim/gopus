@@ -46,7 +46,7 @@ func celtFixedFullbandTOC(frameSize48 int, stereo bool) (byte, bool) {
 	default:
 		return 0, false
 	}
-	toc := byte(config<<3) | 0x00 // code 0 (single frame)
+	toc := byte(config << 3) // code 0 (single frame): low framing bits stay 0
 	if stereo {
 		toc |= 0x04
 	}
