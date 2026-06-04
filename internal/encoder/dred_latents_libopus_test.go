@@ -437,6 +437,6 @@ func buildEncoderLibopusDREDHelper(sourceFile, outputBase string, includeInterna
 	if err != nil {
 		return "", fmt.Errorf("getwd: %w", err)
 	}
-	repoRoot := filepath.Clean(filepath.Join(wd, ".."))
+	repoRoot := filepath.Clean(filepath.Join(wd, "..", ".."))
 	return libopustest.BuildDREDHelper(repoRoot, sourceFile, outputBase, includeInternal)
 }
