@@ -19,7 +19,7 @@
 //   X3    = x[i]
 //   X4    = x[i+delay]
 //   X5    = x[i+delay2]
-TEXT ·toneLPCCorrAVXFMA(SB), NOSPLIT, $0-56
+TEXT ·toneLPCCorrAVXFMA(SB), NOSPLIT, $0-60
 	MOVQ x_base+0(FP), AX
 	MOVQ cnt+24(FP), CX
 	MOVQ delay+32(FP), DX
@@ -61,8 +61,8 @@ loop:
 	JNZ  loop
 
 store:
-	VMOVSS X0, ret+48(FP)
-	VMOVSS X1, ret1+52(FP)
-	VMOVSS X2, ret2+56(FP)
+	VMOVSS X0, r00+48(FP)
+	VMOVSS X1, r01+52(FP)
+	VMOVSS X2, r02+56(FP)
 	VZEROUPPER
 	RET
