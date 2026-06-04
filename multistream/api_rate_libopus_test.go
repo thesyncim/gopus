@@ -11,18 +11,15 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
-// These tests previously asserted near-exactness of gopus multistream decode
-// against a libopus reference via raw max-abs-diff / 1-LSB int16 tolerances.
-// Per the two-tier quality policy they now gate end-to-end decoded audio with
-// the canonical comparator (internal/qualitycompare). The trusted opus_compare Q
-// only accepts 48 kHz mono/stereo PCM; every case here is either sub-48 kHz or
-// 3+ channel multistream, so opus_compare cannot score them and they gate on the
-// canonical waveform correlation / RMS-ratio diagnostics instead (the comparator
-// itself exposes these as its secondary metrics). The decode is frame-aligned
-// against the reference (the former gates used delay-0 max-abs-diff), so the
-// diagnostics are computed at delay 0 with no alignment search. Internal-state
-// oracles, packet-duration checks, decoded length, and stream-mode assertions
-// remain exact hard gates.
+// These tests gate end-to-end decoded gopus multistream audio against a libopus
+// reference with the canonical comparator (internal/qualitycompare). The trusted
+// opus_compare Q only accepts 48 kHz mono/stereo PCM; every case here is either
+// sub-48 kHz or 3+ channel multistream, so opus_compare cannot score them and
+// they gate on the canonical waveform correlation / RMS-ratio diagnostics instead
+// (the comparator itself exposes these as its secondary metrics). The decode is
+// frame-aligned against the reference, so the diagnostics are computed at delay 0
+// with no alignment search. Internal-state oracles, packet-duration checks,
+// decoded length, and stream-mode assertions are exact hard gates.
 
 // compareWaveformF32 builds a QualityComparison from the canonical waveform
 // correlation / RMS-ratio diagnostics for decoded PCM that opus_compare cannot
@@ -77,8 +74,8 @@ func waveformCorrRMSF32(a, b []float32) (corr, rmsRatio float64) {
 
 // qualityBarWaveformNearExact is the trusted bar for multistream decode cases
 // opus_compare cannot score (sub-48 kHz, or 3+ channels): Q is unchecked
-// (MinQ:0) and the corr/RMS floors mirror QualityBarNearExact, since these cases
-// formerly held a tight max-abs-diff against the libopus reference.
+// (MinQ:0) and the corr/RMS floors mirror QualityBarNearExact, holding these
+// cases near-exact against the libopus reference.
 var qualityBarWaveformNearExact = qualitycompare.QualityBar{
 	MinQ:    0.0,
 	MinCorr: 0.997,

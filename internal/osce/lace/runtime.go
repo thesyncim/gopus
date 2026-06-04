@@ -1099,11 +1099,9 @@ func computeGenericGRU(inputW, recurrentW *LinearLayer, state, in []float32) {
 		// libopus dnn/nnet.c:compute_generic_gru: h[i] = z[i]*state[i] + (1-z[i])*h[i]
 		// as one C statement. clang -ffp-contract=on contracts the leftmost
 		// product z*state into an FMA while the trailing product (1-z)*h rounds
-		// first. The Go arm64 backend instead contracts the *trailing* multiply
-		// for an a*b + c*d expression, so the previous fma32(z, state, (1-z)*h)
-		// diverged by 1 ULP (verified bit-for-bit against the reference helper).
-		// gruFMA32 pins the z*state contraction (hardware FMADDS on arm64);
-		// roundMul32 keeps (1-z)*h rounded as the FMA addend.
+		// first. To match that rounding bit-for-bit, gruFMA32 pins the z*state
+		// contraction (hardware FMADDS on arm64) and roundMul32 keeps (1-z)*h
+		// rounded as the FMA addend.
 		h[i] = gruFMA32(z[i], state[i], roundMul32(1-z[i], h[i]))
 		state[i] = h[i]
 	}
