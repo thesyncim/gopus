@@ -241,6 +241,40 @@ func (e *Encoder) decideDTXSuppress(activity bool, frameSize int) bool {
 	return false
 }
 
+// subframeDTXSuppress runs the per-sub-frame Opus-level DTX decision for one
+// internal frame of a multi-frame packet. It mirrors libopus
+// opus_encode_frame_native, which computes the per-frame activity (analysis /
+// peak-energy branch) and then calls decide_dtx_mode once per sub-frame with the
+// sub-frame's duration (opus_encoder.c:1911-1930, 2564-2572). It must be called
+// AFTER the sub-frame is encoded so the encoder state has already advanced
+// exactly as libopus does before the payload is discarded for a suppressed
+// sub-frame.
+//
+// subVADPCM is the unfiltered sub-frame PCM (the same buffer the whole-frame VAD
+// would use). When vadAlreadyComputed is true the caller has already populated
+// the Opus-level VAD decision (e.g. the DRED path ran updateOpusVADRes for this
+// sub-frame), so the activity is read back from that decision instead of being
+// recomputed — this avoids double-counting peak_signal_energy.
+//
+// Returns true when the sub-frame should be emitted as a length-0 (suppressed)
+// frame in the repacketized packet.
+func (e *Encoder) subframeDTXSuppress(mode Mode, subVADPCM []opusRes, subFrameSize int, vadAlreadyComputed bool) bool {
+	if !e.dtxEnabled || e.dtx == nil {
+		return false
+	}
+	if !vadAlreadyComputed {
+		// Compute the Opus-level activity + peak-energy tracking for this
+		// sub-frame exactly as the whole-frame path does for short packets.
+		if mode == ModeCELT {
+			e.updateCELTOnlyOpusVADRes(subVADPCM, subFrameSize)
+		} else {
+			e.updateOpusVADRes(subVADPCM, subFrameSize)
+		}
+	}
+	activity := e.resolveDTXActivity()
+	return e.decideDTXSuppress(activity, subFrameSize)
+}
+
 // InDTX returns whether the encoder is currently in DTX mode.
 // This matches OPUS_GET_IN_DTX from libopus.
 func (e *Encoder) InDTX() bool {

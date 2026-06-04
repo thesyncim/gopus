@@ -146,10 +146,21 @@ type Encoder struct {
 	lastOpusVADActive           bool
 	lastOpusVADValid            bool
 	lastOpusVADProb             float32
-	silkVAD                     *VADState
-	silkVADMidFeedback          *VADState
-	silkVADSide                 *VADState
-	fec                         *fecState
+	// multiFrameDTXCount is the number of internal sub-frames the most recent
+	// encode*MultiFramePacket call suppressed via the per-sub-frame DTX decision
+	// (libopus opus_encoder.c dtx_count). It is transient per Encode call.
+	multiFrameDTXCount int
+	// multiFrameLastSubframeDTX records whether the final internal sub-frame of
+	// the most recent encode*MultiFramePacket call was DTX-suppressed. libopus
+	// reports st->rangeFinal from the last opus_encode_frame_native call in the
+	// repacketizer loop, and that call zeroes rangeFinal when it DTXes
+	// (opus_encoder.c:2569), so a packet whose last sub-frame is suppressed has a
+	// final range of 0. It is transient per Encode call.
+	multiFrameLastSubframeDTX bool
+	silkVAD                   *VADState
+	silkVADMidFeedback        *VADState
+	silkVADSide               *VADState
+	fec                       *fecState
 
 	// DTX (Discontinuous Transmission) controls
 	dtxEnabled bool
@@ -454,6 +465,53 @@ func (e *Encoder) DNNBlobLoaded() bool {
 // is 960, matching the legacy 48 kHz-relative frame-size convention.
 func (e *Encoder) frame20ms() int {
 	return int(e.sampleRate) / 50
+}
+
+// isMultiFramePacket reports whether the given mode/frameSize is encoded as an
+// Opus multi-frame packet (N internal 20ms — or for SILK 20/40/60ms — sub-frames
+// repacketized together). This mirrors libopus opus_encode_native's condition at
+// opus_encoder.c:1698: any >20ms CELT/Hybrid packet, or any SILK packet >60ms.
+// For these packets the per-sub-frame DTX decision and Opus-level activity are
+// handled inside the encode*MultiFramePacket loop, not at the whole-frame level.
+func (e *Encoder) isMultiFramePacket(mode Mode, frameSize int) bool {
+	f20 := e.frame20ms()
+	if frameSize <= 0 || f20 <= 0 || frameSize%f20 != 0 {
+		return false
+	}
+	switch mode {
+	case ModeCELT, ModeHybrid:
+		return frameSize > f20
+	case ModeSILK:
+		return frameSize > 3*f20
+	default:
+		return false
+	}
+}
+
+// multiFrameSubframeCount returns how many internal sub-frames a multi-frame
+// packet of this mode/frameSize is split into, matching the encode loop counts:
+// CELT/Hybrid split into frameSize/20ms sub-frames; SILK splits 80ms->2x40ms,
+// 100ms->5x20ms, 120ms->2x60ms (libopus opus_encoder.c:1713-1725). Returns 0 if
+// the packet is not a multi-frame packet.
+func (e *Encoder) multiFrameSubframeCount(mode Mode, frameSize int) int {
+	if !e.isMultiFramePacket(mode, frameSize) {
+		return 0
+	}
+	f20 := e.frame20ms()
+	switch mode {
+	case ModeCELT, ModeHybrid:
+		return frameSize / f20
+	case ModeSILK:
+		switch frameSize {
+		case 4 * f20: // 80 ms -> 2x40 ms
+			return 2
+		case 5 * f20: // 100 ms -> 5x20 ms
+			return 5
+		case 6 * f20: // 120 ms -> 2x60 ms
+			return 2
+		}
+	}
+	return 0
 }
 
 // SetFrameSize sets the frame size in samples at 48kHz.
@@ -1063,11 +1121,19 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	// the decide_dtx_mode() counter update runs AFTER the frame is fully encoded
 	// so the encoder state advances exactly as libopus does before discarding the
 	// payload for a 1-byte DTX continuation packet (opus_encoder.c:2564-2572).
-	if actualMode == ModeCELT {
+	// Multi-frame packets (>20ms CELT/Hybrid, >60ms SILK) compute the Opus-level
+	// activity and peak-signal-energy per internal sub-frame inside their encode
+	// loop, mirroring libopus opus_encode_native (opus_encoder.c:1769-1830) which
+	// calls opus_encode_frame_native — and thus the activity/peak tracking and
+	// decide_dtx_mode — once per sub-frame. Tracking it here on the full packet
+	// would double-count peak energy and advance the DTX counter at the wrong
+	// granularity, so it is skipped for those packets.
+	multiFrame := e.isMultiFramePacket(actualMode, frameSize)
+	if actualMode == ModeCELT && !multiFrame {
 		e.updateCELTOnlyOpusVADRes(inputPCM, frameSize)
 	}
 
-	if (actualMode == ModeSILK && frameSize <= 3*f20) || (actualMode == ModeHybrid && frameSize <= f20) {
+	if !multiFrame && ((actualMode == ModeSILK && frameSize <= 3*f20) || (actualMode == ModeHybrid && frameSize <= f20)) {
 		// Opus-level activity mirrors libopus opus_encoder.c:1888-1930. The
 		// analysis-driven path (updateOpusVADRes) already reproduces the
 		// VAD_NO_DECISION behaviour when the tonality analysis did not run
@@ -1104,6 +1170,8 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	var packet []byte
 	var err error
 	silkBusted := false
+	e.multiFrameDTXCount = 0
+	e.multiFrameLastSubframeDTX = false
 	switch actualMode {
 	case ModeSILK:
 		e.maybePrefillSILKOnModeTransition(actualMode)
@@ -1209,7 +1277,40 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	// already-encoded payload is discarded and only the 1-byte TOC is emitted; the
 	// decoder runs its own comfort-noise generation when it sees a TOC with no
 	// frame data.
-	if e.dtxEnabled && e.dtx != nil {
+	//
+	// For multi-frame packets the DTX decision was already made per sub-frame
+	// inside the encode*MultiFramePacket loop (mirroring libopus, which runs
+	// decide_dtx_mode once per sub-frame). When EVERY sub-frame was suppressed
+	// libopus' repacketizer emits an unpadded TOC-only packet — pad is
+	// !use_vbr && (dtx_count != nb_frames), so all-DTX => no padding
+	// (opus_encoder.c:1831). gopus' multi-frame builder already produced exactly
+	// that all-empty packet, so it is returned here before the CBR padding step.
+	// A partial DTX (some sub-frames carry payload) keeps its mixed packet and
+	// flows through the normal CBR-padding path below. The per-sub-frame path is
+	// only taken when DRED is not active; DRED multi-frame packets keep the
+	// whole-frame DTX decision (their own packet builder owns the DTX-refresh
+	// interaction) and so fall through to the else branch.
+	perSubframeDTX := multiFrame && !e.dredEncodingActive()
+	if e.dtxEnabled && e.dtx != nil && perSubframeDTX {
+		subframeCount := e.multiFrameSubframeCount(actualMode, frameSize)
+		if subframeCount > 0 && e.multiFrameDTXCount == subframeCount {
+			if isConcreteMode(actualMode) {
+				e.prevPacketMode = actualMode
+			}
+			if isConcreteMode(prevModeNext) {
+				e.prevMode = prevModeNext
+				if e.mode == ModeAuto {
+					e.prevAutoMode = prevModeNext
+				}
+			}
+			e.intMode = actualMode
+			e.intBandwidth = e.bandwidth
+			e.first = false
+			e.prevChannels = e.streamChannels
+			e.finalRange = 0
+			return packet, nil
+		}
+	} else if e.dtxEnabled && e.dtx != nil {
 		activity := e.resolveDTXActivity()
 		if e.decideDTXSuppress(activity, frameSize) {
 			if isConcreteMode(actualMode) {
@@ -1371,11 +1472,19 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	// st->first = 1; gopus mirrors that by returning before this point for
 	// those cases (emitLowSpacePacket / DTX-suppress set first explicitly).
 	e.first = false
-	if silkBusted {
+	switch {
+	case silkBusted:
 		// Match libopus opus_encoder.c: a busted SILK frame signals PLC and
 		// zeroes the reported final range.
 		e.finalRange = 0
-	} else {
+	case multiFrame && e.multiFrameLastSubframeDTX:
+		// libopus reports st->rangeFinal from the last opus_encode_frame_native
+		// call in the repacketizer loop. When that final sub-frame DTXes it sets
+		// rangeFinal = 0 (opus_encoder.c:2569), so a multi-frame packet whose last
+		// internal sub-frame is suppressed has a final range of 0 even though its
+		// earlier sub-frames carry payload.
+		e.finalRange = 0
+	default:
 		e.finalRange = e.currentFinalRange(actualMode)
 	}
 	return packet, nil
@@ -3406,11 +3515,25 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 			e.bitrate = savedBitrate
 			return nil, err
 		}
-		totSize += len(frameData) + 1
 		// Keep a stable copy because the range coder output buffer is reused.
 		frameCopy := e.keepFrame(frameData)
+		// Per-sub-frame DTX decision (libopus opus_encode_frame_native
+		// decide_dtx_mode, called once per 20ms sub-frame). When it fires the
+		// just-encoded payload is discarded and the sub-frame becomes a length-0
+		// frame in the repacketized packet — exactly as libopus turns tmp_len==1
+		// into a zero-length repacketizer entry. The encode call above already
+		// advanced the encoder state, so suppression only drops the bytes.
+		suppressed := !dredActive && e.subframeDTXSuppress(ModeCELT, subVADPCM, f20, false)
+		e.multiFrameLastSubframeDTX = suppressed
+		if suppressed {
+			frameCopy = frameCopy[:0]
+			e.multiFrameDTXCount++
+			totSize++ // libopus tot_size += tmp_len (==1) for a DTX sub-frame
+		} else {
+			totSize += len(frameData) + 1
+		}
 		frames[i] = frameCopy
-		if extsupport.QEXT && e.celtEncoder != nil {
+		if !suppressed && extsupport.QEXT && e.celtEncoder != nil {
 			qextPayload := e.lastQEXTPayload()
 			if len(qextPayload) > 0 {
 				qextExtensions[qextExtensionCount] = packetExtension{
@@ -3608,8 +3731,22 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []opusRes, celtPCM []opusRes,
 		}
 		// Keep a stable copy because encoder scratch buffers are reused.
 		frameCopy := e.keepFrame(frameData)
+		// Per-sub-frame DTX decision (libopus opus_encode_frame_native
+		// decide_dtx_mode). The Opus-level activity (lastOpusVAD*) was already
+		// computed for this sub-frame by updateOpusVADRes above, so pass
+		// vadAlreadyComputed=true to avoid re-tracking peak_signal_energy. A
+		// suppressed sub-frame becomes a length-0 frame in the packet; the encode
+		// above already advanced the encoder state.
+		suppressed := !dredActive && e.subframeDTXSuppress(ModeHybrid, subVADPCM, f20, true)
+		e.multiFrameLastSubframeDTX = suppressed
+		if suppressed {
+			frameCopy = frameCopy[:0]
+			e.multiFrameDTXCount++
+			totSize++
+		} else {
+			totSize += len(frameCopy) + 1
+		}
 		frames[i] = frameCopy
-		totSize += len(frameCopy) + 1
 		if len(e.delayBuffer) > 0 {
 			e.updateDelayBufferInternal(subPCM, len(subPCM), len(e.delayBuffer))
 		}
@@ -3763,8 +3900,22 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []opusRes, vadPCM []opusRes, fr
 			e.snapshotDREDPacketState()
 		}
 		frameCopy := e.keepFrame(trimSilkTrailingZeros(frameData))
+		// Per-sub-frame DTX decision (libopus opus_encode_frame_native
+		// decide_dtx_mode). For the default AUDIO application SILK-internal DTX is
+		// off (silk_mode.useDTX = use_dtx && !(analysis_info.valid || is_silence)
+		// == 0 when analysis is valid, opus_encoder.c:1461), so the Opus-level
+		// decision drives suppression here. The Opus-level activity (lastOpusVAD*)
+		// was already computed for this sub-frame by updateOpusVADRes above.
+		suppressed := !dredActive && e.subframeDTXSuppress(ModeSILK, subVADPCM, encFrameSize, true)
+		e.multiFrameLastSubframeDTX = suppressed
+		if suppressed {
+			frameCopy = frameCopy[:0]
+			e.multiFrameDTXCount++
+			totSize++
+		} else {
+			totSize += len(frameCopy) + 1
+		}
 		frames[i] = frameCopy
-		totSize += len(frameCopy) + 1
 		if prevSize >= 0 && len(frameCopy) != prevSize {
 			sameSize = false
 		}
