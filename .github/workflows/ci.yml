@@ -99,6 +99,30 @@ jobs:
       - name: Run lint/static analysis
         run: make lint
 
+  lint-tag-matrix:
+    name: lint-tag-matrix
+    needs:
+      - changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install golangci-lint
+        run: |
+          GOWORK=off go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Run lint/static analysis across optional-feature tag builds
+        run: make test-lint-tags
+
   test-linux-fast:
     name: test-linux-fast
     needs:
