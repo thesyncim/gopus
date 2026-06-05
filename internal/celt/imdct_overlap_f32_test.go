@@ -181,8 +181,8 @@ func imdctPostRotateF32InterleavedLibopusPolicy(buf []float32, trig []float32, n
 		im := buf[yp0]
 		t0 := trig[i]
 		t1 := trig[n4+i]
-		yr := mdctMulAddMixWith(mdctUseNativeMulEnabled, re, im, t0, t1)
-		yi := mdctMulSubMixWith(mdctUseNativeMulEnabled, re, im, t1, t0)
+		yr := mdctMulAddMix(re, im, t0, t1)
+		yi := mdctMulSubMix(re, im, t1, t0)
 
 		re2 := buf[yp1+1]
 		im2 := buf[yp1]
@@ -191,8 +191,8 @@ func imdctPostRotateF32InterleavedLibopusPolicy(buf []float32, trig []float32, n
 
 		t0 = trig[n4-i-1]
 		t1 = trig[n2-i-1]
-		yr = mdctMulAddMixWith(mdctUseNativeMulEnabled, re2, im2, t0, t1)
-		yi = mdctMulSubMixWith(mdctUseNativeMulEnabled, re2, im2, t1, t0)
+		yr = mdctMulAddMix(re2, im2, t0, t1)
+		yi = mdctMulSubMix(re2, im2, t1, t0)
 		buf[yp1] = yr
 		buf[yp0+1] = yi
 
