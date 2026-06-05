@@ -227,24 +227,40 @@ func (p *Page) Encode() []byte {
 // can distinguish "need more data" from genuine corruption by buffering more
 // input and retrying.
 func ParsePage(data []byte) (*Page, int, error) {
+	p := &Page{}
+	consumed, err := parsePageInto(data, p)
+	if err != nil {
+		return nil, 0, err
+	}
+	// ParsePage's contract is that the returned Page owns its data, so copy the
+	// zero-copy slices parsePageInto produced into fresh buffers.
+	p.Segments = append([]byte(nil), p.Segments...)
+	p.Payload = append([]byte(nil), p.Payload...)
+	return p, consumed, nil
+}
+
+// parsePageInto parses a single Ogg page from the front of data into p WITHOUT
+// copying: p.Segments and p.Payload alias data and remain valid only until data
+// is overwritten. It returns the bytes consumed; error conditions match
+// ParsePage. The Reader uses this to parse into a reused Page over its stable
+// read buffer, so steady-state page reads allocate nothing.
+func parsePageInto(data []byte, p *Page) (int, error) {
 	// Check minimum size for header.
 	if len(data) < pageHeaderSize {
-		return nil, 0, ErrInvalidPage
+		return 0, ErrInvalidPage
 	}
 
 	// Verify magic signature.
 	if string(data[0:4]) != oggMagic {
-		return nil, 0, ErrInvalidPage
+		return 0, ErrInvalidPage
 	}
 
 	// Parse header fields.
-	p := &Page{
-		Version:      data[4],
-		HeaderType:   data[5],
-		GranulePos:   binary.LittleEndian.Uint64(data[6:14]),
-		SerialNumber: binary.LittleEndian.Uint32(data[14:18]),
-		PageSequence: binary.LittleEndian.Uint32(data[18:22]),
-	}
+	p.Version = data[4]
+	p.HeaderType = data[5]
+	p.GranulePos = binary.LittleEndian.Uint64(data[6:14])
+	p.SerialNumber = binary.LittleEndian.Uint32(data[14:18])
+	p.PageSequence = binary.LittleEndian.Uint32(data[18:22])
 
 	// Get CRC from header.
 	storedCRC := binary.LittleEndian.Uint32(data[22:26])
@@ -252,15 +268,12 @@ func ParsePage(data []byte) (*Page, int, error) {
 	// Get segment count.
 	numSegments := int(data[26])
 
-	// Check we have enough data for segment table.
+	// Check we have enough data for segment table, then alias it.
 	headerSize := pageHeaderSize + numSegments
 	if len(data) < headerSize {
-		return nil, 0, ErrInvalidPage
+		return 0, ErrInvalidPage
 	}
-
-	// Copy segment table.
-	p.Segments = make([]byte, numSegments)
-	copy(p.Segments, data[27:27+numSegments])
+	p.Segments = data[pageHeaderSize : pageHeaderSize+numSegments]
 
 	// Calculate payload size from segment table.
 	payloadSize := 0
@@ -268,15 +281,12 @@ func ParsePage(data []byte) (*Page, int, error) {
 		payloadSize += int(seg)
 	}
 
-	// Check we have enough data for payload.
+	// Check we have enough data for payload, then alias it.
 	totalSize := headerSize + payloadSize
 	if len(data) < totalSize {
-		return nil, 0, ErrInvalidPage
+		return 0, ErrInvalidPage
 	}
-
-	// Copy payload.
-	p.Payload = make([]byte, payloadSize)
-	copy(p.Payload, data[headerSize:totalSize])
+	p.Payload = data[headerSize:totalSize]
 
 	// Verify CRC over the page with the 4-byte CRC field treated as zero,
 	// computed in place so no full-page copy is allocated per page.
@@ -285,8 +295,8 @@ func ParsePage(data []byte) (*Page, int, error) {
 	computedCRC = oggCRCUpdate(computedCRC, crcZero[:])
 	computedCRC = oggCRCUpdate(computedCRC, data[26:totalSize])
 	if computedCRC != storedCRC {
-		return nil, 0, ErrBadCRC
+		return 0, ErrBadCRC
 	}
 
-	return p, totalSize, nil
+	return totalSize, nil
 }

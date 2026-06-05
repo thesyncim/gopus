@@ -18,6 +18,7 @@ type Reader struct {
 	pageBuffer    []byte // Buffer for reading pages
 	bufferOffset  int    // Current position in buffer
 	bufferLen     int    // Valid data in buffer
+	page          Page   // Reused parse target; Segments/Payload alias pageBuffer
 }
 
 // readerBufferSize is the size of the internal read buffer.
@@ -335,7 +336,7 @@ func (or *Reader) appendPagePackets(page *Page) {
 				copy(packetCopy, or.partialPacket)
 				or.pending = append(or.pending, packetEntry{data: packetCopy})
 			}
-			or.partialPacket = nil
+			or.partialPacket = or.partialPacket[:0]
 		}
 	}
 	assignPacketGranules(page.GranulePos, or.pending[pendingStart:])
@@ -346,10 +347,10 @@ func (or *Reader) readPage() (*Page, error) {
 	// First, try to parse from existing buffer.
 	for {
 		if or.bufferLen > or.bufferOffset {
-			page, consumed, err := ParsePage(or.pageBuffer[or.bufferOffset:or.bufferLen])
+			consumed, err := parsePageInto(or.pageBuffer[or.bufferOffset:or.bufferLen], &or.page)
 			if err == nil {
 				or.bufferOffset += consumed
-				return page, nil
+				return &or.page, nil
 			}
 			// Not enough data, need to read more.
 		}
@@ -379,10 +380,10 @@ func (or *Reader) readPage() (*Page, error) {
 		if err != nil {
 			if err == io.EOF && or.bufferLen > or.bufferOffset {
 				// Try to parse remaining data.
-				page, consumed, parseErr := ParsePage(or.pageBuffer[or.bufferOffset:or.bufferLen])
+				consumed, parseErr := parsePageInto(or.pageBuffer[or.bufferOffset:or.bufferLen], &or.page)
 				if parseErr == nil {
 					or.bufferOffset += consumed
-					return page, nil
+					return &or.page, nil
 				}
 			}
 			return nil, err
