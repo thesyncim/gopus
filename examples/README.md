@@ -22,6 +22,17 @@ of these.
 | `packet-loss` | Loss recovery: PLC via `Decode(nil)` and in-band FEC via `DecodeWithFEC`. | `go run ./examples/packet-loss` |
 | `ogg-file` | Write and read an Ogg Opus file (`container/ogg`), with seeking. | `go run ./examples/ogg-file -out demo.opus -duration 5` |
 
+## Public API focus
+
+Small, single-purpose programs covering one public API area each.
+
+| Example | What it shows | Run |
+| --- | --- | --- |
+| `sample-rates` | Encode/decode the int16 PCM API at 8/12/16/24/48 kHz. | `go run ./examples/sample-rates` |
+| `low-delay` | CELT-only `ApplicationLowDelay` with short frames; reports algorithmic delay. | `go run ./examples/low-delay` |
+| `repacketizer` | Merge/split frames with `Repacketizer`, inspect with `ParsePacket`, pad/unpad. | `go run ./examples/repacketizer` |
+| `surround` | Multistream 5.1 encode/decode via the default Vorbis-order mapping. | `go run ./examples/surround` |
+
 ## Encode / decode / files
 
 | Example | What it shows | Run |
