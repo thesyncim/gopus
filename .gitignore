@@ -12,6 +12,7 @@ testvectors/testdata/opus_testvectors/
 # Build artifacts
 tmp_check
 .gocache/
+.tmp/
 .docker-cache/
 *.o
 *.a
