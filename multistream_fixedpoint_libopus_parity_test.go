@@ -133,8 +133,8 @@ func buildMultistreamPacket(t *testing.T, streamPackets [][]byte) []byte {
 // Layouts cover mono streams, coupled (stereo) streams, a 5.1-style
 // 4-stream/2-coupled surround mapping, and Hybrid streams (a Hybrid stereo
 // coupled stream and a coupled layout mixing Hybrid streams), multi-frame.
-// Bit-exact on amd64; subject to the documented per-arch 1-ULP CELT drift
-// budget on arm64.
+// Bit-exact on every architecture: the integer decode has no fused-multiply-add,
+// so there is no per-arch float drift.
 func TestMultistreamDecodeFixedPointParity(t *testing.T) {
 	libopustest.RequireOracle(t)
 

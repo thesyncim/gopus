@@ -226,8 +226,8 @@ func TestDecoderFixedPointSILKParity(t *testing.T) {
 // driven from the shared range decoder with celt_accum, mirroring
 // opus_decode_frame (start_band=17, celt_accum=1). Multi-frame packets exercise
 // the cross-frame integer CELT state (decode_mem, energy histories, post-filter,
-// preemph). Bit-exact on amd64; subject to the documented per-arch 1-ULP CELT
-// drift budget on arm64.
+// preemph). Bit-exact on every architecture: the integer decode has no
+// fused-multiply-add, so there is no per-arch float drift.
 func TestDecoderFixedPointHybridParity(t *testing.T) {
 	libopustest.RequireOracle(t)
 
@@ -319,8 +319,11 @@ func divergence(got, want []int32) (diffs int, maxAbs int64, firstIdx int) {
 	return
 }
 
-// assertFixedExact requires bit-exact equality on amd64 and tolerates the
-// documented darwin/arm64 1-ULP CELT drift budget on arm64.
+// assertFixedExact requires bit-exact equality on every architecture. The
+// gopus_fixedpoint integer CELT/SILK/Hybrid decode is pure integer arithmetic
+// with no fused-multiply-add, so it is deterministic and bit-identical to the
+// FIXED_POINT reference on amd64 and darwin/arm64 alike — there is no per-arch
+// float drift in this path.
 func assertFixedExact(t *testing.T, label string, got, want []int32) {
 	t.Helper()
 	if len(got) != len(want) {

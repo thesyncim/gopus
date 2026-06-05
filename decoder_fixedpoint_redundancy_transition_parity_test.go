@@ -128,8 +128,8 @@ func encodeFixedSingleModePacket(t *testing.T, channels, frameSize int, mode Enc
 // the libopus FIXED_POINT opus_decode / opus_decode24 reference. The Hybrid frame
 // after a CELT frame triggers the 5 ms CELT PLC pcm_transition decode and the
 // integer opus_res smooth_fade crossfade (opus_decode_frame transition path).
-// Bit-exact on amd64; subject to the documented per-arch 1-ULP CELT drift budget
-// on arm64.
+// Bit-exact on every architecture: the integer decode has no fused-multiply-add,
+// so there is no per-arch float drift.
 func TestDecoderFixedPointHybridTransitionParity(t *testing.T) {
 	libopustest.RequireOracle(t)
 
@@ -208,8 +208,8 @@ func TestDecoderFixedPointHybridTransitionParity(t *testing.T) {
 // transition smooth_fade. The integer redundancy frame is decoded in the opus_res
 // domain on the same integer CELT decoder as the main hybrid highband, and the
 // crossfade uses the integer smooth_fade (FIXED_POINT ENABLE_RES24), mirroring
-// opus_decode_frame. Bit-exact on amd64; subject to the documented per-arch 1-ULP
-// CELT drift budget on arm64.
+// opus_decode_frame. Bit-exact on every architecture: the integer decode has no
+// fused-multiply-add, so there is no per-arch float drift.
 func TestDecoderFixedPointHybridRedundancyTransitionParity(t *testing.T) {
 	libopustest.RequireOracle(t)
 
