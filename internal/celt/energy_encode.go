@@ -383,7 +383,7 @@ func celtSqrt(x float32) float32 {
 func celtBandSumSqScalarNoFMA(x []float32) float32 {
 	var sum float32
 	for i := range x {
-		p := math.Float32frombits(math.Float32bits(x[i] * x[i]))
+		p := round32(x[i] * x[i])
 		sum += p
 	}
 	return sum

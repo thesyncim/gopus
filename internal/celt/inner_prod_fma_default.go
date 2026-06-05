@@ -2,8 +2,6 @@
 
 package celt
 
-import "math"
-
 // celtInnerProd8FMA32 is the portable fallback for the arm64 NEON kernel. It
 // reproduces the 4-lane fused-multiply-add accumulation order of
 // celtInnerProdNeonStyle exactly: math.FMA fuses identically to the arm64
@@ -25,9 +23,9 @@ func celtInnerProd8FMA32(x, y []float32, n int) float32 {
 		}
 		i += 4
 	}
-	sum0 := math.Float32frombits(math.Float32bits(acc[0] + acc[2]))
-	sum1 := math.Float32frombits(math.Float32bits(acc[1] + acc[3]))
-	sum := math.Float32frombits(math.Float32bits(sum0 + sum1))
+	sum0 := round32(acc[0] + acc[2])
+	sum1 := round32(acc[1] + acc[3])
+	sum := round32(sum0 + sum1)
 	for ; i < n; i++ {
 		sum = mdctFMA32(x[i], y[i], sum)
 	}

@@ -1,8 +1,6 @@
 package celt
 
 import (
-	"math"
-
 	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
@@ -53,7 +51,7 @@ func kissHalfSub(a, b float32) float32 {
 // //go:noinline call these inline, shedding the per-operation call overhead while
 // staying bit-identical to the scalar reference on every build.
 func kissScaleMul(a, b float32) float32 {
-	return math.Float32frombits(math.Float32bits(a * b))
+	return round32(a * b)
 }
 
 func kissAdd(a, b float32) float32 {

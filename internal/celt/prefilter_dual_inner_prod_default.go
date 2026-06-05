@@ -2,8 +2,6 @@
 
 package celt
 
-import "math"
-
 // prefilterDualInnerProdAsm is the portable fallback for the arm64 NEON dual
 // inner-product kernel. It reproduces the 4-lane fused-multiply-add order of
 // prefilterDualInnerProdF32NeonOrder exactly. The arm64 Go path fuses both the
@@ -30,12 +28,12 @@ func prefilterDualInnerProdAsm(x, y1, y2 []float32, length int) (float32, float3
 		}
 		i += 4
 	}
-	xy10 := math.Float32frombits(math.Float32bits(acc1[0] + acc1[2]))
-	xy11 := math.Float32frombits(math.Float32bits(acc1[1] + acc1[3]))
-	xy20 := math.Float32frombits(math.Float32bits(acc2[0] + acc2[2]))
-	xy21 := math.Float32frombits(math.Float32bits(acc2[1] + acc2[3]))
-	sum1 := math.Float32frombits(math.Float32bits(xy10 + xy11))
-	sum2 := math.Float32frombits(math.Float32bits(xy20 + xy21))
+	xy10 := round32(acc1[0] + acc1[2])
+	xy11 := round32(acc1[1] + acc1[3])
+	xy20 := round32(acc2[0] + acc2[2])
+	xy21 := round32(acc2[1] + acc2[3])
+	sum1 := round32(xy10 + xy11)
+	sum2 := round32(xy20 + xy21)
 	for ; i < length; i++ {
 		sum1 = mdctFMA32(x[i], y1[i], sum1)
 		sum2 = mdctFMA32(x[i], y2[i], sum2)

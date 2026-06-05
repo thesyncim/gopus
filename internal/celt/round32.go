@@ -20,3 +20,17 @@ func mulAdd32Ref(a, b, c float32) float32 { return round32(a*b) + c }
 func mulSub32Ref(a, b, c float32) float32 { return round32(a*b) - c }
 
 func subMul32Ref(c, a, b float32) float32 { return c - round32(a*b) }
+
+// fma32 computes a*b+c and lets the arm64 backend contract it into a single
+// FMADD where the code explicitly wants fusion (the kiss-FFT twiddle hot path);
+// amd64 does not contract FP. mul32/add32/sub32 are the non-fused-intent
+// primitives: routing through round32 keeps a materialized product from fusing
+// with a surrounding op, matching scalar libopus on every build at FMUL+FADD
+// cost, and a no-op on amd64/purego where there is no contraction.
+func fma32(a, b, c float32) float32 { return a*b + c }
+
+func mul32(a, b float32) float32 { return round32(a * b) }
+
+func add32(a, b float32) float32 { return round32(a + b) }
+
+func sub32(a, b float32) float32 { return round32(a - b) }
