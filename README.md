@@ -127,7 +127,7 @@ and is not importable.
 | `github.com/thesyncim/gopus` | `Encoder` / `Decoder` (float32 / int16 / int24), streaming `Reader` / `Writer`, multistream and DRED constructors, packet parsing, repacketizer, soft clip, CTLs, error codes |
 | `github.com/thesyncim/gopus/multistream` | Lower-level multistream `Encoder` / `Decoder` and projection / ambisonics (`NewProjectionEncoder` / `NewProjectionDecoder`) |
 | `github.com/thesyncim/gopus/container/ogg` | Read and write Ogg Opus files (RFC 7845) |
-| `github.com/thesyncim/gopus/container/red` | Build, parse, and recover RFC 2198 RTP RED payloads |
+| `github.com/thesyncim/gopus/container/red` | `Encoder` / `Decoder` structs (plus `Build` / `Parse` / `FindRecovery`) to build, parse, and recover RFC 2198 RTP RED payloads |
 | `github.com/thesyncim/gopus/types` | Shared `Mode` / `Bandwidth` / `Signal` enums |
 
 Multistream is reachable two ways: `gopus.NewMultistreamEncoder` /
@@ -233,6 +233,11 @@ gopus is built for real-time use, where steady allocation is the enemy:
   variants) reuse caller-owned buffers; all scratch is pre-allocated at
   construction, so a steady-state encode or decode loop performs no heap
   allocations.
+- **Allocation-free containers too.** `container/ogg` (`Reader.ReadPacketInto` /
+  `Writer.WritePacket`) and `container/red` (`Decoder.Parse` / `Encoder.Encode`)
+  own their buffers and the redundant-frame history, so steady-state demux/mux and
+  RED packetization allocate nothing once warm — each locked by an
+  `AllocsPerRun == 0` test.
 - **SIMD where libopus has it.** On amd64 the float pitch cross-correlation uses
   an AVX2 kernel that mirrors libopus's `celt_pitch_xcorr_avx2`, computing several
   correlation lags per FMA instead of one scalar FMA per element — bit-identical
