@@ -1,7 +1,6 @@
 package lpcnetplc
 
 import (
-	"math"
 	"runtime"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
@@ -230,7 +229,7 @@ func sgemvSplit(out []float32, weights dnnblob.Float32View, rows, cols, colStrid
 		var sum float32
 		for j := 0; j < cols; j++ {
 			w := weights.At(j*colStride + i)
-			sum = float32(sum + math.Float32frombits(math.Float32bits(w*x[j])))
+			sum = round32(sum + round32(w*x[j]))
 		}
 		out[i] = sum
 	}

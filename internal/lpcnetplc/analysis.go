@@ -1,8 +1,6 @@
 package lpcnetplc
 
 import (
-	"math"
-
 	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/opusmath"
@@ -346,8 +344,8 @@ func computeBandEnergy(bandE []float32, spectrum []complex64, dredEncoder bool) 
 			// float products/adds here; avoid Go contracting the weighted add.
 			left := noFMA32Mul(1-frac, tmp)
 			right := noFMA32Mul(frac, tmp)
-			sum[i] = math.Float32frombits(math.Float32bits(sum[i] + left))
-			sum[i+1] = math.Float32frombits(math.Float32bits(sum[i+1] + right))
+			sum[i] = round32(sum[i] + left)
+			sum[i+1] = round32(sum[i+1] + right)
 		}
 	}
 	sum[0] *= 2
@@ -522,8 +520,20 @@ func lpcnRR(lpc, ac []float32, i int) float32 {
 	return rr
 }
 
+// round32 forces x to float32 precision. Go's arm64 backend may contract a*b+c
+// into a single FMADD (one rounding), which diverges from scalar libopus (two
+// roundings); wrapping the product as round32(a*b) materializes it at float32
+// precision so the surrounding add/sub cannot fuse, matching the scalar
+// reference on every build. It is the cheap barrier — an FMUL+FADD pair rather
+// than the FMUL+FMOV+FMOV+FADD of a Float32bits round-trip — and a no-op on
+// amd64 and the purego oracle, which do not contract FP. Keep this tiny; its
+// fusion-defeating codegen is guarded by the package parity tests.
+func round32(x float32) float32 {
+	return float32(x)
+}
+
 func noFMA32Mul(a, b float32) float32 {
-	return math.Float32frombits(math.Float32bits(a * b))
+	return round32(a * b)
 }
 
 func burgAnalysis(dst, x []float32, minInvGain float32, subfrLength, nbSubfr, order int, scratch *analysisScratch) float32 {
@@ -869,9 +879,9 @@ func innerProdFloatNEON(x, y []float32, length int) float32 {
 		}
 		i += 4
 	}
-	sum0 := math.Float32frombits(math.Float32bits(acc[0] + acc[2]))
-	sum1 := math.Float32frombits(math.Float32bits(acc[1] + acc[3]))
-	sum := math.Float32frombits(math.Float32bits(sum0 + sum1))
+	sum0 := round32(acc[0] + acc[2])
+	sum1 := round32(acc[1] + acc[3])
+	sum := round32(sum0 + sum1)
 	for ; i < length; i++ {
 		sum = fma32(x[i], y[i], sum)
 	}

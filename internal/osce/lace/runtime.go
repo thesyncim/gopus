@@ -1111,12 +1111,23 @@ func fma32(a, b, c float32) float32 {
 	return a*b + c
 }
 
+// round32 forces x to float32 precision. Go's arm64 backend may contract a*b+c
+// into a single FMADD (one rounding), which diverges from scalar libopus (two
+// roundings); wrapping the product as round32(a*b) materializes it at float32
+// precision so the surrounding add/sub cannot fuse, matching the scalar
+// reference on every build. It is the cheap barrier — an FMUL+FADD pair rather
+// than the FMUL+FMOV+FMOV+FADD of a Float32bits round-trip — and a no-op on
+// amd64 and the purego oracle, which do not contract FP. Keep this tiny; its
+// fusion-defeating codegen is guarded by the package parity tests.
+func round32(x float32) float32 {
+	return float32(x)
+}
+
 // roundMul32 returns a*b rounded to float32 with the multiply isolated from any
 // fused-multiply-add contraction by the Go arm64 backend, matching a reference
-// build that does not contract this particular product. The bit round-trip
-// forces the intermediate to materialise as a rounded float32.
+// build that does not contract this particular product.
 func roundMul32(a, b float32) float32 {
-	return math.Float32frombits(math.Float32bits(a * b))
+	return round32(a * b)
 }
 
 // ----------------------------------------------------------------------------
