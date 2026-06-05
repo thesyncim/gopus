@@ -1,4 +1,4 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 // CELT fixed-point comb (pitch post-) filter ported from libopus celt/celt.c
 // under FIXED_POINT (the default opus_val16 celt_coef path, ENABLE_QEXT off,
@@ -22,7 +22,7 @@
 // The static comb_filter_const_c (non-ARM) does not pre-shift x; it applies a
 // -1 bias before saturation. comb_filter's overlap section applies a -3 bias.
 // All arithmetic is int32/int64 with two's-complement wraparound, matching the
-// reference bit-for-bit. Gated behind gopus_fixedpoint; zero cost in the
+// reference bit-for-bit. Gated behind gopus_fixed_point; zero cost in the
 // default float build.
 package fixedpoint
 

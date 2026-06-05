@@ -86,8 +86,8 @@ measurement reflects steady state, not one-time lazy init).
   deadcode` (the multi-config dead-code detector — a single-config `deadcode` run
   is false-positive dominated here because of build-tag/arch gating).
 - Optional features are behind build tags, mirrored tag-for-flag with libopus:
-  `gopus_dred`, `gopus_extra_controls`, `gopus_qext`, `gopus_custom`,
-  `gopus_fixedpoint`. The default build links zero of their code.
+  `gopus_dred`, `gopus_osce`, `gopus_qext`, `gopus_custom_modes`,
+  `gopus_fixed_point`. The default build links zero of their code.
 - Run `go test` for the packages you touch (default and, where relevant, `-tags
   purego`) before finishing a codec or runtime change.
 

@@ -1,4 +1,4 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 // CELT fixed-point encode-side prefilter ported from libopus celt/celt_encoder.c
 // run_prefilter and its celt/pitch.c dependencies, under FIXED_POINT (non-QEXT,

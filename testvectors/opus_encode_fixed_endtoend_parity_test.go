@@ -1,16 +1,16 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 // Package testvectors: top-level FIXED_POINT opus_encode end-to-end parity.
 //
 // This file closes the gap between the per-frame fixed SILK/CELT byte-exact
 // gates and a full public-encoder opus_encode comparison. It drives the PUBLIC
-// encoder.Encoder under the gopus_fixedpoint build from raw PCM and validates
+// encoder.Encoder under the gopus_fixed_point build from raw PCM and validates
 // the produced full Opus packets (TOC + payload) against the FIXED_POINT libopus
 // opus_encode() reference (tools/csrc/libopus_opus_encode_fixed_info.c).
 //
 // What is byte-exact, and the float Opus-API-layer caveat
 // -------------------------------------------------------
-// The gopus_fixedpoint build swaps the *inner* SILK and CELT frame encoders to
+// The gopus_fixed_point build swaps the *inner* SILK and CELT frame encoders to
 // the integer (FIXED_POINT) paths, but the Opus API wrapper that surrounds them
 // — dc_reject() / hp_cutoff(), the SILK API-rate resampler, and the CELT delay
 // buffer — still runs in FLOAT (the same float code the default build uses).
@@ -256,7 +256,7 @@ func TestOpusEncodeFixedCELTByteExact(t *testing.T) {
 // re-applies an integer dc_reject to the already-float-dc_rejected int16) may
 // differ. This guards against a future attempt to tighten the full-packet
 // comparison to byte-equality, which is unachievable until the Opus API wrapper
-// itself is ported to integer under gopus_fixedpoint.
+// itself is ported to integer under gopus_fixed_point.
 func TestOpusEncodeFixedCELTLayerBoundary(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
@@ -325,7 +325,7 @@ func TestOpusEncodeFixedCELTLayerBoundary(t *testing.T) {
 //     (proven per-frame by silk.TestPublicSILKEncodeFrameFixedByteExact). The
 //     per-frame byte divergence is logged as an honest residual.
 //
-// This is the documented float-resampler caveat: under gopus_fixedpoint only the
+// This is the documented float-resampler caveat: under gopus_fixed_point only the
 // inner SILK/CELT frame encoders are integer; the Opus API wrapper stays float,
 // so a raw-PCM top-level opus_encode comparison cannot be byte-exact for any mode
 // whose wrapper performs non-trivial float arithmetic (resampler for SILK/Hybrid;

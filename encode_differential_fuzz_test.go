@@ -16,7 +16,7 @@
 // resampler, stereo analysis) runs in float — exactly like libopus
 // opus_encode_float(). There is therefore NO float-vs-integer wrapper boundary,
 // so a top-level full-packet comparison CAN be byte-exact on the same arch. (The
-// FIXED_POINT oracle cannot: gopus_fixedpoint keeps a float wrapper, documented
+// FIXED_POINT oracle cannot: gopus_fixed_point keeps a float wrapper, documented
 // in testvectors/opus_encode_fixed_endtoend_parity_test.go.)
 //
 // Divergence classification (per frame):

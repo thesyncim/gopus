@@ -1,4 +1,4 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 package silk
 
@@ -16,7 +16,7 @@ package silk
 // any dependency on the float analysis history.
 
 // silkEncoderFixedFields carries the FIXED_POINT integer SILK encode state held
-// on the public Encoder under the gopus_fixedpoint build.
+// on the public Encoder under the gopus_fixed_point build.
 type silkEncoderFixedFields struct {
 	fixed *silkFixedEncodeState
 
@@ -136,7 +136,7 @@ type silkFixedEncodeState struct {
 }
 
 // fixedEncodeActive reports whether the integer SILK encode path is selected.
-// Under the gopus_fixedpoint build it is always on for the single-stream SILK
+// Under the gopus_fixed_point build it is always on for the single-stream SILK
 // encoder.
 func (e *Encoder) fixedEncodeActive() bool { return true }
 
@@ -595,7 +595,7 @@ func (e *Encoder) encodeFrameFixedBody(
 
 // FixedLastVADFlag reports the integer VAD decision of the most recent fixed
 // encode-body call (1 == active), for the stereo orchestration's VAD header
-// patch. It is meaningful only under the gopus_fixedpoint build.
+// patch. It is meaningful only under the gopus_fixed_point build.
 func (e *Encoder) FixedLastVADFlag() bool {
 	if e.fixed == nil {
 		return false

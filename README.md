@@ -153,23 +153,23 @@ here. The default build links ZERO of their code (enforced by
 | gopus build tag | libopus flag |
 | --- | --- |
 | `gopus_dred` | `--enable-dred` |
-| `gopus_extra_controls` | `--enable-osce` (+ `ENABLE_DEEP_PLC`) |
+| `gopus_osce` | `--enable-osce` (+ `ENABLE_DEEP_PLC`) |
 | `gopus_qext` | `--enable-qext` |
-| `gopus_custom` | `--enable-custom-modes` |
-| `gopus_fixedpoint` | `--enable-fixed-point` |
+| `gopus_custom_modes` | `--enable-custom-modes` |
+| `gopus_fixed_point` | `--enable-fixed-point` |
 
 Under their tag these are parity-complete — none are experimental:
 
 - **`gopus_dred`** — DRED (RDOVAE), control + standalone surfaces.
-- **`gopus_extra_controls`** — OSCE BWE / LACE / NoLACE plus the deep-PLC family
+- **`gopus_osce`** — OSCE BWE / LACE / NoLACE plus the deep-PLC family
   (PitchDNN / FARGAN), exactly as `--enable-osce`.
 - **`gopus_qext`** — QEXT framing and native 96 kHz (Opus HD): decode is
   sample-exact, and the public `Encode` at `Fs=96000` is byte-exact (TOC, padding,
   main CELT payload, reserved QEXT extension) vs libopus `--enable-qext`. 96 kHz is
   CELT-only fullband (mirroring libopus) and accepted only under this tag;
   default-build API rates stay 8/12/16/24/48 kHz.
-- **`gopus_custom`** — Opus Custom standard modes.
-- **`gopus_fixedpoint`** — integer CELT/SILK pipeline (libopus `FIXED_POINT`);
+- **`gopus_custom_modes`** — Opus Custom standard modes.
+- **`gopus_fixed_point`** — integer CELT/SILK pipeline (libopus `FIXED_POINT`);
   public decode and encode are bit-exact vs the `--enable-fixed-point` oracle.
 
 One more tag is orthogonal to the feature flags above and has no libopus
@@ -186,27 +186,27 @@ returning `ErrOptionalExtensionUnavailable`. This matches a default libopus buil
 where the DNN / PitchDNN / FARGAN / RDOVAE neural code is empty and none of it is
 compiled; gopus keeps those packages out of the default import graph. DNN blob
 loading (USE_WEIGHTS_FILE model loading) requires `-tags gopus_dred` or
-`-tags gopus_extra_controls`; QEXT requires `-tags gopus_qext`; DRED
+`-tags gopus_osce`; QEXT requires `-tags gopus_qext`; DRED
 control/standalone surfaces require `-tags gopus_dred`; OSCE BWE/LACE/NoLACE
-require `-tags gopus_extra_controls`. Under their build tag these are
+require `-tags gopus_osce`. Under their build tag these are
 parity-complete and supported, exactly as libopus exposes them behind the
 corresponding compile flag.
 
 | Extension | Status | Probe |
 | --- | --- | --- |
-| DNN blob loading | Supported under `gopus_dred` / `gopus_extra_controls` | `OptionalExtensionDNNBlob` |
+| DNN blob loading | Supported under `gopus_dred` / `gopus_osce` | `OptionalExtensionDNNBlob` |
 | QEXT | Supported under `gopus_qext` | `OptionalExtensionQEXT` |
 | DRED | Supported under `gopus_dred` (control + standalone) | `OptionalExtensionDRED` |
-| OSCE BWE | Supported under `gopus_extra_controls` | `OptionalExtensionOSCEBWE` |
+| OSCE BWE | Supported under `gopus_osce` | `OptionalExtensionOSCEBWE` |
 
-The `gopus_extra_controls` tag enables the OSCE and deep-PLC family exactly as
+The `gopus_osce` tag enables the OSCE and deep-PLC family exactly as
 libopus's `--enable-osce` does. These features are supported under the tag and
 link zero code into the default build.
 
 ```sh
 go test -tags gopus_qext ./...
 go test -tags gopus_dred ./...
-go test -tags gopus_extra_controls ./...
+go test -tags gopus_osce ./...
 ```
 
 ```sh

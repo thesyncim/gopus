@@ -1,4 +1,4 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 package encoder
 
@@ -13,7 +13,7 @@ import (
 
 // TestPublicCELTEncodeFixedRateByteExact drives the PUBLIC Encoder API in
 // CELT-only mode at the sub-48 kHz API sample rates (24000/16000/12000/8000 Hz)
-// under the gopus_fixedpoint build and asserts the produced packet payload is
+// under the gopus_fixed_point build and asserts the produced packet payload is
 // byte-for-byte identical to the FIXED_POINT celt_encode_with_ec reference run
 // (a CELT encoder created at the same API rate, so st->upsample matches). It
 // exercises mono and stereo, the API-rate frame sizes that upsample to a valid

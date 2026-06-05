@@ -1,4 +1,4 @@
-//go:build gopus_dred || gopus_extra_controls
+//go:build gopus_dred || gopus_osce
 
 // USE_WEIGHTS_FILE model-blob loading mirrors libopus's compile-gated DNN
 // loaders. libopus only builds the rdovae/lpcnet/FARGAN loaders when a

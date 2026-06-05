@@ -1,10 +1,10 @@
-//go:build gopus_dred || gopus_extra_controls
+//go:build gopus_dred || gopus_osce
 
 package silk
 
 // DecoderStateSnapshot captures the per-channel SILK decoder state needed to
 // save and restore a decoder around DRED/deep-PLC concealment, exposed only
-// under the gopus_dred and gopus_extra_controls tags.
+// under the gopus_dred and gopus_osce tags.
 type DecoderStateSnapshot struct {
 	LagPrev        int32
 	LastGainIndex  int

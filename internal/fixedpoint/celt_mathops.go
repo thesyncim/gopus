@@ -1,11 +1,11 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 package fixedpoint
 
 // Additional FIXED_POINT kernels ported from libopus celt/mathops.c that depend
 // on the wider integer helpers (MULT32_32_Q31, MULT16_32_Q15, MULT16_16_P15)
 // shared with the band-energy and comb paths. These live behind the
-// gopus_fixedpoint tag so the untagged celt_math.go stays self-contained.
+// gopus_fixed_point tag so the untagged celt_math.go stays self-contained.
 //
 // All multiplies use the OPUS_FAST_INT64 form (64-bit product), which is the
 // build libopus selects on amd64 and arm64/LP64.

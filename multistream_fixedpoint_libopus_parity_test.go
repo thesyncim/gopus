@@ -1,4 +1,4 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 package gopus
 
@@ -122,7 +122,7 @@ func buildMultistreamPacket(t *testing.T, streamPackets [][]byte) []byte {
 	return out
 }
 
-// TestMultistreamDecodeFixedPointParity gates that, under -tags gopus_fixedpoint,
+// TestMultistreamDecodeFixedPointParity gates that, under -tags gopus_fixed_point,
 // MultistreamDecoder.DecodeInt16 / DecodeInt24 of CELT-only multistream packets
 // are bit-exact with the libopus FIXED_POINT opus_multistream_decode /
 // opus_multistream_decode24 reference. Each elementary stream is routed through

@@ -1,4 +1,4 @@
-//go:build !gopus_dred && !gopus_extra_controls && !gopus_qext && !gopus_fixedpoint
+//go:build !gopus_dred && !gopus_osce && !gopus_qext && !gopus_fixed_point
 
 package gopus
 

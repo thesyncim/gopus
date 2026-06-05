@@ -184,7 +184,7 @@ func TestDecodeInt16CELTRequestedPLCDurationMatchesLibopus(t *testing.T) {
 			for _, requestedFrameSize := range []int{sampleRate / 25, sampleRate * 3 / 50} {
 				t.Run("ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate)+"_request_"+itoaSmall(requestedFrameSize), func(t *testing.T) {
 					if celtIntegerPLCActive && sampleRate == 48000 {
-						t.Skip("48k CELT PLC routes to the integer decoder under gopus_fixedpoint (vs float oracle); see TestDecoderFixedPointCELTPLCParity")
+						t.Skip("48k CELT PLC routes to the integer decoder under gopus_fixed_point (vs float oracle); see TestDecoderFixedPointCELTPLCParity")
 					}
 					sequence := [][]byte{packet, nil}
 					want, err := decodeWithLibopusReferenceAPIRateInt16(sampleRate, channels, requestedFrameSize, sequence)

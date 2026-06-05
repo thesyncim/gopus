@@ -1,4 +1,4 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 package gopus_test
 
@@ -149,7 +149,7 @@ func generateMSFixedSweep(channels, frameSize, frameCount int) ([]float32, []int
 	return pcmF, pcmI
 }
 
-// runMSFixedEncodeParity drives both gopus (under -tags gopus_fixedpoint) and the
+// runMSFixedEncodeParity drives both gopus (under -tags gopus_fixed_point) and the
 // libopus FIXED_POINT surround encoder with identical parameters and PCM, then
 // asserts byte-exact packet equality for the requested sample format. The
 // darwin/arm64 documented <=1-ULP CELT drift is logged and skipped (CI is amd64,
@@ -244,7 +244,7 @@ func runMSFixedEncodeParity(t *testing.T, sampleRate, channels, frameSize, frame
 	}
 }
 
-// TestMultistreamEncodeFixedPointParity gates that, under -tags gopus_fixedpoint,
+// TestMultistreamEncodeFixedPointParity gates that, under -tags gopus_fixed_point,
 // MultistreamEncoder.Encode / EncodeInt16 produce byte-exact multistream packets
 // vs the libopus FIXED_POINT (ENABLE_RES24) opus_multistream_encode_float /
 // opus_multistream_encode reference across the standard mapping-family-1 layouts

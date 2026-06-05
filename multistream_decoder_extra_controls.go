@@ -1,9 +1,9 @@
-//go:build gopus_extra_controls
+//go:build gopus_osce
 
 package gopus
 
 // SetOSCEBWE exposes the extra libopus ENABLE_OSCE_BWE control only
-// when built with -tags gopus_extra_controls.
+// when built with -tags gopus_osce.
 //
 // The default gopus build keeps this outside the public API surface.
 func (d *MultistreamDecoder) SetOSCEBWE(enabled bool) error {
@@ -18,7 +18,7 @@ func (d *MultistreamDecoder) OSCEBWE() (bool, error) {
 }
 
 // SetOSCELACE exposes the extra libopus OSCE LACE/NoLACE postfilter
-// activation control only when built with -tags gopus_extra_controls.
+// activation control only when built with -tags gopus_osce.
 //
 // The default gopus build keeps this outside the public API surface.
 // The control is fanned out to every child stream decoder, matching how

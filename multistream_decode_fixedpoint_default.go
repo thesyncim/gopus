@@ -1,9 +1,9 @@
-//go:build !gopus_fixedpoint
+//go:build !gopus_fixed_point
 
 package gopus
 
 // fixedDecodeInt16 / fixedDecodeInt24 are no-ops in the default build: the
-// FIXED_POINT integer multistream decode is gated behind gopus_fixedpoint, so
+// FIXED_POINT integer multistream decode is gated behind gopus_fixed_point, so
 // the public int16/int24 wrappers always use the float conversion. These stubs
 // keep the call sites identical across builds at zero cost (they are inlined to
 // a constant-false return).

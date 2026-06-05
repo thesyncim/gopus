@@ -1,4 +1,4 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 package silk
 
@@ -13,7 +13,7 @@ import (
 )
 
 // TestPublicSILKEncodeFrameFixedByteExact drives the PUBLIC silk.Encoder API
-// (EncodeFrame) under the gopus_fixedpoint build and asserts the SILK frame
+// (EncodeFrame) under the gopus_fixed_point build and asserts the SILK frame
 // payload it produces is byte-for-byte identical to the libopus FIXED_POINT
 // silk_encode_frame_FIX reference, replayed on the exact int16 x_buf / inputBuf
 // and pre-encode state the public encoder consumed.

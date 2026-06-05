@@ -221,14 +221,14 @@ func TestDecodeInt24HybridAPIRatePCMMatchesLibopus(t *testing.T) {
 // the final sample format conversion.
 func TestDecodeInt24TracksFloat32Decode(t *testing.T) {
 	// This test asserts that DecodeInt24 derives its samples from the same
-	// float32 decode as Decode (default build). Under -tags gopus_fixedpoint,
+	// float32 decode as Decode (default build). Under -tags gopus_fixed_point,
 	// DecodeInt24 routes CELT-only frames directly to the integer decoder's
 	// libopus-exact opus_res int24, which is produced by a different (fixed)
 	// decode than the float path, so the "tracks float" relationship no longer
 	// holds. The int24 path's correctness is covered there by
 	// TestDecoderFixedPointCELTParity instead.
 	if decodeInt24TracksFloat32Skip {
-		t.Skip("DecodeInt24 routes CELT directly to the integer decoder under gopus_fixedpoint")
+		t.Skip("DecodeInt24 routes CELT directly to the integer decoder under gopus_fixed_point")
 	}
 	for _, channels := range []int{1, 2} {
 		packet := encodeAPIRateCELTPacket(t, channels)
@@ -317,12 +317,12 @@ func TestDecodeInt24InvalidFrameSize(t *testing.T) {
 // a nil packet (PLC) matches libopus opus_decode24(NULL, ...) within the
 // trusted near-exact bar.
 //
-// Under -tags gopus_fixedpoint the CELT loss is concealed by the integer
+// Under -tags gopus_fixed_point the CELT loss is concealed by the integer
 // celt_decode_lost (different from the float concealment this float-oracle bar
 // expects); that path is gated bit-exact by TestDecoderFixedPointCELTPLCParity.
 func TestDecodeInt24PLCMatchesLibopus(t *testing.T) {
 	if celtIntegerPLCActive {
-		t.Skip("CELT PLC routes to the integer decoder under gopus_fixedpoint; see TestDecoderFixedPointCELTPLCParity")
+		t.Skip("CELT PLC routes to the integer decoder under gopus_fixed_point; see TestDecoderFixedPointCELTPLCParity")
 	}
 	libopustest.RequireOracle(t)
 	for _, channels := range []int{1, 2} {

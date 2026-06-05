@@ -1,4 +1,4 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 // CELT fixed-point packet-loss concealment ported from celt_decode_lost,
 // celt_plc_pitch_search and prefilter_and_fold in libopus

@@ -193,7 +193,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		}
 	}
 
-	// Under the gopus_fixedpoint build the SILK analysis + rate-control body is
+	// Under the gopus_fixed_point build the SILK analysis + rate-control body is
 	// driven by the bit-exact FIXED_POINT chain instead of the float analysis.
 	// The surrounding orchestration (range-coder init, LBRR header, multi-frame
 	// loop, VAD/FEC header patch) is shared with the float path.

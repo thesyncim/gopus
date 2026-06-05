@@ -2,7 +2,7 @@
 // libopus' CELT encoder and decoder for the static 48000/960 mode. Everything
 // runs in the integer domain with no floating-point and reproduces the libopus
 // integer arithmetic bit-for-bit. The package is not part of the default float
-// build; it is compiled only behind the gopus_fixedpoint build tag, so its
+// build; it is compiled only behind the gopus_fixed_point build tag, so its
 // consumers select the integer codec at build time.
 //
 // The port covers the whole FIXED_POINT CELT pipeline, each file naming the

@@ -1,4 +1,4 @@
-//go:build gopus_extra_controls && !gopus_dred && !gopus_qext
+//go:build gopus_osce && !gopus_dred && !gopus_qext
 
 package gopus_test
 

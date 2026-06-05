@@ -1,4 +1,4 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 package encoder
 
@@ -10,7 +10,7 @@ import (
 )
 
 // TestPublicEncoderSILKFixedPathEngaged drives the PUBLIC encoder.Encoder in
-// SILK-only and Hybrid modes under the gopus_fixedpoint build and confirms each
+// SILK-only and Hybrid modes under the gopus_fixed_point build and confirms each
 // SILK frame is routed through the integer FIXED_POINT SILK encode driver. The
 // per-frame SILK payload byte-exactness against libopus silk_encode_frame_FIX is
 // proven at the silk.Encoder layer (silk.TestPublicSILKEncodeFrameFixedByteExact);

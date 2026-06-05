@@ -1,4 +1,4 @@
-//go:build gopus_custom
+//go:build gopus_custom_modes
 
 package custom
 

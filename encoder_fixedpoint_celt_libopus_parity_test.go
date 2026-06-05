@@ -1,4 +1,4 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 package gopus
 
@@ -48,7 +48,7 @@ func genPCMInt16Pub(seed uint32, channels, frameSize, nframes int, transient boo
 	return pcm
 }
 
-// TestPublicEncodeFixedCELTLibopusParity validates the gopus_fixedpoint public
+// TestPublicEncodeFixedCELTLibopusParity validates the gopus_fixed_point public
 // encode seam: a CELT-mode (ApplicationRestrictedCelt, full-band 48 kHz) frame
 // routed through Encoder.Encode produces a byte-exact CELT packet versus the
 // FIXED_POINT libopus celt_encode_with_ec reference.

@@ -1,4 +1,4 @@
-//go:build !gopus_extra_controls
+//go:build !gopus_osce
 
 package silk
 

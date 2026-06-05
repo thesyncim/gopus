@@ -24,7 +24,7 @@ GOLANGCI_LINT_VERSION ?= v1.64.8
 # Build-tag configs whose tagged source must stay lint/vet clean. The default
 # `make lint` only covers the default build; test-lint-tags runs golangci-lint
 # and `go vet` once per optional-feature tag so tag-gated files stay covered.
-LINT_TAG_CONFIGS ?= purego gopus_dred gopus_extra_controls gopus_qext gopus_fixedpoint gopus_custom
+LINT_TAG_CONFIGS ?= purego gopus_dred gopus_osce gopus_qext gopus_fixed_point gopus_custom_modes
 GO_RUNNABLE_TEST ?= bash ./tools/run_go_test_runnable.sh
 ASSEMBLY_SAFETY_MATRIX ?= bash ./tools/run_assembly_safety_matrix.sh
 FOCUS_GATE ?= bash ./tools/run_focus_gate.sh
@@ -389,15 +389,15 @@ ensure-libopus-qext:
 
 # Ensure tmp_check/opus-$(LIBOPUS_VERSION)-fixed/opus_demo exists, built with
 # --enable-fixed-point (config.h defines FIXED_POINT). This is the oracle for
-# the gopus_fixedpoint integer CELT/SILK kernels.
+# the gopus_fixed_point integer CELT/SILK kernels.
 ensure-libopus-fixed:
 	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_FIXED=1 ./tools/ensure_libopus.sh
 
-# Bit-exact parity for the gopus_fixedpoint integer kernels against the
+# Bit-exact parity for the gopus_fixed_point integer kernels against the
 # --enable-fixed-point libopus oracle.
 test-fixedpoint-parity: ensure-libopus-fixed
 	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
-		go test -tags 'gopus_fixedpoint gopus_libopus_oracle' -count=1 ./internal/fixedpoint/...
+		go test -tags 'gopus_fixed_point gopus_libopus_oracle' -count=1 ./internal/fixedpoint/...
 
 # Ensure tmp_check/opus-$(LIBOPUS_VERSION)-custom/opus_demo exists, built with
 # --enable-custom-modes (config.h defines CUSTOM_MODES). This is the oracle for
@@ -440,7 +440,7 @@ ensure-libopus-scalar:
 # is covered byte-exact by the testvectors CELT gates.
 test-custom-parity: ensure-libopus-custom-scalar
 	$(GO_WORK_ENV) GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_REF_SCALAR=1 \
-		$(GO) test -tags 'gopus_custom gopus_libopus_oracle purego' -count=1 ./internal/celt/custom/...
+		$(GO) test -tags 'gopus_custom_modes gopus_libopus_oracle purego' -count=1 ./internal/celt/custom/...
 
 # Live (fixture-free) gopus-vs-libopus decode parity on the extended synthetic
 # corpus signal classes across SILK/Hybrid/CELT mono+stereo configs, plus the

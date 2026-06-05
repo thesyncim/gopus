@@ -1,4 +1,4 @@
-//go:build gopus_dred || gopus_extra_controls
+//go:build gopus_dred || gopus_osce
 
 // USE_WEIGHTS_FILE control surface. libopus only exposes OPUS_SET_DNN_BLOB when
 // a model-consuming runtime is compiled in (ENABLE_DRED/ENABLE_OSCE/

@@ -1,11 +1,11 @@
-//go:build !gopus_extra_controls
+//go:build !gopus_osce
 
 package multistream
 
 import "github.com/thesyncim/gopus/internal/silk"
 
 // applyOSCEPostSilk is a no-op outside of the explicit
-// `gopus_extra_controls` build. The fanout call site in
+// `gopus_osce` build. The fanout call site in
 // `streamState.decodeSILK` always invokes it so the shared code compiles on
 // both builds; under the default tag it collapses to nothing.
 func (d *streamState) applyOSCEPostSilk(_ []float32, _ int, _ silk.Bandwidth, _ bool) {

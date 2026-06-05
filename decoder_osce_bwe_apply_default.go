@@ -1,11 +1,11 @@
-//go:build !gopus_extra_controls
+//go:build !gopus_osce
 
 package gopus
 
 import "github.com/thesyncim/gopus/internal/silk"
 
 // maybeApplyOSCEBWEPostSilk is a no-op outside of the explicit
-// `gopus_extra_controls` build. Default builds keep the OSCE BWE
+// `gopus_osce` build. Default builds keep the OSCE BWE
 // runtime inactive so the standard silk_resampler output is always used.
 func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 	_ []float32,

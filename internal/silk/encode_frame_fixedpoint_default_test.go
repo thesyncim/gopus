@@ -1,4 +1,4 @@
-//go:build !gopus_fixedpoint
+//go:build !gopus_fixed_point
 
 package silk
 

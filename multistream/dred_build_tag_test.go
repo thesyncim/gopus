@@ -1,4 +1,4 @@
-//go:build gopus_dred && !gopus_extra_controls
+//go:build gopus_dred && !gopus_osce
 
 package multistream
 

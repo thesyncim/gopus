@@ -1,4 +1,4 @@
-//go:build gopus_custom
+//go:build gopus_custom_modes
 
 // oracle_test.go provides bit/sample-exact parity tests for the Opus Custom API
 // against a libopus build configured with --enable-custom-modes.

@@ -1,4 +1,4 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 package encoder
 
@@ -12,7 +12,7 @@ import (
 )
 
 // TestPublicCELTEncodeFixedByteExact drives the PUBLIC Encoder API in CELT-only
-// mode under the gopus_fixedpoint build and asserts the produced packet payload
+// mode under the gopus_fixed_point build and asserts the produced packet payload
 // is byte-for-byte identical to the FIXED_POINT celt_encode_with_ec reference run
 // on the exact int16 PCM the integer encoder consumed. It exercises mono and
 // stereo, every CELT frame size (LM 0..3), a spread of bitrates and complexities,

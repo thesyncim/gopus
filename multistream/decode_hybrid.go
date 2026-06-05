@@ -83,7 +83,7 @@ func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc str
 				}
 			}
 		}
-		// Hand the final redundancy decision to the gopus_fixedpoint integer
+		// Hand the final redundancy decision to the gopus_fixed_point integer
 		// highband hook (which runs next, against a clone of this same decoder
 		// positioned at the CELT start band) so it can decline redundant frames it
 		// does not reproduce. A no-op in the default build.

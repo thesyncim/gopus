@@ -172,10 +172,10 @@ func TestNoCGOTestArtifacts(t *testing.T) {
 // Tag <-> libopus compile-flag mapping enforced here:
 //
 //	gopus_dred           <-> --enable-dred / ENABLE_DRED        (default: no)
-//	gopus_extra_controls <-> --enable-osce / ENABLE_OSCE and    (default: no)
+//	gopus_osce <-> --enable-osce / ENABLE_OSCE and    (default: no)
 //	                          the deep-PLC family / ENABLE_DEEP_PLC
 //	gopus_qext           <-> --enable-qext / ENABLE_QEXT        (default: no)
-//	gopus_custom         <-> --enable-custom-modes / CUSTOM_MODES (default: no)
+//	gopus_custom_modes         <-> --enable-custom-modes / CUSTOM_MODES (default: no)
 //
 // In a default libopus build LPCNET_SOURCES (the DNN / PitchDNN / FARGAN /
 // RDOVAE neural code) is empty, so none of it is compiled. The gated Go
@@ -202,7 +202,7 @@ func TestDefaultBuildIsZeroCostForGatedFeatures(t *testing.T) {
 		modulePrefix + "internal/osce/lace",   // ENABLE_OSCE (LACE / NoLACE)
 		modulePrefix + "internal/osce/bwe",    // ENABLE_OSCE_BWE
 		modulePrefix + "internal/celt/custom", // CUSTOM_MODES
-		modulePrefix + "internal/fixedpoint",  // gopus_fixedpoint (integer CELT codec)
+		modulePrefix + "internal/fixedpoint",  // gopus_fixed_point (integer CELT codec)
 	}
 
 	for _, pkg := range publicPkgs {
@@ -266,7 +266,7 @@ func defaultBuildSymbols(t *testing.T) string {
 
 	binPath := filepath.Join(t.TempDir(), "probe.bin")
 	// Default build: no build tags. GOFLAGS cleared so the host environment
-	// cannot inject -tags=gopus_fixedpoint (or any other gated tag).
+	// cannot inject -tags=gopus_fixed_point (or any other gated tag).
 	build := exec.Command(goBin, "build", "-tags", "", "-o", binPath, "./"+filepath.Base(probeDir))
 	build.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=")
 	if out, err := build.CombinedOutput(); err != nil {
@@ -283,9 +283,9 @@ func defaultBuildSymbols(t *testing.T) string {
 }
 
 // TestDefaultBinaryHasNoFixedPointSymbols inspects the linked symbol table of a
-// default-build probe and asserts that no gopus_fixedpoint-only symbol made it
+// default-build probe and asserts that no gopus_fixed_point-only symbol made it
 // in: neither any internal/fixedpoint symbol, nor the package-local shims that
-// live in //go:build gopus_fixedpoint files. This is a stronger guarantee than
+// live in //go:build gopus_fixed_point files. This is a stronger guarantee than
 // the import-graph check because it inspects the actual link output.
 func TestDefaultBinaryHasNoFixedPointSymbols(t *testing.T) {
 	if testing.Short() {
@@ -297,7 +297,7 @@ func TestDefaultBinaryHasNoFixedPointSymbols(t *testing.T) {
 	// Substrings that must never appear in a default-build symbol table.
 	forbidden := []string{
 		"github.com/thesyncim/gopus/internal/fixedpoint",
-		// Package-local shims that live in //go:build gopus_fixedpoint files.
+		// Package-local shims that live in //go:build gopus_fixed_point files.
 		"github.com/thesyncim/gopus/internal/celt.MaxPulsesBitsExport",
 		"github.com/thesyncim/gopus/internal/celt.DecodeCELTAllocation",
 		"github.com/thesyncim/gopus/internal/celt.TFDecode",
@@ -308,7 +308,7 @@ func TestDefaultBinaryHasNoFixedPointSymbols(t *testing.T) {
 	}
 	for _, sym := range forbidden {
 		if strings.Contains(syms, sym) {
-			t.Errorf("zero-cost contract violation: default-build binary contains gopus_fixedpoint-only symbol %q", sym)
+			t.Errorf("zero-cost contract violation: default-build binary contains gopus_fixed_point-only symbol %q", sym)
 		}
 	}
 }
@@ -331,12 +331,12 @@ func TestDefaultBinaryHasNoGatedFeatureSymbols(t *testing.T) {
 	forbiddenPkgs := map[string]string{
 		"internal/dred":        "gopus_dred",
 		"internal/dred/rdovae": "gopus_dred",
-		"internal/lpcnetplc":   "gopus_extra_controls (ENABLE_DEEP_PLC)",
-		"internal/osce":        "gopus_extra_controls (ENABLE_OSCE)",
-		"internal/osce/lace":   "gopus_extra_controls (ENABLE_OSCE)",
-		"internal/osce/bwe":    "gopus_extra_controls (ENABLE_OSCE_BWE)",
-		"internal/celt/custom": "gopus_custom (CUSTOM_MODES)",
-		"internal/fixedpoint":  "gopus_fixedpoint",
+		"internal/lpcnetplc":   "gopus_osce (ENABLE_DEEP_PLC)",
+		"internal/osce":        "gopus_osce (ENABLE_OSCE)",
+		"internal/osce/lace":   "gopus_osce (ENABLE_OSCE)",
+		"internal/osce/bwe":    "gopus_osce (ENABLE_OSCE_BWE)",
+		"internal/celt/custom": "gopus_custom_modes (CUSTOM_MODES)",
+		"internal/fixedpoint":  "gopus_fixed_point",
 	}
 	for pkg, tag := range forbiddenPkgs {
 		needle := modulePrefix + pkg + "."
@@ -357,9 +357,9 @@ func TestDefaultBinaryHasNoGatedFeatureSymbols(t *testing.T) {
 		"github.com/thesyncim/gopus/internal/celt.(*Decoder).SetQEXTPayload": "gopus_qext",
 		"github.com/thesyncim/gopus/internal/celt.(*Encoder).SetQEXTEnabled": "gopus_qext",
 		"github.com/thesyncim/gopus/internal/celt.(*Encoder).QEXTEnabled":    "gopus_qext",
-		// gopus_dred / gopus_extra_controls: neural conceal entry points.
+		// gopus_dred / gopus_osce: neural conceal entry points.
 		"github.com/thesyncim/gopus/internal/celt.(*Decoder).ConcealDRED48kToFloat32":      "gopus_dred",
-		"github.com/thesyncim/gopus/internal/celt.(*Decoder).ConcealPLCNeural48kToFloat32": "gopus_extra_controls",
+		"github.com/thesyncim/gopus/internal/celt.(*Decoder).ConcealPLCNeural48kToFloat32": "gopus_osce",
 	}
 	for sym, tag := range forbiddenShims {
 		if strings.Contains(syms, sym) {

@@ -36,10 +36,10 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		ext    gopus.OptionalExtension
 		status string
 	}{
-		{name: "DNN blob loading", ext: gopus.OptionalExtensionDNNBlob, status: "Supported under `gopus_dred` / `gopus_extra_controls`"},
+		{name: "DNN blob loading", ext: gopus.OptionalExtensionDNNBlob, status: "Supported under `gopus_dred` / `gopus_osce`"},
 		{name: "QEXT", ext: gopus.OptionalExtensionQEXT, status: "Supported under `gopus_qext`"},
 		{name: "DRED", ext: gopus.OptionalExtensionDRED, status: "Supported under `gopus_dred` (control + standalone)"},
-		{name: "OSCE BWE", ext: gopus.OptionalExtensionOSCEBWE, status: "Supported under `gopus_extra_controls`"},
+		{name: "OSCE BWE", ext: gopus.OptionalExtensionOSCEBWE, status: "Supported under `gopus_osce`"},
 	} {
 		wantLine := fmt.Sprintf("| %s | %s | `%s` |", tc.name, tc.status, optionalExtensionDocSymbol(tc.ext))
 		if !containsDocText(optionalDoc, wantLine) {
@@ -50,9 +50,9 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	for _, needle := range []string{
 		"Default builds expose no optional extensions; `SetDNNBlob(...)` is a no-op returning `ErrOptionalExtensionUnavailable`.",
 		"DNN blob loading (USE_WEIGHTS_FILE model loading) requires `-tags gopus_dred` or",
-		"`-tags gopus_extra_controls`; QEXT requires `-tags gopus_qext`; DRED",
+		"`-tags gopus_osce`; QEXT requires `-tags gopus_qext`; DRED",
 		"control/standalone surfaces require `-tags gopus_dred`; OSCE BWE/LACE/NoLACE",
-		"require `-tags gopus_extra_controls`.",
+		"require `-tags gopus_osce`.",
 		"parity-complete and supported, exactly as libopus exposes them behind the",
 		"corresponding compile flag.",
 		"make test-dnn-blob-parity",
@@ -94,7 +94,7 @@ func assertOptionalExtensionDocsMatchSupport(t *testing.T, optionalDoc string) {
 
 	// DNN blob loading is now tag-gated exactly like libopus's USE_WEIGHTS_FILE
 	// loaders (built only under ENABLE_DRED/ENABLE_OSCE/ENABLE_DEEP_PLC). The
-	// default build reports no support; -tags gopus_dred / gopus_extra_controls
+	// default build reports no support; -tags gopus_dred / gopus_osce
 	// turn it on alongside the DRED/OSCE runtime hooks.
 	if gopus.SupportsOptionalExtension(gopus.OptionalExtensionDNNBlob) != extsupport.DNNBlob {
 		t.Fatalf("SupportsOptionalExtension(DNNBlob)=%v want %v", gopus.SupportsOptionalExtension(gopus.OptionalExtensionDNNBlob), extsupport.DNNBlob)

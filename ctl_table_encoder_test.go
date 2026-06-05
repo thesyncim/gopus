@@ -828,17 +828,17 @@ var encoderCTLTable = []encoderCTLRow{
 	},
 
 	// ------------------------------------------------------------------
-	// 4050/4051 OPUS_SET/GET_DRED_DURATION (gopus_dred / gopus_extra_controls)
+	// 4050/4051 OPUS_SET/GET_DRED_DURATION (gopus_dred / gopus_osce)
 	// C ref: OPUS_SET_DRED_DURATION_REQUEST –
 	//   "if (value < 0 || value > 100) goto bad_arg"
 	// Default: 0.
-	// (gated by gopus_dred or gopus_extra_controls build tags)
+	// (gated by gopus_dred or gopus_osce build tags)
 	// ------------------------------------------------------------------
 	// Row excluded: covered by encoder_extra_controls tagged tests.
 
 	// ------------------------------------------------------------------
-	// 4054/4055 OPUS_SET/GET_OSCE_BWE (gopus_extra_controls)
-	// (gated by gopus_extra_controls build tag)
+	// 4054/4055 OPUS_SET/GET_OSCE_BWE (gopus_osce)
+	// (gated by gopus_osce build tag)
 	// ------------------------------------------------------------------
 	// Row excluded: covered by decoder_extra_controls tagged tests.
 
@@ -849,7 +849,7 @@ var encoderCTLTable = []encoderCTLRow{
 	// Row excluded: covered by qext tagged tests.
 
 	// ------------------------------------------------------------------
-	// 4052 OPUS_SET_DNN_BLOB (gopus_dred / gopus_extra_controls)
+	// 4052 OPUS_SET_DNN_BLOB (gopus_dred / gopus_osce)
 	// (gated by build tag; covered by dnn_blob_controls tagged tests)
 	// ------------------------------------------------------------------
 	// Row excluded: covered by tagged tests.

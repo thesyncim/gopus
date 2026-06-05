@@ -1,4 +1,4 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 package gopus_test
 
@@ -53,7 +53,7 @@ func celtFixedFullbandTOC(frameSize48 int, stereo bool) (byte, bool) {
 	return toc, true
 }
 
-// TestDecoderFixedPointCELTParity validates that, under -tags gopus_fixedpoint,
+// TestDecoderFixedPointCELTParity validates that, under -tags gopus_fixed_point,
 // the public Decoder.DecodeInt16 and Decoder.DecodeInt24 of CELT-only packets
 // are bit-exact with the libopus FIXED_POINT celt_decode_with_ec sequence
 // decode (one decoder, real cross-frame state). The public int16/int24 paths

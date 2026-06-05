@@ -18,7 +18,7 @@
 #include "kiss_fft.h"
 
 /* Oracle helper that dumps the static 48000/960 custom mode's mode->mdct lookup
- * (the real tables celt_decode_with_ec uses), so the gopus_fixedpoint build can
+ * (the real tables celt_decode_with_ec uses), so the gopus_fixed_point build can
  * bake and validate the identical trig / FFT twiddle / bitrev / factor tables.
  *
  * Output (after the GCMO header, version 1, count word = 0):

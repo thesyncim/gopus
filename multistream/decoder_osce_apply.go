@@ -1,4 +1,4 @@
-//go:build gopus_extra_controls
+//go:build gopus_osce
 
 package multistream
 
@@ -15,7 +15,7 @@ import (
 // `out` is overwritten in place by the BWE forward pass when its gates fire.
 //
 // Both postfilters are SILK-only at 16 kHz internal sample rate. The helper
-// is a no-op outside of `gopus_extra_controls`.
+// is a no-op outside of `gopus_osce`.
 func (d *streamState) applyOSCEPostSilk(out []float32, frameSize int, silkBW silk.Bandwidth, packetStereo bool) {
 	if d == nil || d.osceState == nil {
 		return

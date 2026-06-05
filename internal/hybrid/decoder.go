@@ -91,7 +91,7 @@ type Decoder struct {
 // FixedHybridHighband receives the data needed to run the FIXED_POINT integer
 // CELT highband decode for a hybrid frame, mirroring the libopus
 // opus_decode_frame hybrid path (start_band=17, celt_accum=1 onto the SILK
-// opus_res lowband). It is implemented in the gopus_fixedpoint build by the
+// opus_res lowband). It is implemented in the gopus_fixed_point build by the
 // root decoder.
 type FixedHybridHighband interface {
 	// DecodeHybridHighband is called after the SILK lowband has been decoded and

@@ -1,4 +1,4 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 // CELT fixed-point pitch / correlation kernels ported from libopus
 // celt/pitch.{c,h} under FIXED_POINT.
@@ -14,7 +14,7 @@
 // The int32 accumulators wrap on overflow exactly as libopus relies on
 // (two's-complement). Go's int32 arithmetic provides the same wraparound, so
 // the results match the reference bit-for-bit. These kernels are gated behind
-// the gopus_fixedpoint build tag and carry zero cost in the default float
+// the gopus_fixed_point build tag and carry zero cost in the default float
 // build.
 package fixedpoint
 

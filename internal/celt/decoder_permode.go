@@ -4,7 +4,7 @@ package celt
 // mode whose band layout differs from the static 21-band 48 kHz tables. It is a
 // plain data carrier (no neural / fixed-point code), so it is safe to define in
 // the default build; it is only ever populated by EnablePerModeTables, which is
-// called exclusively from the gopus_custom celt<->custom plumbing for a
+// called exclusively from the gopus_custom_modes celt<->custom plumbing for a
 // non-standard, non-family custom mode (e.g. 48000/640, nbEBands=19).
 //
 // Every field mirrors the equivalent libopus CELTMode member that the decode

@@ -1,4 +1,4 @@
-//go:build gopus_custom
+//go:build gopus_custom_modes
 
 // Package custom implements the Opus Custom API (opus_custom.h) for non-standard
 // sample rates and frame sizes.
@@ -25,7 +25,7 @@
 // CTLs mirror the libopus opus_custom_encoder_ctl / opus_custom_decoder_ctl
 // generic CTL constants (OPUS_SET_COMPLEXITY, OPUS_SET_BITRATE, etc.).
 //
-// Build tag: gopus_custom (mirrors libopus CUSTOM_MODES compile guard).
+// Build tag: gopus_custom_modes (mirrors libopus CUSTOM_MODES compile guard).
 // Default builds exclude this package entirely; zero build cost when unset.
 //
 // Oracle parity status: oracle_test.go compares encode+decode against a libopus

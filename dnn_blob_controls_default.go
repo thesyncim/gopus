@@ -1,4 +1,4 @@
-//go:build !gopus_dred && !gopus_extra_controls
+//go:build !gopus_dred && !gopus_osce
 
 // Default-build USE_WEIGHTS_FILE control stubs.
 //
@@ -14,28 +14,28 @@
 package gopus
 
 // SetDNNBlob reports that USE_WEIGHTS_FILE model loading is unavailable in the
-// default build. Build with -tags gopus_dred or -tags gopus_extra_controls to
+// default build. Build with -tags gopus_dred or -tags gopus_osce to
 // enable the model-loading control.
 func (d *Decoder) SetDNNBlob(_ []byte) error {
 	return ErrOptionalExtensionUnavailable
 }
 
 // SetDNNBlob reports that USE_WEIGHTS_FILE model loading is unavailable in the
-// default build. Build with -tags gopus_dred or -tags gopus_extra_controls to
+// default build. Build with -tags gopus_dred or -tags gopus_osce to
 // enable the model-loading control.
 func (e *Encoder) SetDNNBlob(_ []byte) error {
 	return ErrOptionalExtensionUnavailable
 }
 
 // SetDNNBlob reports that USE_WEIGHTS_FILE model loading is unavailable in the
-// default build. Build with -tags gopus_dred or -tags gopus_extra_controls to
+// default build. Build with -tags gopus_dred or -tags gopus_osce to
 // enable the model-loading control.
 func (e *MultistreamEncoder) SetDNNBlob(_ []byte) error {
 	return ErrOptionalExtensionUnavailable
 }
 
 // SetDNNBlob reports that USE_WEIGHTS_FILE model loading is unavailable in the
-// default build. Build with -tags gopus_dred or -tags gopus_extra_controls to
+// default build. Build with -tags gopus_dred or -tags gopus_osce to
 // enable the model-loading control.
 func (d *MultistreamDecoder) SetDNNBlob(_ []byte) error {
 	return ErrOptionalExtensionUnavailable

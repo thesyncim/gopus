@@ -1,4 +1,4 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 // encode_differential_fuzz_fixedpoint_test.go — FIXED_POINT ENCODE-side
 // differential fuzz harness comparing the PUBLIC gopus integer-CELT encode path
@@ -10,10 +10,10 @@
 // because the default gopus build is all-float, exactly like libopus
 // opus_encode_float() — there is no float-vs-integer wrapper boundary.
 //
-// Under gopus_fixedpoint the situation is different and is the reason this harness
+// Under gopus_fixed_point the situation is different and is the reason this harness
 // lives at the inner-CELT-payload level rather than the full-packet level:
 //
-//   - gopus_fixedpoint swaps only the INNER SILK/CELT frame encoders to the
+//   - gopus_fixed_point swaps only the INNER SILK/CELT frame encoders to the
 //     integer (FIXED_POINT) paths. The Opus API wrapper around them — dc_reject(),
 //     the SILK API-rate resampler, the CELT delay buffer / float2int16 — still runs
 //     in FLOAT (the same float code the default build uses).
@@ -61,7 +61,7 @@
 //
 // Run:
 //   GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
-//     go test -tags gopus_fixedpoint -run TestEncodeDifferentialFuzzFixedPoint ./encoder/
+//     go test -tags gopus_fixed_point -run TestEncodeDifferentialFuzzFixedPoint ./encoder/
 
 package encoder
 

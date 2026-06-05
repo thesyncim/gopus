@@ -1,4 +1,4 @@
-//go:build gopus_extra_controls && gopus_qext && !gopus_dred
+//go:build gopus_osce && gopus_qext && !gopus_dred
 
 package gopus
 
@@ -10,16 +10,16 @@ import (
 
 func TestQEXTExtraControlsBuildOptionalExtensionContract(t *testing.T) {
 	if !SupportsOptionalExtension(OptionalExtensionDNNBlob) {
-		t.Fatal("gopus_extra_controls,gopus_qext build does not report DNN blob support")
+		t.Fatal("gopus_osce,gopus_qext build does not report DNN blob support")
 	}
 	if SupportsOptionalExtension(OptionalExtensionDRED) {
-		t.Fatal("gopus_extra_controls,gopus_qext build unexpectedly reports DRED support")
+		t.Fatal("gopus_osce,gopus_qext build unexpectedly reports DRED support")
 	}
 	if !SupportsOptionalExtension(OptionalExtensionQEXT) {
-		t.Fatal("gopus_extra_controls,gopus_qext build does not report QEXT support")
+		t.Fatal("gopus_osce,gopus_qext build does not report QEXT support")
 	}
 	if SupportsOptionalExtension(OptionalExtensionOSCEBWE) {
-		t.Fatal("gopus_extra_controls,gopus_qext build unexpectedly reports OSCE BWE support")
+		t.Fatal("gopus_osce,gopus_qext build unexpectedly reports OSCE BWE support")
 	}
 
 	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)

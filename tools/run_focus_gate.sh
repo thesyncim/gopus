@@ -85,15 +85,15 @@ test_regex() {
 
 tag_dred='gopus_dred'
 tag_qext='gopus_qext'
-tag_extra_controls='gopus_extra_controls'
+tag_extra_controls='gopus_osce'
 tag_dred_qext='gopus_dred gopus_qext'
-tag_extra_controls_qext='gopus_extra_controls gopus_qext'
-tag_all_optional='gopus_dred gopus_extra_controls gopus_qext'
+tag_extra_controls_qext='gopus_osce gopus_qext'
+tag_all_optional='gopus_dred gopus_osce gopus_qext'
 
 # Default-build DNN-blob surface: SetDNNBlob is now a tag-gated, zero-cost
 # no-op (mirroring libopus USE_WEIGHTS_FILE compile-gating), so the default
 # gate asserts the no-op contract and dormancy; model-loading retention tests
-# run under the gopus_dred/gopus_extra_controls tags (dnn_blob_tagged_root).
+# run under the gopus_dred/gopus_osce tags (dnn_blob_tagged_root).
 dnn_blob_default_root='Test(DefaultBuildSetDNNBlobIsNoOp|DefaultBuildDNNBlobKeepsDREDRuntimeDormant|DefaultBuildEncoderDNNBlobKeepsDREDDormant|ValidEncoderTestDNNBlobShape|ValidDecoderTestDNNBlobShape)'
 dnn_blob_tagged_root='Test(DNNBlobControlAcceptsLibopusModelBlobs|HotPathAllocsDecodePLCDNNReadyAtMostBaseline|EncoderSetDNNBlobRetainedAcrossReset|DecoderSetDNNBlobRetainedAcrossReset|DecoderSetDNNBlobStereoRuntimeRetainedAcrossReset|MultistreamEncoderSetDNNBlobRetainedAcrossReset|MultistreamDecoderSetDNNBlobRetainedAcrossReset)'
 dnn_blob_default_multistream='Test(DefaultBuildMultistreamDecoderRealBlobDormant|DefaultBuildMultistreamDecoderDecodeAllocGuard|DefaultBuildMultistreamEncoderDNNBlobKeepsAllocsFlat)'

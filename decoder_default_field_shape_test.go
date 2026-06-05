@@ -1,4 +1,4 @@
-//go:build !gopus_dred && !gopus_extra_controls
+//go:build !gopus_dred && !gopus_osce
 
 package gopus
 
@@ -9,7 +9,7 @@ import (
 
 // These tests assert the DRED/OSCE decoder embeds carry no storage in the
 // default build, keeping the Decoder struct byte-unchanged when neither
-// gopus_dred nor gopus_extra_controls is set (the zero-cost gated-feature
+// gopus_dred nor gopus_osce is set (the zero-cost gated-feature
 // contract).
 
 func TestDefaultBuildDecoderDREDFieldsAreZeroSize(t *testing.T) {

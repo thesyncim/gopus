@@ -19,7 +19,7 @@
 //   - The PCM quantizers (in pcm.go) reproduce libopus' float-to-int rounding
 //     and saturation exactly, including round-half-to-even and the rail clamps.
 //
-// The package is import-safe from both the default and the gopus_fixedpoint
+// The package is import-safe from both the default and the gopus_fixed_point
 // builds; it contains no build-tagged variants of its own except the fma32
 // helper, which is split per architecture only to control FMA contraction.
 package opusmath

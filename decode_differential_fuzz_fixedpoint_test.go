@@ -1,7 +1,7 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 // decode_differential_fuzz_fixedpoint_test.go — FIXED_POINT differential fuzz
-// harness comparing the gopus_fixedpoint integer DecodeInt16 / DecodeInt24 path
+// harness comparing the gopus_fixed_point integer DecodeInt16 / DecodeInt24 path
 // against the libopus FIXED_POINT opus_decode / opus_decode24 oracle.
 //
 // This is the fixed-point sibling of decode_differential_fuzz_test.go (which
@@ -15,7 +15,7 @@
 //
 // Strategy: gopus encodes the full valid config space (mode / bandwidth / frame
 // duration / bitrate / channels / FEC / DTX) into VALID packets, then decodes the
-// resulting stateful packet sequence through BOTH the gopus_fixedpoint
+// resulting stateful packet sequence through BOTH the gopus_fixed_point
 // DecodeInt16 AND DecodeInt24 and the libopus FIXED_POINT opus_decode /
 // opus_decode24 reference, asserting bit-exact equality on every architecture
 // (the integer decode is FMA-free, so it has no per-arch float drift).
@@ -51,12 +51,12 @@ import (
 )
 
 // fixedPerArchTol is the maximum absolute per-sample integer difference tolerated
-// between the gopus_fixedpoint decode and the FIXED_POINT reference: 0 (bit-exact)
+// between the gopus_fixed_point decode and the FIXED_POINT reference: 0 (bit-exact)
 // on every architecture.
 //
 // Unlike the float decode path — whose documented darwin/arm64 ≤1-ULP residual
 // (project_arm64_celt_1ulp_drift) comes from Go-vs-clang FMA-contraction
-// boundaries — the gopus_fixedpoint integer CELT/SILK/Hybrid decode is pure
+// boundaries — the gopus_fixed_point integer CELT/SILK/Hybrid decode is pure
 // integer arithmetic with no fused-multiply-add, so it is deterministic and
 // bit-identical to the FIXED_POINT reference on all architectures. The full sweep
 // (this harness) is bit-exact on both amd64 and darwin/arm64; a non-zero budget
@@ -76,7 +76,7 @@ func fixedFrameSamplesAtRate(s encodeSweepSpec, sampleRate int) int {
 }
 
 // fixedDecodeGopusSequence decodes a stateful packet sequence (nil entries are
-// lost frames / PLC) through one gopus_fixedpoint Decoder for each of int16 and
+// lost frames / PLC) through one gopus_fixed_point Decoder for each of int16 and
 // int24, using a per-step buffer of exactly frameSamples*channels so the PLC
 // frame size matches the FIXED_POINT reference's frame_size argument. It returns
 // the concatenated int16 (widened to int32) and int24 outputs.
@@ -161,7 +161,7 @@ func fixedFindRejectedStep(sampleRate, channels, frameSamples int, steps [][]byt
 }
 
 // fixedPointSpecificDivergence reports whether an observed int16/int24 divergence
-// from the FIXED_POINT reference is specific to the gopus_fixedpoint integer
+// from the FIXED_POINT reference is specific to the gopus_fixed_point integer
 // decode path, which is what this harness gates. It decodes the same step
 // sequence through the gopus FLOAT path and the libopus FLOAT opus_decode_float
 // reference — BOTH STATEFUL through one decoder over the whole sequence, matching
@@ -227,7 +227,7 @@ func fixedPointSpecificDivergence(t *testing.T, label string, sampleRate, channe
 }
 
 // TestDecodeDifferentialFixedPointEncodeThenDecode sweeps the full encoder config
-// space, decodes each multi-frame stateful sequence through the gopus_fixedpoint
+// space, decodes each multi-frame stateful sequence through the gopus_fixed_point
 // integer DecodeInt16 / DecodeInt24 and the libopus FIXED_POINT reference, and
 // asserts bit-exact equality on every architecture.
 func TestDecodeDifferentialFixedPointEncodeThenDecode(t *testing.T) {
@@ -483,7 +483,7 @@ func withinFixedTol(got, want []int32) (ok bool, diffs int, maxAbs int64, firstI
 	return false, diffs, maxAbs, firstIdx
 }
 
-// reportFixedDivergence compares the gopus_fixedpoint int16 and int24 output of a
+// reportFixedDivergence compares the gopus_fixed_point int16 and int24 output of a
 // step sequence against the FIXED_POINT reference. When neither format exceeds the
 // per-arch budget it returns true (clean). Otherwise it classifies the divergence
 // with fixedPointSpecificDivergence: a fixed-point-specific divergence (the gopus

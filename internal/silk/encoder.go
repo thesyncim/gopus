@@ -23,7 +23,7 @@ type VADFrameAnalyzer func(frame []float32, frameSamples, fsKHz int) (VADFrameSt
 // Reference: RFC 6716 Section 5.2, draft-vos-silk-01
 type Encoder struct {
 	// silkEncoderFixedFields carries the FIXED_POINT integer SILK encode state
-	// added under the gopus_fixedpoint build. It is empty (zero-size) in the
+	// added under the gopus_fixed_point build. It is empty (zero-size) in the
 	// default build, keeping the Encoder struct byte-unchanged.
 	silkEncoderFixedFields
 
@@ -516,7 +516,7 @@ func (e *Encoder) ResetStereoSideAfterMidOnly() {
 	e.ecPrevSignalType = typeNoVoiceActivity
 	e.isPreviousFrameVoiced = false
 	e.forceFirstFrameAfterReset = true
-	// Under the gopus_fixedpoint build also reset the integer side-channel state
+	// Under the gopus_fixed_point build also reset the integer side-channel state
 	// (sShape/sNSQ/prev_NLSFq/sLP, LastGainIndex, prevLag) exactly as libopus
 	// enc_API.c does when side coding resumes. No-op on the float build.
 	e.resetStereoSideFixedState()

@@ -1,9 +1,9 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 package encoder
 
 // encodeHotPathCaseBudget is the per-call allocation ceiling for one steady-
-// state Encode hot-path case under -tags gopus_fixedpoint.
+// state Encode hot-path case under -tags gopus_fixed_point.
 //
 // The integer CELT encode driver (internal/fixedpoint + the encoder fixed-CELT
 // wiring) is strictly zero-alloc: all per-frame and per-band working buffers are

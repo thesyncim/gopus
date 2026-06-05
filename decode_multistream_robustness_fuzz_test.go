@@ -417,7 +417,7 @@ func TestDecodeMultistreamRobustnessMalformed(t *testing.T) {
 
 		// ---- gross PCM divergence guard on accepted corrupt input ----
 		// Valid only in the default (float) build, where gopus and the float
-		// multistream oracle use identical arithmetic. Under gopus_fixedpoint gopus
+		// multistream oracle use identical arithmetic. Under gopus_fixed_point gopus
 		// decodes int16/int24 through the integer path against this same float
 		// oracle, so a PCM-value diff is the expected float-vs-integer gap amplified
 		// by the unstable filters garbage drives, not a decode mistake; the

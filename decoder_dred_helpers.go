@@ -1,4 +1,4 @@
-//go:build gopus_dred || gopus_extra_controls
+//go:build gopus_dred || gopus_osce
 
 package gopus
 
@@ -307,7 +307,7 @@ func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) error {
 	d.farganModelLoaded = models.FARGAN
 	d.setOSCEModelState(models)
 	// Bind the extra-control OSCE BWE model when its weights are present. The
-	// helper is a no-op outside of `gopus_extra_controls` builds so the
+	// helper is a no-op outside of `gopus_osce` builds so the
 	// shared DRED path remains untouched.
 	if err := d.bindOSCEBWEModel(blob, models.OSCEBWE); err != nil {
 		return err

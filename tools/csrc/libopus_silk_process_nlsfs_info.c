@@ -3,7 +3,7 @@
  * silk_process_NLSFs is shared float/fixed C; this oracle is compiled and
  * linked against a libopus configured with --enable-fixed-point (defines
  * FIXED_POINT) so the integer helpers it composes (Laroia weights, NLSF MSVQ
- * encode, NLSF2A) match the gopus_fixedpoint kernels. Reads a little-endian
+ * encode, NLSF2A) match the gopus_fixed_point kernels. Reads a little-endian
  * payload of cases from stdin, populates the silk_encoder_state fields read by
  * silk_process_NLSFs, calls it, and writes the bit-exact outputs (the two
  * halves of PredCoef_Q12, the chosen NLSFIndices, and the quantized pNLSF_Q15)

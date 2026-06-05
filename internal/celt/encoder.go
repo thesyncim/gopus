@@ -68,7 +68,7 @@ type Encoder struct {
 	// layout differs from the static 21-band 48 kHz tables (e.g. 48000/640,
 	// nbEBands=19). It is nil for the standard, family, hybrid and QEXT paths,
 	// which then stay byte-identical. Populated only by EnablePerModeTables,
-	// called from the gopus_custom celt<->custom plumbing.
+	// called from the gopus_custom_modes celt<->custom plumbing.
 	perMode *perModeTables
 	// overlapMax mirrors libopus st->overlap_max for CELT silence detection.
 	// It tracks max absolute amplitude over the last overlap region.

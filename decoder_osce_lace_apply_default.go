@@ -1,4 +1,4 @@
-//go:build !gopus_extra_controls
+//go:build !gopus_osce
 
 package gopus
 
@@ -9,7 +9,7 @@ func (d *Decoder) installOSCELACESilkPostfilterHook(_ Mode, _ silk.Bandwidth, _ 
 }
 
 // osceLACEMarkInactiveIfModeIneligible is a no-op stub on the default
-// build. The `gopus_extra_controls` build provides the
+// build. The `gopus_osce` build provides the
 // real implementation in `decoder_osce_lace_apply.go`.
 func (d *Decoder) osceLACEMarkInactiveIfModeIneligible(_ Mode, _ Bandwidth) {}
 

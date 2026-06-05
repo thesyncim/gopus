@@ -1,6 +1,6 @@
-//go:build gopus_extra_controls
+//go:build gopus_osce
 
-// ctl_sequence_extra_controls_test.go fuzzes the gopus_extra_controls-gated CTLs
+// ctl_sequence_extra_controls_test.go fuzzes the gopus_osce-gated CTLs
 // (encoder OPUS_SET/GET_DRED_DURATION, decoder OPUS_SET/GET_OSCE_BWE and the
 // OSCE LACE activation) for get-after-set and boundary-validation parity with
 // the libopus #ifdef-gated semantics.

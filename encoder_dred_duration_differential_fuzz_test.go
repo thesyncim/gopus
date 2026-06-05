@@ -1,4 +1,4 @@
-//go:build gopus_dred || gopus_extra_controls
+//go:build gopus_dred || gopus_osce
 
 // encoder_dred_duration_differential_fuzz_test.go — differential fuzz for the
 // DRED-carrying ENCODE path against the same-arch libopus DRED emit oracle,

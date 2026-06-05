@@ -1,4 +1,4 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 package silk
 
@@ -8,7 +8,7 @@ package silk
 // the libopus FIXED_POINT encoder.
 //
 // The default (float) build uses StereoLRToMSWithRates which performs the same
-// integer analysis but emits float mid/side samples; under gopus_fixedpoint the
+// integer analysis but emits float mid/side samples; under gopus_fixed_point the
 // per-channel encode is driven by the integer silk_encode_frame_FIX chain, so
 // the int16 mid/side from silkStereoLRToMS are threaded through verbatim (no
 // float round-trip) to guarantee the inputBuf the encode body consumes equals
@@ -152,7 +152,7 @@ func (e *Encoder) stageStereoInt16(frame []int16) {
 
 // stereoSideVADFixed computes the side-channel VAD flag with the integer VAD on
 // a copy of the side state, returning (active, true). ok is always true under
-// the gopus_fixedpoint build.
+// the gopus_fixed_point build.
 func (e *Encoder) stereoSideVADFixed(sideEnc *Encoder, sideI16 []int16, frameLength, fsKHz int, opusVADActive bool) (active, ok bool) {
 	return e.stereoFixedSideVADFlag(sideEnc, sideI16, frameLength, fsKHz, opusVADActive), true
 }

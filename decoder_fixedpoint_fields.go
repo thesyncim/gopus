@@ -1,11 +1,11 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 package gopus
 
 import "github.com/thesyncim/gopus/internal/fixedpoint"
 
 // decoderFixedFields carries the FIXED_POINT integer CELT decoder used by the
-// gopus_fixedpoint build to produce integer-exact CELT-only output through the
+// gopus_fixed_point build to produce integer-exact CELT-only output through the
 // public Decoder. It is created lazily on the first CELT-only frame so the
 // allocation is avoided for SILK-only streams.
 //

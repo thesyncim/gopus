@@ -356,7 +356,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	redundancyBytes := 0
 	mainLen := len(data)
 	// fixedHybridFrame records that this frame was decoded by the integer Hybrid
-	// path (gopus_fixedpoint), so the redundancy / transition post-processing runs
+	// path (gopus_fixed_point), so the redundancy / transition post-processing runs
 	// its opus_res-domain equivalent and keeps the int16/int24 output bit-exact.
 	fixedHybridFrame := false
 	var redundantAudio []float32
@@ -381,7 +381,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		}
 		if data == nil {
 			// A lost hybrid frame conceals via the float PLC (SILK PLC + float CELT
-			// PLC). Under -tags gopus_fixedpoint with an active integer-output packet,
+			// PLC). Under -tags gopus_fixed_point with an active integer-output packet,
 			// also advance the integer CELT (highband) cross-frame state through the
 			// loss and accumulate the concealed highband onto the integer SILK
 			// lowband, mirroring opus_decode_frame's celt_decode_with_ec_dred(NULL,
@@ -412,7 +412,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 				}
 			}
 		} else {
-			// Under -tags gopus_fixedpoint with an active integer-output packet,
+			// Under -tags gopus_fixed_point with an active integer-output packet,
 			// arm the integer CELT highband hook so the hybrid decode also produces
 			// libopus-exact int16/int24 output (start band 17, celt_accum onto the
 			// SILK opus_res lowband). prepareFixedHybrid is a no-op in the default
@@ -638,7 +638,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		// OSCE_MODE_SILK_BBWE which replaces the silk_resampler upsampling
 		// with an ML-based 16 kHz -> 48 kHz bandwidth extension.
 		//
-		// The helper is a no-op outside of `gopus_extra_controls` and
+		// The helper is a no-op outside of `gopus_osce` and
 		// short-circuits when the BWE control is disabled / no BWE model is
 		// loaded, so the standard silk_resampler output is retained for
 		// every existing decode path.
@@ -703,7 +703,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		// Capture the main decode's FinalRange (no redundancy post-processing for CELT-only)
 		d.mainDecodeRng = d.celtDecoder.FinalRange()
 
-		// Under -tags gopus_fixedpoint, an active integer-output packet
+		// Under -tags gopus_fixed_point, an active integer-output packet
 		// (DecodeInt16 / DecodeInt24) additionally runs the integer FIXED_POINT
 		// CELT decoder to accumulate libopus-exact int16/int24 output. The
 		// dispatch is a no-op in the default build and on the float Decode path.

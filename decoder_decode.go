@@ -557,7 +557,7 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 			return 0, err
 		}
 		// CELT-only packet loss is concealed bit-exact by the integer
-		// FIXED_POINT path under -tags gopus_fixedpoint; otherwise the float PLC
+		// FIXED_POINT path under -tags gopus_fixed_point; otherwise the float PLC
 		// output is quantized without soft clip (concealed audio is never
 		// clipped), matching the default build.
 		d.fixedApplyDecodeGain(n * channels)

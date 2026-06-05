@@ -1,4 +1,4 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 package celt
 
@@ -7,7 +7,7 @@ package celt
 // quant_partition split decision (b > cache[cache[0]]+12). It returns -1 when
 // no cache entry exists (which happens for LM == -1).
 //
-// This helper exists for the gopus_fixedpoint codec and may change.
+// This helper exists for the gopus_fixed_point codec and may change.
 func MaxPulsesBitsExport(band, lm int) int {
 	cache, ok := pulseCacheForBand(band, lm)
 	if !ok {

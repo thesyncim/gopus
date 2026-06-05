@@ -1,4 +1,4 @@
-//go:build gopus_extra_controls || gopus_dred
+//go:build gopus_osce || gopus_dred
 
 package gopus
 
@@ -6,7 +6,7 @@ import encpkg "github.com/thesyncim/gopus/internal/encoder"
 
 // SetDREDDuration exposes the libopus ENABLE_DRED control when built with
 // -tags gopus_dred, or for extra-controls parity work under
-// -tags gopus_extra_controls.
+// -tags gopus_osce.
 //
 // The default gopus build keeps this absent from the public API surface.
 func (e *Encoder) SetDREDDuration(duration int) error {

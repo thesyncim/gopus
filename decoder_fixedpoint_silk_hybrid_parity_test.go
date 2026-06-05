@@ -1,4 +1,4 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 package gopus
 
@@ -320,7 +320,7 @@ func divergence(got, want []int32) (diffs int, maxAbs int64, firstIdx int) {
 }
 
 // assertFixedExact requires bit-exact equality on every architecture. The
-// gopus_fixedpoint integer CELT/SILK/Hybrid decode is pure integer arithmetic
+// gopus_fixed_point integer CELT/SILK/Hybrid decode is pure integer arithmetic
 // with no fused-multiply-add, so it is deterministic and bit-identical to the
 // FIXED_POINT reference on amd64 and darwin/arm64 alike — there is no per-arch
 // float drift in this path.

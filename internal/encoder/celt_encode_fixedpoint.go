@@ -1,4 +1,4 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 package encoder
 
@@ -10,14 +10,14 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
-// fixedPointBuild reports whether the gopus_fixedpoint integer codec paths are
+// fixedPointBuild reports whether the gopus_fixed_point integer codec paths are
 // compiled in. Golden-fixture tests calibrated against the float SILK encode
 // path gate on it (the FIXED_POINT SILK encode produces byte-exact-to-libopus
 // payloads that differ from the float golden bytes).
 const fixedPointBuild = true
 
 // encoderFixedCELTFields carries the integer (FIXED_POINT) CELT encoder state
-// added under the gopus_fixedpoint build. It is empty in the default build.
+// added under the gopus_fixed_point build. It is empty in the default build.
 type encoderFixedCELTFields struct {
 	fixedCELT       *fixedCELTState
 	fixedCELTOut    []byte
@@ -41,7 +41,7 @@ func (e *Encoder) fixedCELTFinalRange() (uint32, bool) {
 func (e *Encoder) clearFixedCELTUsed() { e.fixedCELTUsed = false }
 
 // fixedCELTState holds the integer (FIXED_POINT) CELT encoder used under the
-// gopus_fixedpoint build to produce byte-exact CELT-mode packets. It is created
+// gopus_fixed_point build to produce byte-exact CELT-mode packets. It is created
 // lazily and carries all CELT cross-frame state, so once a CELT-mode packet is
 // routed to it every subsequent CELT frame must continue through it.
 type fixedCELTState struct {

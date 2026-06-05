@@ -13,7 +13,7 @@
 //
 // DRED code paths are gated in the parent codec; this package is always
 // compiled, while the heavy libopus differential parity tests are tag-gated
-// behind gopus_dred / gopus_extra_controls.
+// behind gopus_dred / gopus_osce.
 package dred
 
 // Constants mirrored from libopus 1.6.1 dnn/dred_config.h.

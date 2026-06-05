@@ -1,4 +1,4 @@
-//go:build gopus_fixedpoint
+//go:build gopus_fixed_point
 
 package encoder
 
@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// TestFixedPointEncodeShortFrameNoPanic is the gopus_fixedpoint companion to
+// TestFixedPointEncodeShortFrameNoPanic is the gopus_fixed_point companion to
 // TestLargeFrameNoPanic. It sweeps the full opus_encode grid that the
 // FIXED_POINT SILK encode bodies must tolerate without panicking:
 //

@@ -1,4 +1,4 @@
-//go:build gopus_extra_controls
+//go:build gopus_osce
 
 package silk
 
@@ -14,7 +14,7 @@ type nativePostfilterExtras struct {
 }
 
 // SetNativePostfilterHook installs the per-frame native post-filter callback;
-// available only under the gopus_extra_controls tag. Pass nil to disable.
+// available only under the gopus_osce tag. Pass nil to disable.
 func (d *Decoder) SetNativePostfilterHook(hook NativePostfilterHook) {
 	d.nativePostfilter.hook = hook
 }

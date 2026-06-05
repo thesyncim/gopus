@@ -225,7 +225,7 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 		}
 
 		// Convert L/R to M/S with stereo prediction, rate allocation, and width decision.
-		// This matches libopus silk_stereo_LR_to_MS. Under the gopus_fixedpoint
+		// This matches libopus silk_stereo_LR_to_MS. Under the gopus_fixed_point
 		// build the integer front-end also returns the exact int16 mid/side the
 		// per-channel integer encode body consumes (midI16/sideI16); on the float
 		// build those are nil.
@@ -273,7 +273,7 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 		// SILK packet versus libopus.
 		sideFrameVAD := midFrameVAD && !midOnly
 		var sideState VADFrameState
-		// Under the gopus_fixedpoint build the side VAD flag must come from the
+		// Under the gopus_fixed_point build the side VAD flag must come from the
 		// integer VAD (silk_encode_do_VAD_FIX) run on the int16 side frame, since
 		// it gates the mid-only-flag coding exactly as in libopus enc_API.c. We
 		// run it on a copy of the side VAD state so the real per-channel encode

@@ -67,9 +67,9 @@ var ctlReferenceTable = []ctlRef{
 	{"OPUS_SET_IGNORE_EXTENSIONS", 4058, "Decoder.SetIgnoreExtensions()", "SET+GET", "decoder", "false", ""},
 	{"OPUS_GET_IGNORE_EXTENSIONS", 4059, "Decoder.IgnoreExtensions()", "SET+GET", "decoder", "false", ""},
 	{"OPUS_GET_IN_DTX (decoder ext.)", 4049, "Decoder.InDTX()", "GET", "decoder", "false", ""},
-	{"OPUS_SET_OSCE_BWE", 4054, "Decoder.SetOSCEBWE()", "SET+GET", "decoder", "false", "gopus_extra_controls"},
-	{"OPUS_GET_OSCE_BWE", 4055, "Decoder.OSCEBWE()", "SET+GET", "decoder", "false", "gopus_extra_controls"},
-	{"OPUS_SET_DNN_BLOB (decoder)", 4052, "Decoder.SetDNNBlob()", "SET", "decoder", "—", "gopus_dred|gopus_extra_controls"},
+	{"OPUS_SET_OSCE_BWE", 4054, "Decoder.SetOSCEBWE()", "SET+GET", "decoder", "false", "gopus_osce"},
+	{"OPUS_GET_OSCE_BWE", 4055, "Decoder.OSCEBWE()", "SET+GET", "decoder", "false", "gopus_osce"},
+	{"OPUS_SET_DNN_BLOB (decoder)", 4052, "Decoder.SetDNNBlob()", "SET", "decoder", "—", "gopus_dred|gopus_osce"},
 
 	// Encoder CTLs
 	{"OPUS_SET_APPLICATION", 4000, "Encoder.SetApplication()", "SET+GET", "encoder", "from config", ""},
@@ -109,9 +109,9 @@ var ctlReferenceTable = []ctlRef{
 	{"OPUS_SET_PHASE_INVERSION_DISABLED", 4046, "Encoder.SetPhaseInversionDisabled()", "SET+GET", "encoder", "false", ""},
 	{"OPUS_GET_PHASE_INVERSION_DISABLED", 4047, "Encoder.PhaseInversionDisabled()", "SET+GET", "encoder", "false", ""},
 	{"OPUS_GET_IN_DTX", 4049, "Encoder.InDTX()", "GET", "encoder", "false", ""},
-	{"OPUS_SET_DRED_DURATION", 4050, "Encoder.SetDREDDuration()", "SET+GET", "encoder", "0", "gopus_dred|gopus_extra_controls"},
-	{"OPUS_GET_DRED_DURATION", 4051, "Encoder.DREDDuration()", "SET+GET", "encoder", "0", "gopus_dred|gopus_extra_controls"},
-	{"OPUS_SET_DNN_BLOB (encoder)", 4052, "Encoder.SetDNNBlob()", "SET", "encoder", "—", "gopus_dred|gopus_extra_controls"},
+	{"OPUS_SET_DRED_DURATION", 4050, "Encoder.SetDREDDuration()", "SET+GET", "encoder", "0", "gopus_dred|gopus_osce"},
+	{"OPUS_GET_DRED_DURATION", 4051, "Encoder.DREDDuration()", "SET+GET", "encoder", "0", "gopus_dred|gopus_osce"},
+	{"OPUS_SET_DNN_BLOB (encoder)", 4052, "Encoder.SetDNNBlob()", "SET", "encoder", "—", "gopus_dred|gopus_osce"},
 	{"OPUS_SET_QEXT", 4056, "Encoder.SetQEXT()", "SET+GET", "encoder", "false", "gopus_qext"},
 	{"OPUS_GET_QEXT", 4057, "Encoder.QEXT()", "SET+GET", "encoder", "false", "gopus_qext"},
 }
