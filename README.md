@@ -83,9 +83,22 @@ func main() {
 }
 ```
 
-`int16` and `int24` PCM use the same shape (`EncodeInt16` / `DecodeInt16`,
-`EncodeInt24` / `DecodeInt24`). Tune the encoder through libopus-style CTL
-methods (`SetBitrate`, `SetVBR`, `SetComplexity`, `SetInBandFEC`, …).
+`int16` and `int24` PCM use the same caller-buffer shape — only the slice
+element type changes:
+
+```go
+pcm16 := make([]int16, frameSize*channels) // interleaved 16-bit input
+packet := make([]byte, 4000)
+out16 := make([]int16, frameSize*channels)
+
+n, err := enc.EncodeInt16(pcm16, packet)   // also EncodeInt24([]int32, …)
+// …
+samples, err := dec.DecodeInt16(packet[:n], out16) // also DecodeInt24(…, []int32)
+```
+
+Tune the encoder through libopus-style CTL methods (`SetBitrate`, `SetVBR`,
+`SetComplexity`, `SetInBandFEC`, `SetDTX`, …). Pass a nil packet to `Decode` to
+run packet-loss concealment for a dropped frame.
 
 See [examples/](examples/) for Ogg files, ffmpeg interop, RED loss recovery,
 WebRTC control, and benchmarks.
@@ -104,10 +117,38 @@ WebRTC control, and benchmarks.
 | Containers | `container/ogg` (Ogg read/write), `container/red` (RFC 2198 RTP RED parse/build/recover) |
 | libopus surface | Full public API: the libopus CTL surface, packet parsing, soft clipping, and matching error codes |
 
-Multistream lives in `github.com/thesyncim/gopus/multistream`
-(`NewMultistreamEncoder` / `NewMultistreamDecoder`), including projection /
-ambisonics (`multistream.NewProjectionEncoder` /
-`multistream.NewProjectionDecoder`, mapping families 0/1/3/255).
+## Public API
+
+The importable surface is four packages. Everything else lives under `internal/`
+and is not importable.
+
+| Package | Use it for |
+| --- | --- |
+| `github.com/thesyncim/gopus` | `Encoder` / `Decoder` (float32 / int16 / int24), streaming `Reader` / `Writer`, multistream and DRED constructors, packet parsing, repacketizer, soft clip, CTLs, error codes |
+| `github.com/thesyncim/gopus/multistream` | Lower-level multistream `Encoder` / `Decoder` and projection / ambisonics (`NewProjectionEncoder` / `NewProjectionDecoder`) |
+| `github.com/thesyncim/gopus/container/ogg` | Read and write Ogg Opus files (RFC 7845) |
+| `github.com/thesyncim/gopus/container/red` | Build, parse, and recover RFC 2198 RTP RED payloads |
+| `github.com/thesyncim/gopus/types` | Shared `Mode` / `Bandwidth` / `Signal` enums |
+
+Multistream is reachable two ways: `gopus.NewMultistreamEncoder` /
+`gopus.NewMultistreamDecoder` (and the `…Default` constructors for 1–8 channels
+in Vorbis order) wrap the lower-level `multistream` package, which also carries
+the projection / ambisonics constructors (mapping families 0/1/3/255).
+
+Write an Ogg Opus file with the `container/ogg` writer:
+
+```go
+w, err := ogg.NewWriter(file, sampleRate, channels)
+if err != nil {
+	log.Fatal(err)
+}
+defer w.Close()
+
+n, _ := enc.Encode(pcm, packet)
+if err := w.WritePacket(packet[:n], frameSize); err != nil {
+	log.Fatal(err)
+}
+```
 
 ## Optional features behind build tags
 
@@ -138,6 +179,15 @@ Under their tag these are parity-complete — none are experimental:
 - **`gopus_custom`** — Opus Custom standard modes.
 - **`gopus_fixedpoint`** — integer CELT/SILK pipeline (libopus `FIXED_POINT`);
   public decode and encode are bit-exact vs the `--enable-fixed-point` oracle.
+
+One more tag is orthogonal to the feature flags above and has no libopus
+equivalent:
+
+- **`purego`** — forces the scalar Go code path, disabling the architecture
+  assembly kernels (arm64 NEON, amd64 AVX2). Output is identical to the default
+  build except that this is the bit-exact tier on every architecture; use it when
+  you want the reference numeric path or to build for a target without an asm
+  kernel. The default build (no tag) already selects asm only where libopus does.
 
 Default builds expose no optional extensions; `SetDNNBlob(...)` is a no-op
 returning `ErrOptionalExtensionUnavailable`. This matches a default libopus build,

@@ -81,10 +81,15 @@
 //
 // # Package Boundaries
 //
-// Most applications should use the top-level gopus API plus container/ogg.
-// Low-level packages such as celt, silk, hybrid, rangecoding, plc, and
-// multistream are advanced implementation surfaces and may change before the
-// first tagged release.
+// The public surface is this top-level gopus package plus four importable
+// packages: multistream (surround / ambisonics / projection), container/ogg
+// (Ogg Opus read/write), container/red (RFC 2198 RTP RED), and types (shared
+// Mode / Bandwidth / Signal enumerations). The top-level package re-exports the
+// common multistream constructors, so most applications need only gopus and, if
+// they handle files, container/ogg.
+//
+// The SILK, CELT, Hybrid, range-coder, PLC, and DNN building blocks live under
+// internal/ and are not importable; depend on the packages above instead.
 //
 // Encoder and Decoder instances are not safe for concurrent use.
 package gopus

@@ -4,9 +4,11 @@
 // output channels via a channel-mapping table. It is the engine behind surround
 // sound (5.1, 7.1, ...), discrete multichannel, and ambisonics/projection audio.
 //
-// Most applications should prefer the top-level gopus multistream wrappers; this
-// package exposes advanced implementation details that may change before the
-// first release.
+// Most applications should reach for the top-level gopus multistream wrappers
+// (gopus.NewMultistreamEncoder / gopus.NewMultistreamDecoder and the …Default
+// constructors), which forward to this package. Import this package directly for
+// the lower-level Encoder / Decoder types and for projection / ambisonics, whose
+// constructors live only here.
 //
 // # Channel mapping families (RFC 7845 Section 5)
 //
