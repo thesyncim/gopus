@@ -2,17 +2,26 @@ package silk
 
 import "math"
 
-// noFMA32 returns a*b as a float32, with guaranteed intermediate rounding.
-// Go's compiler may fuse a multiply followed by an add into a single FMA
-// instruction (FMADDS on ARM64), which performs only one rounding instead of
-// two. When matching C code that uses separate FMUL + FADD instructions,
-// the single-rounding FMA can differ by up to 1 ULP. Marking this function
-// as go:noinline ensures the multiply result is materialized as a float32
-// before the caller adds to it.
-//
-//go:noinline
+// round32 forces x to float32 precision. Go's arm64 backend may contract a*b+c
+// into a single FMADD (one rounding), which diverges from scalar libopus (two
+// roundings); wrapping the product as round32(a*b) materializes it at float32
+// precision so a surrounding add/sub cannot fuse, matching the scalar reference
+// on every build. It is the cheap barrier — an FMUL+FADD pair rather than the
+// FMUL+FMOV+FMOV+FADD of a Float32bits round-trip — and a no-op on amd64 and the
+// purego oracle, which do not contract FP.
+func round32(x float32) float32 {
+	return float32(x)
+}
+
+// noFMA32 returns a*b at float32 precision with the product materialized before
+// the caller adds to it. Go's compiler may contract a multiply followed by an
+// add into a single FMA instruction (FMADDS on arm64), which performs only one
+// rounding instead of two; when matching C code that uses separate FMUL + FADD,
+// the single-rounding FMA can differ by up to 1 ULP. Routing through round32
+// makes the barrier intrinsic to the value, so the FMUL + FADD contract holds
+// regardless of inlining decisions.
 func noFMA32(a, b float32) float32 {
-	return a * b
+	return round32(a * b)
 }
 
 // noFMA64 returns a*b as a C double, forcing the product to materialize before
