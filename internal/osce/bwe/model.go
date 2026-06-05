@@ -272,13 +272,6 @@ var modelLayerSpecs = []LinearLayerSpec{
 	},
 }
 
-// ModelLayerSpecs returns the libopus-shaped BBWENet model layer specs the
-// pure-Go loader binds from a validated weights blob. Callers must treat the
-// returned slice as read-only.
-func ModelLayerSpecs() []LinearLayerSpec {
-	return modelLayerSpecs
-}
-
 // LoadModel binds a libopus-style OSCE BWE model blob into typed Go layers.
 // The blob must satisfy `dnnblob.Blob.SupportsOSCEBWE` (i.e. every required
 // `bbwenet_*` record name is present); missing records or size mismatches

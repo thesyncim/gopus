@@ -1,6 +1,6 @@
 FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-parity test-dred-tag test-qext-parity test-extra-controls-tag test-extra-controls-parity test-quality test-conformance test-exactness test-exhaustive test-provenance
 
-.PHONY: lint lint-fix test-lint-tags test test-fast test-race test-type-parity update-type-parity-baseline test-byte-parity-focus test-rfc-conformance test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety test-build-config-matrix release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-libopus-fixed ensure-libopus-custom ensure-libopus-custom-scalar ensure-libopus-simd ensure-libopus-scalar test-fixedpoint-parity test-custom-parity test-corpus-quality ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-platform fixtures-assert-platform fixtures-gen-linux-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix deadcode test-lint-tags test test-fast test-race test-type-parity update-type-parity-baseline test-byte-parity-focus test-rfc-conformance test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety test-build-config-matrix release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-libopus-fixed ensure-libopus-custom ensure-libopus-custom-scalar ensure-libopus-simd ensure-libopus-scalar test-fixedpoint-parity test-custom-parity test-corpus-quality ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-platform fixtures-assert-platform fixtures-gen-linux-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -85,6 +85,17 @@ lint:
 lint-fix:
 	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || { echo "golangci-lint not found. Install with: GOWORK=off go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"; exit 1; }
 	$(GO_WORK_ENV) $(GOLANGCI_LINT) run --fix ./...
+
+# Genuinely-dead-code detector for the multi-build-tag tree. A single-config
+# `deadcode ./...` is false-positive dominated here (tag/arch gating, oracle-only
+# probes), so this runs deadcode + staticcheck U1000 under every shipped build
+# configuration and prints only the symbols flagged dead in ALL of them. Use
+# `make deadcode ARGS=--grepcheck` to also run the whole-tree caller cross-check.
+# Requires deadcode + staticcheck on PATH:
+#   GOWORK=off go install golang.org/x/tools/cmd/deadcode@latest
+#   GOWORK=off go install honnef.co/go/tools/cmd/staticcheck@latest
+deadcode:
+	bash ./scripts/deadcode_matrix.sh $(ARGS)
 
 # Lint + vet the optional-feature tag builds. `make lint` only covers the default
 # build; this runs golangci-lint and `go vet` once per LINT_TAG_CONFIGS entry so

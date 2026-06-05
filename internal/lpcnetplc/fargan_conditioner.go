@@ -148,11 +148,6 @@ func (c *FARGANConditioner) SetModel(blob *dnnblob.Blob) error {
 	return nil
 }
 
-// Loaded reports whether a FARGAN conditioner model is currently retained.
-func (c *FARGANConditioner) Loaded() bool {
-	return c != nil && c.model != nil
-}
-
 // Reset clears the retained conditioning state but preserves the loaded model.
 func (c *FARGANConditioner) Reset() {
 	if c == nil {
