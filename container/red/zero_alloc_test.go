@@ -42,6 +42,23 @@ func TestZeroAllocHotPaths(t *testing.T) {
 	}
 }
 
+// TestAppendHistoryZeroAlloc locks the steady-state contract: once the history
+// window is full, AppendHistory recycles buffers and allocates nothing.
+func TestAppendHistoryZeroAlloc(t *testing.T) {
+	payload := make([]byte, 80)
+	var hist []Frame
+	for i := 0; i < MaxDepth+2; i++ { // fill the window
+		hist = AppendHistory(hist, payload, uint32(i*960), MaxDepth)
+	}
+	ts := uint32(MaxDepth * 960)
+	if n := testing.AllocsPerRun(200, func() {
+		ts += 960
+		hist = AppendHistory(hist, payload, ts, MaxDepth)
+	}); n != 0 {
+		t.Errorf("AppendHistory allocs/op = %v, want 0", n)
+	}
+}
+
 // TestParseIntoMatchesParse checks the reused-buffer path produces identical
 // results to the convenience wrapper.
 func TestParseIntoMatchesParse(t *testing.T) {

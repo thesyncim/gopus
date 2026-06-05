@@ -289,22 +289,38 @@ func FindRecovery(blocks []Block, lostAgo, frameSamples int, currentTimestamp, m
 	return nil
 }
 
-// AppendHistory prepends a new Frame to history and trims the slice to at most
-// maxDepth entries. Callers should store the returned slice as their new
-// history. The payload bytes are copied so the caller may reuse its buffer.
+// AppendHistory inserts payload as the newest (front) Frame of history, trims to
+// at most maxDepth entries, and returns the updated slice — store it as your new
+// history. The input payload is copied so the caller may reuse its buffer.
 //
-// If payload is empty, history is returned unchanged.
+// To stay allocation-free once the window is full, AppendHistory shifts the
+// slice in place and recycles the payload buffer of the entry it evicts. A
+// Frame's Payload is therefore only valid while that Frame remains within the
+// maxDepth window; do not retain it after it falls out. If payload is empty or
+// maxDepth <= 0, history is returned unchanged.
 func AppendHistory(history []Frame, payload []byte, timestamp uint32, maxDepth int) []Frame {
-	if len(payload) == 0 {
+	if len(payload) == 0 || maxDepth <= 0 {
 		return history
 	}
-	f := Frame{
-		Timestamp: timestamp,
-		Payload:   append([]byte(nil), payload...),
-	}
-	history = append([]Frame{f}, history...)
-	if len(history) > maxDepth {
+
+	// Recycle the evicted entry's payload buffer when the window is full,
+	// otherwise add a slot (the only growth point).
+	var buf []byte
+	if len(history) >= maxDepth {
+		buf = history[len(history)-1].Payload
 		history = history[:maxDepth]
+	} else {
+		history = append(history, Frame{})
 	}
+
+	copy(history[1:], history[:len(history)-1]) // shift older entries back
+
+	if cap(buf) >= len(payload) {
+		buf = buf[:len(payload)]
+	} else {
+		buf = make([]byte, len(payload))
+	}
+	copy(buf, payload)
+	history[0] = Frame{Timestamp: timestamp, Payload: buf}
 	return history
 }
