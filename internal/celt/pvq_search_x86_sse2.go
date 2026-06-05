@@ -10,9 +10,6 @@ const useX86PVQSearchSSE2 = true
 func x86RcpApprox4(dst, src *[4]float32)
 
 //go:noescape
-func x86RsqrtApprox4(dst, src *[4]float32)
-
-//go:noescape
 func x86PVQSearchBestIDSSE2(absX, y []float32, xy, yy float32, n int) int
 
 // opPVQSearchScratchNormX86SSE2 mirrors libopus 1.6.1

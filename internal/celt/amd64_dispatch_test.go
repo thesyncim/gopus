@@ -37,10 +37,6 @@ func TestAMD64DispatchMatchesGeneric(t *testing.T) {
 
 	absX := []float32{1.5, 0.75, 2.25, 0.5, 1.125}
 	y := []float32{2, 0, 4, 2, 0}
-	if got, want := pvqSearchBestPos(absX, y, 1.25, 3.5, len(absX)), pvqSearchBestPosGeneric(absX, y, 1.25, 3.5, len(absX)); got != want {
-		t.Fatalf("pvqSearchBestPos mismatch: got %v want %v", got, want)
-	}
-
 	yGot := append([]float32(nil), y...)
 	yWant := append([]float32(nil), y...)
 	iyGot := make([]int32, len(absX))

@@ -5,28 +5,6 @@ import (
 	"testing"
 )
 
-func pvqSearchBestPosRef(absX, y []float32, xy, yy float32, n int) int {
-	if n <= 0 {
-		return 0
-	}
-	bestID := 0
-	rxy := xy + absX[0]
-	ryy := yy + y[0]
-	bestNum := rxy * rxy
-	bestDen := ryy
-	for j := 1; j < n; j++ {
-		rxy = xy + absX[j]
-		ryy = yy + y[j]
-		num := rxy * rxy
-		if bestDen*num > ryy*bestNum {
-			bestDen = ryy
-			bestNum = num
-			bestID = j
-		}
-	}
-	return bestID
-}
-
 func pvqSearchPulseLoopRef(absX, y []float32, iy []int32, xy, yy float32, n, pulsesLeft int) (float32, float32) {
 	for i := 0; i < pulsesLeft; i++ {
 		yy += 1
@@ -58,10 +36,6 @@ func pvqSearchPulseLoopRef(absX, y []float32, iy []int32, xy, yy float32, n, pul
 func TestPVQDispatchMatchesGeneric(t *testing.T) {
 	absX := []float32{1.5, 0.75, 2.25, 0.5, 1.125, 0.875, 1.75, 0.25}
 	y := []float32{2, 0, 4, 2, 0, 6, 2, 0}
-
-	if got, want := pvqSearchBestPos(absX, y, 1.25, 3.5, len(absX)), pvqSearchBestPosRef(absX, y, 1.25, 3.5, len(absX)); got != want {
-		t.Fatalf("pvqSearchBestPos mismatch: got %v want %v", got, want)
-	}
 
 	yGot := append([]float32(nil), y...)
 	yWant := append([]float32(nil), y...)

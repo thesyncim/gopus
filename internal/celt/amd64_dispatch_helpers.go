@@ -2,28 +2,6 @@
 
 package celt
 
-func pvqSearchBestPosGeneric(absX, y []float32, xy, yy float32, n int) int {
-	if n <= 0 {
-		return 0
-	}
-	bestID := 0
-	rxy := xy + absX[0]
-	ryy := yy + y[0]
-	bestNum := rxy * rxy
-	bestDen := ryy
-	for j := 1; j < n; j++ {
-		rxy = xy + absX[j]
-		ryy = yy + y[j]
-		num := rxy * rxy
-		if bestDen*num > ryy*bestNum {
-			bestDen = ryy
-			bestNum = num
-			bestID = j
-		}
-	}
-	return bestID
-}
-
 func pvqSearchPulseLoopGeneric(absX, y []float32, iy []int32, xy, yy float32, n, pulsesLeft int) (float32, float32) {
 	for i := 0; i < pulsesLeft; i++ {
 		yy += 1

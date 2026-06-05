@@ -18,16 +18,6 @@ var amd64UsePitchAutocorrAVX2FMA = false
 var amd64UseToneLPCCorrAVX2FMA = false
 
 //go:noescape
-func pvqSearchBestPosAVX(absX, y []float32, xy, yy float32, n int) int
-
-func pvqSearchBestPos(absX, y []float32, xy, yy float32, n int) int {
-	if amd64UseAVX2FMA {
-		return pvqSearchBestPosAVX(absX, y, xy, yy, n)
-	}
-	return pvqSearchBestPosGeneric(absX, y, xy, yy, n)
-}
-
-//go:noescape
 func pvqSearchPulseLoopAVX(absX, y []float32, iy []int32, xy, yy float32, n, pulsesLeft int) (float32, float32)
 
 func pvqSearchPulseLoop(absX, y []float32, iy []int32, xy, yy float32, n, pulsesLeft int) (float32, float32) {

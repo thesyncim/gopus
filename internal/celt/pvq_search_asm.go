@@ -2,17 +2,6 @@
 
 package celt
 
-// pvqSearchBestPos finds the position with the best rate-distortion score
-// for placing a pulse.
-//
-// The function computes:
-//
-//	bestID = 0; bestNum = (xy+absX[0])^2; bestDen = yy+y[0]
-//	for j = 1..n-1: if bestDen*(xy+absX[j])^2 > (yy+y[j])*bestNum: update best
-//
-//go:noescape
-func pvqSearchBestPos(absX, y []float32, xy, yy float32, n int) int
-
 // pvqSearchPulseLoop places pulsesLeft pulses one at a time into the best
 // position using the rate-distortion criterion. It merges the entire outer
 // pulse loop and inner position search into a single assembly call,

@@ -11,15 +11,6 @@ TEXT ·x86RcpApprox4(SB), NOSPLIT, $0-16
 	MOVUPS X0, (AX)
 	RET
 
-// func x86RsqrtApprox4(dst, src *[4]float32)
-TEXT ·x86RsqrtApprox4(SB), NOSPLIT, $0-16
-	MOVQ   dst+0(FP), AX
-	MOVQ   src+8(FP), BX
-	MOVUPS (BX), X0
-	RSQRTPS X0, X0
-	MOVUPS X0, (AX)
-	RET
-
 // func x86PVQSearchBestIDSSE2(absX, y []float32, xy, yy float32, n int) int
 TEXT ·x86PVQSearchBestIDSSE2(SB), NOSPLIT, $32-72
 	MOVQ  absX_base+0(FP), AX

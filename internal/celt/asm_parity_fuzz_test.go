@@ -131,10 +131,6 @@ func runPVQAssemblyReferenceCase(t *testing.T, length int, seed uint64) {
 
 	xy := float32(int(seed%17)+1) * 0.25
 	yy := float32(int((seed>>8)%17) + 2)
-	if got, want := pvqSearchBestPos(absX, y, xy, yy, n), pvqSearchBestPosRef(absX, y, xy, yy, n); got != want {
-		t.Fatalf("pvqSearchBestPos mismatch: got %d want %d", got, want)
-	}
-
 	yGot := append([]float32(nil), y...)
 	yWant := append([]float32(nil), y...)
 	iyGot := make([]int32, n)
