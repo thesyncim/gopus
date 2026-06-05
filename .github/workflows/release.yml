@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  checks: read
 
 env:
   LIBOPUS_VERSION: "1.6.1"
@@ -56,6 +57,40 @@ jobs:
 
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "notes_path=${notes_path}" >> "$GITHUB_OUTPUT"
+
+      - name: Require green CI on the tagged commit
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sha="$(git rev-parse HEAD)"
+          echo "Verifying required CI checks are green on ${sha}"
+
+          # The required branch checks are aggregate gates: test-linux fans out to
+          # every codec sub-lane (parity, core-oracles, build-config-matrix,
+          # fixedpoint), and test-macos/test-windows run the exhaustive tier. They
+          # are the authoritative, arch-matched codec gate, so a release publishes
+          # only when they are green on the exact commit the tag points at.
+          latest="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?per_page=100" \
+            --jq '[.check_runs[] | {name, conclusion, started_at}] | group_by(.name) | map(max_by(.started_at)) | .[] | [.name, .conclusion] | @tsv')"
+          printf '%s\n' "${latest}"
+
+          fail=0
+          for name in lint-static-analysis test-linux perf-linux test-macos test-windows; do
+            concl="$(awk -F'\t' -v n="${name}" '$1==n{print $2}' <<<"${latest}")"
+            if [[ "${concl}" != "success" ]]; then
+              echo "::error::required check '${name}' is '${concl:-missing}' on ${sha}"
+              fail=1
+            fi
+          done
+
+          if [[ "${fail}" -ne 0 ]]; then
+            echo "::error::tagged commit ${sha} is not green on the required CI checks; refusing to publish"
+            exit 1
+          fi
+          echo "all required checks are green"
 
       - name: Setup Go
         uses: actions/setup-go@v6

@@ -289,7 +289,8 @@ make verify-production-exhaustive
 make release-evidence
 ```
 
-`make release-evidence` must produce a PASS summary before a tag is published.
+Before a tag is published the tagged commit must be green on the required branch
+checks (below), and `make release-evidence` must produce a PASS summary.
 
 ## Trust And Verification
 
@@ -311,7 +312,14 @@ Required branch checks:
 
 These aggregate gates make the libopus C-oracle parity suites mandatory across
 Linux, macOS, and Windows; each lane builds the pinned libopus C reference first
-under `GOWORK=off GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1`.
+under `GOWORK=off GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1` and compares
+against committed arch-matched fixtures. They are the authoritative codec gate:
+`release.yml` publishes a tag only after verifying these checks are green on the
+tagged commit. `make release-evidence` then captures the supplementary safety and
+performance gates that are not in the required CI set, plus build provenance; it
+does not re-run the codec suites, since doing so against a live native libopus
+reference compares gopus's single portable float order against another toolchain's
+rounding rather than measuring a defect.
 
 Security policy: [SECURITY.md](SECURITY.md). Consumer smoke test:
 [examples/external-consumer-smoke/smoke_test.go](examples/external-consumer-smoke/smoke_test.go).
