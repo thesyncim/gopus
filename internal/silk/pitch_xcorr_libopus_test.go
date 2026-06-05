@@ -3,7 +3,6 @@ package silk
 import (
 	"fmt"
 	"math"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -105,31 +104,11 @@ func TestSILKPitchXcorrMatchesLibopusOracle(t *testing.T) {
 }
 
 func pitchXcorrFloatMatches(got, want float32) bool {
-	if math.Float32bits(got) == math.Float32bits(want) {
-		return true
-	}
-	if runtime.GOARCH == "arm64" {
-		// The arm64 C helper and Go scalar path can differ by last-place rounding in
-		// this non-runtime oracle build; dispatch exactness is covered separately by
-		// TestSilkAssemblyKernelsMatchReference.
-		return pitchXcorrFloatULPDiff(got, want) <= 512 || math.Abs(float64(got-want)) <= 1e-6
-	}
-	return false
-}
-
-func pitchXcorrFloatULPDiff(a, b float32) uint32 {
-	ai := int32(math.Float32bits(a))
-	if ai < 0 {
-		ai = (-1 << 31) - ai
-	}
-	bi := int32(math.Float32bits(b))
-	if bi < 0 {
-		bi = (-1 << 31) - bi
-	}
-	if ai > bi {
-		return uint32(ai - bi)
-	}
-	return uint32(bi - ai)
+	// The scalar pitch-xcorr kernels route every product through noFMA32, so the
+	// Go scalar path matches the -ffp-contract=off C oracle bit-for-bit on every
+	// architecture; NEON dispatch exactness is covered by
+	// TestSilkAssemblyKernelsMatchReference.
+	return math.Float32bits(got) == math.Float32bits(want)
 }
 
 func silkPitchXcorrOracleSignal(n int, seed uint32) []float32 {
