@@ -15,10 +15,6 @@ func TestTrustDocsContract(t *testing.T) {
 		"`v0.1.0` is not a release until the tag and GitHub Release are both published.",
 		"Latest release evidence:",
 		"Required branch checks:",
-		"Release checklist:",
-		"Dependabot is enabled",
-		"OpenSSF Scorecard",
-		"SPDX or CycloneDX",
 		"[SECURITY.md](SECURITY.md)",
 		"[examples/external-consumer-smoke/smoke_test.go](examples/external-consumer-smoke/smoke_test.go)",
 	} {
@@ -62,12 +58,6 @@ func TestTrustDocsContract(t *testing.T) {
 	for _, check := range requiredChecks {
 		if !ciJobs[check] {
 			t.Fatalf("README.md lists stale required check %q; actual CI job names are %v", check, sortedKeys(ciJobs))
-		}
-	}
-
-	for _, needle := range []string{"Dependabot is enabled", "OpenSSF Scorecard", "SPDX or CycloneDX"} {
-		if !strings.Contains(readme, needle) {
-			t.Fatalf("README.md missing %q", needle)
 		}
 	}
 }

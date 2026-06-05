@@ -4,17 +4,9 @@ Pure-Go Opus codec — RFC 6716 / RFC 8251, bit-exact and quality parity with
 pinned libopus 1.6.1, a drop-in for the C library with no cgo.
 
 Encoder, decoder, multistream, projection/ambisonics, Ogg, and RTP RED — all in
-plain Go, with caller-owned, zero-allocation encode and decode hot paths.
-
-- **Pure Go, no cgo, no dependencies** — `go get` and build; cross-compiles like
-  any Go package.
-- **RFC 6716 + RFC 8251** — SILK, CELT, and Hybrid, with automatic mode
-  selection.
-- **Faithful to libopus 1.6.1** — codec math and bitstream decisions are matched
-  to the pinned reference, proven by a live C oracle (see
-  [Parity & testing](#parity--testing)).
-- **Built for real-time** — the encode/decode loops reuse caller buffers and
-  allocate nothing.
+plain Go, with caller-owned, zero-allocation encode and decode hot paths. Codec
+math and bitstream decisions are matched to the pinned reference and proven by a
+live C oracle (see [Parity & testing](#parity--testing)).
 
 ## Install
 
@@ -318,35 +310,11 @@ Required branch checks:
 <!-- required-checks:end -->
 
 These aggregate gates make the libopus C-oracle parity suites mandatory across
-platforms: the core float numeric oracle (`make test-core-oracles-parity`) runs
-on Linux, macOS, and Windows; the tagged DRED and `--enable-fixed-point` oracle
-gates (`make test-dred-tag`, `make test-fixedpoint-parity`) run on Linux and
-macOS; the QEXT (`make test-qext-parity`), Opus Custom `--enable-custom-modes`
-(`make test-custom-parity`), extended corpus signal-quality
-(`make test-corpus-quality`), and extra-controls oracle gates run on Linux. Each
-lane builds the pinned libopus C reference first under
-`GOWORK=off GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1`.
+Linux, macOS, and Windows; each lane builds the pinned libopus C reference first
+under `GOWORK=off GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1`.
 
-Release checklist:
-
-- select a `vMAJOR.MINOR.PATCH` tag
-- confirm README and package docs agree
-- run the verification commands
-- attach release evidence summary and archive
-- publish the tag and GitHub Release together
-
-Supply-chain controls:
-
-- Dependabot is enabled for GitHub Actions and Go modules.
-- OpenSSF Scorecard runs on `master`, weekly, and by manual dispatch.
-- Workflow permissions are least-privilege.
-- Release evidence records commit SHA, Go version, platform, pinned libopus
-  version and SHA256, command logs, benchmark guardrails, fuzz/safety summary,
-  parity summary, and module inventory.
-- Future binary releases need signed checksums, provenance, and an SPDX or CycloneDX SBOM.
-
-Security reports: [SECURITY.md](SECURITY.md).
-Consumer smoke test: [examples/external-consumer-smoke/smoke_test.go](examples/external-consumer-smoke/smoke_test.go).
+Security policy: [SECURITY.md](SECURITY.md). Consumer smoke test:
+[examples/external-consumer-smoke/smoke_test.go](examples/external-consumer-smoke/smoke_test.go).
 
 ## Docs
 

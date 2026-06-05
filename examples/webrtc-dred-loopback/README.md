@@ -32,10 +32,10 @@ go run -tags gopus_dred . -export-dnn
 
 This writes `dnn/encoder-dred.blob` and `dnn/decoder-dred.blob`.
 
-For a terminal smoke test that exercises the WebRTC/RTP/loss/decode loop and
+Run a terminal smoke test that exercises the WebRTC/RTP/loss/decode loop and
 prints JSON stats. Headless runs use a deterministic speech-like source by
-default; pass `-source tone` for the older tonal probe or `-source mic` for live
-capture.
+default; pass `-source tone` for the tonal probe or `-source mic` for live
+capture:
 
 ```bash
 go run -tags gopus_dred . \
