@@ -15,7 +15,7 @@ FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-p
 .PHONY: fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants
 .PHONY: fixtures-gen-platform fixtures-assert-platform fixtures-gen-linux-amd64
 .PHONY: docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell
-.PHONY: build build-nopgo pgo-generate pgo-build clean clean-vectors
+.PHONY: build build-nopgo pgo-generate pgo-build pgo-validate clean clean-vectors
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -638,6 +638,12 @@ pgo-generate:
 
 # Refresh default.pgo then build with PGO enabled
 pgo-build: pgo-generate build
+
+# Validity smoke for the committed PGO profile: a -pgo build fails if default.pgo
+# is corrupt or unreadable. The profile is sample-based (non-deterministic) so it
+# cannot be diff-checked; regenerate it on amd64 via the pgo-refresh workflow.
+pgo-validate:
+	$(GO_WORK_ENV) $(GO) build $(PGO_FLAG) ./...
 
 # Remove local build/test artifacts generated during development.
 clean:

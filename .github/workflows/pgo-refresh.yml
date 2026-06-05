@@ -1,0 +1,53 @@
+name: PGO refresh
+
+# default.pgo is a sample-based (non-deterministic) profile, so it cannot be
+# diff-checked in regular CI. It is also amd64-specific: the hot kernels it
+# profiles are the AVX2/SSE2 paths, so it must be regenerated on amd64, never on
+# an arm64 dev box. This manual job refreshes it on an amd64 runner and opens a
+# pull request for review.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    name: refresh-default-pgo
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Regenerate default.pgo on amd64
+        run: make pgo-generate
+
+      - name: Open a refresh pull request
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- default.pgo; then
+            echo "default.pgo unchanged; nothing to do"
+            exit 0
+          fi
+          branch="pgo-refresh-$(date -u +%Y%m%dT%H%M%SZ)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "${branch}"
+          git add default.pgo
+          git commit -m "build: refresh default.pgo (amd64 PGO profile)"
+          git push origin "${branch}"
+          gh pr create \
+            --base master \
+            --head "${branch}" \
+            --title "build: refresh default.pgo (amd64)" \
+            --body "Regenerated default.pgo on amd64 via the PGO refresh workflow. It is a sample-based, non-deterministic profile; review the bench guardrail impact (make bench-libopus-guard) before merging."
