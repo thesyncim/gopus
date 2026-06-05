@@ -278,16 +278,12 @@ func ParsePage(data []byte) (*Page, int, error) {
 	p.Payload = make([]byte, payloadSize)
 	copy(p.Payload, data[headerSize:totalSize])
 
-	// Verify CRC.
-	// Create a copy with CRC field zeroed for verification.
-	pageCopy := make([]byte, totalSize)
-	copy(pageCopy, data[:totalSize])
-	pageCopy[22] = 0
-	pageCopy[23] = 0
-	pageCopy[24] = 0
-	pageCopy[25] = 0
-
-	computedCRC := oggCRC(pageCopy)
+	// Verify CRC over the page with the 4-byte CRC field treated as zero,
+	// computed in place so no full-page copy is allocated per page.
+	var crcZero [4]byte
+	computedCRC := oggCRCUpdate(0, data[:22])
+	computedCRC = oggCRCUpdate(computedCRC, crcZero[:])
+	computedCRC = oggCRCUpdate(computedCRC, data[26:totalSize])
 	if computedCRC != storedCRC {
 		return nil, 0, ErrBadCRC
 	}
