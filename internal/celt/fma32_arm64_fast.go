@@ -2,23 +2,25 @@
 
 package celt
 
-// The default arm64 build is quality-gated (opus_compare), not bit-exact with
-// scalar C: it drops the Float32bits anti-fusion barrier so the compiler can
-// contract a*b+c into FMADD, matching how libopus's own NEON kernels diverge
-// from scalar libopus while staying inside the RFC 8251 conformance envelope.
-// The bit-exact oracle is the purego build (fma32_arm64.go).
+// On arm64 the gc backend may contract a*b+c into a single FMADD. fma32 keeps
+// that fusion where the code explicitly asks for it (the kiss-FFT twiddle hot
+// path). mul32/add32/sub32 are the non-fused-intent primitives: they route
+// through round32 so a materialized product cannot fuse with a surrounding
+// add/sub, matching scalar libopus bit-exactly via the cheap float32-conversion
+// barrier rather than the Float32bits round-trip the purego oracle uses
+// (fma32_arm64.go).
 func fma32(a, b, c float32) float32 {
 	return a*b + c
 }
 
 func mul32(a, b float32) float32 {
-	return a * b
+	return round32(a * b)
 }
 
 func add32(a, b float32) float32 {
-	return a + b
+	return round32(a + b)
 }
 
 func sub32(a, b float32) float32 {
-	return a - b
+	return round32(a - b)
 }
