@@ -77,14 +77,24 @@ func TestREDPrimaryOnlyRoundTrip(t *testing.T) {
 	}
 }
 
-func TestBuildREDPayloadDisabledLeavesOpusPayloadUnwrapped(t *testing.T) {
+func TestBuildREDPayloadDepth0IsPrimaryOnlyRED(t *testing.T) {
 	primary := []byte{0x80, 0x01}
 	payload, redundantBytes := buildREDPayload(primary, 960, nil, 0, 960)
 	if redundantBytes != 0 {
 		t.Fatalf("redundantBytes=%d want 0", redundantBytes)
 	}
-	if string(payload) != string(primary) {
-		t.Fatalf("payload=%x want raw Opus %x", payload, primary)
+	// The loopback track only negotiates the RED codec, so depth 0 must still be a
+	// valid RED packet carrying just the primary (no redundant blocks), not a bare
+	// Opus payload the receiver would fail to RED-parse.
+	gotPrimary, blocks, err := parseREDPayload(payload)
+	if err != nil {
+		t.Fatalf("parseREDPayload error: %v", err)
+	}
+	if len(blocks) != 0 {
+		t.Fatalf("blocks=%d want 0", len(blocks))
+	}
+	if string(gotPrimary) != string(primary) {
+		t.Fatalf("primary=%x want %x", gotPrimary, primary)
 	}
 }
 

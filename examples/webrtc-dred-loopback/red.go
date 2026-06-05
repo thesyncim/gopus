@@ -40,7 +40,11 @@ func buildREDPayload(primary []byte, primaryTimestamp uint32, history []redHisto
 		return append([]byte(nil), primary...), 0
 	}
 	if depth <= 0 {
-		return append([]byte(nil), primary...), 0
+		// The loopback's RTP track only negotiates the RED codec, so every packet
+		// is sent with the RED payload type. Even with no redundancy the wire
+		// payload must therefore be a valid RED packet: a single primary block
+		// (0x6F header, top bit clear) carrying the Opus payload.
+		return append([]byte{redOpusPayloadType}, primary...), 0
 	}
 	if frameSamples <= 0 {
 		return append([]byte{redOpusPayloadType}, primary...), 0
