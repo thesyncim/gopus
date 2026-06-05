@@ -1,6 +1,21 @@
 FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-parity test-dred-tag test-qext-parity test-extra-controls-tag test-extra-controls-parity test-quality test-conformance test-exactness test-exhaustive test-provenance
 
-.PHONY: lint lint-fix deadcode test-lint-tags test test-fast test-race test-type-parity update-type-parity-baseline test-byte-parity-focus test-rfc-conformance test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety test-build-config-matrix release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-libopus-fixed ensure-libopus-custom ensure-libopus-custom-scalar ensure-libopus-simd ensure-libopus-scalar test-fixedpoint-parity test-custom-parity test-corpus-quality ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-platform fixtures-assert-platform fixtures-gen-linux-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix deadcode test-lint-tags
+.PHONY: test test-fast test-race test-type-parity update-type-parity-baseline
+.PHONY: test-byte-parity-focus test-rfc-conformance test-fuzz-smoke test-fuzz-safety
+.PHONY: test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report
+.PHONY: test-assembly-safety test-soak-safety
+.PHONY: bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard
+.PHONY: bench-testvectors bench-testvectors-compare bench-testvectors-report bench-kernels
+.PHONY: verify-production verify-production-exhaustive verify-safety test-build-config-matrix
+.PHONY: release-evidence release-preflight
+.PHONY: ensure-libopus ensure-libopus-qext ensure-libopus-fixed ensure-libopus-custom
+.PHONY: ensure-libopus-custom-scalar ensure-libopus-simd ensure-libopus-scalar
+.PHONY: test-fixedpoint-parity test-custom-parity test-corpus-quality ensure-testvectors
+.PHONY: fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants
+.PHONY: fixtures-gen-platform fixtures-assert-platform fixtures-gen-linux-amd64
+.PHONY: docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell
+.PHONY: build build-nopgo pgo-generate pgo-build clean clean-vectors
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -46,7 +61,6 @@ DOCKER_EXHAUSTIVE_BUILDX_CACHE_DIR := $(DOCKER_CACHE_DIR)/buildx-$(DOCKER_EXHAUS
 RELEASE_EVIDENCE_DIR ?= reports/release
 QUALITY_REPORT_DIR ?= reports/quality
 GOPUS_SAFETY_FUZZTIME ?= 12s
-GOPUS_SAFETY_PARSER_FUZZTIME ?= $(GOPUS_SAFETY_FUZZTIME)
 GOPUS_FUZZ_SMOKE_FUZZTIME ?= 50000x
 GOPUS_SAFETY_SOAK_DURATION ?= 30s
 GOPUS_SAFETY_SOAK_REPORT_INTERVAL ?= 10s
@@ -144,57 +158,33 @@ test-byte-parity-focus:
 test-rfc-conformance: ensure-libopus ensure-testvectors
 	$(RUNNABLE_PARITY) ./testvectors -run '^TestRFCConformanceOpusCompare$$' -count=1 -v
 
+# Fuzz targets per package. test-fuzz-smoke runs this set briefly on every push;
+# test-fuzz-safety runs it (plus the never-panic and libopus-differential
+# fuzzers) for longer. Keep these in sync with the Fuzz* functions in *_test.go.
+FUZZ_ROOT := FuzzParsePacket_NoPanic FuzzPacketExtensionIterator_NoPanic FuzzPacketMutationHelpers_NoPanic
+FUZZ_TESTVECTORS := FuzzParseOpusDemoBitstream
+FUZZ_OGG := FuzzOggDemux FuzzOggDemuxPage FuzzParseOpusHead FuzzParseOpusTags \
+    FuzzOggExt_MultiSegmentLacing FuzzOggExt_GranuleEdgeCases FuzzOggExt_ZeroLengthPackets \
+    FuzzOggExt_MultiplexedPages FuzzOggExt_OpusHeadEdgeCases FuzzOggExt_OpusTagsEdgeCases \
+    FuzzOggExt_ProjectionMapping FuzzOggExt_DifferentialOpusfile FuzzOggExt_DifferentialOpusfilePCM
+FUZZ_RED := FuzzREDParse FuzzREDBuildRoundTrip FuzzREDFindRecovery FuzzREDAppendHistory
+
 # Fuzz smoke run for packet/fixture parsers and container formats.
 test-fuzz-smoke:
-	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzParsePacket_NoPanic' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzPacketExtensionIterator_NoPanic' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzPacketMutationHelpers_NoPanic' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./testvectors -run='^$$' -fuzz='FuzzParseOpusDemoBitstream' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggDemux$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggDemuxPage$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzParseOpusHead$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzParseOpusTags$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_MultiSegmentLacing$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_GranuleEdgeCases$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_ZeroLengthPackets$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_MultiplexedPages$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_OpusHeadEdgeCases$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_OpusTagsEdgeCases$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_ProjectionMapping$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_DifferentialOpusfile$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_DifferentialOpusfilePCM$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDParse$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDBuildRoundTrip$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDFindRecovery$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDAppendHistory$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	@set -e; \
+	for f in $(FUZZ_ROOT); do echo "==> fuzz . $$f"; $(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz="^$$f$$" -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1; done; \
+	for f in $(FUZZ_TESTVECTORS); do echo "==> fuzz ./testvectors $$f"; $(GO_WORK_ENV) $(GO) test ./testvectors -run='^$$' -fuzz="^$$f$$" -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1; done; \
+	for f in $(FUZZ_OGG); do echo "==> fuzz ./container/ogg $$f"; $(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz="^$$f$$" -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1; done; \
+	for f in $(FUZZ_RED); do echo "==> fuzz ./container/red $$f"; $(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz="^$$f$$" -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1; done
 
 # Safety-focused fuzzing for malformed packets, Ogg pages, RED payloads, and libopus differential decode.
 test-fuzz-safety: ensure-libopus
-	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzParsePacket_NoPanic' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzPacketExtensionIterator_NoPanic' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzPacketMutationHelpers_NoPanic' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzDecodeNeverPanics' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run='^$$' -fuzz='FuzzFindDREDPayload_NoPanic' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='FuzzOggReaderNeverPanics' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggDemux$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggDemuxPage$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzParseOpusHead$$' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzParseOpusTags$$' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_MultiSegmentLacing$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_GranuleEdgeCases$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_ZeroLengthPackets$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_MultiplexedPages$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_OpusHeadEdgeCases$$' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_OpusTagsEdgeCases$$' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_ProjectionMapping$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_DifferentialOpusfile$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_DifferentialOpusfilePCM$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDParse$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDBuildRoundTrip$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDFindRecovery$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDAppendHistory$$' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./testvectors -run='^$$' -fuzz='FuzzParseOpusDemoBitstream' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
-	$(GO_WORK_ENV) $(GO) test ./testvectors -run='^$$' -fuzz='FuzzDecodeAgainstLibopus' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
+	@set -e; \
+	for f in $(FUZZ_ROOT) FuzzDecodeNeverPanics; do echo "==> fuzz . $$f"; $(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz="^$$f$$" -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1; done; \
+	echo "==> fuzz -tags gopus_dred . FuzzFindDREDPayload_NoPanic"; $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run='^$$' -fuzz='^FuzzFindDREDPayload_NoPanic$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1; \
+	for f in FuzzOggReaderNeverPanics $(FUZZ_OGG); do echo "==> fuzz ./container/ogg $$f"; $(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz="^$$f$$" -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1; done; \
+	for f in $(FUZZ_RED); do echo "==> fuzz ./container/red $$f"; $(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz="^$$f$$" -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1; done; \
+	for f in $(FUZZ_TESTVECTORS) FuzzDecodeAgainstLibopus; do echo "==> fuzz ./testvectors $$f"; $(GO_WORK_ENV) $(GO) test ./testvectors -run='^$$' -fuzz="^$$f$$" -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1; done
 
 # Downstream consumer smoke path from a nested external module boundary.
 test-consumer-smoke:
