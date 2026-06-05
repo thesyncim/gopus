@@ -83,6 +83,14 @@ jobs:
       - name: Run full release verification and evidence capture
         run: make release-evidence
 
+      - name: Upload evidence bundle on failure (diagnosis)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence-failed-${{ steps.meta.outputs.tag }}
+          path: reports/release/
+          if-no-files-found: warn
+
       - name: Archive release evidence
         id: evidence
         shell: bash
