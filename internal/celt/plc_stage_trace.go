@@ -50,7 +50,7 @@ func (d *Decoder) PLCStageTrace() *plcStageTrace { return d.plcStageTrace }
 
 func (t *plcStageTrace) Captured() bool { return t != nil && t.captured }
 func (t *plcStageTrace) Channels() int  { return t.channels }
-func (t *plcStageTrace) N() int          { return t.n }
+func (t *plcStageTrace) N() int         { return t.n }
 
 func (t *plcStageTrace) Overlap() int { return t.overlap }
 

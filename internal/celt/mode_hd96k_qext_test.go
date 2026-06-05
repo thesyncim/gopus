@@ -24,12 +24,12 @@ func buildLibopusQEXTModeHelper() (string, error) {
 }
 
 type hd96kOracleMode struct {
-	Fs, Overlap, NbEBands, EffEBands       int
-	MaxLM, NbShortMdcts, ShortMdctSize     int
-	Preemph                                [4]float32
-	EBands, LogN                           []int16
-	Window, Trig                           []float32
-	MdctN, MdctMaxShift                    int
+	Fs, Overlap, NbEBands, EffEBands   int
+	MaxLM, NbShortMdcts, ShortMdctSize int
+	Preemph                            [4]float32
+	EBands, LogN                       []int16
+	Window, Trig                       []float32
+	MdctN, MdctMaxShift                int
 }
 
 func probeLibopusHD96kMode(t *testing.T) hd96kOracleMode {

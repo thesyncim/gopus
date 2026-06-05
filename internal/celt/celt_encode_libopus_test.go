@@ -356,7 +356,7 @@ func celtEncodeNoisePCM(channels, frames int, seed uint32) []float32 {
 	state := seed
 	next := func() float32 {
 		state = state*1664525 + 1013904223
-		return float32(int32(state))/float32(math.MaxInt32)*0.5
+		return float32(int32(state)) / float32(math.MaxInt32) * 0.5
 	}
 	for i := 0; i < frames*channels; i++ {
 		pcm[i] = next()
