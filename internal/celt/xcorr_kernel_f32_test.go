@@ -8,11 +8,13 @@ import (
 	"testing"
 )
 
-// TestXcorrKernel4Float32NeonCloseToScalar checks the fused NEON pitch kernel
-// against the scalar reference. FMA single-rounding diverges from
-// multiply-then-add by at most ~1 ULP per term; over a long accumulation the
-// relative error stays far below the pitch-search decision granularity.
-func TestXcorrKernel4Float32NeonCloseToScalar(t *testing.T) {
+// TestXcorrKernel4Float32NeonBitExact checks the fused NEON pitch kernel against
+// the scalar reference bit-for-bit. The NEON kernel accumulates each lag with a
+// single-rounding VFMLA; the scalar xcorrKernel4Float32 computes the same
+// Sum x[i]*y[i+k] in the same per-lag order, and arm64 gc contracts its
+// sum[k] += tmp*y into FMADDS — the identical IEEE single-rounding f32 FMA — so
+// the two paths agree to the bit on every lane.
+func TestXcorrKernel4Float32NeonBitExact(t *testing.T) {
 	rng := rand.New(rand.NewSource(99))
 	for _, length := range []int{1, 2, 3, 4, 5, 7, 16, 17, 64, 240, 480, 481} {
 		for trial := 0; trial < 50; trial++ {
@@ -35,11 +37,11 @@ func TestXcorrKernel4Float32NeonCloseToScalar(t *testing.T) {
 			xcorrKernel4Float32Neon(x, y, &got, length)
 			xcorrKernel4Float32(x, y, &want, length)
 			for k := 0; k < 4; k++ {
-				diff := math.Abs(float64(got[k]) - float64(want[k]))
-				scale := math.Max(1, math.Abs(float64(want[k])))
-				if diff/scale > 1e-4 {
-					t.Fatalf("len=%d trial=%d lane=%d: neon=%v scalar=%v reldiff=%g",
-						length, trial, k, got[k], want[k], diff/scale)
+				if math.Float32bits(got[k]) != math.Float32bits(want[k]) {
+					t.Fatalf("len=%d trial=%d lane=%d: neon=%08x(%v) scalar=%08x(%v)",
+						length, trial, k,
+						math.Float32bits(got[k]), got[k],
+						math.Float32bits(want[k]), want[k])
 				}
 			}
 		}

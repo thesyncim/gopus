@@ -20,10 +20,38 @@ func scalarL1Abs(tmp []float32, n int) float32 {
 	return s
 }
 
-// TestL1AbsSumNeonCloseToScalar checks the NEON L1 abs-sum against the scalar
-// reduction. The 4-lane order diverges by a few ULP relative; the metric only
-// drives transient/TF decisions, well within the arm64 quality-gated regime.
-func TestL1AbsSumNeonCloseToScalar(t *testing.T) {
+// l1AbsSumNeonReference reproduces the exact accumulation order of the NEON
+// kernel: four lane accumulators take |tmp[i]| for i grouped mod 4, a sequential
+// scalar tail takes the final n%4 elements, and the lanes reduce pairwise as
+// (acc0+acc1)+(acc2+acc3) before the tail is added — matching the asm's
+// FADDP/FADDP/FADDS sequence. abs and add carry no fusion, so the only thing
+// that could diverge is add order, which this fixes; the asm must match to the bit.
+func l1AbsSumNeonReference(tmp []float32, n int) float32 {
+	var acc [4]float32
+	i := 0
+	for ; i+4 <= n; i += 4 {
+		for k := 0; k < 4; k++ {
+			v := tmp[i+k]
+			if v < 0 {
+				v = -v
+			}
+			acc[k] += v
+		}
+	}
+	var tail float32
+	for ; i < n; i++ {
+		v := tmp[i]
+		if v < 0 {
+			v = -v
+		}
+		tail += v
+	}
+	return (acc[0] + acc[1]) + (acc[2] + acc[3]) + tail
+}
+
+// TestL1AbsSumNeonBitExact checks the NEON L1 abs-sum against a reference that
+// reproduces its lane-accumulation and pairwise-reduce order, bit-for-bit.
+func TestL1AbsSumNeonBitExact(t *testing.T) {
 	rng := rand.New(rand.NewSource(5))
 	for _, n := range []int{0, 1, 2, 3, 4, 5, 7, 8, 15, 16, 31, 64, 120, 240, 481} {
 		for trial := 0; trial < 100; trial++ {
@@ -32,11 +60,10 @@ func TestL1AbsSumNeonCloseToScalar(t *testing.T) {
 				tmp[i] = float32(rng.NormFloat64()) * float32(rng.Intn(8))
 			}
 			got := l1AbsSumNeon(tmp, n)
-			want := scalarL1Abs(tmp, n)
-			diff := math.Abs(float64(got) - float64(want))
-			scale := math.Max(1, math.Abs(float64(want)))
-			if diff/scale > 1e-4 {
-				t.Fatalf("n=%d trial=%d: neon=%v scalar=%v reldiff=%g", n, trial, got, want, diff/scale)
+			want := l1AbsSumNeonReference(tmp, n)
+			if math.Float32bits(got) != math.Float32bits(want) {
+				t.Fatalf("n=%d trial=%d: neon=%08x(%v) ref=%08x(%v)", n, trial,
+					math.Float32bits(got), got, math.Float32bits(want), want)
 			}
 		}
 	}
@@ -48,7 +75,7 @@ func TestL1AbsSumNeonRespectsLen(t *testing.T) {
 	tmp := []float32{1, -2, 3, -4, 5}
 	got := l1AbsSumNeon(tmp, len(tmp))
 	want := scalarL1Abs(tmp, len(tmp))
-	if math.Abs(float64(got-want)) > 1e-5 {
+	if math.Float32bits(got) != math.Float32bits(want) {
 		t.Fatalf("got %v want %v", got, want)
 	}
 }
