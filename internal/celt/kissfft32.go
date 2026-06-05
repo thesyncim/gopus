@@ -97,7 +97,7 @@ func newKissFFTState(nfft int) *kissFFTState {
 	maxFactors := len(factors) / 2
 	fstride := make([]int, maxFactors+1)
 	fstride[0] = 1
-	for i := 0; i < maxFactors; i++ {
+	for i := range maxFactors {
 		p := factors[2*i]
 		fstride[i+1] = fstride[i] * p
 	}
@@ -146,7 +146,7 @@ func newStaticKissFFTState(nfft int) *kissFFTState {
 	maxFactors := len(factors) / 2
 	fstride := make([]int, maxFactors+1)
 	fstride[0] = 1
-	for i := 0; i < maxFactors; i++ {
+	for i := range maxFactors {
 		p := factors[2*i]
 		fstride[i+1] = fstride[i] * p
 	}
@@ -211,7 +211,7 @@ func kfFactor(n int) ([]int, bool) {
 func computeTwiddles(nfft int) []kissCpx {
 	w := make([]kissCpx, nfft)
 	const pi = float32(3.14159265358979323846264338327)
-	for i := 0; i < nfft; i++ {
+	for i := range nfft {
 		phase := (-2.0 * pi / float32(nfft)) * float32(i)
 		w[i].r = opusmath.CosF32(phase)
 		w[i].i = opusmath.SinF32(phase)
@@ -239,7 +239,7 @@ func computeBitrevTableRecursive(fout int, bitrev []int, fIdx int, fstride int, 
 	step := fstride * inStride
 	if m == 1 {
 		// Leaf level: write p values with stride step
-		for j := 0; j < p; j++ {
+		for j := range p {
 			if fIdx >= 0 && fIdx < len(bitrev) {
 				bitrev[fIdx] = fout + j
 			}
@@ -248,7 +248,7 @@ func computeBitrevTableRecursive(fout int, bitrev []int, fIdx int, fstride int, 
 		return
 	}
 	// Recursive level: call p times, advancing fIdx by step after each
-	for j := 0; j < p; j++ {
+	for range p {
 		computeBitrevTableRecursive(fout, bitrev, fIdx, fstride*p, inStride, factors)
 		fIdx += step
 		fout += m
@@ -296,7 +296,7 @@ func kfBfly3M1(fout []kissCpx, tw []kissCpx, fstride, n, mm int) {
 	epi3i := tw[fstride].i
 	half := float32(0.5)
 	_ = fout[last] // BCE hint for base+0..2 accesses.
-	for i := 0; i < n; i++ {
+	for i := range n {
 		base := i * mm
 		a0r, a0i := fout[base].r, fout[base].i
 		a1r, a1i := fout[base+1].r, fout[base+1].i
@@ -340,7 +340,7 @@ func kfBfly5M1(fout []kissCpx, tw []kissCpx, fstride, n, mm int) {
 	yar, yai := ya.r, ya.i
 	ybr, ybi := yb.r, yb.i
 	_ = fout[last] // BCE hint for base+0..4 accesses.
-	for i := 0; i < n; i++ {
+	for i := range n {
 		base := i * mm
 		a0r, a0i := fout[base].r, fout[base].i
 		a1r, a1i := fout[base+1].r, fout[base+1].i
@@ -387,7 +387,7 @@ func kfBfly2(fout []kissCpx, m, N int) {
 	}
 	if m == 1 {
 		// Mirrors libopus CUSTOM_MODES branch for radix-2 m==1.
-		for i := 0; i < N; i++ {
+		for range N {
 			fout2 := fout[1:]
 			t := fout2[0]
 			fout2[0].r = fout[0].r - t.r
@@ -400,7 +400,7 @@ func kfBfly2(fout []kissCpx, m, N int) {
 	}
 	// m==4 degenerate radix-2 after radix-4
 	tw := float32(0.7071067812)
-	for i := 0; i < N; i++ {
+	for range N {
 		fout2 := fout[4:]
 		t := fout2[0]
 		fout2[0].r = fout[0].r - t.r
@@ -505,10 +505,7 @@ func (st *kissFFTState) fftImpl(fout []kissCpx) {
 	}
 
 	m := st.factors[2*L-1]
-	shift := st.shift
-	if shift < 0 {
-		shift = 0
-	}
+	shift := max(st.shift, 0)
 	for i := L - 1; i >= 0; i-- {
 		m2 := 1
 		if i != 0 {
@@ -578,7 +575,7 @@ func kissFFT32ToScratch(x []complex64, scratch []kissCpx) []kissCpx {
 			scratch = make([]kissCpx, n)
 		}
 		_ = scratch[n-1]
-		for i := 0; i < n; i++ {
+		for i := range n {
 			v := tmp[i]
 			scratch[i].r = real(v)
 			scratch[i].i = imag(v)
@@ -594,7 +591,7 @@ func kissFFT32ToScratch(x []complex64, scratch []kissCpx) []kissCpx {
 	_ = x[n-1]
 	_ = bitrev[n-1]
 	_ = scratch[n-1]
-	for i := 0; i < n; i++ {
+	for i := range n {
 		v := x[i]
 		idx := bitrev[i]
 		scratch[idx].r = real(v)
@@ -615,7 +612,7 @@ func kissFFT32ToScaledScratch(x []complex64, scale float32, scratch []kissCpx) [
 	if st == nil || len(st.bitrev) != n {
 		tmpIn := make([]complex64, n)
 		tmpOut := make([]complex64, n)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			tmpIn[i] = x[i] * complex(scale, 0)
 		}
 		dft32FallbackTo(tmpOut, tmpIn)
@@ -623,7 +620,7 @@ func kissFFT32ToScaledScratch(x []complex64, scale float32, scratch []kissCpx) [
 			scratch = make([]kissCpx, n)
 		}
 		_ = scratch[n-1]
-		for i := 0; i < n; i++ {
+		for i := range n {
 			v := tmpOut[i]
 			scratch[i].r = real(v)
 			scratch[i].i = imag(v)
@@ -639,7 +636,7 @@ func kissFFT32ToScaledScratch(x []complex64, scale float32, scratch []kissCpx) [
 	_ = x[n-1]
 	_ = bitrev[n-1]
 	_ = scratch[n-1]
-	for i := 0; i < n; i++ {
+	for i := range n {
 		v := x[i]
 		idx := bitrev[i]
 		scratch[idx].r = real(v) * scale
@@ -669,7 +666,7 @@ func kissFFT32To(out []complex64, x []complex64, scratch []kissCpx) {
 
 	// Convert back to complex64
 	_ = out[n-1] // BCE hint
-	for i := 0; i < n; i++ {
+	for i := range n {
 		out[i] = complex(scratch[i].r, scratch[i].i)
 	}
 }
@@ -681,7 +678,7 @@ func kissFFT32ToScaled(out []complex64, x []complex64, scale float32, scratch []
 	}
 	if kissFFTDFTFallbackEnabled {
 		tmp := make([]complex64, n)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			tmp[i] = x[i] * complex(scale, 0)
 		}
 		dft32FallbackTo(out, tmp)
@@ -694,7 +691,7 @@ func kissFFT32ToScaled(out []complex64, x []complex64, scale float32, scratch []
 	}
 
 	_ = out[n-1]
-	for i := 0; i < n; i++ {
+	for i := range n {
 		out[i] = complex(scratch[i].r, scratch[i].i)
 	}
 }
@@ -717,7 +714,7 @@ func kissFFT32ToInterleaved(outRI []float32, x []complex64, scratch []kissCpx) {
 	_ = outRI[2*n-1] // BCE hint
 	_ = scratch[n-1] // BCE hint
 	j := 0
-	for i := 0; i < n; i++ {
+	for i := range n {
 		v := scratch[i]
 		outRI[j] = v.r
 		outRI[j+1] = v.i
@@ -747,12 +744,12 @@ func dft32FallbackTo(out []complex64, x []complex64) {
 		return
 	}
 	twoPi := float32(-6.2831855) / float32(n)
-	for k := 0; k < n; k++ {
+	for k := range n {
 		angle := twoPi * float32(k)
 		wStep := complex(opusmath.CosF32(angle), opusmath.SinF32(angle))
 		w := complex(float32(1.0), float32(0.0))
 		var sum complex64
-		for t := 0; t < n; t++ {
+		for t := range n {
 			sum += x[t] * w
 			w *= wStep
 		}

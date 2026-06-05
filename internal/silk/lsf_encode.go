@@ -46,7 +46,7 @@ func lpcToLSFEncodeInto(lpcQ12 []int16, lsfQ15 []int16, lpcQ16Buf, pBuf, qBuf []
 	}
 
 	// Convert Q12 to Q16 for silk_A2NLSF.
-	for i := 0; i < order; i++ {
+	for i := range order {
 		lpcQ16[i] = int32(lpcQ12[i]) << 4
 	}
 

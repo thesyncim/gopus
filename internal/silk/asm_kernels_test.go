@@ -8,7 +8,7 @@ import (
 func TestSilkAssemblyKernelsMatchReference(t *testing.T) {
 	lengths := []int{1, 2, 3, 4, 5, 7, 8, 15, 16, 17, 31, 32, 33, 80, 120}
 	for _, n := range lengths {
-		for offset := 0; offset < 4; offset++ {
+		for offset := range 4 {
 			runSilkAssemblyReferenceCase(t, n, offset, uint64(n*4099+offset))
 		}
 	}
@@ -170,9 +170,9 @@ func testSilkLPCSynthesisCore(t *testing.T, n int, seed uint64) {
 }
 
 func asmCeltPitchXcorrFloatRef(x, y []float32, out []float32, length, maxPitch int) {
-	for lag := 0; lag < maxPitch; lag++ {
+	for lag := range maxPitch {
 		sum := float32(0)
-		for i := 0; i < length; i++ {
+		for i := range length {
 			sum += x[i] * y[lag+i]
 		}
 		out[lag] = sum

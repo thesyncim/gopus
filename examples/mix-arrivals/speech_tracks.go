@@ -246,7 +246,7 @@ func decodeWAV(data []byte) ([]float32, int, int, error) {
 		}
 
 		samples := make([]float32, len(pcmData)/2)
-		for i := 0; i < len(samples); i++ {
+		for i := range samples {
 			v := int16(binary.LittleEndian.Uint16(pcmData[i*2 : i*2+2]))
 			samples[i] = float32(v) / 32768
 		}
@@ -257,7 +257,7 @@ func decodeWAV(data []byte) ([]float32, int, int, error) {
 		}
 
 		samples := make([]float32, len(pcmData)/4)
-		for i := 0; i < len(samples); i++ {
+		for i := range samples {
 			samples[i] = math.Float32frombits(binary.LittleEndian.Uint32(pcmData[i*4 : i*4+4]))
 		}
 		return samples, int(sampleRate), int(channels), nil
@@ -275,10 +275,10 @@ func interleavedToMono(interleaved []float32, channels int) []float32 {
 	frames := len(interleaved) / channels
 	out := make([]float32, frames)
 	inv := 1 / float32(channels)
-	for i := 0; i < frames; i++ {
+	for i := range frames {
 		var sum float32
 		base := i * channels
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			sum += interleaved[base+ch]
 		}
 		out[i] = sum * inv
@@ -336,10 +336,7 @@ func resampleLinearMono(src []float32, srcRate, dstRate int) []float32 {
 		return out
 	}
 
-	dstLen := int(math.Round(float64(len(src)) * float64(dstRate) / float64(srcRate)))
-	if dstLen < 1 {
-		dstLen = 1
-	}
+	dstLen := max(int(math.Round(float64(len(src))*float64(dstRate)/float64(srcRate))), 1)
 	out := make([]float32, dstLen)
 	maxIdx := len(src) - 1
 	scale := float64(srcRate) / float64(dstRate)

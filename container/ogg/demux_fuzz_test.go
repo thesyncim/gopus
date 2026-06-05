@@ -79,7 +79,7 @@ func buildValidOpusStream(channels uint8, numPackets int) []byte {
 	if err != nil {
 		return nil
 	}
-	for i := 0; i < numPackets; i++ {
+	for i := range numPackets {
 		pkt := make([]byte, 20+i*5)
 		pkt[0] = 0xF8 // CELT silence TOC
 		for j := 1; j < len(pkt); j++ {
@@ -109,7 +109,7 @@ func buildValidOpusStreamMultistream() []byte {
 	if err != nil {
 		return nil
 	}
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		pkt := make([]byte, 40)
 		pkt[0] = 0xF8
 		if err := w.WritePacket(pkt, 960); err != nil {
@@ -135,7 +135,7 @@ func buildValidOpusStreamFamily3() []byte {
 	if err != nil {
 		return nil
 	}
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		pkt := make([]byte, 40)
 		pkt[0] = 0xF8
 		if err := w.WritePacket(pkt, 960); err != nil {
@@ -357,7 +357,7 @@ func FuzzOggDemux(f *testing.F) {
 		}
 
 		// For valid streams drain all packets.
-		for i := 0; i < 256; i++ {
+		for range 256 {
 			pkt, _, err := r.ReadPacket()
 			if err == io.EOF {
 				return
@@ -455,7 +455,7 @@ func FuzzParseOpusHead(f *testing.F) {
 	f.Add(DefaultOpusHeadMultistreamWithFamily(48000, 4, MappingFamilyProjection, 2, 2, nil).Encode())
 	// Truncations.
 	full := DefaultOpusHead(48000, 2).Encode()
-	for cut := 0; cut < len(full); cut++ {
+	for cut := range full {
 		f.Add(full[:cut])
 	}
 	// Version corruption.

@@ -33,10 +33,7 @@ import (
 
 // makePLCExtDecoder builds a mock SILKDecoderStateExtended suitable for PLC tests.
 func makePLCExtDecoder(fsKHz, subfrLength, nbSubfr, ltpMemLength, pitchLag int, signalType int) *mockSILKExtendedDecoder {
-	excLen := nbSubfr * subfrLength
-	if excLen < ltpMemLength {
-		excLen = ltpMemLength
-	}
+	excLen := max(nbSubfr*subfrLength, ltpMemLength)
 	lpcOrder := 16
 	if fsKHz < 16 {
 		lpcOrder = 10
@@ -91,7 +88,7 @@ func makePLCStateForDec(dec *mockSILKExtendedDecoder) *SILKPLCState {
 		pitchL[i] = int32(dec.pitchLag)
 	}
 	ltpCoefQ14 := make([]int16, ltpOrder*nbSubfr)
-	for sf := 0; sf < nbSubfr; sf++ {
+	for sf := range nbSubfr {
 		copy(ltpCoefQ14[sf*ltpOrder:(sf+1)*ltpOrder], dec.ltpCoefQ14[:])
 	}
 	gainsQ16 := make([]int32, nbSubfr)
@@ -345,7 +342,7 @@ func TestSILKPLCIIRPitchLagDriftMatchesLibopus(t *testing.T) {
 	//               = pitchL_Q8 + ((pitchL_Q8 * 655) >> 16)
 	expectedPitch := initialPitchQ8
 	ceiling := int32(maxPitchLagMs*fsKHz) << 8
-	for k := 0; k < nbSubfr; k++ {
+	for range nbSubfr {
 		delta := (int64(expectedPitch) * int64(pitchDriftFacQ16)) >> 16
 		expectedPitch += int32(delta)
 		if expectedPitch > ceiling {

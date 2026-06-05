@@ -19,15 +19,15 @@ func celtInnerProd8FMA32Ref(x, y []float32) float32 {
 	var acc [4]float32
 	i := 0
 	for ; i < len(x)-7; i += 8 {
-		for lane := 0; lane < 4; lane++ {
+		for lane := range 4 {
 			acc[lane] = mdctFMA32(x[i+lane], y[i+lane], acc[lane])
 		}
-		for lane := 0; lane < 4; lane++ {
+		for lane := range 4 {
 			acc[lane] = mdctFMA32(x[i+4+lane], y[i+4+lane], acc[lane])
 		}
 	}
 	if len(x)-i >= 4 {
-		for lane := 0; lane < 4; lane++ {
+		for lane := range 4 {
 			acc[lane] = mdctFMA32(x[i+lane], y[i+lane], acc[lane])
 		}
 		i += 4
@@ -45,7 +45,7 @@ func TestCeltInnerProd8FMA32MatchesReference(t *testing.T) {
 	rng := rand.New(rand.NewSource(0x1234abcd))
 	lengths := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 15, 16, 17, 23, 24, 31, 32, 33, 40, 47, 48, 63, 64, 65, 96, 120, 176, 240}
 	for _, n := range lengths {
-		for trial := 0; trial < 64; trial++ {
+		for trial := range 64 {
 			x := make([]float32, n)
 			y := make([]float32, n)
 			for i := range x {

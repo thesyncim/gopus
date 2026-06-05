@@ -10,7 +10,7 @@ import "math"
 
 func copyFloat64ToSig(dst []celtSig, src []float64) {
 	n := min(len(dst), len(src))
-	for i := 0; i < n; i++ {
+	for i := range n {
 		dst[i] = celtSig(src[i])
 	}
 }

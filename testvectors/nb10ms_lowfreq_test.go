@@ -53,7 +53,7 @@ func TestNB10msLowFreqSine(t *testing.T) {
 				var totalDecCount, totalRefCount int
 				var maxDec float32
 
-				for i := 0; i < numFrames; i++ {
+				for i := range numFrames {
 					start := i * tc.frameSize * channels
 					end := start + tc.frameSize*channels
 					pcm := float32ToFloat64(signal[start:end])

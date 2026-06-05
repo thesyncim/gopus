@@ -48,10 +48,7 @@ func CompareDecodedFloat32(candidate, reference []float32, sampleRate, channels,
 // common prefix (canonical secondary diagnostics; previously duplicated as
 // decoderParityStats).
 func waveformCorrelationRMS(a, b []float32) (corr, rmsRatio float64) {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
+	n := min(len(b), len(a))
 	if n == 0 {
 		return 0, 0
 	}

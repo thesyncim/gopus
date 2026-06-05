@@ -45,10 +45,7 @@ func TestCWRSUnitLibopus(t *testing.T) {
 			if nc == 0 {
 				t.Fatalf("ncwrsUrow returned 0 for n=%d k=%d", n, k)
 			}
-			inc := nc / sampleDiv
-			if inc < 1 {
-				inc = 1
-			}
+			inc := max(nc/sampleDiv, 1)
 
 			for i := uint32(0); i < nc; i += inc {
 				u := make([]uint32, k+2)

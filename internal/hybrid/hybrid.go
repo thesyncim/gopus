@@ -310,8 +310,8 @@ func (d *Decoder) decodePLCToFloat32(frameSize int, stereo bool) ([]float32, err
 	if factor < 1 {
 		factor = 1
 	}
-	for i := 0; i < frameSizeAPI; i++ {
-		for c := 0; c < channels; c++ {
+	for i := range frameSizeAPI {
+		for c := range channels {
 			idx := i*channels + c
 			silkSample := float32(0)
 			celtSample := float32(0)

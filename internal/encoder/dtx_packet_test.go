@@ -99,7 +99,7 @@ func TestShouldUseDTXDoesNotSuppressBeforeThresholdAt48k20ms(t *testing.T) {
 	silence := make([]opusRes, 960) // 20ms @ 48kHz
 
 	// DTX must not suppress before the configured 200ms threshold.
-	for i := 0; i < DTXFrameThreshold; i++ {
+	for i := range DTXFrameThreshold {
 		suppress, _ := enc.shouldUseDTXRes(silence)
 		if suppress {
 			t.Fatalf("suppressed too early at frame %d (threshold=%d)", i, DTXFrameThreshold)
@@ -155,7 +155,6 @@ func TestDTXMultiFrameCELTHybridTOC(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			enc := NewEncoder(fs, c.channels)
 			enc.SetMode(c.mode)
@@ -173,7 +172,7 @@ func TestDTXMultiFrameCELTHybridTOC(t *testing.T) {
 			silence := make([]float32, c.frameSize*c.channels)
 			var pkt []byte
 			fired := false
-			for f := 0; f < silentFrames; f++ {
+			for f := range silentFrames {
 				p, err := enc.EncodeFloat32(silence, c.frameSize)
 				if err != nil {
 					t.Fatalf("frame %d: EncodeFloat32 error: %v", f, err)

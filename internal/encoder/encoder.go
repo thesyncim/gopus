@@ -1028,10 +1028,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	cbrMaxDataBytes := maxDataBytes
 	effBitrate := int(e.bitrate)
 	if e.bitrateMode == ModeCBR {
-		cbrBytes := (bitrateToBitsFs(int(e.bitrate), sampleRate, frameSize) + 4) / 8
-		if cbrBytes > maxDataBytes {
-			cbrBytes = maxDataBytes
-		}
+		cbrBytes := min((bitrateToBitsFs(int(e.bitrate), sampleRate, frameSize)+4)/8, maxDataBytes)
 		effBitrate = bitsToBitrateFs(cbrBytes*8, sampleRate, frameSize)
 		if cbrBytes < 1 {
 			cbrBytes = 1
@@ -1530,10 +1527,7 @@ func (e *Encoder) emitLowSpacePacket(frameSize, outDataBytes, cbrMaxDataBytes, e
 	// mirrors st->bandwidth: seeded to FULLBAND at init (opus_encoder.c:320) and
 	// updated only after a full encode, so the early-exit reads the same stale value
 	// libopus would (OPUS_SET_BANDWIDTH writes user_bandwidth, not st->bandwidth).
-	bw := e.intBandwidth
-	if bw < types.BandwidthNarrowband {
-		bw = types.BandwidthNarrowband
-	}
+	bw := max(e.intBandwidth, types.BandwidthNarrowband)
 
 	packetCode := 0
 	numMultiframes := 0
@@ -1583,10 +1577,7 @@ func (e *Encoder) emitLowSpacePacket(frameSize, outDataBytes, cbrMaxDataBytes, e
 		ret = 2
 	}
 	// libopus pads to IMAX(cbr_max_data_bytes, ret) for CBR.
-	padTarget := cbrMaxDataBytes
-	if padTarget < ret {
-		padTarget = ret
-	}
+	padTarget := max(cbrMaxDataBytes, ret)
 
 	pkt := make([]byte, ret)
 	pkt[0] = tocByte
@@ -1617,10 +1608,7 @@ func lowSpaceTOC(mode Mode, framerate int, bw types.Bandwidth, stereo bool) byte
 	case ModeSILK:
 		toc = byte((int(bw)-int(types.BandwidthNarrowband))<<5) | byte((period-2)<<3)
 	case ModeCELT:
-		tmp := int(bw) - int(types.BandwidthMediumband)
-		if tmp < 0 {
-			tmp = 0
-		}
+		tmp := max(int(bw)-int(types.BandwidthMediumband), 0)
 		toc = 0x80 | byte(tmp<<5) | byte(period<<3)
 	default: // Hybrid
 		toc = 0x60 | byte((int(bw)-int(types.BandwidthSuperwideband))<<4) | byte((period-2)<<3)
@@ -1673,7 +1661,7 @@ func (e *Encoder) buildDTXPacketForMode(frameSize int, actualMode Mode) ([]byte,
 		frameCount := frameSize / f20
 		e.resetPacketFrameScratch()
 		frames := e.scratchFrameSlots[:0]
-		for i := 0; i < frameCount; i++ {
+		for range frameCount {
 			frames = append(frames, e.keepFrame(nil))
 		}
 		n, err := buildMultiFramePacketInto(e.scratchPacket, frames, mode, packetBW, 960, stereo, false)
@@ -1804,10 +1792,10 @@ func (e *Encoder) hpCutoff(in []opusRes, frameSize int) []opusRes {
 	}
 
 	// silk_biquad_res, float path (Direct Form II Transposed), per channel.
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		s0 := e.hpMem[2*c]
 		s1 := e.hpMem[2*c+1]
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			idx := i*channels + c
 			var inval float32
 			if src32 != nil {
@@ -1846,7 +1834,7 @@ func (e *Encoder) dcReject(in []opusRes, frameSize int) []opusRes {
 		m0 := e.hpMem[0]
 		m2 := e.hpMem[2]
 		if src32 != nil {
-			for i := 0; i < frameSize; i++ {
+			for i := range frameSize {
 				x0 := src32[2*i]
 				x1 := src32[2*i+1]
 				out0 := x0 - m0
@@ -1857,7 +1845,7 @@ func (e *Encoder) dcReject(in []opusRes, frameSize int) []opusRes {
 				out[2*i+1] = out1
 			}
 		} else {
-			for i := 0; i < frameSize; i++ {
+			for i := range frameSize {
 				x0 := in[2*i]
 				x1 := in[2*i+1]
 				out0 := x0 - m0
@@ -1873,14 +1861,14 @@ func (e *Encoder) dcReject(in []opusRes, frameSize int) []opusRes {
 	} else {
 		m0 := e.hpMem[0]
 		if src32 != nil {
-			for i := 0; i < n; i++ {
+			for i := range n {
 				x := src32[i]
 				y := x - m0
 				m0 = coef*x + verySmall + coef2*m0
 				out[i] = y
 			}
 		} else {
-			for i := 0; i < n; i++ {
+			for i := range n {
 				x := in[i]
 				y := x - m0
 				m0 = coef*x + verySmall + coef2*m0
@@ -2038,7 +2026,7 @@ func quantizeFloat32ToInt16LibopusInPlace(samples []float32) {
 
 func downmixStereoToSilkMonoLibopus(dst, interleaved []float32, samples int) {
 	const invScale = float32(1.0 / 32768.0)
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		sum := float32ToInt16Libopus(interleaved[2*i] + interleaved[2*i+1])
 		dst[i] = float32(silkRShiftRound1(sum)) * invScale
 	}
@@ -2046,7 +2034,7 @@ func downmixStereoToSilkMonoLibopus(dst, interleaved []float32, samples int) {
 
 func averageSilkResamplerOutputsLibopus(dst, right []float32, samples int) {
 	const invScale = float32(1.0 / 32768.0)
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		leftQ0 := float32ToInt16Libopus(dst[i])
 		rightQ0 := float32ToInt16Libopus(right[i])
 		dst[i] = float32((leftQ0+rightQ0)>>1) * invScale
@@ -2100,14 +2088,8 @@ func (e *Encoder) ensureCELTPrefill(size int) []opusRes {
 // and returns a frame-sized slice for CELT processing. The delay buffer is updated
 // with the latest samples after constructing the output.
 func (e *Encoder) applyDelayCompensation(pcm []opusRes, frameSize int) []opusRes {
-	channels := int(e.channels)
-	if channels < 1 {
-		channels = 1
-	}
-	frameSamples := frameSize * channels
-	if len(pcm) < frameSamples {
-		frameSamples = len(pcm)
-	}
+	channels := max(int(e.channels), 1)
+	frameSamples := min(len(pcm), frameSize*channels)
 	sampleRate := int(e.sampleRate)
 	delayComp := sampleRate / 250
 	if delayComp <= 0 {
@@ -2186,21 +2168,12 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []op
 	} else if delayComp := sampleRate / 250; delayComp > 0 {
 		// Match libopus tmp_prefill source as closely as possible with the
 		// available delay-compensated CELT window.
-		delayCompSamples := delayComp * channels
-		if delayCompSamples > len(celtPCM) {
-			delayCompSamples = len(celtPCM)
-		}
-		prefillStart := delayCompSamples - prefillSamples
-		if prefillStart < 0 {
-			prefillStart = 0
-		}
+		delayCompSamples := min(delayComp*channels, len(celtPCM))
+		prefillStart := max(delayCompSamples-prefillSamples, 0)
 		prefillEnd := prefillStart + prefillSamples
 		if prefillEnd > len(celtPCM) {
 			prefillEnd = len(celtPCM)
-			prefillStart = prefillEnd - prefillSamples
-			if prefillStart < 0 {
-				prefillStart = 0
-			}
+			prefillStart = max(prefillEnd-prefillSamples, 0)
 		}
 		if prefillEnd-prefillStart == prefillSamples {
 			prefillInput = celtPCM[prefillStart:prefillEnd]
@@ -2392,7 +2365,7 @@ func (e *Encoder) runSilkTransitionPrefill(prefill []opusRes, preserveLP bool, c
 	}
 
 	pcm32 := e.scratchPCM32[:prefillFrameSize]
-	for i := 0; i < prefillFrameSize; i++ {
+	for i := range prefillFrameSize {
 		pcm32[i] = float32(prefill[i])
 	}
 	quantizeFloat32ToInt16LibopusInPlace(pcm32)
@@ -2439,7 +2412,7 @@ func (e *Encoder) runSilkStereoTransitionPrefill(prefill []opusRes, prefillFrame
 
 	left := e.scratchLeft[:prefillFrameSize]
 	right := e.scratchRight[:prefillFrameSize]
-	for i := 0; i < prefillFrameSize; i++ {
+	for i := range prefillFrameSize {
 		base := i * 2
 		left[i] = float32(prefill[base])
 		right[i] = float32(prefill[base+1])
@@ -2547,25 +2520,16 @@ func (e *Encoder) applySilkTransitionPrefillRamp(prefill []opusRes, prefillFrame
 	if len(prefill) == 0 || prefillFrameSize <= 0 {
 		return
 	}
-	channels := int(e.channels)
-	if channels < 1 {
-		channels = 1
-	}
+	channels := max(int(e.channels), 1)
 	sampleRate := int(e.sampleRate)
 	delayComp := sampleRate / 250
 	prefillLen := sampleRate / 400
-	start := prefillFrameSize - delayComp - prefillLen
-	if start < 0 {
-		start = 0
-	}
+	start := max(prefillFrameSize-delayComp-prefillLen, 0)
 	if start > prefillFrameSize {
 		start = prefillFrameSize
 	}
 
-	prefix := start * channels
-	if prefix > len(prefill) {
-		prefix = len(prefill)
-	}
+	prefix := min(start*channels, len(prefill))
 	for i := 0; i < prefix; i++ {
 		prefill[i] = 0
 	}
@@ -2579,10 +2543,7 @@ func (e *Encoder) applySilkTransitionPrefillRamp(prefill []opusRes, prefillFrame
 		return
 	}
 
-	inc := 48000 / sampleRate
-	if inc < 1 {
-		inc = 1
-	}
+	inc := max(48000/sampleRate, 1)
 	window := celt.GetWindowBufferF32(prefillLen * inc)
 	maxByWindow := prefillLen
 	if len(window) > 0 {
@@ -2628,16 +2589,10 @@ func (e *Encoder) updateDelayBuffer(pcm []opusRes, frameSize int) {
 	if delayComp <= 0 {
 		return
 	}
-	channels := int(e.channels)
-	if channels < 1 {
-		channels = 1
-	}
+	channels := max(int(e.channels), 1)
 	delaySamples := delayComp * channels
 	encoderBufferSamples := (sampleRate / 100) * channels
-	frameSamples := frameSize * channels
-	if len(pcm) < frameSamples {
-		frameSamples = len(pcm)
-	}
+	frameSamples := min(len(pcm), frameSize*channels)
 	if delaySamples <= 0 || frameSamples <= 0 {
 		return
 	}
@@ -2666,14 +2621,8 @@ func (e *Encoder) updateDelayBufferInternal(pcm []opusRes, frameSamples, encoder
 
 // prepareCELTPCM applies CELT delay compensation unless low-delay mode is active.
 func (e *Encoder) prepareCELTPCM(framePCM []opusRes, frameSize int) []opusRes {
-	channels := int(e.channels)
-	if channels < 1 {
-		channels = 1
-	}
-	frameSamples := frameSize * channels
-	if len(framePCM) < frameSamples {
-		frameSamples = len(framePCM)
-	}
+	channels := max(int(e.channels), 1)
+	frameSamples := min(len(framePCM), frameSize*channels)
 	if e.lowDelay {
 		out := e.ensureDelayedPCM(frameSamples)
 		copy(out, framePCM[:frameSamples])
@@ -3005,11 +2954,9 @@ func (e *Encoder) autoVoiceEstimate(prev Mode) int {
 		prob = 1
 	}
 	voiceRatio := int(opusmath.FloorHalfPlusF32ToInt32(float32(100) * (float32(1) - prob)))
-	voiceEst = (voiceRatio * 327) >> 8
-	// OPUS_APPLICATION_AUDIO clamp.
-	if voiceEst > 115 {
-		voiceEst = 115
-	}
+	voiceEst = min(
+		// OPUS_APPLICATION_AUDIO clamp.
+		(voiceRatio*327)>>8, 115)
 	return voiceEst
 }
 
@@ -3133,14 +3080,14 @@ func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []opusRes, lookahead []opusR
 
 		left := e.scratchLeft[:frameSize]
 		right := e.scratchRight[:frameSize]
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			left[i] = pcm32[i*2]
 			right[i] = pcm32[i*2+1]
 		}
 		lookaheadSize := len(lookahead32) / 2
 		leftLookahead := e.scratchLeft[frameSize : frameSize+lookaheadSize]
 		rightLookahead := e.scratchRight[frameSize : frameSize+lookaheadSize]
-		for i := 0; i < lookaheadSize; i++ {
+		for i := range lookaheadSize {
 			leftLookahead[i] = lookahead32[i*2]
 			rightLookahead[i] = lookahead32[i*2+1]
 		}
@@ -3283,10 +3230,7 @@ func (e *Encoder) silkBustMaxDataBytes(frameSize, maxDataBytes int) int {
 	if e.bitrateMode != ModeCBR {
 		return maxDataBytes
 	}
-	cbrBytes := e.targetBytesForBitrate(int(e.bitrate), frameSize)
-	if cbrBytes > maxDataBytes {
-		cbrBytes = maxDataBytes
-	}
+	cbrBytes := min(e.targetBytesForBitrate(int(e.bitrate), frameSize), maxDataBytes)
 	if cbrBytes < 1 {
 		cbrBytes = 1
 	}
@@ -3360,10 +3304,7 @@ func (e *Encoder) celtDREDPayloadCap(maxPayloadBytes, dredBitrate, frameSize int
 		return maxPayloadBytes
 	}
 	dredBytes := e.bitrateToBits(dredBitrate, frameSize) / 8
-	maxCELTBytes := maxPayloadBytes - dredBytes*3/4
-	if maxCELTBytes < 5 {
-		maxCELTBytes = 5
-	}
+	maxCELTBytes := max(maxPayloadBytes-dredBytes*3/4, 5)
 	if maxCELTBytes < maxPayloadBytes {
 		return maxCELTBytes
 	}
@@ -3502,10 +3443,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 	// full buffer for that case.)
 	repacketizeLen := outDataBytes
 	if e.bitrateMode == ModeCBR {
-		cbrBytes := e.targetBytesForBitrate(originalBitrate, frameSize)
-		if cbrBytes > outDataBytes {
-			cbrBytes = outDataBytes
-		}
+		cbrBytes := min(e.targetBytesForBitrate(originalBitrate, frameSize), outDataBytes)
 		repacketizeLen = cbrBytes
 	}
 	if repacketizeLen < 1 {
@@ -3518,10 +3456,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 	if extsupport.QEXT && e.qextActive() {
 		maxHeaderBytes += frameCount
 	}
-	maxLenSum := frameCount + repacketizeLen - maxHeaderBytes
-	if maxLenSum < frameCount {
-		maxLenSum = frameCount
-	}
+	maxLenSum := max(frameCount+repacketizeLen-maxHeaderBytes, frameCount)
 	// The assembled packet (header + sum of sub-frame payloads) is bounded by
 	// maxLenSum+maxHeaderBytes; grow the output buffer so a high-bitrate long
 	// packet that exceeds the default single-packet size still fits.
@@ -3530,10 +3465,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 	if encodingBitrate > 0 {
 		subframeBitrate = encodingBitrate
 	}
-	currMaxByRate := subframeBitrate * f20 / int(e.sampleRate) / 8
-	if currMaxByRate < 2 {
-		currMaxByRate = 2
-	}
+	currMaxByRate := max(subframeBitrate*f20/int(e.sampleRate)/8, 2)
 	dredBytes := 0
 	if dredBitrate > 0 {
 		dredBytes = e.bitrateToBits(dredBitrate, frameSize) / 8
@@ -3548,7 +3480,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 	qextExtensionCount := 0
 	savedBitrate := e.bitrate
 	e.bitrate = int32(subframeBitrate)
-	for i := 0; i < frameCount; i++ {
+	for i := range frameCount {
 		e.primeSubframeAnalysis(f20)
 		start := i * frameStride
 		end := start + frameStride
@@ -3567,10 +3499,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 			currMax = capPerFrame
 		}
 		if dredBytes > 0 {
-			dredCap := (maxLenSum - dredBytes) / frameCount
-			if dredCap < 2 {
-				dredCap = 2
-			}
+			dredCap := max((maxLenSum-dredBytes)/frameCount, 2)
 			if currMax > dredCap {
 				currMax = dredCap
 			}
@@ -3709,26 +3638,17 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []opusRes, celtPCM []opusRes,
 	frames := e.scratchFrameSlots[:frameCount]
 	sameSize := true
 	prevSize := -1
-	packetTargetBytes := e.targetBytesForBitrate(originalBitrate, frameSize)
-	if packetTargetBytes < 1 {
-		packetTargetBytes = 1
-	}
+	packetTargetBytes := max(e.targetBytesForBitrate(originalBitrate, frameSize), 1)
 	maxHeaderBytes := 3
 	if frameCount > 2 {
 		maxHeaderBytes = 2 + (frameCount-1)*2
 	}
-	maxLenSum := frameCount + packetTargetBytes - maxHeaderBytes
-	if maxLenSum < frameCount {
-		maxLenSum = frameCount
-	}
+	maxLenSum := max(frameCount+packetTargetBytes-maxHeaderBytes, frameCount)
 	subframeBitrate := int(e.bitrate)
 	if encodingBitrate > 0 {
 		subframeBitrate = encodingBitrate
 	}
-	currMaxByRate := subframeBitrate * f20 / int(e.sampleRate) / 8
-	if currMaxByRate < 2 {
-		currMaxByRate = 2
-	}
+	currMaxByRate := max(subframeBitrate*f20/int(e.sampleRate)/8, 2)
 	dredBytes := 0
 	if dredBitrate > 0 {
 		dredBytes = e.bitrateToBits(dredBitrate, frameSize) / 8
@@ -3742,7 +3662,7 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []opusRes, celtPCM []opusRes,
 	}
 	savedBitrate := e.bitrate
 	e.bitrate = int32(subframeBitrate)
-	for i := 0; i < frameCount; i++ {
+	for i := range frameCount {
 		e.primeSubframeAnalysis(f20)
 		start := i * frameStride
 		end := start + frameStride
@@ -3776,10 +3696,7 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []opusRes, celtPCM []opusRes,
 			currMax = capPerFrame
 		}
 		if dredBytes > 0 {
-			dredCap := (maxLenSum - dredBytes) / frameCount
-			if dredCap < 2 {
-				dredCap = 2
-			}
+			dredCap := max((maxLenSum-dredBytes)/frameCount, 2)
 			if currMax > dredCap {
 				currMax = dredCap
 			}
@@ -3902,22 +3819,13 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []opusRes, vadPCM []opusRes, fr
 	if encodingBitrate > 0 {
 		subframeBitrate = encodingBitrate
 	}
-	packetTargetBytes := e.targetBytesForBitrate(originalBitrate, frameSize)
-	if packetTargetBytes < 1 {
-		packetTargetBytes = 1
-	}
+	packetTargetBytes := max(e.targetBytesForBitrate(originalBitrate, frameSize), 1)
 	maxHeaderBytes := 3
 	if frameCount > 2 {
 		maxHeaderBytes = 2 + (frameCount-1)*2
 	}
-	maxLenSum := frameCount + packetTargetBytes - maxHeaderBytes
-	if maxLenSum < frameCount {
-		maxLenSum = frameCount
-	}
-	currMaxByRate := subframeBitrate * encFrameSize / int(e.sampleRate) / 8
-	if currMaxByRate < 2 {
-		currMaxByRate = 2
-	}
+	maxLenSum := max(frameCount+packetTargetBytes-maxHeaderBytes, frameCount)
+	currMaxByRate := max(subframeBitrate*encFrameSize/int(e.sampleRate)/8, 2)
 	dredBytes := 0
 	if dredBitrate > 0 {
 		dredBytes = e.bitrateToBits(dredBitrate, frameSize) / 8
@@ -3931,7 +3839,7 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []opusRes, vadPCM []opusRes, fr
 	savedBitrate := e.bitrate
 	e.bitrate = int32(subframeBitrate)
 
-	for i := 0; i < frameCount; i++ {
+	for i := range frameCount {
 		e.primeSubframeAnalysis(encFrameSize)
 		start := i * frameStride
 		end := start + frameStride
@@ -3950,10 +3858,7 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []opusRes, vadPCM []opusRes, fr
 			currMax = capPerFrame
 		}
 		if dredBytes > 0 {
-			dredCap := (maxLenSum - dredBytes) / frameCount
-			if dredCap < 2 {
-				dredCap = 2
-			}
+			dredCap := max((maxLenSum-dredBytes)/frameCount, 2)
 			if currMax > dredCap {
 				currMax = dredCap
 			}
@@ -4008,10 +3913,7 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []opusRes, vadPCM []opusRes, fr
 	e.bitrate = savedBitrate
 	e.analysisReadBakSet = false
 
-	packetBW := e.effectiveBandwidth()
-	if packetBW > types.BandwidthWideband {
-		packetBW = types.BandwidthWideband
-	}
+	packetBW := min(e.effectiveBandwidth(), types.BandwidthWideband)
 	if e.dredEncodingActive() {
 		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeSILK, packetBW, frameSize, encFrameSize48k, firstFrameMaxBytes, e.packetStereoForMode(ModeSILK), !sameSize, nil); err != nil {
 			return nil, err
@@ -4347,10 +4249,7 @@ func computeSilkFrameLayout(pcmLen, fsKHz int) (frameSamples, nFrames int) {
 	if pcmLen < frameSamples {
 		frameSamples = pcmLen
 	}
-	nFrames = pcmLen / frameSamples
-	if nFrames < 1 {
-		nFrames = 1
-	}
+	nFrames = max(pcmLen/frameSamples, 1)
 	if nFrames > silk.MaxFramesPerPacket {
 		nFrames = silk.MaxFramesPerPacket
 	}
@@ -4366,12 +4265,9 @@ func (e *Encoder) computeSilkVADFlagsAndStates(pcm []float32, fsKHz int) ([]bool
 	e.ensureSilkVAD()
 	flags := e.scratchVADFlags[:nFrames]
 	states := e.scratchVADStates[:nFrames]
-	for i := 0; i < nFrames; i++ {
+	for i := range nFrames {
 		start := i * frameSamples
-		end := start + frameSamples
-		if end > len(pcm) {
-			end = len(pcm)
-		}
+		end := min(start+frameSamples, len(pcm))
 		framePCM := pcm[start:end]
 		state, active := computeSilkVADFrameState(e.silkVAD, framePCM, len(framePCM), fsKHz)
 		state, active = e.applyOpusVADToSilkState(state, active)
@@ -4705,9 +4601,6 @@ func (e *Encoder) syncCELTEnergyMask() {
 		e.celtEncoder.SetEnergyMask(nil)
 		return
 	}
-	n := len(e.celtEnergyMask)
-	if n > celt.MaxBands*2 {
-		n = celt.MaxBands * 2
-	}
+	n := min(len(e.celtEnergyMask), celt.MaxBands*2)
 	e.celtEncoder.SetEnergyMask(e.celtEnergyMask[:n])
 }

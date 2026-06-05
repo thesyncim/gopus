@@ -60,11 +60,8 @@ func TestCorpusSignalQualityParity(t *testing.T) {
 	const frames = 25     // 500 ms of audio: plenty for opus_compare's per-band model
 
 	for _, class := range testsignal.CorpusExtendedSignalClasses() {
-		class := class
 		for _, channels := range []int{1, 2} {
-			channels := channels
 			for _, cfg := range corpusQualityModeConfigs {
-				cfg := cfg
 				name := class + "/" + chanName(channels) + "/" + cfg.name
 				t.Run(name, func(t *testing.T) {
 					t.Parallel()

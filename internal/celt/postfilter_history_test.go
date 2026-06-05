@@ -11,7 +11,7 @@ func updateStereoHistoryLegacy(mem []celtSig, samples []float64, frameSize, hist
 	histR := mem[history : 2*history]
 	if frameSize >= history {
 		src := (frameSize - history) * 2
-		for i := 0; i < history; i++ {
+		for i := range history {
 			histL[i] = celtSig(samples[src])
 			histR[i] = celtSig(samples[src+1])
 			src += 2
@@ -22,7 +22,7 @@ func updateStereoHistoryLegacy(mem []celtSig, samples []float64, frameSize, hist
 	copy(histR, histR[frameSize:])
 	src := 0
 	dst := history - frameSize
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		histL[dst+i] = celtSig(samples[src])
 		histR[dst+i] = celtSig(samples[src+1])
 		src += 2
@@ -120,12 +120,12 @@ func TestApplyPostfilterStereoPlanarMatchesInterleaved(t *testing.T) {
 
 	left := make([]float64, frameSize)
 	right := make([]float64, frameSize)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		left[i] = math.Sin(2*math.Pi*440*float64(i)/48000) * 0.5
 		right[i] = math.Sin(2*math.Pi*660*float64(i)/48000) * 0.4
 	}
 	interleaved := make([]float64, frameSize*2)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		interleaved[2*i] = left[i]
 		interleaved[2*i+1] = right[i]
 	}
@@ -166,7 +166,7 @@ func TestApplyPostfilterStereoPlanarMatchesInterleaved(t *testing.T) {
 	legacy.applyPostfilterFloat32(want, frameSize, lm, 48, 0.31, 0)
 
 	got := make([]float32, frameSize*2)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		got[2*i] = gotL[i]
 		got[2*i+1] = gotR[i]
 	}

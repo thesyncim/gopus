@@ -16,12 +16,12 @@ func FoldBand(lowband []celtNorm, n int, seed *uint32) []celtNorm {
 	result := make([]celtNorm, n)
 
 	if len(lowband) == 0 {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			*seed = *seed*1664525 + 1013904223
 			result[i] = celtNorm(float32(int32(*seed)) / float32(1<<31))
 		}
 	} else {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			sign := float32(1.0)
 			if *seed&0x8000 != 0 {
 				sign = -1.0
@@ -43,7 +43,7 @@ func (d *Decoder) foldBandNormInto(lowband []celtNorm, n int, dst []celtNorm) {
 	if len(lowband) == 0 {
 		// No source band available - generate pseudo-random noise
 		// Uses LCG (Linear Congruential Generator) matching libopus
-		for i := 0; i < n; i++ {
+		for i := range n {
 			d.rng = d.rng*1664525 + 1013904223 // LCG constants
 			// Convert to signed float in approximately [-1, 1]
 			dst[i] = celtNorm(float32(int32(d.rng)) / float32(1<<31))
@@ -51,7 +51,7 @@ func (d *Decoder) foldBandNormInto(lowband []celtNorm, n int, dst []celtNorm) {
 	} else {
 		// Copy from lower band with pseudo-random sign flips
 		// The sign is determined by bit 15 of the RNG state
-		for i := 0; i < n; i++ {
+		for i := range n {
 			// Determine sign from current seed
 			sign := float32(1.0)
 			if d.rng&0x8000 != 0 {

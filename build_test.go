@@ -214,7 +214,7 @@ func TestDefaultBuildIsZeroCostForGatedFeatures(t *testing.T) {
 			t.Fatalf("go list -deps %s failed: %v\n%s", pkg, err, out)
 		}
 		deps := make(map[string]bool)
-		for _, line := range strings.Split(string(out), "\n") {
+		for line := range strings.SplitSeq(string(out), "\n") {
 			if line = strings.TrimSpace(line); line != "" {
 				deps[line] = true
 			}

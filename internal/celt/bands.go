@@ -40,7 +40,7 @@ func (d *Decoder) DecodeBands(
 
 	// Calculate total bins from bands (for band processing)
 	totalBins := 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		totalBins += ScaledBandWidth(band, frameSize)
 	}
 
@@ -67,7 +67,7 @@ func (d *Decoder) DecodeBands(
 	bandVectors := d.scratchBands.ensureBandVectors(nbBands)
 
 	offset := 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		n := ScaledBandWidth(band, frameSize) // Band width in MDCT bins
 		if n <= 0 {
 			continue
@@ -100,7 +100,7 @@ func (d *Decoder) DecodeBands(
 
 		// Apply gain to shape and write to output.
 		out := coeffs[offset : offset+n]
-		for i := 0; i < n; i++ {
+		for i := range n {
 			out[i] = celtNorm(float32(shape[i]) * gain)
 		}
 
@@ -142,7 +142,7 @@ func (d *Decoder) DecodeBandsStereo(
 
 	// Calculate total bins from bands (for band processing)
 	totalBins := 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		totalBins += ScaledBandWidth(band, frameSize)
 	}
 
@@ -168,7 +168,7 @@ func (d *Decoder) DecodeBandsStereo(
 	bandVectorsL, bandVectorsR := d.scratchBands.ensureBandVectorsStereo(nbBands)
 
 	offset := 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		n := ScaledBandWidth(band, frameSize)
 		if n <= 0 {
 			continue
@@ -206,10 +206,7 @@ func (d *Decoder) DecodeBandsStereo(
 			// Mid-side or dual stereo
 			// For simplicity, use mid-side when bits are allocated
 			// Decode mid shape
-			kMid := k / 2
-			if kMid < 1 {
-				kMid = 1
-			}
+			kMid := max(k/2, 1)
 			kSide := k - kMid
 
 			// Use pvqNorm as temporary for mid shape
@@ -221,7 +218,7 @@ func (d *Decoder) DecodeBandsStereo(
 			if kSide > 0 {
 				d.decodePVQNormInto(band, n, kSide, shapeSide)
 			} else {
-				for i := 0; i < n; i++ {
+				for i := range n {
 					shapeSide[i] = 0
 				}
 			}
@@ -255,7 +252,7 @@ func (d *Decoder) DecodeBandsStereo(
 
 		leftOut := left[offset : offset+n]
 		rightOut := right[offset : offset+n]
-		for i := 0; i < n; i++ {
+		for i := range n {
 			leftOut[i] = celtNorm(float32(shapeL[i]) * gainL)
 			rightOut[i] = celtNorm(float32(shapeR[i]) * gainR)
 		}
@@ -346,7 +343,7 @@ func bandFromWidth(width int) (band int, lm int, ok bool) {
 		return 20, 3, true
 	}
 	for lm = 0; lm <= 3; lm++ {
-		for band = 0; band < MaxBands; band++ {
+		for band = range MaxBands {
 			if (EBands[band+1]-EBands[band])<<lm == width {
 				return band, lm, true
 			}
@@ -426,7 +423,7 @@ func denormalizeNormCoeffsDownsample(coeffs []celtNorm, energies []celtGLog, nbB
 	coeffsLen := min(len(coeffs), frameSize)
 	scaleWidth := frameSize / Overlap
 	offset := 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		width := EBands[band+1] - EBands[band]
 		if scaleWidth > 0 {
 			width *= scaleWidth

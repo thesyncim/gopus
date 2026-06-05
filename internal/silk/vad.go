@@ -160,7 +160,7 @@ func (e *Encoder) computeSpectralTilt(pcm []float32) float32 {
 	// Compute first-order prediction coefficient
 	// This approximates spectral tilt: a1 > 0 means low-freq emphasis
 	var r0, r1 float32
-	for i := 0; i < len(pcm); i++ {
+	for i := range pcm {
 		r0 += pcm[i] * pcm[i]
 		if i > 0 {
 			r1 += pcm[i] * pcm[i-1]

@@ -568,9 +568,9 @@ func TestGenerateTOC(t *testing.T) {
 
 func TestGenerateTOCRoundTrip(t *testing.T) {
 	// Test round-trip for all 32 configs with all stereo/frameCode combinations
-	for config := uint8(0); config < 32; config++ {
+	for config := range uint8(32) {
 		for _, stereo := range []bool{false, true} {
-			for frameCode := uint8(0); frameCode < 4; frameCode++ {
+			for frameCode := range uint8(4) {
 				toc := GenerateTOC(config, stereo, frameCode)
 				parsed := ParseTOC(toc)
 
@@ -653,7 +653,7 @@ func TestConfigFromParams(t *testing.T) {
 
 func TestValidConfig(t *testing.T) {
 	// Valid configs 0-31
-	for i := uint8(0); i < 32; i++ {
+	for i := range uint8(32) {
 		if !ValidConfig(i) {
 			t.Errorf("ValidConfig(%d) = false, want true", i)
 		}

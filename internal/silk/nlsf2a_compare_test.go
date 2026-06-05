@@ -23,7 +23,7 @@ func TestSilkNLSF2AComparison(t *testing.T) {
 
 	// Compare
 	mismatches := 0
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		if goLPC[i] != expectedLPC[i] {
 			t.Logf("  Mismatch at [%d]: gopus=%d, libopus=%d, diff=%d", i, goLPC[i], expectedLPC[i], goLPC[i]-expectedLPC[i])
 			mismatches++
@@ -48,7 +48,7 @@ func TestSilkNLSF2AInterpolated(t *testing.T) {
 
 	// Compute interpolated NLSF: nlsf0 = prevNLSF + (interpCoef * (currNLSF - prevNLSF)) >> 2
 	nlsf0 := make([]int16, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		diff := int32(currNLSF[i]) - int32(prevNLSF[i])
 		nlsf0[i] = int16(int32(prevNLSF[i]) + (int32(interpCoef) * diff >> 2))
 	}
@@ -68,7 +68,7 @@ func TestSilkNLSF2AInterpolated(t *testing.T) {
 
 	// Compare
 	mismatches := 0
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		if goLPC0[i] != expectedLPC0[i] {
 			t.Logf("  Mismatch at [%d]: gopus=%d, libopus=%d, diff=%d", i, goLPC0[i], expectedLPC0[i], goLPC0[i]-expectedLPC0[i])
 			mismatches++
@@ -131,7 +131,7 @@ func TestDecodeParametersLPCOutput(t *testing.T) {
 	// First compute the interpolated NLSF
 	lpcOrder := int(st.lpcOrder)
 	interpNLSF := make([]int16, lpcOrder)
-	for i := 0; i < lpcOrder; i++ {
+	for i := range lpcOrder {
 		diff := int32(frame1NLSF[i]) - int32(st.prevNLSFQ15[i])
 		interpNLSF[i] = int16(int32(st.prevNLSFQ15[i]) + (int32(st.indices.NLSFInterpCoefQ2) * diff >> 2))
 	}
@@ -159,14 +159,14 @@ func TestDecodeParametersLPCOutput(t *testing.T) {
 
 	// Check matches
 	match0 := true
-	for i := 0; i < lpcOrder; i++ {
+	for i := range lpcOrder {
 		if lpc0[i] != expected0[i] {
 			match0 = false
 			t.Logf("LPC0 mismatch at [%d]: got %d, want %d", i, lpc0[i], expected0[i])
 		}
 	}
 	match1 := true
-	for i := 0; i < lpcOrder; i++ {
+	for i := range lpcOrder {
 		if lpc1[i] != expected1[i] {
 			match1 = false
 			t.Logf("LPC1 mismatch at [%d]: got %d, want %d", i, lpc1[i], expected1[i])
@@ -217,7 +217,7 @@ func TestSilkNLSFDecodeComparison(t *testing.T) {
 
 			// Compare
 			mismatches := 0
-			for i := 0; i < 10; i++ {
+			for i := range 10 {
 				if nlsfQ15[i] != tc.expectedNLSF[i] {
 					t.Logf("  Mismatch at [%d]: gopus=%d, expected=%d", i, nlsfQ15[i], tc.expectedNLSF[i])
 					mismatches++

@@ -62,7 +62,7 @@ func probeLibopusSILKWarpedAutocorr(cases []libopusSILKWarpedAutocorrCase) ([][]
 			return nil, fmt.Errorf("helper order=%d", order)
 		}
 		out[i] = make([]float32, order+1)
-		for j := 0; j < maxShapeLpcOrder+1; j++ {
+		for j := range maxShapeLpcOrder + 1 {
 			v := reader.Float32()
 			if j <= order {
 				out[i][j] = v

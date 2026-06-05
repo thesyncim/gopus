@@ -58,7 +58,7 @@ func imdctPostRotateF32Ref(buf []float32, trig []float32, n2, n4 int) {
 
 	yp0 := 0
 	yp1 := n2 - 2
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		re := buf[yp0+1]
 		im := buf[yp0]
 		t0 := trig[i]
@@ -90,7 +90,7 @@ func imdctPostRotateF32FromKissRef(buf []float32, fft []kissCpx, trig []float32,
 	_ = buf[n2-1]
 	_ = fft[n4-1]
 	j := 0
-	for i := 0; i < n4; i++ {
+	for i := range n4 {
 		v := fft[i]
 		buf[j] = v.r
 		buf[j+1] = v.i

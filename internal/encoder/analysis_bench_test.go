@@ -7,7 +7,7 @@ import (
 
 func makeTonalityBenchPCM(frameSize, channels int) []float32 {
 	pcm := make([]float32, frameSize*channels)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		t := float64(i)
 		base := 0.32*math.Sin(2*math.Pi*440*t/48000.0) +
 			0.21*math.Sin(2*math.Pi*880*t/48000.0+0.17) +
@@ -28,7 +28,7 @@ func benchmarkTonalityAnalysis48k(b *testing.B, channels int) {
 	s := NewTonalityAnalysisState(48000)
 
 	// Enter the steady-state path before measuring.
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		s.tonalityAnalysis(pcm, channels)
 	}
 
@@ -47,10 +47,7 @@ func BenchmarkTonalityAnalysis48kStereo(b *testing.B) {
 }
 
 func silkResamplerDown2HPLegacy(s []float32, out []float32, in []float32) float32 {
-	len2 := len(in) / 2
-	if len(out) < len2 {
-		len2 = len(out)
-	}
+	len2 := min(len(out), len(in)/2)
 	if len2 <= 0 {
 		return 0
 	}

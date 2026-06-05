@@ -46,7 +46,7 @@ func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType in
 	// Update weights if interpolation is used
 	if interpIdx < 4 && !e.firstFrameAfterResetActive() {
 		nlsf0 := ensureInt16Slice(&e.scratchNLSFTempQ15, order)
-		for i := 0; i < order; i++ {
+		for i := range order {
 			diff := int32(lsfQ15[i]) - int32(e.prevLSFQ15[i])
 			nlsf0[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx) * diff >> 2))
 		}
@@ -54,17 +54,14 @@ func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType in
 		silkNLSFWeightsLaroia(w0Q2, nlsf0, order)
 
 		iSqrQ15 := int32(silkLSHIFT(silkSMULBB(int32(interpIdx), int32(interpIdx)), 11))
-		for i := 0; i < order; i++ {
+		for i := range order {
 			adj := silkRSHIFT(silkSMULBB(int32(w0Q2[i]), iSqrQ15), 16)
 			wQ2[i] = int16((int32(wQ2[i]) >> 1) + adj)
 		}
 	}
 
 	muQ20 := computeNLSFMuQ20(speechActivityQ8, numSubframes)
-	nSurvivors := int(e.nlsfSurvivors)
-	if nSurvivors > nVectors {
-		nSurvivors = nVectors
-	}
+	nSurvivors := min(int(e.nlsfSurvivors), nVectors)
 	if nSurvivors < 2 {
 		nSurvivors = 2
 	}
@@ -117,7 +114,7 @@ func (e *Encoder) quantizeLSFWithInterp(lsfQ15 []int16, bandwidth Bandwidth, sig
 	// Update weights if interpolation is used
 	if interpIdx < 4 && !e.firstFrameAfterResetActive() {
 		nlsf0 := ensureInt16Slice(&e.scratchNLSFTempQ15, order)
-		for i := 0; i < order; i++ {
+		for i := range order {
 			diff := int32(lsfQ15[i]) - int32(e.prevLSFQ15[i])
 			nlsf0[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx) * diff >> 2))
 		}
@@ -125,17 +122,14 @@ func (e *Encoder) quantizeLSFWithInterp(lsfQ15 []int16, bandwidth Bandwidth, sig
 		silkNLSFWeightsLaroia(w0Q2, nlsf0, order)
 
 		iSqrQ15 := int32(silkLSHIFT(silkSMULBB(int32(interpIdx), int32(interpIdx)), 11))
-		for i := 0; i < order; i++ {
+		for i := range order {
 			adj := silkRSHIFT(silkSMULBB(int32(w0Q2[i]), iSqrQ15), 16)
 			wQ2[i] = int16((int32(wQ2[i]) >> 1) + adj)
 		}
 	}
 
 	muQ20 := computeNLSFMuQ20(speechActivityQ8, numSubframes)
-	nSurvivors := int(e.nlsfSurvivors)
-	if nSurvivors > nVectors {
-		nSurvivors = nVectors
-	}
+	nSurvivors := min(int(e.nlsfSurvivors), nVectors)
 	if nSurvivors < 2 {
 		nSurvivors = 2
 	}
@@ -154,7 +148,7 @@ func (e *Encoder) computeSymbolRate8(symbol int, icdf []uint8) int {
 
 	// Find end of ICDF (terminated by 0)
 	icdfLen := 0
-	for i := 0; i < len(icdf); i++ {
+	for i := range icdf {
 		if icdf[i] == 0 {
 			icdfLen = i + 1
 			break
@@ -177,10 +171,7 @@ func (e *Encoder) computeSymbolRate8(symbol int, icdf []uint8) int {
 	}
 
 	// Approximate -log2(prob/256) * 8 (in 1/8 bits)
-	rate := 64 - int(silkLin2Log(int32(prob))>>4)
-	if rate < 0 {
-		rate = 0
-	}
+	rate := max(64-int(silkLin2Log(int32(prob))>>4), 0)
 	return rate
 }
 
@@ -233,7 +224,7 @@ func (e *Encoder) decodeQuantizedNLSF(stage1Idx int, residuals []int32, bandwidt
 
 	indices := ensureInt8Slice(&e.scratchNLSFIndices, order+1)
 	indices[0] = int8(stage1Idx)
-	for i := 0; i < order; i++ {
+	for i := range order {
 		if i < len(residuals) {
 			indices[i+1] = int8(residuals[i])
 		} else {
@@ -252,10 +243,7 @@ func (e *Encoder) decodeQuantizedNLSF(stage1Idx int, residuals []int32, bandwidt
 // buildPredCoefQ12 constructs prediction coefficients for NSQ using quantized NLSF.
 // Returns the effective interpolation index (may be forced to 4 on failure).
 func (e *Encoder) buildPredCoefQ12(predCoefQ12 []int16, nlsfQ15 []int16, interpIdx int) int {
-	order := len(nlsfQ15)
-	if order > maxLPCOrder {
-		order = maxLPCOrder
-	}
+	order := min(len(nlsfQ15), maxLPCOrder)
 
 	// Clear the destination buffer to avoid stale coefficients.
 	for i := range predCoefQ12 {

@@ -102,7 +102,7 @@ func extractRequiredChecks(t *testing.T, doc string) []string {
 
 	block := doc[startAt+len(start) : endAt]
 	var checks []string
-	for _, line := range strings.Split(block, "\n") {
+	for line := range strings.SplitSeq(block, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "- `") && strings.HasSuffix(line, "`") {
 			checks = append(checks, strings.TrimSuffix(strings.TrimPrefix(line, "- `"), "`"))
@@ -129,7 +129,7 @@ func workflowJobNamesFromText(t *testing.T, path, data string) map[string]bool {
 	inJobs := false
 	inJob := false
 
-	for _, line := range strings.Split(data, "\n") {
+	for line := range strings.SplitSeq(data, "\n") {
 		line = strings.TrimRight(line, "\r")
 		if line == "jobs:" {
 			inJobs = true

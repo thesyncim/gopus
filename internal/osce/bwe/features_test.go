@@ -36,7 +36,7 @@ func TestCalculateFeaturesStructure(t *testing.T) {
 	features := make([]float32, numHops*bweFeatureDim)
 	state.CalculateFeatures(features, xq)
 
-	for hop := 0; hop < numHops; hop++ {
+	for hop := range numHops {
 		base := hop * bweFeatureDim
 		lmspec := features[base : base+bweNumBands]
 		instafreq := features[base+bweNumBands : base+bweFeatureDim]
@@ -114,9 +114,9 @@ func TestCalculateFeaturesSilenceProducesFloorEnergy(t *testing.T) {
 	state.CalculateFeatures(features, xq)
 
 	expectedFloor := float32(math.Log(1e-9))
-	for hop := 0; hop < 2; hop++ {
+	for hop := range 2 {
 		base := hop * bweFeatureDim
-		for b := 0; b < bweNumBands; b++ {
+		for b := range bweNumBands {
 			v := features[base+b]
 			if math.Abs(float64(v-expectedFloor)) > 1e-3 {
 				t.Fatalf("hop %d band %d: got %v, want ~%v (silence floor)", hop, b, v, expectedFloor)

@@ -97,10 +97,7 @@ func newFuzzCELTDecoder(channels, energyLen, overlap int, rng uint32, energyFill
 	if overlap < 0 {
 		overlap = 0
 	}
-	preLen := channels
-	if preLen < 0 {
-		preLen = 0
-	}
+	preLen := max(channels, 0)
 	dec := &mockCELTDecoder{
 		channels:     channels,
 		prevEnergy:   make([]float32, energyLen),
@@ -188,10 +185,7 @@ func FuzzConcealCELTHybrid(f *testing.F) {
 	f.Fuzz(func(t *testing.T, channels uint8, energyLen uint16, frameSize int32, fadeBits uint16, rng uint32, energyFill float32, useSynth bool) {
 		ch := int(channels % 4)
 		eLen := int(energyLen % 256)
-		fs := clampFuzzLen(int(frameSize))
-		if fs < 0 {
-			fs = 0
-		}
+		fs := max(clampFuzzLen(int(frameSize)), 0)
 		fade := fadeFromBits(fadeBits)
 		dec := newFuzzCELTDecoder(ch, eLen, 120, rng, sanitizeBandEnergyDB(energyFill))
 
@@ -345,34 +339,22 @@ func FuzzConcealSILKWithLTP(f *testing.F) {
 		loss := int(lossCnt % 4096)
 
 		// Allocation helpers must stay non-negative.
-		excLen := nbSubfr * subfr
-		if excLen < ltpMem {
-			excLen = ltpMem
-		}
+		excLen := max(nbSubfr*subfr, ltpMem)
 		if excLen < 1 {
 			excLen = 1
 		}
 		if excLen > 1<<16 {
 			excLen = 1 << 16
 		}
-		histAlloc := ltpMem + subfr + 1
-		if histAlloc < 1 {
-			histAlloc = 1
-		}
+		histAlloc := max(ltpMem+subfr+1, 1)
 		if histAlloc > 1<<16 {
 			histAlloc = 1 << 16
 		}
-		ordAlloc := lpcOrder
-		if ordAlloc < 1 {
-			ordAlloc = 1
-		}
+		ordAlloc := max(lpcOrder, 1)
 		if ordAlloc > 64 {
 			ordAlloc = 64
 		}
-		outBufAlloc := ltpMem + 1
-		if outBufAlloc < 1 {
-			outBufAlloc = 1
-		}
+		outBufAlloc := max(ltpMem+1, 1)
 		if outBufAlloc > 1<<16 {
 			outBufAlloc = 1 << 16
 		}
@@ -410,10 +392,7 @@ func FuzzConcealSILKWithLTP(f *testing.F) {
 		// Prime the PLC state. nbSubfr may be 0 here; build consistent-length
 		// arrays so UpdateFromGoodFrame's own guards are what gets exercised.
 		state := NewSILKPLCState()
-		nb := nbSubfr
-		if nb < 1 {
-			nb = 1
-		}
+		nb := max(nbSubfr, 1)
 		pitchL := make([]int32, nb)
 		for i := range pitchL {
 			pitchL[i] = int32(lag)

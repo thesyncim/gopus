@@ -90,10 +90,10 @@ func probeLibopusAutoMode(cases []libopusAutoModeCase) ([]libopusAutoModeResult,
 
 func autoModeOraclePCM(frameSize, channels int) []float32 {
 	pcm := make([]float32, frameSize*channels)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		t := float64(i) / 48000.0
 		sample := float32(0.09*math.Sin(2*math.Pi*220*t) + 0.03*math.Sin(2*math.Pi*660*t))
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			pcm[i*channels+ch] = sample
 		}
 	}

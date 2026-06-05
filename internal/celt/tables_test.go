@@ -14,7 +14,7 @@ func TestAlphaCoef(t *testing.T) {
 		16384.0 / 32768.0, // LM=3: 0.5
 	}
 
-	for lm := 0; lm < 4; lm++ {
+	for lm := range 4 {
 		if math.Abs(float64(AlphaCoef[lm])-expected[lm]) > 1e-10 {
 			t.Errorf("AlphaCoef[%d] = %v, want %v", lm, AlphaCoef[lm], expected[lm])
 		}
@@ -30,14 +30,14 @@ func TestBetaCoefInter(t *testing.T) {
 		6554.0 / 32768.0,  // LM=3: 0.2000122...
 	}
 
-	for lm := 0; lm < 4; lm++ {
+	for lm := range 4 {
 		if math.Abs(float64(BetaCoefInter[lm])-expected[lm]) > 1e-10 {
 			t.Errorf("BetaCoefInter[%d] = %v, want %v", lm, BetaCoefInter[lm], expected[lm])
 		}
 	}
 
 	// Verify values are distinct (not all 0.85 like old bug)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if BetaCoefInter[i] == BetaCoefInter[i+1] {
 			t.Errorf("BetaCoefInter[%d] == BetaCoefInter[%d], values should be distinct", i, i+1)
 		}

@@ -11,7 +11,7 @@ import (
 
 func TestUpdateActivityHistory(t *testing.T) {
 	var history [ActivityHistorySize]byte
-	for i := 0; i < len(history); i++ {
+	for i := range len(history) {
 		history[i] = byte(i % 2)
 	}
 
@@ -31,13 +31,13 @@ func TestEncodeExperimentalPayloadHasExpectedHeader(t *testing.T) {
 	var latents [MaxFrames * LatentDim]float32
 	var activity [ActivityHistorySize]byte
 
-	for i := 0; i < StateDim; i++ {
+	for i := range StateDim {
 		state[i] = 0.03 * float32((i%7)-3)
 	}
-	for i := 0; i < 4*LatentDim; i++ {
+	for i := range 4 * LatentDim {
 		latents[i] = 0.04 * float32((i%9)-4)
 	}
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		activity[i] = 1
 	}
 
@@ -116,13 +116,13 @@ func TestEncodeExperimentalPayloadDoesNotAllocate(t *testing.T) {
 	var payload [MaxDataSize]byte
 	lastExtra := int32(0)
 
-	for i := 0; i < StateDim; i++ {
+	for i := range StateDim {
 		state[i] = 0.02 * float32((i%5)-2)
 	}
-	for i := 0; i < 4*LatentDim; i++ {
+	for i := range 4 * LatentDim {
 		latents[i] = 0.01 * float32((i%11)-5)
 	}
-	for i := 0; i < 24; i++ {
+	for i := range 24 {
 		activity[i] = 1
 	}
 

@@ -11,7 +11,7 @@ import (
 func generateSinePCM(frameSize, channels int, frequency float64) []float64 {
 	pcm := make([]float64, frameSize*channels)
 	const fs = 48000.0
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		sample := 0.25 * math.Sin(2*math.Pi*frequency*float64(i)/fs)
 		if channels == 2 {
 			pcm[2*i] = sample

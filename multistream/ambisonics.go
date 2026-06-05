@@ -235,7 +235,7 @@ func AmbisonicsMapping(channels int) ([]byte, error) {
 	coupledOffset := coupledStreams * 2
 
 	// Map mono streams first
-	for i := 0; i < monoStreams; i++ {
+	for i := range monoStreams {
 		mapping[i] = byte(i + coupledOffset)
 	}
 
@@ -265,7 +265,7 @@ func AmbisonicsMappingFamily3(channels int) ([]byte, error) {
 	mapping := make([]byte, channels)
 
 	// Simple identity mapping for family 3
-	for i := 0; i < channels; i++ {
+	for i := range channels {
 		mapping[i] = byte(i)
 	}
 

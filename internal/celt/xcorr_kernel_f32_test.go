@@ -17,7 +17,7 @@ import (
 func TestXcorrKernel4Float32NeonBitExact(t *testing.T) {
 	rng := rand.New(rand.NewSource(99))
 	for _, length := range []int{1, 2, 3, 4, 5, 7, 16, 17, 64, 240, 480, 481} {
-		for trial := 0; trial < 50; trial++ {
+		for trial := range 50 {
 			x := make([]float32, length)
 			y := make([]float32, length+4)
 			for i := range x {
@@ -36,7 +36,7 @@ func TestXcorrKernel4Float32NeonBitExact(t *testing.T) {
 			want := init
 			xcorrKernel4Float32Neon(x, y, &got, length)
 			xcorrKernel4Float32(x, y, &want, length)
-			for k := 0; k < 4; k++ {
+			for k := range 4 {
 				if math.Float32bits(got[k]) != math.Float32bits(want[k]) {
 					t.Fatalf("len=%d trial=%d lane=%d: neon=%08x(%v) scalar=%08x(%v)",
 						length, trial, k,

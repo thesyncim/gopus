@@ -22,11 +22,11 @@ func kfBfly5InnerCOrder(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 	fstride2 := fstride * 2
 	fstride3 := fstride * 3
 	fstride4 := fstride * 4
-	for i := 0; i < N; i++ {
+	for i := range N {
 		base := i * mm
 		idx0, idx1, idx2, idx3, idx4 := base, base+m, base+2*m, base+3*m, base+4*m
 		tw1, tw2, tw3, tw4 := 0, 0, 0, 0
-		for u := 0; u < m; u++ {
+		for range m {
 			s0 := fout[idx0]
 			b1 := fout[idx1]
 			b2 := fout[idx2]
@@ -85,10 +85,10 @@ func kfBfly3InnerCOrderGeneric(fout []kissCpx, w []kissCpx, m, N, mm, fstride in
 	m2 := 2 * m
 	epi3i := w[fstride*m].i
 	fstride2 := fstride * 2
-	for i := 0; i < N; i++ {
+	for i := range N {
 		base := i * mm
 		tw1, tw2 := 0, 0
-		for j := 0; j < m; j++ {
+		for j := range m {
 			idx0 := base + j
 			idx1 := idx0 + m
 			idx2 := idx0 + m2

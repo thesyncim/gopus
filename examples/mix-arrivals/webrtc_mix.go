@@ -47,10 +47,7 @@ func DefaultNetworkSimConfig() NetworkSimConfig {
 
 func MixTimedTracksWebRTCStyle(tracks []TimedTrack, mixFrameSamples int) ([]float32, StreamMixerStats, error) {
 	endSample := maxEndSample(tracks, channels)
-	totalMixFrames := int((endSample + int64(mixFrameSamples) - 1) / int64(mixFrameSamples))
-	if totalMixFrames < 1 {
-		totalMixFrames = 1
-	}
+	totalMixFrames := max(int((endSample+int64(mixFrameSamples)-1)/int64(mixFrameSamples)), 1)
 
 	arrivals, err := buildArrivalSchedule(tracks, mixFrameSamples, totalMixFrames)
 	if err != nil {
@@ -63,10 +60,7 @@ func MixTimedTracksWebRTCStyle(tracks []TimedTrack, mixFrameSamples int) ([]floa
 
 func MixTimedTracksWebRTCWithNetwork(tracks []TimedTrack, mixFrameSamples int, network NetworkSimConfig) ([]float32, StreamMixerStats, NetworkSimStats, error) {
 	endSample := maxEndSample(tracks, channels)
-	totalMixFrames := int((endSample + int64(mixFrameSamples) - 1) / int64(mixFrameSamples))
-	if totalMixFrames < 1 {
-		totalMixFrames = 1
-	}
+	totalMixFrames := max(int((endSample+int64(mixFrameSamples)-1)/int64(mixFrameSamples)), 1)
 
 	arrivals, netStats, err := buildArrivalScheduleWithNetwork(tracks, mixFrameSamples, totalMixFrames, network)
 	if err != nil {
@@ -89,10 +83,7 @@ func mixTimedTracksWebRTC(arrivals []arrivalEvent, tracks []TimedTrack, mixFrame
 		return make([]float32, 0), stats, nil
 	}
 
-	totalMixFrames := int((endSample + int64(mixFrameSamples) - 1) / int64(mixFrameSamples))
-	if totalMixFrames < 1 {
-		totalMixFrames = 1
-	}
+	totalMixFrames := max(int((endSample+int64(mixFrameSamples)-1)/int64(mixFrameSamples)), 1)
 
 	mixer, err := NewStreamMixer(StreamMixerConfig{
 		Channels:          channels,

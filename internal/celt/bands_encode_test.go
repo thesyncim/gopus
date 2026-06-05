@@ -117,7 +117,7 @@ func TestVectorToPulsesPreservesDirection(t *testing.T) {
 func TestVectorToPulsesRoundTrip(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
 
-	for iter := 0; iter < 10; iter++ {
+	for iter := range 10 {
 		// Generate random normalized vector
 		n := 4 + rng.Intn(12) // 4 to 16 dimensions
 		shape := make([]float64, n)
@@ -180,7 +180,7 @@ func TestVectorToPulsesRoundTrip(t *testing.T) {
 func TestPVQEncodeDecodeRoundTrip(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
 
-	for iter := 0; iter < 10; iter++ {
+	for iter := range 10 {
 		// Use larger k for better quantization
 		n := 2 + rng.Intn(6)   // 2 to 8 dimensions
 		k := 10 + rng.Intn(20) // 10 to 30 pulses
@@ -256,7 +256,7 @@ func TestEncodeBandsAllSizes(t *testing.T) {
 
 			// Generate test shapes
 			shapes := make([][]float64, nbBands)
-			for band := 0; band < nbBands; band++ {
+			for band := range nbBands {
 				n := ScaledBandWidth(band, frameSize)
 				if n <= 0 {
 					shapes[band] = []float64{}
@@ -272,7 +272,7 @@ func TestEncodeBandsAllSizes(t *testing.T) {
 
 			// Allocate bits (simple uniform allocation)
 			bandBits := make([]int, nbBands)
-			for band := 0; band < nbBands; band++ {
+			for band := range nbBands {
 				bandBits[band] = 16 << bitRes // 16 bits per band (Q3)
 			}
 
@@ -355,7 +355,7 @@ func TestNormalizeBands(t *testing.T) {
 
 	// Generate MDCT coefficients (flat spectrum)
 	totalBins := 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		totalBins += ScaledBandWidth(band, frameSize)
 	}
 
@@ -366,7 +366,7 @@ func TestNormalizeBands(t *testing.T) {
 
 	// Generate energies (log2 scale)
 	energies := make([]celtGLog, nbBands)
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		energies[band] = celtGLog(float64(band) * 0.5) // Increasing energy
 	}
 
@@ -413,7 +413,7 @@ func TestEncodeBandsWithDecoder(t *testing.T) {
 
 	// Generate normalized shapes
 	shapes := make([][]float64, nbBands)
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		n := ScaledBandWidth(band, frameSize)
 		shape := make([]float64, n)
 		for i := range shape {
@@ -425,7 +425,7 @@ func TestEncodeBandsWithDecoder(t *testing.T) {
 
 	// Allocate bits (generous allocation)
 	bandBits := make([]int, nbBands)
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		bandBits[band] = 24 << bitRes // 24 bits per band (Q3)
 	}
 
@@ -444,7 +444,7 @@ func TestEncodeBandsWithDecoder(t *testing.T) {
 	dec.SetRangeDecoder(rd)
 
 	// Decode each band individually and verify unit L2 norm
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		n := ScaledBandWidth(band, frameSize)
 		k := bitsToK(bandBits[band], n)
 		if k <= 0 {

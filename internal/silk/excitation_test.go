@@ -217,7 +217,7 @@ func TestLPCSynthesisStatePersistence(t *testing.T) {
 
 	// After synthesis, the state should be updated with last samples from output
 	order := len(lpc)
-	for i := 0; i < order; i++ {
+	for i := range order {
 		stateVal := d.prevLPCValues[i]
 		outIdx := len(out) - order + i
 		if outIdx >= 0 && outIdx < len(out) {

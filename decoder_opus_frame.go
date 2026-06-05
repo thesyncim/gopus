@@ -27,7 +27,7 @@ func smoothFade(in1, in2, out []float32, overlap, channels, sampleRate int) {
 		maxSamples = min(len(out), min(len(in1), len(in2)))
 		overlap = maxSamples / channels
 	}
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		for i := 0; i < overlap; i++ {
 			w := win[i*inc]
 			w = smoothFadeMul32(w, w)
@@ -56,10 +56,7 @@ func smoothFadeSub32(a, b float32) float32 {
 }
 
 func copyFloat32(dst []float32, src []float32) {
-	n := len(dst)
-	if len(src) < n {
-		n = len(src)
-	}
+	n := min(len(src), len(dst))
 	copy(dst, src[:n])
 	if n < len(dst) {
 		clear(dst[n:])
@@ -84,10 +81,10 @@ func (d *Decoder) downsampleFrame48ToAPI(dst, src []float32, frameSize int) {
 		copyFloat32(dst[:frameSize*channels], src[:frameSize*channels])
 		return
 	}
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		srcBase := i * factor * channels
 		dstBase := i * channels
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			dst[dstBase+c] = src[srcBase+c]
 		}
 	}
@@ -119,10 +116,7 @@ func (d *Decoder) prepareStereoTransition(packetStereo bool, bandwidth silk.Band
 }
 
 func addFloat32ToFloat32(dst []float32, src []float32) {
-	n := len(dst)
-	if len(src) < n {
-		n = len(src)
-	}
+	n := min(len(src), len(dst))
 	for i := 0; i < n; i++ {
 		dst[i] += src[i]
 	}
@@ -529,10 +523,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			defer restoreOSCELACEHook()
 		}
 
-		silkDecodeSize := frameSize
-		if silkDecodeSize < F10 {
-			silkDecodeSize = F10
-		}
+		silkDecodeSize := max(frameSize, F10)
 
 		var silkSamples int
 		var err error

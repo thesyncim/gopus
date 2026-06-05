@@ -272,7 +272,7 @@ func encodeGopusOnce(pcm []float32, channels, bitrate, complexity, frameSize, ba
 
 	packetBuf := make([]byte, 4000)
 	step := frameSize * channels
-	for r := 0; r < batch; r++ {
+	for range batch {
 		for i := 0; i+step <= len(pcm); i += step {
 			_, err := enc.Encode(pcm[i:i+step], packetBuf)
 			if err != nil {

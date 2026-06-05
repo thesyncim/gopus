@@ -293,10 +293,7 @@ func (r *DownsamplingResampler) Process(in []float32) []float32 {
 // ProcessInto resamples into a pre-allocated buffer.
 func (r *DownsamplingResampler) ProcessInto(in []float32, out []float32) int {
 	// Convert float32 to int16 using scratch buffer
-	inNeeded := len(in)
-	if inNeeded < int(r.fsInKHz) {
-		inNeeded = int(r.fsInKHz)
-	}
+	inNeeded := max(len(in), int(r.fsInKHz))
 	if cap(r.scratchIn) < inNeeded {
 		r.scratchIn = make([]int16, inNeeded)
 	}
@@ -309,10 +306,7 @@ func (r *DownsamplingResampler) ProcessInto(in []float32, out []float32) int {
 	}
 
 	// Calculate output length
-	outLen := int(int64(len(in)) * int64(r.fsOutKHz) / int64(r.fsInKHz))
-	if outLen > len(out) {
-		outLen = len(out)
-	}
+	outLen := min(int(int64(len(in))*int64(r.fsOutKHz)/int64(r.fsInKHz)), len(out))
 	if cap(r.scratchOut) < outLen {
 		r.scratchOut = make([]int16, outLen)
 	}
@@ -336,10 +330,7 @@ func (r *DownsamplingResampler) ProcessInt16Into(in []int16, out []float32) int 
 		return 0
 	}
 	inLen := len(in)
-	inNeeded := inLen
-	if inNeeded < int(r.fsInKHz) {
-		inNeeded = int(r.fsInKHz)
-	}
+	inNeeded := max(inLen, int(r.fsInKHz))
 	var inInt []int16
 	if inNeeded == len(in) {
 		inInt = in
@@ -353,10 +344,7 @@ func (r *DownsamplingResampler) ProcessInt16Into(in []int16, out []float32) int 
 		inLen = inNeeded
 	}
 
-	outLen := int(int64(inLen) * int64(r.fsOutKHz) / int64(r.fsInKHz))
-	if outLen > len(out) {
-		outLen = len(out)
-	}
+	outLen := min(int(int64(inLen)*int64(r.fsOutKHz)/int64(r.fsInKHz)), len(out))
 	if cap(r.scratchOut) < outLen {
 		r.scratchOut = make([]int16, outLen)
 	}
@@ -373,10 +361,7 @@ func (r *DownsamplingResampler) processWithDelay(out []int16, in []int16) {
 		return
 	}
 
-	nSamples := int(r.fsInKHz - r.inputDelay)
-	if nSamples < 0 {
-		nSamples = 0
-	}
+	nSamples := max(int(r.fsInKHz-r.inputDelay), 0)
 	if nSamples > inLen {
 		nSamples = inLen
 	}
@@ -393,10 +378,7 @@ func (r *DownsamplingResampler) processWithDelay(out []int16, in []int16) {
 
 	// Process remaining input, excluding the last inputDelay samples.
 	if inLen > int(r.fsInKHz) && len(out) > int(r.fsOutKHz) {
-		end := inLen - int(r.inputDelay)
-		if end < nSamples {
-			end = nSamples
-		}
+		end := max(inLen-int(r.inputDelay), nSamples)
 		if end > inLen {
 			end = inLen
 		}
@@ -482,7 +464,7 @@ func (r *DownsamplingResampler) ar2Filter(out []int32, in []int16) {
 	a0 := int64(int16(A0Q14))
 	a1 := int64(int16(A1Q14))
 	s0, s1 := r.sIIR[0], r.sIIR[1]
-	for k := 0; k < n; k++ {
+	for k := range n {
 		out32 := s0 + (int32(in[k]) << 8)
 		out[k] = out32
 		out32 <<= 2

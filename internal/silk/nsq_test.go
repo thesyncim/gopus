@@ -96,14 +96,14 @@ func TestSilkRAND(t *testing.T) {
 	seed := int32(1)
 
 	// Run a few iterations and verify non-zero output
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		seed = silk_RAND(seed)
 		// Just verify it produces varying output
 	}
 
 	// LCG should not produce zero for non-zero seed
 	seed = int32(1)
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		seed = silk_RAND(seed)
 	}
 	if seed == 0 {
@@ -367,20 +367,20 @@ func TestNSQVoicedFrame(t *testing.T) {
 
 	// AR shaping
 	arShpQ13 := make([]int16, numSubfr*maxShapeLpcOrder)
-	for sf := 0; sf < numSubfr; sf++ {
+	for sf := range numSubfr {
 		arShpQ13[sf*maxShapeLpcOrder] = 1000
 	}
 
 	// LTP coefficients (center tap)
 	ltpCoefQ14 := make([]int16, numSubfr*ltpOrderConst)
-	for sf := 0; sf < numSubfr; sf++ {
+	for sf := range numSubfr {
 		ltpCoefQ14[sf*ltpOrderConst+2] = 8192 // 0.5 in Q14
 	}
 
 	harmShapeGainQ14 := make([]int32, numSubfr)
 	tiltQ14 := make([]int32, numSubfr)
 	lfShpQ14 := make([]int32, numSubfr)
-	for sf := 0; sf < numSubfr; sf++ {
+	for sf := range numSubfr {
 		harmShapeGainQ14[sf] = 4096
 		tiltQ14[sf] = -2048
 	}

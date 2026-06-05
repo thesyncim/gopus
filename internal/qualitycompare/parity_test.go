@@ -44,9 +44,9 @@ func TestBarForAnchoring(t *testing.T) {
 // sine fills interleaved PCM with a per-channel tone, deterministic.
 func sine(samplesPerChan, channels int, freq float64) []float32 {
 	out := make([]float32, samplesPerChan*channels)
-	for i := 0; i < samplesPerChan; i++ {
+	for i := range samplesPerChan {
 		v := float32(0.5 * math.Sin(2*math.Pi*freq*float64(i)/48000.0))
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			out[i*channels+c] = v
 		}
 	}

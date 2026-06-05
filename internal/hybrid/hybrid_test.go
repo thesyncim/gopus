@@ -612,7 +612,7 @@ func TestHybridMultipleFrames(t *testing.T) {
 	d := NewDecoder(1)
 
 	// Decode multiple frames to verify state persistence
-	for frame := 0; frame < 5; frame++ {
+	for frame := range 5 {
 		packet := createMinimalHybridPacket(960)
 
 		rd := &rangecoding.Decoder{}

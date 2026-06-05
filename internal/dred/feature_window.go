@@ -26,17 +26,14 @@ func (r Result) FeatureWindow(decodeOffsetSamples, frameSizeSamples, initFrames 
 	if initFrames < 0 {
 		initFrames = 0
 	}
-	featuresPerFrame := frameSizeSamples / f10
-	if featuresPerFrame < 1 {
-		featuresPerFrame = 1
-	}
+	featuresPerFrame := max(frameSizeSamples/f10, 1)
 	neededFeatureFrames := initFrames + featuresPerFrame
 	featureOffsetBase := initFrames - 2 + floorDiv(decodeOffsetSamples+r.Availability.OffsetSamples, f10)
 	maxFeatureIndex := 4*r.Availability.MaxLatents - 1
 
 	recoverable := 0
 	missingPositive := 0
-	for i := 0; i < neededFeatureFrames; i++ {
+	for i := range neededFeatureFrames {
 		featureOffset := featureOffsetBase - i
 		if featureOffset < 0 {
 			continue
@@ -61,10 +58,7 @@ func (r Result) FeatureWindow(decodeOffsetSamples, frameSizeSamples, initFrames 
 // FillFeatureOffsets writes the feature offsets libopus would probe, from
 // newest to oldest, into dst and returns the number of entries written.
 func (w FeatureWindow) FillFeatureOffsets(dst []int32) int {
-	n := w.NeededFeatureFrames
-	if n > len(dst) {
-		n = len(dst)
-	}
+	n := min(w.NeededFeatureFrames, len(dst))
 	for i := 0; i < n; i++ {
 		dst[i] = int32(w.FeatureOffsetBase - i)
 	}

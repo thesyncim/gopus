@@ -303,7 +303,7 @@ func (d *Decoder) decodeMultiFrameFloat32(pcm []float32, data []byte, toc *TOC, 
 			return 0, ErrInvalidPacket
 		}
 		offset := 1
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			if offset+frameLen > len(data) {
 				return 0, ErrInvalidPacket
 			}
@@ -435,7 +435,7 @@ func (d *Decoder) decodeMultiFrameFloat32(pcm []float32, data []byte, toc *TOC, 
 			if frameLen > maxOpusFrameBytes {
 				return 0, ErrInvalidPacket
 			}
-			for i := 0; i < m; i++ {
+			for i := range m {
 				if offset+frameLen > len(data)-padding {
 					return 0, ErrInvalidPacket
 				}
@@ -725,10 +725,7 @@ func float32ToInt24Slice(dst []int32, src []float32, n, channels int) {
 	if channels < 1 || n < 1 || len(src) == 0 || len(dst) == 0 {
 		return
 	}
-	total := n * channels
-	if total > len(src) {
-		total = len(src)
-	}
+	total := min(n*channels, len(src))
 	if total > len(dst) {
 		total = len(dst)
 	}

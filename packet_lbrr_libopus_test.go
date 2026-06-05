@@ -231,9 +231,9 @@ func encodeLBRROracleFECSequence(t *testing.T, mode EncoderMode, wantMode Mode, 
 	}
 
 	packets := make([][]byte, 0, 8)
-	for frameIndex := 0; frameIndex < 8; frameIndex++ {
+	for frameIndex := range 8 {
 		pcm := make([]float32, frameSize*channels)
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			tm := float64(frameIndex*frameSize+i) / sampleRate
 			pcm[i*channels] = 0.38*float32(math.Sin(2*math.Pi*220*tm)) +
 				0.14*float32(math.Sin(2*math.Pi*440*tm+0.11))

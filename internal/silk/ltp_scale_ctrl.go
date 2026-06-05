@@ -7,10 +7,7 @@ func (e *Encoder) computeLTPScaleIndex(ltpPredGainQ7 int32, condCoding int) int 
 		return 0
 	}
 
-	roundLoss := e.packetLossPercent * e.nFramesPerPacket
-	if roundLoss < 0 {
-		roundLoss = 0
-	}
+	roundLoss := max(e.packetLossPercent*e.nFramesPerPacket, 0)
 	if e.lbrrLTPRoundLoss {
 		roundLoss = 2 + (roundLoss*roundLoss)/100
 	}

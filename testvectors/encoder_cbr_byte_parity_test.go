@@ -108,7 +108,7 @@ func parseCBROracleOutput(data []byte) ([][]byte, error) {
 	numPackets := int(binary.LittleEndian.Uint32(data[8:12]))
 	packets := make([][]byte, 0, numPackets)
 	off := 12
-	for i := 0; i < numPackets; i++ {
+	for i := range numPackets {
 		if off+4 > len(data) {
 			return nil, fmt.Errorf("truncated CBR oracle output at packet %d length", i)
 		}
@@ -317,7 +317,7 @@ func encodeGopusCBR(tc cbrTestCase, pcm []float32) ([][]byte, error) {
 	numFrames := len(pcm) / samplesPerFrame
 	packets := make([][]byte, 0, numFrames)
 
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		start := i * samplesPerFrame
 		end := start + samplesPerFrame
 		// Mirror opus_demo -f32 input quantization: floor(0.5 + sample*8388608) / 8388608
@@ -384,10 +384,7 @@ func reportCBRByteDiff(t *testing.T, frameIdx int, got, want []byte) {
 	}
 	t.Logf("  frame %d DIVERGES len(got=%d want=%d) firstByteDiff=%d", frameIdx, len(got), len(want), first)
 	if first >= 0 {
-		start := first - 2
-		if start < 0 {
-			start = 0
-		}
+		start := max(first-2, 0)
 		end := first + 8
 		if end > len(got) {
 			end = len(got)
@@ -580,7 +577,6 @@ func TestEncoderCBRByteParitySummary(t *testing.T) {
 
 	t.Run("cases", func(t *testing.T) {
 		for i, tc := range cbrTestMatrix() {
-			i, tc := i, tc
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 

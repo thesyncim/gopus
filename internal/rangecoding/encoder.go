@@ -352,10 +352,7 @@ func (e *Encoder) Done() []byte {
 			if e.endOffs >= e.storage {
 				e.err = -1
 			} else {
-				usable := -l
-				if usable < 0 {
-					usable = 0
-				}
+				usable := max(-l, 0)
 				if int(e.offs+e.endOffs) >= int(e.storage) && usable < used {
 					if usable >= 32 {
 						// No masking needed for full 32-bit window.

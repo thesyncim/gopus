@@ -48,7 +48,6 @@ func TestEncoderVariantProfileProvenanceAudit(t *testing.T) {
 	rows := make([]variantProvenanceAuditRow, 0, len(fixture.Cases))
 	severeCount := 0
 	for _, c := range fixture.Cases {
-		c := c
 		name := fmt.Sprintf("%s-%s", c.Name, c.Variant)
 		t.Run(name, func(t *testing.T) {
 			totalSamples := c.SignalFrames * c.FrameSize * c.Channels

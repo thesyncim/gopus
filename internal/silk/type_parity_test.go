@@ -6,11 +6,11 @@ import (
 )
 
 func TestSILKDecoderStateIntegerFieldWidthsMatchLibopus(t *testing.T) {
-	int32Type := reflect.TypeOf(int32(0))
-	int16Type := reflect.TypeOf(int16(0))
-	int32FlagsType := reflect.TypeOf([maxFramesPerPacket]int32{})
+	int32Type := reflect.TypeFor[int32]()
+	int16Type := reflect.TypeFor[int16]()
+	int32FlagsType := reflect.TypeFor[[3]int32]()
 
-	checkSILKFieldsHaveType(t, reflect.TypeOf(decoderState{}), int32Type,
+	checkSILKFieldsHaveType(t, reflect.TypeFor[decoderState](), int32Type,
 		"nFramesDecoded",
 		"nFramesPerPacket",
 		"LBRRFlag",
@@ -24,20 +24,20 @@ func TestSILKDecoderStateIntegerFieldWidthsMatchLibopus(t *testing.T) {
 		"prevSignalType",
 		"ecPrevSignalType",
 	)
-	checkSILKFieldsHaveType(t, reflect.TypeOf(decoderState{}), int16Type,
+	checkSILKFieldsHaveType(t, reflect.TypeFor[decoderState](), int16Type,
 		"ecPrevLagIndex",
 	)
-	checkSILKFieldsHaveType(t, reflect.TypeOf(decoderState{}), int32FlagsType,
+	checkSILKFieldsHaveType(t, reflect.TypeFor[decoderState](), int32FlagsType,
 		"VADFlags",
 		"LBRRFlags",
 	)
-	checkSILKFieldsHaveType(t, reflect.TypeOf(decoderControl{}), int32Type,
+	checkSILKFieldsHaveType(t, reflect.TypeFor[decoderControl](), int32Type,
 		"NumBits",
 	)
-	checkSILKFieldsHaveType(t, reflect.TypeOf(Decoder{}), reflect.TypeOf([2]int32{}),
+	checkSILKFieldsHaveType(t, reflect.TypeFor[Decoder](), reflect.TypeFor[[2]int32](),
 		"lastFrameCtrlSignal",
 	)
-	checkSILKFieldsHaveType(t, reflect.TypeOf(Decoder{}), int32Type,
+	checkSILKFieldsHaveType(t, reflect.TypeFor[Decoder](), int32Type,
 		"lpcOrder",
 		"prevDecodeOnlyMiddle",
 		"lastNativeMonoLen",
@@ -47,7 +47,7 @@ func TestSILKDecoderStateIntegerFieldWidthsMatchLibopus(t *testing.T) {
 		"lastNativeMidLen",
 		"lastNativeMidFsKHz",
 	)
-	checkSILKFieldsHaveType(t, reflect.TypeOf(LatestDecoderControl{}), int32Type,
+	checkSILKFieldsHaveType(t, reflect.TypeFor[LatestDecoderControl](), int32Type,
 		"LPCOrder",
 		"NbSubfr",
 		"SignalType",
@@ -57,13 +57,13 @@ func TestSILKDecoderStateIntegerFieldWidthsMatchLibopus(t *testing.T) {
 }
 
 func TestSILKEncoderStateIntegerFieldWidthsMatchLibopus(t *testing.T) {
-	int32Type := reflect.TypeOf(int32(0))
-	int16Type := reflect.TypeOf(int16(0))
-	int8Type := reflect.TypeOf(int8(0))
-	int32FlagsType := reflect.TypeOf([maxFramesPerPacket]int32{})
-	int32FramesType := reflect.TypeOf([maxFramesPerPacket]int32{})
+	int32Type := reflect.TypeFor[int32]()
+	int16Type := reflect.TypeFor[int16]()
+	int8Type := reflect.TypeFor[int8]()
+	int32FlagsType := reflect.TypeFor[[3]int32]()
+	int32FramesType := reflect.TypeFor[[3]int32]()
 
-	checkSILKFieldsHaveType(t, reflect.TypeOf(Encoder{}), int32Type,
+	checkSILKFieldsHaveType(t, reflect.TypeFor[Encoder](), int32Type,
 		"ecPrevSignalType",
 		"frameCounter",
 		"lpcOrder",
@@ -94,23 +94,23 @@ func TestSILKEncoderStateIntegerFieldWidthsMatchLibopus(t *testing.T) {
 		"lastNumSamples",
 		"sampleRate",
 	)
-	checkSILKFieldsHaveType(t, reflect.TypeOf(Encoder{}), int16Type,
+	checkSILKFieldsHaveType(t, reflect.TypeFor[Encoder](), int16Type,
 		"ecPrevLagIndex",
 	)
-	checkSILKFieldsHaveType(t, reflect.TypeOf(Encoder{}), int8Type,
+	checkSILKFieldsHaveType(t, reflect.TypeFor[Encoder](), int8Type,
 		"lbrrFlag",
 	)
-	checkSILKFieldsHaveType(t, reflect.TypeOf(Encoder{}), int32FlagsType,
+	checkSILKFieldsHaveType(t, reflect.TypeFor[Encoder](), int32FlagsType,
 		"lbrrFlags",
 	)
-	checkSILKFieldsHaveType(t, reflect.TypeOf(Encoder{}), int32FramesType,
+	checkSILKFieldsHaveType(t, reflect.TypeFor[Encoder](), int32FramesType,
 		"lbrrFrameLength",
 		"lbrrNbSubfr",
 	)
-	checkSILKFieldsHaveType(t, reflect.TypeOf(stereoEncState{}), int32Type,
+	checkSILKFieldsHaveType(t, reflect.TypeFor[stereoEncState](), int32Type,
 		"prevDecodeOnlyMiddle",
 	)
-	checkSILKFieldsHaveType(t, reflect.TypeOf(stereoEncState{}), int32FlagsType,
+	checkSILKFieldsHaveType(t, reflect.TypeFor[stereoEncState](), int32FlagsType,
 		"lbrrMidOnly",
 	)
 }

@@ -18,7 +18,7 @@ func TestApplyDelayCompensationStoresOpusResWidth(t *testing.T) {
 	}
 
 	tailStart := len(pcm) - DelayCompensation
-	for i := 0; i < DelayCompensation; i++ {
+	for i := range DelayCompensation {
 		want := opusRes(pcm[tailStart+i])
 		if enc.delayBuffer[i] != want {
 			t.Fatalf("delayBuffer[%d] = %.9g, want opus_res %.9g", i, enc.delayBuffer[i], want)

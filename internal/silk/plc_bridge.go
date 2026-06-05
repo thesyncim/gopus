@@ -164,10 +164,7 @@ func setSLPCQ14HistoryQ14(st *decoderState, history []int32) {
 	if len(history) < order {
 		order = len(history)
 	}
-	start := maxLPCOrder - order
-	if start < 0 {
-		start = 0
-	}
+	start := max(maxLPCOrder-order, 0)
 	copy(st.sLPCQ14Buf[start:maxLPCOrder], history[len(history)-order:])
 }
 
@@ -196,7 +193,7 @@ func (d *Decoder) FillMonoOutBufTailFloat(dst []float32, samples int) int {
 	}
 	history = history[len(history)-samples:]
 	const scale = float32(1.0 / 32768.0)
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		dst[i] = float32(history[i]) * scale
 	}
 	return samples

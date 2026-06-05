@@ -45,7 +45,7 @@ func silkNLSFVQ(errQ24 []int32, inQ15 []int16, cbQ8 []uint8, cbWghtQ9 []int16, n
 
 	cbIdx := 0
 	wIdx := 0
-	for i := 0; i < nVectors; i++ {
+	for i := range nVectors {
 		var sumErrQ24 int32
 		var predQ24 int32
 		for m := order - 2; m >= 0; m -= 2 {
@@ -202,7 +202,7 @@ func silkNLSFDelDecQuant(indices []int8, xQ10 []int16, wQ5 []int16, predQ8 []uin
 			}
 		} else {
 			// Sort/prune: for each state pair, put min in [j], max in [j+N].
-			for j := 0; j < nlsfQuantDelDecStates; j++ {
+			for j := range nlsfQuantDelDecStates {
 				rdLo := rdQ25[j]
 				rdHi := rdQ25[j+nlsfQuantDelDecStates]
 				if rdLo > rdHi {
@@ -225,7 +225,7 @@ func silkNLSFDelDecQuant(indices []int8, xQ10 []int16, wQ5 []int16, predQ8 []uin
 				maxMinQ25 := int32(0)
 				indMinMax := 0
 				indMaxMin := 0
-				for j := 0; j < nlsfQuantDelDecStates; j++ {
+				for j := range nlsfQuantDelDecStates {
 					if minMaxQ25 > rdMaxQ25[j] {
 						minMaxQ25 = rdMaxQ25[j]
 						indMinMax = j
@@ -245,7 +245,7 @@ func silkNLSFDelDecQuant(indices []int8, xQ10 []int16, wQ5 []int16, predQ8 []uin
 				rdMaxQ25[indMinMax] = math.MaxInt32
 				ind[indMaxMin] = ind[indMinMax]
 			}
-			for j := 0; j < nlsfQuantDelDecStates; j++ {
+			for j := range nlsfQuantDelDecStates {
 				ind[j][i] += int8(indSort[j] >> nlsfQuantDelDecStatesLog2)
 			}
 		}
@@ -253,7 +253,7 @@ func silkNLSFDelDecQuant(indices []int8, xQ10 []int16, wQ5 []int16, predQ8 []uin
 
 	indTmp := 0
 	minQ25 := int32(math.MaxInt32)
-	for j := 0; j < 2*nlsfQuantDelDecStates; j++ {
+	for j := range 2 * nlsfQuantDelDecStates {
 		if minQ25 > rdQ25[j] {
 			minQ25 = rdQ25[j]
 			indTmp = j
@@ -261,7 +261,7 @@ func silkNLSFDelDecQuant(indices []int8, xQ10 []int16, wQ5 []int16, predQ8 []uin
 	}
 
 	bestInd := &ind[indTmp&(nlsfQuantDelDecStates-1)]
-	for j := 0; j < order; j++ {
+	for j := range order {
 		indices[j] = bestInd[j]
 	}
 	indices[0] += int8(indTmp >> nlsfQuantDelDecStatesLog2)
@@ -275,7 +275,7 @@ func silkInsertionSortIncreasing(a []int32, idx []int, L, K int) {
 		return
 	}
 
-	for i := 0; i < K; i++ {
+	for i := range K {
 		idx[i] = i
 	}
 
@@ -362,7 +362,7 @@ func (e *Encoder) nlsfEncode(nlsfQ15 []int16, cb *nlsfCB, wQ2 []int16, muQ20 int
 		ind1 := tempIndices1[s]
 		baseIdx := ind1 * order
 
-		for i := 0; i < order; i++ {
+		for i := range order {
 			wTmpQ9 := int32(cb.cb1WghtQ9[baseIdx+i])
 			diff := int32(nlsfQ15[i]) - (int32(cb.cb1NLSFQ8[baseIdx+i]) << 7)
 			resQ10[i] = int16(silkRSHIFT(silkSMULBB(diff, wTmpQ9), 14))
@@ -397,7 +397,7 @@ func (e *Encoder) nlsfEncode(nlsfQ15 []int16, cb *nlsfCB, wQ2 []int16, muQ20 int
 	residuals := ensureInt32Slice(&e.scratchLsfResiduals, order)
 	var indices [maxLPCOrder + 1]int8
 	indices[0] = int8(bestStage1)
-	for i := 0; i < order; i++ {
+	for i := range order {
 		idx := tempIndices2[bestIndex[0]][i]
 		residuals[i] = int32(idx)
 		indices[i+1] = idx

@@ -10,7 +10,7 @@ func ensureStreamBuffers(dst [][]float32, frameSize, coupledStreams, numStreams 
 		dst = make([][]float32, numStreams)
 	}
 	dst = dst[:numStreams]
-	for i := 0; i < numStreams; i++ {
+	for i := range numStreams {
 		need := frameSize * streamChannels(i, coupledStreams)
 		if cap(dst[i]) < need {
 			dst[i] = make([]float32, need)
@@ -44,7 +44,7 @@ func routeChannelsToStreams(
 	// Key insight: mapping[outCh] tells us which stream channel feeds outCh
 	// For encoding, we use the same mapping direction: input channel outCh
 	// routes to the stream/channel specified by mapping[outCh]
-	for outCh := 0; outCh < inputChannels; outCh++ {
+	for outCh := range inputChannels {
 		mappingIdx := mapping[outCh]
 		if mappingIdx == 255 {
 			continue // Silent channel, skip
@@ -58,7 +58,7 @@ func routeChannelsToStreams(
 		srcChannels := streamChannels(streamIdx, coupledStreams)
 
 		// Copy samples from input channel to stream buffer
-		for s := 0; s < frameSize; s++ {
+		for s := range frameSize {
 			streamBuffers[streamIdx][s*srcChannels+chanInStream] = input[s*inputChannels+outCh]
 		}
 	}
@@ -85,9 +85,9 @@ func (e *Encoder) routeProjectionMixingToStreams(scratch [][]float32, pcm []floa
 	frame := e.projectionFrame[:cols]
 	streamBuffers := ensureStreamBuffers(scratch, frameSize, e.coupledStreams, e.streams)
 
-	for s := 0; s < frameSize; s++ {
+	for s := range frameSize {
 		inBase := s * cols
-		for col := 0; col < cols; col++ {
+		for col := range cols {
 			frame[col] = float32(pcm[inBase+col])
 		}
 		for row := 0; row < rows && row < e.inputChannels; row++ {
@@ -101,7 +101,7 @@ func (e *Encoder) routeProjectionMixingToStreams(scratch [][]float32, pcm []floa
 			}
 
 			var sum float32
-			for col := 0; col < cols; col++ {
+			for col := range cols {
 				sum += float32(e.projectionMixing[col*rows+row]) * frame[col]
 			}
 			sample := (1.0 / 32768.0) * sum

@@ -37,13 +37,13 @@ func TestCalculateFeaturesStructure(t *testing.T) {
 	ctrl.PredCoefQ12[1][0] = -2048
 	// LTP coefficients: monotonically increasing pattern to verify the
 	// per-tap copy.
-	for sf := 0; sf < SubframesPerFrame; sf++ {
-		for tap := 0; tap < ltpLen; tap++ {
+	for sf := range SubframesPerFrame {
+		for tap := range ltpLen {
 			ctrl.LTPCoefQ14[sf*ltpLen+tap] = int16(100 * (sf + 1) * (tap + 1))
 		}
 	}
 	// Gains: 1.0, 2.0, 4.0, 8.0 in Q16.
-	for sf := 0; sf < SubframesPerFrame; sf++ {
+	for sf := range SubframesPerFrame {
 		ctrl.GainsQ16[sf] = int32(1<<16) << uint(sf)
 		ctrl.PitchL[sf] = 80
 	}
@@ -67,10 +67,10 @@ func TestCalculateFeaturesStructure(t *testing.T) {
 		t.Fatalf("numbits[1]: got %v, want ~80 (0.9*0 + 0.1*800)", numbits[1])
 	}
 
-	for sf := 0; sf < SubframesPerFrame; sf++ {
+	for sf := range SubframesPerFrame {
 		base := sf * FeatureDim
 		// Clean spectrum (64 floats).
-		for b := 0; b < cleanSpecLength; b++ {
+		for b := range cleanSpecLength {
 			v := features[base+cleanSpecStart+b]
 			if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
 				t.Fatalf("sf %d clean[%d]=%v NaN/Inf", sf, b, v)
@@ -80,14 +80,14 @@ func TestCalculateFeaturesStructure(t *testing.T) {
 			}
 		}
 		// Noisy cepstrum (18 floats).
-		for c := 0; c < noisyCepstrumLen; c++ {
+		for c := range noisyCepstrumLen {
 			v := features[base+noisyCepstrumStart+c]
 			if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
 				t.Fatalf("sf %d ceps[%d]=%v NaN/Inf", sf, c, v)
 			}
 		}
 		// Acorr (5 floats) - normalised cross-correlation must be in [-1,1].
-		for i := 0; i < acorrLen; i++ {
+		for i := range acorrLen {
 			v := features[base+acorrStart+i]
 			if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
 				t.Fatalf("sf %d acorr[%d]=%v NaN/Inf", sf, i, v)
@@ -97,7 +97,7 @@ func TestCalculateFeaturesStructure(t *testing.T) {
 			}
 		}
 		// LTP (5 floats) - must round-trip the Q14 inputs.
-		for tap := 0; tap < ltpLen; tap++ {
+		for tap := range ltpLen {
 			got := features[base+ltpStart+tap]
 			want := float32(ctrl.LTPCoefQ14[sf*ltpLen+tap]) / float32(1<<14)
 			if math.Abs(float64(got-want)) > 1e-7 {
@@ -115,14 +115,14 @@ func TestCalculateFeaturesStructure(t *testing.T) {
 
 	// Update-every-other rule: subframe 1 mirrors subframe 0's clean spec
 	// and cepstrum slots verbatim.
-	for b := 0; b < cleanSpecLength; b++ {
+	for b := range cleanSpecLength {
 		v0 := features[0*FeatureDim+cleanSpecStart+b]
 		v1 := features[1*FeatureDim+cleanSpecStart+b]
 		if v0 != v1 {
 			t.Fatalf("update-every-other broken on clean[%d]: sf0=%v sf1=%v", b, v0, v1)
 		}
 	}
-	for c := 0; c < noisyCepstrumLen; c++ {
+	for c := range noisyCepstrumLen {
 		v0 := features[0*FeatureDim+noisyCepstrumStart+c]
 		v1 := features[1*FeatureDim+noisyCepstrumStart+c]
 		if v0 != v1 {
@@ -131,7 +131,7 @@ func TestCalculateFeaturesStructure(t *testing.T) {
 	}
 
 	// Voiced signal type: periods must be the raw pitch lags (80 each).
-	for sf := 0; sf < SubframesPerFrame; sf++ {
+	for sf := range SubframesPerFrame {
 		if periods[sf] != 80 {
 			t.Fatalf("voiced periods[%d]: got %d want 80", sf, periods[sf])
 		}
@@ -162,7 +162,7 @@ func TestCalculateFeaturesUnvoicedSubstitutesNoPitch(t *testing.T) {
 	var ctrl FeatureControl
 	ctrl.LPCOrder = 16
 	ctrl.SignalType = typeUnvoiced
-	for sf := 0; sf < SubframesPerFrame; sf++ {
+	for sf := range SubframesPerFrame {
 		ctrl.PitchL[sf] = 80
 		ctrl.GainsQ16[sf] = 1 << 16
 	}
@@ -176,7 +176,7 @@ func TestCalculateFeaturesUnvoicedSubstitutesNoPitch(t *testing.T) {
 		t.Fatalf("CalculateFeatures returned false on a valid input")
 	}
 
-	for sf := 0; sf < SubframesPerFrame; sf++ {
+	for sf := range SubframesPerFrame {
 		if periods[sf] != noPitchValue {
 			t.Fatalf("unvoiced periods[%d]: got %d want %d (OSCE_NO_PITCH_VALUE)", sf, periods[sf], noPitchValue)
 		}
@@ -189,7 +189,7 @@ func TestCalculateFeaturesNumbitsSmoothing(t *testing.T) {
 	xq := make([]int16, FrameSize)
 	var ctrl FeatureControl
 	ctrl.LPCOrder = 16
-	for sf := 0; sf < SubframesPerFrame; sf++ {
+	for sf := range SubframesPerFrame {
 		ctrl.GainsQ16[sf] = 1 << 16
 	}
 
@@ -217,7 +217,7 @@ func TestResetClearsHistory(t *testing.T) {
 	}
 	var ctrl FeatureControl
 	ctrl.LPCOrder = 16
-	for sf := 0; sf < SubframesPerFrame; sf++ {
+	for sf := range SubframesPerFrame {
 		ctrl.GainsQ16[sf] = 1 << 16
 	}
 

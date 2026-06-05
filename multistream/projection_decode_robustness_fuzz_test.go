@@ -112,13 +112,13 @@ func projRobustMutate(rng *rand.Rand, src []byte) []byte {
 		return p
 	case 6: // append junk
 		n := 1 + rng.Intn(8)
-		for k := 0; k < n; k++ {
+		for range n {
 			p = append(p, byte(rng.Intn(256)))
 		}
 		return p
 	default: // scribble a short run
 		n := 1 + rng.Intn(4)
-		for k := 0; k < n; k++ {
+		for range n {
 			p[rng.Intn(len(p))] = byte(rng.Intn(256))
 		}
 		return p
@@ -201,7 +201,7 @@ func TestProjectionDecodeRobustnessRandom(t *testing.T) {
 	rng := rand.New(rand.NewSource(0x9203A))
 	iters := fuzzBudget(4000)
 	cases := 0
-	for k := 0; k < iters; k++ {
+	for range iters {
 		seed := seeds[rng.Intn(len(seeds))]
 		n := rng.Intn(maxLen + 1)
 		buf := make([]byte, n)
@@ -236,7 +236,7 @@ func TestProjectionDecodeRobustnessMalformed(t *testing.T) {
 	iters := fuzzBudget(4000)
 	formats := []projRobustFormat{projRobustFloat32, projRobustInt16}
 	total := 0
-	for k := 0; k < iters; k++ {
+	for k := range iters {
 		seed := seeds[rng.Intn(len(seeds))]
 		m := projRobustMutate(rng, seed.packet)
 		format := formats[rng.Intn(len(formats))]

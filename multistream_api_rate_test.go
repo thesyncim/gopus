@@ -88,12 +88,9 @@ func TestMultistreamDecodeUsesAPIRatePacketDuration(t *testing.T) {
 		{name: "hybrid", packet: encodeAPIRateHybridPacket},
 	}
 	for _, mode := range modes {
-		mode := mode
 		for _, channels := range []int{1, 2} {
-			channels := channels
 			packet := mode.packet(t, channels)
 			for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
-				sampleRate := sampleRate
 				t.Run(mode.name+"_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
 					want, err := packetSamplesAtRate(packet, sampleRate)
 					if err != nil {
@@ -300,7 +297,7 @@ func TestMultistreamDecodeOverlongAndEmptyPLCMatchesLibopus(t *testing.T) {
 				}
 				requestedFrameSize := sampleRate
 				wantPLCFrameSize := sampleRate / 25 * 3
-				sequence := [][]byte{packet, []byte{}}
+				sequence := [][]byte{packet, {}}
 				want, err := decodeLibopusMultistreamFloat32(sampleRate, channels, streams, coupled, requestedFrameSize, mapping, sequence)
 				if err != nil {
 					libopustest.HelperUnavailable(t, "multistream overlong PLC reference decode", err)
@@ -332,7 +329,7 @@ func TestMultistreamDecodeOverlongAndEmptyPLCMatchesLibopus(t *testing.T) {
 			t.Run("int16_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
 				requestedFrameSize := sampleRate
 				wantPLCFrameSize := sampleRate / 25 * 3
-				sequence := [][]byte{packet, []byte{}}
+				sequence := [][]byte{packet, {}}
 				want, err := decodeLibopusMultistreamInt16Gain(sampleRate, channels, streams, coupled, requestedFrameSize, 0, mapping, sequence)
 				if err != nil {
 					libopustest.HelperUnavailable(t, "multistream overlong PLC int16 reference decode", err)
@@ -448,9 +445,7 @@ func TestMultistreamDecodeInvalidRequestedPLCFrameSizeMatchesLibopus(t *testing.
 
 func TestMultistreamDecodeRejectsNonChannelMultipleRequestedPLCBuffer(t *testing.T) {
 	for _, channels := range []int{2, 3} {
-		channels := channels
 		for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
-			sampleRate := sampleRate
 			t.Run("ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
 				frameSize := sampleRate / 50
 				sampleCount := frameSize*channels + 1
@@ -473,9 +468,7 @@ func TestMultistreamDecodeRejectsNonChannelMultipleRequestedPLCBuffer(t *testing
 
 func TestMultistreamColdPLCAfterResetUsesAPIRateDefault(t *testing.T) {
 	for _, channels := range []int{1, 2} {
-		channels := channels
 		for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
-			sampleRate := sampleRate
 			t.Run("ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
 				dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
 				want := sampleRate / 50

@@ -24,7 +24,6 @@ func TestFixtureGeneratorScriptsBuildIgnore(t *testing.T) {
 		filepath.Join("..", "tools", "gen_opusdec_crossval_fixture.go"),
 	}
 	for _, p := range paths {
-		p := p
 		t.Run(filepath.Base(p), func(t *testing.T) {
 			f, err := os.Open(p)
 			if err != nil {
@@ -61,13 +60,12 @@ func TestGeneratedFilesDeclareGeneratedMarkerBeforePackage(t *testing.T) {
 		filepath.Join("..", "internal", "silk", "libopus_tables.go"),
 	}
 	for _, p := range paths {
-		p := p
 		t.Run(filepath.Base(p), func(t *testing.T) {
 			data, err := os.ReadFile(p)
 			if err != nil {
 				t.Fatalf("read generated file: %v", err)
 			}
-			for _, line := range strings.Split(string(data), "\n") {
+			for line := range strings.SplitSeq(string(data), "\n") {
 				trimmed := strings.TrimSpace(line)
 				if trimmed == "" || strings.HasPrefix(trimmed, "//go:build ") || strings.HasPrefix(trimmed, "// +build ") {
 					continue

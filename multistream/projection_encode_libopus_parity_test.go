@@ -106,10 +106,10 @@ func generateAmbisonicsSweep(channels, frameSize, frameCount int) []float32 {
 	total := channels * frameSize * frameCount
 	pcm := make([]float32, total)
 	n := frameSize * frameCount
-	for s := 0; s < n; s++ {
+	for s := range n {
 		tt := float64(s) / 48000.0
 		amp := 0.25 + 0.1*math.Sin(2*math.Pi*1.5*tt)
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			freq := 110.0 * float64(ch+1)
 			pcm[s*channels+ch] = float32(amp * math.Sin(2*math.Pi*freq*tt))
 		}
@@ -140,7 +140,7 @@ func compareProjectionDemixing(t *testing.T, got, want []byte) {
 		t.Fatalf("demixing matrix size mismatch: gopus=%d libopus=%d", len(got), len(want))
 	}
 	n := len(want) / 2
-	for i := 0; i < n; i++ {
+	for i := range n {
 		g := int16(binary.LittleEndian.Uint16(got[2*i : 2*i+2]))
 		w := int16(binary.LittleEndian.Uint16(want[2*i : 2*i+2]))
 		if g != w {
@@ -150,10 +150,7 @@ func compareProjectionDemixing(t *testing.T, got, want []byte) {
 }
 
 func firstByteMismatch(a, b []byte) int {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
+	n := min(len(b), len(a))
 	for i := 0; i < n; i++ {
 		if a[i] != b[i] {
 			return i
@@ -264,7 +261,7 @@ func runProjectionEncodeParity(t *testing.T, channels, frameSize, frameCount, bi
 	enc.SetComplexity(complexity)
 	enc.SetBandwidthAuto()
 
-	for i := 0; i < frameCount; i++ {
+	for i := range frameCount {
 		start := i * frameSize * channels
 		frame := gopusPCM[start : start+frameSize*channels]
 		got, err := enc.EncodeFloat32WithAnalysisMaxBytes(frame, frameSize, frame, maxPacketBytes)
@@ -324,13 +321,9 @@ func TestProjectionEncodeMatchesLibopus(t *testing.T) {
 	bitrates := []int{64000, 256000}
 
 	for _, order := range orders {
-		order := order
 		for _, frameSize := range frameSizes {
-			frameSize := frameSize
 			for _, bitrate := range bitrates {
-				bitrate := bitrate
 				for _, vbr := range []bool{false, true} {
-					vbr := vbr
 					name := fmt.Sprintf("%s/fs%d/br%d/vbr%t", order.name, frameSize, bitrate, vbr)
 					t.Run(name, func(t *testing.T) {
 						runProjectionEncodeParity(t, order.channels, frameSize, 6, bitrate, 10, 0, vbr, true)
@@ -355,7 +348,6 @@ func TestProjectionEncodeInt16MatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 
 	for _, channels := range []int{4, 9} {
-		channels := channels
 		t.Run(fmt.Sprintf("ch%d", channels), func(t *testing.T) {
 			runProjectionEncodeParity(t, channels, 960, 6, 256000, 10, 1, false, true)
 		})

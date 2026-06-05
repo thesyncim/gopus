@@ -97,7 +97,7 @@ func (d *Decoder) DecodeFEC(
 	lastFrameLost := false
 
 	// Decode each frame using LBRR when present, otherwise run PLC.
-	for i := 0; i < framesPerPacket; i++ {
+	for i := range framesPerPacket {
 		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
 		if stMid.LBRRFlags[i] == 0 {
 			d.decodeFECLostFrameInto(0, stMid, frameOut)
@@ -117,12 +117,9 @@ func (d *Decoder) DecodeFEC(
 	output := make([]float32, frameSizeSamples*outputChannels)
 	outputOffset := 0
 
-	for f := 0; f < framesPerPacket; f++ {
+	for f := range framesPerPacket {
 		start := f * frameLength
-		end := start + frameLength
-		if end > len(outInt16) {
-			end = len(outInt16)
-		}
+		end := min(start+frameLength, len(outInt16))
 		frameNative := outInt16[start:end]
 
 		// Apply sMid buffering before resampling
@@ -189,7 +186,7 @@ func (d *Decoder) decodeStereoFECFrames(
 	}
 	lastFrameLost := false
 
-	for i := 0; i < framesPerPacket; i++ {
+	for i := range framesPerPacket {
 		frameIndex := int(stMid.nFramesDecoded)
 		if frameIndex < 0 || frameIndex >= maxFramesPerPacket {
 			return nil, ErrDecodeFailed
@@ -264,10 +261,7 @@ func (d *Decoder) decodeStereoFECFrames(
 		}
 		nLeft := leftResampler.ProcessInt16Into(leftNative[:totalLen], leftScratch)
 		nRight := rightResampler.ProcessInt16Into(rightNative[:totalLen], rightScratch)
-		n := nLeft
-		if nRight < n {
-			n = nRight
-		}
+		n := min(nRight, nLeft)
 		if n < 0 {
 			return nil, ErrDecodeFailed
 		}
@@ -280,7 +274,7 @@ func (d *Decoder) decodeStereoFECFrames(
 		resampler := d.GetResampler(bandwidth)
 		output = make([]float32, frameSizeSamples)
 		outputOffset := 0
-		for f := 0; f < framesPerPacket; f++ {
+		for f := range framesPerPacket {
 			start := f * frameLength
 			end := start + frameLength
 			resamplerInput := d.BuildMonoResamplerInputInt16(leftNative[start:end])
@@ -329,10 +323,7 @@ func (d *Decoder) decodeFECLostFrameInto(channel int, st *decoderState, frameOut
 		}
 		concealedQ0 := plc.ConcealSILKWithLTP(view, state, int(lossCnt), frameLength)
 		const scale = float32(1.0 / 32768.0)
-		n := len(concealedQ0)
-		if n > frameLength {
-			n = frameLength
-		}
+		n := min(len(concealedQ0), frameLength)
 		for i := 0; i < n; i++ {
 			concealed[i] = float32(concealedQ0[i]) * scale
 		}

@@ -89,7 +89,7 @@ func encodeLibopusCBRPackets(cfg cbrEncodeConfig, pcm []float32) ([][]byte, erro
 	}
 	count := reader.Count(-1)
 	packets := make([][]byte, 0, count)
-	for i := 0; i < count; i++ {
+	for range count {
 		n := int(reader.U32())
 		packets = append(packets, append([]byte(nil), reader.Bytes(n)...))
 	}
@@ -114,8 +114,8 @@ func configEdgesPCM(frameSize, channels, numFrames int) []float32 {
 	total := frameSize * channels * numFrames
 	pcm := make([]float32, total)
 	const sampleRate = 48000
-	for f := 0; f < numFrames; f++ {
-		for i := 0; i < frameSize; i++ {
+	for f := range numFrames {
+		for i := range frameSize {
 			n := f*frameSize + i
 			tt := float64(n) / float64(sampleRate)
 			env := 0.7 + 0.3*math.Sin(2*math.Pi*0.9*tt)
@@ -125,7 +125,7 @@ func configEdgesPCM(frameSize, channels, numFrames int) []float32 {
 			s += 0.10 * math.Sin(2*math.Pi*1200*tt+0.7)
 			s += 0.05 * math.Sin(2*math.Pi*3300*tt+1.1)
 			v := float32(env * s)
-			for ch := 0; ch < channels; ch++ {
+			for ch := range channels {
 				// Slight inter-channel decorrelation for stereo coverage.
 				pcm[(f*frameSize+i)*channels+ch] = v * (1.0 - 0.07*float32(ch))
 			}
@@ -325,8 +325,8 @@ func configEdgesPCMOffset(frameSize, channels, numFrames, sampleOffset int) []fl
 	total := frameSize * channels * numFrames
 	pcm := make([]float32, total)
 	const sampleRate = 48000
-	for f := 0; f < numFrames; f++ {
-		for i := 0; i < frameSize; i++ {
+	for f := range numFrames {
+		for i := range frameSize {
 			n := sampleOffset + f*frameSize + i
 			tt := float64(n) / float64(sampleRate)
 			env := 0.7 + 0.3*math.Sin(2*math.Pi*0.9*tt)
@@ -336,7 +336,7 @@ func configEdgesPCMOffset(frameSize, channels, numFrames, sampleOffset int) []fl
 			s += 0.10 * math.Sin(2*math.Pi*1200*tt+0.7)
 			s += 0.05 * math.Sin(2*math.Pi*3300*tt+1.1)
 			v := float32(env * s)
-			for ch := 0; ch < channels; ch++ {
+			for ch := range channels {
 				pcm[(f*frameSize+i)*channels+ch] = v * (1.0 - 0.07*float32(ch))
 			}
 		}

@@ -298,7 +298,7 @@ func (p *PitchDNN) Compute(ifFeatures, xcorrFeatures []float32) float32 {
 
 	pos := 0
 	maxVal := float32(-1)
-	for i := 0; i < pitchPitchClassCount; i++ {
+	for i := range pitchPitchClassCount {
 		if p.scratch.output[i] > maxVal {
 			pos = i
 			maxVal = p.scratch.output[i]
@@ -380,7 +380,7 @@ func computeConv2D(layer *Conv2DLayer, out, mem, in []float32, height, hstride, 
 		for i := 0; i < layer.OutChannels; i++ {
 			base := i * hstride
 			bias := layer.Bias.At(i)
-			for j := 0; j < height; j++ {
+			for j := range height {
 				out[base+j] += bias
 			}
 		}
@@ -411,7 +411,7 @@ func conv2D3x3Float(out []float32, layer *Conv2DLayer, in []float32, height, hst
 			w20 := weights.At(wBase + 6)
 			w21 := weights.At(wBase + 7)
 			w22 := weights.At(wBase + 8)
-			for j := 0; j < height; j++ {
+			for j := range height {
 				out[baseOut+j] += conv3x3Acc9(
 					w00, w01, w02, w10, w11, w12, w20, w21, w22,
 					in[in0+j+0], in[in0+j+1], in[in0+j+2],

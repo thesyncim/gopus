@@ -220,7 +220,7 @@ func ldGeneratePCM(nFrames, frameSize, channels int, sig types.Signal) []float32
 		if mono < -0.97 {
 			mono = -0.97
 		}
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			pcm[i*channels+ch] = float32(mono)
 		}
 	}
@@ -237,7 +237,6 @@ func TestLowDelayModeIsCELTOnly(t *testing.T) {
 	requireTestTier(t, testTierParity)
 
 	for _, tc := range ldTestMatrix() {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			pcm := ldGeneratePCM(tc.nFrames, tc.frameSize, tc.channels, tc.signal)
@@ -333,7 +332,6 @@ func TestLowDelayCrossModeParity(t *testing.T) {
 	}
 
 	for _, tc := range ldTestMatrix() {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			runLDParityCase(t, tc, helperPath)

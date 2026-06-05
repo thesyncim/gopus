@@ -59,7 +59,7 @@ func TestCWRS32(t *testing.T) {
 		t.Fatalf("cwrsPN and cwrsPKMax length mismatch: %d vs %d", len(cwrsPN), len(cwrsPKMax))
 	}
 
-	for dimIdx := 0; dimIdx < len(cwrsPN); dimIdx++ {
+	for dimIdx := range cwrsPN {
 		n := cwrsPN[dimIdx]
 		kmax := cwrsPKMax[dimIdx]
 
@@ -94,10 +94,7 @@ func testCWRSRoundTrip(t *testing.T, n, k int) {
 	}
 
 	// Sample indices: test every index if small, else sample ~20000
-	inc := nc / 20000
-	if inc < 1 {
-		inc = 1
-	}
+	inc := max(nc/20000, 1)
 
 	for i := uint32(0); i < nc; i += inc {
 		// Decode: index -> pulse vector
@@ -114,7 +111,7 @@ func testCWRSRoundTrip(t *testing.T, n, k int) {
 
 		// Verify pulse count: sum(|y|) == k
 		sy := 0
-		for j := 0; j < n; j++ {
+		for j := range n {
 			if y[j] < 0 {
 				sy -= y[j]
 			} else {
@@ -171,7 +168,7 @@ func TestCWRS32AllIndices(t *testing.T) {
 			// Track unique vectors to verify bijectivity
 			seen := make(map[string]uint32)
 
-			for i := uint32(0); i < nc; i++ {
+			for i := range nc {
 				y := DecodePulses(i, n, k)
 				if y == nil {
 					t.Errorf("DecodePulses(%d, %d, %d) returned nil", i, n, k)

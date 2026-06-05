@@ -58,10 +58,7 @@ func antiCollapseGLogMode(
 
 	logEStride := end
 	if channels > 0 && len(logE) > 0 {
-		logEStride = len(logE) / channels
-		if logEStride < end {
-			logEStride = end
-		}
+		logEStride = max(len(logE)/channels, end)
 	}
 
 	for band := start; band < end; band++ {
@@ -79,7 +76,7 @@ func antiCollapseGLogMode(
 		bandOffset := edges[band] << lm
 		bandLen := N0 << lm
 
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			logIdx := c*logEStride + band
 			if logIdx >= len(logE) {
 				continue
@@ -137,11 +134,11 @@ func antiCollapseGLogMode(
 			mask := collapse[band*channels+c]
 			renorm := false
 			coeff := r
-			for k := 0; k < M; k++ {
+			for k := range M {
 				if (mask & (1 << uint(k))) != 0 {
 					continue
 				}
-				for j := 0; j < N0; j++ {
+				for j := range N0 {
 					seed = seed*1664525 + 1013904223
 					if (seed & 0x8000) != 0 {
 						coeffs[bandOffset+(j<<lm)+k] = celtNorm(coeff)

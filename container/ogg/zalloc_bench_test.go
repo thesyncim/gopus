@@ -35,7 +35,7 @@ func TestReaderZeroAlloc(t *testing.T) {
 		t.Fatal(err)
 	}
 	dst := make([]byte, 8192)
-	for i := 0; i < 8; i++ { // warm the read buffer
+	for range 8 { // warm the read buffer
 		if _, _, err := r.ReadPacketInto(dst); err != nil {
 			t.Fatal(err)
 		}
@@ -96,7 +96,7 @@ func BenchmarkWriteStream(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		for j := 0; j < 50; j++ {
+		for range 50 {
 			if err := w.WritePacket(pkt, 960); err != nil {
 				b.Fatal(err)
 			}

@@ -89,11 +89,11 @@ func gemmAccum(out []float32, weights []int8, rows, cols, colStride int, x []flo
 	}
 	_ = out[rows-1] // BCE hint
 	_ = x[cols-1]   // BCE hint
-	for j := 0; j < cols; j++ {
+	for j := range cols {
 		xj := x[j]
 		wOff := j * colStride
 		w := weights[wOff : wOff+rows]
-		for i := 0; i < rows; i++ {
+		for i := range rows {
 			out[i] += float32(w[i]) * xj
 		}
 	}
@@ -111,7 +111,7 @@ func gemmAccumF32(out []float32, weights []float32, rows, cols, colStride int, x
 	case 2:
 		o0 := out[0]
 		o1 := out[1]
-		for j := 0; j < cols; j++ {
+		for j := range cols {
 			xj := x[j]
 			w := weights[j*colStride:]
 			o0 += w[0] * xj
@@ -127,7 +127,7 @@ func gemmAccumF32(out []float32, weights []float32, rows, cols, colStride int, x
 		o12, o13, o14, o15 := out[12], out[13], out[14], out[15]
 		o16, o17, o18, o19 := out[16], out[17], out[18], out[19]
 		o20, o21, o22, o23 := out[20], out[21], out[22], out[23]
-		for j := 0; j < cols; j++ {
+		for j := range cols {
 			xj := x[j]
 			w := weights[j*colStride:]
 			o0 += w[0] * xj
@@ -171,7 +171,7 @@ func gemmAccumF32(out []float32, weights []float32, rows, cols, colStride int, x
 		o20, o21, o22, o23 := out[20], out[21], out[22], out[23]
 		o24, o25, o26, o27 := out[24], out[25], out[26], out[27]
 		o28, o29, o30, o31 := out[28], out[29], out[30], out[31]
-		for j := 0; j < cols; j++ {
+		for j := range cols {
 			xj := x[j]
 			w := weights[j*colStride:]
 			o0 += w[0] * xj
@@ -217,7 +217,7 @@ func gemmAccumF32(out []float32, weights []float32, rows, cols, colStride int, x
 		out[28], out[29], out[30], out[31] = o28, o29, o30, o31
 		return
 	}
-	for j := 0; j < cols; j++ {
+	for j := range cols {
 		xj := x[j]
 		wOff := j * colStride
 		w := weights[wOff : wOff+rows]
@@ -244,7 +244,7 @@ func gemmAccumF32Rows24Pair(out0, out1 []float32, weights []float32, cols, colSt
 	_ = weights[(cols-1)*colStride+47]
 	a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23 := out0[0], out0[1], out0[2], out0[3], out0[4], out0[5], out0[6], out0[7], out0[8], out0[9], out0[10], out0[11], out0[12], out0[13], out0[14], out0[15], out0[16], out0[17], out0[18], out0[19], out0[20], out0[21], out0[22], out0[23]
 	b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16, b17, b18, b19, b20, b21, b22, b23 := out1[0], out1[1], out1[2], out1[3], out1[4], out1[5], out1[6], out1[7], out1[8], out1[9], out1[10], out1[11], out1[12], out1[13], out1[14], out1[15], out1[16], out1[17], out1[18], out1[19], out1[20], out1[21], out1[22], out1[23]
-	for j := 0; j < cols; j++ {
+	for j := range cols {
 		xj := x[j]
 		w := weights[j*colStride:]
 		a0 += w[0] * xj
@@ -322,7 +322,7 @@ func gemmAccumF32Rows24Triple(out0, out1, out2 []float32, weights []float32, col
 	a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23 := out0[0], out0[1], out0[2], out0[3], out0[4], out0[5], out0[6], out0[7], out0[8], out0[9], out0[10], out0[11], out0[12], out0[13], out0[14], out0[15], out0[16], out0[17], out0[18], out0[19], out0[20], out0[21], out0[22], out0[23]
 	b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16, b17, b18, b19, b20, b21, b22, b23 := out1[0], out1[1], out1[2], out1[3], out1[4], out1[5], out1[6], out1[7], out1[8], out1[9], out1[10], out1[11], out1[12], out1[13], out1[14], out1[15], out1[16], out1[17], out1[18], out1[19], out1[20], out1[21], out1[22], out1[23]
 	c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23 := out2[0], out2[1], out2[2], out2[3], out2[4], out2[5], out2[6], out2[7], out2[8], out2[9], out2[10], out2[11], out2[12], out2[13], out2[14], out2[15], out2[16], out2[17], out2[18], out2[19], out2[20], out2[21], out2[22], out2[23]
-	for j := 0; j < cols; j++ {
+	for j := range cols {
 		xj := x[j]
 		w := weights[j*colStride:]
 		a0 += w[0] * xj
@@ -473,27 +473,27 @@ func (l *AnalysisGRULayer) ComputeGRU(state []float32, input []float32) {
 	stride := 3 * n
 
 	if n == 24 && len(l.inputWeightsF32) == len(l.InputWeights) && len(l.recurrentWeightsF32) == len(l.RecurrentWeights) {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			z[i] = float32(l.Bias[i])
 			r[i] = float32(l.Bias[n+i])
 			h[i] = float32(l.Bias[2*n+i])
 		}
 		gemmAccumF32Rows24Triple(z[:n], r[:n], h[:n], l.inputWeightsF32, m, stride, input)
 		gemmAccumF32Rows24Pair(z[:n], r[:n], l.recurrentWeightsF32, n, stride, state)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			z[i] = sigmoidApprox(WeightsScale * z[i])
 			r[i] = sigmoidApprox(WeightsScale * r[i])
 			tmp[i] = state[i] * r[i]
 		}
 		gemmAccumF32(h[:n], l.recurrentWeightsF32[2*n:], n, n, stride, tmp[:n])
-		for i := 0; i < n; i++ {
+		for i := range n {
 			state[i] = z[i]*state[i] + (1.0-z[i])*tansigApprox(WeightsScale*h[i])
 		}
 		return
 	}
 
 	// Compute update gate z
-	for i := 0; i < n; i++ {
+	for i := range n {
 		z[i] = float32(l.Bias[i])
 	}
 	if len(l.inputWeightsF32) == len(l.InputWeights) && len(l.recurrentWeightsF32) == len(l.RecurrentWeights) {
@@ -503,12 +503,12 @@ func (l *AnalysisGRULayer) ComputeGRU(state []float32, input []float32) {
 		gemmAccum(z[:n], l.InputWeights, n, m, stride, input)
 		gemmAccum(z[:n], l.RecurrentWeights, n, n, stride, state)
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		z[i] = sigmoidApprox(WeightsScale * z[i])
 	}
 
 	// Compute reset gate r
-	for i := 0; i < n; i++ {
+	for i := range n {
 		r[i] = float32(l.Bias[n+i])
 	}
 	if len(l.inputWeightsF32) == len(l.InputWeights) && len(l.recurrentWeightsF32) == len(l.RecurrentWeights) {
@@ -518,12 +518,12 @@ func (l *AnalysisGRULayer) ComputeGRU(state []float32, input []float32) {
 		gemmAccum(r[:n], l.InputWeights[n:], n, m, stride, input)
 		gemmAccum(r[:n], l.RecurrentWeights[n:], n, n, stride, state)
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		r[i] = sigmoidApprox(WeightsScale * r[i])
 	}
 
 	// Compute output h
-	for i := 0; i < n; i++ {
+	for i := range n {
 		h[i] = float32(l.Bias[2*n+i])
 		tmp[i] = state[i] * r[i]
 	}
@@ -534,7 +534,7 @@ func (l *AnalysisGRULayer) ComputeGRU(state []float32, input []float32) {
 		gemmAccum(h[:n], l.InputWeights[2*n:], n, m, stride, input)
 		gemmAccum(h[:n], l.RecurrentWeights[2*n:], n, n, stride, tmp[:n])
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		state[i] = z[i]*state[i] + (1.0-z[i])*tansigApprox(WeightsScale*h[i])
 	}
 }

@@ -32,7 +32,7 @@ func stereoLPFilter(signal []int16, frameLength int) (lp, hp []int16) {
 // stereoLPFilterInto applies the [1,2,1]/4 lowpass filter into caller-owned
 // buffers to avoid allocations on the encoder hot path.
 func stereoLPFilterInto(signal, lp, hp []int16, frameLength int) {
-	for n := 0; n < frameLength; n++ {
+	for n := range frameLength {
 		// sum = (signal[n] + 2*signal[n+1] + signal[n+2] + 2) >> 2
 		// Using silk_ADD_LSHIFT32 pattern: (a + b<<shift)
 		// sum = round((signal[n] + signal[n+2] + 2*signal[n+1]) / 4)
@@ -52,7 +52,7 @@ func stereoLPFilterFloat(signal []float32, frameLength int) (lp, hp []float32) {
 	lp = make([]float32, frameLength)
 	hp = make([]float32, frameLength)
 
-	for n := 0; n < frameLength; n++ {
+	for n := range frameLength {
 		// LP[n] = (signal[n] + 2*signal[n+1] + signal[n+2]) / 4
 		lpVal := (signal[n] + 2*signal[n+1] + signal[n+2]) / 4.0
 		lp[n] = lpVal
@@ -65,7 +65,7 @@ func stereoLPFilterFloat(signal []float32, frameLength int) (lp, hp []float32) {
 // stereoLPFilterFloatInto applies the [1,2,1]/4 lowpass filter writing into pre-allocated lp/hp.
 // lp and hp must each have length >= frameLength.
 func stereoLPFilterFloatInto(signal, lp, hp []float32, frameLength int) {
-	for n := 0; n < frameLength; n++ {
+	for n := range frameLength {
 		lpVal := (signal[n] + 2*signal[n+1] + signal[n+2]) / 4.0
 		lp[n] = lpVal
 		hp[n] = signal[n+1] - lpVal
@@ -144,7 +144,7 @@ func stereoFindPredictorFloat(x, y []float32, length int) (predQ13 int32) {
 	// Compute energies and correlation
 	var nrgx, corr float32
 
-	for i := 0; i < length; i++ {
+	for i := range length {
 		xi := x[i]
 		yi := y[i]
 		nrgx += xi * xi
@@ -172,7 +172,7 @@ func stereoFindPredictorFloat(x, y []float32, length int) (predQ13 int32) {
 
 func stereoInnerProdAlignedScale(x, y []int16, scale, length int) int32 {
 	sum := int32(0)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		sum = silkADD_RSHIFT32(sum, silkSMULBB(int32(x[i]), int32(y[i])), scale)
 	}
 	return sum
@@ -188,17 +188,11 @@ func stereoFindPredictorQ13WithRatioQ14(x, y []int16, length int, midResAmpQ0 *[
 	nrgx, scale1 := silkSumSqrShift(x, length)
 	nrgy, scale2 := silkSumSqrShift(y, length)
 
-	scale := scale1
-	if scale2 > scale {
-		scale = scale2
-	}
+	scale := max(scale2, scale1)
 	scale += scale & 1 // Make even.
 
 	nrgy = nrgy >> uint(scale-scale2)
-	nrgx = nrgx >> uint(scale-scale1)
-	if nrgx < 1 {
-		nrgx = 1
-	}
+	nrgx = max(nrgx>>uint(scale-scale1), 1)
 
 	corr := stereoInnerProdAlignedScale(x, y, int(scale), length)
 	predQ13 = silkDiv32VarQ(corr, nrgx, 13)
@@ -218,17 +212,11 @@ func stereoFindPredictorQ13WithRatioQ14(x, y []int16, length int, midResAmpQ0 *[
 
 	// Residual energy = nrgy - 2 * pred * corr + pred^2 * nrgx.
 	nrgy = silkSubLShift32(nrgy, silkSMULWB(corr, predQ13), 4)
-	nrgy = silkADD_LSHIFT32(nrgy, silkSMULWB(nrgx, pred2Q10), 6)
-	if nrgy < 0 {
-		nrgy = 0
-	}
+	nrgy = max(silkADD_LSHIFT32(nrgy, silkSMULWB(nrgx, pred2Q10), 6), 0)
 	resAmpQ0 := silkLSHIFT(silkSqrtApproxPLC(nrgy), int(scale))
 	midResAmpQ0[1] = silkSMLAWB(midResAmpQ0[1], resAmpQ0-midResAmpQ0[1], smoothCoefQ16)
 
-	den := midResAmpQ0[0]
-	if den < 1 {
-		den = 1
-	}
+	den := max(midResAmpQ0[0], 1)
 	ratioQ14 = silkDiv32VarQ(midResAmpQ0[1], den, 14)
 	ratioQ14 = silkLimit32(ratioQ14, 0, 32767)
 

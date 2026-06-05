@@ -35,10 +35,7 @@ func (d *Decoder) deemphCoefficient() float32 {
 // per channel (interleaved stride = channels). dst and samples may alias.
 // Reference: celt/celt_decoder.c deemphasis(), coef[1]!=0 branch.
 func (d *Decoder) applyDeemphasis2TapInterleaved(dst, samples []float32, scale float32) {
-	channels := int(d.channels)
-	if channels < 1 {
-		channels = 1
-	}
+	channels := max(int(d.channels), 1)
 	n := len(samples)
 	if len(dst) < n {
 		n = len(dst)
@@ -54,7 +51,7 @@ func (d *Decoder) applyDeemphasis2TapInterleaved(dst, samples []float32, scale f
 	out := noFMA32Mul(d.deemphCoef3, scale)
 	for c := 0; c < channels; c++ {
 		m := float32(d.preemphState[c])
-		for j := 0; j < frames; j++ {
+		for j := range frames {
 			idx := j*channels + c
 			x := samples[idx]
 			tmp := x + m + verySmall
@@ -445,7 +442,7 @@ func (d *Decoder) applyDeemphasisAndScaleToFloat32(dst []float32, samples []floa
 	if d.channels == 1 {
 		if d.preemphState[0] == 0 {
 			allZero := true
-			for i := 0; i < n; i++ {
+			for i := range n {
 				if samples[i] != 0 {
 					allZero = false
 					break
@@ -458,7 +455,7 @@ func (d *Decoder) applyDeemphasisAndScaleToFloat32(dst []float32, samples []floa
 		}
 	} else if d.preemphState[0] == 0 && d.preemphState[1] == 0 {
 		allZero := true
-		for i := 0; i < n; i++ {
+		for i := range n {
 			if samples[i] != 0 {
 				allZero = false
 				break
@@ -614,7 +611,7 @@ func (d *Decoder) applyDeemphasisAndScaleFloat32(samples []float32, scale float3
 	if d.channels == 1 {
 		if d.preemphState[0] == 0 {
 			allZero := true
-			for i := 0; i < n; i++ {
+			for i := range n {
 				if samples[i] != 0 {
 					allZero = false
 					break
@@ -626,7 +623,7 @@ func (d *Decoder) applyDeemphasisAndScaleFloat32(samples []float32, scale float3
 		}
 	} else if d.preemphState[0] == 0 && d.preemphState[1] == 0 {
 		allZero := true
-		for i := 0; i < n; i++ {
+		for i := range n {
 			if samples[i] != 0 {
 				allZero = false
 				break
@@ -642,7 +639,7 @@ func (d *Decoder) applyDeemphasisAndScaleFloat32(samples []float32, scale float3
 	if d.channels == 1 {
 		state := d.preemphState[0]
 		_ = samples[n-1]
-		for i := 0; i < n; i++ {
+		for i := range n {
 			tmp := samples[i] + verySmall + state
 			state = noFMA32Mul(coef, tmp)
 			samples[i] = tmp * scale
@@ -690,7 +687,7 @@ func (d *Decoder) applyDeemphasisAndScaleDownsampleToFloat32(dst []float32, samp
 		internal := n * downsample
 		if d.preemphState[0] == 0 {
 			allZero := true
-			for i := 0; i < internal; i++ {
+			for i := range internal {
 				if samples[i] != 0 {
 					allZero = false
 					break
@@ -703,7 +700,7 @@ func (d *Decoder) applyDeemphasisAndScaleDownsampleToFloat32(dst []float32, samp
 		}
 		state := d.preemphState[0]
 		out := 0
-		for i := 0; i < internal; i++ {
+		for i := range internal {
 			tmp := samples[i] + verySmall + state
 			state = noFMA32Mul(coef, tmp)
 			if i%downsample == 0 {
@@ -740,7 +737,7 @@ func (d *Decoder) applyDeemphasisAndScaleDownsampleToFloat32(dst []float32, samp
 	stateL := d.preemphState[0]
 	stateR := d.preemphState[1]
 	out := 0
-	for i := 0; i < internal; i++ {
+	for i := range internal {
 		base := i * 2
 		tmpL := samples[base] + verySmall + stateL
 		stateL = noFMA32Mul(coef, tmpL)
@@ -771,7 +768,7 @@ func (d *Decoder) applyDeemphasisAndScaleMonoFloat32DownsampleToFloat32(dst []fl
 	internal := n * downsample
 	if d.preemphState[0] == 0 {
 		allZero := true
-		for i := 0; i < internal; i++ {
+		for i := range internal {
 			if samples[i] != 0 {
 				allZero = false
 				break
@@ -786,7 +783,7 @@ func (d *Decoder) applyDeemphasisAndScaleMonoFloat32DownsampleToFloat32(dst []fl
 	const coef float32 = float32(PreemphCoef)
 	state := d.preemphState[0]
 	out := 0
-	for i := 0; i < internal; i++ {
+	for i := range internal {
 		tmp := samples[i] + verySmall + state
 		state = noFMA32Mul(coef, tmp)
 		if i%downsample == 0 {
@@ -816,7 +813,7 @@ func (d *Decoder) applyDeemphasisAndScaleStereoPlanarFloat32DownsampleToFloat32(
 	internal := n * downsample
 	if d.preemphState[0] == 0 && d.preemphState[1] == 0 {
 		allZero := true
-		for i := 0; i < internal; i++ {
+		for i := range internal {
 			if left[i] != 0 || right[i] != 0 {
 				allZero = false
 				break
@@ -832,7 +829,7 @@ func (d *Decoder) applyDeemphasisAndScaleStereoPlanarFloat32DownsampleToFloat32(
 	stateL := d.preemphState[0]
 	stateR := d.preemphState[1]
 	out := 0
-	for i := 0; i < internal; i++ {
+	for i := range internal {
 		tmpL := left[i] + verySmall + stateL
 		stateL = noFMA32Mul(coef, tmpL)
 		tmpR := right[i] + verySmall + stateR

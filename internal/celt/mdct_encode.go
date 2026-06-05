@@ -182,10 +182,10 @@ func mdctCoreCompute(samples []float32, coeffs []float32, scale float32) {
 		return
 	}
 
-	for k := 0; k < N; k++ {
+	for k := range N {
 		var sum float32
 		kPlus := float32(k) + 0.5
-		for n := 0; n < N2; n++ {
+		for n := range N2 {
 			nPlus := float32(n) + 0.5 + float32(N)/2
 			angle := float32(math.Pi) / float32(N) * nPlus * kPlus
 			sum += samples[n] * opusmath.CosF32(angle)
@@ -473,7 +473,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 			_ = bitrev[n4-1]   // BCE hint
 			_ = fftStage[n4-1] // BCE hint
 			if mdctUseFMALikeMixEnabled {
-				for i = 0; i < n4; i++ {
+				for i = range n4 {
 					re := f[2*i]
 					im := f[2*i+1]
 					t0 := trig[i]
@@ -481,7 +481,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 					mdctStoreDirectStageFMALikeWith(useNativeMul, fftStage, bitrev[i], preScale, re, im, t0, t1)
 				}
 			} else {
-				for i = 0; i < n4; i++ {
+				for i = range n4 {
 					re := f[2*i]
 					im := f[2*i+1]
 					t0 := trig[i]
@@ -495,7 +495,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 	} else {
 		// Fallback: keep the existing complex64 path for unsupported sizes.
 		_ = fftIn[n4-1] // BCE hint
-		for i = 0; i < n4; i++ {
+		for i = range n4 {
 			re := f[2*i]
 			im := f[2*i+1]
 			t0 := trig[i]
@@ -514,7 +514,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 		_ = trigHi[n4-1]
 		lo := 0
 		hi := n2 - 1
-		for i = 0; i < n4; i++ {
+		for i = range n4 {
 			re := fftStage[i].r
 			im := fftStage[i].i
 			t0 := trig[i]
@@ -535,7 +535,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 		_ = trigHi[n4-1]
 		lo := 0
 		hi := n2 - 1
-		for i = 0; i < n4; i++ {
+		for i = range n4 {
 			re := real(fftOut[i])
 			im := imag(fftOut[i])
 			t0 := trig[i]
@@ -676,7 +676,7 @@ func mdctShortBlocksCore(samples []float32, overlap, shortBlocks, shortSize int,
 	blockCoeffs = blockCoeffs[:shortSize:shortSize]
 	_ = output[frameSize-1]
 	_ = blockCoeffs[shortSize-1]
-	for b := 0; b < shortBlocks; b++ {
+	for b := range shortBlocks {
 		start := b * shortSize
 		end := start + shortSize + overlap
 		if end > len(samples) {
@@ -688,7 +688,7 @@ func mdctShortBlocksCore(samples []float32, overlap, shortBlocks, shortSize int,
 
 		// Interleave coefficients into output
 		outIdx := b
-		for i := 0; i < shortSize; i++ {
+		for i := range shortSize {
 			output[outIdx] = blockCoeffs[i]
 			outIdx += shortBlocks
 		}
@@ -714,7 +714,7 @@ func mdctForwardShortOverlapScratchIntoF32Coeffs(samples []float32, overlap, sho
 	}
 	shortSize := frameSize / shortBlocks
 	blockCoeffs := ensureFloat32Slice(&scratch.mdctBlockCoeffs, shortSize)
-	for b := 0; b < shortBlocks; b++ {
+	for b := range shortBlocks {
 		start := b * shortSize
 		end := start + shortSize + overlap
 		if end > len(samples) {
@@ -791,7 +791,7 @@ func mdctForwardShortOverlapScratch(samples []float32, overlap, shortBlocks int,
 	// Use scratch buffer for per-block coefficients
 	blockCoeffs := ensureFloat32Slice(&scratch.mdctBlockCoeffs, shortSize)
 
-	for b := 0; b < shortBlocks; b++ {
+	for b := range shortBlocks {
 		start := b * shortSize
 		end := start + shortSize + overlap
 		if end > len(samples) {
@@ -828,7 +828,7 @@ func mdctForwardShortOverlapScratchF32(samples []float32, overlap, shortBlocks i
 	shortSize := frameSize / shortBlocks
 	output := ensureFloat32Slice(&scratch.mdctCoeffsF32, frameSize)
 	blockCoeffs := ensureFloat32Slice(&scratch.mdctBlockCoeffs, shortSize)
-	for b := 0; b < shortBlocks; b++ {
+	for b := range shortBlocks {
 		start := b * shortSize
 		end := start + shortSize + overlap
 		if end > len(samples) {
@@ -861,7 +861,7 @@ func mdctForwardShortOverlapScratchF32Coeffs(samples []float32, overlap, shortBl
 	shortSize := frameSize / shortBlocks
 	output := ensureFloat32Slice(&scratch.mdctCoeffsF32, frameSize)
 	blockCoeffs := ensureFloat32Slice(&scratch.mdctBlockCoeffs, shortSize)
-	for b := 0; b < shortBlocks; b++ {
+	for b := range shortBlocks {
 		start := b * shortSize
 		end := start + shortSize + overlap
 		if end > len(samples) {
@@ -897,7 +897,7 @@ func mdctForwardShortOverlap(samples []float32, overlap, shortBlocks int) []floa
 	shortSize := frameSize / shortBlocks
 	output := make([]float32, frameSize)
 
-	for b := 0; b < shortBlocks; b++ {
+	for b := range shortBlocks {
 		start := b * shortSize
 		end := start + shortSize + overlap
 		if end > len(samples) {
@@ -954,7 +954,7 @@ func mdctShortStandard(samples []float32, shortBlocks int) []float32 {
 	totalCoeffs := shortCoeffSize * shortBlocks
 	output := make([]float32, totalCoeffs)
 
-	for b := 0; b < shortBlocks; b++ {
+	for b := range shortBlocks {
 		shortSamples := make([]float32, shortSampleSize)
 		startIdx := b * shortSampleSize
 		for i := 0; i < shortSampleSize && startIdx+i < totalSamples; i++ {

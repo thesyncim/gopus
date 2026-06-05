@@ -249,7 +249,7 @@ func TestLibopusCrossValidationMultipleFrames(t *testing.T) {
 
 	// Encode multiple frames
 	packets := make([][]byte, numFrames)
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		// Generate frame with varying content
 		freq := 440.0 + float64(i)*100.0
 		pcm := generateSineWave(freq, frameSize)
@@ -306,7 +306,6 @@ func TestLibopusCrossValidationFixtureFallback(t *testing.T) {
 
 	scenarios := buildCrossvalFixtureScenarios(t)
 	for _, sc := range scenarios {
-		sc := sc
 		t.Run(sc.name, func(t *testing.T) {
 			decoded := decodeWithOpusdecOrSkip(t, sc.ogg)
 			if len(decoded) == 0 {

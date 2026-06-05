@@ -250,7 +250,7 @@ func (s *State) Process(in16k, out48k, features []float32) error {
 	var xBuf2 [4 * 3 * frameSize48]float32
 
 	// Stage 1: AF1 (per-subframe, 1->3 channels, 80 samples in -> 80 samples * 3 channels out).
-	for i := 0; i < numSubframes; i++ {
+	for i := range numSubframes {
 		s.adaconvAF1(
 			xBuf1[i*af1OutChannels*frameSize16:i*af1OutChannels*frameSize16+af1OutChannels*frameSize16],
 			in16k[i*frameSize16:i*frameSize16+frameSize16],
@@ -260,10 +260,10 @@ func (s *State) Process(in16k, out48k, features []float32) error {
 
 	// Stage 2: 2x upsampling on each channel of xBuf1 -> xBuf2 (16k -> 32k),
 	// then TDShape1 on channel 1 and Valin activation on channel 2.
-	for i := 0; i < numSubframes; i++ {
+	for i := range numSubframes {
 		base1 := i * af1OutChannels * frameSize16
 		base2 := i * af1OutChannels * frameSize32
-		for c := 0; c < af1OutChannels; c++ {
+		for c := range af1OutChannels {
 			s.upsample2x(c,
 				xBuf2[base2+c*frameSize32:base2+c*frameSize32+frameSize32],
 				xBuf1[base1+c*frameSize16:base1+c*frameSize16+frameSize16],
@@ -280,7 +280,7 @@ func (s *State) Process(in16k, out48k, features []float32) error {
 	}
 
 	// Stage 3: AF2 mixing (3 -> 3 channels, 160 samples).
-	for i := 0; i < numSubframes; i++ {
+	for i := range numSubframes {
 		s.adaconvAF2(
 			xBuf1[i*af2OutChannels*frameSize32:i*af2OutChannels*frameSize32+af2OutChannels*frameSize32],
 			xBuf2[i*af1OutChannels*frameSize32:i*af1OutChannels*frameSize32+af1OutChannels*frameSize32],
@@ -290,10 +290,10 @@ func (s *State) Process(in16k, out48k, features []float32) error {
 
 	// Stage 4: 1.5x interpolation on each channel (32k -> 48k), then TDShape2
 	// on channel 1 and Valin activation on channel 2.
-	for i := 0; i < numSubframes; i++ {
+	for i := range numSubframes {
 		base1 := i * af2OutChannels * frameSize32
 		base2 := i * af2OutChannels * frameSize48
-		for c := 0; c < af2OutChannels; c++ {
+		for c := range af2OutChannels {
 			s.interpol32(c,
 				xBuf2[base2+c*frameSize48:base2+c*frameSize48+frameSize48],
 				xBuf1[base1+c*frameSize32:base1+c*frameSize32+frameSize32],
@@ -308,7 +308,7 @@ func (s *State) Process(in16k, out48k, features []float32) error {
 	}
 
 	// Stage 5: AF3 final mixing (3 -> 1 channel, 240 samples).
-	for i := 0; i < numSubframes; i++ {
+	for i := range numSubframes {
 		s.adaconvAF3(
 			out48k[i*frameSize48:i*frameSize48+frameSize48],
 			xBuf2[i*af3InChannels*frameSize48:i*af3InChannels*frameSize48+af3InChannels*frameSize48],
@@ -329,13 +329,13 @@ func (s *State) ProcessDelayed(in16k, out48k, features []float32) error {
 	}
 	numOut := 3 * len(in16k)
 	var nextDelay [outputDelaySamples]int16
-	for i := 0; i < outputDelaySamples; i++ {
+	for i := range outputDelaySamples {
 		nextDelay[i] = bweFloatToInt16(out48k[numOut-outputDelaySamples+i])
 	}
 	for i := numOut - outputDelaySamples - 1; i >= 0; i-- {
 		out48k[i+outputDelaySamples] = float32(bweFloatToInt16(out48k[i])) * (1.0 / 32768.0)
 	}
-	for i := 0; i < outputDelaySamples; i++ {
+	for i := range outputDelaySamples {
 		out48k[i] = float32(s.outputDelay[i]) * (1.0 / 32768.0)
 	}
 	s.outputDelay = nextDelay
@@ -362,7 +362,7 @@ func (s *State) ensureWindows() {
 }
 
 func computeOverlapWindow(window []float32, overlapSize int) {
-	for i := 0; i < overlapSize; i++ {
+	for i := range overlapSize {
 		// libopus dnn/nndsp.c:compute_overlap_window evaluates cos(M_PI * ...)
 		// as a C double expression, then stores the result in a float window.
 		arg := math.Pi * float64(float32(i)+0.5) / float64(overlapSize)
@@ -390,7 +390,7 @@ func (s *State) featureNet(out, features []float32, numFrames int) {
 	var inputBuf, outputBuf [4 * FNetGRUOut]float32
 
 	// First conv layer (kernel size 3, input 114, output 128, tanh).
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		computeGenericConv1D(
 			&s.model.FNetConv1,
 			outputBuf[i*FNetConv1Out:i*FNetConv1Out+FNetConv1Out],
@@ -403,7 +403,7 @@ func (s *State) featureNet(out, features []float32, numFrames int) {
 	copy(inputBuf[:numFrames*FNetConv1Out], outputBuf[:numFrames*FNetConv1Out])
 
 	// Second conv layer (kernel size 3, input 128, output 128, tanh).
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		computeGenericConv1D(
 			&s.model.FNetConv2,
 			outputBuf[i*FNetConv2Out:i*FNetConv2Out+FNetConv2Out],
@@ -417,7 +417,7 @@ func (s *State) featureNet(out, features []float32, numFrames int) {
 
 	// Transpose conv via a single dense layer producing 2*128 samples per
 	// frame (stride 2 expansion, tanh activation).
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		computeGenericDense(
 			&s.model.FNetTConv,
 			outputBuf[i*FNetTConvOut:i*FNetTConvOut+FNetTConvOut],
@@ -430,7 +430,7 @@ func (s *State) featureNet(out, features []float32, numFrames int) {
 	// GRU runs once per (sub)frame (stride 2 * num_frames). Output written
 	// directly to the latent buffer.
 	numSub := 2 * numFrames
-	for i := 0; i < numSub; i++ {
+	for i := range numSub {
 		computeGenericGRU(
 			&s.model.FNetGRUInput,
 			&s.model.FNetGRURecurrent,
@@ -516,7 +516,7 @@ func (s *State) upsample2x(ch int, xOut, xIn []float32) {
 		ho1 = float32(0.3932037353515625)
 		ho2 = float32(-0.152496337890625)
 	)
-	for k := 0; k < len(xIn); k++ {
+	for k := range xIn {
 		x := xIn[k]
 
 		// even sample, pass 1
@@ -579,7 +579,7 @@ func (s *State) interpol32(ch int, xOut, xIn []float32) {
 	iOut := 0
 	for k := 0; k < numSamples; k += 2 {
 		var v0, v1, v2 float32
-		for j := 0; j < 8; j++ {
+		for j := range 8 {
 			v0 += buffer[k+j] * frac01_24[j]
 			v1 += buffer[k+j] * frac17_24[j]
 			v2 += buffer[k+1+j] * frac09_24[j]
@@ -596,7 +596,7 @@ func (s *State) interpol32(ch int, xOut, xIn []float32) {
 //
 //	x[i] *= sin(log(|x[i]| + 1e-6)).
 func applyValinActivation(x []float32) {
-	for i := 0; i < len(x); i++ {
+	for i := range x {
 		v := x[i]
 		if v < 0 {
 			v = -v
@@ -626,9 +626,9 @@ func computeLinear(layer *LinearLayer, out, in []float32) {
 	case !layer.FloatWeights.Empty():
 		// Weight layout: rows = n outputs, cols = m inputs, col-major:
 		// weight(row, col) = w[col*n + row]. Mirrors libopus sgemv layout.
-		for i := 0; i < n; i++ {
+		for i := range n {
 			var sum float32
-			for j := 0; j < m; j++ {
+			for j := range m {
 				sum += layer.FloatWeights.At(j*n+i) * in[j]
 			}
 			out[i] = sum
@@ -640,12 +640,12 @@ func computeLinear(layer *LinearLayer, out, in []float32) {
 		// int8 input quantisation, plain `bias`).
 		cgemv8x4(out[:n], layer.Weights, layer.Scale, n, m, in[:m])
 	default:
-		for i := 0; i < n; i++ {
+		for i := range n {
 			out[i] = 0
 		}
 	}
 	if !bias.Empty() {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			out[i] += bias.At(i)
 		}
 	}
@@ -666,7 +666,7 @@ func EvaluateLayerInt8(layer *LinearLayer, out, in []float32) {
 	m := layer.NbInputs
 	cgemv8x4(out[:n], layer.Weights, layer.Scale, n, m, in[:m])
 	if !layer.Bias.Empty() {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			out[i] += layer.Bias.At(i)
 		}
 	}
@@ -687,15 +687,15 @@ func cgemv8x4(out []float32, weights dnnblob.Int8View, scale dnnblob.Float32View
 	var q [maxCols]int8
 	if cols > maxCols {
 		// Should never happen for BBWENet (max int8 cols is 384).
-		for i := 0; i < rows; i++ {
+		for i := range rows {
 			out[i] = 0
 		}
 		return
 	}
-	for i := 0; i < cols; i++ {
+	for i := range cols {
 		q[i] = dnnmath.Cgemv8x4QuantizeInputScalar(x[i])
 	}
-	for i := 0; i < rows; i++ {
+	for i := range rows {
 		out[i] = 0
 	}
 	wOffset := 0
@@ -706,7 +706,7 @@ func cgemv8x4(out []float32, weights dnnblob.Int8View, scale dnnblob.Float32View
 			x1 := int32(q[col+1])
 			x2 := int32(q[col+2])
 			x3 := int32(q[col+3])
-			for r := 0; r < 8; r++ {
+			for r := range 8 {
 				base := wOffset + r*4
 				acc[r] += int32(weights.At(base))*x0 +
 					int32(weights.At(base+1))*x1 +
@@ -715,7 +715,7 @@ func cgemv8x4(out []float32, weights dnnblob.Int8View, scale dnnblob.Float32View
 			}
 			wOffset += 32
 		}
-		for r := 0; r < 8; r++ {
+		for r := range 8 {
 			out[row+r] = float32(acc[r]) * scale.At(row+r)
 		}
 	}
@@ -734,7 +734,7 @@ func computeActivation(out, in []float32, n, activation int) {
 	case actTanh:
 		dnnmath.TanhVectorScalarApprox(out, in, n)
 	case actRelu:
-		for i := 0; i < n; i++ {
+		for i := range n {
 			v := in[i]
 			if v < 0 {
 				v = 0
@@ -794,11 +794,11 @@ func computeGenericGRU(inputW, recurrentW *LinearLayer, state, in []float32) {
 		zrh[i] += recur[i]
 	}
 	computeActivation(zrh[:2*n], zrh[:2*n], 2*n, actSigmoid)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		h[i] += recur[2*n+i] * r[i]
 	}
 	computeActivation(h, h, n, actTanh)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		h[i] = z[i]*state[i] + (1-z[i])*h[i]
 		state[i] = h[i]
 	}
@@ -829,7 +829,7 @@ func adaconvProcessFrame(
 	_ = shapeGain // libopus only supports shape_gain == 1, no actual scaling
 
 	// Prepare input: prepend per-channel history.
-	for c := 0; c < inChannels; c++ {
+	for c := range inChannels {
 		copy(inputBuf[c*(kernelSize+frameSize):c*(kernelSize+frameSize)+kernelSize],
 			history[c*kernelSize:c*kernelSize+kernelSize])
 		copy(inputBuf[c*(kernelSize+frameSize)+kernelSize:c*(kernelSize+frameSize)+kernelSize+frameSize],
@@ -841,15 +841,15 @@ func adaconvProcessFrame(
 	computeGenericDense(gainLayer, gainBuf[:outChannels], features, actTanh)
 
 	// transform_gains: gain = exp(a*g + b).
-	for i := 0; i < outChannels; i++ {
+	for i := range outChannels {
 		gainBuf[i] = opusmath.ExpF32(filterGainA*gainBuf[i] + filterGainB)
 	}
 
 	// scale_kernel: p-norm normalise and apply gain per output channel.
-	for o := 0; o < outChannels; o++ {
+	for o := range outChannels {
 		var norm float32
-		for ic := 0; ic < inChannels; ic++ {
-			for k := 0; k < kernelSize; k++ {
+		for ic := range inChannels {
+			for k := range kernelSize {
 				idx := (o*inChannels+ic)*kernelSize + k
 				v := kernelBuf[idx]
 				norm += v * v
@@ -857,8 +857,8 @@ func adaconvProcessFrame(
 		}
 		invNorm := scaleKernelInvNorm(norm)
 		scale := invNorm * gainBuf[o]
-		for ic := 0; ic < inChannels; ic++ {
-			for k := 0; k < kernelSize; k++ {
+		for ic := range inChannels {
+			for k := range kernelSize {
 				idx := (o*inChannels+ic)*kernelSize + k
 				kernelBuf[idx] *= scale
 			}
@@ -867,23 +867,23 @@ func adaconvProcessFrame(
 
 	// Compute output: cross-correlation of kernel0/kernel1 with the input
 	// signal. For sample i: y[i] = sum_k kernel[k] * input[i + k - leftPadding].
-	for o := 0; o < outChannels; o++ {
-		for ic := 0; ic < inChannels; ic++ {
+	for o := range outChannels {
+		for ic := range inChannels {
 			// pInput points into inputBuf at p_input[i_in_channels * (frame_size+kernel_size)] +
 			// kernel_size (the start of the new frame). Apply left padding.
 			base := ic*(frameSize+kernelSize) + kernelSize
 			// Old kernel (kernel0 from previous frame's last_kernel).
 			kernelOld := lastKernel[(o*inChannels+ic)*kernelSize : (o*inChannels+ic)*kernelSize+kernelSize]
 			kernelNew := kernelBuf[(o*inChannels+ic)*kernelSize : (o*inChannels+ic)*kernelSize+kernelSize]
-			for i := 0; i < frameSize; i++ {
+			for i := range frameSize {
 				// Compute new-frame contribution.
 				var sumNew float32
-				for k := 0; k < kernelSize; k++ {
+				for k := range kernelSize {
 					sumNew += kernelNew[k] * inputBuf[base+i+k-leftPadding]
 				}
 				if i < overlapSize {
 					var sumOld float32
-					for k := 0; k < kernelSize; k++ {
+					for k := range kernelSize {
 						sumOld += kernelOld[k] * inputBuf[base+i+k-leftPadding]
 					}
 					outputBuf[o*frameSize+i] += window[i] * sumOld
@@ -899,7 +899,7 @@ func adaconvProcessFrame(
 	copy(xOut[:outChannels*frameSize], outputBuf[:outChannels*frameSize])
 
 	// Buffer update.
-	for c := 0; c < inChannels; c++ {
+	for c := range inChannels {
 		copy(history[c*kernelSize:c*kernelSize+kernelSize],
 			inputBuf[c*(frameSize+kernelSize)+frameSize:c*(frameSize+kernelSize)+frameSize+kernelSize])
 	}
@@ -932,9 +932,9 @@ func adashapeProcessFrame(
 	// Temporal envelope.
 	var mean float32
 	f := 1.0 / float32(avgPoolK)
-	for i := 0; i < tenvSize; i++ {
+	for i := range tenvSize {
 		var sum float32
-		for k := 0; k < avgPoolK; k++ {
+		for k := range avgPoolK {
 			v := xIn[i*avgPoolK+k]
 			if v < 0 {
 				v = -v
@@ -945,7 +945,7 @@ func adashapeProcessFrame(
 		mean += tenv[i]
 	}
 	mean /= float32(tenvSize)
-	for i := 0; i < tenvSize; i++ {
+	for i := range tenvSize {
 		tenv[i] -= mean
 	}
 	tenv[tenvSize] = mean
@@ -955,7 +955,7 @@ func adashapeProcessFrame(
 	computeGenericConv1D(alpha1T, tmpBuf[:alpha1T.NbOutputs], alpha1TState, tenv, tenvSize+1, actLinear)
 
 	// Leaky ReLU(out + tmp), slope 0.2.
-	for i := 0; i < hiddenDim; i++ {
+	for i := range hiddenDim {
 		v := outBuf[i] + tmpBuf[i]
 		inBuf[i] = adashapeLeakyRelu(v)
 	}
@@ -964,8 +964,8 @@ func adashapeProcessFrame(
 	computeGenericConv1D(alpha2, tmpBuf[:alpha2.NbOutputs], alpha2State, inBuf[:hiddenDim], hiddenDim, actLinear)
 
 	// Upsample by linear interpolation (interpolate_k taps).
-	for i := 0; i < hiddenDim; i++ {
-		for k := 0; k < interpolateK; k++ {
+	for i := range hiddenDim {
+		for k := range interpolateK {
 			alpha := float32(k+1) / float32(interpolateK)
 			outBuf[i*interpolateK+k] = alpha*tmpBuf[i] + (1.0-alpha)*(*interpState)
 		}
@@ -974,7 +974,7 @@ func adashapeProcessFrame(
 
 	// Apply exp activation in place, then modulate.
 	dnnmath.ExpVectorScalarApprox(outBuf[:frameSize], outBuf[:frameSize], frameSize)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		xOut[i] = outBuf[i] * xIn[i]
 	}
 }

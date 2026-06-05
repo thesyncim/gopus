@@ -211,7 +211,7 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 	strength *= float32(speechActivityQ8) / 256.0
 
 	// Apply smoothing and compute per-subframe values
-	for k := 0; k < numSubframes; k++ {
+	for k := range numSubframes {
 		// Smooth harmonic shaping gain
 		s.HarmShapeGainSmth += noFMA32(float32(subfrSmthCoef), harmShapeGain-s.HarmShapeGainSmth)
 		params.HarmShapeGainQ14[k] = float32ToInt32RoundEven(s.HarmShapeGainSmth * 16384.0)

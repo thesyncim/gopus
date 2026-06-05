@@ -140,8 +140,8 @@ var benchLineRe = regexp.MustCompile(`^(Benchmark\S+?)(?:-\d+)?\s+\d+\s+([0-9.eE
 
 func parseBenchmarkOutput(out []byte) (map[string][]sample, error) {
 	result := make(map[string][]sample)
-	lines := strings.Split(string(out), "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(string(out), "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "Benchmark") {
 			continue
@@ -232,7 +232,7 @@ func median(values []float64) float64 {
 	return (values[n/2-1] + values[n/2]) / 2
 }
 
-func fatalf(format string, args ...interface{}) {
+func fatalf(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "benchguard: "+format+"\n", args...)
 	os.Exit(2)
 }

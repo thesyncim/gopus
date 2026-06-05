@@ -112,7 +112,7 @@ func quantCoarseEnergyImpl(
 	}
 
 	for i := start; i < end; i++ {
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			idx := c*nbEBands + i
 
 			// Current energy to encode
@@ -311,10 +311,7 @@ func QuantCoarseEnergy(
 	// Compute parameters
 	budget := params.Budget
 	tell := re.Tell()
-	lm := params.LM
-	if lm < 0 {
-		lm = 0
-	}
+	lm := max(params.LM, 0)
 	if lm > 3 {
 		lm = 3
 	}
@@ -458,7 +455,7 @@ func QuantCoarseEnergy(
 // Reference: libopus celt/quant_bands.c loss_distortion()
 func lossDistortion(eBands, oldEBands []celtGLog, start, end, nbEBands, channels int) float32 {
 	var dist float32
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		for i := start; i < end; i++ {
 			d := eBands[c*nbEBands+i] - oldEBands[c*nbEBands+i]
 			dist += d * d
@@ -513,7 +510,7 @@ func QuantFineEnergy(
 		// extra is the number of bits, so 2^extra is the number of levels
 		extraLevels := 1 << extra
 
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			idx := c*nbEBands + i
 
 			// Quantize error to extra_quant[i] bits
@@ -569,7 +566,7 @@ func QuantEnergyFinalise(
 	nbEBands := MaxBands
 
 	// Use up the remaining bits in two priority passes
-	for prio := 0; prio < 2; prio++ {
+	for prio := range 2 {
 		for i := start; i < end && bitsLeft >= channels; i++ {
 			// Skip if already at max fine bits or different priority
 			if fineQuant[i] >= maxFineBits || finePriority[i] != prio {
@@ -581,7 +578,7 @@ func QuantEnergyFinalise(
 				break
 			}
 
-			for c := 0; c < channels; c++ {
+			for c := range channels {
 				idx := c*nbEBands + i
 
 				// Check if we have at least 1 bit left
@@ -628,8 +625,8 @@ func Amp2Log2(bandE []celtEner, effEnd, end, channels int) []celtGLog {
 	nbEBands := MaxBands
 	bandLogE := make([]celtGLog, channels*nbEBands)
 
-	for c := 0; c < channels; c++ {
-		for i := 0; i < effEnd; i++ {
+	for c := range channels {
+		for i := range effEnd {
 			// Convert amplitude to log2
 			// log2(amplitude) = 0.5 * log2(energy)
 			amp := float32(bandE[c*nbEBands+i])

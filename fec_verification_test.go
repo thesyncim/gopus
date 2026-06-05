@@ -53,9 +53,9 @@ func TestFEC_EndToEnd(t *testing.T) {
 
 	packets := make([][]byte, numFrames)
 
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		pcm := make([]float32, frameSize)
-		for j := 0; j < frameSize; j++ {
+		for j := range frameSize {
 			sampleIdx := i*frameSize + j
 			pcm[j] = float32(0.5 * math.Sin(2*math.Pi*440*float64(sampleIdx)/48000))
 		}
@@ -78,7 +78,7 @@ func TestFEC_EndToEnd(t *testing.T) {
 	// Now test decoding
 	t.Log("\n=== Testing normal decode ===")
 	decodedNormal := make([][]float32, numFrames)
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		pcm := make([]float32, frameSize)
 		n, err := dec.Decode(packets[i], pcm)
 		if err != nil {
@@ -151,9 +151,9 @@ func TestFEC_ProvidedPacketRecoveryPath(t *testing.T) {
 
 	frameSize := 960
 	var packets [][]byte
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		pcm := make([]float32, frameSize*channels)
-		for j := 0; j < frameSize; j++ {
+		for j := range frameSize {
 			sampleIdx := i*frameSize + j
 			pcm[2*j] = float32(0.5*math.Sin(2*math.Pi*220*float64(sampleIdx)/48000) +
 				0.25*math.Sin(2*math.Pi*440*float64(sampleIdx)/48000))
@@ -223,9 +223,9 @@ func TestFEC_LBRRPresence(t *testing.T) {
 	numFrames := 5
 
 	lbrrPackets := 0
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		pcm := make([]float32, frameSize)
-		for j := 0; j < frameSize; j++ {
+		for j := range frameSize {
 			sampleIdx := i*frameSize + j
 			pcm[j] = float32(0.7 * math.Sin(2*math.Pi*440*float64(sampleIdx)/48000))
 		}
@@ -281,9 +281,9 @@ func TestFEC_RecoveryQuality(t *testing.T) {
 
 	// Encode frames
 	packets := make([][]byte, numFrames)
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		pcm := make([]float32, frameSize)
-		for j := 0; j < frameSize; j++ {
+		for j := range frameSize {
 			sampleIdx := i*frameSize + j
 			// Use a more complex signal for better quality comparison
 			pcm[j] = float32(0.5*math.Sin(2*math.Pi*440*float64(sampleIdx)/48000) +
@@ -299,7 +299,7 @@ func TestFEC_RecoveryQuality(t *testing.T) {
 
 	// Test 1: Decode with FEC recovery for lost packet
 	dec1, _ := NewDecoder(DefaultDecoderConfig(48000, 1))
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		pcm := make([]float32, frameSize)
 		dec1.Decode(packets[i], pcm)
 	}
@@ -316,7 +316,7 @@ func TestFEC_RecoveryQuality(t *testing.T) {
 
 	// Test 2: Decode with PLC for lost packet (no FEC)
 	dec2, _ := NewDecoder(DefaultDecoderConfig(48000, 1))
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		pcm := make([]float32, frameSize)
 		dec2.Decode(packets[i], pcm)
 	}
@@ -334,7 +334,7 @@ func TestFEC_RecoveryQuality(t *testing.T) {
 	// Compare energy of recovered frames
 	energyFEC := 0.0
 	energyPLC := 0.0
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		energyFEC += float64(pcmFEC[i]) * float64(pcmFEC[i])
 		energyPLC += float64(pcmPLC[i]) * float64(pcmPLC[i])
 	}
@@ -371,9 +371,9 @@ func TestFEC_MultiplePacketLoss(t *testing.T) {
 
 	// Encode all frames
 	packets := make([][]byte, numFrames)
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		pcm := make([]float32, frameSize)
-		for j := 0; j < frameSize; j++ {
+		for j := range frameSize {
 			sampleIdx := i*frameSize + j
 			pcm[j] = float32(0.5 * math.Sin(2*math.Pi*440*float64(sampleIdx)/48000))
 		}
@@ -389,7 +389,7 @@ func TestFEC_MultiplePacketLoss(t *testing.T) {
 	pcm := make([]float32, frameSize)
 
 	// Decode 0, 1, 2 normally
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_, err := dec.Decode(packets[i], pcm)
 		if err != nil {
 			t.Fatalf("Decode frame %d error: %v", i, err)
@@ -399,7 +399,7 @@ func TestFEC_MultiplePacketLoss(t *testing.T) {
 
 	// Lose frame 3 and 4
 	t.Log("Simulating loss of frames 3 and 4...")
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		_, err := dec.DecodeWithFEC(nil, pcm, true)
 		if err != nil {
 			t.Fatalf("DecodeWithFEC for lost frame error: %v", err)

@@ -24,9 +24,9 @@ import (
 var oggCRCTable [256]uint32
 
 func init() {
-	for i := 0; i < 256; i++ {
+	for i := range 256 {
 		r := uint32(i) << 24
-		for j := 0; j < 8; j++ {
+		for range 8 {
 			if r&0x80000000 != 0 {
 				r = (r << 1) ^ 0x04c11db7
 			} else {
@@ -374,7 +374,7 @@ func decodeWithInternalMultistream(oggData []byte) ([]float32, error) {
 		switch r.Header.MappingFamily {
 		case 3:
 			mapping = make([]byte, channels)
-			for i := 0; i < channels; i++ {
+			for i := range channels {
 				mapping[i] = byte(i)
 			}
 		default:
@@ -491,9 +491,9 @@ func generateMultichannelSine(channels, samplesPerChannel int) []float32 {
 	// Base frequencies for each channel
 	baseFreqs := []float64{220, 330, 440, 550, 660, 770, 880, 990}
 
-	for s := 0; s < samplesPerChannel; s++ {
+	for s := range samplesPerChannel {
 		t := float64(s) / 48000.0
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			freq := baseFreqs[ch%len(baseFreqs)]
 			pcm[s*channels+ch] = float32(0.3 * math.Sin(2*math.Pi*freq*t))
 		}
@@ -518,10 +518,7 @@ func computeDiffStatsF32(a, b []float32) (meanSquareDiff, maxAbs float64) {
 	if len(a) == 0 || len(b) == 0 {
 		return 0, 0
 	}
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
+	n := min(len(b), len(a))
 	sumSquares := 0.0
 	maxAbs = 0
 	for i := 0; i < n; i++ {
@@ -561,7 +558,7 @@ func runLibopusSurroundTest(t *testing.T, label string, channels, bitrate int) {
 	var allInput []float32
 	packets := make([][]byte, numFrames)
 
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		pcm := generateMultichannelSine(channels, frameSize)
 		allInput = append(allInput, pcm...)
 
@@ -715,7 +712,7 @@ func TestLibopus_DefaultMappingMatrix(t *testing.T) {
 
 			var allInput []float32
 			packets := make([][]byte, numFrames)
-			for i := 0; i < numFrames; i++ {
+			for i := range numFrames {
 				pcm := generateMultichannelSine(tc.channels, frameSize)
 				allInput = append(allInput, pcm...)
 
@@ -845,7 +842,7 @@ func TestLibopus_FrameDurationMatrix(t *testing.T) {
 
 				numFrames := 8
 				packets := make([][]byte, numFrames)
-				for i := 0; i < numFrames; i++ {
+				for i := range numFrames {
 					pcm := generateMultichannelSine(layout.channels, fs.frameSize)
 					packet, err := enc.Encode(pcm, fs.frameSize)
 					if err != nil {
@@ -946,7 +943,7 @@ func runLibopusAmbisonicsParityCase(t *testing.T, mappingFamily, channels, bitra
 
 	var allInput []float32
 	packets := make([][]byte, numFrames)
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		pcm := generateMultichannelSine(channels, frameSize)
 		allInput = append(allInput, pcm...)
 
@@ -1143,7 +1140,7 @@ func TestLibopus_BitrateQuality(t *testing.T) {
 			packets := make([][]byte, numFrames)
 			totalPacketBytes := 0
 
-			for i := 0; i < numFrames; i++ {
+			for i := range numFrames {
 				pcm := generateMultichannelSine(tc.channels, frameSize)
 				allInput = append(allInput, pcm...)
 

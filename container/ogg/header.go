@@ -362,7 +362,7 @@ func ParseOpusTags(data []byte) (*OpusTags, error) {
 	offset += 4
 
 	// Read comments.
-	for i := uint32(0); i < commentCount; i++ {
+	for range commentCount {
 		if offset+4 > len(data) {
 			return nil, ErrInvalidHeader
 		}

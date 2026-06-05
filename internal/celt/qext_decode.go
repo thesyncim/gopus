@@ -67,7 +67,7 @@ func (d *Decoder) decodeCoarseEnergyIntoWithPrevState(dst []celtGLog, nbBands in
 	}
 
 	for band := 0; band < nbBands; band++ {
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			tell := rd.Tell()
 			qi := 0
 			remaining := budget - tell
@@ -115,7 +115,7 @@ func (d *Decoder) storeQEXTEnergyState(energies []celtGLog, nbBands int) {
 		return
 	}
 	oldBandE := d.ensureQEXTOldBandE()
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		base := c * nbQEXTBands
 		src := energies[c*nbBands : c*nbBands+nbBands]
 		for band, energy := range src {
@@ -180,10 +180,7 @@ func (d *Decoder) prepareQEXTDecodeRange(payload []byte, mainRD *rangecoding.Dec
 		}
 	}
 
-	budgetQ3 := qext.totalBitsQ3 - mainRD.TellFrac() - 1
-	if budgetQ3 < 0 {
-		budgetQ3 = 0
-	}
+	budgetQ3 := max(qext.totalBitsQ3-mainRD.TellFrac()-1, 0)
 	tellBeforeAlloc := extDec.TellFrac()
 	computeQEXTExtraAllocationDecodeWithMode(start, end, qext.end, budgetQ3, channels, lm, extDec, qext.extraPulses, qext.extraQuant, qextMode)
 	_ = tellBeforeAlloc

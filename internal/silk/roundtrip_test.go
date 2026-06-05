@@ -218,7 +218,7 @@ func TestMonoRoundTrip_MultipleFrames(t *testing.T) {
 	encoder := NewEncoderState(BandwidthWideband)
 	decoder := NewDecoder()
 
-	for frame := 0; frame < numFrames; frame++ {
+	for frame := range numFrames {
 		// Generate frame-specific signal
 		pcm := make([]float32, frameSamples)
 		freq := 200.0 + float64(frame)*50 // Varying frequency per frame

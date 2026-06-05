@@ -735,7 +735,7 @@ func TestDecodePLC(t *testing.T) {
 	}
 
 	// Call multiple times to verify fade
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		samples, err = dec.Decode(nil, frameSize)
 		if err != nil {
 			t.Fatalf("Decode(nil) iteration %d error: %v", i, err)

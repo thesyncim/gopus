@@ -108,7 +108,7 @@ func probeLibopusSILKBurgModified(cases []libopusSILKBurgCase) ([]libopusSILKBur
 			return nil, fmt.Errorf("helper order=%d", order)
 		}
 		out[i].a = make([]float32, order)
-		for j := 0; j < 16; j++ {
+		for j := range 16 {
 			v := reader.Float32()
 			if j < order {
 				out[i].a[j] = v
@@ -233,7 +233,7 @@ func probeLibopusSILKFindLPCFLP(cases []libopusSILKFindLPCCase) ([]libopusSILKFi
 			payload.U32(0)
 		}
 		payload.Float32(tc.minInvGain)
-		for i := 0; i < 16; i++ {
+		for i := range 16 {
 			var v int16
 			if i < len(tc.prevNLSF) {
 				v = tc.prevNLSF[i]
@@ -256,7 +256,7 @@ func probeLibopusSILKFindLPCFLP(cases []libopusSILKFindLPCCase) ([]libopusSILKFi
 		}
 		out[i].interpIdx = int(reader.U32())
 		out[i].nlsf = make([]int16, order)
-		for j := 0; j < 16; j++ {
+		for j := range 16 {
 			v := int16(reader.I32())
 			if j < order {
 				out[i].nlsf[j] = v

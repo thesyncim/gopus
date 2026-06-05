@@ -58,10 +58,7 @@ func (b *EncoderBuffer) Append16k(pcm []float32, extraDelay int32, emit func(fra
 
 	emitted := 0
 	for remaining := len(pcm); remaining > 0; {
-		processSize16k := DFrameSize
-		if remaining < processSize16k {
-			processSize16k = remaining
-		}
+		processSize16k := min(remaining, DFrameSize)
 		fill := int(b.inputBufferFill)
 		copy(b.inputBuffer[fill:], pcm[:processSize16k])
 		b.inputBufferFill += int32(processSize16k)

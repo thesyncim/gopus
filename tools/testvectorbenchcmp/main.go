@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -772,9 +773,7 @@ func resultDurations(results []benchmarkResult) []time.Duration {
 			seen[result.MinDuration] = true
 		}
 	}
-	sort.Slice(durations, func(i, j int) bool {
-		return durations[i] < durations[j]
-	})
+	slices.Sort(durations)
 	return durations
 }
 
@@ -981,7 +980,7 @@ func hostCPU() string {
 	case "linux":
 		data, err := os.ReadFile("/proc/cpuinfo")
 		if err == nil {
-			for _, line := range strings.Split(string(data), "\n") {
+			for line := range strings.SplitSeq(string(data), "\n") {
 				if strings.HasPrefix(line, "model name") || strings.HasPrefix(line, "Hardware") {
 					if _, value, ok := strings.Cut(line, ":"); ok {
 						return strings.TrimSpace(value)

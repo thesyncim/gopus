@@ -168,7 +168,7 @@ func (d *Decoder) decodePVQNormInto(band, n, k int, dst []celtNorm) {
 
 	vSize := PVQ_V(n, k)
 	if vSize == 0 {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			dst[i] = 0
 		}
 		return
@@ -182,7 +182,7 @@ func (d *Decoder) decodePVQNormInto(band, n, k int, dst []celtNorm) {
 
 	// Convert to float and normalize directly into dst
 	var energy opusVal16
-	for i := 0; i < n; i++ {
+	for i := range n {
 		pulse := float32(pulses[i])
 		dst[i] = pulse
 		energy = opusVal16(energy + pulse*pulse)
@@ -191,7 +191,7 @@ func (d *Decoder) decodePVQNormInto(band, n, k int, dst []celtNorm) {
 	// Normalize to unit L2 energy
 	if energy >= 1e-15 {
 		scale := celtRSqrt(energy)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			dst[i] = celtNorm(dst[i] * scale)
 		}
 	}
@@ -205,7 +205,7 @@ func (d *Decoder) decodeIntensityStereoNormInto(mid, left, right []celtNorm) {
 
 	inv := d.rangeDecoder.DecodeBit(1) == 1
 	if inv {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			left[i] = mid[i]
 			right[i] = -mid[i]
 		}
@@ -223,7 +223,7 @@ func applyMidSideRotationNormInto(mid, side []celtNorm, midGain, sideGain opusVa
 
 	mg := midGain
 	sg := sideGain
-	for i := 0; i < n; i++ {
+	for i := range n {
 		m := mid[i]
 		s := side[i]
 		left[i] = celtNorm(mg*m + sg*s)

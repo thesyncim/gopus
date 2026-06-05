@@ -304,12 +304,12 @@ func float64sToGLogs(in []float64) []celtGLog {
 
 func celtEnergyQuantFineCase(name string, channels, start, end, storage int) libopusCELTEnergyQuantCase {
 	tc := celtEnergyQuantBaseCase(name, libopusCELTEnergyQuantFine, channels, start, end, storage)
-	for i := 0; i < MaxBands; i++ {
+	for i := range MaxBands {
 		tc.prevQuant[i] = i % 4
 		tc.extraQuant[i] = 1 + i%8
 	}
-	for c := 0; c < channels; c++ {
-		for band := 0; band < MaxBands; band++ {
+	for c := range channels {
+		for band := range MaxBands {
 			idx := c*MaxBands + band
 			prev := tc.prevQuant[band]
 			extra := tc.extraQuant[band]
@@ -340,12 +340,12 @@ func celtEnergyQuantFinaliseCase(name string, channels, start, end, storage, bit
 		0.03125,
 		-0.03125,
 	}
-	for i := 0; i < MaxBands; i++ {
+	for i := range MaxBands {
 		tc.fineQuant[i] = i % maxFineBits
 		tc.finePriority[i] = i % 2
 	}
-	for c := 0; c < channels; c++ {
-		for band := 0; band < MaxBands; band++ {
+	for c := range channels {
+		for band := range MaxBands {
 			idx := c*MaxBands + band
 			tc.errorVal[idx] = signs[(band+c)%len(signs)]
 		}
@@ -365,8 +365,8 @@ func celtEnergyQuantBaseCase(name string, op, channels, start, end, storage int)
 		oldEBands: make([]float32, total),
 		errorVal:  make([]float32, total),
 	}
-	for c := 0; c < channels; c++ {
-		for band := 0; band < MaxBands; band++ {
+	for c := range channels {
+		for band := range MaxBands {
 			idx := c*MaxBands + band
 			tc.oldEBands[idx] = float32(0.03125*float64((idx%9)-4) + 0.00073*float64(idx+1))
 			tc.errorVal[idx] = float32(0.05 * math.Sin(float64(idx+1)))

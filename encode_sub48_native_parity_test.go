@@ -329,7 +329,6 @@ func TestSub48NativeEncodeParity(t *testing.T) {
 		// header): SILK in-band-FEC stereo at >=40 ms can bust silk_delta_gain_iCDF.
 		// This gate does not enable FEC, so it is not hit here; no skip needed.
 		for _, fs := range rates {
-			fs := fs
 			spec := spec
 			caseName := fmt.Sprintf("%s/fs%d", spec.name, fs)
 			t.Run(caseName, func(t *testing.T) {
@@ -375,7 +374,7 @@ func TestSub48NativeEncodeParity(t *testing.T) {
 				}
 
 				res := sub48ParityResult{name: spec.name, fs: fs, firstDivFr: -1}
-				for f := 0; f < nFrames; f++ {
+				for f := range nFrames {
 					gFrame := src[f*nativeSamples*spec.channels : (f+1)*nativeSamples*spec.channels]
 					gpkt, gerr := encDiffEncodeOneFrame(enc, gFrame)
 					// HARD: gopus must accept the frame / not panic at every rate.

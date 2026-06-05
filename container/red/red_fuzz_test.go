@@ -361,14 +361,11 @@ func FuzzREDAppendHistory(f *testing.F) {
 		if len(payload) > 4096 {
 			payload = payload[:4096]
 		}
-		md := int(maxDepth)
-		if md < 0 {
-			md = 0
-		}
+		md := max(int(maxDepth), 0)
 
 		var h []red.Frame
 		// Append several times to exercise trimming.
-		for i := 0; i < 8; i++ {
+		for i := range 8 {
 			p := make([]byte, len(payload))
 			copy(p, payload)
 			h = red.AppendHistory(h, p, ts+uint32(i)*960, md)

@@ -37,17 +37,11 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 	// filter runs at that scale; only the analysis buffers/search use the
 	// QEXT-scaled period). Clamp it the same way libopus clamps
 	// st->prefilter_period inside run_prefilter.
-	prevPeriod := e.prefilterPeriod
-	if prevPeriod < combFilterMinPeriod {
-		prevPeriod = combFilterMinPeriod
-	}
+	prevPeriod := max(e.prefilterPeriod, combFilterMinPeriod)
 	if prevPeriod > combFilterMaxPeriod-2 {
 		prevPeriod = combFilterMaxPeriod - 2
 	}
-	prevTapset := e.prefilterTapset
-	if prevTapset < 0 {
-		prevTapset = 0
-	}
+	prevTapset := max(e.prefilterTapset, 0)
 	if prevTapset >= len(combFilterGains) {
 		prevTapset = len(combFilterGains) - 1
 	}
@@ -59,7 +53,7 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 		hist := e.prefilterMem[:maxPeriod]
 		preCh := pre[:perChanLen]
 		copy(preCh[:maxPeriod], hist)
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			preCh[maxPeriod+i] = celtSig(preemph[i])
 		}
 	} else {
@@ -69,7 +63,7 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 		preR := pre[perChanLen : 2*perChanLen]
 		copy(preL[:maxPeriod], histL)
 		copy(preR[:maxPeriod], histR)
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			preL[maxPeriod+i] = celtSig(preemph[2*i])
 			preR[maxPeriod+i] = celtSig(preemph[2*i+1])
 		}
@@ -103,16 +97,10 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 		}
 		gain1 = 0.75
 	} else if enabled && e.complexity >= 5 {
-		pitchBufLen := (maxPeriod + frameSize) >> 1
-		if pitchBufLen < 1 {
-			pitchBufLen = 1
-		}
+		pitchBufLen := max((maxPeriod+frameSize)>>1, 1)
 		pitchBuf := ensureFloat32Slice(&e.scratch.prefilterPitchBuf, pitchBufLen)
 		pitchDownsampleSig(pre, pitchBuf, pitchBufLen, channels, 2)
-		maxPitch := maxPeriod - 3*minPeriod
-		if maxPitch < 1 {
-			maxPitch = 1
-		}
+		maxPitch := max(maxPeriod-3*minPeriod, 1)
 		searchOut := pitchSearch(pitchBuf[maxPeriod>>1:], pitchBuf, frameSize, maxPitch, &e.scratch)
 		pitchIndex = searchOut
 		pitchIndex = maxPeriod - pitchIndex
@@ -177,10 +165,7 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 		if abs32(gain1-e.prefilterGain) < 0.1 {
 			gain1 = e.prefilterGain
 		}
-		qg = int(0.5+gain1*32.0/3.0) - 1
-		if qg < 0 {
-			qg = 0
-		}
+		qg = max(int(0.5+gain1*32.0/3.0)-1, 0)
 		if qg > 7 {
 			qg = 7
 		}
@@ -204,15 +189,12 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 
 	mode := e.modeConfig(frameSize)
 	shortMdctSize := frameSize / mode.ShortBlocks
-	offset := shortMdctSize - overlap
-	if offset < 0 {
-		offset = 0
-	}
+	offset := max(shortMdctSize-overlap, 0)
 	window := GetWindowBufferF32(overlap)
 
 	var before [2]opusVal32
 	var after [2]opusVal32
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 		outCh := out[ch*perChanLen : (ch+1)*perChanLen]
 		preSub := preCh[maxPeriod : maxPeriod+frameSize]
@@ -243,7 +225,7 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 	}
 
 	if cancelPitch {
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 			outCh := out[ch*perChanLen : (ch+1)*perChanLen]
 			copy(outCh[maxPeriod:maxPeriod+frameSize], preCh[maxPeriod:maxPeriod+frameSize])
@@ -337,7 +319,7 @@ func (e *Encoder) updatePrefilterNoopState(pre []celtSig, perChanLen, frameSize,
 		}
 	}
 
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 		mem := e.prefilterMem[ch*maxPeriod : (ch+1)*maxPeriod]
 		if frameSize > maxPeriod {
@@ -391,10 +373,7 @@ func pitchDownsampleSig(x []celtSig, xLP []float32, length, channels, factor int
 		handled = true
 	}
 	if !handled {
-		offset := factor / 2
-		if offset < 1 {
-			offset = 1
-		}
+		offset := max(factor/2, 1)
 		for i := 1; i < length; i++ {
 			idx := factor * i
 			v := firQuarter*float32(x[idx-offset]) +
@@ -425,7 +404,7 @@ func pitchDownsampleSig(x []celtSig, xLP []float32, length, channels, factor int
 
 	lpc := lpcFromAutocorr32(ac)
 	tmp := float32(1.0)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		tmp *= float32(0.9)
 		lpc[i] *= tmp
 	}
@@ -471,10 +450,7 @@ func pitchSearch(xLP []float32, y []float32, length, maxPitch int, scratch *enco
 		if r.hi < r.lo {
 			continue
 		}
-		lo := r.lo - 1
-		if lo < 0 {
-			lo = 0
-		}
+		lo := max(r.lo-1, 0)
 		hi := r.hi + 2
 		if hi > halfPitch {
 			hi = halfPitch
@@ -482,7 +458,7 @@ func pitchSearch(xLP []float32, y []float32, length, maxPitch int, scratch *enco
 		clear(xcorr[lo:hi])
 	}
 	Syy := float32(1)
-	for j := 0; j < halfLen; j++ {
+	for j := range halfLen {
 		yj := float32(y[j])
 		Syy += yj * yj
 	}
@@ -558,11 +534,11 @@ func findBestPitchF32(xcorr []float32, y []float32, length, maxPitch int, bestPi
 	bestPitch[1] = 1
 	_ = y[length+maxPitch-1]
 	_ = xcorr[maxPitch-1]
-	for j := 0; j < length; j++ {
+	for j := range length {
 		Syy += y[j] * y[j]
 	}
 	const xcorrScale = float32(1e-12)
-	for i := 0; i < maxPitch; i++ {
+	for i := range maxPitch {
 		if xv := xcorr[i]; xv > 0 {
 			xcorr16 := xv * xcorrScale
 			num := xcorr16 * xcorr16
@@ -641,7 +617,7 @@ func findBestPitchInRangesF32(xcorr []float32, y []float32, length int, ranges [
 	bestDen := [2]float32{0, 0}
 	bestPitch[0] = 0
 	bestPitch[1] = 1
-	for j := 0; j < length; j++ {
+	for j := range length {
 		Syy += y[j] * y[j]
 	}
 	i := 0
@@ -783,10 +759,7 @@ func removeDoubling(x []float32, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 	} else if (xcorr[0] - xcorr[2]) > float32(0.7)*(xcorr[1]-xcorr[2]) {
 		offset = -1
 	}
-	*T0 = 2*T + offset
-	if *T0 < minPeriod0 {
-		*T0 = minPeriod0
-	}
+	*T0 = max(2*T+offset, minPeriod0)
 	return pg
 }
 
@@ -812,7 +785,7 @@ func prefilterDualInnerProdF32(x, y1, y2 []float32, length int) (float32, float3
 	}
 	sum1 := float32(0)
 	sum2 := float32(0)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		xi := x[i]
 		sum1 += xi * y1[i]
 		sum2 += xi * y2[i]
@@ -910,10 +883,7 @@ func lpcFromAutocorr32(ac [5]float32) [4]float32 {
 }
 
 func pitchAutocorr5F32(lp []float32, length int, ac *[5]float32) {
-	fastN := length - 4
-	if fastN < 0 {
-		fastN = 0
-	}
+	fastN := max(length-4, 0)
 	pitchXCorrFloat32(lp, lp, ac[:], fastN, 5)
 	for lag := 0; lag <= 4; lag++ {
 		tail := float32(0)

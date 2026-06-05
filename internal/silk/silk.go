@@ -92,7 +92,7 @@ func (d *Decoder) Decode(
 
 	resampler := d.GetResampler(bandwidth)
 	output := make([]float32, 0, frameSizeSamples)
-	for f := 0; f < framesPerPacket; f++ {
+	for f := range framesPerPacket {
 		start := f * frameLength
 		end := start + frameLength
 		if start < 0 || end > len(nativeSamples) || frameLength == 0 {
@@ -187,10 +187,7 @@ func (d *Decoder) recordNativeStereoFromFloat32(leftNative, rightNative []float3
 	if !nativeLowbandCaptureEnabled {
 		return
 	}
-	n := len(leftNative)
-	if n > len(d.stereoLeftNative) {
-		n = len(d.stereoLeftNative)
-	}
+	n := min(len(leftNative), len(d.stereoLeftNative))
 	if n > len(rightNative) {
 		n = len(rightNative)
 	}
@@ -353,7 +350,7 @@ func (d *Decoder) DecodeMonoToStereo(
 		rightOut = make([]float32, 0, frameSizeSamples)
 	}
 
-	for f := 0; f < framesPerPacket; f++ {
+	for f := range framesPerPacket {
 		start := f * frameLength
 		end := start + frameLength
 		if start < 0 || end > len(nativeSamples) || frameLength == 0 {
@@ -430,7 +427,7 @@ func (d *Decoder) DecodeWithDecoder(
 
 	resampler := d.GetResampler(bandwidth)
 	output := make([]float32, 0, frameSizeSamples)
-	for f := 0; f < framesPerPacket; f++ {
+	for f := range framesPerPacket {
 		start := f * frameLength
 		end := start + frameLength
 		if start < 0 || end > len(nativeSamples) || frameLength == 0 {
@@ -492,7 +489,7 @@ func (d *Decoder) DecodeWithDecoderInto(
 
 	resampler := d.GetResampler(bandwidth)
 	outputOffset := 0
-	for f := 0; f < framesPerPacket; f++ {
+	for f := range framesPerPacket {
 		start := f * frameLength
 		end := start + frameLength
 		if start < 0 || end > len(nativeSamples) || frameLength == 0 {
@@ -565,10 +562,7 @@ func (d *Decoder) DecodeStereoWithDecoderInto(
 
 	nLeft := leftResampler.ProcessInt16Into(leftNative[:nativeSamples], leftScratch)
 	nRight := rightResampler.ProcessInt16Into(rightNative[:nativeSamples], rightScratch)
-	n := nLeft
-	if nRight < n {
-		n = nRight
-	}
+	n := min(nRight, nLeft)
 	if n < 0 || n*2 > len(output) {
 		return 0, ErrDecodeFailed
 	}
@@ -727,7 +721,7 @@ func (d *Decoder) DecodeMonoToStereoWithDecoder(
 		rightOut = make([]float32, 0, frameSizeSamples)
 	}
 
-	for f := 0; f < framesPerPacket; f++ {
+	for f := range framesPerPacket {
 		start := f * frameLength
 		end := start + frameLength
 		if start < 0 || end > len(nativeSamples) || frameLength == 0 {
@@ -815,7 +809,7 @@ func (d *Decoder) DecodeMonoToStereoWithDecoderInto(
 	}
 
 	outputOffset := 0
-	for f := 0; f < framesPerPacket; f++ {
+	for f := range framesPerPacket {
 		start := f * frameLength
 		end := start + frameLength
 		if start < 0 || end > len(nativeSamples) {
@@ -1080,7 +1074,7 @@ func (d *Decoder) DecodePLCInto(bandwidth Bandwidth, frameSizeSamples int, outpu
 	resampler := d.GetResampler(bandwidth)
 	outputOffset := 0
 	captureI16 := d.plcLowbandCaptureArm && len(d.plcLowbandCapture) > 0
-	for f := 0; f < framesPerPacket; f++ {
+	for f := range framesPerPacket {
 		start := f * frameLength
 		end := start + frameLength
 		if start < 0 || end > len(concealed) || frameLength == 0 {
@@ -1146,7 +1140,7 @@ func (d *Decoder) captureMonoPLCLowband(out []float32) {
 		return
 	}
 	n := min(len(out), len(d.plcLowbandCapture))
-	for i := 0; i < n; i++ {
+	for i := range n {
 		d.plcLowbandCapture[i] = float32ToInt16(out[i])
 	}
 	d.plcLowbandCaptured = n
@@ -1231,10 +1225,7 @@ func (d *Decoder) applyDeepPLCHistoryMono(st *decoderState, concealed []float32)
 		return
 	}
 	var history [maxLPCOrder]int32
-	start := len(concealed) - order
-	if start < 0 {
-		start = 0
-	}
+	start := max(len(concealed)-order, 0)
 	historyIdx := 0
 	for i := start; i < len(concealed) && historyIdx < order; i++ {
 		sampleQ0 := int32(float32ToInt16(concealed[i]))
@@ -1443,7 +1434,7 @@ func (d *Decoder) DecodePLCStereoInto(bandwidth Bandwidth, frameSizeSamples int,
 	}
 	clear(midFrame[:nativeSamples+2])
 	clear(sideFrame[:nativeSamples+2])
-	for i := 0; i < nativeSamples; i++ {
+	for i := range nativeSamples {
 		midFrame[i+2] = float32ToInt16(mid[i])
 		if hasSide {
 			sideFrame[i+2] = float32ToInt16(side[i])

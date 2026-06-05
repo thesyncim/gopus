@@ -78,7 +78,7 @@ func (m *Decoder) DecodeAllWithProcessor(processor *Processor, dst, state, laten
 	m.initStates(&processor.state, state, &processor.scratch)
 
 	written := 0
-	for i := 0; i < nbLatents; i++ {
+	for i := range nbLatents {
 		out := dst[written : written+OutputOutSize]
 		in := latents[i*latentStride : (i+1)*latentStride]
 		m.decodeQFrame(&processor.state, &processor.scratch, out, in)
@@ -173,11 +173,11 @@ func computeGenericGRU(inputWeights, recurrentWeights *LinearLayer, state, in []
 		zrh[i] += recur[i]
 	}
 	computeActivation(zrh[:2*n], zrh[:2*n], 2*n, activationSigmoid)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		h[i] += recur[2*n+i] * r[i]
 	}
 	computeActivation(h, h, n, activationTanh)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		h[i] = z[i]*state[i] + (1-z[i])*h[i]
 		state[i] = h[i]
 	}
@@ -188,7 +188,7 @@ func computeGLU(layer *LinearLayer, output, input []float32, scratch *runtimeScr
 	act := scratch.act[:n]
 	computeLinear(layer, act[:n], input[:layer.NbInputs], scratch)
 	computeActivation(act[:n], act[:n], n, activationSigmoid)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		output[i] = input[i] * act[i]
 	}
 }
@@ -255,7 +255,7 @@ func computeLinear(layer *LinearLayer, out, in []float32, scratch *runtimeScratc
 	}
 
 	if !bias.Empty() {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			out[i] += bias.At(i)
 		}
 	}
@@ -271,9 +271,9 @@ func sgemv(out []float32, weights FloatTensor, rows, cols, colStride int, x []fl
 
 func sgemvFused(out []float32, weights FloatTensor, rows, cols, colStride int, x []float32) {
 	clear(out[:rows])
-	for i := 0; i < rows; i++ {
+	for i := range rows {
 		var sum float32
-		for j := 0; j < cols; j++ {
+		for j := range cols {
 			sum = fma32(weights.At(j*colStride+i), x[j], sum)
 		}
 		out[i] = sum
@@ -282,9 +282,9 @@ func sgemvFused(out []float32, weights FloatTensor, rows, cols, colStride int, x
 
 func sgemvSplit(out []float32, weights FloatTensor, rows, cols, colStride int, x []float32) {
 	clear(out[:rows])
-	for i := 0; i < rows; i++ {
+	for i := range rows {
 		var sum float32
-		for j := 0; j < cols; j++ {
+		for j := range cols {
 			sum += weights.At(j*colStride+i) * x[j]
 		}
 		out[i] = sum
@@ -300,14 +300,14 @@ func sparseSGEMV(out []float32, weights FloatTensor, idx IntTensor, x []float32)
 		colBlocks := int(idx.At(idxPos))
 		idxPos++
 		y := out[row : row+8]
-		for j := 0; j < colBlocks; j++ {
+		for range colBlocks {
 			pos := int(idx.At(idxPos))
 			idxPos++
 			x0 := x[pos]
 			x1 := x[pos+1]
 			x2 := x[pos+2]
 			x3 := x[pos+3]
-			for k := 0; k < 8; k++ {
+			for k := range 8 {
 				base := wOffset + k
 				y[k] += weights.At(base)*x0 +
 					weights.At(base+8)*x1 +
@@ -320,7 +320,7 @@ func sparseSGEMV(out []float32, weights FloatTensor, idx IntTensor, x []float32)
 }
 
 func cgemv8x4(out []float32, weights Int8Tensor, scale FloatTensor, rows, cols int, x []float32, q []int8) {
-	for i := 0; i < cols; i++ {
+	for i := range cols {
 		q[i] = quantizeInput(x[i])
 	}
 	if useNearestEvenQuant {
@@ -362,7 +362,7 @@ func cgemv8x4(out []float32, weights Int8Tensor, scale FloatTensor, rows, cols i
 			x1 := int(q[col+1])
 			x2 := int(q[col+2])
 			x3 := int(q[col+3])
-			for k := 0; k < 8; k++ {
+			for k := range 8 {
 				base := wOffset + k*4
 				y[k] += float32(int(weights.At(base))*x0 +
 					int(weights.At(base+1))*x1 +
@@ -371,7 +371,7 @@ func cgemv8x4(out []float32, weights Int8Tensor, scale FloatTensor, rows, cols i
 			}
 			wOffset += SparseBlockSize
 		}
-		for k := 0; k < 8; k++ {
+		for k := range 8 {
 			y[k] *= scale.At(row + k)
 		}
 	}
@@ -389,7 +389,7 @@ func sparseCGEMV8x4(out []float32, weights Int8Tensor, idx IntTensor, scale Floa
 			var acc0, acc1, acc2, acc3, acc4, acc5, acc6, acc7 int
 			colBlocks := int(idx.At(idxPos))
 			idxPos++
-			for j := 0; j < colBlocks; j++ {
+			for range colBlocks {
 				pos := int(idx.At(idxPos))
 				idxPos++
 				x0 := int(q[pos])
@@ -424,14 +424,14 @@ func sparseCGEMV8x4(out []float32, weights Int8Tensor, idx IntTensor, scale Floa
 		colBlocks := int(idx.At(idxPos))
 		idxPos++
 		y := out[row : row+8]
-		for j := 0; j < colBlocks; j++ {
+		for range colBlocks {
 			pos := int(idx.At(idxPos))
 			idxPos++
 			x0 := int(q[pos])
 			x1 := int(q[pos+1])
 			x2 := int(q[pos+2])
 			x3 := int(q[pos+3])
-			for k := 0; k < 8; k++ {
+			for k := range 8 {
 				base := wOffset + k*4
 				y[k] += float32(int(weights.At(base))*x0 +
 					int(weights.At(base+1))*x1 +
@@ -440,7 +440,7 @@ func sparseCGEMV8x4(out []float32, weights Int8Tensor, idx IntTensor, scale Floa
 			}
 			wOffset += SparseBlockSize
 		}
-		for k := 0; k < 8; k++ {
+		for k := range 8 {
 			y[k] *= scale.At(row + k)
 		}
 	}

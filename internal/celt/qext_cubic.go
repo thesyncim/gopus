@@ -148,7 +148,7 @@ func cubicSynthesis(x []celtNorm, iy []int32, n, k, face, sign int, gain opusVal
 
 	sum := float32(0)
 	k32 := int32(k)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		x[i] = celtNorm(1 + 2*iy[i] - k32)
 	}
 	if sign != 0 {
@@ -156,7 +156,7 @@ func cubicSynthesis(x []celtNorm, iy []int32, n, k, face, sign int, gain opusVal
 	} else {
 		x[face] = celtNorm(k)
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		sum += float32(x[i]) * float32(x[i])
 	}
 	if sum <= pvqEPSILON {
@@ -164,7 +164,7 @@ func cubicSynthesis(x []celtNorm, iy []int32, n, k, face, sign int, gain opusVal
 		return
 	}
 	scale := float32(gain) * celtRSqrt(sum)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		x[i] = celtNorm(float32(x[i]) * scale)
 	}
 }
@@ -194,7 +194,7 @@ func cubicQuant(x []celtNorm, n, res, B int, enc *rangecoding.Encoder, gain opus
 
 	face := 0
 	faceVal := float32(-1)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ax := absCeltNorm(x[i])
 		if ax > faceVal {
 			faceVal = ax
@@ -210,7 +210,7 @@ func cubicQuant(x []celtNorm, n, res, B int, enc *rangecoding.Encoder, gain opus
 	enc.EncodeRawBits(uint32(sign), 1)
 
 	norm := float32(0.5) * float32(k) / (faceVal + pvqEPSILON)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		iy[i] = int32(min(k-1, floor32ToInt((float32(x[i])+faceVal)*norm)))
 		if i == face {
 			continue
@@ -247,7 +247,7 @@ func cubicUnquant(x []celtNorm, n, res, B int, dec *rangecoding.Decoder, gain op
 
 	face := int(dec.DecodeUniform(uint32(n)))
 	sign := int(dec.DecodeRawBit())
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if i == face {
 			continue
 		}

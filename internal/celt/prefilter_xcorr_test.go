@@ -11,9 +11,9 @@ func goPrefilterPitchXcorr(x, y, xcorr []float64, length, maxPitch int) {
 	if length <= 0 || maxPitch <= 0 {
 		return
 	}
-	for i := 0; i < maxPitch; i++ {
+	for i := range maxPitch {
 		sum := float32(0)
-		for j := 0; j < length; j++ {
+		for j := range length {
 			sum += float32(x[j]) * float32(y[i+j])
 		}
 		xcorr[i] = float64(sum)
@@ -37,7 +37,7 @@ func f32Close(got, want float64) bool {
 
 func TestPrefilterPitchXcorr(t *testing.T) {
 	rng := rand.New(rand.NewSource(44))
-	for trial := 0; trial < 200; trial++ {
+	for trial := range 200 {
 		length := rng.Intn(300) + 1
 		maxPitch := rng.Intn(100) + 1
 		x := make([]float64, length)
@@ -52,7 +52,7 @@ func TestPrefilterPitchXcorr(t *testing.T) {
 		want := make([]float64, maxPitch)
 		prefilterPitchXcorr(x, y, got, length, maxPitch)
 		goPrefilterPitchXcorr(x, y, want, length, maxPitch)
-		for i := 0; i < maxPitch; i++ {
+		for i := range maxPitch {
 			if !f32Close(got[i], want[i]) {
 				t.Fatalf("trial %d (length=%d, maxPitch=%d): xcorr[%d] got %v, want %v (diff=%e)",
 					trial, length, maxPitch, i, got[i], want[i], math.Abs(got[i]-want[i]))
@@ -69,7 +69,7 @@ func TestPrefilterPitchXcorrEdge(t *testing.T) {
 	want := make([]float64, 3)
 	prefilterPitchXcorr(x, y, got, 5, 3)
 	goPrefilterPitchXcorr(x, y, want, 5, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if got[i] != want[i] {
 			t.Fatalf("xcorr[%d]: got %v, want %v", i, got[i], want[i])
 		}

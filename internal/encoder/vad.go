@@ -136,12 +136,12 @@ func NewVADState() *VADState {
 // Matches silk_VAD_Init from libopus silk/VAD.c.
 func (v *VADState) Reset() {
 	// Initialize noise level bias (approx pink noise - PSD proportional to 1/f)
-	for b := 0; b < VADNBands; b++ {
+	for b := range VADNBands {
 		v.NoiseLevelBias[b] = max(VADNoiseLevelsBias/(int32(b)+1), 1)
 	}
 
 	// Initialize state with noise estimates
-	for b := 0; b < VADNBands; b++ {
+	for b := range VADNBands {
 		v.NL[b] = 100 * v.NoiseLevelBias[b]
 		if v.NL[b] > 0 {
 			v.InvNL[b] = math.MaxInt32 / v.NL[b]
@@ -154,7 +154,7 @@ func (v *VADState) Reset() {
 	v.Counter = 15
 
 	// Initialize smoothed energy-to-noise ratio to 20 dB SNR (100 * 256)
-	for b := 0; b < VADNBands; b++ {
+	for b := range VADNBands {
 		v.NrgRatioSmthQ8[b] = 100 * 256
 	}
 
@@ -204,7 +204,7 @@ func (v *VADState) getSpeechActivityFast(pcm []float32, frameLength int, fsKHz i
 	input := v.scratchInput[:frameLength]
 	_ = pcm[frameLength-1]
 	_ = input[frameLength-1]
-	for i := 0; i < frameLength; i++ {
+	for i := range frameLength {
 		input[i] = opusmath.Float32ToInt16Raw(pcm[i] * 32768.0)
 	}
 
@@ -256,7 +256,7 @@ func (v *VADState) getSpeechActivityFast(pcm []float32, frameLength int, fsKHz i
 		decimatedFrameLength2,
 		decimatedFrameLength1,
 	}
-	for b := 0; b < VADNBands; b++ {
+	for b := range VADNBands {
 		decLen := decLenByBand[b]
 		band := X[xOffset[b] : xOffset[b]+decLen]
 		// Split into subframes
@@ -267,11 +267,11 @@ func (v *VADState) getSpeechActivityFast(pcm []float32, frameLength int, fsKHz i
 		Xnrg[b] = v.XnrgSubfr[b]
 
 		var sumSquared int32
-		for s := 0; s < VADInternalSubframes; s++ {
+		for s := range VADInternalSubframes {
 			sumSquared = 0
 			subframe := band[decSubframeOffset : decSubframeOffset+decSubframeLength]
 			_ = subframe[decSubframeLength-1]
-			for i := 0; i < decSubframeLength; i++ {
+			for i := range decSubframeLength {
 				xTmp := int32(subframe[i]) >> 3
 				sumSquared += xTmp * xTmp
 			}
@@ -297,7 +297,7 @@ func (v *VADState) getSpeechActivityFast(pcm []float32, frameLength int, fsKHz i
 	var inputTilt int32
 	NrgToNoiseRatioQ8 := [VADNBands]int32{}
 
-	for b := 0; b < VADNBands; b++ {
+	for b := range VADNBands {
 		speechNrg := Xnrg[b] - v.NL[b]
 		if speechNrg > 0 {
 			// Compute energy to noise ratio
@@ -339,7 +339,7 @@ func (v *VADState) getSpeechActivityFast(pcm []float32, frameLength int, fsKHz i
 
 	// Scale sigmoid output based on power levels
 	var speechNrg int32
-	for b := 0; b < VADNBands; b++ {
+	for b := range VADNBands {
 		// Higher frequency bands have more weight
 		speechNrg += int32(b+1) * ((Xnrg[b] - v.NL[b]) >> 4)
 	}
@@ -359,10 +359,7 @@ func (v *VADState) getSpeechActivityFast(pcm []float32, frameLength int, fsKHz i
 	}
 
 	// Convert to Q8 (0-255) and clamp
-	speechActivityQ8 := saQ15 >> 7
-	if speechActivityQ8 > 255 {
-		speechActivityQ8 = 255
-	}
+	speechActivityQ8 := min(saQ15>>7, 255)
 	v.SpeechActivityQ8 = speechActivityQ8
 
 	// Smoothing coefficient based on activity
@@ -374,7 +371,7 @@ func (v *VADState) getSpeechActivityFast(pcm []float32, frameLength int, fsKHz i
 	}
 
 	// Update smoothed energy-to-noise ratios and quality bands
-	for b := 0; b < VADNBands; b++ {
+	for b := range VADNBands {
 		// Smooth energy-to-noise ratio
 		v.NrgRatioSmthQ8[b] = smlawb(v.NrgRatioSmthQ8[b], NrgToNoiseRatioQ8[b]-v.NrgRatioSmthQ8[b], smoothCoefQ16)
 
@@ -402,7 +399,7 @@ func (v *VADState) getNoiseLevels(pX []int32) {
 		minCoef = 0
 	}
 
-	for k := 0; k < VADNBands; k++ {
+	for k := range VADNBands {
 		// Get old noise level estimate
 		nl := v.NL[k]
 
@@ -434,10 +431,7 @@ func (v *VADState) getNoiseLevels(pX []int32) {
 		}
 
 		// Smooth inverse energies
-		v.InvNL[k] = smlawb(v.InvNL[k], invNrg-v.InvNL[k], coef)
-		if v.InvNL[k] < 0 {
-			v.InvNL[k] = 0
-		}
+		v.InvNL[k] = max(smlawb(v.InvNL[k], invNrg-v.InvNL[k], coef), 0)
 
 		// Compute noise level by inverting again
 		if v.InvNL[k] > 0 {

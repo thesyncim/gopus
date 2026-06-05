@@ -31,7 +31,6 @@ func TestMultistreamEncodeDecodeAllocGuard(t *testing.T) {
 			{"7.1", 8, 17, 11},
 		}
 		for _, tc := range cases {
-			tc := tc
 			t.Run(tc.name, func(t *testing.T) {
 				enc, err := NewEncoderDefault(48000, tc.channels)
 				if err != nil {
@@ -49,7 +48,7 @@ func TestMultistreamEncodeDecodeAllocGuard(t *testing.T) {
 
 				pcm := generateMultichannelSine(tc.channels, frameSize)
 				var pkt []byte
-				for i := 0; i < 5; i++ {
+				for range 5 {
 					pkt, err = enc.Encode(pcm, frameSize)
 					if err != nil {
 						t.Fatalf("warm-up Encode: %v", err)
@@ -88,7 +87,6 @@ func TestMultistreamEncodeDecodeAllocGuard(t *testing.T) {
 			{"toa", 16, 1, 17, 18},
 		}
 		for _, tc := range cases {
-			tc := tc
 			t.Run(tc.name, func(t *testing.T) {
 				enc, err := NewProjectionEncoder(48000, tc.channels)
 				if err != nil {
@@ -103,7 +101,7 @@ func TestMultistreamEncodeDecodeAllocGuard(t *testing.T) {
 
 				pcm := generateMultichannelSine(tc.channels, frameSize)
 				var pkt []byte
-				for i := 0; i < 5; i++ {
+				for range 5 {
 					pkt, err = enc.Encode(pcm, frameSize)
 					if err != nil {
 						t.Fatalf("warm-up Encode: %v", err)

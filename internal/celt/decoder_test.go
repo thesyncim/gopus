@@ -518,7 +518,7 @@ func TestDecodeFrame_ConsecutiveFrames(t *testing.T) {
 	frameSize := 960
 
 	// Decode multiple consecutive frames (PLC mode)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		samples, err := d.DecodeFrame(nil, frameSize)
 		if err != nil {
 			t.Fatalf("Frame %d: DecodeFrame error: %v", i, err)
@@ -661,7 +661,7 @@ func TestDecodeFrame_ShortFrameConsecutive(t *testing.T) {
 			silenceFrame := []byte{0x80}
 
 			// Decode 5 consecutive frames
-			for i := 0; i < 5; i++ {
+			for i := range 5 {
 				samples, err := d.DecodeFrame(silenceFrame, frameSize)
 				if err != nil {
 					t.Fatalf("Frame %d: DecodeFrame failed: %v", i, err)
@@ -787,7 +787,7 @@ func TestDecodeFrameSequence(t *testing.T) {
 	frameSize := 480 // 10ms
 
 	// Decode 5 frames
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		frameData := make([]byte, 32)
 		frameData[0] = 0x80
 		for j := 1; j < len(frameData); j++ {
@@ -1007,10 +1007,7 @@ func TestRangeDecoderBitConsumptionByStage(t *testing.T) {
 		}
 
 		// Remaining bits for allocation
-		remainingBits := len(frameData)*8 - bitsAfterCoarse
-		if remainingBits < 0 {
-			remainingBits = 0
-		}
+		remainingBits := max(len(frameData)*8-bitsAfterCoarse, 0)
 		t.Logf("Remaining bits for PVQ/fine energy: %d", remainingBits)
 
 		// Compute expected allocation
@@ -1067,10 +1064,7 @@ func TestBitConsumptionVsAllocation(t *testing.T) {
 			// Compute expected allocation
 			// Estimate bits available after header (~10 bits for flags)
 			headerOverhead := 10
-			availableBits := totalBits - headerOverhead
-			if availableBits < 0 {
-				availableBits = 0
-			}
+			availableBits := max(totalBits-headerOverhead, 0)
 
 			allocResult := ComputeAllocation(
 				availableBits,

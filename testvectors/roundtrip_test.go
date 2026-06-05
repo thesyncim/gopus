@@ -27,7 +27,7 @@ func TestGopusRoundTrip(t *testing.T) {
 	var decoded []float32
 
 	// Encode all frames
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		start := i * 960
 		end := start + 960
 		framePCM := pcm[start:end]

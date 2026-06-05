@@ -65,7 +65,7 @@ func TestFineEnergyFormulaMatch(t *testing.T) {
 //
 //	offset = (q2 - 0.5) / (1 << (fineQuant + 1))
 func TestEnergyFinaliseFormulaMatch(t *testing.T) {
-	for fineQuant := 0; fineQuant < 8; fineQuant++ {
+	for fineQuant := range 8 {
 		for q2 := 0; q2 <= 1; q2++ {
 			// libopus formula
 			libOffset := (float64(q2) - 0.5) * float64(uint(1)<<(14-fineQuant-1)) * (1.0 / 16384.0)
@@ -241,9 +241,9 @@ func TestProbabilityModelMatch(t *testing.T) {
 	}
 
 	mismatches := 0
-	for lm := 0; lm < 4; lm++ {
-		for intra := 0; intra < 2; intra++ {
-			for i := 0; i < 42; i++ {
+	for lm := range 4 {
+		for intra := range 2 {
+			for i := range 42 {
 				if eProbModel[lm][intra][i] != libEProbModel[lm][intra][i] {
 					t.Errorf("eProbModel[%d][%d][%d] mismatch: gopus=%d, libopus=%d",
 						lm, intra, i, eProbModel[lm][intra][i], libEProbModel[lm][intra][i])
@@ -356,7 +356,7 @@ func TestLaplaceDecodeConsistency(t *testing.T) {
 
 	// Decode multiple times, should get same result
 	results := make([]int, 5)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		d := NewDecoder(1)
 		rd := &rangecoding.Decoder{}
 		rd.Init(testData)

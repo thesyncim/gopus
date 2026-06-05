@@ -64,7 +64,7 @@ func TestSmoothFadeMatchesLibopusFloatPath(t *testing.T) {
 			count := tc.overlap * tc.channels
 			in1 := make([]float32, count)
 			in2 := make([]float32, count)
-			for i := 0; i < count; i++ {
+			for i := range count {
 				x := float64(i + 1)
 				in1[i] = float32(0.71*math.Sin(0.071*x) - 0.19*math.Cos(0.031*x))
 				in2[i] = float32(-0.63*math.Cos(0.043*x) + 0.11*math.Sin(0.113*x))

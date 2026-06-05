@@ -278,7 +278,7 @@ func readRules(name string) ([]rule, error) {
 
 func parseContexts(raw string) (rewriteContext, error) {
 	var contexts rewriteContext
-	for _, part := range strings.Split(raw, ",") {
+	for part := range strings.SplitSeq(raw, ",") {
 		switch strings.TrimSpace(part) {
 		case "types":
 			contexts |= ctxTypes
@@ -313,7 +313,7 @@ func goFiles(args []string) ([]string, error) {
 			return nil, err
 		}
 		var files []string
-		for _, raw := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		for raw := range strings.SplitSeq(strings.TrimSpace(string(data)), "\n") {
 			if raw != "" {
 				files = append(files, filepath.ToSlash(raw))
 			}
@@ -407,8 +407,8 @@ func globMatch(pattern, file string) bool {
 	if pattern == file || pattern == "*" {
 		return true
 	}
-	if strings.HasSuffix(pattern, "/...") {
-		prefix := strings.TrimSuffix(pattern, "/...")
+	if before, ok := strings.CutSuffix(pattern, "/..."); ok {
+		prefix := before
 		return file == prefix || strings.HasPrefix(file, prefix+"/")
 	}
 	if strings.Contains(pattern, "...") {

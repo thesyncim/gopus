@@ -88,10 +88,7 @@ func buildCrossFrameCorruptPackets(t *testing.T) []crossFrameCorruptCase {
 				// Heuristic: corrupt the last quarter of the packet (2nd frame
 				// region). Exact frame split is mode-dependent; perturbing the
 				// tail reliably lands in or after the 2nd frame header.
-				start := len(p) - len(p)/4
-				if start < 2 {
-					start = 2
-				}
+				start := max(len(p)-len(p)/4, 2)
 				switch mut {
 				case "zero2nd":
 					for i := start; i < len(p); i++ {
@@ -202,7 +199,7 @@ func TestDecodeDifferentialSizeBoundaryCorrupt(t *testing.T) {
 	// slice is a concrete decode input).
 	cases = append(cases, crossFrameCorruptCase{"empty", []byte{}})
 	// 1-byte TOC-only packets across every code.
-	for code := byte(0); code < 4; code++ {
+	for code := range byte(4) {
 		cases = append(cases, crossFrameCorruptCase{
 			label:  fmt.Sprintf("toc-only/code%d", code),
 			packet: []byte{(toc & 0xFC) | code},
@@ -220,7 +217,7 @@ func TestDecodeDifferentialSizeBoundaryCorrupt(t *testing.T) {
 	for _, m := range []byte{0x30, 0x31, 0x3F} {
 		for _, extra := range []int{0, 1, 48, 49, 63} {
 			p := []byte{(toc & 0xFC) | 0x03, m}
-			for k := 0; k < extra; k++ {
+			for range extra {
 				p = append(p, 0x00)
 			}
 			cases = append(cases, crossFrameCorruptCase{
@@ -274,7 +271,7 @@ func TestDecodeDifferentialFECOnCorruptLBRR(t *testing.T) {
 		variants := map[string][]byte{
 			"clean": append([]byte(nil), second...),
 		}
-		for i := 0; i < 8; i++ {
+		for i := range 8 {
 			m := append([]byte(nil), second...)
 			idx := 1 + rng.Intn(len(m)-1)
 			m[idx] = byte(rng.Intn(256))

@@ -779,7 +779,7 @@ var encoderCTLTable = []encoderCTLRow{
 			enc.SetDTX(true)
 			silence := make([]float32, 960)
 			triggered := false
-			for i := 0; i < 200; i++ {
+			for range 200 {
 				if _, err := enc.Encode(silence, make([]byte, 4000)); err != nil {
 					t.Fatalf("Encode error: %v", err)
 				}
@@ -858,7 +858,6 @@ var encoderCTLTable = []encoderCTLRow{
 // TestCTLTable_Encoder runs every row of the encoder CTL table.
 func TestCTLTable_Encoder(t *testing.T) {
 	for _, row := range encoderCTLTable {
-		row := row // capture
 		t.Run(row.ctlName, func(t *testing.T) {
 			t.Logf("CTL %d (%s) dir=%s tag=%q", row.ctlID, row.ctlName, row.dir, row.buildTag)
 			row.testFn(t)

@@ -20,7 +20,7 @@ func TestSILKForcedMonoStereoAPIUsesMonoPacket(t *testing.T) {
 	enc.SetForceChannels(1)
 
 	pcm := make([]float64, frameSize*2)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		pcm[2*i] = 0.2 * math.Sin(2*math.Pi*440*float64(i)/48000)
 		pcm[2*i+1] = 0.2 * math.Sin(2*math.Pi*660*float64(i)/48000)
 	}
@@ -64,7 +64,7 @@ func TestCELTForcedMonoStereoAPIUsesMonoPacket(t *testing.T) {
 	enc.SetForceChannels(1)
 
 	pcm := make([]float64, frameSize*2)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		pcm[2*i] = 0.18 * math.Sin(2*math.Pi*330*float64(i)/48000)
 		pcm[2*i+1] = 0.14 * math.Sin(2*math.Pi*550*float64(i)/48000)
 	}
@@ -109,7 +109,7 @@ func TestHybridForcedMonoStereoAPIUsesMonoPacket(t *testing.T) {
 			enc.SetForceChannels(1)
 
 			pcm := make([]float64, frameSize*2)
-			for i := 0; i < frameSize; i++ {
+			for i := range frameSize {
 				pcm[2*i] = 0.16 * math.Sin(2*math.Pi*420*float64(i)/48000)
 				pcm[2*i+1] = 0.12 * math.Sin(2*math.Pi*690*float64(i)/48000)
 			}

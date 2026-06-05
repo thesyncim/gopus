@@ -259,7 +259,7 @@ func generateSineWave(freq float64, samples int) []float32 {
 // generateStereoSineWave creates a stereo sine wave (interleaved).
 func generateStereoSineWave(freqL, freqR float64, samplesPerChannel int) []float32 {
 	pcm := make([]float32, samplesPerChannel*2)
-	for i := 0; i < samplesPerChannel; i++ {
+	for i := range samplesPerChannel {
 		t := float64(i) / 48000.0
 		pcm[i*2] = float32(0.5 * math.Sin(2*math.Pi*freqL*t))
 		pcm[i*2+1] = float32(0.5 * math.Sin(2*math.Pi*freqR*t))
@@ -270,9 +270,9 @@ func generateStereoSineWave(freqL, freqR float64, samplesPerChannel int) []float
 // generateSurroundSineWave creates a 6-channel (5.1) sine wave (interleaved).
 func generateSurroundSineWave(freqs [6]float64, samplesPerChannel int) []float32 {
 	pcm := make([]float32, samplesPerChannel*6)
-	for i := 0; i < samplesPerChannel; i++ {
+	for i := range samplesPerChannel {
 		t := float64(i) / 48000.0
-		for ch := 0; ch < 6; ch++ {
+		for ch := range 6 {
 			pcm[i*6+ch] = float32(0.5 * math.Sin(2*math.Pi*freqs[ch]*t))
 		}
 	}
@@ -311,7 +311,7 @@ func TestIntegration_WriterOpusdec_Mono(t *testing.T) {
 	}
 
 	var allInput []float32
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		pcm := generateSineWave(440.0, frameSize)
 		allInput = append(allInput, pcm...)
 
@@ -382,7 +382,7 @@ func TestIntegration_WriterOpusdec_Stereo(t *testing.T) {
 	}
 
 	var allInput []float32
-	for i := 0; i < numFrames; i++ {
+	for range numFrames {
 		pcm := generateStereoSineWave(440.0, 554.0, frameSize) // A4 left, C#5 right
 		allInput = append(allInput, pcm...)
 
@@ -452,7 +452,7 @@ func TestIntegration_WriterFFmpegDemux_Stereo(t *testing.T) {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
 
-	for i := 0; i < numFrames; i++ {
+	for range numFrames {
 		pcm := generateStereoSineWave(440.0, 554.0, frameSize)
 		packet, err := enc.EncodeFloat32(pcm)
 		if err != nil {
@@ -510,7 +510,7 @@ func TestIntegration_WriterOpusdec_Multistream(t *testing.T) {
 	freqs := [6]float64{440.0, 554.0, 659.0, 880.0, 1108.0, 1318.0}
 	var allInput []float32
 
-	for i := 0; i < numFrames; i++ {
+	for range numFrames {
 		pcm := generateSurroundSineWave(freqs, frameSize)
 		allInput = append(allInput, pcm...)
 
@@ -580,7 +580,7 @@ func TestIntegration_RoundTrip(t *testing.T) {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
 
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		pcm := generateStereoSineWave(440.0, 554.0, frameSize)
 
 		packet, err := enc.EncodeFloat32(pcm)
@@ -659,7 +659,7 @@ func TestIntegration_RoundTrip(t *testing.T) {
 func TestIntegration_ReaderWriterRoundTrip(t *testing.T) {
 	// Generate packets with known content.
 	packets := make([][]byte, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		// Create packet with distinct content.
 		packets[i] = make([]byte, 50+i*10)
 		packets[i][0] = 0xFC // TOC byte
@@ -789,7 +789,7 @@ func TestIntegration_ContainerStructure(t *testing.T) {
 	}
 
 	// Write a few packets.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		err = w.WritePacket(make([]byte, 50), 960)
 		if err != nil {
 			t.Fatalf("WritePacket failed: %v", err)
@@ -892,7 +892,7 @@ func TestIntegration_LargeFile(t *testing.T) {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
 
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		pcm := generateStereoSineWave(440.0+float64(i), 554.0+float64(i), frameSize)
 
 		packet, err := enc.EncodeFloat32(pcm)

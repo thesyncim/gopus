@@ -300,7 +300,7 @@ func ConcealCELT(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fad
 func celtChannelEnergies(concealEnergy []float32, ch, maxBands int) []float32 {
 	out := make([]float32, maxBands)
 	start := ch * maxBands
-	for i := 0; i < maxBands; i++ {
+	for i := range maxBands {
 		if src := start + i; src < len(concealEnergy) {
 			out[i] = concealEnergy[src]
 		}

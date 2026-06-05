@@ -10,10 +10,10 @@ func gemmAccumF32GenericReference(out []float32, weights []float32, rows, cols, 
 	if rows <= 0 || cols <= 0 {
 		return
 	}
-	for j := 0; j < cols; j++ {
+	for j := range cols {
 		xj := x[j]
 		w := weights[j*colStride : j*colStride+rows]
-		for i := 0; i < rows; i++ {
+		for i := range rows {
 			out[i] += w[i] * xj
 		}
 	}

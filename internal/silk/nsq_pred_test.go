@@ -8,7 +8,7 @@ import (
 // refShortTermPrediction16 is the pure Go reference for verification.
 func refShortTermPrediction16(sLPCQ14 []int32, idx int, aQ12 []int16) int32 {
 	out := int32(8)
-	for k := 0; k < 16; k++ {
+	for k := range 16 {
 		c16 := int16(aQ12[k])
 		out += int32((int64(sLPCQ14[idx-k]) * int64(c16)) >> 16)
 	}
@@ -18,7 +18,7 @@ func refShortTermPrediction16(sLPCQ14 []int32, idx int, aQ12 []int16) int32 {
 // refShortTermPrediction10 is the pure Go reference for verification.
 func refShortTermPrediction10(sLPCQ14 []int32, idx int, aQ12 []int16) int32 {
 	out := int32(5)
-	for k := 0; k < 10; k++ {
+	for k := range 10 {
 		c16 := int16(aQ12[k])
 		out += int32((int64(sLPCQ14[idx-k]) * int64(c16)) >> 16)
 	}
@@ -29,7 +29,7 @@ func TestShortTermPrediction16Asm(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
 
 	// Test with random realistic values.
-	for trial := 0; trial < 1000; trial++ {
+	for trial := range 1000 {
 		sLPCQ14 := make([]int32, 96)
 		aQ12 := make([]int16, 16)
 		for i := range sLPCQ14 {
@@ -51,7 +51,7 @@ func TestShortTermPrediction16Asm(t *testing.T) {
 func TestShortTermPrediction10Asm(t *testing.T) {
 	rng := rand.New(rand.NewSource(99))
 
-	for trial := 0; trial < 1000; trial++ {
+	for trial := range 1000 {
 		sLPCQ14 := make([]int32, 96)
 		aQ12 := make([]int16, 10)
 		for i := range sLPCQ14 {

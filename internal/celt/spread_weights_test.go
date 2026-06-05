@@ -16,7 +16,7 @@ func TestComputeSpreadWeightsBasic(t *testing.T) {
 
 	// Create test band energies with varying levels
 	bandLogE := make([]float64, nbBands)
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		// Simulate typical band energy distribution (higher in mid-frequencies)
 		bandLogE[i] = 5.0 - 0.5*float64(i-10)*float64(i-10)/100.0
 	}
@@ -46,7 +46,7 @@ func TestComputeSpreadWeightsStereo(t *testing.T) {
 
 	// Create test band energies for 2 channels
 	bandLogE := make([]float64, 2*nbBands)
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		// Left channel: higher in low frequencies
 		bandLogE[i] = 8.0 - 0.3*float64(i)
 		// Right channel: higher in high frequencies
@@ -85,7 +85,7 @@ func TestComputeSpreadWeightsEdgeCases(t *testing.T) {
 	t.Run("HighBitDepth", func(t *testing.T) {
 		nbBands := 21
 		bandLogE := make([]float64, nbBands)
-		for i := 0; i < nbBands; i++ {
+		for i := range nbBands {
 			bandLogE[i] = 5.0
 		}
 		weights16 := computeSpreadWeights(float64sToGLogs(bandLogE), nbBands, 1, 16)
@@ -107,7 +107,7 @@ func TestComputeSpreadWeightsMatchesLibopusBehavior(t *testing.T) {
 	// Test case: uniform high energy (all bands above noise floor)
 	t.Run("UniformHighEnergy", func(t *testing.T) {
 		bandLogE := make([]float64, nbBands)
-		for i := 0; i < nbBands; i++ {
+		for i := range nbBands {
 			bandLogE[i] = 10.0 // High energy
 		}
 		weights := computeSpreadWeights(float64sToGLogs(bandLogE), nbBands, channels, lsbDepth)
@@ -125,7 +125,7 @@ func TestComputeSpreadWeightsMatchesLibopusBehavior(t *testing.T) {
 	// Test case: one loud band (tests masking propagation)
 	t.Run("OneLoudBand", func(t *testing.T) {
 		bandLogE := make([]float64, nbBands)
-		for i := 0; i < nbBands; i++ {
+		for i := range nbBands {
 			bandLogE[i] = -5.0 // Low energy
 		}
 		bandLogE[10] = 15.0 // One very loud band
@@ -145,7 +145,7 @@ func TestComputeSpreadWeightsMatchesLibopusBehavior(t *testing.T) {
 	// Test case: low energy (near noise floor)
 	t.Run("LowEnergy", func(t *testing.T) {
 		bandLogE := make([]float64, nbBands)
-		for i := 0; i < nbBands; i++ {
+		for i := range nbBands {
 			bandLogE[i] = -10.0 // Very low energy
 		}
 		weights := computeSpreadWeights(float64sToGLogs(bandLogE), nbBands, channels, lsbDepth)
@@ -165,7 +165,7 @@ func TestComputeSpreadWeightsNoiseFloorCalculation(t *testing.T) {
 	// Reference: libopus noise_floor[i] = 0.0625*logN[i] + 0.5 + (9-lsb_depth) - eMeans[i] + 0.0062*(i+5)^2
 	lsbDepth := 16
 
-	for i := 0; i < 21; i++ {
+	for i := range 21 {
 		logNVal := 0.0
 		if i < len(LogN) {
 			logNVal = float64(LogN[i])
@@ -185,7 +185,7 @@ func TestComputeSpreadWeightsNoiseFloorCalculation(t *testing.T) {
 func TestComputeSpreadWeightsSimple(t *testing.T) {
 	nbBands := 21
 	bandLogE := make([]float64, nbBands)
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		bandLogE[i] = 5.0
 	}
 
@@ -225,7 +225,7 @@ func TestSpreadingDecisionWithWeights(t *testing.T) {
 
 	// Create band energies for spread weights
 	bandLogE := make([]float64, nbBands)
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		bandLogE[i] = 5.0 - 0.1*float64(i)
 	}
 
@@ -252,7 +252,7 @@ func TestMaskingPropagation(t *testing.T) {
 	mask := make([]float64, nbBands)
 
 	// Initialize with one loud band in the middle
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		sig[i] = -10.0
 		mask[i] = -10.0
 	}
@@ -274,7 +274,7 @@ func TestMaskingPropagation(t *testing.T) {
 	}
 
 	t.Log("After masking propagation:")
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		t.Logf("  Band %d: sig=%.2f, mask=%.2f", i, sig[i], mask[i])
 	}
 

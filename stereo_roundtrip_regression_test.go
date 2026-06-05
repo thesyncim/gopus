@@ -33,10 +33,10 @@ func TestStereoRoundTripRegression(t *testing.T) {
 	var totalLeftEnergy, totalRightEnergy float64
 	var totalLeftErrEnergy, totalRightErrEnergy float64
 
-	for f := 0; f < numFrames; f++ {
+	for f := range numFrames {
 		frame := make([]float32, frameSize*channels)
 		base := f * frameSize
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			tm := float64(base+i) / float64(sampleRate)
 			frame[i*2] = float32(0.5 * math.Sin(2*math.Pi*440*tm))
 			frame[i*2+1] = float32(0.5 * math.Sin(2*math.Pi*554.37*tm))
@@ -61,7 +61,7 @@ func TestStereoRoundTripRegression(t *testing.T) {
 		if f < measureAt {
 			continue
 		}
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			inL := float64(frame[i*2])
 			inR := float64(frame[i*2+1])
 			outL := float64(pcmOut[i*2])
@@ -89,7 +89,7 @@ func TestStereoRoundTripRegression(t *testing.T) {
 
 	var maxL, maxR float64
 	var diffCount int
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		l := math.Abs(float64(pcmOut[i*2]))
 		r := math.Abs(float64(pcmOut[i*2+1]))
 		if l > maxL {

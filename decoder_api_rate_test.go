@@ -81,7 +81,7 @@ func encodeAPIRateSILKPacketFrameSize(t *testing.T, channels, frameSize int) []b
 	}
 
 	pcm := make([]float32, frameSize*channels)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		left := 0.22 * float32(math.Sin(2*math.Pi*440*float64(i)/sampleRate))
 		pcm[i*channels] = left
 		if channels == 2 {
@@ -127,7 +127,7 @@ func encodeAPIRateCELTPacketFrameSize(t *testing.T, channels, frameSize int) []b
 	}
 
 	pcm := make([]float32, frameSize*channels)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		left := 0.28 * float32(math.Sin(2*math.Pi*1200*float64(i)/sampleRate))
 		pcm[i*channels] = left
 		if channels == 2 {
@@ -172,7 +172,7 @@ func encodeAPIRateCELTPacketFrameSizeVariant(t *testing.T, channels, frameSize, 
 	}
 
 	pcm := make([]float32, frameSize*channels)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		tm := float64(variant*frameSize+i) / sampleRate
 		left := 0.28*float32(math.Sin(2*math.Pi*(1200+float64(variant)*137)*tm+float64(variant)*0.11)) +
 			0.05*float32(math.Sin(2*math.Pi*(2300+float64(variant)*91)*tm+0.23))
@@ -192,7 +192,7 @@ func encodeAPIRateCELTPacketFrameSizeVariant(t *testing.T, channels, frameSize, 
 func encodeAPIRateCELTPacketVariants(t *testing.T, channels, frameSize int, bitrates []int, count int) [][]byte {
 	t.Helper()
 	packets := make([][]byte, 0, 16)
-	for variant := 0; variant < 16; variant++ {
+	for variant := range 16 {
 		bitrate := bitrates[variant%len(bitrates)]
 		packet := encodeAPIRateCELTPacketFrameSizeVariant(t, channels, frameSize, bitrate, variant)
 		if len(packets) > 0 && packet[0]&0xFC != packets[0][0]&0xFC {
@@ -248,7 +248,7 @@ func encodeAPIRateHybridPacketFrameSize(t *testing.T, channels, frameSize int) [
 	}
 
 	pcm := make([]float32, frameSize*channels)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		tm := float64(i) / sampleRate
 		pcm[i*channels] = 0.24*float32(math.Sin(2*math.Pi*220*tm)) +
 			0.12*float32(math.Sin(2*math.Pi*1300*tm+0.17))
@@ -305,9 +305,9 @@ func encodeAPIRateFECSequence(t *testing.T, mode EncoderMode, wantMode Mode, ban
 	}
 
 	packets := make([][]byte, 0, 12)
-	for frameIndex := 0; frameIndex < 12; frameIndex++ {
+	for frameIndex := range 12 {
 		pcm := make([]float32, frameSize*channels)
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			tm := float64(frameIndex*frameSize+i) / sampleRate
 			pcm[i*channels] = 0.38*float32(math.Sin(2*math.Pi*220*tm)) +
 				0.14*float32(math.Sin(2*math.Pi*440*tm+0.11))

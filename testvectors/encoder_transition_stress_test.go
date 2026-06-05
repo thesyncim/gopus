@@ -26,7 +26,7 @@ func encodeFramesForSignal(t *testing.T, enc *encoder.Encoder, signal []float32,
 	samplesPerFrame := frameSize * channels
 	numFrames := len(signal) / samplesPerFrame
 	packets := make([][]byte, numFrames)
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		start := i * samplesPerFrame
 		end := start + samplesPerFrame
 		pkt, err := encodeTest(enc, float32ToFloat64(signal[start:end]), frameSize)
@@ -87,7 +87,7 @@ func TestEncoderModeSwitchStreamQuality(t *testing.T) {
 		}
 		signal = append(signal, segSig...)
 		numFrames := len(segSig) / samplesPerFrame
-		for i := 0; i < numFrames; i++ {
+		for i := range numFrames {
 			start := i * samplesPerFrame
 			end := start + samplesPerFrame
 			pkt, err := encodeTest(enc, float32ToFloat64(segSig[start:end]), frameSize)
@@ -171,7 +171,6 @@ func TestLongFrameAbove960StabilityMatrix(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			totalSamples := tc.frameSize * 8 * tc.channels
 			signal, err := testsignal.GenerateEncoderSignalVariant(testsignal.EncoderVariantSpeechLikeV1, 48000, totalSamples, tc.channels)

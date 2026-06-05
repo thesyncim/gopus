@@ -11,7 +11,7 @@ func TestCELTAssemblyWrappersMatchReferenceEdges(t *testing.T) {
 	maxPitches := []int{1, 2, 3, 4, 5, 8, 15, 16, 31, 32}
 	for _, n := range lengths {
 		for _, maxPitch := range maxPitches {
-			for offset := 0; offset < 4; offset++ {
+			for offset := range 4 {
 				runCELTAssemblyReferenceCase(t, n, maxPitch, offset, uint64(n*1009+maxPitch*37+offset))
 			}
 		}
@@ -124,7 +124,7 @@ func runPVQAssemblyReferenceCase(t *testing.T, length int, seed uint64) {
 	pulsesLeft := int(seed%8) + 1
 	absX := make([]float32, n)
 	y := make([]float32, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		absX[i] = float32((int(asmMix(seed, i))%17)+1) * 0.25
 		y[i] = float32((int(asmMix(seed^0x517cc1b727220a95, i)) % 8) * 2)
 	}
@@ -158,9 +158,9 @@ func asmMix(seed uint64, i int) uint64 {
 }
 
 func asmPrefilterPitchXcorrRef(x, y, xcorr []float64, length, maxPitch int) {
-	for i := 0; i < maxPitch; i++ {
+	for i := range maxPitch {
 		sum := float32(0)
-		for j := 0; j < length; j++ {
+		for j := range length {
 			sum += float32(x[j]) * float32(y[i+j])
 		}
 		xcorr[i] = float64(sum)
@@ -169,7 +169,7 @@ func asmPrefilterPitchXcorrRef(x, y, xcorr []float64, length, maxPitch int) {
 
 func asmPrefilterInnerProdRef(x, y []float64, length int) float64 {
 	sum := float32(0)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		sum += float32(x[i]) * float32(y[i])
 	}
 	return float64(sum)
@@ -177,7 +177,7 @@ func asmPrefilterInnerProdRef(x, y []float64, length int) float64 {
 
 func asmTransientEnergyPairsRef(tmp []float64, x2out []float32, len2 int) float64 {
 	var mean float32
-	for i := 0; i < len2; i++ {
+	for i := range len2 {
 		t0 := float32(tmp[2*i])
 		t1 := float32(tmp[2*i+1])
 		x2 := t0*t0 + t1*t1

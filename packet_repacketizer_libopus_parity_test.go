@@ -184,7 +184,6 @@ func TestRepacketizerByteExactMatchesLibopus(t *testing.T) {
 	}
 
 	for i, tc := range cases {
-		tc := tc
 		w := want[i]
 		t.Run(tc.name, func(t *testing.T) {
 			got := runRepacketizerGopus(tc)
@@ -291,7 +290,7 @@ func code2Packet(config uint8, stereo bool, len0, len1, seed int) []byte {
 // code3CBRPacket builds a code-3 CBR packet with m equal frames of frameLen.
 func code3CBRPacket(config uint8, stereo bool, m, frameLen, seed int) []byte {
 	p := []byte{GenerateTOC(config, stereo, 3), byte(m & 0x3F)}
-	for i := 0; i < m; i++ {
+	for i := range m {
 		p = append(p, mkPayload(frameLen, seed+i)...)
 	}
 	return p
@@ -306,7 +305,7 @@ func code3VBRPacket(config uint8, stereo bool, sizes []int, seed int) []byte {
 		n := encodeFrameLength(szBuf, sizes[i])
 		p = append(p, szBuf[:n]...)
 	}
-	for i := 0; i < m; i++ {
+	for i := range m {
 		p = append(p, mkPayload(sizes[i], seed+i)...)
 	}
 	return p

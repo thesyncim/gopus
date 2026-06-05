@@ -145,10 +145,10 @@ func copyDownsampledFloat32(dst []float32, src []float32, frameSize, channels, d
 	if frameSize <= 0 || channels <= 0 || downsample <= 0 {
 		return
 	}
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		srcBase := i * downsample * channels
 		dstBase := i * channels
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			if srcBase+c >= len(src) || dstBase+c >= len(dst) {
 				return
 			}
@@ -192,7 +192,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 	prev1Energy := ensureGLogSlice(&d.scratchPrevEnergyGLog, MaxBands)
 	prev1LogE := d.prevLogE
 	prev2LogE := d.prevLogE2
-	for i := 0; i < MaxBands; i++ {
+	for i := range MaxBands {
 		left := d.prevEnergy[i]
 		if origChannels > 1 && len(d.prevEnergy) >= MaxBands*2 {
 			right := d.prevEnergy[MaxBands+i]
@@ -379,7 +379,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 	}
 
 	d.updateLogEGLog(stereoEnergies, end, transient)
-	for i := 0; i < MaxBands; i++ {
+	for i := range MaxBands {
 		d.prevEnergy[i] = stereoEnergies[i]
 		d.prevEnergy[MaxBands+i] = stereoEnergies[MaxBands+i]
 	}
@@ -646,7 +646,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	prev1EnergyHistory := ensureGLogSlice(&d.scratchPrevEnergy, MaxBands)
 	prev1LogE := d.prevLogE
 	prev2LogE := d.prevLogE2
-	for i := 0; i < MaxBands; i++ {
+	for i := range MaxBands {
 		left := d.prevEnergy[i]
 		if origChannels > 1 && len(d.prevEnergy) >= MaxBands*2 {
 			right := d.prevEnergy[MaxBands+i]
@@ -921,7 +921,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 
 	channels := int(d.channels)
 	energies := ensureGLogSlice(&d.scratchEnergies, end*channels)
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		for band := 0; band < end; band++ {
 			energies[c*end+band] = d.prevEnergy[c*MaxBands+band]
 		}

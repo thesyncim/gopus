@@ -41,7 +41,7 @@ func encodeModeSwitchSingleStreamPackets(t *testing.T, channels int, frameSize i
 		enc.SetMode(m)
 
 		pcm := make([]float32, frameSize*channels)
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			tm := (phase + float64(i)) / sampleRate
 			pcm[i*channels] = 0.24*float32(math.Sin(2*math.Pi*220*tm)) +
 				0.12*float32(math.Sin(2*math.Pi*1300*tm+0.17))
@@ -126,7 +126,6 @@ func TestMultistreamPerStreamModeTransitionMatchesLibopus(t *testing.T) {
 	}
 
 	for _, channels := range []int{1, 2} {
-		channels := channels
 		t.Run(fmt.Sprintf("ch%d", channels), func(t *testing.T) {
 			packets := encodeModeSwitchSingleStreamPackets(t, channels, frameSize, modeWalk)
 			modes := perStreamModes(packets)
@@ -176,7 +175,7 @@ func TestMultistreamPerStreamModeTransitionMatchesLibopus(t *testing.T) {
 
 			perFrame := frameSize * channels
 			celtBoundaryBody := false
-			for f := 0; f < len(modes); f++ {
+			for f := range modes {
 				// A frame crosses the CELT_ONLY boundary (in either direction) iff
 				// its CELT-ness differs from the previous frame; libopus applies the
 				// 5 ms pcm_transition crossfade exactly on those frames.

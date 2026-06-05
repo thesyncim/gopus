@@ -89,7 +89,7 @@ func parseFECOracleOutput(data []byte) ([][]byte, error) {
 	numPackets := int(binary.LittleEndian.Uint32(data[8:12]))
 	packets := make([][]byte, 0, numPackets)
 	off := 12
-	for i := 0; i < numPackets; i++ {
+	for i := range numPackets {
 		if off+4 > len(data) {
 			return nil, fmt.Errorf("truncated FEC oracle output at packet %d length", i)
 		}
@@ -222,7 +222,7 @@ func encodeGopusFEC(t *testing.T, c fecParityCase, pcm []float32) (packets [][]b
 
 	samplesPerFrame := c.frameSize * c.channels
 	numFrames := len(pcm) / samplesPerFrame
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		start := i * samplesPerFrame
 		frame := float32ToFloat64OpusDemoF32(pcm[start : start+samplesPerFrame])
 		pkt, encErr := encodeTest(enc, frame, c.frameSize)
@@ -272,7 +272,6 @@ func TestEncoderFECLBRRByteParitySILK(t *testing.T) {
 	}
 
 	for _, c := range fecParityMatrix() {
-		c := c
 		for _, variant := range variants {
 			t.Run(c.name+"/"+variant, func(t *testing.T) {
 				totalSamples := frameBudget * c.frameSize * c.channels

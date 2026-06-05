@@ -16,7 +16,7 @@ func TestStereoLPFilter(t *testing.T) {
 	lp, hp := stereoLPFilter(signal, frameLength)
 
 	// For constant input, LP should equal input and HP should be 0
-	for i := 0; i < frameLength; i++ {
+	for i := range frameLength {
 		if lp[i] != 1000 {
 			t.Errorf("LP[%d] = %d, want 1000 (constant input)", i, lp[i])
 		}
@@ -38,7 +38,7 @@ func TestStereoLPFilterImpulse(t *testing.T) {
 	lp, hp := stereoLPFilter(signal, frameLength)
 
 	expectedLP := []int16{1000, 2000, 1000}
-	for i := 0; i < frameLength; i++ {
+	for i := range frameLength {
 		if lp[i] != expectedLP[i] {
 			t.Errorf("LP[%d] = %d, want %d", i, lp[i], expectedLP[i])
 		}
@@ -49,7 +49,7 @@ func TestStereoLPFilterImpulse(t *testing.T) {
 	// HP[1] = 4000 - 2000 = 2000
 	// HP[2] = 0 - 1000 = -1000
 	expectedHP := []int16{-1000, 2000, -1000}
-	for i := 0; i < frameLength; i++ {
+	for i := range frameLength {
 		if hp[i] != expectedHP[i] {
 			t.Errorf("HP[%d] = %d, want %d", i, hp[i], expectedHP[i])
 		}
@@ -64,7 +64,7 @@ func TestStereoLPFilterFloat(t *testing.T) {
 	lp, hp := stereoLPFilterFloat(signal, frameLength)
 
 	// For constant input, LP should equal input and HP should be 0
-	for i := 0; i < frameLength; i++ {
+	for i := range frameLength {
 		if math.Abs(float64(lp[i]-1.0)) > 0.001 {
 			t.Errorf("LP[%d] = %f, want 1.0 (constant input)", i, lp[i])
 		}
@@ -83,7 +83,7 @@ func TestStereoLPFilterFloatImpulse(t *testing.T) {
 
 	// LP[n] = (s[n] + 2*s[n+1] + s[n+2]) / 4
 	expectedLP := []float32{1.0, 2.0, 1.0}
-	for i := 0; i < frameLength; i++ {
+	for i := range frameLength {
 		if math.Abs(float64(lp[i]-expectedLP[i])) > 0.001 {
 			t.Errorf("LP[%d] = %f, want %f", i, lp[i], expectedLP[i])
 		}
@@ -91,7 +91,7 @@ func TestStereoLPFilterFloatImpulse(t *testing.T) {
 
 	// HP[n] = signal[n+1] - LP[n]
 	expectedHP := []float32{-1.0, 2.0, -1.0}
-	for i := 0; i < frameLength; i++ {
+	for i := range frameLength {
 		if math.Abs(float64(hp[i]-expectedHP[i])) > 0.001 {
 			t.Errorf("HP[%d] = %f, want %f", i, hp[i], expectedHP[i])
 		}
@@ -161,7 +161,7 @@ func TestStereoFindPredictorFloat(t *testing.T) {
 	x := make([]float32, 100)
 	y := make([]float32, 100)
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		x[i] = float32(i) / 100.0
 		y[i] = 0.5 * x[i]
 	}

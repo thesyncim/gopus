@@ -32,7 +32,7 @@ func checkMDCTForward(in, out []float64, nfft int) float64 {
 
 	for bin := 0; bin < nfft/2; bin++ {
 		var ansr float64
-		for k := 0; k < nfft; k++ {
+		for k := range nfft {
 			phase := 2 * math.Pi * (float64(k) + 0.5 + float64(nfft)/4.0) * (float64(bin) + 0.5) / float64(nfft)
 			re := math.Cos(phase)
 			re /= float64(nfft) / 4.0
@@ -59,7 +59,7 @@ func checkMDCTForward(in, out []float64, nfft int) float64 {
 func checkMDCTInverse(in, out []float64, nfft int) float64 {
 	var errpow, sigpow float64
 
-	for bin := 0; bin < nfft; bin++ {
+	for bin := range nfft {
 		var ansr float64
 		for k := 0; k < nfft/2; k++ {
 			phase := 2 * math.Pi * (float64(bin) + 0.5 + float64(nfft)/4.0) * (float64(k) + 0.5) / float64(nfft)
@@ -86,7 +86,7 @@ func mdctForwardRef[T ~float32 | ~float64](in []T) []float64 {
 
 	for bin := 0; bin < nfft/2; bin++ {
 		var sum float64
-		for k := 0; k < nfft; k++ {
+		for k := range nfft {
 			phase := 2 * math.Pi * (float64(k) + 0.5 + float64(nfft)/4.0) * (float64(bin) + 0.5) / float64(nfft)
 			re := math.Cos(phase)
 			re /= float64(nfft) / 4.0
@@ -104,7 +104,7 @@ func mdctForwardRef[T ~float32 | ~float64](in []T) []float64 {
 func mdctInverseRef(in []float64, nfft int) []float64 {
 	out := make([]float64, nfft)
 
-	for bin := 0; bin < nfft; bin++ {
+	for bin := range nfft {
 		var sum float64
 		for k := 0; k < nfft/2; k++ {
 			phase := 2 * math.Pi * (float64(bin) + 0.5 + float64(nfft)/4.0) * (float64(k) + 0.5) / float64(nfft)
@@ -125,18 +125,18 @@ func mdctTest1d(t *testing.T, nfft int, isInverse bool) {
 	// Create random input with same distribution as C test
 	rng := rand.New(rand.NewSource(42)) // Fixed seed for reproducibility
 	in := make([]float64, nfft)
-	for k := 0; k < nfft; k++ {
+	for k := range nfft {
 		in[k] = float64(rng.Intn(32768) - 16384)
 	}
 
 	// Scale input by 32768 as in C test
-	for k := 0; k < nfft; k++ {
+	for k := range nfft {
 		in[k] *= 32768
 	}
 
 	// For inverse, also divide by nfft
 	if isInverse {
-		for k := 0; k < nfft; k++ {
+		for k := range nfft {
 			in[k] /= float64(nfft)
 		}
 	}
@@ -236,7 +236,7 @@ func TestMDCTUnit_GoIMDCT(t *testing.T) {
 			// Create random coefficients
 			rng := rand.New(rand.NewSource(42))
 			coeffs := make([]float32, N)
-			for i := 0; i < N; i++ {
+			for i := range N {
 				coeffs[i] = float32(rng.Intn(32768) - 16384)
 			}
 
@@ -302,7 +302,7 @@ func TestMDCTUnit_GoMDCT(t *testing.T) {
 			// - mdctForwardRef: divides by nfft/4 = 2N/4 = N/2 (equivalent to multiply by 2/N)
 			// So they should match directly!
 			var errpow, sigpow float64
-			for i := 0; i < len(refOut); i++ {
+			for i := range refOut {
 				diff := goOut[i] - refOut[i]
 				errpow += diff * diff
 				sigpow += refOut[i] * refOut[i]
@@ -348,7 +348,7 @@ func TestMDCTUnit_RoundTrip(t *testing.T) {
 			scale := 0.5
 
 			var errpow, sigpow float64
-			for i := 0; i < N; i++ {
+			for i := range N {
 				scaled := coeffsBack[i] * scale
 				diff := scaled - float64(coeffs[i])
 				errpow += diff * diff

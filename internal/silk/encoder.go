@@ -532,10 +532,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 	}
 	e.complexity = int32(complexity)
 
-	fsKHz := e.sampleRate / 1000
-	if fsKHz < 1 {
-		fsKHz = 1
-	}
+	fsKHz := max(e.sampleRate/1000, 1)
 
 	switch {
 	case complexity < 1:
@@ -928,10 +925,7 @@ func (e *Encoder) setupLBRRForNewPacket() {
 		return
 	}
 	gainDecrease := (e.packetLossPercent * 13107) >> 16
-	e.lbrrGainIncreases = 7 - gainDecrease
-	if e.lbrrGainIncreases < 3 {
-		e.lbrrGainIncreases = 3
-	}
+	e.lbrrGainIncreases = max(7-gainDecrease, 3)
 }
 
 // finishLBRRPacket records whether this packet carried LBRR for the next packet's

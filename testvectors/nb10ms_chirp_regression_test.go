@@ -23,7 +23,7 @@ func TestNarrowband10msChirpNoBurst(t *testing.T) {
 	numFrames := sampleRate / frameSize
 	totalSamples := numFrames * frameSize * channels
 	signal := make([]float32, totalSamples)
-	for i := 0; i < totalSamples; i++ {
+	for i := range totalSamples {
 		ti := float64(i) / float64(sampleRate)
 		freq := 200.0 + 1800.0*ti
 		signal[i] = float32(0.5 * math.Sin(2*math.Pi*freq*ti))
@@ -46,7 +46,7 @@ func TestNarrowband10msChirpNoBurst(t *testing.T) {
 	decoded := make([]float32, 0, totalSamples+5760)
 
 	maxFrameRatio := 0.0
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		start := i * frameSize * channels
 		end := start + frameSize*channels
 		pkt, err := encodeTest(enc, float32ToFloat64(signal[start:end]), frameSize)

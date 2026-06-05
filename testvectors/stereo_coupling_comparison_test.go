@@ -93,7 +93,7 @@ func TestStereoCouplingVsLibopus(t *testing.T) {
 		frameDiff := 0.0
 		signalPower := 0.0
 		errorPower := 0.0
-		for j := 0; j < len(goSamples); j++ {
+		for j := range goSamples {
 			goQ := quantizeTo16(goSamples[j])
 			diff := math.Abs(float64(goQ) - float64(libFrame[j]))
 			if diff > frameDiff {

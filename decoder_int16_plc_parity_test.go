@@ -76,7 +76,7 @@ func plcInt16LossPatterns(pkt []byte) []plcInt16LossPattern {
 			// loss on every third frame over 9 total frames (3 losses, 6 good)
 			build: func(p []byte) []plcInt16LossStep {
 				steps := make([]plcInt16LossStep, 0, 9)
-				for i := 0; i < 9; i++ {
+				for i := range 9 {
 					if (i+1)%3 == 0 {
 						steps = append(steps, plcInt16LossStep{packet: nil})
 					} else {
@@ -410,10 +410,10 @@ func TestDecodeInt16PLCPeriodicDecaysMatchesLibopus(t *testing.T) {
 
 	// Sequence: warmup good packets + 9 periodic-loss frames.
 	libSteps := make([]libopusAPIRateDecodeStep, 0, warmup+9)
-	for i := 0; i < warmup; i++ {
+	for range warmup {
 		libSteps = append(libSteps, libopusAPIRateDecodeStep{packet: warmupPkt})
 	}
-	for i := 0; i < 9; i++ {
+	for i := range 9 {
 		if (i+1)%3 == 0 {
 			libSteps = append(libSteps, libopusAPIRateDecodeStep{packet: nil})
 		} else {
@@ -611,7 +611,7 @@ func TestDecodeInt16PLCSelfConsistencyWarmupN(t *testing.T) {
 				wantBuf := make([]int16, frameSize*channels)
 
 				// Warm up both decoders identically.
-				for i := 0; i < warmup; i++ {
+				for i := range warmup {
 					if _, err := decF.Decode(pkt, bufF); err != nil {
 						t.Fatalf("warmup Decode step %d: %v", i, err)
 					}
@@ -667,7 +667,7 @@ func TestDecodeInt16PLCSingleSampleEnergy(t *testing.T) {
 	buf := make([]int16, frameSize*channels)
 
 	// Warm up with 4 packets.
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if _, err := dec.DecodeInt16(pkt, buf); err != nil {
 			t.Fatalf("warm-up step %d: %v", i, err)
 		}

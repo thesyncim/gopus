@@ -19,10 +19,7 @@ func (e *Encoder) noiseShapeAnalysis(
 		e.noiseShapeState = NewNoiseShapeState()
 	}
 
-	fsKHz := int(e.sampleRate / 1000)
-	if fsKHz < 8 {
-		fsKHz = 8
-	}
+	fsKHz := max(int(e.sampleRate/1000), 8)
 
 	quantOffsetType := quantOffset
 	if signalType == typeVoiced {
@@ -187,20 +184,11 @@ func (e *Encoder) computeShapingARAndGains(
 		shapeOrder--
 	}
 
-	fsKHz := int(e.sampleRate / 1000)
-	if fsKHz < 1 {
-		fsKHz = 1
-	}
+	fsKHz := max(int(e.sampleRate/1000), 1)
 
-	laShape := int(e.laShape)
-	if laShape < 0 {
-		laShape = 0
-	}
+	laShape := max(int(e.laShape), 0)
 
-	frameSamples := numSubframes * subframeSamples
-	if frameSamples > len(pcm) {
-		frameSamples = len(pcm)
-	}
+	frameSamples := min(numSubframes*subframeSamples, len(pcm))
 	if frameSamples <= 0 {
 		clear(arShpQ13)
 		for i := range gains {
@@ -225,10 +213,7 @@ func (e *Encoder) computeShapingARAndGains(
 	// libopus noise shaping uses x_ptr = x - la_shape, where x points to x_frame
 	// (x_buf + ltp_mem). Align our window to that same origin.
 	src := e.inputBuffer
-	start := (ltpMemLengthMs*fsKHz - laShape)
-	if start < 0 {
-		start = 0
-	}
+	start := max((ltpMemLengthMs*fsKHz - laShape), 0)
 	if start < len(src) {
 		copyLen := xLen
 		if remaining := len(src) - start; copyLen > remaining {
@@ -247,17 +232,14 @@ func (e *Encoder) computeShapingARAndGains(
 	warping := float32(e.warpingQ16)/65536.0 + 0.01*codingQuality
 
 	flatPart := fsKHz * 3
-	slopePart := (shapeWinLength - flatPart) / 2
-	if slopePart < 0 {
-		slopePart = 0
-	}
+	slopePart := max((shapeWinLength-flatPart)/2, 0)
 
 	win := ensureFloat32Slice(&e.scratchPitchWsig32, shapeWinLength)
 	autoCorr := ensureFloat32Slice(&e.scratchPitchAuto32, shapeOrder+1)
 	rc := ensureFloat32Slice(&e.scratchPitchRefl32, shapeOrder+1)
 	ar := ensureFloat32Slice(&e.scratchPitchA32, shapeOrder)
 
-	for k := 0; k < numSubframes; k++ {
+	for k := range numSubframes {
 		offset := k * subframeSamples
 		segment := xBuf[offset : offset+shapeWinLength]
 
@@ -314,7 +296,7 @@ func (e *Encoder) computeShapingARAndGains(
 	gainMult := exp2F32(-0.16 * SNRAdjDB)
 	gainAdd := exp2F32(0.16 * float32(minQGainDb))
 
-	for k := 0; k < numSubframes; k++ {
+	for k := range numSubframes {
 		// Match libopus two-step operation:
 		//   psEncCtrl->Gains[k] *= gain_mult;   // step 1: multiply with intermediate rounding
 		//   psEncCtrl->Gains[k] += gain_add;     // step 2: add
@@ -375,17 +357,11 @@ func warpedAutocorrelationFLP32(out, state, in []float32, warping float32, lengt
 		corr[order] += st0 * tmp1
 	}
 
-	maxOut := order + 1
-	if maxOut > len(out) {
-		maxOut = len(out)
-	}
+	maxOut := min(order+1, len(out))
 	for i := 0; i < maxOut; i++ {
 		out[i] = float32(corr[i])
 	}
-	maxState := order + 1
-	if maxState > len(state) {
-		maxState = len(state)
-	}
+	maxState := min(order+1, len(state))
 	for i := 0; i < maxState; i++ {
 		state[i] = float32(st[i])
 	}
@@ -413,14 +389,14 @@ func warpedTrue2MonicCoefsF32(coefs []float32, lambda, limit float32, order int)
 		coefs[i-1] -= lambda * coefs[i]
 	}
 	gain := (1.0 - lambda*lambda) / (1.0 + lambda*coefs[0])
-	for i := 0; i < order; i++ {
+	for i := range order {
 		coefs[i] *= gain
 	}
 
-	for iter := 0; iter < 10; iter++ {
+	for iter := range 10 {
 		maxabs := float32(-1.0)
 		ind := 0
-		for i := 0; i < order; i++ {
+		for i := range order {
 			tmp := coefs[i]
 			if tmp < 0 {
 				tmp = -tmp
@@ -438,7 +414,7 @@ func warpedTrue2MonicCoefsF32(coefs []float32, lambda, limit float32, order int)
 			coefs[i-1] += lambda * coefs[i]
 		}
 		gain = 1.0 / gain
-		for i := 0; i < order; i++ {
+		for i := range order {
 			coefs[i] *= gain
 		}
 
@@ -449,7 +425,7 @@ func warpedTrue2MonicCoefsF32(coefs []float32, lambda, limit float32, order int)
 			coefs[i-1] -= lambda * coefs[i]
 		}
 		gain = (1.0 - lambda*lambda) / (1.0 + lambda*coefs[0])
-		for i := 0; i < order; i++ {
+		for i := range order {
 			coefs[i] *= gain
 		}
 	}
@@ -460,10 +436,10 @@ func limitCoefsF32(coefs []float32, limit float32, order int) {
 	if order <= 0 {
 		return
 	}
-	for iter := 0; iter < 10; iter++ {
+	for iter := range 10 {
 		maxabs := float32(-1.0)
 		ind := 0
-		for i := 0; i < order; i++ {
+		for i := range order {
 			tmp := coefs[i]
 			if tmp < 0 {
 				tmp = -tmp

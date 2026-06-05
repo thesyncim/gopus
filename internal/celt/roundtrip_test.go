@@ -11,7 +11,7 @@ func generateSineWave(freqHz float64, numSamples int) []float64 {
 	samples := make([]float64, numSamples)
 	sampleRate := 48000.0
 
-	for i := 0; i < numSamples; i++ {
+	for i := range numSamples {
 		t := float64(i) / sampleRate
 		samples[i] = 0.5 * math.Sin(2*math.Pi*freqHz*t)
 	}
@@ -25,7 +25,7 @@ func generateStereoSineWave(freqL, freqR float64, samplesPerChannel int) []float
 	samples := make([]float64, samplesPerChannel*2)
 	sampleRate := 48000.0
 
-	for i := 0; i < samplesPerChannel; i++ {
+	for i := range samplesPerChannel {
 		t := float64(i) / sampleRate
 		samples[i*2] = 0.5 * math.Sin(2*math.Pi*freqL*t)   // Left
 		samples[i*2+1] = 0.5 * math.Sin(2*math.Pi*freqR*t) // Right
@@ -277,7 +277,7 @@ func TestCELTRoundTripMultipleFrames(t *testing.T) {
 	encoder := NewEncoder(1)
 	decoder := NewDecoder(1)
 
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		// Generate frame with slightly different content
 		freq := 440.0 + float64(i)*100.0
 		pcm := generateSineWave(freq, frameSize)
@@ -395,7 +395,7 @@ func TestMidSideConversion(t *testing.T) {
 	left := make([]celtNorm, n)
 	right := make([]celtNorm, n)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		left[i] = celtNorm(float32(i) / float32(n))
 		right[i] = celtNorm(float32(n-i) / float32(n))
 	}
@@ -412,7 +412,7 @@ func TestMidSideConversion(t *testing.T) {
 
 	// Verify round-trip
 	maxError := 0.0
-	for i := 0; i < n; i++ {
+	for i := range n {
 		errL := math.Abs(float64(leftOut[i] - left[i]))
 		errR := math.Abs(float64(rightOut[i] - right[i]))
 		if errL > maxError {
@@ -526,7 +526,7 @@ func TestEncodeFramesMultiple(t *testing.T) {
 
 	// Generate multiple frames
 	frames := make([][]float64, numFrames)
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		freq := 440.0 + float64(i)*100.0
 		frames[i] = generateSineWave(freq, frameSize)
 	}

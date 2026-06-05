@@ -94,9 +94,7 @@ func TestMultistreamDecoderFirstPacketDurationMatrix(t *testing.T) {
 
 	frameSizes := []int{120, 240, 1920, 2880, 5760}
 	for _, fs := range frameSizes {
-		fs := fs
 		for _, dc := range decodeCases {
-			dc := dc
 			t.Run(dc.name+"_"+frameSizeLabel(fs), func(t *testing.T) {
 				enc := mustNewDefaultMultistreamEncoder(t, sampleRate, channels, ApplicationAudio)
 				dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)

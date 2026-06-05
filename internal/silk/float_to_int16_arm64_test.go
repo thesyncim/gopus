@@ -11,7 +11,7 @@ import (
 )
 
 func scalarFloatToInt16Scaled(out []int16, in []float32, scale float32, n int) {
-	for i := 0; i < n; i++ {
+	for i := range n {
 		out[i] = opusmath.Float32ToInt16Raw(in[i] * scale)
 	}
 }
@@ -39,7 +39,7 @@ func TestFloatToInt16ScaledBitExact(t *testing.T) {
 			want := make([]int16, n)
 			floatToInt16Scaled(got, in, scale, n)
 			scalarFloatToInt16Scaled(want, in, scale, n)
-			for i := 0; i < n; i++ {
+			for i := range n {
 				if got[i] != want[i] {
 					t.Fatalf("scale=%v n=%d i=%d in=%v: neon=%d scalar=%d",
 						scale, n, i, in[i], got[i], want[i])
@@ -66,7 +66,7 @@ func TestFloatToInt16ScaledBoundaries(t *testing.T) {
 	want := make([]int16, n)
 	floatToInt16Scaled(got, in, 1.0, n)
 	scalarFloatToInt16Scaled(want, in, 1.0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if got[i] != want[i] {
 			t.Fatalf("i=%d in=%v: neon=%d scalar=%d", i, in[i], got[i], want[i])
 		}

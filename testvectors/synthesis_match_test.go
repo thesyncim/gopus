@@ -18,14 +18,14 @@ func TestSynthesisMatch(t *testing.T) {
 	totalFrames := 3
 	totalSamples := totalFrames * N
 	input := make([]float32, totalSamples)
-	for i := 0; i < totalSamples; i++ {
+	for i := range totalSamples {
 		input[i] = float32(0.5 * math.Sin(2*math.Pi*float64(i)/float64(N)*10))
 	}
 
 	output := make([]float32, totalSamples)
 	history := make([]float32, overlap)
 	prevOverlap := make([]float32, overlap)
-	for frame := 0; frame < totalFrames; frame++ {
+	for frame := range totalFrames {
 		frameSamples := input[frame*N : (frame+1)*N]
 		coeffs := celt.ComputeMDCTWithHistory(frameSamples, history, 1)
 		imdctOut := celt.IMDCTOverlapWithPrev(coeffs, prevOverlap, overlap)
@@ -52,7 +52,7 @@ func TestEncoderDecoderWithStandardIMDCT(t *testing.T) {
 	totalFrames := 3
 	totalSamples := totalFrames * N
 	input := make([]float32, totalSamples)
-	for i := 0; i < totalSamples; i++ {
+	for i := range totalSamples {
 		input[i] = float32(0.5 * math.Sin(2*math.Pi*float64(i)/float64(N)*10))
 	}
 
@@ -60,7 +60,7 @@ func TestEncoderDecoderWithStandardIMDCT(t *testing.T) {
 	history := make([]float32, overlap)
 	prevOverlap := make([]float32, overlap)
 
-	for frame := 0; frame < totalFrames; frame++ {
+	for frame := range totalFrames {
 		frameSamples := input[frame*N : (frame+1)*N]
 		coeffs := celt.ComputeMDCTWithHistory(frameSamples, history, 1)
 		imdctOut := celt.IMDCTOverlapWithPrev(coeffs, prevOverlap, overlap)

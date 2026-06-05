@@ -6,7 +6,7 @@ func autocorrelationF32(out, in []float32, length, order int) {
 	}
 	_ = in[length-1]
 	_ = out[order-1]
-	for k := 0; k < order; k++ {
+	for k := range order {
 		cnt := length - k
 		out[k] = float32(innerProductF32Libopus(in[:cnt], in[k:k+cnt], cnt))
 	}
@@ -61,7 +61,7 @@ func schurF32(refl, autoCorr []float32, order int) float32 {
 }
 
 func k2aF32(a, rc []float32, order int) {
-	for k := 0; k < order; k++ {
+	for k := range order {
 		rck := rc[k]
 		for n := 0; n < (k+1)/2; n++ {
 			tmp1 := a[n]
@@ -146,13 +146,13 @@ func lpcAnalysisFilterF32(rLPC, predCoef, s []float32, length, order int) {
 	default:
 		for ix := order; ix < length; ix++ {
 			var lpcPred float32
-			for k := 0; k < order; k++ {
+			for k := range order {
 				lpcPred += s[ix-k-1] * predCoef[k]
 			}
 			rLPC[ix] = s[ix] - lpcPred
 		}
 	}
-	for i := 0; i < order; i++ {
+	for i := range order {
 		rLPC[i] = 0
 	}
 }
@@ -213,10 +213,7 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float32, int, int, p
 	input32 := ensureFloat32Slice(&e.scratchPitchInput32, needed)
 	src := e.inputBuffer
 	// Split into two loops to eliminate per-sample bounds check.
-	copyLen := needed
-	if copyLen > len(src) {
-		copyLen = len(src)
-	}
+	copyLen := min(needed, len(src))
 	if copyLen > 0 {
 		_ = src[copyLen-1]    // BCE hint
 		_ = input32[needed-1] // BCE hint
@@ -238,10 +235,7 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float32, int, int, p
 	if order <= 0 {
 		residual32 := ensureFloat32Slice(&e.scratchPitchRes32, needed)
 		copy(residual32, input32)
-		resStart := histLen - frameSamples
-		if resStart < 0 {
-			resStart = 0
-		}
+		resStart := max(histLen-frameSamples, 0)
 		return residual32, resStart, frameSamples, pitchResidualInfo{}
 	}
 
@@ -249,10 +243,7 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float32, int, int, p
 	if numSubframes == 2 {
 		pitchWinMs = findPitchLpcWinMs2SF
 	}
-	pitchWinLen := pitchWinMs * fsKHz
-	if pitchWinLen > needed {
-		pitchWinLen = needed
-	}
+	pitchWinLen := min(pitchWinMs*fsKHz, needed)
 	if laPitch*2 > pitchWinLen {
 		laPitch = pitchWinLen / 2
 	}
@@ -302,10 +293,7 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float32, int, int, p
 	residual32 := ensureFloat32Slice(&e.scratchPitchRes32, needed)
 	lpcAnalysisFilterF32(residual32, a, input32, needed, order)
 
-	resStart := histLen - frameSamples
-	if resStart < 0 {
-		resStart = 0
-	}
+	resStart := max(histLen-frameSamples, 0)
 
 	return residual32, resStart, frameSamples, info
 }

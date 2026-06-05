@@ -18,7 +18,7 @@ func TestMDCTShortOverlapRoundTrip(t *testing.T) {
 	totalFrames := 3
 	totalSamples := totalFrames * N
 	signal := make([]float32, totalSamples)
-	for i := 0; i < totalSamples; i++ {
+	for i := range totalSamples {
 		signal[i] = float32(0.5 * math.Sin(2*math.Pi*float64(i)/float64(N)*10))
 	}
 
@@ -26,7 +26,7 @@ func TestMDCTShortOverlapRoundTrip(t *testing.T) {
 	history := make([]float32, overlap)
 	prevOverlap := make([]float32, overlap)
 
-	for frame := 0; frame < totalFrames; frame++ {
+	for frame := range totalFrames {
 		frameSamples := signal[frame*N : (frame+1)*N]
 		coeffs := celt.ComputeMDCTWithHistory(frameSamples, history, 1)
 		imdctOut := celt.IMDCTOverlapWithPrev(coeffs, prevOverlap, overlap)
@@ -90,14 +90,14 @@ func TestMDCT50PercentOverlapRoundTrip(t *testing.T) {
 	totalFrames := 3
 	totalSamples := totalFrames * N
 	signal := make([]float64, totalSamples)
-	for i := 0; i < totalSamples; i++ {
+	for i := range totalSamples {
 		signal[i] = 0.5 * math.Sin(2*math.Pi*float64(i)/float64(N)*10)
 	}
 
 	output := make([]float64, totalSamples)
 	prevOverlap := make([]float64, N)
 
-	for frame := 0; frame < totalFrames; frame++ {
+	for frame := range totalFrames {
 		frameInput := make([]float64, N2)
 
 		if frame == 0 {
@@ -108,16 +108,16 @@ func TestMDCT50PercentOverlapRoundTrip(t *testing.T) {
 		}
 
 		// Apply full Vorbis window (50% overlap)
-		for i := 0; i < N2; i++ {
+		for i := range N2 {
 			frameInput[i] *= vorbisWindowFull(i, N2)
 		}
 
 		// Forward MDCT
 		coeffs := make([]float64, N)
-		for k := 0; k < N; k++ {
+		for k := range N {
 			var sum float64
 			kPlus := float64(k) + 0.5
-			for n := 0; n < N2; n++ {
+			for n := range N2 {
 				nPlus := float64(n) + 0.5 + float64(N)/2
 				angle := math.Pi / float64(N) * nPlus * kPlus
 				sum += frameInput[n] * math.Cos(angle)
@@ -128,10 +128,10 @@ func TestMDCT50PercentOverlapRoundTrip(t *testing.T) {
 		// Inverse MDCT
 		imdctOut := make([]float64, N2)
 		scale := 2.0 / float64(N)
-		for n := 0; n < N2; n++ {
+		for n := range N2 {
 			nPlus := float64(n) + 0.5 + float64(N)/2
 			var sum float64
-			for k := 0; k < N; k++ {
+			for k := range N {
 				kPlus := float64(k) + 0.5
 				angle := math.Pi / float64(N) * nPlus * kPlus
 				sum += coeffs[k] * math.Cos(angle)
@@ -140,13 +140,13 @@ func TestMDCT50PercentOverlapRoundTrip(t *testing.T) {
 		}
 
 		// Apply window to output
-		for i := 0; i < N2; i++ {
+		for i := range N2 {
 			imdctOut[i] *= vorbisWindowFull(i, N2)
 		}
 
 		// 50% overlap-add: add first N samples with previous frame's last N
 		outStart := frame * N
-		for i := 0; i < N; i++ {
+		for i := range N {
 			if outStart+i < totalSamples {
 				output[outStart+i] = prevOverlap[i] + imdctOut[i]
 			}

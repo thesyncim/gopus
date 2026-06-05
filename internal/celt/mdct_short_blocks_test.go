@@ -3,7 +3,7 @@ package celt
 import "testing"
 
 func mdctShortBlocksCoreLegacy(samples []float32, overlap, shortBlocks, shortSize int, output, blockCoeffs []float32, blockMDCT func(block, coeffs []float32)) {
-	for b := 0; b < shortBlocks; b++ {
+	for b := range shortBlocks {
 		start := b * shortSize
 		end := start + shortSize + overlap
 		if end > len(samples) {

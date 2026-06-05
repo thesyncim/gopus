@@ -40,10 +40,7 @@ func TestDetectPitchVoicedSignal(t *testing.T) {
 	// All lags should be close to pitch period
 	for sf, lag := range pitchLags {
 		// Allow 20% error due to edge effects and search granularity
-		errorMargin := pitchPeriod / 5
-		if errorMargin < 2 {
-			errorMargin = 2
-		}
+		errorMargin := max(pitchPeriod/5, 2)
 		error := util.Abs(int(lag) - pitchPeriod)
 		if error > errorMargin {
 			t.Errorf("subframe %d: detected lag %d, expected ~%d (error: %d)", sf, lag, pitchPeriod, error)
@@ -165,7 +162,7 @@ func TestCeltPitchXcorrFloatBounds(t *testing.T) {
 	length := 40
 	x := make([]float32, length)
 	y := make([]float32, length) // Only one valid lag available.
-	for i := 0; i < length; i++ {
+	for i := range length {
 		x[i] = float32(i + 1)
 		y[i] = float32(i + 2)
 	}
@@ -279,7 +276,7 @@ func TestAnalyzeLTP(t *testing.T) {
 	ltpCoeffs := enc.analyzeLTP(pcm, pitchLags, numSubframes, 2)
 
 	var nonZeroTaps int
-	for sf := 0; sf < numSubframes; sf++ {
+	for sf := range numSubframes {
 		for _, tap := range ltpCoeffs[sf] {
 			if tap != 0 {
 				nonZeroTaps++
@@ -451,10 +448,7 @@ func TestPitchDetectionWithSine(t *testing.T) {
 	pitchLags, _, _ := enc.detectPitch(pcm, numSubframes, 0, 0)
 
 	for sf, lag := range pitchLags {
-		errorMargin := pitchPeriod / 5
-		if errorMargin < 2 {
-			errorMargin = 2
-		}
+		errorMargin := max(pitchPeriod/5, 2)
 		if util.Abs(int(lag)-pitchPeriod) > errorMargin {
 			t.Errorf("sine wave: subframe %d: detected lag %d, expected ~%d",
 				sf, lag, pitchPeriod)

@@ -58,7 +58,7 @@ func burgLPC(signal []float32, order int) []int16 {
 
 	// Convert to Q12 fixed-point
 	lpcQ12 := make([]int16, order)
-	for i := 0; i < order; i++ {
+	for i := range order {
 		val := a[i] * 4096.0 // Q12 scaling
 		if val > 32767 {
 			val = 32767
@@ -89,7 +89,7 @@ func a2nlsfFLP(a []float32, order int) []int16 {
 // nlsfOut must have length >= order, aQ16Buf must have length >= order,
 // P and Q must have capacity >= dd+1 where dd = order>>1.
 func a2nlsfFLPInto(nlsfOut []int16, aQ16Buf []int32, P, Q []int32, a []float32, order int) {
-	for k := 0; k < order; k++ {
+	for k := range order {
 		aQ16Buf[k] = float32ToInt32RoundEven(a[k] * 65536.0)
 	}
 	silkA2NLSFInto(nlsfOut, aQ16Buf, order, P, Q)
@@ -162,7 +162,7 @@ func silkA2NLSFInto(NLSF []int16, aQ16 []int32, d int, P, Q []int32) {
 
 			// Binary division to refine root location
 			ffrac := int32(-256)
-			for m := 0; m < binDivSteps; m++ {
+			for m := range binDivSteps {
 				// Inline silkRSHIFT_ROUND(xlo+xhi, 1) for shift=1
 				sum := xlo + xhi
 				xmid := (sum >> 1) + (sum & 1)
@@ -196,10 +196,7 @@ func silkA2NLSFInto(NLSF []int16, aQ16 []int32, d int, P, Q []int32) {
 				}
 			}
 
-			val := (int32(k) << 8) + ffrac
-			if val > 32767 {
-				val = 32767
-			}
+			val := min((int32(k)<<8)+ffrac, 32767)
 			NLSF[rootIx] = int16(val)
 
 			rootIx++
@@ -270,7 +267,7 @@ func a2nlsfInit(aQ16 []int32, P, Q []int32, dd int) {
 	P[dd] = 1 << 16
 	Q[dd] = 1 << 16
 
-	for k := 0; k < dd; k++ {
+	for k := range dd {
 		P[k] = -aQ16[dd-k-1] - aQ16[dd+k]
 		Q[k] = -aQ16[dd-k-1] + aQ16[dd+k]
 	}
@@ -361,7 +358,7 @@ func silkBwExpander32AQ16(ar []int32, order int, chirpQ16 int32) {
 // chirp: Expansion factor (0.96 recommended per Phase 2)
 func applyBandwidthExpansionFloat(lpcQ12 []int16, chirp float32) {
 	factor := chirp
-	for i := 0; i < len(lpcQ12); i++ {
+	for i := range lpcQ12 {
 		lpcQ12[i] = int16(float32(lpcQ12[i]) * factor)
 		factor *= chirp
 	}
@@ -403,7 +400,7 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 	}
 
 	C0 := energyF32Libopus(x, totalLen)
-	for s := 0; s < nbSubfr; s++ {
+	for s := range nbSubfr {
 		xPtr := s * subfrLength
 		for n := 1; n <= order; n++ {
 			CFirstRow[n-1] += innerProductF32Libopus(x[xPtr:], x[xPtr+n:], subfrLength-n)
@@ -429,8 +426,8 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 	_ = CAf[order]
 	_ = CAb[order]
 
-	for n := 0; n < order; n++ {
-		for s := 0; s < nbSubfr; s++ {
+	for n := range order {
+		for s := range nbSubfr {
 			xPtr := s * subfrLength
 			// BCE hint: prove all accesses within this subframe are in bounds.
 			// Max forward access: xPtr+subfrLength-1 (when n=0, k=0 in second loop).
@@ -519,7 +516,7 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 	var nrgF silkCReal
 	if reachedMaxGain {
 		adjustedC0 := C0
-		for s := 0; s < nbSubfr; s++ {
+		for s := range nbSubfr {
 			start := s * subfrLength
 			if start+order > totalLen {
 				break
@@ -530,7 +527,7 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 	} else {
 		nrgF = CAf[0]
 		tmp1 := 1.0
-		for k := 0; k < order; k++ {
+		for k := range order {
 			Atmp := Af[k]
 			nrgF += noFMA64(CAf[k+1], Atmp)
 			tmp1 += noFMA64(Atmp, Atmp)
@@ -546,7 +543,7 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 	// Match libopus: A[k] = (silk_float)(-Af[k]) and return (silk_float)nrg_f.
 	// Truncate to float32 precision to match libopus silk_float output.
 	A := ensureFloat32Slice(&e.scratchBurgResult, order)
-	for k := 0; k < order; k++ {
+	for k := range order {
 		A[k] = float32(-Af[k])
 	}
 
@@ -573,7 +570,7 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 	if subfrLength < order+1 {
 		// Not enough samples per subframe - return white spectrum using scratch
 		nlsfQ15 := e.scratchA2nlsfNLSF[:order]
-		for i := 0; i < order; i++ {
+		for i := range order {
 			nlsfQ15[i] = int16((i + 1) * 32767 / (order + 1))
 		}
 		return nlsfQ15, 4
@@ -599,7 +596,7 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 		// Convert to NLSF using scratch buffers
 		nlsfQ15 := e.scratchA2nlsfNLSF[:order]
 		aQ16 := e.scratchA2nlsfAQ16[:order]
-		for i := 0; i < order; i++ {
+		for i := range order {
 			aQ16[i] = float32ToInt32RoundEven(a[i] * 65536.0)
 		}
 		silkA2NLSFInto(nlsfQ15, aQ16, order, e.scratchA2nlsfP[:], e.scratchA2nlsfQ[:])
@@ -658,7 +655,7 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 	// Convert LPC to NLSF using scratch buffers
 	nlsfQ15 := e.scratchA2nlsfNLSF[:order]
 	aQ16 := e.scratchA2nlsfAQ16[:order]
-	for i := 0; i < order; i++ {
+	for i := range order {
 		aQ16[i] = float32ToInt32RoundEven(a[i] * 65536.0)
 	}
 	silkA2NLSFInto(nlsfQ15, aQ16, order, e.scratchA2nlsfP[:], e.scratchA2nlsfQ[:])
@@ -674,7 +671,7 @@ func interpolateNLSF(out, prevNLSF, curNLSF []int16, interpCoef, order int) {
 	}
 
 	// out = prevNLSF + ((curNLSF - prevNLSF) * interpCoef) >> 2
-	for i := 0; i < order; i++ {
+	for i := range order {
 		diff := int32(curNLSF[i]) - int32(prevNLSF[i])
 		out[i] = int16(int32(prevNLSF[i]) + (int32(interpCoef) * diff >> 2))
 	}
@@ -689,7 +686,7 @@ func nlsfToLPCFloat32(a []float32, aQ12 []int16, nlsfQ15 []int16, order int) boo
 	if !silkNLSF2A(aQ12[:order], nlsfQ15, order) {
 		return false
 	}
-	for i := 0; i < order; i++ {
+	for i := range order {
 		a[i] = float32(aQ12[i]) * (1.0 / 4096.0)
 	}
 	return true

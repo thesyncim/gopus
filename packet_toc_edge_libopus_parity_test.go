@@ -123,7 +123,7 @@ func TestTOCEdgeAllBytesMatchLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 
 	cases := make([]libopusPacketParseCase, 256)
-	for b := 0; b < 256; b++ {
+	for b := range 256 {
 		// TOC-only packet: len=1, no payload bytes.
 		// opus_packet_get_bandwidth / _nb_channels only need data[0].
 		// opus_packet_get_nb_frames with len=1 returns 1 for code 0/1/2
@@ -139,7 +139,7 @@ func TestTOCEdgeAllBytesMatchLibopus(t *testing.T) {
 		libopustest.HelperUnavailable(t, "packet parse", err)
 	}
 
-	for b := 0; b < 256; b++ {
+	for b := range 256 {
 		b := b
 		t.Run(cases[b].name, func(t *testing.T) {
 			toc := ParseTOC(byte(b))
@@ -171,7 +171,7 @@ func TestTOCEdgeNbFramesMatchLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 
 	cases := make([]libopusPacketParseCase, 256)
-	for b := 0; b < 256; b++ {
+	for b := range 256 {
 		cases[b] = libopusPacketParseCase{
 			name:   fmt.Sprintf("toc_0x%02x", b),
 			packet: []byte{byte(b)},
@@ -183,7 +183,7 @@ func TestTOCEdgeNbFramesMatchLibopus(t *testing.T) {
 		libopustest.HelperUnavailable(t, "packet parse", err)
 	}
 
-	for b := 0; b < 256; b++ {
+	for b := range 256 {
 		b := b
 		t.Run(cases[b].name, func(t *testing.T) {
 			w := want[b]
@@ -211,7 +211,7 @@ func TestTOCEdgeSamplesPerFrameMatchLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 
 	cases := make([]libopusPacketParseCase, 256)
-	for b := 0; b < 256; b++ {
+	for b := range 256 {
 		cases[b] = libopusPacketParseCase{
 			name:   fmt.Sprintf("toc_0x%02x", b),
 			packet: []byte{byte(b)},
@@ -223,7 +223,7 @@ func TestTOCEdgeSamplesPerFrameMatchLibopus(t *testing.T) {
 		libopustest.HelperUnavailable(t, "packet parse", err)
 	}
 
-	for b := 0; b < 256; b++ {
+	for b := range 256 {
 		b := b
 		t.Run(cases[b].name, func(t *testing.T) {
 			w := want[b]
@@ -333,7 +333,6 @@ func TestTOCEdgeNbSamplesAllConfigsMatchLibopus(t *testing.T) {
 		libopustest.HelperUnavailable(t, "packet parse", err)
 	}
 	for i, tc := range cases {
-		tc := tc
 		w := want[i]
 		t.Run(tc.name, func(t *testing.T) {
 			got, gotErr := packetSamplesAtRate(tc.packet, 48000)
@@ -357,7 +356,7 @@ func TestTOCEdgeNbSamplesAllConfigsMatchLibopus(t *testing.T) {
 // tocEdgeCode0Cases builds one code-0 case per config × stereo.
 func tocEdgeCode0Cases() []libopusPacketParseCase {
 	var cases []libopusPacketParseCase
-	for config := uint8(0); config < 32; config++ {
+	for config := range uint8(32) {
 		for _, stereo := range []bool{false, true} {
 			toc := GenerateTOC(config, stereo, 0)
 			// 50 bytes of payload — fits in maxOpusFrameBytes (1275)
@@ -382,7 +381,7 @@ func tocEdgeCode0Cases() []libopusPacketParseCase {
 // tocEdgeCode1Cases builds code-1 cases (two equal frames) for all configs × stereo.
 func tocEdgeCode1Cases() []libopusPacketParseCase {
 	var cases []libopusPacketParseCase
-	for config := uint8(0); config < 32; config++ {
+	for config := range uint8(32) {
 		for _, stereo := range []bool{false, true} {
 			toc := GenerateTOC(config, stereo, 1)
 			// 100 bytes payload = two 50-byte frames
@@ -405,7 +404,7 @@ func tocEdgeCode1Cases() []libopusPacketParseCase {
 // one-byte frame-length header (frame0=30, frame1=remainder).
 func tocEdgeCode2Cases() []libopusPacketParseCase {
 	var cases []libopusPacketParseCase
-	for config := uint8(0); config < 32; config++ {
+	for config := range uint8(32) {
 		for _, stereo := range []bool{false, true} {
 			toc := GenerateTOC(config, stereo, 2)
 			// Header: TOC, length=30, then 30+50=80 bytes payload
@@ -603,7 +602,7 @@ func tocEdgeBoundaryCases() []libopusPacketParseCase {
 // can test packetSamplesAtRate vs opus_packet_get_nb_samples.
 func tocEdgeNbSamplesCases() []libopusPacketParseCase {
 	var cases []libopusPacketParseCase
-	for config := uint8(0); config < 32; config++ {
+	for config := range uint8(32) {
 		toc := GenerateTOC(config, false, 0)
 		pkt := make([]byte, 51)
 		pkt[0] = toc
@@ -638,7 +637,6 @@ func tocEdgeNbSamplesCases() []libopusPacketParseCase {
 func assertParsePacketParity(t *testing.T, cases []libopusPacketParseCase, want []libopusPacketParseResult) {
 	t.Helper()
 	for i, tc := range cases {
-		tc := tc
 		w := want[i]
 		t.Run(tc.name, func(t *testing.T) {
 			info, gotErr := ParsePacket(tc.packet)
@@ -693,7 +691,6 @@ func assertParsePacketParity(t *testing.T, cases []libopusPacketParseCase, want 
 func assertParseAcceptRejectParity(t *testing.T, cases []libopusPacketParseCase, want []libopusPacketParseResult) {
 	t.Helper()
 	for i, tc := range cases {
-		tc := tc
 		w := want[i]
 		t.Run(tc.name, func(t *testing.T) {
 			_, gotErr := ParsePacket(tc.packet)

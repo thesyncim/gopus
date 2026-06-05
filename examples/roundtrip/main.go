@@ -154,23 +154,23 @@ func generateSignal(signalType string, duration float64, channels int) []float32
 	switch signalType {
 	case "sine":
 		// 440Hz sine wave
-		for i := 0; i < samples; i++ {
+		for i := range samples {
 			t := float64(i) / float64(sampleRate)
 			val := float32(0.5 * math.Sin(2*math.Pi*440*t))
-			for ch := 0; ch < channels; ch++ {
+			for ch := range channels {
 				pcm[i*channels+ch] = val
 			}
 		}
 
 	case "sweep":
 		// Frequency sweep from 100Hz to 8000Hz
-		for i := 0; i < samples; i++ {
+		for i := range samples {
 			t := float64(i) / float64(sampleRate)
 			progress := t / duration
 			freq := 100 + (8000-100)*progress
 			phase := 2 * math.Pi * freq * t
 			val := float32(0.5 * math.Sin(phase))
-			for ch := 0; ch < channels; ch++ {
+			for ch := range channels {
 				pcm[i*channels+ch] = val
 			}
 		}
@@ -187,7 +187,7 @@ func generateSignal(signalType string, duration float64, channels int) []float32
 
 	case "speech":
 		// Simulated speech-like signal (voiced + unvoiced)
-		for i := 0; i < samples; i++ {
+		for i := range samples {
 			t := float64(i) / float64(sampleRate)
 			// Mix of low frequency (voiced) and noise (unvoiced)
 			voiced := float32(0.3 * math.Sin(2*math.Pi*150*t))
@@ -198,7 +198,7 @@ func generateSignal(signalType string, duration float64, channels int) []float32
 			unvoiced *= 0.1
 
 			val := voiced + unvoiced
-			for ch := 0; ch < channels; ch++ {
+			for ch := range channels {
 				pcm[i*channels+ch] = val
 			}
 		}
@@ -236,7 +236,7 @@ func roundtrip(original []float32, config TestConfig) (decoded []float32, delay 
 	numFrames := len(original) / frameSamples
 	decoded = make([]float32, 0, len(original))
 
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		start := i * frameSamples
 		end := start + frameSamples
 		frame := original[start:end]
@@ -290,10 +290,7 @@ func alignForCompare(original, decoded []float32, delay, channels int) (origAlig
 	}
 	decoded = decoded[bestSkip:]
 
-	n := len(original)
-	if len(decoded) < n {
-		n = len(decoded)
-	}
+	n := min(len(decoded), len(original))
 	return original[:n], decoded[:n]
 }
 
@@ -332,10 +329,7 @@ func printQualityReport(original, decoded []float32) {
 	fmt.Println("\n--- Quality Report ---")
 
 	// Ensure same length for comparison
-	minLen := len(original)
-	if len(decoded) < minLen {
-		minLen = len(decoded)
-	}
+	minLen := min(len(decoded), len(original))
 	original = original[:minLen]
 	decoded = decoded[:minLen]
 

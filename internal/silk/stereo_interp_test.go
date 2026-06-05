@@ -29,7 +29,7 @@ func TestInterpolatePredictorsFloat(t *testing.T) {
 
 		// All samples should be the same (no interpolation effect)
 		expected := 1.0*0.1 - 0.1*0.5 - 0.05*0.5 // width*side - pred0*lpMid - pred1*mid
-		for n := 0; n < frameLength; n++ {
+		for n := range frameLength {
 			if math.Abs(float64(sideOut[n]-float32(expected))) > 0.001 {
 				t.Errorf("Sample %d: got %f, want ~%f", n, sideOut[n], expected)
 				break

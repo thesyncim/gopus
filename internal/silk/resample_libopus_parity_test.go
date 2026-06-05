@@ -18,7 +18,7 @@ func makeSILKResamplerCorpusFrames(class string, fs, frameSamples, frameCount in
 		return nil, err
 	}
 	frames := make([][]int16, frameCount)
-	for f := 0; f < frameCount; f++ {
+	for f := range frameCount {
 		frame := make([]int16, frameSamples)
 		for i := range frame {
 			frame[i] = float32ToInt16(src[f*frameSamples+i])
@@ -196,7 +196,7 @@ func TestSILKEncoderUpsampleResamplerMatchesLibopusOracle(t *testing.T) {
 				if n != frameOut {
 					t.Fatalf("frame %d output samples=%d want %d", frameIdx, n, frameOut)
 				}
-				for i := 0; i < n; i++ {
+				for i := range n {
 					wantSample := want[recIdx][wantOffset+i]
 					wantFloat := float32(wantSample) * (1.0 / 32768.0)
 					if math.Float32bits(out[i]) != math.Float32bits(wantFloat) {
@@ -272,7 +272,7 @@ func TestSILKDecoderResamplerProcessInt16IntoMatchesLibopusOracle(t *testing.T) 
 				if n != frameOut {
 					t.Fatalf("frame %d output samples=%d want %d", frameIdx, n, frameOut)
 				}
-				for i := 0; i < n; i++ {
+				for i := range n {
 					wantSample := want[recIdx][wantOffset+i]
 					wantFloat := float32(wantSample) * (1.0 / 32768.0)
 					if math.Float32bits(out[i]) != math.Float32bits(wantFloat) {

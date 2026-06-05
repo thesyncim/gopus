@@ -144,7 +144,7 @@ func runGoCELTPreemphasisWithScaling(tc libopusCELTPreemphasisCase) ([]float32, 
 
 func preemphOraclePCM(channels, frames int, phase float64) []float32 {
 	pcm := make([]float32, frames*channels)
-	for i := 0; i < frames; i++ {
+	for i := range frames {
 		tm := float64(i) * 0.17
 		pcm[i*channels] = float32(0.42*math.Sin(tm+phase) + 0.09*math.Cos(0.31*tm))
 		if channels == 2 {

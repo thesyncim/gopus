@@ -20,6 +20,7 @@ package gopus
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -631,7 +632,7 @@ func gen(values ...int32) ctlArgGen {
 
 func genEncoderProgram(r *rand.Rand, n int, withProcess bool) []libopustest.CTLOp {
 	ops := make([]libopustest.CTLOp, 0, n)
-	for i := 0; i < n; i++ {
+	for range n {
 		roll := r.Intn(10)
 		if !withProcess && roll == 0 {
 			// Replace the PROCESS slot with a GET so the op mix stays dense.
@@ -655,7 +656,7 @@ func genEncoderProgram(r *rand.Rand, n int, withProcess bool) []libopustest.CTLO
 
 func genDecoderProgram(r *rand.Rand, n int) []libopustest.CTLOp {
 	ops := make([]libopustest.CTLOp, 0, n)
-	for i := 0; i < n; i++ {
+	for range n {
 		switch r.Intn(10) {
 		case 0, 1:
 			ops = append(ops, libopustest.CTLOp{Op: libopustest.CTLOpProcess})
@@ -711,20 +712,20 @@ func compareCTLResults(t *testing.T, label string, isDecoder bool, ops []libopus
 }
 
 func formatProgram(ops []libopustest.CTLOp) string {
-	s := ""
+	var s strings.Builder
 	for i, op := range ops {
 		switch op.Op {
 		case libopustest.CTLOpSet:
-			s += fmt.Sprintf("  [%d] SET %s arg=%d\n", i, ctlReqName(op.Request), op.Arg)
+			s.WriteString(fmt.Sprintf("  [%d] SET %s arg=%d\n", i, ctlReqName(op.Request), op.Arg))
 		case libopustest.CTLOpGet:
-			s += fmt.Sprintf("  [%d] GET %s\n", i, ctlReqName(op.Request))
+			s.WriteString(fmt.Sprintf("  [%d] GET %s\n", i, ctlReqName(op.Request)))
 		case libopustest.CTLOpProcess:
-			s += fmt.Sprintf("  [%d] PROCESS\n", i)
+			s.WriteString(fmt.Sprintf("  [%d] PROCESS\n", i))
 		case libopustest.CTLOpReset:
-			s += fmt.Sprintf("  [%d] RESET\n", i)
+			s.WriteString(fmt.Sprintf("  [%d] RESET\n", i))
 		}
 	}
-	return s
+	return s.String()
 }
 
 func runEncoderCTLProgram(t *testing.T, sampleRate, channels int, app Application, ops []libopustest.CTLOp) []libopustest.CTLResult {
@@ -800,9 +801,8 @@ func TestEncoderCTLSequenceFuzz(t *testing.T) {
 	const opsPerSeed = 40
 
 	for _, c := range configs {
-		c := c
 		t.Run(fmt.Sprintf("%dHz_%dch_%v", c.rate, c.ch, c.app), func(t *testing.T) {
-			for seed := 0; seed < seeds; seed++ {
+			for seed := range seeds {
 				r := rand.New(rand.NewSource(int64(seed)*1000003 + int64(c.rate) + int64(c.ch)))
 				ops := genEncoderProgram(r, opsPerSeed, c.withProcess)
 
@@ -852,10 +852,9 @@ func TestDecoderCTLSequenceFuzz(t *testing.T) {
 	const opsPerSeed = 40
 
 	for _, c := range configs {
-		c := c
 		t.Run(fmt.Sprintf("%dHz_%dch", c.rate, c.ch), func(t *testing.T) {
 			feed := encodeFeederPacket(t, c.rate, c.ch)
-			for seed := 0; seed < seeds; seed++ {
+			for seed := range seeds {
 				r := rand.New(rand.NewSource(int64(seed)*2000003 + int64(c.rate) + int64(c.ch)))
 				ops := genDecoderProgram(r, opsPerSeed)
 

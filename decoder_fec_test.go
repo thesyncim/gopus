@@ -641,7 +641,7 @@ func TestDecodeWithFEC_ProvidedPacketWithoutLBRRUsesDirectPLCFallback(t *testing
 	}
 
 	const tol = 1e-7
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		if math.Abs(float64(pcmExpected[i]-pcmActual[i])) > tol {
 			t.Fatalf("sample %d mismatch: expected=%v actual=%v", i, pcmExpected[i], pcmActual[i])
 		}

@@ -8,7 +8,7 @@ import (
 
 func TestComputeLogGainIndex(t *testing.T) {
 	// Test that computeLogGainIndex is inverse of GainDequantTable
-	for idx := 0; idx < 64; idx++ {
+	for idx := range 64 {
 		gainQ16 := GainDequantTable[idx]
 		gainFloat := float32(gainQ16) / 65536.0
 

@@ -192,7 +192,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	// Initialize energies with previous state so bands below start are preserved.
 	channels := int(d.channels)
 	energies := ensureGLogSlice(&d.scratchEnergies, end*channels)
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		for band := 0; band < end; band++ {
 			energies[c*end+band] = d.prevEnergy[c*MaxBands+band]
 		}

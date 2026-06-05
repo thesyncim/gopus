@@ -132,7 +132,7 @@ func concurrentPerturb(pcm []float32, f int) {
 
 func concurrentHashInt(h hash.Hash64, scratch []byte, v int) {
 	u := uint64(v)
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		scratch[i] = byte(u >> (8 * i))
 	}
 	h.Write(scratch[:8])
@@ -173,7 +173,7 @@ func TestConcurrentIndependentInstancesRoundTrip(t *testing.T) {
 	results := make(chan result, len(specs)*replicas)
 
 	var wg sync.WaitGroup
-	for r := 0; r < replicas; r++ {
+	for range replicas {
 		for i, spec := range specs {
 			wg.Add(1)
 			go func(i int, spec concurrentStreamSpec) {
@@ -198,10 +198,7 @@ func TestConcurrentIndependentInstancesRoundTrip(t *testing.T) {
 // globals (mode/window/cwrs/pvq tables, FFT states, pulse caches). Each
 // goroutine constructs and lightly exercises a fresh instance.
 func TestConcurrentIndependentInstancesConstructionStorm(t *testing.T) {
-	workers := runtime.GOMAXPROCS(0) * 4
-	if workers < 8 {
-		workers = 8
-	}
+	workers := max(runtime.GOMAXPROCS(0)*4, 8)
 	const iterations = 40
 
 	start := make(chan struct{})
@@ -211,7 +208,7 @@ func TestConcurrentIndependentInstancesConstructionStorm(t *testing.T) {
 		go func(w int) {
 			defer wg.Done()
 			<-start // release all goroutines together to maximize contention
-			for it := 0; it < iterations; it++ {
+			for it := range iterations {
 				concurrentConstructAndProbe(t, w, it)
 			}
 		}(w)

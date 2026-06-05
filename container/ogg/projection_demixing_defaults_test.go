@@ -28,7 +28,6 @@ func TestDefaultProjectionDemixingMatrixLibopusParity(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(fmt.Sprintf("ch%d", tc.channels), func(t *testing.T) {
 			matrix, gain, ok := defaultProjectionDemixingMatrix(tc.channels, tc.streams, tc.coupled)
 			if !ok {

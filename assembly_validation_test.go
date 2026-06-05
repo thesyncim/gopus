@@ -86,8 +86,8 @@ func firstLine(t *testing.T, path string) string {
 }
 
 func firstLineFromText(text string) string {
-	if i := strings.IndexByte(text, '\n'); i >= 0 {
-		return text[:i]
+	if before, _, ok := strings.Cut(text, "\n"); ok {
+		return before
 	}
 	return text
 }

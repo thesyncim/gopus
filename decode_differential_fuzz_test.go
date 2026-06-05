@@ -44,10 +44,7 @@ import (
 // the harness stays CI-friendly while remaining a substantial sweep otherwise.
 func diffFuzzBudget(full int) int {
 	if testing.Short() {
-		b := full / 8
-		if b < 16 {
-			b = 16
-		}
+		b := max(full/8, 16)
 		return b
 	}
 	return full
@@ -372,7 +369,7 @@ func genPCM(rng *rand.Rand, frameSamples, channels int, sampleRate float64) []fl
 	// Random tone parameters per channel.
 	type tone struct{ f, a, ph float64 }
 	tones := make([][]tone, channels)
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		nt := 1 + rng.Intn(3)
 		ts := make([]tone, nt)
 		for k := range ts {
@@ -385,9 +382,9 @@ func genPCM(rng *rand.Rand, frameSamples, channels int, sampleRate float64) []fl
 		tones[c] = ts
 	}
 	noise := rng.Float64() * 0.05
-	for i := 0; i < frameSamples; i++ {
+	for i := range frameSamples {
 		tm := float64(i) / sampleRate
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			var v float64
 			for _, ts := range tones[c] {
 				v += ts.a * math.Sin(2*math.Pi*ts.f*tm+ts.ph)
@@ -455,7 +452,7 @@ func encodePackets(t *testing.T, spec encodeSweepSpec, rng *rand.Rand, nFrames i
 	}
 
 	packets := make([][]byte, 0, nFrames)
-	for f := 0; f < nFrames; f++ {
+	for f := range nFrames {
 		pcm := genPCM(rng, frameSamples, spec.channels, sampleRate)
 		pkt, err := encodeOneFrame(enc, pcm)
 		if err != nil {
@@ -502,10 +499,7 @@ func TestDecodeDifferentialEncodeThenDecode(t *testing.T) {
 	}
 
 	const framesPerSpec = 3
-	budget := diffFuzzBudget(len(specs))
-	if budget > len(specs) {
-		budget = len(specs)
-	}
+	budget := min(diffFuzzBudget(len(specs)), len(specs))
 	// Deterministically stride through the spec list so a shrunk budget still
 	// covers the whole space rather than a prefix.
 	stride := 1

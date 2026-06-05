@@ -169,10 +169,7 @@ func (c *FARGANConditioner) FillCondConv1State(dst []float32) int {
 	if c == nil {
 		return 0
 	}
-	n := len(c.state.condConv1State)
-	if n > len(dst) {
-		n = len(dst)
-	}
+	n := min(len(c.state.condConv1State), len(dst))
 	copy(dst[:n], c.state.condConv1State[:n])
 	return n
 }
@@ -191,7 +188,7 @@ func (c *FARGANConditioner) ComputeWithPeriod(out, features []float32, period in
 	}
 	slot := clampInt(period-PitchMinPeriod, 0, FARGANPEmbedInputs-1)
 	copy(c.scratch.denseIn[:NumFeatures], features[:NumFeatures])
-	for i := 0; i < FARGANPEmbedOutSize; i++ {
+	for i := range FARGANPEmbedOutSize {
 		c.scratch.denseIn[NumFeatures+i] = c.model.PEmbed.FloatWeights.At(slot*FARGANPEmbedOutSize + i)
 	}
 	computeFARGANDense(&c.model.Dense1, c.scratch.convIn[:], c.scratch.denseIn[:], activationTanh, &c.scratch)
@@ -245,7 +242,7 @@ func computeFARGANLinear(layer *LinearLayer, out, in []float32, scratch *farganC
 		clear(out[:n])
 	}
 	if !bias.Empty() {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			out[i] += bias.At(i)
 		}
 	}

@@ -29,7 +29,6 @@ func BenchmarkDecodeOfficialTestVectors(b *testing.B) {
 			benchmarkDecodeFloat32Vectors(b, vectors)
 		})
 		for _, vector := range vectors {
-			vector := vector
 			b.Run(vector.name, func(b *testing.B) {
 				benchmarkDecodeFloat32Vectors(b, []benchmarkVector{vector})
 			})
@@ -41,7 +40,6 @@ func BenchmarkDecodeOfficialTestVectors(b *testing.B) {
 			benchmarkDecodeInt16Vectors(b, vectors)
 		})
 		for _, vector := range vectors {
-			vector := vector
 			b.Run(vector.name, func(b *testing.B) {
 				benchmarkDecodeInt16Vectors(b, []benchmarkVector{vector})
 			})

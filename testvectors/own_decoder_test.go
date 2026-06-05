@@ -29,7 +29,7 @@ func TestOwnEncoderDecoder(t *testing.T) {
 	dec := celt.NewDecoder(1)
 
 	var decoded []float32
-	for f := 0; f < numFrames; f++ {
+	for f := range numFrames {
 		start := f * frameSize
 		end := start + frameSize
 

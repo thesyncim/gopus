@@ -86,7 +86,7 @@ func probeLibopusSILKNLSF(mode uint32, records [][]uint32) ([][]int16, error) {
 			return nil, fmt.Errorf("helper order=%d", order)
 		}
 		out[i] = make([]int16, order)
-		for j := 0; j < 16; j++ {
+		for j := range 16 {
 			if j < order {
 				out[i][j] = int16(reader.I32())
 			} else {
@@ -124,7 +124,7 @@ func probeLibopusSILKNLSFVQ(records [][]uint32) ([][]int32, error) {
 			return nil, fmt.Errorf("helper nVectors=%d", nVectors)
 		}
 		out[i] = make([]int32, nVectors)
-		for j := 0; j < 32; j++ {
+		for j := range 32 {
 			v := reader.I32()
 			if j < nVectors {
 				out[i][j] = v
@@ -167,7 +167,7 @@ func probeLibopusSILKNLSFDelDec(records [][]uint32) ([]libopusSILKNLSFDelDecResu
 			return nil, fmt.Errorf("helper order=%d", order)
 		}
 		out[i].indices = make([]int8, order)
-		for j := 0; j < 16; j++ {
+		for j := range 16 {
 			v := reader.I32()
 			if j < order {
 				out[i].indices[j] = int8(v)
@@ -211,14 +211,14 @@ func probeLibopusSILKNLSFEncode(records [][]uint32) ([]libopusSILKNLSFEncodeResu
 			return nil, fmt.Errorf("helper order=%d", order)
 		}
 		out[i].indices = make([]int8, order+1)
-		for j := 0; j < maxLPCOrder+1; j++ {
+		for j := range maxLPCOrder + 1 {
 			v := reader.I32()
 			if j < order+1 {
 				out[i].indices[j] = int8(v)
 			}
 		}
 		out[i].nlsf = make([]int16, order)
-		for j := 0; j < 16; j++ {
+		for j := range 16 {
 			v := reader.I32()
 			if j < order {
 				out[i].nlsf[j] = int16(v)
@@ -403,7 +403,7 @@ func TestSILKNLSFDelDecQuantMatchesLibopusOracle(t *testing.T) {
 			var ecIx [maxLPCOrder]int16
 			var predQ8 [maxLPCOrder]uint8
 			var gotIndices [maxLPCOrder]int8
-			for j := 0; j < order; j++ {
+			for j := range order {
 				wTmpQ9 := int32(tc.cb.cb1WghtQ9[baseIdx+j])
 				diff := int32(tc.nlsf[j]) - (int32(tc.cb.cb1NLSFQ8[baseIdx+j]) << 7)
 				resQ10[j] = int16(silkRSHIFT(silkSMULBB(diff, wTmpQ9), 14))
@@ -418,7 +418,7 @@ func TestSILKNLSFDelDecQuantMatchesLibopusOracle(t *testing.T) {
 			if gotRD != want[i].rdQ25 {
 				t.Fatalf("RD_Q25=%d want %d", gotRD, want[i].rdQ25)
 			}
-			for j := 0; j < order; j++ {
+			for j := range order {
 				if gotIndices[j] != want[i].indices[j] {
 					t.Fatalf("indices[%d]=%d want %d", j, gotIndices[j], want[i].indices[j])
 				}
@@ -478,7 +478,7 @@ func TestSILKNLSFEncodeMatchesLibopusOracle(t *testing.T) {
 			}
 			gotIndices := make([]int8, order+1)
 			gotIndices[0] = int8(gotStage1)
-			for j := 0; j < order; j++ {
+			for j := range order {
 				gotIndices[j+1] = int8(gotResiduals[j])
 			}
 			if !sameInt8s(gotIndices, want[i].indices) {
@@ -604,7 +604,7 @@ func TestSILKNLSFStabilizeMatchesLibopusOracle(t *testing.T) {
 
 func speechLikeA2NLSFInput(order int, decay float64) []int32 {
 	aQ16 := make([]int32, order)
-	for i := 0; i < order; i++ {
+	for i := range order {
 		aQ16[i] = int32(float64(1<<15) * math.Pow(decay, float64(i+1)))
 		if i%2 == 1 {
 			aQ16[i] = -aQ16[i]

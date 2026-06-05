@@ -88,7 +88,7 @@ func (d *Decoder) updatePostfilterHistory(samples []float32, frameSize int, hist
 		histR := d.postfilterMem[history : 2*history]
 		if frameSize >= history {
 			src := (frameSize - history) * 2
-			for i := 0; i < history; i++ {
+			for i := range history {
 				histL[i] = celtSig(samples[src])
 				histR[i] = celtSig(samples[src+1])
 				src += 2
@@ -99,7 +99,7 @@ func (d *Decoder) updatePostfilterHistory(samples []float32, frameSize int, hist
 		copy(histR, histR[frameSize:])
 		dst := history - frameSize
 		src := 0
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			histL[dst+i] = celtSig(samples[src])
 			histR[dst+i] = celtSig(samples[src+1])
 			src += 2
@@ -108,11 +108,11 @@ func (d *Decoder) updatePostfilterHistory(samples []float32, frameSize int, hist
 	}
 
 	channels := int(d.channels)
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		hist := d.postfilterMem[ch*history : (ch+1)*history]
 		if frameSize >= history {
 			src := (frameSize-history)*channels + ch
-			for i := 0; i < history; i++ {
+			for i := range history {
 				hist[i] = celtSig(samples[src])
 				src += channels
 			}
@@ -121,7 +121,7 @@ func (d *Decoder) updatePostfilterHistory(samples []float32, frameSize int, hist
 		copy(hist, hist[frameSize:])
 		src := ch
 		dst := history - frameSize
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			hist[dst+i] = celtSig(samples[src])
 			src += channels
 		}
@@ -145,7 +145,7 @@ func (d *Decoder) updatePLCDecodeHistory(samples []float32, frameSize int, histo
 		histR := d.plcDecodeMem[history : 2*history]
 		if frameSize >= history {
 			src := (frameSize - history) * 2
-			for i := 0; i < history; i++ {
+			for i := range history {
 				histL[i] = celtSig(samples[src])
 				histR[i] = celtSig(samples[src+1])
 				src += 2
@@ -183,7 +183,7 @@ func (d *Decoder) updatePLCDecodeHistory(samples []float32, frameSize int, histo
 		histR := d.plcDecodeMem[history : 2*history]
 		if frameSize >= history {
 			src := (frameSize - history) * 2
-			for i := 0; i < history; i++ {
+			for i := range history {
 				histL[i] = celtSig(samples[src])
 				histR[i] = celtSig(samples[src+1])
 				src += 2
@@ -194,7 +194,7 @@ func (d *Decoder) updatePLCDecodeHistory(samples []float32, frameSize int, histo
 		copy(histR, histR[frameSize:])
 		dst := history - frameSize
 		src := 0
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			histL[dst+i] = celtSig(samples[src])
 			histR[dst+i] = celtSig(samples[src+1])
 			src += 2
@@ -207,7 +207,7 @@ func (d *Decoder) updatePLCDecodeHistory(samples []float32, frameSize int, histo
 		hist := d.plcDecodeMem[ch*history : (ch+1)*history]
 		if frameSize >= history {
 			src := (frameSize-history)*channels + ch
-			for i := 0; i < history; i++ {
+			for i := range history {
 				hist[i] = celtSig(samples[src])
 				src += channels
 			}
@@ -216,7 +216,7 @@ func (d *Decoder) updatePLCDecodeHistory(samples []float32, frameSize int, histo
 		copy(hist, hist[frameSize:])
 		src := ch
 		dst := history - frameSize
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			hist[dst+i] = celtSig(samples[src])
 			src += channels
 		}
@@ -296,7 +296,7 @@ func (d *Decoder) materializePLCDecodeHistory() {
 		d.plcDecodeMemRingStart = 0
 		return
 	}
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		hist := d.plcDecodeMem[ch*history : (ch+1)*history]
 		rotateSigLeftInPlace(hist, start)
 	}
@@ -344,7 +344,7 @@ func (d *Decoder) materializePostfilterHistoryFromPLC() {
 	if srcStart >= plcDecodeBufferSize {
 		srcStart -= plcDecodeBufferSize
 	}
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		src := d.plcDecodeMem[ch*plcDecodeBufferSize : (ch+1)*plcDecodeBufferSize]
 		dst := d.postfilterMem[ch*history : (ch+1)*history]
 		if srcStart+history <= plcDecodeBufferSize {
@@ -396,7 +396,7 @@ func (d *Decoder) materializePostfilterHistorySuffixFromPLC(need int) {
 		srcStart -= plcDecodeBufferSize
 	}
 	dstStart := history - need
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		src := d.plcDecodeMem[ch*plcDecodeBufferSize : (ch+1)*plcDecodeBufferSize]
 		dst := d.postfilterMem[ch*history+dstStart : (ch+1)*history]
 		if srcStart+need <= plcDecodeBufferSize {
@@ -410,10 +410,7 @@ func (d *Decoder) materializePostfilterHistorySuffixFromPLC(need int) {
 }
 
 func postfilterHistoryNeed(t0, t1, t1b, t2 int) int {
-	need := t0
-	if t1 > need {
-		need = t1
-	}
+	need := max(t1, t0)
 	if t1b > need {
 		need = t1b
 	}
@@ -719,12 +716,12 @@ func (d *Decoder) applyPostfilterFloat32(samples []float32, frameSize, lm int, n
 	work := ensureFloat32Slice(&d.postfilterScratchF32, frameSize*2)
 	left := work[:frameSize]
 	right := work[frameSize : frameSize*2]
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		left[i] = samples[i*channels]
 		right[i] = samples[i*channels+1]
 	}
 	d.applyPostfilterStereoPlanarFromFloat32(left, right, frameSize, lm, newPeriod, newGain, newTapset)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		samples[i*channels] = left[i]
 		samples[i*channels+1] = right[i]
 	}

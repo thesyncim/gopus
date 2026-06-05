@@ -32,10 +32,7 @@ func softClipAndFloat32ToInt16(dst []int16, src []float32, n, channels int, decl
 	if channels < 1 || n < 1 || len(src) == 0 || len(dst) == 0 {
 		return
 	}
-	total := n * channels
-	if total > len(src) {
-		total = len(src)
-	}
+	total := min(n*channels, len(src))
 	if total > len(dst) {
 		total = len(dst)
 	}
@@ -44,7 +41,7 @@ func softClipAndFloat32ToInt16(dst []int16, src []float32, n, channels int, decl
 	}
 
 	if len(declipMem) >= channels {
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			if declipMem[c] != 0 {
 				goto fallback
 			}
@@ -73,10 +70,7 @@ func softClipAndFloat32ToInt16Scalar(dst []int16, src []float32, n, channels int
 	if channels < 1 || n < 1 || len(src) == 0 || len(dst) == 0 {
 		return
 	}
-	total := n * channels
-	if total > len(src) {
-		total = len(src)
-	}
+	total := min(n*channels, len(src))
 	if total > len(dst) {
 		total = len(dst)
 	}
@@ -93,10 +87,7 @@ func float32ToInt16NoSoftClip(dst []int16, src []float32, n, channels int) {
 	if channels < 1 || n < 1 || len(src) == 0 || len(dst) == 0 {
 		return
 	}
-	total := n * channels
-	if total > len(src) {
-		total = len(src)
-	}
+	total := min(n*channels, len(src))
 	if total > len(dst) {
 		total = len(dst)
 	}
@@ -110,10 +101,7 @@ func float32ToInt16NoSoftClipScalar(dst []int16, src []float32, n, channels int)
 	if channels < 1 || n < 1 || len(src) == 0 || len(dst) == 0 {
 		return
 	}
-	total := n * channels
-	if total > len(src) {
-		total = len(src)
-	}
+	total := min(n*channels, len(src))
 	if total > len(dst) {
 		total = len(dst)
 	}

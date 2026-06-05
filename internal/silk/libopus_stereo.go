@@ -11,12 +11,12 @@ func silkStereoDecodePred(rd *rangecoding.Decoder, predQ13 []int32) {
 	n := rd.DecodeICDF8Linear(silk_stereo_pred_joint_iCDF)
 	ix[0][2] = n / 5
 	ix[1][2] = n - 5*ix[0][2]
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		ix[i][0] = rd.DecodeICDF8Unchecked(silk_uniform3_iCDF)
 		ix[i][1] = rd.DecodeICDF8Unchecked(silk_uniform5_iCDF)
 	}
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		ix[i][0] += 3 * ix[i][2]
 		lowQ13 := int32(silk_stereo_pred_quant_Q13[ix[i][0]])
 		stepQ13 := silkSMULWB(int32(silk_stereo_pred_quant_Q13[ix[i][0]+1])-lowQ13, int32(silkFixConst(0.5/silkCReal(stereoQuantSubSteps), 16)))
@@ -52,7 +52,7 @@ func silkStereoMSToLR(state *stereoDecState, mid []int16, side []int16, predQ13 
 	delta1 := silkRSHIFT_ROUND(silkSMULBB(predQ13[1]-pred1, denomQ16), 16)
 
 	interpSamples := stereoInterpLenMs * fsKHz
-	for n := 0; n < interpSamples; n++ {
+	for n := range interpSamples {
 		pred0 += delta0
 		pred1 += delta1
 		sum := silkLSHIFT(silkADD_LSHIFT32(int32(mid[n])+int32(mid[n+2]), int32(mid[n+1]), 1), 9)
@@ -73,7 +73,7 @@ func silkStereoMSToLR(state *stereoDecState, mid []int16, side []int16, predQ13 
 	state.predPrevQ13[0] = int16(predQ13[0])
 	state.predPrevQ13[1] = int16(predQ13[1])
 
-	for n := 0; n < frameLength; n++ {
+	for n := range frameLength {
 		sum := int32(mid[n+1]) + int32(side[n+1])
 		diff := int32(mid[n+1]) - int32(side[n+1])
 		mid[n+1] = silkSAT16(sum)

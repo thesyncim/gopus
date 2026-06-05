@@ -124,7 +124,7 @@ func generateCorpusCleanSpeech(sampleRate, samples, channels int) []float32 {
 	out := make([]float32, samples)
 	phase := make([]float64, channels)
 	prev := make([]float64, channels)
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		ch := i % channels
 		si := i / channels
 		t := float64(si) / float64(sampleRate)
@@ -170,7 +170,7 @@ func generateCorpusMusic(sampleRate, samples, channels int) []float32 {
 	// A-major chord: A3=220, C#4=277.18, E4=329.63
 	freqs := []float64{220.0, 277.18, 329.63}
 	// Add overtones for each note
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		ch := i % channels
 		si := i / channels
 		t := float64(si) / float64(sampleRate)
@@ -206,7 +206,7 @@ func generateCorpusMixed(sampleRate, samples, channels int) []float32 {
 	music := generateCorpusMusic(sampleRate, samples, channels)
 	out := make([]float32, samples)
 	totalPerChannel := samples / channels
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		si := i / channels
 		// Slow cross-fade: first half speech-dominant, second half music-dominant
 		t := float64(si) / float64(totalPerChannel)
@@ -220,7 +220,7 @@ func generateCorpusMixed(sampleRate, samples, channels int) []float32 {
 // generateCorpusWhiteNoise produces flat-spectrum pseudo-random noise at ~-12 dBFS.
 func generateCorpusWhiteNoise(sampleRate, samples, channels int) []float32 {
 	out := make([]float32, samples)
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		ch := i % channels
 		si := i / channels
 		// Two PRNG seeds per sample for independence between L/R
@@ -235,21 +235,15 @@ func generateCorpusWhiteNoise(sampleRate, samples, channels int) []float32 {
 func generateCorpusCastanetTransient(sampleRate, samples, channels int) []float32 {
 	out := make([]float32, samples)
 	// Burst period: ~100 ms (10 Hz), with some jitter
-	period := int(0.100 * float64(sampleRate))
-	if period < 1 {
-		period = 1
-	}
+	period := max(int(0.100*float64(sampleRate)), 1)
 	decayT := 0.003 * float64(sampleRate) // 3 ms decay
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		ch := i % channels
 		si := i / channels
 		pos := si % period
 		// Jitter: alternate period length slightly for stereo
 		if ch == 1 {
-			jitterPeriod := int(0.097 * float64(sampleRate))
-			if jitterPeriod < 1 {
-				jitterPeriod = 1
-			}
+			jitterPeriod := max(int(0.097*float64(sampleRate)), 1)
 			pos = si % jitterPeriod
 		}
 		val := 0.0
@@ -275,7 +269,7 @@ func generateCorpusPureTone(sampleRate, samples, channels int) []float32 {
 	out := make([]float32, samples)
 	const freq = 1000.0
 	const amp = 0.25
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		ch := i % channels
 		si := i / channels
 		t := float64(si) / float64(sampleRate)
@@ -291,7 +285,7 @@ func generateCorpusPureTone(sampleRate, samples, channels int) []float32 {
 func generateCorpusNearSilence(sampleRate, samples, channels int) []float32 {
 	const silenceAmp = 0.001 // -60 dBFS
 	out := make([]float32, samples)
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		ch := i % channels
 		si := i / channels
 		n := deterministicNoise(si, ch, 379)
@@ -313,11 +307,11 @@ func generateCorpusPinkNoise(sampleRate, samples, channels int) []float32 {
 		rowsState[ch] = make([]float64, rows)
 	}
 	totalPerChannel := samples / channels
-	for ch := 0; ch < channels; ch++ {
-		for si := 0; si < totalPerChannel; si++ {
+	for ch := range channels {
+		for si := range totalPerChannel {
 			// Each row updates every 2^row samples; the lowest row updates every
 			// sample. Salt by channel so L/R are independent.
-			for r := 0; r < rows; r++ {
+			for r := range rows {
 				if si&((1<<uint(r))-1) == 0 {
 					sums[ch] -= rowsState[ch][r]
 					rowsState[ch][r] = deterministicNoise(si, ch, 401+r)
@@ -342,8 +336,8 @@ func generateCorpusFormantSweep(sampleRate, samples, channels int) []float32 {
 	const f1a, f2a = 730.0, 1090.0
 	const f1i, f2i = 270.0, 2290.0
 	totalPerChannel := samples / channels
-	for ch := 0; ch < channels; ch++ {
-		for si := 0; si < totalPerChannel; si++ {
+	for ch := range channels {
+		for si := range totalPerChannel {
 			t := float64(si) / float64(sampleRate)
 			frac := 0.5 * (1.0 - math.Cos(2*math.Pi*0.4*t)) // 0..1 sweep at 0.4 Hz
 
@@ -387,7 +381,7 @@ func generateCorpusSpeechInNoise(sampleRate, samples, channels int) []float32 {
 	out := make([]float32, samples)
 	prev := make([]float64, channels)
 	const snrLin = 0.316 // 10*log10(1/0.316^2) ~= 10 dB SNR (noise rms ~0.316x speech)
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		ch := i % channels
 		si := i / channels
 		// Low-pass-ish band noise (one-pole) so it sits in the speech band.
@@ -406,7 +400,7 @@ func generateCorpusSpeechInNoise(sampleRate, samples, channels int) []float32 {
 func generateCorpusStereoDecorrelated(sampleRate, samples, channels int) []float32 {
 	out := make([]float32, samples)
 	prev := 0.0
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		ch := i % channels
 		si := i / channels
 		t := float64(si) / float64(sampleRate)
@@ -437,7 +431,7 @@ func generateCorpusBellCluster(sampleRate, samples, channels int) []float32 {
 	const fundamental = 261.63 // C4
 	const strikePeriod = 0.75  // s between strikes
 	out := make([]float32, samples)
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		ch := i % channels
 		si := i / channels
 		t := float64(si) / float64(sampleRate)
@@ -462,7 +456,7 @@ func generateCorpusSilenceBursts(sampleRate, samples, channels int) []float32 {
 	speech := generateCorpusCleanSpeech(sampleRate, samples, channels)
 	out := make([]float32, samples)
 	const burst = 0.25 // seconds per active/silent half-cycle
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		si := i / channels
 		t := float64(si) / float64(sampleRate)
 		// Active during the first half of each 0.5 s cycle, silent in the second.
@@ -485,8 +479,8 @@ func generateCorpusBandwidthSweep(sampleRate, samples, channels int) []float32 {
 	phase := make([]float64, channels)
 	const fLo, fHi = 250.0, 18000.0
 	totalPerChannel := samples / channels
-	for ch := 0; ch < channels; ch++ {
-		for si := 0; si < totalPerChannel; si++ {
+	for ch := range channels {
+		for si := range totalPerChannel {
 			t := float64(si) / float64(sampleRate)
 			// Triangular log-frequency sweep at 0.5 Hz so the top edge moves
 			// smoothly through every bandwidth tier within the clip.
@@ -515,7 +509,7 @@ func generateCorpusToneInNoise(sampleRate, samples, channels int) []float32 {
 	out := make([]float32, samples)
 	const freq = 2000.0
 	const toneAmp = 0.30
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		ch := i % channels
 		si := i / channels
 		t := float64(si) / float64(sampleRate)
@@ -539,7 +533,7 @@ func generateCorpusChannelPanSweep(sampleRate, samples, channels int) []float32 
 	mono := generateCorpusBellCluster(sampleRate, samples/channels, 1)
 	out := make([]float32, samples)
 	totalPerChannel := samples / channels
-	for si := 0; si < totalPerChannel; si++ {
+	for si := range totalPerChannel {
 		t := float64(si) / float64(sampleRate)
 		// Pan position 0..1 with a 0.7 Hz triangle, equal-power cos/sin law.
 		pan := 2.0 * math.Abs(math.Mod(0.7*t, 1.0)-0.5)

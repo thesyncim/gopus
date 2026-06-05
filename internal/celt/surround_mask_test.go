@@ -32,7 +32,7 @@ func TestComputeSurroundDynallocFromMask(t *testing.T) {
 	enc.lastCodedBands = 17
 
 	mask := make([]float32, 2*MaxBands)
-	for i := 0; i < MaxBands; i++ {
+	for i := range MaxBands {
 		mask[i] = -2.0
 		mask[MaxBands+i] = -2.0
 	}
@@ -51,7 +51,7 @@ func TestComputeSurroundDynallocFromMask(t *testing.T) {
 		t.Fatalf("expected non-zero surround trim from mask")
 	}
 	nonZero := 0
-	for i := 0; i < MaxBands; i++ {
+	for i := range MaxBands {
 		if out[i] > 0 {
 			nonZero++
 		}

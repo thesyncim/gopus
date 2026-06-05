@@ -2,6 +2,7 @@ package celt
 
 import (
 	"math"
+	"slices"
 	"testing"
 )
 
@@ -21,7 +22,7 @@ func TestAntiCollapseBasic(t *testing.T) {
 	// Create collapse mask - mark some bands as collapsed (0 = collapsed, 1 = has pulses)
 	collapse := make([]byte, channels*MaxBands)
 	// Mark bands 5, 10, 15 as collapsed
-	for i := 0; i < MaxBands; i++ {
+	for i := range MaxBands {
 		if i == 5 || i == 10 || i == 15 {
 			collapse[i*channels] = 0 // collapsed
 		} else {
@@ -35,17 +36,17 @@ func TestAntiCollapseBasic(t *testing.T) {
 	prev2LogE := make([]float64, MaxBands*channels)
 
 	// Set some energy values
-	for i := 0; i < end; i++ {
+	for i := range end {
 		logE[i] = -10.0 // Current frame low energy
 	}
-	for i := 0; i < MaxBands; i++ {
+	for i := range MaxBands {
 		prev1LogE[i] = -5.0 // Previous frame higher energy
 		prev2LogE[i] = -5.0
 	}
 
 	// Set pulses - some bands have allocation, some don't
 	pulses := make([]int, end)
-	for i := 0; i < end; i++ {
+	for i := range end {
 		pulses[i] = 100 // Some allocation
 	}
 
@@ -85,13 +86,7 @@ func TestAntiCollapseBasic(t *testing.T) {
 
 	// Check that non-collapsed bands are unaffected (still zero)
 	for band := start; band < end; band++ {
-		isCollapsed := false
-		for _, cb := range collapsedBands {
-			if band == cb {
-				isCollapsed = true
-				break
-			}
-		}
+		isCollapsed := slices.Contains(collapsedBands, band)
 		if isCollapsed {
 			continue
 		}
@@ -126,7 +121,7 @@ func TestAntiCollapseStereo(t *testing.T) {
 	collapse := make([]byte, channels*MaxBands)
 	// Mark band 5 as collapsed for left channel only
 	// Mark band 10 as collapsed for both channels
-	for i := 0; i < MaxBands; i++ {
+	for i := range MaxBands {
 		if i == 5 {
 			collapse[i*channels+0] = 0    // L collapsed
 			collapse[i*channels+1] = 0xFF // R not collapsed
@@ -143,18 +138,18 @@ func TestAntiCollapseStereo(t *testing.T) {
 	prev1LogE := make([]float64, MaxBands*channels)
 	prev2LogE := make([]float64, MaxBands*channels)
 
-	for c := 0; c < channels; c++ {
-		for i := 0; i < end; i++ {
+	for c := range channels {
+		for i := range end {
 			logE[c*end+i] = -10.0
 		}
-		for i := 0; i < MaxBands; i++ {
+		for i := range MaxBands {
 			prev1LogE[c*MaxBands+i] = -5.0
 			prev2LogE[c*MaxBands+i] = -5.0
 		}
 	}
 
 	pulses := make([]int, end)
-	for i := 0; i < end; i++ {
+	for i := range end {
 		pulses[i] = 100
 	}
 
@@ -216,7 +211,7 @@ func TestAntiCollapsePRNG(t *testing.T) {
 	frameSize := 480
 
 	// Run twice with same seed
-	for run := 0; run < 2; run++ {
+	for run := range 2 {
 		coeffsL := make([]celtNorm, frameSize)
 		collapse := make([]byte, channels*MaxBands)
 		collapse[5*channels] = 0 // Band 5 collapsed
@@ -225,7 +220,7 @@ func TestAntiCollapsePRNG(t *testing.T) {
 		prev1LogE := make([]float64, MaxBands*channels)
 		prev2LogE := make([]float64, MaxBands*channels)
 
-		for i := 0; i < MaxBands; i++ {
+		for i := range MaxBands {
 			if i < end {
 				logE[i] = -10.0
 			}
@@ -234,7 +229,7 @@ func TestAntiCollapsePRNG(t *testing.T) {
 		}
 
 		pulses := make([]int, end)
-		for i := 0; i < end; i++ {
+		for i := range end {
 			pulses[i] = 50
 		}
 
@@ -329,11 +324,11 @@ func TestAntiCollapseMonoInStereoStream(t *testing.T) {
 	prev1LogE := make([]float64, 2*MaxBands)
 	prev2LogE := make([]float64, 2*MaxBands)
 
-	for i := 0; i < end; i++ {
+	for i := range end {
 		logE[i] = -10.0
 	}
 	// Set different energies for L and R in prev arrays
-	for i := 0; i < MaxBands; i++ {
+	for i := range MaxBands {
 		prev1LogE[i] = -8.0          // L channel
 		prev1LogE[MaxBands+i] = -3.0 // R channel (higher)
 		prev2LogE[i] = -9.0
@@ -341,7 +336,7 @@ func TestAntiCollapseMonoInStereoStream(t *testing.T) {
 	}
 
 	pulses := make([]int, end)
-	for i := 0; i < end; i++ {
+	for i := range end {
 		pulses[i] = 50
 	}
 
@@ -390,7 +385,7 @@ func TestAntiCollapseLM3Scaling(t *testing.T) {
 		prev1LogE := make([]float64, MaxBands*channels)
 		prev2LogE := make([]float64, MaxBands*channels)
 
-		for i := 0; i < MaxBands; i++ {
+		for i := range MaxBands {
 			if i < end {
 				logE[i] = 0.0
 			}
@@ -399,7 +394,7 @@ func TestAntiCollapseLM3Scaling(t *testing.T) {
 		}
 
 		pulses := make([]int, end)
-		for i := 0; i < end; i++ {
+		for i := range end {
 			pulses[i] = 1000 // High pulses to make thresh small
 		}
 
@@ -442,7 +437,7 @@ func TestAntiCollapseAllSubBlocks(t *testing.T) {
 	prev1LogE := make([]float64, MaxBands*channels)
 	prev2LogE := make([]float64, MaxBands*channels)
 
-	for i := 0; i < MaxBands; i++ {
+	for i := range MaxBands {
 		if i < end {
 			logE[i] = -5.0
 		}
@@ -451,7 +446,7 @@ func TestAntiCollapseAllSubBlocks(t *testing.T) {
 	}
 
 	pulses := make([]int, end)
-	for i := 0; i < end; i++ {
+	for i := range end {
 		pulses[i] = 50
 	}
 
@@ -462,9 +457,9 @@ func TestAntiCollapseAllSubBlocks(t *testing.T) {
 	N0 := EBands[6] - EBands[5]
 	bandOffset := EBands[5] << lm
 
-	for k := 0; k < M; k++ {
+	for k := range M {
 		subBlockHasNoise := false
-		for j := 0; j < N0; j++ {
+		for j := range N0 {
 			idx := bandOffset + (j << lm) + k
 			if idx < frameSize && coeffsL[idx] != 0 {
 				subBlockHasNoise = true

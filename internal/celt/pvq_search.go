@@ -85,7 +85,7 @@ func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int32
 		_ = y[n-1]
 		_ = absX[n-1]
 		_ = x[n-1]
-		for j := 0; j < n; j++ {
+		for j := range n {
 			iy[j] = 0
 			signx[j] = 0
 			y[j] = 0
@@ -131,7 +131,7 @@ func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int32
 		// IEEE-754 results, so reproduce the reciprocal-then-multiply exactly.
 		// Reference: libopus vq.c lines 266-270, mathops.h celt_rcp.
 		rcp := (float32(k) + 0.8) * (1.0 / sum)
-		for j := 0; j < n; j++ {
+		for j := range n {
 			// It's important to round towards zero here (floor for positive values)
 			// Reference: libopus vq.c line 274
 			iy[j] = int32(rcp * absX[j]) // rcp >= 0, absX >= 0: truncation == floor
@@ -146,7 +146,7 @@ func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int32
 	}
 
 	if absInput {
-		for j := 0; j < n; j++ {
+		for j := range n {
 			x[j] = celtNorm(absX[j])
 		}
 	}
@@ -176,7 +176,7 @@ func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int32
 	// Put the original signs back
 	// Reference: libopus vq.c lines 364-371
 	// The XOR trick: (iy[j]^-signx[j]) + signx[j] negates iy[j] if signx[j]=1
-	for j := 0; j < n; j++ {
+	for j := range n {
 		mask := -int32(signx[j])
 		iy[j] = (iy[j] ^ mask) - mask
 	}
@@ -189,7 +189,7 @@ func pvqExtractAbsSignOnlySum(x []celtNorm, absX []float32, signx []byte, n int)
 	_ = absX[n-1]
 	_ = signx[n-1]
 	var sum float32
-	for j := 0; j < n; j++ {
+	for j := range n {
 		signx[j] = 0
 		xj := x[j]
 		var ax float32
@@ -211,7 +211,7 @@ func pvqExtractAbsSignNorm(x []celtNorm, absX []float32, y []float32, signx []by
 	_ = y[n-1]
 	_ = signx[n-1]
 	_ = iy[n-1]
-	for j := 0; j < n; j++ {
+	for j := range n {
 		iy[j] = 0
 		signx[j] = 0
 		y[j] = 0
@@ -290,13 +290,13 @@ func opPVQRefineNorm(xn []opusVal32, iy []int32, iy0 []int32, k, up, margin int,
 	iysum := int32(0)
 	k32 := int32(k)
 	up32 := int32(up)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		tmp := float32(k) * float32(xn[i])
 		iy[i] = int32(floor32ToInt(float32(0.5) + tmp))
 		rounding[i] = opusVal32(tmp - float32(iy[i]))
 	}
 	if !same {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			lo := up32*iy0[i] - up32 + 1
 			hi := up32*iy0[i] + up32 - 1
 			if iy[i] < lo {
@@ -306,7 +306,7 @@ func opPVQRefineNorm(xn []opusVal32, iy []int32, iy0 []int32, k, up, margin int,
 			}
 		}
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		iysum += iy[i]
 	}
 	if absInt32(iysum-k32) > 32 {
@@ -319,7 +319,7 @@ func opPVQRefineNorm(xn []opusVal32, iy []int32, iy0 []int32, k, up, margin int,
 	for iysum != k32 {
 		roundVal := opusVal32(float32(-1000000 * dir))
 		roundPos := 0
-		for i := 0; i < n; i++ {
+		for i := range n {
 			if float32(rounding[i]-roundVal)*float32(dir) > 0 &&
 				absInt32(iy[i]-up32*iy0[i]) < int32(margin-1) &&
 				!(dir == -1 && iy[i] == 0) {
@@ -349,7 +349,7 @@ func opPVQSearchExtraNorm(x []celtNorm, k, up int) (iy []int32, upIy []int32, re
 	}
 
 	sum := opusVal32(0)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		sum = opusVal32(float32(sum) + absCeltNorm(x[i]))
 	}
 	failed := sum < pvqEPSILON
@@ -359,7 +359,7 @@ func opPVQSearchExtraNorm(x []celtNorm, k, up int) (iy []int32, upIy []int32, re
 	} else {
 		xn := make([]opusVal32, n)
 		rcp := opusVal32(float32(1) / float32(sum))
-		for i := 0; i < n; i++ {
+		for i := range n {
 			xn[i] = opusVal32(absCeltNorm(x[i]) * float32(rcp))
 		}
 		failed = opPVQRefineNorm(xn, iy, iy, k, 1, k+1, true)
@@ -377,7 +377,7 @@ func opPVQSearchExtraNorm(x []celtNorm, k, up int) (iy []int32, upIy []int32, re
 		}
 	}
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		yy = opusVal32(float32(yy) + float32(upIy[i])*float32(upIy[i]))
 		if x[i] < 0 {
 			iy[i] = -iy[i]

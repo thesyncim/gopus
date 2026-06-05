@@ -40,10 +40,7 @@ func silkCNGExc(dstQ14 []int32, excBufQ14 []int32, length int, randSeed *int32) 
 	seed := *randSeed
 	for i := 0; i < length && i < len(dstQ14); i++ {
 		seed = silkRand(seed)
-		idx := int((seed >> 24) & int32(excMask))
-		if idx < 0 {
-			idx = 0
-		}
+		idx := max(int((seed>>24)&int32(excMask)), 0)
 		if idx >= len(excBufQ14) {
 			idx = len(excBufQ14) - 1
 		}
@@ -92,7 +89,7 @@ func shouldUpdateCNGHistory(st *decoderState, ctrl *decoderControl) bool {
 // silk/CNG.c silk_CNG.
 func updateCNGHistory(st *decoderState, ctrl *decoderControl) {
 	order := cngLPCOrder(st)
-	for i := 0; i < order; i++ {
+	for i := range order {
 		smthQ15 := int32(st.cng.smthNLSFQ15[i])
 		delta := int32(st.prevNLSFQ15[i]) - smthQ15
 		st.cng.smthNLSFQ15[i] = int16(smthQ15 + silkSMULWB(delta, cngNLSFSMthQ16))
@@ -101,7 +98,7 @@ func updateCNGHistory(st *decoderState, ctrl *decoderControl) {
 	maxGainQ16 := int32(0)
 	subfr := 0
 	nbSubfr := int(st.nbSubfr)
-	for i := 0; i < nbSubfr; i++ {
+	for i := range nbSubfr {
 		if ctrl.GainsQ16[i] > maxGainQ16 {
 			maxGainQ16 = ctrl.GainsQ16[i]
 			subfr = i
@@ -121,7 +118,7 @@ func updateCNGHistory(st *decoderState, ctrl *decoderControl) {
 		}
 	}
 
-	for i := 0; i < nbSubfr; i++ {
+	for i := range nbSubfr {
 		st.cng.smthGainQ16 += silkSMULWB(ctrl.GainsQ16[i]-st.cng.smthGainQ16, cngGainSmthQ16)
 		if silkSMULWW(st.cng.smthGainQ16, cngGainSmthThresholdQ16) > ctrl.GainsQ16[i] {
 			st.cng.smthGainQ16 = ctrl.GainsQ16[i]
@@ -175,7 +172,7 @@ func (d *Decoder) applyCNGLostFrame(channel int, st *decoderState, frame []int16
 
 	var aQ12 [maxLPCOrder]int16
 	var nlsfQ15 [maxLPCOrder]int16
-	for i := 0; i < order; i++ {
+	for i := range order {
 		nlsfQ15[i] = st.cng.smthNLSFQ15[i]
 	}
 	if !silkNLSF2A(aQ12[:order], nlsfQ15[:order], order) {
@@ -184,10 +181,10 @@ func (d *Decoder) applyCNGLostFrame(channel int, st *decoderState, frame []int16
 	}
 
 	copy(sig[:maxLPCOrder], st.cng.synthStateQ14[:])
-	for i := 0; i < len(frame); i++ {
+	for i := range frame {
 		base := maxLPCOrder + i
 		lpcPredQ10 := int32(order >> 1)
-		for j := 0; j < order; j++ {
+		for j := range order {
 			lpcPredQ10 = silkSMLAWB(lpcPredQ10, sig[base-j-1], int32(aQ12[j]))
 		}
 		sig[base] = silkAddSat32(sig[base], lShiftSAT32By4(lpcPredQ10))

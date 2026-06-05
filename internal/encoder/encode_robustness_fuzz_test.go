@@ -304,10 +304,7 @@ func FuzzEncodeRawFrameSize(f *testing.F) {
 		// Clamp the requested frame size to a sane magnitude and size the PCM to
 		// match it (mismatched lengths are themselves a valid rejection path, but
 		// the goal here is to probe the frame-size handling, not the length check).
-		n := frameSize
-		if n < 0 {
-			n = 0
-		}
+		n := max(frameSize, 0)
 		if n > 1<<16 {
 			n = 1 << 16
 		}
@@ -340,7 +337,7 @@ func FuzzEncodeStream(f *testing.F) {
 		}
 		frameSize, _ := nativeFrameSize(sampleRate, dur)
 
-		for i := 0; i < frames; i++ {
+		for i := range frames {
 			// Toggle a few controls mid-stream to provoke transitions.
 			c := byte(i)
 			if len(ctrl) > 0 {
@@ -482,10 +479,7 @@ func TestEncodeMalformedConfigRejected(t *testing.T) {
 
 	// Non-positive and clearly invalid frame sizes via the public Encode path.
 	for _, fs := range []int{0, -1, -960} {
-		n := fs * 2
-		if n < 0 {
-			n = 0
-		}
+		n := max(fs*2, 0)
 		pkt, err := enc.Encode(make([]float32, n), fs)
 		if err == nil {
 			t.Fatalf("Encode accepted invalid frameSize %d (len(pkt)=%d)", fs, len(pkt))
@@ -537,7 +531,7 @@ func TestEncodeToggleDTXFECStream(t *testing.T) {
 		enc.SetBitrate(16000)
 		frameSize := 320 // 20 ms at 16 kHz
 		sawShort := false
-		for i := 0; i < 60; i++ {
+		for i := range 60 {
 			kind := byte(0) // silence
 			if i%20 < 3 {
 				kind = 1 // brief tone burst

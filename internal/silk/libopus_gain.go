@@ -15,12 +15,9 @@ const (
 // silk_gains_dequant.
 func silkGainsDequant(gainsQ16 *[maxNbSubfr]int32, indices *[maxNbSubfr]int8, prevIndex *int8, conditional bool, nbSubfr int) {
 	prev := int(*prevIndex)
-	for k := 0; k < nbSubfr; k++ {
+	for k := range nbSubfr {
 		if k == 0 && !conditional {
-			base := prev - 16
-			if base < int(indices[k]) {
-				base = int(indices[k])
-			}
+			base := max(prev-16, int(indices[k]))
 			prev = base
 		} else {
 			indTmp := int(indices[k]) + minDeltaGainQuant
@@ -32,10 +29,7 @@ func silkGainsDequant(gainsQ16 *[maxNbSubfr]int32, indices *[maxNbSubfr]int8, pr
 			}
 		}
 		prev = silkLimitInt(prev, 0, nLevelsQGain-1)
-		logGainQ7 := silkSMULWB(int32(invScaleQ16Val), int32(prev)) + int32(gainOffsetQ7)
-		if logGainQ7 > 3967 {
-			logGainQ7 = 3967
-		}
+		logGainQ7 := min(silkSMULWB(int32(invScaleQ16Val), int32(prev))+int32(gainOffsetQ7), 3967)
 		gainsQ16[k] = silkLog2Lin(logGainQ7)
 	}
 	*prevIndex = int8(prev)

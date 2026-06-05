@@ -17,14 +17,14 @@ func TestVADStateInit(t *testing.T) {
 
 	// Check noise level bias initialization (pink noise approximation)
 	expectedBias := []int32{50, 25, 16, 12} // VADNoiseLevelsBias / (b+1)
-	for b := 0; b < VADNBands; b++ {
+	for b := range VADNBands {
 		if vad.NoiseLevelBias[b] != expectedBias[b] {
 			t.Errorf("NoiseLevelBias[%d] = %d, want %d", b, vad.NoiseLevelBias[b], expectedBias[b])
 		}
 	}
 
 	// Check initial noise levels (100 * bias)
-	for b := 0; b < VADNBands; b++ {
+	for b := range VADNBands {
 		expectedNL := 100 * vad.NoiseLevelBias[b]
 		if vad.NL[b] != expectedNL {
 			t.Errorf("NL[%d] = %d, want %d", b, vad.NL[b], expectedNL)
@@ -32,7 +32,7 @@ func TestVADStateInit(t *testing.T) {
 	}
 
 	// Check initial smoothed energy-to-noise ratio (20 dB SNR)
-	for b := 0; b < VADNBands; b++ {
+	for b := range VADNBands {
 		if vad.NrgRatioSmthQ8[b] != 100*256 {
 			t.Errorf("NrgRatioSmthQ8[%d] = %d, want %d", b, vad.NrgRatioSmthQ8[b], 100*256)
 		}
@@ -53,7 +53,7 @@ func TestVADSilenceDetection(t *testing.T) {
 	// Process multiple frames to let noise estimates stabilize
 	var lastActivity int
 	var lastIsActive bool
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		lastActivity, lastIsActive = vad.GetSpeechActivity(silence, frameLength, 16)
 	}
 
@@ -76,7 +76,7 @@ func TestVADSpeechDetection(t *testing.T) {
 
 	// First, establish noise floor with silence
 	silence := make([]float32, frameLength)
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		vad.GetSpeechActivity(silence, frameLength, 16)
 	}
 
@@ -96,7 +96,7 @@ func TestVADSpeechDetection(t *testing.T) {
 	// Process speech frames
 	var activity int
 	var isActive bool
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		activity, isActive = vad.GetSpeechActivity(speech, frameLength, 16)
 	}
 
@@ -126,13 +126,13 @@ func TestVADTransitions(t *testing.T) {
 	}
 
 	// Process silence to establish baseline
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		vad.GetSpeechActivity(silence, frameLength, 16)
 	}
 
 	// Transition to speech
 	var speechOnsetFrame int
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		_, isActive := vad.GetSpeechActivity(speech, frameLength, 16)
 		if isActive && speechOnsetFrame == 0 {
 			speechOnsetFrame = i
@@ -146,7 +146,7 @@ func TestVADTransitions(t *testing.T) {
 
 	// Transition back to silence
 	var silenceOnsetFrame int
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		_, isActive := vad.GetSpeechActivity(silence, frameLength, 16)
 		if !isActive && silenceOnsetFrame == 0 {
 			silenceOnsetFrame = i
@@ -181,14 +181,14 @@ func TestVADMultiBandEnergy(t *testing.T) {
 
 	// Process high frequency signal
 	vad.Reset()
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		vad.GetSpeechActivity(highFreq, frameLength, 16)
 	}
 	highFreqTilt := vad.InputTiltQ15
 
 	// Process low frequency signal
 	vad.Reset()
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		vad.GetSpeechActivity(lowFreq, frameLength, 16)
 	}
 	lowFreqTilt := vad.InputTiltQ15
@@ -218,13 +218,13 @@ func TestVADNoiseAdaptation(t *testing.T) {
 	copy(initialNL, vad.NL[:])
 
 	// Process many frames
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		vad.GetSpeechActivity(noise, frameLength, 16)
 	}
 
 	// Noise estimates should have adapted
 	noiseChanged := false
-	for b := 0; b < VADNBands; b++ {
+	for b := range VADNBands {
 		if vad.NL[b] != initialNL[b] {
 			noiseChanged = true
 			break
@@ -258,7 +258,7 @@ func TestAnaFiltBank1(t *testing.T) {
 	// Verify outputs are non-zero
 	hasLowOutput := false
 	hasHighOutput := false
-	for i := 0; i < 32; i++ {
+	for i := range 32 {
 		if outL[i] != 0 {
 			hasLowOutput = true
 		}
@@ -350,7 +350,7 @@ func TestDTXActivityDetection(t *testing.T) {
 	// Process silent frames until DTX activates (should take ~11 frames: 10 for
 	// NB_SPEECH_FRAMES_BEFORE_DTX threshold + 1 to exceed it).
 	var dtxActivated bool
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		suppress, _ := enc.shouldUseDTXRes(silence)
 		if suppress {
 			dtxActivated = true
@@ -375,7 +375,7 @@ func TestDTXActivityDetection(t *testing.T) {
 	}
 
 	// Process speech - should exit DTX immediately
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		enc.shouldUseDTXRes(speech)
 	}
 
@@ -408,7 +408,7 @@ func TestVADDifferentSampleRates(t *testing.T) {
 
 			// Should detect activity
 			var activity int
-			for i := 0; i < 20; i++ {
+			for range 20 {
 				activity, _ = vad.GetSpeechActivity(speech, sr.frameLength, sr.fsKHz)
 			}
 

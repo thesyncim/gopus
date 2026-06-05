@@ -34,7 +34,7 @@ func TestLFEModeForcesCELTPath(t *testing.T) {
 
 	frameSize := 960
 	pcm := make([]float64, frameSize)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		tm := float64(i) / 48000.0
 		pcm[i] = 0.8 * math.Sin(2*math.Pi*70*tm)
 	}

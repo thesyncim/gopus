@@ -38,7 +38,7 @@ func synthesizeLPCOrder16ScalarForTest(sLPC []int32, A_Q12 []int16, presQ14 []in
 	v15 := sLPC[maxLPCOrder-16]
 
 	sIdx := maxLPCOrder
-	for i := 0; i < subfrLength; i++ {
+	for i := range subfrLength {
 		lpcPredQ10 := int32(maxLPCOrder >> 1)
 		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v0, c0)
 		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v1, c1)

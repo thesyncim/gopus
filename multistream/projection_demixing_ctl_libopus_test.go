@@ -152,7 +152,7 @@ func TestProjectionDemixingMatrixCTLParityOrders(t *testing.T) {
 			}
 
 			n := len(ref.demixing) / 2
-			for i := 0; i < n; i++ {
+			for i := range n {
 				got := int16(binary.LittleEndian.Uint16(gotMatrix[2*i : 2*i+2]))
 				want := int16(binary.LittleEndian.Uint16(ref.demixing[2*i : 2*i+2]))
 				if got != want {

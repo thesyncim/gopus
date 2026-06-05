@@ -337,7 +337,7 @@ func (s *SILKPLCState) UpdateFromGoodFrame(
 			subfrIdx := nbSubfr - 1 - j
 
 			// Sum LTP coefficients for this subframe
-			for i := 0; i < ltpOrder; i++ {
+			for i := range ltpOrder {
 				tempLtpGainQ14 += int32(ltpCoefQ14[subfrIdx*ltpOrder+i])
 			}
 
@@ -345,7 +345,7 @@ func (s *SILKPLCState) UpdateFromGoodFrame(
 				ltpGainQ14 = tempLtpGainQ14
 
 				// Copy LTP coefficients from this subframe
-				for i := 0; i < ltpOrder; i++ {
+				for i := range ltpOrder {
 					s.LTPCoefQ14[i] = ltpCoefQ14[subfrIdx*ltpOrder+i]
 				}
 
@@ -525,10 +525,7 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 	}
 
 	// Get attenuation factors based on loss count
-	attIdx := lossCnt
-	if attIdx > 1 {
-		attIdx = 1
-	}
+	attIdx := min(lossCnt, 1)
 
 	var harmGainQ15 int32
 	var randGainQ15 int32
@@ -566,7 +563,7 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 
 		// For voiced frames, reduce noise based on LTP gain
 		if signalType == 2 {
-			for i := 0; i < ltpOrder; i++ {
+			for i := range ltpOrder {
 				randScaleQ14 -= plcState.LTPCoefQ14[i]
 			}
 			if randScaleQ14 < 3277 { // 0.2 in Q14
@@ -713,7 +710,7 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 		generated += subfrSamples
 
 		// Attenuate LTP gain
-		for j := 0; j < ltpOrder; j++ {
+		for j := range ltpOrder {
 			B_Q14[j] = int16((int32(B_Q14[j]) * harmGainQ15) >> 15)
 		}
 
@@ -731,7 +728,7 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 
 	// LPC synthesis filtering
 	sLPCBufIdx := ltpMemLength - maxLPCOrder
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		// LPC prediction
 		lpcPredQ10 := int32(lpcOrder >> 1) // Rounding
 		for j := 0; j < lpcOrder; j++ {
@@ -754,14 +751,8 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 
 	// Match libopus PLC.c cadence: persist LPC synthesis history after conceal.
 	if setter, ok := dec.(SILKSLPCQ14Setter); ok && lpcOrder > 0 {
-		end := maxLPCOrder + frameSize
-		if end > len(sLPCQ14) {
-			end = len(sLPCQ14)
-		}
-		start := end - lpcOrder
-		if start < 0 {
-			start = 0
-		}
+		end := min(maxLPCOrder+frameSize, len(sLPCQ14))
+		start := max(end-lpcOrder, 0)
 		if start < end {
 			setter.SetSLPCQ14HistoryQ14(sLPCQ14[start:end])
 		}
@@ -899,19 +890,15 @@ func estimatePitchFromHistory(history []float32, histIdx, histLen int) int {
 	// Search range: 32 to 288 samples (typical pitch range)
 	// At 16kHz: 32 samples = 2ms (500Hz), 288 samples = 18ms (55Hz)
 	minLag := 32
-	maxLag := 288
-	if maxLag > histLen/2 {
-		maxLag = histLen / 2
-	}
+	maxLag := min(288, histLen/2)
 	if minLag >= maxLag {
 		return 80 // Default
 	}
 
 	// Look at last analysisLen samples
-	analysisLen := 320 // ~20ms at 16kHz
-	if analysisLen > histLen {
-		analysisLen = histLen
-	}
+	analysisLen := min(
+		// ~20ms at 16kHz
+		320, histLen)
 
 	var bestLag int
 	var bestCorr float32 = -1e10
@@ -1283,10 +1270,7 @@ func computeEnergy(exc []int32, gainQ10 int32, length, offset int) (energy int32
 		return 0, 0
 	}
 
-	end := offset + length
-	if end > len(exc) {
-		end = len(exc)
-	}
+	end := min(offset+length, len(exc))
 	n := end - offset
 	if n <= 0 {
 		return 0, 0
@@ -1341,13 +1325,10 @@ func lpcAnalysisFilter(out []int16, in []float32, B []int16, length, order, star
 	histIdx := len(in) - 1
 
 	for ix := order; ix < length; ix++ {
-		inIdx := histIdx - (length - 1 - ix - startIdx)
-		if inIdx < 0 {
-			inIdx = 0
-		}
+		inIdx := max(histIdx-(length-1-ix-startIdx), 0)
 
 		outQ12 := int32(0)
-		for j := 0; j < order; j++ {
+		for j := range order {
 			prevIdx := inIdx - j - 1
 			if prevIdx < 0 {
 				break

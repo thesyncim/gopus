@@ -394,7 +394,7 @@ func (f *FARGAN) PrimeContinuity(pcm0, features0 []float32) int {
 		return 0
 	}
 	period := 0
-	for i := 0; i < ContVectors; i++ {
+	for i := range ContVectors {
 		features := features0[i*NumFeatures:]
 		f.state.lastPeriod = period
 		period = PeriodFromFeatures(features)
@@ -411,7 +411,7 @@ func (f *FARGAN) PrimeContinuity(pcm0, features0 []float32) int {
 
 	copy(f.state.pitchBuf[PitchMaxPeriod-FARGANFrameSize:], f.scratch.x0[:FARGANFrameSize])
 	f.state.contInitialized = true
-	for i := 0; i < FARGANNBSubframes; i++ {
+	for i := range FARGANNBSubframes {
 		cond := f.scratch.cond[i*FARGANCondSize : (i+1)*FARGANCondSize]
 		f.runSubframe(f.scratch.dummy[:], cond, f.state.lastPeriod)
 		copy(f.state.pitchBuf[PitchMaxPeriod-FARGANSubframeSize:], f.scratch.x0[FARGANFrameSize+i*FARGANSubframeSize:FARGANFrameSize+(i+1)*FARGANSubframeSize])
@@ -431,7 +431,7 @@ func (f *FARGAN) Synthesize(pcm, features []float32) int {
 	}
 	period := PeriodFromFeatures(features)
 	f.computeConditioning(f.scratch.cond[:], features[:NumFeatures], period)
-	for i := 0; i < FARGANNBSubframes; i++ {
+	for i := range FARGANNBSubframes {
 		subPCM := pcm[i*FARGANSubframeSize : (i+1)*FARGANSubframeSize]
 		subCond := f.scratch.cond[i*FARGANCondSize : (i+1)*FARGANCondSize]
 		f.runSubframe(subPCM, subCond, f.state.lastPeriod)
@@ -443,7 +443,7 @@ func (f *FARGAN) Synthesize(pcm, features []float32) int {
 func (f *FARGAN) computeConditioning(out, features []float32, period int) {
 	slot := clampInt(period-PitchMinPeriod, 0, FARGANPEmbedInputs-1)
 	copy(f.scratch.conditioner.denseIn[:NumFeatures], features[:NumFeatures])
-	for i := 0; i < FARGANPEmbedOutSize; i++ {
+	for i := range FARGANPEmbedOutSize {
 		f.scratch.conditioner.denseIn[NumFeatures+i] = f.model.PEmbed.FloatWeights.At(slot*FARGANPEmbedOutSize + i)
 	}
 	computeFARGANDense(&f.model.Dense1, f.scratch.conditioner.convIn[:], f.scratch.conditioner.denseIn[:], activationTanh, &f.scratch.conditioner)
@@ -457,14 +457,14 @@ func (f *FARGAN) runSubframe(pcm, cond []float32, period int) {
 	gainInv := 1 / (1e-5 + gain)
 
 	pos := PitchMaxPeriod - period - 2
-	for i := 0; i < len(f.scratch.pred); i++ {
+	for i := range len(f.scratch.pred) {
 		f.scratch.pred[i] = clampFARGANSample(gainInv * f.state.pitchBuf[max(0, pos)])
 		pos++
 		if pos == PitchMaxPeriod {
 			pos -= period
 		}
 	}
-	for i := 0; i < FARGANSubframeSize; i++ {
+	for i := range FARGANSubframeSize {
 		f.scratch.prev[i] = clampFARGANSample(gainInv * f.state.pitchBuf[PitchMaxPeriod-FARGANSubframeSize+i])
 	}
 
@@ -476,21 +476,21 @@ func (f *FARGAN) runSubframe(pcm, cond []float32, period int) {
 	computeFARGANGLU(&f.model.FWC0GLUGate, f.scratch.gru1In[:SigNetFWC0ConvOutSize], f.scratch.gru1In[:SigNetFWC0ConvOutSize], &f.scratch)
 	computeFARGANSignalDense(&f.model.GainDenseOut, f.scratch.pitchGate[:], f.scratch.gru1In[:SigNetFWC0ConvOutSize], activationSigmoid, &f.scratch)
 
-	for i := 0; i < FARGANSubframeSize; i++ {
+	for i := range FARGANSubframeSize {
 		f.scratch.gru1In[SigNetFWC0GLUGateOutSize+i] = f.scratch.pitchGate[0] * f.scratch.pred[i+2]
 	}
 	copy(f.scratch.gru1In[SigNetFWC0GLUGateOutSize+FARGANSubframeSize:], f.scratch.prev[:])
 	computeFARGANGRU(&f.model.GRU1Input, &f.model.GRU1Recurrent, f.state.gru1State[:], f.scratch.gru1In[:], &f.scratch)
 	computeFARGANGLU(&f.model.GRU1GLUGate, f.scratch.gru2In[:SigNetGRU1OutSize], f.state.gru1State[:], &f.scratch)
 
-	for i := 0; i < FARGANSubframeSize; i++ {
+	for i := range FARGANSubframeSize {
 		f.scratch.gru2In[SigNetGRU1OutSize+i] = f.scratch.pitchGate[1] * f.scratch.pred[i+2]
 	}
 	copy(f.scratch.gru2In[SigNetGRU1OutSize+FARGANSubframeSize:], f.scratch.prev[:])
 	computeFARGANGRU(&f.model.GRU2Input, &f.model.GRU2Recurrent, f.state.gru2State[:], f.scratch.gru2In[:], &f.scratch)
 	computeFARGANGLU(&f.model.GRU2GLUGate, f.scratch.gru3In[:SigNetGRU2OutSize], f.state.gru2State[:], &f.scratch)
 
-	for i := 0; i < FARGANSubframeSize; i++ {
+	for i := range FARGANSubframeSize {
 		f.scratch.gru3In[SigNetGRU2OutSize+i] = f.scratch.pitchGate[2] * f.scratch.pred[i+2]
 	}
 	copy(f.scratch.gru3In[SigNetGRU2OutSize+FARGANSubframeSize:], f.scratch.prev[:])
@@ -501,7 +501,7 @@ func (f *FARGAN) runSubframe(pcm, cond []float32, period int) {
 	copy(f.scratch.skipCat[SigNetGRU1OutSize:SigNetGRU1OutSize+SigNetGRU2OutSize], f.scratch.gru3In[:SigNetGRU2OutSize])
 	copy(f.scratch.skipCat[SigNetGRU1OutSize+SigNetGRU2OutSize+SigNetGRU3OutSize:], f.scratch.gru1In[:SigNetFWC0ConvOutSize])
 	offset := SigNetGRU1OutSize + SigNetGRU2OutSize + SigNetGRU3OutSize + SigNetFWC0ConvOutSize
-	for i := 0; i < FARGANSubframeSize; i++ {
+	for i := range FARGANSubframeSize {
 		f.scratch.skipCat[offset+i] = f.scratch.pitchGate[3] * f.scratch.pred[i+2]
 	}
 	copy(f.scratch.skipCat[offset+FARGANSubframeSize:], f.scratch.prev[:])
@@ -509,13 +509,13 @@ func (f *FARGAN) runSubframe(pcm, cond []float32, period int) {
 	computeFARGANSignalDense(&f.model.SkipDense, f.scratch.skipOut[:], f.scratch.skipCat[:], activationTanh, &f.scratch)
 	computeFARGANGLU(&f.model.SkipGLUGate, f.scratch.skipOut[:], f.scratch.skipOut[:], &f.scratch)
 	computeFARGANSignalDense(&f.model.SigDenseOut, pcm[:FARGANSubframeSize], f.scratch.skipOut[:], activationTanh, &f.scratch)
-	for i := 0; i < FARGANSubframeSize; i++ {
+	for i := range FARGANSubframeSize {
 		pcm[i] *= gain
 	}
 
 	copy(f.state.pitchBuf[:PitchMaxPeriod-FARGANSubframeSize], f.state.pitchBuf[FARGANSubframeSize:])
 	copy(f.state.pitchBuf[PitchMaxPeriod-FARGANSubframeSize:], pcm[:FARGANSubframeSize])
-	for i := 0; i < FARGANSubframeSize; i++ {
+	for i := range FARGANSubframeSize {
 		// libopus fargan_deemphasis() (dnn/fargan.c): "pcm[i] += FARGAN_DEEMPHASIS
 		// * *deemph_mem" is one C statement, fused by clang -ffp-contract=on.
 		pcm[i] = fma32(float32(FARGANDeemphasis), f.state.deemphMem, pcm[i])
@@ -542,14 +542,14 @@ func computeFARGANGRU(inputWeights, recurrentWeights *LinearLayer, state, in []f
 		zrh[i] += recur[i]
 	}
 	computeActivation(zrh[:2*n], zrh[:2*n], 2*n, activationSigmoid)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		// libopus compute_generic_gru() (dnn/nnet.c): "h[i] += recur[2*N+i]*r[i]"
 		// is a single C statement, so clang -ffp-contract=on fuses it into a
 		// single-rounding multiply-add. fma32 reproduces that on arm64.
 		h[i] = fma32(recur[2*n+i], r[i], h[i])
 	}
 	computeActivation(h, h, n, activationTanh)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		// libopus compute_generic_gru() (dnn/nnet.c): "h[i] = z[i]*state[i] +
 		// (1-z[i])*h[i]". clang -ffp-contract=on rounds (1-z)*h first, then fuses
 		// the leading product into the add as fma(z, state, (1-z)*h). Matching
@@ -564,7 +564,7 @@ func computeFARGANGLU(layer *LinearLayer, output, input []float32, scratch *farg
 	act := scratch.act[:n]
 	computeFARGANSignalLinear(layer, act[:n], input[:layer.NbInputs], scratch)
 	computeActivation(act[:n], act[:n], n, activationSigmoid)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		output[i] = input[i] * act[i]
 	}
 }
@@ -598,7 +598,7 @@ func computeFARGANSignalLinear(layer *LinearLayer, out, in []float32, scratch *f
 		clear(out[:n])
 	}
 	if !bias.Empty() {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			out[i] += bias.At(i)
 		}
 	}

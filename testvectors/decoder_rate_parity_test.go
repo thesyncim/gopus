@@ -81,7 +81,6 @@ func TestDecoderParityRateMatrix(t *testing.T) {
 	}
 
 	for _, c := range fixture.Cases {
-		c := c
 		t.Run(fmt.Sprintf("%s/rate%d", c.Name, c.APIRate), func(t *testing.T) {
 			t.Parallel()
 

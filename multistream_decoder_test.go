@@ -111,7 +111,7 @@ func TestMultistreamDecoder_Reset(t *testing.T) {
 
 	// Decode a few frames
 	pcmOut := make([]float32, frameSize*channels)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		pcm := generateSurroundTestSignal(sampleRate, frameSize, channels)
 		packet, _ := enc.EncodeFloat32(pcm)
 		_, err := dec.Decode(packet, pcmOut)
@@ -124,7 +124,7 @@ func TestMultistreamDecoder_Reset(t *testing.T) {
 	dec.Reset()
 
 	// Decode more frames after reset
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		pcm := generateSurroundTestSignal(sampleRate, frameSize, channels)
 		packet, _ := enc.EncodeFloat32(pcm)
 		n, err := dec.Decode(packet, pcmOut)

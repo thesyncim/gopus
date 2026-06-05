@@ -187,10 +187,7 @@ func TestDecodeWithFECNoLBRRAPIRatePCMMatchesLibopus(t *testing.T) {
 						t.Fatalf("NewDecoder: %v", err)
 					}
 					got := make([]float32, 0, len(want))
-					frameCapacity := frameSize
-					if fecFrameSize > frameCapacity {
-						frameCapacity = fecFrameSize
-					}
+					frameCapacity := max(fecFrameSize, frameSize)
 					frame := make([]float32, frameCapacity*channels)
 					n, err := dec.Decode(packet, frame)
 					if err != nil {

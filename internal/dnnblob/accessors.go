@@ -28,10 +28,7 @@ func (v Float32View) At(i int) float32 {
 
 // Fill copies the view into dst and returns the number of values written.
 func (v Float32View) Fill(dst []float32) int {
-	n := v.Len()
-	if n > len(dst) {
-		n = len(dst)
-	}
+	n := min(v.Len(), len(dst))
 	for i := 0; i < n; i++ {
 		dst[i] = v.At(i)
 	}
@@ -61,10 +58,7 @@ func (v Int32View) At(i int) int32 {
 
 // Fill copies the view into dst and returns the number of values written.
 func (v Int32View) Fill(dst []int32) int {
-	n := v.Len()
-	if n > len(dst) {
-		n = len(dst)
-	}
+	n := min(v.Len(), len(dst))
 	for i := 0; i < n; i++ {
 		dst[i] = v.At(i)
 	}
@@ -93,10 +87,7 @@ func (v Int8View) At(i int) int8 {
 
 // Fill copies the view into dst and returns the number of values written.
 func (v Int8View) Fill(dst []int8) int {
-	n := len(v.data)
-	if n > len(dst) {
-		n = len(dst)
-	}
+	n := min(len(v.data), len(dst))
 	for i := 0; i < n; i++ {
 		dst[i] = int8(v.data[i])
 	}

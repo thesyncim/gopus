@@ -72,10 +72,10 @@ func probeLibopusSILKGain(mode uint32, records [][]int32) ([]libopusSILKGainReco
 	out := make([]libopusSILKGainRecord, count)
 	for i := range out {
 		out[i].first = reader.I32()
-		for j := 0; j < maxNbSubfr; j++ {
+		for j := range maxNbSubfr {
 			out[i].ind[j] = int8(reader.I32())
 		}
-		for j := 0; j < maxNbSubfr; j++ {
+		for j := range maxNbSubfr {
 			out[i].gains[j] = reader.I32()
 		}
 	}

@@ -144,7 +144,7 @@ func (t *plcStageTrace) captureFold(overlapBuffer []celtSig, channels, segLen in
 	for ch := 0; ch < channels && ch < len(t.fold); ch++ {
 		buf := make([]float32, segLen)
 		ovl := overlapBuffer[ch*segLen : (ch+1)*segLen]
-		for i := 0; i < segLen; i++ {
+		for i := range segLen {
 			buf[i] = float32(ovl[i])
 		}
 		t.fold[ch] = buf
@@ -192,7 +192,7 @@ func (t *plcStageTrace) capturePreSyn(dst []float32, frameSize, channels int) {
 	}
 	for ch := 0; ch < channels && ch < len(t.presyn); ch++ {
 		buf := make([]float32, frameSize)
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			buf[i] = dst[i*channels+ch]
 		}
 		t.presyn[ch] = buf

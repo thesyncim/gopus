@@ -304,7 +304,7 @@ func TestRouteChannelsToStreams(t *testing.T) {
 		}
 
 		// Mono stream should have the same samples
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			if streams[0][i] != input[i] {
 				t.Errorf("sample %d: got %f, want %f", i, streams[0][i], input[i])
 			}
@@ -466,7 +466,7 @@ func TestRouteChannelsToStreams_RoundTrip(t *testing.T) {
 			// Create unique input for each channel
 			input := make([]float32, frameSize*cfg.channels)
 			for ch := 0; ch < cfg.channels; ch++ {
-				for s := 0; s < frameSize; s++ {
+				for s := range frameSize {
 					// Unique value: channel*100 + sample
 					input[s*cfg.channels+ch] = float32(ch*100 + s)
 				}
@@ -792,7 +792,7 @@ func TestEncode_Basic(t *testing.T) {
 	pcm := make([]float32, frameSize*2)
 
 	// Fill with a simple sine wave
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		sample := float32(math.Sin(2 * math.Pi * 440 * float64(i) / 48000))
 		pcm[i*2] = sample   // Left
 		pcm[i*2+1] = sample // Right
@@ -845,8 +845,8 @@ func TestEncode_51Surround(t *testing.T) {
 
 	// Fill each channel with different frequency sine waves
 	freqs := []float64{440, 880, 550, 660, 770, 220} // FL, C, FR, RL, RR, LFE
-	for i := 0; i < frameSize; i++ {
-		for ch := 0; ch < 6; ch++ {
+	for i := range frameSize {
+		for ch := range 6 {
 			pcm[i*6+ch] = float32(math.Sin(2 * math.Pi * freqs[ch] * float64(i) / 48000))
 		}
 	}
@@ -912,8 +912,8 @@ func TestEncode_71Surround(t *testing.T) {
 
 	// Fill each channel with different frequency sine waves
 	freqs := []float64{440, 880, 550, 660, 770, 990, 330, 220} // FL, C, FR, SL, SR, RL, RR, LFE
-	for i := 0; i < frameSize; i++ {
-		for ch := 0; ch < 8; ch++ {
+	for i := range frameSize {
+		for ch := range 8 {
 			pcm[i*8+ch] = float32(math.Sin(2 * math.Pi * freqs[ch] * float64(i) / 48000))
 		}
 	}
@@ -1081,7 +1081,7 @@ func TestEncode_SurroundPerStreamPolicy(t *testing.T) {
 
 	frameSize := 960
 	pcm := make([]float32, frameSize*6)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		tm := float64(i) / 48000.0
 		pcm[i*6+0] = float32(0.8 * math.Sin(2*math.Pi*1500*tm)) // FL
 		pcm[i*6+1] = float32(0.2 * math.Sin(2*math.Pi*120*tm))  // C
@@ -1151,7 +1151,7 @@ func TestEncode_SurroundPolicyPreservesMonoForceChannels(t *testing.T) {
 
 	frameSize := 960
 	pcm := make([]float32, frameSize*6)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		tm := float64(i) / 48000.0
 		pcm[i*6+0] = float32(0.4 * math.Sin(2*math.Pi*600*tm))
 		pcm[i*6+1] = float32(0.3 * math.Sin(2*math.Pi*220*tm))
@@ -1187,7 +1187,7 @@ func TestEncode_SurroundTrimProduced(t *testing.T) {
 
 	frameSize := 960
 	pcm := make([]float32, frameSize*6)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		tm := float64(i) / 48000.0
 		if i%2 == 0 {
 			pcm[i*6+0] = 0.9
@@ -1232,7 +1232,7 @@ func TestEncode_SurroundBandSMRProduced(t *testing.T) {
 
 	frameSize := 960
 	pcm := make([]float32, frameSize*6)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		tm := float64(i) / 48000.0
 		pcm[i*6+0] = float32(0.8 * math.Sin(2*math.Pi*2100*tm)) // FL
 		pcm[i*6+1] = float32(0.5 * math.Sin(2*math.Pi*260*tm))  // C
@@ -1251,7 +1251,7 @@ func TestEncode_SurroundBandSMRProduced(t *testing.T) {
 	}
 
 	nonZeroChannels := 0
-	for ch := 0; ch < 5; ch++ { // Exclude LFE channel (index 5)
+	for ch := range 5 { // Exclude LFE channel (index 5)
 		row := enc.surroundBandSMR[ch*surroundBands : (ch+1)*surroundBands]
 		rowNonZero := false
 		for _, v := range row {
@@ -1285,7 +1285,7 @@ func TestEncode_SurroundEnergyMaskPerStream(t *testing.T) {
 
 	frameSize := 960
 	pcm := make([]float32, frameSize*6)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		tm := float64(i) / 48000.0
 		pcm[i*6+0] = float32(0.8 * math.Sin(2*math.Pi*2100*tm)) // FL
 		pcm[i*6+1] = float32(0.5 * math.Sin(2*math.Pi*260*tm))  // C
@@ -1319,7 +1319,7 @@ func TestEncode_SurroundEnergyMaskPerStream(t *testing.T) {
 			}
 			wantLeft := enc.surroundBandSMR[left*surroundBands : (left+1)*surroundBands]
 			wantRight := enc.surroundBandSMR[right*surroundBands : (right+1)*surroundBands]
-			for i := 0; i < surroundBands; i++ {
+			for i := range surroundBands {
 				wantL := float32(wantLeft[i])
 				wantR := float32(wantRight[i])
 				if gotMask[i] != wantL {
@@ -1339,7 +1339,7 @@ func TestEncode_SurroundEnergyMaskPerStream(t *testing.T) {
 				t.Fatalf("stream %d missing mono channel mapping", s)
 			}
 			wantMono := enc.surroundBandSMR[mono*surroundBands : (mono+1)*surroundBands]
-			for i := 0; i < surroundBands; i++ {
+			for i := range surroundBands {
 				want := float32(wantMono[i])
 				if gotMask[i] != want {
 					t.Fatalf("stream %d mono mask[%d]=%f want=%f", s, i, gotMask[i], want)
@@ -1371,7 +1371,7 @@ func TestEncode_SurroundTrimProducedAt24k(t *testing.T) {
 
 	frameSize := 480 // 20 ms at 24 kHz
 	pcm := make([]float32, frameSize*6)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		tm := float64(i) / 24000.0
 		pcm[i*6+0] = float32(0.9 * math.Sin(2*math.Pi*1800*tm))
 		pcm[i*6+1] = float32(0.3 * math.Sin(2*math.Pi*120*tm))
@@ -1412,9 +1412,9 @@ func TestEncode_AmbisonicsForcesCELTMode(t *testing.T) {
 
 	frameSize := 960
 	pcm := make([]float32, frameSize*4)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		tm := float64(i) / 48000.0
-		for ch := 0; ch < 4; ch++ {
+		for ch := range 4 {
 			pcm[i*4+ch] = float32(0.4 * math.Sin(2*math.Pi*float64(220+ch*90)*tm))
 		}
 	}
@@ -1491,7 +1491,7 @@ func TestEncode_Mono(t *testing.T) {
 	// Create 20ms of mono audio
 	frameSize := 960
 	pcm := make([]float32, frameSize)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		pcm[i] = float32(math.Sin(2 * math.Pi * 440 * float64(i) / 48000))
 	}
 
@@ -1521,8 +1521,8 @@ func TestGetFinalRange(t *testing.T) {
 	// Create 20ms of 5.1 audio
 	frameSize := 960
 	pcm := make([]float32, frameSize*6)
-	for i := 0; i < frameSize; i++ {
-		for ch := 0; ch < 6; ch++ {
+	for i := range frameSize {
+		for ch := range 6 {
 			pcm[i*6+ch] = float32(math.Sin(2 * math.Pi * float64(440+ch*100) * float64(i) / 48000))
 		}
 	}
@@ -1801,8 +1801,8 @@ func TestGetFinalRange_XORCombination(t *testing.T) {
 	// Create 20ms of audio with different content per channel
 	frameSize := 960
 	pcm := make([]float32, frameSize*6)
-	for i := 0; i < frameSize; i++ {
-		for ch := 0; ch < 6; ch++ {
+	for i := range frameSize {
+		for ch := range 6 {
 			// Different frequency per channel for distinct encoding
 			freq := 220.0 * float64(ch+1)
 			pcm[i*6+ch] = float32(0.5 * math.Sin(2*math.Pi*freq*float64(i)/48000))
@@ -1810,7 +1810,7 @@ func TestGetFinalRange_XORCombination(t *testing.T) {
 	}
 
 	// Encode multiple frames to ensure we get different FinalRange values
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_, err = enc.Encode(pcm, frameSize)
 		if err != nil {
 			t.Fatalf("Encode error on frame %d: %v", i, err)

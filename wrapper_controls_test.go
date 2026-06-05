@@ -181,7 +181,6 @@ func TestSupportsOptionalExtension(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			if got := SupportsOptionalExtension(tc.ext); got != tc.want {
 				t.Fatalf("SupportsOptionalExtension(%q)=%v want %v", tc.ext, got, tc.want)

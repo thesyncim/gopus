@@ -218,7 +218,7 @@ func TestCeltMathMatchesLibopusCELTOracle(t *testing.T) {
 		1.0000001, 1.25, 1.5, 1.875, 2, 3.5, 8, 1024,
 	}
 	for exp := int32(-12); exp <= 12; exp++ {
-		for mant := uint32(0); mant < 8; mant++ {
+		for mant := range uint32(8) {
 			bits := uint32(exp+127)<<23 | mant<<20 | 0x54321
 			logInputs = append(logInputs, math.Float32frombits(bits))
 		}
@@ -244,7 +244,7 @@ func TestCeltMathMatchesLibopusCELTOracle(t *testing.T) {
 		1.25, 2, 3, 3.75, 10,
 	}
 	seed := uint32(0x6d2b79f5)
-	for i := 0; i < 128; i++ {
+	for range 128 {
 		seed = 1664525*seed + 1013904223
 		sinInputs = append(sinInputs, float32(int32(seed%20001)-10000)/8192)
 	}

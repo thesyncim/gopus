@@ -12,7 +12,7 @@ func imdctPostRotateF32(buf []float32, trig []float32, n2, n4 int) {
 
 	yp0 := 0
 	yp1 := n2 - 2
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		re := buf[yp0+1]
 		im := buf[yp0]
 		t0 := trig[i]

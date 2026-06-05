@@ -103,10 +103,7 @@ var tbands = [NbTBands + 1]int{
 }
 
 func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
-	len2 := len(in) / 2
-	if len(out) < len2 {
-		len2 = len(out)
-	}
+	len2 := min(len(out), len(in)/2)
 	if len2 <= 0 {
 		return 0
 	}
@@ -205,10 +202,7 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 }
 
 func silkResamplerDown2HPScaled(s []float32, out []float32, in []float32, scale float32) float32 {
-	len2 := len(in) / 2
-	if len(out) < len2 {
-		len2 = len(out)
-	}
+	len2 := min(len(out), len(in)/2)
 	if len2 <= 0 {
 		return 0
 	}
@@ -299,10 +293,7 @@ func silkResamplerDown2HPScaled(s []float32, out []float32, in []float32, scale 
 }
 
 func silkResamplerDown2HPStereo(s []float32, out []float32, in []float32, scale float32) float32 {
-	len2 := len(in) / 4
-	if len(out) < len2 {
-		len2 = len(out)
-	}
+	len2 := min(len(out), len(in)/4)
 	if len2 <= 0 {
 		return 0
 	}
@@ -672,10 +663,10 @@ func fft480(out, in *[480]complex64, scratch []celt.KissCpx) {
 
 func analysisSpecVariability(logE *[NbFrames][NbTBands]float32) float32 {
 	var mindist [NbFrames]float32
-	for i := 0; i < NbFrames; i++ {
+	for i := range NbFrames {
 		mindist[i] = 1e15
 	}
-	for i := 0; i < NbFrames-1; i++ {
+	for i := range NbFrames - 1 {
 		rowI := &logE[i]
 		for j := i + 1; j < NbFrames; j++ {
 			rowJ := &logE[j]
@@ -727,7 +718,7 @@ func analysisSpecVariability(logE *[NbFrames][NbTBands]float32) float32 {
 		}
 	}
 	specVariability := float32(0)
-	for i := 0; i < NbFrames; i++ {
+	for i := range NbFrames {
 		specVariability += mindist[i]
 	}
 	return opusmath.SqrtF32(specVariability / float32(NbFrames*NbTBands))
@@ -755,11 +746,11 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		}
 		mono = s.scratchMono[:frameSize]
 		if channels == 2 {
-			for i := 0; i < frameSize; i++ {
+			for i := range frameSize {
 				mono[i] = (pcm[2*i] + pcm[2*i+1]) * stereoScale
 			}
 		} else {
-			for i := 0; i < frameSize; i++ {
+			for i := range frameSize {
 				mono[i] = pcm[i] * celtSigScale
 			}
 		}
@@ -776,20 +767,14 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		hpEner      float32
 	)
 	oldMemFill := int(s.MemFill)
-	space := AnalysisBufSize - oldMemFill
-	if space < 0 {
-		space = 0
-	}
+	space := max(AnalysisBufSize-oldMemFill, 0)
 
 	// Match libopus downmix_and_resample split:
 	// fill remaining analysis buffer first, and only then process residual.
 	switch s.Fs {
 	case 48000:
 		analysisLen = frameSize / 2
-		firstCopy = analysisLen
-		if firstCopy > space {
-			firstCopy = space
-		}
+		firstCopy = min(analysisLen, space)
 		if firstCopy > 0 {
 			first := s.InMem[oldMemFill : oldMemFill+firstCopy]
 			var hp float32
@@ -804,19 +789,13 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		}
 	case 24000:
 		analysisLen = frameSize
-		firstCopy = analysisLen
-		if firstCopy > space {
-			firstCopy = space
-		}
+		firstCopy = min(analysisLen, space)
 		if firstCopy > 0 {
 			copy(s.InMem[oldMemFill:oldMemFill+firstCopy], mono[:firstCopy])
 		}
 	case 16000:
 		analysisLen = (frameSize * 3) / 2
-		firstCopy = analysisLen
-		if firstCopy > space {
-			firstCopy = space
-		}
+		firstCopy = min(analysisLen, space)
 		if firstCopy > 0 {
 			firstInput := (firstCopy * 2) / 3
 			if firstInput > 0 {
@@ -826,7 +805,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 				}
 				first := s.InMem[oldMemFill : oldMemFill+firstOutput]
 				tmp3x := s.scratchResample3x[:firstInput*3]
-				for i := 0; i < firstInput; i++ {
+				for i := range firstInput {
 					v := mono[i]
 					j := 3 * i
 					tmp3x[j] = v
@@ -861,7 +840,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 
 	inBuf := s.scratchFFTIn[:]
 	// Use 480 samples from InMem for FFT
-	for i := 0; i < 240; i++ {
+	for i := range 240 {
 		w := analysisWindow[i]
 		inBuf[i] = complex(w*s.InMem[i], w*s.InMem[240+i])
 		inBuf[480-i-1] = complex(w*s.InMem[480-i-1], w*s.InMem[480+240-i-1])
@@ -899,10 +878,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		if remaining > 0 {
 			restInput := (remaining * 2) / 3
 			restSrcStart := (firstCopy * 2) / 3
-			restSrcEnd := restSrcStart + restInput
-			if restSrcEnd > frameSize {
-				restSrcEnd = frameSize
-			}
+			restSrcEnd := min(restSrcStart+restInput, frameSize)
 			restInput = restSrcEnd - restSrcStart
 			if restInput > 0 {
 				restOutput := (restInput * 3) / 2
@@ -1084,10 +1060,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	bandwidthMask := float32(0)
 	bandwidth := 0
 	maxE := float32(0)
-	lsbDepth := int(s.LSBDepth)
-	if lsbDepth < 8 {
-		lsbDepth = 8
-	}
+	lsbDepth := max(int(s.LSBDepth), 8)
 	if lsbDepth > 24 {
 		lsbDepth = 24
 	}
@@ -1099,7 +1072,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	maxPitchRatio := float32(1.0)
 
 	if s.Count == 0 {
-		for b := 0; b < NbTBands; b++ {
+		for b := range NbTBands {
 			s.LowE[b] = 1e10
 			s.HighE[b] = -1e10
 		}
@@ -1139,7 +1112,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	const analysisBinScale = (1.0 / (celtSigScale * celtSigScale)) * analysisFFTEnergyScale
 
 	// Band energies and tonal metrics using precomputed bin energies.
-	for b := 0; b < NbTBands; b++ {
+	for b := range NbTBands {
 		var bandE, tE, nE, rawE float32
 		for i := tbands[b]; i < tbands[b+1]; i++ {
 			binERaw := binEArr[i-binStart]
@@ -1183,7 +1156,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		relativeE += (logE[b] - s.LowE[b]) / (1e-5 + (s.HighE[b] - s.LowE[b]))
 
 		var L1, L2 float32
-		for i := 0; i < NbFrames; i++ {
+		for i := range NbFrames {
 			L1 += s.SqrtE[i][b]
 			L2 += s.E[i][b]
 		}
@@ -1217,7 +1190,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	}
 	specVariability = analysisSpecVariability(&s.LogE)
 
-	for b := 0; b < NbTBands; b++ {
+	for b := range NbTBands {
 		bandStart := tbands[b]
 		bandEnd := tbands[b+1]
 		E := bandERaw[b] * analysisBinScale
@@ -1278,10 +1251,10 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	}
 
 	// BFCC and mid-energy extraction
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		row := dctTable[i*16 : i*16+16]
 		var bfccSum, midESum float32
-		for b := 0; b < 16; b++ {
+		for b := range 16 {
 			coeff := row[b]
 			bfccSum += coeff * logE[b]
 			midESum += coeff * 0.5 * (s.HighE[b] + s.LowE[b])
@@ -1318,38 +1291,38 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	info.Bandwidth = bandwidthTypeFromIndex(bandwidth)
 	info.Loudness = frameLoudness
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		features[i] = -0.12299*(BFCC[i]+s.Mem[i+24]) +
 			0.49195*(s.Mem[i]+s.Mem[i+16]) +
 			0.69693*s.Mem[i+8] -
 			1.4349*s.CMean[i]
 	}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		s.CMean[i] = (1.0-alpha)*s.CMean[i] + alpha*BFCC[i]
 	}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		features[4+i] = 0.63246*(BFCC[i]-s.Mem[i+24]) + 0.31623*(s.Mem[i]-s.Mem[i+16])
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		features[8+i] = 0.53452*(BFCC[i]+s.Mem[i+24]) -
 			0.26726*(s.Mem[i]+s.Mem[i+16]) -
 			0.53452*s.Mem[i+8]
 	}
 	if s.Count > 5 {
-		for i := 0; i < 9; i++ {
+		for i := range 9 {
 			s.Std[i] = (1.0-alpha)*s.Std[i] + alpha*features[i]*features[i]
 		}
 	}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		features[i] = BFCC[i] - midE[i]
 	}
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		s.Mem[i+24] = s.Mem[i+16]
 		s.Mem[i+16] = s.Mem[i+8]
 		s.Mem[i+8] = s.Mem[i]
 		s.Mem[i] = BFCC[i]
 	}
-	for i := 0; i < 9; i++ {
+	for i := range 9 {
 		features[11+i] = opusmath.SqrtF32(s.Std[i]) - stdFeatureBias[i]
 	}
 	features[18] = specVariability - 0.78
@@ -1367,12 +1340,9 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	layer2.ComputeDense(frameProbs[:], s.RNNState[:])
 	info.MusicProb = frameProbs[0]
 	info.VADProb = frameProbs[1]
-	for b := 0; b < NbTBands+1; b++ {
+	for b := range NbTBands + 1 {
 		boost := maxf(0, leakageTo[b]-bandLog2[b]) + maxf(0, bandLog2[b]-(leakageFrom[b]+leakageOffset))
-		q6 := int(opusmath.FloorHalfPlusF32ToInt32(float32(64) * boost))
-		if q6 > 255 {
-			q6 = 255
-		}
+		q6 := min(int(opusmath.FloorHalfPlusF32ToInt32(float32(64)*boost)), 255)
 		if q6 < 0 {
 			q6 = 0
 		}
@@ -1463,7 +1433,7 @@ func (s *TonalityAnalysisState) tonalityGetInfo(frameSize int) AnalysisInfo {
 	bandwidthSpan := 6
 
 	// Look ahead for tonality and safe bandwidth.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		pos++
 		if pos == DetectSize {
 			pos = 0
@@ -1565,10 +1535,7 @@ func (s *TonalityAnalysisState) tonalityGetInfo(frameSize int) AnalysisInfo {
 		pmin := probMin
 		pmax := probMax
 		pos = pos0
-		history := int(s.Count - 1)
-		if history > 15 {
-			history = 15
-		}
+		history := min(int(s.Count-1), 15)
 		if history < 0 {
 			history = 0
 		}
@@ -1629,19 +1596,13 @@ func (s *TonalityAnalysisState) RunAnalysis(pcm []float32, frameSize int, channe
 			// libopus can pass negative offsets when analysis uses external
 			// lookahead. Skip unavailable prefix when only current PCM is present.
 			if offset < 0 {
-				advance := -offset
-				if advance > pcmLen {
-					advance = pcmLen
-				}
+				advance := min(-offset, pcmLen)
 				offset += advance
 				pcmLen -= advance
 				continue
 			}
 
-			chunk := chunkSize
-			if chunk > pcmLen {
-				chunk = pcmLen
-			}
+			chunk := min(chunkSize, pcmLen)
 			if chunk <= 0 {
 				break
 			}
@@ -1650,10 +1611,7 @@ func (s *TonalityAnalysisState) RunAnalysis(pcm []float32, frameSize int, channe
 			if start >= len(pcm) {
 				break
 			}
-			end := start + chunk*channels
-			if end > len(pcm) {
-				end = len(pcm)
-			}
+			end := min(start+chunk*channels, len(pcm))
 			if end > start {
 				s.tonalityAnalysis(pcm[start:end], channels)
 			}

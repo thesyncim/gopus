@@ -180,7 +180,7 @@ func inferMappingFamily(channels, streams, coupledStreams int, mapping []byte) i
 
 	if streams == channels && coupledStreams == 0 {
 		discrete := true
-		for i := 0; i < channels; i++ {
+		for i := range channels {
 			if mapping[i] != byte(i) {
 				discrete = false
 				break
@@ -258,7 +258,7 @@ func NewEncoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 	// Create stream encoders
 	// First M encoders are stereo (coupled), remaining N-M are mono
 	encoders := make([]*encoder.Encoder, streams)
-	for i := 0; i < streams; i++ {
+	for i := range streams {
 		var chans int
 		if i < coupledStreams {
 			chans = 2 // Coupled stream = stereo
@@ -642,10 +642,7 @@ func (e *Encoder) bitrateForAllocation(frameSize int) int {
 	if e.lfeStream >= 0 {
 		nbLFE = 1
 	}
-	nbUncoupled := e.streams - e.coupledStreams - nbLFE
-	if nbUncoupled < 0 {
-		nbUncoupled = 0
-	}
+	nbUncoupled := max(e.streams-e.coupledStreams-nbLFE, 0)
 	nbNormal := 2*e.coupledStreams + nbUncoupled
 	if e.bitrate == encoder.BitrateMax {
 		return nbNormal*750000 + nbLFE*128000
@@ -693,10 +690,7 @@ func (e *Encoder) allocateSurroundRates(rates []int, frameSize int) {
 		nbLFE = 1
 	}
 	nbCoupled := e.coupledStreams
-	nbUncoupled := e.streams - nbCoupled - nbLFE
-	if nbUncoupled < 0 {
-		nbUncoupled = 0
-	}
+	nbUncoupled := max(e.streams-nbCoupled-nbLFE, 0)
 	nbNormal := 2*nbCoupled + nbUncoupled
 
 	bitrate := e.bitrateForAllocation(frameSize)
@@ -819,7 +813,7 @@ func channelPositions(channels int, pos []int) bool {
 	if len(pos) < channels {
 		return false
 	}
-	for i := 0; i < channels; i++ {
+	for i := range channels {
 		pos[i] = 0
 	}
 	switch channels {
@@ -877,10 +871,7 @@ func surroundTrimFromMask(maskL, maskR []float32) float32 {
 	if len(maskR) >= surroundBands {
 		channels = 2
 	}
-	maskEnd := 17
-	if maskEnd > surroundBands {
-		maskEnd = surroundBands
-	}
+	maskEnd := min(17, surroundBands)
 
 	maskAvg := float32(0)
 	count := 0
@@ -974,8 +965,8 @@ func (e *Encoder) computeSurroundBandSMR(pcm []float32, frameSize int, bandSMR [
 	in := e.ensureSurroundInputScratch(overlap + analysisFrameSize)
 
 	var maskLogE [3][surroundBands]float32
-	for c := 0; c < 3; c++ {
-		for i := 0; i < surroundBands; i++ {
+	for c := range 3 {
+		for i := range surroundBands {
 			maskLogE[c][i] = -28.0
 		}
 	}
@@ -984,31 +975,28 @@ func (e *Encoder) computeSurroundBandSMR(pcm []float32, frameSize int, bandSMR [
 		copy(in[:overlap], e.surroundWindowMem[ch*overlap:(ch+1)*overlap])
 		clear(in[overlap:])
 
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			in[overlap+i*upsample] = pcm[i*e.inputChannels+ch] * float32(celt.CELTSigScale)
 		}
 
 		m := e.surroundPreemphMem[ch]
-		for i := 0; i < analysisFrameSize; i++ {
+		for i := range analysisFrameSize {
 			x := in[overlap+i]
 			in[overlap+i] = x - m
 			m = celt.PreemphCoef * x
 		}
 		e.surroundPreemphMem[ch] = m
 
-		for i := 0; i < surroundBands; i++ {
+		for i := range surroundBands {
 			e.surroundBandScratch[i] = float32(math.Inf(-1))
 		}
 
-		for frame := 0; frame < nbFrames; frame++ {
+		for frame := range nbFrames {
 			start := frame * freqSize
 			end := start + freqSize + overlap
 			coeffs := celt.MDCTForwardWithOverlapFloat32(in[start:end], overlap)
 			if upsample != 1 {
-				bound := freqSize / upsample
-				if bound > len(coeffs) {
-					bound = len(coeffs)
-				}
+				bound := min(freqSize/upsample, len(coeffs))
 				for i := 0; i < bound; i++ {
 					coeffs[i] *= float32(upsample)
 				}
@@ -1019,7 +1007,7 @@ func (e *Encoder) computeSurroundBandSMR(pcm []float32, frameSize int, bandSMR [
 
 			var tmp [surroundBands]float32
 			e.surroundAnalysisEncoder.ComputeBandEnergiesFloat32Into(coeffs, surroundBands, freqSize, tmp[:])
-			for i := 0; i < surroundBands; i++ {
+			for i := range surroundBands {
 				if tmp[i] > e.surroundBandScratch[i] {
 					e.surroundBandScratch[i] = tmp[i]
 				}
@@ -1041,15 +1029,15 @@ func (e *Encoder) computeSurroundBandSMR(pcm []float32, frameSize int, bandSMR [
 
 		switch pos[ch] {
 		case 1:
-			for i := 0; i < surroundBands; i++ {
+			for i := range surroundBands {
 				maskLogE[0][i] = logSum32(maskLogE[0][i], e.surroundBandScratch[i])
 			}
 		case 3:
-			for i := 0; i < surroundBands; i++ {
+			for i := range surroundBands {
 				maskLogE[2][i] = logSum32(maskLogE[2][i], e.surroundBandScratch[i])
 			}
 		case 2:
-			for i := 0; i < surroundBands; i++ {
+			for i := range surroundBands {
 				maskLogE[0][i] = logSum32(maskLogE[0][i], e.surroundBandScratch[i]-0.5)
 				maskLogE[2][i] = logSum32(maskLogE[2][i], e.surroundBandScratch[i]-0.5)
 			}
@@ -1058,12 +1046,12 @@ func (e *Encoder) computeSurroundBandSMR(pcm []float32, frameSize int, bandSMR [
 		copy(e.surroundWindowMem[ch*overlap:(ch+1)*overlap], in[analysisFrameSize:analysisFrameSize+overlap])
 	}
 
-	for i := 0; i < surroundBands; i++ {
+	for i := range surroundBands {
 		maskLogE[1][i] = min(maskLogE[0][i], maskLogE[2][i])
 	}
 	channelOffset := 0.5 * opusmath.CeltLog2(2.0/float32(e.inputChannels-1))
-	for c := 0; c < 3; c++ {
-		for i := 0; i < surroundBands; i++ {
+	for c := range 3 {
+		for i := range surroundBands {
 			maskLogE[c][i] += channelOffset
 		}
 	}
@@ -1075,7 +1063,7 @@ func (e *Encoder) computeSurroundBandSMR(pcm []float32, frameSize int, bandSMR [
 			continue
 		}
 		mask := maskLogE[pos[ch]-1][:]
-		for i := 0; i < surroundBands; i++ {
+		for i := range surroundBands {
 			row[i] -= mask[i]
 		}
 	}
@@ -1150,10 +1138,7 @@ func multistreamCVBRBoundScale(totalBitrate, sampleRate, frameSize int) float32 
 	// Reserve a small framing margin for self-delimited multistream headers and
 	// per-stream TOC/entropy tail variance.
 	const framingMarginBytes = 16
-	maxBurstBytes := maxPacketBytes - framingMarginBytes
-	if maxBurstBytes < 1 {
-		maxBurstBytes = 1
-	}
+	maxBurstBytes := max(maxPacketBytes-framingMarginBytes, 1)
 	burstMultiple := float32(maxBurstBytes) / float32(targetBytes)
 	if burstMultiple >= 2.0 {
 		return 1.0
@@ -1246,10 +1231,7 @@ func setStreamCELTEnergyMask(enc *encoder.Encoder, mask []float32) {
 		enc.SetCELTEnergyMask(nil)
 		return
 	}
-	n := len(mask)
-	if n > 2*surroundBands {
-		n = 2 * surroundBands
-	}
+	n := min(len(mask), 2*surroundBands)
 	enc.SetCELTEnergyMask(mask[:n])
 }
 
@@ -1815,7 +1797,7 @@ func validateEncoderLayout(mapping []byte, streams, coupledStreams int) error {
 		}
 	}
 
-	for s := 0; s < streams; s++ {
+	for s := range streams {
 		if s < coupledStreams {
 			if !mapped[2*s] || !mapped[2*s+1] {
 				return fmt.Errorf("%w: coupled stream %d", ErrInvalidLayout, s)

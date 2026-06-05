@@ -129,10 +129,7 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 	if len(left) < frameLength20ms {
 		frameLength20ms = len(left)
 	}
-	nFrames := len(left) / frameLength20ms
-	if nFrames < 1 {
-		nFrames = 1
-	}
+	nFrames := max(len(left)/frameLength20ms, 1)
 	if nFrames > maxFramesPerPacket {
 		nFrames = maxFramesPerPacket
 	}
@@ -178,10 +175,7 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 	}
 
 	// Create shared range encoder for the stereo packet.
-	bufSize := len(left) + 200
-	if bufSize < maxSilkPacketBytes {
-		bufSize = maxSilkPacketBytes
-	}
+	bufSize := max(len(left)+200, maxSilkPacketBytes)
 	output := ensureByteSlice(&enc.scratchOutput, bufSize)
 	enc.scratchRangeEncoder.Init(output)
 	re := &enc.scratchRangeEncoder
@@ -202,10 +196,7 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 	var sideVAD [maxFramesPerPacket]int
 	for i := 0; i < nFrames; i++ {
 		start := i * frameLength20ms
-		end := start + frameLength20ms
-		if end > len(left) {
-			end = len(left)
-		}
+		end := min(start+frameLength20ms, len(left))
 		frameLength := end - start
 		if frameLength <= 0 {
 			continue
@@ -441,17 +432,11 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 	// Capture nBytesOut before ec_enc_done, matching libopus. This pre-flush
 	// (ec_tell+7)>>3 estimate is the value libopus feeds into the reservoir and
 	// can exceed the flushed buffer length; only the returned slice is clamped.
-	nBytesOut := (re.Tell() + 7) >> 3
-	if nBytesOut < 0 {
-		nBytesOut = 0
-	}
+	nBytesOut := max((re.Tell()+7)>>3, 0)
 
 	// Finalize the range encoder.
 	raw := re.Done()
-	resultLen := nBytesOut
-	if resultLen > len(raw) {
-		resultLen = len(raw)
-	}
+	resultLen := min(nBytesOut, len(raw))
 	// Return a view into the range encoder's own buffer (enc.scratchOutput),
 	// matching the mono finalizeEncodeFrame path. The caller copies the bytes
 	// into the packet buffer before the next encode reinitialises this buffer,
@@ -564,7 +549,7 @@ func DecodeStereoEncoded(encoded []byte, bandwidth Bandwidth) (left, right []flo
 	n := len(interleaved) / 2
 	left = make([]float32, n)
 	right = make([]float32, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		left[i] = interleaved[i*2]
 		right[i] = interleaved[i*2+1]
 	}

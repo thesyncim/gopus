@@ -110,11 +110,11 @@ func TestComputeLinearInt8MatchesDequantisedFloat(t *testing.T) {
 	// expressed as a float-only function so the parity check is
 	// independent of the integer accumulator implementation.
 	ref := referenceCGEMV8x4(weights, scale, rows, cols, in)
-	for i := 0; i < rows; i++ {
+	for i := range rows {
 		ref[i] += bias[i]
 	}
 
-	for i := 0; i < rows; i++ {
+	for i := range rows {
 		if !approxEqual(got[i], ref[i], 1e-3) {
 			t.Fatalf("row %d: got %.6f want %.6f", i, got[i], ref[i])
 		}
@@ -127,7 +127,7 @@ func TestComputeLinearInt8MatchesDequantisedFloat(t *testing.T) {
 // independent code paths.
 func referenceCGEMV8x4(weights []int8, scale []float32, rows, cols int, x []float32) []float32 {
 	q := make([]int32, cols)
-	for i := 0; i < cols; i++ {
+	for i := range cols {
 		q[i] = int32(dnnmath.Cgemv8x4QuantizeInput(x[i]))
 	}
 	out := make([]float32, rows)
@@ -139,7 +139,7 @@ func referenceCGEMV8x4(weights []int8, scale []float32, rows, cols int, x []floa
 			x1 := q[col+1]
 			x2 := q[col+2]
 			x3 := q[col+3]
-			for r := 0; r < 8; r++ {
+			for r := range 8 {
 				base := wOffset + r*4
 				acc[r] += int32(weights[base])*x0 +
 					int32(weights[base+1])*x1 +
@@ -148,7 +148,7 @@ func referenceCGEMV8x4(weights []int8, scale []float32, rows, cols int, x []floa
 			}
 			wOffset += 32
 		}
-		for r := 0; r < 8; r++ {
+		for r := range 8 {
 			out[row+r] = float32(acc[r]) * scale[row+r]
 		}
 	}

@@ -144,7 +144,7 @@ func (d *Decoder) skipMonoLBRRFrames(rd *rangecoding.Decoder, st *decoderState, 
 		return
 	}
 	frameLength := int(st.frameLength)
-	for i := 0; i < framesPerPacket; i++ {
+	for i := range framesPerPacket {
 		if st.LBRRFlags[i] == 0 {
 			continue
 		}
@@ -163,8 +163,8 @@ func (d *Decoder) skipStereoLBRRFrames(rd *rangecoding.Decoder, stMid, stSide *d
 	}
 
 	var predQ13 [2]int32
-	for i := 0; i < framesPerPacket; i++ {
-		for ch := 0; ch < 2; ch++ {
+	for i := range framesPerPacket {
+		for ch := range 2 {
 			st := &d.state[ch]
 			if st.LBRRFlags[i] == 0 {
 				continue

@@ -45,7 +45,7 @@ func TestHotPathAllocsEncodeFloat32(t *testing.T) {
 	pcm := testSineFrame(960)
 	packet := make([]byte, 4000)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		if _, err := enc.Encode(pcm, packet); err != nil {
 			t.Fatalf("warmup Encode: %v", err)
 		}
@@ -69,7 +69,7 @@ func TestHotPathAllocsEncodeInt16(t *testing.T) {
 	pcm := make([]int16, 960)
 	packet := make([]byte, 4000)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		if _, err := enc.EncodeInt16(pcm, packet); err != nil {
 			t.Fatalf("warmup EncodeInt16: %v", err)
 		}
@@ -108,7 +108,7 @@ func TestHotPathAllocsEncodeRestrictedSilkLowComplexity(t *testing.T) {
 
 	pcm := testSineFrame(960)
 	packet := make([]byte, 4000)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		if _, err := enc.Encode(pcm, packet); err != nil {
 			t.Fatalf("warmup Encode: %v", err)
 		}
@@ -211,7 +211,7 @@ func TestHotPathAllocsDecodeSILKPLCMono(t *testing.T) {
 	if _, err := dec.Decode(packet, pcm); err != nil {
 		t.Fatalf("warmup Decode: %v", err)
 	}
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		if _, err := dec.Decode(nil, pcm); err != nil {
 			t.Fatalf("warmup Decode PLC: %v", err)
 		}
@@ -239,7 +239,7 @@ func TestHotPathAllocsDecodeSILKPLCStereo(t *testing.T) {
 	if _, err := dec.Decode(packet, pcm); err != nil {
 		t.Fatalf("warmup Decode: %v", err)
 	}
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		if _, err := dec.Decode(nil, pcm); err != nil {
 			t.Fatalf("warmup Decode PLC: %v", err)
 		}
@@ -298,7 +298,7 @@ func encodeFrameForDecodeGuard(t *testing.T, app Application, channels int, bw B
 	pcm := testSineFrame(960 * channels)
 	packet := make([]byte, 4000)
 	var n int
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		if n, err = enc.Encode(pcm, packet); err != nil {
 			t.Fatalf("warmup Encode: %v", err)
 		}
@@ -315,7 +315,7 @@ func TestHotPathAllocsDecodeSILKMono(t *testing.T) {
 		t.Fatalf("NewDecoder: %v", err)
 	}
 	pcm := make([]float32, 960)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if _, err := dec.Decode(packet, pcm); err != nil {
 			t.Fatalf("warmup Decode: %v", err)
 		}
@@ -337,7 +337,7 @@ func TestHotPathAllocsDecodeHybridMono(t *testing.T) {
 		t.Fatalf("NewDecoder: %v", err)
 	}
 	pcm := make([]float32, 960)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if _, err := dec.Decode(packet, pcm); err != nil {
 			t.Fatalf("warmup Decode: %v", err)
 		}
@@ -381,7 +381,7 @@ func TestHotPathAllocsMultistreamEncode(t *testing.T) {
 	}
 	pcm := testSineFrame(960 * 2)
 	packet := make([]byte, 4000)
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		if _, err := enc.Encode(pcm, packet); err != nil {
 			t.Fatalf("warmup Encode: %v", err)
 		}
@@ -404,7 +404,7 @@ func TestHotPathAllocsMultistreamDecode(t *testing.T) {
 	pcmIn := testSineFrame(960 * 2)
 	scratch := make([]byte, 4000)
 	var n int
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		if n, err = enc.Encode(pcmIn, scratch); err != nil {
 			t.Fatalf("warmup Encode: %v", err)
 		}
@@ -417,7 +417,7 @@ func TestHotPathAllocsMultistreamDecode(t *testing.T) {
 		t.Fatalf("NewMultistreamDecoderDefault: %v", err)
 	}
 	pcm := make([]float32, 960*2)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if _, err := dec.Decode(packet, pcm); err != nil {
 			t.Fatalf("warmup Decode: %v", err)
 		}
@@ -470,7 +470,7 @@ func runLongPacketAllocGuard(t *testing.T, app Application, mode EncoderMode, bw
 
 			pcm := testSineFrame(c.frameSize * channels)
 			packet := make([]byte, 4000)
-			for i := 0; i < 5; i++ {
+			for range 5 {
 				if _, err := enc.Encode(pcm, packet); err != nil {
 					t.Fatalf("warmup Encode: %v", err)
 				}
@@ -507,7 +507,7 @@ func TestHotPathAllocsStreamWriterFloat32(t *testing.T) {
 	}
 	pcmBytes := generateFloat32Bytes(48000, 2, 960, 440.0)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		if _, err := writer.Write(pcmBytes); err != nil {
 			t.Fatalf("warmup Write: %v", err)
 		}

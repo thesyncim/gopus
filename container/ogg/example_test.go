@@ -115,7 +115,7 @@ func ExampleReader_ReadPacket() {
 		log.Fatal(err)
 	}
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		pcm := make([]float32, 960)
 		for j := range pcm {
 			pcm[j] = float32(math.Sin(float64(i*960+j) * 0.01))
@@ -179,10 +179,10 @@ func Example_writeOggFile() {
 	}
 
 	// Write 1 second of audio (50 frames of 20ms each)
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		pcm := make([]float32, 960*2)
 		// Generate stereo sine wave
-		for j := 0; j < 960; j++ {
+		for j := range 960 {
 			t := float64(i*960+j) / 48000.0
 			pcm[j*2] = float32(math.Sin(2 * math.Pi * 440 * t))   // Left: 440 Hz
 			pcm[j*2+1] = float32(math.Sin(2 * math.Pi * 554 * t)) // Right: 554 Hz
@@ -252,7 +252,7 @@ func Example_roundTripOgg() {
 	}
 
 	// Encode 10 frames
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		pcm := make([]float32, 960*2)
 		for j := range pcm {
 			pcm[j] = float32(math.Sin(float64(i*960*2+j) * 0.005))

@@ -68,7 +68,7 @@ func TestDecodeCoarseEnergyPrediction(t *testing.T) {
 	dec := NewDecoder(1)
 
 	// Set known previous energies
-	for band := 0; band < MaxBands; band++ {
+	for band := range MaxBands {
 		dec.prevEnergy[band] = celtGLog(float64(band) * 2.0) // 0, 2, 4, 6, ...
 	}
 
@@ -186,14 +186,14 @@ func TestBandAllocTable(t *testing.T) {
 	// Test properties of the allocation table
 
 	// 1. Quality 0 should be all zeros
-	for band := 0; band < 21; band++ {
+	for band := range 21 {
 		if BandAlloc[0][band] != 0 {
 			t.Errorf("BandAlloc[0][%d] = %d, want 0", band, BandAlloc[0][band])
 		}
 	}
 
 	// 2. Higher qualities should have higher allocations (generally)
-	for band := 0; band < 15; band++ { // Check first 15 bands
+	for band := range 15 { // Check first 15 bands
 		for q := 1; q < 10; q++ {
 			if BandAlloc[q][band] > BandAlloc[q+1][band] {
 				t.Errorf("BandAlloc[%d][%d] = %d > BandAlloc[%d][%d] = %d (not monotonic)",
@@ -211,8 +211,8 @@ func TestBandAllocTable(t *testing.T) {
 	}
 
 	// 4. All values should be non-negative
-	for q := 0; q < 11; q++ {
-		for band := 0; band < 21; band++ {
+	for q := range 11 {
+		for band := range 21 {
 			if BandAlloc[q][band] < 0 {
 				t.Errorf("BandAlloc[%d][%d] = %d is negative", q, band, BandAlloc[q][band])
 			}
@@ -396,7 +396,7 @@ func TestLaplaceDecodeMultipleSymbols(t *testing.T) {
 	prevBits := rd.Tell()
 	totalConsumed := 0
 
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		decay := 16384 + i*512 // Vary decay
 		_ = d.decodeLaplace(laplaceFS, decay)
 

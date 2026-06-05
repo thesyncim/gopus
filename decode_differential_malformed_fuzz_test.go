@@ -78,7 +78,7 @@ func seedPacketsForMutation(t *testing.T) [][]byte {
 func repackMultiFrame(t *testing.T, base []byte, n int) []byte {
 	t.Helper()
 	rp := NewRepacketizer()
-	for i := 0; i < n; i++ {
+	for range n {
 		if err := rp.Cat(base); err != nil {
 			return nil
 		}
@@ -133,7 +133,7 @@ func mutatePacket(rng *rand.Rand, src []byte) []byte {
 		return p
 	default: // append junk bytes (oversize / padding-ambiguity)
 		extra := 1 + rng.Intn(8)
-		for k := 0; k < extra; k++ {
+		for range extra {
 			p = append(p, byte(rng.Intn(256)))
 		}
 		return p
@@ -229,7 +229,7 @@ func TestDecodeDifferentialMalformed(t *testing.T) {
 			n := iters / (2 * len(formats))
 			cases := make([]libopustest.DecodeDiffCase, 0, n)
 			muts := make([][]byte, 0, n)
-			for k := 0; k < n; k++ {
+			for range n {
 				seed := seeds[rng.Intn(len(seeds))]
 				m := mutatePacket(rng, seed)
 				muts = append(muts, m)

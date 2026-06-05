@@ -253,7 +253,7 @@ func decodeGopusOnce(packets [][]byte, channels, batch int) (int, error) {
 
 	totalSamples := 0
 
-	for r := 0; r < batch; r++ {
+	for range batch {
 		for _, packet := range packets {
 			n, err := dec.Decode(packet, pcmOut)
 			if err != nil {

@@ -2,6 +2,7 @@ package celt
 
 import (
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -299,7 +300,7 @@ func TestPVQAllCodewordsHaveCorrectK(t *testing.T) {
 		t.Run("", func(t *testing.T) {
 			vCount := PVQ_V(tc.n, tc.k)
 
-			for idx := uint32(0); idx < vCount; idx++ {
+			for idx := range vCount {
 				pulses := DecodePulses(idx, tc.n, tc.k)
 				if pulses == nil {
 					t.Errorf("DecodePulses(%d, %d, %d) returned nil", idx, tc.n, tc.k)
@@ -370,13 +371,13 @@ func TestPVQCodebookSize(t *testing.T) {
 
 		// Verify by actually enumerating all unique codewords
 		seen := make(map[string]bool)
-		for idx := uint32(0); idx < v; idx++ {
+		for idx := range v {
 			pulses := DecodePulses(idx, tc.n, tc.k)
-			key := ""
+			var key strings.Builder
 			for _, p := range pulses {
-				key += string(rune(p + 1000)) // Simple unique key
+				key.WriteString(string(rune(p + 1000))) // Simple unique key
 			}
-			seen[key] = true
+			seen[key.String()] = true
 		}
 
 		if uint32(len(seen)) != tc.expected {

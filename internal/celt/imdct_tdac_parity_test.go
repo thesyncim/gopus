@@ -14,7 +14,7 @@ import (
 // keeps both products separately rounded and non-fused, matching the kernel on
 // non-arm64 hosts where the kernel is built but only reached on arm64.
 func imdctTDACWindowFMA32ScalarRef(out, xsrc, window []float32, yOut0, xOut0, xSrc0, wBwd0, count int) {
-	for i := 0; i < count; i++ {
+	for i := range count {
 		x1 := xsrc[xSrc0-i]
 		x2 := out[yOut0+i]
 		w1 := window[i]

@@ -66,7 +66,7 @@ func TestTapsetFromSpreadingDecision(t *testing.T) {
 	}
 
 	// Normalize to unit-norm per band (approximate)
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		start := ScaledBandStart(band, frameSize)
 		end := ScaledBandEnd(band, frameSize)
 		if start >= len(normX) || end > len(normX) || start >= end {
@@ -113,7 +113,7 @@ func TestTapsetNotUpdatedWhenDisabled(t *testing.T) {
 	}
 
 	// Normalize
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		start := ScaledBandStart(band, frameSize)
 		end := ScaledBandEnd(band, frameSize)
 		if start >= len(normX) || end > len(normX) || start >= end {
@@ -150,8 +150,8 @@ func TestTapsetGainTableValues(t *testing.T) {
 		{0.7998046875, 0.1000976562, 0.0},          // Tapset 2
 	}
 
-	for tapset := 0; tapset < 3; tapset++ {
-		for tap := 0; tap < 3; tap++ {
+	for tapset := range 3 {
+		for tap := range 3 {
 			expected := expectedGains[tapset][tap]
 			got := combFilterGains[tapset][tap]
 			if math.Abs(float64(got-expected)) > 1e-6 {
@@ -192,7 +192,7 @@ func TestTapsetHysteresis(t *testing.T) {
 			}
 
 			// Normalize per band
-			for band := 0; band < nbBands; band++ {
+			for band := range nbBands {
 				start := ScaledBandStart(band, frameSize)
 				end := ScaledBandEnd(band, frameSize)
 				if start >= len(normX) || end > len(normX) || start >= end {
@@ -211,7 +211,7 @@ func TestTapsetHysteresis(t *testing.T) {
 			}
 
 			// Run several iterations to reach steady state
-			for i := 0; i < 10; i++ {
+			for range 10 {
 				_ = enc.SpreadingDecision(float64sToNorms(normX), nbBands, 1, frameSize, true)
 			}
 

@@ -192,13 +192,13 @@ func msRobustMutate(rng *rand.Rand, src []byte) []byte {
 		return p
 	case 7: // append junk bytes (last-stream overrun / trailing data)
 		extra := 1 + rng.Intn(8)
-		for k := 0; k < extra; k++ {
+		for range extra {
 			p = append(p, byte(rng.Intn(256)))
 		}
 		return p
 	default: // scribble a short run anywhere (multi-byte corruption)
 		n := 1 + rng.Intn(4)
-		for k := 0; k < n; k++ {
+		for range n {
 			p[rng.Intn(len(p))] = byte(rng.Intn(256))
 		}
 		return p
@@ -324,7 +324,7 @@ func TestDecodeMultistreamRobustnessRandom(t *testing.T) {
 
 	iters := diffFuzzBudget(6000)
 	cases := 0
-	for k := 0; k < iters; k++ {
+	for range iters {
 		lo := layouts[rng.Intn(len(layouts))]
 		n := rng.Intn(maxLen + 1)
 		buf := make([]byte, n)
@@ -381,7 +381,7 @@ func TestDecodeMultistreamRobustnessMalformed(t *testing.T) {
 	formats := []msRobustFormat{msRobustFloat32, msRobustInt16, msRobustInt24}
 	total := 0
 	pcmDiverged := 0
-	for k := 0; k < iters; k++ {
+	for k := range iters {
 		seed := seeds[rng.Intn(len(seeds))]
 		m := msRobustMutate(rng, seed.packet)
 		format := formats[rng.Intn(len(formats))]

@@ -153,7 +153,7 @@ func TestEncoderControls_EncodeFloat32(t *testing.T) {
 	}
 	const frameSize = 960
 	pcm := make([]float32, frameSize*2)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		v := float32(math.Sin(2 * math.Pi * 440 * float64(i) / 48000))
 		pcm[2*i] = v
 		pcm[2*i+1] = v

@@ -113,7 +113,7 @@ func TestKissFFT_Twiddles(t *testing.T) {
 			// Check twiddles match expected values
 			const pi = 3.14159265358979323846264338327
 			var maxDiff float64
-			for i := 0; i < nfft; i++ {
+			for i := range nfft {
 				twIdx := i << st.shift
 				if twIdx >= len(st.w) {
 					t.Fatalf("nfft=%d: twiddle index out of range: i=%d shift=%d len=%d", nfft, i, st.shift, len(st.w))
@@ -149,7 +149,7 @@ func TestKissFFT32_Accuracy(t *testing.T) {
 			// Generate random input
 			rng := rand.New(rand.NewSource(42))
 			x := make([]complex64, nfft)
-			for i := 0; i < nfft; i++ {
+			for i := range nfft {
 				x[i] = complex(float32(rng.Float64()*2-1), float32(rng.Float64()*2-1))
 			}
 
@@ -162,7 +162,7 @@ func TestKissFFT32_Accuracy(t *testing.T) {
 			// Compare
 			var errPow, sigPow float64
 			var maxDiff float64
-			for i := 0; i < nfft; i++ {
+			for i := range nfft {
 				diffR := float64(real(out[i]) - real(ref[i]))
 				diffI := float64(imag(out[i]) - imag(ref[i]))
 				diff := math.Abs(diffR) + math.Abs(diffI)
@@ -200,7 +200,7 @@ func TestKissFFT32_VsDft32(t *testing.T) {
 			// Generate random input
 			rng := rand.New(rand.NewSource(42))
 			x := make([]complex64, nfft)
-			for i := 0; i < nfft; i++ {
+			for i := range nfft {
 				x[i] = complex(float32(rng.Float64()*2-1), float32(rng.Float64()*2-1))
 			}
 
@@ -212,7 +212,7 @@ func TestKissFFT32_VsDft32(t *testing.T) {
 
 			// Compare
 			var maxDiff float64
-			for i := 0; i < nfft; i++ {
+			for i := range nfft {
 				diffR := math.Abs(float64(real(kissOut[i]) - real(dftOut[i])))
 				diffI := math.Abs(float64(imag(kissOut[i]) - imag(dftOut[i])))
 				if diffR > maxDiff {

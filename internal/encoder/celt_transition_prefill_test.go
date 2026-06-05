@@ -7,9 +7,9 @@ import (
 
 func makeTransitionPCM(frameSize, channels int) []opusRes {
 	pcm := make([]opusRes, frameSize*channels)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		s := math.Sin(2 * math.Pi * 440 * float64(i) / 48000.0)
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			pcm[i*channels+c] = opusRes(s)
 		}
 	}
@@ -112,7 +112,7 @@ func TestCELTTransitionPrefillSnapshotsLibopusDelayHistoryWindow(t *testing.T) {
 	if len(enc.scratchTransitionPrefill) != prefillFrameSize {
 		t.Fatalf("prefill snapshot len=%d want=%d", len(enc.scratchTransitionPrefill), prefillFrameSize)
 	}
-	for i := 0; i < prefillFrameSize; i++ {
+	for i := range prefillFrameSize {
 		got := enc.scratchTransitionPrefill[i]
 		want := origDelay[wantStart+i]
 		if got != want {
@@ -223,7 +223,7 @@ func TestSilkTransitionPrefillStereoPrimesMidAndSide(t *testing.T) {
 
 	prefillSamples := int(enc.sampleRate) / 100
 	enc.delayBuffer = make([]opusRes, prefillSamples*2)
-	for i := 0; i < prefillSamples; i++ {
+	for i := range prefillSamples {
 		left := 0.45 * math.Sin(2*math.Pi*440*float64(i)/48000.0)
 		right := 0.20 * math.Sin(2*math.Pi*660*float64(i)/48000.0)
 		enc.delayBuffer[2*i] = opusRes(left)

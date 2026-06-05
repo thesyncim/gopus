@@ -165,7 +165,7 @@ func generateCrossProductPCM(numFrames, frameSize, channels int, signalClass str
 		if mono < -0.98 {
 			mono = -0.98
 		}
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			pcm[i*channels+ch] = float32(mono)
 		}
 	}
@@ -330,10 +330,7 @@ func makeCrossProductCases() ([]crossProductCase, []crossProductKey) {
 				for _, sig := range signals {
 					for _, ch := range channelCounts {
 						pcm := generateCrossProductPCM(numFrames, fs, ch, sig.signalClass)
-						maxDB := (br*fs/sampleRate + 255) / 8
-						if maxDB < 3 {
-							maxDB = 3
-						}
+						maxDB := max((br*fs/sampleRate+255)/8, 3)
 						if maxDB > 1275 {
 							maxDB = 1275
 						}

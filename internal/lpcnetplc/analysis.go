@@ -149,7 +149,7 @@ func (a *Analysis) BurgCepstralAnalysis(dst, pcm []float32) int {
 	}
 	a.computeBurgCepstrum(dst[:NumBands], pcm[:FrameSize/2], FrameSize/2, analysisLPCOrder)
 	a.computeBurgCepstrum(dst[NumBands:2*NumBands], pcm[FrameSize/2:FrameSize], FrameSize/2, analysisLPCOrder)
-	for i := 0; i < NumBands; i++ {
+	for i := range NumBands {
 		c0 := dst[i]
 		c1 := dst[NumBands+i]
 		dst[i] = .5 * (c0 + c1)
@@ -195,7 +195,7 @@ func (a *Analysis) computeFrameFeatures(in []float32) {
 
 	logMax := float32(-2)
 	follow := float32(-2)
-	for i := 0; i < NumBands; i++ {
+	for i := range NumBands {
 		v := log10f(1e-2 + a.scratch.bandEnergy[i])
 		v = maxF32(logMax-8, maxF32(follow-2.5, v))
 		a.scratch.logBands[i] = v
@@ -205,7 +205,7 @@ func (a *Analysis) computeFrameFeatures(in []float32) {
 	dctTransform(a.features[:NumBands], a.scratch.logBands[:])
 	a.features[0] -= 4
 	lpcFromCepstrum(a.lpc[:], a.features[:NumBands], &a.scratch)
-	for i := 0; i < analysisLPCOrder; i++ {
+	for i := range analysisLPCOrder {
 		a.features[NumBands+2+i] = a.lpc[i]
 	}
 
@@ -216,7 +216,7 @@ func (a *Analysis) computeFrameFeatures(in []float32) {
 	copy(a.scratch.lpcInput[analysisLPCOrder:], a.scratch.alignedIn[:])
 	copy(a.pitchMem[:], a.scratch.alignedIn[FrameSize-analysisLPCOrder:])
 	celtFIRFloat(a.scratch.lpcInput[:], a.lpc[:], a.lpBuf[PitchMaxPeriod:PitchMaxPeriod+FrameSize])
-	for i := 0; i < FrameSize; i++ {
+	for i := range FrameSize {
 		a.excBuf[PitchMaxPeriod+i] = a.lpBuf[PitchMaxPeriod+i] + 0.7*a.pitchFilt
 		a.pitchFilt = a.lpBuf[PitchMaxPeriod+i]
 	}
@@ -230,13 +230,13 @@ func (a *Analysis) computeFrameFeatures(in []float32) {
 	// libopus evaluates the left-associative "1 + ener0" in float before
 	// promoting the sum for "+ ener1".
 	ener0Base := float32(1 + ener0)
-	for i := 0; i < pitchXcorrFeatures; i++ {
+	for i := range pitchXcorrFeatures {
 		ener := float32(opusmath.CReal(ener0Base) + ener1)
 		a.xcorrFeatures[i] = 2 * a.scratch.pitchXCorr[i]
 		a.scratch.pitchEner[i] = ener
 		ener1 += opusmath.CReal(buf[i+FrameSize])*opusmath.CReal(buf[i+FrameSize]) - opusmath.CReal(buf[i])*opusmath.CReal(buf[i])
 	}
-	for i := 0; i < pitchXcorrFeatures; i++ {
+	for i := range pitchXcorrFeatures {
 		a.xcorrFeatures[i] /= a.scratch.pitchEner[i]
 	}
 
@@ -263,16 +263,16 @@ func (a *Analysis) computeBurgCepstrum(dst, pcm []float32, length, order int) {
 	g /= float32(length - 2*(order-1))
 	clear(a.scratch.window[:])
 	a.scratch.window[0] = 1
-	for i := 0; i < order; i++ {
+	for i := range order {
 		// libopus dnn/freq.c:compute_burg_cepstrum uses C pow().
 		a.scratch.window[i+1] = float32(-opusmath.CReal(a.scratch.burgTemp[i]) * opusmath.PowCReal(0.995, opusmath.CReal(i+1)))
 	}
-	for i := 0; i < analysisWindowSize; i++ {
+	for i := range analysisWindowSize {
 		a.scratch.fftIn[i] = complex(a.scratch.window[i], 0)
 	}
 	scale := float32(1.0 / analysisWindowSize)
 	celt.KissFFT32ToScaledWithScratch(a.scratch.fftOut[:], a.scratch.fftIn[:], scale, a.scratch.fftScratch[:])
-	for i := 0; i < analysisFreqSize; i++ {
+	for i := range analysisFreqSize {
 		a.scratch.spectrum[i] = a.scratch.fftOut[i]
 	}
 	computeBandEnergyInverse(a.scratch.burgBands[:], a.scratch.spectrum[:])
@@ -280,7 +280,7 @@ func (a *Analysis) computeBurgCepstrum(dst, pcm []float32, length, order int) {
 	follow := float32(-2)
 	// libopus dnn/freq.c:compute_burg_cepstrum uses unsuffixed .45.
 	gainScale := 0.45 * opusmath.CReal(g) * opusmath.CReal(float32(1.0)/float32(analysisWindowSize*analysisWindowSize*analysisWindowSize))
-	for i := 0; i < NumBands; i++ {
+	for i := range NumBands {
 		a.scratch.burgBands[i] = float32(opusmath.CReal(a.scratch.burgBands[i]) * gainScale)
 		// libopus dnn/freq.c:compute_burg_cepstrum uses C log10().
 		v := float32(opusmath.Log10CReal(1e-2 + opusmath.CReal(a.scratch.burgBands[i])))
@@ -299,11 +299,11 @@ func (a *Analysis) frameAnalysis(spectrum []complex64, ex, in []float32) {
 	copy(a.analysisMem[:], in[FrameSize-analysisOverlapSize:])
 	applyAnalysisWindow(a.scratch.window[:])
 	scale := float32(1.0 / analysisWindowSize)
-	for i := 0; i < analysisWindowSize; i++ {
+	for i := range analysisWindowSize {
 		a.scratch.fftIn[i] = complex(a.scratch.window[i], 0)
 	}
 	celt.KissFFT32ToScaledWithScratch(a.scratch.fftOut[:], a.scratch.fftIn[:], scale, a.scratch.fftScratch[:])
-	for i := 0; i < analysisFreqSize; i++ {
+	for i := range analysisFreqSize {
 		spectrum[i] = a.scratch.fftOut[i]
 	}
 	computeBandEnergy(ex, spectrum, a.dredEncoder)
@@ -323,7 +323,7 @@ func preemphasisInPlace(x []float32, mem *float32, coef float32) {
 }
 
 func applyAnalysisWindow(x []float32) {
-	for i := 0; i < analysisOverlapSize; i++ {
+	for i := range analysisOverlapSize {
 		x[i] *= analysisHalfWindow[i]
 		x[analysisWindowSize-1-i] *= analysisHalfWindow[i]
 	}
@@ -331,9 +331,9 @@ func applyAnalysisWindow(x []float32) {
 
 func computeBandEnergy(bandE []float32, spectrum []complex64, dredEncoder bool) {
 	var sum [NumBands]float32
-	for i := 0; i < NumBands-1; i++ {
+	for i := range NumBands - 1 {
 		bandSize := (analysisBandEdges[i+1] - analysisBandEdges[i]) * analysisWindow5ms
-		for j := 0; j < bandSize; j++ {
+		for j := range bandSize {
 			frac := float32(j) / float32(bandSize)
 			idx := analysisBandEdges[i]*analysisWindow5ms + j
 			re := real(spectrum[idx])
@@ -355,9 +355,9 @@ func computeBandEnergy(bandE []float32, spectrum []complex64, dredEncoder bool) 
 
 func computeBandEnergyInverse(bandE []float32, spectrum []complex64) {
 	var sum [NumBands]float32
-	for i := 0; i < NumBands-1; i++ {
+	for i := range NumBands - 1 {
 		bandSize := (analysisBandEdges[i+1] - analysisBandEdges[i]) * analysisWindow5ms
-		for j := 0; j < bandSize; j++ {
+		for j := range bandSize {
 			frac := float32(j) / float32(bandSize)
 			idx := analysisBandEdges[i]*analysisWindow5ms + j
 			re := real(spectrum[idx])
@@ -378,9 +378,9 @@ func computeBandEnergyInverse(bandE []float32, spectrum []complex64) {
 func dctTransform(out, in []float32) {
 	// libopus dnn/freq.c:dct multiplies by sqrt(2./NB_BANDS) as C double.
 	scale := opusmath.SqrtCReal(2.0 / opusmath.CReal(NumBands))
-	for i := 0; i < NumBands; i++ {
+	for i := range NumBands {
 		var sum float32
-		for j := 0; j < NumBands; j++ {
+		for j := range NumBands {
 			sum += in[j] * analysisDCTTable[j*NumBands+i]
 		}
 		out[i] = float32(opusmath.CReal(sum) * scale)
@@ -390,9 +390,9 @@ func dctTransform(out, in []float32) {
 func idctTransform(out, in []float32) {
 	// libopus dnn/freq.c:idct multiplies by sqrt(2./NB_BANDS) as C double.
 	scale := opusmath.SqrtCReal(2.0 / opusmath.CReal(NumBands))
-	for i := 0; i < NumBands; i++ {
+	for i := range NumBands {
 		var sum float32
-		for j := 0; j < NumBands; j++ {
+		for j := range NumBands {
 			sum += in[j] * analysisDCTTable[i*NumBands+j]
 		}
 		out[i] = float32(opusmath.CReal(sum) * scale)
@@ -403,7 +403,7 @@ func lpcFromCepstrum(lpc, cepstrum []float32, scratch *analysisScratch) float32 
 	copy(scratch.lpcTmp[:], cepstrum[:NumBands])
 	scratch.lpcTmp[0] += 4
 	idctTransform(scratch.lpcEx[:], scratch.lpcTmp[:])
-	for i := 0; i < NumBands; i++ {
+	for i := range NumBands {
 		// libopus dnn/freq.c:lpc_from_cepstrum uses C pow().
 		scratch.lpcEx[i] = float32(opusmath.PowCReal(10.0, opusmath.CReal(scratch.lpcEx[i])) * opusmath.CReal(analysisCompensation[i]))
 	}
@@ -413,7 +413,7 @@ func lpcFromCepstrum(lpc, cepstrum []float32, scratch *analysisScratch) float32 
 func lpcFromBands(lpc, ex []float32, scratch *analysisScratch) float32 {
 	interpBandGain(scratch.lpcInterp[:], ex)
 	scratch.lpcInterp[analysisFreqSize-1] = 0
-	for i := 0; i < analysisFreqSize; i++ {
+	for i := range analysisFreqSize {
 		scratch.inverseSpec[i] = complex(scratch.lpcInterp[i], 0)
 	}
 	inverseTransform(scratch.inverseReal[:], scratch.inverseSpec[:], scratch)
@@ -429,9 +429,9 @@ func lpcFromBands(lpc, ex []float32, scratch *analysisScratch) float32 {
 
 func interpBandGain(dst, bandE []float32) {
 	clear(dst[:analysisFreqSize])
-	for i := 0; i < NumBands-1; i++ {
+	for i := range NumBands - 1 {
 		bandSize := (analysisBandEdges[i+1] - analysisBandEdges[i]) * analysisWindow5ms
-		for j := 0; j < bandSize; j++ {
+		for j := range bandSize {
 			frac := float32(j) / float32(bandSize)
 			// libopus dnn/freq.c:interp_band_gain contracts the final add on arm64:
 			// frac*bandE[i+1] is rounded, then (1-frac)*bandE[i] is fused in.
@@ -464,7 +464,7 @@ func lpcnLPC(lpc, ac []float32, order int) float32 {
 	if ac[0] == 0 {
 		return err
 	}
-	for i := 0; i < order; i++ {
+	for i := range order {
 		rr := lpcnRR(lpc[:order], ac, i)
 		rr += ac[i+1]
 		r := -rr / err
@@ -558,7 +558,7 @@ func burgAnalysis(dst, x []float32, minInvGain float32, subfrLength, nbSubfr, or
 	}
 
 	c0 := energyCReal(x[:totalLen])
-	for s := 0; s < nbSubfr; s++ {
+	for s := range nbSubfr {
 		xPtr := x[s*subfrLength:]
 		for n := 1; n <= order; n++ {
 			first[n-1] += innerProdCReal(xPtr[:subfrLength-n], xPtr[n:subfrLength], subfrLength-n)
@@ -570,8 +570,8 @@ func burgAnalysis(dst, x []float32, minInvGain float32, subfrLength, nbSubfr, or
 	invGain := opusmath.CReal(1.0)
 	reachedMaxGain := false
 
-	for n := 0; n < order; n++ {
-		for s := 0; s < nbSubfr; s++ {
+	for n := range order {
+		for s := range nbSubfr {
 			xPtr := x[s*subfrLength:]
 			tmp1 := opusmath.CReal(xPtr[n])
 			tmp2 := opusmath.CReal(xPtr[subfrLength-n-1])
@@ -641,17 +641,17 @@ func burgAnalysis(dst, x []float32, minInvGain float32, subfrLength, nbSubfr, or
 
 	var nrgF opusmath.CReal
 	if reachedMaxGain {
-		for k := 0; k < order; k++ {
+		for k := range order {
 			dst[k] = float32(-af[k])
 		}
-		for s := 0; s < nbSubfr; s++ {
+		for s := range nbSubfr {
 			c0 -= energyCReal(x[s*subfrLength : s*subfrLength+order])
 		}
 		nrgF = c0 * invGain
 	} else {
 		nrgF = caf[0]
 		tmp1 := opusmath.CReal(1.0)
-		for k := 0; k < order; k++ {
+		for k := range order {
 			atmp := af[k]
 			nrgF += caf[k+1] * atmp
 			tmp1 += atmp * atmp
@@ -675,7 +675,7 @@ func energyCReal(x []float32) opusmath.CReal {
 
 func innerProdCReal(x, y []float32, n int) opusmath.CReal {
 	var sum opusmath.CReal
-	for i := 0; i < n; i++ {
+	for i := range n {
 		sum += opusmath.CReal(x[i]) * opusmath.CReal(y[i])
 	}
 	return sum
@@ -683,7 +683,7 @@ func innerProdCReal(x, y []float32, n int) opusmath.CReal {
 
 func celtFIRFloat(inWithHistory, coeffs, out []float32) {
 	var rnum [analysisLPCOrder]float32
-	for i := 0; i < analysisLPCOrder; i++ {
+	for i := range analysisLPCOrder {
 		rnum[i] = coeffs[analysisLPCOrder-i-1]
 	}
 	i := 0
@@ -702,7 +702,7 @@ func celtFIRFloat(inWithHistory, coeffs, out []float32) {
 	}
 	for ; i < FrameSize; i++ {
 		sum := inWithHistory[analysisLPCOrder+i]
-		for j := 0; j < analysisLPCOrder; j++ {
+		for j := range analysisLPCOrder {
 			sum += rnum[j] * inWithHistory[i+j]
 		}
 		out[i] = sum
@@ -813,9 +813,9 @@ func pitchXCorrFloat(dst, x, y []float32, length, maxPitch int) {
 		pitchXCorrFloatNEON(dst, x, y, length, maxPitch)
 		return
 	}
-	for i := 0; i < maxPitch; i++ {
+	for i := range maxPitch {
 		var sum float32
-		for j := 0; j < length; j++ {
+		for j := range length {
 			sum += x[j] * y[i+j]
 		}
 		dst[i] = sum
@@ -834,7 +834,7 @@ func innerProdFloat(x, y []float32, length int) float32 {
 	// so the Go arm64 backend cannot fuse this into FMADDS and diverge from the
 	// reference by a last bit (this surfaces in features[19] frame_corr).
 	var sum float32
-	for i := 0; i < length; i++ {
+	for i := range length {
 		sum += noFMA32Mul(x[i], y[i])
 	}
 	return sum
@@ -844,7 +844,7 @@ func pitchXCorrFloatNEON(dst, x, y []float32, length, maxPitch int) {
 	i := 0
 	for ; i < maxPitch-3; i += 4 {
 		var sum0, sum1, sum2, sum3 float32
-		for j := 0; j < length; j++ {
+		for j := range length {
 			xj := x[j]
 			base := i + j
 			sum0 = fma32(xj, y[base], sum0)
@@ -866,15 +866,15 @@ func innerProdFloatNEON(x, y []float32, length int) float32 {
 	var acc [4]float32
 	i := 0
 	for ; i < length-7; i += 8 {
-		for lane := 0; lane < 4; lane++ {
+		for lane := range 4 {
 			acc[lane] = fma32(x[i+lane], y[i+lane], acc[lane])
 		}
-		for lane := 0; lane < 4; lane++ {
+		for lane := range 4 {
 			acc[lane] = fma32(x[i+4+lane], y[i+4+lane], acc[lane])
 		}
 	}
 	if length-i >= 4 {
-		for lane := 0; lane < 4; lane++ {
+		for lane := range 4 {
 			acc[lane] = fma32(x[i+lane], y[i+lane], acc[lane])
 		}
 		i += 4

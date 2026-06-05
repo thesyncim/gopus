@@ -90,7 +90,7 @@ var encXfrSegmentPlan = []string{
 func encXfrBuildTransitionPCM(fs, channels, totalFrames, segFrames int) ([]float32, error) {
 	out := make([]float32, fs*channels*totalFrames)
 	per := fs * channels
-	for f := 0; f < totalFrames; f++ {
+	for f := range totalFrames {
 		seg := (f / segFrames) % len(encXfrSegmentPlan)
 		class := encXfrSegmentPlan[seg]
 		// Frame index WITHIN the current segment run, so the generated waveform is
@@ -298,10 +298,7 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 	framesPerSpec := segFrames*len(encXfrSegmentPlan) + segFrames // 7 segments + wrap = 40
 
 	specs := buildEncXfrSweep()
-	budget := diffFuzzBudget(len(specs))
-	if budget > len(specs) {
-		budget = len(specs)
-	}
+	budget := min(diffFuzzBudget(len(specs)), len(specs))
 	stride := 1
 	if budget < len(specs) {
 		stride = len(specs) / budget
@@ -383,7 +380,7 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 			}
 
 			gotRecs := make([]libopustest.EncodeDiffRecord, framesPerSpec)
-			for f := 0; f < framesPerSpec; f++ {
+			for f := range framesPerSpec {
 				frame := pcm[f*fs*spec.channels : (f+1)*fs*spec.channels]
 				pkt, eerr := encDiffEncodeOneFrame(enc, frame)
 				if eerr != nil {
@@ -403,7 +400,7 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 			prevToc := byte(0xff)
 			distinctClasses := map[int]bool{}
 
-			for f := 0; f < framesPerSpec; f++ {
+			for f := range framesPerSpec {
 				g := gotRecs[f]
 				o := recs[f]
 				label := fmt.Sprintf("%s/frame%d", spec.name, f)
@@ -734,7 +731,7 @@ func TestEncodeStatefulDTXRunFuzz(t *testing.T) {
 						sawNoOutput := false
 						sawEnterExit := false
 						prevDTX := false
-						for f := 0; f < totalFrames; f++ {
+						for f := range totalFrames {
 							frame := pcm[f*fs*ch : (f+1)*fs*ch]
 							pkt, eerr := encDiffEncodeOneFrame(enc, frame)
 							if eerr != nil {

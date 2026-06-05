@@ -156,7 +156,7 @@ func encodeToOgg(path string, duration float64, bitrate int, channels int, frame
 	packet := make([]byte, 4000)
 	gen := newSignalGenerator(signal, totalSamples, channels)
 
-	for frame := 0; frame < frames; frame++ {
+	for frame := range frames {
 		startSample := frame * frameSize
 		gen.fillFrame(pcm, startSample, frameSize)
 
@@ -212,7 +212,7 @@ func encodeWithLibopus(path string, duration float64, bitrate int, channels int,
 
 	pcm := make([]float32, frameSize*channels)
 	gen := newSignalGenerator(signal, totalSamples, channels)
-	for frame := 0; frame < frames; frame++ {
+	for frame := range frames {
 		startSample := frame * frameSize
 		gen.fillFrame(pcm, startSample, frameSize)
 		if err := writer.WriteSamples(pcm); err != nil {
@@ -321,7 +321,7 @@ func (g *signalGenerator) fillFrame(pcm []float32, startSample int, frameSize in
 		g.channels = 1
 	}
 
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		sampleIndex := startSample + i
 		if sampleIndex >= g.totalSamples {
 			for ch := 0; ch < g.channels; ch++ {
@@ -475,7 +475,7 @@ func (g *signalGenerator) speechSample(t float64, _ int) float32 {
 
 	// --- Apply cascade of 5 biquad resonators ---
 	sample := source
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		freq := vowels[idx0].f[i] + alpha*(vowels[idx1].f[i]-vowels[idx0].f[i])
 		bw := vowels[idx0].bw[i] + alpha*(vowels[idx1].bw[i]-vowels[idx0].bw[i])
 		// Gain reduction for higher formants.

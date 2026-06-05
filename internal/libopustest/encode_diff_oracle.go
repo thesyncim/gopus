@@ -160,7 +160,7 @@ func ProbeEncodeDiff(p EncodeDiffParams) ([]EncodeDiffRecord, error) {
 	}
 	n := reader.Count(p.FrameCount)
 	recs := make([]EncodeDiffRecord, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ret := int(int32(reader.U32()))
 		fr := reader.U32()
 		plen := int(reader.U32())

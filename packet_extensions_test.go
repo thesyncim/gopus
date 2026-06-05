@@ -173,7 +173,7 @@ func TestPacketExtensionIteratorRepeatExpansion(t *testing.T) {
 	if n != 3 {
 		t.Fatalf("parsePacketExtensions() count = %d want 3", n)
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if got[i].ID != 3 || got[i].Frame != i || len(got[i].Data) != 0 {
 			t.Fatalf("parsePacketExtensions()[%d] = %+v want id=3 frame=%d", i, got[i], i)
 		}

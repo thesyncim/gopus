@@ -163,7 +163,7 @@ func ParsePacket(data []byte) (PacketInfo, error) {
 			if frameLen > maxOpusFrameBytes {
 				return PacketInfo{}, ErrInvalidPacket
 			}
-			for i := 0; i < m; i++ {
+			for i := range m {
 				info.FrameSizes[i] = frameLen
 			}
 		}

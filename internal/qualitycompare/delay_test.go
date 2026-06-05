@@ -127,7 +127,7 @@ func TestEstimateDelayByWaveformCorrelationFindsStereoInterleavedDelay(t *testin
 func makeAperiodicSignal(n int) []float32 {
 	out := make([]float32, n)
 	var x uint32 = 0x1234567
-	for i := 0; i < n; i++ {
+	for i := range n {
 		x ^= x << 13
 		x ^= x >> 17
 		x ^= x << 5
@@ -158,10 +158,7 @@ func shiftSignal(reference []float32, delay int) []float32 {
 }
 
 func interleaveStereo(left, right []float32) []float32 {
-	n := len(left)
-	if len(right) < n {
-		n = len(right)
-	}
+	n := min(len(right), len(left))
 	out := make([]float32, n*2)
 	for i := 0; i < n; i++ {
 		out[i*2] = left[i]

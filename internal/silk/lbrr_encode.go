@@ -112,7 +112,7 @@ func (e *Encoder) decodeLBRRGains(gainsQ16 []int32, condCoding int, nbSubfr int)
 
 	var gainsArr [maxNbSubfr]int32
 	var indicesArr [maxNbSubfr]int8
-	for i := 0; i < maxNbSubfr; i++ {
+	for i := range maxNbSubfr {
 		indicesArr[i] = indices.GainsIndices[i]
 	}
 	prev := e.lbrrPrevLastGainIdx
@@ -151,7 +151,7 @@ func (e *Encoder) encodeLBRRData(re *rangecoding.Encoder, nChannels int, include
 	// Encode LBRR flags
 	lbrrSymbol := 0
 	nFrames := int(e.nFramesPerPacket)
-	for i := 0; i < nFrames; i++ {
+	for i := range nFrames {
 		lbrrSymbol |= int(e.lbrrFlags[i]) << i
 	}
 
@@ -171,7 +171,7 @@ func (e *Encoder) encodeLBRRData(re *rangecoding.Encoder, nChannels int, include
 	// Encode LBRR indices and pulses for each frame
 	lbrrPrevSignalType := 0
 	lbrrPrevLagIndex := 0
-	for i := 0; i < nFrames; i++ {
+	for i := range nFrames {
 		if e.lbrrFlags[i] == 0 {
 			continue
 		}
@@ -230,7 +230,7 @@ func (e *Encoder) applyLBRRReservoirUpdate() {
 // encodeLBRRFlagSymbol writes per-frame LBRR flags for one channel and returns the flag.
 func encodeLBRRFlagSymbol(re *rangecoding.Encoder, enc *Encoder, nFrames int) int {
 	lbrrSymbol := 0
-	for i := 0; i < nFrames; i++ {
+	for i := range nFrames {
 		lbrrSymbol |= int(enc.lbrrFlags[i]) << i
 	}
 	lbrrFlag := 0
@@ -263,7 +263,7 @@ func encodeStereoLBRRPacket(
 	var midPrevSignalType, midPrevLagIndex int
 	var sidePrevSignalType, sidePrevLagIndex int
 	channels := []*Encoder{midEnc, sideEnc}
-	for i := 0; i < nFrames; i++ {
+	for i := range nFrames {
 		for ch, enc := range channels {
 			if enc.lbrrFlags[i] == 0 {
 				continue
@@ -313,10 +313,7 @@ func (e *Encoder) encodeLBRRIndices(re *rangecoding.Encoder, frameIdx, condCodin
 	}
 
 	// Encode signal type and quantizer offset (LBRR uses VAD table)
-	typeOffset := 2*signalType + quantOffset
-	if typeOffset < 2 {
-		typeOffset = 2
-	}
+	typeOffset := max(2*signalType+quantOffset, 2)
 	if typeOffset > 5 {
 		typeOffset = 5
 	}
@@ -328,10 +325,7 @@ func (e *Encoder) encodeLBRRIndices(re *rangecoding.Encoder, frameIdx, condCodin
 			re.EncodeICDF(int(indices.GainsIndices[i]), silk_delta_gain_iCDF, 8)
 		}
 	} else {
-		gainIdx := int(indices.GainsIndices[0])
-		if gainIdx < 0 {
-			gainIdx = 0
-		}
+		gainIdx := max(int(indices.GainsIndices[0]), 0)
 		if gainIdx > nLevelsQGain-1 {
 			gainIdx = nLevelsQGain - 1
 		}
@@ -359,10 +353,7 @@ func (e *Encoder) encodeLBRRIndices(re *rangecoding.Encoder, frameIdx, condCodin
 	order := int(cb.order)
 	nVectors := int(cb.nVectors)
 	cb1Offset := stypeBand * nVectors
-	stage1Idx := int(indices.NLSFIndices[0])
-	if stage1Idx < 0 {
-		stage1Idx = 0
-	}
+	stage1Idx := max(int(indices.NLSFIndices[0]), 0)
 	if stage1Idx >= nVectors {
 		stage1Idx = nVectors - 1
 	}
@@ -371,7 +362,7 @@ func (e *Encoder) encodeLBRRIndices(re *rangecoding.Encoder, frameIdx, condCodin
 	ecIx := ensureInt16Slice(&e.scratchEcIx, order)
 	predQ8 := ensureUint8Slice(&e.scratchPredQ8, order)
 	silkNLSFUnpack(ecIx, predQ8, cb, stage1Idx)
-	for i := 0; i < order; i++ {
+	for i := range order {
 		idx := int(indices.NLSFIndices[i+1])
 		if idx >= nlsfQuantMaxAmplitude {
 			re.EncodeICDF(2*nlsfQuantMaxAmplitude, cb.ecICDF[int(ecIx[i]):], 8)
@@ -385,10 +376,7 @@ func (e *Encoder) encodeLBRRIndices(re *rangecoding.Encoder, frameIdx, condCodin
 	}
 
 	if nbSubfr == maxNbSubfr {
-		interp := int(indices.NLSFInterpCoefQ2)
-		if interp < 0 {
-			interp = 0
-		}
+		interp := max(int(indices.NLSFInterpCoefQ2), 0)
 		if interp > 4 {
 			interp = 4
 		}
@@ -412,10 +400,7 @@ func (e *Encoder) encodeLBRRIndices(re *rangecoding.Encoder, frameIdx, condCodin
 		}
 
 		if encodeAbsolute {
-			divisor := fsKHz / 2
-			if divisor < 1 {
-				divisor = 1
-			}
+			divisor := max(fsKHz/2, 1)
 			lagIdx := int(indices.lagIndex)
 			lagHigh := lagIdx / divisor
 			lagLow := lagIdx - lagHigh*divisor
@@ -436,28 +421,19 @@ func (e *Encoder) encodeLBRRIndices(re *rangecoding.Encoder, frameIdx, condCodin
 			*prevLagIndex = int(indices.lagIndex)
 		}
 
-		contourIdx := int(indices.contourIndex)
-		if contourIdx < 0 {
-			contourIdx = 0
-		}
+		contourIdx := max(int(indices.contourIndex), 0)
 		if contourIdx > len(contourICDF)-1 {
 			contourIdx = len(contourICDF) - 1
 		}
 		re.EncodeICDF(contourIdx, contourICDF, 8)
 
-		per := int(indices.PERIndex)
-		if per < 0 {
-			per = 0
-		}
+		per := max(int(indices.PERIndex), 0)
 		if per > 2 {
 			per = 2
 		}
 		re.EncodeICDF(per, silk_LTP_per_index_iCDF, 8)
 		for k := 0; k < nbSubfr; k++ {
-			idx := int(indices.LTPIndex[k])
-			if idx < 0 {
-				idx = 0
-			}
+			idx := max(int(indices.LTPIndex[k]), 0)
 			maxIdx := 8 << per
 			if idx >= maxIdx {
 				idx = maxIdx - 1
@@ -466,10 +442,7 @@ func (e *Encoder) encodeLBRRIndices(re *rangecoding.Encoder, frameIdx, condCodin
 		}
 
 		if condCoding == codeIndependently {
-			ltpScale := int(indices.LTPScaleIndex)
-			if ltpScale < 0 {
-				ltpScale = 0
-			}
+			ltpScale := max(int(indices.LTPScaleIndex), 0)
 			if ltpScale > 2 {
 				ltpScale = 2
 			}
@@ -481,10 +454,7 @@ func (e *Encoder) encodeLBRRIndices(re *rangecoding.Encoder, frameIdx, condCodin
 		*prevSignalType = signalType
 	}
 
-	seed := int(indices.Seed)
-	if seed < 0 {
-		seed = 0
-	}
+	seed := max(int(indices.Seed), 0)
 	if seed > 3 {
 		seed = 3
 	}

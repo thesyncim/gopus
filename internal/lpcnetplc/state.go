@@ -176,10 +176,7 @@ func (s *State) FillQueuedFeatures(slot int, dst []float32) int {
 	if s == nil || slot < 0 || slot >= s.fecFillPos {
 		return 0
 	}
-	n := NumFeatures
-	if n > len(dst) {
-		n = len(dst)
-	}
+	n := min(NumFeatures, len(dst))
 	copy(dst[:n], s.fec[slot][:n])
 	return n
 }
@@ -228,10 +225,7 @@ func (s *State) FillContFeatures(dst []float32) int {
 		return 0
 	}
 	s.ensureRuntimeInit()
-	n := len(s.cont)
-	if n > len(dst) {
-		n = len(dst)
-	}
+	n := min(len(s.cont), len(dst))
 	copy(dst[:n], s.cont[:n])
 	return n
 }
@@ -243,10 +237,7 @@ func (s *State) FillPCMHistory(dst []float32) int {
 		return 0
 	}
 	s.ensureRuntimeInit()
-	n := len(s.pcm)
-	if n > len(dst) {
-		n = len(dst)
-	}
+	n := min(len(s.pcm), len(dst))
 	copy(dst[:n], s.pcm[:n])
 	return n
 }
@@ -258,10 +249,7 @@ func (s *State) FillCurrentFeatures(dst []float32) int {
 		return 0
 	}
 	s.ensureRuntimeInit()
-	n := NumFeatures
-	if n > len(dst) {
-		n = len(dst)
-	}
+	n := min(NumFeatures, len(dst))
 	copy(dst[:n], s.features[:n])
 	return n
 }
@@ -331,7 +319,7 @@ func (s *State) primeFirstLossPrefillCurrentPredictor(p *Predictor) int {
 		return 0
 	}
 	s.ensureRuntimeInit()
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		s.StepFECOrPredict(p, s.features[:NumFeatures])
 		s.QueueFeatures(s.features[:NumFeatures])
 	}
@@ -407,7 +395,7 @@ func (s *State) PrimeFirstLossWithAnalysis(a *Analysis, p *Predictor, f *FARGAN)
 			return false
 		}
 		history := s.pcm[s.analysisPos : s.analysisPos+FrameSize]
-		for i := 0; i < FrameSize; i++ {
+		for i := range FrameSize {
 			a.scratch.frame[i] = 32768 * history[i]
 		}
 		if n := a.BurgCepstralAnalysis(plcFeatures[:], a.scratch.frame[:]); n != 2*NumBands {
@@ -587,7 +575,7 @@ func (s *State) MarkUpdatedFrameFloat(frame []float32) int {
 		return 0
 	}
 	s.startUpdatedFrame()
-	for i := 0; i < FrameSize; i++ {
+	for i := range FrameSize {
 		s.pcm[PLCBufSize-FrameSize+i] = quantizePCMUpdateFloat(frame[i])
 	}
 	s.finishUpdatedFrame()
@@ -601,7 +589,7 @@ func (s *State) MarkUpdatedFrameInt16(frame []int16) int {
 		return 0
 	}
 	s.startUpdatedFrame()
-	for i := 0; i < FrameSize; i++ {
+	for i := range FrameSize {
 		s.pcm[PLCBufSize-FrameSize+i] = float32(frame[i]) * (1.0 / 32768.0)
 	}
 	s.finishUpdatedFrame()

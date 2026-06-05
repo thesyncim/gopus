@@ -40,6 +40,7 @@ import (
 	"math/rand"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -117,7 +118,7 @@ func buildPacketFuzzSeedBank(t *testing.T) [][]byte {
 // repacketization is not possible (e.g. would exceed 120ms).
 func repackNCopies(base []byte, n int) []byte {
 	rp := NewRepacketizer()
-	for i := 0; i < n; i++ {
+	for range n {
 		if err := rp.Cat(base); err != nil {
 			return nil
 		}
@@ -227,7 +228,7 @@ func TestPacketUtilFuzzMatchesLibopus(t *testing.T) {
 	iters := fuzzIterations(4000)
 
 	cases := make([]libopusPacketParseCase, 0, iters)
-	for i := 0; i < iters; i++ {
+	for i := range iters {
 		pkt := fuzzPacketBank(rng, seeds)
 		cases = append(cases, libopusPacketParseCase{
 			name:   fmt.Sprintf("util_%04d_len%d", i, len(pkt)),
@@ -361,7 +362,7 @@ func TestRepacketizerFuzzMatchesLibopus(t *testing.T) {
 	iters := fuzzIterations(3000)
 
 	cases := make([]repacketizerOracleCase, 0, iters)
-	for i := 0; i < iters; i++ {
+	for i := range iters {
 		cases = append(cases, randomRepacketizerCase(rng, seeds, i))
 	}
 
@@ -515,10 +516,11 @@ func assertRepacketizerCaseParity(t *testing.T, tc repacketizerOracleCase, w rep
 
 // dumpRepacketizerCase renders a failing case as reproducible hex for triage.
 func dumpRepacketizerCase(tc repacketizerOracleCase) string {
-	out := fmt.Sprintf("  begin=%d end=%d maxlen=%d padNewLen=%d packets=%d\n",
-		tc.begin, tc.end, tc.maxlen, tc.padNewLen, len(tc.packets))
+	var out strings.Builder
+	out.WriteString(fmt.Sprintf("  begin=%d end=%d maxlen=%d padNewLen=%d packets=%d\n",
+		tc.begin, tc.end, tc.maxlen, tc.padNewLen, len(tc.packets)))
 	for i, p := range tc.packets {
-		out += fmt.Sprintf("  pkt[%d]=%s\n", i, hex.EncodeToString(p))
+		out.WriteString(fmt.Sprintf("  pkt[%d]=%s\n", i, hex.EncodeToString(p)))
 	}
-	return out
+	return out.String()
 }

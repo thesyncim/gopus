@@ -113,7 +113,7 @@ func ProbeCTLSequence(p CTLSequenceParams) ([]CTLResult, error) {
 	}
 	n := reader.Count(len(p.Ops))
 	out := make([]CTLResult, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ret := reader.I32()
 		val := reader.I32()
 		have := reader.U32()

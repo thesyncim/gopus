@@ -42,7 +42,7 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 	scale := float32(silkSampleScale)
 	pitchBufLen := len(pitchBuf)
 
-	for k := 0; k < numSubframes; k++ {
+	for k := range numSubframes {
 		outBase := k * (subframeSamples + preLen)
 		xStart := frameStart - preLen + k*subframeSamples
 		invGain := float32(1.0)
@@ -81,7 +81,7 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 				// Fast path: all accesses are in bounds, no per-sample checks needed.
 				_ = pitchBuf[maxAccess] // BCE hint
 				_ = ltpRes[outBase+loopLen-1]
-				for i := 0; i < loopLen; i++ {
+				for i := range loopLen {
 					xIdx := xStart + i
 					x := pitchBuf[xIdx] * scale
 					lagBase := xIdx - pitchLag
@@ -99,7 +99,7 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 				}
 			} else {
 				// Slow path: need per-sample bounds checking.
-				for i := 0; i < loopLen; i++ {
+				for i := range loopLen {
 					xIdx := xStart + i
 					var x float32
 					if xIdx >= 0 && xIdx < pitchBufLen {
@@ -107,7 +107,7 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 					}
 					lagBase := xIdx - pitchLag
 					res := x
-					for j := 0; j < ltpOrderConst; j++ {
+					for j := range ltpOrderConst {
 						lagIdx := lagBase + (ltpOrderConst/2 - j)
 						bj := float32(ltpCoeffs[k][j]) / 128.0
 						if lagIdx >= 0 && lagIdx < pitchBufLen {
@@ -124,11 +124,11 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 			if xStart >= 0 && xEnd < pitchBufLen {
 				_ = pitchBuf[xEnd] // BCE hint
 				_ = ltpRes[outBase+loopLen-1]
-				for i := 0; i < loopLen; i++ {
+				for i := range loopLen {
 					ltpRes[outBase+i] = pitchBuf[xStart+i] * scale * invGain
 				}
 			} else {
-				for i := 0; i < loopLen; i++ {
+				for i := range loopLen {
 					xIdx := xStart + i
 					if xIdx >= 0 && xIdx < pitchBufLen {
 						ltpRes[outBase+i] = pitchBuf[xIdx] * scale * invGain
@@ -153,7 +153,7 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 	subfrLen := subframeSamples + order
 	totalLen := numSubframes * subfrLen
 	if totalLen <= 0 || totalLen > len(ltpRes) {
-		for i := 0; i < order; i++ {
+		for i := range order {
 			lpcQ12[i] = 0
 			lsfQ15[i] = int16((i + 1) * 32767 / (order + 1))
 		}
@@ -166,13 +166,13 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 	fullInvGain := e.lastInvGain
 	fullNumSamples := e.lastNumSamples
 
-	for i := 0; i < order; i++ {
+	for i := range order {
 		a32 := float32(aFull[i])
 		lpcQ12[i] = int16(float32ToInt32RoundEven(a32 * 4096.0))
 	}
 
 	lpcQ16 := ensureInt32Slice(&e.scratchLPCQ16, order)
-	for i := 0; i < order; i++ {
+	for i := range order {
 		a32 := float32(aFull[i])
 		lpcQ16[i] = float32ToInt32RoundEven(a32 * 65536.0)
 	}
@@ -185,7 +185,7 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 		if halfOffset+subfrLen*(maxNbSubfr/2) <= totalLen {
 			aLast, resNrgLast := e.burgModifiedFLPZeroAllocF32(ltpRes[halfOffset:], minInvGainVal, subfrLen, maxNbSubfr/2, order)
 			lsfLast := ensureInt16Slice(&e.scratchNLSFTempQ15, order)
-			for i := 0; i < order; i++ {
+			for i := range order {
 				a32 := float32(aLast[i])
 				lpcQ16[i] = float32ToInt32RoundEven(a32 * 65536.0)
 			}
@@ -212,7 +212,7 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 						fallback := lsfToLPCDirect(interpNLSF[:order])
 						copy(lpcTmpQ12[:order], fallback[:order])
 					}
-					for i := 0; i < order; i++ {
+					for i := range order {
 						lpcTmpF32[i] = float32(lpcTmpQ12[i]) / 4096.0
 					}
 					lpcAnalysisFilterF32(lpcRes, lpcTmpF32, ltpRes[:analyzeLen], analyzeLen, order)
@@ -257,7 +257,7 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 	}
 
 	coefToF32 := func(dst []float32, src []int16) {
-		for i := 0; i < order; i++ {
+		for i := range order {
 			dst[i] = float32(src[i]) / 4096.0
 		}
 	}
@@ -275,23 +275,14 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 	if interpIdx >= 4 {
 		coeffs = coef1
 	}
-	subframesInFirstHalf := numSubframes
-	if subframesInFirstHalf > 2 {
-		subframesInFirstHalf = 2
-	}
-	length := subframesInFirstHalf * subfrLen
-	if length > len(ltpRes) {
-		length = len(ltpRes)
-	}
+	subframesInFirstHalf := min(numSubframes, 2)
+	length := min(subframesInFirstHalf*subfrLen, len(ltpRes))
 	if length > 0 {
 		lpcRes := ensureFloat32Slice(&e.scratchLpcResF32, length)
 		lpcAnalysisFilterF32(lpcRes, coeffs, ltpRes[:length], length, order)
 		for k := 0; k < subframesInFirstHalf; k++ {
 			start := order + k*subfrLen
-			end := start + subframeSamples
-			if end > len(lpcRes) {
-				end = len(lpcRes)
-			}
+			end := min(start+subframeSamples, len(lpcRes))
 			energy := energyF32Libopus(lpcRes[start:end], end-start)
 			gainSq := float32(1.0)
 			if k < len(gains) {
@@ -315,12 +306,9 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 		if length > 0 {
 			lpcRes := ensureFloat32Slice(&e.scratchLpcResF32, length)
 			lpcAnalysisFilterF32(lpcRes, coef1, ltpRes[offset:offset+length], length, order)
-			for k := 0; k < 2; k++ {
+			for k := range 2 {
 				start := order + k*subfrLen
-				end := start + subframeSamples
-				if end > len(lpcRes) {
-					end = len(lpcRes)
-				}
+				end := min(start+subframeSamples, len(lpcRes))
 				energy := energyF32Libopus(lpcRes[start:end], end-start)
 				idx := k + 2
 				gainSq := float32(1.0)

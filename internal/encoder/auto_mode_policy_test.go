@@ -175,7 +175,7 @@ func TestLowRateCELTByteThresholdMatchesLibopusIntegerDivision(t *testing.T) {
 
 func TestNonAutoEncodeUpdatesStreamChannelsForCELTState(t *testing.T) {
 	pcm := make([]float64, 960*2)
-	for i := 0; i < 960; i++ {
+	for i := range 960 {
 		pcm[2*i] = 0.2 * math.Sin(2*math.Pi*440*float64(i)/48000)
 		pcm[2*i+1] = 0.2 * math.Sin(2*math.Pi*660*float64(i)/48000)
 	}

@@ -508,10 +508,7 @@ func (d *Decoder) decodeHybridFEC(pcm []float32, frameSize int) (int, error) {
 		}
 		d.downsampleFrame48ToAPI(celtAPI, celt48, frameSize)
 	}
-	limit := frameSize * channels
-	if needed < limit {
-		limit = needed
-	}
+	limit := min(needed, frameSize*channels)
 	for i := 0; i < limit; i++ {
 		pcm[i] += celtAPI[i]
 	}

@@ -108,7 +108,7 @@ func goHybridCombine(celtSig []float32, silkSeed []float32, mem float32) (out []
 	const verySmall float32 = 1e-30
 	celtScaled := make([]float32, n)
 	state := mem
-	for i := 0; i < n; i++ {
+	for i := range n {
 		// gopus order: x + VERY_SMALL + m (celt/output_helpers.go). Proven
 		// bit-identical to the libopus accum order x + m + VERY_SMALL for all
 		// realistic magnitudes.

@@ -9,7 +9,7 @@ func TestBurgLPC(t *testing.T) {
 	// Generate test signal: sum of sinusoids (normalized to [-1, 1])
 	n := 320 // 20ms at 16kHz
 	signal := make([]float32, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ti := float64(i) / 16000.0
 		signal[i] = float32(
 			math.Sin(2*math.Pi*200*ti)+
@@ -103,7 +103,7 @@ func TestBandwidthExpansionFloat(t *testing.T) {
 
 	// Each coefficient should be reduced by increasing powers of chirp
 	chirp := float32(0.96)
-	for i := 0; i < len(lpc); i++ {
+	for i := range lpc {
 		expected := int16(float32(original[i]) * chirp)
 		// Allow small rounding differences
 		if lpcAbsInt(int(lpc[i]-expected)) > 1 {
@@ -122,7 +122,7 @@ func TestBandwidthExpansionFloatAggressive(t *testing.T) {
 	applyBandwidthExpansionFloat(lpc, 0.5)
 
 	// Each coefficient should be significantly reduced
-	for i := 0; i < len(lpc); i++ {
+	for i := range lpc {
 		if lpc[i] >= original[i] {
 			t.Errorf("LPC[%d]: expected reduction, got %d (original %d)",
 				i, lpc[i], original[i])
@@ -267,7 +267,7 @@ func TestLPCLSFRoundTripSmallCoeffs(t *testing.T) {
 	lpcRecovered := lsfToLPC(lsfQ15)
 
 	// Check recovery with generous tolerance
-	for i := 0; i < len(lpcOriginal); i++ {
+	for i := range lpcOriginal {
 		diff := lpcAbsInt(int(lpcOriginal[i]) - int(lpcRecovered[i]))
 		// Very generous tolerance for this lossy conversion
 		maxErr := 1000
@@ -320,7 +320,7 @@ func TestBurgModifiedFLP(t *testing.T) {
 	// Generate a test signal with known spectral characteristics
 	n := 320 // 20ms at 16kHz
 	signal := make([]float32, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ti := float64(i) / 16000.0
 		// Mix of harmonics typical of voiced speech
 		signal[i] = float32(math.Sin(2*math.Pi*200*ti) +
@@ -362,7 +362,7 @@ func TestBurgModifiedFLPGainLimiting(t *testing.T) {
 	// (strong resonance)
 	n := 160
 	signal := make([]float32, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		// Pure sinusoid has very high prediction gain
 		signal[i] = float32(math.Sin(2 * math.Pi * float64(i) / 20.0))
 	}
@@ -420,14 +420,14 @@ func TestNLSFInterpolation(t *testing.T) {
 	outNLSF := make([]int16, order)
 
 	// Initialize with distinct values
-	for i := 0; i < order; i++ {
+	for i := range order {
 		prevNLSF[i] = int16(1000 + i*200)
 		curNLSF[i] = int16(2000 + i*300)
 	}
 
 	// Test interpolation coefficient 0 (100% previous)
 	interpolateNLSF(outNLSF, prevNLSF, curNLSF, 0, order)
-	for i := 0; i < order; i++ {
+	for i := range order {
 		if outNLSF[i] != prevNLSF[i] {
 			t.Errorf("interpCoef=0: expected %d, got %d at index %d", prevNLSF[i], outNLSF[i], i)
 		}
@@ -435,7 +435,7 @@ func TestNLSFInterpolation(t *testing.T) {
 
 	// Test interpolation coefficient 4 (100% current)
 	interpolateNLSF(outNLSF, prevNLSF, curNLSF, 4, order)
-	for i := 0; i < order; i++ {
+	for i := range order {
 		if outNLSF[i] != curNLSF[i] {
 			t.Errorf("interpCoef=4: expected %d, got %d at index %d", curNLSF[i], outNLSF[i], i)
 		}
@@ -443,7 +443,7 @@ func TestNLSFInterpolation(t *testing.T) {
 
 	// Test interpolation coefficient 2 (50% blend)
 	interpolateNLSF(outNLSF, prevNLSF, curNLSF, 2, order)
-	for i := 0; i < order; i++ {
+	for i := range order {
 		diff := int32(curNLSF[i]) - int32(prevNLSF[i])
 		expected := int32(prevNLSF[i]) + ((2 * diff) >> 2)
 		if int32(outNLSF[i]) != expected {
@@ -458,7 +458,7 @@ func TestLPCAnalysisFilterFLP(t *testing.T) {
 	length := 100
 	order := 10
 	signal := make([]float32, length)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		signal[i] = float32(math.Sin(2 * math.Pi * float64(i) / 20.0))
 	}
 
@@ -470,7 +470,7 @@ func TestLPCAnalysisFilterFLP(t *testing.T) {
 	lpcAnalysisFilterF32(residual, predCoef, signal, length, order)
 
 	// First 'order' samples should be zero
-	for i := 0; i < order; i++ {
+	for i := range order {
 		if residual[i] != 0 {
 			t.Errorf("residual[%d] should be 0, got %f", i, residual[i])
 		}
@@ -493,7 +493,7 @@ func TestApplySineWindowFLP(t *testing.T) {
 	output := make([]float32, length)
 
 	// Fill with constant value
-	for i := 0; i < length; i++ {
+	for i := range length {
 		input[i] = 1.0
 	}
 
@@ -551,7 +551,7 @@ func TestFindLPCWithInterpolation(t *testing.T) {
 	// Generate test signal
 	n := 320 // 20ms at 8kHz would be 160, but using larger for testing
 	signal := make([]float32, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ti := float64(i) / 8000.0
 		signal[i] = float32(math.Sin(2*math.Pi*300*ti)) * 0.5
 	}
@@ -559,7 +559,7 @@ func TestFindLPCWithInterpolation(t *testing.T) {
 	// Previous NLSF (simulate from previous frame)
 	lpcOrder := int(enc.lpcOrder)
 	prevNLSF := make([]int16, lpcOrder)
-	for i := 0; i < lpcOrder; i++ {
+	for i := range lpcOrder {
 		prevNLSF[i] = int16(3000 + i*2500)
 	}
 
@@ -607,7 +607,7 @@ func TestSilkA2NLSFOrders(t *testing.T) {
 		order := 10
 		aQ16 := make([]int32, order)
 		// Typical speech LPC values
-		for i := 0; i < order; i++ {
+		for i := range order {
 			aQ16[i] = int32(float64(1<<15) * math.Pow(0.8, float64(i+1)))
 			if i%2 == 1 {
 				aQ16[i] = -aQ16[i]
@@ -631,7 +631,7 @@ func TestSilkA2NLSFOrders(t *testing.T) {
 	t.Run("order16", func(t *testing.T) {
 		order := 16
 		aQ16 := make([]int32, order)
-		for i := 0; i < order; i++ {
+		for i := range order {
 			aQ16[i] = int32(float64(1<<15) * math.Pow(0.85, float64(i+1)))
 			if i%2 == 1 {
 				aQ16[i] = -aQ16[i]
@@ -717,7 +717,7 @@ func TestNLSFToLPCFloat32(t *testing.T) {
 	nlsfQ15 := make([]int16, order)
 
 	// Set NLSF to evenly spaced values
-	for i := 0; i < order; i++ {
+	for i := range order {
 		nlsfQ15[i] = int16((i + 1) * 32767 / (order + 1))
 	}
 

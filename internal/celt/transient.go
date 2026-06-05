@@ -64,7 +64,7 @@ func toneLPCSolveFromCorr(x []float32, delay int, r00, r01, r02 float32) (float3
 	base2 := n - delay
 
 	var edges float32
-	for i := 0; i < delay; i++ {
+	for i := range delay {
 		a := x[base1+i]
 		b := x[i]
 		edges += a*a - b*b
@@ -72,7 +72,7 @@ func toneLPCSolveFromCorr(x []float32, delay int, r00, r01, r02 float32) (float3
 	r11 := r00 + edges
 
 	edges = 0
-	for i := 0; i < delay; i++ {
+	for i := range delay {
 		a := x[base2+i]
 		b := x[i+delay]
 		edges += a*a - b*b
@@ -80,7 +80,7 @@ func toneLPCSolveFromCorr(x []float32, delay int, r00, r01, r02 float32) (float3
 	r22 := r11 + edges
 
 	edges = 0
-	for i := 0; i < delay; i++ {
+	for i := range delay {
 		edges += x[base1+i]*x[base2+i] - x[i]*x[i+delay]
 	}
 	r12 := r01 + edges
@@ -362,7 +362,7 @@ func toneDetectScratch(in []float32, channels int, sampleRate int, xBuf []float3
 
 	// Mix down to mono if stereo (matching libopus behavior)
 	if channels == 2 {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			// libopus sums the two celt_sig float channels inside tone_detect.
 			x[i] = in[i*2] + in[i*2+1]
 		}
@@ -388,7 +388,7 @@ func toneDetectScratchF32(in []float32, channels int, sampleRate int, xBuf []flo
 	}
 
 	if channels == 2 {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			x[i] = in[i*2] + in[i*2+1]
 		}
 	} else {
@@ -410,10 +410,7 @@ func toneDetectFloat32Mono(x []float32, sampleRate int, lane4Corr bool) (float32
 
 	// If LPC resonates too close to DC, retry with downsampling
 	// (delay <= sampleRate/3000 corresponds to frequencies > ~1500 Hz)
-	maxDelay := sampleRate / 3000
-	if maxDelay < 1 {
-		maxDelay = 1
-	}
+	maxDelay := max(sampleRate/3000, 1)
 	if !lane4Corr && sampleRate == 48000 && n > 64 && delay <= maxDelay && toneLPCRetryNeeded(lpc0, lpc1, success) {
 		lpc0, lpc1, success, delay = toneLPCRetry48kMono(x, maxDelay)
 	} else {
@@ -544,7 +541,7 @@ func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, all
 	mean := float32(0)
 	src := pcm[:samplesPerChannel]
 	_ = src[2*len2-1]
-	for i := 0; i < len2; i++ {
+	for i := range len2 {
 		j := i << 1
 
 		x0 := src[j]
@@ -727,7 +724,7 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 		meanR := float32(0)
 		idx := 0
 		_ = pcm[4*len2-1]
-		for i := 0; i < len2; i++ {
+		for i := range len2 {
 			xL0 := float32(pcm[idx])
 			xR0 := float32(pcm[idx+1])
 			xL1 := float32(pcm[idx+2])
@@ -840,7 +837,7 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 	}
 
 	// Process each channel
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		// Fuse the HP filter with pair-energy accumulation so we don't round-trip
 		// through a temporary sample buffer before masking.
 		_ = energy[len2-1]
@@ -856,7 +853,7 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 		if channels == 1 {
 			src := pcm[:samplesPerChannel]
 			_ = src[2*len2-1]
-			for i := 0; i < len2; i++ {
+			for i := range len2 {
 				j := i << 1
 
 				x0 := float32(src[j])
@@ -894,7 +891,7 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 			stride := channels
 			idx := c
 			_ = pcm[(2*len2-1)*stride+c]
-			for i := 0; i < len2; i++ {
+			for i := range len2 {
 				x0 := float32(pcm[idx])
 				idx += stride
 				y0 := hp0 + x0
@@ -1103,12 +1100,9 @@ func PatchTransientDecisionWithScratch(newE []celtGLog, oldE []celtGLog, nbEBand
 
 	// Compute mean increase
 	var meanDiff celtGLog
-	startBand := start
-	if startBand < 2 {
-		startBand = 2
-	}
+	startBand := max(start, 2)
 
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		for i := startBand; i < end-1; i++ {
 			x1 := newE[i+c*nbEBands]
 			if x1 < 0 {
@@ -1124,10 +1118,7 @@ func PatchTransientDecisionWithScratch(newE []celtGLog, oldE []celtGLog, nbEBand
 		}
 	}
 
-	numBands := end - 1 - startBand
-	if numBands < 1 {
-		numBands = 1
-	}
+	numBands := max(end-1-startBand, 1)
 	meanDiff /= celtGLog(channels * numBands)
 
 	// Return true if mean increase > 1.0 (in log domain, this is ~6 dB)

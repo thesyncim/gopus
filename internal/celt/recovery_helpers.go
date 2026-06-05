@@ -106,7 +106,7 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 
 	traceArmed := d.plcStageTrace != nil && d.plcStageTrace.observeFold()
 
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		hist := d.plcDecodeMem[ch*plcDecodeBufferSize : (ch+1)*plcDecodeBufferSize]
 		overlap := d.overlapBuffer[ch*segLen : (ch+1)*segLen]
 		src := d.scratchPLCFoldSrc[:bufLen]
@@ -131,7 +131,7 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 		if traceArmed {
 			d.plcStageTrace.captureCombOut(ch, etmp)
 		}
-		for i := 0; i < half; i++ {
+		for i := range half {
 			// Simulate TDAC blending exactly where libopus mutates decode_mem.
 			w0 := float32(window[i])
 			w1 := float32(window[segLen-1-i])
@@ -147,10 +147,7 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 }
 
 func (d *Decoder) accumulatePLCLossDuration(frameSize int) {
-	lm := GetModeConfig(frameSize).LM
-	if lm < 0 {
-		lm = 0
-	}
+	lm := max(GetModeConfig(frameSize).LM, 0)
 	if lm > 30 {
 		lm = 30
 	}
@@ -197,7 +194,7 @@ func (d *Decoder) applyLossEnergySafety(intra bool, start, end, lm int) {
 
 	channels := int(d.channels)
 	predStride := d.predStride()
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		base := c * predStride
 		if base+end > len(d.prevEnergy) || base+end > len(d.prevLogE) || base+end > len(d.prevLogE2) {
 			continue
@@ -285,7 +282,7 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float32, error) {
 		end = start
 	}
 	predStride := d.predStride()
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		base := c * predStride
 		for band := start; band < end; band++ {
 			idx := base + band
@@ -431,7 +428,7 @@ func (d *Decoder) concealNoisePLC(dst []float32, frameSize, prevLossDuration int
 		end = start
 	}
 	predStride := d.predStride()
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		base := c * predStride
 		for band := start; band < end; band++ {
 			idx := base + band
@@ -569,7 +566,7 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 	window := GetWindowBufferF32(Overlap)
 	window32 := GetWindowBufferF32(Overlap)
 	continuePeriodic = lossCount > 1 && continuePeriodic
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		hist := d.plcDecodeMem[ch*plcDecodeBufferSize : (ch+1)*plcDecodeBufferSize]
 		lpc := d.plcLPC[ch*celtPLCLPCOrder : (ch+1)*celtPLCLPCOrder]
 
@@ -583,7 +580,7 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 		firStart := celtPLCLPCOrder + maxPeriod - excLength
 		firTmp := d.scratchPLCFIRTmp[:excLength]
 		celtFIRFloat32(firTmp, exc, firStart, excLength, lpc)
-		for i := 0; i < excLength; i++ {
+		for i := range excLength {
 			v := float32(firTmp[i])
 			exc[firStart+i] = celtSig(v)
 		}
@@ -595,7 +592,7 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 			e2 := float32(1.0)
 			base1 := celtPLCLPCOrder + maxPeriod - decayLength
 			base2 := celtPLCLPCOrder + maxPeriod - 2*decayLength
-			for i := 0; i < decayLength; i++ {
+			for i := range decayLength {
 				v1 := float32(exc[base1+i])
 				v2 := float32(exc[base2+i])
 				e1 += noFMA32Mul(v1, v1)
@@ -617,7 +614,7 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 		s1 := float32(0)
 		s1Base := plcDecodeBufferSize - maxPeriod - frameSize + extrapolationOffset
 		j := 0
-		for i := 0; i < totalSamples; i++ {
+		for i := range totalSamples {
 			if j >= period {
 				j = 0
 				attenuation *= decay
@@ -634,18 +631,18 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 		d.celtIIRFloat32(chOut, hist, lpc, totalSamples)
 
 		s2 := float32(0)
-		for i := 0; i < totalSamples; i++ {
+		for i := range totalSamples {
 			v := float32(chOut[i])
 			s2 = noFMA32Add(s2, noFMA32Mul(v, v))
 		}
 		if !(s1 > float32(0.2)*s2) {
-			for i := 0; i < totalSamples; i++ {
+			for i := range totalSamples {
 				chOut[i] = 0
 			}
 		} else if s1 < s2 {
 			ratio := opusmath.SqrtF32((s1 + 1.0) / (s2 + 1.0))
 			blend := min(Overlap, totalSamples)
-			for i := 0; i < blend; i++ {
+			for i := range blend {
 				g := float32(1.0) - window32[i]*(float32(1.0)-ratio)
 				chOut[i] = celtSig(float32(chOut[i]) * g)
 			}
@@ -654,7 +651,7 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 			}
 		}
 
-		for i := 0; i < totalSamples; i++ {
+		for i := range totalSamples {
 			dst[i*channels+ch] = float32(chOut[i])
 		}
 	}
@@ -697,10 +694,7 @@ func (d *Decoder) computePLCAutocorr(frame []celtSig, window []float32, ac []flo
 		x[n-1-i] = celtSig(float32(x[n-1-i]) * w)
 	}
 
-	fastN := n - celtPLCLPCOrder
-	if fastN < 0 {
-		fastN = 0
-	}
+	fastN := max(n-celtPLCLPCOrder, 0)
 	pitchXCorrSig(x, x, ac[:celtPLCLPCOrder+1], fastN, celtPLCLPCOrder+1)
 	for lag := 0; lag <= celtPLCLPCOrder; lag++ {
 		tail := float32(0)
@@ -737,7 +731,7 @@ func plcLPCFromAutocorr(ac []float32, lpc []float32) {
 	var lpc32 [celtPLCLPCOrder]float32
 	base := ac[0]
 	errorPower := base
-	for i := 0; i < len(lpc); i++ {
+	for i := range lpc {
 		rr := plcLPCReflectionSum(lpc32[:], ac, i)
 		rr += ac[i+1]
 		r := -rr / errorPower
@@ -761,7 +755,7 @@ func plcLPCFromAutocorr(ac []float32, lpc []float32) {
 func plcLPCReflectionSum(lpc []float32, ac []float32, i int) float32 {
 	if !libopusFloatInnerProdUsesNeonOrder {
 		rr := float32(0)
-		for j := 0; j < i; j++ {
+		for j := range i {
 			rr += lpc[j] * ac[i-j]
 		}
 		return rr
@@ -820,7 +814,7 @@ func (d *Decoder) updatePLCOverlapBuffer(plcSamples []float32, frameSize int) {
 	}
 
 	src := frameSize * channels
-	for i := 0; i < Overlap; i++ {
+	for i := range Overlap {
 		d.overlapBuffer[i] = celtSig(plcSamples[src+i*channels])
 		d.overlapBuffer[Overlap+i] = celtSig(plcSamples[src+i*channels+1])
 	}
@@ -1004,7 +998,7 @@ func innerProdFloat32(x, y []float32, length int) float32 {
 		return innerProdFloat32SSEOrder(x, y, length)
 	}
 	sum := float32(0)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		sum += x[i] * y[i]
 	}
 	return sum
@@ -1083,7 +1077,7 @@ func pitchSearchPLC(xLP []float32, y []float32, length, maxPitch int, scratch *p
 	clear(xcorr[:halfPitch])
 	halfLen := length >> 1
 	Syy := float32(1)
-	for j := 0; j < halfLen; j++ {
+	for j := range halfLen {
 		yj := float32(y[j])
 		Syy += yj * yj
 	}

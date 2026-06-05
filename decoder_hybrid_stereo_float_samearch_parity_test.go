@@ -55,8 +55,8 @@ func TestHybridStereoFloatSameArchParity(t *testing.T) {
 	// CELT highband both carry meaningful energy.
 	makePCM := func(channels int) []float32 {
 		pcm := make([]float32, frameSize*channels*frameCount)
-		for f := 0; f < frameCount; f++ {
-			for i := 0; i < frameSize; i++ {
+		for f := range frameCount {
+			for i := range frameSize {
 				tt := float64(f*frameSize+i) / float64(sampleRate)
 				base := f*frameSize + i
 				if channels == 2 {
@@ -83,7 +83,6 @@ func TestHybridStereoFloatSameArchParity(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			pcm := makePCM(tc.channels)
 			for _, bitrate := range []int{24000, 32000, 48000, 64000, 96000, 128000} {

@@ -15,7 +15,7 @@ func (e *Encoder) encodePulses(pulses []int8, signalType, quantOffset int) {
 	// Pad pulses if needed - use scratch buffer
 	shellLen := iter * shellCodecFrameLength
 	paddedPulses := ensureInt8Slice(&e.scratchPaddedPulses, shellLen)
-	for i := 0; i < shellLen; i++ {
+	for i := range shellLen {
 		paddedPulses[i] = 0 // Clear
 	}
 	for i := 0; i < frameLength && i < len(paddedPulses); i++ {
@@ -24,7 +24,7 @@ func (e *Encoder) encodePulses(pulses []int8, signalType, quantOffset int) {
 
 	// Take absolute value of pulses - use scratch buffer
 	absPulses := ensureInt32Slice(&e.scratchAbsPulses, shellLen)
-	for i := 0; i < len(paddedPulses); i++ {
+	for i := range paddedPulses {
 		p := int32(paddedPulses[i])
 		if p < 0 {
 			p = -p
@@ -48,7 +48,7 @@ func (e *Encoder) encodePulses(pulses []int8, signalType, quantOffset int) {
 
 			if scaleDown != 0 {
 				nRshifts[i]++
-				for k := 0; k < shellCodecFrameLength; k++ {
+				for k := range shellCodecFrameLength {
 					absPulses[absOffset+k] >>= 1
 				}
 				continue
@@ -64,7 +64,7 @@ func (e *Encoder) encodePulses(pulses []int8, signalType, quantOffset int) {
 	rateLevelIndex := 0
 	minSumBits := int32(1<<31 - 1)
 	rateBits := silk_rate_levels_BITS_Q5[signalType>>1]
-	for k := 0; k < nRateLevels-1; k++ {
+	for k := range nRateLevels - 1 {
 		sumBits := int32(rateBits[k])
 		nBitsPtr := silk_pulses_per_block_BITS_Q5[k]
 		for i := 0; i < iter; i++ {
@@ -113,7 +113,7 @@ func (e *Encoder) encodePulses(pulses []int8, signalType, quantOffset int) {
 		if nRshifts[i] > 0 {
 			offset := i * shellCodecFrameLength
 			nLS := nRshifts[i] - 1
-			for k := 0; k < shellCodecFrameLength; k++ {
+			for k := range shellCodecFrameLength {
 				absQ := int32(paddedPulses[offset+k])
 				if absQ < 0 {
 					absQ = -absQ
@@ -143,15 +143,15 @@ func (e *Encoder) shellEncoder(pulses []int32) {
 	pulses4 := &e.scratchShellPulses4
 
 	// Combine: 16 -> 8
-	for k := 0; k < 8; k++ {
+	for k := range 8 {
 		pulses1[k] = pulses[2*k] + pulses[2*k+1]
 	}
 	// Combine: 8 -> 4
-	for k := 0; k < 4; k++ {
+	for k := range 4 {
 		pulses2[k] = pulses1[2*k] + pulses1[2*k+1]
 	}
 	// Combine: 4 -> 2
-	for k := 0; k < 2; k++ {
+	for k := range 2 {
 		pulses3[k] = pulses2[2*k] + pulses2[2*k+1]
 	}
 	// Combine: 2 -> 1
@@ -206,19 +206,16 @@ func (e *Encoder) encodeSigns(pulses []int8, frameLength, signalType, quantOffse
 
 	// Process each shell block
 	iter := (frameLength + shellCodecFrameLength/2) >> log2ShellCodecFrameLength
-	for i := 0; i < iter; i++ {
+	for i := range iter {
 		p := sumPulses[i]
 		if p > 0 {
 			// Set icdf[0] based on sumPulses, clamped to [0, 6]
-			pIdx := int(p & 0x1F)
-			if pIdx > 6 {
-				pIdx = 6
-			}
+			pIdx := min(int(p&0x1F), 6)
 			icdf[0] = icdfPtr[pIdx]
 
 			// Encode sign for each non-zero pulse in this block
 			offset := i * shellCodecFrameLength
-			for j := 0; j < shellCodecFrameLength; j++ {
+			for j := range shellCodecFrameLength {
 				idx := offset + j
 				if idx >= frameLength {
 					break
@@ -240,7 +237,7 @@ func (e *Encoder) encodeSigns(pulses []int8, frameLength, signalType, quantOffse
 }
 
 func combineAndCheck(pulsesComb []int32, pulsesIn []int32, maxPulses int32, length int) int32 {
-	for k := 0; k < length; k++ {
+	for k := range length {
 		sum := pulsesIn[2*k] + pulsesIn[2*k+1]
 		if sum > maxPulses {
 			return 1
@@ -262,7 +259,7 @@ func (e *Encoder) computeExcitation(pcm []float32, lpcQ12 []int16, gain float32)
 	order := len(lpcQ12)
 	excitation := make([]int32, n)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		// Compute LPC prediction
 		var prediction float32
 		for k := 0; k < order && i-k-1 >= 0; k++ {

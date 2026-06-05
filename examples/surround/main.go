@@ -79,7 +79,7 @@ func roundtripSurround(channels, frames int) (decoded []float32, layout string, 
 	cfg := gopus.DefaultDecoderConfig(sampleRate, channels)
 	pcmOut := make([]float32, cfg.MaxPacketSamples*channels)
 
-	for f := 0; f < frames; f++ {
+	for f := range frames {
 		pcm := surroundFrame(f)
 
 		packet, err := enc.EncodeFloat32(pcm)
@@ -103,9 +103,9 @@ func surroundFrame(frame int) []float32 {
 	// Distinct frequency per surround channel (FL, C, FR, RL, RR, LFE).
 	freqs := [channels]float64{220, 330, 440, 550, 660, 60}
 	pcm := make([]float32, frameSize*channels)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		t := float64(frame*frameSize+i) / sampleRate
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			pcm[i*channels+ch] = float32(0.25 * math.Sin(2*math.Pi*freqs[ch]*t))
 		}
 	}

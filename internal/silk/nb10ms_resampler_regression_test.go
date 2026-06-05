@@ -26,7 +26,7 @@ func TestNB10msDecoderUpsamplerAmplitudeRegression(t *testing.T) {
 			var inEnergy, outEnergy float64
 			var inCount, outCount int
 
-			for f := 0; f < nFrames; f++ {
+			for f := range nFrames {
 				frame := make([]int16, frameSamples)
 				for i := range frame {
 					sampleIdx := f*frameSamples + i
@@ -41,7 +41,7 @@ func TestNB10msDecoderUpsamplerAmplitudeRegression(t *testing.T) {
 
 				out := make([]float32, frameSamples*48000/tc.fsIn)
 				n := resampler.ProcessInt16Into(frame, out)
-				for i := 0; i < n; i++ {
+				for i := range n {
 					v := float64(out[i])
 					outEnergy += v * v
 					outCount++
@@ -77,7 +77,7 @@ func TestNB10msEncoderDownsamplerAmplitudeRegression(t *testing.T) {
 			var inEnergy, outEnergy float64
 			var inCount, outCount int
 
-			for f := 0; f < nFrames; f++ {
+			for f := range nFrames {
 				frame := make([]float32, inputSamples)
 				for i := range frame {
 					sampleIdx := f*inputSamples + i
@@ -133,7 +133,7 @@ func TestNB10msNativeDecodePathRegression(t *testing.T) {
 			resampler := dec.GetResampler(tc.bw)
 
 			// Warm up state.
-			for f := 0; f < 4; f++ {
+			for f := range 4 {
 				frame := make([]float32, frameSamples)
 				for i := range frame {
 					sampleIdx := f*frameSamples + i
@@ -187,7 +187,7 @@ func TestNB10msNativeDecodePathRegression(t *testing.T) {
 				v := float64(s)
 				inE += v * v
 			}
-			for i := 0; i < n; i++ {
+			for i := range n {
 				v := float64(out[i])
 				outE += v * v
 			}

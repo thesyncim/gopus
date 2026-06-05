@@ -308,7 +308,7 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 	nsq.sLTPBufIdx = ltpMemLength
 
 	// Process each subframe
-	for k := 0; k < nbSubfr; k++ {
+	for k := range nbSubfr {
 		// Get coefficients for this subframe
 		predCoefIdx := ((k >> 1) | (1 - lsfInterpFlag)) * maxLPCOrder
 		aQ12 := params.PredCoefQ12[predCoefIdx : predCoefIdx+params.PredLPCOrder]
@@ -326,10 +326,7 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 			// Re-whitening for voiced frames at specific subframes
 			if (k & (3 - (lsfInterpFlag << 1))) == 0 {
 				// Compute start index for rewhitening
-				startIdx := ltpMemLength - lag - params.PredLPCOrder - ltpOrderConst/2
-				if startIdx < 0 {
-					startIdx = 0
-				}
+				startIdx := max(ltpMemLength-lag-params.PredLPCOrder-ltpOrderConst/2, 0)
 
 				// Rewhiten with LPC analysis filter
 				rewhitenLTP(sLTP, nsq.xq[:], startIdx, k*subfrLength, aQ12, ltpMemLength-startIdx, params.PredLPCOrder)
@@ -419,7 +416,7 @@ func noiseShapeQuantizerSubframe(
 	// Set up short-term AR state pointer
 	psLPCQ14Idx := nsqLpcBufLength - 1
 
-	for i := 0; i < length; i++ {
+	for i := range length {
 		// Generate dither
 		nsq.randSeed = silk_RAND(nsq.randSeed)
 
@@ -430,7 +427,7 @@ func noiseShapeQuantizerSubframe(
 		var ltpPredQ13 int32
 		if signalType == typeVoiced && predLagPtr >= 0 && predLagPtr < len(sLTPQ15) {
 			ltpPredQ13 = 2 // Rounding bias
-			for j := 0; j < ltpOrderConst; j++ {
+			for j := range ltpOrderConst {
 				idx := predLagPtr - j
 				if idx >= 0 && idx < len(sLTPQ15) {
 					ltpPredQ13 += silk_SMLAWB(0, sLTPQ15[idx], int32(bQ14[j]))
@@ -682,10 +679,7 @@ func scaleNSQStates(
 			// LTP downscaling for first subframe
 			invGainQ31 = silk_LSHIFT32(silk_SMULWB(invGainQ31, ltpScaleQ14), 2)
 		}
-		startIdx := nsq.sLTPBufIdx - lag - ltpOrderConst/2
-		if startIdx < 0 {
-			startIdx = 0
-		}
+		startIdx := max(nsq.sLTPBufIdx-lag-ltpOrderConst/2, 0)
 		for i := startIdx; i < nsq.sLTPBufIdx && i < len(sLTPQ15) && i < len(sLTP); i++ {
 			sLTPQ15[i] = silk_SMULWB(invGainQ31, int32(sLTP[i]))
 		}
@@ -696,20 +690,14 @@ func scaleNSQStates(
 		gainAdjQ16 := silk_DIV32_varQ(nsq.prevGainQ16, gainsQ16[subfr], 16)
 
 		// Scale long-term shaping state
-		startIdx := nsq.sLTPShpBufIdx - ltpMemLength
-		if startIdx < 0 {
-			startIdx = 0
-		}
+		startIdx := max(nsq.sLTPShpBufIdx-ltpMemLength, 0)
 		for i := startIdx; i < nsq.sLTPShpBufIdx && i < len(nsq.sLTPShpQ14); i++ {
 			nsq.sLTPShpQ14[i] = silk_SMULWW(gainAdjQ16, nsq.sLTPShpQ14[i])
 		}
 
 		// Scale long-term prediction state
 		if signalType == typeVoiced && nsq.rewhiteFlag == 0 {
-			startIdx := nsq.sLTPBufIdx - lag - ltpOrderConst/2
-			if startIdx < 0 {
-				startIdx = 0
-			}
+			startIdx := max(nsq.sLTPBufIdx-lag-ltpOrderConst/2, 0)
 			for i := startIdx; i < nsq.sLTPBufIdx && i < len(sLTPQ15); i++ {
 				sLTPQ15[i] = silk_SMULWW(gainAdjQ16, sLTPQ15[i])
 			}
@@ -719,10 +707,10 @@ func scaleNSQStates(
 		nsq.sDiffShpQ14 = silk_SMULWW(gainAdjQ16, nsq.sDiffShpQ14)
 
 		// Scale short-term states
-		for i := 0; i < nsqLpcBufLength; i++ {
+		for i := range nsqLpcBufLength {
 			nsq.sLPCQ14[i] = silk_SMULWW(gainAdjQ16, nsq.sLPCQ14[i])
 		}
-		for i := 0; i < maxShapeLpcOrder; i++ {
+		for i := range maxShapeLpcOrder {
 			nsq.sAR2Q14[i] = silk_SMULWW(gainAdjQ16, nsq.sAR2Q14[i])
 		}
 
@@ -753,7 +741,7 @@ func rewhitenLTP(sLTP []int16, xq []int16, startIdx, offset int, aQ12 []int16, l
 		// in_ptr = &in[ix-1] in libopus, so in_ptr[0] = in[ix-1], in_ptr[-1] = in[ix-2], etc.
 		// Compute prediction: sum(a[k] * in[ix-1-k]) for k=0..order-1
 		var predQ12 int32
-		for k := 0; k < order; k++ {
+		for k := range order {
 			prevIdx := inIdx - 1 - k // in[ix-1-k]
 			if prevIdx >= 0 && prevIdx < len(xq) {
 				// silk_SMULBB: low 16 bits * low 16 bits
@@ -779,10 +767,7 @@ var quantOffsets = [2][2]int{
 
 // getQuantizationOffset returns the quantization offset based on signal type and offset type.
 func getQuantizationOffset(signalType, quantOffsetType int) int {
-	sigIdx := signalType >> 1
-	if sigIdx < 0 {
-		sigIdx = 0
-	}
+	sigIdx := max(signalType>>1, 0)
 	if sigIdx > 1 {
 		sigIdx = 1
 	}

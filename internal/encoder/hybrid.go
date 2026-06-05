@@ -182,10 +182,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 	if baseTargetBytes < 2 {
 		baseTargetBytes = 2
 	}
-	payloadTarget := baseTargetBytes - 1
-	if payloadTarget < 1 {
-		payloadTarget = 1
-	}
+	payloadTarget := max(baseTargetBytes-1, 1)
 
 	// Transition redundancy reserves bytes and adjusts SILK/CELT budgeting.
 	// CELT->Hybrid uses celt_to_silk=1; SILK/Hybrid->CELT uses celt_to_silk=0.
@@ -219,10 +216,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 	hbGain := e.computeHBGain(celtBitrateHBGain)
 
 	// Main shared-range payload target excludes transition redundancy bytes.
-	payloadTargetMain := payloadTarget - redundancyBytes
-	if payloadTargetMain < 1 {
-		payloadTargetMain = 1
-	}
+	payloadTargetMain := max(payloadTarget-redundancyBytes, 1)
 
 	// In libopus the CELT sub-encoder is handed nb_compr_bytes = (max_data_bytes-1) -
 	// redundancy_bytes via ec_enc_shrink() (opus_encoder.c line 2392/2413). That is
@@ -242,10 +236,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 		case hardMaxPacketBytes:
 			maxTargetBytes = payloadTargetMain
 		default:
-			maxAllowed := baseTargetBytes * 2
-			if maxAllowed < 2 {
-				maxAllowed = 2
-			}
+			maxAllowed := max(baseTargetBytes*2, 2)
 			maxTargetBytes = maxAllowed - 2
 		}
 		if redundancyBytes > 0 {
@@ -319,7 +310,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 			}
 			leftLa := e.hybridState.scratchLaLeft[:halfLen]
 			rightLa := e.hybridState.scratchLaRight[:halfLen]
-			for i := 0; i < halfLen; i++ {
+			for i := range halfLen {
 				leftLa[i] = lookahead32[i*2]
 				rightLa[i] = lookahead32[i*2+1]
 			}
@@ -342,7 +333,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 			e.silkResamplerRight.SetState(stateR)
 
 			// Interleave into silkLookahead
-			for i := 0; i < halfOut; i++ {
+			for i := range halfOut {
 				silkLookahead[i*2] = leftOut[i]
 				silkLookahead[i*2+1] = rightOut[i]
 			}
@@ -385,10 +376,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 	if e.bitrateMode == ModeCBR {
 		// Hybrid CBR: switch SILK to VBR with cap (libopus behavior)
 		e.silkEncoder.SetVBR(true)
-		otherBits := silkMaxBits - silkBitrate*frameSize/int(e.sampleRate)
-		if otherBits < 0 {
-			otherBits = 0
-		}
+		otherBits := max(silkMaxBits-silkBitrate*frameSize/int(e.sampleRate), 0)
 		silkMaxBits -= otherBits * 3 / 4
 		if silkMaxBits < 0 {
 			silkMaxBits = 0
@@ -492,10 +480,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 	if e.channels == 2 {
 		targetWidthQ14 := int16(16384)
 		if e.hybridState != nil {
-			targetWidthQ14 = e.hybridState.silkStereoWidthQ14
-			if targetWidthQ14 < 0 {
-				targetWidthQ14 = 0
-			}
+			targetWidthQ14 = max(e.hybridState.silkStereoWidthQ14, 0)
 			if targetWidthQ14 > 16384 {
 				targetWidthQ14 = 16384
 			}
@@ -772,10 +757,7 @@ func (e *Encoder) computeHybridBitAllocation(frame20ms bool) (silkBitrate, celtB
 	if frame20ms {
 		frameSize = e.frame20ms()
 	}
-	maxDataBytes := e.targetBytesForBitrate(int(e.bitrate), frameSize)
-	if maxDataBytes < 2 {
-		maxDataBytes = 2
-	}
+	maxDataBytes := max(e.targetBytesForBitrate(int(e.bitrate), frameSize), 2)
 	return e.computeHybridBitAllocationWithBudget(frameSize, maxDataBytes, 0)
 }
 
@@ -807,10 +789,7 @@ func (e *Encoder) computeHybridBitAllocationWithBudget(frameSize, maxDataBytes, 
 		bitsTarget = 0
 	}
 	totalRate := bitsTarget * int(e.sampleRate) / frameSize // bits_to_bitrate()
-	channels := e.silkInternalChannels()
-	if channels < 1 {
-		channels = 1
-	}
+	channels := max(e.silkInternalChannels(), 1)
 
 	// Per-channel rate for table lookup
 	ratePerChannel := totalRate / channels
@@ -872,10 +851,7 @@ func (e *Encoder) computeHybridBitAllocationWithBudget(frameSize, maxDataBytes, 
 // bitrate. This is used to constrain SILK's maxBits in hybrid VBR mode.
 // Matches libopus: compute_silk_rate_for_hybrid(maxBits*Fs/frame_size, ...).
 func (e *Encoder) computeSilkRateForMax(maxBitrate int, frame20ms bool) int {
-	channels := e.silkInternalChannels()
-	if channels < 1 {
-		channels = 1
-	}
+	channels := max(e.silkInternalChannels(), 1)
 	ratePerChannel := maxBitrate / channels
 
 	entry := 1 // 10ms no FEC
@@ -1015,10 +991,7 @@ func (e *Encoder) resampleHybridSILKLowband(samples []opusRes, frameSize int) []
 	rightOut := e.ensureSilkResampledR(targetSamples)
 	nL := e.silkResampler.ProcessInto(left, leftOut)
 	nR := e.silkResamplerRight.ProcessInto(right, rightOut)
-	n := nL
-	if nR < n {
-		n = nR
-	}
+	n := min(nR, nL)
 	if n <= 0 {
 		return nil
 	}
@@ -1063,11 +1036,7 @@ func (e *Encoder) applyHBGainFade(pcm []opusRes, hbGain opusVal16) []opusRes {
 func (e *Encoder) applyGainFade(samples []opusRes, g1, g2 opusVal16) []opusRes {
 	channels := int(e.channels)
 	frameSize := len(samples) / channels
-	overlap := hybridOverlap
-
-	if overlap > frameSize {
-		overlap = frameSize
-	}
+	overlap := min(hybridOverlap, frameSize)
 
 	// Generate CELT window for smooth transition.
 	window := celt.GetWindowBufferF32(overlap)
@@ -1140,20 +1109,14 @@ func (e *Encoder) applyStereoWidthFade(samples []opusRes, widthQ14Prev, widthQ14
 	// long; at native sub-48k rates the crossfade spans 120/inc samples.
 	inc := 1
 	if e.sampleRate > 0 && e.sampleRate < 48000 {
-		inc = 48000 / int(e.sampleRate)
-		if inc < 1 {
-			inc = 1
-		}
+		inc = max(48000/int(e.sampleRate), 1)
 	}
-	overlap := hybridOverlap / inc
-	if overlap > frameSize {
-		overlap = frameSize
-	}
+	overlap := min(hybridOverlap/inc, frameSize)
 
 	window := celt.GetWindowBufferF32(hybridOverlap)
 	if window == nil || len(window) < (overlap-1)*inc+1 {
 		// Fallback: no window available, apply constant g2
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			diff := opusVal32(0.5) * (samples[i*2] - samples[i*2+1])
 			diff *= g2
 			samples[i*2] -= diff
@@ -1187,18 +1150,18 @@ func (e *Encoder) applyLinearGainFade(samples []opusRes, g1, g2 opusVal16, overl
 	channels := int(e.channels)
 	frameSize := len(samples) / channels
 
-	for i := 0; i < overlap; i++ {
+	for i := range overlap {
 		t := opusVal16(i) / opusVal16(overlap)
 		g := g1*(1-t) + g2*t
 
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			samples[i*channels+c] *= g
 		}
 	}
 
 	// Apply constant g2 for rest of frame
 	for i := overlap; i < frameSize; i++ {
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			samples[i*channels+c] *= g2
 		}
 	}
@@ -1516,10 +1479,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetP
 	e.celtEncoder.SetCoarseEnergyAvailableBytes(0)
 	if e.bitrateMode == ModeCBR {
 		nbFilledBytes := (re.Tell() + 4) >> 3
-		nbAvailableBytes := targetPayloadBytes - nbFilledBytes
-		if nbAvailableBytes < 0 {
-			nbAvailableBytes = 0
-		}
+		nbAvailableBytes := max(targetPayloadBytes-nbFilledBytes, 0)
 		e.celtEncoder.SetCoarseEnergyAvailableBytes(nbAvailableBytes)
 	}
 	defer e.celtEncoder.SetCoarseEnergyAvailableBytes(0)
@@ -1532,20 +1492,14 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetP
 		effectiveBytes = baseBits / 8
 	} else {
 		nbFilledBytes := (re.Tell() + 4) >> 3
-		effectiveBytes = targetPayloadBytes - nbFilledBytes
-		if effectiveBytes < 0 {
-			effectiveBytes = 0
-		}
+		effectiveBytes = max(targetPayloadBytes-nbFilledBytes, 0)
 	}
 	allowWeakTransients := effectiveBytes < 15 && silkSignalType != 2
 
 	// Hybrid CELT only encodes bands starting at HybridCELTStartBand.
 	start := celt.HybridCELTStartBand
 	bw := celtBandwidthFromTypes(e.effectiveBandwidth())
-	end := celt.EffectiveBandsForFrameSize(bw, frameSize)
-	if end > mode.EffBands {
-		end = mode.EffBands
-	}
+	end := min(celt.EffectiveBandsForFrameSize(bw, frameSize), mode.EffBands)
 	if end < 1 {
 		end = 1
 	}
@@ -1553,10 +1507,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetP
 		end = start
 	}
 	nbBands := end
-	overlap := celt.Overlap
-	if overlap > frameSize {
-		overlap = frameSize
-	}
+	overlap := min(celt.Overlap, frameSize)
 	channels := int(e.channels)
 	mdctHistLen := overlap * channels
 	mdctHistory := e.hybridState.scratchMDCTHist
@@ -1575,10 +1526,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetP
 	)
 
 	if useInitialVBRAdjust && e.bitrateMode != ModeCBR {
-		shift := 3 - lm
-		if shift < 0 {
-			shift = 0
-		}
+		shift := max(3-lm, 0)
 		if silkOffset < 100 {
 			totalBits += 12 >> shift
 		}
@@ -1597,10 +1545,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetP
 	}
 
 	nbFilledBytes := (re.Tell() + 4) >> 3
-	nbAvailableBytes := targetPayloadBytes - nbFilledBytes
-	if nbAvailableBytes < 0 {
-		nbAvailableBytes = 0
-	}
+	nbAvailableBytes := max(targetPayloadBytes-nbFilledBytes, 0)
 	e.celtEncoder.ApplyHybridPrefilter(preemph, frameSize, tfEstimate, nbAvailableBytes, toneFreq, toneishness)
 
 	// Compute MDCT with overlap history using the selected block size.
@@ -1781,14 +1726,8 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetP
 		if width <= 0 {
 			width = 1
 		}
-		innerMax := 6 << celt.BitRes
-		if width > innerMax {
-			innerMax = width
-		}
-		quanta := width << celt.BitRes
-		if quanta > innerMax {
-			quanta = innerMax
-		}
+		innerMax := max(width, 6<<celt.BitRes)
+		quanta := min(width<<celt.BitRes, innerMax)
 
 		dynallocLoopLogp := dynallocLogp
 		boost := 0
@@ -1921,10 +1860,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetP
 	}
 
 	// Encode energy finalization bits (leftover budget).
-	bitsLeft := totalBits - re.Tell()
-	if bitsLeft < 0 {
-		bitsLeft = 0
-	}
+	bitsLeft := max(totalBits-re.Tell(), 0)
 	e.celtEncoder.EncodeEnergyFinaliseRangeFromError(quantizedEnergies, start, end, allocResult.FineBits, allocResult.FinePriority, bitsLeft)
 	e.celtEncoder.UpdateEnergyErrorHybridFromError(start, end, nbBands)
 
@@ -1937,7 +1873,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetP
 	for i := range nextEnergy {
 		nextEnergy[i] = 0
 	}
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		base := c * celt.MaxBands
 		for band := start; band < end; band++ {
 			idx := c*nbBands + band
@@ -1957,10 +1893,7 @@ func (e *Encoder) computeHybridCELTVBRTargetBytes(limitBytes, frameSize int, tfE
 		return 2
 	}
 	mode := celt.GetModeConfig(frameSize)
-	lmDiff := 3 - mode.LM
-	if lmDiff < 0 {
-		lmDiff = 0
-	}
+	lmDiff := max(3-mode.LM, 0)
 
 	// Per libopus celt_encoder.c compute_vbr / celt_encode_with_ec line 2450:
 	// base_target = IMAX(0, vbr_rate - ((9*C+4)<<BITRES)) for hybrid, where C is the
@@ -2020,10 +1953,7 @@ func computeMDCTForHybridScratch(samples []float32, frameSize, channels int, his
 		return nil
 	}
 
-	overlap := celt.Overlap
-	if overlap > frameSize {
-		overlap = frameSize
-	}
+	overlap := min(celt.Overlap, frameSize)
 
 	if channels == 1 {
 		if len(history) >= overlap {
@@ -2161,7 +2091,7 @@ func ComputeStereoWidth(pcm []opusRes, frameSize, channels int) opusVal16 {
 
 	// Compute correlation between left and right channels
 	var sumLeft, sumRight, sumCross opusVal32
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		l := pcm[i*2]
 		r := pcm[i*2+1]
 		sumLeft += opusVal32(l) * opusVal32(l)

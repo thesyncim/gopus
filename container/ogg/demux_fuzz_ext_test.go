@@ -278,7 +278,7 @@ func extBuildWrongSerialStream() []byte {
 	// Inject the alien page before the first audio page.
 	// Find offset after the two header pages of mainBytes.
 	offset := 0
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		_, consumed, err := ParsePage(mainBytes[offset:])
 		if err != nil {
 			return mainBytes
@@ -323,7 +323,7 @@ func extBuildOpusTagsManyComments(n int) []byte {
 		Vendor:   "gopus-fuzz-ext",
 		Comments: make(map[string]string),
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		key := fmt.Sprintf("KEY%d", i)
 		tags.Comments[key] = fmt.Sprintf("value%d", i)
 	}
@@ -377,7 +377,7 @@ func extBuildProjectionHeadVariants() [][]byte {
 func extBuildManySegmentPage() []byte {
 	// 254 full segments (255 bytes each) + 1 terminating segment (1 byte).
 	segs := make([]byte, 255)
-	for i := 0; i < 254; i++ {
+	for i := range 254 {
 		segs[i] = 255
 	}
 	segs[254] = 1
@@ -644,7 +644,7 @@ func FuzzOggExt_MultiSegmentLacing(f *testing.F) {
 		if err != nil {
 			return
 		}
-		for i := 0; i < 512; i++ {
+		for range 512 {
 			pkt, _, err := r.ReadPacket()
 			if err == io.EOF {
 				return
@@ -710,7 +710,7 @@ func FuzzOggExt_GranuleEdgeCases(f *testing.F) {
 		if err != nil {
 			return
 		}
-		for i := 0; i < 256; i++ {
+		for range 256 {
 			pkt, granule, err := r.ReadPacket()
 			if err == io.EOF {
 				return
@@ -768,7 +768,7 @@ func FuzzOggExt_ZeroLengthPackets(f *testing.F) {
 		if err != nil {
 			return
 		}
-		for i := 0; i < 256; i++ {
+		for range 256 {
 			pkt, _, err := r.ReadPacket()
 			if err == io.EOF {
 				return
@@ -822,7 +822,7 @@ func FuzzOggExt_MultiplexedPages(f *testing.F) {
 		if err != nil {
 			return
 		}
-		for i := 0; i < 256; i++ {
+		for range 256 {
 			pkt, _, err := r.ReadPacket()
 			if err == io.EOF {
 				return
@@ -1026,7 +1026,7 @@ func FuzzOggExt_ProjectionMapping(f *testing.F) {
 			if err != nil {
 				return
 			}
-			for i := 0; i < 64; i++ {
+			for range 64 {
 				pkt, _, err := r.ReadPacket()
 				if err == io.EOF {
 					return
@@ -1110,7 +1110,7 @@ func FuzzOggExt_DifferentialOpusfile(f *testing.F) {
 		r, err := NewReader(bytes.NewReader(data))
 		if err == nil {
 			gopusAccepts = true
-			for i := 0; i < 256; i++ {
+			for range 256 {
 				pkt, _, err := r.ReadPacket()
 				if err == io.EOF {
 					break
@@ -1280,7 +1280,7 @@ func extBuildEncodedSineStream(channels uint8, frames int) []byte {
 		return nil
 	}
 	const frameSize = 960 // 20 ms at 48 kHz
-	for i := 0; i < frames; i++ {
+	for range frames {
 		var pcm []float32
 		if channels == 1 {
 			pcm = generateSineWave(440.0, frameSize)
@@ -1350,10 +1350,7 @@ func requireContainerPCMParity(t *testing.T, got, ref []float32, channels int) {
 		return
 	}
 
-	common := gotFrames
-	if refFrames < common {
-		common = refFrames
-	}
+	common := min(refFrames, gotFrames)
 	if common == 0 {
 		return
 	}
@@ -1399,7 +1396,7 @@ func requireRemuxSelfConsistency(t *testing.T, data []byte, originalPCM []float3
 		return
 	}
 	wrote := 0
-	for i := 0; i < 4096; i++ {
+	for range 4096 {
 		pkt, _, perr := r.ReadPacket()
 		if perr == io.EOF {
 			break

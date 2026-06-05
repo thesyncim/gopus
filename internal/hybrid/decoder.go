@@ -267,10 +267,10 @@ func (d *Decoder) downsampleFrame48ToAPI(dst, src []float32, frameSize int) {
 		return
 	}
 	factor := 48000 / apiSampleRate
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		srcBase := i * factor * channels
 		dstBase := i * channels
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			dst[dstBase+c] = src[srcBase+c]
 		}
 	}
@@ -427,10 +427,7 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 				nL = leftResampler.ProcessInt16Into(silkOutputL[:nNative], scratchF32L)
 				nR = rightResampler.ProcessInt16Into(silkOutputR[:nNative], scratchF32R)
 			}
-			n := nL
-			if nR < n {
-				n = nR
-			}
+			n := min(nR, nL)
 			for i := 0; i < n && i*2+1 < totalSamples; i++ {
 				silkUpsampled[i*2] = scratchF32L[i]
 				silkUpsampled[i*2+1] = scratchF32R[i]
@@ -466,10 +463,7 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 				} else {
 					nR = rightResampler.ProcessInt16Into(resamplerInput, scratchF32R)
 				}
-				n := nL
-				if nR < n {
-					n = nR
-				}
+				n := min(nR, nL)
 				for i := 0; i < n && i*2+1 < totalSamples; i++ {
 					silkUpsampled[i*2] = scratchF32L[i]
 					silkUpsampled[i*2+1] = scratchF32R[i]
@@ -604,7 +598,7 @@ func copyInterleaveMono(dst, src []int16, filled int) int {
 // per-channel left/right slices into dst and returns filled.
 func copyInterleaveStereo(dst, left, right []int16, filled int) int {
 	n := filled / 2
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if i >= len(left) || i >= len(right) || 2*i+1 >= len(dst) {
 			return 2 * i
 		}
@@ -618,7 +612,7 @@ func copyInterleaveStereo(dst, left, right []int16, filled int) int {
 // both channels) into dst for filled total samples and returns filled.
 func copyInterleaveStereoDup(dst, left []int16, filled int) int {
 	n := filled / 2
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if i >= len(left) || 2*i+1 >= len(dst) {
 			return 2 * i
 		}
@@ -669,7 +663,7 @@ func upsample3x(samples []float32) []float32 {
 
 	output := make([]float32, len(samples)*3)
 
-	for i := 0; i < len(samples); i++ {
+	for i := range samples {
 		curr := samples[i]
 		var next float32
 		if i+1 < len(samples) {

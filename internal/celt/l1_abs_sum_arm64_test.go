@@ -30,7 +30,7 @@ func l1AbsSumNeonReference(tmp []float32, n int) float32 {
 	var acc [4]float32
 	i := 0
 	for ; i+4 <= n; i += 4 {
-		for k := 0; k < 4; k++ {
+		for k := range 4 {
 			v := tmp[i+k]
 			if v < 0 {
 				v = -v
@@ -54,7 +54,7 @@ func l1AbsSumNeonReference(tmp []float32, n int) float32 {
 func TestL1AbsSumNeonBitExact(t *testing.T) {
 	rng := rand.New(rand.NewSource(5))
 	for _, n := range []int{0, 1, 2, 3, 4, 5, 7, 8, 15, 16, 31, 64, 120, 240, 481} {
-		for trial := 0; trial < 100; trial++ {
+		for trial := range 100 {
 			tmp := make([]float32, n)
 			for i := range tmp {
 				tmp[i] = float32(rng.NormFloat64()) * float32(rng.Intn(8))

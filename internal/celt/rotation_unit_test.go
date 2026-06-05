@@ -12,7 +12,7 @@ func testRotationUnit(t *testing.T, n, k int, rnd *rand.Rand) {
 
 	x0 := make([]celtNorm, n)
 	x1 := make([]celtNorm, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		v := celtNorm(float32(rnd.Intn(16777215) - 8388608))
 		x0[i] = v
 		x1[i] = v
@@ -20,7 +20,7 @@ func testRotationUnit(t *testing.T, n, k int, rnd *rand.Rand) {
 
 	expRotation(x1, n, 1, 1, k, spreadNormal)
 	var err, ener float64
-	for i := 0; i < n; i++ {
+	for i := range n {
 		d := float64(x0[i] - x1[i])
 		err += d * d
 		ener += float64(x0[i]) * float64(x0[i])
@@ -29,7 +29,7 @@ func testRotationUnit(t *testing.T, n, k int, rnd *rand.Rand) {
 
 	err, ener = 0, 0
 	expRotation(x1, n, -1, 1, k, spreadNormal)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		d := float64(x0[i] - x1[i])
 		err += d * d
 		ener += float64(x0[i]) * float64(x0[i])

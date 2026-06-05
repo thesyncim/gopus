@@ -147,7 +147,7 @@ func runVBRCVBROracle(helperPath string, req []byte, nFrames int) ([]oracleResul
 
 	results := make([]oracleResult, nFrames)
 	off := 12
-	for i := 0; i < nFrames; i++ {
+	for i := range nFrames {
 		if off+8 > len(raw) {
 			return nil, fmt.Errorf("truncated oracle response at frame %d", i)
 		}
@@ -214,7 +214,7 @@ func encodeVBRCVBRWithGopus(
 	samplesPerFrame := frameSize * channels
 	buf := make([]byte, 4000)
 	results := make([]oracleResult, 0, nFrames)
-	for i := 0; i < nFrames; i++ {
+	for i := range nFrames {
 		frame := pcm[i*samplesPerFrame : (i+1)*samplesPerFrame]
 		n, err := enc.Encode(frame, buf)
 		if err != nil {
@@ -345,7 +345,7 @@ func makeVBRCVBRTestPCM(nFrames, frameSize, channels int) []float32 {
 		if s < -0.99 {
 			s = -0.99
 		}
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			pcm[i*channels+ch] = float32(s)
 		}
 	}
@@ -385,7 +385,6 @@ func TestVBRByteParityAgainstLibopus(t *testing.T) {
 	}
 
 	for _, tc := range vbrTestCases() {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			runVBRParityCase(t, tc, helperPath)
@@ -612,7 +611,6 @@ func TestCVBRSizeDistributionAgainstLibopus(t *testing.T) {
 	}
 
 	for _, tc := range cvbrTestCases() {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			runCVBRParityCase(t, tc, helperPath)
@@ -714,10 +712,7 @@ func runCVBRParityCase(t *testing.T, tc vbrCVBRCase, helperPath string) {
 		if limit > len(refLens) {
 			limit = len(refLens)
 		}
-		start := firstLenMismatch - 2
-		if start < 0 {
-			start = 0
-		}
+		start := max(firstLenMismatch-2, 0)
 		t.Logf("  first mismatch region (frames %d..%d):", start, limit-1)
 		for i := start; i < limit; i++ {
 			mark := ""
@@ -791,7 +786,6 @@ func TestVBRByteParityViaOpusDemoExhaustive(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	for _, tc := range vbrTestCases() {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			runVBRParityCaseViaOpusDemo(t, tc, opusDemo, tmpDir)
@@ -903,7 +897,6 @@ func TestCVBRSizeDistributionViaOpusDemoExhaustive(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	for _, tc := range cvbrTestCases() {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			runCVBRParityCaseViaOpusDemo(t, tc, opusDemo, tmpDir)

@@ -44,10 +44,7 @@ func (d *Decoded) FillState(dst []float32) int {
 	if d == nil {
 		return 0
 	}
-	n := len(d.State)
-	if n > len(dst) {
-		n = len(dst)
-	}
+	n := min(len(d.State), len(dst))
 	copy(dst[:n], d.State[:n])
 	return n
 }
@@ -58,10 +55,7 @@ func (d *Decoded) FillLatents(dst []float32) int {
 	if d == nil {
 		return 0
 	}
-	n := d.NbLatents * LatentStride
-	if n > len(dst) {
-		n = len(dst)
-	}
+	n := min(d.NbLatents*LatentStride, len(dst))
 	copy(dst[:n], d.Latents[:n])
 	return n
 }
@@ -72,10 +66,7 @@ func (d *Decoded) FillFeatures(dst []float32) int {
 	if d == nil {
 		return 0
 	}
-	n := d.NbLatents * 4 * NumFeatures
-	if n > len(dst) {
-		n = len(dst)
-	}
+	n := min(d.NbLatents*4*NumFeatures, len(dst))
 	copy(dst[:n], d.Features[:n])
 	return n
 }

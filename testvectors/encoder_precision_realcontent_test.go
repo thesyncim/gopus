@@ -76,7 +76,7 @@ func precisionGuardRealContentSignal(totalSamples, channels int) ([]float32, err
 	}
 
 	out := make([]float32, totalSamples)
-	for i := 0; i < totalSamples; i++ {
+	for i := range totalSamples {
 		out[i] = src[i%len(src)]
 	}
 	return out, nil
@@ -126,7 +126,7 @@ func loadRealcontentSourceClips() (map[string][]float32, error) {
 			}
 			n := len(pcmBytes) / 2
 			samples := make([]float32, n)
-			for j := 0; j < n; j++ {
+			for j := range n {
 				s := int16(binary.LittleEndian.Uint16(pcmBytes[j*2 : j*2+2]))
 				samples[j] = float32(s) / 32768.0
 			}

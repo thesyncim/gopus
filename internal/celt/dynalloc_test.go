@@ -22,7 +22,7 @@ import (
 // music-like spectral envelope (higher in low-mid frequencies, rolling off at highs).
 func generateRealisticBandEnergies(nbBands int) []float64 {
 	energies := make([]float64, nbBands)
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		// Simulate typical music spectrum:
 		// - Peak around band 5-10 (low-mid frequencies)
 		// - Gradual rolloff at high frequencies
@@ -41,7 +41,7 @@ func generateRealisticBandEnergies(nbBands int) []float64 {
 // generateFlatBandEnergies generates flat spectrum band energies at a given level.
 func generateFlatBandEnergies(nbBands int, level float64) []float64 {
 	energies := make([]float64, nbBands)
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		energies[i] = level
 	}
 	return energies
@@ -142,7 +142,7 @@ func TestNoiseFloorComputation(t *testing.T) {
 			noiseFloor := make([]float64, nbBands)
 
 			// Compute noise floor using the formula from libopus
-			for i := 0; i < nbBands; i++ {
+			for i := range nbBands {
 				logNVal := 0.0
 				if i < len(LogN) {
 					// LogN is in Q8 format, so divide by 256 for actual log2 value
@@ -162,7 +162,7 @@ func TestNoiseFloorComputation(t *testing.T) {
 
 			// Verify properties of the noise floor
 			t.Logf("Noise floor for %d-bit depth:", tc.lsbDepth)
-			for i := 0; i < nbBands; i++ {
+			for i := range nbBands {
 				t.Logf("  Band %d: logN=%d, eMeans=%.4f, noise_floor=%.4f",
 					i, LogN[i], eMeans[i], noiseFloor[i])
 			}
@@ -170,7 +170,7 @@ func TestNoiseFloorComputation(t *testing.T) {
 			// Higher bit depth should result in lower noise floor
 			if tc.lsbDepth == 24 {
 				// 24-bit should have 8 units lower noise floor than 16-bit
-				for i := 0; i < nbBands; i++ {
+				for i := range nbBands {
 					// Just verify noise floor decreases with bit depth
 					if noiseFloor[i] > 0 {
 						t.Logf("Note: Band %d has positive noise floor %.4f", i, noiseFloor[i])
@@ -201,7 +201,7 @@ func TestNoiseFloorConsistency(t *testing.T) {
 
 	// With flat energy above noise floor, weights should be relatively uniform
 	t.Logf("Spread weights with flat energy at 10.0:")
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		t.Logf("  Band %d: weight=%d", i, weights[i])
 		// Weights should be in valid range
 		if weights[i] < 1 || weights[i] > 32 {
@@ -390,7 +390,7 @@ func TestSpreadWeightMaskingModel(t *testing.T) {
 	weights := computeSpreadWeights(float64sToGLogs(energies), nbBands, channels, lsbDepth)
 
 	t.Logf("Weights with loud band at %d:", loudBand)
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		t.Logf("  Band %d: energy=%.2f, weight=%d", i, energies[i], weights[i])
 	}
 
@@ -436,7 +436,7 @@ func TestFollowerSmoothing(t *testing.T) {
 	}
 
 	t.Logf("After forward pass (last=%d):", last)
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		t.Logf("  Band %d: bandLogE3=%.2f, f=%.2f", i, bandLogE3[i], f[i])
 	}
 
@@ -451,7 +451,7 @@ func TestFollowerSmoothing(t *testing.T) {
 	}
 
 	t.Logf("After backward pass:")
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		t.Logf("  Band %d: bandLogE3=%.2f, f=%.2f", i, bandLogE3[i], f[i])
 	}
 
@@ -524,7 +524,7 @@ func TestMedianFilterApplication(t *testing.T) {
 	}
 
 	t.Logf("After median filter:")
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		t.Logf("  Band %d: f=%.2f", i, f[i])
 	}
 
@@ -589,7 +589,7 @@ func TestImportanceWeights(t *testing.T) {
 
 			t.Logf("Importance weights (effectiveBytes=%d, LM=%d):", tc.effectiveBytes, tc.lm)
 			allDefault := true
-			for i := 0; i < nbBands; i++ {
+			for i := range nbBands {
 				t.Logf("  Band %d: importance=%d", i, importance[i])
 				if importance[i] != 13 {
 					allDefault = false
@@ -795,7 +795,7 @@ func medianOf5Float(x []float64) float64 {
 	// Copy to avoid modifying input
 	arr := []float64{x[0], x[1], x[2], x[3], x[4]}
 	// Simple bubble sort (fine for 5 elements)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		for j := 0; j < 4-i; j++ {
 			if arr[j] > arr[j+1] {
 				arr[j], arr[j+1] = arr[j+1], arr[j]
@@ -901,14 +901,14 @@ func TestDynallocEdgeCases(t *testing.T) {
 		bandLogE := generateFlatBandEnergies(nbBands, 2.0)
 		// Previous frame had higher energy
 		oldBandE := make([]float64, MaxBands)
-		for i := 0; i < 8; i++ {
+		for i := range 8 {
 			oldBandE[i] = 10.0 // Higher than current
 		}
 
 		importance := ComputeImportance(float64sToGLogs(bandLogE), float64sToGLogs(oldBandE), nbBands, 1, lm, 16, effectiveBytes)
 
 		t.Logf("LM=0 importance (current=2.0, old[0:8]=10.0):")
-		for i := 0; i < nbBands; i++ {
+		for i := range nbBands {
 			t.Logf("  Band %d: importance=%d", i, importance[i])
 		}
 
@@ -1047,7 +1047,7 @@ func TestSpreadWeightsIntegration(t *testing.T) {
 
 	// Test with uniform weights
 	uniformWeights := make([]int32, nbBands)
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		uniformWeights[i] = 1
 	}
 	decisionUniform := encoder.SpreadingDecisionWithWeights(normXNorm, nbBands, channels, frameSize, false, uniformWeights)

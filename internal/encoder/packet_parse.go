@@ -121,7 +121,7 @@ func parsePacketFrames(packet []byte) (byte, [][]byte, error) {
 			}
 			frameLen := frameDataLen / m
 			dataOffset := offset
-			for i := 0; i < m; i++ {
+			for i := range m {
 				if dataOffset+frameLen > dataEnd {
 					return 0, nil, errInvalidPacket
 				}

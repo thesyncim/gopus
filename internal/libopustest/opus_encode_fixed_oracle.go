@@ -127,7 +127,7 @@ func ProbeOpusEncodeFixed(p OpusEncodeFixedParams) ([][]byte, error) {
 	}
 	nFrames := reader.Count(-1)
 	packets := make([][]byte, nFrames)
-	for i := 0; i < nFrames; i++ {
+	for i := range nFrames {
 		count := int(reader.U32())
 		pad := (4 - count%4) % 4
 		packets[i] = append([]byte(nil), reader.Bytes(count)...)

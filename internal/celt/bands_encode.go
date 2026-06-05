@@ -32,7 +32,7 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []CeltNorm, energies []celtGLog, nbB
 	shapes := make([][]CeltNorm, nbBands)
 	offset := 0
 
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		// Get band boundaries
 		n := ScaledBandWidth(band, frameSize)
 		if n <= 0 {
@@ -82,7 +82,7 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []CeltNorm, energies []celtGLog, nbB
 
 		// Divide coefficients by gain
 		allZero := true
-		for i := 0; i < n; i++ {
+		for i := range n {
 			shape[i] = CeltNorm(float32(mdctCoeffs[offset+i]) / gain)
 			v := float32(shape[i])
 			if v < 0 {
@@ -106,13 +106,13 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []CeltNorm, energies []celtGLog, nbB
 			// the shape (also unit-norm) and then scale by gain to get the
 			// original magnitude back.
 			var norm float32
-			for i := 0; i < n; i++ {
+			for i := range n {
 				v := float32(shape[i])
 				norm += v * v
 			}
 			if norm > 1e-30 {
 				norm = 1 / celtRSqrt(norm)
-				for i := 0; i < n; i++ {
+				for i := range n {
 					shape[i] = CeltNorm(float32(shape[i]) / norm)
 				}
 			}
@@ -151,7 +151,7 @@ func ComputeLinearBandAmplitudesInto(mdctCoeffs []float32, nbBands, frameSize in
 	}
 	offset := 0
 
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		n := ScaledBandWidth(band, frameSize)
 		if n <= 0 {
 			bandE[band] = celtEner(1e-27) // epsilon like libopus
@@ -212,7 +212,7 @@ func computeLinearBandAmplitudesIntoF32BinMulWidths(mdctCoeffs []float32, nbBand
 	}
 	offset := 0
 
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		n := widths[band] * binMul
 		if n <= 0 {
 			bandE[band] = celtEner(1e-27)
@@ -235,7 +235,7 @@ func applyLFELinearBandEClamp(bandE []celtEner, nbBands, channels int) {
 	if nbBands <= 2 || channels <= 0 {
 		return
 	}
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		base := c * nbBands
 		if base+nbBands > len(bandE) {
 			return
@@ -318,7 +318,7 @@ func normalizeBandsToArrayIntoF32BinMulWidths(mdctCoeffs []float32, nbBands, bin
 
 func normalizeBandsWithBandEInto(mdctCoeffs []float32, nbBands, frameSize int, norm []celtNorm, bandE []celtEner) {
 	offset := 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		n := ScaledBandWidth(band, frameSize)
 		if n <= 0 {
 			continue
@@ -341,7 +341,7 @@ func normalizeBandsWithBandEInto(mdctCoeffs []float32, nbBands, frameSize int, n
 		// Reference: libopus bands.c lines 183-184:
 		//   for (j=M*eBands[i];j<M*eBands[i+1];j++)
 		//      X[j+c*N] = freq[j+c*N]*g;
-		for i := 0; i < n; i++ {
+		for i := range n {
 			// Match libopus float path: freq and gains are float.
 			norm[offset+i] = celtNorm(mdctCoeffs[offset+i] * g)
 		}
@@ -381,7 +381,7 @@ func normalizeBandsWithBandEIntoF32BinMulWidths(mdctCoeffs []float32, nbBands, b
 		}
 		g := float32(1.0) / amplitude
 
-		for i := 0; i < n; i++ {
+		for i := range n {
 			norm[offset+i] = celtNorm(mdctCoeffs[offset+i] * g)
 		}
 		offset += n
@@ -480,10 +480,7 @@ func vectorToPulses(shape []CeltNorm, k int) []int {
 		}
 
 		// Round to nearest integer
-		rounded := int(scaled + 0.5)
-		if rounded < 0 {
-			rounded = 0
-		}
+		rounded := max(int(scaled+0.5), 0)
 
 		pulses[i] = sign * rounded
 		currentL1 += rounded
@@ -543,7 +540,7 @@ func vectorToPulses(shape []CeltNorm, k int) []int {
 
 		if bestIdx < 0 {
 			// Find any position with pulses
-			for i := 0; i < n; i++ {
+			for i := range n {
 				if pulses[i] != 0 {
 					bestIdx = i
 					break
@@ -647,7 +644,7 @@ func (e *Encoder) EncodeBands(shapesL, shapesR [][]CeltNorm, bandBits []int, nbB
 
 	stereo := shapesR != nil && len(shapesR) >= nbBands
 
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		bits := bandBits[band]
 
 		// If no bits allocated, skip this band (decoder will fold from other bands)

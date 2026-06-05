@@ -134,10 +134,7 @@ func TestDecodeWithFECMultiFrameSILKMatchesLibopus(t *testing.T) {
 				}
 
 				// FEC-recovered frame must be sample-exact.
-				fecEnd := fecStart + fs*channels
-				if fecEnd > len(got) {
-					fecEnd = len(got)
-				}
+				fecEnd := min(fecStart+fs*channels, len(got))
 				if fecEnd > len(want) {
 					fecEnd = len(want)
 				}
@@ -226,9 +223,9 @@ func encodeFECBurstyStreamForTest(t *testing.T, bandwidth Bandwidth, bitrate, ch
 	enc.SetFEC(true)
 
 	packets := make([][]byte, 0, nFrames)
-	for frameIndex := 0; frameIndex < nFrames; frameIndex++ {
+	for frameIndex := range nFrames {
 		pcm := make([]float32, frameSize*channels)
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			tm := float64(frameIndex*frameSize+i) / sampleRate
 			env := 0.5 + 0.5*math.Sin(2*math.Pi*2.3*tm)
 			env = env * env // sharpen troughs to push some sub-frames below the LBRR threshold
@@ -274,7 +271,7 @@ func isPartialMultiFrameLBRR(t *testing.T, packet []byte) bool {
 		return false
 	}
 	set := 0
-	for i := 0; i < nFrames; i++ {
+	for i := range nFrames {
 		set += flags[i]
 	}
 	return set > 0 && set < nFrames
@@ -299,7 +296,7 @@ func decodeMonoLBRRFlagsForTest(firstFrame []byte, nFrames int) ([3]int, bool) {
 	}
 	var rd rangecoding.Decoder
 	rd.Init(firstFrame)
-	for i := 0; i < nFrames; i++ {
+	for range nFrames {
 		_ = rd.DecodeBit(1) // VAD flag
 	}
 	lbrr := rd.DecodeBit(1) // LBRR-present flag
@@ -307,7 +304,7 @@ func decodeMonoLBRRFlagsForTest(firstFrame []byte, nFrames int) ([3]int, bool) {
 		return out, true
 	}
 	symbol := rd.DecodeICDF8Unchecked(icdf) + 1
-	for i := 0; i < nFrames; i++ {
+	for i := range nFrames {
 		out[i] = (symbol >> uint(i)) & 1
 	}
 	return out, true

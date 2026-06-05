@@ -172,7 +172,7 @@ func TestFoldBandSeedVariation(t *testing.T) {
 	// Results should differ due to sign variations
 	same12 := true
 	same13 := true
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if result1[i] != result2[i] {
 			same12 = false
 		}
@@ -367,7 +367,7 @@ func TestDecodeBandsOutputLength(t *testing.T) {
 
 		// Calculate expected length
 		expectedLen := 0
-		for band := 0; band < nbBands; band++ {
+		for band := range nbBands {
 			expectedLen += ScaledBandWidth(band, frameSize)
 		}
 

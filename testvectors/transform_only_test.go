@@ -17,7 +17,7 @@ func TestTransformOnlyRoundTrip(t *testing.T) {
 	totalFrames := 3
 	totalSamples := totalFrames * N
 	signal := make([]float32, totalSamples)
-	for i := 0; i < totalSamples; i++ {
+	for i := range totalSamples {
 		signal[i] = float32(0.5 * math.Sin(2*math.Pi*float64(i)/float64(N)*10))
 	}
 
@@ -25,7 +25,7 @@ func TestTransformOnlyRoundTrip(t *testing.T) {
 	history := make([]float32, overlap)
 	prevOverlap := make([]float32, overlap)
 
-	for frame := 0; frame < totalFrames; frame++ {
+	for frame := range totalFrames {
 		frameSamples := signal[frame*N : (frame+1)*N]
 		coeffs := celt.ComputeMDCTWithHistory(frameSamples, history, 1)
 		imdctOut := celt.IMDCTOverlapWithPrev(coeffs, prevOverlap, overlap)
@@ -70,7 +70,7 @@ func TestCELTEncoderBandEnergies(t *testing.T) {
 
 	// Create test signal
 	signal := make([]float32, N2)
-	for i := 0; i < N2; i++ {
+	for i := range N2 {
 		signal[i] = float32(0.5 * math.Sin(2*math.Pi*float64(i)/float64(N)*10))
 	}
 	t.Logf("Signal max: %.4f", maxAbsSlice(signal))

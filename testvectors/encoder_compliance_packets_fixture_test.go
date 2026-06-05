@@ -247,7 +247,6 @@ func TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	for _, c := range fixture.Cases {
-		c := c
 		name := fmt.Sprintf("%s-%s-%dms-%dch-%dk", c.Mode, c.Bandwidth, c.FrameSize*1000/48000, c.Channels, c.Bitrate/1000)
 		t.Run(name, func(t *testing.T) {
 			app, err := modeToOpusDemoApp(c.Mode)
@@ -316,10 +315,7 @@ func TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo(t *testing.T) {
 			}
 			if runtime.GOARCH == "amd64" {
 				// Permit bounded drift, but fail on broad waveform mismatch.
-				maxDrift := (len(gotPackets) + 3) / 4
-				if maxDrift < 1 {
-					maxDrift = 1
-				}
+				maxDrift := max((len(gotPackets)+3)/4, 1)
 				if rangeMismatch > maxDrift {
 					t.Fatalf("range drift too large on amd64: %d/%d frames (max=%d)", rangeMismatch, len(gotPackets), maxDrift)
 				}

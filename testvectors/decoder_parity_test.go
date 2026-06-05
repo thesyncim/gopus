@@ -78,10 +78,7 @@ func TestDecoderParityLibopusMatrix(t *testing.T) {
 			if len(internalDecoded) < compareLen {
 				compareLen = len(internalDecoded)
 			}
-			maxDelay := 4 * c.FrameSize
-			if maxDelay < 960 {
-				maxDelay = 960
-			}
+			maxDelay := max(4*c.FrameSize, 960)
 			cmp, err := CompareDecodedFloat32(internalDecoded[:compareLen], refDecoded[:compareLen], fixture.SampleRate, c.Channels, maxDelay)
 			if err != nil {
 				t.Fatalf("compare decoded quality: %v", err)
@@ -186,7 +183,6 @@ func TestDecoderParityMatrixFixtureHonestyWithOpusDemo(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	for _, c := range fixture.Cases {
-		c := c
 		t.Run(c.Name, func(t *testing.T) {
 			bitstream, err := buildOpusDemoBitstreamFromFixtureCase(c)
 			if err != nil {

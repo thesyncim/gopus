@@ -71,10 +71,7 @@ func (e *Encoder) computeStereoWidthForMode(pcm []opusRes, frameSize int) opusVa
 		return 0
 	}
 
-	frameRate := int(e.sampleRate) / frameSize
-	if frameRate < 50 {
-		frameRate = 50
-	}
+	frameRate := max(int(e.sampleRate)/frameSize, 50)
 	shortAlpha := opusVal16(25.0 / opusVal16(frameRate))
 
 	// Accumulate per-frame energy and cross-correlation (unrolled by 4).
@@ -221,10 +218,7 @@ func decideFEC(useInBandFEC bool, packetLoss int32, lastFEC bool, mode Mode, ban
 
 		// silk_SMULWB(silk_MUL(threshold, 125-min(loss,25)), SILK_FIX_CONST(0.01, 16))
 		// = threshold * (125 - min(loss, 25)) * 0.01 / (essentially integer multiply then shift)
-		loss := packetLoss
-		if loss > 25 {
-			loss = 25
-		}
+		loss := min(packetLoss, 25)
 		// In float: threshold * (125 - loss) / 100
 		lbrrRateThreshold = lbrrRateThreshold * (125 - loss) / 100
 
@@ -437,7 +431,7 @@ func (e *Encoder) autoSelectBandwidth(voiceEst, equivRate int32) types.Bandwidth
 
 	// Interpolate bandwidth thresholds based on voice estimation.
 	var bwThresholds [8]int
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		bwThresholds[i] = musicThresholds[i] +
 			int((voiceEst*voiceEst*int32(voiceThresholds[i]-musicThresholds[i]))/16384)
 	}
@@ -521,10 +515,7 @@ func (e *Encoder) autoClampBandwidth(bandwidth types.Bandwidth, mode Mode, equiv
 		default:
 			minDetected = types.BandwidthFullband
 		}
-		detected := e.detectedBandwidth
-		if detected < minDetected {
-			detected = minDetected
-		}
+		detected := max(e.detectedBandwidth, minDetected)
 		if bandwidth > detected {
 			bandwidth = detected
 		}

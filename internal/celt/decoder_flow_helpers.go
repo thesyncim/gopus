@@ -290,9 +290,9 @@ func (d *Decoder) clearFrameHistoryOutsideRange(start, end, channels int) {
 	// static MaxBands stride and the per-mode nbEBands stride coincide).
 	nbEBands := d.modeNbEBands()
 	stride := d.predStride()
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		base := c * stride
-		for band := 0; band < start; band++ {
+		for band := range start {
 			d.prevEnergy[base+band] = 0
 			d.prevLogE[base+band] = -28.0
 			d.prevLogE2[base+band] = -28.0

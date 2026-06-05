@@ -93,7 +93,7 @@ func FuzzReadPacketInto(f *testing.F) {
 			return
 		}
 		dst := make([]byte, int(dstLen))
-		for i := 0; i < 64; i++ {
+		for range 64 {
 			n, _, err := r.ReadPacketInto(dst)
 			if err == ErrPacketTooLarge {
 				// Expected when a packet does not fit; n must be 0.

@@ -91,9 +91,9 @@ func init() {
 	// Initialize Ogg CRC lookup table
 	// Polynomial: 0x04C11DB7 (CRC-32)
 	poly := uint32(0x04C11DB7)
-	for i := 0; i < 256; i++ {
+	for i := range 256 {
 		crc := uint32(i) << 24
-		for j := 0; j < 8; j++ {
+		for range 8 {
 			if crc&0x80000000 != 0 {
 				crc = (crc << 1) ^ poly
 			} else {
@@ -297,7 +297,7 @@ func decodeFloat32LEBase64(src string) ([]float32, error) {
 		return nil, fmt.Errorf("invalid float32le fixture length %d", len(raw))
 	}
 	out := make([]float32, len(raw)/4)
-	for i := 0; i < len(out); i++ {
+	for i := range out {
 		out[i] = math.Float32frombits(binary.LittleEndian.Uint32(raw[i*4 : i*4+4]))
 	}
 	return out, nil
@@ -677,7 +677,7 @@ func parseWAV(data []byte) ([]float32, int, int, error) {
 				if bitsPerSample == 32 {
 					numSamples := len(pcmData) / 4
 					samples = make([]float32, numSamples)
-					for i := 0; i < numSamples; i++ {
+					for i := range numSamples {
 						bits := binary.LittleEndian.Uint32(pcmData[i*4 : i*4+4])
 						samples[i] = math.Float32frombits(bits)
 					}
@@ -686,14 +686,14 @@ func parseWAV(data []byte) ([]float32, int, int, error) {
 				if bitsPerSample == 16 {
 					numSamples := len(pcmData) / 2
 					samples = make([]float32, numSamples)
-					for i := 0; i < numSamples; i++ {
+					for i := range numSamples {
 						val := int16(binary.LittleEndian.Uint16(pcmData[i*2 : i*2+2]))
 						samples[i] = float32(val) / 32768.0
 					}
 				} else if bitsPerSample == 24 {
 					numSamples := len(pcmData) / 3
 					samples = make([]float32, numSamples)
-					for i := 0; i < numSamples; i++ {
+					for i := range numSamples {
 						b0 := pcmData[i*3]
 						b1 := pcmData[i*3+1]
 						b2 := pcmData[i*3+2]

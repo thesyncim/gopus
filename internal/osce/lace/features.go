@@ -378,7 +378,7 @@ func (s *FeatureState) CalculateFeatures(
 	// auto-correlation around the pitch lag.
 	var buffer [FeaturesMaxHistory + SubframesPerFrame*SubframeSize]float32
 	copy(buffer[:FeaturesMaxHistory], s.signalHistory[:])
-	for n := 0; n < FrameSize; n++ {
+	for n := range FrameSize {
 		buffer[FeaturesMaxHistory+n] = float32(xq16k[n]) / 32768.0
 	}
 
@@ -393,7 +393,7 @@ func (s *FeatureState) CalculateFeatures(
 		specBuf [noisySpecNumBands]float32
 	)
 
-	for k := 0; k < SubframesPerFrame; k++ {
+	for k := range SubframesPerFrame {
 		base := k * FeatureDim
 		pfeatures := features[base : base+FeatureDim]
 		for i := range pfeatures {
@@ -454,7 +454,7 @@ func (s *FeatureState) CalculateFeatures(
 		)
 
 		// LTP coefficients.
-		for i := 0; i < ltpLen; i++ {
+		for i := range ltpLen {
 			pfeatures[ltpStart+i] = float32(ctrl.LTPCoefQ14[k*ltpLen+i]) / float32(1<<14)
 		}
 
@@ -486,7 +486,7 @@ func calculateLogSpectrumFromLPC(
 		magBuf[i] = 0
 	}
 	magBuf[0] = 1
-	for i := 0; i < lpcOrder; i++ {
+	for i := range lpcOrder {
 		magBuf[i+1] = -float32(aQ12[i]) / float32(1<<12)
 	}
 
@@ -495,7 +495,7 @@ func calculateLogSpectrumFromLPC(
 	magSpec320OneSided(magBuf[:specNumFreqs], magBuf, fftIn, fftOut, fftTmp)
 
 	// Invert magnitude spectrum with the libopus 1e-9 bias.
-	for i := 0; i < specNumFreqs; i++ {
+	for i := range specNumFreqs {
 		invBuf[i] = 1.0 / (magBuf[i] + 1e-9)
 	}
 
@@ -503,7 +503,7 @@ func calculateLogSpectrumFromLPC(
 	applyFilterbankClean(spec, invBuf)
 
 	// Log + 0.3 scaling, libopus log(spec + 1e-9)*0.3.
-	for i := 0; i < cleanSpecNumBands; i++ {
+	for i := range cleanSpecNumBands {
 		spec[i] = 0.3 * opusmath.LogF32(spec[i]+1e-9)
 	}
 }
@@ -522,7 +522,7 @@ func calculateCepstrum(
 	specBuf []float32, // length noisySpecNumBands
 ) {
 	// Apply the sine window.
-	for n := 0; n < specWindowSize; n++ {
+	for n := range specWindowSize {
 		magBuf[n] = osceFeatureWindow[n] * signal[n]
 	}
 
@@ -533,15 +533,15 @@ func calculateCepstrum(
 	applyFilterbankNoisy(specBuf, magBuf[:specNumFreqs])
 
 	// log(spec + 1e-9).
-	for n := 0; n < noisySpecNumBands; n++ {
+	for n := range noisySpecNumBands {
 		specBuf[n] = opusmath.LogF32(specBuf[n] + 1e-9)
 	}
 
 	// Orthonormal DCT-II: out[i] = sqrt(2/N) * sum_j in[j] * dct_table[j*N + i].
 	scale := opusmath.SqrtF32(2.0 / float32(noisySpecNumBands))
-	for i := 0; i < noisySpecNumBands; i++ {
+	for i := range noisySpecNumBands {
 		var sum float32
-		for j := 0; j < noisySpecNumBands; j++ {
+		for j := range noisySpecNumBands {
 			sum += specBuf[j] * dctTable[j*noisySpecNumBands+i]
 		}
 		cepBuf[i] = sum * scale
@@ -559,11 +559,11 @@ func magSpec320OneSided(
 	fftTmp []celt.KissCpx,
 ) {
 	const fftScale = float32(1.0 / specWindowSize)
-	for n := 0; n < specWindowSize; n++ {
+	for n := range specWindowSize {
 		fftIn[n] = complex(in[n]*fftScale, 0)
 	}
 	celt.KissFFT32ToWithScratch(fftOut, fftIn, fftTmp)
-	for k := 0; k < specNumFreqs; k++ {
+	for k := range specNumFreqs {
 		re := real(fftOut[k])
 		im := imag(fftOut[k])
 		out[k] = float32(specWindowSize) * opusmath.SqrtF32(re*re+im*im)
@@ -618,7 +618,7 @@ func calculateAcorr(
 ) {
 	for k := -2; k <= 2; k++ {
 		var xx, xy, yy float32
-		for n := 0; n < SubframeSize; n++ {
+		for n := range SubframeSize {
 			x := signal[n]
 			y := buffer[signalAbsBase+n-lag+k]
 			xx += x * x

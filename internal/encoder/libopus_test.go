@@ -89,7 +89,7 @@ func testLibopusDecode(t *testing.T, mode encoder.Mode, bandwidth types.Bandwidt
 	numFrames := 50 * (960 / frameSize)
 	packets := make([][]byte, numFrames)
 
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		// Generate test signal
 		pcm := generateLibopusTestSignal(frameSize*channels, 440, 0.5)
 
@@ -241,9 +241,9 @@ func writeOggPageLibopus(w io.Writer, serialNo, pageNo uint32, headerType byte, 
 var oggCRCTableLibopus [256]uint32
 
 func init() {
-	for i := 0; i < 256; i++ {
+	for i := range 256 {
 		r := uint32(i) << 24
-		for j := 0; j < 8; j++ {
+		for range 8 {
 			if r&0x80000000 != 0 {
 				r = (r << 1) ^ 0x04c11db7
 			} else {
@@ -521,7 +521,7 @@ func TestLibopusEnergyPreservation(t *testing.T) {
 	packets := make([][]byte, numFrames)
 	var inputEnergy float64
 
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		pcm := generateLibopusTestSignal(960, 440, 0.5)
 
 		// Compute input energy

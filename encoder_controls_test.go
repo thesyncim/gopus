@@ -559,7 +559,6 @@ func TestEncoder_RestrictedSilkExpertFrameDurationRejectedAtEncode(t *testing.T)
 
 func TestEncoder_OptionalExtensionControls(t *testing.T) {
 	for _, channels := range []int{1, 2} {
-		channels := channels
 		t.Run(fmt.Sprintf("%dch", channels), func(t *testing.T) {
 			enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: channels, Application: ApplicationAudio})
 			if err != nil {

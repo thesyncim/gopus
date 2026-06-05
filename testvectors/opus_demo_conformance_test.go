@@ -284,7 +284,7 @@ func runOpusDemoDecode(t *testing.T, opusDemo string, channels int, packets [][]
 	}
 	n := len(raw) / 4
 	out := make([]float32, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		out[i] = math.Float32frombits(binary.LittleEndian.Uint32(raw[i*4 : i*4+4]))
 	}
 	return out
@@ -375,7 +375,6 @@ func TestOpusDemoEndToEndConformance(t *testing.T) {
 	const totalSamples = conformanceSampleRate * 2
 
 	for _, c := range conformanceMatrix() {
-		c := c
 		t.Run(c.label(), func(t *testing.T) {
 			raw, err := testsignal.GenerateCorpusSignal(c.signal, conformanceSampleRate, totalSamples, c.channels)
 			if err != nil {

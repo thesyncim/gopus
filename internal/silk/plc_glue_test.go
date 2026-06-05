@@ -44,10 +44,9 @@ func TestSilkSumSqrShift(t *testing.T) {
 			if diff < 0 {
 				diff = -diff
 			}
-			maxDiff := expectedNrg / 10 // Allow 10% error
-			if maxDiff < 1 {
-				maxDiff = 1
-			}
+			maxDiff := max(
+				// Allow 10% error
+				expectedNrg/10, 1)
 			if diff > maxDiff && expectedNrg > 0 {
 				t.Errorf("silkSumSqrShift() energy = %d << %d = %d, want ~%d (diff %d)",
 					gotNrg, gotShift, actualNrg, expectedNrg, diff)

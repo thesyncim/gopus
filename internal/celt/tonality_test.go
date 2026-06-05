@@ -80,10 +80,7 @@ func generateSineWaveMDCT(frequency, sampleRate, frameSize int) []float64 {
 
 	// Calculate target bin
 	targetBin := float64(frequency) * float64(2*frameSize) / float64(sampleRate)
-	binIndex := int(math.Round(targetBin))
-	if binIndex < 0 {
-		binIndex = 0
-	}
+	binIndex := max(int(math.Round(targetBin)), 0)
 	if binIndex >= frameSize {
 		binIndex = frameSize - 1
 	}
@@ -119,7 +116,7 @@ func generateWhiteNoiseMDCT(frameSize int, seed int64) []float64 {
 	rng := rand.New(rand.NewSource(seed))
 
 	// Generate Gaussian noise for each bin
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		// Box-Muller transform for Gaussian distribution
 		u1 := rng.Float64()
 		u2 := rng.Float64()
@@ -195,7 +192,7 @@ func generateMixedTonalNoiseMDCT(frameSize, tonalBandCount int, seed int64) []fl
 
 	// Low bands: tonal (sparse energy)
 	divisor := testMaxInt(splitBin/testMaxInt(tonalBandCount, 1), 1)
-	for i := 0; i < splitBin; i++ {
+	for i := range splitBin {
 		if i%divisor == 0 {
 			coeffs[i] = 1.0
 		}
@@ -577,7 +574,7 @@ func TestTonalityPerBand(t *testing.T) {
 	}
 
 	var lowBandAvg, highBandAvg float64
-	for i := 0; i < midPoint; i++ {
+	for i := range midPoint {
 		lowBandAvg += result.BandTonality[i]
 	}
 	lowBandAvg /= float64(midPoint)
@@ -652,7 +649,7 @@ func TestSpectralFluxIdenticalFrames(t *testing.T) {
 
 	// Compute energies for both "frames" (identical)
 	energies := make([]float64, nbBands)
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		energies[i] = 1.0 // Simplified energy
 	}
 
@@ -672,7 +669,7 @@ func TestSpectralFluxDifferentFrames(t *testing.T) {
 	energies1 := make([]float64, nbBands)
 	energies2 := make([]float64, nbBands)
 
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		energies1[i] = 1.0    // Uniform low
 		energies2[i] = 1000.0 // Uniform high (30 dB difference)
 	}
@@ -694,7 +691,7 @@ func TestSpectralFluxSymmetry(t *testing.T) {
 	energies1 := make([]float64, nbBands)
 	energies2 := make([]float64, nbBands)
 
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		energies1[i] = float64(i + 1)
 		energies2[i] = float64(nbBands - i)
 	}
@@ -740,7 +737,7 @@ func TestUpdateTonalityStoresPrevBandLogEnergyAsGLog(t *testing.T) {
 
 	enc.updateTonalityAnalysis(norm, float64sToGLogs(energies), nbBands, frameSize)
 	got := enc.PrevBandLogEnergy()
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		want := float64(celtGLog(energies[i]))
 		if float64(got[i]) != want {
 			t.Fatalf("PrevBandLogEnergy()[%d]=%0.9g want celt_glog %0.9g", i, got[i], want)
@@ -969,7 +966,7 @@ func BenchmarkComputeSpectralFlux(b *testing.B) {
 	energies1 := make([]float64, nbBands)
 	energies2 := make([]float64, nbBands)
 
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		energies1[i] = float64(i + 1)
 		energies2[i] = float64(nbBands - i)
 	}
@@ -1092,12 +1089,12 @@ func TestTonalityFrameContinuity(t *testing.T) {
 
 	// Generate continuous sine wave across frames
 	coeffsList := make([][]float64, numFrames)
-	for f := 0; f < numFrames; f++ {
+	for f := range numFrames {
 		coeffsList[f] = generateSineWaveMDCT(1000, 48000, frameSize)
 	}
 
 	var prevEnergies []float64
-	for f := 0; f < numFrames; f++ {
+	for f := range numFrames {
 		result := computeTonalityWithBandsForTest(coeffsList[f], nbBands, frameSize)
 
 		// Continuous signal should have consistent tonality
@@ -1107,7 +1104,7 @@ func TestTonalityFrameContinuity(t *testing.T) {
 
 		// Compute energies for flux calculation
 		energies := make([]float64, nbBands)
-		for i := 0; i < nbBands; i++ {
+		for i := range nbBands {
 			energies[i] = 1.0 // Simplified
 		}
 

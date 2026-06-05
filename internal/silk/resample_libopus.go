@@ -494,10 +494,7 @@ func (r *LibopusResampler) processInt16Core(in []int16, inLen int32) []int16 {
 		r.up2HQ(outInt16[:int(r.fsOutKHz)], r.delayBuf[:int(r.fsInKHz)])
 
 		if inLen > r.fsInKHz {
-			end := inLen - r.inputDelay
-			if end < nSamples {
-				end = nSamples
-			}
+			end := max(inLen-r.inputDelay, nSamples)
 			if end > inLen {
 				end = inLen
 			}
@@ -520,10 +517,7 @@ func (r *LibopusResampler) processInt16Core(in []int16, inLen int32) []int16 {
 	r.resampleIIRFIRSliceWithScratch(outInt16[:int(r.fsOutKHz)], r.delayBuf[:int(r.fsInKHz)], r.scratchBuf)
 
 	if inLen > r.fsInKHz {
-		end := inLen - r.inputDelay
-		if end < nSamples {
-			end = nSamples
-		}
+		end := max(inLen-r.inputDelay, nSamples)
 		if end > inLen {
 			end = inLen
 		}
@@ -538,10 +532,7 @@ func (r *LibopusResampler) processInt16Core(in []int16, inLen int32) []int16 {
 }
 
 func writeInt16AsFloat32(dst []float32, src []int16) int {
-	written := len(src)
-	if written > len(dst) {
-		written = len(dst)
-	}
+	written := min(len(src), len(dst))
 	if written > 0 {
 		writeInt16AsFloat32Core(dst[:written:written], src[:written:written], written)
 	}
@@ -603,10 +594,7 @@ func (r *LibopusResampler) ProcessIntoBoth(samples []float32, outF32 []float32, 
 	in, inLen := r.prepareInputFromFloat32(samples)
 	outInt16 := r.processInt16Core(in, inLen)
 	written := writeInt16AsFloat32(outF32, outInt16)
-	n := written
-	if n > len(outI16) {
-		n = len(outI16)
-	}
+	n := min(written, len(outI16))
 	copy(outI16[:n], outInt16[:n])
 	return written
 }
@@ -648,10 +636,7 @@ func (r *LibopusResampler) ProcessInt16IntoBoth(samples []int16, outF32 []float3
 	in, inLen := r.prepareInputFromInt16(samples)
 	outInt16 := r.processInt16Core(in, inLen)
 	written := writeInt16AsFloat32(outF32, outInt16)
-	n := written
-	if n > len(outI16) {
-		n = len(outI16)
-	}
+	n := min(written, len(outI16))
 	copy(outI16[:n], outInt16[:n])
 	return written
 }
@@ -682,7 +667,7 @@ func up2HQCoreGo(out []int16, in []int16, sIIR *[6]int32) {
 	_ = out[2*len(in)-1]
 
 	outPos := 0
-	for k := 0; k < len(in); k++ {
+	for k := range in {
 		// Convert to Q10
 		in32 := int32(in[k]) << 10
 
@@ -811,7 +796,7 @@ func (r *LibopusResampler) firInterpol21846(out []int16, outIdx int, buf []int16
 func firInterpol21846CoreGo(dst []int16, buf []int16, nOut int) {
 	groups := nOut / 3
 	j := 0
-	for idx := 0; idx < groups; idx++ {
+	for idx := range groups {
 		buf8 := buf[idx : idx+8]
 
 		resQ15 := int32(buf8[0])*fir0c0 +
@@ -887,7 +872,7 @@ func (r *LibopusResampler) firInterpol32768(out []int16, outIdx int, buf []int16
 func firInterpol32768CoreGo(dst []int16, buf []int16, nOut int) {
 	groups := nOut >> 1
 	j := 0
-	for idx := 0; idx < groups; idx++ {
+	for idx := range groups {
 		buf8 := buf[idx : idx+8]
 
 		resQ15 := int32(buf8[0])*fir0c0 +
@@ -941,7 +926,7 @@ func (r *LibopusResampler) firInterpol43691(out []int16, outIdx int, buf []int16
 func firInterpol43691CoreGo(dst []int16, buf []int16, nOut int) {
 	groups := nOut / 3
 	j := 0
-	for g := 0; g < groups; g++ {
+	for g := range groups {
 		idx := g << 1
 		buf8 := buf[idx : idx+8]
 
@@ -1012,7 +997,7 @@ func (r *LibopusResampler) firInterpol65536(out []int16, outIdx int, buf []int16
 	_ = dst[nOut-1]
 	_ = buf[nOut+6]
 
-	for idx := 0; idx < nOut; idx++ {
+	for idx := range nOut {
 		buf8 := buf[idx : idx+8]
 		resQ15 := int32(buf8[0])*fir0c0 +
 			int32(buf8[1])*fir0c1 +

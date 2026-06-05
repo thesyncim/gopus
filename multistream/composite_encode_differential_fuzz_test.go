@@ -60,10 +60,7 @@ const (
 // substantial matrix otherwise.
 func fuzzBudget(full int) int {
 	if testing.Short() {
-		b := full / 6
-		if b < 8 {
-			b = 8
-		}
+		b := max(full/6, 8)
 		return b
 	}
 	return full
@@ -80,7 +77,7 @@ func seededMultichannelPCM(seed int64, channels, frameSize, frameCount int) []fl
 	baseFreqs := make([]float64, channels)
 	noiseAmp := make([]float64, channels)
 	phase := make([]float64, channels)
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		baseFreqs[ch] = 90.0 + rng.Float64()*900.0
 		noiseAmp[ch] = 0.02 + rng.Float64()*0.10
 		phase[ch] = rng.Float64() * 2 * math.Pi
@@ -89,10 +86,10 @@ func seededMultichannelPCM(seed int64, channels, frameSize, frameCount int) []fl
 	total := channels * frameSize * frameCount
 	pcm := make([]float32, total)
 	n := frameSize * frameCount
-	for s := 0; s < n; s++ {
+	for s := range n {
 		tt := float64(s) / float64(compositeSampleRate)
 		amp := 0.22 + 0.12*math.Sin(2*math.Pi*driftFreq*tt)
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			v := amp * math.Sin(2*math.Pi*baseFreqs[ch]*tt+phase[ch])
 			v += noiseAmp[ch] * (rng.Float64()*2 - 1)
 			if v > 0.9 {

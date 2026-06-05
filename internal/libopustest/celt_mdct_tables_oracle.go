@@ -81,7 +81,7 @@ func ProbeCELTFixedMDCTTables() (*CELTMDCTTables, error) {
 		k.Scale = reader.I32()
 		k.ScaleShift = reader.I32()
 		k.Shift = reader.I32()
-		for i := 0; i < 16; i++ {
+		for i := range 16 {
 			k.Factors[i] = reader.I16()
 		}
 		bl := int(reader.U32())

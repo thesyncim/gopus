@@ -116,7 +116,7 @@ func TestEncoder_DTX_Silence(t *testing.T) {
 
 	// DTX requires several frames of silence before activating.
 	// After threshold, DTX returns 1-byte TOC-only packets (matching libopus).
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		data := make([]byte, 4000)
 		n, err := enc.Encode(silence, data)
 		if err != nil {
@@ -148,7 +148,7 @@ func TestEncoder_InDTXDelegatesToCoreEncoder(t *testing.T) {
 	silence := make([]float32, enc.FrameSize()*enc.Channels())
 	packet := make([]byte, 4000)
 	activated := false
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		if _, err := enc.Encode(silence, packet); err != nil {
 			t.Fatalf("Encode(silence) frame %d error: %v", i, err)
 		}
@@ -186,7 +186,7 @@ func TestEncoder_VADActivityDelegatesToCoreEncoder(t *testing.T) {
 
 	packet := make([]byte, 4000)
 	speech := generateSineWave(48000, 440, enc.FrameSize())
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if _, err := enc.Encode(speech, packet); err != nil {
 			t.Fatalf("Encode(speech) frame %d error: %v", i, err)
 		}

@@ -171,7 +171,7 @@ func streamSmoothFade(in1, in2, out []float32, overlap, channels, sampleRate int
 		maxSamples = min(len(out), min(len(in1), len(in2)))
 		overlap = maxSamples / channels
 	}
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		for i := 0; i < overlap; i++ {
 			w := win[i*inc]
 			w = streamSmoothFadeMul(w, w)

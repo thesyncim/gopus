@@ -59,11 +59,11 @@ func TestCELTSynthesisStagesSWBMatchLibopusC(t *testing.T) {
 		t.Fatalf("gopus trace channels=%d n=%d want %d/%d", stage.Channels(), stage.N(), channels, frameSize)
 	}
 
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		assertFloat32BitExact(t, "spec/ch"+itoaCh(ch), stage.Spec(ch), trace.freq[ch])
 	}
 	assertFloat32BitExact(t, "final", got, trace.final)
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		assertFloat32BitExact(t, "imdct/ch"+itoaCh(ch), stage.IMDCT(ch), trace.imdct[ch])
 	}
 }

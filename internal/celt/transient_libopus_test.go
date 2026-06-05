@@ -160,8 +160,8 @@ func TestTransientCoefficientsInterleaving(t *testing.T) {
 
 	// Create test coefficients in the interleaved format libopus expects
 	coeffs := make([]float32, frameSize)
-	for b := 0; b < shortBlocks; b++ {
-		for i := 0; i < shortSize; i++ {
+	for b := range shortBlocks {
+		for i := range shortSize {
 			// Interleaved: coef[b + i*B]
 			idx := b + i*shortBlocks
 			coeffs[idx] = float32(b*1000 + i) // Block b, bin i
@@ -169,15 +169,15 @@ func TestTransientCoefficientsInterleaving(t *testing.T) {
 	}
 
 	// Extract coefficients for each block (as the Go implementation should do)
-	for b := 0; b < shortBlocks; b++ {
+	for b := range shortBlocks {
 		shortCoeffs := make([]float32, shortSize)
-		for i := 0; i < shortSize; i++ {
+		for i := range shortSize {
 			idx := b + i*shortBlocks
 			shortCoeffs[i] = coeffs[idx]
 		}
 
 		// Verify extraction is correct
-		for i := 0; i < shortSize; i++ {
+		for i := range shortSize {
 			expected := float32(b*1000 + i)
 			if shortCoeffs[i] != expected {
 				t.Errorf("Block %d, bin %d: got %f, want %f", b, i, shortCoeffs[i], expected)
@@ -236,7 +236,7 @@ func TestHaar1Transform(t *testing.T) {
 			copy(expected, original)
 			n0Half := tc.n0 >> 1
 			for i := 0; i < tc.stride; i++ {
-				for j := 0; j < n0Half; j++ {
+				for j := range n0Half {
 					idx0 := tc.stride*2*j + i
 					idx1 := tc.stride*(2*j+1) + i
 					tmp1 := invSqrt2 * expected[idx0]
@@ -318,8 +318,8 @@ func TestTransientSynthesisShortBlocks(t *testing.T) {
 
 	// Create test coefficients (in interleaved format)
 	coeffs := make([]float32, frameSize)
-	for b := 0; b < shortBlocks; b++ {
-		for i := 0; i < shortSize; i++ {
+	for b := range shortBlocks {
+		for i := range shortSize {
 			idx := b + i*shortBlocks
 			// Create a simple signal: DC offset + small variation
 			coeffs[idx] = float32(0.01 * (1 + 0.1*float64(i)/float64(shortSize)))

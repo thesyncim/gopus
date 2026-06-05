@@ -70,13 +70,13 @@ func traceLibopusCELTSynthesis(t *testing.T, sampleRate, channels, frameSize, ta
 	trace.imdct = make([][]float32, cc)
 	trace.final = make([]float32, n*cc)
 	reader.ExpectRemaining((n*cc*2 + n*cc) * 4)
-	for ch := 0; ch < cc; ch++ {
+	for ch := range cc {
 		trace.freq[ch] = make([]float32, n)
 		for i := range trace.freq[ch] {
 			trace.freq[ch][i] = reader.Float32()
 		}
 	}
-	for ch := 0; ch < cc; ch++ {
+	for ch := range cc {
 		trace.imdct[ch] = make([]float32, n)
 		for i := range trace.imdct[ch] {
 			trace.imdct[ch][i] = reader.Float32()
@@ -160,7 +160,7 @@ func TestCELTSynthesisStagesMatchLibopusC(t *testing.T) {
 
 	// Stage 1: post-denormalise spectrum (frequency-domain CELT_SIG buffer),
 	// per channel. Bit-exact vs libopus denormalise_bands().
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		assertFloat32BitExact(t, "spec/ch"+itoaCh(ch), stage.Spec(ch), trace.freq[ch])
 	}
 
@@ -174,7 +174,7 @@ func TestCELTSynthesisStagesMatchLibopusC(t *testing.T) {
 	// rewrites it in place. The seed frame is transient (8 short blocks); this is
 	// the stage that diverged by ~1 ULP before the IMDCT pre-rotation and TDAC
 	// windowing were aligned with the libopus clang -ffp-contract=on float path.
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		assertFloat32BitExact(t, "imdct/ch"+itoaCh(ch), stage.IMDCT(ch), trace.imdct[ch])
 	}
 }

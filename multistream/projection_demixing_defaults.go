@@ -33,8 +33,8 @@ func defaultProjectionDemixingMatrixBytes(channels, streams, coupled int) ([]byt
 
 	out := make([]byte, 2*nbInputStreams*nbOutputStreams)
 	l := 0
-	for i := 0; i < nbInputStreams; i++ {
-		for j := 0; j < nbOutputStreams; j++ {
+	for i := range nbInputStreams {
+		for j := range nbOutputStreams {
 			k := def.rows*i + j
 			v := def.matrix[k]
 			out[2*l] = byte(v)

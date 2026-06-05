@@ -71,7 +71,7 @@ func MidSideToLR(mid, side []float32, theta float32) (left, right []float32) {
 	cosT := opusmath.CosF32(theta)
 	sinT := opusmath.SinF32(theta)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		// Rotation matrix:
 		// [L]   [cos(theta)  sin(theta)] [M]
 		// [R] = [cos(theta) -sin(theta)] [S]
@@ -104,7 +104,7 @@ func IntensityStereo(mono []float32, invert bool) (left, right []float32) {
 	copy(left, mono)
 
 	if invert {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			right[i] = -mono[i]
 		}
 	} else {

@@ -197,7 +197,6 @@ func TestEncoderVariantThresholdForArchAppliesAMD64Overrides(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			got := encoderVariantThresholdForArch(tc.tc, tc.arch)
 			if got.minGapQ != tc.want {

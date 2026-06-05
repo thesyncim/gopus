@@ -58,10 +58,10 @@ func probeLibopusDeemphasis(t *testing.T, channels int, samples [][]float32, mem
 	payload.Float32(0)
 	payload.Float32(1)
 	payload.Float32(1)
-	for i := 0; i < channels; i++ {
+	for i := range channels {
 		payload.Float32(mem[i])
 	}
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		for _, sample := range samples[ch] {
 			payload.Float32(sample)
 		}
@@ -125,7 +125,7 @@ func TestApplyDeemphasisAndScaleToFloat32StereoMatchesLibopus(t *testing.T) {
 	const n = 61
 	left, right := makeStereoDeemphasisSamples(n)
 	interleaved := make([]float32, n*2)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		interleaved[2*i] = left[i]
 		interleaved[2*i+1] = right[i]
 	}
@@ -178,7 +178,7 @@ func TestApplyDeemphasisAndScaleInPlaceMatchesLibopus(t *testing.T) {
 	const n = 59
 	left, right := makeStereoDeemphasisSamples(n)
 	samples := make([]float32, n*2)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		samples[2*i] = left[i]
 		samples[2*i+1] = right[i]
 	}
@@ -233,7 +233,7 @@ func TestApplyDeemphasisAndScaleStereoPlanarFloat32ToFloat32MatchesLibopus(t *te
 func makeStereoDeemphasisSamples(n int) ([]float32, []float32) {
 	left := make([]float32, n)
 	right := make([]float32, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		left[i] = float32(math.Sin(float64(i+4)*0.113)*1900 + math.Cos(float64(i+9)*0.047)*720)
 		right[i] = float32(math.Cos(float64(i+6)*0.151)*1600 - math.Sin(float64(i+2)*0.083)*810)
 	}
@@ -283,7 +283,7 @@ func probeLibopusCombFilterMode(t *testing.T, mode uint32, start, n, t0, t1, tap
 	payload.U32(uint32(overlap))
 	payload.Float32(g0)
 	payload.Float32(g1)
-	for i := 0; i < overlap; i++ {
+	for i := range overlap {
 		payload.Float32(window[i])
 	}
 	for _, sample := range buf {
@@ -333,7 +333,7 @@ func TestCombFilterWithSquareMatchesLibopus(t *testing.T) {
 	}
 	got := append([]float32(nil), buf[start:]...)
 	combFilterWithSquarePlanarFloat32(got, hist, start, 0, t0, t1, n, 0.28125, 0.65625, 0, 0, windowF32, windowSq, overlap)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 			t.Fatalf("sample[%d]=%08x want %08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
 		}

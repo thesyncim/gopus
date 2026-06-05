@@ -220,7 +220,7 @@ func TestIMDCTShort_Transients(t *testing.T) {
 	for _, shortBlocks := range []int{2, 4, 8} {
 		coeffs := make([]float32, 120*shortBlocks)
 		// Fill with test pattern (impulse at start of each block)
-		for b := 0; b < shortBlocks; b++ {
+		for b := range shortBlocks {
 			coeffs[b*120] = 1.0
 		}
 
@@ -274,7 +274,7 @@ func TestVorbisWindow_Values(t *testing.T) {
 	overlap := Overlap
 
 	// Check that all values are in valid range
-	for i := 0; i < overlap; i++ {
+	for i := range overlap {
 		w := VorbisWindow(i, overlap)
 		if w < 0 || w > 1 {
 			t.Errorf("Window value out of range at i=%d: %v", i, w)
@@ -294,7 +294,7 @@ func TestVorbisWindow_Values(t *testing.T) {
 
 	// Check monotonicity across overlap (rising)
 	prev := float32(0)
-	for i := 0; i < overlap; i++ {
+	for i := range overlap {
 		w := VorbisWindow(i, overlap)
 		if w < prev {
 			t.Errorf("Window not monotonic at i=%d: prev=%v, curr=%v", i, prev, w)
@@ -306,7 +306,7 @@ func TestVorbisWindow_Values(t *testing.T) {
 // TestVorbisWindow_Symmetry verifies window symmetry.
 func TestVorbisWindow_Symmetry(t *testing.T) {
 	overlap := Overlap
-	for i := 0; i < overlap; i++ {
+	for i := range overlap {
 		w1 := VorbisWindow(i, overlap)
 		w2 := VorbisWindow(overlap-1-i, overlap)
 
@@ -335,7 +335,7 @@ func TestVorbisWindow_PrecomputedBuffer(t *testing.T) {
 		return
 	}
 
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		expected := VorbisWindow(i, 120)
 		if math.Abs(float64(buf[i]-expected)) > 1e-7 {
 			t.Errorf("Precomputed window mismatch at %d: got %v, want %v",
@@ -352,7 +352,7 @@ func TestVorbisWindow_PerfectReconstruction(t *testing.T) {
 
 	// Generate window coefficients (half window, for overlap region)
 	window := make([]float32, overlap)
-	for i := 0; i < overlap; i++ {
+	for i := range overlap {
 		window[i] = float32(VorbisWindow(i, overlap))
 	}
 
@@ -659,7 +659,7 @@ func TestDecodeFrame_StateConsistency(t *testing.T) {
 	data := createSilenceFrame()
 
 	// Decode multiple frames
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_, err := dec.DecodeFrame(data, 960)
 		if err != nil {
 			t.Errorf("Frame %d error: %v", i, err)
@@ -711,7 +711,7 @@ func TestSynthesize_TransientMode(t *testing.T) {
 	// Transient mode with 4 short blocks
 	n := 120 * 4
 	coeffs := make([]float32, n)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		coeffs[i*120] = 1.0
 	}
 
@@ -839,7 +839,7 @@ func BenchmarkIMDCTShort(b *testing.B) {
 func BenchmarkVorbisWindow(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		for j := 0; j < Overlap; j++ {
+		for j := range Overlap {
 			VorbisWindow(j, Overlap)
 		}
 	}

@@ -67,7 +67,7 @@ func TestEncodeHotPathAllocs(t *testing.T) {
 			}
 			pcm := encodeAllocGuardSine(c.frameSize * c.channels)
 
-			for i := 0; i < 8; i++ {
+			for range 8 {
 				if _, err := e.EncodeFloat32WithAnalysisMaxBytes(pcm, c.frameSize, pcm, 4000); err != nil {
 					t.Fatalf("warmup Encode: %v", err)
 				}

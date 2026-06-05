@@ -103,10 +103,7 @@ func assertAPIRateQualityFloat32PLC(t *testing.T, got, want []float32, sampleRat
 // common prefix. Used only for the sub-48k/short gate where opus_compare cannot
 // run; the 48k path uses CompareDecodedFloat32 directly.
 func apiRateWaveformCorrelationRMS(a, b []float32) (corr, rmsRatio float64) {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
+	n := min(len(b), len(a))
 	if n == 0 {
 		return 0, 0
 	}

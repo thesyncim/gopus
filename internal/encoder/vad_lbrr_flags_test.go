@@ -104,7 +104,7 @@ func TestHybridStereoLBRRFlags(t *testing.T) {
 	enc.SetPacketLoss(10)
 
 	pcm := make([]float64, frameSize*2)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		ti := float64(i) / float64(sampleRate)
 		pcm[2*i] = amp * math.Sin(2*math.Pi*freqL*ti)
 		pcm[2*i+1] = amp * math.Sin(2*math.Pi*freqR*ti)

@@ -8,7 +8,7 @@ import (
 func TestFindBestPitchInRangesMatchesFullSweep(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
 
-	for iter := 0; iter < 500; iter++ {
+	for iter := range 500 {
 		length := 16 + rng.Intn(128)
 		maxPitch := 8 + rng.Intn(96)
 		y := make([]float64, length+maxPitch)
@@ -55,7 +55,7 @@ func TestFindBestPitchInRangesMatchesFullSweep(t *testing.T) {
 func TestPitchSearchMatchesLegacy(t *testing.T) {
 	rng := rand.New(rand.NewSource(7))
 
-	for iter := 0; iter < 200; iter++ {
+	for iter := range 200 {
 		length := 480
 		maxPitch := combFilterMaxPeriod - 3*combFilterMinPeriod
 		xLP := make([]float32, length)

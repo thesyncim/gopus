@@ -88,7 +88,7 @@ func probeLibopusCELTEncode(cases []libopusCELTEncodeCase) ([][]byte, error) {
 	}
 	count := reader.Count(len(cases))
 	out := make([][]byte, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		n := int(reader.U32())
 		out[i] = append([]byte(nil), reader.Bytes(n)...)
 	}
@@ -251,7 +251,7 @@ func TestCELTEncodeMultiFrameMatchesLibopusC(t *testing.T) {
 		nFrames    = 6
 	)
 	frames := make([][]float32, nFrames)
-	for f := 0; f < nFrames; f++ {
+	for f := range nFrames {
 		frames[f] = celtEncodeOraclePCM(channels, frameSize, 0.21*float64(f))
 	}
 	want, err := probeLibopusCELTEncodeStream(channels, frameSize, bitrate, complexity, frames)
@@ -260,7 +260,7 @@ func TestCELTEncodeMultiFrameMatchesLibopusC(t *testing.T) {
 	}
 	tc := libopusCELTEncodeCase{channels: channels, frameSize: frameSize, bitrate: bitrate, complexity: complexity}
 	enc := newCELTEncodeCaseEncoder(tc)
-	for f := 0; f < nFrames; f++ {
+	for f := range nFrames {
 		got, err := enc.EncodeFrame(append([]float32(nil), frames[f]...), frameSize)
 		if err != nil {
 			t.Fatalf("frame %d EncodeFrame: %v", f, err)
@@ -303,7 +303,7 @@ func probeLibopusCELTEncodeStream(channels, frameSize int, bitrate, complexity i
 	}
 	count := reader.Count(len(frames))
 	out := make([][]byte, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		n := int(reader.U32())
 		out[i] = append([]byte(nil), reader.Bytes(n)...)
 	}
@@ -315,7 +315,7 @@ func probeLibopusCELTEncodeStream(channels, frameSize int, bitrate, complexity i
 
 func celtEncodeOraclePCM(channels, frames int, phase float64) []float32 {
 	pcm := make([]float32, frames*channels)
-	for i := 0; i < frames; i++ {
+	for i := range frames {
 		tm := float64(i) * 0.013
 		l := 0.42*math.Sin(2*math.Pi*440*float64(i)/48000+phase) +
 			0.09*math.Cos(0.31*tm) + 0.03*math.Sin(2*math.Pi*1830*float64(i)/48000)
@@ -333,7 +333,7 @@ func celtEncodeOraclePCM(channels, frames int, phase float64) []float32 {
 // transient analysis / short-block MDCT path.
 func celtEncodeTransientPCM(channels, frames int) []float32 {
 	pcm := make([]float32, frames*channels)
-	for i := 0; i < frames; i++ {
+	for i := range frames {
 		var amp float64
 		if i >= frames/2 && i < frames/2+40 {
 			amp = 0.8

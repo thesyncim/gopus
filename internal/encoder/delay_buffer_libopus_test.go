@@ -41,7 +41,7 @@ func probeLibopusOpusResSize() (int, error) {
 	// celt_norm, celt_sig, celt_ener, celt_glog, opus_int32, opus_val16,
 	// opus_val32, opus_res, AnalysisInfo.activity. Skip the first seven, read
 	// opus_res, then consume the trailing activity size.
-	for i := 0; i < 7; i++ {
+	for range 7 {
 		reader.U32()
 	}
 	opusResSize := int(reader.U32())

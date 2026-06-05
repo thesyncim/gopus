@@ -114,7 +114,6 @@ func TestLongFrameReferenceFixtureHonestyWithLiveOpusdec(t *testing.T) {
 	}
 
 	for _, target := range longFrameFixtureTargets() {
-		target := target
 		t.Run(target.Name, func(t *testing.T) {
 			c, ok := findLongFrameFixtureCase(target.Mode, target.Bandwidth, target.FrameSize, target.Channels, target.Bitrate)
 			if !ok {

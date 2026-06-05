@@ -14,7 +14,7 @@ func prefilterDualInnerProdRef(x, y1, y2 []float64, length int) (float64, float6
 	_ = y2[length-1]
 	sum1 := float32(0)
 	sum2 := float32(0)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		xi := float32(x[i])
 		sum1 += xi * float32(y1[i])
 		sum2 += xi * float32(y2[i])
@@ -23,12 +23,9 @@ func prefilterDualInnerProdRef(x, y1, y2 []float64, length int) (float64, float6
 }
 
 func pitchAutocorr5Ref(lp []float64, length int, ac *[5]float64) {
-	fastN := length - 4
-	if fastN < 0 {
-		fastN = 0
-	}
+	fastN := max(length-4, 0)
 	if pitchAutocorr5RefUsesArm64LibopusOrder && fastN > 0 {
-		for lag := 0; lag < 4; lag++ {
+		for lag := range 4 {
 			sum := float32(0)
 			for i := 0; i < fastN; i++ {
 				sum = fma32(float32(lp[i]), float32(lp[i+lag]), sum)
@@ -59,15 +56,15 @@ func pitchAutocorr5InnerProdNeonRef(x, y []float64, n int) float32 {
 	var sum [4]float32
 	i := 0
 	for ; i < n-7; i += 8 {
-		for lane := 0; lane < 4; lane++ {
+		for lane := range 4 {
 			sum[lane] = fma32(float32(x[i+lane]), float32(y[i+lane]), sum[lane])
 		}
-		for lane := 0; lane < 4; lane++ {
+		for lane := range 4 {
 			sum[lane] = fma32(float32(x[i+4+lane]), float32(y[i+4+lane]), sum[lane])
 		}
 	}
 	if n-i >= 4 {
-		for lane := 0; lane < 4; lane++ {
+		for lane := range 4 {
 			sum[lane] = fma32(float32(x[i+lane]), float32(y[i+lane]), sum[lane])
 		}
 		i += 4

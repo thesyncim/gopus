@@ -81,7 +81,7 @@ func TestPLCFadeProfile(t *testing.T) {
 	state := NewState()
 
 	expected := float32(1.0)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		expected *= FadePerFrame
 		actual := state.RecordLoss()
 		if abs32(actual-expected) > 0.001 {
@@ -96,7 +96,7 @@ func TestPLCMaxConcealment(t *testing.T) {
 
 	// Record MaxConcealedFrames losses
 	var lastFade float32
-	for i := 0; i < MaxConcealedFrames; i++ {
+	for range MaxConcealedFrames {
 		lastFade = state.RecordLoss()
 	}
 
@@ -225,7 +225,7 @@ func TestConcealSILKWithLTPLongFrameNoPanic(t *testing.T) {
 	state := NewSILKPLCState()
 	pitchL := []int32{96, 96, 96, 96}
 	ltpCoefQ14 := make([]int16, ltpOrder*4)
-	for sf := 0; sf < 4; sf++ {
+	for sf := range 4 {
 		copy(ltpCoefQ14[sf*ltpOrder:(sf+1)*ltpOrder], dec.ltpCoefQ14[:])
 	}
 	gainsQ16 := []int32{65536, 65536, 65536, 65536}
@@ -274,7 +274,7 @@ func TestConcealSILKWithLTPShortMemoryNoPanic(t *testing.T) {
 	state := NewSILKPLCState()
 	pitchL := []int32{1, 1, 1, 1}
 	ltpCoefQ14 := make([]int16, ltpOrder*4)
-	for sf := 0; sf < 4; sf++ {
+	for sf := range 4 {
 		copy(ltpCoefQ14[sf*ltpOrder:(sf+1)*ltpOrder], dec.ltpCoefQ14[:])
 	}
 	gainsQ16 := []int32{65536, 65536, 65536, 65536}
@@ -323,7 +323,7 @@ func TestConcealSILKWithLTPInconsistentFrameLayoutNoPanic(t *testing.T) {
 	state := NewSILKPLCState()
 	pitchL := []int32{1, 1, 1, 1}
 	ltpCoefQ14 := make([]int16, ltpOrder*4)
-	for sf := 0; sf < 4; sf++ {
+	for sf := range 4 {
 		copy(ltpCoefQ14[sf*ltpOrder:(sf+1)*ltpOrder], dec.ltpCoefQ14[:])
 	}
 	gainsQ16 := []int32{65536, 65536, 65536, 65536}
@@ -388,7 +388,7 @@ func TestConcealSILKWithLTPOutBufPathIgnoresFloatHistory(t *testing.T) {
 		state := NewSILKPLCState()
 		pitchL := []int32{int32(dec.pitchLag), int32(dec.pitchLag), int32(dec.pitchLag), int32(dec.pitchLag)}
 		ltpCoefQ14 := make([]int16, ltpOrder*4)
-		for sf := 0; sf < 4; sf++ {
+		for sf := range 4 {
 			copy(ltpCoefQ14[sf*ltpOrder:(sf+1)*ltpOrder], dec.ltpCoefQ14[:])
 		}
 		gainsQ16 := []int32{dec.lastGainQ16, dec.lastGainQ16, dec.lastGainQ16, dec.lastGainQ16}
@@ -993,7 +993,7 @@ func TestPitchLagDrift(t *testing.T) {
 	initialPitchLQ8 := state.PitchLQ8
 
 	// Simulate pitch drift
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		state.PitchLQ8 = state.PitchLQ8 + ((state.PitchLQ8 * pitchDriftFacQ16) >> 16)
 	}
 

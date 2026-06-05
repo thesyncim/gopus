@@ -309,7 +309,7 @@ func (d *Decoder) DecodeICDF8Linear(icdf []uint8) int {
 	dval := d.val
 	r := s >> 8
 	last := len(icdf) - 1
-	for ret := 0; ret < last; ret++ {
+	for ret := range last {
 		t := s
 		s = r * uint32(icdf[ret])
 		if dval >= s {
@@ -336,7 +336,7 @@ func (d *Decoder) DecodeICDF8UncheckedN(icdf []uint8, n int) int {
 	dval := d.val
 	r := s >> 8
 	last := n - 1
-	for ret := 0; ret < last; ret++ {
+	for ret := range last {
 		t := s
 		s = r * uint32(icdf[ret])
 		if dval >= s {

@@ -153,10 +153,7 @@ func (e *Encoder) ComputeAllocationHybridScratch(re *rangecoding.Encoder, totalB
 	if nbBands < 0 {
 		nbBands = 0
 	}
-	channels := e.codedChannels()
-	if channels < 1 {
-		channels = 1
-	}
+	channels := max(e.codedChannels(), 1)
 	if channels > 2 {
 		channels = 2
 	}
@@ -225,17 +222,10 @@ func (e *Encoder) ComputeAllocationHybridScratch(re *rangecoding.Encoder, totalB
 // clt_compute_allocation(). It combines analysis bandwidth with the equivalent
 // bitrate-derived minimum bandwidth floor.
 func (e *Encoder) SignalBandwidthForAllocation(nbBands, equivRate int) int {
-	signalBandwidth := nbBands - 1
-	if signalBandwidth < 0 {
-		signalBandwidth = 0
-	}
+	signalBandwidth := max(nbBands-1, 0)
 	if e.analysisValid {
 		minBandwidth := celtMinSignalBandwidth(equivRate, int(e.channels))
-		if e.analysisBandwidth > minBandwidth {
-			signalBandwidth = e.analysisBandwidth
-		} else {
-			signalBandwidth = minBandwidth
-		}
+		signalBandwidth = max(e.analysisBandwidth, minBandwidth)
 	}
 	return signalBandwidth
 }
@@ -354,7 +344,7 @@ func (e *Encoder) StabilizeEnergiesBeforeCoarseHybrid(energies []celtGLog, start
 		nbBands = MaxBands
 	}
 	channels := int(e.channels)
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		baseState := c * MaxBands
 		baseFrame := c * nbBands
 		for band := start; band < end; band++ {
@@ -404,7 +394,7 @@ func (e *Encoder) UpdateEnergyErrorHybrid(energies, quantizedEnergies []celtGLog
 	}
 
 	channels := int(e.channels)
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		baseState := c * MaxBands
 		baseFrame := c * nbBands
 		for band := start; band < end; band++ {
@@ -448,10 +438,7 @@ func (e *Encoder) UpdateEnergyErrorHybridFromError(start, end, nbBands int) {
 		return
 	}
 
-	channels := int(e.channels)
-	if channels < 1 {
-		channels = 1
-	}
+	channels := max(int(e.channels), 1)
 	errorVals := ensureGLogSliceNoClear(&e.scratch.coarseError, nbBands*channels)
 
 	for c := 0; c < channels; c++ {
@@ -757,7 +744,7 @@ func (e *Encoder) ComputeMDCTWithHistoryScratch(inputScratch, samples, history [
 			copy(input[:overlap], history[len(history)-overlap:])
 		} else {
 			start := overlap - len(history)
-			for i := 0; i < start; i++ {
+			for i := range start {
 				input[i] = 0
 			}
 			copy(input[start:overlap], history)
@@ -817,14 +804,14 @@ func (e *Encoder) ApplyDelayCompensationScratchHybrid(pcm []float32, frameSize i
 
 	combinedLen := delayComp + len(pcm)
 	combinedBuf := ensureFloat32Slice(&e.scratch.combinedBufF32, combinedLen)
-	for i := 0; i < delayComp; i++ {
+	for i := range delayComp {
 		combinedBuf[i] = float32(e.delayBuffer[i])
 	}
 	copy(combinedBuf[delayComp:], pcm)
 
 	samplesForFrame := combinedBuf[:expectedLen]
 	delayTailStart := len(combinedBuf) - delayComp
-	for i := 0; i < delayComp; i++ {
+	for i := range delayComp {
 		e.delayBuffer[i] = opusRes(combinedBuf[delayTailStart+i])
 	}
 

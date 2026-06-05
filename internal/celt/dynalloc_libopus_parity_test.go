@@ -194,7 +194,7 @@ func assertDynallocResultMatches(t *testing.T, got DynallocResult, want libopusC
 	if got.TotBoost != want.totBoost {
 		t.Fatalf("totBoost=%d want %d", got.TotBoost, want.totBoost)
 	}
-	for band := 0; band < MaxBands; band++ {
+	for band := range MaxBands {
 		if got.Offsets[band] != int32(want.offsets[band]) {
 			t.Fatalf("offsets[%d]=%d want %d", band, got.Offsets[band], want.offsets[band])
 		}
@@ -226,8 +226,8 @@ func celtDynallocCase(name string, channels, start, end, lsbDepth, lm, effective
 		bandLogE2:      make([]float32, total),
 		oldBandE:       make([]float32, total),
 	}
-	for c := 0; c < channels; c++ {
-		for band := 0; band < MaxBands; band++ {
+	for c := range channels {
+		for band := range MaxBands {
 			idx := c*MaxBands + band
 			base := 1.2 + 0.18*float64((band%7)-3) + 0.07*float64(c)
 			wave := 0.31*math.Sin(float64((band+1)*(c+2))*0.67) + 0.11*math.Cos(float64(band+3)*0.41)

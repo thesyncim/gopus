@@ -93,7 +93,6 @@ func TestLongFrameLibopusReferenceParityFromFixture(t *testing.T) {
 	}
 
 	for _, tc := range longFrameFixtureTargets() {
-		tc := tc
 		t.Run(tc.Name, func(t *testing.T) {
 			fixtureCase, ok := byName[tc.Name]
 			if !ok {
@@ -165,7 +164,6 @@ func TestLongFrameLibopusGapFloorUsesTightSpeechFloor(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			if got := longFrameLibopusGapFloorForArch(tc.caseName, tc.arch); got != tc.want {
 				t.Fatalf("floor=%.2f want %.2f", got, tc.want)
@@ -288,7 +286,6 @@ func TestLongFrameReferenceFixtureHonestyWithLiveOpusDemo(t *testing.T) {
 	}
 
 	for _, target := range longFrameFixtureTargets() {
-		target := target
 		t.Run(target.Name, func(t *testing.T) {
 			modeName := fixtureModeName(target.Mode)
 			bwName := fixtureBandwidthName(target.Bandwidth)

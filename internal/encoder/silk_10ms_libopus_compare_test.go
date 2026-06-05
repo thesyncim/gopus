@@ -51,7 +51,7 @@ func TestSILK10msGopusVsLibopusPackets(t *testing.T) {
 			wavData := generateWAV(totalSamples, 48000, 1)
 
 			origSamples := make([]float32, totalSamples)
-			for i := 0; i < totalSamples; i++ {
+			for i := range totalSamples {
 				tm := float64(i) / 48000.0
 				phase := 2 * math.Pi * (200.0*tm + 450.0*tm*tm)
 				origSamples[i] = 0.5 * float32(math.Sin(phase))
@@ -70,10 +70,7 @@ func TestSILK10msGopusVsLibopusPackets(t *testing.T) {
 				// Best-effort drift visibility when CLI tools are available.
 				live, err := generateLibopusDecodedViaCLI(opusenc, opusdec, frameSize, wavData)
 				if err == nil {
-					compareLen := len(live)
-					if len(libopusSamples) < compareLen {
-						compareLen = len(libopusSamples)
-					}
+					compareLen := min(len(libopusSamples), len(live))
 					if compareLen > 0 {
 						var mad float64
 						for i := 0; i < compareLen; i++ {
@@ -97,9 +94,9 @@ func TestSILK10msGopusVsLibopusPackets(t *testing.T) {
 
 			numFrames := totalSamples / frameSize
 			var packets [][]byte
-			for i := 0; i < numFrames; i++ {
+			for i := range numFrames {
 				pcm := make([]float64, frameSize)
-				for j := 0; j < frameSize; j++ {
+				for j := range frameSize {
 					sampleIdx := i*frameSize + j
 					tm := float64(sampleIdx) / 48000.0
 					phase := 2 * math.Pi * (200.0*tm + 450.0*tm*tm)
@@ -251,7 +248,7 @@ func loadSILK10msLibopusDecodedFixture(frameSize int) ([]float32, error) {
 			return nil, err
 		}
 		samples := make([]float32, len(pcmBytes)/2)
-		for i := 0; i < len(samples); i++ {
+		for i := range samples {
 			s := int16(binary.LittleEndian.Uint16(pcmBytes[i*2 : i*2+2]))
 			samples[i] = float32(s) / 32768.0
 		}
@@ -302,7 +299,7 @@ func generateWAV(totalSamples, sampleRate, channels int) []byte {
 	writeUint32LE(&buf, uint32(dataLen))
 
 	// PCM data - chirp signal
-	for i := 0; i < totalSamples; i++ {
+	for i := range totalSamples {
 		tm := float64(i) / float64(sampleRate)
 		phase := 2 * math.Pi * (200.0*tm + 450.0*tm*tm)
 		s := int16(0.5 * 32767 * math.Sin(phase))

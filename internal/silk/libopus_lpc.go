@@ -55,19 +55,10 @@ func silkNLSF2A(aQ12 []int16, nlsfQ15 []int16, order int) bool {
 	}
 
 	var cosLSFQA [maxLPCOrder]int32
-	for k := 0; k < order; k++ {
-		nlsf := int32(nlsfQ15[k])
-		if nlsf < 0 {
-			nlsf = 0
-		}
-		fInt := silkRSHIFT(nlsf, 15-7)
-		if fInt > lsfCosTabSizeFix-1 {
-			fInt = lsfCosTabSizeFix - 1
-		}
-		fFrac := nlsf - silkLSHIFT(fInt, 15-7)
-		if fFrac < 0 {
-			fFrac = 0
-		}
+	for k := range order {
+		nlsf := max(int32(nlsfQ15[k]), 0)
+		fInt := min(silkRSHIFT(nlsf, 15-7), lsfCosTabSizeFix-1)
+		fFrac := max(nlsf-silkLSHIFT(fInt, 15-7), 0)
 
 		fi := int(fInt)
 		cosVal := int32(silk_LSFCosTab_FIX_Q12[fi])
@@ -82,7 +73,7 @@ func silkNLSF2A(aQ12 []int16, nlsfQ15 []int16, order int) bool {
 	silkNLSF2AFindPoly(Q[:dd+1], cosLSFQA[1:order], dd)
 
 	var a32QA1 [maxLPCOrder]int32
-	for k := 0; k < dd; k++ {
+	for k := range dd {
 		pTmp := P[k+1] + P[k]
 		qTmp := Q[k+1] - Q[k]
 		a32QA1[k] = -qTmp - pTmp
@@ -93,7 +84,7 @@ func silkNLSF2A(aQ12 []int16, nlsfQ15 []int16, order int) bool {
 
 	for i := 0; silkLPCInversePredGain(aQ12[:order], order) == 0 && i < maxLPCStabilizeIterations; i++ {
 		silkBwExpander32(a32QA1[:order], order, 65536-silkLSHIFT(2, i))
-		for k := 0; k < order; k++ {
+		for k := range order {
 			aQ12[k] = int16(silkRSHIFT_ROUND(a32QA1[k], nlsf2aQA+1-12))
 		}
 	}
@@ -128,7 +119,7 @@ func silkLPCFit(aQout []int16, aQin []int32, qOut, qIn, order int) {
 	i := 0
 	for ; i < 10; i++ {
 		maxabs := int32(0)
-		for k := 0; k < order; k++ {
+		for k := range order {
 			absval := silkAbs32(aQin[k])
 			if absval > maxabs {
 				maxabs = absval
@@ -154,12 +145,12 @@ func silkLPCFit(aQout []int16, aQin []int32, qOut, qIn, order int) {
 	}
 
 	if i == 10 {
-		for k := 0; k < order; k++ {
+		for k := range order {
 			aQout[k] = silkSAT16(silkRSHIFT_ROUND(aQin[k], qIn-qOut))
 			aQin[k] = silkLSHIFT(int32(aQout[k]), qIn-qOut)
 		}
 	} else {
-		for k := 0; k < order; k++ {
+		for k := range order {
 			aQout[k] = int16(silkRSHIFT_ROUND(aQin[k], qIn-qOut))
 		}
 	}
@@ -178,7 +169,7 @@ func silkLPCInversePredGain(aQ12 []int16, order int) int32 {
 	// Use fixed-size stack array to avoid allocation (order is always ≤16)
 	var atmpQA [maxLPCOrder]int32
 	var dcResp int32
-	for k := 0; k < order; k++ {
+	for k := range order {
 		dcResp += int32(aQ12[k])
 		atmpQA[k] = silkLSHIFT(int32(aQ12[k]), lpcInvPredGainQA-12)
 	}

@@ -79,7 +79,7 @@ func corrVectorFLP(x, y []float32, subfrLen, order int, out []float32) {
 	_ = x[order-1+subfrLen-1]
 
 	ptr1Idx := order - 1
-	for lag := 0; lag < order; lag++ {
+	for lag := range order {
 		xSlice := x[ptr1Idx:]
 		out[lag] = float32(innerProductF32Libopus(xSlice, y, subfrLen))
 		ptr1Idx--
@@ -90,17 +90,17 @@ func findLTPFLP(XX, xX []float32, residual []float32, resStart int, lag []int32,
 	xxIdx := 0
 	xXIdx := 0
 	rPtrStart := resStart
-	for k := 0; k < nbSubfr; k++ {
+	for k := range nbSubfr {
 		if k >= len(lag) {
 			break
 		}
 		lagVal := int(lag[k])
 		lagPtrStart := rPtrStart - (lagVal + ltpOrderConst/2)
 		if lagPtrStart < 0 || rPtrStart < 0 || rPtrStart+subfrLen+ltpOrderConst > len(residual) || lagPtrStart+subfrLen+ltpOrderConst > len(residual) {
-			for i := 0; i < ltpOrderConst*ltpOrderConst; i++ {
+			for i := range ltpOrderConst * ltpOrderConst {
 				XX[xxIdx+i] = 0
 			}
-			for i := 0; i < ltpOrderConst; i++ {
+			for i := range ltpOrderConst {
 				xX[xXIdx+i] = 0
 			}
 			rPtrStart += subfrLen
@@ -132,7 +132,7 @@ func findLTPFLP(XX, xX []float32, residual []float32, resStart int, lag []int32,
 		{
 			xxSub := XX[xxIdx : xxIdx+25]
 			_ = xxSub[24] // BCE hint
-			for i := 0; i < 25; i++ {
+			for i := range 25 {
 				xxSub[i] *= tempF32
 			}
 		}
@@ -153,7 +153,7 @@ func findLTPFLP(XX, xX []float32, residual []float32, resStart int, lag []int32,
 
 func silkVQWMatEC(ind *int8, resNrgQ15 *int32, rateDistQ8 *int32, gainQ7 *int32, XX_Q17 []int32, xX_Q17 []int32, cb_Q7 []int8, cb_gain_Q7 []uint8, cl_Q5 []uint8, subfrLen int, maxGainQ7 int32, L int) {
 	var neg_xX_Q24 [ltpOrderConst]int32
-	for i := 0; i < ltpOrderConst; i++ {
+	for i := range ltpOrderConst {
 		neg_xX_Q24[i] = -silkLSHIFT(xX_Q17[i], 7)
 	}
 
@@ -161,7 +161,7 @@ func silkVQWMatEC(ind *int8, resNrgQ15 *int32, rateDistQ8 *int32, gainQ7 *int32,
 	*resNrgQ15 = maxInt32
 	*ind = 0
 
-	for k := 0; k < L; k++ {
+	for k := range L {
 		cbRow := cb_Q7[k*ltpOrderConst:]
 		gainTmpQ7 := int32(cb_gain_Q7[k])
 		penalty := silkLSHIFT(silkMax32(gainTmpQ7-maxGainQ7, 0), 11)
@@ -219,7 +219,7 @@ func silkQuantLTPGains(B_Q14 []int16, cbkIndex []int8, periodicityIndex *int8, s
 	maxSumLogGainQ7 := maxSumLogGainQ7Const
 	var resNrgQ15 int32
 
-	for k := 0; k < 3; k++ {
+	for k := range 3 {
 		clPtr := silk_LTP_gain_BITS_Q5_ptrs[k]
 		cbkPtr := silk_LTP_vq_ptrs_Q7[k]
 		cbkGainPtr := silk_LTP_vq_gain_ptrs_Q7[k]
@@ -231,7 +231,7 @@ func silkQuantLTPGains(B_Q14 []int16, cbkIndex []int8, periodicityIndex *int8, s
 		rateDistQ7 := int32(0)
 		sumLogGainTmpQ7 := *sumLogGainQ7
 
-		for j := 0; j < nbSubfr; j++ {
+		for j := range nbSubfr {
 			maxGainQ7 := silkLog2Lin((maxSumLogGainQ7-sumLogGainTmpQ7)+(7<<7)) - gainSafetyQ7
 
 			var resNrgSubQ15, rateDistSubQ7, gainQ7 int32
@@ -255,9 +255,9 @@ func silkQuantLTPGains(B_Q14 []int16, cbkIndex []int8, periodicityIndex *int8, s
 	}
 
 	cbkPtr := silk_LTP_vq_ptrs_Q7[*periodicityIndex]
-	for j := 0; j < nbSubfr; j++ {
+	for j := range nbSubfr {
 		base := int(cbkIndex[j]) * ltpOrderConst
-		for k := 0; k < ltpOrderConst; k++ {
+		for k := range ltpOrderConst {
 			B_Q14[j*ltpOrderConst+k] = int16(cbkPtr[base+k]) << 7
 		}
 	}
@@ -298,10 +298,10 @@ func (e *Encoder) analyzeLTPQuantized(residual []float32, resStart int, pitchLag
 	// Match libopus wrappers_FLP.c: XX_Q17[i] = (opus_int32)silk_float2int(XX[i] * 131072.0f)
 	// The multiplication XX[i] * 131072.0f is in float32 precision (silk_float * float literal).
 	// silk_float2int uses lrintf (round to nearest, ties to even).
-	for i := 0; i < xxLen; i++ {
+	for i := range xxLen {
 		XXQ17[i] = float32ToInt32RoundEven(XX[i] * ltpQuantScaleQ17)
 	}
-	for i := 0; i < xXLen; i++ {
+	for i := range xXLen {
 		xXQ17[i] = float32ToInt32RoundEven(xX[i] * ltpQuantScaleQ17)
 	}
 
@@ -312,8 +312,8 @@ func (e *Encoder) analyzeLTPQuantized(residual []float32, resStart int, pitchLag
 	e.sumLogGainQ7 = sumLogGainQ7
 	perIndex = int(per)
 
-	for sf := 0; sf < numSubframes; sf++ {
-		for tap := 0; tap < ltpOrderConst; tap++ {
+	for sf := range numSubframes {
+		for tap := range ltpOrderConst {
 			ltpCoeffs[sf][tap] = int8(bQ14[sf*ltpOrderConst+tap] >> 7)
 		}
 	}

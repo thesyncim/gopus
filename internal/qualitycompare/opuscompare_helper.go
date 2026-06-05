@@ -290,7 +290,7 @@ func startOpusCompareHelperPool() error {
 				var proc *opusCompareHelperProcess
 				for req := range reqCh {
 					var res opusCompareHelperResponse
-					for attempt := 0; attempt < 2; attempt++ {
+					for range 2 {
 						if proc == nil {
 							var err error
 							proc, err = startOpusCompareHelperProcess()

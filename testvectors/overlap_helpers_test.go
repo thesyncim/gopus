@@ -11,10 +11,7 @@ func overlapWrite[S ~float32 | ~float64](output, frame []S, frameIndex, frameSiz
 		return
 	}
 
-	overlapStart := start - overlap
-	if overlapStart < 0 {
-		overlapStart = 0
-	}
+	overlapStart := max(start-overlap, 0)
 	if overlap > 0 && overlapStart+overlap <= len(output) && len(frame) >= overlap {
 		copy(output[overlapStart:overlapStart+overlap], frame[:overlap])
 	}

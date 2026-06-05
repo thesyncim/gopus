@@ -1,6 +1,7 @@
 package celt
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/rangecoding"
@@ -29,8 +30,8 @@ func TestTFDecodeTable(t *testing.T) {
 		{0, -2, 0, -3, 3, 0, 1, -1},  // LM=3, 20ms
 	}
 
-	for lm := 0; lm < 4; lm++ {
-		for idx := 0; idx < 8; idx++ {
+	for lm := range 4 {
+		for idx := range 8 {
 			if tfSelectTable[lm][idx] != expected[lm][idx] {
 				t.Errorf("tfSelectTable[%d][%d] = %d, want %d",
 					lm, idx, tfSelectTable[lm][idx], expected[lm][idx])
@@ -199,7 +200,7 @@ func TestTFDecodeEncodeDecode(t *testing.T) {
 // libopus: idx = 4*isTransient + 2*tf_select + tf_res[i]
 func TestTFDecodeIndexing(t *testing.T) {
 	// Test all valid index combinations
-	for lm := 0; lm < 4; lm++ {
+	for lm := range 4 {
 		for isTransient := 0; isTransient <= 1; isTransient++ {
 			for tfSelect := 0; tfSelect <= 1; tfSelect++ {
 				for tfResVal := 0; tfResVal <= 1; tfResVal++ {
@@ -215,13 +216,7 @@ func TestTFDecodeIndexing(t *testing.T) {
 					tfChange := int32(tfSelectTable[lm][idx])
 
 					// Valid TF change values based on table inspection
-					valid := false
-					for _, v := range []int32{-3, -2, -1, 0, 1, 2, 3} {
-						if tfChange == v {
-							valid = true
-							break
-						}
-					}
+					valid := slices.Contains([]int32{-3, -2, -1, 0, 1, 2, 3}, tfChange)
 					if !valid {
 						t.Errorf("invalid TF change: lm=%d idx=%d -> %d", lm, idx, tfChange)
 					}
@@ -244,7 +239,7 @@ func TestTFDecodeBudgetHandling(t *testing.T) {
 	tfDecode(0, 21, false, tfRes, 3, rd)
 
 	// Verify no panic and reasonable output
-	for i := 0; i < 21; i++ {
+	for i := range 21 {
 		tfVal := tfRes[i]
 		if tfVal < -3 || tfVal > 3 {
 			t.Errorf("tfRes[%d] = %d, out of valid range [-3, 3]", i, tfVal)
@@ -280,7 +275,7 @@ func TestTFDecodeTfSelectRsv(t *testing.T) {
 			tfDecode(0, 5, false, tfRes, tc.lm, rd)
 
 			// Verify reasonable output
-			for i := 0; i < 5; i++ {
+			for i := range 5 {
 				if tfRes[i] < -3 || tfRes[i] > 3 {
 					t.Errorf("tfRes[%d] = %d, out of valid range", i, tfRes[i])
 				}
@@ -326,7 +321,7 @@ func TestTFDecodeLogpTransition(t *testing.T) {
 		tfDecode(0, 5, true, tfRes, 3, rd)
 
 		// Should decode without error
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			if tfRes[i] < -3 || tfRes[i] > 3 {
 				t.Errorf("tfRes[%d] = %d out of range", i, tfRes[i])
 			}
@@ -343,7 +338,7 @@ func TestTFDecodeLogpTransition(t *testing.T) {
 		tfDecode(0, 5, false, tfRes, 3, rd)
 
 		// Should decode without error
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			if tfRes[i] < -3 || tfRes[i] > 3 {
 				t.Errorf("tfRes[%d] = %d out of range", i, tfRes[i])
 			}
@@ -368,7 +363,7 @@ func TestTFDecodeTfChangedOrLogic(t *testing.T) {
 		tfDecode(0, 21, false, tfRes, 3, rd)
 
 		// With all zeros input and tf_changed=0, all outputs should be 0
-		for i := 0; i < 21; i++ {
+		for i := range 21 {
 			if tfRes[i] != 0 {
 				t.Errorf("tfRes[%d] = %d, want 0 for all-zeros input", i, tfRes[i])
 			}
@@ -427,7 +422,7 @@ func TestTFDecodeRealPacket(t *testing.T) {
 
 	// Try transient mode
 	tfDecode(0, end, true, tfRes, lm, rd)
-	for i := 0; i < end; i++ {
+	for i := range end {
 		if tfRes[i] < -3 || tfRes[i] > 3 {
 			t.Errorf("transient tfRes[%d] = %d out of range", i, tfRes[i])
 		}
@@ -437,7 +432,7 @@ func TestTFDecodeRealPacket(t *testing.T) {
 	rd.Init(frameData)
 	tfRes = make([]int32, end)
 	tfDecode(0, end, false, tfRes, lm, rd)
-	for i := 0; i < end; i++ {
+	for i := range end {
 		if tfRes[i] < -3 || tfRes[i] > 3 {
 			t.Errorf("non-transient tfRes[%d] = %d out of range", i, tfRes[i])
 		}
@@ -466,7 +461,7 @@ func TestTFDecodeAllLMValues(t *testing.T) {
 				tfDecode(0, end, transient, tfRes, lm, rd)
 
 				// Verify all values are valid
-				for i := 0; i < end; i++ {
+				for i := range end {
 					if tfRes[i] < -3 || tfRes[i] > 3 {
 						t.Errorf("lm=%d transient=%v band=%d: tfRes=%d out of range",
 							lm, transient, i, tfRes[i])
@@ -497,7 +492,7 @@ func TestTFDecodeStartEnd(t *testing.T) {
 	tfDecode(17, 21, false, tfRes, 3, rd)
 
 	// Bands 0-16 should remain unchanged (sentinel)
-	for i := 0; i < 17; i++ {
+	for i := range 17 {
 		if tfRes[i] != 99 {
 			t.Errorf("tfRes[%d] was modified (should be unchanged): got %d", i, tfRes[i])
 		}
@@ -517,8 +512,8 @@ func TestTFDecodeStartEnd(t *testing.T) {
 // TestTFSelectTableValues validates all possible TF select table outputs.
 func TestTFSelectTableValues(t *testing.T) {
 	// Verify all table entries are in the valid range [-3, 3]
-	for lm := 0; lm < 4; lm++ {
-		for idx := 0; idx < 8; idx++ {
+	for lm := range 4 {
+		for idx := range 8 {
 			val := int(tfSelectTable[lm][idx])
 			if val < -3 || val > 3 {
 				t.Errorf("tfSelectTable[%d][%d] = %d out of valid range", lm, idx, val)
@@ -576,7 +571,7 @@ func TestTFAnalysisBasic(t *testing.T) {
 			X := make([]float64, N0)
 
 			// Fill with a simple pattern
-			for i := 0; i < N0; i++ {
+			for i := range N0 {
 				X[i] = float64(i%10-5) / 10.0
 			}
 
@@ -617,7 +612,7 @@ func TestTFAnalysisWithTransient(t *testing.T) {
 	X := make([]float64, N0)
 
 	// Create a transient-like signal: spike at the beginning
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		X[i] = 1.0
 	}
 
@@ -692,7 +687,7 @@ func TestTFEncodeWithSelectRoundTrip(t *testing.T) {
 			tfDecode(start, end, tc.isTransient, decodedTfRes, tc.lm, dec)
 
 			// The decoded tfRes should match the encoded tfRes (both have table lookup applied)
-			for i := 0; i < end; i++ {
+			for i := range end {
 				if decodedTfRes[i] != tfRes32[i] {
 					t.Errorf("band %d: decoded tfRes=%d, encoded tfRes=%d", i, decodedTfRes[i], tfRes32[i])
 				}

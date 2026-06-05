@@ -3,7 +3,7 @@ package celt
 import "testing"
 
 func spreadCountThresholdsLegacy(x []float64, n int, nf float64) (t0, t1, t2 int) {
-	for j := 0; j < n; j++ {
+	for j := range n {
 		v := x[j]
 		x2N := v * v * nf
 		if x2N < 0.25 {

@@ -258,10 +258,7 @@ func modeClassName(c int) string {
 // firstByteDiff returns the index of the first differing byte (or the shorter
 // length if one is a prefix of the other), -1 if equal.
 func firstByteDiff(a, b []byte) int {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
+	n := min(len(b), len(a))
 	for i := 0; i < n; i++ {
 		if a[i] != b[i] {
 			return i
@@ -344,10 +341,7 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 	const framesPerSpec = 8
 
 	specs := buildEncDiffSweep()
-	budget := diffFuzzBudget(len(specs))
-	if budget > len(specs) {
-		budget = len(specs)
-	}
+	budget := min(diffFuzzBudget(len(specs)), len(specs))
 	stride := 1
 	if budget < len(specs) {
 		stride = len(specs) / budget
@@ -430,7 +424,7 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 			}
 
 			gotRecs := make([]libopustest.EncodeDiffRecord, framesPerSpec)
-			for f := 0; f < framesPerSpec; f++ {
+			for f := range framesPerSpec {
 				frame := pcm[f*fs*spec.channels : (f+1)*fs*spec.channels]
 				pkt, err := encDiffEncodeOneFrame(enc, frame)
 				if err != nil {
@@ -443,7 +437,7 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 				}
 			}
 
-			for f := 0; f < framesPerSpec; f++ {
+			for f := range framesPerSpec {
 				g := gotRecs[f]
 				o := recs[f]
 				label := fmt.Sprintf("%s/frame%d", spec.name, f)

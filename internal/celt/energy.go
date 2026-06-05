@@ -131,7 +131,7 @@ func (d *Decoder) decodeCoarseEnergyGLogInto(dst []celtGLog, nbBands int, intra 
 	// Decode band-major to match libopus ordering.
 	var prevBandEnergy [2]float32
 	for band := 0; band < nbBands; band++ {
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			// Decode Laplace-distributed residual
 			tell := rd.Tell()
 			qi := 0
@@ -176,7 +176,7 @@ func (d *Decoder) decodeCoarseEnergyGLogInto(dst []celtGLog, nbBands int, intra 
 	}
 
 	// Update previous frame energy for next frame's inter-frame prediction
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		for band := 0; band < nbBands; band++ {
 			d.prevEnergy[c*d.predStride()+band] = dst[c*nbBands+band]
 		}
@@ -231,7 +231,7 @@ func (d *Decoder) decodeCoarseEnergyRangeGLog(start, end int, intra bool, lm int
 	// Inter-band prediction state starts at 0 (matches libopus).
 	var prevBandEnergy [2]float32
 	for band := start; band < end; band++ {
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			tell := rd.Tell()
 			qi := 0
 			remaining := budget - tell
@@ -348,7 +348,7 @@ func (d *Decoder) decodeFineEnergyGLogRange(energies []celtGLog, start, end int,
 			prev = int(prevQuant[band])
 		}
 
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			q2 := rd.DecodeRawBits(uint(extra))
 			offset := (float32(q2)+float32(0.5))*float32(uint(1)<<uint(14-extra))*float32(1.0/16384.0) - float32(0.5)
 			offset *= float32(uint(1)<<uint(14-prev)) * float32(1.0/16384.0)
@@ -376,7 +376,7 @@ func (d *Decoder) DecodeEnergyRemainder(energies []celtGLog, nbBands int, remain
 	}
 
 	channels := int(d.channels)
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		for band := 0; band < nbBands; band++ {
 			bits := remainderBits[band]
 			if bits <= 0 {
@@ -453,12 +453,12 @@ func (d *Decoder) decodeEnergyFinaliseGLogRange(start, end int, energies []celtG
 	channels := int(d.channels)
 	apply := len(energies) >= end*channels
 
-	for prio := 0; prio < 2; prio++ {
+	for prio := range 2 {
 		for band := start; band < end && bitsLeft >= channels; band++ {
 			if fineQuant[band] >= maxFineBits || finePriority[band] != int32(prio) {
 				continue
 			}
-			for c := 0; c < channels; c++ {
+			for c := range channels {
 				q2 := d.rangeDecoder.DecodeRawBits(1)
 				if apply {
 					offset := (float32(q2) - float32(0.5)) * float32(uint(1)<<uint(14-fineQuant[band]-1)) * float32(1.0/16384.0)

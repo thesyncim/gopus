@@ -53,7 +53,6 @@ func TestCELTMonoRecoveryAfterLongGapMatchesLibopus(t *testing.T) {
 
 	const sampleRate = 48000
 	for _, sp := range specs {
-		sp := sp
 		t.Run(sp.name, func(t *testing.T) {
 			packets := encodeCELTMonoRecoveryStream(t, sp.bw, sp.channels, sp.bitrate, sp.frameMs, sp.frameSamp, sp.nFrames)
 
@@ -151,7 +150,7 @@ func encodeCELTMonoRecoveryStream(t *testing.T, bw Bandwidth, channels, bitrate 
 	}
 
 	packets := make([][]byte, 0, nFrames)
-	for f := 0; f < nFrames; f++ {
+	for f := range nFrames {
 		pcm := celtRecoveryTonePCM(frameSamp, channels, sampleRate, f)
 		pkt, e := encodeOneFrame(enc, pcm)
 		if e != nil {
@@ -168,11 +167,11 @@ func encodeCELTMonoRecoveryStream(t *testing.T, bw Bandwidth, channels, bitrate 
 func celtRecoveryTonePCM(frameSamples, channels, sampleRate, frameOffset int) []float32 {
 	pcm := make([]float32, frameSamples*channels)
 	base := 220.0
-	for i := 0; i < frameSamples; i++ {
+	for i := range frameSamples {
 		gi := frameOffset*frameSamples + i
 		tm := float64(gi) / float64(sampleRate)
 		f0 := base * (1.0 + 0.02*math.Sin(2*math.Pi*3.0*tm))
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			ph := float64(c) * 0.13
 			v := 0.42*math.Sin(2*math.Pi*f0*tm+ph) +
 				0.18*math.Sin(2*math.Pi*2*f0*tm+0.21+ph) +
@@ -197,7 +196,7 @@ func buildCELTLossPlan(packets [][]byte, mask []bool) ([]libopusAPIRateDecodeSte
 			continue
 		}
 		runDecoder := 1 + lost
-		for fr := 0; fr < runDecoder; fr++ {
+		for fr := range runDecoder {
 			if fr < lost {
 				steps = append(steps, libopusAPIRateDecodeStep{packet: nil})
 			} else {
@@ -213,10 +212,7 @@ func buildCELTLossPlan(packets [][]byte, mask []bool) ([]libopusAPIRateDecodeSte
 }
 
 func maxAbsDiff(got, want []float32) (float64, int) {
-	n := len(got)
-	if len(want) < n {
-		n = len(want)
-	}
+	n := min(len(want), len(got))
 	maxAbs := 0.0
 	idx := -1
 	for i := 0; i < n; i++ {

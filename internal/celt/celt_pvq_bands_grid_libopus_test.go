@@ -181,7 +181,7 @@ func pvqGridBitratesForBW(endBand uint32, frameSize, channels int) []int32 {
 // that exercises the spread/rotation path in alg_quant.
 func pvqTonalPCM(channels, frameSize int) []float32 {
 	pcm := make([]float32, frameSize*channels)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		s := 0.42*math.Sin(2*math.Pi*440*float64(i)/48000) +
 			0.18*math.Sin(2*math.Pi*880*float64(i)/48000) +
 			0.07*math.Sin(2*math.Pi*1760*float64(i)/48000+0.5)
@@ -204,7 +204,7 @@ func pvqTransientPCM(channels, frameSize int) []float32 {
 	if burstLen > frameSize-onset {
 		burstLen = frameSize - onset
 	}
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		amp := 0.02
 		if i >= onset && i < onset+burstLen {
 			amp = 0.75
@@ -329,7 +329,7 @@ func probeLibopusCELTPVQGrid(binPath string, cases []pvqGridCase) ([][]byte, err
 	}
 	count := reader.Count(len(cases))
 	out := make([][]byte, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		n := int(reader.U32())
 		out[i] = append([]byte(nil), reader.Bytes(n)...)
 	}
@@ -488,7 +488,6 @@ func TestCELTPVQBandsGridMatchesLibopus(t *testing.T) {
 
 	t.Run("cells", func(t *testing.T) {
 		for i, tc := range grid {
-			i, tc := i, tc
 			ref := wantPackets[i]
 			t.Run(tc.label, func(t *testing.T) {
 				t.Parallel()

@@ -16,8 +16,8 @@ func generateSurroundTestSignal(sampleRate, frameSize, channels int) []float32 {
 	// Base frequencies spaced to be distinguishable: 220, 330, 440, 550, 660, 770, 880, 990 Hz
 	baseFreq := 220.0
 
-	for s := 0; s < frameSize; s++ {
-		for ch := 0; ch < channels; ch++ {
+	for s := range frameSize {
+		for ch := range channels {
 			freq := baseFreq + float64(ch)*110
 			val := float32(0.3 * math.Sin(2*math.Pi*freq*float64(s)/float64(sampleRate)))
 			pcm[s*channels+ch] = val
@@ -30,8 +30,8 @@ func generateSurroundTestSignalInt24(sampleRate, frameSize, channels int) []int3
 	pcm := make([]int32, frameSize*channels)
 	baseFreq := 220.0
 
-	for s := 0; s < frameSize; s++ {
-		for ch := 0; ch < channels; ch++ {
+	for s := range frameSize {
+		for ch := range channels {
 			freq := baseFreq + float64(ch)*110
 			val := int32((1 << 22) * math.Sin(2*math.Pi*freq*float64(s)/float64(sampleRate)))
 			pcm[s*channels+ch] = val

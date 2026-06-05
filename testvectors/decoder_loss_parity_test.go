@@ -325,10 +325,7 @@ func TestDecoderLossParityLibopusFixture(t *testing.T) {
 						compareLen = len(gotDecoded)
 					}
 					bar := decoderLossQualityBar(c, r.Pattern)
-					maxDelay := 4 * c.FrameSize
-					if maxDelay < 960 {
-						maxDelay = 960
-					}
+					maxDelay := max(4*c.FrameSize, 960)
 					cmp, err := CompareDecodedFloat32(gotDecoded[:compareLen], refDecoded[:compareLen], fixture.SampleRate, c.Channels, maxDelay)
 					if err != nil {
 						t.Fatalf("compare decoded quality: %v", err)
@@ -364,7 +361,6 @@ func TestDecoderLossStressPatternsAgainstOpusDemo(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	for _, c := range fixture.Cases {
-		c := c
 		t.Run(c.Name, func(t *testing.T) {
 			packets, err := decodeLibopusDecoderLossPackets(c)
 			if err != nil {
@@ -389,7 +385,6 @@ func TestDecoderLossStressPatternsAgainstOpusDemo(t *testing.T) {
 			}
 
 			for _, p := range patterns {
-				p := p
 				t.Run(p.name, func(t *testing.T) {
 					lossPath := filepath.Join(tmpDir, fmt.Sprintf("%s.%s.loss", c.Name, p.name))
 					outPath := filepath.Join(tmpDir, fmt.Sprintf("%s.%s.f32", c.Name, p.name))
@@ -437,10 +432,7 @@ func TestDecoderLossStressPatternsAgainstOpusDemo(t *testing.T) {
 						compareLen = len(gotDecoded)
 					}
 					bar := decoderLossStressQualityBar(c, p.name)
-					maxDelay := 4 * c.FrameSize
-					if maxDelay < 960 {
-						maxDelay = 960
-					}
+					maxDelay := max(4*c.FrameSize, 960)
 					cmp, err := CompareDecodedFloat32(gotDecoded[:compareLen], refDecoded[:compareLen], fixture.SampleRate, c.Channels, maxDelay)
 					if err != nil {
 						t.Fatalf("compare decoded quality: %v", err)
@@ -513,7 +505,6 @@ func TestDecoderLossFixtureHonestyWithOpusDemo(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	for _, c := range fixture.Cases {
-		c := c
 		t.Run(c.Name, func(t *testing.T) {
 			bitstream, err := buildDecoderLossBitstream(c)
 			if err != nil {
@@ -525,7 +516,6 @@ func TestDecoderLossFixtureHonestyWithOpusDemo(t *testing.T) {
 			}
 
 			for _, r := range c.Results {
-				r := r
 				t.Run(r.Pattern, func(t *testing.T) {
 					lossPath := filepath.Join(tmpDir, fmt.Sprintf("%s.%s.loss", c.Name, r.Pattern))
 					outPath := filepath.Join(tmpDir, fmt.Sprintf("%s.%s.f32", c.Name, r.Pattern))

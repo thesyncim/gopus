@@ -89,7 +89,7 @@ func TestDecoderOpaquePaddingRemainsDecodableInDefaultBuild(t *testing.T) {
 		if gotN != baseN {
 			t.Fatalf("Decode sample count=%d want %d (ignore=%v)", gotN, baseN, ignore)
 		}
-		for i := 0; i < gotN; i++ {
+		for i := range gotN {
 			if gotPCM[i] != basePCM[i] {
 				t.Fatalf("sample[%d]=%v want %v (ignore=%v)", i, gotPCM[i], basePCM[i], ignore)
 			}
@@ -106,7 +106,7 @@ func makeValidCELTPacketForExtensionTest(t *testing.T) []byte {
 	enc.SetBitrate(256000)
 
 	pcm := make([]float32, 960*2)
-	for i := 0; i < 960; i++ {
+	for i := range 960 {
 		phase := 2 * math.Pi * 997 * float64(i) / 48000.0
 		pcm[2*i] = float32(0.45 * math.Sin(phase))
 		pcm[2*i+1] = float32(0.35 * math.Sin(phase+0.37))

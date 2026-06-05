@@ -447,7 +447,6 @@ var decoderCTLTable = []decoderCTLRow{
 // TestCTLTable_Decoder runs every row of the decoder CTL table.
 func TestCTLTable_Decoder(t *testing.T) {
 	for _, row := range decoderCTLTable {
-		row := row // capture
 		t.Run(row.ctlName, func(t *testing.T) {
 			t.Logf("CTL %d (%s) dir=%s tag=%q", row.ctlID, row.ctlName, row.dir, row.buildTag)
 			row.testFn(t)

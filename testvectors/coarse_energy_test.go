@@ -52,7 +52,7 @@ func TestCoarseEnergyRoundTrip(t *testing.T) {
 	// Compare
 	t.Log("\n=== COMPARISON ===")
 	allMatch := true
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		diff := math.Abs(float64(quantizedEnergies[i] - decodedEnergies[i]))
 		status := "OK"
 		if diff > 0.01 {
@@ -66,11 +66,4 @@ func TestCoarseEnergyRoundTrip(t *testing.T) {
 	if !allMatch {
 		t.Error("Coarse energy round-trip failed - some bands don't match")
 	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

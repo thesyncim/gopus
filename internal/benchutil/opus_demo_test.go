@@ -52,7 +52,7 @@ func TestWriteRepeatedOpusDemoBitstream(t *testing.T) {
 	}
 
 	offset := 0
-	for repeat := 0; repeat < 2; repeat++ {
+	for repeat := range 2 {
 		for packetIdx, packet := range packets {
 			if offset+8+len(packet) > len(data) {
 				t.Fatalf("truncated stream at repeat=%d packet=%d", repeat, packetIdx)

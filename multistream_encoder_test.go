@@ -508,7 +508,7 @@ func TestMultistreamEncoder_CVBRPacketEnvelope(t *testing.T) {
 		enc.Reset()
 
 		maxPacket := 0
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			n, err := enc.Encode(pcm, data)
 			if err != nil {
 				t.Fatalf("Encode bitrate=%d frame=%d error: %v", bitrate, i, err)
@@ -737,7 +737,7 @@ func TestMultistreamEncoder_Reset(t *testing.T) {
 	enc := mustNewDefaultMultistreamEncoder(t, sampleRate, channels, ApplicationAudio)
 
 	// Encode a few frames
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		pcm := generateSurroundTestSignal(sampleRate, frameSize, channels)
 		_, err := enc.EncodeFloat32(pcm)
 		if err != nil {
@@ -749,7 +749,7 @@ func TestMultistreamEncoder_Reset(t *testing.T) {
 	enc.Reset()
 
 	// Encode more frames after reset
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		pcm := generateSurroundTestSignal(sampleRate, frameSize, channels)
 		packet, err := enc.EncodeFloat32(pcm)
 		if err != nil {

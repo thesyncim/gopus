@@ -129,7 +129,7 @@ func allocTrimAnalysisDetailed(
 		end = len(bandLogE) / channels
 	}
 
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		for i := 0; i < end-1; i++ {
 			idx := i + c*nbBands
 			if idx < len(bandLogE) {
@@ -189,10 +189,7 @@ func allocTrimAnalysisDetailed(
 
 	// Convert to integer with rounding and clamp to valid range
 	// Reference: libopus lines 947-949
-	trimIndex := int(trim + opusVal16(0.5))
-	if trimIndex < 0 {
-		trimIndex = 0
-	}
+	trimIndex := max(int(trim+opusVal16(0.5)), 0)
 	if trimIndex > 10 {
 		trimIndex = 10
 	}

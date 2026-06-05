@@ -10,7 +10,7 @@ import (
 )
 
 func TestEncoderControlFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
-	int32Type := reflect.TypeOf(int32(0))
+	int32Type := reflect.TypeFor[int32]()
 	for _, name := range []string{
 		"channels",
 		"streamChannels",
@@ -29,7 +29,7 @@ func TestEncoderControlFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
 		"tapsetDecision",
 		"packetLoss",
 	} {
-		field, ok := reflect.TypeOf(Encoder{}).FieldByName(name)
+		field, ok := reflect.TypeFor[Encoder]().FieldByName(name)
 		if !ok {
 			t.Fatalf("Encoder.%s missing", name)
 		}
@@ -40,7 +40,7 @@ func TestEncoderControlFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
 }
 
 func TestDecoderControlFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
-	int32Type := reflect.TypeOf(int32(0))
+	int32Type := reflect.TypeFor[int32]()
 	for _, name := range []string{
 		"channels",
 		"sampleRate",
@@ -56,7 +56,7 @@ func TestDecoderControlFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
 		"complexity",
 		"prevStreamChannels",
 	} {
-		field, ok := reflect.TypeOf(Decoder{}).FieldByName(name)
+		field, ok := reflect.TypeFor[Decoder]().FieldByName(name)
 		if !ok {
 			t.Fatalf("Decoder.%s missing", name)
 		}
@@ -168,7 +168,7 @@ func TestEncodeFrameStereoAPIInternalMonoMirrorsEnergyState(t *testing.T) {
 	enc.SetBitrate(64000)
 
 	pcm := make([]float64, frameSize*2)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		pcm[2*i] = 0.22 * math.Sin(2*math.Pi*440*float64(i)/48000)
 		pcm[2*i+1] = 0.17 * math.Sin(2*math.Pi*660*float64(i)/48000)
 	}
@@ -177,7 +177,7 @@ func TestEncodeFrameStereoAPIInternalMonoMirrorsEnergyState(t *testing.T) {
 		t.Fatalf("EncodeFrame() error: %v", err)
 	}
 	prev := enc.PrevEnergy()
-	for band := 0; band < MaxBands; band++ {
+	for band := range MaxBands {
 		if prev[band] != prev[MaxBands+band] {
 			t.Fatalf("band %d right energy = %v, want left %v", band, prev[MaxBands+band], prev[band])
 		}
@@ -488,7 +488,7 @@ func TestEncoderNextRNG(t *testing.T) {
 	dec := NewDecoder(1)
 
 	// Both should produce same RNG sequence
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		encRNG := enc.NextRNG()
 		decRNG := dec.NextRNG()
 		if encRNG != decRNG {
@@ -613,7 +613,7 @@ func TestEncoderFrameCountAndIntraFlag(t *testing.T) {
 	mode := GetModeConfig(frameSize)
 	pcm := generateSineWave(440.0, frameSize)
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		packet, err := enc.EncodeFrame(float32Slice(pcm), frameSize)
 		if err != nil {
 			t.Fatalf("frame %d: EncodeFrame failed: %v", i, err)

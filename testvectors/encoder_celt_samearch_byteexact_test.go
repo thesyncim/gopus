@@ -81,7 +81,6 @@ func TestEncoderCELTSameArchByteExact(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	for _, c := range celtSameArchByteExactCases() {
-		c := c
 		t.Run(c.name+"/"+c.variant, func(t *testing.T) {
 			signalFrames := 48000 / c.frameSize
 			totalSamples := signalFrames * c.frameSize * c.channels
@@ -122,7 +121,7 @@ func TestEncoderCELTSameArchByteExact(t *testing.T) {
 
 			samplesPerFrame := c.frameSize * c.channels
 			goPackets := make([][]byte, 0, signalFrames)
-			for i := 0; i < signalFrames; i++ {
+			for i := range signalFrames {
 				frame := float32ToFloat64OpusDemoF32(signal[i*samplesPerFrame : (i+1)*samplesPerFrame])
 				pkt, err := encodeTest(enc, frame, c.frameSize)
 				if err != nil {

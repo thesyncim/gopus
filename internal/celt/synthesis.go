@@ -51,10 +51,7 @@ func (d *Decoder) effectiveEndBand(frameSize int) int {
 	// opus_custom_decode sets st->end = mode->effEBands directly); there is no
 	// Opus TOC bandwidth to clamp against.
 	if d.perMode != nil {
-		end := mode.EffBands
-		if end < 1 {
-			end = 1
-		}
+		end := max(mode.EffBands, 1)
 		return end
 	}
 	end := EffectiveBandsForFrameSize(d.bandwidth, frameSize)
@@ -101,10 +98,7 @@ func OverlapAdd(current, prevOverlap []float32, overlap int) (output, newOverlap
 			return nil, prevOverlap
 		}
 		// For very short frames, output what we can
-		frameSize := n / 2
-		if frameSize < 1 {
-			frameSize = 1
-		}
+		frameSize := max(n/2, 1)
 		output = make([]float32, frameSize)
 		for i := 0; i < frameSize && i < len(prevOverlap); i++ {
 			output[i] = prevOverlap[i] + current[i]
@@ -156,7 +150,7 @@ func synthesizeChannelWithOverlapScratchF32(coeffs []float32, prevOverlap []celt
 	if transient && shortBlocks > 1 {
 		clear(out[:needed])
 		if overlap > 0 {
-			for i := 0; i < overlap; i++ {
+			for i := range overlap {
 				out[i] = float32(prevOverlap[i])
 			}
 		}
@@ -167,17 +161,17 @@ func synthesizeChannelWithOverlapScratchF32(coeffs []float32, prevOverlap []celt
 		}
 
 		if shortSize*shortBlocks == frameSize {
-			for b := 0; b < shortBlocks; b++ {
+			for b := range shortBlocks {
 				idx := b
-				for i := 0; i < shortSize; i++ {
+				for i := range shortSize {
 					shortCoeffs[i] = coeffs[idx]
 					idx += shortBlocks
 				}
 				imdctInPlaceScratchF32Spectrum(shortCoeffs[:shortSize], out, b*shortSize, overlap, scratchF32)
 			}
 		} else {
-			for b := 0; b < shortBlocks; b++ {
-				for i := 0; i < shortSize; i++ {
+			for b := range shortBlocks {
+				for i := range shortSize {
 					idx := b + i*shortBlocks
 					if idx < frameSize {
 						shortCoeffs[i] = coeffs[idx]
@@ -412,7 +406,7 @@ func (d *Decoder) SynthesizeStereoFloat32(coeffsL, coeffsR []float32, transient 
 	}
 	n := min(len(outL), len(outR))
 	stereo := ensureFloat32Slice(&d.scratchStereoF32, n*2)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		stereo[2*i] = outL[i]
 		stereo[2*i+1] = outR[i]
 	}

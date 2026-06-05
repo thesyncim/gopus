@@ -7,10 +7,10 @@ func TestDecodedInvalidateDropsFeatureVisibilityWithoutFullClear(t *testing.T) {
 	for i := range decoded.State {
 		decoded.State[i] = float32(i + 1)
 	}
-	for i := 0; i < 2*LatentStride; i++ {
+	for i := range 2 * LatentStride {
 		decoded.Latents[i] = float32(100 + i)
 	}
-	for i := 0; i < 2*4*NumFeatures; i++ {
+	for i := range 2 * 4 * NumFeatures {
 		decoded.Features[i] = float32(200 + i)
 	}
 	decoded.NbLatents = 2

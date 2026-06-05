@@ -9,7 +9,7 @@ import (
 // refInnerProductF32 is a high-precision sequential reference for verification.
 func refInnerProductF32(a, b []float32, length int) float64 {
 	var sum float64
-	for i := 0; i < length; i++ {
+	for i := range length {
 		sum += float64(a[i]) * float64(b[i])
 	}
 	return sum
@@ -18,7 +18,7 @@ func refInnerProductF32(a, b []float32, length int) float64 {
 // refEnergyF32 is a high-precision sequential reference for verification.
 func refEnergyF32(x []float32, length int) float64 {
 	var sum float64
-	for i := 0; i < length; i++ {
+	for i := range length {
 		d := float64(x[i])
 		sum += d * d
 	}
@@ -34,7 +34,7 @@ func refEnergyF32(x []float32, length int) float64 {
 // enforced end-to-end by the byte-exact encoder gate.
 func TestInnerProductFLPRandom(t *testing.T) {
 	rng := rand.New(rand.NewSource(43))
-	for trial := 0; trial < 1000; trial++ {
+	for trial := range 1000 {
 		n := rng.Intn(512) + 1
 		a := make([]float32, n)
 		b := make([]float32, n)
@@ -73,7 +73,7 @@ func TestInnerProductFLPLengths(t *testing.T) {
 // within the same float64 grouping error; exact parity is the byte-exact gate.
 func TestEnergyF32LibopusRandom(t *testing.T) {
 	rng := rand.New(rand.NewSource(44))
-	for trial := 0; trial < 1000; trial++ {
+	for trial := range 1000 {
 		n := rng.Intn(512) + 1
 		x := make([]float32, n)
 		for i := range x {

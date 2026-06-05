@@ -24,11 +24,11 @@ import (
 func generateTestSignal(channels, frameSize, sampleRate int, baseFreq float64) []float32 {
 	output := make([]float32, frameSize*channels)
 
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		// Each channel gets a different frequency for isolation testing
 		freq := baseFreq + float64(ch)*100.0
 
-		for s := 0; s < frameSize; s++ {
+		for s := range frameSize {
 			t := float64(s) / float64(sampleRate)
 			// Sine wave with amplitude 0.5 to avoid clipping
 			sample := 0.5 * math.Sin(2.0*math.Pi*freq*t)
@@ -53,13 +53,13 @@ func generateTestSignal(channels, frameSize, sampleRate int, baseFreq float64) [
 func generateContinuousTestSignal(channels, frameSize, numFrames, sampleRate int, baseFreq float64) [][]float32 {
 	frames := make([][]float32, numFrames)
 
-	for f := 0; f < numFrames; f++ {
+	for f := range numFrames {
 		frame := make([]float32, frameSize*channels)
 
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			freq := baseFreq + float64(ch)*100.0
 
-			for s := 0; s < frameSize; s++ {
+			for s := range frameSize {
 				// Global sample index for phase continuity
 				globalSample := f*frameSize + s
 				t := float64(globalSample) / float64(sampleRate)
@@ -97,9 +97,9 @@ func computeEnergyPerChannel[S ~float32 | ~float64](samples []S, channels int) [
 	frameSize := len(samples) / channels
 	energies := make([]float64, channels)
 
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		var energy float64
-		for s := 0; s < frameSize; s++ {
+		for s := range frameSize {
 			sample := float64(samples[s*channels+ch])
 			energy += sample * sample
 		}
@@ -121,7 +121,7 @@ func computeCorrelation(signal1, signal2 []float64) float64 {
 
 	// Compute means
 	var mean1, mean2 float64
-	for i := 0; i < len(signal1); i++ {
+	for i := range signal1 {
 		mean1 += signal1[i]
 		mean2 += signal2[i]
 	}
@@ -130,7 +130,7 @@ func computeCorrelation(signal1, signal2 []float64) float64 {
 
 	// Compute correlation
 	var numerator, denom1, denom2 float64
-	for i := 0; i < len(signal1); i++ {
+	for i := range signal1 {
 		d1 := signal1[i] - mean1
 		d2 := signal2[i] - mean2
 		numerator += d1 * d2
@@ -184,7 +184,7 @@ func TestRoundTrip_Helpers(t *testing.T) {
 
 		// Channel 0: all 0.5
 		// Channel 1: all 0.0
-		for s := 0; s < frameSize; s++ {
+		for s := range frameSize {
 			samples[s*channels+0] = 0.5
 			samples[s*channels+1] = 0.0
 		}
@@ -350,7 +350,7 @@ func TestRoundTrip_Stereo(t *testing.T) {
 	inputEnergies := computeEnergyPerChannel(input, channels)
 	outputEnergies := computeEnergyPerChannel(output, channels)
 
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		chRatio := energyRatio(inputEnergies[ch], outputEnergies[ch])
 		t.Logf("  Channel %d: input=%.4f, output=%.4f, ratio=%.2f%%",
 			ch, inputEnergies[ch], outputEnergies[ch], chRatio*100)
@@ -444,7 +444,7 @@ func TestRoundTrip_51Surround(t *testing.T) {
 	inputEnergies := computeEnergyPerChannel(input, channels)
 	outputEnergies := computeEnergyPerChannel(output, channels)
 
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		chRatio := energyRatio(inputEnergies[ch], outputEnergies[ch])
 		t.Logf("  %s (ch %d): input=%.4f, output=%.4f, ratio=%.2f%%",
 			channelNames[ch], ch, inputEnergies[ch], outputEnergies[ch], chRatio*100)
@@ -538,7 +538,7 @@ func TestRoundTrip_71Surround(t *testing.T) {
 	inputEnergies := computeEnergyPerChannel(input, channels)
 	outputEnergies := computeEnergyPerChannel(output, channels)
 
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		chRatio := energyRatio(inputEnergies[ch], outputEnergies[ch])
 		t.Logf("  %s (ch %d): input=%.4f, output=%.4f, ratio=%.2f%%",
 			channelNames[ch], ch, inputEnergies[ch], outputEnergies[ch], chRatio*100)
@@ -599,7 +599,7 @@ func TestRoundTrip_MultipleFrames(t *testing.T) {
 			var totalPacketBytes int
 
 			// Encode and decode each frame
-			for f := 0; f < numFrames; f++ {
+			for f := range numFrames {
 				input := inputFrames[f]
 				inputEnergy := computeEnergy(input)
 				totalInputEnergy += inputEnergy
@@ -707,7 +707,7 @@ func TestRoundTrip_ChannelIsolation(t *testing.T) {
 	}
 
 	// Test each channel
-	for testCh := 0; testCh < channels; testCh++ {
+	for testCh := range channels {
 		t.Run(channelInfo[testCh].name, func(t *testing.T) {
 			// Reset encoder/decoder state
 			enc.Reset()
@@ -715,7 +715,7 @@ func TestRoundTrip_ChannelIsolation(t *testing.T) {
 
 			// Generate signal only in test channel
 			input := make([]float32, frameSize*channels)
-			for s := 0; s < frameSize; s++ {
+			for s := range frameSize {
 				t := float64(s) / float64(sampleRate)
 				sample := 0.5 * math.Sin(2.0*math.Pi*testFreq*t)
 				input[s*channels+testCh] = float32(sample)
@@ -759,7 +759,7 @@ func TestRoundTrip_ChannelIsolation(t *testing.T) {
 			// Find which channel has the most energy in output
 			maxEnergyCh := -1
 			maxEnergy := 0.0
-			for ch := 0; ch < channels; ch++ {
+			for ch := range channels {
 				if outputEnergies[ch] > maxEnergy {
 					maxEnergy = outputEnergies[ch]
 					maxEnergyCh = ch

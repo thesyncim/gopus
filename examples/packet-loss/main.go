@@ -205,9 +205,9 @@ func decodeStreamWithLoss(packets [][]byte, lostIndex int) ([]float32, error) {
 // SILK encoder treats as speech.
 func speechFrames(n int) [][]float32 {
 	frames := make([][]float32, n)
-	for f := 0; f < n; f++ {
+	for f := range n {
 		pcm := make([]float32, frameSize*channels)
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			t := float64(f*frameSize+i) / sampleRate
 			pcm[i] = 0.38*float32(math.Sin(2*math.Pi*220*t)) +
 				0.14*float32(math.Sin(2*math.Pi*440*t+0.11))

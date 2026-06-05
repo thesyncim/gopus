@@ -26,7 +26,7 @@ func (d *Decoder) SetProjectionDemixingMatrix(matrix []byte) error {
 	}
 
 	// Projection family decoders use trivial channel mapping.
-	for i := 0; i < rows; i++ {
+	for i := range rows {
 		if d.mapping[i] != byte(i) {
 			return ErrInvalidProjectionMatrix
 		}
@@ -37,7 +37,7 @@ func (d *Decoder) SetProjectionDemixingMatrix(matrix []byte) error {
 		d.projectionDemixing = make([]int16, needed)
 	}
 	coeffs := d.projectionDemixing[:needed]
-	for i := 0; i < needed; i++ {
+	for i := range needed {
 		coeffs[i] = int16(uint16(matrix[2*i]) | (uint16(matrix[2*i+1]) << 8))
 	}
 	d.projectionCols = cols

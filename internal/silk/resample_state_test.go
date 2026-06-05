@@ -27,7 +27,7 @@ func TestDownsamplingResamplerZeroStateMatchesFreshResampler(t *testing.T) {
 	if nGot != nWant {
 		t.Fatalf("output len=%d want=%d", nGot, nWant)
 	}
-	for i := 0; i < nWant; i++ {
+	for i := range nWant {
 		if got[i] != want[i] {
 			t.Fatalf("sample[%d]=%.9f want %.9f", i, got[i], want[i])
 		}

@@ -46,7 +46,7 @@ func TestSILK10msCorruptionAtHighBitrate(t *testing.T) {
 			var maxPeak float64
 			nDecoded := 0
 
-			for i := 0; i < nFrames; i++ {
+			for i := range nFrames {
 				pcm := make([]float64, tc.frameSize)
 				for j := 0; j < tc.frameSize; j++ {
 					sampleIdx := i*tc.frameSize + j
@@ -177,7 +177,7 @@ func TestSILK10msPacketSizeConsistency(t *testing.T) {
 
 				// Encode several frames and check last packet size
 				var lastPktSize int
-				for i := 0; i < 5; i++ {
+				for i := range 5 {
 					pcm := make([]float64, frameSize)
 					for j := range pcm {
 						sampleIdx := i*frameSize + j
@@ -234,16 +234,16 @@ func TestSILK10msBandwidthEffect(t *testing.T) {
 				totalSamples := 2 * 48000
 				numFrames := totalSamples / frameSize
 				origSamples := make([]float32, totalSamples)
-				for i := 0; i < totalSamples; i++ {
+				for i := range totalSamples {
 					tm := float64(i) / 48000.0
 					phase := 2 * math.Pi * (200.0*tm + 450.0*tm*tm)
 					origSamples[i] = 0.5 * float32(math.Sin(phase))
 				}
 
 				var packets [][]byte
-				for i := 0; i < numFrames; i++ {
+				for i := range numFrames {
 					pcm := make([]float64, frameSize)
-					for j := 0; j < frameSize; j++ {
+					for j := range frameSize {
 						sampleIdx := i*frameSize + j
 						tm := float64(sampleIdx) / 48000.0
 						phase := 2 * math.Pi * (200.0*tm + 450.0*tm*tm)
@@ -327,16 +327,16 @@ func TestSILK10msComplexityEffect(t *testing.T) {
 				totalSamples := 2 * 48000
 				numFrames := totalSamples / frameSize
 				origSamples := make([]float32, totalSamples)
-				for i := 0; i < totalSamples; i++ {
+				for i := range totalSamples {
 					tm := float64(i) / 48000.0
 					phase := 2 * math.Pi * (200.0*tm + 450.0*tm*tm)
 					origSamples[i] = 0.5 * float32(math.Sin(phase))
 				}
 
 				var packets [][]byte
-				for i := 0; i < numFrames; i++ {
+				for i := range numFrames {
 					pcm := make([]float64, frameSize)
-					for j := 0; j < frameSize; j++ {
+					for j := range frameSize {
 						sampleIdx := i*frameSize + j
 						tm := float64(sampleIdx) / 48000.0
 						phase := 2 * math.Pi * (200.0*tm + 450.0*tm*tm)
@@ -434,9 +434,9 @@ func TestSILK10msEnergyCheck(t *testing.T) {
 				var packets [][]byte
 				var origEnergy float64
 
-				for i := 0; i < numFrames; i++ {
+				for i := range numFrames {
 					pcm := make([]float64, fs)
-					for j := 0; j < fs; j++ {
+					for j := range fs {
 						sampleIdx := i*fs + j
 						pcm[j] = sig.gen(sampleIdx)
 						origEnergy += pcm[j] * pcm[j]
@@ -515,7 +515,7 @@ func TestSILK10msDelaySearch(t *testing.T) {
 			var packets [][]byte
 			var origSamples []float32
 
-			for i := 0; i < numFrames; i++ {
+			for i := range numFrames {
 				pcm := make([]float64, tc.frameSize)
 				for j := 0; j < tc.frameSize; j++ {
 					sampleIdx := i*tc.frameSize + j
@@ -651,7 +651,7 @@ func TestSILK10msOriginalDelay(t *testing.T) {
 			var packets [][]byte
 			var origSamples []float32
 
-			for i := 0; i < numFrames; i++ {
+			for i := range numFrames {
 				pcm := make([]float64, tc.frameSize)
 				for j := 0; j < tc.frameSize; j++ {
 					sampleIdx := i*tc.frameSize + j
@@ -808,7 +808,7 @@ func TestSILK10msPhaseAnalysis(t *testing.T) {
 			numFrames := 50
 			var packets [][]byte
 
-			for i := 0; i < numFrames; i++ {
+			for i := range numFrames {
 				pcm := make([]float64, tc.frameSize)
 				for j := range pcm {
 					sampleIdx := i*tc.frameSize + j
@@ -971,7 +971,7 @@ func TestSILK10msWaveformCompare(t *testing.T) {
 			numFrames := 48000 / tc.frameSize
 			var packets [][]byte
 
-			for i := 0; i < numFrames; i++ {
+			for i := range numFrames {
 				pcm := make([]float64, tc.frameSize)
 				for j := range pcm {
 					sampleIdx := i*tc.frameSize + j
@@ -1083,7 +1083,7 @@ func TestSILK10msTOCDump(t *testing.T) {
 			enc.SetBandwidth(tc.bw)
 			enc.SetBitrate(32000)
 
-			for i := 0; i < 5; i++ {
+			for i := range 5 {
 				pcm := make([]float64, tc.frameSize)
 				for j := range pcm {
 					sampleIdx := i*tc.frameSize + j

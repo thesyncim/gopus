@@ -221,9 +221,7 @@ func TestProjectionDecodeMatchesLibopus(t *testing.T) {
 	bitrates := []int{96000, 128000, 192000, 256000}
 
 	for _, frameSize := range frameSizes {
-		frameSize := frameSize
 		for _, bitrate := range bitrates {
-			bitrate := bitrate
 			name := fmt.Sprintf("foa-4ch/fs%d/br%d", frameSize, bitrate)
 			t.Run(name, func(t *testing.T) {
 				ref := projectionDecodeRef(t, channels, frameSize, frameCount, bitrate)
@@ -292,7 +290,6 @@ func TestProjectionDecodePerStreamModeClassification(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			ref := projectionDecodeRef(t, tc.channels, tc.frameSz, frameCount, tc.bitrate)
 			mapping := trivialMapping(tc.channels)

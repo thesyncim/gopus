@@ -30,10 +30,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	if numSubframes > maxNbSubfr {
 		numSubframes = maxNbSubfr
 	}
-	frameSamples := numSubframes * subframeSamples
-	if frameSamples > len(pcm) {
-		frameSamples = len(pcm)
-	}
+	frameSamples := min(numSubframes*subframeSamples, len(pcm))
 	payloadSizeMs := (frameSamples * 1000) / config.SampleRate
 	packetPayloadSizeMs := payloadSizeMs
 	if e.nFramesPerPacket > 1 {
@@ -167,10 +164,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 
 	if !useSharedEncoder {
 		e.rangeEncoder = nil // Safety clear
-		bufSize := len(pcm) / 3
-		if bufSize < 80 {
-			bufSize = 80
-		}
+		bufSize := max(len(pcm)/3, 80)
 		if e.lbrrEnabled {
 			bufSize += 50
 		}
@@ -650,13 +644,11 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		if nBits > maxBits {
 			if !foundLower && iter >= 2 {
 				if noiseParams != nil {
-					lambda := noiseParams.LambdaQ10 + noiseParams.LambdaQ10/2
-					// Match libopus encode_frame_FLP.c:
-					// sEncCtrl.Lambda = silk_max_float(sEncCtrl.Lambda*1.5f, 1.5f)
-					// (Q10 => minimum 1.5 * 1024 = 1536).
-					if lambda < 1536 {
-						lambda = 1536
-					}
+					lambda := max(
+						// Match libopus encode_frame_FLP.c:
+						// sEncCtrl.Lambda = silk_max_float(sEncCtrl.Lambda*1.5f, 1.5f)
+						// (Q10 => minimum 1.5 * 1024 = 1536).
+						noiseParams.LambdaQ10+noiseParams.LambdaQ10/2, 1536)
 					noiseParams.LambdaQ10 = lambda
 				}
 				quantOffset = 0
@@ -690,10 +682,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			for i := 0; i < numSubframes; i++ {
 				sum := 0
 				start := i * subframeSamples
-				end := start + subframeSamples
-				if end > len(pulses) {
-					end = len(pulses)
-				}
+				end := min(start+subframeSamples, len(pulses))
 				for j := start; j < end; j++ {
 					v := int(pulses[j])
 					if v < 0 {
@@ -712,16 +701,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 
 		if !(foundLower && foundUpper) {
 			if nBits > maxBits {
-				next := int(gainMultQ8) * 3 / 2
-				if next > 1024 {
-					next = 1024
-				}
+				next := min(int(gainMultQ8)*3/2, 1024)
 				gainMultQ8 = int16(next)
 			} else {
-				next := int(gainMultQ8) * 4 / 5
-				if next < 64 {
-					next = 64
-				}
+				next := max(int(gainMultQ8)*4/5, 64)
 				gainMultQ8 = int16(next)
 			}
 		} else {
@@ -817,16 +800,10 @@ func (e *Encoder) finalizeEncodeFrame(frameSamples, payloadSizeMs int, vadFlag, 
 	// pre-flush bit position, so (ec_tell+7)>>3 can be one byte larger than the
 	// buffer ec_enc_done() actually emits; libopus uses this larger pre-flush
 	// estimate for the reservoir, NOT the flushed length.
-	nBytesOut := (e.rangeEncoder.Tell() + 7) >> 3
-	if nBytesOut < 0 {
-		nBytesOut = 0
-	}
+	nBytesOut := max((e.rangeEncoder.Tell()+7)>>3, 0)
 
 	raw := e.rangeEncoder.Done()
-	resultLen := nBytesOut
-	if resultLen > len(raw) {
-		resultLen = len(raw)
-	}
+	resultLen := min(nBytesOut, len(raw))
 
 	// Match libopus: return exactly ec_tell() byte count for the frame.
 	result := raw[:resultLen]
@@ -890,10 +867,7 @@ func (e *Encoder) PrefillFrame(pcm []float32) {
 	if numSubframes > maxNbSubfr {
 		numSubframes = maxNbSubfr
 	}
-	frameSamples := numSubframes * subframeSamples
-	if frameSamples > len(pcm) {
-		frameSamples = len(pcm)
-	}
+	frameSamples := min(numSubframes*subframeSamples, len(pcm))
 	if frameSamples <= 0 {
 		return
 	}
@@ -975,7 +949,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		for i := range arShpQ13 {
 			arShpQ13[i] = 0
 		}
-		for sf := 0; sf < numSubframes; sf++ {
+		for sf := range numSubframes {
 			for i := 0; i < shapeLPCOrder && i < len(lpcQ12); i++ {
 				arShpQ13[sf*maxShapeLpcOrder+i] = int16(int32(lpcQ12[i]) * 2 * 94 / 100)
 			}
@@ -987,7 +961,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 	}
 	if signalType == typeVoiced {
 		for sf := 0; sf < numSubframes && sf < len(ltpCoeffs); sf++ {
-			for tap := 0; tap < ltpOrderConst; tap++ {
+			for tap := range ltpOrderConst {
 				ltpCoefQ14[sf*ltpOrderConst+tap] = int16(ltpCoeffs[sf][tap]) << 7
 			}
 		}
@@ -1007,10 +981,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		if e.noiseShapeState == nil {
 			e.noiseShapeState = NewNoiseShapeState()
 		}
-		fsKHz := int(e.sampleRate / 1000)
-		if fsKHz < 8 {
-			fsKHz = 8
-		}
+		fsKHz := max(int(e.sampleRate/1000), 8)
 		inputQualityBandsQ15 := [4]int32{-1, -1, -1, -1}
 		if e.speechActivitySet {
 			inputQualityBandsQ15 = e.inputQualityBandsQ15
@@ -1083,22 +1054,13 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, lookahead []float32, vadFla
 func (e *Encoder) EncodePacketWithFECWithVADStates(pcm []float32, lookahead []float32, vadFlags []bool, vadStates []VADFrameState) []byte {
 	e.ResetPacketState()
 	config := GetBandwidthConfig(e.bandwidth)
-	frameSamples := config.SampleRate * 20 / 1000
-	if len(pcm) < frameSamples {
-		frameSamples = len(pcm)
-	}
-	nFrames := len(pcm) / frameSamples
-	if nFrames < 1 {
-		nFrames = 1
-	}
+	frameSamples := min(len(pcm), config.SampleRate*20/1000)
+	nFrames := max(len(pcm)/frameSamples, 1)
 	if nFrames > maxFramesPerPacket {
 		nFrames = maxFramesPerPacket
 	}
 	e.nFramesPerPacket = int32(nFrames)
-	bufSize := len(pcm)/2 + 100
-	if bufSize < 150 {
-		bufSize = 150
-	}
+	bufSize := max(len(pcm)/2+100, 150)
 	if bufSize < maxSilkPacketBytes {
 		bufSize = maxSilkPacketBytes
 	}
@@ -1135,10 +1097,7 @@ func (e *Encoder) EncodePacketWithFECWithVADStates(pcm []float32, lookahead []fl
 		}
 
 		startSample := i * frameSamples
-		endSample := startSample + frameSamples
-		if endSample > len(pcm) {
-			endSample = len(pcm)
-		}
+		endSample := min(startSample+frameSamples, len(pcm))
 		framePCM := pcm[startSample:endSample]
 		vadFlag := true
 		if vadFlags != nil && i < len(vadFlags) {
@@ -1177,15 +1136,9 @@ func (e *Encoder) EncodePacketWithFECWithVADStates(pcm []float32, lookahead []fl
 	// Capture nBytesOut BEFORE ec_enc_done, matching libopus encode_frame_FLP.c:381.
 	// As in the single-frame path, this pre-flush (ec_tell+7)>>3 estimate is what
 	// libopus feeds into the reservoir; it can exceed the flushed buffer length.
-	nBytesOut := (e.rangeEncoder.Tell() + 7) >> 3
-	if nBytesOut < 0 {
-		nBytesOut = 0
-	}
+	nBytesOut := max((e.rangeEncoder.Tell()+7)>>3, 0)
 	raw := e.rangeEncoder.Done()
-	resultLen := nBytesOut
-	if resultLen > len(raw) {
-		resultLen = len(raw)
-	}
+	resultLen := min(nBytesOut, len(raw))
 	result := raw[:resultLen]
 	if e.targetRateBps > 0 {
 		payloadSizeMs := (nFrames * frameSamples * 1000) / config.SampleRate
@@ -1209,10 +1162,7 @@ func (e *Encoder) EncodePacketWithFECWithVADStates(pcm []float32, lookahead []fl
 func (e *Encoder) encodeFrameType(vadFlag bool, signalType, quantOffset int) {
 	typeOffset := 2*signalType + quantOffset
 	if vadFlag {
-		sym := typeOffset - 2
-		if sym < 0 {
-			sym = 0
-		}
+		sym := max(typeOffset-2, 0)
 		if sym >= len(silk_type_offset_VAD_iCDF) {
 			sym = len(silk_type_offset_VAD_iCDF) - 1
 		}
@@ -1220,10 +1170,7 @@ func (e *Encoder) encodeFrameType(vadFlag bool, signalType, quantOffset int) {
 		return
 	}
 	// VAD inactive uses a dedicated 2-symbol table (typeOffset 0 or 1).
-	sym := typeOffset
-	if sym < 0 {
-		sym = 0
-	}
+	sym := max(typeOffset, 0)
 	if sym >= len(silk_type_offset_no_VAD_iCDF) {
 		sym = len(silk_type_offset_no_VAD_iCDF) - 1
 	}
@@ -1247,10 +1194,7 @@ func (e *Encoder) updateShapeBuffer(pcm []float32, frameSamples int) []float32 {
 	if frameSamples <= 0 {
 		return pcm
 	}
-	fsKHz := int(e.sampleRate / 1000)
-	if fsKHz < 1 {
-		fsKHz = 1
-	}
+	fsKHz := max(int(e.sampleRate/1000), 1)
 	ltpMemSamples := ltpMemLengthMs * fsKHz
 	laShapeSamples := laShapeMs * fsKHz
 	keep := ltpMemSamples + laShapeSamples
@@ -1289,7 +1233,7 @@ func (e *Encoder) updateShapeBuffer(pcm []float32, frameSamples int) []float32 {
 		// Our x_buf is normalized to [-1, 1], while libopus x_buf is int16-scaled.
 		// Scale the tiny anti-denormal term to match libopus magnitude.
 		antiDenormal := float32(1e-6 / silkSampleScale)
-		for i := 0; i < 8; i++ {
+		for i := range 8 {
 			idx := i * step
 			if idx >= 0 && idx < frameSamples {
 				dither := antiDenormal
@@ -1317,10 +1261,7 @@ func (e *Encoder) shiftInputBuffer(frameSamples int) {
 	if frameSamples <= 0 {
 		return
 	}
-	fsKHz := int(e.sampleRate / 1000)
-	if fsKHz < 1 {
-		fsKHz = 1
-	}
+	fsKHz := max(int(e.sampleRate/1000), 1)
 	ltpMemSamples := ltpMemLengthMs * fsKHz
 	laShapeSamples := laShapeMs * fsKHz
 	keep := ltpMemSamples + laShapeSamples

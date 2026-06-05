@@ -159,7 +159,7 @@ func TestTables(t *testing.T) {
 	}
 
 	// Verify band widths are monotonically increasing (up to a point)
-	for i := 0; i < MaxBands; i++ {
+	for i := range MaxBands {
 		width := BandWidth(i)
 		if width <= 0 {
 			t.Errorf("BandWidth(%d) = %d, want > 0", i, width)

@@ -266,7 +266,7 @@ func generateTestSignal(samples int, channels int) []float64 {
 	freq := 440.0 // 440 Hz sine wave
 	sampleRate := 48000.0
 
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		t := float64(i) / sampleRate
 		// Mix of sine wave and some noise for realistic content
 		sample := 0.5 * math.Sin(2*math.Pi*freq*t)
@@ -613,7 +613,7 @@ func TestMultipleFramesHybrid(t *testing.T) {
 	numFrames := 5
 	frameSize := 960
 
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		pcm := generateTestSignal(frameSize, 1)
 
 		encoded, err := encodeTest(enc, pcm, frameSize)
@@ -723,7 +723,7 @@ func TestBitrateModeCBR(t *testing.T) {
 	expectedSize := 160
 
 	// Encode multiple frames
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		pcm := generateTestSignal(960, 1)
 		packet, err := encodeTest(enc, pcm, 960)
 		if err != nil {
@@ -757,7 +757,7 @@ func TestBitrateModeCVBR(t *testing.T) {
 	totalBytes := 0
 	const nFrames = 10
 
-	for i := 0; i < nFrames; i++ {
+	for i := range nFrames {
 		pcm := generateVariableSignal(960, i)
 		packet, err := encodeTest(enc, pcm, 960)
 		if err != nil {
@@ -789,7 +789,7 @@ func TestBitrateModeCVBR_CELTStereoEnvelope(t *testing.T) {
 	maxBytes := (maxBits + 7) / 8
 	totalBytes := 0
 
-	for i := 0; i < 60; i++ {
+	for i := range 60 {
 		packet, err := encodeTest(enc, generateTestSignal(960, 2), 960)
 		if err != nil {
 			t.Fatalf("Encode frame %d failed: %v", i, err)
@@ -1036,7 +1036,7 @@ func generateTestSignalFloat32(samples int) []float32 {
 	freq := float32(440.0)
 	sampleRate := float32(48000.0)
 
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		t := float32(i) / sampleRate
 		sample := float32(0.5 * math.Sin(float64(2*math.Pi*freq*t)))
 		sample += float32(0.25 * math.Sin(float64(2*math.Pi*freq*2*t)))
@@ -1332,7 +1332,7 @@ func TestDTXSuppressesSilence(t *testing.T) {
 	var dtxFrame int
 	maxFrames := 50 // Should activate well before this
 
-	for i := 0; i < maxFrames; i++ {
+	for i := range maxFrames {
 		packet, err := encodeTest(enc, silence, 960)
 		if err != nil {
 			t.Fatalf("Frame %d encode failed: %v", i, err)
@@ -1371,7 +1371,7 @@ func TestDTXEmitsTOCOnly(t *testing.T) {
 	// Encode enough frames to enter DTX
 	totalFrames := encoder.DTXFrameThreshold + 25
 	var tocOnlyCount int
-	for i := 0; i < totalFrames; i++ {
+	for range totalFrames {
 		packet, _ := encodeTest(enc, silence, 960)
 		if len(packet) == 1 {
 			tocOnlyCount++
@@ -1395,7 +1395,7 @@ func TestDTXExitOnSpeech(t *testing.T) {
 	speech := generateTestSignal(960, 1)
 
 	// Enter DTX mode
-	for i := 0; i < encoder.DTXFrameThreshold+5; i++ {
+	for range encoder.DTXFrameThreshold + 5 {
 		encodeTest(enc, silence, 960)
 	}
 
@@ -1482,7 +1482,7 @@ func TestDTXResetOnEncoderReset(t *testing.T) {
 	silence := make([]float64, 960)
 
 	// Enter DTX mode
-	for i := 0; i < encoder.DTXFrameThreshold+5; i++ {
+	for range encoder.DTXFrameThreshold + 5 {
 		encodeTest(enc, silence, 960)
 	}
 

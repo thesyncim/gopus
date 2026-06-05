@@ -50,7 +50,7 @@ func flattenFrames(frames [][]float64) []float64 {
 
 func buildMonoFrameChirp(samples int, startHz, endHz float64) []float64 {
 	out := make([]float64, samples)
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		t := float64(i) / 48000.0
 		progress := float64(i) / float64(samples-1)
 		freq := startHz + (endHz-startHz)*progress
@@ -63,12 +63,12 @@ func buildMonoFrameChirp(samples int, startHz, endHz float64) []float64 {
 func buildMonoSineFrames(freqHz float64, frameSize, numFrames int) [][]float64 {
 	total := frameSize * numFrames
 	all := make([]float64, total)
-	for i := 0; i < total; i++ {
+	for i := range total {
 		t := float64(i) / 48000.0
 		all[i] = 0.5 * math.Sin(2*math.Pi*freqHz*t)
 	}
 	frames := make([][]float64, numFrames)
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		start := i * frameSize
 		end := start + frameSize
 		frame := make([]float64, frameSize)
@@ -81,7 +81,7 @@ func buildMonoSineFrames(freqHz float64, frameSize, numFrames int) [][]float64 {
 func buildMonoChirpFrames(frameSize, numFrames int, startHz, endHz float64) [][]float64 {
 	total := frameSize * numFrames
 	all := make([]float64, total)
-	for i := 0; i < total; i++ {
+	for i := range total {
 		t := float64(i) / 48000.0
 		progress := float64(i) / float64(total-1)
 		freq := startHz + (endHz-startHz)*progress
@@ -89,7 +89,7 @@ func buildMonoChirpFrames(frameSize, numFrames int, startHz, endHz float64) [][]
 		all[i] = amp * math.Sin(2*math.Pi*freq*t)
 	}
 	frames := make([][]float64, numFrames)
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		start := i * frameSize
 		end := start + frameSize
 		frame := make([]float64, frameSize)
@@ -101,7 +101,7 @@ func buildMonoChirpFrames(frameSize, numFrames int, startHz, endHz float64) [][]
 
 func buildMonoFrameImpulse(samples int) []float64 {
 	out := make([]float64, samples)
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		if i%120 == 0 {
 			out[i] = 0.9
 			continue
@@ -115,7 +115,7 @@ func buildMonoFrameImpulse(samples int) []float64 {
 func buildMonoFramePseudoNoise(samples int) []float64 {
 	out := make([]float64, samples)
 	var x uint32 = 0x1badf00d
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		x = 1664525*x + 1013904223
 		v := float64((x>>9)&0x7fffff) / float64(0x7fffff)
 		out[i] = 0.42 * (2.0*v - 1.0)
@@ -127,7 +127,7 @@ func buildStereoFrameChirp(samples int) []float64 {
 	out := make([]float64, samples*2)
 	left := buildMonoFrameChirp(samples, 220.0, 4200.0)
 	right := buildMonoFrameChirp(samples, 4200.0, 220.0)
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		out[i*2] = left[i]
 		out[i*2+1] = right[i] * 0.95
 	}
@@ -136,7 +136,7 @@ func buildStereoFrameChirp(samples int) []float64 {
 
 func buildStereoFrameDualTone(samples int, fL, fR float64) []float64 {
 	out := make([]float64, samples*2)
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		t := float64(i) / 48000.0
 		out[i*2] = 0.5*math.Sin(2*math.Pi*fL*t) + 0.18*math.Sin(2*math.Pi*3.0*fL*t)
 		out[i*2+1] = 0.5*math.Sin(2*math.Pi*fR*t) + 0.15*math.Sin(2*math.Pi*2.0*fR*t)
@@ -590,7 +590,6 @@ func TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec(t *testing.T) {
 
 	scenarios := buildCrossvalFixtureScenarios(t)
 	for _, sc := range scenarios {
-		sc := sc
 		t.Run(sc.name, func(t *testing.T) {
 			live, err := decodeWithOpusdecCLI(sc.ogg)
 			if err != nil {
@@ -629,7 +628,6 @@ func TestOpusdecCrossvalFixtureMatrix(t *testing.T) {
 
 	scenarios := buildCrossvalFixtureScenarios(t)
 	for _, sc := range scenarios {
-		sc := sc
 		t.Run(sc.name, func(t *testing.T) {
 			decoded, err := decodeWithOpusdec(sc.ogg)
 			if err != nil && os.Getenv(requirePlatformFixturesEnv) == "" && strings.Contains(err.Error(), "missing opusdec fixture for ogg sha256=") {

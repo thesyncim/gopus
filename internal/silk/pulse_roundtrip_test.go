@@ -14,7 +14,7 @@ func TestPulseEncodingRoundtrip(t *testing.T) {
 	testPulses := make([]int8, frameLength)
 
 	// Create a pattern with various pulse magnitudes
-	for i := 0; i < frameLength; i++ {
+	for i := range frameLength {
 		switch {
 		case i%16 == 0:
 			testPulses[i] = 5 // Positive pulse
@@ -62,7 +62,7 @@ func TestPulseEncodingRoundtrip(t *testing.T) {
 
 	// Compare
 	mismatchCount := 0
-	for i := 0; i < frameLength; i++ {
+	for i := range frameLength {
 		expected := int16(testPulses[i])
 		if decodedPulses[i] != expected {
 			if mismatchCount < 10 {
@@ -309,7 +309,7 @@ func TestPulseExcitationRoundtrip_WithLPC(t *testing.T) {
 
 	// Compute RMS of input vs output
 	var inputSum, xqSum float64
-	for i := 0; i < subfrLength; i++ {
+	for i := range subfrLength {
 		inputSum += float64(input[i]) * float64(input[i])
 		xqSum += float64(xq[i]) * float64(xq[i])
 	}

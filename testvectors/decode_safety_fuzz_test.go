@@ -139,7 +139,7 @@ func mutateFixturePacket(seed []byte, mutation []byte) []byte {
 
 	idx := 0
 	edits := 1 + int(mutationByte(mutation, &idx)%4)
-	for i := 0; i < edits; i++ {
+	for range edits {
 		pos := int(mutationByte(mutation, &idx)) % len(packet)
 		value := mutationByte(mutation, &idx)
 		if mutationByte(mutation, &idx)%2 == 0 {

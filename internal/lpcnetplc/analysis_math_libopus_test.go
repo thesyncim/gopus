@@ -16,7 +16,7 @@ func TestLPCNetLog10fUsesLibopusCELTLog2Oracle(t *testing.T) {
 		1.125, 1.25, 1.5, 1.875, 2, 3, 8, 1024,
 	}
 	for exp := int32(-12); exp <= 12; exp++ {
-		for mant := uint32(0); mant < 8; mant++ {
+		for mant := range uint32(8) {
 			bits := uint32(exp+127)<<23 | mant<<20 | 0x54321
 			samples = append(samples, math.Float32frombits(bits))
 		}

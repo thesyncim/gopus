@@ -185,10 +185,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	// This avoids extra quantization in NB mode.
 	stage2Frame := frame8kHz
 	if fsKHz == 8 {
-		stage2Len := frameLength8kHz
-		if stage2Len > len(pcm) {
-			stage2Len = len(pcm)
-		}
+		stage2Len := min(frameLength8kHz, len(pcm))
 		if stage2Len > 0 {
 			stage2Frame = pcm[:stage2Len]
 		} else {
@@ -239,16 +236,10 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		targetEnergy := energyFLP(target)
 
 		// Search all lags with recursive energy update
-		basisIdx := targetIdx - minLag4kHz
-		if basisIdx < 0 {
-			basisIdx = 0
-		}
+		basisIdx := max(targetIdx-minLag4kHz, 0)
 
 		// Initial energy at minimum lag
-		basisEnd := basisIdx + sfLength8kHz
-		if basisEnd > len(frame4kHz) {
-			basisEnd = len(frame4kHz)
-		}
+		basisEnd := min(basisIdx+sfLength8kHz, len(frame4kHz))
 		basisEnergy := energyFLP(frame4kHz[basisIdx:basisEnd])
 
 		// Compute normalizer with bias scaled to float input.
@@ -259,10 +250,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		xcorrLen := maxLag4kHz - minLag4kHz + 1
 		xcorr := ensureFloat32Slice(&e.scratchPitchXcorr, xcorrLen)
 		xcorr = xcorr[:xcorrLen]
-		xcorrStart := targetIdx - maxLag4kHz
-		if xcorrStart < 0 {
-			xcorrStart = 0
-		}
+		xcorrStart := max(targetIdx-maxLag4kHz, 0)
 		celtPitchXcorrFloat(target, frame4kHz[xcorrStart:], xcorr, sfLength8kHz, xcorrLen)
 		var xcorrVal float32
 		if maxLag4kHz-minLag4kHz < len(xcorr) {
@@ -314,10 +302,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	} else if complexity > 2 {
 		complexity = 2
 	}
-	lengthDSrch := 4 + 2*complexity
-	if lengthDSrch > peDSrchLength {
-		lengthDSrch = peDSrchLength
-	}
+	lengthDSrch := min(4+2*complexity, peDSrchLength)
 
 	dSrch := ensureInt32Slice(&e.scratchDSrch, peDSrchLength)
 	for i := 0; i < lengthDSrch; i++ {
@@ -438,7 +423,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 
 	targetStart8k := peLTPMemLengthMS * 8
 	targetIdx := targetStart8k
-	for k := 0; k < numSubframes; k++ {
+	for k := range numSubframes {
 		if targetIdx+sfLength8kHz > len(stage2Frame) {
 			break
 		}
@@ -509,7 +494,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		cc := ccBuf[:nbCbkSearch]
 		for j := 0; j < nbCbkSearch; j++ {
 			cc[j] = 0
-			for i := 0; i < numSubframes; i++ {
+			for i := range numSubframes {
 				var cbOffset int8
 				if lagCBPtr != nil && i < peMaxNbSubfr && j < cbkSize {
 					cbOffset = lagCBPtr[i][j]
@@ -579,14 +564,8 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 			lag = maxLag
 		}
 
-		startLag := lag - 2
-		if startLag < minLag {
-			startLag = minLag
-		}
-		endLag := lag + 2
-		if endLag > maxLag {
-			endLag = maxLag
-		}
+		startLag := max(lag-2, minLag)
+		endLag := min(lag+2, maxLag)
 
 		corrSt3 := ensureFloat32Slice(&e.scratchPitchCorrSt3, numSubframes*peNbCbksStage3Max*peNbStage3Lags)
 		energySt3 := ensureFloat32Slice(&e.scratchPitchEnergySt3, numSubframes*peNbCbksStage3Max*peNbStage3Lags)
@@ -607,10 +586,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		}
 
 		targetStartFull := peLTPMemLengthMS * fsKHz
-		targetEnd := targetStartFull + numSubframes*sfLength
-		if targetEnd > len(pcm) {
-			targetEnd = len(pcm)
-		}
+		targetEnd := min(targetStartFull+numSubframes*sfLength, len(pcm))
 		energyTmp := energyFLP(pcm[targetStartFull:targetEnd]) + 1.0
 
 		lagNew := lag
@@ -625,7 +601,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 			for j := 0; j < nbCbkSearch3; j++ {
 				crossCorr := silkCReal(0)
 				energy := energyTmp
-				for k := 0; k < numSubframes; k++ {
+				for k := range numSubframes {
 					idx := pitchStage3Index(k, j, lagCounter)
 					crossCorr += silkCReal(corrSt3[idx])
 					energy += silkCReal(energySt3[idx])
@@ -650,12 +626,9 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 			}
 			lagCounter++
 		}
-		for k := 0; k < numSubframes; k++ {
+		for k := range numSubframes {
 			cbOffset := lagCBStage3[k][CBimax]
-			pitchLag := lagNew + int(cbOffset)
-			if pitchLag < minLag {
-				pitchLag = minLag
-			}
+			pitchLag := max(lagNew+int(cbOffset), minLag)
 			if pitchLag > maxPitchLag {
 				pitchLag = maxPitchLag
 			}
@@ -664,18 +637,14 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		lag = lagNew
 	} else {
 		// 8kHz: use stage 2 results directly
-		for k := 0; k < numSubframes; k++ {
+		for k := range numSubframes {
 			var cbOffset int8
 			if lagCBPtr != nil && k < peMaxNbSubfr && CBimax < cbkSize {
 				cbOffset = lagCBPtr[k][CBimax]
 			} else if lagCBPtr10ms != nil && k < 2 && CBimax < cbkSize {
 				cbOffset = lagCBPtr10ms[k][CBimax]
 			}
-			pitchLag := lag + int(cbOffset)
-
-			if pitchLag < minLag8kHz {
-				pitchLag = minLag8kHz
-			}
+			pitchLag := max(lag+int(cbOffset), minLag8kHz)
 			if pitchLag > maxPitchLag8kHz {
 				pitchLag = maxPitchLag8kHz
 			}
@@ -718,7 +687,7 @@ func downsampleLowpassToBuffer(signal []float32, factor int, ds []float32) {
 	n := len(ds)
 	// 3-tap low-pass filter: [0.25, 0.5, 0.25]
 	offset := factor / 2
-	for i := 0; i < n; i++ {
+	for i := range n {
 		idx := i * factor
 		if i == 0 {
 			// First sample: use available samples
@@ -741,9 +710,9 @@ func downsample(signal []float32, factor int) []float32 {
 	n := len(signal) / factor
 	ds := make([]float32, n)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		var sum float32
-		for j := 0; j < factor; j++ {
+		for j := range factor {
 			sum += signal[i*factor+j]
 		}
 		ds[i] = sum / float32(factor)
@@ -852,17 +821,14 @@ func pitchAnalysisCalcCorrSt3(out []float32, frame []float32, startLag, sfLength
 
 	targetIdx := sfLength * 4
 	var scratchMem [22]float32
-	for k := 0; k < nbSubfr; k++ {
+	for k := range nbSubfr {
 		lagLow := int(lagRange[k][0])
 		lagHigh := int(lagRange[k][1])
 		if lagHigh < lagLow {
 			targetIdx += sfLength
 			continue
 		}
-		lagCount := lagHigh - lagLow + 1
-		if lagCount > len(scratchMem) {
-			lagCount = len(scratchMem)
-		}
+		lagCount := min(lagHigh-lagLow+1, len(scratchMem))
 		for i := 0; i < lagCount; i++ {
 			scratchMem[i] = 0
 		}
@@ -876,7 +842,7 @@ func pitchAnalysisCalcCorrSt3(out []float32, frame []float32, startLag, sfLength
 		delta := lagLow
 		for i := 0; i < nbCbkSearch; i++ {
 			idx := int(lagCB[k][i]) - delta
-			for j := 0; j < peNbStage3Lags; j++ {
+			for j := range peNbStage3Lags {
 				if idx+j < 0 || idx+j >= lagCount {
 					out[pitchStage3Index(k, i, j)] = 0
 					continue
@@ -908,17 +874,14 @@ func pitchAnalysisCalcEnergySt3(out []float32, frame []float32, startLag, sfLeng
 
 	targetIdx := sfLength * 4
 	var scratchMem [22]float32
-	for k := 0; k < nbSubfr; k++ {
+	for k := range nbSubfr {
 		lagLow := int(lagRange[k][0])
 		lagHigh := int(lagRange[k][1])
 		if lagHigh < lagLow {
 			targetIdx += sfLength
 			continue
 		}
-		lagCount := lagHigh - lagLow + 1
-		if lagCount > len(scratchMem) {
-			lagCount = len(scratchMem)
-		}
+		lagCount := min(lagHigh-lagLow+1, len(scratchMem))
 
 		basisStart := targetIdx - (startLag + lagLow)
 		if basisStart < 0 || basisStart+sfLength > len(frame) {
@@ -936,7 +899,7 @@ func pitchAnalysisCalcEnergySt3(out []float32, frame []float32, startLag, sfLeng
 		delta := lagLow
 		for i := 0; i < nbCbkSearch; i++ {
 			idx := int(lagCB[k][i]) - delta
-			for j := 0; j < peNbStage3Lags; j++ {
+			for j := range peNbStage3Lags {
 				if idx+j < 0 || idx+j >= lagCount {
 					out[pitchStage3Index(k, i, j)] = 0
 					continue
@@ -1023,10 +986,9 @@ func (e *Encoder) encodePitchLagsWithParams(params pitchEncodeParams, condCoding
 	}
 
 	if encodeAbsolute {
-		divisor := fsKHz / 2 // 8 for 16kHz, 6 for 12kHz, 4 for 8kHz
-		if divisor < 1 {
-			divisor = 1
-		}
+		divisor := max(
+			// 8 for 16kHz, 6 for 12kHz, 4 for 8kHz
+			fsKHz/2, 1)
 		lagHigh := params.lagIdx / divisor
 		lagLow := params.lagIdx - lagHigh*divisor
 		if lagHigh > 31 {
@@ -1058,15 +1020,12 @@ func findBestPitchContour(pitchLags []int32, numSubframes int, minLag, maxLag in
 	bestBase := minLag
 	bestDist := math.MaxInt32
 
-	for cIdx := 0; cIdx < cbkSize; cIdx++ {
+	for cIdx := range cbkSize {
 		var sumLag int
 		for sf := 0; sf < numSubframes && sf < len(pitchLags); sf++ {
 			sumLag += int(pitchLags[sf]) - int(contours[sf][cIdx])
 		}
-		baseLag := sumLag / numSubframes
-		if baseLag < minLag {
-			baseLag = minLag
-		}
+		baseLag := max(sumLag/numSubframes, minLag)
 		if baseLag > maxLag {
 			baseLag = maxLag
 		}

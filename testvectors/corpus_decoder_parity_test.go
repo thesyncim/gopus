@@ -48,7 +48,6 @@ func TestCorpusDecoderParity(t *testing.T) {
 	}
 
 	for _, c := range fixture.Cases {
-		c := c
 		t.Run(c.Name, func(t *testing.T) {
 			t.Parallel()
 

@@ -16,7 +16,7 @@ func TestNewReader_Valid(t *testing.T) {
 	}
 
 	// Write some packets.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		packet := make([]byte, 50+i*10)
 		packet[0] = 0xFC
 		err = w.WritePacket(packet, 960)
@@ -157,7 +157,7 @@ func TestReadPacket_Multiple(t *testing.T) {
 
 	// Write 10 packets.
 	packetLengths := make([]int, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		packet := make([]byte, 50+i*10)
 		packet[0] = 0xFC
 		packetLengths[i] = len(packet)
@@ -177,7 +177,7 @@ func TestReadPacket_Multiple(t *testing.T) {
 		t.Fatalf("NewReader failed: %v", err)
 	}
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		packet, granule, err := r.ReadPacket()
 		if err != nil {
 			t.Fatalf("ReadPacket %d failed: %v", i, err)
@@ -386,7 +386,7 @@ func TestReader_WriterRoundTrip(t *testing.T) {
 
 	// Write multiple packets of varying sizes.
 	originalPackets := make([][]byte, 20)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		packet := make([]byte, 30+i*25)
 		packet[0] = 0xFC
 		for j := 1; j < len(packet); j++ {
@@ -409,7 +409,7 @@ func TestReader_WriterRoundTrip(t *testing.T) {
 		t.Fatalf("NewReader failed: %v", err)
 	}
 
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		packet, _, err := r.ReadPacket()
 		if err != nil {
 			t.Fatalf("ReadPacket %d failed: %v", i, err)

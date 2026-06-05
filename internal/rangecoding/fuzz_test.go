@@ -110,18 +110,12 @@ func buildFuzzScript(data []byte) []fuzzOp {
 		op := fuzzOp{}
 		switch r.byte() % 7 {
 		case 0: // Encode(fl, fh, ft) with arbitrary ft >= 2
-			ft := uint32(r.byte())<<8 | uint32(r.byte())
-			if ft < 2 {
-				ft = 2
-			}
+			ft := max(uint32(r.byte())<<8|uint32(r.byte()), 2)
 			// Pick fl < fh <= ft.
 			a := r.u32() % ft      // in [0, ft)
 			span := r.u32()%ft + 1 // in [1, ft]
 			fl := a
-			fh := fl + span
-			if fh > ft {
-				fh = ft
-			}
+			fh := min(fl+span, ft)
 			if fl >= fh {
 				if fh == 0 {
 					fh = 1
@@ -136,10 +130,7 @@ func buildFuzzScript(data []byte) []fuzzOp {
 			a := r.u32() % ft
 			span := r.u32()%ft + 1
 			fl := a
-			fh := fl + span
-			if fh > ft {
-				fh = ft
-			}
+			fh := min(fl+span, ft)
 			if fl >= fh {
 				if fh == 0 {
 					fh = 1
@@ -342,7 +333,7 @@ func FuzzDecoderArbitraryBytes(f *testing.F) {
 		// when the input is exhausted the selector cycles deterministically.
 		r := &fuzzReader{b: data}
 		const steps = 200
-		for i := 0; i < steps; i++ {
+		for i := range steps {
 			sel := byte(i)
 			if !r.done() {
 				sel = r.byte()
@@ -379,10 +370,7 @@ func FuzzDecoderArbitraryBytes(f *testing.F) {
 					d.Update(got, got+1, ft)
 				}
 			case 5:
-				ft := uint32(sel)<<8 | uint32(r.byte())
-				if ft < 2 {
-					ft = 2
-				}
+				ft := max(uint32(sel)<<8|uint32(r.byte()), 2)
 				if got := d.DecodeUniform(ft); got >= ft {
 					t.Fatalf("DecodeUniform(%d) returned %d (>= ft)", ft, got)
 				}

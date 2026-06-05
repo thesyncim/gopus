@@ -39,7 +39,7 @@ func TestEncoderBufferAppend16kWithoutEmission(t *testing.T) {
 	if got := b.LatentOffset(); got != 0 {
 		t.Fatalf("LatentOffset()=%d want 0", got)
 	}
-	for i := 0; i < SilkEncoderDelay; i++ {
+	for i := range SilkEncoderDelay {
 		if b.inputBuffer[i] != 0 {
 			t.Fatalf("inputBuffer[%d]=%g want 0", i, b.inputBuffer[i])
 		}
@@ -63,7 +63,7 @@ func TestEncoderBufferAppend16kEmitsOneFrameAndRetainsTail(t *testing.T) {
 	if emitted != 1 {
 		t.Fatalf("Append16k emitted=%d want 1", emitted)
 	}
-	for i := 0; i < SilkEncoderDelay; i++ {
+	for i := range SilkEncoderDelay {
 		if frame[i] != 0 {
 			t.Fatalf("frame[%d]=%g want 0", i, frame[i])
 		}
@@ -77,7 +77,7 @@ func TestEncoderBufferAppend16kEmitsOneFrameAndRetainsTail(t *testing.T) {
 	if got := b.InputBufferFill(); got != SilkEncoderDelay {
 		t.Fatalf("InputBufferFill()=%d want %d", got, SilkEncoderDelay)
 	}
-	for i := 0; i < SilkEncoderDelay; i++ {
+	for i := range SilkEncoderDelay {
 		want := pcm[DFrameSize-SilkEncoderDelay+i]
 		if got := b.inputBuffer[i]; got != want {
 			t.Fatalf("tail[%d]=%g want %g", i, got, want)
@@ -105,7 +105,7 @@ func TestEncoderBufferAppend16kEmitsTwoFramesAndAdvancesLatentOffset(t *testing.
 	if emitted != 2 {
 		t.Fatalf("Append16k emitted=%d want 2", emitted)
 	}
-	for i := 0; i < SilkEncoderDelay; i++ {
+	for i := range SilkEncoderDelay {
 		want := pcm[DFrameSize-SilkEncoderDelay+i]
 		if got := frames[1][i]; got != want {
 			t.Fatalf("second frame prefix[%d]=%g want %g", i, got, want)

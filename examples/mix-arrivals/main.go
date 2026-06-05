@@ -140,10 +140,7 @@ func encodeMixToOgg(path string, pcm []float32, bitrate int) (encodeStats, error
 
 		start := frame * frameSize * channels
 		if start < len(pcm) {
-			end := start + len(framePCM)
-			if end > len(pcm) {
-				end = len(pcm)
-			}
+			end := min(start+len(framePCM), len(pcm))
 			copy(framePCM, pcm[start:end])
 		}
 

@@ -59,7 +59,7 @@ func TestMultistreamRoundTrip_51(t *testing.T) {
 	}
 
 	// Log per-channel energy
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		chEnergy := computeChannelEnergy(pcmOut[:n*channels], channels, ch)
 		t.Logf("  Channel %d energy: %.4f", ch, chEnergy)
 	}
@@ -130,7 +130,7 @@ func TestMultistreamRoundTrip_Stereo(t *testing.T) {
 
 	// Generate stereo test signal (L: 440Hz, R: 880Hz)
 	pcmIn := make([]float32, frameSize*channels)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		pcmIn[i*2] = float32(0.5 * math.Sin(2*math.Pi*440*float64(i)/float64(sampleRate)))
 		pcmIn[i*2+1] = float32(0.5 * math.Sin(2*math.Pi*880*float64(i)/float64(sampleRate)))
 	}
@@ -177,7 +177,7 @@ func TestMultistreamRoundTrip_MultipleFrames(t *testing.T) {
 	var totalInputEnergy, totalOutputEnergy float64
 
 	pcmOut := make([]float32, frameSize*channels)
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		// Generate unique signal for each frame
 		pcmIn := generateSurroundTestSignal(sampleRate, frameSize, channels)
 		// Shift frequency slightly for each frame
@@ -225,8 +225,8 @@ func TestMultistreamRoundTrip_Int16(t *testing.T) {
 
 	// Generate int16 test signal
 	pcmIn := make([]int16, frameSize*channels)
-	for s := 0; s < frameSize; s++ {
-		for ch := 0; ch < channels; ch++ {
+	for s := range frameSize {
+		for ch := range channels {
 			freq := 220.0 + float64(ch)*110
 			pcmIn[s*channels+ch] = int16(8192 * math.Sin(2*math.Pi*freq*float64(s)/float64(sampleRate)))
 		}
@@ -304,7 +304,7 @@ func TestMultistreamRoundTrip_Mono(t *testing.T) {
 
 	// Generate mono test signal
 	pcmIn := make([]float32, frameSize)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		pcmIn[i] = float32(0.5 * math.Sin(2*math.Pi*440*float64(i)/float64(sampleRate)))
 	}
 	inputEnergy := computeEnergyFloat32(pcmIn)

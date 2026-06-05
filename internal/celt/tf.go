@@ -41,7 +41,7 @@ func ComputeImportance(bandLogE, oldBandE []celtGLog, nbBands, channels, lm, lsb
 	// Default importance when analysis is disabled (low bitrate or complexity)
 	// libopus: if (effectiveBytes < (30 + 5*LM)) importance[i] = 13
 	if effectiveBytes < 30+5*lm {
-		for i := 0; i < nbBands; i++ {
+		for i := range nbBands {
 			importance[i] = 13
 		}
 		return importance
@@ -50,7 +50,7 @@ func ComputeImportance(bandLogE, oldBandE []celtGLog, nbBands, channels, lm, lsb
 	// Compute noise floor per band
 	// libopus: noise_floor[i] = 0.0625*logN[i] + 0.5 + (9-lsb_depth) - eMeans[i]/16 + 0.0062*(i+5)^2
 	noiseFloor := make([]float32, nbBands)
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		logNVal := float32(0)
 		if i < len(LogN) {
 			logNVal = float32(LogN[i]) / 256.0 // LogN is in Q8
@@ -66,8 +66,8 @@ func ComputeImportance(bandLogE, oldBandE []celtGLog, nbBands, channels, lm, lsb
 	// Compute max depth across all bands and channels
 	maxDepth := float32(-31.9)
 	end := nbBands
-	for c := 0; c < channels; c++ {
-		for i := 0; i < end; i++ {
+	for c := range channels {
+		for i := range end {
 			idx := c*nbBands + i
 			if idx < len(bandLogE) {
 				depth := float32(bandLogE[idx]) - noiseFloor[i]
@@ -83,12 +83,12 @@ func ComputeImportance(bandLogE, oldBandE []celtGLog, nbBands, channels, lm, lsb
 	follower := make([]float32, nbBands)
 
 	// For each channel, compute follower and combine
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		bandLogE3 := make([]float32, nbBands)
 		f := make([]float32, nbBands)
 
 		// Get band energies for this channel
-		for i := 0; i < nbBands; i++ {
+		for i := range nbBands {
 			idx := c*nbBands + i
 			if idx < len(bandLogE) {
 				bandLogE3[i] = float32(bandLogE[idx])
@@ -131,7 +131,7 @@ func ComputeImportance(bandLogE, oldBandE []celtGLog, nbBands, channels, lm, lsb
 		}
 
 		// Clamp follower to noise floor
-		for i := 0; i < nbBands; i++ {
+		for i := range nbBands {
 			if f[i] < noiseFloor[i] {
 				f[i] = noiseFloor[i]
 			}
@@ -142,7 +142,7 @@ func ComputeImportance(bandLogE, oldBandE []celtGLog, nbBands, channels, lm, lsb
 		if channels == 2 {
 			// Stereo: combine with cross-talk consideration (24 dB)
 			otherC := 1 - c
-			for i := 0; i < nbBands; i++ {
+			for i := range nbBands {
 				otherIdx := otherC*nbBands + i
 				if otherIdx < len(bandLogE) {
 					// Consider 24 dB cross-talk between channels
@@ -159,7 +159,7 @@ func ComputeImportance(bandLogE, oldBandE []celtGLog, nbBands, channels, lm, lsb
 			copy(follower, f)
 		} else {
 			// For stereo, combine the excess energy from both channels
-			for i := 0; i < nbBands; i++ {
+			for i := range nbBands {
 				idx0 := i
 				idx1 := nbBands + i
 				excess0 := float32(0)
@@ -183,7 +183,7 @@ func ComputeImportance(bandLogE, oldBandE []celtGLog, nbBands, channels, lm, lsb
 
 	// If mono, compute excess energy
 	if channels == 1 {
-		for i := 0; i < nbBands; i++ {
+		for i := range nbBands {
 			if i < len(bandLogE) {
 				excess := float32(bandLogE[i]) - follower[i]
 				if excess < 0 {
@@ -198,7 +198,7 @@ func ComputeImportance(bandLogE, oldBandE []celtGLog, nbBands, channels, lm, lsb
 
 	// Convert follower to importance
 	// libopus: importance[i] = floor(0.5 + 13 * celt_exp2_db(min(follower[i], 4.0)))
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		importance[i] = dynallocImportanceFromFollower(follower[i])
 	}
 
@@ -257,7 +257,7 @@ func haar1Norm(x []celtNorm, n0, stride int) {
 		}
 		return
 	}
-	for i := 0; i < stride; i++ {
+	for i := range stride {
 		idx0 := i
 		idx1 := i + stride
 		for j := 0; j < n0; j++ {
@@ -313,7 +313,7 @@ func TFAnalysis(X []celtNorm, N0, nbEBands int, isTransient bool, lm int, tfEsti
 	metric := make([]int32, nbEBands)
 	tmp := make([]celtNorm, 0, (EBands[nbEBands]-EBands[nbEBands-1])<<lm)
 
-	for i := 0; i < nbEBands; i++ {
+	for i := range nbEBands {
 		bandStart := EBands[i] << lm
 		bandEnd := EBands[i+1] << lm
 		N := bandEnd - bandStart
@@ -392,7 +392,7 @@ func TFAnalysis(X []celtNorm, N0, nbEBands int, isTransient bool, lm int, tfEsti
 	tfSelect = 0
 	selcost := [2]int32{}
 
-	for sel := 0; sel < 2; sel++ {
+	for sel := range 2 {
 		imp0 := int32(13)
 		if importance != nil && len(importance) > 0 {
 			imp0 = importance[0]
@@ -573,7 +573,7 @@ func TFAnalysisWithScratch(X []celtNorm, N0, nbEBands int, isTransient bool, lm 
 	metric := scratch.Metric[:nbEBands]
 	tmp := scratch.Tmp
 
-	for i := 0; i < nbEBands; i++ {
+	for i := range nbEBands {
 		bandStart := EBands[i] << lm
 		bandEnd := EBands[i+1] << lm
 		N := bandEnd - bandStart
@@ -642,7 +642,7 @@ func TFAnalysisWithScratch(X []celtNorm, N0, nbEBands int, isTransient bool, lm 
 	tfSelect = 0
 	selcost := [2]int32{}
 
-	for sel := 0; sel < 2; sel++ {
+	for sel := range 2 {
 		imp0 := int32(13)
 		if importance != nil && len(importance) > 0 {
 			imp0 = importance[0]

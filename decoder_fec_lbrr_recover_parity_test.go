@@ -88,10 +88,7 @@ func TestDecodeWithFECMonoFirstPacketLBRRMatchesLibopus(t *testing.T) {
 				got = append(got, buf[:n*channels]...)
 			}
 
-			cmpLen := len(want)
-			if len(got) < cmpLen {
-				cmpLen = len(got)
-			}
+			cmpLen := min(len(got), len(want))
 			assertAPIRateQualityFloat32(t, got[:cmpLen], want[:cmpLen], sampleRate, channels,
 				"mono first-packet LBRR FEC decode")
 		})
@@ -156,10 +153,7 @@ func TestDecodeWithFECStereoWarmLBRRMatchesLibopus(t *testing.T) {
 				got = append(got, buf[:n*channels]...)
 			}
 
-			cmpLen := len(want)
-			if len(got) < cmpLen {
-				cmpLen = len(got)
-			}
+			cmpLen := min(len(got), len(want))
 			assertAPIRateQualityFloat32(t, got[:cmpLen], want[:cmpLen], sampleRate, channels,
 				"stereo warm LBRR FEC decode")
 		})
@@ -312,10 +306,7 @@ func TestDecodeWithFECMonoFirstPacketByteExact(t *testing.T) {
 			}
 
 			wantFEC := want[fs*channels:]
-			cmpLen := len(wantFEC)
-			if len(fecBuf) < cmpLen {
-				cmpLen = len(fecBuf)
-			}
+			cmpLen := min(len(fecBuf), len(wantFEC))
 			assertAPIRateQualityFloat32(t, fecBuf[:cmpLen], wantFEC[:cmpLen], sampleRate, channels,
 				"mono first-packet LBRR byte-exact")
 		})
@@ -383,9 +374,9 @@ func TestDecodeWithFECStereoHybridAfterLongLossRangeExact(t *testing.T) {
 	const nFrames = 30
 	packets := make([][]byte, 0, nFrames)
 	recoveryIdx := -1
-	for f := 0; f < nFrames; f++ {
+	for f := range nFrames {
 		pcm := make([]float32, frameSize*channels)
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			tm := float64(f*frameSize+i) / sampleRate
 			f0 := 180.0 * (1.0 + 0.02*math.Sin(2*math.Pi*3.0*tm))
 			pcm[i*channels] = 0.40*float32(math.Sin(2*math.Pi*f0*tm)) +
@@ -418,10 +409,10 @@ func TestDecodeWithFECStereoHybridAfterLongLossRangeExact(t *testing.T) {
 		fec    bool
 	}
 	plan := make([]step, 0, warmUp+lossBurst+2)
-	for i := 0; i < warmUp; i++ {
+	for i := range warmUp {
 		plan = append(plan, step{packet: packets[i]})
 	}
-	for i := 0; i < lossBurst; i++ {
+	for range lossBurst {
 		plan = append(plan, step{packet: nil}) // PLC
 	}
 	plan = append(plan, step{packet: packets[recoveryIdx], fec: true}) // FEC after fade exhaustion

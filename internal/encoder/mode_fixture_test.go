@@ -134,7 +134,6 @@ func TestModeFixtureParityWithLibopus(t *testing.T) {
 	const maxConfigMismatchRatio = 0.02
 
 	for _, c := range fixture.Cases {
-		c := c
 		caseName := fmt.Sprintf("%s/%s", c.Name, c.Variant)
 		t.Run(caseName, func(t *testing.T) {
 			t.Parallel()

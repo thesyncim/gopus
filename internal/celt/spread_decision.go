@@ -59,10 +59,7 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []celtNorm, nbBands, channe
 	// 48 kHz modes shortMdctSize is 120; for the Fs==400*shortMdctSize custom
 	// family it is the mode's short-MDCT size (e.scaleBase()).
 	base := e.scaleBase()
-	M := frameSize / base
-	if M < 1 {
-		M = 1
-	}
+	M := max(frameSize/base, 1)
 
 	// N0 = total MDCT coefficients per channel (== frameSize).
 	N0 := frameSize
@@ -82,9 +79,9 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []celtNorm, nbBands, channe
 	nbBandsTotal := int32(0)
 	hfSum := int32(0)
 	// Process each channel
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		// Process each band
-		for band := 0; band < nbBands; band++ {
+		for band := range nbBands {
 			// Get band boundaries
 			bandStart := ScaledBandStart(band, binFS)
 			bandEnd := ScaledBandEnd(band, binFS)
@@ -225,7 +222,7 @@ func computeSpreadWeights(bandLogE []celtGLog, nbBands, channels, lsbDepth int) 
 	// Ensure we have enough band energies
 	if len(bandLogE) < nbBands {
 		// Default to uniform weights
-		for i := 0; i < nbBands; i++ {
+		for i := range nbBands {
 			weights[i] = 1
 		}
 		return weights
@@ -234,7 +231,7 @@ func computeSpreadWeights(bandLogE []celtGLog, nbBands, channels, lsbDepth int) 
 	// Compute noise floor per band
 	// libopus: noise_floor[i] = 0.0625*logN[i] + 0.5 + (9-lsb_depth) - eMeans[i] + 0.0062*(i+5)^2
 	noiseFloor := make([]float32, nbBands)
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		logNVal := float32(0.0)
 		if i < len(LogN) {
 			logNVal = float32(LogN[i])
@@ -249,8 +246,8 @@ func computeSpreadWeights(bandLogE []celtGLog, nbBands, channels, lsbDepth int) 
 
 	// Compute maxDepth (maximum signal relative to noise floor across all bands/channels)
 	maxDepth := float32(-31.9)
-	for c := 0; c < channels; c++ {
-		for i := 0; i < nbBands; i++ {
+	for c := range channels {
+		for i := range nbBands {
 			idx := c*nbBands + i
 			if idx < len(bandLogE) {
 				depth := float32(bandLogE[idx]) - noiseFloor[i]
@@ -264,11 +261,11 @@ func computeSpreadWeights(bandLogE []celtGLog, nbBands, channels, lsbDepth int) 
 	// Compute signal mask (max across channels) relative to noise floor
 	mask := make([]float32, nbBands)
 	sig := make([]float32, nbBands)
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		mask[i] = float32(bandLogE[i]) - noiseFloor[i]
 	}
 	if channels == 2 && len(bandLogE) >= 2*nbBands {
-		for i := 0; i < nbBands; i++ {
+		for i := range nbBands {
 			ch2Val := float32(bandLogE[nbBands+i]) - noiseFloor[i]
 			if ch2Val > mask[i] {
 				mask[i] = ch2Val
@@ -296,7 +293,7 @@ func computeSpreadWeights(bandLogE []celtGLog, nbBands, channels, lsbDepth int) 
 	// Compute SMR and spread weight for each band
 	// libopus: smr = sig[i] - max(0, max(maxDepth-12, mask[i]))
 	// spread_weight = 32 >> clamp(-round(smr), 0, 5)
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		// Compute masking threshold: never more than 72dB below peak, never below noise floor
 		maskThresh := mask[i]
 		if maxDepth-12.0 > maskThresh {

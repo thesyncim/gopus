@@ -27,7 +27,7 @@ func encodeThetaInvBit(t *testing.T, disableInv bool) int {
 	const n = 16
 	x := make([]celtNorm, n)
 	y := make([]celtNorm, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		x[i] = 1.0
 		y[i] = -1.0
 	}

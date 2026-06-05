@@ -10,7 +10,7 @@ func haar1Stride1Generic(x []float64, n0 int) {
 		return
 	}
 	idx := 0
-	for j := 0; j < n0; j++ {
+	for range n0 {
 		haar1Pair(x, idx, idx+1, invSqrt2)
 		idx += 2
 	}
@@ -33,7 +33,7 @@ func haar1Stride2Generic(x []float64, n0 int) {
 		return
 	}
 	idx := 0
-	for j := 0; j < n0; j++ {
+	for range n0 {
 		haar1Pair(x, idx, idx+2, invSqrt2)
 		haar1Pair(x, idx+1, idx+3, invSqrt2)
 		idx += 4
@@ -50,7 +50,7 @@ func haar1Stride4(x []float64, n0 int) {
 		return
 	}
 	idx := 0
-	for j := 0; j < n0; j++ {
+	for range n0 {
 		haar1Pair(x, idx, idx+4, invSqrt2)
 		haar1Pair(x, idx+1, idx+5, invSqrt2)
 		haar1Pair(x, idx+2, idx+6, invSqrt2)

@@ -8,7 +8,7 @@ import (
 
 func refInnerProd(x, y []float64, length int) float64 {
 	sum := 0.0
-	for i := 0; i < length; i++ {
+	for i := range length {
 		sum += x[i] * y[i]
 	}
 	return sum
@@ -16,7 +16,7 @@ func refInnerProd(x, y []float64, length int) float64 {
 
 func refDualInnerProd(x, y1, y2 []float64, length int) (float64, float64) {
 	sum1, sum2 := 0.0, 0.0
-	for i := 0; i < length; i++ {
+	for i := range length {
 		sum1 += x[i] * y1[i]
 		sum2 += x[i] * y2[i]
 	}
@@ -25,7 +25,7 @@ func refDualInnerProd(x, y1, y2 []float64, length int) (float64, float64) {
 
 func refTripleInnerProd(x, y1, y2, y3 []float64, length int) (float64, float64, float64) {
 	sum1, sum2, sum3 := 0.0, 0.0, 0.0
-	for i := 0; i < length; i++ {
+	for i := range length {
 		sum1 += x[i] * y1[i]
 		sum2 += x[i] * y2[i]
 		sum3 += x[i] * y3[i]
@@ -34,9 +34,9 @@ func refTripleInnerProd(x, y1, y2, y3 []float64, length int) (float64, float64, 
 }
 
 func refPitchXcorr(x, y, xcorr []float64, length, maxPitch int) {
-	for i := 0; i < maxPitch; i++ {
+	for i := range maxPitch {
 		sum := 0.0
-		for j := 0; j < length; j++ {
+		for j := range length {
 			sum += x[j] * y[i+j]
 		}
 		xcorr[i] = sum
@@ -45,7 +45,7 @@ func refPitchXcorr(x, y, xcorr []float64, length, maxPitch int) {
 
 func TestCeltInnerProd(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
-	for trial := 0; trial < 1000; trial++ {
+	for trial := range 1000 {
 		n := rng.Intn(512) + 1
 		x := make([]float64, n)
 		y := make([]float64, n)
@@ -79,7 +79,7 @@ func TestCeltInnerProdEdge(t *testing.T) {
 
 func TestDualInnerProd(t *testing.T) {
 	rng := rand.New(rand.NewSource(43))
-	for trial := 0; trial < 1000; trial++ {
+	for trial := range 1000 {
 		n := rng.Intn(512) + 1
 		x := make([]float64, n)
 		y1 := make([]float64, n)
@@ -102,7 +102,7 @@ func TestDualInnerProd(t *testing.T) {
 
 func TestTripleInnerProd(t *testing.T) {
 	rng := rand.New(rand.NewSource(4301))
-	for trial := 0; trial < 1000; trial++ {
+	for trial := range 1000 {
 		n := rng.Intn(512) + 1
 		x := make([]float64, n)
 		y1 := make([]float64, n)
@@ -130,7 +130,7 @@ func TestTripleInnerProd(t *testing.T) {
 
 func TestTripleInnerProdMatchesSeparateCeltInnerProd(t *testing.T) {
 	rng := rand.New(rand.NewSource(4302))
-	for trial := 0; trial < 500; trial++ {
+	for trial := range 500 {
 		n := rng.Intn(512) + 1
 		x := make([]float64, n)
 		y1 := make([]float64, n)
@@ -160,7 +160,7 @@ func TestTripleInnerProdMatchesSeparateCeltInnerProd(t *testing.T) {
 
 func TestCeltPitchXcorr(t *testing.T) {
 	rng := rand.New(rand.NewSource(44))
-	for trial := 0; trial < 200; trial++ {
+	for trial := range 200 {
 		length := rng.Intn(256) + 1
 		maxPitch := rng.Intn(64) + 1
 		x := make([]float64, length)
@@ -175,7 +175,7 @@ func TestCeltPitchXcorr(t *testing.T) {
 		want := make([]float64, maxPitch)
 		celtPitchXcorr(x, y, got, length, maxPitch)
 		refPitchXcorr(x, y, want, length, maxPitch)
-		for i := 0; i < maxPitch; i++ {
+		for i := range maxPitch {
 			if math.Abs(got[i]-want[i]) > 1e-6*math.Abs(want[i])+1e-12 {
 				t.Fatalf("trial %d i=%d: got %v want %v", trial, i, got[i], want[i])
 			}

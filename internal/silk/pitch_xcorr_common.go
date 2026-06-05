@@ -7,7 +7,7 @@ func innerProductF32Acc(a, b []float32, length int) float32 {
 	_ = a[length-1] // BCE hint
 	_ = b[length-1] // BCE hint
 	var result float32
-	for i := 0; i < length; i++ {
+	for i := range length {
 		result += noFMA32(a[i], b[i])
 	}
 	return result

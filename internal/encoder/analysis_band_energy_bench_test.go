@@ -26,12 +26,12 @@ var analysisBandBenchSink float32
 
 func newAnalysisBandBenchInput() analysisBandBenchInput {
 	var in analysisBandBenchInput
-	for i := 0; i < analysisBenchNumBins; i++ {
+	for i := range analysisBenchNumBins {
 		phase := 0.19 * float64(i+1)
 		v := 0.52 + 0.48*math.Sin(phase)
 		in.binE[i] = float32(0.001 + v*v)
 	}
-	for i := 0; i < analysisBenchBinEnd; i++ {
+	for i := range analysisBenchBinEnd {
 		phase := 0.11 * float64(i+1)
 		in.tonality[i] = float32(0.72*math.Sin(phase) + 0.12)
 		in.noisiness[i] = float32(0.22 + 0.18*math.Cos(0.07*float64(i+1)))
@@ -45,15 +45,15 @@ func newAnalysisBandBenchState() *TonalityAnalysisState {
 	s.ECount = 3
 	s.PrevBandwidth = 18
 
-	for b := 0; b < NbTBands; b++ {
+	for b := range NbTBands {
 		s.LowE[b] = -8.0 + 0.1*float32(b)
 		s.HighE[b] = s.LowE[b] + 5.5
 		s.PrevBandTonality[b] = 0.35 + 0.02*float32((b+3)%5)
 		s.MeanE[b] = 0.25 + 0.04*float32((b+1)%7)
 	}
 
-	for i := 0; i < NbFrames; i++ {
-		for b := 0; b < NbTBands; b++ {
+	for i := range NbFrames {
+		for b := range NbTBands {
 			e := 0.15 + 0.01*float32((i+b+2)%11)
 			s.E[i][b] = e
 			s.SqrtE[i][b] = float32(math.Sqrt(float64(e)))
@@ -85,7 +85,7 @@ func analysisBandEnergyLegacy(
 	aboveMaxPitch := float32(0)
 	var bandTonality [NbTBands]float32
 
-	for b := 0; b < NbTBands; b++ {
+	for b := range NbTBands {
 		var bandE, tE, nE float32
 		for i := tbands[b]; i < tbands[b+1]; i++ {
 			binE := in.binE[i-analysisBenchBinStart] * analysisBenchBinScale
@@ -112,7 +112,7 @@ func analysisBandEnergyLegacy(
 		relativeE += (logE[b] - s.LowE[b]) / (1e-5 + (s.HighE[b] - s.LowE[b]))
 
 		var L1, L2 float32
-		for i := 0; i < NbFrames; i++ {
+		for i := range NbFrames {
 			L1 += float32(math.Sqrt(float64(s.E[i][b])))
 			L2 += s.E[i][b]
 		}
@@ -131,7 +131,7 @@ func analysisBandEnergyLegacy(
 		s.PrevBandTonality[b] = bandTonality[b]
 	}
 
-	for b := 0; b < NbTBands; b++ {
+	for b := range NbTBands {
 		bandStart := tbands[b]
 		bandEnd := tbands[b+1]
 		Eraw := float32(0)
@@ -189,7 +189,7 @@ func analysisBandEnergyCurrent(
 	var bandTonality [NbTBands]float32
 	var bandERaw [NbTBands]float32
 
-	for b := 0; b < NbTBands; b++ {
+	for b := range NbTBands {
 		var bandE, tE, nE, rawE float32
 		for i := tbands[b]; i < tbands[b+1]; i++ {
 			binERaw := in.binE[i-analysisBenchBinStart]
@@ -221,7 +221,7 @@ func analysisBandEnergyCurrent(
 		relativeE += (logE[b] - s.LowE[b]) / (1e-5 + (s.HighE[b] - s.LowE[b]))
 
 		var L1, L2 float32
-		for i := 0; i < NbFrames; i++ {
+		for i := range NbFrames {
 			L1 += s.SqrtE[i][b]
 			L2 += s.E[i][b]
 		}
@@ -240,7 +240,7 @@ func analysisBandEnergyCurrent(
 		s.PrevBandTonality[b] = bandTonality[b]
 	}
 
-	for b := 0; b < NbTBands; b++ {
+	for b := range NbTBands {
 		bandStart := tbands[b]
 		bandEnd := tbands[b+1]
 		E := bandERaw[b] * analysisBenchBinScale

@@ -26,10 +26,10 @@ func referenceMDCTForward[T ~float32 | ~float64](input []T) []float32 {
 
 	scale := float32(1.0) / float32(N/4) // Same as 4.0/N
 
-	for k := 0; k < N2; k++ {
+	for k := range N2 {
 		var sum float32
 		kPlusHalf := float32(k) + 0.5
-		for n := 0; n < N; n++ {
+		for n := range N {
 			phase := float32(2.0*math.Pi) * (float32(n) + 0.5 + float32(N)*0.25) * kPlusHalf / float32(N)
 			sum += float32(input[n]) * float32(math.Cos(float64(phase)))
 		}
@@ -59,7 +59,7 @@ func float64sFromMDCTForwardTest(in []float32) []float64 {
 // This matches libopus test which uses window[k] = 1.0 (Q15ONE/Q31ONE).
 func prepareInputWithWindow(n int, seed int) []float32 {
 	input := make([]float32, n)
-	for k := 0; k < n; k++ {
+	for k := range n {
 		// Generate pseudo-random data similar to libopus test
 		// Using deterministic seed for reproducibility
 		input[k] = float32((seed*17+k*31)%32768 - 16384)
@@ -350,7 +350,7 @@ func TestMDCT_RoundTrip(t *testing.T) {
 			reconstructed := make([]float32, signalLen)
 			prevOverlapBuf := make([]float32, overlap)
 
-			for frame := 0; frame < numFrames; frame++ {
+			for frame := range numFrames {
 				start := frame * frameSize
 				end := start + frameSize + overlap
 				if end > len(signal) {

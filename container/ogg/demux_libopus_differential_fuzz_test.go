@@ -266,7 +266,7 @@ func genPCM16(opts libopusEncodeOpts) []int16 {
 		rng = rng*1664525 + 1013904223
 		return (float64(rng>>8)/float64(1<<24))*2 - 1
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		tsec := float64(i) / 48000.0
 		var v float64
 		switch opts.signalKind {
@@ -447,7 +447,7 @@ func FuzzOggLibopusMutationRobustness(f *testing.F) {
 		// oversized packet.
 		r, err := NewReader(bytes.NewReader(data))
 		if err == nil {
-			for i := 0; i < 4096; i++ {
+			for range 4096 {
 				pkt, _, perr := r.ReadPacket()
 				if perr == io.EOF || perr != nil {
 					break

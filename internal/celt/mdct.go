@@ -21,7 +21,7 @@ func buildMDCTTrigF32(n int) []float32 {
 	}
 	n2 := n / 2
 	trig := make([]float32, n2)
-	for i := 0; i < n2; i++ {
+	for i := range n2 {
 		// libopus celt/mdct.c clt_mdct_init float build:
 		//   trig[i] = (float)cos(2*PI*(i+.125)/N)
 		// computed in double precision and rounded to float. The float32
@@ -124,7 +124,7 @@ func imdctPreRotateF32Spectrum(fftIn []complex64, spectrum []float32, trig []flo
 		imdctPreRotateFMA32Kiss(fftIn, spectrum, trig, n2, n4)
 		return
 	}
-	for i := 0; i < n4; i++ {
+	for i := range n4 {
 		x1 := spectrum[2*i]
 		x2 := spectrum[n2-1-2*i]
 		t0 := trig[i]
@@ -169,7 +169,7 @@ func imdctOverlapWithPrevScratchF32Output32[S ~float32](spectrum []float32, prev
 	}
 	if overlap > 0 && len(prevOverlap) > 0 {
 		copyLen := min(len(prevOverlap), overlap)
-		for i := 0; i < copyLen; i++ {
+		for i := range copyLen {
 			outF32[i] = float32(prevOverlap[i])
 		}
 		if copyLen < overlap {
@@ -194,7 +194,7 @@ func imdctOverlapWithPrevScratchF32Output32[S ~float32](spectrum []float32, prev
 		if mdctUseFMALikeMixEnabled && limit > 0 {
 			imdctTDACWindowFMA32(outF32, outF32, windowF32, yp1, xp1, xp1, wp2, limit)
 		} else {
-			for i := 0; i < limit; i++ {
+			for range limit {
 				x1 := outF32[xp1]
 				x2 := outF32[yp1]
 				outF32[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
@@ -255,7 +255,7 @@ func imdctInPlaceScratchF32Spectrum(spectrum []float32, out []float32, blockStar
 		if mdctUseFMALikeMixEnabled && limit > 0 {
 			imdctTDACWindowFMA32(out, buf, windowF32, yp1, xp1, xp1-start, wp2, limit)
 		} else {
-			for i := 0; i < limit; i++ {
+			for range limit {
 				bufIdx := xp1 - start
 				x1 := buf[bufIdx]
 				x2 := out[yp1]
@@ -335,10 +335,10 @@ func IMDCTShort(coeffs []float32, shortBlocks int) []float32 {
 	output := make([]float32, 2*totalCoeffs)
 
 	// Process each short block
-	for b := 0; b < shortBlocks; b++ {
+	for b := range shortBlocks {
 		// Extract coefficients for this short block
 		shortCoeffs := make([]float32, shortSize)
-		for i := 0; i < shortSize; i++ {
+		for i := range shortSize {
 			// Coefficients are interleaved: coeff[b + i*shortBlocks]
 			srcIdx := b + i*shortBlocks
 			if srcIdx < totalCoeffs {
@@ -368,12 +368,12 @@ func dft32(x []complex64) []complex64 {
 
 	out := make([]complex64, n)
 	twoPi := float32(-2.0*math.Pi) / float32(n)
-	for k := 0; k < n; k++ {
+	for k := range n {
 		angle := twoPi * float32(k)
 		wStep := complex(opusmath.CosF32(angle), opusmath.SinF32(angle))
 		w := complex(float32(1.0), float32(0.0))
 		var sum complex64
-		for t := 0; t < n; t++ {
+		for t := range n {
 			sum += x[t] * w
 			w *= wStep
 		}
@@ -418,10 +418,10 @@ func IMDCTDirect(spectrum []float32) []float32 {
 	output := make([]float32, N2)
 	base := float32(math.Pi) / float32(N)
 	nHalf := float32(N) / 2
-	for n := 0; n < N2; n++ {
+	for n := range N2 {
 		var sum float32
 		nTerm := float32(n) + 0.5 + nHalf
-		for k := 0; k < N; k++ {
+		for k := range N {
 			angle := base * nTerm * (float32(k) + 0.5)
 			sum += spectrum[k] * mdctCosApprox32(angle)
 		}

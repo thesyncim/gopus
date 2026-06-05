@@ -56,7 +56,7 @@ func TestSilkResamplerDown2HPStereoMatchesDownmixThenResample(t *testing.T) {
 	}
 	scale := float32(0.5 * celtSigScale)
 	staged := make([]float32, len(in)/2)
-	for i := 0; i < len(staged); i++ {
+	for i := range staged {
 		staged[i] = (in[2*i] + in[2*i+1]) * scale
 	}
 
@@ -260,7 +260,7 @@ func TestRunAnalysisMaxPitchRatioTracksHighBandEnergy(t *testing.T) {
 	}
 
 	var info AnalysisInfo
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		info = s.RunAnalysis(pcm, frameSize, 1)
 	}
 	if !info.Valid {
@@ -277,18 +277,18 @@ func TestRunAnalysisLowEnergyCounterIncreasesAfterLoudnessDrop(t *testing.T) {
 	const frameSize = 960
 	loud := make([]float32, frameSize)
 	quiet := make([]float32, frameSize)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		loud[i] = 0.8 * float32(math.Sin(2*math.Pi*220.0*float64(i)/48000.0))
 		quiet[i] = 1e-4 * float32(math.Sin(2*math.Pi*220.0*float64(i)/48000.0))
 	}
 
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		_ = s.RunAnalysis(loud, frameSize, 1)
 	}
 	lowEBefore := s.LowECount
 
 	var info AnalysisInfo
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		info = s.RunAnalysis(quiet, frameSize, 1)
 	}
 	if !info.Valid {
@@ -361,7 +361,7 @@ func TestTonalityAnalysisResetClearsState(t *testing.T) {
 	for i := range pcm {
 		pcm[i] = 0.6 * float32(math.Sin(2*math.Pi*440.0*float64(i)/48000.0))
 	}
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_ = s.RunAnalysis(pcm, frameSize, 1)
 	}
 	if s.Count == 0 {
@@ -433,7 +433,7 @@ func TestRunAnalysisNoiseFloorRespectsLSBDepth(t *testing.T) {
 	s8.SetLSBDepth(8)
 
 	var info24, info8 AnalysisInfo
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		pcm := makeFrame()
 		info24 = s24.RunAnalysis(pcm, frameSize, 1)
 		info8 = s8.RunAnalysis(pcm, frameSize, 1)

@@ -84,37 +84,37 @@ func traceLibopusCELTPLCStage(t *testing.T, sampleRate, channels, frameSize, req
 	trace.presyn = make([][]float32, cc)
 	trace.final = make([]float32, n*cc)
 	reader.ExpectRemaining((cc*n + cc*n + cc*cinlen + cc*ov + cc*ov + cc*n + cc*n) * 4)
-	for ch := 0; ch < cc; ch++ {
+	for ch := range cc {
 		trace.preSpec[ch] = make([]float32, n)
 		for i := range trace.preSpec[ch] {
 			trace.preSpec[ch][i] = reader.Float32()
 		}
 	}
-	for ch := 0; ch < cc; ch++ {
+	for ch := range cc {
 		trace.spec[ch] = make([]float32, n)
 		for i := range trace.spec[ch] {
 			trace.spec[ch][i] = reader.Float32()
 		}
 	}
-	for ch := 0; ch < cc; ch++ {
+	for ch := range cc {
 		trace.combIn[ch] = make([]float32, cinlen)
 		for i := range trace.combIn[ch] {
 			trace.combIn[ch][i] = reader.Float32()
 		}
 	}
-	for ch := 0; ch < cc; ch++ {
+	for ch := range cc {
 		trace.combOut[ch] = make([]float32, ov)
 		for i := range trace.combOut[ch] {
 			trace.combOut[ch][i] = reader.Float32()
 		}
 	}
-	for ch := 0; ch < cc; ch++ {
+	for ch := range cc {
 		trace.fold[ch] = make([]float32, ov)
 		for i := range trace.fold[ch] {
 			trace.fold[ch][i] = reader.Float32()
 		}
 	}
-	for ch := 0; ch < cc; ch++ {
+	for ch := range cc {
 		trace.presyn[ch] = make([]float32, n)
 		for i := range trace.presyn[ch] {
 			trace.presyn[ch][i] = reader.Float32()
@@ -156,7 +156,6 @@ func TestCELTPLCStagesMatchLibopusC(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run("ch_"+itoaChN(tc.channels), func(t *testing.T) {
 			seed, err := hex.DecodeString(tc.seedHex)
 			if err != nil {
@@ -180,7 +179,7 @@ func TestCELTPLCStagesMatchLibopusC(t *testing.T) {
 			if err := dec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(celtPayload, frameSize, tc.channels == 2, out); err != nil {
 				t.Fatalf("decode seed frame: %v", err)
 			}
-			for c := 0; c < plcChunks; c++ {
+			for c := range plcChunks {
 				if _, err := dec.DecodeFrame(nil, frameSize); err != nil {
 					t.Fatalf("PLC chunk %d: %v", c, err)
 				}

@@ -16,7 +16,7 @@ func haar1ReferenceNorm(x []celtNorm, n0, stride int) {
 	}
 	const invSqrt2 = float32(0.7071067811865476)
 	step := stride * 2
-	for i := 0; i < stride; i++ {
+	for i := range stride {
 		idx0 := i
 		idx1 := i + stride
 		for j := 0; j < n0; j++ {

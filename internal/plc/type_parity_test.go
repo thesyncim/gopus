@@ -6,15 +6,15 @@ import (
 )
 
 func TestPLCStateFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
-	int32Type := reflect.TypeOf(int32(0))
-	modeType := reflect.TypeOf(Mode(0))
+	int32Type := reflect.TypeFor[int32]()
+	modeType := reflect.TypeFor[Mode]()
 
 	for _, name := range []string{
 		"lostCount",
 		"lastFrameSize",
 		"lastChannels",
 	} {
-		field, ok := reflect.TypeOf(State{}).FieldByName(name)
+		field, ok := reflect.TypeFor[State]().FieldByName(name)
 		if !ok {
 			t.Fatalf("State.%s missing", name)
 		}
@@ -23,7 +23,7 @@ func TestPLCStateFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
 		}
 	}
 
-	field, ok := reflect.TypeOf(State{}).FieldByName("mode")
+	field, ok := reflect.TypeFor[State]().FieldByName("mode")
 	if !ok {
 		t.Fatalf("State.mode missing")
 	}
@@ -36,7 +36,7 @@ func TestPLCStateFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
 }
 
 func TestSILKPLCStateFieldWidthsMatchLibopus(t *testing.T) {
-	int32Type := reflect.TypeOf(int32(0))
+	int32Type := reflect.TypeFor[int32]()
 	for _, name := range []string{
 		"FsKHz",
 		"SubfrLength",
@@ -44,7 +44,7 @@ func TestSILKPLCStateFieldWidthsMatchLibopus(t *testing.T) {
 		"LPCOrder",
 		"ConcEnergyShift",
 	} {
-		field, ok := reflect.TypeOf(SILKPLCState{}).FieldByName(name)
+		field, ok := reflect.TypeFor[SILKPLCState]().FieldByName(name)
 		if !ok {
 			t.Fatalf("SILKPLCState.%s missing", name)
 		}

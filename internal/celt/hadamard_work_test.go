@@ -80,17 +80,17 @@ func benchmarkHadamardWorkRoundTrip(b *testing.B, direct bool, n0, stride int, h
 func deinterleaveHadamardIntoReference(work, src []celtNorm, n0, stride int, hadamard bool) {
 	if hadamard {
 		ordery := orderyForStride(stride)
-		for i := 0; i < stride; i++ {
+		for i := range stride {
 			row := ordery[i] * n0
-			for j := 0; j < n0; j++ {
+			for j := range n0 {
 				work[row+j] = src[j*stride+i]
 			}
 		}
 		return
 	}
-	for i := 0; i < stride; i++ {
+	for i := range stride {
 		row := i * n0
-		for j := 0; j < n0; j++ {
+		for j := range n0 {
 			work[row+j] = src[j*stride+i]
 		}
 	}
@@ -99,17 +99,17 @@ func deinterleaveHadamardIntoReference(work, src []celtNorm, n0, stride int, had
 func interleaveHadamardIntoReference(dst, src []celtNorm, n0, stride int, hadamard bool) {
 	if hadamard {
 		ordery := orderyForStride(stride)
-		for i := 0; i < stride; i++ {
+		for i := range stride {
 			row := ordery[i] * n0
-			for j := 0; j < n0; j++ {
+			for j := range n0 {
 				dst[j*stride+i] = src[row+j]
 			}
 		}
 		return
 	}
-	for i := 0; i < stride; i++ {
+	for i := range stride {
 		row := i * n0
-		for j := 0; j < n0; j++ {
+		for j := range n0 {
 			dst[j*stride+i] = src[row+j]
 		}
 	}

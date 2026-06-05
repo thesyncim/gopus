@@ -250,7 +250,7 @@ func TestEncoderMultipleFrames(t *testing.T) {
 
 	// Encode 10 consecutive frames - validates encoder state management
 	numFrames := 10
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		// Different frequency each frame
 		freq := 220 + float64(i*50)
 		pcm := generateSineWaveIntegration(960, freq, 0.5)
@@ -538,7 +538,7 @@ func TestEncoderCorrelation(t *testing.T) {
 	pcm := generateSineWaveIntegration(960, 440, 0.5)
 
 	var packets [][]byte
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		packet, err := encodeTest(enc, pcm, 960)
 		if err != nil {
 			t.Fatalf("frame %d encoding failed: %v", i, err)

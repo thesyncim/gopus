@@ -34,10 +34,7 @@ func compareWaveformF32(candidate, reference []float32) qualitycompare.QualityCo
 // waveformCorrRMSF32 computes Pearson correlation and RMS ratio over the common
 // prefix, matching the canonical comparator's secondary-diagnostic definition.
 func waveformCorrRMSF32(a, b []float32) (corr, rmsRatio float64) {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
+	n := min(len(b), len(a))
 	if n == 0 {
 		return 0, 0
 	}
@@ -113,8 +110,8 @@ func TestLibopus_APIRateMultistreamDecodeMatchesReference(t *testing.T) {
 		t.Fatalf("NewEncoder: %v", err)
 	}
 	pcm := make([]float32, encoderFrameSize*channels)
-	for i := 0; i < encoderFrameSize; i++ {
-		for ch := 0; ch < channels; ch++ {
+	for i := range encoderFrameSize {
+		for ch := range channels {
 			freq := 330.0 + 170.0*float64(ch)
 			pcm[i*channels+ch] = float32(0.25 * math.Sin(2*math.Pi*freq*float64(i)/encoderSampleRate))
 		}

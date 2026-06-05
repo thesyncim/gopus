@@ -8,7 +8,7 @@ import (
 
 func makeMonoPacketSignal(sampleRate, samples int) []float32 {
 	pcm := make([]float32, samples)
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		tm := float64(i) / float64(sampleRate)
 		pcm[i] = 0.35*float32(math.Sin(2*math.Pi*420.0*tm)) + 0.2*float32(math.Sin(2*math.Pi*910.0*tm))
 	}

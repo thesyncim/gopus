@@ -14,7 +14,7 @@ func TestSynthesizeStereoPlanarFromMonoLongMatchesDuplicatedStereo(t *testing.T)
 
 		legacy := NewDecoder(2)
 		shared := NewDecoder(2)
-		for i := 0; i < Overlap*2; i++ {
+		for i := range Overlap * 2 {
 			v := float64((i%23)-11) * 0.03125
 			legacy.overlapBuffer[i] = celtSig(v)
 			shared.overlapBuffer[i] = celtSig(v)

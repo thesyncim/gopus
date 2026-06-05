@@ -278,15 +278,12 @@ func FuzzSILKDecodeStatefulSequence(f *testing.F) {
 		if chunk == 0 {
 			chunk = len(data)
 		}
-		for step := 0; step < 8; step++ {
+		for step := range 8 {
 			bw := silkDecodeFuzzBandwidths[step%3] // NB/MB/WB only (valid set)
 			var frame []byte
 			if chunk > 0 {
 				start := (step * chunk) % (len(data) + 1)
-				end := start + chunk
-				if end > len(data) {
-					end = len(data)
-				}
+				end := min(start+chunk, len(data))
 				if start <= end {
 					frame = data[start:end]
 				}

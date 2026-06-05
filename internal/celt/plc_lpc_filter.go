@@ -89,7 +89,7 @@ func celtFIRFloat32(dst []celtSig, exc []celtSig, start, length int, lpc []float
 		return
 	}
 	var rnum [ord]float32
-	for i := 0; i < ord; i++ {
+	for i := range ord {
 		rnum[i] = float32(lpc[ord-1-i])
 	}
 	i := 0
@@ -108,7 +108,7 @@ func celtFIRFloat32(dst []celtSig, exc []celtSig, start, length int, lpc []float
 	}
 	for ; i < length; i++ {
 		sum := float32(exc[start+i])
-		for j := 0; j < ord; j++ {
+		for j := range ord {
 			sum += rnum[j] * exc[start+i+j-ord]
 		}
 		dst[i] = celtSig(sum)
@@ -122,12 +122,12 @@ func (d *Decoder) celtIIRFloat32(dst []celtSig, hist []celtSig, lpc []float32, l
 	}
 	var rden [ord]float32
 	var mem [ord]float32
-	for i := 0; i < ord; i++ {
+	for i := range ord {
 		rden[i] = float32(lpc[ord-1-i])
 		mem[i] = float32(hist[plcDecodeBufferSize-1-i])
 	}
 	y := ensureFloat32Slice(&d.scratchPLCIIRY, length+ord)
-	for i := 0; i < ord; i++ {
+	for i := range ord {
 		y[i] = -mem[ord-i-1]
 	}
 	clear(y[ord:])
@@ -162,7 +162,7 @@ func (d *Decoder) celtIIRFloat32(dst []celtSig, hist []celtSig, lpc []float32, l
 	}
 	for ; i < length; i++ {
 		sum := float32(dst[i])
-		for j := 0; j < ord; j++ {
+		for j := range ord {
 			sum -= rden[j] * y[i+j]
 		}
 		y[i+ord] = sum

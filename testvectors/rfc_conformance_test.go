@@ -71,7 +71,6 @@ func TestRFCConformanceOpusCompare(t *testing.T) {
 	}
 
 	for _, name := range testVectorNames {
-		name := name
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 

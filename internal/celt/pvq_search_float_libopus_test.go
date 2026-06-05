@@ -38,7 +38,7 @@ func TestOpPVQSearchFloatMatchesLibopusSameArch(t *testing.T) {
 			if k <= 0 || n <= 0 {
 				continue
 			}
-			for trial := 0; trial < 24; trial++ {
+			for trial := range 24 {
 				x := make([]float32, n)
 				switch trial % 4 {
 				case 0:

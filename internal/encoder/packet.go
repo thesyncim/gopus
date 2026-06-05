@@ -613,7 +613,7 @@ func generatePacketExtensions(dst []byte, length int, extensions []packetExtensi
 	frameMinIdx := frameMinIdxBak[:nbFrames]
 	frameMaxIdx := frameMaxIdxBak[:nbFrames]
 	frameRepeatIdx := frameRepeatIdxBak[:nbFrames]
-	for f := 0; f < nbFrames; f++ {
+	for f := range nbFrames {
 		frameMinIdx[f] = len(extensions)
 	}
 
@@ -633,7 +633,7 @@ func generatePacketExtensions(dst []byte, length int, extensions []packetExtensi
 	pos := 0
 	written := 0
 	currFrame := 0
-	for f := 0; f < nbFrames; f++ {
+	for f := range nbFrames {
 		lastLongIdx := -1
 		repeatCount := 0
 
@@ -776,7 +776,7 @@ func generatePacketExtensions(dst []byte, length int, extensions []packetExtensi
 		padding := length - pos
 		if dst != nil {
 			copy(dst[padding:], dst[:pos])
-			for i := 0; i < padding; i++ {
+			for i := range padding {
 				dst[i] = 0x01
 			}
 		}

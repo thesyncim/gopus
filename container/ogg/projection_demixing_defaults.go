@@ -30,8 +30,8 @@ func identityDemixingMatrix(channels, streams, coupled uint8) []byte {
 	rows := int(channels)
 	matrix := make([]byte, 2*rows*cols)
 
-	for col := 0; col < cols; col++ {
-		for row := 0; row < rows; row++ {
+	for col := range cols {
+		for row := range rows {
 			var v uint16
 			if row == col {
 				v = 32767 // Q15 identity coefficient

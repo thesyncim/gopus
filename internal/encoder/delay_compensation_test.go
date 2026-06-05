@@ -22,10 +22,7 @@ func legacyUpdateDelayBufferInternal(delayBuffer, pcm, tail []float64, frameSamp
 
 	start := delaySamples + frameSamples - encoderBufferSamples
 	if start < delaySamples {
-		nTail := delaySamples - start
-		if nTail > encoderBufferSamples {
-			nTail = encoderBufferSamples
-		}
+		nTail := min(delaySamples-start, encoderBufferSamples)
 		copy(delayBuffer[:nTail], tail[start:start+nTail])
 		remaining := encoderBufferSamples - nTail
 		if remaining > 0 {
@@ -34,15 +31,9 @@ func legacyUpdateDelayBufferInternal(delayBuffer, pcm, tail []float64, frameSamp
 		return
 	}
 
-	pcmStart := start - delaySamples
-	if pcmStart < 0 {
-		pcmStart = 0
-	}
+	pcmStart := max(start-delaySamples, 0)
 	if pcmStart+encoderBufferSamples > len(pcm) {
-		pcmStart = len(pcm) - encoderBufferSamples
-		if pcmStart < 0 {
-			pcmStart = 0
-		}
+		pcmStart = max(len(pcm)-encoderBufferSamples, 0)
 	}
 	copy(delayBuffer, pcm[pcmStart:pcmStart+encoderBufferSamples])
 }
@@ -55,10 +46,7 @@ func legacyApplyDelayCompensationState(delayBuffer, pcm, out, prefill, tail []fl
 	}
 	delaySamples := delayComp * channels
 	encoderBufferSamples := (sampleRate / 100) * channels
-	frameSamples := frameSize * channels
-	if len(pcm) < frameSamples {
-		frameSamples = len(pcm)
-	}
+	frameSamples := min(len(pcm), frameSize*channels)
 	if delaySamples <= 0 || frameSamples <= 0 {
 		return 0
 	}
@@ -120,7 +108,7 @@ func runDelayCompStream(frameSize, channels, totalFrames int) ([]float64, []floa
 	}
 
 	out := make([]float64, 0, totalSamples)
-	for f := 0; f < totalFrames; f++ {
+	for f := range totalFrames {
 		start := f * frameSamples
 		end := start + frameSamples
 		block := e.applyDelayCompensation(inRes[start:end], frameSize)
@@ -222,7 +210,7 @@ func TestApplyDelayCompensationMatchesLegacyState(t *testing.T) {
 				legacyPrefill := make([]float64, prefillSamples)
 				legacyTail := make([]float64, delaySamples)
 
-				for iter := 0; iter < 12; iter++ {
+				for iter := range 12 {
 					pcm := make([]float64, frameSamples)
 					pcmRes := make([]opusRes, frameSamples)
 					for i := range pcm {

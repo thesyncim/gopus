@@ -256,7 +256,7 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 	bitsBand := bits[start:end]
 	lo := 0
 	hi := 1 << allocSteps
-	for i := 0; i < allocSteps; i++ {
+	for range allocSteps {
 		mid := (lo + hi) >> 1
 		psum := int32(0)
 		done := 0
@@ -781,7 +781,7 @@ func interpBits2PulsesEncode(re *rangecoding.Encoder, start, end, skipStart int,
 	logM := int32(lm << bitRes)
 	lo := 0
 	hi := 1 << allocSteps
-	for i := 0; i < allocSteps; i++ {
+	for range allocSteps {
 		mid := (lo + hi) >> 1
 		psum := int32(0)
 		done := 0

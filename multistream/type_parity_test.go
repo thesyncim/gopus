@@ -6,7 +6,7 @@ import (
 )
 
 func TestStreamDecoderControlFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
-	int32Type := reflect.TypeOf(int32(0))
+	int32Type := reflect.TypeFor[int32]()
 	for _, name := range []string{
 		"sampleRate",
 		"channels",
@@ -18,7 +18,7 @@ func TestStreamDecoderControlFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
 		"lastPacketDuration",
 		"lastDataLen",
 	} {
-		field, ok := reflect.TypeOf(streamState{}).FieldByName(name)
+		field, ok := reflect.TypeFor[streamState]().FieldByName(name)
 		if !ok {
 			t.Fatalf("streamState.%s missing", name)
 		}
@@ -29,13 +29,13 @@ func TestStreamDecoderControlFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
 }
 
 func TestMultistreamWrapperStateFieldWidthsMatchLibopus(t *testing.T) {
-	int32Type := reflect.TypeOf(int32(0))
+	int32Type := reflect.TypeFor[int32]()
 	for _, tc := range []struct {
 		owner reflect.Type
 		field string
 	}{
-		{owner: reflect.TypeOf(Encoder{}), field: "sampleRate"},
-		{owner: reflect.TypeOf(Decoder{}), field: "sampleRate"},
+		{owner: reflect.TypeFor[Encoder](), field: "sampleRate"},
+		{owner: reflect.TypeFor[Decoder](), field: "sampleRate"},
 	} {
 		field, ok := tc.owner.FieldByName(tc.field)
 		if !ok {

@@ -6,25 +6,25 @@ import (
 )
 
 func TestLACEControlFieldWidthsMatchLibopus(t *testing.T) {
-	int32Type := reflect.TypeOf(int32(0))
-	int32ArrayType := reflect.TypeOf([SubframesPerFrame]int32{})
+	int32Type := reflect.TypeFor[int32]()
+	int32ArrayType := reflect.TypeFor[[4]int32]()
 	for _, tc := range []struct {
 		owner reflect.Type
 		want  reflect.Type
 		names []string
 	}{
 		{
-			owner: reflect.TypeOf(FeatureControl{}),
+			owner: reflect.TypeFor[FeatureControl](),
 			want:  int32ArrayType,
 			names: []string{"PitchL"},
 		},
 		{
-			owner: reflect.TypeOf(FeatureControl{}),
+			owner: reflect.TypeFor[FeatureControl](),
 			want:  int32Type,
 			names: []string{"LPCOrder", "SignalType"},
 		},
 		{
-			owner: reflect.TypeOf(FeatureState{}),
+			owner: reflect.TypeFor[FeatureState](),
 			want:  int32Type,
 			names: []string{"pitchHangoverCount", "lastLag", "lastType"},
 		},

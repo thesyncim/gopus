@@ -51,7 +51,7 @@ func decodeVADFlagsAndLBRRFlag(rd *rangecoding.Decoder, st *decoderState, frames
 	for i := range st.LBRRFlags {
 		st.LBRRFlags[i] = 0
 	}
-	for i := 0; i < framesPerPacket; i++ {
+	for i := range framesPerPacket {
 		st.VADFlags[i] = int32(rd.DecodeBit(1))
 	}
 	st.LBRRFlag = int32(rd.DecodeBit(1))
@@ -69,7 +69,7 @@ func decodeLBRRFlagsSymbol(rd *rangecoding.Decoder, st *decoderState, framesPerP
 		return
 	}
 	symbol := rd.DecodeICDF8Unchecked(silk_LBRR_flags_iCDF_ptr[framesPerPacket-2]) + 1
-	for i := 0; i < framesPerPacket; i++ {
+	for i := range framesPerPacket {
 		st.LBRRFlags[i] = int32((symbol >> i) & 1)
 	}
 }

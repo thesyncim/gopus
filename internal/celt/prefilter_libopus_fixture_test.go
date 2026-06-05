@@ -51,10 +51,10 @@ func buildPrefilterFixtureSignal(seed int64, channels, frameSize int) (prefilter
 
 	pre = make([]float64, channels*(combFilterMaxPeriod+frameSize))
 	perChanLen := combFilterMaxPeriod + frameSize
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		copy(pre[ch*perChanLen:ch*perChanLen+combFilterMaxPeriod],
 			prefilterMem[ch*combFilterMaxPeriod:(ch+1)*combFilterMaxPeriod])
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			pre[ch*perChanLen+combFilterMaxPeriod+i] = preemph[i*channels+ch]
 		}
 	}

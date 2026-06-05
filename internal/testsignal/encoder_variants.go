@@ -71,7 +71,7 @@ func generateAMMultisine(sampleRate, samples, channels int) []float32 {
 	freqs := []float64{440, 1000, 2000}
 	amp := 0.3
 	modFreqs := []float64{1.3, 2.7, 0.9}
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		ch := i % channels
 		sampleIdx := i / channels
 		t := float64(sampleIdx) / float64(sampleRate)
@@ -104,7 +104,7 @@ func generateChirpSweep(sampleRate, samples, channels int) []float32 {
 	f0 := 60.0
 	f1 := 12000.0
 	k := math.Log(f1/f0) / duration
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		ch := i % channels
 		sampleIdx := i / channels
 		t := float64(sampleIdx) / float64(sampleRate)
@@ -123,12 +123,9 @@ func generateChirpSweep(sampleRate, samples, channels int) []float32 {
 
 func generateImpulseTrain(sampleRate, samples, channels int) []float32 {
 	signal := make([]float32, samples)
-	period := int(0.035 * float64(sampleRate))
-	if period < 4 {
-		period = 4
-	}
+	period := max(int(0.035*float64(sampleRate)), 4)
 	decayT := 0.0035 * float64(sampleRate)
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		ch := i % channels
 		sampleIdx := i / channels
 		t := float64(sampleIdx) / float64(sampleRate)
@@ -153,7 +150,7 @@ func generateSpeechLike(sampleRate, samples, channels int) []float32 {
 	signal := make([]float32, samples)
 	phase := make([]float64, channels)
 	prevNoise := make([]float64, channels)
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		ch := i % channels
 		sampleIdx := i / channels
 		t := float64(sampleIdx) / float64(sampleRate)

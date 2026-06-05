@@ -50,7 +50,7 @@ func TestFEC_LBRRActualRecovery(t *testing.T) {
 
 	var sqSumFEC, sqSumRecovery float64
 
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		sqSumFEC += float64(pcmFEC[i]) * float64(pcmFEC[i])
 		sqSumRecovery += float64(pcmRecovery[i]) * float64(pcmRecovery[i])
 	}
@@ -113,7 +113,7 @@ func TestFEC_SILKEncoderLBRREnabled(t *testing.T) {
 	// Encode a frame and check the internal SILK encoder's LBRR state
 	frameSize := 960
 	pcm := make([]float32, frameSize)
-	for j := 0; j < frameSize; j++ {
+	for j := range frameSize {
 		pcm[j] = float32(0.5 * math.Sin(2*math.Pi*440*float64(j)/48000))
 	}
 
@@ -199,7 +199,7 @@ func TestFEC_ProvidedPacketWithoutLBRRFallsBackToPLC(t *testing.T) {
 	if nGot != nWant {
 		t.Fatalf("sample count mismatch: got %d want %d", nGot, nWant)
 	}
-	for i := 0; i < nWant; i++ {
+	for i := range nWant {
 		if got[i] != want[i] {
 			t.Fatalf("provided-packet no-LBRR fallback diverged from PLC at sample %d: got=%f want=%f", i, got[i], want[i])
 		}

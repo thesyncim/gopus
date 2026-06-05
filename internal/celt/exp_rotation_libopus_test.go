@@ -600,7 +600,7 @@ func probeLibopusThetaDist(cases []thetaDistOracleCase) ([]thetaDistOracleResult
 		payload.U32(math.Float32bits(tc.ex))
 		payload.U32(math.Float32bits(tc.ey))
 		payload.U32(uint32(n))
-		for i := 0; i < n; i++ {
+		for i := range n {
 			payload.U32(math.Float32bits(tc.x0[i]))
 			payload.U32(math.Float32bits(tc.x1[i]))
 			payload.U32(math.Float32bits(tc.y0[i]))
@@ -1642,7 +1642,7 @@ func makeAlgUnquantPulseVector(n, count int, seed uint32) []int {
 	if n == 0 {
 		return pulses
 	}
-	for i := 0; i < count; i++ {
+	for range count {
 		seed = seed*1664525 + 1013904223
 		pos := int(seed % uint32(n))
 		if seed&0x80000000 != 0 {

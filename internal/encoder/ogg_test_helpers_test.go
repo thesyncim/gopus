@@ -66,7 +66,7 @@ func writeSimpleOggPage(w *bytes.Buffer, serialNo, pageNo uint32, headerType byt
 		binary.LittleEndian.PutUint32(header[18:22], pageNo)
 		header[26] = byte(nSegs)
 		remaining := len(data)
-		for i := 0; i < nSegs; i++ {
+		for i := range nSegs {
 			if remaining >= 255 {
 				header[27+i] = 255
 				remaining -= 255
@@ -95,9 +95,9 @@ var oggCRCTable [256]uint32
 
 func init() {
 	const poly = 0x04C11DB7
-	for i := 0; i < 256; i++ {
+	for i := range 256 {
 		r := uint32(i) << 24
-		for j := 0; j < 8; j++ {
+		for range 8 {
 			if r&0x80000000 != 0 {
 				r = (r << 1) ^ poly
 			} else {

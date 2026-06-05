@@ -27,8 +27,8 @@ func TestCombFilterGains(t *testing.T) {
 		{0.7998046875, 0.1000976562, 0.0000000000},
 	}
 
-	for tapset := 0; tapset < 3; tapset++ {
-		for tap := 0; tap < 3; tap++ {
+	for tapset := range 3 {
+		for tap := range 3 {
 			expected := expectedGains[tapset][tap]
 			got := combFilterGains[tapset][tap]
 			if math.Abs(float64(got-expected)) > 1e-10 {
@@ -369,7 +369,7 @@ func TestApplyPostfilterStereo(t *testing.T) {
 
 	// Create interleaved stereo samples
 	samples := make([]float32, frameSize*2)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		samples[i*2] = float32(math.Sin(float64(i) * 0.05))   // Left
 		samples[i*2+1] = float32(math.Cos(float64(i) * 0.05)) // Right
 	}
@@ -381,7 +381,7 @@ func TestApplyPostfilterStereo(t *testing.T) {
 
 	// Verify both channels were modified
 	leftChanged, rightChanged := false, false
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		if math.Abs(float64(samples[i*2]-original[i*2])) > 1e-10 {
 			leftChanged = true
 		}
@@ -525,7 +525,7 @@ func TestApplyPostfilterNoGainBypassMono(t *testing.T) {
 		t.Fatal("postfilter history should be lazy-backed by PLC history")
 	}
 	d.materializePostfilterHistoryFromPLC()
-	for i := 0; i < history; i++ {
+	for i := range history {
 		if d.postfilterMem[i] != expectedHist[i] {
 			t.Fatalf("history[%d] mismatch: got=%v want=%v", i, d.postfilterMem[i], expectedHist[i])
 		}
@@ -555,7 +555,7 @@ func TestApplyPostfilterNoGainBypassStereo(t *testing.T) {
 	}
 	histBefore := make([]celtSig, len(d.postfilterMem))
 	copy(histBefore, d.postfilterMem)
-	for ch := 0; ch < 2; ch++ {
+	for ch := range 2 {
 		copy(
 			d.plcDecodeMem[ch*plcDecodeBufferSize+plcDecodeBufferSize-combFilterHistory:(ch+1)*plcDecodeBufferSize],
 			histBefore[ch*combFilterHistory:(ch+1)*combFilterHistory],
@@ -579,13 +579,13 @@ func TestApplyPostfilterNoGainBypassStereo(t *testing.T) {
 
 	history := combFilterHistory
 	expected := make([]celtSig, history*2)
-	for ch := 0; ch < 2; ch++ {
+	for ch := range 2 {
 		oldHist := histBefore[ch*history : (ch+1)*history]
 		expHist := expected[ch*history : (ch+1)*history]
 		copy(expHist, oldHist[frameSize:])
 		src := ch
 		dst := history - frameSize
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			expHist[dst+i] = celtSig(samplesBefore[src])
 			src += 2
 		}

@@ -280,7 +280,7 @@ func TestStereoWidthComputation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Generate test signal
 			pcm := make([]opusRes, frameSize*2)
-			for i := 0; i < frameSize; i++ {
+			for i := range frameSize {
 				t := float64(i) / 48000.0 * 1000.0 * math.Pi // 1kHz
 				pcm[i*2] = opusRes(math.Sin(t + tc.leftPhase))
 				pcm[i*2+1] = opusRes(math.Sin(t + tc.rightPhase))
@@ -307,9 +307,9 @@ func TestResamplerContinuity(t *testing.T) {
 
 	// Process 3 frames
 	var lastSample float32
-	for frame := 0; frame < 3; frame++ {
+	for frame := range 3 {
 		samples := make([]opusRes, frameSize)
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			t := float64(frame*frameSize+i) / sampleRate
 			samples[i] = opusRes(math.Sin(2 * math.Pi * freq * t))
 		}
@@ -348,7 +348,7 @@ func TestHybridModeQuality(t *testing.T) {
 	lowFreq := 1000.0   // 1kHz - handled by SILK
 	highFreq := 10000.0 // 10kHz - handled by CELT
 
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		t := float64(i) / 48000.0
 		// Mix of low and high frequency
 		samples[i] = 0.5*math.Sin(2*math.Pi*lowFreq*t) +
@@ -399,7 +399,7 @@ func TestHybridVBRPacketSizeCap(t *testing.T) {
 	enc.SetFrameSize(960)
 
 	pcm := make([]float64, 960*2)
-	for i := 0; i < 960; i++ {
+	for i := range 960 {
 		v := 0.2 * math.Sin(2*math.Pi*440*float64(i)/48000.0)
 		pcm[i*2] = v
 		pcm[i*2+1] = v

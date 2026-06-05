@@ -94,7 +94,7 @@ func ProbeQEXTEncode96k(p QEXTEncode96kParams) (QEXTEncode96kResult, error) {
 
 	nFrames := int(reader.U32())
 	res := QEXTEncode96kResult{Packets: make([][]byte, nFrames)}
-	for i := 0; i < nFrames; i++ {
+	for i := range nFrames {
 		count := int(reader.U32())
 		res.Packets[i] = append([]byte(nil), reader.Bytes(count)...)
 		if pad := (4 - count%4) % 4; pad > 0 {

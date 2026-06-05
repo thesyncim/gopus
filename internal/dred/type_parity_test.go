@@ -6,13 +6,13 @@ import (
 )
 
 func TestDREDIntegerFieldWidthsMatchLibopus(t *testing.T) {
-	int32Type := reflect.TypeOf(int32(0))
+	int32Type := reflect.TypeFor[int32]()
 	for _, tc := range []struct {
 		owner reflect.Type
 		names []string
 	}{
 		{
-			owner: reflect.TypeOf(Header{}),
+			owner: reflect.TypeFor[Header](),
 			names: []string{
 				"Q0",
 				"DQ",
@@ -23,7 +23,7 @@ func TestDREDIntegerFieldWidthsMatchLibopus(t *testing.T) {
 			},
 		},
 		{
-			owner: reflect.TypeOf(EncoderBuffer{}),
+			owner: reflect.TypeFor[EncoderBuffer](),
 			names: []string{
 				"inputBufferFill",
 				"dredOffset",

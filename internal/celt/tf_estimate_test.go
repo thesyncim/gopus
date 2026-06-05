@@ -140,7 +140,7 @@ func TestTransientAnalysisTfEstimate(t *testing.T) {
 			generateSignal: func() []float64 {
 				pcm := make([]float64, frameSize)
 				// Sharp exponential decay
-				for i := 0; i < frameSize; i++ {
+				for i := range frameSize {
 					decay := math.Exp(-float64(i) / 100)
 					pcm[i] = decay * math.Sin(2*math.Pi*200*float64(i)/48000)
 				}
@@ -235,7 +235,7 @@ func TestTfEstimateStereo(t *testing.T) {
 
 	// Left channel: steady sine
 	// Right channel: attack
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		pcm[i*2] = 0.3 * math.Sin(2*math.Pi*440*float64(i)/48000) // Left
 
 		if i >= frameSize/2 {

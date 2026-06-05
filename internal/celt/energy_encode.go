@@ -301,7 +301,7 @@ func applyLFEBandLogEClamp(energies []celtGLog, nbBands, channels int) {
 	}
 	limitOffset := celtGLog(celtLog2(float32(lfeBandClamp)))
 	floorAbs := celtGLog(celtLog2(float32(celtFloatEpsilon)))
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		base := c * nbBands
 		if base+nbBands > len(energies) {
 			return
@@ -417,10 +417,10 @@ func coarseLossDistortion(energies []celtGLog, oldEBands []celtGLog, nbBands, ch
 		return 0
 	}
 	var dist float32
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		base := c * nbBands
 		oldBase := c * oldStride
-		for band := 0; band < nbBands; band++ {
+		for band := range nbBands {
 			idx := base + band
 			oldIdx := oldBase + band
 			if idx >= len(energies) || oldIdx >= len(oldEBands) {
@@ -453,7 +453,7 @@ func coarseLossDistortionRange(energies []celtGLog, oldEBands []celtGLog, start,
 		return 0
 	}
 	var dist float32
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		base := c * nbBands
 		oldBase := c * oldStride
 		for band := start; band < end; band++ {
@@ -670,10 +670,7 @@ func (e *Encoder) DecideIntraMode(energies []celtGLog, startBand, nbBands int, l
 		lm = 3
 	}
 
-	channels := e.codedChannels()
-	if channels < 1 {
-		channels = 1
-	}
+	channels := max(e.codedChannels(), 1)
 	if len(energies) < nbBands*channels {
 		channels = 1
 	}
@@ -684,10 +681,7 @@ func (e *Encoder) DecideIntraMode(energies []celtGLog, startBand, nbBands int, l
 	}
 	nbAvailableBytes := e.coarseNbAvailableBytesForBudget(budget)
 
-	codedBands := nbBands - startBand
-	if codedBands < 0 {
-		codedBands = 0
-	}
+	codedBands := max(nbBands-startBand, 0)
 	twoPass := e.complexity >= 4
 	delayedIntra := float32(e.delayedIntra)
 	intra := e.forceIntra || (!twoPass &&
@@ -908,7 +902,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []celtGLog, start, end int, i
 	for c := 0; c < channels; c++ {
 		basePrev := c * e.predStride()
 		base := c * nbBands
-		for band := 0; band < nbBands; band++ {
+		for band := range nbBands {
 			quantizedEnergies[base+band] = e.prevEnergy[basePrev+band]
 		}
 	}
@@ -1193,12 +1187,9 @@ func (e *Encoder) EncodeFineEnergy(energies []celtGLog, quantizedCoarse []celtGL
 			fine := energies[idx] - quantizedCoarse[idx]
 
 			// Quantize to fineBits[band] levels
-			q := floor32ToInt((fine + 0.5) * scale32)
-
-			// Clamp to valid range
-			if q < 0 {
-				q = 0
-			}
+			q := max(
+				// Clamp to valid range
+				floor32ToInt((fine+0.5)*scale32), 0)
 			if q >= ft {
 				q = ft - 1
 			}
@@ -1254,10 +1245,7 @@ func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []celtGLog, nbBand
 
 			// libopus float: q2 = floor((error + 0.5) * extra)
 			err := float32(errorVals[idx])
-			q2 := floor32ToInt((err + 0.5) * scale32)
-			if q2 < 0 {
-				q2 = 0
-			}
+			q2 := max(floor32ToInt((err+0.5)*scale32), 0)
 			if q2 > extra-1 {
 				q2 = extra - 1
 			}
@@ -1313,11 +1301,7 @@ func (e *Encoder) EncodeFineEnergyRange(energies []celtGLog, quantizedCoarse []c
 			}
 
 			fine := energies[idx] - quantizedCoarse[idx]
-			q := floor32ToInt((fine + 0.5) * scale32)
-
-			if q < 0 {
-				q = 0
-			}
+			q := max(floor32ToInt((fine+0.5)*scale32), 0)
 			if q >= ft {
 				q = ft - 1
 			}
@@ -1350,10 +1334,7 @@ func (e *Encoder) EncodeFineEnergyRangeFromError(quantizedEnergies []celtGLog, s
 	if nbBands > len(fineBits) {
 		nbBands = len(fineBits)
 	}
-	channels := int(e.channels)
-	if channels < 1 {
-		channels = 1
-	}
+	channels := max(int(e.channels), 1)
 
 	required := nbBands * channels
 	if len(quantizedEnergies) < required {
@@ -1383,10 +1364,7 @@ func (e *Encoder) EncodeFineEnergyRangeFromError(quantizedEnergies []celtGLog, s
 			}
 
 			err := float32(errorVals[idx])
-			q2 := floor32ToInt((err + 0.5) * scale32)
-			if q2 < 0 {
-				q2 = 0
-			}
+			q2 := max(floor32ToInt((err+0.5)*scale32), 0)
 			if q2 > extra-1 {
 				q2 = extra - 1
 			}
@@ -1491,7 +1469,7 @@ func (e *Encoder) EncodeEnergyFinalise(energies []celtGLog, quantizedEnergies []
 
 	re := e.rangeEncoder
 
-	for prio := 0; prio < 2; prio++ {
+	for prio := range 2 {
 		for band := 0; band < nbBands && bitsLeft >= channels; band++ {
 			if band >= len(fineQuant) || band >= len(finePriority) {
 				continue
@@ -1541,7 +1519,7 @@ func (e *Encoder) encodeEnergyFinaliseFromError(quantizedEnergies []celtGLog, nb
 
 	re := e.rangeEncoder
 
-	for prio := 0; prio < 2; prio++ {
+	for prio := range 2 {
 		for band := 0; band < nbBands && bitsLeft >= channels; band++ {
 			if band >= len(fineQuant) || band >= len(finePriority) {
 				continue
@@ -1596,7 +1574,7 @@ func (e *Encoder) EncodeEnergyFinaliseRange(energies []celtGLog, quantizedEnergi
 
 	re := e.rangeEncoder
 
-	for prio := 0; prio < 2; prio++ {
+	for prio := range 2 {
 		for band := start; band < nbBands && bitsLeft >= channels; band++ {
 			if band >= len(fineQuant) || band >= len(finePriority) {
 				continue
@@ -1643,10 +1621,7 @@ func (e *Encoder) EncodeEnergyFinaliseRangeFromError(quantizedEnergies []celtGLo
 	}
 
 	nbBands := end
-	channels := int(e.channels)
-	if channels < 1 {
-		channels = 1
-	}
+	channels := max(int(e.channels), 1)
 
 	required := nbBands * channels
 	if len(quantizedEnergies) < required {
@@ -1657,7 +1632,7 @@ func (e *Encoder) EncodeEnergyFinaliseRangeFromError(quantizedEnergies []celtGLo
 	errorVals := ensureGLogSliceNoClear(&e.scratch.coarseError, required)
 	re := e.rangeEncoder
 
-	for prio := 0; prio < 2; prio++ {
+	for prio := range 2 {
 		for band := start; band < nbBands && bitsLeft >= channels; band++ {
 			if band >= len(fineQuant) || band >= len(finePriority) {
 				continue
@@ -1757,10 +1732,7 @@ func (e *Encoder) encodeFineEnergyFromErrorWithPrev(quantizedEnergies []celtGLog
 			}
 
 			err := float32(errorVals[idx])
-			q2 := floor32ToInt((err*prevScale32 + 0.5) * scale32)
-			if q2 < 0 {
-				q2 = 0
-			}
+			q2 := max(floor32ToInt((err*prevScale32+0.5)*scale32), 0)
 			if q2 > extra-1 {
 				q2 = extra - 1
 			}

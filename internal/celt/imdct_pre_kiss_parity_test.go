@@ -10,7 +10,7 @@ import (
 // fuses the first multiply into the add via math.FMA, matching both the purego
 // fallback and the arm64 assembly bit-for-bit.
 func imdctPreRotateFMA32KissScalarRef(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
-	for i := 0; i < n4; i++ {
+	for i := range n4 {
 		x1 := float64(spectrum[2*i])
 		x2 := float64(spectrum[n2-1-2*i])
 		t0 := float64(trig[i])

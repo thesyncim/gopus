@@ -123,7 +123,7 @@ func mdctForwardOverlapLegacyStagedReference(samples []float32, overlap int) []f
 	if useDirectKissCpx {
 		bitrev := st.bitrev
 		if mdctUseFMALikeMixEnabled {
-			for i = 0; i < n4; i++ {
+			for i = range n4 {
 				re := f[2*i]
 				im := f[2*i+1]
 				t0 := trig[i]
@@ -131,7 +131,7 @@ func mdctForwardOverlapLegacyStagedReference(samples []float32, overlap int) []f
 				mdctStoreDirectStageFMALike(fftStage, bitrev[i], scale, re, im, t0, t1)
 			}
 		} else {
-			for i = 0; i < n4; i++ {
+			for i = range n4 {
 				re := f[2*i]
 				im := f[2*i+1]
 				t0 := trig[i]
@@ -142,7 +142,7 @@ func mdctForwardOverlapLegacyStagedReference(samples []float32, overlap int) []f
 		st.fftImpl(fftStage)
 	} else {
 		if mdctUseFMALikeMixEnabled {
-			for i = 0; i < n4; i++ {
+			for i = range n4 {
 				re := f[2*i]
 				im := f[2*i+1]
 				t0 := trig[i]
@@ -152,7 +152,7 @@ func mdctForwardOverlapLegacyStagedReference(samples []float32, overlap int) []f
 				fftIn[i] = complex(yr*scale, yi*scale)
 			}
 		} else {
-			for i = 0; i < n4; i++ {
+			for i = range n4 {
 				re := f[2*i]
 				im := f[2*i+1]
 				t0 := trig[i]
@@ -167,7 +167,7 @@ func mdctForwardOverlapLegacyStagedReference(samples []float32, overlap int) []f
 
 	if useDirectKissCpx {
 		if mdctUseFMALikeMixEnabled {
-			for i = 0; i < n4; i++ {
+			for i = range n4 {
 				re := fftStage[i].r
 				im := fftStage[i].i
 				t0 := trig[i]
@@ -178,7 +178,7 @@ func mdctForwardOverlapLegacyStagedReference(samples []float32, overlap int) []f
 				coeffs[n2-1-2*i] = yi
 			}
 		} else {
-			for i = 0; i < n4; i++ {
+			for i = range n4 {
 				re := fftStage[i].r
 				im := fftStage[i].i
 				t0 := trig[i]
@@ -191,7 +191,7 @@ func mdctForwardOverlapLegacyStagedReference(samples []float32, overlap int) []f
 		}
 	} else {
 		if mdctUseFMALikeMixEnabled {
-			for i = 0; i < n4; i++ {
+			for i = range n4 {
 				re := real(fftOut[i])
 				im := imag(fftOut[i])
 				t0 := trig[i]
@@ -202,7 +202,7 @@ func mdctForwardOverlapLegacyStagedReference(samples []float32, overlap int) []f
 				coeffs[n2-1-2*i] = yi
 			}
 		} else {
-			for i = 0; i < n4; i++ {
+			for i = range n4 {
 				re := real(fftOut[i])
 				im := imag(fftOut[i])
 				t0 := trig[i]

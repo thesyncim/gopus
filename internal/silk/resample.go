@@ -35,7 +35,7 @@ func upsampleTo48kWithScratch(samples []float32, srcRate int, scratch []float32)
 		output = make([]float32, outputLen)
 	}
 
-	for i := 0; i < len(samples); i++ {
+	for i := range samples {
 		curr := samples[i]
 		var next float32
 		if i+1 < len(samples) {
@@ -45,7 +45,7 @@ func upsampleTo48kWithScratch(samples []float32, srcRate int, scratch []float32)
 		}
 
 		// Linear interpolation between curr and next
-		for j := 0; j < factor; j++ {
+		for j := range factor {
 			t := float32(j) / float32(factor)
 			output[i*factor+j] = curr*(1-t) + next*t
 		}

@@ -25,7 +25,7 @@ func TestAudioAudibility(t *testing.T) {
 	numSamples := int(float64(sampleRate) * duration)
 
 	pcm := make([]float32, numSamples)
-	for i := 0; i < numSamples; i++ {
+	for i := range numSamples {
 		t := float64(i) / float64(sampleRate)
 
 		// A major chord: A4 (440Hz) + C#5 (554Hz) + E5 (659Hz)

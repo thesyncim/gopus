@@ -139,7 +139,7 @@ func TestLibopusEntropyPort(t *testing.T) {
 		zeros := rng.Intn(13) == 0
 		tell[0] = enc.TellFrac()
 
-		for j := 0; j < sz; j++ {
+		for j := range sz {
 			if zeros {
 				data[j] = 0
 			} else {
@@ -168,7 +168,7 @@ func TestLibopusEntropyPort(t *testing.T) {
 		if dec.TellFrac() != tell[0] {
 			t.Fatalf("tell mismatch at start: dec=%d enc=%d (iter=%d)", dec.TellFrac(), tell[0], i)
 		}
-		for j := 0; j < sz; j++ {
+		for j := range sz {
 			sym := dec.DecodeUniform(uint32(ft))
 			if sym != data[j] {
 				t.Fatalf("decode mismatch: got %d want %d (ft=%d idx=%d iter=%d)", sym, data[j], ft, j, i)
@@ -189,7 +189,7 @@ func TestLibopusEntropyPort(t *testing.T) {
 
 		enc.Init(make([]byte, bufSize2))
 		tell[0] = enc.TellFrac()
-		for j := 0; j < sz; j++ {
+		for j := range sz {
 			data[j] = uint32(rng.Intn(2))
 			logp1[j] = uint(rng.Intn(15) + 1)
 			encMethod[j] = rng.Intn(4)
@@ -224,7 +224,7 @@ func TestLibopusEntropyPort(t *testing.T) {
 		if dec.TellFrac() != tell[0] {
 			t.Fatalf("compat tell mismatch at start: dec=%d enc=%d (iter=%d)", dec.TellFrac(), tell[0], i)
 		}
-		for j := 0; j < sz; j++ {
+		for j := range sz {
 			decMethod := rng.Intn(4)
 			ft := uint32(1) << logp1[j]
 			fl := uint32(0)

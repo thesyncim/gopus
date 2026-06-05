@@ -33,10 +33,10 @@ func buildLibopusCELTIMDCTHelper() (string, error) {
 func probeLibopusCELTIMDCT(t *testing.T, mode uint32, frameSize, overlap, shortBlocks int, spectrum, prevOverlap []float32) []float32 {
 	t.Helper()
 	payload := libopustest.NewOraclePayload("GCII", mode, uint32(frameSize), uint32(overlap), uint32(shortBlocks))
-	for i := 0; i < overlap; i++ {
+	for i := range overlap {
 		payload.Float32(prevOverlap[i])
 	}
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		payload.Float32(spectrum[i])
 	}
 
@@ -104,7 +104,7 @@ func imdctOverlapWithPrevScratchF32LegacyBufferCopy(out []float32, spectrum []fl
 
 	if overlap > 0 && len(prevOverlap) > 0 {
 		copyLen := min(len(prevOverlap), overlap)
-		for i := 0; i < copyLen; i++ {
+		for i := range copyLen {
 			outF32[i] = float32(prevOverlap[i])
 		}
 		if copyLen < overlap {
@@ -176,7 +176,7 @@ func imdctPostRotateF32InterleavedLibopusPolicy(buf []float32, trig []float32, n
 
 	yp0 := 0
 	yp1 := n2 - 2
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		re := buf[yp0+1]
 		im := buf[yp0]
 		t0 := trig[i]
@@ -303,7 +303,7 @@ func TestIMDCTTransientInPlaceScratchF32MatchesLibopusC(t *testing.T) {
 				var scratch imdctScratchF32
 				for b := 0; b < tc.shortBlocks; b++ {
 					idx := b
-					for i := 0; i < shortSize; i++ {
+					for i := range shortSize {
 						shortCoeffs[i] = spectrumF32[idx]
 						idx += tc.shortBlocks
 					}

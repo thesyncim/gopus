@@ -47,7 +47,7 @@ func TestZeroAllocHotPaths(t *testing.T) {
 func TestAppendHistoryZeroAlloc(t *testing.T) {
 	payload := make([]byte, 80)
 	var hist []Frame
-	for i := 0; i < MaxDepth+2; i++ { // fill the window
+	for i := range MaxDepth + 2 { // fill the window
 		hist = AppendHistory(hist, payload, uint32(i*960), MaxDepth)
 	}
 	ts := uint32(MaxDepth * 960)
@@ -79,7 +79,7 @@ func TestEncoderZeroAlloc(t *testing.T) {
 	primary := make([]byte, 120)
 	enc := NewEncoder(111, 960, 3)
 	ts := uint32(0)
-	for i := 0; i < MaxDepth+2; i++ { // warm history + buffers
+	for range MaxDepth + 2 { // warm history + buffers
 		ts += 960
 		_, _ = enc.Encode(primary, ts)
 	}

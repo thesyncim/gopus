@@ -471,7 +471,7 @@ func encodeGopusCase(benchCase benchmarkCase, encoders []*gopus.Encoder, packet 
 		enc.Reset()
 		samplesPerFrame := workload.FrameSize * workload.Channels
 		frames := len(workload.PCM) / samplesPerFrame
-		for frame := 0; frame < frames; frame++ {
+		for frame := range frames {
 			start := frame * samplesPerFrame
 			n, err := enc.Encode(workload.PCM[start:start+samplesPerFrame], packet)
 			if err != nil {

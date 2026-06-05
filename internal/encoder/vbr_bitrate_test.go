@@ -9,7 +9,7 @@ import (
 )
 
 func fillSpeechLikePCM(pcm []float64, startSample, frameSize, channels int, seed *uint32) {
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		t := float64(startSample+i) / 48000.0
 		voiced := 0.35*math.Sin(2*math.Pi*150*t) + 0.15*math.Sin(2*math.Pi*300*t)
 		*seed = *seed*1664525 + 1013904223
@@ -44,7 +44,7 @@ func TestHybridVBRBitrateBudget(t *testing.T) {
 	pcm := make([]float64, frameSize*channels)
 	var totalBytes int
 	seed := uint32(12345)
-	for frame := 0; frame < frames; frame++ {
+	for frame := range frames {
 		fillSpeechLikePCM(pcm, frame*frameSize, frameSize, channels, &seed)
 		packet, err := encodeTest(enc, pcm, frameSize)
 		if err != nil {
@@ -95,7 +95,7 @@ func TestCELTLongFrameVBRBitrateBudget(t *testing.T) {
 			pcm := make([]float64, tc.frameSize*channels)
 			var totalBytes int
 			seed := uint32(12345)
-			for frame := 0; frame < frames; frame++ {
+			for frame := range frames {
 				fillSpeechLikePCM(pcm, frame*tc.frameSize, tc.frameSize, channels, &seed)
 				packet, err := encodeTest(enc, pcm, tc.frameSize)
 				if err != nil {

@@ -835,7 +835,7 @@ func downsampleStereo48kTo16kPacket0(t testing.TB, signal []float32) ([]float32,
 	)
 	left48 := make([]float32, frameSize48)
 	right48 := make([]float32, frameSize48)
-	for i := 0; i < frameSize48; i++ {
+	for i := range frameSize48 {
 		left48[i] = signal[2*i]
 		right48[i] = signal[2*i+1]
 	}

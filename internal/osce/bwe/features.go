@@ -182,10 +182,10 @@ func (s *FeatureState) CalculateFeatures(features []float32, xq16k []int16) {
 		magSpec [bweSpecNumFreqs]float32
 	)
 
-	for frame := 0; frame < numFrames; frame++ {
+	for frame := range numFrames {
 		base := frame * bweFeatureDim
 		// Zero the output slot for this hop (libopus OPUS_CLEAR before fill).
-		for i := 0; i < bweFeatureDim; i++ {
+		for i := range bweFeatureDim {
 			features[base+i] = 0
 		}
 		lmspec := features[base : base+bweNumBands]
@@ -195,21 +195,21 @@ func (s *FeatureState) CalculateFeatures(features []float32, xq16k []int16) {
 		// new 160-sample hop, normalised to [-1, 1].
 		copy(buffer[:bweHalfWindowSize], s.signalHistory[:])
 		x := xq16k[frame*bweHalfWindowSize : frame*bweHalfWindowSize+bweHalfWindowSize]
-		for n := 0; n < bweHalfWindowSize; n++ {
+		for n := range bweHalfWindowSize {
 			buffer[bweHalfWindowSize+n] = float32(x[n]) / 32768.0
 		}
 		// Update history with the new hop (the back half of `buffer`).
 		copy(s.signalHistory[:], buffer[bweHalfWindowSize:bweWindowSize])
 
 		// Apply the sine window in place.
-		for n := 0; n < bweWindowSize; n++ {
+		for n := range bweWindowSize {
 			buffer[n] *= osceWindow[n]
 		}
 
 		// Forward 320-point DFT via the float32 kissfft kernel. libopus'
 		// opus_fft applies st->scale during the bit-reverse copy, before the
 		// butterflies, so scale the input here rather than the output.
-		for n := 0; n < bweWindowSize; n++ {
+		for n := range bweWindowSize {
 			fftIn[n] = complex(buffer[n]*fftScale, 0)
 		}
 		celt.KissFFT32ToWithScratch(fftOut[:], fftIn[:], fftTmp[:])
@@ -235,13 +235,13 @@ func (s *FeatureState) CalculateFeatures(features []float32, xq16k []int16) {
 		}
 
 		// ERB-scale magnitude spectrogram on the first 161 bins of the DFT.
-		for k := 0; k < bweSpecNumFreqs; k++ {
+		for k := range bweSpecNumFreqs {
 			re := real(fftOut[k])
 			im := imag(fftOut[k])
 			magSpec[k] = float32(bweWindowSize) * opusmath.SqrtF32(re*re+im*im)
 		}
 		applyFilterbankBWE(lmspec, magSpec[:])
-		for k := 0; k < bweNumBands; k++ {
+		for k := range bweNumBands {
 			lmspec[k] = opusmath.LogF32(lmspec[k] + 1e-9)
 		}
 
@@ -254,7 +254,7 @@ func (s *FeatureState) CalculateFeatures(features []float32, xq16k []int16) {
 // to the 32-band BWE filterbank tables.
 func applyFilterbankBWE(out, in []float32) {
 	out[0] = 0
-	for b := 0; b < bweNumBands-1; b++ {
+	for b := range bweNumBands - 1 {
 		out[b+1] = 0
 		w0 := bandWeightsBWE[b]
 		w1 := bandWeightsBWE[b+1]

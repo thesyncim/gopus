@@ -68,7 +68,7 @@ func TestLaplaceRoundTripUnit(t *testing.T) {
 
 	// Encode all values
 	encodedVal := make([]int, numValues)
-	for i := 0; i < numValues; i++ {
+	for i := range numValues {
 		fs := ecLaplaceGetStartFreq(decay[i])
 		encodedVal[i] = enc.encodeLaplace(val[i], fs, decay[i])
 	}
@@ -86,7 +86,7 @@ func TestLaplaceRoundTripUnit(t *testing.T) {
 
 	// Decode and verify all values
 	failures := 0
-	for i := 0; i < numValues; i++ {
+	for i := range numValues {
 		fs := ecLaplaceGetStartFreq(decay[i])
 		d := dec.decodeLaplace(fs, decay[i])
 		if d != encodedVal[i] {
@@ -238,12 +238,12 @@ func TestLaplaceEdgeCases(t *testing.T) {
 func TestLaplaceMultipleSequences(t *testing.T) {
 	rng := rand.New(rand.NewSource(123))
 
-	for seq := 0; seq < 10; seq++ {
+	for seq := range 10 {
 		numValues := 100
 		val := make([]int, numValues)
 		decay := make([]int, numValues)
 
-		for i := 0; i < numValues; i++ {
+		for i := range numValues {
 			val[i] = rng.Intn(15) - 7
 			decay[i] = rng.Intn(11000) + 5000
 		}
@@ -257,7 +257,7 @@ func TestLaplaceMultipleSequences(t *testing.T) {
 		enc.SetRangeEncoder(re)
 
 		encodedVal := make([]int, numValues)
-		for i := 0; i < numValues; i++ {
+		for i := range numValues {
 			fs := ecLaplaceGetStartFreq(decay[i])
 			encodedVal[i] = enc.encodeLaplace(val[i], fs, decay[i])
 		}
@@ -271,7 +271,7 @@ func TestLaplaceMultipleSequences(t *testing.T) {
 		dec := NewDecoder(1)
 		dec.SetRangeDecoder(rd)
 
-		for i := 0; i < numValues; i++ {
+		for i := range numValues {
 			fs := ecLaplaceGetStartFreq(decay[i])
 			decoded := dec.decodeLaplace(fs, decay[i])
 			if decoded != encodedVal[i] {

@@ -147,7 +147,7 @@ func validFrameSize(samples, fs int) bool {
 		return false
 	}
 	short := fs / 400
-	for n := 0; n < 3; n++ {
+	for n := range 3 {
 		if samples == short<<n {
 			return true
 		}

@@ -235,7 +235,7 @@ func BenchmarkEncoderEncode_CallerBuffer(b *testing.B) {
 	packet := make([]byte, 4000)
 
 	// Warmup: initialize all scratch buffers before timing
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		enc.Encode(pcm, packet)
 	}
 
@@ -259,7 +259,7 @@ func BenchmarkEncoderEncodeFloat32_Allocating(b *testing.B) {
 
 	pcm := generateBenchSineWave(960)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		if _, err := enc.EncodeFloat32(pcm); err != nil {
 			b.Fatalf("EncodeFloat32 warmup: %v", err)
 		}
@@ -291,7 +291,7 @@ func BenchmarkEncoderEncodeInt16(b *testing.B) {
 	packet := make([]byte, 4000)
 
 	// Warmup: initialize all scratch buffers before timing
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		enc.EncodeInt16(pcm, packet)
 	}
 
@@ -316,14 +316,14 @@ func BenchmarkEncoderEncode_Stereo(b *testing.B) {
 
 	// Generate stereo samples (interleaved)
 	pcm := make([]float32, 960*2)
-	for i := 0; i < 960; i++ {
+	for i := range 960 {
 		pcm[i*2] = float32(0.5 * math.Sin(2*math.Pi*440*float64(i)/48000))
 		pcm[i*2+1] = float32(0.5 * math.Sin(2*math.Pi*880*float64(i)/48000))
 	}
 	packet := make([]byte, 4000)
 
 	// Warmup: initialize all scratch buffers before timing
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		enc.Encode(pcm, packet)
 	}
 
@@ -350,7 +350,7 @@ func BenchmarkEncoderEncode_VoIP(b *testing.B) {
 	packet := make([]byte, 4000)
 
 	// Warmup: initialize all scratch buffers before timing
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		enc.Encode(pcm, packet)
 	}
 
@@ -377,7 +377,7 @@ func BenchmarkEncoderEncode_LowDelay(b *testing.B) {
 	packet := make([]byte, 4000)
 
 	// Warmup: initialize all scratch buffers before timing
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		enc.Encode(pcm, packet)
 	}
 
@@ -422,7 +422,7 @@ func BenchmarkEncoderEncode_RestrictedCELTCBR(b *testing.B) {
 	pcm := generateBenchSineWave(960 * 2)
 	packet := make([]byte, 4000)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		if _, err := enc.Encode(pcm, packet); err != nil {
 			b.Fatalf("Encode warmup: %v", err)
 		}
@@ -468,7 +468,7 @@ func BenchmarkEncoderEncode_RestrictedCELTCBRAfterReset(b *testing.B) {
 	pcm := generateBenchSineWave(960 * 2)
 	packet := make([]byte, 4000)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		enc.Reset()
 		if _, err := enc.Encode(pcm, packet); err != nil {
 			b.Fatalf("Encode warmup: %v", err)
@@ -517,9 +517,9 @@ func BenchmarkEncoderEncode_RestrictedCELTCBRStreamAfterReset(b *testing.B) {
 	pcm := generateBenchSineWave(960 * 2 * frames)
 	packet := make([]byte, 4000)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		enc.Reset()
-		for frame := 0; frame < frames; frame++ {
+		for frame := range frames {
 			start := frame * 960 * 2
 			if _, err := enc.Encode(pcm[start:start+960*2], packet); err != nil {
 				b.Fatalf("Encode warmup frame %d: %v", frame, err)
@@ -532,7 +532,7 @@ func BenchmarkEncoderEncode_RestrictedCELTCBRStreamAfterReset(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		enc.Reset()
-		for frame := 0; frame < frames; frame++ {
+		for frame := range frames {
 			start := frame * 960 * 2
 			if _, err := enc.Encode(pcm[start:start+960*2], packet); err != nil {
 				b.Fatalf("Encode frame %d: %v", frame, err)
@@ -572,9 +572,9 @@ func BenchmarkEncoderEncode_RestrictedCELT5msCBRStreamAfterReset(b *testing.B) {
 	pcm := generateBenchSineWave(240 * frames)
 	packet := make([]byte, 4000)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		enc.Reset()
-		for frame := 0; frame < frames; frame++ {
+		for frame := range frames {
 			start := frame * 240
 			if _, err := enc.Encode(pcm[start:start+240], packet); err != nil {
 				b.Fatalf("Encode warmup frame %d: %v", frame, err)
@@ -587,7 +587,7 @@ func BenchmarkEncoderEncode_RestrictedCELT5msCBRStreamAfterReset(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		enc.Reset()
-		for frame := 0; frame < frames; frame++ {
+		for frame := range frames {
 			start := frame * 240
 			if _, err := enc.Encode(pcm[start:start+240], packet); err != nil {
 				b.Fatalf("Encode frame %d: %v", frame, err)
@@ -627,9 +627,9 @@ func BenchmarkEncoderEncode_RestrictedSILKCBRStreamAfterReset(b *testing.B) {
 	pcm := generateBenchSineWave(960 * frames)
 	packet := make([]byte, 4000)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		enc.Reset()
-		for frame := 0; frame < frames; frame++ {
+		for frame := range frames {
 			start := frame * 960
 			if _, err := enc.Encode(pcm[start:start+960], packet); err != nil {
 				b.Fatalf("Encode warmup frame %d: %v", frame, err)
@@ -642,7 +642,7 @@ func BenchmarkEncoderEncode_RestrictedSILKCBRStreamAfterReset(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		enc.Reset()
-		for frame := 0; frame < frames; frame++ {
+		for frame := range frames {
 			start := frame * 960
 			if _, err := enc.Encode(pcm[start:start+960], packet); err != nil {
 				b.Fatalf("Encode frame %d: %v", frame, err)
@@ -807,7 +807,7 @@ func benchmarkLongPacketEncode(b *testing.B, app gopus.Application, mode gopus.E
 			pcm := generateBenchSineWave(d.frameSize * channels)
 			packet := make([]byte, 4000)
 
-			for i := 0; i < 5; i++ {
+			for range 5 {
 				if _, err := enc.Encode(pcm, packet); err != nil {
 					b.Fatalf("Encode warmup: %v", err)
 				}

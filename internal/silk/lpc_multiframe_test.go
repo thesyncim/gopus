@@ -42,7 +42,7 @@ func TestLPCPredictionMultiFrame(t *testing.T) {
 	decoder := NewDecoder()
 
 	// Process each frame separately
-	for frame := 0; frame < numFrames; frame++ {
+	for frame := range numFrames {
 		pcm := allPCM[frame*frameSamples : (frame+1)*frameSamples]
 
 		// Encode this frame
@@ -74,7 +74,7 @@ func TestLPCPredictionMultiFrame(t *testing.T) {
 		// Check sLPCQ14Buf - is there history now?
 		hasHistory := false
 		maxHistory := int32(0)
-		for i := 0; i < 16; i++ {
+		for i := range 16 {
 			if st.sLPCQ14Buf[i] != 0 {
 				hasHistory = true
 				if st.sLPCQ14Buf[i] > maxHistory {
@@ -140,7 +140,7 @@ func TestLPCHistoryPreservation(t *testing.T) {
 
 	// Check the LPC history buffer
 	t.Logf("sLPCQ14Buf after decode:")
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		if st.sLPCQ14Buf[i] != 0 {
 			t.Logf("  sLPCQ14Buf[%d] = %d (%.4f)", i, st.sLPCQ14Buf[i], float64(st.sLPCQ14Buf[i])/16384.0)
 		}
@@ -225,12 +225,9 @@ func TestWithinFrameLPCBuildup(t *testing.T) {
 	t.Logf("Subframe length: %d, Num subframes: %d", subfrLength, nbSubfr)
 
 	// Compute RMS for each subframe
-	for k := 0; k < nbSubfr; k++ {
+	for k := range nbSubfr {
 		start := k * subfrLength
-		end := start + subfrLength
-		if end > len(decoded) {
-			end = len(decoded)
-		}
+		end := min(start+subfrLength, len(decoded))
 
 		var sumSq float64
 		for i := start; i < end; i++ {

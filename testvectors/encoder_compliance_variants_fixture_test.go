@@ -237,7 +237,6 @@ func TestEncoderVariantsFixtureSignalHash(t *testing.T) {
 		t.Fatalf("load encoder variants fixture: %v", err)
 	}
 	for _, c := range fixture.Cases {
-		c := c
 		name := fmt.Sprintf("%s-%s", c.Name, c.Variant)
 		t.Run(name, func(t *testing.T) {
 			totalSamples := c.SignalFrames * c.FrameSize * c.Channels
@@ -273,7 +272,6 @@ func TestEncoderVariantsFixtureHonestyWithOpusDemo(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	for _, c := range fixture.Cases {
-		c := c
 		name := fmt.Sprintf("%s-%s", c.Name, c.Variant)
 		t.Run(name, func(t *testing.T) {
 			app, err := modeToOpusDemoApp(c.Mode)
@@ -356,10 +354,7 @@ func TestEncoderVariantsFixtureHonestyWithOpusDemo(t *testing.T) {
 			}
 			if runtime.GOARCH == "amd64" {
 				// Permit bounded drift, but fail on broad waveform mismatch.
-				maxDrift := (len(gotPackets) + 3) / 4
-				if maxDrift < 1 {
-					maxDrift = 1
-				}
+				maxDrift := max((len(gotPackets)+3)/4, 1)
 				if rangeMismatch > maxDrift {
 					t.Fatalf("range drift too large on amd64: %d/%d frames (max=%d)", rangeMismatch, len(gotPackets), maxDrift)
 				}
@@ -647,10 +642,7 @@ func computeEncoderPacketProfileStats(libPackets, goPackets [][]byte) encoderPac
 		}
 	}
 	sort.Ints(diffs)
-	p95Idx := int(math.Ceil(0.95*float64(len(diffs)))) - 1
-	if p95Idx < 0 {
-		p95Idx = 0
-	}
+	p95Idx := max(int(math.Ceil(0.95*float64(len(diffs))))-1, 0)
 	if p95Idx >= len(diffs) {
 		p95Idx = len(diffs) - 1
 	}
@@ -902,7 +894,6 @@ func TestEncoderVariantProfileParityAgainstLibopusFixture(t *testing.T) {
 
 	t.Run("cases", func(t *testing.T) {
 		for _, c := range fixture.Cases {
-			c := c
 			name := fmt.Sprintf("%s-%s", c.Name, c.Variant)
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()

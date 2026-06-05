@@ -80,16 +80,13 @@ func silkNLSFDecodeInto(nlsfQ15 []int16, indices []int8, cb *nlsfCB, ecIx []int1
 	baseIdx := int(indices[0]) * order
 	cbBase := cb.cb1NLSFQ8[baseIdx:]
 	cbWght := cb.cb1WghtQ9[baseIdx:]
-	for i := 0; i < order; i++ {
+	for i := range order {
 		resQ10Val := int32(resQ10[i])
 		wght := int32(cbWght[i])
 		if wght == 0 {
 			wght = 1
 		}
-		val := silkADD_LSHIFT32(int32(resQ10Val<<14)/wght, int32(cbBase[i]), 7)
-		if val < 0 {
-			val = 0
-		}
+		val := max(silkADD_LSHIFT32(int32(resQ10Val<<14)/wght, int32(cbBase[i]), 7), 0)
 		if val > 32767 {
 			val = 32767
 		}
@@ -106,7 +103,7 @@ func silkNLSFDecodeInto(nlsfQ15 []int16, indices []int8, cb *nlsfCB, ecIx []int1
 // silk/NLSF_stabilize.c silk_NLSF_stabilize.
 func silkNLSFStabilize(nlsfQ15 []int16, deltaMinQ15 []int16, order int) {
 	const maxLoops = 20
-	for loops := 0; loops < maxLoops; loops++ {
+	for range maxLoops {
 		minDiff := int32(nlsfQ15[0]) - int32(deltaMinQ15[0])
 		idx := 0
 		for i := 1; i <= order-1; i++ {

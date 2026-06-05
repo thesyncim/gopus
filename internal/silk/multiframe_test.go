@@ -24,7 +24,7 @@ func TestMultiFrameConvergence(t *testing.T) {
 	// Encode all frames
 	enc := NewEncoder(BandwidthWideband)
 	encodedFrames := make([][]byte, numFrames)
-	for f := 0; f < numFrames; f++ {
+	for f := range numFrames {
 		start := f * frameSamples
 		end := start + frameSamples
 		encoded := enc.EncodeFrame(pcmFloat[start:end], nil, true)
@@ -36,7 +36,7 @@ func TestMultiFrameConvergence(t *testing.T) {
 	dec := NewDecoder()
 	outputFrames := make([][]float32, numFrames)
 
-	for f := 0; f < numFrames; f++ {
+	for f := range numFrames {
 		rd := &rangecoding.Decoder{}
 		rd.Init(encodedFrames[f])
 
@@ -90,7 +90,7 @@ func TestSILKRoundtripWithWarmup(t *testing.T) {
 	// Encode
 	enc := NewEncoder(BandwidthWideband)
 	var allEncoded []byte
-	for f := 0; f < numFrames; f++ {
+	for f := range numFrames {
 		start := f * frameSamples
 		end := start + frameSamples
 		encoded := enc.EncodeFrame(pcmFloat[start:end], nil, true)

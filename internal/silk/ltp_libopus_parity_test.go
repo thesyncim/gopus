@@ -237,7 +237,7 @@ func TestSILKDecodePitchMatchesLibopusOracleExhaustive(t *testing.T) {
 			cbkSize := decodePitchContourCodebookSize(fsKHz, nbSubfr)
 			maxLagIndex := (peMaxLagMs - peMinLagMs) * fsKHz
 			for lagIndex := 0; lagIndex <= maxLagIndex; lagIndex++ {
-				for contourIndex := 0; contourIndex < cbkSize; contourIndex++ {
+				for contourIndex := range cbkSize {
 					cases = append(cases, pitchCase{
 						lagIndex:     lagIndex,
 						contourIndex: contourIndex,
@@ -522,7 +522,7 @@ func TestSILKQuantLTPGainsMatchesLibopusOracle(t *testing.T) {
 func ltpQuantInputs(nbSubfr, seed int) ([]int32, []int32) {
 	xx := make([]int32, nbSubfr*ltpOrderConst*ltpOrderConst)
 	xX := make([]int32, nbSubfr*ltpOrderConst)
-	for sf := 0; sf < nbSubfr; sf++ {
+	for sf := range nbSubfr {
 		xxSub := ltpXXQ17Pattern(seed + sf*7)
 		xXSub := ltpXxQ17Pattern(seed+sf*11, sf%2 == 1)
 		copy(xx[sf*ltpOrderConst*ltpOrderConst:], xxSub[:])
@@ -533,8 +533,8 @@ func ltpQuantInputs(nbSubfr, seed int) ([]int32, []int32) {
 
 func ltpXXQ17Pattern(seed int) [ltpOrderConst * ltpOrderConst]int32 {
 	var out [ltpOrderConst * ltpOrderConst]int32
-	for r := 0; r < ltpOrderConst; r++ {
-		for c := 0; c < ltpOrderConst; c++ {
+	for r := range ltpOrderConst {
+		for c := range ltpOrderConst {
 			idx := r*ltpOrderConst + c
 			if r == c {
 				out[idx] = int32(12000 + seed*97 + r*1300)

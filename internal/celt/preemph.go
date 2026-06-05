@@ -211,10 +211,7 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, outpu
 		return true
 	}
 
-	split := (frameSize - overlap) * channels
-	if split < 0 {
-		split = 0
-	}
+	split := max((frameSize-overlap)*channels, 0)
 	if split > total {
 		split = total
 	}
@@ -316,7 +313,7 @@ func (e *Encoder) applyPreemphasis2TapAndSilenceCore(pcm, output []float32, tota
 	var firstMaxBits, overlapMaxBits uint32
 	if channels == 1 {
 		m := float32(e.preemphState[0])
-		for i := 0; i < total; i++ {
+		for i := range total {
 			v := pcm[i]
 			if i < split {
 				firstMaxBits = updateMaxAbsBitsF32(firstMaxBits, v)

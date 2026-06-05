@@ -56,14 +56,14 @@ func encodeSILKVoicedPLCTestSequence(t *testing.T, channels int) [][]byte {
 	}
 
 	packets := make([][]byte, 0, numFrames)
-	for frameIndex := 0; frameIndex < numFrames; frameIndex++ {
+	for frameIndex := range numFrames {
 		pcm := make([]float32, frameSize*channels)
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			tm := float64(frameIndex*frameSize+i) / sampleRate
 			s := 0.35*float32(math.Sin(2*math.Pi*220*tm)) +
 				0.15*float32(math.Sin(2*math.Pi*440*tm+0.21)) +
 				0.08*float32(math.Sin(2*math.Pi*880*tm+0.43))
-			for ch := 0; ch < channels; ch++ {
+			for ch := range channels {
 				pcm[i*channels+ch] = s
 			}
 		}
@@ -99,7 +99,7 @@ func TestSILKPLCIIRFirstLossOutputNonSilentMatchesLibopus(t *testing.T) {
 	buf := make([]float32, frameSize*channels)
 
 	// Warm up: decode first 4 packets normally.
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if _, err := dec.Decode(packets[i], buf); err != nil {
 			t.Fatalf("Decode packet %d: %v", i, err)
 		}
@@ -146,7 +146,7 @@ func TestSILKPLCIIRFirstLossOutputNonSilentMatchesLibopus(t *testing.T) {
 		t.Fatalf("oracle compare: NewDecoder: %v", err)
 	}
 	gotBuf := make([]float32, frameSize*channels*5)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if _, err := got.Decode(packets[i], gotBuf[i*frameSize:(i+1)*frameSize]); err != nil {
 			t.Fatalf("oracle compare: Decode packet %d: %v", i, err)
 		}
@@ -171,14 +171,14 @@ func TestSILKPLCIIRMultiLossEnergyDecaysMatchesLibopus(t *testing.T) {
 	const frameSize = 960
 	energies := make([]float64, 3)
 
-	for lossIdx := 0; lossIdx < 3; lossIdx++ {
+	for lossIdx := range 3 {
 		dec, err := NewDecoder(DefaultDecoderConfig(48000, channels))
 		if err != nil {
 			t.Fatalf("NewDecoder (loss %d): %v", lossIdx, err)
 		}
 		buf := make([]float32, frameSize*channels)
 		// Always warm up with 4 packets.
-		for i := 0; i < 4; i++ {
+		for i := range 4 {
 			if _, err := dec.Decode(packets[i], buf); err != nil {
 				t.Fatalf("Decode packet %d (loss %d): %v", i, lossIdx, err)
 			}
@@ -212,7 +212,7 @@ func TestSILKPLCIIRMultiLossEnergyDecaysMatchesLibopus(t *testing.T) {
 	}
 	// Build steps: 4 good + 3 losses.
 	steps := make([]libopusAPIRateDecodeStep, 7)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		steps[i] = libopusAPIRateDecodeStep{packet: packets[i]}
 	}
 	// steps[4..6] are nil (PLC).
@@ -227,24 +227,21 @@ func TestSILKPLCIIRMultiLossEnergyDecaysMatchesLibopus(t *testing.T) {
 	}
 	got := make([]float32, 0, len(want))
 	buf2 := make([]float32, frameSize*channels)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		n, err := dec2.Decode(packets[i], buf2)
 		if err != nil {
 			t.Fatalf("oracle compare: Decode packet %d: %v", i, err)
 		}
 		got = append(got, buf2[:n*channels]...)
 	}
-	for k := 0; k < 3; k++ {
+	for k := range 3 {
 		n, err := dec2.Decode(nil, buf2)
 		if err != nil {
 			t.Fatalf("oracle compare: Decode(nil) loss %d: %v", k, err)
 		}
 		got = append(got, buf2[:n*channels]...)
 	}
-	cmpLen := len(want)
-	if len(got) < cmpLen {
-		cmpLen = len(got)
-	}
+	cmpLen := min(len(got), len(want))
 	// PLC frames dominate the comparison; use PLC quality bar.
 	assertAPIRateQualityFloat32PLC(t, got[:cmpLen], want[:cmpLen], 48000, channels, true,
 		"SILK PLC IIR multi-loss mono")
@@ -270,7 +267,7 @@ func TestSILKPLCIIRVoicedUnvoicedTransitionNoPanic(t *testing.T) {
 				}
 			}()
 
-			for i := 0; i < 5; i++ {
+			for i := range 5 {
 				if _, err := dec.Decode(packets[i], buf); err != nil {
 					t.Fatalf("Decode packet %d: %v", i, err)
 				}
@@ -300,13 +297,13 @@ func TestSILKPLCIIRStereoMultiLossEnergyDecays(t *testing.T) {
 		t.Fatalf("NewDecoder: %v", err)
 	}
 	buf := make([]float32, frameSize*channels)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if _, err := dec.Decode(packets[i], buf); err != nil {
 			t.Fatalf("Decode packet %d: %v", i, err)
 		}
 	}
 
-	for k := 0; k < 3; k++ {
+	for k := range 3 {
 		lostBuf := make([]float32, frameSize*channels)
 		if _, err := dec.Decode(nil, lostBuf); err != nil {
 			t.Fatalf("Decode(nil) loss %d: %v", k, err)

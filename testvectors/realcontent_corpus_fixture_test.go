@@ -129,7 +129,7 @@ func loadRealcontentFixture() (realcontentFixtureFileData, error) {
 			}
 			n := len(raw) / 2
 			c.stereo = make([]float32, n)
-			for j := 0; j < n; j++ {
+			for j := range n {
 				s := int16(binary.LittleEndian.Uint16(raw[j*2 : j*2+2]))
 				c.stereo[j] = float32(s) / 32768.0
 			}
@@ -155,7 +155,7 @@ func loadRealcontentFixture() (realcontentFixtureFileData, error) {
 func realcontentMono(stereo []float32) []float32 {
 	frames := len(stereo) / 2
 	out := make([]float32, frames)
-	for f := 0; f < frames; f++ {
+	for f := range frames {
 		out[f] = 0.5 * (stereo[f*2] + stereo[f*2+1])
 	}
 	return out

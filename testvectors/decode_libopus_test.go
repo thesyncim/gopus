@@ -92,7 +92,7 @@ func TestDecodeLibopusPacket(t *testing.T) {
 			}
 
 			refFrame := refSamples[offset : offset+frameSamples]
-			for j := 0; j < frameSamples; j++ {
+			for j := range frameSamples {
 				got := quantizeTo16(float32(decoded[j]))
 				want := refFrame[j]
 				diff := math.Abs(float64(got - want))

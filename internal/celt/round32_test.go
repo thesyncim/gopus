@@ -19,7 +19,7 @@ func TestRound32DefeatsFusion(t *testing.T) {
 	}
 	var diverged int
 	const n = 5_000_000
-	for i := 0; i < n; i++ {
+	for range n {
 		a, b, c := next(), next(), next()
 		if fusedMulAddProbe(a, b, c) != mulAdd32Ref(a, b, c) {
 			diverged++

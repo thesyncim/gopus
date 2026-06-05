@@ -70,10 +70,7 @@ func (e *Encoder) controlSNR(targetRateBps, nbSubfr int) {
 	}
 
 	id := (rate + 200) / 400
-	id = id - 10
-	if id > len(table)-1 {
-		id = len(table) - 1
-	}
+	id = min(id-10, len(table)-1)
 	if id <= 0 {
 		e.snrDBQ7 = 0
 		return

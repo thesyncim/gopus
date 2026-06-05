@@ -309,7 +309,6 @@ func TestEncoderComplianceReferenceStatusForArch(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			got, floor := encoderComplianceReferenceStatusForArch(tc.caseName, tc.gapDB, tc.goarch)
 			if got != tc.want {
@@ -430,7 +429,6 @@ func TestEncoderComplianceReferenceStatusForPlatform(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			got, floor := encoderComplianceReferenceStatusForPlatform(tc.caseName, tc.gapDB, tc.goos, tc.goarch)
 			if got != tc.want {

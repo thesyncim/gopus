@@ -58,20 +58,20 @@ func ProbeCELTFixedDeemphasis(in [][]int32, pcm []int32, coef []int16, mem []int
 	}
 	payload := NewOraclePayload(celtDeemphasisInputMagic,
 		uint32(N), uint32(C), uint32(downsample), accumWord)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		var v int16
 		if i < len(coef) {
 			v = coef[i]
 		}
 		payload.I32(int32(v))
 	}
-	for c := 0; c < C; c++ {
+	for c := range C {
 		payload.I32s(in[c][:N]...)
 	}
-	for c := 0; c < C; c++ {
+	for c := range C {
 		payload.I32(mem[c])
 	}
-	for i := 0; i < pcmLen; i++ {
+	for i := range pcmLen {
 		var v int32
 		if i < len(pcm) {
 			v = pcm[i]

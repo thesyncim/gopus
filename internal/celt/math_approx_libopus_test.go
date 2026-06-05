@@ -17,7 +17,7 @@ func TestCELTLog2MatchesLibopusFloatApprox(t *testing.T) {
 		1.125, 1.25, 1.5, 1.875, 2, 3, 8, 1024,
 	}
 	for exp := int32(-12); exp <= 12; exp++ {
-		for mant := uint32(0); mant < 8; mant++ {
+		for mant := range uint32(8) {
 			bits := uint32(exp+127)<<23 | mant<<20 | 0x12345
 			samples = append(samples, math.Float32frombits(bits))
 		}
@@ -74,7 +74,7 @@ func TestCELTAngleMathMatchesLibopusFloatPath(t *testing.T) {
 		0.99999994, 1, 1.0000001, 1.25, 2, 3.75,
 	}
 	seed := uint32(0x6d2b79f5)
-	for i := 0; i < 128; i++ {
+	for range 128 {
 		word := nextCELTMathWord(&seed)
 		sample := float32(int32(word%20001)-10000) / 8192
 		angleSamples = append(angleSamples, sample)
@@ -122,7 +122,7 @@ func TestCELTAngleMathMatchesLibopusFloatPath(t *testing.T) {
 			{0.125, 0.875}, {0.875, 0.125}, {0.99999994, 1},
 		}
 		seed := uint32(0x1234abcd)
-		for i := 0; i < 128; i++ {
+		for range 128 {
 			y := float32(nextCELTMathWord(&seed)%20001) / 8192
 			x := float32(nextCELTMathWord(&seed)%20001) / 8192
 			pairs = append(pairs, pair{y: y, x: x})
@@ -187,7 +187,7 @@ func TestCELTStereoIthetaQ30MatchesLibopus(t *testing.T) {
 		for _, stereo := range []bool{false, true} {
 			x := make([]float32, n)
 			y := make([]float32, n)
-			for i := 0; i < n; i++ {
+			for i := range n {
 				x[i] = float32(int32(nextCELTMathWord(&seed)%20001)-10000) / 10000
 				y[i] = float32(int32(nextCELTMathWord(&seed)%20001)-10000) / 10000
 			}
@@ -268,7 +268,7 @@ func TestCELTBitexactLog2TanMatchesLibopus(t *testing.T) {
 		}
 	}
 	seed := uint32(0x5eed1234)
-	for i := 0; i < 2048; i++ {
+	for range 2048 {
 		isin := int(nextCELTMathWord(&seed)%32767) + 1
 		icos := int(nextCELTMathWord(&seed)%32767) + 1
 		pairs = append(pairs, pair{isin: isin, icos: icos})
@@ -335,7 +335,7 @@ func TestCELTIntegerMathMatchesLibopus(t *testing.T) {
 			}
 		}
 		seed := uint32(0x9e3779b9)
-		for i := 0; i < 512; i++ {
+		for range 512 {
 			a := int(int32(nextCELTMathWord(&seed)))
 			b := int(int32(nextCELTMathWord(&seed)))
 			pairs = append(pairs, [2]int{a, b})
@@ -395,7 +395,7 @@ func TestCELTIntegerMathMatchesLibopus(t *testing.T) {
 			}
 		}
 		seed := uint32(0x31415926)
-		for i := 0; i < 512; i++ {
+		for range 512 {
 			n := nextCELTMathWord(&seed)
 			d := nextCELTMathWord(&seed)
 			if d == 0 {
@@ -439,7 +439,7 @@ func TestCELTIntegerMathMatchesLibopus(t *testing.T) {
 			{2147483647, 1},
 		}
 		seed := uint32(0x27182818)
-		for i := 0; i < 512; i++ {
+		for range 512 {
 			n := int32(nextCELTMathWord(&seed))
 			if n == int32(-1<<31) {
 				n++

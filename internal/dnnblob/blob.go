@@ -10,6 +10,7 @@ package dnnblob
 
 import (
 	"encoding/binary"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -122,8 +123,8 @@ func sortedRecordNames(groups ...[]string) []string {
 	}
 	out := make([]string, 0, len(present))
 	for name := range present {
-		if strings.HasSuffix(name, "_weights_float") {
-			int8Name := strings.TrimSuffix(name, "_weights_float") + "_weights_int8"
+		if before, ok := strings.CutSuffix(name, "_weights_float"); ok {
+			int8Name := before + "_weights_int8"
 			if _, ok := present[int8Name]; ok {
 				continue
 			}
@@ -151,12 +152,7 @@ func optionalFloatMirror(required []string, name string) bool {
 		return false
 	}
 	int8Name := strings.TrimSuffix(name, "_weights_float") + "_weights_int8"
-	for _, other := range required {
-		if other == int8Name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(required, int8Name)
 }
 
 // SupportsPitchDNN reports whether the blob contains the pitch model family

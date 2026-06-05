@@ -18,9 +18,9 @@ func pitchXcorrKernelAVX8(x, y []float32, sum *[8]float32, length int) {
 	var sums [8][8]float32
 	j := 0
 	for ; j < length-7; j += 8 {
-		for lane := 0; lane < 8; lane++ {
+		for lane := range 8 {
 			xv := x[j+lane]
-			for corr := 0; corr < 8; corr++ {
+			for corr := range 8 {
 				sums[corr][lane] = pitchFMADD32(xv, y[j+lane+corr], sums[corr][lane])
 			}
 		}
@@ -28,12 +28,12 @@ func pitchXcorrKernelAVX8(x, y []float32, sum *[8]float32, length int) {
 	if j != length {
 		for lane := 0; lane < length-j; lane++ {
 			xv := x[j+lane]
-			for corr := 0; corr < 8; corr++ {
+			for corr := range 8 {
 				sums[corr][lane] = pitchFMADD32(xv, y[j+lane+corr], sums[corr][lane])
 			}
 		}
 	}
-	for corr := 0; corr < 8; corr++ {
+	for corr := range 8 {
 		sum[corr] = reduceAVX2PitchSum(sums[corr])
 	}
 }

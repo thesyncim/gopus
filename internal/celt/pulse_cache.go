@@ -143,7 +143,7 @@ func bitsToPulsesCachedBinarySearch(cache []uint8, bitsQ3 int) int {
 	bitsQ3--
 	lo := 0
 	hi := int(cache[0])
-	for i := 0; i < logMaxPseudo; i++ {
+	for range logMaxPseudo {
 		mid := (lo + hi + 1) >> 1
 		if int(cache[mid]) >= bitsQ3 {
 			hi = mid

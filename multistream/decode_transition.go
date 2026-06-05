@@ -116,10 +116,7 @@ func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, tran
 	// libopus decodes the SILK frame at IMAX(F10, audiosize) and trims to the
 	// requested size (opus_decode_frame silk_frame_size); SILK's minimum is 10 ms,
 	// so this only matters if a caller ever requests less than F10.
-	silkDecodeSize := frameSize
-	if silkDecodeSize < f10 {
-		silkDecodeSize = f10
-	}
+	silkDecodeSize := max(frameSize, f10)
 
 	var rd rangecoding.Decoder
 	rd.Init(frame)
@@ -239,10 +236,7 @@ func (d *streamState) transitionPLCToFloat32(transSize, prevMode, prevBW int, pr
 		// advancing the SILK PLC state by a full 10 ms (opus_decode_frame ->
 		// silk_frame_size = IMAX(F10, ...)).
 		f10 := int(d.sampleRate) / 100
-		silkPLCSize := transSize
-		if silkPLCSize < f10 {
-			silkPLCSize = f10
-		}
+		silkPLCSize := max(transSize, f10)
 		pcm, err := d.decodeSILKToFloat32(nil, silkPLCSize, prevStereo, prevBW)
 		if err != nil {
 			return nil, err
@@ -281,10 +275,7 @@ func (d *streamState) addHybridToSilkFadeOut(out []float32) error {
 	if err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(celtSilenceFrame2B[:], f2_5, d.lastPacketStereo, scratch); err != nil {
 		return err
 	}
-	n := len(out)
-	if len(scratch) < n {
-		n = len(scratch)
-	}
+	n := min(len(scratch), len(out))
 	for i := 0; i < n; i++ {
 		out[i] += scratch[i]
 	}

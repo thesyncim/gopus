@@ -147,7 +147,7 @@ func WriteRepeatedRawFloat32(path string, samples []float32, repeat int) error {
 	}
 	chunkSamples := min(len(samples), 1<<15)
 	buf := make([]byte, chunkSamples*4)
-	for r := 0; r < repeat; r++ {
+	for range repeat {
 		for start := 0; start < len(samples); start += chunkSamples {
 			end := min(start+chunkSamples, len(samples))
 			chunk := buf[:(end-start)*4]
@@ -179,7 +179,7 @@ func WriteRepeatedOpusDemoBitstream(path string, packets [][]byte, repeat int) e
 	defer w.Flush()
 
 	var header [8]byte
-	for r := 0; r < repeat; r++ {
+	for range repeat {
 		for _, packet := range packets {
 			binary.BigEndian.PutUint32(header[:4], uint32(len(packet)))
 			// final range stays zero so opus_demo skips encoder/decoder range checks.

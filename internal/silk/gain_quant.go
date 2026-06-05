@@ -34,7 +34,7 @@ const (
 func silkGainsQuantInto(ind []int8, gainQ16 []int32, prevInd int8, conditional bool, nbSubfr int) int8 {
 	currentPrevInd := int(prevInd)
 
-	for k := 0; k < nbSubfr; k++ {
+	for k := range nbSubfr {
 		// Convert to log scale, scale, floor()
 		logGain := silkLin2Log(gainQ16[k])
 
@@ -87,10 +87,7 @@ func silkGainsQuantInto(ind []int8, gainQ16 []int32, prevInd int8, conditional b
 		// Per libopus gain_quant.c line 89:
 		// gain_Q16[k] = silk_log2lin(silk_min_32(silk_SMULWB(INV_SCALE_Q16, *prev_ind) + OFFSET, 3967))
 		// Note: NO minimum clamping after log2lin - gains can be < 1.0
-		logQ7 := silkSMULWB(int32(invScaleQ16Val), int32(currentPrevInd)) + int32(gainOffsetQ7)
-		if logQ7 > 3967 {
-			logQ7 = 3967
-		}
+		logQ7 := min(silkSMULWB(int32(invScaleQ16Val), int32(currentPrevInd))+int32(gainOffsetQ7), 3967)
 		gainQ16[k] = silkLog2Lin(logQ7)
 		// DO NOT clamp to minimum - libopus allows gains < 1.0
 	}
@@ -126,10 +123,7 @@ func GainQ16FromPCM(pcm []int16, subframeSamples int) int32 {
 
 	// Compute sum of squares
 	var sumSq int64
-	n := subframeSamples
-	if n > len(pcm) {
-		n = len(pcm)
-	}
+	n := min(subframeSamples, len(pcm))
 
 	for i := 0; i < n; i++ {
 		val := int64(pcm[i])
@@ -160,10 +154,9 @@ func GainQ16FromPCM(pcm []int16, subframeSamples int) int32 {
 
 	// Convert linear gain to Q16: gainQ16 = gainLinear * 65536
 	// This matches libopus: pGains_Q16[k] = Gains[k] * 65536.0f
-	gainQ16_64 := int64(gainLinear) << 16
-	if gainQ16_64 > 0x7FFFFFFF {
-		gainQ16_64 = 0x7FFFFFFF // Clamp to max int32
-	}
+	gainQ16_64 := min(int64(gainLinear)<<16,
+		// Clamp to max int32
+		0x7FFFFFFF)
 	gainQ16 := int32(gainQ16_64)
 
 	// Clamp to minimum of 1.0 in Q16 (65536)

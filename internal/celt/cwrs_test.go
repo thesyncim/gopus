@@ -327,7 +327,7 @@ func TestDecodePulsesSymmetry(t *testing.T) {
 			vCount := PVQ_V(tc.n, tc.k)
 			seen := make(map[string]bool)
 
-			for idx := uint32(0); idx < vCount; idx++ {
+			for idx := range vCount {
 				y := DecodePulses(idx, tc.n, tc.k)
 				if y == nil {
 					t.Errorf("DecodePulses(%d, %d, %d) returned nil", idx, tc.n, tc.k)
@@ -390,7 +390,7 @@ func TestDecodePulsesExhaustiveProperties(t *testing.T) {
 			vCount := PVQ_V(tc.n, tc.k)
 			seen := make(map[string]uint32)
 
-			for idx := uint32(0); idx < vCount; idx++ {
+			for idx := range vCount {
 				// Decode
 				y := DecodePulses(idx, tc.n, tc.k)
 				if y == nil {

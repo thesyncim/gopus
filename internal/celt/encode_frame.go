@@ -27,14 +27,14 @@ func (e *Encoder) fillMDCTHistoryFromPrefilter(channel, overlap int, dst []float
 		return
 	}
 	if len(e.overlapBuffer) < (channel+1)*overlap {
-		for i := 0; i < overlap; i++ {
+		for i := range overlap {
 			dst[i] = 0
 		}
 		return
 	}
 	start := channel * overlap
 	src := e.overlapBuffer[start : start+overlap]
-	for i := 0; i < overlap; i++ {
+	for i := range overlap {
 		dst[i] = float32(src[i])
 	}
 }
@@ -54,9 +54,9 @@ func (e *Encoder) fillTransientHistoryFromPrefilterF32(overlap int, dst []float3
 		return
 	}
 	base := maxPeriod - overlap
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		chBase := ch * maxPeriod
-		for i := 0; i < overlap; i++ {
+		for i := range overlap {
 			dst[i*channels+ch] = float32(e.prefilterMem[chBase+base+i])
 		}
 	}
@@ -83,7 +83,7 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []celtGLog) (
 	if nbBands <= 0 || len(out) < nbBands {
 		return e.surroundTrim, false
 	}
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		out[i] = 0
 	}
 	if e.lfe || e.hybrid {
@@ -97,10 +97,7 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []celtGLog) (
 		return e.surroundTrim, false
 	}
 
-	maskEnd := int(e.lastCodedBands)
-	if maskEnd < 2 {
-		maskEnd = 2
-	}
+	maskEnd := max(int(e.lastCodedBands), 2)
 	if maskEnd > nbBands {
 		maskEnd = nbBands
 	}
@@ -114,7 +111,7 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []celtGLog) (
 	maskAvg := celtGLog(0)
 	diff := celtGLog(0)
 	count := 0
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		base := c * maskBands
 		for i := 0; i < maskEnd; i++ {
 			mask := e.energyMask[base+i]
@@ -231,10 +228,10 @@ func (e *Encoder) upsampleZeroStuff(apiPCM []float32, apiFrameSize, channels, up
 	for i := range buf {
 		buf[i] = 0
 	}
-	for i := 0; i < apiFrameSize; i++ {
+	for i := range apiFrameSize {
 		dst := i * upsample * channels
 		src := i * channels
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			buf[dst+c] = apiPCM[src+c]
 		}
 	}
@@ -251,7 +248,7 @@ func applyUpsampleMDCTScaling(coeffs []float32, upsample int) {
 	}
 	bound := len(coeffs) / upsample
 	up := float32(upsample)
-	for i := 0; i < bound; i++ {
+	for i := range bound {
 		coeffs[i] *= up
 	}
 	for i := bound; i < len(coeffs); i++ {
@@ -410,10 +407,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	defer func() { e.frameBits = 0 }()
 	e.clearLastQEXTPayload()
 
-	bufSize := targetBytes
-	if bufSize < 256 {
-		bufSize = 256
-	}
+	bufSize := max(targetBytes, 256)
 	buf := e.scratch.reBuf
 	if len(buf) < bufSize {
 		buf = make([]byte, bufSize)
@@ -453,15 +447,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	}
 	start := 0
 	if e.IsHybrid() {
-		start = HybridCELTStartBand
-		if start < 0 {
-			start = 0
-		}
+		start = max(HybridCELTStartBand, 0)
 		if start >= nbBands {
-			start = nbBands - 1
-			if start < 0 {
-				start = 0
-			}
+			start = max(nbBands-1, 0)
 		}
 	}
 	prefilterTapset := e.TapsetDecision()
@@ -495,10 +483,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		} else {
 			re.EncodeBit(1, 1)
 			pitchIndex := pfResult.pitch + 1
-			octave := ilog32(uint32(pitchIndex)) - 5
-			if octave < 0 {
-				octave = 0
-			}
+			octave := max(ilog32(uint32(pitchIndex))-5, 0)
 			re.EncodeUniform(uint32(octave), 6)
 			re.EncodeRawBits(uint32(pitchIndex-(16<<octave)), uint(4+octave))
 			re.EncodeRawBits(uint32(pfResult.qg), 3)
@@ -759,10 +744,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	// Keep this feedback path in float32 precision to mirror libopus float behavior.
 	// Reference: celt_encoder.c before quant_coarse_energy().
 	predStride := e.predStride()
-	for c := 0; c < codedChannels; c++ {
+	for c := range codedChannels {
 		baseState := c * predStride
 		baseFrame := c * nbBands
-		for band := 0; band < nbBands; band++ {
+		for band := range nbBands {
 			stateIdx := baseState + band
 			frameIdx := baseFrame + band
 			if frameIdx >= len(energies) || stateIdx >= len(e.energyError) || stateIdx >= len(e.prevEnergy) {
@@ -994,7 +979,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			tfSelect = 0
 			if transient {
 				// For transients without analysis, use tf_res=1 (favor time resolution)
-				for i := 0; i < nbBands; i++ {
+				for i := range nbBands {
 					tfRes[i] = 1
 				}
 			}
@@ -1101,10 +1086,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		}
 		// quanta = min(width<<BITRES, max(6<<BITRES, width))
 		// This means quanta is between 6 bits and width bits, scaled by BITRES
-		innerMax := 6 << bitRes
-		if width > innerMax {
-			innerMax = width
-		}
+		innerMax := max(width, 6<<bitRes)
 		quanta := width << bitRes
 		if quanta > innerMax {
 			quanta = innerMax
@@ -1235,16 +1217,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			offsetBytes := (codedChannels * 80000 * frameSize) / (e.celtModeFs() * 8)
 			initialQextBytes := max(targetBytes-1275, max(0, (targetBytes-offsetBytes)*4/5))
 			overheadQ3 := (40*codedChannels + 20) << bitRes
-			baseQ3 := (targetBytes-initialQextBytes/3)*8<<bitRes - overheadQ3
-			if baseQ3 < 0 {
-				baseQ3 = 0
-			}
+			baseQ3 := max((targetBytes-initialQextBytes/3)*8<<bitRes-overheadQ3, 0)
 			vbrQ3 := e.computeVBRTargetWithBoost(baseQ3, frameSize, tf2, e.lastPitchChange, totalBoost)
 			vbrQ3 += re.TellFrac()
-			cbrVBRTargetBytes = (vbrQ3 + (1 << (bitRes + 2))) >> (bitRes + 3)
-			if cbrVBRTargetBytes < 0 {
-				cbrVBRTargetBytes = 0
-			}
+			cbrVBRTargetBytes = max((vbrQ3+(1<<(bitRes+2)))>>(bitRes+3), 0)
 		}
 		mainBytes, payloadBytes, _ := computeQEXTReservation(targetBytes, minAllowed, frameSize, codedChannels, e.celtModeFs(), toneishness, cbrVBRTargetBytes)
 		qextPayloadBytes = payloadBytes
@@ -1279,17 +1255,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	}
 	totalBitsQ3 -= antiCollapseRsv
 
-	signalBandwidth := nbBands - 1
-	if signalBandwidth < 0 {
-		signalBandwidth = 0
-	}
+	signalBandwidth := max(nbBands-1, 0)
 	if e.analysisValid {
 		minBandwidth := celtMinSignalBandwidth(equivRate, codedChannels)
-		if e.analysisBandwidth > minBandwidth {
-			signalBandwidth = e.analysisBandwidth
-		} else {
-			signalBandwidth = minBandwidth
-		}
+		signalBandwidth = max(e.analysisBandwidth, minBandwidth)
 	}
 	if e.lfe {
 		signalBandwidth = 1
@@ -1411,10 +1380,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			e.encodeQEXTCoarseEnergyWithEncoder(qextEnc, qextBandLogE, qextEnd, lm, qextPayloadBytes, qextOldBandE, qextQuantized, qextError, &qextDelayedIntra)
 		}
 
-		qextBitsQ3 := (qextEnc.StorageBits() << bitRes) - re.TellFrac() - 1
-		if qextBitsQ3 < 0 {
-			qextBitsQ3 = 0
-		}
+		qextBitsQ3 := max((qextEnc.StorageBits()<<bitRes)-re.TellFrac()-1, 0)
 		computeQEXTExtraAllocationEncode(
 			start,
 			end,
@@ -1589,10 +1555,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		re.EncodeRawBits(uint32(antiCollapseOn), 1)
 	}
 	// Step 14.6: Encode energy finalization bits (leftover budget)
-	bitsLeft := targetBits - re.Tell()
-	if bitsLeft < 0 {
-		bitsLeft = 0
-	}
+	bitsLeft := max(targetBits-re.Tell(), 0)
 	if len(coarseResidual) >= nbBands*codedChannels {
 		if start > 0 {
 			e.EncodeEnergyFinaliseRangeFromError(quantizedEnergies, start, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft)
@@ -1614,10 +1577,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	for i := range e.energyError {
 		e.energyError[i] = 0
 	}
-	for c := 0; c < codedChannels; c++ {
+	for c := range codedChannels {
 		baseState := c * e.predStride()
 		baseFrame := c * nbBands
-		for band := 0; band < nbBands; band++ {
+		for band := range nbBands {
 			stateIdx := baseState + band
 			if stateIdx >= len(e.energyError) {
 				continue
@@ -1946,7 +1909,7 @@ func (e *Encoder) updateTemporalVBRSilence(nbBands, codedChannels int) {
 
 	follow := float32(-10.0)
 	frameAvg := float32(0.0)
-	for i := 0; i < bandEnd; i++ {
+	for i := range bandEnd {
 		v := float32(silenceE[i])
 		if follow-1.0 > v {
 			follow = follow - 1.0
@@ -2150,10 +2113,7 @@ func (e *Encoder) cbrPayloadBytes(frameSize int) int {
 	if bitrate < 6000 {
 		bitrate = 6000
 	}
-	nbCompressed := (bitrate*frameSize + 4*fs) / (8 * fs)
-	if nbCompressed < 2 {
-		nbCompressed = 2
-	}
+	nbCompressed := max((bitrate*frameSize+4*fs)/(8*fs), 2)
 	packetSizeCap := 1275
 	if extsupport.QEXT && e.qextActive() && !e.hybrid {
 		packetSizeCap = qextPacketSizeCap
@@ -2161,10 +2121,9 @@ func (e *Encoder) cbrPayloadBytes(frameSize int) int {
 	if nbCompressed > packetSizeCap {
 		nbCompressed = packetSizeCap
 	}
-	payload := nbCompressed - 1 // subtract TOC byte
-	if payload < 0 {
-		payload = 0
-	}
+	payload := max(
+		// subtract TOC byte
+		nbCompressed-1, 0)
 	if e.maxPayloadBytes > 0 && payload > int(e.maxPayloadBytes) {
 		payload = int(e.maxPayloadBytes)
 	}
@@ -2178,10 +2137,7 @@ func (e *Encoder) vbrMaxPayloadBytes(frameSize int) int {
 	if extsupport.QEXT && e.qextActive() && !e.hybrid {
 		packetSizeCap = qextPacketSizeCap
 	}
-	maxBytes := (packetSizeCap >> (3 - lm)) - 1
-	if maxBytes < 2 {
-		maxBytes = 2
-	}
+	maxBytes := max((packetSizeCap>>(3-lm))-1, 2)
 	if e.maxPayloadBytes > 0 && maxBytes > int(e.maxPayloadBytes) {
 		maxBytes = int(e.maxPayloadBytes)
 	}
@@ -2202,10 +2158,7 @@ func (e *Encoder) computeInitialTargetBytes(frameSize int) int {
 			boundScale = 1
 		}
 		vbrBoundQ3 := int(float32(vbrRateQ3) * boundScale)
-		maxAllowedBytes := (vbrRateQ3 + vbrBoundQ3 - int(e.vbrReservoir)) >> (bitRes + 3)
-		if maxAllowedBytes < 2 {
-			maxAllowedBytes = 2
-		}
+		maxAllowedBytes := max((vbrRateQ3+vbrBoundQ3-int(e.vbrReservoir))>>(bitRes+3), 2)
 		if targetBytes > maxAllowedBytes {
 			targetBytes = maxAllowedBytes
 		}
@@ -2219,10 +2172,7 @@ func (e *Encoder) computeInitialTargetBytes(frameSize int) int {
 func (e *Encoder) computeFinalVBRTargetBytes(frameSize int, tfEstimate float32, pitchChange bool, tellFrac, totalBoost, limitBytes int) int {
 	mode := e.modeConfig(frameSize)
 	lm := mode.LM
-	lmDiff := 3 - lm
-	if lmDiff < 0 {
-		lmDiff = 0
-	}
+	lmDiff := max(3-lm, 0)
 
 	vbrRateQ3 := e.bitrateToBits(frameSize) << bitRes
 	channels := e.codedChannels()
@@ -2230,10 +2180,7 @@ func (e *Encoder) computeFinalVBRTargetBytes(frameSize int, tfEstimate float32, 
 	if e.hybrid {
 		overheadQ3 = (9*channels + 4) << bitRes
 	}
-	baseTargetQ3 := vbrRateQ3 - overheadQ3
-	if baseTargetQ3 < 0 {
-		baseTargetQ3 = 0
-	}
+	baseTargetQ3 := max(vbrRateQ3-overheadQ3, 0)
 	if e.constrainedVBR {
 		baseTargetQ3 += int(e.vbrOffset) >> lmDiff
 	}
@@ -2313,10 +2260,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float32, pitchChan
 
 	mode := e.modeConfig(frameSize)
 	lm := mode.LM
-	lmDiff := 3 - lm
-	if lmDiff < 0 {
-		lmDiff = 0
-	}
+	lmDiff := max(3-lm, 0)
 
 	baseBits := e.bitrateToBits(frameSize)
 
@@ -2330,10 +2274,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float32, pitchChan
 	if extsupport.QEXT && e.qextActive() && !e.hybrid {
 		packetSizeCap = qextPacketSizeCap
 	}
-	vbrMaxBytes := (packetSizeCap >> (3 - lm)) - 1
-	if vbrMaxBytes < 2 {
-		vbrMaxBytes = 2
-	}
+	vbrMaxBytes := max((packetSizeCap>>(3-lm))-1, 2)
 
 	// Convert to Q3 format (8ths of bits) for VBR computation
 	// Reference: libopus celt_encoder.c line 1903
@@ -2344,10 +2285,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float32, pitchChan
 	// base_target = vbr_rate - ((40*C+20)<<BITRES)
 	channels := e.codedChannels()
 	overheadQ3 := (40*channels + 20) << bitRes
-	baseTargetQ3 := vbrRateQ3 - overheadQ3
-	if baseTargetQ3 < 0 {
-		baseTargetQ3 = 0
-	}
+	baseTargetQ3 := max(vbrRateQ3-overheadQ3, 0)
 	if e.constrainedVBR {
 		// libopus line 2453-2454: base_target += (vbr_offset >> lm_diff)
 		baseTargetQ3 += int(e.vbrOffset) >> lmDiff
@@ -2369,10 +2307,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float32, pitchChan
 	targetQ3 += tellEstQ3
 
 	// libopus line 2480: nbAvailableBytes = (target+(1<<(BITRES+2)))>>(BITRES+3)
-	targetBytes := (targetQ3 + (1 << (bitRes + 2))) >> (bitRes + 3)
-	if targetBytes < 2 {
-		targetBytes = 2
-	}
+	targetBytes := max((targetQ3+(1<<(bitRes+2)))>>(bitRes+3), 2)
 
 	// libopus line 2428: min_allowed = ((tell+total_boost+(1<<(BITRES+3))-1)>>(BITRES+3)) + 2
 	// Use estimated tell and previous frame's total_boost since gopus computes
@@ -2397,10 +2332,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float32, pitchChan
 			boundScale = 1
 		}
 		vbrBoundQ3 := int(float32(vbrRateQ3) * boundScale)
-		maxAllowedBytes := (vbrRateQ3 + vbrBoundQ3 - int(e.vbrReservoir)) >> (bitRes + 3)
-		if maxAllowedBytes < 2 {
-			maxAllowedBytes = 2
-		}
+		maxAllowedBytes := max((vbrRateQ3+vbrBoundQ3-int(e.vbrReservoir))>>(bitRes+3), 2)
 		if targetBytes > maxAllowedBytes {
 			targetBytes = maxAllowedBytes
 		}
@@ -2590,10 +2522,7 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 	// In float domain: target += temporal_vbr * 0.0000031 * clamp(96000-bitrate,0,32000) * target
 	if len(e.energyMask) == 0 && tfEstimate < 0.2 {
 		bitrate := e.bitrateToBits(frameSize) * (e.celtModeFs() / frameSize) // approximate bps
-		clampedBR := 96000 - bitrate
-		if clampedBR < 0 {
-			clampedBR = 0
-		}
+		clampedBR := max(96000-bitrate, 0)
 		if clampedBR > 32000 {
 			clampedBR = 32000
 		}

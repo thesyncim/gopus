@@ -29,7 +29,7 @@ func (d *Decoder) handleChannelTransition(streamChannels int) bool {
 		// Overlap buffer layout: [Left: 0..Overlap-1] [Right: Overlap..2*Overlap-1]
 		// This matches libopus which copies decode_mem[0] to decode_mem[1] on transition
 		if len(d.overlapBuffer) >= Overlap*2 {
-			for i := 0; i < Overlap; i++ {
+			for i := range Overlap {
 				d.overlapBuffer[Overlap+i] = d.overlapBuffer[i]
 			}
 		}
@@ -42,27 +42,27 @@ func (d *Decoder) handleChannelTransition(streamChannels int) bool {
 		// a per-mode custom layout.
 		stride := d.predStride()
 		if len(d.prevEnergy) >= stride*2 {
-			for i := 0; i < stride; i++ {
+			for i := range stride {
 				d.prevEnergy[stride+i] = d.prevEnergy[i]
 			}
 		}
 		if len(d.prevEnergy2) >= stride*2 {
-			for i := 0; i < stride; i++ {
+			for i := range stride {
 				d.prevEnergy2[stride+i] = d.prevEnergy2[i]
 			}
 		}
 		if len(d.prevLogE) >= stride*2 {
-			for i := 0; i < stride; i++ {
+			for i := range stride {
 				d.prevLogE[stride+i] = d.prevLogE[i]
 			}
 		}
 		if len(d.prevLogE2) >= stride*2 {
-			for i := 0; i < stride; i++ {
+			for i := range stride {
 				d.prevLogE2[stride+i] = d.prevLogE2[i]
 			}
 		}
 		if len(d.backgroundEnergy) >= stride*2 {
-			for i := 0; i < stride; i++ {
+			for i := range stride {
 				d.backgroundEnergy[stride+i] = d.backgroundEnergy[i]
 			}
 		}
@@ -161,7 +161,7 @@ func (d *Decoder) prepareMonoEnergyFromStereo() {
 	if d.channels != 1 || len(d.prevEnergy) < stride*2 {
 		return
 	}
-	for i := 0; i < stride; i++ {
+	for i := range stride {
 		right := d.prevEnergy[stride+i]
 		if right > d.prevEnergy[i] {
 			d.prevEnergy[i] = right
@@ -217,7 +217,7 @@ func (d *Decoder) SetPrevEnergyWithPrev(prev, energies []float32) {
 	// [c*predStride+band] (predStride == MaxBands for the static codec, the mode's
 	// nbEBands for a per-mode custom layout).
 	stride := d.predStride()
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		for band := 0; band < nbBands; band++ {
 			src := c*nbBands + band
 			dst := c*stride + band
@@ -248,7 +248,7 @@ func (d *Decoder) setPrevEnergyGLogWithPrev(prev []celtGLog, energies []celtGLog
 
 	// Copy with layout conversion: compact [c*nbBands+band] -> prediction-stride.
 	stride := d.predStride()
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		for band := 0; band < nbBands; band++ {
 			src := c*nbBands + band
 			dst := c*stride + band
@@ -278,7 +278,7 @@ func (d *Decoder) updateLogEGLog(energies []celtGLog, nbBands int, transient boo
 		copy(d.prevLogE2, d.prevLogE)
 	}
 	stride := d.predStride()
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		base := c * stride
 		for band := 0; band < nbBands; band++ {
 			src := c*nbBands + band

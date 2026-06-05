@@ -9,7 +9,7 @@ func seedPredictorBackupsForTest(predictor *Predictor, st *State) {
 	var tmpOut [NumFeatures]float32
 	var seed1 [InputSize]float32
 	var seed2 [InputSize]float32
-	for i := 0; i < NumFeatures; i++ {
+	for i := range NumFeatures {
 		seed1[2*NumBands+i] = float32((i%7)-3) / 11
 		seed2[2*NumBands+i] = float32((i%5)-2) / 9
 	}
@@ -27,7 +27,7 @@ func seedPredictorBackupsForTest(predictor *Predictor, st *State) {
 func seedBoundedConcealStateForTest(st *State) ([NumFeatures]float32, [NumFeatures]float32) {
 	var fec0 [NumFeatures]float32
 	var fec1 [NumFeatures]float32
-	for i := 0; i < NumFeatures; i++ {
+	for i := range NumFeatures {
 		fec0[i] = float32(i+1) / 13
 		fec1[i] = float32((i%5)+1) / 7
 	}
@@ -158,7 +158,7 @@ func TestQueueFeaturesAndCurrentFeatureLifecycle(t *testing.T) {
 		t.Fatalf("FillContFeatures count=%d want %d", n, len(gotCont))
 	}
 	base := (ContVectors - 2) * NumFeatures
-	for i := 0; i < NumFeatures; i++ {
+	for i := range NumFeatures {
 		if gotCont[base+i] != features[i] || gotCont[base+NumFeatures+i] != features[i] {
 			t.Fatalf("queued continuity mismatch at %d", i)
 		}
@@ -182,7 +182,7 @@ func TestMarkUpdatedAndFinishConcealedFrameFloat(t *testing.T) {
 	if n := st.FillPCMHistory(gotPCM[:]); n != PLCBufSize {
 		t.Fatalf("FillPCMHistory count=%d want %d", n, PLCBufSize)
 	}
-	for i := 0; i < FrameSize; i++ {
+	for i := range FrameSize {
 		want := quantizePCMUpdateFloat(frame[i])
 		if gotPCM[PLCBufSize-FrameSize+i] != want {
 			t.Fatalf("pcm tail[%d]=%v want %v", i, gotPCM[PLCBufSize-FrameSize+i], want)
@@ -240,7 +240,7 @@ func TestReplaceHistoryFromFramesFloatPreservesQueuedState(t *testing.T) {
 	if n := st.FillPCMHistory(gotPCM[:]); n != PLCBufSize {
 		t.Fatalf("FillPCMHistory count=%d want %d", n, PLCBufSize)
 	}
-	for i := 0; i < len(frames); i++ {
+	for i := range len(frames) {
 		want := quantizePCMUpdateFloat(frames[i])
 		if gotPCM[PLCBufSize-len(frames)+i] != want {
 			t.Fatalf("pcm tail[%d]=%v want %v", i, gotPCM[PLCBufSize-len(frames)+i], want)
@@ -263,7 +263,7 @@ func TestMarkUpdatedFrameInt16PreservesExactPCMGrid(t *testing.T) {
 	if n := st.FillPCMHistory(gotPCM[:]); n != PLCBufSize {
 		t.Fatalf("FillPCMHistory count=%d want %d", n, PLCBufSize)
 	}
-	for i := 0; i < FrameSize; i++ {
+	for i := range FrameSize {
 		want := float32(frame[i]) * (1.0 / 32768.0)
 		if gotPCM[PLCBufSize-FrameSize+i] != want {
 			t.Fatalf("pcm tail[%d]=%v want %v", i, gotPCM[PLCBufSize-FrameSize+i], want)

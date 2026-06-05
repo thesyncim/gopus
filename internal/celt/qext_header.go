@@ -20,10 +20,7 @@ func encodeQEXTHeader(enc *rangecoding.Encoder, channels int, hdr qextHeader) {
 	enc.EncodeBit(boolToInt(wide), 1)
 
 	if channels == 2 {
-		intensity := hdr.Intensity
-		if intensity < 0 {
-			intensity = 0
-		}
+		intensity := max(hdr.Intensity, 0)
 		if intensity > hdr.EndBands {
 			intensity = hdr.EndBands
 		}

@@ -28,11 +28,11 @@ func refWarpedARFeedback(sAR []int32, diffQ14 int32, arShpQ13 []int16, warpQ16 i
 
 func TestWarpedARFeedback24(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
-	for trial := 0; trial < 1000; trial++ {
+	for trial := range 1000 {
 		var sAR [maxShapeLpcOrder]int32
 		var sARRef [maxShapeLpcOrder]int32
 		var arShpQ13 [24]int16
-		for i := 0; i < 24; i++ {
+		for i := range 24 {
 			v := rng.Int31n(1<<20) - (1 << 19)
 			sAR[i] = v
 			sARRef[i] = v
@@ -49,7 +49,7 @@ func TestWarpedARFeedback24(t *testing.T) {
 		if got != want {
 			t.Fatalf("trial %d: warpedARFeedback24 mismatch: got %d, want %d", trial, got, want)
 		}
-		for i := 0; i < 24; i++ {
+		for i := range 24 {
 			if sAR[i] != sARRef[i] {
 				t.Fatalf("trial %d: sAR[%d] mismatch: got %d, want %d", trial, i, sAR[i], sARRef[i])
 			}
@@ -59,11 +59,11 @@ func TestWarpedARFeedback24(t *testing.T) {
 
 func TestWarpedARFeedback16(t *testing.T) {
 	rng := rand.New(rand.NewSource(99))
-	for trial := 0; trial < 1000; trial++ {
+	for trial := range 1000 {
 		var sAR [maxShapeLpcOrder]int32
 		var sARRef [maxShapeLpcOrder]int32
 		var arShpQ13 [16]int16
-		for i := 0; i < 24; i++ {
+		for i := range 24 {
 			v := rng.Int31n(1<<20) - (1 << 19)
 			sAR[i] = v
 			sARRef[i] = v
@@ -80,7 +80,7 @@ func TestWarpedARFeedback16(t *testing.T) {
 		if got != want {
 			t.Fatalf("trial %d: warpedARFeedback16 mismatch: got %d, want %d", trial, got, want)
 		}
-		for i := 0; i < 16; i++ {
+		for i := range 16 {
 			if sAR[i] != sARRef[i] {
 				t.Fatalf("trial %d: sAR[%d] mismatch: got %d, want %d", trial, i, sAR[i], sARRef[i])
 			}
@@ -93,7 +93,7 @@ func TestWarpedARFeedback24EdgeCases(t *testing.T) {
 	var sAR [maxShapeLpcOrder]int32
 	var sARRef [maxShapeLpcOrder]int32
 	var arShpQ13 [24]int16
-	for i := 0; i < 24; i++ {
+	for i := range 24 {
 		sAR[i] = int32(i * 1000)
 		sARRef[i] = sAR[i]
 		arShpQ13[i] = int16(100 + i)
@@ -105,7 +105,7 @@ func TestWarpedARFeedback24EdgeCases(t *testing.T) {
 	}
 
 	// Max values
-	for i := 0; i < 24; i++ {
+	for i := range 24 {
 		sAR[i] = 0x7FFFF
 		sARRef[i] = sAR[i]
 		arShpQ13[i] = 0x7FFF
@@ -117,7 +117,7 @@ func TestWarpedARFeedback24EdgeCases(t *testing.T) {
 	}
 
 	// Negative values
-	for i := 0; i < 24; i++ {
+	for i := range 24 {
 		sAR[i] = -0x7FFFF
 		sARRef[i] = sAR[i]
 		arShpQ13[i] = -0x7FFF
@@ -131,14 +131,14 @@ func TestWarpedARFeedback24EdgeCases(t *testing.T) {
 
 func TestWarpedARFeedback24States4MatchesScalar(t *testing.T) {
 	rng := rand.New(rand.NewSource(123))
-	for trial := 0; trial < 1000; trial++ {
+	for trial := range 1000 {
 		var states [maxDelDecStates]nsqDelDecState
 		var scalar [maxDelDecStates]nsqDelDecState
 		var arShpQ13 [24]int16
-		for k := 0; k < maxDelDecStates; k++ {
+		for k := range maxDelDecStates {
 			states[k].diffQ14 = rng.Int31n(1<<20) - (1 << 19)
 			scalar[k].diffQ14 = states[k].diffQ14
-			for i := 0; i < 24; i++ {
+			for i := range 24 {
 				v := rng.Int31n(1<<20) - (1 << 19)
 				states[k].sAR2Q14[i] = v
 				scalar[k].sAR2Q14[i] = v
@@ -152,12 +152,12 @@ func TestWarpedARFeedback24States4MatchesScalar(t *testing.T) {
 		var got [maxDelDecStates]int32
 		warpedARFeedback24States4(states[:], &arShpQ13, warpQ16, &got)
 
-		for k := 0; k < maxDelDecStates; k++ {
+		for k := range maxDelDecStates {
 			want := warpedARFeedback24(&scalar[k].sAR2Q14, scalar[k].diffQ14, &arShpQ13, warpQ16)
 			if got[k] != want {
 				t.Fatalf("trial %d state %d: got %d want %d", trial, k, got[k], want)
 			}
-			for i := 0; i < 24; i++ {
+			for i := range 24 {
 				if states[k].sAR2Q14[i] != scalar[k].sAR2Q14[i] {
 					t.Fatalf("trial %d state %d sAR[%d]: got %d want %d", trial, k, i, states[k].sAR2Q14[i], scalar[k].sAR2Q14[i])
 				}

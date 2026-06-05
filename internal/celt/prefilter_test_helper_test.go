@@ -38,10 +38,7 @@ func pitchDownsample(x []float64, xLP []float32, length, channels, factor int) {
 		handled = true
 	}
 	if !handled {
-		offset := factor / 2
-		if offset < 1 {
-			offset = 1
-		}
+		offset := max(factor/2, 1)
 		for i := 1; i < length; i++ {
 			idx := factor * i
 			v := firQuarter*float32(x[idx-offset]) +
@@ -71,7 +68,7 @@ func pitchDownsample(x []float64, xLP []float32, length, channels, factor int) {
 
 	lpc := lpcFromAutocorr32(ac)
 	tmp := float32(1.0)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		tmp *= float32(0.9)
 		lpc[i] *= tmp
 	}

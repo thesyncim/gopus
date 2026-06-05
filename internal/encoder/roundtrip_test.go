@@ -36,10 +36,10 @@ const (
 // generateSineWave generates a sine wave at the specified frequency.
 func generateSineWave(samples, channels int, frequency, amplitude float64, sampleRate int) []float64 {
 	pcm := make([]float64, samples*channels)
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		t := float64(i) / float64(sampleRate)
 		sample := amplitude * math.Sin(2*math.Pi*frequency*t)
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			pcm[i*channels+ch] = sample
 		}
 	}
@@ -56,7 +56,7 @@ func generateSpeechLikeSignal(samples, channels int, sampleRate int) []float64 {
 	f3 := 2500.0   // Third formant
 	modFreq := 5.0 // Amplitude modulation (syllabic rate)
 
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		t := float64(i) / float64(sampleRate)
 
 		// Amplitude modulation simulating syllables
@@ -75,7 +75,7 @@ func generateSpeechLikeSignal(samples, channels int, sampleRate int) []float64 {
 
 		sample *= envelope * 0.3 // Scale down
 
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			pcm[i*channels+ch] = sample
 		}
 	}
@@ -96,7 +96,7 @@ func generateMusicLikeSignal(samples, channels int, sampleRate int) []float64 {
 	// Multiple "instruments"
 	freqs := []float64{261.63, 329.63, 392.0, 523.25} // C4, E4, G4, C5 (C major chord)
 
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		t := float64(i) / float64(sampleRate)
 		sample := 0.0
 
@@ -112,7 +112,7 @@ func generateMusicLikeSignal(samples, channels int, sampleRate int) []float64 {
 			}
 		}
 
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			// Add slight stereo spread for stereo channels
 			spread := 1.0
 			if channels == 2 && ch == 1 {
@@ -136,7 +136,7 @@ func generateTransientSignal(samples, channels int, sampleRate int) []float64 {
 	// Create transients at regular intervals
 	transientInterval := sampleRate / 10 // 10 transients per second
 
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		sample := 0.0
 
 		// Check if we're at a transient point
@@ -150,7 +150,7 @@ func generateTransientSignal(samples, channels int, sampleRate int) []float64 {
 		t := float64(i) / float64(sampleRate)
 		sample += 0.1 * math.Sin(2*math.Pi*440*t)
 
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			pcm[i*channels+ch] = sample
 		}
 	}
@@ -231,7 +231,7 @@ func computeCorrelationF32(a []float64, b []float32) float64 {
 
 	n := min(len(a), len(b))
 	var sumA, sumB, sumAB, sumA2, sumB2 float64
-	for i := 0; i < n; i++ {
+	for i := range n {
 		bi := float64(b[i])
 		sumA += a[i]
 		sumB += bi
@@ -300,7 +300,7 @@ func TestRoundTripCELTAllBandwidths(t *testing.T) {
 
 				var allDecoded []float32
 
-				for i := 0; i < numFrames; i++ {
+				for i := range numFrames {
 					start := i * fs.samples
 					end := start + fs.samples
 					framePCM := pcm[start:end]
@@ -381,7 +381,7 @@ func TestRoundTripSILKAllBandwidths(t *testing.T) {
 				numFrames := 3
 				pcm := generateSpeechLikeSignal(fs.samples*numFrames, 1, 48000)
 
-				for i := 0; i < numFrames; i++ {
+				for i := range numFrames {
 					start := i * fs.samples
 					end := start + fs.samples
 					framePCM := pcm[start:end]
@@ -427,7 +427,7 @@ func TestRoundTripHybridSWB(t *testing.T) {
 			numFrames := 5
 			pcm := generateSpeechLikeSignal(fs.samples*numFrames, 1, 48000)
 
-			for i := 0; i < numFrames; i++ {
+			for i := range numFrames {
 				start := i * fs.samples
 				end := start + fs.samples
 				framePCM := pcm[start:end]
@@ -481,7 +481,7 @@ func TestRoundTripHybridFullband(t *testing.T) {
 	frameSize := 960
 	pcm := generateMusicLikeSignal(frameSize*numFrames, 1, 48000)
 
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		start := i * frameSize
 		end := start + frameSize
 		framePCM := pcm[start:end]
@@ -526,7 +526,7 @@ func TestRoundTripStereo(t *testing.T) {
 			numFrames := 5
 			pcm := generateMusicLikeSignal(frameSize*numFrames, 2, 48000)
 
-			for i := 0; i < numFrames; i++ {
+			for i := range numFrames {
 				start := i * frameSize * 2
 				end := start + frameSize*2
 				framePCM := pcm[start:end]
@@ -669,7 +669,7 @@ func TestRoundTripSpeech(t *testing.T) {
 	pcm := generateSpeechLikeSignal(frameSize*numFrames, 1, 48000)
 
 	var totalBytes int
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		start := i * frameSize
 		end := start + frameSize
 		packet, err := encodeTest(enc, pcm[start:end], frameSize)
@@ -700,7 +700,7 @@ func TestRoundTripMusic(t *testing.T) {
 	var allOriginal []float64
 	var allDecoded []float32
 
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		start := i * frameSize * 2
 		end := start + frameSize*2
 		framePCM := pcm[start:end]
@@ -739,7 +739,7 @@ func TestRoundTripSilence(t *testing.T) {
 	numFrames := 5
 	pcm := generateSilence(frameSize*numFrames, 1)
 
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		start := i * frameSize
 		end := start + frameSize
 		packet, err := encodeTest(enc, pcm[start:end], frameSize)
@@ -760,7 +760,7 @@ func TestRoundTripTransients(t *testing.T) {
 	numFrames := 10
 	pcm := generateTransientSignal(frameSize*numFrames, 1, 48000)
 
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		start := i * frameSize
 		end := start + frameSize
 		packet, err := encodeTest(enc, pcm[start:end], frameSize)
@@ -839,7 +839,7 @@ func TestDTXPackets(t *testing.T) {
 	silence := generateSilence(frameSize, 1)
 
 	dtxFrameCount := 0
-	for i := 0; i < encoder.DTXFrameThreshold+10; i++ {
+	for i := range encoder.DTXFrameThreshold + 10 {
 		packet, err := encodeTest(enc, silence, frameSize)
 		if err != nil {
 			t.Logf("Frame %d: encode error: %v", i, err)
@@ -951,7 +951,7 @@ func TestComprehensiveRoundTrip(t *testing.T) {
 			var totalBytes int
 			successFrames := 0
 
-			for i := 0; i < numFrames; i++ {
+			for i := range numFrames {
 				start := i * tc.frameSize * tc.channels
 				end := start + tc.frameSize*tc.channels
 				framePCM := pcm[start:end]
@@ -1008,7 +1008,7 @@ func TestSILKStereoLongFrameBitrateStability(t *testing.T) {
 		}
 
 		totalBytes := 0
-		for i := 0; i < frames; i++ {
+		for i := range frames {
 			start := i * frameSize * channels
 			end := start + frameSize*channels
 			packet, err := encodeTest(enc, pcm[start:end], frameSize)
@@ -1074,7 +1074,7 @@ func TestHighLevelSILKStereoLongFramesRoundTripSanity(t *testing.T) {
 			decodedBuf := make([]float32, decCfg.MaxPacketSamples*channels)
 			decoded := make([]float64, 0, len(original))
 
-			for i := 0; i < frameCount; i++ {
+			for i := range frameCount {
 				start := i * frameSize * channels
 				end := start + frameSize*channels
 				n, err := enc.Encode(original32[start:end], packetBuf)
@@ -1140,7 +1140,7 @@ func TestHighLevelAudioLongFramesUseCELTAndRoundTripMusic(t *testing.T) {
 			decoded := make([]float64, 0, len(original))
 			expectedFramesPerPacket := frameSize / 960
 
-			for i := 0; i < frameCount; i++ {
+			for i := range frameCount {
 				start := i * frameSize * channels
 				end := start + frameSize*channels
 
@@ -1226,7 +1226,7 @@ func TestHighLevelAPIRoundTrip(t *testing.T) {
 
 			var allDecoded []float32
 
-			for i := 0; i < 5; i++ {
+			for i := range 5 {
 				start := i * frameSize * 2
 				end := start + frameSize*2
 				framePCM := pcmFloat32[start:end]
@@ -1292,11 +1292,4 @@ func bitrateToString(bitrate int) string {
 	return string(rune('0'+bitrate/100000)) +
 		string(rune('0'+(bitrate/10000)%10)) +
 		string(rune('0'+(bitrate/1000)%10)) + "kbps"
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

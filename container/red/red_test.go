@@ -135,7 +135,7 @@ func TestParseRFC2198Vector_MaxDepthRedundantBlocks(t *testing.T) {
 
 	var buf []byte
 	var dataRegion []byte
-	for i := 0; i < depth; i++ {
+	for i := range depth {
 		offset := (depth - i) * 960
 		payload := []byte{byte(i)}
 		buf = append(buf, makeRedundantHeader(opusPT, offset, len(payload))...)
@@ -157,7 +157,7 @@ func TestParseRFC2198Vector_MaxDepthRedundantBlocks(t *testing.T) {
 // TestParseRejections covers all malformed-input paths from RFC 2198.
 func TestParseRejections(t *testing.T) {
 	tooManyHdrs := make([]byte, 0, (red.MaxDepth+1)*4+1)
-	for i := 0; i < red.MaxDepth+1; i++ {
+	for range red.MaxDepth + 1 {
 		tooManyHdrs = append(tooManyHdrs, makeRedundantHeader(opusPT, 960, 1)...)
 	}
 	tooManyHdrs = append(tooManyHdrs, opusPT, 0xaa)
@@ -451,7 +451,7 @@ func TestAppendHistory_Basic(t *testing.T) {
 // TestAppendHistory_Trim verifies the maxDepth trim.
 func TestAppendHistory_Trim(t *testing.T) {
 	var h []red.Frame
-	for i := 0; i < red.MaxDepth+3; i++ {
+	for i := range red.MaxDepth + 3 {
 		h = red.AppendHistory(h, []byte{byte(i)}, uint32(i*960), red.MaxDepth)
 	}
 	if len(h) > red.MaxDepth {
@@ -543,7 +543,7 @@ func TestEndToEnd_REDRecoveryScenario(t *testing.T) {
 func TestParse_AllRedundantNoPrimary(t *testing.T) {
 	const n = red.MaxDepth // exactly at the limit, so MaxDepth is not exceeded
 	var buf []byte
-	for i := 0; i < n; i++ {
+	for i := range n {
 		buf = append(buf, makeRedundantHeader(opusPT, (i+1)*960, 1)...)
 	}
 	// No primary header byte, no payload region.

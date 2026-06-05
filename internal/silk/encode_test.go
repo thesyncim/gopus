@@ -71,7 +71,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	// Verify encoded data has non-trivial entropy (not all zeros/ones)
 	var zeros, ones int
 	for _, b := range encoded {
-		for bit := 0; bit < 8; bit++ {
+		for bit := range 8 {
 			if b&(1<<bit) == 0 {
 				zeros++
 			} else {
@@ -191,7 +191,7 @@ func TestEncodeStreaming(t *testing.T) {
 	es := NewEncoderState(BandwidthWideband)
 
 	// Encode multiple frames
-	for frame := 0; frame < 5; frame++ {
+	for frame := range 5 {
 		pcm := make([]float32, frameSamples)
 		for i := range pcm {
 			tm := float64(i+frame*frameSamples) / float64(config.SampleRate)
@@ -226,7 +226,7 @@ func TestMultiFrameRangeEncoderLifecycle(t *testing.T) {
 	enc := NewEncoder(BandwidthWideband)
 
 	frameSizes := make([]int, 10)
-	for frame := 0; frame < 10; frame++ {
+	for frame := range 10 {
 		pcm := make([]float32, frameSamples)
 		for i := range pcm {
 			tm := float64(i+frame*frameSamples) / float64(config.SampleRate)
@@ -398,10 +398,7 @@ func TestStereoWeightEncoding(t *testing.T) {
 }
 
 func computeCorrelation(a, b []float32) float64 {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
+	n := min(len(b), len(a))
 
 	var sumAB, sumA2, sumB2 float64
 	for i := 0; i < n; i++ {

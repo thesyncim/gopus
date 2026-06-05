@@ -228,7 +228,7 @@ func TestWritePacket_Multiple(t *testing.T) {
 	}
 
 	// Write 10 packets.
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		packet := make([]byte, 50+i*10)
 		packet[0] = 0xFC
 		err = w.WritePacket(packet, 960)
@@ -301,7 +301,7 @@ func TestWritePacket_LargePacket(t *testing.T) {
 	data := buf.Bytes()
 	offset := 0
 
-	for i := 0; i < 3; i++ { // Skip to page 3 (first audio page).
+	for range 3 { // Skip to page 3 (first audio page).
 		_, consumed, err := ParsePage(data[offset:])
 		if err != nil {
 			t.Fatalf("ParsePage failed: %v", err)

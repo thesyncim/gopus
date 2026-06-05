@@ -40,7 +40,7 @@ func (d *Decoder) ltpSynthesis(excitation []int32, pitchLag int, ltpCoeffs []int
 		// Per libopus NSQ.c: b_Q14[0] is applied to position (-lag + 2),
 		// b_Q14[1] to (-lag + 1), ..., b_Q14[4] to (-lag - 2).
 		// So coefficient k is applied to history at (-lag + 2 - k).
-		for k := 0; k < 5; k++ {
+		for k := range 5 {
 			// History index: current position in history - pitchLag + (2 - k)
 			// This matches libopus's pred_lag_ptr[0], pred_lag_ptr[-1], ..., pred_lag_ptr[-4]
 			histIdx := d.historyIndex - pitchLag + 2 - k + i

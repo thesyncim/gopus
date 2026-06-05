@@ -39,7 +39,7 @@ func TestDownsamplingResamplerQuality(t *testing.T) {
 	nSamplesIn := int(float64(inputRate) * duration)
 
 	input := make([]float32, nSamplesIn)
-	for i := 0; i < nSamplesIn; i++ {
+	for i := range nSamplesIn {
 		ti := float64(i) / float64(inputRate)
 		input[i] = float32(0.9 * math.Sin(2*math.Pi*freq*ti))
 	}
@@ -126,7 +126,7 @@ func TestDownsamplingResamplerSNR(t *testing.T) {
 			nSamplesIn := int(float64(tc.inRate) * duration)
 
 			input := make([]float32, nSamplesIn)
-			for i := 0; i < nSamplesIn; i++ {
+			for i := range nSamplesIn {
 				ti := float64(i) / float64(tc.inRate)
 				input[i] = float32(0.9 * math.Sin(2*math.Pi*tc.freq*ti))
 			}
@@ -213,7 +213,7 @@ func TestAR2FilterImplementation(t *testing.T) {
 	S := [2]int32{0, 0}
 	expectedOut := make([]int32, len(input))
 
-	for k := 0; k < len(input); k++ {
+	for k := range input {
 		// libopus AR2 algorithm:
 		out32 := S[0] + (int32(input[k]) << 8)
 		expectedOut[k] = out32
@@ -230,14 +230,14 @@ func TestAR2FilterImplementation(t *testing.T) {
 
 	// Compare
 	t.Logf("Impulse response comparison:")
-	for i := 0; i < len(input); i++ {
+	for i := range input {
 		t.Logf("  [%d] expected=%d, actual=%d, diff=%d",
 			i, expectedOut[i], actualOut[i], actualOut[i]-expectedOut[i])
 	}
 
 	// Check if they match
 	matches := 0
-	for i := 0; i < len(input); i++ {
+	for i := range input {
 		if actualOut[i] == expectedOut[i] {
 			matches++
 		}

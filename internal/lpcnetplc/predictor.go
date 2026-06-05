@@ -154,13 +154,13 @@ func computeGenericGRU(inputWeights, recurrentWeights *LinearLayer, state, in []
 		zrh[i] += recur[i]
 	}
 	computeActivation(zrh[:2*n], zrh[:2*n], 2*n, activationSigmoid)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		// libopus compute_generic_gru() (dnn/nnet.c): "h[i] += recur[2*N+i]*r[i]"
 		// is one C statement, fused by clang -ffp-contract=on into fma(recur, r, h).
 		h[i] = fma32(recur[2*n+i], r[i], h[i])
 	}
 	computeActivation(h, h, n, activationTanh)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		// libopus: "h[i] = z[i]*state[i] + (1-z[i])*h[i]". clang rounds (1-z)*h
 		// first then fuses the leading product as fma(z, state, (1-z)*h).
 		h[i] = fma32(z[i], state[i], (1-z[i])*h[i])
@@ -184,7 +184,7 @@ func computeLinear(layer *LinearLayer, out, in []float32, scratch *predictorScra
 		clear(out[:n])
 	}
 	if !bias.Empty() {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			out[i] += bias.At(i)
 		}
 	}
@@ -213,9 +213,9 @@ func sgemv(out []float32, weights dnnblob.Float32View, rows, cols, colStride int
 
 func sgemvFused(out []float32, weights dnnblob.Float32View, rows, cols, colStride int, x []float32) {
 	clear(out[:rows])
-	for i := 0; i < rows; i++ {
+	for i := range rows {
 		var sum float32
-		for j := 0; j < cols; j++ {
+		for j := range cols {
 			w := weights.At(j*colStride + i)
 			sum = fma32(w, x[j], sum)
 		}
@@ -225,9 +225,9 @@ func sgemvFused(out []float32, weights dnnblob.Float32View, rows, cols, colStrid
 
 func sgemvSplit(out []float32, weights dnnblob.Float32View, rows, cols, colStride int, x []float32) {
 	clear(out[:rows])
-	for i := 0; i < rows; i++ {
+	for i := range rows {
 		var sum float32
-		for j := 0; j < cols; j++ {
+		for j := range cols {
 			w := weights.At(j*colStride + i)
 			sum = round32(sum + round32(w*x[j]))
 		}
@@ -236,7 +236,7 @@ func sgemvSplit(out []float32, weights dnnblob.Float32View, rows, cols, colStrid
 }
 
 func cgemv8x4(out []float32, weights dnnblob.Int8View, scale dnnblob.Float32View, rows, cols int, x []float32, q []int16) {
-	for i := 0; i < cols; i++ {
+	for i := range cols {
 		q[i] = quantizeInput(x[i])
 	}
 	if useIntegerInt8Accum {
@@ -286,7 +286,7 @@ func cgemv8x4FloatAccum(out []float32, weights dnnblob.Int8View, scale dnnblob.F
 			x1 := int(q[col+1])
 			x2 := int(q[col+2])
 			x3 := int(q[col+3])
-			for k := 0; k < 8; k++ {
+			for k := range 8 {
 				base := wOffset + k*4
 				y[k] += float32(int(weights.At(base))*x0 +
 					int(weights.At(base+1))*x1 +
@@ -295,7 +295,7 @@ func cgemv8x4FloatAccum(out []float32, weights dnnblob.Int8View, scale dnnblob.F
 			}
 			wOffset += 32
 		}
-		for k := 0; k < 8; k++ {
+		for k := range 8 {
 			y[k] *= scale.At(row + k)
 		}
 	}

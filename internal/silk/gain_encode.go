@@ -53,12 +53,9 @@ func (e *Encoder) computeSubframeGains(pcm []float32, numSubframes int) []float3
 	subframeSamples := len(pcm) / numSubframes
 	gains := ensureFloat32Slice(&e.scratchGains, numSubframes)
 
-	for sf := 0; sf < numSubframes; sf++ {
+	for sf := range numSubframes {
 		start := sf * subframeSamples
-		end := start + subframeSamples
-		if end > len(pcm) {
-			end = len(pcm)
-		}
+		end := min(start+subframeSamples, len(pcm))
 		// Compute energy (sum of squares) in int16 scale to match SILK gain
 		// quantization. PCM is normalized [-1, 1], so scale to int16 range
 		// before RMS while staying in silk_float precision.
@@ -134,14 +131,11 @@ func (e *Encoder) computeSubframeGainsFromResidual(pcm []float32, numSubframes i
 	// Each subframe gets approximately the same average residual energy
 	// Gain = sqrt(avgResidualPerSample) which is the RMS of the prediction residual
 	subframeSamples := len(pcm) / numSubframes
-	for sf := 0; sf < numSubframes; sf++ {
+	for sf := range numSubframes {
 		// Compute per-subframe energy for more accurate per-subframe gains
 		// Scale the average by subframe-specific energy ratio
 		start := sf * subframeSamples
-		end := start + subframeSamples
-		if end > len(pcm) {
-			end = len(pcm)
-		}
+		end := min(start+subframeSamples, len(pcm))
 
 		// Compute subframe energy to scale the average residual
 		var subframeEnergy float32

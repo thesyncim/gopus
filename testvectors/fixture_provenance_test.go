@@ -97,7 +97,6 @@ func TestGeneratedLibopusFixturesCarryProvenance(t *testing.T) {
 		"testdata/encoder_compliance_libopus_variants_fixture_linux_amd64.json",
 	}
 	for _, path := range paths {
-		path := path
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			data, err := os.ReadFile(path)
 			if err != nil {

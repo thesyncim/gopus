@@ -48,26 +48,26 @@ func lpInterpolateFilterTaps(bQ28 *[transitionNB]int32, aQ28 *[transitionNA]int3
 	if ind < transitionIntNum-1 {
 		if facQ16 > 0 {
 			if facQ16 < 32768 { // facQ16 is in range of a 16-bit int
-				for nb := 0; nb < transitionNB; nb++ {
+				for nb := range transitionNB {
 					bQ28[nb] = silkSMLAWB(
 						silkTransitionLPBQ28[ind][nb],
 						silkTransitionLPBQ28[ind+1][nb]-silkTransitionLPBQ28[ind][nb],
 						facQ16)
 				}
-				for na := 0; na < transitionNA; na++ {
+				for na := range transitionNA {
 					aQ28[na] = silkSMLAWB(
 						silkTransitionLPAQ28[ind][na],
 						silkTransitionLPAQ28[ind+1][na]-silkTransitionLPAQ28[ind][na],
 						facQ16)
 				}
 			} else { // (facQ16 - (1<<16)) is in range of a 16-bit int
-				for nb := 0; nb < transitionNB; nb++ {
+				for nb := range transitionNB {
 					bQ28[nb] = silkSMLAWB(
 						silkTransitionLPBQ28[ind+1][nb],
 						silkTransitionLPBQ28[ind+1][nb]-silkTransitionLPBQ28[ind][nb],
 						facQ16-int32(1<<16))
 				}
-				for na := 0; na < transitionNA; na++ {
+				for na := range transitionNA {
 					aQ28[na] = silkSMLAWB(
 						silkTransitionLPAQ28[ind+1][na],
 						silkTransitionLPAQ28[ind+1][na]-silkTransitionLPAQ28[ind][na],
@@ -94,7 +94,7 @@ func silkBiquadAltStride1(in []int16, bQ28 [transitionNB]int32, aQ28 [transition
 	a1LQ28 := (-aQ28[1]) & 0x00003FFF  // lower part
 	a1UQ28 := silkRSHIFT(-aQ28[1], 14) // upper part
 
-	for k := 0; k < length; k++ {
+	for k := range length {
 		// S[0], S[1]: Q12
 		inval := int32(in[k])
 		out32Q14 := silkLSHIFT(silkSMLAWB(s[0], bQ28[0], inval), 2)
@@ -138,10 +138,7 @@ func (lp *LPState) LPVariableCutoff(frame []int16, frameLength int) {
 	lpInterpolateFilterTaps(&bQ28, &aQ28, int(ind), facQ16)
 
 	// Update transition frame number for next frame
-	next := lp.TransitionFrameNo + int32(lp.Mode)
-	if next < 0 {
-		next = 0
-	}
+	next := max(lp.TransitionFrameNo+int32(lp.Mode), 0)
 	if next > int32(transitionFrames) {
 		next = int32(transitionFrames)
 	}

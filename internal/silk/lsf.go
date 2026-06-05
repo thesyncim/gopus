@@ -18,7 +18,7 @@ func stabilizeLSF(lsf []int16, isWideband bool) {
 
 	// First pass: enforce lower bound and minimum spacing from left
 	minValue := int16(minSpacing[0])
-	for i := 0; i < lpcOrder; i++ {
+	for i := range lpcOrder {
 		if lsf[i] < minValue {
 			lsf[i] = minValue
 		}
@@ -70,11 +70,8 @@ func lsfToLPCDirect(lsfQ15 []int16) []int16 {
 
 	// Convert LSF to cosines
 	cos := make([]int32, lpcOrder)
-	for i := 0; i < lpcOrder; i++ {
-		idx := int(lsfQ15[i]) >> 8
-		if idx > 127 {
-			idx = 127
-		}
+	for i := range lpcOrder {
+		idx := min(int(lsfQ15[i])>>8, 127)
 		frac := int32(lsfQ15[i]&0xFF) * 16 // Scale to match table
 
 		// Linear interpolation
@@ -94,7 +91,7 @@ func lsfToLPCDirect(lsfQ15 []int16) []int16 {
 	fb[0] = 4096
 
 	// Build up the polynomial by adding one root at a time
-	for i := 0; i < halfOrder; i++ {
+	for i := range halfOrder {
 		// Even root (contributes to ff)
 		c := cos[2*i]
 		for j := i + 1; j >= 1; j-- {
@@ -117,7 +114,7 @@ func lsfToLPCDirect(lsfQ15 []int16) []int16 {
 
 	// Combine ff and fb to get LPC
 	// a[k] = (ff[k] + ff[k+1] + fb[k] - fb[k+1]) / 2
-	for i := 0; i < lpcOrder; i++ {
+	for i := range lpcOrder {
 		k := (i + 1) / 2
 		var val int32
 		if i%2 == 0 {

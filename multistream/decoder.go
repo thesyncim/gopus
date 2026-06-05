@@ -551,10 +551,7 @@ func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
 	out := make([]float32, 0, frameSize*channels)
 	remaining := frameSize
 	for remaining > 0 {
-		chunk := f20
-		if remaining < chunk {
-			chunk = remaining
-		}
+		chunk := min(remaining, f20)
 		decoded, err := d.decodePLCChunkToFloat32(chunk)
 		if err != nil {
 			return nil, err
@@ -636,7 +633,7 @@ func (d *streamState) decodePacketToFloat32(data []byte, frameSize int) ([]float
 
 	subFrameSize := frameSize / frameCount
 	out := make([]float32, 0, frameSize*int(d.channels))
-	for i := 0; i < frameCount; i++ {
+	for i := range frameCount {
 		var qextPayload []byte
 		if extsupport.QEXT && !d.ignoreExtensions {
 			qextPayload = qextPayloads.frame(i)
@@ -767,7 +764,7 @@ func NewDecoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 	// Create stream decoders
 	// First M streams are coupled (stereo), remaining N-M are mono
 	decoders := make([]streamDecoder, streams)
-	for i := 0; i < streams; i++ {
+	for i := range streams {
 		var channels int
 		if i < coupledStreams {
 			channels = 2 // Coupled stream = stereo

@@ -15,7 +15,7 @@ func TestNormalizeBandsToArrayUnitNorm(t *testing.T) {
 
 	// Generate MDCT coefficients with known properties
 	totalBins := 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		totalBins += ScaledBandWidth(band, frameSize)
 	}
 
@@ -37,7 +37,7 @@ func TestNormalizeBandsToArrayUnitNorm(t *testing.T) {
 
 	// Check each band's L2 norm
 	offset := 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		n := ScaledBandWidth(band, frameSize)
 		if n <= 0 {
 			continue
@@ -49,7 +49,7 @@ func TestNormalizeBandsToArrayUnitNorm(t *testing.T) {
 
 		// Compute L2 norm of this band's normalized coefficients
 		var sumSq float64
-		for i := 0; i < n; i++ {
+		for i := range n {
 			sumSq += float64(float32(normalized[offset+i]) * float32(normalized[offset+i]))
 		}
 		l2norm := math.Sqrt(sumSq)
@@ -79,7 +79,7 @@ func TestNormalizationRoundTrip(t *testing.T) {
 
 	// Generate MDCT coefficients
 	totalBins := 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		totalBins += ScaledBandWidth(band, frameSize)
 	}
 
@@ -100,7 +100,7 @@ func TestNormalizationRoundTrip(t *testing.T) {
 	// Denormalize (mimics what decoder does)
 	denormalized := make([]float64, len(normalized))
 	offset := 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		n := ScaledBandWidth(band, frameSize)
 		if n <= 0 {
 			continue
@@ -119,7 +119,7 @@ func TestNormalizationRoundTrip(t *testing.T) {
 		}
 		gain := math.Exp2(e / DB6)
 
-		for i := 0; i < n; i++ {
+		for i := range n {
 			denormalized[offset+i] = float64(normalized[offset+i]) * gain
 		}
 		offset += n
@@ -129,7 +129,7 @@ func TestNormalizationRoundTrip(t *testing.T) {
 	var totalError float64
 	var totalEnergy float64
 	offset = 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		n := ScaledBandWidth(band, frameSize)
 		if n <= 0 {
 			continue
@@ -140,7 +140,7 @@ func TestNormalizationRoundTrip(t *testing.T) {
 
 		var bandError float64
 		var bandEnergy float64
-		for i := 0; i < n; i++ {
+		for i := range n {
 			diff := float64(mdctCoeffs[offset+i]) - denormalized[offset+i]
 			bandError += diff * diff
 			v := float64(mdctCoeffs[offset+i])
@@ -179,7 +179,7 @@ func TestEnergyComputationConsistency(t *testing.T) {
 
 	// Generate MDCT coefficients
 	totalBins := 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		totalBins += ScaledBandWidth(band, frameSize)
 	}
 
@@ -193,7 +193,7 @@ func TestEnergyComputationConsistency(t *testing.T) {
 
 	// Verify energy computation matches expectations
 	offset := 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		start := ScaledBandStart(band, frameSize)
 		end := ScaledBandEnd(band, frameSize)
 		n := end - start
@@ -234,7 +234,7 @@ func TestNormalizationGainValues(t *testing.T) {
 
 	// Create test energies (mean-relative, as ComputeBandEnergies returns)
 	energies := make([]float64, nbBands)
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		// Simulate typical energy values (mean-relative)
 		energies[band] = float64(band-10) * 0.5 // Range roughly -5 to +5
 	}
@@ -337,7 +337,7 @@ func TestEncoderDecoderNormalizationConsistency(t *testing.T) {
 
 	// Compute simple correlation with input (allows for delay)
 	bestCorr := 0.0
-	for offset := 0; offset < 200; offset++ {
+	for offset := range 200 {
 		var corr float64
 		var count int
 		for i := 0; i < len(pcm) && i+offset < len(decoded); i++ {
@@ -368,7 +368,7 @@ func TestNormalizeBandsMethodComparison(t *testing.T) {
 
 	// Generate MDCT coefficients
 	totalBins := 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		totalBins += ScaledBandWidth(band, fs)
 	}
 
@@ -392,7 +392,7 @@ func TestNormalizeBandsMethodComparison(t *testing.T) {
 
 	// Compare: normArray should equal shapes before unit-normalization
 	offset := 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		n := ScaledBandWidth(band, fs)
 		if n <= 0 {
 			continue
@@ -430,7 +430,7 @@ func TestComputeLinearBandAmplitudes(t *testing.T) {
 
 	// Generate MDCT coefficients with known properties
 	totalBins := 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		totalBins += ScaledBandWidth(band, frameSize)
 	}
 
@@ -450,7 +450,7 @@ func TestComputeLinearBandAmplitudes(t *testing.T) {
 
 	// Verify each band amplitude matches sqrt(sum of squares)
 	offset := 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		n := ScaledBandWidth(band, frameSize)
 		if n <= 0 {
 			continue
@@ -461,7 +461,7 @@ func TestComputeLinearBandAmplitudes(t *testing.T) {
 
 		// Compute expected amplitude: sqrt(epsilon + sum(x^2))
 		expected := float32(1e-27) // libopus epsilon
-		for i := 0; i < n; i++ {
+		for i := range n {
 			v := float32(mdctCoeffs[offset+i])
 			expected += v * v
 		}
@@ -487,7 +487,7 @@ func TestNormalizationUsesLinearAmplitudes(t *testing.T) {
 
 	// Generate MDCT coefficients
 	totalBins := 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		totalBins += ScaledBandWidth(band, frameSize)
 	}
 
@@ -507,7 +507,7 @@ func TestNormalizationUsesLinearAmplitudes(t *testing.T) {
 
 	// Verify normalization: normalized = mdct / bandE
 	offset := 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		n := ScaledBandWidth(band, frameSize)
 		if n <= 0 {
 			continue
@@ -522,7 +522,7 @@ func TestNormalizationUsesLinearAmplitudes(t *testing.T) {
 		}
 		g := float32(1.0) / amplitude
 
-		for i := 0; i < n; i++ {
+		for i := range n {
 			expected := mdctCoeffs[offset+i] * g
 			actual := float32(normalized[offset+i])
 			if math.Abs(float64(expected-actual)) > 1e-6 {
@@ -536,7 +536,7 @@ func TestNormalizationUsesLinearAmplitudes(t *testing.T) {
 
 	// Verify L2 norm of each band is 1.0
 	offset = 0
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		n := ScaledBandWidth(band, frameSize)
 		if n <= 0 {
 			continue
@@ -546,7 +546,7 @@ func TestNormalizationUsesLinearAmplitudes(t *testing.T) {
 		}
 
 		var sumSq float64
-		for i := 0; i < n; i++ {
+		for i := range n {
 			sumSq += float64(float32(normalized[offset+i]) * float32(normalized[offset+i]))
 		}
 		l2norm := math.Sqrt(sumSq)

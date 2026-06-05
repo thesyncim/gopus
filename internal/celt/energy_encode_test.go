@@ -102,7 +102,7 @@ func TestComputeBandEnergies(t *testing.T) {
 
 		// Stereo coefficients: L then R
 		mdctCoeffs := make([]float32, frameSize*2)
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			mdctCoeffs[i] = float32(i) / float32(frameSize)               // L ramp up
 			mdctCoeffs[frameSize+i] = 1.0 - float32(i)/float32(frameSize) // R ramp down
 		}
@@ -116,7 +116,7 @@ func TestComputeBandEnergies(t *testing.T) {
 
 		// L and R should have different energies
 		differentCount := 0
-		for band := 0; band < nbBands; band++ {
+		for band := range nbBands {
 			if math.Abs(float64(energies[band]-energies[nbBands+band])) > 0.5 {
 				differentCount++
 			}
@@ -187,7 +187,7 @@ func TestCoarseEnergyEncoderProducesValidOutput(t *testing.T) {
 				decoded := dec.DecodeCoarseEnergy(nbBands, intra, lm)
 
 				// Verify quantized energies are finite, bounded, and match decoder output.
-				for band := 0; band < nbBands; band++ {
+				for band := range nbBands {
 					diff := math.Abs(float64(energies[band] - quantizedEnc[band]))
 					if math.IsNaN(diff) || math.IsInf(diff, 0) {
 						t.Errorf("Band %d: quantized diff is invalid: %v", band, diff)
@@ -436,7 +436,7 @@ func TestEnergyEncodingAllFrameSizes(t *testing.T) {
 				}
 
 				// Verify all quantized energies are valid
-				for band := 0; band < nbBands; band++ {
+				for band := range nbBands {
 					if math.IsNaN(float64(quantizedCoarse[band])) || math.IsInf(float64(quantizedCoarse[band]), 0) {
 						t.Errorf("Band %d: invalid quantized energy %f", band, quantizedCoarse[band])
 					}
@@ -496,10 +496,7 @@ func TestLaplaceEncoderProbabilityModel(t *testing.T) {
 	// Verify frequency progression (fk decreases geometrically)
 	prevFk := fs1 + laplaceMinP
 	for k := 1; k <= 10; k++ {
-		fk := (prevFk * decay) >> 15
-		if fk < laplaceMinP {
-			fk = laplaceMinP
-		}
+		fk := max((prevFk*decay)>>15, laplaceMinP)
 
 		// fk should be non-negative and bounded
 		if fk < 0 || fk > prevFk {
@@ -518,7 +515,7 @@ func TestEncoderStateUpdates(t *testing.T) {
 	lm := GetModeConfig(frameSize).LM
 
 	// Process multiple frames
-	for frame := 0; frame < 3; frame++ {
+	for frame := range 3 {
 		// Generate random energies
 		energies := make([]celtGLog, nbBands)
 		for i := range energies {
@@ -564,7 +561,7 @@ func TestEncodeCoarseEnergyRangeUpdatesDelayedIntra(t *testing.T) {
 
 	makeEnergies := func(enc *Encoder) []celtGLog {
 		energies := make([]celtGLog, nbBands)
-		for band := 0; band < nbBands; band++ {
+		for band := range nbBands {
 			base := 0.02 * float64(band+1)
 			enc.prevEnergy[band] = celtGLog(base)
 			energies[band] = celtGLog(base)
@@ -632,7 +629,7 @@ func TestComputeBandEnergiesIntegration(t *testing.T) {
 	energies := enc.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
 
 	// Energies should be in valid range
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		if energies[band] < -28.0 || energies[band] > 16.0 {
 			t.Errorf("Band %d: energy %f out of valid range [-28, 16]", band, energies[band])
 		}
@@ -653,14 +650,14 @@ func TestComputeBandEnergiesIntegration(t *testing.T) {
 	}
 
 	// Verify quantized energies are valid
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		if math.IsNaN(float64(quantized[band])) || math.IsInf(float64(quantized[band]), 0) {
 			t.Errorf("Band %d: invalid quantized energy %f", band, quantized[band])
 		}
 	}
 
 	// Verify quantization error is bounded
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		diff := math.Abs(float64(energies[band] - quantized[band]))
 		if diff > (DB6/2)+0.01 {
 			t.Errorf("Band %d: quantization error %f exceeds DB6/2", band, diff)

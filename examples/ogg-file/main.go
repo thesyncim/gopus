@@ -91,7 +91,7 @@ func createOggFile(filename string, duration float64, bitrate int) error {
 	fmt.Printf("  Bitrate: %d kbps\n", bitrate/1000)
 	fmt.Printf("  Frames: %d\n", totalFrames)
 
-	for frame := 0; frame < totalFrames; frame++ {
+	for frame := range totalFrames {
 		// Generate a pleasant test tone that varies over time
 		pcm := generateFrame(frame, totalFrames)
 
@@ -144,7 +144,7 @@ func generateFrame(frameNum, totalFrames int) []float32 {
 	// Base frequencies for a C major chord (C, E, G)
 	freqs := []float64{261.63, 329.63, 392.00} // C4, E4, G4
 
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		sampleNum := frameNum*frameSize + i
 		t := float64(sampleNum) / float64(sampleRate)
 

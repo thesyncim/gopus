@@ -133,7 +133,7 @@ func loadSparseIndexRecord(blob *dnnblob.Blob, name string, nbInputs, nbOutputs 
 		if nbBlocks < 0 || remain < nbBlocks+1 {
 			return dnnblob.Int32View{}, 0, errInvalidModel
 		}
-		for i := 0; i < nbBlocks; i++ {
+		for range nbBlocks {
 			pos := int(values.At(idx))
 			idx++
 			if pos+3 >= nbInputs || (pos&0x3) != 0 {

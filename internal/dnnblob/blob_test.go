@@ -76,7 +76,6 @@ func TestCloneRejectsMalformedBlob(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := Clone(tc.blob); err == nil {
 				t.Fatal("Clone error=nil want non-nil")

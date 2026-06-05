@@ -118,10 +118,7 @@ func runOpusCompareCLI(reference, decoded []int16, sampleRate, channels int) (fl
 		return math.Inf(-1), nil
 	}
 
-	n := len(reference)
-	if len(decoded) < n {
-		n = len(decoded)
-	}
+	n := min(len(decoded), len(reference))
 	n -= n % channels
 	if n <= 0 {
 		return math.Inf(-1), nil
@@ -367,14 +364,8 @@ func estimateDelayByWaveformCorrelation(decoded, reference []float32, channels, 
 		return 0
 	}
 
-	refineStart := bestDelay - qualityDelayCoarseRefineRadius
-	if refineStart < -maxDelay {
-		refineStart = -maxDelay
-	}
-	refineEnd := bestDelay + qualityDelayCoarseRefineRadius
-	if refineEnd > maxDelay {
-		refineEnd = maxDelay
-	}
+	refineStart := max(bestDelay-qualityDelayCoarseRefineRadius, -maxDelay)
+	refineEnd := min(bestDelay+qualityDelayCoarseRefineRadius, maxDelay)
 
 	refinedDelay, _, refinedOK := bestDelayByWaveformCorrelation(decoded, reference, channels, refineStart, refineEnd, 1)
 	if refinedOK {

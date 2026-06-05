@@ -286,9 +286,9 @@ func deinterleaveHadamardInto(dst, src []celtNorm, n0, stride int, hadamard bool
 			deinterleaveHadamardStride16Into(dst, src, n0)
 		default:
 			ordery := orderyForStride(stride)
-			for i := 0; i < stride; i++ {
+			for i := range stride {
 				row := ordery[i] * n0
-				for j := 0; j < n0; j++ {
+				for j := range n0 {
 					dst[row+j] = src[j*stride+i]
 				}
 			}
@@ -301,7 +301,7 @@ func deinterleaveHadamardInto(dst, src []celtNorm, n0, stride int, hadamard bool
 	case 3:
 		n1 := n0
 		n2 := n0 << 1
-		for j := 0; j < n0; j++ {
+		for j := range n0 {
 			base := j * 3
 			dst[j] = src[base]
 			dst[n1+j] = src[base+1]
@@ -311,7 +311,7 @@ func deinterleaveHadamardInto(dst, src []celtNorm, n0, stride int, hadamard bool
 		n1 := n0
 		n2 := n0 << 1
 		n3 := n2 + n0
-		for j := 0; j < n0; j++ {
+		for j := range n0 {
 			base := j << 2
 			dst[j] = src[base]
 			dst[n1+j] = src[base+1]
@@ -326,7 +326,7 @@ func deinterleaveHadamardInto(dst, src []celtNorm, n0, stride int, hadamard bool
 		n5 := n4 + n0
 		n6 := n4 + n2
 		n7 := n4 + n3
-		for j := 0; j < n0; j++ {
+		for j := range n0 {
 			base := j << 3
 			dst[j] = src[base]
 			dst[n1+j] = src[base+1]
@@ -349,7 +349,7 @@ func deinterleaveHadamardInto(dst, src []celtNorm, n0, stride int, hadamard bool
 		n9 := n8 + n0
 		n10 := n8 + n2
 		n11 := n8 + n3
-		for j := 0; j < n0; j++ {
+		for j := range n0 {
 			base := j * 12
 			dst[j] = src[base]
 			dst[n1+j] = src[base+1]
@@ -380,7 +380,7 @@ func deinterleaveHadamardInto(dst, src []celtNorm, n0, stride int, hadamard bool
 		n13 := n12 + n0
 		n14 := n12 + n2
 		n15 := n12 + n3
-		for j := 0; j < n0; j++ {
+		for j := range n0 {
 			base := j << 4
 			dst[j] = src[base]
 			dst[n1+j] = src[base+1]
@@ -405,7 +405,7 @@ func deinterleaveHadamardInto(dst, src []celtNorm, n0, stride int, hadamard bool
 		n3 := n2 + n0
 		n4 := n0 << 2
 		n5 := n4 + n0
-		for j := 0; j < n0; j++ {
+		for j := range n0 {
 			base := j * 6
 			dst[j] = src[base]
 			dst[n1+j] = src[base+1]
@@ -415,9 +415,9 @@ func deinterleaveHadamardInto(dst, src []celtNorm, n0, stride int, hadamard bool
 			dst[n5+j] = src[base+5]
 		}
 	default:
-		for i := 0; i < stride; i++ {
+		for i := range stride {
 			row := i * n0
-			for j := 0; j < n0; j++ {
+			for j := range n0 {
 				dst[row+j] = src[j*stride+i]
 			}
 		}
@@ -445,18 +445,18 @@ func deinterleaveHadamardIntoNorm(dst, src []celtNorm, n0, stride int, hadamard 
 	if hadamard {
 		ordery := orderyForStride(stride)
 		if len(ordery) >= stride {
-			for i := 0; i < stride; i++ {
+			for i := range stride {
 				row := ordery[i] * n0
-				for j := 0; j < n0; j++ {
+				for j := range n0 {
 					dst[row+j] = src[j*stride+i]
 				}
 			}
 			return
 		}
 	}
-	for i := 0; i < stride; i++ {
+	for i := range stride {
 		row := i * n0
-		for j := 0; j < n0; j++ {
+		for j := range n0 {
 			dst[row+j] = src[j*stride+i]
 		}
 	}
@@ -496,9 +496,9 @@ func interleaveHadamardInto(dst, src []celtNorm, n0, stride int, hadamard bool) 
 			interleaveHadamardStride16Into(dst, src, n0)
 		default:
 			ordery := orderyForStride(stride)
-			for i := 0; i < stride; i++ {
+			for i := range stride {
 				row := ordery[i] * n0
-				for j := 0; j < n0; j++ {
+				for j := range n0 {
 					dst[j*stride+i] = src[row+j]
 				}
 			}
@@ -511,7 +511,7 @@ func interleaveHadamardInto(dst, src []celtNorm, n0, stride int, hadamard bool) 
 	case 3:
 		n1 := n0
 		n2 := n0 << 1
-		for j := 0; j < n0; j++ {
+		for j := range n0 {
 			base := j * 3
 			dst[base] = src[j]
 			dst[base+1] = src[n1+j]
@@ -521,7 +521,7 @@ func interleaveHadamardInto(dst, src []celtNorm, n0, stride int, hadamard bool) 
 		n1 := n0
 		n2 := n0 << 1
 		n3 := n2 + n0
-		for j := 0; j < n0; j++ {
+		for j := range n0 {
 			base := j << 2
 			dst[base] = src[j]
 			dst[base+1] = src[n1+j]
@@ -536,7 +536,7 @@ func interleaveHadamardInto(dst, src []celtNorm, n0, stride int, hadamard bool) 
 		n5 := n4 + n0
 		n6 := n4 + n2
 		n7 := n4 + n3
-		for j := 0; j < n0; j++ {
+		for j := range n0 {
 			base := j << 3
 			dst[base] = src[j]
 			dst[base+1] = src[n1+j]
@@ -559,7 +559,7 @@ func interleaveHadamardInto(dst, src []celtNorm, n0, stride int, hadamard bool) 
 		n9 := n8 + n0
 		n10 := n8 + n2
 		n11 := n8 + n3
-		for j := 0; j < n0; j++ {
+		for j := range n0 {
 			base := j * 12
 			dst[base] = src[j]
 			dst[base+1] = src[n1+j]
@@ -590,7 +590,7 @@ func interleaveHadamardInto(dst, src []celtNorm, n0, stride int, hadamard bool) 
 		n13 := n12 + n0
 		n14 := n12 + n2
 		n15 := n12 + n3
-		for j := 0; j < n0; j++ {
+		for j := range n0 {
 			base := j << 4
 			dst[base] = src[j]
 			dst[base+1] = src[n1+j]
@@ -615,7 +615,7 @@ func interleaveHadamardInto(dst, src []celtNorm, n0, stride int, hadamard bool) 
 		n3 := n2 + n0
 		n4 := n0 << 2
 		n5 := n4 + n0
-		for j := 0; j < n0; j++ {
+		for j := range n0 {
 			base := j * 6
 			dst[base] = src[j]
 			dst[base+1] = src[n1+j]
@@ -625,9 +625,9 @@ func interleaveHadamardInto(dst, src []celtNorm, n0, stride int, hadamard bool) 
 			dst[base+5] = src[n5+j]
 		}
 	default:
-		for i := 0; i < stride; i++ {
+		for i := range stride {
 			row := i * n0
-			for j := 0; j < n0; j++ {
+			for j := range n0 {
 				dst[j*stride+i] = src[row+j]
 			}
 		}
@@ -674,7 +674,7 @@ func haar1(x []celtNorm, n0, stride int) {
 		haar1Stride4NEON(x[:8*n0:8*n0], n0)
 		return
 	}
-	for i := 0; i < stride; i++ {
+	for i := range stride {
 		idx0 := i
 		idx1 := i + stride
 		for j := 0; j < n0; j++ {
@@ -791,7 +791,7 @@ func expRotation(x []celtNorm, length, dir, stride, k, spread int) {
 		}
 	}
 	length = celtUdiv(length, stride)
-	for i := 0; i < stride; i++ {
+	for i := range stride {
 		off := i * length
 		if dir < 0 {
 			if stride2 != 0 {
@@ -828,7 +828,7 @@ func expRotationNorm(x []celtNorm, length, dir, stride, k, spread int) {
 		}
 	}
 	length = celtUdiv(length, stride)
-	for i := 0; i < stride; i++ {
+	for i := range stride {
 		off := i * length
 		if dir < 0 {
 			if stride2 != 0 {
@@ -859,7 +859,7 @@ func extractCollapseMask(pulses []int32, n, b int) int {
 	}
 	mask := 0
 	base := 0
-	for i := 0; i < b; i++ {
+	for i := range b {
 		tmp := int32(0)
 		end := base + n0
 		j := base
@@ -1030,7 +1030,7 @@ func normalizeResidualKnownEnergyIntoAndCollapse(out []celtNorm, pulses []int, g
 	pulses = pulses[:n:n]
 	energy32 := float32(energy)
 	if energy32 <= 0 {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			v := float32(pulses[i])
 			energy32 += v * v
 		}
@@ -1066,7 +1066,7 @@ func normalizeResidualKnownEnergyIntoAndCollapse(out []celtNorm, pulses []int, g
 
 	mask := 0
 	base := 0
-	for blk := 0; blk < b; blk++ {
+	for blk := range b {
 		tmp := 0
 		end := base + n0
 		for i := base; i < end; i++ {
@@ -1092,7 +1092,7 @@ func normalizeResidualKnownEnergyIntoAndCollapseNorm(out []celtNorm, pulses []in
 	pulses = pulses[:n:n]
 	energy32 := float32(energy)
 	if energy32 <= 0 {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			v := float32(pulses[i])
 			energy32 += v * v
 		}
@@ -1128,7 +1128,7 @@ func normalizeResidualKnownEnergyIntoAndCollapseNorm(out []celtNorm, pulses []in
 
 	mask := 0
 	base := 0
-	for blk := 0; blk < b; blk++ {
+	for blk := range b {
 		tmp := 0
 		end := base + n0
 		for i := base; i < end; i++ {
@@ -1153,7 +1153,7 @@ func normalizeResidualKnownEnergyIntoAndCollapse32(out []celtNorm, pulses []int3
 	pulses = pulses[:n:n]
 	energy32 := float32(energy)
 	if energy32 <= 0 {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			v := float32(pulses[i])
 			energy32 += v * v
 		}
@@ -1189,7 +1189,7 @@ func normalizeResidualKnownEnergyIntoAndCollapse32(out []celtNorm, pulses []int3
 
 	mask := 0
 	base := 0
-	for blk := 0; blk < b; blk++ {
+	for blk := range b {
 		tmp := int32(0)
 		end := base + n0
 		i := base
@@ -1283,7 +1283,7 @@ func scaleLowbandOutForFoldingNorm(dst []celtNorm, src []celtNorm, n int) {
 	dst = dst[:n:n]
 	src = src[:n:n]
 	scale := opusmath.SqrtF32(float32(n))
-	for i := 0; i < n; i++ {
+	for i := range n {
 		dst[i] = celtNorm(scale * float32(src[i]))
 	}
 }
@@ -1374,7 +1374,7 @@ func stereoMerge(x, y []celtNorm, mid opusVal16) {
 		xp = celtInnerProdSSEStyle(y, x)
 		side = celtInnerProdSSEStyle(y, y)
 	} else {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			xv := float32(x[i])
 			yv := float32(y[i])
 			xp = celtFloatMulAdd(yv, xv, xp)
@@ -1568,7 +1568,7 @@ func algUnquantInto(shape []celtNorm, rd *rangecoding.Decoder, band, n, k, sprea
 		}
 		pulses[n-1] = last
 		sumSq := opusVal16(0)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			sumSq = opusVal16(float32(sumSq) + float32(pulses[i])*float32(pulses[i]))
 		}
 		yy = sumSq
@@ -1869,7 +1869,7 @@ func celtInnerProdSSEStyleGo(x, y []celtNorm) float32 {
 	var acc [4]float32
 	i := 0
 	for ; i < len(x)-3; i += 4 {
-		for lane := 0; lane < 4; lane++ {
+		for lane := range 4 {
 			product := float32(x[i+lane]) * float32(y[i+lane])
 			acc[lane] += product
 		}
@@ -2334,10 +2334,7 @@ func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b *in
 				} else {
 					bias = -32767 / qn
 				}
-				down := (itheta*qn + bias) >> 14
-				if down < 0 {
-					down = 0
-				}
+				down := max((itheta*qn+bias)>>14, 0)
 				if down > qn-1 {
 					down = qn - 1
 				}
@@ -2436,19 +2433,13 @@ func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b *in
 			} else {
 				extTellFrac = ctx.extDec.TellFrac()
 			}
-			extRemainingBits := ctx.extTotalBits - extTellFrac
-			if extRemainingBits < 0 {
-				extRemainingBits = 0
-			}
+			extRemainingBits := max(ctx.extTotalBits-extTellFrac, 0)
 			if *extB > extRemainingBits {
 				*extB = extRemainingBits
 			}
 			if *extB >= 2*n<<bitRes && extRemainingBits-1 > 2<<bitRes {
 				extTellBefore := extTellFrac
-				extraBits := celtSudiv(*extB, (2*n-1)<<bitRes)
-				if extraBits < 2 {
-					extraBits = 2
-				}
+				extraBits := max(celtSudiv(*extB, (2*n-1)<<bitRes), 2)
 				if extraBits > 12 {
 					extraBits = 12
 				}
@@ -2473,10 +2464,7 @@ func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b *in
 				}
 
 				encodedVal -= (1 << (extraBits - 1)) - 1
-				ithetaQ30 = (itheta << 16) + int((int64(encodedVal)*(1<<30))/int64(qn*((1<<extraBits)-1)))
-				if ithetaQ30 < 0 {
-					ithetaQ30 = 0
-				}
+				ithetaQ30 = max((itheta<<16)+int((int64(encodedVal)*(1<<30))/int64(qn*((1<<extraBits)-1))), 0)
 				if ithetaQ30 > 1<<30 {
 					ithetaQ30 = 1 << 30
 				}
@@ -3371,10 +3359,7 @@ func prepareQuantBandLowband(dst, src []celtNorm, n, B, tfChange int, scratch *b
 	copy(dst, src[:n])
 
 	N_B := celtUdiv(n, B)
-	recombine := 0
-	if tfChange > 0 {
-		recombine = tfChange
-	}
+	recombine := max(tfChange, 0)
 	if recombine != 0 {
 		for k := 0; k < recombine; k++ {
 			haar1Norm(dst, n>>k, 1<<k)
@@ -3747,7 +3732,7 @@ func quantBandStereoPreparedLowbandWithExtBudget(ctx *bandCtx, x, y []celtNorm, 
 			stereoMerge(x, y, opusVal16(mid))
 		}
 		if sctx.inv != 0 {
-			for i := 0; i < n; i++ {
+			for i := range n {
 				y[i] = -y[i]
 			}
 		}
@@ -3856,7 +3841,7 @@ func quantBandStereoDecodeNoExtFast(ctx *bandCtx, x, y []celtNorm, n, b, B int, 
 			stereoMerge(x, y, opusVal16(mid))
 		}
 		if sctx.inv != 0 {
-			for i := 0; i < n; i++ {
+			for i := range n {
 				y[i] = -y[i]
 			}
 		}
@@ -3974,7 +3959,7 @@ func quantBandStereoDecodeWithExtBudget(ctx *bandCtx, x, y []celtNorm, n, b, B i
 			stereoMerge(x, y, opusVal16(mid))
 		}
 		if sctx.inv != 0 {
-			for i := 0; i < n; i++ {
+			for i := range n {
 				y[i] = -y[i]
 			}
 		}
@@ -4015,10 +4000,7 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 	scratch *bandDecodeScratch, extDec *rangecoding.Decoder, extraBits []int32, extTotalBits int,
 	bandEdges []int, bandLogN []int, cacheIndex []int16, cacheBits []uint8) (left, right []celtNorm, collapse []byte) {
 	M := 1 << lm
-	B := 1
-	if shortBlocks > 1 {
-		B = shortBlocks
-	}
+	B := max(shortBlocks, 1)
 	edges := bandEdges
 	if len(edges) < 2 {
 		edges = EBands[:]
@@ -4060,10 +4042,7 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 	}
 
 	normOffset := M * edges[start]
-	normLen := M*edges[maxBands-1] - normOffset
-	if normLen < 0 {
-		normLen = 0
-	}
+	normLen := max(M*edges[maxBands-1]-normOffset, 0)
 	var norm []celtNorm
 	if scratch == nil {
 		norm = make([]celtNorm, channels*normLen)
@@ -4211,10 +4190,7 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		if dualStereo != 0 && i == intensity {
 			dualStereo = 0
 			if ctx.resynth {
-				mergeLimit := M*edges[i] - normOffset
-				if mergeLimit < 0 {
-					mergeLimit = 0
-				}
+				mergeLimit := max(M*edges[i]-normOffset, 0)
 				if mergeLimit > len(norm) {
 					mergeLimit = len(norm)
 				}
@@ -4352,10 +4328,7 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 	}
 
 	M := 1 << lm
-	B := 1
-	if shortBlocks > 1 {
-		B = shortBlocks
-	}
+	B := max(shortBlocks, 1)
 
 	// Use scratch buffers if available
 	if scratch != nil {
@@ -4368,10 +4341,7 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 	}
 
 	normOffset := M * edges[start]
-	normLen := M*edges[maxBands-1] - normOffset
-	if normLen < 0 {
-		normLen = 0
-	}
+	normLen := max(M*edges[maxBands-1]-normOffset, 0)
 
 	var norm []celtNorm
 	if scratch != nil {
@@ -4387,10 +4357,7 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 		norm2 = norm[normLen:]
 	}
 
-	maxBand := M * (edges[end] - edges[end-1])
-	if maxBand < 0 {
-		maxBand = 0
-	}
+	maxBand := max(M*(edges[end]-edges[end-1]), 0)
 
 	var lowbandScratch []celtNorm
 	if scratch != nil {
@@ -4545,10 +4512,7 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 		if dualStereo != 0 && i == intensity {
 			dualStereo = 0
 			if ctx.resynth {
-				mergeLimit := M*edges[i] - normOffset
-				if mergeLimit < 0 {
-					mergeLimit = 0
-				}
+				mergeLimit := max(M*edges[i]-normOffset, 0)
 				if mergeLimit > len(norm) {
 					mergeLimit = len(norm)
 				}

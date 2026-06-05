@@ -41,7 +41,7 @@ func UpdateActivityHistory(dst *[ActivityHistorySize]byte, frameSize, sampleRate
 		return
 	}
 	copy(dst[n:], dst[:len(dst)-n])
-	for i := 0; i < n; i++ {
+	for i := range n {
 		dst[i] = fill
 	}
 }
@@ -54,10 +54,7 @@ func dredVoiceActive(activity []byte, offset int) bool {
 	if start >= len(activity) {
 		return false
 	}
-	end := start + 16
-	if end > len(activity) {
-		end = len(activity)
-	}
+	end := min(start+16, len(activity))
 	for i := start; i < end; i++ {
 		if activity[i] == 1 {
 			return true
@@ -91,10 +88,7 @@ func encodeLaplaceP0(enc *rangecoding.Encoder, value int32, p0, decay uint16) {
 
 	value--
 	for {
-		symbol := int(value)
-		if symbol > 7 {
-			symbol = 7
-		}
+		symbol := min(int(value), 7)
 		enc.EncodeICDF16(symbol, icdf[:], dredLaplaceFTBits)
 		value -= 7
 		if value < 0 {
@@ -113,13 +107,13 @@ func quantizeDREDLatents(q []int32, x []float32, scale, dzone, rTable, p0Table [
 	delta := scratch.delta[:n]
 	deadzone := scratch.deadzone[:n]
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		delta[i] = float32(dzone[i]) * (1.0 / 256.0)
 		xq[i] = x[i] * float32(scale[i]) * (1.0 / 256.0)
 		deadzone[i] = xq[i] / (delta[i] + 0.1)
 	}
 	dnnmath.TanhVectorApprox(deadzone, deadzone, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if rTable[i] == 0 || p0Table[i] == 255 {
 			q[i] = 0
 			continue

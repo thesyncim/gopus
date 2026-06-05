@@ -707,10 +707,7 @@ func (d *Decoder) LatestNativeMono() ([]int16, int) {
 	if d == nil || d.lastNativeMonoLen <= 0 || d.scratchOutInt16 == nil {
 		return nil, 0
 	}
-	n := int(d.lastNativeMonoLen)
-	if n > len(d.scratchOutInt16) {
-		n = len(d.scratchOutInt16)
-	}
+	n := min(int(d.lastNativeMonoLen), len(d.scratchOutInt16))
 	return d.scratchOutInt16[:n], int(d.lastNativeMonoFsKHz)
 }
 
@@ -751,10 +748,7 @@ func (d *Decoder) LatestNativeMid() ([]int16, int) {
 	if d == nil || d.lastNativeMidLen <= 0 || d.stereoMidNative == nil {
 		return nil, 0
 	}
-	n := int(d.lastNativeMidLen)
-	if n > len(d.stereoMidNative) {
-		n = len(d.stereoMidNative)
-	}
+	n := min(int(d.lastNativeMidLen), len(d.stereoMidNative))
 	return d.stereoMidNative[:n], int(d.lastNativeMidFsKHz)
 }
 

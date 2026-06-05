@@ -28,7 +28,7 @@ func (d *Decoder) lpcSynthesis(excitation []int32, lpcCoeffs []int16, gain int32
 		sample := float32(exc) / 32768.0
 
 		// Add LPC prediction from previous outputs
-		for k := 0; k < order; k++ {
+		for k := range order {
 			// Get previous output from current buffer or state
 			var prev float32
 			if i-k-1 >= 0 {
@@ -93,7 +93,7 @@ func limitLPCFilterGain(lpc []int16) {
 	// safely inside the unit circle
 	const gainThreshold = 1 << 24
 
-	for iter := 0; iter < maxIterations; iter++ {
+	for range maxIterations {
 		// Compute sum of squared coefficients as a proxy for filter gain
 		// This is a simplified stability check; full check would compute
 		// reflection coefficients and verify all are < 1

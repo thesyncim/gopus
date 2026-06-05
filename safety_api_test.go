@@ -66,7 +66,7 @@ func TestAPIAbuseReturnsError(t *testing.T) {
 			t.Fatalf("Decode(truncated) error=%v want=%v", err, ErrPacketTooShort)
 		}
 
-		for i := 0; i < 8; i++ {
+		for i := range 8 {
 			n, err = dec.Decode(nil, pcm)
 			if err != nil {
 				t.Fatalf("Decode(nil) iteration %d error: %v", i, err)

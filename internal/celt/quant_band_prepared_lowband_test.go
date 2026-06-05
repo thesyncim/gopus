@@ -126,7 +126,7 @@ func TestQuantBandStereoPreparedLowbandMatchesStandardWithQEXTBudget(t *testing.
 	xBase := make([]celtNorm, 32)
 	yBase := make([]celtNorm, 32)
 	lowbandBase := make([]celtNorm, 32)
-	for i := 0; i < 32; i++ {
+	for i := range 32 {
 		xBase[i] = celtNorm(float32(((i*7)%19)-9) * 0.0875)
 		yBase[i] = celtNorm(float32(((i*5)%23)-11) * 0.07125)
 		lowbandBase[i] = celtNorm(float32(((i*3)%17)-8) * 0.0625)

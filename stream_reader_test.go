@@ -156,7 +156,7 @@ func TestReader_Read_MultiplePackets(t *testing.T) {
 
 	// Generate 3 packets
 	packets := make([][]byte, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		packet, err := generateTestPacket(sampleRate, channels, frameSize)
 		if err != nil {
 			t.Fatalf("generateTestPacket failed: %v", err)
@@ -341,7 +341,7 @@ func TestReader_Format_Float32LE(t *testing.T) {
 	}
 
 	numSamples := len(allBytes) / 4
-	for i := 0; i < numSamples; i++ {
+	for i := range numSamples {
 		bits := binary.LittleEndian.Uint32(allBytes[i*4:])
 		sample := math.Float32frombits(bits)
 		if math.IsNaN(float64(sample)) || math.IsInf(float64(sample), 0) {
@@ -394,7 +394,7 @@ func TestReader_Format_Int16LE(t *testing.T) {
 	numSamples := len(allBytes) / 2
 	var hasNonZero bool
 	var maxAbs int16
-	for i := 0; i < numSamples; i++ {
+	for i := range numSamples {
 		sample := int16(binary.LittleEndian.Uint16(allBytes[i*2:]))
 		if sample != 0 {
 			hasNonZero = true

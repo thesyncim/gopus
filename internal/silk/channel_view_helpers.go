@@ -34,10 +34,7 @@ func plcLPCCoefficientsQ12(state *plc.SILKPLCState) []int16 {
 	if state == nil {
 		return nil
 	}
-	order := int(state.LPCOrder)
-	if order < 0 {
-		order = 0
-	}
+	order := max(int(state.LPCOrder), 0)
 	if order > maxLPCOrder {
 		order = maxLPCOrder
 	}
@@ -83,10 +80,7 @@ func slpcQ14HistoryFromState(st *decoderState) []int32 {
 	if order > maxLPCOrder {
 		order = maxLPCOrder
 	}
-	start := maxLPCOrder - order
-	if start < 0 {
-		start = 0
-	}
+	start := max(maxLPCOrder-order, 0)
 	return st.sLPCQ14Buf[start:maxLPCOrder]
 }
 

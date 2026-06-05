@@ -130,13 +130,9 @@ func TestCorpusFrameSizeQualityParity(t *testing.T) {
 	const totalSamplesPerChannel = 24000 // 500 ms @ 48 kHz
 
 	for _, class := range corpusFrameSizeSignalClasses() {
-		class := class
 		for _, channels := range []int{1, 2} {
-			channels := channels
 			for _, cfg := range corpusFrameModeConfigs {
-				cfg := cfg
 				for _, fs := range cfg.frameSizes {
-					fs := fs
 					name := class + "/" + chanName(channels) + "/" + cfg.name + "/" + fs.name
 					t.Run(name, func(t *testing.T) {
 						t.Parallel()

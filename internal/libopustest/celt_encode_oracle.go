@@ -292,7 +292,7 @@ func ProbeCELTFixedEncodeSeq(pcm []int16, channels, frameSize, start, end, bitra
 	}
 	nf := reader.Count(nframes)
 	packets := make([][]byte, nf)
-	for f := 0; f < nf; f++ {
+	for f := range nf {
 		count := int(reader.U32())
 		pad := (4 - count%4) % 4
 		packets[f] = append([]byte(nil), reader.Bytes(count)...)

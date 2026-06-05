@@ -68,7 +68,7 @@ func MultistreamPacketUnpad(data []byte, length, numStreams int) (int, error) {
 
 	srcOffset := 0
 	dstOffset := 0
-	for s := 0; s < numStreams; s++ {
+	for s := range numStreams {
 		selfDelimited := s < numStreams-1
 
 		packet, consumed, err := decodeMultistreamPacket(src, srcOffset, length, selfDelimited)

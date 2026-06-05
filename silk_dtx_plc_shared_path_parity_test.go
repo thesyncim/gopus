@@ -59,7 +59,6 @@ func TestSILKLowBitrateDTXConcealmentSharedPathParity(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			packets, frameSize := encodeSILKConcealmentProbePackets(t, c.bw, c.frameMs, c.bitrate, c.channels, c.content, frames)
 			if len(packets) == 0 {
@@ -119,7 +118,7 @@ func TestSILKLowBitrateDTXConcealmentSharedPathParity(t *testing.T) {
 			const activeTol = float32(0)
 			activeLimit := firstPLC * frameSize * c.channels
 			var worstActive float32
-			for i := 0; i < activeLimit; i++ {
+			for i := range activeLimit {
 				if d := absF32(gPCM[i] - oPCM[i]); d > worstActive {
 					worstActive = d
 				}
@@ -204,9 +203,9 @@ func encodeSILKConcealmentProbePackets(t *testing.T, bw Bandwidth, frameMs, bitr
 
 	packet := make([]byte, 4000)
 	packets := make([][]byte, 0, frames)
-	for f := 0; f < frames; f++ {
+	for f := range frames {
 		pcm := make([]float32, frameSize*channels)
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			n := f*frameSize + i
 			tt := float64(n) / 48000.0
 			var s float64
@@ -219,7 +218,7 @@ func encodeSILKConcealmentProbePackets(t *testing.T, bw Bandwidth, frameMs, bitr
 			default:
 				s = 0.35 * math.Sin(2*math.Pi*220*tt)
 			}
-			for ch := 0; ch < channels; ch++ {
+			for ch := range channels {
 				pcm[i*channels+ch] = float32(s)
 			}
 		}

@@ -87,7 +87,7 @@ func TestStereoLayoutArm64MatchesGenericExact(t *testing.T) {
 	rightWant := make([]celtNorm, n)
 	DeinterleaveStereoInto(interleaved, leftGot, rightGot)
 	deinterleaveStereoIntoGeneric(interleaved64, leftWant64, rightWant64, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		leftWant[i] = celtNorm(leftWant64[i])
 		rightWant[i] = celtNorm(rightWant64[i])
 	}
@@ -110,7 +110,7 @@ func BenchmarkInterleaveStereoIntoGeneric(b *testing.B) {
 	left := make([]float64, n)
 	right := make([]float64, n)
 	interleaved := make([]float64, n*2)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		left[i] = float64(i%17) * 0.25
 		right[i] = -float64(i%19) * 0.125
 	}
@@ -126,7 +126,7 @@ func BenchmarkDeinterleaveStereoIntoGeneric(b *testing.B) {
 	left := make([]float64, n)
 	right := make([]float64, n)
 	interleaved := make([]float64, n*2)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		left[i] = float64(i%17) * 0.25
 		right[i] = -float64(i%19) * 0.125
 		interleaved[2*i] = left[i]

@@ -212,7 +212,7 @@ func probeLibopusPLCPeriodicConceal(t *testing.T, hist []celtSig, channels, fram
 	count := int(reader.U32())
 	out := make([][]float32, channels)
 	reader.ExpectRemaining(channels * count * 4)
-	for ch := 0; ch < channels; ch++ {
+	for ch := range channels {
 		out[ch] = make([]float32, count)
 		for i := range out[ch] {
 			out[ch][i] = reader.Float32()

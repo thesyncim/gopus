@@ -12,7 +12,7 @@ func fuzzValidOggStream() []byte {
 	if err != nil {
 		return nil
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		packet := make([]byte, 40+i*15)
 		packet[0] = 0xF8
 		for j := 1; j < len(packet); j++ {
@@ -56,7 +56,7 @@ func FuzzOggReaderNeverPanics(f *testing.F) {
 			return
 		}
 
-		for i := 0; i < 64; i++ {
+		for range 64 {
 			packet, _, err := r.ReadPacket()
 			if err == io.EOF {
 				return

@@ -250,10 +250,10 @@ func encodeReferenceDecodePacketsWithConfig(t *testing.T, channels, frameSize, f
 	pcm := make([]float32, frameSize*channels)
 	packet := make([]byte, 4000)
 	packets := make([][]byte, 0, frames)
-	for frame := 0; frame < frames; frame++ {
-		for i := 0; i < frameSize; i++ {
+	for frame := range frames {
+		for i := range frameSize {
 			base := float32(((frame*frameSize+i)*73)%20000-10000) / 24000
-			for ch := 0; ch < channels; ch++ {
+			for ch := range channels {
 				pcm[i*channels+ch] = base * float32(ch+1) / float32(channels)
 			}
 		}

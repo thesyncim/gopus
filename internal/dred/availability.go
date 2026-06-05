@@ -17,10 +17,7 @@ func (h Header) Availability(maxDredSamples, sampleRate int) Availability {
 	endSamples := h.EndSamples(sampleRate)
 	featureFrames := RequestedFeatureFrames(maxDredSamples, sampleRate)
 	maxLatents := MaxLatentsForRequest(maxDredSamples, sampleRate)
-	availableSamples := maxLatents*LatentSpanSamples(sampleRate) - offsetSamples
-	if availableSamples < 0 {
-		availableSamples = 0
-	}
+	availableSamples := max(maxLatents*LatentSpanSamples(sampleRate)-offsetSamples, 0)
 	return Availability{
 		FeatureFrames:    featureFrames,
 		MaxLatents:       maxLatents,
@@ -38,10 +35,7 @@ func (p Parsed) Availability(maxDredSamples, sampleRate int) Availability {
 	avail := p.Header.Availability(maxDredSamples, sampleRate)
 	if avail.MaxLatents > p.PayloadLatents {
 		avail.MaxLatents = p.PayloadLatents
-		avail.AvailableSamples = avail.MaxLatents*LatentSpanSamples(sampleRate) - avail.OffsetSamples
-		if avail.AvailableSamples < 0 {
-			avail.AvailableSamples = 0
-		}
+		avail.AvailableSamples = max(avail.MaxLatents*LatentSpanSamples(sampleRate)-avail.OffsetSamples, 0)
 	}
 	return avail
 }

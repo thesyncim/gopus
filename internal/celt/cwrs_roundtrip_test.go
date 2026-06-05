@@ -39,10 +39,7 @@ func TestCWRSRoundtripWithRangeCoding(t *testing.T) {
 		}
 
 		// Test a sampling of indices
-		inc := nc / 100
-		if inc < 1 {
-			inc = 1
-		}
+		inc := max(nc/100, 1)
 
 		for idx := uint32(0); idx < nc; idx += inc {
 			// Create a buffer for range coding
@@ -103,7 +100,7 @@ func TestCWRSRoundtripWithRangeCoding(t *testing.T) {
 			cwrsi(n, k, decodedIndex, decodedPulses, u2)
 
 			// Verify pulse vectors match
-			for i := 0; i < n; i++ {
+			for i := range n {
 				if decodedPulses[i] != originalPulses[i] {
 					t.Errorf("N=%d K=%d idx=%d: Pulse mismatch at [%d], got %d, want %d",
 						n, k, idx, i, decodedPulses[i], originalPulses[i])
@@ -150,10 +147,7 @@ func TestCWRSEncodePulsesMatchesLibopus(t *testing.T) {
 		if maxTest > 1000 {
 			maxTest = 1000
 		}
-		inc := nc / maxTest
-		if inc < 1 {
-			inc = 1
-		}
+		inc := max(nc/maxTest, 1)
 
 		for idx := uint32(0); idx < nc; idx += inc {
 			// Decode index to pulses
@@ -264,8 +258,8 @@ func TestCWRSIcwrsVsLibopusTable(t *testing.T) {
 		{1, 18, 162, 978, 4482, 16722, 53154, 148626, 374274, 864146},
 	}
 
-	for n := 0; n < 10; n++ {
-		for k := 0; k < 10; k++ {
+	for n := range 10 {
+		for k := range 10 {
 			expected := vTable[n][k]
 			got := PVQ_V(n, k)
 			if got != expected {
@@ -298,7 +292,7 @@ func TestCWRSAllIndicesRoundtrip(t *testing.T) {
 		t.Run("", func(t *testing.T) {
 			seen := make(map[string]uint32)
 
-			for idx := uint32(0); idx < nc; idx++ {
+			for idx := range nc {
 				// Decode
 				pulses := DecodePulses(idx, n, k)
 				if pulses == nil {
@@ -373,7 +367,7 @@ func TestCWRSTableLookupDecodeMatchesRowBased(t *testing.T) {
 			} else {
 				idxs = []uint32{0, 1, 2, v - 1, v - 2, v / 2, v / 3, v / 7, v - v/3}
 				x := uint32(n*131 + k)
-				for s := 0; s < 32; s++ {
+				for range 32 {
 					x = x*2654435761 + 12345
 					idxs = append(idxs, x%v)
 				}

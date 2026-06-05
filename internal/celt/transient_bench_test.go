@@ -27,7 +27,7 @@ func TestTransientAnalysisMatchesLegacy(t *testing.T) {
 			enc.ensureScratch(tc.frameSize)
 			samplesPerChannel := tc.frameSize + Overlap
 			pcm := make([]float64, samplesPerChannel*tc.channels)
-			for i := 0; i < samplesPerChannel; i++ {
+			for i := range samplesPerChannel {
 				t0 := float64(i) / 48000.0
 				left := 0.35*math.Sin(2*math.Pi*440*t0) + 0.12*math.Sin(2*math.Pi*1760*t0)
 				right := 0.28*math.Sin(2*math.Pi*523.25*t0) + 0.08*math.Sin(2*math.Pi*1046.5*t0)
@@ -144,10 +144,7 @@ func TestToneLPCRetry48kMonoMatchesSequential(t *testing.T) {
 func toneLPCRetrySequentialTest(x []float32, sampleRate int, lpc0, lpc1 float32, success bool) (float32, float32, bool, int) {
 	n := len(x)
 	delay := 1
-	maxDelay := sampleRate / 3000
-	if maxDelay < 1 {
-		maxDelay = 1
-	}
+	maxDelay := max(sampleRate/3000, 1)
 	for delay <= maxDelay && toneLPCRetryNeeded(lpc0, lpc1, success) {
 		delay *= 2
 		if 2*delay >= n {
@@ -199,11 +196,11 @@ func transientAnalysisLegacyBench(e *Encoder, pcm []float64, frameSize int, allo
 	len2 := samplesPerChannel / 2
 	energy := energyBuf[:len2]
 
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		var mem0, mem1 float32
 		if channels == 1 {
 			src := pcm[:samplesPerChannel]
-			for i := 0; i < samplesPerChannel; i++ {
+			for i := range samplesPerChannel {
 				x := float32(src[i])
 				y := mem0 + x
 				mem00 := mem0
@@ -214,7 +211,7 @@ func transientAnalysisLegacyBench(e *Encoder, pcm []float64, frameSize int, allo
 		} else {
 			stride := channels
 			idx := c
-			for i := 0; i < samplesPerChannel; i++ {
+			for i := range samplesPerChannel {
 				x := float32(pcm[idx])
 				y := mem0 + x
 				mem00 := mem0
@@ -233,7 +230,7 @@ func transientAnalysisLegacyBench(e *Encoder, pcm []float64, frameSize int, allo
 
 		mem0 = 0
 		mean := float32(0)
-		for i := 0; i < len2; i++ {
+		for i := range len2 {
 			j := i << 1
 			t0 := tmp[j]
 			t1 := tmp[j+1]
@@ -320,7 +317,7 @@ func benchmarkTransientAnalysisChannels(b *testing.B, channels int, legacy bool)
 	samplesPerChannel := frameSize + Overlap
 
 	pcm := make([]float64, samplesPerChannel*channels)
-	for i := 0; i < samplesPerChannel; i++ {
+	for i := range samplesPerChannel {
 		t := float64(i) / 48000.0
 		left := 0.35*math.Sin(2*math.Pi*440*t) + 0.12*math.Sin(2*math.Pi*1760*t)
 		right := 0.28*math.Sin(2*math.Pi*523.25*t) + 0.08*math.Sin(2*math.Pi*1046.5*t)

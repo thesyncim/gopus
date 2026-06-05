@@ -171,7 +171,7 @@ func TestComputeImportanceWithEnergy(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			bandLogE := make([]float64, nbBands*channels)
-			for i := 0; i < nbBands; i++ {
+			for i := range nbBands {
 				bandLogE[i] = tc.energyProfile(i)
 			}
 
@@ -224,7 +224,7 @@ func TestComputeImportanceStereo(t *testing.T) {
 
 	// Create stereo energies with different profiles for L/R
 	bandLogE := make([]float64, nbBands*channels)
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		// Left channel: higher in low bands
 		bandLogE[i] = float64(nbBands-i) * 0.3
 		// Right channel: higher in high bands
@@ -260,13 +260,13 @@ func TestComputeImportanceIntegration(t *testing.T) {
 	// Create synthetic normalized coefficients
 	N0 := EBands[nbBands] << lm
 	X := make([]float64, N0)
-	for i := 0; i < N0; i++ {
+	for i := range N0 {
 		X[i] = float64(i%10-5) / 10.0
 	}
 
 	// Create band energies
 	bandLogE := make([]float64, nbBands*channels)
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		bandLogE[i] = float64(i%5) * 0.5
 	}
 

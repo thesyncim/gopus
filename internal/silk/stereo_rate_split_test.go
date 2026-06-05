@@ -8,7 +8,7 @@ import (
 func makeStereoTestFrame(frameLength, sampleRate int) (left, right []float32) {
 	left = make([]float32, frameLength)
 	right = make([]float32, frameLength)
-	for i := 0; i < frameLength; i++ {
+	for i := range frameLength {
 		tm := float64(i) / float64(sampleRate)
 		// Use distinct channels so side stays active and rate-split matters.
 		left[i] = 0.35 * float32(math.Sin(2*math.Pi*430.0*tm))

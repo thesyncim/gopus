@@ -76,8 +76,8 @@ func TestBandAllocMatchLibopus(t *testing.T) {
 		{200, 200, 200, 200, 200, 200, 200, 200, 198, 193, 188, 183, 178, 173, 168, 163, 158, 153, 148, 129, 104},
 	}
 
-	for q := 0; q < 11; q++ {
-		for b := 0; b < 21; b++ {
+	for q := range 11 {
+		for b := range 21 {
 			if BandAlloc[q][b] != libopusBandAlloc[q][b] {
 				t.Errorf("BandAlloc[%d][%d] = %d, want %d (libopus band_allocation)", q, b, BandAlloc[q][b], libopusBandAlloc[q][b])
 			}
@@ -230,7 +230,7 @@ func TestPredCoefMatchLibopus(t *testing.T) {
 		16384.0 / 32768.0,
 	}
 
-	for lm := 0; lm < 4; lm++ {
+	for lm := range 4 {
 		if float64(AlphaCoef[lm]) != libopusPredCoef[lm] {
 			t.Errorf("AlphaCoef[%d] = %v, want %v (libopus pred_coef)", lm, AlphaCoef[lm], libopusPredCoef[lm])
 		}
@@ -249,7 +249,7 @@ func TestBetaCoefMatchLibopus(t *testing.T) {
 		6554.0 / 32768.0,
 	}
 
-	for lm := 0; lm < 4; lm++ {
+	for lm := range 4 {
 		if float64(BetaCoefInter[lm]) != libopusBetaCoef[lm] {
 			t.Errorf("BetaCoefInter[%d] = %v, want %v (libopus beta_coef)", lm, BetaCoefInter[lm], libopusBetaCoef[lm])
 		}
@@ -336,9 +336,9 @@ func TestEProbModelMatchLibopus(t *testing.T) {
 		},
 	}
 
-	for lm := 0; lm < 4; lm++ {
-		for intra := 0; intra < 2; intra++ {
-			for i := 0; i < 42; i++ {
+	for lm := range 4 {
+		for intra := range 2 {
+			for i := range 42 {
 				if eProbModel[lm][intra][i] != libopusEProbModel[lm][intra][i] {
 					t.Errorf("eProbModel[%d][%d][%d] = %d, want %d (libopus e_prob_model)",
 						lm, intra, i, eProbModel[lm][intra][i], libopusEProbModel[lm][intra][i])
@@ -465,8 +465,8 @@ func TestTFSelectTableMatchLibopus(t *testing.T) {
 		{0, -2, 0, -3, 3, 0, 1, -1},
 	}
 
-	for lm := 0; lm < 4; lm++ {
-		for i := 0; i < 8; i++ {
+	for lm := range 4 {
+		for i := range 8 {
 			if tfSelectTable[lm][i] != libopusTFSelectTable[lm][i] {
 				t.Errorf("tfSelectTable[%d][%d] = %d, want %d (libopus tf_select_table)",
 					lm, i, tfSelectTable[lm][i], libopusTFSelectTable[lm][i])
@@ -485,7 +485,7 @@ func TestVorbisWindowMatchLibopus(t *testing.T) {
 	// for (i=0;i<mode->overlap;i++)
 	//    window[i] = Q15ONE*sin(.5*M_PI* sin(.5*M_PI*(i+.5)/mode->overlap) * sin(.5*M_PI*(i+.5)/mode->overlap));
 
-	for i := 0; i < overlap; i++ {
+	for i := range overlap {
 		expected := windowBuffer120F32[i]
 		got := VorbisWindow(i, overlap)
 
@@ -497,7 +497,7 @@ func TestVorbisWindowMatchLibopus(t *testing.T) {
 	// Verify the runtime square accessor is exactly derived from the float-build
 	// window table, not from a separate double-domain table.
 	windowSq := GetWindowSquareBuffer(overlap)
-	for i := 0; i < overlap; i++ {
+	for i := range overlap {
 		expected := windowBuffer120F32[i] * windowBuffer120F32[i]
 		if math.Float32bits(windowSq[i]) != math.Float32bits(expected) {
 			t.Errorf("Window square mismatch at i=%d: got 0x%08x, want 0x%08x",

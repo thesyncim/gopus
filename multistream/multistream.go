@@ -32,7 +32,7 @@ func (d *Decoder) ensureDecodedStreamsScratch() [][]float32 {
 func applyChannelMapping32(decodedStreams [][]float32, mapping []byte, coupledStreams, frameSize, outputChannels int) []float32 {
 	output := make([]float32, frameSize*outputChannels)
 
-	for outCh := 0; outCh < outputChannels; outCh++ {
+	for outCh := range outputChannels {
 		mappingIdx := mapping[outCh]
 		if mappingIdx == 255 {
 			continue
@@ -45,7 +45,7 @@ func applyChannelMapping32(decodedStreams [][]float32, mapping []byte, coupledSt
 
 		src := decodedStreams[streamIdx]
 		srcChannels := streamChannels(streamIdx, coupledStreams)
-		for s := 0; s < frameSize; s++ {
+		for s := range frameSize {
 			srcIdx := s*srcChannels + chanInStream
 			if srcIdx < len(src) {
 				output[s*outputChannels+outCh] = src[srcIdx]
@@ -216,10 +216,7 @@ func (d *Decoder) decodePLCToFloat32(frameSize int, applyProjection, perStreamSo
 		remaining := frameSize
 		offset := 0
 		for remaining > 0 {
-			chunk := maxChunk
-			if remaining < chunk {
-				chunk = remaining
-			}
+			chunk := min(remaining, maxChunk)
 			decoded, err := d.decodePLCChunkToFloat32(chunk, applyProjection, perStreamSoftClip)
 			if err != nil {
 				return nil, err
@@ -298,10 +295,7 @@ func float32ToInt16SoftClip(samples []float32, n, channels int, declipMem []floa
 	if channels < 1 || n < 1 || len(samples) == 0 || len(declipMem) < channels {
 		return output
 	}
-	total := n * channels
-	if total > len(samples) {
-		total = len(samples)
-	}
+	total := min(n*channels, len(samples))
 	if total <= 0 {
 		return output
 	}

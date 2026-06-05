@@ -85,12 +85,12 @@ func TestNormalizeBandsToArrayMonoWithBandEMatchesSeparatePasses(t *testing.T) {
 	NormalizeBandsToArrayInto(mdct, nbBands, frameSize, norm, bandE)
 
 	normGot, bandEGot := enc.NormalizeBandsToArrayMonoWithBandE(mdct, nbBands, frameSize)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		if normGot[i] != norm[i] {
 			t.Fatalf("norm[%d]=%v, want %v", i, normGot[i], norm[i])
 		}
 	}
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		if bandEGot[i] != bandE[i] {
 			t.Fatalf("bandE[%d]=%v, want %v", i, bandEGot[i], bandE[i])
 		}
@@ -103,7 +103,7 @@ func TestNormalizeBandsToArrayStereoWithBandEMatchesSeparatePasses(t *testing.T)
 	nbBands := 18
 	left := make([]float32, frameSize)
 	right := make([]float32, frameSize)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		left[i] = float32((i%31)-15) / 19.0
 		right[i] = float32((i%27)-13) / 23.0
 	}
@@ -116,7 +116,7 @@ func TestNormalizeBandsToArrayStereoWithBandEMatchesSeparatePasses(t *testing.T)
 	NormalizeBandsToArrayInto(right, nbBands, frameSize, normR, bandER)
 
 	normLGot, normRGot, bandEGot := enc.NormalizeBandsToArrayStereoWithBandE(left, right, nbBands, frameSize)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		if normLGot[i] != normL[i] {
 			t.Fatalf("normL[%d]=%v, want %v", i, normLGot[i], normL[i])
 		}
@@ -124,7 +124,7 @@ func TestNormalizeBandsToArrayStereoWithBandEMatchesSeparatePasses(t *testing.T)
 			t.Fatalf("normR[%d]=%v, want %v", i, normRGot[i], normR[i])
 		}
 	}
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		if bandEGot[i] != bandEL[i] {
 			t.Fatalf("bandEL[%d]=%v, want %v", i, bandEGot[i], bandEL[i])
 		}

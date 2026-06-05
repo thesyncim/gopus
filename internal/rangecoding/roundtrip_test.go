@@ -48,7 +48,7 @@ func TestEncoderDeterminism(t *testing.T) {
 
 	var firstResult []byte
 
-	for run := 0; run < 5; run++ {
+	for run := range 5 {
 		buf := make([]byte, 64)
 		enc := &Encoder{}
 		enc.Init(buf)
@@ -84,7 +84,7 @@ func TestEncoderICDFDeterminism(t *testing.T) {
 
 	var firstResult []byte
 
-	for run := 0; run < 5; run++ {
+	for run := range 5 {
 		buf := make([]byte, 64)
 		enc := &Encoder{}
 		enc.Init(buf)
@@ -122,7 +122,7 @@ func TestEncoderStateTracking(t *testing.T) {
 	var prevTell int
 
 	// Encode many bits and verify Tell increases
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		enc.EncodeBit(i%2, 1)
 		tell := enc.Tell()
 		if tell < prevTell {
@@ -147,7 +147,7 @@ func TestEncoderRangeInvariantExtended(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
 
 	// Mix of operations
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		if rng.Intn(2) == 0 {
 			enc.EncodeBit(rng.Intn(2), uint(1+rng.Intn(8)))
 		} else {
@@ -178,7 +178,7 @@ func TestEncoderLongSequence(t *testing.T) {
 
 	// Encode 1000 symbols
 	icdf := []uint8{200, 150, 100, 50, 0}
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		enc.EncodeICDF(rng.Intn(len(icdf)-1), icdf, 8)
 	}
 
@@ -198,7 +198,7 @@ func TestEncoderAllZeros(t *testing.T) {
 	enc := &Encoder{}
 	enc.Init(buf)
 
-	for i := 0; i < 32; i++ {
+	for range 32 {
 		enc.EncodeBit(0, 1)
 	}
 
@@ -217,7 +217,7 @@ func TestEncoderAllOnes(t *testing.T) {
 	enc := &Encoder{}
 	enc.Init(buf)
 
-	for i := 0; i < 32; i++ {
+	for range 32 {
 		enc.EncodeBit(1, 1)
 	}
 
@@ -239,7 +239,7 @@ func TestEncoderMixedBitsAndICDF(t *testing.T) {
 	icdf := []uint8{192, 128, 64, 0}
 
 	// Alternate between bits and symbols
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		enc.EncodeBit(i%2, 1)
 		enc.EncodeICDF(i%4, icdf, 8)
 	}
@@ -329,7 +329,7 @@ func TestEncodeUniformRangeInvariant(t *testing.T) {
 
 	rng := rand.New(rand.NewSource(42))
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		ft := uint32(2 + rng.Intn(1000))
 		val := uint32(rng.Intn(int(ft)))
 		enc.EncodeUniform(val, ft)
@@ -399,7 +399,7 @@ func TestEncodeDecodeBitRoundTrip(t *testing.T) {
 // TestEncodeDecodeICDFRoundTrip verifies ICDF symbol encode->decode round-trip.
 func TestEncodeDecodeICDFRoundTrip(t *testing.T) {
 	icdf := []uint8{192, 128, 64, 0}
-	for sym := 0; sym < 4; sym++ {
+	for sym := range 4 {
 		buf := make([]byte, 64)
 		enc := &Encoder{}
 		enc.Init(buf)

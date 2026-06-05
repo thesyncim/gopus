@@ -288,7 +288,7 @@ func DynallocAnalysis(
 
 	// Compute noise floor per band
 	noiseFloor := make([]float32, end)
-	for i := 0; i < end; i++ {
+	for i := range end {
 		logNVal := int16(0)
 		if i < len(logN) {
 			logNVal = logN[i]
@@ -298,8 +298,8 @@ func DynallocAnalysis(
 
 	// Compute maxDepth: max(bandLogE - noiseFloor) across all bands and channels
 	maxDepth32 := float32(result.MaxDepth)
-	for c := 0; c < channels; c++ {
-		for i := 0; i < end; i++ {
+	for c := range channels {
+		for i := range end {
 			idx := c*nbBands + i
 			if idx < len(bandLogE32) {
 				depth := bandLogE32[idx] - noiseFloor[i]
@@ -318,7 +318,7 @@ func DynallocAnalysis(
 		sig := make([]float32, nbBands)
 
 		// Initialize mask with signal relative to noise floor
-		for i := 0; i < end; i++ {
+		for i := range end {
 			if i < len(bandLogE32) {
 				mask[i] = bandLogE32[i] - noiseFloor[i]
 			}
@@ -326,7 +326,7 @@ func DynallocAnalysis(
 
 		// For stereo, take max across channels
 		if channels == 2 {
-			for i := 0; i < end; i++ {
+			for i := range end {
 				idx := nbBands + i
 				if idx < len(bandLogE32) {
 					ch2Val := bandLogE32[idx] - noiseFloor[i]
@@ -354,7 +354,7 @@ func DynallocAnalysis(
 		}
 
 		// Compute SMR (Signal to Mask Ratio) and spread weight
-		for i := 0; i < end; i++ {
+		for i := range end {
 			// Mask is never more than 72 dB below peak and never below noise floor
 			maskThresh := float32(0)
 			if maxDepth32-12.0 > mask[i] {
@@ -368,10 +368,7 @@ func DynallocAnalysis(
 			smr := sig[i] - maskThresh
 
 			// Clamp shift to [0, 5] range
-			shift := -floor32ToInt(0.5 + smr)
-			if shift < 0 {
-				shift = 0
-			}
+			shift := max(-floor32ToInt(0.5+smr), 0)
 			if shift > 5 {
 				shift = 5
 			}
@@ -388,10 +385,10 @@ func DynallocAnalysis(
 		follower := make([]float32, channels*nbBands)
 		last := 0
 
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			// Use bandLogE2 (secondary MDCT for transients) or fallback to bandLogE
 			bandLogE3 := make([]float32, end)
-			for i := 0; i < end; i++ {
+			for i := range end {
 				idx := c*nbBands + i
 				if bandLogE2_32 != nil && idx < len(bandLogE2_32) {
 					bandLogE3[i] = bandLogE2_32[idx]
@@ -470,7 +467,7 @@ func DynallocAnalysis(
 			}
 
 			// Clamp to noise floor
-			for i := 0; i < end; i++ {
+			for i := range end {
 				if noiseFloor[i] > f[i] {
 					f[i] = noiseFloor[i]
 				}
@@ -674,14 +671,6 @@ func DynallocAnalysis(
 	return result
 }
 
-// min returns the minimum of two integers.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // DynallocScratch holds pre-allocated buffers for DynallocAnalysis.
 type DynallocScratch struct {
 	// Result arrays (caller provides these in result struct)
@@ -858,7 +847,7 @@ func DynallocAnalysisWithScratch(
 
 	// Compute maxDepth
 	maxDepth32 := float32(result.MaxDepth)
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		for i := 0; i < end; i++ {
 			idx := c*nbBands + i
 			if idx < len(bandLogE32) {
@@ -924,10 +913,7 @@ func DynallocAnalysisWithScratch(
 		}
 		smr := sig[i] - maskThresh
 
-		shift := -floor32ToInt(0.5 + smr)
-		if shift < 0 {
-			shift = 0
-		}
+		shift := max(-floor32ToInt(0.5+smr), 0)
 		if shift > 5 {
 			shift = 5
 		}
@@ -944,7 +930,7 @@ func DynallocAnalysisWithScratch(
 		}
 		last := 0
 
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			bandLogE3 := scratch.BandLogE3[:end]
 			for i := 0; i < end; i++ {
 				idx := c*nbBands + i

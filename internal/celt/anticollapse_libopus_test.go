@@ -186,10 +186,7 @@ func compareAntiCollapseOutput(t *testing.T, name string, signalGen func(int) []
 	}
 
 	// Compare outputs
-	minLen := len(libopusDecoded)
-	if len(gopusDecoded) < minLen {
-		minLen = len(gopusDecoded)
-	}
+	minLen := min(len(gopusDecoded), len(libopusDecoded))
 
 	if minLen == 0 {
 		t.Fatal("No samples to compare")
@@ -288,7 +285,7 @@ func decodeFixtureFloat32Base64(s string) ([]float32, error) {
 		return nil, fmt.Errorf("invalid float32 fixture byte length %d", len(raw))
 	}
 	out := make([]float32, len(raw)/4)
-	for i := 0; i < len(out); i++ {
+	for i := range out {
 		bits := binary.LittleEndian.Uint32(raw[i*4:])
 		out[i] = math.Float32frombits(bits)
 	}

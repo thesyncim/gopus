@@ -725,7 +725,7 @@ func cwrsiTableLookup32(n, k int, i uint32, y []int32) uint32 {
 		return 0
 	}
 	var yy uint32
-	for j := 0; j < n; j++ {
+	for j := range n {
 		nCur := n - j
 		p := pvqUTableLookupFast(nCur, k+1)
 		sign := 0

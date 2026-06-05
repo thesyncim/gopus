@@ -66,7 +66,7 @@ func TestPrefilterDualInnerProdMatchesReference(t *testing.T) {
 	rng := rand.New(rand.NewSource(0x55aa55aa))
 	lengths := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 15, 16, 17, 23, 24, 31, 32, 33, 47, 48, 63, 64, 65, 96, 120, 240, 320}
 	for _, n := range lengths {
-		for trial := 0; trial < 64; trial++ {
+		for trial := range 64 {
 			x := make([]float32, n)
 			y1 := make([]float32, n)
 			y2 := make([]float32, n)

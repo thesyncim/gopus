@@ -61,7 +61,7 @@ func TestLibopusIMDCT_DCImpulse(t *testing.T) {
 		first := signal[0]
 		last := signal[len(signal)-1]
 		var errpow, sigpow float32
-		for i := 0; i < len(signal); i++ {
+		for i := range signal {
 			lin := first + (last-first)*float32(i)/float32(len(signal)-1)
 			diff := signal[i] - lin
 			errpow += diff * diff
@@ -90,17 +90,17 @@ func TestLibopusIMDCT_CompareWithDirect(t *testing.T) {
 	libopusResult := LibopusIMDCTF32(spectrum, prevOverlap, overlap)
 	directResult := IMDCTDirect(spectrum)
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		t.Logf("Direct IMDCT first[%d]=%.6f", i, directResult[i])
 	}
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		t.Logf("libopus IMDCT first[%d]=%.6f", i, libopusResult[i])
 	}
 
 	// The libopus IMDCT should produce values in a similar range
 	// (they may differ due to different normalization and folding)
 	var directEnergy, libopusEnergy float32
-	for i := 0; i < n2; i++ {
+	for i := range n2 {
 		directEnergy += directResult[i] * directResult[i]
 		libopusEnergy += libopusResult[i] * libopusResult[i]
 	}
@@ -119,7 +119,7 @@ func TestLibopusIMDCT_Sinusoid(t *testing.T) {
 	// Test with sinusoidal input
 	n2 := 960
 	spectrum := make([]float32, n2)
-	for i := 0; i < n2; i++ {
+	for i := range n2 {
 		spectrum[i] = float32(math.Sin(float64(i)*0.1) * 0.1)
 	}
 
@@ -138,7 +138,7 @@ func TestLibopusIMDCT_Sinusoid(t *testing.T) {
 
 	t.Log("Sinusoid input test")
 	t.Logf("Max absolute value: %.6f", maxAbs)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		t.Logf("First[%d]=%.4f", i, result[i])
 	}
 

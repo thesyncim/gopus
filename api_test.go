@@ -8,9 +8,9 @@ import (
 // generateSineWaveFloat32 generates a sine wave at the given frequency.
 func generateSineWaveFloat32(sampleRate int, freq float64, samples int, channels int) []float32 {
 	pcm := make([]float32, samples*channels)
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		val := float32(0.5 * math.Sin(2*math.Pi*freq*float64(i)/float64(sampleRate)))
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			pcm[i*channels+ch] = val
 		}
 	}
@@ -20,9 +20,9 @@ func generateSineWaveFloat32(sampleRate int, freq float64, samples int, channels
 // generateSineWaveInt16 generates a sine wave as int16.
 func generateSineWaveInt16(sampleRate int, freq float64, samples int, channels int) []int16 {
 	pcm := make([]int16, samples*channels)
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		val := int16(16384 * math.Sin(2*math.Pi*freq*float64(i)/float64(sampleRate)))
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			pcm[i*channels+ch] = val
 		}
 	}
@@ -146,7 +146,7 @@ func TestRoundTrip_Stereo_Float32(t *testing.T) {
 	// Generate stereo sine wave (L: 440Hz, R: 880Hz)
 	frameSize := 960
 	pcmIn := make([]float32, frameSize*2)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		pcmIn[i*2] = float32(0.5 * math.Sin(2*math.Pi*440*float64(i)/48000))
 		pcmIn[i*2+1] = float32(0.5 * math.Sin(2*math.Pi*880*float64(i)/48000))
 	}
@@ -228,7 +228,7 @@ func TestRoundTrip_Stereo_Int16(t *testing.T) {
 	// Generate stereo sine wave as int16
 	frameSize := 960
 	pcmIn := make([]int16, frameSize*2)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		pcmIn[i*2] = int16(16384 * math.Sin(2*math.Pi*440*float64(i)/48000))
 		pcmIn[i*2+1] = int16(16384 * math.Sin(2*math.Pi*880*float64(i)/48000))
 	}
@@ -270,7 +270,7 @@ func TestRoundTrip_MultipleFrames(t *testing.T) {
 	var totalInputEnergy, totalOutputEnergy float64
 
 	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		// Generate varying frequency for each frame
 		freq := 440.0 + float64(i)*50
 		pcmIn := generateSineWaveFloat32(48000, freq, frameSize, 1)
@@ -441,7 +441,7 @@ func TestPLC_MultipleLoss(t *testing.T) {
 	numLosses := 5
 	var energies []float64
 
-	for i := 0; i < numLosses; i++ {
+	for i := range numLosses {
 		n, err := dec.Decode(nil, pcmOut)
 		if err != nil {
 			t.Fatalf("PLC decode %d error: %v", i, err)
@@ -526,7 +526,7 @@ func TestSILK10msOpusRoundTrip(t *testing.T) {
 			nDecoded := 0
 			pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
-			for i := 0; i < nFrames; i++ {
+			for i := range nFrames {
 				pcmIn := make([]float32, tc.frameSize)
 				for j := 0; j < tc.frameSize; j++ {
 					sampleIdx := i*tc.frameSize + j
@@ -555,7 +555,7 @@ func TestSILK10msOpusRoundTrip(t *testing.T) {
 				}
 				nDecoded++
 
-				for j := 0; j < n; j++ {
+				for j := range n {
 					v := math.Abs(float64(pcmOut[j]))
 					if v > maxPeak {
 						maxPeak = v

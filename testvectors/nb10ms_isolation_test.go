@@ -30,7 +30,7 @@ func TestNB10msIsolation(t *testing.T) {
 			numFrames := 30
 			totalSamples := numFrames * tc.frameSize * channels
 			signal := make([]float32, totalSamples)
-			for i := 0; i < totalSamples; i++ {
+			for i := range totalSamples {
 				ti := float64(i) / float64(sampleRate)
 				signal[i] = float32(0.5 * math.Sin(2*math.Pi*440.0*ti))
 			}
@@ -50,7 +50,7 @@ func TestNB10msIsolation(t *testing.T) {
 
 			decodeBuf := make([]float32, 5760)
 
-			for i := 0; i < numFrames; i++ {
+			for i := range numFrames {
 				start := i * tc.frameSize * channels
 				end := start + tc.frameSize*channels
 				pcm := float32ToFloat64(signal[start:end])
@@ -141,7 +141,7 @@ func TestNB10msConstantSignal(t *testing.T) {
 			var totalDecEnergy, totalRefEnergy float64
 			var totalDecCount, totalRefCount int
 
-			for i := 0; i < numFrames; i++ {
+			for i := range numFrames {
 				start := i * tc.frameSize * channels
 				end := start + tc.frameSize*channels
 				pcm := float32ToFloat64(signal[start:end])

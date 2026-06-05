@@ -24,7 +24,7 @@ func benchmarkStereoLayout(b *testing.B, interleave bool) {
 	left := make([]celtNorm, n)
 	right := make([]celtNorm, n)
 	interleaved := make([]celtNorm, n*2)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		left[i] = celtNorm(float32(i%17) * 0.25)
 		right[i] = celtNorm(-float32(i%19) * 0.125)
 		interleaved[2*i] = left[i]

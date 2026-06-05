@@ -52,10 +52,7 @@ func (h Header) QuantizerLevel(i int) int32 {
 	if i < 0 {
 		i = 0
 	}
-	dq := h.DQ
-	if dq < 0 {
-		dq = 0
-	}
+	dq := max(h.DQ, 0)
 	if dq >= int32(len(dqTable)) {
 		dq = int32(len(dqTable) - 1)
 	}

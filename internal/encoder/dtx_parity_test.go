@@ -65,7 +65,7 @@ func TestDecideDTXMode_ExactLibopusParity(t *testing.T) {
 	var libopusCounterQ1 int
 
 	// Test 50 consecutive silent frames
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		suppress, _ := enc.shouldUseDTXRes(silence)
 		expected := libopusDecide(false, &libopusCounterQ1)
 
@@ -103,7 +103,7 @@ func TestDTX_ThresholdExact(t *testing.T) {
 	silence := make([]opusRes, 960)
 
 	// Frames 0-9: counter goes 40, 80, ..., 400. NOT > 400, so no DTX.
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		suppress, _ := enc.shouldUseDTXRes(silence)
 		if suppress {
 			t.Fatalf("frame %d: should NOT suppress (counter=%d, threshold=400 Q1)",
@@ -131,7 +131,7 @@ func TestDTX_MaxConsecutiveReset(t *testing.T) {
 
 	// Track suppress decisions
 	decisions := make([]bool, 35)
-	for i := 0; i < 35; i++ {
+	for i := range 35 {
 		decisions[i], _ = enc.shouldUseDTXRes(silence)
 	}
 
@@ -167,7 +167,7 @@ func TestDTX_SpeechExitsImmediately(t *testing.T) {
 	silence := make([]opusRes, 960)
 
 	// Enter DTX mode
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		enc.shouldUseDTXRes(silence)
 	}
 
@@ -211,7 +211,7 @@ func TestDTX_InDTXGetterMatchesLibopus(t *testing.T) {
 	}
 
 	// Feed silence until DTX activates
-	for i := 0; i < 11; i++ {
+	for range 11 {
 		enc.shouldUseDTXRes(silence)
 	}
 
@@ -237,7 +237,7 @@ func TestDTX_DisableDoesNotResetCounterUntilEncode(t *testing.T) {
 	enc.SetDTX(true)
 	silence := make([]opusRes, 960)
 
-	for i := 0; i < 11; i++ {
+	for range 11 {
 		enc.shouldUseDTXRes(silence)
 	}
 	if !enc.InDTX() {
@@ -263,7 +263,7 @@ func TestDTX_DisabledEncodeClearsCounter(t *testing.T) {
 	enc.SetDTX(true)
 	silence := make([]opusRes, 960)
 
-	for i := 0; i < 11; i++ {
+	for range 11 {
 		enc.shouldUseDTXRes(silence)
 	}
 	if !enc.InDTX() {
@@ -295,7 +295,7 @@ func TestDTX_40msFrames(t *testing.T) {
 	silence := make([]opusRes, 1920) // 40ms @ 48kHz
 
 	// Frames 0-4: counter 80,160,240,320,400. None > 400.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		suppress, _ := enc.shouldUseDTXRes(silence)
 		if suppress {
 			t.Fatalf("frame %d (40ms): should not suppress (counter=%d)",
@@ -320,7 +320,7 @@ func TestDTX_10msFrames(t *testing.T) {
 	silence := make([]opusRes, 480) // 10ms @ 48kHz
 
 	// Frames 0-19: counter 20,40,...,400. None > 400.
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		suppress, _ := enc.shouldUseDTXRes(silence)
 		if suppress {
 			t.Fatalf("frame %d (10ms): should not suppress (counter=%d)",
@@ -344,7 +344,7 @@ func TestDTX_60msFrames(t *testing.T) {
 	silence := make([]opusRes, 2880) // 60ms @ 48kHz
 
 	// Frames 0-2: counter 120,240,360. None > 400.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		suppress, _ := enc.shouldUseDTXRes(silence)
 		if suppress {
 			t.Fatalf("frame %d (60ms): should not suppress (counter=%d)",
@@ -435,7 +435,7 @@ func TestDTX_DisabledNeverSuppresses(t *testing.T) {
 	// DTX disabled (default)
 	silence := make([]opusRes, 960)
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		suppress, _ := enc.shouldUseDTXRes(silence)
 		if suppress {
 			t.Fatalf("frame %d: DTX should never suppress when disabled", i)
@@ -455,7 +455,7 @@ func TestDTX_FullEncodeCycle(t *testing.T) {
 
 	// Phase 1: Pre-DTX (full packets)
 	var preDTXSizes []int
-	for i := 0; i < 11; i++ {
+	for i := range 11 {
 		packet, err := encodeTest(enc, silence, 960)
 		if err != nil {
 			t.Fatalf("frame %d: encode error: %v", i, err)
@@ -464,7 +464,7 @@ func TestDTX_FullEncodeCycle(t *testing.T) {
 	}
 
 	// First 10 frames should be full packets (>1 byte)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		if preDTXSizes[i] <= 1 {
 			t.Errorf("frame %d: expected full packet, got %d bytes", i, preDTXSizes[i])
 		}
@@ -513,7 +513,7 @@ func TestDTXPacketFinalRangeIsZero(t *testing.T) {
 
 	silence := make([]float64, 960)
 	var packet []byte
-	for i := 0; i < 11; i++ {
+	for i := range 11 {
 		var err error
 		packet, err = encodeTest(enc, silence, 960)
 		if err != nil {
@@ -535,7 +535,7 @@ func TestDTX_ResetClearsState(t *testing.T) {
 	silence := make([]opusRes, 960)
 
 	// Enter DTX
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		enc.shouldUseDTXRes(silence)
 	}
 	if !enc.InDTX() {
@@ -570,7 +570,7 @@ func TestDTX_StereoMixToMono(t *testing.T) {
 	// Stereo silence (interleaved L,R,L,R...)
 	silence := make([]opusRes, 960*2)
 
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		enc.shouldUseDTXRes(silence)
 	}
 
@@ -619,9 +619,9 @@ func TestDTX_MultipleReentries(t *testing.T) {
 		speech[i] = opusRes(0.5 * math.Sin(float64(i)*2*math.Pi*440/48000))
 	}
 
-	for cycle := 0; cycle < 5; cycle++ {
+	for cycle := range 5 {
 		// Enter DTX
-		for i := 0; i < 15; i++ {
+		for range 15 {
 			enc.shouldUseDTXRes(silence)
 		}
 		if !enc.InDTX() {

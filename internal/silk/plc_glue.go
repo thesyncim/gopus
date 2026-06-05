@@ -46,15 +46,8 @@ func applyPLCRecoveryGlue(st *decoderState, frame []int16, length int) {
 	// Match libopus silk_PLC_glue_frames() fixed-point cadence.
 	lz := silkCLZ32(concEnergy) - 1
 	concEnergy = concEnergy << lz
-	shiftAmount := int32(24) - lz
-	if shiftAmount < 0 {
-		shiftAmount = 0
-	}
-	energy = energy >> shiftAmount
-
-	if energy < 1 {
-		energy = 1
-	}
+	shiftAmount := max(int32(24)-lz, 0)
+	energy = max(energy>>shiftAmount, 1)
 	fracQ24 := silkDiv32(concEnergy, energy)
 	gainQ16 := silkSqrtApproxPLC(fracQ24) << 4
 
@@ -82,7 +75,7 @@ func normalizedPLCGlueEnergies(st *decoderState, frame []int16, length int) (int
 }
 
 func applyPLCGainRamp(frame []int16, length int, gainQ16, slopeQ16 int32) {
-	for i := 0; i < length; i++ {
+	for i := range length {
 		frame[i] = int16(silkSMULWB(gainQ16, int32(frame[i])))
 		gainQ16 += slopeQ16
 		if gainQ16 > (1 << 16) {

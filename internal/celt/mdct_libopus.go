@@ -39,7 +39,7 @@ func LibopusIMDCTF32(spectrum []float32, prevOverlap []float32, overlap int) []f
 	// Following libopus clt_mdct_backward_c structure (lines 305-328)
 	// Note: libopus stores at bit-reversed positions, but DFT handles this
 	fftIn := make([]complex64, n4)
-	for i := 0; i < n4; i++ {
+	for i := range n4 {
 		// Input indices (matching libopus: xp1 = in, xp2 = in+stride*(N2-1))
 		// xp1 starts at 0, advances by 2*stride
 		// xp2 starts at N2-1, decreases by 2*stride
@@ -65,7 +65,7 @@ func LibopusIMDCTF32(spectrum []float32, prevOverlap []float32, overlap int) []f
 
 	// Convert back to interleaved format in out buffer
 	// Starting at out+(overlap>>1) as in libopus
-	for i := 0; i < n4; i++ {
+	for i := range n4 {
 		v := fftOut[i]
 		out[overlap/2+2*i] = real(v)
 		out[overlap/2+2*i+1] = imag(v)

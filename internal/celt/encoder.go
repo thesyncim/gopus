@@ -682,10 +682,7 @@ func (e *Encoder) StreamChannels() int {
 }
 
 func (e *Encoder) codedChannels() int {
-	channels := int(e.streamChannels)
-	if channels < 1 {
-		channels = 1
-	}
+	channels := max(int(e.streamChannels), 1)
 	if channels > int(e.channels) {
 		channels = int(e.channels)
 	}
@@ -1383,38 +1380,20 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.transientInput = ensureFloat32Slice(&s.transientInput, transientLen)
 
 	// Prefilter scratch buffers
-	maxPeriod := e.combMaxPeriod()
-	if maxPeriod < e.combMinPeriod() {
-		maxPeriod = e.combMinPeriod()
-	}
+	maxPeriod := max(e.combMaxPeriod(), e.combMinPeriod())
 	prefilterLen := (maxPeriod + frameSize) * channels
 	s.prefilterPre = ensureSigSlice(&s.prefilterPre, prefilterLen)
 	s.prefilterOut = ensureSigSlice(&s.prefilterOut, prefilterLen)
-	pitchBufLen := (maxPeriod + frameSize) >> 1
-	if pitchBufLen < 1 {
-		pitchBufLen = 1
-	}
+	pitchBufLen := max((maxPeriod+frameSize)>>1, 1)
 	s.prefilterPitchBuf = ensureFloat32Slice(&s.prefilterPitchBuf, pitchBufLen)
-	maxPitch := maxPeriod - 3*e.combMinPeriod()
-	if maxPitch < 1 {
-		maxPitch = 1
-	}
+	maxPitch := max(maxPeriod-3*e.combMinPeriod(), 1)
 	s.prefilterXcorr = ensureFloat32Slice(&s.prefilterXcorr, maxPitch>>1)
-	xlp4Len := frameSize >> 2
-	if xlp4Len < 1 {
-		xlp4Len = 1
-	}
+	xlp4Len := max(frameSize>>2, 1)
 	s.prefilterXLP4 = ensureFloat32Slice(&s.prefilterXLP4, xlp4Len)
 	lag := frameSize + maxPitch
-	ylp4Len := lag >> 2
-	if ylp4Len < 1 {
-		ylp4Len = 1
-	}
+	ylp4Len := max(lag>>2, 1)
 	s.prefilterYLP4 = ensureFloat32Slice(&s.prefilterYLP4, ylp4Len)
-	yyLookupLen := (maxPeriod >> 1) + 1
-	if yyLookupLen < 1 {
-		yyLookupLen = 1
-	}
+	yyLookupLen := max((maxPeriod>>1)+1, 1)
 	s.prefilterYYLookup = ensureFloat32Slice(&s.prefilterYYLookup, yyLookupLen)
 
 	// MDCT coefficients
@@ -1562,10 +1541,7 @@ func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3,
 	if nbBands < 0 {
 		nbBands = 0
 	}
-	channels := e.codedChannels()
-	if channels < 1 {
-		channels = 1
-	}
+	channels := max(e.codedChannels(), 1)
 	if channels > 2 {
 		channels = 2
 	}

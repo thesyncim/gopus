@@ -13,7 +13,7 @@ func benchmarkEncodedPacket(b *testing.B, channels, frameSize int) []byte {
 
 	const sampleRate = 48000.0
 	const amp = 0.45
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		l := amp * math.Sin(2*math.Pi*440*float64(i)/sampleRate)
 		if channels == 1 {
 			pcm[i] = l

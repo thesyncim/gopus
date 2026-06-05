@@ -80,7 +80,7 @@ func ConvertTo16kMonoFloat32(dst []float32, mem *[ResamplingOrder + 1]float32, i
 
 	switch sampleRate {
 	case 16000:
-		for i := 0; i < inLen; i++ {
+		for i := range inLen {
 			dst[i] = dred16kDownmixSampleFloat32(in, i, channels, up)
 		}
 		return outLen
@@ -126,7 +126,7 @@ func dredFilterZeroStuffedTo16kFloat32(dst []float32, in []float32, channels, up
 		return 0
 	}
 	out := 0
-	for i := 0; i < workLen; i++ {
+	for i := range workLen {
 		xi := float32(0)
 		if i%up == 0 {
 			xi = dred16kDownmixSampleFloat32(in, i/up, channels, up)
@@ -149,7 +149,7 @@ func dredFilterZeroStuffedTo16kFloat32(dst []float32, in []float32, channels, up
 func dredFilterDF2TStep(xi float32, spec dred16kFilterSpec, mem *[ResamplingOrder + 1]float32) float32 {
 	yi := xi*spec.b0 + mem[0]
 	nyi := -yi
-	for j := 0; j < ResamplingOrder; j++ {
+	for j := range ResamplingOrder {
 		mem[j] = mem[j+1] + spec.b[j]*xi + spec.a[j]*nyi
 	}
 	return yi

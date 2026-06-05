@@ -42,10 +42,7 @@ func LatentSpanSamples(sampleRate int) int {
 // FillQuantizerLevels writes the request-bounded libopus quantizer schedule
 // into dst and returns the number of entries written.
 func (h Header) FillQuantizerLevels(dst []int32, maxDredSamples, sampleRate int) int {
-	n := h.Availability(maxDredSamples, sampleRate).MaxLatents
-	if n > len(dst) {
-		n = len(dst)
-	}
+	n := min(h.Availability(maxDredSamples, sampleRate).MaxLatents, len(dst))
 	for i := 0; i < n; i++ {
 		dst[i] = h.QuantizerLevel(i)
 	}

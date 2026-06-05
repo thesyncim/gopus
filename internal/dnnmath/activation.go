@@ -79,7 +79,7 @@ func SigmoidVectorApprox(out, in []float32, n int) {
 
 // SigmoidVectorScalarApprox mirrors libopus' generic DNN sigmoid helper.
 func SigmoidVectorScalarApprox(out, in []float32, n int) {
-	for i := 0; i < n; i++ {
+	for i := range n {
 		out[i] = SigmoidScalarApprox(in[i])
 	}
 }
@@ -105,7 +105,7 @@ func TanhVectorApprox(out, in []float32, n int) {
 
 // TanhVectorScalarApprox mirrors libopus' generic DNN tanh helper.
 func TanhVectorScalarApprox(out, in []float32, n int) {
-	for i := 0; i < n; i++ {
+	for i := range n {
 		out[i] = TanhScalarApprox(in[i])
 	}
 }
@@ -137,7 +137,7 @@ func ExpVectorApprox(out, in []float32, n int) {
 
 // ExpVectorScalarApprox mirrors libopus' generic DNN exponent kernel.
 func ExpVectorScalarApprox(out, in []float32, n int) {
-	for i := 0; i < n; i++ {
+	for i := range n {
 		out[i] = ExpApprox(in[i])
 	}
 }

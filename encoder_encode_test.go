@@ -191,7 +191,7 @@ func TestEncoder_Stereo(t *testing.T) {
 	// Generate stereo signal (interleaved)
 	frameSize := 960
 	pcm := make([]float32, frameSize*2)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		// Left: 440 Hz
 		pcm[i*2] = float32(0.5 * math.Sin(2*math.Pi*440*float64(i)/48000))
 		// Right: 880 Hz

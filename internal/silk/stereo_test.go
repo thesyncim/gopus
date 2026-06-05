@@ -213,7 +213,7 @@ func TestSamplesPerSubframe(t *testing.T) {
 func TestStereoPredWeights(t *testing.T) {
 	// Verify stereo prediction weight table from libopus is symmetric
 	// The table silk_stereo_pred_quant_Q13 has 16 entries
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		// Weights should be symmetric around midpoint
 		if silk_stereo_pred_quant_Q13[i] != -silk_stereo_pred_quant_Q13[15-i] {
 			t.Errorf("silk_stereo_pred_quant_Q13[%d] = %d should be negative of silk_stereo_pred_quant_Q13[%d] = %d",
@@ -262,7 +262,7 @@ func TestStereoQuantPred80Levels(t *testing.T) {
 			ix := stereoQuantPred(&predQ13)
 
 			// Verify index ranges
-			for n := 0; n < 2; n++ {
+			for n := range 2 {
 				if ix.Ix[n][0] < 0 || ix.Ix[n][0] > 2 {
 					t.Errorf("ix[%d][0] = %d, want [0, 2]", n, ix.Ix[n][0])
 				}

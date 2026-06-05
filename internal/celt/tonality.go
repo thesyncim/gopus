@@ -69,12 +69,11 @@ func computeTonalityWithBands(mdctCoeffs []float32, nbBands, frameSize int) tona
 func computePerBandTonality(mdctCoeffs []float32, nbBands, frameSize int) []float32 {
 	bandTonality := make([]float32, nbBands)
 
-	scale := frameSize / Overlap // 1 for 2.5ms, 2 for 5ms, 4 for 10ms, 8 for 20ms
-	if scale < 1 {
-		scale = 1
-	}
+	scale := max(
+		// 1 for 2.5ms, 2 for 5ms, 4 for 10ms, 8 for 20ms
+		frameSize/Overlap, 1)
 
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		if band+1 >= len(EBands) {
 			break
 		}
@@ -98,7 +97,7 @@ func computePerBandTonality(mdctCoeffs []float32, nbBands, frameSize int) []floa
 
 		// Compute power spectrum for this band
 		powers := make([]float32, bandWidth)
-		for i := 0; i < bandWidth; i++ {
+		for i := range bandWidth {
 			idx := startBin + i
 			if idx < len(mdctCoeffs) {
 				powers[i] = mdctCoeffs[idx] * mdctCoeffs[idx]
@@ -191,12 +190,9 @@ func computeTonalityWithBandsScratch[S ~float32](mdctCoeffs []S, nbBands, frameS
 func computePerBandTonalityScratch(powers []float32, nbBands, frameSize int, scratch *tonalityScratch) {
 	bandTonality := scratch.BandTonality[:nbBands]
 
-	scale := frameSize / Overlap
-	if scale < 1 {
-		scale = 1
-	}
+	scale := max(frameSize/Overlap, 1)
 
-	for band := 0; band < nbBands; band++ {
+	for band := range nbBands {
 		if band+1 >= len(EBands) {
 			break
 		}
@@ -254,7 +250,7 @@ func computeSpectralFlux(currentEnergies, previousEnergies []float32, nbBands in
 	var count int
 
 	// Sum of squared differences in log-energy
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		if i >= len(currentEnergies) || i >= len(previousEnergies) {
 			break
 		}
@@ -291,7 +287,7 @@ func computeSpectralFluxGLog(currentEnergies []celtGLog, previousEnergies []celt
 
 	var flux float32
 	var count int
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		if i >= len(currentEnergies) || i >= len(previousEnergies) {
 			break
 		}

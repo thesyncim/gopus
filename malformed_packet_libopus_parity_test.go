@@ -531,7 +531,6 @@ func TestMalformedPacketErrorCodeParity(t *testing.T) {
 	}
 
 	for i, tc := range corpus {
-		tc := tc
 		want := oracleResults[i]
 		t.Run(tc.name, func(t *testing.T) {
 			dec, decErr := gopus.NewDecoder(gopus.DefaultDecoderConfig(tc.sampleRate, tc.channels))
@@ -622,7 +621,6 @@ func TestMalformedPacketBufferTooSmallParity(t *testing.T) {
 	}
 
 	for i, tc := range cases {
-		tc := tc
 		wantCode := oracleCodes[i]
 		t.Run(tc.name, func(t *testing.T) {
 			dec, decErr := gopus.NewDecoder(gopus.DefaultDecoderConfig(tc.sampleRate, tc.channels))
@@ -696,7 +694,6 @@ func TestMalformedPacketInt16Parity(t *testing.T) {
 	}
 
 	for i, tc := range int16Cases {
-		tc := tc
 		want := oracleResults[i]
 		t.Run(tc.name, func(t *testing.T) {
 			dec, decErr := gopus.NewDecoder(gopus.DefaultDecoderConfig(tc.sampleRate, tc.channels))
@@ -759,7 +756,6 @@ func TestMalformedPacketInt24Parity(t *testing.T) {
 	}
 
 	for i, tc := range int24Cases {
-		tc := tc
 		want := oracleResults[i]
 		t.Run(tc.name, func(t *testing.T) {
 			dec, decErr := gopus.NewDecoder(gopus.DefaultDecoderConfig(tc.sampleRate, tc.channels))

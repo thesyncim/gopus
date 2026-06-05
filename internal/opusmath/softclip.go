@@ -18,10 +18,7 @@ func PCMSoftClip(x []float32, n, channels int, declipMem []float32) {
 		return
 	}
 
-	total := n * channels
-	if total > len(x) {
-		total = len(x)
-	}
+	total := min(n*channels, len(x))
 
 	allWithinNeg1Pos1 := true
 	for i := 0; i < total; i++ {
@@ -37,7 +34,7 @@ func PCMSoftClip(x []float32, n, channels int, declipMem []float32) {
 		}
 	}
 	if allWithinNeg1Pos1 {
-		for c := 0; c < channels; c++ {
+		for c := range channels {
 			if declipMem[c] != 0 {
 				goto applySoftClip
 			}
@@ -46,10 +43,10 @@ func PCMSoftClip(x []float32, n, channels int, declipMem []float32) {
 	}
 
 applySoftClip:
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		a := declipMem[c]
 
-		for i := 0; i < n; i++ {
+		for i := range n {
 			idx := i*channels + c
 			if idx >= len(x) {
 				break

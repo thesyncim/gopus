@@ -38,7 +38,7 @@ func TestSILK10msOpusLevel(t *testing.T) {
 			totalSamples := numFrames * tc.frameSize
 			pcmF64 := make([]float64, totalSamples)
 			pcmF32 := make([]float32, totalSamples)
-			for i := 0; i < totalSamples; i++ {
+			for i := range totalSamples {
 				v := 0.5 * math.Sin(2*math.Pi*440.0*float64(i)/48000.0)
 				pcmF64[i] = v
 				pcmF32[i] = float32(v)
@@ -49,7 +49,7 @@ func TestSILK10msOpusLevel(t *testing.T) {
 			var rmsSum float64
 			var count int
 
-			for i := 0; i < numFrames; i++ {
+			for i := range numFrames {
 				start := i * tc.frameSize
 				end := start + tc.frameSize
 
@@ -76,7 +76,7 @@ func TestSILK10msOpusLevel(t *testing.T) {
 				}
 
 				var energy float64
-				for j := 0; j < n; j++ {
+				for j := range n {
 					energy += float64(decoded[j]) * float64(decoded[j])
 				}
 				rms := math.Sqrt(energy / float64(n))

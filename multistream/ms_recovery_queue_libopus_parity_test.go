@@ -56,7 +56,7 @@ func runMSRecoveryOracle(t *testing.T, label string, channels, sampleRate, bitra
 	frameSize := sampleRate / 50 // 20 ms
 
 	packets := make([][]byte, numFrames)
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		pcm := generateMultichannelSine(channels, frameSize)
 		p, encErr := enc.Encode(pcm, frameSize)
 		if encErr != nil {
@@ -259,7 +259,7 @@ func runMSFECRecoveryOracle(t *testing.T, label string, channels, sampleRate, bi
 	frameSize := sampleRate / 50
 
 	packets := make([][]byte, numFrames)
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		pcm := generateMultichannelSine(channels, frameSize)
 		p, encErr := enc.Encode(pcm, frameSize)
 		if encErr != nil {
@@ -339,7 +339,7 @@ func TestLibopus_MSRecovery_ModeHandoverGap(t *testing.T) {
 	}
 
 	var packets [numFrames][]byte
-	for phase := 0; phase < 2; phase++ {
+	for phase := range 2 {
 		enc, err := NewEncoder(sampleRate, channels, streams, coupled, mapping)
 		if err != nil {
 			t.Fatalf("phase%d NewEncoder: %v", phase, err)

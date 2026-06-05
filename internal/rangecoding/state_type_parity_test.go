@@ -8,8 +8,8 @@ import (
 func TestRangeCoderStateFieldWidthsMatchLibopusECCTX(t *testing.T) {
 	// libopus celt/entcode.h: ec_ctx keeps storage/end_offs/offs/rng/val/ext
 	// as opus_uint32 and nend_bits/nbits_total/rem/error as C int.
-	uint32Type := reflect.TypeOf(uint32(0))
-	int32Type := reflect.TypeOf(int32(0))
+	uint32Type := reflect.TypeFor[uint32]()
+	int32Type := reflect.TypeFor[int32]()
 	for _, tc := range []struct {
 		name   string
 		target any

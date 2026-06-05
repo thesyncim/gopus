@@ -101,7 +101,7 @@ func buildPerModeTables(nbEBands, scaleBase int, eBands []int16, logN []int16, a
 		edges[i] = int(eBands[i])
 	}
 	widths := make([]int, nbEBands)
-	for i := 0; i < nbEBands; i++ {
+	for i := range nbEBands {
 		widths[i] = edges[i+1] - edges[i]
 	}
 	logNi := make([]int, nbEBands)
@@ -109,9 +109,9 @@ func buildPerModeTables(nbEBands, scaleBase int, eBands []int16, logN []int16, a
 		logNi[i] = int(logN[i])
 	}
 	alloc := make([][]int, 11)
-	for r := 0; r < 11; r++ {
+	for r := range 11 {
 		row := make([]int, nbEBands)
-		for j := 0; j < nbEBands; j++ {
+		for j := range nbEBands {
 			idx := r*nbEBands + j
 			if idx < len(allocVectors) {
 				row[j] = int(allocVectors[idx])

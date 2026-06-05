@@ -65,19 +65,13 @@ func (e *Encoder) encodeLaplaceIntensity(val int, decay int) {
 	prevFk := fs0
 
 	for k < val {
-		fk := (prevFk * decay) >> 15
-		if fk < laplaceNMin {
-			fk = laplaceNMin
-		}
+		fk := max((prevFk*decay)>>15, laplaceNMin)
 		cumFL += fk
 		prevFk = fk
 		k++
 	}
 
-	fk := (prevFk * decay) >> 15
-	if fk < laplaceNMin {
-		fk = laplaceNMin
-	}
+	fk := max((prevFk*decay)>>15, laplaceNMin)
 
 	re.Encode(uint32(cumFL), uint32(cumFL+fk), uint32(laplaceFS))
 }
@@ -227,7 +221,7 @@ func DeinterleaveStereoInto(interleaved, left, right []celtNorm) {
 	_ = interleaved[2*n-1]
 	_ = left[n-1]
 	_ = right[n-1]
-	for i := 0; i < n; i++ {
+	for i := range n {
 		left[i] = interleaved[i*2]
 		right[i] = interleaved[i*2+1]
 	}
@@ -243,7 +237,7 @@ func DeinterleaveStereoIntoF32(interleaved, left, right []float32) {
 	_ = interleaved[2*n-1]
 	_ = left[n-1]
 	_ = right[n-1]
-	for i := 0; i < n; i++ {
+	for i := range n {
 		left[i] = interleaved[i*2]
 		right[i] = interleaved[i*2+1]
 	}

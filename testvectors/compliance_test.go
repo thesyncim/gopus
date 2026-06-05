@@ -91,7 +91,6 @@ func TestDecoderCompliance(t *testing.T) {
 	}
 
 	for _, name := range testVectorNames {
-		name := name
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -599,7 +598,7 @@ func TestMonoCELTReferenceFormat(t *testing.T) {
 	if len(reference) < pairsToCheck*2 {
 		t.Fatalf("reference too short for stereo pair check: %d samples", len(reference))
 	}
-	for i := 0; i < pairsToCheck; i++ {
+	for i := range pairsToCheck {
 		l := reference[i*2]
 		r := reference[i*2+1]
 		if l != r {

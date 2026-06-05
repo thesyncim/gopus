@@ -356,16 +356,16 @@ func parseOutputLine(summary *testRunSummary, testName, output string) {
 
 func extractFileMessage(line, file string) (string, bool) {
 	needle := file + ":"
-	idx := strings.Index(line, needle)
-	if idx < 0 {
+	_, after, ok := strings.Cut(line, needle)
+	if !ok {
 		return "", false
 	}
-	rest := line[idx+len(needle):]
-	colon := strings.Index(rest, ":")
-	if colon < 0 {
+	rest := after
+	_, after, ok = strings.Cut(rest, ":")
+	if !ok {
 		return "", false
 	}
-	return strings.TrimSpace(rest[colon+1:]), true
+	return strings.TrimSpace(after), true
 }
 
 func parseEncoderSummaryMessage(summary *testRunSummary, msg string) {

@@ -17,7 +17,7 @@ func TestPredCoefValues(t *testing.T) {
 		16384.0 / 32768.0, // LM=3
 	}
 
-	for lm := 0; lm < 4; lm++ {
+	for lm := range 4 {
 		if math.Abs(float64(predCoef[lm]-expected[lm])) > 1e-7 {
 			t.Errorf("predCoef[%d] = %f, want %f", lm, predCoef[lm], expected[lm])
 		}
@@ -34,7 +34,7 @@ func TestBetaCoefValues(t *testing.T) {
 		6554.0 / 32768.0,  // LM=3
 	}
 
-	for lm := 0; lm < 4; lm++ {
+	for lm := range 4 {
 		if math.Abs(float64(betaCoef[lm]-expectedInter[lm])) > 1e-7 {
 			t.Errorf("betaCoef[%d] = %f, want %f", lm, betaCoef[lm], expectedInter[lm])
 		}
@@ -96,7 +96,7 @@ func TestLossDistortion(t *testing.T) {
 	oldEBands := make([]celtGLog, MaxBands)
 
 	// Set some test values
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		eBands[i] = celtGLog(i)
 		oldEBands[i] = celtGLog(float64(i) + 0.5)
 	}
@@ -114,7 +114,7 @@ func TestLossDistortion(t *testing.T) {
 func TestAmp2Log2Conversion(t *testing.T) {
 	// Create test amplitudes
 	bandE := make([]celtEner, MaxBands)
-	for i := 0; i < MaxBands; i++ {
+	for i := range MaxBands {
 		bandE[i] = celtEner(math.Pow(2, float64(i)/4.0)) // Exponentially increasing
 	}
 
@@ -136,7 +136,7 @@ func TestQuantCoarseEnergyRoundTrip(t *testing.T) {
 	eBands := make([]celtGLog, nbBands*channels)
 	oldEBands := make([]celtGLog, nbBands*channels)
 
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		eBands[i] = celtGLog(5 - i/4) // Some variation
 		oldEBands[i] = 0              // Start with zeros
 	}
@@ -165,7 +165,7 @@ func TestQuantCoarseEnergyRoundTrip(t *testing.T) {
 	result := QuantCoarseEnergy(re, eBands, oldEBands, params, &delayedIntra)
 
 	// Verify results are reasonable
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		// Quantized energy should be close to original (within a few dB)
 		diff := math.Abs(float64(result.QuantizedEnergy[i] - eBands[i]))
 		if diff > 3.0 { // Allow up to 3 dB difference (half a step)
@@ -185,7 +185,7 @@ func TestQuantFineEnergy(t *testing.T) {
 	errorVal := make([]celtGLog, nbBands*channels)
 	extraQuant := make([]int, nbBands)
 
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		oldEBands[i] = celtGLog(5 - i/4)
 		errorVal[i] = 0.25 // Small positive error
 		if i < 15 {
@@ -202,7 +202,7 @@ func TestQuantFineEnergy(t *testing.T) {
 	QuantFineEnergy(re, 0, nbBands, oldEBands, errorVal, nil, extraQuant, channels)
 
 	// Verify that error was reduced
-	for i := 0; i < 15; i++ {
+	for i := range 15 {
 		if math.Abs(float64(errorVal[i])) >= 0.25 {
 			t.Errorf("Band %d: error not reduced after fine encoding: %f", i, errorVal[i])
 		}
@@ -220,7 +220,7 @@ func TestQuantEnergyFinalise(t *testing.T) {
 	fineQuant := make([]int, nbBands)
 	finePriority := make([]int, nbBands)
 
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		oldEBands[i] = celtGLog(5 - i/4)
 		errorVal[i] = 0.1 // Small positive error
 		fineQuant[i] = 2  // 2 bits already used
@@ -313,7 +313,7 @@ func BenchmarkQuantCoarseEnergy(b *testing.B) {
 	eBands := make([]celtGLog, nbBands*channels)
 	oldEBands := make([]celtGLog, nbBands*channels)
 
-	for i := 0; i < nbBands; i++ {
+	for i := range nbBands {
 		eBands[i] = celtGLog(5 - i/4)
 	}
 

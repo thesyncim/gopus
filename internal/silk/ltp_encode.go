@@ -51,7 +51,7 @@ func computeLTPCoeffs(pcm []float32, start, length, lag int) [5]float32 {
 
 		x := pcm[n]
 
-		for i := 0; i < numTaps; i++ {
+		for i := range numTaps {
 			pastIdx := n - lag + i - halfTaps
 			if pastIdx < 0 || pastIdx >= len(pcm) {
 				continue
@@ -59,7 +59,7 @@ func computeLTPCoeffs(pcm []float32, start, length, lag int) [5]float32 {
 			pastI := pcm[pastIdx]
 			r[i] += x * pastI
 
-			for j := 0; j < numTaps; j++ {
+			for j := range numTaps {
 				pastJIdx := n - lag + j - halfTaps
 				if pastJIdx < 0 || pastJIdx >= len(pcm) {
 					continue
@@ -71,7 +71,7 @@ func computeLTPCoeffs(pcm []float32, start, length, lag int) [5]float32 {
 	}
 
 	// Regularization for stability
-	for i := 0; i < numTaps; i++ {
+	for i := range numTaps {
 		R[i][i] += 1e-6
 	}
 
@@ -87,15 +87,15 @@ func solveLTPSystem(R [5][5]float32, r [5]float32) [5]float32 {
 
 	// Augmented matrix
 	var A [n][n + 1]float32
-	for i := 0; i < n; i++ {
-		for j := 0; j < n; j++ {
+	for i := range n {
+		for j := range n {
 			A[i][j] = R[i][j]
 		}
 		A[i][n] = r[i]
 	}
 
 	// Forward elimination with partial pivoting
-	for i := 0; i < n; i++ {
+	for i := range n {
 		// Find pivot
 		maxRow := i
 		for k := i + 1; k < n; k++ {
@@ -161,9 +161,9 @@ func quantizeLTPCoeffsInto(coeffs []float32, periodicity int, result *[5]int8) {
 
 	switch periodicity {
 	case 0:
-		for idx := 0; idx < len(LTPFilterLow); idx++ {
+		for idx := range len(LTPFilterLow) {
 			var dist float32
-			for tap := 0; tap < numTaps; tap++ {
+			for tap := range numTaps {
 				cbVal := float32(LTPFilterLow[idx][tap]) / 128.0
 				diff := coeffs[tap] - cbVal
 				dist += diff * diff
@@ -176,9 +176,9 @@ func quantizeLTPCoeffsInto(coeffs []float32, periodicity int, result *[5]int8) {
 		*result = LTPFilterLow[bestIdx]
 
 	case 1:
-		for idx := 0; idx < len(LTPFilterMid); idx++ {
+		for idx := range len(LTPFilterMid) {
 			var dist float32
-			for tap := 0; tap < numTaps; tap++ {
+			for tap := range numTaps {
 				cbVal := float32(LTPFilterMid[idx][tap]) / 128.0
 				diff := coeffs[tap] - cbVal
 				dist += diff * diff
@@ -191,9 +191,9 @@ func quantizeLTPCoeffsInto(coeffs []float32, periodicity int, result *[5]int8) {
 		*result = LTPFilterMid[bestIdx]
 
 	case 2:
-		for idx := 0; idx < len(LTPFilterHigh); idx++ {
+		for idx := range len(LTPFilterHigh) {
 			var dist float32
-			for tap := 0; tap < numTaps; tap++ {
+			for tap := range numTaps {
 				cbVal := float32(LTPFilterHigh[idx][tap]) / 128.0
 				diff := coeffs[tap] - cbVal
 				dist += diff * diff
@@ -233,10 +233,7 @@ func (e *Encoder) encodeLTPCoeffs(perIndex int, ltpIndices []int8, numSubframes 
 	gainICDF := silk_LTP_gain_iCDF_ptrs[perIndex]
 
 	for sf := 0; sf < numSubframes && sf < len(ltpIndices); sf++ {
-		cbIdx := int(ltpIndices[sf])
-		if cbIdx < 0 {
-			cbIdx = 0
-		}
+		cbIdx := max(int(ltpIndices[sf]), 0)
 		maxIdx := len(gainICDF) - 1
 		if cbIdx > maxIdx {
 			cbIdx = maxIdx
@@ -251,9 +248,9 @@ func findLTPCodebookIndex(coeffs [5]int8, periodicity int) int {
 
 	switch periodicity {
 	case 0:
-		for idx := 0; idx < len(LTPFilterLow); idx++ {
+		for idx := range len(LTPFilterLow) {
 			match := true
-			for tap := 0; tap < numTaps; tap++ {
+			for tap := range numTaps {
 				if coeffs[tap] != LTPFilterLow[idx][tap] {
 					match = false
 					break
@@ -264,9 +261,9 @@ func findLTPCodebookIndex(coeffs [5]int8, periodicity int) int {
 			}
 		}
 	case 1:
-		for idx := 0; idx < len(LTPFilterMid); idx++ {
+		for idx := range len(LTPFilterMid) {
 			match := true
-			for tap := 0; tap < numTaps; tap++ {
+			for tap := range numTaps {
 				if coeffs[tap] != LTPFilterMid[idx][tap] {
 					match = false
 					break
@@ -277,9 +274,9 @@ func findLTPCodebookIndex(coeffs [5]int8, periodicity int) int {
 			}
 		}
 	case 2:
-		for idx := 0; idx < len(LTPFilterHigh); idx++ {
+		for idx := range len(LTPFilterHigh) {
 			match := true
-			for tap := 0; tap < numTaps; tap++ {
+			for tap := range numTaps {
 				if coeffs[tap] != LTPFilterHigh[idx][tap] {
 					match = false
 					break
@@ -307,10 +304,7 @@ func (e *Encoder) determinePeriodicity(pcm []float32, pitchLags []int32) int {
 	for sf, lag32 := range pitchLags {
 		lag := int(lag32)
 		start := sf * subframeSamples
-		end := start + subframeSamples
-		if end > len(pcm) {
-			end = len(pcm)
-		}
+		end := min(start+subframeSamples, len(pcm))
 
 		var corr, energy1, energy2 float32
 		for i := start; i < end && i >= lag; i++ {

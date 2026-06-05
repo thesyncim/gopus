@@ -6,11 +6,11 @@ import (
 )
 
 func TestOpusInputScratchFieldWidthsMatchFloatBuild(t *testing.T) {
-	opusResSliceType := reflect.TypeOf([]opusRes(nil))
-	float32SliceType := reflect.TypeOf([]float32(nil))
-	int32Type := reflect.TypeOf(int32(0))
+	opusResSliceType := reflect.TypeFor[[]opusRes]()
+	float32SliceType := reflect.TypeFor[[]float32]()
+	int32Type := reflect.TypeFor[int32]()
 
-	checkFieldsHaveType(t, reflect.TypeOf(Encoder{}), opusResSliceType,
+	checkFieldsHaveType(t, reflect.TypeFor[Encoder](), opusResSliceType,
 		"inputBuffer",
 		"delayBuffer",
 		"scratchDCPCM",
@@ -22,7 +22,7 @@ func TestOpusInputScratchFieldWidthsMatchFloatBuild(t *testing.T) {
 		"scratchCELTPrefill",
 		"scratchQuantPCM",
 	)
-	checkFieldsHaveType(t, reflect.TypeOf(Encoder{}), float32SliceType,
+	checkFieldsHaveType(t, reflect.TypeFor[Encoder](), float32SliceType,
 		"scratchPCM32",
 		"scratchLeft",
 		"scratchRight",
@@ -33,10 +33,10 @@ func TestOpusInputScratchFieldWidthsMatchFloatBuild(t *testing.T) {
 		"scratchSilkAligned",
 		"floatInputFrame",
 	)
-	checkFieldsHaveType(t, reflect.TypeOf(HybridState{}), opusResSliceType,
+	checkFieldsHaveType(t, reflect.TypeFor[HybridState](), opusResSliceType,
 		"scratchTransitionPCM",
 	)
-	checkFieldsHaveType(t, reflect.TypeOf(HybridState{}), float32SliceType,
+	checkFieldsHaveType(t, reflect.TypeFor[HybridState](), float32SliceType,
 		"scratchLookahead32",
 		"scratchSilkLookahead",
 		"scratchLaLeft",
@@ -44,7 +44,7 @@ func TestOpusInputScratchFieldWidthsMatchFloatBuild(t *testing.T) {
 		"scratchLaOutLeft",
 		"scratchLaOutRight",
 	)
-	checkFieldsHaveType(t, reflect.TypeOf(Encoder{}), int32Type,
+	checkFieldsHaveType(t, reflect.TypeFor[Encoder](), int32Type,
 		"sampleRate",
 		"channels",
 		"frameSize",
@@ -60,14 +60,14 @@ func TestOpusInputScratchFieldWidthsMatchFloatBuild(t *testing.T) {
 		"fecConfig",
 		"silkResamplerRate",
 	)
-	checkFieldsHaveType(t, reflect.TypeOf(dtxState{}), int32Type,
+	checkFieldsHaveType(t, reflect.TypeFor[dtxState](), int32Type,
 		"noActivityMsQ1",
 		"frameDurationMs",
 	)
-	checkFieldsHaveType(t, reflect.TypeOf(fecState{}), int32Type,
+	checkFieldsHaveType(t, reflect.TypeFor[fecState](), int32Type,
 		"frameCount",
 	)
-	checkFieldsHaveType(t, reflect.TypeOf(TonalityAnalysisState{}), int32Type,
+	checkFieldsHaveType(t, reflect.TypeFor[TonalityAnalysisState](), int32Type,
 		"LSBDepth",
 		"MemFill",
 		"PrevBandwidth",
@@ -78,7 +78,7 @@ func TestOpusInputScratchFieldWidthsMatchFloatBuild(t *testing.T) {
 		"ReadPos",
 		"ReadSubframe",
 	)
-	checkFieldsHaveType(t, reflect.TypeOf(AnalysisInfo{}), int32Type,
+	checkFieldsHaveType(t, reflect.TypeFor[AnalysisInfo](), int32Type,
 		"BandwidthIndex",
 	)
 }

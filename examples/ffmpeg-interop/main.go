@@ -98,10 +98,10 @@ func encodeTestSignal(filename string, duration float64) error {
 	fmt.Printf("  Frame size: %d samples (%.1f ms)\n", frameSize, float64(frameSize)/float64(sampleRate)*1000)
 	fmt.Printf("  Total frames: %d\n", totalFrames)
 
-	for frame := 0; frame < totalFrames; frame++ {
+	for frame := range totalFrames {
 		// Generate stereo interleaved samples: [L0, R0, L1, R1, ...]
 		pcm := make([]float32, frameSize*channels)
-		for i := 0; i < frameSize; i++ {
+		for i := range frameSize {
 			sampleIndex := frame*frameSize + i
 			t := float64(sampleIndex) / float64(sampleRate)
 

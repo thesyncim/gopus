@@ -8,7 +8,7 @@ import (
 
 // kfBfly2M1Reference is the pure Go reference implementation.
 func kfBfly2M1Reference(fout []kissCpx, n int) {
-	for i := 0; i < n; i++ {
+	for range n {
 		fout2 := fout[1]
 		fout[1].r = fout[0].r - fout2.r
 		fout[1].i = fout[0].i - fout2.i

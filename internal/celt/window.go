@@ -84,7 +84,7 @@ func GetWindowBufferF32(overlap int) []float32 {
 		return windowBuffer960F32[:]
 	default:
 		window := make([]float32, overlap)
-		for i := 0; i < overlap; i++ {
+		for i := range overlap {
 			window[i] = VorbisWindow(i, overlap)
 		}
 		return window

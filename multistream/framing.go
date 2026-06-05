@@ -361,7 +361,7 @@ func buildOpusPacketFromFramesInto(scratch *packetScratch, tocBase byte, frames 
 		lengths = make([]int, count)
 	}
 	totalFrameBytes := 0
-	for i := 0; i < count; i++ {
+	for i := range count {
 		lengths[i] = len(frames[i])
 		totalFrameBytes += lengths[i]
 	}
@@ -457,7 +457,7 @@ func buildOpusPacketFromFramesInto(scratch *packetScratch, tocBase byte, frames 
 		offset += writeFrameLength(dst[offset:], lengths[count-1])
 	}
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		copy(dst[offset:], frames[i])
 		offset += lengths[i]
 	}
@@ -487,7 +487,7 @@ func buildOpusPacketFromFramesAndPaddingInto(scratch *packetScratch, tocBase byt
 	}
 	totalFrameBytes := 0
 	vbr := false
-	for i := 0; i < count; i++ {
+	for i := range count {
 		lengths[i] = len(frames[i])
 		totalFrameBytes += lengths[i]
 		if i > 0 && lengths[i] != lengths[0] {
@@ -533,7 +533,7 @@ func buildOpusPacketFromFramesAndPaddingInto(scratch *packetScratch, tocBase byt
 		offset += writeFrameLength(dst[offset:], lengths[count-1])
 	}
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		copy(dst[offset:], frames[i])
 		offset += lengths[i]
 	}
@@ -638,7 +638,7 @@ func generatePacketExtensions(dst []byte, length int, extensions []packetExtensi
 	frameMinIdx := make([]int, nbFrames)
 	frameMaxIdx := make([]int, nbFrames)
 	frameRepeatIdx := make([]int, nbFrames)
-	for f := 0; f < nbFrames; f++ {
+	for f := range nbFrames {
 		frameMinIdx[f] = len(extensions)
 	}
 
@@ -658,7 +658,7 @@ func generatePacketExtensions(dst []byte, length int, extensions []packetExtensi
 	pos := 0
 	written := 0
 	currFrame := 0
-	for f := 0; f < nbFrames; f++ {
+	for f := range nbFrames {
 		lastLongIdx := -1
 		repeatCount := 0
 
@@ -815,7 +815,7 @@ func generatePacketExtensions(dst []byte, length int, extensions []packetExtensi
 		padding := length - pos
 		if dst != nil {
 			copy(dst[padding:], dst[:pos])
-			for i := 0; i < padding; i++ {
+			for i := range padding {
 				dst[i] = 0x01
 			}
 		}

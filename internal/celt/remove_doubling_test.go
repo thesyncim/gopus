@@ -96,7 +96,7 @@ func removeDoublingLegacyYYLookup(x []float32, maxPeriod, minPeriod, N int, T0 *
 	}
 
 	var xcorr [3]float32
-	for k := 0; k < 3; k++ {
+	for k := range 3 {
 		lag := T + k - 1
 		xcorr[k] = innerProdFloat32(x0, xBase[maxPeriod-lag:maxPeriod-lag+N], N)
 	}
@@ -106,17 +106,14 @@ func removeDoublingLegacyYYLookup(x []float32, maxPeriod, minPeriod, N int, T0 *
 	} else if (xcorr[0] - xcorr[2]) > float32(0.7)*(xcorr[1]-xcorr[2]) {
 		offset = -1
 	}
-	*T0 = 2*T + offset
-	if *T0 < minPeriod0 {
-		*T0 = minPeriod0
-	}
+	*T0 = max(2*T+offset, minPeriod0)
 	return pg
 }
 
 func TestRemoveDoublingMatchesLegacyYYLookup(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
 
-	for iter := 0; iter < 500; iter++ {
+	for iter := range 500 {
 		maxPeriod := combFilterMinPeriod + 8 + rng.Intn(320)
 		if maxPeriod%2 != 0 {
 			maxPeriod++

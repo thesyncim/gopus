@@ -6,7 +6,7 @@ import (
 )
 
 func pvqSearchPulseLoopRef(absX, y []float32, iy []int32, xy, yy float32, n, pulsesLeft int) (float32, float32) {
-	for i := 0; i < pulsesLeft; i++ {
+	for range pulsesLeft {
 		yy += 1
 
 		bestID := 0

@@ -48,7 +48,6 @@ func TestEncodeDiffSILKCBRFloorFinding(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			pcm := make([]float32, c.frameSz*nFrames)
 			for i := range pcm {
@@ -83,7 +82,7 @@ func TestEncodeDiffSILKCBRFloorFinding(t *testing.T) {
 				t.Fatalf("SetExpertFrameDuration: %v", err)
 			}
 
-			for f := 0; f < nFrames; f++ {
+			for f := range nFrames {
 				frame := pcm[f*c.frameSz : (f+1)*c.frameSz]
 				pkt, eerr := enc.EncodeFloat32(frame)
 				if eerr != nil {

@@ -103,10 +103,10 @@ func generateSurroundSweep(channels, frameSize, frameCount int) []float32 {
 	pcm := make([]float32, total)
 	baseFreqs := []float64{220, 330, 440, 550, 660, 770, 880, 990}
 	n := frameSize * frameCount
-	for s := 0; s < n; s++ {
+	for s := range n {
 		tt := float64(s) / 48000.0
 		amp := 0.25 + 0.1*math.Sin(2*math.Pi*1.5*tt)
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			freq := baseFreqs[ch%len(baseFreqs)] * (1.0 + 0.05*float64(ch))
 			pcm[s*channels+ch] = float32(amp * math.Sin(2*math.Pi*freq*tt))
 		}
@@ -153,7 +153,7 @@ func runSurroundEncodeParity(t *testing.T, sampleRate, channels, frameSize, fram
 	enc.SetComplexity(complexity)
 	enc.SetBandwidthAuto()
 
-	for i := 0; i < frameCount; i++ {
+	for i := range frameCount {
 		start := i * frameSize * channels
 		frame := pcm[start : start+frameSize*channels]
 		got, err := enc.EncodeFloat32WithAnalysisMaxBytes(frame, frameSize, frame, maxPacketBytes)
@@ -223,13 +223,9 @@ func TestSurroundEncodeMatchesLibopusByteExact(t *testing.T) {
 	bitrates := []int{64000, 128000, 256000, 384000}
 
 	for _, layout := range layouts {
-		layout := layout
 		for _, frameSize := range frameSizes {
-			frameSize := frameSize
 			for _, bitrate := range bitrates {
-				bitrate := bitrate
 				for _, vbr := range []bool{false, true} {
-					vbr := vbr
 					name := fmt.Sprintf("%s/fs%d/br%d/vbr%t", layout.name, frameSize, bitrate, vbr)
 					t.Run(name, func(t *testing.T) {
 						runSurroundEncodeParity(t, sampleRate, layout.channels, frameSize, 6, bitrate, 10, vbr, true)
@@ -265,9 +261,7 @@ func TestSurroundEncodeUnconstrainedVBRMatchesLibopus(t *testing.T) {
 	bitrates := []int{96000, 256000}
 
 	for _, layout := range layouts {
-		layout := layout
 		for _, bitrate := range bitrates {
-			bitrate := bitrate
 			name := fmt.Sprintf("%s/br%d", layout.name, bitrate)
 			t.Run(name, func(t *testing.T) {
 				// vbr=true, vbrConstraint=false → unconstrained VBR.
@@ -290,7 +284,6 @@ func TestSurroundEncodeComplexityMatchesLibopus(t *testing.T) {
 		bitrate    = 256000
 	)
 	for _, complexity := range []int{0, 5, 10} {
-		complexity := complexity
 		t.Run(fmt.Sprintf("complexity%d", complexity), func(t *testing.T) {
 			runSurroundEncodeParity(t, sampleRate, channels, frameSize, 6, bitrate, complexity, true, true)
 		})

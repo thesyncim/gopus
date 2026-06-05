@@ -54,11 +54,8 @@ func TestRealContentCorpusQualityParity(t *testing.T) {
 	}
 
 	for _, c := range fixture.Cases {
-		c := c
 		for _, channels := range []int{1, 2} {
-			channels := channels
 			for _, cfg := range corpusQualityModeConfigs {
-				cfg := cfg
 				name := c.ContentKind + "/" + c.Name + "/" + chanName(channels) + "/" + cfg.name
 				t.Run(name, func(t *testing.T) {
 					t.Parallel()
@@ -120,9 +117,7 @@ func TestRealContentDecodeOfLibopusPacketsParity(t *testing.T) {
 
 	sawPackets := false
 	for _, c := range fixture.Cases {
-		c := c
 		for _, enc := range c.LibopusPackets {
-			enc := enc
 			if len(enc.decodedPackets) == 0 {
 				continue
 			}
@@ -232,7 +227,6 @@ func TestRealContentCorpusFixtureIntegrity(t *testing.T) {
 		t.Skipf("real-content corpus fixture unavailable: %v", err)
 	}
 	for _, c := range fixture.Cases {
-		c := c
 		t.Run(c.Name, func(t *testing.T) {
 			t.Parallel()
 			got := realcontentClipSHA256(c.stereo)

@@ -425,7 +425,7 @@ func runContainerSurface(rng *rand.Rand, stats *soakStats) error {
 	packetBuf := make([]byte, 4000)
 	frameSizes := []int{480, 960, 1920}
 	packetCount := 1 + rng.Intn(4)
-	for i := 0; i < packetCount; i++ {
+	for range packetCount {
 		frameSize := frameSizes[rng.Intn(len(frameSizes))]
 		if err := enc.SetFrameSize(frameSize); err != nil {
 			return fmt.Errorf("container set frame size %d: %w", frameSize, err)
@@ -476,8 +476,8 @@ func runContainerSurface(rng *rand.Rand, stats *soakStats) error {
 
 func generateDeterministicSignal(frameSize, channels int) []float32 {
 	pcm := make([]float32, frameSize*channels)
-	for i := 0; i < frameSize; i++ {
-		for ch := 0; ch < channels; ch++ {
+	for i := range frameSize {
+		for ch := range channels {
 			freq := 440.0 + float64(ch)*110.0
 			pcm[i*channels+ch] = float32(0.35 * math.Sin(2*math.Pi*freq*float64(i)/48000))
 		}
@@ -489,9 +489,9 @@ func generateSignal(rng *rand.Rand, frameSize, channels int) []float32 {
 	pcm := make([]float32, frameSize*channels)
 	freq := 80.0 + rng.Float64()*1600.0
 	phase := rng.Float64() * 2 * math.Pi
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		t := float64(i) / 48000.0
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			channelPhase := phase + float64(ch)*0.41
 			channelFreq := freq + float64(ch)*97.0
 			tone := 0.35 * math.Sin(channelPhase+2*math.Pi*channelFreq*t)
@@ -521,7 +521,7 @@ func chooseDecodeInput(rng *rand.Rand, packet, lastGood []byte, backlog [][]byte
 		stats.corrupted++
 		corrupted := append([]byte(nil), packet...)
 		flips := 1 + rng.Intn(minInt(3, len(corrupted)))
-		for i := 0; i < flips; i++ {
+		for range flips {
 			idx := rng.Intn(len(corrupted))
 			corrupted[idx] ^= byte(1 << uint(rng.Intn(8)))
 		}
@@ -576,7 +576,7 @@ func encodePCMBytes(pcm []float32, format gopus.SampleFormat) []byte {
 
 func assertFloat32BytesFinite(data []byte) error {
 	fullSamples := len(data) / 4
-	for i := 0; i < fullSamples; i++ {
+	for i := range fullSamples {
 		sample := math.Float32frombits(binary.LittleEndian.Uint32(data[i*4:]))
 		if math.IsNaN(float64(sample)) || math.IsInf(float64(sample), 0) {
 			return fmt.Errorf("streamed sample[%d] is not finite: %v", i, sample)

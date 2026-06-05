@@ -457,7 +457,7 @@ func computeEncoderComplianceResultForSignal(mode encoder.Mode, bandwidth types.
 	packets := make([][]byte, 0, numFrames+1)
 	samplesPerFrame := frameSize * channels
 
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		start := i * samplesPerFrame
 		end := start + samplesPerFrame
 		pcm := float32ToFloat64OpusDemoF32(original[start:end])

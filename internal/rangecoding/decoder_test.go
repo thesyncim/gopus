@@ -181,7 +181,7 @@ func TestDecodeICDF(t *testing.T) {
 
 func TestDecodeICDF2MatchesDecodeICDF(t *testing.T) {
 	r := rand.New(rand.NewSource(1))
-	for tc := 0; tc < 200; tc++ {
+	for tc := range 200 {
 		buf := make([]byte, 64)
 		for i := range buf {
 			buf[i] = byte(r.Uint32())
@@ -193,7 +193,7 @@ func TestDecodeICDF2MatchesDecodeICDF(t *testing.T) {
 		d1.Init(buf)
 		d2.Init(buf)
 
-		for i := 0; i < 128; i++ {
+		for i := range 128 {
 			sym1 := d1.DecodeICDF(icdf[:], 8)
 			sym2 := d2.DecodeICDF2(icdf0, 8)
 			if sym1 != sym2 {
@@ -214,7 +214,7 @@ func TestDecodeSmallICDF8MatchesDecodeICDF(t *testing.T) {
 		{242, 188, 95, 31, 0},
 	}
 	r := rand.New(rand.NewSource(2))
-	for tc := 0; tc < 200; tc++ {
+	for tc := range 200 {
 		buf := make([]byte, 64)
 		for i := range buf {
 			buf[i] = byte(r.Uint32())
@@ -224,7 +224,7 @@ func TestDecodeSmallICDF8MatchesDecodeICDF(t *testing.T) {
 			d1.Init(buf)
 			d2.Init(buf)
 
-			for i := 0; i < 128; i++ {
+			for i := range 128 {
 				sym1 := d1.DecodeICDF(icdf, 8)
 				var sym2 int
 				switch len(icdf) {
@@ -260,7 +260,7 @@ func TestDecodeICDF8UncheckedSmallTablesMatchDecodeICDF(t *testing.T) {
 		{224, 192, 160, 128, 96, 64, 32, 0},
 	}
 	r := rand.New(rand.NewSource(3))
-	for tc := 0; tc < 200; tc++ {
+	for tc := range 200 {
 		buf := make([]byte, 64)
 		for i := range buf {
 			buf[i] = byte(r.Uint32())
@@ -270,7 +270,7 @@ func TestDecodeICDF8UncheckedSmallTablesMatchDecodeICDF(t *testing.T) {
 			d1.Init(buf)
 			d2.Init(buf)
 
-			for i := 0; i < 128; i++ {
+			for i := range 128 {
 				sym1 := d1.DecodeICDF(icdf, 8)
 				sym2 := d2.DecodeICDF8Unchecked(icdf)
 				if sym1 != sym2 {
@@ -298,7 +298,7 @@ func TestTell(t *testing.T) {
 
 	// Decode some bits and verify Tell increases
 	prevTell := initialTell
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		d.DecodeBit(1)
 		currentTell := d.Tell()
 		if currentTell <= prevTell {
@@ -343,7 +343,7 @@ func TestDecoderSequence(t *testing.T) {
 	icdf := []uint8{128, 0} // 2-symbol uniform
 
 	decoded := make([]int, 0)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		if i%2 == 0 {
 			// Decode bit
 			bit := d.DecodeBit(1)
@@ -446,7 +446,7 @@ func TestBytesUsed(t *testing.T) {
 	}
 
 	// Decode several symbols to consume more bytes
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		d.DecodeBit(1)
 	}
 

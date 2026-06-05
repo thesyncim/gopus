@@ -21,7 +21,7 @@ func TestStereoDetail(t *testing.T) {
 
 	// Use chirp signal that varies in frequency to avoid alignment ambiguity
 	pcmIn := make([]float32, frameSize*channels*numFrames)
-	for i := 0; i < frameSize*numFrames; i++ {
+	for i := range frameSize * numFrames {
 		t := float64(i) / float64(sampleRate)
 		freq := 200.0 + 2000.0*t // chirp from 200Hz to 200+2000*dur
 		pcmIn[i*2] = float32(0.4 * math.Sin(2*math.Pi*freq*t))
@@ -33,7 +33,7 @@ func TestStereoDetail(t *testing.T) {
 	pcmOut := make([]float32, frameSize*channels)
 
 	// Encode and decode
-	for f := 0; f < numFrames; f++ {
+	for f := range numFrames {
 		start := f * frameSize * channels
 		end := start + frameSize*channels
 		n, _ := enc.Encode(pcmIn[start:end], packet)
@@ -49,7 +49,7 @@ func TestStereoDetail(t *testing.T) {
 	// Check amplitude ratio between channels
 	var maxInL, maxInR, maxOutL, maxOutR float64
 	var rmsInL, rmsInR, rmsOutL, rmsOutR float64
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		inL := math.Abs(float64(pcmIn[start+i*2]))
 		inR := math.Abs(float64(pcmIn[start+i*2+1]))
 		outL := math.Abs(float64(pcmOut[i*2]))
@@ -93,7 +93,7 @@ func TestStereoDetail(t *testing.T) {
 
 	// Check correlation: L and R should be highly correlated (same shape, different amplitude)
 	var corr, sumL2, sumR2 float64
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		l := float64(pcmOut[i*2])
 		r := float64(pcmOut[i*2+1])
 		corr += l * r
@@ -115,13 +115,13 @@ func TestStereoDetail(t *testing.T) {
 	dec2, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(sampleRate, channels))
 
 	pcmIn2 := make([]float32, frameSize*channels*numFrames)
-	for i := 0; i < frameSize*numFrames; i++ {
+	for i := range frameSize * numFrames {
 		t := float64(i) / float64(sampleRate)
 		pcmIn2[i*2] = float32(0.4 * math.Sin(2*math.Pi*300*t))    // L: 300Hz
 		pcmIn2[i*2+1] = float32(0.4 * math.Sin(2*math.Pi*1000*t)) // R: 1000Hz
 	}
 
-	for f := 0; f < numFrames; f++ {
+	for f := range numFrames {
 		start := f * frameSize * channels
 		end := start + frameSize*channels
 		n, _ := enc2.Encode(pcmIn2[start:end], packet)

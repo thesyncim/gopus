@@ -110,9 +110,9 @@ func generateTestPacket(sampleRate, channels, frameSize int) ([]byte, error) {
 	// Generate a simple sine wave
 	pcm := make([]float32, frameSize*channels)
 	freq := 440.0
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		sample := float32(0.5 * math.Sin(2*math.Pi*freq*float64(i)/float64(sampleRate)))
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			pcm[i*channels+ch] = sample
 		}
 	}
@@ -123,9 +123,9 @@ func generateTestPacket(sampleRate, channels, frameSize int) ([]byte, error) {
 // generateFloat32Bytes generates float32 PCM bytes for a sine wave.
 func generateFloat32Bytes(sampleRate, channels, numSamples int, freq float64) []byte {
 	buf := make([]byte, numSamples*channels*4)
-	for i := 0; i < numSamples; i++ {
+	for i := range numSamples {
 		sample := float32(0.5 * math.Sin(2*math.Pi*freq*float64(i)/float64(sampleRate)))
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			idx := (i*channels + ch) * 4
 			bits := math.Float32bits(sample)
 			binary.LittleEndian.PutUint32(buf[idx:], bits)
@@ -137,9 +137,9 @@ func generateFloat32Bytes(sampleRate, channels, numSamples int, freq float64) []
 // generateInt16Bytes generates int16 PCM bytes for a sine wave.
 func generateInt16Bytes(sampleRate, channels, numSamples int, freq float64) []byte {
 	buf := make([]byte, numSamples*channels*2)
-	for i := 0; i < numSamples; i++ {
+	for i := range numSamples {
 		sample := int16(0.5 * 32767 * math.Sin(2*math.Pi*freq*float64(i)/float64(sampleRate)))
-		for ch := 0; ch < channels; ch++ {
+		for ch := range channels {
 			idx := (i*channels + ch) * 2
 			binary.LittleEndian.PutUint16(buf[idx:], uint16(sample))
 		}
@@ -238,7 +238,7 @@ func TestStream_RoundTrip_Float32(t *testing.T) {
 	// Convert decoded bytes to float32 and compute energy
 	numSamples := len(allBytes) / 4
 	decoded := make([]float32, numSamples)
-	for i := 0; i < numSamples; i++ {
+	for i := range numSamples {
 		bits := binary.LittleEndian.Uint32(allBytes[i*4:])
 		decoded[i] = math.Float32frombits(bits)
 	}
@@ -305,7 +305,7 @@ func TestStream_RoundTrip_Int16(t *testing.T) {
 	// Convert decoded bytes to int16 and compute energy
 	numSamples := len(allBytes) / 2
 	var energy int64
-	for i := 0; i < numSamples; i++ {
+	for i := range numSamples {
 		sample := int16(binary.LittleEndian.Uint16(allBytes[i*2:]))
 		energy += int64(sample) * int64(sample)
 	}
@@ -459,7 +459,7 @@ func TestStream_io_Copy(t *testing.T) {
 
 	// Generate packets
 	packets := make([][]byte, numFrames)
-	for i := 0; i < numFrames; i++ {
+	for i := range numFrames {
 		packet, err := generateTestPacket(sampleRate, channels, frameSize)
 		if err != nil {
 			t.Fatalf("generateTestPacket failed: %v", err)

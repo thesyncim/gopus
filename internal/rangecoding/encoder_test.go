@@ -206,7 +206,7 @@ func TestEncodeBitDeterminism(t *testing.T) {
 	bits := []int{1, 0, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0, 0, 0, 1, 1}
 
 	var results [][]byte
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		buf := make([]byte, 256)
 		enc := &Encoder{}
 		enc.Init(buf)
@@ -287,7 +287,7 @@ func TestEncoderTell(t *testing.T) {
 	initialTell := enc.Tell()
 
 	// Encode some bits
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		enc.EncodeBit(i%2, 1)
 	}
 
@@ -412,7 +412,7 @@ func TestEncoderRangeInvariant(t *testing.T) {
 	enc.Init(buf)
 
 	// Encode many symbols to stress test
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		enc.EncodeBit(i%2, uint(1+(i%8)))
 		// After normalize, rng should be > EC_CODE_BOT
 		if enc.rng <= EC_CODE_BOT {

@@ -26,7 +26,7 @@ func (e *Encoder) encodeStereo(left, right []float32) (mid []float32, side []flo
 	side = ensureFloat32Slice(&e.scratchStereoSide, n)
 
 	// Compute mid and side channels
-	for i := 0; i < n; i++ {
+	for i := range n {
 		mid[i] = (left[i] + right[i]) / 2
 		side[i] = (left[i] - right[i]) / 2
 	}
@@ -90,19 +90,19 @@ func stereoQuantPred(predQ13 *[2]int32) StereoQuantIndices {
 	const maxInt32 = int32(0x7FFFFFFF)
 
 	// Quantize each predictor
-	for n := 0; n < 2; n++ {
+	for n := range 2 {
 		// Brute-force search over quantization levels
 		errMinQ13 := maxInt32
 		var quantPredQ13 int32
 
-		for i := 0; i < stereoQuantTabSize-1; i++ {
+		for i := range stereoQuantTabSize - 1 {
 			lowQ13 := int32(silk_stereo_pred_quant_Q13[i])
 			// step_Q13 = (high - low) * 0.5 / STEREO_QUANT_SUB_STEPS
 			// In Q16: 0.5/5 = 0.1 = 6554 (approximately)
 			highQ13 := int32(silk_stereo_pred_quant_Q13[i+1])
 			stepQ13 := smulwb(highQ13-lowQ13, 6554) // 0.5/5 in Q16 = 6554
 
-			for j := 0; j < stereoQuantSubSteps; j++ {
+			for j := range stereoQuantSubSteps {
 				// lvl_Q13 = low_Q13 + step_Q13 * (2*j + 1)
 				lvlQ13 := lowQ13 + stepQ13*(int32(2*j+1))
 				errQ13 := util.Abs(predQ13[n] - lvlQ13)
@@ -144,22 +144,16 @@ func stereoEncodePred(enc *rangecoding.Encoder, ix StereoQuantIndices) {
 	enc.EncodeICDF(n, silk_stereo_pred_joint_iCDF, 8)
 
 	// Encode individual indices for each predictor
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		// Encode ix[n][0] using uniform3 (3 symbols: 0, 1, 2)
-		idx0 := int(ix.Ix[i][0])
-		if idx0 < 0 {
-			idx0 = 0
-		}
+		idx0 := max(int(ix.Ix[i][0]), 0)
 		if idx0 > 2 {
 			idx0 = 2
 		}
 		enc.EncodeICDF(idx0, silk_uniform3_iCDF, 8)
 
 		// Encode ix[n][1] using uniform5 (5 symbols: 0, 1, 2, 3, 4)
-		idx1 := int(ix.Ix[i][1])
-		if idx1 < 0 {
-			idx1 = 0
-		}
+		idx1 := max(int(ix.Ix[i][1]), 0)
 		if idx1 > 4 {
 			idx1 = 4
 		}
@@ -367,7 +361,7 @@ func (e *Encoder) StereoEncodeLRToMSWithInterp(left, right []float32, frameLengt
 	sideOut = ensureFloat32Slice(&e.scratchStereoSideOut, frameLength)
 
 	// Copy mid channel (offset by 1 to account for the history sample alignment)
-	for n := 0; n < frameLength; n++ {
+	for n := range frameLength {
 		midOut[n] = mid[n+1]
 	}
 
@@ -460,7 +454,7 @@ func (e *Encoder) StereoEncodeLRToMSWithInterpQuantized(left, right []float32, f
 	sideOut = ensureFloat32Slice(&e.scratchStereoSideOut, frameLength)
 
 	// Copy mid channel (offset by 1 to account for history alignment)
-	for n := 0; n < frameLength; n++ {
+	for n := range frameLength {
 		midOut[n] = mid[n+1]
 	}
 
@@ -557,7 +551,7 @@ func (e *Encoder) StereoLRToMSWithRates(
 	midQ0[1] = e.stereo.sMid[1]
 	sideQ0[0] = e.stereo.sSide[0]
 	sideQ0[1] = e.stereo.sSide[1]
-	for n := 0; n < frameLength; n++ {
+	for n := range frameLength {
 		l := int32(float32ToInt16(left[n]))
 		r := int32(float32ToInt16(right[n]))
 		midQ0[n+2] = int16(silkRSHIFT_ROUND(l+r, 1))
@@ -630,14 +624,11 @@ func (e *Encoder) StereoLRToMSWithRates(
 	if midRate < minMidRate {
 		midRate = minMidRate
 		sideRate = total - midRate
-		widthQ14Raw := silkDiv32VarQ(
+		widthQ14Raw := max(silkDiv32VarQ(
 			silkLSHIFT(int32(sideRate), 1)-int32(minMidRate),
 			silkSMULWB(int32(silkFixConst(1, 16))+frac3Q16, int32(minMidRate)),
 			14+2,
-		)
-		if widthQ14Raw < 0 {
-			widthQ14Raw = 0
-		}
+		), 0)
 		if widthQ14Raw > int32(silkFixConst(1, 14)) {
 			widthQ14Raw = int32(silkFixConst(1, 14))
 		}
@@ -726,7 +717,7 @@ func (e *Encoder) StereoLRToMSWithRates(
 	// int16 scale first (multiply by 32768), then apply the << 9 shift.
 	midOut = ensureFloat32Slice(&e.scratchStereoMidOut, frameLength)
 	sideOut = ensureFloat32Slice(&e.scratchStereoSideOut, frameLength)
-	for n := 0; n < frameLength; n++ {
+	for n := range frameLength {
 		midOut[n] = float32(midQ0[n+1]) / 32768.0
 	}
 

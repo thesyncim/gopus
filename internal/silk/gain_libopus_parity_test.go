@@ -53,7 +53,7 @@ func TestSILKGainsQuantMatchesLibopusOracle(t *testing.T) {
 			if int32(gotPrev) != want[i].first {
 				t.Fatalf("prev=%d want %d", gotPrev, want[i].first)
 			}
-			for j := 0; j < maxNbSubfr; j++ {
+			for j := range maxNbSubfr {
 				if ind[j] != want[i].ind[j] {
 					t.Fatalf("ind[%d]=%d want %d", j, ind[j], want[i].ind[j])
 				}
@@ -102,7 +102,7 @@ func TestSILKGainsDequantMatchesLibopusOracle(t *testing.T) {
 			if int32(prev) != want[i].first {
 				t.Fatalf("prev=%d want %d", prev, want[i].first)
 			}
-			for j := 0; j < maxNbSubfr; j++ {
+			for j := range maxNbSubfr {
 				if gains[j] != want[i].gains[j] {
 					t.Fatalf("gain[%d]=%d want %d", j, gains[j], want[i].gains[j])
 				}

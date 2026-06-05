@@ -18,10 +18,7 @@ func floatToInt16Round(x float32) int16 {
 }
 
 func floatToInt16SliceScaled(out []int16, in []float32, scale float32) {
-	n := len(in)
-	if len(out) < n {
-		n = len(out)
-	}
+	n := min(len(out), len(in))
 	if n <= 0 {
 		return
 	}
@@ -31,10 +28,7 @@ func floatToInt16SliceScaled(out []int16, in []float32, scale float32) {
 }
 
 func int16ToFloat32Slice(out []float32, in []int16) {
-	n := len(in)
-	if len(out) < n {
-		n = len(out)
-	}
+	n := min(len(out), len(in))
 	if n <= 0 {
 		return
 	}
@@ -47,10 +41,7 @@ func int16ToFloat32Slice(out []float32, in []int16) {
 
 func resamplerDown2(state *[2]int32, out []int16, in []int16) int {
 	inLen := len(in)
-	outLen := inLen / 2
-	if outLen > len(out) {
-		outLen = len(out)
-	}
+	outLen := min(inLen/2, len(out))
 	if outLen <= 0 {
 		return 0
 	}
@@ -76,10 +67,7 @@ func resamplerDown2(state *[2]int32, out []int16, in []int16) int {
 }
 
 func resamplerPrivateAR2(state *[2]int32, out []int32, in []int16, a0, a1 int16) {
-	n := len(in)
-	if len(out) < n {
-		n = len(out)
-	}
+	n := min(len(out), len(in))
 	for k := 0; k < n; k++ {
 		out32 := silkADD_LSHIFT32(state[0], int32(in[k]), 8)
 		out[k] = out32
@@ -100,7 +88,7 @@ func resamplerDown2_3(state *[6]int32, out []int16, in []int16, scratch []int32)
 		scratch = make([]int32, bufLen)
 	}
 	buf := scratch[:bufLen]
-	for i := 0; i < orderFIR; i++ {
+	for i := range orderFIR {
 		buf[i] = state[i]
 	}
 
