@@ -47,6 +47,20 @@ import "errors"
 // Values above this are rejected by Parse and clamped by Build.
 const MaxDepth = 5
 
+// Sentinel errors returned by Parse/ParseInto. They are package-level so the
+// error paths allocate nothing and callers can match with errors.Is.
+var (
+	errEmptyPayload        = errors.New("red: empty payload")
+	errTruncatedHeader     = errors.New("red: truncated header")
+	errTruncatedRedHeader  = errors.New("red: truncated redundant header")
+	errInvalidRedBlock     = errors.New("red: invalid redundant block: zero offset or zero length")
+	errUnexpectedPrimaryPT = errors.New("red: unexpected primary payload type")
+	errUnexpectedRedPT     = errors.New("red: unexpected redundant payload type")
+	errTooManyBlocks       = errors.New("red: too many redundant blocks")
+	errTruncatedRedPayload = errors.New("red: truncated redundant payload")
+	errMissingPrimary      = errors.New("red: missing primary payload")
+)
+
 // Block is a single redundant entry parsed from a RED payload.
 // The primary block is not represented as a Block; it is returned separately
 // by Parse.
@@ -73,11 +87,15 @@ type Frame struct {
 	Payload []byte
 }
 
-// Parse decodes an RFC 2198 RED payload and returns the primary Opus payload
-// and any redundant blocks ordered oldest-first (the order they appear on the
-// wire). primaryPayloadType is the expected RTP payload type for both the
-// primary and all redundant blocks (e.g. 111 for Opus in WebRTC). Parse
-// returns an error for any of the following conditions defined in RFC 2198:
+// ParseInto decodes an RFC 2198 RED payload, appending the redundant blocks
+// into dst[:0] and returning the primary Opus payload alongside them. Reusing a
+// dst slice with capacity >= the block count (at most MaxDepth) across packets
+// makes parsing allocation-free; passing a nil dst allocates a fresh slice.
+//
+// blocks are ordered oldest-first (the order they appear on the wire).
+// primaryPayloadType is the expected RTP payload type for both the primary and
+// all redundant blocks (e.g. 111 for Opus in WebRTC). ParseInto returns one of
+// the package sentinel errors for any condition defined in RFC 2198:
 //
 //   - empty input
 //   - truncated header or payload region
@@ -85,11 +103,11 @@ type Frame struct {
 //   - more than MaxDepth redundant blocks
 //   - a payload type that does not match primaryPayloadType
 //
-// Parse does not copy payload bytes; the returned primary slice and Block
+// ParseInto does not copy payload bytes; the returned primary slice and Block
 // Payload fields reference the input buf directly.
-func Parse(buf []byte, primaryPayloadType byte) (primary []byte, blocks []Block, err error) {
+func ParseInto(buf []byte, primaryPayloadType byte, dst []Block) (primary []byte, blocks []Block, err error) {
 	if len(buf) == 0 {
-		return nil, nil, errors.New("red: empty payload")
+		return nil, nil, errEmptyPayload
 	}
 
 	type hdr struct {
@@ -97,46 +115,49 @@ func Parse(buf []byte, primaryPayloadType byte) (primary []byte, blocks []Block,
 		timestampOffset int
 		length          int
 	}
-	hdrs := make([]hdr, 0, MaxDepth)
+	var hdrs [MaxDepth]hdr
+	n := 0
 
 	pos := 0
 	for {
 		if pos >= len(buf) {
-			return nil, nil, errors.New("red: truncated header")
+			return nil, nil, errTruncatedHeader
 		}
 		b := buf[pos]
 		if b&0x80 == 0 {
 			// Primary block header: F bit is 0.
 			if b&0x7f != primaryPayloadType {
-				return nil, nil, errors.New("red: unexpected primary payload type")
+				return nil, nil, errUnexpectedPrimaryPT
 			}
 			pos++
 			break
 		}
 		// Redundant block header: 4 bytes.
 		if pos+4 > len(buf) {
-			return nil, nil, errors.New("red: truncated redundant header")
+			return nil, nil, errTruncatedRedHeader
 		}
 		offset := int(buf[pos+1])<<6 | int(buf[pos+2]>>2)
 		length := int(buf[pos+2]&0x03)<<8 | int(buf[pos+3])
 		if offset == 0 || length == 0 {
-			return nil, nil, errors.New("red: invalid redundant block: zero offset or zero length")
+			return nil, nil, errInvalidRedBlock
 		}
 		pt := b & 0x7f
 		if pt != primaryPayloadType {
-			return nil, nil, errors.New("red: unexpected redundant payload type")
+			return nil, nil, errUnexpectedRedPT
 		}
-		if len(hdrs) == MaxDepth {
-			return nil, nil, errors.New("red: too many redundant blocks")
+		if n == MaxDepth {
+			return nil, nil, errTooManyBlocks
 		}
-		hdrs = append(hdrs, hdr{payloadType: pt, timestampOffset: offset, length: length})
+		hdrs[n] = hdr{payloadType: pt, timestampOffset: offset, length: length}
+		n++
 		pos += 4
 	}
 
-	blocks = make([]Block, 0, len(hdrs))
-	for _, h := range hdrs {
+	blocks = dst[:0]
+	for i := 0; i < n; i++ {
+		h := hdrs[i]
 		if pos+h.length > len(buf) {
-			return nil, nil, errors.New("red: truncated redundant payload")
+			return nil, nil, errTruncatedRedPayload
 		}
 		blocks = append(blocks, Block{
 			PayloadType:     h.payloadType,
@@ -147,41 +168,41 @@ func Parse(buf []byte, primaryPayloadType byte) (primary []byte, blocks []Block,
 	}
 
 	if pos >= len(buf) {
-		return nil, nil, errors.New("red: missing primary payload")
+		return nil, nil, errMissingPrimary
 	}
 	return buf[pos:], blocks, nil
 }
 
-// Build constructs an RFC 2198 RED payload containing the primary Opus payload
-// and up to depth redundant copies drawn from history. history must be ordered
-// newest-first (as returned by AppendHistory).
+// Parse is ParseInto with a freshly allocated block slice. See ParseInto for the
+// allocation-free variant that reuses a caller-supplied slice.
+func Parse(buf []byte, primaryPayloadType byte) (primary []byte, blocks []Block, err error) {
+	return ParseInto(buf, primaryPayloadType, nil)
+}
+
+// BuildAppend constructs an RFC 2198 RED payload into dst[:0], returning the
+// encoded payload and the total number of redundant payload bytes included.
+// Reusing a dst buffer across calls makes building allocation-free; passing a
+// nil dst allocates a fresh buffer.
 //
-// frameSamples is the number of RTP timestamp ticks per Opus frame (960 for
-// 20 ms at 48 kHz). Only history entries whose timestamp difference from
-// primaryTimestamp is an exact multiple of frameSamples and fits in 14 bits
-// are eligible as redundant blocks.
-//
-// Build returns the encoded RED payload and the total number of redundant
-// payload bytes included (useful for statistics). The second return value is
-// zero when no redundant data was included.
+// The payload contains the primary Opus payload and up to depth redundant copies
+// drawn from history, which must be ordered newest-first (as returned by
+// AppendHistory). frameSamples is the number of RTP timestamp ticks per Opus
+// frame (960 for 20 ms at 48 kHz). Only history entries whose timestamp
+// difference from primaryTimestamp is an exact multiple of frameSamples and fits
+// in 14 bits are eligible as redundant blocks.
 //
 // Special cases:
-//   - If primary is empty, Build returns an empty slice with 0 redundant bytes.
-//   - If depth ≤ 0, Build returns a raw Opus payload (no RED envelope).
-//   - If frameSamples ≤ 0, Build wraps primary in a minimal RED envelope with
-//     no redundant blocks (one primary header + payload).
-func Build(primary []byte, primaryTimestamp uint32, history []Frame, depth, frameSamples int, primaryPayloadType byte) ([]byte, int) {
-	if len(primary) == 0 {
-		return append([]byte(nil), primary...), 0
-	}
-	if depth <= 0 {
-		return append([]byte(nil), primary...), 0
+//   - If primary is empty, the result is empty with 0 redundant bytes.
+//   - If depth ≤ 0, the result is a raw copy of primary (no RED envelope).
+//   - If frameSamples ≤ 0, primary is wrapped in a minimal RED envelope with no
+//     redundant blocks (one primary header + payload).
+func BuildAppend(dst []byte, primary []byte, primaryTimestamp uint32, history []Frame, depth, frameSamples int, primaryPayloadType byte) (out []byte, redundantBytes int) {
+	if len(primary) == 0 || depth <= 0 {
+		return append(dst[:0], primary...), 0
 	}
 	if frameSamples <= 0 {
-		out := make([]byte, 1+len(primary))
-		out[0] = primaryPayloadType
-		copy(out[1:], primary)
-		return out, 0
+		out = append(dst[:0], primaryPayloadType)
+		return append(out, primary...), 0
 	}
 	if depth > MaxDepth {
 		depth = MaxDepth
@@ -191,9 +212,10 @@ func Build(primary []byte, primaryTimestamp uint32, history []Frame, depth, fram
 		timestampOffset int
 		payload         []byte
 	}
-	candidates := make([]candidate, 0, depth)
+	var cands [MaxDepth]candidate
+	nc := 0
 	for _, f := range history {
-		if len(candidates) == depth {
+		if nc == depth {
 			break
 		}
 		offset := int(primaryTimestamp - f.Timestamp)
@@ -203,49 +225,43 @@ func Build(primary []byte, primaryTimestamp uint32, history []Frame, depth, fram
 		if offset%frameSamples != 0 {
 			continue
 		}
-		candidates = append(candidates, candidate{timestampOffset: offset, payload: f.Payload})
+		cands[nc] = candidate{timestampOffset: offset, payload: f.Payload}
+		nc++
 	}
 
-	if len(candidates) == 0 {
-		out := make([]byte, 1+len(primary))
-		out[0] = primaryPayloadType
-		copy(out[1:], primary)
-		return out, 0
+	if nc == 0 {
+		out = append(dst[:0], primaryPayloadType)
+		return append(out, primary...), 0
 	}
 
-	// Wire order is oldest redundant first, so reverse the candidate slice
-	// (which is currently newest-first from history).
-	for i, j := 0, len(candidates)-1; i < j; i, j = i+1, j-1 {
-		candidates[i], candidates[j] = candidates[j], candidates[i]
+	// Wire order is oldest redundant first; history is newest-first, so reverse.
+	for i, j := 0, nc-1; i < j; i, j = i+1, j-1 {
+		cands[i], cands[j] = cands[j], cands[i]
 	}
 
-	headerLen := len(candidates)*4 + 1
-	payloadLen := len(primary)
-	for _, c := range candidates {
-		payloadLen += len(c.payload)
-	}
-	out := make([]byte, headerLen+payloadLen)
-
-	pos := 0
-	redundantBytes := 0
-	for _, c := range candidates {
-		blen := len(c.payload)
-		off := c.timestampOffset
-		out[pos] = 0x80 | (primaryPayloadType & 0x7f)
-		out[pos+1] = byte(off >> 6)
-		out[pos+2] = byte((off&0x3f)<<2) | byte(blen>>8)
-		out[pos+3] = byte(blen)
-		pos += 4
+	out = dst[:0]
+	for i := 0; i < nc; i++ {
+		blen := len(cands[i].payload)
+		off := cands[i].timestampOffset
+		out = append(out,
+			0x80|(primaryPayloadType&0x7f),
+			byte(off>>6),
+			byte((off&0x3f)<<2)|byte(blen>>8),
+			byte(blen),
+		)
 		redundantBytes += blen
 	}
-	out[pos] = primaryPayloadType
-	pos++
-	for _, c := range candidates {
-		copy(out[pos:], c.payload)
-		pos += len(c.payload)
+	out = append(out, primaryPayloadType)
+	for i := 0; i < nc; i++ {
+		out = append(out, cands[i].payload...)
 	}
-	copy(out[pos:], primary)
-	return out, redundantBytes
+	return append(out, primary...), redundantBytes
+}
+
+// Build is BuildAppend with a freshly allocated buffer. See BuildAppend for the
+// allocation-free variant that reuses a caller-supplied buffer.
+func Build(primary []byte, primaryTimestamp uint32, history []Frame, depth, frameSamples int, primaryPayloadType byte) ([]byte, int) {
+	return BuildAppend(nil, primary, primaryTimestamp, history, depth, frameSamples, primaryPayloadType)
 }
 
 // FindRecovery searches blocks for a redundant entry whose timestamp matches
