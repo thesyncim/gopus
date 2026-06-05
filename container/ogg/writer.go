@@ -1,6 +1,7 @@
 package ogg
 
 import (
+	"encoding/binary"
 	"io"
 	"math/rand"
 	"time"
@@ -47,6 +48,12 @@ type WriterConfig struct {
 	DemixingMatrix []byte
 }
 
+// oggPageScratchSize is the inline page-serialization buffer carried by each
+// Writer. Audio pages (one Opus packet plus header and lacing) fit comfortably;
+// only unusually large pages such as an OpusTags packet with many comments spill
+// to a one-off heap buffer.
+const oggPageScratchSize = 4096
+
 // Writer writes Opus packets to an Ogg container.
 // Files created by Writer are playable by standard players (VLC, FFmpeg, browsers).
 type Writer struct {
@@ -57,6 +64,10 @@ type Writer struct {
 	granulePos  uint64 // Sample position (at 48kHz)
 	headersDone bool   // Headers written?
 	closed      bool   // Stream closed?
+
+	// pageScratch is reused across writePage calls so steady-state writing
+	// allocates nothing; it is part of the Writer's own allocation.
+	pageScratch [oggPageScratchSize]byte
 }
 
 // NewWriter creates a new OggWriter with default configuration.
@@ -218,36 +229,56 @@ func (ow *Writer) writeHeaders() error {
 // For header pages, granulePos is always 0.
 // For audio pages, granulePos is the current granule position.
 func (ow *Writer) writePage(payload []byte, headerType byte) error {
-	segments := BuildSegmentTable(len(payload))
+	// Lacing: ceil-style segment table for the payload. An EOS page with no
+	// payload is emitted packetless (zero segments) — a zero-length lacing entry
+	// would encode an empty packet, which strict demuxers reject for the EOS
+	// marker page.
+	numSegments := len(payload)/255 + 1
 	if headerType&PageFlagEOS != 0 && len(payload) == 0 {
-		// Emit a packetless terminal page. A zero-length lacing entry encodes an
-		// empty packet, which strict demuxers reject for the EOS marker page.
-		segments = nil
+		numSegments = 0
 	}
 
-	page := &Page{
-		Version:      0,
-		HeaderType:   headerType,
-		SerialNumber: ow.serial,
-		PageSequence: ow.pageSeq,
-		Segments:     segments,
-		Payload:      payload,
-	}
-
-	// Set granule position.
-	// Header pages (BOS flag set or before headersDone) have granule = 0.
-	if headerType&PageFlagBOS != 0 || !ow.headersDone {
-		page.GranulePos = 0
+	total := pageHeaderSize + numSegments + len(payload)
+	var buf []byte
+	if total <= len(ow.pageScratch) {
+		buf = ow.pageScratch[:total]
 	} else {
-		page.GranulePos = ow.granulePos
+		buf = make([]byte, total)
 	}
 
-	encoded := page.Encode()
-	n, err := ow.w.Write(encoded)
+	// Header pages (BOS flag set or before headersDone) have granule = 0.
+	granulePos := ow.granulePos
+	if headerType&PageFlagBOS != 0 || !ow.headersDone {
+		granulePos = 0
+	}
+
+	copy(buf[0:4], oggMagic)
+	buf[4] = 0 // stream structure version
+	buf[5] = headerType
+	binary.LittleEndian.PutUint64(buf[6:14], granulePos)
+	binary.LittleEndian.PutUint32(buf[14:18], ow.serial)
+	binary.LittleEndian.PutUint32(buf[18:22], ow.pageSeq)
+	buf[22], buf[23], buf[24], buf[25] = 0, 0, 0, 0 // CRC, computed below
+	buf[26] = byte(numSegments)
+
+	si := pageHeaderSize
+	for i := 0; i < numSegments-1; i++ {
+		buf[si] = 255
+		si++
+	}
+	if numSegments > 0 {
+		buf[si] = byte(len(payload) % 255)
+		si++
+	}
+	copy(buf[si:], payload)
+
+	binary.LittleEndian.PutUint32(buf[22:26], oggCRC(buf))
+
+	n, err := ow.w.Write(buf)
 	if err != nil {
 		return err
 	}
-	if n != len(encoded) {
+	if n != len(buf) {
 		return io.ErrShortWrite
 	}
 
