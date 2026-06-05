@@ -1,6 +1,9 @@
 package ogg
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 // TestReaderAccessors_NilHeader verifies the zero-value fallbacks of the Reader
 // metadata accessors when no OpusHead has been parsed (Header == nil). NewReader
@@ -125,57 +128,87 @@ func TestPacketDuration48k(t *testing.T) {
 	}
 }
 
-// TestAssignPacketGranules covers the back-to-front granule distribution across a
-// page's packets, including the two non-trivial branches: the undecodable-packet
-// fallback (every packet inherits the page granule) and the underflow clamp
-// (a packet whose back-computed position would go negative is pinned to 0).
-func TestAssignPacketGranules(t *testing.T) {
-	t.Run("empty entries is a no-op", func(t *testing.T) {
-		assignPacketGranules(960, nil) // must not panic
-	})
+// TestPacketGranuleDistribution covers the back-to-front granule assignment
+// across a page's packets through the public reader: the normal case, the
+// underflow clamp (a back-computed position that would go negative pins to 0),
+// and the undecodable-packet fallback (every packet inherits the page granule).
+func TestPacketGranuleDistribution(t *testing.T) {
+	read2 := func(t *testing.T, stream []byte) (uint64, uint64) {
+		t.Helper()
+		r, err := NewReader(bytes.NewReader(stream))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, g0, err := r.ReadPacket()
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, g1, err := r.ReadPacket()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return g0, g1
+	}
 
 	t.Run("two decodable packets back-compute from page granule", func(t *testing.T) {
-		// Two 20ms@48k frames (config 1, code 0 -> 960 samples each).
-		entries := []packetEntry{
-			{data: []byte{tocByte(1, 0)}},
-			{data: []byte{tocByte(1, 0)}},
-		}
-		// Page granule = end position of the last packet = 1920.
-		assignPacketGranules(1920, entries)
-		if entries[1].granulePos != 1920 {
-			t.Errorf("entries[1].granulePos = %d, want 1920", entries[1].granulePos)
-		}
-		if entries[0].granulePos != 960 {
-			t.Errorf("entries[0].granulePos = %d, want 960", entries[0].granulePos)
+		// Two 20ms@48k frames (config 1, code 0 -> 960 samples each); the page
+		// granule is the end position of the last packet.
+		g0, g1 := read2(t, buildAudioPageStream(1920, [][]byte{{tocByte(1, 0)}, {tocByte(1, 0)}}))
+		if g0 != 960 || g1 != 1920 {
+			t.Errorf("granules = (%d,%d), want (960,1920)", g0, g1)
 		}
 	})
 
 	t.Run("underflow clamps earlier packet to zero", func(t *testing.T) {
-		entries := []packetEntry{
-			{data: []byte{tocByte(1, 0)}}, // 960 samples
-			{data: []byte{tocByte(1, 0)}}, // 960 samples
-		}
-		// Page granule (500) is smaller than the trailing duration accumulated
-		// before the first packet (960), so the first packet pins to 0.
-		assignPacketGranules(500, entries)
-		if entries[1].granulePos != 500 {
-			t.Errorf("entries[1].granulePos = %d, want 500", entries[1].granulePos)
-		}
-		if entries[0].granulePos != 0 {
-			t.Errorf("entries[0].granulePos = %d, want 0 (clamped)", entries[0].granulePos)
+		// Page granule (500) is smaller than the trailing duration (960), so the
+		// first packet pins to 0.
+		g0, g1 := read2(t, buildAudioPageStream(500, [][]byte{{tocByte(1, 0)}, {tocByte(1, 0)}}))
+		if g0 != 0 || g1 != 500 {
+			t.Errorf("granules = (%d,%d), want (0,500)", g0, g1)
 		}
 	})
 
 	t.Run("undecodable packet falls back to page granule for all", func(t *testing.T) {
-		entries := []packetEntry{
-			{data: []byte{tocByte(1, 0)}}, // decodable
-			{data: nil},                   // undecodable -> triggers fallback
-		}
-		assignPacketGranules(1234, entries)
-		for i, e := range entries {
-			if e.granulePos != 1234 {
-				t.Errorf("entries[%d].granulePos = %d, want 1234 (fallback)", i, e.granulePos)
-			}
+		// A code-3 packet with no frame-count byte is undecodable, so every packet
+		// on the page inherits the page granule.
+		g0, g1 := read2(t, buildAudioPageStream(1234, [][]byte{{tocByte(1, 0)}, {tocByte(1, 3)}}))
+		if g0 != 1234 || g1 != 1234 {
+			t.Errorf("granules = (%d,%d), want (1234,1234)", g0, g1)
 		}
 	})
+}
+
+// buildAudioPageStream builds a minimal Ogg Opus stream — an OpusHead BOS page,
+// an OpusTags page, then one audio page carrying the given packets at the given
+// granule position.
+func buildAudioPageStream(granule uint64, packets [][]byte) []byte {
+	const serial = 0x1234
+	seq := uint32(0)
+	page := func(headerType byte, gran uint64, segments, payload []byte) []byte {
+		p := Page{
+			HeaderType:   headerType,
+			GranulePos:   gran,
+			SerialNumber: serial,
+			PageSequence: seq,
+			Segments:     segments,
+			Payload:      payload,
+		}
+		seq++
+		return p.Encode()
+	}
+
+	head := DefaultOpusHead(48000, 2).Encode()
+	tags := DefaultOpusTags().Encode()
+
+	var seg, pay []byte
+	for _, pkt := range packets {
+		seg = append(seg, BuildSegmentTable(len(pkt))...)
+		pay = append(pay, pkt...)
+	}
+
+	var out []byte
+	out = append(out, page(PageFlagBOS, 0, BuildSegmentTable(len(head)), head)...)
+	out = append(out, page(0, 0, BuildSegmentTable(len(tags)), tags)...)
+	out = append(out, page(0, granule, seg, pay)...)
+	return out
 }

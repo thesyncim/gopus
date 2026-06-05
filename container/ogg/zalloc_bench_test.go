@@ -25,6 +25,30 @@ func TestWriterZeroAlloc(t *testing.T) {
 	}
 }
 
+// TestReaderZeroAlloc locks the steady-state allocation-free contract for the
+// reader: once the read buffer is warm, ReadPacketInto into a sufficiently large
+// caller buffer allocates nothing.
+func TestReaderZeroAlloc(t *testing.T) {
+	stream := buildValidOpusStream(2, 1200)
+	r, err := NewReader(bytes.NewReader(stream))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst := make([]byte, 8192)
+	for i := 0; i < 8; i++ { // warm the read buffer
+		if _, _, err := r.ReadPacketInto(dst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := testing.AllocsPerRun(1000, func() {
+		if _, _, err := r.ReadPacketInto(dst); err != nil && err != io.EOF {
+			t.Fatal(err)
+		}
+	}); n != 0 {
+		t.Errorf("ReadPacketInto allocs/op = %v, want 0", n)
+	}
+}
+
 func BenchmarkWritePacket(b *testing.B) {
 	w, err := NewWriter(io.Discard, 48000, 2)
 	if err != nil {
