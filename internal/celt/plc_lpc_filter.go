@@ -4,9 +4,18 @@ func xcorrKernel4Float32(x, y []float32, sum *[4]float32, length int) {
 	if length <= 0 {
 		return
 	}
+	// The kernel reads x[0:length] and y[0:length+3]; hoisting those bounds
+	// lets the compiler drop the per-access checks in the inner loop. The
+	// original walks the same indices, so this cannot panic where it would not.
+	_ = x[length-1]
+	_ = y[length+2]
+	// Accumulate in registers: with sum as a pointer every sum[k]+= is a
+	// memory read-modify-write the compiler cannot keep in a register. Locals
+	// run the identical IEEE adds in the identical order, written back once.
+	s0, s1, s2, s3 := sum[0], sum[1], sum[2], sum[3]
 	xi := 0
 	yi := 0
-	y3 := float32(0)
+	var y3 float32
 	y0 := y[yi]
 	yi++
 	y1 := y[yi]
@@ -19,37 +28,37 @@ func xcorrKernel4Float32(x, y []float32, sum *[4]float32, length int) {
 		xi++
 		y3 = y[yi]
 		yi++
-		sum[0] += tmp * y0
-		sum[1] += tmp * y1
-		sum[2] += tmp * y2
-		sum[3] += tmp * y3
+		s0 += tmp * y0
+		s1 += tmp * y1
+		s2 += tmp * y2
+		s3 += tmp * y3
 
 		tmp = x[xi]
 		xi++
 		y0 = y[yi]
 		yi++
-		sum[0] += tmp * y1
-		sum[1] += tmp * y2
-		sum[2] += tmp * y3
-		sum[3] += tmp * y0
+		s0 += tmp * y1
+		s1 += tmp * y2
+		s2 += tmp * y3
+		s3 += tmp * y0
 
 		tmp = x[xi]
 		xi++
 		y1 = y[yi]
 		yi++
-		sum[0] += tmp * y2
-		sum[1] += tmp * y3
-		sum[2] += tmp * y0
-		sum[3] += tmp * y1
+		s0 += tmp * y2
+		s1 += tmp * y3
+		s2 += tmp * y0
+		s3 += tmp * y1
 
 		tmp = x[xi]
 		xi++
 		y2 = y[yi]
 		yi++
-		sum[0] += tmp * y3
-		sum[1] += tmp * y0
-		sum[2] += tmp * y1
-		sum[3] += tmp * y2
+		s0 += tmp * y3
+		s1 += tmp * y0
+		s2 += tmp * y1
+		s3 += tmp * y2
 	}
 	if j < length {
 		j++
@@ -57,10 +66,10 @@ func xcorrKernel4Float32(x, y []float32, sum *[4]float32, length int) {
 		xi++
 		y3 = y[yi]
 		yi++
-		sum[0] += tmp * y0
-		sum[1] += tmp * y1
-		sum[2] += tmp * y2
-		sum[3] += tmp * y3
+		s0 += tmp * y0
+		s1 += tmp * y1
+		s2 += tmp * y2
+		s3 += tmp * y3
 	}
 	if j < length {
 		j++
@@ -68,19 +77,23 @@ func xcorrKernel4Float32(x, y []float32, sum *[4]float32, length int) {
 		xi++
 		y0 = y[yi]
 		yi++
-		sum[0] += tmp * y1
-		sum[1] += tmp * y2
-		sum[2] += tmp * y3
-		sum[3] += tmp * y0
+		s0 += tmp * y1
+		s1 += tmp * y2
+		s2 += tmp * y3
+		s3 += tmp * y0
 	}
 	if j < length {
 		tmp := x[xi]
 		y1 = y[yi]
-		sum[0] += tmp * y2
-		sum[1] += tmp * y3
-		sum[2] += tmp * y0
-		sum[3] += tmp * y1
+		s0 += tmp * y2
+		s1 += tmp * y3
+		s2 += tmp * y0
+		s3 += tmp * y1
 	}
+	sum[0] = s0
+	sum[1] = s1
+	sum[2] = s2
+	sum[3] = s3
 }
 
 func celtFIRFloat32(dst []celtSig, exc []celtSig, start, length int, lpc []float32) {

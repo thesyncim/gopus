@@ -38,9 +38,13 @@ var (
 	kissFFTState480 = newKissFFTState(480)
 )
 
-//go:noinline
+// kissHalfSub computes a - 0.5*b. Materializing 0.5*b through round32 keeps the
+// product from contracting into a single FMSUB with the subtract (which would
+// diverge from scalar libopus), so the function inlines and sheds its call
+// overhead while staying bit-identical to the reference on every build — the
+// same idiom as kissScaleMul above.
 func kissHalfSub(a, b float32) float32 {
-	return a - 0.5*b
+	return a - round32(0.5*b)
 }
 
 // kissScaleMul, kissAdd, and kissSub are the FFT's float32 multiply/add/subtract
@@ -381,21 +385,8 @@ func kfBfly5M1(fout []kissCpx, tw []kissCpx, fstride, n, mm int) {
 }
 
 func kfBfly2(fout []kissCpx, m, N int) {
-	if m == 1 && kissFFTM1FastPathEnabled {
-		kfBfly2M1(fout, N)
-		return
-	}
 	if m == 1 {
-		// Mirrors libopus CUSTOM_MODES branch for radix-2 m==1.
-		for range N {
-			fout2 := fout[1:]
-			t := fout2[0]
-			fout2[0].r = fout[0].r - t.r
-			fout2[0].i = fout[0].i - t.i
-			fout[0].r += t.r
-			fout[0].i += t.i
-			fout = fout[2:]
-		}
+		kfBfly2M1(fout, N)
 		return
 	}
 	// m==4 degenerate radix-2 after radix-4
@@ -434,7 +425,7 @@ func kfBfly2(fout []kissCpx, m, N int) {
 }
 
 func kfBfly4(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
-	if m == 1 && kissFFTM1FastPathEnabled {
+	if m == 1 {
 		kfBfly4M1(fout, N)
 		return
 	}
@@ -448,12 +439,8 @@ func kfBfly3(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 	if N <= 0 || mm <= 0 {
 		return
 	}
-	if m == 1 && kissFFTM1FastPathEnabled {
+	if m == 1 {
 		kfBfly3M1(fout, st.w, fstride, N, mm)
-		return
-	}
-	if kissFFTCOrder120Enabled && st.nfft == 120 {
-		kfBfly3InnerCOrderGeneric(fout, st.w, m, N, mm, fstride)
 		return
 	}
 	kfBfly3Inner(fout, st.w, m, N, mm, fstride)
@@ -463,16 +450,12 @@ func kfBfly5(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 	if N <= 0 || mm <= 0 {
 		return
 	}
-	if m == 1 && kissFFTM1FastPathEnabled {
+	if m == 1 {
 		kfBfly5M1(fout, st.w, fstride, N, mm)
 		return
 	}
 	if N == 1 && mm == 1 && useKfBfly5N1(fstride) {
 		kfBfly5N1(fout, st.w, m, fstride)
-		return
-	}
-	if kissFFTCOrder120Enabled && st.nfft == 120 {
-		kfBfly5InnerCOrder(fout, st.w, m, N, mm, fstride)
 		return
 	}
 	kfBfly5Inner(fout, st.w, m, N, mm, fstride)
@@ -654,11 +637,6 @@ func kissFFT32To(out []complex64, x []complex64, scratch []kissCpx) {
 	if n == 0 || len(out) < n {
 		return
 	}
-	if kissFFTDFTFallbackEnabled {
-		dft32FallbackTo(out, x)
-		return
-	}
-
 	scratch = kissFFT32ToScratch(x, scratch)
 	if len(scratch) < n {
 		return
@@ -676,15 +654,6 @@ func kissFFT32ToScaled(out []complex64, x []complex64, scale float32, scratch []
 	if n == 0 || len(out) < n {
 		return
 	}
-	if kissFFTDFTFallbackEnabled {
-		tmp := make([]complex64, n)
-		for i := range n {
-			tmp[i] = x[i] * complex(scale, 0)
-		}
-		dft32FallbackTo(out, tmp)
-		return
-	}
-
 	scratch = kissFFT32ToScaledScratch(x, scale, scratch)
 	if len(scratch) < n {
 		return
