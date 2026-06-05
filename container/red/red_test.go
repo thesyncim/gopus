@@ -531,3 +531,98 @@ func TestEndToEnd_REDRecoveryScenario(t *testing.T) {
 		t.Fatalf("recovered0=%x want %x", recovered0, frames[0].payload)
 	}
 }
+
+// ----------------------------------------------------------------------------
+// Additional edge cases
+
+// TestParse_AllRedundantNoPrimary covers a buffer made entirely of well-formed
+// redundant block headers that ends before any primary (F=0) header appears. The
+// header loop runs out of input and Parse must report a truncated header rather
+// than reading past the buffer. This is distinct from too_many_headers (which
+// trips the MaxDepth limit first): here the count stays within MaxDepth.
+func TestParse_AllRedundantNoPrimary(t *testing.T) {
+	const n = red.MaxDepth // exactly at the limit, so MaxDepth is not exceeded
+	var buf []byte
+	for i := 0; i < n; i++ {
+		buf = append(buf, makeRedundantHeader(opusPT, (i+1)*960, 1)...)
+	}
+	// No primary header byte, no payload region.
+
+	_, _, err := red.Parse(buf, opusPT)
+	if err == nil {
+		t.Fatal("Parse accepted a buffer of redundant headers with no primary header")
+	}
+}
+
+// TestBuild_SkipsOversizeOffsetAndPayload covers the candidate filter in Build
+// that rejects history frames whose timestamp offset exceeds the 14-bit field
+// (0x3fff) or whose payload exceeds the 10-bit length field (0x3ff), keeping only
+// the well-formed frame.
+func TestBuild_SkipsOversizeOffsetAndPayload(t *testing.T) {
+	const fs = 960
+	primaryTS := uint32(1 << 20) // large base so offsets are exact multiples of fs
+
+	oversizePayload := make([]byte, 0x400) // 1024 bytes > 0x3ff
+	tests := []struct {
+		name      string
+		history   []red.Frame
+		wantBytes int
+		wantBlk   int
+	}{
+		{
+			name: "offset_exceeds_14_bits",
+			history: []red.Frame{
+				// 0x4000 ticks back == 16384, > 0x3fff and a multiple of fs only
+				// if it lands on a frame boundary; choose 17*fs=16320 (<=0x3fff)
+				// vs 18*fs=17280 (>0x3fff) to exercise the boundary.
+				{Timestamp: primaryTS - 18*fs, Payload: []byte{0xaa}}, // 17280 > 0x3fff: skipped
+				{Timestamp: primaryTS - 1*fs, Payload: []byte{0xbb}},  // 960: kept
+			},
+			wantBytes: 1,
+			wantBlk:   1,
+		},
+		{
+			name: "payload_exceeds_10_bits",
+			history: []red.Frame{
+				{Timestamp: primaryTS - 2*fs, Payload: oversizePayload}, // too long: skipped
+				{Timestamp: primaryTS - 1*fs, Payload: []byte{0xcc}},    // kept
+			},
+			wantBytes: 1,
+			wantBlk:   1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			payload, redundantBytes := red.Build([]byte{0xff}, primaryTS, tc.history, red.MaxDepth, fs, opusPT)
+			if redundantBytes != tc.wantBytes {
+				t.Fatalf("redundantBytes=%d want %d", redundantBytes, tc.wantBytes)
+			}
+			_, blocks, err := red.Parse(payload, opusPT)
+			if err != nil {
+				t.Fatalf("Parse error: %v", err)
+			}
+			if len(blocks) != tc.wantBlk {
+				t.Fatalf("blocks=%d want %d", len(blocks), tc.wantBlk)
+			}
+		})
+	}
+}
+
+// TestFindRecovery_FrameMathMatchesButNoBlock covers the path where the requested
+// frame offset equals currentTimestamp − missingTimestamp (so the timestamp guard
+// passes) yet no block in the slice carries that offset, returning nil.
+func TestFindRecovery_FrameMathMatchesButNoBlock(t *testing.T) {
+	const fs = 960
+	blocks := []red.Block{
+		// Block exists but at a different offset (2 frames back, not 1).
+		{PayloadType: opusPT, TimestampOffset: 2 * fs, Payload: []byte{0xaa}},
+	}
+	currentTS := uint32(10000)
+	missingTS := currentTS - fs // lostAgo=1 frame-math passes (offset 960)
+
+	got := red.FindRecovery(blocks, 1, fs, currentTS, missingTS)
+	if got != nil {
+		t.Fatalf("expected nil when no block carries the matching offset, got %x", got)
+	}
+}

@@ -810,6 +810,43 @@ func TestOpusHeadErrors(t *testing.T) {
 				return d[:len(d)-2]
 			}(),
 		},
+		{
+			// Non-zero mapping family but the header is truncated before the
+			// stream-count byte (offset 19), so the extended fields cannot be read.
+			name: "family 1 truncated before stream count",
+			data: func() []byte {
+				d := make([]byte, 19)
+				copy(d, "OpusHead")
+				d[8] = 1  // version
+				d[9] = 6  // channels
+				d[18] = 1 // mapping family 1
+				return d  // exactly 19 bytes: < 21 required for family != 0
+			}(),
+		},
+		{
+			// family 1 with stream count 0 is rejected (every family != 0 header
+			// must carry at least one stream).
+			name: "family 1 zero stream count",
+			data: func() []byte {
+				h := DefaultOpusHeadMultistreamWithFamily(48000, 6, 1, 4, 2, []byte{0, 1, 2, 3, 4, 5})
+				d := h.Encode()
+				d[19] = 0 // StreamCount byte -> 0
+				return d
+			}(),
+		},
+		{
+			// family 1 channel-mapping table carries an index that exceeds
+			// streams+coupled and is not the 255 silence sentinel.
+			name: "family 1 mapping value out of range",
+			data: func() []byte {
+				h := DefaultOpusHeadMultistreamWithFamily(48000, 6, 1, 4, 2, []byte{0, 1, 2, 3, 4, 5})
+				d := h.Encode()
+				// Mapping table starts at offset 21; the max valid index is
+				// streams(4)+coupled(2)-1 = 5, so 6 is invalid (and not 255).
+				d[21+5] = 6
+				return d
+			}(),
+		},
 	}
 
 	for _, tc := range tests {
