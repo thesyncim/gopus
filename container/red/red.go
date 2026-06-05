@@ -24,16 +24,22 @@
 // timestamp (i.e. primary_ts − redundant_ts). Block lengths are 10-bit
 // values fitting in two bytes together with the lower 2 bits of the offset.
 //
-// Typical usage for a send path:
+// Encoder and Decoder are the high-level, allocation-free API; they own their
+// buffers and the redundant-frame history so callers do not manage them. Parse,
+// Build, AppendHistory and FindRecovery remain as the underlying stateless
+// primitives.
 //
-//	var history []red.Frame
+// Typical send path:
+//
+//	enc := red.NewEncoder(opusPT, frameSamples, depth)
 //	for each frame:
-//	    payload, _ := red.Build(primary, primaryTS, history, depth, frameSamples)
-//	    history = red.AppendHistory(history, primary, primaryTS, maxDepth)
+//	    payload, _ := enc.Encode(primary, timestamp)
+//	    send(payload) // valid until the next Encode
 //
-// Typical usage for a receive path:
+// Typical receive path:
 //
-//	primary, blocks, err := red.Parse(pkt.Payload, opusPT)
+//	dec := red.NewDecoder(opusPT)
+//	primary, blocks, err := dec.Parse(pkt.Payload)
 //	for lostAgo := missing; lostAgo >= 1; lostAgo-- {
 //	    if b := red.FindRecovery(blocks, lostAgo, frameSamples, pkt.Timestamp, missingTS); b != nil {
 //	        // decode b as Opus
@@ -323,4 +329,68 @@ func AppendHistory(history []Frame, payload []byte, timestamp uint32, maxDepth i
 	copy(buf, payload)
 	history[0] = Frame{Timestamp: timestamp, Payload: buf}
 	return history
+}
+
+// Decoder parses a stream of RFC 2198 RED packets, reusing an internal block
+// slice so that steady-state parsing allocates nothing. It is the stateful,
+// allocation-free counterpart to Parse. A Decoder is not safe for concurrent use.
+type Decoder struct {
+	pt     byte
+	blocks []Block
+}
+
+// NewDecoder returns a Decoder for packets whose primary and redundant blocks
+// carry primaryPayloadType.
+func NewDecoder(primaryPayloadType byte) *Decoder {
+	return &Decoder{pt: primaryPayloadType}
+}
+
+// Parse decodes one RED payload into the primary Opus payload and the redundant
+// blocks (oldest-first). The returned primary and Block payloads alias buf, and
+// the blocks slice aliases the Decoder's reused buffer; all are valid only until
+// the next Parse call or until buf is modified. It does not allocate once warm.
+func (d *Decoder) Parse(buf []byte) (primary []byte, blocks []Block, err error) {
+	primary, d.blocks, err = ParseInto(buf, d.pt, d.blocks[:0])
+	return primary, d.blocks, err
+}
+
+// Encoder builds a stream of RFC 2198 RED packets, owning both the redundant
+// frame history and the output buffer so that steady-state building allocates
+// nothing and the caller manages neither. It is the stateful counterpart to
+// Build plus a managed history. An Encoder is not safe for concurrent use.
+type Encoder struct {
+	pt           byte
+	frameSamples int
+	depth        int
+	history      []Frame
+	out          []byte
+}
+
+// NewEncoder returns an Encoder that emits up to depth redundant blocks per
+// packet — each an exact multiple of frameSamples RTP ticks older than the
+// primary — using primaryPayloadType for every block. depth is clamped to
+// MaxDepth.
+func NewEncoder(primaryPayloadType byte, frameSamples, depth int) *Encoder {
+	if depth > MaxDepth {
+		depth = MaxDepth
+	}
+	return &Encoder{pt: primaryPayloadType, frameSamples: frameSamples, depth: depth}
+}
+
+// Encode builds the RED packet carrying primary at the given RTP timestamp plus
+// the eligible recent frames, then records primary in the history for later
+// packets. The returned payload aliases the Encoder's reused buffer and is valid
+// only until the next Encode call; redundantBytes is the redundant payload total.
+// primary is copied into the history, so it never escapes and the caller may
+// reuse its buffer immediately.
+func (e *Encoder) Encode(primary []byte, timestamp uint32) (payload []byte, redundantBytes int) {
+	e.out, redundantBytes = BuildAppend(e.out[:0], primary, timestamp, e.history, e.depth, e.frameSamples, e.pt)
+	e.history = AppendHistory(e.history, primary, timestamp, e.depth)
+	return e.out, redundantBytes
+}
+
+// Reset clears the redundant-frame history, e.g. after an RTP discontinuity. The
+// payload type and timing stay configured.
+func (e *Encoder) Reset() {
+	e.history = e.history[:0]
 }

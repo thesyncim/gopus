@@ -59,6 +59,38 @@ func TestAppendHistoryZeroAlloc(t *testing.T) {
 	}
 }
 
+// TestDecoderZeroAlloc locks the steady-state contract for the high-level
+// Decoder: once warm, Parse reuses its block slice and allocates nothing.
+func TestDecoderZeroAlloc(t *testing.T) {
+	p := zaPayload()
+	dec := NewDecoder(111)
+	_, _, _ = dec.Parse(p) // warm
+	if n := testing.AllocsPerRun(200, func() {
+		_, _, _ = dec.Parse(p)
+	}); n != 0 {
+		t.Errorf("Decoder.Parse allocs/op = %v, want 0", n)
+	}
+}
+
+// TestEncoderZeroAlloc locks the steady-state contract for the high-level
+// Encoder: once the history window is warm, Encode reuses its output buffer and
+// history and allocates nothing.
+func TestEncoderZeroAlloc(t *testing.T) {
+	primary := make([]byte, 120)
+	enc := NewEncoder(111, 960, 3)
+	ts := uint32(0)
+	for i := 0; i < MaxDepth+2; i++ { // warm history + buffers
+		ts += 960
+		_, _ = enc.Encode(primary, ts)
+	}
+	if n := testing.AllocsPerRun(200, func() {
+		ts += 960
+		_, _ = enc.Encode(primary, ts)
+	}); n != 0 {
+		t.Errorf("Encoder.Encode allocs/op = %v, want 0", n)
+	}
+}
+
 // TestParseIntoMatchesParse checks the reused-buffer path produces identical
 // results to the convenience wrapper.
 func TestParseIntoMatchesParse(t *testing.T) {

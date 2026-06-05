@@ -97,15 +97,20 @@ func TestExternalConsumerEncodeDecodeAndOgg(t *testing.T) {
 // the module root.
 func TestExternalConsumerRED(t *testing.T) {
 	const primaryPT = 111
-	history := []red.Frame{{Timestamp: 0, Payload: []byte{0x01, 0x02, 0x03}}}
-	primary := []byte{0x10, 0x11, 0x12, 0x13}
+	enc := red.NewEncoder(primaryPT, 960, 1)
+	dec := red.NewDecoder(primaryPT)
 
-	payload, n := red.Build(primary, 960, history, 1, 960, primaryPT)
+	// The first frame seeds the history; the second carries it as a redundant
+	// block. The Encoder owns the history and output buffer.
+	prev := []byte{0x01, 0x02, 0x03}
+	_, _ = enc.Encode(prev, 0)
+	primary := []byte{0x10, 0x11, 0x12, 0x13}
+	payload, n := enc.Encode(primary, 960)
 	if n == 0 || len(payload) == 0 {
-		t.Fatalf("Build produced empty RED payload (n=%d)", n)
+		t.Fatalf("Encode produced empty RED payload (n=%d)", n)
 	}
 
-	gotPrimary, blocks, err := red.Parse(payload, primaryPT)
+	gotPrimary, blocks, err := dec.Parse(payload)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -115,8 +120,8 @@ func TestExternalConsumerRED(t *testing.T) {
 	if len(blocks) != 1 {
 		t.Fatalf("redundant blocks = %d, want 1", len(blocks))
 	}
-	if !bytes.Equal(blocks[0].Payload, history[0].Payload) {
-		t.Fatalf("redundant payload = %x, want %x", blocks[0].Payload, history[0].Payload)
+	if !bytes.Equal(blocks[0].Payload, prev) {
+		t.Fatalf("redundant payload = %x, want %x", blocks[0].Payload, prev)
 	}
 }
 
