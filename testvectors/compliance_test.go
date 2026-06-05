@@ -143,14 +143,30 @@ func readPCMFile(filename string) ([]int16, error) {
 	return actual.([]int16), nil
 }
 
-// ensureTestVectors downloads and extracts test vectors if needed.
-//
-// The fetch is retried a few times across the primary and fallback URLs and each
-// attempt is validated for completeness (all expected files present and of a
-// plausible, non-trivial size) before it is accepted. This guards the shared CI
-// runners against transient download/extract flakes that can leave a truncated
-// vector on disk and surface as a spurious final-range mismatch.
+var (
+	ensureVectorsOnce sync.Once
+	ensureVectorsErr  error
+)
+
+// ensureTestVectors downloads and extracts the RFC 8251 test vectors if needed,
+// running at most once per process so parallel tests cannot race on the
+// download/extract. The actual fetch+validate logic lives in doEnsureTestVectors.
 func ensureTestVectors(t testing.TB) error {
+	ensureVectorsOnce.Do(func() {
+		ensureVectorsErr = doEnsureTestVectors(t)
+	})
+	return ensureVectorsErr
+}
+
+// doEnsureTestVectors downloads and extracts test vectors if needed.
+//
+// The fetch is retried across the primary and fallback URLs and each attempt is
+// validated for completeness (every .bit present and non-trivial, every .dec the
+// exact size its bitstream decodes to) before it is accepted. This guards the
+// shared CI runners against transient download/extract flakes that can leave a
+// truncated vector on disk and surface later as a spurious sample-count or
+// final-range mismatch.
+func doEnsureTestVectors(t testing.TB) error {
 	// Check if test vectors already exist and are complete (a previously
 	// truncated cache fails this and triggers a fresh download below).
 	if ok, err := testVectorsComplete(); err != nil {
@@ -228,24 +244,76 @@ func downloadAndExtractTestVectors() error {
 	return fmt.Errorf("download failed (network unavailable?): %s", strings.Join(downloadErrs, "; "))
 }
 
+// expectedReferenceSamples returns the total per-channel sample count the
+// bitstream decodes to: the sum of frame size times frame count over all
+// packets. The .dec reference is the stereo int16 decode, so it holds twice this
+// many samples (and four times as many bytes). It is the single source of truth
+// shared by testVectorsComplete and the reference-format test, so the cache check
+// and the test assertion can never disagree.
+func expectedReferenceSamples(packets []Packet) int {
+	var total int
+	for _, pkt := range packets {
+		if len(pkt.Data) == 0 {
+			continue
+		}
+		toc := pkt.Data[0]
+		frameSize := getFrameSizeFromConfig(toc >> 3)
+		frameCount := 1
+		switch toc & 0x03 {
+		case 1, 2:
+			frameCount = 2
+		case 3:
+			if len(pkt.Data) > 1 {
+				frameCount = int(pkt.Data[1] & 0x3F)
+				if frameCount == 0 {
+					frameCount = 1
+				}
+			}
+		}
+		total += frameSize * frameCount
+	}
+	return total
+}
+
 // testVectorsComplete reports whether every expected vector file is present and
-// of a plausible, non-trivial size. The size floor (minVectorFileBytes) rejects
-// a truncated extract that would otherwise pass a bare existence/non-empty check
-// yet decode to a different final range.
+// the correct size: each .bit is non-trivial, and each .dec is exactly the byte
+// length its bitstream decodes to (stereo int16). The exact .dec check catches a
+// truncated cached extract that a bare size floor would let through, only to fail
+// later as a sample-count mismatch.
 func testVectorsComplete() (bool, error) {
 	for _, name := range testVectorNames {
-		for _, ext := range []string{".bit", ".dec"} {
-			path := filepath.Join(testVectorDir, name+ext)
-			info, err := os.Stat(path)
-			if err != nil {
-				if os.IsNotExist(err) {
-					return false, nil
-				}
-				return false, fmt.Errorf("failed to stat %s: %w", path, err)
-			}
-			if info.Size() < minVectorFileBytes {
+		bitPath := filepath.Join(testVectorDir, name+".bit")
+		decPath := filepath.Join(testVectorDir, name+".dec")
+
+		bitInfo, err := os.Stat(bitPath)
+		if err != nil {
+			if os.IsNotExist(err) {
 				return false, nil
 			}
+			return false, fmt.Errorf("failed to stat %s: %w", bitPath, err)
+		}
+		if bitInfo.Size() < minVectorFileBytes {
+			return false, nil
+		}
+
+		decInfo, err := os.Stat(decPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("failed to stat %s: %w", decPath, err)
+		}
+
+		// The .dec reference is the stereo (2-channel) int16 decode of the
+		// bitstream, so it must be exactly that many bytes; a truncated download
+		// fails here and triggers a re-fetch.
+		packets, err := ReadBitstreamFile(bitPath)
+		if err != nil {
+			return false, nil
+		}
+		wantDecBytes := int64(expectedReferenceSamples(packets)) * 2 * 2 // 2 channels, 2 bytes/int16
+		if wantDecBytes <= 0 || decInfo.Size() != wantDecBytes {
+			return false, nil
 		}
 	}
 	return true, nil
@@ -512,35 +580,7 @@ func TestMonoCELTReferenceFormat(t *testing.T) {
 		t.Fatalf("testvector07 first packet is marked stereo")
 	}
 
-	var expectedSamples int
-	for _, pkt := range packets {
-		if len(pkt.Data) == 0 {
-			continue
-		}
-		tocByte := pkt.Data[0]
-		config := tocByte >> 3
-		frameCode := tocByte & 0x03
-		frameSize := getFrameSizeFromConfig(config)
-
-		// Calculate frame count from frame code
-		frameCount := 1
-		switch frameCode {
-		case 0:
-			frameCount = 1
-		case 1, 2:
-			frameCount = 2
-		case 3:
-			// Variable frame count - need to parse byte at offset 1
-			if len(pkt.Data) > 1 {
-				frameCount = int(pkt.Data[1] & 0x3F)
-				if frameCount == 0 {
-					frameCount = 1
-				}
-			}
-		}
-
-		expectedSamples += frameSize * frameCount
-	}
+	expectedSamples := expectedReferenceSamples(packets)
 
 	reference, err := readPCMFile(decFile)
 	if err != nil {
