@@ -269,7 +269,7 @@ darwin/arm64 (a per-arch float budget). amd64/CI is bit-exact; the default arm64
 build is quality-gated for that tail, exactly as libopus's NEON path is relative
 to its own scalar build.
 
-Pre-v1: no release tagged yet (see [Trust And Verification](#trust-and-verification)).
+Pre-v1: latest release is `v0.1.1` (see [Trust And Verification](#trust-and-verification)).
 
 ## Verification
 
@@ -294,11 +294,11 @@ checks (below), and `make release-evidence` must produce a PASS summary.
 
 ## Trust And Verification
 
-Released version: none yet.
+Released version: `v0.1.1`.
 
-`v0.1.0` is not a release until the tag and GitHub Release are both published.
+`v0.1.0` was retracted: it was tagged but its GitHub Release never published.
 
-Latest release evidence: none yet.
+Latest release evidence: attached to the [`v0.1.1` release](https://github.com/thesyncim/gopus/releases/tag/v0.1.1).
 
 Required branch checks:
 
