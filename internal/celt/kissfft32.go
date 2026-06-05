@@ -38,9 +38,13 @@ var (
 	kissFFTState480 = newKissFFTState(480)
 )
 
-//go:noinline
+// kissHalfSub computes a - 0.5*b. Materializing 0.5*b through round32 keeps the
+// product from contracting into a single FMSUB with the subtract (which would
+// diverge from scalar libopus), so the function inlines and sheds its call
+// overhead while staying bit-identical to the reference on every build — the
+// same idiom as kissScaleMul above.
 func kissHalfSub(a, b float32) float32 {
-	return a - 0.5*b
+	return a - round32(0.5*b)
 }
 
 // kissScaleMul, kissAdd, and kissSub are the FFT's float32 multiply/add/subtract
