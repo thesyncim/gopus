@@ -293,6 +293,25 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 		_ = bitrev[n4-1]
 		_ = fftStage[n4-1]
 		if mdctUseFMALikeMixEnabled {
+			// Leading windowed fold: whole 4-wide blocks go to the NEON
+			// kernel (bit-identical per element); the scalar loop finishes
+			// the remainder. The kernel's paired loads touch one extra odd
+			// lane above each stream start and run the descending streams
+			// down to start-2*done+2, so gate on those exact bounds.
+			if lead := limit1 - i; mdctUseNeonMidFold && lead >= 4 {
+				blocks := lead >> 2
+				done := blocks * 4
+				if xp2-n2-2*done+2 >= 0 && wp2-2*done+2 >= 0 &&
+					xp1+n2+2*done-1 < len(samples) && xp2+1 < len(samples) &&
+					wp1+2*done-1 < len(window) && wp2+1 < len(window) {
+					mdctFold1StoreNeon(fftStage, bitrev, samples, window, trig, i, n4, n2, xp1, xp2, wp1, wp2, blocks, preScale)
+					i += done
+					xp1 += 2 * done
+					xp2 -= 2 * done
+					wp1 += 2 * done
+					wp2 -= 2 * done
+				}
+			}
 			for ; i < limit1; i++ {
 				re := mdctMulAddMix(float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
 				im := mdctMulSubMix(float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
@@ -307,6 +326,21 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 
 			wp1 = 0
 			wp2 = overlap - 1
+			// The no-window middle region is elementwise; hand whole 4-wide
+			// blocks to the NEON kernel (bit-identical per element) and let
+			// the scalar loop finish the remainder. The kernel's paired loads
+			// touch samples[xp2-2*done+2 : xp2+2] and samples[xp1 : xp1+2*done],
+			// so gate on those exact bounds.
+			if mid := n4 - limit1 - i; mdctUseNeonMidFold && mid >= 4 {
+				blocks := mid >> 2
+				done := blocks * 4
+				if xp2-2*done+2 >= 0 && xp2+1 < len(samples) && xp1+2*done-1 < len(samples) {
+					mdctMidFoldStoreNeon(fftStage, bitrev, samples, trig, i, n4, xp1, xp2, blocks, preScale)
+					i += done
+					xp1 += 2 * done
+					xp2 -= 2 * done
+				}
+			}
 			for ; i < n4-limit1; i++ {
 				re := float32(samples[xp2])
 				im := float32(samples[xp1])
@@ -317,6 +351,21 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				xp2 -= 2
 			}
 
+			// Trailing windowed fold, same blocked NEON treatment.
+			if tail := n4 - i; mdctUseNeonMidFold && tail >= 4 {
+				blocks := tail >> 2
+				done := blocks * 4
+				if xp2-2*done+2 >= 0 && wp2-2*done+2 >= 0 && xp1-n2 >= 0 &&
+					xp1+2*done-1 < len(samples) && xp2+n2+1 < len(samples) &&
+					wp1+2*done-1 < len(window) && wp2+1 < len(window) {
+					mdctFold3StoreNeon(fftStage, bitrev, samples, window, trig, i, n4, n2, xp1, xp2, wp1, wp2, blocks, preScale)
+					i += done
+					xp1 += 2 * done
+					xp2 -= 2 * done
+					wp1 += 2 * done
+					wp2 -= 2 * done
+				}
+			}
 			for ; i < n4; i++ {
 				re := mdctMulSubMixAlt(float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
 				im := mdctMulAddMix(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
