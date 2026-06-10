@@ -1,5 +1,7 @@
 package celt
 
+import "math"
+
 // CELT's float build stores these codec-domain values as C float.
 // Keep internal aliases explicit so state storage matches libopus width.
 type celtNorm = float32
@@ -47,11 +49,10 @@ func absSumSig(x []celtSig) opusVal32 {
 	}
 	var sum opusVal32
 	for _, v := range x {
-		if v < 0 {
-			sum -= opusVal32(v)
-		} else {
-			sum += opusVal32(v)
-		}
+		// Branchless |v|: clearing the sign bit equals the negate-if-negative
+		// form for every finite float32 and ±0, without a per-sample branch
+		// that mispredicts on alternating signal signs.
+		sum += opusVal32(math.Float32frombits(math.Float32bits(float32(v)) &^ (1 << 31)))
 	}
 	return sum
 }
