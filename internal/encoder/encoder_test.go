@@ -466,7 +466,11 @@ func TestLargeFrameSizeModeSelectionAndPacketization(t *testing.T) {
 		wantFrameCode  uint8
 		wantFrameCount int
 	}{
-		{"silk_40ms", encoder.ModeSILK, types.SignalAuto, types.BandwidthFullband, 1920, gopus.ModeSILK, 0, 1},
+		{"silk_40ms", encoder.ModeSILK, types.SignalAuto, types.BandwidthWideband, 1920, gopus.ModeSILK, 0, 1},
+		// Forced SILK with a >WB bandwidth is promoted to Hybrid (libopus
+		// opus_encoder.c:1692-1693) before the frame-size split, so 40ms
+		// becomes a 2x20ms Hybrid multi-frame packet.
+		{"silk_fb_40ms_promotes_hybrid", encoder.ModeSILK, types.SignalAuto, types.BandwidthFullband, 1920, gopus.ModeHybrid, 2, 2},
 		{"silk_80ms", encoder.ModeSILK, types.SignalAuto, types.BandwidthWideband, 3840, gopus.ModeSILK, 2, 2},
 		{"silk_100ms", encoder.ModeSILK, types.SignalAuto, types.BandwidthWideband, 4800, gopus.ModeSILK, 3, 5},
 		{"silk_120ms", encoder.ModeSILK, types.SignalAuto, types.BandwidthWideband, 5760, gopus.ModeSILK, 2, 2},

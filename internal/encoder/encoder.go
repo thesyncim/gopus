@@ -1088,11 +1088,14 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		e.lbrrCoded = decideFEC(e.fecEnabled, e.packetLoss, e.lbrrCoded,
 			requestedMode, &bw, equivRate)
 		e.bandwidth = bw
-		if requestedMode == ModeSILK && e.bandwidth > types.BandwidthWideband {
+		// libopus opus_encoder.c:1688-1695: only the restricted-SILK
+		// application pins the bandwidth to WB; a plain forced-SILK request
+		// with a wider bandwidth is promoted to Hybrid (and forced Hybrid at
+		// <=WB drops to SILK), exactly like the auto path.
+		if e.restrictedSilkApp && e.bandwidth > types.BandwidthWideband {
 			e.bandwidth = types.BandwidthWideband
-		} else {
-			requestedMode = autoModeFixup(requestedMode, e.bandwidth)
 		}
+		requestedMode = autoModeFixup(requestedMode, e.bandwidth)
 	}
 	actualMode, prevModeNext := e.applyCELTTransitionDelay(frameSize, requestedMode)
 	transitionToCELT := requestedMode == ModeCELT && actualMode != ModeCELT
