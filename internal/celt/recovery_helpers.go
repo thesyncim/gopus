@@ -883,7 +883,43 @@ func pitchXCorrSig(x, y []celtSig, xcorr []float32, length, maxPitch int) {
 	if length <= 0 || maxPitch <= 0 {
 		return
 	}
-	pitchXCorrFloat32(x, y, xcorr, length, maxPitch)
+	pitchXCorrFloat32PLC(x, y, xcorr, length, maxPitch)
+}
+
+// pitchXCorrFloat32PLC is the loss-concealment pitch cross-correlation. It is
+// pitchXCorrFloat32 without the four-phase NEON branch: PLC output is held to
+// a tight libopus PCM tolerance, so the arm64 decode path keeps the
+// scalar-order kernel (whose contracted FMAs are bit-identical to the
+// single-chain NEON accumulation libopus uses). The amd64 SSE/AVX2 branches
+// match libopus' own x86 PLC kernels and stay as-is. Encoder pitch search,
+// which is only quality-gated, uses pitchXCorrFloat32 with the fast kernel.
+func pitchXCorrFloat32PLC(x, y, xcorr []float32, length, maxPitch int) {
+	if length <= 0 || maxPitch <= 0 {
+		return
+	}
+	_ = x[length-1]
+	_ = y[maxPitch+length-2]
+	_ = xcorr[maxPitch-1]
+	if libopusFloatPitchXCorrUsesAVX2FMA() {
+		pitchXCorrFloat32AVX2FMAOrder(x, y, xcorr, length, maxPitch)
+		return
+	}
+	if libopusFloatInnerProdUsesSSEOrder {
+		pitchXCorrFloat32SSEOrder(x, y, xcorr, length, maxPitch)
+		return
+	}
+	i := 0
+	for ; i < maxPitch-3; i += 4 {
+		var sum [4]float32
+		xcorrKernel4Float32(x, y[i:], &sum, length)
+		xcorr[i] = sum[0]
+		xcorr[i+1] = sum[1]
+		xcorr[i+2] = sum[2]
+		xcorr[i+3] = sum[3]
+	}
+	for ; i < maxPitch; i++ {
+		xcorr[i] = innerProdFloat32(x, y[i:], length)
+	}
 }
 
 func pitchXCorrFloat32SSEOrder(x, y, xcorr []float32, length, maxPitch int) {
@@ -1103,7 +1139,7 @@ func pitchSearchPLC(xLP []float32, y []float32, length, maxPitch int, scratch *p
 		yLP4[j] = y[2*j]
 	}
 
-	pitchXCorrFloat32(xLP4, yLP4, xcorr, length>>2, maxPitch>>2)
+	pitchXCorrFloat32PLC(xLP4, yLP4, xcorr, length>>2, maxPitch>>2)
 	bestPitch := [2]int{0, 0}
 	findBestPitchF32(xcorr, yLP4, length>>2, maxPitch>>2, &bestPitch)
 
