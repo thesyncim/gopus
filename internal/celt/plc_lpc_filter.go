@@ -4,87 +4,76 @@ func xcorrKernel4Float32(x, y []float32, sum *[4]float32, length int) {
 	if length <= 0 {
 		return
 	}
-	// The kernel reads x[0:length] and y[0:length+3]; hoisting those bounds
-	// lets the compiler drop the per-access checks in the inner loop. The
-	// original walks the same indices, so this cannot panic where it would not.
-	_ = x[length-1]
-	_ = y[length+2]
+	// The kernel reads x[0:length] and y[0:length+3]. Slicing to those exact
+	// bounds and advancing the slices (rather than indexing off a stride-4
+	// counter, which prove cannot reason about) eliminates every per-access
+	// bounds check in the unrolled body. The walk and the FP expressions are
+	// unchanged, so results stay bit-identical per arch.
+	x = x[:length]
+	y = y[:length+3]
 	// Accumulate in registers: with sum as a pointer every sum[k]+= is a
 	// memory read-modify-write the compiler cannot keep in a register. Locals
 	// run the identical IEEE adds in the identical order, written back once.
 	s0, s1, s2, s3 := sum[0], sum[1], sum[2], sum[3]
-	xi := 0
-	yi := 0
 	var y3 float32
-	y0 := y[yi]
-	yi++
-	y1 := y[yi]
-	yi++
-	y2 := y[yi]
-	yi++
-	j := 0
-	for ; j < length-3; j += 4 {
-		tmp := x[xi]
-		xi++
-		y3 = y[yi]
-		yi++
+	y0 := y[0]
+	y1 := y[1]
+	y2 := y[2]
+	for len(x) >= 4 && len(y) >= 7 {
+		tmp := x[0]
+		y3 = y[3]
 		s0 += tmp * y0
 		s1 += tmp * y1
 		s2 += tmp * y2
 		s3 += tmp * y3
 
-		tmp = x[xi]
-		xi++
-		y0 = y[yi]
-		yi++
+		tmp = x[1]
+		y0 = y[4]
 		s0 += tmp * y1
 		s1 += tmp * y2
 		s2 += tmp * y3
 		s3 += tmp * y0
 
-		tmp = x[xi]
-		xi++
-		y1 = y[yi]
-		yi++
+		tmp = x[2]
+		y1 = y[5]
 		s0 += tmp * y2
 		s1 += tmp * y3
 		s2 += tmp * y0
 		s3 += tmp * y1
 
-		tmp = x[xi]
-		xi++
-		y2 = y[yi]
-		yi++
+		tmp = x[3]
+		y2 = y[6]
 		s0 += tmp * y3
 		s1 += tmp * y0
 		s2 += tmp * y1
 		s3 += tmp * y2
+
+		x = x[4:]
+		y = y[4:]
 	}
-	if j < length {
-		j++
-		tmp := x[xi]
-		xi++
-		y3 = y[yi]
-		yi++
+	if len(x) >= 1 && len(y) >= 4 {
+		tmp := x[0]
+		y3 = y[3]
 		s0 += tmp * y0
 		s1 += tmp * y1
 		s2 += tmp * y2
 		s3 += tmp * y3
+		x = x[1:]
+		y = y[1:]
 	}
-	if j < length {
-		j++
-		tmp := x[xi]
-		xi++
-		y0 = y[yi]
-		yi++
+	if len(x) >= 1 && len(y) >= 4 {
+		tmp := x[0]
+		y0 = y[3]
 		s0 += tmp * y1
 		s1 += tmp * y2
 		s2 += tmp * y3
 		s3 += tmp * y0
+		x = x[1:]
+		y = y[1:]
 	}
-	if j < length {
-		tmp := x[xi]
-		y1 = y[yi]
+	if len(x) >= 1 && len(y) >= 4 {
+		tmp := x[0]
+		y1 = y[3]
 		s0 += tmp * y2
 		s1 += tmp * y3
 		s2 += tmp * y0

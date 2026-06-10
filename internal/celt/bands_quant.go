@@ -693,40 +693,7 @@ func haar1PairNorm(x []celtNorm, idx0, idx1 int, invSqrt2 float32) {
 }
 
 func expRotation1(x []celtNorm, length, stride int, c, s opusVal16) {
-	if length <= 0 {
-		return
-	}
-	x = x[:length:length]
-	_ = x[length-1]
-	c32 := float32(c)
-	s32 := float32(s)
-	ms32 := -s32
-
-	end := length - stride
-	i := 0
-	for ; i+1 < end; i += 2 {
-		x1 := float32(x[i])
-		x2 := float32(x[i+stride])
-		x[i+stride] = celtNorm(expRotationMac32(c32, x2, s32, x1))
-		x[i] = celtNorm(expRotationMac32(c32, x1, ms32, x2))
-
-		x3 := float32(x[i+1])
-		x4 := float32(x[i+1+stride])
-		x[i+1+stride] = celtNorm(expRotationMac32(c32, x4, s32, x3))
-		x[i+1] = celtNorm(expRotationMac32(c32, x3, ms32, x4))
-	}
-	for ; i < end; i++ {
-		x1 := float32(x[i])
-		x2 := float32(x[i+stride])
-		x[i+stride] = celtNorm(expRotationMac32(c32, x2, s32, x1))
-		x[i] = celtNorm(expRotationMac32(c32, x1, ms32, x2))
-	}
-	for i := length - 2*stride - 1; i >= 0; i-- {
-		x1 := float32(x[i])
-		x2 := float32(x[i+stride])
-		x[i+stride] = celtNorm(expRotationMac32(c32, x2, s32, x1))
-		x[i] = celtNorm(expRotationMac32(c32, x1, ms32, x2))
-	}
+	expRotation1Norm(x, length, stride, c, s)
 }
 
 func expRotation1Norm(x []celtNorm, length, stride int, c, s opusVal16) {
@@ -734,35 +701,32 @@ func expRotation1Norm(x []celtNorm, length, stride int, c, s opusVal16) {
 		return
 	}
 	x = x[:length:length]
-	_ = x[length-1]
+	if stride <= 0 || stride >= length {
+		return
+	}
+	// xs[i] aliases x[i+stride] and has exactly length-stride elements — the
+	// trip count of the forward pass — so every access below is bounds-check
+	// free. The rotation itself is a serial cascade (each pair reads the
+	// previous pair's write), so only loop overhead is reducible here.
+	xs := x[stride:]
 	c32 := float32(c)
 	s32 := float32(s)
 	ms32 := -s32
 
-	end := length - stride
-	i := 0
-	for ; i+1 < end; i += 2 {
+	for i := range xs {
 		x1 := float32(x[i])
-		x2 := float32(x[i+stride])
-		x[i+stride] = celtNorm(expRotationMac32(c32, x2, s32, x1))
-		x[i] = celtNorm(expRotationMac32(c32, x1, ms32, x2))
-
-		x3 := float32(x[i+1])
-		x4 := float32(x[i+1+stride])
-		x[i+1+stride] = celtNorm(expRotationMac32(c32, x4, s32, x3))
-		x[i+1] = celtNorm(expRotationMac32(c32, x3, ms32, x4))
-	}
-	for ; i < end; i++ {
-		x1 := float32(x[i])
-		x2 := float32(x[i+stride])
-		x[i+stride] = celtNorm(expRotationMac32(c32, x2, s32, x1))
+		x2 := float32(xs[i])
+		xs[i] = celtNorm(expRotationMac32(c32, x2, s32, x1))
 		x[i] = celtNorm(expRotationMac32(c32, x1, ms32, x2))
 	}
-	for i := length - 2*stride - 1; i >= 0; i-- {
-		x1 := float32(x[i])
-		x2 := float32(x[i+stride])
-		x[i+stride] = celtNorm(expRotationMac32(c32, x2, s32, x1))
-		x[i] = celtNorm(expRotationMac32(c32, x1, ms32, x2))
+	if n2 := length - 2*stride; n2 > 0 {
+		xb, xsb := x[:n2], xs[:n2]
+		for i := len(xsb) - 1; i >= 0; i-- {
+			x1 := float32(xb[i])
+			x2 := float32(xsb[i])
+			xsb[i] = celtNorm(expRotationMac32(c32, x2, s32, x1))
+			xb[i] = celtNorm(expRotationMac32(c32, x1, ms32, x2))
+		}
 	}
 }
 

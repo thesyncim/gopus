@@ -724,26 +724,49 @@ func cwrsiTableLookup32(n, k int, i uint32, y []int32) uint32 {
 	if n <= 0 || k <= 0 || len(y) < n {
 		return 0
 	}
+	y = y[:n]
 	var yy uint32
 	for j := range n {
 		nCur := n - j
-		p := pvqUTableLookupFast(nCur, k+1)
+		// p = U(nCur, k+1), reading dense[min][max] like pvqUTableLookupFast.
+		var p uint32
+		if nCur > k+1 {
+			p = pvqUDense[k+1][nCur]
+		} else {
+			p = pvqUDense[nCur][k+1]
+		}
 		sign := 0
 		if i >= p {
 			sign = -1
 			i -= p
 		}
 		k0 := k
+		// Walk k downward until U(nCur,k) <= i. On or above the diagonal
+		// (k >= nCur) the lookups stay in row nCur, so hoist the row base and
+		// skip the per-step min/max swap; below it they read column nCur of
+		// successive rows k.
+		if k >= nCur {
+			row := &pvqUDense[nCur]
+			for {
+				p = row[k]
+				if p <= i {
+					goto found
+				}
+				k--
+				if k < nCur {
+					break
+				}
+			}
+		}
 		for k > 0 {
-			p = pvqUTableLookupFast(nCur, k)
+			p = pvqUDense[k][nCur]
 			if p <= i {
-				break
+				goto found
 			}
 			k--
 		}
-		if k == 0 {
-			p = 0
-		}
+		p = 0
+	found:
 		i -= p
 		yj := k0 - k
 		val := yj
