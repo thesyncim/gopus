@@ -704,6 +704,18 @@ func expRotation1Norm(x []celtNorm, length, stride int, c, s opusVal16) {
 	if stride <= 0 || stride >= length {
 		return
 	}
+	// With stride >= 4 four consecutive indices belong to four independent
+	// rotation chains, so the fused arm64 build runs both passes 4-wide
+	// (bit-identical per element); the scalar loops stay the purego oracle
+	// and the stride<4 path.
+	if expRotationUsesNeon && stride >= 4 {
+		expRotation1StrideNeon(x, length, stride, c, s)
+		return
+	}
+	expRotation1NormScalar(x, length, stride, c, s)
+}
+
+func expRotation1NormScalar(x []celtNorm, length, stride int, c, s opusVal16) {
 	// xs[i] aliases x[i+stride] and has exactly length-stride elements — the
 	// trip count of the forward pass — so every access below is bounds-check
 	// free. The rotation itself is a serial cascade (each pair reads the
