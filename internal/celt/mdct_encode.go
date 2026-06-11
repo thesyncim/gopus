@@ -497,7 +497,21 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 		_ = trigHi[n4-1]
 		lo := 0
 		hi := n2 - 1
-		for i = range n4 {
+		i = 0
+		// Mirror 4-wide block pairs tile both coefficient ends contiguously;
+		// the NEON kernel runs them with the exact scalar op sequence
+		// (bit-identical per element), and the scalar loop finishes the
+		// n4%8 middle. QEXT moves the scale here, so that build keeps the
+		// scalar loop.
+		if mdctUsePostTwiddleNeon && !mdctQEXTScalePlacement {
+			if pairBlocks := n4 >> 3; pairBlocks > 0 {
+				mdctPostTwiddleNeon(coeffs, fftStage, trig, n2, n4, pairBlocks)
+				i = 4 * pairBlocks
+				lo += 2 * i
+				hi -= 2 * i
+			}
+		}
+		for top := n4 - i; i < top; i++ {
 			re := fftStage[i].r
 			im := fftStage[i].i
 			t0 := trig[i]
