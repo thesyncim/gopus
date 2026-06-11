@@ -40,7 +40,13 @@ func TestRangeCoderStateFieldWidthsMatchLibopusECCTX(t *testing.T) {
 			target: Decoder{},
 			fields: map[string]reflect.Type{
 				"storage": uint32Type, "endOffs": uint32Type, "offs": uint32Type,
-				"endWindow": uint32Type, "rng": uint32Type, "val": uint32Type, "ext": uint32Type,
+				// The decoder endWindow is deliberately wider than libopus'
+				// default ec_window: entcode.h documents the type as "at
+				// least 32 bits, but if you have fast arithmetic on a larger
+				// type, you can speed things up by using it here" — the
+				// buffered width never changes the consumed bit values.
+				"endWindow": reflect.TypeFor[uint64](),
+				"rng":       uint32Type, "val": uint32Type, "ext": uint32Type,
 				"nendBits": int32Type, "nbitsTotal": int32Type,
 				"rem": int32Type, "err": int32Type,
 			},
