@@ -742,10 +742,48 @@ func combFilterConstValue(base, g10, g11, g12, center, plus1, minus1, plus2, min
 	return sum
 }
 
+
+// combFilterConstDispatch runs the constant-gain comb body, handing whole
+// 4-wide blocks to the NEON kernel on the fused arm64 build (bit-identical
+// per element). A scalar head keeps the incoming carry semantics, and the
+// carries reload from the delay line afterwards.
+func combFilterConstDispatch(dst, delay []float32, g10, g11, g12 float32, x4, x3, x2, x1 float32) (float32, float32, float32, float32, bool) {
+	n := len(dst)
+	if !combUsesNeon || n < 9 {
+		return x4, x3, x2, x1, false
+	}
+	delay = delay[:n:n]
+	i := 0
+	for ; i < 4; i++ {
+		x0 := delay[i]
+		dst[i] = combFilterConstValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
+		x4, x3, x2, x1 = x3, x2, x1, x0
+	}
+	blocks := (n - i) >> 2
+	combFilterConstNeon(dst[i:], delay[i-4:], g10, g11, g12, blocks)
+	i += blocks * 4
+	x1 = delay[i-1]
+	x2 = delay[i-2]
+	x3 = delay[i-3]
+	x4 = delay[i-4]
+	for ; i < n; i++ {
+		x0 := delay[i]
+		dst[i] = combFilterConstValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
+		x4 = x3
+		x3 = x2
+		x2 = x1
+		x1 = x0
+	}
+	return x4, x3, x2, x1, true
+}
+
 func combFilterConstFloat32Hist(dst []float32, delay []celtSig, g10, g11, g12 float32, x4, x3, x2, x1 float32) (float32, float32, float32, float32) {
 	n := len(dst)
 	if n == 0 {
 		return x4, x3, x2, x1
+	}
+	if a4, a3, a2, a1, ok := combFilterConstDispatch(dst, delay, g10, g11, g12, x4, x3, x2, x1); ok {
+		return a4, a3, a2, a1
 	}
 	delay = delay[:n:n]
 	_ = dst[n-1]
@@ -782,6 +820,9 @@ func combFilterConstFloat32(dst, delay []float32, g10, g11, g12 float32, x4, x3,
 	n := len(dst)
 	if n == 0 {
 		return x4, x3, x2, x1
+	}
+	if a4, a3, a2, a1, ok := combFilterConstDispatch(dst, delay, g10, g11, g12, x4, x3, x2, x1); ok {
+		return a4, a3, a2, a1
 	}
 	delay = delay[:n:n]
 	_ = dst[n-1]
