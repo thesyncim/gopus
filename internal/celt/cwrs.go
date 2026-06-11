@@ -714,68 +714,114 @@ func cwrsi32(n, k int, i uint32, y []int32, u []uint32) uint32 {
 }
 
 // cwrsiTableLookup32 decodes the pulse vector for index i by reading U(n,k)
-// directly from the static table, mirroring libopus celt/cwrs.c cwrsi. At
-// position j the row-based cwrsi32 holds u == U(n-j, ·), so each access u[idx]
-// equals pvqUTableLookupFast(n-j, idx); reading those by lookup as nCur (=n-j)
-// decrements lets us skip materializing and stepping the U-row (ncwrsUrow + the
-// per-position uprev), which dominate CELT band decode. Bit-identical to
-// ncwrsUrow+cwrsi32, valid only when canUseCWRSFast(n,k) covers every lookup.
+// directly from the static table, mirroring libopus celt/cwrs.c cwrsi exactly:
+// the no-pulse fast path and directional walks for n>2, then the closed-form
+// n==2 split and n==1 remainder (which replace O(k) walk countdowns with
+// arithmetic). Bit-identical to ncwrsUrow+cwrsi32 for every valid index,
+// valid only when canUseCWRSFast(n,k) covers every lookup.
 func cwrsiTableLookup32(n, k int, i uint32, y []int32) uint32 {
 	if n <= 0 || k <= 0 || len(y) < n {
 		return 0
 	}
 	y = y[:n]
+
 	var yy uint32
-	for j := range n {
-		nCur := n - j
-		// p = U(nCur, k+1), reading dense[min][max] like pvqUTableLookupFast.
-		var p uint32
-		if nCur > k+1 {
-			p = pvqUDense[k+1][nCur]
-		} else {
-			p = pvqUDense[nCur][k+1]
-		}
-		sign := 0
-		if i >= p {
-			sign = -1
-			i -= p
-		}
-		k0 := k
-		// Walk k downward until U(nCur,k) <= i. On or above the diagonal
-		// (k >= nCur) the lookups stay in row nCur, so hoist the row base and
-		// skip the per-step min/max swap; below it they read column nCur of
-		// successive rows k.
+	j := 0
+	for nCur := n; nCur > 2; nCur-- {
+		var p, q uint32
+		var s int
+		var k0, yj int
+
 		if k >= nCur {
-			row := &pvqUDense[nCur]
-			for {
-				p = row[k]
-				if p <= i {
-					goto found
+			p = pvqUDenseUnchecked(nCur, k+1)
+			if i >= p {
+				s = -1
+				i -= p
+			}
+
+			k0 = k
+			q = pvqUDenseUnchecked(nCur, nCur)
+
+			if q > i {
+				k = nCur
+				for {
+					k--
+					p = pvqUDenseUnchecked(k, nCur)
+					if p <= i {
+						break
+					}
 				}
-				k--
-				if k < nCur {
-					break
+			} else {
+				for p = pvqUDenseUnchecked(nCur, k); p > i; p = pvqUDenseUnchecked(nCur, k) {
+					k--
 				}
 			}
-		}
-		for k > 0 {
-			p = pvqUDense[k][nCur]
-			if p <= i {
-				goto found
+			i -= p
+			yj = k0 - k
+			if s != 0 {
+				yj = -yj
 			}
-			k--
+			y[j] = int32(yj)
+			yy += uint32(yj * yj)
+		} else {
+			p = pvqUDenseUnchecked(k, nCur)
+			q = pvqUDenseUnchecked(k+1, nCur)
+
+			if p <= i && i < q {
+				i -= p
+				y[j] = 0
+			} else {
+				if i >= q {
+					s = -1
+					i -= q
+				}
+				k0 = k
+				for {
+					k--
+					p = pvqUDenseUnchecked(k, nCur)
+					if p <= i {
+						break
+					}
+				}
+				i -= p
+				yj = k0 - k
+				if s != 0 {
+					yj = -yj
+				}
+				y[j] = int32(yj)
+				yy += uint32(yj * yj)
+			}
 		}
-		p = 0
-	found:
-		i -= p
-		yj := k0 - k
-		val := yj
-		if sign != 0 {
-			val = -yj
-		}
-		y[j] = int32(val)
-		yy += uint32(yj * yj)
+		j++
 	}
+
+	p := uint32(2*k + 1)
+	s := 0
+	if i >= p {
+		s = -1
+		i -= p
+	}
+	k0 := k
+	k = int((i + 1) >> 1)
+	if k != 0 {
+		i -= uint32(2*k - 1)
+	}
+	yj := k0 - k
+	if s != 0 {
+		yj = -yj
+	}
+	y[j] = int32(yj)
+	yy += uint32(yj * yj)
+	j++
+
+	s = -int(i)
+	yj = k
+	if s != 0 {
+		yj = -k
+	}
+	y[j] = int32(yj)
+	yy += uint32(yj * yj)
+
 	return yy
 }
 
