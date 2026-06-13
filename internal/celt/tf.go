@@ -497,22 +497,20 @@ func TFAnalysis(X []celtNorm, N0, nbEBands int, isTransient bool, lm int, tfEsti
 }
 
 // TFAnalysisScratch holds pre-allocated buffers for TF analysis.
+//
+// Metric and the Viterbi path arrays are no longer fields: they are addressed
+// only by index inside TFAnalysisWithScratch and never escape, so they live on
+// the stack there (see the band-count guarded block in that function). TfRes is
+// returned to the caller, and Tmp/Tmp1 are handed to the haar1/l1 kernels, so
+// those stay pooled here.
 type TFAnalysisScratch struct {
-	Metric []int32    // Per-band metric (size: nbEBands)
-	Tmp    []celtNorm // Band coefficients working buffer
-	Tmp1   []celtNorm // Copy for transient analysis
-	Path0  []int32    // Viterbi path state 0
-	Path1  []int32    // Viterbi path state 1
-	TfRes  []int32    // Output buffer
+	Tmp   []celtNorm // Band coefficients working buffer
+	Tmp1  []celtNorm // Copy for transient analysis
+	TfRes []int32    // Output buffer
 }
 
 // EnsureTFAnalysisScratch ensures scratch buffers are large enough.
 func (s *TFAnalysisScratch) EnsureTFAnalysisScratch(nbEBands, maxBandWidth int) {
-	if cap(s.Metric) < nbEBands {
-		s.Metric = make([]int32, nbEBands)
-	} else {
-		s.Metric = s.Metric[:nbEBands]
-	}
 	if cap(s.Tmp) < maxBandWidth {
 		s.Tmp = make([]celtNorm, maxBandWidth)
 	} else {
@@ -522,16 +520,6 @@ func (s *TFAnalysisScratch) EnsureTFAnalysisScratch(nbEBands, maxBandWidth int) 
 		s.Tmp1 = make([]celtNorm, maxBandWidth)
 	} else {
 		s.Tmp1 = s.Tmp1[:maxBandWidth]
-	}
-	if cap(s.Path0) < nbEBands {
-		s.Path0 = make([]int32, nbEBands)
-	} else {
-		s.Path0 = s.Path0[:nbEBands]
-	}
-	if cap(s.Path1) < nbEBands {
-		s.Path1 = make([]int32, nbEBands)
-	} else {
-		s.Path1 = s.Path1[:nbEBands]
 	}
 	if cap(s.TfRes) < nbEBands {
 		s.TfRes = make([]int32, nbEBands)
@@ -570,7 +558,20 @@ func TFAnalysisWithScratch(X []celtNorm, N0, nbEBands int, isTransient bool, lm 
 	// Keep TF metric arithmetic in float32 to mirror libopus float path.
 	bias := float32(tfAnalysisBias(tfEstimate))
 
-	metric := scratch.Metric[:nbEBands]
+	// metric and the Viterbi path arrays are addressed only by index here and
+	// never escape, so keep them on the stack for the common (<= MaxBands) band
+	// counts. Non-standard custom/QEXT layouts (rare) fall back to a heap slice.
+	var metricArr, path0Arr, path1Arr [MaxBands]int32
+	var metric, path0, path1 []int32
+	if nbEBands <= MaxBands {
+		metric = metricArr[:nbEBands]
+		path0 = path0Arr[:nbEBands]
+		path1 = path1Arr[:nbEBands]
+	} else {
+		metric = make([]int32, nbEBands)
+		path0 = make([]int32, nbEBands)
+		path1 = make([]int32, nbEBands)
+	}
 	tmp := scratch.Tmp
 
 	for i := range nbEBands {
@@ -677,8 +678,6 @@ func TFAnalysisWithScratch(X []celtNorm, N0, nbEBands int, isTransient bool, lm 
 
 	// Viterbi forward pass
 	isTransientInt := boolToInt(isTransient)
-	path0 := scratch.Path0[:nbEBands]
-	path1 := scratch.Path1[:nbEBands]
 
 	imp0 := int32(13)
 	if importance != nil && len(importance) > 0 {
