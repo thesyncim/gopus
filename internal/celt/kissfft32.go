@@ -266,17 +266,19 @@ func kfBfly2M1(fout []kissCpx, n int) {
 	if n <= 0 {
 		return
 	}
-	total := n << 1
-	_ = fout[total-1] // BCE hint for i and i+1 accesses.
-	for i := 0; i < total; i += 2 {
-		ar := fout[i].r
-		ai := fout[i].i
-		br := fout[i+1].r
-		bi := fout[i+1].i
-		fout[i].r = ar + br
-		fout[i].i = ai + bi
-		fout[i+1].r = ar - br
-		fout[i+1].i = ai - bi
+	// Slice to 2*n so the compiler proves buf[0] and buf[1] are in bounds without
+	// a stride-2 counter; eliminates per-pair bounds checks in the inner loop.
+	buf := fout[:n<<1]
+	for len(buf) >= 2 {
+		ar := buf[0].r
+		ai := buf[0].i
+		br := buf[1].r
+		bi := buf[1].i
+		buf[0].r = ar + br
+		buf[0].i = ai + bi
+		buf[1].r = ar - br
+		buf[1].i = ai - bi
+		buf = buf[2:]
 	}
 }
 

@@ -448,29 +448,54 @@ func pitchDownsampleSig(x []celtSig, xLP []float32, length, channels, factor int
 	handled := false
 	if factor == 2 {
 		if channels == 1 {
-			idx := 2
-			for i := 1; i < length; i++ {
-				v := firQuarter*float32(x[idx-1]) + firQuarter*float32(x[idx+1]) + firHalf*float32(x[idx])
-				xLP[i] = v
-				idx += 2
-			}
+			// Sliding-window FIR: each output xLP[i] = 0.25*(x[2i-1]+x[2i+1]) + 0.5*x[2i].
+			// Slicing src to exactly 2*length lets the compiler prove every window
+			// access (win[0:3]) is in bounds, eliminating per-sample bounds checks.
 			xLP[0] = firQuarter*float32(x[1]) + firHalf*float32(x[0])
+			if length > 1 && len(x) >= 2*length {
+				src := x[:2*length]
+				win := src[1:]  // win[0]=x[2i-1], win[1]=x[2i], win[2]=x[2i+1] at i=1
+				dst := xLP[1:length]
+				// 4-output unroll: consecutive outputs share y[2i+1]=y[2(i+1)-1],
+				// reducing loads from 12 to 9 per 4 outputs.
+				for len(dst) >= 4 && len(win) >= 9 {
+					w0, w1, w2, w3, w4, w5, w6, w7, w8 := win[0], win[1], win[2], win[3], win[4], win[5], win[6], win[7], win[8]
+					dst[0] = firQuarter*float32(w0) + firQuarter*float32(w2) + firHalf*float32(w1)
+					dst[1] = firQuarter*float32(w2) + firQuarter*float32(w4) + firHalf*float32(w3)
+					dst[2] = firQuarter*float32(w4) + firQuarter*float32(w6) + firHalf*float32(w5)
+					dst[3] = firQuarter*float32(w6) + firQuarter*float32(w8) + firHalf*float32(w7)
+					win = win[8:]
+					dst = dst[4:]
+				}
+				for len(dst) > 0 && len(win) >= 3 {
+					v := firQuarter*float32(win[0]) + firQuarter*float32(win[2]) + firHalf*float32(win[1])
+					dst[0] = v
+					win = win[2:]
+					dst = dst[1:]
+				}
+			}
 		} else if channels == 2 {
 			chStride := len(x) / 2
 			x0 := x[:chStride]
 			x1 := x[chStride:]
-			idx := 2
-			for i := 1; i < length; i++ {
-				v0 := firQuarter*float32(x0[idx-1]) + firQuarter*float32(x0[idx+1]) + firHalf*float32(x0[idx])
-				v1 := firQuarter*float32(x1[idx-1]) + firQuarter*float32(x1[idx+1]) + firHalf*float32(x1[idx])
-				xLP[i] = v0
-				xLP[i] += v1
-				idx += 2
-			}
 			v0 := firQuarter*float32(x0[1]) + firHalf*float32(x0[0])
 			v1 := firQuarter*float32(x1[1]) + firHalf*float32(x1[0])
-			xLP[0] = v0
-			xLP[0] += v1
+			xLP[0] = v0 + v1
+			if length > 1 && len(x0) >= 2*length && len(x1) >= 2*length {
+				s0 := x0[:2*length]
+				s1 := x1[:2*length]
+				w0 := s0[1:]
+				w1 := s1[1:]
+				dst := xLP[1:length]
+				for len(dst) > 0 {
+					vv0 := firQuarter*float32(w0[0]) + firQuarter*float32(w0[2]) + firHalf*float32(w0[1])
+					vv1 := firQuarter*float32(w1[0]) + firQuarter*float32(w1[2]) + firHalf*float32(w1[1])
+					dst[0] = vv0 + vv1
+					w0 = w0[2:]
+					w1 = w1[2:]
+					dst = dst[1:]
+				}
+			}
 		}
 		handled = true
 	}

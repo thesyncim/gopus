@@ -214,13 +214,37 @@ func l1MetricNorm(tmp []celtNorm, N int, LM int, bias float32) float32 {
 	if celtAbsSumUsesNeon {
 		L1 = l1AbsSumNeon(tmp, n)
 	} else {
-		for i := 0; i < n; i++ {
-			v := float32(tmp[i])
+		// Four independent accumulators break the serial add chain; branchless
+		// negation lets the compiler emit FABS rather than a compare+branch.
+		buf := tmp[:n]
+		var a0, a1, a2, a3 float32
+		for len(buf) >= 4 {
+			v0, v1, v2, v3 := buf[0], buf[1], buf[2], buf[3]
+			if v0 < 0 {
+				v0 = -v0
+			}
+			if v1 < 0 {
+				v1 = -v1
+			}
+			if v2 < 0 {
+				v2 = -v2
+			}
+			if v3 < 0 {
+				v3 = -v3
+			}
+			a0 += v0
+			a1 += v1
+			a2 += v2
+			a3 += v3
+			buf = buf[4:]
+		}
+		for _, v := range buf {
 			if v < 0 {
 				v = -v
 			}
-			L1 += v
+			a0 += v
 		}
+		L1 = a0 + a1 + a2 + a3
 	}
 	return L1 + float32(LM)*bias*L1
 }

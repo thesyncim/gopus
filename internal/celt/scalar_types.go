@@ -1,7 +1,5 @@
 package celt
 
-import "math"
-
 // CELT's float build stores these codec-domain values as C float.
 // Keep internal aliases explicit so state storage matches libopus width.
 type celtNorm = float32
@@ -59,14 +57,36 @@ func absSumSig(x []celtSig) opusVal32 {
 	if celtAbsSumUsesNeon {
 		return l1AbsSumNeon(x, len(x))
 	}
-	var sum opusVal32
-	for _, v := range x {
-		// Branchless |v|: clearing the sign bit equals the negate-if-negative
-		// form for every finite float32 and ±0, without a per-sample branch
-		// that mispredicts on alternating signal signs.
-		sum += opusVal32(math.Float32frombits(math.Float32bits(float32(v)) &^ (1 << 31)))
+	// Four independent accumulators break the serial add chain; the branch form
+	// for |v| lets the compiler emit a single FABS instruction.
+	var a0, a1, a2, a3 float32
+	for len(x) >= 4 {
+		v0, v1, v2, v3 := x[0], x[1], x[2], x[3]
+		if v0 < 0 {
+			v0 = -v0
+		}
+		if v1 < 0 {
+			v1 = -v1
+		}
+		if v2 < 0 {
+			v2 = -v2
+		}
+		if v3 < 0 {
+			v3 = -v3
+		}
+		a0 += v0
+		a1 += v1
+		a2 += v2
+		a3 += v3
+		x = x[4:]
 	}
-	return sum
+	for _, v := range x {
+		if v < 0 {
+			v = -v
+		}
+		a0 += v
+	}
+	return opusVal32(a0 + a1 + a2 + a3)
 }
 
 func interleaveSigToFloat32(left, right []celtSig, dst []float32) {

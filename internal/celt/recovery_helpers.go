@@ -846,6 +846,18 @@ func pitchXCorrFloat32(x, y, xcorr []float32, length, maxPitch int) {
 		return
 	}
 	i := 0
+	for ; i < maxPitch-7; i += 8 {
+		var sum [8]float32
+		xcorrKernel8Float32(x, y[i:], &sum, length)
+		xcorr[i] = sum[0]
+		xcorr[i+1] = sum[1]
+		xcorr[i+2] = sum[2]
+		xcorr[i+3] = sum[3]
+		xcorr[i+4] = sum[4]
+		xcorr[i+5] = sum[5]
+		xcorr[i+6] = sum[6]
+		xcorr[i+7] = sum[7]
+	}
 	for ; i < maxPitch-3; i += 4 {
 		var sum [4]float32
 		xcorrKernel4Float32(x, y[i:], &sum, length)
@@ -1047,11 +1059,19 @@ func innerProdFloat32(x, y []float32, length int) float32 {
 	}
 	x = x[:length]
 	y = y[:length]
-	sum := float32(0)
-	for i := range x {
-		sum += x[i] * y[i]
+	var acc0, acc1, acc2, acc3 float32
+	for len(x) >= 4 {
+		acc0 += x[0] * y[0]
+		acc1 += x[1] * y[1]
+		acc2 += x[2] * y[2]
+		acc3 += x[3] * y[3]
+		x = x[4:]
+		y = y[4:]
 	}
-	return sum
+	for i := range x {
+		acc0 += x[i] * y[i]
+	}
+	return acc0 + acc1 + acc2 + acc3
 }
 
 func innerProdFloat32SSEOrder(x, y []float32, length int) float32 {
