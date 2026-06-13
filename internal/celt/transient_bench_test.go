@@ -6,6 +6,12 @@ import (
 )
 
 var transientBenchSink TransientAnalysisResult
+var (
+	toneBenchSink0     float32
+	toneBenchSink1     float32
+	toneBenchSinkOK    bool
+	toneBenchSinkDelay int
+)
 
 func TestTransientAnalysisMatchesLegacy(t *testing.T) {
 	testCases := []struct {
@@ -363,4 +369,49 @@ func BenchmarkTransientAnalysisCurrentStereo(b *testing.B) {
 
 func BenchmarkTransientAnalysisLegacyStereo(b *testing.B) {
 	benchmarkTransientAnalysisChannels(b, 2, true)
+}
+
+func BenchmarkTransientAnalysisMonoFloat32(b *testing.B) {
+	benchmarks := []struct {
+		name              string
+		samplesPerChannel int
+	}{
+		{name: "5ms", samplesPerChannel: 240 + Overlap},
+		{name: "20ms", samplesPerChannel: 960 + Overlap},
+	}
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			enc := NewEncoder(1)
+			enc.ensureScratch(bm.samplesPerChannel)
+			pcm := make([]float32, bm.samplesPerChannel)
+			for i := range pcm {
+				t := float64(i) / 48000.0
+				pcm[i] = float32(0.35*math.Sin(2*math.Pi*440*t) + 0.12*math.Sin(2*math.Pi*1760*t))
+			}
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				transientBenchSink = enc.transientAnalysisMonoFloat32(pcm, bm.samplesPerChannel, false)
+			}
+		})
+	}
+}
+
+func BenchmarkToneLPCRetry48kMono(b *testing.B) {
+	x := make([]float32, 360)
+	for i := range x {
+		t := float64(i) / 48000.0
+		x[i] = float32(0.42*math.Sin(2*math.Pi*440*t) + 0.03*math.Sin(2*math.Pi*880*t))
+	}
+
+	b.Run("selected", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			toneBenchSink0, toneBenchSink1, toneBenchSinkOK, toneBenchSinkDelay = toneLPCRetry48kMono(x, 48000/3000)
+		}
+	})
+	b.Run("sequential", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			toneBenchSink0, toneBenchSink1, toneBenchSinkOK, toneBenchSinkDelay = toneLPCRetry48kMonoSequential(x, 48000/3000)
+		}
+	})
 }
