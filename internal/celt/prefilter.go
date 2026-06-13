@@ -45,9 +45,20 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 	if prevTapset >= len(combFilterGains) {
 		prevTapset = len(combFilterGains) - 1
 	}
+	if !enabled && e.prefilterGain == 0 {
+		overlap := e.analysisOverlap()
+		if overlap > frameSize {
+			overlap = frameSize
+		}
+		e.updatePrefilterNoopStateFromPreemph(preemph, frameSize, channels, overlap)
+		e.prefilterPeriod = combFilterMinPeriod
+		e.prefilterGain = 0
+		e.prefilterTapset = tapset
+		result.tapset = tapset
+		return result
+	}
 	perChanLen := maxPeriod + frameSize
-	pre := ensureSigSlice(&e.scratch.prefilterPre, perChanLen*channels)
-	out := ensureSigSlice(&e.scratch.prefilterOut, perChanLen*channels)
+	pre := ensureSigSliceNoClear(&e.scratch.prefilterPre, perChanLen*channels)
 
 	if channels == 1 {
 		hist := e.prefilterMem[:maxPeriod]
@@ -187,6 +198,7 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 		return result
 	}
 
+	out := ensureSigSliceNoClear(&e.scratch.prefilterOut, perChanLen*channels)
 	mode := e.modeConfig(frameSize)
 	shortMdctSize := frameSize / mode.ShortBlocks
 	offset := max(shortMdctSize-overlap, 0)
@@ -331,6 +343,96 @@ func (e *Encoder) updatePrefilterNoopState(pre []celtSig, perChanLen, frameSize,
 		if overlap > 0 && frameSize >= overlap && len(e.overlapBuffer) >= (ch+1)*overlap {
 			hist := e.overlapBuffer[ch*overlap : (ch+1)*overlap]
 			copy(hist, preCh[maxPeriod+frameSize-overlap:maxPeriod+frameSize])
+		}
+	}
+}
+
+func (e *Encoder) updatePrefilterNoopStateFromPreemph(preemph []float32, frameSize, channels, overlap int) {
+	if channels <= 0 || frameSize <= 0 || len(preemph) < frameSize*channels {
+		return
+	}
+	maxPeriod := e.combMaxPeriod()
+	if overlap > 0 {
+		need := channels * overlap
+		if len(e.overlapBuffer) < need {
+			newBuf := make([]celtSig, need)
+			copy(newBuf, e.overlapBuffer)
+			e.overlapBuffer = newBuf
+		}
+	}
+
+	if channels == 1 {
+		mem := e.prefilterMem[:maxPeriod]
+		if frameSize > maxPeriod {
+			copyFloat32ToSig(mem, preemph[frameSize-maxPeriod:frameSize])
+		} else {
+			copy(mem, mem[frameSize:])
+			copyFloat32ToSig(mem[maxPeriod-frameSize:], preemph[:frameSize])
+		}
+		if overlap > 0 && frameSize >= overlap && len(e.overlapBuffer) >= overlap {
+			copyFloat32ToSig(e.overlapBuffer[:overlap], preemph[frameSize-overlap:frameSize])
+		}
+		return
+	}
+
+	if channels == 2 {
+		memL := e.prefilterMem[:maxPeriod]
+		memR := e.prefilterMem[maxPeriod : 2*maxPeriod]
+		if frameSize > maxPeriod {
+			src := (frameSize - maxPeriod) * 2
+			for i := range maxPeriod {
+				memL[i] = celtSig(preemph[src])
+				memR[i] = celtSig(preemph[src+1])
+				src += 2
+			}
+		} else {
+			copy(memL, memL[frameSize:])
+			copy(memR, memR[frameSize:])
+			dst := maxPeriod - frameSize
+			src := 0
+			for i := range frameSize {
+				memL[dst+i] = celtSig(preemph[src])
+				memR[dst+i] = celtSig(preemph[src+1])
+				src += 2
+			}
+		}
+		if overlap > 0 && frameSize >= overlap && len(e.overlapBuffer) >= 2*overlap {
+			histL := e.overlapBuffer[:overlap]
+			histR := e.overlapBuffer[overlap : 2*overlap]
+			src := (frameSize - overlap) * 2
+			for i := range overlap {
+				histL[i] = celtSig(preemph[src])
+				histR[i] = celtSig(preemph[src+1])
+				src += 2
+			}
+		}
+		return
+	}
+
+	for ch := range channels {
+		mem := e.prefilterMem[ch*maxPeriod : (ch+1)*maxPeriod]
+		if frameSize > maxPeriod {
+			src := (frameSize-maxPeriod)*channels + ch
+			for i := range maxPeriod {
+				mem[i] = celtSig(preemph[src])
+				src += channels
+			}
+		} else {
+			copy(mem, mem[frameSize:])
+			dst := maxPeriod - frameSize
+			src := ch
+			for i := range frameSize {
+				mem[dst+i] = celtSig(preemph[src])
+				src += channels
+			}
+		}
+		if overlap > 0 && frameSize >= overlap && len(e.overlapBuffer) >= (ch+1)*overlap {
+			hist := e.overlapBuffer[ch*overlap : (ch+1)*overlap]
+			src := (frameSize-overlap)*channels + ch
+			for i := range overlap {
+				hist[i] = celtSig(preemph[src])
+				src += channels
+			}
 		}
 	}
 }

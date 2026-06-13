@@ -43,6 +43,18 @@ func ensureSigSlice(buf *[]celtSig, n int) []celtSig {
 	return (*buf)[:n]
 }
 
+func ensureSigSliceNoClear(buf *[]celtSig, n int) []celtSig {
+	if n <= 0 {
+		return nil
+	}
+	if cap(*buf) < n {
+		*buf = make([]celtSig, n)
+	} else {
+		*buf = (*buf)[:n]
+	}
+	return (*buf)[:n]
+}
+
 func absSumSig(x []celtSig) opusVal32 {
 	if celtAbsSumUsesNeon {
 		return l1AbsSumNeon(x, len(x))
@@ -86,6 +98,18 @@ func ensureNormSlice(buf *[]celtNorm, n int) []celtNorm {
 	} else {
 		*buf = (*buf)[:n]
 		clear(*buf)
+	}
+	return (*buf)[:n]
+}
+
+func ensureNormSliceNoClear(buf *[]celtNorm, n int) []celtNorm {
+	if n <= 0 {
+		return nil
+	}
+	if cap(*buf) < n {
+		*buf = make([]celtNorm, n)
+	} else {
+		*buf = (*buf)[:n]
 	}
 	return (*buf)[:n]
 }

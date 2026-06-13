@@ -1382,8 +1382,8 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	// Prefilter scratch buffers
 	maxPeriod := max(e.combMaxPeriod(), e.combMinPeriod())
 	prefilterLen := (maxPeriod + frameSize) * channels
-	s.prefilterPre = ensureSigSlice(&s.prefilterPre, prefilterLen)
-	s.prefilterOut = ensureSigSlice(&s.prefilterOut, prefilterLen)
+	s.prefilterPre = ensureSigSliceNoClear(&s.prefilterPre, prefilterLen)
+	s.prefilterOut = ensureSigSliceNoClear(&s.prefilterOut, prefilterLen)
 	pitchBufLen := max((maxPeriod+frameSize)>>1, 1)
 	s.prefilterPitchBuf = ensureFloat32Slice(&s.prefilterPitchBuf, pitchBufLen)
 	maxPitch := max(maxPeriod-3*e.combMinPeriod(), 1)
@@ -1430,9 +1430,9 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.coarseDecisionE = ensureGLogSlice(&s.coarseDecisionE, bandCount)
 
 	// Normalized coefficients
-	s.normL = ensureNormSlice(&s.normL, frameSize)
-	s.normR = ensureNormSlice(&s.normR, frameSize)
-	s.normStereo = ensureNormSlice(&s.normStereo, frameSize*2)
+	s.normL = ensureNormSliceNoClear(&s.normL, frameSize)
+	s.normR = ensureNormSliceNoClear(&s.normR, frameSize)
+	s.normStereo = ensureNormSliceNoClear(&s.normStereo, frameSize*2)
 
 	// Allocation buffers
 	s.caps = ensureInt32Slice(&s.caps, MaxBands)
@@ -1481,8 +1481,8 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.allocFinePrio = ensureInt32Slice(&s.allocFinePrio, MaxBands)
 	s.allocThresh = ensureInt32Slice(&s.allocThresh, MaxBands)
 	s.allocTrim = ensureInt32Slice(&s.allocTrim, MaxBands)
-	s.allocTrimNormL = ensureNormSlice(&s.allocTrimNormL, frameSize)
-	s.allocTrimNormR = ensureNormSlice(&s.allocTrimNormR, frameSize)
+	s.allocTrimNormL = ensureNormSliceNoClear(&s.allocTrimNormL, frameSize)
+	s.allocTrimNormR = ensureNormSliceNoClear(&s.allocTrimNormR, frameSize)
 	s.allocTrimBandLogE = ensureGLogSlice(&s.allocTrimBandLogE, MaxBands*channels)
 	if extsupport.QEXT && e.qextActive() {
 		qs := s.ensureQEXTScratch()
@@ -1493,8 +1493,8 @@ func (e *Encoder) ensureScratch(frameSize int) {
 		qs.quantized = ensureGLogSlice(&qs.quantized, nbQEXTBands*channels)
 		qs.qerr = ensureGLogSlice(&qs.qerr, nbQEXTBands*channels)
 		qs.oldBandE = ensureGLogSlice(&qs.oldBandE, MaxBands*channels)
-		qs.normL = ensureNormSlice(&qs.normL, frameSize)
-		qs.normR = ensureNormSlice(&qs.normR, frameSize)
+		qs.normL = ensureNormSliceNoClear(&qs.normL, frameSize)
+		qs.normR = ensureNormSliceNoClear(&qs.normR, frameSize)
 	}
 
 	// MDCT input buffer for ComputeMDCTWithHistory
@@ -1510,22 +1510,22 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	// Band encode scratch
 	s.bandEncode.collapse = ensureByteSlice(&s.bandEncode.collapse, channels*MaxBands)
 	normLen := 8 * EBands[MaxBands-1] // M=8 for 20ms frames
-	s.bandEncode.norm = ensureNormSlice(&s.bandEncode.norm, channels*normLen)
+	s.bandEncode.norm = ensureNormSliceNoClear(&s.bandEncode.norm, channels*normLen)
 	maxBand := 8 * (EBands[MaxBands] - EBands[MaxBands-1])
-	s.bandEncode.lowbandScratch = ensureNormSlice(&s.bandEncode.lowbandScratch, maxBand)
-	s.bandEncode.xSave = ensureNormSlice(&s.bandEncode.xSave, maxBandWidth)
-	s.bandEncode.ySave = ensureNormSlice(&s.bandEncode.ySave, maxBandWidth)
-	s.bandEncode.normSave = ensureNormSlice(&s.bandEncode.normSave, maxBandWidth)
-	s.bandEncode.xResult0 = ensureNormSlice(&s.bandEncode.xResult0, maxBandWidth)
-	s.bandEncode.yResult0 = ensureNormSlice(&s.bandEncode.yResult0, maxBandWidth)
-	s.bandEncode.normResult0 = ensureNormSlice(&s.bandEncode.normResult0, maxBandWidth)
+	s.bandEncode.lowbandScratch = ensureNormSliceNoClear(&s.bandEncode.lowbandScratch, maxBand)
+	s.bandEncode.xSave = ensureNormSliceNoClear(&s.bandEncode.xSave, maxBandWidth)
+	s.bandEncode.ySave = ensureNormSliceNoClear(&s.bandEncode.ySave, maxBandWidth)
+	s.bandEncode.normSave = ensureNormSliceNoClear(&s.bandEncode.normSave, maxBandWidth)
+	s.bandEncode.xResult0 = ensureNormSliceNoClear(&s.bandEncode.xResult0, maxBandWidth)
+	s.bandEncode.yResult0 = ensureNormSliceNoClear(&s.bandEncode.yResult0, maxBandWidth)
+	s.bandEncode.normResult0 = ensureNormSliceNoClear(&s.bandEncode.normResult0, maxBandWidth)
 	s.bandEncode.pvqSignx = ensureByteSlice(&s.bandEncode.pvqSignx, maxPVQN)
 	s.bandEncode.pvqY = ensureFloat32Slice(&s.bandEncode.pvqY, maxPVQN)
 	s.bandEncode.pvqAbsX = ensureFloat32Slice(&s.bandEncode.pvqAbsX, maxPVQN)
 	s.bandEncode.pvqIy = ensureInt32Slice(&s.bandEncode.pvqIy, maxPVQN)
 	s.bandEncode.qextIy = ensureInt32Slice(&s.bandEncode.qextIy, maxPVQN)
 	s.bandEncode.cwrsU = ensureUint32Slice(&s.bandEncode.cwrsU, 256)
-	s.bandEncode.hadamardTmpNorm = ensureNormSlice(&s.bandEncode.hadamardTmpNorm, maxBandWidth*16)
+	s.bandEncode.hadamardTmpNorm = ensureNormSliceNoClear(&s.bandEncode.hadamardTmpNorm, maxBandWidth*16)
 }
 
 // computeAllocationScratch computes bit allocation using scratch buffers (zero-alloc).
