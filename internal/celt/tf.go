@@ -214,10 +214,85 @@ func l1MetricNorm(tmp []celtNorm, N int, LM int, bias float32) float32 {
 	if celtAbsSumUsesNeon {
 		L1 = l1AbsSumNeon(tmp, n)
 	} else {
-		// Four independent accumulators break the serial add chain; branchless
-		// negation lets the compiler emit FABS rather than a compare+branch.
+		// Sixteen independent accumulators fill the FADD throughput slots:
+		// 16 ops / 4 dispatch = 4 cycles per 16-element block, exactly matching
+		// the 4-cycle FADD latency so no stall on any chain between iterations.
+		// Each conditional negate emits a FABS-style instruction without branching.
 		buf := tmp[:n]
-		var a0, a1, a2, a3 float32
+		var a0, a1, a2, a3, a4, a5, a6, a7 float32
+		var a8, a9, a10, a11, a12, a13, a14, a15 float32
+		for len(buf) >= 16 {
+			v0, v1, v2, v3 := buf[0], buf[1], buf[2], buf[3]
+			v4, v5, v6, v7 := buf[4], buf[5], buf[6], buf[7]
+			v8, v9, v10, v11 := buf[8], buf[9], buf[10], buf[11]
+			v12, v13, v14, v15 := buf[12], buf[13], buf[14], buf[15]
+			if v0 < 0 {
+				v0 = -v0
+			}
+			if v1 < 0 {
+				v1 = -v1
+			}
+			if v2 < 0 {
+				v2 = -v2
+			}
+			if v3 < 0 {
+				v3 = -v3
+			}
+			if v4 < 0 {
+				v4 = -v4
+			}
+			if v5 < 0 {
+				v5 = -v5
+			}
+			if v6 < 0 {
+				v6 = -v6
+			}
+			if v7 < 0 {
+				v7 = -v7
+			}
+			if v8 < 0 {
+				v8 = -v8
+			}
+			if v9 < 0 {
+				v9 = -v9
+			}
+			if v10 < 0 {
+				v10 = -v10
+			}
+			if v11 < 0 {
+				v11 = -v11
+			}
+			if v12 < 0 {
+				v12 = -v12
+			}
+			if v13 < 0 {
+				v13 = -v13
+			}
+			if v14 < 0 {
+				v14 = -v14
+			}
+			if v15 < 0 {
+				v15 = -v15
+			}
+			a0 += v0
+			a1 += v1
+			a2 += v2
+			a3 += v3
+			a4 += v4
+			a5 += v5
+			a6 += v6
+			a7 += v7
+			a8 += v8
+			a9 += v9
+			a10 += v10
+			a11 += v11
+			a12 += v12
+			a13 += v13
+			a14 += v14
+			a15 += v15
+			buf = buf[16:]
+		}
+		// 4-wide tail for remaining elements
 		for len(buf) >= 4 {
 			v0, v1, v2, v3 := buf[0], buf[1], buf[2], buf[3]
 			if v0 < 0 {
@@ -244,7 +319,7 @@ func l1MetricNorm(tmp []celtNorm, N int, LM int, bias float32) float32 {
 			}
 			a0 += v
 		}
-		L1 = a0 + a1 + a2 + a3
+		L1 = (a0 + a1 + a2 + a3) + (a4 + a5 + a6 + a7) + (a8 + a9 + a10 + a11) + (a12 + a13 + a14 + a15)
 	}
 	return L1 + float32(LM)*bias*L1
 }
