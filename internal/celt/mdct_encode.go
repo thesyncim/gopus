@@ -54,16 +54,24 @@ func mdctStoreDirectStageFMALike(dst []kissCpx, idx int, scale, re, im, t0, t1 f
 	dst[idx].i = yi * scale
 }
 
-// mdctMulAddMixEncode and mdctMulSubMixEncode are encoder-only variants of the
-// TDAC windowed-fold mix that route through mdctEncodeFMA32. The shared
-// mdctMulAddMix/mdctMulSubMix keep mdctFMA32 (math.FMA) for the IMDCT decoder
-// path where parity is fixture-locked; the encoder is quality-gated and can use
-// the cheaper arm64 FMADDS contraction in purego mode.
+// mdctMulAddMixEncode and mdctMulSubMixEncode are the encoder-only variants
+// of the TDAC windowed-fold mix. They mirror mdctMulAddMix / mdctMulSubMix
+// exactly on every build (same mdctUseFMALikeMixEnabled gating, same
+// non-FMA path on amd64), so the amd64 bit-exact libopus oracle stays
+// byte-parity. The win on arm64 purego is just that mdctEncodeFMA32 uses the
+// Go backend's FMADDS contraction instead of mdctFMA32's wider helper, which
+// the encoder pitch-search is free to use because that path is quality-gated.
 func mdctMulAddMixEncode(a, b, c, d float32) float32 {
-	return mdctEncodeFMA32(a, c, mdctMul(b, d))
+	if mdctUseFMALikeMixEnabled {
+		return mdctEncodeFMA32(a, c, mdctMul(b, d))
+	}
+	return mdctMul(a, c) + mdctMul(b, d)
 }
 func mdctMulSubMixEncode(a, b, c, d float32) float32 {
-	return mdctEncodeFMA32(a, c, -mdctMul(b, d))
+	if mdctUseFMALikeMixEnabled {
+		return mdctEncodeFMA32(a, c, -mdctMul(b, d))
+	}
+	return mdctMul(a, c) - mdctMul(b, d)
 }
 
 // MDCT computes the forward Modified Discrete Cosine Transform.
