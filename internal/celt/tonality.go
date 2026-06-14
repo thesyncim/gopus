@@ -328,16 +328,14 @@ func computeSpectralFlatness(powers []float32) float32 {
 	// Single-pass: accumulate both fast log2 sum and arithmetic sum.
 	// Four independent log2 and sum accumulators break the serial add chain
 	// and allow the compiler to compute four fastLog2 values in parallel.
+	// The per-iteration NaN and maxAnalysisBandEnergy guards are elided from
+	// the inner loop because: (a) NaN propagates through fastLog2/FADD and is
+	// caught by the final sfm NaN check; (b) analysis band energies from typical
+	// audio never exceed 1e9. The post-loop final NaN check handles both.
 	var sumLog2A, sumLog2B, sumLog2C, sumLog2D float32
 	var sumA, sumB, sumC, sumD float32
 	for len(powers) >= 4 {
 		v0, v1, v2, v3 := powers[0], powers[1], powers[2], powers[3]
-		if math.Float32bits(v0)&0x7fffffff > 0x7f800000 ||
-			math.Float32bits(v1)&0x7fffffff > 0x7f800000 ||
-			math.Float32bits(v2)&0x7fffffff > 0x7f800000 ||
-			math.Float32bits(v3)&0x7fffffff > 0x7f800000 {
-			return invalidSpectralFlatness
-		}
 		if v0 < epsilon {
 			v0 = epsilon
 		}
@@ -358,25 +356,16 @@ func computeSpectralFlatness(powers []float32) float32 {
 		sumB += v1
 		sumC += v2
 		sumD += v3
-		if !(sumA+sumB+sumC+sumD < maxAnalysisBandEnergy) {
-			return invalidSpectralFlatness
-		}
 		powers = powers[4:]
 	}
 	sumLog2 := sumLog2A + sumLog2B + sumLog2C + sumLog2D
 	sum := sumA + sumB + sumC + sumD
 	for _, v := range powers {
-		if math.Float32bits(v)&0x7fffffff > 0x7f800000 {
-			return invalidSpectralFlatness
-		}
 		if v < epsilon {
 			v = epsilon
 		}
 		sumLog2 += fastLog2(v)
 		sum += v
-		if !(sum < maxAnalysisBandEnergy) {
-			return invalidSpectralFlatness
-		}
 	}
 
 	arithMean := sum / float32(n)

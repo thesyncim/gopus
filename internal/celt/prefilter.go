@@ -487,7 +487,20 @@ func pitchDownsampleSig(x []celtSig, xLP []float32, length, channels, factor int
 				w0 := s0[1:]
 				w1 := s1[1:]
 				dst := xLP[1:length]
-				for len(dst) > 0 {
+				// 2× unroll: w0[2] shared between pair; L and R independent (12
+				// FMULs per 2 outputs saturate 4-wide dispatch with latency hiding).
+				for len(dst) >= 2 && len(w0) >= 5 && len(w1) >= 5 {
+					vv0_0 := firQuarter*float32(w0[0]) + firQuarter*float32(w0[2]) + firHalf*float32(w0[1])
+					vv1_0 := firQuarter*float32(w1[0]) + firQuarter*float32(w1[2]) + firHalf*float32(w1[1])
+					vv0_1 := firQuarter*float32(w0[2]) + firQuarter*float32(w0[4]) + firHalf*float32(w0[3])
+					vv1_1 := firQuarter*float32(w1[2]) + firQuarter*float32(w1[4]) + firHalf*float32(w1[3])
+					dst[0] = vv0_0 + vv1_0
+					dst[1] = vv0_1 + vv1_1
+					w0 = w0[4:]
+					w1 = w1[4:]
+					dst = dst[2:]
+				}
+				for len(dst) > 0 && len(w0) >= 3 && len(w1) >= 3 {
 					vv0 := firQuarter*float32(w0[0]) + firQuarter*float32(w0[2]) + firHalf*float32(w0[1])
 					vv1 := firQuarter*float32(w1[0]) + firQuarter*float32(w1[2]) + firHalf*float32(w1[1])
 					dst[0] = vv0 + vv1
@@ -561,14 +574,36 @@ func pitchSearch(xLP []float32, y []float32, length, maxPitch int, scratch *enco
 	yLP4 := ensureFloat32Slice(&scratch.prefilterYLP4, quarterLag)
 	xcorr := ensureFloat32Slice(&scratch.prefilterXcorr, halfPitch)
 
-	for j, idx := 0, 0; j < quarterLen; j, idx = j+1, idx+2 {
-		xLP4[j] = xLP[idx]
+	{
+		_ = xLP[2*quarterLen-1]
+		_ = xLP4[quarterLen-1]
+		j := 0
+		for ; j+3 < quarterLen; j += 4 {
+			xLP4[j] = xLP[2*j]
+			xLP4[j+1] = xLP[2*j+2]
+			xLP4[j+2] = xLP[2*j+4]
+			xLP4[j+3] = xLP[2*j+6]
+		}
+		for ; j < quarterLen; j++ {
+			xLP4[j] = xLP[2*j]
+		}
 	}
-	for j, idx := 0, 0; j < quarterLag; j, idx = j+1, idx+2 {
-		yLP4[j] = y[idx]
+	{
+		_ = y[2*quarterLag-1]
+		_ = yLP4[quarterLag-1]
+		j := 0
+		for ; j+3 < quarterLag; j += 4 {
+			yLP4[j] = y[2*j]
+			yLP4[j+1] = y[2*j+2]
+			yLP4[j+2] = y[2*j+4]
+			yLP4[j+3] = y[2*j+6]
+		}
+		for ; j < quarterLag; j++ {
+			yLP4[j] = y[2*j]
+		}
 	}
 
-	pitchXCorrFloat32(xLP4, yLP4, xcorr, quarterLen, quarterPitch)
+	pitchXCorrFloat32Quality(xLP4, yLP4, xcorr, quarterLen, quarterPitch)
 	bestPitch := [2]int{0, 0}
 	findBestPitchF32(xcorr, yLP4, quarterLen, quarterPitch, &bestPitch)
 
@@ -606,7 +641,7 @@ func pitchSearch(xLP []float32, y []float32, length, maxPitch int, scratch *enco
 			}
 		}
 		n := r.hi - r.lo + 1
-		pitchXCorrFloat32(xLP, y[r.lo:], xcorr[r.lo:], halfLen, n)
+		pitchXCorrFloat32Quality(xLP, y[r.lo:], xcorr[r.lo:], halfLen, n)
 		for ; i <= r.hi; i++ {
 			if xcorr[i] < -1 {
 				xcorr[i] = -1

@@ -48,10 +48,22 @@ func mdctStoreDirectStage(dst []kissCpx, idx int, scale, re, im, t0, t1 float32)
 }
 
 func mdctStoreDirectStageFMALike(dst []kissCpx, idx int, scale, re, im, t0, t1 float32) {
-	yr := mdctFMA32(re, t0, -mdctMul(im, t1))
-	yi := mdctFMA32(im, t0, mdctMul(re, t1))
+	yr := mdctEncodeFMA32(re, t0, -mdctMul(im, t1))
+	yi := mdctEncodeFMA32(im, t0, mdctMul(re, t1))
 	dst[idx].r = yr * scale
 	dst[idx].i = yi * scale
+}
+
+// mdctMulAddMixEncode and mdctMulSubMixEncode are encoder-only variants of the
+// TDAC windowed-fold mix that route through mdctEncodeFMA32. The shared
+// mdctMulAddMix/mdctMulSubMix keep mdctFMA32 (math.FMA) for the IMDCT decoder
+// path where parity is fixture-locked; the encoder is quality-gated and can use
+// the cheaper arm64 FMADDS contraction in purego mode.
+func mdctMulAddMixEncode(a, b, c, d float32) float32 {
+	return mdctEncodeFMA32(a, c, mdctMul(b, d))
+}
+func mdctMulSubMixEncode(a, b, c, d float32) float32 {
+	return mdctEncodeFMA32(a, c, -mdctMul(b, d))
 }
 
 // MDCT computes the forward Modified Discrete Cosine Transform.
@@ -312,16 +324,30 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 					wp2 -= 2 * done
 				}
 			}
+			for ; i+1 < limit1; i += 2 {
+				re0 := mdctMulAddMixEncode(float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
+				im0 := mdctMulSubMixEncode(float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
+				re1 := mdctMulAddMixEncode(float32(samples[xp1+n2+2]), float32(samples[xp2-2]), window[wp2-2], window[wp1+2])
+				im1 := mdctMulSubMixEncode(float32(samples[xp1+2]), float32(samples[xp2-n2-2]), window[wp1+2], window[wp2-2])
+				t00, t10, t01, t11 := trig[i], trig[n4+i], trig[i+1], trig[n4+i+1]
+				yr0 := mdctEncodeFMA32(re0, t00, -mdctMul(im0, t10))
+				yi0 := mdctEncodeFMA32(im0, t00, mdctMul(re0, t10))
+				yr1 := mdctEncodeFMA32(re1, t01, -mdctMul(im1, t11))
+				yi1 := mdctEncodeFMA32(im1, t01, mdctMul(re1, t11))
+				b0, b1 := bitrev[i], bitrev[i+1]
+				fftStage[b0].r = yr0 * preScale; fftStage[b0].i = yi0 * preScale
+				fftStage[b1].r = yr1 * preScale; fftStage[b1].i = yi1 * preScale
+				xp1 += 4; xp2 -= 4; wp1 += 4; wp2 -= 4
+			}
 			for ; i < limit1; i++ {
-				re := mdctMulAddMix(float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
-				im := mdctMulSubMix(float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
-				t0 := trig[i]
-				t1 := trig[n4+i]
-				mdctStoreDirectStageFMALike(fftStage, bitrev[i], preScale, re, im, t0, t1)
-				xp1 += 2
-				xp2 -= 2
-				wp1 += 2
-				wp2 -= 2
+				re := mdctMulAddMixEncode(float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
+				im := mdctMulSubMixEncode(float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
+				t0, t1 := trig[i], trig[n4+i]
+				yr := mdctEncodeFMA32(re, t0, -mdctMul(im, t1))
+				yi := mdctEncodeFMA32(im, t0, mdctMul(re, t1))
+				b := bitrev[i]
+				fftStage[b].r = yr * preScale; fftStage[b].i = yi * preScale
+				xp1 += 2; xp2 -= 2; wp1 += 2; wp2 -= 2
 			}
 
 			wp1 = 0
@@ -340,6 +366,31 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 					xp1 += 2 * done
 					xp2 -= 2 * done
 				}
+			}
+			// 2× unrolled: each pair of iterations uses 4 independent FMUL/FMAD
+			// chains, saturating all 4 FP dispatch slots and hiding FADD latency.
+			// Manual inline of mdctStoreDirectStageFMALike avoids the function
+			// call overhead on this path (inlining cost 103 > budget 80).
+			for ; i+1 < n4-limit1; i += 2 {
+				re0 := float32(samples[xp2])
+				im0 := float32(samples[xp1])
+				re1 := float32(samples[xp2-2])
+				im1 := float32(samples[xp1+2])
+				t00 := trig[i]
+				t10 := trig[n4+i]
+				t01 := trig[i+1]
+				t11 := trig[n4+i+1]
+				yr0 := mdctEncodeFMA32(re0, t00, -mdctMul(im0, t10))
+				yi0 := mdctEncodeFMA32(im0, t00, mdctMul(re0, t10))
+				yr1 := mdctEncodeFMA32(re1, t01, -mdctMul(im1, t11))
+				yi1 := mdctEncodeFMA32(im1, t01, mdctMul(re1, t11))
+				b0, b1 := bitrev[i], bitrev[i+1]
+				fftStage[b0].r = yr0 * preScale
+				fftStage[b0].i = yi0 * preScale
+				fftStage[b1].r = yr1 * preScale
+				fftStage[b1].i = yi1 * preScale
+				xp1 += 4
+				xp2 -= 4
 			}
 			for ; i < n4-limit1; i++ {
 				re := float32(samples[xp2])
@@ -366,21 +417,35 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 					wp2 -= 2 * done
 				}
 			}
+			for ; i+1 < n4; i += 2 {
+				re0 := mdctMulSubMixAlt(float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
+				im0 := mdctMulAddMixEncode(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
+				re1 := mdctMulSubMixAlt(float32(samples[xp2-2]), float32(samples[xp1-n2+2]), window[wp2-2], window[wp1+2])
+				im1 := mdctMulAddMixEncode(float32(samples[xp1+2]), float32(samples[xp2+n2-2]), window[wp2-2], window[wp1+2])
+				t00, t10, t01, t11 := trig[i], trig[n4+i], trig[i+1], trig[n4+i+1]
+				yr0 := mdctEncodeFMA32(re0, t00, -mdctMul(im0, t10))
+				yi0 := mdctEncodeFMA32(im0, t00, mdctMul(re0, t10))
+				yr1 := mdctEncodeFMA32(re1, t01, -mdctMul(im1, t11))
+				yi1 := mdctEncodeFMA32(im1, t01, mdctMul(re1, t11))
+				b0, b1 := bitrev[i], bitrev[i+1]
+				fftStage[b0].r = yr0 * preScale; fftStage[b0].i = yi0 * preScale
+				fftStage[b1].r = yr1 * preScale; fftStage[b1].i = yi1 * preScale
+				xp1 += 4; xp2 -= 4; wp1 += 4; wp2 -= 4
+			}
 			for ; i < n4; i++ {
 				re := mdctMulSubMixAlt(float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
-				im := mdctMulAddMix(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
-				t0 := trig[i]
-				t1 := trig[n4+i]
-				mdctStoreDirectStageFMALike(fftStage, bitrev[i], preScale, re, im, t0, t1)
-				xp1 += 2
-				xp2 -= 2
-				wp1 += 2
-				wp2 -= 2
+				im := mdctMulAddMixEncode(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
+				t0, t1 := trig[i], trig[n4+i]
+				yr := mdctEncodeFMA32(re, t0, -mdctMul(im, t1))
+				yi := mdctEncodeFMA32(im, t0, mdctMul(re, t1))
+				b := bitrev[i]
+				fftStage[b].r = yr * preScale; fftStage[b].i = yi * preScale
+				xp1 += 2; xp2 -= 2; wp1 += 2; wp2 -= 2
 			}
 		} else {
 			for ; i < limit1; i++ {
-				re := mdctMulAddMix(float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
-				im := mdctMulSubMix(float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
+				re := mdctMulAddMixEncode(float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
+				im := mdctMulSubMixEncode(float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
 				t0 := trig[i]
 				t1 := trig[n4+i]
 				mdctStoreDirectStage(fftStage, bitrev[i], preScale, re, im, t0, t1)
@@ -404,7 +469,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 
 			for ; i < n4; i++ {
 				re := mdctMulSubMixAlt(float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
-				im := mdctMulAddMix(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
+				im := mdctMulAddMixEncode(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
 				t0 := trig[i]
 				t1 := trig[n4+i]
 				mdctStoreDirectStage(fftStage, bitrev[i], preScale, re, im, t0, t1)
@@ -419,8 +484,8 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 		_ = f[2*n4-1]
 
 		for ; i < limit1; i++ {
-			f[2*i] = mdctMulAddMix(float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
-			f[2*i+1] = mdctMulSubMix(float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
+			f[2*i] = mdctMulAddMixEncode(float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
+			f[2*i+1] = mdctMulSubMixEncode(float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
 			xp1 += 2
 			xp2 -= 2
 			wp1 += 2
@@ -438,7 +503,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 
 		for ; i < n4; i++ {
 			f[2*i] = mdctMulSubMixAlt(float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
-			f[2*i+1] = mdctMulAddMix(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
+			f[2*i+1] = mdctMulAddMixEncode(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
 			xp1 += 2
 			xp2 -= 2
 			wp1 += 2
@@ -511,7 +576,25 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				hi -= 2 * i
 			}
 		}
-		for top := n4 - i; i < top; i++ {
+		top := n4 - i
+		if !mdctQEXTScalePlacement {
+			// 2x unroll: 8 independent FMULs per pair of iterations hide
+			// 2-cycle FMUL latency and saturate the 4-wide FP dispatch.
+			for ; i+1 < top; i += 2 {
+				re0 := fftStage[i].r; im0 := fftStage[i].i
+				re1 := fftStage[i+1].r; im1 := fftStage[i+1].i
+				t00 := trig[i]; t10 := trigHi[i]
+				t01 := trig[i+1]; t11 := trigHi[i+1]
+				yr0 := mdctMul(im0, t10) - mdctMul(re0, t00)
+				yi0 := mdctMul(re0, t10) + mdctMul(im0, t00)
+				yr1 := mdctMul(im1, t11) - mdctMul(re1, t01)
+				yi1 := mdctMul(re1, t11) + mdctMul(im1, t01)
+				coeffs[lo] = yr0; coeffs[hi] = yi0
+				coeffs[lo+2] = yr1; coeffs[hi-2] = yi1
+				lo += 4; hi -= 4
+			}
+		}
+		for ; i < top; i++ {
 			re := fftStage[i].r
 			im := fftStage[i].i
 			t0 := trig[i]
