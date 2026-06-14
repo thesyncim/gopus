@@ -806,11 +806,11 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		normL, normR, bandE = e.NormalizeBandsToArrayStereoWithBandEF32(mdctLeft, mdctRight, nbBands, frameSize)
 	}
 	_ = normBandEScratch
-	normLCelt := ensureNormSlice(&e.scratch.allocTrimNormL, len(normL))
+	normLCelt := ensureNormSliceNoClear(&e.scratch.allocTrimNormL, len(normL))
 	copy(normLCelt, normL)
 	var normRCelt []celtNorm
 	if codedChannels == 2 {
-		normRCelt = ensureNormSlice(&e.scratch.allocTrimNormR, len(normR))
+		normRCelt = ensureNormSliceNoClear(&e.scratch.allocTrimNormR, len(normR))
 		copy(normRCelt, normR)
 	}
 
@@ -994,7 +994,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	normSpread := normLCelt
 	if codedChannels == 2 {
 		// spreading_decision() expects both channels in one contiguous buffer.
-		normSpread = ensureNormSlice(&e.scratch.normStereo, len(normLCelt)+len(normRCelt))
+		normSpread = ensureNormSliceNoClear(&e.scratch.normStereo, len(normLCelt)+len(normRCelt))
 		copy(normSpread[:len(normLCelt)], normLCelt)
 		copy(normSpread[len(normLCelt):], normRCelt)
 	}

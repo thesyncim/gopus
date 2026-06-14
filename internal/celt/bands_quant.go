@@ -1597,7 +1597,7 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []celtNorm, n, k, spre
 
 	if extraBits >= 2 && extEnc != nil {
 		if xNormBuf != nil {
-			xNorm = ensureNormSlice(xNormBuf, n)
+			xNorm = ensureNormSliceNoClear(xNormBuf, n)
 		} else {
 			xNorm = make([]celtNorm, n)
 		}
@@ -1644,7 +1644,7 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []celtNorm, n, k, spre
 		}
 	} else {
 		if xNormBuf != nil {
-			xNorm = ensureNormSlice(xNormBuf, n)
+			xNorm = ensureNormSliceNoClear(xNormBuf, n)
 		} else {
 			xNorm = make([]celtNorm, n)
 		}
@@ -4028,7 +4028,7 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 	if scratch == nil {
 		norm = make([]celtNorm, channels*normLen)
 	} else {
-		norm = ensureNormSlice(&scratch.norm, channels*normLen)
+		norm = ensureNormSliceNoClear(&scratch.norm, channels*normLen)
 	}
 	var norm2 []celtNorm
 	if channels == 2 {
@@ -4040,7 +4040,7 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 	if scratch == nil {
 		lowbandScratch = make([]celtNorm, maxBand)
 	} else {
-		lowbandScratch = ensureNormSlice(&scratch.lowband, maxBand)
+		lowbandScratch = ensureNormSliceNoClear(&scratch.lowband, maxBand)
 	}
 
 	lowbandOffset := 0
@@ -4314,9 +4314,7 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 	// Use scratch buffers if available
 	if scratch != nil {
 		collapse = scratch.ensureCollapse(channels * maxBands)
-		for i := range collapse {
-			collapse[i] = 0
-		}
+		clear(collapse)
 	} else {
 		collapse = make([]byte, channels*maxBands)
 	}
@@ -4326,10 +4324,8 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 
 	var norm []celtNorm
 	if scratch != nil {
+		// ensureNorm already zero-fills (via ensureNormSlice clear).
 		norm = scratch.ensureNorm(channels * normLen)
-		for i := range norm {
-			norm[i] = 0
-		}
 	} else {
 		norm = make([]celtNorm, channels*normLen)
 	}

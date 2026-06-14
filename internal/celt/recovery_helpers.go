@@ -871,6 +871,48 @@ func pitchXCorrFloat32(x, y, xcorr []float32, length, maxPitch int) {
 	}
 }
 
+// pitchXCorrFloat32Quality is the encoder-only pitch cross-correlation. It
+// mirrors pitchXCorrFloat32 but uses xcorrKernel4Float32Fast (16 independent
+// phase accumulators) for the 4-lag tail instead of the parity-matched serial
+// kernel. The encoder pitch search is quality-gated so the changed accumulation
+// order is safe; parity-sensitive callers (pitchAutocorr5F32, PLC) must use the
+// original pitchXCorrFloat32.
+func pitchXCorrFloat32Quality(x, y, xcorr []float32, length, maxPitch int) {
+	if length <= 0 || maxPitch <= 0 {
+		return
+	}
+	_ = x[length-1]
+	_ = y[maxPitch+length-2]
+	_ = xcorr[maxPitch-1]
+	if libopusFloatPitchXCorrUsesAVX2FMA() {
+		pitchXCorrFloat32AVX2FMAOrder(x, y, xcorr, length, maxPitch)
+		return
+	}
+	if libopusFloatInnerProdUsesSSEOrder {
+		pitchXCorrFloat32SSEOrder(x, y, xcorr, length, maxPitch)
+		return
+	}
+	if pitchXcorrUsesNeonFMA {
+		pitchXCorrFloat32NeonFMA(x, y, xcorr, length, maxPitch)
+		return
+	}
+	i := 0
+	for ; i < maxPitch-7; i += 8 {
+		var sum [8]float32
+		xcorrKernel8Float32(x, y[i:], &sum, length)
+		xcorr[i] = sum[0]; xcorr[i+1] = sum[1]; xcorr[i+2] = sum[2]; xcorr[i+3] = sum[3]
+		xcorr[i+4] = sum[4]; xcorr[i+5] = sum[5]; xcorr[i+6] = sum[6]; xcorr[i+7] = sum[7]
+	}
+	for ; i < maxPitch-3; i += 4 {
+		var sum [4]float32
+		xcorrKernel4Float32Fast(x, y[i:], &sum, length)
+		xcorr[i] = sum[0]; xcorr[i+1] = sum[1]; xcorr[i+2] = sum[2]; xcorr[i+3] = sum[3]
+	}
+	for ; i < maxPitch; i++ {
+		xcorr[i] = innerProdFloat32(x, y[i:], length)
+	}
+}
+
 // pitchXCorrFloat32NeonFMA is the fused arm64 pitch cross-correlation. The
 // 4-lag blocks use the four-phase NEON FMLA kernel; the scalar tail uses
 // celtInnerProd's fused arm64 path so the whole correlation runs

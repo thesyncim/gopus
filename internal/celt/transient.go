@@ -735,41 +735,31 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 			}
 			idx += 4
 
-			yL0 := hp0L + xL0
-			hp00L := hp0L
+			// L and R high-pass filter computations interleaved so the CPU
+			// can overlap their independent chains to hide IIR multiply latency.
+			yL0 := hp0L + xL0; yR0 := hp0R + xR0
+			hp00L := hp0L; hp00R := hp0R
 			hp0L = hp0L - xL0 + hpFeedback*hp1L
-			hp1L = xL0 - hp00L
-
-			yL1 := hp0L + xL1
-			hp00L = hp0L
-			hp0L = hp0L - xL1 + hpFeedback*hp1L
-			hp1L = xL1 - hp00L
-
-			yR0 := hp0R + xR0
-			hp00R := hp0R
 			hp0R = hp0R - xR0 + hpFeedback*hp1R
-			hp1R = xR0 - hp00R
+			hp1L = xL0 - hp00L; hp1R = xR0 - hp00R
 
-			yR1 := hp0R + xR1
-			hp00R = hp0R
+			yL1 := hp0L + xL1; yR1 := hp0R + xR1
+			hp00L = hp0L; hp00R = hp0R
+			hp0L = hp0L - xL1 + hpFeedback*hp1L
 			hp0R = hp0R - xR1 + hpFeedback*hp1R
-			hp1R = xR1 - hp00R
+			hp1L = xL1 - hp00L; hp1R = xR1 - hp00R
 
 			if i < warmupPairs {
-				yL0 = 0
-				yL1 = 0
-				yR0 = 0
-				yR1 = 0
+				yL0, yL1, yR0, yR1 = 0, 0, 0, 0
 			}
 
+			// Energy and masking for both channels interleaved.
 			pairL := yL0*yL0 + yL1*yL1
-			meanL += pairL
-			maskL = pairL + forwardRetain*maskL
-			energy[i] = forwardDecay * maskL
-
 			pairR := yR0*yR0 + yR1*yR1
-			meanR += pairR
+			meanL += pairL; meanR += pairR
+			maskL = pairL + forwardRetain*maskL
 			maskR = pairR + forwardRetain*maskR
+			energy[i] = forwardDecay * maskL
 			energyR[i] = forwardDecay * maskR
 		}
 
@@ -778,15 +768,14 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 		maskR = 0
 		for i := len2 - 1; i >= 0; i-- {
 			maskL = energy[i] + backwardRetain*maskL
+			maskR = energyR[i] + backwardRetain*maskR
 			eiL := backwardScale * maskL
+			eiR := backwardScale * maskR
 			energy[i] = eiL
+			energyR[i] = eiR
 			if eiL > maxEL {
 				maxEL = eiL
 			}
-
-			maskR = energyR[i] + backwardRetain*maskR
-			eiR := backwardScale * maskR
-			energyR[i] = eiR
 			if eiR > maxER {
 				maxER = eiR
 			}

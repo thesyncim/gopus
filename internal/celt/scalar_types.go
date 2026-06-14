@@ -57,11 +57,12 @@ func absSumSig(x []celtSig) opusVal32 {
 	if celtAbsSumUsesNeon {
 		return l1AbsSumNeon(x, len(x))
 	}
-	// Four independent accumulators break the serial add chain; the branch form
-	// for |v| lets the compiler emit a single FABS instruction.
-	var a0, a1, a2, a3 float32
-	for len(x) >= 4 {
+	// Eight independent accumulators: 8 ops/4 dispatch = 2 cycles per 8-element
+	// block, matching the FADD latency so no stall between iterations.
+	var a0, a1, a2, a3, a4, a5, a6, a7 float32
+	for len(x) >= 8 {
 		v0, v1, v2, v3 := x[0], x[1], x[2], x[3]
+		v4, v5, v6, v7 := x[4], x[5], x[6], x[7]
 		if v0 < 0 {
 			v0 = -v0
 		}
@@ -74,11 +75,27 @@ func absSumSig(x []celtSig) opusVal32 {
 		if v3 < 0 {
 			v3 = -v3
 		}
+		if v4 < 0 {
+			v4 = -v4
+		}
+		if v5 < 0 {
+			v5 = -v5
+		}
+		if v6 < 0 {
+			v6 = -v6
+		}
+		if v7 < 0 {
+			v7 = -v7
+		}
 		a0 += v0
 		a1 += v1
 		a2 += v2
 		a3 += v3
-		x = x[4:]
+		a4 += v4
+		a5 += v5
+		a6 += v6
+		a7 += v7
+		x = x[8:]
 	}
 	for _, v := range x {
 		if v < 0 {
@@ -86,7 +103,7 @@ func absSumSig(x []celtSig) opusVal32 {
 		}
 		a0 += v
 	}
-	return opusVal32(a0 + a1 + a2 + a3)
+	return opusVal32((a0 + a1 + a2 + a3) + (a4 + a5 + a6 + a7))
 }
 
 func interleaveSigToFloat32(left, right []celtSig, dst []float32) {
