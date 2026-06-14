@@ -243,6 +243,48 @@ func (d *Decoder) applyDeemphasisAndScale(samples []float32, scale float32) {
 	}
 }
 
+// deemphasisStereoPlanar2StepFused is the fused-build de-emphasis for planar
+// stereo input written to interleaved float32 output. It mirrors the mono
+// 2-step FMADD recurrence (see applyDeemphasisAndScaleMonoFloat32ToFloat32) on
+// each channel: state stays coef*tmp, while the per-sample input term and the
+// state*(scale/coef) output term sit off the recurrence's critical path. The
+// two channels plus each channel's 2-step give four independent FMADD chains.
+// Quality-gated (celtFusedFloat), so the ~1 ULP difference vs the scalar core
+// is permitted exactly as for the mono path; end-to-end quality is held by the
+// opus_compare RFC-conformance gate.
+func deemphasisStereoPlanar2StepFused(dst, left, right []float32, n int, scale, stateL, stateR float32) (float32, float32) {
+	const verySmall float32 = 1e-30
+	const coef float32 = float32(PreemphCoef)
+	outScale := scale / coef
+	c2 := coef * coef
+	i := 0
+	for ; i+1 < n; i += 2 {
+		lc0 := coef * (left[i] + verySmall)
+		lc1 := coef * (left[i+1] + verySmall)
+		lp := coef*lc0 + lc1
+		ls0 := coef*stateL + lc0
+		stateL = c2*stateL + lp
+
+		rc0 := coef * (right[i] + verySmall)
+		rc1 := coef * (right[i+1] + verySmall)
+		rp := coef*rc0 + rc1
+		rs0 := coef*stateR + rc0
+		stateR = c2*stateR + rp
+
+		dst[2*i] = ls0 * outScale
+		dst[2*i+1] = rs0 * outScale
+		dst[2*i+2] = stateL * outScale
+		dst[2*i+3] = stateR * outScale
+	}
+	for ; i < n; i++ {
+		stateL = coef*stateL + coef*(left[i]+verySmall)
+		stateR = coef*stateR + coef*(right[i]+verySmall)
+		dst[2*i] = stateL * outScale
+		dst[2*i+1] = stateR * outScale
+	}
+	return stateL, stateR
+}
+
 func (d *Decoder) applyDeemphasisAndScaleStereoPlanarToFloat32(dst []float32, left, right []float32, scale float32) {
 	n := len(left)
 	if len(right) < n {
@@ -283,7 +325,11 @@ func (d *Decoder) applyDeemphasisAndScaleStereoPlanarToFloat32(dst []float32, le
 	const coef float32 = float32(PreemphCoef)
 	stateL := d.preemphState[0]
 	stateR := d.preemphState[1]
-	stateL, stateR = deemphasisStereoPlanarF32Core(dst, left, right, n, scale, stateL, stateR, coef, verySmall)
+	if celtFusedFloat {
+		stateL, stateR = deemphasisStereoPlanar2StepFused(dst, left, right, n, scale, stateL, stateR)
+	} else {
+		stateL, stateR = deemphasisStereoPlanarF32Core(dst, left, right, n, scale, stateL, stateR, coef, verySmall)
+	}
 
 	d.preemphState[0] = stateL
 	d.preemphState[1] = stateR
@@ -322,6 +368,38 @@ func (d *Decoder) applyDeemphasisAndScaleMonoFloat32ToFloat32(dst []float32, sam
 	state := d.preemphState[0]
 	_ = samples[n-1]
 	_ = dst[n-1]
+
+	if celtFusedFloat {
+		// Quality-gated fused build: rewrite the de-emphasis IIR so the
+		// recurrence is a single FMADD instead of the bit-exact build's
+		// FADD-then-FMUL barrier chain. state stays coef*tmp (so cross-frame
+		// continuity is preserved); the per-sample input term coef*(x+verySmall)
+		// and the output term state*(scale/coef) are off the recurrence's
+		// critical path. The 2-step (coef^2) form keeps only one FMADD on the
+		// serial path per pair of samples. Algebraically identical; differs by
+		// ~1 ULP, which the fused build's opus_compare gate (not bit-exact
+		// oracle, see requireBitExactFloat) allows.
+		outScale := scale / coef
+		c2 := coef * coef
+		i := 0
+		for ; i+1 < n; i += 2 {
+			cxv0 := coef * (samples[i] + verySmall)
+			cxv1 := coef * (samples[i+1] + verySmall)
+			p := coef*cxv0 + cxv1
+			s0 := coef*state + cxv0
+			state = c2*state + p
+			dst[i] = s0 * outScale
+			dst[i+1] = state * outScale
+		}
+		for ; i < n; i++ {
+			cxv := coef * (samples[i] + verySmall)
+			state = coef*state + cxv
+			dst[i] = state * outScale
+		}
+		d.preemphState[0] = state
+		return
+	}
+
 	i := 0
 	for ; i+7 < n; i += 8 {
 		tmp0 := samples[i] + verySmall + state
@@ -421,7 +499,11 @@ func (d *Decoder) applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(dst []floa
 	const coef float32 = float32(PreemphCoef)
 	stateL := d.preemphState[0]
 	stateR := d.preemphState[1]
-	stateL, stateR = deemphasisStereoPlanarF32Core(dst, left, right, n, scale, stateL, stateR, coef, verySmall)
+	if celtFusedFloat {
+		stateL, stateR = deemphasisStereoPlanar2StepFused(dst, left, right, n, scale, stateL, stateR)
+	} else {
+		stateL, stateR = deemphasisStereoPlanarF32Core(dst, left, right, n, scale, stateL, stateR, coef, verySmall)
+	}
 
 	d.preemphState[0] = stateL
 	d.preemphState[1] = stateR

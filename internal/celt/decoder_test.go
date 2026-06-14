@@ -328,6 +328,20 @@ func TestApplyDeemphasisAndScaleMonoFloat32ToFloat32MatchesInterleaved(t *testin
 	current.applyDeemphasisAndScaleMonoFloat32ToFloat32(got, samplesF32, 1.0/32768.0)
 	legacy.applyDeemphasisAndScaleToFloat32(want, samplesF32, 1.0/32768.0)
 
+	if celtFusedFloat {
+		// The fused arm64 default build runs the mono de-emphasis IIR as an
+		// FMADD recurrence (quality-gated, not bit-exact with the generic
+		// path) — the same posture requireBitExactFloat documents. Assert the
+		// outputs stay far below an int16 LSB (3.05e-5) apart instead.
+		const tol = 1e-5
+		for i := range want {
+			if d := math.Abs(float64(got[i]) - float64(want[i])); d > tol {
+				t.Fatalf("sample %d diverged by %.3e (> %.0e): got=%08x want=%08x", i, d, tol, math.Float32bits(got[i]), math.Float32bits(want[i]))
+			}
+		}
+		return
+	}
+
 	for i := range want {
 		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 			t.Fatalf("sample %d mismatch: got=%08x want=%08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
