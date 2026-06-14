@@ -64,9 +64,8 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 		hist := e.prefilterMem[:maxPeriod]
 		preCh := pre[:perChanLen]
 		copy(preCh[:maxPeriod], hist)
-		for i := range frameSize {
-			preCh[maxPeriod+i] = celtSig(preemph[i])
-		}
+		// celtSig is a float32 alias, so the per-sample copy is a plain memmove.
+		copy(preCh[maxPeriod:maxPeriod+frameSize], preemph[:frameSize])
 	} else {
 		histL := e.prefilterMem[:maxPeriod]
 		histR := e.prefilterMem[maxPeriod : 2*maxPeriod]
@@ -454,7 +453,7 @@ func pitchDownsampleSig(x []celtSig, xLP []float32, length, channels, factor int
 			xLP[0] = firQuarter*float32(x[1]) + firHalf*float32(x[0])
 			if length > 1 && len(x) >= 2*length {
 				src := x[:2*length]
-				win := src[1:]  // win[0]=x[2i-1], win[1]=x[2i], win[2]=x[2i+1] at i=1
+				win := src[1:] // win[0]=x[2i-1], win[1]=x[2i], win[2]=x[2i+1] at i=1
 				dst := xLP[1:length]
 				// 4-output unroll: consecutive outputs share y[2i+1]=y[2(i+1)-1],
 				// reducing loads from 12 to 9 per 4 outputs.

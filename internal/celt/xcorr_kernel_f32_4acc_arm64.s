@@ -39,14 +39,15 @@ block4:
 	VLD1.P 16(R4), [V7.S4] // y[i+2:i+6]
 	VLD1.P 16(R5), [V8.S4] // y[i+3:i+7]
 
-	VDUP  V4.S[0], V16.S4
-	VFMLA V16.S4, V5.S4, V0.S4
-	VDUP  V4.S[1], V17.S4
-	VFMLA V17.S4, V6.S4, V1.S4
-	VDUP  V4.S[2], V18.S4
-	VFMLA V18.S4, V7.S4, V2.S4
-	VDUP  V4.S[3], V19.S4
-	VFMLA V19.S4, V8.S4, V3.S4
+	// Lane-indexed FMLA: acc_k += y_window_k * x[k], reading the x lane
+	// directly so the four VDUP broadcasts are dropped (8 vector ops -> 4) on
+	// this load/vector-bound kernel. The Go assembler has no element-indexed
+	// FMLA mnemonic, so these are WORD-encoded (FMLA Vd.4S, Vn.4S, Vm.S[lane]);
+	// bit-identical to the VDUP form and guarded by xcorrKernel4Float32FourAccRef.
+	WORD $0x4f8410a0 // FMLA V0.4S, V5.4S, V4.S[0]
+	WORD $0x4fa410c1 // FMLA V1.4S, V6.4S, V4.S[1]
+	WORD $0x4f8418e2 // FMLA V2.4S, V7.4S, V4.S[2]
+	WORD $0x4fa41903 // FMLA V3.4S, V8.4S, V4.S[3]
 
 	SUB $4, R6
 	CMP $4, R6

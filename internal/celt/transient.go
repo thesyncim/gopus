@@ -536,35 +536,78 @@ func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, all
 		backwardScale  = float32(0.125)
 		warmupPairs    = 6
 	)
-	var hp0, hp1 float32
 	var mask float32
 	mean := float32(0)
 	src := pcm[:samplesPerChannel]
 	_ = src[2*len2-1]
-	for i := range len2 {
-		j := i << 1
 
-		x0 := src[j]
-		y0 := hp0 + x0
-		hp00 := hp0
-		hp0 = hp0 - x0 + hpFeedback*hp1
-		hp1 = x0 - hp00
+	if celtFusedFloat {
+		// Numerically-equivalent reform of the libopus high-pass filter. The
+		// reference form per sample is
+		//     y = a + x ; a' = a - x + hpFeedback*b ; b' = x - a
+		// which serializes as FSUB->FMADD on the (a,b) state. Substituting
+		// b_n = x_{n-1} - a_{n-1} collapses it to a single second-order
+		// recurrence whose input term is state-independent:
+		//     a_{n+1} = a_n + ((hpFeedback*x_{n-1} - x_n) - hpFeedback*a_{n-1})
+		// leaving one add on the critical path instead of two ops, ~2x shorter.
+		// The (hp0,hp1) state is frame-local (reset each call), so only the y
+		// sequence must match; it does within ~1 ULP, which the quality-gated
+		// fused build allows (same posture as the decode de-emphasis reform).
+		var a, aPrev, xPrev float32
+		for i := range len2 {
+			j := i << 1
 
-		x1 := src[j+1]
-		y1 := hp0 + x1
-		hp00 = hp0
-		hp0 = hp0 - x1 + hpFeedback*hp1
-		hp1 = x1 - hp00
+			x0 := src[j]
+			term0 := (hpFeedback*xPrev - x0) - hpFeedback*aPrev
+			y0 := a + x0
+			aPrev = a
+			a = a + term0
+			xPrev = x0
 
-		if i < warmupPairs {
-			y0 = 0
-			y1 = 0
+			x1 := src[j+1]
+			term1 := (hpFeedback*xPrev - x1) - hpFeedback*aPrev
+			y1 := a + x1
+			aPrev = a
+			a = a + term1
+			xPrev = x1
+
+			if i < warmupPairs {
+				y0 = 0
+				y1 = 0
+			}
+
+			pair := y0*y0 + y1*y1
+			mean += pair
+			mask = pair + forwardRetain*mask
+			energy[i] = forwardDecay * mask
 		}
+	} else {
+		var hp0, hp1 float32
+		for i := range len2 {
+			j := i << 1
 
-		pair := y0*y0 + y1*y1
-		mean += pair
-		mask = pair + forwardRetain*mask
-		energy[i] = forwardDecay * mask
+			x0 := src[j]
+			y0 := hp0 + x0
+			hp00 := hp0
+			hp0 = hp0 - x0 + hpFeedback*hp1
+			hp1 = x0 - hp00
+
+			x1 := src[j+1]
+			y1 := hp0 + x1
+			hp00 = hp0
+			hp0 = hp0 - x1 + hpFeedback*hp1
+			hp1 = x1 - hp00
+
+			if i < warmupPairs {
+				y0 = 0
+				y1 = 0
+			}
+
+			pair := y0*y0 + y1*y1
+			mean += pair
+			mask = pair + forwardRetain*mask
+			energy[i] = forwardDecay * mask
+		}
 	}
 
 	var maxE float32
