@@ -1278,23 +1278,35 @@ func seededZeroPulseResynth(x []celtNorm, lowband []celtNorm, seed *uint32, gain
 	_ = x[n-1]
 
 	seedVal := *seed
+	// Parallelize the LCG (s = s*A + C). uint32-modular arithmetic is exactly
+	// associative, so the four taps of an unrolled step can each be expressed
+	// from the step-entry seed via precomputed A^k (bit-identical to the serial
+	// chain), leaving only A^4 on the dependency chain (~4x shorter) and letting
+	// the per-element float conversions pipeline. Powers are runtime vars because
+	// A*A overflows a typed uint32 const.
+	lcgA := uint32(1664525)
+	lcgC := uint32(1013904223)
+	a2 := lcgA * lcgA
+	a3 := a2 * lcgA
+	a4 := a3 * lcgA
+	c2 := lcgA*lcgC + lcgC
+	c3 := lcgA*c2 + lcgC
+	c4 := lcgA*c3 + lcgC
 	if lowband == nil {
 		i := 0
 		for ; i+3 < n; i += 4 {
-			seedVal = seedVal*1664525 + 1013904223
-			x[i] = celtNorm(float32(int32(seedVal) >> 20))
-
-			seedVal = seedVal*1664525 + 1013904223
-			x[i+1] = celtNorm(float32(int32(seedVal) >> 20))
-
-			seedVal = seedVal*1664525 + 1013904223
-			x[i+2] = celtNorm(float32(int32(seedVal) >> 20))
-
-			seedVal = seedVal*1664525 + 1013904223
-			x[i+3] = celtNorm(float32(int32(seedVal) >> 20))
+			s1 := lcgA*seedVal + lcgC
+			s2 := a2*seedVal + c2
+			s3 := a3*seedVal + c3
+			s4 := a4*seedVal + c4
+			x[i] = celtNorm(float32(int32(s1) >> 20))
+			x[i+1] = celtNorm(float32(int32(s2) >> 20))
+			x[i+2] = celtNorm(float32(int32(s3) >> 20))
+			x[i+3] = celtNorm(float32(int32(s4) >> 20))
+			seedVal = s4
 		}
 		for ; i < n; i++ {
-			seedVal = seedVal*1664525 + 1013904223
+			seedVal = seedVal*lcgA + lcgC
 			x[i] = celtNorm(float32(int32(seedVal) >> 20))
 		}
 		*seed = seedVal
@@ -1310,20 +1322,18 @@ func seededZeroPulseResynth(x []celtNorm, lowband []celtNorm, seed *uint32, gain
 	const foldNoise = 1.0 / 256.0
 	i := 0
 	for ; i+3 < n; i += 4 {
-		seedVal = seedVal*1664525 + 1013904223
-		x[i] = celtNorm(float32(lowband[i]) + float32(foldNoise)*float32(int32(((seedVal>>15)&1)<<1)-1))
-
-		seedVal = seedVal*1664525 + 1013904223
-		x[i+1] = celtNorm(float32(lowband[i+1]) + float32(foldNoise)*float32(int32(((seedVal>>15)&1)<<1)-1))
-
-		seedVal = seedVal*1664525 + 1013904223
-		x[i+2] = celtNorm(float32(lowband[i+2]) + float32(foldNoise)*float32(int32(((seedVal>>15)&1)<<1)-1))
-
-		seedVal = seedVal*1664525 + 1013904223
-		x[i+3] = celtNorm(float32(lowband[i+3]) + float32(foldNoise)*float32(int32(((seedVal>>15)&1)<<1)-1))
+		s1 := lcgA*seedVal + lcgC
+		s2 := a2*seedVal + c2
+		s3 := a3*seedVal + c3
+		s4 := a4*seedVal + c4
+		x[i] = celtNorm(float32(lowband[i]) + float32(foldNoise)*float32(int32(((s1>>15)&1)<<1)-1))
+		x[i+1] = celtNorm(float32(lowband[i+1]) + float32(foldNoise)*float32(int32(((s2>>15)&1)<<1)-1))
+		x[i+2] = celtNorm(float32(lowband[i+2]) + float32(foldNoise)*float32(int32(((s3>>15)&1)<<1)-1))
+		x[i+3] = celtNorm(float32(lowband[i+3]) + float32(foldNoise)*float32(int32(((s4>>15)&1)<<1)-1))
+		seedVal = s4
 	}
 	for ; i < n; i++ {
-		seedVal = seedVal*1664525 + 1013904223
+		seedVal = seedVal*lcgA + lcgC
 		x[i] = celtNorm(float32(lowband[i]) + float32(foldNoise)*float32(int32(((seedVal>>15)&1)<<1)-1))
 	}
 	*seed = seedVal
