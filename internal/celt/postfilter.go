@@ -1050,10 +1050,6 @@ func combFilterWithInputSig(dst, src []celtSig, start int, t0, t1, n int, g0, g1
 	srcFrame := src[start:]
 	dstFrame := dst[start:]
 	delay1 := src[start-t1-2:]
-	x1 := float32(delay1[3])
-	x2 := float32(delay1[2])
-	x3 := float32(delay1[1])
-	x4 := float32(delay1[0])
 	var delay0 []celtSig
 
 	if g0 == g1 && t0 == t1 && tapset0 == tapset1 {
@@ -1062,25 +1058,23 @@ func combFilterWithInputSig(dst, src []celtSig, start int, t0, t1, n int, g0, g1
 		delay0 = src[start-t0-2:]
 	}
 
+	// Reading delay1[i..i+4] directly per iteration instead of carrying
+	// a shift register removes 4 serial moves and lets the compiler reorder
+	// the FP work freely. The loop is short (~overlap) so unrolling is
+	// unnecessary; ILP comes from the 6 independent FMUL chains in `sum`.
 	i := 0
 	for ; i < overlap; i++ {
 		w := window[i]
 		f := noFMA32Mul(w, w)
 		oneMinus := float32(1.0) - f
-		x0 := float32(delay1[i+4])
 		sum := float32(srcFrame[i]) +
 			(oneMinus*g00)*float32(delay0[i+2]) +
 			(oneMinus*g01)*(float32(delay0[i+3])+float32(delay0[i+1])) +
 			(oneMinus*g02)*(float32(delay0[i+4])+float32(delay0[i])) +
-			(f*g10)*x2 +
-			(f*g11)*(x1+x3) +
-			(f*g12)*(x0+x4)
+			(f*g10)*float32(delay1[i+2]) +
+			(f*g11)*(float32(delay1[i+3])+float32(delay1[i+1])) +
+			(f*g12)*(float32(delay1[i+4])+float32(delay1[i]))
 		dstFrame[i] = celtSig(sum)
-
-		x4 = x3
-		x3 = x2
-		x2 = x1
-		x1 = x0
 	}
 
 	if g1 == 0 {
