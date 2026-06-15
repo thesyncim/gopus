@@ -845,12 +845,20 @@ func removeDoubling(x []float32, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 	yyLookup := ensureFloat32Slice(&scratch.prefilterYYLookup, maxPeriod+1)
 	yy := xx
 	yyLookup[0] = yy
-	for i := 1; i <= maxPeriod; i++ {
-		v1 := xBase[maxPeriod-i]
-		v2 := xBase[maxPeriod+N-i]
+	// Hoist the two descending input windows into fixed-length slices so the
+	// per-iteration index is provably in range, dropping three bounds checks
+	// per iteration on this maxPeriod-long critical loop. Bit-exact.
+	v1s := xBase[:maxPeriod]
+	v2s := xBase[N : N+maxPeriod]
+	yl := yyLookup[:maxPeriod+1]
+	// idx descends (== i ascending) so the loop counter is directly provable
+	// in [0,maxPeriod), preserving the exact yy accumulation order.
+	for idx := maxPeriod - 1; idx >= 0; idx-- {
+		v1 := v1s[idx]
+		v2 := v2s[idx]
 		yy += v1 * v1
 		yy -= v2 * v2
-		yyLookup[i] = maxFloat32(0, yy)
+		yl[maxPeriod-idx] = maxFloat32(0, yy)
 	}
 
 	yy = yyLookup[T0val]
