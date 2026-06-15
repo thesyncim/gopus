@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/thesyncim/gopus/internal/arena"
 	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/encoder"
@@ -133,7 +134,7 @@ type Encoder struct {
 	// assembly. The arena slices coexist until the final packet copy but never
 	// escape the assemble call.
 	packetParser  packetScratch
-	assembleArena []byte
+	assembleArena arena.Bump[byte]
 }
 
 const surroundBands = 21
