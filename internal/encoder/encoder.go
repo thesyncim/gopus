@@ -42,6 +42,7 @@ import (
 	"errors"
 	"math"
 
+	"github.com/thesyncim/gopus/internal/arena"
 	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/extsupport"
@@ -279,6 +280,10 @@ type Encoder struct {
 	silkMonoInputHist   [2]float32
 	scratchSilkAligned  []float32
 
+	// scratchF32 backs the four max-size preallocated float32 work buffers
+	// (scratchPCM32/Left/Right/Mono) with one contiguous allocation; see NewEncoder.
+	scratchF32 arena.Bump[float32]
+
 	// Scratch buffers for zero-allocation encoding
 	scratchDCPCM     []opusRes // DC rejected PCM buffer
 	scratchInputPCM  []opusRes // Public PCM rounded into the libopus opus_res domain
@@ -320,7 +325,7 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 	}
 	maxSamples := 5760 * channels
 
-	return &Encoder{
+	e := &Encoder{
 		mode:                   ModeAuto,
 		bandwidth:              types.BandwidthFullband,
 		sampleRate:             int32(sampleRate),
@@ -346,10 +351,6 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		predictionDisabled:     false,
 		phaseInversionDisabled: false,
 		analyzer:               NewTonalityAnalysisState(sampleRate),
-		scratchPCM32:           make([]float32, maxSamples),
-		scratchLeft:            make([]float32, maxSamples),
-		scratchRight:           make([]float32, maxSamples),
-		scratchMono:            make([]float32, maxSamples),
 		scratchPacket:          make([]byte, defaultScratchPacketBytes),
 		prevMode:               ModeAuto,
 		prevPacketMode:         ModeAuto,
@@ -362,6 +363,13 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		autoBandwidth:          types.BandwidthFullband,
 		first:                  true,
 	}
+	// Back the four max-size float32 work buffers with one contiguous arena.
+	e.scratchF32.Ensure(4 * maxSamples)
+	e.scratchPCM32 = e.scratchF32.AllocN(maxSamples)
+	e.scratchLeft = e.scratchF32.AllocN(maxSamples)
+	e.scratchRight = e.scratchF32.AllocN(maxSamples)
+	e.scratchMono = e.scratchF32.AllocN(maxSamples)
+	return e
 }
 
 // SetMode sets the encoding mode.
