@@ -4531,6 +4531,7 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 					// Save original input data - use scratch if available
 					var xSave, ySave []celtNorm
 					if scratch != nil {
+						scratch.ensureThetaArena()
 						xSave = scratch.ensureXSave(nBand)
 						ySave = scratch.ensureYSave(nBand)
 					} else {

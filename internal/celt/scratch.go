@@ -1,6 +1,9 @@
 package celt
 
-import "github.com/thesyncim/gopus/internal/rangecoding"
+import (
+	"github.com/thesyncim/gopus/internal/arena"
+	"github.com/thesyncim/gopus/internal/rangecoding"
+)
 
 func ensureInt32Slice(buf *[]int32, n int) []int32 {
 	if n < 0 {
@@ -114,7 +117,15 @@ type bandEncodeScratch struct {
 	norm           []celtNorm
 	lowbandScratch []celtNorm
 
-	// Theta RDO buffers (for stereo encoding)
+	// Theta RDO buffers (for stereo encoding).
+	// These eight per-band celtNorm scratch slices are all live simultaneously
+	// within a single band's theta-RDO and each is bounded by maxBandWidth.
+	// thetaBump backs all eight with one contiguous allocation so they sit in
+	// the same cache region (and cost one alloc, not eight). Each ensure* below
+	// still reslices/clears its own slot independently, so semantics are
+	// unchanged; a band wider than maxBandWidth (custom modes) simply makes a
+	// fresh slice in that slot, identical to before.
+	thetaBump   arena.Bump[celtNorm]
 	xSave       []celtNorm
 	ySave       []celtNorm
 	normSave    []celtNorm
@@ -161,6 +172,27 @@ func (s *bandEncodeScratch) ensureNorm(n int) []celtNorm {
 // ensureLowbandScratch returns a pre-allocated lowband scratch buffer.
 func (s *bandEncodeScratch) ensureLowbandScratch(n int) []celtNorm {
 	return ensureNormSlice(&s.lowbandScratch, n)
+}
+
+// ensureThetaArena lazily backs the eight per-band theta-RDO celtNorm slots
+// with a single contiguous allocation, carving one maxBandWidth-sized slot per
+// field. Each slot keeps cap == maxBandWidth so the per-field ensure* helpers
+// reslice/clear within it exactly as they would a standalone buffer.
+// Idempotent: only allocates on the first call.
+func (s *bandEncodeScratch) ensureThetaArena() {
+	const slots = 8
+	if s.thetaBump.Cap() >= slots*maxBandWidth {
+		return
+	}
+	s.thetaBump.Ensure(slots * maxBandWidth)
+	s.xSave = s.thetaBump.Alloc(maxBandWidth)
+	s.ySave = s.thetaBump.Alloc(maxBandWidth)
+	s.normSave = s.thetaBump.Alloc(maxBandWidth)
+	s.xResult0 = s.thetaBump.Alloc(maxBandWidth)
+	s.yResult0 = s.thetaBump.Alloc(maxBandWidth)
+	s.normResult0 = s.thetaBump.Alloc(maxBandWidth)
+	s.thetaX = s.thetaBump.Alloc(maxBandWidth)
+	s.thetaY = s.thetaBump.Alloc(maxBandWidth)
 }
 
 // ensureXSave returns a pre-allocated buffer for saving X during theta RDO.

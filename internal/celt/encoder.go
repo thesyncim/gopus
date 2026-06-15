@@ -1513,12 +1513,11 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.bandEncode.norm = ensureNormSliceNoClear(&s.bandEncode.norm, channels*normLen)
 	maxBand := 8 * (EBands[MaxBands] - EBands[MaxBands-1])
 	s.bandEncode.lowbandScratch = ensureNormSliceNoClear(&s.bandEncode.lowbandScratch, maxBand)
-	s.bandEncode.xSave = ensureNormSliceNoClear(&s.bandEncode.xSave, maxBandWidth)
-	s.bandEncode.ySave = ensureNormSliceNoClear(&s.bandEncode.ySave, maxBandWidth)
-	s.bandEncode.normSave = ensureNormSliceNoClear(&s.bandEncode.normSave, maxBandWidth)
-	s.bandEncode.xResult0 = ensureNormSliceNoClear(&s.bandEncode.xResult0, maxBandWidth)
-	s.bandEncode.yResult0 = ensureNormSliceNoClear(&s.bandEncode.yResult0, maxBandWidth)
-	s.bandEncode.normResult0 = ensureNormSliceNoClear(&s.bandEncode.normResult0, maxBandWidth)
+	// Back the eight per-band theta-RDO celtNorm slots with one contiguous
+	// arena (single alloc, shared cache region) instead of eight independent
+	// buffers. Each slot keeps cap == maxBandWidth, so the per-field ensure*
+	// helpers behave identically.
+	s.bandEncode.ensureThetaArena()
 	s.bandEncode.pvqSignx = ensureByteSlice(&s.bandEncode.pvqSignx, maxPVQN)
 	s.bandEncode.pvqY = ensureFloat32Slice(&s.bandEncode.pvqY, maxPVQN)
 	s.bandEncode.pvqAbsX = ensureFloat32Slice(&s.bandEncode.pvqAbsX, maxPVQN)
