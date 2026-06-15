@@ -28,9 +28,7 @@ type Bump[T any] struct {
 // when the backing is reused (the common steady-state path) it produces no
 // garbage. Call Ensure once before a run of Alloc calls.
 func (b *Bump[T]) Ensure(total int) {
-	if total < 0 {
-		total = 0
-	}
+	total = max(total, 0)
 	if cap(b.buf) < total {
 		b.buf = make([]T, total)
 	} else {
@@ -51,10 +49,20 @@ func (b *Bump[T]) Ensure(total int) {
 // Alloc panics if the carves overrun the Ensure'd total, which surfaces an
 // under-sized Ensure immediately rather than corrupting an adjacent slot.
 func (b *Bump[T]) Alloc(n int) []T {
-	if n < 0 {
-		n = 0
-	}
+	n = max(n, 0)
 	s := b.buf[b.off : b.off : b.off+n]
+	b.off += n
+	return s
+}
+
+// AllocN carves the next n elements and returns them as buf[off:off+n:off+n] — a
+// slice with length n and capacity n. Use this for buffers that are used at their
+// full carved length without going through a resize/ensure helper. The elements
+// retain whatever the backing held (zero on a fresh backing), matching make().
+// Like Alloc, it panics if the carves overrun the Ensure'd total.
+func (b *Bump[T]) AllocN(n int) []T {
+	n = max(n, 0)
+	s := b.buf[b.off : b.off+n : b.off+n]
 	b.off += n
 	return s
 }

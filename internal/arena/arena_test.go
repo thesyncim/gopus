@@ -118,6 +118,30 @@ func TestBumpOverrunPanics(t *testing.T) {
 	_ = b.Alloc(4) // 3+4 > 5 -> must panic
 }
 
+func TestBumpAllocN(t *testing.T) {
+	var b Bump[int16]
+	b.Ensure(8)
+	a := b.AllocN(3)
+	c := b.AllocN(5)
+	if len(a) != 3 || cap(a) != 3 {
+		t.Fatalf("a: got len=%d cap=%d, want 3/3", len(a), cap(a))
+	}
+	if len(c) != 5 || cap(c) != 5 {
+		t.Fatalf("c: got len=%d cap=%d, want 5/5", len(c), cap(c))
+	}
+	for i := range a {
+		a[i] = 1
+	}
+	for i := range c {
+		c[i] = 2
+	}
+	for i := range a {
+		if a[i] != 1 {
+			t.Fatalf("a[%d]=%d: AllocN slot overlap", i, a[i])
+		}
+	}
+}
+
 // Generic over a non-float element type.
 func TestBumpInt32(t *testing.T) {
 	var b Bump[int32]
