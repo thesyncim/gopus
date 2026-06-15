@@ -45,10 +45,7 @@ func TestDecodeLibopusPacket(t *testing.T) {
 	dec := celt.NewDecoder(2)
 	offset := 0
 	totalFrames := 0
-	maxFrames := 120
-	if len(packets) < maxFrames {
-		maxFrames = len(packets)
-	}
+	maxFrames := min(len(packets), 120)
 
 	for i := 0; i < maxFrames; i++ {
 		p := packets[i]

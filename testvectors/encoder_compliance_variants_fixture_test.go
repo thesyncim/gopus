@@ -612,10 +612,7 @@ func packetMode(pkt []byte) string {
 }
 
 func computeEncoderPacketProfileStats(libPackets, goPackets [][]byte) encoderPacketProfileStats {
-	n := len(libPackets)
-	if len(goPackets) < n {
-		n = len(goPackets)
-	}
+	n := min(len(goPackets), len(libPackets))
 	if n == 0 {
 		return encoderPacketProfileStats{}
 	}
@@ -665,10 +662,7 @@ func computeEncoderPacketProfileStats(libPackets, goPackets [][]byte) encoderPac
 }
 
 func packetPayloadMismatchStats(libPackets, goPackets [][]byte) (mismatches int, compared int, firstMismatch int) {
-	n := len(libPackets)
-	if len(goPackets) < n {
-		n = len(goPackets)
-	}
+	n := min(len(goPackets), len(libPackets))
 	firstMismatch = -1
 	for i := 0; i < n; i++ {
 		compared++
@@ -853,10 +847,7 @@ func qualityFromPacketsLibopusReferenceDetailed(packets [][]byte, original []flo
 	if len(decoded) == 0 {
 		return packetQualityResult{}, fmt.Errorf("no decoded samples")
 	}
-	compareLen := len(original)
-	if len(decoded) < compareLen {
-		compareLen = len(decoded)
-	}
+	compareLen := min(len(decoded), len(original))
 	// Route Q (and the delay search) through the canonical quality comparator so
 	// there is a single comparator path. CompareDecodedFloat32 wraps the same
 	// ComputeOpusCompareQualityFloat32WithDelay core on identical truncated PCM,

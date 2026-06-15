@@ -197,7 +197,7 @@ func compareAntiCollapseOutput(t *testing.T, name string, signalGen func(int) []
 	sumSquaredErr := float64(0)
 	sumSignal := float64(0)
 
-	for i := 0; i < minLen; i++ {
+	for i := range minLen {
 		diff := math.Abs(float64(gopusDecoded[i] - libopusDecoded[i]))
 		if diff > maxDiff {
 			maxDiff = diff

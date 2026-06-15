@@ -617,9 +617,7 @@ func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, all
 		mask = energy[i] + backwardRetain*mask
 		ei := backwardScale * mask
 		energy[i] = ei
-		if ei > maxE {
-			maxE = ei
-		}
+		maxE = max(maxE, ei)
 	}
 
 	meanGeom := opusmath.SqrtF32(mean * maxE * float32(0.5*float32(len2)))
@@ -629,10 +627,7 @@ func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, all
 	const epsF32 = float32(1e-15)
 	var unmask int
 	for i := 12; i < len2-5; i += 4 {
-		id := int(normE * (energy[i] + epsF32))
-		if id > 127 {
-			id = 127
-		}
+		id := min(int(normE*(energy[i]+epsF32)), 127)
 		unmask += transientInvTable[id]
 	}
 
@@ -816,12 +811,10 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 			eiR := backwardScale * maskR
 			energy[i] = eiL
 			energyR[i] = eiR
-			if eiL > maxEL {
-				maxEL = eiL
-			}
-			if eiR > maxER {
-				maxER = eiR
-			}
+			// Branchless running max (FMAXS): bit-identical for these non-negative
+			// finite energies, avoids a per-sample data-dependent branch.
+			maxEL = max(maxEL, eiL)
+			maxER = max(maxER, eiR)
 		}
 
 		const epsilon = 1e-15
@@ -831,16 +824,10 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 		const epsF32 = float32(1e-15)
 		var unmaskL, unmaskR int
 		for i := 12; i < len2-5; i += 4 {
-			idL := int(normEL * (energy[i] + epsF32))
-			if idL > 127 {
-				idL = 127
-			}
+			idL := min(int(normEL*(energy[i]+epsF32)), 127)
 			unmaskL += transientInvTable[idL]
 
-			idR := int(normER * (energyR[i] + epsF32))
-			if idR > 127 {
-				idR = 127
-			}
+			idR := min(int(normER*(energyR[i]+epsF32)), 127)
 			unmaskR += transientInvTable[idR]
 		}
 
@@ -958,9 +945,7 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 			mask = energy[i] + backwardRetain*mask
 			ei := backwardScale * mask
 			energy[i] = ei
-			if ei > maxE {
-				maxE = ei
-			}
+			maxE = max(maxE, ei)
 		}
 
 		// Compute frame energy as geometric mean of mean and max
@@ -979,10 +964,7 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 			// Map energy to table index
 			// For non-negative values, int(x) truncates toward zero which equals floor.
 			// energy[i] + epsilon is always >= 0, so int() is equivalent to math.Floor.
-			id := int(normE * (energy[i] + epsF32))
-			if id > 127 {
-				id = 127
-			}
+			id := min(int(normE*(energy[i]+epsF32)), 127)
 			unmask += transientInvTable[id]
 		}
 

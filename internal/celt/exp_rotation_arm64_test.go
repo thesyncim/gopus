@@ -20,7 +20,7 @@ func TestExpRotation1StrideNeonBitExact(t *testing.T) {
 		{21, 4}, {23, 5}, {47, 7}, {9, 4}, {8, 4}, {175, 13},
 	}
 	for _, s := range shapes {
-		for trial := 0; trial < 8; trial++ {
+		for trial := range 8 {
 			c := opusVal16(rng.Float32()*2 - 1)
 			sn := opusVal16(rng.Float32()*2 - 1)
 			x := make([]celtNorm, s.length)

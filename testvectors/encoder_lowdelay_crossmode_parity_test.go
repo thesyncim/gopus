@@ -432,10 +432,7 @@ func runLDParityCase(t *testing.T, tc ldMatrixCase, helperPath string) {
 		got := gotPackets[fi]
 		want := refResults[fi].data
 		first := -1
-		limit := len(got)
-		if len(want) < limit {
-			limit = len(want)
-		}
+		limit := min(len(want), len(got))
 		for j := 0; j < limit; j++ {
 			if got[j] != want[j] {
 				first = j

@@ -66,10 +66,7 @@ func TestStereoCouplingVsLibopus(t *testing.T) {
 	var sumSNR float64
 
 	// Process first 100 frames for detailed comparison
-	maxFrames := 100
-	if len(packets) < maxFrames {
-		maxFrames = len(packets)
-	}
+	maxFrames := min(len(packets), 100)
 
 	offset := 0
 	for i := 0; i < maxFrames; i++ {
@@ -124,10 +121,7 @@ func TestStereoCouplingVsLibopus(t *testing.T) {
 			// Log details for first few failing frames
 			t.Logf("Frame %d: maxDiff=%.2e, SNR=%.1f dB", i, frameDiff, snr)
 			// Show first few samples
-			showLen := 16
-			if len(goSamples) < showLen {
-				showLen = len(goSamples)
-			}
+			showLen := min(len(goSamples), 16)
 			goPreview := make([]float32, showLen)
 			for k := 0; k < showLen; k++ {
 				goPreview[k] = quantizeTo16(goSamples[k])
@@ -227,10 +221,7 @@ func TestStereoCouplingTestvector07(t *testing.T) {
 		len(allDecoded), monoCount, stereoCount)
 
 	// Compare with reference
-	compareLen := len(allDecoded)
-	if len(refSamples) < compareLen {
-		compareLen = len(refSamples)
-	}
+	compareLen := min(len(refSamples), len(allDecoded))
 
 	// Compute quality metrics
 	var signalPower, errorPower float64

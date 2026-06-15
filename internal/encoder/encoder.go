@@ -42,6 +42,7 @@ import (
 	"errors"
 	"math"
 
+	"github.com/thesyncim/gopus/internal/arena"
 	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/extsupport"
@@ -279,6 +280,16 @@ type Encoder struct {
 	silkMonoInputHist   [2]float32
 	scratchSilkAligned  []float32
 
+	// scratchF32 backs the four max-size preallocated float32 work buffers
+	// (scratchPCM32/Left/Right/Mono) with one contiguous allocation; see NewEncoder.
+	scratchF32 arena.Bump[float32]
+
+	// pcmBump backs the three frameSize-sized input-domain PCM scratch buffers
+	// (scratchInputPCM/scratchQuantPCM/scratchDCPCM) with one contiguous
+	// allocation, carved per-frame at the encode entry and re-carved only when a
+	// larger frame is seen (so it sizes to the current frame, not the max).
+	pcmBump arena.Bump[opusRes]
+
 	// Scratch buffers for zero-allocation encoding
 	scratchDCPCM     []opusRes // DC rejected PCM buffer
 	scratchInputPCM  []opusRes // Public PCM rounded into the libopus opus_res domain
@@ -320,7 +331,7 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 	}
 	maxSamples := 5760 * channels
 
-	return &Encoder{
+	e := &Encoder{
 		mode:                   ModeAuto,
 		bandwidth:              types.BandwidthFullband,
 		sampleRate:             int32(sampleRate),
@@ -346,10 +357,6 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		predictionDisabled:     false,
 		phaseInversionDisabled: false,
 		analyzer:               NewTonalityAnalysisState(sampleRate),
-		scratchPCM32:           make([]float32, maxSamples),
-		scratchLeft:            make([]float32, maxSamples),
-		scratchRight:           make([]float32, maxSamples),
-		scratchMono:            make([]float32, maxSamples),
 		scratchPacket:          make([]byte, defaultScratchPacketBytes),
 		prevMode:               ModeAuto,
 		prevPacketMode:         ModeAuto,
@@ -362,6 +369,13 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		autoBandwidth:          types.BandwidthFullband,
 		first:                  true,
 	}
+	// Back the four max-size float32 work buffers with one contiguous arena.
+	e.scratchF32.Ensure(4 * maxSamples)
+	e.scratchPCM32 = e.scratchF32.AllocN(maxSamples)
+	e.scratchLeft = e.scratchF32.AllocN(maxSamples)
+	e.scratchRight = e.scratchF32.AllocN(maxSamples)
+	e.scratchMono = e.scratchF32.AllocN(maxSamples)
+	return e
 }
 
 // SetMode sets the encoding mode.
@@ -912,6 +926,16 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float32, frameSize int, analy
 	}
 	if len(analysisPCM) < expectedLen || len(analysisPCM)%channels != 0 {
 		return nil, ErrInvalidFrameSize
+	}
+	// Back the three frameSize-sized input-domain PCM scratch buffers with one
+	// contiguous arena (carved to the current frame; the ensure* helpers reslice
+	// within their slots, falling back to a fresh make only if a stage ever needs
+	// more than expectedLen).
+	if expectedLen > 0 {
+		e.pcmBump.Ensure(3 * expectedLen)
+		e.scratchInputPCM = e.pcmBump.AllocN(expectedLen)
+		e.scratchQuantPCM = e.pcmBump.AllocN(expectedLen)
+		e.scratchDCPCM = e.pcmBump.AllocN(expectedLen)
 	}
 	inputPCM := e.ensureInputPCM(expectedLen)
 	copy(inputPCM, pcm[:expectedLen])
@@ -2527,13 +2551,10 @@ func (e *Encoder) applySilkTransitionPrefillRamp(prefill []opusRes, prefillFrame
 	sampleRate := int(e.sampleRate)
 	delayComp := sampleRate / 250
 	prefillLen := sampleRate / 400
-	start := max(prefillFrameSize-delayComp-prefillLen, 0)
-	if start > prefillFrameSize {
-		start = prefillFrameSize
-	}
+	start := min(max(prefillFrameSize-delayComp-prefillLen, 0), prefillFrameSize)
 
 	prefix := min(start*channels, len(prefill))
-	for i := 0; i < prefix; i++ {
+	for i := range prefix {
 		prefill[i] = 0
 	}
 	if prefillLen <= 0 {
@@ -3233,10 +3254,7 @@ func (e *Encoder) silkBustMaxDataBytes(frameSize, maxDataBytes int) int {
 	if e.bitrateMode != ModeCBR {
 		return maxDataBytes
 	}
-	cbrBytes := min(e.targetBytesForBitrate(int(e.bitrate), frameSize), maxDataBytes)
-	if cbrBytes < 1 {
-		cbrBytes = 1
-	}
+	cbrBytes := max(min(e.targetBytesForBitrate(int(e.bitrate), frameSize), maxDataBytes), 1)
 	return cbrBytes
 }
 
@@ -4252,10 +4270,7 @@ func computeSilkFrameLayout(pcmLen, fsKHz int) (frameSamples, nFrames int) {
 	if pcmLen < frameSamples {
 		frameSamples = pcmLen
 	}
-	nFrames = max(pcmLen/frameSamples, 1)
-	if nFrames > silk.MaxFramesPerPacket {
-		nFrames = silk.MaxFramesPerPacket
-	}
+	nFrames = min(max(pcmLen/frameSamples, 1), silk.MaxFramesPerPacket)
 	return frameSamples, nFrames
 }
 

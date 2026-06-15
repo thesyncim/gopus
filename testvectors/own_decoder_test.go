@@ -83,10 +83,7 @@ func TestOwnEncoderDecoder(t *testing.T) {
 		decF32[i] = float32(decoded[i])
 	}
 
-	compareLen := len(origF32)
-	if len(decF32) < compareLen {
-		compareLen = len(decF32)
-	}
+	compareLen := min(len(decF32), len(origF32))
 	if compareLen == 0 {
 		t.Fatal("no samples to compare")
 	}

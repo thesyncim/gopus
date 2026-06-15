@@ -74,10 +74,7 @@ func TestDecoderParityLibopusMatrix(t *testing.T) {
 				t.Fatalf("decoded streams empty: ref=%d internal=%d", len(refDecoded), len(internalDecoded))
 			}
 
-			compareLen := len(refDecoded)
-			if len(internalDecoded) < compareLen {
-				compareLen = len(internalDecoded)
-			}
+			compareLen := min(len(internalDecoded), len(refDecoded))
 			maxDelay := max(4*c.FrameSize, 960)
 			cmp, err := CompareDecodedFloat32(internalDecoded[:compareLen], refDecoded[:compareLen], fixture.SampleRate, c.Channels, maxDelay)
 			if err != nil {

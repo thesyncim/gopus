@@ -21,10 +21,7 @@ func qualityOfPackets(packets [][]byte, original []float32, channels, frameSize 
 		return QualityComparison{}, nil, fmt.Errorf("no decoded samples")
 	}
 
-	compareLen := len(original)
-	if len(decoded) < compareLen {
-		compareLen = len(decoded)
-	}
+	compareLen := min(len(decoded), len(original))
 
 	cmp, err := CompareDecodedFloat32(
 		decoded[:compareLen],

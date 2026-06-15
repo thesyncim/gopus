@@ -708,10 +708,7 @@ func runCVBRParityCase(t *testing.T, tc vbrCVBRCase, helperPath string) {
 		isDarwinARM64 := runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"
 
 		// Log a per-frame diff for the first mismatching region.
-		limit := firstLenMismatch + 5
-		if limit > len(refLens) {
-			limit = len(refLens)
-		}
+		limit := min(firstLenMismatch+5, len(refLens))
 		start := max(firstLenMismatch-2, 0)
 		t.Logf("  first mismatch region (frames %d..%d):", start, limit-1)
 		for i := start; i < limit; i++ {

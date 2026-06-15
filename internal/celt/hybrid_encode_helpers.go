@@ -153,10 +153,7 @@ func (e *Encoder) ComputeAllocationHybridScratch(re *rangecoding.Encoder, totalB
 	if nbBands < 0 {
 		nbBands = 0
 	}
-	channels := max(e.codedChannels(), 1)
-	if channels > 2 {
-		channels = 2
-	}
+	channels := min(max(e.codedChannels(), 1), 2)
 	if lm < 0 {
 		lm = 0
 	}
@@ -441,7 +438,7 @@ func (e *Encoder) UpdateEnergyErrorHybridFromError(start, end, nbBands int) {
 	channels := max(int(e.channels), 1)
 	errorVals := ensureGLogSliceNoClear(&e.scratch.coarseError, nbBands*channels)
 
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		baseState := c * MaxBands
 		baseFrame := c * nbBands
 		for band := start; band < end; band++ {
@@ -491,10 +488,7 @@ func (e *Encoder) ApplyHybridPrefilter(preemph []float32, frameSize int, tfEstim
 // TransientAnalysisHybrid performs transient analysis and updates preemph overlap state.
 // Returns transient flags, tf/tone metrics, shortBlocks choice, and optional bandLogE2.
 func (e *Encoder) TransientAnalysisHybrid(preemph []float32, frameSize, nbBands, lm int, allowWeakTransients bool) (transient bool, weakTransient bool, tfEstimate, toneFreq, toneishness float32, shortBlocks int, bandLogE2 []celtGLog) {
-	overlap := Overlap
-	if overlap > frameSize {
-		overlap = frameSize
-	}
+	overlap := min(Overlap, frameSize)
 
 	channels := int(e.channels)
 	preemphBufSize := overlap * channels
@@ -732,10 +726,7 @@ func (e *Encoder) ComputeMDCTWithHistoryScratch(inputScratch, samples, history [
 		return nil
 	}
 
-	overlap := Overlap
-	if overlap > len(samples) {
-		overlap = len(samples)
-	}
+	overlap := min(Overlap, len(samples))
 	input := inputScratch[:len(samples)+overlap]
 
 	// Copy history overlap into the head of the input buffer.

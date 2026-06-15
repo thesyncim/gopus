@@ -9,13 +9,13 @@ import (
 
 func synthesizeLPCOrder16CoreRef(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq []int16, gainQ10 int32, subfrLength int) {
 	var v [16]int32
-	for k := 0; k < 16; k++ {
+	for k := range 16 {
 		v[k] = sLPC[maxLPCOrder-1-k]
 	}
 	sIdx := maxLPCOrder
-	for i := 0; i < subfrLength; i++ {
+	for i := range subfrLength {
 		lpcPredQ10 := int32(maxLPCOrder >> 1)
-		for k := 0; k < 16; k++ {
+		for k := range 16 {
 			lpcPredQ10 = silkSMLAWB(lpcPredQ10, v[k], int32(A_Q12[k]))
 		}
 		s := silkAddSat32(presQ14[i], lShiftSAT32By4(lpcPredQ10))
@@ -32,7 +32,7 @@ func synthesizeLPCOrder16CoreRef(sLPC []int32, A_Q12 []int16, presQ14 []int32, p
 // drive the saturating epilogue and int32-wrapping accumulations.
 func TestSynthesizeLPCOrder16CoreBitExact(t *testing.T) {
 	rng := rand.New(rand.NewSource(23))
-	for trial := 0; trial < 200; trial++ {
+	for trial := range 200 {
 		subfr := 1 + rng.Intn(120)
 		coefs := make([]int16, 16)
 		for i := range coefs {

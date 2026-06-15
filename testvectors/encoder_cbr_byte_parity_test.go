@@ -95,10 +95,7 @@ func cbrOracleInput(appCode, bwCode, channels, bitrate, frameSize, complexity, n
 // Wire format: "GCBO" u32(1) u32(num_packets) [u32(len) bytes …]
 func parseCBROracleOutput(data []byte) ([][]byte, error) {
 	if len(data) < 12 || string(data[:4]) != "GCBO" {
-		preview := 4
-		if len(data) < preview {
-			preview = len(data)
-		}
+		preview := min(len(data), 4)
 		return nil, fmt.Errorf("bad CBR oracle output magic (got %q)", data[:preview])
 	}
 	version := binary.LittleEndian.Uint32(data[4:8])
@@ -368,10 +365,7 @@ func runCBROracleEncode(oraclePath string, tc cbrTestCase, pcm []float32) ([][]b
 // reportCBRByteDiff reports the first N mismatching frames with byte diffs.
 func reportCBRByteDiff(t *testing.T, frameIdx int, got, want []byte) {
 	t.Helper()
-	limit := len(got)
-	if len(want) < limit {
-		limit = len(want)
-	}
+	limit := min(len(want), len(got))
 	first := -1
 	for i := 0; i < limit; i++ {
 		if got[i] != want[i] {
@@ -385,14 +379,8 @@ func reportCBRByteDiff(t *testing.T, frameIdx int, got, want []byte) {
 	t.Logf("  frame %d DIVERGES len(got=%d want=%d) firstByteDiff=%d", frameIdx, len(got), len(want), first)
 	if first >= 0 {
 		start := max(first-2, 0)
-		end := first + 8
-		if end > len(got) {
-			end = len(got)
-		}
-		wantEnd := end
-		if wantEnd > len(want) {
-			wantEnd = len(want)
-		}
+		end := min(first+8, len(got))
+		wantEnd := min(end, len(want))
 		t.Logf("    got [%d:%d]=%x", start, end, got[start:end])
 		t.Logf("    want[%d:%d]=%x", start, wantEnd, want[start:wantEnd])
 	}

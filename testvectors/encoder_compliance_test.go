@@ -509,10 +509,7 @@ func computeEncoderComplianceResultForSignal(mode encoder.Mode, bandwidth types.
 		return result, fmt.Errorf("compute opus_compare quality: %w", err)
 	}
 
-	compareLen := len(original)
-	if len(decoded) < compareLen {
-		compareLen = len(decoded)
-	}
+	compareLen := min(len(decoded), len(original))
 
 	result.q = cmp.Q
 	result.foundDelay = cmp.BestDelay

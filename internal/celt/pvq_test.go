@@ -247,10 +247,7 @@ func TestPVQEnergyDistribution(t *testing.T) {
 	totalNonzero := 0
 
 	// Sample codewords (or all if small enough)
-	sampleSize := int(vCount)
-	if sampleSize > 1000 {
-		sampleSize = 1000
-	}
+	sampleSize := min(int(vCount), 1000)
 
 	for idx := uint32(0); idx < uint32(sampleSize); idx++ {
 		pulses := DecodePulses(idx, n, k)

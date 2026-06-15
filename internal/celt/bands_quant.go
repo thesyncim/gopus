@@ -1725,10 +1725,7 @@ func computeQn(n, b, offset, pulseCap int, stereo bool) int {
 		return 1
 	}
 	qn := computeQnExp2Table[qb&0x7] >> (14 - (qb >> bitRes))
-	qn = ((qn + 1) >> 1) << 1
-	if qn > 256 {
-		qn = 256
-	}
+	qn = min(((qn+1)>>1)<<1, 256)
 	return qn
 }
 
@@ -1743,41 +1740,15 @@ func stereoItheta(x, y []celtNorm, stereo bool) int {
 // The value represents atan2(side, mid) * 2/pi, scaled to [0, 1<<30].
 // Standard itheta (14-bit) can be obtained by shifting right by 16.
 func stereoIthetaQ30(x, y []celtNorm, stereo bool) int {
-	return stereoIthetaQ30WithScratch(x, y, stereo, nil)
-}
-
-func stereoIthetaQ30WithScratch(x, y []celtNorm, stereo bool, scratch *bandEncodeScratch) int {
-	if len(x) == 0 || len(y) == 0 {
-		return 0
-	}
-	n := len(x)
-	if len(y) < n {
-		n = len(y)
-	}
-	if n <= 0 {
-		return 0
-	}
-	var xn, yn []celtNorm
-	if scratch != nil {
-		xn = scratch.ensureThetaX(n)
-		yn = scratch.ensureThetaY(n)
-	} else {
-		xn = make([]celtNorm, n)
-		yn = make([]celtNorm, n)
-	}
-	copy(xn, x[:n])
-	copy(yn, y[:n])
-	return stereoIthetaQ30Norm(xn, yn, stereo)
+	// stereoIthetaQ30Norm only reads x/y (sum of squares), so no scratch copy is needed.
+	return stereoIthetaQ30Norm(x, y, stereo)
 }
 
 func stereoIthetaQ30Norm(x, y []celtNorm, stereo bool) int {
 	if len(x) == 0 || len(y) == 0 {
 		return 0
 	}
-	n := len(x)
-	if len(y) < n {
-		n = len(y)
-	}
+	n := min(len(y), len(x))
 	if n <= 0 {
 		return 0
 	}
@@ -1884,26 +1855,17 @@ func celtInnerProdSSEStyleNorm(x, y []celtNorm) float32 {
 // celtInnerProd8FMA32 implements this in NEON asm on arm64 and a bit-identical
 // math.FMA fallback under the purego tag.
 func celtInnerProdNeonStyle(x, y []celtNorm) float32 {
-	n := len(x)
-	if len(y) < n {
-		n = len(y)
-	}
+	n := min(len(y), len(x))
 	return celtInnerProd8FMA32(x[:n:n], y[:n:n], n)
 }
 
 func celtInnerProdNeonStyleNorm(x, y []celtNorm) float32 {
-	n := len(x)
-	if len(y) < n {
-		n = len(y)
-	}
+	n := min(len(y), len(x))
 	return celtInnerProd8FMA32(x[:n:n], y[:n:n], n)
 }
 
 func celtInnerProdLibopusOrder(x, y []celtNorm) float32 {
-	n := len(x)
-	if len(y) < n {
-		n = len(y)
-	}
+	n := min(len(y), len(x))
 	x = x[:n:n]
 	y = y[:n:n]
 	if celtUseFusedFloatMath {
@@ -1985,10 +1947,7 @@ func stereoSplit(x, y []celtNorm) {
 	if len(x) == 0 || len(y) == 0 {
 		return
 	}
-	n := len(x)
-	if len(y) < n {
-		n = len(y)
-	}
+	n := min(len(y), len(x))
 	const invSqrt2 float32 = 0.70710678
 	for i := 0; i < n; i++ {
 		l := noFMA32Mul(invSqrt2, float32(x[i]))
@@ -2002,10 +1961,7 @@ func intensityStereoWeighted(x, y []celtNorm, leftEnergy, rightEnergy celtEner) 
 	if len(x) == 0 || len(y) == 0 {
 		return
 	}
-	n := len(x)
-	if len(y) < n {
-		n = len(y)
-	}
+	n := min(len(y), len(x))
 	if leftEnergy < 0 {
 		leftEnergy = 0
 	}
@@ -2293,7 +2249,7 @@ func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b *in
 	if ctx.encode {
 		// Match libopus: derive raw theta before qn decisions so qn==1
 		// can still drive phase inversion signaling.
-		ithetaQ30 = stereoIthetaQ30WithScratch(x, y, stereo, ctx.encScratch)
+		ithetaQ30 = stereoIthetaQ30Norm(x, y, stereo)
 		itheta = ithetaQ30 >> 16
 		rawItheta = itheta
 	}
@@ -2325,10 +2281,7 @@ func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b *in
 				} else {
 					bias = -32767 / qn
 				}
-				down := max((itheta*qn+bias)>>14, 0)
-				if down > qn-1 {
-					down = qn - 1
-				}
+				down := min(max((itheta*qn+bias)>>14, 0), qn-1)
 				if ctx.thetaRound < 0 {
 					itheta = down
 				} else {
@@ -2430,10 +2383,7 @@ func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b *in
 			}
 			if *extB >= 2*n<<bitRes && extRemainingBits-1 > 2<<bitRes {
 				extTellBefore := extTellFrac
-				extraBits := max(celtSudiv(*extB, (2*n-1)<<bitRes), 2)
-				if extraBits > 12 {
-					extraBits = 12
-				}
+				extraBits := min(max(celtSudiv(*extB, (2*n-1)<<bitRes), 2), 12)
 
 				encodedVal := 0
 				if ctx.encode {
@@ -2455,10 +2405,7 @@ func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b *in
 				}
 
 				encodedVal -= (1 << (extraBits - 1)) - 1
-				ithetaQ30 = max((itheta<<16)+int((int64(encodedVal)*(1<<30))/int64(qn*((1<<extraBits)-1))), 0)
-				if ithetaQ30 > 1<<30 {
-					ithetaQ30 = 1 << 30
-				}
+				ithetaQ30 = min(max((itheta<<16)+int((int64(encodedVal)*(1<<30))/int64(qn*((1<<extraBits)-1))), 0), 1<<30)
 				*extB -= extTellFrac - extTellBefore
 				codedExtendedTheta = true
 			}
@@ -3352,7 +3299,7 @@ func prepareQuantBandLowband(dst, src []celtNorm, n, B, tfChange int, scratch *b
 	N_B := celtUdiv(n, B)
 	recombine := max(tfChange, 0)
 	if recombine != 0 {
-		for k := 0; k < recombine; k++ {
+		for k := range recombine {
 			haar1Norm(dst, n>>k, 1<<k)
 		}
 	}
@@ -4010,6 +3957,14 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		return nil, nil, nil
 	}
 	N := frameSize
+	normOffset := M * edges[start]
+	normLen := max(M*edges[maxBands-1]-normOffset, 0)
+	maxBand := M * (edges[end] - edges[end-1])
+	if scratch != nil {
+		// Back the band-decode-local float scratch with one contiguous arena
+		// before the inline/getter sizing below reslices within each slot.
+		scratch.ensureFloatScratch(channels, N, normLen, maxBand)
+	}
 	if scratch == nil {
 		left = make([]celtNorm, N)
 		if channels == 2 {
@@ -4032,8 +3987,6 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		}
 	}
 
-	normOffset := M * edges[start]
-	normLen := max(M*edges[maxBands-1]-normOffset, 0)
 	var norm []celtNorm
 	if scratch == nil {
 		norm = make([]celtNorm, channels*normLen)
@@ -4045,7 +3998,6 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		norm2 = norm[normLen:]
 	}
 
-	maxBand := M * (edges[end] - edges[end-1])
 	var lowbandScratch []celtNorm
 	if scratch == nil {
 		lowbandScratch = make([]celtNorm, maxBand)
@@ -4181,10 +4133,7 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		if dualStereo != 0 && i == intensity {
 			dualStereo = 0
 			if ctx.resynth {
-				mergeLimit := max(M*edges[i]-normOffset, 0)
-				if mergeLimit > len(norm) {
-					mergeLimit = len(norm)
-				}
+				mergeLimit := min(max(M*edges[i]-normOffset, 0), len(norm))
 				if channels == 2 && mergeLimit > len(norm2) {
 					mergeLimit = len(norm2)
 				}
@@ -4499,10 +4448,7 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 		if dualStereo != 0 && i == intensity {
 			dualStereo = 0
 			if ctx.resynth {
-				mergeLimit := max(M*edges[i]-normOffset, 0)
-				if mergeLimit > len(norm) {
-					mergeLimit = len(norm)
-				}
+				mergeLimit := min(max(M*edges[i]-normOffset, 0), len(norm))
 				if channels == 2 && mergeLimit > len(norm2) {
 					mergeLimit = len(norm2)
 				}

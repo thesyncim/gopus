@@ -97,10 +97,7 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []celtGLog) (
 		return e.surroundTrim, false
 	}
 
-	maskEnd := max(int(e.lastCodedBands), 2)
-	if maskEnd > nbBands {
-		maskEnd = nbBands
-	}
+	maskEnd := min(max(int(e.lastCodedBands), 2), nbBands)
 	if maskEnd > maskBands {
 		maskEnd = maskBands
 	}
@@ -324,10 +321,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	// - Previous frame's pre-emphasized overlap samples (indices 0 to overlap-1)
 	// - Current frame's pre-emphasized samples (indices overlap to overlap+N-1)
 	// Reference: libopus celt_encoder.c line 2030
-	overlap := e.analysisOverlap()
-	if overlap > frameSize {
-		overlap = frameSize
-	}
+	overlap := min(e.analysisOverlap(), frameSize)
 	mdctPrevL := ensureFloat32Slice(&e.scratch.mdctPrevL, overlap)[:overlap]
 	mdctPrevR := ensureFloat32Slice(&e.scratch.mdctPrevR, overlap)[:overlap]
 	e.fillMDCTHistoryFromPrefilter(0, overlap, mdctPrevL)
@@ -831,10 +825,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		if shortBlocks > 1 {
 			offset = float32(lm) * 0.5
 		}
-		bandEnd := end
-		if bandEnd > nbBands {
-			bandEnd = nbBands
-		}
+		bandEnd := min(end, nbBands)
 		for i := start; i < bandEnd; i++ {
 			v := float32(analysisEnergies[i]) - offset
 			if follow-1.0 > v {
@@ -912,10 +903,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	if bandLogE2 != nil {
 		bandLogE2Use = bandLogE2
 	}
-	oldBandELen := nbBands * codedChannels
-	if oldBandELen > len(prev1LogE) {
-		oldBandELen = len(prev1LogE)
-	}
+	oldBandELen := min(nbBands*codedChannels, len(prev1LogE))
 	surroundTrimForAlloc := e.surroundTrim
 	var surroundDynalloc []celtGLog
 	var surroundDynallocScratch [MaxBands]celtGLog
@@ -1087,10 +1075,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		// quanta = min(width<<BITRES, max(6<<BITRES, width))
 		// This means quanta is between 6 bits and width bits, scaled by BITRES
 		innerMax := max(width, 6<<bitRes)
-		quanta := width << bitRes
-		if quanta > innerMax {
-			quanta = innerMax
-		}
+		quanta := min(width<<bitRes, innerMax)
 
 		dynallocLoopLogp := dynallocLogp
 		boost := 0
@@ -1627,10 +1612,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 }
 
 func foldStereoMDCTToMonoF32(dst, left, right []float32) []float32 {
-	n := len(left)
-	if len(right) < n {
-		n = len(right)
-	}
+	n := min(len(right), len(left))
 	if len(dst) < n {
 		dst = make([]float32, n)
 	}
@@ -1685,10 +1667,7 @@ func ComputeMDCTWithHistory(samples, history []float32, shortBlocks int) []float
 		return nil
 	}
 
-	overlap := Overlap
-	if overlap > len(samples) {
-		overlap = len(samples)
-	}
+	overlap := min(Overlap, len(samples))
 	input := make([]float32, len(samples)+overlap)
 
 	// Copy history overlap into the head of the input buffer.
@@ -2450,10 +2429,7 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 			}
 			saveA := int(maxFrac * float32(targetQ3))
 			saveB := int((stereoSaving - 0.1) * float32(codedStereoDof<<bitRes))
-			saving := saveA
-			if saveB < saving {
-				saving = saveB
-			}
+			saving := min(saveB, saveA)
 			targetQ3 -= saving
 		}
 	}
@@ -2522,10 +2498,7 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 	// In float domain: target += temporal_vbr * 0.0000031 * clamp(96000-bitrate,0,32000) * target
 	if len(e.energyMask) == 0 && tfEstimate < 0.2 {
 		bitrate := e.bitrateToBits(frameSize) * (e.celtModeFs() / frameSize) // approximate bps
-		clampedBR := max(96000-bitrate, 0)
-		if clampedBR > 32000 {
-			clampedBR = 32000
-		}
+		clampedBR := min(max(96000-bitrate, 0), 32000)
 		amount := float32(0.0000031) * float32(clampedBR)
 		targetQ3 += int(float32(e.lastTemporalVBR) * amount * float32(targetQ3))
 	}

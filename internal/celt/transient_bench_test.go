@@ -228,10 +228,7 @@ func transientAnalysisLegacyBench(e *Encoder, pcm []float64, frameSize int, allo
 			}
 		}
 
-		limit := 12
-		if limit > samplesPerChannel {
-			limit = samplesPerChannel
-		}
+		limit := min(12, samplesPerChannel)
 		clear(tmp[:limit])
 
 		mem0 = 0
@@ -264,10 +261,7 @@ func transientAnalysisLegacyBench(e *Encoder, pcm []float64, frameSize int, allo
 		const epsF32 = float32(1e-15)
 		var unmask int
 		for i := 12; i < len2-5; i += 4 {
-			id := int(normE * (energy[i] + epsF32))
-			if id > 127 {
-				id = 127
-			}
+			id := min(int(normE*(energy[i]+epsF32)), 127)
 			unmask += transientInvTable[id]
 		}
 

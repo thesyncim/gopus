@@ -14,7 +14,7 @@ import (
 func TestCombFilterConstNeonBitExact(t *testing.T) {
 	rng := rand.New(rand.NewSource(31))
 	for _, n := range []int{1, 4, 8, 9, 12, 17, 23, 120, 239, 240, 960} {
-		for trial := 0; trial < 6; trial++ {
+		for trial := range 6 {
 			g10 := rng.Float32() - 0.5
 			g11 := rng.Float32() - 0.5
 			g12 := rng.Float32() - 0.5
@@ -32,7 +32,7 @@ func TestCombFilterConstNeonBitExact(t *testing.T) {
 
 			// Scalar reference: the simple rotated loop.
 			w4, w3, w2, w1 := x4, x3, x2, x1
-			for i := 0; i < n; i++ {
+			for i := range n {
 				x0 := delay[i]
 				want[i] = combFilterConstValue(want[i], g10, g11, g12, w2, w1, w3, x0, w4)
 				w4, w3, w2, w1 = w3, w2, w1, x0

@@ -27,7 +27,7 @@ func pitchAutocorr5Ref(lp []float64, length int, ac *[5]float64) {
 	if pitchAutocorr5RefUsesArm64LibopusOrder && fastN > 0 {
 		for lag := range 4 {
 			sum := float32(0)
-			for i := 0; i < fastN; i++ {
+			for i := range fastN {
 				sum = fma32(float32(lp[i]), float32(lp[i+lag]), sum)
 			}
 			tail := float32(0)
@@ -41,7 +41,7 @@ func pitchAutocorr5Ref(lp []float64, length int, ac *[5]float64) {
 	}
 	for lag := 0; lag <= 4; lag++ {
 		sum := float32(0)
-		for i := 0; i < fastN; i++ {
+		for i := range fastN {
 			sum += float32(lp[i]) * float32(lp[i+lag])
 		}
 		tail := float32(0)

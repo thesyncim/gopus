@@ -94,7 +94,7 @@ func TestAmplitudeComputationMatch(t *testing.T) {
 	logEnergies := []float64{-20.0, -10.0, -5.0, 0.0, 5.0, 10.0, 15.0, 20.0, 25.0}
 
 	for _, logE := range logEnergies {
-		for band := 0; band < min(5, len(eMeans)); band++ {
+		for band := range min(5, len(eMeans)) {
 			totalLogE := logE + float64(eMeans[band])
 
 			// Both libopus and gopus use exp2(logE)

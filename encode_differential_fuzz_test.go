@@ -259,7 +259,7 @@ func modeClassName(c int) string {
 // length if one is a prefix of the other), -1 if equal.
 func firstByteDiff(a, b []byte) int {
 	n := min(len(b), len(a))
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if a[i] != b[i] {
 			return i
 		}

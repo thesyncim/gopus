@@ -101,7 +101,7 @@ func mixTimedTracksWebRTC(arrivals []arrivalEvent, tracks []TimedTrack, mixFrame
 	trackActive := make(map[string]struct{}, len(tracks))
 	const playoutDelayFrames = 2 // absorb network jitter before playout
 
-	for tick := 0; tick < totalMixFrames; tick++ {
+	for tick := range totalMixFrames {
 		ingestLimit := tick + playoutDelayFrames
 		for nextArrival < len(arrivals) && arrivals[nextArrival].arrivalTick <= ingestLimit {
 			event := arrivals[nextArrival]

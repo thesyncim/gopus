@@ -549,10 +549,7 @@ func TestMDCTForward_LibopusShortFrame(t *testing.T) {
 			// The middle portion should be close to the original (excluding window edges)
 			// Check samples in the middle region where window = 1.0
 			middleStart := overlap
-			middleEnd := frameSize
-			if middleEnd > len(input) {
-				middleEnd = len(input)
-			}
+			middleEnd := min(frameSize, len(input))
 
 			var maxRoundTripErr float64
 			for i := middleStart; i < middleEnd && i < len(imdctOutput); i++ {

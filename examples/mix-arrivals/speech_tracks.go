@@ -340,7 +340,7 @@ func resampleLinearMono(src []float32, srcRate, dstRate int) []float32 {
 	out := make([]float32, dstLen)
 	maxIdx := len(src) - 1
 	scale := float64(srcRate) / float64(dstRate)
-	for i := 0; i < dstLen; i++ {
+	for i := range dstLen {
 		pos := float64(i) * scale
 		idx := int(pos)
 		if idx >= maxIdx {

@@ -155,10 +155,7 @@ func TestEncoderCELTShortFrameVariantByteParityAgainstLibopusFixture(t *testing.
 						break
 					}
 					got, want := goPackets[fi], libPackets[fi]
-					limit := len(got)
-					if len(want) < limit {
-						limit = len(want)
-					}
+					limit := min(len(want), len(got))
 					firstDiff := limit
 					for b := 0; b < limit; b++ {
 						if got[b] != want[b] {

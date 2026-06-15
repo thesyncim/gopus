@@ -339,25 +339,13 @@ func FuzzConcealSILKWithLTP(f *testing.F) {
 		loss := int(lossCnt % 4096)
 
 		// Allocation helpers must stay non-negative.
-		excLen := max(nbSubfr*subfr, ltpMem)
-		if excLen < 1 {
-			excLen = 1
-		}
+		excLen := max(max(nbSubfr*subfr, ltpMem), 1)
 		if excLen > 1<<16 {
 			excLen = 1 << 16
 		}
-		histAlloc := max(ltpMem+subfr+1, 1)
-		if histAlloc > 1<<16 {
-			histAlloc = 1 << 16
-		}
-		ordAlloc := max(lpcOrder, 1)
-		if ordAlloc > 64 {
-			ordAlloc = 64
-		}
-		outBufAlloc := max(ltpMem+1, 1)
-		if outBufAlloc > 1<<16 {
-			outBufAlloc = 1 << 16
-		}
+		histAlloc := min(max(ltpMem+subfr+1, 1), 1<<16)
+		ordAlloc := min(max(lpcOrder, 1), 64)
+		outBufAlloc := min(max(ltpMem+1, 1), 1<<16)
 
 		dec := &mockSILKExtendedDecoder{
 			mockSILKDecoder: mockSILKDecoder{

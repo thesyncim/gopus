@@ -104,10 +104,7 @@ func TestDecoderParityRateMatrix(t *testing.T) {
 				t.Fatalf("decoded streams empty: ref=%d internal=%d", len(refDecoded), len(internalDecoded))
 			}
 
-			compareLen := len(refDecoded)
-			if len(internalDecoded) < compareLen {
-				compareLen = len(internalDecoded)
-			}
+			compareLen := min(len(internalDecoded), len(refDecoded))
 
 			// maxDelay scales with frame size converted to the API rate.
 			// Use at least 4 frames at the API rate, minimum 20 ms worth.

@@ -116,10 +116,7 @@ func TestEncoderVariantProfileProvenanceAudit(t *testing.T) {
 	})
 
 	const topN = 8
-	n := topN
-	if len(rows) < n {
-		n = len(rows)
-	}
+	n := min(len(rows), topN)
 	for i := 0; i < n; i++ {
 		r := rows[i]
 		severity := ""

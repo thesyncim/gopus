@@ -521,7 +521,7 @@ func computeDiffStatsF32(a, b []float32) (meanSquareDiff, maxAbs float64) {
 	n := min(len(b), len(a))
 	sumSquares := 0.0
 	maxAbs = 0
-	for i := 0; i < n; i++ {
+	for i := range n {
 		diff := float64(a[i] - b[i])
 		absDiff := math.Abs(diff)
 		if absDiff > maxAbs {

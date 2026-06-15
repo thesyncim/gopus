@@ -130,10 +130,7 @@ func TestEncoderCELTSameArchByteExact(t *testing.T) {
 				goPackets = append(goPackets, append([]byte(nil), pkt...))
 			}
 
-			n := len(libPackets)
-			if len(goPackets) < n {
-				n = len(goPackets)
-			}
+			n := min(len(goPackets), len(libPackets))
 			var diffFrames []int
 			for i := 0; i < n; i++ {
 				if !bytes.Equal(goPackets[i], libPackets[i]) {
@@ -193,10 +190,7 @@ func TestEncoderCELTSameArchByteExact(t *testing.T) {
 }
 
 func firstByteDiff(a, b []byte) int {
-	m := len(a)
-	if len(b) < m {
-		m = len(b)
-	}
+	m := min(len(b), len(a))
 	for i := 0; i < m; i++ {
 		if a[i] != b[i] {
 			return i

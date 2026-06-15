@@ -124,10 +124,7 @@ func TestAudioAudibility(t *testing.T) {
 		t.Logf("Decoded WAV saved (internal): %s", decodedWav)
 	}
 
-	compareLen := len(pcm)
-	if len(decoded) < compareLen {
-		compareLen = len(decoded)
-	}
+	compareLen := min(len(decoded), len(pcm))
 
 	// Align before scoring to avoid penalizing codec lookahead/pre-skip drift.
 	cmp, err := CompareDecodedFloat32(decoded[:compareLen], pcm[:compareLen], sampleRate, 1, frameSize)

@@ -83,10 +83,7 @@ func applyScaleOffset(samples []float32, scale, offset float64) []float32 {
 
 // bestScale computes least-squares scale factor to align decoded to reference.
 func bestScale(decoded, reference []float32) float64 {
-	n := len(decoded)
-	if len(reference) < n {
-		n = len(reference)
-	}
+	n := min(len(reference), len(decoded))
 	if n == 0 {
 		return 1.0
 	}
@@ -105,10 +102,7 @@ func bestScale(decoded, reference []float32) float64 {
 
 // bestOffset computes mean error after applying scale.
 func bestOffset(decoded, reference []float32, scale float64) float64 {
-	n := len(decoded)
-	if len(reference) < n {
-		n = len(reference)
-	}
+	n := min(len(reference), len(decoded))
 	if n == 0 {
 		return 0
 	}

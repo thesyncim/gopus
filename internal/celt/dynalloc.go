@@ -275,10 +275,7 @@ func DynallocAnalysis(
 			smr := sig[i] - maskThresh
 
 			// Clamp shift to [0, 5] range
-			shift := max(-floor32ToInt(0.5+smr), 0)
-			if shift > 5 {
-				shift = 5
-			}
+			shift := min(max(-floor32ToInt(0.5+smr), 0), 5)
 			result.SpreadWeight[i] = 32 >> shift
 		}
 	}
@@ -481,10 +478,7 @@ func DynallocAnalysis(
 		if analysisValid {
 			// Match libopus dynalloc: follower += analysis->leak_boost/64 on the
 			// first LEAK_BANDS when analysis is valid.
-			leakEnd := end
-			if leakEnd > leakBands {
-				leakEnd = leakBands
-			}
+			leakEnd := min(end, leakBands)
 			if leakEnd > start {
 				for i := start; i < leakEnd; i++ {
 					if i < len(analysisLeakBoost) {
@@ -788,10 +782,7 @@ func DynallocAnalysisWithScratch(
 		}
 		smr := sig[i] - maskThresh
 
-		shift := max(-floor32ToInt(0.5+smr), 0)
-		if shift > 5 {
-			shift = 5
-		}
+		shift := min(max(-floor32ToInt(0.5+smr), 0), 5)
 		result.SpreadWeight[i] = 32 >> shift
 	}
 
@@ -982,10 +973,7 @@ func DynallocAnalysisWithScratch(
 		if analysisValid {
 			// Match libopus dynalloc: follower += analysis->leak_boost/64 on the
 			// first LEAK_BANDS when analysis is valid.
-			leakEnd := end
-			if leakEnd > leakBands {
-				leakEnd = leakBands
-			}
+			leakEnd := min(end, leakBands)
 			if leakEnd > start {
 				for i := start; i < leakEnd; i++ {
 					if i < len(analysisLeakBoost) {

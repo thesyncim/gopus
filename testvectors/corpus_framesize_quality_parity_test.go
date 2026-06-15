@@ -165,10 +165,7 @@ func TestCorpusFrameSizeQualityParity(t *testing.T) {
 							t.Fatal("libopus reference decoded empty output")
 						}
 
-						n := len(gopusDecoded)
-						if len(refDecoded) < n {
-							n = len(refDecoded)
-						}
+						n := min(len(refDecoded), len(gopusDecoded))
 						profile := qualitycompare.CodedProfile(sampleRate, channels, n)
 						qualitycompare.AssertParity(t, gopusDecoded[:n], refDecoded[:n], profile,
 							qualitycompare.IntentNearExact, name)

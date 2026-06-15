@@ -330,10 +330,7 @@ func makeCrossProductCases() ([]crossProductCase, []crossProductKey) {
 				for _, sig := range signals {
 					for _, ch := range channelCounts {
 						pcm := generateCrossProductPCM(numFrames, fs, ch, sig.signalClass)
-						maxDB := max((br*fs/sampleRate+255)/8, 3)
-						if maxDB > 1275 {
-							maxDB = 1275
-						}
+						maxDB := min(max((br*fs/sampleRate+255)/8, 3), 1275)
 						cases = append(cases, crossProductCase{
 							sampleRate:   sampleRate,
 							channels:     ch,

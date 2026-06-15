@@ -320,10 +320,7 @@ func TestDecoderLossParityLibopusFixture(t *testing.T) {
 							len(refDecoded), len(gotDecoded), d, maxLenDrift)
 					}
 
-					compareLen := len(refDecoded)
-					if len(gotDecoded) < compareLen {
-						compareLen = len(gotDecoded)
-					}
+					compareLen := min(len(gotDecoded), len(refDecoded))
 					bar := decoderLossQualityBar(c, r.Pattern)
 					maxDelay := max(4*c.FrameSize, 960)
 					cmp, err := CompareDecodedFloat32(gotDecoded[:compareLen], refDecoded[:compareLen], fixture.SampleRate, c.Channels, maxDelay)
@@ -427,10 +424,7 @@ func TestDecoderLossStressPatternsAgainstOpusDemo(t *testing.T) {
 							len(refDecoded), len(gotDecoded), d, maxLenDrift)
 					}
 
-					compareLen := len(refDecoded)
-					if len(gotDecoded) < compareLen {
-						compareLen = len(gotDecoded)
-					}
+					compareLen := min(len(gotDecoded), len(refDecoded))
 					bar := decoderLossStressQualityBar(c, p.name)
 					maxDelay := max(4*c.FrameSize, 960)
 					cmp, err := CompareDecodedFloat32(gotDecoded[:compareLen], refDecoded[:compareLen], fixture.SampleRate, c.Channels, maxDelay)

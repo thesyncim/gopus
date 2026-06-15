@@ -15,7 +15,7 @@ func TestMDCTPostTwiddleNeonBitExact(t *testing.T) {
 	rng := rand.New(rand.NewSource(37))
 	for _, n4 := range []int{8, 16, 24, 30, 60, 120, 240} {
 		n2 := 2 * n4
-		for trial := 0; trial < 6; trial++ {
+		for trial := range 6 {
 			stage := make([]kissCpx, n4)
 			for i := range stage {
 				stage[i] = kissCpx{float32(rng.NormFloat64()), float32(rng.NormFloat64())}

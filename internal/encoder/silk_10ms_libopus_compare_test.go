@@ -73,7 +73,7 @@ func TestSILK10msGopusVsLibopusPackets(t *testing.T) {
 					compareLen := min(len(libopusSamples), len(live))
 					if compareLen > 0 {
 						var mad float64
-						for i := 0; i < compareLen; i++ {
+						for i := range compareLen {
 							diff := float64(live[i] - libopusSamples[i])
 							if diff < 0 {
 								diff = -diff
