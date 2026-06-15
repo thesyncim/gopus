@@ -215,7 +215,7 @@ func maxAbsDiff(got, want []float32) (float64, int) {
 	n := min(len(want), len(got))
 	maxAbs := 0.0
 	idx := -1
-	for i := 0; i < n; i++ {
+	for i := range n {
 		d := math.Abs(float64(got[i]) - float64(want[i]))
 		if d > maxAbs {
 			maxAbs = d

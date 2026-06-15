@@ -121,10 +121,7 @@ func TestEncoderDecoderWithStandardIMDCT(t *testing.T) {
 }
 
 func correlation[A ~float32 | ~float64, B ~float32 | ~float64](a []A, b []B) float64 {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
+	n := min(len(b), len(a))
 
 	var sumXY, sumXX, sumYY float64
 	for i := 0; i < n; i++ {

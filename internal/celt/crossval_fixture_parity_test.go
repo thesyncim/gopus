@@ -289,14 +289,8 @@ func computeAlignedQualityMetrics(input []float64, decoded []float32, channels i
 		if n < minOverlap {
 			continue
 		}
-		trimStart := 64 * channels
-		if trimStart > n/4 {
-			trimStart = n / 4
-		}
-		trimEnd := 32 * channels
-		if trimEnd > n/8 {
-			trimEnd = n / 8
-		}
+		trimStart := min(64*channels, n/4)
+		trimEnd := min(32*channels, n/8)
 		start := trimStart
 		end := n - trimEnd
 		if end-start < minOverlap {
@@ -338,14 +332,8 @@ func computeAlignedQualityMetrics(input []float64, decoded []float32, channels i
 	if n <= 0 {
 		return 0, 0, 0
 	}
-	trimStart := 64 * channels
-	if trimStart > n/4 {
-		trimStart = n / 4
-	}
-	trimEnd := 32 * channels
-	if trimEnd > n/8 {
-		trimEnd = n / 8
-	}
+	trimStart := min(64*channels, n/4)
+	trimEnd := min(32*channels, n/8)
 	start := trimStart
 	end := n - trimEnd
 	if end-start < minOverlap {

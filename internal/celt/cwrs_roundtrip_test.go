@@ -143,10 +143,7 @@ func TestCWRSEncodePulsesMatchesLibopus(t *testing.T) {
 		nc := PVQ_V(n, k)
 
 		// Determine how many indices to test
-		maxTest := nc
-		if maxTest > 1000 {
-			maxTest = 1000
-		}
+		maxTest := min(nc, 1000)
 		inc := max(nc/maxTest, 1)
 
 		for idx := uint32(0); idx < nc; idx += inc {

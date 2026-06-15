@@ -424,10 +424,7 @@ func TestOpusDemoEndToEndConformance(t *testing.T) {
 // high quality floor otherwise.
 func assertDecodeParity(t *testing.T, c conformanceCell, refPackets [][]byte, got, ref []float32) {
 	t.Helper()
-	n := len(ref)
-	if len(got) < n {
-		n = len(got)
-	}
+	n := min(len(got), len(ref))
 	if n == 0 {
 		t.Fatal("decode produced no samples")
 	}

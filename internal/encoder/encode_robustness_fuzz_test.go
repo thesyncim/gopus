@@ -304,10 +304,7 @@ func FuzzEncodeRawFrameSize(f *testing.F) {
 		// Clamp the requested frame size to a sane magnitude and size the PCM to
 		// match it (mismatched lengths are themselves a valid rejection path, but
 		// the goal here is to probe the frame-size handling, not the length check).
-		n := max(frameSize, 0)
-		if n > 1<<16 {
-			n = 1 << 16
-		}
+		n := min(max(frameSize, 0), 1<<16)
 		pcm := make([]float32, n*channels)
 		// Encode must never panic regardless of frameSize.
 		_, _ = enc.Encode(pcm, frameSize)

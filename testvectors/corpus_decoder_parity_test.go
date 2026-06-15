@@ -63,10 +63,7 @@ func TestCorpusDecoderParity(t *testing.T) {
 			}
 
 			// Build signal profile: all samples are coded (no PLC/concealment here).
-			n := len(gopusDecoded)
-			if len(refDecoded) < n {
-				n = len(refDecoded)
-			}
+			n := min(len(refDecoded), len(gopusDecoded))
 			profile := qualitycompare.CodedProfile(fixture.SampleRate, c.Channels, n)
 
 			// Gate: near-exact intent — gopus must track libopus as closely as

@@ -57,10 +57,7 @@ func alignFloat32ForDelay(decoded, reference []float32, delay int) ([]float32, [
 }
 
 func computeWaveformStats(decoded, reference []float32) waveformStats {
-	n := len(decoded)
-	if len(reference) < n {
-		n = len(reference)
-	}
+	n := min(len(reference), len(decoded))
 	if n == 0 {
 		return waveformStats{}
 	}

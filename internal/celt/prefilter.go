@@ -37,19 +37,13 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 	// filter runs at that scale; only the analysis buffers/search use the
 	// QEXT-scaled period). Clamp it the same way libopus clamps
 	// st->prefilter_period inside run_prefilter.
-	prevPeriod := max(e.prefilterPeriod, combFilterMinPeriod)
-	if prevPeriod > combFilterMaxPeriod-2 {
-		prevPeriod = combFilterMaxPeriod - 2
-	}
+	prevPeriod := min(max(e.prefilterPeriod, combFilterMinPeriod), combFilterMaxPeriod-2)
 	prevTapset := max(e.prefilterTapset, 0)
 	if prevTapset >= len(combFilterGains) {
 		prevTapset = len(combFilterGains) - 1
 	}
 	if !enabled && e.prefilterGain == 0 {
-		overlap := e.analysisOverlap()
-		if overlap > frameSize {
-			overlap = frameSize
-		}
+		overlap := min(e.analysisOverlap(), frameSize)
 		e.updatePrefilterNoopStateFromPreemph(preemph, frameSize, channels, overlap)
 		e.prefilterPeriod = combFilterMinPeriod
 		e.prefilterGain = 0
@@ -98,10 +92,7 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 			multiple++
 		}
 		if freq*float32(qextScale) > 0.006148 {
-			pitchIndex = int(0.5 + 2*pi32*float32(multiple)/(freq*float32(qextScale)))
-			if pitchIndex > combFilterMaxPeriod-2 {
-				pitchIndex = combFilterMaxPeriod - 2
-			}
+			pitchIndex = min(int(0.5+2*pi32*float32(multiple)/(freq*float32(qextScale))), combFilterMaxPeriod-2)
 		} else {
 			pitchIndex = combFilterMinPeriod
 		}
@@ -175,18 +166,12 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 		if abs32(gain1-e.prefilterGain) < 0.1 {
 			gain1 = e.prefilterGain
 		}
-		qg = max(int(0.5+gain1*32.0/3.0)-1, 0)
-		if qg > 7 {
-			qg = 7
-		}
+		qg = min(max(int(0.5+gain1*32.0/3.0)-1, 0), 7)
 		gain1 = float32(0.09375) * float32(qg+1)
 		pfOn = true
 	}
 
-	overlap := e.analysisOverlap()
-	if overlap > frameSize {
-		overlap = frameSize
-	}
+	overlap := min(e.analysisOverlap(), frameSize)
 	if gain1 == 0 && e.prefilterGain == 0 {
 		e.updatePrefilterNoopState(pre, perChanLen, frameSize, channels, overlap)
 		e.prefilterPeriod = pitchIndex
@@ -612,10 +597,7 @@ func pitchSearch(xLP []float32, y []float32, length, maxPitch int, scratch *enco
 			continue
 		}
 		lo := max(r.lo-1, 0)
-		hi := r.hi + 2
-		if hi > halfPitch {
-			hi = halfPitch
-		}
+		hi := min(r.hi+2, halfPitch)
 		clear(xcorr[lo:hi])
 	}
 	Syy := float32(1)

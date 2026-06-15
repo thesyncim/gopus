@@ -56,10 +56,7 @@ func TestGopusRoundTrip(t *testing.T) {
 		t.Fatal("No samples decoded")
 	}
 
-	compareLen := len(pcm)
-	if len(decoded) < compareLen {
-		compareLen = len(decoded)
-	}
+	compareLen := min(len(decoded), len(pcm))
 
 	// Calculate SNR
 	var signalPower, errorPower float64

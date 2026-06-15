@@ -62,7 +62,7 @@ func silkResamplerDown2HPLegacy(s []float32, out []float32, in []float32) float3
 	)
 
 	var hpEner float64
-	for k := 0; k < len2; k++ {
+	for k := range len2 {
 		in32 := in[2*k]
 		y := in32 - s0
 		xf := coef0 * y

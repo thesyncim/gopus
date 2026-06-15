@@ -134,10 +134,7 @@ func TestDecodeWithFECMultiFrameSILKMatchesLibopus(t *testing.T) {
 				}
 
 				// FEC-recovered frame must be sample-exact.
-				fecEnd := min(fecStart+fs*channels, len(got))
-				if fecEnd > len(want) {
-					fecEnd = len(want)
-				}
+				fecEnd := min(min(fecStart+fs*channels, len(got)), len(want))
 				maxDiff := 0.0
 				worst := -1
 				for j := fecStart; j < fecEnd; j++ {

@@ -9,10 +9,7 @@ func TestExpRotationCoefficientsMatchDirectComputation(t *testing.T) {
 	for spread := spreadLight; spread <= spreadAggressive; spread++ {
 		spreadFactor := expRotationSpreadFactors[spread-1]
 		for length := 1; length <= maxExpRotationLength; length++ {
-			maxK := (length - 1) >> 1
-			if maxK > MaxPVQK {
-				maxK = MaxPVQK
-			}
+			maxK := min((length-1)>>1, MaxPVQK)
 			for k := 0; k <= maxK; k++ {
 				gotC, gotS, ok := expRotationCoefficients(length, k, spread)
 				if !ok {

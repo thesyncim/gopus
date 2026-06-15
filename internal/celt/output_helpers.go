@@ -36,10 +36,7 @@ func (d *Decoder) deemphCoefficient() float32 {
 // Reference: celt/celt_decoder.c deemphasis(), coef[1]!=0 branch.
 func (d *Decoder) applyDeemphasis2TapInterleaved(dst, samples []float32, scale float32) {
 	channels := max(int(d.channels), 1)
-	n := len(samples)
-	if len(dst) < n {
-		n = len(dst)
-	}
+	n := min(len(dst), len(samples))
 	frames := n / channels
 	if frames <= 0 {
 		return
@@ -49,7 +46,7 @@ func (d *Decoder) applyDeemphasis2TapInterleaved(dst, samples []float32, scale f
 	coef1 := d.deemphCoef1
 	// coef3 folded with the SIG2RES scale (the caller's 1/32768).
 	out := noFMA32Mul(d.deemphCoef3, scale)
-	for c := 0; c < channels; c++ {
+	for c := range channels {
 		m := float32(d.preemphState[c])
 		for j := range frames {
 			idx := j*channels + c
@@ -286,10 +283,7 @@ func deemphasisStereoPlanar2StepFused(dst, left, right []float32, n int, scale, 
 }
 
 func (d *Decoder) applyDeemphasisAndScaleStereoPlanarToFloat32(dst []float32, left, right []float32, scale float32) {
-	n := len(left)
-	if len(right) < n {
-		n = len(right)
-	}
+	n := min(len(right), len(left))
 	if n == 0 {
 		return
 	}
@@ -460,10 +454,7 @@ func (d *Decoder) applyDeemphasisAndScaleMonoFloat32ToFloat32(dst []float32, sam
 }
 
 func (d *Decoder) applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(dst []float32, left, right []float32, scale float32) {
-	n := len(left)
-	if len(right) < n {
-		n = len(right)
-	}
+	n := min(len(right), len(left))
 	if n == 0 {
 		return
 	}
@@ -759,10 +750,7 @@ func (d *Decoder) applyDeemphasisAndScaleDownsampleToFloat32(dst []float32, samp
 	const coef float32 = float32(PreemphCoef)
 
 	if d.channels == 1 {
-		n := len(samples) / downsample
-		if len(dst) < n {
-			n = len(dst)
-		}
+		n := min(len(dst), len(samples)/downsample)
 		if n <= 0 {
 			return
 		}
@@ -795,10 +783,7 @@ func (d *Decoder) applyDeemphasisAndScaleDownsampleToFloat32(dst []float32, samp
 	}
 
 	frames := len(samples) / 2
-	n := frames / downsample
-	if len(dst)/2 < n {
-		n = len(dst) / 2
-	}
+	n := min(len(dst)/2, frames/downsample)
 	if n <= 0 {
 		return
 	}
@@ -840,10 +825,7 @@ func (d *Decoder) applyDeemphasisAndScaleMonoFloat32DownsampleToFloat32(dst []fl
 		d.applyDeemphasisAndScaleMonoFloat32ToFloat32(dst, samples, scale)
 		return
 	}
-	n := len(samples) / downsample
-	if len(dst) < n {
-		n = len(dst)
-	}
+	n := min(len(dst), len(samples)/downsample)
 	if n <= 0 {
 		return
 	}
@@ -881,14 +863,8 @@ func (d *Decoder) applyDeemphasisAndScaleStereoPlanarFloat32DownsampleToFloat32(
 		d.applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(dst, left, right, scale)
 		return
 	}
-	frames := len(left)
-	if len(right) < frames {
-		frames = len(right)
-	}
-	n := frames / downsample
-	if len(dst)/2 < n {
-		n = len(dst) / 2
-	}
+	frames := min(len(right), len(left))
+	n := min(len(dst)/2, frames/downsample)
 	if n <= 0 {
 		return
 	}

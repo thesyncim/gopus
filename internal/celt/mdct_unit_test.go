@@ -248,10 +248,7 @@ func TestMDCTUnit_GoIMDCT(t *testing.T) {
 
 			// Compare
 			var errpow, sigpow float64
-			minLen := len(goOut)
-			if len(directOut) < minLen {
-				minLen = len(directOut)
-			}
+			minLen := min(len(directOut), len(goOut))
 			for i := 0; i < minLen; i++ {
 				diff := float64(goOut[i] - directOut[i])
 				errpow += diff * diff

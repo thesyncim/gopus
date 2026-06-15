@@ -216,10 +216,7 @@ func TestFinalRangeModeTransitions(t *testing.T) {
 	pcm := make([]float32, 2880)
 
 	// Decode several packets and track FinalRange
-	maxPackets := 10
-	if len(packets) < maxPackets {
-		maxPackets = len(packets)
-	}
+	maxPackets := min(len(packets), 10)
 	for i := 0; i < maxPackets; i++ {
 		_, err := decoder.Decode(packets[i].Data, pcm)
 		if err != nil {

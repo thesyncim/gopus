@@ -43,10 +43,7 @@ func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) (
 	predictLPCOrder := params.PredLPCOrder
 	shapingLPCOrder := params.ShapeLPCOrder
 	warpingQ16 := params.WarpingQ16
-	nStates := max(params.NStatesDelayedDecision, 1)
-	if nStates > maxDelDecStates {
-		nStates = maxDelDecStates
-	}
+	nStates := min(max(params.NStatesDelayedDecision, 1), maxDelDecStates)
 
 	if frameLength <= 0 {
 		return nil, nil, params.Seed

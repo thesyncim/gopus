@@ -882,7 +882,7 @@ func surroundTrimFromMask(maskL, maskR []float32) float32 {
 		if c == 1 {
 			mask = maskR
 		}
-		for i := 0; i < maskEnd; i++ {
+		for i := range maskEnd {
 			m := clampFloat32(mask[i], -2.0, 0.25)
 			if m > 0 {
 				m *= 0.5
@@ -998,7 +998,7 @@ func (e *Encoder) computeSurroundBandSMR(pcm []float32, frameSize int, bandSMR [
 			coeffs := celt.MDCTForwardWithOverlapFloat32(in[start:end], overlap)
 			if upsample != 1 {
 				bound := min(freqSize/upsample, len(coeffs))
-				for i := 0; i < bound; i++ {
+				for i := range bound {
 					coeffs[i] *= float32(upsample)
 				}
 				for i := bound; i < len(coeffs); i++ {

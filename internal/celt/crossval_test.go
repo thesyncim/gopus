@@ -753,10 +753,7 @@ func computeEnergy(samples []float32) float64 {
 // where noise = decoded - original
 func computeSNR(original, decoded []float32) float64 {
 	// Use the shorter length
-	n := len(original)
-	if len(decoded) < n {
-		n = len(decoded)
-	}
+	n := min(len(decoded), len(original))
 	if n == 0 {
 		return 0
 	}

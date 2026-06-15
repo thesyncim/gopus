@@ -200,10 +200,7 @@ func pvqTonalPCM(channels, frameSize int) []float32 {
 func pvqTransientPCM(channels, frameSize int) []float32 {
 	pcm := make([]float32, frameSize*channels)
 	onset := frameSize / 2
-	burstLen := 40
-	if burstLen > frameSize-onset {
-		burstLen = frameSize - onset
-	}
+	burstLen := min(40, frameSize-onset)
 	for i := range frameSize {
 		amp := 0.02
 		if i >= onset && i < onset+burstLen {
@@ -388,10 +385,7 @@ func classifyPVQGridCell(tc pvqGridCase, got, ref []byte) pvqGridCellOutcome {
 		return out
 	}
 
-	lim := len(got)
-	if len(ref) < lim {
-		lim = len(ref)
-	}
+	lim := min(len(ref), len(got))
 	for j := 0; j < lim; j++ {
 		if got[j] != ref[j] {
 			out.firstDiff = j

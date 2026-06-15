@@ -683,10 +683,7 @@ func (e *Encoder) StreamChannels() int {
 }
 
 func (e *Encoder) codedChannels() int {
-	channels := max(int(e.streamChannels), 1)
-	if channels > int(e.channels) {
-		channels = int(e.channels)
-	}
+	channels := min(max(int(e.streamChannels), 1), int(e.channels))
 	return channels
 }
 
@@ -779,10 +776,7 @@ func (e *Encoder) OverlapBuffer() []float32 {
 // returns the number of samples written. It performs the same conversion as
 // OverlapBuffer without allocating, for the hot multi-frame encode path.
 func (e *Encoder) OverlapBufferInto(dst []float32) int {
-	n := len(e.overlapBuffer)
-	if n > len(dst) {
-		n = len(dst)
-	}
+	n := min(len(e.overlapBuffer), len(dst))
 	copySigToFloat32(dst[:n], e.overlapBuffer[:n])
 	return n
 }
@@ -1437,10 +1431,7 @@ func (s *encoderScratch) ensureEncodeFloatArena(frameSize, channels, overlap, ma
 func (e *Encoder) ensureScratch(frameSize int) {
 	channels := int(e.channels)
 	expectedLen := frameSize * channels
-	overlap := e.analysisOverlap()
-	if overlap > frameSize {
-		overlap = frameSize
-	}
+	overlap := min(e.analysisOverlap(), frameSize)
 
 	s := &e.scratch
 
@@ -1623,10 +1614,7 @@ func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3,
 	if nbBands < 0 {
 		nbBands = 0
 	}
-	channels := max(e.codedChannels(), 1)
-	if channels > 2 {
-		channels = 2
-	}
+	channels := min(max(e.codedChannels(), 1), 2)
 	if lm < 0 {
 		lm = 0
 	}

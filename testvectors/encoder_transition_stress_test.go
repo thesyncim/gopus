@@ -127,10 +127,7 @@ func TestEncoderModeSwitchStreamQuality(t *testing.T) {
 		decoded = decoded[preSkip:]
 	}
 
-	compareLen := len(signal)
-	if len(decoded) < compareLen {
-		compareLen = len(decoded)
-	}
+	compareLen := min(len(decoded), len(signal))
 	cmp, err := CompareDecodedFloat32(decoded[:compareLen], signal[:compareLen], sampleRate, channels, 2*frameSize)
 	if err != nil {
 		t.Fatalf("compute opus_compare quality for mode transitions: %v", err)
@@ -212,10 +209,7 @@ func TestLongFrameAbove960StabilityMatrix(t *testing.T) {
 				decoded = decoded[preSkip:]
 			}
 
-			compareLen := len(signal)
-			if len(decoded) < compareLen {
-				compareLen = len(decoded)
-			}
+			compareLen := min(len(decoded), len(signal))
 			cmp, err := CompareDecodedFloat32(decoded[:compareLen], signal[:compareLen], 48000, tc.channels, tc.frameSize)
 			if err != nil {
 				t.Fatalf("compute opus_compare quality: %v", err)

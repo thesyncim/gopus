@@ -151,10 +151,7 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	hybridDec.SetAPISampleRate(internalRate)
 
 	transitionSamples := 48000 / 200 // 5ms at 48kHz
-	scratchFrame48Samples := min(maxPacketSamples*48000/cfg.SampleRate, defaultMaxPacketSamples)
-	if scratchFrame48Samples < maxPacketSamples {
-		scratchFrame48Samples = maxPacketSamples
-	}
+	scratchFrame48Samples := max(min(maxPacketSamples*48000/cfg.SampleRate, defaultMaxPacketSamples), maxPacketSamples)
 
 	d := &Decoder{
 		silkDecoder:      silkDec,

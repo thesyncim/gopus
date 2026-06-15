@@ -108,7 +108,7 @@ func apiRateWaveformCorrelationRMS(a, b []float32) (corr, rmsRatio float64) {
 		return 0, 0
 	}
 	var sumA, sumB, sumASq, sumBSq float64
-	for i := 0; i < n; i++ {
+	for i := range n {
 		fa, fb := float64(a[i]), float64(b[i])
 		sumA += fa
 		sumB += fb
@@ -117,7 +117,7 @@ func apiRateWaveformCorrelationRMS(a, b []float32) (corr, rmsRatio float64) {
 	}
 	meanA, meanB := sumA/float64(n), sumB/float64(n)
 	var varA, varB, cov float64
-	for i := 0; i < n; i++ {
+	for i := range n {
 		da, db := float64(a[i])-meanA, float64(b[i])-meanB
 		cov += da * db
 		varA += da * da

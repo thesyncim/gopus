@@ -22,10 +22,10 @@ func refMulSub(a, b, c, d float32) float32 {
 }
 
 func kfBfly4InnerRef(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
-	for i := 0; i < N; i++ {
+	for i := range N {
 		base := i * mm
 		tw1, tw2, tw3 := 0, 0, 0
-		for j := 0; j < m; j++ {
+		for j := range m {
 			idx0 := base + j
 			idx1, idx2, idx3 := idx0+m, idx0+2*m, idx0+3*m
 			f0r, f0i := fout[idx0].r, fout[idx0].i
@@ -60,10 +60,10 @@ func kfBfly4InnerRef(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 func kfBfly3InnerRef(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 	m2 := 2 * m
 	epi3i := w[fstride*m].i
-	for i := 0; i < N; i++ {
+	for i := range N {
 		base := i * mm
 		tw1, tw2 := 0, 0
-		for j := 0; j < m; j++ {
+		for j := range m {
 			idx0 := base + j
 			idx1, idx2 := idx0+m, idx0+m2
 			a0r, a0i := fout[idx0].r, fout[idx0].i
@@ -100,11 +100,11 @@ func kfBfly3InnerRef(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 func kfBfly5InnerRef(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 	ya := w[fstride*m]
 	yb := w[fstride*2*m]
-	for i := 0; i < N; i++ {
+	for i := range N {
 		base := i * mm
 		idx0, idx1, idx2, idx3, idx4 := base, base+m, base+2*m, base+3*m, base+4*m
 		tw1, tw2, tw3, tw4 := 0, 0, 0, 0
-		for u := 0; u < m; u++ {
+		for range m {
 			s0 := fout[idx0]
 			b1, b2, b3, b4 := fout[idx1], fout[idx2], fout[idx3], fout[idx4]
 			w1, w2, w3, w4 := w[tw1], w[tw2], w[tw3], w[tw4]
@@ -194,13 +194,13 @@ func runBflyCase(t *testing.T, radix int, s bflyShape,
 // vector/scalar tail split.
 func TestKfBflyInnerMatchesFMAReference(t *testing.T) {
 	shapes4 := []bflyShape{
-		{m: 8, N: 15, mm: 32, fstride: 15},  // nfft=480 stage
-		{m: 4, N: 15, mm: 16, fstride: 15},  // nfft=240 stage
-		{m: 2, N: 15, mm: 8, fstride: 15},   // nfft=120 stage (scalar only)
-		{m: 5, N: 3, mm: 20, fstride: 3},    // off-grid: blocks+tail
-		{m: 9, N: 2, mm: 36, fstride: 2},    // off-grid
-		{m: 16, N: 1, mm: 64, fstride: 1},   // contiguous twiddles
-		{m: 7, N: 4, mm: 28, fstride: 4},    // tail 3
+		{m: 8, N: 15, mm: 32, fstride: 15}, // nfft=480 stage
+		{m: 4, N: 15, mm: 16, fstride: 15}, // nfft=240 stage
+		{m: 2, N: 15, mm: 8, fstride: 15},  // nfft=120 stage (scalar only)
+		{m: 5, N: 3, mm: 20, fstride: 3},   // off-grid: blocks+tail
+		{m: 9, N: 2, mm: 36, fstride: 2},   // off-grid
+		{m: 16, N: 1, mm: 64, fstride: 1},  // contiguous twiddles
+		{m: 7, N: 4, mm: 28, fstride: 4},   // tail 3
 	}
 	for _, s := range shapes4 {
 		t.Run(fmt.Sprintf("radix4_m%d_N%d_fs%d", s.m, s.N, s.fstride), func(t *testing.T) {

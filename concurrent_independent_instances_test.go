@@ -203,7 +203,7 @@ func TestConcurrentIndependentInstancesConstructionStorm(t *testing.T) {
 
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for w := 0; w < workers; w++ {
+	for w := range workers {
 		wg.Add(1)
 		go func(w int) {
 			defer wg.Done()

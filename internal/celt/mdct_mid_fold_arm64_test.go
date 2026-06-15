@@ -30,7 +30,7 @@ func TestMDCTMidFoldStoreNeonBitExact(t *testing.T) {
 		})
 	}
 	// Off-grid shapes exercising remainder-adjacent block counts.
-	for trial := 0; trial < 20; trial++ {
+	for range 20 {
 		n4 := 8 + rng.Intn(64)*4
 		blocks := 1 + rng.Intn(n4/4)
 		i0 := rng.Intn(n4 - 4*blocks + 1)
@@ -60,7 +60,7 @@ func TestMDCTMidFoldStoreNeonBitExact(t *testing.T) {
 
 		got := make([]kissCpx, s.n4)
 		want := make([]kissCpx, s.n4)
-		for j := 0; j < done; j++ {
+		for j := range done {
 			re := samples[s.xp2-2*j]
 			im := samples[s.xp1+2*j]
 			mdctStoreDirectStageFMALike(want, bitrev[s.i0+j], preScale, re, im, trig[s.i0+j], trig[s.n4+s.i0+j])

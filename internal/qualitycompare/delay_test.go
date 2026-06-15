@@ -160,7 +160,7 @@ func shiftSignal(reference []float32, delay int) []float32 {
 func interleaveStereo(left, right []float32) []float32 {
 	n := min(len(right), len(left))
 	out := make([]float32, n*2)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		out[i*2] = left[i]
 		out[i*2+1] = right[i]
 	}

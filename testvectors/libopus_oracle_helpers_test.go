@@ -21,10 +21,7 @@ func computeOpusCompareQualityBetweenDecoded(reference, decoded []float32, sampl
 		return 0, 0, fmt.Errorf("decoded waveform missing: reference=%d decoded=%d", len(reference), len(decoded))
 	}
 
-	compareLen := len(reference)
-	if len(decoded) < compareLen {
-		compareLen = len(decoded)
-	}
+	compareLen := min(len(decoded), len(reference))
 	if compareLen <= 0 {
 		return 0, 0, fmt.Errorf("decoded waveform overlap missing")
 	}

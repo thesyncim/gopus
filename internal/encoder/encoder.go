@@ -2551,13 +2551,10 @@ func (e *Encoder) applySilkTransitionPrefillRamp(prefill []opusRes, prefillFrame
 	sampleRate := int(e.sampleRate)
 	delayComp := sampleRate / 250
 	prefillLen := sampleRate / 400
-	start := max(prefillFrameSize-delayComp-prefillLen, 0)
-	if start > prefillFrameSize {
-		start = prefillFrameSize
-	}
+	start := min(max(prefillFrameSize-delayComp-prefillLen, 0), prefillFrameSize)
 
 	prefix := min(start*channels, len(prefill))
-	for i := 0; i < prefix; i++ {
+	for i := range prefix {
 		prefill[i] = 0
 	}
 	if prefillLen <= 0 {
@@ -3257,10 +3254,7 @@ func (e *Encoder) silkBustMaxDataBytes(frameSize, maxDataBytes int) int {
 	if e.bitrateMode != ModeCBR {
 		return maxDataBytes
 	}
-	cbrBytes := min(e.targetBytesForBitrate(int(e.bitrate), frameSize), maxDataBytes)
-	if cbrBytes < 1 {
-		cbrBytes = 1
-	}
+	cbrBytes := max(min(e.targetBytesForBitrate(int(e.bitrate), frameSize), maxDataBytes), 1)
 	return cbrBytes
 }
 
@@ -4276,10 +4270,7 @@ func computeSilkFrameLayout(pcmLen, fsKHz int) (frameSamples, nFrames int) {
 	if pcmLen < frameSamples {
 		frameSamples = pcmLen
 	}
-	nFrames = max(pcmLen/frameSamples, 1)
-	if nFrames > silk.MaxFramesPerPacket {
-		nFrames = silk.MaxFramesPerPacket
-	}
+	nFrames = min(max(pcmLen/frameSamples, 1), silk.MaxFramesPerPacket)
 	return frameSamples, nFrames
 }
 

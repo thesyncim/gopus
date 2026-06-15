@@ -140,7 +140,6 @@ func TestTOCEdgeAllBytesMatchLibopus(t *testing.T) {
 	}
 
 	for b := range 256 {
-		b := b
 		t.Run(cases[b].name, func(t *testing.T) {
 			toc := ParseTOC(byte(b))
 			w := want[b]
@@ -184,7 +183,6 @@ func TestTOCEdgeNbFramesMatchLibopus(t *testing.T) {
 	}
 
 	for b := range 256 {
-		b := b
 		t.Run(cases[b].name, func(t *testing.T) {
 			w := want[b]
 			got, gotErr := packetFrameCountLibopus(cases[b].packet)
@@ -224,7 +222,6 @@ func TestTOCEdgeSamplesPerFrameMatchLibopus(t *testing.T) {
 	}
 
 	for b := range 256 {
-		b := b
 		t.Run(cases[b].name, func(t *testing.T) {
 			w := want[b]
 			got, gotErr := packetSamplesPerFrameAtRate(cases[b].packet, 48000)

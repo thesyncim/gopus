@@ -401,7 +401,7 @@ func computeCorrelation(a, b []float32) float64 {
 	n := min(len(b), len(a))
 
 	var sumAB, sumA2, sumB2 float64
-	for i := 0; i < n; i++ {
+	for i := range n {
 		sumAB += float64(a[i]) * float64(b[i])
 		sumA2 += float64(a[i]) * float64(a[i])
 		sumB2 += float64(b[i]) * float64(b[i])

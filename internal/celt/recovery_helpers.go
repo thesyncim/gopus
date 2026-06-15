@@ -147,10 +147,7 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 }
 
 func (d *Decoder) accumulatePLCLossDuration(frameSize int) {
-	lm := max(GetModeConfig(frameSize).LM, 0)
-	if lm > 30 {
-		lm = 30
-	}
+	lm := min(max(GetModeConfig(frameSize).LM, 0), 30)
 	d.plcLossDuration += 1 << uint(lm)
 	if d.plcLossDuration > 10000 {
 		d.plcLossDuration = 10000
@@ -274,10 +271,7 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float32, error) {
 	// only the coded CELT band range [start,end) gets decayed/floored.
 	mode := GetModeConfig(frameSize)
 	start := HybridCELTStartBand
-	end := EffectiveBandsForFrameSize(d.bandwidth, frameSize)
-	if end > mode.EffBands {
-		end = mode.EffBands
-	}
+	end := min(EffectiveBandsForFrameSize(d.bandwidth, frameSize), mode.EffBands)
 	if end < start {
 		end = start
 	}
@@ -420,10 +414,7 @@ func (d *Decoder) concealNoisePLC(dst []float32, frameSize, prevLossDuration int
 		decayDB = 1.5
 	}
 	start := 0
-	end := EffectiveBandsForFrameSize(d.bandwidth, frameSize)
-	if end > mode.EffBands {
-		end = mode.EffBands
-	}
+	end := min(EffectiveBandsForFrameSize(d.bandwidth, frameSize), mode.EffBands)
 	if end < start {
 		end = start
 	}
@@ -684,10 +675,7 @@ func (d *Decoder) computePLCAutocorr(frame []celtSig, window []float32, ac []flo
 	x := d.scratchPLCWindowed[:n]
 	copy(x, frame)
 
-	overlap := Overlap
-	if overlap > n>>1 {
-		overlap = n >> 1
-	}
+	overlap := min(Overlap, n>>1)
 	for i := 0; i < overlap && i < len(window); i++ {
 		w := float32(window[i])
 		x[i] = celtSig(float32(x[i]) * w)
@@ -900,13 +888,22 @@ func pitchXCorrFloat32Quality(x, y, xcorr []float32, length, maxPitch int) {
 	for ; i < maxPitch-7; i += 8 {
 		var sum [8]float32
 		xcorrKernel8Float32(x, y[i:], &sum, length)
-		xcorr[i] = sum[0]; xcorr[i+1] = sum[1]; xcorr[i+2] = sum[2]; xcorr[i+3] = sum[3]
-		xcorr[i+4] = sum[4]; xcorr[i+5] = sum[5]; xcorr[i+6] = sum[6]; xcorr[i+7] = sum[7]
+		xcorr[i] = sum[0]
+		xcorr[i+1] = sum[1]
+		xcorr[i+2] = sum[2]
+		xcorr[i+3] = sum[3]
+		xcorr[i+4] = sum[4]
+		xcorr[i+5] = sum[5]
+		xcorr[i+6] = sum[6]
+		xcorr[i+7] = sum[7]
 	}
 	for ; i < maxPitch-3; i += 4 {
 		var sum [4]float32
 		xcorrKernel4Float32Fast(x, y[i:], &sum, length)
-		xcorr[i] = sum[0]; xcorr[i+1] = sum[1]; xcorr[i+2] = sum[2]; xcorr[i+3] = sum[3]
+		xcorr[i] = sum[0]
+		xcorr[i+1] = sum[1]
+		xcorr[i+2] = sum[2]
+		xcorr[i+3] = sum[3]
 	}
 	for ; i < maxPitch; i++ {
 		xcorr[i] = innerProdFloat32(x, y[i:], length)

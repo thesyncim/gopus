@@ -206,10 +206,7 @@ func ComputeImportance(bandLogE, oldBandE []celtGLog, nbBands, channels, lm, lsb
 }
 
 func l1MetricNorm(tmp []celtNorm, N int, LM int, bias float32) float32 {
-	n := N
-	if n > len(tmp) {
-		n = len(tmp)
-	}
+	n := min(N, len(tmp))
 	var L1 float32
 	if celtAbsSumUsesNeon {
 		L1 = l1AbsSumNeon(tmp, n)

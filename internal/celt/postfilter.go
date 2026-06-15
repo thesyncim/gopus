@@ -262,10 +262,7 @@ func updateInterleavedStereoHistoryRingSig(histL, histR []celtSig, samples []flo
 	if start < 0 || start >= history {
 		start = 0
 	}
-	first := history - start
-	if first > frameSize {
-		first = frameSize
-	}
+	first := min(history-start, frameSize)
 	src := 0
 	for i := 0; i < first; i++ {
 		histL[start+i] = celtSig(samples[src])
@@ -410,10 +407,7 @@ func (d *Decoder) materializePostfilterHistorySuffixFromPLC(need int) {
 }
 
 func postfilterHistoryNeed(t0, t1, t1b, t2 int) int {
-	need := max(t1, t0)
-	if t1b > need {
-		need = t1b
-	}
+	need := max(t1b, max(t1, t0))
 	if t2 > need {
 		need = t2
 	}
@@ -462,10 +456,7 @@ func updatePlanarHistoryRingFromFloat32(hist []celtSig, samples []float32, frame
 	if start < 0 || start >= history {
 		start = 0
 	}
-	first := history - start
-	if first > frameSize {
-		first = frameSize
-	}
+	first := min(history-start, frameSize)
 	copyFloat32ToSig(hist[start:start+first], samples[:first])
 	copyFloat32ToSig(hist[:frameSize-first], samples[first:frameSize])
 }
@@ -742,7 +733,6 @@ func combFilterConstValue(base, g10, g11, g12, center, plus1, minus1, plus2, min
 	return sum
 }
 
-
 // combFilterConstDispatch runs the constant-gain comb body, handing whole
 // 4-wide blocks to the NEON kernel on the fused arm64 build (bit-identical
 // per element). A scalar head keeps the incoming carry semantics, and the
@@ -982,10 +972,7 @@ func combFilterWithSquarePlanarFloat32(samples []float32, hist []celtSig, histor
 	x2 = combPlanarAtFloat32(samples, hist, history, base1+i+2)
 	x1 = combPlanarAtFloat32(samples, hist, history, base1+i+3)
 	histEnd := t1 - frameOffset - 2
-	histLimit := histEnd
-	if histLimit > n {
-		histLimit = n
-	}
+	histLimit := min(histEnd, n)
 	if i < histLimit {
 		dst := samples[frameOffset+i : frameOffset+histLimit]
 		delay := hist[base1+i+4 : base1+histLimit+4]
