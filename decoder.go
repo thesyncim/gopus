@@ -3,6 +3,7 @@
 package gopus
 
 import (
+	"github.com/thesyncim/gopus/internal/arena"
 	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/hybrid"
@@ -54,6 +55,9 @@ type Decoder struct {
 	channels           int32
 	maxPacketSamples   int
 	maxPacketBytes     int
+	// scratchF32 backs the six fixed float32 decode work buffers below with one
+	// contiguous allocation; see NewDecoder.
+	scratchF32         arena.Bump[float32]
 	scratchPCM         []float32
 	scratchFrame48     []float32
 	scratchTransition  []float32
@@ -160,18 +164,22 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		channels:          int32(cfg.Channels),
 		maxPacketSamples:  maxPacketSamples,
 		maxPacketBytes:    maxPacketBytes,
-		scratchPCM:        make([]float32, maxPacketSamples*cfg.Channels),
-		scratchFrame48:    make([]float32, scratchFrame48Samples*cfg.Channels),
-		scratchTransition: make([]float32, transitionSamples*cfg.Channels),
-		scratchRedundant:  make([]float32, transitionSamples*cfg.Channels),
-		scratchSilkPLC:    make([]float32, maxPacketSamples*cfg.Channels),
 		lastFrameSize:     int32(internalRate / 50), // Default 20ms at the internal rate
 		prevMode:          ModeHybrid,               // Default for PLC until first decode
 		lastPacketMode:    ModeHybrid,
 		lastBandwidth:     BandwidthFullband,
 		fecData:           make([]byte, maxPacketBytes),
-		scratchFEC:        make([]float32, maxPacketSamples*cfg.Channels),
 	}
+	// Back the six fixed float32 decode work buffers with one contiguous arena.
+	pcmLen := maxPacketSamples * cfg.Channels
+	transLen := transitionSamples * cfg.Channels
+	d.scratchF32.Ensure(3*pcmLen + scratchFrame48Samples*cfg.Channels + 2*transLen)
+	d.scratchPCM = d.scratchF32.AllocN(pcmLen)
+	d.scratchFrame48 = d.scratchF32.AllocN(scratchFrame48Samples * cfg.Channels)
+	d.scratchTransition = d.scratchF32.AllocN(transLen)
+	d.scratchRedundant = d.scratchF32.AllocN(transLen)
+	d.scratchSilkPLC = d.scratchF32.AllocN(pcmLen)
+	d.scratchFEC = d.scratchF32.AllocN(pcmLen)
 	if cfg.SampleRate == 96000 {
 		init96kDecoder(d)
 	}
