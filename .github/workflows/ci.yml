@@ -195,11 +195,11 @@ jobs:
         run: |
           GOTIP="$(go env GOPATH)/bin/gotip"
           GOEXPERIMENT=simd "$GOTIP" test ./internal/celt/ \
-            -run 'TestScaleFloat32IntoBitExact|TestCELTAssemblyWrappersMatchReferenceEdges' \
+            -run 'TestScaleFloat32IntoBitExact|TestStereoMergeRescaleBitExact|TestCeltInnerProd8FMA32MatchesReference|TestCELTAssemblyWrappersMatchReferenceEdges' \
             -count=1 -v
 
       - name: Benchstat default build (asm/scalar) vs archsimd
-        run: scripts/bench-simd-kernel.sh ./internal/celt/ BenchmarkScaleInto 6
+        run: scripts/bench-simd-kernel.sh ./internal/celt/ 'Benchmark(ScaleInto|StereoMerge|InnerProd8FMA32)' 6
 
   test-linux-parity:
     name: test-linux-parity
