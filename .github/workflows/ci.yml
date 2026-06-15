@@ -146,17 +146,28 @@ jobs:
         run: make test-fast
 
   test-simd-experiment:
-    name: test-simd-experiment
+    name: test-simd-experiment (${{ matrix.arch }})
     needs:
       - changes
     # Exercises the goexperiment.simd archsimd kernel path on the Go tip
-    # toolchain: proves the new build tag compiles (amd64 native + arm64 cross),
-    # stays bit-exact against the scalar reference, and reports the
-    # archsimd-vs-scalar benchmark on this AVX-capable amd64 runner. Go tip moves
-    # independently of this repo and can break, so the job never blocks a merge.
+    # toolchain across both arches: proves the new build tag compiles, stays
+    # bit-exact against the scalar reference, and benchstats the archsimd path
+    # against the default build — the hand NEON asm on arm64, the scalar fallback
+    # on amd64. Go tip moves independently of this repo and can break, so the job
+    # never blocks a merge.
     continue-on-error: true
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+            cross: arm64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+            cross: amd64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -167,17 +178,18 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install Go tip toolchain
+      - name: Install Go tip toolchain and benchstat
         run: |
           go install golang.org/dl/gotip@latest
           "$(go env GOPATH)/bin/gotip" download
           "$(go env GOPATH)/bin/gotip" version
+          go install golang.org/x/perf/cmd/benchstat@latest
 
-      - name: Build archsimd path (amd64 native + arm64 cross)
+      - name: Build archsimd path (${{ matrix.arch }} native + ${{ matrix.cross }} cross)
         run: |
           GOTIP="$(go env GOPATH)/bin/gotip"
           GOEXPERIMENT=simd "$GOTIP" build ./internal/celt/
-          GOEXPERIMENT=simd GOARCH=arm64 "$GOTIP" build ./internal/celt/
+          GOEXPERIMENT=simd GOARCH=${{ matrix.cross }} "$GOTIP" build ./internal/celt/
 
       - name: Bit-exact parity (archsimd vs scalar reference)
         run: |
@@ -186,11 +198,8 @@ jobs:
             -run 'TestScaleFloat32IntoBitExact|TestCELTAssemblyWrappersMatchReferenceEdges' \
             -count=1 -v
 
-      - name: Benchmark archsimd vs scalar (amd64)
-        run: |
-          GOTIP="$(go env GOPATH)/bin/gotip"
-          GOEXPERIMENT=simd "$GOTIP" test ./internal/celt/ \
-            -run '^$' -bench 'BenchmarkScaleInto' -benchtime=200ms -count=6
+      - name: Benchstat default build (asm/scalar) vs archsimd
+        run: scripts/bench-simd-kernel.sh ./internal/celt/ BenchmarkScaleInto 6
 
   test-linux-parity:
     name: test-linux-parity
