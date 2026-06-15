@@ -3987,6 +3987,14 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		return nil, nil, nil
 	}
 	N := frameSize
+	normOffset := M * edges[start]
+	normLen := max(M*edges[maxBands-1]-normOffset, 0)
+	maxBand := M * (edges[end] - edges[end-1])
+	if scratch != nil {
+		// Back the band-decode-local float scratch with one contiguous arena
+		// before the inline/getter sizing below reslices within each slot.
+		scratch.ensureFloatScratch(channels, N, normLen, maxBand)
+	}
 	if scratch == nil {
 		left = make([]celtNorm, N)
 		if channels == 2 {
@@ -4009,8 +4017,6 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		}
 	}
 
-	normOffset := M * edges[start]
-	normLen := max(M*edges[maxBands-1]-normOffset, 0)
 	var norm []celtNorm
 	if scratch == nil {
 		norm = make([]celtNorm, channels*normLen)
@@ -4022,7 +4028,6 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		norm2 = norm[normLen:]
 	}
 
-	maxBand := M * (edges[end] - edges[end-1])
 	var lowbandScratch []celtNorm
 	if scratch == nil {
 		lowbandScratch = make([]celtNorm, maxBand)

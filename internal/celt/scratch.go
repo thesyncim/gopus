@@ -78,6 +78,14 @@ func ensureKissCpxSlice(buf *[]kissCpx, n int) []kissCpx {
 }
 
 type bandDecodeScratch struct {
+	// floatScratch backs the band-decode-local float-family scratch (left, right,
+	// norm, lowband, pvqNorm/pvqNorm32/foldResult, hadamardTmpNorm, quantWork) with
+	// one contiguous allocation instead of nine. Carved in ensureFloatScratch at the
+	// top of the band decode; the per-field ensure* sizing/getters reslice/clear
+	// within their cap-pinned slot. (coeffs is excluded: it is an IMDCT-stage buffer,
+	// not used here; bandVectors*/bandStorage* hold pointers and stay separate.)
+	floatScratch arena.Bump[celtNorm]
+
 	left     []celtNorm
 	right    []celtNorm
 	collapse []byte
@@ -266,6 +274,33 @@ func (s *bandEncodeScratch) ensureQEXTIy(n int) []int32 {
 const maxBandWidth = 176
 
 // ensureCoeffs returns a pre-allocated coefficients buffer of the requested size.
+// ensureFloatScratch backs the band-decode-local float scratch with one
+// contiguous arena, carving a cap-pinned slot per field. Sizes follow the inline
+// and getter requests in quantAllBandsDecodeWithScratchWithMode (left/right at
+// frameSize, norm at channels*normLen, lowband at maxBand, the PVQ/fold buffers at
+// maxBandWidth, hadamard/quantWork at a generous maxBandWidth*16 upper bound). The
+// carved length is 0; the per-field ensure* sizing/getters set length and clearing
+// within their slot. Re-carves only when a frame needs more than the current
+// backing; otherwise a cheap early return. Layout only — bit-exact.
+func (s *bandDecodeScratch) ensureFloatScratch(channels, frameSize, normLen, maxBand int) {
+	const small = maxBandWidth
+	const big = maxBandWidth * 16
+	total := frameSize*2 + channels*normLen + maxBand + small*3 + big*2
+	if s.floatScratch.Cap() >= total {
+		return
+	}
+	s.floatScratch.Ensure(total)
+	s.left = s.floatScratch.Alloc(frameSize)
+	s.right = s.floatScratch.Alloc(frameSize)
+	s.norm = s.floatScratch.Alloc(channels * normLen)
+	s.lowband = s.floatScratch.Alloc(maxBand)
+	s.pvqNorm = s.floatScratch.Alloc(small)
+	s.pvqNorm32 = s.floatScratch.Alloc(small)
+	s.foldResult = s.floatScratch.Alloc(small)
+	s.hadamardTmpNorm = s.floatScratch.Alloc(big)
+	s.quantWork = s.floatScratch.Alloc(big)
+}
+
 func (s *bandDecodeScratch) ensureCoeffs(n int) []celtNorm {
 	return ensureNormSlice(&s.coeffs, n)
 }
