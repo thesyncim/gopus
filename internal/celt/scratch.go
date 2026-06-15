@@ -117,15 +117,17 @@ type bandEncodeScratch struct {
 	norm           []celtNorm
 	lowbandScratch []celtNorm
 
-	// Theta RDO buffers (for stereo encoding).
-	// These eight per-band celtNorm scratch slices are all live simultaneously
-	// within a single band's theta-RDO and each is bounded by maxBandWidth.
-	// thetaBump backs all eight with one contiguous allocation so they sit in
-	// the same cache region (and cost one alloc, not eight). Each ensure* below
-	// still reslices/clears its own slot independently, so semantics are
-	// unchanged; a band wider than maxBandWidth (custom modes) simply makes a
-	// fresh slice in that slot, identical to before.
-	thetaBump   arena.Bump[celtNorm]
+	// floatScratch backs the encode band float-family scratch (norm,
+	// lowbandScratch, hadamardTmpNorm, pvqY/pvqAbsX/pvqX, and the eight theta-RDO
+	// slots below) with one contiguous allocation so they share a cache region
+	// and cost one alloc instead of ~14. Each field's ensure* getter still
+	// reslices/clears its own cap-pinned slot independently, so semantics are
+	// unchanged; a request wider than the carved slot (custom modes) just makes a
+	// fresh slice in that slot, identical to before. See ensureFloatScratch.
+	floatScratch arena.Bump[celtNorm]
+
+	// Theta RDO buffers (for stereo encoding): eight per-band celtNorm slots,
+	// each bounded by maxBandWidth, all live simultaneously within one band's RDO.
 	xSave       []celtNorm
 	ySave       []celtNorm
 	normSave    []celtNorm
@@ -174,25 +176,36 @@ func (s *bandEncodeScratch) ensureLowbandScratch(n int) []celtNorm {
 	return ensureNormSlice(&s.lowbandScratch, n)
 }
 
-// ensureThetaArena lazily backs the eight per-band theta-RDO celtNorm slots
-// with a single contiguous allocation, carving one maxBandWidth-sized slot per
-// field. Each slot keeps cap == maxBandWidth so the per-field ensure* helpers
-// reslice/clear within it exactly as they would a standalone buffer.
-// Idempotent: only allocates on the first call.
-func (s *bandEncodeScratch) ensureThetaArena() {
-	const slots = 8
-	if s.thetaBump.Cap() >= slots*maxBandWidth {
+// ensureFloatScratch lazily backs the band float-family scratch with one
+// contiguous allocation, carving one cap-pinned slot per field. Each slot keeps
+// cap == its worst-case width so the per-field ensure* getters reslice/clear
+// within it exactly as they would a standalone buffer. The carved length is 0;
+// callers' ensure* getters (or the per-frame ensureScratch sizing) set the
+// visible length and clearing. Sizes depend only on channels (not frameSize), so
+// this allocates once per encoder. Idempotent.
+func (s *bandEncodeScratch) ensureFloatScratch(channels int) {
+	const maxPVQN = maxBandWidth * 2
+	normLen := 8 * EBands[MaxBands-1]
+	maxBand := 8 * (EBands[MaxBands] - EBands[MaxBands-1])
+	total := channels*normLen + maxBand + maxBandWidth*16 + 3*maxPVQN + 8*maxBandWidth
+	if s.floatScratch.Cap() >= total {
 		return
 	}
-	s.thetaBump.Ensure(slots * maxBandWidth)
-	s.xSave = s.thetaBump.Alloc(maxBandWidth)
-	s.ySave = s.thetaBump.Alloc(maxBandWidth)
-	s.normSave = s.thetaBump.Alloc(maxBandWidth)
-	s.xResult0 = s.thetaBump.Alloc(maxBandWidth)
-	s.yResult0 = s.thetaBump.Alloc(maxBandWidth)
-	s.normResult0 = s.thetaBump.Alloc(maxBandWidth)
-	s.thetaX = s.thetaBump.Alloc(maxBandWidth)
-	s.thetaY = s.thetaBump.Alloc(maxBandWidth)
+	s.floatScratch.Ensure(total)
+	s.norm = s.floatScratch.Alloc(channels * normLen)
+	s.lowbandScratch = s.floatScratch.Alloc(maxBand)
+	s.hadamardTmpNorm = s.floatScratch.Alloc(maxBandWidth * 16)
+	s.pvqY = s.floatScratch.Alloc(maxPVQN)
+	s.pvqAbsX = s.floatScratch.Alloc(maxPVQN)
+	s.pvqX = s.floatScratch.Alloc(maxPVQN)
+	s.xSave = s.floatScratch.Alloc(maxBandWidth)
+	s.ySave = s.floatScratch.Alloc(maxBandWidth)
+	s.normSave = s.floatScratch.Alloc(maxBandWidth)
+	s.xResult0 = s.floatScratch.Alloc(maxBandWidth)
+	s.yResult0 = s.floatScratch.Alloc(maxBandWidth)
+	s.normResult0 = s.floatScratch.Alloc(maxBandWidth)
+	s.thetaX = s.floatScratch.Alloc(maxBandWidth)
+	s.thetaY = s.floatScratch.Alloc(maxBandWidth)
 }
 
 // ensureXSave returns a pre-allocated buffer for saving X during theta RDO.

@@ -1507,17 +1507,15 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.pvqAbsX = ensureFloat32Slice(&s.pvqAbsX, maxPVQN)
 	s.pvqIy = ensureInt32Slice(&s.pvqIy, maxPVQN)
 
-	// Band encode scratch
+	// Band encode scratch. Carve the float-family fields (norm, lowbandScratch,
+	// hadamardTmpNorm, pvqY/pvqAbsX/pvqX, theta-RDO slots) from one contiguous
+	// arena first; the sizing/getters below reslice within their cap-pinned slots.
+	s.bandEncode.ensureFloatScratch(channels)
 	s.bandEncode.collapse = ensureByteSlice(&s.bandEncode.collapse, channels*MaxBands)
 	normLen := 8 * EBands[MaxBands-1] // M=8 for 20ms frames
 	s.bandEncode.norm = ensureNormSliceNoClear(&s.bandEncode.norm, channels*normLen)
 	maxBand := 8 * (EBands[MaxBands] - EBands[MaxBands-1])
 	s.bandEncode.lowbandScratch = ensureNormSliceNoClear(&s.bandEncode.lowbandScratch, maxBand)
-	// Back the eight per-band theta-RDO celtNorm slots with one contiguous
-	// arena (single alloc, shared cache region) instead of eight independent
-	// buffers. Each slot keeps cap == maxBandWidth, so the per-field ensure*
-	// helpers behave identically.
-	s.bandEncode.ensureThetaArena()
 	s.bandEncode.pvqSignx = ensureByteSlice(&s.bandEncode.pvqSignx, maxPVQN)
 	s.bandEncode.pvqY = ensureFloat32Slice(&s.bandEncode.pvqY, maxPVQN)
 	s.bandEncode.pvqAbsX = ensureFloat32Slice(&s.bandEncode.pvqAbsX, maxPVQN)
