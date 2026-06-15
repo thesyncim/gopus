@@ -180,12 +180,13 @@ func (s *bandEncodeScratch) ensureNormSave(n int) []celtNorm {
 
 // ensureXResult0 returns a pre-allocated buffer for X result during theta RDO.
 func (s *bandEncodeScratch) ensureXResult0(n int) []celtNorm {
-	return ensureNormSlice(&s.xResult0, n)
+	// Caller copy()s the full n elements in before any read, so the zero-fill is dead work.
+	return ensureNormSliceNoClear(&s.xResult0, n)
 }
 
 // ensureYResult0 returns a pre-allocated buffer for Y result during theta RDO.
 func (s *bandEncodeScratch) ensureYResult0(n int) []celtNorm {
-	return ensureNormSlice(&s.yResult0, n)
+	return ensureNormSliceNoClear(&s.yResult0, n)
 }
 
 // ensureNormResult0 returns a pre-allocated buffer for norm result during theta RDO.
@@ -194,15 +195,17 @@ func (s *bandEncodeScratch) ensureNormResult0(n int) []celtNorm {
 }
 
 func (s *bandEncodeScratch) ensureThetaX(n int) []celtNorm {
-	return ensureNormSlice(&s.thetaX, n)
+	// Callers copy() the full n elements in before any read, so the zero-fill is dead work.
+	return ensureNormSliceNoClear(&s.thetaX, n)
 }
 
 func (s *bandEncodeScratch) ensureThetaY(n int) []celtNorm {
-	return ensureNormSlice(&s.thetaY, n)
+	return ensureNormSliceNoClear(&s.thetaY, n)
 }
 
 func (s *bandEncodeScratch) ensureHadamardTmpNorm(n int) []celtNorm {
-	return ensureNormSlice(&s.hadamardTmpNorm, n)
+	// (de)interleaveHadamardInto writes all n elements before the copy-back, so the zero-fill is dead work.
+	return ensureNormSliceNoClear(&s.hadamardTmpNorm, n)
 }
 
 // ensureQuantWork returns a pre-allocated deinterleaved working buffer.
