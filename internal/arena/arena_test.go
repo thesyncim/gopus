@@ -142,6 +142,34 @@ func TestBumpAllocN(t *testing.T) {
 	}
 }
 
+func TestBumpTailWriteThenCommit(t *testing.T) {
+	var b Bump[byte]
+	b.Ensure(16)
+	// Write a variable amount into the tail, then commit it.
+	tail := b.Tail()
+	if len(tail) != 16 {
+		t.Fatalf("Tail len: got %d, want 16", len(tail))
+	}
+	copy(tail, []byte("abc"))
+	got := b.AllocN(3)
+	if string(got) != "abc" || b.Used() != 3 {
+		t.Fatalf("commit: got %q used=%d, want \"abc\" used=3", got, b.Used())
+	}
+	// A second write starts after the committed region.
+	tail2 := b.Tail()
+	if len(tail2) != 13 {
+		t.Fatalf("Tail len after commit: got %d, want 13", len(tail2))
+	}
+	copy(tail2, []byte("de"))
+	got2 := b.AllocN(2)
+	if string(got2) != "de" {
+		t.Fatalf("second commit: got %q, want \"de\"", got2)
+	}
+	if got[0] != 'a' {
+		t.Fatalf("first region clobbered: %q", got)
+	}
+}
+
 // Generic over a non-float element type.
 func TestBumpInt32(t *testing.T) {
 	var b Bump[int32]

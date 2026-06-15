@@ -67,6 +67,12 @@ func (b *Bump[T]) AllocN(n int) []T {
 	return s
 }
 
+// Tail returns the uncarved remainder of the backing (buf[off:]). It is for
+// callers that write a variable number of elements into the remainder and then
+// commit exactly how many they wrote with AllocN(n) — which returns that same
+// just-written region and advances the offset past it.
+func (b *Bump[T]) Tail() []T { return b.buf[b.off:] }
+
 // Used reports how many elements have been carved since the last Ensure.
 func (b *Bump[T]) Used() int { return b.off }
 
