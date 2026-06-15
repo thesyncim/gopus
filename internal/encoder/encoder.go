@@ -284,6 +284,12 @@ type Encoder struct {
 	// (scratchPCM32/Left/Right/Mono) with one contiguous allocation; see NewEncoder.
 	scratchF32 arena.Bump[float32]
 
+	// pcmBump backs the three frameSize-sized input-domain PCM scratch buffers
+	// (scratchInputPCM/scratchQuantPCM/scratchDCPCM) with one contiguous
+	// allocation, carved per-frame at the encode entry and re-carved only when a
+	// larger frame is seen (so it sizes to the current frame, not the max).
+	pcmBump arena.Bump[opusRes]
+
 	// Scratch buffers for zero-allocation encoding
 	scratchDCPCM     []opusRes // DC rejected PCM buffer
 	scratchInputPCM  []opusRes // Public PCM rounded into the libopus opus_res domain
@@ -920,6 +926,16 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float32, frameSize int, analy
 	}
 	if len(analysisPCM) < expectedLen || len(analysisPCM)%channels != 0 {
 		return nil, ErrInvalidFrameSize
+	}
+	// Back the three frameSize-sized input-domain PCM scratch buffers with one
+	// contiguous arena (carved to the current frame; the ensure* helpers reslice
+	// within their slots, falling back to a fresh make only if a stage ever needs
+	// more than expectedLen).
+	if expectedLen > 0 {
+		e.pcmBump.Ensure(3 * expectedLen)
+		e.scratchInputPCM = e.pcmBump.AllocN(expectedLen)
+		e.scratchQuantPCM = e.pcmBump.AllocN(expectedLen)
+		e.scratchDCPCM = e.pcmBump.AllocN(expectedLen)
 	}
 	inputPCM := e.ensureInputPCM(expectedLen)
 	copy(inputPCM, pcm[:expectedLen])
