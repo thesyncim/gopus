@@ -239,9 +239,10 @@ gopus is built for real-time use, where steady allocation is the enemy:
   kernels (scale, stereo rescale, inner-product and pitch-correlation dot products)
   on Go's `simd/archsimd` package instead of hand-written Plan9 assembly. Loading
   through raw pointers to skip per-access slice bounds checks, they match the hand
-  asm bit-for-bit and beat it on Apple Silicon. This is a measurement track toward
-  replacing assembly with portable Go SIMD; the hand asm stays the default for every
-  released build.
+  asm bit-for-bit and match or beat it on both Apple Silicon and Graviton — and at
+  the codec level Go SIMD is the closest Go build to libopus's own C. This is a
+  measurement track toward replacing assembly with portable Go SIMD; the hand asm
+  stays the default for every released build.
 
 Run the benchmarks for numbers on your machine:
 
