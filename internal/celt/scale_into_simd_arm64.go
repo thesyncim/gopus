@@ -27,13 +27,13 @@ func scaleFloat32IntoNEON(dst, src []float32, gain float32) {
 	dp := unsafe.Pointer(unsafe.SliceData(dst))
 	i := 0
 	for ; i+8 <= n; i += 8 {
-		archsimd.LoadFloat32x4Array((*[4]float32)(sp)).Mul(g).StoreArray((*[4]float32)(dp))
-		archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, 16))).Mul(g).StoreArray((*[4]float32)(unsafe.Add(dp, 16)))
+		storeF32x4(dp, loadF32x4(sp).Mul(g))
+		storeF32x4(unsafe.Add(dp, 16), loadF32x4(unsafe.Add(sp, 16)).Mul(g))
 		sp = unsafe.Add(sp, 32)
 		dp = unsafe.Add(dp, 32)
 	}
 	for ; i+4 <= n; i += 4 {
-		archsimd.LoadFloat32x4Array((*[4]float32)(sp)).Mul(g).StoreArray((*[4]float32)(dp))
+		storeF32x4(dp, loadF32x4(sp).Mul(g))
 		sp = unsafe.Add(sp, 16)
 		dp = unsafe.Add(dp, 16)
 	}
