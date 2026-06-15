@@ -48,13 +48,13 @@ func DefaultDecoderConfig(sampleRate, channels int) DecoderConfig {
 // The decoder supports all Opus modes (SILK, Hybrid, CELT) and automatically
 // detects the mode from the TOC byte in each packet.
 type Decoder struct {
-	silkDecoder        *silk.Decoder   // SILK-only mode decoder
-	celtDecoder        *celt.Decoder   // CELT-only mode decoder
-	hybridDecoder      *hybrid.Decoder // Hybrid mode decoder
-	sampleRate         int32
-	channels           int32
-	maxPacketSamples   int
-	maxPacketBytes     int
+	silkDecoder      *silk.Decoder   // SILK-only mode decoder
+	celtDecoder      *celt.Decoder   // CELT-only mode decoder
+	hybridDecoder    *hybrid.Decoder // Hybrid mode decoder
+	sampleRate       int32
+	channels         int32
+	maxPacketSamples int
+	maxPacketBytes   int
 	// scratchF32 backs the six fixed float32 decode work buffers below with one
 	// contiguous allocation; see NewDecoder.
 	scratchF32         arena.Bump[float32]
@@ -157,18 +157,18 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	}
 
 	d := &Decoder{
-		silkDecoder:       silkDec,
-		celtDecoder:       celtDec,
-		hybridDecoder:     hybridDec,
-		sampleRate:        int32(internalRate),
-		channels:          int32(cfg.Channels),
-		maxPacketSamples:  maxPacketSamples,
-		maxPacketBytes:    maxPacketBytes,
-		lastFrameSize:     int32(internalRate / 50), // Default 20ms at the internal rate
-		prevMode:          ModeHybrid,               // Default for PLC until first decode
-		lastPacketMode:    ModeHybrid,
-		lastBandwidth:     BandwidthFullband,
-		fecData:           make([]byte, maxPacketBytes),
+		silkDecoder:      silkDec,
+		celtDecoder:      celtDec,
+		hybridDecoder:    hybridDec,
+		sampleRate:       int32(internalRate),
+		channels:         int32(cfg.Channels),
+		maxPacketSamples: maxPacketSamples,
+		maxPacketBytes:   maxPacketBytes,
+		lastFrameSize:    int32(internalRate / 50), // Default 20ms at the internal rate
+		prevMode:         ModeHybrid,               // Default for PLC until first decode
+		lastPacketMode:   ModeHybrid,
+		lastBandwidth:    BandwidthFullband,
+		fecData:          make([]byte, maxPacketBytes),
 	}
 	// Back the six fixed float32 decode work buffers with one contiguous arena.
 	pcmLen := maxPacketSamples * cfg.Channels
