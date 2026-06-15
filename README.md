@@ -234,6 +234,14 @@ gopus is built for real-time use, where steady allocation is the enemy:
   an AVX2 kernel that mirrors libopus's `celt_pitch_xcorr_avx2`, computing several
   correlation lags per FMA instead of one scalar FMA per element — bit-identical
   output, materially faster stereo CELT and Hybrid encode.
+- **Experimental: portable Go SIMD kernels.** Under `GOEXPERIMENT=simd` on the Go
+  tip toolchain, a `goexperiment.simd`-tagged path reimplements hot CELT float
+  kernels (scale, stereo rescale, inner-product and pitch-correlation dot products)
+  on Go's `simd/archsimd` package instead of hand-written Plan9 assembly. Loading
+  through raw pointers to skip per-access slice bounds checks, they match the hand
+  asm bit-for-bit and beat it on Apple Silicon. This is a measurement track toward
+  replacing assembly with portable Go SIMD; the hand asm stays the default for every
+  released build.
 
 Run the benchmarks for numbers on your machine:
 
