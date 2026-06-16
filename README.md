@@ -236,8 +236,10 @@ gopus is built for real-time use, where steady allocation is the enemy:
   output, materially faster stereo CELT and Hybrid encode.
 - **Experimental: portable Go SIMD kernels.** Under `GOEXPERIMENT=simd` on the Go
   tip toolchain, a `goexperiment.simd`-tagged path reimplements hot CELT float
-  kernels (scale, stereo rescale, inner-product and pitch-correlation dot products)
-  on Go's `simd/archsimd` package instead of hand-written Plan9 assembly. Loading
+  kernels — scale, stereo rescale, inner-product and pitch-correlation dot
+  products, the L1 norm, the constant-gain comb filter and the spreading
+  rotation — on Go's `simd/archsimd` package instead of hand-written Plan9
+  assembly. Loading
   through raw pointers to skip per-access slice bounds checks, they match the hand
   asm bit-for-bit and match or beat it on both Apple Silicon and Graviton — and at
   the codec level Go SIMD is the closest Go build to libopus's own C. This is a
