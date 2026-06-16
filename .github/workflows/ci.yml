@@ -188,14 +188,17 @@ jobs:
       - name: Build archsimd path (${{ matrix.arch }} native + ${{ matrix.cross }} cross)
         run: |
           GOTIP="$(go env GOPATH)/bin/gotip"
-          GOEXPERIMENT=simd "$GOTIP" build ./internal/celt/
-          GOEXPERIMENT=simd GOARCH=${{ matrix.cross }} "$GOTIP" build ./internal/celt/
+          GOEXPERIMENT=simd "$GOTIP" build ./internal/celt/ ./internal/silk/
+          GOEXPERIMENT=simd GOARCH=${{ matrix.cross }} "$GOTIP" build ./internal/celt/ ./internal/silk/
 
       - name: Bit-exact parity (archsimd vs scalar reference)
         run: |
           GOTIP="$(go env GOPATH)/bin/gotip"
           GOEXPERIMENT=simd "$GOTIP" test ./internal/celt/ \
             -run 'TestScaleFloat32IntoBitExact|TestStereoMergeRescaleBitExact|TestCeltInnerProd8FMA32MatchesReference|TestCELTAssemblyWrappersMatchReferenceEdges' \
+            -count=1 -v
+          GOEXPERIMENT=simd "$GOTIP" test ./internal/silk/ \
+            -run 'TestSilkAssemblyKernelsMatchReference|TestFloatToInt16ScaledBitExact|TestFloatToInt16ScaledBoundaries' \
             -count=1 -v
 
       - name: Benchstat default build (asm/scalar) vs archsimd
