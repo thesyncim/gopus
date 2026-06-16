@@ -1,4 +1,4 @@
-//go:build arm64 && goexperiment.simd && !purego
+//go:build arm64 && goexperiment.simd && !purego && gopus_reverse64
 
 package celt
 
