@@ -1,4 +1,4 @@
-//go:build arm64 && !purego
+//go:build arm64 && !purego && !goexperiment.simd
 #include "textflag.h"
 
 // func writeInt16AsFloat32Core(dst []float32, src []int16, n int)
