@@ -1581,6 +1581,11 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []celtNorm, n, k, spre
 	var xNorm []celtNorm
 	var yy32 opusVal16
 	normPath := false
+	// xNormAliased is set when the no-extra-bits path works the normalized vector
+	// directly in the caller's x buffer (no clone): the search, resynth and inverse
+	// rotation all write x in place, so the trailing copy(x, xNorm) is a self-copy
+	// and is skipped. End state of x is byte-identical to the clone+copy form.
+	xNormAliased := false
 
 	// Scratch buffer pointers
 	var iyBuf *[]int32
@@ -1645,12 +1650,11 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []celtNorm, n, k, spre
 			}
 		}
 	} else {
-		if xNormBuf != nil {
-			xNorm = ensureNormSliceNoClear(xNormBuf, n)
-		} else {
-			xNorm = make([]celtNorm, n)
-		}
-		copy(xNorm, x[:n])
+		// Work in place on the caller's x: forward rotation, PVQ search (with its
+		// abs writeback), resynth and inverse rotation all target x directly,
+		// removing the per-band clone and the trailing copy-back.
+		xNorm = x[:n:n]
+		xNormAliased = true
 		expRotationNorm(xNorm, n, 1, b, k, spread)
 		pulses, yy32 = opPVQSearchScratchNormWithInputMutation(xNorm, k, iyBuf, signxBuf, yBuf, absXBuf, true)
 		yy = yy32
@@ -1685,7 +1689,9 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []celtNorm, n, k, spre
 			if normPath {
 				cm = normalizeResidualKnownEnergyIntoAndCollapse32(xNorm, pulses, opusVal16(gain), yy32, b)
 				expRotationNorm(xNorm, n, -1, b, k, spread)
-				copy(x[:n], xNorm)
+				if !xNormAliased {
+					copy(x[:n], xNorm)
+				}
 				_ = encodedIndex
 				return cm
 			}
@@ -1695,7 +1701,7 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []celtNorm, n, k, spre
 	} else if len(collapsePulses) > 0 {
 		cm = extractCollapseMask(collapsePulses, n, b)
 	}
-	if normPath {
+	if normPath && !xNormAliased {
 		copy(x[:n], xNorm)
 	}
 	_ = encodedIndex
