@@ -654,14 +654,6 @@ func (e *Encoder) TFAnalysisHybridScratch(norm []celtNorm, nbBands int, transien
 	return TFAnalysisWithScratch(norm, len(norm), nbBands, transient, lm, tfEstimate, effectiveBytes, importance, &e.tfScratch)
 }
 
-// UpdateTonalityAnalysisHybrid updates tonality metrics for VBR decisions.
-func (e *Encoder) UpdateTonalityAnalysisHybrid(normCoeffs []celtNorm, energies []celtGLog, nbBands, frameSize int) {
-	if !e.vbr {
-		return
-	}
-	e.updateTonalityAnalysis(normCoeffs, energies, nbBands, frameSize)
-}
-
 // BitrateToBits exposes bitrate_to_bits for hybrid callers.
 func (e *Encoder) BitrateToBits(frameSize int) int {
 	return e.bitrateToBits(frameSize)

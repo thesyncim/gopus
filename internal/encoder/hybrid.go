@@ -1629,9 +1629,6 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetP
 		oldBandE = oldBandE[:maxLen]
 	}
 
-	// Update tonality analysis for next frame's VBR decisions.
-	e.celtEncoder.UpdateTonalityAnalysisHybrid(normL, analysisEnergies, nbBands, frameSize)
-
 	// Compute dynalloc analysis for TF/spread and offsets.
 	lsbDepth := int(e.lsbDepth)
 

@@ -808,12 +808,6 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		copy(normRCelt, normR)
 	}
 
-	// Step 11.0.6: Compute tonality analysis only when it can feed the next
-	// frame's VBR target. CBR target sizing does not consume this state.
-	if e.vbr {
-		e.updateTonalityAnalysis(normL, analysisEnergies, nbBands, frameSize)
-	}
-
 	// Step 11.0.7: Compute temporal VBR from current frame band energies.
 	// Reference: libopus celt_encoder.c lines 2186-2202.
 	// Stores the result for next frame's VBR target (one-frame lag is negligible
