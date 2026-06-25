@@ -1818,26 +1818,71 @@ func (e *Encoder) hpCutoff(in []opusRes, frameSize int) []opusRes {
 		src32 = nil
 	}
 
-	// silk_biquad_res, float path (Direct Form II Transposed), per channel.
-	for c := range channels {
-		s0 := e.hpMem[2*c]
-		s1 := e.hpMem[2*c+1]
-		for i := range frameSize {
-			idx := i*channels + c
-			var inval float32
-			if src32 != nil {
-				inval = src32[idx]
-			} else {
-				inval = float32(in[idx])
+	// silk_biquad_res, float path (Direct Form II Transposed). The src32 branch is
+	// hoisted out of the inner loop, and stereo runs both channels' independent
+	// recurrences in one interleaved pass so the OoO engine overlaps the two
+	// latency-bound filter chains. Per-sample arithmetic is byte-identical to the
+	// per-channel form (each channel's state depends only on its own history).
+	if channels == 1 {
+		s0 := e.hpMem[0]
+		s1 := e.hpMem[1]
+		if src32 != nil {
+			for i := range frameSize {
+				inval := src32[i]
+				vout := s0 + b[0]*inval
+				s0 = s1 - vout*a[0] + b[1]*inval
+				s1 = -vout*a[1] + b[2]*inval + verySmall
+				out[i] = opusRes(vout)
 			}
-			vout := s0 + b[0]*inval
-			s0 = s1 - vout*a[0] + b[1]*inval
-			s1 = -vout*a[1] + b[2]*inval + verySmall
-			out[idx] = opusRes(vout)
+		} else {
+			for i := range frameSize {
+				inval := float32(in[i])
+				vout := s0 + b[0]*inval
+				s0 = s1 - vout*a[0] + b[1]*inval
+				s1 = -vout*a[1] + b[2]*inval + verySmall
+				out[i] = opusRes(vout)
+			}
 		}
-		e.hpMem[2*c] = s0
-		e.hpMem[2*c+1] = s1
+		e.hpMem[0] = s0
+		e.hpMem[1] = s1
+		return out
 	}
+
+	s0L := e.hpMem[0]
+	s1L := e.hpMem[1]
+	s0R := e.hpMem[2]
+	s1R := e.hpMem[3]
+	if src32 != nil {
+		for i := range frameSize {
+			l := src32[2*i]
+			voutL := s0L + b[0]*l
+			s0L = s1L - voutL*a[0] + b[1]*l
+			s1L = -voutL*a[1] + b[2]*l + verySmall
+			out[2*i] = opusRes(voutL)
+			r := src32[2*i+1]
+			voutR := s0R + b[0]*r
+			s0R = s1R - voutR*a[0] + b[1]*r
+			s1R = -voutR*a[1] + b[2]*r + verySmall
+			out[2*i+1] = opusRes(voutR)
+		}
+	} else {
+		for i := range frameSize {
+			l := float32(in[2*i])
+			voutL := s0L + b[0]*l
+			s0L = s1L - voutL*a[0] + b[1]*l
+			s1L = -voutL*a[1] + b[2]*l + verySmall
+			out[2*i] = opusRes(voutL)
+			r := float32(in[2*i+1])
+			voutR := s0R + b[0]*r
+			s0R = s1R - voutR*a[0] + b[1]*r
+			s1R = -voutR*a[1] + b[2]*r + verySmall
+			out[2*i+1] = opusRes(voutR)
+		}
+	}
+	e.hpMem[0] = s0L
+	e.hpMem[1] = s1L
+	e.hpMem[2] = s0R
+	e.hpMem[3] = s1R
 	return out
 }
 
