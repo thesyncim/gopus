@@ -1440,15 +1440,13 @@ func algUnquantNoExtInto(shape []celtNorm, rd *rangecoding.Decoder, n, k, spread
 		pulses = make([]int32, n)
 	}
 	yy := opusVal16(decodePulsesInto32(idx, n, k, pulses, scratch))
-	var norm []celtNorm
-	if scratch != nil {
-		norm = scratch.ensurePVQNorm32(n)
-	} else {
-		norm = make([]celtNorm, n)
-	}
-	cm := normalizeResidualKnownEnergyIntoAndCollapse32(norm, pulses, opusVal16(gain), yy, b)
-	expRotationNorm(norm, n, -1, b, k, spread)
-	copy(shape, norm)
+	// Normalize and rotate directly into the caller's shape buffer. shape is a
+	// distinct float32 destination from the int32 pulses scratch, and
+	// normalizeResidual/expRotation are point-wise (out[i] from pulses[i], then
+	// in-place rotation), so writing into shape is bit-identical to the prior
+	// scratch+copy and drops one frame-size clear and memmove per band.
+	cm := normalizeResidualKnownEnergyIntoAndCollapse32(shape, pulses, opusVal16(gain), yy, b)
+	expRotationNorm(shape, n, -1, b, k, spread)
 	return cm
 }
 
@@ -1559,15 +1557,9 @@ func algUnquantInto(shape []celtNorm, rd *rangecoding.Decoder, band, n, k, sprea
 		}
 		yy = sumSq
 	}
-	var norm []celtNorm
-	if scratch != nil {
-		norm = scratch.ensurePVQNorm32(n)
-	} else {
-		norm = make([]celtNorm, n)
-	}
-	cm := normalizeResidualKnownEnergyIntoAndCollapse32(norm, pulses, opusVal16(gain), yy, b)
-	expRotationNorm(norm, n, -1, b, k, spread)
-	copy(shape, norm)
+	// Normalize and rotate directly into shape (see algUnquantNoExtInto).
+	cm := normalizeResidualKnownEnergyIntoAndCollapse32(shape, pulses, opusVal16(gain), yy, b)
+	expRotationNorm(shape, n, -1, b, k, spread)
 	return cm
 }
 

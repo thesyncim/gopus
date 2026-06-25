@@ -79,7 +79,7 @@ func ensureKissCpxSlice(buf *[]kissCpx, n int) []kissCpx {
 
 type bandDecodeScratch struct {
 	// floatScratch backs the band-decode-local float-family scratch (left, right,
-	// norm, lowband, pvqNorm/pvqNorm32/foldResult, hadamardTmpNorm, quantWork) with
+	// norm, lowband, pvqNorm/foldResult, hadamardTmpNorm, quantWork) with
 	// one contiguous allocation instead of nine. Carved in ensureFloatScratch at the
 	// top of the band decode; the per-field ensure* sizing/getters reslice/clear
 	// within their cap-pinned slot. (coeffs is excluded: it is an IMDCT-stage buffer,
@@ -107,7 +107,6 @@ type bandDecodeScratch struct {
 	// Scratch buffers for PVQ/folding operations
 	pvqPulses  []int32 // Pulse vector from CWRS decode; libopus uses C int.
 	pvqNorm    []celtNorm
-	pvqNorm32  []celtNorm
 	foldResult []celtNorm
 	cwrsU      []uint32 // CWRS u-row scratch buffer
 
@@ -295,7 +294,6 @@ func (s *bandDecodeScratch) ensureFloatScratch(channels, frameSize, normLen, max
 	s.norm = s.floatScratch.Alloc(channels * normLen)
 	s.lowband = s.floatScratch.Alloc(maxBand)
 	s.pvqNorm = s.floatScratch.Alloc(small)
-	s.pvqNorm32 = s.floatScratch.Alloc(small)
 	s.foldResult = s.floatScratch.Alloc(small)
 	s.hadamardTmpNorm = s.floatScratch.Alloc(big)
 	s.quantWork = s.floatScratch.Alloc(big)
@@ -383,10 +381,6 @@ func (s *bandDecodeScratch) ensurePVQPulses(n int) []int32 {
 // ensurePVQNorm returns a pre-allocated buffer for normalized vector.
 func (s *bandDecodeScratch) ensurePVQNorm(n int) []celtNorm {
 	return ensureNormSlice(&s.pvqNorm, n)
-}
-
-func (s *bandDecodeScratch) ensurePVQNorm32(n int) []celtNorm {
-	return ensureNormSlice(&s.pvqNorm32, n)
 }
 
 // ensureFoldResult returns a pre-allocated buffer for fold result.
