@@ -202,3 +202,16 @@ func asmMin(a, b int) int {
 	}
 	return b
 }
+
+func BenchmarkWriteInt16AsFloat32Core(b *testing.B) {
+	const n = 320
+	src := make([]int16, n)
+	dst := make([]float32, n)
+	for i := range src {
+		src[i] = asmInt16(uint64(i), i)
+	}
+	b.ResetTimer()
+	for range b.N {
+		writeInt16AsFloat32Core(dst, src, n)
+	}
+}

@@ -8,9 +8,6 @@ package celt
 // scalar loops as the byte-exact oracle.
 const expRotationUsesNeon = true
 
-//go:noescape
-func expRotation1PassNeon(x []float32, first, stride, blocks, dir int, c, s float32)
-
 // expRotation1StrideNeon runs both expRotation1Norm passes for stride >= 4,
 // where four consecutive indices belong to four independent rotation chains.
 // The forward pass ascends and the backward pass descends, exactly like the

@@ -1,4 +1,4 @@
-//go:build !arm64 || purego
+//go:build purego || (!arm64 && !amd64) || (!goexperiment.simd && !arm64)
 
 package celt
 
