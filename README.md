@@ -233,7 +233,34 @@ gopus is built for real-time use, where steady allocation is the enemy:
 - **SIMD where libopus has it.** On amd64 the float pitch cross-correlation uses
   an AVX2 kernel that mirrors libopus's `celt_pitch_xcorr_avx2`, computing several
   correlation lags per FMA instead of one scalar FMA per element — bit-identical
-  output, materially faster stereo CELT and Hybrid encode.
+  output, materially faster stereo CELT and Hybrid encode. Encode-side SILK
+  kernels also dispatch to the same architecture-specific lanes as libopus where
+  the pinned reference provides them.
+
+The required `perf-linux` CI lane publishes both steady-state Go benchmark
+guardrails and libopus-relative ratios. This table comes from `perf-linux` run
+`28624977471` on a GitHub linux/amd64 runner (`go1.25.0`, AMD EPYC 7763):
+
+| Benchmark | CI result |
+| --- | ---: |
+| `BenchmarkEncoderEncode_CallerBuffer` | 93,725 ns/op, 0 B/op, 0 allocs/op |
+| `BenchmarkEncoderEncodeInt16` | 94,484 ns/op, 0 B/op, 0 allocs/op |
+| `BenchmarkDecoderDecode_CELT` | 20,735 ns/op, 0 B/op, 0 allocs/op |
+| `BenchmarkDecoderDecodeInt16` | 22,448 ns/op, 0 B/op, 0 allocs/op |
+
+The same lane compares gopus against libopus 1.6.1 on the same runner; lower
+ratios are closer to libopus, and every gopus path below reports 0 allocs/op:
+
+| Path | gopus/libopus |
+| --- | ---: |
+| Decode vectors, Float32 | 1.339x |
+| Decode vectors, Int16 | 1.330x |
+| Encode, all Float32 cases | 1.500x |
+| Encode, CELT-FB-20ms-stereo-128k | 1.546x |
+| Encode, CELT-FB-5ms-mono-64k | 1.472x |
+| Encode, Hybrid-FB-20ms-mono-64k | 1.530x |
+| Encode, Hybrid-FB-20ms-stereo-96k | 1.677x |
+| Encode, SILK-WB-20ms-mono-32k | 1.426x |
 
 Run the benchmarks for numbers on your machine:
 
