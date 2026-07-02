@@ -517,6 +517,12 @@ func noiseShapeQuantizerDelDec(
 					nARQ14ByState[k] = warpedARFeedback24(&psDD.sAR2Q14, psDD.diffQ14, arShpQ13Order24, warpQ16i16)
 				}
 			}
+		case 20:
+			if nStatesDelayedDecision == 3 {
+				warpedARFeedback20States3(psDelDec, (*[20]int16)(arShpQ13), warpQ16i16, &nARQ14ByState)
+			} else {
+				precomputedNARQ14 = false
+			}
 		case 16:
 			for k := 0; k < nStatesDelayedDecision; k++ {
 				psDD := &psDelDec[k]
