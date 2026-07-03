@@ -166,6 +166,43 @@ func TestWarpedARFeedback24States4MatchesScalar(t *testing.T) {
 	}
 }
 
+func TestWarpedARFeedback20States3MatchesScalar(t *testing.T) {
+	rng := rand.New(rand.NewSource(124))
+	for trial := range 1000 {
+		var states [maxDelDecStates]nsqDelDecState
+		var scalar [maxDelDecStates]nsqDelDecState
+		var arShpQ13 [20]int16
+		for k := range 3 {
+			states[k].diffQ14 = rng.Int31n(1<<20) - (1 << 19)
+			scalar[k].diffQ14 = states[k].diffQ14
+			for i := range 20 {
+				v := rng.Int31n(1<<20) - (1 << 19)
+				states[k].sAR2Q14[i] = v
+				scalar[k].sAR2Q14[i] = v
+			}
+		}
+		for i := range arShpQ13 {
+			arShpQ13[i] = int16(rng.Int31n(1<<13) - (1 << 12))
+		}
+		warpQ16 := rng.Int31n(1<<15) - (1 << 14)
+
+		var got [maxDelDecStates]int32
+		warpedARFeedback20States3(states[:], &arShpQ13, warpQ16, &got)
+
+		for k := range 3 {
+			want := refWarpedARFeedback(scalar[k].sAR2Q14[:], scalar[k].diffQ14, arShpQ13[:], warpQ16, 20)
+			if got[k] != want {
+				t.Fatalf("trial %d state %d: got %d want %d", trial, k, got[k], want)
+			}
+			for i := range 20 {
+				if states[k].sAR2Q14[i] != scalar[k].sAR2Q14[i] {
+					t.Fatalf("trial %d state %d sAR[%d]: got %d want %d", trial, k, i, states[k].sAR2Q14[i], scalar[k].sAR2Q14[i])
+				}
+			}
+		}
+	}
+}
+
 func BenchmarkWarpedARFeedback24(b *testing.B) {
 	rng := rand.New(rand.NewSource(1))
 	var sAR [maxShapeLpcOrder]int32
@@ -202,6 +239,50 @@ func BenchmarkWarpedARFeedback24States4(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		warpedARFeedback24States4(states[:], &arShpQ13, warpQ16, &out)
+	}
+}
+
+func BenchmarkWarpedARFeedback20States3(b *testing.B) {
+	rng := rand.New(rand.NewSource(1))
+	var states [maxDelDecStates]nsqDelDecState
+	var arShpQ13 [20]int16
+	for k := range 3 {
+		states[k].diffQ14 = rng.Int31()
+		for i := range 20 {
+			states[k].sAR2Q14[i] = rng.Int31()
+		}
+	}
+	for i := range arShpQ13 {
+		arShpQ13[i] = int16(rng.Int31())
+	}
+	warpQ16 := int32(rng.Int31n(1 << 15))
+	var out [maxDelDecStates]int32
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		warpedARFeedback20States3(states[:], &arShpQ13, warpQ16, &out)
+	}
+}
+
+func BenchmarkWarpedARFeedback20States3Scalar(b *testing.B) {
+	rng := rand.New(rand.NewSource(1))
+	var states [maxDelDecStates]nsqDelDecState
+	var arShpQ13 [20]int16
+	for k := range 3 {
+		states[k].diffQ14 = rng.Int31()
+		for i := range 20 {
+			states[k].sAR2Q14[i] = rng.Int31()
+		}
+	}
+	for i := range arShpQ13 {
+		arShpQ13[i] = int16(rng.Int31())
+	}
+	warpQ16 := int32(rng.Int31n(1 << 15))
+	var out [maxDelDecStates]int32
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for k := range 3 {
+			out[k] = warpedARFeedbackGeneric(states[k].sAR2Q14[:], states[k].diffQ14, arShpQ13[:], warpQ16, 20)
+		}
 	}
 }
 
