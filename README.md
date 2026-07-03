@@ -239,28 +239,28 @@ gopus is built for real-time use, where steady allocation is the enemy:
 
 The required `perf-linux` CI lane publishes both steady-state Go benchmark
 guardrails and libopus-relative ratios. This table comes from `perf-linux` run
-`28648470882` on a GitHub linux/amd64 runner (`go1.25.0`, AMD EPYC 9V74):
+`28648782556` on a GitHub linux/amd64 runner (`go1.25.0`, AMD EPYC 7763):
 
 | Benchmark | CI result |
 | --- | ---: |
-| `BenchmarkEncoderEncode_CallerBuffer` | 98,828 ns/op, 0 B/op, 0 allocs/op |
-| `BenchmarkEncoderEncodeInt16` | 98,346 ns/op, 0 B/op, 0 allocs/op |
-| `BenchmarkDecoderDecode_CELT` | 22,118 ns/op, 0 B/op, 0 allocs/op |
-| `BenchmarkDecoderDecodeInt16` | 24,402 ns/op, 0 B/op, 0 allocs/op |
+| `BenchmarkEncoderEncode_CallerBuffer` | 94,064 ns/op, 0 B/op, 0 allocs/op |
+| `BenchmarkEncoderEncodeInt16` | 94,773 ns/op, 0 B/op, 0 allocs/op |
+| `BenchmarkDecoderDecode_CELT` | 20,832 ns/op, 0 B/op, 0 allocs/op |
+| `BenchmarkDecoderDecodeInt16` | 22,504 ns/op, 0 B/op, 0 allocs/op |
 
 The same lane compares gopus against libopus 1.6.1 on the same runner; lower
 ratios are closer to libopus, and every gopus path below reports 0 allocs/op:
 
 | Path | gopus/libopus |
 | --- | ---: |
-| Decode vectors, Float32 | 1.305x |
-| Decode vectors, Int16 | 1.290x |
-| Encode, all Float32 cases | 1.630x |
-| Encode, CELT-FB-20ms-stereo-128k | 1.524x |
-| Encode, CELT-FB-5ms-mono-64k | 1.426x |
-| Encode, Hybrid-FB-20ms-mono-64k | 1.638x |
-| Encode, Hybrid-FB-20ms-stereo-96k | 1.654x |
-| Encode, SILK-WB-20ms-mono-32k | 1.683x |
+| Decode vectors, Float32 | 1.334x |
+| Decode vectors, Int16 | 1.326x |
+| Encode, all Float32 cases | 1.489x |
+| Encode, CELT-FB-20ms-stereo-128k | 1.556x |
+| Encode, CELT-FB-5ms-mono-64k | 1.471x |
+| Encode, Hybrid-FB-20ms-mono-64k | 1.504x |
+| Encode, Hybrid-FB-20ms-stereo-96k | 1.685x |
+| Encode, SILK-WB-20ms-mono-32k | 1.395x |
 
 Run the benchmarks for numbers on your machine:
 
