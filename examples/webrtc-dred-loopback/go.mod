@@ -3,13 +3,12 @@ module github.com/thesyncim/gopus/examples/webrtc-dred-loopback
 go 1.25.0
 
 require (
-	gioui.org/shader v1.0.8 // indirect
+	gioui.org/shader v1.0.9 // indirect
 	github.com/go-text/typesetting v0.3.4 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/pion/datachannel v1.6.0 // indirect
 	github.com/pion/dtls/v3 v3.1.2 // indirect
 	github.com/pion/ice/v4 v4.2.5 // indirect
-	github.com/pion/interceptor v0.1.44 // indirect
 	github.com/pion/logging v0.2.4 // indirect
 	github.com/pion/mdns/v2 v2.1.0 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
@@ -31,8 +30,9 @@ require (
 )
 
 require (
-	gioui.org v0.10.0
+	gioui.org v0.10.2
 	github.com/gen2brain/malgo v0.11.25
+	github.com/pion/interceptor v0.1.44
 	github.com/pion/rtp v1.10.2
 	github.com/pion/webrtc/v4 v4.2.12
 	github.com/thesyncim/gopus v0.0.0-00010101000000-000000000000
