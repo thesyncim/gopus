@@ -34,6 +34,7 @@ run_phase() {
 run_mode() {
   local side="$1" root="$2" mode="$3"
   local env_args=(env)
+  local ref_env_args=()
   local cbr_tags=()
   local oracle_tags=(-tags gopus_libopus_oracle)
 
@@ -54,6 +55,13 @@ run_mode() {
       return 2
       ;;
   esac
+
+  # The PR candidate's ordinary and nosimd builds use scalar Go kernels. Keep
+  # their live libopus comparisons on generic C; the retained assembly baseline
+  # and candidate SIMD build use the platform libopus SIMD path.
+  if [[ "$side" == candidate && ( "$mode" == default || "$mode" == nosimd ) ]]; then
+    ref_env_args=(GOPUS_LIBOPUS_REF_SCALAR=1)
+  fi
 
   run_phase "$side" "$root" "$mode-selected-kernel-files" \
     "${env_args[@]}" go list \
@@ -80,13 +88,13 @@ run_mode() {
   fi
 
   run_phase "$side" "$root" "$mode-cbr-parity" \
-    "${env_args[@]}" GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+    "${env_args[@]}" "${ref_env_args[@]}" GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
     go test "${cbr_tags[@]}" ./testvectors \
       -run '^TestEncoderCBRByteParitySummary$' \
       -count=1 -timeout=25m -v
 
   run_phase "$side" "$root" "$mode-precision-guard" \
-    "${env_args[@]}" GOPUS_REQUIRE_PLATFORM_FIXTURES=1 \
+    "${env_args[@]}" "${ref_env_args[@]}" GOPUS_REQUIRE_PLATFORM_FIXTURES=1 \
     GOPUS_TEST_TIER=exhaustive GOPUS_STRICT_LIBOPUS_REF=1 \
     go test "${oracle_tags[@]}" ./testvectors \
       -run '^TestEncoderCompliancePrecisionGuard$/^Hybrid-FB-20ms-stereo-96k$' \
@@ -113,6 +121,13 @@ run_side() {
     return 0
   fi
 
+  if [[ "$side" == candidate ]]; then
+    run_phase "$side" "$root" ensure-libopus-scalar make ensure-libopus-scalar
+    if [[ "$(cat "$artifact_root/$side-ensure-libopus-scalar.exit")" != 0 ]]; then
+      return 0
+    fi
+  fi
+
   run_phase "$side" "$root" platform-fixtures make fixtures-gen-platform
   if [[ "$(cat "$artifact_root/$side-platform-fixtures.exit")" != 0 ]]; then
     return 0
@@ -136,7 +151,7 @@ if [[ -n "$summary_file" ]]; then
   {
     echo '## Native Linux AMD64 mode-matched A/B'
     echo
-    echo 'Both checkouts use this runner, Go 1.27.1, and the pinned libopus 1.6.1 build. Default, nosimd, and SIMD modes have separate artifacts; source lists record compile-time dispatch. Full output is attached as an artifact.'
+    echo 'Both checkouts use this runner, Go 1.27.1, and pinned libopus 1.6.1. Scalar Go modes use scalar C; assembly and Go SIMD modes use native SIMD C. Modes have separate artifacts, and source lists record compile-time dispatch.'
     echo
     cat "$artifact_root/environment.txt"
     echo

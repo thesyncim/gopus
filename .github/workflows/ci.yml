@@ -170,6 +170,7 @@ jobs:
         with:
           path: |
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
@@ -185,7 +186,9 @@ jobs:
       - name: Run focused libopus quality gate
         run: |
           make fixtures-gen-platform
-          GOPUS_REQUIRE_PLATFORM_FIXTURES=1 make test-quality
+          make ensure-libopus-scalar
+          GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_LIBOPUS_REF_SCALAR=1 make test-quality
+          make test-precision-guard
 
   test-linux-conformance:
     name: test-linux-conformance
@@ -208,6 +211,7 @@ jobs:
         with:
           path: |
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
@@ -224,20 +228,16 @@ jobs:
         run: make test-conformance
 
       # Native same-arch (linux/amd64) precision guard. Regenerate the libopus
-      # reference fixtures from the libopus just built on this runner so the
-      # encoder precision guard compares gopus against an amd64 libopus built
-      # with this runner's own toolchain. This mirrors the macOS and
+      # reference fixtures from the libopus just built on this runner. The
+      # ordinary scalar Go encoder is compared with scalar libopus, using this
+      # runner's toolchain on both sides. This mirrors the macOS and
       # ubuntu-arm64 native-fixture jobs and gives linux/amd64 a PR-time native
       # precision guard (the pinned-Docker provenance job covers it on push).
       - name: Generate native libopus fixtures
         run: make fixtures-gen-platform
 
-      - name: Run native encoder precision guard (same-arch reference)
-        run: |
-          GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=exhaustive GOPUS_STRICT_LIBOPUS_REF=1 \
-            go test -tags gopus_libopus_oracle ./testvectors \
-              -run '^TestEncoderCompliancePrecisionGuard$' \
-              -count=1 -timeout=20m
+      - name: Run native encoder precision guard (same ISA)
+        run: make test-precision-guard
 
   test-linux-race:
     name: test-linux-race
@@ -711,6 +711,7 @@ jobs:
             baseline/tmp_check/opus-${{ env.LIBOPUS_VERSION }}
             baseline/tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
             candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
             candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: simd-ab-libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('candidate/tools/ensure_libopus.sh') }}
 
@@ -952,6 +953,7 @@ jobs:
         with:
           path: |
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
@@ -1011,8 +1013,11 @@ jobs:
         run: |
           GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=exhaustive GOPUS_STRICT_LIBOPUS_REF=1 \
             go test -tags gopus_libopus_oracle ./testvectors \
-              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderCompliancePrecisionGuard|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' \
+              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' \
               -count=1 -timeout=20m
+
+      - name: Run native encoder precision guard (same ISA)
+        run: make test-precision-guard
 
       - name: Run test suite
         run: GOPUS_TEST_TIER=fast GOPUS_LIBOPUS_ORACLE=0 go test ./... -count=1 -timeout=25m
@@ -1038,6 +1043,7 @@ jobs:
         with:
           path: |
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
@@ -1067,8 +1073,11 @@ jobs:
         run: |
           GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=exhaustive GOPUS_STRICT_LIBOPUS_REF=1 \
             go test -tags gopus_libopus_oracle ./testvectors \
-              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderCompliancePrecisionGuard|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' \
+              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' \
               -count=1 -timeout=20m
+
+      - name: Run native encoder precision guard (same ISA)
+        run: make test-precision-guard
 
   test-windows:
     name: test-windows
@@ -1094,6 +1103,7 @@ jobs:
         with:
           path: |
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
@@ -1164,8 +1174,12 @@ jobs:
         run: |
           GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=exhaustive GOPUS_STRICT_LIBOPUS_REF=1 \
             go test -tags gopus_libopus_oracle ./testvectors \
-              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderCompliancePrecisionGuard|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' \
+              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' \
               -count=1 -timeout=20m
+
+      - name: Run native encoder precision guard (same ISA)
+        shell: msys2 {0}
+        run: make test-precision-guard
 
       - name: Run test suite
         shell: msys2 {0}

@@ -8,7 +8,7 @@ FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-p
 .PHONY: bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard
 .PHONY: bench-testvectors bench-testvectors-compare bench-testvectors-report bench-kernels
 .PHONY: verify-production verify-production-exhaustive verify-safety test-build-config-matrix
-.PHONY: test-simd
+.PHONY: test-simd test-precision-guard
 .PHONY: release-evidence release-preflight
 .PHONY: ensure-libopus ensure-libopus-qext ensure-libopus-fixed ensure-libopus-custom
 .PHONY: ensure-libopus-custom-scalar ensure-libopus-simd ensure-libopus-scalar
@@ -245,6 +245,15 @@ test-quality: ensure-libopus ensure-testvectors
 # (channels x bandwidth x frame x bitrate x application x FEC x DTX), gating
 # decode sample-exactness and encode quality-gap parity.
 test-conformance: ensure-libopus
+
+# The ordinary Go build uses the scalar reference kernels. Compare its encoder
+# precision against the scalar libopus build so both sides use the same ISA.
+# SIMD comparisons stay in test-simd and the SIMD A/B lane.
+test-precision-guard: ensure-libopus ensure-libopus-scalar
+	$(GO_WORK_ENV) GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=exhaustive \
+		GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_REF_SCALAR=1 \
+		$(GO) test -tags gopus_libopus_oracle ./testvectors \
+		-run '^TestEncoderCompliancePrecisionGuard$$' -count=1 -timeout=20m
 
 # Optional libopus-internal exactness checks. These are intentionally not part
 # of the default production gate so math optimizations can move while quality
