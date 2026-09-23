@@ -210,7 +210,10 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	for _, inc := range cfg.IncludeDirs {
 		args = append(args, "-I", inc)
 	}
-	if cfg.ForceScalarRef || scalarRef {
+	// An explicit SIMD reference keeps its platform dispatch even when the Go
+	// lane requests scalar libopus for its other helpers. Masking SIMD headers
+	// here leaves the RTCD map enabled but hides its kernel declarations.
+	if cfg.ForceScalarRef || (scalarRef && !cfg.SIMDRef && !cfg.FixedRef && !cfg.QEXTRef) {
 		// libopus's config.h has no include guard, so each compiled .c re-defines
 		// the x86 feature macros (OPUS_X86_MAY_HAVE_SSE4_1, ...) -- clearing them
 		// via -include is undone. Instead pre-define the SIMD headers' own include
