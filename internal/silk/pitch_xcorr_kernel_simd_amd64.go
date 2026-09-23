@@ -23,37 +23,76 @@ func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
 
 	xp := unsafe.Pointer(x)
 	yp := unsafe.Pointer(y)
-	var acc [8]archsimd.Float32x8
+	// Four correlations per pass keep the live SIMD accumulators in registers.
+	var acc0, acc1, acc2, acc3 archsimd.Float32x8
 	i := 0
 	for ; i+8 <= length; i += 8 {
 		xv := archsimd.LoadFloat32x8Array((*[8]float32)(xp))
-		for corr := range 8 {
-			yv := archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, uintptr(corr*4))))
-			acc[corr] = xv.MulAdd(yv, acc[corr])
-		}
+		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp)), acc0)
+		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 4))), acc1)
+		acc2 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 8))), acc2)
+		acc3 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 12))), acc3)
 		xp = unsafe.Add(xp, 32)
 		yp = unsafe.Add(yp, 32)
 	}
-
-	var lanes [8][8]float32
-	for corr := range 8 {
-		acc[corr].StoreArray(&lanes[corr])
+	if i < length {
+		remaining := length - i
+		xTail := loadXcorrTail8(xp, remaining)
+		mask := archsimd.Mask32x8FromBits(uint8(0xff >> uint(8-remaining)))
+		acc0 = xTail.MulAdd(loadXcorrTail8(yp, remaining), acc0).IfElse(mask, acc0)
+		acc1 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 4), remaining), acc1).IfElse(mask, acc1)
+		acc2 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 8), remaining), acc2).IfElse(mask, acc2)
+		acc3 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 12), remaining), acc3).IfElse(mask, acc3)
 	}
-	for lane := 0; i+lane < length; lane++ {
-		xv := *(*float32)(unsafe.Add(xp, uintptr(lane*4)))
-		for corr := range 8 {
-			p := unsafe.Add(yp, uintptr((lane+corr)*4))
-			lanes[corr][lane] = opusmath.FMA32(xv, *(*float32)(p), lanes[corr][lane])
+	sum[0] = reduceXcorrAVX8(acc0)
+	sum[1] = reduceXcorrAVX8(acc1)
+	sum[2] = reduceXcorrAVX8(acc2)
+	sum[3] = reduceXcorrAVX8(acc3)
+
+	var acc4, acc5, acc6, acc7 archsimd.Float32x8
+	xp, yp = unsafe.Pointer(x), unsafe.Pointer(y)
+	i = 0
+	for ; i+8 <= length; i += 8 {
+		xv := archsimd.LoadFloat32x8Array((*[8]float32)(xp))
+		acc4 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 16))), acc4)
+		acc5 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 20))), acc5)
+		acc6 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 24))), acc6)
+		acc7 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 28))), acc7)
+		xp = unsafe.Add(xp, 32)
+		yp = unsafe.Add(yp, 32)
+	}
+	if i < length {
+		remaining := length - i
+		xTail := loadXcorrTail8(xp, remaining)
+		mask := archsimd.Mask32x8FromBits(uint8(0xff >> uint(8-remaining)))
+		acc4 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 16), remaining), acc4).IfElse(mask, acc4)
+		acc5 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 20), remaining), acc5).IfElse(mask, acc5)
+		acc6 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 24), remaining), acc6).IfElse(mask, acc6)
+		acc7 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 28), remaining), acc7).IfElse(mask, acc7)
+	}
+	sum[4] = reduceXcorrAVX8(acc4)
+	sum[5] = reduceXcorrAVX8(acc5)
+	sum[6] = reduceXcorrAVX8(acc6)
+	sum[7] = reduceXcorrAVX8(acc7)
+}
+
+func loadXcorrTail8(p unsafe.Pointer, remaining int) archsimd.Float32x8 {
+	// Read only valid tail lanes before loading the stack vector, so a tail at a
+	// page boundary never turns into a full-width memory read.
+	var lanes [8]float32
+	for lane := range 8 {
+		if lane < remaining {
+			lanes[lane] = *(*float32)(unsafe.Add(p, uintptr(lane*4)))
 		}
 	}
-	for corr := range 8 {
-		v := lanes[corr]
-		s04 := v[0] + v[4]
-		s15 := v[1] + v[5]
-		s26 := v[2] + v[6]
-		s37 := v[3] + v[7]
-		sum[corr] = (s04 + s15) + (s26 + s37)
-	}
+	return archsimd.LoadFloat32x8Array(&lanes)
+}
+
+func reduceXcorrAVX8(v archsimd.Float32x8) float32 {
+	v = v.Add(v.ConcatPermute128Scalars(1, 0, v))
+	v = v.ConcatAddPairsGrouped(v)
+	v = v.ConcatAddPairsGrouped(v)
+	return v.GetLo().GetElem(0)
 }
 
 func xcorrKernelAVX8ScalarGo(x, y *float32, sum *[8]float32, length int) {

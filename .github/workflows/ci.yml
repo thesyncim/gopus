@@ -677,7 +677,7 @@ jobs:
     needs:
       - changes
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 180
     steps:
       - name: Checkout pull request base
         uses: actions/checkout@v5
@@ -717,6 +717,13 @@ jobs:
       - name: Capture native Linux A/B evidence
         shell: bash
         run: bash candidate/scripts/ci_simd_ab.sh baseline candidate "$RUNNER_TEMP/simd-ab"
+
+      - name: Test CELT and SILK SIMD tails at page boundaries
+        working-directory: candidate
+        env:
+          GOEXPERIMENT: simd
+          GOPUS_REQUIRE_XCORR_SIMD: "1"
+        run: go test ./internal/celt ./internal/silk -run '^TestXcorrKernelAVX8PageEndTails$' -count=1 -timeout=10m
 
       - name: Upload native Linux A/B evidence
         if: always()

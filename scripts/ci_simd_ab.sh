@@ -31,6 +31,74 @@ run_phase() {
   return 0
 }
 
+run_mode() {
+  local side="$1" root="$2" mode="$3"
+  local env_args=(env)
+  local cbr_tags=()
+  local oracle_tags=(-tags gopus_libopus_oracle)
+
+  case "$mode" in
+    default)
+      env_args=(env -u GOEXPERIMENT)
+      ;;
+    nosimd)
+      env_args=(env GOEXPERIMENT=simd)
+      cbr_tags=(-tags nosimd)
+      oracle_tags=(-tags nosimd,gopus_libopus_oracle)
+      ;;
+    simd)
+      env_args=(env GOEXPERIMENT=simd)
+      ;;
+    *)
+      echo "unknown mode: $mode" >&2
+      return 2
+      ;;
+  esac
+
+  run_phase "$side" "$root" "$mode-selected-kernel-files" \
+    "${env_args[@]}" go list \
+      -f '{{.ImportPath}}: Go={{join .GoFiles " "}} Asm={{join .SFiles " "}}' \
+      ./internal/celt ./internal/silk
+
+  if [[ "$side" == candidate ]]; then
+    if [[ "$mode" == simd ]]; then
+      run_phase "$side" "$root" "$mode-pvq-dispatch" \
+        "${env_args[@]}" GOPUS_REQUIRE_PVQ_SIMD=1 \
+        go test ./internal/celt -run '^TestPVQSearchSIMDDispatchUsesAVX$' -count=1 -v
+    elif [[ "$mode" == default || "$mode" == nosimd ]]; then
+      run_phase "$side" "$root" "$mode-pvq-dispatch" \
+        "${env_args[@]}" \
+        go test "${cbr_tags[@]}" ./internal/celt -run '^TestPVQSearchScalarDispatch$' -count=1 -v
+    fi
+  fi
+
+  run_phase "$side" "$root" "$mode-cbr-parity" \
+    "${env_args[@]}" GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+    go test "${cbr_tags[@]}" ./testvectors \
+      -run '^TestEncoderCBRByteParitySummary$' \
+      -count=1 -timeout=25m -v
+
+  run_phase "$side" "$root" "$mode-precision-guard" \
+    "${env_args[@]}" GOPUS_REQUIRE_PLATFORM_FIXTURES=1 \
+    GOPUS_TEST_TIER=exhaustive GOPUS_STRICT_LIBOPUS_REF=1 \
+    go test "${oracle_tags[@]}" ./testvectors \
+      -run '^TestEncoderCompliancePrecisionGuard$/^Hybrid-FB-20ms-stereo-96k$' \
+      -count=1 -timeout=20m -v
+
+  # These direct benches compare the retained assembly baseline, the scalar
+  # Go path, and the Go SIMD path on the same native AMD64 runner.
+  if [[ "$side" != baseline || "$mode" == default ]]; then
+    if [[ "$mode" != nosimd ]]; then
+      run_phase "$side" "$root" "$mode-kernel-benchmarks" \
+        "${env_args[@]}" \
+        go test "${cbr_tags[@]}" ./internal/celt ./internal/silk \
+          -run '^$' \
+          -bench '^(BenchmarkInnerProd8FMA32|BenchmarkXcorrF32|BenchmarkInnerProductFLP|BenchmarkCeltPitchXcorrFloat|BenchmarkXcorrKernelFloat)' \
+          -benchmem -count=5 -timeout=20m
+    fi
+  fi
+}
+
 run_side() {
   local side="$1" root="$2"
   run_phase "$side" "$root" ensure-libopus make ensure-libopus
@@ -43,32 +111,14 @@ run_side() {
     return 0
   fi
 
-  run_phase "$side" "$root" cbr-parity env \
-    GOEXPERIMENT=simd \
-    GOPUS_TEST_TIER=parity \
-    GOPUS_STRICT_LIBOPUS_REF=1 \
-    go test ./testvectors \
-      -run '^TestEncoderCBRByteParitySummary$' \
-      -count=1 -timeout=25m -v
-
-  run_phase "$side" "$root" precision-guard env \
-    GOEXPERIMENT=simd \
-    GOPUS_REQUIRE_PLATFORM_FIXTURES=1 \
-    GOPUS_TEST_TIER=exhaustive \
-    GOPUS_STRICT_LIBOPUS_REF=1 \
-    go test -tags gopus_libopus_oracle ./testvectors \
-      -run '^TestEncoderCompliancePrecisionGuard$/^Hybrid-FB-20ms-stereo-96k$' \
-      -count=1 -timeout=20m -v
-
-  # These direct benches cover amd64 SIMD kernel families with benchmark cases
-  # shared by the base and candidate snapshots. Their outputs complement the
-  # separate 53-symbol report; they do not stand in for that full inventory.
-  run_phase "$side" "$root" kernel-benchmarks env \
-    GOEXPERIMENT=simd \
-    go test ./internal/celt ./internal/silk \
-      -run '^$' \
-      -bench '^(BenchmarkInnerProd8FMA32|BenchmarkXcorrF32|BenchmarkInnerProductFLP|BenchmarkCeltPitchXcorrFloat|BenchmarkXcorrKernelFloat)' \
-      -benchmem -count=5 -timeout=20m
+  if [[ "$side" == baseline ]]; then
+    run_mode "$side" "$root" default
+    run_mode "$side" "$root" simd
+  else
+    run_mode "$side" "$root" default
+    run_mode "$side" "$root" nosimd
+    run_mode "$side" "$root" simd
+  fi
 }
 
 run_side baseline "$baseline_root"
@@ -77,64 +127,91 @@ run_side candidate "$candidate_root"
 summary_file="${GITHUB_STEP_SUMMARY:-}"
 if [[ -n "$summary_file" ]]; then
   {
-    echo '## Native Linux AMD64 SIMD A/B'
+    echo '## Native Linux AMD64 mode-matched A/B'
     echo
-    echo 'Both checkouts use this runner, Go 1.27.1, and the pinned libopus 1.6.1 build. Full command output is attached as an artifact.'
+    echo 'Both checkouts use this runner, Go 1.27.1, and the pinned libopus 1.6.1 build. Default, nosimd, and SIMD modes have separate artifacts; source lists record compile-time dispatch. Full output is attached as an artifact.'
     echo
     cat "$artifact_root/environment.txt"
     echo
-    echo '| Checkout | Setup | Platform fixtures | CBR matrix | Precision case | Direct CELT benchmarks |'
-    echo '| --- | ---: | ---: | ---: | ---: | ---: |'
+    echo '| Checkout | Mode | CBR matrix | Hybrid precision | PVQ dispatch | Kernel benchmarks |'
+    echo '| --- | --- | ---: | ---: | ---: | ---: |'
     for side in baseline candidate; do
-      values=()
-      for phase in ensure-libopus platform-fixtures cbr-parity precision-guard kernel-benchmarks; do
-        if [[ -f "$artifact_root/$side-$phase.exit" ]]; then
-          values+=("$(cat "$artifact_root/$side-$phase.exit")")
-        else
-          values+=(not-run)
-        fi
+      if [[ "$side" == baseline ]]; then modes=(default simd); else modes=(default nosimd simd); fi
+      for mode in "${modes[@]}"; do
+        values=()
+        for phase in "$mode-cbr-parity" "$mode-precision-guard" "$mode-pvq-dispatch" "$mode-kernel-benchmarks"; do
+          if [[ -f "$artifact_root/$side-$phase.exit" ]]; then
+            values+=("$(cat "$artifact_root/$side-$phase.exit")")
+          else
+            values+=(not-run)
+          fi
+        done
+        printf '| %s | %s | %s | %s | %s | %s |\n' "$side" "$mode" "${values[@]}"
       done
-      printf '| %s | %s | %s | %s | %s | %s |\n' "$side" "${values[@]}"
     done
     echo
+    echo '### Selected kernel sources'
+    echo
+    for side in baseline candidate; do
+      if [[ "$side" == baseline ]]; then modes=(default simd); else modes=(default nosimd simd); fi
+      for mode in "${modes[@]}"; do
+        echo "#### $side / $mode"
+        echo
+        if [[ -f "$artifact_root/$side-$mode-selected-kernel-files.log" ]]; then
+          cat "$artifact_root/$side-$mode-selected-kernel-files.log"
+        else
+          echo 'Source listing did not run.'
+        fi
+        echo
+      done
+    done
     echo '### CBR summaries'
     echo
     for side in baseline candidate; do
-      echo "#### $side"
-      echo
-      if [[ -f "$artifact_root/$side-cbr-parity.log" ]]; then
-        sed -n '/CBR Byte Parity Summary/,/pass=.*arch=/p' "$artifact_root/$side-cbr-parity.log" | tail -n 22
-      else
-        echo 'CBR test did not run.'
-      fi
-      echo
+      if [[ "$side" == baseline ]]; then modes=(default simd); else modes=(default nosimd simd); fi
+      for mode in "${modes[@]}"; do
+        echo "#### $side / $mode"
+        echo
+        if [[ -f "$artifact_root/$side-$mode-cbr-parity.log" ]]; then
+          sed -n '/CBR Byte Parity Summary/,/pass=.*arch=/p' "$artifact_root/$side-$mode-cbr-parity.log" | tail -n 22
+        else
+          echo 'CBR test did not run.'
+        fi
+        echo
+      done
     done
-    echo '### Precision case'
+    echo '### Hybrid-FB-20ms-stereo-96k precision guard'
     echo
     for side in baseline candidate; do
-      echo "#### $side"
-      echo
-      if [[ -f "$artifact_root/$side-precision-guard.log" ]]; then
-        grep -E 'RealContent (gopus|libopus) Q=|precision regression|PASS|FAIL|gap guard skipped' \
-          "$artifact_root/$side-precision-guard.log" || true
-      else
-        echo 'Precision test did not run.'
-      fi
-      echo
+      if [[ "$side" == baseline ]]; then modes=(default simd); else modes=(default nosimd simd); fi
+      for mode in "${modes[@]}"; do
+        echo "#### $side / $mode"
+        echo
+        if [[ -f "$artifact_root/$side-$mode-precision-guard.log" ]]; then
+          grep -E 'RealContent (gopus|libopus) Q=|precision regression|PASS|FAIL|gap guard skipped' \
+            "$artifact_root/$side-$mode-precision-guard.log" || true
+        else
+          echo 'Precision test did not run.'
+        fi
+        echo
+      done
     done
     echo '### Native AMD64 kernel benchmarks'
     echo
-    echo 'These cover shared direct CELT and SILK microbenchmarks. The full 53-symbol inventory remains in the kernel evidence report.'
+    echo 'These direct microbenchmarks complement the full 53-symbol inventory in the kernel evidence report.'
     echo
     for side in baseline candidate; do
-      echo "#### $side"
-      echo
-      if [[ -f "$artifact_root/$side-kernel-benchmarks.log" ]]; then
-        grep -E '^Benchmark|^PASS|^FAIL' "$artifact_root/$side-kernel-benchmarks.log" || true
-      else
-        echo 'Kernel benchmarks did not run.'
-      fi
-      echo
+      if [[ "$side" == baseline ]]; then modes=(default simd); else modes=(default nosimd simd); fi
+      for mode in "${modes[@]}"; do
+        echo "#### $side / $mode"
+        echo
+        if [[ -f "$artifact_root/$side-$mode-kernel-benchmarks.log" ]]; then
+          grep -E '^Benchmark|^PASS|^FAIL' "$artifact_root/$side-$mode-kernel-benchmarks.log" || true
+        else
+          echo 'Kernel benchmarks did not run.'
+        fi
+        echo
+      done
     done
   } >> "$summary_file"
 fi
