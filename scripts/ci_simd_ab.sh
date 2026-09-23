@@ -60,6 +60,13 @@ run_mode() {
       -f '{{.ImportPath}}: Go={{join .GoFiles " "}} Asm={{join .SFiles " "}}' \
       ./internal/celt ./internal/silk
 
+  if [[ "$mode" != nosimd ]]; then
+    run_phase "$side" "$root" "$mode-xcorr-runtime-identity" \
+      "${env_args[@]}" \
+      go test ./internal/celt ./internal/silk \
+        -run '^TestXcorrKernelRuntimeIdentity$' -count=1 -v
+  fi
+
   if [[ "$side" == candidate ]]; then
     if [[ "$mode" == simd ]]; then
       run_phase "$side" "$root" "$mode-pvq-dispatch" \
@@ -93,7 +100,7 @@ run_mode() {
         "${env_args[@]}" \
         go test "${cbr_tags[@]}" ./internal/celt ./internal/silk \
           -run '^$' \
-          -bench '^(BenchmarkInnerProd8FMA32|BenchmarkXcorrF32|BenchmarkInnerProductFLP|BenchmarkCeltPitchXcorrFloat|BenchmarkXcorrKernelFloat)' \
+          -bench '^(BenchmarkInnerProd8FMA32|BenchmarkXcorrF32|BenchmarkInnerProductFLP|BenchmarkCeltPitchXcorrFloat|BenchmarkXcorrKernelFloat|BenchmarkXcorrKernelAVX8)' \
           -benchmem -count=5 -timeout=20m
     fi
   fi

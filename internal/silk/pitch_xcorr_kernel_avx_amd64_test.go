@@ -3,10 +3,15 @@
 package silk
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
+	"reflect"
+	"runtime"
 	"testing"
 )
+
+var xcorrKernelAVX8BenchmarkSink [8]float32
 
 func xcorrKernelAVX8Reference(x, y []float32, length int) [8]float32 {
 	var sums [8][8]float32
@@ -70,5 +75,37 @@ func TestSilkPitchXcorrAVX2KernelMatchesReference(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestXcorrKernelRuntimeIdentity(t *testing.T) {
+	pc := reflect.ValueOf(xcorrKernelAVX8).Pointer()
+	fn := runtime.FuncForPC(pc)
+	if fn == nil {
+		t.Fatal("runtime.FuncForPC returned nil for xcorrKernelAVX8")
+	}
+	file, line := fn.FileLine(pc)
+	t.Logf("runtime.FuncForPC=%s source=%s:%d avx2_fma_dispatch=%t", fn.Name(), file, line, silkUsePitchXcorrAVX2FMA)
+}
+
+func BenchmarkXcorrKernelAVX8(b *testing.B) {
+	for _, length := range []int{5, 10, 120, 240, 480} {
+		b.Run(fmt.Sprintf("N%d", length), func(b *testing.B) {
+			x := make([]float32, length)
+			y := make([]float32, length+7)
+			for i := range x {
+				x[i] = float32(i%29-14) * 0.03125
+			}
+			for i := range y {
+				y[i] = float32(i%23-11) * 0.0625
+			}
+			var sum [8]float32
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				xcorrKernelAVX8(&x[0], &y[0], &sum, length)
+			}
+			xcorrKernelAVX8BenchmarkSink = sum
+		})
 	}
 }
