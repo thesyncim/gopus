@@ -112,6 +112,13 @@ run_mode() {
       -run '^TestEncoderCBRByteParitySummary$' \
       -count=1 -timeout=25m -v
 
+  if [[ ( "$side" == baseline && "$mode" == default ) || ( "$side" == candidate && "$mode" == simd ) ]]; then
+    run_phase "$side" "$root" "$mode-decode-differential" \
+      "${env_args[@]}" GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+      go test . -run '^TestDecodeDifferentialEncodeThenDecode/hybrid_swb_ch2_10ms_48000bps_vbr0_fectrue_dtxfalse$' \
+        -count=1 -timeout=10m -v
+  fi
+
   run_phase "$side" "$root" "$mode-precision-guard" \
     "${env_args[@]}" "${ref_env_args[@]}" GOPUS_REQUIRE_PLATFORM_FIXTURES=1 \
     GOPUS_TEST_TIER=exhaustive GOPUS_STRICT_LIBOPUS_REF=1 \
