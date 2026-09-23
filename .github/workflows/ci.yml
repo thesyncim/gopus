@@ -19,7 +19,7 @@ env:
   LIBOPUS_VERSION: "1.6.1"
   GOPUS_DISABLE_OPUSDEC: "0"
   GOPUS_DISABLE_OPUSENC: "1"
-  GOLANGCI_LINT_VERSION: "v1.64.8"
+  GOLANGCI_LINT_VERSION: "v2.13.2"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -96,7 +96,7 @@ jobs:
 
       - name: Install golangci-lint
         run: |
-          GOWORK=off go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
+          GOWORK=off go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Run lint/static analysis
@@ -120,7 +120,7 @@ jobs:
 
       - name: Install golangci-lint
         run: |
-          GOWORK=off go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
+          GOWORK=off go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Run lint/static analysis across optional-feature tag builds

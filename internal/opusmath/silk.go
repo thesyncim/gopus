@@ -2,6 +2,14 @@ package opusmath
 
 import "math"
 
+// FMA32 returns the single-rounded float32 fused multiply-add used by the
+// libopus CELT AVX2 and arm64 NEON kernels. Go exposes math.FMA with float64
+// parameters only; widening the float32 inputs here provides the fused
+// operation without storing codec state or scratch in float64.
+func FMA32(a, b, c float32) float32 {
+	return float32(math.FMA(float64(a), float64(b), float64(c)))
+}
+
 // CReal is the C double type as used by the libopus floating-point (FLP) build.
 // It is an alias (not a defined type) so values flow to and from float64 helpers
 // without conversions, exactly as C double does.

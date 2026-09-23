@@ -2,7 +2,11 @@
 
 package celt
 
-import "math"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
+)
 
 const useX86PVQSearchSSE2 = true
 
@@ -14,9 +18,9 @@ func x86RcpApprox4(dst, src *[4]float32) {
 
 func x86PVQSearchBestIDSSE2(absX, y []float32, xy, yy float32, n int) int {
 	bestID := 0
-	best := (xy + absX[0]) / float32(math.Sqrt(float64(yy+y[0])))
+	best := (xy + absX[0]) / opusmath.SqrtF32(yy+y[0])
 	for i := 1; i < n; i++ {
-		score := (xy + absX[i]) / float32(math.Sqrt(float64(yy+y[i])))
+		score := (xy + absX[i]) / opusmath.SqrtF32(yy+y[i])
 		if score > best {
 			bestID, best = i, score
 		}

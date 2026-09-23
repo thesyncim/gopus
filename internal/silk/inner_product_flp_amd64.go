@@ -6,6 +6,9 @@ import "math"
 
 var silkUseInnerProductFLPAVX2FMA = false
 
+// The libopus silk/float/inner_product_FLP.c helper returns C double, and its
+// AVX2 twin in silk/float/x86/inner_product_FLP_avx2.c accumulates in __m256d.
+// Keep these accumulators and the scalar tail double-width for that contract.
 func innerProductFLPAVX2(a, b []float32, length int) silkCReal {
 	var acc0, acc1 [4]float64
 	i := 0

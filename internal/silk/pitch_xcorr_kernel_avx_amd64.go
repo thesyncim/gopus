@@ -3,8 +3,9 @@
 package silk
 
 import (
-	"math"
 	"unsafe"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 var silkUsePitchXcorrAVX2FMA = false
@@ -19,7 +20,7 @@ func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
 		xv := xs[i]
 		for corr := range 8 {
 			lane := i & 7
-			lanes[corr][lane] = float32(math.FMA(float64(xv), float64(ys[i+corr]), float64(lanes[corr][lane])))
+			lanes[corr][lane] = opusmath.FMA32(xv, ys[i+corr], lanes[corr][lane])
 		}
 	}
 	for corr := range 8 {

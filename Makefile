@@ -21,7 +21,8 @@ FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-p
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
 GOLANGCI_LINT ?= golangci-lint
-GOLANGCI_LINT_VERSION ?= v1.64.8
+GOLANGCI_LINT_VERSION ?= v2.13.2
+GOLANGCI_LINT_TIMEOUT ?= 5m
 # Build-tag configs whose tagged source must stay lint/vet clean. The default
 # `make lint` only covers the default build; test-lint-tags runs golangci-lint
 # and `go vet` once per optional-feature tag so tag-gated files stay covered.
@@ -93,13 +94,13 @@ RUNNABLE_PARITY = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_RUNNABL
 
 # Run golangci-lint
 lint:
-	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || { echo "golangci-lint not found. Install with: GOWORK=off go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"; exit 1; }
-	$(GO_WORK_ENV) $(GOLANGCI_LINT) run ./...
+	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || { echo "golangci-lint not found. Install with: GOWORK=off go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"; exit 1; }
+	$(GO_WORK_ENV) $(GOLANGCI_LINT) run --timeout=$(GOLANGCI_LINT_TIMEOUT) ./...
 
 # Run golangci-lint with auto-fix
 lint-fix:
-	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || { echo "golangci-lint not found. Install with: GOWORK=off go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"; exit 1; }
-	$(GO_WORK_ENV) $(GOLANGCI_LINT) run --fix ./...
+	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || { echo "golangci-lint not found. Install with: GOWORK=off go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"; exit 1; }
+	$(GO_WORK_ENV) $(GOLANGCI_LINT) run --timeout=$(GOLANGCI_LINT_TIMEOUT) --fix ./...
 
 # Genuinely-dead-code detector for the multi-build-tag tree. A single-config
 # `deadcode ./...` is false-positive dominated here (tag/arch gating, oracle-only
@@ -117,12 +118,12 @@ deadcode:
 # tag-gated source (nosimd/DRED/QEXT/fixed-point/custom/extra-controls) stays
 # lint-clean. Fails on the first config that reports a finding.
 test-lint-tags:
-	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || { echo "golangci-lint not found. Install with: GOWORK=off go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"; exit 1; }
+	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || { echo "golangci-lint not found. Install with: GOWORK=off go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"; exit 1; }
 	@set -e; for tags in $(LINT_TAG_CONFIGS); do \
 		echo "==> go vet -tags $$tags ./..."; \
 		$(GO_WORK_ENV) $(GO) vet -tags "$$tags" ./...; \
 		echo "==> golangci-lint run --build-tags $$tags ./..."; \
-		$(GO_WORK_ENV) $(GOLANGCI_LINT) run --build-tags "$$tags" ./...; \
+		$(GO_WORK_ENV) $(GOLANGCI_LINT) run --timeout=$(GOLANGCI_LINT_TIMEOUT) --build-tags "$$tags" ./...; \
 	done
 
 # Run the default package suite with pinned-reference oracles active.

@@ -3,7 +3,6 @@
 package celt
 
 import (
-	"math"
 	"simd/archsimd"
 	"unsafe"
 )
@@ -40,7 +39,7 @@ func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
 		xv := *(*float32)(unsafe.Add(xp, uintptr(lane*4)))
 		for corr := range 8 {
 			p := unsafe.Add(yp, uintptr((lane+corr)*4))
-			lanes[corr][lane] = float32(math.FMA(float64(xv), float64(*(*float32)(p)), float64(lanes[corr][lane])))
+			lanes[corr][lane] = mdctFMA32(xv, *(*float32)(p), lanes[corr][lane])
 		}
 	}
 	for corr := range 8 {
@@ -56,7 +55,7 @@ func xcorrKernelAVX8ScalarGo(x, y *float32, sum *[8]float32, length int) {
 		xv := xs[i]
 		for corr := range 8 {
 			lane := i & 7
-			lanes[corr][lane] = float32(math.FMA(float64(xv), float64(ys[i+corr]), float64(lanes[corr][lane])))
+			lanes[corr][lane] = mdctFMA32(xv, ys[i+corr], lanes[corr][lane])
 		}
 	}
 	for corr := range 8 {

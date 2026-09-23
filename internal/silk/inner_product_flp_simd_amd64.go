@@ -10,6 +10,9 @@ import (
 
 var silkUseInnerProductFLPAVX2FMA = archsimd.X86.AVX2() && archsimd.X86.FMA()
 
+// The libopus silk/float/x86/inner_product_FLP_avx2.c implementation converts
+// float32 input lanes to __m256d and returns a C double. These Float64x4 lanes
+// and scalar tails preserve that result width.
 func innerProductFLPAVX2(a, b []float32, length int) silkCReal {
 	if length <= 0 {
 		return 0
