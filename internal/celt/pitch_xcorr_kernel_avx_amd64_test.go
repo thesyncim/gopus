@@ -77,7 +77,7 @@ func TestXcorrKernelRuntimeIdentity(t *testing.T) {
 }
 
 func BenchmarkXcorrKernelAVX8(b *testing.B) {
-	for _, length := range []int{5, 10, 120, 240, 480} {
+	for _, length := range []int{1, 2, 5, 7, 8, 9, 10, 12, 15, 16, 17, 24, 32, 64, 120, 240, 480} {
 		b.Run(fmt.Sprintf("N%d", length), func(b *testing.B) {
 			x := make([]float32, length)
 			y := make([]float32, length+7)
