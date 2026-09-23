@@ -31,6 +31,25 @@ run_phase() {
   return 0
 }
 
+install_amd64_kernel_benchmarks() {
+  local side="$1" root="$2"
+  case "$(uname -m)" in
+    x86_64|amd64) ;;
+    *) return 0 ;;
+  esac
+
+  mkdir -p "$root/internal/celt"
+  if [[ "$side" == baseline ]]; then
+    cp "$candidate_root/scripts/benchmarks/kernel_port_amd64_baseline_test.go" \
+      "$root/internal/celt/kernel_port_bench_ci_amd64_test.go"
+  else
+    cp "$candidate_root/scripts/benchmarks/kernel_port_amd64_candidate_test.go" \
+      "$root/internal/celt/kernel_port_bench_ci_amd64_test.go"
+    cp "$candidate_root/scripts/benchmarks/kernel_port_amd64_candidate_simd_test.go" \
+      "$root/internal/celt/kernel_port_bench_ci_amd64_simd_test.go"
+  fi
+}
+
 run_mode() {
   local side="$1" root="$2" mode="$3"
   local env_args=(env)
@@ -108,7 +127,7 @@ run_mode() {
         "${env_args[@]}" \
         go test "${cbr_tags[@]}" ./internal/celt ./internal/silk \
           -run '^$' \
-          -bench '^(BenchmarkInnerProd8FMA32|BenchmarkXcorrF32|BenchmarkInnerProductFLP|BenchmarkCeltPitchXcorrFloat|BenchmarkXcorrKernelFloat|BenchmarkXcorrKernelAVX8)' \
+          -bench '^(BenchmarkInnerProd8FMA32|BenchmarkXcorrF32|BenchmarkInnerProductFLP|BenchmarkCeltPitchXcorrFloat|BenchmarkXcorrKernelFloat|BenchmarkXcorrKernelAVX8|BenchmarkPortAMD64)' \
           -benchmem -count=5 -timeout=20m
     fi
   fi
@@ -127,6 +146,8 @@ run_side() {
       return 0
     fi
   fi
+
+  install_amd64_kernel_benchmarks "$side" "$root"
 
   run_phase "$side" "$root" platform-fixtures make fixtures-gen-platform
   if [[ "$(cat "$artifact_root/$side-platform-fixtures.exit")" != 0 ]]; then
