@@ -643,7 +643,8 @@ func parseWAV(data []byte) ([]float32, int, int, error) {
 		chunkID := string(data[offset : offset+4])
 		chunkSize := binary.LittleEndian.Uint32(data[offset+4 : offset+8])
 
-		if chunkID == "fmt " {
+		switch chunkID {
+		case "fmt ":
 			if chunkSize < 16 || offset+8+int(chunkSize) > len(data) {
 				return nil, 0, 0, &WAVError{Msg: "invalid fmt chunk"}
 			}
@@ -660,7 +661,7 @@ func parseWAV(data []byte) ([]float32, int, int, error) {
 					audioFormat = subFormat
 				}
 			}
-		} else if chunkID == "data" {
+		case "data":
 			// Found data chunk
 			dataStart := offset + 8
 			dataLen := int(chunkSize)
@@ -673,7 +674,8 @@ func parseWAV(data []byte) ([]float32, int, int, error) {
 			// Convert based on format
 			var samples []float32
 
-			if audioFormat == 3 { // IEEE float
+			switch audioFormat {
+			case 3: // IEEE float
 				if bitsPerSample == 32 {
 					numSamples := len(pcmData) / 4
 					samples = make([]float32, numSamples)
@@ -682,15 +684,16 @@ func parseWAV(data []byte) ([]float32, int, int, error) {
 						samples[i] = math.Float32frombits(bits)
 					}
 				}
-			} else if audioFormat == 1 { // PCM
-				if bitsPerSample == 16 {
+			case 1: // PCM
+				switch bitsPerSample {
+				case 16:
 					numSamples := len(pcmData) / 2
 					samples = make([]float32, numSamples)
 					for i := range numSamples {
 						val := int16(binary.LittleEndian.Uint16(pcmData[i*2 : i*2+2]))
 						samples[i] = float32(val) / 32768.0
 					}
-				} else if bitsPerSample == 24 {
+				case 24:
 					numSamples := len(pcmData) / 3
 					samples = make([]float32, numSamples)
 					for i := range numSamples {

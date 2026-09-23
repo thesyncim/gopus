@@ -14,6 +14,7 @@ import (
 
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/container/ogg"
+	examplecleanup "github.com/thesyncim/gopus/examples/internal/cleanup"
 )
 
 const (
@@ -120,7 +121,7 @@ func encodeMixToOgg(path string, pcm []float32, bitrate int) (encodeStats, error
 	if err != nil {
 		return stats, fmt.Errorf("create output: %w", err)
 	}
-	defer f.Close()
+	defer examplecleanup.OnReturn("close output file", f.Close)
 
 	ow, err := ogg.NewWriter(f, uint32(sampleRate), uint8(channels))
 	if err != nil {

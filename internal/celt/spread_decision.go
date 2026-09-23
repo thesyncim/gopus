@@ -151,9 +151,10 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []celtNorm, nbBands, channe
 
 		// Adjust for current tapset decision
 		adjustedHF := e.hfAverage
-		if e.tapsetDecision == 2 {
+		switch e.tapsetDecision {
+		case 2:
 			adjustedHF += 4
-		} else if e.tapsetDecision == 0 {
+		case 0:
 			adjustedHF -= 4
 		}
 

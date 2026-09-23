@@ -431,7 +431,8 @@ func pitchDownsampleSig(x []celtSig, xLP []float32, length, channels, factor int
 	)
 	handled := false
 	if factor == 2 {
-		if channels == 1 {
+		switch channels {
+		case 1:
 			// Sliding-window FIR: each output xLP[i] = 0.25*(x[2i-1]+x[2i+1]) + 0.5*x[2i].
 			// Slicing src to exactly 2*length lets the compiler prove every window
 			// access (win[0:3]) is in bounds, eliminating per-sample bounds checks.
@@ -458,7 +459,7 @@ func pitchDownsampleSig(x []celtSig, xLP []float32, length, channels, factor int
 					dst = dst[1:]
 				}
 			}
-		} else if channels == 2 {
+		case 2:
 			chStride := len(x) / 2
 			x0 := x[:chStride]
 			x1 := x[chStride:]

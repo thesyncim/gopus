@@ -262,9 +262,7 @@ func stampedLibopusSourceDirPresent(srcDir, version, qext, goos, goarch string) 
 		}
 	}
 	hostOS := fields["host_os"]
-	if !(strings.Contains(hostOS, "MINGW") ||
-		strings.Contains(hostOS, "MSYS") ||
-		strings.Contains(hostOS, "CYGWIN")) {
+	if !strings.Contains(hostOS, "MINGW") && !strings.Contains(hostOS, "MSYS") && !strings.Contains(hostOS, "CYGWIN") {
 		return false
 	}
 	return libopusStampArchitectureMatches(goarch, fields["host_arch"], fields["host_bits"], fields["cc_target"])

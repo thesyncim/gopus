@@ -302,9 +302,10 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 				frameMaxBits = frameMaxBits * 3 / 5
 			}
 		case 3:
-			if i == 0 {
+			switch i {
+			case 0:
 				frameMaxBits = frameMaxBits * 2 / 5
-			} else if i == 1 {
+			case 1:
 				frameMaxBits = frameMaxBits * 3 / 4
 			}
 		}

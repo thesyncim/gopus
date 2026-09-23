@@ -2075,7 +2075,7 @@ func computeMDCTForHybridScratch(samples []float32, frameSize, channels int, his
 // ComputeStereoWidth computes the stereo width for hybrid mode encoding.
 // At low bitrates, stereo width is reduced to improve coding efficiency.
 // This matches libopus compute_stereo_width().
-func ComputeStereoWidth(pcm []opusRes, frameSize, channels int) opusVal16 {
+func ComputeStereoWidth(pcm []opusRes, frameSize, channels int) OpusVal16 {
 	if channels != 2 || len(pcm) < frameSize*2 {
 		return 0.0
 	}

@@ -15,14 +15,14 @@ func TestPulseEncodingRoundtrip(t *testing.T) {
 
 	// Create a pattern with various pulse magnitudes
 	for i := range frameLength {
-		switch {
-		case i%16 == 0:
+		switch i % 16 {
+		case 0:
 			testPulses[i] = 5 // Positive pulse
-		case i%16 == 4:
+		case 4:
 			testPulses[i] = -3 // Negative pulse
-		case i%16 == 8:
+		case 8:
 			testPulses[i] = 1 // Small positive
-		case i%16 == 12:
+		case 12:
 			testPulses[i] = -1 // Small negative
 		default:
 			testPulses[i] = 0 // Zero

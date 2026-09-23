@@ -283,7 +283,7 @@ func computeStereoCorrelationLogs(normL, normR []celtNorm, nbBands, lm, intensit
 
 // UpdateStereoSaving updates the running stereo_saving estimate used by libopus
 // compute_vbr(). The state is updated once per frame after alloc-trim analysis.
-func UpdateStereoSaving(prev opusVal16, normL, normR []celtNorm, nbBands, lm, intensity int) opusVal16 {
+func UpdateStereoSaving(prev opusVal16, normL, normR []celtNorm, nbBands, lm, intensity int) OpusVal16 {
 	if len(normL) == 0 || len(normR) == 0 || nbBands <= 0 {
 		return prev
 	}

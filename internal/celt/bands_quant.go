@@ -2191,17 +2191,18 @@ func computeThetaDecode(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b 
 	imid := 0
 	iside := 0
 	delta := 0
-	if itheta == 0 {
+	switch itheta {
+	case 0:
 		imid = 32767
 		iside = 0
 		*fill &= (1 << B) - 1
 		delta = -16384
-	} else if itheta == 16384 {
+	case 16384:
 		imid = 0
 		iside = 32767
 		*fill &= ((1 << B) - 1) << B
 		delta = 16384
-	} else {
+	default:
 		imid = bitexactCos(itheta)
 		iside = bitexactCos(16384 - itheta)
 		delta = fracMul16((n-1)<<7, bitexactLog2tanTheta(itheta))
@@ -2474,17 +2475,18 @@ func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b *in
 	imid := 0
 	iside := 0
 	delta := 0
-	if itheta == 0 {
+	switch itheta {
+	case 0:
 		imid = 32767
 		iside = 0
 		*fill &= (1 << B) - 1
 		delta = -16384
-	} else if itheta == 16384 {
+	case 16384:
 		imid = 0
 		iside = 32767
 		*fill &= ((1 << B) - 1) << B
 		delta = 16384
-	} else {
+	default:
 		imid = bitexactCos(itheta)
 		iside = bitexactCos(16384 - itheta)
 		delta = fracMul16((n-1)<<7, bitexactLog2tanTheta(itheta))

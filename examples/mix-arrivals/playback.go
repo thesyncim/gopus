@@ -13,6 +13,7 @@ import (
 
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/container/ogg"
+	examplecleanup "github.com/thesyncim/gopus/examples/internal/cleanup"
 )
 
 func playEncodedOutput(path string) error {
@@ -28,7 +29,7 @@ func playEncodedOutput(path string) error {
 	}
 	wavPath := tmp.Name()
 	_ = tmp.Close()
-	defer os.Remove(wavPath)
+	defer examplecleanup.OnReturn("remove temporary WAV", func() error { return os.Remove(wavPath) })
 
 	if err := decodeOpusToWav(path, wavPath); err != nil {
 		return fmt.Errorf("decode to wav: %w", err)
@@ -42,7 +43,7 @@ func decodeOpusToWav(opusPath, wavPath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer examplecleanup.OnReturn("close Opus input", f.Close)
 
 	oggReader, err := ogg.NewReader(f)
 	if err != nil {
@@ -67,7 +68,7 @@ func decodeOpusToWav(opusPath, wavPath string) error {
 	if err != nil {
 		return fmt.Errorf("create wav writer: %w", err)
 	}
-	defer writer.Close()
+	defer examplecleanup.OnReturn("close WAV writer", writer.Close)
 
 	for {
 		packet, _, err := oggReader.ReadPacket()

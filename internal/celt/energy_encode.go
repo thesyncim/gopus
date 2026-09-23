@@ -27,7 +27,7 @@ const (
 // This ensures encoder and decoder use matching gain values.
 //
 // Reference: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c amp2Log2()
-func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float32, nbBands, frameSize int) []celtGLog {
+func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float32, nbBands, frameSize int) []CeltGLog {
 	// Use default scratch buffer - caller should use ComputeBandEnergiesInto if they need
 	// a specific destination buffer to avoid aliasing
 	energiesLen := nbBands * int(e.channels)
@@ -38,7 +38,7 @@ func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float32, nbBands, frameSize i
 
 // ComputeBandEnergiesF32 computes CELT band energies from float-build MDCT
 // coefficients and returns the encoder scratch view.
-func (e *Encoder) ComputeBandEnergiesF32(mdctCoeffs []float32, nbBands, frameSize int) []celtGLog {
+func (e *Encoder) ComputeBandEnergiesF32(mdctCoeffs []float32, nbBands, frameSize int) []CeltGLog {
 	energiesLen := nbBands * int(e.channels)
 	dst := ensureGLogSlice(&e.scratch.energies, energiesLen)
 	e.ComputeBandEnergiesF32Into(mdctCoeffs, nbBands, frameSize, dst)
@@ -797,7 +797,7 @@ func (e *Encoder) DecideIntraMode(energies []celtGLog, startBand, nbBands int, l
 // Returns the quantized energies (after encoding) for use by fine energy encoding.
 //
 // Reference: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c quant_coarse_energy()
-func (e *Encoder) EncodeCoarseEnergy(energies []celtGLog, nbBands int, intra bool, lm int) []celtGLog {
+func (e *Encoder) EncodeCoarseEnergy(energies []celtGLog, nbBands int, intra bool, lm int) []CeltGLog {
 	if e.rangeEncoder == nil {
 		return energies
 	}
@@ -854,7 +854,7 @@ func (e *Encoder) EncodeCoarseEnergy(energies []celtGLog, nbBands int, intra boo
 // EncodeCoarseEnergyRange encodes coarse energies for bands in [start, end).
 // This mirrors EncodeCoarseEnergy but only processes the specified band range.
 // Bands outside the range keep their previous energy values.
-func (e *Encoder) EncodeCoarseEnergyRange(energies []celtGLog, start, end int, intra bool, lm int) []celtGLog {
+func (e *Encoder) EncodeCoarseEnergyRange(energies []celtGLog, start, end int, intra bool, lm int) []CeltGLog {
 	if e.rangeEncoder == nil {
 		return energies
 	}
@@ -1629,7 +1629,7 @@ func (e *Encoder) EncodeEnergyFinaliseRangeFromError(quantizedEnergies []celtGLo
 
 // EncodeCoarseEnergyWithEncoder encodes coarse energies using an explicit range encoder.
 // This variant allows passing a range encoder directly rather than using e.rangeEncoder.
-func (e *Encoder) EncodeCoarseEnergyWithEncoder(re *rangecoding.Encoder, energies []celtGLog, nbBands int, intra bool, lm int) []celtGLog {
+func (e *Encoder) EncodeCoarseEnergyWithEncoder(re *rangecoding.Encoder, energies []celtGLog, nbBands int, intra bool, lm int) []CeltGLog {
 	oldRE := e.rangeEncoder
 	e.rangeEncoder = re
 	defer func() { e.rangeEncoder = oldRE }()
@@ -1736,7 +1736,7 @@ func (e *Encoder) EncodeEnergyRemainderWithEncoder(re *rangecoding.Encoder, ener
 
 // EncodeCoarseEnergyHybrid encodes coarse energies for hybrid mode.
 // Only encodes bands from startBand onwards (typically band 17).
-func (e *Encoder) EncodeCoarseEnergyHybrid(energies []celtGLog, nbBands int, intra bool, lm int, startBand int) []celtGLog {
+func (e *Encoder) EncodeCoarseEnergyHybrid(energies []celtGLog, nbBands int, intra bool, lm int, startBand int) []CeltGLog {
 	if e.rangeEncoder == nil || nbBands == 0 {
 		return make([]celtGLog, nbBands*int(e.channels))
 	}

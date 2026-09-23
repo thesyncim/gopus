@@ -22,10 +22,10 @@ func encodeQEXTDepth(enc *rangecoding.Encoder, depth, cap int, last *int) {
 		sym = 0
 	}
 
-	switch {
-	case *last == 0:
+	switch *last {
+	case 0:
 		enc.EncodeICDF(min(sym, 2), qextLastZeroICDF, 7)
-	case *last == cap:
+	case cap:
 		enc.EncodeICDF(min(sym, 2), qextLastCapICDF, 7)
 	default:
 		enc.EncodeICDF(sym, qextLastOtherICDF, 7)
@@ -43,13 +43,13 @@ func decodeQEXTDepth(dec *rangecoding.Decoder, cap int, last *int) int {
 	}
 
 	sym := 0
-	switch {
-	case *last == 0:
+	switch *last {
+	case 0:
 		sym = dec.DecodeICDF(qextLastZeroICDF, 7)
 		if sym == 2 {
 			sym = 3
 		}
-	case *last == cap:
+	case cap:
 		sym = dec.DecodeICDF(qextLastCapICDF, 7)
 		if sym == 2 {
 			sym = 3

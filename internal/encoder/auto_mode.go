@@ -248,12 +248,13 @@ func (e *Encoder) autoVoiceRatioFromAnalysis() {
 		return
 	}
 	var prob float32
-	if e.prevMode == ModeAuto || e.prevMode == 0 {
+	switch e.prevMode {
+	case ModeAuto:
 		// First frame or unknown previous mode.
 		prob = e.lastAnalysisInfo.MusicProb
-	} else if e.prevMode == ModeCELT {
+	case ModeCELT:
 		prob = e.lastAnalysisInfo.MusicProbMax
-	} else {
+	default:
 		prob = e.lastAnalysisInfo.MusicProbMin
 	}
 	e.voiceRatio = opusmath.FloorHalfPlusF32ToInt32(float32(100) * (float32(1) - prob))
@@ -362,9 +363,10 @@ func (e *Encoder) autoModeDecision(stereoWidth opusVal16, voiceEst, equivRate in
 	}
 
 	// Hysteresis based on previous mode.
-	if e.prevMode == ModeCELT {
+	switch e.prevMode {
+	case ModeCELT:
 		threshold -= 4000
-	} else if e.prevMode == ModeSILK || e.prevMode == ModeHybrid {
+	case ModeSILK, ModeHybrid:
 		threshold += 4000
 	}
 
@@ -593,7 +595,7 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxData
 	// Step 9: Mode selection with interpolated thresholds (lines 1492-1527).
 	// silk_mode.useDTX (opus_encoder.c:1461): DTX favours SILK only when the
 	// generalized DTX is unusable, i.e. DTX on AND the analysis is invalid/silent.
-	silkUseDTX := e.dtxEnabled && !(e.lastAnalysisValid || isSilence)
+	silkUseDTX := e.dtxEnabled && (!e.lastAnalysisValid && !isSilence)
 	mode := e.autoModeDecision(stereoWidth, voiceEst, equivRate, frameSize, maxDataBytes, silkUseDTX)
 
 	// Step 10: Frame size constraint (lines 1533-1537).

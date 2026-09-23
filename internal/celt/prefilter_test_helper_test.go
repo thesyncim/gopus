@@ -10,7 +10,8 @@ func pitchDownsample(x []float64, xLP []float32, length, channels, factor int) {
 	)
 	handled := false
 	if factor == 2 {
-		if channels == 1 {
+		switch channels {
+		case 1:
 			idx := 2
 			for i := 1; i < length; i++ {
 				v := firQuarter*float32(x[idx-1]) + firQuarter*float32(x[idx+1]) + firHalf*float32(x[idx])
@@ -18,7 +19,7 @@ func pitchDownsample(x []float64, xLP []float32, length, channels, factor int) {
 				idx += 2
 			}
 			xLP[0] = firQuarter*float32(x[1]) + firHalf*float32(x[0])
-		} else if channels == 2 {
+		case 2:
 			chStride := len(x) / 2
 			x0 := x[:chStride]
 			x1 := x[chStride:]

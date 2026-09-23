@@ -871,18 +871,19 @@ func (e *Encoder) computeEquivRate(bitrate, channels, frameRate int32, vbr bool,
 		equiv -= equiv / 12
 	}
 	equiv = (equiv * (90 + complexity)) / 100
-	if actualMode == ModeSILK || actualMode == ModeHybrid {
+	switch actualMode {
+	case ModeSILK, ModeHybrid:
 		if complexity < 2 {
 			equiv = (equiv * 4) / 5
 		}
 		if loss > 0 {
 			equiv -= (equiv * loss) / (6*loss + 10)
 		}
-	} else if actualMode == ModeCELT {
+	case ModeCELT:
 		if complexity < 5 {
 			equiv = (equiv * 9) / 10
 		}
-	} else {
+	default:
 		// Mode not known yet: libopus applies half the SILK packet-loss penalty.
 		if loss > 0 {
 			equiv -= (equiv * loss) / (12*loss + 20)
@@ -2862,9 +2863,10 @@ func (e *Encoder) selectShortAutoMode(frameSize int, signalHint types.Signal) Mo
 	if e.voipApp {
 		threshold += 8000
 	}
-	if prev == ModeCELT {
+	switch prev {
+	case ModeCELT:
 		threshold -= 4000
-	} else if prev == ModeSILK || prev == ModeHybrid {
+	case ModeSILK, ModeHybrid:
 		threshold += 4000
 	}
 
@@ -2933,9 +2935,10 @@ func (e *Encoder) selectLongSWBAutoMode(frameSize int, signalHint types.Signal) 
 	}
 
 	// libopus hysteresis: bias against rapid CELT<->SILK/HYBRID switching.
-	if prev == ModeCELT {
+	switch prev {
+	case ModeCELT:
 		threshold -= 4000
-	} else if prev == ModeSILK || prev == ModeHybrid {
+	case ModeSILK, ModeHybrid:
 		threshold += 4000
 	}
 
@@ -3011,9 +3014,10 @@ func (e *Encoder) autoVoiceEstimate(prev Mode) int {
 		return voiceEst
 	}
 	prob := e.lastAnalysisInfo.MusicProb
-	if prev == ModeCELT {
+	switch prev {
+	case ModeCELT:
 		prob = e.lastAnalysisInfo.MusicProbMax
-	} else if prev == ModeSILK || prev == ModeHybrid {
+	case ModeSILK, ModeHybrid:
 		prob = e.lastAnalysisInfo.MusicProbMin
 	}
 	if prob < 0 {
@@ -4616,7 +4620,7 @@ func (e *Encoder) SetCELTSurroundTrim(trim opusVal32) {
 }
 
 // CELTSurroundTrim returns the current CELT alloc-trim surround bias.
-func (e *Encoder) CELTSurroundTrim() opusVal32 {
+func (e *Encoder) CELTSurroundTrim() OpusVal32 {
 	return e.celtSurroundTrim
 }
 

@@ -17,6 +17,7 @@ import (
 
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/container/ogg"
+	examplecleanup "github.com/thesyncim/gopus/examples/internal/cleanup"
 )
 
 const (
@@ -74,7 +75,7 @@ func createOggFile(filename string, duration float64, bitrate int) error {
 	if err != nil {
 		return fmt.Errorf("create file: %w", err)
 	}
-	defer f.Close()
+	defer examplecleanup.OnReturn("close output file", f.Close)
 
 	// Create Ogg writer
 	oggWriter, err := ogg.NewWriter(f, uint32(sampleRate), uint8(channels))
@@ -179,7 +180,7 @@ func readOggFile(filename string) error {
 	if err != nil {
 		return fmt.Errorf("open file: %w", err)
 	}
-	defer f.Close()
+	defer examplecleanup.OnReturn("close input file", f.Close)
 
 	// Get file size
 	stat, _ := f.Stat()

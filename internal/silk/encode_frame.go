@@ -435,12 +435,14 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	var bestSum [maxNbSubfr]int
 	var pulses []int8
 
+gainSearch:
 	for iter := 0; ; iter++ {
-		if gainsID == gainsIDLower {
+		switch gainsID {
+		case gainsIDLower:
 			nBits = nBitsLower
-		} else if gainsID == gainsIDUpper {
+		case gainsIDUpper:
 			nBits = nBitsUpper
-		} else {
+		default:
 			if iter > 0 {
 				*e.rangeEncoder = rangeCopy
 				*e.nsqState = nsqCopy0
@@ -624,7 +626,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			}
 
 			if !blockUseCBR && iter == 0 && nBits <= maxBits {
-				break
+				break gainSearch
 			}
 		}
 
@@ -699,7 +701,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			}
 		}
 
-		if !(foundLower && foundUpper) {
+		if !foundLower || !foundUpper {
 			if nBits > maxBits {
 				next := min(int(gainMultQ8)*3/2, 1024)
 				gainMultQ8 = int16(next)
@@ -1076,9 +1078,10 @@ func (e *Encoder) EncodePacketWithFECWithVADStates(pcm []float32, lookahead []fl
 				frameMaxBits = frameMaxBits * 3 / 5
 			}
 		case 3:
-			if i == 0 {
+			switch i {
+			case 0:
 				frameMaxBits = frameMaxBits * 2 / 5
-			} else if i == 1 {
+			case 1:
 				frameMaxBits = frameMaxBits * 3 / 4
 			}
 		}

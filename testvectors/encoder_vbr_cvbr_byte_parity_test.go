@@ -670,7 +670,7 @@ func runCVBRParityCase(t *testing.T, tc vbrCVBRCase, helperPath string) {
 	refLens := make([]int, len(refResults))
 	goLens := make([]int, len(goResults))
 	var lenMismatch int
-	var firstLenMismatch int = -1
+	var firstLenMismatch = -1
 	for i := range refResults {
 		refLens[i] = len(refResults[i].data)
 		goLens[i] = len(goResults[i].data)

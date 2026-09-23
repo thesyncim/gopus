@@ -506,7 +506,7 @@ func (e *Encoder) SetSurroundTrim(trim celtGLog) {
 }
 
 // SurroundTrim returns the current surround trim adjustment.
-func (e *Encoder) SurroundTrim() celtGLog {
+func (e *Encoder) SurroundTrim() CeltGLog {
 	return e.surroundTrim
 }
 
@@ -695,7 +695,7 @@ func (e *Encoder) SampleRate() int {
 // PrevEnergy returns the previous frame's band energies.
 // Used for inter-frame energy prediction in coarse energy encoding.
 // Layout: [band0_ch0, band1_ch0, ..., band20_ch0, band0_ch1, ..., band20_ch1]
-func (e *Encoder) PrevEnergy() []celtGLog {
+func (e *Encoder) PrevEnergy() []CeltGLog {
 	out := make([]celtGLog, len(e.prevEnergy))
 	copy(out, e.prevEnergy)
 	return out
@@ -716,7 +716,7 @@ func (e *Encoder) CopyPrevEnergyFloat32(dst []float32) []float32 {
 
 // PrevEnergy2 returns the band energies from two frames ago.
 // Used for anti-collapse detection.
-func (e *Encoder) PrevEnergy2() []celtGLog {
+func (e *Encoder) PrevEnergy2() []CeltGLog {
 	out := make([]celtGLog, len(e.prevEnergy2))
 	copy(out, e.prevEnergy2)
 	return out
@@ -1118,7 +1118,7 @@ func (e *Encoder) LFE() bool {
 // LastTonality returns the most recently computed tonality estimate.
 // The value ranges from 0 (noise-like spectrum) to 1 (pure tone).
 // This is used by computeVBRTarget for bit allocation decisions.
-func (e *Encoder) LastTonality() opusVal16 {
+func (e *Encoder) LastTonality() OpusVal16 {
 	return e.lastTonality
 }
 
@@ -1136,7 +1136,7 @@ func (e *Encoder) SetLastTonality(tonality opusVal16) {
 
 // PrevBandLogEnergy returns the previous frame's band log-energies.
 // Used for spectral flux computation in tonality analysis.
-func (e *Encoder) PrevBandLogEnergy() []celtGLog {
+func (e *Encoder) PrevBandLogEnergy() []CeltGLog {
 	out := make([]celtGLog, len(e.prevBandLogEnergy))
 	copy(out, e.prevBandLogEnergy)
 	return out
@@ -1150,7 +1150,7 @@ func (e *Encoder) GetLastDynalloc() DynallocResult {
 
 // GetLastBandLogE returns the last frame's primary band log-energies.
 // These are the bandLogE values passed to DynallocAnalysis.
-func (e *Encoder) GetLastBandLogE() []celtGLog {
+func (e *Encoder) GetLastBandLogE() []CeltGLog {
 	out := make([]celtGLog, len(e.lastBandLogE))
 	copy(out, e.lastBandLogE)
 	return out
@@ -1158,7 +1158,7 @@ func (e *Encoder) GetLastBandLogE() []celtGLog {
 
 // GetLastBandLogE2 returns the last frame's secondary band log-energies.
 // For transients, this is from the long MDCT; otherwise same as bandLogE.
-func (e *Encoder) GetLastBandLogE2() []celtGLog {
+func (e *Encoder) GetLastBandLogE2() []CeltGLog {
 	out := make([]celtGLog, len(e.lastBandLogE2))
 	copy(out, e.lastBandLogE2)
 	return out

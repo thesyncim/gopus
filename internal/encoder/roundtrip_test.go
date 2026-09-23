@@ -85,7 +85,7 @@ func generateSpeechLikeSignal(samples, channels int, sampleRate int) []float64 {
 // formantResponse computes a resonance response for formant simulation.
 func formantResponse(freq, center, bandwidth float64) float64 {
 	diff := freq - center
-	return 1.0 / (1.0 + math.Pow(diff/bandwidth, 2))
+	return 1.0 / (1.0 + diff/bandwidth*(diff/bandwidth))
 }
 
 // generateMusicLikeSignal generates a signal with music-like characteristics.

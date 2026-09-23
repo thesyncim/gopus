@@ -322,7 +322,7 @@ func opPVQRefineNorm(xn []opusVal32, iy []int32, iy0 []int32, k, up, margin int,
 		for i := range n {
 			if float32(rounding[i]-roundVal)*float32(dir) > 0 &&
 				absInt32(iy[i]-up32*iy0[i]) < int32(margin-1) &&
-				!(dir == -1 && iy[i] == 0) {
+				(dir != -1 || iy[i] != 0) {
 				roundVal = rounding[i]
 				roundPos = i
 			}

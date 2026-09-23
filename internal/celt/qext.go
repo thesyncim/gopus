@@ -74,11 +74,11 @@ func computeQEXTModeConfig(sampleRate, shortMDCTSize int) (qextModeConfig, bool)
 		CacheCaps:     qextCacheCaps50[:],
 	}
 
-	switch {
-	case shortMDCTSize*48000 == 120*sampleRate:
+	switch shortMDCTSize * 48000 {
+	case 120 * sampleRate:
 		cfg.EBands = qextEBands240[:]
 		cfg.LogN = qextLogN240[:]
-	case shortMDCTSize*48000 == 90*sampleRate:
+	case 90 * sampleRate:
 		// libopus ships one trailing qext_logN_180 value that sits past the
 		// active NB_QEXT_BANDS window. We keep the exact source table above and
 		// expose the active prefix here.

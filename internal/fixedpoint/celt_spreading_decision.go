@@ -74,9 +74,10 @@ func SpreadingDecision(x []int32, eBands []int16, nbEBands, lastDecision int,
 		}
 		st.HFAverage = (st.HFAverage + hfSum) >> 1
 		hfSum = st.HFAverage
-		if st.TapsetDecision == 2 {
+		switch st.TapsetDecision {
+		case 2:
 			hfSum += 4
-		} else if st.TapsetDecision == 0 {
+		case 0:
 			hfSum -= 4
 		}
 		if hfSum > 22 {

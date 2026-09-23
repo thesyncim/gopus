@@ -121,7 +121,7 @@ func TFAnalysis(eBands []int16, length int, isTransient bool, tfRes []int, lambd
 		}
 
 		kMax := lm
-		if !(isTransient || narrow) {
+		if !isTransient && !narrow {
 			kMax = lm + 1
 		}
 		for k := 0; k < kMax; k++ {

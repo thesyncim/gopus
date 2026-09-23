@@ -165,10 +165,8 @@ func (e *Encoder) shouldUseDTXRes(pcm []opusRes) (bool, bool) {
 		isActive = e.dtx.peakSignalEnergy < pseudoSNRThreshold*0.5*frameEnergy
 	}
 
-	shouldTrackPeak := true
-	if e.lastAnalysisValid && e.lastAnalysisInfo.VADProb <= dtxActivityThreshold {
-		shouldTrackPeak = false
-	}
+	shouldTrackPeak := !(e.lastAnalysisValid && e.lastAnalysisInfo.VADProb <= dtxActivityThreshold)
+
 	if shouldTrackPeak && !isSilence {
 		frameEnergy := computeFrameEnergyRes(pcm)
 		e.dtx.peakSignalEnergy = maxf(0.999*e.dtx.peakSignalEnergy, frameEnergy)

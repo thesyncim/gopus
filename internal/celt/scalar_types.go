@@ -24,9 +24,15 @@ func floor32ToInt(v float32) int {
 // need to carry CELT-owned band-energy scratch without widening it.
 type CeltEner = celtEner
 
+// CeltGLog exposes CELT's float-build celt_glog width in exported signatures.
+type CeltGLog = celtGLog
+
 // CeltNorm exposes CELT's float-build celt_norm width to tests and sibling
 // packages that need to pass normalized CELT vectors without widening them.
 type CeltNorm = celtNorm
+
+// OpusVal16 exposes libopus's float-build opus_val16 width in exported signatures.
+type OpusVal16 = opusVal16
 
 func ensureSigSlice(buf *[]celtSig, n int) []celtSig {
 	if n <= 0 {

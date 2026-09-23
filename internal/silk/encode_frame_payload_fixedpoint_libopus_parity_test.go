@@ -310,9 +310,9 @@ func TestSILKEncodeFramePayloadFIXLibopusParity(t *testing.T) {
 	{
 		c := mkg("wb_lbrr_cond",
 			genericFrameCase("", rng, 1, 16, 4, 16, 20, 1, 0), 0, 8000, BandwidthWideband)
-		c.silkFixedEncodeFrameCase.condCoding = codeConditionally
-		c.silkFixedEncodeFrameCase.prevSignalType = 2
-		c.silkFixedEncodeFrameCase.prevLag = 100
+		c.condCoding = codeConditionally
+		c.prevSignalType = 2
+		c.prevLag = 100
 		c.ecPrevSignalType = typeVoiced
 		c.ecPrevLagIndex = 55
 		c.lbrrEnabled = 1

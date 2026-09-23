@@ -207,7 +207,7 @@ func (e *Encoder) computePeriodicity(pcm []float32, minLag, maxLag int) float32 
 	}
 
 	var maxCorr float32 = 0
-	var maxCorrLag int = 0
+	var maxCorrLag = 0
 
 	for lag := minLag; lag <= maxLag; lag++ {
 		var corr, energy1, energy2 float32

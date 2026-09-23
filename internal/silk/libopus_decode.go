@@ -114,9 +114,10 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 
 	for i := range order {
 		idx := rd.DecodeICDF9_8Slice(cb.ecICDF[int(ecIx[i]):])
-		if idx == 0 {
+		switch idx {
+		case 0:
 			idx -= rd.DecodeICDF7_8Slice(silk_NLSF_EXT_iCDF)
-		} else if idx == 2*nlsfQuantMaxAmplitude {
+		case 2 * nlsfQuantMaxAmplitude:
 			idx += rd.DecodeICDF7_8Slice(silk_NLSF_EXT_iCDF)
 		}
 		st.indices.NLSFIndices[i+1] = int8(idx - nlsfQuantMaxAmplitude)

@@ -331,7 +331,7 @@ func (e *Encoder) silkLBRREncodeFIX(
 
 	// NSQ with LBRR gains.
 	lbrrPulses := ensureInt8Slice(&sc.lbrrPulses, st.frameLength)
-	var lbrrCtrl sEncCtrlFIX = *ctrl
+	lbrrCtrl := *ctrl
 	lbrrCtrl.gainsQ16 = gainsQ16[:st.nbSubfr]
 	silkRunNSQFIX(sc, st, &sNSQLBRR, &indicesLBRR, &lbrrCtrl, x16, lbrrPulses)
 
@@ -420,12 +420,14 @@ func (e *Encoder) silkEncodeFramePayloadFIX(ps *silkEncodeFramePayloadFIXState) 
 	currentPrevInd := st.lastGainIndex
 	frameSeed := seed
 
+gainSearch:
 	for iter := 0; ; iter++ {
-		if gainsID == gainsIDLower {
+		switch gainsID {
+		case gainsIDLower:
 			nBits = nBitsLower
-		} else if gainsID == gainsIDUpper {
+		case gainsIDUpper:
 			nBits = nBitsUpper
-		} else {
+		default:
 			if iter > 0 {
 				*re = rangeCopy
 				st.nsq = nsqCopy0
@@ -475,7 +477,7 @@ func (e *Encoder) silkEncodeFramePayloadFIX(ps *silkEncodeFramePayloadFIXState) 
 			}
 
 			if !useCBR && iter == 0 && nBits <= maxBits {
-				break
+				break gainSearch
 			}
 		}
 
@@ -545,7 +547,7 @@ func (e *Encoder) silkEncodeFramePayloadFIX(ps *silkEncodeFramePayloadFIXState) 
 			}
 		}
 
-		if !(foundLower && foundUpper) {
+		if !foundLower || !foundUpper {
 			if nBits > maxBits {
 				next := int(gainMultQ8) * 3 / 2
 				if next > 1024 {

@@ -121,7 +121,7 @@ func (e *Encoder) EncodeStereoParamsWithIntensity(nbBands, intensityBand int, du
 // Returns: mid and side channel arrays
 //
 // Reference: RFC 6716 Section 4.3.4
-func ConvertToMidSide(left, right []celtNorm) (mid, side []celtNorm) {
+func ConvertToMidSide(left, right []celtNorm) (mid, side []CeltNorm) {
 	n := len(left)
 	if n == 0 {
 		return nil, nil
@@ -159,7 +159,7 @@ func ConvertToMidSide(left, right []celtNorm) (mid, side []celtNorm) {
 //
 // Combined with ConvertToMidSide, this forms an identity transform:
 // L,R -> M,S -> L,R (with floating point precision)
-func ConvertMidSideToLR(mid, side []celtNorm) (left, right []celtNorm) {
+func ConvertMidSideToLR(mid, side []celtNorm) (left, right []CeltNorm) {
 	n := len(mid)
 	if n == 0 {
 		return nil, nil

@@ -4,7 +4,7 @@ import "github.com/thesyncim/gopus/internal/rangecoding"
 
 // NormalizeBandsToArrayMonoWithBandE normalizes MDCT coefficients for mono
 // and returns the normalized coefficients and linear band amplitudes.
-func (e *Encoder) NormalizeBandsToArrayMonoWithBandE(mdctCoeffs []float32, nbBands, frameSize int) (norm []celtNorm, bandE []celtEner) {
+func (e *Encoder) NormalizeBandsToArrayMonoWithBandE(mdctCoeffs []float32, nbBands, frameSize int) (norm []CeltNorm, bandE []CeltEner) {
 	norm = ensureNormSliceNoClear(&e.scratch.normL, frameSize)
 	bandE = ensureEnerSlice(&e.scratch.bandE, nbBands)
 	NormalizeBandsToArrayInto(mdctCoeffs, nbBands, frameSize, norm, bandE)
@@ -17,7 +17,7 @@ func (e *Encoder) NormalizeBandsToArrayMonoWithBandE(mdctCoeffs []float32, nbBan
 
 // NormalizeBandsToArrayMonoWithBandEF32 normalizes float-build MDCT
 // coefficients for mono and returns normalized coefficients plus amplitudes.
-func (e *Encoder) NormalizeBandsToArrayMonoWithBandEF32(mdctCoeffs []float32, nbBands, frameSize int) (norm []celtNorm, bandE []celtEner) {
+func (e *Encoder) NormalizeBandsToArrayMonoWithBandEF32(mdctCoeffs []float32, nbBands, frameSize int) (norm []CeltNorm, bandE []CeltEner) {
 	norm = ensureNormSliceNoClear(&e.scratch.normL, frameSize)
 	bandE = ensureEnerSlice(&e.scratch.bandE, nbBands)
 	NormalizeBandsToArrayIntoF32(mdctCoeffs, nbBands, frameSize, norm, bandE)
@@ -31,7 +31,7 @@ func (e *Encoder) NormalizeBandsToArrayMonoWithBandEF32(mdctCoeffs []float32, nb
 // NormalizeBandsToArrayStereoWithBandE normalizes MDCT coefficients for stereo
 // and returns normalized L/R coefficients plus combined linear band amplitudes.
 // The bandE layout is [L bands][R bands].
-func (e *Encoder) NormalizeBandsToArrayStereoWithBandE(mdctLeft, mdctRight []float32, nbBands, frameSize int) (normL, normR []celtNorm, bandE []celtEner) {
+func (e *Encoder) NormalizeBandsToArrayStereoWithBandE(mdctLeft, mdctRight []float32, nbBands, frameSize int) (normL, normR []CeltNorm, bandE []CeltEner) {
 	normL = ensureNormSliceNoClear(&e.scratch.normL, frameSize)
 	normR = ensureNormSliceNoClear(&e.scratch.normR, frameSize)
 	bandEL := ensureEnerSlice(&e.scratch.bandEL, nbBands)
@@ -51,7 +51,7 @@ func (e *Encoder) NormalizeBandsToArrayStereoWithBandE(mdctLeft, mdctRight []flo
 
 // NormalizeBandsToArrayStereoWithBandEF32 normalizes float-build MDCT
 // coefficients for stereo. The bandE layout is [L bands][R bands].
-func (e *Encoder) NormalizeBandsToArrayStereoWithBandEF32(mdctLeft, mdctRight []float32, nbBands, frameSize int) (normL, normR []celtNorm, bandE []celtEner) {
+func (e *Encoder) NormalizeBandsToArrayStereoWithBandEF32(mdctLeft, mdctRight []float32, nbBands, frameSize int) (normL, normR []CeltNorm, bandE []CeltEner) {
 	normL = ensureNormSliceNoClear(&e.scratch.normL, frameSize)
 	normR = ensureNormSliceNoClear(&e.scratch.normR, frameSize)
 	bandEL := ensureEnerSlice(&e.scratch.bandEL, nbBands)
@@ -487,7 +487,7 @@ func (e *Encoder) ApplyHybridPrefilter(preemph []float32, frameSize int, tfEstim
 
 // TransientAnalysisHybrid performs transient analysis and updates preemph overlap state.
 // Returns transient flags, tf/tone metrics, shortBlocks choice, and optional bandLogE2.
-func (e *Encoder) TransientAnalysisHybrid(preemph []float32, frameSize, nbBands, lm int, allowWeakTransients bool) (transient bool, weakTransient bool, tfEstimate, toneFreq, toneishness float32, shortBlocks int, bandLogE2 []celtGLog) {
+func (e *Encoder) TransientAnalysisHybrid(preemph []float32, frameSize, nbBands, lm int, allowWeakTransients bool) (transient bool, weakTransient bool, tfEstimate, toneFreq, toneishness float32, shortBlocks int, bandLogE2 []CeltGLog) {
 	overlap := min(Overlap, frameSize)
 
 	channels := int(e.channels)

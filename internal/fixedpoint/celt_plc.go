@@ -954,7 +954,7 @@ func (d *CELTDecoder) decodeLostPeriodic(N, LM int, decodeMem [][]int32) {
 			tmp := sround16(buf[celtDecodeBufferSize-N+i], sigShift)
 			S2 += mult16x16(int32(tmp), int32(tmp)) >> 11
 		}
-		if !(S1 > S2>>2) {
+		if S1 <= S2>>2 {
 			for i := 0; i < extrapolationLen; i++ {
 				buf[celtDecodeBufferSize-N+i] = 0
 			}

@@ -172,7 +172,7 @@ func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, tran
 	// Hybrid->SILK fade-out: decode a 2.5 ms CELT silence frame and add it so the
 	// CELT MDCT history rings down cleanly (opus_decode_frame MODE_SILK_ONLY else
 	// branch), skipped when a CELT->SILK redundant frame continues a redundancy run.
-	if !(redundancy && celtToSilk && d.prevRedundancy) {
+	if !redundancy || !celtToSilk || !d.prevRedundancy {
 		if err := d.addHybridToSilkFadeOut(out); err != nil {
 			return nil, err
 		}

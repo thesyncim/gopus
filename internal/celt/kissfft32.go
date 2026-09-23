@@ -471,10 +471,7 @@ func (st *kissFFTState) fftImpl(fout []kissCpx) {
 
 	// Find L by walking factors until m == 1
 	L := 0
-	for {
-		if 2*L+1 >= len(st.factors) {
-			break
-		}
+	for 2*L+1 < len(st.factors) {
 		m := st.factors[2*L+1]
 		L++
 		if m == 1 {
