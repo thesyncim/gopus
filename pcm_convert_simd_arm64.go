@@ -53,17 +53,14 @@ func convertFloat32ToInt16UnitBlocks(dst []int16, src []float32, n int) bool {
 	one := archsimd.BroadcastFloat32x4(1)
 	scale := archsimd.BroadcastFloat32x4(32768)
 	max := archsimd.BroadcastInt32x4(32767)
-	for i := 0; i < n; i += 16 {
-		for j := 0; j < 16; j += 4 {
-			off := i + j
-			v := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, off*4)))
-			mask := v.Abs().LessEqual(one).ToInt32x4()
-			if mask.GetElem(0) != -1 || mask.GetElem(1) != -1 || mask.GetElem(2) != -1 || mask.GetElem(3) != -1 {
-				return false
-			}
-			q := v.Mul(scale).Round().ConvertToInt32().Min(max).SaturateToInt16()
-			q.StorePart((*[4]int16)(unsafe.Add(dp, off*2))[:])
+	for i := 0; i < n; i += 4 {
+		v := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, i*4)))
+		mask := v.Abs().LessEqual(one).ToInt32x4()
+		if mask.GetElem(0) != -1 || mask.GetElem(1) != -1 || mask.GetElem(2) != -1 || mask.GetElem(3) != -1 {
+			return false
 		}
+		q := v.Mul(scale).Round().ConvertToInt32().Min(max).SaturateToInt16()
+		q.StorePart((*[4]int16)(unsafe.Add(dp, i*2))[:])
 	}
 	return true
 }
@@ -77,12 +74,9 @@ func convertFloat32ToInt16SaturatingBlocks(dst []int16, src []float32, n int) {
 	sp := unsafe.Pointer(unsafe.SliceData(src))
 	dp := unsafe.Pointer(unsafe.SliceData(dst))
 	scale := archsimd.BroadcastFloat32x4(32768)
-	for i := 0; i < n; i += 16 {
-		for j := 0; j < 16; j += 4 {
-			off := i + j
-			v := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, off*4)))
-			q := v.Mul(scale).Round().ConvertToInt32().SaturateToInt16()
-			q.StorePart((*[4]int16)(unsafe.Add(dp, off*2))[:])
-		}
+	for i := 0; i < n; i += 4 {
+		v := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, i*4)))
+		q := v.Mul(scale).Round().ConvertToInt32().SaturateToInt16()
+		q.StorePart((*[4]int16)(unsafe.Add(dp, i*2))[:])
 	}
 }

@@ -87,7 +87,7 @@ per-call Go operation and are marked n/a with the reason.
 | 50 | `firInterpol43691Core` | arm64 | `internal/silk/resample_fir_default.go`; `internal/silk/resample_libopus.go` | scalar Go | nOut=240: old asm → Go → SIMD build: 161.5 (161.2–162.1) → 457.3 (457.1–461.9) → 454.9 (451.7–455.8) | 0 | measured; scalar replacement 2.8× slower than asm |
 | 51 | `up2HQCore` | arm64 | `internal/silk/up2hq_core_default.go`; `internal/silk/resample_libopus.go` | scalar Go | N=240: old asm → Go → SIMD build: 1,120 (1,096–1,176) → 1,133 (1,126–1,137) → 1,166 (1,154–1,171) | 0 | measured; scalar and SIMD Go are within 4% of asm |
 | 52 | `convertFloat32ToInt16UnitBlocks` | arm64 | `pcm_convert_simd_arm64.go`; `pcm_convert_arm64_nosimd.go` | archsimd / scalar | n=480, old wrapper/asm → Go → SIMD: 92.95 (92.87–93.35) → 630.1 (618.2–700.6) → 168.1 (167.8–169.6) | 0 | measured; SIMD is 81% slower than asm, scalar Go 6.8× slower |
-| 53 | `convertFloat32ToInt16SaturatingBlocks` | arm64 | `pcm_convert_simd_arm64.go`; `pcm_convert_arm64_nosimd.go` | archsimd / scalar | n=480, old wrapper/asm → Go → SIMD: 45.43 (45.39–45.66) → 646.5 (639.8–658.0) → 113.1 (112.9–113.7) | 0 | measured; SIMD is 2.5× slower than asm, scalar Go 14.2× slower |
+| 53 | `convertFloat32ToInt16SaturatingBlocks` | arm64 | `pcm_convert_simd_arm64.go`; `pcm_convert_arm64_nosimd.go` | archsimd / scalar | n=480, old wrapper/asm → Go → SIMD: 45.43 (45.39–45.66) → 646.5 (639.8–658.0) → 102.8 (102.5–103.0) | 0 | measured; SIMD is 2.3× slower than asm, scalar Go 14.2× slower |
 
 ## Native AMD64 parity and quality comparison
 
