@@ -56,8 +56,6 @@ func buildLibopusCELTFilterScalarHelper() (string, error) {
 		RefSources: []string{
 			"celt/celt_decoder.c",
 			"celt/celt.c",
-			"celt/x86/pitch_sse.c",
-			"celt/x86/x86_celt_map.c",
 		},
 		Libs:      []string{"-lm"},
 		DeadStrip: true,

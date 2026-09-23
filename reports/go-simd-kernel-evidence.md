@@ -10,7 +10,7 @@ reference path.
 
 M4 Max (`darwin/arm64`) A/B measurements use Go 1.27.1 and three runs on the
 same host. Native AMD64 A/B measurements come from [CI run
-35908158429](https://github.com/thesyncim/gopus/actions/runs/35908158429): the
+35911787670](https://github.com/thesyncim/gopus/actions/runs/35911787670): the
 pre-port base and candidate ran on the same Ubuntu x86_64 runner with Go
 1.27.1, GCC 13.3.0, and pinned libopus 1.6.1. Direct benchmarks use five
 samples at GOMAXPROCS=4. Every measured benchmark reports 0 allocs/op. Values
@@ -53,7 +53,7 @@ measured kernels; other rows need a direct allocation measurement.
 | 22 | `mdctFold3StoreNeon` | arm64 | `internal/celt/mdct_fold_simd_arm64.go`; `internal/celt/mdct_fold_default.go` | archsimd / scalar | pending | pending | SIMD port; benchmark pending |
 | 23 | `mdctMidFoldStoreNeon` | arm64 | `internal/celt/mdct_mid_fold_simd_arm64.go`; `internal/celt/mdct_mid_fold_default.go` | archsimd / scalar | pending | pending | SIMD port; benchmark pending |
 | 24 | `mdctPostTwiddleNeon` | arm64 | `internal/celt/mdct_post_twiddle_simd_arm64.go`; `internal/celt/mdct_post_twiddle_default.go` | archsimd / scalar | pending | pending | SIMD port; benchmark pending |
-| 25 | `xcorrKernelAVX8` | amd64 | `internal/celt/pitch_xcorr_kernel_simd_amd64.go`; `internal/silk/pitch_xcorr_kernel_simd_amd64.go` | archsimd / scalar | CELT production A/B, old asm → scalar Go → Go SIMD: L×P=240×360 3,433→38,620→7,196; 480×64 1,178→13,670→2,591; 5×244 315.5→908.5→5,110; 10×10 33.66→67.98→280.7. Tiny SIMD values predate the N<16 scalar-dispatch fix in the working tree. | 0 | measured; SIMD helps large shapes vs scalar Go but stays slower than old asm; tiny change awaits native A/B |
+| 25 | `xcorrKernelAVX8` | amd64 | `internal/celt/pitch_xcorr_kernel_simd_amd64.go`; `internal/silk/pitch_xcorr_kernel_simd_amd64.go` | archsimd / scalar | CELT production A/B, old asm → scalar Go → Go SIMD: L×P=240×360 3,080→44,374→12,323; 480×64 1,035→15,784→3,340; 5×244 331.1→967.3→3,977; 10×10 38.78→73.94→252.7. SILK pitch search 120×300: 1,746→16,713→7,788. | 0 | measured in run 359117; SIMD beats scalar Go for large inputs but trails old asm; tiny production shapes regress sharply |
 | 26 | `prefilterDualInnerProdAsm` | arm64 | `internal/celt/prefilter_dual_inner_prod_simd_arm64.go`; default and nosimd variants | archsimd / scalar | 84.45–85.69 → 41.27–41.50 (N=240) | 0 | measured; faster on M4 |
 | 27 | `pvqSearchPulseLoopAVX` | amd64 | `internal/celt/pvq_search.go`; `internal/celt/pvq_search_default.go` | scalar Go | pending | pending | scalar replacement; SIMD port and benchmark pending |
 | 28 | `pvqSearchPulseLoop` | arm64 | `internal/celt/pvq_search.go`; `internal/celt/pvq_search_default.go` | scalar Go | pending | pending | scalar replacement; SIMD port and benchmark pending |
@@ -70,12 +70,12 @@ measured kernels; other rows need a direct allocation measurement.
 | 39 | `fma32` | arm64 | `internal/lpcnetplc/fma32_arm64.go`; `internal/lpcnetplc/fma32_default.go` | Go float32 expression / scalar | pending | pending | Go replacement; verify arm64 FMADD codegen and benchmark |
 | 40 | `gruFMA32` | arm64 | `internal/osce/lace/gru_fma_arm64.go`; `internal/osce/lace/gru_fma_default.go` | Go float32 expression / scalar | pending | pending | Go replacement; verify arm64 FMADD codegen and benchmark |
 | 41 | `floatToInt16ScaledCore` | arm64 | `internal/silk/convert_simd_arm64.go`; `internal/silk/float_to_int16_default.go` | archsimd / scalar | pending | pending | SIMD port; benchmark pending |
-| 42 | `innerProductFLPAVX2` | amd64 | `internal/silk/inner_product_flp_simd_amd64.go`; `internal/silk/inner_product_flp_amd64.go` | archsimd / scalar | N=480, old asm → scalar Go → Go SIMD: 89.40→263.1→89.51 | 0 | measured; SIMD matches old asm within run noise; scalar Go is 2.9× slower |
+| 42 | `innerProductFLPAVX2` | amd64 | `internal/silk/inner_product_flp_simd_amd64.go`; `internal/silk/inner_product_flp_amd64.go` | archsimd / scalar | N=480, old asm → scalar Go → Go SIMD: 97.77 (97.56–98.58) → 252.4 (252.2–252.5) → 195.5 (195.3–197.5) | 0 | measured in run 359117; SIMD improves over scalar Go by 22.5% but is 2.0× slower than old asm |
 | 43 | `innerProductFLPArm64` | arm64 | `internal/silk/inner_product_flp_arm64.go` | scalar Go | pending | pending | scalar replacement; SIMD port and benchmark pending |
 | 44 | `writeInt16AsFloat32Core` | arm64 | `internal/silk/convert_simd_arm64.go`; `internal/silk/int16_float32_default.go` | archsimd / scalar | pending | pending | SIMD port; benchmark pending |
 | 45 | `synthesizeLPCOrder16Core` | arm64 | `internal/silk/lpc_synth_default.go` | scalar Go | pending | pending | scalar replacement; SIMD port and benchmark pending |
 | 46 | `celtPitchXcorrFloatImplASM` | arm64 | `internal/silk/pitch_xcorr_impl_default.go`; amd64 SIMD implementation | scalar arm64 / archsimd amd64 | pending | pending | arm64 SIMD port and benchmark pending |
-| 47 | `xcorrKernelAVX8` | amd64 | `internal/silk/pitch_xcorr_kernel_simd_amd64.go`; `internal/silk/pitch_xcorr_kernel_avx_amd64.go` | archsimd / scalar | SILK production A/B, L×P=120×300, old asm → scalar Go → Go SIMD: 1,820→18,750→3,547 | 0 | measured; SIMD is 5.3× faster than scalar Go and 1.9× slower than old asm |
+| 47 | `xcorrKernelAVX8` | amd64 | `internal/silk/pitch_xcorr_kernel_simd_amd64.go`; `internal/silk/pitch_xcorr_kernel_avx_amd64.go` | archsimd / scalar | SILK pitch search L×P=120×300, old asm → scalar Go → Go SIMD: 1,746 (1,745–1,749) → 16,713 (16,690–16,807) → 7,788 (7,787–7,800) | 0 | measured in run 359117; SIMD is 2.1× faster than scalar Go and 4.5× slower than old asm |
 | 48 | `firInterpol21846Core` | arm64 | `internal/silk/resample_fir_default.go`; `internal/silk/resample_libopus.go` | scalar Go | pending | pending | scalar replacement; SIMD port and benchmark pending |
 | 49 | `firInterpol32768Core` | arm64 | `internal/silk/resample_fir_default.go`; `internal/silk/resample_libopus.go` | scalar Go | pending | pending | scalar replacement; SIMD port and benchmark pending |
 | 50 | `firInterpol43691Core` | arm64 | `internal/silk/resample_fir_default.go`; `internal/silk/resample_libopus.go` | scalar Go | pending | pending | scalar replacement; SIMD port and benchmark pending |
@@ -118,19 +118,20 @@ Direct AMD64 benchmark samples for the relevant production paths are:
 
 | Benchmark case | Old assembly | Ordinary Go | Go SIMD |
 |---|---:|---:|---:|
-| CELT xcorr, L×P=240×360 | 3,433 (3,430–3,442) ns | 38,620 (38,561–38,678) ns | 7,196 (7,192–7,200) ns |
-| CELT xcorr, L×P=480×64 | 1,178 (1,172–1,182) ns | 13,670 (13,647–13,669) ns | 2,591 (2,591–2,592) ns |
-| CELT xcorr, L×P=5×244 | 315.5 (315.2–316.4) ns | 908.5 (907.6–927.6) ns | 5,110 (5,106–5,112) ns* |
-| CELT xcorr, L×P=10×10 | 33.66 (33.46–35.24) ns | 67.98 (67.94–68.01) ns | 280.7 (280.6–281.0) ns* |
-| SILK inner product, N=480 | 89.40 (87.88–89.86) ns | 263.1 (262.8–268.9) ns | 89.51 (89.38–90.76) ns |
-| SILK pitch xcorr, L×P=120×300 | 1,820 (1,817–1,822) ns | 18,750 (18,739–18,829) ns | 3,547 (3,537–3,555) ns |
+| CELT xcorr, L×P=240×360 | 3,080 (3,077–3,083) ns | 44,374 (44,350–44,427) ns | 12,323 (12,313–12,330) ns |
+| CELT xcorr, L×P=480×64 | 1,035 (1,034–1,039) ns | 15,784 (15,768–15,797) ns | 3,340 (3,339–3,340) ns |
+| CELT xcorr, L×P=5×244 | 331.1 (330.6–335.3) ns | 967.3 (965.5–969.5) ns | 3,977 (3,975–3,980) ns |
+| CELT xcorr, L×P=10×10 | 38.78 (38.65–38.82) ns | 73.94 (73.84–73.96) ns | 252.7 (252.6–253.1) ns |
+| SILK inner product, N=480 | 97.77 (97.56–98.58) ns | 252.4 (252.2–252.5) ns | 195.5 (195.3–197.5) ns |
+| SILK pitch xcorr, L×P=120×300 | 1,746 (1,745–1,749) ns | 16,713 (16,690–16,807) ns | 7,788 (7,787–7,800) ns |
 
-`*` The 980d run predates the tiny-input change in the worktree. For direct
-`xcorrKernelAVX8` calls, Go SIMD measured N=5 at 161.5 ns in CELT and 161.6 ns
-in SILK; scalar Go measured 126.4 ns in CELT and 97.74 ns in SILK. At N=10,
-Go SIMD measured 247.2 ns in CELT and 248.5 ns in SILK; scalar Go measured
-275.4 ns in CELT and 199.2 ns in SILK. The current SIMD source routes N<16 to
-scalar Go. Updated end-to-end results await native Linux A/B.
+The native SIMD run includes the current N<16 scalar dispatch. Tiny end-to-end
+shapes remain substantially slower than both old assembly and the ordinary Go
+build. Direct `xcorrKernelAVX8` Go SIMD timings are N=5: 124.1 ns in CELT and
+106.0 ns in SILK; N=10: 221.8 ns in CELT and 204.2 ns. These are close to the
+ordinary Go path (123.0/104.0 ns at N=5; 221.1/202.0 ns at N=10), so the severe
+tiny production regression comes from the wrapper/helper path and remains under
+investigation.
 
 `celtInnerProd8FMA32` also improves over the AMD64 base scalar path, which has
 no matching AMD64 assembly symbol: N=16 20.80→6.561 ns, N=64 70.87→13.53 ns,
@@ -139,11 +140,11 @@ All measurements in the production-path table report 0 allocs/op.
 
 ## Measurement follow-up
 
-The remaining pending rows need a reproducible benchmark matrix that builds
+The remaining unmeasured rows need a reproducible benchmark matrix that builds
 the pre-port assembly at the same Go version and host as the replacement. Each
 routine needs representative sizes, a zero-allocation measurement, and
 generated-code inspection where the replacement uses `archsimd`. Native A/B
 shows xcorr SIMD improves over scalar Go at large sizes but stays slower than
-old assembly; its tiny-input dispatch change awaits native measurement. The
-pre-rotate slowdown and large-size stereo-merge slowdown remain optimization
+old assembly; tiny production shapes are especially slow even after dispatch.
+The pre-rotate slowdown and large-size stereo-merge slowdown remain optimization
 items. No overall performance gain is claimed from these kernel samples.
