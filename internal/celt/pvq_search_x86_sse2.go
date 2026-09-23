@@ -22,31 +22,31 @@ func x86PVQSearchBestIDSSE2(absX, y []float32, xy, yy float32, n int) int {
 
 	xy4 := archsimd.BroadcastFloat32x4(xy)
 	yy4 := archsimd.BroadcastFloat32x4(yy)
-	var laneMax [4]float32
-	var laneID [4]int
+	laneMax := archsimd.BroadcastFloat32x4(0)
+	laneID := archsimd.BroadcastInt32x4(0)
+	ids := archsimd.LoadInt32x4Array(&[4]int32{0, 1, 2, 3})
+	four := archsimd.BroadcastInt32x4(4)
 	for i := 0; i < n; i += 4 {
 		x4 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Pointer(&absX[i])))
 		y4 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Pointer(&y[i])))
 		scores := x4.Add(xy4).Mul(y4.Add(yy4).ReciprocalSqrt())
-		var score [4]float32
-		scores.StoreArray(&score)
-		for lane := range 4 {
-			previous := laneMax[lane]
-			if score[lane] > laneMax[lane] {
-				laneMax[lane] = score[lane]
-				laneID[lane] = i + lane
-			}
-			laneMax[lane] = x86MaxPS32(previous, score[lane])
-		}
+		improved := scores.Greater(laneMax).ToInt32x4()
+		laneID = ids.And(improved).Or(laneID.AndNot(improved))
+		laneMax = laneMax.Max(scores)
+		ids = ids.Add(four)
 	}
 
-	max02 := x86MaxPS32(laneMax[0], laneMax[2])
-	max13 := x86MaxPS32(laneMax[1], laneMax[3])
+	var maxValues [4]float32
+	var idValues [4]int32
+	laneMax.StoreArray(&maxValues)
+	laneID.StoreArray(&idValues)
+	max02 := x86MaxPS32(maxValues[0], maxValues[2])
+	max13 := x86MaxPS32(maxValues[1], maxValues[3])
 	bestScore := x86MaxPS32(max02, max13)
 	bestID := 0
 	for lane := range 4 {
-		if laneMax[lane] == bestScore && laneID[lane] > bestID {
-			bestID = laneID[lane]
+		if maxValues[lane] == bestScore && int(idValues[lane]) > bestID {
+			bestID = int(idValues[lane])
 		}
 	}
 	return bestID
