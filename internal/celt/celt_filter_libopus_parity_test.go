@@ -14,6 +14,7 @@ const (
 )
 
 var libopusCELTFilterHelper libopustest.HelperCache
+var libopusCELTFilterScalarHelper libopustest.HelperCache
 
 type libopusDeemphasisResult struct {
 	mem []float32
@@ -27,7 +28,7 @@ func buildLibopusCELTFilterHelper() (string, error) {
 		SourceFile:  "libopus_celt_filter_info.c",
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-DRESYNTH", "-O3", "-DNDEBUG"},
 		RefIncludes: []string{"src", "celt", "silk", "silk/float"},
-		SIMDRef:     celtFilterOracleSIMDRef,
+		SIMDRef:     true,
 		// celt.c calls comb_filter_const through the host libopus feature
 		// macros. On an x86 SIMD build that resolves through
 		// COMB_FILTER_CONST_IMPL to comb_filter_const_sse; compile the matching
@@ -44,9 +45,34 @@ func buildLibopusCELTFilterHelper() (string, error) {
 	})
 }
 
-func runLibopusCELTFilter(t *testing.T, payload *libopustest.OraclePayload) *libopustest.OracleReader {
+func buildLibopusCELTFilterScalarHelper() (string, error) {
+	return libopustest.BuildCHelper(libopustest.CHelperConfig{
+		Label:          "CELT filter scalar",
+		OutputBase:     "gopus_libopus_celt_filter_scalar",
+		SourceFile:     "libopus_celt_filter_info.c",
+		CFlags:         []string{"-DHAVE_CONFIG_H", "-DRESYNTH", "-O3", "-DNDEBUG"},
+		RefIncludes:    []string{"src", "celt", "silk", "silk/float"},
+		ForceScalarRef: true,
+		RefSources: []string{
+			"celt/celt_decoder.c",
+			"celt/celt.c",
+			"celt/x86/pitch_sse.c",
+			"celt/x86/x86_celt_map.c",
+		},
+		Libs:      []string{"-lm"},
+		DeadStrip: true,
+	})
+}
+
+func runLibopusCELTFilter(t *testing.T, payload *libopustest.OraclePayload, simdKernel bool) *libopustest.OracleReader {
 	t.Helper()
-	binPath, err := libopusCELTFilterHelper.Path(buildLibopusCELTFilterHelper)
+	helper := &libopusCELTFilterScalarHelper
+	builder := buildLibopusCELTFilterScalarHelper
+	if simdKernel {
+		helper = &libopusCELTFilterHelper
+		builder = buildLibopusCELTFilterHelper
+	}
+	binPath, err := helper.Path(builder)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "CELT filter", err)
 	}
@@ -77,7 +103,7 @@ func probeLibopusDeemphasis(t *testing.T, channels int, samples [][]float32, mem
 			payload.Float32(sample)
 		}
 	}
-	reader := runLibopusCELTFilter(t, payload)
+	reader := runLibopusCELTFilter(t, payload, false)
 	if gotMode := reader.U32(); gotMode != libopusCELTFilterModeDeemphasis {
 		t.Fatalf("helper mode=%d want %d", gotMode, libopusCELTFilterModeDeemphasis)
 	}
@@ -302,7 +328,7 @@ func probeLibopusCombFilterMode(t *testing.T, mode uint32, start, n, t0, t1, tap
 	for _, sample := range buf {
 		payload.Float32(float32(sample))
 	}
-	reader := runLibopusCELTFilter(t, payload)
+	reader := runLibopusCELTFilter(t, payload, celtFilterOracleUsesSIMD(mode))
 	if gotMode := reader.U32(); gotMode != mode {
 		t.Fatalf("helper mode=%d want %d", gotMode, mode)
 	}
@@ -316,6 +342,28 @@ func probeLibopusCombFilterMode(t *testing.T, mode uint32, start, n, t0, t1, tap
 		t.Fatal(err)
 	}
 	return out
+}
+
+func celtFilterOracleUsesSIMD(mode uint32) bool {
+	return mode == libopusCELTFilterModeCombFilter && combUsesNeon
+}
+
+func TestCELTFilterOracleDispatchIdentity(t *testing.T) {
+	const n = 12
+	dst := make([]float32, n)
+	delay := make([]float32, n)
+	_, _, _, _, dispatched := combFilterConstDispatch(dst, delay, 0.25, 0.5, 0.75, 0, 0, 0, 0)
+	if dispatched != combUsesNeon {
+		t.Fatalf("comb filter SIMD dispatch=%t, build selection=%t", dispatched, combUsesNeon)
+	}
+	if oracleSIMD := celtFilterOracleUsesSIMD(libopusCELTFilterModeCombFilter); oracleSIMD != dispatched {
+		t.Fatalf("comb filter oracle SIMD=%t, Go dispatch=%t", oracleSIMD, dispatched)
+	}
+	for _, mode := range []uint32{libopusCELTFilterModeDeemphasis, libopusCELTFilterModeCombFilterInput} {
+		if celtFilterOracleUsesSIMD(mode) {
+			t.Fatalf("mode %d selects SIMD C without a matching Go SIMD kernel", mode)
+		}
+	}
 }
 
 func TestCombFilterWithSquareMatchesLibopus(t *testing.T) {
