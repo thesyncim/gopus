@@ -48,7 +48,7 @@ func TestComputeBandRMSUsesArm64LibopusInnerProdOrder(t *testing.T) {
 		return
 	}
 
-	// The bit-exact builds (purego, amd64) keep the libopus inner-product order
+	// The bit-exact builds (nosimd, amd64) keep the libopus inner-product order
 	// plus the 0.5*celt_log2(sum) shortcut.
 	laneSum := float32(sumOfSquaresF64toF32(laneInput, len(laneInput)))
 	seqSumNoEpsilon := sequentialSumOfSquaresF64toF32ForTest(laneInput)

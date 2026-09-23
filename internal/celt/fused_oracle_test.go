@@ -12,7 +12,7 @@ import (
 //   - the fused arm64 default build (celtFusedFloat): the NEON-shaped float path
 //     is quality-gated (opus_compare) rather than byte-identical to scalar C, the
 //     same posture libopus's own NEON kernels take.
-//   - the amd64 pure-Go build (-tags purego): gopus runs scalar Go float
+//   - the amd64 pure-Go build (-tags nosimd): gopus runs scalar Go float
 //     (libopusFloatInnerProdUsesSSEOrder is false), but the linux/amd64 CI libopus
 //     is the autoconf-default SSE/AVX RTCD build, so a scalar-vs-SIMD comparison
 //     would diverge by ~1 ULP. Comparing the pure-Go float path against a SIMD

@@ -1,8 +1,8 @@
-//go:build arm64 && purego
+//go:build arm64 && nosimd
 
 package celt
 
-// prefilterDualInnerProdAsm is the arm64 purego fallback for the NEON dual
+// prefilterDualInnerProdAsm is the arm64 nosimd fallback for the NEON dual
 // inner-product kernel. It reproduces the 4-lane fused-multiply-add order of
 // prefilterDualInnerProdF32NeonOrder exactly, but reaches the FMA through
 // fma32 (a*b+c) rather than the portable math.FMA. On arm64 the backend

@@ -83,6 +83,6 @@ func trackedGoFiles(root string) ([]string, error) {
 }
 
 func skipPureGoGuardPath(path string) bool {
-	return strings.HasSuffix(path, "testvectors/purego_guard_test.go") ||
+	return strings.HasSuffix(path, "testvectors/nosimd_guard_test.go") ||
 		strings.Contains(path, "/tmp_check/")
 }

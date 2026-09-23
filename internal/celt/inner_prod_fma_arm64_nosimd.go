@@ -1,8 +1,8 @@
-//go:build arm64 && purego
+//go:build arm64 && nosimd
 
 package celt
 
-// celtInnerProd8FMA32 is the arm64 purego inner-product kernel. It reproduces
+// celtInnerProd8FMA32 is the arm64 nosimd inner-product kernel. It reproduces
 // the 4-lane accumulation order of celtInnerProdNeonStyle and the single-rounding
 // FMA the NEON asm path emits, but reaches it through fma32 (a*b+c) rather than
 // the portable math.FMA. On arm64 the backend contracts a*b+c into one FMADDS,

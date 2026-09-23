@@ -18,7 +18,7 @@ import (
 //
 // Why this is build-invariant where bit-exact comparison is not: Q, correlation,
 // and RMS ratio are statistical/perceptual measures, so a 1-ULP FMA-contraction
-// difference between build configs (arm64 vs amd64 vs purego) moves them far
+// difference between build configs (arm64 vs amd64 vs nosimd) moves them far
 // below their bars. Bit-exact oracles, which do break on such differences, are a
 // separate tier reserved for isolated algorithmic kernels and are enforced across
 // the whole build-config matrix (see Makefile test-build-config-matrix).

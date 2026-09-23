@@ -12,13 +12,13 @@ package testvectors
 // This helper closes that gap WITHOUT touching the scalar helper: it links the
 // libopus reference whose SIMD tier MATCHES the gopus build under test —
 //
-//   - asm gopus build (default, !purego): SIMD libopus (opus-1.6.1-simd, built by
+//   - asm gopus build (default, !nosimd): SIMD libopus (opus-1.6.1-simd, built by
 //     `make ensure-libopus-simd`; NEON on arm64, SSE/AVX RTCD on amd64), so the
 //     comparison is asm-vs-SIMD.
-//   - pure-Go gopus build (-tags purego): scalar libopus (opus-1.6.1), so the
+//   - pure-Go gopus build (-tags nosimd): scalar libopus (opus-1.6.1), so the
 //     comparison is pure-Go-vs-scalar and is expected to be ~bit-exact.
 //
-// gopusBuildIsAsm (build_tier_asm.go / build_tier_purego.go) is the selector;
+// gopusBuildIsSIMD (build_tier_simd.go / build_tier_nosimd.go) is the selector;
 // CHelperConfig.SIMDRef drives the libopus tree choice. The transport payload and
 // reader contract are identical to the scalar helper, so quality tests can swap in
 // decodeWithMatchedTierReferencePacketsSingle with no other changes.
@@ -40,7 +40,7 @@ func getLibopusRefdecodeMatchedTierPath() (string, error) {
 			return "", fmt.Errorf("libopus reference tree not found")
 		}
 		libArchive := libopustest.RefPath(".libs", "libopus.a")
-		if gopusBuildIsAsm {
+		if gopusBuildIsSIMD {
 			libArchive = libopustest.SIMDRefPath(".libs", "libopus.a")
 		}
 		return libopustest.BuildCHelper(libopustest.CHelperConfig{
@@ -48,7 +48,7 @@ func getLibopusRefdecodeMatchedTierPath() (string, error) {
 			OutputBase: "gopus_libopus_refdecode_matched_tier",
 			SourceFile: "libopus_refdecode_single.c",
 			CFlags:     []string{"-O3", "-DNDEBUG"},
-			SIMDRef:    gopusBuildIsAsm,
+			SIMDRef:    gopusBuildIsSIMD,
 			Libs:       []string{libArchive, "-lm"},
 		})
 	})

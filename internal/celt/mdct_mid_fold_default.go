@@ -1,10 +1,10 @@
-//go:build !arm64 || purego || !goexperiment.simd
+//go:build !arm64 || nosimd || !goexperiment.simd
 
 package celt
 
 // mdctUseNeonMidFold is false off the fused arm64 build; the scalar
 // mdctStoreDirectStage* loops run everywhere else (and remain the byte-exact
-// purego oracle path).
+// nosimd oracle path).
 const mdctUseNeonMidFold = false
 
 // mdctMidFoldStoreNeon is never called off arm64 (guarded by

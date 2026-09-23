@@ -1,4 +1,4 @@
-//go:build purego || !arm64
+//go:build nosimd || !arm64
 
 package celt
 

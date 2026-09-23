@@ -37,7 +37,7 @@ fi
 
 # Force libopus onto its scalar (generic-C) kernels: no inline/external assembly,
 # no run-time CPU dispatch, no SIMD intrinsics. This is the bit-reproducible
-# reference for the pure-Go (-tags purego) gopus build, which itself has no
+# reference for the pure-Go (-tags nosimd) gopus build, which itself has no
 # assembly/SIMD. The autotools default on amd64 (and Linux arm64) turns RTCD +
 # intrinsics ON, so a default-configured opus-1.6.1 is NOT scalar there; the
 # pure-Go-vs-C parity oracles need this explicit scalar build to compare
@@ -85,7 +85,7 @@ elif [[ "${ENABLE_SIMD}" == "1" ]]; then
 else
   # Default reference (no SIMD flags passed): autotools picks the native config,
   # which turns RTCD + intrinsics ON on amd64 and Linux arm64. The asm gopus build
-  # (default, no -tags purego) ships SSE/NEON kernels tuned to match this, so the
+  # (default, no -tags nosimd) ships SSE/NEON kernels tuned to match this, so the
   # asm-tier C oracles link this tree. The pure-Go build must instead link the
   # opus-${LIBOPUS_VERSION}-scalar tree (LIBOPUS_ENABLE_SCALAR=1).
   SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}"

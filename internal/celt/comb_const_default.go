@@ -1,9 +1,9 @@
-//go:build !arm64 || purego || !goexperiment.simd
+//go:build !arm64 || nosimd || !goexperiment.simd
 
 package celt
 
 // combUsesNeon is false off the fused arm64 build, so the constant-gain comb
-// body keeps its scalar loops and the purego/amd64 byte-exact oracle holds.
+// body keeps its scalar loops and the nosimd/amd64 byte-exact oracle holds.
 const combUsesNeon = false
 
 // combFilterConstNeon is never called off arm64 (guarded by combUsesNeon);

@@ -1,9 +1,9 @@
-//go:build !arm64 || !purego
+//go:build !arm64 || !nosimd
 
 package celt
 
 // xcorrKernel4Float32Fast delegates to the parity-matched xcorrKernel4Float32
-// on every build that isn't arm64+purego. The amd64 default and amd64 purego
+// on every build that isn't arm64+nosimd. The amd64 default and amd64 nosimd
 // builds are the bit-exact oracles for libopus parity tests
 // (TestCELTPVQBandsGridMatchesLibopus, TestCELTEncodeMatchesLibopusC), so they
 // must keep the single-chain accumulation order. The arm64 NEON build never

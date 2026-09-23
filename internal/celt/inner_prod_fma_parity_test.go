@@ -7,7 +7,7 @@ import (
 )
 
 // celtInnerProd8FMA32Ref is the original celtInnerProdNeonStyle body, kept here
-// so the asm/purego kernel can be proven bit-identical to the libopus-matching
+// so the asm/nosimd kernel can be proven bit-identical to the libopus-matching
 // 4-lane FMA reference it replaced. It fuses each lane through mdctFMA32
 // (single-rounding math.FMA) exactly like the kernel under test, so the
 // comparison holds on every architecture: the kernel is a fused

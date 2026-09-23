@@ -6,7 +6,7 @@ package celt
 // precision so the surrounding add/sub cannot fuse, matching the scalar
 // reference on every build. It is the cheap barrier — an FMUL+FADD pair rather
 // than the FMUL+FMOV+FMOV+FADD of a Float32bits round-trip — and a no-op on
-// amd64 and the purego oracle, which do not contract FP. Keep this tiny; its
+// amd64 and the nosimd oracle, which do not contract FP. Keep this tiny; its
 // fusion-defeating codegen is guarded by TestRound32DefeatsFusion.
 func round32(x float32) float32 {
 	return float32(x)
@@ -21,7 +21,7 @@ func mulAdd32Ref(a, b, c float32) float32 { return round32(a*b) + c }
 // amd64 does not contract FP. mul32/add32/sub32 are the non-fused-intent
 // primitives: routing through round32 keeps a materialized product from fusing
 // with a surrounding op, matching scalar libopus on every build at FMUL+FADD
-// cost, and a no-op on amd64/purego where there is no contraction.
+// cost, and a no-op on amd64/nosimd where there is no contraction.
 func fma32(a, b, c float32) float32 { return a*b + c }
 
 func mul32(a, b float32) float32 { return round32(a * b) }

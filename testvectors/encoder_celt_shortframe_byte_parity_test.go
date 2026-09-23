@@ -205,7 +205,7 @@ func TestEncoderCELTShortFrameVariantByteParityAgainstLibopusFixture(t *testing.
 				// SILK byte-exact and bounds the CELT/Hybrid near-tie residual; this
 				// fixture comparison is logged here. The packet-count structural check
 				// above stays hard on every build. See project_arm64_celt_1ulp_drift.md.
-				t.Logf("RESIDUAL (amd64-purego vs SIMD fixture, wrong tier): %d/%d packets differ for %s[%s] — "+
+				t.Logf("RESIDUAL (amd64-nosimd vs SIMD fixture, wrong tier): %d/%d packets differ for %s[%s] — "+
 					"Go amd64 float tracks the scalar libopus, not the SIMD fixture; the live-scalar "+
 					"TestEncoderCBRByteParityCELT gate is authoritative (project_arm64_celt_1ulp_drift.md)",
 					len(diffFrames), len(libPackets), tc.name, variant)

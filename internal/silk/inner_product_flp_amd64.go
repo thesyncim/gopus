@@ -1,10 +1,10 @@
-//go:build amd64 && !purego
+//go:build amd64 && !goexperiment.simd && !nosimd
 
 package silk
 
 import "math"
 
-var silkUseInnerProductFLPAVX2FMA = true
+var silkUseInnerProductFLPAVX2FMA = false
 
 func innerProductFLPAVX2(a, b []float32, length int) silkCReal {
 	var acc0, acc1 [4]float64
@@ -34,7 +34,5 @@ func innerProductFLPImpl(a, b []float32, length int) silkCReal {
 	if length <= 0 {
 		return 0
 	}
-	_ = a[length-1]
-	_ = b[length-1]
-	return innerProductFLPAVX2(a, b, length)
+	return innerProductF32Libopus(a, b, length)
 }

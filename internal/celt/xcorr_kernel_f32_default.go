@@ -1,9 +1,9 @@
-//go:build !arm64 || purego || !goexperiment.simd
+//go:build !arm64 || nosimd || !goexperiment.simd
 
 package celt
 
 // pitchXcorrUsesNeonFMA is false off the fused arm64 build, so the byte-exact
-// scalar/SSE/AVX2 pitch kernels are used and the amd64/purego oracle holds.
+// scalar/SSE/AVX2 pitch kernels are used and the amd64/nosimd oracle holds.
 const pitchXcorrUsesNeonFMA = false
 
 // xcorrKernel4Float32Neon4Acc is never called off arm64 (guarded by

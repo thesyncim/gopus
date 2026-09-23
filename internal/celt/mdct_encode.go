@@ -58,7 +58,7 @@ func mdctStoreDirectStageFMALike(dst []kissCpx, idx int, scale, re, im, t0, t1 f
 // of the TDAC windowed-fold mix. They mirror mdctMulAddMix / mdctMulSubMix
 // exactly on every build (same mdctUseFMALikeMixEnabled gating, same
 // non-FMA path on amd64), so the amd64 bit-exact libopus oracle stays
-// byte-parity. The win on arm64 purego is just that mdctEncodeFMA32 uses the
+// byte-parity. The win on arm64 nosimd is just that mdctEncodeFMA32 uses the
 // Go backend's FMADDS contraction instead of mdctFMA32's wider helper, which
 // the encoder pitch-search is free to use because that path is quality-gated.
 func mdctMulAddMixEncode(a, b, c, d float32) float32 {

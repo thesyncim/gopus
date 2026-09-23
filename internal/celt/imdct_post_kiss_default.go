@@ -1,4 +1,4 @@
-//go:build !arm64 || purego || !goexperiment.simd
+//go:build !arm64 || nosimd || !goexperiment.simd
 
 package celt
 
@@ -18,7 +18,7 @@ func imdctPostRotateF32FromKiss(buf []float32, fft []kissCpx, trig []float32, n2
 	// the float path contracts re*t0 + im*t1 into single-rounding FMADDS;
 	// mdctMulAddMix/mdctMulSubMix reproduce that fused shape when
 	// mdctUseFMALikeMixEnabled is set (arm64) and stay split elsewhere, so this
-	// portable path matches the assembly rotation on purego/arm64 and the
+	// portable path matches the assembly rotation on nosimd/arm64 and the
 	// scalar reference on other targets.
 	//
 	// The rotation reads each fft[] entry exactly once and writes only buf[]

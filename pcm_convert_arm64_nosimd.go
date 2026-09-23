@@ -1,13 +1,13 @@
-//go:build arm64 && (purego || !goexperiment.simd)
+//go:build arm64 && (nosimd || !goexperiment.simd)
 
 package gopus
 
-// The non-purego arm64 build converts float32 PCM to int16 with the NEON
+// The non-nosimd arm64 build converts float32 PCM to int16 with the NEON
 // celt_float2int16 kernel (FMUL by 32768, FCVTNS, SMIN, SQXTN) over whole
 // 16-sample blocks, then finishes the remainder with the scalar round-to-even
 // float32ToInt16. FCVTNS rounds to nearest with ties to even, matching libopus
 // float2int (lrintf) under the default IEEE rounding mode. These pure-Go
-// fallbacks reproduce the arm64 block/tail split exactly so the purego build
+// fallbacks reproduce the arm64 block/tail split exactly so the nosimd build
 // matches the libopus oracle without hand-written assembly.
 
 const pcmConvertBlock = 16

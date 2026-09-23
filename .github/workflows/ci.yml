@@ -641,8 +641,35 @@ jobs:
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: libopus-scalar-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
-      - name: Run build-config matrix gate (purego ./...)
+      - name: Run build-config matrix gate (nosimd ./...)
         run: make test-build-config-matrix
+
+  test-linux-simd:
+    name: test-linux-simd
+    needs:
+      - changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache pinned libopus build
+        uses: actions/cache@v5
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Run Go SIMD parity gate
+        run: make test-simd
 
   test-linux-core-oracles:
     name: test-linux-core-oracles
@@ -719,6 +746,7 @@ jobs:
       - test-linux-extra-controls
       - test-linux-extra-controls-parity
       - test-linux-build-config-matrix
+      - test-linux-simd
       - test-linux-core-oracles
       - test-linux-fixedpoint-parity
     runs-on: ubuntu-latest
@@ -741,6 +769,7 @@ jobs:
           echo "test-linux-extra-controls: ${{ needs.test-linux-extra-controls.result }}"
           echo "test-linux-extra-controls-parity: ${{ needs.test-linux-extra-controls-parity.result }}"
           echo "test-linux-build-config-matrix: ${{ needs.test-linux-build-config-matrix.result }}"
+          echo "test-linux-simd: ${{ needs.test-linux-simd.result }}"
           echo "test-linux-core-oracles: ${{ needs.test-linux-core-oracles.result }}"
           echo "test-linux-fixedpoint-parity: ${{ needs.test-linux-fixedpoint-parity.result }}"
           if [ "${{ needs.test-linux-fast.result }}" != "success" ]; then
@@ -789,6 +818,9 @@ jobs:
             exit 1
           fi
           if [ "${{ needs.test-linux-build-config-matrix.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ needs.test-linux-simd.result }}" != "success" ]; then
             exit 1
           fi
           if [ "${{ needs.test-linux-core-oracles.result }}" != "success" ]; then

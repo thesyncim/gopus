@@ -1,3 +1,5 @@
+//go:build !amd64 || nosimd || !goexperiment.simd
+
 package silk
 
 func celtPitchXcorrFloatImpl(x, y []float32, out []float32, length, maxPitch int) {

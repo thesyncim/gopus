@@ -193,16 +193,16 @@ type scoreboardLibopusBench struct {
 // scoreboardTier selects which libopus reference the scoreboard links and how it
 // is labelled. The two FAIR tiers are:
 //
-//	asm     — gopus default build (NEON/amd64 asm) vs libopus-SIMD
+//	simd    — gopus Go SIMD build vs libopus-SIMD
 //	          (tmp_check/opus-1.6.1-simd, --enable-rtcd --enable-intrinsics).
-//	          This is the real-world asm-vs-asm comparison. Run gopus default.
-//	purego  — gopus -tags purego (scalar Go) vs libopus-no-asm
+//	          Run with GOEXPERIMENT=simd.
+//	nosimd  — gopus -tags nosimd (scalar Go) vs libopus-no-asm
 //	          (tmp_check/opus-1.6.1, the SIMD-DISABLED parity reference). Fair
-//	          scalar-vs-scalar. Run with `go test -tags 'gopus_libopus_bench purego'`.
+//	          scalar-vs-scalar. Run with `go test -tags 'gopus_libopus_bench nosimd'`.
 //
-// Tier is chosen by GOPUS_BENCH_TIER (asm|purego). The default is purego, so a
-// bare run never silently compares gopus asm against scalar libopus (the
-// apples-to-oranges artifact that overstated gopus). GOPUS_BENCH_LIBOPUS_A still
+// Tier is chosen by GOPUS_BENCH_TIER (simd|nosimd). The default is nosimd, so a
+// bare run never silently compares gopus SIMD against scalar libopus.
+// GOPUS_BENCH_LIBOPUS_A still
 // overrides the linked .a with an explicit path for manual experiments.
 type scoreboardTier struct {
 	name    string
@@ -214,16 +214,16 @@ type scoreboardTier struct {
 func resolveScoreboardTier() scoreboardTier {
 	tier := strings.TrimSpace(strings.ToLower(os.Getenv("GOPUS_BENCH_TIER")))
 	switch tier {
-	case "asm", "simd":
+	case "simd":
 		return scoreboardTier{
-			name:    "asm-vs-asm",
+			name:    "simd-vs-simd",
 			simdRef: true,
 			libPath: libopustest.SIMDRefPath(".libs", "libopus.a"),
 			refDesc: "libopus-SIMD (opus-1.6.1-simd, --enable-rtcd --enable-intrinsics)",
 		}
-	default: // "", "purego", "noasm"
+	default: // "", "nosimd"
 		return scoreboardTier{
-			name:    "purego-vs-noasm",
+			name:    "nosimd-vs-noasm",
 			simdRef: false,
 			libPath: libopustest.RefPath(".libs", "libopus.a"),
 			refDesc: "libopus-no-asm (opus-1.6.1, SIMD-disabled parity reference)",
@@ -681,17 +681,17 @@ func TestScoreboardSummary(t *testing.T) {
 	}
 
 	tier := resolveScoreboardTier()
-	gopusBuild := "gopus default (NEON/amd64 asm)"
-	if scoreboardGopusIsPureGo {
-		gopusBuild = "gopus -tags purego (scalar Go)"
+	gopusBuild := "gopus GOEXPERIMENT=simd"
+	if scoreboardGopusIsNoSimd {
+		gopusBuild = "gopus -tags nosimd (scalar Go)"
 	}
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "\nPERF TIER: %s\n  gopus side : %s\n  libopus side: %s\n",
 		tier.name, gopusBuild, tier.refDesc)
-	if (tier.name == "asm-vs-asm") != !scoreboardGopusIsPureGo {
-		fmt.Fprintf(&sb, "  WARNING: tier/build mismatch — asm-vs-asm wants the gopus DEFAULT build,\n"+
-			"           purego-vs-noasm wants `-tags purego`. Ratios below are NOT a fair tier.\n")
+	if (tier.name == "simd-vs-simd") != !scoreboardGopusIsNoSimd {
+		fmt.Fprintf(&sb, "  WARNING: tier/build mismatch — simd-vs-simd wants GOEXPERIMENT=simd,\n"+
+			"           nosimd-vs-noasm wants -tags nosimd. Ratios below are NOT a fair tier.\n")
 	}
 	fmt.Fprintf(&sb, "\n%-26s %12s %12s %7s   %12s %12s %7s\n",
 		"config", "enc_gopus", "enc_libopus", "g/l", "dec_gopus", "dec_libopus", "g/l")

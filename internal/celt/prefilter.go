@@ -977,7 +977,7 @@ func prefilterDualInnerProdF32SSEOrder(x, y1, y2 []float32, length int) (float32
 // over 8-element groups, a 4-element tail, the (acc0+acc2)+(acc1+acc3)
 // reductions, and a fused multiply-add scalar tail. prefilterDualInnerProdAsm
 // implements this in NEON asm on arm64 and a bit-identical math.FMA fallback
-// under the purego tag.
+// under the nosimd tag.
 func prefilterDualInnerProdF32NeonOrder(x, y1, y2 []float32, length int) (float32, float32) {
 	return prefilterDualInnerProdAsm(x, y1, y2, length)
 }

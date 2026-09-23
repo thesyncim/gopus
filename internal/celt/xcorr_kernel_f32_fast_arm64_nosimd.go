@@ -1,4 +1,4 @@
-//go:build arm64 && purego
+//go:build arm64 && nosimd
 
 package celt
 
@@ -8,8 +8,8 @@ package celt
 // terms independently and reduce at the end, giving 4x better FP throughput
 // by saturating all 4 dispatch slots without serial accumulator chains. The
 // encoder pitch search is quality-gated so the changed accumulation order is
-// safe on arm64 purego; every other build (arm64 NEON, amd64 default, amd64
-// purego oracle) keeps the parity-matched single-chain xcorrKernel4Float32
+// safe on arm64 nosimd; every other build (arm64 NEON, amd64 default, amd64
+// nosimd oracle) keeps the parity-matched single-chain xcorrKernel4Float32
 // via the default file's delegation.
 func xcorrKernel4Float32Fast(x, y []float32, sum *[4]float32, length int) {
 	if length <= 0 {

@@ -914,7 +914,7 @@ func pitchXCorrFloat32Quality(x, y, xcorr []float32, length, maxPitch int) {
 // 4-lag blocks use the four-phase NEON FMLA kernel; the scalar tail uses
 // celtInnerProd's fused arm64 path so the whole correlation runs
 // single-rounding. Only reached when pitchXcorrUsesNeonFMA is set
-// (arm64 && !purego).
+// (arm64 && !nosimd).
 func pitchXCorrFloat32NeonFMA(x, y, xcorr []float32, length, maxPitch int) {
 	i := 0
 	for ; i < maxPitch-3; i += 4 {

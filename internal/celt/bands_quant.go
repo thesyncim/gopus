@@ -706,7 +706,7 @@ func expRotation1Norm(x []celtNorm, length, stride int, c, s opusVal16) {
 	}
 	// With stride >= 4 four consecutive indices belong to four independent
 	// rotation chains, so the fused arm64 build runs both passes 4-wide
-	// (bit-identical per element); the scalar loops stay the purego oracle
+	// (bit-identical per element); the scalar loops stay the nosimd oracle
 	// and the stride<4 path.
 	if expRotationUsesNeon && stride >= 4 {
 		expRotation1StrideNeon(x, length, stride, c, s)
@@ -1822,7 +1822,7 @@ func celtFloatMulAdd(a, b, c float32) float32 {
 }
 
 func celtInnerProdSSEStyle(x, y []celtNorm) float32 {
-	return celtInnerProdSSEStyleAsm(x, y)
+	return celtInnerProdSSEStyleImpl(x, y)
 }
 
 func celtInnerProdSSEStyleGo(x, y []celtNorm) float32 {
@@ -1844,14 +1844,14 @@ func celtInnerProdSSEStyleGo(x, y []celtNorm) float32 {
 }
 
 func celtInnerProdSSEStyleNorm(x, y []celtNorm) float32 {
-	return celtInnerProdSSEStyleAsm(x, y)
+	return celtInnerProdSSEStyleImpl(x, y)
 }
 
 // celtInnerProdNeonStyle reproduces libopus arm/pitch_neon_intr.c
 // celt_inner_prod_neon: a 4-lane vfmaq_f32 accumulator over 8-element groups,
 // a 4-element tail, the (acc0+acc2)+(acc1+acc3) reduction, and a scalar tail.
 // celtInnerProd8FMA32 implements this in NEON asm on arm64 and a bit-identical
-// math.FMA fallback under the purego tag.
+// math.FMA fallback under the nosimd tag.
 func celtInnerProdNeonStyle(x, y []celtNorm) float32 {
 	n := min(len(y), len(x))
 	return celtInnerProd8FMA32(x[:n:n], y[:n:n], n)

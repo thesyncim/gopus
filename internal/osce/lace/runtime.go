@@ -1117,7 +1117,7 @@ func fma32(a, b, c float32) float32 {
 // precision so the surrounding add/sub cannot fuse, matching the scalar
 // reference on every build. It is the cheap barrier — an FMUL+FADD pair rather
 // than the FMUL+FMOV+FMOV+FADD of a Float32bits round-trip — and a no-op on
-// amd64 and the purego oracle, which do not contract FP. Keep this tiny; its
+// amd64 and the nosimd oracle, which do not contract FP. Keep this tiny; its
 // fusion-defeating codegen is guarded by the package parity tests.
 func round32(x float32) float32 {
 	return float32(x)

@@ -1,0 +1,77 @@
+//go:build amd64 && goexperiment.simd && !nosimd
+
+package silk
+
+import (
+	"math"
+	"simd/archsimd"
+	"unsafe"
+)
+
+var silkUsePitchXcorrAVX2FMA = archsimd.X86.AVX2() && archsimd.X86.FMA()
+
+func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
+	if length <= 0 {
+		*sum = [8]float32{}
+		return
+	}
+	if !silkUsePitchXcorrAVX2FMA {
+		xcorrKernelAVX8ScalarGo(x, y, sum, length)
+		return
+	}
+
+	xp := unsafe.Pointer(x)
+	yp := unsafe.Pointer(y)
+	var acc [8]archsimd.Float32x8
+	i := 0
+	for ; i+8 <= length; i += 8 {
+		xv := archsimd.LoadFloat32x8Array((*[8]float32)(xp))
+		for corr := range 8 {
+			yv := archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, uintptr(corr*4))))
+			acc[corr] = xv.MulAdd(yv, acc[corr])
+		}
+		xp = unsafe.Add(xp, 32)
+		yp = unsafe.Add(yp, 32)
+	}
+
+	var lanes [8][8]float32
+	for corr := range 8 {
+		acc[corr].StoreArray(&lanes[corr])
+	}
+	for lane := 0; i+lane < length; lane++ {
+		xv := *(*float32)(unsafe.Add(xp, uintptr(lane*4)))
+		for corr := range 8 {
+			p := unsafe.Add(yp, uintptr((lane+corr)*4))
+			lanes[corr][lane] = float32(math.FMA(float64(xv), float64(*(*float32)(p)), float64(lanes[corr][lane])))
+		}
+	}
+	for corr := range 8 {
+		v := lanes[corr]
+		s04 := v[0] + v[4]
+		s15 := v[1] + v[5]
+		s26 := v[2] + v[6]
+		s37 := v[3] + v[7]
+		sum[corr] = (s04 + s15) + (s26 + s37)
+	}
+}
+
+func xcorrKernelAVX8ScalarGo(x, y *float32, sum *[8]float32, length int) {
+	xs := unsafe.Slice(x, length)
+	ys := unsafe.Slice(y, length+7)
+	var lanes [8][8]float32
+	for i := range xs {
+		xv := xs[i]
+		for corr := range 8 {
+			lane := i & 7
+			lanes[corr][lane] = float32(math.FMA(float64(xv), float64(ys[i+corr]), float64(lanes[corr][lane])))
+		}
+	}
+	for corr := range 8 {
+		v := lanes[corr]
+		s04 := v[0] + v[4]
+		s15 := v[1] + v[5]
+		s26 := v[2] + v[6]
+		s37 := v[3] + v[7]
+		sum[corr] = (s04 + s15) + (s26 + s37)
+	}
+}

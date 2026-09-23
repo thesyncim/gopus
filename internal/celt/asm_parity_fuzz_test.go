@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestCELTAssemblyWrappersMatchReferenceEdges(t *testing.T) {
+func TestCELTKernelsMatchReferenceEdges(t *testing.T) {
 	lengths := []int{1, 2, 3, 4, 5, 7, 8, 15, 16, 17, 31, 32, 33, 63, 64, 120, 480}
 	maxPitches := []int{1, 2, 3, 4, 5, 8, 15, 16, 31, 32}
 	for _, n := range lengths {
@@ -18,7 +18,7 @@ func TestCELTAssemblyWrappersMatchReferenceEdges(t *testing.T) {
 	}
 }
 
-func FuzzCELTAssemblyWrappersMatchReference(f *testing.F) {
+func FuzzCELTKernelsMatchReference(f *testing.F) {
 	for _, seed := range []struct {
 		length   uint8
 		maxPitch uint8

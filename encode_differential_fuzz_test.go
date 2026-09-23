@@ -474,7 +474,7 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 					// pure-Go builds (arm64 always, amd64 vs the scalar libopus) carry
 					// the documented range-tail residual.
 					if g.FinalRange != o.FinalRange {
-						if runtime.GOARCH == "amd64" && !testPuregoBuild {
+						if runtime.GOARCH == "amd64" && !testNoSimdBuild {
 							t.Errorf("%s: packets byte-equal but final_range differs gopus=%08x libopus=%08x (UNEXPECTED on amd64)",
 								label, g.FinalRange, o.FinalRange)
 						} else {
@@ -513,7 +513,7 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 				// arch-INDEPENDENT framing bug found — SILK NB 10 ms CBR at the 6 kbps
 				// floor — is excluded from the sweep above and documented separately.)
 				if byte0(g.Packet) != byte0(o.Packet) {
-					if runtime.GOARCH == "amd64" && !testPuregoBuild {
+					if runtime.GOARCH == "amd64" && !testNoSimdBuild {
 						framingDiffs++
 						t.Errorf("%s: PACKET FRAMING divergence gopus toc=%02x(len=%d) libopus toc=%02x(len=%d) "+
 							"br=%d vbr=%d — same mode class, different TOC framing (UNEXPECTED on amd64)",
@@ -550,7 +550,7 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 				// pure-Go flips the same SILK FEC/stereo near-tie decisions, so apply
 				// the documented per-arch boundary to every pure-Go build and keep the
 				// amd64 asm build strict.
-				if runtime.GOARCH == "amd64" && !testPuregoBuild {
+				if runtime.GOARCH == "amd64" && !testNoSimdBuild {
 					if gClass == 0 {
 						silkByteFails++
 						t.Errorf("%s: SILK payload BYTE MISMATCH at byte %d (len g=%d o=%d, range g=%08x o=%08x) "+
@@ -565,7 +565,7 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 					}
 					continue
 				}
-				// Pure-Go (arm64 + amd64-purego): documented ≤1-ULP float-analysis
+				// Pure-Go (arm64 + amd64-nosimd): documented ≤1-ULP float-analysis
 				// boundary that flips a near-tie SILK/CELT decision (per-mode counter).
 				if gClass == 0 {
 					silkResiduals++

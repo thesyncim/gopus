@@ -1,8 +1,8 @@
-//go:build arm64 && (purego || !goexperiment.simd)
+//go:build arm64 && (nosimd || !goexperiment.simd)
 
 package celt
 
-// imdctPreRotateFMA32Kiss is the arm64 purego form of the FMA-like IMDCT
+// imdctPreRotateFMA32Kiss is the arm64 nosimd form of the FMA-like IMDCT
 // pre-rotation. It mirrors the arm64 assembly kernel exactly: each output fuses
 // its first product into the add and rounds the second product on its own,
 // matching the clang -ffp-contract=on float path of libopus

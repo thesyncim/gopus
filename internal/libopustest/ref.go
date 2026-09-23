@@ -12,7 +12,7 @@ import (
 
 // ScalarRefRequested reports whether the libopus reference oracles must link the
 // scalar (generic-C, no SIMD/RTCD/intrinsics) libopus build instead of the
-// default tree. The pure-Go (-tags purego) gopus build and the celt/custom parity
+// default tree. The pure-Go (-tags nosimd) gopus build and the celt/custom parity
 // gate set GOPUS_LIBOPUS_REF_SCALAR=1 so the C oracle compares like-with-like:
 // pure-Go-scalar vs scalar-C. The default tree autotools-enables SIMD on amd64
 // and Linux arm64, so comparing a SIMD-C oracle against scalar Go is not bit-exact

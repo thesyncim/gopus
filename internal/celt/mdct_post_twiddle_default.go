@@ -1,9 +1,9 @@
-//go:build !arm64 || purego || !goexperiment.simd
+//go:build !arm64 || nosimd || !goexperiment.simd
 
 package celt
 
 // mdctUsePostTwiddleNeon is false off the fused arm64 build, so the forward
-// MDCT keeps its scalar post-twiddle loop and the purego/amd64 byte-exact
+// MDCT keeps its scalar post-twiddle loop and the nosimd/amd64 byte-exact
 // oracle holds.
 const mdctUsePostTwiddleNeon = false
 

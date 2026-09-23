@@ -56,7 +56,7 @@ func TestBuildBaselineCaseCapsPositiveGapFloorAtParity(t *testing.T) {
 // HYBRID-FB-20ms-stereo-96k am_multisine knife-edge case: the tight asm/SIMD floor
 // on the asm build, and the documented looser pure-Go floor on the pure-Go build.
 func hybridStereo96kAMMultisineFloorAMD64() float64 {
-	if !gopusBuildIsAsm {
+	if !gopusBuildIsSIMD {
 		return encoderVariantMinGapFloorPureGoOverrideQ[encoderVariantCaseKey("HYBRID-FB-20ms-stereo-96k", "am_multisine_v1")]
 	}
 	return amd64EncoderVariantGapFloorQ

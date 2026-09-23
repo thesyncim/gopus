@@ -439,7 +439,7 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 
 				if bytes.Equal(g.Packet, o.Packet) {
 					if g.FinalRange != o.FinalRange {
-						if runtime.GOARCH == "amd64" && !testPuregoBuild {
+						if runtime.GOARCH == "amd64" && !testNoSimdBuild {
 							t.Errorf("%s: packets byte-equal but final_range differs gopus=%08x libopus=%08x (UNEXPECTED on amd64)",
 								label, g.FinalRange, o.FinalRange)
 						} else {
@@ -472,7 +472,7 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 				// >20 ms repacketizer's equal-vs-unequal code 1/2 choice), logged as a
 				// residual — same policy as the sibling harness.
 				if byte0(g.Packet) != byte0(o.Packet) {
-					if runtime.GOARCH == "amd64" && !testPuregoBuild {
+					if runtime.GOARCH == "amd64" && !testNoSimdBuild {
 						framingFails++
 						t.Errorf("%s: PACKET FRAMING divergence gopus toc=%02x(len=%d) libopus toc=%02x(len=%d) "+
 							"br=%d vbr=%d — same mode class, different TOC framing (UNEXPECTED on amd64)",
@@ -487,8 +487,8 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 				}
 
 				// Payload byte mismatch with matching TOC. amd64-asm: HARD FAIL (bit-exact
-				// required). Pure-Go (arm64 + amd64-purego): documented <=1-ULP boundary.
-				if runtime.GOARCH == "amd64" && !testPuregoBuild {
+				// required). Pure-Go (arm64 + amd64-nosimd): documented <=1-ULP boundary.
+				if runtime.GOARCH == "amd64" && !testNoSimdBuild {
 					if gClass == 0 {
 						silkByteFails++
 						t.Errorf("%s: SILK payload BYTE MISMATCH at byte %d (len g=%d o=%d, range g=%08x o=%08x) "+
@@ -766,7 +766,7 @@ func TestEncodeStatefulDTXRunFuzz(t *testing.T) {
 							}
 							if bytes.Equal(pkt, o.Packet) {
 								if enc.FinalRange() != o.FinalRange {
-									if runtime.GOARCH == "amd64" && !testPuregoBuild {
+									if runtime.GOARCH == "amd64" && !testNoSimdBuild {
 										t.Errorf("%s: packets byte-equal but final_range differs gopus=%08x libopus=%08x (UNEXPECTED on amd64)",
 											label, enc.FinalRange(), o.FinalRange)
 									} else {
@@ -787,7 +787,7 @@ func TestEncodeStatefulDTXRunFuzz(t *testing.T) {
 							}
 							fb := firstByteDiff(pkt, o.Packet)
 							if byte0(pkt) != byte0(o.Packet) {
-								if runtime.GOARCH == "amd64" && !testPuregoBuild {
+								if runtime.GOARCH == "amd64" && !testNoSimdBuild {
 									byteFails++
 									t.Errorf("%s: PACKET FRAMING divergence gopus toc=%02x(len=%d) libopus toc=%02x(len=%d) (UNEXPECTED on amd64)",
 										label, byte0(pkt), len(pkt), byte0(o.Packet), len(o.Packet))
@@ -796,7 +796,7 @@ func TestEncodeStatefulDTXRunFuzz(t *testing.T) {
 								}
 								continue
 							}
-							if runtime.GOARCH == "amd64" && !testPuregoBuild {
+							if runtime.GOARCH == "amd64" && !testNoSimdBuild {
 								byteFails++
 								t.Errorf("%s: %s payload BYTE MISMATCH at byte %d (len g=%d o=%d range g=%08x o=%08x) — "+
 									"UNEXPECTED on amd64 (bit-exact required)",

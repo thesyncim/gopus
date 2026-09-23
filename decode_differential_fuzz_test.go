@@ -156,7 +156,7 @@ func tocMode(toc byte) diffMode {
 // format (tolerance 0): gopus's SSE/AVX kernels are tuned to match the SIMD
 // libopus the default oracle build links on amd64, so exactness is the gate.
 //
-// On every pure-Go (-tags purego) build and on darwin/arm64 the documented
+// On every pure-Go (-tags nosimd) build and on darwin/arm64 the documented
 // ≤1-ULP float drift (project_arm64_celt_1ulp_drift) applies. The pure-Go float
 // path does not reproduce the SIMD libopus reference bit-for-bit (CELT/hybrid
 // IMDCT, synthesis, and deemphasis round a few LSB at the ~1/32768 quantum;
@@ -166,7 +166,7 @@ func tocMode(toc byte) diffMode {
 // asm build stays exact, and the bound (~1.2e-4) is three orders of magnitude
 // below any real divergence (the fixed SILK LBRR desync produced ~1.0-2.0).
 func pcmExactTolerance(toc byte, format uint32) float32 {
-	if runtime.GOARCH == "amd64" && !testPuregoBuild {
+	if runtime.GOARCH == "amd64" && !testNoSimdBuild {
 		return 0
 	}
 	switch format {

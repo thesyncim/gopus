@@ -175,11 +175,11 @@ Under their tag these are parity-complete — none are experimental:
 One more tag is orthogonal to the feature flags above and has no libopus
 equivalent:
 
-- **`purego`** — forces the scalar Go code path, disabling the architecture
-  assembly kernels (arm64 NEON, amd64 AVX2). Output is identical to the default
-  build except that this is the bit-exact tier on every architecture; use it when
-  you want the reference numeric path or to build for a target without an asm
-  kernel. The default build (no tag) already selects asm only where libopus does.
+- **`nosimd`** — forces the scalar Go reference path, including when
+  `GOEXPERIMENT=simd` is set. Ordinary builds use this scalar path. Set
+  `GOEXPERIMENT=simd` to select Go `archsimd` kernels where they are implemented;
+  other kernels keep the scalar fallback. The scalar path is the bit-exact
+  reference tier on every architecture.
 
 Default builds expose no optional extensions; `SetDNNBlob(...)` is a no-op
 returning `ErrOptionalExtensionUnavailable`. This matches a default libopus build,

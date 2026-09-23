@@ -1,14 +1,14 @@
-//go:build !arm64 || purego || !goexperiment.simd
+//go:build !arm64 || nosimd || !goexperiment.simd
 
 package celt
 
 // celtAbsSumUsesNeon is false off the fused arm64 build, so the float abs-sum
-// callers keep the scalar left-to-right reduction and the amd64/purego
+// callers keep the scalar left-to-right reduction and the amd64/nosimd
 // byte-exact gate holds.
 const celtAbsSumUsesNeon = false
 
 // l1AbsSumNeon preserves the four-lane reduction order used by the arm64
-// vector path while keeping the default and purego builds assembly-free.
+// vector path while keeping the default and nosimd builds assembly-free.
 func l1AbsSumNeon(tmp []float32, n int) float32 {
 	n = min(n, len(tmp))
 	var acc [4]float32

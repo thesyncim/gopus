@@ -6,7 +6,7 @@ package celt
 // pre-rotation. It mirrors the arm64 assembly kernel exactly: each output fuses
 // its first product into the add and rounds the second product on its own,
 // matching the clang -ffp-contract=on float path of libopus
-// clt_mdct_backward_c(). The arm64 build supplies an assembly version; purego on
+// clt_mdct_backward_c(). The arm64 build supplies an assembly version; nosimd on
 // arm64 uses this path so it fuses identically via math.FMA instead of relying
 // on compiler contraction, which Go does not guarantee for a*b+c.
 func imdctPreRotateFMA32Kiss(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {

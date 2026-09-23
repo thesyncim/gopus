@@ -22,7 +22,7 @@
 //      TestEncodeDifferentialFuzz:
 //        * Payload bytes: the amd64 asm/SIMD build is the strict bit-exact
 //          reference -> HARD FAIL on any SILK or Hybrid/CELT divergence. The
-//          pure-Go builds (arm64 always; amd64 -tags purego vs the scalar libopus
+//          pure-Go builds (arm64 always; amd64 -tags nosimd vs the scalar libopus
 //          oracle) carry the documented <=1-ULP float boundary in the float
 //          MDCT/band-energy/pitch analysis AND the float Opus-API wrapper
 //          (VAD/pitch/dc_reject), so a byte divergence is LOGGED, not failed.
@@ -32,10 +32,10 @@
 //          frames, not the integer core.
 //        * TOC mode-class match and gopus accept/no-panic are HARD at every rate.
 //
-// PURE-GO FLOAT RESIDUAL (amd64 asm/SIMD build hard-exact; arm64 and amd64-purego
+// PURE-GO FLOAT RESIDUAL (amd64 asm/SIMD build hard-exact; arm64 and amd64-nosimd
 // logged): the SILK 60 ms knife-edge cases (silk_wb_60ms_mono/fs12000,
-// silk_nb_60ms_stereo/fs24000, plus silk_wb_60ms_mono/fs24000 on amd64-purego)
-// diverge identically on arm64-purego and amd64-purego. This is the documented
+// silk_nb_60ms_stereo/fs24000, plus silk_wb_60ms_mono/fs24000 on amd64-nosimd)
+// diverge identically on arm64-nosimd and amd64-nosimd. This is the documented
 // ≤1-ULP float boundary (project_arm64_celt_1ulp_drift) in the float SILK VAD/
 // pitch analysis, not a sub-48k wiring gap: the SILK input resampler is byte-exact
 // to libopus on these exact corpus signals/frame layouts
@@ -435,7 +435,7 @@ func TestSub48NativeEncodeParity(t *testing.T) {
 				// lock + native sub-48k):
 				//   - amd64 asm/SIMD build (the CI strict reference): ANY SILK or
 				//     Hybrid/CELT byte divergence is a HARD FAIL.
-				//   - pure-Go builds (arm64 always; amd64 -tags purego vs the scalar
+				//   - pure-Go builds (arm64 always; amd64 -tags nosimd vs the scalar
 				//     libopus oracle): the float SILK VAD/pitch + CELT
 				//     MDCT/band-energy/pitch analysis carries the documented ≤1-ULP
 				//     float boundary (project_arm64_celt_1ulp_drift) that flips a
@@ -444,14 +444,14 @@ func TestSub48NativeEncodeParity(t *testing.T) {
 				//     on every build (proven by silk.TestPublicSILKEncodeFrameFixedByteExact
 				//     and the CBR SILK cells); the residuals seen here are the float
 				//     Opus-API wrapper (VAD/pitch/dc_reject) on long 40–60 ms frames,
-				//     present identically on arm64-purego and amd64-purego (the TOC
+				//     present identically on arm64-nosimd and amd64-nosimd (the TOC
 				//     mode-class is asserted HARD above on every build).
 				lock48kChecked++
 				if res.firstDivFr < 0 {
 					sub48ByteExact++
 				}
 				if res.firstDivFr >= 0 && !res.tocFlip {
-					if runtime.GOARCH == "amd64" && !testPuregoBuild {
+					if runtime.GOARCH == "amd64" && !testNoSimdBuild {
 						sub48Diverged++
 						t.Errorf("%s: %s payload BYTE MISMATCH at frame %d byte %d "+
 							"(gopus toc=%02x len=%d, libopus native-%dk toc=%02x len=%d) — same-arch encode "+
@@ -473,9 +473,9 @@ func TestSub48NativeEncodeParity(t *testing.T) {
 		}
 	}
 
-	t.Logf("sub-48k native encode parity gate (arch=%s purego=%t): specs checked=%d; byte-exact=%d "+
+	t.Logf("sub-48k native encode parity gate (arch=%s nosimd=%t): specs checked=%d; byte-exact=%d "+
 		"diverged=%d TOC-mode-flips=%d. On the amd64 asm/SIMD build ANY byte divergence is a HARD FAIL "+
-		"(bit-exact required); on the pure-Go builds (arm64, amd64-purego) divergences are the documented "+
+		"(bit-exact required); on the pure-Go builds (arm64, amd64-nosimd) divergences are the documented "+
 		"≤1-ULP float boundary (logged). gopus accept/no-panic + TOC-mode-class match are HARD at every rate.",
-		runtime.GOARCH, testPuregoBuild, lock48kChecked, sub48ByteExact, sub48Diverged, sub48TOCFlips)
+		runtime.GOARCH, testNoSimdBuild, lock48kChecked, sub48ByteExact, sub48Diverged, sub48TOCFlips)
 }

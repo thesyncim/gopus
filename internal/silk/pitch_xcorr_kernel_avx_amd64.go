@@ -1,4 +1,4 @@
-//go:build amd64 && !purego
+//go:build amd64 && !goexperiment.simd && !nosimd
 
 package silk
 
@@ -7,7 +7,7 @@ import (
 	"unsafe"
 )
 
-var silkUsePitchXcorrAVX2FMA = true
+var silkUsePitchXcorrAVX2FMA = false
 
 // xcorrKernelAVX8 preserves the eight-lane FMA accumulation order used by
 // libopus' x86 SILK pitch search.

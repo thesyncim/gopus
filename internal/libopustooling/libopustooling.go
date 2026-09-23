@@ -149,7 +149,7 @@ func libopusToolIsRunnable(st os.FileInfo, goos string) bool {
 
 // OpusToolScalarRequested reports whether the libopus reference tools (opus_demo
 // / opus_compare) must be the scalar (generic-C, no SIMD/RTCD/intrinsics) build.
-// The pure-Go (-tags purego) gopus build and the celt/custom parity gate set
+// The pure-Go (-tags nosimd) gopus build and the celt/custom parity gate set
 // GOPUS_LIBOPUS_REF_SCALAR=1 so opus_demo-driven byte/quality comparisons use the
 // bit-reproducible scalar tree instead of the default tree (which autotools-enables
 // SIMD on amd64 and Linux arm64).

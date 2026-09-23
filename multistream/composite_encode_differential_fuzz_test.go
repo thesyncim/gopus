@@ -236,10 +236,10 @@ func TestSurroundEncodeDifferentialFuzz(t *testing.T) {
 					// A per-stream bandwidth/mode flip is a near-tie cascade: a ≤1-ULP
 					// analysis difference tips which config a stream's encoder selects.
 					// Both pure-Go builds show the identical flips on the same specs
-					// (arm64 FMA, amd64-purego Go float vs scalar libopus). The amd64
+					// (arm64 FMA, amd64-nosimd Go float vs scalar libopus). The amd64
 					// asm/SIMD build is the strict bit-exact reference. The stream/
 					// coupled LAYOUT is asserted hard above on every build.
-					if runtime.GOARCH == "amd64" && gopusBuildIsAsm {
+					if runtime.GOARCH == "amd64" && gopusBuildIsSIMD {
 						byteFails++
 						t.Errorf("frame %d: per-stream MODE-DECISION divergence gopus=%v libopus=%v (UNEXPECTED on amd64 asm)",
 							i, gotCfgs, wantCfgs)
@@ -249,7 +249,7 @@ func TestSurroundEncodeDifferentialFuzz(t *testing.T) {
 					t.Logf("frame %d: per-stream mode-decision residual gopus=%v libopus=%v — pure-Go near-tie", i, gotCfgs, wantCfgs)
 					continue
 				}
-				if runtime.GOARCH == "amd64" && gopusBuildIsAsm {
+				if runtime.GOARCH == "amd64" && gopusBuildIsSIMD {
 					byteFails++
 					t.Errorf("frame %d: surround packet BYTE MISMATCH at byte %d (len g=%d o=%d) — matching per-stream modes (UNEXPECTED on amd64 asm; bit-exact required)",
 						i, mismatch, len(got), len(want))
@@ -419,7 +419,7 @@ func TestProjectionEncodeDifferentialFuzz(t *testing.T) {
 					// asm/SIMD float path (the int16 path already carries an
 					// accumulation-order residual on every build). The layout + demixing
 					// matrix are asserted hard above on every build.
-					if runtime.GOARCH == "amd64" && spec.sampleFormat == 0 && gopusBuildIsAsm {
+					if runtime.GOARCH == "amd64" && spec.sampleFormat == 0 && gopusBuildIsSIMD {
 						byteFails++
 						t.Errorf("frame %d: per-stream MODE-DECISION divergence gopus=%v libopus=%v (UNEXPECTED on amd64 asm float path)",
 							i, gotCfgs, wantCfgs)
@@ -436,7 +436,7 @@ func TestProjectionEncodeDifferentialFuzz(t *testing.T) {
 				// pure-Go builds carries the documented ≤1-ULP CELT boundary; only the
 				// amd64 asm/SIMD float path is held strict. Log it (the layout +
 				// demixing assertions above already gate the projection layer).
-				if runtime.GOARCH == "amd64" && spec.sampleFormat == 0 && gopusBuildIsAsm {
+				if runtime.GOARCH == "amd64" && spec.sampleFormat == 0 && gopusBuildIsSIMD {
 					byteFails++
 					t.Errorf("frame %d: projection packet BYTE MISMATCH at byte %d (len g=%d o=%d) — matching per-stream modes (UNEXPECTED on amd64 asm float path)",
 						i, mismatch, len(got), len(want))

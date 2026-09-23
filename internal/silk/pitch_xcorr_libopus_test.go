@@ -107,7 +107,7 @@ func pitchXcorrFloatMatches(got, want float32) bool {
 	// The scalar pitch-xcorr kernels route every product through noFMA32, so the
 	// Go scalar path matches the -ffp-contract=off C oracle bit-for-bit on every
 	// architecture; NEON dispatch exactness is covered by
-	// TestSilkAssemblyKernelsMatchReference.
+	// TestSilkKernelsMatchReference.
 	return math.Float32bits(got) == math.Float32bits(want)
 }
 

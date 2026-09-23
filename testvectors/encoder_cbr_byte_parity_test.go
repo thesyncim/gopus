@@ -422,7 +422,7 @@ func assertCBRByteParityForCase(t *testing.T, tc cbrTestCase, oraclePath string)
 
 	// SILK cells (tc.strictArm64) are byte-exact on every build (integer/
 	// range-coded core). CELT/Hybrid cells carry the documented ≤1-ULP CELT
-	// float-analysis boundary on the pure-Go builds (arm64 FMA, amd64-purego vs
+	// float-analysis boundary on the pure-Go builds (arm64 FMA, amd64-nosimd vs
 	// scalar libopus); only the amd64 asm/SIMD build is held strictly bit-exact.
 	// See encoderCELTFloatBoundaryBuild and project_arm64_celt_1ulp_drift.md.
 	strict := tc.strictArm64 || !encoderCELTFloatBoundaryBuild()
@@ -446,7 +446,7 @@ func assertCBRByteParityForCase(t *testing.T, tc cbrTestCase, oraclePath string)
 			len(diffFrames), len(wantPackets), runtime.GOOS, runtime.GOARCH)
 	} else {
 		// Pure-Go CELT/Hybrid residual: documented ≤1-ULP CELT float boundary
-		// (arm64 FMA contraction vs clang -ffp-contract=on; amd64-purego Go float
+		// (arm64 FMA contraction vs clang -ffp-contract=on; amd64-nosimd Go float
 		// vs gcc scalar libopus). The CBR byte budget is fixed, so a near-tie flip
 		// changes only the late raw bits at an equal length — a structural
 		// regression that changes a packet length still fails hard below.

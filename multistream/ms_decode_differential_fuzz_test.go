@@ -43,7 +43,7 @@
 //     amd64 pure-Go build's Go float backend vs the scalar libopus oracle. It can
 //     flip a single per-stream sample, which propagates through the (≤1-magnitude)
 //     mapping/coupling/demix coefficients to a comparably small output difference
-//     (arm64 ≤1.7e-7; amd64-purego only denormal-magnitude ~1e-34 residue on
+//     (arm64 ≤1.7e-7; amd64-nosimd only denormal-magnitude ~1e-34 residue on
 //     near-silent short frames). The float budget is 1e-6 and the int16 budget is
 //     1 unit.
 //
@@ -86,14 +86,14 @@ const (
 )
 
 // decodeBudgetActive reports whether the documented per-build float/int16 decode
-// budget applies: the pure-Go float backend (arm64 FMA, and amd64-purego Go float
+// budget applies: the pure-Go float backend (arm64 FMA, and amd64-nosimd Go float
 // vs the scalar libopus oracle) carries the documented ≤1-ULP CELT decode drift,
 // which on near-silent short frames shows up as a few denormal-magnitude
 // (~1e-34) per-sample differences far below the 1e-6 budget. The amd64 asm/SIMD
 // build is held bit-exact (budget collapses to zero), and the gross-regression
 // transition bound stays hard on every build. See project_arm64_celt_1ulp_drift.md.
 func decodeBudgetActive() bool {
-	return armEncodeFloatDrift() || !gopusBuildIsAsm
+	return armEncodeFloatDrift() || !gopusBuildIsSIMD
 }
 
 // streamModeClass classifies an Opus TOC config (TOC>>3) into the coding-mode

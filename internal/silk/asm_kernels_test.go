@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestSilkAssemblyKernelsMatchReference(t *testing.T) {
+func TestSilkKernelsMatchReference(t *testing.T) {
 	lengths := []int{1, 2, 3, 4, 5, 7, 8, 15, 16, 17, 31, 32, 33, 80, 120}
 	for _, n := range lengths {
 		for offset := range 4 {
@@ -14,7 +14,7 @@ func TestSilkAssemblyKernelsMatchReference(t *testing.T) {
 	}
 }
 
-func FuzzSilkAssemblyKernelsMatchReference(f *testing.F) {
+func FuzzSilkKernelsMatchReference(f *testing.F) {
 	for _, seed := range []struct {
 		length uint8
 		offset uint8

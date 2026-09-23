@@ -1,4 +1,4 @@
-//go:build !purego && !amd64
+//go:build arm64 && goexperiment.simd && !nosimd
 
 package gopus
 
@@ -10,7 +10,7 @@ package gopus
 // match the libopus reference byte-for-byte across arm64 runners.
 //
 // Byte-exact DRED oracles therefore belong on the bit-exact tier (amd64 and the
-// purego build); on this tier the carried-DRED encoder-parity tests assert the
+// nosimd build); on this tier the carried-DRED encoder-parity tests assert the
 // weaker but still meaningful invariant that the emitted payload parses, carries
 // the same chunk/latent structure as libopus, and round-trips through the DRED
 // decoder.

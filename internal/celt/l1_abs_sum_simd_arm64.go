@@ -1,4 +1,4 @@
-//go:build arm64 && goexperiment.simd && !purego
+//go:build arm64 && goexperiment.simd && !nosimd
 
 package celt
 
@@ -17,7 +17,7 @@ const celtAbsSumUsesNeon = true
 // |tmp[k+4]|, … and the reduction is (a0+a1)+(a2+a3)+tail — the exact order of
 // l1AbsSumNeonReference, so it is bit-exact with the NEON kernel it replaces
 // (TestL1AbsSumNeonBitExact). That order diverges from the scalar L1 sum by a few
-// ULP — the arm64 quality-gated regime — so amd64 and purego keep the scalar sum.
+// ULP — the arm64 quality-gated regime — so amd64 and nosimd keep the scalar sum.
 func l1AbsSumNeon(tmp []float32, n int) float32 {
 	acc := archsimd.BroadcastFloat32x4(0)
 	tp := unsafe.Pointer(unsafe.SliceData(tmp))

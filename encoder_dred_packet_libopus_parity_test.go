@@ -62,7 +62,7 @@ func requireLibopusEncoderNeuralModelBlob(t *testing.T) []byte {
 // assertCarriedDREDPayloadParity compares a gopus-emitted carried DRED payload
 // against the libopus reference payload at the build's correct fidelity tier.
 //
-// On the bit-exact tier (amd64 and the purego build, dredPayloadByteExactTier ==
+// On the bit-exact tier (amd64 and the nosimd build, dredPayloadByteExactTier ==
 // true) the emitted DRED extension bytes must equal the reference exactly.
 //
 // On the fused/SIMD non-amd64 build (default arm64 NEON) byte-exactness is not
