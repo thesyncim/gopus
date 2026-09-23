@@ -56,6 +56,10 @@ func TestVADValidatesInput(t *testing.T) {
 	if _, err := (*VAD)(nil).AnalyzeInt16(nil); err != ErrInvalidFrameSize {
 		t.Fatalf("nil VAD: %v", err)
 	}
+	if _, err := new(VAD).AnalyzeInt16(nil); err != ErrInvalidFrameSize {
+		t.Fatalf("zero-value VAD: %v", err)
+	}
+	new(VAD).Reset()
 	for _, size := range []int{0, 159, 161, 319, 321} {
 		vad, _ := NewVAD(16000)
 		if _, err := vad.AnalyzeInt16(make([]int16, size)); err != ErrInvalidFrameSize {

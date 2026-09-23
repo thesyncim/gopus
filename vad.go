@@ -30,7 +30,7 @@ func NewVAD(sampleRate int) (*VAD, error) {
 // the activity threshold and handles turn timing. PCM must be mono at the
 // sample rate passed to NewVAD, with exactly 10 or 20 ms per frame.
 func (v *VAD) AnalyzeInt16(pcm []int16) (int, error) {
-	if v == nil || (len(pcm) != v.sampleRate/100 && len(pcm) != v.sampleRate/50) {
+	if v == nil || v.state == nil || (len(pcm) != v.sampleRate/100 && len(pcm) != v.sampleRate/50) {
 		return 0, ErrInvalidFrameSize
 	}
 	samples := v.scratch[:len(pcm)]
@@ -43,7 +43,7 @@ func (v *VAD) AnalyzeInt16(pcm []int16) (int, error) {
 
 // Reset clears the adaptive noise estimate for a new audio stream.
 func (v *VAD) Reset() {
-	if v != nil {
+	if v != nil && v.state != nil {
 		v.state.Reset()
 	}
 }

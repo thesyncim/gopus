@@ -17,7 +17,7 @@
 // results are bit-identical; the caller guarantees stride >= 4 so the four
 // lanes of a block never touch each other's indices and the cross-iteration
 // dependency (distance stride) is honored by the block order.
-TEXT ·expRotation1PassNeon(SB), NOSPLIT, $0-72
+TEXT ·expRotation1PassNeon(SB), NOSPLIT, $0-64
 	MOVD  x_base+0(FP), R0
 	MOVD  first+24(FP), R1
 	MOVD  stride+32(FP), R2
