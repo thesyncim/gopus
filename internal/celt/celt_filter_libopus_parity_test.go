@@ -27,9 +27,20 @@ func buildLibopusCELTFilterHelper() (string, error) {
 		SourceFile:  "libopus_celt_filter_info.c",
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-DRESYNTH", "-O3", "-DNDEBUG"},
 		RefIncludes: []string{"src", "celt", "silk", "silk/float"},
-		RefSources:  []string{"celt/celt_decoder.c", "celt/celt.c"},
-		Libs:        []string{"-lm"},
-		DeadStrip:   true,
+		SIMDRef:     celtFilterOracleSIMDRef,
+		// celt.c calls comb_filter_const through the host libopus feature
+		// macros. On an x86 SIMD build that resolves through
+		// COMB_FILTER_CONST_IMPL to comb_filter_const_sse; compile the matching
+		// implementation and map alongside the two codec translation units.
+		// Both files compile to empty/scalar sections when x86 SIMD is disabled.
+		RefSources: []string{
+			"celt/celt_decoder.c",
+			"celt/celt.c",
+			"celt/x86/pitch_sse.c",
+			"celt/x86/x86_celt_map.c",
+		},
+		Libs:      []string{"-lm"},
+		DeadStrip: true,
 	})
 }
 

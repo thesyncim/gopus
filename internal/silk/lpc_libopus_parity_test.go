@@ -22,13 +22,20 @@ const (
 var libopusSILKLPCHelper libopustest.HelperCache
 
 func getLibopusSILKLPCHelperPath() (string, error) {
+	libopusArchive := libopustest.RefPath(".libs", "libopus.a")
+	cflags := []string{"-DHAVE_CONFIG_H", "-O2"}
+	if silkLPCOracleUsesAVX2() {
+		libopusArchive = libopustest.SIMDRefPath(".libs", "libopus.a")
+		cflags = append(cflags, "-DGOPUS_LIBOPUS_REQUIRE_AVX2=1")
+	}
 	return libopusSILKLPCHelper.CHelperPath(libopustest.CHelperConfig{
 		Label:       "silk lpc",
 		OutputBase:  "gopus_libopus_silk_lpc",
 		SourceFile:  "libopus_silk_lpc_info.c",
-		CFlags:      []string{"-DHAVE_CONFIG_H", "-O2"},
+		CFlags:      cflags,
 		RefIncludes: []string{"celt", "silk", "silk/float"},
-		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+		SIMDRef:     silkLPCOracleUsesAVX2(),
+		Libs:        []string{libopusArchive, "-lm"},
 	})
 }
 

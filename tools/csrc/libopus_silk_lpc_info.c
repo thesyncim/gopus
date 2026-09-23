@@ -11,6 +11,18 @@
 #include "config.h"
 #include "silk/float/main_FLP.h"
 
+#if defined(GOPUS_LIBOPUS_REQUIRE_AVX2)
+static int avx2_inner_product_is_selected(void) {
+#if defined(OPUS_X86_PRESUME_AVX2)
+  return 1;
+#elif defined(OPUS_HAVE_RTCD) && defined(OPUS_X86_MAY_HAVE_AVX2)
+  return SILK_INNER_PRODUCT_FLP_IMPL[4] == silk_inner_product_FLP_avx2;
+#else
+  return 0;
+#endif
+}
+#endif
+
 #define INPUT_MAGIC "GSLI"
 #define OUTPUT_MAGIC "GSLO"
 
@@ -153,6 +165,7 @@ static int eval_inner_product(void) {
   silk_float a[512];
   silk_float b[512];
   double v;
+  int arch = 0;
   if (!read_u32(&length)) return 0;
   if (length == 0 || length > 512) return 0;
   for (i = 0; i < length; i++) {
@@ -163,7 +176,10 @@ static int eval_inner_product(void) {
     if (!read_u32(&raw)) return 0;
     memcpy(&b[i], &raw, sizeof(b[i]));
   }
-  v = silk_inner_product_FLP(a, b, (opus_int)length, 0);
+#if defined(GOPUS_LIBOPUS_REQUIRE_AVX2)
+  arch = 4;
+#endif
+  v = silk_inner_product_FLP(a, b, (opus_int)length, arch);
   return write_double(v);
 }
 
@@ -257,6 +273,12 @@ int main(void) {
   uint32_t i;
 
   if (!set_binary_stdio()) return 1;
+#if defined(GOPUS_LIBOPUS_REQUIRE_AVX2)
+  if (!avx2_inner_product_is_selected()) {
+    fputs("SIMD libopus oracle does not select silk_inner_product_FLP_avx2 at arch 4\n", stderr);
+    return 1;
+  }
+#endif
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
   if (mode > MODE_FIND_LPC_FLP) return 1;
