@@ -5,6 +5,7 @@ package celt
 import (
 	"math"
 	"simd/archsimd"
+	"unsafe"
 )
 
 // pitchXCorrFloat32AVX2FMAOrderTiny computes eight short correlations at once.
@@ -17,6 +18,10 @@ func pitchXCorrFloat32AVX2FMAOrderTiny(x, y, xcorr []float32, length, maxPitch i
 	}
 	if !archsimd.X86.FMA() {
 		pitchXCorrFloat32AVX2FMAOrderTinyScalar(x, y, xcorr, length, maxPitch)
+		return
+	}
+	if length == 5 {
+		pitchXCorrFloat32AVX2FMAOrderTiny5(x, y, xcorr, maxPitch)
 		return
 	}
 	avxLimit := maxPitch &^ 7
@@ -74,6 +79,34 @@ func pitchXCorrFloat32AVX2FMAOrderTiny(x, y, xcorr []float32, length, maxPitch i
 	}
 	for pitch := avxLimit; pitch < maxPitch; pitch++ {
 		xcorr[pitch] = innerProdFloat32SSEOrder(x, y[pitch:], length)
+	}
+}
+
+func pitchXCorrFloat32AVX2FMAOrderTiny5(x, y, xcorr []float32, maxPitch int) {
+	x0 := archsimd.BroadcastFloat32x8(x[0])
+	x1 := archsimd.BroadcastFloat32x8(x[1])
+	x2 := archsimd.BroadcastFloat32x8(x[2])
+	x3 := archsimd.BroadcastFloat32x8(x[3])
+	x4 := archsimd.BroadcastFloat32x8(x[4])
+	var zero archsimd.Float32x8
+	avxLimit := maxPitch &^ 7
+	for pitch := 0; pitch < avxLimit; pitch += 8 {
+		yp := unsafe.Pointer(unsafe.SliceData(y[pitch : pitch+12]))
+		acc0 := x0.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp)), zero)
+		acc1 := x1.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 4))), zero)
+		acc2 := x2.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 8))), zero)
+		acc3 := x3.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 12))), zero)
+		acc4 := x4.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 16))), zero)
+		out := (*[8]float32)(xcorr[pitch : pitch+8])
+		acc0.Add(acc4).Add(acc1.Add(zero)).Add(acc2.Add(zero).Add(acc3.Add(zero))).StoreArray(out)
+		if xcorrGroupHasNaN(out) {
+			var exact [8]float32
+			xcorrKernelAVX8(&x[0], &y[pitch], &exact, 5)
+			copy(out[:], exact[:])
+		}
+	}
+	for pitch := avxLimit; pitch < maxPitch; pitch++ {
+		xcorr[pitch] = innerProdFloat32SSEOrder(x, y[pitch:], 5)
 	}
 }
 
