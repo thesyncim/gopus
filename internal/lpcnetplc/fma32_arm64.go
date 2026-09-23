@@ -2,6 +2,8 @@
 
 package lpcnetplc
 
+import "math"
+
 // fma32 performs a single-rounding fused multiply-add in float32, matching the
 // fmadd instruction clang emits for libopus' DNN kernels on arm64. The pinned
 // libopus 1.6.1 builds the reference oracle with the default -ffp-contract=on,
@@ -10,4 +12,6 @@ package lpcnetplc
 // fargan_deemphasis()'s "pcm[i] += FARGAN_DEEMPHASIS * *deemph_mem" in
 // dnn/fargan.c) into single fused multiply-adds. Implemented in assembly
 // (FMADDS) so the runtime stays entirely on libopus single-precision widths.
-func fma32(a, b, c float32) float32
+func fma32(a, b, c float32) float32 {
+	return float32(math.FMA(float64(a), float64(b), float64(c)))
+}

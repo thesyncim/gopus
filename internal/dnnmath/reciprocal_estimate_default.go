@@ -1,5 +1,3 @@
-//go:build !arm64 || purego
-
 package dnnmath
 
 import "math"

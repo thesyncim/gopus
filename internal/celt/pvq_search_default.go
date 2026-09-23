@@ -1,5 +1,3 @@
-//go:build (!arm64 && !amd64) || purego
-
 package celt
 
 // pvqSearchPulseLoop places pulsesLeft pulses using the rate-distortion

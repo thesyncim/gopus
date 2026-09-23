@@ -1,5 +1,3 @@
-//go:build !arm64 || purego
-
 package celt
 
 func kfBfly4M1Core(fout []kissCpx, n int) {

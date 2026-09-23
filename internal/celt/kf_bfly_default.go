@@ -1,5 +1,3 @@
-//go:build (!arm64 && !amd64) || purego
-
 package celt
 
 // kfBfly5Inner is the Go fallback for the radix-5 butterfly inner loop.

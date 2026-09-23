@@ -6,11 +6,23 @@ import "math"
 
 const useX86PVQSearchSSE2 = true
 
-//go:noescape
-func x86RcpApprox4(dst, src *[4]float32)
+func x86RcpApprox4(dst, src *[4]float32) {
+	for i := range dst {
+		dst[i] = 1 / src[i]
+	}
+}
 
-//go:noescape
-func x86PVQSearchBestIDSSE2(absX, y []float32, xy, yy float32, n int) int
+func x86PVQSearchBestIDSSE2(absX, y []float32, xy, yy float32, n int) int {
+	bestID := 0
+	best := (xy + absX[0]) / float32(math.Sqrt(float64(yy+y[0])))
+	for i := 1; i < n; i++ {
+		score := (xy + absX[i]) / float32(math.Sqrt(float64(yy+y[i])))
+		if score > best {
+			bestID, best = i, score
+		}
+	}
+	return bestID
+}
 
 // opPVQSearchScratchNormX86SSE2 mirrors libopus 1.6.1
 // celt/x86/vq_sse2.c:op_pvq_search_sse2. x86/x86_celt_map.c dispatches the

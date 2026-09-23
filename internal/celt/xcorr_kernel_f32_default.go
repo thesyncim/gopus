@@ -1,4 +1,4 @@
-//go:build !arm64 || purego
+//go:build !arm64 || purego || !goexperiment.simd
 
 package celt
 
@@ -9,5 +9,5 @@ const pitchXcorrUsesNeonFMA = false
 // xcorrKernel4Float32Neon4Acc is never called off arm64 (guarded by
 // pitchXcorrUsesNeonFMA); the stub keeps the package building on all targets.
 func xcorrKernel4Float32Neon4Acc(x, y []float32, sum *[4]float32, length int) {
-	xcorrKernel4Float32(x, y, sum, length)
+	xcorrKernel4Float32FourAccRef(x, y, sum, length)
 }
