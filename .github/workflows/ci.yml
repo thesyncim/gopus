@@ -754,6 +754,14 @@ jobs:
       - name: Run core float libopus C-oracle parity gate
         run: make test-core-oracles-parity
 
+      - name: Run SIMD PVQ parity against the compiled libopus SSE2 kernel
+        env:
+          GOEXPERIMENT: simd
+          GOPUS_TEST_TIER: parity
+          GOPUS_STRICT_LIBOPUS_REF: "1"
+          GOPUS_REQUIRE_PVQ_SIMD: "1"
+        run: go test -v ./internal/celt -run '^(TestPVQSearchSIMDDispatchUsesAVX|TestOpPVQSearchFloat)' -count=1 -timeout=20m
+
   test-linux-fixedpoint-parity:
     name: test-linux-fixedpoint-parity
     needs:

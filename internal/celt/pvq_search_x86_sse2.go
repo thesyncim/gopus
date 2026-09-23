@@ -1,37 +1,68 @@
-//go:build amd64 && !nosimd
+//go:build amd64 && goexperiment.simd && !nosimd
 
 package celt
 
 import (
 	"math"
+	"unsafe"
 
-	"github.com/thesyncim/gopus/internal/opusmath"
+	"simd/archsimd"
 )
 
-const useX86PVQSearchSSE2 = true
+var useX86PVQSearchSSE2 = archsimd.X86.AVX()
 
 func x86RcpApprox4(dst, src *[4]float32) {
-	for i := range dst {
-		dst[i] = 1 / src[i]
-	}
+	archsimd.LoadFloat32x4Array(src).Reciprocal().StoreArray(dst)
 }
 
 func x86PVQSearchBestIDSSE2(absX, y []float32, xy, yy float32, n int) int {
+	if n <= 0 {
+		return 0
+	}
+
+	xy4 := archsimd.BroadcastFloat32x4(xy)
+	yy4 := archsimd.BroadcastFloat32x4(yy)
+	var laneMax [4]float32
+	var laneID [4]int
+	for i := 0; i < n; i += 4 {
+		x4 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Pointer(&absX[i])))
+		y4 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Pointer(&y[i])))
+		scores := x4.Add(xy4).Mul(y4.Add(yy4).ReciprocalSqrt())
+		var score [4]float32
+		scores.StoreArray(&score)
+		for lane := range 4 {
+			previous := laneMax[lane]
+			if score[lane] > laneMax[lane] {
+				laneMax[lane] = score[lane]
+				laneID[lane] = i + lane
+			}
+			laneMax[lane] = x86MaxPS32(previous, score[lane])
+		}
+	}
+
+	max02 := x86MaxPS32(laneMax[0], laneMax[2])
+	max13 := x86MaxPS32(laneMax[1], laneMax[3])
+	bestScore := x86MaxPS32(max02, max13)
 	bestID := 0
-	best := (xy + absX[0]) / opusmath.SqrtF32(yy+y[0])
-	for i := 1; i < n; i++ {
-		score := (xy + absX[i]) / opusmath.SqrtF32(yy+y[i])
-		if score > best {
-			bestID, best = i, score
+	for lane := range 4 {
+		if laneMax[lane] == bestScore && laneID[lane] > bestID {
+			bestID = laneID[lane]
 		}
 	}
 	return bestID
 }
 
+func x86MaxPS32(a, b float32) float32 {
+	if a != a || b != b || a == b || b > a {
+		return b
+	}
+	return a
+}
+
 // opPVQSearchScratchNormX86SSE2 mirrors libopus 1.6.1
-// celt/x86/vq_sse2.c:op_pvq_search_sse2. x86/x86_celt_map.c dispatches the
-// float build there on SSE2+ CPUs, so keep the lane order and reciprocal/
-// rsqrt approximation points aligned with the native linux/amd64 reference.
+// celt/x86/vq_sse2.c:op_pvq_search_sse2. This Go SIMD path uses AVX-enabled
+// archsimd reciprocal and reciprocal-square-root operations while preserving
+// libopus's SSE2 lane order and approximation points.
 func opPVQSearchScratchNormX86SSE2(x []celtNorm, k int, iyBuf *[]int32, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32, absInput bool) ([]int32, opusVal16) {
 	n := len(x)
 	var iy []int32

@@ -8,6 +8,17 @@ import (
 )
 
 func celtInnerProdSSEStyleImpl(x, y []celtNorm) float32 {
+	return celtInnerProdSSEStyleDispatch(x, y, archsimd.X86.AVX())
+}
+
+func celtInnerProdSSEStyleDispatch(x, y []celtNorm, avx bool) float32 {
+	if !avx {
+		return celtInnerProdSSEStyleGo(x, y)
+	}
+	return celtInnerProdSSEStyleSIMD(x, y)
+}
+
+func celtInnerProdSSEStyleSIMD(x, y []celtNorm) float32 {
 	n := min(len(x), len(y))
 	var acc archsimd.Float32x4
 	i := 0
