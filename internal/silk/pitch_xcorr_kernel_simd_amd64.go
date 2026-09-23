@@ -38,11 +38,11 @@ func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
 	if i < length {
 		remaining := length - i
 		xTail := loadXcorrTail8(xp, remaining)
-		mask := archsimd.Mask32x8FromBits(uint8(0xff >> uint(8-remaining)))
-		acc0 = xTail.MulAdd(loadXcorrTail8(yp, remaining), acc0).IfElse(mask, acc0)
-		acc1 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 4), remaining), acc1).IfElse(mask, acc1)
-		acc2 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 8), remaining), acc2).IfElse(mask, acc2)
-		acc3 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 12), remaining), acc3).IfElse(mask, acc3)
+		mask := xcorrTailMask8(remaining)
+		acc0 = mergeXcorrTail8(xTail.MulAdd(loadXcorrTail8(yp, remaining), acc0), acc0, mask)
+		acc1 = mergeXcorrTail8(xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 4), remaining), acc1), acc1, mask)
+		acc2 = mergeXcorrTail8(xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 8), remaining), acc2), acc2, mask)
+		acc3 = mergeXcorrTail8(xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 12), remaining), acc3), acc3, mask)
 	}
 	sum[0] = reduceXcorrAVX8(acc0)
 	sum[1] = reduceXcorrAVX8(acc1)
@@ -64,16 +64,30 @@ func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
 	if i < length {
 		remaining := length - i
 		xTail := loadXcorrTail8(xp, remaining)
-		mask := archsimd.Mask32x8FromBits(uint8(0xff >> uint(8-remaining)))
-		acc4 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 16), remaining), acc4).IfElse(mask, acc4)
-		acc5 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 20), remaining), acc5).IfElse(mask, acc5)
-		acc6 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 24), remaining), acc6).IfElse(mask, acc6)
-		acc7 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 28), remaining), acc7).IfElse(mask, acc7)
+		mask := xcorrTailMask8(remaining)
+		acc4 = mergeXcorrTail8(xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 16), remaining), acc4), acc4, mask)
+		acc5 = mergeXcorrTail8(xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 20), remaining), acc5), acc5, mask)
+		acc6 = mergeXcorrTail8(xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 24), remaining), acc6), acc6, mask)
+		acc7 = mergeXcorrTail8(xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 28), remaining), acc7), acc7, mask)
 	}
 	sum[4] = reduceXcorrAVX8(acc4)
 	sum[5] = reduceXcorrAVX8(acc5)
 	sum[6] = reduceXcorrAVX8(acc6)
 	sum[7] = reduceXcorrAVX8(acc7)
+}
+
+func xcorrTailMask8(remaining int) archsimd.Int32x8 {
+	var lanes [8]int32
+	for lane := range remaining {
+		lanes[lane] = -1
+	}
+	return archsimd.LoadInt32x8Array(&lanes)
+}
+
+func mergeXcorrTail8(updated, original archsimd.Float32x8, mask archsimd.Int32x8) archsimd.Float32x8 {
+	updatedBits := updated.AsInt32x8()
+	originalBits := original.AsInt32x8()
+	return updatedBits.And(mask).Or(originalBits.AndNot(mask)).AsFloat32x8()
 }
 
 func loadXcorrTail8(p unsafe.Pointer, remaining int) archsimd.Float32x8 {
