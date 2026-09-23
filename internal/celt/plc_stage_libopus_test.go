@@ -42,6 +42,7 @@ type libopusCELTPLCStageTrace struct {
 	presyn      [][]float32
 	final       []float32
 	seedHistory [][]float32
+	seedPCM     []float32
 }
 
 // traceLibopusCELTPLCStage drives opus_decode_float() over the seed packet then
@@ -84,7 +85,7 @@ func traceLibopusCELTPLCStage(t *testing.T, sampleRate, channels, frameSize, req
 	trace.fold = make([][]float32, cc)
 	trace.presyn = make([][]float32, cc)
 	trace.final = make([]float32, n*cc)
-	reader.ExpectRemaining((cc*n + cc*n + cc*cinlen + cc*ov + cc*ov + cc*n + cc*n + cc*combFilterHistory) * 4)
+	reader.ExpectRemaining((cc*n + cc*n + cc*cinlen + cc*ov + cc*ov + cc*n + cc*n + cc*combFilterHistory + cc*n) * 4)
 	for ch := range cc {
 		trace.preSpec[ch] = make([]float32, n)
 		for i := range trace.preSpec[ch] {
@@ -130,6 +131,10 @@ func traceLibopusCELTPLCStage(t *testing.T, sampleRate, channels, frameSize, req
 		for i := range trace.seedHistory[ch] {
 			trace.seedHistory[ch][i] = reader.Float32()
 		}
+	}
+	trace.seedPCM = make([]float32, n*cc)
+	for i := range trace.seedPCM {
+		trace.seedPCM[i] = reader.Float32()
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		t.Fatal(err)
@@ -187,6 +192,7 @@ func TestCELTPLCStagesMatchLibopusC(t *testing.T) {
 			if err := dec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(celtPayload, frameSize, tc.channels == 2, out); err != nil {
 				t.Fatalf("decode seed frame: %v", err)
 			}
+			assertFloat32BitExact(t, "seedPCM", out, trace.seedPCM)
 			for ch := 0; ch < tc.channels; ch++ {
 				got := make([]float32, combFilterHistory)
 				hist := dec.plcDecodeMem[ch*plcDecodeBufferSize : (ch+1)*plcDecodeBufferSize]

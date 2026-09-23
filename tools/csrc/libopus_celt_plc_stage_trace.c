@@ -254,6 +254,7 @@ int main(void) {
   float *frame = NULL;
   float *final_capture = NULL;
   float *seed_history = NULL;
+  float *seed_pcm = NULL;
   OpusDecoder *dec = NULL;
   int err = OPUS_OK;
   uint32_t i;
@@ -291,7 +292,8 @@ int main(void) {
   }
   final_capture = (float *)malloc((size_t)channels * (size_t)frame_size * sizeof(float));
   seed_history = (float *)malloc((size_t)channels * (size_t)g_combin_history * sizeof(float));
-  if (!final_capture || !seed_history) { fprintf(stderr, "alloc capture\n"); return 1; }
+  seed_pcm = (float *)malloc((size_t)channels * (size_t)frame_size * sizeof(float));
+  if (!final_capture || !seed_history || !seed_pcm) { fprintf(stderr, "alloc capture\n"); return 1; }
 
   dec = opus_decoder_create((opus_int32)sample_rate, (int)channels, &err);
   if (!dec || err != OPUS_OK) { fprintf(stderr, "decoder_create %d\n", err); return 1; }
@@ -319,6 +321,7 @@ int main(void) {
     free(packet);
     if (decoded < 0) { fprintf(stderr, "decode %d\n", decoded); return 1; }
     if (packet_len > 0) {
+      OPUS_COPY(seed_pcm, frame, (int)(frame_size * channels));
       CELTDecoder *celt = (CELTDecoder *)((unsigned char *)dec +
           ((gopus_opus_decoder_prefix *)dec)->celt_dec_offset);
       for (uint32_t ch = 0; ch < channels; ch++) {
@@ -376,12 +379,15 @@ int main(void) {
       if (!write_float(final_capture[j])) { fprintf(stderr, "write final\n"); return 1; }
     for (j = 0; j < CC * g_combin_history; j++)
       if (!write_float(seed_history[j])) { fprintf(stderr, "write seed history\n"); return 1; }
+    for (j = 0; j < N * CC; j++)
+      if (!write_float(seed_pcm[j])) { fprintf(stderr, "write seed PCM\n"); return 1; }
   }
 
   opus_decoder_destroy(dec);
   free(frame);
   free(final_capture);
   free(seed_history);
+  free(seed_pcm);
   for (i = 0; i < 2; i++) {
     free(g_presyn_capture[i]); free(g_fold_capture[i]);
     free(g_combin_capture[i]); free(g_combout_capture[i]);
