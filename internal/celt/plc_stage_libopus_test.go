@@ -31,16 +31,17 @@ func buildLibopusCELTPLCStageTraceHelper() (string, error) {
 }
 
 type libopusCELTPLCStageTrace struct {
-	n        int
-	channels int
-	overlap  int
-	preSpec  [][]float32
-	spec     [][]float32
-	combIn   [][]float32
-	combOut  [][]float32
-	fold     [][]float32
-	presyn   [][]float32
-	final    []float32
+	n           int
+	channels    int
+	overlap     int
+	preSpec     [][]float32
+	spec        [][]float32
+	combIn      [][]float32
+	combOut     [][]float32
+	fold        [][]float32
+	presyn      [][]float32
+	final       []float32
+	seedHistory [][]float32
 }
 
 // traceLibopusCELTPLCStage drives opus_decode_float() over the seed packet then
@@ -83,7 +84,7 @@ func traceLibopusCELTPLCStage(t *testing.T, sampleRate, channels, frameSize, req
 	trace.fold = make([][]float32, cc)
 	trace.presyn = make([][]float32, cc)
 	trace.final = make([]float32, n*cc)
-	reader.ExpectRemaining((cc*n + cc*n + cc*cinlen + cc*ov + cc*ov + cc*n + cc*n) * 4)
+	reader.ExpectRemaining((cc*n + cc*n + cc*cinlen + cc*ov + cc*ov + cc*n + cc*n + cc*combFilterHistory) * 4)
 	for ch := range cc {
 		trace.preSpec[ch] = make([]float32, n)
 		for i := range trace.preSpec[ch] {
@@ -122,6 +123,13 @@ func traceLibopusCELTPLCStage(t *testing.T, sampleRate, channels, frameSize, req
 	}
 	for i := range trace.final {
 		trace.final[i] = reader.Float32()
+	}
+	trace.seedHistory = make([][]float32, cc)
+	for ch := range cc {
+		trace.seedHistory[ch] = make([]float32, combFilterHistory)
+		for i := range trace.seedHistory[ch] {
+			trace.seedHistory[ch][i] = reader.Float32()
+		}
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		t.Fatal(err)
@@ -178,6 +186,21 @@ func TestCELTPLCStagesMatchLibopusC(t *testing.T) {
 			out := make([]float32, frameSize*tc.channels)
 			if err := dec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(celtPayload, frameSize, tc.channels == 2, out); err != nil {
 				t.Fatalf("decode seed frame: %v", err)
+			}
+			for ch := 0; ch < tc.channels; ch++ {
+				got := make([]float32, combFilterHistory)
+				hist := dec.plcDecodeMem[ch*plcDecodeBufferSize : (ch+1)*plcDecodeBufferSize]
+				if dec.plcDecodeMemRingActive {
+					start := dec.plcDecodeMemRingStart
+					for i := range got {
+						got[i] = float32(hist[(start+plcDecodeBufferSize-combFilterHistory+i)%plcDecodeBufferSize])
+					}
+				} else {
+					for i := range got {
+						got[i] = float32(hist[plcDecodeBufferSize-combFilterHistory+i])
+					}
+				}
+				assertFloat32BitExact(t, "seedHistory/ch"+itoaChN(ch), got, trace.seedHistory[ch])
 			}
 			for c := range plcChunks {
 				if _, err := dec.DecodeFrame(nil, frameSize); err != nil {

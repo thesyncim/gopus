@@ -116,6 +116,10 @@ static void gopus_capture_denormalise_bands(const CELTMode *m, const celt_norm *
 #undef clt_mdct_backward
 #undef denormalise_bands
 
+/* OpusDecoder keeps this offset as its first field. The custom decoder state
+ * layout comes from the included pinned celt_decoder.c above. */
+typedef struct { int celt_dec_offset; } gopus_opus_decoder_prefix;
+
 /* Capture the raw LCG noise vector by wrapping renormalise_vector after its
  * prototype is visible (so the function-like macro does not mangle the vq.h
  * declaration). The macro is applied only within celt_decoder.c above via a
@@ -249,6 +253,7 @@ int main(void) {
   uint32_t packet_count = 0;
   float *frame = NULL;
   float *final_capture = NULL;
+  float *seed_history = NULL;
   OpusDecoder *dec = NULL;
   int err = OPUS_OK;
   uint32_t i;
@@ -285,7 +290,8 @@ int main(void) {
     }
   }
   final_capture = (float *)malloc((size_t)channels * (size_t)frame_size * sizeof(float));
-  if (!final_capture) { fprintf(stderr, "alloc final\n"); return 1; }
+  seed_history = (float *)malloc((size_t)channels * (size_t)g_combin_history * sizeof(float));
+  if (!final_capture || !seed_history) { fprintf(stderr, "alloc capture\n"); return 1; }
 
   dec = opus_decoder_create((opus_int32)sample_rate, (int)channels, &err);
   if (!dec || err != OPUS_OK) { fprintf(stderr, "decoder_create %d\n", err); return 1; }
@@ -312,6 +318,16 @@ int main(void) {
     decoded = opus_decode_float(dec, packet, (opus_int32)packet_len, frame, request, (int)decode_fec);
     free(packet);
     if (decoded < 0) { fprintf(stderr, "decode %d\n", decoded); return 1; }
+    if (packet_len > 0) {
+      CELTDecoder *celt = (CELTDecoder *)((unsigned char *)dec +
+          ((gopus_opus_decoder_prefix *)dec)->celt_dec_offset);
+      for (uint32_t ch = 0; ch < channels; ch++) {
+        const celt_sig *mem = celt->_decode_mem + ch * (DECODE_BUFFER_SIZE + celt->overlap);
+        for (int j = 0; j < g_combin_history; j++) {
+          seed_history[ch * g_combin_history + j] = (float)mem[DECODE_BUFFER_SIZE - g_combin_history + j];
+        }
+      }
+    }
     /* Capture the final PCM of the target chunk from the PLC request output. */
     if (packet_len == 0) {
       uint32_t off = target_chunk * frame_size * channels;
@@ -358,11 +374,14 @@ int main(void) {
         if (!write_float((float)g_presyn_capture[ch][j])) { fprintf(stderr, "write presyn\n"); return 1; }
     for (j = 0; j < N * CC; j++)
       if (!write_float(final_capture[j])) { fprintf(stderr, "write final\n"); return 1; }
+    for (j = 0; j < CC * g_combin_history; j++)
+      if (!write_float(seed_history[j])) { fprintf(stderr, "write seed history\n"); return 1; }
   }
 
   opus_decoder_destroy(dec);
   free(frame);
   free(final_capture);
+  free(seed_history);
   for (i = 0; i < 2; i++) {
     free(g_presyn_capture[i]); free(g_fold_capture[i]);
     free(g_combin_capture[i]); free(g_combout_capture[i]);
