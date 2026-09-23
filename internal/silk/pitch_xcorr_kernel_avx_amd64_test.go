@@ -78,6 +78,25 @@ func TestSilkPitchXcorrAVX2KernelMatchesReference(t *testing.T) {
 	}
 }
 
+func TestXcorrKernelAVX8LargePathZeroAlloc(t *testing.T) {
+	const length = 64
+	x := make([]float32, length)
+	y := make([]float32, length+7)
+	for i := range x {
+		x[i] = float32(i%13-6) * 0.03125
+	}
+	for i := range y {
+		y[i] = float32(i%17-8) * 0.0625
+	}
+	var sum [8]float32
+	xcorrKernelAVX8(&x[0], &y[0], &sum, length)
+	if allocs := testing.AllocsPerRun(100, func() {
+		xcorrKernelAVX8(&x[0], &y[0], &sum, length)
+	}); allocs != 0 {
+		t.Fatalf("large xcorr kernel allocated %v times", allocs)
+	}
+}
+
 func TestSilkPitchXcorrAVX2TinyFirstLaneEdgeValues(t *testing.T) {
 	values := []float32{
 		0, math.Float32frombits(1 << 31),

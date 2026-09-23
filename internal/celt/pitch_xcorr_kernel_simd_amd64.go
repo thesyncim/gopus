@@ -23,7 +23,14 @@ func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
 		return
 	}
 
-	var acc0, acc1, acc2, acc3, acc4, acc5, acc6, acc7 archsimd.Float32x8
+	// Run four correlations at a time. Keeping eight vector accumulators live
+	// alongside the x/y vectors spills them in the sample loop on amd64.
+	xcorrKernelAVX4(x, y, (*[4]float32)(unsafe.Pointer(&sum[0])), length)
+	xcorrKernelAVX4(x, (*float32)(unsafe.Add(unsafe.Pointer(y), 16)), (*[4]float32)(unsafe.Pointer(&sum[4])), length)
+}
+
+func xcorrKernelAVX4(x, y *float32, sum *[4]float32, length int) {
+	var acc0, acc1, acc2, acc3 archsimd.Float32x8
 	xp, yp := unsafe.Pointer(x), unsafe.Pointer(y)
 	i := 0
 	for ; i+8 <= length; i += 8 {
@@ -32,10 +39,6 @@ func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
 		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 4))), acc1)
 		acc2 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 8))), acc2)
 		acc3 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 12))), acc3)
-		acc4 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 16))), acc4)
-		acc5 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 20))), acc5)
-		acc6 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 24))), acc6)
-		acc7 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 28))), acc7)
 		xp = unsafe.Add(xp, 32)
 		yp = unsafe.Add(yp, 32)
 	}
@@ -46,19 +49,11 @@ func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
 		acc1 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 4), remaining), acc1)
 		acc2 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 8), remaining), acc2)
 		acc3 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 12), remaining), acc3)
-		acc4 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 16), remaining), acc4)
-		acc5 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 20), remaining), acc5)
-		acc6 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 24), remaining), acc6)
-		acc7 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 28), remaining), acc7)
 	}
 	sum[0] = reduceXcorrAVX8(acc0)
 	sum[1] = reduceXcorrAVX8(acc1)
 	sum[2] = reduceXcorrAVX8(acc2)
 	sum[3] = reduceXcorrAVX8(acc3)
-	sum[4] = reduceXcorrAVX8(acc4)
-	sum[5] = reduceXcorrAVX8(acc5)
-	sum[6] = reduceXcorrAVX8(acc6)
-	sum[7] = reduceXcorrAVX8(acc7)
 }
 
 func loadXcorrTail8(p unsafe.Pointer, remaining int) archsimd.Float32x8 {

@@ -2,7 +2,10 @@
 
 package celt
 
-import "simd/archsimd"
+import (
+	"math"
+	"simd/archsimd"
+)
 
 // pitchXCorrFloat32AVX2FMAOrderTiny computes eight short correlations at once.
 // Each vector lane is an output pitch; the eight accumulators retain the AVX2
@@ -58,9 +61,28 @@ func pitchXCorrFloat32AVX2FMAOrderTiny(x, y, xcorr []float32, length, maxPitch i
 		s15 := acc1.Add(acc5)
 		s26 := acc2.Add(acc6)
 		s37 := acc3.Add(acc7)
-		s04.Add(s15).Add(s26.Add(s37)).StoreArray((*[8]float32)(xcorr[pitch : pitch+8]))
+		out := (*[8]float32)(xcorr[pitch : pitch+8])
+		s04.Add(s15).Add(s26.Add(s37)).StoreArray(out)
+		if xcorrGroupHasNaN(out) {
+			// SIMD horizontal adds can select a different NaN sign or payload
+			// than the lane-ordered AVX kernel. Recompute only this group with
+			// that kernel's exact short-length path.
+			var exact [8]float32
+			xcorrKernelAVX8(&x[0], &yBatch[0], &exact, length)
+			copy(out[:], exact[:])
+		}
 	}
 	for pitch := avxLimit; pitch < maxPitch; pitch++ {
 		xcorr[pitch] = innerProdFloat32SSEOrder(x, y[pitch:], length)
 	}
+}
+
+func xcorrGroupHasNaN(values *[8]float32) bool {
+	for _, value := range *values {
+		bits := math.Float32bits(value)
+		if bits&0x7fffffff > 0x7f800000 {
+			return true
+		}
+	}
+	return false
 }

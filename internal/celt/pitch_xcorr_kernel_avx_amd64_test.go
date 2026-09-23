@@ -66,6 +66,25 @@ func TestXcorrKernelAVX8BitExact(t *testing.T) {
 	}
 }
 
+func TestXcorrKernelAVX8LargePathZeroAlloc(t *testing.T) {
+	const length = 64
+	x := make([]float32, length)
+	y := make([]float32, length+7)
+	for i := range x {
+		x[i] = float32(i%13-6) * 0.03125
+	}
+	for i := range y {
+		y[i] = float32(i%17-8) * 0.0625
+	}
+	var sum [8]float32
+	xcorrKernelAVX8(&x[0], &y[0], &sum, length)
+	if allocs := testing.AllocsPerRun(100, func() {
+		xcorrKernelAVX8(&x[0], &y[0], &sum, length)
+	}); allocs != 0 {
+		t.Fatalf("large xcorr kernel allocated %v times", allocs)
+	}
+}
+
 func TestXcorrKernelAVX8TinyFirstLaneEdgeValues(t *testing.T) {
 	values := []float32{
 		0, math.Float32frombits(1 << 31),
@@ -161,6 +180,31 @@ func TestPitchXCorrAVX2FMAOrderTinyMatchesKernelGroups(t *testing.T) {
 		pitchXCorrFloat32AVX2FMAOrderTiny(x, y, out, len(x), len(out))
 	}); allocs != 0 {
 		t.Fatalf("tiny pitch xcorr allocated %v times", allocs)
+	}
+}
+
+func TestPitchXCorrTinyNaNAndSignedZeroMatchKernelGroup(t *testing.T) {
+	x := []float32{0, math.Float32frombits(1 << 31), 1, -1, 0.5}
+	y := make([]float32, len(x)+7)
+	y[0] = float32(math.Inf(-1))
+	y[1] = 1
+	y[4] = math.Float32frombits(0x7fc01234)
+	var want [8]float32
+	xcorrKernelAVX8(&x[0], &y[0], &want, len(x))
+	if bits := math.Float32bits(want[0]); bits != 0x7fc01234 {
+		t.Fatalf("Inf-induced NaN reference bits = %08x, want payload 7fc01234", bits)
+	}
+	got := make([]float32, 8)
+	pitchXCorrFloat32AVX2FMAOrderTiny(x, y, got, len(x), len(got))
+	for i := range got {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("NaN/signed-zero pitch=%d: got %08x want %08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
+		}
+	}
+	if allocs := testing.AllocsPerRun(100, func() {
+		pitchXCorrFloat32AVX2FMAOrderTiny(x, y, got, len(x), len(got))
+	}); allocs != 0 {
+		t.Fatalf("NaN/signed-zero tiny pitch xcorr allocated %v times", allocs)
 	}
 }
 
