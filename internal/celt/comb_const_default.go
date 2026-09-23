@@ -2,8 +2,8 @@
 
 package celt
 
-// combUsesNeon is false off the fused arm64 build, so the constant-gain comb
-// body keeps its scalar loops and the nosimd/amd64 byte-exact oracle holds.
+// combUsesNeon is false off the arm64 SIMD build. The amd64 SIMD build uses
+// combUsesSSE for the libopus x86 accumulation order in its scalar Go loop.
 const combUsesNeon = false
 
 // combFilterConstNeon is never called off arm64 (guarded by combUsesNeon);

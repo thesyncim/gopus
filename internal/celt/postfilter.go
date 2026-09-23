@@ -733,6 +733,14 @@ func combFilterConstValue(base, g10, g11, g12, center, plus1, minus1, plus2, min
 	return sum
 }
 
+// combFilterConstSSEValue matches libopus celt/x86/pitch_sse.c:
+// comb_filter_const_sse() groups the outer tap products before the final add.
+func combFilterConstSSEValue(base, g10, g11, g12, center, plus1, minus1, plus2, minus2 float32) float32 {
+	main := add32(base, mul32(g10, center))
+	sides := add32(mul32(g11, add32(minus1, plus1)), mul32(g12, add32(plus2, minus2)))
+	return add32(main, sides)
+}
+
 // combFilterConstDispatch runs the constant-gain comb body, handing whole
 // 4-wide blocks to the NEON kernel on the fused arm64 build (bit-identical
 // per element). A scalar head keeps the incoming carry semantics, and the
@@ -778,6 +786,20 @@ func combFilterConstFloat32Hist(dst []float32, delay []celtSig, g10, g11, g12 fl
 	delay = delay[:n:n]
 	_ = dst[n-1]
 	_ = delay[n-1]
+	if combUsesSSE {
+		i := 0
+		for full := n &^ 3; i < full; i++ {
+			x0 := float32(delay[i])
+			dst[i] = combFilterConstSSEValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
+			x4, x3, x2, x1 = x3, x2, x1, x0
+		}
+		for ; i < n; i++ {
+			x0 := float32(delay[i])
+			dst[i] = combFilterConstValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
+			x4, x3, x2, x1 = x3, x2, x1, x0
+		}
+		return x4, x3, x2, x1
+	}
 	i := 0
 	for ; i+4 < n; i += 5 {
 		x0 := float32(delay[i])
@@ -817,6 +839,20 @@ func combFilterConstFloat32(dst, delay []float32, g10, g11, g12 float32, x4, x3,
 	delay = delay[:n:n]
 	_ = dst[n-1]
 	_ = delay[n-1]
+	if combUsesSSE {
+		i := 0
+		for full := n &^ 3; i < full; i++ {
+			x0 := delay[i]
+			dst[i] = combFilterConstSSEValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
+			x4, x3, x2, x1 = x3, x2, x1, x0
+		}
+		for ; i < n; i++ {
+			x0 := delay[i]
+			dst[i] = combFilterConstValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
+			x4, x3, x2, x1 = x3, x2, x1, x0
+		}
+		return x4, x3, x2, x1
+	}
 	i := 0
 	for ; i+4 < n; i += 5 {
 		x0 := delay[i]

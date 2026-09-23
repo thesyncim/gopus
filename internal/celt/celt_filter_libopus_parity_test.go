@@ -343,7 +343,7 @@ func probeLibopusCombFilterMode(t *testing.T, mode uint32, start, n, t0, t1, tap
 }
 
 func celtFilterOracleUsesSIMD(mode uint32) bool {
-	return mode == libopusCELTFilterModeCombFilter && combUsesNeon
+	return mode == libopusCELTFilterModeCombFilter && (combUsesNeon || combUsesSSE)
 }
 
 func TestCELTFilterOracleDispatchIdentity(t *testing.T) {
@@ -354,8 +354,8 @@ func TestCELTFilterOracleDispatchIdentity(t *testing.T) {
 	if dispatched != combUsesNeon {
 		t.Fatalf("comb filter SIMD dispatch=%t, build selection=%t", dispatched, combUsesNeon)
 	}
-	if oracleSIMD := celtFilterOracleUsesSIMD(libopusCELTFilterModeCombFilter); oracleSIMD != dispatched {
-		t.Fatalf("comb filter oracle SIMD=%t, Go dispatch=%t", oracleSIMD, dispatched)
+	if oracleSIMD := celtFilterOracleUsesSIMD(libopusCELTFilterModeCombFilter); oracleSIMD != (dispatched || combUsesSSE) {
+		t.Fatalf("comb filter oracle SIMD=%t, Go SSE/NEON selection=%t", oracleSIMD, dispatched || combUsesSSE)
 	}
 	for _, mode := range []uint32{libopusCELTFilterModeDeemphasis, libopusCELTFilterModeCombFilterInput} {
 		if celtFilterOracleUsesSIMD(mode) {
