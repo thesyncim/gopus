@@ -164,10 +164,16 @@ run_side() {
   if [[ "$side" == baseline ]]; then
     run_mode "$side" "$root" default
     run_mode "$side" "$root" simd
+    run_phase "$side" "$root" default-full-parity \
+      env -u GOEXPERIMENT GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+      bash ./tools/run_go_test_runnable.sh -json -count=1 -timeout=25m
   else
     run_mode "$side" "$root" default
     run_mode "$side" "$root" nosimd
     run_mode "$side" "$root" simd
+    run_phase "$side" "$root" simd-full-parity \
+      env GOEXPERIMENT=simd GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+      bash ./tools/run_go_test_runnable.sh -json -count=1 -timeout=25m
   fi
 }
 
@@ -182,6 +188,12 @@ if [[ -n "$summary_file" ]]; then
     echo 'Both checkouts use this runner, Go 1.27.1, and pinned libopus 1.6.1. Scalar Go modes use scalar C; assembly and Go SIMD modes use native SIMD C. Modes have separate artifacts, and source lists record compile-time dispatch.'
     echo
     cat "$artifact_root/environment.txt"
+    echo
+    echo 'Full parity exit codes: old assembly / Go SIMD'
+    echo
+    printf '%s / %s\n' \
+      "$(cat "$artifact_root/baseline-default-full-parity.exit")" \
+      "$(cat "$artifact_root/candidate-simd-full-parity.exit")"
     echo
     echo '| Checkout | Mode | CBR matrix | Hybrid precision | PVQ dispatch | Kernel benchmarks |'
     echo '| --- | --- | ---: | ---: | ---: | ---: |'
