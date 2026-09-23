@@ -266,4 +266,4 @@ if [[ -n "$summary_file" ]]; then
   } >> "$summary_file"
 fi
 
-exit 0
+python3 "$candidate_root/scripts/compare_simd_ab.py" "$artifact_root"
