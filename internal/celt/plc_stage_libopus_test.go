@@ -254,6 +254,49 @@ func TestCELTPLCStagesMatchLibopusC(t *testing.T) {
 	}
 }
 
+// TestCELTPLCSeedSynthesisStagesMatchLibopusC locates the first synthesis
+// difference before the seed frame enters PLC history.
+func TestCELTPLCSeedSynthesisStagesMatchLibopusC(t *testing.T) {
+	libopustest.RequireOracle(t)
+	requireBitExactFloat(t)
+	const frameSize = 960
+	for _, tc := range []struct {
+		name, packetHex string
+		channels        int
+	}{
+		{"mono", seedCELTMonoPacketHex, 1},
+		{"stereo", seedCELTStereoPacketHex, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			packet, err := hex.DecodeString(tc.packetHex)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := traceLibopusCELTSynthesis(t, 48000, tc.channels, frameSize, 0, [][]byte{packet})
+			dec := NewDecoder(tc.channels)
+			if err := dec.SetAPISampleRate(48000); err != nil {
+				t.Fatal(err)
+			}
+			dec.SetBandwidth(CELTFullband)
+			stage := dec.EnableSynthesisStageTrace()
+			got := make([]float32, frameSize*tc.channels)
+			if err := dec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(packet[1:], frameSize, tc.channels == 2, got); err != nil {
+				t.Fatal(err)
+			}
+			if !stage.Captured() {
+				t.Fatal("seed synthesis trace did not capture")
+			}
+			t.Logf("seed postfilter period=%d gain=%g tapset=%d", dec.postfilterPeriod, dec.postfilterGain, dec.postfilterTapset)
+			for ch := range tc.channels {
+				assertFloat32BitExact(t, "seedSpec/ch"+itoaCh(ch), stage.Spec(ch), want.freq[ch])
+				assertFloat32BitExact(t, "seedIMDCT/ch"+itoaCh(ch), stage.IMDCT(ch), want.imdct[ch])
+				assertFloat32BitExact(t, "seedPostComb/ch"+itoaCh(ch), stage.PostComb(ch), want.postComb[ch])
+			}
+			assertFloat32BitExact(t, "seedFinal", got, want.final)
+		})
+	}
+}
+
 // specActiveLen returns the leading contiguous count of non-zero spectrum
 // samples (the coded-band region; the denormalised tail is cleared).
 func specActiveLen(spec []float32) int {

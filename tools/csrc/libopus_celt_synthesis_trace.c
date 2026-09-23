@@ -52,8 +52,11 @@ static int g_capture_armed = 0;
 static int g_capture_N = 0;
 static int g_capture_freq_idx = 0;
 static int g_imdct_captured[2] = {0, 0};
+static int g_comb_calls[2] = {0, 0};
 static celt_sig *g_freq_capture[2] = {NULL, NULL};
 static celt_sig *g_imdct_capture[2] = {NULL, NULL};
+static celt_sig *g_postcomb_capture[2] = {NULL, NULL};
+static opus_val32 *g_comb_base[2] = {NULL, NULL};
 
 /* Wrapper around comb_filter(): the postfilter is applied in place over
  * out_syn[c]. Snapshot the full pre-comb out_syn block (== the post-IMDCT time
@@ -68,17 +71,23 @@ static void gopus_capture_comb_filter(opus_val32 *y, opus_val32 *x, int T0, int 
        g_imdct_capture[ch] && g_capture_N > 0) {
       OPUS_COPY(g_imdct_capture[ch], x, g_capture_N);
       g_imdct_captured[ch] = 1;
+      g_comb_base[ch] = y;
    }
    comb_filter(y, x, T0, T1, N, g0, g1, tapset0, tapset1, window, overlap, arch);
+   if (g_capture_armed && ch >= 0 && ch < 2 && g_postcomb_capture[ch] && g_comb_base[ch]) {
+      g_comb_calls[ch]++;
+      if (N == g_capture_N || g_comb_calls[ch] == 2)
+         OPUS_COPY(g_postcomb_capture[ch], g_comb_base[ch], g_capture_N);
+   }
 }
 
 /* Wrapper around denormalise_bands(): forwards to the real implementation, then
  * snapshots the freshly written freq[] buffer for the armed target frame. The
  * capture index advances per channel-ordered call inside celt_synthesis(); freq
  * holds the full N-sample interleaved spectrum (N == mode->shortMdctSize<<LM,
- * independent of transient/short-block decomposition). The post-IMDCT (and, for
- * the seed's zero-gain frame, post-comb) buffer is read afterwards from
- * decode_mem so transient short-block IMDCT is captured correctly. */
+ * independent of transient/short-block decomposition). The post-IMDCT buffer
+ * is captured at the first comb-filter call, and the post-comb buffer after
+ * the final call for that channel. */
 static void gopus_capture_denormalise_bands(const CELTMode *m, const celt_norm *X,
       celt_sig *freq, const celt_glog *bandLogE, int start, int end, int M,
       int downsample, int silence, int N)
@@ -202,7 +211,8 @@ int main(void) {
   for (i = 0; i < channels; i++) {
     g_freq_capture[i] = (celt_sig *)calloc((size_t)max_N, sizeof(celt_sig));
     g_imdct_capture[i] = (celt_sig *)calloc((size_t)max_N, sizeof(celt_sig));
-    if (g_freq_capture[i] == NULL || g_imdct_capture[i] == NULL) {
+    g_postcomb_capture[i] = (celt_sig *)calloc((size_t)max_N, sizeof(celt_sig));
+    if (g_freq_capture[i] == NULL || g_imdct_capture[i] == NULL || g_postcomb_capture[i] == NULL) {
       fprintf(stderr, "failed to allocate capture buffers\n");
       return 1;
     }
@@ -243,6 +253,10 @@ int main(void) {
       g_capture_freq_idx = 0;
       g_imdct_captured[0] = 0;
       g_imdct_captured[1] = 0;
+      g_comb_calls[0] = 0;
+      g_comb_calls[1] = 0;
+      g_comb_base[0] = NULL;
+      g_comb_base[1] = NULL;
     }
     decoded_samples = opus_decode_float(dec, packet, (opus_int32)packet_len, frame, (int)frame_size, (int)decode_fec);
     free(packet);
@@ -266,6 +280,10 @@ int main(void) {
       }
       if (!g_imdct_captured[0] || (CC == 2 && !g_imdct_captured[1])) {
         fprintf(stderr, "pre-comb IMDCT capture did not run for target step\n");
+        return 1;
+      }
+      if (!g_comb_calls[0] || (CC == 2 && !g_comb_calls[1])) {
+        fprintf(stderr, "post-comb capture did not run for target step\n");
         return 1;
       }
 
@@ -295,6 +313,15 @@ int main(void) {
           }
         }
       }
+      /* postcomb[] holds the full time buffer after both postfilter passes. */
+      for (ch = 0; ch < (uint32_t)CC; ch++) {
+        for (j = 0; j < N; j++) {
+          if (!write_float((float)g_postcomb_capture[ch][j])) {
+            fprintf(stderr, "failed to write postcomb\n");
+            return 1;
+          }
+        }
+      }
       /* final[] post-deemphasis interleaved PCM. */
       for (j = 0; j < N * CC; j++) {
         if (!write_float(frame[j])) {
@@ -308,8 +335,10 @@ int main(void) {
       for (ch = 0; ch < 2; ch++) {
         free(g_freq_capture[ch]);
         free(g_imdct_capture[ch]);
+        free(g_postcomb_capture[ch]);
         g_freq_capture[ch] = NULL;
         g_imdct_capture[ch] = NULL;
+        g_postcomb_capture[ch] = NULL;
       }
       free(frame);
       return 0;

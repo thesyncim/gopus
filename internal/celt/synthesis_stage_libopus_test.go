@@ -36,12 +36,11 @@ type libopusCELTSynthesisTrace struct {
 	n        int
 	channels int
 	// freq[ch] and imdct[ch] each hold n samples scaled by 1/CELT_SIG_SCALE;
-	// final holds n*channels interleaved post-deemphasis PCM. For the seed's
-	// zero-gain frame comb_filter is an in-place no-op, so imdct[] is both the
-	// post-IMDCT and post-comb_filter buffer.
-	freq  [][]float32
-	imdct [][]float32
-	final []float32
+	// final holds n*channels interleaved post-deemphasis PCM.
+	freq     [][]float32
+	imdct    [][]float32
+	postComb [][]float32
+	final    []float32
 }
 
 func traceLibopusCELTSynthesis(t *testing.T, sampleRate, channels, frameSize, targetStep int, packets [][]byte) *libopusCELTSynthesisTrace {
@@ -68,8 +67,9 @@ func traceLibopusCELTSynthesis(t *testing.T, sampleRate, channels, frameSize, ta
 	trace := &libopusCELTSynthesisTrace{n: n, channels: cc}
 	trace.freq = make([][]float32, cc)
 	trace.imdct = make([][]float32, cc)
+	trace.postComb = make([][]float32, cc)
 	trace.final = make([]float32, n*cc)
-	reader.ExpectRemaining((n*cc*2 + n*cc) * 4)
+	reader.ExpectRemaining((n*cc*3 + n*cc) * 4)
 	for ch := range cc {
 		trace.freq[ch] = make([]float32, n)
 		for i := range trace.freq[ch] {
@@ -80,6 +80,12 @@ func traceLibopusCELTSynthesis(t *testing.T, sampleRate, channels, frameSize, ta
 		trace.imdct[ch] = make([]float32, n)
 		for i := range trace.imdct[ch] {
 			trace.imdct[ch][i] = reader.Float32()
+		}
+	}
+	for ch := range cc {
+		trace.postComb[ch] = make([]float32, n)
+		for i := range trace.postComb[ch] {
+			trace.postComb[ch][i] = reader.Float32()
 		}
 	}
 	for i := range trace.final {
