@@ -106,6 +106,9 @@ CBR and quality gates remain blocking while the residuals are diagnosed.
 The focused hybrid decode differential reports the same two failing frames,
 sample index, and 2.0213886e-34 worst difference for old assembly and Go SIMD
 on the same native AMD64 runner in run 359303.
+The native A/B comparator passes on run 359324: all 19 CBR cases have no
+higher mismatch count or worse status than old assembly, the focused decode
+diagnostics match, and the SIMD precision fixture passes against SIMD libopus.
 
 | CBR case | Old asm and Go SIMD differing packets |
 |---|---:|
@@ -144,6 +147,10 @@ baseline, long CELT xcorr is 1.3–1.4× slower and SILK xcorr is 1.6× slower.
 The tiny CELT cases are 1.4× and 2.1× slower. Because the runner speed differs
 between runs 359303 and 359324, compare within-run ratios rather than raw
 cross-run nanoseconds.
+The five-sample specialization in `pitch_xcorr_tiny_simd_amd64.go` awaits the
+next native A/B measurement; the 5×244 row above is the preceding version.
+The AMD64 radix 3/4/5 inline helper experiment also awaits native A/B; rows
+14–16 above measure its preceding version.
 
 `celtInnerProd8FMA32` also improves over the AMD64 base scalar path, which has
 no matching AMD64 assembly symbol: N=16 20.80→6.561 ns, N=64 70.87→13.53 ns,
