@@ -17,7 +17,9 @@ func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
 		return
 	}
 	if length < 16 {
-		xcorrKernelAVX8TinyGo(x, y, sum, length)
+		// Setup and lane extraction cost more than the short scalar loop for the
+		// tiny CELT searches (N=5 and N=10).
+		xcorrKernelAVX8ScalarGo(x, y, sum, length)
 		return
 	}
 
@@ -76,28 +78,6 @@ func reduceXcorrAVX8(v archsimd.Float32x8) float32 {
 	v = v.ConcatAddPairsGrouped(v)
 	v = v.ConcatAddPairsGrouped(v)
 	return v.GetLo().GetElem(0)
-}
-
-// xcorrKernelAVX8TinyGo keeps the AVX2 lane accumulation order for short
-// vectors without paying for the vector tail-load setup. Each lane receives at
-// most two samples when length < 16, so its first product is rounded once and
-// the optional second sample is fused into that lane before the AVX2 reduction.
-func xcorrKernelAVX8TinyGo(x, y *float32, sum *[8]float32, length int) {
-	xp, yp := unsafe.Pointer(x), unsafe.Pointer(y)
-	firstN := min(length, 8)
-	firstX := loadXcorrTail8(xp, firstN)
-	remaining := max(length-8, 0)
-	var secondX archsimd.Float32x8
-	if remaining > 0 {
-		secondX = loadXcorrTail8(unsafe.Add(xp, 32), remaining)
-	}
-	for corr := range 8 {
-		acc := firstX.MulAdd(loadXcorrTail8(unsafe.Add(yp, uintptr(corr*4)), firstN), archsimd.Float32x8{})
-		if remaining > 0 {
-			acc = secondX.MulAdd(loadXcorrTail8(unsafe.Add(yp, uintptr((corr+8)*4)), remaining), acc)
-		}
-		sum[corr] = reduceXcorrAVX8(acc)
-	}
 }
 
 func xcorrKernelAVX8ScalarGo(x, y *float32, sum *[8]float32, length int) {
