@@ -439,6 +439,11 @@ func TestCELTPLCFIRMatchesLibopus(t *testing.T) {
 			got := make([]float32, len(gotSig))
 			copySigToFloat32(got, gotSig)
 			assertFloat32Bits(t, "fir", got, want)
+			if allocs := testing.AllocsPerRun(100, func() {
+				celtFIRFloat32(gotSig, exc32, start, length, lpc)
+			}); allocs != 0 {
+				t.Fatalf("celtFIRFloat32 allocs/run=%g want 0", allocs)
+			}
 		})
 	}
 }
@@ -459,6 +464,11 @@ func TestCELTPLCIIRMatchesLibopus(t *testing.T) {
 			got := make([]float32, len(gotSig))
 			copySigToFloat32(got, gotSig)
 			assertFloat32Bits(t, "iir", got, want)
+			if allocs := testing.AllocsPerRun(100, func() {
+				dec.celtIIRFloat32(gotSig, hist, lpc, len(gotSig))
+			}); allocs != 0 {
+				t.Fatalf("celtIIRFloat32 allocs/run=%g want 0", allocs)
+			}
 		})
 	}
 }
