@@ -40,12 +40,12 @@ install_amd64_kernel_benchmarks() {
 
   mkdir -p "$root/internal/celt"
   if [[ "$side" == baseline ]]; then
-    cp "$candidate_root/scripts/benchmarks/kernel_port_amd64_baseline_test.go" \
+    cp "$candidate_root/scripts/benchmarks/kernel_port_amd64_baseline.go.tmpl" \
       "$root/internal/celt/kernel_port_bench_ci_amd64_test.go"
   else
-    cp "$candidate_root/scripts/benchmarks/kernel_port_amd64_candidate_test.go" \
+    cp "$candidate_root/scripts/benchmarks/kernel_port_amd64_candidate.go.tmpl" \
       "$root/internal/celt/kernel_port_bench_ci_amd64_test.go"
-    cp "$candidate_root/scripts/benchmarks/kernel_port_amd64_candidate_simd_test.go" \
+    cp "$candidate_root/scripts/benchmarks/kernel_port_amd64_candidate_simd.go.tmpl" \
       "$root/internal/celt/kernel_port_bench_ci_amd64_simd_test.go"
   fi
 }
