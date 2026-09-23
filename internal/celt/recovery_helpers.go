@@ -1063,6 +1063,10 @@ func xcorrKernel4Float32SSEOrder(x, y []float32, sum *[4]float32, length int) {
 }
 
 func pitchXCorrFloat32AVX2FMAOrder(x, y, xcorr []float32, length, maxPitch int) {
+	if length < 16 {
+		pitchXCorrFloat32AVX2FMAOrderTiny(x, y, xcorr, length, maxPitch)
+		return
+	}
 	i := 0
 	for ; i < maxPitch-7; i += 8 {
 		var sums [8]float32
@@ -1071,6 +1075,36 @@ func pitchXCorrFloat32AVX2FMAOrder(x, y, xcorr []float32, length, maxPitch int) 
 	}
 	for ; i < maxPitch; i++ {
 		xcorr[i] = innerProdFloat32SSEOrder(x, y[i:], length)
+	}
+}
+
+func pitchXCorrFloat32AVX2FMAOrderTinyScalar(x, y, xcorr []float32, length, maxPitch int) {
+	if maxPitch <= 0 {
+		return
+	}
+	avxLimit := maxPitch &^ 7
+	for pitch := 0; pitch < avxLimit; pitch++ {
+		var lanes [8]float32
+		for j := 0; j < length; j++ {
+			xv, yv := x[j], y[pitch+j]
+			lane := j & 7
+			if j < 8 {
+				product := xv * yv
+				if xv != 0 && yv != 0 && product == product {
+					// FMA(x, y, +0) rounds the product once to float32.
+					lanes[lane] = product
+				} else {
+					// Keep signed-zero and NaN behavior of the initial fused step.
+					lanes[lane] = opusmath.FMA32(xv, yv, 0)
+				}
+			} else {
+				lanes[lane] = opusmath.FMA32(xv, yv, lanes[lane])
+			}
+		}
+		xcorr[pitch] = reduceAVX2PitchSum(lanes)
+	}
+	for pitch := avxLimit; pitch < maxPitch; pitch++ {
+		xcorr[pitch] = innerProdFloat32SSEOrder(x, y[pitch:], length)
 	}
 }
 

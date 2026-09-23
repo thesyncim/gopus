@@ -66,6 +66,104 @@ func TestXcorrKernelAVX8BitExact(t *testing.T) {
 	}
 }
 
+func TestXcorrKernelAVX8TinyFirstLaneEdgeValues(t *testing.T) {
+	values := []float32{
+		0, math.Float32frombits(1 << 31),
+		math.SmallestNonzeroFloat32, -math.SmallestNonzeroFloat32,
+		0.5, -0.5, 1, -1,
+		float32(math.Inf(1)), float32(math.Inf(-1)), math.Float32frombits(0x7fc01234),
+	}
+	for _, length := range []int{1, 5, 8, 9, 10, 15} {
+		x := make([]float32, length)
+		y := make([]float32, length+7)
+		for i := range x {
+			x[i] = values[i%len(values)]
+		}
+		for i := range y {
+			y[i] = values[(i*3+1)%len(values)]
+		}
+		want := xcorrKernelAVX8Scalar(x, y, length)
+		var got [8]float32
+		xcorrKernelAVX8(&x[0], &y[0], &got, length)
+		for corr := range 8 {
+			if math.Float32bits(got[corr]) != math.Float32bits(want[corr]) {
+				t.Fatalf("length=%d corr=%d: got %08x want %08x", length, corr, math.Float32bits(got[corr]), math.Float32bits(want[corr]))
+			}
+		}
+	}
+
+	x := []float32{1, 2, 3, 4, 5}
+	y := []float32{5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5, -6}
+	var sum [8]float32
+	xcorrKernelAVX8(&x[0], &y[0], &sum, len(x))
+	if allocs := testing.AllocsPerRun(100, func() {
+		xcorrKernelAVX8(&x[0], &y[0], &sum, len(x))
+	}); allocs != 0 {
+		t.Fatalf("tiny xcorr kernel allocated %v times", allocs)
+	}
+}
+
+func TestPitchXCorrAVX2FMAOrderTinyMatchesKernelGroups(t *testing.T) {
+	values := []float32{
+		0, math.Float32frombits(1 << 31),
+		math.SmallestNonzeroFloat32, -math.SmallestNonzeroFloat32,
+		0.5, -0.5, 1, -1,
+		float32(math.Inf(1)), float32(math.Inf(-1)), math.Float32frombits(0x7fc01234),
+	}
+	for _, length := range []int{1, 5, 8, 9, 10, 15} {
+		for _, maxPitch := range []int{1, 2, 5, 8, 10, 244} {
+			x := make([]float32, length)
+			y := make([]float32, maxPitch+length+7)
+			for i := range x {
+				x[i] = values[i%len(values)]
+			}
+			for i := range y {
+				y[i] = values[(i*3+1)%len(values)]
+			}
+			want := make([]float32, maxPitch)
+			for pitch := 0; pitch < maxPitch-7; pitch += 8 {
+				var sums [8]float32
+				xcorrKernelAVX8(&x[0], &y[pitch], &sums, length)
+				copy(want[pitch:pitch+8], sums[:])
+			}
+			pitch := maxPitch &^ 7
+			for ; pitch < maxPitch; pitch++ {
+				want[pitch] = innerProdFloat32SSEOrder(x, y[pitch:], length)
+			}
+			got := make([]float32, maxPitch)
+			pitchXCorrFloat32AVX2FMAOrderTiny(x, y, got, length, maxPitch)
+			for i := range got {
+				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+					t.Fatalf("length=%d maxPitch=%d pitch=%d: got %08x want %08x", length, maxPitch, i, math.Float32bits(got[i]), math.Float32bits(want[i]))
+				}
+			}
+			if libopusFloatPitchXCorrUsesAVX2FMA() {
+				production := make([]float32, maxPitch)
+				pitchXCorrFloat32(x, y, production, length, maxPitch)
+				for i := range production {
+					if math.Float32bits(production[i]) != math.Float32bits(want[i]) {
+						t.Fatalf("production length=%d maxPitch=%d pitch=%d: got %08x want %08x", length, maxPitch, i, math.Float32bits(production[i]), math.Float32bits(want[i]))
+					}
+				}
+				if allocs := testing.AllocsPerRun(100, func() {
+					pitchXCorrFloat32(x, y, production, length, maxPitch)
+				}); allocs != 0 {
+					t.Fatalf("production length=%d maxPitch=%d allocated %v times", length, maxPitch, allocs)
+				}
+			}
+		}
+	}
+
+	x := []float32{1, 2, 3, 4, 5}
+	y := make([]float32, 5+244+7)
+	out := make([]float32, 244)
+	if allocs := testing.AllocsPerRun(100, func() {
+		pitchXCorrFloat32AVX2FMAOrderTiny(x, y, out, len(x), len(out))
+	}); allocs != 0 {
+		t.Fatalf("tiny pitch xcorr allocated %v times", allocs)
+	}
+}
+
 func TestXcorrKernelRuntimeIdentity(t *testing.T) {
 	pc := reflect.ValueOf(xcorrKernelAVX8).Pointer()
 	fn := runtime.FuncForPC(pc)

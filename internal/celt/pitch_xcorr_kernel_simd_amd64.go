@@ -88,7 +88,20 @@ func xcorrKernelAVX8ScalarGo(x, y *float32, sum *[8]float32, length int) {
 		xv := xs[i]
 		for corr := range 8 {
 			lane := i & 7
-			lanes[corr][lane] = mdctFMA32(xv, ys[i+corr], lanes[corr][lane])
+			yv := ys[i+corr]
+			if i < 8 {
+				// The AVX2 lane starts at +0. Its first fused multiply-add is
+				// the product rounded to float32. Keep the FMA for zero or
+				// non-finite inputs to preserve its signed-zero and NaN rules.
+				product := xv * yv
+				if xv != 0 && yv != 0 && product == product {
+					lanes[corr][lane] = product
+				} else {
+					lanes[corr][lane] = mdctFMA32(xv, yv, 0)
+				}
+			} else {
+				lanes[corr][lane] = mdctFMA32(xv, yv, lanes[corr][lane])
+			}
 		}
 	}
 	for corr := range 8 {

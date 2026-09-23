@@ -54,4 +54,27 @@ func TestXcorrKernelAVX8PageEndTails(t *testing.T) {
 			}
 		}
 	}
+
+	for _, length := range []int{5, 10, 15} {
+		const maxPitch = 8
+		yLength := maxPitch + length - 1
+		x := unsafe.Slice((*float32)(unsafe.Pointer(&xPage[len(xPage)-4*length])), length)
+		y := unsafe.Slice((*float32)(unsafe.Pointer(&yPage[len(yPage)-4*yLength])), yLength)
+		for i := range x {
+			x[i] = float32(i)*0.25 - 0.5
+		}
+		for i := range y {
+			y[i] = float32(i)*0.125 - 0.25
+		}
+
+		var want [8]float32
+		xcorrKernelAVX8(&x[0], &y[0], &want, length)
+		got := make([]float32, maxPitch)
+		pitchXCorrFloat32AVX2FMAOrderTiny(x, y, got, length, maxPitch)
+		for pitch := range got {
+			if math.Float32bits(got[pitch]) != math.Float32bits(want[pitch]) {
+				t.Fatalf("tiny length=%d pitch=%d: got %08x want %08x", length, pitch, math.Float32bits(got[pitch]), math.Float32bits(want[pitch]))
+			}
+		}
+	}
 }
