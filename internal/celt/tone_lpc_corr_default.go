@@ -1,3 +1,5 @@
+//go:build !arm64 || nosimd || !goexperiment.simd
+
 package celt
 
 // toneLPCCorr computes three float32 correlations for toneLPC.
