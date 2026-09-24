@@ -67,15 +67,25 @@ func writeInt16AsFloat32Core(dst []float32, src []int16, n int) {
 	gain := archsimd.BroadcastFloat32x4(inv32768)
 	dp := unsafe.Pointer(unsafe.SliceData(dst))
 	sp := unsafe.Pointer(unsafe.SliceData(src))
-	i := 0
-	for ; i+8 <= n; i += 8 {
-		v := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(sp, i*2)))
+	n8 := n &^ 7
+	groups := n8 / 8
+	for remaining := groups; remaining > 1; remaining-- {
+		v := archsimd.LoadInt16x8Array((*[8]int16)(sp))
 		lo := v.ExtendLo4ToInt32().ConvertToFloat32().Mul(gain)
 		hi := v.HiToLo().ExtendLo4ToInt32().ConvertToFloat32().Mul(gain)
-		lo.StoreArray((*[4]float32)(unsafe.Add(dp, i*4)))
-		hi.StoreArray((*[4]float32)(unsafe.Add(dp, (i+4)*4)))
+		lo.StoreArray((*[4]float32)(dp))
+		hi.StoreArray((*[4]float32)(unsafe.Add(dp, 16)))
+		sp = unsafe.Add(sp, 16)
+		dp = unsafe.Add(dp, 32)
 	}
-	for ; i < n; i++ {
+	if groups != 0 {
+		v := archsimd.LoadInt16x8Array((*[8]int16)(sp))
+		lo := v.ExtendLo4ToInt32().ConvertToFloat32().Mul(gain)
+		hi := v.HiToLo().ExtendLo4ToInt32().ConvertToFloat32().Mul(gain)
+		lo.StoreArray((*[4]float32)(dp))
+		hi.StoreArray((*[4]float32)(unsafe.Add(dp, 16)))
+	}
+	for i := n8; i < n; i++ {
 		dst[i] = float32(src[i]) * inv32768
 	}
 }

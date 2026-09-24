@@ -1,6 +1,7 @@
 package silk
 
 import (
+	"math"
 	"reflect"
 	"testing"
 )
@@ -115,6 +116,60 @@ func TestFIRInterpol43691CoreCanaries(t *testing.T) {
 		}
 		if bufStorage[0] != guard || bufStorage[len(bufStorage)-1] != guard {
 			t.Fatalf("nOut=%d overwrote input canary", nOut)
+		}
+	}
+}
+
+func TestWriteInt16AsFloat32CoreZeroAlloc(t *testing.T) {
+	const n = 480
+	src := make([]int16, n)
+	for i := range src {
+		src[i] = asmInt16(0x243f6a8885a308d3, i)
+	}
+	dst := make([]float32, n)
+	writeInt16AsFloat32Core(dst, src, n)
+	want := make([]float32, n)
+	for i := range src {
+		want[i] = float32(src[i]) * (1.0 / 32768.0)
+	}
+	for i := range dst {
+		if math.Float32bits(dst[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("writeInt16AsFloat32Core output %d differs: got %08x want %08x", i, math.Float32bits(dst[i]), math.Float32bits(want[i]))
+		}
+	}
+	if allocs := testing.AllocsPerRun(100, func() { writeInt16AsFloat32Core(dst, src, n) }); allocs != 0 {
+		t.Fatalf("got %g allocations per conversion core call, want 0", allocs)
+	}
+}
+
+func TestWriteInt16AsFloat32CoreCanaries(t *testing.T) {
+	for _, n := range []int{1, 7, 8, 9, 15, 16, 17, 479, 480, 481} {
+		const guard = int16(0x5a5a)
+		srcStorage := make([]int16, n+2)
+		srcStorage[0], srcStorage[len(srcStorage)-1] = guard, guard
+		src := srcStorage[1 : len(srcStorage)-1]
+		for i := range src {
+			src[i] = asmInt16(0x243f6a8885a308d3, i+n)
+		}
+		const floatGuard = float32(123.25)
+		dstStorage := make([]float32, n+2)
+		dstStorage[0], dstStorage[len(dstStorage)-1] = floatGuard, floatGuard
+		dst := dstStorage[1 : len(dstStorage)-1]
+		writeInt16AsFloat32Core(dst, src, n)
+		want := make([]float32, n)
+		for i, v := range src {
+			want[i] = float32(v) * (1.0 / 32768.0)
+		}
+		for i := range dst {
+			if math.Float32bits(dst[i]) != math.Float32bits(want[i]) {
+				t.Fatalf("n=%d output %d differs: got %08x want %08x", n, i, math.Float32bits(dst[i]), math.Float32bits(want[i]))
+			}
+		}
+		if dstStorage[0] != floatGuard || dstStorage[len(dstStorage)-1] != floatGuard {
+			t.Fatalf("n=%d overwrote destination canary", n)
+		}
+		if srcStorage[0] != guard || srcStorage[len(srcStorage)-1] != guard {
+			t.Fatalf("n=%d overwrote source canary", n)
 		}
 	}
 }
