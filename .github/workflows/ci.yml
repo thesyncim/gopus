@@ -723,6 +723,9 @@ jobs:
           sudo apt-get install -y -qq opus-tools
           command -v opusdec
 
+      - name: Test native A/B comparator
+        run: python3 -m unittest discover -s candidate/scripts -p 'test_compare_simd_ab.py'
+
       - name: Capture native Linux A/B evidence
         shell: bash
         run: bash candidate/scripts/ci_simd_ab.sh baseline candidate "$RUNNER_TEMP/simd-ab"

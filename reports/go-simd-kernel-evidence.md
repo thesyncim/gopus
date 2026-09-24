@@ -17,8 +17,9 @@ Native AMD64 A/B measurements come from CI runs
 [35911787670](https://github.com/thesyncim/gopus/actions/runs/35911787670),
 [35925161573](https://github.com/thesyncim/gopus/actions/runs/35925161573),
 [35930378365](https://github.com/thesyncim/gopus/actions/runs/35930378365),
-[35932476353](https://github.com/thesyncim/gopus/actions/runs/35932476353), and
-[35936281423](https://github.com/thesyncim/gopus/actions/runs/35936281423): the
+[35932476353](https://github.com/thesyncim/gopus/actions/runs/35932476353),
+[35936281423](https://github.com/thesyncim/gopus/actions/runs/35936281423), and
+[35940248675](https://github.com/thesyncim/gopus/actions/runs/35940248675): the
 pre-port base and candidate ran on the same Ubuntu x86_64 runner with Go
 1.27.1, GCC 13.3.0, and pinned libopus 1.6.1. Direct benchmarks use five
 samples at GOMAXPROCS=4. Every measured benchmark reports 0 allocs/op. Values
@@ -29,9 +30,8 @@ the `nosimd` mode uses the same scalar kernels and is included in the CBR and
 quality comparison. Run 359303 measures the eight AMD64 inventory wrappers
 with the corrected `b.Loop` harness; the reciprocal and best-ID cases vary
 inputs and observe outputs on each iteration.
-Rosetta results are not treated as native AMD64 evidence. The latest run's
-paired timings are used below where available; runner CPUs vary between runs,
-so ratios only compare modes within one run.
+Rosetta results are not treated as native AMD64 evidence. Runner CPUs vary
+between runs, so ratios only compare modes within one run.
 
 ## Per-symbol inventory
 
@@ -70,7 +70,7 @@ comparable per-call Go operation and are marked n/a with the reason.
 | 24 | `mdctPostTwiddleNeon` | arm64 | `internal/celt/mdct_post_twiddle_simd_arm64.go`; `internal/celt/mdct_post_twiddle_default.go` | archsimd / scalar | n4=64, pairBlocks=8: old asm → Go → SIMD: 18.65 (18.60–18.71) → 103.4 (103.3–103.9) → 23.31 (23.30–23.36) | 0 | measured; SIMD is 25% slower than asm, scalar Go 5.5× slower |
 | 25 | `xcorrKernelAVX8` | amd64 | `internal/celt/pitch_xcorr_kernel_simd_amd64.go`; `internal/silk/pitch_xcorr_kernel_simd_amd64.go` | archsimd / scalar | CELT production A/B, old asm → scalar Go → Go SIMD: L×P=240×360 2,681→29,999→3,729; 480×64 917.8→10,596→1,203; 5×244 247.4→706.6→236.2; 10×10 26.14→52.76→37.99. SILK pitch search 120×300: 1,424→14,538→2,333. | 0 | measured in run 359362; five-sample specialization is 4.5% faster than asm; long searches remain 31–64% slower |
 | 26 | `prefilterDualInnerProdAsm` | arm64 | `internal/celt/prefilter_dual_inner_prod_simd_arm64.go`; default and nosimd variants | archsimd / scalar | N=240, old asm → Go → SIMD: 85.35 (85.08–86.27) → 237.0 (236.7–238.7) → 41.24 (41.10–41.56) | 0 | measured; SIMD 52% faster than asm; scalar Go 2.8× slower |
-| 27 | `pvqSearchPulseLoopAVX` | amd64 | `internal/celt/pvq_search.go`; `internal/celt/pvq_search_default.go` | scalar Go | N=48, pulses=16, old asm → Go → SIMD: 536.5 (536.2–537.5) → 954.9 (952.6–956.8) → 2,580 (2,537–2,604) | 0 | measured in run 359362; direct scalar helper is not the AMD64 SIMD production path; its machine code is identical in both candidate modes despite timing spread, and full-search timing is pending |
+| 27 | `pvqSearchPulseLoopAVX` | amd64 | `internal/celt/pvq_search.go`; `internal/celt/pvq_search_default.go` | scalar Go | Direct pulse-loop helper, run 359362: old asm → Go → SIMD build 536.5 → 954.9 → 2,580. Production full-search, run 359402: old asm 462.6 (453.0–465.9) → Go SIMD 430.4 (427.0–434.8) | 0 | production path is 7.0% faster than old asm; direct scalar helper is not selected by AMD64 SIMD dispatch, and its mode-dependent timing is not representative of production |
 | 28 | `pvqSearchPulseLoop` | arm64 | `internal/celt/pvq_search.go`; `internal/celt/pvq_search_default.go` | scalar Go | N=48, pulses=16: old asm → Go → SIMD build: 552.6 (516.9–567.2) → 997.9 (964.7–1,006) → 1,013 (994.8–1,024) | 0 | measured; scalar replacement 81% slower than asm |
 | 29 | `x86RcpApprox4` | amd64 | `internal/celt/pvq_search_x86_sse2.go` | archsimd | four varying lanes, old asm → Go SIMD: 1.933 (1.914–1.960) → 1.094 (1.092–1.109) | 0 | measured in run 359362; Go SIMD 43% faster than asm; no ordinary-Go direct equivalent |
 | 30 | `x86PVQSearchBestIDSSE2` | amd64 | `internal/celt/pvq_search_x86_sse2.go` | archsimd | N=48, varying data, old asm → Go SIMD: 22.81 (22.79–23.93) → 22.39 (22.35–22.80) | 0 | measured in run 359362; Go SIMD 1.8% faster than asm; no ordinary-Go direct equivalent |
@@ -117,12 +117,13 @@ on the same native AMD64 runner in run 359303.
 The native A/B comparator passes on run 359324: all 19 CBR cases have no
 higher mismatch count or worse status than old assembly, the focused decode
 diagnostics match, and the SIMD precision fixture passes against SIMD libopus.
-Run 359362 captures the full parity suite in both builds. Go SIMD has no new
-failing tests and resolves 981 failing leaf cases; the reported differing
-decode samples fall from 733,453 to 177,753. Eight cross-validation tests
-skip in the candidate because that runner lacks an external Opus decoder for
-candidate packet hashes. The A/B job installs `opusdec` before the next full
-comparison and treats any new skip as a regression.
+Run 359402 captures the full parity suite in both builds with live `opusdec`
+installed. Go SIMD resolves 985 old failing leaf cases; the reported differing
+decode samples fall from 733,453 to 177,753. Seven shared cross-validation
+cases skip and eight fixture-honesty cases fail because the candidate's Ogg
+packet hashes are absent from the committed Linux AMD64 `opusdec` fixture.
+The A/B gate rejects these results. The next native run captures a fresh
+fixture decoded by live `opusdec` for review and commit before the gate can pass.
 
 | CBR case | Old asm and Go SIMD differing packets |
 |---|---:|
@@ -177,6 +178,7 @@ buffers so repeated calls stay finite and execute the same arithmetic.
 
 Native A/B shows xcorr SIMD improves over scalar Go at large sizes but stays
 slower than old assembly on the long searches. The pre-rotate and large-size
-stereo-merge slowdowns remain optimization items. The AMD64 PVQ full-search
-benchmark is pending in the next native run. No overall performance gain is
-claimed from these kernel samples.
+stereo-merge slowdowns remain optimization items. The AMD64 production PVQ
+full-search benchmark in run 359402 is 7.0% faster than old assembly, while
+the direct pulse-loop helper is not selected by SIMD dispatch. No overall
+performance gain is claimed from these kernel samples.
