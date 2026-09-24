@@ -10,7 +10,7 @@ reference path.
 
 M4 Max (`darwin/arm64`) A/B measurements use the same host and Go version for
 each old-assembly/candidate pair. Initial rows use Go 1.27.1; ARM64 tone LPC
-and tuned IMDCT pre-rotate, fold, and middle-fold use Go 1.27.0. The
+and tuned IMDCT pre-rotate, fold, middle-fold, and comb filter use Go 1.27.0. The
 direct benchmark set uses GOMAXPROCS=4 and five samples per mode; the initial
 rows use 100 ms samples and the added inventory wrappers use 200 ms samples.
 The tuned PCM and ARM64 SILK xcorr rows use five 250 ms samples; ARM64 tone
@@ -51,7 +51,7 @@ comparable per-call Go operation and are marked n/a with the reason.
 
 | # | Former assembly symbol | Old arch | Go replacement source | Replacement path | Measured timing (ns/op) | Allocs/op | Status |
 |---:|---|---|---|---|---|---|---|
-| 1 | `combFilterConstNeon` | arm64 | `internal/celt/comb_const_simd_arm64.go`; `internal/celt/comb_const_default.go` | archsimd / scalar | N=480: old asm → Go → SIMD: 96.89 (95.42–138.80) → 617.7 (592.7–623.2) → 139.9 (133.8–154.1) | 0 | measured; SIMD is 44% slower than asm, scalar Go 6.4× slower |
+| 1 | `combFilterConstNeon` | arm64 | `internal/celt/comb_const_simd_arm64.go`; `internal/celt/comb_const_default.go` | archsimd / scalar | N=480: old asm 115.4 (114.7–116.9) → Go SIMD 109.0 (107.7–113.0); scalar Go 617.7 (592.7–623.2; earlier Go 1.27.1 run) | 0 | measured on M4 with Go 1.27.0; Go SIMD is 5.5% faster than asm; exact and zero-alloc checks pass |
 | 2 | `cwrsiFastCore` | arm64 | `internal/celt/cwrs_fast_default.go` | scalar Go | N=48, K=12: old asm → Go → SIMD build: 48.25 (48.08–49.62) → 69.16 (66.31–79.03) → 68.73 (67.55–79.83) | 0 | measured; scalar replacement 43% slower than asm |
 | 3 | `deemphasisStereoPlanarF32Core` | arm64 | `internal/celt/deemphasis_f32_default.go` | scalar Go | N=480 stereo: old asm → Go → SIMD build: 1,065 (1,065–1,068) → 1,167 (1,166–1,169) → 1,168 (1,166–1,177) | 0 | measured; scalar replacement 10% slower than asm |
 | 4 | `expRotation1PassNeon` | arm64 | `internal/celt/exp_rotation_simd_arm64.go`; `internal/celt/exp_rotation_default.go` | archsimd / scalar | old asm → Go → SIMD: len32/stride1 284.3 (283.6–289.3) → 286.9 (285.8–288.9) → 282.6 (280.6–284.3); len64/stride1 583.2 (581.0–584.1) → 579.7 (574.3–584.2) → 578.2 (574.5–592.8); len32/stride2 138.1 (136.6–145.2) → 148.8 (142.6–152.1) → 159.5 (155.8–167.2); len32/stride4 85.03 (84.45–85.53) → 80.54 (80.13–83.10) → 84.20 (83.98–84.38) | 0 | measured; SIMD near assembly except stride2 slower |
