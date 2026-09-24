@@ -40,6 +40,11 @@ The tuned ARM64 FFT butterfly rows use three paired 200 ms samples per mode
 on the same M4 with Go 1.27.0 and `-cpu=1`. The M1 fixture uses N=128; inner
 radix-3/4/5 fixtures use m=8, N=4, and fstride=8 with preallocated work copies.
 Candidate timings call the production dispatch wrappers.
+The refined ARM64 radix-4 M1 path uses seven paired 500 ms samples on the same
+M4 and fixture. Its prior and refined Go SIMD medians are 178.0 and 120.9
+ns/op; both report zero allocations. The old-assembly timing is from the
+earlier paired comparison, so the 103–105 ns range is a reference, not a
+same-run ratio for this refinement.
 The ARM64 pointer-endpoint fixes preserve kernel arithmetic and pass the full
 CELT SIMD suite with `-gcflags=all=-d=checkptr=2`. Post-fix spot benchmarks
 use Go 1.27.0, `GOEXPERIMENT=simd`, `-cpu=1`, three 200 ms samples on M4.
@@ -112,7 +117,7 @@ comparable per-call Go operation and are marked n/a with the reason.
 | 10 | `imdctTDACWindowFMA32` | arm64 | `internal/celt/imdct_tdac_simd_arm64.go`; `internal/celt/imdct_tdac_default.go` | archsimd / scalar | overlap=120/count=60: old asm → Go → SIMD: 24.96 (24.95–25.44) → 95.45 (95.02–96.67) → 25.22 (25.00–25.43) | 0 | measured; SIMD within 1.0% of asm |
 | 11 | `celtInnerProd8FMA32` | arm64 | `internal/celt/inner_prod_fma_simd_arm64.go`; `internal/celt/inner_prod_fma_simd_amd64.go`; `internal/celt/inner_prod_fma_default.go` | archsimd / scalar | N=16: 5.94–6.00 → 3.49; N=64: 20.94–21.00 → 6.13–6.43; N=176: 56.24–56.30 → 19.96–20.04 | 0 | measured; faster on M4 |
 | 12 | `celtInnerProdSSEStyleAsm` | amd64 | `internal/celt/innerprod_sse_simd_amd64.go`; `internal/celt/innerprod_sse_default.go` | archsimd / scalar | N=480, old asm → Go → SIMD: 89.02 (88.97–89.30) → 395.9 (395.0–445.0) → 81.61 (81.38–82.68) | 0 | measured in run 359362; SIMD 8.3% faster than asm on this runner |
-| 13 | `kfBfly4M1Core` | arm64 | `internal/celt/kf_bfly_simd_arm64.go`; `internal/celt/kf_bfly4m1_default.go` | archsimd / scalar | N=128 paired M4: old asm 103–105 → scalar Go 161–166 → Go SIMD 157–162 ns/op | 0 | SIMD is about 3% faster than scalar Go but 1.5× slower than asm; exact old-asm/FMA parity and zero-alloc checks pass |
+| 13 | `kfBfly4M1Core` | arm64 | `internal/celt/kf_bfly_simd_arm64.go`; `internal/celt/kf_bfly4m1_default.go` | archsimd / scalar | N=128: old asm 103–105, scalar Go 161–166, prior SIMD 157–162 in original paired run; refined SIMD 120.9 median versus prior SIMD 178.0 median in seven paired 500 ms samples | 0 | refined SIMD is 32% faster than prior SIMD in its paired run and about 16% slower than the recorded asm baseline; exact bits, zero alloc, full CELT modes, and focused checkptr pass |
 | 14 | `kfBfly5Inner` | amd64 | `internal/celt/kf_bfly_default.go` | scalar Go | Prior baseline: m=8, N=4, old asm → Go → SIMD build: 376.0 (375.3–376.9) → 537.3 (536.8–540.1) → 539.5 (537.2–547.1) | 0 | Prior scalar Go timing; AMD64 AVX radix-5 candidate is committed and awaits native parity and paired timing. |
 | 15 | `kfBfly3Inner` | amd64 | `internal/celt/kf_bfly_default.go` | scalar Go | m=8, N=4, old asm → Go → SIMD build: 222.2 (222.1–222.3) → 208.5 (207.5–212.0) → 207.4 (207.1–208.0) | 0 | measured in run 359362; Go replacement 6.7% faster than asm |
 | 16 | `kfBfly4Inner` | amd64 | `internal/celt/kf_bfly_default.go` | scalar Go | Prior baseline: m=8, N=4, old asm → Go → SIMD build: 217.0 (216.5–218.1) → 269.9 (269.4–271.9) → 270.9 (269.4–273.8) | 0 | Prior scalar Go timing; AMD64 AVX radix-4 candidate is committed and awaits native parity and paired timing. |
