@@ -147,6 +147,7 @@ run_mode() {
 
 run_side() {
   local side="$1" root="$2"
+  local simd_opusdec_fixture="$artifact_root/candidate-simd-committed-opusdec-fixture.json"
   run_phase "$side" "$root" ensure-libopus make ensure-libopus
   if [[ "$(cat "$artifact_root/$side-ensure-libopus.exit")" != 0 ]]; then
     return 0
@@ -161,6 +162,10 @@ run_side() {
 
   install_amd64_kernel_benchmarks "$side" "$root"
 
+  if [[ "$side" == candidate ]]; then
+    cp "$root/internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json" \
+      "$simd_opusdec_fixture"
+  fi
   run_phase "$side" "$root" platform-fixtures make fixtures-gen-platform
   if [[ "$(cat "$artifact_root/$side-platform-fixtures.exit")" != 0 ]]; then
     return 0
@@ -180,6 +185,10 @@ run_side() {
   else
     run_mode "$side" "$root" default
     run_mode "$side" "$root" nosimd
+    # Platform fixture generation uses ordinary scalar Go. Restore the reviewed
+    # Go SIMD bitstream fixture before the SIMD parity run.
+    cp "$simd_opusdec_fixture" \
+      "$root/internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json"
     run_mode "$side" "$root" simd
     run_phase "$side" "$root" simd-full-parity \
       env GOEXPERIMENT=simd GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \

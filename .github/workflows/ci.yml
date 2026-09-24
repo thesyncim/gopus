@@ -142,7 +142,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Bootstrap scalar libopus
+        run: make ensure-libopus-scalar
+
       - name: Run fast package sweep
+        env:
+          GOPUS_LIBOPUS_REF_SCALAR: "1"
         run: make test-fast
 
   test-linux-parity:
@@ -818,10 +823,16 @@ jobs:
         with:
           path: |
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
+      - name: Bootstrap scalar libopus
+        run: make ensure-libopus-scalar
+
       - name: Run core float libopus C-oracle parity gate
+        env:
+          GOPUS_LIBOPUS_REF_SCALAR: "1"
         run: make test-core-oracles-parity
 
       - name: Run SIMD PVQ parity against the compiled libopus SSE2 kernel
@@ -1155,6 +1166,7 @@ jobs:
     env:
       GOPUS_DISABLE_OPUSDEC: "1"
       GOPUS_DISABLE_OPUSENC: "1"
+      GOPUS_LIBOPUS_REF_SCALAR: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -1214,6 +1226,10 @@ jobs:
         shell: msys2 {0}
         run: make ensure-libopus
 
+      - name: Bootstrap scalar libopus
+        shell: msys2 {0}
+        run: make ensure-libopus-scalar
+
       - name: Run core float libopus C-oracle parity gate
         shell: msys2 {0}
         run: make test-core-oracles-parity
@@ -1222,8 +1238,8 @@ jobs:
       # Linux and macOS lanes. They drive a large bash focus-gate matrix that is
       # impractical to keep green under the MSYS2/mingw toolchain; the Windows
       # lane still gates the core float C-oracle parity above plus the
-      # gopus_libopus_oracle decoder/encoder fixture parity below, all built
-      # against the native libopus C reference.
+      # gopus_libopus_oracle decoder/encoder fixture parity below against the
+      # scalar libopus C reference selected for ordinary Go builds.
       - name: Generate native libopus fixtures
         shell: msys2 {0}
         run: make fixtures-gen-platform
