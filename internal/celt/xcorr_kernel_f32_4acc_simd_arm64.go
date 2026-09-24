@@ -31,11 +31,15 @@ func xcorrKernel4Float32Neon4Acc(x, y []float32, sum *[4]float32, length int) {
 	yp := unsafe.Pointer(unsafe.SliceData(y))
 	blocked := length >= 4
 	i := 0
-	for ; i+4 <= length; i += 4 {
+	for i+4 <= length {
 		acc0 = archsimd.BroadcastFloat32x4(*(*float32)(xp)).MulAdd(loadF32x4(yp), acc0)
 		acc1 = archsimd.BroadcastFloat32x4(*(*float32)(unsafe.Add(xp, 4))).MulAdd(loadF32x4(unsafe.Add(yp, 4)), acc1)
 		acc2 = archsimd.BroadcastFloat32x4(*(*float32)(unsafe.Add(xp, 8))).MulAdd(loadF32x4(unsafe.Add(yp, 8)), acc2)
 		acc3 = archsimd.BroadcastFloat32x4(*(*float32)(unsafe.Add(xp, 12))).MulAdd(loadF32x4(unsafe.Add(yp, 12)), acc3)
+		i += 4
+		if i == length {
+			break
+		}
 		xp = unsafe.Add(xp, 16)
 		yp = unsafe.Add(yp, 16)
 	}
@@ -45,8 +49,10 @@ func xcorrKernel4Float32Neon4Acc(x, y []float32, sum *[4]float32, length int) {
 	}
 	for ; i < length; i++ {
 		combined = archsimd.BroadcastFloat32x4(*(*float32)(xp)).MulAdd(loadF32x4(yp), combined)
-		xp = unsafe.Add(xp, 4)
-		yp = unsafe.Add(yp, 4)
+		if i+1 < length {
+			xp = unsafe.Add(xp, 4)
+			yp = unsafe.Add(yp, 4)
+		}
 	}
 	storeF32x4(unsafe.Pointer(sum), combined)
 }

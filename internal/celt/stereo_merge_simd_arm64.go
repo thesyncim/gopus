@@ -29,13 +29,17 @@ func stereoMergeRescaleNEON(x, y []float32, mid, lgain, rgain float32) {
 	for ; i+8 <= n; i += 8 {
 		stereoMergeBlock4(xp, yp, midv, lv, rv)
 		stereoMergeBlock4(unsafe.Add(xp, 16), unsafe.Add(yp, 16), midv, lv, rv)
-		xp = unsafe.Add(xp, 32)
-		yp = unsafe.Add(yp, 32)
+		if i+8 < n {
+			xp = unsafe.Add(xp, 32)
+			yp = unsafe.Add(yp, 32)
+		}
 	}
 	for ; i+4 <= n; i += 4 {
 		stereoMergeBlock4(xp, yp, midv, lv, rv)
-		xp = unsafe.Add(xp, 16)
-		yp = unsafe.Add(yp, 16)
+		if i+4 < n {
+			xp = unsafe.Add(xp, 16)
+			yp = unsafe.Add(yp, 16)
+		}
 	}
 	for ; i < n; i++ {
 		xv := *(*float32)(xp)
@@ -43,8 +47,10 @@ func stereoMergeRescaleNEON(x, y []float32, mid, lgain, rgain float32) {
 		l := noFMA32Mul(mid, xv)
 		*(*float32)(xp) = noFMA32Mul(lgain, noFMA32Sub(l, yv))
 		*(*float32)(yp) = noFMA32Mul(rgain, noFMA32Add(l, yv))
-		xp = unsafe.Add(xp, 4)
-		yp = unsafe.Add(yp, 4)
+		if i+1 < n {
+			xp = unsafe.Add(xp, 4)
+			yp = unsafe.Add(yp, 4)
+		}
 	}
 }
 

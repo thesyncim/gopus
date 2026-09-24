@@ -13,6 +13,9 @@ func toneLPCCorr(x []float32, cnt, delay, delay2 int) (r00, r01, r02 float32) {
 	_ = x[:cnt]
 	_ = x[delay : delay+cnt]
 	_ = x[delay2 : delay2+cnt]
+	if cnt == 0 {
+		return
+	}
 	x0 := unsafe.Pointer(unsafe.SliceData(x))
 	x1 := unsafe.Add(x0, uintptr(delay*4))
 	x2 := unsafe.Add(x0, uintptr(delay2*4))

@@ -17,9 +17,9 @@ import (
 // a panic path on every load and store, and that check machinery — not the SIMD —
 // dominates this load/store-bound kernel (3-5x slower, slower even than scalar
 // asm). With the checks gone and a 16-wide unroll (the widest that profiled best)
-// the archsimd loop beats the hand NEON asm. Safety: the pointers only advance
-// while i+k <= n, so every read and write stays within the first n elements; an
-// empty slice skips all loops, so SliceData is never dereferenced.
+// the archsimd loop beats the hand NEON asm. Each pointer advances only when a
+// later element remains, so no pointer reaches one past its slice; an empty
+// slice skips all loops, so SliceData is never dereferenced.
 func scaleFloat32IntoNEON(dst, src []float32, gain float32) {
 	n := min(len(dst), len(src))
 	g := archsimd.BroadcastFloat32x4(gain)
@@ -31,17 +31,23 @@ func scaleFloat32IntoNEON(dst, src []float32, gain float32) {
 		storeF32x4(unsafe.Add(dp, 16), loadF32x4(unsafe.Add(sp, 16)).Mul(g))
 		storeF32x4(unsafe.Add(dp, 32), loadF32x4(unsafe.Add(sp, 32)).Mul(g))
 		storeF32x4(unsafe.Add(dp, 48), loadF32x4(unsafe.Add(sp, 48)).Mul(g))
-		sp = unsafe.Add(sp, 64)
-		dp = unsafe.Add(dp, 64)
+		if i+16 < n {
+			sp = unsafe.Add(sp, 64)
+			dp = unsafe.Add(dp, 64)
+		}
 	}
 	for ; i+4 <= n; i += 4 {
 		storeF32x4(dp, loadF32x4(sp).Mul(g))
-		sp = unsafe.Add(sp, 16)
-		dp = unsafe.Add(dp, 16)
+		if i+4 < n {
+			sp = unsafe.Add(sp, 16)
+			dp = unsafe.Add(dp, 16)
+		}
 	}
 	for ; i < n; i++ {
 		*(*float32)(dp) = noFMA32Mul(*(*float32)(sp), gain)
-		sp = unsafe.Add(sp, 4)
-		dp = unsafe.Add(dp, 4)
+		if i+1 < n {
+			sp = unsafe.Add(sp, 4)
+			dp = unsafe.Add(dp, 4)
+		}
 	}
 }
