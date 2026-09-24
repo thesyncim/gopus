@@ -93,6 +93,7 @@ func TestSILKPitchXcorrARM64SIMDMatchesLibopusNEON(t *testing.T) {
 		{name: "unrolled", length: 32, maxPitch: 8, x: silkPitchXcorrOracleSignal(32, 0x33333333), y: silkPitchXcorrOracleSignal(39, 0x44444444)},
 		{name: "pitch_frame", length: 120, maxPitch: 36, x: silkPitchXcorrOracleSignal(120, 0x55555555), y: silkPitchXcorrOracleSignal(155, 0x66666666)},
 		{name: "production", length: 240, maxPitch: 120, x: silkPitchXcorrOracleSignal(240, 0x77777777), y: silkPitchXcorrOracleSignal(359, 0x88888888)},
+		{name: "production_pitch_tail", length: 240, maxPitch: 119, x: silkPitchXcorrOracleSignal(240, 0x97979797), y: silkPitchXcorrOracleSignal(358, 0x98989898)},
 		{name: "long_odd_length", length: 239, maxPitch: 32, x: silkPitchXcorrOracleSignal(239, 0x99999999), y: silkPitchXcorrOracleSignal(270, 0xaaaaaaaa)},
 		{name: "production_offset_exact_tail", length: 240, maxPitch: 120, x: offsetX[1:241], y: offsetY[1:360]},
 		{name: "tail_one_pitch", length: 31, maxPitch: 1, x: silkPitchXcorrOracleSignal(31, 0xbbbbbbbb), y: silkPitchXcorrOracleSignal(31, 0xcccccccc)},
