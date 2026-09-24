@@ -22,6 +22,7 @@ const mdctUseNeonMidFold = true
 // mdctStoreDirectStageFMALike bit-for-bit; only the bit-reversed store is
 // scalar, exactly as the asm scatters it.
 func mdctMidFoldStoreNeon(dst []kissCpx, bitrev []int, samples []float32, trig []float32, i0, n4, xp1, xp2, blocks int, preScale float32) {
+	const intBytes = int(unsafe.Sizeof(int(0)))
 	if blocks == 0 {
 		return
 	}
@@ -33,6 +34,8 @@ func mdctMidFoldStoreNeon(dst []kissCpx, bitrev []int, samples []float32, trig [
 	pv := archsimd.BroadcastFloat32x4(preScale)
 	sp := unsafe.Pointer(unsafe.SliceData(samples))
 	tp := unsafe.Pointer(unsafe.SliceData(trig))
+	// The last-element check above validates every bit-reversal lane read here.
+	bitrevp := unsafe.Pointer(&bitrev[i0])
 	for b := 0; b < blocks; b++ {
 		x1 := xp1 + 8*b
 		x2 := xp2 - 8*b
@@ -44,13 +47,14 @@ func mdctMidFoldStoreNeon(dst []kissCpx, bitrev []int, samples []float32, trig [
 		t1 := loadF32x4(unsafe.Add(tp, (n4+i0+4*b)*4))
 		yr := re.MulAdd(t0, im.Mul(t1).Neg()).Mul(pv)
 		yi := im.MulAdd(t0, re.Mul(t1)).Mul(pv)
-
-		var yrT, yiT [4]float32
-		storeF32x4(unsafe.Pointer(&yrT[0]), yr)
-		storeF32x4(unsafe.Pointer(&yiT[0]), yi)
-		for lane := 0; lane < 4; lane++ {
-			j := 4*b + lane
-			dst[bitrev[i0+j]] = kissCpx{r: yrT[lane], i: yiT[lane]}
-		}
+		groupBitrev := unsafe.Add(bitrevp, b*4*intBytes)
+		rev0 := *(*int)(groupBitrev)
+		rev1 := *(*int)(unsafe.Add(groupBitrev, intBytes))
+		rev2 := *(*int)(unsafe.Add(groupBitrev, 2*intBytes))
+		rev3 := *(*int)(unsafe.Add(groupBitrev, 3*intBytes))
+		dst[rev0] = kissCpx{r: yr.GetElem(0), i: yi.GetElem(0)}
+		dst[rev1] = kissCpx{r: yr.GetElem(1), i: yi.GetElem(1)}
+		dst[rev2] = kissCpx{r: yr.GetElem(2), i: yi.GetElem(2)}
+		dst[rev3] = kissCpx{r: yr.GetElem(3), i: yi.GetElem(3)}
 	}
 }

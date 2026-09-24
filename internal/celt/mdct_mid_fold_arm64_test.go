@@ -78,3 +78,27 @@ func TestMDCTMidFoldStoreNeonBitExact(t *testing.T) {
 		}
 	}
 }
+
+func TestMDCTMidFoldStoreNeonNoAllocs(t *testing.T) {
+	const n4, blocks = 64, 8
+	dst := make([]kissCpx, n4)
+	bitrev := make([]int, n4)
+	for i := range bitrev {
+		bitrev[i] = i
+	}
+	samples := make([]float32, 320)
+	trig := make([]float32, n4*2)
+	for i := range samples {
+		samples[i] = float32((i*37)%127-63) * 0.0078125
+	}
+	for i := range trig {
+		trig[i] = float32((i*37)%127-63) * 0.0078125
+	}
+	call := func() {
+		mdctMidFoldStoreNeon(dst, bitrev, samples, trig, 0, n4, 80, 220, blocks, 0.5)
+	}
+	call()
+	if allocs := testing.AllocsPerRun(100, call); allocs != 0 {
+		t.Fatalf("allocs per call = %v, want 0", allocs)
+	}
+}
