@@ -19,10 +19,6 @@ type variantProvenanceAuditRow struct {
 	histogramL1  float64
 }
 
-func encodeGopusForVariantsCaseWithProvenance(c encoderComplianceVariantsFixtureCase, signal []float32) ([][]byte, error) {
-	return encodeGopusForVariantsCase(c, signal)
-}
-
 func provenanceGapFloorQ(mode string) float64 {
 	switch mode {
 	case "celt":
@@ -63,7 +59,7 @@ func TestEncoderVariantProfileProvenanceAudit(t *testing.T) {
 			if err != nil {
 				t.Fatalf("decode fixture packets: %v", err)
 			}
-			goPackets, err := encodeGopusForVariantsCaseWithProvenance(c, signal)
+			goPackets, _, err := encodeGopusForVariantsCase(c, signal)
 			if err != nil {
 				t.Fatalf("encode gopus packets with fixture provenance: %v", err)
 			}

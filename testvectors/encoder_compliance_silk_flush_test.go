@@ -38,7 +38,7 @@ func TestEncoderVariantSilkFinalFlushMatchesLibopusFixture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode fixture packets: %v", err)
 	}
-	gotPackets, err := encodeGopusForVariantsCase(c, signal)
+	gotPackets, _, err := encodeGopusForVariantsCase(c, signal)
 	if err != nil {
 		t.Fatalf("encode gopus packets: %v", err)
 	}

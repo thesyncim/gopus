@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/encoder"
+	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/testsignal"
 	"github.com/thesyncim/gopus/types"
 )
@@ -673,14 +674,14 @@ func packetPayloadMismatchStats(libPackets, goPackets [][]byte) (mismatches int,
 	return mismatches, compared, firstMismatch
 }
 
-func encodeGopusForVariantsCase(c encoderComplianceVariantsFixtureCase, signal []float32) ([][]byte, error) {
+func encodeGopusForVariantsCase(c encoderComplianceVariantsFixtureCase, signal []float32) ([][]byte, []uint32, error) {
 	mode, err := parseFixtureMode(c.Mode)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	bandwidth, err := parseFixtureBandwidth(c.Bandwidth)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	enc := encoder.NewEncoder(48000, c.Channels)
@@ -708,6 +709,7 @@ func encodeGopusForVariantsCase(c encoderComplianceVariantsFixtureCase, signal [
 	// do not force signal-type hints here.
 
 	packets := make([][]byte, 0, c.Frames)
+	finalRanges := make([]uint32, 0, c.Frames)
 	samplesPerFrame := c.FrameSize * c.Channels
 	for i := 0; i < c.SignalFrames; i++ {
 		start := i * samplesPerFrame
@@ -715,14 +717,15 @@ func encodeGopusForVariantsCase(c encoderComplianceVariantsFixtureCase, signal [
 		frame := float32ToFloat64OpusDemoF32(signal[start:end])
 		pkt, err := encodeTest(enc, frame, c.FrameSize)
 		if err != nil {
-			return nil, fmt.Errorf("encode frame %d: %w", i, err)
+			return nil, nil, fmt.Errorf("encode frame %d: %w", i, err)
 		}
 		if len(pkt) == 0 {
-			return nil, fmt.Errorf("empty packet at frame %d", i)
+			return nil, nil, fmt.Errorf("empty packet at frame %d", i)
 		}
 		pktCopy := make([]byte, len(pkt))
 		copy(pktCopy, pkt)
 		packets = append(packets, pktCopy)
+		finalRanges = append(finalRanges, enc.FinalRange())
 	}
 
 	// Fixture packets may include one trailing frame from encoder buffering.
@@ -733,7 +736,7 @@ func encodeGopusForVariantsCase(c encoderComplianceVariantsFixtureCase, signal [
 		for len(packets) < c.Frames && len(packets) < flushLimit {
 			pkt, err := encodeTest(enc, silence, c.FrameSize)
 			if err != nil {
-				return nil, fmt.Errorf("flush frame %d: %w", len(packets), err)
+				return nil, nil, fmt.Errorf("flush frame %d: %w", len(packets), err)
 			}
 			if len(pkt) == 0 {
 				continue
@@ -741,9 +744,10 @@ func encodeGopusForVariantsCase(c encoderComplianceVariantsFixtureCase, signal [
 			pktCopy := make([]byte, len(pkt))
 			copy(pktCopy, pkt)
 			packets = append(packets, pktCopy)
+			finalRanges = append(finalRanges, enc.FinalRange())
 		}
 	}
-	return packets, nil
+	return packets, finalRanges, nil
 }
 
 // float32ToFloat64OpusDemoF32 mirrors opus_demo -f32 input conversion:
@@ -778,12 +782,21 @@ type encoderVariantParityMeasurement struct {
 	goRes                packetQualityResult
 	libRes               packetQualityResult
 	stats                encoderPacketProfileStats
+	finalRangeMismatch   int
+	finalRangeCompared   int
+	firstRangeMismatch   int
 	payloadMismatch      int
 	payloadCompared      int
 	firstPayloadMismatch int
+	goPackets            [][]byte
+	goFinalRanges        []uint32
+	libPackets           [][]byte
+	libFinalRanges       []uint32
+	referenceIdentity    string
+	pcmSHA256            string
 }
 
-func measureEncoderVariantParityCase(c encoderComplianceVariantsFixtureCase) (encoderVariantParityMeasurement, error) {
+func measureEncoderVariantParityCase(t *testing.T, c encoderComplianceVariantsFixtureCase) (encoderVariantParityMeasurement, error) {
 	totalSamples := c.SignalFrames * c.FrameSize * c.Channels
 	signal, err := testsignal.GenerateEncoderSignalVariant(c.Variant, 48000, totalSamples, c.Channels)
 	if err != nil {
@@ -793,20 +806,35 @@ func measureEncoderVariantParityCase(c encoderComplianceVariantsFixtureCase) (en
 		return encoderVariantParityMeasurement{}, fmt.Errorf("signal hash mismatch")
 	}
 
-	libPackets, _, err := decodeEncoderVariantsFixturePackets(c)
-	if err != nil {
-		return encoderVariantParityMeasurement{}, fmt.Errorf("decode fixture packets: %w", err)
-	}
-	goPackets, err := encodeGopusForVariantsCase(c, signal)
+	goPackets, goFinalRanges, err := encodeGopusForVariantsCase(c, signal)
 	if err != nil {
 		return encoderVariantParityMeasurement{}, fmt.Errorf("encode gopus packets: %w", err)
 	}
-	packetCountDiff := len(goPackets) - len(libPackets)
-	if packetCountDiff < 0 {
-		packetCountDiff = -packetCountDiff
+	mode, err := parseFixtureMode(c.Mode)
+	if err != nil {
+		return encoderVariantParityMeasurement{}, fmt.Errorf("parse fixture mode: %w", err)
 	}
-	if packetCountDiff > 1 {
-		return encoderVariantParityMeasurement{}, fmt.Errorf("packet count mismatch: go=%d lib=%d", len(goPackets), len(libPackets))
+	bandwidth, err := parseFixtureBandwidth(c.Bandwidth)
+	if err != nil {
+		return encoderVariantParityMeasurement{}, fmt.Errorf("parse fixture bandwidth: %w", err)
+	}
+	libRef, err := runPairedLibopusQualityReference(encoderQualityReferenceSettings{
+		mode:      mode,
+		bandwidth: bandwidth,
+		frameSize: c.FrameSize,
+		channels:  c.Channels,
+		bitrate:   c.Bitrate,
+	}, signal)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "paired libopus quality reference", err)
+		return encoderVariantParityMeasurement{}, fmt.Errorf("encode paired libopus reference: %w", err)
+	}
+	if libRef.pcmSHA256 != c.SignalSHA256 {
+		return encoderVariantParityMeasurement{}, fmt.Errorf("paired libopus PCM hash mismatch: got=%s want=%s", libRef.pcmSHA256, c.SignalSHA256)
+	}
+	libPackets, libFinalRanges := libRef.packets, libRef.finalRanges
+	if len(goPackets) != len(libPackets) {
+		return encoderVariantParityMeasurement{}, fmt.Errorf("paired packet count mismatch for %s/%s input %s: go=%d lib=%d", c.Name, c.Variant, c.SignalSHA256, len(goPackets), len(libPackets))
 	}
 
 	stats := computeEncoderPacketProfileStats(libPackets, goPackets)
@@ -814,23 +842,41 @@ func measureEncoderVariantParityCase(c encoderComplianceVariantsFixtureCase) (en
 	if err != nil {
 		return encoderVariantParityMeasurement{}, fmt.Errorf("compute gopus quality with libopus decode: %w", err)
 	}
-	// Variants fixture lib_q currently comes from the case-level summary fixture,
-	// so measure the variant-specific libopus side live here until the fixture
-	// carries per-variant reference quality.
-	libRes, err := qualityFromPacketsLibopusReferenceDetailed(libPackets, signal, c.Channels, c.FrameSize)
-	if err != nil {
-		return encoderVariantParityMeasurement{}, fmt.Errorf("compute libopus quality from fixture with libopus decode: %w", err)
-	}
+	libRes := libRef.quality
+	rangeMismatch, rangeCompared, firstRangeMismatch := finalRangeMismatchStats(libFinalRanges, goFinalRanges)
 	payloadMismatch, payloadCompared, firstPayloadMismatch := packetPayloadMismatchStats(libPackets, goPackets)
 
 	return encoderVariantParityMeasurement{
 		goRes:                goRes,
 		libRes:               libRes,
 		stats:                stats,
+		finalRangeMismatch:   rangeMismatch,
+		finalRangeCompared:   rangeCompared,
+		firstRangeMismatch:   firstRangeMismatch,
 		payloadMismatch:      payloadMismatch,
 		payloadCompared:      payloadCompared,
 		firstPayloadMismatch: firstPayloadMismatch,
+		goPackets:            goPackets,
+		goFinalRanges:        goFinalRanges,
+		libPackets:           libPackets,
+		libFinalRanges:       libFinalRanges,
+		referenceIdentity:    libRef.identity,
+		pcmSHA256:            libRef.pcmSHA256,
 	}, nil
+}
+
+func finalRangeMismatchStats(want, got []uint32) (mismatches, compared, firstMismatch int) {
+	compared = min(len(want), len(got))
+	firstMismatch = -1
+	for i := 0; i < compared; i++ {
+		if want[i] != got[i] {
+			mismatches++
+			if firstMismatch < 0 {
+				firstMismatch = i
+			}
+		}
+	}
+	return mismatches, compared, firstMismatch
 }
 
 func qualityFromPacketsLibopusReferenceDetailed(packets [][]byte, original []float32, channels, frameSize int) (packetQualityResult, error) {
@@ -885,11 +931,20 @@ func TestEncoderVariantProfileParityAgainstLibopusFixture(t *testing.T) {
 			name := fmt.Sprintf("%s-%s", c.Name, c.Variant)
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
-				measurement, err := measureEncoderVariantParityCase(c)
+				measurement, err := measureEncoderVariantParityCase(t, c)
 				if err != nil {
 					t.Fatal(err)
 				}
 				gapQ := measurement.goRes.q - measurement.libRes.q
+				t.Logf("paired live reference: %s pcm_sha256=%s packets=%d finalRanges=%d goRangeMismatch=%d/%d firstRangeMismatch=%d",
+					measurement.referenceIdentity,
+					measurement.pcmSHA256,
+					len(measurement.libPackets),
+					len(measurement.libFinalRanges),
+					measurement.finalRangeMismatch,
+					measurement.finalRangeCompared,
+					measurement.firstRangeMismatch,
+				)
 
 				thr := encoderVariantThreshold(c)
 				t.Logf(

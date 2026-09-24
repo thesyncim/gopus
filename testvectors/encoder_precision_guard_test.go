@@ -1,33 +1,24 @@
 package testvectors
 
 import (
+	"errors"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 // Precision floors are case-specific lower bounds for (gopus Q - libopus Q).
 // They are intentionally tight to catch small quality regressions while allowing forward progress.
 // Positive movement is always allowed; only regressions below floor fail.
 //
-// This is a SINGLE tight, platform-independent floor table. It is valid because
-// the precision guard always compares gopus against a NATIVE
-// same-arch-and-toolchain libopus reference: each CI runner regenerates its
-// libopus fixture from the libopus it just built (fixtures-gen-platform), so the
-// reference matches the runtime arch/toolchain. gopus has one portable float
-// path that is <=1-ULP-correct against that native libopus, so the gap is ~0.00
-// on every arch (darwin/arm64 Apple-NEON, linux/arm64 gcc-NEON, linux/amd64
-// SSE/AVX), and a single tight floor holds per case on every arch.
-//
-// There are intentionally NO large per-arch "budgets": a multi-dB gap only
-// arises when the reference libopus was built for a DIFFERENT arch/toolchain
-// than the runtime, because libopus's own SIMD float order then diverges from
-// gopus's by libopus's cross-toolchain self-variance on the am_multisine CELT
-// knife-edge. A same-arch reference removes that, leaving only <=1-ULP drift.
-// If a genuine same-arch SIMD-order knife-edge residual ever appears on a runner
-// (gcc-NEON or amd64-SSE flipping a band decision vs gopus's order), add a
-// MINIMAL, individually documented per-case residual here -- never a blanket
-// multi-dB budget.
+// Every precision guard run compares gopus with a fresh libopus score produced
+// by the validated reference variant selected for the active Go build. A
+// successful live comparison enforces this single per-case floor table; stored
+// fixture provenance does not control whether the floor runs. These floors
+// allow small real-content quality variation without introducing broad per-arch
+// budgets for synthetic packet-parity cases.
 var encoderLibopusGapFloorQ = map[string]float64{
 	"CELT-FB-2.5ms-mono-64k":    -0.10,
 	"CELT-FB-5ms-mono-64k":      -0.10,
@@ -120,12 +111,22 @@ func encoderComplianceReferenceStatusForPlatform(caseName string, gapQ float64, 
 	return "BASE", floor
 }
 
+func precisionGapStatusForCase(caseName string, gopusQ, libopusQ float64) (gapQ float64, status string, floor float64) {
+	gapQ = gopusQ - libopusQ
+	status, floor = encoderComplianceReferenceStatusForCase(caseName, gapQ)
+	return gapQ, status, floor
+}
+
+func precisionReferenceErrorRequiresFatal(err error, strict bool) bool {
+	if err == nil {
+		return false
+	}
+	var configErr *libopustooling.LibopusReferenceConfigError
+	return strict || errors.As(err, &configErr)
+}
+
 func TestEncoderCompliancePrecisionGuard(t *testing.T) {
 	t.Parallel()
-	// The tight gap floors are only fair against a native same-arch libopus
-	// reference. Jobs that regenerate the platform fixture on the runner enforce
-	// the gap; other jobs log it for visibility but do not gate.
-	native := nativeLibopusComplianceReferenceAvailable()
 
 	for _, tc := range encoderComplianceSummaryCases() {
 		t.Run(tc.name, func(t *testing.T) {
@@ -135,31 +136,64 @@ func TestEncoderCompliancePrecisionGuard(t *testing.T) {
 				t.Fatalf("missing precision floor for %q", tc.name)
 			}
 
-			// Both Q values are measured on the real-content source: gopus encodes
-			// it, and the native same-arch libopus opus_demo encodes the identical
-			// samples. On real audio the cross-toolchain float-order spread is
-			// negligible, so the tight base floor holds on every arch.
+			// Both Q values use the same real-content PCM and the validated libopus
+			// variant selected for this Go build. Every successful live comparison
+			// enforces the existing floor, independent of fixture metadata.
 			q := runRealContentPrecisionGopus(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
 			libQ, refOK := runRealContentPrecisionLibopusReference(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
 			if !refOK {
-				if native {
-					t.Fatalf("native real-content libopus reference unavailable for %q", tc.name)
-				}
-				t.Logf("real-content libopus reference unavailable for %s (gopus Q=%.2f); gap guard skipped", tc.name, q)
+				t.Logf("paired real-content libopus reference unavailable for %s (gopus Q=%.2f); optional gap guard unavailable", tc.name, q)
 				return
 			}
 			t.Logf("RealContent libopus Q=%.2f (source=%s)", libQ, precisionGuardSignalName)
 
-			gapQ := q - libQ
-			if !native {
-				t.Logf("non-native lane: %s gapQ=%.2f floor=%.2f (gap guard skipped; native jobs enforce)", tc.name, gapQ, floor)
-				return
-			}
+			gapQ, status, floor := precisionGapStatusForCase(tc.name, q, libQ)
 			if gapQ+encoderLibopusGapMeasurementToleranceQ < floor {
-				t.Fatalf("precision regression: gapQ=%.2f below floor %.2f (tol=%.2f, q=%.2f libQ=%.2f, source=%s)",
+				t.Fatalf("precision regression: status=%s gapQ=%.2f below floor %.2f (tol=%.2f, q=%.2f libQ=%.2f, source=%s)", status,
 					gapQ, floor, encoderLibopusGapMeasurementToleranceQ, q, libQ, precisionGuardSignalName)
 			}
+			t.Logf("precision floor PASS: gapQ=%.2f floor=%.2f tol=%.2f status=%s", gapQ, floor, encoderLibopusGapMeasurementToleranceQ, status)
 		})
+	}
+}
+
+func TestPrecisionFloorAppliesWithoutFixtureMetadata(t *testing.T) {
+	const caseName = "CELT-FB-5ms-mono-64k"
+	for _, metadata := range []struct {
+		name  string
+		value string
+	}{
+		{name: "absent"},
+		{name: "stale", value: "stale"},
+	} {
+		t.Run(metadata.name, func(t *testing.T) {
+			t.Setenv(requirePlatformFixturesEnv, metadata.value)
+			if metadata.value == "" && nativeLibopusComplianceReferenceAvailable() {
+				t.Fatal("native reference unexpectedly available without platform fixture metadata")
+			}
+			gapQ, status, floor := precisionGapStatusForCase(caseName, -1.0, 0)
+			if status != "FAIL" || gapQ+encoderLibopusGapMeasurementToleranceQ >= floor {
+				t.Fatalf("live paired score must fail below-floor regardless of %s fixture metadata: gap=%.2f status=%s floor=%.2f", metadata.name, gapQ, status, floor)
+			}
+		})
+	}
+}
+
+func TestPrecisionReferenceErrorCannotSkipInStrictMode(t *testing.T) {
+	missingHelperErr := errors.New("paired opus_demo unavailable")
+	configErr := &libopustooling.LibopusReferenceConfigError{Err: errors.New("conflicting paired variant")}
+
+	t.Setenv("GOPUS_STRICT_LIBOPUS_REF", "")
+	if precisionReferenceErrorRequiresFatal(missingHelperErr, strictLibopusReferenceRequired()) {
+		t.Fatal("ordinary optional reference absence should remain eligible for the documented fallback")
+	}
+	if !precisionReferenceErrorRequiresFatal(configErr, strictLibopusReferenceRequired()) {
+		t.Fatal("invalid reference configuration must fail even outside strict mode")
+	}
+
+	t.Setenv("GOPUS_STRICT_LIBOPUS_REF", "1")
+	if !precisionReferenceErrorRequiresFatal(missingHelperErr, strictLibopusReferenceRequired()) {
+		t.Fatal("strict helper absence must fail instead of skipping the precision floor")
 	}
 }
 

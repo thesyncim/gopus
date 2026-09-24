@@ -67,7 +67,7 @@ func assertCELTVariantPostfilterHeaderParityForCase(t *testing.T, fixtureCase en
 	if err != nil {
 		t.Fatalf("decode fixture packets: %v", err)
 	}
-	goPackets, err := encodeGopusForVariantsCase(fixtureCase, signal)
+	goPackets, _, err := encodeGopusForVariantsCase(fixtureCase, signal)
 	if err != nil {
 		t.Fatalf("encode gopus packets: %v", err)
 	}

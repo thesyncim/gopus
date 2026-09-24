@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -276,6 +277,51 @@ func TestFindValidatedReferenceToolUsesExplicitTree(t *testing.T) {
 	}
 }
 
+func TestDefaultSearchRootsIncludeGitHubWorkspace(t *testing.T) {
+	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "")
+	t.Setenv("GOPUS_STRICT_LIBOPUS_REF", "")
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	root := t.TempDir()
+	srcDir := writePairedReferenceTree(t, root, variant, runtime.GOOS, runtime.GOARCH, "opus_demo", "opus_compare")
+	scriptPath := filepath.Join(root, "tools", "ensure_libopus.sh")
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 17\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	})
+	t.Setenv("GITHUB_WORKSPACE", root)
+
+	got, err := FindOrEnsureOpusCompare(DefaultVersion, DefaultSearchRoots())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(srcDir, "opus_compare")
+	if runtime.GOOS == "windows" {
+		want += ".exe"
+	}
+	if got != want {
+		t.Fatalf("tool=%q want GITHUB_WORKSPACE paired tool %q", got, want)
+	}
+}
+
 func TestValidateLibopusReferenceToolOverrideAcceptsSelectedTree(t *testing.T) {
 	root := t.TempDir()
 	variant := LibopusReferenceScalar
@@ -304,7 +350,7 @@ func TestValidateWindowsExeOverrideIgnoresPOSIXExecBit(t *testing.T) {
 	}
 }
 
-func TestFindOrEnsureOpusCompareUsesValidatedPairedTree(t *testing.T) {
+func TestFindOrEnsureOpusCompareAcceptsStampedBuildWhenValidationCannotRun(t *testing.T) {
 	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "")
 	variant := LibopusReferenceScalar
 	if goLibopusReferenceSIMD {
@@ -333,7 +379,7 @@ func TestFindOrEnsureOpusCompareUsesValidatedPairedTree(t *testing.T) {
 	}
 }
 
-func TestFindOrEnsureOpusDemoRejectsUnstampedPairedTree(t *testing.T) {
+func TestFindOrEnsureOpusDemoRejectsExistingToolWhenValidationFails(t *testing.T) {
 	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "")
 	variant := LibopusReferenceScalar
 	if goLibopusReferenceSIMD {
@@ -363,6 +409,107 @@ func TestFindOrEnsureOpusDemoRejectsUnstampedPairedTree(t *testing.T) {
 	var configErr *LibopusReferenceConfigError
 	if !errors.As(err, &configErr) {
 		t.Fatalf("error=%v, want invalid paired-reference configuration", err)
+	}
+}
+
+func TestFindOrEnsureOpusCompareRejectsStampedBuildWithForeignFlags(t *testing.T) {
+	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "")
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	srcDir := writePairedReferenceTree(t, root, variant, runtime.GOOS, runtime.GOARCH, "opus_compare")
+	stampPath := filepath.Join(srcDir, ".gopus-libopus-build")
+	stamp, err := os.ReadFile(stampPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields, ok := parseLibopusBuildStamp(string(stamp))
+	if !ok {
+		t.Fatal("test stamp did not parse")
+	}
+	if fields["CFLAGS"] == "-O0" {
+		t.Fatal("test stamp unexpectedly already has foreign flags")
+	}
+	updated := strings.Replace(string(stamp), "CFLAGS="+fields["CFLAGS"], "CFLAGS=-O0", 1)
+	if err := os.WriteFile(stampPath, []byte(updated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scriptPath := filepath.Join(root, "tools", "ensure_libopus.sh")
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 17\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = findOrEnsureReferenceTool(DefaultVersion, []string{root}, "opus_compare", variant, runtime.GOOS, runtime.GOARCH)
+	var configErr *LibopusReferenceConfigError
+	if !errors.As(err, &configErr) {
+		t.Fatalf("error=%v, want LibopusReferenceConfigError for foreign compiler flags", err)
+	}
+}
+
+func TestFindOrEnsureOpusDemoValidatesBeforeReturningExistingTool(t *testing.T) {
+	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "")
+	t.Setenv("GOPUS_STRICT_LIBOPUS_REF", "")
+	if runtime.GOOS == "windows" {
+		t.Skip("ensure shell setup is Unix-only")
+	}
+	if _, err := exec.LookPath("bash"); err != nil {
+		if _, err := exec.LookPath("sh"); err != nil {
+			t.Skip("no shell available for ensure script")
+		}
+	}
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	root := t.TempDir()
+	templateRoot := t.TempDir()
+	templateDir := writePairedReferenceTree(t, templateRoot, variant, runtime.GOOS, runtime.GOARCH, "opus_demo")
+	suffix, err := LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetDir := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion+suffix)
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	staleTool := filepath.Join(targetDir, "opus_demo")
+	if err := os.WriteFile(staleTool, []byte("stale but executable"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	markerPath := filepath.Join(root, "ensure-ran")
+	t.Setenv("GOPUS_TEST_ENSURE_MARKER", markerPath)
+	t.Setenv("GOPUS_TEST_PAIRED_TEMPLATE", templateDir)
+	t.Setenv("GOPUS_TEST_PAIRED_TARGET", targetDir)
+	scriptPath := filepath.Join(root, "tools", "ensure_libopus.sh")
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\nmkdir -p \"$GOPUS_TEST_PAIRED_TARGET\"\ncp -R \"$GOPUS_TEST_PAIRED_TEMPLATE/.\" \"$GOPUS_TEST_PAIRED_TARGET/\"\nprintf '%s' \"$LIBOPUS_VERSION\" > \"$GOPUS_TEST_ENSURE_MARKER\"\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := FindOrEnsureOpusDemo(DefaultVersion, []string{root})
+	if err != nil {
+		t.Fatalf("find or ensure paired opus_demo: %v", err)
+	}
+	want := filepath.Join(targetDir, "opus_demo")
+	if got != want {
+		t.Fatalf("tool=%q want validated paired tool %q", got, want)
+	}
+	marker, err := os.ReadFile(markerPath)
+	if err != nil {
+		t.Fatalf("ensure script did not run before returning the existing tool: %v", err)
+	}
+	if string(marker) != DefaultVersion {
+		t.Fatalf("ensure script LIBOPUS_VERSION=%q want %q", string(marker), DefaultVersion)
 	}
 }
 
