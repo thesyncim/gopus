@@ -9,3 +9,7 @@ func firInterpol21846CoreDispatch(dst []int16, buf []int16, nOut int) {
 func firInterpol32768CoreDispatch(dst []int16, buf []int16, nOut int) {
 	firInterpol32768CoreSIMD(dst, buf, nOut)
 }
+
+func firInterpol43691CoreDispatch(dst []int16, buf []int16, nOut int) {
+	firInterpol43691CoreSIMD(dst, buf, nOut)
+}

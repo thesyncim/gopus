@@ -9,5 +9,5 @@ func firInterpol32768Core(dst []int16, buf []int16, nOut int) {
 }
 
 func firInterpol43691Core(dst []int16, buf []int16, nOut int) {
-	firInterpol43691CoreGo(dst, buf, nOut)
+	firInterpol43691CoreDispatch(dst, buf, nOut)
 }
