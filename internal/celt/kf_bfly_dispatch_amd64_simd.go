@@ -1,4 +1,4 @@
-//go:build (!arm64 && !amd64) || nosimd || !goexperiment.simd
+//go:build amd64 && goexperiment.simd && !nosimd
 
 package celt
 
@@ -7,7 +7,7 @@ func kfBfly4M1Core(fout []kissCpx, n int) {
 }
 
 func kfBfly5Inner(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
-	kfBfly5InnerScalar(fout, w, m, N, mm, fstride)
+	kfBfly5InnerSIMD(fout, w, m, N, mm, fstride)
 }
 
 func kfBfly3Inner(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
@@ -15,5 +15,5 @@ func kfBfly3Inner(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 }
 
 func kfBfly4Inner(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
-	kfBfly4InnerScalar(fout, w, m, N, mm, fstride)
+	kfBfly4InnerSIMD(fout, w, m, N, mm, fstride)
 }
