@@ -42,8 +42,6 @@ func pvqSearchPulseLoop(absX, y []float32, iy []int32, xy, yy float32, n, pulses
 			ryy = yy + y[j]
 			num := rxy * rxy
 			if bestDen*num > ryy*bestNum {
-				bestDen = ryy
-				bestNum = num
 				bestID = j
 			}
 		}
