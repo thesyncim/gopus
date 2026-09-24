@@ -19,26 +19,28 @@ const celtAbsSumUsesNeon = true
 // (TestL1AbsSumNeonBitExact). That order diverges from the scalar L1 sum by a few
 // ULP — the arm64 quality-gated regime — so amd64 and nosimd keep the scalar sum.
 func l1AbsSumNeon(tmp []float32, n int) float32 {
+	if n <= 0 {
+		return 0
+	}
+	_ = tmp[n-1]
 	acc := archsimd.BroadcastFloat32x4(0)
-	tp := unsafe.Pointer(unsafe.SliceData(tmp))
+	base := unsafe.Pointer(unsafe.SliceData(tmp))
 	i := 0
 	for ; i+8 <= n; i += 8 {
-		acc = acc.Add(loadF32x4(tp).Abs())
-		acc = acc.Add(loadF32x4(unsafe.Add(tp, 16)).Abs())
-		tp = unsafe.Add(tp, 32)
+		p := unsafe.Add(base, i*4)
+		acc = acc.Add(loadF32x4(p).Abs())
+		acc = acc.Add(loadF32x4(unsafe.Add(p, 16)).Abs())
 	}
 	for ; i+4 <= n; i += 4 {
-		acc = acc.Add(loadF32x4(tp).Abs())
-		tp = unsafe.Add(tp, 16)
+		acc = acc.Add(loadF32x4(unsafe.Add(base, i*4)).Abs())
 	}
 	var tail float32
 	for ; i < n; i++ {
-		v := *(*float32)(tp)
+		v := *(*float32)(unsafe.Add(base, i*4))
 		if v < 0 {
 			v = -v
 		}
 		tail += v
-		tp = unsafe.Add(tp, 4)
 	}
 	return ((acc.GetElem(0) + acc.GetElem(1)) + (acc.GetElem(2) + acc.GetElem(3))) + tail
 }

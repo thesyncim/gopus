@@ -19,27 +19,28 @@ import (
 // feature is present — always on arm64 NEON, gated on archsimd.X86.FMA() on amd64.
 func innerProd8FMA32ArchSIMD(x, y []float32, n int) float32 {
 	acc := archsimd.BroadcastFloat32x4(0)
-	xp := unsafe.Pointer(unsafe.SliceData(x))
-	yp := unsafe.Pointer(unsafe.SliceData(y))
+	if n <= 0 {
+		return 0
+	}
+	_ = x[n-1]
+	_ = y[n-1]
+	xbase := unsafe.Pointer(unsafe.SliceData(x))
+	ybase := unsafe.Pointer(unsafe.SliceData(y))
 	i := 0
 	for ; i+8 <= n; i += 8 {
+		xp := unsafe.Add(xbase, i*4)
+		yp := unsafe.Add(ybase, i*4)
 		acc = loadF32x4(xp).MulAdd(loadF32x4(yp), acc)
 		acc = loadF32x4(unsafe.Add(xp, 16)).MulAdd(loadF32x4(unsafe.Add(yp, 16)), acc)
-		xp = unsafe.Add(xp, 32)
-		yp = unsafe.Add(yp, 32)
 	}
 	for ; i+4 <= n; i += 4 {
-		acc = loadF32x4(xp).MulAdd(loadF32x4(yp), acc)
-		xp = unsafe.Add(xp, 16)
-		yp = unsafe.Add(yp, 16)
+		acc = loadF32x4(unsafe.Add(xbase, i*4)).MulAdd(loadF32x4(unsafe.Add(ybase, i*4)), acc)
 	}
 	sum0 := round32(acc.GetElem(0) + acc.GetElem(2))
 	sum1 := round32(acc.GetElem(1) + acc.GetElem(3))
 	sum := round32(sum0 + sum1)
 	for ; i < n; i++ {
-		sum = mdctFMA32(*(*float32)(xp), *(*float32)(yp), sum)
-		xp = unsafe.Add(xp, 4)
-		yp = unsafe.Add(yp, 4)
+		sum = mdctFMA32(*(*float32)(unsafe.Add(xbase, i*4)), *(*float32)(unsafe.Add(ybase, i*4)), sum)
 	}
 	return sum
 }
