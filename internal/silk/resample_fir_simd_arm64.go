@@ -13,6 +13,11 @@ var firInterpol21846SIMDCoefs = [3][8]int16{
 	{-103, 896, -3487, 11950, 26341, -3350, 529, -4},
 }
 
+var firInterpol32768SIMDCoefs = [2][8]int16{
+	{189, -600, 617, 30567, 2996, -1375, 425, -46},
+	{-99, 972, -4222, 18278, 21254, -4235, 905, -80},
+}
+
 func firInterpol21846CoreSIMD(dst []int16, buf []int16, nOut int) {
 	if nOut <= 0 {
 		return
@@ -32,9 +37,9 @@ func firInterpol21846CoreSIMD(dst []int16, buf []int16, nOut int) {
 	for i := 0; i < groups; i++ {
 		x := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(bufPtr, i*2)))
 		xHi := x.HiToLo()
-		res0 := firInterpol21846Dot(x, xHi, coef0, coef0Hi)
-		res4 := firInterpol21846Dot(x, xHi, coef4, coef4Hi)
-		res8 := firInterpol21846Dot(x, xHi, coef8, coef8Hi)
+		res0 := firInterpolDotSIMD(x, xHi, coef0, coef0Hi)
+		res4 := firInterpolDotSIMD(x, xHi, coef4, coef4Hi)
+		res8 := firInterpolDotSIMD(x, xHi, coef8, coef8Hi)
 		outIdx := i * 3
 		*(*int16)(unsafe.Add(dstPtr, outIdx*2)) = sat16RShiftRound15(res0)
 		*(*int16)(unsafe.Add(dstPtr, (outIdx+1)*2)) = sat16RShiftRound15(res4)
@@ -45,7 +50,44 @@ func firInterpol21846CoreSIMD(dst []int16, buf []int16, nOut int) {
 	}
 }
 
-func firInterpol21846Dot(xLo, xHi, coefLo, coefHi archsimd.Int16x8) int32 {
+func firInterpolDotSIMD(xLo, xHi, coefLo, coefHi archsimd.Int16x8) int32 {
 	sum := xLo.MulWidenLo(coefLo).Add(xHi.MulWidenLo(coefHi))
 	return sum.ReduceSum()
+}
+
+func firInterpol32768CoreSIMD(dst []int16, buf []int16, nOut int) {
+	if nOut <= 0 {
+		return
+	}
+	_ = dst[nOut-1]
+	_ = buf[(nOut-1)/2+7]
+
+	coef0 := archsimd.LoadInt16x8Array(&firInterpol32768SIMDCoefs[0])
+	coef6 := archsimd.LoadInt16x8Array(&firInterpol32768SIMDCoefs[1])
+	coef0Hi := coef0.HiToLo()
+	coef6Hi := coef6.HiToLo()
+	bufPtr := unsafe.Pointer(unsafe.SliceData(buf))
+	dstPtr := unsafe.Pointer(unsafe.SliceData(dst))
+	groups := nOut / 2
+	for remaining := groups; remaining > 1; remaining-- {
+		x := archsimd.LoadInt16x8Array((*[8]int16)(bufPtr))
+		xHi := x.HiToLo()
+		res0 := firInterpolDotSIMD(x, xHi, coef0, coef0Hi)
+		res6 := firInterpolDotSIMD(x, xHi, coef6, coef6Hi)
+		*(*int16)(dstPtr) = sat16RShiftRound15(res0)
+		*(*int16)(unsafe.Add(dstPtr, 2)) = sat16RShiftRound15(res6)
+		bufPtr = unsafe.Add(bufPtr, 2)
+		dstPtr = unsafe.Add(dstPtr, 4)
+	}
+	if groups != 0 {
+		x := archsimd.LoadInt16x8Array((*[8]int16)(bufPtr))
+		xHi := x.HiToLo()
+		res0 := firInterpolDotSIMD(x, xHi, coef0, coef0Hi)
+		res6 := firInterpolDotSIMD(x, xHi, coef6, coef6Hi)
+		*(*int16)(dstPtr) = sat16RShiftRound15(res0)
+		*(*int16)(unsafe.Add(dstPtr, 2)) = sat16RShiftRound15(res6)
+	}
+	if tail := nOut - groups*2; tail != 0 {
+		firInterpol32768CoreGo(dst[groups*2:], buf[groups:], tail)
+	}
 }

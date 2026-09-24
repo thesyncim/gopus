@@ -27,6 +27,52 @@ func TestFIRInterpol21846CoreZeroAlloc(t *testing.T) {
 	}
 }
 
+func TestFIRInterpol32768CoreZeroAlloc(t *testing.T) {
+	const nOut = 240
+	buf := make([]int16, (nOut-1)/2+8)
+	for i := range buf {
+		buf[i] = int16((i*7919)%60001 - 30000)
+	}
+	dst := make([]int16, nOut)
+	firInterpol32768Core(dst, buf, nOut)
+	want := make([]int16, nOut)
+	firInterpol32768CoreGo(want, buf, nOut)
+	if !reflect.DeepEqual(dst, want) {
+		t.Fatal("firInterpol32768Core differs from Go reference at N=240")
+	}
+	if allocs := testing.AllocsPerRun(100, func() { firInterpol32768Core(dst, buf, nOut) }); allocs != 0 {
+		t.Fatalf("got %g allocations per FIR core call, want 0", allocs)
+	}
+}
+
+func TestFIRInterpol32768CoreCanaries(t *testing.T) {
+	for _, nOut := range []int{1, 2, 3, 15, 16, 17, 239, 240, 241} {
+		const guard = int16(0x5a5a)
+		bufLen := (nOut-1)/2 + 8
+		bufStorage := make([]int16, bufLen+2)
+		bufStorage[0], bufStorage[len(bufStorage)-1] = guard, guard
+		buf := bufStorage[1 : len(bufStorage)-1]
+		for i := range buf {
+			buf[i] = int16((i*7919)%60001 - 30000)
+		}
+		dstStorage := make([]int16, nOut+2)
+		dstStorage[0], dstStorage[len(dstStorage)-1] = guard, guard
+		dst := dstStorage[1 : len(dstStorage)-1]
+		firInterpol32768Core(dst, buf, nOut)
+		want := make([]int16, nOut)
+		firInterpol32768CoreGo(want, buf, nOut)
+		if !reflect.DeepEqual(dst, want) {
+			t.Fatalf("nOut=%d differs from Go reference", nOut)
+		}
+		if dstStorage[0] != guard || dstStorage[len(dstStorage)-1] != guard {
+			t.Fatalf("nOut=%d overwrote destination canary", nOut)
+		}
+		if bufStorage[0] != guard || bufStorage[len(bufStorage)-1] != guard {
+			t.Fatalf("nOut=%d overwrote input canary", nOut)
+		}
+	}
+}
+
 func FuzzSilkKernelsMatchReference(f *testing.F) {
 	for _, seed := range []struct {
 		length uint8
