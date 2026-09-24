@@ -710,6 +710,7 @@ jobs:
         with:
           path: |
             baseline/tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            baseline/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
             baseline/tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
             candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}
             candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar

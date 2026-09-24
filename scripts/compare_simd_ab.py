@@ -8,11 +8,15 @@ import re
 import sys
 
 
-CBR_ROW = re.compile(r"^\s+\S+\.go:\d+:\s+(\S+)\s+(\d+)\s+(\d+)\s+(OK|FAIL|RESIDUAL|SKIP)\s*$")
+CBR_ROW = re.compile(r"^\s+\S+\.go:\d+:\s+(\S+)\s+(\d+)\s+(\d+)\s+(OK|FAIL|RESIDUAL|SKIP|~(?: \([^)]*\))?)\s*$")
 CBR_TOTAL = re.compile(r"pass=(\d+) residual=(\d+) fail=(\d+) skip=(\d+)")
 CBR_SEVERITY = {"OK": 0, "RESIDUAL": 1, "FAIL": 2, "SKIP": 3}
 DECODE_DETAIL = re.compile(r"(?:PCM diverges|diverging packet=)")
 BENCH = re.compile(r"^Benchmark\S+\s+\d+\s+\S+ ns/op\s+(\d+) B/op\s+(\d+) allocs/op$")
+PRECISION_GO = re.compile(r"RealContent gopus Q=([-\d.]+)")
+PRECISION_C = re.compile(r"RealContent libopus Q=([-\d.]+)")
+# Hybrid-FB-20ms-stereo-96k: testvectors floor -0.05 plus measurement tolerance 0.15.
+PRECISION_MIN_GAP = -0.20
 SAMPLE_DIFFERENCE = re.compile(r"(\d+)/(\d+) samples differ, maxAbs=([\d.eE+-]+)")
 REMOVED_ASSEMBLY_TEST = re.compile(
     r"^(?:TestAssemblyValidationContract|TestCELTLegacyFloat64AssemblyRequiresOptInTag|"
@@ -43,7 +47,7 @@ def cbr_rows(log: str):
             name, frames, differences, status = match.groups()
             if name in rows:
                 raise ValueError(f"duplicate CBR case: {name}")
-            rows[name] = (int(frames), int(differences), status)
+            rows[name] = (int(frames), int(differences), "RESIDUAL" if status.startswith("~") else status)
     if not rows:
         raise ValueError("no CBR summary rows")
     total = CBR_TOTAL.search(log)
@@ -54,6 +58,13 @@ def cbr_rows(log: str):
 
 def decode_details(log: str):
     return [line.split(": ", 2)[-1].strip() for line in log.splitlines() if DECODE_DETAIL.search(line)]
+
+
+def precision_gap(log: str):
+    go_q, c_q = PRECISION_GO.search(log), PRECISION_C.search(log)
+    if not go_q or not c_q:
+        raise ValueError("missing mode-matched Go or libopus Q")
+    return float(go_q.group(1)) - float(c_q.group(1))
 
 
 def full_parity(log: str):
@@ -126,15 +137,18 @@ def compare(root: pathlib.Path):
     errors = []
     for side, phase in [
         ("baseline", "ensure-libopus"),
+        ("baseline", "ensure-libopus-scalar"),
         ("candidate", "ensure-libopus"),
         ("candidate", "ensure-libopus-scalar"),
         ("baseline", "platform-fixtures"),
         ("candidate", "platform-fixtures"),
         ("baseline", "default-selected-kernel-files"),
+        ("baseline", "purego-selected-kernel-files"),
         ("candidate", "simd-selected-kernel-files"),
         ("candidate", "simd-xcorr-runtime-identity"),
         ("candidate", "simd-pvq-dispatch"),
         ("baseline", "default-precision-guard"),
+        ("baseline", "purego-precision-guard"),
         ("candidate", "simd-precision-guard"),
     ]:
         code, _ = read_phase(root, side, phase)
@@ -155,6 +169,37 @@ def compare(root: pathlib.Path):
             errors.append(f"{name}: old asm reports {base_status}, Go SIMD reports {simd_status}")
         if simd_status == "SKIP":
             errors.append(f"{name}: Go SIMD skipped the CBR case")
+
+    base_scalar_code, base_scalar_log = read_phase(root, "baseline", "purego-cbr-parity")
+    base_scalar_rows = cbr_rows(base_scalar_log)
+    if base_scalar_code or base_scalar_rows.keys() != base_cbr.keys():
+        errors.append("baseline purego scalar-C CBR matrix failed or changed case set")
+    for mode in ("default", "nosimd"):
+        code, log = read_phase(root, "candidate", f"{mode}-cbr-parity")
+        rows = cbr_rows(log)
+        if code or rows.keys() != base_cbr.keys():
+            errors.append(f"candidate {mode} scalar-C CBR matrix failed or changed case set")
+        for name, (frames, differences, status) in rows.items():
+            if status in {"FAIL", "SKIP"}:
+                errors.append(f"candidate {mode} scalar-C CBR case {name} reports {status}")
+            if name in base_scalar_rows:
+                base_frames, base_diff, base_status = base_scalar_rows[name]
+                if frames != base_frames or differences > base_diff:
+                    errors.append(f"candidate {mode} {name}: purego {base_diff}/{base_frames}, Go scalar {differences}/{frames}")
+                if CBR_SEVERITY[status] > CBR_SEVERITY[base_status]:
+                    errors.append(f"candidate {mode} {name}: purego reports {base_status}, Go scalar reports {status}")
+
+    for mode in ("default", "nosimd", "simd"):
+        code, log = read_phase(root, "candidate", f"{mode}-precision-guard")
+        if code:
+            errors.append(f"candidate {mode} precision guard exited {code}")
+        try:
+            gap = precision_gap(log)
+        except ValueError as exc:
+            errors.append(f"candidate {mode} precision guard: {exc}")
+        else:
+            if gap < PRECISION_MIN_GAP:
+                errors.append(f"candidate {mode} quality gap exceeds the existing -0.05 floor and 0.15 tolerance")
 
     base_code, base_decode = read_phase(root, "baseline", "default-decode-differential")
     simd_code, simd_decode = read_phase(root, "candidate", "simd-decode-differential")

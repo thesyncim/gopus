@@ -5,7 +5,7 @@ import pathlib
 import tempfile
 import unittest
 
-from compare_simd_ab import REPLACEMENT_TESTS, compare_full_parity
+from compare_simd_ab import REPLACEMENT_TESTS, cbr_rows, compare_full_parity, precision_gap
 
 
 def event(action, test=None, output=None, package="github.com/thesyncim/gopus"):
@@ -18,6 +18,16 @@ def event(action, test=None, output=None, package="github.com/thesyncim/gopus"):
 
 
 class FullParityComparisonTest(unittest.TestCase):
+    def test_scalar_cbr_residual_is_counted(self):
+        log = "    encoder_cbr_byte_parity_test.go:637: CELT-FB-5ms-mono-64k 200 5 ~ (pure-Go CELT float residual)\npass=0 residual=1 fail=0 skip=0\n"
+        self.assertEqual(cbr_rows(log), {"CELT-FB-5ms-mono-64k": (200, 5, "RESIDUAL")})
+
+    def test_precision_gap_uses_both_mode_matched_q_values(self):
+        log = "RealContent gopus Q=31.56\nRealContent libopus Q=31.56\n"
+        self.assertEqual(precision_gap(log), 0)
+        with self.assertRaises(ValueError):
+            precision_gap("RealContent gopus Q=31.56\n")
+
     def compare(self, base_status="fail", candidate_status="fail", candidate_skip=False,
                 candidate_sample_count=2):
         with tempfile.TemporaryDirectory() as name:

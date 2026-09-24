@@ -66,6 +66,11 @@ run_mode() {
       cbr_tags=(-tags nosimd)
       oracle_tags=(-tags nosimd,gopus_libopus_oracle)
       ;;
+    purego)
+      env_args=(env -u GOEXPERIMENT)
+      cbr_tags=(-tags purego)
+      oracle_tags=(-tags purego,gopus_libopus_oracle)
+      ;;
     simd)
       env_args=(env GOEXPERIMENT=simd)
       ;;
@@ -78,7 +83,7 @@ run_mode() {
   # The PR candidate's ordinary and nosimd builds use scalar Go kernels. Keep
   # their live libopus comparisons on generic C; the retained assembly baseline
   # and candidate SIMD build use the platform libopus SIMD path.
-  if [[ "$side" == candidate && ( "$mode" == default || "$mode" == nosimd ) ]]; then
+  if [[ ( "$side" == candidate && ( "$mode" == default || "$mode" == nosimd ) ) || ( "$side" == baseline && "$mode" == purego ) ]]; then
     ref_env_args=(GOPUS_LIBOPUS_REF_SCALAR=1)
   fi
 
@@ -87,7 +92,7 @@ run_mode() {
       -f '{{.ImportPath}}: Go={{join .GoFiles " "}} Asm={{join .SFiles " "}}' \
       ./internal/celt ./internal/silk
 
-  if [[ "$mode" != nosimd ]]; then
+  if [[ "$mode" == default || "$mode" == simd ]]; then
     run_phase "$side" "$root" "$mode-xcorr-runtime-identity" \
       "${env_args[@]}" \
       go test ./internal/celt ./internal/silk \
@@ -162,7 +167,12 @@ run_side() {
   fi
 
   if [[ "$side" == baseline ]]; then
+    run_phase "$side" "$root" ensure-libopus-scalar make ensure-libopus-scalar
+    if [[ "$(cat "$artifact_root/$side-ensure-libopus-scalar.exit")" != 0 ]]; then
+      return 0
+    fi
     run_mode "$side" "$root" default
+    run_mode "$side" "$root" purego
     run_mode "$side" "$root" simd
     run_phase "$side" "$root" default-full-parity \
       env -u GOEXPERIMENT GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
@@ -198,7 +208,7 @@ if [[ -n "$summary_file" ]]; then
     echo '| Checkout | Mode | CBR matrix | Hybrid precision | PVQ dispatch | Kernel benchmarks |'
     echo '| --- | --- | ---: | ---: | ---: | ---: |'
     for side in baseline candidate; do
-      if [[ "$side" == baseline ]]; then modes=(default simd); else modes=(default nosimd simd); fi
+      if [[ "$side" == baseline ]]; then modes=(default purego simd); else modes=(default nosimd simd); fi
       for mode in "${modes[@]}"; do
         values=()
         for phase in "$mode-cbr-parity" "$mode-precision-guard" "$mode-pvq-dispatch" "$mode-kernel-benchmarks"; do
@@ -215,7 +225,7 @@ if [[ -n "$summary_file" ]]; then
     echo '### Selected kernel sources'
     echo
     for side in baseline candidate; do
-      if [[ "$side" == baseline ]]; then modes=(default simd); else modes=(default nosimd simd); fi
+      if [[ "$side" == baseline ]]; then modes=(default purego simd); else modes=(default nosimd simd); fi
       for mode in "${modes[@]}"; do
         echo "#### $side / $mode"
         echo
@@ -230,7 +240,7 @@ if [[ -n "$summary_file" ]]; then
     echo '### CBR summaries'
     echo
     for side in baseline candidate; do
-      if [[ "$side" == baseline ]]; then modes=(default simd); else modes=(default nosimd simd); fi
+      if [[ "$side" == baseline ]]; then modes=(default purego simd); else modes=(default nosimd simd); fi
       for mode in "${modes[@]}"; do
         echo "#### $side / $mode"
         echo
@@ -245,7 +255,7 @@ if [[ -n "$summary_file" ]]; then
     echo '### Hybrid-FB-20ms-stereo-96k precision guard'
     echo
     for side in baseline candidate; do
-      if [[ "$side" == baseline ]]; then modes=(default simd); else modes=(default nosimd simd); fi
+      if [[ "$side" == baseline ]]; then modes=(default purego simd); else modes=(default nosimd simd); fi
       for mode in "${modes[@]}"; do
         echo "#### $side / $mode"
         echo

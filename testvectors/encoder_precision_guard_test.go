@@ -148,6 +148,7 @@ func TestEncoderCompliancePrecisionGuard(t *testing.T) {
 				t.Logf("real-content libopus reference unavailable for %s (gopus Q=%.2f); gap guard skipped", tc.name, q)
 				return
 			}
+			t.Logf("RealContent libopus Q=%.2f (source=%s)", libQ, precisionGuardSignalName)
 
 			gapQ := q - libQ
 			if !native {
