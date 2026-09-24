@@ -35,16 +35,22 @@ func synthesizeLPCOrder16Core(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq 
 		v1 := archsimd.LoadInt32x4Array((*[4]int32)(unsafe.Add(stateBase, stateOffset+16)))
 		v2 := archsimd.LoadInt32x4Array((*[4]int32)(unsafe.Add(stateBase, stateOffset+32)))
 		v3 := archsimd.LoadInt32x4Array((*[4]int32)(unsafe.Add(stateBase, stateOffset+48)))
-		pred := int32(maxLPCOrder>>1) + synthesizeLPCOrder16DotQ16(v0, c0) + synthesizeLPCOrder16DotQ16(v1, c1) + synthesizeLPCOrder16DotQ16(v2, c2) + synthesizeLPCOrder16DotQ16(v3, c3)
+		// The rounded products fit int32 individually. Summing them in int64
+		// avoids horizontal reductions; the final narrowing preserves int32 wrap.
+		predProducts := synthesizeLPCOrder16RoundProductsQ16(v0, c0)
+		predProducts = predProducts.Add(synthesizeLPCOrder16RoundProductsQ16(v1, c1))
+		predProducts = predProducts.Add(synthesizeLPCOrder16RoundProductsQ16(v2, c2))
+		predProducts = predProducts.Add(synthesizeLPCOrder16RoundProductsQ16(v3, c3))
+		pred := int32(maxLPCOrder>>1) + predProducts.TruncToInt32().ReduceSum()
 		s := silkAddSat32(presQ14[i], lShiftSAT32By4(pred))
 		*(*int32)(unsafe.Add(stateBase, (maxLPCOrder+i)*4)) = s
 		pxq[i] = silkSAT16(silkRSHIFT_ROUND(silkSMULWW(s, gainQ10), 8))
 	}
 }
 
-func synthesizeLPCOrder16DotQ16(x, y archsimd.Int32x4) int32 {
-	// Shift each product before reduction to preserve silkSMLAWB's Q16 rounding.
-	lo := x.MulWidenLo(y).ShiftAllRight(16).TruncToInt32()
-	hi := x.HiToLo().MulWidenLo(y.HiToLo()).ShiftAllRight(16).TruncToInt32()
-	return lo.Add(hi).ReduceSum()
+func synthesizeLPCOrder16RoundProductsQ16(x, y archsimd.Int32x4) archsimd.Int64x2 {
+	// Shift each product before summing to preserve silkSMLAWB's Q16 rounding.
+	lo := x.MulWidenLo(y).ShiftAllRight(16)
+	hi := x.HiToLo().MulWidenLo(y.HiToLo()).ShiftAllRight(16)
+	return lo.Add(hi)
 }
