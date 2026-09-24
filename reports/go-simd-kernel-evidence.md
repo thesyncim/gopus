@@ -121,6 +121,29 @@ and 16. Its transposed pitch-search candidate adds one NaN-payload failure
 without a material coarse-search speedup, so the source selects the verified
 one-pass kernel again. The tiny length-10 specialization remains.
 
+## End-to-end codec throughput
+
+The six public encode/decode benchmarks run on one Apple M4 Max with Go
+1.27.0, `GOEXPERIMENT=simd`, `-cpu=1`, three 300 ms samples per mode, and
+preallocated caller buffers. Old is the pre-port `ef5a9fe74` default assembly
+build; Go SIMD and `nosimd` use this branch's ARM64 kernel sources. The table
+gives median ns/op; lower is faster. Every sample reports 0 B/op and
+0 allocs/op.
+
+| Fixture | Old assembly | Go SIMD | `nosimd` | Go SIMD vs old |
+|---|---:|---:|---:|---:|
+| CELT decode | 6,740 | 6,515 | 9,644 | 3.3% faster |
+| Hybrid decode | 11,964 | 11,632 | 13,438 | 2.8% faster |
+| SILK decode | 9,068 | 8,993 | 9,947 | 0.8% faster |
+| Caller-buffer encode | 35,835 | 34,653 | 42,815 | 3.3% faster |
+| VoIP encode | 40,304 | 39,128 | 47,293 | 2.9% faster |
+| Low-delay encode | 35,830 | 34,448 | 42,209 | 3.9% faster |
+
+The geometric mean of these six time ratios is 2.8% faster for Go SIMD and
+19.5% slower for `nosimd` versus old assembly. This is an equal-fixture
+summary, not a workload-weighted application score. The native AMD64 A/B
+workflow records the same three-mode end-to-end benchmarks on one x86 runner.
+
 ## Per-symbol inventory
 
 `old path` names the assembly file in `origin/master`. `0` in the allocation
