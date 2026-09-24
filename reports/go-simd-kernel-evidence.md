@@ -6,6 +6,41 @@ Go 1.27 `simd/archsimd` implementation selected by `GOEXPERIMENT=simd`; ordinary
 builds use the listed scalar Go path, and `-tags nosimd` forces the scalar
 reference path.
 
+## Correctness status
+
+Exact end-to-end packet parity with libopus is unresolved. Go SIMD selects the
+explicit native libopus SIMD tree; ordinary Go and `nosimd` select the explicit
+scalar tree. Conflicting overrides, mismatched archive/header trees, invalid
+build stamps, and unverified tool paths fail before comparison. Scalar C uses
+`-O3 -DNDEBUG -fno-tree-vectorize -fno-tree-slp-vectorize` in both correctness
+and performance helpers, retaining normal scalar FMA contraction. The ARM64
+archive's band-energy loop contains scalar loads and scalar FMA accumulation.
+
+On ARM64, the live band-energy and renormalization oracles match exactly in
+all three Go modes. Full SILK parity passes in all three modes. The matched
+CBR summaries each contain eight exact configurations and 11 configurations
+with packet differences, with no skipped configurations. The scalar and SIMD
+800-case CELT encode grids each contain 791 byte-exact cases, nine residual
+cases, and no hard failures. Residual labels do not establish exact parity.
+Scalar pitch downsampling, raw/windowed PLC autocorrelation, LPC, FIR, and
+periodic-conceal energy match live C bit for bit after preserving each C
+accumulation and lag-window order. All five periodic-conceal cases and the
+staged PLC history check pass in ordinary and `nosimd` builds. The full scalar
+CELT run has 2,834 passing test events and one failing case: a missing chirp
+packet-key fixture. The SIMD CELT suite passes its active checks but still
+skips several float oracles under its architecture policy. Root encode/decode
+steady-state allocation guards pass with Go SIMD.
+
+The native A/B comparator checks for additional failures relative to old
+assembly; matching failure counts do not prove matching packets or dispatch.
+The latest completed native run at `cd62a758` has 13 CBR configurations with
+packet differences in both the assembly baseline and Go SIMD.
+
+Run [36031595048](https://github.com/thesyncim/gopus/actions/runs/36031595048)
+at `cd62a758` also has four NaN-payload parity failures in the AMD64 pitch
+search candidates. Their finite-input timings are provisional. The per-symbol
+inventory retains the accepted measurements until correctness is verified.
+
 ## Measurement method
 
 M4 Max (`darwin/arm64`) A/B measurements use the same host and Go version for
@@ -124,25 +159,47 @@ one-pass kernel again. The tiny length-10 specialization remains.
 ## End-to-end codec throughput
 
 The six public encode/decode benchmarks run on one Apple M4 Max with Go
-1.27.0, `GOEXPERIMENT=simd`, `-cpu=1`, three 300 ms samples per mode, and
-preallocated caller buffers. Old is the pre-port `ef5a9fe74` default assembly
-build; Go SIMD and `nosimd` use this branch's ARM64 kernel sources. The table
-gives median ns/op; lower is faster. Every sample reports 0 B/op and
-0 allocs/op.
+1.27.0, `-cpu=1`, three interleaved 300 ms samples per mode, and preallocated
+caller buffers. Old is the pre-port `ef5a9fe74` default assembly build;
+Go SIMD and `nosimd` use `1b18fbf0` with `GOEXPERIMENT=simd`. The table gives
+median ns/op; lower is faster. Every sample reports 0 B/op and 0 allocs/op.
 
-| Fixture | Old assembly | Go SIMD | `nosimd` | Go SIMD vs old |
-|---|---:|---:|---:|---:|
-| CELT decode | 6,740 | 6,515 | 9,644 | 3.3% faster |
-| Hybrid decode | 11,964 | 11,632 | 13,438 | 2.8% faster |
-| SILK decode | 9,068 | 8,993 | 9,947 | 0.8% faster |
-| Caller-buffer encode | 35,835 | 34,653 | 42,815 | 3.3% faster |
-| VoIP encode | 40,304 | 39,128 | 47,293 | 2.9% faster |
-| Low-delay encode | 35,830 | 34,448 | 42,209 | 3.9% faster |
+| Fixture | Old assembly | Go SIMD | `nosimd` |
+|---|---:|---:|---:|
+| CELT decode | 6,972 | 6,999 | 10,344 |
+| Hybrid decode | 12,694 | 12,278 | 13,623 |
+| SILK decode | 10,369 | 9,207 | 10,378 |
+| Caller-buffer encode | 38,918 | 34,517 | 52,475 |
+| VoIP encode | 46,067 | 38,627 | 61,210 |
+| Low-delay encode | 40,303 | 34,744 | 54,005 |
 
-The geometric mean of these six time ratios is 2.8% faster for Go SIMD and
-19.5% slower for `nosimd` versus old assembly. This is an equal-fixture
-summary, not a workload-weighted application score. The native AMD64 A/B
+These samples have substantial timing spread (for example, old caller-buffer
+encode spans 35,914–43,802 ns/op and Go SIMD spans 33,682–40,909 ns/op).
+They establish current allocation counts and measured ranges; small throughput
+changes are inconclusive. The earlier quieter `cd62a758` run measures a 2.8%
+SIMD improvement by equal-fixture geometric mean. The native AMD64 A/B
 workflow records the same three-mode end-to-end benchmarks on one x86 runner.
+These tables compare Go implementations with old Go assembly, independently
+of the matched libopus scalar/SIMD correctness comparisons.
+
+### Native AMD64 candidate
+
+Run 36031595048 uses one AMD EPYC 9V74 runner, Go 1.27.1, `-cpu=1`, and
+three 300 ms samples per mode. All samples report zero bytes and allocations.
+The candidate is `cd62a758`; its unresolved correctness failures are listed
+above. These measurements do not establish packet correctness.
+
+| Fixture | Old assembly | Go SIMD candidate | `nosimd` |
+|---|---:|---:|---:|
+| CELT decode | 20,203 | 20,227 | 22,560 |
+| Hybrid decode | 29,753 | 29,829 | 31,696 |
+| SILK decode | 23,528 | 23,630 | 23,987 |
+| Caller-buffer encode | 92,583 | 123,113 | 118,525 |
+| VoIP encode | 98,724 | 129,079 | 124,775 |
+| Low-delay encode | 91,661 | 122,326 | 118,035 |
+
+Go SIMD decode is within 0.5% of assembly on these fixtures; encode takes
+30.7–33.5% more time. Ratios compare only modes on this same runner.
 
 ## Per-symbol inventory
 
