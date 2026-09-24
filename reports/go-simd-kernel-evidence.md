@@ -16,6 +16,9 @@ mode; the initial rows use 100 ms samples and the added inventory wrappers use
 200 ms samples.
 The tuned PCM and ARM64 SILK xcorr rows use five 250 ms samples; ARM64 tone
 LPC uses five interleaved 300 ms samples. All use GOMAXPROCS=4 on the same M4.
+The tuned SILK float conversion row uses 20 interleaved samples per mode with
+one million calls per sample and the same N=480 input fixture. Pitch detection
+uses scale 1; scale 32768 is measured separately.
 The tuned MDCT post-twiddle row uses three interleaved 15-sample runs; its
 reported ranges are the three within-run medians because individual samples
 include M4 scheduling outliers. Assembly and both SIMD versions use the same
@@ -96,7 +99,7 @@ comparable per-call Go operation and are marked n/a with the reason.
 | 38 | `reciprocalEstimate32` | arm64 | `internal/dnnmath/reciprocal_estimate_default.go` | scalar Go | input set of 64 normal float32 values, old asm → Go → SIMD build: 1.405 (1.398–1.428) → 2.021 (1.918–2.285) → 1.932 (1.915–2.308) | 0 | measured; Go emulation is 44% slower than FRECPE asm; SIMD build uses the same scalar routine |
 | 39 | `fma32` | arm64 | `internal/lpcnetplc/fma32_arm64.go`; `internal/lpcnetplc/fma32_default.go` | Go float32 expression / scalar | 64 varying input triples, old asm → Go → SIMD build: 1.915 (1.913–1.916) → 0.5506 (0.5505–0.5517) → 0.5491 (0.5489–0.5509) | 0 | measured; Go FMADD expression is 3.5× faster than the out-of-line asm call |
 | 40 | `gruFMA32` | arm64 | `internal/osce/lace/gru_fma_arm64.go`; `internal/osce/lace/gru_fma_default.go` | Go float32 expression / scalar | 64 varying input triples, old asm → Go → SIMD build: 1.914 (1.912–1.916) → 0.5497 (0.5494–0.5504) → 0.5502 (0.5488–0.5515) | 0 | measured; Go FMADD expression is 3.5× faster than the out-of-line asm call |
-| 41 | `floatToInt16ScaledCore` | arm64 | `internal/silk/convert_simd_arm64.go`; `internal/silk/float_to_int16_default.go` | archsimd / scalar | N=480: old asm → Go → SIMD: 34.96 (34.95–50.73) → 489.8 (484.9–513.3) → 52.03 (51.95–52.22) | 0 | measured; SIMD is 49% slower than asm, scalar Go 14× slower |
+| 41 | `floatToInt16ScaledCore` | arm64 | `internal/silk/convert_simd_arm64.go`; `internal/silk/float_to_int16_default.go` | archsimd / scalar | N=480, scale 1: old asm 23.33 (22.97–23.59) → prior Go SIMD 34.65 (34.32–35.32) → tuned SIMD 27.16 (26.55–27.47). Scale 32768: old asm 23.36 (22.89–23.72) → prior Go SIMD 34.66 (34.24–35.26) → tuned SIMD 34.92 (34.26–35.65). Scalar Go 489.8 (484.9–513.3; earlier Go 1.27.1 fixture). | 0 | paired M4 Go 1.27.0; live pitch path at scale 1 is 22% faster than prior Go and 16% slower than asm; scale 32768 has no measured gain; exact and zero-alloc checks pass |
 | 42 | `innerProductFLPAVX2` | amd64 | `internal/silk/inner_product_flp_simd_amd64.go`; `internal/silk/inner_product_flp_amd64.go` | archsimd / scalar | N=480, old asm → scalar Go → Go SIMD: 70.17 (68.83–71.95) → 204.2 (204.0–204.8) → 69.37 (69.34–70.31) | 0 | measured in run 359362; SIMD and asm are within 1.1% on this runner |
 | 43 | `innerProductFLPArm64` | arm64 | `internal/silk/inner_product_flp_arm64.go` | scalar Go | N=480: old asm → Go → SIMD build: 126.6 (126.5–126.7) → 205.5 (205.3–212.8) → 201.6 (200.8–211.3) | 0 | measured; scalar replacement 62% slower than asm |
 | 44 | `writeInt16AsFloat32Core` | arm64 | `internal/silk/convert_simd_arm64.go`; `internal/silk/int16_float32_default.go` | archsimd / scalar | N=480: old asm → Go → SIMD: 38.87 (38.66–39.76) → 216.4 (216.1–217.3) → 49.43 (49.40–49.80) | 0 | measured; SIMD is 27% slower than asm, scalar Go 5.6× slower |
