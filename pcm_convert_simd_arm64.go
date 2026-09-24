@@ -52,32 +52,24 @@ func convertFloat32ToInt16UnitBlocks(dst []int16, src []float32, n int) bool {
 	dp := unsafe.Pointer(unsafe.SliceData(dst))
 	one := archsimd.BroadcastFloat32x4(1)
 	scale := archsimd.BroadcastFloat32x4(32768)
-	max := archsimd.BroadcastInt32x4(32767)
 	for i := 0; i < n; i += 16 {
 		v0 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, i*4)))
-		if v0.Abs().LessEqual(one).ToInt32x4().ReduceMax() != -1 {
-			return false
-		}
-		q0 := v0.Mul(scale).Round().ConvertToInt32().Min(max)
-
 		v1 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, i*4+16)))
-		if v1.Abs().LessEqual(one).ToInt32x4().ReduceMax() != -1 {
-			return false
-		}
-		q1 := v1.Mul(scale).Round().ConvertToInt32().Min(max)
-		storeInt16x8((*[8]int16)(unsafe.Add(dp, i*2)), q0, q1)
-
 		v2 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, i*4+32)))
-		if v2.Abs().LessEqual(one).ToInt32x4().ReduceMax() != -1 {
-			return false
-		}
-		q2 := v2.Mul(scale).Round().ConvertToInt32().Min(max)
-
 		v3 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, i*4+48)))
-		if v3.Abs().LessEqual(one).ToInt32x4().ReduceMax() != -1 {
+		valid := v0.Abs().LessEqual(one).
+			And(v1.Abs().LessEqual(one)).
+			And(v2.Abs().LessEqual(one)).
+			And(v3.Abs().LessEqual(one))
+		if valid.ToInt32x4().ReduceMax() != -1 {
 			return false
 		}
-		q3 := v3.Mul(scale).Round().ConvertToInt32().Min(max)
+
+		q0 := v0.Mul(scale).Round().ConvertToInt32()
+		q1 := v1.Mul(scale).Round().ConvertToInt32()
+		q2 := v2.Mul(scale).Round().ConvertToInt32()
+		q3 := v3.Mul(scale).Round().ConvertToInt32()
+		storeInt16x8((*[8]int16)(unsafe.Add(dp, i*2)), q0, q1)
 		storeInt16x8((*[8]int16)(unsafe.Add(dp, i*2+16)), q2, q3)
 	}
 	return true
