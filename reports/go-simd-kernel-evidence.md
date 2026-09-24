@@ -30,6 +30,9 @@ on the same M4 with length=240 and maxPitch=120.
 The tuned ARM64 SILK LPC synthesis row uses five paired 300 ms samples per mode
 on the same M4 with subframe length 80. One assembly sample is a low outlier;
 the other four measure 249.2–250.5 ns/op.
+The tuned ARM64 unit PCM conversion row uses five interleaved outer runs with
+500,000 calls per mode and n=480; the table gives the mean and range of the
+five run means on the same M4 with Go 1.27.0.
 The tuned MDCT post-twiddle row uses three interleaved 15-sample runs; its
 reported ranges are the three within-run medians because individual samples
 include M4 scheduling outliers. Assembly and both SIMD versions use the same
@@ -123,7 +126,7 @@ comparable per-call Go operation and are marked n/a with the reason.
 | 49 | `firInterpol32768Core` | arm64 | `internal/silk/resample_fir_simd_arm64.go`; `internal/silk/resample_fir_default.go`; `internal/silk/resample_libopus.go` | archsimd / scalar | nOut=240: old asm 122.9 (122.5–124.7) → scalar Go 293.8 (293.2–296.0) → Go SIMD production 114.2 (113.2–115.6); direct SIMD core 113.5 (111.5–114.2) | 0 | paired M4 Go 1.27.0; production Go SIMD is 7% faster than asm and 2.6× faster than scalar Go; exact and zero-alloc checks pass |
 | 50 | `firInterpol43691Core` | arm64 | `internal/silk/resample_fir_simd_arm64.go`; `internal/silk/resample_fir_default.go`; `internal/silk/resample_libopus.go` | archsimd / scalar | nOut=240: old asm 113.5 (113.2–114.5) → scalar Go 307.0 (304.7–308.7) → Go SIMD production 105.9 (105.7–106.5); direct SIMD core 106.2 (105.1–106.2) | 0 | paired M4 Go 1.27.0; production Go SIMD is 6.7% faster than asm and 2.9× faster than scalar Go; exact and zero-alloc checks pass |
 | 51 | `up2HQCore` | arm64 | `internal/silk/up2hq_core_default.go`; `internal/silk/resample_libopus.go` | scalar Go | N=240: old asm → Go → SIMD build: 1,120 (1,096–1,176) → 1,133 (1,126–1,137) → 1,166 (1,154–1,171) | 0 | measured; scalar and SIMD Go are within 4% of asm |
-| 52 | `convertFloat32ToInt16UnitBlocks` | arm64 | `pcm_convert_simd_arm64.go`; `pcm_convert_arm64_nosimd.go` | archsimd / scalar | n=480: old asm 92.96 (92.94–93.02); tuned Go SIMD 111.2 (110.2–112.7); original Go SIMD 154.9; scalar Go 630.1 (618.2–700.6) | 0 | measured; tuned SIMD is 19.6% slower than asm and 28% faster than the first Go SIMD port |
+| 52 | `convertFloat32ToInt16UnitBlocks` | arm64 | `pcm_convert_simd_arm64.go`; `pcm_convert_arm64_nosimd.go` | archsimd / scalar | n=480, paired M4 Go 1.27.0: old asm 63.13 (62.17–63.76) → prior SIMD 74.63 (73.88–75.71) → tuned SIMD 60.66 (59.99–61.23); scalar Go 630.1 (618.2–700.6) in an earlier fixture | 0 | tuned SIMD is 3.9% faster than asm and 18.7% faster than prior SIMD; libopus, invalid-lane, unaligned-slice, and zero-alloc checks pass |
 | 53 | `convertFloat32ToInt16SaturatingBlocks` | arm64 | `pcm_convert_simd_arm64.go`; `pcm_convert_arm64_nosimd.go` | archsimd / scalar | n=480: old asm 52.31 (52.15–52.60); tuned Go SIMD 53.04 (52.23–53.90); original Go SIMD 102.7; scalar Go 646.5 (639.8–658.0) | 0 | measured; tuned SIMD is within 1.4% of asm and 48% faster than the first Go SIMD port |
 
 ## Native AMD64 parity and quality comparison
