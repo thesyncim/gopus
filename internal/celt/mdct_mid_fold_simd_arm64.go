@@ -34,27 +34,38 @@ func mdctMidFoldStoreNeon(dst []kissCpx, bitrev []int, samples []float32, trig [
 	pv := archsimd.BroadcastFloat32x4(preScale)
 	sp := unsafe.Pointer(unsafe.SliceData(samples))
 	tp := unsafe.Pointer(unsafe.SliceData(trig))
-	// The last-element check above validates every bit-reversal lane read here.
+	// Cursors cover only blocks that remain, so the descending real-sample
+	// cursor stays inside samples and the other cursors stay inside their slices.
+	imBase := unsafe.Add(sp, xp1*4)
+	reBase := unsafe.Add(sp, (xp2-6)*4)
+	t0p := unsafe.Add(tp, i0*4)
+	t1p := unsafe.Add(tp, (n4+i0)*4)
 	bitrevp := unsafe.Pointer(&bitrev[i0])
 	for b := 0; b < blocks; b++ {
-		x1 := xp1 + 8*b
-		x2 := xp2 - 8*b
-		im := loadF32x4(unsafe.Add(sp, x1*4)).ToBits().
-			ConcatEven(loadF32x4(unsafe.Add(sp, (x1+4)*4)).ToBits()).BitsToFloat32()
-		re := reverse4(loadF32x4(unsafe.Add(sp, (x2-6)*4)).ToBits().
-			ConcatEven(loadF32x4(unsafe.Add(sp, (x2-2)*4)).ToBits()).BitsToFloat32())
-		t0 := loadF32x4(unsafe.Add(tp, (i0+4*b)*4))
-		t1 := loadF32x4(unsafe.Add(tp, (n4+i0+4*b)*4))
+		im := loadF32x4(imBase).ToBits().
+			ConcatEven(loadF32x4(unsafe.Add(imBase, 16)).ToBits()).BitsToFloat32()
+		re := reverse4(loadF32x4(reBase).ToBits().
+			ConcatEven(loadF32x4(unsafe.Add(reBase, 16)).ToBits()).BitsToFloat32())
+		t0 := loadF32x4(t0p)
+		t1 := loadF32x4(t1p)
 		yr := re.MulAdd(t0, im.Mul(t1).Neg()).Mul(pv)
 		yi := im.MulAdd(t0, re.Mul(t1)).Mul(pv)
-		groupBitrev := unsafe.Add(bitrevp, b*4*intBytes)
-		rev0 := *(*int)(groupBitrev)
-		rev1 := *(*int)(unsafe.Add(groupBitrev, intBytes))
-		rev2 := *(*int)(unsafe.Add(groupBitrev, 2*intBytes))
-		rev3 := *(*int)(unsafe.Add(groupBitrev, 3*intBytes))
-		dst[rev0] = kissCpx{r: yr.GetElem(0), i: yi.GetElem(0)}
-		dst[rev1] = kissCpx{r: yr.GetElem(1), i: yi.GetElem(1)}
-		dst[rev2] = kissCpx{r: yr.GetElem(2), i: yi.GetElem(2)}
-		dst[rev3] = kissCpx{r: yr.GetElem(3), i: yi.GetElem(3)}
+		pairLo := yr.ToBits().InterleaveLo(yi.ToBits()).ReshapeToUint64s()
+		pairHi := yr.ToBits().InterleaveHi(yi.ToBits()).ReshapeToUint64s()
+		rev0 := *(*int)(bitrevp)
+		rev1 := *(*int)(unsafe.Add(bitrevp, intBytes))
+		rev2 := *(*int)(unsafe.Add(bitrevp, 2*intBytes))
+		rev3 := *(*int)(unsafe.Add(bitrevp, 3*intBytes))
+		*(*uint64)(unsafe.Pointer(&dst[rev0])) = pairLo.GetElem(0)
+		*(*uint64)(unsafe.Pointer(&dst[rev1])) = pairLo.GetElem(1)
+		*(*uint64)(unsafe.Pointer(&dst[rev2])) = pairHi.GetElem(0)
+		*(*uint64)(unsafe.Pointer(&dst[rev3])) = pairHi.GetElem(1)
+		if b+1 < blocks {
+			imBase = unsafe.Add(imBase, 32)
+			reBase = unsafe.Add(reBase, -32)
+			t0p = unsafe.Add(t0p, 16)
+			t1p = unsafe.Add(t1p, 16)
+			bitrevp = unsafe.Add(bitrevp, 4*intBytes)
+		}
 	}
 }
