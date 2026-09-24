@@ -146,6 +146,7 @@ def compare(root: pathlib.Path):
         ("baseline", "purego-selected-kernel-files"),
         ("candidate", "simd-selected-kernel-files"),
         ("candidate", "simd-xcorr-runtime-identity"),
+        ("candidate", "simd-xcorr-one-pass-oracle"),
         ("candidate", "simd-pvq-dispatch"),
         ("baseline", "default-precision-guard"),
         ("baseline", "purego-precision-guard"),

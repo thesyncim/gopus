@@ -104,6 +104,14 @@ run_mode() {
         -run '^TestXcorrKernelRuntimeIdentity$' -count=1 -v
   fi
 
+  if [[ "$side" == candidate && "$mode" == simd ]]; then
+    run_phase "$side" "$root" "$mode-xcorr-one-pass-oracle" \
+      "${env_args[@]}" \
+      go test ./internal/celt ./internal/silk \
+        -run '^Test(XcorrKernelAVX8OnePass|SilkXcorrKernelAVX8OnePass)' \
+        -count=1 -v
+  fi
+
   if [[ "$side" == candidate ]]; then
     if [[ "$mode" == simd ]]; then
       run_phase "$side" "$root" "$mode-pvq-dispatch" \

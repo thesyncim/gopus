@@ -7,7 +7,13 @@ import (
 	"math"
 	"math/rand"
 	"testing"
+	"unsafe"
 )
+
+func xcorrKernelAVX8SplitForTest(x, y *float32, sum *[8]float32, length int) {
+	xcorrKernelAVX4(x, y, (*[4]float32)(unsafe.Pointer(&sum[0])), length)
+	xcorrKernelAVX4(x, (*float32)(unsafe.Add(unsafe.Pointer(y), 16)), (*[4]float32)(unsafe.Pointer(&sum[4])), length)
+}
 
 func TestXcorrKernelAVX8OnePassBitExact(t *testing.T) {
 	if !libopusFloatPitchXCorrUsesAVX2FMA() {
@@ -25,19 +31,15 @@ func TestXcorrKernelAVX8OnePassBitExact(t *testing.T) {
 				y[i] = float32(rng.NormFloat64())
 			}
 			want := xcorrKernelAVX8Scalar(x, y, length)
-			var split, onePass, sixPlusTwo [8]float32
-			xcorrKernelAVX8(&x[0], &y[0], &split, length)
+			var split, onePass [8]float32
+			xcorrKernelAVX8SplitForTest(&x[0], &y[0], &split, length)
 			xcorrKernelAVX8OnePass(&x[0], &y[0], &onePass, length)
-			xcorrKernelAVX8SixPlusTwo(&x[0], &y[0], &sixPlusTwo, length)
 			for corr := range 8 {
 				if got, expected := math.Float32bits(onePass[corr]), math.Float32bits(want[corr]); got != expected {
 					t.Fatalf("length=%d trial=%d corr=%d: one-pass=%08x scalar=%08x", length, trial, corr, got, expected)
 				}
 				if got, expected := math.Float32bits(onePass[corr]), math.Float32bits(split[corr]); got != expected {
 					t.Fatalf("length=%d trial=%d corr=%d: one-pass=%08x split=%08x", length, trial, corr, got, expected)
-				}
-				if got, expected := math.Float32bits(sixPlusTwo[corr]), math.Float32bits(want[corr]); got != expected {
-					t.Fatalf("length=%d trial=%d corr=%d: six-plus-two=%08x scalar=%08x", length, trial, corr, got, expected)
 				}
 			}
 		}
@@ -62,16 +64,12 @@ func TestXcorrKernelAVX8OnePassExceptionalParityAndZeroAlloc(t *testing.T) {
 		for i := range y {
 			y[i] = values[(i*7+3)%len(values)]
 		}
-		var split, onePass, sixPlusTwo [8]float32
-		xcorrKernelAVX8(&x[0], &y[0], &split, length)
+		var split, onePass [8]float32
+		xcorrKernelAVX8SplitForTest(&x[0], &y[0], &split, length)
 		xcorrKernelAVX8OnePass(&x[0], &y[0], &onePass, length)
-		xcorrKernelAVX8SixPlusTwo(&x[0], &y[0], &sixPlusTwo, length)
 		for corr := range 8 {
 			if got, expected := math.Float32bits(onePass[corr]), math.Float32bits(split[corr]); got != expected {
 				t.Fatalf("length=%d corr=%d: one-pass=%08x split=%08x", length, corr, got, expected)
-			}
-			if got, expected := math.Float32bits(sixPlusTwo[corr]), math.Float32bits(split[corr]); got != expected {
-				t.Fatalf("length=%d corr=%d: six-plus-two=%08x split=%08x", length, corr, got, expected)
 			}
 		}
 	}
@@ -92,11 +90,6 @@ func TestXcorrKernelAVX8OnePassExceptionalParityAndZeroAlloc(t *testing.T) {
 	}); allocs != 0 {
 		t.Fatalf("one-pass xcorr allocated %v times", allocs)
 	}
-	if allocs := testing.AllocsPerRun(100, func() {
-		xcorrKernelAVX8SixPlusTwo(&x[0], &y[0], &sum, length)
-	}); allocs != 0 {
-		t.Fatalf("six-plus-two xcorr allocated %v times", allocs)
-	}
 }
 
 func BenchmarkXcorrKernelAVX8Passes(b *testing.B) {
@@ -109,11 +102,11 @@ func BenchmarkXcorrKernelAVX8Passes(b *testing.B) {
 		for i := range y {
 			y[i] = float32(i%23-11) * 0.0625
 		}
-		b.Run(fmt.Sprintf("N%d/CurrentSplit", length), func(b *testing.B) {
+		b.Run(fmt.Sprintf("N%d/Split", length), func(b *testing.B) {
 			var sum [8]float32
 			b.ReportAllocs()
 			for b.Loop() {
-				xcorrKernelAVX8(&x[0], &y[0], &sum, length)
+				xcorrKernelAVX8SplitForTest(&x[0], &y[0], &sum, length)
 				xcorrKernelAVX8BenchmarkSink = sum
 			}
 		})
@@ -122,14 +115,6 @@ func BenchmarkXcorrKernelAVX8Passes(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				xcorrKernelAVX8OnePass(&x[0], &y[0], &sum, length)
-				xcorrKernelAVX8BenchmarkSink = sum
-			}
-		})
-		b.Run(fmt.Sprintf("N%d/SixPlusTwo", length), func(b *testing.B) {
-			var sum [8]float32
-			b.ReportAllocs()
-			for b.Loop() {
-				xcorrKernelAVX8SixPlusTwo(&x[0], &y[0], &sum, length)
 				xcorrKernelAVX8BenchmarkSink = sum
 			}
 		})
