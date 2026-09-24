@@ -14,6 +14,19 @@ func TestSilkKernelsMatchReference(t *testing.T) {
 	}
 }
 
+func TestFIRInterpol21846CoreZeroAlloc(t *testing.T) {
+	const nOut = 240
+	buf := make([]int16, (nOut-1)/3+8)
+	for i := range buf {
+		buf[i] = int16((i*7919)%60001 - 30000)
+	}
+	dst := make([]int16, nOut)
+	firInterpol21846Core(dst, buf, nOut)
+	if allocs := testing.AllocsPerRun(100, func() { firInterpol21846Core(dst, buf, nOut) }); allocs != 0 {
+		t.Fatalf("got %g allocations per FIR core call, want 0", allocs)
+	}
+}
+
 func FuzzSilkKernelsMatchReference(f *testing.F) {
 	for _, seed := range []struct {
 		length uint8
