@@ -2,6 +2,6 @@
 
 package celt
 
-// The ordinary amd64 build uses the libopus SSE accumulation order in Go. The
-// nosimd build keeps the scalar reference order.
-const libopusFloatInnerProdUsesSSEOrder = true
+// The ordinary Go build uses the scalar libopus accumulation order. The SIMD
+// build selects the libopus SSE order when its vector kernels are available.
+const libopusFloatInnerProdUsesSSEOrder = false

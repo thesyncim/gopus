@@ -746,6 +746,57 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  capture-linux-amd64-opusdec-fixture:
+    name: capture-linux-amd64-opusdec-fixture
+    if: github.event_name == 'pull_request'
+    needs:
+      - changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go 1.27.1
+        uses: actions/setup-go@v6
+        with:
+          go-version: 1.27.1
+          cache: true
+
+      - name: Install opusdec
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq opus-tools
+          command -v opusdec
+
+      - name: Capture live-decoded SIMD fixture
+        env:
+          GOEXPERIMENT: simd
+          GOPUS_REQUIRE_PLATFORM_FIXTURES: "1"
+          GOPUS_UPDATE_OPUSDEC_CROSSVAL_FIXTURE: "1"
+        run: |
+          set +e
+          go test ./internal/celt -run '^TestOpusdecCrossvalFixtureCoverage$' -count=1 -v > fixture-refresh.log 2>&1
+          rc=$?
+          set -e
+          cat fixture-refresh.log
+          if [ "$rc" -ne 0 ]; then
+            test "$rc" -eq 1
+            grep -q 'updated opusdec crossval fixture' fixture-refresh.log
+          fi
+          test -s internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json
+
+      - name: Upload native opusdec fixture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64-opusdec-crossval-${{ github.event.pull_request.head.sha }}
+          path: |
+            internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json
+            fixture-refresh.log
+          if-no-files-found: error
+          retention-days: 30
+
   test-linux-core-oracles:
     name: test-linux-core-oracles
     needs:

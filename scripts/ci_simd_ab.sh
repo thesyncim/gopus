@@ -193,7 +193,7 @@ run_side candidate "$candidate_root"
 # On a packet-hash change, capture the exact native opusdec fixture generated
 # from the candidate bitstream for review. The comparison above still reads the
 # committed fixture and fails on missing hashes; generation cannot green it.
-run_phase candidate simd-crossval-fixture-refresh \
+run_phase candidate "$candidate_root" simd-crossval-fixture-refresh \
   env GOEXPERIMENT=simd GOPUS_REQUIRE_PLATFORM_FIXTURES=1 \
   GOPUS_UPDATE_OPUSDEC_CROSSVAL_FIXTURE=1 GOPUS_TEST_TIER=parity \
   go test ./internal/celt -run '^TestOpusdecCrossvalFixtureCoverage$' -count=1 -v

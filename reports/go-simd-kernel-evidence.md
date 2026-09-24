@@ -19,7 +19,8 @@ Native AMD64 A/B measurements come from CI runs
 [35930378365](https://github.com/thesyncim/gopus/actions/runs/35930378365),
 [35932476353](https://github.com/thesyncim/gopus/actions/runs/35932476353),
 [35936281423](https://github.com/thesyncim/gopus/actions/runs/35936281423), and
-[35940248675](https://github.com/thesyncim/gopus/actions/runs/35940248675): the
+[35940248675](https://github.com/thesyncim/gopus/actions/runs/35940248675), and
+[35971995288](https://github.com/thesyncim/gopus/actions/runs/35971995288): the
 pre-port base and candidate ran on the same Ubuntu x86_64 runner with Go
 1.27.1, GCC 13.3.0, and pinned libopus 1.6.1. Direct benchmarks use five
 samples at GOMAXPROCS=4. Every measured benchmark reports 0 allocs/op. Values
@@ -122,8 +123,15 @@ installed. Go SIMD resolves 985 old failing leaf cases; the reported differing
 decode samples fall from 733,453 to 177,753. Seven shared cross-validation
 cases skip and eight fixture-honesty cases fail because the candidate's Ogg
 packet hashes are absent from the committed Linux AMD64 `opusdec` fixture.
-The A/B gate rejects these results. The next native run captures a fresh
-fixture decoded by live `opusdec` for review and commit before the gate can pass.
+The A/B gate rejects these results until a fixture decoded by live `opusdec`
+is reviewed and committed.
+Run 359719 adds the old `purego` scalar comparison. On Linux AMD64, old
+`purego` and candidate `nosimd` each report four residual CBR cases with the
+same per-case packet counts. Ordinary Go reports six residual cases in this
+run, exposing the AMD64 SSE-order float flag outside `GOEXPERIMENT=simd`.
+The current default build selects scalar float order. The standalone
+native fixture capture records live `opusdec` output before the full A/B gate;
+the gate still reads the committed fixture and rejects missing hashes.
 
 | CBR case | Old asm and Go SIMD differing packets |
 |---|---:|
