@@ -6,9 +6,13 @@ func innerProductFLPArm64(a, b []float32, length int) silkCReal {
 	if length <= 0 {
 		return 0
 	}
+	_ = a[length-1]
+	_ = b[length-1]
+	a = a[:length:length]
+	b = b[:length:length]
 	var result silkCReal
 	i := 0
-	for ; i < length-3; i += 4 {
+	for ; i+3 < length; i += 4 {
 		p0 := silkCReal(a[i]) * silkCReal(b[i])
 		p1 := silkCReal(a[i+1]) * silkCReal(b[i+1])
 		p2 := silkCReal(a[i+2]) * silkCReal(b[i+2])

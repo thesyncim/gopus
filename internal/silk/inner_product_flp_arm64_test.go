@@ -8,6 +8,8 @@ import (
 	"testing"
 )
 
+var innerProductFLPArm64TestSink silkCReal
+
 func TestInnerProductFLPArm64MatchesReference(t *testing.T) {
 	rng := rand.New(rand.NewSource(151))
 	lengths := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 15, 16, 17, 31, 32, 33, 80, 120, 480}
@@ -33,5 +35,22 @@ func TestInnerProductFLPArm64MatchesReference(t *testing.T) {
 					n, trial, math.Float64bits(got), got, math.Float64bits(want), want)
 			}
 		}
+	}
+}
+
+func TestInnerProductFLPArm64ZeroAlloc(t *testing.T) {
+	const n = 480
+	a := make([]float32, n)
+	b := make([]float32, n)
+	for i := range a {
+		a[i] = float32(i%17) * 0.125
+		b[i] = float32(i%13) * 0.25
+	}
+	run := func() {
+		innerProductFLPArm64TestSink = innerProductFLPArm64(a, b, n)
+	}
+	run()
+	if allocs := testing.AllocsPerRun(100, run); allocs != 0 {
+		t.Fatalf("innerProductFLPArm64 allocated %v times", allocs)
 	}
 }
