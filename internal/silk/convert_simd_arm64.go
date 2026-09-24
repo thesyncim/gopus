@@ -3,8 +3,9 @@
 package silk
 
 import (
-	"simd/archsimd"
 	"unsafe"
+
+	"simd/archsimd"
 )
 
 func floatToInt16Scaled(out []int16, in []float32, scale float32, n int) {
@@ -25,6 +26,28 @@ func floatToInt16ScaledCore(out []int16, in []float32, scale float32, n int) {
 	_ = in[n-1]
 	op := unsafe.Pointer(unsafe.SliceData(out))
 	ip := unsafe.Pointer(unsafe.SliceData(in))
+	// Pitch detection uses scale 1, so the SIMD conversion can omit the multiply.
+	if scale == 1 {
+		remaining := n
+		for remaining > 8 {
+			x := archsimd.LoadFloat32x4Array((*[4]float32)(ip))
+			y := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(ip, 16)))
+			a := x.Round().ConvertToInt32().SaturateToInt16()
+			b := y.Round().ConvertToInt32().SaturateToInt16()
+			packed := a.ToBits().ReshapeToUint64s().InterleaveLo(b.ToBits().ReshapeToUint64s()).ReshapeToUint16s().BitsToInt16()
+			packed.StoreArray((*[8]int16)(op))
+			ip = unsafe.Add(ip, 32)
+			op = unsafe.Add(op, 16)
+			remaining -= 8
+		}
+		x := archsimd.LoadFloat32x4Array((*[4]float32)(ip))
+		y := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(ip, 16)))
+		a := x.Round().ConvertToInt32().SaturateToInt16()
+		b := y.Round().ConvertToInt32().SaturateToInt16()
+		packed := a.ToBits().ReshapeToUint64s().InterleaveLo(b.ToBits().ReshapeToUint64s()).ReshapeToUint16s().BitsToInt16()
+		packed.StoreArray((*[8]int16)(op))
+		return
+	}
 	gain := archsimd.BroadcastFloat32x4(scale)
 	for i := 0; i < n; i += 8 {
 		a := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(ip, i*4))).Mul(gain).Round().ConvertToInt32().SaturateToInt16()

@@ -39,6 +39,19 @@ func BenchmarkPortFloatToInt16Scaled(b *testing.B) {
 	kernelPortBenchSilkI16 = out[n-1]
 }
 
+func BenchmarkPortFloatToInt16UnitScale(b *testing.B) {
+	const n = 480
+	in := kernelPortBenchSilkFloat32(n)
+	out := make([]int16, n)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		floatToInt16Scaled(out, in, 1, n)
+	}
+	b.StopTimer()
+	kernelPortBenchSilkI16 = out[n-1]
+}
+
 func BenchmarkPortInnerProductFLPArm64(b *testing.B) {
 	const n = 480
 	a := kernelPortBenchSilkFloat32(n)
