@@ -156,6 +156,17 @@ run_mode() {
           -benchmem -count=5 -timeout=20m
     fi
   fi
+
+  # Compare full encode/decode work on the same runner and toolchain. The
+  # candidate's nosimd mode measures the scalar fallback separately.
+  if [[ ( "$side" == baseline && "$mode" == default ) ||
+        ( "$side" == candidate && ( "$mode" == simd || "$mode" == nosimd ) ) ]]; then
+    run_phase "$side" "$root" "$mode-e2e-benchmarks" \
+      "${env_args[@]}" \
+      go test "${cbr_tags[@]}" . -run '^$' \
+        -bench '^Benchmark(DecoderDecode_(CELT|Hybrid|SILK)|EncoderEncode_(CallerBuffer|VoIP|LowDelay))$' \
+        -benchtime=300ms -count=3 -cpu=1 -benchmem -timeout=10m
+  fi
 }
 
 run_side() {
@@ -315,6 +326,21 @@ if [[ -n "$summary_file" ]]; then
           grep -E '^Benchmark|^PASS|^FAIL' "$artifact_root/$side-$mode-kernel-benchmarks.log" || true
         else
           echo 'Kernel benchmarks did not run.'
+        fi
+        echo
+      done
+    done
+    echo '### Native AMD64 end-to-end benchmarks'
+    echo
+    for side in baseline candidate; do
+      if [[ "$side" == baseline ]]; then modes=(default); else modes=(nosimd simd); fi
+      for mode in "${modes[@]}"; do
+        echo "#### $side / $mode"
+        echo
+        if [[ -f "$artifact_root/$side-$mode-e2e-benchmarks.log" ]]; then
+          grep -E '^Benchmark|^PASS|^FAIL' "$artifact_root/$side-$mode-e2e-benchmarks.log" || true
+        else
+          echo 'End-to-end benchmarks did not run.'
         fi
         echo
       done
