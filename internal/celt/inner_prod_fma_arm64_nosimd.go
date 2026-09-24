@@ -4,7 +4,7 @@ package celt
 
 // celtInnerProd8FMA32 is the arm64 nosimd inner-product kernel. It reproduces
 // the 4-lane accumulation order of celtInnerProdNeonStyle and the single-rounding
-// FMA the NEON asm path emits, but reaches it through fma32 (a*b+c) rather than
+// FMA the NEON SIMD path emits, but reaches it through fma32 (a*b+c) rather than
 // the portable math.FMA. On arm64 the backend contracts a*b+c into one FMADDS,
 // which is bit-identical to float32(math.FMA(a,b,c)) for float32 inputs (the
 // f64 round-trip is double-rounding-safe) while avoiding its FCVT round-trips.

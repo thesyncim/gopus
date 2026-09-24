@@ -166,9 +166,8 @@ func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int32
 	// For each pulse, find the position that maximizes Rxy/sqrt(Ryy).
 	// Reference: libopus vq.c lines 299-362
 	//
-	// The entire outer pulse loop + inner position search is merged into
-	// pvqSearchPulseLoop (assembly on arm64/amd64) to eliminate per-pulse
-	// Go→asm transition overhead.
+	// pvqSearchPulseLoop combines the outer pulse loop and inner position
+	// search in one Go call.
 	if pulsesLeft > 0 && n > 0 {
 		xy, yy = pvqSearchPulseLoop(absX[:n], y[:n], iy[:n], xy, yy, n, pulsesLeft)
 	}

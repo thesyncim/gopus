@@ -5,7 +5,7 @@ package celt
 // single-rounding FMA into phase accumulator p, and after the blocked loop the
 // phases combine as (acc0+acc1)+(acc2+acc3) before a sequential scalar tail.
 // Each FMA runs through mdctFMA32 so the reference fuses identically on every
-// architecture. The asm kernel must match this bit-for-bit
+// architecture. The Go SIMD kernel matches this bit-for-bit
 // (TestXcorrKernel4Float32Neon4AccBitExact).
 func xcorrKernel4Float32FourAccRef(x, y []float32, sum *[4]float32, length int) {
 	if length <= 0 {

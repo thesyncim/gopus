@@ -5,7 +5,7 @@ package celt
 // celtInnerProd8FMA32 is the portable fallback for the arm64 NEON kernel. It
 // reproduces the 4-lane fused-multiply-add accumulation order of
 // celtInnerProdNeonStyle exactly: math.FMA fuses identically to the arm64
-// FMADDS/FMLA the asm path emits, and the horizontal reduction order matches.
+// FMADDS/FMLA of the Go SIMD path, and the horizontal reduction order matches.
 func celtInnerProd8FMA32(x, y []float32, n int) float32 {
 	if n <= 0 {
 		return 0

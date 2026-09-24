@@ -13,7 +13,7 @@ package celt
 //	out[yOut0+i] = round(x2*w2 + round(-(x1*w1)))   (mdctMulSubMix(x2,x1,w2,w1))
 //	out[xOut0-i] = round(x2*w1 + round( x1*w2))      (mdctMulAddMix(x2,x1,w1,w2))
 //
-// The arm64 build supplies an assembly version. This portable form routes
+// The SIMD arm64 build supplies a Go vector version. This scalar form routes
 // through mdctMulSubMix/mdctMulAddMix so nosimd on arm64 fuses identically and
 // other targets keep their scalar (non-fused) rounding behavior. It is only
 // reached when mdctUseFMALikeMixEnabled is set.

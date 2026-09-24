@@ -9,8 +9,8 @@ package celt
 // contracts a*b+c into one FMADDS, which is bit-identical to
 // float32(math.FMA(a,b,c)) for float32 inputs (the f64 round-trip is
 // double-rounding-safe) while avoiding its FCVT round-trips. The kernel only
-// runs in production on arm64 (libopusFloatInnerProdUsesNeonOrder), where the
-// asm path emits the matching vfmaq_f32 accumulation; the libopus-oracle parity
+// runs on arm64 without SIMD (libopusFloatInnerProdUsesNeonOrder), while the
+// SIMD path emits the matching vfmaq_f32 accumulation; the libopus-oracle parity
 // suite and TestPrefilterDualInnerProdMatchesReference gate the contraction.
 func prefilterDualInnerProdAsm(x, y1, y2 []float32, length int) (float32, float32) {
 	if length <= 0 {

@@ -61,7 +61,7 @@ func FixedRefPath(elem ...string) string {
 // reference tree (built by `make ensure-libopus-simd`). Its config.h DEFINES the
 // platform SIMD macros (NEON on arm64, SSE/AVX RTCD on amd64), so it is NOT
 // bit-reproducible and must never be used as a parity oracle — it exists only so
-// the perf scoreboard can compare the gopus asm kernels against a SIMD libopus.
+// the perf scoreboard can compare Go kernels against a SIMD libopus.
 func SIMDRefPath(elem ...string) string {
 	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + "-simd"}
 	return filepath.Join(append(base, elem...)...)

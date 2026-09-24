@@ -3,15 +3,15 @@
 package celt
 
 // imdctPreRotateFMA32Kiss is the arm64 nosimd form of the FMA-like IMDCT
-// pre-rotation. It mirrors the arm64 assembly kernel exactly: each output fuses
+// pre-rotation. It matches the arm64 SIMD kernel exactly: each output fuses
 // its first product into the add and rounds the second product on its own,
 // matching the clang -ffp-contract=on float path of libopus
 // clt_mdct_backward_c(). It fuses through fma32 (a*b+c) rather than the portable
 // math.FMA; on arm64 the backend contracts a*b+c into one FMADDS, which is
 // bit-identical to float32(math.FMA(a,b,c)) for float32 inputs (the f64
 // round-trip is double-rounding-safe) while avoiding its FCVT round-trips. The
-// kernel only runs in production on arm64 (mdctUseFMALikeMixEnabled), where the
-// asm path supplies the matching fused rotation; the libopus-oracle parity suite
+// kernel runs on arm64 without SIMD (mdctUseFMALikeMixEnabled); the SIMD path
+// supplies the matching fused rotation. The libopus-oracle parity suite
 // and TestIMDCTPreRotateFMA32KissMatchesScalar gate the contraction.
 func imdctPreRotateFMA32Kiss(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
 	if n4 <= 0 {
