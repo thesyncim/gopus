@@ -33,6 +33,22 @@ func xcorrKernelAVX4(x, y *float32, sum *[4]float32, length int) {
 	var acc0, acc1, acc2, acc3 archsimd.Float32x8
 	xp, yp := unsafe.Pointer(x), unsafe.Pointer(y)
 	i := 0
+	for ; i+16 <= length; i += 16 {
+		xv := archsimd.LoadFloat32x8Array((*[8]float32)(xp))
+		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp)), acc0)
+		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 4))), acc1)
+		acc2 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 8))), acc2)
+		acc3 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 12))), acc3)
+		xp1 := unsafe.Add(xp, 32)
+		yp1 := unsafe.Add(yp, 32)
+		xv = archsimd.LoadFloat32x8Array((*[8]float32)(xp1))
+		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp1)), acc0)
+		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp1, 4))), acc1)
+		acc2 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp1, 8))), acc2)
+		acc3 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp1, 12))), acc3)
+		xp = unsafe.Add(xp, 64)
+		yp = unsafe.Add(yp, 64)
+	}
 	for ; i+8 <= length; i += 8 {
 		xv := archsimd.LoadFloat32x8Array((*[8]float32)(xp))
 		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp)), acc0)

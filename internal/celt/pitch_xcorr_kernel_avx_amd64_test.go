@@ -43,7 +43,7 @@ func xcorrKernelAVX8Scalar(x, y []float32, length int) [8]float32 {
 
 func TestXcorrKernelAVX8BitExact(t *testing.T) {
 	rng := rand.New(rand.NewSource(12345))
-	for _, length := range []int{1, 2, 3, 5, 7, 8, 9, 15, 16, 17, 23, 31, 32, 64, 65, 120, 233, 720, 721} {
+	for _, length := range []int{1, 2, 3, 5, 7, 8, 9, 15, 16, 17, 23, 31, 32, 64, 65, 120, 233, 239, 240, 241, 720, 721} {
 		x := make([]float32, length)
 		y := make([]float32, length+7)
 		for trial := 0; trial < 64; trial++ {

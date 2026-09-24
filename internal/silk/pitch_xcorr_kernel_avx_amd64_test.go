@@ -52,7 +52,7 @@ func TestSilkPitchXcorrAVX2KernelMatchesReference(t *testing.T) {
 		t.Skip("AVX2/FMA unavailable")
 	}
 	rng := rand.New(rand.NewSource(0xc0ffee))
-	lengths := []int{1, 2, 3, 5, 7, 8, 9, 15, 16, 17, 23, 31, 32, 64, 65, 120, 233}
+	lengths := []int{1, 2, 3, 5, 7, 8, 9, 15, 16, 17, 23, 31, 32, 64, 65, 120, 233, 239, 240, 241}
 	for _, length := range lengths {
 		x := make([]float32, length)
 		y := make([]float32, length+7)
