@@ -151,10 +151,11 @@ fixture capture records live `opusdec` output before the full A/B gate. Run
 359769 regenerates the same 11-entry SIMD fixture as the committed file, but
 platform fixture generation writes the ordinary-Go fixture over that file
 before the SIMD full-parity sweep. The A/B script preserves and restores the
-committed SIMD fixture after platform generation. Runs 359822 and 359876 pass
-the full same-ISA A/B gate: all 19 CBR cases, focused decode, precision,
-dispatch, and zero-allocation kernel checks pass. The latest full-parity sweep
-executes 25,474 old-assembly and 25,503 Go SIMD leaf tests. Failing leaf tests
+committed SIMD fixture after platform generation. Runs 359822, 359876, and
+359948 pass the full same-ISA A/B gate: all 19 CBR cases, focused decode,
+precision, dispatch, and zero-allocation kernel checks pass. The latest
+full-parity sweep
+executes 25,474 old-assembly and 25,507 Go SIMD leaf tests. Failing leaf tests
 fall from 6,830 for old assembly to 5,845 for Go SIMD; differing decode
 samples fall from 733,453 to 177,753.
 
