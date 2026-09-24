@@ -10,6 +10,10 @@ import sys
 
 CBR_ROW = re.compile(r"^\s+\S+\.go:\d+:\s+(\S+)\s+(\d+)\s+(\d+)\s+(OK|FAIL|RESIDUAL|SKIP|~(?: \([^)]*\))?)\s*$")
 CBR_TOTAL = re.compile(r"pass=(\d+) residual=(\d+) fail=(\d+) skip=(\d+)")
+CBR_STRICT_TOTAL = re.compile(
+    r"strict paired CBR summary: variant=(\S+) cases=(\d+) exact_cases=(\d+) "
+    r"packets=(\d+) packet_diffs=(\d+) range_diffs=(\d+)"
+)
 CBR_SEVERITY = {"OK": 0, "RESIDUAL": 1, "FAIL": 2, "SKIP": 3}
 DECODE_DETAIL = re.compile(r"(?:PCM diverges|diverging packet=)")
 BENCH = re.compile(r"^Benchmark\S+\s+\d+\s+\S+ ns/op\s+(\d+) B/op\s+(\d+) allocs/op$")
@@ -54,6 +58,50 @@ def cbr_rows(log: str):
     if not total or sum(int(value) for value in total.groups()) != len(rows):
         raise ValueError("CBR summary count does not match parsed rows")
     return rows
+
+
+def strict_cbr_summary(log: str):
+    matches = list(CBR_STRICT_TOTAL.finditer(log))
+    if len(matches) != 1:
+        raise ValueError(f"expected one strict paired CBR summary, found {len(matches)}")
+    variant, cases, exact_cases, packets, packet_diffs, range_diffs = matches[0].groups()
+    return {
+        "variant": variant,
+        "cases": int(cases),
+        "exact_cases": int(exact_cases),
+        "packets": int(packets),
+        "packet_diffs": int(packet_diffs),
+        "range_diffs": int(range_diffs),
+    }
+
+
+def first_strict_cbr_mismatch(log: str):
+    marker = "exact paired CBR mismatch:"
+    for line in log.splitlines():
+        if marker in line:
+            return line.split(marker, 1)[1].strip()
+    return ""
+
+
+def strict_cbr_errors(exit_code: int, log: str, expected_cases: int = 19):
+    try:
+        summary = strict_cbr_summary(log)
+    except ValueError as exc:
+        return [f"strict CBR summary: {exc}"]
+    errors = []
+    if summary["cases"] != expected_cases or summary["exact_cases"] != expected_cases:
+        errors.append(
+            f"strict CBR covered {summary['exact_cases']}/{summary['cases']} exact cases; want {expected_cases}/{expected_cases}"
+        )
+    if exit_code or summary["packet_diffs"] or summary["range_diffs"]:
+        mismatch = first_strict_cbr_mismatch(log)
+        detail = f"; first mismatch: {mismatch}" if mismatch else ""
+        errors.append(
+            f"strict CBR failed: exit={exit_code} variant={summary['variant']} "
+            f"cases={summary['cases']} exact={summary['exact_cases']} packets={summary['packet_diffs']} "
+            f"ranges={summary['range_diffs']}{detail}"
+        )
+    return errors
 
 
 def decode_details(log: str):
@@ -156,39 +204,21 @@ def compare(root: pathlib.Path):
         if code:
             errors.append(f"{side} {phase} exited {code}")
 
-    _, base_cbr_log = read_phase(root, "baseline", "default-cbr-parity")
-    _, simd_cbr_log = read_phase(root, "candidate", "simd-cbr-parity")
-    base_cbr, simd_cbr = cbr_rows(base_cbr_log), cbr_rows(simd_cbr_log)
-    if base_cbr.keys() != simd_cbr.keys():
-        errors.append(f"CBR case sets differ: baseline={sorted(base_cbr)} candidate={sorted(simd_cbr)}")
-    for name in sorted(base_cbr.keys() & simd_cbr.keys()):
-        base_frames, base_diff, base_status = base_cbr[name]
-        simd_frames, simd_diff, simd_status = simd_cbr[name]
-        if simd_frames != base_frames or simd_diff > base_diff:
-            errors.append(f"{name}: old asm {base_diff}/{base_frames}, Go SIMD {simd_diff}/{simd_frames}")
-        if CBR_SEVERITY[simd_status] > CBR_SEVERITY[base_status]:
-            errors.append(f"{name}: old asm reports {base_status}, Go SIMD reports {simd_status}")
-        if simd_status == "SKIP":
-            errors.append(f"{name}: Go SIMD skipped the CBR case")
+    base_code, base_cbr_log = read_phase(root, "baseline", "default-cbr-parity")
+    base_cbr = cbr_rows(base_cbr_log)
+    if base_code or len(base_cbr) != 19:
+        errors.append(f"baseline CBR summary failed or covered {len(base_cbr)}/19 cases")
+    scalar_code, scalar_cbr_log = read_phase(root, "baseline", "purego-cbr-parity")
+    scalar_cbr = cbr_rows(scalar_cbr_log)
+    if scalar_code or len(scalar_cbr) != 19:
+        errors.append(f"baseline purego CBR summary failed or covered {len(scalar_cbr)}/19 cases")
 
-    base_scalar_code, base_scalar_log = read_phase(root, "baseline", "purego-cbr-parity")
-    base_scalar_rows = cbr_rows(base_scalar_log)
-    if base_scalar_code or base_scalar_rows.keys() != base_cbr.keys():
-        errors.append("baseline purego scalar-C CBR matrix failed or changed case set")
-    for mode in ("default", "nosimd"):
+    for mode in ("default", "nosimd", "simd"):
         code, log = read_phase(root, "candidate", f"{mode}-cbr-parity")
-        rows = cbr_rows(log)
-        if code or rows.keys() != base_cbr.keys():
-            errors.append(f"candidate {mode} scalar-C CBR matrix failed or changed case set")
-        for name, (frames, differences, status) in rows.items():
-            if status in {"FAIL", "SKIP"}:
-                errors.append(f"candidate {mode} scalar-C CBR case {name} reports {status}")
-            if name in base_scalar_rows:
-                base_frames, base_diff, base_status = base_scalar_rows[name]
-                if frames != base_frames or differences > base_diff:
-                    errors.append(f"candidate {mode} {name}: purego {base_diff}/{base_frames}, Go scalar {differences}/{frames}")
-                if CBR_SEVERITY[status] > CBR_SEVERITY[base_status]:
-                    errors.append(f"candidate {mode} {name}: purego reports {base_status}, Go scalar reports {status}")
+        errors.extend(
+            f"candidate {mode} {error}"
+            for error in strict_cbr_errors(code, log)
+        )
 
     for mode in ("default", "nosimd", "simd"):
         code, log = read_phase(root, "candidate", f"{mode}-precision-guard")

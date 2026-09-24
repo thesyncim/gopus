@@ -211,7 +211,7 @@ func TestPLCAutocorrStagesMatchLibopusBits(t *testing.T) {
 }
 
 func TestPeriodicPLCSynthesisStagesMatchLibopusBits(t *testing.T) {
-	requireScalarCELTReference(t)
+	requirePairedCELTOracleMode(t)
 	libopustest.RequireOracle(t)
 
 	for _, tc := range []struct {
@@ -252,12 +252,8 @@ func TestPeriodicPLCSynthesisStagesMatchLibopusBits(t *testing.T) {
 				energy1, energy2 := float32(1), float32(1)
 				base1 := celtPLCLPCOrder + combFilterMaxPeriod - decayLength
 				base2 := celtPLCLPCOrder + combFilterMaxPeriod - 2*decayLength
-				for i := range decayLength {
-					v1 := float32(excAfterFIR[base1+i])
-					v2 := float32(excAfterFIR[base2+i])
-					energy1 = fma32(v1, v1, energy1)
-					energy2 = fma32(v2, v2, energy2)
-				}
+				energy1 = periodicPLCEnergy(energy1, excAfterFIR[base1:base1+decayLength])
+				energy2 = periodicPLCEnergy(energy2, excAfterFIR[base2:base2+decayLength])
 				if energy1 > energy2 {
 					energy1 = energy2
 				}
@@ -326,18 +322,31 @@ type libopusPLCPeriodicConcealResult struct {
 }
 
 func probeLibopusPLCPeriodicConceal(t *testing.T, hist []celtSig, channels, frameSize int) libopusPLCPeriodicConcealResult {
+	return probeLibopusPLCPeriodicConcealWithContinuation(t, hist, channels, frameSize, false, 0)
+}
+
+func probeLibopusPLCPeriodicConcealWithContinuation(t *testing.T, hist []celtSig, channels, frameSize int, continuePeriodic bool, lastPitchPeriod int) libopusPLCPeriodicConcealResult {
 	t.Helper()
 	payload := libopustest.NewOraclePayload("GCPI", libopusCELTPLCModePeriodicConceal)
 	payload.U32(uint32(channels))
 	payload.U32(uint32(frameSize))
 	payload.U32(uint32(Overlap))
-	payload.U32(0)
-	payload.U32(0)
+	if continuePeriodic {
+		payload.U32(1)
+	} else {
+		payload.U32(0)
+	}
+	payload.U32(uint32(lastPitchPeriod))
 	for _, w := range GetWindowBufferF32(Overlap) {
 		payload.Float32(w)
 	}
 	for _, sample := range hist {
 		payload.Float32(float32(sample))
+	}
+	if continuePeriodic {
+		for range channels * celtPLCLPCOrder {
+			payload.Float32(0)
+		}
 	}
 	reader := runLibopusCELTPLC(t, payload)
 	if gotMode := reader.U32(); gotMode != libopusCELTPLCModePeriodicConceal {
@@ -367,6 +376,46 @@ func probeLibopusPLCPeriodicConceal(t *testing.T, hist []celtSig, channels, fram
 	return libopusPLCPeriodicConcealResult{period: period, out: out, energy1: energy1, energy2: energy2, decay: decay}
 }
 
+func TestPeriodicPLCEnergyMatchesLibopusVectorRemainders(t *testing.T) {
+	requirePairedCELTOracleMode(t)
+	libopustest.RequireOracle(t)
+
+	for _, period := range []int{101, 102, 103, 104} {
+		t.Run(strconv.Itoa(period), func(t *testing.T) {
+			hist := make([]celtSig, plcDecodeBufferSize)
+			firstPeriod := plcDecodeBufferSize - 2*period
+			secondPeriod := plcDecodeBufferSize - period
+			for i := firstPeriod; i < secondPeriod; i++ {
+				hist[i] = celtSig(2)
+			}
+			hist[plcDecodeBufferSize-1] = celtSig(math.Float32frombits(0x3f000025))
+
+			want := probeLibopusPLCPeriodicConcealWithContinuation(t, hist, 1, 120, true, period)
+			if want.period != period {
+				t.Fatalf("libopus period=%d want %d", want.period, period)
+			}
+			decayLength := min(2*period, combFilterMaxPeriod) >> 1
+			exc := hist[plcDecodeBufferSize-combFilterMaxPeriod-celtPLCLPCOrder:]
+			base1 := celtPLCLPCOrder + combFilterMaxPeriod - decayLength
+			base2 := celtPLCLPCOrder + combFilterMaxPeriod - 2*decayLength
+			gotE1 := periodicPLCEnergy(1, exc[base1:base1+decayLength])
+			gotE2 := periodicPLCEnergy(1, exc[base2:base2+decayLength])
+			assertFloat32BitExact(t, "raw E1", []float32{gotE1}, want.energy1)
+			assertFloat32BitExact(t, "raw E2", []float32{gotE2}, want.energy2)
+
+			if libopusFloatInnerProdUsesNeonOrder && period < 104 {
+				if gotBits := math.Float32bits(want.energy1[0]); gotBits != 0x3fa00013 {
+					t.Fatalf("paired arm64 SIMD libopus raw E1 bits=0x%08x want 0x3fa00013", gotBits)
+				}
+			}
+			wantE2 := float32(1 + 4*period)
+			if got := want.energy2[0]; got != wantE2 {
+				t.Fatalf("libopus raw E2=%g want %g", got, wantE2)
+			}
+		})
+	}
+}
+
 func readCELTPLCFloat32Vector(t *testing.T, reader *libopustest.OracleReader) []float32 {
 	t.Helper()
 	count := int(reader.U32())
@@ -383,7 +432,7 @@ func readCELTPLCFloat32Vector(t *testing.T, reader *libopustest.OracleReader) []
 
 func TestConcealPeriodicPLCMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
-	requireBitExactFloat(t)
+	requirePairedCELTOracleMode(t)
 
 	for _, tc := range []struct {
 		name      string
@@ -399,6 +448,8 @@ func TestConcealPeriodicPLCMatchesLibopus(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			hist := makeCELTPLCTestSignal(plcDecodeBufferSize*tc.channels, 0x9000+uint32(tc.frameSize)+uint32(tc.channels), 2400)
 			want := probeLibopusPLCPeriodicConceal(t, hist, tc.channels, tc.frameSize)
+			excLength := min(2*want.period, combFilterMaxPeriod)
+			t.Logf("libopus period=%d excitation_length=%d decay_length=%d", want.period, excLength, excLength>>1)
 
 			dec := NewDecoder(tc.channels)
 			dec.plcDecodeMem = append(dec.plcDecodeMem[:0], hist...)

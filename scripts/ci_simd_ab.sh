@@ -124,11 +124,19 @@ run_mode() {
     fi
   fi
 
-  run_phase "$side" "$root" "$mode-cbr-parity" \
-    "${env_args[@]}" "${ref_env_args[@]}" GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
-    go test "${cbr_tags[@]}" ./testvectors \
-      -run '^TestEncoderCBRByteParitySummary$' \
-      -count=1 -timeout=25m -v
+  if [[ "$side" == candidate ]]; then
+    run_phase "$side" "$root" "$mode-cbr-parity" \
+      "${env_args[@]}" "${ref_env_args[@]}" GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+      go test "${cbr_tags[@]}" ./testvectors \
+        -run '^TestEncoderCBRPairedOracleExact$' \
+        -count=1 -timeout=25m -v
+  else
+    run_phase "$side" "$root" "$mode-cbr-parity" \
+      "${env_args[@]}" "${ref_env_args[@]}" GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+      go test "${cbr_tags[@]}" ./testvectors \
+        -run '^TestEncoderCBRByteParitySummary$' \
+        -count=1 -timeout=25m -v
+  fi
 
   if [[ ( "$side" == baseline && "$mode" == default ) || ( "$side" == candidate && "$mode" == simd ) ]]; then
     run_phase "$side" "$root" "$mode-decode-differential" \
@@ -290,7 +298,11 @@ if [[ -n "$summary_file" ]]; then
         echo "#### $side / $mode"
         echo
         if [[ -f "$artifact_root/$side-$mode-cbr-parity.log" ]]; then
-          sed -n '/CBR Byte Parity Summary/,/pass=.*arch=/p' "$artifact_root/$side-$mode-cbr-parity.log" | tail -n 22
+          if [[ "$side" == baseline ]]; then
+            sed -n '/CBR Byte Parity Summary/,/pass=.*arch=/p' "$artifact_root/$side-$mode-cbr-parity.log" | tail -n 22
+          else
+            grep -E 'strict paired CBR summary:|exact paired CBR mismatch:' "$artifact_root/$side-$mode-cbr-parity.log" || true
+          fi
         else
           echo 'CBR test did not run.'
         fi

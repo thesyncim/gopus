@@ -90,6 +90,18 @@ func ReadRefFileOrSkip(t testing.TB, label string, elem ...string) []byte {
 	return ReadRefPathOrSkip(t, RefPath(elem...), label)
 }
 
+// ReadPinnedSourceFileOrSkip reads from the unsuffixed pinned source checkout.
+// It is for source-only checks that do not consume build-specific artifacts.
+func ReadPinnedSourceFileOrSkip(t testing.TB, label string, elem ...string) []byte {
+	t.Helper()
+	return readPinnedSourceFileOrSkip(t, repoRoot(), label, elem...)
+}
+
+func readPinnedSourceFileOrSkip(t testing.TB, root, label string, elem ...string) []byte {
+	t.Helper()
+	return ReadRefPathOrSkip(t, pinnedSourcePath(root, elem...), label)
+}
+
 // ReadRefPathOrSkip is the path-based form of ReadRefFileOrSkip.
 func ReadRefPathOrSkip(t testing.TB, path, label string) []byte {
 	t.Helper()
@@ -115,4 +127,9 @@ func repoRoot() string {
 		panic("runtime.Caller failed")
 	}
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+}
+
+func pinnedSourcePath(root string, elem ...string) string {
+	base := []string{root, "tmp_check", "opus-" + libopustooling.DefaultVersion}
+	return filepath.Join(append(base, elem...)...)
 }

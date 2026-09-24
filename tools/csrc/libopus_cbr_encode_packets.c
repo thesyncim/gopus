@@ -8,8 +8,10 @@
  *   IN:  "GCBR" u32(version=1) u32(application) u32(bandwidth) u32(channels)
  *              u32(bitrate) u32(frame_size) u32(complexity) u32(num_frames)
  *              [num_frames × frame_size × channels × float32]
- *   OUT: "GCBO" u32(version=1) u32(num_packets)
- *              [num_packets × u32(packet_len) u8(packet_len × bytes)]
+ *   OUT: "GCBO" u32(version=2) u32(version_string_len) u8(version_string…)
+ *              u32(OPUS_ARCHMASK) u32(build_feature_bits) u32(opus_select_arch())
+ *              u32(num_frames)
+ *              [num_frames × u32(packet_len) u32(final_range) u8(packet…)]
  *
  * application values:
  *   0 = OPUS_APPLICATION_AUDIO
@@ -39,10 +41,80 @@
 #endif
 
 #include "opus.h"
+#include "config.h"
+#include "celt/cpu_support.h"
 
 #define INPUT_MAGIC  "GCBR"
 #define OUTPUT_MAGIC "GCBO"
 #define MAX_PACKET_BYTES 4000
+
+/* These bits describe the generated config.h seen by this helper translation
+ * unit. The selected runtime architecture is reported separately below. */
+#define GCBO_FEATURE_RTCD                    (1u << 0)
+#define GCBO_FEATURE_X86_MAY_SSE             (1u << 1)
+#define GCBO_FEATURE_X86_MAY_SSE2            (1u << 2)
+#define GCBO_FEATURE_X86_MAY_SSE4_1          (1u << 3)
+#define GCBO_FEATURE_X86_MAY_AVX2            (1u << 4)
+#define GCBO_FEATURE_X86_PRESUME_SSE         (1u << 5)
+#define GCBO_FEATURE_X86_PRESUME_SSE2        (1u << 6)
+#define GCBO_FEATURE_X86_PRESUME_SSE4_1      (1u << 7)
+#define GCBO_FEATURE_X86_PRESUME_AVX2        (1u << 8)
+#define GCBO_FEATURE_ARM_MAY_NEON             (1u << 9)
+#define GCBO_FEATURE_ARM_PRESUME_NEON         (1u << 10)
+#define GCBO_FEATURE_ARM_MAY_NEON_INTR        (1u << 11)
+#define GCBO_FEATURE_ARM_PRESUME_NEON_INTR    (1u << 12)
+#define GCBO_FEATURE_ARM_MAY_DOTPROD          (1u << 13)
+#define GCBO_FEATURE_ARM_PRESUME_DOTPROD      (1u << 14)
+
+static uint32_t build_feature_bits(void) {
+  uint32_t bits = 0;
+#ifdef OPUS_HAVE_RTCD
+  bits |= GCBO_FEATURE_RTCD;
+#endif
+#ifdef OPUS_X86_MAY_HAVE_SSE
+  bits |= GCBO_FEATURE_X86_MAY_SSE;
+#endif
+#ifdef OPUS_X86_PRESUME_SSE
+  bits |= GCBO_FEATURE_X86_PRESUME_SSE;
+#endif
+#ifdef OPUS_X86_MAY_HAVE_SSE2
+  bits |= GCBO_FEATURE_X86_MAY_SSE2;
+#endif
+#ifdef OPUS_X86_PRESUME_SSE2
+  bits |= GCBO_FEATURE_X86_PRESUME_SSE2;
+#endif
+#ifdef OPUS_X86_MAY_HAVE_SSE4_1
+  bits |= GCBO_FEATURE_X86_MAY_SSE4_1;
+#endif
+#ifdef OPUS_X86_PRESUME_SSE4_1
+  bits |= GCBO_FEATURE_X86_PRESUME_SSE4_1;
+#endif
+#ifdef OPUS_X86_MAY_HAVE_AVX2
+  bits |= GCBO_FEATURE_X86_MAY_AVX2;
+#endif
+#ifdef OPUS_X86_PRESUME_AVX2
+  bits |= GCBO_FEATURE_X86_PRESUME_AVX2;
+#endif
+#ifdef OPUS_ARM_MAY_HAVE_NEON
+  bits |= GCBO_FEATURE_ARM_MAY_NEON;
+#endif
+#ifdef OPUS_ARM_PRESUME_NEON
+  bits |= GCBO_FEATURE_ARM_PRESUME_NEON;
+#endif
+#ifdef OPUS_ARM_MAY_HAVE_NEON_INTR
+  bits |= GCBO_FEATURE_ARM_MAY_NEON_INTR;
+#endif
+#ifdef OPUS_ARM_PRESUME_NEON_INTR
+  bits |= GCBO_FEATURE_ARM_PRESUME_NEON_INTR;
+#endif
+#ifdef OPUS_ARM_MAY_HAVE_DOTPROD
+  bits |= GCBO_FEATURE_ARM_MAY_DOTPROD;
+#endif
+#ifdef OPUS_ARM_PRESUME_DOTPROD
+  bits |= GCBO_FEATURE_ARM_PRESUME_DOTPROD;
+#endif
+  return bits;
+}
 
 static int set_binary_stdio(void) {
 #ifdef _WIN32
@@ -194,17 +266,22 @@ int main(void) {
     return 1;
   }
 
-  /* Collect all encoded packets before writing output so we know the count */
+  /* Collect each frame before writing so its packet and final range stay
+   * associated even if libopus ever emits a zero-byte DTX frame. */
   unsigned char **packets = (unsigned char **)malloc(num_frames * sizeof(unsigned char *));
   int *packet_lens = (int *)malloc(num_frames * sizeof(int));
-  if (packets == NULL || packet_lens == NULL) {
+  uint32_t *final_ranges = (uint32_t *)malloc(num_frames * sizeof(uint32_t));
+  if (packets == NULL || packet_lens == NULL || final_ranges == NULL) {
     fprintf(stderr, "packet array malloc failed\n");
+    free(final_ranges);
+    free(packet_lens);
+    free(packets);
     free(pkt_buf);
     free(pcm);
     opus_encoder_destroy(enc);
     return 1;
   }
-  uint32_t actual_packets = 0;
+  uint32_t actual_frames = 0;
 
   for (uint32_t f = 0; f < num_frames; f++) {
     /* Read PCM: float32 LE samples interleaved by channel */
@@ -225,46 +302,59 @@ int main(void) {
       fprintf(stderr, "opus_encode_float frame %u failed: %d\n", f, n);
       goto cleanup_fail;
     }
-    if (n == 0) {
-      /* DTX silence — skip (CBR should not produce these, but guard it) */
-      continue;
-    }
-    packets[actual_packets] = (unsigned char *)malloc((size_t)n);
-    if (packets[actual_packets] == NULL) {
-      fprintf(stderr, "packet copy malloc failed at frame %u\n", f);
+    opus_uint32 final_range = 0;
+    if (opus_encoder_ctl(enc, OPUS_GET_FINAL_RANGE(&final_range)) != OPUS_OK) {
+      fprintf(stderr, "OPUS_GET_FINAL_RANGE frame %u failed\n", f);
       goto cleanup_fail;
     }
-    memcpy(packets[actual_packets], pkt_buf, (size_t)n);
-    packet_lens[actual_packets] = n;
-    actual_packets++;
+    packets[actual_frames] = NULL;
+    if (n > 0) {
+      packets[actual_frames] = (unsigned char *)malloc((size_t)n);
+      if (packets[actual_frames] == NULL) {
+        fprintf(stderr, "packet copy malloc failed at frame %u\n", f);
+        goto cleanup_fail;
+      }
+      memcpy(packets[actual_frames], pkt_buf, (size_t)n);
+    }
+    packet_lens[actual_frames] = n;
+    final_ranges[actual_frames] = (uint32_t)final_range;
+    actual_frames++;
   }
 
-  /* Write output header */
-  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) || !write_u32(actual_packets)) {
+  /* Report the version string, generated config macros, and runtime dispatch
+   * selected by the same archive used for encoding. */
+  const char *version_string = opus_get_version_string();
+  uint32_t version_len = (uint32_t)strlen(version_string);
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(2) ||
+      !write_u32(version_len) || !write_exact(version_string, version_len) ||
+      !write_u32((uint32_t)OPUS_ARCHMASK) || !write_u32(build_feature_bits()) ||
+      !write_u32((uint32_t)opus_select_arch()) || !write_u32(actual_frames)) {
     fprintf(stderr, "write output header failed\n");
     goto cleanup_fail;
   }
-  /* Write each packet */
-  for (uint32_t i = 0; i < actual_packets; i++) {
-    if (!write_u32((uint32_t)packet_lens[i]) ||
+  /* Write each packet and its range-coder state */
+  for (uint32_t i = 0; i < actual_frames; i++) {
+    if (!write_u32((uint32_t)packet_lens[i]) || !write_u32(final_ranges[i]) ||
         !write_exact(packets[i], (size_t)packet_lens[i])) {
-      fprintf(stderr, "write packet %u failed\n", i);
+      fprintf(stderr, "write frame %u failed\n", i);
       goto cleanup_fail;
     }
   }
 
-  for (uint32_t i = 0; i < actual_packets; i++) free(packets[i]);
+  for (uint32_t i = 0; i < actual_frames; i++) free(packets[i]);
   free(packets);
   free(packet_lens);
+  free(final_ranges);
   free(pkt_buf);
   free(pcm);
   opus_encoder_destroy(enc);
   return 0;
 
 cleanup_fail:
-  for (uint32_t i = 0; i < actual_packets; i++) free(packets[i]);
+  for (uint32_t i = 0; i < actual_frames; i++) free(packets[i]);
   free(packets);
   free(packet_lens);
+  free(final_ranges);
   free(pkt_buf);
   free(pcm);
   opus_encoder_destroy(enc);

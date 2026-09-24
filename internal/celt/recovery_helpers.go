@@ -499,6 +499,37 @@ func (d *Decoder) concealPeriodicPLCLimited(dst []float32, frameSize, lossCount 
 	return d.concealPeriodicPLCWithLimit(dst, frameSize, lossCount, continuePeriodic, commit, true)
 }
 
+// periodicPLCEnergy accumulates the selected PLC decay window. The paired
+// arm64 SIMD reference tested here accumulates complete four-sample vectors
+// with separate products and additions, then contracts its short remainder.
+// Scalar reference builds contract every sample.
+func periodicPLCEnergy(sum float32, samples []celtSig) float32 {
+	if libopusFloatInnerProdUsesNeonOrder {
+		vectorEnd := len(samples) &^ 3
+		for i := 0; i < vectorEnd; i++ {
+			sample := float32(samples[i])
+			sum = noFMA32Add(sum, noFMA32Mul(sample, sample))
+		}
+		for i := vectorEnd; i < len(samples); i++ {
+			sample := float32(samples[i])
+			sum = fma32(sample, sample, sum)
+		}
+		return sum
+	}
+	if libopusFloatInnerProdUsesSSEOrder {
+		for _, value := range samples {
+			sample := float32(value)
+			sum = noFMA32Add(sum, noFMA32Mul(sample, sample))
+		}
+		return sum
+	}
+	for _, value := range samples {
+		sample := float32(value)
+		sum = fma32(sample, sample, sum)
+	}
+	return sum
+}
+
 func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCount int, continuePeriodic bool, commit bool, limitEarly bool) bool {
 	if frameSize <= 0 || d.channels <= 0 {
 		return false
@@ -583,12 +614,8 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 			e2 := float32(1.0)
 			base1 := celtPLCLPCOrder + maxPeriod - decayLength
 			base2 := celtPLCLPCOrder + maxPeriod - 2*decayLength
-			for i := range decayLength {
-				v1 := float32(exc[base1+i])
-				v2 := float32(exc[base2+i])
-				e1 = fma32(v1, v1, e1)
-				e2 = fma32(v2, v2, e2)
-			}
+			e1 = periodicPLCEnergy(e1, exc[base1:base1+decayLength])
+			e2 = periodicPLCEnergy(e2, exc[base2:base2+decayLength])
 			if e1 > e2 {
 				e1 = e2
 			}

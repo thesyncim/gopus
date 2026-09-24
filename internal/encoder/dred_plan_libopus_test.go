@@ -270,7 +270,7 @@ func libopusMinFloat32(a, b float32) float32 {
 func readLibopusDREDBitsTable(t *testing.T) []float32 {
 	t.Helper()
 
-	data := libopustest.ReadRefFileOrSkip(t, "opus_encoder.c", "src", "opus_encoder.c")
+	data := libopustest.ReadPinnedSourceFileOrSkip(t, "opus_encoder.c", "src", "opus_encoder.c")
 
 	re := regexp.MustCompile(`(?s)static\s+const\s+float\s+dred_bits_table\[16\]\s*=\s*\{([^}]*)\}`)
 	m := re.FindSubmatch(data)

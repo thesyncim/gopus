@@ -62,7 +62,7 @@ func TestDREDConstantsMatchLibopusReference(t *testing.T) {
 func readLibopusDefines(t *testing.T, elem ...string) map[string]string {
 	t.Helper()
 
-	data := libopustest.ReadRefFileOrSkip(t, "defines", elem...)
+	data := libopustest.ReadPinnedSourceFileOrSkip(t, "defines", elem...)
 
 	defines := make(map[string]string)
 	re := regexp.MustCompile(`(?m)^#define\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s*$`)

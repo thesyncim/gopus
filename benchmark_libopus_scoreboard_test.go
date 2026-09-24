@@ -433,7 +433,11 @@ func genLibopusPCMBytes(c scoreboardConfig, nFrames int) ([]byte, error) {
 
 // newGopusEncoder builds a configured gopus encoder for the config.
 func newGopusEncoder(c scoreboardConfig) (*gopus.Encoder, error) {
-	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: c.Rate, Channels: c.Channels, Application: gopus.ApplicationAudio})
+	application, err := scoreboardApplication(c.LibopusApp)
+	if err != nil {
+		return nil, err
+	}
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: c.Rate, Channels: c.Channels, Application: application})
 	if err != nil {
 		return nil, err
 	}
@@ -460,6 +464,60 @@ func newGopusEncoder(c scoreboardConfig) (*gopus.Encoder, error) {
 		return nil, err
 	}
 	return enc, nil
+}
+
+func scoreboardApplication(libopusApp string) (gopus.Application, error) {
+	switch libopusApp {
+	case "audio":
+		return gopus.ApplicationAudio, nil
+	case "voip":
+		return gopus.ApplicationVoIP, nil
+	case "restricted-silk":
+		return gopus.ApplicationRestrictedSilk, nil
+	case "restricted-celt":
+		return gopus.ApplicationRestrictedCelt, nil
+	default:
+		return 0, fmt.Errorf("unsupported libopus scoreboard application %q", libopusApp)
+	}
+}
+
+func TestScoreboardGopusApplicationMatchesLibopusConfig(t *testing.T) {
+	cases := []struct {
+		token string
+		want  gopus.Application
+	}{
+		{token: "audio", want: gopus.ApplicationAudio},
+		{token: "voip", want: gopus.ApplicationVoIP},
+		{token: "restricted-silk", want: gopus.ApplicationRestrictedSilk},
+		{token: "restricted-celt", want: gopus.ApplicationRestrictedCelt},
+	}
+	for _, tc := range cases {
+		got, err := scoreboardApplication(tc.token)
+		if err != nil {
+			t.Fatalf("application %q: %v", tc.token, err)
+		}
+		if got != tc.want {
+			t.Errorf("application %q=%v want %v", tc.token, got, tc.want)
+		}
+	}
+	if _, err := scoreboardApplication("unrecognized"); err == nil {
+		t.Fatal("unknown libopus application was accepted")
+	}
+
+	for _, c := range scoreboardConfigs() {
+		if c.Mode != gopus.EncoderModeSILK {
+			continue
+		}
+		enc, err := newGopusEncoder(c)
+		if err != nil {
+			t.Fatalf("build SILK scoreboard encoder: %v", err)
+		}
+		if got := enc.Application(); got != gopus.ApplicationVoIP {
+			t.Fatalf("SILK Go application=%v want %v to match libopus %q", got, gopus.ApplicationVoIP, c.LibopusApp)
+		}
+		return
+	}
+	t.Fatal("scoreboard has no SILK config")
 }
 
 // runLibopusEncode times the libopus encode helper for the config and returns its

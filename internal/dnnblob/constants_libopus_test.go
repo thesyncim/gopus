@@ -34,7 +34,7 @@ func TestDNNBlobConstantsMatchLibopusReference(t *testing.T) {
 
 func readLibopusNNetDefines(t *testing.T) map[string]int32 {
 	t.Helper()
-	data := libopustest.ReadRefFileOrSkip(t, "nnet.h", "dnn", "nnet.h")
+	data := libopustest.ReadPinnedSourceFileOrSkip(t, "nnet.h", "dnn", "nnet.h")
 
 	defs := make(map[string]int32)
 	re := regexp.MustCompile(`(?m)^#define\s+(WEIGHT_(?:BLOCK_SIZE|TYPE_[A-Za-z0-9_]+))\s+([0-9]+)\s*$`)

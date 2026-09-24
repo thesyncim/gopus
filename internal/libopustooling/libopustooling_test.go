@@ -268,6 +268,9 @@ func TestFindValidatedReferenceToolUsesExplicitTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := filepath.Join(srcDir, "opus_compare")
+	if runtime.GOOS == "windows" {
+		want += ".exe"
+	}
 	if got != want {
 		t.Fatalf("tool=%q want explicit paired tree %q", got, want)
 	}
@@ -322,6 +325,9 @@ func TestFindOrEnsureOpusCompareUsesValidatedPairedTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := filepath.Join(srcDir, "opus_compare")
+	if runtime.GOOS == "windows" {
+		want += ".exe"
+	}
 	if got != want {
 		t.Fatalf("tool=%q want %q", got, want)
 	}
@@ -463,11 +469,13 @@ func writePairedReferenceTree(t *testing.T, root string, variant LibopusReferenc
 	configure := "--enable-static --disable-shared --disable-asm --disable-rtcd --disable-intrinsics"
 	cflags := LibopusScalarCFLAGS
 	custom := "0"
-	if variant == LibopusReferenceSIMD {
+	switch variant {
+	case LibopusReferenceScalar:
+	case LibopusReferenceSIMD:
 		config = testSIMDConfig(goarch)
 		configure = "--enable-static --disable-shared --enable-rtcd --enable-intrinsics"
 		cflags = LibopusBaseCFLAGS
-	} else if variant == LibopusReferenceCustomScalar {
+	case LibopusReferenceCustomScalar:
 		configure = "--enable-static --disable-shared --enable-custom-modes --disable-asm --disable-rtcd --disable-intrinsics"
 		custom = "1"
 	}

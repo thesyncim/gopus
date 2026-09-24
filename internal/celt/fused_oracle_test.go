@@ -53,3 +53,18 @@ func requireRenormalizeVectorOracleMode(t *testing.T) {
 		t.Fatalf("Go CELT float mode and libopus reference do not match: Go SIMD=%t libopus=%s", celtFusedFloat, variant)
 	}
 }
+
+// requirePairedCELTOracleMode allows exact float-stage comparisons only when
+// the Go build and resolver select the same scalar or native SIMD lane.
+func requirePairedCELTOracleMode(t *testing.T) libopustooling.LibopusReferenceVariant {
+	t.Helper()
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		t.Fatalf("resolve libopus reference variant: %v", err)
+	}
+	goSIMD := libopusFloatInnerProdUsesNeonOrder || libopusFloatInnerProdUsesSSEOrder
+	if goSIMD != (variant == libopustooling.LibopusReferenceSIMD) {
+		t.Fatalf("Go CELT mode and libopus reference do not match: Go SIMD=%t libopus=%s", goSIMD, variant)
+	}
+	return variant
+}

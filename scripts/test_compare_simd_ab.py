@@ -5,7 +5,14 @@ import pathlib
 import tempfile
 import unittest
 
-from compare_simd_ab import REPLACEMENT_TESTS, cbr_rows, compare_full_parity, precision_gap
+from compare_simd_ab import (
+    REPLACEMENT_TESTS,
+    cbr_rows,
+    compare_full_parity,
+    precision_gap,
+    strict_cbr_errors,
+    strict_cbr_summary,
+)
 
 
 def event(action, test=None, output=None, package="github.com/thesyncim/gopus"):
@@ -62,6 +69,47 @@ class FullParityComparisonTest(unittest.TestCase):
     def test_worse_decode_metric_is_rejected(self):
         self.assertTrue(any("sample differences increase" in error
                             for error in self.compare(candidate_sample_count=3)))
+
+
+class StrictCBRSummaryTest(unittest.TestCase):
+    def test_parses_exact_packet_and_range_counts(self):
+        log = (
+            "strict paired CBR summary: variant=simd cases=19 exact_cases=19 "
+            "packets=2175 packet_diffs=0 range_diffs=0\n"
+        )
+        self.assertEqual(strict_cbr_summary(log), {
+            "variant": "simd",
+            "cases": 19,
+            "exact_cases": 19,
+            "packets": 2175,
+            "packet_diffs": 0,
+            "range_diffs": 0,
+        })
+
+    def test_rejects_missing_or_duplicate_summary(self):
+        with self.assertRaises(ValueError):
+            strict_cbr_summary("PASS\n")
+        summary = "strict paired CBR summary: variant=scalar cases=19 exact_cases=19 packets=1 packet_diffs=0 range_diffs=0\n"
+        with self.assertRaises(ValueError):
+            strict_cbr_summary(summary + summary)
+
+    def test_packet_or_range_diffs_and_nonzero_exit_are_hard_errors(self):
+        packet_log = (
+            "strict paired CBR summary: variant=simd cases=19 exact_cases=8 "
+            "packets=2175 packet_diffs=104 range_diffs=37\n"
+            "testvectors/encoder_cbr_byte_parity_test.go:1: exact paired CBR mismatch: packets=7/400 ranges=5/400 first_packet=frame:191 byte:8\n"
+        )
+        errors = strict_cbr_errors(1, packet_log)
+        self.assertEqual(len(errors), 2)
+        self.assertIn("104", errors[1])
+        self.assertIn("frame:191 byte:8", errors[1])
+
+        range_log = "strict paired CBR summary: variant=scalar cases=19 exact_cases=19 packets=2175 packet_diffs=0 range_diffs=1\n"
+        self.assertTrue(any("ranges=1" in error for error in strict_cbr_errors(0, range_log)))
+
+    def test_nonzero_exit_fails_even_with_zero_summary_diffs(self):
+        log = "strict paired CBR summary: variant=scalar cases=19 exact_cases=19 packets=2175 packet_diffs=0 range_diffs=0\n"
+        self.assertTrue(any("exit=1" in error for error in strict_cbr_errors(1, log)))
 
 
 if __name__ == "__main__":
