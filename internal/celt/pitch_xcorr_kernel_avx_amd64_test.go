@@ -183,6 +183,99 @@ func TestPitchXCorrAVX2FMAOrderTinyMatchesKernelGroups(t *testing.T) {
 	}
 }
 
+func TestPitchXCorrTinyLength10ExactAndZeroAlloc(t *testing.T) {
+	const length, maxPitch = 10, 10
+	rng := rand.New(rand.NewSource(2510))
+	x := make([]float32, length)
+	y := make([]float32, length+maxPitch)
+	got := make([]float32, maxPitch)
+	want := make([]float32, maxPitch)
+	for trial := 0; trial < 128; trial++ {
+		for i := range x {
+			x[i] = float32(rng.NormFloat64())
+		}
+		for i := range y {
+			y[i] = float32(rng.NormFloat64())
+		}
+		var group [8]float32
+		xcorrKernelAVX8(&x[0], &y[0], &group, length)
+		copy(want, group[:])
+		for pitch := 8; pitch < maxPitch; pitch++ {
+			want[pitch] = innerProdFloat32SSEOrder(x, y[pitch:], length)
+		}
+		pitchXCorrFloat32AVX2FMAOrderTiny(x, y, got, length, maxPitch)
+		for pitch := range got {
+			if math.Float32bits(got[pitch]) != math.Float32bits(want[pitch]) {
+				t.Fatalf("trial=%d pitch=%d: got %08x want %08x", trial, pitch, math.Float32bits(got[pitch]), math.Float32bits(want[pitch]))
+			}
+		}
+	}
+	if allocs := testing.AllocsPerRun(100, func() {
+		pitchXCorrFloat32AVX2FMAOrderTiny(x, y, got, length, maxPitch)
+	}); allocs != 0 {
+		t.Fatalf("length-10 tiny pitch xcorr allocated %v times", allocs)
+	}
+}
+
+func TestPitchXCorrTinyLength10EdgeValuesAndTailSizes(t *testing.T) {
+	const length = 10
+	values := []float32{
+		0, math.Float32frombits(1 << 31),
+		math.SmallestNonzeroFloat32, -math.SmallestNonzeroFloat32,
+		0.5, -0.5, 1, -1,
+		float32(math.Inf(1)), float32(math.Inf(-1)),
+		math.Float32frombits(0x7fc01234), math.Float32frombits(0xffc05678),
+	}
+	signedZeroValues := []float32{
+		0, math.Float32frombits(1 << 31),
+		math.SmallestNonzeroFloat32, -math.SmallestNonzeroFloat32,
+		0.5, -0.5, 1, -1,
+	}
+	for maxPitch := 1; maxPitch <= 17; maxPitch++ {
+		x := make([]float32, length)
+		y := make([]float32, length+maxPitch)
+		for variant := 0; variant < 2; variant++ {
+			inputValues := values
+			if variant == 1 {
+				inputValues = signedZeroValues
+			}
+			for i := range x {
+				x[i] = inputValues[(i*5+variant*3)%len(inputValues)]
+			}
+			for i := range y {
+				y[i] = inputValues[(i*7+variant*5)%len(inputValues)]
+			}
+			if variant == 0 {
+				x[0], y[0] = 0, float32(math.Inf(-1))
+				x[1], y[1] = 1, math.Float32frombits(0x7fc01234)
+				x[2], y[2] = math.Float32frombits(1<<31), -2
+			} else {
+				x[0], y[0] = 0, -1
+				x[1], y[1] = math.Float32frombits(1<<31), 1
+				x[2], y[2] = math.SmallestNonzeroFloat32, 0.5
+			}
+
+			want := make([]float32, maxPitch)
+			for pitch := 0; pitch+8 <= maxPitch; pitch += 8 {
+				var group [8]float32
+				xcorrKernelAVX8(&x[0], &y[pitch], &group, length)
+				copy(want[pitch:pitch+8], group[:])
+			}
+			for pitch := maxPitch &^ 7; pitch < maxPitch; pitch++ {
+				want[pitch] = innerProdFloat32SSEOrder(x, y[pitch:], length)
+			}
+
+			got := make([]float32, maxPitch)
+			pitchXCorrFloat32AVX2FMAOrderTiny(x, y, got, length, maxPitch)
+			for pitch := range got {
+				if math.Float32bits(got[pitch]) != math.Float32bits(want[pitch]) {
+					t.Fatalf("maxPitch=%d variant=%d pitch=%d: got %08x want %08x", maxPitch, variant, pitch, math.Float32bits(got[pitch]), math.Float32bits(want[pitch]))
+				}
+			}
+		}
+	}
+}
+
 func TestPitchXCorrTinyNaNAndSignedZeroMatchKernelGroup(t *testing.T) {
 	x := []float32{0, math.Float32frombits(1 << 31), 1, -1, 0.5}
 	y := make([]float32, len(x)+7)
