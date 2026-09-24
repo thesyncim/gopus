@@ -1,7 +1,7 @@
 package celt
 
-// kfBfly5Inner is the Go fallback for the radix-5 butterfly inner loop.
-func kfBfly5Inner(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
+// kfBfly5InnerScalar is the scalar radix-5 butterfly inner loop.
+func kfBfly5InnerScalar(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 	ya := w[fstride*m]
 	yb := w[fstride*2*m]
 	yar, yai := ya.r, ya.i
@@ -125,8 +125,8 @@ func kfBfly5Inner(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 	}
 }
 
-// kfBfly3Inner is the Go fallback for the radix-3 butterfly inner loop.
-func kfBfly3Inner(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
+// kfBfly3InnerScalar is the scalar radix-3 butterfly inner loop.
+func kfBfly3InnerScalar(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 	m2 := 2 * m
 	epi3i := w[fstride*m].i
 	_ = fout[N*mm-1]
@@ -190,8 +190,8 @@ func kfBfly3Inner(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 	}
 }
 
-// kfBfly4Inner is the Go fallback for the radix-4 butterfly inner loop.
-func kfBfly4Inner(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
+// kfBfly4InnerScalar is the scalar radix-4 butterfly inner loop.
+func kfBfly4InnerScalar(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 	m2 := 2 * m
 	m3 := 3 * m
 	_ = fout[N*mm-1]

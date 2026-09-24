@@ -1,6 +1,6 @@
 package celt
 
-func kfBfly4M1Core(fout []kissCpx, n int) {
+func kfBfly4M1CoreScalar(fout []kissCpx, n int) {
 	total := n << 2
 	_ = fout[total-1] // BCE hint for base+0..3 accesses.
 	for i := 0; i < total; i += 4 {
