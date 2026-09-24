@@ -73,7 +73,23 @@ func haar1Stride4NEON(x []float32, n0 int) {
 	_ = x[8*n0-1]
 	p := unsafe.Pointer(unsafe.SliceData(x))
 	scale := archsimd.BroadcastFloat32x4(haarScale)
-	for i := 0; i < n0; i++ {
+	i := 0
+	for ; i+2 <= n0; i += 2 {
+		off := unsafe.Add(p, i*32)
+		lo0 := loadF32x4(off)
+		hi0 := loadF32x4(unsafe.Add(off, 16))
+		lo1 := loadF32x4(unsafe.Add(off, 32))
+		hi1 := loadF32x4(unsafe.Add(off, 48))
+		scaledLo0 := lo0.Mul(scale)
+		scaledHi0 := hi0.Mul(scale)
+		scaledLo1 := lo1.Mul(scale)
+		scaledHi1 := hi1.Mul(scale)
+		storeF32x4(off, scaledLo0.Add(scaledHi0))
+		storeF32x4(unsafe.Add(off, 16), scaledLo0.Sub(scaledHi0))
+		storeF32x4(unsafe.Add(off, 32), scaledLo1.Add(scaledHi1))
+		storeF32x4(unsafe.Add(off, 48), scaledLo1.Sub(scaledHi1))
+	}
+	if i < n0 {
 		off := unsafe.Add(p, i*32)
 		lo := loadF32x4(off)
 		hi := loadF32x4(unsafe.Add(off, 16))
