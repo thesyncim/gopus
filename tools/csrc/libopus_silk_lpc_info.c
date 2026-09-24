@@ -10,18 +10,35 @@
 
 #include "config.h"
 #include "silk/float/main_FLP.h"
+#include "celt/cpu_support.h"
 
 #if defined(GOPUS_LIBOPUS_REQUIRE_AVX2)
-static int avx2_inner_product_is_selected(void) {
+static int avx2_inner_product_is_selected(int arch) {
 #if defined(OPUS_X86_PRESUME_AVX2)
+  (void)arch;
   return 1;
 #elif defined(OPUS_HAVE_RTCD) && defined(OPUS_X86_MAY_HAVE_AVX2)
-  return SILK_INNER_PRODUCT_FLP_IMPL[4] == silk_inner_product_FLP_avx2;
+  return arch >= 4 && SILK_INNER_PRODUCT_FLP_IMPL[arch & OPUS_ARCHMASK] == silk_inner_product_FLP_avx2;
 #else
+  (void)arch;
   return 0;
 #endif
 }
 #endif
+
+static int selected_arch;
+
+static uint32_t inner_product_impl_selected(int arch) {
+#if defined(OPUS_X86_PRESUME_AVX2)
+  (void)arch;
+  return 1u;
+#elif defined(OPUS_HAVE_RTCD) && defined(OPUS_X86_MAY_HAVE_AVX2)
+  return SILK_INNER_PRODUCT_FLP_IMPL[arch & OPUS_ARCHMASK] == silk_inner_product_FLP_avx2 ? 1u : 0u;
+#else
+  (void)arch;
+  return 0u;
+#endif
+}
 
 #define INPUT_MAGIC "GSLI"
 #define OUTPUT_MAGIC "GSLO"
@@ -40,7 +57,8 @@ enum {
   MODE_LPC_ANALYSIS_FILTER_FLP = 1,
   MODE_INNER_PRODUCT_FLP = 2,
   MODE_ENERGY_FLP = 3,
-  MODE_FIND_LPC_FLP = 4
+  MODE_FIND_LPC_FLP = 4,
+  MODE_AUTOCORRELATION_FLP = 5
 };
 
 static int set_binary_stdio(void) {
@@ -91,6 +109,12 @@ static int write_u64(uint64_t value) {
   return write_exact(b, sizeof(b));
 }
 
+static int write_float(silk_float value) {
+  uint32_t raw;
+  memcpy(&raw, &value, sizeof(raw));
+  return write_u32(raw);
+}
+
 static int write_double(double value) {
   uint64_t bits;
   memcpy(&bits, &value, sizeof(bits));
@@ -118,7 +142,7 @@ static int eval_burg_modified(void) {
     if (!read_u32(&raw)) return 0;
     memcpy(&x[i], &raw, sizeof(x[i]));
   }
-  res_nrg = silk_burg_modified_FLP(a, x, min_inv_gain, (opus_int)subfr_length, (opus_int)nb_subfr, (opus_int)order, 0);
+  res_nrg = silk_burg_modified_FLP(a, x, min_inv_gain, (opus_int)subfr_length, (opus_int)nb_subfr, (opus_int)order, selected_arch);
   memcpy(&raw, &res_nrg, sizeof(raw));
   if (!write_u32(raw) || !write_u32(order)) return 0;
   for (i = 0; i < 16; i++) {
@@ -165,7 +189,7 @@ static int eval_inner_product(void) {
   silk_float a[512];
   silk_float b[512];
   double v;
-  int arch = 0;
+  int arch = selected_arch;
   if (!read_u32(&length)) return 0;
   if (length == 0 || length > 512) return 0;
   for (i = 0; i < length; i++) {
@@ -176,9 +200,6 @@ static int eval_inner_product(void) {
     if (!read_u32(&raw)) return 0;
     memcpy(&b[i], &raw, sizeof(b[i]));
   }
-#if defined(GOPUS_LIBOPUS_REQUIRE_AVX2)
-  arch = 4;
-#endif
   v = silk_inner_product_FLP(a, b, (opus_int)length, arch);
   return write_double(v);
 }
@@ -232,7 +253,7 @@ static int eval_find_lpc(void) {
   st.predictLPCOrder = (opus_int)order;
   st.useInterpolatedNLSFs = (opus_int)use_interp;
   st.first_frame_after_reset = (opus_int)first_frame_after_reset;
-  st.arch = 0;
+  st.arch = selected_arch;
 
   for (i = 0; i < 16; i++) {
     if (!read_u32(&raw)) return 0;
@@ -243,13 +264,35 @@ static int eval_find_lpc(void) {
     memcpy(&x[i], &raw, sizeof(x[i]));
   }
 
-  silk_find_LPC_FLP(&st, nlsf, x, min_inv_gain, 0);
+  silk_find_LPC_FLP(&st, nlsf, x, min_inv_gain, selected_arch);
 
   if (!write_u32(order) || !write_u32((uint32_t)(int32_t)st.indices.NLSFInterpCoef_Q2)) return 0;
   for (i = 0; i < 16; i++) {
     int32_t v = 0;
     if (i < order) v = nlsf[i];
     if (!write_u32((uint32_t)v)) return 0;
+  }
+  return 1;
+}
+
+static int eval_autocorrelation(void) {
+  uint32_t raw;
+  uint32_t length;
+  uint32_t count;
+  uint32_t i;
+  silk_float input[512];
+  silk_float output[16];
+
+  if (!read_u32(&length) || !read_u32(&count)) return 0;
+  if (length == 0 || length > 512 || count == 0 || count > 16 || count > length) return 0;
+  for (i = 0; i < length; i++) {
+    if (!read_u32(&raw)) return 0;
+    memcpy(&input[i], &raw, sizeof(input[i]));
+  }
+  silk_autocorrelation_FLP(output, input, (opus_int)length, (opus_int)count, selected_arch);
+  if (!write_u32(count)) return 0;
+  for (i = 0; i < count; i++) {
+    if (!write_float(output[i])) return 0;
   }
   return 1;
 }
@@ -261,6 +304,7 @@ static int eval_record(uint32_t mode) {
     case MODE_INNER_PRODUCT_FLP: return eval_inner_product();
     case MODE_ENERGY_FLP: return eval_energy();
     case MODE_FIND_LPC_FLP: return eval_find_lpc();
+    case MODE_AUTOCORRELATION_FLP: return eval_autocorrelation();
   }
   return 0;
 }
@@ -270,20 +314,24 @@ int main(void) {
   uint32_t version;
   uint32_t mode;
   uint32_t count;
+  uint32_t inner_product_impl;
   uint32_t i;
 
   if (!set_binary_stdio()) return 1;
+  selected_arch = opus_select_arch();
 #if defined(GOPUS_LIBOPUS_REQUIRE_AVX2)
-  if (!avx2_inner_product_is_selected()) {
-    fputs("SIMD libopus oracle does not select silk_inner_product_FLP_avx2 at arch 4\n", stderr);
+  if (!avx2_inner_product_is_selected(selected_arch)) {
+    fprintf(stderr, "SIMD libopus oracle does not select silk_inner_product_FLP_avx2 at runtime arch %d\n", selected_arch);
     return 1;
   }
 #endif
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_FIND_LPC_FLP) return 1;
+  if (mode > MODE_AUTOCORRELATION_FLP) return 1;
 
-  if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) return 1;
+  inner_product_impl = inner_product_impl_selected(selected_arch);
+  if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(2) ||
+      !write_u32((uint32_t)selected_arch) || !write_u32(inner_product_impl) || !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {
     if (!eval_record(mode)) return 1;
   }

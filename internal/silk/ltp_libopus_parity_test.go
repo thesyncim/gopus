@@ -12,10 +12,11 @@ const (
 	libopusSILKLTPInputMagic  = "GSLT"
 	libopusSILKLTPOutputMagic = "GSLU"
 
-	libopusSILKLTPModeQuant = uint32(0)
-	libopusSILKLTPModeVQ    = uint32(1)
-	libopusSILKLTPModePitch = uint32(2)
-	libopusSILKLTPModeFind  = uint32(3)
+	libopusSILKLTPModeQuant            = uint32(0)
+	libopusSILKLTPModeVQ               = uint32(1)
+	libopusSILKLTPModePitch            = uint32(2)
+	libopusSILKLTPModeFind             = uint32(3)
+	libopusSILKLTPModeCorrMatrixVector = uint32(4)
 )
 
 var libopusSILKLTPHelper libopustest.HelperCache
@@ -49,33 +50,34 @@ type libopusSILKLTPFindRecord struct {
 	xX []float32
 }
 
+type libopusSILKCorrelationCase struct {
+	name   string
+	length int
+	order  int
+	x      []float32
+	y      []float32
+}
+
+type libopusSILKCorrelationRecord struct {
+	XX []float32
+	Xt []float32
+}
+
 func buildLibopusSILKLTPHelper() (string, error) {
+	archive := libopustest.RefPath(".libs", "libopus.a")
+	cflags := []string{"-DHAVE_CONFIG_H", "-O2"}
+	if silkLPCOracleUsesAVX2() {
+		cflags = append(cflags, "-DGOPUS_LIBOPUS_REQUIRE_AVX2=1")
+	}
 	return libopustest.BuildCHelper(libopustest.CHelperConfig{
 		Label:        "silk ltp",
 		OutputBase:   "gopus_libopus_silk_ltp",
 		SourceFile:   "libopus_silk_ltp_info.c",
 		ProbeRelPath: "silk/float/main_FLP.h",
-		CFlags:       []string{"-DHAVE_CONFIG_H", "-ffp-contract=off"},
+		CFlags:       cflags,
 		RefIncludes:  []string{"celt", "silk", "silk/float"},
-		// Compiles a subset of SILK .c files (no libopus.a link) that reach
-		// silk_inner_product_FLP / silk_VQ_WMat_EC. Force the scalar _c kernels so
-		// the SSE/AVX RTCD dispatch tables (absent from this subset) are not
-		// referenced -- otherwise the link fails on amd64/Windows.
-		ForceScalarRef: true,
-		RefSources: []string{
-			"silk/quant_LTP_gains.c",
-			"silk/VQ_WMat_EC.c",
-			"silk/decode_pitch.c",
-			"silk/pitch_est_tables.c",
-			"silk/tables_LTP.c",
-			"silk/lin2log.c",
-			"silk/log2lin.c",
-			"silk/float/corrMatrix_FLP.c",
-			"silk/float/energy_FLP.c",
-			"silk/float/find_LTP_FLP.c",
-			"silk/float/inner_product_FLP.c",
-			"silk/float/scale_vector_FLP.c",
-		},
+		SIMDRef:      silkLPCOracleUsesAVX2(),
+		Libs:         []string{archive, "-lm"},
 	})
 }
 
@@ -88,11 +90,10 @@ func probeLibopusSILKLTPQuant(records [][]int32) ([]libopusSILKLTPQuantRecord, e
 	if err != nil {
 		return nil, err
 	}
-	reader, err := libopustest.NewOracleReader("silk ltp", libopusSILKLTPOutputMagic, data)
+	reader, count, err := newLibopusSILKOracleReader("silk ltp", libopusSILKLTPOutputMagic, data, len(records))
 	if err != nil {
 		return nil, err
 	}
-	count := reader.Count(len(records))
 	reader.ExpectRemaining(count * (3 + maxNbSubfr*ltpOrderConst + maxNbSubfr) * 4)
 	out := make([]libopusSILKLTPQuantRecord, count)
 	for i := range out {
@@ -117,11 +118,10 @@ func probeLibopusSILKLTPVQ(records [][]int32) ([]libopusSILKLTPVQRecord, error) 
 	if err != nil {
 		return nil, err
 	}
-	reader, err := libopustest.NewOracleReader("silk ltp", libopusSILKLTPOutputMagic, data)
+	reader, count, err := newLibopusSILKOracleReader("silk ltp", libopusSILKLTPOutputMagic, data, len(records))
 	if err != nil {
 		return nil, err
 	}
-	count := reader.Count(len(records))
 	reader.ExpectRemaining(count * 16)
 	out := make([]libopusSILKLTPVQRecord, count)
 	for i := range out {
@@ -143,11 +143,10 @@ func probeLibopusSILKDecodePitch(records [][]int32) ([][maxNbSubfr]int32, error)
 	if err != nil {
 		return nil, err
 	}
-	reader, err := libopustest.NewOracleReader("silk ltp", libopusSILKLTPOutputMagic, data)
+	reader, count, err := newLibopusSILKOracleReader("silk ltp", libopusSILKLTPOutputMagic, data, len(records))
 	if err != nil {
 		return nil, err
 	}
-	count := reader.Count(len(records))
 	reader.ExpectRemaining(count * maxNbSubfr * 4)
 	out := make([][maxNbSubfr]int32, count)
 	for i := range out {
@@ -181,11 +180,10 @@ func probeLibopusSILKFindLTPFLP(cases []libopusSILKLTPFindCase) ([]libopusSILKLT
 	if err != nil {
 		return nil, fmt.Errorf("run silk find ltp helper: %w", err)
 	}
-	reader, err := libopustest.NewOracleReader("silk find ltp", libopusSILKLTPOutputMagic, data)
+	reader, count, err := newLibopusSILKOracleReader("silk find ltp", libopusSILKLTPOutputMagic, data, len(cases))
 	if err != nil {
 		return nil, err
 	}
-	count := reader.Count(len(cases))
 	out := make([]libopusSILKLTPFindRecord, count)
 	for i := range out {
 		xxLen := cases[i].nbSubfr * ltpOrderConst * ltpOrderConst
@@ -197,6 +195,50 @@ func probeLibopusSILKFindLTPFLP(cases []libopusSILKLTPFindCase) ([]libopusSILKLT
 		}
 		for j := range out[i].xX {
 			out[i].xX[j] = reader.Float32()
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func probeLibopusSILKCorrelationMatrixVector(cases []libopusSILKCorrelationCase) ([]libopusSILKCorrelationRecord, error) {
+	binPath, err := getLibopusSILKLTPHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload(libopusSILKLTPInputMagic, libopusSILKLTPModeCorrMatrixVector, uint32(len(cases)))
+	for _, tc := range cases {
+		if len(tc.x) != tc.length+tc.order-1 || len(tc.y) != tc.length || tc.length <= 0 || tc.order <= 0 || tc.order > 16 {
+			return nil, fmt.Errorf("%s: invalid LTP correlation dimensions x=%d y=%d length=%d order=%d", tc.name, len(tc.x), len(tc.y), tc.length, tc.order)
+		}
+		payload.U32(uint32(tc.length))
+		payload.U32(uint32(tc.order))
+		payload.Float32s(tc.x...)
+		payload.Float32s(tc.y...)
+	}
+	data, err := libopustest.RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("run silk correlation matrix/vector helper: %w", err)
+	}
+	reader, count, err := newLibopusSILKOracleReader("silk correlation matrix/vector", libopusSILKLTPOutputMagic, data, len(cases))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]libopusSILKCorrelationRecord, count)
+	for i := range out {
+		order := int(reader.U32())
+		if order != cases[i].order {
+			return nil, fmt.Errorf("%s: helper order=%d want %d", cases[i].name, order, cases[i].order)
+		}
+		out[i].XX = make([]float32, order*order)
+		out[i].Xt = make([]float32, order)
+		for j := range out[i].XX {
+			out[i].XX[j] = reader.Float32()
+		}
+		for j := range out[i].Xt {
+			out[i].Xt[j] = reader.Float32()
 		}
 	}
 	if err := reader.ExpectConsumed(); err != nil {
@@ -370,6 +412,62 @@ func TestSILKFindLTPFLPMatchesLibopusOracle(t *testing.T) {
 						j,
 						math.Float32bits(gotxX[j]), gotxX[j],
 						math.Float32bits(want[i].xX[j]), want[i].xX[j])
+				}
+			}
+		})
+	}
+}
+
+func TestSILKCorrelationMatrixVectorMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cancellation := make([]float32, 21)
+	pattern := [...]float32{1e20, 1, -1e20, 1, -1e20, 1, 1e20, 1}
+	for i := range cancellation {
+		cancellation[i] = pattern[i%len(pattern)]
+	}
+	cases := []libopusSILKCorrelationCase{
+		{
+			name:   "order5_length17_tail",
+			length: 17,
+			order:  5,
+			x:      silkFLPOracleSignal(21, 0x31415926, 256),
+			y:      silkFLPOracleSignal(17, 0x27182818, 64),
+		},
+		{
+			name:   "order5_cancellation",
+			length: 17,
+			order:  5,
+			x:      cancellation,
+			y:      silkFLPOracleSignal(17, 0x12131415, 1),
+		},
+		{
+			name:   "order7_length120",
+			length: 120,
+			order:  7,
+			x:      silkFLPOracleSignal(126, 0xaabbccdd, 4096),
+			y:      silkFLPOracleSignal(120, 0x55667788, 512),
+		},
+	}
+	want, err := probeLibopusSILKCorrelationMatrixVector(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk correlation matrix/vector", err)
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotXX := make([]float32, tc.order*tc.order)
+			gotXt := make([]float32, tc.order)
+			corrMatrixFLP(tc.x, tc.length, tc.order, gotXX)
+			corrVectorFLP(tc.x, tc.y, tc.length, tc.order, gotXt)
+			for j := range gotXX {
+				if math.Float32bits(gotXX[j]) != math.Float32bits(want[i].XX[j]) {
+					t.Fatalf("XX[%d]=%08x %.10g want %08x %.10g", j,
+						math.Float32bits(gotXX[j]), gotXX[j], math.Float32bits(want[i].XX[j]), want[i].XX[j])
+				}
+			}
+			for j := range gotXt {
+				if math.Float32bits(gotXt[j]) != math.Float32bits(want[i].Xt[j]) {
+					t.Fatalf("Xt[%d]=%08x %.10g want %08x %.10g", j,
+						math.Float32bits(gotXt[j]), gotXt[j], math.Float32bits(want[i].Xt[j]), want[i].Xt[j])
 				}
 			}
 		})

@@ -1,11 +1,11 @@
 # gopus
 
-Pure-Go Opus codec — RFC 6716 / RFC 8251, bit-exact and quality parity with
-pinned libopus 1.6.1, a drop-in for the C library with no cgo.
+Pure-Go Opus codec — RFC 6716 / RFC 8251, targeting byte and quality parity
+with pinned libopus 1.6.1, with no cgo.
 
 Encoder, decoder, multistream, projection/ambisonics, Ogg, and RTP RED — all in
 plain Go, with caller-owned, zero-allocation encode and decode hot paths. Codec
-math and bitstream decisions are matched to the pinned reference and proven by a
+math and bitstream decisions follow the pinned reference and are checked with a
 live C oracle (see [Parity & testing](#parity--testing)).
 
 ## Install
@@ -14,7 +14,7 @@ live C oracle (see [Parity & testing](#parity--testing)).
 go get github.com/thesyncim/gopus
 ```
 
-Requires Go 1.25 or newer.
+Requires Go 1.27 or newer.
 
 ## Quick start
 
@@ -178,8 +178,8 @@ equivalent:
 - **`nosimd`** — forces the scalar Go reference path, including when
   `GOEXPERIMENT=simd` is set. Ordinary builds use this scalar path. Set
   `GOEXPERIMENT=simd` to select Go `archsimd` kernels where they are implemented;
-  other kernels keep the scalar fallback. The scalar path is the bit-exact
-  reference tier on every architecture.
+  other kernels keep the scalar fallback. Compare this path with scalar libopus
+  and the SIMD path with libopus using matching CPU instructions.
 
 Default builds expose no optional extensions; `SetDNNBlob(...)` is a no-op
 returning `ErrOptionalExtensionUnavailable`. This matches a default libopus build,
@@ -230,12 +230,11 @@ gopus is built for real-time use, where steady allocation is the enemy:
   own their buffers and the redundant-frame history, so steady-state demux/mux and
   RED packetization allocate nothing once warm — each locked by an
   `AllocsPerRun == 0` test.
-- **SIMD where libopus has it.** On amd64 the float pitch cross-correlation uses
-  an AVX2 kernel that mirrors libopus's `celt_pitch_xcorr_avx2`, computing several
-  correlation lags per FMA instead of one scalar FMA per element — bit-identical
-  output, materially faster stereo CELT and Hybrid encode. Encode-side SILK
-  kernels also dispatch to the same architecture-specific lanes as libopus where
-  the pinned reference provides them.
+- **Go SIMD.** `GOEXPERIMENT=simd` enables `simd/archsimd` kernels with CPU
+  feature dispatch. All codec kernels are Go code. The
+  [kernel evidence report](reports/go-simd-kernel-evidence.md) tracks all 53
+  replacements, same-host assembly comparisons, allocations, and unresolved
+  parity differences.
 
 The required `perf-linux` CI lane publishes both steady-state Go benchmark
 guardrails and libopus-relative ratios. This table comes from `perf-linux` run
@@ -278,7 +277,7 @@ surface, plus the optional surface mirrored tag-for-flag (above). The pinned
 `tmp_check/opus-1.6.1/` is the reference — when behavior is uncertain, gopus
 matches libopus unless fixture evidence says otherwise.
 
-Parity is proven on two tiers, against a live libopus C oracle:
+Validation uses two tiers against a live libopus C oracle:
 
 - **Bit-exact kernel oracles.** Isolated kernels (range coder, NLSF/LPC/gain,
   PVQ/bands, MDCT/KISS-FFT, resamplers, DNN matmuls) are compared bit-for-bit
@@ -291,10 +290,13 @@ Parity is proven on two tiers, against a live libopus C oracle:
   envelope. The encoder precision guard runs on representative real recordings,
   where `opus_compare` Q is a genuine quality measure.
 
-One residual is documented: a few CELT float kernels drift by ≤1 ULP on
-darwin/arm64 (a per-arch float budget). amd64/CI is bit-exact; the default arm64
-build is quality-gated for that tail, exactly as libopus's NEON path is relative
-to its own scalar build.
+Live paired oracles require Go SIMD with native SIMD libopus and scalar Go
+with scalar libopus, using identical inputs and controls. Exact packet parity remains
+incomplete; the [kernel evidence report](reports/go-simd-kernel-evidence.md)
+records packet and final-range differences, skipped oracle coverage, and
+remaining reference-dispatch audits. The strict CBR oracle treats every packet
+or final-range difference as a failure. A cross-instruction-set comparison does
+not establish correctness for either path.
 
 Pre-v1: latest release is `v0.1.1` (see [Trust And Verification](#trust-and-verification)).
 

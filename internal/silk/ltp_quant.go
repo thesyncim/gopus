@@ -32,9 +32,12 @@ func corrMatrixFLP(x []float32, subfrLen, order int, out []float32) {
 		// Calculate X[:,j]'*X[:,j]
 		term1 := x[ptr1Idx-j]
 		term2 := x[ptr1Idx+subfrLen-j]
-		prod1 := float32(term1 * term1)
-		prod2 := float32(term2 * term2)
-		energy += silkCReal(prod1 - prod2)
+		// corrMatrix_FLP.c keeps the first product in the float expression but
+		// rounds the subtracted product first. This lets the target compiler use
+		// its native FMA policy for the first product, matching the paired C
+		// object (FMADD after a rounded negative product on arm64).
+		delta := term1*term1 - noFMA32(term2, term2)
+		energy += silkCReal(delta)
 		out[j*order+j] = float32(energy)
 	}
 
@@ -43,7 +46,7 @@ func corrMatrixFLP(x []float32, subfrLen, order int, out []float32) {
 		// Calculate X[:,0]'*X[:,lag]
 		xPtr1 := x[ptr1Idx:]
 		xPtr2 := x[ptr2Idx:]
-		inner := innerProductF32Libopus(xPtr1, xPtr2, subfrLen)
+		inner := innerProductFLP(xPtr1, xPtr2, subfrLen)
 		innerF32 := float32(inner)
 		out[lag*order] = innerF32
 		out[lag] = innerF32
@@ -54,9 +57,11 @@ func corrMatrixFLP(x []float32, subfrLen, order int, out []float32) {
 			term2 := x[ptr2Idx-j]
 			term3 := x[ptr1Idx+subfrLen-j]
 			term4 := x[ptr2Idx+subfrLen-j]
-			prod1 := float32(term1 * term2)
-			prod2 := float32(term3 * term4)
-			inner += silkCReal(prod1 - prod2)
+			// Preserve corrMatrix_FLP.c's float expression order for the rolling
+			// update: C leaves the first product contractible and materializes the
+			// trailing product before subtraction.
+			delta := term1*term2 - noFMA32(term3, term4)
+			inner += silkCReal(delta)
 			innerF32 = float32(inner)
 			out[(lag+j)*order+j] = innerF32
 			out[j*order+(lag+j)] = innerF32
@@ -81,7 +86,7 @@ func corrVectorFLP(x, y []float32, subfrLen, order int, out []float32) {
 	ptr1Idx := order - 1
 	for lag := range order {
 		xSlice := x[ptr1Idx:]
-		out[lag] = float32(innerProductF32Libopus(xSlice, y, subfrLen))
+		out[lag] = float32(innerProductFLP(xSlice, y, subfrLen))
 		ptr1Idx--
 	}
 }

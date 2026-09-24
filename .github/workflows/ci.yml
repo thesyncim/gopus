@@ -731,6 +731,21 @@ jobs:
       - name: Test native A/B comparator
         run: python3 -m unittest discover -s candidate/scripts -p 'test_compare_simd_ab.py'
 
+      - name: Capture early native paired-reference evidence
+        id: early_native_evidence
+        continue-on-error: true
+        shell: bash
+        run: bash candidate/scripts/ci_simd_ab_early.sh baseline candidate "$RUNNER_TEMP/simd-ab-early"
+
+      - name: Upload early native paired-reference evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64-simd-ab-early-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/simd-ab-early
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Capture native Linux A/B evidence
         shell: bash
         run: bash candidate/scripts/ci_simd_ab.sh baseline candidate "$RUNNER_TEMP/simd-ab"
@@ -750,6 +765,12 @@ jobs:
           path: ${{ runner.temp }}/simd-ab
           if-no-files-found: error
           retention-days: 30
+
+      - name: Enforce early native paired-reference gate
+        if: always()
+        env:
+          EARLY_NATIVE_EVIDENCE_OUTCOME: ${{ steps.early_native_evidence.outcome }}
+        run: test "$EARLY_NATIVE_EVIDENCE_OUTCOME" = success
 
   capture-linux-amd64-opusdec-fixture:
     name: capture-linux-amd64-opusdec-fixture

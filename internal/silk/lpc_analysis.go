@@ -403,7 +403,7 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 	for s := range nbSubfr {
 		xPtr := s * subfrLength
 		for n := 1; n <= order; n++ {
-			CFirstRow[n-1] += innerProductF32Libopus(x[xPtr:], x[xPtr+n:], subfrLength-n)
+			CFirstRow[n-1] += innerProductFLP(x[xPtr:], x[xPtr+n:], subfrLength-n)
 		}
 	}
 	copy(CLastRow[:silkMaxOrderLPC], CFirstRow[:silkMaxOrderLPC])

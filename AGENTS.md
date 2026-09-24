@@ -22,17 +22,22 @@ uses…", "removed…"); describe what the code does today.
   `opus_compare` quality on real audio. SILK decode is bit-exact; CELT/Hybrid sit
   in the near-exact envelope.
 
-## Tiers and the per-arch float budget
+## Paired scalar and SIMD references
 
-- The ordinary build uses scalar Go implementations. The `nosimd` build tag
-  forces the same scalar reference path, including when `GOEXPERIMENT=simd` is
-  set. Scalar paths are **bit-exact on every architecture** and are the lane the
-  byte-parity gates compare against.
-- `GOEXPERIMENT=simd` selects Go `archsimd` kernels where they are implemented;
-  unported kernels use their scalar Go fallback. The SIMD path is quality-gated.
-- A few CELT float kernels drift by ≤1 ULP on darwin/arm64 in the SIMD build.
-  This is the per-architecture float budget, matching libopus's own
-  NEON-versus-scalar difference. Do not chase ≤1-ULP arm64 float drift as a bug.
+- Go 1.27 is the minimum version. All codec kernels are Go implementations.
+- The ordinary build uses scalar Go. The `nosimd` build tag forces that path,
+  including when `GOEXPERIMENT=simd` is set.
+- `GOEXPERIMENT=simd` selects Go `archsimd` kernels where implemented, with
+  scalar fallbacks for other kernels.
+- Compare Go SIMD with libopus SIMD and Go scalar with libopus scalar on the
+  same CPU, using identical input, application, controls, and scalar widths.
+  Verify effective kernel dispatch as well as build flags and runtime features.
+- Same-path exact tests compare float bits, packets, and final ranges without
+  architecture-based ULP waivers. A difference between libopus's SIMD and scalar
+  paths cannot justify a mismatch against the matching reference.
+- The current unresolved differences and measured performance are recorded in
+  `reports/go-simd-kernel-evidence.md`. Passing a subset of tests does not prove
+  complete parity.
 
 ## Libopus type parity
 

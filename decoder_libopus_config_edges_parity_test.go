@@ -3,9 +3,11 @@ package gopus
 import (
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 // This file broadens decode-side libopus-oracle parity coverage across
@@ -84,19 +86,73 @@ func encodeLibopusCBRPackets(cfg cbrEncodeConfig, pcm []float32) ([][]byte, erro
 	if err != nil {
 		return nil, err
 	}
-	if version != 1 {
-		return nil, fmt.Errorf("cbr encode helper version=%d want 1", version)
+	if version != 2 {
+		return nil, fmt.Errorf("cbr encode helper version=%d want 2", version)
 	}
-	count := reader.Count(-1)
+	versionLen := int(reader.U32())
+	if versionLen <= 0 || versionLen > 128 {
+		return nil, fmt.Errorf("invalid cbr encode libopus version length %d", versionLen)
+	}
+	if got := string(reader.Bytes(versionLen)); !strings.Contains(got, libopustooling.DefaultVersion) {
+		return nil, fmt.Errorf("cbr encode helper reports libopus version %q, want %s", got, libopustooling.DefaultVersion)
+	}
+	archMask, buildFeatures, selectedArch := reader.U32(), reader.U32(), reader.U32()
+	if selectedArch > archMask {
+		return nil, fmt.Errorf("cbr encode helper selected architecture %d above OPUS_ARCHMASK %d", selectedArch, archMask)
+	}
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		return nil, err
+	}
+	switch variant {
+	case libopustooling.LibopusReferenceScalar, libopustooling.LibopusReferenceCustomScalar:
+		if archMask != 0 || buildFeatures != 0 || selectedArch != 0 {
+			return nil, fmt.Errorf("scalar CBR reference emitted SIMD metadata: arch_mask=%d features=0x%x selected_arch=%d", archMask, buildFeatures, selectedArch)
+		}
+	case libopustooling.LibopusReferenceSIMD:
+		if buildFeatures == 0 {
+			return nil, fmt.Errorf("SIMD CBR reference emitted no generated SIMD build features")
+		}
+	default:
+		return nil, fmt.Errorf("unsupported paired CBR reference variant %q", variant)
+	}
+	count := reader.Count(cfg.numFrames)
 	packets := make([][]byte, 0, count)
 	for range count {
 		n := int(reader.U32())
+		_ = reader.U32() // OPUS_GET_FINAL_RANGE
 		packets = append(packets, append([]byte(nil), reader.Bytes(n)...))
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		return nil, err
 	}
 	return packets, nil
+}
+
+func TestDecodeLibopusCBROracleOutputV2(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cfg := cbrEncodeConfig{
+		app:        cbrAppAudio,
+		bandwidth:  cbrBWWideband,
+		channels:   1,
+		bitrate:    32000,
+		frameSize:  480,
+		complexity: 1,
+		numFrames:  2,
+	}
+	packets, err := encodeLibopusCBRPackets(cfg, configEdgesPCM(cfg.frameSize, cfg.channels, cfg.numFrames))
+	if err != nil {
+		libopustest.HelperUnavailable(t, "cbr encode", err)
+		return
+	}
+	if len(packets) != cfg.numFrames {
+		t.Fatalf("CBR oracle returned %d packets, want %d", len(packets), cfg.numFrames)
+	}
+	for frame, packet := range packets {
+		if len(packet) == 0 {
+			t.Fatalf("CBR oracle returned empty packet at frame %d", frame)
+		}
+	}
 }
 
 func mustRunHelper(binPath string, input []byte) []byte {

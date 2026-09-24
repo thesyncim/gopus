@@ -371,7 +371,7 @@ verify-safety: ensure-libopus
 # RTCD + SSE/AVX on amd64 and NEON on Linux arm64). GOPUS_LIBOPUS_REF_SCALAR=1
 # routes RefPath() to opus-$(LIBOPUS_VERSION)-scalar so the comparison is
 # scalar-Go vs scalar-C and can stay bit-exact.
-test-build-config-matrix: ensure-libopus-scalar
+test-build-config-matrix: ensure-libopus ensure-libopus-scalar
 	$(GO_WORK_ENV) GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_REF_SCALAR=1 $(GO) test -tags nosimd ./... -count=1 -timeout=25m
 
 # Generate a release evidence bundle (gates + key benchmarks).
