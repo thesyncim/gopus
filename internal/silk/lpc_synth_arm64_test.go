@@ -73,3 +73,26 @@ func TestSynthesizeLPCOrder16CoreBitExact(t *testing.T) {
 		}
 	}
 }
+
+func TestSynthesizeLPCOrder16CoreZeroAlloc(t *testing.T) {
+	input, coefs, pres := testLPCSynthesisInputs()
+	var states [8][maxLPCOrder + maxSubFrameLength]int32
+	var outputs [8][maxSubFrameLength]int16
+	for i := range states {
+		states[i] = input
+	}
+	i := 0
+	call := func() {
+		slot := i & (len(states) - 1)
+		states[slot] = input
+		synthesizeLPCOrder16Core(states[slot][:], coefs[:], pres[:], outputs[slot][:], 12345, maxSubFrameLength)
+		synthesizeLPCSynthesisAllocSink = states[slot][maxLPCOrder+maxSubFrameLength-1]
+		i++
+	}
+	call()
+	if allocs := testing.AllocsPerRun(100, call); allocs != 0 {
+		t.Fatalf("synthesizeLPCOrder16Core allocs/run = %v, want 0", allocs)
+	}
+}
+
+var synthesizeLPCSynthesisAllocSink int32
