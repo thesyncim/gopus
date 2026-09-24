@@ -89,6 +89,41 @@ func pitchXCorrFloat32AVX2FMAOrderTiny(x, y, xcorr []float32, length, maxPitch i
 // pitchXCorrFloat32AVX2FMAOrderTiny10 spells out the ten-sample fine-search
 // shape so each FMA keeps the kernel's sample-lane and reduction order.
 func pitchXCorrFloat32AVX2FMAOrderTiny10(x, y, xcorr []float32, maxPitch int) {
+	if maxPitch == 10 {
+		_ = y[18]
+		_ = xcorr[9]
+		yp := unsafe.Pointer(unsafe.SliceData(y))
+		var zero archsimd.Float32x8
+		acc0 := archsimd.BroadcastFloat32x8(x[0]).MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp)), zero)
+		acc1 := archsimd.BroadcastFloat32x8(x[1]).MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 4))), zero)
+		acc2 := archsimd.BroadcastFloat32x8(x[2]).MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 8))), zero)
+		acc3 := archsimd.BroadcastFloat32x8(x[3]).MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 12))), zero)
+		acc4 := archsimd.BroadcastFloat32x8(x[4]).MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 16))), zero)
+		acc5 := archsimd.BroadcastFloat32x8(x[5]).MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 20))), zero)
+		acc6 := archsimd.BroadcastFloat32x8(x[6]).MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 24))), zero)
+		acc7 := archsimd.BroadcastFloat32x8(x[7]).MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 28))), zero)
+		acc0 = archsimd.BroadcastFloat32x8(x[8]).MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 32))), acc0)
+		acc1 = archsimd.BroadcastFloat32x8(x[9]).MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 36))), acc1)
+
+		s04 := acc0.Add(acc4)
+		s15 := acc1.Add(acc5)
+		s26 := acc2.Add(acc6)
+		s37 := acc3.Add(acc7)
+		result := s04.Add(s15).Add(s26.Add(s37))
+		out := (*[8]float32)(xcorr[:8])
+		result.StoreArray(out)
+		if result.NotEqual(result).ToBits() != 0 {
+			// SIMD horizontal adds can select a different NaN sign or payload than
+			// the lane-ordered AVX kernel. Recompute only this group with that order.
+			xcorrKernelAVX8(&x[0], &y[0], out, 10)
+		}
+
+		xp := unsafe.Pointer(unsafe.SliceData(x))
+		xcorr[8] = innerProdFloat32SSEOrder10(xp, unsafe.Add(yp, 32))
+		xcorr[9] = innerProdFloat32SSEOrder10(xp, unsafe.Add(yp, 36))
+		return
+	}
+
 	avxLimit := maxPitch &^ 7
 	if avxLimit == 0 {
 		for pitch := 0; pitch < maxPitch; pitch++ {
@@ -127,6 +162,33 @@ func pitchXCorrFloat32AVX2FMAOrderTiny10(x, y, xcorr []float32, maxPitch int) {
 	for pitch := avxLimit; pitch < maxPitch; pitch++ {
 		xcorr[pitch] = innerProdFloat32SSEOrder(x, y[pitch:], 10)
 	}
+}
+
+// innerProdFloat32SSEOrder10 preserves the four-accumulator SSE order for a
+// ten-sample tail without slice setup or a dynamic loop.
+func innerProdFloat32SSEOrder10(xp, yp unsafe.Pointer) float32 {
+	x0, x1 := *(*float32)(xp), *(*float32)(unsafe.Add(xp, 4))
+	x2, x3 := *(*float32)(unsafe.Add(xp, 8)), *(*float32)(unsafe.Add(xp, 12))
+	x4, x5 := *(*float32)(unsafe.Add(xp, 16)), *(*float32)(unsafe.Add(xp, 20))
+	x6, x7 := *(*float32)(unsafe.Add(xp, 24)), *(*float32)(unsafe.Add(xp, 28))
+	x8, x9 := *(*float32)(unsafe.Add(xp, 32)), *(*float32)(unsafe.Add(xp, 36))
+	y0, y1 := *(*float32)(yp), *(*float32)(unsafe.Add(yp, 4))
+	y2, y3 := *(*float32)(unsafe.Add(yp, 8)), *(*float32)(unsafe.Add(yp, 12))
+	y4, y5 := *(*float32)(unsafe.Add(yp, 16)), *(*float32)(unsafe.Add(yp, 20))
+	y6, y7 := *(*float32)(unsafe.Add(yp, 24)), *(*float32)(unsafe.Add(yp, 28))
+	y8, y9 := *(*float32)(unsafe.Add(yp, 32)), *(*float32)(unsafe.Add(yp, 36))
+
+	acc0 := noFMA32Add(0, noFMA32Mul(x0, y0))
+	acc1 := noFMA32Add(0, noFMA32Mul(x1, y1))
+	acc2 := noFMA32Add(0, noFMA32Mul(x2, y2))
+	acc3 := noFMA32Add(0, noFMA32Mul(x3, y3))
+	acc0 = noFMA32Add(acc0, noFMA32Mul(x4, y4))
+	acc1 = noFMA32Add(acc1, noFMA32Mul(x5, y5))
+	acc2 = noFMA32Add(acc2, noFMA32Mul(x6, y6))
+	acc3 = noFMA32Add(acc3, noFMA32Mul(x7, y7))
+	sum := noFMA32Add(noFMA32Add(acc0, acc2), noFMA32Add(acc1, acc3))
+	sum = noFMA32Add(sum, noFMA32Mul(x8, y8))
+	return noFMA32Add(sum, noFMA32Mul(x9, y9))
 }
 
 func pitchXCorrFloat32AVX2FMAOrderTiny5(x, y, xcorr []float32, maxPitch int) {
