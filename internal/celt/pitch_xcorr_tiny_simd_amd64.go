@@ -3,7 +3,6 @@
 package celt
 
 import (
-	"math"
 	"simd/archsimd"
 	"unsafe"
 )
@@ -67,8 +66,9 @@ func pitchXCorrFloat32AVX2FMAOrderTiny(x, y, xcorr []float32, length, maxPitch i
 		s26 := acc2.Add(acc6)
 		s37 := acc3.Add(acc7)
 		out := (*[8]float32)(xcorr[pitch : pitch+8])
-		s04.Add(s15).Add(s26.Add(s37)).StoreArray(out)
-		if xcorrGroupHasNaN(out) {
+		result := s04.Add(s15).Add(s26.Add(s37))
+		result.StoreArray(out)
+		if result.NotEqual(result).ToBits() != 0 {
 			// SIMD horizontal adds can select a different NaN sign or payload
 			// than the lane-ordered AVX kernel. Recompute only this group with
 			// that kernel's exact short-length path.
@@ -98,8 +98,9 @@ func pitchXCorrFloat32AVX2FMAOrderTiny5(x, y, xcorr []float32, maxPitch int) {
 		acc3 := x3.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 12))), zero)
 		acc4 := x4.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 16))), zero)
 		out := (*[8]float32)(xcorr[pitch : pitch+8])
-		acc0.Add(acc4).Add(acc1.Add(zero)).Add(acc2.Add(zero).Add(acc3.Add(zero))).StoreArray(out)
-		if xcorrGroupHasNaN(out) {
+		result := acc0.Add(acc4).Add(acc1.Add(zero)).Add(acc2.Add(zero).Add(acc3.Add(zero)))
+		result.StoreArray(out)
+		if result.NotEqual(result).ToBits() != 0 {
 			var exact [8]float32
 			xcorrKernelAVX8(&x[0], &y[pitch], &exact, 5)
 			copy(out[:], exact[:])
@@ -108,14 +109,4 @@ func pitchXCorrFloat32AVX2FMAOrderTiny5(x, y, xcorr []float32, maxPitch int) {
 	for pitch := avxLimit; pitch < maxPitch; pitch++ {
 		xcorr[pitch] = innerProdFloat32SSEOrder(x, y[pitch:], 5)
 	}
-}
-
-func xcorrGroupHasNaN(values *[8]float32) bool {
-	for _, value := range *values {
-		bits := math.Float32bits(value)
-		if bits&0x7fffffff > 0x7f800000 {
-			return true
-		}
-	}
-	return false
 }

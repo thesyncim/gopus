@@ -16,6 +16,11 @@ printf 'runner_os=%s\nrunner_arch=%s\ngo=%s\ncc=%s\n' \
   "$(uname -m)" \
   "$(go version)" \
   "$(cc --version | sed -n '1p')" > "$artifact_root/environment.txt"
+printf 'goamd64=%s\n' "$(go env GOAMD64)" >> "$artifact_root/environment.txt"
+if [[ -r /proc/cpuinfo ]]; then
+  awk -F ': ' '/^model name[[:space:]]*:/ { print "cpu_model=" $2; exit }' \
+    /proc/cpuinfo >> "$artifact_root/environment.txt"
+fi
 
 run_phase() {
   local side="$1" root="$2" phase="$3"
