@@ -40,6 +40,13 @@ The tuned ARM64 FFT butterfly rows use three paired 200 ms samples per mode
 on the same M4 with Go 1.27.0 and `-cpu=1`. The M1 fixture uses N=128; inner
 radix-3/4/5 fixtures use m=8, N=4, and fstride=8 with preallocated work copies.
 Candidate timings call the production dispatch wrappers.
+The ARM64 pointer-endpoint fixes preserve kernel arithmetic and pass the full
+CELT SIMD suite with `-gcflags=all=-d=checkptr=2`. Post-fix spot benchmarks
+use Go 1.27.0, `GOEXPERIMENT=simd`, `-cpu=1`, three 200 ms samples on M4.
+These spot timings are separate from the paired assembly comparisons in the
+matrix: L1 N=480 33.54–33.65; prefilter dual N=240 26.96–27.04; scale
+N=480 17.30–17.51; stereo merge N=480 50.18–50.64; tone LPC N=480
+76.46–76.62; four-output xcorr N=480 133.5–133.7 ns/op.
 The ARM64 CWRS row uses five paired 500 ms samples per mode on the same M4
 with Go 1.27.0 and GOMAXPROCS=4. N=48, K=5 is table-covered by
 `canUseCWRSFast` and reaches the fast decoder path; N=48, K=12 does not.
