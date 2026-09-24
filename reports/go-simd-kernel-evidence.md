@@ -19,6 +19,8 @@ LPC uses five interleaved 300 ms samples. All use GOMAXPROCS=4 on the same M4.
 The tuned SILK float conversion row uses 20 interleaved samples per mode with
 one million calls per sample and the same N=480 input fixture. Pitch detection
 uses scale 1; scale 32768 is measured separately.
+The tuned SILK 21846 FIR row uses 20 interleaved samples per mode with 400,000
+calls per sample and the live nOut=240, bufLen=87 fixture.
 The tuned MDCT post-twiddle row uses three interleaved 15-sample runs; its
 reported ranges are the three within-run medians because individual samples
 include M4 scheduling outliers. Assembly and both SIMD versions use the same
@@ -106,7 +108,7 @@ comparable per-call Go operation and are marked n/a with the reason.
 | 45 | `synthesizeLPCOrder16Core` | arm64 | `internal/silk/lpc_synth_default.go` | scalar Go | subframe=80: old asm → Go → SIMD build: 299.4 (298.4–318.2) → 505.1 (504.4–508.9) → 503.7 (503.2–509.7) | 0 | measured; scalar replacement 68% slower than asm |
 | 46 | `celtPitchXcorrFloatImplASM` | arm64 | `internal/silk/pitch_xcorr_impl_simd_arm64.go`; `internal/silk/pitch_xcorr_impl_default.go` | archsimd / scalar | length=240, maxPitch=120: old asm 5,526 (5,524–5,535) → scalar Go 13,188 (13,043–13,237) → Go SIMD 7,245 (7,230–7,292) | 0 | measured on M4; exact NEON-order SIMD is 45% faster than scalar Go and 31% slower than asm |
 | 47 | `xcorrKernelAVX8` | amd64 | `internal/silk/pitch_xcorr_kernel_simd_amd64.go`; `internal/silk/pitch_xcorr_kernel_avx_amd64.go` | archsimd / scalar | SILK pitch search L×P=120×300, old asm → scalar Go → Go SIMD: EPYC 9V74 1,822→18,735→2,844; EPYC 7763 1,750→16,708→11,206 | 0 | measured in runs 359769 and 359876; Go SIMD is 56% slower than asm on 9V74 and 6.4× slower on 7763 |
-| 48 | `firInterpol21846Core` | arm64 | `internal/silk/resample_fir_default.go`; `internal/silk/resample_libopus.go` | scalar Go | nOut=240: old asm → Go → SIMD build: 158.2 (158.0–158.5) → 415.8 (414.6–419.1) → 415.9 (412.2–416.3) | 0 | measured; scalar replacement 2.6× slower than asm |
+| 48 | `firInterpol21846Core` | arm64 | `internal/silk/resample_fir_simd_arm64.go`; `internal/silk/resample_fir_default.go`; `internal/silk/resample_libopus.go` | archsimd / scalar | nOut=240: old asm 107.56 (105.68–148.66) → scalar Go 280.39 (275.17–287.17) → Go SIMD 115.73 (111.11–119.72) | 0 | paired M4 Go 1.27.0; SIMD is 2.4× faster than scalar Go and 7.6% slower than asm; exact and zero-alloc checks pass |
 | 49 | `firInterpol32768Core` | arm64 | `internal/silk/resample_fir_default.go`; `internal/silk/resample_libopus.go` | scalar Go | nOut=240: old asm → Go → SIMD build: 182.7 (182.5–275.0) → 434.8 (430.0–438.5) → 429.5 (427.7–431.5) | 0 | measured; scalar replacement 2.4× slower than asm |
 | 50 | `firInterpol43691Core` | arm64 | `internal/silk/resample_fir_default.go`; `internal/silk/resample_libopus.go` | scalar Go | nOut=240: old asm → Go → SIMD build: 161.5 (161.2–162.1) → 457.3 (457.1–461.9) → 454.9 (451.7–455.8) | 0 | measured; scalar replacement 2.8× slower than asm |
 | 51 | `up2HQCore` | arm64 | `internal/silk/up2hq_core_default.go`; `internal/silk/resample_libopus.go` | scalar Go | N=240: old asm → Go → SIMD build: 1,120 (1,096–1,176) → 1,133 (1,126–1,137) → 1,166 (1,154–1,171) | 0 | measured; scalar and SIMD Go are within 4% of asm |
