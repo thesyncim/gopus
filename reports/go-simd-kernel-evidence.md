@@ -43,6 +43,10 @@ Candidate timings call the production dispatch wrappers.
 The ARM64 CWRS row uses five paired 500 ms samples per mode on the same M4
 with Go 1.27.0 and GOMAXPROCS=4. N=48, K=5 is table-covered by
 `canUseCWRSFast` and reaches the fast decoder path; N=48, K=12 does not.
+The ARM64 stereo deemphasis live fused helper uses five 500 ms samples per
+version on the same M4 with Go 1.27.0, `GOEXPERIMENT=simd`, GOMAXPROCS=4,
+and N=480. The two Go versions use the same preallocated stereo fixture;
+the direct former-symbol comparison remains the scalar-core timing below.
 The tuned MDCT post-twiddle row uses three interleaved 15-sample runs; its
 reported ranges are the three within-run medians because individual samples
 include M4 scheduling outliers. Assembly and both SIMD versions use the same
@@ -89,7 +93,7 @@ comparable per-call Go operation and are marked n/a with the reason.
 |---:|---|---|---|---|---|---|---|
 | 1 | `combFilterConstNeon` | arm64 | `internal/celt/comb_const_simd_arm64.go`; `internal/celt/comb_const_default.go` | archsimd / scalar | N=480: old asm 115.4 (114.7–116.9) → Go SIMD 109.0 (107.7–113.0); scalar Go 617.7 (592.7–623.2; earlier Go 1.27.1 run) | 0 | measured on M4 with Go 1.27.0; Go SIMD is 5.5% faster than asm; exact and zero-alloc checks pass |
 | 2 | `cwrsiFastCore` | arm64 | `internal/celt/cwrs_fast_default.go` | scalar Go | live table-covered N=48, K=5: old asm 28.94 (28.85–29.34) → scalar Go 44.02 (43.81–44.12) ns/op | 0 | paired M4 Go 1.27.0; scalar Go is 52% slower than asm; exact output and zero-allocation checks pass |
-| 3 | `deemphasisStereoPlanarF32Core` | arm64 | `internal/celt/deemphasis_f32_default.go` | scalar Go | direct N=480 stereo: old asm → Go → SIMD build: 1,065 (1,065–1,068) → 1,167 (1,166–1,169) → 1,168 (1,166–1,177) | 0 | scalar core is 10% slower than asm and selected in ordinary/nosimd builds; arm64 SIMD decode selects the fused helper instead |
+| 3 | `deemphasisStereoPlanarF32Core` | arm64 | `internal/celt/deemphasis_f32_default.go`; `internal/celt/output_helpers.go` | scalar core / fused SIMD decode | direct N=480 stereo old asm → scalar Go → SIMD build scalar core: 1,065 (1,065–1,068) → 1,167 (1,166–1,169) → 1,168 (1,166–1,177); live fused helper before → after bounds proof: 349.0 (347.7–352.1) → 338.0 (334.8–340.7) | 0 | scalar core trails asm 10% in ordinary/nosimd builds; ARM64 SIMD decode selects the fused helper, which improves 3.2% with the bounds proof and preserves exact bits |
 | 4 | `expRotation1PassNeon` | arm64 | `internal/celt/exp_rotation_simd_arm64.go`; `internal/celt/exp_rotation_default.go` | archsimd / scalar | old asm → Go → SIMD: len32/stride1 284.3 (283.6–289.3) → 286.9 (285.8–288.9) → 282.6 (280.6–284.3); len64/stride1 583.2 (581.0–584.1) → 579.7 (574.3–584.2) → 578.2 (574.5–592.8); len32/stride2 138.1 (136.6–145.2) → 148.8 (142.6–152.1) → 159.5 (155.8–167.2); len32/stride4 85.03 (84.45–85.53) → 80.54 (80.13–83.10) → 84.20 (83.98–84.38) | 0 | measured; SIMD near assembly except stride2 slower |
 | 5 | `haar1Stride1NEON` | arm64 | `internal/celt/haar1_simd_arm64.go`; `internal/celt/haar1_neon_default.go` | archsimd / scalar | N=32, old asm → Go → SIMD: 9.865 (9.791–14.28) → 14.37 (14.34–14.47) → 8.095 (8.057–8.133) | 0 | measured; SIMD 18% faster than asm median; asm range is noisy |
 | 6 | `haar1Stride2NEON` | arm64 | `internal/celt/haar1_simd_arm64.go`; `internal/celt/haar1_neon_default.go` | archsimd / scalar | N=32, old asm → Go → SIMD: 18.73 (14.25–20.18) → 25.88 (25.56–26.26) → 10.59 (10.55–10.80) | 0 | measured; SIMD 43% faster than asm median; asm range is noisy |

@@ -250,6 +250,13 @@ func (d *Decoder) applyDeemphasisAndScale(samples []float32, scale float32) {
 // is permitted exactly as for the mono path; end-to-end quality is held by the
 // opus_compare RFC-conformance gate.
 func deemphasisStereoPlanar2StepFused(dst, left, right []float32, n int, scale, stateL, stateR float32) (float32, float32) {
+	if n <= 0 {
+		return stateL, stateR
+	}
+	_ = dst[n*2-1]
+	_ = left[n-1]
+	_ = right[n-1]
+
 	const verySmall float32 = 1e-30
 	const coef float32 = float32(PreemphCoef)
 	outScale := scale / coef
