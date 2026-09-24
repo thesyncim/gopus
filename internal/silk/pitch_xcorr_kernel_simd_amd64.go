@@ -33,6 +33,156 @@ func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
 	xcorrKernelAVX4(x, (*float32)(unsafe.Add(unsafe.Pointer(y), 16)), (*[4]float32)(unsafe.Pointer(&sum[4])), length)
 }
 
+// xcorrKernelAVX8OnePass keeps all eight correlation accumulators live in one
+// loop. Its FMA and lane-reduction order matches xcorrKernelAVX8.
+func xcorrKernelAVX8OnePass(x, y *float32, sum *[8]float32, length int) {
+	if length <= 0 {
+		*sum = [8]float32{}
+		return
+	}
+	if !archsimd.X86.FMA() || length < 16 {
+		xcorrKernelAVX8ScalarGo(x, y, sum, length)
+		return
+	}
+
+	var acc0, acc1, acc2, acc3, acc4, acc5, acc6, acc7 archsimd.Float32x8
+	xp, yp := unsafe.Pointer(x), unsafe.Pointer(y)
+	i := 0
+	for ; i+8 <= length; i += 8 {
+		xv := archsimd.LoadFloat32x8Array((*[8]float32)(xp))
+		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp)), acc0)
+		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 4))), acc1)
+		acc2 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 8))), acc2)
+		acc3 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 12))), acc3)
+		acc4 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 16))), acc4)
+		acc5 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 20))), acc5)
+		acc6 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 24))), acc6)
+		acc7 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 28))), acc7)
+		xp = unsafe.Add(xp, 32)
+		yp = unsafe.Add(yp, 32)
+	}
+	if i < length {
+		remaining := length - i
+		xTail := loadXcorrTail8(xp, remaining)
+		acc0 = xTail.MulAdd(loadXcorrTail8(yp, remaining), acc0)
+		acc1 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 4), remaining), acc1)
+		acc2 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 8), remaining), acc2)
+		acc3 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 12), remaining), acc3)
+		acc4 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 16), remaining), acc4)
+		acc5 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 20), remaining), acc5)
+		acc6 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 24), remaining), acc6)
+		acc7 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 28), remaining), acc7)
+	}
+	sum[0] = reduceXcorrAVX8(acc0)
+	sum[1] = reduceXcorrAVX8(acc1)
+	sum[2] = reduceXcorrAVX8(acc2)
+	sum[3] = reduceXcorrAVX8(acc3)
+	sum[4] = reduceXcorrAVX8(acc4)
+	sum[5] = reduceXcorrAVX8(acc5)
+	sum[6] = reduceXcorrAVX8(acc6)
+	sum[7] = reduceXcorrAVX8(acc7)
+}
+
+func xcorrKernelAVX8SixPlusTwo(x, y *float32, sum *[8]float32, length int) {
+	if length <= 0 {
+		*sum = [8]float32{}
+		return
+	}
+	if !silkUsePitchXcorrAVX2FMA || length < 16 {
+		xcorrKernelAVX8ScalarGo(x, y, sum, length)
+		return
+	}
+
+	xcorrKernelAVX6(x, y, (*[6]float32)(unsafe.Pointer(&sum[0])), length)
+	xcorrKernelAVX2(x, (*float32)(unsafe.Add(unsafe.Pointer(y), 24)), (*[2]float32)(unsafe.Pointer(&sum[6])), length)
+}
+
+func xcorrKernelAVX6(x, y *float32, sum *[6]float32, length int) {
+	var acc0, acc1, acc2, acc3, acc4, acc5 archsimd.Float32x8
+	xp, yp := unsafe.Pointer(x), unsafe.Pointer(y)
+	i := 0
+	for ; i+16 <= length; i += 16 {
+		xv := archsimd.LoadFloat32x8Array((*[8]float32)(xp))
+		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp)), acc0)
+		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 4))), acc1)
+		acc2 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 8))), acc2)
+		acc3 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 12))), acc3)
+		acc4 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 16))), acc4)
+		acc5 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 20))), acc5)
+		xp1 := unsafe.Add(xp, 32)
+		yp1 := unsafe.Add(yp, 32)
+		xv = archsimd.LoadFloat32x8Array((*[8]float32)(xp1))
+		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp1)), acc0)
+		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp1, 4))), acc1)
+		acc2 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp1, 8))), acc2)
+		acc3 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp1, 12))), acc3)
+		acc4 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp1, 16))), acc4)
+		acc5 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp1, 20))), acc5)
+		xp = unsafe.Add(xp, 64)
+		yp = unsafe.Add(yp, 64)
+	}
+	for ; i+8 <= length; i += 8 {
+		xv := archsimd.LoadFloat32x8Array((*[8]float32)(xp))
+		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp)), acc0)
+		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 4))), acc1)
+		acc2 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 8))), acc2)
+		acc3 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 12))), acc3)
+		acc4 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 16))), acc4)
+		acc5 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 20))), acc5)
+		xp = unsafe.Add(xp, 32)
+		yp = unsafe.Add(yp, 32)
+	}
+	if i < length {
+		remaining := length - i
+		xTail := loadXcorrTail8(xp, remaining)
+		acc0 = xTail.MulAdd(loadXcorrTail8(yp, remaining), acc0)
+		acc1 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 4), remaining), acc1)
+		acc2 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 8), remaining), acc2)
+		acc3 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 12), remaining), acc3)
+		acc4 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 16), remaining), acc4)
+		acc5 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 20), remaining), acc5)
+	}
+	sum[0] = reduceXcorrAVX8(acc0)
+	sum[1] = reduceXcorrAVX8(acc1)
+	sum[2] = reduceXcorrAVX8(acc2)
+	sum[3] = reduceXcorrAVX8(acc3)
+	sum[4] = reduceXcorrAVX8(acc4)
+	sum[5] = reduceXcorrAVX8(acc5)
+}
+
+func xcorrKernelAVX2(x, y *float32, sum *[2]float32, length int) {
+	var acc0, acc1 archsimd.Float32x8
+	xp, yp := unsafe.Pointer(x), unsafe.Pointer(y)
+	i := 0
+	for ; i+16 <= length; i += 16 {
+		xv := archsimd.LoadFloat32x8Array((*[8]float32)(xp))
+		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp)), acc0)
+		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 4))), acc1)
+		xp1 := unsafe.Add(xp, 32)
+		yp1 := unsafe.Add(yp, 32)
+		xv = archsimd.LoadFloat32x8Array((*[8]float32)(xp1))
+		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp1)), acc0)
+		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp1, 4))), acc1)
+		xp = unsafe.Add(xp, 64)
+		yp = unsafe.Add(yp, 64)
+	}
+	for ; i+8 <= length; i += 8 {
+		xv := archsimd.LoadFloat32x8Array((*[8]float32)(xp))
+		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp)), acc0)
+		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 4))), acc1)
+		xp = unsafe.Add(xp, 32)
+		yp = unsafe.Add(yp, 32)
+	}
+	if i < length {
+		remaining := length - i
+		xTail := loadXcorrTail8(xp, remaining)
+		acc0 = xTail.MulAdd(loadXcorrTail8(yp, remaining), acc0)
+		acc1 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 4), remaining), acc1)
+	}
+	sum[0] = reduceXcorrAVX8(acc0)
+	sum[1] = reduceXcorrAVX8(acc1)
+}
+
 func xcorrKernelAVX4(x, y *float32, sum *[4]float32, length int) {
 	xp := unsafe.Pointer(x)
 	yp := unsafe.Pointer(y)
