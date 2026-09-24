@@ -24,7 +24,7 @@ func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
 	}
 
 	if length >= 120 && length <= 240 {
-		xcorrKernelAVX8Transposed(x, y, sum, length)
+		xcorrKernelAVX8OnePass(x, y, sum, length)
 		return
 	}
 
@@ -82,68 +82,6 @@ func xcorrKernelAVX8OnePass(x, y *float32, sum *[8]float32, length int) {
 	sum[5] = reduceXcorrAVX8(acc5)
 	sum[6] = reduceXcorrAVX8(acc6)
 	sum[7] = reduceXcorrAVX8(acc7)
-}
-
-// xcorrKernelAVX8Transposed keeps each vector lane on one output pitch and
-// rotates the eight sample-residue accumulators. This preserves the AVX2
-// accumulation order while avoiding the eight shifted y loads per vector step.
-func xcorrKernelAVX8Transposed(x, y *float32, sum *[8]float32, length int) {
-	if length <= 0 {
-		*sum = [8]float32{}
-		return
-	}
-	if !archsimd.X86.FMA() || length < 16 {
-		xcorrKernelAVX8ScalarGo(x, y, sum, length)
-		return
-	}
-
-	var partial [2][4][8]float32
-	xcorrKernelAVX8TransposedHalf(x, y, &partial[0], length, 0)
-	xcorrKernelAVX8TransposedHalf(x, y, &partial[1], length, 4)
-
-	p0 := archsimd.LoadFloat32x8Array(&partial[0][0]).Add(archsimd.LoadFloat32x8Array(&partial[1][0]))
-	p1 := archsimd.LoadFloat32x8Array(&partial[0][1]).Add(archsimd.LoadFloat32x8Array(&partial[1][1]))
-	p2 := archsimd.LoadFloat32x8Array(&partial[0][2]).Add(archsimd.LoadFloat32x8Array(&partial[1][2]))
-	p3 := archsimd.LoadFloat32x8Array(&partial[0][3]).Add(archsimd.LoadFloat32x8Array(&partial[1][3]))
-	result := p0.Add(p1).Add(p2.Add(p3))
-	result.StoreArray(sum)
-}
-
-//go:noinline
-func xcorrKernelAVX8TransposedHalf(x, y *float32, sum *[4][8]float32, length, firstResidue int) {
-	var acc0, acc1, acc2, acc3 archsimd.Float32x8
-	xp, yp := unsafe.Pointer(x), unsafe.Pointer(y)
-	i := 0
-	for ; i+8 <= length; i += 8 {
-		acc0 = archsimd.BroadcastFloat32x8(*(*float32)(unsafe.Add(xp, uintptr((i+firstResidue)*4)))).MulAdd(
-			archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, uintptr((i+firstResidue)*4)))), acc0)
-		acc1 = archsimd.BroadcastFloat32x8(*(*float32)(unsafe.Add(xp, uintptr((i+firstResidue+1)*4)))).MulAdd(
-			archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, uintptr((i+firstResidue+1)*4)))), acc1)
-		acc2 = archsimd.BroadcastFloat32x8(*(*float32)(unsafe.Add(xp, uintptr((i+firstResidue+2)*4)))).MulAdd(
-			archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, uintptr((i+firstResidue+2)*4)))), acc2)
-		acc3 = archsimd.BroadcastFloat32x8(*(*float32)(unsafe.Add(xp, uintptr((i+firstResidue+3)*4)))).MulAdd(
-			archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, uintptr((i+firstResidue+3)*4)))), acc3)
-	}
-	remaining := length - i - firstResidue
-	for r := 0; r < remaining && r < 4; r++ {
-		offset := uintptr((i + firstResidue + r) * 4)
-		xv := archsimd.BroadcastFloat32x8(*(*float32)(unsafe.Add(xp, offset)))
-		yv := archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, offset)))
-		switch r {
-		case 0:
-			acc0 = xv.MulAdd(yv, acc0)
-		case 1:
-			acc1 = xv.MulAdd(yv, acc1)
-		case 2:
-			acc2 = xv.MulAdd(yv, acc2)
-		case 3:
-			acc3 = xv.MulAdd(yv, acc3)
-		}
-	}
-	acc0.StoreArray(&sum[0])
-	acc1.StoreArray(&sum[1])
-	acc2.StoreArray(&sum[2])
-	acc3.StoreArray(&sum[3])
 }
 
 func xcorrKernelAVX4(x, y *float32, sum *[4]float32, length int) {
