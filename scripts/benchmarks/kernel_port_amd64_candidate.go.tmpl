@@ -121,6 +121,26 @@ func BenchmarkPortAMD64PVQSearchPulseLoop(b *testing.B) {
 	}
 }
 
+// BenchmarkPortAMD64PVQSearchFull measures the production dispatch, including
+// the x86 pulse search selected by the CPU feature flags.
+func BenchmarkPortAMD64PVQSearchFull(b *testing.B) {
+	const n, pulses = 48, 16
+	x := make([]celtNorm, n)
+	for i := range x {
+		x[i] = celtNorm(float32((i*31)%127-63) * 0.0078125)
+	}
+	iy := make([]int32, n)
+	signx := make([]byte, n)
+	y := make([]float32, n+3)
+	absX := make([]float32, n+3)
+	b.ReportAllocs()
+	for b.Loop() {
+		out, yy := opPVQSearchScratchNormWithInputMutation(x, pulses, &iy, &signx, &y, &absX, false)
+		kernelPortBenchAMD64IY = out[0]
+		kernelPortBenchAMD64F32 = float32(yy)
+	}
+}
+
 func BenchmarkPortAMD64ToneLPCCorr(b *testing.B) {
 	const n = 480
 	x := kernelPortBenchAMD64Float32(n + 2)

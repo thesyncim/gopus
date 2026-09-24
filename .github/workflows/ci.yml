@@ -646,6 +646,7 @@ jobs:
 
   test-linux-simd:
     name: test-linux-simd
+    if: github.event_name == 'push'
     needs:
       - changes
     runs-on: ubuntu-latest
@@ -714,6 +715,12 @@ jobs:
             candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
             candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: simd-ab-libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('candidate/tools/ensure_libopus.sh') }}
+
+      - name: Install external Opus decoder for full parity
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq opus-tools
+          command -v opusdec
 
       - name: Capture native Linux A/B evidence
         shell: bash
@@ -819,6 +826,7 @@ jobs:
       - test-linux-extra-controls-parity
       - test-linux-build-config-matrix
       - test-linux-simd
+      - test-linux-simd-ab
       - test-linux-core-oracles
       - test-linux-fixedpoint-parity
     runs-on: ubuntu-latest
@@ -842,6 +850,7 @@ jobs:
           echo "test-linux-extra-controls-parity: ${{ needs.test-linux-extra-controls-parity.result }}"
           echo "test-linux-build-config-matrix: ${{ needs.test-linux-build-config-matrix.result }}"
           echo "test-linux-simd: ${{ needs.test-linux-simd.result }}"
+          echo "test-linux-simd-ab: ${{ needs.test-linux-simd-ab.result }}"
           echo "test-linux-core-oracles: ${{ needs.test-linux-core-oracles.result }}"
           echo "test-linux-fixedpoint-parity: ${{ needs.test-linux-fixedpoint-parity.result }}"
           if [ "${{ needs.test-linux-fast.result }}" != "success" ]; then
@@ -892,7 +901,10 @@ jobs:
           if [ "${{ needs.test-linux-build-config-matrix.result }}" != "success" ]; then
             exit 1
           fi
-          if [ "${{ needs.test-linux-simd.result }}" != "success" ]; then
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ needs.test-linux-simd.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ needs.test-linux-simd-ab.result }}" != "success" ]; then
             exit 1
           fi
           if [ "${{ needs.test-linux-core-oracles.result }}" != "success" ]; then

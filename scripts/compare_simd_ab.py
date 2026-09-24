@@ -2,6 +2,7 @@
 """Gate native Go SIMD against old assembly and the same SIMD libopus build."""
 
 import argparse
+import json
 import pathlib
 import re
 import sys
@@ -12,6 +13,21 @@ CBR_TOTAL = re.compile(r"pass=(\d+) residual=(\d+) fail=(\d+) skip=(\d+)")
 CBR_SEVERITY = {"OK": 0, "RESIDUAL": 1, "FAIL": 2, "SKIP": 3}
 DECODE_DETAIL = re.compile(r"(?:PCM diverges|diverging packet=)")
 BENCH = re.compile(r"^Benchmark\S+\s+\d+\s+\S+ ns/op\s+(\d+) B/op\s+(\d+) allocs/op$")
+SAMPLE_DIFFERENCE = re.compile(r"(\d+)/(\d+) samples differ, maxAbs=([\d.eE+-]+)")
+REMOVED_ASSEMBLY_TEST = re.compile(
+    r"^(?:TestAssemblyValidationContract|TestCELTLegacyFloat64AssemblyRequiresOptInTag|"
+    r"FuzzCELTAssemblyWrappersMatchReference(?:/seed#\d+)?|"
+    r"TestCELTAssemblyWrappersMatchReferenceEdges|"
+    r"FuzzSilkAssemblyKernelsMatchReference(?:/seed#\d+)?|"
+    r"TestSilkAssemblyKernelsMatchReference)$"
+)
+REPLACEMENT_TESTS = {
+    ("github.com/thesyncim/gopus", "TestKernelTreeContainsNoAssembly"),
+    ("github.com/thesyncim/gopus/internal/celt", "FuzzCELTKernelsMatchReference"),
+    ("github.com/thesyncim/gopus/internal/celt", "TestCELTKernelsMatchReferenceEdges"),
+    ("github.com/thesyncim/gopus/internal/silk", "FuzzSilkKernelsMatchReference"),
+    ("github.com/thesyncim/gopus/internal/silk", "TestSilkKernelsMatchReference"),
+}
 
 
 def read_phase(root: pathlib.Path, side: str, phase: str):
@@ -38,6 +54,72 @@ def cbr_rows(log: str):
 
 def decode_details(log: str):
     return [line.split(": ", 2)[-1].strip() for line in log.splitlines() if DECODE_DETAIL.search(line)]
+
+
+def full_parity(log: str):
+    tests = {}
+    failed_packages = set()
+    sample_differences = []
+    for line in log.splitlines():
+        event = json.loads(line)
+        action = event.get("Action")
+        package = event.get("Package")
+        test = event.get("Test")
+        if action in {"pass", "fail", "skip"} and test:
+            key = (package, test)
+            if key in tests:
+                raise ValueError(f"duplicate full-parity result: {key}")
+            tests[key] = action
+        elif action == "fail" and package:
+            failed_packages.add(package)
+        if action == "output" and test:
+            for count, total, maximum in SAMPLE_DIFFERENCE.findall(event.get("Output", "")):
+                sample_differences.append((int(count), int(total), float(maximum)))
+    if not tests:
+        raise ValueError("full-parity JSON has no test results")
+    return tests, failed_packages, sample_differences
+
+
+def compare_full_parity(root: pathlib.Path):
+    base_code, base_log = read_phase(root, "baseline", "default-full-parity")
+    simd_code, simd_log = read_phase(root, "candidate", "simd-full-parity")
+    if base_code not in {0, 1} or simd_code not in {0, 1}:
+        return [f"full parity did not finish normally: old asm={base_code}, Go SIMD={simd_code}"], None
+    base_tests, base_packages, base_samples = full_parity(base_log)
+    simd_tests, simd_packages, simd_samples = full_parity(simd_log)
+    errors = []
+    missing = {key for key in base_tests.keys() - simd_tests.keys() if not REMOVED_ASSEMBLY_TEST.fullmatch(key[1])}
+    if missing:
+        errors.append(f"Go SIMD omits {len(missing)} baseline tests: {sorted(missing)[:5]}")
+    for key in sorted(REPLACEMENT_TESTS):
+        if simd_tests.get(key) != "pass":
+            errors.append(f"replacement oracle does not pass: {key}")
+    new_skips = {key for key in base_tests.keys() & simd_tests.keys()
+                 if base_tests[key] != "skip" and simd_tests[key] == "skip"}
+    if new_skips:
+        errors.append(f"Go SIMD skips {len(new_skips)} baseline tests: {sorted(new_skips)[:5]}")
+    new_failures = {key for key, status in simd_tests.items()
+                    if status == "fail" and base_tests.get(key) != "fail"}
+    if new_failures:
+        errors.append(f"Go SIMD adds {len(new_failures)} failing tests: {sorted(new_failures)[:5]}")
+    new_failed_packages = simd_packages - base_packages
+    if new_failed_packages:
+        errors.append(f"Go SIMD adds failing packages: {sorted(new_failed_packages)}")
+    if simd_code and not base_code:
+        errors.append("Go SIMD full parity fails while old assembly passes")
+    base_sample_count = sum(count for count, _, _ in base_samples)
+    simd_sample_count = sum(count for count, _, _ in simd_samples)
+    if simd_sample_count > base_sample_count:
+        errors.append(f"decode sample differences increase: old asm={base_sample_count}, Go SIMD={simd_sample_count}")
+    base_abs_bound = sum(count * maximum for count, _, maximum in base_samples)
+    simd_abs_bound = sum(count * maximum for count, _, maximum in simd_samples)
+    if simd_abs_bound > base_abs_bound:
+        errors.append(f"decode absolute-error upper bound increases: old asm={base_abs_bound}, Go SIMD={simd_abs_bound}")
+    summary = (len(base_tests), len(simd_tests),
+               sum(status == "fail" for status in base_tests.values()),
+               sum(status == "fail" for status in simd_tests.values()),
+               base_sample_count, simd_sample_count)
+    return errors, summary
 
 
 def compare(root: pathlib.Path):
@@ -90,7 +172,10 @@ def compare(root: pathlib.Path):
             if not match or match.groups() != ("0", "0"):
                 errors.append(f"{side} {mode} allocation or malformed benchmark: {line}")
 
-    return errors, len(base_cbr)
+    full_errors, full_summary = compare_full_parity(root)
+    errors.extend(full_errors)
+
+    return errors, len(base_cbr), full_summary
 
 
 def main():
@@ -98,14 +183,17 @@ def main():
     parser.add_argument("artifact_dir", type=pathlib.Path)
     args = parser.parse_args()
     try:
-        errors, cases = compare(args.artifact_dir)
+        errors, cases, full_summary = compare(args.artifact_dir)
     except (OSError, ValueError) as exc:
-        errors, cases = [str(exc)], 0
+        errors, cases, full_summary = [str(exc)], 0, None
     for error in errors:
         print(f"SIMD A/B regression: {error}", file=sys.stderr)
     if errors:
         return 1
     print(f"Native SIMD A/B passes: {cases} CBR cases, focused decode, precision, dispatch, zero-allocation kernels")
+    if full_summary:
+        old_tests, go_tests, old_fails, go_fails, old_samples, go_samples = full_summary
+        print(f"Full parity: {old_tests} old-asm tests / {go_tests} Go SIMD tests; failures {old_fails} → {go_fails}; differing samples {old_samples} → {go_samples}")
     return 0
 
 
