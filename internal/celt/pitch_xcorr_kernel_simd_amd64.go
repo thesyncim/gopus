@@ -74,14 +74,8 @@ func xcorrKernelAVX8OnePass(x, y *float32, sum *[8]float32, length int) {
 		acc6 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 24), remaining), acc6)
 		acc7 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 28), remaining), acc7)
 	}
-	sum[0] = reduceXcorrAVX8(acc0)
-	sum[1] = reduceXcorrAVX8(acc1)
-	sum[2] = reduceXcorrAVX8(acc2)
-	sum[3] = reduceXcorrAVX8(acc3)
-	sum[4] = reduceXcorrAVX8(acc4)
-	sum[5] = reduceXcorrAVX8(acc5)
-	sum[6] = reduceXcorrAVX8(acc6)
-	sum[7] = reduceXcorrAVX8(acc7)
+	reduceXcorrAVX8Four(acc0, acc1, acc2, acc3).StoreArray((*[4]float32)(unsafe.Pointer(&sum[0])))
+	reduceXcorrAVX8Four(acc4, acc5, acc6, acc7).StoreArray((*[4]float32)(unsafe.Pointer(&sum[4])))
 }
 
 func xcorrKernelAVX4(x, y *float32, sum *[4]float32, length int) {
@@ -140,10 +134,26 @@ func loadXcorrTail8(p unsafe.Pointer, remaining int) archsimd.Float32x8 {
 }
 
 func reduceXcorrAVX8(v archsimd.Float32x8) float32 {
+	return reduceXcorrAVX8Lanes(v).GetLo().GetElem(0)
+}
+
+// reduceXcorrAVX8Lanes leaves the exact horizontal sum broadcast in all lanes.
+func reduceXcorrAVX8Lanes(v archsimd.Float32x8) archsimd.Float32x8 {
 	v = v.Add(v.ConcatPermute128Scalars(1, 0, v))
 	v = v.ConcatAddPairsGrouped(v)
 	v = v.ConcatAddPairsGrouped(v)
-	return v.GetLo().GetElem(0)
+	return v
+}
+
+// reduceXcorrAVX8Four packs four lane-zero sums with three vector shuffles.
+func reduceXcorrAVX8Four(v0, v1, v2, v3 archsimd.Float32x8) archsimd.Float32x4 {
+	r0 := reduceXcorrAVX8Lanes(v0)
+	r1 := reduceXcorrAVX8Lanes(v1)
+	r2 := reduceXcorrAVX8Lanes(v2)
+	r3 := reduceXcorrAVX8Lanes(v3)
+	p01 := r0.ConcatPermuteScalarsGrouped(0, 0, 4, 4, r1)
+	p23 := r2.ConcatPermuteScalarsGrouped(0, 0, 4, 4, r3)
+	return p01.ConcatPermuteScalarsGrouped(0, 2, 4, 6, p23).GetLo()
 }
 
 func xcorrKernelAVX8ScalarGo(x, y *float32, sum *[8]float32, length int) {
