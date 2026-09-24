@@ -46,6 +46,116 @@ func TestXcorrKernelAVX8OnePassBitExact(t *testing.T) {
 	}
 }
 
+func TestXcorrKernelAVX8TransposedBitExact(t *testing.T) {
+	if !libopusFloatPitchXCorrUsesAVX2FMA() {
+		t.Skip("AVX2/FMA unavailable")
+	}
+	rng := rand.New(rand.NewSource(0x8ac7))
+	for _, length := range []int{16, 17, 23, 31, 32, 64, 65, 119, 120, 127, 128, 239, 240, 241, 479, 480, 481} {
+		x := make([]float32, length)
+		y := make([]float32, length+7)
+		for trial := 0; trial < 32; trial++ {
+			for i := range x {
+				x[i] = float32(rng.NormFloat64())
+			}
+			for i := range y {
+				y[i] = float32(rng.NormFloat64())
+			}
+			want := xcorrKernelAVX8Scalar(x, y, length)
+			var got [8]float32
+			xcorrKernelAVX8Transposed(&x[0], &y[0], &got, length)
+			for corr := range 8 {
+				if actual, expected := math.Float32bits(got[corr]), math.Float32bits(want[corr]); actual != expected {
+					t.Fatalf("length=%d trial=%d corr=%d: transposed=%08x scalar=%08x", length, trial, corr, actual, expected)
+				}
+			}
+		}
+	}
+}
+
+func TestXcorrKernelAVX8TransposedExceptionalParityAndZeroAlloc(t *testing.T) {
+	if !libopusFloatPitchXCorrUsesAVX2FMA() {
+		t.Skip("AVX2/FMA unavailable")
+	}
+	values := []float32{
+		0, math.Float32frombits(1 << 31), math.SmallestNonzeroFloat32,
+		-math.SmallestNonzeroFloat32, 0.5, -0.5, 1, -1,
+		float32(math.Inf(1)), float32(math.Inf(-1)), math.Float32frombits(0x7fc01234),
+	}
+	for _, length := range []int{17, 31, 240, 241} {
+		x := make([]float32, length)
+		y := make([]float32, length+7)
+		for i := range x {
+			x[i] = values[(i*5+1)%len(values)]
+		}
+		for i := range y {
+			y[i] = values[(i*7+3)%len(values)]
+		}
+		want := xcorrKernelAVX8Scalar(x, y, length)
+		var got [8]float32
+		xcorrKernelAVX8Transposed(&x[0], &y[0], &got, length)
+		for corr := range 8 {
+			if actual, expected := math.Float32bits(got[corr]), math.Float32bits(want[corr]); actual != expected {
+				t.Fatalf("length=%d corr=%d: transposed=%08x scalar=%08x", length, corr, actual, expected)
+			}
+		}
+	}
+
+	const length = 240
+	x := make([]float32, length)
+	y := make([]float32, length+7)
+	for i := range x {
+		x[i] = float32(i%13-6) * 0.03125
+	}
+	for i := range y {
+		y[i] = float32(i%17-8) * 0.0625
+	}
+	var sum [8]float32
+	xcorrKernelAVX8Transposed(&x[0], &y[0], &sum, length)
+	if allocs := testing.AllocsPerRun(100, func() {
+		xcorrKernelAVX8Transposed(&x[0], &y[0], &sum, length)
+	}); allocs != 0 {
+		t.Fatalf("transposed xcorr allocated %v times", allocs)
+	}
+}
+
+func TestPitchXCorrAVX2FMAOrderCoarseTransposedParityAndZeroAlloc(t *testing.T) {
+	if !libopusFloatPitchXCorrUsesAVX2FMA() {
+		t.Skip("AVX2/FMA unavailable")
+	}
+	const length, maxPitch = 240, 360
+	rng := rand.New(rand.NewSource(0x240360))
+	x := make([]float32, length)
+	y := make([]float32, maxPitch+length+7)
+	got := make([]float32, maxPitch)
+	want := make([]float32, maxPitch)
+	for i := range x {
+		x[i] = float32(rng.NormFloat64())
+	}
+	for i := range y {
+		y[i] = float32(rng.NormFloat64())
+	}
+	for pitch := 0; pitch+8 <= maxPitch; pitch += 8 {
+		group := xcorrKernelAVX8Scalar(x, y[pitch:], length)
+		copy(want[pitch:pitch+8], group[:])
+	}
+	for pitch := maxPitch &^ 7; pitch < maxPitch; pitch++ {
+		want[pitch] = innerProdFloat32SSEOrder(x, y[pitch:], length)
+	}
+
+	pitchXCorrFloat32(x, y, got, length, maxPitch)
+	for pitch := range got {
+		if actual, expected := math.Float32bits(got[pitch]), math.Float32bits(want[pitch]); actual != expected {
+			t.Fatalf("length=%d maxPitch=%d pitch=%d: production=%08x scalar=%08x", length, maxPitch, pitch, actual, expected)
+		}
+	}
+	if allocs := testing.AllocsPerRun(100, func() {
+		pitchXCorrFloat32(x, y, got, length, maxPitch)
+	}); allocs != 0 {
+		t.Fatalf("production coarse pitch xcorr allocated %v times", allocs)
+	}
+}
+
 func TestXcorrKernelAVX8OnePassExceptionalParityAndZeroAlloc(t *testing.T) {
 	if !libopusFloatPitchXCorrUsesAVX2FMA() {
 		t.Skip("AVX2/FMA unavailable")
@@ -115,6 +225,14 @@ func BenchmarkXcorrKernelAVX8Passes(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				xcorrKernelAVX8OnePass(&x[0], &y[0], &sum, length)
+				xcorrKernelAVX8BenchmarkSink = sum
+			}
+		})
+		b.Run(fmt.Sprintf("N%d/Transposed", length), func(b *testing.B) {
+			var sum [8]float32
+			b.ReportAllocs()
+			for b.Loop() {
+				xcorrKernelAVX8Transposed(&x[0], &y[0], &sum, length)
 				xcorrKernelAVX8BenchmarkSink = sum
 			}
 		})
