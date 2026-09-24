@@ -29,38 +29,54 @@ func mdctPostTwiddleNeon(coeffs []float32, fftStage []kissCpx, trig []float32, n
 	cp := unsafe.Pointer(unsafe.SliceData(coeffs))
 	ffp := unsafe.Pointer(unsafe.SliceData(fftStage))
 	tp := unsafe.Pointer(unsafe.SliceData(trig))
+	forwardFFT := ffp
+	// The final decrement remains within fftStage for pairBlocks <= n4/8,
+	// which is the production contract for the SIMD region.
+	mirrorFFT := unsafe.Add(ffp, (n4-4)*8)
+	forwardT0 := tp
+	forwardT1 := unsafe.Add(tp, n4*4)
+	mirrorT0 := unsafe.Add(tp, (n4-4)*4)
+	mirrorT1 := unsafe.Add(tp, (2*n4-4)*4)
+	low := cp
+	high := unsafe.Add(cp, (n2-8)*4)
 	for b := 0; b < pairBlocks; b++ {
-		i := 4 * b
 		// Forward fftStage[i..i+3]: re=even(.r), im=odd(.i).
-		f0 := loadF32x4(unsafe.Add(ffp, (2*i)*4))
-		f1 := loadF32x4(unsafe.Add(ffp, (2*i+4)*4))
+		f0 := loadF32x4(forwardFFT)
+		f1 := loadF32x4(unsafe.Add(forwardFFT, 16))
 		re := f0.ToBits().ConcatEven(f1.ToBits()).BitsToFloat32()
 		im := f0.ToBits().ConcatOdd(f1.ToBits()).BitsToFloat32()
-		t0 := loadF32x4(unsafe.Add(tp, i*4))
-		t1 := loadF32x4(unsafe.Add(tp, (n4+i)*4))
+		t0 := loadF32x4(forwardT0)
+		t1 := loadF32x4(forwardT1)
 		yrF := im.Mul(t1).Sub(re.Mul(t0))
 		yiF := re.Mul(t1).Add(im.Mul(t0))
 
 		// Mirror fftStage[n4-4-i..n4-1-i], ascending j.
-		mbase := n4 - 4 - i
-		g0 := loadF32x4(unsafe.Add(ffp, (2*mbase)*4))
-		g1 := loadF32x4(unsafe.Add(ffp, (2*mbase+4)*4))
+		g0 := loadF32x4(mirrorFFT)
+		g1 := loadF32x4(unsafe.Add(mirrorFFT, 16))
 		reM := g0.ToBits().ConcatEven(g1.ToBits()).BitsToFloat32()
 		imM := g0.ToBits().ConcatOdd(g1.ToBits()).BitsToFloat32()
-		t0M := loadF32x4(unsafe.Add(tp, mbase*4))
-		t1M := loadF32x4(unsafe.Add(tp, (n4+mbase)*4))
+		t0M := loadF32x4(mirrorT0)
+		t1M := loadF32x4(mirrorT1)
 		yrM := imM.Mul(t1M).Sub(reM.Mul(t0M))
 		yiM := reM.Mul(t1M).Add(imM.Mul(t0M))
 
 		// Low region coeffs[2i..2i+7] = zip(yrF, reverse4(yiM)).
 		rYiM := reverse4(yiM)
-		storeF32x4(unsafe.Add(cp, (2*i)*4), yrF.ToBits().InterleaveLo(rYiM.ToBits()).BitsToFloat32())
-		storeF32x4(unsafe.Add(cp, (2*i+4)*4), yrF.ToBits().InterleaveHi(rYiM.ToBits()).BitsToFloat32())
+		storeF32x4(low, yrF.ToBits().InterleaveLo(rYiM.ToBits()).BitsToFloat32())
+		storeF32x4(unsafe.Add(low, 16), yrF.ToBits().InterleaveHi(rYiM.ToBits()).BitsToFloat32())
 
 		// High region coeffs[n2-8-2i..n2-1-2i] = zip(yrM, reverse4(yiF)).
 		rYiF := reverse4(yiF)
-		hb := n2 - 8 - 2*i
-		storeF32x4(unsafe.Add(cp, hb*4), yrM.ToBits().InterleaveLo(rYiF.ToBits()).BitsToFloat32())
-		storeF32x4(unsafe.Add(cp, (hb+4)*4), yrM.ToBits().InterleaveHi(rYiF.ToBits()).BitsToFloat32())
+		storeF32x4(high, yrM.ToBits().InterleaveLo(rYiF.ToBits()).BitsToFloat32())
+		storeF32x4(unsafe.Add(high, 16), yrM.ToBits().InterleaveHi(rYiF.ToBits()).BitsToFloat32())
+
+		forwardFFT = unsafe.Add(forwardFFT, 32)
+		mirrorFFT = unsafe.Add(mirrorFFT, -32)
+		forwardT0 = unsafe.Add(forwardT0, 16)
+		forwardT1 = unsafe.Add(forwardT1, 16)
+		mirrorT0 = unsafe.Add(mirrorT0, -16)
+		mirrorT1 = unsafe.Add(mirrorT1, -16)
+		low = unsafe.Add(low, 32)
+		high = unsafe.Add(high, -32)
 	}
 }
