@@ -2,7 +2,6 @@ package multistream
 
 import (
 	"encoding/binary"
-	"fmt"
 	"sync"
 	"testing"
 
@@ -18,8 +17,8 @@ var (
 
 func getProjectionDemixingCTLPath() (string, error) {
 	projDemixingCTLOnce.Do(func() {
-		if _, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); !ok {
-			projDemixingCTLErr = fmt.Errorf("libopus reference tree not found")
+		if _, err := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); err != nil {
+			projDemixingCTLErr = err
 			return
 		}
 		projDemixingCTLPath, projDemixingCTLErr = libopustest.BuildCHelper(libopustest.CHelperConfig{

@@ -93,7 +93,7 @@ run_mode() {
   fi
 
   run_phase "$side" "$root" "$mode-selected-kernel-files" \
-    "${env_args[@]}" go list \
+    "${env_args[@]}" go list "${cbr_tags[@]}" \
       -f '{{.ImportPath}}: Go={{join .GoFiles " "}} Asm={{join .SFiles " "}}' \
       ./internal/celt ./internal/silk
 

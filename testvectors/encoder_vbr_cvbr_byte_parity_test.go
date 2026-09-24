@@ -36,7 +36,6 @@ import (
 
 	gopus "github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/internal/libopustooling"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -771,10 +770,7 @@ func TestVBRByteParityViaOpusDemoExhaustive(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
-	opusDemo, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
-	if !ok {
-		t.Skip("opus_demo not available; skipping exhaustive VBR parity")
-	}
+	opusDemo := requireFixtureOpusDemo(t)
 
 	tmpDir, err := os.MkdirTemp("", "gopus-vbr-demo-*")
 	if err != nil {
@@ -882,10 +878,7 @@ func TestCVBRSizeDistributionViaOpusDemoExhaustive(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
-	opusDemo, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
-	if !ok {
-		t.Skip("opus_demo not available; skipping exhaustive CVBR parity")
-	}
+	opusDemo := requireFixtureOpusDemo(t)
 
 	tmpDir, err := os.MkdirTemp("", "gopus-cvbr-demo-*")
 	if err != nil {

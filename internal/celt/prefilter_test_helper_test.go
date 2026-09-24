@@ -65,7 +65,7 @@ func pitchDownsample(x []float64, xLP []float32, length, channels, factor int) {
 
 	var ac [5]float32
 	pitchAutocorr5F32(xLP[:length], length, &ac)
-	applyCELTAutocorrNoiseAndLagWindow32(ac[:], 4)
+	applyCELTPitchLagWindow32(ac[:], 4)
 
 	lpc := lpcFromAutocorr32(ac)
 	tmp := float32(1.0)

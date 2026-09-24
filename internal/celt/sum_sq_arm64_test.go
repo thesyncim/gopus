@@ -4,15 +4,21 @@ package celt
 
 import "testing"
 
-func TestSumOfSquaresF64toF32Arm64MatchesLibopusNEONOrder(t *testing.T) {
+func TestSumOfSquaresF64toF32MatchesConfiguredArm64LibopusOrder(t *testing.T) {
 	x := arm64SumOrderFixture()
 
 	got := float32(sumOfSquaresF64toF32(x, len(x)))
-	if got != float32(2650762.5) {
-		t.Fatalf("arm64 lane-order sum=%v, want %v", got, float32(2650762.5))
+	if celtFusedFloat {
+		if got != float32(2650762.5) {
+			t.Fatalf("arm64 SIMD lane-order sum=%v, want %v", got, float32(2650762.5))
+		}
+		if got == sequentialSumOfSquaresF64toF32ForTest(x) {
+			t.Fatalf("arm64 SIMD sum unexpectedly collapsed to sequential accumulation: %v", got)
+		}
+		return
 	}
-	if got == sequentialSumOfSquaresF64toF32ForTest(x) {
-		t.Fatalf("arm64 sum unexpectedly collapsed to sequential accumulation: %v", got)
+	if want := sequentialSumOfSquaresF64toF32ForTest(x); got != want {
+		t.Fatalf("arm64 scalar-order sum=%v, want %v", got, want)
 	}
 }
 
@@ -23,53 +29,15 @@ func TestComputeBandRMSUsesArm64LibopusInnerProdOrder(t *testing.T) {
 		x[i] = 1
 	}
 
-	laneInput := make([]float64, len(x))
-	for i, v := range x {
-		laneInput[i] = float64(v)
-	}
-
 	got := computeBandRMS(x, 0, len(x))
-
-	if celtFusedFloat {
-		// The fused arm64 build matches scalar libopus compute_band_energies +
-		// amp2Log2: a scalar-order, no-FMA sum-of-squares then
-		// celt_log2(celt_sqrt(sum)). This is the dynalloc-boost fix; the NEON
-		// lane-ordered shortcut is deliberately not used here.
-		scalarSum := float32(1e-27) + celtBandSumSqScalarNoFMA(x)
-		want := celtLog2(celtSqrt(scalarSum))
-		if got != want {
-			t.Fatalf("computeBandRMS=%v, want %v from scalar-order celt_log2(celt_sqrt(sum))", got, want)
-		}
-
-		laneShortcut := float32(0.5) * celtLog2(float32(1e-27)+celtInnerProdF32LibopusOrder(x))
-		if got == laneShortcut {
-			t.Fatalf("fused computeBandRMS unexpectedly equals the NEON lane-order 0.5*log2 shortcut: %v", got)
-		}
-		return
-	}
-
-	// The bit-exact builds (nosimd, amd64) keep the libopus inner-product order
-	// plus the 0.5*celt_log2(sum) shortcut.
-	laneSum := float32(sumOfSquaresF64toF32(laneInput, len(laneInput)))
-	seqSumNoEpsilon := sequentialSumOfSquaresF64toF32ForTest(laneInput)
-	if laneSum == seqSumNoEpsilon {
-		t.Fatalf("fixture did not expose arm64 lane-order accumulation: %v", laneSum)
-	}
-
-	sum := float32(1e-27) + laneSum
-	want := float32(0.5) * celtLog2(sum)
+	sum := float32(1e-27) + celtInnerProdF32LibopusOrder(x)
+	want := celtLog2(celtSqrt(sum))
 	if got != want {
-		t.Fatalf("computeBandRMS=%v, want %v from arm64 lane-order sum", got, want)
-	}
-
-	seqSum := float32(1e-27) + sequentialSumOfSquaresF64toF32ForTest(laneInput)
-	seq := float32(0.5) * celtLog2(seqSum)
-	if got == seq {
-		t.Fatalf("computeBandRMS unexpectedly collapsed to sequential accumulation: %v", got)
+		t.Fatalf("computeBandRMS=%v, want %v from configured libopus inner product and sqrt-then-log order", got, want)
 	}
 }
 
-func TestInnerProductNormUsesArm64LibopusInnerProdOrder(t *testing.T) {
+func TestInnerProductNormUsesConfiguredArm64LibopusOrder(t *testing.T) {
 	src := arm64SumOrderFixture()
 	x := make([]celtNorm, len(src))
 	for i, v := range src {
@@ -77,14 +45,17 @@ func TestInnerProductNormUsesArm64LibopusInnerProdOrder(t *testing.T) {
 	}
 
 	got := innerProductNorm(x, x)
-	want := float32(sumOfSquaresF64toF32(src, len(src)))
+	want := float32(2650762.5)
+	if !celtFusedFloat {
+		want = sequentialSumOfSquaresF64toF32ForTest(src)
+	}
 	if got != want {
-		t.Fatalf("innerProductNorm=%v, want %v from arm64 libopus inner-product order", got, want)
+		t.Fatalf("innerProductNorm=%v, want %v from configured arm64 libopus order", got, want)
 	}
 
 	seq := sequentialSumOfSquaresF64toF32ForTest(src)
-	if got == seq {
-		t.Fatalf("innerProductNorm unexpectedly collapsed to sequential accumulation: %v", got)
+	if celtFusedFloat && got == seq {
+		t.Fatalf("arm64 SIMD innerProductNorm unexpectedly collapsed to sequential accumulation: %v", got)
 	}
 }
 

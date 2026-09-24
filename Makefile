@@ -308,7 +308,7 @@ bench-testvectors-report: ensure-libopus ensure-testvectors
 # is not a fair performance opponent for Go SIMD. perf-fair runs both tiers.
 #
 #   perf-simd    : Go SIMD selected with GOEXPERIMENT=simd vs libopus-SIMD.
-#   perf-nosimd  : gopus -tags nosimd (scalar Go)      vs libopus-no-asm.
+#   perf-nosimd  : scalar Go (default or -tags nosimd) vs libopus scalar.
 #                  Fair scalar-vs-scalar comparison.
 #
 # Each prints a per-config + aggregate g/l table with an explicit tier header.
@@ -318,7 +318,7 @@ perf-simd: ensure-libopus-simd
 	$(GO_WORK_ENV) GOEXPERIMENT=simd GOPUS_BENCH_TIER=simd \
 		$(GO) test $(PGO_FLAG) -tags gopus_libopus_bench -run TestScoreboardSummary -v -count=1 .
 
-perf-nosimd: ensure-libopus
+perf-nosimd: ensure-libopus-scalar
 	$(GO_WORK_ENV) GOPUS_BENCH_TIER=nosimd \
 		$(GO) test $(PGO_FLAG) -tags 'gopus_libopus_bench nosimd' -run TestScoreboardSummary -v -count=1 .
 
@@ -428,9 +428,8 @@ ensure-libopus-custom-scalar:
 
 # Ensure tmp_check/opus-$(LIBOPUS_VERSION)-simd/.libs/libopus.a exists, built
 # with libopus's native SIMD path (--enable-rtcd --enable-intrinsics): NEON on
-# arm64, SSE/AVX RTCD on amd64. This is the PERFORMANCE reference only — it is
-# NOT bit-reproducible, so it MUST NOT replace the scalar parity reference
-# (opus-$(LIBOPUS_VERSION)-scalar). Used by the asm-vs-asm perf tier.
+# arm64, SSE/AVX RTCD on amd64. It pairs with Go SIMD builds and direct tests of
+# matching SIMD kernels.
 ensure-libopus-simd:
 	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_SIMD=1 ./tools/ensure_libopus.sh
 

@@ -338,10 +338,7 @@ func TestDecoderLossStressPatternsAgainstOpusDemo(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
-	opusDemo, ok := getFixtureOpusDemoPath()
-	if !ok {
-		t.Skip("tmp_check opus_demo not found; skipping decoder loss stress parity check")
-	}
+	opusDemo := requireFixtureOpusDemo(t)
 
 	fixture, err := loadLibopusDecoderLossFixture()
 	if err != nil {
@@ -482,10 +479,7 @@ func TestDecoderLossFixtureHonestyWithOpusDemo(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
-	opusDemo, ok := getFixtureOpusDemoPath()
-	if !ok {
-		t.Skip("tmp_check opus_demo not found; skipping decoder loss fixture honesty check")
-	}
+	opusDemo := requireFixtureOpusDemo(t)
 
 	fixture, err := loadLibopusDecoderLossFixture()
 	if err != nil {

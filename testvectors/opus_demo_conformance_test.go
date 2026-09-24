@@ -50,6 +50,7 @@ import (
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/benchutil"
 	"github.com/thesyncim/gopus/internal/encoder"
+	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/testsignal"
 	"github.com/thesyncim/gopus/types"
 )
@@ -367,7 +368,8 @@ func TestOpusDemoEndToEndConformance(t *testing.T) {
 
 	opusDemo, err := benchutil.OpusDemoPath()
 	if err != nil {
-		t.Skipf("opus_demo unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "opus_demo", err)
+		return
 	}
 
 	// Two seconds of signal at 48 kHz is enough to exercise multiple frames of

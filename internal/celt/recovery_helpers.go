@@ -586,8 +586,8 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 			for i := range decayLength {
 				v1 := float32(exc[base1+i])
 				v2 := float32(exc[base2+i])
-				e1 += noFMA32Mul(v1, v1)
-				e2 += noFMA32Mul(v2, v2)
+				e1 = fma32(v1, v1, e1)
+				e2 = fma32(v2, v2, e2)
 			}
 			if e1 > e2 {
 				e1 = e2
@@ -664,6 +664,14 @@ func (d *Decoder) computePLCAutocorr(frame []celtSig, window []float32, ac []flo
 	if len(ac) < celtPLCLPCOrder+1 {
 		return
 	}
+	d.computePLCRawAutocorr(frame, window, ac)
+	applyCELTPLCLagWindow32(ac[:celtPLCLPCOrder+1], celtPLCLPCOrder)
+}
+
+func (d *Decoder) computePLCRawAutocorr(frame []celtSig, window []float32, ac []float32) {
+	if len(ac) < celtPLCLPCOrder+1 {
+		return
+	}
 	for i := 0; i <= celtPLCLPCOrder; i++ {
 		ac[i] = 0
 	}
@@ -691,20 +699,36 @@ func (d *Decoder) computePLCAutocorr(frame []celtSig, window []float32, ac []flo
 		}
 		ac[lag] += tail
 	}
-
-	applyCELTAutocorrNoiseAndLagWindow32(ac[:], celtPLCLPCOrder)
 }
 
-func applyCELTAutocorrNoiseAndLagWindow32(ac []float32, order int) {
+func applyCELTPitchLagWindow32(ac []float32, order int) {
 	if len(ac) <= order {
 		return
 	}
-	ac[0] *= float32(1.0001)
-	lagBase := float32(0.008) * float32(0.008)
+	ac[0] = float32(ac[0] * float32(1.0001))
+	const lagCoefficient = float32(0.008)
 	for i := 1; i <= order; i++ {
-		lag := ac[i] * lagBase
-		lag *= float32(i * i)
-		ac[i] -= lag
+		lag := float32(lagCoefficient * float32(i))
+		damped := float32(ac[i] * lag)
+		// pitch.c forms the second product with the subtraction, allowing
+		// the target's normal FP contraction after the rounded first product.
+		ac[i] = fma32(-lag, damped, ac[i])
+	}
+}
+
+func applyCELTPLCLagWindow32(ac []float32, order int) {
+	if len(ac) <= order {
+		return
+	}
+	ac[0] = float32(ac[0] * float32(1.0001))
+	const lagCoefficient = float32(0.008)
+	lagBase := float32(lagCoefficient * lagCoefficient)
+	for i := 1; i <= order; i++ {
+		damped := float32(ac[i] * lagBase)
+		damped = float32(damped * float32(i))
+		// celt_decoder.c leaves the final `* i` in `ac[i] -= ...`, so C
+		// contracts that product with the subtraction where supported.
+		ac[i] = fma32(-damped, float32(i), ac[i])
 	}
 }
 
@@ -1132,19 +1156,14 @@ func innerProdFloat32(x, y []float32, length int) float32 {
 	}
 	x = x[:length]
 	y = y[:length]
-	var acc0, acc1, acc2, acc3 float32
-	for len(x) >= 4 {
-		acc0 += x[0] * y[0]
-		acc1 += x[1] * y[1]
-		acc2 += x[2] * y[2]
-		acc3 += x[3] * y[3]
-		x = x[4:]
-		y = y[4:]
-	}
+	// libopus celt_inner_prod_c is one serial MAC16_16 chain. Keep the
+	// scalar path in source order; the split accumulators belong to the
+	// explicitly paired NEON and SSE variants above.
+	var sum float32
 	for i := range x {
-		acc0 += x[i] * y[i]
+		sum = fma32(x[i], y[i], sum)
 	}
-	return acc0 + acc1 + acc2 + acc3
+	return sum
 }
 
 func innerProdFloat32SSEOrder(x, y []float32, length int) float32 {

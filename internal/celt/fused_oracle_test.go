@@ -3,6 +3,8 @@ package celt
 import (
 	"runtime"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 // requireBitExactFloat skips a Tier-1 bit-exact CELT-float oracle on the builds
@@ -29,5 +31,25 @@ func requireBitExactFloat(t *testing.T) {
 	}
 	if runtime.GOARCH == "amd64" && !libopusFloatInnerProdUsesSSEOrder {
 		t.Skip("bit-exact vs SIMD libopus; amd64 pure-Go float path is quality-gated (asm amd64 / pure-Go arm64 hold the bit-exact oracle)")
+	}
+}
+
+// requireRenormalizeVectorOracleMode keeps the vector renormalization oracle
+// enabled on arm64 when the caller selects the matching libopus build. The
+// pinned arm64 libopus config compiles celt_inner_prod to NEON even when the
+// helper passes arch=0, so fused Go SIMD needs the default C reference and the
+// scalar Go builds need GOPUS_LIBOPUS_REF_SCALAR=1.
+func requireRenormalizeVectorOracleMode(t *testing.T) {
+	t.Helper()
+	if runtime.GOARCH != "arm64" {
+		requireBitExactFloat(t)
+		return
+	}
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		t.Fatalf("resolve libopus reference variant: %v", err)
+	}
+	if celtFusedFloat != (variant == libopustooling.LibopusReferenceSIMD) {
+		t.Fatalf("Go CELT float mode and libopus reference do not match: Go SIMD=%t libopus=%s", celtFusedFloat, variant)
 	}
 }

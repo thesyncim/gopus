@@ -323,23 +323,16 @@ func applyLFEBandLogEClamp(energies []celtGLog, nbBands, channels int) {
 }
 
 // computeBandRMS computes the per-band log2 amplitude from MDCT coefficients.
-// Returns log2(sqrt(sum(x^2))) using the same epsilon as libopus.
-// This matches libopus compute_band_energies() + amp2Log2() (float path).
+// It preserves libopus's order: inner product, epsilon addition, float32 sqrt,
+// then log2.
 func computeBandRMS(coeffs []float32, start, end int) float32 {
 	if end <= start || start < 0 || end > len(coeffs) {
 		return float32(0.5) * celtLog2(float32(1e-27))
 	}
 
 	c := coeffs[start:end:end]
-	if celtFusedFloat {
-		sumSq := float32(1e-27) + celtBandSumSqScalarNoFMA(c)
-		return celtLog2(celtSqrt(sumSq))
-	}
-
-	// Compute sum of squares with the same accumulation order libopus uses
-	// for celt_inner_prod() on the active architecture.
 	sumSq := float32(1e-27) + celtInnerProdF32LibopusOrder(c)
-	return float32(0.5) * celtLog2(sumSq)
+	return celtLog2(celtSqrt(sumSq))
 }
 
 func computeBandRMSFloat32(coeffs []float32, start, end int) float32 {
@@ -347,12 +340,8 @@ func computeBandRMSFloat32(coeffs []float32, start, end int) float32 {
 		return float32(0.5) * celtLog2(float32(1e-27))
 	}
 	c := coeffs[start:end:end]
-	if celtFusedFloat {
-		sumSq := float32(1e-27) + celtBandSumSqScalarNoFMA(c)
-		return celtLog2(celtSqrt(sumSq))
-	}
 	sumSq := float32(1e-27) + celtInnerProdF32LibopusOrder(c)
-	return float32(0.5) * celtLog2(sumSq)
+	return celtLog2(celtSqrt(sumSq))
 }
 
 // celtSqrt mirrors libopus celt_sqrt in the float build: (float)sqrt((double)x).
@@ -360,24 +349,6 @@ func computeBandRMSFloat32(coeffs []float32, start, end int) float32 {
 // narrows back to float; the Go path mirrors that double round-trip via math.Sqrt.
 func celtSqrt(x float32) float32 {
 	return float32(math.Sqrt(float64(x)))
-}
-
-// celtBandSumSqScalarNoFMA accumulates the band sum-of-squares in scalar order,
-// matching libopus celt_inner_prod_c (xy = MAC16_16(xy, x[i], x[i]), i.e. a plain
-// float32 multiply followed by a float32 add per element). Materializing each
-// square through a Float32bits round-trip stops a fused build (celtFusedFloat)
-// from contracting sum + x*x into a single FMADD, so the band energy that feeds
-// the dynalloc boost decision tracks the scalar reference instead of the NEON
-// lane-ordered inner product. With the square materialized, the accumulating add
-// has no multiply left to fuse, so it needs no separate barrier. Band energy is
-// computed once per frame, so the lost FMA is negligible.
-func celtBandSumSqScalarNoFMA(x []float32) float32 {
-	var sum float32
-	for i := range x {
-		p := round32(x[i] * x[i])
-		sum += p
-	}
-	return sum
 }
 
 func celtInnerProdF32LibopusOrder(x []float32) float32 {

@@ -3,8 +3,8 @@ package libopustooling
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -172,276 +172,386 @@ func TestLibopusToolIsRunnableUsesPlatformSemantics(t *testing.T) {
 	}
 }
 
-func TestDefaultSearchRootsIncludeGitHubWorkspace(t *testing.T) {
-	// This test stubs the default (opus-<ver>) tree under GITHUB_WORKSPACE and
-	// asserts the search roots resolve to it. The build-config-matrix lane runs
-	// with GOPUS_LIBOPUS_REF_SCALAR=1, which redirects FindOpusCompare to the
-	// opus-<ver>-scalar tree and would otherwise resolve to the real scalar tree
-	// in the source root instead of this stub. Clear the scalar/strict ref env so
-	// the default-tree search path under test is exercised regardless of lane.
-	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "")
-	t.Setenv("GOPUS_STRICT_LIBOPUS_REF", "")
+func TestResolveLibopusReferenceVariantBuildMatrix(t *testing.T) {
+	tests := []struct {
+		name     string
+		goarch   string
+		goSIMD   bool
+		override string
+		want     LibopusReferenceVariant
+		wantErr  bool
+	}{
+		{name: "default scalar", goarch: "amd64", want: LibopusReferenceScalar},
+		{name: "auto scalar", goarch: "arm64", override: " auto ", want: LibopusReferenceScalar},
+		{name: "confirm scalar name", goarch: "amd64", override: "scalar", want: LibopusReferenceScalar},
+		{name: "confirm scalar numeric", goarch: "amd64", override: "1", want: LibopusReferenceScalar},
+		{name: "simd build", goarch: "amd64", goSIMD: true, want: LibopusReferenceSIMD},
+		{name: "confirm simd name", goarch: "arm64", goSIMD: true, override: "simd", want: LibopusReferenceSIMD},
+		{name: "confirm simd numeric", goarch: "arm64", goSIMD: true, override: "0", want: LibopusReferenceSIMD},
+		{name: "reject scalar boolean alias", goarch: "amd64", override: "true", wantErr: true},
+		{name: "reject simd boolean alias", goarch: "amd64", goSIMD: true, override: "false", wantErr: true},
+		{name: "reject scalar on simd build", goarch: "amd64", goSIMD: true, override: "1", wantErr: true},
+		{name: "reject simd on scalar build", goarch: "arm64", override: "0", wantErr: true},
+		{name: "reject unsupported value", goarch: "amd64", override: "maybe", wantErr: true},
+		{name: "simd tag on unsupported arch remains scalar", goarch: "386", goSIMD: true, want: LibopusReferenceScalar},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveLibopusReferenceVariantFor(tc.goarch, tc.goSIMD, tc.override)
+			if tc.wantErr {
+				var configErr *LibopusReferenceConfigError
+				if !errors.As(err, &configErr) {
+					t.Fatalf("error=%v, want LibopusReferenceConfigError", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolve variant: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("variant=%q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveLibopusReferenceVariantMatchesBuildTags(t *testing.T) {
+	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "auto")
+	want := LibopusReferenceScalar
+	if goLibopusReferenceSIMD && (runtime.GOARCH == "arm64" || runtime.GOARCH == "amd64") {
+		want = LibopusReferenceSIMD
+	}
+	got, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("variant=%q want %q for GOARCH=%s simd=%v", got, want, runtime.GOARCH, goLibopusReferenceSIMD)
+	}
+}
+
+func TestScalarReferenceCompilerPolicyMatchesEnsureScript(t *testing.T) {
+	script, err := os.ReadFile(filepath.Join("..", "..", "tools", "ensure_libopus.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const exactFlags = "SCALAR_C_VECTOR_FLAGS=(-fno-tree-vectorize -fno-tree-slp-vectorize)"
+	if !strings.Contains(string(script), exactFlags) {
+		t.Fatalf("ensure_libopus.sh does not contain the scalar compiler policy %q", exactFlags)
+	}
+	if strings.Contains(LibopusScalarCFLAGS, "-ffp-contract=off") {
+		t.Fatalf("scalar reference disables normal FMA contraction: %q", LibopusScalarCFLAGS)
+	}
+}
+
+func TestValidateLibopusReferenceBuildAcceptsCustomScalarStamp(t *testing.T) {
+	dir := writePairedReferenceTree(t, t.TempDir(), LibopusReferenceCustomScalar, runtime.GOOS, runtime.GOARCH)
+	if err := ValidateLibopusReferenceBuild(dir, LibopusReferenceCustomScalar, DefaultVersion); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFindValidatedReferenceToolUsesExplicitTree(t *testing.T) {
 	root := t.TempDir()
-	toolPath := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion, "opus_compare")
-	if err := os.MkdirAll(filepath.Dir(toolPath), 0o755); err != nil {
-		t.Fatalf("mkdir tool dir: %v", err)
+	variant := LibopusReferenceScalar
+	srcDir := writePairedReferenceTree(t, root, variant, runtime.GOOS, runtime.GOARCH, "opus_compare")
+	unsuffixed := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion, "opus_compare")
+	if err := os.MkdirAll(filepath.Dir(unsuffixed), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	for _, tool := range []string{"opus_demo", "opus_compare"} {
-		if err := os.WriteFile(filepath.Join(filepath.Dir(toolPath), tool), []byte("stub"), 0o755); err != nil {
-			t.Fatalf("write %s: %v", tool, err)
-		}
+	if err := os.WriteFile(unsuffixed, []byte("wrong tree"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(filepath.Dir(toolPath), ".libs"), 0o755); err != nil {
-		t.Fatalf("mkdir lib dir: %v", err)
+
+	got, err := findValidatedReferenceTool(DefaultVersion, []string{root}, "opus_compare", variant, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(filepath.Dir(toolPath), ".libs", "libopus.a"), []byte("archive"), 0o644); err != nil {
-		t.Fatalf("write libopus archive: %v", err)
+	want := filepath.Join(srcDir, "opus_compare")
+	if got != want {
+		t.Fatalf("tool=%q want explicit paired tree %q", got, want)
 	}
-	stamp := strings.Join([]string{
-		"gopus libopus helper build v5",
-		"version=" + DefaultVersion,
-		"qext=0",
-		"host_os=MINGW64_NT-10.0",
-		"host_arch=x86_64",
-		"host_bits=64",
-		"cc=gcc",
-		"cc_path=/usr/bin/gcc",
-		"cc_target=x86_64-w64-mingw32",
-		"cc_version=gcc test",
-		"configure=--enable-static --disable-shared",
-		"CFLAGS=-O3 -DNDEBUG",
-		"CPPFLAGS=",
-		"LDFLAGS=",
-		"",
-	}, "\r\n")
-	if err := os.WriteFile(filepath.Join(filepath.Dir(toolPath), ".gopus-libopus-build"), []byte(stamp), 0o644); err != nil {
-		t.Fatalf("write build stamp: %v", err)
+}
+
+func TestValidateLibopusReferenceToolOverrideAcceptsSelectedTree(t *testing.T) {
+	root := t.TempDir()
+	variant := LibopusReferenceScalar
+	dir := writePairedReferenceTree(t, root, variant, runtime.GOOS, runtime.GOARCH, "opus_demo")
+	tool := filepath.Join(dir, "opus_demo")
+	if runtime.GOOS == "windows" {
+		tool += ".exe"
 	}
+	if err := ValidateLibopusReferenceToolOverride(tool, "opus_demo", variant, DefaultVersion); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateWindowsExeOverrideIgnoresPOSIXExecBit(t *testing.T) {
+	root := t.TempDir()
+	variant := LibopusReferenceScalar
+	dir := writePairedReferenceTree(t, root, variant, "windows", runtime.GOARCH, "opus_demo")
+	tool := filepath.Join(dir, "opus_demo.exe")
+	if err := os.Chmod(tool, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Exercise Windows file-mode semantics on this host; this does not claim the
+	// synthetic executable can run natively.
+	if err := validateLibopusReferenceToolOverrideForPlatform(tool, "opus_demo", variant, DefaultVersion, "windows", runtime.GOARCH); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFindOrEnsureOpusCompareUsesValidatedPairedTree(t *testing.T) {
+	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "")
+	variant := LibopusReferenceScalar
+	if goLibopusReferenceSIMD {
+		variant = LibopusReferenceSIMD
+	}
+	root := t.TempDir()
+	srcDir := writePairedReferenceTree(t, root, variant, runtime.GOOS, runtime.GOARCH, "opus_compare")
 	scriptPath := filepath.Join(root, "tools", "ensure_libopus.sh")
 	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
-		t.Fatalf("mkdir tools dir: %v", err)
+		t.Fatal(err)
 	}
 	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 17\n"), 0o755); err != nil {
-		t.Fatalf("write failing ensure script: %v", err)
+		t.Fatal(err)
 	}
-	oldWD, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	otherWD := t.TempDir()
-	if err := os.Chdir(otherWD); err != nil {
-		t.Fatalf("chdir temp: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chdir(oldWD); err != nil {
-			t.Fatalf("restore cwd: %v", err)
-		}
-	})
-	t.Setenv("GITHUB_WORKSPACE", root)
 
-	got, ok := FindOpusCompare(DefaultVersion, DefaultSearchRoots())
-	if !ok {
-		t.Fatal("expected default roots to find GITHUB_WORKSPACE tmp_check tool")
+	got, err := findOrEnsureReferenceTool(DefaultVersion, []string{root}, "opus_compare", variant, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got != toolPath {
-		t.Fatalf("tool path mismatch: got %q want %q", got, toolPath)
-	}
-	if !stampedLibopusBuildPresentForPlatform(DefaultVersion, DefaultSearchRoots(), false, "windows", "amd64") {
-		t.Fatal("expected default roots to validate GITHUB_WORKSPACE stamped build")
-	}
-	got, ok = findOrEnsureOpusCompareForPlatform(DefaultVersion, DefaultSearchRoots(), "windows", "amd64")
-	if !ok {
-		t.Fatal("expected Windows stamped fallback to survive failing shell validation")
-	}
-	if got != toolPath {
-		t.Fatalf("ensured tool path mismatch: got %q want %q", got, toolPath)
+	want := filepath.Join(srcDir, "opus_compare")
+	if got != want {
+		t.Fatalf("tool=%q want %q", got, want)
 	}
 }
 
-func TestFindOrEnsureOpusDemoValidatesBeforeReturningExistingTool(t *testing.T) {
-	// Stubs the default opus-<ver> tree; clear the scalar/strict ref env so the
-	// build-config-matrix lane (GOPUS_LIBOPUS_REF_SCALAR=1) does not redirect
-	// FindOrEnsureOpusDemo to the opus-<ver>-scalar tree and miss this stub.
+func TestFindOrEnsureOpusDemoRejectsUnstampedPairedTree(t *testing.T) {
 	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "")
-	t.Setenv("GOPUS_STRICT_LIBOPUS_REF", "")
-	if runtime.GOOS == "windows" {
-		t.Skip("shell validation hook is Unix-only")
+	variant := LibopusReferenceScalar
+	if goLibopusReferenceSIMD {
+		variant = LibopusReferenceSIMD
 	}
-	if _, err := exec.LookPath("bash"); err != nil {
-		if _, err := exec.LookPath("sh"); err != nil {
-			t.Skip("no shell available for ensure script")
-		}
-	}
-
 	root := t.TempDir()
-	toolPath := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion, "opus_demo")
-	if err := os.MkdirAll(filepath.Dir(toolPath), 0o755); err != nil {
-		t.Fatalf("mkdir tool dir: %v", err)
-	}
-	if err := os.WriteFile(toolPath, []byte("stale but executable"), 0o755); err != nil {
-		t.Fatalf("write stale tool: %v", err)
-	}
-
-	markerPath := filepath.Join(root, "ensure-ran")
-	t.Setenv("GOPUS_TEST_ENSURE_MARKER", markerPath)
-	scriptPath := filepath.Join(root, "tools", "ensure_libopus.sh")
-	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
-		t.Fatalf("mkdir tools dir: %v", err)
-	}
-	script := "#!/bin/sh\nprintf '%s' \"$LIBOPUS_VERSION\" > \"$GOPUS_TEST_ENSURE_MARKER\"\n"
-	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
-		t.Fatalf("write ensure script: %v", err)
-	}
-
-	got, ok := FindOrEnsureOpusDemo(DefaultVersion, []string{root})
-	if !ok {
-		t.Fatal("expected FindOrEnsureOpusDemo to return existing tool after validation")
-	}
-	if got != toolPath {
-		t.Fatalf("tool path mismatch: got %q want %q", got, toolPath)
-	}
-	marker, err := os.ReadFile(markerPath)
-	if err != nil {
-		t.Fatalf("ensure script did not run before returning existing tool: %v", err)
-	}
-	if string(marker) != DefaultVersion {
-		t.Fatalf("ensure script LIBOPUS_VERSION=%q want %q", string(marker), DefaultVersion)
-	}
-}
-
-func TestFindOrEnsureOpusDemoRejectsExistingToolWhenValidationFails(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell validation hook is Unix-only")
-	}
-	if _, err := exec.LookPath("bash"); err != nil {
-		if _, err := exec.LookPath("sh"); err != nil {
-			t.Skip("no shell available for ensure script")
-		}
-	}
-
-	root := t.TempDir()
-	toolPath := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion, "opus_demo")
-	if err := os.MkdirAll(filepath.Dir(toolPath), 0o755); err != nil {
-		t.Fatalf("mkdir tool dir: %v", err)
-	}
-	if err := os.WriteFile(toolPath, []byte("stale but executable"), 0o755); err != nil {
-		t.Fatalf("write stale tool: %v", err)
-	}
-
-	scriptPath := filepath.Join(root, "tools", "ensure_libopus.sh")
-	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
-		t.Fatalf("mkdir tools dir: %v", err)
-	}
-	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 17\n"), 0o755); err != nil {
-		t.Fatalf("write failing ensure script: %v", err)
-	}
-
-	if got, ok := FindOrEnsureOpusDemo(DefaultVersion, []string{root}); ok {
-		t.Fatalf("FindOrEnsureOpusDemo returned stale tool %q after validation failure", got)
-	}
-}
-
-func TestFindOrEnsureOpusCompareAcceptsStampedBuildWhenValidationCannotRun(t *testing.T) {
-	root := t.TempDir()
-	srcDir := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion)
+	suffix, _ := LibopusReferenceSourceSuffix(variant)
+	srcDir := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion+suffix)
 	if err := os.MkdirAll(filepath.Join(srcDir, ".libs"), 0o755); err != nil {
-		t.Fatalf("mkdir source dir: %v", err)
+		t.Fatal(err)
 	}
-	for _, tool := range []string{"opus_demo", "opus_compare", "opus_demo.exe", "opus_compare.exe"} {
-		toolPath := filepath.Join(srcDir, tool)
-		if err := os.WriteFile(toolPath, []byte("stub"), 0o755); err != nil {
-			t.Fatalf("write %s: %v", tool, err)
+	if err := os.WriteFile(filepath.Join(srcDir, "opus_demo"), []byte("stale"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, ".libs", "libopus.a"), []byte("archive"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scriptPath := filepath.Join(root, "tools", "ensure_libopus.sh")
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 17\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := findOrEnsureReferenceTool(DefaultVersion, []string{root}, "opus_demo", variant, runtime.GOOS, runtime.GOARCH)
+	var configErr *LibopusReferenceConfigError
+	if !errors.As(err, &configErr) {
+		t.Fatalf("error=%v, want invalid paired-reference configuration", err)
+	}
+}
+
+func TestValidateLibopusReferenceBuildRejectsMismatchedArtifacts(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*testing.T, string)
+	}{
+		{name: "foreign compiler target", mutate: func(t *testing.T, dir string) {
+			p := filepath.Join(dir, ".gopus-libopus-build")
+			stamp, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			foreignArch := "x86_64"
+			if runtime.GOARCH == "amd64" {
+				foreignArch = "aarch64"
+			}
+			updated := strings.Replace(string(stamp), "cc_target="+testTargetTriple(runtime.GOOS, runtime.GOARCH), "cc_target="+testTargetTriple(runtime.GOOS, foreignArch), 1)
+			if err := os.WriteFile(p, []byte(updated), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "simd macro in scalar config", mutate: func(t *testing.T, dir string) {
+			if err := os.WriteFile(filepath.Join(dir, "config.h"), []byte("#define OPUS_HAVE_RTCD 1\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "missing archive", mutate: func(t *testing.T, dir string) {
+			if err := os.Remove(filepath.Join(dir, ".libs", "libopus.a")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			dir := writePairedReferenceTree(t, root, LibopusReferenceScalar, runtime.GOOS, runtime.GOARCH)
+			tc.mutate(t, dir)
+			err := ValidateLibopusReferenceBuild(dir, LibopusReferenceScalar, DefaultVersion)
+			var configErr *LibopusReferenceConfigError
+			if !errors.As(err, &configErr) {
+				t.Fatalf("error=%v, want LibopusReferenceConfigError", err)
+			}
+		})
+	}
+}
+
+func TestValidateLibopusConfigSIMDRequiresMatchingInstructionMacro(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		config string
+		arch   string
+	}{
+		{name: "RTCD without instructions", config: "#define OPUS_HAVE_RTCD 1\n", arch: "amd64"},
+		{name: "foreign architecture macro", config: "#define OPUS_X86_MAY_HAVE_SSE2 1\n", arch: "arm64"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateLibopusConfigSIMD(tc.config, LibopusReferenceSIMD, tc.arch); err == nil {
+				t.Fatal("SIMD config without the matching architecture instruction macro was accepted")
+			}
+		})
+	}
+}
+
+func TestValidateLibopusReferenceArchiveRejectsWrongVariantAndUnstampedOverride(t *testing.T) {
+	root := t.TempDir()
+	scalarDir := writePairedReferenceTree(t, root, LibopusReferenceScalar, runtime.GOOS, runtime.GOARCH)
+	archive := filepath.Join(scalarDir, ".libs", "libopus.a")
+	if err := ValidateLibopusReferenceArchive(archive, LibopusReferenceScalar, DefaultVersion); err != nil {
+		t.Fatal(err)
+	}
+	var configErr *LibopusReferenceConfigError
+	if err := ValidateLibopusReferenceArchive(archive, LibopusReferenceSIMD, DefaultVersion); !errors.As(err, &configErr) {
+		t.Fatalf("wrong-variant error=%v, want LibopusReferenceConfigError", err)
+	}
+	if err := ValidateLibopusReferenceArchive(filepath.Join(root, "libopus.a"), LibopusReferenceScalar, DefaultVersion); !errors.As(err, &configErr) {
+		t.Fatalf("unrooted archive error=%v, want LibopusReferenceConfigError", err)
+	}
+}
+
+func writePairedReferenceTree(t *testing.T, root string, variant LibopusReferenceVariant, goos, goarch string, tools ...string) string {
+	t.Helper()
+	suffix, err := LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srcDir := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion+suffix)
+	if err := os.MkdirAll(filepath.Join(srcDir, ".libs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range tools {
+		name := tool
+		if goos == "windows" && !strings.HasSuffix(name, ".exe") {
+			name += ".exe"
+		}
+		if err := os.WriteFile(filepath.Join(srcDir, name), []byte("stub"), 0o755); err != nil {
+			t.Fatal(err)
 		}
 	}
 	if err := os.WriteFile(filepath.Join(srcDir, ".libs", "libopus.a"), []byte("archive"), 0o644); err != nil {
-		t.Fatalf("write libopus archive: %v", err)
+		t.Fatal(err)
+	}
+	config := ""
+	configure := "--enable-static --disable-shared --disable-asm --disable-rtcd --disable-intrinsics"
+	cflags := LibopusScalarCFLAGS
+	custom := "0"
+	if variant == LibopusReferenceSIMD {
+		config = testSIMDConfig(goarch)
+		configure = "--enable-static --disable-shared --enable-rtcd --enable-intrinsics"
+		cflags = LibopusBaseCFLAGS
+	} else if variant == LibopusReferenceCustomScalar {
+		configure = "--enable-static --disable-shared --enable-custom-modes --disable-asm --disable-rtcd --disable-intrinsics"
+		custom = "1"
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "config.h"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	stamp := strings.Join([]string{
 		"gopus libopus helper build v5",
 		"version=" + DefaultVersion,
 		"qext=0",
-		"host_os=MINGW64_NT-10.0",
-		"host_arch=x86_64",
-		"host_bits=64",
-		"cc=gcc",
-		"cc_path=/usr/bin/gcc",
-		"cc_target=x86_64-w64-mingw32",
-		"cc_version=gcc test",
-		"configure=--enable-static --disable-shared",
-		"CFLAGS=-O3 -DNDEBUG",
+		"fixed=0",
+		"custom=" + custom,
+		"host_os=" + testHostOS(goos),
+		"host_arch=" + testHostArch(goarch),
+		"host_bits=" + testHostBits(goarch),
+		"cc=cc",
+		"cc_path=/usr/bin/cc",
+		"cc_target=" + testTargetTriple(goos, goarch),
+		"cc_version=cc test",
+		"configure=" + configure,
+		"CFLAGS=" + cflags,
 		"CPPFLAGS=",
 		"LDFLAGS=",
 		"",
 	}, "\n")
 	if err := os.WriteFile(filepath.Join(srcDir, ".gopus-libopus-build"), []byte(stamp), 0o644); err != nil {
-		t.Fatalf("write build stamp: %v", err)
+		t.Fatal(err)
 	}
+	return srcDir
+}
 
-	scriptPath := filepath.Join(root, "tools", "ensure_libopus.sh")
-	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
-		t.Fatalf("mkdir tools dir: %v", err)
-	}
-	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 17\n"), 0o755); err != nil {
-		t.Fatalf("write failing ensure script: %v", err)
-	}
-
-	if !stampedLibopusBuildPresentForPlatform(DefaultVersion, []string{root}, false, "windows", "amd64") {
-		t.Fatal("expected stamped build fallback to allow opus_compare discovery")
-	}
-	got, ok := findLibopusToolForOS(DefaultVersion, []string{root}, "opus_compare", "windows")
-	if !ok {
-		t.Fatal("expected windows opus_compare discovery")
-	}
-	if !strings.Contains(filepath.Base(got), "opus_compare") {
-		t.Fatalf("got %q, want opus_compare tool", got)
+func testSIMDConfig(goarch string) string {
+	switch goarch {
+	case "amd64":
+		return "#define OPUS_X86_MAY_HAVE_SSE2 1\n#define OPUS_HAVE_RTCD 1\n"
+	case "arm64":
+		return "#define OPUS_ARM_MAY_HAVE_NEON_INTR 1\n#define OPUS_HAVE_RTCD 1\n"
+	default:
+		return ""
 	}
 }
 
-func TestFindOrEnsureOpusCompareRejectsStampedBuildWithForeignFlags(t *testing.T) {
-	root := t.TempDir()
-	srcDir := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion)
-	if err := os.MkdirAll(filepath.Join(srcDir, ".libs"), 0o755); err != nil {
-		t.Fatalf("mkdir source dir: %v", err)
+func testHostOS(goos string) string {
+	switch goos {
+	case "darwin":
+		return "Darwin"
+	case "linux":
+		return "Linux"
+	case "windows":
+		return "MINGW64_NT-10.0"
+	default:
+		return goos
 	}
-	for _, tool := range []string{"opus_demo", "opus_compare", "opus_demo.exe", "opus_compare.exe"} {
-		toolPath := filepath.Join(srcDir, tool)
-		if err := os.WriteFile(toolPath, []byte("stub"), 0o755); err != nil {
-			t.Fatalf("write %s: %v", tool, err)
-		}
-	}
-	if err := os.WriteFile(filepath.Join(srcDir, ".libs", "libopus.a"), []byte("archive"), 0o644); err != nil {
-		t.Fatalf("write libopus archive: %v", err)
-	}
-	stamp := strings.Join([]string{
-		"gopus libopus helper build v5",
-		"version=" + DefaultVersion,
-		"qext=0",
-		"host_os=MINGW64_NT-10.0",
-		"host_arch=x86_64",
-		"host_bits=64",
-		"cc=gcc",
-		"cc_path=/usr/bin/gcc",
-		"cc_target=x86_64-w64-mingw32",
-		"cc_version=gcc test",
-		"configure=--enable-static --disable-shared",
-		"CFLAGS=-O0",
-		"CPPFLAGS=",
-		"LDFLAGS=",
-		"",
-	}, "\n")
-	if err := os.WriteFile(filepath.Join(srcDir, ".gopus-libopus-build"), []byte(stamp), 0o644); err != nil {
-		t.Fatalf("write build stamp: %v", err)
-	}
-	scriptPath := filepath.Join(root, "tools", "ensure_libopus.sh")
-	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
-		t.Fatalf("mkdir tools dir: %v", err)
-	}
-	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 17\n"), 0o755); err != nil {
-		t.Fatalf("write failing ensure script: %v", err)
-	}
+}
 
-	if stampedLibopusBuildPresentForPlatform(DefaultVersion, []string{root}, false, "windows", "amd64") {
-		t.Fatal("expected foreign stamped build to be rejected")
+func testHostArch(goarch string) string {
+	switch goarch {
+	case "amd64":
+		return "x86_64"
+	case "arm64":
+		return "aarch64"
+	default:
+		return goarch
+	}
+}
+
+func testHostBits(goarch string) string {
+	if goarch == "386" || goarch == "arm" {
+		return "32"
+	}
+	return "64"
+}
+
+func testTargetTriple(goos, goarch string) string {
+	arch := testHostArch(goarch)
+	switch goos {
+	case "darwin":
+		return arch + "-apple-darwin24.0.0"
+	case "linux":
+		return arch + "-unknown-linux-gnu"
+	case "windows":
+		return arch + "-w64-mingw32"
+	default:
+		return arch + "-" + goos
 	}
 }
 

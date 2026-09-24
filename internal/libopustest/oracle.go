@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash"
 	"os"
@@ -27,19 +28,18 @@ type CHelperConfig struct {
 	QEXTRef      bool
 	FixedRef     bool
 	CustomRef    bool
-	// SIMDRef links the SIMD/RTCD-enabled libopus PERFORMANCE reference
-	// (opus-1.6.1-simd). It is NOT bit-reproducible, so it must only be used for
-	// performance comparisons, never for parity oracles.
+	// SIMDRef links the SIMD/RTCD-enabled libopus tree (opus-1.6.1-simd). Pair it
+	// with a Go SIMD build or with a test that invokes the matching Go SIMD kernel.
 	SIMDRef bool
-	// ForceScalarRef compiles every RefSource (and the helper itself) with the
-	// libopus x86 SSE/AVX feature macros cleared, so SILK/CELT kernels expand to
-	// their scalar _c forms instead of the RTCD dispatch tables. Helpers that
+	// ForceScalarRef compiles every RefSource (and the helper itself) against the
+	// explicit scalar reference, with vectorization disabled and scalar kernel
+	// headers selected instead of RTCD dispatch tables. Helpers that
 	// compile a hand-picked subset of libopus .c files (no libopus.a link) and
 	// reach silk_inner_product_FLP / silk_VQ_WMat_EC (or other x86-dispatched
 	// kernels) need this: otherwise the default RTCD/intrinsics config routes
 	// them through SILK_*_IMPL tables defined only in silk/x86/x86_silk_map.c +
 	// the AVX2/SSE impls, which are not in the subset and fail to link on amd64
-	// and Windows. The scalar _c path is the bit-reproducible reference.
+	// and Windows. Normal FMA contraction remains enabled.
 	ForceScalarRef bool
 	IncludeDirs    []string
 	RefSources     []string
@@ -101,6 +101,10 @@ func RequireOracle(t testing.TB) {
 
 func HelperUnavailable(t testing.TB, label string, err error) {
 	t.Helper()
+	var configErr *libopustooling.LibopusReferenceConfigError
+	if errors.As(err, &configErr) {
+		t.Fatalf("libopus %s reference configuration is invalid: %v", label, err)
+	}
 	if StrictRefRequired() {
 		t.Fatalf("libopus %s helper unavailable: %v", label, err)
 	}
@@ -120,17 +124,27 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	}
 
 	root := repoRoot()
-	refDir := helperRefDir(cfg)
-	scalarRef := ScalarRefRequested()
-	ensureRef := libopustooling.EnsureLibopus
-	flavor := "ref"
-	if scalarRef {
-		// The default tree autotools-enables SIMD on amd64 / Linux arm64. The
-		// pure-Go build and the custom parity gate need the bit-reproducible scalar
-		// tree so the comparison is scalar-Go vs scalar-C. SIMDRef/FixedRef/QEXTRef
-		// select a deliberately different tree and are left untouched.
-		ensureRef = libopustooling.EnsureLibopusScalar
-		flavor = "scalar"
+	pairedVariant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	if cfg.ForceScalarRef && (cfg.SIMDRef || cfg.FixedRef || cfg.QEXTRef) {
+		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("ForceScalarRef cannot be combined with SIMD, fixed-point, or QEXT references")}
+	}
+	refVariant := pairedVariant
+	if cfg.SIMDRef {
+		refVariant = libopustooling.LibopusReferenceSIMD
+	}
+	if cfg.ForceScalarRef {
+		refVariant = libopustooling.LibopusReferenceScalar
+	}
+	refDir := helperRefDir(cfg, refVariant)
+	scalarRef := refVariant == libopustooling.LibopusReferenceScalar
+	ensureRef := libopustooling.EnsureLibopusScalar
+	flavor := "scalar"
+	if refVariant == libopustooling.LibopusReferenceSIMD {
+		ensureRef = libopustooling.EnsureLibopusSIMD
+		flavor = "simd"
 	}
 	if cfg.QEXTRef {
 		ensureRef = libopustooling.EnsureLibopusQEXT
@@ -168,6 +182,22 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 		ensureRef(libopustooling.DefaultVersion, []string{root})
 	}
 
+	validateVariant := refVariant
+	if cfg.CustomRef && scalarRef {
+		validateVariant = libopustooling.LibopusReferenceCustomScalar
+	}
+	if !cfg.FixedRef && !cfg.QEXTRef && (!cfg.CustomRef || scalarRef) {
+		if err := libopustooling.ValidateLibopusReferenceBuild(refDir, validateVariant, libopustooling.DefaultVersion); err != nil {
+			ensureRef(libopustooling.DefaultVersion, []string{root})
+			if err := libopustooling.ValidateLibopusReferenceBuild(refDir, validateVariant, libopustooling.DefaultVersion); err != nil {
+				return "", err
+			}
+		}
+	}
+	if err := validateHelperReferenceArchives(cfg.Libs, refDir, refVariant); err != nil {
+		return "", err
+	}
+
 	srcPath := cfg.SourceFile
 	if !filepath.IsAbs(srcPath) {
 		srcPath = filepath.Join(root, "tools", "csrc", filepath.FromSlash(srcPath))
@@ -203,6 +233,9 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 		args = append(args, "-ffunction-sections", "-fdata-sections")
 	}
 	args = append(args, cfg.CFlags...)
+	if scalarRef && !cfg.FixedRef && !cfg.QEXTRef {
+		args = append(args, strings.Fields(libopustooling.LibopusScalarCVectorizationFlags)...)
+	}
 	args = append(args, "-I", refDir, "-I", filepath.Join(refDir, "include"))
 	for _, rel := range cfg.RefIncludes {
 		args = append(args, "-I", filepath.Join(refDir, filepath.FromSlash(rel)))
@@ -210,16 +243,15 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	for _, inc := range cfg.IncludeDirs {
 		args = append(args, "-I", inc)
 	}
-	// An explicit SIMD reference keeps its platform dispatch even when the Go
-	// lane requests scalar libopus for its other helpers. Masking SIMD headers
-	// here leaves the RTCD map enabled but hides its kernel declarations.
+	// An explicit SIMD reference keeps its platform dispatch even when other
+	// tests in the same Go build use the paired scalar reference.
 	if cfg.ForceScalarRef || (scalarRef && !cfg.SIMDRef && !cfg.FixedRef && !cfg.QEXTRef) {
 		// libopus's config.h has no include guard, so each compiled .c re-defines
 		// the x86 feature macros (OPUS_X86_MAY_HAVE_SSE4_1, ...) -- clearing them
 		// via -include is undone. Instead pre-define the SIMD headers' own include
 		// guards so their bodies are skipped: silk/main.h then falls through to the
 		// scalar silk_inner_product_FLP / silk_VQ_WMat_EC macros (the _c kernels),
-		// which is the bit-reproducible reference and avoids referencing the RTCD
+		// which avoids referencing the RTCD
 		// dispatch tables that are absent from a hand-picked RefSource subset.
 		args = append(args, forceScalarRefDefines()...)
 	}
@@ -295,7 +327,7 @@ func helperNeedsConfig(cflags []string) bool {
 	return false
 }
 
-func helperRefDir(cfg CHelperConfig) string {
+func helperRefDir(cfg CHelperConfig, pairedVariant libopustooling.LibopusReferenceVariant) string {
 	if cfg.FixedRef {
 		return FixedRefPath()
 	}
@@ -303,12 +335,33 @@ func helperRefDir(cfg CHelperConfig) string {
 		return QEXTRefPath()
 	}
 	if cfg.CustomRef {
-		return CustomRefPath()
+		if pairedVariant == libopustooling.LibopusReferenceScalar {
+			return CustomScalarRefPath()
+		}
+		return filepath.Join(repoRoot(), "tmp_check", "opus-"+libopustooling.DefaultVersion+"-custom")
 	}
 	if cfg.SIMDRef {
 		return SIMDRefPath()
 	}
-	return RefPath()
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(pairedVariant)
+	if err != nil {
+		panic(err)
+	}
+	return filepath.Join(repoRoot(), "tmp_check", "opus-"+libopustooling.DefaultVersion+suffix)
+}
+
+func validateHelperReferenceArchives(libs []string, refDir string, variant libopustooling.LibopusReferenceVariant) error {
+	want := filepath.Clean(filepath.Join(refDir, ".libs", "libopus.a"))
+	for _, lib := range libs {
+		if filepath.Base(filepath.FromSlash(lib)) != "libopus.a" {
+			continue
+		}
+		got := filepath.Clean(lib)
+		if !filepath.IsAbs(got) || got != want {
+			return &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("libopus archive %q does not match %s reference headers in %s", lib, variant, refDir)}
+		}
+	}
+	return nil
 }
 
 func helperReferenceLibMissing(libs []string, refDir string) bool {
@@ -353,7 +406,12 @@ func helperConfigDigest(cfg CHelperConfig, refDir, srcPath string) string {
 	helperHashString(h, fmt.Sprintf("custom-ref=%t", cfg.CustomRef))
 	helperHashString(h, fmt.Sprintf("simd-ref=%t", cfg.SIMDRef))
 	helperHashString(h, fmt.Sprintf("force-scalar-ref=%t", cfg.ForceScalarRef))
-	helperHashString(h, fmt.Sprintf("scalar-ref-tree=%t", ScalarRefRequested()))
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		helperHashString(h, "paired-reference-error="+err.Error())
+	} else {
+		helperHashString(h, "paired-reference="+string(variant))
+	}
 	helperHashStrings(h, "cflags", cfg.CFlags)
 	helperHashStrings(h, "ref-includes", cfg.RefIncludes)
 	helperHashStrings(h, "include-dirs", cfg.IncludeDirs)
@@ -363,6 +421,7 @@ func helperConfigDigest(cfg CHelperConfig, refDir, srcPath string) string {
 	helperHashStrings(h, "ldflags", cfg.LDFlags)
 	helperHashFile(h, "source", srcPath)
 	helperHashFile(h, "config", filepath.Join(refDir, "config.h"))
+	helperHashFile(h, "build-stamp", filepath.Join(refDir, ".gopus-libopus-build"))
 	for _, rel := range cfg.RefSources {
 		helperHashFile(h, "ref-source", filepath.Join(refDir, filepath.FromSlash(rel)))
 	}

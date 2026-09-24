@@ -8,8 +8,284 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 )
+
+// LibopusReferenceVariant identifies the native libopus instruction path that
+// matches the current Go build.
+type LibopusReferenceVariant string
+
+const (
+	LibopusReferenceScalar       LibopusReferenceVariant = "scalar"
+	LibopusReferenceSIMD         LibopusReferenceVariant = "simd"
+	LibopusReferenceCustomScalar LibopusReferenceVariant = "custom-scalar"
+
+	LibopusBaseCFLAGS = "-O3 -DNDEBUG"
+	// Scalar C references retain the compiler's normal FMA contraction while
+	// disabling loop and SLP vectorization to match the scalar Go arithmetic.
+	LibopusScalarCVectorizationFlags = "-fno-tree-vectorize -fno-tree-slp-vectorize"
+	LibopusScalarCFLAGS              = LibopusBaseCFLAGS + " " + LibopusScalarCVectorizationFlags
+)
+
+// LibopusReferenceConfigError reports a paired-reference override or build
+// whose declared configuration does not match the requested Go lane.
+type LibopusReferenceConfigError struct {
+	Err error
+}
+
+func (e *LibopusReferenceConfigError) Error() string { return e.Err.Error() }
+func (e *LibopusReferenceConfigError) Unwrap() error { return e.Err }
+
+func referenceConfigErrorf(format string, args ...any) error {
+	return &LibopusReferenceConfigError{Err: fmt.Errorf(format, args...)}
+}
+
+// ResolveLibopusReferenceVariant maps the current Go build and optional
+// GOPUS_LIBOPUS_REF_SCALAR override to the matching explicit libopus tree.
+// Empty or "auto" follows the build tags; scalar/1 and simd/0 can only confirm
+// the matching lane and fail when they conflict with the Go build.
+func ResolveLibopusReferenceVariant() (LibopusReferenceVariant, error) {
+	return resolveLibopusReferenceVariantFor(runtime.GOARCH, goLibopusReferenceSIMD, os.Getenv("GOPUS_LIBOPUS_REF_SCALAR"))
+}
+
+func resolveLibopusReferenceVariantFor(goarch string, goSIMD bool, override string) (LibopusReferenceVariant, error) {
+	want := LibopusReferenceScalar
+	if goSIMD && (goarch == "arm64" || goarch == "amd64") {
+		want = LibopusReferenceSIMD
+	}
+	choice := strings.TrimSpace(strings.ToLower(override))
+	switch choice {
+	case "", "auto":
+		return want, nil
+	case "1", "scalar":
+		if want != LibopusReferenceScalar {
+			return "", referenceConfigErrorf("GOPUS_LIBOPUS_REF_SCALAR selects scalar libopus, but this Go build requires the %s reference; unset the override or use a matching Go build", want)
+		}
+		return LibopusReferenceScalar, nil
+	case "0", "simd":
+		if want != LibopusReferenceSIMD {
+			return "", referenceConfigErrorf("GOPUS_LIBOPUS_REF_SCALAR selects SIMD libopus, but this Go build requires the %s reference; unset the override or use a matching Go build", want)
+		}
+		return LibopusReferenceSIMD, nil
+	default:
+		return "", referenceConfigErrorf("invalid GOPUS_LIBOPUS_REF_SCALAR value %q (want auto, scalar/1, or simd/0)", override)
+	}
+}
+
+// LibopusReferenceSourceSuffix returns the mandatory source-tree suffix for a
+// paired reference. The unsuffixed autotools-default tree is never selected.
+func LibopusReferenceSourceSuffix(variant LibopusReferenceVariant) (string, error) {
+	switch variant {
+	case LibopusReferenceScalar:
+		return "-scalar", nil
+	case LibopusReferenceSIMD:
+		return "-simd", nil
+	case LibopusReferenceCustomScalar:
+		return "-custom-scalar", nil
+	default:
+		return "", referenceConfigErrorf("unknown libopus reference variant %q", variant)
+	}
+}
+
+// ValidateLibopusReferenceBuild verifies the stamp, host/compiler target,
+// generated config, and static archive for a paired reference tree.
+func ValidateLibopusReferenceBuild(refDir string, variant LibopusReferenceVariant, version string) error {
+	return validateLibopusReferenceBuildForPlatform(refDir, variant, version, runtime.GOOS, runtime.GOARCH)
+}
+
+func validateLibopusReferenceBuildForPlatform(refDir string, variant LibopusReferenceVariant, version, goos, goarch string) error {
+	if version == "" {
+		version = DefaultVersion
+	}
+	suffix, err := LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		return err
+	}
+	wantConfigure := "--enable-static --disable-shared"
+	wantCustom := "0"
+	wantCFLAGS := LibopusBaseCFLAGS
+	if variant == LibopusReferenceScalar || variant == LibopusReferenceCustomScalar {
+		wantCFLAGS = LibopusScalarCFLAGS
+		if variant == LibopusReferenceCustomScalar {
+			wantConfigure += " --enable-custom-modes"
+			wantCustom = "1"
+		}
+		wantConfigure += " --disable-asm --disable-rtcd --disable-intrinsics"
+	} else {
+		wantConfigure += " --enable-rtcd --enable-intrinsics"
+	}
+	data, err := os.ReadFile(filepath.Join(refDir, ".gopus-libopus-build"))
+	if err != nil {
+		return referenceConfigErrorf("read libopus %s build stamp in %s: %v", variant, refDir, err)
+	}
+	fields, ok := parseLibopusBuildStamp(string(data))
+	if !ok {
+		return referenceConfigErrorf("invalid libopus build stamp in %s", refDir)
+	}
+	wantFields := map[string]string{
+		"version": version, "qext": "0", "fixed": "0", "custom": wantCustom,
+		"configure": wantConfigure, "CFLAGS": wantCFLAGS, "CPPFLAGS": "", "LDFLAGS": "",
+	}
+	for key, want := range wantFields {
+		if got := fields[key]; got != want {
+			return referenceConfigErrorf("libopus reference %s has %s=%q, want %q (%s tree)", variant, key, got, want, suffix)
+		}
+	}
+	for _, key := range []string{"host_os", "host_arch", "host_bits", "cc", "cc_path", "cc_target", "cc_version"} {
+		if strings.TrimSpace(fields[key]) == "" {
+			return referenceConfigErrorf("libopus reference %s stamp in %s has no %s", variant, refDir, key)
+		}
+	}
+	if !libopusStampMatchesPlatform(fields, goos, goarch) {
+		return referenceConfigErrorf("libopus %s archive in %s was built for a different host/compiler target (host=%s/%s target=%s)", variant, refDir, fields["host_os"], fields["host_arch"], fields["cc_target"])
+	}
+	configPath := filepath.Join(refDir, "config.h")
+	config, err := os.ReadFile(configPath)
+	if err != nil {
+		return referenceConfigErrorf("read libopus config %s: %v", configPath, err)
+	}
+	if err := validateLibopusConfigSIMD(string(config), variant, goarch); err != nil {
+		return referenceConfigErrorf("libopus %s config in %s: %v", variant, refDir, err)
+	}
+	archive := filepath.Join(refDir, ".libs", "libopus.a")
+	st, err := os.Stat(archive)
+	if err != nil {
+		return referenceConfigErrorf("libopus %s archive missing at %s: %v", variant, archive, err)
+	}
+	if st.IsDir() || st.Size() == 0 {
+		return referenceConfigErrorf("libopus %s archive at %s is empty or not a file", variant, archive)
+	}
+	return nil
+}
+
+func libopusStampMatchesPlatform(fields map[string]string, goos, goarch string) bool {
+	wantArch := normalizeLibopusStampArch(goarch)
+	if wantArch == "" || normalizeLibopusStampArch(fields["host_arch"]) != wantArch || normalizeLibopusStampArch(fields["cc_target"]) != wantArch {
+		return false
+	}
+	wantBits := "64"
+	if goarch == "386" || goarch == "arm" {
+		wantBits = "32"
+	}
+	if fields["host_bits"] != wantBits {
+		return false
+	}
+	hostOS := strings.ToLower(fields["host_os"])
+	target := strings.ToLower(fields["cc_target"])
+	switch goos {
+	case "darwin":
+		return strings.Contains(hostOS, "darwin") && strings.Contains(target, "darwin")
+	case "linux":
+		return strings.Contains(hostOS, "linux") && strings.Contains(target, "linux")
+	case "windows":
+		return (strings.Contains(hostOS, "mingw") || strings.Contains(hostOS, "msys") || strings.Contains(hostOS, "cygwin")) && (strings.Contains(target, "mingw") || strings.Contains(target, "msys") || strings.Contains(target, "cygwin"))
+	default:
+		return strings.Contains(hostOS, goos) && strings.Contains(target, goos)
+	}
+}
+
+func validateLibopusConfigSIMD(config string, variant LibopusReferenceVariant, goarch string) error {
+	defines := make(map[string]bool)
+	for _, line := range strings.Split(config, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#define ") {
+			name := strings.Fields(strings.TrimPrefix(line, "#define "))
+			if len(name) > 0 {
+				defines[name[0]] = true
+			}
+		}
+	}
+	var simdMacros []string
+	for macro := range defines {
+		if strings.HasPrefix(macro, "OPUS_ARM_") && (strings.Contains(macro, "NEON") || strings.Contains(macro, "DOTPROD")) ||
+			strings.HasPrefix(macro, "OPUS_X86_") && (strings.Contains(macro, "SSE") || strings.Contains(macro, "AVX")) || macro == "OPUS_HAVE_RTCD" {
+			simdMacros = append(simdMacros, macro)
+		}
+	}
+	if variant == LibopusReferenceScalar || variant == LibopusReferenceCustomScalar {
+		if len(simdMacros) != 0 {
+			sort.Strings(simdMacros)
+			return fmt.Errorf("scalar config defines SIMD/RTCD macros %v", simdMacros)
+		}
+		return nil
+	}
+	if variant != LibopusReferenceSIMD {
+		return fmt.Errorf("unsupported variant %q", variant)
+	}
+	switch goarch {
+	case "arm64":
+		if !defines["OPUS_ARM_PRESUME_NEON_INTR"] && !defines["OPUS_ARM_MAY_HAVE_NEON_INTR"] && !defines["OPUS_ARM_PRESUME_NEON"] && !defines["OPUS_ARM_MAY_HAVE_NEON"] {
+			return fmt.Errorf("arm64 SIMD config has no NEON instruction macro")
+		}
+	case "amd64":
+		if !defines["OPUS_X86_PRESUME_SSE"] && !defines["OPUS_X86_PRESUME_SSE2"] && !defines["OPUS_X86_PRESUME_SSE4_1"] && !defines["OPUS_X86_PRESUME_AVX2"] &&
+			!defines["OPUS_X86_MAY_HAVE_SSE"] && !defines["OPUS_X86_MAY_HAVE_SSE2"] && !defines["OPUS_X86_MAY_HAVE_SSE4_1"] && !defines["OPUS_X86_MAY_HAVE_AVX2"] {
+			return fmt.Errorf("amd64 SIMD config has no SSE/AVX instruction macro")
+		}
+	default:
+		return fmt.Errorf("no paired SIMD libopus configuration for GOARCH=%s", goarch)
+	}
+	return nil
+}
+
+// ValidateLibopusReferenceArchive validates the provenance stamped beside an
+// archive path. Paired archives live under <source>/.libs/libopus.a.
+func ValidateLibopusReferenceArchive(archivePath string, variant LibopusReferenceVariant, version string) error {
+	archivePath = filepath.Clean(archivePath)
+	if filepath.Base(archivePath) != "libopus.a" || filepath.Base(filepath.Dir(archivePath)) != ".libs" {
+		return referenceConfigErrorf("libopus archive override %q must be inside a stamped .libs directory", archivePath)
+	}
+	return ValidateLibopusReferenceBuild(filepath.Dir(filepath.Dir(archivePath)), variant, version)
+}
+
+// ValidateLibopusReferenceToolOverride requires an explicit tool executable to
+// resolve to the requested tool in a validated, explicitly named paired tree.
+// It validates the executable target so a symlink cannot escape into another
+// variant while callers can continue returning the user's original path.
+func ValidateLibopusReferenceToolOverride(path, tool string, variant LibopusReferenceVariant, version string) error {
+	return validateLibopusReferenceToolOverrideForPlatform(path, tool, variant, version, runtime.GOOS, runtime.GOARCH)
+}
+
+func validateLibopusReferenceToolOverrideForPlatform(path, tool string, variant LibopusReferenceVariant, version, goos, goarch string) error {
+	if version == "" {
+		version = DefaultVersion
+	}
+	suffix, err := LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		return err
+	}
+	if tool == "" || filepath.Base(tool) != tool {
+		return referenceConfigErrorf("invalid libopus tool name %q", tool)
+	}
+	if path == "" {
+		return referenceConfigErrorf("libopus %s override is empty", tool)
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return referenceConfigErrorf("resolve libopus %s override %q: %v", tool, path, err)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return referenceConfigErrorf("stat libopus %s override %q: %v", tool, path, err)
+	}
+	if !libopusToolIsRunnable(info, goos) {
+		return referenceConfigErrorf("libopus %s override %q is not executable", tool, path)
+	}
+	base := filepath.Base(resolved)
+	if base != tool && base != tool+".exe" {
+		return referenceConfigErrorf("libopus %s override %q resolves to unexpected executable %q", tool, path, base)
+	}
+	refDir := filepath.Dir(resolved)
+	wantDir := "opus-" + version + suffix
+	if filepath.Base(refDir) != wantDir {
+		return referenceConfigErrorf("libopus %s override %q resolves outside the selected %s tree", tool, path, variant)
+	}
+	if err := validateLibopusReferenceBuildForPlatform(refDir, variant, version, goos, goarch); err != nil {
+		return err
+	}
+	return nil
+}
 
 const (
 	// DefaultVersion is the pinned libopus reference used by fixture tooling.
@@ -123,6 +399,13 @@ func findLibopusToolInSourceForOS(version string, roots []string, sourceSuffix s
 	return "", false
 }
 
+func normalizedRoots(roots []string) []string {
+	if len(roots) == 0 {
+		return DefaultSearchRoots()
+	}
+	return roots
+}
+
 func libopusSourceDir(version string, root string, sourceSuffix string) string {
 	if version == "" {
 		version = DefaultVersion
@@ -147,23 +430,14 @@ func libopusToolIsRunnable(st os.FileInfo, goos string) bool {
 	return (st.Mode() & 0o111) != 0
 }
 
-// OpusToolScalarRequested reports whether the libopus reference tools (opus_demo
-// / opus_compare) must be the scalar (generic-C, no SIMD/RTCD/intrinsics) build.
-// The pure-Go (-tags nosimd) gopus build and the celt/custom parity gate set
-// GOPUS_LIBOPUS_REF_SCALAR=1 so opus_demo-driven byte/quality comparisons use the
-// bit-reproducible scalar tree instead of the default tree (which autotools-enables
-// SIMD on amd64 and Linux arm64).
-func OpusToolScalarRequested() bool {
-	v := strings.TrimSpace(strings.ToLower(os.Getenv("GOPUS_LIBOPUS_REF_SCALAR")))
-	return v == "1" || v == "true" || v == "yes"
-}
-
-// FindOpusDemo returns the first executable opus_demo found under tmp_check.
-func FindOpusDemo(version string, roots []string) (string, bool) {
-	if OpusToolScalarRequested() {
-		return findLibopusToolInSourceForOS(version, roots, "-scalar", "opus_demo", runtime.GOOS)
+// FindOpusDemo returns a validated opus_demo from the reference tree paired
+// with the current Go build.
+func FindOpusDemo(version string, roots []string) (string, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
 	}
-	return findLibopusTool(version, roots, "opus_demo")
+	return findValidatedReferenceTool(version, roots, "opus_demo", variant, runtime.GOOS, runtime.GOARCH)
 }
 
 // FindQEXTOpusDemo returns the first executable QEXT-enabled opus_demo build
@@ -172,12 +446,42 @@ func FindQEXTOpusDemo(version string, roots []string) (string, bool) {
 	return findQEXTLibopusTool(version, roots, "opus_demo")
 }
 
-// FindOpusCompare returns the first executable opus_compare found under tmp_check.
-func FindOpusCompare(version string, roots []string) (string, bool) {
-	if OpusToolScalarRequested() {
-		return findLibopusToolInSourceForOS(version, roots, "-scalar", "opus_compare", runtime.GOOS)
+// FindOpusCompare returns a validated opus_compare from the reference tree
+// paired with the current Go build.
+func FindOpusCompare(version string, roots []string) (string, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
 	}
-	return findLibopusTool(version, roots, "opus_compare")
+	return findValidatedReferenceTool(version, roots, "opus_compare", variant, runtime.GOOS, runtime.GOARCH)
+}
+
+func findValidatedReferenceTool(version string, roots []string, tool string, variant LibopusReferenceVariant, goos, goarch string) (string, error) {
+	suffix, err := LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		return "", err
+	}
+	var firstConfigError error
+	treePresent := false
+	for _, root := range normalizedRoots(roots) {
+		refDir := libopusSourceDir(version, root, suffix)
+		if st, err := os.Stat(refDir); err == nil && st.IsDir() {
+			treePresent = true
+		}
+		if err := validateLibopusReferenceBuildForPlatform(refDir, variant, version, goos, goarch); err != nil {
+			if firstConfigError == nil {
+				firstConfigError = err
+			}
+			continue
+		}
+		if path, ok := findLibopusToolInSourceForOS(version, []string{root}, suffix, tool, goos); ok {
+			return path, nil
+		}
+	}
+	if treePresent && firstConfigError != nil {
+		return "", firstConfigError
+	}
+	return "", fmt.Errorf("no validated %s libopus %s found under roots %v", variant, tool, normalizedRoots(roots))
 }
 
 func stampedLibopusBuildPresent(version string, roots []string, qext bool) bool {
@@ -387,25 +691,24 @@ func EnsureLibopusCustom(version string, roots []string) bool {
 
 // EnsureLibopusSIMD invokes tools/ensure_libopus.sh with ENABLE_SIMD enabled
 // (libopus configured with its native --enable-rtcd --enable-intrinsics, so
-// config.h DEFINES the platform SIMD macros) from the first matching root. This
-// is the PERFORMANCE reference only — it is not bit-reproducible and must not be
-// used as a parity oracle.
+// config.h DEFINES the platform SIMD macros) from the first matching root. It is
+// paired with Go SIMD builds and direct tests of matching SIMD kernels.
 func EnsureLibopusSIMD(version string, roots []string) bool {
 	return ensureLibopusVariant(version, roots, "simd")
 }
 
 // EnsureLibopusScalar invokes tools/ensure_libopus.sh with ENABLE_SCALAR enabled
-// (libopus configured with --disable-asm --disable-rtcd --disable-intrinsics, so
-// config.h leaves the platform SIMD macros undefined) from the first matching
-// root. This is the bit-reproducible parity reference for the pure-Go gopus build.
+// (generic C with assembly, RTCD, intrinsics, loop vectorization, and SLP
+// vectorization disabled) from the first matching root. FMA contraction stays
+// enabled to match scalar Go arithmetic.
 func EnsureLibopusScalar(version string, roots []string) bool {
 	return ensureLibopusVariant(version, roots, "scalar")
 }
 
 // EnsureLibopusCustomScalar invokes tools/ensure_libopus.sh with
 // ENABLE_CUSTOM_SCALAR enabled (--enable-custom-modes on the scalar generic-C
-// kernels) from the first matching root. This is the bit-reproducible Opus Custom
-// oracle for the pure-Go celt/custom parity gate.
+// kernels) from the first matching root with the standard scalar compiler
+// policy.
 func EnsureLibopusCustomScalar(version string, roots []string) bool {
 	return ensureLibopusVariant(version, roots, "custom-scalar")
 }
@@ -479,20 +782,29 @@ func tailForLog(s string, max int) string {
 	return "... output truncated ...\n" + s[len(s)-max:]
 }
 
-// FindOrEnsureOpusDemo validates the pinned libopus build, then locates
-// opus_demo. The validation step matters for fixture generation: an existing
-// executable can be from a stale host/compiler build even when it is runnable.
-func FindOrEnsureOpusDemo(version string, roots []string) (string, bool) {
-	if OpusToolScalarRequested() {
-		if !EnsureLibopusScalar(version, roots) {
-			return "", false
-		}
-		return FindOpusDemo(version, roots)
+// FindOrEnsureOpusDemo builds and validates the explicit tree paired with the
+// current Go build before locating opus_demo.
+func FindOrEnsureOpusDemo(version string, roots []string) (string, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
 	}
-	if !EnsureLibopus(version, roots) && !stampedLibopusBuildPresent(version, roots, false) {
-		return "", false
+	return findOrEnsureReferenceTool(version, roots, "opus_demo", variant, runtime.GOOS, runtime.GOARCH)
+}
+
+func findOrEnsureReferenceTool(version string, roots []string, tool string, variant LibopusReferenceVariant, goos, goarch string) (string, error) {
+	if _, err := LibopusReferenceSourceSuffix(variant); err != nil {
+		return "", err
 	}
-	return FindOpusDemo(version, roots)
+	if path, err := findValidatedReferenceTool(version, roots, tool, variant, goos, goarch); err == nil {
+		return path, nil
+	}
+	ensure := EnsureLibopusScalar
+	if variant == LibopusReferenceSIMD {
+		ensure = EnsureLibopusSIMD
+	}
+	ensure(version, roots)
+	return findValidatedReferenceTool(version, roots, tool, variant, goos, goarch)
 }
 
 // FindOrEnsureQEXTOpusDemo tries to locate a QEXT-enabled opus_demo and
@@ -504,23 +816,22 @@ func FindOrEnsureQEXTOpusDemo(version string, roots []string) (string, bool) {
 	return FindQEXTOpusDemo(version, roots)
 }
 
-// FindOrEnsureOpusCompare validates the pinned libopus build, then locates
-// opus_compare.
-func FindOrEnsureOpusCompare(version string, roots []string) (string, bool) {
-	return findOrEnsureOpusCompareForPlatform(version, roots, runtime.GOOS, runtime.GOARCH)
+// FindOrEnsureOpusCompare builds and validates the explicit tree paired with
+// the current Go build before locating opus_compare.
+func FindOrEnsureOpusCompare(version string, roots []string) (string, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	return findOrEnsureReferenceTool(version, roots, "opus_compare", variant, runtime.GOOS, runtime.GOARCH)
 }
 
-func findOrEnsureOpusCompareForPlatform(version string, roots []string, goos, goarch string) (string, bool) {
-	if OpusToolScalarRequested() {
-		if !EnsureLibopusScalar(version, roots) {
-			return "", false
-		}
-		return findLibopusToolInSourceForOS(version, roots, "-scalar", "opus_compare", goos)
+func findOrEnsureOpusCompareForPlatform(version string, roots []string, goos, goarch string) (string, error) {
+	variant, err := resolveLibopusReferenceVariantFor(goarch, goLibopusReferenceSIMD, os.Getenv("GOPUS_LIBOPUS_REF_SCALAR"))
+	if err != nil {
+		return "", err
 	}
-	if !EnsureLibopus(version, roots) && !stampedLibopusBuildPresentForPlatform(version, roots, false, goos, goarch) {
-		return "", false
-	}
-	return findLibopusToolForOS(version, roots, "opus_compare", goos)
+	return findOrEnsureReferenceTool(version, roots, "opus_compare", variant, goos, goarch)
 }
 
 // FindCCompiler returns a GCC/Clang-style C compiler suitable for helper builds.

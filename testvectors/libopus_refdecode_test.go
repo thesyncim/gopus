@@ -18,8 +18,8 @@ var libopusRefdecodeSingleHelper libopustest.HelperCache
 
 func getLibopusRefdecodeSinglePath() (string, error) {
 	return libopusRefdecodeSingleHelper.Path(func() (string, error) {
-		if _, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); !ok {
-			return "", fmt.Errorf("libopus reference tree not found")
+		if _, err := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); err != nil {
+			return "", err
 		}
 		return libopustest.BuildCHelper(libopustest.CHelperConfig{
 			Label:      "single reference decode",

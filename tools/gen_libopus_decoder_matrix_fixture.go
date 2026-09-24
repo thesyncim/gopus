@@ -166,11 +166,8 @@ func writeRawFloat32(path string, samples []float32) error {
 	return nil
 }
 
-func getOpusDemoPath() string {
-	if p, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); ok {
-		return p
-	}
-	return ""
+func getOpusDemoPath() (string, error) {
+	return libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
 }
 
 func outputPath() string {
@@ -262,9 +259,9 @@ func frameSizeArgFromSamples(frameSize int) (string, error) {
 }
 
 func main() {
-	opusDemoPath := getOpusDemoPath()
-	if opusDemoPath == "" {
-		fmt.Fprintf(os.Stderr, "opus_demo not found. expected tmp_check/opus-%s/opus_demo (run: make ensure-libopus)\n", libopustooling.DefaultVersion)
+	opusDemoPath, err := getOpusDemoPath()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "opus_demo unavailable: %v\n", err)
 		os.Exit(1)
 	}
 	provenance, ok := libopustooling.LibopusBuildProvenanceForTool(opusDemoPath)

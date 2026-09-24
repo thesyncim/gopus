@@ -18,15 +18,16 @@ import (
 // OpusDemoPath resolves the pinned libopus reference binary used by parity tooling.
 func OpusDemoPath() (string, error) {
 	if p := os.Getenv("OPUS_DEMO_PATH"); p != "" {
-		if opusDemoIsExecutable(p) {
-			return p, nil
+		variant, err := libopustooling.ResolveLibopusReferenceVariant()
+		if err != nil {
+			return "", err
 		}
-		return "", fmt.Errorf("OPUS_DEMO_PATH=%q is not an executable file", p)
-	}
-	if p, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); ok {
+		if err := libopustooling.ValidateLibopusReferenceToolOverride(p, "opus_demo", variant, libopustooling.DefaultVersion); err != nil {
+			return "", fmt.Errorf("OPUS_DEMO_PATH=%q: %w", p, err)
+		}
 		return p, nil
 	}
-	return "", fmt.Errorf("opus_demo not found under tmp_check/opus-%s (run: make ensure-libopus)", libopustooling.DefaultVersion)
+	return libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
 }
 
 func opusDemoIsExecutable(path string) bool {
@@ -39,15 +40,16 @@ func opusDemoIsExecutable(path string) bool {
 // the pinned build.
 func OpusComparePath() (string, error) {
 	if p := os.Getenv("OPUS_COMPARE_PATH"); p != "" {
-		if opusDemoIsExecutable(p) {
-			return p, nil
+		variant, err := libopustooling.ResolveLibopusReferenceVariant()
+		if err != nil {
+			return "", err
 		}
-		return "", fmt.Errorf("OPUS_COMPARE_PATH=%q is not an executable file", p)
-	}
-	if p, ok := libopustooling.FindOrEnsureOpusCompare(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); ok {
+		if err := libopustooling.ValidateLibopusReferenceToolOverride(p, "opus_compare", variant, libopustooling.DefaultVersion); err != nil {
+			return "", fmt.Errorf("OPUS_COMPARE_PATH=%q: %w", p, err)
+		}
 		return p, nil
 	}
-	return "", fmt.Errorf("opus_compare not found under tmp_check/opus-%s (run: make ensure-libopus)", libopustooling.DefaultVersion)
+	return libopustooling.FindOrEnsureOpusCompare(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
 }
 
 // OpusDemoSupportsQEXT reports whether the selected opus_demo binary was built

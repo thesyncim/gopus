@@ -16,7 +16,7 @@
 #endif
 
 #define main libopus_opus_compare_cli_main
-#include "../../tmp_check/opus-1.6.1/src/opus_compare.c"
+#include "opus_compare.c"
 #undef main
 
 #define GOCI_MAGIC "GOCI"

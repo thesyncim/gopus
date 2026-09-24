@@ -580,7 +580,7 @@ func TestEncoderCBRByteParitySummary(t *testing.T) {
 				wantPackets, err := runCBROracleEncode(oraclePath, tc, pcm)
 				if err != nil {
 					results[i] = rowResult{name: tc.name, skipped: true}
-					t.Skipf("oracle unavailable: %v", err)
+					libopustest.HelperUnavailable(t, "CBR encode", err)
 					return
 				}
 				gotPackets, err := encodeGopusCBR(tc, pcm)

@@ -256,10 +256,7 @@ func TestEncoderVariantsFixtureHonestyWithOpusDemo(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
-	opusDemo, ok := getFixtureOpusDemoPathForEncoder()
-	if !ok {
-		t.Skip("tmp_check opus_demo not found; skipping variants fixture honesty")
-	}
+	opusDemo := requireFixtureOpusDemo(t)
 	fixture, err := loadEncoderComplianceVariantsFixture()
 	if err != nil {
 		t.Fatalf("load encoder variants fixture: %v", err)

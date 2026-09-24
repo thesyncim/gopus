@@ -74,10 +74,7 @@ func TestEncoderCELTSameArchByteExact(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
 
-	opusDemo, ok := getFixtureOpusDemoPathForEncoder()
-	if !ok {
-		t.Skip("opus_demo not found; same-arch byte-exact comparison unavailable")
-	}
+	opusDemo := requireFixtureOpusDemo(t)
 
 	tmpDir := t.TempDir()
 	for _, c := range celtSameArchByteExactCases() {

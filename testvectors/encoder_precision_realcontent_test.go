@@ -27,6 +27,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,6 +35,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/encoder"
+	"github.com/thesyncim/gopus/internal/libopustooling"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -191,8 +193,12 @@ func runRealContentPrecisionLibopusReference(t *testing.T, mode encoder.Mode, ba
 	key := encoderComplianceKey(mode, bandwidth, frameSize, channels, bitrate)
 	entry := realContentLibopusRefEntry(key)
 	entry.once.Do(func() {
-		opusDemo, ok := getFixtureOpusDemoPathForEncoder()
-		if !ok {
+		opusDemo, pathErr := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
+		if pathErr != nil {
+			var configErr *libopustooling.LibopusReferenceConfigError
+			if errors.As(pathErr, &configErr) {
+				t.Fatalf("libopus opus_demo reference configuration is invalid: %v", pathErr)
+			}
 			entry.result.warning = "opus_demo not available for real-content precision reference"
 			return
 		}

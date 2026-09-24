@@ -146,10 +146,6 @@ func buildOpusDemoBitstreamFromFixtureCase(c libopusDecoderMatrixCaseFile) ([]by
 	return out, nil
 }
 
-func getFixtureOpusDemoPath() (string, bool) {
-	return libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
-}
-
 func decodeRawFloat32LE(raw []byte) ([]float32, error) {
 	if len(raw)%4 != 0 {
 		return nil, fmt.Errorf("raw f32 payload length must be multiple of 4, got %d", len(raw))
@@ -165,10 +161,7 @@ func TestDecoderParityMatrixFixtureHonestyWithOpusDemo(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
-	opusDemo, ok := getFixtureOpusDemoPath()
-	if !ok {
-		t.Skip("tmp_check opus_demo not found; skipping fixture honesty check")
-	}
+	opusDemo := requireFixtureOpusDemo(t)
 	fixture, err := loadLibopusDecoderMatrixFixture()
 	if err != nil {
 		t.Fatalf("load decoder matrix fixture: %v", err)
