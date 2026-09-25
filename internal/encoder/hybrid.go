@@ -1014,60 +1014,41 @@ func (e *Encoder) resampleHybridSILKLowband(samples []opusRes, frameSize int) []
 // In libopus, gain_fade operates in-place on pcm_buf which already contains
 // the delay-compensated samples.
 func (e *Encoder) applyHBGainFade(pcm []opusRes, hbGain opusVal16) []opusRes {
-	// Apply gain fade if gain changed
+	// libopus opus_encode_native() runs gain_fade() whenever either gain is
+	// below one, including when the gain is unchanged: the overlap samples
+	// still take the crossfaded w*g2 + (1-w)*g1 gain, which can round away
+	// from g2.
 	prevGain := e.hybridState.prevHBGain
-	if prevGain != hbGain {
+	if prevGain < 1 || hbGain < 1 {
 		pcm = e.applyGainFade(pcm, prevGain, hbGain)
-	} else if hbGain < 1.0 {
-		// Apply constant gain if less than 1.0
-		for i := range pcm {
-			pcm[i] *= hbGain
-		}
 	}
-
 	return pcm
 }
 
-// applyGainFade applies a smooth window-based transition between two gain values.
-// This implements libopus gain_fade() for seamless frame boundaries.
+// applyGainFade implements libopus gain_fade(): across the CELT overlap
+// (sampled at window[i*inc] with inc = 48000/Fs) the gain moves from g1 to g2
+// with the squared window, and the rest of the frame takes g2.
 func (e *Encoder) applyGainFade(samples []opusRes, g1, g2 opusVal16) []opusRes {
 	channels := int(e.channels)
 	frameSize := len(samples) / channels
-	overlap := min(hybridOverlap, frameSize)
-
-	// Generate CELT window for smooth transition.
-	window := celt.GetWindowBufferF32(overlap)
-	if window == nil || len(window) < overlap {
-		// Fallback: use simple linear fade
-		return e.applyLinearGainFade(samples, g1, g2, overlap)
+	inc := 1
+	if e.sampleRate > 0 && e.sampleRate < 48000 {
+		inc = max(48000/int(e.sampleRate), 1)
 	}
+	overlap := min(hybridOverlap/inc, frameSize)
+	window := celt.GetWindowBufferF32(hybridOverlap)
 
-	// Apply windowed gain fade during overlap region
-	if channels == 1 {
-		for i := range overlap {
-			w := opusVal16(window[i])
-			w2 := w * w // Square the window (libopus does this)
-			g := g1*(1-w2) + g2*w2
-			samples[i] *= g
-		}
-		// Apply constant g2 for rest of frame
-		for i := overlap; i < frameSize; i++ {
-			samples[i] *= g2
-		}
-	} else {
-		for i := range overlap {
-			w := opusVal16(window[i])
-			w2 := w * w
-			g := g1*(1-w2) + g2*w2
-			samples[i*2] *= g
-			samples[i*2+1] *= g
-		}
-		for i := overlap; i < frameSize; i++ {
-			samples[i*2] *= g2
-			samples[i*2+1] *= g2
+	for i := range overlap {
+		w := opusVal16(window[i*inc])
+		w *= w
+		g := w*g2 + (1-w)*g1
+		for c := range channels {
+			samples[i*channels+c] = g * samples[i*channels+c]
 		}
 	}
-
+	for i := overlap * channels; i < frameSize*channels; i++ {
+		samples[i] = g2 * samples[i]
+	}
 	return samples
 }
 
@@ -1136,31 +1117,6 @@ func (e *Encoder) applyStereoWidthFade(samples []opusRes, widthQ14Prev, widthQ14
 		diff *= g2
 		samples[i*2] -= diff
 		samples[i*2+1] += diff
-	}
-
-	return samples
-}
-
-// applyLinearGainFade applies a simple linear crossfade between gains.
-// Used as fallback when window is not available.
-func (e *Encoder) applyLinearGainFade(samples []opusRes, g1, g2 opusVal16, overlap int) []opusRes {
-	channels := int(e.channels)
-	frameSize := len(samples) / channels
-
-	for i := range overlap {
-		t := opusVal16(i) / opusVal16(overlap)
-		g := g1*(1-t) + g2*t
-
-		for c := range channels {
-			samples[i*channels+c] *= g
-		}
-	}
-
-	// Apply constant g2 for rest of frame
-	for i := overlap; i < frameSize; i++ {
-		for c := range channels {
-			samples[i*channels+c] *= g2
-		}
 	}
 
 	return samples

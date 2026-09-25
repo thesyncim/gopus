@@ -5,6 +5,7 @@
 package encoder
 
 import (
+	"github.com/thesyncim/gopus/internal/celt"
 	"math"
 	"testing"
 
@@ -214,42 +215,51 @@ func TestHybridCELTExp2ApproxMatchesLibopus(t *testing.T) {
 	}
 }
 
-// TestGainFadeSmoothing verifies smooth gain transitions prevent artifacts.
-func TestGainFadeSmoothing(t *testing.T) {
-	e := &Encoder{
-		channels: 1,
-	}
-
-	// Test fading from 1.0 to 0.5
-	samples := make([]opusRes, 960)
-	for i := range samples {
-		samples[i] = 1.0 // Constant signal
-	}
-
-	result := e.applyLinearGainFade(samples, 1.0, 0.5, 120)
-
-	// Check first sample uses g1
-	if math.Abs(float64(result[0]-1.0)) > 0.01 {
-		t.Errorf("First sample should be close to g1=1.0, got %.4f", result[0])
-	}
-
-	// Check overlap region is smooth
-	for i := 1; i < 120; i++ {
-		if result[i] > result[i-1]+0.001 {
-			t.Errorf("Gain should be monotonically decreasing in fade, sample %d: %.4f > %.4f",
-				i, result[i], result[i-1])
+// TestGainFadeMatchesLibopus pins applyHBGainFade to libopus gain_fade():
+// the fade runs whenever either gain is below one (a steady sub-unity gain
+// still crossfades the overlap as w*g2 + (1-w)*g1), the window is sampled at
+// window[i*inc] with inc = 48000/Fs, and the rest of the frame takes g2.
+func TestGainFadeMatchesLibopus(t *testing.T) {
+	window := celt.GetWindowBufferF32(hybridOverlap)
+	for _, tc := range []struct {
+		fs, channels int
+		g1, g2       opusVal16
+	}{
+		{48000, 1, 1, 0.75},
+		{48000, 1, 0.8203125, 0.8203125},
+		{48000, 2, 0.6, 0.9},
+		{24000, 1, 0.7, 0.7},
+		{24000, 2, 1, 0.5},
+		{48000, 1, 1, 1},
+	} {
+		frameSize := tc.fs / 50
+		e := &Encoder{channels: int32(tc.channels), sampleRate: int32(tc.fs), hybridState: &HybridState{prevHBGain: tc.g1}}
+		in := make([]opusRes, frameSize*tc.channels)
+		for i := range in {
+			in[i] = opusRes(float32(math.Sin(float64(i)*0.37)) * 0.9)
 		}
-	}
+		got := e.applyHBGainFade(append([]opusRes(nil), in...), tc.g2)
 
-	// Check end of overlap uses g2
-	if math.Abs(float64(result[119]-0.5)) > 0.1 {
-		t.Errorf("End of overlap should be close to g2=0.5, got %.4f", result[119])
-	}
-
-	// Check rest of frame uses g2
-	for i := 120; i < 960; i++ {
-		if math.Abs(float64(result[i]-0.5)) > 0.001 {
-			t.Errorf("Sample %d should be g2=0.5, got %.4f", i, result[i])
+		inc := 48000 / tc.fs
+		overlap := hybridOverlap / inc
+		for i := range frameSize {
+			for c := range tc.channels {
+				k := i*tc.channels + c
+				want := in[k]
+				if tc.g1 < 1 || tc.g2 < 1 {
+					g := tc.g2
+					if i < overlap {
+						w := opusVal16(window[i*inc])
+						w *= w
+						g = w*tc.g2 + (1-w)*tc.g1
+					}
+					want = g * in[k]
+				}
+				if math.Float32bits(float32(got[k])) != math.Float32bits(float32(want)) {
+					t.Fatalf("fs=%d ch=%d g1=%g g2=%g: out[%d] = %08x, want %08x", tc.fs, tc.channels, tc.g1, tc.g2, k,
+						math.Float32bits(float32(got[k])), math.Float32bits(float32(want)))
+				}
+			}
 		}
 	}
 }
