@@ -131,8 +131,7 @@ func TestEncoderCompliancePrecisionGuard(t *testing.T) {
 	for _, tc := range encoderComplianceSummaryCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			floor, ok := encoderLibopusGapFloorForCase(tc.name)
-			if !ok {
+			if _, ok := encoderLibopusGapFloorForCase(tc.name); !ok {
 				t.Fatalf("missing precision floor for %q", tc.name)
 			}
 
