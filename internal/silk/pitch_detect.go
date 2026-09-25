@@ -828,12 +828,16 @@ func pitchAnalysisCalcCorrSt3(out []float32, frame []float32, startLag, sfLength
 		for i := range lagCount {
 			scratchMem[i] = 0
 		}
-		for j := lagLow; j <= lagHigh && (j-lagLow) < lagCount; j++ {
-			basisIdx := targetIdx - startLag - j
-			if basisIdx < 0 || basisIdx+sfLength > len(frame) || targetIdx+sfLength > len(frame) {
-				continue
+		// libopus silk_P_Ana_calc_corr_st3 correlates with celt_pitch_xcorr
+		// (float accumulation, arch-dispatched), not silk_inner_product_FLP,
+		// then reverses the lag order into scratch_mem.
+		basisIdx := targetIdx - startLag - lagHigh
+		if basisIdx >= 0 && targetIdx+sfLength <= len(frame) {
+			var xcorr [len(scratchMem)]float32
+			celtPitchXcorrFloat(frame[targetIdx:], frame[basisIdx:], xcorr[:lagCount], sfLength, lagCount)
+			for j := lagLow; j <= lagHigh && (j-lagLow) < lagCount; j++ {
+				scratchMem[j-lagLow] = xcorr[lagHigh-j]
 			}
-			scratchMem[j-lagLow] = float32(innerProductFLP(frame[basisIdx:], frame[targetIdx:], sfLength))
 		}
 		delta := lagLow
 		for i := 0; i < nbCbkSearch; i++ {

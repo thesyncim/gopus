@@ -2,6 +2,11 @@
 
 package silk
 
+import (
+	"simd/archsimd"
+	"unsafe"
+)
+
 func celtPitchXcorrFloatImpl(x, y []float32, out []float32, length, maxPitch int) {
 	if length <= 0 || maxPitch <= 0 {
 		return
@@ -19,7 +24,32 @@ func celtPitchXcorrFloatImpl(x, y []float32, out []float32, length, maxPitch int
 		xcorrKernelAVX8(&x[0], &y[i], &sums, length)
 		copy(out[i:i+8], sums[:])
 	}
+	// celt_pitch_xcorr_avx2 finishes the last maxPitch%8 lags with
+	// celt_inner_prod(), which the x86 SIMD build dispatches to
+	// celt_inner_prod_sse.
 	for ; i < maxPitch; i++ {
-		out[i] = innerProductF32Acc(x, y[i:], length)
+		out[i] = innerProductF32SSEOrder(x, y[i:], length)
 	}
+}
+
+// innerProductF32SSEOrder reproduces libopus x86/pitch_sse.c
+// celt_inner_prod_sse: one 4-lane MULPS/ADDPS accumulator, the
+// (a0+a2)+(a1+a3) reduction, and a separate multiply/add scalar tail.
+func innerProductF32SSEOrder(x, y []float32, length int) float32 {
+	x = x[:length]
+	y = y[:length]
+	xp := unsafe.Pointer(unsafe.SliceData(x))
+	yp := unsafe.Pointer(unsafe.SliceData(y))
+	var acc archsimd.Float32x4
+	i := 0
+	for ; i+4 <= length; i += 4 {
+		ax := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(xp, i*4)))
+		ay := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(yp, i*4)))
+		acc = acc.Add(ax.Mul(ay))
+	}
+	sum := (acc.GetElem(0) + acc.GetElem(2)) + (acc.GetElem(1) + acc.GetElem(3))
+	for ; i < length; i++ {
+		sum += noFMA32(x[i], y[i])
+	}
+	return sum
 }
