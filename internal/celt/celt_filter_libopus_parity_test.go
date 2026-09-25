@@ -342,8 +342,14 @@ func probeLibopusCombFilterMode(t *testing.T, mode uint32, start, n, t0, t1, tap
 	return out
 }
 
+// celtFilterOracleUsesSIMD pairs the comb-filter oracles with the libopus
+// build for the Go tier. libopus routes both the postfilter and the
+// prefilter/PLC comb through comb_filter(), whose constant-gain body x86 SIMD
+// builds bind to comb_filter_const_sse; ARM builds have no NEON comb kernel, so
+// their SIMD helper still compiles comb_filter_const_c.
 func celtFilterOracleUsesSIMD(mode uint32) bool {
-	return mode == libopusCELTFilterModeCombFilter && (combUsesNeon || combUsesSSE)
+	isComb := mode == libopusCELTFilterModeCombFilter || mode == libopusCELTFilterModeCombFilterInput
+	return isComb && (combUsesNeon || combUsesSSE)
 }
 
 func TestCELTFilterOracleDispatchIdentity(t *testing.T) {
@@ -354,13 +360,16 @@ func TestCELTFilterOracleDispatchIdentity(t *testing.T) {
 	if dispatched != combUsesNeon {
 		t.Fatalf("comb filter SIMD dispatch=%t, build selection=%t", dispatched, combUsesNeon)
 	}
-	if oracleSIMD := celtFilterOracleUsesSIMD(libopusCELTFilterModeCombFilter); oracleSIMD != (dispatched || combUsesSSE) {
-		t.Fatalf("comb filter oracle SIMD=%t, Go SSE/NEON selection=%t", oracleSIMD, dispatched || combUsesSSE)
-	}
-	for _, mode := range []uint32{libopusCELTFilterModeDeemphasis, libopusCELTFilterModeCombFilterInput} {
-		if celtFilterOracleUsesSIMD(mode) {
-			t.Fatalf("mode %d selects SIMD C without a matching Go SIMD kernel", mode)
+	// combFilterConstFloat32* and combFilterWithInputSig both follow
+	// combUsesSSE, so both comb oracles pair with the SIMD reference exactly
+	// when the Go build selects SSE or NEON.
+	for _, mode := range []uint32{libopusCELTFilterModeCombFilter, libopusCELTFilterModeCombFilterInput} {
+		if oracleSIMD := celtFilterOracleUsesSIMD(mode); oracleSIMD != (dispatched || combUsesSSE) {
+			t.Fatalf("comb mode %d oracle SIMD=%t, Go SSE/NEON selection=%t", mode, oracleSIMD, dispatched || combUsesSSE)
 		}
+	}
+	if celtFilterOracleUsesSIMD(libopusCELTFilterModeDeemphasis) {
+		t.Fatalf("deemphasis selects SIMD C without a matching Go SIMD kernel")
 	}
 }
 
