@@ -21,6 +21,10 @@ const (
 // NSQState holds the noise shaping quantizer state.
 // Mirrors libopus silk_nsq_state structure.
 type NSQState struct {
+	// delDecExactXqRound selects the libopus silk_NSQ_del_dec_avx2 rounding
+	// of the delayed-decision xq outputs for the current call.
+	delDecExactXqRound bool
+
 	// Buffer for quantized output signal
 	xq [2 * maxFrameLengthNSQ]int16
 

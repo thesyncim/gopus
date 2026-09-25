@@ -44,6 +44,9 @@ func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) (
 	shapingLPCOrder := params.ShapeLPCOrder
 	warpingQ16 := params.WarpingQ16
 	nStates := min(max(params.NStatesDelayedDecision, 1), maxDelDecStates)
+	// libopus runs silk_NSQ_del_dec_avx2 on AVX2 hosts only for three or four
+	// states (verify_assumptions); other state counts take silk_NSQ_del_dec_c.
+	nsq.delDecExactXqRound = silkNSQDelDecUsesAVX2 && (nStates == 3 || nStates == 4)
 
 	if frameLength <= 0 {
 		return nil, nil, params.Seed
@@ -180,7 +183,7 @@ func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) (
 							if gainIdx >= len(params.GainsQ16) {
 								gainIdx = len(params.GainsQ16) - 1
 							}
-							pxq[outIdx] = int16(silk_SAT16(silk_RSHIFT_ROUND(silk_SMULWW(psDD.xqQ14[lastSmplIdx], params.GainsQ16[gainIdx]), 14)))
+							pxq[outIdx] = nsqDelDecXqQ0(nsq, psDD.xqQ14[lastSmplIdx], params.GainsQ16[gainIdx], 14)
 						}
 						if nsq.sLTPShpBufIdx-decDelay+i >= 0 && nsq.sLTPShpBufIdx-decDelay+i < len(nsq.sLTPShpQ14) {
 							nsq.sLTPShpQ14[nsq.sLTPShpBufIdx-decDelay+i] = psDD.shapeQ14[lastSmplIdx]
@@ -233,7 +236,7 @@ func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) (
 		outIdx := frameLength - decDelay + i
 		if outIdx >= 0 && outIdx < len(pulses) {
 			pulses[outIdx] = int8(silk_RSHIFT_ROUND(psDD.qQ10[lastSmplIdx], 10))
-			pxq[outIdx] = int16(silk_SAT16(silk_RSHIFT_ROUND(silk_SMULWW(psDD.xqQ14[lastSmplIdx], gainQ10), 8)))
+			pxq[outIdx] = nsqDelDecXqQ0(nsq, psDD.xqQ14[lastSmplIdx], gainQ10, 8)
 		}
 		if nsq.sLTPShpBufIdx-decDelay+i >= 0 && nsq.sLTPShpBufIdx-decDelay+i < len(nsq.sLTPShpQ14) {
 			nsq.sLTPShpQ14[nsq.sLTPShpBufIdx-decDelay+i] = psDD.shapeQ14[lastSmplIdx]
@@ -769,7 +772,7 @@ func noiseShapeQuantizerDelDecGeneric(
 			outIdx := frameOffset + i - decisionDelayActive
 			if outIdx >= 0 && outIdx < len(pulses) {
 				pulses[outIdx] = int8(silk_RSHIFT_ROUND(psDD.qQ10[lastSmplIdx], 10))
-				xq[outIdx] = int16(silk_SAT16(silk_RSHIFT_ROUND(silk_SMULWW(psDD.xqQ14[lastSmplIdx], delayedGainQ10[lastSmplIdx]), 8)))
+				xq[outIdx] = nsqDelDecXqQ0(nsq, psDD.xqQ14[lastSmplIdx], delayedGainQ10[lastSmplIdx], 8)
 			}
 			shpOutIdx := localShpBufIdx - decisionDelayActive
 			if shpOutIdx >= 0 && shpOutIdx < len(nsq.sLTPShpQ14) {
@@ -1047,7 +1050,7 @@ func noiseShapeQuantizerDelDec24States4Pred16(
 			outIdx := frameOffset + i - decisionDelayActive
 			if outIdx >= 0 && outIdx < len(pulses) {
 				pulses[outIdx] = int8(silk_RSHIFT_ROUND(psDD.qQ10[lastSmplIdx], 10))
-				xq[outIdx] = int16(silk_SAT16(silk_RSHIFT_ROUND(silk_SMULWW(psDD.xqQ14[lastSmplIdx], delayedGainQ10[lastSmplIdx]), 8)))
+				xq[outIdx] = nsqDelDecXqQ0(nsq, psDD.xqQ14[lastSmplIdx], delayedGainQ10[lastSmplIdx], 8)
 			}
 			shpOutIdx := localShpBufIdx - decisionDelayActive
 			if shpOutIdx >= 0 && shpOutIdx < len(nsq.sLTPShpQ14) {
@@ -1315,7 +1318,7 @@ func noiseShapeQuantizerDelDecUnvoiced24States4Pred16(
 			outIdx := frameOffset + i - decisionDelayActive
 			if outIdx >= 0 && outIdx < len(pulses) {
 				pulses[outIdx] = int8(silk_RSHIFT_ROUND(psDD.qQ10[lastSmplIdx], 10))
-				xq[outIdx] = int16(silk_SAT16(silk_RSHIFT_ROUND(silk_SMULWW(psDD.xqQ14[lastSmplIdx], delayedGainQ10[lastSmplIdx]), 8)))
+				xq[outIdx] = nsqDelDecXqQ0(nsq, psDD.xqQ14[lastSmplIdx], delayedGainQ10[lastSmplIdx], 8)
 			}
 			shpOutIdx := localShpBufIdx - decisionDelayActive
 			if shpOutIdx >= 0 && shpOutIdx < len(nsq.sLTPShpQ14) {
@@ -1375,4 +1378,19 @@ func warpedARFeedbackGeneric(sAR []int32, diffQ14 int32, arShpQ13 []int16, warpQ
 	sAR[order-1] = tmp1
 	acc += int32((int64(tmp1) * int64(arShpQ13[order-1])) >> 16)
 	return acc
+}
+
+// nsqDelDecXqQ0 scales a delayed-decision Xq_Q14 sample to the Q0 output.
+// silk_NSQ_del_dec_c computes SAT16(RSHIFT_ROUND(SMULWW(xq, gain), bits)),
+// whose 32-bit SMULWW can wrap for large products. silk_NSQ_del_dec_avx2
+// (silk_sar_round_smulww) rounds the exact 64-bit product instead, then
+// truncates to 32 bits before SAT16.
+func nsqDelDecXqQ0(nsq *NSQState, xqQ14, gain int32, bits int) int16 {
+	if !nsq.delDecExactXqRound {
+		return int16(silk_SAT16(silk_RSHIFT_ROUND(silk_SMULWW(xqQ14, gain), bits)))
+	}
+	t := int64(xqQ14) * int64(gain)
+	shift := bits + 16
+	t += int64(1) << (shift - 1)
+	return int16(silk_SAT16(int32(t >> shift)))
 }
