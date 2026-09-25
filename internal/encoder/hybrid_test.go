@@ -264,6 +264,36 @@ func TestGainFadeMatchesLibopus(t *testing.T) {
 	}
 }
 
+// TestUnityHBGainFadeAfterHybrid pins the non-hybrid leg of libopus
+// opus_encode_native(): HB_gain is one, so the first frame after a hybrid
+// frame with prev_HB_gain < 1 fades back up to unity, and later frames pass
+// through untouched once prev_HB_gain has reset.
+func TestUnityHBGainFadeAfterHybrid(t *testing.T) {
+	const prev = opusVal16(0.8203125)
+	e := &Encoder{channels: 1, sampleRate: 48000, hybridState: &HybridState{prevHBGain: prev}}
+	in := make([]opusRes, 960)
+	for i := range in {
+		in[i] = opusRes(float32(math.Cos(float64(i)*0.11)) * 0.5)
+	}
+	want := e.applyGainFade(append([]opusRes(nil), in...), prev, 1)
+
+	got := e.applyUnityHBGainFade(append([]opusRes(nil), in...))
+	for i := range want {
+		if math.Float32bits(float32(got[i])) != math.Float32bits(float32(want[i])) {
+			t.Fatalf("first frame out[%d] = %08x, want %08x", i, math.Float32bits(float32(got[i])), math.Float32bits(float32(want[i])))
+		}
+	}
+	if e.hybridState.prevHBGain != 1 {
+		t.Fatalf("prevHBGain = %g, want 1", e.hybridState.prevHBGain)
+	}
+	got = e.applyUnityHBGainFade(append([]opusRes(nil), in...))
+	for i := range in {
+		if math.Float32bits(float32(got[i])) != math.Float32bits(float32(in[i])) {
+			t.Fatalf("second frame out[%d] = %08x, want unchanged %08x", i, math.Float32bits(float32(got[i])), math.Float32bits(float32(in[i])))
+		}
+	}
+}
+
 // TestStereoWidthComputation verifies stereo width calculation.
 func TestStereoWidthComputation(t *testing.T) {
 	testCases := []struct {

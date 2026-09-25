@@ -1025,6 +1025,21 @@ func (e *Encoder) applyHBGainFade(pcm []opusRes, hbGain opusVal16) []opusRes {
 	return pcm
 }
 
+// applyUnityHBGainFade mirrors opus_encode_native() for frames that are not
+// hybrid: HB_gain is one, so gain_fade() runs only while the previous hybrid
+// frame left prev_HB_gain below one, fading the CELT input back up to unity,
+// and prev_HB_gain then resets to one.
+func (e *Encoder) applyUnityHBGainFade(celtPCM []opusRes) []opusRes {
+	if e.hybridState == nil {
+		return celtPCM
+	}
+	if e.hybridState.prevHBGain < 1 {
+		celtPCM = e.applyGainFade(celtPCM, e.hybridState.prevHBGain, 1)
+	}
+	e.hybridState.prevHBGain = 1
+	return celtPCM
+}
+
 // applyGainFade implements libopus gain_fade(): across the CELT overlap
 // (sampled at window[i*inc] with inc = 48000/Fs) the gain moves from g1 to g2
 // with the squared window, and the rest of the frame takes g2.

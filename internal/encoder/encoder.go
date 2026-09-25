@@ -1200,6 +1200,11 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	switch actualMode {
 	case ModeSILK:
 		e.maybePrefillSILKOnModeTransition(actualMode)
+		// SILK-only frames carry HB_gain = 1; the CELT-side fade has no consumer
+		// here, but prev_HB_gain still resets to one.
+		if e.hybridState != nil {
+			e.hybridState.prevHBGain = 1
+		}
 		if frameSize > 3*f20 {
 			packet, err = e.encodeSILKMultiFramePacket(framePCM, vadPCM, frameSize, int(e.bitrate), int(encodingBitrate), dredBitrate, dredExtraDelay)
 		} else {
@@ -1269,8 +1274,10 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 			// libopus' per-sub-frame opus_encode_native recursion), not here.
 			packet, err = e.encodeCELTMultiFramePacket(framePCM, vadPCM, celtPCM, frameSize, int(e.bitrate), int(encodingBitrate), dredBitrate, dredExtraDelay, maxDataBytes)
 		} else {
-			// libopus runs stereo_fade() on pcm_buf after the delay-buffer copy
-			// and the mode-transition prefill, before the main celt_encode_with_ec.
+			// libopus runs gain_fade() and then stereo_fade() on pcm_buf after
+			// the delay-buffer copy and the mode-transition prefill, before the
+			// main celt_encode_with_ec.
+			celtPCM = e.applyUnityHBGainFade(celtPCM)
 			celtPCM = e.applyCELTStereoWidthFade(celtPCM, frameSize)
 			originalBitrate := e.bitrate
 			if encodingBitrate != originalBitrate {
@@ -3588,11 +3595,12 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 			firstFrameMaxBytes = currMax
 		}
 		maxPayload := currMax - 1
-		// libopus recurses opus_encode_native per 20 ms sub-frame, so stereo_fade
-		// runs (and its width state evolves) once per sub-frame on that sub-frame's
-		// CELT input. Apply it here on the sub-frame slice, mirroring the
-		// single-frame path.
-		subCeltPCM := e.applyCELTStereoWidthFade(celtPCM[start:end], f20)
+		// libopus recurses opus_encode_native per 20 ms sub-frame, so gain_fade
+		// and stereo_fade run (and their state evolves) once per sub-frame on
+		// that sub-frame's CELT input. Apply them here on the sub-frame slice,
+		// mirroring the single-frame path.
+		subCeltPCM := e.applyUnityHBGainFade(celtPCM[start:end])
+		subCeltPCM = e.applyCELTStereoWidthFade(subCeltPCM, f20)
 		frameData, err := e.encodeCELTFrameWithBitrateMaxPayloadAndDRED(subCeltPCM, f20, int(e.bitrate), maxPayload, dredBitrate)
 		if err != nil {
 			e.bitrate = savedBitrate
