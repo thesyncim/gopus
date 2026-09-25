@@ -124,6 +124,11 @@ func imdctPreRotateF32Spectrum(fftIn []complex64, spectrum []float32, trig []flo
 		imdctPreRotateFMA32Kiss(fftIn, spectrum, trig, n2, n4)
 		return
 	}
+	imdctPreRotateNoFMA(fftIn, spectrum, trig, n2, n4)
+}
+
+// imdctPreRotateNoFMAScalar is the split multiply/add libopus pre-rotation.
+func imdctPreRotateNoFMAScalar(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
 	for i := range n4 {
 		x1 := spectrum[2*i]
 		x2 := spectrum[n2-1-2*i]

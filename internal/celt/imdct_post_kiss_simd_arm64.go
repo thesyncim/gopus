@@ -84,3 +84,9 @@ func imdctPostRotateF32FromKiss(buf []float32, fft []kissCpx, trig []float32, n2
 		buf[2*i+1] = mdctMulSubMix(re2, im2, t1, t0)
 	}
 }
+
+// imdctPreRotateNoFMA is unreachable on arm64, whose float build takes the
+// fused pre-rotation, and stays scalar.
+func imdctPreRotateNoFMA(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
+	imdctPreRotateNoFMAScalar(fftIn, spectrum, trig, n2, n4)
+}
