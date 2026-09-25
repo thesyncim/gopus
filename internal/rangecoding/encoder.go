@@ -415,6 +415,13 @@ func (e *Encoder) Done() []byte {
 	return e.buf[:packedSize]
 }
 
+// AdvanceTell counts the bits up to bits as written (zeros), so Tell reports
+// bits: celt_encode_with_ec's "pretend we've filled all the remaining bits with
+// zeros" for a silent frame (enc->nbits_total += tell - ec_tell(enc)).
+func (e *Encoder) AdvanceTell(bits int) {
+	e.nbitsTotal += int32(bits - e.Tell())
+}
+
 // Tell returns the number of bits written to the combined stream so far,
 // rounded up to the nearest whole bit. This is the libopus ec_tell macro
 // (nbits_total - EC_ILOG(rng)) and counts both range-coded symbols and raw bits.

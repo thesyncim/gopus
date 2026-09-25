@@ -1252,8 +1252,6 @@ type encoderScratch struct {
 	coarseError       []celtGLog
 	coarseDecisionE   []celtGLog
 	analysisEnergies  []celtGLog
-	silenceEnergyVBR  []celtGLog
-	silenceFreqVBR    []float32
 	prev1LogE         []celtGLog
 	dynallocOldBandE  []celtGLog
 
@@ -1653,7 +1651,7 @@ func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3,
 		result.Caps[i] = 0
 	}
 
-	if nbBands == 0 || totalBitsQ3 <= 0 {
+	if nbBands == 0 {
 		return result
 	}
 

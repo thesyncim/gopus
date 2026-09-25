@@ -369,33 +369,26 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	if tell == 1 {
 		if isSilence {
 			re.EncodeBit(1, 15)
-			// In VBR a silent frame needs no more than the minimum.
-			if budget.vbrRate > 0 {
-				budget.nbCompressedBytes = min(budget.nbCompressedBytes, 2)
-				budget.effectiveBytes = budget.nbCompressedBytes
-				budget.nbAvailableBytes = 2
-				re.Shrink(uint32(budget.nbCompressedBytes))
-			}
-			// libopus celt_encode_with_ec does not short-circuit a silent frame:
-			// after coding the silence flag it pretends the budget is full (no band
-			// bits are spent) but still runs the full pipeline, so run_prefilter()
-			// shifts prefilter_mem and consec_transient advances via
-			// transient_got_disabled. The prefilter runs with enabled=false, which
-			// only shifts the comb-filter history, so the encoder state carried
-			// into the post-silence frame matches libopus.
-			maxPitchRatio := float32(1.0)
-			if e.analysisValid {
-				maxPitchRatio = e.analysisMaxPitchRatio
-			}
-			e.runPrefilter(preemph, frameSize, e.TapsetDecision(), false, tfEstimate, int(budget.nbAvailableBytes), toneFreq, toneishness, maxPitchRatio)
-			if !e.IsHybrid() {
-				e.updateTemporalVBRSilence(nbBands, codedChannels)
-			}
-			return e.finishEncodedSilenceFrame(re, &budget, lm, codedChannels)
+		} else {
+			re.EncodeBit(0, 15)
 		}
-		re.EncodeBit(0, 15)
 	} else {
 		isSilence = false
+	}
+	if isSilence {
+		// In VBR a silent frame needs no more than the minimum.
+		if budget.vbrRate > 0 {
+			budget.nbCompressedBytes = min(budget.nbCompressedBytes, budget.nbFilledBytes+2)
+			budget.effectiveBytes = budget.nbCompressedBytes
+			totalBits = budget.TotalBits()
+			e.frameBits = int32(totalBits)
+			budget.nbAvailableBytes = 2
+			re.Shrink(uint32(budget.nbCompressedBytes))
+		}
+		// celt_encode_with_ec pretends the remaining bits are written as zeros
+		// and still runs the whole frame: every budget-gated step skips itself
+		// while the analysis state advances as for any other frame.
+		re.AdvanceTell(int(budget.nbCompressedBytes) * 8)
 	}
 	start := 0
 	if e.IsHybrid() {
@@ -1089,6 +1082,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		maxDepth:        dynallocResult.MaxDepth,
 		surroundMasking: surroundMasking,
 		temporalVBR:     e.lastTemporalVBR,
+		silence:         isSilence,
 	}
 	if budget.vbrRate > 0 {
 		e.applyVBR(&budget, vbrIn)
@@ -1515,6 +1509,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		}
 	}
 	e.setPrevEnergyWithPrevCoded(prev1LogE, quantizedEnergies, nbBands, codedChannels)
+	if isSilence {
+		e.resetPrevEnergyToSilence(nbBands, codedChannels)
+	}
 	e.IncrementFrameCount()
 	if transient || transientGotDisabled {
 		e.consecTransient++
@@ -1805,78 +1802,6 @@ func (e *Encoder) updateSpecAvg(bandLogE []celtGLog, start, end, nbBands, c int,
 	return temporalVBR
 }
 
-// updateTemporalVBRSilence advances st->spec_avg for a silent frame. libopus does
-// not short-circuit a silent frame: it runs the full pipeline (compute_mdcts on
-// the silent input, compute_band_energies, and the temporal-VBR analysis), so
-// spec_avg keeps decaying toward the silence floor while silence frames are
-// emitted. The silence fast path reproduces that update on the silence-floor
-// band energies. A silent frame codes no transient flag, so it never uses short
-// blocks.
-func (e *Encoder) updateTemporalVBRSilence(nbBands, codedChannels int) {
-	if e.lfe || nbBands <= 0 {
-		return
-	}
-	silenceFreq := ensureFloat32Slice(&e.scratch.silenceFreqVBR, nbBands*codedChannels)
-	for i := range silenceFreq {
-		silenceFreq[i] = 0
-	}
-	silenceE := ensureGLogSlice(&e.scratch.silenceEnergyVBR, nbBands*codedChannels)
-	e.computeBandEnergiesGLogActive(silenceFreq, nbBands, nbBands, codedChannels, 1, silenceE)
-	e.lastTemporalVBR = e.updateSpecAvg(silenceE, 0, nbBands, nbBands, codedChannels, false, 0)
-}
-
-// finishEncodedSilenceFrame completes a frame whose silence flag is coded. The
-// VBR block still runs: the frame is sized to two bytes and the VBR averaging
-// state and constrained-VBR reservoir advance with a zero drift (celt_encoder.c
-// silence override of the VBR block).
-func (e *Encoder) finishEncodedSilenceFrame(re *rangecoding.Encoder, budget *FrameBudget, lm, c int) ([]byte, error) {
-	if budget.vbrRate > 0 {
-		e.applyVBR(budget, vbrFrameInputs{lm: lm, c: c, silence: true})
-		re.Shrink(uint32(budget.nbCompressedBytes))
-		if re.Error() != 0 {
-			return nil, ErrEncodingFailed
-		}
-	}
-
-	prev1LogE := e.scratch.prev1LogE
-	if len(prev1LogE) < len(e.prevEnergy) {
-		prev1LogE = make([]celtGLog, len(e.prevEnergy))
-		e.scratch.prev1LogE = prev1LogE
-	}
-	prev1LogE = prev1LogE[:len(e.prevEnergy)]
-	copy(prev1LogE, e.prevEnergy)
-
-	silenceE := ensureGLogSlice(&e.scratch.coarseOldStart, len(e.prevEnergy))
-	for i := range silenceE {
-		silenceE[i] = -28.0
-	}
-	e.setPrevEnergyWithPrevGLog(prev1LogE, silenceE)
-	for i := range e.energyError {
-		e.energyError[i] = 0
-	}
-	e.lastDynalloc = DynallocResult{}
-	// libopus codes a silent frame with the budget pretended full, so the
-	// transient flag never fits: transient_got_disabled=1 and consec_transient
-	// advances (celt_encoder.c: "if (isTransient || transient_got_disabled)
-	// st->consec_transient++").
-	e.consecTransient++
-	// libopus runs clt_compute_allocation on the silent frame too (with the
-	// 2-byte budget), which yields codedBands==1, then slews lastCodedBands toward
-	// it by at most ±1 (celt_encoder.c: lastCodedBands = IMIN(lcb+1, IMAX(lcb-1,
-	// codedBands))). Over a silence run this decays lastCodedBands down to 1, the
-	// value the post-silence frame's compute_vbr coded_bins reads.
-	const silenceCodedBands = 1
-	if e.lastCodedBands != 0 {
-		lcb := int(e.lastCodedBands)
-		e.lastCodedBands = int32(min(lcb+1, max(lcb-1, silenceCodedBands)))
-	} else {
-		e.lastCodedBands = silenceCodedBands
-	}
-	e.IncrementFrameCount()
-	e.rng = re.Range()
-	return re.Done(), nil
-}
-
 // EncodeFrameWithOptions encodes a frame with additional control options.
 func (e *Encoder) EncodeFrameWithOptions(pcm []float32, frameSize int, opts EncodeOptions) ([]byte, error) {
 	// Apply options
@@ -1961,4 +1886,22 @@ func (e *Encoder) updateTonalityAnalysis(normCoeffs []celtNorm, energies []celtG
 		lastTonality = 1
 	}
 	e.lastTonality = opusVal16(lastTonality)
+}
+
+// resetPrevEnergyToSilence sets the coded bands of the energy history to the
+// -28 dB floor after a silent frame (celt_encoder.c: "if (silence)
+// oldBandE[i] = -GCONST(28.f)"), mirroring the mono-to-stereo copy of
+// setPrevEnergyWithPrevCoded.
+func (e *Encoder) resetPrevEnergyToSilence(nbBands, codedChannels int) {
+	predStride := e.predStride()
+	for c := range codedChannels {
+		for band := range nbBands {
+			e.prevEnergy[c*predStride+band] = -28
+		}
+	}
+	if e.channels == 2 && codedChannels == 1 {
+		for band := range nbBands {
+			e.prevEnergy[predStride+band] = -28
+		}
+	}
 }
