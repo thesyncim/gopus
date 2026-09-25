@@ -444,7 +444,7 @@ func TestMDCTForwardOverlapF32CELTSignalScaleMatchesLibopusC(t *testing.T) {
 	copy(got, coeffs)
 
 	want := probeLibopusCELTMDCTForward(t, frameSize, overlap, inputF32)
-	assertFloat32Close(t, "forward mdct celt-scale", got, want, 512, 1e-4)
+	assertFloat32Bits(t, "forward mdct celt-scale", got, want)
 }
 
 func probeLibopusCELTMDCTForward(t *testing.T, frameSize, overlap int, input []float32) []float32 {
@@ -506,9 +506,13 @@ func fillMDCTForwardOracleInput(input []float64, inputF32 []float32, seed int) {
 	}
 }
 
+// assertFloat32Bits requires every element to match the paired libopus
+// reference bit-for-bit. The oracles it guards pair each Go tier with the
+// libopus build for the same instruction set, so any difference is a parity
+// defect rather than tolerated drift.
 func assertFloat32Bits(t *testing.T, label string, got, want []float32) {
 	t.Helper()
-	assertFloat32Close(t, label, got, want, 64, 1e-5)
+	assertFloat32Close(t, label, got, want, 0, 0)
 }
 
 func assertFloat32Close(t *testing.T, label string, got, want []float32, maxULP uint32, maxAbs float64) {
