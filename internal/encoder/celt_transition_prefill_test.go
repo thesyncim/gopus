@@ -22,9 +22,9 @@ func TestCELTTransitionPrefillForcesOneIntraFrame(t *testing.T) {
 
 	frameSize := 480
 	frame := makeTransitionPCM(frameSize, 1)
-	celtPCM := enc.prepareCELTPCM(frame, frameSize)
+	enc.prepareCELTPCM(frame, frameSize)
 
-	enc.maybePrefillCELTOnModeTransition(ModeCELT, celtPCM, frameSize)
+	enc.maybePrefillCELTOnModeTransition(ModeCELT)
 
 	if !enc.celtForceIntra {
 		t.Fatal("expected celtForceIntra after mode-transition prefill")
@@ -51,9 +51,9 @@ func TestCELTTransitionPrefillSkippedInLowDelay(t *testing.T) {
 
 	frameSize := 480
 	frame := makeTransitionPCM(frameSize, 1)
-	celtPCM := enc.prepareCELTPCM(frame, frameSize)
+	enc.prepareCELTPCM(frame, frameSize)
 
-	enc.maybePrefillCELTOnModeTransition(ModeCELT, celtPCM, frameSize)
+	enc.maybePrefillCELTOnModeTransition(ModeCELT)
 
 	if enc.celtForceIntra {
 		t.Fatal("did not expect celtForceIntra in low-delay mode")
@@ -69,9 +69,9 @@ func TestCELTTransitionPrefillSkippedWithoutModeChange(t *testing.T) {
 
 	frameSize := 480
 	frame := makeTransitionPCM(frameSize, 1)
-	celtPCM := enc.prepareCELTPCM(frame, frameSize)
+	enc.prepareCELTPCM(frame, frameSize)
 
-	enc.maybePrefillCELTOnModeTransition(ModeCELT, celtPCM, frameSize)
+	enc.maybePrefillCELTOnModeTransition(ModeCELT)
 
 	if enc.celtForceIntra {
 		t.Fatal("did not expect celtForceIntra when mode is unchanged")
@@ -103,7 +103,7 @@ func TestCELTTransitionPrefillSnapshotsLibopusDelayHistoryWindow(t *testing.T) {
 	for i := range frame {
 		frame[i] = opusRes(10000 + i)
 	}
-	celtPCM := enc.applyDelayCompensation(frame, frameSize)
+	enc.applyDelayCompensation(frame, frameSize)
 
 	wantStart := encoderBuffer - delayComp - prefillFrameSize
 	if wantStart < 0 {
@@ -120,7 +120,17 @@ func TestCELTTransitionPrefillSnapshotsLibopusDelayHistoryWindow(t *testing.T) {
 		}
 	}
 
-	enc.maybePrefillCELTOnModeTransition(ModeCELT, celtPCM, frameSize)
+	src := enc.celtTransitionPrefillSource(prefillFrameSize)
+	if len(src) != prefillFrameSize {
+		t.Fatalf("prefill source len=%d want=%d", len(src), prefillFrameSize)
+	}
+	for i := range prefillFrameSize {
+		if want := origDelay[wantStart+i]; src[i] != want {
+			t.Fatalf("prefill source[%d]=%.0f want delay history %.0f", i, src[i], want)
+		}
+	}
+
+	enc.maybePrefillCELTOnModeTransition(ModeCELT)
 	if !enc.celtForceIntra {
 		t.Fatal("expected celtForceIntra after transition prefill")
 	}
@@ -142,9 +152,9 @@ func TestCELTTransitionPrefillResyncsAnalysisAfterReset(t *testing.T) {
 
 	frameSize := 480
 	frame := makeTransitionPCM(frameSize, 1)
-	celtPCM := enc.prepareCELTPCM(frame, frameSize)
+	enc.prepareCELTPCM(frame, frameSize)
 
-	enc.maybePrefillCELTOnModeTransition(ModeHybrid, celtPCM, frameSize)
+	enc.maybePrefillCELTOnModeTransition(ModeHybrid)
 
 	if enc.celtEncoder == nil {
 		t.Fatal("expected CELT encoder to be initialized for prefill")
@@ -163,9 +173,9 @@ func TestCELTTransitionPrefillSkipsWhenDelayedTransitionAlreadyAdvancedPrevMode(
 
 	frameSize := 960
 	frame := makeTransitionPCM(frameSize, 1)
-	celtPCM := enc.prepareCELTPCM(frame, frameSize)
+	enc.prepareCELTPCM(frame, frameSize)
 
-	enc.maybePrefillCELTOnModeTransition(ModeCELT, celtPCM, frameSize)
+	enc.maybePrefillCELTOnModeTransition(ModeCELT)
 
 	if enc.celtForceIntra {
 		t.Fatal("did not expect celtForceIntra after delayed transition already completed")

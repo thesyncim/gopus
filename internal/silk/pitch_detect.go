@@ -378,9 +378,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		}
 		d := (int(dSrch[i]) + minLag4kHz) * 2
 		dSrch[i] = int32(d)
-		if d >= minLag8kHz && d <= maxLag8kHz {
-			dComp[d] = 1
-		}
+		dComp[d] = 1
 	}
 
 	// Convolution to expand search range (stage 2 d_srch list)

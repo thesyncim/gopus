@@ -463,7 +463,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 	// transition redundancy reset on that subframe.
 	if maxPacketBytes == 0 || runCELTTransitionPrefill {
 		// For CELT->Hybrid this is intentionally after transition redundancy encoding.
-		e.maybePrefillCELTOnModeTransition(ModeHybrid, celtPCM, frameSize)
+		e.maybePrefillCELTOnModeTransition(ModeHybrid)
 	}
 
 	// Step 3: Apply HB_gain fade on the delay-compensated CELT input.

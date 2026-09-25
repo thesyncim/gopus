@@ -392,7 +392,6 @@ func coarseLossDistortion(energies []celtGLog, oldEBands []celtGLog, nbBands, ch
 			dist += d * d
 		}
 	}
-	dist /= 128.0
 	if dist > 200 {
 		return 200
 	}
@@ -428,7 +427,6 @@ func coarseLossDistortionRange(energies []celtGLog, oldEBands []celtGLog, start,
 			dist += d * d
 		}
 	}
-	dist /= 128.0
 	if dist > 200 {
 		return 200
 	}

@@ -1255,6 +1255,7 @@ type encoderScratch struct {
 	silenceEnergyVBR  []celtGLog
 	silenceFreqVBR    []float32
 	prev1LogE         []celtGLog
+	dynallocOldBandE  []celtGLog
 
 	// Normalized coefficient buffers
 	normL []celtNorm

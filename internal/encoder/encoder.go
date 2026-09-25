@@ -1233,6 +1233,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 			}
 		}
 		e.updateDelayBuffer(framePCM, frameSize)
+		e.applyStereoWidthReduction(ModeSILK, nil, frameSize)
 	case ModeHybrid:
 		if frameSize > f20 {
 			delayState := e.ensureDelayState(len(e.delayBuffer))
@@ -1266,7 +1267,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		// (opus_encode_frame_native configures CELT before prefilling).
 		e.ensureCELTEncoder()
 		e.configureCELTRate(ModeCELT, int(encodingBitrate))
-		e.maybePrefillCELTOnModeTransition(actualMode, celtPCM, frameSize)
+		e.maybePrefillCELTOnModeTransition(actualMode)
 		if frameSize > f20 {
 			// Long CELT packets are encoded as multi-frame packets. The stereo
 			// width fade is applied per 20 ms sub-frame inside the loop (matching
@@ -1277,7 +1278,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 			// the delay-buffer copy and the mode-transition prefill, before the
 			// main celt_encode_with_ec.
 			celtPCM = e.applyUnityHBGainFade(celtPCM)
-			celtPCM = e.applyCELTStereoWidthFade(celtPCM, frameSize)
+			celtPCM = e.applyStereoWidthReduction(ModeCELT, celtPCM, frameSize)
 			frameData, err = e.encodeCELTFrameWithBitrateMaxPayloadAndDRED(celtPCM, frameSize, int(encodingBitrate), e.celtNbComprBytes(cbrMaxDataBytes), dredBitrate)
 		}
 	default:
@@ -2206,7 +2207,7 @@ func (e *Encoder) applyDelayCompensation(pcm []opusRes, frameSize int) []opusRes
 	return out
 }
 
-func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []opusRes, frameSize int) {
+func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode) {
 	channels := int(e.channels)
 	sampleRate := int(e.sampleRate)
 	e.celtForceIntra = false
@@ -2222,31 +2223,11 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []op
 	if prefillFrameSize <= 0 || !ValidFrameSize(prefillFrameSize, ModeCELT) {
 		return
 	}
-	prefillSamples := prefillFrameSize * channels
-	if prefillSamples <= 0 || len(celtPCM) < prefillSamples {
+	prefillInput := e.celtTransitionPrefillSource(prefillFrameSize * channels)
+	e.hasCELTPrefill = false
+	if prefillInput == nil {
 		return
 	}
-	prefillInput := celtPCM[:prefillSamples]
-	if len(e.scratchTransitionPrefill) == prefillSamples {
-		prefillInput = e.scratchTransitionPrefill
-	}
-	if e.hasCELTPrefill && len(e.scratchCELTPrefill) >= prefillSamples {
-		prefillInput = e.scratchCELTPrefill[:prefillSamples]
-	} else if delayComp := sampleRate / 250; delayComp > 0 {
-		// Match libopus tmp_prefill source as closely as possible with the
-		// available delay-compensated CELT window.
-		delayCompSamples := min(delayComp*channels, len(celtPCM))
-		prefillStart := max(delayCompSamples-prefillSamples, 0)
-		prefillEnd := prefillStart + prefillSamples
-		if prefillEnd > len(celtPCM) {
-			prefillEnd = len(celtPCM)
-			prefillStart = max(prefillEnd-prefillSamples, 0)
-		}
-		if prefillEnd-prefillStart == prefillSamples {
-			prefillInput = celtPCM[prefillStart:prefillEnd]
-		}
-	}
-	e.hasCELTPrefill = false
 
 	e.ensureCELTEncoder()
 	// OPUS_RESET_STATE clears the SILK info the Opus layer handed CELT for this
@@ -2271,6 +2252,22 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []op
 	e.celtEncoder.SetMaxPayloadBytes(0)
 	// Match libopus mode-switch behavior: the next real CELT frame is forced intra.
 	e.celtForceIntra = true
+}
+
+// celtTransitionPrefillSource returns libopus tmp_prefill: the Fs/400 samples of
+// delay history that precede this frame's CELT input,
+// delay_buffer[encoder_buffer-total_buffer-Fs/400 : +Fs/400], copied before the
+// delay buffer shifts (src/opus_encoder.c:2297-2301). When this frame ran a SILK
+// transition prefill, that prefill's onset ramp has rewritten the same window.
+func (e *Encoder) celtTransitionPrefillSource(prefillSamples int) []opusRes {
+	src := e.scratchTransitionPrefill
+	if e.hasCELTPrefill {
+		src = e.scratchCELTPrefill
+	}
+	if prefillSamples <= 0 || len(src) < prefillSamples {
+		return nil
+	}
+	return src[:prefillSamples]
 }
 
 func (e *Encoder) maybePrefillSILKOnModeTransition(actualMode Mode) {
@@ -2674,28 +2671,28 @@ func (e *Encoder) prepareCELTPCM(framePCM []opusRes, frameSize int) []opusRes {
 	return e.applyDelayCompensation(framePCM, frameSize)
 }
 
-// applyCELTStereoWidthFade reproduces the CELT-only branch of the libopus
-// opus_encode_float() stereo width reduction (opus_encoder.c): for a stereo
-// non-surround stream it derives silk_mode.stereoWidth_Q14 from equiv_rate and,
-// when either the previous applied width or the new target is below full width,
-// runs stereo_fade() on the (delay-compensated) CELT input before celt_encode.
-// celtPCM is modified in place and returned. frameSize is the per-frame size at
-// the API rate driving the equiv_rate frame_rate (the 20 ms sub-frame size for
-// multi-frame packets, exactly as libopus recurses opus_encode_native per
-// sub-frame). The hybrid leg applies the same fade via applyStereoWidthFade;
-// this is the missing CELT-only counterpart.
-func (e *Encoder) applyCELTStereoWidthFade(celtPCM []opusRes, frameSize int) []opusRes {
+// applyStereoWidthReduction runs the stereo width block of
+// opus_encode_frame_native (src/opus_encoder.c:2320-2348) for a SILK-only or
+// CELT-only frame of a stereo stream without an energy mask: it derives
+// silk_mode.stereoWidth_Q14 from equiv_rate and, when the previously applied
+// width or the new one is below full width, runs stereo_fade() on pcm (the
+// delay-compensated CELT input, modified in place) and records the width in
+// hybrid_stereo_width_Q14. A SILK-only frame has no CELT input to fade, so it
+// passes nil pcm and only advances the width state. frameSize drives the
+// equiv_rate frame rate; libopus passes the whole packet's equiv_rate to every
+// 20 ms sub-frame, and compute_equiv_rate only adjusts frame rates above 50 Hz,
+// so a sub-frame size gives the same rate. The hybrid leg takes the width from
+// SILK instead and applies the same fade via applyStereoWidthFade.
+func (e *Encoder) applyStereoWidthReduction(mode Mode, pcm []opusRes, frameSize int) []opusRes {
 	if e.channels != 2 || len(e.celtEnergyMask) > 0 {
-		return celtPCM
+		return pcm
 	}
 	if frameSize <= 0 || int(e.sampleRate) <= 0 {
-		return celtPCM
+		return pcm
 	}
 	frameRate := int32(int(e.sampleRate) / frameSize)
-	equivRate := e.computeEquivRate(e.bitrate, int32(e.streamChannels), frameRate, e.bitrateMode != ModeCBR, ModeCELT, int32(e.complexity), int32(e.packetLoss))
+	equivRate := e.computeEquivRate(e.bitrate, int32(e.streamChannels), frameRate, e.bitrateMode != ModeCBR, mode, int32(e.complexity), int32(e.packetLoss))
 
-	// silk_mode.stereoWidth_Q14 from equiv_rate (opus_encoder.c). This branch is
-	// only taken for MODE_CELT_ONLY here, so the mode!=HYBRID guard always holds.
 	var widthQ14 int32
 	switch {
 	case equivRate > 32000:
@@ -2715,10 +2712,12 @@ func (e *Encoder) applyCELTStereoWidthFade(celtPCM []opusRes, frameSize int) []o
 	}
 	e.hybridState.silkStereoWidthQ14 = int16(widthQ14)
 	if e.hybridState.stereoWidthQ14 < (1<<14) || widthQ14 < (1<<14) {
-		celtPCM = e.applyStereoWidthFade(celtPCM, e.hybridState.stereoWidthQ14, int16(widthQ14))
+		if pcm != nil {
+			pcm = e.applyStereoWidthFade(pcm, e.hybridState.stereoWidthQ14, int16(widthQ14))
+		}
 		e.hybridState.stereoWidthQ14 = int16(widthQ14)
 	}
-	return celtPCM
+	return pcm
 }
 
 // selectMode determines the actual encoding mode based on settings and content.
@@ -3511,7 +3510,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 		// that sub-frame's CELT input. Apply them here on the sub-frame slice,
 		// mirroring the single-frame path.
 		subCeltPCM := e.applyUnityHBGainFade(celtPCM[start:end])
-		subCeltPCM = e.applyCELTStereoWidthFade(subCeltPCM, f20)
+		subCeltPCM = e.applyStereoWidthReduction(ModeCELT, subCeltPCM, f20)
 		frameData, err := e.encodeCELTFrameWithBitrateMaxPayloadAndDRED(subCeltPCM, f20, int(e.bitrate), e.celtNbComprBytes(currMax), dredBitrate)
 		if err != nil {
 			e.bitrate = savedBitrate

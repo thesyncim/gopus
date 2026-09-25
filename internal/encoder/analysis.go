@@ -969,17 +969,16 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			} else {
 				num := xy * (xr2 + analysisAtanCA*xi2)
 				den := (xr2 + analysisAtanCB*xi2) * (xr2 + analysisAtanCC*xi2)
+				// fast_atan2f evaluates q + (y<0 ? -cE : cE) - (x*y<0 ? -cE : cE)
+				// in full; the two cE terms do not cancel exactly in float.
+				s1, s2 := analysisAtanCE, analysisAtanCE
 				if x1i < 0 {
-					if xy < 0 {
-						atan = num / den
-					} else {
-						atan = num/den - analysisAtanCE - analysisAtanCE
-					}
-				} else if xy < 0 {
-					atan = num/den + analysisAtanCE + analysisAtanCE
-				} else {
-					atan = num / den
+					s1 = -analysisAtanCE
 				}
+				if xy < 0 {
+					s2 = -analysisAtanCE
+				}
+				atan = num/den + s1 - s2
 			}
 		}
 		angle := analysisAtanScale * atan
@@ -1002,17 +1001,16 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			} else {
 				num := xy * (xr2 + analysisAtanCA*xi2)
 				den := (xr2 + analysisAtanCB*xi2) * (xr2 + analysisAtanCC*xi2)
+				// fast_atan2f evaluates q + (y<0 ? -cE : cE) - (x*y<0 ? -cE : cE)
+				// in full; the two cE terms do not cancel exactly in float.
+				s1, s2 := analysisAtanCE, analysisAtanCE
 				if x2i < 0 {
-					if xy < 0 {
-						atan = num / den
-					} else {
-						atan = num/den - analysisAtanCE - analysisAtanCE
-					}
-				} else if xy < 0 {
-					atan = num/den + analysisAtanCE + analysisAtanCE
-				} else {
-					atan = num / den
+					s1 = -analysisAtanCE
 				}
+				if xy < 0 {
+					s2 = -analysisAtanCE
+				}
+				atan = num/den + s1 - s2
 			}
 		}
 		angle2 := analysisAtanScale * atan

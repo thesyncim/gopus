@@ -797,7 +797,12 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	if bandLogE2 != nil {
 		bandLogE2Use = bandLogE2
 	}
-	oldBandELen := min(nbBands*codedChannels, len(prev1LogE))
+	// dynalloc_analysis reads oldBandE with the same band stride as bandLogE;
+	// the energy history keeps predStride bands per channel.
+	oldBandE := ensureGLogSlice(&e.scratch.dynallocOldBandE, nbBands*codedChannels)
+	for c := range codedChannels {
+		copy(oldBandE[c*nbBands:(c+1)*nbBands], prev1LogE[c*predStride:c*predStride+nbBands])
+	}
 	surroundTrimForAlloc := e.surroundTrim
 	surroundMasking := celtGLog(0)
 	var surroundDynalloc []celtGLog
@@ -808,7 +813,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		surroundDynalloc = surroundDynallocScratch[:nbBands]
 	}
 	dynallocResult := DynallocAnalysisWithScratch(
-		analysisEnergies, bandLogE2Use, prev1LogE[:oldBandELen],
+		analysisEnergies, bandLogE2Use, oldBandE,
 		nbBands, start, end, codedChannels, lsbDepth, lm,
 		logN,
 		effectiveBytes,
