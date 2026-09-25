@@ -76,48 +76,28 @@ func (e *Encoder) quantizeInputToLSBDepthScratchF32(pcm []float32) []float32 {
 	return out[:len(pcm)]
 }
 
-// computeSurroundDynallocFromMask mirrors libopus surround masking reduction in
-// celt_encoder.c: derive per-band dynalloc floors and surround trim from
-// externally supplied energy masks.
-func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []celtGLog) (celtGLog, bool) {
-	if nbBands <= 0 || len(out) < nbBands {
-		return e.surroundTrim, false
+// computeSurroundDynallocFromMask mirrors the libopus surround masking analysis
+// in celt_encode_with_ec (celt/celt_encoder.c:2108-2185): it derives the
+// per-band dynalloc floors, the surround trim, and surround_masking (the
+// compute_vbr surround target offset) from the externally supplied energy mask.
+// out holds MaxBands entries; the analysis clears the first end of them and
+// writes floors up to max(2, lastCodedBands), which exceeds end for the frames
+// after a bandwidth reduction. Without a usable mask it returns the configured
+// surround trim, zero masking, and ok=false.
+func (e *Encoder) computeSurroundDynallocFromMask(end int, out []celtGLog) (trim, masking celtGLog, ok bool) {
+	clear(out[:end])
+	if e.lfe || e.hybrid || len(e.energyMask) < MaxBands*int(e.channels) {
+		return e.surroundTrim, 0, false
 	}
-	for i := range nbBands {
-		out[i] = 0
-	}
-	if e.lfe || e.hybrid {
-		return e.surroundTrim, false
-	}
-
-	maskBands := MaxBands
-	channels := int(e.channels)
-	needed := maskBands * channels
-	if len(e.energyMask) < needed {
-		return e.surroundTrim, false
-	}
-
-	maskEnd := min(max(int(e.lastCodedBands), 2), nbBands)
-	if maskEnd > maskBands {
-		maskEnd = maskBands
-	}
-	if maskEnd <= 0 {
-		return e.surroundTrim, false
-	}
+	channels := e.codedChannels()
+	maskEnd := max(2, int(e.lastCodedBands))
 
 	maskAvg := celtGLog(0)
 	diff := celtGLog(0)
 	count := 0
 	for c := range channels {
-		base := c * maskBands
-		for i := 0; i < maskEnd; i++ {
-			mask := e.energyMask[base+i]
-			if mask > 0.25 {
-				mask = 0.25
-			}
-			if mask < -2.0 {
-				mask = -2.0
-			}
+		for i := range maskEnd {
+			mask := max(min(e.energyMask[MaxBands*c+i], 0.25), -2)
 			if mask > 0 {
 				mask *= 0.5
 			}
@@ -127,44 +107,25 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []celtGLog) (
 			diff += mask * celtGLog(1+2*i-maskEnd)
 		}
 	}
-	if count <= 0 {
-		return e.surroundTrim, false
-	}
 	maskAvg = maskAvg/celtGLog(count) + 0.2
+	diff = (diff * 6 / celtGLog(channels*(maskEnd-1)*(maskEnd+1)*maskEnd)) * 0.5
+	// Again, being conservative.
+	diff = max(min(diff, 0.031), -0.031)
 
-	denom := celtGLog(channels * (maskEnd - 1) * (maskEnd + 1) * maskEnd)
-	if denom > 0 {
-		diff = (diff * 6.0 / denom) * 0.5
-	} else {
-		diff = 0
-	}
-	if diff > 0.031 {
-		diff = 0.031
-	}
-	if diff < -0.031 {
-		diff = -0.031
-	}
-	surroundTrim := 64.0 * diff
-
+	// Find the band in the middle of the coded spectrum.
 	midband := 0
-	for midband+1 < len(EBands) && EBands[midband+1] < EBands[maskEnd]/2 {
+	for EBands[midband+1] < EBands[maskEnd]/2 {
 		midband++
 	}
 
 	countDynalloc := 0
-	for i := 0; i < maskEnd; i++ {
+	for i := range maskEnd {
 		lin := maskAvg + diff*celtGLog(i-midband)
 		unmask := e.energyMask[i]
-		if e.channels == 2 {
-			other := e.energyMask[maskBands+i]
-			if other > unmask {
-				unmask = other
-			}
+		if channels == 2 {
+			unmask = max(unmask, e.energyMask[MaxBands+i])
 		}
-		if unmask > 0 {
-			unmask = 0
-		}
-		unmask -= lin
+		unmask = min(unmask, 0) - lin
 		if unmask > 0.25 {
 			out[i] = unmask - 0.25
 			countDynalloc++
@@ -172,23 +133,22 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []celtGLog) (
 	}
 
 	if countDynalloc >= 3 {
+		// Dynalloc in many bands means the initial masking rate was too low.
 		maskAvg += 0.25
 		if maskAvg > 0 {
-			for i := 0; i < maskEnd; i++ {
-				out[i] = 0
-			}
+			// The masking estimate went wrong: disable masking.
+			maskAvg = 0
+			diff = 0
+			clear(out[:maskEnd])
 		} else {
-			for i := 0; i < maskEnd; i++ {
-				v := out[i] - 0.25
-				if v < 0 {
-					v = 0
-				}
-				out[i] = v
+			for i := range maskEnd {
+				out[i] = max(0, out[i]-0.25)
 			}
 		}
 	}
-
-	return surroundTrim, true
+	maskAvg += 0.2
+	// Convert to the 1/64th units used by the trim.
+	return 64 * diff, maskAvg, true
 }
 
 // EncodeFrame encodes a complete CELT frame from PCM samples.
@@ -345,15 +305,20 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	e.fillTransientHistoryFromPrefilterF32(overlap, transientInput[:preemphBufSize])
 	isSilence := e.applyPreemphasisWithScalingAndSilenceCore(samplesForFrame, preemph, frameSize, overlap)
 
-	allowWeakTransients := false
-	if e.hybrid {
-		effectiveBytes := int(e.maxPayloadBytes)
-		if effectiveBytes <= 0 {
-			bits := e.BitrateToBits(frameSize)
-			effectiveBytes = (bits + 7) / 8
-		}
-		allowWeakTransients = effectiveBytes < 15 && e.silkSignalType != 2
-	}
+	// Initialize the range encoder, then the frame budget: byte budget, VBR
+	// rate and equiv_rate (celt_encoder.c:1873-1927). VBR starts from the full
+	// payload cap and shrinks once dynalloc and the allocation trim are coded.
+	e.clearLastQEXTPayload()
+	buf := ensureByteSlice(&e.scratch.reBuf, int(e.packetSizeCap()))
+	re := &e.scratch.rangeEncoder
+	re.Init(buf)
+	e.SetRangeEncoder(re)
+	budget := e.initFrameBudget(frameSize, lm, codedChannels, e.payloadBudget(frameSize), re)
+	re.Shrink(uint32(budget.nbCompressedBytes))
+
+	// Reduces the likelihood of energy instability on fricatives at low bitrate
+	// in hybrid mode (celt_encoder.c:2028).
+	allowWeakTransients := e.hybrid && budget.effectiveBytes < 15 && e.silkSignalType != 2
 
 	// Call transient analysis with the pre-emphasized signal (N+overlap samples)
 	// and the libopus hybrid weak-transient gate when a SILK handoff is active.
@@ -392,48 +357,41 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	// tf_estimate=0.2 override through patch_transient_decision() after MDCT
 	// analysis, not unconditionally at frame start.
 
-	// Step 5: Initialize range encoder and encode early flags (silence/postfilter).
-	// In VBR/CVBR mode libopus starts with the current packet cap, then shrinks
-	// after dynalloc and trim once current-frame VBR inputs are known.
-	targetBytes := e.computeInitialTargetBytes(frameSize)
-	targetBits := targetBytes * 8
-	e.frameBits = int32(targetBits)
-	defer func() { e.frameBits = 0 }()
-	e.clearLastQEXTPayload()
-
-	bufSize := max(targetBytes, 256)
-	buf := e.scratch.reBuf
-	if len(buf) < bufSize {
-		buf = make([]byte, bufSize)
-		e.scratch.reBuf = buf
-	}
-	buf = buf[:bufSize]
-	re := &e.scratch.rangeEncoder
-	re.Init(buf)
-	re.Shrink(uint32(targetBytes))
-	e.SetRangeEncoder(re)
-
+	// Step 5: Encode the early flags (silence/postfilter).
 	tell := re.Tell()
+	if e.constrainVBRBudget(&budget, tell) {
+		re.Shrink(uint32(budget.nbCompressedBytes))
+	}
+	totalBits := budget.TotalBits()
+	e.frameBits = int32(totalBits)
+	defer func() { e.frameBits = 0 }()
+
 	if tell == 1 {
 		if isSilence {
 			re.EncodeBit(1, 15)
-			// libopus celt_encode_with_ec does NOT short-circuit a silent frame:
+			// In VBR a silent frame needs no more than the minimum.
+			if budget.vbrRate > 0 {
+				budget.nbCompressedBytes = min(budget.nbCompressedBytes, 2)
+				budget.effectiveBytes = budget.nbCompressedBytes
+				budget.nbAvailableBytes = 2
+				re.Shrink(uint32(budget.nbCompressedBytes))
+			}
+			// libopus celt_encode_with_ec does not short-circuit a silent frame:
 			// after coding the silence flag it pretends the budget is full (no band
 			// bits are spent) but still runs the full pipeline, so run_prefilter()
 			// shifts prefilter_mem and consec_transient advances via
-			// transient_got_disabled. Replicate that state evolution here (the
-			// prefilter runs with enabled=false, which only shifts the comb-filter
-			// history) so the encoder state carried into the post-silence recovery
-			// frame matches libopus and the recovery encode stays byte-exact.
+			// transient_got_disabled. The prefilter runs with enabled=false, which
+			// only shifts the comb-filter history, so the encoder state carried
+			// into the post-silence frame matches libopus.
 			maxPitchRatio := float32(1.0)
 			if e.analysisValid {
 				maxPitchRatio = e.analysisMaxPitchRatio
 			}
-			e.runPrefilter(preemph, frameSize, e.TapsetDecision(), false, tfEstimate, targetBytes, toneFreq, toneishness, maxPitchRatio)
+			e.runPrefilter(preemph, frameSize, e.TapsetDecision(), false, tfEstimate, int(budget.nbAvailableBytes), toneFreq, toneishness, maxPitchRatio)
 			if !e.IsHybrid() {
 				e.updateTemporalVBRSilence(nbBands, codedChannels)
 			}
-			return e.finishEncodedSilenceFrame(re, frameSize, targetBytes)
+			return e.finishEncodedSilenceFrame(re, &budget, lm, codedChannels)
 		}
 		re.EncodeBit(0, 15)
 	} else {
@@ -447,12 +405,12 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		}
 	}
 	prefilterTapset := e.TapsetDecision()
-	// Match libopus run_prefilter enable gating.
-	enabled := start == 0 &&
-		(targetBytes > 12*codedChannels || (e.lfe && targetBytes > 3)) &&
+	// Match libopus run_prefilter enable gating (celt_encoder.c:2037).
+	nbAvailableBytes := int(budget.nbAvailableBytes)
+	enabled := ((e.lfe && nbAvailableBytes > 3) || nbAvailableBytes > 12*codedChannels) &&
 		!e.IsHybrid() &&
 		!isSilence &&
-		re.Tell()+16 <= targetBits &&
+		re.Tell()+16 <= totalBits &&
 		!e.disablePrefilter
 	prevPrefilterPeriod := e.prefilterPeriod
 	prevPrefilterGain := e.prefilterGain
@@ -461,17 +419,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	if e.analysisValid {
 		maxPitchRatio = e.analysisMaxPitchRatio
 	}
-	pfResult := e.runPrefilter(preemph, frameSize, prefilterTapset, enabled, tfEstimate, targetBytes, toneFreq, toneishness, maxPitchRatio)
-	// Keep stateful prefilter output on float32 precision to match libopus float path.
+	pfResult := e.runPrefilter(preemph, frameSize, prefilterTapset, enabled, tfEstimate, nbAvailableBytes, toneFreq, toneishness, maxPitchRatio)
+	pitchChange := e.pitchChanged(pfResult, prevPrefilterPeriod, prevPrefilterGain)
 
-	e.lastPitchChange = false
-	if prevPrefilterPeriod > 0 && (pfResult.gain > 0.4 || prevPrefilterGain > 0.4) {
-		upper := int(float32(1.26) * float32(prevPrefilterPeriod))
-		lower := int(float32(0.79) * float32(prevPrefilterPeriod))
-		e.lastPitchChange = pfResult.pitch > upper || pfResult.pitch < lower
-	}
-
-	if !e.IsHybrid() && start == 0 && re.Tell()+16 <= targetBits {
+	if !e.IsHybrid() && start == 0 && re.Tell()+16 <= totalBits {
 		if !pfResult.on {
 			re.EncodeBit(0, 1)
 		} else {
@@ -490,7 +441,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	// fit, consecutive-transient history still advances even for non-transients.
 	transientGotDisabled := false
 	shortBlocks := 1
-	if lm > 0 && re.Tell()+3 <= targetBits {
+	if lm > 0 && re.Tell()+3 <= totalBits {
 		if transient {
 			shortBlocks = mode.ShortBlocks
 		}
@@ -611,6 +562,15 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	if e.lfe {
 		applyLFEBandLogEClamp(energies, nbBands, codedChannels)
 	}
+	end := nbBands
+
+	// Temporal VBR (not for LFE) runs on the band energies of the transient
+	// analysis block decision, before the transient patch below
+	// (celt_encoder.c:2186-2202).
+	e.lastTemporalVBR = 0
+	if !e.lfe {
+		e.lastTemporalVBR = e.updateSpecAvg(energies, start, end, nbBands, codedChannels, shortBlocks > 1, lm)
+	}
 	if !secondMdct {
 		bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, len(energies))
 		copy(bandLogE2, energies)
@@ -621,8 +581,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	// Particularly important for the first frame where buffer initialization may cause
 	// false negatives in transient_analysis().
 	// Reference: libopus celt/celt_encoder.c lines 2215-2231
-	end := nbBands
-	if lm > 0 && !transient && e.complexity >= 5 && !e.IsHybrid() && !e.lfe {
+	if lm > 0 && re.Tell()+3 <= totalBits && !transient && e.complexity >= 5 && !e.IsHybrid() && !e.lfe {
 		// Get previous frame's band energies (oldBandE in libopus)
 		oldBandE := ensureGLogSlice(&e.scratch.coarseOldStart, len(e.prevEnergy))
 		copy(oldBandE, e.prevEnergy)
@@ -708,7 +667,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	// Transient flag: only encode if LM>0 and budget allows
 	// Reference: libopus celt_encoder.c line 2063-2069
 	// if (LM>0 && ec_tell(enc)+3<=total_bits)
-	if lm > 0 && re.Tell()+3 <= targetBits {
+	if lm > 0 && re.Tell()+3 <= totalBits {
 		var transientBit int
 		if transient {
 			transientBit = 1
@@ -760,7 +719,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	}
 
 	intra := false
-	if re.Tell()+3 <= targetBits {
+	if re.Tell()+3 <= totalBits {
 		intra = e.DecideIntraMode(energies, start, nbBands, lm)
 		var intraBit int
 		if intra {
@@ -808,69 +767,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		copy(normRCelt, normR)
 	}
 
-	// Step 11.0.7: Compute temporal VBR from current frame band energies.
-	// Reference: libopus celt_encoder.c lines 2186-2202.
-	// Stores the result for next frame's VBR target (one-frame lag is negligible
-	// due to the slow IIR coefficient of 0.02).
-	if !e.lfe {
-		follow := float32(-10.0)
-		frameAvg := float32(0.0)
-		offset := float32(0.0)
-		if shortBlocks > 1 {
-			offset = float32(lm) * 0.5
-		}
-		bandEnd := min(end, nbBands)
-		for i := start; i < bandEnd; i++ {
-			v := float32(analysisEnergies[i]) - offset
-			if follow-1.0 > v {
-				follow = follow - 1.0
-			} else {
-				follow = v
-			}
-			if codedChannels == 2 && nbBands+i < len(analysisEnergies) {
-				v2 := float32(analysisEnergies[nbBands+i]) - offset
-				if v2 > follow {
-					follow = v2
-				}
-			}
-			frameAvg += follow
-		}
-		if bandEnd > start {
-			frameAvg /= float32(bandEnd - start)
-		}
-		temporalVBR := frameAvg - float32(e.specAvg)
-		if temporalVBR > 3.0 {
-			temporalVBR = 3.0
-		}
-		if temporalVBR < -1.5 {
-			temporalVBR = -1.5
-		}
-		e.specAvg = celtGLog(float32(e.specAvg) + float32(0.02)*temporalVBR)
-		e.lastTemporalVBR = celtGLog(temporalVBR)
-	}
-
-	// Step 11.1: Compute and encode TF (time-frequency) resolution
-	// Note: 'end' was already set earlier during patch_transient_decision
-	//
-	// effectiveBytes for VBR is the bitrate-derived budget (vbr_rate>>(3+BITRES)),
-	// used by dynalloc/TF analysis. libopus celt_encoder.c line 1908/1922.
-	effectiveBytes := 0
-	if e.vbr {
-		baseBits := e.bitrateToBits(frameSize)
-		effectiveBytes = baseBits / 8
-	} else {
-		effectiveBytes = e.cbrPayloadBytes(frameSize)
-	}
-	// equiv_rate is computed from nbCompressedBytes (the per-frame output-byte cap),
-	// NOT effectiveBytes: for VBR they differ (cap can be a byte below the
-	// bitrate-derived budget for multi-frame packets), and the stereo intensity
-	// hysteresis keys off equiv_rate/1000, so the byte count must match libopus.
-	// Reference: libopus celt/celt_encoder.c line 1925.
-	equivRateBytes := effectiveBytes
-	if e.vbr {
-		equivRateBytes = e.vbrMaxPayloadBytes(frameSize)
-	}
-	equivRate := ComputeEquivRate(equivRateBytes, codedChannels, lm, int(e.targetBitrate))
+	// Step 11.1: TF analysis, dynalloc and the stereo decisions read the
+	// rate-derived effectiveBytes and equiv_rate of the frame budget.
+	effectiveBytes := int(budget.effectiveBytes)
+	equivRate := int(budget.equivRate)
 
 	// Step 11.0.7: Compute dynalloc analysis for VBR and bit allocation
 	// This computes maxDepth, offsets, importance, and spread_weight.
@@ -899,10 +799,12 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	}
 	oldBandELen := min(nbBands*codedChannels, len(prev1LogE))
 	surroundTrimForAlloc := e.surroundTrim
+	surroundMasking := celtGLog(0)
 	var surroundDynalloc []celtGLog
 	var surroundDynallocScratch [MaxBands]celtGLog
-	if trim, ok := e.computeSurroundDynallocFromMask(nbBands, surroundDynallocScratch[:nbBands]); ok {
+	if trim, masking, ok := e.computeSurroundDynallocFromMask(nbBands, surroundDynallocScratch[:]); ok {
 		surroundTrimForAlloc = trim
+		surroundMasking = masking
 		surroundDynalloc = surroundDynallocScratch[:nbBands]
 	}
 	dynallocResult := DynallocAnalysisWithScratch(
@@ -980,13 +882,16 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		copy(normSpread[:len(normLCelt)], normLCelt)
 		copy(normSpread[len(normLCelt):], normRCelt)
 	}
+	// Every branch stores st->spread_decision: it is the hysteresis input of the
+	// next frame's spreading_decision().
 	var spread int
-	if re.Tell()+4 <= targetBits {
+	if re.Tell()+4 <= totalBits {
 		// Match libopus spread control policy:
 		// - LFE: fixed normal
 		// - Hybrid: fixed none/normal/aggressive based on complexity+transient
 		// - CELT-only low-complexity/low-rate/transient shortcuts
 		if e.lfe {
+			e.tapsetDecision = 0
 			spread = spreadNormal
 		} else if e.IsHybrid() {
 			if e.complexity == 0 {
@@ -996,7 +901,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			} else {
 				spread = spreadAggressive
 			}
-		} else if shortBlocks > 1 || e.complexity < 3 || effectiveBytes < 10*codedChannels {
+		} else if shortBlocks > 1 || e.complexity < 3 || nbAvailableBytes < 10*codedChannels {
 			if e.complexity == 0 {
 				spread = spreadNone
 			} else {
@@ -1020,6 +925,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	} else {
 		spread = spreadNormal
 	}
+	e.spreadDecision = int32(spread)
 	// Step 11.3: Initialize caps for allocation (zero-alloc)
 	caps := ensureInt32Slice(&e.scratch.caps, nbBands)
 	if pm := e.perMode; pm != nil {
@@ -1047,12 +953,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		offsets[0] = int32(min(8, effectiveBytes/3))
 	}
 	dynallocLogp := 6
-	totalBitsQ3ForDynalloc := targetBits << bitRes
+	totalBitsQ3ForDynalloc := totalBits << bitRes
 	totalBoost := 0
 	tellFracDynalloc := re.TellFrac()
-	// Store tell at the VBR decision point for next frame's target estimation.
-	// In libopus, compute_vbr receives tell at this point and adds it to the target.
-	e.lastTellFrac = tellFracDynalloc
 	for i := start; i < end; i++ {
 		// Compute band width and quanta (how many bits per boost step)
 		// Reference: libopus lines 2366-2369
@@ -1168,36 +1071,48 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		}
 		re.EncodeICDF(allocTrim, trimICDF, 7)
 	}
-	if e.vbr {
-		targetBytes = e.computeFinalVBRTargetBytes(frameSize, tfEstimate, e.lastPitchChange, re.TellFrac(), totalBoost, targetBytes)
-		targetBits = targetBytes * 8
-		e.frameBits = int32(targetBits)
-		re.Shrink(uint32(targetBytes))
+	// Variable bitrate: size the frame from the compute_vbr target now that the
+	// side information is coded (celt_encoder.c:2419-2533).
+	vbrIn := vbrFrameInputs{
+		lm:              lm,
+		c:               codedChannels,
+		tell:            int32(re.TellFrac()),
+		totalBoost:      int32(totalBoost),
+		totBoost:        int32(dynallocResult.TotBoost),
+		tfEstimate:      tfEstimate,
+		pitchChange:     pitchChange,
+		maxDepth:        dynallocResult.MaxDepth,
+		surroundMasking: surroundMasking,
+		temporalVBR:     e.lastTemporalVBR,
+	}
+	if budget.vbrRate > 0 {
+		e.applyVBR(&budget, vbrIn)
+		e.frameBits = int32(budget.TotalBits())
+		re.Shrink(uint32(budget.nbCompressedBytes))
 		if re.Error() != 0 {
 			return nil, ErrEncodingFailed
 		}
 	}
+	targetBytes := int(budget.nbCompressedBytes)
+	targetBits := targetBytes * 8
 	var qextEnc *rangecoding.Encoder
 	var qextExtraBits []int32
 	var qextFineBits []int32
 	qextPayloadBytes := 0
 	if extsupport.QEXT && e.qextActive() && !e.IsHybrid() {
-		minAllowed := ((re.TellFrac() + totalBoost + (1 << (bitRes + 3)) - 1) >> (bitRes + 3)) + 2
+		minAllowed := int(e.minAllowedBytes(&budget, vbrIn))
 		// For CBR mode, libopus calls compute_vbr(base=initialTarget, tf2=min(1,2*tf), ...)
 		// to estimate the natural VBR target, then passes that as the adjustment pivot.
 		// For VBR/CVBR, targetBytes is already the VBR target so no extra computation is needed.
 		// Reference: celt/celt_encoder.c lines 2543-2556.
 		cbrVBRTargetBytes := 0
-		if !e.vbr {
-			tf2 := 2 * tfEstimate
-			if tf2 > 1.0 {
-				tf2 = 1.0
-			}
+		if budget.vbrRate == 0 {
 			offsetBytes := (codedChannels * 80000 * frameSize) / (e.celtModeFs() * 8)
 			initialQextBytes := max(targetBytes-1275, max(0, (targetBytes-offsetBytes)*4/5))
 			overheadQ3 := (40*codedChannels + 20) << bitRes
 			baseQ3 := max((targetBytes-initialQextBytes/3)*8<<bitRes-overheadQ3, 0)
-			vbrQ3 := e.computeVBRTargetWithBoost(baseQ3, frameSize, tf2, e.lastPitchChange, totalBoost)
+			vbrQ3 := int(e.computeVBR(int32(baseQ3), lm, codedChannels, budget.equivRate, int32(dynallocResult.TotBoost),
+				min(1, 2*tfEstimate), pitchChange, dynallocResult.MaxDepth, surroundMasking, e.lastTemporalVBR))
 			vbrQ3 += re.TellFrac()
 			cbrVBRTargetBytes = max((vbrQ3+(1<<(bitRes+2)))>>(bitRes+3), 0)
 		}
@@ -1859,68 +1774,64 @@ func computeMDCTWithHistoryScratchStereoROverlap(samples, history []float32, sho
 	return coeffs[:frameSize]
 }
 
-// updateTemporalVBRSilence advances the temporal-VBR running average (st->spec_avg)
-// for a silent frame. libopus does NOT short-circuit a silent frame: it runs the
-// full pipeline (compute_mdcts on the ~zero input, compute_band_energies, ...,
-// the temporal-VBR block at celt_encoder.c lines 2186-2202) so spec_avg keeps
-// decaying toward the silence floor while DTX/silence frames are emitted. The
-// gopus silence fast path returns early, so this reproduces just that spec_avg
-// update on the silence-floor band energies, keeping the value carried into the
-// post-silence recovery frame's VBR target bit-exact with libopus. start is 0
-// (CELT-only) and a silent frame is never transient, so offset is 0.
+// updateSpecAvg ports the temporal-VBR analysis of celt_encode_with_ec
+// (celt/celt_encoder.c:2186-2202): it follows the band-energy envelope over
+// [start,end), advances the spectral average st->spec_avg, and returns
+// temporal_vbr, the frame's clamped deviation from that average. bandLogE holds
+// C channels with a channel stride of nbBands; shortBlocks compensates the
+// short-MDCT energy scale.
+func (e *Encoder) updateSpecAvg(bandLogE []celtGLog, start, end, nbBands, c int, shortBlocks bool, lm int) celtGLog {
+	follow := celtGLog(-10)
+	frameAvg := float32(0)
+	offset := celtGLog(0)
+	if shortBlocks {
+		offset = 0.5 * celtGLog(lm)
+	}
+	for i := start; i < end; i++ {
+		follow = max(follow-1, bandLogE[i]-offset)
+		if c == 2 {
+			follow = max(follow, bandLogE[i+nbBands]-offset)
+		}
+		frameAvg += follow
+	}
+	frameAvg /= float32(end - start)
+	temporalVBR := min(3, max(-1.5, frameAvg-e.specAvg))
+	e.specAvg += 0.02 * temporalVBR
+	return temporalVBR
+}
+
+// updateTemporalVBRSilence advances st->spec_avg for a silent frame. libopus does
+// not short-circuit a silent frame: it runs the full pipeline (compute_mdcts on
+// the silent input, compute_band_energies, and the temporal-VBR analysis), so
+// spec_avg keeps decaying toward the silence floor while silence frames are
+// emitted. The silence fast path reproduces that update on the silence-floor
+// band energies. A silent frame codes no transient flag, so it never uses short
+// blocks.
 func (e *Encoder) updateTemporalVBRSilence(nbBands, codedChannels int) {
 	if e.lfe || nbBands <= 0 {
 		return
 	}
-	bandEnd := nbBands
 	silenceFreq := ensureFloat32Slice(&e.scratch.silenceFreqVBR, nbBands*codedChannels)
 	for i := range silenceFreq {
 		silenceFreq[i] = 0
 	}
 	silenceE := ensureGLogSlice(&e.scratch.silenceEnergyVBR, nbBands*codedChannels)
 	e.computeBandEnergiesGLogActive(silenceFreq, nbBands, nbBands, codedChannels, 1, silenceE)
-
-	follow := float32(-10.0)
-	frameAvg := float32(0.0)
-	for i := range bandEnd {
-		v := float32(silenceE[i])
-		if follow-1.0 > v {
-			follow = follow - 1.0
-		} else {
-			follow = v
-		}
-		if codedChannels == 2 && nbBands+i < len(silenceE) {
-			v2 := float32(silenceE[nbBands+i])
-			if v2 > follow {
-				follow = v2
-			}
-		}
-		frameAvg += follow
-	}
-	if bandEnd > 0 {
-		frameAvg /= float32(bandEnd)
-	}
-	temporalVBR := frameAvg - float32(e.specAvg)
-	if temporalVBR > 3.0 {
-		temporalVBR = 3.0
-	}
-	if temporalVBR < -1.5 {
-		temporalVBR = -1.5
-	}
-	e.specAvg = celtGLog(float32(e.specAvg) + float32(0.02)*temporalVBR)
-	e.lastTemporalVBR = celtGLog(temporalVBR)
+	e.lastTemporalVBR = e.updateSpecAvg(silenceE, 0, nbBands, nbBands, codedChannels, false, 0)
 }
 
-func (e *Encoder) finishEncodedSilenceFrame(re *rangecoding.Encoder, frameSize, targetBytes int) ([]byte, error) {
-	if e.vbr && e.targetBitrate != opusBitrateMax {
-		targetBytes = e.applyVBRSilenceTarget(frameSize, targetBytes)
-		re.Shrink(uint32(targetBytes))
+// finishEncodedSilenceFrame completes a frame whose silence flag is coded. The
+// VBR block still runs: the frame is sized to two bytes and the VBR averaging
+// state and constrained-VBR reservoir advance with a zero drift (celt_encoder.c
+// silence override of the VBR block).
+func (e *Encoder) finishEncodedSilenceFrame(re *rangecoding.Encoder, budget *FrameBudget, lm, c int) ([]byte, error) {
+	if budget.vbrRate > 0 {
+		e.applyVBR(budget, vbrFrameInputs{lm: lm, c: c, silence: true})
+		re.Shrink(uint32(budget.nbCompressedBytes))
 		if re.Error() != 0 {
 			return nil, ErrEncodingFailed
 		}
-		e.frameBits = int32(targetBytes * 8)
 	}
-	e.lastTellFrac = targetBytes * 8 << bitRes
 
 	prev1LogE := e.scratch.prev1LogE
 	if len(prev1LogE) < len(e.prevEnergy) {
@@ -1942,16 +1853,13 @@ func (e *Encoder) finishEncodedSilenceFrame(re *rangecoding.Encoder, frameSize, 
 	// libopus codes a silent frame with the budget pretended full, so the
 	// transient flag never fits: transient_got_disabled=1 and consec_transient
 	// advances (celt_encoder.c: "if (isTransient || transient_got_disabled)
-	// st->consec_transient++"). The shortcut previously reset it to 0, which
-	// diverged the post-silence recovery frame's transient/anti-collapse state.
+	// st->consec_transient++").
 	e.consecTransient++
 	// libopus runs clt_compute_allocation on the silent frame too (with the
 	// 2-byte budget), which yields codedBands==1, then slews lastCodedBands toward
 	// it by at most ±1 (celt_encoder.c: lastCodedBands = IMIN(lcb+1, IMAX(lcb-1,
-	// codedBands))). Over a silence run this decays lastCodedBands down to 1; the
-	// gopus silence fast path skips the allocator, so apply the same slew with the
-	// silent-frame codedBands==1 to keep the value (which feeds the post-silence
-	// recovery frame's compute_vbr coded_bins) bit-exact with libopus.
+	// codedBands))). Over a silence run this decays lastCodedBands down to 1, the
+	// value the post-silence frame's compute_vbr coded_bins reads.
 	const silenceCodedBands = 1
 	if e.lastCodedBands != 0 {
 		lcb := int(e.lastCodedBands)
@@ -1962,32 +1870,6 @@ func (e *Encoder) finishEncodedSilenceFrame(re *rangecoding.Encoder, frameSize, 
 	e.IncrementFrameCount()
 	e.rng = re.Range()
 	return re.Done(), nil
-}
-
-func (e *Encoder) applyVBRSilenceTarget(frameSize, targetBytes int) int {
-	if targetBytes > 2 {
-		targetBytes = 2
-	}
-	vbrRateQ3 := e.bitrateToBits(frameSize) << bitRes
-	if vbrRateQ3 <= 0 {
-		return targetBytes
-	}
-	alpha := float32(0.001)
-	if e.vbrCount < 970 {
-		e.vbrCount++
-		alpha = 1.0 / float32(e.vbrCount+20)
-	}
-	if e.constrainedVBR {
-		targetQ3 := 2 * 8 << bitRes
-		e.vbrReservoir = int32(int(e.vbrReservoir) + targetQ3 - vbrRateQ3)
-		driftDelta := -int(e.vbrOffset) - int(e.vbrDrift)
-		e.vbrDrift += int32(alpha * float32(driftDelta))
-		e.vbrOffset = -e.vbrDrift
-		if e.vbrReservoir < 0 {
-			e.vbrReservoir = 0
-		}
-	}
-	return targetBytes
 }
 
 // EncodeFrameWithOptions encodes a frame with additional control options.
@@ -2025,488 +1907,6 @@ func (e *Encoder) EncodeStereoFrame(left, right []float32, frameSize int) ([]byt
 	// Interleave for standard encoding path
 	interleaved := InterleaveStereoF32(left, right)
 	return e.EncodeFrame(interleaved, frameSize)
-}
-
-// bitrateToBits returns the base target bits from bitrate and frame size.
-// This mirrors libopus bitrate_to_bits() for CELT frames.
-func (e *Encoder) bitrateToBits(frameSize int) int {
-	bitrate := int(e.targetBitrate)
-	if bitrate <= 0 {
-		if e.channels == 2 {
-			bitrate = 128000
-		} else {
-			bitrate = 64000
-		}
-	}
-	if bitrate < 6000 {
-		bitrate = 6000
-	}
-	if bitrate > 510000 {
-		bitrate = 510000
-	}
-	return bitrate * frameSize / e.celtModeFs()
-}
-
-// celtModeFs returns the CELT mode sample rate used by the bitrate<->bytes
-// conversions (libopus mode->Fs). It is 48000 for the standard modes and 96000
-// for the native 96 kHz HD mode. The 48 kHz path is unchanged.
-func (e *Encoder) celtModeFs() int {
-	if e.hd96kOverlap > 0 && e.sampleRate == 96000 {
-		return 96000
-	}
-	return 48000
-}
-
-// cbrPayloadBytes computes the CBR payload size (excluding TOC).
-// This matches libopus's CBR byte formula and subtracts the TOC byte.
-func (e *Encoder) cbrPayloadBytes(frameSize int) int {
-	fs := e.celtModeFs()
-	bitrate := int(e.targetBitrate)
-	if bitrate == opusBitrateMax {
-		packetSizeCap := 1275
-		if extsupport.QEXT && e.qextActive() && !e.hybrid {
-			packetSizeCap = qextPacketSizeCap
-		}
-		payload := packetSizeCap - 1
-		if e.maxPayloadBytes > 0 && payload > int(e.maxPayloadBytes) {
-			payload = int(e.maxPayloadBytes)
-		}
-		if payload < 0 {
-			payload = 0
-		}
-		return payload
-	}
-	if bitrate <= 0 {
-		if e.channels == 2 {
-			bitrate = 128000
-		} else {
-			bitrate = 64000
-		}
-	}
-	if bitrate < 6000 {
-		bitrate = 6000
-	}
-	nbCompressed := max((bitrate*frameSize+4*fs)/(8*fs), 2)
-	packetSizeCap := 1275
-	if extsupport.QEXT && e.qextActive() && !e.hybrid {
-		packetSizeCap = qextPacketSizeCap
-	}
-	if nbCompressed > packetSizeCap {
-		nbCompressed = packetSizeCap
-	}
-	payload := max(
-		// subtract TOC byte
-		nbCompressed-1, 0)
-	if e.maxPayloadBytes > 0 && payload > int(e.maxPayloadBytes) {
-		payload = int(e.maxPayloadBytes)
-	}
-	return payload
-}
-
-func (e *Encoder) vbrMaxPayloadBytes(frameSize int) int {
-	mode := e.modeConfig(frameSize)
-	lm := mode.LM
-	packetSizeCap := 1275
-	if extsupport.QEXT && e.qextActive() && !e.hybrid {
-		packetSizeCap = qextPacketSizeCap
-	}
-	maxBytes := max((packetSizeCap>>(3-lm))-1, 2)
-	if e.maxPayloadBytes > 0 && maxBytes > int(e.maxPayloadBytes) {
-		maxBytes = int(e.maxPayloadBytes)
-	}
-	return maxBytes
-}
-
-func (e *Encoder) computeInitialTargetBytes(frameSize int) int {
-	if !e.vbr {
-		return e.cbrPayloadBytes(frameSize)
-	}
-	targetBytes := e.vbrMaxPayloadBytes(frameSize)
-	if e.constrainedVBR {
-		vbrRateQ3 := e.bitrateToBits(frameSize) << bitRes
-		boundScale := e.constrainedVBRBoundScale
-		if boundScale < 0 {
-			boundScale = 0
-		} else if boundScale > 1 {
-			boundScale = 1
-		}
-		vbrBoundQ3 := int(float32(vbrRateQ3) * boundScale)
-		maxAllowedBytes := max((vbrRateQ3+vbrBoundQ3-int(e.vbrReservoir))>>(bitRes+3), 2)
-		if targetBytes > maxAllowedBytes {
-			targetBytes = maxAllowedBytes
-		}
-	}
-	if targetBytes < 2 {
-		targetBytes = 2
-	}
-	return targetBytes
-}
-
-func (e *Encoder) computeFinalVBRTargetBytes(frameSize int, tfEstimate float32, pitchChange bool, tellFrac, totalBoost, limitBytes int) int {
-	mode := e.modeConfig(frameSize)
-	lm := mode.LM
-	lmDiff := max(3-lm, 0)
-
-	vbrRateQ3 := e.bitrateToBits(frameSize) << bitRes
-	channels := e.codedChannels()
-	overheadQ3 := (40*channels + 20) << bitRes
-	if e.hybrid {
-		overheadQ3 = (9*channels + 4) << bitRes
-	}
-	baseTargetQ3 := max(vbrRateQ3-overheadQ3, 0)
-	if e.constrainedVBR {
-		baseTargetQ3 += int(e.vbrOffset) >> lmDiff
-	}
-
-	targetQ3 := baseTargetQ3
-	if e.hybrid {
-		if e.silkOffset < 100 {
-			targetQ3 += (12 << bitRes) >> lmDiff
-		} else if e.silkOffset > 100 {
-			targetQ3 -= (18 << bitRes) >> lmDiff
-		}
-		tfBoost := int((tfEstimate - 0.25) * float32(50<<bitRes))
-		targetQ3 += tfBoost
-		if tfEstimate > 0.7 {
-			minHybridTarget := 50 << bitRes
-			if targetQ3 < minHybridTarget {
-				targetQ3 = minHybridTarget
-			}
-		}
-	} else {
-		targetQ3 = e.computeVBRTargetWithBoost(baseTargetQ3, frameSize, tfEstimate, pitchChange, totalBoost)
-	}
-	targetQ3 += tellFrac
-
-	targetBytes := (targetQ3 + (1 << (bitRes + 2))) >> (bitRes + 3)
-	minAllowed := ((tellFrac + totalBoost + (1 << (bitRes + 3)) - 1) >> (bitRes + 3)) + 2
-	if e.hybrid {
-		hybridMin := (tellFrac + (37 << bitRes) + totalBoost + (1 << (bitRes + 3)) - 1) >> (bitRes + 3)
-		if minAllowed < hybridMin {
-			minAllowed = hybridMin
-		}
-	}
-	if targetBytes < minAllowed {
-		targetBytes = minAllowed
-	}
-	if targetBytes > limitBytes {
-		targetBytes = limitBytes
-	}
-	if targetBytes < 2 {
-		targetBytes = 2
-	}
-	if e.constrainedVBR {
-		deltaQ3 := targetQ3 - vbrRateQ3
-		targetQ3 = targetBytes << (bitRes + 3)
-		if e.vbrCount < 970 {
-			e.vbrCount++
-			alpha := float32(1.0) / float32(e.vbrCount+20)
-			driftDelta := (deltaQ3 << lmDiff) - int(e.vbrOffset) - int(e.vbrDrift)
-			e.vbrDrift += int32(alpha * float32(driftDelta))
-		} else {
-			driftDelta := (deltaQ3 << lmDiff) - int(e.vbrOffset) - int(e.vbrDrift)
-			e.vbrDrift += int32(float32(0.001) * float32(driftDelta))
-		}
-		e.vbrReservoir = int32(int(e.vbrReservoir) + targetQ3 - vbrRateQ3)
-		e.vbrOffset = -e.vbrDrift
-		if e.vbrReservoir < 0 {
-			adjust := int(-e.vbrReservoir) / (8 << bitRes)
-			targetBytes += adjust
-			e.vbrReservoir = 0
-			if targetBytes > limitBytes {
-				targetBytes = limitBytes
-			}
-		}
-	}
-
-	return targetBytes
-}
-
-// computeTargetBits computes the target CELT bit budget in bits.
-// Reference: libopus celt/celt_encoder.c compute_vbr().
-func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float32, pitchChange bool) int {
-	// CBR path uses fixed payload size.
-	if !e.vbr {
-		targetBits := e.cbrPayloadBytes(frameSize) * 8
-		return targetBits
-	}
-
-	mode := e.modeConfig(frameSize)
-	lm := mode.LM
-	lmDiff := max(3-lm, 0)
-
-	baseBits := e.bitrateToBits(frameSize)
-
-	// Frame-size-dependent maximum payload bytes (510 kb/s physical limit).
-	// Reference: libopus celt_encoder.c line 2445:
-	//   nbCompressedBytes = IMIN(nbCompressedBytes, packet_size_cap >> (3-LM))
-	// packet_size_cap = 1275 (total); subtract 1 for TOC-excluded payload.
-	// In libopus VBR mode, nbCompressedBytes is the buffer cap (not bitrate-derived).
-	// The per-bitrate constraint comes from CVBR reservoir tracking.
-	packetSizeCap := 1275
-	if extsupport.QEXT && e.qextActive() && !e.hybrid {
-		packetSizeCap = qextPacketSizeCap
-	}
-	vbrMaxBytes := max((packetSizeCap>>(3-lm))-1, 2)
-
-	// Convert to Q3 format (8ths of bits) for VBR computation
-	// Reference: libopus celt_encoder.c line 1903
-	vbrRateQ3 := baseBits << bitRes
-
-	// Compute base_target with overhead subtraction
-	// Reference: libopus celt_encoder.c line 2448
-	// base_target = vbr_rate - ((40*C+20)<<BITRES)
-	channels := e.codedChannels()
-	overheadQ3 := (40*channels + 20) << bitRes
-	baseTargetQ3 := max(vbrRateQ3-overheadQ3, 0)
-	if e.constrainedVBR {
-		// libopus line 2453-2454: base_target += (vbr_offset >> lm_diff)
-		baseTargetQ3 += int(e.vbrOffset) >> lmDiff
-	}
-
-	// For VBR mode, apply boost based on signal characteristics.
-	targetQ3 := e.computeVBRTarget(baseTargetQ3, frameSize, tfEstimate, pitchChange)
-
-	// libopus adds ec_tell_frac(enc) to the VBR target before converting to
-	// bytes (line 2478). This accounts for side information already written
-	// (silence, postfilter, TF, trim, energy, etc.). Since gopus computes
-	// the VBR target before encoding side information, we use the previous
-	// frame's tell as an estimate. For frame 0, fall back to the static
-	// overhead estimate.
-	tellEstQ3 := e.lastTellFrac
-	if tellEstQ3 == 0 {
-		tellEstQ3 = overheadQ3
-	}
-	targetQ3 += tellEstQ3
-
-	// libopus line 2480: nbAvailableBytes = (target+(1<<(BITRES+2)))>>(BITRES+3)
-	targetBytes := max((targetQ3+(1<<(bitRes+2)))>>(bitRes+3), 2)
-
-	// libopus line 2428: min_allowed = ((tell+total_boost+(1<<(BITRES+3))-1)>>(BITRES+3)) + 2
-	// Use estimated tell and previous frame's total_boost since gopus computes
-	// VBR target before encoding side information.
-	totalBoostEst := e.lastDynalloc.TotBoost
-	minAllowed := ((tellEstQ3 + totalBoostEst + (1 << (bitRes + 3)) - 1) >> (bitRes + 3)) + 2
-	if targetBytes < minAllowed {
-		targetBytes = minAllowed
-	}
-	// libopus line 2482: nbAvailableBytes = IMIN(nbCompressedBytes, nbAvailableBytes)
-	// Cap VBR target to CBR-derived maximum payload.
-	if targetBytes > vbrMaxBytes {
-		targetBytes = vbrMaxBytes
-	}
-
-	if e.constrainedVBR {
-		// libopus line 1949-1952: bound packet size from reservoir state.
-		boundScale := e.constrainedVBRBoundScale
-		if boundScale <= 0 {
-			boundScale = 0
-		} else if boundScale > 1 {
-			boundScale = 1
-		}
-		vbrBoundQ3 := int(float32(vbrRateQ3) * boundScale)
-		maxAllowedBytes := max((vbrRateQ3+vbrBoundQ3-int(e.vbrReservoir))>>(bitRes+3), 2)
-		if targetBytes > maxAllowedBytes {
-			targetBytes = maxAllowedBytes
-		}
-
-		// libopus line 2485: delta = target - vbr_rate (Q3 units).
-		deltaQ3 := targetQ3 - vbrRateQ3
-		targetQ3 = targetBytes << (bitRes + 3)
-
-		// libopus line 2501-2506: adaptive smoothing factor.
-		if e.vbrCount < 970 {
-			e.vbrCount++
-		}
-		alpha := float32(0.001)
-		if e.vbrCount < 970 {
-			alpha = 1.0 / float32(e.vbrCount+20)
-		}
-
-		// libopus line 2508-2517: reservoir and drift/offset update.
-		e.vbrReservoir = int32(int(e.vbrReservoir) + targetQ3 - vbrRateQ3)
-		driftDelta := (deltaQ3 << lmDiff) - int(e.vbrOffset) - int(e.vbrDrift)
-		e.vbrDrift += int32(alpha * float32(driftDelta))
-		e.vbrOffset = -e.vbrDrift
-
-		// libopus line 2520-2528: refill from min reservoir if needed.
-		if e.vbrReservoir < 0 {
-			adjust := int(-e.vbrReservoir) / (8 << bitRes)
-			targetBytes += adjust
-			e.vbrReservoir = 0
-		}
-		// libopus line 2529: nbCompressedBytes = IMIN(nbCompressedBytes, nbAvailableBytes)
-		// Final cap after reservoir adjustment.
-		if targetBytes > vbrMaxBytes {
-			targetBytes = vbrMaxBytes
-		}
-	}
-
-	targetBits := targetBytes * 8
-	if e.maxPayloadBytes > 0 {
-		maxBits := int(e.maxPayloadBytes) * 8
-		if targetBits > maxBits {
-			targetBits = maxBits
-		}
-	}
-
-	// Clamp to reasonable bounds.
-	// Minimum: 2 bytes (16 bits).
-	// Maximum: frame-size-dependent cap (libopus packet_size_cap >> (3-LM)).
-	if targetBits < 16 {
-		targetBits = 16
-	}
-	maxBits := vbrMaxBytes * 8
-	if targetBits > maxBits {
-		targetBits = maxBits
-	}
-	return targetBits
-}
-
-// computeVBRTarget applies libopus-style CELT VBR shaping in Q3 units.
-func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float32, pitchChange bool) int {
-	return e.computeVBRTargetWithBoost(baseTargetQ3, frameSize, tfEstimate, pitchChange, e.lastDynalloc.TotBoost)
-}
-
-func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstimate float32, pitchChange bool, totalBoost int) int {
-	mode := e.modeConfig(frameSize)
-	lm := mode.LM
-	nbBands := e.effectiveBandCount(frameSize)
-	channels := e.codedChannels()
-
-	codedBands := nbBands
-	lastCodedBands := int(e.lastCodedBands)
-	if lastCodedBands > 0 && lastCodedBands < nbBands {
-		codedBands = lastCodedBands
-	}
-	if codedBands < 0 {
-		codedBands = 0
-	}
-	if codedBands >= len(EBands) {
-		codedBands = len(EBands) - 1
-	}
-	codedBins := EBands[codedBands] << lm
-	if channels == 2 {
-		codedStereoBands := codedBands
-		intensity := int(e.intensity)
-		if intensity < codedStereoBands {
-			codedStereoBands = intensity
-		}
-		if codedStereoBands < 0 {
-			codedStereoBands = 0
-		}
-		codedBins += EBands[codedStereoBands] << lm
-	}
-
-	targetQ3 := baseTargetQ3
-	activity := float32(e.analysisActivity)
-	if e.analysisValid && activity < 0.4 {
-		targetQ3 -= int(float32(codedBins<<bitRes) * (0.4 - activity))
-	}
-
-	// Stereo savings (libopus compute_vbr(): applied before dynalloc boost).
-	if channels == 2 && codedBins > 0 {
-		codedStereoBands := codedBands
-		intensity := int(e.intensity)
-		if intensity < codedStereoBands {
-			codedStereoBands = intensity
-		}
-		if codedStereoBands < 0 {
-			codedStereoBands = 0
-		}
-		codedStereoDof := (EBands[codedStereoBands] << lm) - codedStereoBands
-		if codedStereoDof > 0 {
-			maxFrac := float32(0.8) * float32(codedStereoDof) / float32(codedBins)
-			stereoSaving := float32(e.lastStereoSaving)
-			if stereoSaving > 1 {
-				stereoSaving = 1
-			}
-			saveA := int(maxFrac * float32(targetQ3))
-			saveB := int((stereoSaving - 0.1) * float32(codedStereoDof<<bitRes))
-			saving := min(saveB, saveA)
-			targetQ3 -= saving
-		}
-	}
-
-	// Boost the rate according to dynalloc (minus the dynalloc average for calibration).
-	calibration := 19 << lm
-	dynallocBoost := totalBoost - calibration
-	targetQ3 += dynallocBoost
-
-	// Transient boost with average compensation.
-	tfCalibration := float32(0.044)
-	if tfEstimate < 0 {
-		tfEstimate = 0
-	}
-	if tfEstimate > 1 {
-		tfEstimate = 1
-	}
-	tfBoost := int((tfEstimate - tfCalibration) * float32(targetQ3))
-	targetQ3 += tfBoost
-
-	// Tonality boost.
-	tonality := float32(e.analysisTonality)
-	if tonality < 0 {
-		tonality = 0
-	}
-	if tonality > 1 {
-		tonality = 1
-	}
-	if e.analysisValid && !e.lfe {
-		tonal := tonality - 0.15
-		if tonal < 0 {
-			tonal = 0
-		}
-		tonal -= 0.12
-		tonalTarget := targetQ3
-		tonalTarget += int(float32(codedBins<<bitRes) * 1.2 * tonal)
-		if pitchChange {
-			tonalTarget += int(float32(codedBins<<bitRes) * 0.8)
-		}
-		targetQ3 = tonalTarget
-	}
-
-	// floor_depth limit from maxDepth.
-	maxDepth := float32(e.lastDynalloc.MaxDepth)
-	bins := 0
-	if extsupport.QEXT && e.qextActive() && !e.hybrid {
-		bins = qextShortMDCTSize(frameSize) << lm
-	} else if nbBands >= 2 {
-		bins = EBands[nbBands-2] << lm
-	}
-	floorDepth := int(float32((channels*bins)<<bitRes) * maxDepth)
-	if floorDepth < (targetQ3 >> 2) {
-		floorDepth = targetQ3 >> 2
-	}
-	if targetQ3 > floorDepth {
-		targetQ3 = floorDepth
-	}
-
-	// Constrained VBR makes target changes less aggressive.
-	if e.constrainedVBR && (len(e.energyMask) == 0 || e.lfe) {
-		targetQ3 = baseTargetQ3 + int(float32(0.67)*float32(targetQ3-baseTargetQ3))
-	}
-
-	// Temporal VBR: adjust target based on frame-to-frame spectral variation.
-	// Reference: libopus celt_encoder.c lines 1703-1710.
-	// In float domain: target += temporal_vbr * 0.0000031 * clamp(96000-bitrate,0,32000) * target
-	if len(e.energyMask) == 0 && tfEstimate < 0.2 {
-		bitrate := e.bitrateToBits(frameSize) * (e.celtModeFs() / frameSize) // approximate bps
-		clampedBR := min(max(96000-bitrate, 0), 32000)
-		amount := float32(0.0000031) * float32(clampedBR)
-		targetQ3 += int(float32(e.lastTemporalVBR) * amount * float32(targetQ3))
-	}
-
-	// Don't allow more than doubling the base target.
-	maxTarget := 2 * baseTargetQ3
-	if targetQ3 > maxTarget {
-		targetQ3 = maxTarget
-	}
-	if targetQ3 < 0 {
-		targetQ3 = 0
-	}
-
-	return targetQ3
 }
 
 // updateTonalityAnalysis computes tonality metrics from the current frame's MDCT coefficients

@@ -10,8 +10,6 @@ import (
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
-const opusBitrateMax = -1
-
 // Encoder encodes audio frames using CELT transform coding.
 // It maintains state across frames for proper audio continuity via energy
 // prediction and overlap-add analysis.
@@ -96,7 +94,7 @@ type Encoder struct {
 	intensity      int32 // Previous intensity stereo decision (libopus hysteresis state)
 
 	// Bitrate control
-	targetBitrate int32 // Target bitrate in bits per second (0 = use buffer size)
+	targetBitrate int32 // st->bitrate in bits per second, or BitrateMax to fill the payload budget
 	frameBits     int32 // Per-frame bit budget for coarse energy (set during encoding)
 	// coarseAvailableBytes mirrors libopus quant_coarse_energy() nbAvailableBytes.
 	// When >0, it overrides budget/8 for coarse intra/decay decisions.
@@ -129,10 +127,9 @@ type Encoder struct {
 	prevBandLogEnergy []celtGLog // Previous frame log-energy per band for spectral flux
 	lastTonality      opusVal16  // Running average tonality for smoothing
 	lastStereoSaving  opusVal16  // Running stereo_saving estimate from alloc_trim analysis
-	lastPitchChange   bool       // Previous frame pitch_change flag for VBR targeting
+	lastPitchChange   bool       // pitch_change of the most recent hybrid prefilter run
 	specAvg           celtGLog   // Smoothed spectral average for temporal VBR (libopus st->spec_avg)
-	lastTemporalVBR   celtGLog   // Previous frame's temporal_vbr for VBR target adjustment
-	lastTellFrac      int        // Previous frame's ec_tell_frac at VBR point (for tell estimation)
+	lastTemporalVBR   celtGLog   // temporal_vbr of the most recently analysed frame (compute_vbr input)
 
 	// Analysis bandwidth state used by bit allocation gating.
 	// This mirrors libopus use of st->analysis.bandwidth for clt_compute_allocation().
@@ -316,7 +313,9 @@ func NewEncoder(channels int) *Encoder {
 		prefilterTapset: 0,
 		prefilterMem:    make([]celtSig, combFilterMaxPeriod*channels),
 
-		// Default to VBR enabled to mirror libopus behavior.
+		// A standalone encoder codes VBR at 64 kb/s per channel until
+		// SetBitrate/SetVBR configure it.
+		targetBitrate:            int32(64000 * channels),
 		vbr:                      true,
 		constrainedVBRBoundScale: 1.0,
 	}
@@ -472,6 +471,10 @@ func (e *Encoder) Reset() {
 	e.lastTonality = opusVal16(0.5)
 	e.lastStereoSaving = 0
 	e.lastPitchChange = false
+	e.specAvg = 0
+	e.lastTemporalVBR = 0
+	e.silkSignalType = 0
+	e.silkOffset = 0
 	e.analysisBandwidth = 20
 	e.analysisValid = false
 	e.analysisActivity = 0
@@ -855,8 +858,10 @@ func (e *Encoder) FrameCount() int {
 	return int(e.frameCount)
 }
 
-// SetBitrate sets the target bitrate in bits per second.
-// This affects bit allocation for frame encoding.
+// SetBitrate sets st->bitrate, the rate in bits per second the VBR target and
+// the CBR payload size derive from; BitrateMax makes the encoder fill its
+// payload budget. It stores the rate as given: callers forwarding
+// OPUS_SET_BITRATE apply the range checks of celt_encoder_ctl.
 func (e *Encoder) SetBitrate(bps int) {
 	e.targetBitrate = int32(bps)
 }
@@ -1069,6 +1074,12 @@ func (e *Encoder) IsHybrid() bool {
 func (e *Encoder) SetSilkInfo(signalType, offset int) {
 	e.silkSignalType = signalType
 	e.silkOffset = offset
+}
+
+// SilkInfo returns the SILK signal classification set with SetSilkInfo
+// (st->silk_info), which Reset clears.
+func (e *Encoder) SilkInfo() (signalType, offset int) {
+	return e.silkSignalType, e.silkOffset
 }
 
 // FillHybridTFResolution applies the libopus hybrid fixed-TF fallback used when

@@ -93,7 +93,9 @@ var (
 )
 
 const (
-	defaultScratchPacketBytes   = maxSilkPacketBytes
+	// defaultScratchPacketBytes holds a single-frame packet: the TOC byte plus
+	// a 1275-byte frame (opus_encode_frame_native max_data_bytes cap).
+	defaultScratchPacketBytes   = libopusMaxDataBytesCap
 	extensionScratchPacketBytes = 3826
 )
 
@@ -202,12 +204,6 @@ type Encoder struct {
 
 	// celtEnergyMask carries per-band surround masking into CELT dynalloc control.
 	celtEnergyMask []float32
-
-	// celtPayloadCeilingActive makes the CELT-only path bound the range coder by
-	// nb_compr_bytes = max_data_bytes-1 (opus_encoder.c line 2392). The multistream
-	// encoder sets this so per-stream curr_max ceilings (LFE/last stream) are
-	// honored; standalone single-stream encode leaves it false and is unaffected.
-	celtPayloadCeilingActive bool
 
 	encoderQEXTFields
 	encoderFixedCELTFields
@@ -983,18 +979,19 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	if maxDataBytes <= 0 {
 		return nil, ErrEncodingFailed
 	}
-	packetCapBytes := maxSilkPacketBytes * 6
+	// Just avoid insane packet sizes here; the per-frame caps apply later.
+	packetCapBytes := libopusMaxDataBytesCap * 6
 	if maxDataBytes > packetCapBytes {
 		maxDataBytes = packetCapBytes
 	}
+	// e.bitrate carries st->bitrate_bps for this frame: the user bitrate bounded
+	// by the output budget (user_bitrate_to_bitrate) and, in CBR, rounded to the
+	// whole-byte frame size below.
 	userBitrate := e.bitrate
-	resolvedBitrate := e.resolvedBitrateForFrame(frameSize, maxDataBytes)
-	if int32(resolvedBitrate) != userBitrate {
-		e.bitrate = int32(resolvedBitrate)
-		defer func() {
-			e.bitrate = userBitrate
-		}()
-	}
+	defer func() {
+		e.bitrate = userBitrate
+	}()
+	e.bitrate = int32(e.resolvedBitrateForFrame(frameSize, maxDataBytes))
 	isSilence := isDigitalSilenceRes(inputPCM, e.lsbDepth)
 	e.hasCELTPrefill = false
 	e.clearFixedCELTUsed()
@@ -1051,15 +1048,14 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		frameRate = 1
 	}
 	cbrMaxDataBytes := maxDataBytes
-	effBitrate := int(e.bitrate)
 	if e.bitrateMode == ModeCBR {
+		// src/opus_encoder.c:1327-1334: CBR codes whole bytes, so the frame
+		// bitrate is the one the rounded byte count carries.
 		cbrBytes := min((bitrateToBitsFs(int(e.bitrate), sampleRate, frameSize)+4)/8, maxDataBytes)
-		effBitrate = bitsToBitrateFs(cbrBytes*8, sampleRate, frameSize)
-		if cbrBytes < 1 {
-			cbrBytes = 1
-		}
-		cbrMaxDataBytes = cbrBytes
+		e.bitrate = int32(bitsToBitrateFs(cbrBytes*8, sampleRate, frameSize))
+		cbrMaxDataBytes = max(1, cbrBytes)
 	}
+	effBitrate := int(e.bitrate)
 	if e.dredEncodingActive() {
 		if plan, ok := e.computeDREDEmissionPlan(frameSize); ok {
 			effBitrate -= int(plan.bitrate)
@@ -1243,7 +1239,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 			delayState := e.ensureDelayState(len(e.delayBuffer))
 			copy(delayState, e.delayBuffer)
 			celtPCM := e.applyDelayCompensation(framePCM, frameSize)
-			packet, err = e.encodeHybridMultiFramePacket(framePCM, celtPCM, vadPCM, lookaheadSlice, delayState, frameSize, transitionToCELT, int(e.bitrate), int(encodingBitrate), dredBitrate, dredExtraDelay)
+			packet, err = e.encodeHybridMultiFramePacket(framePCM, celtPCM, vadPCM, lookaheadSlice, delayState, frameSize, transitionToCELT, int(e.bitrate), int(encodingBitrate), dredBitrate, dredExtraDelay, maxDataBytes)
 		} else {
 			e.maybePrefillSILKOnModeTransition(actualMode)
 			celtPCM := e.applyDelayCompensation(framePCM, frameSize)
@@ -1267,6 +1263,10 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		}
 	case ModeCELT:
 		celtPCM := e.prepareCELTPCM(framePCM, frameSize)
+		// The transition prefill runs with the frame's CELT rate configuration
+		// (opus_encode_frame_native configures CELT before prefilling).
+		e.ensureCELTEncoder()
+		e.configureCELTRate(ModeCELT, int(encodingBitrate))
 		e.maybePrefillCELTOnModeTransition(actualMode, celtPCM, frameSize)
 		if frameSize > f20 {
 			// Long CELT packets are encoded as multi-frame packets. The stereo
@@ -1279,23 +1279,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 			// main celt_encode_with_ec.
 			celtPCM = e.applyUnityHBGainFade(celtPCM)
 			celtPCM = e.applyCELTStereoWidthFade(celtPCM, frameSize)
-			originalBitrate := e.bitrate
-			if encodingBitrate != originalBitrate {
-				e.bitrate = encodingBitrate
-			}
-			// The multistream encoder bounds the CELT range coder by
-			// nb_compr_bytes = max_data_bytes-1 (opus_encoder.c line 2392;
-			// redundancy_bytes==0 for CELT-only) so per-stream curr_max ceilings
-			// (LFE/last stream) are honored. Single-stream encode leaves
-			// celtPayloadCeilingActive false and uses the unbounded budget.
-			celtMaxPayload := 0
-			if e.celtPayloadCeilingActive && maxDataBytes > 1 {
-				celtMaxPayload = maxDataBytes - 1
-			}
-			frameData, err = e.encodeCELTFrameWithBitrateAndMaxPayload(celtPCM, frameSize, int(e.bitrate), celtMaxPayload)
-			if encodingBitrate != originalBitrate {
-				e.bitrate = originalBitrate
-			}
+			frameData, err = e.encodeCELTFrameWithBitrateMaxPayloadAndDRED(celtPCM, frameSize, int(encodingBitrate), e.celtNbComprBytes(cbrMaxDataBytes), dredBitrate)
 		}
 	default:
 		return nil, ErrEncodingFailed
@@ -1420,6 +1404,10 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		} else if packet == nil {
 			targetSize := e.targetBytesForBitrate(int(e.bitrate), frameSize)
 			if e.bitrateMode == ModeCBR && targetSize >= 2+len(frameData) {
+				// A CBR packet is padded to cbr_bytes, which exceeds the
+				// single-frame 1276 bytes above 510 kb/s at 20 ms
+				// (opus_encode_frame_native pads to max_data_bytes).
+				e.ensurePacketScratch(targetSize)
 				if targetSize == 2+len(frameData) {
 					config := configFromParams(modeToTypes(actualMode), packetBW, tocFrameSize)
 					if config < 0 || len(e.scratchPacket) < targetSize {
@@ -2262,43 +2250,22 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []op
 	e.hasCELTPrefill = false
 
 	e.ensureCELTEncoder()
+	// OPUS_RESET_STATE clears the SILK info the Opus layer handed CELT for this
+	// frame, so the prefill and the transition frame run without it
+	// (src/opus_encoder.c:2477-2486).
 	e.celtEncoder.Reset()
 	e.celtEncoder.SetHybrid(actualMode == ModeHybrid)
 	e.celtEncoder.SetStreamChannels(e.celtInternalChannelsForMode(actualMode))
 	e.celtEncoder.SetTopLevelDelayCompensatedInput(true)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
-	// libopus re-drives CELT from the Opus wrapper after reset, so the
-	// transition prefill still sees the current top-level analysis snapshot.
+	// The transition prefill re-reads the current top-level analysis snapshot.
 	e.syncCELTAnalysisToCELT()
 	// Match libopus mode-transition cadence: prefill uses normal prediction,
-	// then the next real frame is forced intra.
+	// then the next real frame is forced intra. The prefill encodes with the
+	// frame's CELT rate configuration (configureCELTRate), so its VBR block
+	// advances the VBR state from reset exactly like libopus.
 	e.celtEncoder.SetPrediction(e.celtPredictionMode())
 	e.celtEncoder.SetLSBDepth(int(e.lsbDepth))
-
-	switch actualMode {
-	case ModeHybrid:
-		e.celtEncoder.SetBitrate(CELTMaxBitrate)
-		if e.bitrateMode == ModeCBR {
-			e.celtEncoder.SetVBR(false)
-			e.celtEncoder.SetConstrainedVBR(false)
-		} else {
-			e.celtEncoder.SetVBR(true)
-			e.celtEncoder.SetConstrainedVBR(false)
-		}
-	case ModeCELT:
-		e.celtEncoder.SetBitrate(CELTMaxBitrate)
-		switch e.bitrateMode {
-		case ModeCBR:
-			e.celtEncoder.SetVBR(false)
-			e.celtEncoder.SetConstrainedVBR(false)
-		case ModeCVBR:
-			e.celtEncoder.SetVBR(true)
-			e.celtEncoder.SetConstrainedVBR(true)
-		default:
-			e.celtEncoder.SetVBR(true)
-			e.celtEncoder.SetConstrainedVBR(false)
-		}
-	}
 
 	e.celtEncoder.SetMaxPayloadBytes(2)
 	e.celtEncoder.EncodeFrame(prefillInput, prefillFrameSize)
@@ -3369,32 +3336,74 @@ func (e *Encoder) silkMaxBitsForPacketBytes(frameSize, silkBitrate, maxPacketByt
 	return maxBits
 }
 
-// encodeCELTFrameWithBitrateAndMaxPayload encodes one CELT-only frame at the
-// given bitrate and payload cap with no DRED reservation. It delegates to
-// encodeCELTFrameWithBitrateMaxPayloadAndDRED with dredBitrate==0.
-func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []opusRes, frameSize int, bitrate int, maxPayloadBytes int) ([]byte, error) {
-	return e.encodeCELTFrameWithBitrateMaxPayloadAndDRED(pcm, frameSize, bitrate, maxPayloadBytes, 0)
+// celtNbComprBytes returns the CELT-only payload budget opus_encode_frame_native
+// hands celt_encode_with_ec: nb_compr_bytes = min(max_data_bytes, 1276)-1
+// (src/opus_encoder.c:1893 and :2392; CELT-only frames carry no redundancy).
+// With QEXT enabled the budget is max_data_bytes-1 without the 1276-byte cap
+// (src/opus_encoder.c:2393-2397).
+func (e *Encoder) celtNbComprBytes(maxDataBytes int) int {
+	if extsupport.QEXT && e.qextActive() {
+		return maxDataBytes - 1
+	}
+	return min(maxDataBytes, libopusMaxDataBytesCap) - 1
 }
 
-func (e *Encoder) celtDREDPayloadCap(maxPayloadBytes, dredBitrate, frameSize int) int {
-	if maxPayloadBytes <= 0 || dredBitrate <= 0 || frameSize <= 0 {
-		return maxPayloadBytes
+// celtDREDPayloadCap caps the CELT payload budget so an attached DRED payload
+// keeps a quarter of its bytes (src/opus_encoder.c:2399-2411): CELT may take at
+// most nb_compr_bytes-dred_bytes*3/4, but keeps at least 5 bytes past the
+// already-coded (empty) range-coder prefix.
+func (e *Encoder) celtDREDPayloadCap(nbComprBytes, dredBitrate, frameSize int) int {
+	if nbComprBytes <= 0 || dredBitrate <= 0 || frameSize <= 0 {
+		return nbComprBytes
 	}
-	dredBytes := e.bitrateToBits(dredBitrate, frameSize) / 8
-	maxCELTBytes := max(maxPayloadBytes-dredBytes*3/4, 5)
-	if maxCELTBytes < maxPayloadBytes {
-		return maxCELTBytes
+	dredBytes := bitrateToBitsFs(dredBitrate, int(e.sampleRate), frameSize) / 8
+	const emptyCoderBytes = 1 // (ec_tell(&enc)+7)/8 with nothing coded yet
+	maxCELTBytes := max(nbComprBytes-dredBytes*3/4, emptyCoderBytes+5)
+	return min(nbComprBytes, maxCELTBytes)
+}
+
+// configureCELTRate mirrors the per-frame CELT rate setup of
+// opus_encode_frame_native (src/opus_encoder.c:2286 and :2447-2476). Every frame
+// first resets CELT to OPUS_BITRATE_MAX, so CBR frames fill the nb_compr_bytes
+// budget; VBR frames then hand CELT the frame bitrate, constrained per
+// OPUS_SET_VBR_CONSTRAINT for CELT-only frames and always unconstrained for
+// hybrid frames. A CBR stream carrying DRED codes its CELT part as
+// unconstrained VBR so the DRED payload absorbs the slack. celtBitrate is the
+// bitrate the CELT part of the frame targets.
+func (e *Encoder) configureCELTRate(mode Mode, celtBitrate int) {
+	e.celtEncoder.SetBitrate(celt.BitrateMax)
+	switch {
+	case e.bitrateMode != ModeCBR:
+		e.celtEncoder.SetVBR(true)
+		e.celtEncoder.SetConstrainedVBR(mode != ModeHybrid && e.bitrateMode == ModeCVBR)
+		e.setCELTBitrate(celtBitrate)
+	case e.dredEncodingActive():
+		e.celtEncoder.SetVBR(true)
+		e.celtEncoder.SetConstrainedVBR(false)
+		e.setCELTBitrate(celtBitrate)
+	default:
+		e.celtEncoder.SetVBR(false)
 	}
-	return maxPayloadBytes
+}
+
+// setCELTBitrate applies OPUS_SET_BITRATE to the CELT encoder with the checks
+// of celt_encoder_ctl (celt/celt_encoder.c:3001-3009): a rate of 500 b/s or less
+// is rejected and leaves the current rate in place, and the rate is capped at
+// 750 kb/s per channel.
+func (e *Encoder) setCELTBitrate(bitrate int) {
+	if bitrate <= 500 && bitrate != celt.BitrateMax {
+		return
+	}
+	e.celtEncoder.SetBitrate(min(bitrate, 750000*int(e.channels)))
 }
 
 // encodeCELTFrameWithBitrateMaxPayloadAndDRED runs the CELT sub-encoder for one
-// frame and is the CELT leg of the SILK/CELT/Hybrid bridge (libopus
-// celt_encode_with_ec). bitrate is the CELT target, maxPayloadBytes the output
-// cap, and dredBitrate the bits reserved for an attached DRED payload (the CELT
-// cap is reduced via celtDREDPayloadCap). It configures the native-Fs upsample
-// factor before encoding and returns the raw CELT frame bytes.
-func (e *Encoder) encodeCELTFrameWithBitrateMaxPayloadAndDRED(pcm []opusRes, frameSize int, bitrate int, maxPayloadBytes int, dredBitrate int) ([]byte, error) {
+// CELT-only frame and is the CELT leg of the SILK/CELT/Hybrid bridge (libopus
+// celt_encode_with_ec). bitrate is the frame's st->bitrate_bps (after any DRED
+// reservation), nbComprBytes the CELT payload budget, and dredBitrate the DRED
+// bitrate whose payload further caps that budget. It configures the native-Fs
+// upsample factor before encoding and returns the raw CELT frame bytes.
+func (e *Encoder) encodeCELTFrameWithBitrateMaxPayloadAndDRED(pcm []opusRes, frameSize int, bitrate int, nbComprBytes int, dredBitrate int) ([]byte, error) {
 	e.ensureCELTEncoder()
 	// CELT-only consumes native-Fs frame sizes; the float CELT encoder upsamples
 	// to the 48 kHz core (libopus celt_encode_with_ec frame_size *= st->upsample).
@@ -3402,9 +3411,9 @@ func (e *Encoder) encodeCELTFrameWithBitrateMaxPayloadAndDRED(pcm []opusRes, fra
 	e.syncQEXTToCELT()
 	e.syncCELTAnalysisToCELT()
 	e.celtEncoder.SetStreamChannels(e.celtInternalChannelsForMode(ModeCELT))
-	e.celtEncoder.SetBitrate(bitrate)
-	maxPayloadBytes = e.celtDREDPayloadCap(maxPayloadBytes, dredBitrate, frameSize)
-	e.celtEncoder.SetMaxPayloadBytes(maxPayloadBytes)
+	e.configureCELTRate(ModeCELT, bitrate)
+	nbComprBytes = e.celtDREDPayloadCap(nbComprBytes, dredBitrate, frameSize)
+	e.celtEncoder.SetMaxPayloadBytes(nbComprBytes)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	e.celtEncoder.SetHybrid(false)
 	e.celtEncoder.SetTopLevelDelayCompensatedInput(true)
@@ -3412,19 +3421,8 @@ func (e *Encoder) encodeCELTFrameWithBitrateMaxPayloadAndDRED(pcm []opusRes, fra
 	e.celtEncoder.SetDCRejectEnabled(false)
 	e.celtEncoder.SetPacketLoss(int(e.packetLoss))
 	e.celtEncoder.SetLSBDepth(int(e.lsbDepth))
-	switch e.bitrateMode {
-	case ModeCBR:
-		e.celtEncoder.SetVBR(false)
-		e.celtEncoder.SetConstrainedVBR(false)
-	case ModeCVBR:
-		e.celtEncoder.SetVBR(true)
-		e.celtEncoder.SetConstrainedVBR(true)
-	case ModeVBR:
-		e.celtEncoder.SetVBR(true)
-		e.celtEncoder.SetConstrainedVBR(false)
-	}
 	defer e.celtEncoder.SetMaxPayloadBytes(0)
-	if out, ok, err := e.encodeCELTFrameFixed(pcm, frameSize, bitrate, maxPayloadBytes); ok || err != nil {
+	if out, ok, err := e.encodeCELTFrameFixed(pcm, frameSize, e.celtEncoder.Bitrate(), nbComprBytes); ok || err != nil {
 		return out, err
 	}
 	return e.celtEncoder.EncodeFrame(pcm, frameSize)
@@ -3594,14 +3592,13 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 		if i == 0 {
 			firstFrameMaxBytes = currMax
 		}
-		maxPayload := currMax - 1
 		// libopus recurses opus_encode_native per 20 ms sub-frame, so gain_fade
 		// and stereo_fade run (and their state evolves) once per sub-frame on
 		// that sub-frame's CELT input. Apply them here on the sub-frame slice,
 		// mirroring the single-frame path.
 		subCeltPCM := e.applyUnityHBGainFade(celtPCM[start:end])
 		subCeltPCM = e.applyCELTStereoWidthFade(subCeltPCM, f20)
-		frameData, err := e.encodeCELTFrameWithBitrateMaxPayloadAndDRED(subCeltPCM, f20, int(e.bitrate), maxPayload, dredBitrate)
+		frameData, err := e.encodeCELTFrameWithBitrateMaxPayloadAndDRED(subCeltPCM, f20, int(e.bitrate), e.celtNbComprBytes(currMax), dredBitrate)
 		if err != nil {
 			e.bitrate = savedBitrate
 			return nil, err
@@ -3685,7 +3682,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 
 // encodeHybridMultiFramePacket encodes long hybrid packets by splitting into
 // 20ms hybrid frames and packing them with Opus multi-frame framing.
-func (e *Encoder) encodeHybridMultiFramePacket(pcm []opusRes, celtPCM []opusRes, vadPCM []opusRes, lookahead []opusRes, delayState []opusRes, frameSize int, transitionToCELT bool, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay int) ([]byte, error) {
+func (e *Encoder) encodeHybridMultiFramePacket(pcm []opusRes, celtPCM []opusRes, vadPCM []opusRes, lookahead []opusRes, delayState []opusRes, frameSize int, transitionToCELT bool, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay, outDataBytes int) ([]byte, error) {
 	f20 := e.frame20ms()
 	if frameSize <= f20 || frameSize%f20 != 0 {
 		return nil, ErrInvalidFrameSize
@@ -3716,12 +3713,22 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []opusRes, celtPCM []opusRes,
 	frames := e.scratchFrameSlots[:frameCount]
 	sameSize := true
 	prevSize := -1
-	packetTargetBytes := max(e.targetBytesForBitrate(originalBitrate, frameSize), 1)
+	// libopus opus_encode_native sizes the repacketizer by the full output
+	// buffer in VBR and by IMIN(cbr_bytes, out_data_bytes) in CBR; each 20 ms
+	// sub-frame is then capped at its bitrate share of that sum.
+	repacketizeLen := outDataBytes
+	if e.bitrateMode == ModeCBR {
+		repacketizeLen = min(e.targetBytesForBitrate(originalBitrate, frameSize), outDataBytes)
+	}
+	repacketizeLen = max(repacketizeLen, 1)
 	maxHeaderBytes := 3
 	if frameCount > 2 {
 		maxHeaderBytes = 2 + (frameCount-1)*2
 	}
-	maxLenSum := max(frameCount+packetTargetBytes-maxHeaderBytes, frameCount)
+	maxLenSum := max(frameCount+repacketizeLen-maxHeaderBytes, frameCount)
+	// A long high-bitrate packet exceeds the default single-packet buffer; the
+	// assembled packet is bounded by maxLenSum+maxHeaderBytes.
+	e.ensurePacketScratch(maxLenSum + maxHeaderBytes)
 	subframeBitrate := int(e.bitrate)
 	if encodingBitrate > 0 {
 		subframeBitrate = encodingBitrate
@@ -4630,13 +4637,6 @@ func (e *Encoder) SetCELTSurroundTrim(trim opusVal32) {
 // CELTSurroundTrim returns the current CELT alloc-trim surround bias.
 func (e *Encoder) CELTSurroundTrim() OpusVal32 {
 	return e.celtSurroundTrim
-}
-
-// SetCELTPayloadCeilingActive enables bounding the CELT-only range coder by
-// max_data_bytes-1, used by the multistream encoder to honor per-stream
-// curr_max ceilings. Single-stream encoders leave this unset.
-func (e *Encoder) SetCELTPayloadCeilingActive(active bool) {
-	e.celtPayloadCeilingActive = active
 }
 
 // SetCELTEnergyMask sets per-band CELT surround masking (21 mono, 42 stereo).

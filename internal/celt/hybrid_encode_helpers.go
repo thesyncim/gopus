@@ -654,16 +654,6 @@ func (e *Encoder) TFAnalysisHybridScratch(norm []celtNorm, nbBands int, transien
 	return TFAnalysisWithScratch(norm, len(norm), nbBands, transient, lm, tfEstimate, effectiveBytes, importance, &e.tfScratch)
 }
 
-// BitrateToBits exposes bitrate_to_bits for hybrid callers.
-func (e *Encoder) BitrateToBits(frameSize int) int {
-	return e.bitrateToBits(frameSize)
-}
-
-// CBRPayloadBytes exposes cbrPayloadBytes for hybrid callers.
-func (e *Encoder) CBRPayloadBytes(frameSize int) int {
-	return e.cbrPayloadBytes(frameSize)
-}
-
 // SetCoarseEnergyAvailableBytes overrides nbAvailableBytes used by coarse
 // energy intra/decay logic. Use 0 to clear the override.
 func (e *Encoder) SetCoarseEnergyAvailableBytes(bytes int) {

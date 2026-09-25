@@ -32,14 +32,6 @@ const (
 	MinBitrate = 500    // libopus OPUS_SET_BITRATE minimum
 	MaxBitrate = 750000 // libopus OPUS_SET_BITRATE per-channel maximum
 
-	// Mode-specific typical ranges
-	SILKMinBitrate   = 6000   // 6 kbps
-	SILKMaxBitrate   = 40000  // 40 kbps (WB)
-	CELTMinBitrate   = 32000  // 32 kbps
-	CELTMaxBitrate   = 510000 // 510 kbps
-	HybridMinBitrate = 12000  // 12 kbps
-	HybridMaxBitrate = 128000 // 128 kbps typical
-
 	// Maximum SILK packet size in bytes (libopus MAX_DATA_BYTES).
 	maxSilkPacketBytes = 1275
 
