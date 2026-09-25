@@ -36,10 +36,6 @@ func mdctMulSubMix(a, b, c, d float32) float32 {
 	return mdctMul(a, c) - mdctMul(b, d)
 }
 
-func mdctMulSubMixAlt(a, b, c, d float32) float32 {
-	return mdctMul(a, c) - mdctMul(b, d)
-}
-
 func mdctStoreDirectStage(dst []kissCpx, idx int, scale, re, im, t0, t1 float32) {
 	yr := mdctMul(re, t0) - mdctMul(im, t1)
 	yi := mdctMul(im, t0) + mdctMul(re, t1)
@@ -72,6 +68,18 @@ func mdctMulSubMixEncode(a, b, c, d float32) float32 {
 		return mdctEncodeFMA32(a, c, -mdctMul(b, d))
 	}
 	return mdctMul(a, c) - mdctMul(b, d)
+}
+
+// mdctNegMulAddMixEncode computes the trailing windowed fold of libopus
+// clt_mdct_forward_c(), -S_MUL(a,c) + S_MUL(b,d). clang -ffp-contract=on
+// fuses the negated first product into the add, fma(-a, c, round(b*d)); the
+// unfused form is round(b*d) - round(a*c), which IEEE defines identically to
+// -(a*c) + b*d.
+func mdctNegMulAddMixEncode(a, b, c, d float32) float32 {
+	if mdctUseFMALikeMixEnabled {
+		return mdctEncodeFMA32(-a, c, mdctMul(b, d))
+	}
+	return mdctMul(b, d) - mdctMul(a, c)
 }
 
 // MDCT computes the forward Modified Discrete Cosine Transform.
@@ -432,9 +440,9 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				}
 			}
 			for ; i+1 < n4; i += 2 {
-				re0 := mdctMulSubMixAlt(float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
+				re0 := mdctNegMulAddMixEncode(float32(samples[xp1-n2]), float32(samples[xp2]), window[wp1], window[wp2])
 				im0 := mdctMulAddMixEncode(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
-				re1 := mdctMulSubMixAlt(float32(samples[xp2-2]), float32(samples[xp1-n2+2]), window[wp2-2], window[wp1+2])
+				re1 := mdctNegMulAddMixEncode(float32(samples[xp1-n2+2]), float32(samples[xp2-2]), window[wp1+2], window[wp2-2])
 				im1 := mdctMulAddMixEncode(float32(samples[xp1+2]), float32(samples[xp2+n2-2]), window[wp2-2], window[wp1+2])
 				t00, t10, t01, t11 := trig[i], trig[n4+i], trig[i+1], trig[n4+i+1]
 				yr0 := mdctEncodeFMA32(re0, t00, -mdctMul(im0, t10))
@@ -452,7 +460,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				wp2 -= 4
 			}
 			for ; i < n4; i++ {
-				re := mdctMulSubMixAlt(float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
+				re := mdctNegMulAddMixEncode(float32(samples[xp1-n2]), float32(samples[xp2]), window[wp1], window[wp2])
 				im := mdctMulAddMixEncode(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
 				t0, t1 := trig[i], trig[n4+i]
 				yr := mdctEncodeFMA32(re, t0, -mdctMul(im, t1))
@@ -491,7 +499,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 			}
 
 			for ; i < n4; i++ {
-				re := mdctMulSubMixAlt(float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
+				re := mdctNegMulAddMixEncode(float32(samples[xp1-n2]), float32(samples[xp2]), window[wp1], window[wp2])
 				im := mdctMulAddMixEncode(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
 				t0 := trig[i]
 				t1 := trig[n4+i]
@@ -525,7 +533,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 		}
 
 		for ; i < n4; i++ {
-			f[2*i] = mdctMulSubMixAlt(float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
+			f[2*i] = mdctNegMulAddMixEncode(float32(samples[xp1-n2]), float32(samples[xp2]), window[wp1], window[wp2])
 			f[2*i+1] = mdctMulAddMixEncode(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
 			xp1 += 2
 			xp2 -= 2
@@ -571,8 +579,8 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 			im := f[2*i+1]
 			t0 := trig[i]
 			t1 := trig[n4+i]
-			yr := mdctMul(re, t0) - mdctMul(im, t1)
-			yi := mdctMul(im, t0) + mdctMul(re, t1)
+			yr := mdctMulSubMixEncode(re, im, t0, t1)
+			yi := mdctMulAddMixEncode(im, re, t0, t1)
 			fftIn[i] = complex(yr*preScale, yi*preScale)
 		}
 		kissFFT32To(fftOut, fftIn[:n4], fftTmp)
@@ -612,10 +620,10 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				t10 := trigHi[i]
 				t01 := trig[i+1]
 				t11 := trigHi[i+1]
-				yr0 := mdctMul(im0, t10) - mdctMul(re0, t00)
-				yi0 := mdctMul(re0, t10) + mdctMul(im0, t00)
-				yr1 := mdctMul(im1, t11) - mdctMul(re1, t01)
-				yi1 := mdctMul(re1, t11) + mdctMul(im1, t01)
+				yr0 := mdctMulSubMixEncode(im0, re0, t10, t00)
+				yi0 := mdctMulAddMixEncode(re0, im0, t10, t00)
+				yr1 := mdctMulSubMixEncode(im1, re1, t11, t01)
+				yi1 := mdctMulAddMixEncode(re1, im1, t11, t01)
 				coeffs[lo] = yr0
 				coeffs[hi] = yi0
 				coeffs[lo+2] = yr1
@@ -633,8 +641,8 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				t0 *= postScale
 				t1 *= postScale
 			}
-			yr := mdctMul(im, t1) - mdctMul(re, t0)
-			yi := mdctMul(re, t1) + mdctMul(im, t0)
+			yr := mdctMulSubMixEncode(im, re, t1, t0)
+			yi := mdctMulAddMixEncode(re, im, t1, t0)
 			coeffs[lo] = yr
 			coeffs[hi] = yi
 			lo += 2
@@ -654,8 +662,8 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				t0 *= postScale
 				t1 *= postScale
 			}
-			yr := mdctMul(im, t1) - mdctMul(re, t0)
-			yi := mdctMul(re, t1) + mdctMul(im, t0)
+			yr := mdctMulSubMixEncode(im, re, t1, t0)
+			yi := mdctMulAddMixEncode(re, im, t1, t0)
 			coeffs[lo] = yr
 			coeffs[hi] = yi
 			lo += 2

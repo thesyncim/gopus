@@ -41,10 +41,10 @@ func TestMDCTPostTwiddleNeonBitExact(t *testing.T) {
 			want := make([]float32, n2)
 			for i := 0; i < 4*pairBlocks; i++ {
 				j := n4 - 1 - i
-				want[2*i] = mdctMul(stage[i].i, trig[n4+i]) - mdctMul(stage[i].r, trig[i])
-				want[n2-1-2*i] = mdctMul(stage[i].r, trig[n4+i]) + mdctMul(stage[i].i, trig[i])
-				want[2*j] = mdctMul(stage[j].i, trig[n4+j]) - mdctMul(stage[j].r, trig[j])
-				want[n2-1-2*j] = mdctMul(stage[j].r, trig[n4+j]) + mdctMul(stage[j].i, trig[j])
+				want[2*i] = mdctMulSubMixEncode(stage[i].i, stage[i].r, trig[n4+i], trig[i])
+				want[n2-1-2*i] = mdctMulAddMixEncode(stage[i].r, stage[i].i, trig[n4+i], trig[i])
+				want[2*j] = mdctMulSubMixEncode(stage[j].i, stage[j].r, trig[n4+j], trig[j])
+				want[n2-1-2*j] = mdctMulAddMixEncode(stage[j].r, stage[j].i, trig[n4+j], trig[j])
 			}
 			mdctPostTwiddleNeon(got, stage, trig, n2, n4, pairBlocks)
 			for k := range want {

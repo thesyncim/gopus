@@ -13,9 +13,9 @@ const mdctUsePostTwiddleNeon = false
 func mdctPostTwiddleNeon(coeffs []float32, fftStage []kissCpx, trig []float32, n2, n4, pairBlocks int) {
 	for i := 0; i < 4*pairBlocks; i++ {
 		j := n4 - 1 - i
-		coeffs[2*i] = mdctMul(fftStage[i].i, trig[n4+i]) - mdctMul(fftStage[i].r, trig[i])
-		coeffs[n2-1-2*i] = mdctMul(fftStage[i].r, trig[n4+i]) + mdctMul(fftStage[i].i, trig[i])
-		coeffs[2*j] = mdctMul(fftStage[j].i, trig[n4+j]) - mdctMul(fftStage[j].r, trig[j])
-		coeffs[n2-1-2*j] = mdctMul(fftStage[j].r, trig[n4+j]) + mdctMul(fftStage[j].i, trig[j])
+		coeffs[2*i] = mdctMulSubMixEncode(fftStage[i].i, fftStage[i].r, trig[n4+i], trig[i])
+		coeffs[n2-1-2*i] = mdctMulAddMixEncode(fftStage[i].r, fftStage[i].i, trig[n4+i], trig[i])
+		coeffs[2*j] = mdctMulSubMixEncode(fftStage[j].i, fftStage[j].r, trig[n4+j], trig[j])
+		coeffs[n2-1-2*j] = mdctMulAddMixEncode(fftStage[j].r, fftStage[j].i, trig[n4+j], trig[j])
 	}
 }

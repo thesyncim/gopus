@@ -10,14 +10,15 @@ const mdctUsePostTwiddleNeon = true
 // mdctPostTwiddleNeon is the archsimd forward-MDCT post-twiddle. Per index i
 // (re=fftStage[i].r, im=fftStage[i].i, t0=trig[i], t1=trig[n4+i]):
 //
-//	coeffs[2i]      = round(im*t1) - round(re*t0)
-//	coeffs[n2-1-2i] = round(re*t1) + round(im*t0)
+//	coeffs[2i]      = fma(im, t1, -round(re*t0))
+//	coeffs[n2-1-2i] = fma(re, t1, round(im*t0))
 //
 // Each block pairs a forward run i and its mirror j=n4-1-i so the two ends tile
 // coeffs contiguously: the low write zips the forward yr with the reversed
 // mirror yi, the high write zips the mirror yr with the reversed forward yi.
-// Products are single-round Muls and the combines plain Sub/Add (no fusion),
-// matching mdctMul and the scalar loop bit-for-bit. The caller does the n4%8
+// The first product fuses into the combine as clang -ffp-contract=on does for
+// clt_mdct_forward_c(), matching mdctMulSubMixEncode/mdctMulAddMixEncode and
+// the scalar loop bit-for-bit. The caller does the n4%8
 // middle scalarly, so this runs exactly pairBlocks blocks.
 func mdctPostTwiddleNeon(coeffs []float32, fftStage []kissCpx, trig []float32, n2, n4, pairBlocks int) {
 	if pairBlocks == 0 {
@@ -47,8 +48,8 @@ func mdctPostTwiddleNeon(coeffs []float32, fftStage []kissCpx, trig []float32, n
 		im := f0.ToBits().ConcatOdd(f1.ToBits()).BitsToFloat32()
 		t0 := loadF32x4(forwardT0)
 		t1 := loadF32x4(forwardT1)
-		yrF := im.Mul(t1).Sub(re.Mul(t0))
-		yiF := re.Mul(t1).Add(im.Mul(t0))
+		yrF := im.MulAdd(t1, re.Mul(t0).Neg())
+		yiF := re.MulAdd(t1, im.Mul(t0))
 
 		// Mirror fftStage[n4-4-i..n4-1-i], ascending j.
 		g0 := loadF32x4(mirrorFFT)
@@ -57,8 +58,8 @@ func mdctPostTwiddleNeon(coeffs []float32, fftStage []kissCpx, trig []float32, n
 		imM := g0.ToBits().ConcatOdd(g1.ToBits()).BitsToFloat32()
 		t0M := loadF32x4(mirrorT0)
 		t1M := loadF32x4(mirrorT1)
-		yrM := imM.Mul(t1M).Sub(reM.Mul(t0M))
-		yiM := reM.Mul(t1M).Add(imM.Mul(t0M))
+		yrM := imM.MulAdd(t1M, reM.Mul(t0M).Neg())
+		yiM := reM.MulAdd(t1M, imM.Mul(t0M))
 
 		// Low region coeffs[2i..2i+7] = zip(yrF, reverse4(yiM)).
 		rYiM := reverse4(yiM)

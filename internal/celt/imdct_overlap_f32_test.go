@@ -9,10 +9,11 @@ import (
 )
 
 const (
-	libopusCELTIMDCTModeLong      = uint32(0)
-	libopusCELTIMDCTModeTransient = uint32(1)
-	libopusCELTIMDCTModeFFT       = uint32(2)
-	libopusCELTIMDCTModeForward   = uint32(3)
+	libopusCELTIMDCTModeLong         = uint32(0)
+	libopusCELTIMDCTModeTransient    = uint32(1)
+	libopusCELTIMDCTModeFFT          = uint32(2)
+	libopusCELTIMDCTModeForward      = uint32(3)
+	libopusCELTIMDCTModeForwardShort = uint32(4)
 )
 
 var libopusCELTIMDCTHelper libopustest.HelperCache
@@ -354,6 +355,63 @@ func TestMDCTForwardOverlapF32MatchesLibopusC(t *testing.T) {
 				want := probeLibopusCELTMDCTForward(t, tc.frameSize, tc.overlap, inputF32)
 				assertFloat32Bits(t, "forward mdct", got, want)
 			})
+		}
+	}
+}
+
+// TestMDCTForwardShortBlocksMatchesLibopusC pins the transient (short-block)
+// forward MDCT to compute_mdcts(): one clt_mdct_forward() per block at shift
+// maxLM, interleaved with stride B, at unit and CELT signal scale.
+func TestMDCTForwardShortBlocksMatchesLibopusC(t *testing.T) {
+	if mdctQEXTScalePlacement {
+		t.Skip("forward MDCT uses ENABLE_QEXT scale placement; covered by TestHD96kMDCTMatchesLibopusQEXT")
+	}
+	libopustest.RequireOracle(t)
+
+	for _, tc := range []struct{ frameSize, shortBlocks int }{
+		{240, 2}, {480, 4}, {960, 8},
+	} {
+		for _, scale := range []float32{1, 32768} {
+			for seed := 1; seed <= 3; seed++ {
+				t.Run(fmt.Sprintf("frame=%d/blocks=%d/scale=%g/seed=%d", tc.frameSize, tc.shortBlocks, scale, seed), func(t *testing.T) {
+					const overlap = 120
+					input := make([]float64, tc.frameSize+overlap)
+					inputF32 := make([]float32, tc.frameSize+overlap)
+					fillMDCTForwardOracleInput(input, inputF32, seed)
+					for i := range inputF32 {
+						inputF32[i] *= scale
+					}
+
+					var scratch encoderScratch
+					got := append([]float32(nil), mdctForwardShortOverlapScratchF32Coeffs(inputF32, overlap, tc.shortBlocks, &scratch)...)
+
+					payload := libopustest.NewOraclePayload("GCII", libopusCELTIMDCTModeForwardShort, uint32(tc.frameSize), uint32(overlap), uint32(tc.shortBlocks))
+					for _, v := range inputF32 {
+						payload.Float32(v)
+					}
+					binPath, err := libopusCELTIMDCTHelper.Path(buildLibopusCELTIMDCTHelper)
+					if err != nil {
+						libopustest.HelperUnavailable(t, "CELT short-block forward MDCT", err)
+					}
+					reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "CELT short-block forward MDCT", "GCIO")
+					if err != nil {
+						libopustest.HelperUnavailable(t, "CELT short-block forward MDCT", err)
+					}
+					if gotMode := reader.U32(); gotMode != libopusCELTIMDCTModeForwardShort {
+						t.Fatalf("helper mode=%d want %d", gotMode, libopusCELTIMDCTModeForwardShort)
+					}
+					count := int(reader.U32())
+					reader.ExpectRemaining(count * 4)
+					want := make([]float32, count)
+					for i := range want {
+						want[i] = reader.Float32()
+					}
+					if err := reader.ExpectConsumed(); err != nil {
+						t.Fatal(err)
+					}
+					assertFloat32Bits(t, "short-block forward mdct", got, want)
+				})
+			}
 		}
 	}
 }

@@ -66,7 +66,7 @@ func TestMDCTFoldStoreNeonBitExact(t *testing.T) {
 			got = make([]kissCpx, n4)
 			want = make([]kissCpx, n4)
 			for j := 0; j < 4*blocks; j++ {
-				re := mdctMulSubMixAlt(samples[xp2-2*j], samples[xp1-n2+2*j], window[wp2-2*j], window[wp1+2*j])
+				re := mdctNegMulAddMixEncode(samples[xp1-n2+2*j], samples[xp2-2*j], window[wp1+2*j], window[wp2-2*j])
 				im := mdctMulAddMix(samples[xp1+2*j], samples[xp2+n2-2*j], window[wp2-2*j], window[wp1+2*j])
 				mdctStoreDirectStageFMALike(want, bitrev[i0+j], preScale, re, im, trig[i0+j], trig[n4+i0+j])
 			}

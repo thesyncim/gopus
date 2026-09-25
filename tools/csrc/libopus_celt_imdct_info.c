@@ -33,7 +33,8 @@ enum {
   MODE_LONG = 0,
   MODE_TRANSIENT = 1,
   MODE_FFT = 2,
-  MODE_FORWARD = 3
+  MODE_FORWARD = 3,
+  MODE_FORWARD_SHORT = 4
 };
 
 static int read_exact(void *dst, size_t n) {
@@ -283,6 +284,48 @@ static int run_fft(const CELTMode *mode, uint32_t nfft) {
   return ok;
 }
 
+/* Short-block forward MDCT as compute_mdcts() runs it for a transient frame:
+ * one clt_mdct_forward() per block at shift maxLM, interleaved with stride B. */
+static int run_forward_short(const CELTMode *mode, uint32_t frame_size, uint32_t overlap, uint32_t short_blocks) {
+  celt_sig *in = NULL;
+  celt_sig *out = NULL;
+  uint32_t needed;
+  uint32_t short_size;
+  uint32_t b;
+  int lm;
+  int ok;
+
+  lm = frame_lm(frame_size);
+  if (lm < 0 || short_blocks != (uint32_t)(1U << lm) || short_blocks < 2 ||
+      overlap != (uint32_t)mode->overlap) {
+    fprintf(stderr, "invalid short-block forward MDCT dimensions\n");
+    return 0;
+  }
+  short_size = frame_size / short_blocks;
+  needed = frame_size + overlap;
+
+  in = (celt_sig *)malloc((size_t)needed * sizeof(celt_sig));
+  out = (celt_sig *)calloc((size_t)frame_size, sizeof(celt_sig));
+  if (in == NULL || out == NULL) {
+    free(in);
+    free(out);
+    return 0;
+  }
+
+  ok = read_float_array(in, needed);
+  if (ok) {
+    for (b = 0; b < short_blocks; b++) {
+      clt_mdct_forward(&mode->mdct, in + b * short_size, &out[b], mode->window, (int)overlap,
+          mode->maxLM, (int)short_blocks, 0);
+    }
+    ok = write_u32(frame_size) && write_float_array(out, frame_size);
+  }
+
+  free(in);
+  free(out);
+  return ok;
+}
+
 int main(void) {
   unsigned char magic[4];
   uint32_t version = 0;
@@ -324,6 +367,8 @@ int main(void) {
     ok = run_fft(mode, frame_size);
   } else if (mode_id == MODE_FORWARD) {
     ok = run_forward(mode, frame_size, overlap);
+  } else if (mode_id == MODE_FORWARD_SHORT) {
+    ok = run_forward_short(mode, frame_size, overlap, short_blocks);
   } else {
     fprintf(stderr, "unknown mode\n");
     return 1;

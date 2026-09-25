@@ -89,10 +89,11 @@ func mdctFold1StoreNeon(dst []kissCpx, bitrev []int, samples []float32, window [
 }
 
 // mdctFold3StoreNeon is the archsimd trailing windowed fold. Per output j:
-// re = round(B*wD) - round(A3*wC), im = A2*wD + round(B4*wC), with
+// re = fma(-A3, wC, round(B*wD)), im = fma(A2, wD, round(B4*wC)), with
 // A3=s[xp1-n2+2j], A2=s[xp1+2j], B=s[xp2-2j], B4=s[xp2+n2-2j], wC=w[wp1+2j],
-// wD=w[wp2-2j]. re is two single-round Muls then a plain Sub (no fusion); im is
-// a fused MulAdd, matching mdctMulSubMixAlt/mdctMulAddMixEncode bit-for-bit.
+// wD=w[wp2-2j]. Both fuse the first product as clang -ffp-contract=on does for
+// clt_mdct_forward_c(), matching mdctNegMulAddMixEncode/mdctMulAddMixEncode
+// bit-for-bit.
 func mdctFold3StoreNeon(dst []kissCpx, bitrev []int, samples []float32, window []float32, trig []float32, i0, n4, n2, xp1, xp2, wp1, wp2, blocks int, preScale float32) {
 	if blocks == 0 {
 		return
@@ -120,7 +121,7 @@ func mdctFold3StoreNeon(dst []kissCpx, bitrev []int, samples []float32, window [
 		B := mdctFoldEvenDescAt(bp)
 		B4 := mdctFoldEvenDescAt(b4)
 		wD := mdctFoldEvenDescAt(wd)
-		re := B.Mul(wD).Sub(A3.Mul(wC))
+		re := A3.Neg().MulAdd(wC, B.Mul(wD))
 		im := A2.MulAdd(wD, B4.Mul(wC))
 		mdctFoldStore(dst, bitrev, t0, t1, i0+4*b, re, im, pv)
 		if b+1 < blocks {
