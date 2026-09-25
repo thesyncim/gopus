@@ -3,7 +3,7 @@
 package celt
 
 func kfBfly4M1Core(fout []kissCpx, n int) {
-	kfBfly4M1CoreScalar(fout, n)
+	kfBfly4M1CoreSIMD(fout, n)
 }
 
 func kfBfly5Inner(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
@@ -11,7 +11,7 @@ func kfBfly5Inner(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 }
 
 func kfBfly3Inner(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
-	kfBfly3InnerScalar(fout, w, m, N, mm, fstride)
+	kfBfly3InnerSIMD(fout, w, m, N, mm, fstride)
 }
 
 func kfBfly4Inner(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {

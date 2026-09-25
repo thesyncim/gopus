@@ -7,7 +7,10 @@ import (
 	"unsafe"
 )
 
-// The x86 inner butterflies process four consecutive j values per block.
+// The x86 inner butterflies process four consecutive j values per block. The
+// block loop runs outside the N repeats so each block's gathered twiddles stay
+// in registers across them; the butterflies are independent, so the order is
+// free.
 // AVX supplies the shuffle operations used to separate and reinterleave the
 // real and imaginary lanes; CPUs without AVX and stages off this grid use the
 // scalar implementation. The arithmetic keeps the separate float32 multiply
@@ -29,10 +32,13 @@ func kfBfly5InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 	ybr, ybi := archsimd.BroadcastFloat32x4(yb.r), archsimd.BroadcastFloat32x4(yb.i)
 	foutBase := unsafe.Pointer(unsafe.SliceData(fout))
 
-	for i := 0; i < N; i++ {
-		base := i * mm
-		for j := 0; j < m; j += 4 {
-			p0 := unsafe.Add(foutBase, (base+j)*8)
+	for j := 0; j < m; j += 4 {
+		w1r, w1i := bflyGatherTwiddle4AMD64(wBase, j*fstride, fstride)
+		w2r, w2i := bflyGatherTwiddle4AMD64(wBase, j*2*fstride, 2*fstride)
+		w3r, w3i := bflyGatherTwiddle4AMD64(wBase, j*3*fstride, 3*fstride)
+		w4r, w4i := bflyGatherTwiddle4AMD64(wBase, j*4*fstride, 4*fstride)
+		for i := 0; i < N; i++ {
+			p0 := unsafe.Add(foutBase, (i*mm+j)*8)
 			p1 := unsafe.Add(p0, m*8)
 			p2 := unsafe.Add(p1, m*8)
 			p3 := unsafe.Add(p2, m*8)
@@ -42,10 +48,6 @@ func kfBfly5InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 			b2r, b2i := bflyLoadCpx4AMD64(p2)
 			b3r, b3i := bflyLoadCpx4AMD64(p3)
 			b4r, b4i := bflyLoadCpx4AMD64(p4)
-			w1r, w1i := bflyGatherTwiddle4AMD64(wBase, j*fstride, fstride)
-			w2r, w2i := bflyGatherTwiddle4AMD64(wBase, j*2*fstride, 2*fstride)
-			w3r, w3i := bflyGatherTwiddle4AMD64(wBase, j*3*fstride, 3*fstride)
-			w4r, w4i := bflyGatherTwiddle4AMD64(wBase, j*4*fstride, 4*fstride)
 
 			s1r, s1i := bflyMulSource4AMD64(b1r, b1i, w1r, w1i)
 			s2r, s2i := bflyMulSource4AMD64(b2r, b2i, w2r, w2i)
@@ -86,10 +88,12 @@ func kfBfly4InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 
 	wBase := unsafe.Pointer(unsafe.SliceData(w))
 	foutBase := unsafe.Pointer(unsafe.SliceData(fout))
-	for i := 0; i < N; i++ {
-		base := i * mm
-		for j := 0; j < m; j += 4 {
-			p0 := unsafe.Add(foutBase, (base+j)*8)
+	for j := 0; j < m; j += 4 {
+		w1r, w1i := bflyGatherTwiddle4AMD64(wBase, j*fstride, fstride)
+		w2r, w2i := bflyGatherTwiddle4AMD64(wBase, j*2*fstride, 2*fstride)
+		w3r, w3i := bflyGatherTwiddle4AMD64(wBase, j*3*fstride, 3*fstride)
+		for i := 0; i < N; i++ {
+			p0 := unsafe.Add(foutBase, (i*mm+j)*8)
 			p1 := unsafe.Add(p0, m*8)
 			p2 := unsafe.Add(p1, m*8)
 			p3 := unsafe.Add(p2, m*8)
@@ -97,9 +101,6 @@ func kfBfly4InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 			b1r, b1i := bflyLoadCpx4AMD64(p1)
 			b2r, b2i := bflyLoadCpx4AMD64(p2)
 			b3r, b3i := bflyLoadCpx4AMD64(p3)
-			w1r, w1i := bflyGatherTwiddle4AMD64(wBase, j*fstride, fstride)
-			w2r, w2i := bflyGatherTwiddle4AMD64(wBase, j*2*fstride, 2*fstride)
-			w3r, w3i := bflyGatherTwiddle4AMD64(wBase, j*3*fstride, 3*fstride)
 
 			s0r, s0i := bflyMulSource4AMD64(b1r, b1i, w1r, w1i)
 			s1r, s1i := bflyMulSource4AMD64(b2r, b2i, w2r, w2i)
@@ -117,6 +118,75 @@ func kfBfly4InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 			bflyStoreCpx4AMD64(p1, out1r, out1i)
 			bflyStoreCpx4AMD64(p3, out3r, out3i)
 		}
+	}
+}
+
+func kfBfly3InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
+	if m <= 0 || N <= 0 || !archsimd.X86.AVX() || m&3 != 0 {
+		kfBfly3InnerScalar(fout, w, m, N, mm, fstride)
+		return
+	}
+	_ = fout[(N-1)*mm+3*m-1]
+	_ = w[2*(m-1)*fstride]
+	_ = w[fstride*m]
+
+	wBase := unsafe.Pointer(unsafe.SliceData(w))
+	epi3i := archsimd.BroadcastFloat32x4(w[fstride*m].i)
+	half := archsimd.BroadcastFloat32x4(0.5)
+	foutBase := unsafe.Pointer(unsafe.SliceData(fout))
+	for j := 0; j < m; j += 4 {
+		w1r, w1i := bflyGatherTwiddle4AMD64(wBase, j*fstride, fstride)
+		w2r, w2i := bflyGatherTwiddle4AMD64(wBase, j*2*fstride, 2*fstride)
+		for i := 0; i < N; i++ {
+			p0 := unsafe.Add(foutBase, (i*mm+j)*8)
+			p1 := unsafe.Add(p0, m*8)
+			p2 := unsafe.Add(p1, m*8)
+			a0r, a0i := bflyLoadCpx4AMD64(p0)
+			b1r, b1i := bflyLoadCpx4AMD64(p1)
+			b2r, b2i := bflyLoadCpx4AMD64(p2)
+
+			s1r, s1i := bflyMulSource4AMD64(b1r, b1i, w1r, w1i)
+			s2r, s2i := bflyMulSource4AMD64(b2r, b2i, w2r, w2i)
+			s3r, s3i := s1r.Add(s2r), s1i.Add(s2i)
+			s0r, s0i := s1r.Sub(s2r), s1i.Sub(s2i)
+			f1r, f1i := a0r.Sub(half.Mul(s3r)), a0i.Sub(half.Mul(s3i))
+			s0r, s0i = s0r.Mul(epi3i), s0i.Mul(epi3i)
+			bflyStoreCpx4AMD64(p0, a0r.Add(s3r), a0i.Add(s3i))
+			bflyStoreCpx4AMD64(p2, f1r.Add(s0i), f1i.Sub(s0r))
+			bflyStoreCpx4AMD64(p1, f1r.Sub(s0i), f1i.Add(s0r))
+		}
+	}
+}
+
+// kfBfly4M1CoreSIMD runs one radix-4 m==1 butterfly per iteration on the two
+// interleaved vectors {a0,a1} and {a2,a3}:
+//
+//	{f0,s1} = {a0+a2, a1+a3}, {s0,t} = {a0-a2, a1-a3}
+//	{f0,f1} = {f0+s1.., s0 + (t.i, -t.r)}, {f2,f3} = {f0-s1.., s0 - (t.i, -t.r)}
+//
+// Lane 3 needs the opposite operation from lanes 0-2 (f1.i = s0.i - t.r,
+// f3.i = s0.i + t.r), so the sum and difference are blended rather than
+// negating t.r; every lane runs the scalar reference's exact operation.
+func kfBfly4M1CoreSIMD(fout []kissCpx, n int) {
+	if n <= 0 || !archsimd.X86.AVX() {
+		kfBfly4M1CoreScalar(fout, n)
+		return
+	}
+	_ = fout[4*n-1]
+	lane3 := archsimd.LoadInt32x4Array(&[4]int32{0, 0, 0, -1}).ToMask()
+	p := unsafe.Pointer(unsafe.SliceData(fout))
+	for range n {
+		x := loadF32x4(p)
+		y := loadF32x4(unsafe.Add(p, 16))
+		sum := x.Add(y)
+		diff := x.Sub(y)
+		a := sum.ConcatPermuteScalars(0, 1, 4, 5, diff)
+		b := sum.ConcatPermuteScalars(2, 3, 7, 6, diff)
+		plus := a.Add(b)
+		minus := a.Sub(b)
+		storeF32x4(p, minus.IfElse(lane3, plus))
+		storeF32x4(unsafe.Add(p, 16), plus.IfElse(lane3, minus))
+		p = unsafe.Add(p, 32)
 	}
 }
 

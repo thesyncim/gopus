@@ -33,6 +33,11 @@ func TestKfBflyInnerAMD64MatchesScalar(t *testing.T) {
 		{"radix5_m24_N1_fs1", 5, amd64BflyShape{24, 1, 120, 1}, kfBfly5Inner, kfBfly5InnerScalar},
 		{"radix5_m12_N1_fs1", 5, amd64BflyShape{12, 1, 60, 1}, kfBfly5Inner, kfBfly5InnerScalar},
 		{"radix5_m8_N4_fs8", 5, amd64BflyShape{8, 4, 40, 8}, kfBfly5Inner, kfBfly5InnerScalar},
+		{"radix3_m32_N5_fs5", 3, amd64BflyShape{32, 5, 96, 5}, kfBfly3Inner, kfBfly3InnerScalar},
+		{"radix3_m16_N5_fs10", 3, amd64BflyShape{16, 5, 48, 10}, kfBfly3Inner, kfBfly3InnerScalar},
+		{"radix3_m8_N5_fs20", 3, amd64BflyShape{8, 5, 24, 20}, kfBfly3Inner, kfBfly3InnerScalar},
+		{"radix3_m4_N5_fs40", 3, amd64BflyShape{4, 5, 12, 40}, kfBfly3Inner, kfBfly3InnerScalar},
+		{"radix3_m6_N2_fs1_scalar", 3, amd64BflyShape{6, 2, 18, 1}, kfBfly3Inner, kfBfly3InnerScalar},
 	}
 
 	for _, tc := range tests {
@@ -73,6 +78,7 @@ func TestKfBflyInnerAMD64NoAllocs(t *testing.T) {
 		radix int
 		fn    func([]kissCpx, []kissCpx, int, int, int, int)
 	}{
+		{"radix3", 3, kfBfly3Inner},
 		{"radix4", 4, kfBfly4Inner},
 		{"radix5", 5, kfBfly5Inner},
 	} {
@@ -89,4 +95,80 @@ func TestKfBflyInnerAMD64NoAllocs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestKfBfly4M1CoreAMD64MatchesScalar(t *testing.T) {
+	rng := rand.New(rand.NewSource(11))
+	for _, n := range []int{1, 2, 3, 15, 30, 60, 120} {
+		got := make([]kissCpx, 4*n)
+		for i := range got {
+			got[i] = kissCpx{rng.Float32()*2 - 1, rng.Float32()*2 - 1}
+			if rng.Intn(8) == 0 {
+				got[i].r = float32(math.Copysign(0, float64(rng.Float32()-0.5)))
+			}
+			if rng.Intn(8) == 0 {
+				got[i].i = got[(i*7)%len(got)].i
+			}
+		}
+		want := append([]kissCpx(nil), got...)
+		kfBfly4M1Core(got, n)
+		kfBfly4M1CoreScalar(want, n)
+		for k := range want {
+			if math.Float32bits(got[k].r) != math.Float32bits(want[k].r) ||
+				math.Float32bits(got[k].i) != math.Float32bits(want[k].i) {
+				t.Fatalf("n=%d: fout[%d] = (%08x,%08x), want (%08x,%08x)", n, k,
+					math.Float32bits(got[k].r), math.Float32bits(got[k].i),
+					math.Float32bits(want[k].r), math.Float32bits(want[k].i))
+			}
+		}
+	}
+	fout := make([]kissCpx, 4*60)
+	if allocs := testing.AllocsPerRun(100, func() { kfBfly4M1Core(fout, 60) }); allocs != 0 {
+		t.Fatalf("steady-state allocations = %g, want 0", allocs)
+	}
+}
+
+func BenchmarkKfBflyAMD64(b *testing.B) {
+	for _, tc := range []struct {
+		name          string
+		radix         int
+		m, n, fstride int
+		fn            func([]kissCpx, []kissCpx, int, int, int, int)
+		scalar        func([]kissCpx, []kissCpx, int, int, int, int)
+	}{
+		{"radix3_m32_N5", 3, 32, 5, 5, kfBfly3Inner, kfBfly3InnerScalar},
+		{"radix4_m8_N15", 4, 8, 15, 15, kfBfly4Inner, kfBfly4InnerScalar},
+		{"radix5_m96_N1", 5, 96, 1, 1, kfBfly5Inner, kfBfly5InnerScalar},
+	} {
+		mm := tc.radix * tc.m
+		fout := make([]kissCpx, tc.n*mm)
+		for i := range fout {
+			fout[i] = kissCpx{0.25, -0.5}
+		}
+		w := make([]kissCpx, (tc.radix*tc.m-1)*tc.fstride+1)
+		for i := range w {
+			w[i] = kissCpx{0.7, 0.3}
+		}
+		b.Run(tc.name+"/simd", func(b *testing.B) {
+			for b.Loop() {
+				tc.fn(fout, w, tc.m, tc.n, mm, tc.fstride)
+			}
+		})
+		b.Run(tc.name+"/scalar", func(b *testing.B) {
+			for b.Loop() {
+				tc.scalar(fout, w, tc.m, tc.n, mm, tc.fstride)
+			}
+		})
+	}
+	fout := make([]kissCpx, 4*120)
+	b.Run("radix4m1_n120/simd", func(b *testing.B) {
+		for b.Loop() {
+			kfBfly4M1Core(fout, 120)
+		}
+	})
+	b.Run("radix4m1_n120/scalar", func(b *testing.B) {
+		for b.Loop() {
+			kfBfly4M1CoreScalar(fout, 120)
+		}
+	})
 }
