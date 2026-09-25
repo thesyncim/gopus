@@ -1193,7 +1193,7 @@ func innerProdFloat32(x, y []float32, length int) float32 {
 	return sum
 }
 
-func innerProdFloat32SSEOrder(x, y []float32, length int) float32 {
+func innerProdFloat32SSEOrderScalar(x, y []float32, length int) float32 {
 	if length <= 0 {
 		return 0
 	}

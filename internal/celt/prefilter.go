@@ -945,7 +945,7 @@ func prefilterDualInnerProdF32(x, y1, y2 []float32, length int) (float32, float3
 	return sum1, sum2
 }
 
-func prefilterDualInnerProdF32SSEOrder(x, y1, y2 []float32, length int) (float32, float32) {
+func prefilterDualInnerProdF32SSEOrderScalar(x, y1, y2 []float32, length int) (float32, float32) {
 	var acc1 [4]float32
 	var acc2 [4]float32
 	i := 0
