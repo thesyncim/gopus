@@ -357,25 +357,11 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 		packetCountMis     int
 		framingDiffs       int // packet-framing (TOC code field) divergence
 		rangeOnlyResiduals int // arm64 byte-equal but final_range differs
-		skippedLBRR        int
 	)
 	packetLoss := 20
 
 	for idx := 0; idx < len(specs) && tested < budget; idx += stride {
 		spec := specs[idx]
-		// Known pre-existing encoder finding (tracked separately, see
-		// decode_differential_fuzz_test.go header): SILK LBRR (in-band FEC) with
-		// stereo and >=40 ms frames can produce a delta-gain index outside
-		// silk_delta_gain_iCDF, which panics gopus encode (libopus only
-		// silk_assert()s it, disabled in release). This harness reproduces it for
-		// NB/MB and WB stereo (the prior note said NB/MB; WB is included here). It
-		// is an encoder-side bug unrelated to encode-vs-libopus byte parity, so
-		// skip it here rather than crash the sweep.
-		if spec.fec && spec.channels == 2 && spec.gmode == EncoderModeSILK &&
-			(spec.frameMs == ExpertFrameDuration40Ms || spec.frameMs == ExpertFrameDuration60Ms) {
-			skippedLBRR++
-			continue
-		}
 		tested++
 		t.Run(spec.name, func(t *testing.T) {
 			fs := encFrameSamples48k(spec.frameMs)
@@ -578,11 +564,10 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 			}
 		})
 	}
-	t.Logf("encode differential sweep: %d/%d specs × %d frames "+
-		"(skipped %d LBRR-panic specs); arch=%s; "+
+	t.Logf("encode differential sweep: %d/%d specs × %d frames; arch=%s; "+
 		"TOC-mode-flips=%d framing-diffs=%d packet-count-mismatch=%d amd64-SILK-byte-fails=%d "+
 		"arm64-SILK-float-residuals=%d arm64-CELT/Hybrid-float-residuals=%d arm64-range-tail-residuals=%d",
-		tested, len(specs), framesPerSpec, skippedLBRR, runtime.GOARCH,
+		tested, len(specs), framesPerSpec, runtime.GOARCH,
 		tocFlips, framingDiffs, packetCountMis, silkByteFails, silkResiduals, celtResiduals, rangeOnlyResiduals)
 }
 

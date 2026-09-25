@@ -842,18 +842,17 @@ func bitsToBitrateFs(bits, fs, frameSize int) int {
 	return bits * (6 * fs / frameSize) / 6
 }
 
-// silkInputBitrate mirrors the Opus bits_target reservation before SILK allocation.
-// Opus reserves 8 bits for TOC/signaling before deriving the SILK bitrate.
-func (e *Encoder) silkInputBitrate(frameSize int) int {
-	if e.bitrate <= 0 || frameSize <= 0 {
-		return 0
-	}
-	overheadBps := (8 * int(e.sampleRate)) / frameSize
-	rate := int(e.bitrate) - overheadBps
-	if rate < 0 {
-		return 0
-	}
-	return rate
+// silkTotalBitrate returns the total_bitRate opus_encode_frame_native splits
+// between SILK and CELT: the frame budget bits_target =
+// IMIN(8*(max_data_bytes-redundancy_bytes), bitrate_to_bits(bitrate_bps)) - 8
+// (src/opus_encoder.c:1960), which reserves the TOC byte, converted back to a
+// rate by bits_to_bitrate (src/opus_encoder.c:2051). maxDataBytes is the
+// frame's orig_max_data_bytes; the 1276-byte cap is applied here.
+func (e *Encoder) silkTotalBitrate(frameSize, maxDataBytes, redundancyBytes int) int {
+	sampleRate := int(e.sampleRate)
+	maxDataBytes = min(maxDataBytes, libopusMaxDataBytesCap)
+	bitsTarget := min(8*(maxDataBytes-redundancyBytes), bitrateToBitsFs(int(e.bitrate), sampleRate, frameSize)) - 8
+	return bitsToBitrateFs(bitsTarget, sampleRate, frameSize)
 }
 
 // computeEquivRate calculates the equivalent bitrate based on frame rate, VBR mode,
@@ -1082,7 +1081,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		// Full libopus auto-mode decision chain: voice_ratio, stereo_width,
 		// stream_channels, mode threshold interpolation, auto-bandwidth,
 		// bandwidth clamping, decide_fec, mode fixup.
-		requestedMode = e.autoModeAndBandwidthDecision(framePCM, frameSize, maxDataBytes, isSilence)
+		requestedMode = e.autoModeAndBandwidthDecision(framePCM, frameSize, cbrMaxDataBytes, isSilence)
 	} else {
 		signalHint := e.signalType
 		if signalHint == types.SignalAuto {
@@ -1104,7 +1103,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		useVBR := e.bitrateMode != ModeCBR
 		equivRate := e.computeEquivRate(e.bitrate, int32(channels), int32(frameRate),
 			useVBR, requestedMode, e.complexity, e.packetLoss)
-		e.bandwidth = e.autoClampBandwidth(e.bandwidth, requestedMode, equivRate, e.maxRateForFrame(frameSize, maxDataBytes))
+		e.bandwidth = e.autoClampBandwidth(e.bandwidth, requestedMode, equivRate, e.maxRateForFrame(frameSize, cbrMaxDataBytes))
 		bw := e.bandwidth
 		e.lbrrCoded = decideFEC(e.fecEnabled, e.packetLoss, e.lbrrCoded,
 			requestedMode, &bw, equivRate)
@@ -1209,7 +1208,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 				e.bitrate = encodingBitrate
 			}
 			dredNoDecision := e.dredEncodingActive() && !e.lastOpusVADValid
-			frameData, err = e.encodeSILKFrameWithDRED(framePCM, lookaheadSlice, frameSize, int(originalBitrate), dredBitrate)
+			frameData, err = e.encodeSILKFrameWithDRED(framePCM, lookaheadSlice, frameSize, cbrMaxDataBytes, dredBitrate)
 			if encodingBitrate != originalBitrate {
 				e.bitrate = originalBitrate
 			}
@@ -1220,7 +1219,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 				// trailing zero bytes after range coder finalization. These are
 				// mutually exclusive (opus_encoder.c lines 2580-2599); the bust
 				// check uses the SILK byte count before stripping.
-				if mdb := e.silkBustMaxDataBytes(frameSize, maxDataBytes); mdb > 0 && len(frameData) > mdb-1 {
+				if mdb := min(cbrMaxDataBytes, libopusMaxDataBytesCap); len(frameData) > mdb-1 {
 					frameData = frameData[:1]
 					frameData[0] = 0
 					silkBusted = true
@@ -2504,7 +2503,7 @@ func (e *Encoder) runSilkStereoTransitionPrefill(prefill []opusRes, prefillFrame
 		return
 	}
 
-	totalRate := e.silkInputBitrate(prefillFrameSize)
+	totalRate := e.silkTotalBitrate(prefillFrameSize, libopusMaxDataBytesCap, 0)
 	if totalRate <= 0 {
 		totalRate = int(e.bitrate)
 	}
@@ -3044,21 +3043,15 @@ func (e *Encoder) celtPredictionModeForFrame() int {
 	return e.celtPredictionMode()
 }
 
-// encodeSILKFrameWithDRED encodes one SILK-only frame, reserving dredBitrate for
-// an attached DRED payload, with no explicit packet-byte cap. It delegates to
-// encodeSILKFrameWithDREDAndMax with maxPacketBytes==0 (no cap).
-func (e *Encoder) encodeSILKFrameWithDRED(pcm []opusRes, lookahead []opusRes, frameSize, originalBitrate, dredBitrate int) ([]byte, error) {
-	return e.encodeSILKFrameWithDREDAndMax(pcm, lookahead, frameSize, originalBitrate, dredBitrate, 0)
-}
-
-// encodeSILKFrameWithDREDAndMax runs the SILK sub-encoder for one frame and is
-// the SILK leg of the SILK/CELT/Hybrid bridge (libopus opus_encode_native's
-// silk_Encode call). pcm is the frame and lookahead the trailing samples SILK
-// needs for its lookahead; originalBitrate is the pre-DRED target and dredBitrate
-// the bits reserved for DRED, so the SILK budget is derived from their
-// difference. maxPacketBytes, when >0, caps the SILK payload (used by the
-// multi-frame and low-space paths). It returns the raw SILK frame bytes.
-func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []opusRes, lookahead []opusRes, frameSize, originalBitrate, dredBitrate, maxPacketBytes int) ([]byte, error) {
+// encodeSILKFrameWithDRED runs the SILK sub-encoder for one SILK-only frame and
+// is the SILK leg of the SILK/CELT/Hybrid bridge (libopus
+// opus_encode_frame_native's silk_Encode call). pcm is the frame and lookahead
+// the trailing samples SILK needs for its lookahead. maxDataBytes is the frame's
+// orig_max_data_bytes (the CBR byte count, the caller budget, or a multi-frame
+// sub-frame's curr_max), which bounds both the SILK rate and its maxBits;
+// e.bitrate is st->bitrate_bps after any DRED reservation, and dredBitrate is
+// that reservation. It returns the raw SILK frame bytes.
+func (e *Encoder) encodeSILKFrameWithDRED(pcm []opusRes, lookahead []opusRes, frameSize, maxDataBytes, dredBitrate int) ([]byte, error) {
 	e.ensureSILKEncoder()
 	pcm32 := e.scratchPCM32[:len(pcm)]
 	copy(pcm32, pcm)
@@ -3092,38 +3085,24 @@ func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []opusRes, lookahead []opusR
 		targetSamples = len(pcm32)
 	}
 	if e.channels == 2 && internalChannels == 2 {
-		// Set bitrates: total rate on mid encoder (StereoLRToMSWithRates splits it),
-		// per-channel rate on side encoder for its own SNR control.
-		totalSilkRate := e.silkInputBitrate(frameSize)
-		perChannelRate := totalSilkRate / int(e.channels)
-		if totalSilkRate > 0 {
-			e.silkEncoder.SetBitrate(totalSilkRate)
-		}
+		// Both channels see the packet's total SILK rate and maxBits; the
+		// stereo front end splits the rate into mid/side targets.
+		totalSilkRate := e.silkTotalBitrate(frameSize, maxDataBytes, 0)
+		e.silkEncoder.SetBitrate(totalSilkRate)
 		e.silkEncoder.SetFEC(e.lbrrCoded)
 		e.silkEncoder.SetPacketLoss(int(e.packetLoss))
 		e.ensureSILKSideEncoder()
-		if totalSilkRate > 0 {
-			e.silkSideEncoder.SetBitrate(totalSilkRate)
-		} else if perChannelRate > 0 {
-			e.silkSideEncoder.SetBitrate(perChannelRate)
-		}
+		e.silkSideEncoder.SetBitrate(totalSilkRate)
 		e.silkSideEncoder.SetFEC(e.lbrrCoded)
 		e.silkSideEncoder.SetPacketLoss(int(e.packetLoss))
 
-		// Set VBR mode on both encoders (matching mono path).
 		silkVBR := e.bitrateMode != ModeCBR || dredBitrate > 0
 		e.silkEncoder.SetVBR(silkVBR)
 		e.silkSideEncoder.SetVBR(silkVBR)
 
-		// Set max bits for both encoders.
-		if e.bitrate > 0 {
-			maxBits := e.silkMaxBits(frameSize, totalSilkRate, originalBitrate, dredBitrate)
-			if maxPacketBytes > 0 {
-				maxBits = e.silkMaxBitsForPacketBytes(frameSize, totalSilkRate, maxPacketBytes, dredBitrate)
-			}
-			e.silkEncoder.SetMaxBits(maxBits)
-			e.silkSideEncoder.SetMaxBits(maxBits)
-		}
+		maxBits := e.silkOnlyMaxBits(frameSize, maxDataBytes, totalSilkRate, dredBitrate)
+		e.silkEncoder.SetMaxBits(maxBits)
+		e.silkSideEncoder.SetMaxBits(maxBits)
 
 		left := e.scratchLeft[:frameSize]
 		right := e.scratchRight[:frameSize]
@@ -3233,22 +3212,10 @@ func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []opusRes, lookahead []opusR
 		pcm32 = e.alignSilkMonoInput(pcm32)
 	}
 	quantizeFloat32ToInt16LibopusInPlace(pcm32)
-	perChannelRate := 0
-	if e.bitrate > 0 {
-		perChannelRate = e.silkInputBitrate(frameSize) / internalChannels
-		if perChannelRate > 0 {
-			e.silkEncoder.SetBitrate(perChannelRate)
-		}
-	}
+	silkRate := e.silkTotalBitrate(frameSize, maxDataBytes, 0)
+	e.silkEncoder.SetBitrate(silkRate)
 	e.silkEncoder.SetVBR(e.bitrateMode != ModeCBR || dredBitrate > 0)
-	// Set SILK max bits based on bitrate mode (matches opus_encoder.c behavior).
-	if e.bitrate > 0 {
-		maxBits := e.silkMaxBits(frameSize, perChannelRate, originalBitrate, dredBitrate)
-		if maxPacketBytes > 0 {
-			maxBits = e.silkMaxBitsForPacketBytes(frameSize, perChannelRate, maxPacketBytes, dredBitrate)
-		}
-		e.silkEncoder.SetMaxBits(maxBits)
-	}
+	e.silkEncoder.SetMaxBits(e.silkOnlyMaxBits(frameSize, maxDataBytes, silkRate, dredBitrate))
 	e.silkEncoder.SetFEC(e.lbrrCoded)
 	e.silkEncoder.SetPacketLoss(int(e.packetLoss))
 	fsKHz := targetRate / 1000
@@ -3269,69 +3236,16 @@ func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []opusRes, lookahead []opusR
 	return res, nil
 }
 
-// silkBustMaxDataBytes returns the libopus opus_encoder.c max_data_bytes used by
-// the SILK-busted-target check (ec_tell > (max_data_bytes-1)*8). In CBR this is
-// the cbr_bytes clamp (bitrate_to_bits(bitrate)+4)/8); otherwise it is the
-// caller's packet budget, which is large enough that the check never fires.
-func (e *Encoder) silkBustMaxDataBytes(frameSize, maxDataBytes int) int {
-	if e.bitrateMode != ModeCBR {
-		return maxDataBytes
-	}
-	cbrBytes := max(min(e.targetBytesForBitrate(int(e.bitrate), frameSize), maxDataBytes), 1)
-	return cbrBytes
-}
-
-func (e *Encoder) silkMaxBits(frameSize, silkBitrate, originalBitrate, dredBitrate int) int {
-	maxBitrate := int(e.bitrate)
-	if e.bitrateMode == ModeCBR && dredBitrate > 0 && originalBitrate > 0 {
-		maxBitrate = originalBitrate
-	}
-	targetBytes := e.targetBytesForBitrate(maxBitrate, frameSize)
-	maxBytes := targetBytes
-	switch e.bitrateMode {
-	case ModeVBR:
-		// libopus opus_encoder.c line 2155: silk_mode.maxBits = (max_data_bytes-1)*8
-		// with max_data_bytes = IMIN(orig_max_data_bytes, 1276). The SILK VBR
-		// rate-control loop's bits_margin/exit conditions key off this budget.
-		maxBytes = libopusMaxDataBytesCap
-	case ModeCVBR:
-		maxBytes = libopusMaxDataBytesCap
-	}
-	maxBits := silkPayloadMaxBits(maxBytes)
+// silkOnlyMaxBits mirrors silk_mode.maxBits for a SILK-only frame
+// (src/opus_encoder.c:2154-2177): the payload bits after the TOC byte of
+// max_data_bytes (capped at 1276). A CBR stream carrying DRED codes SILK as VBR
+// capped so SILK takes at most a quarter of the bits beyond its own rate, and
+// DRED absorbs the rest.
+func (e *Encoder) silkOnlyMaxBits(frameSize, maxDataBytes, silkBitrate, dredBitrate int) int {
+	maxBits := (min(maxDataBytes, libopusMaxDataBytesCap) - 1) * 8
 	if e.bitrateMode == ModeCBR && dredBitrate > 0 {
-		if e.sampleRate <= 0 {
-			return maxBits
-		}
-		if silkBitrate <= 0 {
-			silkBitrate = int(e.bitrate)
-		}
-		otherBits := maxBits - silkBitrate*frameSize/int(e.sampleRate)
-		if otherBits > 0 {
-			maxBits -= otherBits * 3 / 4
-		}
-		if maxBits < 0 {
-			maxBits = 0
-		}
-	}
-	return maxBits
-}
-
-func (e *Encoder) silkMaxBitsForPacketBytes(frameSize, silkBitrate, maxPacketBytes, dredBitrate int) int {
-	maxBits := silkPayloadMaxBits(maxPacketBytes)
-	if e.bitrateMode == ModeCBR && dredBitrate > 0 {
-		if e.sampleRate <= 0 {
-			return maxBits
-		}
-		if silkBitrate <= 0 {
-			silkBitrate = int(e.bitrate)
-		}
-		otherBits := maxBits - silkBitrate*frameSize/int(e.sampleRate)
-		if otherBits > 0 {
-			maxBits -= otherBits * 3 / 4
-		}
-		if maxBits < 0 {
-			maxBits = 0
-		}
+		otherBits := max(0, maxBits-silkBitrate*frameSize/int(e.sampleRate))
+		maxBits = max(0, maxBits-otherBits*3/4)
 	}
 	return maxBits
 }
@@ -3961,7 +3875,7 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []opusRes, vadPCM []opusRes, fr
 		if i == 0 {
 			firstFrameMaxBytes = currMax
 		}
-		frameData, err := e.encodeSILKFrameWithDREDAndMax(subPCM, nil, encFrameSize, originalBitrate, dredBitrate, currMax)
+		frameData, err := e.encodeSILKFrameWithDRED(subPCM, nil, encFrameSize, currMax, dredBitrate)
 		if err != nil {
 			e.bitrate = savedBitrate
 			return nil, err

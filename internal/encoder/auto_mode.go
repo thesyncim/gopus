@@ -53,6 +53,10 @@ var autoModeThresholds = [2][2]int{
 	{44000, 10000}, // stereo
 }
 
+// silkFixConst001Q16 is SILK_FIX_CONST(0.01, 16), the Q16 factor decide_fec
+// applies to its loss-scaled FEC threshold.
+const silkFixConst001Q16 = 655
+
 // FEC threshold table from libopus opus_encoder.c lines 186-192.
 // Format: [threshold, hysteresis] for NB, MB, WB, SWB, FB.
 var fecThresholdsTable = [10]int{
@@ -216,11 +220,11 @@ func decideFEC(useInBandFEC bool, packetLoss int32, lastFEC bool, mode Mode, ban
 			lbrrRateThreshold += hysteresis
 		}
 
-		// silk_SMULWB(silk_MUL(threshold, 125-min(loss,25)), SILK_FIX_CONST(0.01, 16))
-		// = threshold * (125 - min(loss, 25)) * 0.01 / (essentially integer multiply then shift)
+		// silk_SMULWB(silk_MUL(threshold, 125-min(loss,25)), SILK_FIX_CONST(0.01, 16)):
+		// the Q16 constant 0.01 is 655, so the scaled threshold rounds down from
+		// threshold*(125-loss)*655/65536 (src/opus_encoder.c:954-955).
 		loss := min(packetLoss, 25)
-		// In float: threshold * (125 - loss) / 100
-		lbrrRateThreshold = lbrrRateThreshold * (125 - loss) / 100
+		lbrrRateThreshold = smulwb(lbrrRateThreshold*(125-loss), silkFixConst001Q16)
 
 		if equivRate > lbrrRateThreshold {
 			return true
