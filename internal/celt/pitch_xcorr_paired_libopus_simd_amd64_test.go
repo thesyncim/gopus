@@ -140,7 +140,14 @@ func TestPitchXCorrPairedLibopusSIMDRawBits(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got := make([]float32, tc.maxPitch)
 			pitchXCorrFloat32(tc.x, tc.y, got, len(tc.x), tc.maxPitch)
-			t.Run("production", func(t *testing.T) { assertPitchXcorrBits(t, got, want[i]) })
+			t.Run("production", func(t *testing.T) {
+				assertPitchXcorrBits(t, got, want[i])
+				if allocs := testing.AllocsPerRun(100, func() {
+					pitchXCorrFloat32(tc.x, tc.y, got, len(tc.x), tc.maxPitch)
+				}); allocs != 0 {
+					t.Errorf("warm production pitch xcorr allocated %v times", allocs)
+				}
+			})
 
 			got = make([]float32, tc.maxPitch)
 			pitchXCorrFloat32AVX2FMAOrder(tc.x, tc.y, got, len(tc.x), tc.maxPitch)
@@ -323,6 +330,72 @@ func libopusPitchXcorrExceptionalCases() []libopusPitchXcorrCase {
 			y[8] = 1
 		}))
 	}
+	cases = append(cases,
+		makeCase("avx_hadd_distinct_nan_lanes8", 8, 8, func(x, y []float32) {
+			for i := range x {
+				bits := uint32(0x7fc00010 + i)
+				if i&1 != 0 {
+					bits = 0xffa00020 + uint32(i)
+				}
+				x[i] = math.Float32frombits(bits)
+			}
+			for i := range y {
+				y[i] = 1
+			}
+		}),
+		makeCase("avx_fma231_acc_vs_y_nan17", 17, 8, func(x, y []float32) {
+			for i := range x {
+				x[i] = 1
+			}
+			for i := range y {
+				y[i] = 1
+			}
+			x[0] = math.Float32frombits(0x7fc01234)
+			y[8] = math.Float32frombits(0xffa05678)
+		}),
+		makeCase("avx_fma231_acc_vs_x_nan17", 17, 8, func(x, y []float32) {
+			for i := range x {
+				x[i] = 1
+			}
+			for i := range y {
+				y[i] = 1
+			}
+			x[0] = math.Float32frombits(0x7fc01234)
+			x[8] = math.Float32frombits(0xffa05678)
+		}),
+		makeCase("sse_mul_distinct_nan4", 4, 1, func(x, y []float32) {
+			for i := range x {
+				x[i] = 1
+				y[i] = 1
+			}
+			x[0] = math.Float32frombits(0x7fc01234)
+			y[0] = math.Float32frombits(0xffa05678)
+		}),
+		makeCase("sse_high_lane_nan4", 4, 1, func(x, y []float32) {
+			for i := range x {
+				x[i] = 1
+				y[i] = 1
+			}
+			x[0] = math.Float32frombits(0x7fc01234)
+			x[2] = math.Float32frombits(0xffa05678)
+		}),
+		makeCase("sse_acc_vs_product_nan8", 8, 1, func(x, y []float32) {
+			for i := range x {
+				x[i] = 1
+				y[i] = 1
+			}
+			x[0] = math.Float32frombits(0x7fc01234)
+			x[4] = math.Float32frombits(0xffa05678)
+		}),
+		makeCase("sse_third_tail_mul_nan7", 7, 1, func(x, y []float32) {
+			for i := range x {
+				x[i] = 1
+				y[i] = 1
+			}
+			x[6] = math.Float32frombits(0x7fc01234)
+			y[6] = math.Float32frombits(0xffa05678)
+		}),
+	)
 	values := []float32{
 		0, math.Float32frombits(1 << 31), math.SmallestNonzeroFloat32,
 		-math.SmallestNonzeroFloat32, 0.5, -0.5, 1, -1,

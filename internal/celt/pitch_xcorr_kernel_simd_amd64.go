@@ -5,6 +5,8 @@ package celt
 import (
 	"simd/archsimd"
 	"unsafe"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
@@ -73,6 +75,12 @@ func xcorrKernelAVX8OnePass(x, y *float32, sum *[8]float32, length int) {
 	}
 	reduceXcorrAVX8Four(acc0, acc1, acc2, acc3).StoreArray((*[4]float32)(unsafe.Pointer(&sum[0])))
 	reduceXcorrAVX8Four(acc4, acc5, acc6, acc7).StoreArray((*[4]float32)(unsafe.Pointer(&sum[4])))
+	for corr := range sum {
+		if sum[corr] != sum[corr] {
+			sum[corr] = opusmath.PitchXcorrAVX2NaNReplay(
+				unsafe.Slice(x, length), unsafe.Slice(y, length+7)[corr:], length)
+		}
+	}
 }
 
 func xcorrKernelAVX4(x, y *float32, sum *[4]float32, length int) {
@@ -116,6 +124,12 @@ func xcorrKernelAVX4(x, y *float32, sum *[4]float32, length int) {
 	sum[1] = reduceXcorrAVX8(acc1)
 	sum[2] = reduceXcorrAVX8(acc2)
 	sum[3] = reduceXcorrAVX8(acc3)
+	for corr := range sum {
+		if sum[corr] != sum[corr] {
+			sum[corr] = opusmath.PitchXcorrAVX2NaNReplay(
+				unsafe.Slice(x, length), unsafe.Slice(y, length+3)[corr:], length)
+		}
+	}
 }
 
 func loadXcorrTail8(p unsafe.Pointer, remaining int) archsimd.Float32x8 {

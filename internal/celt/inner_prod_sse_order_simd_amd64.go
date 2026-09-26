@@ -5,6 +5,8 @@ package celt
 import (
 	"simd/archsimd"
 	"unsafe"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 // innerProdFloat32SSEOrder reproduces libopus x86/pitch_sse.c
@@ -32,6 +34,9 @@ func innerProdFloat32SSEOrder(x, y []float32, length int) float32 {
 	sum := add32(add32(acc.GetElem(0), acc.GetElem(2)), add32(acc.GetElem(1), acc.GetElem(3)))
 	for ; i < length; i++ {
 		sum = add32(sum, mul32(x[i], y[i]))
+	}
+	if sum != sum {
+		return opusmath.PitchXcorrSSENaNReplay(x, y, length)
 	}
 	return sum
 }

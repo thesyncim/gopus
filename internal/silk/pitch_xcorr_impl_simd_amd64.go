@@ -5,6 +5,8 @@ package silk
 import (
 	"simd/archsimd"
 	"unsafe"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 func celtPitchXcorrFloatImpl(x, y []float32, out []float32, length, maxPitch int) {
@@ -50,6 +52,9 @@ func innerProductF32SSEOrder(x, y []float32, length int) float32 {
 	sum := (acc.GetElem(0) + acc.GetElem(2)) + (acc.GetElem(1) + acc.GetElem(3))
 	for ; i < length; i++ {
 		sum += noFMA32(x[i], y[i])
+	}
+	if sum != sum {
+		return opusmath.PitchXcorrSSENaNReplay(x, y, length)
 	}
 	return sum
 }
