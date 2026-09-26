@@ -188,7 +188,6 @@ func (d *Decoder) clearDecoderScratchForReset() {
 	clearInt32Cap(d.scratchFineQuant)
 	clearInt32Cap(d.scratchFinePriority)
 	clearFloat32Cap(d.scratchPrevBandEnergy)
-	clearGLogCap(d.scratchSilenceE)
 	clearInt32Cap(d.scratchCaps)
 	clearInt32Cap(d.scratchAllocWork)
 	d.scratchBands.clearForReset()

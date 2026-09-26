@@ -1,6 +1,7 @@
 package celt
 
 import (
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"math"
 	"math/rand"
 	"testing"
@@ -8,11 +9,11 @@ import (
 
 // celtInnerProd8FMA32Ref is the original celtInnerProdNeonStyle body, kept here
 // so the asm/nosimd kernel can be proven bit-identical to the libopus-matching
-// 4-lane FMA reference it replaced. It fuses each lane through mdctFMA32
+// 4-lane FMA reference it replaced. It fuses each lane through opusmath.FMA32
 // (single-rounding math.FMA) exactly like the kernel under test, so the
 // comparison holds on every architecture: the kernel is a fused
 // vfmaq_f32-shaped accumulator regardless of host (it is reached in production
-// only on arm64, where mdctFMA32 maps to FMADDS). celtFloatMulAdd is not used
+// only on arm64, where opusmath.FMA32 maps to FMADDS). celtFloatMulAdd is not used
 // here because it drops to non-fused a*b+c on non-arm64 hosts, which would not
 // match the kernel's unconditional FMA and would diverge by 1 ULP.
 func celtInnerProd8FMA32Ref(x, y []float32) float32 {
@@ -20,15 +21,15 @@ func celtInnerProd8FMA32Ref(x, y []float32) float32 {
 	i := 0
 	for ; i < len(x)-7; i += 8 {
 		for lane := range 4 {
-			acc[lane] = mdctFMA32(x[i+lane], y[i+lane], acc[lane])
+			acc[lane] = opusmath.FMA32(x[i+lane], y[i+lane], acc[lane])
 		}
 		for lane := range 4 {
-			acc[lane] = mdctFMA32(x[i+4+lane], y[i+4+lane], acc[lane])
+			acc[lane] = opusmath.FMA32(x[i+4+lane], y[i+4+lane], acc[lane])
 		}
 	}
 	if len(x)-i >= 4 {
 		for lane := range 4 {
-			acc[lane] = mdctFMA32(x[i+lane], y[i+lane], acc[lane])
+			acc[lane] = opusmath.FMA32(x[i+lane], y[i+lane], acc[lane])
 		}
 		i += 4
 	}
@@ -36,7 +37,7 @@ func celtInnerProd8FMA32Ref(x, y []float32) float32 {
 	sum1 := math.Float32frombits(math.Float32bits(acc[1] + acc[3]))
 	sum := math.Float32frombits(math.Float32bits(sum0 + sum1))
 	for ; i < len(x); i++ {
-		sum = mdctFMA32(x[i], y[i], sum)
+		sum = opusmath.FMA32(x[i], y[i], sum)
 	}
 	return sum
 }

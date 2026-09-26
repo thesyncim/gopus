@@ -966,8 +966,6 @@ func (d *Decoder) DecodePLCInto(bandwidth Bandwidth, frameSizeSamples int, outpu
 	d.preparePLCFrameDecodeState(bandwidth, frameSizeSamples, 1)
 	// Get fade factor for this loss
 	fadeFactor := d.plcState.RecordLoss()
-	// Match libopus silk_PLC_conceal() input cadence: use decoder-state lossCnt.
-	lossCnt := d.state[0].lossCnt
 
 	// Get native sample count from the API-rate frame size.
 	config := GetBandwidthConfig(bandwidth)
@@ -985,8 +983,7 @@ func (d *Decoder) DecodePLCInto(bandwidth Bandwidth, frameSizeSamples int, outpu
 		// sLPC_Q14_buf history, matching libopus silk_PLC_conceal. The
 		// Decoder-level accessor reports a stale order and would force the
 		// float-derived LPC fallback, corrupting unvoiced concealment.
-		concealedQ0 := d.plcConcealQ0For(0, nativeSamples)
-		plc.ConcealSILKWithLTPInto(d.plcDecoderView(0), state, int(lossCnt), concealedQ0, &d.plcKernelScratch[0])
+		concealedQ0 := d.concealSILKFrame(0, &d.state[0], nativeSamples)
 		if d.scratchOutput != nil && len(d.scratchOutput) >= nativeSamples {
 			concealed = d.scratchOutput[:nativeSamples]
 		} else {
@@ -1180,8 +1177,8 @@ func (d *Decoder) recordPLCLossForState(st *decoderState, concealed []float32) {
 	if st == &d.state[1] {
 		channel = 1
 	}
-	st.lossCnt++
 	if len(concealed) == 0 {
+		st.lossCnt++
 		st.plcConcEnergy = 0
 		st.plcConcEnergyShift = 0
 		st.plcLastFrameLost = true
@@ -1195,21 +1192,24 @@ func (d *Decoder) recordPLCLossForState(st *decoderState, concealed []float32) {
 	for i, v := range concealed {
 		tmp[i] = float32ToInt16(v)
 	}
-
-	d.updateHistoryInt16(tmp)
-	// Keep decoder outBuf cadence aligned with normal decode path so
-	// subsequent PLC rewhitening uses the most recent concealed output.
-	silkUpdateOutBuf(st, tmp)
-
-	// Match libopus decode_frame.c cadence on lost frames:
-	// CNG is applied after outBuf update, then PLC glue captures concealed energy.
-	d.applyCNG(channel, st, nil, tmp)
-	silkPLCGlueFrames(st, tmp, len(tmp))
+	d.finishLostFrame(channel, st, tmp)
 
 	const scale = float32(1.0 / 32768.0)
 	for i := range tmp {
 		concealed[i] = float32(tmp[i]) * scale
 	}
+}
+
+// finishLostFrame applies the state updates silk_PLC and silk_decode_frame
+// make after concealing a frame into pOut: the loss count, the output buffer,
+// comfort noise generation (silk_CNG) and the energy capture of
+// silk_PLC_glue_frames, in that order. frame is modified in place by CNG.
+func (d *Decoder) finishLostFrame(channel int, st *decoderState, frame []int16) {
+	st.lossCnt++
+	d.updateHistoryInt16(frame)
+	silkUpdateOutBuf(st, frame)
+	d.applyCNG(channel, st, nil, frame)
+	silkPLCGlueFrames(st, frame, len(frame))
 }
 
 func (d *Decoder) applyDeepPLCHistoryMono(st *decoderState, concealed []float32) {
@@ -1385,8 +1385,6 @@ func (d *Decoder) DecodePLCStereoInto(bandwidth Bandwidth, frameSizeSamples int,
 
 	// Get fade factor for this loss
 	fadeFactor := d.plcState.RecordLoss()
-	// Match libopus silk_PLC_conceal() input cadence: use decoder-state lossCnt.
-	lossCnt := d.state[0].lossCnt
 
 	// libopus stereo PLC keeps operating in mid/side space and only converts
 	// back to left/right through silk_stereo_MS_to_LR before resampling.
@@ -1402,8 +1400,7 @@ func (d *Decoder) DecodePLCStereoInto(bandwidth Bandwidth, frameSizeSamples int,
 	usedDeepPLCHook := false
 	hookLagPrev := 0
 	if midState != nil && midView != nil && d.state[0].nbSubfr > 0 {
-		midQ0 := d.plcConcealQ0For(0, nativeSamples)
-		plc.ConcealSILKWithLTPInto(midView, midState, int(lossCnt), midQ0, &d.plcKernelScratch[0])
+		midQ0 := d.concealSILKFrame(0, &d.state[0], nativeSamples)
 		scale := float32(1.0 / 32768.0)
 		for i := 0; i < nativeSamples && i < len(midQ0); i++ {
 			mid[i] = float32(midQ0[i]) * scale
@@ -1434,8 +1431,7 @@ func (d *Decoder) DecodePLCStereoInto(bandwidth Bandwidth, frameSizeSamples int,
 		d.state[0].lagPrev = int32(hookLagPrev)
 	}
 	if hasSide && sideState != nil && sideView != nil && d.state[1].nbSubfr > 0 {
-		sideQ0 := d.plcConcealQ0For(1, nativeSamples)
-		plc.ConcealSILKWithLTPInto(sideView, sideState, int(lossCnt), sideQ0, &d.plcKernelScratch[1])
+		sideQ0 := d.concealSILKFrame(1, &d.state[1], nativeSamples)
 		scale := float32(1.0 / 32768.0)
 		for i := 0; i < nativeSamples && i < len(sideQ0); i++ {
 			side[i] = float32(sideQ0[i]) * scale

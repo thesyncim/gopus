@@ -149,32 +149,24 @@ func tocMode(toc byte) diffMode {
 // pcmExactTolerance returns the max absolute per-sample float32 difference
 // tolerated for a packet, in the shared float32 comparison scale.
 //
-// On the amd64 asm/SIMD build the requirement is bit-exact for every mode and
-// format (tolerance 0): gopus's SSE/AVX kernels are tuned to match the SIMD
-// libopus the default oracle build links on amd64, so exactness is the gate.
+// Every amd64 build is bit-exact against its paired libopus reference (the Go
+// SIMD build against SIMD libopus, the scalar builds against scalar libopus),
+// so the tolerance there is 0 for every mode and format.
 //
-// On every pure-Go (-tags nosimd) build and on darwin/arm64 the documented
-// ≤1-ULP float drift (project_arm64_celt_1ulp_drift) applies. The pure-Go float
-// path does not reproduce the SIMD libopus reference bit-for-bit (CELT/hybrid
-// IMDCT, synthesis, and deemphasis round a few LSB at the ~1/32768 quantum;
-// the SILK stereo MS->LR multiply drifts a few ULP), so the same per-arch budget
-// is applied uniformly there: a few /32768 for float32/int16 and a matching
-// int24 band. This is the documented per-arch budget, not a mask -- the amd64
-// asm build stays exact, and the bound (~1.2e-4) is three orders of magnitude
-// below any real divergence (the fixed SILK LBRR desync produced ~1.0-2.0).
+// arm64 keeps a budget of 4/32768 until its paired reference is exact: its
+// CELT/Hybrid float path still rounds a few LSB differently from the clang
+// build. This budget applies to arm64 only.
 func pcmExactTolerance(toc byte, format uint32) float32 {
-	if runtime.GOARCH == "amd64" && !testNoSimdBuild {
+	if runtime.GOARCH != "arm64" {
 		return 0
 	}
-	switch format {
-	case libopustest.DecodeDiffFormatInt24:
-		// int24 quantum is 1/8388608; the float drift maps to the same ~4/32768
-		// band. Conversion-overflow samples (|x|>=256) are skipped in pcmDiffWorst.
-		return 4.0 / 32768.0
-	default: // float32, int16
-		return 4.0 / 32768.0
-	}
+	return arm64PCMTolerance
 }
+
+// arm64PCMTolerance is the arm64-only per-sample budget of pcmExactTolerance,
+// for float32, int16 and int24 alike (int24 samples beyond the conversion
+// overflow band are skipped in pcmDiffWorst).
+const arm64PCMTolerance = 4.0 / 32768.0
 
 // pcmDiffWorst returns the worst tolerated-scale per-sample |Δ| between gopus and
 // oracle PCM, the index, the tolerance, and whether they are within tolerance. It

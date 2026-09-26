@@ -144,148 +144,99 @@ func probeLibopusDeemphasisWithOptions(t *testing.T, channels int, samples [][]f
 	return out
 }
 
-func TestApplyDeemphasisAndScaleToFloat32MatchesLibopus(t *testing.T) {
+// TestDeemphasisMatchesLibopus drives Decoder.deemphasis through every input
+// layout the decoder uses (interleaved into a separate buffer, interleaved in
+// place, planar) and every libopus branch (plain, accumulating onto a SILK
+// lowband, downsampling) against libopus deemphasis().
+func TestDeemphasisMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	requirePairedCELTOracleMode(t)
 
-	const n = 67
-	samples32 := make([]float32, n)
-	for i := range samples32 {
-		v := float32(math.Sin(float64(i+1)*0.173)*2100 + math.Cos(float64(i+3)*0.071)*650)
-		samples32[i] = v
+	type signal struct {
+		name  string
+		left  func(i int) float32
+		right func(i int) float32
+		mem   [2]float32
 	}
-	initialMem := []float32{float32(-312.75)}
-	want := probeLibopusDeemphasis(t, 1, [][]float32{samples32}, initialMem)
+	signals := []signal{
+		{"loud", func(i int) float32 {
+			return float32(math.Sin(float64(i+4)*0.113)*81000 + math.Cos(float64(i+9)*0.047)*23000)
+		}, func(i int) float32 {
+			return float32(math.Cos(float64(i+6)*0.151)*1600 - math.Sin(float64(i+2)*0.083)*810)
+		}, [2]float32{-512.25, 311.5}},
+		{"small", func(i int) float32 {
+			return float32(math.Sin(float64(i+1)*0.5) * 1e-3)
+		}, func(i int) float32 {
+			return float32(math.Cos(float64(i+1)*0.3) * 7e-4)
+		}, [2]float32{0, 3e-31}},
+		{"silence", func(int) float32 { return 0 }, func(int) float32 { return 0 }, [2]float32{0, 0}},
+	}
+	for _, sig := range signals {
+		for _, channels := range []int{1, 2} {
+			for _, downsample := range []int{1, 2, 3} {
+				for _, accum := range []bool{false, true} {
+					name := fmt.Sprintf("%s/ch%d/ds%d/accum=%t", sig.name, channels, downsample, accum)
+					t.Run(name, func(t *testing.T) {
+						const n = 120
+						planes := make([][]float32, channels)
+						interleaved := make([]float32, n*channels)
+						for c := range channels {
+							planes[c] = make([]float32, n)
+							gen := sig.left
+							if c == 1 {
+								gen = sig.right
+							}
+							for i := range n {
+								planes[c][i] = gen(i)
+								interleaved[i*channels+c] = planes[c][i]
+							}
+						}
+						seed := make([]float32, (n/downsample)*channels)
+						var accumSeed []float32
+						if accum {
+							for i := range seed {
+								seed[i] = float32(math.Sin(float64(i+3)*0.019)*0.31 + math.Cos(float64(i+11)*0.0073)*0.12)
+							}
+							accumSeed = seed
+						}
+						want := probeLibopusDeemphasisWithOptions(t, channels, planes, sig.mem[:channels], downsample, accumSeed)
 
-	dec := NewDecoder(1)
-	dec.preemphState[0] = initialMem[0]
-	got := make([]float32, n)
-	dec.applyDeemphasisAndScaleToFloat32(got, samples32, 1.0/32768.0)
-
-	for i := range got {
-		if math.Float32bits(got[i]) != math.Float32bits(want.pcm[i]) {
-			t.Fatalf("pcm[%d]=%08x %0.10g want %08x %0.10g sample=%08x %0.10g",
-				i, math.Float32bits(got[i]), got[i], math.Float32bits(want.pcm[i]), want.pcm[i],
-				math.Float32bits(samples32[i]), samples32[i])
+						run := func(label string, fn func(d *Decoder, out []float32)) {
+							d := NewDecoder(channels)
+							copy(d.preemphState, sig.mem[:channels])
+							out := append([]float32(nil), seed...)
+							fn(d, out)
+							assertCELTFilterFloat32Bits(t, label+" pcm", out, want.pcm)
+							assertCELTFilterMemBits(t, d, want.mem)
+						}
+						run("interleaved", func(d *Decoder, out []float32) {
+							src := append([]float32(nil), interleaved...)
+							x1 := src
+							if channels == 2 {
+								x1 = src[1:]
+							}
+							d.deemphasis(out, src, x1, channels, n, downsample, accum)
+						})
+						right := planes[0]
+						if channels == 2 {
+							right = planes[1]
+						}
+						run("planar", func(d *Decoder, out []float32) {
+							d.deemphasis(out, planes[0], right, 1, n, downsample, accum)
+						})
+						if downsample == 1 && !accum {
+							run("in-place", func(d *Decoder, out []float32) {
+								copy(out, interleaved)
+								if got := d.deemphasisInterleaved(out, n); len(got) != len(out) {
+									t.Fatalf("in-place len=%d want %d", len(got), len(out))
+								}
+							})
+						}
+					})
+				}
+			}
 		}
 	}
-	if math.Float32bits(dec.preemphState[0]) != math.Float32bits(want.mem[0]) {
-		t.Fatalf("mem=%08x want %08x", math.Float32bits(dec.preemphState[0]), math.Float32bits(want.mem[0]))
-	}
-}
-
-func TestApplyDeemphasisAndScaleToFloat32StereoMatchesLibopus(t *testing.T) {
-	libopustest.RequireOracle(t)
-	requirePairedCELTOracleMode(t)
-
-	const n = 61
-	left, right := makeStereoDeemphasisSamples(n)
-	interleaved := make([]float32, n*2)
-	for i := range n {
-		interleaved[2*i] = left[i]
-		interleaved[2*i+1] = right[i]
-	}
-	initialMem := []float32{float32(-129.5), float32(84.25)}
-	want := probeLibopusDeemphasis(t, 2, [][]float32{left, right}, initialMem)
-
-	dec := NewDecoder(2)
-	dec.preemphState[0] = initialMem[0]
-	dec.preemphState[1] = initialMem[1]
-	got := make([]float32, n*2)
-	dec.applyDeemphasisAndScaleToFloat32(got, interleaved, 1.0/32768.0)
-
-	assertCELTFilterFloat32Bits(t, "pcm", got, want.pcm)
-	assertCELTFilterMemBits(t, dec, want.mem)
-}
-
-func TestApplyDeemphasisAndScaleMonoFloat32ToFloat32MatchesLibopus(t *testing.T) {
-	libopustest.RequireOracle(t)
-	requirePairedCELTOracleMode(t)
-
-	const n = 73
-	samples := make([]float32, n)
-	for i := range samples {
-		samples[i] = float32(math.Sin(float64(i+2)*0.137)*1800 + math.Cos(float64(i+5)*0.191)*900)
-	}
-	initialMem := []float32{float32(511.25)}
-	want := probeLibopusDeemphasis(t, 1, [][]float32{samples}, initialMem)
-
-	dec := NewDecoder(1)
-	dec.preemphState[0] = initialMem[0]
-	got := make([]float32, n)
-	dec.applyDeemphasisAndScaleMonoFloat32ToFloat32(got, samples, 1.0/32768.0)
-
-	for i := range got {
-		if math.Float32bits(got[i]) != math.Float32bits(want.pcm[i]) {
-			t.Fatalf("pcm[%d]=%08x %0.10g want %08x %0.10g sample=%08x %0.10g",
-				i, math.Float32bits(got[i]), got[i], math.Float32bits(want.pcm[i]), want.pcm[i],
-				math.Float32bits(samples[i]), samples[i])
-		}
-	}
-	if math.Float32bits(dec.preemphState[0]) != math.Float32bits(want.mem[0]) {
-		t.Fatalf("mem=%08x want %08x", math.Float32bits(dec.preemphState[0]), math.Float32bits(want.mem[0]))
-	}
-}
-
-func TestApplyDeemphasisAndScaleInPlaceMatchesLibopus(t *testing.T) {
-	libopustest.RequireOracle(t)
-	requirePairedCELTOracleMode(t)
-
-	const n = 59
-	left, right := makeStereoDeemphasisSamples(n)
-	samples := make([]float32, n*2)
-	for i := range n {
-		samples[2*i] = left[i]
-		samples[2*i+1] = right[i]
-	}
-	initialMem := []float32{float32(91.75), float32(-44.5)}
-	want := probeLibopusDeemphasis(t, 2, [][]float32{left, right}, initialMem)
-
-	dec := NewDecoder(2)
-	dec.preemphState[0] = initialMem[0]
-	dec.preemphState[1] = initialMem[1]
-	dec.applyDeemphasisAndScale(samples, 1.0/32768.0)
-
-	assertCELTFilterFloat32Bits(t, "pcm", samples, want.pcm)
-	assertCELTFilterMemBits(t, dec, want.mem)
-}
-
-func TestApplyDeemphasisAndScaleStereoPlanarToFloat32MatchesLibopus(t *testing.T) {
-	libopustest.RequireOracle(t)
-	requirePairedCELTOracleMode(t)
-
-	const n = 65
-	left32, right32 := makeStereoDeemphasisSamples(n)
-	initialMem := []float32{float32(277.25), float32(-193.125)}
-	want := probeLibopusDeemphasis(t, 2, [][]float32{left32, right32}, initialMem)
-
-	dec := NewDecoder(2)
-	dec.preemphState[0] = initialMem[0]
-	dec.preemphState[1] = initialMem[1]
-	got := make([]float32, n*2)
-	dec.applyDeemphasisAndScaleStereoPlanarToFloat32(got, left32, right32, 1.0/32768.0)
-
-	assertCELTFilterFloat32Bits(t, "pcm", got, want.pcm)
-	assertCELTFilterMemBits(t, dec, want.mem)
-}
-
-func TestApplyDeemphasisAndScaleStereoPlanarFloat32ToFloat32MatchesLibopus(t *testing.T) {
-	libopustest.RequireOracle(t)
-	requirePairedCELTOracleMode(t)
-
-	const n = 71
-	left, right := makeStereoDeemphasisSamples(n)
-	initialMem := []float32{float32(-71.875), float32(311.5)}
-	want := probeLibopusDeemphasis(t, 2, [][]float32{left, right}, initialMem)
-
-	dec := NewDecoder(2)
-	dec.preemphState[0] = initialMem[0]
-	dec.preemphState[1] = initialMem[1]
-	got := make([]float32, n*2)
-	dec.applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(got, left, right, 1.0/32768.0)
-
-	assertCELTFilterFloat32Bits(t, "pcm", got, want.pcm)
-	assertCELTFilterMemBits(t, dec, want.mem)
 }
 
 func TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus(t *testing.T) {
@@ -313,7 +264,7 @@ func TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus(t *testing.T
 					}
 					want := probeLibopusDeemphasis(t, channels, planes, oracleMem)
 					interleaved := interleaveDeemphasisPlanes(planes)
-					dec.applyDeemphasisAndScale(interleaved, 1.0/32768.0)
+					dec.deemphasisInterleaved(interleaved, segment.length)
 					assertCELTFilterFloat32Bits(t, "pcm", interleaved, want.pcm)
 					assertCELTFilterMemBits(t, dec, want.mem)
 					copy(oracleMem, want.mem)
@@ -343,7 +294,7 @@ func TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus(t *testing.T
 			copy(dec.preemphState[:], initialMem)
 			got := make([]float32, outFrames*channels)
 			interleaved := interleaveDeemphasisPlanes(planes)
-			dec.applyDeemphasisAndScaleDownsampleToFloat32(got, interleaved, downsample, 1.0/32768.0)
+			dec.deemphasis(got, interleaved, interleaved[channels-1:], channels, n, downsample, false)
 			assertCELTFilterFloat32Bits(t, "downsample pcm", got, want.pcm)
 			assertCELTFilterMemBits(t, dec, want.mem)
 
@@ -355,24 +306,12 @@ func TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus(t *testing.T
 			dec = NewDecoder(channels)
 			copy(dec.preemphState[:], initialMem)
 			gotAccum := make([]float32, len(accum))
-			dec.applyDeemphasisAndScaleDownsampleToFloat32(gotAccum, interleaved, downsample, 1.0/32768.0)
-			for i := range gotAccum {
-				gotAccum[i] += accum[i]
-			}
+			copy(gotAccum, accum)
+			dec.deemphasis(gotAccum, interleaved, interleaved[channels-1:], channels, n, downsample, true)
 			assertCELTFilterFloat32Bits(t, "downsample accumulated pcm", gotAccum, wantAccum.pcm)
 			assertCELTFilterMemBits(t, dec, wantAccum.mem)
 		})
 	}
-}
-
-func makeStereoDeemphasisSamples(n int) ([]float32, []float32) {
-	left := make([]float32, n)
-	right := make([]float32, n)
-	for i := range n {
-		left[i] = float32(math.Sin(float64(i+4)*0.113)*1900 + math.Cos(float64(i+9)*0.047)*720)
-		right[i] = float32(math.Cos(float64(i+6)*0.151)*1600 - math.Sin(float64(i+2)*0.083)*810)
-	}
-	return left, right
 }
 
 func interleaveDeemphasisPlanes(planes [][]float32) []float32 {

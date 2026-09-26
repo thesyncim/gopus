@@ -259,3 +259,90 @@ func TestDecodeGainChangeTransitionMatchesLibopus(t *testing.T) {
 		}
 	}
 }
+
+// TestDecodeGainModeTransitionMatchesLibopus decodes CELT<->SILK/Hybrid mode
+// transitions with a decode gain. libopus applies decode_gain inside every
+// opus_decode_frame call, including the recursive opus_decode_frame(NULL) that
+// produces the 5 ms transition frame, so the transition samples copied into the
+// output carry the gain twice. gopus must match every float bit.
+func TestDecodeGainModeTransitionMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const (
+		sampleRate = 48000
+		frameSize  = 480
+		gainQ8     = 768
+	)
+	modes := []EncoderMode{EncoderModeCELT, EncoderModeHybrid, EncoderModeHybrid, EncoderModeCELT, EncoderModeSILK, EncoderModeSILK, EncoderModeCELT, EncoderModeCELT}
+	for _, channels := range []int{1, 2} {
+		t.Run("ch_"+itoaSmall(channels), func(t *testing.T) {
+			// One encoder per mode, so the stream switches modes without the
+			// redundancy frames an encoder emits on its own mode changes (which
+			// cancel the decoder transition).
+			encoders := map[EncoderMode]*Encoder{}
+			for _, mode := range []EncoderMode{EncoderModeCELT, EncoderModeHybrid, EncoderModeSILK} {
+				enc, err := NewEncoder(EncoderConfig{SampleRate: sampleRate, Channels: channels, Application: ApplicationAudio})
+				if err != nil {
+					t.Fatalf("NewEncoder: %v", err)
+				}
+				if err := enc.SetFrameSize(frameSize); err != nil {
+					t.Fatalf("SetFrameSize: %v", err)
+				}
+				if err := enc.SetBitrate(32000 * channels); err != nil {
+					t.Fatalf("SetBitrate: %v", err)
+				}
+				if err := enc.SetMode(mode); err != nil {
+					t.Fatalf("SetMode: %v", err)
+				}
+				encoders[mode] = enc
+			}
+			var steps []libopusAPIRateDecodeStep
+			pcm := make([]float32, frameSize*channels)
+			packet := make([]byte, 1275)
+			for f, mode := range modes {
+				for i := range frameSize {
+					n := float64(f*frameSize + i)
+					for c := range channels {
+						pcm[i*channels+c] = float32(0.3*math.Sin(2*math.Pi*(440+110*float64(c))*n/sampleRate) + 0.1*math.Sin(2*math.Pi*5300*n/sampleRate))
+					}
+				}
+				for m, enc := range encoders {
+					n, err := enc.Encode(pcm, packet)
+					if err != nil {
+						t.Fatalf("Encode: %v", err)
+					}
+					if m == mode {
+						steps = append(steps, libopusAPIRateDecodeStep{packet: append([]byte(nil), packet[:n]...)})
+					}
+				}
+			}
+			want, err := decodeWithLibopusReferenceAPIRateFloat32StepsGain(sampleRate, channels, frameSize, gainQ8, steps)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "gain mode transition reference decode", err)
+			}
+			dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			if err := dec.SetGain(gainQ8); err != nil {
+				t.Fatalf("SetGain: %v", err)
+			}
+			frame := make([]float32, frameSize*channels)
+			var got []float32
+			for _, step := range steps {
+				n, err := dec.Decode(step.packet, frame)
+				if err != nil {
+					t.Fatalf("Decode: %v", err)
+				}
+				got = append(got, frame[:n*channels]...)
+			}
+			if len(got) != len(want) {
+				t.Fatalf("sample count gopus=%d libopus=%d", len(got), len(want))
+			}
+			for i := range got {
+				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+					t.Fatalf("sample %d (frame %d, TOC %#02x): gopus=%08x libopus=%08x", i, i/(frameSize*channels), steps[i/(frameSize*channels)].packet[0], math.Float32bits(got[i]), math.Float32bits(want[i]))
+				}
+			}
+		})
+	}
+}

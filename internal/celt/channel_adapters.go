@@ -27,49 +27,28 @@ func (d *Decoder) DecodeFrameWithPacketStereo(data []byte, frameSize int, packet
 	return d.decodeStereoPacketToMono(data, frameSize)
 }
 
-// DecodeFrameWithPacketStereoToFloat32 decodes a CELT frame directly into a
-// caller-provided float32 buffer for the common packetChannels==decoder
-// channels path, falling back to the slice-returning path otherwise.
+// DecodeFrameWithPacketStereoToFloat32 decodes a CELT frame of frameSize
+// samples at the internal 48 kHz rate directly into out.
 func (d *Decoder) DecodeFrameWithPacketStereoToFloat32(data []byte, frameSize int, packetStereo bool, out []float32) error {
-	channels := int(d.channels)
-	outLen := frameSize * channels
+	outLen := frameSize * int(d.channels)
 	if len(out) < outLen {
 		return ErrOutputTooSmall
 	}
+	return d.decodeFrameInto(data, frameSize, packetStereo, out[:outLen], false)
+}
 
-	packetChannels := packetChannelsFromStereoFlag(packetStereo)
-	if len(data) > 1 && packetChannels == 1 && channels == 2 {
-		d.directOutPCM = out[:outLen]
-		defer func() {
-			d.directOutPCM = nil
-		}()
-		_, err := d.decodeMonoPacketToStereo(data, frameSize)
-		return err
-	}
-
-	if len(data) <= 1 {
-		d.directOutPCM = out[:outLen]
-		defer func() {
-			d.directOutPCM = nil
-		}()
-		_, err := d.DecodeFrameWithPacketStereo(data, frameSize, packetStereo)
-		return err
-	}
-
-	if packetChannels != channels {
-		samples, err := d.DecodeFrameWithPacketStereo(data, frameSize, packetStereo)
-		if err != nil {
-			return err
-		}
-		copy(out[:outLen], samples)
-		return nil
-	}
-
-	d.directOutPCM = out[:outLen]
+// decodeFrameInto decodes a frame of frameSize internal-rate samples into out,
+// the libopus pcm buffer. out holds either frameSize or frameSize/downsample
+// interleaved frames; in the latter case the de-emphasis downsamples. With
+// accum the frame is added onto out (libopus celt_accum).
+func (d *Decoder) decodeFrameInto(data []byte, frameSize int, packetStereo bool, out []float32, accum bool) error {
+	d.directOutPCM = out
+	d.directOutAccum = accum
 	defer func() {
 		d.directOutPCM = nil
+		d.directOutAccum = false
 	}()
-	_, err := d.DecodeFrame(data, frameSize)
+	_, err := d.DecodeFrameWithPacketStereo(data, frameSize, packetStereo)
 	return err
 }
 
@@ -109,10 +88,19 @@ func (d *Decoder) DecodeFrameWithPacketStereoAtAPIRate(data []byte, frameSize in
 // out slice at the decoder's API sample rate, downsampling from the internal
 // 48 kHz block when required.
 func (d *Decoder) DecodeFrameWithPacketStereoToFloat32AtAPIRate(data []byte, frameSize int, packetStereo bool, out []float32) error {
+	return d.decodeFrameAtAPIRate(data, frameSize, packetStereo, out, false)
+}
+
+// AccumulateFrameWithPacketStereoAtAPIRate decodes a frame at the decoder's
+// API sample rate and adds it onto out (libopus celt_accum). opus_decode_frame
+// uses it for the 2.5 ms CELT silence frame that fades out the CELT overlap on
+// a Hybrid->SILK transition.
+func (d *Decoder) AccumulateFrameWithPacketStereoAtAPIRate(data []byte, frameSize int, packetStereo bool, out []float32) error {
+	return d.decodeFrameAtAPIRate(data, frameSize, packetStereo, out, true)
+}
+
+func (d *Decoder) decodeFrameAtAPIRate(data []byte, frameSize int, packetStereo bool, out []float32, accum bool) error {
 	downsample := d.downsampleFactor()
-	if downsample <= 1 {
-		return d.DecodeFrameWithPacketStereoToFloat32(data, frameSize, packetStereo, out)
-	}
 	if frameSize <= 0 || frameSize*downsample/downsample != frameSize {
 		return ErrInvalidFrameSize
 	}
@@ -120,25 +108,11 @@ func (d *Decoder) DecodeFrameWithPacketStereoToFloat32AtAPIRate(data []byte, fra
 	if !ValidFrameSize(internalFrameSize) {
 		return ErrInvalidFrameSize
 	}
-	channels := int(d.channels)
-	outLen := frameSize * channels
+	outLen := frameSize * int(d.channels)
 	if len(out) < outLen {
 		return ErrOutputTooSmall
 	}
-
-	d.directOutPCM = out[:outLen]
-	defer func() {
-		d.directOutPCM = nil
-	}()
-
-	samples, err := d.DecodeFrameWithPacketStereo(data, internalFrameSize, packetStereo)
-	if err != nil {
-		return err
-	}
-	if len(samples) != 0 {
-		copyDownsampledFloat32(out[:outLen], samples, frameSize, channels, downsample)
-	}
-	return nil
+	return d.decodeFrameInto(data, internalFrameSize, packetStereo, out[:outLen], accum)
 }
 
 func copyDownsampledFloat32(dst []float32, src []float32, frameSize, channels, downsample int) {
@@ -203,66 +177,20 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 	d.prevEnergy = prev1Energy
 
 	totalBits := len(data) * 8
-	tell := rd.Tell()
-	silence := false
-	if tell >= totalBits {
-		silence = true
-	} else if tell == 1 {
-		silence = rd.DecodeBit(15) == 1
-	}
+	silence := decodeSilenceFlag(rd, totalBits)
 
 	defer func() {
 		d.channels = int32(origChannels)
 		d.prevEnergy = origPrevEnergy
 	}()
 
-	if silence {
-		d.channels = int32(origChannels)
-		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
-		silenceE := ensureGLogSlice(&d.scratchSilenceE, MaxBands*origChannels)
-		fillSilenceGLog(silenceE)
-		d.prevEnergy = origPrevEnergy
-		for i := 0; i < MaxBands*origChannels && i < len(d.prevEnergy); i++ {
-			d.prevEnergy[i] = -28.0
-		}
-		d.updateLogEGLog(silenceE, MaxBands, false)
-		d.updateBackgroundEnergy(lm)
-		d.resetPLCCadence(frameSize, origChannels)
-		d.rng = rd.Range()
-		return samples, nil
-	}
-
-	postfilterGain := float32(0)
-	postfilterPeriod := 0
-	postfilterTapset := 0
-	if start == 0 && tell+16 <= totalBits {
-		if rd.DecodeBit(1) == 1 {
-			octave := int(rd.DecodeUniformSmall(6))
-			postfilterPeriod = (16 << octave) + int(rd.DecodeRawBits(uint(4+octave))) - 1
-			qg := int(rd.DecodeRawBits(3))
-			if rd.Tell()+2 <= totalBits {
-				postfilterTapset = rd.DecodeICDF(tapsetICDF, 2)
-			}
-			postfilterGain = float32(0.09375) * float32(qg+1)
-		}
-		tell = rd.Tell()
-	}
-
-	transient := false
-	if lm > 0 && tell+3 <= totalBits {
-		transient = rd.DecodeBit(3) == 1
-		tell = rd.Tell()
-	}
-	intra := false
-	if tell+3 <= totalBits {
-		intra = rd.DecodeBit(3) == 1
-	}
-	d.applyLossEnergySafety(intra, start, end, lm)
-
-	shortBlocks := 1
-	if transient {
-		shortBlocks = mode.ShortBlocks
-	}
+	header := d.decodeFrameHeader(rd, totalBits, frameSize, start, end, lm, mode.ShortBlocks)
+	postfilterGain := header.postfilterGain
+	postfilterPeriod := header.postfilterPeriod
+	postfilterTapset := header.postfilterTapset
+	transient := header.transient
+	intra := header.intra
+	shortBlocks := header.shortBlocks
 
 	monoEnergies := d.decodeCoarseEnergyGLogInto(ensureGLogSlice(&d.scratchEnergies, end*int(d.channels)), end, intra, lm)
 
@@ -317,6 +245,9 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 	if antiCollapseOn {
 		antiCollapseGLog(coeffsMono, nil, collapse, lm, 1, start, end, monoEnergies, prev1LogE, prev2LogE, pulses, d.rng)
 	}
+	if silence {
+		applyDecodedSilence(monoEnergies, coeffsMono, nil)
+	}
 
 	downsample := d.downsampleFactor()
 	specMono := ensureFloat32Slice(&d.scratchMonoMixF32, len(coeffsMono))
@@ -335,33 +266,24 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 	d.applyPendingPLCPrefilterAndFold()
 
 	var samples []float32
-	directPlanar := false
 	if !transient {
 		outL, outR := d.synthesizeStereoPlanarFromMonoLong(specMono)
-		if len(d.directOutPCM) >= frameSize*2 {
-			left := outL[:frameSize]
-			right := outR[:frameSize]
-			d.applyPostfilterStereoPlanarFromFloat32(left, right, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-			d.applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(d.directOutPCM[:frameSize*2], left, right, 1.0/32768.0)
-			directPlanar = true
+		left := outL[:frameSize]
+		right := outR[:frameSize]
+		d.applyPostfilterStereoPlanarFromFloat32(left, right, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
+		if d.directOutPCM != nil {
+			d.deemphasisPlanarToDirectOut(left, right, frameSize)
 		} else {
-			samples = ensureFloat32Slice(&d.scratchStereoF32, frameSize*2)
-			InterleaveStereoIntoF32(outL[:frameSize], outR[:frameSize], samples[:frameSize*2])
-			samples = samples[:frameSize*2]
+			samples = ensureFloat32Slice(&d.scratchStereoF32, frameSize*2)[:frameSize*2]
+			d.deemphasis(samples, left, right, 1, frameSize, 1, false)
 		}
 	} else {
 		coeffsL := specMono
 		coeffsR := ensureFloat32Slice(&d.scratchMonoToStereoRF32, len(coeffsMono))
 		copy(coeffsR, specMono)
 		samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
-	}
-	if !directPlanar {
 		d.applyPostfilterFloat32(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-		if len(d.directOutPCM) >= len(samples) {
-			d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:len(samples)], samples, 1.0/32768.0)
-		} else {
-			d.applyDeemphasisAndScale(samples, 1.0/32768.0)
-		}
+		samples = d.deemphasisInterleaved(samples, frameSize)
 	}
 
 	var stereoEnergiesArr [MaxBands * 2]celtGLog
@@ -431,57 +353,15 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 	prev2LogE := d.prevLogE2
 
 	totalBits := len(data) * 8
-	tell := rd.Tell()
-	silence := false
-	if tell >= totalBits {
-		silence = true
-	} else if tell == 1 {
-		silence = rd.DecodeBit(15) == 1
-	}
-	if silence {
-		samples := make([]float32, frameSize)
-		var silenceEArr [MaxBands * 2]celtGLog
-		silenceE := silenceEArr[:]
-		fillSilenceGLog(silenceE)
-		d.updateLogEGLog(silenceE, MaxBands, false)
-		d.setPrevEnergyGLogWithPrev(prev1Energy, silenceE)
-		d.updateBackgroundEnergy(lm)
-		d.rng = rd.Range()
-		d.resetPLCCadence(frameSize, origChannels)
-		return samples, nil
-	}
+	silence := decodeSilenceFlag(rd, totalBits)
 
-	postfilterGain := float32(0)
-	postfilterPeriod := 0
-	postfilterTapset := 0
-	if start == 0 && tell+16 <= totalBits {
-		if rd.DecodeBit(1) == 1 {
-			octave := int(rd.DecodeUniformSmall(6))
-			postfilterPeriod = (16 << octave) + int(rd.DecodeRawBits(uint(4+octave))) - 1
-			qg := int(rd.DecodeRawBits(3))
-			if rd.Tell()+2 <= totalBits {
-				postfilterTapset = rd.DecodeICDF(tapsetICDF, 2)
-			}
-			postfilterGain = float32(0.09375) * float32(qg+1)
-		}
-		tell = rd.Tell()
-	}
-
-	transient := false
-	if lm > 0 && tell+3 <= totalBits {
-		transient = rd.DecodeBit(3) == 1
-		tell = rd.Tell()
-	}
-	intra := false
-	if tell+3 <= totalBits {
-		intra = rd.DecodeBit(3) == 1
-	}
-	d.applyLossEnergySafety(intra, start, end, lm)
-
-	shortBlocks := 1
-	if transient {
-		shortBlocks = mode.ShortBlocks
-	}
+	header := d.decodeFrameHeader(rd, totalBits, frameSize, start, end, lm, mode.ShortBlocks)
+	postfilterGain := header.postfilterGain
+	postfilterPeriod := header.postfilterPeriod
+	postfilterTapset := header.postfilterTapset
+	transient := header.transient
+	intra := header.intra
+	shortBlocks := header.shortBlocks
 
 	energies := d.decodeCoarseEnergyGLogInto(ensureGLogSlice(&d.scratchEnergies, end*int(d.channels)), end, intra, lm)
 
@@ -537,6 +417,9 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 	if antiCollapseOn {
 		antiCollapseGLog(coeffsL, coeffsR, collapse, lm, channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
 	}
+	if silence {
+		applyDecodedSilence(energies, coeffsL, coeffsR)
+	}
 
 	energiesL := energies[:end]
 	energiesR := energies[end:]
@@ -579,19 +462,19 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 
 	samples := d.Synthesize(coeffsMono, transient, shortBlocks)
 	d.applyPostfilterFloat32(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
+	samples = d.deemphasisInterleaved(samples, frameSize)
 	d.resetPLCCadence(frameSize, origChannels)
 
 	return samples, nil
 }
 
-// DecodeFrameHybridWithPacketStereo decodes a hybrid CELT frame while honoring the packet stereo flag.
-func (d *Decoder) DecodeFrameHybridWithPacketStereo(rd *rangecoding.Decoder, frameSize int, packetStereo bool) ([]float32, error) {
+// decodeFrameHybridWithPacketStereo decodes a hybrid CELT frame while honoring the packet stereo flag.
+func (d *Decoder) decodeFrameHybridWithPacketStereo(rd *rangecoding.Decoder, frameSize int, packetStereo bool) ([]float32, error) {
 	packetChannels := packetChannelsFromStereoFlag(packetStereo)
 	channels := int(d.channels)
 	d.handleChannelTransition(packetChannels)
 	if packetChannels == channels {
-		return d.DecodeFrameHybrid(rd, frameSize)
+		return d.decodeFrameHybrid(rd, frameSize)
 	}
 	if packetChannels == 1 && channels == 2 {
 		return d.decodeMonoPacketToStereoHybrid(rd, frameSize)
@@ -599,28 +482,21 @@ func (d *Decoder) DecodeFrameHybridWithPacketStereo(rd *rangecoding.Decoder, fra
 	return d.decodeStereoPacketToMonoHybrid(rd, frameSize)
 }
 
-// DecodeFrameHybridWithPacketStereoToFloat32 decodes the CELT half of a hybrid
-// frame from an in-progress range decoder into out, handling packet/decoder
-// channel-count mismatches.
-func (d *Decoder) DecodeFrameHybridWithPacketStereoToFloat32(rd *rangecoding.Decoder, frameSize int, packetStereo bool, out []float32) error {
-	outLen := frameSize * int(d.channels)
-	if len(out) < outLen {
-		return ErrOutputTooSmall
-	}
-
-	d.directOutPCM = out[:outLen]
+// AccumulateFrameHybridWithPacketStereo decodes the CELT half of a Hybrid
+// frame (frameSize samples at 48 kHz) from the in-progress range decoder and
+// adds it onto out, which holds the SILK lowband: libopus
+// celt_decode_with_ec(..., celt_accum=1) from opus_decode_frame. out holds
+// frameSize or frameSize/downsample interleaved frames; in the latter case the
+// de-emphasis downsamples to the API rate.
+func (d *Decoder) AccumulateFrameHybridWithPacketStereo(rd *rangecoding.Decoder, frameSize int, packetStereo bool, out []float32) error {
+	d.directOutPCM = out
+	d.directOutAccum = true
 	defer func() {
 		d.directOutPCM = nil
+		d.directOutAccum = false
 	}()
-
-	samples, err := d.DecodeFrameHybridWithPacketStereo(rd, frameSize, packetStereo)
-	if err != nil {
-		return err
-	}
-	if len(samples) != 0 {
-		copy(out[:outLen], samples)
-	}
-	return nil
+	_, err := d.decodeFrameHybridWithPacketStereo(rd, frameSize, packetStereo)
+	return err
 }
 
 // decodeMonoPacketToStereoHybrid decodes a mono hybrid frame and duplicates to stereo output.
@@ -674,58 +550,15 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	start := HybridCELTStartBand
 
 	totalBits := rd.StorageBits()
-	tell := rd.Tell()
-	silence := false
-	if tell >= totalBits {
-		silence = true
-	} else if tell == 1 {
-		silence = rd.DecodeBit(15) == 1
-	}
-	if silence {
-		d.channels = int32(origChannels)
-		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
-		var silenceEArr [MaxBands * 2]celtGLog
-		silenceE := silenceEArr[:MaxBands*origChannels]
-		fillSilenceGLog(silenceE)
-		d.prevEnergy = origPrevEnergy
-		d.updateLogEGLog(silenceE, MaxBands, false)
-		d.updateBackgroundEnergy(lm)
-		d.rng = rd.Range()
-		d.resetPLCCadence(frameSize, origChannels)
-		return samples, nil
-	}
+	silence := decodeSilenceFlag(rd, totalBits)
 
-	postfilterGain := float32(0)
-	postfilterPeriod := 0
-	postfilterTapset := 0
-	if start == 0 && tell+16 <= totalBits {
-		if rd.DecodeBit(1) == 1 {
-			octave := int(rd.DecodeUniformSmall(6))
-			postfilterPeriod = (16 << octave) + int(rd.DecodeRawBits(uint(4+octave))) - 1
-			qg := int(rd.DecodeRawBits(3))
-			if rd.Tell()+2 <= totalBits {
-				postfilterTapset = rd.DecodeICDF(tapsetICDF, 2)
-			}
-			postfilterGain = float32(0.09375) * float32(qg+1)
-		}
-		tell = rd.Tell()
-	}
-
-	transient := false
-	if lm > 0 && tell+3 <= totalBits {
-		transient = rd.DecodeBit(3) == 1
-		tell = rd.Tell()
-	}
-	intra := false
-	if tell+3 <= totalBits {
-		intra = rd.DecodeBit(3) == 1
-	}
-	d.applyLossEnergySafety(intra, start, end, lm)
-
-	shortBlocks := 1
-	if transient {
-		shortBlocks = mode.ShortBlocks
-	}
+	header := d.decodeFrameHeader(rd, totalBits, frameSize, start, end, lm, mode.ShortBlocks)
+	postfilterGain := header.postfilterGain
+	postfilterPeriod := header.postfilterPeriod
+	postfilterTapset := header.postfilterTapset
+	transient := header.transient
+	intra := header.intra
+	shortBlocks := header.shortBlocks
 
 	monoEnergies := ensureGLogSlice(&d.scratchEnergies, end*int(d.channels))
 	for band := 0; band < end; band++ {
@@ -746,6 +579,9 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	codedBands := allocation.codedBands
 
 	coeffsMono, _, qext := d.decodeHybridSpectrum(qextPayload, rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, 1, false, monoEnergies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
+	if silence {
+		applyDecodedSilence(monoEnergies, coeffsMono, nil)
+	}
 
 	downsample := d.downsampleFactor()
 	specMono := ensureFloat32Slice(&d.scratchMonoMixF32, len(coeffsMono))
@@ -764,29 +600,24 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	d.applyPendingPLCPrefilterAndFold()
 
 	var samples []float32
-	directPlanar := false
 	if !transient {
 		outL, outR := d.synthesizeStereoPlanarFromMonoLong(specMono)
-		if len(d.directOutPCM) >= frameSize*2 {
-			left := outL[:frameSize]
-			right := outR[:frameSize]
-			d.applyPostfilterStereoPlanarFromFloat32(left, right, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-			d.applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(d.directOutPCM[:frameSize*2], left, right, 1.0/32768.0)
-			directPlanar = true
+		left := outL[:frameSize]
+		right := outR[:frameSize]
+		d.applyPostfilterStereoPlanarFromFloat32(left, right, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
+		if d.directOutPCM != nil {
+			d.deemphasisPlanarToDirectOut(left, right, frameSize)
 		} else {
-			samples = ensureFloat32Slice(&d.scratchStereoF32, frameSize*2)
-			InterleaveStereoIntoF32(outL[:frameSize], outR[:frameSize], samples[:frameSize*2])
-			samples = samples[:frameSize*2]
+			samples = ensureFloat32Slice(&d.scratchStereoF32, frameSize*2)[:frameSize*2]
+			d.deemphasis(samples, left, right, 1, frameSize, 1, false)
 		}
 	} else {
 		coeffsL := specMono
 		coeffsR := ensureFloat32Slice(&d.scratchMonoToStereoRF32, len(coeffsMono))
 		copy(coeffsR, specMono)
 		samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
-	}
-	if !directPlanar {
 		d.applyPostfilterFloat32(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-		d.applyDeemphasisAndScale(samples, 1.0/32768.0)
+		samples = d.deemphasisInterleaved(samples, frameSize)
 	}
 
 	var stereoEnergiesArr [MaxBands * 2]celtGLog
@@ -854,58 +685,15 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	prev2LogE := d.prevLogE2
 
 	totalBits := rd.StorageBits()
-	tell := rd.Tell()
-	silence := false
-	if tell >= totalBits {
-		silence = true
-	} else if tell == 1 {
-		silence = rd.DecodeBit(15) == 1
-	}
-	if silence {
-		samples := ensureFloat32Slice(&d.scratchMonoMixF32, frameSize)
-		clear(samples[:frameSize])
-		var silenceEArr [MaxBands * 2]celtGLog
-		silenceE := silenceEArr[:]
-		fillSilenceGLog(silenceE)
-		d.updateLogEGLog(silenceE, MaxBands, false)
-		d.setPrevEnergyGLogWithPrev(prev1Energy, silenceE)
-		d.updateBackgroundEnergy(lm)
-		d.rng = rd.Range()
-		d.resetPLCCadence(frameSize, origChannels)
-		return samples[:frameSize], nil
-	}
+	silence := decodeSilenceFlag(rd, totalBits)
 
-	postfilterGain := float32(0)
-	postfilterPeriod := 0
-	postfilterTapset := 0
-	if start == 0 && tell+16 <= totalBits {
-		if rd.DecodeBit(1) == 1 {
-			octave := int(rd.DecodeUniformSmall(6))
-			postfilterPeriod = (16 << octave) + int(rd.DecodeRawBits(uint(4+octave))) - 1
-			qg := int(rd.DecodeRawBits(3))
-			if rd.Tell()+2 <= totalBits {
-				postfilterTapset = rd.DecodeICDF(tapsetICDF, 2)
-			}
-			postfilterGain = float32(0.09375) * float32(qg+1)
-		}
-		tell = rd.Tell()
-	}
-
-	transient := false
-	if lm > 0 && tell+3 <= totalBits {
-		transient = rd.DecodeBit(3) == 1
-		tell = rd.Tell()
-	}
-	intra := false
-	if tell+3 <= totalBits {
-		intra = rd.DecodeBit(3) == 1
-	}
-	d.applyLossEnergySafety(intra, start, end, lm)
-
-	shortBlocks := 1
-	if transient {
-		shortBlocks = mode.ShortBlocks
-	}
+	header := d.decodeFrameHeader(rd, totalBits, frameSize, start, end, lm, mode.ShortBlocks)
+	postfilterGain := header.postfilterGain
+	postfilterPeriod := header.postfilterPeriod
+	postfilterTapset := header.postfilterTapset
+	transient := header.transient
+	intra := header.intra
+	shortBlocks := header.shortBlocks
 
 	channels := int(d.channels)
 	energies := ensureGLogSlice(&d.scratchEnergies, end*channels)
@@ -929,6 +717,9 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	codedBands := allocation.codedBands
 
 	coeffsL, coeffsR, qext := d.decodeHybridSpectrum(qextPayload, rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, channels, d.phaseInversionDisabled, energies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
+	if silence {
+		applyDecodedSilence(energies, coeffsL, coeffsR)
+	}
 
 	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)
 	energiesL := energies[:end]
@@ -982,7 +773,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 
 	samples := d.Synthesize(coeffsMono, transient, shortBlocks)
 	d.applyPostfilterFloat32(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
+	samples = d.deemphasisInterleaved(samples, frameSize)
 	d.resetPLCCadence(frameSize, origChannels)
 
 	return samples, nil

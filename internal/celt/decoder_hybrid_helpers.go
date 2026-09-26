@@ -83,14 +83,14 @@ func (d *Decoder) synthesizeHybridDecodedFrame(frameSize, modeLM, end, hybridBin
 				specR[i] = 0
 			}
 		}
-		if !transient && len(d.directOutPCM) >= frameSize*2 {
+		if !transient && d.directOutPCM != nil {
 			samplesL, samplesR := d.synthesizeStereoPlanarLongToFloat32(specL, specR)
 			if d.postfilterGainOld == 0 && d.postfilterGain == 0 && postfilterGain == 0 {
 				d.applyPostfilterNoGainStereoPlanarFromFloat32(samplesL[:frameSize], samplesR[:frameSize], frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
 			} else {
 				d.applyPostfilterStereoPlanarFromFloat32(samplesL[:frameSize], samplesR[:frameSize], frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
 			}
-			d.applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(d.directOutPCM[:frameSize*2], samplesL[:frameSize], samplesR[:frameSize], 1.0/32768.0)
+			d.deemphasisPlanarToDirectOut(samplesL[:frameSize], samplesR[:frameSize], frameSize)
 			return nil
 		}
 		samples = d.SynthesizeStereo(specL, specR, transient, shortBlocks)
@@ -110,19 +110,18 @@ func (d *Decoder) synthesizeHybridDecodedFrame(frameSize, modeLM, end, hybridBin
 			}
 		}
 		if !transient &&
-			len(d.directOutPCM) >= frameSize &&
+			d.directOutPCM != nil &&
 			d.postfilterGainOld == 0 &&
 			d.postfilterGain == 0 &&
 			postfilterGain == 0 {
 			samplesF32 := d.synthesizeMonoLongToFloat32(specL)
 			d.applyPostfilterNoGainMonoFromFloat32(samplesF32, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
-			d.applyDeemphasisAndScaleMonoFloat32ToFloat32(d.directOutPCM[:frameSize], samplesF32, 1.0/32768.0)
+			d.deemphasisPlanarToDirectOut(samplesF32[:frameSize], nil, frameSize)
 			return nil
 		}
 		samples = d.Synthesize(specL, transient, shortBlocks)
 	}
 
 	d.applyPostfilterFloat32(samples, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
-	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
-	return samples
+	return d.deemphasisInterleaved(samples, frameSize)
 }

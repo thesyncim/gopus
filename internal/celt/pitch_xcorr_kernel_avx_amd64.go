@@ -2,7 +2,11 @@
 
 package celt
 
-import "unsafe"
+import (
+	"unsafe"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
+)
 
 // xcorrKernelAVX8 preserves the eight-lane fused accumulation order used by
 // libopus' x86 pitch search.
@@ -14,7 +18,7 @@ func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
 		xv := xs[i]
 		for corr := range 8 {
 			lane := i & 7
-			lanes[corr][lane] = mdctFMA32(xv, ys[i+corr], lanes[corr][lane])
+			lanes[corr][lane] = opusmath.FMA32(xv, ys[i+corr], lanes[corr][lane])
 		}
 	}
 	for corr := range 8 {

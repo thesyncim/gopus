@@ -22,7 +22,7 @@ func BenchmarkDeemphasisMonoN480(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		dec.preemphState[0] = initialState
-		dec.applyDeemphasisAndScaleMonoFloat32ToFloat32(dst, samples, 1.0/32768.0)
+		dec.deemphasis(dst, samples, nil, 1, n, 1, false)
 		deemphasisBenchSink = dst[n-1] + dec.preemphState[0]
 	}
 	runtime.KeepAlive(dst)
@@ -45,7 +45,7 @@ func BenchmarkDeemphasisStereoN480(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		dec.preemphState[0] = initialStateL
 		dec.preemphState[1] = initialStateR
-		dec.applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(dst, left, right, 1.0/32768.0)
+		dec.deemphasis(dst, left, right, 1, n, 1, false)
 		deemphasisBenchSink = dst[len(dst)-1] + dec.preemphState[0] + dec.preemphState[1]
 	}
 	runtime.KeepAlive(dst)

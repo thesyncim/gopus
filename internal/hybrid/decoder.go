@@ -72,8 +72,6 @@ type Decoder struct {
 	// Max frame size is 960 samples at 48kHz (20ms), stereo needs 960*2 = 1920 samples.
 	scratchSilkUpsampled []float32 // SILK upsampled output (max 960*2 for stereo 20ms)
 	plcMonoScratch       []float32 // mono SILK PLC before stereo duplication
-	scratchCELT48        []float32
-	scratchCELTAPI       []float32
 
 	// fixedHighband, when set, drives the FIXED_POINT integer CELT highband
 	// decode for the in-flight integer-output (DecodeInt16 / DecodeInt24) packet.
@@ -140,8 +138,6 @@ func NewDecoder(channels int) *Decoder {
 
 		// Pre-allocate scratch buffers for zero-alloc decode path
 		scratchSilkUpsampled: make([]float32, maxSamples),
-		scratchCELT48:        make([]float32, maxSamples),
-		scratchCELTAPI:       make([]float32, maxSamples),
 	}
 }
 
@@ -258,23 +254,6 @@ func (d *Decoder) frameSize48FromAPI(frameSize int) int {
 		return frameSize
 	}
 	return frameSize * 48000 / apiSampleRate
-}
-
-func (d *Decoder) downsampleFrame48ToAPI(dst, src []float32, frameSize int) {
-	channels := int(d.channels)
-	apiSampleRate := int(d.apiSampleRate)
-	if apiSampleRate == 48000 {
-		copy(dst[:frameSize*channels], src[:frameSize*channels])
-		return
-	}
-	factor := 48000 / apiSampleRate
-	for i := range frameSize {
-		srcBase := i * factor * channels
-		dstBase := i * channels
-		for c := range channels {
-			dst[dstBase+c] = src[srcBase+c]
-		}
-	}
 }
 
 // decodeFrame decodes a single hybrid frame using a shared range decoder.
@@ -518,45 +497,21 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 	// matching libopus behavior where SILK outputs at API rate with proper alignment.
 
 	// Step 2: Decode CELT layer (8-20kHz, bands 17-21 only)
-	// CELT reads from the same range decoder (SILK already consumed its portion).
-	celtAPI, err := d.decodeCELTHybridToAPI(rd, frameSizeAPI, frameSize48, packetStereo)
-	if err != nil {
-		return nil, err
-	}
-
+	// CELT reads from the same range decoder (SILK already consumed its portion)
+	// and accumulates its highband onto the SILK lowband inside deemphasis, as
+	// opus_decode_frame's celt_decode_with_ec(..., celt_accum=1) does.
 	if len(out) < totalSamples {
 		out = make([]float32, totalSamples)
 	} else {
 		out = out[:totalSamples]
 	}
-	combineHybridBands(out, celtAPI, silkUpsampled, totalSamples)
+	copy(out, silkUpsampled[:totalSamples])
+	if err := d.celtDecoder.AccumulateFrameHybridWithPacketStereo(rd, frameSize48, packetStereo, out); err != nil {
+		return nil, err
+	}
 
 	d.prevPacketStereo = packetStereo
 	return out, nil
-}
-
-// combineHybridBands sums the CELT highband (already deemphasised and scaled by
-// 1/CELT_SIG_SCALE) onto the SILK lowband to form the final hybrid PCM.
-//
-// This mirrors the libopus float build, where opus_decoder.c writes the SILK
-// output into pcm and then celt_decode_with_ec_dred is called with celt_accum=1
-// (opus_decoder.c:370,607). The accumulation happens inside CELT's deemphasis()
-// as `y[j*C] = ADD_RES(y[j*C], SIG2RES(tmp))` (celt/celt_decoder.c:379), where for
-// the float build SIG2RES(a)=(1/CELT_SIG_SCALE)*a and ADD_RES(a,b)=a+b
-// (celt/arch.h:373,379). gopus computes SIG2RES(tmp) inside applyDeemphasisAndScale
-// (scale=1/32768) and the add here is float32-commutative, so silk+celt and
-// celt+silk are bit-identical.
-func combineHybridBands(out, celtAPI, silkUpsampled []float32, totalSamples int) {
-	i := 0
-	for ; i+3 < totalSamples; i += 4 {
-		out[i] = celtAPI[i] + silkUpsampled[i]
-		out[i+1] = celtAPI[i+1] + silkUpsampled[i+1]
-		out[i+2] = celtAPI[i+2] + silkUpsampled[i+2]
-		out[i+3] = celtAPI[i+3] + silkUpsampled[i+3]
-	}
-	for ; i < totalSamples; i++ {
-		out[i] = celtAPI[i] + silkUpsampled[i]
-	}
 }
 
 // fixedSilkInt16Scratch returns per-channel int16 resampler-output scratch
@@ -621,28 +576,6 @@ func copyInterleaveStereoDup(dst, left []int16, filled int) int {
 		dst[2*i+1] = left[i]
 	}
 	return 2 * n
-}
-
-func (d *Decoder) decodeCELTHybridToAPI(rd *rangecoding.Decoder, frameSizeAPI, frameSize48 int, packetStereo bool) ([]float32, error) {
-	channels := int(d.channels)
-	needed48 := frameSize48 * channels
-	if cap(d.scratchCELT48) < needed48 {
-		d.scratchCELT48 = make([]float32, needed48)
-	}
-	celt48 := d.scratchCELT48[:needed48]
-	if err := d.celtDecoder.DecodeFrameHybridWithPacketStereoToFloat32(rd, frameSize48, packetStereo, celt48); err != nil {
-		return nil, err
-	}
-	neededAPI := frameSizeAPI * channels
-	if d.apiSampleRate == 48000 {
-		return celt48[:neededAPI], nil
-	}
-	if cap(d.scratchCELTAPI) < neededAPI {
-		d.scratchCELTAPI = make([]float32, neededAPI)
-	}
-	celtAPI := d.scratchCELTAPI[:neededAPI]
-	d.downsampleFrame48ToAPI(celtAPI, celt48, frameSizeAPI)
-	return celtAPI, nil
 }
 
 // ensureSilkUpsampled returns a pre-allocated buffer for SILK upsampled output.

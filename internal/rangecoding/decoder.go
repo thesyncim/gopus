@@ -1051,6 +1051,13 @@ func (d *Decoder) DecodeBit(logp uint) int {
 	return ret
 }
 
+// SkipToTell advances the decoder's bit accounting so Tell() reports exactly
+// targetBits, without consuming further input. It mirrors the CELT silence
+// handling in celt_decode_with_ec: dec->nbits_total += tell - ec_tell(dec).
+func (d *Decoder) SkipToTell(targetBits int) {
+	d.nbitsTotal += int32(targetBits - d.Tell())
+}
+
 // Tell returns the number of bits consumed from the combined stream so far,
 // rounded up to the nearest whole bit. This is the libopus ec_tell macro
 // (nbits_total - EC_ILOG(rng)) and counts both range-coded symbols and raw bits.
