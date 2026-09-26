@@ -3,13 +3,10 @@
 // qext_full_packet_parity_test.go: full-packet byte parity tests for the QEXT
 // extension framing and payload against the pinned libopus 1.6.1 oracle.
 //
-// Scope: QEXT extension framing (TOC code 3, padding-length byte, extension ID
-// byte 0xF8, and payload byte count) must match libopus exactly for CBR CELT
-// and Hybrid packets that are large enough to activate QEXT.  The main CELT
-// frame bytes inside a QEXT packet differ from libopus by a pre-existing
-// encoder-level delta that is tracked separately by the byte-exact encode
-// parity tests.  Multistream QEXT roundtrip and the absence of QEXT
-// on sub-threshold packets are also covered.
+// Scope: QEXT extension framing and complete packet bytes are compared with
+// the paired libopus build for CBR CELT packets that activate QEXT.
+// Multistream QEXT roundtrip and the absence of QEXT on sub-threshold packets
+// are also covered.
 //
 // Reference fix: celt/celt_encoder.c lines 2543–2556 – for CBR mode the
 // reservation target is the output of compute_vbr() (tf2=min(1,2*tf)) plus
@@ -25,6 +22,7 @@ import (
 
 	"github.com/thesyncim/gopus/internal/benchutil"
 	internalenc "github.com/thesyncim/gopus/internal/encoder"
+	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -85,10 +83,8 @@ func qextSinePCM(channels, frameSize int) []float32 {
 	return pcm
 }
 
-// TestQEXTCBRExtensionFramingByteParityMatchesLibopus verifies that the gopus
-// CBR CELT QEXT packet has byte-identical framing through the extension-ID byte
-// (TOC code 3, padding-length field, and 0xF8 extension-ID byte) compared with
-// the libopus oracle.
+// TestQEXTCBRExtensionFramingByteParityMatchesLibopus compares complete CBR
+// CELT QEXT packet bytes and final ranges with the paired libopus oracle.
 //
 // The underlying fix is in celt/celt_encoder.c lines 2543–2556: for CBR the
 // QEXT reservation calls compute_vbr(tf2=min(1,2*tf)) to compute the natural
@@ -97,7 +93,8 @@ func qextSinePCM(channels, frameSize int) []float32 {
 func TestQEXTCBRExtensionFramingByteParityMatchesLibopus(t *testing.T) {
 	opusDemo, err := benchutil.QEXTOpusDemoPath()
 	if err != nil {
-		t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "paired QEXT opus_demo", err)
+		return
 	}
 
 	cases := []struct {
@@ -116,7 +113,7 @@ func TestQEXTCBRExtensionFramingByteParityMatchesLibopus(t *testing.T) {
 		t.Run(fmt.Sprintf("%dch-%dk", tc.channels, tc.bitrate/1000), func(t *testing.T) {
 			pcm := qextSinePCM(tc.channels, 960)
 
-			refPacket := encodeLibopusPacketAtBitrate(t, opusDemo, tc.channels, pcm, true, true, tc.bitrate)
+			refPacket, refRange := encodeLibopusPacketWithFinalRangeAtBitrate(t, opusDemo, tc.channels, pcm, true, true, tc.bitrate)
 			if len(refPacket) == 0 {
 				t.Fatal("libopus returned empty packet")
 			}
@@ -125,20 +122,48 @@ func TestQEXTCBRExtensionFramingByteParityMatchesLibopus(t *testing.T) {
 				t.Fatalf("could not parse libopus packet: %x", refPacket[:min(16, len(refPacket))])
 			}
 
-			enc := internalenc.NewEncoder(48000, tc.channels)
-			enc.SetMode(internalenc.ModeCELT)
-			enc.SetBandwidth(types.BandwidthFullband)
-			enc.SetBitrate(tc.bitrate)
-			enc.SetBitrateMode(internalenc.ModeCBR)
-			enc.SetComplexity(10)
-			enc.SetQEXT(true)
-
-			gopusPacket, err := enc.Encode(pcm, 960)
+			enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: tc.channels, Application: ApplicationRestrictedCelt})
+			if err != nil {
+				t.Fatalf("NewEncoder: %v", err)
+			}
+			if err := enc.SetBandwidth(BandwidthFullband); err != nil {
+				t.Fatalf("SetBandwidth: %v", err)
+			}
+			if err := enc.SetBitrate(tc.bitrate); err != nil {
+				t.Fatalf("SetBitrate: %v", err)
+			}
+			if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
+				t.Fatalf("SetBitrateMode: %v", err)
+			}
+			if err := enc.SetComplexity(10); err != nil {
+				t.Fatalf("SetComplexity: %v", err)
+			}
+			if err := enc.SetFrameSize(960); err != nil {
+				t.Fatalf("SetFrameSize: %v", err)
+			}
+			if err := enc.SetQEXT(true); err != nil {
+				t.Fatalf("SetQEXT: %v", err)
+			}
+			// opus_demo's -f32 input converts to signed 24-bit samples with
+			// floor(.5 + sample*8388608) before calling opus_encode24.
+			pcm24 := make([]int32, len(pcm))
+			for i, sample := range pcm {
+				pcm24[i] = int32(math.Floor(0.5 + float64(sample*8388608)))
+			}
+			out := make([]byte, 1276)
+			n, err := enc.EncodeInt24(pcm24, out)
 			if err != nil {
 				t.Fatalf("gopus Encode: %v", err)
 			}
+			gopusPacket := out[:n]
 			if len(gopusPacket) == 0 {
 				t.Fatal("gopus returned empty packet")
+			}
+			if got := enc.FinalRange(); got != refRange {
+				t.Errorf("final range: gopus=%08x libopus=%08x", got, refRange)
+			}
+			if !bytes.Equal(gopusPacket, refPacket) {
+				t.Errorf("complete packet: first difference at byte %d, gopus len=%d libopus len=%d", firstDiffByte(gopusPacket, refPacket), len(gopusPacket), len(refPacket))
 			}
 			gopusCode, gopusPaddingLen, gopusExtBytes, gopusHasExt, gopusOK := qextParseExtensionRegion(gopusPacket)
 			if !gopusOK {

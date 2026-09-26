@@ -52,6 +52,7 @@
 #include "entenc.h"
 #include "entdec.h"
 #include "mdct.h"
+#include "cpu_support.h"
 #include "modes.h"
 #include "rate.h"
 #include "bands.h"
@@ -70,12 +71,6 @@ void celt_fatal(const char *str, const char *file, int line) {
   abort();
 }
 #endif
-
-/* Some libopus builds reference an SSE2 PVQ search symbol when linking the
-   static lib; provide the scalar fallback like the existing VQ oracle. */
-opus_val16 op_pvq_search_sse2(celt_norm *x, int *iy, int k, int n, int arch) {
-  return op_pvq_search_c(x, iy, k, n, arch);
-}
 
 static int read_exact(void *dst, size_t n) { return fread(dst, 1, n, stdin) == n; }
 static int write_exact(const void *src, size_t n) { return fwrite(src, 1, n, stdout) == n; }
@@ -262,7 +257,7 @@ int main(void) {
     quant_all_bands(1, &qext, 0, qext_end, X, C == 2 ? X + N : NULL, qcm,
                     qext_bandE, &extra_pulses[nbEBands], shortBlocks, SPREAD_NORMAL,
                     qext_dual_stereo, qext_intensity, zeros, ext_storage * (8 << BITRES),
-                    ext_balance, &ext_enc, LM, qext_end, &(opus_uint32){0}, 10, 0, 0,
+                    ext_balance, &ext_enc, LM, qext_end, &(opus_uint32){0}, 10, opus_select_arch(), 0,
                     &dummy_enc, zeros, 0, NULL);
     free(zeros);
     free(qcm);
@@ -321,7 +316,7 @@ int main(void) {
     quant_all_bands(0, &qext, 0, dec_qext_end, Xd, C == 2 ? Xd + N : NULL, qcm,
                     NULL, &dp[nbEBands], shortBlocks, SPREAD_NORMAL,
                     dec_dual, dec_intensity, zeros, ext_storage * (8 << BITRES),
-                    ext_balance, &ext_dec, LM, dec_qext_end, &(opus_uint32){0}, 0, 0, 0,
+                    ext_balance, &ext_dec, LM, dec_qext_end, &(opus_uint32){0}, 0, opus_select_arch(), 0,
                     &dummy_dec, zeros, 0, NULL);
     free(zeros);
     free(qcm);

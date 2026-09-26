@@ -13,6 +13,7 @@
 #endif
 
 #include "celt.h"
+#include "cpu_support.h"
 #include "mdct.h"
 #include "modes.h"
 
@@ -124,7 +125,7 @@ static int run_long(const CELTMode *mode, uint32_t frame_size, uint32_t overlap)
 
   ok = read_float_array(out, overlap) && read_float_array(freq, frame_size);
   if (ok) {
-    clt_mdct_backward(&mode->mdct, freq, out, mode->window, (int)overlap, 0, 1, 0);
+    clt_mdct_backward(&mode->mdct, freq, out, mode->window, (int)overlap, 0, 1, opus_select_arch());
     ok = write_u32(needed) && write_float_array(out, needed);
   }
 
@@ -162,7 +163,7 @@ static int run_transient(const CELTMode *mode, uint32_t frame_size, uint32_t ove
   if (ok) {
     for (b = 0; b < short_blocks; b++) {
       clt_mdct_backward(&mode->mdct, freq + b, out + short_size * b,
-          mode->window, (int)overlap, mode->maxLM, (int)short_blocks, 0);
+          mode->window, (int)overlap, mode->maxLM, (int)short_blocks, opus_select_arch());
     }
     ok = write_u32(needed) && write_float_array(out, needed);
   }
@@ -190,7 +191,7 @@ static int run_forward(const CELTMode *mode, uint32_t frame_size, uint32_t overl
 
   ok = read_float_array(in, needed);
   if (ok) {
-    clt_mdct_forward(&mode->mdct, in, out, mode->window, (int)overlap, 0, 1, 0);
+    clt_mdct_forward(&mode->mdct, in, out, mode->window, (int)overlap, 0, 1, opus_select_arch());
     ok = write_u32(frame_size) && write_float_array(out, frame_size);
   }
 
@@ -226,7 +227,7 @@ static int run_forward_transient(const CELTMode *mode, uint32_t frame_size, uint
   if (ok) {
     for (b = 0; b < short_blocks; b++) {
       clt_mdct_forward(&mode->mdct, in + short_size * b, out + b,
-          mode->window, (int)overlap, mode->maxLM, (int)short_blocks, 0);
+          mode->window, (int)overlap, mode->maxLM, (int)short_blocks, opus_select_arch());
     }
     ok = write_u32(frame_size) && write_float_array(out, frame_size);
   }

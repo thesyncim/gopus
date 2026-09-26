@@ -1634,11 +1634,15 @@ func (e *Encoder) celtInternalChannelsForMode(mode Mode) int {
 }
 
 // preprocessInputHP applies the input high-pass stage that precedes SILK/CELT,
-// matching src/opus_encoder.c: VoIP uses the adaptive hp_cutoff() biquad,
-// every other application uses the fixed 3 Hz dc_reject(). The cutoff for
-// hp_cutoff is driven by the SILK variable-HP-cutoff smoother.
+// matching src/opus_encoder.c: VoIP uses the adaptive hp_cutoff() biquad;
+// other applications use the fixed 3 Hz dc_reject(), except that an enabled
+// QEXT path copies the input directly. The hp_cutoff frequency follows the
+// SILK variable-HP-cutoff smoother.
 func (e *Encoder) preprocessInputHP(in []opusRes, frameSize int) []opusRes {
 	if !e.voipApp {
+		if extsupport.QEXT && e.qextActive() {
+			return in
+		}
 		return e.dcReject(in, frameSize)
 	}
 	return e.hpCutoff(in, frameSize)
