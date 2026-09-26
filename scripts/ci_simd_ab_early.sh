@@ -146,7 +146,7 @@ for mode in simd nosimd; do
     run_phase candidate-simd-xcorr-primitive-artifacts capture_xcorr_primitive
     run_phase candidate-simd-silk-paired-xcorr \
       "${run_env[@]}" "$artifact_root/candidate-simd-silk.test" \
-      -test.run '^Test(SilkPitchXCorrPairedLibopusSIMDRawBits|SilkPitchXcorrNativeZeroAlloc)$' \
+      -test.run '^Test(SilkPitchXCorrPairedLibopusSIMDRawBits|SilkPitchXcorrAVX2TinyFirstLaneEdgeValues|SilkPitchXcorrNativeZeroAlloc)$' \
       -test.count=1 -test.timeout=10m -test.v
   fi
 

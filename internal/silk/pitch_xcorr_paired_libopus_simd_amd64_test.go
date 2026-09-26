@@ -3,6 +3,7 @@
 package silk
 
 import (
+	"fmt"
 	"math"
 	"os"
 	"testing"
@@ -22,6 +23,11 @@ type silkPitchXcorrSIMDCase struct {
 // This oracle links libopus's actual SIMD archive and checks its selected
 // AVX2/FMA xcorr and SSE remainder dispatch before comparing raw float bits.
 func TestSilkPitchXCorrPairedLibopusSIMDRawBits(t *testing.T) {
+	runSilkPitchXcorrSIMDOracle(t, silkPitchXcorrSIMDCases())
+}
+
+func runSilkPitchXcorrSIMDOracle(t *testing.T, cases []silkPitchXcorrSIMDCase) {
+	t.Helper()
 	requireNative := os.Getenv("GOPUS_REQUIRE_NATIVE_AVX2_FMA") == "1"
 	if requireNative && !libopustest.OracleEnabled() {
 		t.Fatal("native SIMD CI requires the libopus oracle")
@@ -53,44 +59,6 @@ func TestSilkPitchXCorrPairedLibopusSIMDRawBits(t *testing.T) {
 		}
 		libopustest.HelperUnavailable(t, "SILK paired native SIMD pitch xcorr", err)
 		return
-	}
-
-	cases := []silkPitchXcorrSIMDCase{
-		{name: "finite17", x: silkPitchXcorrOracleSignal(17, 0x15555555), y: silkPitchXcorrOracleSignal(26, 0x27777777), maxPitch: 10},
-		{name: "short_fma32_rounding", x: make([]float32, 9), y: make([]float32, 16), maxPitch: 8},
-		{name: "sse10_nan_operand_priority", x: make([]float32, 10), y: make([]float32, 19), maxPitch: 10},
-		{name: "distinct_nan_payloads17", x: make([]float32, 17), y: make([]float32, 26), maxPitch: 10},
-		{name: "masked_negative_zero17", x: make([]float32, 17), y: make([]float32, 26), maxPitch: 10},
-		{name: "exceptional31", x: make([]float32, 31), y: make([]float32, 40), maxPitch: 10},
-	}
-	cases[1].x[0], cases[1].y[0] = math.Float32frombits(0xa20c2545), 1
-	cases[1].x[8], cases[1].y[8] = math.Float32frombits(0x3fcca800), math.Float32frombits(0x3f979800)
-	cases[2].x[1], cases[2].y[10] = math.Float32frombits(0x80000000), float32(math.Inf(-1))
-	cases[2].x[5], cases[2].y[14] = -0.5, math.Float32frombits(0x7fc01234)
-	for i := range cases[3].x {
-		cases[3].x[i] = float32(i%7-3) * 0.25
-	}
-	for i := range cases[3].y {
-		cases[3].y[i] = float32(i%5-2) * 0.5
-	}
-	cases[3].x[3] = math.Float32frombits(0x7fc01234)
-	cases[3].y[8] = math.Float32frombits(0xffc05678)
-	for i := range cases[4].x {
-		cases[4].x[i] = math.Float32frombits(0x80000001)
-	}
-	for i := range cases[4].y {
-		cases[4].y[i] = math.Float32frombits(0x00000001)
-	}
-	values := []float32{
-		0, math.Float32frombits(0x80000000), math.SmallestNonzeroFloat32,
-		-math.SmallestNonzeroFloat32, 0.5, -0.5, 1, -1,
-		float32(math.Inf(1)), float32(math.Inf(-1)), math.Float32frombits(0x7fc01234),
-	}
-	for i := range cases[5].x {
-		cases[5].x[i] = values[(i*5+1)%len(values)]
-	}
-	for i := range cases[5].y {
-		cases[5].y[i] = values[(i*7+3)%len(values)]
 	}
 
 	payload := libopustest.NewOraclePayload("GXCI", uint32(len(cases)))
@@ -185,5 +153,80 @@ func TestSilkPitchXcorrNativeZeroAlloc(t *testing.T) {
 		celtPitchXcorrFloatImpl(x, y, out, len(x), len(out))
 	}); allocs != 0 {
 		t.Errorf("exceptional production xcorr allocated %v times", allocs)
+	}
+}
+
+func silkPitchXcorrSIMDCases() []silkPitchXcorrSIMDCase {
+	cases := []silkPitchXcorrSIMDCase{
+		{name: "finite17", x: silkPitchXcorrOracleSignal(17, 0x15555555), y: silkPitchXcorrOracleSignal(26, 0x27777777), maxPitch: 10},
+		{name: "short_fma32_rounding", x: make([]float32, 9), y: make([]float32, 16), maxPitch: 8},
+		{name: "sse10_nan_operand_priority", x: make([]float32, 10), y: make([]float32, 19), maxPitch: 10},
+		{name: "distinct_nan_payloads17", x: make([]float32, 17), y: make([]float32, 26), maxPitch: 10},
+		{name: "masked_negative_zero17", x: make([]float32, 17), y: make([]float32, 26), maxPitch: 10},
+		{name: "exceptional31", x: make([]float32, 31), y: make([]float32, 40), maxPitch: 10},
+	}
+	cases[1].x[0], cases[1].y[0] = math.Float32frombits(0xa20c2545), 1
+	cases[1].x[8], cases[1].y[8] = math.Float32frombits(0x3fcca800), math.Float32frombits(0x3f979800)
+	cases[2].x[1], cases[2].y[10] = math.Float32frombits(0x80000000), float32(math.Inf(-1))
+	cases[2].x[5], cases[2].y[14] = -0.5, math.Float32frombits(0x7fc01234)
+	for i := range cases[3].x {
+		cases[3].x[i] = float32(i%7-3) * 0.25
+	}
+	for i := range cases[3].y {
+		cases[3].y[i] = float32(i%5-2) * 0.5
+	}
+	cases[3].x[3] = math.Float32frombits(0x7fc01234)
+	cases[3].y[8] = math.Float32frombits(0xffc05678)
+	for i := range cases[4].x {
+		cases[4].x[i] = math.Float32frombits(0x80000001)
+	}
+	for i := range cases[4].y {
+		cases[4].y[i] = math.Float32frombits(0x00000001)
+	}
+	values := []float32{
+		0, math.Float32frombits(0x80000000), math.SmallestNonzeroFloat32,
+		-math.SmallestNonzeroFloat32, 0.5, -0.5, 1, -1,
+		float32(math.Inf(1)), float32(math.Inf(-1)), math.Float32frombits(0x7fc01234),
+	}
+	for i := range cases[5].x {
+		cases[5].x[i] = values[(i*5+1)%len(values)]
+	}
+	for i := range cases[5].y {
+		cases[5].y[i] = values[(i*7+3)%len(values)]
+	}
+
+	return cases
+}
+
+// NaN payload selection is defined by the selected C instructions, so the
+// exceptional-value oracle must execute libopus rather than Go math.FMA.
+func TestSilkPitchXcorrAVX2TinyFirstLaneEdgeValues(t *testing.T) {
+	values := []float32{
+		0, math.Float32frombits(1 << 31),
+		math.SmallestNonzeroFloat32, -math.SmallestNonzeroFloat32,
+		0.5, -0.5, 1, -1,
+		float32(math.Inf(1)), float32(math.Inf(-1)), math.Float32frombits(0x7fc01234),
+	}
+	var cases []silkPitchXcorrSIMDCase
+	for _, length := range []int{1, 5, 8, 9, 10, 15} {
+		x := make([]float32, length)
+		y := make([]float32, length+7)
+		for i := range x {
+			x[i] = values[i%len(values)]
+		}
+		for i := range y {
+			y[i] = values[(i*3+1)%len(values)]
+		}
+		cases = append(cases, silkPitchXcorrSIMDCase{name: fmt.Sprintf("tiny_first_lane_N%d", length), x: x, y: y, maxPitch: 8})
+	}
+	runSilkPitchXcorrSIMDOracle(t, cases)
+	x := []float32{1, 2, 3, 4, 5}
+	y := []float32{5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5, -6}
+	var sum [8]float32
+	xcorrKernelAVX8(&x[0], &y[0], &sum, len(x))
+	if allocs := testing.AllocsPerRun(100, func() {
+		xcorrKernelAVX8(&x[0], &y[0], &sum, len(x))
+	}); allocs != 0 {
+		t.Fatalf("tiny SILK xcorr kernel allocated %v times", allocs)
 	}
 }

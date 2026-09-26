@@ -7,6 +7,8 @@ import unittest
 
 from compare_simd_ab import (
     REPLACEMENT_TESTS,
+    baseline_cbr_errors,
+    candidate_decode_errors,
     cbr_rows,
     compare_full_parity,
     precision_gap,
@@ -110,6 +112,26 @@ class StrictCBRSummaryTest(unittest.TestCase):
     def test_nonzero_exit_fails_even_with_zero_summary_diffs(self):
         log = "strict paired CBR summary: variant=scalar cases=19 exact_cases=19 packets=2175 packet_diffs=0 range_diffs=0\n"
         self.assertTrue(any("exit=1" in error for error in strict_cbr_errors(1, log)))
+
+
+class IndependentOracleGateTest(unittest.TestCase):
+    def test_complete_failing_baseline_is_evidence(self):
+        log = "    baseline.go:1: case1 50 2 FAIL\npass=0 residual=0 fail=1 skip=0\n"
+        self.assertEqual(baseline_cbr_errors(1, log, expected_cases=1), [])
+        self.assertTrue(baseline_cbr_errors(2, log, expected_cases=1))
+        self.assertTrue(baseline_cbr_errors(1, log, expected_cases=2))
+
+    def test_baseline_skip_is_not_complete_evidence(self):
+        log = "    baseline.go:1: case1 0 0 SKIP\npass=0 residual=0 fail=0 skip=1\n"
+        self.assertTrue(baseline_cbr_errors(0, log, expected_cases=1))
+
+    def test_candidate_must_pass_without_decode_residuals(self):
+        passed = "--- PASS: TestDecodeDifferentialEncodeThenDecode/case (0.01s)\n"
+        self.assertEqual(candidate_decode_errors(0, passed), [])
+        self.assertTrue(candidate_decode_errors(1, passed))
+        self.assertTrue(candidate_decode_errors(0, passed + "PCM diverges\n"))
+        self.assertTrue(candidate_decode_errors(0, passed + "--- SKIP: another_case\n"))
+        self.assertTrue(candidate_decode_errors(0, "testing: warning: no tests to run\nPASS\n"))
 
 
 if __name__ == "__main__":

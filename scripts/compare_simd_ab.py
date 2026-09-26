@@ -108,6 +108,29 @@ def decode_details(log: str):
     return [line.split(": ", 2)[-1].strip() for line in log.splitlines() if DECODE_DETAIL.search(line)]
 
 
+def baseline_cbr_errors(exit_code: int, log: str, expected_cases: int = 19):
+    """Require complete baseline evidence; its codec residuals remain reported."""
+    rows = cbr_rows(log)
+    errors = []
+    if exit_code not in {0, 1} or len(rows) != expected_cases:
+        errors.append(f"baseline CBR did not complete: exit={exit_code} cases={len(rows)}/{expected_cases}")
+    if any(status == "SKIP" for _, _, status in rows.values()):
+        errors.append("baseline CBR contains skipped cases")
+    return errors
+
+
+def candidate_decode_errors(exit_code: int, log: str):
+    # A passing candidate must not reproduce a baseline decode error. The
+    # selected libopus reference, rather than old Go output, defines parity.
+    if exit_code or decode_details(log):
+        return [f"candidate focused decode differs from matched libopus: exit={exit_code}"]
+    if "--- PASS: TestDecodeDifferentialEncodeThenDecode/" not in log:
+        return ["candidate focused decode has no passing configurations"]
+    if "--- SKIP:" in log:
+        return ["candidate focused decode contains skipped configurations"]
+    return []
+
+
 def precision_gap(log: str):
     go_q, c_q = PRECISION_GO.search(log), PRECISION_C.search(log)
     if not go_q or not c_q:
@@ -206,12 +229,9 @@ def compare(root: pathlib.Path):
 
     base_code, base_cbr_log = read_phase(root, "baseline", "default-cbr-parity")
     base_cbr = cbr_rows(base_cbr_log)
-    if base_code or len(base_cbr) != 19:
-        errors.append(f"baseline CBR summary failed or covered {len(base_cbr)}/19 cases")
+    errors.extend(baseline_cbr_errors(base_code, base_cbr_log))
     scalar_code, scalar_cbr_log = read_phase(root, "baseline", "purego-cbr-parity")
-    scalar_cbr = cbr_rows(scalar_cbr_log)
-    if scalar_code or len(scalar_cbr) != 19:
-        errors.append(f"baseline purego CBR summary failed or covered {len(scalar_cbr)}/19 cases")
+    errors.extend(f"purego {error}" for error in baseline_cbr_errors(scalar_code, scalar_cbr_log))
 
     for mode in ("default", "nosimd", "simd"):
         code, log = read_phase(root, "candidate", f"{mode}-cbr-parity")
@@ -232,11 +252,11 @@ def compare(root: pathlib.Path):
             if gap < PRECISION_MIN_GAP:
                 errors.append(f"candidate {mode} quality gap exceeds the existing -0.05 floor and 0.15 tolerance")
 
-    base_code, base_decode = read_phase(root, "baseline", "default-decode-differential")
+    base_code, _ = read_phase(root, "baseline", "default-decode-differential")
     simd_code, simd_decode = read_phase(root, "candidate", "simd-decode-differential")
-    base_details, simd_details = decode_details(base_decode), decode_details(simd_decode)
-    if base_code != simd_code or base_details != simd_details or (simd_code and not simd_details):
-        errors.append("focused decode differential differs from old assembly")
+    if base_code not in {0, 1}:
+        errors.append(f"baseline focused decode did not finish normally: exit={base_code}")
+    errors.extend(candidate_decode_errors(simd_code, simd_decode))
 
     for side, mode in [("baseline", "default"), ("candidate", "default"), ("candidate", "simd")]:
         code, log = read_phase(root, side, f"{mode}-kernel-benchmarks")
