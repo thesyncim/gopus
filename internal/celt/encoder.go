@@ -758,15 +758,6 @@ func (e *Encoder) SetPrevEnergyWithPrevFloat32(prev, energies []float32) {
 	copy(e.prevEnergy, energies)
 }
 
-func (e *Encoder) setPrevEnergyWithPrevGLog(prev, energies []celtGLog) {
-	if len(prev) == len(e.prevEnergy2) {
-		copy(e.prevEnergy2, prev)
-	} else {
-		copy(e.prevEnergy2, e.prevEnergy)
-	}
-	copy(e.prevEnergy, energies)
-}
-
 // OverlapBuffer returns the overlap buffer for MDCT analysis.
 // Size is Overlap * channels samples.
 func (e *Encoder) OverlapBuffer() []float32 {
