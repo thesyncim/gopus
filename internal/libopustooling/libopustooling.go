@@ -229,9 +229,10 @@ func configDefinesMacro(config, macro string) bool {
 }
 
 func validateLibopusConfigSIMD(config string, variant LibopusReferenceVariant, goarch string) error {
-	if variant == LibopusReferenceQEXTScalar {
+	switch variant {
+	case LibopusReferenceQEXTScalar:
 		variant = LibopusReferenceScalar
-	} else if variant == LibopusReferenceQEXTSIMD {
+	case LibopusReferenceQEXTSIMD:
 		variant = LibopusReferenceSIMD
 	}
 	defines := make(map[string]bool)

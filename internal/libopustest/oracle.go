@@ -349,9 +349,10 @@ func helperRefDir(cfg CHelperConfig, pairedVariant libopustooling.LibopusReferen
 		return FixedRefPath()
 	}
 	if cfg.QEXTRef {
-		if pairedVariant == libopustooling.LibopusReferenceScalar {
+		switch pairedVariant {
+		case libopustooling.LibopusReferenceScalar:
 			pairedVariant = libopustooling.LibopusReferenceQEXTScalar
-		} else if pairedVariant == libopustooling.LibopusReferenceSIMD {
+		case libopustooling.LibopusReferenceSIMD:
 			pairedVariant = libopustooling.LibopusReferenceQEXTSIMD
 		}
 		suffix, err := libopustooling.LibopusReferenceSourceSuffix(pairedVariant)
