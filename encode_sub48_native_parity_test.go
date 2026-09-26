@@ -1,52 +1,17 @@
-// encode_sub48_native_parity_test.go — sub-48 kHz native SILK + Hybrid ENCODE
-// byte-parity gate vs the same-arch libopus float opus_encode_float oracle at
-// Fs ∈ {8000,12000,16000,24000}.
+// encode_sub48_native_parity_test.go checks native-rate encode behavior against
+// the same-architecture libopus 1.6.1 opus_encode_float oracle at Fs in
+// {8000, 12000, 16000, 24000, 48000}.
 //
-// CONTRACT
+// The public encoder consumes frameSize*channels samples at the API's native
+// sample rate. At Fs=16000, a 20 ms frame contains 320 samples per channel.
+// SILK's input resampler maps API_fs_Hz to fs_kHz as in
+// silk_setup_resamplers(forEnc=1).
 //
-// gopus encode is byte-exact vs libopus at 48 kHz (TestEncodeDifferentialFuzz)
-// and now consumes NATIVE-Fs PCM at sub-48 kHz, exactly like libopus
-// opus_encode(Fs): at Fs=16000 a 20 ms frame is 320 native samples, and rate
-// control / framing is computed against Fs. The SILK input resampler runs
-// API_fs_Hz -> fs_kHz (silk_setup_resamplers forEnc=1) and the public
-// Encode/EncodeFloat32 demands frameSize*channels NATIVE-Fs samples.
-//
-// WHAT THIS GATE DOES
-//
-//   1. TestSub48NativeInputRateContract HARD-asserts the native-Fs contract: at
-//      every sub-48k rate, a native-Fs-length frame is ACCEPTED and the legacy
-//      48 kHz-relative length is REJECTED.
-//
-//   2. TestSub48NativeEncodeParity feeds BOTH encoders the same native-Fs frames
-//      and applies the SAME arch/build-aware policy as the 48 kHz lock in
-//      TestEncodeDifferentialFuzz:
-//        * Payload bytes: the amd64 asm/SIMD build is the strict bit-exact
-//          reference -> HARD FAIL on any SILK or Hybrid/CELT divergence. The
-//          pure-Go builds (arm64 always; amd64 -tags nosimd vs the scalar libopus
-//          oracle) carry the documented <=1-ULP float boundary in the float
-//          MDCT/band-energy/pitch analysis AND the float Opus-API wrapper
-//          (VAD/pitch/dc_reject), so a byte divergence is LOGGED, not failed.
-//        * The integer SILK encoder core stays byte-exact on every build (proven
-//          by silk.TestPublicSILKEncodeFrameFixedByteExact and the CBR SILK cells);
-//          the SILK residuals seen here are the float wrapper on long 40-60 ms
-//          frames, not the integer core.
-//        * TOC mode-class match and gopus accept/no-panic are HARD at every rate.
-//
-// PURE-GO FLOAT RESIDUAL (amd64 asm/SIMD build hard-exact; arm64 and amd64-nosimd
-// logged): the SILK 60 ms knife-edge cases (silk_wb_60ms_mono/fs12000,
-// silk_nb_60ms_stereo/fs24000, plus silk_wb_60ms_mono/fs24000 on amd64-nosimd)
-// diverge identically on arm64-nosimd and amd64-nosimd. This is the documented
-// ≤1-ULP float boundary (project_arm64_celt_1ulp_drift) in the float SILK VAD/
-// pitch analysis, not a sub-48k wiring gap: the SILK input resampler is byte-exact
-// to libopus on these exact corpus signals/frame layouts
-// (TestSILKEncoderUpsampleResamplerMatchesLibopusOracle drives the 12->12 copy and
-// 24->8 down corpus cases), every SILK-encode parameter (bitrate, maxBits,
-// payloadSize_ms, nFrames) is rate-independent, and the same MB 60 ms config is
-// byte-exact on a different signal and on the 48 kHz down-resampled feed of the
-// SAME signal — i.e. only a knife-edge SpeechInNoise 60 ms input tips a near-tie
-// quantization once the pure-Go float analysis drifts. Per the
-// TestEncodeDifferentialFuzz convention this is a HARD FAIL on the amd64 asm/SIMD
-// build (the CI strict reference) and LOGGED on the pure-Go builds.
+// TestSub48NativeInputRateContract checks acceptance of native-rate frames and
+// rejection of 48 kHz-relative frame lengths at sub-48 kHz rates.
+// TestSub48NativeEncodeParity sends identical native-rate PCM and controls to
+// both encoders and requires every return length, packet byte, TOC mode class,
+// and final range to match. Each Go build uses its paired C reference variant.
 //
 // Run with:
 //   GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
@@ -311,13 +276,8 @@ type sub48ParityResult struct {
 	tocFlip      bool
 }
 
-// TestSub48NativeEncodeParity is the characterizing gate. At 48 kHz it locks the
-// working path: SILK packets are HARD byte-exact, while a Hybrid/CELT divergence
-// is the documented float-analysis residual (logged, not failed — see the 48k
-// branch). At sub-48k it feeds libopus NATIVE-Fs frames and gopus the
-// 48 kHz-relative frames from the same native source, HARD-asserts gopus
-// accepts/does-not-panic and that the TOC mode class matches, and LOGS the
-// documented per-config first divergence (the input-rate gap the FIX agent flips).
+// TestSub48NativeEncodeParity requires exact per-frame return length, bytes,
+// TOC mode class, and final range for identical native-rate PCM and controls.
 func TestSub48NativeEncodeParity(t *testing.T) {
 	libopustest.RequireOracle(t)
 	if _, err := libopustest.EncodeDiffHelperPath(); err != nil {
@@ -326,27 +286,23 @@ func TestSub48NativeEncodeParity(t *testing.T) {
 	const nFrames = 6
 
 	specs := sub48BuildSweep()
-	// Rates: the byte-exact 48k lock plus the diverging sub-48k native set.
+	// The 48 kHz rate locks the reference input path alongside native sub-48 kHz.
 	rates := append([]int{48000}, sub48NativeRates...)
 
 	var (
-		sub48Diverged  int
-		sub48ByteExact int
-		sub48TOCFlips  int
-		lock48kChecked int
+		sub48Diverged   int
+		sub48ByteExact  int
+		sub48TOCFlips   int
+		sub48RangeFails int
+		lock48kChecked  int
 	)
 
 	for _, spec := range specs {
-		// Known encoder-side LBRR panic (tracked in encode_differential_fuzz_test.go
-		// header): SILK in-band-FEC stereo at >=40 ms can bust silk_delta_gain_iCDF.
-		// This gate does not enable FEC, so it is not hit here; no skip needed.
 		for _, fs := range rates {
 			spec := spec
 			caseName := fmt.Sprintf("%s/fs%d", spec.name, fs)
 			t.Run(caseName, func(t *testing.T) {
-				// Both encoders consume the SAME native-Fs frames (libopus
-				// opus_encode(Fs) and gopus public Encode now share the native-Fs
-				// input contract).
+				// Both encoders consume the same native-Fs frames.
 				nativeSamples := sub48NativeFrameSamples(fs, spec.dur)
 
 				srcSamples := nativeSamples * nFrames * spec.channels
@@ -382,7 +338,7 @@ func TestSub48NativeEncodeParity(t *testing.T) {
 
 				enc, ok := sub48ConfigureGopus(t, spec, fs)
 				if !ok {
-					t.Skipf("gopus rejected config %s @ %d", spec.name, fs)
+					t.Fatalf("gopus rejected config %s @ %d", spec.name, fs)
 				}
 
 				res := sub48ParityResult{name: spec.name, fs: fs, firstDivFr: -1}
@@ -394,14 +350,20 @@ func TestSub48NativeEncodeParity(t *testing.T) {
 						t.Fatalf("%s: gopus encode error frame %d: %v", caseName, f, gerr)
 					}
 					o := recs[f]
+					if o.Ret < 0 || len(o.Packet) != o.Ret {
+						t.Fatalf("%s frame %d: invalid libopus oracle record ret=%d packet len=%d", caseName, f, o.Ret, len(o.Packet))
+					}
+					if gotRange := enc.FinalRange(); gotRange != o.FinalRange {
+						sub48RangeFails++
+						t.Errorf("%s frame %d: final_range differs gopus=%08x libopus=%08x (packet lengths %d/%d, first byte %d)",
+							caseName, f, gotRange, o.FinalRange, len(gpkt), len(o.Packet), firstByteDiff(gpkt, o.Packet))
+					}
 					oHas := o.Ret > 0
 					gHas := len(gpkt) > 0
 					if gHas != oHas {
 						if res.firstDivFr < 0 {
 							res.firstDivFr = f
-							// Classify from whichever side emitted (Hybrid/CELT emission
-							// cadence carries the documented float boundary; an emission
-							// mismatch is otherwise unexpected at 48k with DTX off).
+							// Classify from whichever side emitted a packet.
 							if gHas {
 								res.firstDivCls = tocModeClass(byte0(gpkt), true)
 							} else {
@@ -442,41 +404,18 @@ func TestSub48NativeEncodeParity(t *testing.T) {
 					}
 				}
 
-				// Arch/build-aware policy mirroring TestEncodeDifferentialFuzz (the
-				// authoritative encode-parity convention), applied at every rate (48k
-				// lock + native sub-48k):
-				//   - amd64 asm/SIMD build (the CI strict reference): ANY SILK or
-				//     Hybrid/CELT byte divergence is a HARD FAIL.
-				//   - pure-Go builds (arm64 always; amd64 -tags nosimd vs the scalar
-				//     libopus oracle): the float SILK VAD/pitch + CELT
-				//     MDCT/band-energy/pitch analysis carries the documented ≤1-ULP
-				//     float boundary (project_arm64_celt_1ulp_drift) that flips a
-				//     near-tie quantization on knife-edge signals, so a byte divergence
-				//     is LOGGED, not failed. The integer SILK encoder core is byte-exact
-				//     on every build (proven by silk.TestPublicSILKEncodeFrameFixedByteExact
-				//     and the CBR SILK cells); the residuals seen here are the float
-				//     Opus-API wrapper (VAD/pitch/dc_reject) on long 40–60 ms frames,
-				//     present identically on arm64-nosimd and amd64-nosimd (the TOC
-				//     mode-class is asserted HARD above on every build).
 				lock48kChecked++
 				if res.firstDivFr < 0 {
 					sub48ByteExact++
 				}
-				if res.firstDivFr >= 0 && !res.tocFlip {
-					if runtime.GOARCH == "amd64" && !testNoSimdBuild {
-						sub48Diverged++
-						t.Errorf("%s: %s payload BYTE MISMATCH at frame %d byte %d "+
-							"(gopus toc=%02x len=%d, libopus native-%dk toc=%02x len=%d) — same-arch encode "+
-							"divergence (UNEXPECTED on amd64 asm; bit-exact required).",
-							caseName, modeClassName(res.firstDivCls), res.firstDivFr, res.firstDivByte,
-							res.gTOC, res.gLen, fs/1000, res.oTOC, res.oLen)
-					} else {
-						if res.firstDivCls == 0 {
-							sub48Diverged++
-						}
-						t.Logf("%s: %s payload differs at frame %d byte %d "+
-							"(gopus toc=%02x len=%d, libopus native-%dk toc=%02x len=%d) — documented pure-Go "+
-							"≤1-ULP float boundary (project_arm64_celt_1ulp_drift), not a same-arch logic bug.",
+				if res.tocFlip {
+					sub48TOCFlips++
+				}
+				if res.firstDivFr >= 0 {
+					sub48Diverged++
+					if !res.tocFlip {
+						t.Errorf("%s: %s packet BYTE MISMATCH at frame %d byte %d "+
+							"(gopus toc=%02x len=%d, libopus native-%dk toc=%02x len=%d)",
 							caseName, modeClassName(res.firstDivCls), res.firstDivFr, res.firstDivByte,
 							res.gTOC, res.gLen, fs/1000, res.oTOC, res.oLen)
 					}
@@ -486,8 +425,6 @@ func TestSub48NativeEncodeParity(t *testing.T) {
 	}
 
 	t.Logf("sub-48k native encode parity gate (arch=%s nosimd=%t): specs checked=%d; byte-exact=%d "+
-		"diverged=%d TOC-mode-flips=%d. On the amd64 asm/SIMD build ANY byte divergence is a HARD FAIL "+
-		"(bit-exact required); on the pure-Go builds (arm64, amd64-nosimd) divergences are the documented "+
-		"≤1-ULP float boundary (logged). gopus accept/no-panic + TOC-mode-class match are HARD at every rate.",
-		runtime.GOARCH, testNoSimdBuild, lock48kChecked, sub48ByteExact, sub48Diverged, sub48TOCFlips)
+		"diverged=%d TOC-mode-flips=%d final-range-fails=%d; every packet byte, cadence, and final range are checked against matched libopus",
+		runtime.GOARCH, testNoSimdBuild, lock48kChecked, sub48ByteExact, sub48Diverged, sub48TOCFlips, sub48RangeFails)
 }
