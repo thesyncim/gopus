@@ -327,6 +327,36 @@ lane; the remaining projection differences occur in the int16 family.
 The full multistream package passes ordinary and `purego`; the CELT package
 retains missing frozen opusdec input-hash failures under active investigation.
 
+The transient history checkpoint `745dcbc6` uses the mode stride for saved
+right-channel energy while current frame energies use the active band stride.
+All 72 selected-C transient decisions, input/history immutability and warmed
+zero-allocation checks pass in each ARM64 mode. The narrowband quad witness
+matches all five packet bytes and final ranges. The low-space checkpoint
+`9da0f1d9` clears the single-stream final range at native encode entry, including
+TOC-only returns. A five-frame 7.1 witness requires the preceding active child
+range to be nonzero and subsequent low-space ranges to be zero; all three ARM
+modes pass.
+
+PVQ projection at `91cafc25` follows the selected ARM SIMD C object's 16- and
+4-term rounded-product blocks with ascending scalar addition, then fused tail
+terms. The captured six-value, 72-pulse live band matches C's pulse vector and
+squared norm. All 24 boundary cases, the 4,680-vector C matrix and the high-pulse
+near-tie case pass each ARM mode without residual allowances or skips; warm
+projection allocation checks are zero. All four corresponding complete packet
+witnesses pass each mode. The strict differential surround sweep passes
+2,268/2,268 cases in all three modes. A separate fixed surround matrix still
+has one packet difference in every mode. Native AMD64 confirmation is pending.
+
+Frozen opusdec honesty at `81a25b94` replays 11 verified historical Ogg inputs,
+covering all 11 scenario names and 11 of 18 retained frozen hashes. Every input
+matches the existing expected hash. The archived PCM JSON is byte-identical
+to the existing Linux fixture; no expected PCM or tolerance changes. The
+recorded decoder is Ubuntu libopus 1.4, so this is historical compatibility
+coverage, separate from the matched live libopus 1.6.1 gates. All 11 live
+opusdec comparisons and the integrity check pass locally. The complete CELT
+ordinary and `purego` suites each pass 3,039 test nodes, with three existing
+capability/producer skips and zero failures. Native confirmation is pending.
+
 ### Optional-feature exactness audit
 
 No complete optional-feature byte-parity claim is established. QEXT reference
@@ -349,6 +379,14 @@ The broader matched QEXT diagnostic still differs in 58/60 configurations;
 these focused results do not establish complete QEXT parity. Native AMD64
 confirmation of this checkpoint is pending.
 
+QEXT allocation at `743ade54` reads the stabilized band energies and computes
+its remaining extension balance before fine-energy raw bits. Independent
+three-frame VBR and CVBR witnesses require complete packets and final ranges;
+reverting only the balance order fails the CVBR witness. All 71 focused test
+nodes pass each local mode without failures or skips. The broad diagnostic
+still differs in 53/60 configurations and 122/180 frames; it remains an open
+exactness gate.
+
 DRED carried-payload tests contain
 structural fallbacks; OSCE/deep-PLC tests include numerical tolerances. Their
 neural and codec dispatch choices must both match C. Custom-mode tests include
@@ -360,42 +398,20 @@ seam evidence does not prove raw public input parity or complete feature/ISA
 reference pairing. The audit and causal fixes remain active; passing
 these existing tests is not treated as 100% extension parity.
 
-Remaining investigations include:
-- Encode: matched ordinary ARM64 scalar C checks at `036c4d51` find 38 differing
-  frames in 32/1,788 differential configurations. The strict `7c0fa7f4` stateful
-  gate executes all 2,988 configurations: 2,812 pass and 176 fail, with zero
-  TOC-mode flips, eight length/cadence diagnostics, 293 payload-byte diagnostics,
-  and 59 final-range diagnostics. Failures span auto (166), Hybrid (8), and
-  CELT (2) configurations. All 144 restored LBRR specifications pass every
-  packet byte, length, and final range in each of ordinary, SIMD, and `nosimd`,
-  with no panics or skips. The six separately excluded DTX/LBRR cases execute
-  without panic but fail in all three lanes, with 67 differing frames per lane.
-  The stateful gate executes all 150 of these configurations and requires
-  exact return lengths, every packet byte, and final ranges in every mode,
-  including DTX no-output records. All 260 native-rate configurations pass
-  strict byte and final-range checks in each local mode (six frames per case).
-  These gates contain no architecture-based byte/range waivers.
-  The paired scalar variant sweep has
-  90/92 exact cases; 5 ms stereo chirp and speech differ. Long-frame, DTX,
-  multistream/projection rate allocation and packet budgeting need exact traces.
-- Decode: non-silent CELT/Hybrid PCM, SILK stereo multi-frame FEC/LBRR,
-  multistream transitions, and mapping/projection residuals need exact traces.
-- ARM64 SIMD analysis: the live AnalysisInfo/state sweeps have tonality,
-  noisiness, slope, and RNN-state differences with clang 21. Ordinary and
-  `nosimd` analysis pass locally; native SIMD analysis passes at `e6f2b332`.
-- Multistream caller-buffer decoding has zero warm allocations for CELT,
-  SILK, and Hybrid in float32/int16/int24 output, including alternating good
-  packets and active PLC. All three build modes pass permanent guards with
-  finite, nonzero concealment output. Live C checks cover each mode and output
-  format; mapping 255, duplicate mapping, short-buffer retry, oversized output
-  tails, multi-frame DTX, and caller-buffer ownership are covered. Projection
-  caller-buffer decoding has a zero-allocation guard and bitwise equivalence to
-  the owned-output API on C-generated packets; that test is not an independent
-  projection PCM exactness proof. Owned-output convenience APIs allocate their
-  returned slices. Multistream encoder allocations and allocation coverage of
-  mixed-mode/optional-feature paths remain acceptance work.
-- Legacy stateful and decode tolerances can report PASS despite differences.
-  Their PASS is not counted as exact parity; owning fixes require strict gates.
+Remaining strict investigations include:
+
+- Fixed-configuration surround edge cases, longer projection state sequences,
+  short-frame variants, and native AMD64 confirmation of each new fix.
+  Counts above belong to their named matrices and revisions, not a global
+  count of independent defects.
+- SILK stereo multiframe FEC output, including the strict native AMD64 case
+  whose packet range agrees while recovered PCM differs.
+- Broader QEXT, DRED/OSCE, custom-mode and public fixed-point feature parity,
+  with matching neural and codec dispatch on each side.
+- Active caller-buffer multistream encode allocations and optional-feature
+  allocation coverage. Owned-output convenience APIs allocate returned slices.
+- Legacy tests that accept numerical/packet differences are not evidence of
+  exact parity. Strict replacement gates retain every selected case.
 
 ## Measurement method
 
