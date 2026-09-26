@@ -161,7 +161,7 @@ run_mode() {
         go test "${cbr_tags[@]}" ./internal/celt ./internal/silk \
           -run '^$' \
           -bench '^(BenchmarkInnerProd8FMA32|BenchmarkXcorrF32|BenchmarkInnerProductFLP|BenchmarkCeltPitchXcorrFloat|BenchmarkXcorrKernelFloat|BenchmarkXcorrKernelAVX8|BenchmarkPortAMD64)' \
-          -benchmem -count=5 -timeout=20m
+          -benchtime=300ms -benchmem -count=5 -timeout=20m
     fi
   fi
 
@@ -212,13 +212,13 @@ run_side() {
     run_mode "$side" "$root" purego
     run_mode "$side" "$root" simd
   else
-    run_mode "$side" "$root" default
-    run_mode "$side" "$root" nosimd
     # Platform fixture generation uses ordinary scalar Go. Restore the reviewed
     # Go SIMD bitstream fixture before the SIMD parity run.
     cp "$simd_opusdec_fixture" \
       "$root/internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json"
     run_mode "$side" "$root" simd
+    run_mode "$side" "$root" nosimd
+    run_mode "$side" "$root" default
   fi
 }
 
