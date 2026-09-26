@@ -336,11 +336,7 @@ func (d *Decoder) runStereoDREDConceal(
 	d.updateStereoDREDNeuralHistories(d.scratchPLC[:stereoSamples], frameSize)
 	d.updatePLCOverlapBuffer(d.scratchPLC[:stereoSamples], frameSize)
 	if out != nil {
-		if downsample > 1 {
-			d.applyDeemphasisAndScaleDownsampleToFloat32(out[:outputSamples], d.scratchPLC[:frameSize*2], downsample, 1.0/32768.0)
-		} else {
-			d.applyDeemphasisAndScaleToFloat32(out[:outputSamples], d.scratchPLC[:frameSize*2], 1.0/32768.0)
-		}
+		d.deemphasis(out[:outputSamples], d.scratchPLC, d.scratchPLC[1:], 2, frameSize, downsample, false)
 	} else {
 		d.advanceDeemphasisStateStereo(d.scratchPLC[:frameSize*2])
 	}
@@ -562,11 +558,7 @@ func (d *Decoder) concealNeural48kMono(
 	d.updatePLCDecodeHistory(d.scratchPLC[:frameSize], frameSize, plcDecodeBufferSize)
 	d.updatePLCOverlapBuffer(d.scratchPLC[:totalSamples], frameSize)
 	if out != nil {
-		if downsample > 1 {
-			d.applyDeemphasisAndScaleDownsampleToFloat32(out[:outputFrameSize], d.scratchPLC[:frameSize], downsample, 1.0/32768.0)
-		} else {
-			d.applyDeemphasisAndScaleToFloat32(out[:outputFrameSize], d.scratchPLC[:frameSize], 1.0/32768.0)
-		}
+		d.deemphasis(out[:outputFrameSize], d.scratchPLC, nil, 1, frameSize, downsample, false)
 	} else {
 		d.advanceDeemphasisStateMono(d.scratchPLC[:frameSize])
 	}

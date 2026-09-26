@@ -284,17 +284,7 @@ func (d *streamState) addHybridToSilkFadeOut(out []float32) error {
 	if !d.haveDecoded || int(d.lastMode) != streamModeHybrid {
 		return nil
 	}
-	channels := int(d.channels)
-	f2_5 := d.sampleRateF2_5()
-	scratch := make([]float32, f2_5*channels)
-	if err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(celtSilenceFrame2B[:], f2_5, d.lastPacketStereo, scratch); err != nil {
-		return err
-	}
-	n := min(len(scratch), len(out))
-	for i := range n {
-		out[i] += scratch[i]
-	}
-	return nil
+	return d.celtDec.AccumulateFrameWithPacketStereoAtAPIRate(celtSilenceFrame2B[:], d.sampleRateF2_5(), d.lastPacketStereo, out)
 }
 
 func (d *streamState) sampleRateF2_5() int {

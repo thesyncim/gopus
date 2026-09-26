@@ -292,56 +292,18 @@ func (d *Decoder) decodeStereoFECFrames(
 	return output, nil
 }
 
-// decodeFECLostFrameInto fills frameOut with packet-loss concealment for a frame
-// that has no LBRR data inside an FEC packet, keeping the decoder's loss cadence
-// aligned with libopus decode_fec (it runs the normal PLC concealment for that
-// sub-frame instead of decoding redundant data).
+// decodeFECLostFrameInto is silk_decode_frame() for a frame of an FEC packet
+// whose channel carries no LBRR data (lostFlag == FLAG_DECODE_LBRR with
+// LBRR_flags[nFramesDecoded] == 0): silk_PLC(lost=1) conceals the frame, then
+// the output buffer, comfort noise, PLC glue and lagPrev updates follow as for
+// any concealed frame.
 func (d *Decoder) decodeFECLostFrameInto(channel int, st *decoderState, frameOut []int16) {
 	if st == nil || len(frameOut) == 0 {
 		return
 	}
-
-	frameLength := len(frameOut)
-	fadeFactor := float32(1.0)
-	if d.plcState != nil {
-		fadeFactor = d.plcState.RecordLoss()
-	}
-
-	lossCnt := st.lossCnt
-	var concealed []float32
-	if d.scratchOutput != nil && len(d.scratchOutput) >= frameLength {
-		concealed = d.scratchOutput[:frameLength]
-		clear(concealed)
-	} else {
-		concealed = make([]float32, frameLength)
-	}
-
-	if state := d.ensureSILKPLCState(channel); state != nil && st.nbSubfr > 0 {
-		view := d.plcDecoderView(channel)
-		if view == nil {
-			return
-		}
-		concealedQ0 := plc.ConcealSILKWithLTP(view, state, int(lossCnt), frameLength)
-		const scale = float32(1.0 / 32768.0)
-		n := min(len(concealedQ0), frameLength)
-		for i := range n {
-			concealed[i] = float32(concealedQ0[i]) * scale
-		}
-		if lag := int((state.PitchLQ8 + 128) >> 8); lag > 0 {
-			st.lagPrev = int32(lag)
-		}
-	} else {
-		plcOut := plc.ConcealSILK(d, frameLength, fadeFactor)
-		copy(concealed, plcOut)
-		if len(plcOut) < frameLength {
-			clear(concealed[len(plcOut):])
-		}
-	}
-
-	d.recordPLCLossForState(st, concealed)
-	for i := range frameOut {
-		frameOut[i] = float32ToInt16(concealed[i])
-	}
+	copy(frameOut, d.concealSILKFrame(channel, st, len(frameOut)))
+	d.finishLostFrame(channel, st, frameOut)
+	st.lagPrev = d.concealLagPrev(channel)
 }
 
 // HasLBRR checks if the given packet contains LBRR (FEC) data.

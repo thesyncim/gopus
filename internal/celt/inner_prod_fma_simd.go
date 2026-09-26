@@ -3,6 +3,7 @@
 package celt
 
 import (
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"simd/archsimd"
 	"unsafe"
 )
@@ -40,7 +41,7 @@ func innerProd8FMA32ArchSIMD(x, y []float32, n int) float32 {
 	sum1 := round32(acc.GetElem(1) + acc.GetElem(3))
 	sum := round32(sum0 + sum1)
 	for ; i < n; i++ {
-		sum = mdctFMA32(*(*float32)(unsafe.Add(xbase, i*4)), *(*float32)(unsafe.Add(ybase, i*4)), sum)
+		sum = opusmath.FMA32(*(*float32)(unsafe.Add(xbase, i*4)), *(*float32)(unsafe.Add(ybase, i*4)), sum)
 	}
 	return sum
 }

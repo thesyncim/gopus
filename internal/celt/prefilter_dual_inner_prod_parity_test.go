@@ -1,6 +1,7 @@
 package celt
 
 import (
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"math"
 	"math/rand"
 	"testing"
@@ -9,10 +10,10 @@ import (
 // prefilterDualInnerProdF32Ref is an independent reference for the
 // prefilterDualInnerProdF32NeonOrder kernel, kept so the asm/nosimd kernel can
 // be proven bit-identical to the libopus-matching reference it replaced. It
-// fuses every lane and the scalar tail through mdctFMA32 (single-rounding
+// fuses every lane and the scalar tail through opusmath.FMA32 (single-rounding
 // math.FMA) and applies the same float32 rounding barriers on the horizontal
 // reduction as the kernel, so the comparison holds on every architecture. The
-// kernel is reached in production only on arm64, where mdctFMA32 maps to FMADDS
+// kernel is reached in production only on arm64, where opusmath.FMA32 maps to FMADDS
 // and the asm path emits the matching vfmaq_f32 accumulation. fma32 is not used
 // here because it drops to non-fused a*b+c on non-arm64 hosts.
 func prefilterDualInnerProdF32Ref(x, y1, y2 []float32, length int) (float32, float32) {
@@ -20,33 +21,33 @@ func prefilterDualInnerProdF32Ref(x, y1, y2 []float32, length int) (float32, flo
 	var acc2 [4]float32
 	i := 0
 	for ; i < length-7; i += 8 {
-		acc1[0] = mdctFMA32(x[i], y1[i], acc1[0])
-		acc1[1] = mdctFMA32(x[i+1], y1[i+1], acc1[1])
-		acc1[2] = mdctFMA32(x[i+2], y1[i+2], acc1[2])
-		acc1[3] = mdctFMA32(x[i+3], y1[i+3], acc1[3])
-		acc2[0] = mdctFMA32(x[i], y2[i], acc2[0])
-		acc2[1] = mdctFMA32(x[i+1], y2[i+1], acc2[1])
-		acc2[2] = mdctFMA32(x[i+2], y2[i+2], acc2[2])
-		acc2[3] = mdctFMA32(x[i+3], y2[i+3], acc2[3])
+		acc1[0] = opusmath.FMA32(x[i], y1[i], acc1[0])
+		acc1[1] = opusmath.FMA32(x[i+1], y1[i+1], acc1[1])
+		acc1[2] = opusmath.FMA32(x[i+2], y1[i+2], acc1[2])
+		acc1[3] = opusmath.FMA32(x[i+3], y1[i+3], acc1[3])
+		acc2[0] = opusmath.FMA32(x[i], y2[i], acc2[0])
+		acc2[1] = opusmath.FMA32(x[i+1], y2[i+1], acc2[1])
+		acc2[2] = opusmath.FMA32(x[i+2], y2[i+2], acc2[2])
+		acc2[3] = opusmath.FMA32(x[i+3], y2[i+3], acc2[3])
 
-		acc1[0] = mdctFMA32(x[i+4], y1[i+4], acc1[0])
-		acc1[1] = mdctFMA32(x[i+5], y1[i+5], acc1[1])
-		acc1[2] = mdctFMA32(x[i+6], y1[i+6], acc1[2])
-		acc1[3] = mdctFMA32(x[i+7], y1[i+7], acc1[3])
-		acc2[0] = mdctFMA32(x[i+4], y2[i+4], acc2[0])
-		acc2[1] = mdctFMA32(x[i+5], y2[i+5], acc2[1])
-		acc2[2] = mdctFMA32(x[i+6], y2[i+6], acc2[2])
-		acc2[3] = mdctFMA32(x[i+7], y2[i+7], acc2[3])
+		acc1[0] = opusmath.FMA32(x[i+4], y1[i+4], acc1[0])
+		acc1[1] = opusmath.FMA32(x[i+5], y1[i+5], acc1[1])
+		acc1[2] = opusmath.FMA32(x[i+6], y1[i+6], acc1[2])
+		acc1[3] = opusmath.FMA32(x[i+7], y1[i+7], acc1[3])
+		acc2[0] = opusmath.FMA32(x[i+4], y2[i+4], acc2[0])
+		acc2[1] = opusmath.FMA32(x[i+5], y2[i+5], acc2[1])
+		acc2[2] = opusmath.FMA32(x[i+6], y2[i+6], acc2[2])
+		acc2[3] = opusmath.FMA32(x[i+7], y2[i+7], acc2[3])
 	}
 	if length-i >= 4 {
-		acc1[0] = mdctFMA32(x[i], y1[i], acc1[0])
-		acc1[1] = mdctFMA32(x[i+1], y1[i+1], acc1[1])
-		acc1[2] = mdctFMA32(x[i+2], y1[i+2], acc1[2])
-		acc1[3] = mdctFMA32(x[i+3], y1[i+3], acc1[3])
-		acc2[0] = mdctFMA32(x[i], y2[i], acc2[0])
-		acc2[1] = mdctFMA32(x[i+1], y2[i+1], acc2[1])
-		acc2[2] = mdctFMA32(x[i+2], y2[i+2], acc2[2])
-		acc2[3] = mdctFMA32(x[i+3], y2[i+3], acc2[3])
+		acc1[0] = opusmath.FMA32(x[i], y1[i], acc1[0])
+		acc1[1] = opusmath.FMA32(x[i+1], y1[i+1], acc1[1])
+		acc1[2] = opusmath.FMA32(x[i+2], y1[i+2], acc1[2])
+		acc1[3] = opusmath.FMA32(x[i+3], y1[i+3], acc1[3])
+		acc2[0] = opusmath.FMA32(x[i], y2[i], acc2[0])
+		acc2[1] = opusmath.FMA32(x[i+1], y2[i+1], acc2[1])
+		acc2[2] = opusmath.FMA32(x[i+2], y2[i+2], acc2[2])
+		acc2[3] = opusmath.FMA32(x[i+3], y2[i+3], acc2[3])
 		i += 4
 	}
 	xy10 := math.Float32frombits(math.Float32bits(acc1[0] + acc1[2]))
@@ -56,8 +57,8 @@ func prefilterDualInnerProdF32Ref(x, y1, y2 []float32, length int) (float32, flo
 	sum1 := math.Float32frombits(math.Float32bits(xy10 + xy11))
 	sum2 := math.Float32frombits(math.Float32bits(xy20 + xy21))
 	for ; i < length; i++ {
-		sum1 = mdctFMA32(x[i], y1[i], sum1)
-		sum2 = mdctFMA32(x[i], y2[i], sum2)
+		sum1 = opusmath.FMA32(x[i], y1[i], sum1)
+		sum2 = opusmath.FMA32(x[i], y2[i], sum2)
 	}
 	return sum1, sum2
 }

@@ -3,6 +3,7 @@
 package celt
 
 import (
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"simd/archsimd"
 	"unsafe"
 )
@@ -48,8 +49,8 @@ func prefilterDualInnerProdArchSIMD(x, y1, y2 []float32, length int) (float32, f
 	sum2 := round32(round32(acc2.GetElem(0)+acc2.GetElem(2)) + round32(acc2.GetElem(1)+acc2.GetElem(3)))
 	for ; i < length; i++ {
 		xv := *(*float32)(xp)
-		sum1 = mdctFMA32(xv, *(*float32)(y1p), sum1)
-		sum2 = mdctFMA32(xv, *(*float32)(y2p), sum2)
+		sum1 = opusmath.FMA32(xv, *(*float32)(y1p), sum1)
+		sum2 = opusmath.FMA32(xv, *(*float32)(y2p), sum2)
 		if i+1 < length {
 			xp = unsafe.Add(xp, 4)
 			y1p = unsafe.Add(y1p, 4)

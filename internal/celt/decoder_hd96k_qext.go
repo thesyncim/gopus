@@ -24,7 +24,7 @@ package celt
 //
 // What is NOT yet mode-parametric (the 2b work):
 //   - GetModeConfig / ValidFrameSize reject frameSize=1920 (cap LM at 3, frame
-//     sizes 120/240/480/960). prepareDecodeFrame() rejects 1920 outright.
+//     sizes 120/240/480/960). decodeFrame() rejects 1920 outright.
 //   - The public Synthesize/SynthesizeStereo wrappers bake in the Overlap=120
 //     package constant; the HD path must thread overlap=240 (the underlying
 //     synthesizeChannelWithOverlapScratchF32 already takes overlap as a param).

@@ -2,7 +2,11 @@
 
 package celt
 
-import "unsafe"
+import (
+	"unsafe"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
+)
 
 // imdctPreRotateFMA32Kiss is the archsimd IMDCT pre-rotation. Per output i it
 // computes the complex rotation
@@ -105,8 +109,8 @@ func imdctPreRotateFMA32Kiss(fftIn []complex64, spectrum []float32, trig []float
 		t0 := trig[i]
 		t1 := trig[n4+i]
 		fftIn[i] = complex(
-			mdctFMA32(x1, t0, -noFMA32Mul(x2, t1)),
-			mdctFMA32(x2, t0, noFMA32Mul(x1, t1)),
+			opusmath.FMA32(x1, t0, -noFMA32Mul(x2, t1)),
+			opusmath.FMA32(x2, t0, noFMA32Mul(x1, t1)),
 		)
 	}
 }

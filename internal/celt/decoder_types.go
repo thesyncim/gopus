@@ -164,7 +164,12 @@ type Decoder struct {
 
 	// Channel transition tracking (for mono-to-stereo overlap buffer clearing)
 	prevStreamChannels int32 // libopus CELTDecoder.stream_channels mirror (0 = uninitialized)
-	directOutPCM       []float32
+	// directOutPCM, when set, is the caller's PCM buffer that deemphasis writes
+	// into (libopus celt_decode_with_ec's pcm argument). directOutAccum selects
+	// libopus celt_accum: deemphasis adds its output onto the samples already in
+	// directOutPCM (the SILK lowband in Hybrid mode) instead of overwriting them.
+	directOutPCM   []float32
+	directOutAccum bool
 	// synthTrace, when non-nil, captures intermediate synthesis-stage buffers for
 	// the next decoded frame (test-only; production decoders leave it nil so the
 	// hot path is a single nil-pointer branch with no allocations).
@@ -184,14 +189,12 @@ type Decoder struct {
 	scratchFineQuant        []int32
 	scratchFinePriority     []int32
 	scratchPrevBandEnergy   []float32
-	scratchSilenceE         []celtGLog
 	scratchCaps             []int32
 	scratchAllocWork        []int32
 	scratchBands            bandDecodeScratch
 	scratchIMDCTF32         imdctScratchF32
 	scratchIMDCTF32R        imdctScratchF32
 	scratchSynthF32         []float32
-	scratchSilenceSpec      []float32
 	scratchSynthRF32        []float32
 	scratchSpecRF32         []float32
 	scratchStereoF32        []float32

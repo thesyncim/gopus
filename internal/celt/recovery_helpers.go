@@ -238,13 +238,15 @@ func (d *Decoder) applyLossEnergySafety(intra bool, start, end, lm int) {
 	}
 }
 
-// DecodeHybridFECPLC generates CELT concealment for hybrid cadence.
-// This mirrors the decode_fec behavior where CELT PLC is accumulated on top of
-// SILK LBRR, and it is also used for the 5 ms hybrid->CELT transition decode.
-// Decoder-side postfilter/de-emphasis ordering matches libopus.
-func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float32, error) {
+// DecodeHybridFECPLC conceals a lost Hybrid-mode CELT frame of frameSize
+// samples at 48 kHz and accumulates the concealed highband onto out, which
+// holds the SILK lowband: libopus celt_decode_with_ec(NULL) with celt_accum=1
+// (opus_decode_frame for a lost or FEC-recovered Hybrid frame). out is either
+// frameSize*channels long or sized for the API rate, in which case the
+// de-emphasis downsamples into it.
+func (d *Decoder) DecodeHybridFECPLC(frameSize int, out []float32) error {
 	if frameSize != 240 && frameSize != 480 && frameSize != 960 {
-		return nil, ErrInvalidFrameSize
+		return ErrInvalidFrameSize
 	}
 
 	if d.plcState == nil {
@@ -317,9 +319,8 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float32, error) {
 	d.rng = seed
 
 	d.applyPostfilterFloat32(d.scratchPLCF32[:outLen], frameSize, mode.LM, int(d.postfilterPeriod), d.postfilterGain, int(d.postfilterTapset))
-	d.applyDeemphasisAndScaleFloat32(d.scratchPLCF32[:outLen], 1.0/32768.0)
-
-	return d.scratchPLCF32[:outLen], nil
+	d.deemphasisInterleavedTo(out, d.scratchPLCF32[:outLen], frameSize, true)
+	return nil
 }
 
 func fillHybridPLCNoiseCoeffs(coeffs []celtNorm, frameSize, startBand, endBand int, seed *uint32) {
@@ -382,12 +383,7 @@ func (d *Decoder) decodePLC(frameSize int) ([]float32, error) {
 		d.finishLostFrame(framePLCPeriodic, frameSize)
 		d.plcPrefilterAndFoldPending = true
 		d.updatePLCOverlapBuffer(d.scratchPLC[:plcLen], frameSize)
-		if len(d.directOutPCM) >= outLen {
-			d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:outLen], d.scratchPLC[:outLen], 1.0/32768.0)
-			return d.scratchPLC[:outLen], nil
-		}
-		d.applyDeemphasisAndScale(d.scratchPLC[:outLen], 1.0/32768.0)
-		return d.scratchPLC[:outLen], nil
+		return d.deemphasisInterleaved(d.scratchPLC[:outLen], frameSize), nil
 	}
 	// Match libopus noise-PLC transition cadence: if periodic PLC left a pending
 	// fold, consume it before switching to noise concealment.
@@ -395,16 +391,16 @@ func (d *Decoder) decodePLC(frameSize int) ([]float32, error) {
 	d.plcPrefilterAndFoldPending = false
 
 	d.scratchPLCF32 = ensureFloat32Slice(&d.scratchPLCF32, outLen)
-	d.concealNoisePLC(d.scratchPLCF32[:outLen], frameSize, int(prevLossDuration))
+	samples := d.concealNoisePLC(d.scratchPLCF32[:outLen], frameSize, int(prevLossDuration))
 	d.finishLostFrame(framePLCNoise, frameSize)
 
-	return d.scratchPLCF32[:outLen], nil
+	return samples, nil
 }
 
-func (d *Decoder) concealNoisePLC(dst []float32, frameSize, prevLossDuration int) {
+func (d *Decoder) concealNoisePLC(dst []float32, frameSize, prevLossDuration int) []float32 {
 	channels := int(d.channels)
 	if len(dst) < frameSize*channels {
-		return
+		return nil
 	}
 	mode := GetModeConfig(frameSize)
 	d.ensureBackgroundEnergyState()
@@ -480,17 +476,15 @@ func (d *Decoder) concealNoisePLC(dst []float32, frameSize, prevLossDuration int
 	}
 
 	d.applyPostfilterFloat32(dst[:frameSize*channels], frameSize, mode.LM, int(d.postfilterPeriod), d.postfilterGain, int(d.postfilterTapset))
-	if len(d.directOutPCM) >= frameSize*channels {
-		d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:frameSize*channels], dst[:frameSize*channels], 1.0/32768.0)
-		if d.plcStageTrace != nil && d.plcStageTrace.armed() {
-			d.plcStageTrace.captureFinal(d.directOutPCM[:frameSize*channels])
-		}
-		return
-	}
-	d.applyDeemphasisAndScale(dst[:frameSize*channels], 1.0/32768.0)
+	samples := d.deemphasisInterleaved(dst[:frameSize*channels], frameSize)
 	if d.plcStageTrace != nil && d.plcStageTrace.armed() {
-		d.plcStageTrace.captureFinal(dst[:frameSize*channels])
+		if samples != nil {
+			d.plcStageTrace.captureFinal(samples)
+		} else {
+			d.plcStageTrace.captureFinal(d.directOutPCM[:min(len(d.directOutPCM), frameSize*channels)])
+		}
 	}
+	return samples
 }
 
 func (d *Decoder) concealPeriodicPLC(dst []float32, frameSize, lossCount int, continuePeriodic bool, commit bool) bool {

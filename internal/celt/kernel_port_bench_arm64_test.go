@@ -65,19 +65,6 @@ func BenchmarkPortCwrsiFastCore(b *testing.B) {
 	kernelPortBenchU32 ^= uint32(y[n-1])
 }
 
-func BenchmarkPortDeemphasisStereoPlanarF32Core(b *testing.B) {
-	const n = 480
-	left := kernelPortBenchFloat32(n)
-	right := kernelPortBenchFloat32(n)
-	dst := make([]float32, n*2)
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		kernelPortBenchF32, _ = deemphasisStereoPlanarF32Core(dst, left, right, n, 1, 0, 0, 0.85, 1e-15)
-	}
-	kernelPortBenchF32 += dst[n*2-1]
-}
-
 func BenchmarkPortKfBfly4M1Core(b *testing.B) {
 	const n = 128
 	initial := kernelPortBenchComplex(n * 4)

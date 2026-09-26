@@ -184,10 +184,10 @@ func xcorrKernelAVX8ScalarGo(x, y *float32, sum *[8]float32, length int) {
 				if xv != 0 && yv != 0 && product == product {
 					lanes[corr][lane] = product
 				} else {
-					lanes[corr][lane] = mdctFMA32(xv, yv, 0)
+					lanes[corr][lane] = opusmath.FMA32(xv, yv, 0)
 				}
 			} else {
-				lanes[corr][lane] = mdctFMA32(xv, yv, lanes[corr][lane])
+				lanes[corr][lane] = opusmath.FMA32(xv, yv, lanes[corr][lane])
 			}
 		}
 	}

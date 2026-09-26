@@ -78,15 +78,7 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 	var samples []float32
 	channels := int(d.channels)
 	downsample := d.downsampleFactor()
-	outputFrameSize := frameSize
-	downsampleOutput := false
-	if downsample > 1 && frameSize%downsample == 0 {
-		apiFrameSize := frameSize / downsample
-		if len(d.directOutPCM) < frameSize*channels && len(d.directOutPCM) >= apiFrameSize*channels {
-			outputFrameSize = apiFrameSize
-			downsampleOutput = true
-		}
-	}
+	outputFrameSize := frameSize / d.outputDownsample(d.directOutPCM, frameSize)
 	// The native 96 kHz HD mode needs the HD-specific de-emphasis (2-tap) and
 	// comb-filter postfilter (comb_filter_qext), which live on the non-direct
 	// synthesis path. Disable the direct-output fast paths so HD frames route
@@ -142,11 +134,7 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 				d.synthTrace.capturePostComb(0, samplesL[:frameSize])
 				d.synthTrace.capturePostComb(1, samplesR[:frameSize])
 			}
-			if downsampleOutput {
-				d.applyDeemphasisAndScaleStereoPlanarFloat32DownsampleToFloat32(d.directOutPCM[:outputFrameSize*2], samplesL[:frameSize], samplesR[:frameSize], downsample, 1.0/32768.0)
-			} else {
-				d.applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(d.directOutPCM[:frameSize*2], samplesL[:frameSize], samplesR[:frameSize], 1.0/32768.0)
-			}
+			d.deemphasisPlanarToDirectOut(samplesL[:frameSize], samplesR[:frameSize], frameSize)
 		} else if directStereoFloat32 {
 			if d.synthTrace != nil {
 				d.synthTrace.captureSpec(0, specL[:frameSize])
@@ -162,11 +150,7 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 				d.synthTrace.capturePostComb(0, samplesL[:frameSize])
 				d.synthTrace.capturePostComb(1, samplesR[:frameSize])
 			}
-			if downsampleOutput {
-				d.applyDeemphasisAndScaleStereoPlanarFloat32DownsampleToFloat32(d.directOutPCM[:outputFrameSize*2], samplesL, samplesR, downsample, 1.0/32768.0)
-			} else {
-				d.applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(d.directOutPCM[:frameSize*2], samplesL, samplesR, 1.0/32768.0)
-			}
+			d.deemphasisPlanarToDirectOut(samplesL[:frameSize], samplesR[:frameSize], frameSize)
 		} else {
 			samples = d.SynthesizeStereo(specL, specR, transient, shortBlocks)
 		}
@@ -188,11 +172,7 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 			if d.synthTrace != nil {
 				d.synthTrace.capturePostComb(0, samplesF32[:frameSize])
 			}
-			if downsampleOutput {
-				d.applyDeemphasisAndScaleMonoFloat32DownsampleToFloat32(d.directOutPCM[:outputFrameSize], samplesF32, downsample, 1.0/32768.0)
-			} else {
-				d.applyDeemphasisAndScaleMonoFloat32ToFloat32(d.directOutPCM[:frameSize], samplesF32, 1.0/32768.0)
-			}
+			d.deemphasisPlanarToDirectOut(samplesF32[:frameSize], nil, frameSize)
 		} else {
 			if d.synthTrace != nil {
 				d.synthTrace.captureSpec(0, specL[:frameSize])
@@ -214,16 +194,7 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 	}
 
 	// Step 7: Apply de-emphasis filter
-	if downsampleOutput && len(d.directOutPCM) >= outputFrameSize*channels {
-		d.applyDeemphasisAndScaleDownsampleToFloat32(d.directOutPCM[:outputFrameSize*channels], samples, downsample, 1.0/32768.0)
-		return nil
-	} else if len(d.directOutPCM) >= len(samples) {
-		d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:len(samples)], samples, 1.0/32768.0)
-	} else {
-		d.applyDeemphasisAndScale(samples, 1.0/32768.0)
-	}
-
-	return samples
+	return d.deemphasisInterleaved(samples, frameSize)
 }
 
 func (d *Decoder) finalizeDecodedFrameState(frameSize, start, end, lm int, transient bool, energies, prev1Energy []celtGLog, qext *preparedQEXTDecode, rd *rangecoding.Decoder) error {

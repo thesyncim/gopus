@@ -21,7 +21,7 @@ func mdctMulAddMix(a, b, c, d float32) float32 {
 	// carries non-zero history (transient short-block boundaries), which seeds
 	// the host-only parity cluster.
 	if mdctUseFMALikeMixEnabled {
-		return mdctFMA32(a, c, mdctMul(b, d))
+		return opusmath.FMA32(a, c, mdctMul(b, d))
 	}
 	return mdctMul(a, c) + mdctMul(b, d)
 }
@@ -31,7 +31,7 @@ func mdctMulSubMix(a, b, c, d float32) float32 {
 	// (S_MUL(x2,*wp2)-S_MUL(x1,*wp1)) under clang -ffp-contract=on: round the
 	// subtracted product, fuse the first multiply into the subtract.
 	if mdctUseFMALikeMixEnabled {
-		return mdctFMA32(a, c, -mdctMul(b, d))
+		return opusmath.FMA32(a, c, -mdctMul(b, d))
 	}
 	return mdctMul(a, c) - mdctMul(b, d)
 }
@@ -55,7 +55,7 @@ func mdctStoreDirectStageFMALike(dst []kissCpx, idx int, scale, re, im, t0, t1 f
 // exactly on every build (same mdctUseFMALikeMixEnabled gating, same
 // non-FMA path on amd64), so the amd64 bit-exact libopus oracle stays
 // byte-parity. The win on arm64 nosimd is just that mdctEncodeFMA32 uses the
-// Go backend's FMADDS contraction instead of mdctFMA32's wider helper, which
+// Go backend's FMADDS contraction instead of opusmath.FMA32's wider helper, which
 // the encoder pitch-search is free to use because that path is quality-gated.
 func mdctMulAddMixEncode(a, b, c, d float32) float32 {
 	if mdctUseFMALikeMixEnabled {

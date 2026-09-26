@@ -307,49 +307,30 @@ func (d *Decoder) DecodePLCToFloat32WithPacketStereoInto(frameSize int, stereo b
 		silkUpsampled = silkUpsampled[:totalSamples]
 	}
 
-	// Keep PLC alignment consistent with normal hybrid decode.
 	// The SILK decoder/resampler path already provides API-rate alignment.
-	silkAligned := silkUpsampled
+	clear(output[copy(output, silkUpsampled):])
 
-	// Generate CELT PLC (bands 17-21 only for hybrid)
-	// For native hybrid frame sizes and the 5 ms transition cadence, use the
-	// decoder-owned hybrid PLC path to match libopus transition synthesis.
-	celtScale := float32(1.0 / 32768.0)
-	var celtConcealed []float32
+	// Conceal the CELT highband (bands 17-21) and accumulate it onto the SILK
+	// lowband, as opus_decode_frame's celt_decode_with_ec(NULL, celt_accum=1)
+	// does for a lost Hybrid frame.
 	if frameSize48 == 240 || frameSize48 == 480 || frameSize48 == 960 {
-		var err error
-		celtConcealed, err = d.celtDecoder.DecodeHybridFECPLC(frameSize48)
-		if err != nil {
+		if err := d.celtDecoder.DecodeHybridFECPLC(frameSize48, output); err != nil {
 			return err
 		}
-		celtScale = 1.0
 	} else {
 		// Fallback for non-hybrid frame sizes used by internal cadence paths.
 		// Pass celtDecoder as both state and synthesizer (implements both interfaces).
-		celtConcealed = plc.ConcealCELTHybrid(d.celtDecoder, d.celtDecoder, frameSize48, fadeFactor)
-	}
-
-	// Combine SILK and CELT
-	factor := 1
-	if apiSampleRate > 0 {
-		factor = 48000 / apiSampleRate
-	}
-	if factor < 1 {
-		factor = 1
-	}
-	for i := range frameSizeAPI {
-		for c := range channels {
-			idx := i*channels + c
-			silkSample := float32(0)
-			celtSample := float32(0)
-			if idx < len(silkAligned) {
-				silkSample = silkAligned[idx]
+		celtConcealed := plc.ConcealCELTHybrid(d.celtDecoder, d.celtDecoder, frameSize48, fadeFactor)
+		factor := 1
+		if apiSampleRate > 0 {
+			factor = max(48000/apiSampleRate, 1)
+		}
+		for i := range frameSizeAPI {
+			for c := range channels {
+				if celtIdx := i*factor*channels + c; celtIdx < len(celtConcealed) {
+					output[i*channels+c] += celtConcealed[celtIdx] * (1.0 / 32768.0)
+				}
 			}
-			celtIdx := i*factor*channels + c
-			if celtIdx < len(celtConcealed) {
-				celtSample = celtConcealed[celtIdx] * celtScale
-			}
-			output[idx] = silkSample + celtSample
 		}
 	}
 

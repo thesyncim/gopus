@@ -55,11 +55,10 @@ type Decoder struct {
 	channels         int32
 	maxPacketSamples int
 	maxPacketBytes   int
-	// scratchF32 backs the six fixed float32 decode work buffers below with one
+	// scratchF32 backs the five fixed float32 decode work buffers below with one
 	// contiguous allocation; see NewDecoder.
 	scratchF32         arena.Bump[float32]
 	scratchPCM         []float32
-	scratchFrame48     []float32
 	scratchTransition  []float32
 	scratchRedundant   []float32
 	scratchSilkPLC     []float32 // SILK PLC concealment output (one chunk at API rate)
@@ -151,7 +150,6 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	hybridDec.SetAPISampleRate(internalRate)
 
 	transitionSamples := 48000 / 200 // 5ms at 48kHz
-	scratchFrame48Samples := max(min(maxPacketSamples*48000/cfg.SampleRate, defaultMaxPacketSamples), maxPacketSamples)
 
 	d := &Decoder{
 		silkDecoder:      silkDec,
@@ -167,12 +165,11 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		lastBandwidth:    BandwidthFullband,
 		fecData:          make([]byte, maxPacketBytes),
 	}
-	// Back the six fixed float32 decode work buffers with one contiguous arena.
+	// Back the five fixed float32 decode work buffers with one contiguous arena.
 	pcmLen := maxPacketSamples * cfg.Channels
 	transLen := transitionSamples * cfg.Channels
-	d.scratchF32.Ensure(3*pcmLen + scratchFrame48Samples*cfg.Channels + 2*transLen)
+	d.scratchF32.Ensure(3*pcmLen + 2*transLen)
 	d.scratchPCM = d.scratchF32.AllocN(pcmLen)
-	d.scratchFrame48 = d.scratchF32.AllocN(scratchFrame48Samples * cfg.Channels)
 	d.scratchTransition = d.scratchF32.AllocN(transLen)
 	d.scratchRedundant = d.scratchF32.AllocN(transLen)
 	d.scratchSilkPLC = d.scratchF32.AllocN(pcmLen)

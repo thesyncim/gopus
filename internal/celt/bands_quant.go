@@ -1807,9 +1807,9 @@ func celtFloatMulAdd(a, b, c float32) float32 {
 		// libopus arm/pitch_neon_intr.c:celt_inner_prod_neon forces
 		// vfmaq_f32 for NEON lanes; this is the scalar lane equivalent.
 		// celtUseFusedFloatMath is true on the arm64 SIMD build, where fma32
-		// contracts to one FMADDS — the same single rounding as mdctFMA32's math.FMA
+		// contracts to one FMADDS — the same single rounding as opusmath.FMA32's math.FMA
 		// without its FCVT round-trips (this is a runtime-data path, so the
-		// constant-folding caveat that keeps mdctFMA32 on math.FMA does not
+		// constant-folding caveat that keeps opusmath.FMA32 on math.FMA does not
 		// apply).
 		return fma32(a, b, c)
 	}

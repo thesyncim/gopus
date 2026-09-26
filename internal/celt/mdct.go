@@ -122,17 +122,7 @@ func imdctPreRotateF32Spectrum(fftIn []complex64, spectrum []float32, trig []flo
 	_ = spectrum[n2-1]
 	_ = trig[n2-1]
 	_ = fftIn[n4-1]
-	if mdctUseFMALikeMixEnabled {
-		// Mirror the clang -ffp-contract=on float path of libopus celt/mdct.c
-		// clt_mdct_backward_c() pre-rotation (yr=S_MUL(x2,t[i])+S_MUL(x1,t[N4+i]),
-		// yi=S_MUL(x1,t[i])-S_MUL(x2,t[N4+i])): each output rounds its second
-		// product on its own and fuses the first multiply into the add/sub. The
-		// fully non-fused form drifts by ~1 ULP across the IMDCT, seeding the
-		// host-only parity cluster on the transient short-block frame.
-		imdctPreRotateFMA32Kiss(fftIn, spectrum, trig, n2, n4)
-		return
-	}
-	imdctPreRotateNoFMA(fftIn, spectrum, trig, n2, n4)
+	imdctPreRotate(fftIn, spectrum, trig, n2, n4)
 }
 
 // imdctPreRotateNoFMAScalar is the split multiply/add libopus pre-rotation.

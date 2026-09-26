@@ -125,7 +125,6 @@ func assertFloat32BitExact(t *testing.T, label string, got, want []float32) (fir
 // pinpointing the first stage that diverges on darwin/arm64.
 func TestCELTSynthesisStagesMatchLibopusC(t *testing.T) {
 	libopustest.RequireOracle(t)
-	requireBitExactFloat(t)
 
 	const (
 		sampleRate = 48000
@@ -183,6 +182,49 @@ func TestCELTSynthesisStagesMatchLibopusC(t *testing.T) {
 	for ch := range channels {
 		assertFloat32BitExact(t, "imdct/ch"+itoaCh(ch), stage.IMDCT(ch), trace.imdct[ch])
 	}
+}
+
+// seedCELTNBStereoPostfilterPacketHex is a 20 ms narrowband stereo CELT-only
+// packet (TOC 0x9c) whose postfilter splits comb_filter_const's delay line
+// between the carried history and the current frame. libopus x86 SIMD runs the
+// whole constant-gain range through comb_filter_const_sse, so the SSE
+// accumulation order must hold across that split up to the frame's last sample.
+const seedCELTNBStereoPostfilterPacketHex = "9ccaa168c720b2eda2f9d0102f05f084636cb0cdd55a7a3944133fe8e689bcaf4cd139a6317387d459da697b4af86fd2f0793d992f64b5bf348697259b2ec8002ce58920b3ec80e49dfdff08751f063aad142f56b1bb10acac28554945aad9a67cf505e08126cfdfadc7a3e79466f22a7885715da4074d5f434fb211e0dc5e4c78cd1d09522423840e877bf30e51b5c53502d10dd98959e4654ff6c4fa413fbc049ab805851c17a38ade008fe1a4f48c5aee9bec9fdb45cdf25f550f9788c779093cbb7c2e8c948092ee58376cbba662eae84ad8e85b1ef5e7ee081e7fecb138707700108e10192487c35c7a093fb6d1a6a1f6080a86ec85ba75fefdae0f8fceb24b53caeac7c6468f58fc398c2cb969fe76873f2de67263274c72b8550e14d620f8c64c4e0adbd1067e"
+
+// TestCELTPostfilterStagesMatchLibopusC compares the spectrum, IMDCT,
+// postfilter and de-emphasis stages of seedCELTNBStereoPostfilterPacketHex
+// against libopus bit-exactly.
+func TestCELTPostfilterStagesMatchLibopusC(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	const (
+		channels  = 2
+		frameSize = 960
+	)
+	packet, err := hex.DecodeString(seedCELTNBStereoPostfilterPacketHex)
+	if err != nil {
+		t.Fatalf("decode seed packet hex: %v", err)
+	}
+	trace := traceLibopusCELTSynthesis(t, 48000, channels, frameSize, 0, [][]byte{packet})
+	dec := NewDecoder(channels)
+	if err := dec.SetAPISampleRate(48000); err != nil {
+		t.Fatalf("SetAPISampleRate: %v", err)
+	}
+	dec.SetBandwidth(CELTNarrowband)
+	stage := dec.EnableSynthesisStageTrace()
+	got := make([]float32, frameSize*channels)
+	if err := dec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(packet[1:], frameSize, true, got); err != nil {
+		t.Fatalf("DecodeFrameWithPacketStereoToFloat32AtAPIRate: %v", err)
+	}
+	if !stage.Captured() {
+		t.Fatal("gopus synthesis-stage trace did not capture (decode path mismatch)")
+	}
+	for ch := range channels {
+		assertFloat32BitExact(t, "spec/ch"+itoaCh(ch), stage.Spec(ch), trace.freq[ch])
+		assertFloat32BitExact(t, "imdct/ch"+itoaCh(ch), stage.IMDCT(ch), trace.imdct[ch])
+		assertFloat32BitExact(t, "postcomb/ch"+itoaCh(ch), stage.PostComb(ch), trace.postComb[ch])
+	}
+	assertFloat32BitExact(t, "final", got, trace.final)
 }
 
 func itoaCh(ch int) string {

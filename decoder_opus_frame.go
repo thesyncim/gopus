@@ -70,26 +70,6 @@ func (d *Decoder) frameSize48FromAPI(frameSize int) int {
 	return frameSize * 48000 / int(d.sampleRate)
 }
 
-func (d *Decoder) downsampleFrame48ToAPI(dst, src []float32, frameSize int) {
-	channels := int(d.channels)
-	if d.sampleRate == 48000 {
-		copyFloat32(dst[:frameSize*channels], src[:frameSize*channels])
-		return
-	}
-	factor := 48000 / int(d.sampleRate)
-	if factor <= 1 {
-		copyFloat32(dst[:frameSize*channels], src[:frameSize*channels])
-		return
-	}
-	for i := range frameSize {
-		srcBase := i * factor * channels
-		dstBase := i * channels
-		for c := range channels {
-			dst[dstBase+c] = src[srcBase+c]
-		}
-	}
-}
-
 func (d *Decoder) decodeCELTFrameToAPIScratch(data []byte, frameSize int, packetStereo bool) ([]float32, error) {
 	needed := frameSize * int(d.channels)
 	if len(d.scratchRedundant) < needed {
@@ -112,13 +92,6 @@ func (d *Decoder) prepareStereoTransition(packetStereo bool, bandwidth silk.Band
 	rightResampler := d.silkDecoder.GetResamplerRightChannel(bandwidth)
 	if rightResampler != nil && leftResampler != nil {
 		rightResampler.CopyFrom(leftResampler)
-	}
-}
-
-func addFloat32ToFloat32(dst []float32, src []float32) {
-	n := min(len(src), len(dst))
-	for i := range n {
-		dst[i] += src[i]
 	}
 }
 
@@ -331,6 +304,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 				return 0, err
 			}
 			pcmTransition = d.scratchTransition[:n*channels]
+			// The recursive opus_decode_frame(NULL) applies decode_gain to the
+			// transition frame; the enclosing frame applies it again after the fade.
+			d.applyOutputGain(pcmTransition)
 		}
 	}
 
@@ -479,6 +455,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 						return err
 					}
 					pcmTransition = d.scratchTransition[:n*channels]
+					// The recursive opus_decode_frame(NULL) applies decode_gain to the
+					// transition frame; the enclosing frame applies it again after the fade.
+					d.applyOutputGain(pcmTransition)
 				}
 
 				if needCeltReset {
@@ -672,6 +651,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 				return 0, err
 			}
 			pcmTransition = d.scratchTransition[:n*channels]
+			// The recursive opus_decode_frame(NULL) applies decode_gain to the
+			// transition frame; the enclosing frame applies it again after the fade.
+			d.applyOutputGain(pcmTransition)
 		}
 
 	case ModeCELT:
@@ -751,11 +733,12 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	if mode != ModeSILK && data == nil {
 		// No extra work for PLC in CELT/Hybrid modes.
 	} else if d.haveDecoded && mode == ModeSILK && d.prevMode == ModeHybrid && (!redundancy || !celtToSilk || !d.prevRedundancy) {
-		samples, err := d.decodeCELTFrameToAPIScratch(celtSilenceFrame2B[:], F2_5, packetStereoLocal)
-		if err != nil {
+		// Hybrid->SILK transition: libopus decodes a 2.5 ms CELT silence frame
+		// with celt_accum=1 so the CELT MDCT overlap fades out on top of the
+		// SILK output.
+		if err := d.celtDecoder.AccumulateFrameWithPacketStereoAtAPIRate(celtSilenceFrame2B[:], F2_5, packetStereoLocal, out); err != nil {
 			return 0, err
 		}
-		addFloat32ToFloat32(out, samples)
 	}
 
 	if redundancy && !celtToSilk && data != nil && redundancyBytes > 0 && mainLen >= 0 && mainLen+redundancyBytes <= len(data) {

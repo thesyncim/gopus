@@ -474,43 +474,13 @@ func (d *Decoder) decodeHybridFEC(pcm []float32, frameSize int) (int, error) {
 		d.celtDecoder.SetBandwidth(celtBW)
 	}
 	d.hybridDecoder.RecordPLCLoss()
-	celtFrameSize := d.frameSize48FromAPI(frameSize)
-	celtSamples, err := d.celtDecoder.DecodeHybridFECPLC(min(celtFrameSize, 48000/50))
-	if err != nil {
+	// libopus conceals at most a 20 ms CELT frame and accumulates it onto the
+	// SILK LBRR output (celt_decode_with_ec(NULL, celt_accum=1)); samples past
+	// 20 ms keep the SILK output alone.
+	celtFrameSize := min(d.frameSize48FromAPI(frameSize), 48000/50)
+	celtAPIFrames := min(frameSize, celtFrameSize*int(d.sampleRate)/48000)
+	if err := d.celtDecoder.DecodeHybridFECPLC(celtFrameSize, pcm[:min(needed, celtAPIFrames*channels)]); err != nil {
 		return 0, err
-	}
-
-	neededAPI := frameSize * channels
-	if len(d.scratchRedundant) < neededAPI {
-		d.scratchRedundant = make([]float32, neededAPI)
-	}
-	celtAPI := d.scratchRedundant[:neededAPI]
-	if d.sampleRate == 48000 {
-		for i := range celtAPI {
-			if i < len(celtSamples) {
-				celtAPI[i] = celtSamples[i]
-			} else {
-				celtAPI[i] = 0
-			}
-		}
-	} else {
-		needed48 := celtFrameSize * channels
-		if len(d.scratchFrame48) < needed48 {
-			return 0, ErrBufferTooSmall
-		}
-		celt48 := d.scratchFrame48[:needed48]
-		for i := range celt48 {
-			if i < len(celtSamples) {
-				celt48[i] = celtSamples[i]
-			} else {
-				celt48[i] = 0
-			}
-		}
-		d.downsampleFrame48ToAPI(celtAPI, celt48, frameSize)
-	}
-	limit := min(needed, frameSize*channels)
-	for i := range limit {
-		pcm[i] += celtAPI[i]
 	}
 	d.mainDecodeRng = d.celtDecoder.FinalRange()
 	d.redundantRng = 0

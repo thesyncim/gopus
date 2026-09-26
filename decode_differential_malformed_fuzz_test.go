@@ -147,17 +147,10 @@ func mutatePacket(rng *rand.Rand, src []byte) []byte {
 // "correct"; they are NOT accept/reject or safety divergences (those are always
 // hard-failed below).
 //
-// The map is currently empty: the previously allow-listed mode-crossed packet (a
-// multi-frame CELT payload whose TOC was rewritten to Hybrid config 14, code 3,
-// VBR) is now bit-exact. Its 2nd in-sequence frame is a CELT silence frame
-// (SILK over-consumed the corrupt payload, so the CELT range coder sees tell >=
-// storage); the hybrid silence path wrote the scaled, deemphasized PCM into the
-// caller's celt_accum output buffer but ALSO returned the raw, unscaled celt_sig
-// synthesis buffer, which the hybrid wrapper then copied over the scaled output.
-// On clean silence the carried MDCT overlap tail is near zero so the bug was
-// invisible; this corrupt cross-frame state left a large overlap tail, surfacing
-// it as a ~60x output. Fixed in celt.decodeSilenceFrame (return nil on the
-// direct-out path, matching synthesizeHybridDecodedFrame).
+// The map is empty: every malformed packet in the sweep stays within
+// malformedPCMGrossTol, including mode-crossed payloads whose CELT half starts past the end of the
+// storage and therefore decodes as a silence frame on top of a large carried
+// overlap tail.
 var knownMalformedPCMDivergences = map[string]bool{}
 
 // malformedPCMGrossTol is the float32-scale per-sample bound above which a PCM
