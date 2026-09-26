@@ -18,10 +18,11 @@ import (
 
 func TestExportFrozenOpusdecInputs(t *testing.T) {
 	const producer = "1ee7f25232a25d640aa92ece60d952036c2b09bd"
-	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" || runtime.Version() != "go1.27.1" ||
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" || runtime.Version() != "go1.27.1-X:simd" ||
 		os.Getenv("GOAMD64") != "v1" || os.Getenv("GOEXPERIMENT") != "simd" ||
 		os.Getenv("GOPUS_FROZEN_PRODUCER_COMMIT") != producer {
-		t.Fatal("recovery requires the recorded native Linux AMD64 Go 1.27.1 SIMD producer")
+		t.Fatalf("recovery requires the recorded native Linux AMD64 Go 1.27.1 SIMD producer: got OS=%s arch=%s version=%q GOAMD64=%q GOEXPERIMENT=%q producer=%q",
+			runtime.GOOS, runtime.GOARCH, runtime.Version(), os.Getenv("GOAMD64"), os.Getenv("GOEXPERIMENT"), os.Getenv("GOPUS_FROZEN_PRODUCER_COMMIT"))
 	}
 	if !archsimd.X86.AVX() || !archsimd.X86.AVX2() || !archsimd.X86.FMA() {
 		t.Fatal("recovery requires native AVX, AVX2 and FMA")
@@ -41,6 +42,7 @@ func TestExportFrozenOpusdecInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	fixtureDigest := sha256.Sum256(data)
 	if err := json.Unmarshal(data, &frozen); err != nil {
 		t.Fatal(err)
 	}
@@ -114,6 +116,11 @@ func TestExportFrozenOpusdecInputs(t *testing.T) {
 				"https://github.com/thesyncim/gopus/actions/runs/36001803330",
 				"https://github.com/thesyncim/gopus/actions/runs/36007082978",
 			},
+		},
+		"frozen_fixture": map[string]string{
+			"file":            "opusdec_crossval_fixture_linux_amd64.json",
+			"sha256":          hex.EncodeToString(fixtureDigest[:]),
+			"provenance_note": "The legacy libopus_version field is a hardcoded 1.6.1; the recorded decoder packages above identify the actual PCM producer.",
 		},
 		"entries": entries,
 	}

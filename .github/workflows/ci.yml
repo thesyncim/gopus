@@ -808,8 +808,10 @@ jobs:
           test "$(git -C frozen-opusdec-producer rev-parse HEAD)" = "$GOPUS_FROZEN_PRODUCER_COMMIT"
           tail -n +3 tools/csrc/opusdec_frozen_input_export_test.go > frozen-opusdec-producer/internal/celt/frozen_input_export_test.go
           cd frozen-opusdec-producer
-          go test ./internal/celt -run '^TestExportFrozenOpusdecInputs$' -count=1 -v > ../frozen-input-recovery.log 2>&1
+          status=0
+          go test ./internal/celt -run '^TestExportFrozenOpusdecInputs$' -count=1 -v > ../frozen-input-recovery.log 2>&1 || status=$?
           cat ../frozen-input-recovery.log
+          exit "$status"
 
       - name: Upload recovered inputs and provenance
         if: always()

@@ -335,7 +335,21 @@ trees at `ac68c9b1` validate both the feature and scalar/SIMD identity. At
 20 ms CBR packet cases require complete bytes and final ranges and pass in
 ordinary, SIMD and `nosimd`; feature preprocessing/state and selected-C
 VQ/extension-band/MDCT gates pass in each lane. This four-case gate does not
-establish broad QEXT signal, duration, or stateful parity. DRED carried-payload tests contain
+establish broad QEXT signal, duration, or stateful parity.
+
+At `9ab86894`, QEXT energy history persists across frames and clears on Reset,
+including both physical channels after a coded-channel change. Coarse-energy
+trial scratch retains its backing storage; fine coding updates the persistent
+history with the C channel stride. Three actual-C fine-energy cases compare
+packet bytes, final range, every history value and every residual exactly.
+A three-frame active CVBR packet witness and warmed active `EncodeInt24`
+allocation check also pass: 69 selected test nodes per ordinary, SIMD and
+`nosimd` ARM64 lane, zero failures or skips, zero steady-state allocations.
+The broader matched QEXT diagnostic still differs in 58/60 configurations;
+these focused results do not establish complete QEXT parity. Native AMD64
+confirmation of this checkpoint is pending.
+
+DRED carried-payload tests contain
 structural fallbacks; OSCE/deep-PLC tests include numerical tolerances. Their
 neural and codec dispatch choices must both match C. Custom-mode tests include
 unsupported-oracle skips and packet/PCM allowances. Fixed-point kernel checks
