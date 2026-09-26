@@ -353,11 +353,11 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		streamChannels:         int32(channels),
 		// opus_encoder_init zeroes the state before setting stream_channels;
 		// prev_channels stays zero until the first encoded frame.
-		prevChannels:           0,
-		autoBandwidth:          types.BandwidthFullband,
-		first:                  true,
-		prevHBGain:             1,
-		hybridStereoWidthQ14:   1 << 14,
+		prevChannels:         0,
+		autoBandwidth:        types.BandwidthFullband,
+		first:                true,
+		prevHBGain:           1,
+		hybridStereoWidthQ14: 1 << 14,
 	}
 	return e
 }
@@ -1694,7 +1694,9 @@ func (e *Encoder) hpCutoff(in []opusRes, frameSize int) []opusRes {
 		src32 = nil
 	}
 
-	// silk_biquad_res, float path (Direct Form II Transposed). The src32 branch is
+	// silk_biquad_res contracts the negative feedback product with the rounded
+	// input product, then adds VERY_SMALL in a separate operation.
+	// The src32 branch is
 	// hoisted out of the inner loop, and stereo runs both channels' independent
 	// recurrences in one interleaved pass so the OoO engine overlaps the two
 	// latency-bound filter chains. Per-sample arithmetic is byte-identical to the
@@ -1707,7 +1709,7 @@ func (e *Encoder) hpCutoff(in []opusRes, frameSize int) []opusRes {
 				inval := src32[i]
 				vout := s0 + b[0]*inval
 				s0 = s1 - vout*a[0] + b[1]*inval
-				s1 = -vout*a[1] + b[2]*inval + verySmall
+				s1 = fma32(-vout, a[1], round32(b[2]*inval)) + verySmall
 				out[i] = opusRes(vout)
 			}
 		} else {
@@ -1715,7 +1717,7 @@ func (e *Encoder) hpCutoff(in []opusRes, frameSize int) []opusRes {
 				inval := float32(in[i])
 				vout := s0 + b[0]*inval
 				s0 = s1 - vout*a[0] + b[1]*inval
-				s1 = -vout*a[1] + b[2]*inval + verySmall
+				s1 = fma32(-vout, a[1], round32(b[2]*inval)) + verySmall
 				out[i] = opusRes(vout)
 			}
 		}
@@ -1733,12 +1735,12 @@ func (e *Encoder) hpCutoff(in []opusRes, frameSize int) []opusRes {
 			l := src32[2*i]
 			voutL := s0L + b[0]*l
 			s0L = s1L - voutL*a[0] + b[1]*l
-			s1L = -voutL*a[1] + b[2]*l + verySmall
+			s1L = fma32(-voutL, a[1], round32(b[2]*l)) + verySmall
 			out[2*i] = opusRes(voutL)
 			r := src32[2*i+1]
 			voutR := s0R + b[0]*r
 			s0R = s1R - voutR*a[0] + b[1]*r
-			s1R = -voutR*a[1] + b[2]*r + verySmall
+			s1R = fma32(-voutR, a[1], round32(b[2]*r)) + verySmall
 			out[2*i+1] = opusRes(voutR)
 		}
 	} else {
@@ -1746,12 +1748,12 @@ func (e *Encoder) hpCutoff(in []opusRes, frameSize int) []opusRes {
 			l := float32(in[2*i])
 			voutL := s0L + b[0]*l
 			s0L = s1L - voutL*a[0] + b[1]*l
-			s1L = -voutL*a[1] + b[2]*l + verySmall
+			s1L = fma32(-voutL, a[1], round32(b[2]*l)) + verySmall
 			out[2*i] = opusRes(voutL)
 			r := float32(in[2*i+1])
 			voutR := s0R + b[0]*r
 			s0R = s1R - voutR*a[0] + b[1]*r
-			s1R = -voutR*a[1] + b[2]*r + verySmall
+			s1R = fma32(-voutR, a[1], round32(b[2]*r)) + verySmall
 			out[2*i+1] = opusRes(voutR)
 		}
 	}
