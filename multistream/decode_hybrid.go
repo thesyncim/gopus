@@ -118,10 +118,10 @@ func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc str
 		return nil
 	}
 
-	var rd rangecoding.Decoder
+	rd := &d.rangeDecoder
 	rd.Init(frame)
-	out, err := d.hybridDec.DecodeWithDecoderHook(&rd, frameSize, toc.stereo, afterSilk)
-	if err != nil {
+	out := d.framePCMFor(frameSize * channels)
+	if err := d.hybridDec.DecodeWithDecoderHookToFloat32(rd, frameSize, toc.stereo, afterSilk, out); err != nil {
 		return nil, err
 	}
 

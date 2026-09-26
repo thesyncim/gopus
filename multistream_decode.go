@@ -39,7 +39,14 @@ func (d *MultistreamDecoder) decodeFrameSize(data []byte, sampleCount int) (int,
 	if len(data) == 0 {
 		return d.requestedOutputFrameSize(sampleCount)
 	}
-	return multistream.PacketDurationAtRate(data, d.dec.Streams(), int(d.sampleRate))
+	return d.dec.PacketDurationAtRate(data)
+}
+
+func (d *MultistreamDecoder) decodeScratchFor(n int) []float32 {
+	if cap(d.decodeScratch) < n {
+		d.decodeScratch = make([]float32, n)
+	}
+	return d.decodeScratch[:n]
 }
 
 func (d *MultistreamDecoder) nextPLCChunkSamples(remaining int) int {
@@ -59,15 +66,17 @@ func (d *MultistreamDecoder) decodePLCFloat32Into(pcm []float32, frameSize int) 
 		if chunk <= 0 {
 			return ErrInvalidFrameSize
 		}
-		samples, err := d.dec.DecodeToFloat32(nil, chunk)
+		total := chunk * channels
+		if offset+total > len(pcm) {
+			return ErrBufferTooSmall
+		}
+		n, err := d.dec.DecodeIntoFloat32(nil, pcm[offset:offset+total], chunk)
 		if err != nil {
 			return err
 		}
-		total := chunk * channels
-		if len(samples) < total || offset+total > len(pcm) {
+		if n != chunk {
 			return ErrBufferTooSmall
 		}
-		copy(pcm[offset:offset+total], samples[:total])
 		offset += total
 		remaining -= chunk
 	}
@@ -83,15 +92,19 @@ func (d *MultistreamDecoder) decodePLCInt16Into(pcm []int16, frameSize int) erro
 		if chunk <= 0 {
 			return ErrInvalidFrameSize
 		}
-		samples, err := d.dec.DecodeToFloat32(nil, chunk)
+		total := chunk * channels
+		if offset+total > len(pcm) {
+			return ErrBufferTooSmall
+		}
+		samples := d.decodeScratchFor(total)
+		n, err := d.dec.DecodeIntoFloat32(nil, samples, chunk)
 		if err != nil {
 			return err
 		}
-		total := chunk * channels
-		if len(samples) < total || offset+total > len(pcm) {
+		if n != chunk {
 			return ErrBufferTooSmall
 		}
-		float32ToInt16NoSoftClipScalar(pcm[offset:offset+total], samples[:total], chunk, channels)
+		float32ToInt16NoSoftClipScalar(pcm[offset:offset+total], samples, chunk, channels)
 		offset += total
 		remaining -= chunk
 	}
@@ -107,15 +120,19 @@ func (d *MultistreamDecoder) decodePLCInt24Into(pcm []int32, frameSize int) erro
 		if chunk <= 0 {
 			return ErrInvalidFrameSize
 		}
-		samples, err := d.dec.DecodeToFloat32(nil, chunk)
+		total := chunk * channels
+		if offset+total > len(pcm) {
+			return ErrBufferTooSmall
+		}
+		samples := d.decodeScratchFor(total)
+		n, err := d.dec.DecodeIntoFloat32(nil, samples, chunk)
 		if err != nil {
 			return err
 		}
-		total := chunk * channels
-		if len(samples) < total || offset+total > len(pcm) {
+		if n != chunk {
 			return ErrBufferTooSmall
 		}
-		float32ToInt24Slice(pcm[offset:offset+total], samples[:total], chunk, channels)
+		float32ToInt24Slice(pcm[offset:offset+total], samples, chunk, channels)
 		offset += total
 		remaining -= chunk
 	}
@@ -134,7 +151,21 @@ func (d *MultistreamDecoder) decodePLCInt24Into(pcm []int32, frameSize int) erro
 // the last successfully decoded frame parameters.
 func (d *MultistreamDecoder) Decode(data []byte, pcm []float32) (int, error) {
 	channels := int(d.channels)
-	frameSize, err := d.decodeFrameSize(data, len(pcm))
+	if len(data) != 0 {
+		if len(pcm) < channels {
+			return 0, ErrBufferTooSmall
+		}
+		n, err := d.dec.DecodeIntoFloat32(data, pcm, len(pcm)/channels)
+		if err == multistream.ErrBufferTooSmall {
+			return 0, ErrBufferTooSmall
+		}
+		if err != nil {
+			return 0, err
+		}
+		d.lastFrameSize = int32(n)
+		return n, nil
+	}
+	frameSize, err := d.requestedOutputFrameSize(len(pcm))
 	if err != nil {
 		return 0, err
 	}
@@ -142,26 +173,10 @@ func (d *MultistreamDecoder) Decode(data []byte, pcm []float32) (int, error) {
 	if len(pcm) < needed {
 		return 0, ErrBufferTooSmall
 	}
-
-	if len(data) == 0 {
-		if err := d.decodePLCFloat32Into(pcm[:needed], frameSize); err != nil {
-			return 0, err
-		}
-		return frameSize, nil
-	}
-
-	samples, err := d.dec.DecodeToFloat32(data, frameSize)
-	if err != nil {
+	if err := d.decodePLCFloat32Into(pcm[:needed], frameSize); err != nil {
 		return 0, err
 	}
-
-	copy(pcm, samples)
-
-	if len(data) > 0 {
-		d.lastFrameSize = int32(frameSize)
-	}
-
-	return len(samples) / channels, nil
+	return frameSize, nil
 }
 
 // DecodeInt16 decodes an Opus multistream packet into int16 PCM samples.
@@ -195,19 +210,22 @@ func (d *MultistreamDecoder) DecodeInt16(data []byte, pcm []int16) (int, error) 
 		return frameSize, nil
 	}
 
-	samples, err := d.dec.DecodeToFloat32(data, frameSize)
+	samples := d.decodeScratchFor(needed)
+	n, err := d.dec.DecodeIntoFloat32(data, samples, frameSize)
 	if err != nil {
+		if err == multistream.ErrBufferTooSmall {
+			return 0, ErrBufferTooSmall
+		}
 		return 0, err
 	}
-
-	total := frameSize * channels
-	softClipAndFloat32ToInt16Scalar(pcm, samples, frameSize, channels, d.softClipMem)
+	total := n * channels
+	softClipAndFloat32ToInt16Scalar(pcm[:total], samples[:total], n, channels, d.softClipMem)
 
 	if len(data) > 0 {
 		d.lastFrameSize = int32(frameSize)
 	}
 
-	return total / channels, nil
+	return n, nil
 }
 
 // DecodeInt24 decodes an Opus multistream packet into 24-bit PCM samples
@@ -244,19 +262,22 @@ func (d *MultistreamDecoder) DecodeInt24(data []byte, pcm []int32) (int, error) 
 		return frameSize, nil
 	}
 
-	samples, err := d.dec.DecodeToFloat32(data, frameSize)
+	samples := d.decodeScratchFor(needed)
+	n, err := d.dec.DecodeIntoFloat32(data, samples, frameSize)
 	if err != nil {
+		if err == multistream.ErrBufferTooSmall {
+			return 0, ErrBufferTooSmall
+		}
 		return 0, err
 	}
-
-	total := frameSize * channels
-	float32ToInt24Slice(pcm, samples, frameSize, channels)
+	total := n * channels
+	float32ToInt24Slice(pcm[:total], samples[:total], n, channels)
 
 	if len(data) > 0 {
 		d.lastFrameSize = int32(frameSize)
 	}
 
-	return total / channels, nil
+	return n, nil
 }
 
 // DecodeInt24Slice decodes an Opus multistream packet into 24-bit PCM samples

@@ -217,11 +217,30 @@ func float32ToInt16(samples []float32) []int16 {
 }
 
 func (d *Decoder) decodePLCToFloat32(frameSize int, stereo bool) ([]float32, error) {
+	if frameSize < 0 {
+		return nil, ErrInvalidFrameSize
+	}
+	out := make([]float32, frameSize*int(d.channels))
+	if err := d.DecodePLCToFloat32WithPacketStereoInto(frameSize, stereo, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// DecodePLCToFloat32WithPacketStereoInto conceals a Hybrid frame into
+// caller-owned PCM while advancing the same SILK and CELT PLC state.
+func (d *Decoder) DecodePLCToFloat32WithPacketStereoInto(frameSize int, stereo bool, output []float32) error {
 	frameSizeAPI := frameSize
 	frameSize48 := d.frameSize48FromAPI(frameSizeAPI)
 	if !ValidHybridFrameSize(frameSize48) && frameSize48 != 120 && frameSize48 != 240 {
-		return nil, ErrInvalidFrameSize
+		return ErrInvalidFrameSize
 	}
+	channels := int(d.channels)
+	totalSamples := frameSizeAPI * channels
+	if len(output) < totalSamples {
+		return ErrDecodeFailed
+	}
+	output = output[:totalSamples]
 
 	// Advance the PLC loss-fade cadence. libopus has no fade-exhausted
 	// shortcut: silk_PLC and celt_decode_lost run unconditionally on every lost
@@ -234,10 +253,6 @@ func (d *Decoder) decodePLCToFloat32(frameSize int, stereo bool) ([]float32, err
 	// desync the range coder on the next FEC step, so the CELT PLC must run on
 	// every lost frame regardless of how decayed the energy is.
 	fadeFactor := d.plcState.RecordLoss()
-
-	// Total samples for output
-	channels := int(d.channels)
-	totalSamples := frameSizeAPI * channels
 
 	// SILK PLC cannot produce less than 10ms; use 10ms and trim if needed.
 	plcSilkFrameSize := frameSizeAPI
@@ -252,27 +267,40 @@ func (d *Decoder) decodePLCToFloat32(frameSize int, stereo bool) ([]float32, err
 
 	// Generate SILK PLC through the SILK decoder's native nil-packet path.
 	// This keeps concealment cadence/state aligned with SILK-mode PLC.
-	var silkUpsampled []float32
+	silkChannels := channels
 	if stereo {
-		silkPCM, err := d.silkDecoder.DecodeStereo(nil, silk.BandwidthWideband, plcSilkFrameSize, false)
+		silkChannels = 2
+	}
+	silkUpsampled := d.ensureSilkUpsampled(plcSilkFrameSize * silkChannels)
+	clear(silkUpsampled)
+	d.silkDecoder.NotifyBandwidthChange(silk.BandwidthWideband)
+	if stereo {
+		n, err := d.silkDecoder.DecodePLCStereoInto(silk.BandwidthWideband, plcSilkFrameSize, silkUpsampled)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		silkUpsampled = silkPCM
+		silkUpsampled = silkUpsampled[:n]
 	} else {
-		silkPCM, err := d.silkDecoder.Decode(nil, silk.BandwidthWideband, plcSilkFrameSize, false)
+		mono := silkUpsampled
+		if channels == 2 {
+			if cap(d.plcMonoScratch) < plcSilkFrameSize {
+				d.plcMonoScratch = make([]float32, plcSilkFrameSize)
+			}
+			mono = d.plcMonoScratch[:plcSilkFrameSize]
+		}
+		n, err := d.silkDecoder.DecodePLCInto(silk.BandwidthWideband, plcSilkFrameSize, mono)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if d.channels == 2 {
-			silkUpsampled = make([]float32, len(silkPCM)*2)
-			for i := range silkPCM {
-				val := silkPCM[i]
+			for i := range n {
+				val := mono[i]
 				silkUpsampled[i*2] = val
 				silkUpsampled[i*2+1] = val
 			}
+			silkUpsampled = silkUpsampled[:n*2]
 		} else {
-			silkUpsampled = silkPCM
+			silkUpsampled = silkUpsampled[:n]
 		}
 	}
 	if len(silkUpsampled) > totalSamples {
@@ -292,7 +320,7 @@ func (d *Decoder) decodePLCToFloat32(frameSize int, stereo bool) ([]float32, err
 		var err error
 		celtConcealed, err = d.celtDecoder.DecodeHybridFECPLC(frameSize48)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		celtScale = 1.0
 	} else {
@@ -302,7 +330,6 @@ func (d *Decoder) decodePLCToFloat32(frameSize int, stereo bool) ([]float32, err
 	}
 
 	// Combine SILK and CELT
-	output := make([]float32, totalSamples)
 	factor := 1
 	if apiSampleRate > 0 {
 		factor = 48000 / apiSampleRate
@@ -326,5 +353,5 @@ func (d *Decoder) decodePLCToFloat32(frameSize int, stereo bool) ([]float32, err
 		}
 	}
 
-	return output, nil
+	return nil
 }

@@ -280,3 +280,14 @@ func PacketDurationAtRate(data []byte, numStreams, sampleRate int) (int, error) 
 	}
 	return validateStreamDurationsAtRate(packets, sampleRate)
 }
+
+// PacketDurationAtRate returns the packet duration using this decoder's
+// reusable parser storage. The result is independent of later decoder calls.
+func (d *Decoder) PacketDurationAtRate(data []byte) (int, error) {
+	packets, err := parseMultistreamPacketScratch(d.packetsScratch, &d.packetParser, &d.reframeArena, data, d.streams)
+	if err != nil {
+		return 0, err
+	}
+	d.packetsScratch = packets
+	return validateStreamDurationsAtRateScratch(&d.packetParser, packets, int(d.sampleRate))
+}

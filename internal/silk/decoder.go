@@ -60,7 +60,9 @@ type Decoder struct {
 	plcState *plc.State
 
 	// Per-channel SILK PLC state (libopus-style LTP/LPC concealment inputs).
-	silkPLCState [2]*plc.SILKPLCState
+	silkPLCState     [2]*plc.SILKPLCState
+	plcConcealQ0     [2][]int16
+	plcKernelScratch [2]plc.SILKPLCScratch
 
 	// Mono output delay buffer to match libopus behavior.
 	// libopus delays mono SILK output by (1 + inputDelay) samples:
@@ -141,6 +143,7 @@ type Decoder struct {
 	// These mirror the stereo good-frame scratch so PLC stays allocation-free.
 	plcMidNative  []float32 // concealed mid at native rate
 	plcSideNative []float32 // concealed side at native rate
+	plcMonoDup    []float32 // mono PLC before duplication into stereo output
 	plcLeftUp     []float32 // resampled left at API rate
 	plcRightUp    []float32 // resampled right at API rate
 	plcPredQ13    [2]int32  // stereo predictor coefficients for MS->LR

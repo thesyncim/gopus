@@ -31,7 +31,12 @@ func (d *Decoder) ensureDecodedStreamsScratch() [][]float32 {
 
 func applyChannelMapping32(decodedStreams [][]float32, mapping []byte, coupledStreams, frameSize, outputChannels int) []float32 {
 	output := make([]float32, frameSize*outputChannels)
+	applyChannelMapping32Into(output, decodedStreams, mapping, coupledStreams, frameSize, outputChannels)
+	return output
+}
 
+func applyChannelMapping32Into(output []float32, decodedStreams [][]float32, mapping []byte, coupledStreams, frameSize, outputChannels int) {
+	clear(output[:frameSize*outputChannels])
 	for outCh := range outputChannels {
 		mappingIdx := mapping[outCh]
 		if mappingIdx == 255 {
@@ -53,7 +58,6 @@ func applyChannelMapping32(decodedStreams [][]float32, mapping []byte, coupledSt
 		}
 	}
 
-	return output
 }
 
 func (d *Decoder) decodeStreamToFloat32(stream int, packet []byte, frameSize int) ([]float32, error) {
@@ -128,36 +132,70 @@ func (d *Decoder) DecodeToFloat32(data []byte, frameSize int) ([]float32, error)
 	return d.decodeToFloat32(data, frameSize, true, false)
 }
 
-func (d *Decoder) decodeToFloat32(data []byte, frameSize int, applyProjection, perStreamSoftClip bool) ([]float32, error) {
-	if extsupport.DREDRuntime && data != nil && len(data) > 0 && d.dredSidecarActive() {
-		d.invalidateDREDPayloadState()
+// DecodeIntoFloat32 decodes into caller-owned PCM and returns samples per
+// channel. The output buffer may be larger than the packet's actual duration.
+func (d *Decoder) DecodeIntoFloat32(data []byte, output []float32, frameSize int) (int, error) {
+	return d.decodeToFloat32Into(data, frameSize, true, false, output)
+}
+
+func (d *Decoder) outputScratchFor(n int) []float32 {
+	if cap(d.outputScratch) < n {
+		d.outputScratch = make([]float32, n)
 	}
+	return d.outputScratch[:n]
+}
+
+func (d *Decoder) decodeToFloat32(data []byte, frameSize int, applyProjection, perStreamSoftClip bool) ([]float32, error) {
+	if frameSize <= 0 {
+		return nil, ErrInvalidPacket
+	}
+	frameSize = min(frameSize, int(d.sampleRate)*3/25)
+	scratch := d.outputScratchFor(frameSize * d.outputChannels)
+	n, err := d.decodeToFloat32Into(data, frameSize, applyProjection, perStreamSoftClip, scratch)
+	if err != nil {
+		return nil, err
+	}
+	return append([]float32(nil), scratch[:n*d.outputChannels]...), nil
+}
+
+func (d *Decoder) decodeToFloat32Into(data []byte, frameSize int, applyProjection, perStreamSoftClip bool, output []float32) (int, error) {
+	if frameSize <= 0 {
+		return 0, ErrInvalidPacket
+	}
+	frameSize = min(frameSize, int(d.sampleRate)*3/25)
 
 	// A nil OR zero-length packet is packet loss: libopus opus_multistream_decode
 	// sets do_plc=1 for len==0 (opus_multistream_decoder.c:213), concealing the
 	// requested frame size exactly as for a NULL packet.
 	if len(data) == 0 {
-		output, err := d.decodePLCToFloat32(frameSize, applyProjection, perStreamSoftClip)
+		n, err := d.decodePLCToFloat32Into(frameSize, applyProjection, perStreamSoftClip, output)
 		if err == nil && extsupport.DREDRuntime && d.dredSidecarActive() {
 			d.markDREDConcealedAll()
 		}
-		return output, err
+		return n, err
 	}
 
 	packets, err := parseMultistreamPacketScratch(d.packetsScratch, &d.packetParser, &d.reframeArena, data, d.streams)
 	if err != nil {
-		return nil, fmt.Errorf("multistream: parse error: %w", err)
+		return 0, fmt.Errorf("multistream: parse error: %w", err)
 	}
 	d.packetsScratch = packets
 
 	duration, err := validateStreamDurationsAtRateScratch(&d.packetParser, packets, int(d.sampleRate))
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	if duration > frameSize {
-		return nil, ErrBufferTooSmall
+		return 0, ErrBufferTooSmall
 	}
 	decodeFrameSize := duration
+	needed := decodeFrameSize * d.outputChannels
+	if len(output) < needed {
+		return 0, ErrBufferTooSmall
+	}
+	if extsupport.DREDRuntime && d.dredSidecarActive() {
+		d.invalidateDREDPayloadState()
+	}
 
 	decodedStreams := d.ensureDecodedStreamsScratch()
 	for i := 0; i < d.streams; i++ {
@@ -173,7 +211,7 @@ func (d *Decoder) decodeToFloat32(data []byte, frameSize int, applyProjection, p
 			endDREDCapture()
 		}
 		if decodeErr != nil {
-			return nil, fmt.Errorf("multistream: stream %d decode error: %w", i, decodeErr)
+			return 0, fmt.Errorf("multistream: stream %d decode error: %w", i, decodeErr)
 		}
 		// libopus opus_decode_native soft-clips each stream's output (sized to the
 		// stream's channels) when soft_clip is requested, before the copy/demix
@@ -192,7 +230,8 @@ func (d *Decoder) decodeToFloat32(data []byte, frameSize int, applyProjection, p
 		}
 	}
 
-	output := applyChannelMapping32(decodedStreams, d.mapping, d.coupledStreams, decodeFrameSize, d.outputChannels)
+	output = output[:needed]
+	applyChannelMapping32Into(output, decodedStreams, d.mapping, d.coupledStreams, decodeFrameSize, d.outputChannels)
 	if applyProjection {
 		d.applyProjectionDemixing32(output, decodeFrameSize)
 	}
@@ -200,47 +239,49 @@ func (d *Decoder) decodeToFloat32(data []byte, frameSize int, applyProjection, p
 	d.plcState.Reset()
 	d.plcState.SetLastFrameParams(plc.ModeHybrid, decodeFrameSize, d.outputChannels)
 
-	return output, nil
+	return decodeFrameSize, nil
 }
 
-func (d *Decoder) decodePLCToFloat32(frameSize int, applyProjection, perStreamSoftClip bool) ([]float32, error) {
-	fadeFactor := d.plcState.RecordLoss()
+func (d *Decoder) decodePLCToFloat32Into(frameSize int, applyProjection, perStreamSoftClip bool, output []float32) (int, error) {
 	totalSamples := frameSize * d.outputChannels
+	if len(output) < totalSamples {
+		return 0, ErrBufferTooSmall
+	}
+	fadeFactor := d.plcState.RecordLoss()
 	if fadeFactor < 0.001 {
-		return make([]float32, totalSamples), nil
+		clear(output[:totalSamples])
+		return frameSize, nil
 	}
 
 	maxChunk := int(d.sampleRate) / 50
 	if maxChunk > 0 && frameSize > maxChunk {
-		output := make([]float32, totalSamples)
 		remaining := frameSize
 		offset := 0
 		for remaining > 0 {
 			chunk := min(remaining, maxChunk)
-			decoded, err := d.decodePLCChunkToFloat32(chunk, applyProjection, perStreamSoftClip)
-			if err != nil {
-				return nil, err
-			}
 			total := chunk * d.outputChannels
-			if len(decoded) < total {
-				return nil, ErrBufferTooSmall
+			err := d.decodePLCChunkToFloat32Into(chunk, applyProjection, perStreamSoftClip, output[offset:offset+total])
+			if err != nil {
+				return 0, err
 			}
-			copy(output[offset:offset+total], decoded[:total])
 			offset += total
 			remaining -= chunk
 		}
-		return output, nil
+		return frameSize, nil
 	}
 
-	return d.decodePLCChunkToFloat32(frameSize, applyProjection, perStreamSoftClip)
+	if err := d.decodePLCChunkToFloat32Into(frameSize, applyProjection, perStreamSoftClip, output[:totalSamples]); err != nil {
+		return 0, err
+	}
+	return frameSize, nil
 }
 
-func (d *Decoder) decodePLCChunkToFloat32(frameSize int, applyProjection, perStreamSoftClip bool) ([]float32, error) {
-	decodedStreams := make([][]float32, d.streams)
+func (d *Decoder) decodePLCChunkToFloat32Into(frameSize int, applyProjection, perStreamSoftClip bool, output []float32) error {
+	decodedStreams := d.ensureDecodedStreamsScratch()
 	for i := 0; i < d.streams; i++ {
 		if extsupport.DREDRuntime {
 			if decoded, ok, err := d.decodeDREDPLCStream(i, frameSize); err != nil {
-				return nil, err
+				return err
 			} else if ok {
 				d.applyPerStreamSoftClip(i, decoded, frameSize, perStreamSoftClip)
 				decodedStreams[i] = decoded
@@ -250,17 +291,26 @@ func (d *Decoder) decodePLCChunkToFloat32(frameSize int, applyProjection, perStr
 		decoded, err := d.decodeStreamToFloat32(i, nil, frameSize)
 		if err != nil {
 			channels := streamChannels(i, d.coupledStreams)
-			decoded = make([]float32, frameSize*channels)
+			decoded = d.silenceScratchFor(frameSize * channels)
 		}
 		d.applyPerStreamSoftClip(i, decoded, frameSize, perStreamSoftClip)
 		decodedStreams[i] = decoded
 	}
 
-	output := applyChannelMapping32(decodedStreams, d.mapping, d.coupledStreams, frameSize, d.outputChannels)
+	applyChannelMapping32Into(output, decodedStreams, d.mapping, d.coupledStreams, frameSize, d.outputChannels)
 	if applyProjection {
 		d.applyProjectionDemixing32(output, frameSize)
 	}
-	return output, nil
+	return nil
+}
+
+func (d *Decoder) silenceScratchFor(n int) []float32 {
+	if cap(d.silenceScratch) < n {
+		d.silenceScratch = make([]float32, n)
+	}
+	out := d.silenceScratch[:n]
+	clear(out)
+	return out
 }
 
 // applyPerStreamSoftClip soft-clips stream i's interleaved decoded buffer in

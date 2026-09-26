@@ -233,6 +233,17 @@ type SILKPLCState struct {
 	LastFrameLost bool
 }
 
+// SILKPLCScratch holds the working buffers for one channel's concealment.
+// Each decoder channel keeps its own scratch; none of these slices is codec
+// history and every used element is initialized on each concealment call.
+type SILKPLCScratch struct {
+	lpcQ12  [maxLPCOrder]int16
+	randBuf [randBufSize]int32
+	sLTPQ15 []int32
+	sLTP    []int16
+	sLPCQ14 []int32
+}
+
 // NewSILKPLCState returns a SILKPLCState initialized to the libopus
 // silk_PLC_Reset defaults (unit gains, 16 kHz WB geometry, unit random scale,
 // zero seed), with the pitch lag pre-seeded to half a 16 kHz 20 ms frame.
@@ -482,8 +493,24 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 		// Nothing to generate; a negative size would also panic make().
 		return []int16{}
 	}
+	output := make([]int16, frameSize)
+	ConcealSILKWithLTPInto(dec, plcState, lossCnt, output, nil)
+	return output
+}
+
+// ConcealSILKWithLTPInto writes one native-rate concealed channel into output.
+// A decoder-owned scratch value makes consecutive packet losses allocation-free.
+func ConcealSILKWithLTPInto(dec SILKDecoderStateExtended, plcState *SILKPLCState, lossCnt int, output []int16, scratch *SILKPLCScratch) {
+	frameSize := len(output)
+	if frameSize == 0 {
+		return
+	}
 	if dec == nil || plcState == nil {
-		return make([]int16, frameSize)
+		clear(output)
+		return
+	}
+	if scratch == nil {
+		scratch = &SILKPLCScratch{}
 	}
 
 	fsKHz := dec.GetSampleRateKHz()
@@ -553,7 +580,7 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 	// Apply bandwidth expansion to previous LPC in-state, matching libopus
 	// silk_PLC_conceal() cadence across consecutive losses.
 	bwExpandQ12(plcState.PrevLPCQ12[:lpcOrder], bweCoef)
-	lpcQ12 := make([]int16, lpcOrder)
+	lpcQ12 := scratch.lpcQ12[:lpcOrder]
 	copy(lpcQ12, plcState.PrevLPCQ12[:lpcOrder])
 
 	// Initialize random scale on first lost frame
@@ -586,11 +613,10 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 	lag := int(plcState.PitchLQ8+128) >> 8
 
 	// Prepare output buffers
-	output := make([]int16, frameSize)
-
 	// Generate excitation history buffer for random noise source
 	excHistory := dec.GetExcitationHistory()
-	randBuf := make([]int32, randBufSize)
+	randBuf := scratch.randBuf[:]
+	clear(randBuf)
 	if len(excHistory) > 0 {
 		// Use excitation from subframe with lower energy
 		energy1, shift1 := computeEnergy(excHistory, prevGainQ10[0], subfrLength, (nbSubfr-2)*subfrLength)
@@ -609,7 +635,11 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 	}
 
 	// LTP synthesis filtering
-	sLTPQ15 := make([]int32, ltpMemLength+frameSize)
+	if cap(scratch.sLTPQ15) < ltpMemLength+frameSize {
+		scratch.sLTPQ15 = make([]int32, ltpMemLength+frameSize)
+	}
+	sLTPQ15 := scratch.sLTPQ15[:ltpMemLength+frameSize]
+	clear(sLTPQ15)
 	sLTPBufIdx := ltpMemLength
 
 	// Rewhiten LTP state using LPC analysis
@@ -621,7 +651,11 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 
 		// Perform LPC analysis to get sLTP.
 		// Prefer decoder outBuf history (Q0), which matches libopus PLC inputs.
-		sLTP := make([]int16, ltpMemLength)
+		if cap(scratch.sLTP) < ltpMemLength {
+			scratch.sLTP = make([]int16, ltpMemLength)
+		}
+		sLTP := scratch.sLTP[:ltpMemLength]
+		clear(sLTP)
 		haveOutBufQ0 := false
 		if provider, ok := dec.(SILKOutBufProvider); ok {
 			outBufQ0 := provider.GetOutBufHistoryQ0()
@@ -659,7 +693,11 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 	B_Q14 := plcState.LTPCoefQ14
 
 	// Process each subframe
-	sLPCQ14 := make([]int32, frameSize+maxLPCOrder)
+	if cap(scratch.sLPCQ14) < frameSize+maxLPCOrder {
+		scratch.sLPCQ14 = make([]int32, frameSize+maxLPCOrder)
+	}
+	sLPCQ14 := scratch.sLPCQ14[:frameSize+maxLPCOrder]
+	clear(sLPCQ14)
 	haveSLPCHistory := false
 	if provider, ok := dec.(SILKSLPCQ14Provider); ok {
 		historyQ14 := provider.GetSLPCQ14HistoryQ14()
@@ -758,7 +796,6 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 		}
 	}
 
-	return output
 }
 
 // silkPLCBufferAt reads sLTP_Q14 at idx, returning 0 for out-of-range indices.

@@ -141,6 +141,17 @@ type streamState struct {
 	// before the mapping-matrix multiply); the float path leaves it cleared.
 	softClipMem [2]float32
 
+	// Elementary decoder output is consumed by the enclosing multistream call.
+	// packetPCM holds completed multi-frame output, plcPCM assembles a long
+	// per-frame concealment, and framePCM is reused for individual chunks.
+	// The buffers remain distinct when a multi-frame packet contains DTX frames.
+	packetParser  packetScratch
+	rangeDecoder  rangecoding.Decoder
+	framePCM      []float32
+	transitionPCM []float32
+	packetPCM     []float32
+	plcPCM        []float32
+
 	streamOSCEFields
 	streamFixedFields
 }
@@ -194,6 +205,34 @@ func (d *streamState) DecodeStereo(data []byte, frameSize int) ([]float32, error
 	return d.decodePacketToFloat32(data, frameSize)
 }
 
+func (d *streamState) framePCMFor(n int) []float32 {
+	if cap(d.framePCM) < n {
+		d.framePCM = make([]float32, n)
+	}
+	return d.framePCM[:n]
+}
+
+func (d *streamState) packetPCMFor(n int) []float32 {
+	if cap(d.packetPCM) < n {
+		d.packetPCM = make([]float32, n)
+	}
+	return d.packetPCM[:n]
+}
+
+func (d *streamState) transitionPCMFor(n int) []float32 {
+	if cap(d.transitionPCM) < n {
+		d.transitionPCM = make([]float32, n)
+	}
+	return d.transitionPCM[:n]
+}
+
+func (d *streamState) plcPCMFor(n int) []float32 {
+	if cap(d.plcPCM) < n {
+		d.plcPCM = make([]float32, n)
+	}
+	return d.plcPCM[:n]
+}
+
 // Reset resets decoder state while preserving user-configured gain.
 func (d *streamState) Reset() {
 	d.hybridDec.Reset()
@@ -208,6 +247,7 @@ func (d *streamState) Reset() {
 	d.lastTOCFrameSize = d.sampleRate / 400
 	d.lastPacketDuration = 0
 	d.lastDataLen = 0
+	d.rangeDecoder = rangecoding.Decoder{}
 	d.resetOSCEPostfilterState()
 }
 
@@ -393,15 +433,36 @@ func (d *streamState) decodeSILKToFloat32(data []byte, frameSize int, packetSter
 
 	var out32 []float32
 	var err error
-	switch {
-	case packetStereo && d.channels == 2:
-		out32, err = d.silkDec.DecodeStereo(data, bw, frameSize, true)
-	case packetStereo && d.channels == 1:
-		out32, err = d.silkDec.DecodeStereoToMono(data, bw, frameSize, true)
-	case !packetStereo && d.channels == 2:
-		out32, err = d.silkDec.DecodeMonoToStereo(data, bw, frameSize, true, d.lastPacketStereo)
-	default:
-		out32, err = d.silkDec.Decode(data, bw, frameSize, true)
+	if data == nil {
+		// The SILK PLC entry points write into decoder-owned output; preserve the
+		// bandwidth update that the allocating packet wrappers perform first.
+		d.silkDec.NotifyBandwidthChange(bw)
+		out32 = d.framePCMFor(frameSize * int(d.channels))
+		var n int
+		switch {
+		case packetStereo && d.channels == 2:
+			n, err = d.silkDec.DecodePLCStereoInto(bw, frameSize, out32)
+		case packetStereo && d.channels == 1:
+			n, err = d.silkDec.DecodePLCInto(bw, frameSize, out32)
+		case !packetStereo && d.channels == 2:
+			n, err = d.silkDec.DecodeMonoToStereoPLCInto(bw, frameSize, d.lastPacketStereo, out32)
+		default:
+			n, err = d.silkDec.DecodePLCInto(bw, frameSize, out32)
+		}
+		if err == nil {
+			out32 = out32[:n]
+		}
+	} else {
+		switch {
+		case packetStereo && d.channels == 2:
+			out32, err = d.silkDec.DecodeStereo(data, bw, frameSize, true)
+		case packetStereo && d.channels == 1:
+			out32, err = d.silkDec.DecodeStereoToMono(data, bw, frameSize, true)
+		case !packetStereo && d.channels == 2:
+			out32, err = d.silkDec.DecodeMonoToStereo(data, bw, frameSize, true, d.lastPacketStereo)
+		default:
+			out32, err = d.silkDec.Decode(data, bw, frameSize, true)
+		}
 	}
 	if err != nil {
 		return nil, err
@@ -435,15 +496,15 @@ func (d *streamState) decodeSILKWithDecoder(rd *rangecoding.Decoder, frameSize i
 	var err error
 	switch {
 	case packetStereo && channels == 2:
-		out32 = make([]float32, frameSize*channels)
+		out32 = d.framePCMFor(frameSize * channels)
 		_, err = d.silkDec.DecodeStereoWithDecoderInto(rd, bw, frameSize, true, out32)
 	case packetStereo && channels == 1:
 		out32, err = d.silkDec.DecodeStereoToMonoWithDecoder(rd, bw, frameSize, true)
 	case !packetStereo && channels == 2:
-		out32 = make([]float32, frameSize*channels)
+		out32 = d.framePCMFor(frameSize * channels)
 		_, err = d.silkDec.DecodeMonoToStereoWithDecoderInto(rd, bw, frameSize, true, d.lastPacketStereo, out32)
 	default:
-		out32 = make([]float32, frameSize*channels)
+		out32 = d.framePCMFor(frameSize * channels)
 		_, err = d.silkDec.DecodeWithDecoderInto(rd, bw, frameSize, true, out32)
 	}
 	if err != nil {
@@ -528,7 +589,7 @@ func (d *streamState) decodeCELTModeWithTransition(frame []byte, frameSize, tran
 	}
 
 	channels := int(d.channels)
-	out := make([]float32, frameSize*channels)
+	out := d.framePCMFor(frameSize * channels)
 	if err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(frame, frameSize, toc.stereo, out); err != nil {
 		return nil, err
 	}
@@ -553,7 +614,7 @@ func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
 	}
 
 	channels := int(d.channels)
-	out := make([]float32, 0, frameSize*channels)
+	out := d.plcPCMFor(frameSize * channels)[:0]
 	remaining := frameSize
 	for remaining > 0 {
 		chunk := min(remaining, chunkLimit)
@@ -574,7 +635,9 @@ func (d *streamState) decodePLCChunkToFloat32(frameSize int) ([]float32, error) 
 	d.recordDecodeCall(frameSize, 0)
 
 	if !d.haveDecoded {
-		return make([]float32, frameSize*int(d.channels)), nil
+		out := d.framePCMFor(frameSize * int(d.channels))
+		clear(out)
+		return out, nil
 	}
 
 	switch d.lastMode {
@@ -588,14 +651,16 @@ func (d *streamState) decodePLCChunkToFloat32(frameSize int) ([]float32, error) 
 		}
 		return d.finishDecode32(out[:frameSize*int(d.channels)], nil)
 	case streamModeHybrid:
-		out, err := d.finishDecode32(d.hybridDec.DecodeToFloat32WithPacketStereo(nil, frameSize, d.lastPacketStereo))
+		out := d.framePCMFor(frameSize * int(d.channels))
+		err := d.hybridDec.DecodePLCToFloat32WithPacketStereoInto(frameSize, d.lastPacketStereo, out)
+		out, err = d.finishDecode32(out, err)
 		if extsupport.OSCERuntime && err == nil {
 			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeHybrid, bandwidth: int(d.lastBandwidth), stereo: d.lastPacketStereo}, nil, frameSize)
 		}
 		return out, err
 	case streamModeCELT:
 		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(int(d.lastBandwidth)))
-		out := make([]float32, frameSize*int(d.channels))
+		out := d.framePCMFor(frameSize * int(d.channels))
 		err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(nil, frameSize, d.lastPacketStereo, out)
 		out, err = d.finishDecode32(out, err)
 		if extsupport.OSCERuntime && err == nil {
@@ -603,7 +668,9 @@ func (d *streamState) decodePLCChunkToFloat32(frameSize int) ([]float32, error) 
 		}
 		return out, err
 	default:
-		return make([]float32, frameSize*int(d.channels)), nil
+		out := d.framePCMFor(frameSize * int(d.channels))
+		clear(out)
+		return out, nil
 	}
 }
 
@@ -618,7 +685,7 @@ func (d *streamState) decodePacketToFloat32(data []byte, frameSize int) ([]float
 	d.recordDecodeCall(frameSize, len(data))
 
 	toc := parseStreamTOC(data[0])
-	parsed, err := parseOpusPacket(data, false)
+	parsed, err := parseOpusPacketInto(&d.packetParser, data, false)
 	if err != nil {
 		return nil, err
 	}
@@ -653,7 +720,7 @@ func (d *streamState) decodePacketToFloat32(data []byte, frameSize int) ([]float
 	}
 
 	subFrameSize := frameSize / frameCount
-	out := make([]float32, 0, frameSize*int(d.channels))
+	out := d.packetPCMFor(frameSize * int(d.channels))[:0]
 	for i := range frameCount {
 		var qextPayload []byte
 		if extsupport.QEXT && !d.ignoreExtensions {
@@ -724,6 +791,8 @@ type Decoder struct {
 	// the channel-mapped result within the same call.
 	packetsScratch        [][]byte
 	decodedStreamsScratch [][]float32
+	outputScratch         []float32
+	silenceScratch        []float32
 
 	// packetParser holds reusable parse/build working buffers, and reframeArena
 	// backs the N-1 self-delimited packets reframed to standard form for the

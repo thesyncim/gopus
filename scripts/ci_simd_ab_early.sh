@@ -159,7 +159,7 @@ for mode in simd nosimd; do
   run_json_phase "candidate-$mode-root-silence-allocation" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json "${build_args[@]}" . \
-    -run '^(TestCELTSilenceDecodeMatchesLibopusFloatBits|TestHotPathAllocsDecodeSilenceTransitions|TestHotPathAllocsMultistreamDecode)$' \
+    -run '^(TestCELTSilenceDecodeMatchesLibopusFloatBits|TestHotPathAllocsDecodeSilenceTransitions|TestHotPathAllocsMultistreamDecode|TestMultistreamCallerBuffer.*)$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-multistream-encode-budget" \
@@ -177,7 +177,7 @@ for mode in simd nosimd; do
   run_json_phase "candidate-$mode-multistream-history-strict-decode" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json "${build_args[@]}" ./multistream \
-    -run '^(TestHybridToSILKFadeRequiresDecodedHistoryMatchesLibopus|TestTransitionPLCStageGainMatchesLibopus|TestCELTTransitionPLCStageHasInnerAndOuterGainChecks|TestCELTTransitionFadeReplaysMatchedLibopus|TestTransitionFullSequenceMatchesLibopus|TestTransitionPreviousCELTPLCStageMatchesLibopus|TestSILKToCELTTransitionPLCMatchesLibopus|TestSILKPLCDurationChangesMatchLibopus|TestMultistreamSurroundDecodeDifferentialFuzz|TestMultistreamDiscreteDecodeDifferentialFuzz|TestProjectionDecodeDifferentialFuzz|TestMultistreamGopusEncodedDecodeDifferentialFuzz)$' \
+    -run '^(TestHybridToSILKFadeRequiresDecodedHistoryMatchesLibopus|TestTransitionPLCStageGainMatchesLibopus|TestCELTTransitionPLCStageHasInnerAndOuterGainChecks|TestCELTTransitionFadeReplaysMatchedLibopus|TestTransitionFullSequenceMatchesLibopus|TestTransitionPreviousCELTPLCStageMatchesLibopus|TestSILKToCELTTransitionPLCMatchesLibopus|TestSILKPLCDurationChangesMatchLibopus|TestMultistreamSurroundDecodeDifferentialFuzz|TestMultistreamDiscreteDecodeDifferentialFuzz|TestProjectionDecodeDifferentialFuzz|TestMultistreamGopusEncodedDecodeDifferentialFuzz|TestProjectionDecodeIntoPrefilledBuffer)$' \
     -count=1 -timeout=25m
 
   run_phase "candidate-$mode-lpc-ltp-oracles" \

@@ -193,6 +193,7 @@ type MultistreamDecoder struct {
 	ignoreExtensions bool
 	dnnBlob          *dnnblob.Blob
 	softClipMem      []float32
+	decodeScratch    []float32
 }
 
 // NewMultistreamDecoder creates a new multistream decoder with explicit configuration.

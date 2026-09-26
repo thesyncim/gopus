@@ -985,7 +985,8 @@ func (d *Decoder) DecodePLCInto(bandwidth Bandwidth, frameSizeSamples int, outpu
 		// sLPC_Q14_buf history, matching libopus silk_PLC_conceal. The
 		// Decoder-level accessor reports a stale order and would force the
 		// float-derived LPC fallback, corrupting unvoiced concealment.
-		concealedQ0 := plc.ConcealSILKWithLTP(d.plcDecoderView(0), state, int(lossCnt), nativeSamples)
+		concealedQ0 := d.plcConcealQ0For(0, nativeSamples)
+		plc.ConcealSILKWithLTPInto(d.plcDecoderView(0), state, int(lossCnt), concealedQ0, &d.plcKernelScratch[0])
 		if d.scratchOutput != nil && len(d.scratchOutput) >= nativeSamples {
 			concealed = d.scratchOutput[:nativeSamples]
 		} else {
@@ -1120,6 +1121,14 @@ func (d *Decoder) plcConcealInt16Scratch(n int) []int16 {
 	}
 	d.plcConcealI16 = d.plcConcealI16[:n]
 	return d.plcConcealI16
+}
+
+func (d *Decoder) plcConcealQ0For(channel, n int) []int16 {
+	buf := &d.plcConcealQ0[channel]
+	if cap(*buf) < n {
+		*buf = make([]int16, n)
+	}
+	return (*buf)[:n]
 }
 
 // resamplePLCFrameCaptureInt16 resamples one int16 PLC frame, writing the float
@@ -1324,6 +1333,29 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 	return output[:n], nil
 }
 
+// DecodeMonoToStereoPLCInto preserves the mono-packet stereo-output routing
+// used by DecodeMonoToStereo while writing into caller-owned PCM.
+func (d *Decoder) DecodeMonoToStereoPLCInto(bandwidth Bandwidth, frameSizeSamples int, stereoToMono bool, output []float32) (int, error) {
+	if bandwidth > BandwidthWideband {
+		return 0, ErrInvalidBandwidth
+	}
+	if len(output) < frameSizeSamples*2 {
+		return 0, ErrDecodeFailed
+	}
+	useStereoHistory := d.ShouldUseStereoToMonoHistory(bandwidth, stereoToMono)
+	d.handleBandwidthChange(bandwidth)
+	if useStereoHistory {
+		return d.DecodePLCStereoInto(bandwidth, frameSizeSamples, output)
+	}
+	mono := d.plcStereoFloatScratch(&d.plcMonoDup, frameSizeSamples)
+	n, err := d.DecodePLCInto(bandwidth, frameSizeSamples, mono)
+	if err != nil {
+		return 0, err
+	}
+	duplicateMonoFloat32ToStereo(output, mono, n)
+	return n * 2, nil
+}
+
 // DecodePLCStereoInto generates stereo SILK concealment audio for a lost packet
 // and writes the interleaved [L0,R0,L1,R1,...] API-rate PCM into output. It is
 // the zero-allocation counterpart of decodePLCStereo: the caller owns the
@@ -1370,7 +1402,8 @@ func (d *Decoder) DecodePLCStereoInto(bandwidth Bandwidth, frameSizeSamples int,
 	usedDeepPLCHook := false
 	hookLagPrev := 0
 	if midState != nil && midView != nil && d.state[0].nbSubfr > 0 {
-		midQ0 := plc.ConcealSILKWithLTP(midView, midState, int(lossCnt), nativeSamples)
+		midQ0 := d.plcConcealQ0For(0, nativeSamples)
+		plc.ConcealSILKWithLTPInto(midView, midState, int(lossCnt), midQ0, &d.plcKernelScratch[0])
 		scale := float32(1.0 / 32768.0)
 		for i := 0; i < nativeSamples && i < len(midQ0); i++ {
 			mid[i] = float32(midQ0[i]) * scale
@@ -1401,7 +1434,8 @@ func (d *Decoder) DecodePLCStereoInto(bandwidth Bandwidth, frameSizeSamples int,
 		d.state[0].lagPrev = int32(hookLagPrev)
 	}
 	if hasSide && sideState != nil && sideView != nil && d.state[1].nbSubfr > 0 {
-		sideQ0 := plc.ConcealSILKWithLTP(sideView, sideState, int(lossCnt), nativeSamples)
+		sideQ0 := d.plcConcealQ0For(1, nativeSamples)
+		plc.ConcealSILKWithLTPInto(sideView, sideState, int(lossCnt), sideQ0, &d.plcKernelScratch[1])
 		scale := float32(1.0 / 32768.0)
 		for i := 0; i < nativeSamples && i < len(sideQ0); i++ {
 			side[i] = float32(sideQ0[i]) * scale

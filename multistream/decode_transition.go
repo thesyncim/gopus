@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/thesyncim/gopus/internal/celt"
-	"github.com/thesyncim/gopus/internal/rangecoding"
 	"github.com/thesyncim/gopus/internal/silk"
 )
 
@@ -118,9 +117,9 @@ func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, tran
 	// so this only matters if a caller ever requests less than F10.
 	silkDecodeSize := max(frameSize, f10)
 
-	var rd rangecoding.Decoder
+	rd := &d.rangeDecoder
 	rd.Init(frame)
-	out, err := d.decodeSILKWithDecoder(&rd, silkDecodeSize, toc.stereo, bw)
+	out, err := d.decodeSILKWithDecoder(rd, silkDecodeSize, toc.stereo, bw)
 	if err != nil {
 		return nil, err
 	}
@@ -263,6 +262,13 @@ func (d *streamState) transitionPLCToFloat32(transSize, prevMode, prevBW int, pr
 	// opus_decode_frame(NULL) runs its output-gain loop before the outer frame
 	// crossfades this transition PCM and applies gain to the completed frame.
 	d.applyOutputGain32(out)
+	if prevMode == streamModeSILK {
+		// SILK PLC writes through framePCM, which the following CELT or Hybrid
+		// decode also uses. Keep the crossfade source in separate decoder scratch.
+		transition := d.transitionPCMFor(len(out))
+		copy(transition, out)
+		return transition, nil
+	}
 	return out, nil
 }
 
