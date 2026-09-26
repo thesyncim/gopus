@@ -623,7 +623,15 @@ func pitchSearch(xLP []float32, y []float32, length, maxPitch int, scratch *enco
 			}
 		}
 		n := r.hi - r.lo + 1
-		pitchXCorrFloat32Quality(xLP, y[r.lo:], xcorr[r.lo:], halfLen, n)
+		if libopusFloatInnerProdUsesNeonOrder {
+			// libopus pitch.c calls celt_inner_prod for each fine candidate;
+			// its NEON lane reduction differs from the four-lag xcorr kernel.
+			for j := r.lo; j <= r.hi; j++ {
+				xcorr[j] = innerProdFloat32(xLP, y[j:], halfLen)
+			}
+		} else {
+			pitchXCorrFloat32Quality(xLP, y[r.lo:], xcorr[r.lo:], halfLen, n)
+		}
 		for ; i <= r.hi; i++ {
 			if xcorr[i] < -1 {
 				xcorr[i] = -1

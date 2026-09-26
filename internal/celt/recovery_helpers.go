@@ -913,12 +913,9 @@ func pitchXCorrFloat32(x, y, xcorr []float32, length, maxPitch int) {
 	}
 }
 
-// pitchXCorrFloat32Quality is the encoder-only pitch cross-correlation. It
-// mirrors pitchXCorrFloat32 but uses xcorrKernel4Float32Fast (16 independent
-// phase accumulators) for the 4-lag tail instead of the parity-matched serial
-// kernel. The encoder pitch search is quality-gated so the changed accumulation
-// order is safe; parity-sensitive callers (pitchAutocorr5F32, PLC) must use the
-// original pitchXCorrFloat32.
+// pitchXCorrFloat32Quality is the encoder pitch cross-correlation. The scalar
+// path uses libopus pitch.c's ordered four-lag xcorr_kernel_c accumulation so
+// near-tied pitch candidates make the same discrete choice.
 func pitchXCorrFloat32Quality(x, y, xcorr []float32, length, maxPitch int) {
 	if length <= 0 || maxPitch <= 0 {
 		return
@@ -939,21 +936,9 @@ func pitchXCorrFloat32Quality(x, y, xcorr []float32, length, maxPitch int) {
 		return
 	}
 	i := 0
-	for ; i < maxPitch-7; i += 8 {
-		var sum [8]float32
-		xcorrKernel8Float32(x, y[i:], &sum, length)
-		xcorr[i] = sum[0]
-		xcorr[i+1] = sum[1]
-		xcorr[i+2] = sum[2]
-		xcorr[i+3] = sum[3]
-		xcorr[i+4] = sum[4]
-		xcorr[i+5] = sum[5]
-		xcorr[i+6] = sum[6]
-		xcorr[i+7] = sum[7]
-	}
 	for ; i < maxPitch-3; i += 4 {
 		var sum [4]float32
-		xcorrKernel4Float32Fast(x, y[i:], &sum, length)
+		xcorrKernel4Float32(x, y[i:], &sum, length)
 		xcorr[i] = sum[0]
 		xcorr[i+1] = sum[1]
 		xcorr[i+2] = sum[2]
@@ -965,7 +950,7 @@ func pitchXCorrFloat32Quality(x, y, xcorr []float32, length, maxPitch int) {
 }
 
 // pitchXCorrFloat32NeonFMA is the fused arm64 pitch cross-correlation. The
-// 4-lag blocks use the four-phase NEON FMLA kernel; the scalar tail uses
+// 4-lag blocks use libopus' ordered NEON FMLA kernel; the scalar tail uses
 // celtInnerProd's fused arm64 path so the whole correlation runs
 // single-rounding. Only reached when pitchXcorrUsesNeonFMA is set
 // (arm64 && !nosimd).
@@ -973,7 +958,7 @@ func pitchXCorrFloat32NeonFMA(x, y, xcorr []float32, length, maxPitch int) {
 	i := 0
 	for ; i < maxPitch-3; i += 4 {
 		var sum [4]float32
-		xcorrKernel4Float32Neon4Acc(x, y[i:], &sum, length)
+		xcorrKernel4Float32NeonOrdered(x, y[i:], &sum, length)
 		xcorr[i] = sum[0]
 		xcorr[i+1] = sum[1]
 		xcorr[i+2] = sum[2]
@@ -992,12 +977,12 @@ func pitchXCorrSig(x, y []celtSig, xcorr []float32, length, maxPitch int) {
 }
 
 // pitchXCorrFloat32PLC is the loss-concealment pitch cross-correlation. It is
-// pitchXCorrFloat32 without the four-phase NEON branch: PLC output is held to
+// pitchXCorrFloat32 without the encoder NEON branch: PLC output is held to
 // a tight libopus PCM tolerance, so the arm64 decode path keeps the
 // scalar-order kernel (whose contracted FMAs are bit-identical to the
 // single-chain NEON accumulation libopus uses). The amd64 SSE/AVX2 branches
-// match libopus' own x86 PLC kernels and stay as-is. Encoder pitch search,
-// which is only quality-gated, uses pitchXCorrFloat32 with the fast kernel.
+// match libopus' own x86 PLC kernels and stay as-is. Encoder pitch search
+// uses its selected-C matched correlation path.
 func pitchXCorrFloat32PLC(x, y, xcorr []float32, length, maxPitch int) {
 	if length <= 0 || maxPitch <= 0 {
 		return
