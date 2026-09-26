@@ -1,6 +1,8 @@
 package celt
 
 import (
+	"math"
+
 	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
@@ -214,11 +216,13 @@ func kfFactor(n int) ([]int, bool) {
 
 func computeTwiddles(nfft int) []kissCpx {
 	w := make([]kissCpx, nfft)
-	const pi = float32(3.14159265358979323846264338327)
+	// celt/kiss_fft.c:compute_twiddles evaluates phase and libm in double,
+	// then kf_cexp narrows each stored component to opus_val16 (float).
+	const pi = 3.14159265358979323846264338327
 	for i := range nfft {
-		phase := (-2.0 * pi / float32(nfft)) * float32(i)
-		w[i].r = opusmath.CosF32(phase)
-		w[i].i = opusmath.SinF32(phase)
+		phase := (-2.0 * pi / float64(nfft)) * float64(i)
+		w[i].r = float32(math.Cos(phase))
+		w[i].i = float32(math.Sin(phase))
 	}
 	return w
 }
