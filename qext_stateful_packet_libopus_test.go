@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/benchutil"
@@ -16,6 +17,19 @@ import (
 )
 
 func TestQEXTStatefulCVBRPacketsMatchLibopus(t *testing.T) {
+	testQEXTStatefulPacketsMatchLibopus(t, 96000, BitrateModeCVBR, "-cvbr")
+}
+
+func TestQEXTStatefulCVBR128kPacketsMatchLibopus(t *testing.T) {
+	testQEXTStatefulPacketsMatchLibopus(t, 128000, BitrateModeCVBR, "-cvbr")
+}
+
+func TestQEXTStatefulVBRPacketsMatchLibopus(t *testing.T) {
+	testQEXTStatefulPacketsMatchLibopus(t, 128000, BitrateModeVBR, "")
+}
+
+func testQEXTStatefulPacketsMatchLibopus(t *testing.T, bitrate int, mode BitrateMode, modeArg string) {
+	t.Helper()
 	libopustest.RequireOracle(t)
 	opusDemo, err := benchutil.QEXTOpusDemoPath()
 	if err != nil {
@@ -42,9 +56,13 @@ func TestQEXTStatefulCVBRPacketsMatchLibopus(t *testing.T) {
 	if err := benchutil.WriteRepeatedRawFloat32(inputPath, pcm, 1); err != nil {
 		t.Fatal(err)
 	}
-	args := []string{"-e", "restricted-celt", "48000", "1", "96000",
+	args := []string{"-e", "restricted-celt", "48000", "1", strconv.Itoa(bitrate),
 		"-f32", "-complexity", "10", "-bandwidth", "FB", "-framesize", "20",
-		"-max_payload", "1276", "-qext", "-cvbr", inputPath, bitstreamPath}
+		"-max_payload", "1276", "-qext"}
+	if modeArg != "" {
+		args = append(args, modeArg)
+	}
+	args = append(args, inputPath, bitstreamPath)
 	if out, err := exec.Command(opusDemo, args...).CombinedOutput(); err != nil {
 		t.Fatalf("libopus QEXT encode: %v (%s)", err, out)
 	}
@@ -60,10 +78,10 @@ func TestQEXTStatefulCVBRPacketsMatchLibopus(t *testing.T) {
 	if err := enc.SetBandwidth(BandwidthFullband); err != nil {
 		t.Fatal(err)
 	}
-	if err := enc.SetBitrate(96000); err != nil {
+	if err := enc.SetBitrate(bitrate); err != nil {
 		t.Fatal(err)
 	}
-	if err := enc.SetBitrateMode(BitrateModeCVBR); err != nil {
+	if err := enc.SetBitrateMode(mode); err != nil {
 		t.Fatal(err)
 	}
 	if err := enc.SetComplexity(10); err != nil {
@@ -109,7 +127,9 @@ func TestQEXTStatefulCVBRPacketsMatchLibopus(t *testing.T) {
 			t.Errorf("frame %d final range: Go %08x, C %08x", frame, gotRange, refRange)
 		}
 	}
-	t.Logf("%d complete QEXT packets and final ranges match paired libopus", frames)
+	if !t.Failed() {
+		t.Logf("%d complete QEXT packets and final ranges match paired libopus", frames)
+	}
 }
 
 func TestQEXTStatefulEncodeInt24SteadyAllocations(t *testing.T) {

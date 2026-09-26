@@ -1297,7 +1297,8 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 			qextBitsQ3,
 			codedChannels,
 			lm,
-			analysisEnergies,
+			// libopus passes bandLogE after its coarse-energy stabilization bias.
+			energies,
 			qextBandLogE,
 			func() *qextModeConfig {
 				if !qextActive {
@@ -1397,7 +1398,6 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	}
 	if qextActive {
 		qextBandBits := qextFineBits[MaxBands : MaxBands+qextEnd]
-		e.encodeFineEnergyFromErrorWithEncoder(qextEnc, qextOldBandE, qextEnd, MaxBands, qextBandBits, qextError)
 
 		qextDualStereoVal := 0
 		if allocResult.DualStereo {
@@ -1413,6 +1413,8 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 			qextBalance -= int(qextExtraBits[MaxBands+i])
 			qextBalance -= fineQ3
 		}
+		// libopus samples ext_balance before quant_fine_energy writes its raw bits.
+		e.encodeFineEnergyFromErrorWithEncoder(qextEnc, qextOldBandE, qextEnd, MaxBands, qextBandBits, qextError)
 		// Pass the signed ext_balance to quant_all_bands (no clamp at 0),
 		// mirroring the decode-side QEXT path (decodeQEXTBands).
 		// Match libopus: extra-band quant_all_bands() still receives a real
