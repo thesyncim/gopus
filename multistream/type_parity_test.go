@@ -15,6 +15,7 @@ func TestStreamDecoderControlFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
 		"lastMode",
 		"lastBandwidth",
 		"lastFrameSize",
+		"lastTOCFrameSize",
 		"lastPacketDuration",
 		"lastDataLen",
 	} {

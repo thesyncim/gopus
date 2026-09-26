@@ -193,7 +193,13 @@ func (v *silkPLCChannelView) GetLTPScale() int32 {
 }
 
 func (v *silkPLCChannelView) GetExcitationHistory() []int32 {
-	return excitationHistoryFromState(v.state())
+	st := v.state()
+	if st == nil {
+		return nil
+	}
+	// PLC.c chooses the random-source origin from the previous good frame's
+	// saved geometry, which may extend past the current loss frame length.
+	return st.excQ14[:]
 }
 
 func (v *silkPLCChannelView) GetLPCCoefficientsQ12() []int16 {
