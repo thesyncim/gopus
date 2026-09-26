@@ -3002,7 +3002,14 @@ func (e *Encoder) encodeMultiFramePacket(pcm, vadPCM []opusRes, p multiFramePack
 	var packetLen int
 	var err error
 	if qextExtensionCount > 0 {
-		packetLen, err = buildMultiFramePacketWithExtensionsInto(e.scratchPacket, frames, modeToTypes(mode), packetBW, tocFrameSize, stereo, !sameSize, qextExtensions[:qextExtensionCount], 0, false)
+		// opus_repacketizer_out_range_impl pads CBR multi-frame packets to
+		// repacketize_len while retaining each frame's QEXT extension.
+		withPadding := e.bitrateMode == ModeCBR && e.multiFrameDTXCount != frameCount
+		targetLen := 0
+		if withPadding {
+			targetLen = repacketizeLen
+		}
+		packetLen, err = buildMultiFramePacketWithExtensionsInto(e.scratchPacket, frames, modeToTypes(mode), packetBW, tocFrameSize, stereo, !sameSize, qextExtensions[:qextExtensionCount], targetLen, withPadding)
 	} else {
 		packetLen, err = buildMultiFramePacketInto(e.scratchPacket, frames, modeToTypes(mode), packetBW, tocFrameSize, stereo, !sameSize)
 	}

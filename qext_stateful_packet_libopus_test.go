@@ -48,13 +48,34 @@ func TestQEXTStateful5msStereoThetaRDOPacketsMatchLibopus(t *testing.T) {
 	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 240, 3, 2, 128000, BitrateModeCVBR, "-cvbr", false)
 }
 
+func TestQEXTStateful40msCBRPaddingMatchesLibopus(t *testing.T) {
+	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 1920, 3, 1, 96000, BitrateModeCBR, "-cbr", true)
+}
+
+func TestQEXTStateful60msCBRPaddingMatchesLibopus(t *testing.T) {
+	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 2880, 3, 1, 96000, BitrateModeCBR, "-cbr", true)
+}
+
+func TestQEXTStateful40msCappedCBRPaddingMatchesLibopus(t *testing.T) {
+	packets := testQEXTStatefulPacketsWithSizeMatchLibopus(t, 1920, 3, 1, 96000, BitrateModeCBR, "-cbr", true, 477)
+	for frame, packet := range packets {
+		if len(packet) != 477 {
+			t.Fatalf("capped C frame %d length %d, want 477", frame, len(packet))
+		}
+	}
+}
+
 func testQEXTStatefulPacketsMatchLibopus(t *testing.T, bitrate int, mode BitrateMode, modeArg string) {
 	t.Helper()
 	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 960, 3, 1, bitrate, mode, modeArg, true)
 }
 
-func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames, channels, bitrate int, mode BitrateMode, modeArg string, expectExtension bool) [][]byte {
+func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames, channels, bitrate int, mode BitrateMode, modeArg string, expectExtension bool, caps ...int) [][]byte {
 	t.Helper()
+	maxPayload := 1276
+	if len(caps) > 0 {
+		maxPayload = caps[0]
+	}
 	libopustest.RequireOracle(t)
 	opusDemo, err := benchutil.QEXTOpusDemoPath()
 	if err != nil {
@@ -83,7 +104,7 @@ func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames
 	}
 	args := []string{"-e", "restricted-celt", "48000", strconv.Itoa(channels), strconv.Itoa(bitrate),
 		"-f32", "-complexity", "10", "-bandwidth", "FB", "-framesize", strconv.Itoa(frameSize / 48),
-		"-max_payload", "1276", "-qext"}
+		"-max_payload", strconv.Itoa(maxPayload), "-qext"}
 	if modeArg != "" {
 		args = append(args, modeArg)
 	}
@@ -119,7 +140,7 @@ func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames
 		t.Fatal(err)
 	}
 	pcm24 := make([]int32, frameSize*channels)
-	packet := make([]byte, 1276)
+	packet := make([]byte, maxPayload)
 	refPackets := make([][]byte, 0, frames)
 	offset := 0
 	for frame := range frames {
@@ -135,7 +156,16 @@ func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames
 		refPacket := bitstream[offset : offset+refLen]
 		offset += refLen
 		refPackets = append(refPackets, append([]byte(nil), refPacket...))
-		if _, _, _, present, ok := qextParseExtensionRegion(refPacket); !ok || present != expectExtension {
+		if frameSize > 960 {
+			_, _, padding, packetFrames, err := parsePacketFramesAndPadding(refPacket)
+			if err != nil {
+				t.Fatalf("libopus frame %d framing: %v", frame, err)
+			}
+			_, present, err := findPacketExtension(padding, packetFrames, qextPacketExtensionID)
+			if err != nil || present != expectExtension {
+				t.Fatalf("libopus frame %d extension: present=%t err=%v, want present=%t", frame, present, err, expectExtension)
+			}
+		} else if _, _, _, present, ok := qextParseExtensionRegion(refPacket); !ok || present != expectExtension {
 			t.Fatalf("libopus frame %d extension: present=%t valid=%t, want present=%t", frame, present, ok, expectExtension)
 		}
 
@@ -146,6 +176,9 @@ func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames
 		gotLen, err := enc.EncodeInt24(pcm24, packet)
 		if err != nil {
 			t.Fatalf("Go frame %d encode: %v", frame, err)
+		}
+		if gotLen < 0 || gotLen > len(packet) {
+			t.Fatalf("Go frame %d length %d exceeds caller cap %d", frame, gotLen, len(packet))
 		}
 		if gotLen != refLen || !bytes.Equal(packet[:gotLen], refPacket) {
 			t.Errorf("frame %d packet: first difference %d, Go length %d, C length %d", frame, firstDiffByte(packet[:gotLen], refPacket), gotLen, refLen)
@@ -212,4 +245,71 @@ func TestQEXTStatefulEncodeInt24SteadyAllocations(t *testing.T) {
 	if _, _, _, present, ok := qextParseExtensionRegion(packet[:lastLen]); !ok || !present {
 		t.Fatal("QEXT extension inactive after allocation measurement")
 	}
+}
+
+func TestQEXTStateful40msCBRCallerBufferSteadyAllocations(t *testing.T) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationRestrictedCelt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enc.SetBandwidth(BandwidthFullband); err != nil {
+		t.Fatal(err)
+	}
+	if err := enc.SetBitrate(96000); err != nil {
+		t.Fatal(err)
+	}
+	if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
+		t.Fatal(err)
+	}
+	if err := enc.SetComplexity(10); err != nil {
+		t.Fatal(err)
+	}
+	if err := enc.SetFrameSize(1920); err != nil {
+		t.Fatal(err)
+	}
+	if err := enc.SetQEXT(true); err != nil {
+		t.Fatal(err)
+	}
+	pcm := make([]int32, 1920)
+	for i := range pcm {
+		pcm[i] = int32(math.Sin(2*math.Pi*697*float64(i)/48000) * 0.38 * 8388608)
+	}
+	packet := make([]byte, 1276)
+	assertPacket := func(n int) {
+		t.Helper()
+		if n != 480 {
+			t.Fatalf("40 ms CBR packet length %d, want 480", n)
+		}
+		_, _, padding, frames, err := parsePacketFramesAndPadding(packet[:n])
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, present, err := findPacketExtension(padding, frames, qextPacketExtensionID)
+		if err != nil || !present {
+			t.Fatalf("active QEXT extension: present=%t err=%v", present, err)
+		}
+	}
+	for range 6 {
+		n, err := enc.EncodeInt24(pcm, packet)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertPacket(n)
+	}
+	var encodeErr error
+	lastLen := 0
+	allocs := testing.AllocsPerRun(100, func() {
+		n, err := enc.EncodeInt24(pcm, packet)
+		if err != nil && encodeErr == nil {
+			encodeErr = err
+		}
+		lastLen = n
+	})
+	if encodeErr != nil {
+		t.Fatal(encodeErr)
+	}
+	if allocs != 0 {
+		t.Fatalf("warmed 40 ms QEXT CBR EncodeInt24 allocated %.1f times", allocs)
+	}
+	assertPacket(lastLen)
 }
