@@ -138,7 +138,7 @@ for mode in simd nosimd; do
   run_json_phase "candidate-$mode-multistream-history-strict-decode" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json "${build_args[@]}" ./multistream \
-    -run '^(TestHybridToSILKFadeRequiresDecodedHistoryMatchesLibopus|TestMultistreamSurroundDecodeDifferentialFuzz|TestMultistreamDiscreteDecodeDifferentialFuzz|TestProjectionDecodeDifferentialFuzz|TestMultistreamGopusEncodedDecodeDifferentialFuzz)$' \
+    -run '^(TestHybridToSILKFadeRequiresDecodedHistoryMatchesLibopus|TestTransitionPLCStageGainMatchesLibopus|TestCELTTransitionPLCStageHasInnerAndOuterGainChecks|TestMultistreamSurroundDecodeDifferentialFuzz|TestMultistreamDiscreteDecodeDifferentialFuzz|TestProjectionDecodeDifferentialFuzz|TestMultistreamGopusEncodedDecodeDifferentialFuzz)$' \
     -count=1 -timeout=25m
 
   if [[ "$mode" == simd ]]; then
