@@ -15,7 +15,7 @@ package celt
 // EnableScaledCustomMode reconfigures the decoder for a non-standard Opus Custom
 // mode in the Fs==400*shortMdctSize family. It is idempotent; the per-channel
 // overlap history is grown to overlap.
-func (d *Decoder) EnableScaledCustomMode(fs, overlap, shortMdctSize, effEBands int, preemph [4]float32) {
+func (d *Decoder) EnableScaledCustomMode(fs, overlap, shortMdctSize, effEBands int, preemph [4]float32, transforms *CustomMDCTTables) {
 	channels := int(d.channels)
 	if channels < 1 {
 		channels = 1
@@ -31,6 +31,8 @@ func (d *Decoder) EnableScaledCustomMode(fs, overlap, shortMdctSize, effEBands i
 	d.deemphCoef3 = preemph[3]
 	d.customScaleBase = shortMdctSize
 	d.customEffBands = effEBands
+	d.scratchIMDCTF32.customTransforms = transforms
+	d.scratchIMDCTF32R.customTransforms = transforms
 
 	if len(d.overlapBuffer) < overlap*channels {
 		d.overlapBuffer = make([]celtSig, overlap*channels)

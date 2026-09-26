@@ -25,5 +25,5 @@ func (s *MDCTForwardScratch) ForwardWithOverlapFloat32Into(samples []float32, ov
 	fftIn := ensureComplex64Slice(&s.fftIn, n4)
 	fftOut := ensureComplex64Slice(&s.fftOut, n4)
 	fftTmp := ensureKissCpxSlice(&s.fftTmp, n4)
-	mdctForwardOverlapF32Scratch(samples, overlap, coeffs[:frameSize], f, fftIn, fftOut, fftTmp)
+	mdctForwardOverlapF32Scratch(samples, overlap, coeffs[:frameSize], f, fftIn, fftOut, fftTmp, nil)
 }

@@ -406,6 +406,7 @@ type imdctScratch = imdctScratchF32
 
 // imdctScratchF32 holds scratch buffers for float32 IMDCT to avoid per-call allocations.
 type imdctScratchF32 struct {
+	customMDCTState
 	fftIn  []complex64
 	fftTmp []kissCpx
 	buf    []float32

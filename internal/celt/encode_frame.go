@@ -1733,7 +1733,7 @@ func computeMDCTWithHistoryScratchStereoLOverlap(samples, history []float32, sho
 		return mdctForwardShortOverlapScratchIntoF32Coeffs(input, overlap, shortBlocks, coeffs[:frameSize], scratch)
 	}
 	mdctForwardOverlapF32Scratch(input, overlap, coeffs[:frameSize],
-		scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
+		scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp, scratch.mdctLookup(2*(len(input)-overlap)))
 	return coeffs[:frameSize]
 }
 
@@ -1786,7 +1786,7 @@ func computeMDCTWithHistoryScratchStereoROverlap(samples, history []float32, sho
 		return mdctForwardShortOverlapScratchIntoF32Coeffs(input, overlap, shortBlocks, coeffs[:frameSize], scratch)
 	}
 	mdctForwardOverlapF32Scratch(input, overlap, coeffs[:frameSize],
-		scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
+		scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp, scratch.mdctLookup(2*(len(input)-overlap)))
 	return coeffs[:frameSize]
 }
 

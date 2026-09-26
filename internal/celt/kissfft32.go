@@ -90,14 +90,32 @@ func newKissFFTState(nfft int) *kissFFTState {
 	if st := newStaticKissFFTState(nfft); st != nil {
 		return st
 	}
+	return newDynamicKissFFTState(nfft, nil)
+}
 
+// newDynamicKissFFTState follows opus_fft_alloc_twiddles: smaller transforms
+// share their mode's base table, with a power-of-two index shift.
+func newDynamicKissFFTState(nfft int, base *kissFFTState) *kissFFTState {
 	factors, ok := kfFactor(nfft)
 	if !ok {
 		return &kissFFTState{nfft: nfft}
 	}
 	bitrev := make([]int, nfft)
 	computeBitrevTableRecursive(0, bitrev, 0, 1, 1, factors)
-	w := computeTwiddles(nfft)
+	var w []kissCpx
+	shift := -1
+	if base == nil {
+		w = computeTwiddles(nfft)
+	} else {
+		shift = 0
+		for shift < 32 && nfft<<shift != base.nfft {
+			shift++
+		}
+		if shift == 32 {
+			return nil
+		}
+		w = base.w
+	}
 
 	// Pre-compute fstride array for fftImpl (eliminates per-call allocation)
 	maxFactors := len(factors) / 2
@@ -108,7 +126,7 @@ func newKissFFTState(nfft int) *kissFFTState {
 		fstride[i+1] = fstride[i] * p
 	}
 
-	return &kissFFTState{nfft: nfft, shift: 0, factors: factors, bitrev: bitrev, w: w, fstride: fstride}
+	return &kissFFTState{nfft: nfft, shift: shift, factors: factors, bitrev: bitrev, w: w, fstride: fstride}
 }
 
 func newStaticKissFFTState(nfft int) *kissFFTState {
@@ -304,7 +322,6 @@ func kfBfly3M1(fout []kissCpx, tw []kissCpx, fstride, n, mm int) {
 		return
 	}
 	epi3i := tw[fstride].i
-	half := float32(0.5)
 	_ = fout[last] // BCE hint for base+0..2 accesses.
 	for i := range n {
 		base := i * mm
@@ -317,13 +334,14 @@ func kfBfly3M1(fout []kissCpx, tw []kissCpx, fstride, n, mm int) {
 		s0r := a1r - a2r
 		s0i := a1i - a2i
 
-		f1r := a0r - half*s3r
-		f1i := a0i - half*s3i
+		f1r := kissHalfSub(a0r, s3r)
+		f1i := kissHalfSub(a0i, s3i)
 		f0r := a0r + s3r
 		f0i := a0i + s3i
 
-		s0r *= epi3i
-		s0i *= epi3i
+		// kf_bfly3 materializes C_MULBYSCALAR before the output sums.
+		s0r = kissScaleMul(s0r, epi3i)
+		s0i = kissScaleMul(s0i, epi3i)
 
 		f2r := f1r + s0i
 		f2i := f1i - s0r
@@ -543,13 +561,15 @@ func KissFFT32ToScaledWithScratch(out []complex64, x []complex64, scale float32,
 	kissFFT32ToScaled(out, x, scale, scratch)
 }
 
-func kissFFT32ToScratch(x []complex64, scratch []kissCpx) []kissCpx {
+func kissFFT32ToScratch(x []complex64, scratch []kissCpx, st *kissFFTState) []kissCpx {
 	n := len(x)
 	if n == 0 {
 		return nil
 	}
 
-	st := getKissFFTState(n)
+	if st == nil {
+		st = getKissFFTState(n)
+	}
 	if st == nil || len(st.bitrev) != n {
 		tmp := make([]complex64, n)
 		dft32FallbackTo(tmp, x)
@@ -636,7 +656,7 @@ func kissFFT32To(out []complex64, x []complex64, scratch []kissCpx) {
 	if n == 0 || len(out) < n {
 		return
 	}
-	scratch = kissFFT32ToScratch(x, scratch)
+	scratch = kissFFT32ToScratch(x, scratch, nil)
 	if len(scratch) < n {
 		return
 	}
@@ -673,7 +693,7 @@ func kissFFT32ToInterleaved(outRI []float32, x []complex64, scratch []kissCpx) {
 		return
 	}
 
-	scratch = kissFFT32ToScratch(x, scratch)
+	scratch = kissFFT32ToScratch(x, scratch, nil)
 	if len(scratch) < n {
 		return
 	}

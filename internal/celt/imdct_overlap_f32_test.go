@@ -348,7 +348,7 @@ func TestMDCTForwardOverlapF32MatchesLibopusC(t *testing.T) {
 				fillMDCTForwardOracleInput(input, inputF32, seed)
 
 				coeffs := make([]float32, tc.frameSize)
-				mdctForwardOverlapF32Scratch(inputF32, tc.overlap, coeffs, nil, nil, nil, nil)
+				mdctForwardOverlapF32Scratch(inputF32, tc.overlap, coeffs, nil, nil, nil, nil, nil)
 				got := make([]float32, len(coeffs))
 				copy(got, coeffs)
 
@@ -439,7 +439,7 @@ func TestMDCTForwardOverlapF32CELTSignalScaleMatchesLibopusC(t *testing.T) {
 	}
 
 	coeffs := make([]float32, frameSize)
-	mdctForwardOverlapF32Scratch(inputF32, overlap, coeffs, nil, nil, nil, nil)
+	mdctForwardOverlapF32Scratch(inputF32, overlap, coeffs, nil, nil, nil, nil, nil)
 	got := make([]float32, len(coeffs))
 	copy(got, coeffs)
 

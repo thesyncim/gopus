@@ -130,6 +130,7 @@ type CustomMode struct {
 	// modes (48 kHz, 120/240/480/960 samples). Standard modes can be encoded
 	// and decoded with byte-exact libopus parity using the existing celt package.
 	isStandard bool
+	transforms *celt.CustomMDCTTables
 }
 
 // NewMode creates a CustomMode for the given sample rate and frame size.
@@ -243,6 +244,14 @@ func NewMode(fs, frameSize int) (*CustomMode, error) {
 	// Compute the pulse cache (index/bits/caps).
 	// Reference: libopus celt/rate.c compute_pulse_cache(mode, maxLM).
 	computePulseCache(mode)
+	if !mode.isStandard {
+		mode.transforms = celt.NewCustomMDCTTables(frameSize, maxLM, mode.Window)
+		if mode.transforms == nil {
+			// modes.c reports OPUS_ALLOC_FAIL when clt_mdct_init rejects
+			// a transform factorization.
+			return nil, ErrAllocFail
+		}
+	}
 
 	return mode, nil
 }

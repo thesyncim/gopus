@@ -106,9 +106,9 @@ func NewEncoder(mode *CustomMode, channels int) (*CustomEncoder, error) {
 	// pulse cache) installed via EnablePerModeTables. This mirrors the symmetric
 	// decode wiring in NewDecoder.
 	if mode.InScaledBandFamily() {
-		ce.enc.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.EffEBands, mode.Preemph)
+		ce.enc.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.EffEBands, mode.Preemph, mode.transforms)
 	} else if !mode.isStandard {
-		ce.enc.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.EffEBands, mode.Preemph)
+		ce.enc.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.EffEBands, mode.Preemph, mode.transforms)
 		ce.enc.EnablePerModeTables(mode.NbEBands, mode.ShortMdctSize, mode.EBands, mode.LogN, mode.AllocVectors, mode.CacheIndex, mode.CacheBits, mode.CacheCaps)
 	}
 	return ce, nil

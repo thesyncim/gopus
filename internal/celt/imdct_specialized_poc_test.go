@@ -40,7 +40,7 @@ func BenchmarkPOCFFT240(b *testing.B) {
 	scratch := make([]kissCpx, len(in))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = kissFFT32ToScratch(in, scratch)
+		_ = kissFFT32ToScratch(in, scratch, nil)
 	}
 }
 

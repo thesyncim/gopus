@@ -53,7 +53,7 @@ func TestKissFFT32ToScratchMatchesLibopusC(t *testing.T) {
 					input[i] = complex(r, im)
 				}
 
-				got := kissFFT32ToScratch(input, make([]kissCpx, nfft))
+				got := kissFFT32ToScratch(input, make([]kissCpx, nfft), nil)
 				want := probeLibopusCELTFFT(t, nfft, input)
 				assertKissCpxBits(t, "fft", got, want)
 			})

@@ -214,13 +214,17 @@ func TestRoundTripNonStandard44100(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for odd frame size 441")
 	}
-	// 44100 Hz, 440 samples = ~9.98ms.  Must satisfy frame_size*1000 >= Fs:
-	// 440*1000 = 440000 >= 44100 ✓.
-	mode, err := custom.NewMode(44100, 440)
-	if err != nil {
-		t.Fatalf("NewMode(44100, 440): %v", err)
+	// The 220-point FFT required by frame size 440 contains radix 11,
+	// which libopus kf_factor rejects.
+	if _, err := custom.NewMode(44100, 440); err != custom.ErrAllocFail {
+		t.Fatalf("unsupported FFT factorization: error=%v want=%v", err, custom.ErrAllocFail)
 	}
-	t.Logf("44100/440 mode: maxLM=%d nbEBands=%d overlap=%d isStandard=%v",
+	// Frame size 360 uses the supported radix-2/3/5 transform family.
+	mode, err := custom.NewMode(44100, 360)
+	if err != nil {
+		t.Fatalf("NewMode(44100, 360): %v", err)
+	}
+	t.Logf("44100/360 mode: maxLM=%d nbEBands=%d overlap=%d isStandard=%v",
 		mode.MaxLM, mode.NbEBands, mode.Overlap, mode.IsStandard())
 
 	enc, err := custom.NewEncoder(mode, 1)
@@ -232,7 +236,7 @@ func TestRoundTripNonStandard44100(t *testing.T) {
 		t.Fatalf("NewDecoder: %v", err)
 	}
 
-	pcm := generateSine(440, 44100, 440)
+	pcm := generateSine(440, 44100, 360)
 	// The encoder and decoder both drive genuinely custom band layouts via the
 	// per-mode CELT tables (see TestOracleParityNonStandardModes for byte/sample
 	// parity against the libopus --enable-custom-modes oracle on 48000/640).
@@ -243,12 +247,12 @@ func TestRoundTripNonStandard44100(t *testing.T) {
 	if len(packet) == 0 {
 		t.Fatal("EncodeFloat produced an empty packet")
 	}
-	decoded, err := dec.DecodeFloat(packet, 440)
+	decoded, err := dec.DecodeFloat(packet, 360)
 	if err != nil {
 		t.Fatalf("DecodeFloat: %v", err)
 	}
-	if len(decoded) != 440 {
-		t.Fatalf("decoded length = %d, want 440", len(decoded))
+	if len(decoded) != 360 {
+		t.Fatalf("decoded length = %d, want 360", len(decoded))
 	}
 }
 

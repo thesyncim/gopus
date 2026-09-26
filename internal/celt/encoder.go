@@ -1119,6 +1119,7 @@ func (e *Encoder) PhaseInversionDisabled() bool {
 // encoderScratch holds pre-allocated scratch buffers for the encoder hot path.
 // These buffers are reused across frames to eliminate heap allocations during encoding.
 type encoderScratch struct {
+	customMDCTState
 	// f32 backs the frameSize-dependent float-family scratch (the many []float32 /
 	// []celtSig / []celtGLog / []celtEner / []celtNorm fields below) with one
 	// contiguous allocation instead of ~40 separate ones. See ensureEncodeFloatArena;

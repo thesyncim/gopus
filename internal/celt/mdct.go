@@ -15,6 +15,14 @@ import (
 //
 // Reference: RFC 6716 Section 4.3.5, libopus celt/mdct.c
 
+// mdctTransformLookup stores one block size from a mode's clt_mdct_init table.
+type mdctTransformLookup struct {
+	n      int
+	trig   []float32
+	window []float32
+	fft    *kissFFTState
+}
+
 func buildMDCTTrigF32(n int) []float32 {
 	if n <= 0 {
 		return nil
@@ -154,7 +162,17 @@ func imdctOverlapWithPrevScratchF32Output32[S ~float32](spectrum []float32, prev
 	n4 := n2 / 2
 	needed := n2 + overlap
 	start := overlap / 2
-	trig := getMDCTTrigF32(n)
+	var tables *mdctTransformLookup
+	if scratch != nil {
+		tables = scratch.mdctLookup(n)
+	}
+	var trig []float32
+	var fftState *kissFFTState
+	if tables != nil {
+		trig, fftState = tables.trig, tables.fft
+	} else {
+		trig = getMDCTTrigF32(n)
+	}
 
 	var fftIn []complex64
 	var fftTmp []kissCpx
@@ -186,11 +204,16 @@ func imdctOverlapWithPrevScratchF32Output32[S ~float32](spectrum []float32, prev
 
 	buf := outF32[start : start+n2]
 	imdctPreRotateF32Spectrum(fftIn, spectrum, trig, n2, n4)
-	fftOut := kissFFT32ToScratch(fftIn, fftTmp)
+	fftOut := kissFFT32ToScratch(fftIn, fftTmp, fftState)
 	imdctPostRotateF32FromKiss(buf, fftOut, trig, n2, n4)
 
 	if overlap > 0 {
-		windowF32 := GetWindowBufferF32(overlap)
+		var windowF32 []float32
+		if tables != nil {
+			windowF32 = tables.window
+		} else {
+			windowF32 = GetWindowBufferF32(overlap)
+		}
 		xp1 := overlap - 1
 		yp1 := 0
 		wp1 := 0
@@ -226,7 +249,17 @@ func imdctInPlaceScratchF32Spectrum(spectrum []float32, out []float32, blockStar
 
 	n := n2 * 2
 	n4 := n2 / 2
-	trig := getMDCTTrigF32(n)
+	var tables *mdctTransformLookup
+	if scratch != nil {
+		tables = scratch.mdctLookup(n)
+	}
+	var trig []float32
+	var fftState *kissFFTState
+	if tables != nil {
+		trig, fftState = tables.trig, tables.fft
+	} else {
+		trig = getMDCTTrigF32(n)
+	}
 
 	var fftIn []complex64
 	var buf []float32
@@ -242,7 +275,7 @@ func imdctInPlaceScratchF32Spectrum(spectrum []float32, out []float32, blockStar
 	}
 
 	imdctPreRotateF32Spectrum(fftIn, spectrum, trig, n2, n4)
-	fftOut := kissFFT32ToScratch(fftIn, fftTmp)
+	fftOut := kissFFT32ToScratch(fftIn, fftTmp, fftState)
 	imdctPostRotateF32FromKiss(buf, fftOut, trig, n2, n4)
 
 	start := blockStart + overlap/2
@@ -251,7 +284,12 @@ func imdctInPlaceScratchF32Spectrum(spectrum []float32, out []float32, blockStar
 	}
 
 	if overlap > 0 {
-		windowF32 := GetWindowBufferF32(overlap)
+		var windowF32 []float32
+		if tables != nil {
+			windowF32 = tables.window
+		} else {
+			windowF32 = GetWindowBufferF32(overlap)
+		}
 		xp1 := blockStart + overlap - 1
 		yp1 := blockStart
 		wp1 := 0

@@ -218,7 +218,7 @@ func MDCTForwardWithOverlapFloat32(samples []float32, overlap int) []float32 {
 		return nil
 	}
 	coeffs := make([]float32, len(samples)-overlap)
-	mdctForwardOverlapF32Scratch(samples, overlap, coeffs, nil, nil, nil, nil)
+	mdctForwardOverlapF32Scratch(samples, overlap, coeffs, nil, nil, nil, nil, nil)
 	return coeffs
 }
 
@@ -232,12 +232,12 @@ func mdctForwardOverlap(samples []float32, overlap int) []float32 {
 // mdctForwardOverlapF32 is a float32-precision MDCT matching libopus float path.
 func mdctForwardOverlapF32(samples []float32, overlap int) []float32 {
 	coeffs := make([]float32, len(samples)-overlap)
-	mdctForwardOverlapF32Scratch(samples, overlap, coeffs, nil, nil, nil, nil)
+	mdctForwardOverlapF32Scratch(samples, overlap, coeffs, nil, nil, nil, nil, nil)
 	return coeffs
 }
 
 // mdctForwardOverlapF32Scratch is the scratch-aware version that avoids allocations.
-func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float32, f []float32, fftIn []complex64, fftOut []complex64, fftTmp []kissCpx) {
+func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float32, f []float32, fftIn []complex64, fftOut []complex64, fftTmp []kissCpx, tables *mdctTransformLookup) {
 	if len(samples) == 0 {
 		return
 	}
@@ -260,13 +260,18 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 		return
 	}
 
-	trig := getMDCTTrigF32(n)
-	var window []float32
-	if overlap > 0 {
-		window = GetWindowBufferF32(overlap)
+	var trig, window []float32
+	var st *kissFFTState
+	if tables != nil {
+		trig, window, st = tables.trig, tables.window, tables.fft
+	} else {
+		trig = getMDCTTrigF32(n)
+		st = getKissFFTState(n4)
+		if overlap > 0 {
+			window = GetWindowBufferF32(overlap)
+		}
 	}
 
-	st := getKissFFTState(n4)
 	useDirectKissCpx := st != nil && len(st.bitrev) >= n4
 	fuseDirectStage := useDirectKissCpx
 
@@ -710,7 +715,7 @@ func mdctForwardShortOverlapScratchIntoF32Coeffs(samples []float32, overlap, sho
 	if shortBlocks <= 1 {
 		if len(output) >= len(samples)-overlap {
 			mdctForwardOverlapF32Scratch(samples, overlap, output,
-				scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
+				scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp, scratch.mdctLookup(2*(len(samples)-overlap)))
 			return output[:len(samples)-overlap]
 		}
 		return mdctForwardOverlapScratchF32Coeffs(samples, overlap, scratch)
@@ -732,7 +737,7 @@ func mdctForwardShortOverlapScratchIntoF32Coeffs(samples []float32, overlap, sho
 			break
 		}
 		mdctForwardOverlapF32Scratch(samples[start:end], overlap, blockCoeffs,
-			scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
+			scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp, scratch.mdctLookup(2*(len(samples[start:end])-overlap)))
 		for i := range blockCoeffs {
 			outIdx := b + i*shortBlocks
 			if outIdx < len(output) {
@@ -750,7 +755,7 @@ func mdctForwardOverlapScratchF32Coeffs(samples []float32, overlap int, scratch 
 	}
 	coeffs := ensureFloat32Slice(&scratch.mdctCoeffsF32, frameSize)
 	mdctForwardOverlapF32Scratch(samples, overlap, coeffs,
-		scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
+		scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp, scratch.mdctLookup(2*(len(samples)-overlap)))
 	return coeffs
 }
 
@@ -776,7 +781,7 @@ func mdctForwardShortOverlapScratchF32Coeffs(samples []float32, overlap, shortBl
 			break
 		}
 		mdctForwardOverlapF32Scratch(samples[start:end], overlap, blockCoeffs,
-			scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
+			scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp, scratch.mdctLookup(2*(len(samples[start:end])-overlap)))
 		for i := range blockCoeffs {
 			outIdx := b + i*shortBlocks
 			if outIdx < len(output) {

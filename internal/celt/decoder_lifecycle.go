@@ -97,7 +97,7 @@ func (d *Decoder) Reset() {
 	prevLogE := ensureGLogSlice(&d.prevLogE, MaxBands*2)
 	prevLogE2 := ensureGLogSlice(&d.prevLogE2, MaxBands*2)
 	backgroundEnergy := ensureGLogSlice(&d.backgroundEnergy, MaxBands*2)
-	overlapBuffer := ensureSigSlice(&d.overlapBuffer, Overlap*channels)
+	overlapBuffer := ensureSigSlice(&d.overlapBuffer, d.synthOverlapLen()*channels)
 	preemphState := ensureSigSlice(&d.preemphState, channels)
 	postfilterMem := ensureSigSlice(&d.postfilterMem, combFilterHistory*channels)
 	plcDecodeMem := ensureSigSlice(&d.plcDecodeMem, plcDecodeBufferSize*channels)
