@@ -75,8 +75,8 @@ func (e *Encoder) computeStereoWidthForMode(pcm []opusRes, frameSize int) opusVa
 		return 0
 	}
 
-	frameRate := max(int(e.sampleRate)/frameSize, 50)
-	shortAlpha := opusVal16(25.0 / opusVal16(frameRate))
+	frameRate := int(e.sampleRate) / frameSize
+	shortAlpha := opusVal16(25.0 / opusVal16(max(frameRate, 50)))
 
 	// Accumulate per-frame energy and cross-correlation (unrolled by 4).
 	var xx, xy, yy opusVal32
@@ -111,10 +111,12 @@ func (e *Encoder) computeStereoWidthForMode(pcm []opusRes, frameSize int) opusVa
 	}
 
 	mem := &e.widthMem
+	// Only short_alpha uses the 50 Hz floor; width smoothing uses the actual
+	// frame rate (opus_encoder.c:compute_stereo_width).
 	// Exponential smoothing.
 	mem.XX += shortAlpha * (xx - mem.XX)
 	// Rewritten to avoid overflow on abrupt sign change (opus_encoder.c line 911).
-	mem.XY = (1-shortAlpha)*mem.XY + shortAlpha*xy
+	mem.XY = fma32(1-shortAlpha, mem.XY, round32(shortAlpha*xy))
 	mem.YY += shortAlpha * (yy - mem.YY)
 
 	// Clamp to non-negative.
@@ -153,7 +155,8 @@ func (e *Encoder) computeStereoWidthForMode(pcm []opusRes, frameSize int) opusVa
 		if decorr < 0 {
 			decorr = 0
 		}
-		width := minf(1.0, celtSqrtOpusVal32(decorr)) * ldiff
+		// C stores width before subtracting the prior smoothed value.
+		width := round32(minf(1.0, celtSqrtOpusVal32(decorr)) * ldiff)
 
 		// Smoothing over one second.
 		fr := opusVal16(frameRate)
