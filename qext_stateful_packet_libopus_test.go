@@ -52,6 +52,19 @@ func TestQEXTStateful40msCBRPaddingMatchesLibopus(t *testing.T) {
 	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 1920, 3, 1, 96000, BitrateModeCBR, "-cbr", true)
 }
 
+func TestQEXTStateful40msVBRSubframeBudgetMatchesLibopus(t *testing.T) {
+	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 1920, 3, 1, 128000, BitrateModeVBR, "", true)
+}
+
+func TestQEXTStateful40msVBRSubframeBudgetCapBoundaryMatchesLibopus(t *testing.T) {
+	// The two-frame cap puts curr_max below and above the 254-byte divisor.
+	for _, capBytes := range []int{510, 514} {
+		t.Run(strconv.Itoa(capBytes), func(t *testing.T) {
+			testQEXTStatefulPacketsWithSizeMatchLibopus(t, 1920, 3, 1, 128000, BitrateModeVBR, "", true, capBytes)
+		})
+	}
+}
+
 func TestQEXTStateful60msCBRPaddingMatchesLibopus(t *testing.T) {
 	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 2880, 3, 1, 96000, BitrateModeCBR, "-cbr", true)
 }

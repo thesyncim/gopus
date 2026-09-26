@@ -2914,6 +2914,11 @@ func (e *Encoder) encodeMultiFramePacket(pcm, vadPCM []opusRes, p multiFramePack
 				currMax += dredBytes
 			}
 		}
+		// Each QEXT subframe reserves its extension-length signal before coding.
+		// src/opus_encoder.c reduces curr_max by curr_max/254 in this loop.
+		if e.qextActive() {
+			currMax -= currMax / 254
+		}
 		currMax = min(maxLenSum-totSize, currMax)
 		if i == 0 {
 			firstFrameMaxBytes = currMax
