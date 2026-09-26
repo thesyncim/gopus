@@ -3,22 +3,12 @@
 package gopus
 
 import (
+	"bytes"
 	"fmt"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
-
-// armEncodeFloatDriftPublic mirrors the documented darwin/arm64 CELT-encode
-// float-composition drift budget: the pre-CELT float front-end (dc_reject, MDCT,
-// analysis) uses Go's arm64 FMA contraction, which can flip a single coarse-energy
-// Laplace symbol versus Apple clang on a tight-budget frame and cascade. CI
-// (linux/amd64) stays strict-green; the check is strict on every other platform so
-// a real logic regression still fails.
-func armEncodeFloatDriftPublic() bool {
-	return runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"
-}
 
 func xorshift32Pub(state *uint32) uint32 {
 	s := *state
@@ -118,6 +108,14 @@ func TestPublicEncodeFixedCELTLibopusParity(t *testing.T) {
 		if err := enc.SetFrameSize(frameSize); err != nil {
 			t.Fatalf("SetFrameSize: %v", err)
 		}
+		// The standalone C CELT reference fixes its coded channels and end
+		// band; use the same public controls before capturing the inner input.
+		if err := enc.SetForceChannels(c.channels); err != nil {
+			t.Fatalf("SetForceChannels: %v", err)
+		}
+		if err := enc.SetBandwidth(BandwidthFullband); err != nil {
+			t.Fatalf("SetBandwidth: %v", err)
+		}
 
 		// Drive every frame through the public encoder, capturing the int16 the
 		// integer CELT encoder consumed and the CELT payload (packet minus TOC).
@@ -146,10 +144,14 @@ func TestPublicEncodeFixedCELTLibopusParity(t *testing.T) {
 			payloads[f] = append([]byte(nil), out[1:n]...)
 		}
 
-		// VBR/CVBR per-frame caps mirror the float CELT vbr ceiling; CBR uses the
-		// exact rate-derived byte count. Pass a generous max so the integer
-		// encoder's internal CBR formula governs (matching the public path).
+		// The public CBR packet reserves its TOC byte before calling CELT.
+		// opus_encoder.c computes (bitrate_to_bits(bitrate, Fs, frameSize)+4)/8
+		// packet bytes; the standalone CELT oracle receives the remaining bytes.
+		// VBR/CVBR use the full CELT output cap.
 		maxBytes := 1275
+		if c.mode == BitrateModeCBR {
+			maxBytes = (c.bitrate*frameSize/48000+4)/8 - 1
+		}
 		vbr := c.mode != BitrateModeCBR
 		constrained := c.mode == BitrateModeCVBR
 
@@ -164,34 +166,13 @@ func TestPublicEncodeFixedCELTLibopusParity(t *testing.T) {
 			label := fmt.Sprintf("ch=%d lm=%d br=%d cx=%d mode=%v frame=%d",
 				c.channels, c.lm, c.bitrate, c.complexity, c.mode, f)
 			got := payloads[f]
-			// CBR pads the packet to the target size; compare only the coded
-			// CELT bytes the reference produced (the leading len(want[f])).
-			diverged := false
-			mismatch := -1
-			if len(got) < len(want[f]) {
-				diverged = true
-			} else {
-				for i := 0; i < len(want[f]); i++ {
-					if got[i] != want[f][i] {
-						mismatch = i
-						diverged = true
-						break
-					}
+			if !bytes.Equal(got, want[f]) {
+				mismatch := 0
+				for mismatch < min(len(got), len(want[f])) && got[mismatch] == want[f][mismatch] {
+					mismatch++
 				}
-			}
-			if diverged {
-				if armEncodeFloatDriftPublic() {
-					t.Logf("%s: documented darwin/arm64 encode float-composition drift "+
-						"(gopus payload len=%d libopus len=%d firstMismatch=%d)",
-						label, len(got), len(want[f]), mismatch)
-					break
-				}
-				if len(got) < len(want[f]) {
-					t.Errorf("%s: gopus payload len %d < libopus %d", label, len(got), len(want[f]))
-				} else {
-					t.Errorf("%s: first byte divergence at %d: gopus=0x%02x libopus=0x%02x (len=%d)",
-						label, mismatch, got[mismatch], want[f][mismatch], len(want[f]))
-				}
+				t.Errorf("%s: CELT payload mismatch at byte %d (gopus len=%d libopus len=%d)",
+					label, mismatch, len(got), len(want[f]))
 				break
 			}
 		}

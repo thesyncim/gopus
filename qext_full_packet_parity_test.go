@@ -116,7 +116,7 @@ func TestQEXTCBRExtensionFramingByteParityMatchesLibopus(t *testing.T) {
 		t.Run(fmt.Sprintf("%dch-%dk", tc.channels, tc.bitrate/1000), func(t *testing.T) {
 			pcm := qextSinePCM(tc.channels, 960)
 
-			refPacket := encodeLibopusQEXTPacket(t, opusDemo, tc.channels, pcm, true)
+			refPacket := encodeLibopusPacketAtBitrate(t, opusDemo, tc.channels, pcm, true, true, tc.bitrate)
 			if len(refPacket) == 0 {
 				t.Fatal("libopus returned empty packet")
 			}
@@ -253,7 +253,7 @@ func TestQEXTCBRExtensionSizeExactMatchesLibopus(t *testing.T) {
 		t.Run(fmt.Sprintf("%dch-%dk", tc.channels, tc.bitrate/1000), func(t *testing.T) {
 			pcm := qextSinePCM(tc.channels, 960)
 
-			refPacket := encodeLibopusQEXTPacket(t, opusDemo, tc.channels, pcm, true)
+			refPacket := encodeLibopusPacketAtBitrate(t, opusDemo, tc.channels, pcm, true, true, tc.bitrate)
 			_, refPaddingLen, refExtBytes, refHasExt, _ := qextParseExtensionRegion(refPacket)
 			if !refHasExt {
 				t.Skipf("libopus did not produce QEXT extension for %dch %dbps", tc.channels, tc.bitrate)
