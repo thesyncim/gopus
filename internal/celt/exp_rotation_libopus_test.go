@@ -867,31 +867,78 @@ func probeLibopusRenormaliseVector(cases []renormaliseOracleCase) ([][]float32, 
 
 func TestExpRotationMatchesLibopusFloatPath(t *testing.T) {
 	libopustest.RequireOracle(t)
+	// These sparse vectors are the normalized pulses from two CELT frames.
+	// They exercise the rounded theta/complement boundary in celt/vq.c's
+	// exp_rotation before the band transform spreads each nonzero pulse.
+	pulses48 := make([]int32, 48)
+	pulses48[26], pulses48[27], pulses48[29] = -1, 1, 1
+	pulses48[31], pulses48[32] = -1, -1
+	shape48 := make([]celtNorm, len(pulses48))
+	normalizeResidualKnownEnergyIntoAndCollapse32(shape48, pulses48, 1, 5, 4)
+	actual48 := make([]float32, len(shape48))
+	for i, sample := range shape48 {
+		actual48[i] = float32(sample)
+	}
+	pulses18 := make([]int32, 18)
+	pulses18[16], pulses18[17] = 1, 1
+	shape18 := make([]celtNorm, len(pulses18))
+	normalizeResidualKnownEnergyIntoAndCollapse32(shape18, pulses18, opusVal16(math.Float32frombits(0x3dbd1c75)), 2, 2)
+	actual18 := make([]float32, len(shape18))
+	for i, sample := range shape18 {
+		actual18[i] = float32(sample)
+	}
+	if _, _, cached := expRotationCoefficients(192, 20, spreadNormal); cached {
+		t.Fatal("192-sample rotation should use the runtime coefficient fallback")
+	}
 	cases := []expRotationOracleCase{
+		{fixtureExpRotationVector(13, 0x9b6a3124), -1, 1, 1, spreadLight},
 		{fixtureExpRotationVector(16, 0x12345678), -1, 1, 2, spreadNormal},
 		{fixtureExpRotationVector(32, 0x31415926), 1, 1, 5, spreadAggressive},
 		{fixtureExpRotationVector(48, 0xabcdef01), -1, 3, 4, spreadLight},
 		{fixtureExpRotationVector(96, 0xdecafbad), 1, 4, 7, spreadNormal},
 		{fixtureExpRotationVector(176, 0x0badf00d), -1, 8, 11, spreadAggressive},
 	}
+	for _, tc := range []struct {
+		x      []float32
+		stride int
+		k      int
+	}{
+		{actual48, 4, 5},
+		{actual18, 2, 2},
+		{fixtureExpRotationVector(192, 0x7abf219c), 4, 20},
+	} {
+		for _, dir := range []int{-1, 1} {
+			cases = append(cases, expRotationOracleCase{tc.x, dir, tc.stride, tc.k, spreadNormal})
+		}
+	}
 	want, err := probeLibopusExpRotation(cases)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
 	for ci, tc := range cases {
-		got := make([]celtNorm, len(tc.x))
-		for i, sample := range tc.x {
-			got[i] = celtNorm(sample)
-		}
-		expRotation(got, len(got), tc.dir, tc.stride, tc.k, tc.spread)
-		for i := range got {
-			gotSample := float32(got[i])
-			if math.Float32bits(gotSample) != math.Float32bits(want[ci][i]) {
-				t.Fatalf("case %d x[%d]=%08x %.10g want %08x %.10g",
-					ci, i,
-					math.Float32bits(gotSample), gotSample,
-					math.Float32bits(want[ci][i]), want[ci][i])
-			}
+		for _, impl := range []struct {
+			name string
+			run  func([]celtNorm, int, int, int, int, int)
+		}{
+			{"rotation", expRotation},
+			{"norm_rotation", expRotationNorm},
+		} {
+			t.Run(fmt.Sprintf("case%d_%s", ci, impl.name), func(t *testing.T) {
+				got := make([]celtNorm, len(tc.x))
+				for i, sample := range tc.x {
+					got[i] = celtNorm(sample)
+				}
+				impl.run(got, len(got), tc.dir, tc.stride, tc.k, tc.spread)
+				for i := range got {
+					gotSample := float32(got[i])
+					if math.Float32bits(gotSample) != math.Float32bits(want[ci][i]) {
+						t.Fatalf("case %d x[%d]=%08x %.10g want %08x %.10g",
+							ci, i,
+							math.Float32bits(gotSample), gotSample,
+							math.Float32bits(want[ci][i]), want[ci][i])
+					}
+				}
+			})
 		}
 	}
 }

@@ -16,9 +16,10 @@ func TestExpRotationCoefficientsMatchDirectComputation(t *testing.T) {
 					t.Fatalf("missing coefficient for length=%d k=%d spread=%d", length, k, spread)
 				}
 				gain := float32(length) / float32(length+spreadFactor*k)
-				theta := 0.5 * gain * gain
+				// celt/vq.c:exp_rotation rounds both products before Q15ONE-theta.
+				theta := noFMA32Mul(0.5, noFMA32Mul(gain, gain))
 				wantC := opusVal16(math.Cos(0.5 * math.Pi * float64(theta)))
-				wantS := opusVal16(math.Cos(0.5 * math.Pi * float64(float32(1)-theta)))
+				wantS := opusVal16(math.Cos(0.5 * math.Pi * float64(noFMA32Sub(1, theta))))
 				if gotC != wantC || gotS != wantS {
 					t.Fatalf("length=%d k=%d spread=%d got=(%0.17g,%0.17g) want=(%0.17g,%0.17g)", length, k, spread, gotC, gotS, wantC, wantS)
 				}

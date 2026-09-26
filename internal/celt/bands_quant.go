@@ -744,9 +744,9 @@ func expRotation(x []celtNorm, length, dir, stride, k, spread int) {
 	if !ok {
 		spreadFactor := expRotationSpreadFactors[spread-1]
 		gain := float32(length) / float32(length+spreadFactor*k)
-		theta := 0.5 * gain * gain
+		theta := noFMA32Mul(0.5, noFMA32Mul(gain, gain))
 		c = opusVal16(opusmath.CELTCosNormF32(theta))
-		s = opusVal16(opusmath.CELTCosNormF32(float32(1) - theta))
+		s = opusVal16(opusmath.CELTCosNormF32(noFMA32Sub(1, theta)))
 	}
 
 	stride2 := 0
@@ -781,9 +781,9 @@ func expRotationNorm(x []celtNorm, length, dir, stride, k, spread int) {
 	if !ok {
 		spreadFactor := expRotationSpreadFactors[spread-1]
 		gain := float32(length) / float32(length+spreadFactor*k)
-		theta := 0.5 * gain * gain
+		theta := noFMA32Mul(0.5, noFMA32Mul(gain, gain))
 		c = opusVal16(opusmath.CELTCosNormF32(theta))
-		s = opusVal16(opusmath.CELTCosNormF32(float32(1) - theta))
+		s = opusVal16(opusmath.CELTCosNormF32(noFMA32Sub(1, theta)))
 	}
 
 	stride2 := 0
