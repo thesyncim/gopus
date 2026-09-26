@@ -546,6 +546,41 @@ func TestCombFilterConstantBodyHistorySeamMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestCombFilterRampedHistorySeamMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	const (
+		history = combFilterHistory
+		n       = 360
+		overlap = Overlap
+	)
+	window := GetWindowBufferF32(overlap)
+	windowSq := GetWindowSquareBufferF32(overlap)
+	for _, frameOffset := range []int{0, 120} {
+		t.Run(fmt.Sprintf("frame_offset=%d", frameOffset), func(t *testing.T) {
+			start := history + frameOffset
+			t1 := frameOffset + 247 // constant body crosses stored history at sample 245
+			t0 := t1 + 4
+			buf := make([]float32, start+n+2)
+			for i := range buf {
+				buf[i] = float32(math.Sin(float64(i+11)*0.031)*2300 + math.Cos(float64(i+7)*0.017)*170)
+			}
+			want := probeLibopusCombFilter(t, start, n, t0, t1, 0, 1, overlap,
+				0.28125, 0.65625, window, buf)
+			hist := make([]celtSig, history)
+			copy(hist, buf[:history])
+			got := append([]float32(nil), buf[history:]...)
+			combFilterWithSquarePlanarFloat32(got, hist, history, frameOffset, t0, t1, n,
+				0.28125, 0.65625, 0, 1, window, windowSq, overlap)
+			for i := range n {
+				if math.Float32bits(got[frameOffset+i]) != math.Float32bits(want[i]) {
+					t.Fatalf("sample[%d]=%08x want %08x", i, math.Float32bits(got[frameOffset+i]), math.Float32bits(want[i]))
+				}
+			}
+		})
+	}
+}
+
 func TestCombFilterWithInputF32MatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 

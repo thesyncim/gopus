@@ -28,7 +28,7 @@ func TestCombFilterConstNeonBitExact(t *testing.T) {
 			got := append([]float32(nil), base...)
 			want := append([]float32(nil), base...)
 
-			ga4, ga3, ga2, ga1 := combFilterConstFloat32(got, delay, g10, g11, g12, x4, x3, x2, x1)
+			ga4, ga3, ga2, ga1 := combFilterConstFloat32(got, delay, g10, g11, g12, x4, x3, x2, x1, n&^3)
 
 			// Scalar reference: the simple rotated loop.
 			w4, w3, w2, w1 := x4, x3, x2, x1

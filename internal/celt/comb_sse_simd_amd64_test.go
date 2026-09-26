@@ -12,7 +12,7 @@ func TestCombFilterConstSSEOrderZeroAllocs(t *testing.T) {
 		delay[i] = float32((i*37)%191-95) / 64
 	}
 	run := func() {
-		combFilterConstFloat32(dst, delay, 0.25, 0.125, 0.0625, 0, 0, 0, 0)
+		combFilterConstFloat32(dst, delay, 0.25, 0.125, 0.0625, 0, 0, 0, 0, len(dst)&^3)
 	}
 	run()
 	if got := testing.AllocsPerRun(100, run); got != 0 {

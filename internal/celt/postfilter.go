@@ -775,7 +775,7 @@ func combFilterConstDispatch(dst, delay []float32, g10, g11, g12 float32, x4, x3
 	return x4, x3, x2, x1, true
 }
 
-func combFilterConstFloat32Hist(dst []float32, delay []celtSig, g10, g11, g12 float32, x4, x3, x2, x1 float32) (float32, float32, float32, float32) {
+func combFilterConstFloat32Hist(dst []float32, delay []celtSig, g10, g11, g12 float32, x4, x3, x2, x1 float32, sseCount int) (float32, float32, float32, float32) {
 	n := len(dst)
 	if n == 0 {
 		return x4, x3, x2, x1
@@ -788,7 +788,7 @@ func combFilterConstFloat32Hist(dst []float32, delay []celtSig, g10, g11, g12 fl
 	_ = delay[n-1]
 	if combUsesSSE {
 		i := 0
-		for full := n &^ 3; i < full; i++ {
+		for ; i < sseCount; i++ {
 			x0 := float32(delay[i])
 			dst[i] = combFilterConstSSEValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
 			x4, x3, x2, x1 = x3, x2, x1, x0
@@ -828,7 +828,7 @@ func combFilterConstFloat32Hist(dst []float32, delay []celtSig, g10, g11, g12 fl
 	return x4, x3, x2, x1
 }
 
-func combFilterConstFloat32(dst, delay []float32, g10, g11, g12 float32, x4, x3, x2, x1 float32) (float32, float32, float32, float32) {
+func combFilterConstFloat32(dst, delay []float32, g10, g11, g12 float32, x4, x3, x2, x1 float32, sseCount int) (float32, float32, float32, float32) {
 	n := len(dst)
 	if n == 0 {
 		return x4, x3, x2, x1
@@ -841,7 +841,7 @@ func combFilterConstFloat32(dst, delay []float32, g10, g11, g12 float32, x4, x3,
 	_ = delay[n-1]
 	if combUsesSSE {
 		i := 0
-		for full := n &^ 3; i < full; i++ {
+		for ; i < sseCount; i++ {
 			x0 := delay[i]
 			dst[i] = combFilterConstSSEValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
 			x4, x3, x2, x1 = x3, x2, x1, x0
@@ -1007,18 +1007,22 @@ func combFilterWithSquarePlanarFloat32(samples []float32, hist []celtSig, histor
 	x3 = combPlanarAtFloat32(samples, hist, history, base1+i+1)
 	x2 = combPlanarAtFloat32(samples, hist, history, base1+i+2)
 	x1 = combPlanarAtFloat32(samples, hist, history, base1+i+3)
+	// libopus comb_filter_const_sse() chooses its SIMD prefix once for the
+	// entire constant body. Splitting history and current-frame storage must
+	// not start an artificial scalar tail at the history boundary.
+	sseEnd := i + ((n - i) &^ 3)
 	histEnd := t1 - frameOffset - 2
 	histLimit := min(histEnd, n)
 	if i < histLimit {
 		dst := samples[frameOffset+i : frameOffset+histLimit]
 		delay := hist[base1+i+4 : base1+histLimit+4]
-		x4, x3, x2, x1 = combFilterConstFloat32Hist(dst, delay, g10, g11, g12, x4, x3, x2, x1)
+		x4, x3, x2, x1 = combFilterConstFloat32Hist(dst, delay, g10, g11, g12, x4, x3, x2, x1, min(histLimit, sseEnd)-i)
 		i = histLimit
 	}
 	if i < n {
 		dst := samples[frameOffset+i : frameOffset+n]
 		delay := samples[frameOffset-t1+i+2 : frameOffset-t1+n+2]
-		combFilterConstFloat32(dst, delay, g10, g11, g12, x4, x3, x2, x1)
+		combFilterConstFloat32(dst, delay, g10, g11, g12, x4, x3, x2, x1, max(0, sseEnd-i))
 	}
 }
 
