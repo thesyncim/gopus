@@ -352,7 +352,13 @@ func TestResetAnalysisHistory(t *testing.T) {
 		enc.prevLSFQ15[i] = int16(i + 1)
 	}
 
+	enc.targetRateBps = 12345
+
 	enc.resetAnalysisHistory()
+
+	if enc.targetRateBps != 12345 {
+		t.Fatalf("targetRateBps = %d, want 12345", enc.targetRateBps)
+	}
 
 	if enc.previousGainIndex != 10 {
 		t.Fatalf("previousGainIndex = %d, want 10", enc.previousGainIndex)

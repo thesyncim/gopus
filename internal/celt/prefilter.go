@@ -17,6 +17,9 @@ type prefilterResult struct {
 // postfilter parameters to signal in the bitstream.
 // This mirrors libopus run_prefilter() in celt_encoder.c.
 func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, enabled bool, tfEstimate float32, nbAvailableBytes int, toneFreq, toneishness, maxPitchRatio float32) prefilterResult {
+	// celt_encode_with_ec enables the pitch prefilter only when start == 0.
+	// Hybrid frames still run the disabled transition to update filter history.
+	enabled = enabled && !e.IsHybrid()
 	result := prefilterResult{on: false, pitch: combFilterMinPeriod, qg: 0, tapset: tapset, gain: 0}
 	channels := int(e.channels)
 	if channels <= 0 || frameSize <= 0 || len(preemph) == 0 {

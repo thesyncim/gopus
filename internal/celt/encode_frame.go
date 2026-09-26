@@ -434,7 +434,6 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	// Match libopus run_prefilter enable gating (celt_encoder.c:2037).
 	nbAvailableBytes := int(budget.nbAvailableBytes)
 	enabled := ((e.lfe && nbAvailableBytes > 3) || nbAvailableBytes > 12*codedChannels) &&
-		!e.IsHybrid() &&
 		!isSilence &&
 		re.Tell()+16 <= totalBits &&
 		!e.disablePrefilter

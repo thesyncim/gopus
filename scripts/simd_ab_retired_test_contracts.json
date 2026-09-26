@@ -1,0 +1,37 @@
+[
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestClassifyFrame",
+      "TestClassifyFrameEmptyInput",
+      "TestClassifyFrameQuantOffset"
+    ],
+    "retired_contract": "classifyFrame",
+    "source_review": "fc81fb76: The internal heuristic and its empty-input API have no runtime caller. Actual SILK frame classification belongs to VAD, pitch and noise shaping; these deleted heuristic expectations are not C parity checks."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestComputePeriodicity",
+      "TestComputePeriodicityEdgeCases"
+    ],
+    "retired_contract": "computePeriodicity",
+    "source_review": "fc81fb76: The arbitrary lag-range and nil-input helper API has no runtime caller. Actual pitch analysis has independent selected-C lag, contour and LTPCorr gates; those gates do not execute this deleted interface."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestEncoderStateAccessors"
+    ],
+    "retired_contract": "channel-level encoder state accessors",
+    "source_review": "fc81fb76: The gain/voicing/LSF/stereo mutation getter/setter interface is absent. No current API exposes the round-trip contract tested by these accessors."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestEncodePacketWithFECWithVADStatesUsesPerFrameState"
+    ],
+    "retired_contract": "EncodePacketWithFECWithVADStates",
+    "source_review": "fc81fb76: The external VADFrameState injection API is absent. silk_Encode computes VAD internally; injection equality is not a current callable contract or an exact replacement for a live-C FEC test."
+  }
+]

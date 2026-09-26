@@ -873,5 +873,339 @@
       "TestEncoderVariantThresholdForArchAppliesArchitectureFloors/arm64_silk_stereo_speech_tight_floor"
     ],
     "source_review": "0807b76a: architecture-floor names have explicit candidate assertions; every listed leaf must pass."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/encoder",
+    "baseline_tests": [
+      "TestSILKEncoderReconfiguresOnBandwidthChangeMono",
+      "TestSILKEncoderReconfiguresOnBandwidthChangeStereo"
+    ],
+    "required_candidate_tests": [
+      "TestSILKInternalRateSwitchZeroAlloc",
+      "TestSILKInternalRateSwitchesStepByStep",
+      "TestSILKInternalRateWaitsForBandwidthSwitch"
+    ],
+    "source_review": "3290f198: silk_control_audio_bandwidth keeps the current rate during active speech and steps WB through MB to NB after switchReady; both-channel tests assert that source contract and TOC at every step instead of the removed immediate-rebuild expectation."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/encoder",
+    "baseline_tests": [
+      "TestSilkResamplerDown2HPMatchesLegacy",
+      "TestSilkResamplerDown2HPScaledMatchesScaleThenResample",
+      "TestSilkResamplerDown2HPStereoMatchesDownmixThenResample"
+    ],
+    "required_candidate_tests": [
+      "TestAnalysisMatchesLibopusLive",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/10ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/10ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/10ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/10ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/10ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/10ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/20ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/20ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/20ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/20ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/20ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/20ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/40ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/40ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/40ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/40ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/40ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/40ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/5ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/5ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/5ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/5ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/5ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/5ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/60ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/60ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/60ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/60ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/60ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/60ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/10ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/10ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/10ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/10ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/10ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/10ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/20ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/20ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/20ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/20ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/20ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/20ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/40ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/40ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/40ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/40ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/40ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/40ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/5ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/5ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/5ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/5ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/5ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/5ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/60ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/60ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/60ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/60ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/60ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/60ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/10ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/10ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/10ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/10ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/10ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/10ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/20ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/20ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/20ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/20ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/20ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/20ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/40ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/40ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/40ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/40ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/40ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/40ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/5ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/5ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/5ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/5ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/5ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/5ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/60ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/60ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/60ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/60ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/60ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/60ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/10ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/10ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/10ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/10ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/10ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/10ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/20ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/20ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/20ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/20ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/20ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/20ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/40ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/40ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/40ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/40ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/40ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/40ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/5ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/5ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/5ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/5ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/5ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/5ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/60ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/60ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/60ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/60ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/60ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/60ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/10ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/10ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/10ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/10ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/10ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/10ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/20ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/20ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/20ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/20ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/20ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/20ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/40ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/40ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/40ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/40ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/40ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/40ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/5ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/5ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/5ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/5ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/5ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/5ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/60ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/60ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/60ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/60ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/60ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/60ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/10ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/10ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/10ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/10ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/10ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/10ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/20ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/20ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/20ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/20ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/20ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/20ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/40ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/40ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/40ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/40ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/40ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/40ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/5ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/5ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/5ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/5ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/5ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/5ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/60ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/60ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/60ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/60ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/60ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/60ms/corpus_silence_bursts_v1"
+    ],
+    "source_review": "473a0434: the separate legacy/scaled/stereo down2-HP wrappers are replaced by the source-shaped analysis input path. Actual selected-C analysis compares every output and all persistent state hashes including mem plus hp_ener_accum through successive mono/stereo frames at 48/24/16 kHz. This replaces the old Go-to-Go exact/8-ULP wrapper comparisons."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/encoder",
+    "baseline_tests": [
+      "TestDownsample48to16",
+      "TestResamplerContinuity"
+    ],
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/silk",
+        "test": "TestSILKEncoderDownsamplingResamplerMatchesLibopusOracle"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/silk",
+        "test": "TestSILKEncoderDownsamplingResamplerMatchesLibopusOracle/24000_to_12000_10ms"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/silk",
+        "test": "TestSILKEncoderDownsamplingResamplerMatchesLibopusOracle/24000_to_16000_10ms"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/silk",
+        "test": "TestSILKEncoderDownsamplingResamplerMatchesLibopusOracle/24000_to_8000_10ms"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/silk",
+        "test": "TestSILKEncoderDownsamplingResamplerMatchesLibopusOracle/48000_to_12000_10ms"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/silk",
+        "test": "TestSILKEncoderDownsamplingResamplerMatchesLibopusOracle/48000_to_16000_10ms"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/silk",
+        "test": "TestSILKEncoderDownsamplingResamplerMatchesLibopusOracle/48000_to_8000_10ms"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/silk",
+        "test": "TestSetupResamplersCarriesXBufOver"
+      }
+    ],
+    "source_review": "fc81fb76: the separate hybrid low-band wrapper moves into PacketEncoder/silk_setup_resamplers. Selected-C encoder resampler tests compare exact samples and total count for six consecutive 24/48-kHz frames to all three internal rates; setup-resamplers additionally checks retained history and next-frame continuation. These cover the old output-length/non-silence and loose sine-continuity assertions."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestEncodeFrameQuantizesInputPCM"
+    ],
+    "required_candidate_tests": [
+      "TestEncodeQuantizesInputPCM"
+    ],
+    "source_review": "fc81fb76: the same RES2INT16 boundary assertion is expressed at PacketEncoder.Encode; both inputBuf and xBuf must hold quantized 3277 for 0.1 input."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestResetStereoSideAfterMidOnlyPreservesRateControl"
+    ],
+    "required_candidate_tests": [
+      "TestReducedDependencyCodesEveryPacketIndependently",
+      "TestResetAnalysisHistory"
+    ],
+    "source_review": "fc81fb76: resetAnalysisHistory is the actual side-reset call at enc_api.go mid-only exit. TestResetAnalysisHistory asserts the source-correct reset values and preserved entropy/LP mode per silk/enc_API.c:453-463; reduced dependency is caller-owned EncControl and has an independent per-packet coding assertion. The old expectation to clear entropy history is intentionally corrected."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestReducedDependencyControlSurvivesReset"
+    ],
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/encoder",
+        "test": "TestSetPredictionDisabledPersistsAcrossReset"
+      },
+      "TestReducedDependencyCodesEveryPacketIndependently"
+    ],
+    "source_review": "fc81fb76: reducedDependency moves from channel state to caller-owned EncControl. The parent encoder reset test explicitly keeps PredictionDisabled and propagates silkMode.ReducedDependency; the packet test verifies each packet consumes that control."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestDecoderInterpolationMatches"
+    ],
+    "required_candidate_tests": [
+      "TestInterpolationSamplesCount",
+      "TestInterpolationSamplesCount/12kHz",
+      "TestInterpolationSamplesCount/16kHz",
+      "TestInterpolationSamplesCount/8kHz"
+    ],
+    "source_review": "fc81fb76: the removed test only asserts stereoInterpLenMs==8. The retained test asserts the same constant through exact interpolation lengths 64/96/128 at 8/12/16 kHz; it is not claimed as a PCM oracle."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestInterpolatePredictorsFloat",
+      "TestInterpolatePredictorsFloat/NoPredictorChange",
+      "TestInterpolatePredictorsFloat/PredictorRampUp",
+      "TestInterpolatePredictorsFloat/WidthRampUp",
+      "TestStereoEncStateInterp",
+      "TestSmoothTransitionAtBoundary",
+      "TestEncoderInterpolationState",
+      "TestStereoEncodeLRToMSWithInterp",
+      "TestInterpolationContinuity"
+    ],
+    "required_candidate_tests": [
+      "TestPacketEncoderInitRestoresFreshState",
+      "TestSILKStereoLRToMSMatchesLibopusOracle",
+      "TestSILKStereoLRToMSMatchesLibopusOracle/chirp_sweep_v1_wb_20ms_stereo_48k_packet0",
+      "TestSILKStereoLRToMSMatchesLibopusOracle/chirp_sweep_v1_wb_20ms_stereo_48k_packet0_48kbps",
+      "TestSILKStereoLRToMSMatchesLibopusOracle/full_width_20ms",
+      "TestSILKStereoLRToMSMatchesLibopusOracle/reduced_width_10ms",
+      "TestSILKStereoLRToMSMatchesLibopusOracle/to_mono_transition",
+      "TestStereoLRToMSKeepsFilterHistory"
+    ],
+    "source_review": "fc81fb76: the separate approximate float interpolation/state API is replaced by the shared integer silk_stereo_LR_to_MS path. The live-C gate compares every mid/side sample, prediction index, rate, flag and final state for zero and nonzero predictor/history/width states (10/20 ms and to-mono); retained-history and reset-to-fresh-packet checks cover state lifetime. The deleted loose float monotonicity/boundary assertions are not preserved as a second algorithm."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestApplyHybridPrefilterMatchesDisabledRunPrefilter"
+    ],
+    "required_candidate_tests": [
+      "TestHybridPrefilterMatchesDisabledTransition",
+      "TestHybridPrefilterMatchesDisabledTransition/ch1/gain0",
+      "TestHybridPrefilterMatchesDisabledTransition/ch1/gain0.46875",
+      "TestHybridPrefilterMatchesDisabledTransition/ch2/gain0",
+      "TestHybridPrefilterMatchesDisabledTransition/ch2/gain0.46875"
+    ],
+    "source_review": "036c4d51: unified encode entry runs the disabled prefilter transition for hybrid. The current live entry invariant checks complete preemphasis/history/overlap/period/gain/tapset/pitch-change state with both zero and active incoming gain, plus warm allocations. This preserves branch/state coverage, without claiming a C numeric oracle."
   }
 ]

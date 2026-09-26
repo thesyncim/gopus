@@ -82,6 +82,18 @@ func computeRedundancyBytes(maxDataBytes, bitrateBps, frameRate, channels int32)
 	return 0
 }
 
+// clampRedundancyBytesAfterSilk follows opus_encode_frame_native after the
+// redundancy direction bit. maxDataBytes includes the TOC; tellBits includes
+// the direction bit. Hybrid reserves its length byte and three CELT bits.
+func clampRedundancyBytesAfterSilk(maxDataBytes, tellBits, redundancyBytes int32, hybrid bool) int32 {
+	reserveBits := tellBits
+	if hybrid {
+		reserveBits += 8 + 3
+	}
+	available := maxDataBytes - 1 - (reserveBits+7)/8
+	return min(257, max(2, min(available, redundancyBytes)))
+}
+
 // frameRequest carries the arguments of one opus_encode_frame_native call.
 // The frame codes at e.bitrate (st->bitrate_bps, after any DRED reservation).
 type frameRequest struct {
@@ -264,17 +276,7 @@ func (e *Encoder) encodeFrameNative(pcm []opusRes, req frameRequest) (codedFrame
 		}
 		if redundancy {
 			re.EncodeBit(boolToInt(celtToSILK), 1)
-			var maxRedundancy int32
-			if hybrid {
-				// Reserve the 8 bits of the redundancy length and a few bits
-				// for CELT.
-				maxRedundancy = (maxDataBytes - 1) - int32((re.Tell()+8+3+7)>>3)
-			} else {
-				maxRedundancy = (maxDataBytes - 1) - int32((re.Tell()+7)>>3)
-			}
-			// Target the same bitrate for the redundancy as for the rest, up
-			// to 257 bytes.
-			redundancyBytes = min(257, max(2, min(maxRedundancy, redundancyBytes)))
+			redundancyBytes = clampRedundancyBytesAfterSilk(maxDataBytes, int32(re.Tell()), redundancyBytes, hybrid)
 			if hybrid {
 				re.EncodeUniform(uint32(redundancyBytes-2), 256)
 			}

@@ -44,8 +44,9 @@ def audited_test_replacements():
     path = pathlib.Path(__file__).with_name("simd_ab_test_replacements.json")
     replacements = {}
     for group in json.loads(path.read_text()):
-        targets = {(group["baseline_package"], test)
-                   for test in group["required_candidate_tests"]}
+        targets = {(group["baseline_package"], item) if isinstance(item, str)
+                   else (item["package"], item["test"])
+                   for item in group["required_candidate_tests"]}
         if not targets:
             raise ValueError("empty audited test replacement")
         for test in group["baseline_tests"]:
@@ -56,11 +57,28 @@ def audited_test_replacements():
     return replacements
 
 
+def audited_test_retirements():
+    # These exact internal API contracts no longer exist. Their removal is
+    # reported separately from passing replacement coverage and codec parity.
+    path = pathlib.Path(__file__).with_name("simd_ab_retired_test_contracts.json")
+    retired = set()
+    for group in json.loads(path.read_text()):
+        if not group["retired_contract"] or not group["source_review"]:
+            raise ValueError("undocumented retired test contract")
+        for test in group["baseline_tests"]:
+            key = (group["baseline_package"], test)
+            if key in retired:
+                raise ValueError(f"duplicate retired test contract: {key}")
+            retired.add(key)
+    return retired
+
+
 def missing_baseline_tests(base_tests, candidate_tests):
     replacements = audited_test_replacements()
+    retired = audited_test_retirements()
     missing = set()
     for key in base_tests.keys() - candidate_tests.keys():
-        if REMOVED_ASSEMBLY_TEST.fullmatch(key[1]):
+        if key in retired or REMOVED_ASSEMBLY_TEST.fullmatch(key[1]):
             continue
         targets = replacements.get(key)
         if targets and all(candidate_tests.get(target) == "pass" for target in targets):
@@ -231,7 +249,8 @@ def compare_full_parity(root: pathlib.Path):
     summary = (len(base_tests), len(simd_tests),
                sum(status == "fail" for status in base_tests.values()),
                sum(status == "fail" for status in simd_tests.values()),
-               base_sample_count, simd_sample_count)
+               base_sample_count, simd_sample_count,
+               sorted((base_tests.keys() - simd_tests.keys()) & audited_test_retirements()))
     return errors, summary
 
 
@@ -315,11 +334,14 @@ def main():
         errors, cases, full_summary = [str(exc)], 0, None
     for error in errors:
         print(f"SIMD A/B regression: {error}", file=sys.stderr)
+    if full_summary:
+        retired = full_summary[6]
+        print(f"Audited retired internal contracts: {len(retired)}; not replacement passes: {retired}")
     if errors:
         return 1
     print(f"Native SIMD A/B passes: {cases} CBR cases, focused decode, precision, dispatch, zero-allocation kernels")
     if full_summary:
-        old_tests, go_tests, old_fails, go_fails, old_samples, go_samples = full_summary
+        old_tests, go_tests, old_fails, go_fails, old_samples, go_samples, _ = full_summary
         print(f"Full parity: {old_tests} old-asm tests / {go_tests} Go SIMD tests; failures {old_fails} → {go_fails}; differing samples {old_samples} → {go_samples}")
     return 0
 

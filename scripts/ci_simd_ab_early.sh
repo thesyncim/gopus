@@ -165,7 +165,7 @@ for mode in simd nosimd; do
   run_json_phase "candidate-$mode-multistream-encode-budget" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json "${build_args[@]}" ./multistream ./internal/encoder \
-    -run '^(TestMultistream(EncodeBudgetMatchesLibopus|EncodeTooSmallPreservesState|SelfDelimitedBudgetFramingWarmZeroAllocs)|TestProjectionAnalysisMatchesLibopus|TestInitialStereoToMonoMatchesLibopus|TestProjectionInitialMonoDecisionMatchesLibopus|TestStereoFadeMatchesLibopus)$' \
+    -run '^(TestMultistream(EncodeBudgetMatchesLibopus|EncodeTooSmallPreservesState|SelfDelimitedBudgetFramingWarmZeroAllocs)|TestProjectionAnalysisMatchesLibopus|TestInitialStereoToMonoMatchesLibopus|TestProjectionInitialMonoDecisionMatchesLibopus|TestStereoFadeMatchesLibopus|TestStereoWidthComputation|TestClampRedundancyBytesAfterSilkMatchesLibopusFormula)$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-root-native-rate-dtx" \

@@ -8,6 +8,7 @@ import unittest
 from compare_simd_ab import (
     REPLACEMENT_TESTS,
     audited_test_replacements,
+    audited_test_retirements,
     baseline_cbr_errors,
     candidate_decode_errors,
     cbr_rows,
@@ -130,6 +131,17 @@ class IndependentOracleGateTest(unittest.TestCase):
                     else:
                         changed[target] = status
                     self.assertEqual(missing_baseline_tests(base, changed), {old})
+
+    def test_retired_internal_contracts_are_exact_names_only(self):
+        retired = audited_test_retirements()
+        self.assertEqual(len(retired), 7)
+        self.assertFalse(retired & audited_test_replacements().keys())
+        for key in retired:
+            self.assertEqual(missing_baseline_tests({key: "pass"}, {}), set())
+            child = (key[0], key[1] + "/unreviewed_case")
+            self.assertEqual(missing_baseline_tests({child: "pass"}, {}), {child})
+            other_package = ("github.com/thesyncim/gopus", key[1])
+            self.assertEqual(missing_baseline_tests({other_package: "pass"}, {}), {other_package})
 
     def test_unreviewed_missing_test_is_rejected(self):
         old = ("github.com/thesyncim/gopus", "TestUnreviewedRemovedCase")
