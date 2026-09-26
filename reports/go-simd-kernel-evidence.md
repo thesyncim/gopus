@@ -8,102 +8,50 @@ reference path.
 
 ## Correctness status
 
-Exact end-to-end packet parity with libopus is unresolved. Go SIMD selects the
-explicit native libopus SIMD tree; ordinary Go and `nosimd` select the explicit
-scalar tree. Conflicting overrides, mismatched archive/header trees, invalid
-build stamps, and unverified tool paths fail before comparison. Runtime variant
-and compliance quality comparisons encode fresh packets with the selected
-`opus_demo`, matching application, complexity 10, bitrate, bandwidth, input PCM
-and flush cadence. They retain packets and final ranges and log the C build
-identity and PCM hash. Stored-fixture integrity checks remain separate. A live
-quality result below its existing floor is a failure even when stored-fixture
-provenance is stale. Real-content and synthetic references share that paired
-helper and retain errors across cached calls; strict callers fail on an
-unavailable reference. All 23 real-content numerical floors pass on ARM64 in
-ordinary Go and SIMD with strict references enabled and platform-fixture
-metadata absent: 23 enforced floors per mode, zero skips. Focused `nosimd`
-precision and summary cases also enforce their floors and pass. This quality
-evidence does not establish packet or final-range exactness. Scalar C uses
-`-O3 -DNDEBUG -fno-tree-vectorize -fno-tree-slp-vectorize` in both correctness
-and performance helpers, retaining normal scalar FMA contraction. The ARM64
-archive's band-energy loop contains scalar loads and scalar FMA accumulation.
+Parity is measured against live libopus 1.6.1 builds of the same instruction
+set on the same machine. On amd64, Go SIMD (`GOEXPERIMENT=simd`) pairs with the
+SSE/AVX2 RTCD tree (`tmp_check/opus-1.6.1-simd`, gcc -O3), and ordinary Go and
+`nosimd` pair with the scalar tree (`tmp_check/opus-1.6.1-scalar`, -O3
+-fno-tree-vectorize -fno-tree-slp-vectorize). On arm64 the same three Go modes
+pair with clang 18 builds of the NEON and scalar trees. Build stamps, runtime
+dispatch and PCM identity are checked before any comparison, and every packet
+byte or final-range difference is a failure.
 
-On ARM64, the live band-energy and renormalization oracles match exactly in
-all three Go modes. Paired SILK LPC/LTP helpers link the selected C archive,
-use its runtime architecture, and validate the effective inner-product dispatch.
-Focused Burg, inner-product, LPC, autocorrelation, matrix/vector, and FindLTP
-oracles pass in all three Go modes. Matrix rolling updates preserve the paired
-C object's target-specific float contraction. Native AMD64 run
-[36068379452](https://github.com/thesyncim/gopus/actions/runs/36068379452)
-at `4c6ec03a` also passes the focused LPC/LTP oracles in SIMD and `nosimd`.
-Other helper dispatch and architecture skips still require audit. The strict matched CBR oracle runs all 19 configurations and compares each packet and
-entropy coder final range. It records the C build stamp, runtime architecture selection, and
-quantized PCM identity. Build metadata does not prove each kernel's effective
-dispatch. Every byte or range difference is a hard failure.
+Strict matched CBR oracle, 19 configurations and 2,175 packets:
 
-| Go mode | C reference | Exact configurations | Packet differences / 2,175 | Final-range differences / 2,175 |
-|---|---|---:|---:|---:|
-| Ordinary Go | Scalar | 8 / 19 | 104 | 37 |
-| `nosimd` | Scalar | 8 / 19 | 104 | 37 |
-| Go SIMD | Native NEON | 8 / 19 | 103 | 37 |
+| Lane | C reference | Exact configurations |
+|---|---|---:|
+| amd64 Go SIMD | SSE/AVX2 RTCD, gcc | 19 / 19 |
+| amd64 ordinary Go | scalar, gcc | 19 / 19 |
+| amd64 `nosimd` | scalar, gcc | 19 / 19 |
+| arm64 Go SIMD | NEON, clang 18 | 18 / 19 |
+| arm64 ordinary Go | scalar, clang 18 | 18 / 19 |
+| arm64 `nosimd` | scalar, clang 18 | 18 / 19 |
 
-The first matrix case with a difference is CELT-FB-2p5ms-mono-64k, frame 191,
-byte 8; Go final range is `0x185d6800` and C final range is `0x07c0a430`.
-The scalar and SIMD 800-case CELT encode grids each contain 791 byte-exact
-cases, nine residual cases, and no hard failures under that grid's existing
-policy. Those residual labels do not establish exact parity.
+On arm64 only Hybrid-SWB-20ms-mono-48k differs (7 packets, 3 final ranges).
 
-Scalar pitch downsampling, raw/windowed PLC autocorrelation, LPC, and FIR
-match live C bit for bit after preserving each C accumulation and lag-window
-order. All five periodic-conceal cases and both synthesis-stage probes run
-without an architecture skip and pass in ordinary, `nosimd`, and SIMD builds.
-Direct raw E1/E2 probes also match C for decay lengths 101–104, covering
-every remainder modulo four. Public PLC decoding allocation guards pass in
-all three modes. The full scalar CELT run at `1b18fbf0` has 2,834 passing test events and one failing case: a missing
-chirp packet-key fixture. Several SIMD float oracles still have architecture
-skips. Diagnostic unskips expose both arithmetic and reference-dispatch
-mismatches, so the passing active suite does not prove complete SIMD parity.
-Live C probes identify reassociation in the ARM64 four-phase pitch kernel and
-the scalar eight-lag pitch kernel as concrete remaining arithmetic differences.
-Root encode/decode steady-state allocation guards pass with Go SIMD.
+The per-frame encode differential sweep (`TestEncodeDifferentialFuzz`) has no
+CELT, hybrid or SILK payload differences on amd64. Its remaining differences are
+232 frames of TOC bandwidth in 10 ms SILK and hybrid packets, where libopus
+moves the SILK internal rate only through silk_control_audio_bandwidth.
 
-The native A/B comparator checks for additional failures relative to old
-assembly; matching failure counts do not prove matching packets or dispatch.
-The native run at `54300227` has 13 CBR configurations with packet
-differences in Go SIMD; its scalar modes have 18 exact cases and one residual
-under its packet-only summary gate. The current strict gate also checks final
-ranges. Run [36063000636](https://github.com/thesyncim/gopus/actions/runs/36063000636)
-at `4ba0b1a8` establishes the strict native Linux/AMD64 scalar result:
-18 of 19 configurations are exact, with 10 differing packets and three differing
-final ranges out of 2,175. All differences are in Hybrid-SWB-20ms-mono-48k;
-the first packet differs at frame 3 and the first final range at frame 17.
-The same native run's SIMD lane is exact in 6 of 19 configurations, with
-291 differing packets and 127 differing final ranges. Its first differing case
-is SILK-NB-20ms-mono-16k: 21 of 50 packets and one final range differ.
-These results are separate from the ARM64 matrix above and keep strict parity
-red.
-
-Run [36056914422](https://github.com/thesyncim/gopus/actions/runs/36056914422)
-at `54300227` has four NaN-payload parity failures in the AMD64 pitch
-search candidates. Their finite-input timings are provisional. The per-symbol
-inventory identifies the measured revision and unresolved correctness status.
-
-The paired native C raw-bit probe at `4c6ec03a` records effective AVX2/FMA
-xcorr and SSE remainder dispatch (`selected_arch=4`, CPU mask `111`, dispatch
-mask `11`). Production passes finite cancellation, signed-zero, subnormal,
-infinity, and tiny length-10 fixtures. It fails five exceptional-input cases:
-distinct NaN payloads, lengths 17 and 31 exceptional fills, and lengths 240 and
-241 at the SSE remainder. Direct candidate failures also include a length-5
-split reduction and a subnormal signed-zero difference in the tiny helper.
-For length 17 the one-pass result matches C while split does not; neither
-implementation is an adequate oracle for the other. These are hard failures,
-and finite timings remain provisional. Focused native LPC/LTP checks pass;
-strict CBR counts remain scalar 18/19 exact and SIMD 6/19 exact.
-The build-configuration job in that run reaches the tests with both required
-reference trees present. It fails the same scalar Hybrid CBR case and the
-stored-reference CELT 5 ms mono AM quality case (gap −6.89 Q against its
-unchanged −1.50 Q floor); a fresh paired runtime reference is required before
-attributing that quality gap to codec arithmetic.
+Open differences, each with a live-oracle reproducer:
+- Encoder: SILK internal bandwidth control, the SILK-internal DTX wiring at the
+  Opus layer, the mode-transition redundancy flow, and the hybrid CELT path
+  (not yet the single CELT encoder); these drive the remaining stateful
+  transition and sub-48 kHz cases. Tonality analysis has no live oracle yet.
+  The multistream and projection encoders differ in rate allocation, surround
+  masking and analysis input.
+- Decoder: silent frames do not run the full deemphasis (VERY_SMALL), one
+  SIMD-lane CELT stereo sample differs by 1 ULP, SILK stereo LBRR concealment
+  uses a separate PLC path, and the multistream decoder keeps its own copy of
+  the frame decoder.
+- amd64 SIMD pitch cross-correlation kernels differ from gcc's instruction order
+  on NaN payloads and signed zeros, and the scalar float32 FMA emulation
+  (`float32(math.FMA(...))`) double-rounds in rare cases.
+- arm64: the NEON build's auto-vectorized reductions (PLC LPC/autocorrelation,
+  pitch search, tonality analysis and others) and clang's contraction in the
+  SILK float kernels are not yet mirrored everywhere.
 
 ## Measurement method
 
