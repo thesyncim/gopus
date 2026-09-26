@@ -649,17 +649,20 @@ func (e *Encoder) applyStereoFade(samples []opusRes, widthQ14Prev, widthQ14 int1
 	overlap := min(celt.Overlap/inc, frameSize)
 	window := celt.GetWindowBufferF32(celt.Overlap)
 	for i := range overlap {
+		// opus_encoder.c stereo_fade rounds w*w and the first gain product;
+		// the second product is added with the target's natural contraction.
 		w := opusVal16(window[i*inc])
-		w *= w
-		g := g1*(1-w) + g2*w
-		diff := opusVal32(0.5) * (samples[i*2] - samples[i*2+1])
-		diff *= g
+		w = round32(w * w)
+		g := fma32(w, g2, round32((1-w)*g1))
+		// C rounds the scaled side signal before updating either channel.
+		diff := round32(opusVal32(0.5) * (samples[i*2] - samples[i*2+1]))
+		diff = round32(g * diff)
 		samples[i*2] -= diff
 		samples[i*2+1] += diff
 	}
 	for i := overlap; i < frameSize; i++ {
-		diff := opusVal32(0.5) * (samples[i*2] - samples[i*2+1])
-		diff *= g2
+		diff := round32(opusVal32(0.5) * (samples[i*2] - samples[i*2+1]))
+		diff = round32(g2 * diff)
 		samples[i*2] -= diff
 		samples[i*2+1] += diff
 	}
