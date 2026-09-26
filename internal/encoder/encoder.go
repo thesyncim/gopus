@@ -996,7 +996,6 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	if !inputFromShort {
 		pcmRes = e.quantizeInputToLSBDepth(inputPCM)
 	}
-	pcmRes = e.preprocessInputHP(pcmRes, frameSize)
 	frameEnd := frameSize * channels
 	samplesNeeded := frameEnd + lookaheadSamples
 	directFrameInput := lookaheadSamples == 0 && len(e.inputBuffer) == 0
@@ -1049,6 +1048,9 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		}
 		return pkt, nil
 	}
+	// The low-space return in opus_encode_native precedes dc_reject/hp_cutoff.
+	// Advance the input filter only when libopus enters the frame encoder.
+	framePCM = e.preprocessInputHP(framePCM, frameSize)
 
 	// Allow SILK DTX when DTX is on but the generalized DTX cannot be used,
 	// e.g. because of the complexity setting or the sample rate
