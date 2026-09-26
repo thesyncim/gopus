@@ -65,10 +65,10 @@ func convertFloat32ToInt16UnitBlocks(dst []int16, src []float32, n int) bool {
 			return false
 		}
 
-		q0 := v0.Mul(scale).Round().ConvertToInt32()
-		q1 := v1.Mul(scale).Round().ConvertToInt32()
-		q2 := v2.Mul(scale).Round().ConvertToInt32()
-		q3 := v3.Mul(scale).Round().ConvertToInt32()
+		q0 := roundFloat32x4AwayLikeCELT(v0.Mul(scale))
+		q1 := roundFloat32x4AwayLikeCELT(v1.Mul(scale))
+		q2 := roundFloat32x4AwayLikeCELT(v2.Mul(scale))
+		q3 := roundFloat32x4AwayLikeCELT(v3.Mul(scale))
 		storeInt16x8((*[8]int16)(unsafe.Add(dp, i*2)), q0, q1)
 		storeInt16x8((*[8]int16)(unsafe.Add(dp, i*2+16)), q2, q3)
 	}
@@ -86,19 +86,30 @@ func convertFloat32ToInt16SaturatingBlocks(dst []int16, src []float32, n int) {
 	scale := archsimd.BroadcastFloat32x4(32768)
 	for i := 0; i < n; i += 16 {
 		v0 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, i*4)))
-		q0 := v0.Mul(scale).Round().ConvertToInt32()
+		q0 := roundFloat32x4AwayLikeCELT(v0.Mul(scale))
 
 		v1 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, i*4+16)))
-		q1 := v1.Mul(scale).Round().ConvertToInt32()
+		q1 := roundFloat32x4AwayLikeCELT(v1.Mul(scale))
 		storeInt16x8((*[8]int16)(unsafe.Add(dp, i*2)), q0, q1)
 
 		v2 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, i*4+32)))
-		q2 := v2.Mul(scale).Round().ConvertToInt32()
+		q2 := roundFloat32x4AwayLikeCELT(v2.Mul(scale))
 
 		v3 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, i*4+48)))
-		q3 := v3.Mul(scale).Round().ConvertToInt32()
+		q3 := roundFloat32x4AwayLikeCELT(v3.Mul(scale))
 		storeInt16x8((*[8]int16)(unsafe.Add(dp, i*2+16)), q2, q3)
 	}
+}
+
+// celt_float2int16_neon rounds each full 16-sample block with FCVTAS, while
+// its scalar remainder uses FLOAT2INT16 (FCVTNS). archsimd.Round ties to even;
+// an exact half tie rounded toward zero needs one step away from zero to match
+// the vector body in celt/arm/celt_neon_intr.c.
+func roundFloat32x4AwayLikeCELT(x archsimd.Float32x4) archsimd.Int32x4 {
+	rounded := x.Round()
+	towardZeroTie := x.Abs().Sub(rounded.Abs()).Equal(archsimd.BroadcastFloat32x4(0.5)).ToInt32x4()
+	sign := x.Less(archsimd.BroadcastFloat32x4(0)).ToInt32x4().Or(archsimd.BroadcastInt32x4(1))
+	return rounded.ConvertToInt32().Add(towardZeroTie.And(sign))
 }
 
 func storeInt16x8(dst *[8]int16, lo, hi archsimd.Int32x4) {

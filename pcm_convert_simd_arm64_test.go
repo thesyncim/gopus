@@ -3,6 +3,7 @@
 package gopus
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -43,6 +44,47 @@ func TestPCMInt16SIMDExceptionalInputsMatchLibopus(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("sample[%d] bits=%08x: got %d, libopus got %d", i, math.Float32bits(samples[i]), got[i], want[i])
 		}
+	}
+}
+
+func TestPCMInt16SIMDBlockTiesAndTailMatchLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	ties := [...]float32{
+		-1235.5 / 32768, -2.5 / 32768, -1.5 / 32768, -0.5 / 32768,
+		0.5 / 32768, 1.5 / 32768, 2.5 / 32768, 1234.5 / 32768,
+	}
+	for _, n := range []int{15, 16, 17, 31, 32, 33, 49, 50} {
+		t.Run(fmt.Sprintf("len_%d", n), func(t *testing.T) {
+			samples := make([]float32, n)
+			for i := range samples {
+				tie := ties[i%len(ties)]
+				switch i / 16 {
+				case 1:
+					samples[i] = math.Nextafter32(tie, float32(math.Inf(1)))
+				case 2:
+					samples[i] = math.Nextafter32(tie, float32(math.Inf(-1)))
+				default:
+					samples[i] = tie
+				}
+			}
+			if n > 48 {
+				samples[48] = 0.5 / 32768 // scalar tail rounds to even
+			}
+			if n > 49 {
+				samples[49] = -0.5 / 32768
+			}
+			want, err := probeLibopusFloatQuant(libopustest.FloatQuantModeCELTDispatch, samples)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "CELT PCM block rounding", err)
+			}
+			got := make([]int16, n)
+			float32ToInt16NoSoftClip(got, samples, n, 1)
+			for i := range want {
+				if got[i] != want[i] {
+					t.Fatalf("sample[%d] bits=%08x: got %d want %d", i, math.Float32bits(samples[i]), got[i], want[i])
+				}
+			}
+		})
 	}
 }
 

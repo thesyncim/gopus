@@ -6,10 +6,8 @@
 //
 //   (a) ENCODE-then-DECODE: gopus encodes deterministic + random PCM across the
 //       config space (mode/bandwidth/frame duration/bitrate/channels/FEC/DTX),
-//       producing VALID packets, then decodes each through BOTH gopus and the
-//       libopus oracle and asserts identical PCM. amd64 is bit-exact; the
-//       documented darwin/arm64 ≤1-ULP CELT/Hybrid float drift is absorbed by a
-//       tiny tolerance on those modes only (see project_arm64_celt_1ulp_drift).
+//       producing valid packets, then decodes each through both gopus and the
+//       paired libopus oracle and asserts exact output lengths and PCM bits.
 //
 //   (b) STRUCTURED-MALFORMED: seeded mutations of valid packets (truncate, TOC
 //       flip, frame-length corruption, padding edge cases, code-0/1/2/3
@@ -24,9 +22,8 @@
 // Run with GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 for the full sweep.
 //
 // Scope: this harness hardens the DECODE path. Strategy (a) drives gopus's own
-// encoder to produce inputs; an encoder error or panic means no valid packet can
-// be generated for that config, so the spec is logged as an encoder-side finding
-// and skipped (it is not a decode divergence).
+// encoder to produce inputs; its final count assertion requires every selected
+// config to produce the expected packets and every format to decode exactly.
 
 package gopus
 
@@ -208,24 +205,6 @@ func pcmDiffWorst(toc byte, format uint32, got, want []float32) (worst float32, 
 		}
 	}
 	return worst, worstIdx, tol, worst <= tol
-}
-
-// assertDiffPCM compares gopus vs oracle PCM for a single accepted packet and
-// reports a divergence via t.Errorf. Used by the encode-then-decode sweep, where
-// every packet is valid and PCM must match within the per-arch tolerance.
-func assertDiffPCM(t *testing.T, label string, toc byte, format uint32, got, want []float32) bool {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Errorf("%s: PCM length gopus=%d libopus=%d", label, len(got), len(want))
-		return false
-	}
-	worst, worstIdx, tol, ok := pcmDiffWorst(toc, format, got, want)
-	if !ok {
-		t.Errorf("%s: PCM diverges (worst |Δ|=%g at sample %d, tol=%g, toc=0x%02x mode=%d)",
-			label, worst, worstIdx, tol, toc, tocMode(toc))
-		return false
-	}
-	return true
 }
 
 // ---- (a) encode-then-decode sweep -----------------------------------------
@@ -456,11 +435,9 @@ func encodePackets(t *testing.T, spec encodeSweepSpec, rng *rand.Rand, nFrames i
 		pcm := genPCM(rng, frameSamples, spec.channels, sampleRate)
 		pkt, err := encodeOneFrame(enc, pcm)
 		if err != nil {
-			// This harness validates the DECODE path. An encoder error/panic is an
-			// encoder-side finding (it cannot generate a valid packet to decode), so
-			// it is reported and the spec is skipped rather than failing the decode
-			// sweep.
-			t.Logf("encoder finding (%s frame %d): %v — skipping spec for decode sweep", spec.name, f, err)
+			// Every selected config must generate all frames for the exact
+			// decoder gate; the caller reports this encoder failure as a test error.
+			t.Logf("encoder failed (%s frame %d): %v", spec.name, f, err)
 			return nil, false
 		}
 		// Copy: EncodeFloat32 may reuse an internal buffer across calls.
@@ -480,9 +457,27 @@ func encodeOneFrame(enc *Encoder, pcm []float32) (pkt []byte, err error) {
 	return enc.EncodeFloat32(pcm)
 }
 
+// assertExactValidDecodePCM compares every output sample as float32 bits. The
+// int16 and int24 oracle outputs are scaled to float32 exactly before this call.
+func assertExactValidDecodePCM(t *testing.T, label string, got, want []float32) bool {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Errorf("%s: PCM length gopus=%d libopus=%d", label, len(got), len(want))
+		return false
+	}
+	for i := range got {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Errorf("%s: PCM[%d] bits gopus=%08x libopus=%08x", label, i,
+				math.Float32bits(got[i]), math.Float32bits(want[i]))
+			return false
+		}
+	}
+	return true
+}
+
 // TestDecodeDifferentialEncodeThenDecode encodes across the full config space
-// and asserts gopus and libopus decode the resulting valid packets to identical
-// PCM (bit-exact on amd64; ≤1-ULP CELT/Hybrid tolerance on arm64).
+// and requires exact decoded length and PCM bits for every accepted packet and
+// every public output format against the paired libopus decoder.
 func TestDecodeDifferentialEncodeThenDecode(t *testing.T) {
 	libopustest.RequireOracle(t)
 	if _, err := libopustest.DecodeDiffHelperPath(); err != nil {
@@ -490,6 +485,9 @@ func TestDecodeDifferentialEncodeThenDecode(t *testing.T) {
 	}
 
 	specs := buildEncodeSweep()
+	if !testing.Short() && len(specs) != 1440 {
+		t.Fatalf("encode-then-decode matrix has %d specs, want 1440", len(specs))
+	}
 	// Decode formats to exercise; float32 is the primary, int16/int24 share the
 	// same decode core and differ only in final conversion.
 	formats := []uint32{
@@ -508,15 +506,21 @@ func TestDecodeDifferentialEncodeThenDecode(t *testing.T) {
 	}
 
 	tested := 0
+	selected := 0
+	generatedPackets := 0
+	matchedDecodes := 0
 	for idx := 0; idx < len(specs) && tested < budget; idx += stride {
 		spec := specs[idx]
 		tested++
 		t.Run(spec.name, func(t *testing.T) {
+			selected++
 			specRng := rand.New(rand.NewSource(int64(idx)*1000003 + 1))
 			packets, ok := encodePackets(t, spec, specRng, framesPerSpec)
 			if !ok {
-				t.Skipf("encoder rejected config %s", spec.name)
+				t.Errorf("encoder did not produce packets for selected config %s", spec.name)
+				return
 			}
+			generatedPackets += len(packets)
 			for _, format := range formats {
 				cases := make([]libopustest.DecodeDiffCase, len(packets))
 				for i, p := range packets {
@@ -532,11 +536,7 @@ func TestDecodeDifferentialEncodeThenDecode(t *testing.T) {
 					gpcm, gn, gerr := gopusDecodeProbe(48000, spec.channels, cases[i])
 					label := fmt.Sprintf("%s/fmt%d/frame%d", spec.name, format, i)
 					if or.Code < 0 {
-						// libopus rejected a packet gopus produced — both should reject.
-						if gerr == nil {
-							t.Errorf("%s: libopus rejected (code=%d) a valid gopus packet but gopus accepted (n=%d) — packet=% x",
-								label, or.Code, gn, p)
-						}
+						t.Errorf("%s: libopus rejected (code=%d) a gopus packet — packet=% x", label, or.Code, p)
 						continue
 					}
 					if gerr != nil {
@@ -549,16 +549,22 @@ func TestDecodeDifferentialEncodeThenDecode(t *testing.T) {
 						continue
 					}
 					want := oracleResultToFloat32(format, or)
-					toc := byte(0)
-					if len(p) > 0 {
-						toc = p[0]
-					}
-					if !assertDiffPCM(t, label, toc, format, gpcm, want) {
+					if !assertExactValidDecodePCM(t, label, gpcm, want) {
 						t.Logf("%s: diverging packet=% x", label, p)
+						continue
 					}
+					matchedDecodes++
 				}
 			}
 		})
 	}
-	t.Logf("encode-then-decode sweep: %d/%d specs × %d frames × %d formats", tested, len(specs), framesPerSpec, len(formats))
+	if generatedPackets != selected*framesPerSpec {
+		t.Errorf("encode-then-decode generated %d packets, want %d", generatedPackets, selected*framesPerSpec)
+	}
+	if matchedDecodes != selected*framesPerSpec*len(formats) {
+		t.Errorf("encode-then-decode matched %d decoded packets, want %d across %d formats",
+			matchedDecodes, selected*framesPerSpec*len(formats), len(formats))
+	}
+	t.Logf("encode-then-decode exact sweep: %d selected of %d/%d visited specs, %d packets, %d decoded formats",
+		selected, tested, len(specs), generatedPackets, matchedDecodes)
 }

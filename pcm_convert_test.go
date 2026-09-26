@@ -29,9 +29,13 @@ func TestConvertFloat32ToInt16Unit(t *testing.T) {
 		t.Fatal("arm64 conversion rejected in-range samples")
 	}
 	for i, v := range src {
-		// The arm64 NEON block kernel uses FCVTNS (round to nearest, ties to
-		// even), matching libopus float2int (lrintf) and the scalar tail.
 		want := float32ToInt16(v)
+		if pcmInt16VectorTiesAway && i < len(src)&^15 {
+			// celt_float2int16_neon uses FCVTAS for complete 16-sample
+			// blocks and FCVTNS for the remainder.
+			rounded := int32(math.Round(float64(v * 32768)))
+			want = int16(max(-32768, min(32767, rounded)))
+		}
 		if dst[i] != want {
 			t.Fatalf("dst[%d] = %d, want %d", i, dst[i], want)
 		}
