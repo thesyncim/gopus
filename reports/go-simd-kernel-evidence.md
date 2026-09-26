@@ -108,20 +108,21 @@ General fractional CELT loss requests and concealment following transition
 redundancy need further coverage; the focused passes do not establish full
 decoder parity.
 
-The public encode-then-decode diagnostic at `b3c81a20` checks all 1,440
-configurations, three packets each, in float32/int16/int24 output against
-build-paired C. Its temporary comparator requires identical float32 bits and
-lengths without architecture or overflow allowances:
+The permanent public encode-then-decode gate at `6bdc651a` requires exact
+output lengths and every float32 bit for all three public output formats:
 
-| ARM64 lane | Passing configurations | Failing configurations | Failure scope |
-|---|---:|---:|---|
-| SIMD | 1,259 | 181 | 114 Hybrid / 67 CELT; int16 output only |
-| Ordinary scalar | 1,440 | 0 | none |
+| ARM64 lane | Exact configurations | Encoded packets | Exact format decodes |
+|---|---:|---:|---:|
+| SIMD | 1,440 / 1,440 | 4,320 | 12,960 |
+| Ordinary scalar | 1,440 / 1,440 | 4,320 | 12,960 |
+| `nosimd` scalar | 1,440 / 1,440 | 4,320 | 12,960 |
 
-All 230 SIMD diagnostics differ by exactly one int16 unit. Float32 and int24
-outputs match in this sweep. The public conversion/soft-clip boundary remains
-under investigation; the committed older comparator still has tolerances.
-These results do not establish exact public SIMD int16 decode.
+All lanes have zero failures or skips. NEON int16 conversion rounds exact
+half ties away from zero in full 16-sample blocks and ties to even in the
+scalar remainder, matching C. Actual-C boundary tests cover ties, adjacent
+representable values, NaNs, infinities, clipping, and block tails; unit-range
+and saturating conversion paths allocate zero in steady state.
+
 Multistream decode assertions require exact float bits and integer samples,
 including mode transitions. The complete 3,640-case strict ARM64 sweep at
 `b3c81a20` has no failures or skipped cases:
@@ -137,7 +138,7 @@ and the complement separately, matching the selected C translation unit.
 Actual-C rotation outputs and two complete packet regressions check every
 sample and final range. Independent root runs repeat the full matrix after
 merging the incoming transition-order and scalar-correlation commits. These
-counts are separate from the older public decoder diagnostic above.
+counts complement the public decoder gate above.
 
 The scalar encoder pitch path uses C's ascending four-lag accumulation. ARM
 SIMD uses one ordered vector chain across lags and the selected NEON inner
@@ -244,11 +245,23 @@ these tolerated differences are not counted as exact parity. The native
 build-config CI job fails on these encoder tests; the exact decoder sweep
 remains 3,640/3,640 in both matched lanes.
 
-The complete ARM stateful sweep at merged `b3c81a20` has 2,862 passing and
-126 failing stereo configurations out of 2,988 in both ordinary and SIMD
-builds, with zero skips. A matching final range alone is insufficient:
-earlier children of a multi-frame packet can differ while its final child
-agrees. These failures remain under causal investigation.
+The complete ARM stateful encoder sweep at `371537d5` passes all 2,988
+configurations in ordinary, SIMD and `nosimd`, with zero failures or skips.
+Each configuration checks 40 frames. Stereo fade preserves the selected C
+rounding boundaries before updating the channels. Nine direct C stage cases
+and a 40-frame packet/range witness pass in all three modes, with zero warm
+stage allocations. The same stage gate fails eight of nine cases against
+the pre-fix source. Native AMD64 confirmation remains pending.
+
+The low-delay oracle requires automatic bandwidth and channel selection on
+both sides. Its permanent gate requires exact packet bytes and final ranges
+on every architecture. At `fb8cd904`, restricted low-delay applications run the channel and bandwidth decisions
+while selecting CELT at the application-mode step. Independent current-source
+runs pass all 120 low-delay cells, 50 packet/range frames each, in ordinary,
+SIMD and `nosimd`; zero failures, skips, or residual allowances. VBR/CVBR
+checks that share the C helper pass in each lane. Four explicit-control and
+reset cases add 48 complete packet/range records per lane. Native AMD64
+confirmation remains pending.
 
 ### Optional-feature exactness audit
 
@@ -258,8 +271,11 @@ builds need scalar/SIMD identity validation. DRED carried-payload tests contain
 structural fallbacks; OSCE/deep-PLC tests include numerical tolerances. Their
 neural and codec dispatch choices must both match C. Custom-mode tests include
 unsupported-oracle skips and packet/PCM allowances. Fixed-point kernel checks
-do not prove the public encoder wrapper: its float preprocessing can differ
-from the C integer pipeline. The audit and causal fixes remain active; passing
+use matched captured integer CELT input, fullband and coded-channel controls,
+and a TOC-reserved CBR byte cap. All 162 configurations (five payloads each)
+pass exact payload lengths/bytes in all three local Go modes. This inner
+seam evidence does not prove raw public input parity or complete feature/ISA
+reference pairing. The audit and causal fixes remain active; passing
 these existing tests is not treated as 100% extension parity.
 
 Remaining investigations include:

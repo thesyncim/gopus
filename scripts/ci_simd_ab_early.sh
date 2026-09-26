@@ -165,13 +165,25 @@ for mode in simd nosimd; do
   run_json_phase "candidate-$mode-multistream-encode-budget" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json "${build_args[@]}" ./multistream ./internal/encoder \
-    -run '^(TestMultistream(EncodeBudgetMatchesLibopus|EncodeTooSmallPreservesState|SelfDelimitedBudgetFramingWarmZeroAllocs)|TestProjectionAnalysisMatchesLibopus|TestInitialStereoToMonoMatchesLibopus|TestProjectionInitialMonoDecisionMatchesLibopus)$' \
+    -run '^(TestMultistream(EncodeBudgetMatchesLibopus|EncodeTooSmallPreservesState|SelfDelimitedBudgetFramingWarmZeroAllocs)|TestProjectionAnalysisMatchesLibopus|TestInitialStereoToMonoMatchesLibopus|TestProjectionInitialMonoDecisionMatchesLibopus|TestStereoFadeMatchesLibopus)$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-root-native-rate-dtx" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json "${build_args[@]}" . \
-    -run '^(TestSub48NativeEncodeParity|TestEncodeStatefulDTXRunFuzz)$' \
+    -run '^(TestSub48NativeEncodeParity|TestEncodeStatefulDTXRunFuzz|TestStereoFadeTransitionPacketMatchesLibopus|TestLowDelayApplicationControlsMatchLibopus)$' \
+    -count=1 -timeout=10m
+
+  run_json_phase "candidate-$mode-lowdelay-exact" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json "${build_args[@]}" ./testvectors \
+    -run '^TestLowDelayCrossModeParity$' \
+    -count=1 -timeout=10m
+
+  run_json_phase "candidate-$mode-root-valid-decode-exact" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json "${build_args[@]}" . \
+    -run '^TestDecodeDifferentialEncodeThenDecode$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-root-stateful-mono-transition" \
