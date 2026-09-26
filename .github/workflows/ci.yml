@@ -780,8 +780,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout
+      - name: Checkout current validator and frozen hashes
         uses: actions/checkout@v5
+
+      - name: Checkout the recorded input producer
+        uses: actions/checkout@v5
+        with:
+          ref: 1ee7f25232a25d640aa92ece60d952036c2b09bd
+          path: frozen-opusdec-producer
+          persist-credentials: false
 
       - name: Setup Go 1.27.1
         uses: actions/setup-go@v6
@@ -789,37 +796,29 @@ jobs:
           go-version: 1.27.1
           cache: true
 
-      - name: Install opusdec
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq opus-tools
-          command -v opusdec
-
-      - name: Capture live-decoded SIMD fixture
+      - name: Recover exact frozen Ogg inputs
         env:
+          GOAMD64: v1
           GOEXPERIMENT: simd
-          GOPUS_REQUIRE_PLATFORM_FIXTURES: "1"
-          GOPUS_UPDATE_OPUSDEC_CROSSVAL_FIXTURE: "1"
+          GOPUS_TEST_TIER: fast
+          GOPUS_FROZEN_PRODUCER_COMMIT: 1ee7f25232a25d640aa92ece60d952036c2b09bd
+          GOPUS_FROZEN_EXPECTED_FIXTURE: ${{ github.workspace }}/internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json
+          GOPUS_FROZEN_INPUTS_OUT: ${{ github.workspace }}/frozen-opusdec-inputs
         run: |
-          set +e
-          go test ./internal/celt -run '^TestOpusdecCrossvalFixtureCoverage$' -count=1 -v > fixture-refresh.log 2>&1
-          rc=$?
-          set -e
-          cat fixture-refresh.log
-          if [ "$rc" -ne 0 ]; then
-            test "$rc" -eq 1
-            grep -q 'updated opusdec crossval fixture' fixture-refresh.log
-          fi
-          test -s internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json
+          test "$(git -C frozen-opusdec-producer rev-parse HEAD)" = "$GOPUS_FROZEN_PRODUCER_COMMIT"
+          tail -n +3 tools/csrc/opusdec_frozen_input_export_test.go > frozen-opusdec-producer/internal/celt/frozen_input_export_test.go
+          cd frozen-opusdec-producer
+          go test ./internal/celt -run '^TestExportFrozenOpusdecInputs$' -count=1 -v > ../frozen-input-recovery.log 2>&1
+          cat ../frozen-input-recovery.log
 
-      - name: Upload native opusdec fixture
+      - name: Upload recovered inputs and provenance
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: linux-amd64-opusdec-crossval-${{ github.event.pull_request.head.sha }}
+          name: linux-amd64-opusdec-frozen-inputs-${{ github.event.pull_request.head.sha }}
           path: |
-            internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json
-            fixture-refresh.log
+            frozen-opusdec-inputs
+            frozen-input-recovery.log
           if-no-files-found: error
           retention-days: 30
 
