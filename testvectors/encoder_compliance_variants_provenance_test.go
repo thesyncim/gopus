@@ -43,9 +43,11 @@ func TestEncoderVariantProfileProvenanceAudit(t *testing.T) {
 
 	rows := make([]variantProvenanceAuditRow, 0, len(fixture.Cases))
 	severeCount := 0
+	ranCases := 0
 	for _, c := range fixture.Cases {
 		name := fmt.Sprintf("%s-%s", c.Name, c.Variant)
 		t.Run(name, func(t *testing.T) {
+			ranCases++
 			totalSamples := c.SignalFrames * c.FrameSize * c.Channels
 			signal, err := testsignal.GenerateEncoderSignalVariant(c.Variant, 48000, totalSamples, c.Channels)
 			if err != nil {
@@ -55,29 +57,23 @@ func TestEncoderVariantProfileProvenanceAudit(t *testing.T) {
 				t.Fatalf("signal hash mismatch for %s", name)
 			}
 
-			libPackets, _, err := decodeEncoderVariantsFixturePackets(c)
+			ref, err := runPairedLibopusVariantPacketReference(c, signal)
 			if err != nil {
-				t.Fatalf("decode fixture packets: %v", err)
+				t.Fatalf("run matched live libopus reference: %v", err)
 			}
-			goPackets, _, err := encodeGopusForVariantsCase(c, signal)
+			goPackets, goRanges, err := encodeGopusForVariantsCase(c, signal)
 			if err != nil {
-				t.Fatalf("encode gopus packets with fixture provenance: %v", err)
+				t.Fatalf("encode gopus packets: %v", err)
 			}
+			comparison := compareEncoderPacketRanges(ref.packets, ref.finalRanges, goPackets, goRanges)
+			logEncoderVariantPacketReference(t, c, ref, comparison)
 
-			packetCountDiff := len(goPackets) - len(libPackets)
-			if packetCountDiff < 0 {
-				packetCountDiff = -packetCountDiff
-			}
-			if packetCountDiff > 1 {
-				t.Fatalf("packet count mismatch: go=%d lib=%d", len(goPackets), len(libPackets))
-			}
-
-			stats := computeEncoderPacketProfileStats(libPackets, goPackets)
+			stats := computeEncoderPacketProfileStats(ref.packets, goPackets)
 			goQ, err := qualityFromPacketsLibopusReference(goPackets, signal, c.Channels, c.FrameSize)
 			if err != nil {
 				t.Fatalf("compute gopus quality with libopus decode: %v", err)
 			}
-			libQ, err := qualityFromPacketsLibopusReference(libPackets, signal, c.Channels, c.FrameSize)
+			libQ, err := qualityFromPacketsLibopusReference(ref.packets, signal, c.Channels, c.FrameSize)
 			if err != nil {
 				t.Fatalf("compute libopus quality from fixture with libopus decode: %v", err)
 			}
@@ -100,11 +96,17 @@ func TestEncoderVariantProfileProvenanceAudit(t *testing.T) {
 				modeMismatch: stats.modeMismatchRate,
 				histogramL1:  stats.histogramL1,
 			})
+			if !comparison.exact() {
+				t.Errorf("matched live packet/range parity failed: %s", comparison.summary())
+			}
 		})
 	}
 
-	if len(rows) == 0 {
-		t.Fatal("provenance audit produced no rows")
+	if len(rows) != ranCases {
+		t.Fatalf("provenance audit row coverage mismatch: got=%d ran=%d", len(rows), ranCases)
+	}
+	if ranCases == 0 {
+		t.Fatal("provenance audit selected no cases")
 	}
 
 	sort.Slice(rows, func(i, j int) bool {
@@ -122,5 +124,5 @@ func TestEncoderVariantProfileProvenanceAudit(t *testing.T) {
 		t.Logf("worst[%d]: %s[%s] mode=%s gap=%.2fQ mismatch=%.2f%% histL1=%.3f%s",
 			i+1, r.name, r.variant, r.mode, r.gapQ, 100*r.modeMismatch, r.histogramL1, severity)
 	}
-	t.Logf("severe provenance gaps: %d/%d", severeCount, len(rows))
+	t.Logf("matched live provenance audit cases: %d/%d; severe quality gaps: %d", ranCases, len(fixture.Cases), severeCount)
 }

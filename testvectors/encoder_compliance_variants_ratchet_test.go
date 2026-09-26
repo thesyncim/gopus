@@ -52,17 +52,7 @@ func TestBuildBaselineCaseCapsPositiveGapFloorAtParity(t *testing.T) {
 	}
 }
 
-// hybridStereo96kAMMultisineFloorAMD64 is the expected amd64 gapQ floor for the
-// HYBRID-FB-20ms-stereo-96k am_multisine knife-edge case: the tight asm/SIMD floor
-// on the asm build, and the documented looser pure-Go floor on the pure-Go build.
-func hybridStereo96kAMMultisineFloorAMD64() float64 {
-	if !gopusBuildIsSIMD {
-		return encoderVariantMinGapFloorPureGoOverrideQ[encoderVariantCaseKey("HYBRID-FB-20ms-stereo-96k", "am_multisine_v1")]
-	}
-	return amd64EncoderVariantGapFloorQ
-}
-
-func TestEncoderVariantThresholdForArchAppliesAMD64Overrides(t *testing.T) {
+func TestEncoderVariantThresholdForArchAppliesArchitectureFloors(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name string
@@ -71,19 +61,16 @@ func TestEncoderVariantThresholdForArchAppliesAMD64Overrides(t *testing.T) {
 		want float64
 	}{
 		{
-			// libopus-amd64's own non-reference SSE drift on this chirp; see the
-			// override map. amd64-only.
-			name: "amd64 celt shortframe chirp override",
+			name: "amd64 celt shortframe chirp",
 			tc: encoderComplianceVariantsFixtureCase{
 				Name:    "CELT-FB-2.5ms-mono-64k",
 				Variant: "chirp_sweep_v1",
 				Mode:    "celt",
 			},
 			arch: "amd64",
-			want: -150.0,
+			want: -1.5,
 		},
 		{
-			// arm64 takes the tight floor for the same chirp; the override is amd64-only.
 			name: "arm64 celt shortframe chirp tight floor",
 			tc: encoderComplianceVariantsFixtureCase{
 				Name:    "CELT-FB-2.5ms-mono-64k",
@@ -168,12 +155,7 @@ func TestEncoderVariantThresholdForArchAppliesAMD64Overrides(t *testing.T) {
 			want: -1.5,
 		},
 		{
-			// The amd64 asm/SIMD build holds the tight -1.5 floor (it matches the
-			// SIMD variants fixture). The pure-Go build tracks the scalar libopus and
-			// takes the documented looser floor for this Hybrid-FB knife-edge case
-			// where libopus is itself arch-unstable (see
-			// encoderVariantMinGapFloorPureGoOverrideQ).
-			name: "amd64 hybrid stereo tight floor",
+			name: "amd64 hybrid stereo floor",
 			tc: encoderComplianceVariantsFixtureCase{
 				Name:     "HYBRID-FB-20ms-stereo-96k",
 				Variant:  "am_multisine_v1",
@@ -181,7 +163,7 @@ func TestEncoderVariantThresholdForArchAppliesAMD64Overrides(t *testing.T) {
 				Channels: 2,
 			},
 			arch: "amd64",
-			want: hybridStereo96kAMMultisineFloorAMD64(),
+			want: -1.5,
 		},
 		{
 			name: "arm64 hybrid stereo tight floor",
@@ -190,6 +172,46 @@ func TestEncoderVariantThresholdForArchAppliesAMD64Overrides(t *testing.T) {
 				Variant:  "am_multisine_v1",
 				Mode:     "hybrid",
 				Channels: 2,
+			},
+			arch: "arm64",
+			want: -1.0,
+		},
+		{
+			name: "amd64 hybrid mono AM floor",
+			tc: encoderComplianceVariantsFixtureCase{
+				Name:    "HYBRID-FB-10ms-mono-64k",
+				Variant: "am_multisine_v1",
+				Mode:    "hybrid",
+			},
+			arch: "amd64",
+			want: -1.5,
+		},
+		{
+			name: "arm64 hybrid mono AM floor",
+			tc: encoderComplianceVariantsFixtureCase{
+				Name:    "HYBRID-FB-10ms-mono-64k",
+				Variant: "am_multisine_v1",
+				Mode:    "hybrid",
+			},
+			arch: "arm64",
+			want: -1.0,
+		},
+		{
+			name: "amd64 hybrid mono chirp floor",
+			tc: encoderComplianceVariantsFixtureCase{
+				Name:    "HYBRID-FB-10ms-mono-64k",
+				Variant: "chirp_sweep_v1",
+				Mode:    "hybrid",
+			},
+			arch: "amd64",
+			want: -1.5,
+		},
+		{
+			name: "arm64 hybrid mono chirp floor",
+			tc: encoderComplianceVariantsFixtureCase{
+				Name:    "HYBRID-FB-10ms-mono-64k",
+				Variant: "chirp_sweep_v1",
+				Mode:    "hybrid",
 			},
 			arch: "arm64",
 			want: -1.0,

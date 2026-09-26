@@ -19,12 +19,19 @@ scalar counterpart reports zero with no SIMD macros. ARM64 SIMD binds NEON
 at compile time; its zero runtime arch value is not a scalar selection.
 Wrong-variant, archive/header, and compiler-policy rejection tests pass in all
 three local modes. The public and multistream decode helpers use the same
-build-aware archive resolver as the strict CBR oracle. Some legacy short-frame,
-CELT header, and band-allocation tests still consume static variant packets
-without validated CPU-feature provenance. Those fixture comparisons do not
-establish matched-path parity; their replacement with paired live C is pending.
-The main quality measurement already uses paired live C, but retains stale
-cross-feature threshold exceptions that also require cleanup.
+build-aware archive resolver as the strict CBR oracle. Short-frame, CELT header,
+band-allocation, variant provenance, and SILK flush comparisons use live C
+packets from the selected reference. Every case logs the C build identity and
+PCM input hash. Packet bytes, final ranges, and counts are strict in short-frame,
+provenance, and flush tests; header/allocation tests require exact stage fields
+and counts and also log packet/range differences. Allocation fields have no
+percentage allowance. Quality checks retain their normal floors without
+cross-feature exceptions. Fixture bytes, hashes, and baselines are unchanged.
+
+Decoder matrix/rate/loss/corpus/transition and long-frame encoder fixture
+consumers still have static numerical expectations without matched CPU
+provenance. Their conversion to live C is pending. Frozen packet inputs and
+fixture-honesty checks retain their independent roles.
 
 Strict matched CBR oracle, 19 configurations and 2,175 packets per lane:
 
@@ -37,9 +44,22 @@ Strict matched CBR oracle, 19 configurations and 2,175 packets per lane:
 | arm64 ordinary Go | scalar, Apple clang 21 | 19 / 19 |
 | arm64 `nosimd` | scalar, Apple clang 21 | 19 / 19 |
 
-Each lane has zero packet-byte and final-range differences. Native SIMD, ordinary, and
-`nosimd` results are from `e6f2b332`. Local ARM64 results include the Hybrid transient gate and explicit
-gain-fade contraction. This CBR subset does not establish full codec parity.
+Each lane has zero packet-byte and final-range differences. Native SIMD and
+`nosimd` also pass at `036c4d51`; the ordinary native result is from `e6f2b332`.
+Local ARM64 results include the Hybrid transient gate and explicit gain-fade
+contraction. This CBR subset does not establish full codec parity.
+
+The live variant audit at `036c4d51` executes all 92 cases: ordinary ARM64
+scalar C matches 90/92 exactly; ARM64 NEON matches 85/92 exactly. Scalar failures
+are 5 ms stereo CELT chirp and speech; SIMD failures cover six CELT cases and
+one Hybrid chirp case. No severe quality gaps occur, but every packet/range
+mismatch remains a hard failure. Forced `nosimd` also matches 90/92, with the
+same two scalar failures. Its 92-case coverage combines 81 completed cases
+before a ten-minute command timeout and an 11-case continuation that passes;
+no case is skipped or discarded.
+The resolver/rejection matrix passes in all three local modes. An actual SIMD
+test invocation with a scalar C override fails before encoding as required;
+unchanged fixture coverage, hashes, and stable ordering also pass.
 
 The Hybrid low-complexity gate checks all eight frames of mono 10 ms and stereo
 20 ms SWB 48 kbps VBR at complexities 0 and 1, including packet bytes and final
@@ -53,13 +73,15 @@ live-C helper tests, signal/silence state carry and downsample checks, 40 public
 silence decode configurations, and both PLC stage cases. Multistream fade-out
 requires actual decoded Hybrid history; exact live-C mono/stereo tests cover
 fresh SILK, Reset after nonzero Hybrid history, and real Hybrid-to-SILK
-transitions. Warmed public decode
+transitions. Warmed single-stream public decode
 and mono/stereo silence-transition guards report zero allocations. The touched
 root, CELT, and multistream packages compile for Linux AMD64 with SIMD;
 that cross-compilation provides no native runtime parity evidence.
 
-A strict diagnostic of all 1,440 public encode-then-decode configurations
-compares every output float bit against the matched C reference:
+The ARM64 checkpoint at `301be749` includes a strict diagnostic of all 1,440
+public encode-then-decode configurations, comparing every output float bit
+against the matched C reference. These counts do not include the encoder
+refactor at `036c4d51`:
 
 | ARM64 lane | Passing cases | Failing cases | Failing CELT / Hybrid cases |
 |---|---:|---:|---:|
@@ -91,6 +113,28 @@ with the public decode diagnostic, SIMD has 1,550 failures out of 5,080 cases
 versus 3,490 at `e6f2b332`; each scalar lane has 1,405 failures out of 5,080.
 These are failing configurations, not counts of independent defects.
 
+Native AMD64 early evidence at `036c4d51`, from
+[run 36253587780](https://github.com/thesyncim/gopus/actions/runs/36253587780),
+uses AMD EPYC 7763, Go 1.27.1, and GCC 13.3. SIMD C reports
+AVX2 dispatch (`opus_select_arch=4`); scalar C reports zero and no SIMD
+features. The strict 3,640-case multistream/projection sweep has no skips:
+
+| AMD64 lane | Passing cases | Failing cases | Surround / discrete / projection / Go-encoded failures |
+|---|---:|---:|---:|
+| SIMD | 2,874 | 766 | 665 / 35 / 39 / 27 |
+| `nosimd` scalar | 3,628 | 12 | 3 / 3 / 6 / 0 |
+
+All 12 scalar failures first differ on mode-transition frames. Both lanes pass
+the six deemphasis helpers, state/downsample coverage, 40 public silence cases,
+the mono/stereo history regression, and the warmed single-stream zero-allocation guards. The multistream guard
+passes its existing allowance of eight allocations per call; that is not a
+zero-allocation result. The SIMD stereo PLC stage test fails at final PCM sample 234 by one float32 ULP;
+its captured earlier stages match. Scalar PLC passes. The existing exceptional
+SIMD pitch-xcorr oracle also fails. Full native results for this revision are
+pending; the early subset is not a total mismatch inventory. The `301be749`
+full run is cancelled and its partial artifact does not establish a complete
+result for that revision.
+
 Full parity remains incomplete. The complete native AMD64 SIMD sweep at
 `e6f2b332` contains 1,819 unique failing leaf cases across 24 test families:
 1,732 multistream/projection, 20 stateful encode, and 67 other checks. The
@@ -99,9 +143,15 @@ Those counts describe that revision and include fixture evidence failures;
 they are neither current totals nor counts of independent bugs.
 
 Remaining investigations include:
-- Stateful encode: the matched ARM64 forced-Hybrid sweep has 20 differing
-  frames in 10 of 288 configurations in each mode. Multistream/projection
-  rate allocation, surround analysis, and packet budgeting also differ.
+- Encode at `036c4d51`: matched ordinary ARM64 scalar C checks find 38 differing
+  frames in 32/1,788 differential configurations and 293 differing frames in
+  176/2,844 executed stateful configurations. The stateful harness excludes
+  144 additional LBRR-panic specifications. Both tests return PASS under their
+  legacy float waivers; these results are not exact parity. All 260 native-rate
+  configurations produce matching packets in the sub-48-kHz harness; that
+  harness does not check final ranges. The paired scalar variant sweep has
+  90/92 exact cases; 5 ms stereo chirp and speech differ. Long-frame, DTX,
+  multistream/projection rate allocation and packet budgeting need exact traces.
 - Decode: non-silent CELT/Hybrid PCM, SILK stereo multi-frame FEC/LBRR,
   multistream transitions, and mapping/projection residuals need exact traces.
 - AMD64 kernels: exceptional pitch-cross-correlation inputs expose NaN-payload
@@ -110,6 +160,13 @@ Remaining investigations include:
 - ARM64 SIMD analysis: the live AnalysisInfo/state sweeps have tonality,
   noisiness, slope, and RNN-state differences with clang 21. Ordinary and
   `nosimd` analysis pass locally; native SIMD analysis passes at `e6f2b332`.
+- Multistream allocation: a warmed ARM64 SIMD diagnostic of
+  `multistream.Decoder.DecodeToFloat32` measures 6 allocations per two-frame
+  steady CELT cycle and 8 for steady SILK/Hybrid. Alternating Hybrid/SILK,
+  SILK/CELT, and CELT/Hybrid cycles measure 9–16 allocations for mono/stereo.
+  The existing multistream allowance is eight per call. These paths do not
+  meet a zero-allocation contract; the kernel and single-stream benchmark
+  zeroes do not cover them.
 - Legacy stateful and decode tolerances can report PASS despite differences.
   Their PASS is not counted as exact parity; owning fixes require strict gates.
 
@@ -329,6 +386,23 @@ samples versus 2.20% for assembly xcorr. The SSE-order dual prefilter takes
 4.67% cumulative samples in Go SIMD versus 8.59% in assembly. These shares
 identify live paths; they do not establish each kernel's contribution to the
 end-to-end timing difference.
+
+### Current native AMD64 interleaved encode
+
+[Run 36253587780](https://github.com/thesyncim/gopus/actions/runs/36253587780)
+compares assembly `8ac93c85` with `036c4d51` on AMD EPYC 7763,
+Go 1.27.1, using four interleaved 500 ms samples, `-cpu=1`, matching PGO
+settings, and preallocated caller buffers.
+
+| Caller-buffer encode | Median ns/op | Sample range | Allocs/op |
+|---|---:|---:|---:|
+| Old assembly | 91,870 | 90,932–92,051 | 0 |
+| Go SIMD | 88,977 | 87,905–90,532 | 0 |
+
+Go SIMD takes 3.1% less time in this same-run pair. The `301be749` pair on
+Xeon Platinum 8573C measures 94,975.5 → 81,601.5 ns/op (14.1% less time).
+Those different hosts cannot establish a revision-to-revision gain or loss.
+The early artifact contains no three-mode decode or per-symbol remeasurement.
 
 ## Per-symbol inventory
 

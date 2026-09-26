@@ -1,7 +1,6 @@
 package testvectors
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/encoder"
@@ -12,6 +11,7 @@ import (
 func TestEncoderVariantSilkFinalFlushMatchesLibopusFixture(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
+	requireStrictLibopusReference(t)
 
 	c, ok := findEncoderVariantsFixtureCase(
 		encoder.ModeSILK,
@@ -34,22 +34,22 @@ func TestEncoderVariantSilkFinalFlushMatchesLibopusFixture(t *testing.T) {
 		t.Fatal("signal hash mismatch")
 	}
 
-	wantPackets, _, err := decodeEncoderVariantsFixturePackets(c)
+	ref, err := runPairedLibopusVariantPacketReference(c, signal)
 	if err != nil {
-		t.Fatalf("decode fixture packets: %v", err)
+		t.Fatalf("run matched live libopus reference: %v", err)
 	}
-	gotPackets, _, err := encodeGopusForVariantsCase(c, signal)
+	gotPackets, gotRanges, err := encodeGopusForVariantsCase(c, signal)
 	if err != nil {
 		t.Fatalf("encode gopus packets: %v", err)
 	}
-	if len(gotPackets) != len(wantPackets) {
-		t.Fatalf("packet count mismatch: got=%d want=%d", len(gotPackets), len(wantPackets))
+	comparison := compareEncoderPacketRanges(ref.packets, ref.finalRanges, gotPackets, gotRanges)
+	logEncoderVariantPacketReference(t, c, ref, comparison)
+	if !comparison.exact() {
+		t.Fatalf("SILK signal/flush packet-range parity failed: %s", comparison.summary())
 	}
-	final := len(wantPackets) - 1
+	final := len(ref.packets) - 1
 	if final < 0 {
-		t.Fatal("fixture has no packets")
+		t.Fatal("live reference has no packets")
 	}
-	if !bytes.Equal(gotPackets[final], wantPackets[final]) {
-		t.Fatalf("final flush packet mismatch at frame %d", final)
-	}
+	t.Logf("final SILK flush frame=%d packet_bytes=%d final_range=0x%08x exact", final, len(gotPackets[final]), gotRanges[final])
 }
