@@ -9,6 +9,8 @@
  *               time buffer (which already includes the prefilter_and_fold TDAC
  *               overlap-add at the frame start).
  *   - final[] : post-deemphasis interleaved PCM for that decoded chunk.
+ *   - postfilter[] / preemph_mem_in[]: the planar input and incoming filter
+ *               state of the target chunk's deemphasis call.
  *
  * Implementation mirrors libopus_celt_synthesis_trace.c: it #includes the
  * pinned celt/celt_decoder.c (libopus 1.6.1) so celt_decode_lost() runs the
@@ -60,12 +62,16 @@ static int g_armed = 0;
 static int g_capture_N = 0;
 static int g_overlap = 0;            /* mode overlap (fold region length) */
 static int g_presyn_idx = 0;         /* channels captured for presyn */
+static int g_postfilter_idx = 0;     /* channels captured after postfilter */
+static int g_postfilter_calls[2] = {0, 0};
 static int g_fold_idx = 0;           /* channels captured for fold */
 static int g_combin_idx = 0;         /* channels captured for comb input */
 static int g_combout_idx = 0;        /* channels captured for comb output */
 static int g_spec_idx = 0;           /* channels captured for spectrum */
 static int g_combin_len = 0;         /* comb input length captured */
 static celt_sig *g_presyn_capture[2] = {NULL, NULL};
+static celt_sig *g_postfilter_capture[2] = {NULL, NULL};
+static celt_sig g_preemph_mem_in[2] = {0, 0};
 static celt_sig *g_fold_capture[2] = {NULL, NULL};
 static celt_sig *g_combin_capture[2] = {NULL, NULL};
 static celt_sig *g_combout_capture[2] = {NULL, NULL};
@@ -116,6 +122,10 @@ static void gopus_capture_denormalise_bands(const CELTMode *m, const celt_norm *
 #undef clt_mdct_backward
 #undef denormalise_bands
 
+/* The including translation unit owns CELTDecoder's exact pinned layout.
+ * This pointer is set after opus_decoder_create(), before any packet decode. */
+static CELTDecoder *g_celt_decoder = NULL;
+
 /* OpusDecoder keeps this offset as its first field. The custom decoder state
  * layout comes from the included pinned celt_decoder.c above. */
 typedef struct { int celt_dec_offset; } gopus_opus_decoder_prefix;
@@ -140,6 +150,8 @@ static void gopus_capture_comb_filter(opus_val32 *y, opus_val32 *x, int T0, int 
       if (chunk == g_target_fold_index) {
          g_armed = 1;
          g_presyn_idx = 0;
+         g_postfilter_idx = 0;
+         g_postfilter_calls[0] = g_postfilter_calls[1] = 0;
          g_spec_idx = 0;
          g_prespec_idx = 0;
          /* Capture the comb_filter input (history + N samples; start==history so
@@ -164,8 +176,21 @@ static void gopus_capture_comb_filter(opus_val32 *y, opus_val32 *x, int T0, int 
       OPUS_COPY(g_presyn_capture[ch], x, g_frame_size);
       g_capture_N = g_frame_size;
       g_presyn_idx = ch + 1;
+      if (g_celt_decoder != NULL) g_preemph_mem_in[ch] = g_celt_decoder->preemph_memD[ch];
    }
    comb_filter(y, x, T0, T1, N, g0, g1, tapset0, tapset1, window, overlap, arch);
+   if (g_armed && window != NULL && ch >= 0 && ch < 2 &&
+       g_postfilter_capture[ch] && g_frame_size > 0) {
+      /* celt_decode_lost runs one shortMDCT postfilter call, followed by a
+       * remainder call when LM != 0. The completed out_syn is the exact input
+       * that deemphasis reads; capture it before the next channel advances. */
+      int calls = ++g_postfilter_calls[ch];
+      int expected = g_frame_size > g_overlap ? 2 : 1;
+      if (calls == expected) {
+         OPUS_COPY(g_postfilter_capture[ch], y - (calls == 2 ? g_overlap : 0), g_frame_size);
+         g_postfilter_idx = ch + 1;
+      }
+   }
    if (fold_capture_ch >= 0 && fold_capture_ch < 2 && g_combout_capture[fold_capture_ch] && N > 0) {
       OPUS_COPY(g_combout_capture[fold_capture_ch], y, N);
       g_combout_idx = fold_capture_ch + 1;
@@ -280,12 +305,13 @@ int main(void) {
   g_overlap = 120; /* 48 kHz CELT custom mode overlap. */
   for (i = 0; i < channels; i++) {
     g_presyn_capture[i] = (celt_sig *)calloc((size_t)frame_size, sizeof(celt_sig));
+    g_postfilter_capture[i] = (celt_sig *)calloc((size_t)frame_size, sizeof(celt_sig));
     g_fold_capture[i] = (celt_sig *)calloc((size_t)g_overlap, sizeof(celt_sig));
     g_combin_capture[i] = (celt_sig *)calloc((size_t)(g_combin_history + g_overlap), sizeof(celt_sig));
     g_combout_capture[i] = (celt_sig *)calloc((size_t)g_overlap, sizeof(celt_sig));
     g_spec_capture[i] = (celt_sig *)calloc((size_t)frame_size, sizeof(celt_sig));
     g_prespec_capture[i] = (float *)calloc((size_t)frame_size, sizeof(float));
-    if (!g_presyn_capture[i] || !g_fold_capture[i] || !g_combin_capture[i] ||
+    if (!g_presyn_capture[i] || !g_postfilter_capture[i] || !g_fold_capture[i] || !g_combin_capture[i] ||
         !g_combout_capture[i] || !g_spec_capture[i] || !g_prespec_capture[i]) {
       fprintf(stderr, "alloc\n"); return 1;
     }
@@ -297,6 +323,8 @@ int main(void) {
 
   dec = opus_decoder_create((opus_int32)sample_rate, (int)channels, &err);
   if (!dec || err != OPUS_OK) { fprintf(stderr, "decoder_create %d\n", err); return 1; }
+  g_celt_decoder = (CELTDecoder *)((unsigned char *)dec +
+      ((gopus_opus_decoder_prefix *)dec)->celt_dec_offset);
 
   for (i = 0; i < packet_count; i++) {
     uint32_t decode_fec = 0, packet_len = 0;
@@ -338,9 +366,11 @@ int main(void) {
     }
   }
 
-  if (g_presyn_idx < (int)channels || g_fold_idx < (int)channels || g_spec_idx < (int)channels) {
-    fprintf(stderr, "target fold %d captured presyn=%d fold=%d spec=%d /%d channels (fold combs=%d)\n",
-            g_target_fold_index, g_presyn_idx, g_fold_idx, g_spec_idx, (int)channels, g_fold_comb_calls);
+  if (g_presyn_idx < (int)channels || g_postfilter_idx < (int)channels ||
+      g_fold_idx < (int)channels || g_spec_idx < (int)channels) {
+    fprintf(stderr, "target fold %d captured presyn=%d postfilter=%d fold=%d spec=%d /%d channels (fold combs=%d)\n",
+            g_target_fold_index, g_presyn_idx, g_postfilter_idx, g_fold_idx, g_spec_idx,
+            (int)channels, g_fold_comb_calls);
     return 1;
   }
 
@@ -351,10 +381,11 @@ int main(void) {
     if (N <= 0) { fprintf(stderr, "no capture N\n"); return 1; }
     int ov = g_overlap;
     int cinlen = g_combin_len;
-    if (!write_exact(GCLO_MAGIC, 4) || !write_u32(1) ||
+    if (!write_exact(GCLO_MAGIC, 4) || !write_u32(2) ||
         !write_u32((uint32_t)N) || !write_u32((uint32_t)CC) ||
         !write_u32((uint32_t)ov) || !write_u32((uint32_t)cinlen) ||
-        !write_u32((uint32_t)g_presyn_idx) || !write_u32((uint32_t)g_fold_idx)) {
+        !write_u32((uint32_t)g_presyn_idx) || !write_u32((uint32_t)g_fold_idx) ||
+        !write_u32((uint32_t)g_postfilter_idx)) {
       fprintf(stderr, "write header\n"); return 1;
     }
     for (ch = 0; ch < CC; ch++)
@@ -381,6 +412,11 @@ int main(void) {
       if (!write_float(seed_history[j])) { fprintf(stderr, "write seed history\n"); return 1; }
     for (j = 0; j < N * CC; j++)
       if (!write_float(seed_pcm[j])) { fprintf(stderr, "write seed PCM\n"); return 1; }
+    for (ch = 0; ch < CC; ch++)
+      if (!write_float((float)g_preemph_mem_in[ch])) { fprintf(stderr, "write preemph memory\n"); return 1; }
+    for (ch = 0; ch < CC; ch++)
+      for (j = 0; j < N; j++)
+        if (!write_float((float)g_postfilter_capture[ch][j])) { fprintf(stderr, "write postfilter\n"); return 1; }
   }
 
   opus_decoder_destroy(dec);
@@ -389,7 +425,7 @@ int main(void) {
   free(seed_history);
   free(seed_pcm);
   for (i = 0; i < 2; i++) {
-    free(g_presyn_capture[i]); free(g_fold_capture[i]);
+    free(g_presyn_capture[i]); free(g_postfilter_capture[i]); free(g_fold_capture[i]);
     free(g_combin_capture[i]); free(g_combout_capture[i]);
     free(g_spec_capture[i]); free(g_prespec_capture[i]);
   }

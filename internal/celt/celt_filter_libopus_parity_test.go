@@ -407,17 +407,17 @@ func assertCELTFilterMemBits(t *testing.T, dec *Decoder, want []float32) {
 	}
 }
 
-func probeLibopusCombFilter(t *testing.T, start, n, t0, t1, tapset0, tapset1, overlap int, g0, g1 float32, window []float32, buf []float64) []float32 {
+func probeLibopusCombFilter(t *testing.T, start, n, t0, t1, tapset0, tapset1, overlap int, g0, g1 float32, window, buf []float32) []float32 {
 	t.Helper()
 	return probeLibopusCombFilterMode(t, libopusCELTFilterModeCombFilter, start, n, t0, t1, tapset0, tapset1, overlap, g0, g1, window, buf)
 }
 
-func probeLibopusCombFilterInput(t *testing.T, start, n, t0, t1, tapset0, tapset1, overlap int, g0, g1 float32, window []float32, buf []float64) []float32 {
+func probeLibopusCombFilterInput(t *testing.T, start, n, t0, t1, tapset0, tapset1, overlap int, g0, g1 float32, window, buf []float32) []float32 {
 	t.Helper()
 	return probeLibopusCombFilterMode(t, libopusCELTFilterModeCombFilterInput, start, n, t0, t1, tapset0, tapset1, overlap, g0, g1, window, buf)
 }
 
-func probeLibopusCombFilterMode(t *testing.T, mode uint32, start, n, t0, t1, tapset0, tapset1, overlap int, g0, g1 float32, window []float32, buf []float64) []float32 {
+func probeLibopusCombFilterMode(t *testing.T, mode uint32, start, n, t0, t1, tapset0, tapset1, overlap int, g0, g1 float32, window, buf []float32) []float32 {
 	t.Helper()
 	payload := libopustest.NewOraclePayload("GCFI", mode)
 	payload.U32(uint32(start))
@@ -433,7 +433,7 @@ func probeLibopusCombFilterMode(t *testing.T, mode uint32, start, n, t0, t1, tap
 		payload.Float32(window[i])
 	}
 	for _, sample := range buf {
-		payload.Float32(float32(sample))
+		payload.Float32(sample)
 	}
 	reader := runLibopusCELTFilter(t, payload, celtFilterOracleUsesSIMD(mode))
 	if gotMode := reader.U32(); gotMode != mode {
@@ -496,11 +496,7 @@ func TestCombFilterWithSquareMatchesLibopus(t *testing.T) {
 	for i := range buf {
 		buf[i] = float32(math.Sin(float64(i+11)*0.031)*2300 + math.Cos(float64(i+7)*0.017)*170)
 	}
-	buf64 := make([]float64, len(buf))
-	for i := range buf {
-		buf64[i] = float64(buf[i])
-	}
-	want := probeLibopusCombFilter(t, start, n, t0, t1, 0, 0, overlap, 0.28125, 0.65625, windowF32, buf64)
+	want := probeLibopusCombFilter(t, start, n, t0, t1, 0, 0, overlap, 0.28125, 0.65625, windowF32, buf)
 
 	hist := make([]celtSig, start)
 	for i := range hist {
@@ -512,6 +508,41 @@ func TestCombFilterWithSquareMatchesLibopus(t *testing.T) {
 		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 			t.Fatalf("sample[%d]=%08x want %08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
 		}
+	}
+}
+
+func TestCombFilterConstantBodyHistorySeamMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	const (
+		start = combFilterHistory
+		n     = 192
+		gain  = float32(0.65625)
+	)
+	window := GetWindowBufferF32(Overlap)
+	windowSq := GetWindowSquareBufferF32(Overlap)
+	buf := make([]float32, start+n+2)
+	for i := range buf {
+		buf[i] = float32(math.Sin(float64(i+11)*0.031)*2300 + math.Cos(float64(i+7)*0.017)*170)
+	}
+	hist := make([]celtSig, start)
+	for i := range hist {
+		hist[i] = celtSig(buf[i])
+	}
+	// Equal parameters suppress the overlap ramp. The constant body crosses
+	// the stored-history seam at period-2, at each residue modulo four.
+	for _, period := range []int{73, 74, 75, 76, 117, 118, 119, 120} {
+		t.Run(fmt.Sprintf("period=%d/seam_mod4=%d", period, (period-2)&3), func(t *testing.T) {
+			want := probeLibopusCombFilter(t, start, n, period, period, 0, 0, Overlap, gain, gain, window, buf)
+			got := append([]float32(nil), buf[start:]...)
+			combFilterWithSquarePlanarFloat32(got, hist, start, 0, period, period, n,
+				gain, gain, 0, 0, window, windowSq, Overlap)
+			for i := range n {
+				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+					t.Fatalf("sample[%d]=%08x want %08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
+				}
+			}
+		})
 	}
 }
 
@@ -542,10 +573,6 @@ func TestCombFilterWithInputF32MatchesLibopus(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			start := combFilterHistory
 			srcSig := makeCELTPLCTestSignal(start+tc.n+2, tc.seed, 1.0)
-			src := make([]float64, len(srcSig))
-			for i := range srcSig {
-				src[i] = float64(srcSig[i])
-			}
 			overlap := tc.overlap
 			var win32 []float32
 			if tc.useWindow {
@@ -554,7 +581,7 @@ func TestCombFilterWithInputF32MatchesLibopus(t *testing.T) {
 				overlap = 0
 			}
 
-			want := probeLibopusCombFilterInput(t, start, tc.n, tc.t0, tc.t1, tc.tapset0, tc.tapset1, overlap, tc.g0, tc.g1, win32, src)
+			want := probeLibopusCombFilterInput(t, start, tc.n, tc.t0, tc.t1, tc.tapset0, tc.tapset1, overlap, tc.g0, tc.g1, win32, srcSig)
 			got := append([]celtSig(nil), srcSig...)
 			combFilterWithInputSig(got, srcSig, start, tc.t0, tc.t1, tc.n, tc.g0, tc.g1, tc.tapset0, tc.tapset1, win32, overlap)
 			got32 := make([]float32, tc.n)
