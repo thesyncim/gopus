@@ -396,9 +396,9 @@ func main() {
 
 	// opus_demo is required: the decode-of-libopus-packets lane freezes libopus
 	// encodes of each real clip, so the input bitstreams are reproducible.
-	opusDemoPath, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
-	if !ok {
-		fmt.Fprintf(os.Stderr, "opus_demo not found; run: make ensure-libopus\n")
+	opusDemoPath, err := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "opus_demo unavailable: %v\n", err)
 		os.Exit(1)
 	}
 	provenance, ok := libopustooling.LibopusBuildProvenanceForTool(opusDemoPath)

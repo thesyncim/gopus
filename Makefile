@@ -4,10 +4,11 @@ FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-p
 .PHONY: test test-fast test-race test-type-parity update-type-parity-baseline
 .PHONY: test-byte-parity-focus test-rfc-conformance test-fuzz-smoke test-fuzz-safety
 .PHONY: test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report
-.PHONY: test-assembly-safety test-soak-safety
+.PHONY: test-kernel-safety test-soak-safety
 .PHONY: bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard
 .PHONY: bench-testvectors bench-testvectors-compare bench-testvectors-report bench-kernels
 .PHONY: verify-production verify-production-exhaustive verify-safety test-build-config-matrix
+.PHONY: test-simd test-precision-guard
 .PHONY: release-evidence release-preflight
 .PHONY: ensure-libopus ensure-libopus-qext ensure-libopus-fixed ensure-libopus-custom
 .PHONY: ensure-libopus-custom-scalar ensure-libopus-simd ensure-libopus-scalar
@@ -20,13 +21,14 @@ FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-p
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
 GOLANGCI_LINT ?= golangci-lint
-GOLANGCI_LINT_VERSION ?= v1.64.8
+GOLANGCI_LINT_VERSION ?= v2.13.2
+GOLANGCI_LINT_TIMEOUT ?= 5m
 # Build-tag configs whose tagged source must stay lint/vet clean. The default
 # `make lint` only covers the default build; test-lint-tags runs golangci-lint
 # and `go vet` once per optional-feature tag so tag-gated files stay covered.
-LINT_TAG_CONFIGS ?= purego gopus_dred gopus_osce gopus_qext gopus_fixed_point gopus_custom_modes
+LINT_TAG_CONFIGS ?= nosimd gopus_dred gopus_osce gopus_qext gopus_fixed_point gopus_custom_modes
 GO_RUNNABLE_TEST ?= bash ./tools/run_go_test_runnable.sh
-ASSEMBLY_SAFETY_MATRIX ?= bash ./tools/run_assembly_safety_matrix.sh
+SIMD_SAFETY_MATRIX ?= bash ./tools/run_simd_safety_matrix.sh
 FOCUS_GATE ?= bash ./tools/run_focus_gate.sh
 FOCUS_GATE_CMD = GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE)
 TYPE_PARITY_GUARD ?= python3 ./tools/check_type_parity.py
@@ -92,13 +94,13 @@ RUNNABLE_PARITY = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_RUNNABL
 
 # Run golangci-lint
 lint:
-	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || { echo "golangci-lint not found. Install with: GOWORK=off go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"; exit 1; }
-	$(GO_WORK_ENV) $(GOLANGCI_LINT) run ./...
+	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || { echo "golangci-lint not found. Install with: GOWORK=off go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"; exit 1; }
+	$(GO_WORK_ENV) $(GOLANGCI_LINT) run --timeout=$(GOLANGCI_LINT_TIMEOUT) ./...
 
 # Run golangci-lint with auto-fix
 lint-fix:
-	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || { echo "golangci-lint not found. Install with: GOWORK=off go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"; exit 1; }
-	$(GO_WORK_ENV) $(GOLANGCI_LINT) run --fix ./...
+	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || { echo "golangci-lint not found. Install with: GOWORK=off go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"; exit 1; }
+	$(GO_WORK_ENV) $(GOLANGCI_LINT) run --timeout=$(GOLANGCI_LINT_TIMEOUT) --fix ./...
 
 # Genuinely-dead-code detector for the multi-build-tag tree. A single-config
 # `deadcode ./...` is false-positive dominated here (tag/arch gating, oracle-only
@@ -113,15 +115,15 @@ deadcode:
 
 # Lint + vet the optional-feature tag builds. `make lint` only covers the default
 # build; this runs golangci-lint and `go vet` once per LINT_TAG_CONFIGS entry so
-# tag-gated source (purego/DRED/QEXT/fixed-point/custom/extra-controls) stays
+# tag-gated source (nosimd/DRED/QEXT/fixed-point/custom/extra-controls) stays
 # lint-clean. Fails on the first config that reports a finding.
 test-lint-tags:
-	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || { echo "golangci-lint not found. Install with: GOWORK=off go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"; exit 1; }
+	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || { echo "golangci-lint not found. Install with: GOWORK=off go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"; exit 1; }
 	@set -e; for tags in $(LINT_TAG_CONFIGS); do \
 		echo "==> go vet -tags $$tags ./..."; \
 		$(GO_WORK_ENV) $(GO) vet -tags "$$tags" ./...; \
 		echo "==> golangci-lint run --build-tags $$tags ./..."; \
-		$(GO_WORK_ENV) $(GOLANGCI_LINT) run --build-tags "$$tags" ./...; \
+		$(GO_WORK_ENV) $(GOLANGCI_LINT) run --timeout=$(GOLANGCI_LINT_TIMEOUT) --build-tags "$$tags" ./...; \
 	done
 
 # Run the default package suite with pinned-reference oracles active.
@@ -131,6 +133,11 @@ test: ensure-libopus
 # Fast inner-loop tests (skips parity/exhaustive tier checks)
 test-fast:
 	$(RUNNABLE_FAST) -short
+
+# Full parity suite with Go-native SIMD kernels selected explicitly. Ordinary
+# builds stay on the scalar Go reference path; `nosimd` overrides this setting.
+test-simd: ensure-libopus
+	GOEXPERIMENT=simd $(RUNNABLE_PARITY) -count=1 -timeout=25m
 
 # Race detector sweep across all packages at fast test tier (keeps runtime bounded).
 test-race:
@@ -239,6 +246,15 @@ test-quality: ensure-libopus ensure-testvectors
 # decode sample-exactness and encode quality-gap parity.
 test-conformance: ensure-libopus
 
+# The ordinary Go build uses the scalar reference kernels. Compare its encoder
+# precision against the scalar libopus build so both sides use the same ISA.
+# SIMD comparisons stay in test-simd and the SIMD A/B lane.
+test-precision-guard: ensure-libopus ensure-libopus-scalar
+	$(GO_WORK_ENV) GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=exhaustive \
+		GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_REF_SCALAR=1 \
+		$(GO) test -tags gopus_libopus_oracle ./testvectors \
+		-run '^TestEncoderCompliancePrecisionGuard$$' -count=1 -timeout=20m
+
 # Optional libopus-internal exactness checks. These are intentionally not part
 # of the default production gate so math optimizations can move while quality
 # and interoperability stay enforced.
@@ -251,9 +267,9 @@ $(FOCUS_GATE_TARGETS):
 quality-report: ensure-libopus
 	$(GO_WORK_ENV) $(GO) run ./tools/qualityreport -out-dir $(QUALITY_REPORT_DIR)
 
-# Native assembly/fallback validation matrix.
-test-assembly-safety: ensure-libopus
-	$(ASSEMBLY_SAFETY_MATRIX)
+# Native SIMD/scalar kernel validation matrix.
+test-kernel-safety: ensure-libopus
+	$(SIMD_SAFETY_MATRIX)
 
 # Long-running randomized encode/decode corruption soak.
 test-soak-safety:
@@ -288,27 +304,25 @@ bench-testvectors-report: ensure-libopus ensure-testvectors
 	$(GO_WORK_ENV) $(GO) run $(PGO_FLAG) ./tools/testvectorbenchcmp -cases=$(BENCH_TESTVECTORS_COMPARE_CASES) -paths=$(BENCH_TESTVECTORS_COMPARE_PATHS) $(BENCH_TESTVECTORS_COMPARE_TIME_FLAG) -count=$(BENCH_TESTVECTORS_COMPARE_COUNT) -gopus-pgo=$(PGO_REPORT_PROFILE) -format=markdown -out reports/quality/testvector-benchmarks.md
 
 # --- Fair gopus-vs-libopus perf scoreboard (two honest tiers) ---------------
-# The pinned scalar parity reference (opus-$(LIBOPUS_VERSION)) has SIMD disabled
-# for bit-exact determinism, so it is NOT a fair perf opponent for the gopus asm
-# build. perf-fair runs BOTH honest tiers; capture each on a QUIET host.
+# The pinned scalar parity reference has SIMD disabled for bit-exactness, so it
+# is not a fair performance opponent for Go SIMD. perf-fair runs both tiers.
 #
-#   perf-asm     : gopus DEFAULT build (NEON/amd64 asm) vs libopus-SIMD.
-#                  Real-world asm-vs-asm comparison.
-#   perf-purego  : gopus -tags purego (scalar Go)      vs libopus-no-asm.
+#   perf-simd    : Go SIMD selected with GOEXPERIMENT=simd vs libopus-SIMD.
+#   perf-nosimd  : scalar Go (default or -tags nosimd) vs libopus scalar.
 #                  Fair scalar-vs-scalar comparison.
 #
 # Each prints a per-config + aggregate g/l table with an explicit tier header.
-.PHONY: perf-fair perf-asm perf-purego
+.PHONY: perf-fair perf-simd perf-nosimd
 
-perf-asm: ensure-libopus-simd
-	$(GO_WORK_ENV) GOPUS_BENCH_TIER=asm \
+perf-simd: ensure-libopus-simd
+	$(GO_WORK_ENV) GOEXPERIMENT=simd GOPUS_BENCH_TIER=simd \
 		$(GO) test $(PGO_FLAG) -tags gopus_libopus_bench -run TestScoreboardSummary -v -count=1 .
 
-perf-purego: ensure-libopus
-	$(GO_WORK_ENV) GOPUS_BENCH_TIER=purego \
-		$(GO) test $(PGO_FLAG) -tags 'gopus_libopus_bench purego' -run TestScoreboardSummary -v -count=1 .
+perf-nosimd: ensure-libopus-scalar
+	$(GO_WORK_ENV) GOPUS_BENCH_TIER=nosimd \
+		$(GO) test $(PGO_FLAG) -tags 'gopus_libopus_bench nosimd' -run TestScoreboardSummary -v -count=1 .
 
-perf-fair: perf-asm perf-purego
+perf-fair: perf-simd perf-nosimd
 
 # Default production verification gate.
 verify-production: ensure-libopus
@@ -339,7 +353,7 @@ verify-safety: ensure-libopus
 	$(MAKE) test-exhaustive
 	$(MAKE) bench-guard
 	$(MAKE) bench-libopus-guard
-	$(MAKE) test-assembly-safety
+	$(MAKE) test-kernel-safety
 	$(MAKE) test-fuzz-safety
 	$(MAKE) test-soak-safety
 	$(MAKE) release-evidence
@@ -347,8 +361,8 @@ verify-safety: ensure-libopus
 # Bit-exact libopus float kernels must match under every build config, not only
 # the default arm64 build. The rounding barrier that stops the arm64 backend from
 # contracting a*b+c into FMADD (where libopus does not) is a GOARCH property, so a
-# build constraint that drops it under -tags purego silently diverges from
-# libopus. This gate reruns the libopus oracle suite under purego so that class of
+# build constraint that drops it under -tags nosimd silently diverges from
+# libopus. This gate reruns the libopus oracle suite under nosimd so that class of
 # regression fails here. The default arm64 build is covered by the normal parity
 # run; amd64 is covered by CI.
 #
@@ -357,8 +371,8 @@ verify-safety: ensure-libopus
 # RTCD + SSE/AVX on amd64 and NEON on Linux arm64). GOPUS_LIBOPUS_REF_SCALAR=1
 # routes RefPath() to opus-$(LIBOPUS_VERSION)-scalar so the comparison is
 # scalar-Go vs scalar-C and can stay bit-exact.
-test-build-config-matrix: ensure-libopus-scalar
-	$(GO_WORK_ENV) GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_REF_SCALAR=1 $(GO) test -tags purego ./... -count=1 -timeout=25m
+test-build-config-matrix: ensure-libopus ensure-libopus-scalar
+	$(GO_WORK_ENV) GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_REF_SCALAR=1 $(GO) test -tags nosimd ./... -count=1 -timeout=25m
 
 # Generate a release evidence bundle (gates + key benchmarks).
 release-evidence: ensure-libopus
@@ -414,9 +428,8 @@ ensure-libopus-custom-scalar:
 
 # Ensure tmp_check/opus-$(LIBOPUS_VERSION)-simd/.libs/libopus.a exists, built
 # with libopus's native SIMD path (--enable-rtcd --enable-intrinsics): NEON on
-# arm64, SSE/AVX RTCD on amd64. This is the PERFORMANCE reference only — it is
-# NOT bit-reproducible, so it MUST NOT replace the scalar parity reference
-# (opus-$(LIBOPUS_VERSION)-scalar). Used by the asm-vs-asm perf tier.
+# arm64, SSE/AVX RTCD on amd64. It pairs with Go SIMD builds and direct tests of
+# matching SIMD kernels.
 ensure-libopus-simd:
 	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_SIMD=1 ./tools/ensure_libopus.sh
 
@@ -434,13 +447,13 @@ ensure-libopus-scalar:
 # SSE/NEON kernel (those only cover the standard 21-band layout), so it is scalar
 # Go regardless of build; the standard 48 kHz modes, however, DO use the asm CELT
 # kernels and would compare asm-SSE vs scalar-C. Run the whole gate as the pure-Go
-# build (-tags purego) against the scalar custom libopus
+# build (-tags nosimd) against the scalar custom libopus
 # (GOPUS_LIBOPUS_REF_SCALAR=1 -> custom-scalar tree) so every mode is a
 # like-with-like scalar-Go vs scalar-C comparison; the asm standard-mode CELT path
 # is covered byte-exact by the testvectors CELT gates.
 test-custom-parity: ensure-libopus-custom-scalar
 	$(GO_WORK_ENV) GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_REF_SCALAR=1 \
-		$(GO) test -tags 'gopus_custom_modes gopus_libopus_oracle purego' -count=1 ./internal/celt/custom/...
+		$(GO) test -tags 'gopus_custom_modes gopus_libopus_oracle nosimd' -count=1 ./internal/celt/custom/...
 
 # Live (fixture-free) gopus-vs-libopus decode parity on the extended synthetic
 # corpus signal classes across SILK/Hybrid/CELT mono+stereo configs, plus the

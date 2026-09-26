@@ -210,12 +210,9 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 	gain1 := pfRes.Gain
 	prefilterTapset := pfRes.Tapset
 	// pitch_change (analysis invalid here so the tonality test is always true).
-	pitchChange := false
-	if (gain1 > 13107 || e.prefilterGain > 13107) &&
+	pitchChange := (gain1 > 13107 || e.prefilterGain > 13107) &&
 		(float64(pitchIndex) > 1.26*float64(e.prefilterPeriod) ||
-			float64(pitchIndex) < 0.79*float64(e.prefilterPeriod)) {
-		pitchChange = true
-	}
+			float64(pitchIndex) < 0.79*float64(e.prefilterPeriod))
 	EmitPrefilterParams(enc, pfRes, hybrid, tell, totalBits)
 
 	shortBlocks := 0
@@ -226,10 +223,7 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 	} else {
 		isTransient = false
 	}
-	transientGotDisabled := false
-	if !(LM > 0 && enc.Tell()+3 <= totalBits) {
-		transientGotDisabled = true
-	}
+	transientGotDisabled := LM <= 0 || enc.Tell()+3 > totalBits
 
 	freq := ensureInt32(&sc.freq, CC*N)
 	bandE := ensureInt32(&sc.bandE, nbEBands*CC)

@@ -1,5 +1,3 @@
-//go:build !arm64 || purego
-
 package celt
 
 // deemphasisStereoPlanarF32Core mirrors the libopus celt/celt_decoder.c float

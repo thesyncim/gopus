@@ -30,7 +30,8 @@ enum {
   MODE_PITCH_DOWNSAMPLE = 3,
   MODE_PITCH_SEARCH = 4,
   MODE_REMOVE_DOUBLING = 5,
-  MODE_PERIODIC_CONCEAL = 6
+  MODE_PERIODIC_CONCEAL = 6,
+  MODE_RAW_AUTOCORR = 7
 };
 
 static int set_binary_stdio(void) {
@@ -134,7 +135,7 @@ static int run_lpc(void) {
   _celt_autocorr(x, ac, window, (int)overlap, PLC_LPC_ORDER, (int)n, arch);
   ac[0] *= 1.0001f;
   for (i = 1; i <= PLC_LPC_ORDER; i++) {
-    ac[i] -= ac[i] * (0.008f * 0.008f) * (float)(i * i);
+    ac[i] -= ac[i] * (0.008f * 0.008f) * i * i;
   }
   _celt_lpc(lpc, ac, PLC_LPC_ORDER);
 
@@ -278,6 +279,46 @@ static int run_pitch_downsample(void) {
   return 1;
 }
 
+static int run_raw_autocorr(void) {
+  int arch = opus_select_arch();
+  uint32_t n = 0;
+  uint32_t lag = 0;
+  uint32_t overlap = 0;
+  opus_val16 *x = NULL;
+  celt_coef *window = NULL;
+  opus_val32 *ac = NULL;
+
+  if (!read_u32(&n) || !read_u32(&lag) || !read_u32(&overlap)) return 0;
+  if (n == 0 || n > 4096 || lag >= n || lag > 64 || overlap > n / 2) return 0;
+  x = (opus_val16 *)malloc((size_t)n * sizeof(*x));
+  window = overlap == 0 ? NULL : (celt_coef *)malloc((size_t)overlap * sizeof(*window));
+  ac = (opus_val32 *)malloc((size_t)(lag + 1) * sizeof(*ac));
+  if (x == NULL || (overlap != 0 && window == NULL) || ac == NULL) {
+    free(x);
+    free(window);
+    free(ac);
+    return 0;
+  }
+  if ((overlap != 0 && !read_float_array((float *)window, overlap)) || !read_float_array((float *)x, n)) {
+    free(x);
+    free(window);
+    free(ac);
+    return 0;
+  }
+
+  _celt_autocorr(x, ac, window, (int)overlap, (int)lag, (int)n, arch);
+  if (!write_u32(lag + 1) || !write_float_array((const float *)ac, lag + 1)) {
+    free(x);
+    free(window);
+    free(ac);
+    return 0;
+  }
+  free(x);
+  free(window);
+  free(ac);
+  return 1;
+}
+
 static int run_pitch_search(void) {
   int arch = opus_select_arch();
   uint32_t len = 0;
@@ -362,6 +403,9 @@ static int run_periodic_conceal(void) {
   celt_sig *decode_mem = NULL;
   celt_sig *generated = NULL;
   opus_val16 *lp_pitch_buf = NULL;
+  opus_val32 energy1[2] = {0, 0};
+  opus_val32 energy2[2] = {0, 0};
+  opus_val16 decay_value[2] = {0, 0};
   int pitch_index = 0;
   int count = 0;
   uint32_t c;
@@ -461,7 +505,7 @@ static int run_periodic_conceal(void) {
                       PLC_LPC_ORDER, PLC_MAX_PERIOD, arch);
       ac[0] *= 1.0001f;
       for (i = 1; i <= PLC_LPC_ORDER; i++) {
-        ac[i] -= ac[i] * (0.008f * 0.008f) * (float)(i * i);
+        ac[i] -= ac[i] * (0.008f * 0.008f) * i * i;
       }
       _celt_lpc(lpc, ac, PLC_LPC_ORDER);
     } else {
@@ -492,6 +536,9 @@ static int run_periodic_conceal(void) {
       }
       if (E1 > E2) E1 = E2;
       decay = celt_sqrt(frac_div32(SHR32(E1, 1), E2));
+      energy1[c] = E1;
+      energy2[c] = E2;
+      decay_value[c] = decay;
     }
 
     OPUS_MOVE(buf, buf + frame_size, PLC_DECODE_BUFFER_SIZE - frame_size);
@@ -565,6 +612,15 @@ static int run_periodic_conceal(void) {
       return 0;
     }
   }
+  for (c = 0; c < channels; c++) {
+    if (!write_float((float)energy1[c]) || !write_float((float)energy2[c]) || !write_float((float)decay_value[c])) {
+      free(window);
+      free(decode_mem);
+      free(generated);
+      free(lp_pitch_buf);
+      return 0;
+    }
+  }
   free(window);
   free(decode_mem);
   free(generated);
@@ -597,6 +653,8 @@ int main(void) {
     ok = run_remove_doubling();
   } else if (mode == MODE_PERIODIC_CONCEAL) {
     ok = run_periodic_conceal();
+  } else if (mode == MODE_RAW_AUTOCORR) {
+    ok = run_raw_autocorr();
   } else {
     return 1;
   }

@@ -1,441 +1,264 @@
 package silk
 
-import (
-	"math"
-	"testing"
-)
+import "testing"
 
-func TestNewEncoder(t *testing.T) {
-	tests := []struct {
-		name           string
-		bandwidth      Bandwidth
-		wantLPCOrder   int
-		wantSampleRate int
-	}{
-		{"narrowband", BandwidthNarrowband, 10, 8000},
-		{"mediumband", BandwidthMediumband, 10, 12000},
-		{"wideband", BandwidthWideband, 16, 16000},
+// newTestEncoder returns a channel state after silk_init_encoder and the rate
+// half of silk_setup_fs for the internal rate of bandwidth, at complexity 0,
+// for tests that drive the analysis stages directly.
+func newTestEncoder(bandwidth Bandwidth) *Encoder {
+	e := newEncoder()
+	e.setupFs(int32(GetBandwidthConfig(bandwidth).SampleRate/1000), e.packetSizeMs)
+	e.setupComplexity(0)
+	return e
+}
+
+func TestNewEncoderHasNoInternalRate(t *testing.T) {
+	enc := newEncoder()
+	if enc.fsKHz != 0 || enc.packetSizeMs != 0 || enc.frameLength != 0 {
+		t.Fatalf("fs_kHz=%d PacketSize_ms=%d frame_length=%d, want all 0 after silk_init_encoder",
+			enc.fsKHz, enc.packetSizeMs, enc.frameLength)
 	}
+	if !enc.firstFrameAfterReset {
+		t.Fatal("first_frame_after_reset should be set")
+	}
+}
 
+func TestSetupFsSetsRateParameters(t *testing.T) {
+	tests := []struct {
+		name          string
+		fsKHz         int32
+		wantBandwidth Bandwidth
+		wantLPCOrder  int32
+	}{
+		{"narrowband", 8, BandwidthNarrowband, 10},
+		{"mediumband", 12, BandwidthMediumband, 10},
+		{"wideband", 16, BandwidthWideband, 16},
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			enc := NewEncoder(tt.bandwidth)
-
-			if enc.LPCOrder() != tt.wantLPCOrder {
-				t.Errorf("LPCOrder() = %d, want %d", enc.LPCOrder(), tt.wantLPCOrder)
+			enc := newEncoder()
+			enc.setupFs(tt.fsKHz, 20)
+			if enc.fsKHz != tt.fsKHz || enc.bandwidth != tt.wantBandwidth || enc.lpcOrder != tt.wantLPCOrder {
+				t.Fatalf("fs_kHz=%d bandwidth=%v predictLPCOrder=%d, want %d %v %d",
+					enc.fsKHz, enc.bandwidth, enc.lpcOrder, tt.fsKHz, tt.wantBandwidth, tt.wantLPCOrder)
 			}
-			if enc.SampleRate() != tt.wantSampleRate {
-				t.Errorf("SampleRate() = %d, want %d", enc.SampleRate(), tt.wantSampleRate)
+			if enc.nbSubfr != maxNbSubfr || enc.frameLength != 20*tt.fsKHz || enc.nFramesPerPacket != 1 {
+				t.Fatalf("nb_subfr=%d frame_length=%d nFramesPerPacket=%d, want %d %d 1",
+					enc.nbSubfr, enc.frameLength, enc.nFramesPerPacket, maxNbSubfr, 20*tt.fsKHz)
 			}
-			if enc.Bandwidth() != tt.bandwidth {
-				t.Errorf("Bandwidth() = %v, want %v", enc.Bandwidth(), tt.bandwidth)
+			// silk_setup_fs (silk/control_codec.c) sets these non-zero values
+			// on a rate change.
+			if enc.pitchState.prevLag != 100 || enc.nsqState.lagPrev != 100 {
+				t.Errorf("prevLag=%d sNSQ.lagPrev=%d, want 100", enc.pitchState.prevLag, enc.nsqState.lagPrev)
 			}
-			if enc.HaveEncoded() {
-				t.Error("HaveEncoded() should be false for new encoder")
+			if enc.nsqState.prevGainQ16 != 1<<16 {
+				t.Errorf("sNSQ.prev_gain_Q16 = %d, want %d", enc.nsqState.prevGainQ16, 1<<16)
 			}
-			if len(enc.PrevLSFQ15()) != tt.wantLPCOrder {
-				t.Errorf("PrevLSFQ15() length = %d, want %d", len(enc.PrevLSFQ15()), tt.wantLPCOrder)
+			if enc.previousGainIndex != 10 {
+				t.Errorf("LastGainIndex = %d, want 10", enc.previousGainIndex)
 			}
-			if enc.pitchState.prevLag != 0 {
-				t.Errorf("pitchState.prevLag = %d, want 0", enc.pitchState.prevLag)
-			}
-			if enc.nsqState == nil || enc.nsqState.lagPrev != 0 {
-				t.Errorf("nsqState.lagPrev = %d, want 0", enc.nsqState.lagPrev)
+			if !enc.firstFrameAfterReset {
+				t.Error("first_frame_after_reset should be set")
 			}
 		})
 	}
 }
 
-func TestEncoderReset(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
-
-	// Modify state
-	enc.MarkEncoded()
-	enc.SetPreviousLogGain(100)
-	enc.SetPreviousFrameVoiced(true)
-	enc.SetPrevStereoWeights([2]int16{1000, 2000})
-	enc.lastSpeechActivityQ8 = 12
-	enc.updateAllowBandwidthSwitch(20)
-
-	// Verify modifications
-	if !enc.HaveEncoded() {
-		t.Error("expected HaveEncoded after MarkEncoded")
-	}
-	if enc.PreviousLogGain() != 100 {
-		t.Error("expected PreviousLogGain = 100")
-	}
-
-	// Reset
-	enc.Reset()
-
-	// Verify reset
-	if enc.HaveEncoded() {
-		t.Error("HaveEncoded should be false after Reset")
-	}
-	if enc.PreviousLogGain() != 0 {
-		t.Error("PreviousLogGain should be 0 after Reset")
-	}
-	if enc.IsPreviousFrameVoiced() {
-		t.Error("IsPreviousFrameVoiced should be false after Reset")
-	}
-	weights := enc.PrevStereoWeights()
-	if weights[0] != 0 || weights[1] != 0 {
-		t.Error("PrevStereoWeights should be [0,0] after Reset")
-	}
-	if enc.pitchState.prevLag != 0 {
-		t.Errorf("pitchState.prevLag should be 0 after Reset, got %d", enc.pitchState.prevLag)
-	}
-	if enc.nsqState == nil || enc.nsqState.lagPrev != 0 {
-		t.Errorf("nsqState.lagPrev should be 0 after Reset, got %d", enc.nsqState.lagPrev)
-	}
-	if enc.AllowBandwidthSwitch() {
-		t.Error("AllowBandwidthSwitch should be false after Reset")
-	}
-	if enc.timeSinceSwitchAllowedMS != 0 {
-		t.Errorf("timeSinceSwitchAllowedMS should be 0 after Reset, got %d", enc.timeSinceSwitchAllowedMS)
-	}
-}
-
-func TestAllowBandwidthSwitchMatchesLibopusThreshold(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
-
-	enc.lastSpeechActivityQ8 = speechActivityDTXThresholdQ8 - 1
-	enc.updateAllowBandwidthSwitch(20)
-	if !enc.AllowBandwidthSwitch() {
-		t.Fatal("low activity should allow bandwidth switching")
-	}
-	if enc.timeSinceSwitchAllowedMS != 0 {
-		t.Fatalf("timeSinceSwitchAllowedMS=%d want reset 0", enc.timeSinceSwitchAllowedMS)
-	}
-
-	enc.lastSpeechActivityQ8 = speechActivityDTXThresholdQ8
-	enc.updateAllowBandwidthSwitch(20)
-	if enc.AllowBandwidthSwitch() {
-		t.Fatal("activity at threshold should not allow bandwidth switching")
-	}
-	if enc.timeSinceSwitchAllowedMS != 20 {
-		t.Fatalf("timeSinceSwitchAllowedMS=%d want 20", enc.timeSinceSwitchAllowedMS)
-	}
-
-	enc.lastSpeechActivityQ8 = 255
-	enc.timeSinceSwitchAllowedMS = maxBandwidthSwitchDelayMS
-	enc.updateAllowBandwidthSwitch(20)
-	if !enc.AllowBandwidthSwitch() {
-		t.Fatal("full delay threshold should allow even max Q8 activity")
-	}
-	if enc.timeSinceSwitchAllowedMS != 0 {
-		t.Fatalf("timeSinceSwitchAllowedMS after delayed switch=%d want 0", enc.timeSinceSwitchAllowedMS)
-	}
-}
-
-func TestResetTransitionPrefillState(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
-
-	enc.lastQuantOffsetType = 1
-	enc.frameCounter = 23
-	enc.lpState = LPState{
-		InLPState:         [2]int32{11, 22},
-		TransitionFrameNo: 17,
-		Mode:              -2,
-		SavedFsKHz:        16,
-	}
-	enc.SetPreviousLogGain(77)
-	enc.SetPreviousFrameVoiced(true)
-	enc.pitchState.prevLag = 101
-	enc.targetRateBps = 12345
-	if enc.nsqState == nil {
-		t.Fatal("expected nsqState to be initialized")
-	}
-	enc.nsqState.prevGainQ16 = 54321
-	lsf := make([]int16, len(enc.prevLSFQ15))
-	for i := range lsf {
-		lsf[i] = int16(i + 1)
-	}
-	enc.SetPrevLSFQ15(lsf)
-
-	enc.ResetTransitionPrefillState()
-
-	if enc.lastQuantOffsetType != 0 {
-		t.Fatalf("lastQuantOffsetType = %d, want 0", enc.lastQuantOffsetType)
-	}
-	if enc.frameCounter != 0 {
-		t.Fatalf("frameCounter = %d, want 0", enc.frameCounter)
-	}
-	if enc.lpState != (LPState{}) {
-		t.Fatalf("lpState = %+v, want zero value", enc.lpState)
-	}
-	if enc.PreviousLogGain() != 77 {
-		t.Fatalf("PreviousLogGain() = %d, want 77", enc.PreviousLogGain())
-	}
-	if !enc.IsPreviousFrameVoiced() {
-		t.Fatal("IsPreviousFrameVoiced() should stay true")
-	}
-	if enc.pitchState.prevLag != 101 {
-		t.Fatalf("pitchState.prevLag = %d, want 101", enc.pitchState.prevLag)
-	}
-	if enc.targetRateBps != 12345 {
-		t.Fatalf("targetRateBps = %d, want 12345", enc.targetRateBps)
-	}
-	if enc.nsqState.prevGainQ16 != 54321 {
-		t.Fatalf("nsqState.prevGainQ16 = %d, want 54321", enc.nsqState.prevGainQ16)
-	}
-	for i, want := range lsf {
-		if got := enc.prevLSFQ15[i]; got != want {
-			t.Fatalf("prevLSFQ15[%d] = %d, want %d", i, got, want)
-		}
-	}
-}
-
-func TestResetStereoSideAfterMidOnlyPreservesRateControl(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
-	enc.SetBitrate(12345)
-	enc.SetReducedDependency(true)
-	enc.SetPreviousLogGain(77)
-	enc.SetPreviousFrameVoiced(true)
-	enc.pitchState.prevLag = 222
+func TestSetupFsKeepsHistoryAtTheSameRate(t *testing.T) {
+	enc := newEncoder()
+	enc.setupFs(16, 20)
+	enc.firstFrameAfterReset = false
 	enc.previousGainIndex = 33
-	enc.ecPrevLagIndex = 7
-	enc.ecPrevSignalType = typeVoiced
-	enc.forceFirstFrameAfterReset = false
-	if enc.nsqState == nil || enc.noiseShapeState == nil {
-		t.Fatal("expected SILK side reset state to be initialized")
+	enc.inputBufIx = 5
+	enc.targetRateBps = 20000
+
+	// A new packet size re-targets the SNR but keeps the analysis history.
+	enc.setupFs(16, 10)
+	if enc.nbSubfr != 2 || enc.frameLength != 160 || enc.targetRateBps != 0 {
+		t.Fatalf("nb_subfr=%d frame_length=%d TargetRate_bps=%d, want 2 160 0", enc.nbSubfr, enc.frameLength, enc.targetRateBps)
 	}
-	enc.nsqState.prevGainQ16 = 54321
-	enc.nsqState.lagPrev = 222
-	enc.lpState.InLPState = [2]int32{11, 22}
-	for i := range enc.prevLSFQ15 {
-		enc.prevLSFQ15[i] = int16(i + 1)
+	if enc.firstFrameAfterReset || enc.previousGainIndex != 33 || enc.inputBufIx != 5 {
+		t.Fatalf("packet size change reset the history: first=%v LastGainIndex=%d inputBufIx=%d",
+			enc.firstFrameAfterReset, enc.previousGainIndex, enc.inputBufIx)
 	}
 
-	enc.ResetStereoSideAfterMidOnly()
+	// A rate change resets it and the buffered input.
+	enc.setupFs(12, 10)
+	if enc.frameLength != 120 || !enc.firstFrameAfterReset || enc.previousGainIndex != 10 || enc.inputBufIx != 0 {
+		t.Fatalf("rate change: frame_length=%d first=%v LastGainIndex=%d inputBufIx=%d, want 120 true 10 0",
+			enc.frameLength, enc.firstFrameAfterReset, enc.previousGainIndex, enc.inputBufIx)
+	}
+}
 
-	if enc.targetRateBps != 12345 {
-		t.Fatalf("targetRateBps = %d, want 12345", enc.targetRateBps)
+// bandwidthControlEncoder returns a channel coding at fsKHz for a 48 kHz API
+// rate with the given desired rate, as silk_control_encoder leaves it.
+func bandwidthControlEncoder(fsKHz, desiredHz int32) (*Encoder, *EncControl) {
+	enc := newEncoder()
+	ctl := &EncControl{
+		APISampleRate:             48000,
+		MaxInternalSampleRate:     16000,
+		MinInternalSampleRate:     8000,
+		DesiredInternalSampleRate: desiredHz,
+		PayloadSizeMs:             20,
+		MaxBits:                   1000,
 	}
-	if !enc.ReducedDependency() {
-		t.Fatal("ReducedDependency() should stay enabled")
+	enc.apiFsHz = ctl.APISampleRate
+	enc.maxInternalFsHz = ctl.MaxInternalSampleRate
+	enc.minInternalFsHz = ctl.MinInternalSampleRate
+	enc.desiredInternalFsHz = ctl.DesiredInternalSampleRate
+	enc.setupFs(fsKHz, 20)
+	return enc, ctl
+}
+
+func TestControlAudioBandwidthStartsAtDesiredRate(t *testing.T) {
+	enc := newEncoder()
+	enc.apiFsHz = 12000
+	enc.maxInternalFsHz = 16000
+	enc.minInternalFsHz = 8000
+	enc.desiredInternalFsHz = 16000
+	if got := enc.controlAudioBandwidth(&EncControl{}); got != 12 {
+		t.Fatalf("fresh encoder rate = %d kHz, want the API rate 12", got)
 	}
-	if enc.previousGainIndex != 10 {
-		t.Fatalf("previousGainIndex = %d, want 10", enc.previousGainIndex)
+	enc.lpState.SavedFsKHz = 8
+	if got := enc.controlAudioBandwidth(&EncControl{}); got != 8 {
+		t.Fatalf("rate after a prefill 2 reset = %d kHz, want the saved 8", got)
 	}
-	if enc.PreviousLogGain() != 0 {
-		t.Fatalf("PreviousLogGain() = %d, want 0", enc.PreviousLogGain())
+}
+
+func TestControlAudioBandwidthClampsIntoLimits(t *testing.T) {
+	enc, ctl := bandwidthControlEncoder(16, 16000)
+	enc.maxInternalFsHz = 12000
+	if got := enc.controlAudioBandwidth(ctl); got != 12 {
+		t.Fatalf("rate above the maximum = %d kHz, want 12", got)
 	}
-	if enc.IsPreviousFrameVoiced() {
-		t.Fatal("IsPreviousFrameVoiced() should be false")
+	enc, ctl = bandwidthControlEncoder(8, 16000)
+	enc.minInternalFsHz = 16000
+	if got := enc.controlAudioBandwidth(ctl); got != 16 {
+		t.Fatalf("rate below the minimum = %d kHz, want 16", got)
 	}
-	if enc.ecPrevLagIndex != 0 || enc.ecPrevSignalType != typeNoVoiceActivity {
-		t.Fatalf("entropy coding history = (%d,%d), want (0,%d)", enc.ecPrevLagIndex, enc.ecPrevSignalType, typeNoVoiceActivity)
+	if ctl.SwitchReady {
+		t.Fatal("clamping into the limits is not a signalled switch")
 	}
-	if enc.pitchState.prevLag != 100 {
-		t.Fatalf("pitchState.prevLag = %d, want 100", enc.pitchState.prevLag)
+}
+
+func TestControlAudioBandwidthSwitchDown(t *testing.T) {
+	enc, ctl := bandwidthControlEncoder(16, 12000)
+
+	// Without permission the rate holds and nothing starts.
+	if got := enc.controlAudioBandwidth(ctl); got != 16 || enc.lpState.Mode != 0 {
+		t.Fatalf("switch without permission: rate %d mode %d, want 16 0", got, enc.lpState.Mode)
 	}
-	if enc.nsqState.lagPrev != 100 {
-		t.Fatalf("nsqState.lagPrev = %d, want 100", enc.nsqState.lagPrev)
+
+	// With permission the LP filter starts fading the band out at double speed.
+	enc.allowBandwidthSwitch = true
+	if got := enc.controlAudioBandwidth(ctl); got != 16 {
+		t.Fatalf("first switch-down step changed the rate to %d", got)
 	}
-	if enc.nsqState.prevGainQ16 != 1<<16 {
-		t.Fatalf("nsqState.prevGainQ16 = %d, want %d", enc.nsqState.prevGainQ16, 1<<16)
+	if enc.lpState.Mode != -2 || enc.lpState.TransitionFrameNo != transitionFrames {
+		t.Fatalf("switch down started with mode %d transition %d, want -2 %d", enc.lpState.Mode, enc.lpState.TransitionFrameNo, transitionFrames)
 	}
-	if enc.lpState.InLPState != ([2]int32{}) {
-		t.Fatalf("lpState.InLPState = %v, want zero", enc.lpState.InLPState)
+	if ctl.SwitchReady {
+		t.Fatal("switchReady before the transition finished")
 	}
-	for i, got := range enc.prevLSFQ15 {
-		if got != 0 {
-			t.Fatalf("prevLSFQ15[%d] = %d, want 0", i, got)
+
+	// Once the transition has run out the encoder asks Opus to switch and
+	// leaves room for the redundant frame.
+	enc.lpState.TransitionFrameNo = 0
+	if got := enc.controlAudioBandwidth(ctl); got != 16 {
+		t.Fatalf("switch-ready step changed the rate to %d", got)
+	}
+	if !ctl.SwitchReady || ctl.MaxBits != 1000-1000*5/25 {
+		t.Fatalf("switchReady=%v maxBits=%d, want true %d", ctl.SwitchReady, ctl.MaxBits, 1000-1000*5/25)
+	}
+
+	// The switch happens when Opus allows it.
+	ctl.SwitchReady = false
+	ctl.OpusCanSwitch = true
+	if got := enc.controlAudioBandwidth(ctl); got != 12 || enc.lpState.Mode != 0 {
+		t.Fatalf("opusCanSwitch: rate %d mode %d, want 12 0", got, enc.lpState.Mode)
+	}
+}
+
+func TestControlAudioBandwidthSwitchUp(t *testing.T) {
+	enc, ctl := bandwidthControlEncoder(8, 16000)
+	enc.allowBandwidthSwitch = true
+
+	// With the LP filter idle the encoder is ready right away.
+	if got := enc.controlAudioBandwidth(ctl); got != 8 || !ctl.SwitchReady {
+		t.Fatalf("switch up: rate %d switchReady %v, want 8 true", got, ctl.SwitchReady)
+	}
+
+	// Opus switches one step up and the LP filter fades the band in.
+	ctl.OpusCanSwitch = true
+	enc.lpState.InLPState = [2]int32{3, 4}
+	if got := enc.controlAudioBandwidth(ctl); got != 12 {
+		t.Fatalf("opusCanSwitch rate = %d, want 12", got)
+	}
+	if enc.lpState.Mode != 1 || enc.lpState.TransitionFrameNo != 0 || enc.lpState.InLPState != ([2]int32{}) {
+		t.Fatalf("up transition state %+v, want mode 1 from frame 0 with a cleared filter", enc.lpState)
+	}
+
+	// A running down transition turns around when the desired rate is met.
+	enc, ctl = bandwidthControlEncoder(16, 16000)
+	enc.allowBandwidthSwitch = true
+	enc.lpState.Mode = -2
+	enc.lpState.TransitionFrameNo = 100
+	if got := enc.controlAudioBandwidth(ctl); got != 16 || enc.lpState.Mode != 1 {
+		t.Fatalf("turnaround: rate %d mode %d, want 16 1", got, enc.lpState.Mode)
+	}
+	// And stops when the transition is complete.
+	enc.lpState.TransitionFrameNo = transitionFrames
+	enc.controlAudioBandwidth(ctl)
+	if enc.lpState.Mode != 0 {
+		t.Fatalf("finished transition left mode %d", enc.lpState.Mode)
+	}
+}
+
+// TestSetupResamplersCarriesXBufOver checks silk_setup_resamplers on a rate
+// change: x_buf goes up to the API rate through a fresh decoder-side
+// resampler and back down through a fresh encoder resampler, which the
+// channel keeps.
+func TestSetupResamplersCarriesXBufOver(t *testing.T) {
+	const apiHz = 48000
+	enc := newEncoder()
+	enc.apiFsHz = apiHz
+	enc.setupResamplers(16)
+	enc.setupFs(16, 20)
+	const bufLengthMs = 4*5*2 + laShapeMs
+	oldX := make([]int16, bufLengthMs*16)
+	for i, v := range speechLikeSignal(16000, len(oldX), 1) {
+		oldX[i] = float32ToInt16(v)
+	}
+	enc.xBufFromInt16(oldX)
+
+	up := NewLibopusResampler(16000, apiHz)
+	apiX := make([]int16, bufLengthMs*apiHz/1000)
+	up.Resample(apiX, oldX)
+	down := NewLibopusResamplerEnc(apiHz, 12000)
+	wantX := make([]int16, bufLengthMs*12)
+	down.Resample(wantX, apiX)
+
+	enc.setupResamplers(12)
+	gotX := make([]int16, len(wantX))
+	enc.xBufToInt16(gotX)
+	for i, w := range wantX {
+		if gotX[i] != w {
+			t.Fatalf("x_buf[%d] = %d, want %d", i, gotX[i], w)
 		}
 	}
-	if !enc.forceFirstFrameAfterReset {
-		t.Fatal("forceFirstFrameAfterReset should be true")
-	}
-}
 
-func TestEncoderStateAccessors(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
-
-	// Test gain accessors
-	enc.SetPreviousLogGain(42)
-	if enc.PreviousLogGain() != 42 {
-		t.Errorf("PreviousLogGain = %d, want 42", enc.PreviousLogGain())
+	// The input resampler continues from the primed state.
+	in := make([]int16, apiHz/100)
+	for i := range in {
+		in[i] = int16(1000 * (i % 7))
 	}
-
-	// Test voiced accessors
-	enc.SetPreviousFrameVoiced(true)
-	if !enc.IsPreviousFrameVoiced() {
-		t.Error("IsPreviousFrameVoiced should be true")
-	}
-
-	// Test LSF accessors
-	lsf := make([]int16, 16)
-	for i := range lsf {
-		lsf[i] = int16(i * 100)
-	}
-	enc.SetPrevLSFQ15(lsf)
-	result := enc.PrevLSFQ15()
-	for i := range lsf {
-		if result[i] != lsf[i] {
-			t.Errorf("PrevLSFQ15[%d] = %d, want %d", i, result[i], lsf[i])
+	got := make([]int16, 120)
+	want := make([]int16, 120)
+	enc.resampler.Resample(got, in)
+	down.Resample(want, in)
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("resampler output[%d] = %d, want %d", i, got[i], want[i])
 		}
-	}
-
-	// Test stereo weight accessors
-	enc.SetPrevStereoWeights([2]int16{1234, 5678})
-	weights := enc.PrevStereoWeights()
-	if weights[0] != 1234 || weights[1] != 5678 {
-		t.Errorf("PrevStereoWeights = %v, want [1234, 5678]", weights)
-	}
-}
-
-func TestReducedDependencyPacketCadence(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
-	enc.MarkEncoded()
-	if enc.firstFrameAfterResetActive() {
-		t.Fatal("firstFrameAfterResetActive should be false after prior encoding")
-	}
-
-	enc.SetReducedDependency(true)
-	if !enc.ReducedDependency() {
-		t.Fatal("ReducedDependency() should be true after SetReducedDependency(true)")
-	}
-	enc.ResetPacketState()
-	if !enc.firstFrameAfterResetActive() {
-		t.Fatal("firstFrameAfterResetActive should be true at packet start when reduced dependency is enabled")
-	}
-
-	pcm := make([]float32, enc.SampleRate()/50) // 20 ms
-	_ = enc.EncodeFrame(pcm, nil, true)
-	if enc.firstFrameAfterResetActive() {
-		t.Fatal("firstFrameAfterResetActive should be consumed after encoding the first frame")
-	}
-}
-
-func TestReducedDependencyControlSurvivesReset(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
-	enc.SetReducedDependency(true)
-	enc.Reset()
-	if !enc.ReducedDependency() {
-		t.Fatal("ReducedDependency() should stay enabled across Reset()")
-	}
-}
-
-func TestClassifyFrame(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
-
-	// Test inactive (silence)
-	silence := make([]float32, 320)
-	sigType, _ := enc.classifyFrame(silence)
-	if sigType != 0 {
-		t.Errorf("silence should be inactive, got signalType=%d", sigType)
-	}
-
-	// Test unvoiced (noise-like)
-	// Create signal with multiple non-harmonic frequencies
-	noise := make([]float32, 320)
-	for i := range noise {
-		// Sum of incommensurate frequencies creates noise-like signal
-		noise[i] = float32(math.Sin(float64(i)*0.1) + math.Sin(float64(i)*0.37) + math.Sin(float64(i)*0.73))
-		noise[i] *= 1000
-	}
-	sigType, _ = enc.classifyFrame(noise)
-	if sigType == 0 {
-		t.Errorf("noise should be active, got signalType=0")
-	}
-
-	// Test voiced (sinusoid = periodic)
-	voiced := make([]float32, 320)
-	freq := 200.0 // 200 Hz fundamental
-	for i := range voiced {
-		voiced[i] = float32(math.Sin(2*math.Pi*freq*float64(i)/16000.0)) * (10000 * int16Scale)
-	}
-	sigType, _ = enc.classifyFrame(voiced)
-	if sigType != 2 {
-		t.Errorf("periodic signal should be voiced, got signalType=%d", sigType)
-	}
-}
-
-func TestClassifyFrameEmptyInput(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
-
-	// Empty input should return inactive
-	sigType, quantOffset := enc.classifyFrame(nil)
-	if sigType != 0 || quantOffset != 0 {
-		t.Errorf("empty input: got signalType=%d, quantOffset=%d, want 0, 0", sigType, quantOffset)
-	}
-
-	sigType, quantOffset = enc.classifyFrame([]float32{})
-	if sigType != 0 || quantOffset != 0 {
-		t.Errorf("empty slice: got signalType=%d, quantOffset=%d, want 0, 0", sigType, quantOffset)
-	}
-}
-
-func TestClassifyFrameQuantOffset(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
-
-	// High periodicity should give high quant offset
-	voiced := make([]float32, 320)
-	freq := 150.0 // Strong periodic signal
-	for i := range voiced {
-		voiced[i] = float32(math.Sin(2*math.Pi*freq*float64(i)/16000.0)) * (10000 * int16Scale)
-	}
-	_, quantOffset := enc.classifyFrame(voiced)
-	if quantOffset != 1 {
-		t.Errorf("high periodicity signal should have quantOffset=1, got %d", quantOffset)
-	}
-}
-
-func TestComputePeriodicity(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
-
-	// Test with periodic signal
-	periodic := make([]float32, 320)
-	period := 80 // 80 samples = 200 Hz at 16kHz
-	for i := range periodic {
-		periodic[i] = float32(math.Sin(2 * math.Pi * float64(i) / float64(period)))
-	}
-	periodicity := enc.computePeriodicity(periodic, 32, 288)
-	if periodicity < 0.9 {
-		t.Errorf("periodic signal periodicity = %f, want >= 0.9", periodicity)
-	}
-
-	// Test with noise (low periodicity)
-	// Use irrational-ratio frequencies to minimize autocorrelation peaks
-	noise := make([]float32, 320)
-	phi := (1 + math.Sqrt(5)) / 2 // Golden ratio for maximally aperiodic pattern
-	for i := range noise {
-		// Combine multiple incommensurate frequencies
-		noise[i] = float32(
-			math.Sin(float64(i)*0.01*phi) +
-				math.Sin(float64(i)*0.02*phi*phi) +
-				math.Sin(float64(i)*0.03*phi*phi*phi) +
-				math.Sin(float64(i)*0.05))
-	}
-	periodicity = enc.computePeriodicity(noise, 32, 288)
-	// Noise should have lower periodicity than voiced speech
-	// Allow some correlation due to signal smoothness
-	if periodicity > 0.95 {
-		t.Errorf("noise signal periodicity = %f, want < 0.95", periodicity)
-	}
-}
-
-func TestComputePeriodicityEdgeCases(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
-
-	// Empty signal
-	periodicity := enc.computePeriodicity([]float32{}, 1, 10)
-	if periodicity != 0 {
-		t.Errorf("empty signal periodicity = %f, want 0", periodicity)
-	}
-
-	// Short signal (shorter than minLag)
-	short := []float32{1, 2, 3, 4, 5}
-	periodicity = enc.computePeriodicity(short, 10, 20)
-	if periodicity != 0 {
-		t.Errorf("short signal periodicity = %f, want 0", periodicity)
-	}
-
-	// Invalid lag range
-	signal := make([]float32, 100)
-	periodicity = enc.computePeriodicity(signal, 50, 10) // minLag > maxLag
-	if periodicity != 0 {
-		t.Errorf("invalid lag range periodicity = %f, want 0", periodicity)
 	}
 }

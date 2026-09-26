@@ -1,10 +1,10 @@
-//go:build !arm64 || purego
+//go:build !arm64 || nosimd || !goexperiment.simd
 
 package celt
 
 // haar1Stride1NEON is the portable fallback for the arm64 NEON kernel. It runs
 // the stride==1 Hadamard butterfly over n0 contiguous (even,odd) pairs with the
-// same per-element noFMA32 ops as haar1PairNorm, keeping the purego/amd64 builds
+// same per-element noFMA32 ops as haar1PairNorm, keeping the nosimd/amd64 builds
 // bit-exact with scalar libopus.
 func haar1Stride1NEON(x []float32, n0 int) {
 	const invSqrt2 = float32(0.7071067811865476)

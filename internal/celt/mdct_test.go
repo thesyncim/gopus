@@ -751,7 +751,7 @@ func TestDeEmphasis(t *testing.T) {
 	// Using float32 precision, so error accumulates - use looser tolerance
 	for i := 2; i < 10; i++ {
 		// Expected value using float32 math (matching libopus)
-		var expectedF32 float32 = float32(PreemphCoef)
+		var expectedF32 = float32(PreemphCoef)
 		for j := 1; j < i; j++ {
 			expectedF32 *= float32(PreemphCoef)
 		}

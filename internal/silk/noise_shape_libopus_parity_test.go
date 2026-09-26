@@ -381,7 +381,7 @@ func TestSILKProcessGainsFLPMatchesLibopusOracle(t *testing.T) {
 			gainIndices := make([]int8, tc.nbSubfr)
 			prevInd := silkGainsQuantInto(gainIndices, gainsQ16, tc.lastGainIndex, tc.condCoding == codeConditionally, tc.nbSubfr)
 
-			lambdaQ10 := computeLambdaQ10(tc.signalType, tc.speechActQ8, quantOffset, tc.nStatesDD, tc.codingQuality, tc.inputQuality)
+			lambda := computeLambda(tc.signalType, tc.speechActQ8, quantOffset, tc.nStatesDD, tc.codingQuality, tc.inputQuality)
 
 			// quantOffsetType.
 			if quantOffset != want[i].quantOffsetType {
@@ -412,10 +412,10 @@ func TestSILKProcessGainsFLPMatchesLibopusOracle(t *testing.T) {
 			if prevInd != want[i].lastGainIndex {
 				t.Fatalf("LastGainIndex=%d want %d", prevInd, want[i].lastGainIndex)
 			}
-			// Lambda: compare Q10 fixed-point against libopus float Lambda.
-			wantLambdaQ10 := float32ToInt32RoundEven(want[i].lambda * 1024.0)
-			if lambdaQ10 != wantLambdaQ10 {
-				t.Fatalf("LambdaQ10=%d want %d (libopus Lambda=%.10g)", lambdaQ10, wantLambdaQ10, want[i].lambda)
+			// Lambda: the float Lambda bit for bit.
+			if math.Float32bits(lambda) != math.Float32bits(want[i].lambda) {
+				t.Fatalf("Lambda=%08x %.10g want %08x %.10g", math.Float32bits(lambda), lambda,
+					math.Float32bits(want[i].lambda), want[i].lambda)
 			}
 		})
 	}

@@ -172,7 +172,7 @@ func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, tran
 	// Hybrid->SILK fade-out: decode a 2.5 ms CELT silence frame and add it so the
 	// CELT MDCT history rings down cleanly (opus_decode_frame MODE_SILK_ONLY else
 	// branch), skipped when a CELT->SILK redundant frame continues a redundancy run.
-	if !(redundancy && celtToSilk && d.prevRedundancy) {
+	if !redundancy || !celtToSilk || !d.prevRedundancy {
 		if err := d.addHybridToSilkFadeOut(out); err != nil {
 			return nil, err
 		}
@@ -229,6 +229,8 @@ func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, tran
 // previous mode before the main frame is decoded.
 func (d *streamState) transitionPLCToFloat32(transSize, prevMode, prevBW int, prevStereo bool) ([]float32, error) {
 	channels := int(d.channels)
+	var out []float32
+	var err error
 	switch prevMode {
 	case streamModeSILK:
 		// SILK concealment cannot produce less than 10 ms; libopus decodes the
@@ -237,26 +239,31 @@ func (d *streamState) transitionPLCToFloat32(transSize, prevMode, prevBW int, pr
 		// silk_frame_size = IMAX(F10, ...)).
 		f10 := int(d.sampleRate) / 100
 		silkPLCSize := max(transSize, f10)
-		pcm, err := d.decodeSILKToFloat32(nil, silkPLCSize, prevStereo, prevBW)
+		out, err = d.decodeSILKToFloat32(nil, silkPLCSize, prevStereo, prevBW)
 		if err != nil {
 			return nil, err
 		}
 		if silkPLCSize > transSize {
-			pcm = pcm[:transSize*channels]
+			out = out[:transSize*channels]
 		}
-		return pcm, nil
 	case streamModeHybrid:
-		return d.hybridDec.DecodeToFloat32WithPacketStereo(nil, transSize, prevStereo)
+		out, err = d.hybridDec.DecodeToFloat32WithPacketStereo(nil, transSize, prevStereo)
 	case streamModeCELT:
 		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(prevBW))
-		out := make([]float32, transSize*int(d.channels))
+		out = make([]float32, transSize*channels)
 		if err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(nil, transSize, prevStereo, out); err != nil {
 			return nil, err
 		}
-		return out, nil
 	default:
 		return make([]float32, transSize*int(d.channels)), nil
 	}
+	if err != nil {
+		return nil, err
+	}
+	// opus_decode_frame(NULL) runs its output-gain loop before the outer frame
+	// crossfades this transition PCM and applies gain to the completed frame.
+	d.applyOutputGain32(out)
+	return out, nil
 }
 
 // addHybridToSilkFadeOut handles the libopus Hybrid->SILK fade-out: when the
@@ -266,7 +273,9 @@ func (d *streamState) transitionPLCToFloat32(transSize, prevMode, prevBW int, pr
 // CELT decoder matches the single decoder libopus uses, so decoding here advances
 // the same state.
 func (d *streamState) addHybridToSilkFadeOut(out []float32) error {
-	if int(d.lastMode) != streamModeHybrid {
+	// src/opus_decoder.c gates this on prev_mode; the Go mode sentinel is Hybrid
+	// even before a fresh or reset stream has decoded a frame.
+	if !d.haveDecoded || int(d.lastMode) != streamModeHybrid {
 		return nil
 	}
 	channels := int(d.channels)

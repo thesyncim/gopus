@@ -31,16 +31,20 @@ func buildLibopusCELTPLCStageTraceHelper() (string, error) {
 }
 
 type libopusCELTPLCStageTrace struct {
-	n        int
-	channels int
-	overlap  int
-	preSpec  [][]float32
-	spec     [][]float32
-	combIn   [][]float32
-	combOut  [][]float32
-	fold     [][]float32
-	presyn   [][]float32
-	final    []float32
+	n           int
+	channels    int
+	overlap     int
+	preSpec     [][]float32
+	spec        [][]float32
+	combIn      [][]float32
+	combOut     [][]float32
+	fold        [][]float32
+	presyn      [][]float32
+	postfilter  [][]float32
+	preemphMem  []float32
+	final       []float32
+	seedHistory [][]float32
+	seedPCM     []float32
 }
 
 // traceLibopusCELTPLCStage drives opus_decode_float() over the seed packet then
@@ -62,7 +66,7 @@ func traceLibopusCELTPLCStage(t *testing.T, sampleRate, channels, frameSize, req
 		payload.U32(uint32(len(pkt)))
 		payload.Raw(pkt)
 	}
-	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "CELT PLC stage trace", "GCLO")
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "CELT PLC stage trace", "GCLO", 2)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "CELT PLC stage trace", err)
 	}
@@ -72,8 +76,9 @@ func traceLibopusCELTPLCStage(t *testing.T, sampleRate, channels, frameSize, req
 	cinlen := int(reader.U32())
 	presynIdx := int(reader.U32())
 	foldIdx := int(reader.U32())
-	if presynIdx < cc || foldIdx < cc {
-		t.Fatalf("libopus PLC stage trace captured presyn=%d fold=%d /%d channels", presynIdx, foldIdx, cc)
+	postfilterIdx := int(reader.U32())
+	if presynIdx < cc || foldIdx < cc || postfilterIdx < cc {
+		t.Fatalf("libopus PLC stage trace captured presyn=%d fold=%d postfilter=%d /%d channels", presynIdx, foldIdx, postfilterIdx, cc)
 	}
 	trace := &libopusCELTPLCStageTrace{n: n, channels: cc, overlap: ov}
 	trace.preSpec = make([][]float32, cc)
@@ -82,8 +87,10 @@ func traceLibopusCELTPLCStage(t *testing.T, sampleRate, channels, frameSize, req
 	trace.combOut = make([][]float32, cc)
 	trace.fold = make([][]float32, cc)
 	trace.presyn = make([][]float32, cc)
+	trace.postfilter = make([][]float32, cc)
+	trace.preemphMem = make([]float32, cc)
 	trace.final = make([]float32, n*cc)
-	reader.ExpectRemaining((cc*n + cc*n + cc*cinlen + cc*ov + cc*ov + cc*n + cc*n) * 4)
+	reader.ExpectRemaining((cc*n + cc*n + cc*cinlen + cc*ov + cc*ov + cc*n + cc*n + cc*combFilterHistory + cc*n + cc + cc*n) * 4)
 	for ch := range cc {
 		trace.preSpec[ch] = make([]float32, n)
 		for i := range trace.preSpec[ch] {
@@ -123,6 +130,26 @@ func traceLibopusCELTPLCStage(t *testing.T, sampleRate, channels, frameSize, req
 	for i := range trace.final {
 		trace.final[i] = reader.Float32()
 	}
+	trace.seedHistory = make([][]float32, cc)
+	for ch := range cc {
+		trace.seedHistory[ch] = make([]float32, combFilterHistory)
+		for i := range trace.seedHistory[ch] {
+			trace.seedHistory[ch][i] = reader.Float32()
+		}
+	}
+	trace.seedPCM = make([]float32, n*cc)
+	for i := range trace.seedPCM {
+		trace.seedPCM[i] = reader.Float32()
+	}
+	for ch := range cc {
+		trace.preemphMem[ch] = reader.Float32()
+	}
+	for ch := range cc {
+		trace.postfilter[ch] = make([]float32, n)
+		for i := range trace.postfilter[ch] {
+			trace.postfilter[ch][i] = reader.Float32()
+		}
+	}
 	if err := reader.ExpectConsumed(); err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +163,6 @@ func traceLibopusCELTPLCStage(t *testing.T, sampleRate, channels, frameSize, req
 // comparing each bit-exactly against the libopus C reference.
 func TestCELTPLCStagesMatchLibopusC(t *testing.T) {
 	libopustest.RequireOracle(t)
-	requireBitExactFloat(t)
 
 	const (
 		sampleRate         = 48000
@@ -179,7 +205,29 @@ func TestCELTPLCStagesMatchLibopusC(t *testing.T) {
 			if err := dec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(celtPayload, frameSize, tc.channels == 2, out); err != nil {
 				t.Fatalf("decode seed frame: %v", err)
 			}
+			assertFloat32BitExact(t, "seedPCM", out, trace.seedPCM)
+			for ch := 0; ch < tc.channels; ch++ {
+				got := make([]float32, combFilterHistory)
+				hist := dec.plcDecodeMem[ch*plcDecodeBufferSize : (ch+1)*plcDecodeBufferSize]
+				if dec.plcDecodeMemRingActive {
+					start := dec.plcDecodeMemRingStart
+					for i := range got {
+						got[i] = float32(hist[(start+plcDecodeBufferSize-combFilterHistory+i)%plcDecodeBufferSize])
+					}
+				} else {
+					for i := range got {
+						got[i] = float32(hist[plcDecodeBufferSize-combFilterHistory+i])
+					}
+				}
+				assertFloat32BitExact(t, "seedHistory/ch"+itoaChN(ch), got, trace.seedHistory[ch])
+			}
+			var preemphMem [2]float32
 			for c := range plcChunks {
+				if c == targetChunk {
+					for ch := range tc.channels {
+						preemphMem[ch] = float32(dec.preemphState[ch])
+					}
+				}
 				if _, err := dec.DecodeFrame(nil, frameSize); err != nil {
 					t.Fatalf("PLC chunk %d: %v", c, err)
 				}
@@ -220,7 +268,80 @@ func TestCELTPLCStagesMatchLibopusC(t *testing.T) {
 			for ch := 0; ch < tc.channels; ch++ {
 				assertFloat32BitExact(t, "presyn/ch"+itoaChN(ch), stage.PreSyn(ch), trace.presyn[ch])
 			}
+			assertFloat32BitExact(t, "preemphMem", preemphMem[:tc.channels], trace.preemphMem)
+
+			// A second decoder directs the sixth chunk's deemphasis output to a
+			// separate buffer. Its scratch frame remains the exact postfilter
+			// input to deemphasis, including the short-MDCT/body boundary.
+			rawDec := NewDecoder(tc.channels)
+			if err := rawDec.SetAPISampleRate(sampleRate); err != nil {
+				t.Fatal(err)
+			}
+			rawDec.SetBandwidth(CELTFullband)
+			if err := rawDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(celtPayload, frameSize, tc.channels == 2, out); err != nil {
+				t.Fatal(err)
+			}
+			for c := 0; c < targetChunk; c++ {
+				if _, err := rawDec.DecodeFrame(nil, frameSize); err != nil {
+					t.Fatalf("raw PLC chunk %d: %v", c, err)
+				}
+			}
+			rawDec.directOutPCM = make([]float32, frameSize*tc.channels)
+			if _, err := rawDec.DecodeFrame(nil, frameSize); err != nil {
+				t.Fatal(err)
+			}
+			for ch := range tc.channels {
+				got := make([]float32, frameSize)
+				for i := range got {
+					got[i] = rawDec.scratchPLCF32[i*tc.channels+ch]
+				}
+				assertFloat32BitExact(t, "postfilter/ch"+itoaChN(ch), got, trace.postfilter[ch])
+			}
+			assertFloat32BitExact(t, "directFinal", rawDec.directOutPCM, trace.final)
 			assertFloat32BitExact(t, "final", stage.Final(), trace.final)
+		})
+	}
+}
+
+// TestCELTPLCSeedSynthesisStagesMatchLibopusC locates the first synthesis
+// difference before the seed frame enters PLC history.
+func TestCELTPLCSeedSynthesisStagesMatchLibopusC(t *testing.T) {
+	libopustest.RequireOracle(t)
+	requireBitExactFloat(t)
+	const frameSize = 960
+	for _, tc := range []struct {
+		name, packetHex string
+		channels        int
+	}{
+		{"mono", seedCELTMonoPacketHex, 1},
+		{"stereo", seedCELTStereoPacketHex, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			packet, err := hex.DecodeString(tc.packetHex)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := traceLibopusCELTSynthesis(t, 48000, tc.channels, frameSize, 0, [][]byte{packet})
+			dec := NewDecoder(tc.channels)
+			if err := dec.SetAPISampleRate(48000); err != nil {
+				t.Fatal(err)
+			}
+			dec.SetBandwidth(CELTFullband)
+			stage := dec.EnableSynthesisStageTrace()
+			got := make([]float32, frameSize*tc.channels)
+			if err := dec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(packet[1:], frameSize, tc.channels == 2, got); err != nil {
+				t.Fatal(err)
+			}
+			if !stage.Captured() {
+				t.Fatal("seed synthesis trace did not capture")
+			}
+			t.Logf("seed postfilter period=%d gain=%g tapset=%d", dec.postfilterPeriod, dec.postfilterGain, dec.postfilterTapset)
+			for ch := range tc.channels {
+				assertFloat32BitExact(t, "seedSpec/ch"+itoaCh(ch), stage.Spec(ch), want.freq[ch])
+				assertFloat32BitExact(t, "seedIMDCT/ch"+itoaCh(ch), stage.IMDCT(ch), want.imdct[ch])
+				assertFloat32BitExact(t, "seedPostComb/ch"+itoaCh(ch), stage.PostComb(ch), want.postComb[ch])
+			}
+			assertFloat32BitExact(t, "seedFinal", got, want.final)
 		})
 	}
 }

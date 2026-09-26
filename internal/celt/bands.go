@@ -27,7 +27,7 @@ func (d *Decoder) DecodeBands(
 	nbBands int,
 	stereo bool,
 	frameSize int,
-) []celtNorm {
+) []CeltNorm {
 	if nbBands <= 0 || nbBands > MaxBands {
 		return nil
 	}
@@ -135,7 +135,7 @@ func (d *Decoder) DecodeBandsStereo(
 	nbBands int,
 	frameSize int,
 	intensity int,
-) (left, right []celtNorm) {
+) (left, right []CeltNorm) {
 	if nbBands <= 0 || nbBands > MaxBands {
 		return nil, nil
 	}
@@ -403,7 +403,7 @@ func ilog2(x int) int {
 // Returns: denormalized MDCT coefficients.
 //
 // This matches libopus celt/bands.c denormalise_bands().
-func DenormalizeBand(shape []celtNorm, energy celtGLog) []celtNorm {
+func DenormalizeBand(shape []celtNorm, energy celtGLog) []CeltNorm {
 	if len(shape) == 0 {
 		return nil
 	}
@@ -483,7 +483,7 @@ func denormalizeEnergyGain(energy celtGLog) float32 {
 // ComputeBandEnergy computes the per-band log2 amplitude.
 // coeffs: MDCT coefficients for the band
 // Returns: log2(sqrt(sum(x^2))) with libopus epsilon
-func ComputeBandEnergy(coeffs []celtNorm) celtGLog {
+func ComputeBandEnergy(coeffs []celtNorm) CeltGLog {
 	if len(coeffs) == 0 {
 		return celtGLog(float32(0.5) * celtLog2(float32(1e-27)))
 	}

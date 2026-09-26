@@ -431,7 +431,8 @@ func pitchDownsampleSig(x []celtSig, xLP []float32, length, channels, factor int
 	)
 	handled := false
 	if factor == 2 {
-		if channels == 1 {
+		switch channels {
+		case 1:
 			// Sliding-window FIR: each output xLP[i] = 0.25*(x[2i-1]+x[2i+1]) + 0.5*x[2i].
 			// Slicing src to exactly 2*length lets the compiler prove every window
 			// access (win[0:3]) is in bounds, eliminating per-sample bounds checks.
@@ -458,7 +459,7 @@ func pitchDownsampleSig(x []celtSig, xLP []float32, length, channels, factor int
 					dst = dst[1:]
 				}
 			}
-		} else if channels == 2 {
+		case 2:
 			chStride := len(x) / 2
 			x0 := x[:chStride]
 			x1 := x[chStride:]
@@ -524,7 +525,7 @@ func pitchDownsampleSig(x []celtSig, xLP []float32, length, channels, factor int
 	var ac [5]float32
 	pitchAutocorr5F32(xLP[:length], length, &ac)
 
-	applyCELTAutocorrNoiseAndLagWindow32(ac[:], 4)
+	applyCELTPitchLagWindow32(ac[:], 4)
 
 	lpc := lpcFromAutocorr32(ac)
 	tmp := float32(1.0)
@@ -944,7 +945,7 @@ func prefilterDualInnerProdF32(x, y1, y2 []float32, length int) (float32, float3
 	return sum1, sum2
 }
 
-func prefilterDualInnerProdF32SSEOrder(x, y1, y2 []float32, length int) (float32, float32) {
+func prefilterDualInnerProdF32SSEOrderScalar(x, y1, y2 []float32, length int) (float32, float32) {
 	var acc1 [4]float32
 	var acc2 [4]float32
 	i := 0
@@ -977,7 +978,7 @@ func prefilterDualInnerProdF32SSEOrder(x, y1, y2 []float32, length int) (float32
 // over 8-element groups, a 4-element tail, the (acc0+acc2)+(acc1+acc3)
 // reductions, and a fused multiply-add scalar tail. prefilterDualInnerProdAsm
 // implements this in NEON asm on arm64 and a bit-identical math.FMA fallback
-// under the purego tag.
+// under the nosimd tag.
 func prefilterDualInnerProdF32NeonOrder(x, y1, y2 []float32, length int) (float32, float32) {
 	return prefilterDualInnerProdAsm(x, y1, y2, length)
 }

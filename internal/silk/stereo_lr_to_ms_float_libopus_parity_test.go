@@ -9,21 +9,15 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
-// TestSILKStereoLRToMSFloatDecisionLibopusParity drives the default (float)
-// build's StereoLRToMSWithRates decision path on int16-derived float input and
-// compares the produced stereo prediction indices, mid_only flag, per-channel
-// rate split, and updated stereo state against the libopus FIXED_POINT
-// silk_stereo_LR_to_MS oracle.
-//
-// int16 -> float32(v)/32768 -> float32ToInt16 round-trips exactly (int16
-// magnitudes are exactly representable), so the float build sees the same
-// int16 mid/side it would on the integer path; this isolates the
-// rate-allocation / width / mid-only DECISION logic from the upstream float
-// resampler. The integer kernel silkStereoLRToMS is verified separately by
-// TestSILKStereoLRToMSFixedLibopusParity; this guards the float production
-// path that the default-build stereo SILK encoder actually executes.
+// TestSILKStereoLRToMSFloatDecisionLibopusParity drives silkStereoLRToMS, the
+// stereo front end both builds run, on a second randomized corpus and compares
+// the stereo prediction indices, mid_only flag, per-channel rate split and
+// updated stereo state against the libopus silk_stereo_LR_to_MS oracle. The
+// input is int16 audio that has made the int16 -> float32 -> int16 round trip
+// of the float API (RES2INT16 is exact on int16 magnitudes).
 func TestSILKStereoLRToMSFloatDecisionLibopusParity(t *testing.T) {
 	libopustest.RequireOracle(t)
 
@@ -142,8 +136,7 @@ func TestSILKStereoLRToMSFloatDecisionLibopusParity(t *testing.T) {
 	}
 
 	for i, tc := range cases {
-		enc := &Encoder{}
-		enc.stereo = stereoEncState{
+		st := stereoEncState{
 			predPrevQ13:   tc.predPrevQ13,
 			sMid:          tc.sMid,
 			sSide:         tc.sSide,
@@ -154,52 +147,45 @@ func TestSILKStereoLRToMSFloatDecisionLibopusParity(t *testing.T) {
 		}
 
 		fl := tc.frameLength
-		left := make([]float32, fl)
-		right := make([]float32, fl)
+		buf0 := make([]int16, fl+2)
+		buf1 := make([]int16, fl+2)
 		for n := 0; n < fl; n++ {
-			left[n] = float32(tc.x1[n+2]) / 32768.0
-			right[n] = float32(tc.x2[n+2]) / 32768.0
+			buf0[n+2] = opusmath.Float32ToInt16(float32(tc.x1[n+2]) / 32768.0)
+			buf1[n+2] = opusmath.Float32ToInt16(float32(tc.x2[n+2]) / 32768.0)
 		}
-
-		_, _, ix, midOnly, midRate, sideRate, widthQ14 := enc.StereoLRToMSWithRates(
-			left, right, fl, tc.fsKHz, int(tc.totalRateBps), tc.prevSpeechActQ8, tc.toMono != 0)
+		var scratch stereoLRToMSScratch
+		ix, midOnly, rates := silkStereoLRToMS(&st, buf0, buf1,
+			tc.totalRateBps, tc.prevSpeechActQ8, tc.toMono != 0, tc.fsKHz, fl, &scratch)
 
 		w := want[i]
 
 		for n := 0; n < 2; n++ {
 			for k := 0; k < 3; k++ {
-				if int32(ix.Ix[n][k]) != w.ix[n][k] {
-					t.Fatalf("case %d (%s): ix[%d][%d]=%d want %d", i, tc.name, n, k, ix.Ix[n][k], w.ix[n][k])
+				if int32(ix[n][k]) != w.ix[n][k] {
+					t.Fatalf("case %d (%s): ix[%d][%d]=%d want %d", i, tc.name, n, k, ix[n][k], w.ix[n][k])
 				}
 			}
 		}
-		gotMidOnly := int32(0)
-		if midOnly {
-			gotMidOnly = 1
+		if int32(midOnly) != w.midOnly {
+			t.Fatalf("case %d (%s): mid_only=%d want %d (total=%d sp=%d fs=%d)", i, tc.name, midOnly, w.midOnly, tc.totalRateBps, tc.prevSpeechActQ8, tc.fsKHz)
 		}
-		if gotMidOnly != w.midOnly {
-			t.Fatalf("case %d (%s): mid_only=%d want %d (total=%d sp=%d fs=%d)", i, tc.name, gotMidOnly, w.midOnly, tc.totalRateBps, tc.prevSpeechActQ8, tc.fsKHz)
+		if rates[0] != w.rates[0] || rates[1] != w.rates[1] {
+			t.Fatalf("case %d (%s): rates=%v want %v", i, tc.name, rates, w.rates)
 		}
-		if int32(midRate) != w.rates[0] || int32(sideRate) != w.rates[1] {
-			t.Fatalf("case %d (%s): rates=[%d %d] want %v", i, tc.name, midRate, sideRate, w.rates)
+		if st.predPrevQ13 != w.predPrevQ13 {
+			t.Fatalf("case %d (%s): predPrevQ13=%v want %v", i, tc.name, st.predPrevQ13, w.predPrevQ13)
 		}
-		if int32(widthQ14) != int32(w.widthPrevQ14) {
-			t.Fatalf("case %d (%s): widthQ14=%d want %d", i, tc.name, widthQ14, w.widthPrevQ14)
+		if st.smthWidthQ14 != w.smthWidthQ14 {
+			t.Fatalf("case %d (%s): smthWidthQ14=%d want %d", i, tc.name, st.smthWidthQ14, w.smthWidthQ14)
 		}
-		if enc.stereo.predPrevQ13 != w.predPrevQ13 {
-			t.Fatalf("case %d (%s): predPrevQ13=%v want %v", i, tc.name, enc.stereo.predPrevQ13, w.predPrevQ13)
+		if st.widthPrevQ14 != w.widthPrevQ14 {
+			t.Fatalf("case %d (%s): widthPrevQ14=%d want %d", i, tc.name, st.widthPrevQ14, w.widthPrevQ14)
 		}
-		if enc.stereo.smthWidthQ14 != w.smthWidthQ14 {
-			t.Fatalf("case %d (%s): smthWidthQ14=%d want %d", i, tc.name, enc.stereo.smthWidthQ14, w.smthWidthQ14)
+		if st.midSideAmpQ0 != w.midSideAmpQ0 {
+			t.Fatalf("case %d (%s): midSideAmpQ0=%v want %v", i, tc.name, st.midSideAmpQ0, w.midSideAmpQ0)
 		}
-		if enc.stereo.widthPrevQ14 != w.widthPrevQ14 {
-			t.Fatalf("case %d (%s): widthPrevQ14=%d want %d", i, tc.name, enc.stereo.widthPrevQ14, w.widthPrevQ14)
-		}
-		if enc.stereo.midSideAmpQ0 != w.midSideAmpQ0 {
-			t.Fatalf("case %d (%s): midSideAmpQ0=%v want %v", i, tc.name, enc.stereo.midSideAmpQ0, w.midSideAmpQ0)
-		}
-		if enc.stereo.silentSideLen != w.silentSide {
-			t.Fatalf("case %d (%s): silentSideLen=%d want %d", i, tc.name, enc.stereo.silentSideLen, w.silentSide)
+		if st.silentSideLen != w.silentSide {
+			t.Fatalf("case %d (%s): silentSideLen=%d want %d", i, tc.name, st.silentSideLen, w.silentSide)
 		}
 	}
 }

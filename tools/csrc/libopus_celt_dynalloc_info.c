@@ -1,6 +1,5 @@
 #include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #ifdef _WIN32
@@ -19,15 +18,6 @@
 #define HELPER_MAX_BANDS 21
 #define HELPER_MAX_CHANNELS 2
 #define HELPER_LEAK_BANDS 19
-
-#if defined(ENABLE_ASSERTIONS) || defined(ENABLE_HARDENING)
-void celt_fatal(const char *str, const char *file, int line) {
-  (void)str;
-  (void)file;
-  (void)line;
-  abort();
-}
-#endif
 
 static int set_binary_stdio(void) {
 #ifdef _WIN32

@@ -19,7 +19,7 @@ func (e *Encoder) noiseShapeAnalysis(
 		e.noiseShapeState = NewNoiseShapeState()
 	}
 
-	fsKHz := max(int(e.sampleRate/1000), 8)
+	fsKHz := max(int(e.fsKHz), 8)
 
 	quantOffsetType := quantOffset
 	if signalType == typeVoiced {
@@ -31,18 +31,10 @@ func (e *Encoder) noiseShapeAnalysis(
 		}
 	}
 
-	inputQualityBandsQ15 := [4]int32{-1, -1, -1, -1}
-	if e.speechActivitySet {
-		inputQualityBandsQ15 = e.inputQualityBandsQ15
-	}
-
-	// Compute average input quality from first two bands (matches libopus psEncCtrl->input_quality)
-	var inputQuality float32
-	if inputQualityBandsQ15[0] >= 0 {
-		inputQuality = 0.5 * (float32(inputQualityBandsQ15[0]) + float32(inputQualityBandsQ15[1])) / 32768.0
-	} else {
-		inputQuality = float32(speechActivityQ8) / 256.0
-	}
+	// Input quality is the average of the quality in the lowest two VAD bands
+	// (psEncCtrl->input_quality).
+	inputQualityBandsQ15 := e.inputQualityBandsQ15
+	inputQuality := 0.5 * (float32(inputQualityBandsQ15[0]) + float32(inputQualityBandsQ15[1])) / 32768.0
 
 	// SNR adjustment for gain tweaking and coding quality.
 	// Match libopus: SNR_adj_dB and all intermediates are silk_float (float32).
@@ -184,7 +176,7 @@ func (e *Encoder) computeShapingARAndGains(
 		shapeOrder--
 	}
 
-	fsKHz := max(int(e.sampleRate/1000), 1)
+	fsKHz := max(int(e.fsKHz), 1)
 
 	laShape := max(int(e.laShape), 0)
 
@@ -212,7 +204,7 @@ func (e *Encoder) computeShapingARAndGains(
 	// Populate xBuf from the SILK analysis buffer (x_buf in libopus).
 	// libopus noise shaping uses x_ptr = x - la_shape, where x points to x_frame
 	// (x_buf + ltp_mem). Align our window to that same origin.
-	src := e.inputBuffer
+	src := e.xBuf
 	start := max((ltpMemLengthMs*fsKHz - laShape), 0)
 	if start < len(src) {
 		copyLen := xLen

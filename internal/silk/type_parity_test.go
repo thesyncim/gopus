@@ -63,14 +63,20 @@ func TestSILKEncoderStateIntegerFieldWidthsMatchLibopus(t *testing.T) {
 	int32FlagsType := reflect.TypeFor[[3]int32]()
 	int32FramesType := reflect.TypeFor[[3]int32]()
 
+	// silk_encoder_state (silk/structs.h): opus_int fields are int32.
 	checkSILKFieldsHaveType(t, reflect.TypeFor[Encoder](), int32Type,
+		"inputBufIx",
+		"noSpeechCounter",
+		"packetSizeMs",
+		"nbSubfr",
+		"frameLength",
 		"ecPrevSignalType",
 		"frameCounter",
 		"lpcOrder",
-		"snrDBQ7",
+		"speechActivityQ8",
+		"inputTiltQ15",
 		"targetRateBps",
-		"lastControlTargetRateBps",
-		"preAdjustedTargetRateBps",
+		"snrDBQ7",
 		"complexity",
 		"nStatesDelayedDecision",
 		"pitchEstimationComplexity",
@@ -84,18 +90,25 @@ func TestSILKEncoderStateIntegerFieldWidthsMatchLibopus(t *testing.T) {
 		"packetLossPercent",
 		"nFramesEncoded",
 		"nFramesPerPacket",
-		"stereoCondMidFramesEncoded",
-		"stereoChannelIdx",
-		"stereoPrevDecodeOnlyMiddle",
-		"nBitsExceeded",
-		"nBitsUsedLBRR",
-		"maxBits",
-		"timeSinceSwitchAllowedMS",
 		"lastNumSamples",
-		"sampleRate",
+		"fsKHz",
+		"apiFsHz",
+		"prevAPIFsHz",
+		"maxInternalFsHz",
+		"minInternalFsHz",
+		"desiredInternalFsHz",
+	)
+	// silk_LP_state (silk/structs.h).
+	checkSILKFieldsHaveType(t, reflect.TypeFor[LPState](), int32Type,
+		"TransitionFrameNo",
+		"Mode",
+		"SavedFsKHz",
 	)
 	checkSILKFieldsHaveType(t, reflect.TypeFor[Encoder](), int16Type,
 		"ecPrevLagIndex",
+	)
+	checkSILKFieldsHaveType(t, reflect.TypeFor[Encoder](), reflect.TypeFor[[maxFrameLength + 2]int16](),
+		"inputBuf",
 	)
 	checkSILKFieldsHaveType(t, reflect.TypeFor[Encoder](), int8Type,
 		"lbrrFlag",
@@ -107,11 +120,36 @@ func TestSILKEncoderStateIntegerFieldWidthsMatchLibopus(t *testing.T) {
 		"lbrrFrameLength",
 		"lbrrNbSubfr",
 	)
-	checkSILKFieldsHaveType(t, reflect.TypeFor[stereoEncState](), int32Type,
-		"prevDecodeOnlyMiddle",
+	// silk_encoder (silk/float/structs_FLP.h).
+	checkSILKFieldsHaveType(t, reflect.TypeFor[PacketEncoder](), int32Type,
+		"nBitsUsedLBRR",
+		"nBitsExceeded",
+		"nChannelsAPI",
+		"nChannelsInternal",
+		"nPrevChannelsInternal",
+		"timeSinceSwitchAllowedMs",
 	)
-	checkSILKFieldsHaveType(t, reflect.TypeFor[stereoEncState](), int32FlagsType,
-		"lbrrMidOnly",
+	// silk_EncControlStruct (silk/control.h).
+	checkSILKFieldsHaveType(t, reflect.TypeFor[EncControl](), int32Type,
+		"NChannelsAPI",
+		"NChannelsInternal",
+		"APISampleRate",
+		"PayloadSizeMs",
+		"BitRate",
+		"PacketLossPercentage",
+		"Complexity",
+		"MaxBits",
+		"InternalSampleRate",
+		"StereoWidthQ14",
+		"SignalType",
+		"Offset",
+	)
+	// stereo_enc_state (silk/structs.h).
+	checkSILKFieldsHaveType(t, reflect.TypeFor[stereoEncState](), reflect.TypeFor[[maxFramesPerPacket][2][3]int8](),
+		"predIx",
+	)
+	checkSILKFieldsHaveType(t, reflect.TypeFor[stereoEncState](), reflect.TypeFor[[maxFramesPerPacket]int8](),
+		"midOnlyFlags",
 	)
 }
 

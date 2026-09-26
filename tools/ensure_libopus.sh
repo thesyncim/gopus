@@ -35,14 +35,11 @@ if [[ "${VARIANT_COUNT}" -gt 1 ]]; then
   exit 1
 fi
 
-# Force libopus onto its scalar (generic-C) kernels: no inline/external assembly,
-# no run-time CPU dispatch, no SIMD intrinsics. This is the bit-reproducible
-# reference for the pure-Go (-tags purego) gopus build, which itself has no
-# assembly/SIMD. The autotools default on amd64 (and Linux arm64) turns RTCD +
-# intrinsics ON, so a default-configured opus-1.6.1 is NOT scalar there; the
-# pure-Go-vs-C parity oracles need this explicit scalar build to compare
-# like-with-like instead of pure-Go-scalar vs C-SIMD.
+# Force libopus onto its generic-C kernels and disable compiler loop and SLP
+# vectorization. Normal FMA contraction stays enabled. This pairs the scalar C
+# reference with the default and -tags nosimd Go scalar builds.
 SCALAR_CONFIGURE_FLAGS=(--disable-asm --disable-rtcd --disable-intrinsics)
+SCALAR_C_VECTOR_FLAGS=(-fno-tree-vectorize -fno-tree-slp-vectorize)
 
 CONFIGURE_FLAGS=(--enable-static --disable-shared)
 if [[ "${ENABLE_QEXT}" == "1" ]]; then
@@ -58,9 +55,7 @@ elif [[ "${ENABLE_CUSTOM}" == "1" ]]; then
   SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-custom"
   CONFIGURE_FLAGS+=(--enable-custom-modes)
 elif [[ "${ENABLE_CUSTOM_SCALAR}" == "1" ]]; then
-  # Opus Custom API on the scalar (generic-C) kernels: the bit-reproducible
-  # custom-modes oracle for the pure-Go celt/custom parity gate. The plain custom
-  # build keeps libopus's SIMD default ON (so it stays the asm-tier custom oracle).
+  # Opus Custom API on the scalar (generic-C) kernels, paired with scalar Go.
   SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-custom-scalar"
   CONFIGURE_FLAGS+=(--enable-custom-modes "${SCALAR_CONFIGURE_FLAGS[@]}")
 elif [[ "${ENABLE_SCALAR}" == "1" ]]; then
@@ -69,26 +64,19 @@ elif [[ "${ENABLE_SCALAR}" == "1" ]]; then
   SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-scalar"
   CONFIGURE_FLAGS+=("${SCALAR_CONFIGURE_FLAGS[@]}")
 elif [[ "${ENABLE_SIMD}" == "1" ]]; then
-  # SIMD/RTCD-enabled PERFORMANCE reference. This is libopus's native default
-  # (intrinsics + run-time CPU detection ON): NEON on arm64, SSE/AVX RTCD on
-  # amd64. It is explicitly NOT bit-reproducible across hosts, so it must NEVER
-  # be used as a pure-Go parity oracle — the scalar parity reference
-  # (opus-${LIBOPUS_VERSION}-scalar, built via LIBOPUS_ENABLE_SCALAR=1 with
-  # --disable-asm/--disable-rtcd/--disable-intrinsics) is the bit-reproducible lib
-  # for the pure-Go build. This variant exists so the perf scoreboard and the
-  # asm-tier quality oracles can compare gopus asm kernels against a SIMD libopus
-  # (fair asm-vs-SIMD). We pass the enabling flags explicitly (rather than relying
-  # on autoconf defaults) so the produced config.h reliably DEFINES the SIMD
-  # macros even if a future autotools change alters the default.
+  # Native SIMD/RTCD reference paired with the Go SIMD build: NEON on arm64 and
+  # SSE/AVX dispatch on amd64. Enable these explicitly so config.h records the
+  # intended instruction path even if autotools defaults change.
   SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-simd"
   CONFIGURE_FLAGS+=(--enable-rtcd --enable-intrinsics)
 else
-  # Default reference (no SIMD flags passed): autotools picks the native config,
-  # which turns RTCD + intrinsics ON on amd64 and Linux arm64. The asm gopus build
-  # (default, no -tags purego) ships SSE/NEON kernels tuned to match this, so the
-  # asm-tier C oracles link this tree. The pure-Go build must instead link the
-  # opus-${LIBOPUS_VERSION}-scalar tree (LIBOPUS_ENABLE_SCALAR=1).
+  # Unqualified autotools configuration for tooling that explicitly requests the
+  # default tree. Paired oracle callers select the -scalar or -simd tree instead.
   SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}"
+fi
+
+if [[ "${ENABLE_SCALAR}" == "1" || "${ENABLE_CUSTOM_SCALAR}" == "1" ]]; then
+  LIBOPUS_CFLAGS="${LIBOPUS_CFLAGS} ${SCALAR_C_VECTOR_FLAGS[*]}"
 fi
 
 BUILD_STAMP_FILE=".gopus-libopus-build"
@@ -119,13 +107,11 @@ CC_PATH="$(command -v "${LIBOPUS_CC_DRIVER}" 2>/dev/null || printf "%s" "${LIBOP
 CC_TARGET="$("${LIBOPUS_CC_ARGV[@]}" -dumpmachine 2>/dev/null || true)"
 CC_VERSION="$("${LIBOPUS_CC_ARGV[@]}" --version 2>/dev/null | sed -n '1p' || true)"
 CONFIGURE_STAMP="${CONFIGURE_FLAGS[*]}"
-# The SIMD variant is disambiguated from other variants by its own SRC_DIR and by
-# the configure= line (it carries --enable-rtcd --enable-intrinsics), so it is NOT
-# added to the stamp body here: changing the shared stamp format would mark the
-# already-built scalar parity reference stale and force a reconfigure (which would
-# turn SIMD back ON and destroy the bit-exact parity build). The stamp format is
-# therefore frozen for the existing variants.
-BUILD_STAMP=$'gopus libopus helper build v5\nversion='"${LIBOPUS_VERSION}"$'\nqext='"${ENABLE_QEXT}"$'\nfixed='"${ENABLE_FIXED}"$'\ncustom='"${ENABLE_CUSTOM}"$'\nhost_os='"${HOST_OS}"$'\nhost_arch='"${HOST_ARCH}"$'\nhost_bits='"${HOST_BITS}"$'\ncc='"${LIBOPUS_CC}"$'\ncc_path='"${CC_PATH}"$'\ncc_target='"${CC_TARGET}"$'\ncc_version='"${CC_VERSION}"$'\nconfigure='"${CONFIGURE_STAMP}"$'\nCFLAGS='"${LIBOPUS_CFLAGS}"$'\nCPPFLAGS='"${LIBOPUS_CPPFLAGS}"$'\nLDFLAGS='"${LIBOPUS_LDFLAGS}"$'\n'
+CUSTOM_STAMP="${ENABLE_CUSTOM}"
+if [[ "${ENABLE_CUSTOM_SCALAR}" == "1" ]]; then
+  CUSTOM_STAMP=1
+fi
+BUILD_STAMP=$'gopus libopus helper build v5\nversion='"${LIBOPUS_VERSION}"$'\nqext='"${ENABLE_QEXT}"$'\nfixed='"${ENABLE_FIXED}"$'\ncustom='"${CUSTOM_STAMP}"$'\nhost_os='"${HOST_OS}"$'\nhost_arch='"${HOST_ARCH}"$'\nhost_bits='"${HOST_BITS}"$'\ncc='"${LIBOPUS_CC}"$'\ncc_path='"${CC_PATH}"$'\ncc_target='"${CC_TARGET}"$'\ncc_version='"${CC_VERSION}"$'\nconfigure='"${CONFIGURE_STAMP}"$'\nCFLAGS='"${LIBOPUS_CFLAGS}"$'\nCPPFLAGS='"${LIBOPUS_CPPFLAGS}"$'\nLDFLAGS='"${LIBOPUS_LDFLAGS}"$'\n'
 LOCK_DIR="${SRC_DIR}.lock"
 
 sha256_for_version() {

@@ -1,6 +1,6 @@
 module github.com/thesyncim/gopus/examples/webrtc-dred-loopback
 
-go 1.25.0
+go 1.27.0
 
 require (
 	gioui.org/shader v1.0.8 // indirect

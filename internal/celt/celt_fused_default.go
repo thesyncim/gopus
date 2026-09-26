@@ -1,8 +1,8 @@
-//go:build !arm64 || purego
+//go:build !arm64 || nosimd || !goexperiment.simd
 
 package celt
 
-// celtFusedFloat is false on the bit-exact builds: purego (rounding barrier in
-// fma32_arm64.go) and amd64 (no compiler FP contraction), where the CELT float
-// path is byte-identical to scalar libopus and the Tier-1 oracle tests apply.
+// celtFusedFloat is false on the builds paired with sequential C reductions:
+// every amd64 build, and the arm64 ordinary and nosimd builds, which pair with
+// the scalar libopus build.
 const celtFusedFloat = false

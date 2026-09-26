@@ -1,6 +1,7 @@
 package celt
 
 import (
+	"math"
 	"reflect"
 	"testing"
 )
@@ -47,6 +48,79 @@ func TestPVQDispatchMatchesGeneric(t *testing.T) {
 		t.Fatalf("pvqSearchPulseLoop mismatch: got (%v,%v,%v,%v) want (%v,%v,%v,%v)", gotXY, gotYY, yGot, iyGot, wantXY, wantYY, yWant, iyWant)
 	}
 
+}
+
+func TestPVQSearchPulseLoopExactOrder(t *testing.T) {
+	negativeZero := math.Float32frombits(1 << 31)
+	cases := []struct {
+		name       string
+		n          int
+		pulses     int
+		xy, yy     float32
+		tie        bool
+		signedZero bool
+	}{
+		{name: "n1", n: 1, pulses: 3},
+		{name: "n2", n: 2, pulses: 3, xy: -0.25, yy: 1},
+		{name: "n3-tail", n: 3, pulses: 4, xy: 0.5, yy: 2},
+		{name: "n4-tail", n: 4, pulses: 4, xy: -1, yy: 4},
+		{name: "n5-tail", n: 5, pulses: 7, xy: 1.25, yy: 8},
+		{name: "n48-tie", n: 48, pulses: 16, tie: true},
+		{name: "n48-signed-zero", n: 48, pulses: 16, xy: negativeZero, yy: negativeZero, signedZero: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			absX := make([]float32, tc.n)
+			yInitial := make([]float32, tc.n)
+			for i := range absX {
+				if tc.tie {
+					absX[i] = 1
+					yInitial[i] = 0
+				} else {
+					absX[i] = float32((i*7)%11+1) / 16
+					yInitial[i] = float32((i*3)%6) * 2
+				}
+			}
+			if tc.signedZero {
+				absX[0] = negativeZero
+				yInitial[0] = negativeZero
+			}
+
+			yGot := append([]float32(nil), yInitial...)
+			yWant := append([]float32(nil), yInitial...)
+			iyGot := make([]int32, tc.n)
+			iyWant := make([]int32, tc.n)
+			gotXY, gotYY := pvqSearchPulseLoop(absX, yGot, iyGot, tc.xy, tc.yy, tc.n, tc.pulses)
+			wantXY, wantYY := pvqSearchPulseLoopRef(absX, yWant, iyWant, tc.xy, tc.yy, tc.n, tc.pulses)
+			if math.Float32bits(gotXY) != math.Float32bits(wantXY) || math.Float32bits(gotYY) != math.Float32bits(wantYY) {
+				t.Fatalf("xy/yy bits got (%08x,%08x), want (%08x,%08x)", math.Float32bits(gotXY), math.Float32bits(gotYY), math.Float32bits(wantXY), math.Float32bits(wantYY))
+			}
+			for i := range yGot {
+				if math.Float32bits(yGot[i]) != math.Float32bits(yWant[i]) || iyGot[i] != iyWant[i] {
+					t.Fatalf("index %d got y/iy (%08x,%d), want (%08x,%d)", i, math.Float32bits(yGot[i]), iyGot[i], math.Float32bits(yWant[i]), iyWant[i])
+				}
+			}
+		})
+	}
+}
+
+func TestPVQSearchPulseLoopZeroAllocs(t *testing.T) {
+	const n, pulses = 48, 16
+	absX := make([]float32, n)
+	y := make([]float32, n)
+	iy := make([]int32, n)
+	for i := range absX {
+		absX[i] = float32((i*7)%11+1) / 16
+	}
+	run := func() {
+		clear(y)
+		clear(iy)
+		_, _ = pvqSearchPulseLoop(absX, y, iy, 0, 0, n, pulses)
+	}
+	run()
+	if got := testing.AllocsPerRun(100, run); got != 0 {
+		t.Fatalf("pvqSearchPulseLoop allocations/run = %v, want 0", got)
+	}
 }
 
 func BenchmarkPVQSearchPulseLoopCurrent(b *testing.B) {

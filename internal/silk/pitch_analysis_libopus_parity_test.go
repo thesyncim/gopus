@@ -109,7 +109,7 @@ func TestSILKPitchAnalysisCoreMatchesLibopus(t *testing.T) {
 	}
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			enc := NewEncoder(tc.bandwidth)
+			enc := newTestEncoder(tc.bandwidth)
 			enc.pitchEstimationComplexity = int32(tc.complexity)
 			enc.pitchState.prevLag = int32(tc.prevLag)
 			enc.pitchState.ltpCorr = tc.ltpCorr
@@ -156,7 +156,7 @@ func TestSILKPitchAnalysisScratchMatchesLibopusFloatSize(t *testing.T) {
 			sizes.silkFloat, sizes.opusVal32, sizes.opusInt16)
 	}
 
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestEncoder(BandwidthWideband)
 	frame := silkPitchOracleWave(BandwidthWideband, 4, 200, 8000)
 	enc.detectPitch(frame, 4, 0.3, 0.2)
 
@@ -264,6 +264,60 @@ func silkPitchAnalysisOracleCases() []libopusSILKPitchAnalysisCase {
 			frame:        silkPitchOraclePeriodWave(BandwidthWideband, 2, peMaxLagMS*16, 14000),
 		},
 		{
+			name:         "nb_max_lag_pulse_train_2subfr",
+			bandwidth:    BandwidthNarrowband,
+			nbSubfr:      2,
+			complexity:   2,
+			searchThres1: 0.7,
+			searchThres2: 0.15,
+			frame:        silkPitchOraclePulseTrain(BandwidthNarrowband, 2, peMaxLagMS*8, 14000),
+		},
+		{
+			name:         "nb_max_lag_pulse_train_4subfr",
+			bandwidth:    BandwidthNarrowband,
+			nbSubfr:      4,
+			complexity:   2,
+			searchThres1: 0.7,
+			searchThres2: 0.15,
+			frame:        silkPitchOraclePulseTrain(BandwidthNarrowband, 4, peMaxLagMS*8, 14000),
+		},
+		{
+			name:         "mb_max_lag_pulse_train_2subfr",
+			bandwidth:    BandwidthMediumband,
+			nbSubfr:      2,
+			complexity:   2,
+			searchThres1: 0.7,
+			searchThres2: 0.15,
+			frame:        silkPitchOraclePulseTrain(BandwidthMediumband, 2, peMaxLagMS*12, 14000),
+		},
+		{
+			name:         "mb_max_lag_pulse_train_4subfr",
+			bandwidth:    BandwidthMediumband,
+			nbSubfr:      4,
+			complexity:   2,
+			searchThres1: 0.7,
+			searchThres2: 0.15,
+			frame:        silkPitchOraclePulseTrain(BandwidthMediumband, 4, peMaxLagMS*12, 14000),
+		},
+		{
+			name:         "wb_max_lag_pulse_train_2subfr",
+			bandwidth:    BandwidthWideband,
+			nbSubfr:      2,
+			complexity:   2,
+			searchThres1: 0.7,
+			searchThres2: 0.15,
+			frame:        silkPitchOraclePulseTrain(BandwidthWideband, 2, peMaxLagMS*16, 14000),
+		},
+		{
+			name:         "wb_max_lag_pulse_train_4subfr",
+			bandwidth:    BandwidthWideband,
+			nbSubfr:      4,
+			complexity:   2,
+			searchThres1: 0.7,
+			searchThres2: 0.15,
+			frame:        silkPitchOraclePulseTrain(BandwidthWideband, 4, peMaxLagMS*16, 14000),
+		},
+		{
 			name:         "wb_silence",
 			bandwidth:    BandwidthWideband,
 			nbSubfr:      4,
@@ -296,6 +350,19 @@ func silkPitchOracleWave(bandwidth Bandwidth, nbSubfr, frequency int, amplitude 
 		phase := 2 * math.Pi * float64(frequency) * float64(i) / float64(cfg.SampleRate)
 		harm := 0.35 * math.Sin(2*phase+0.25)
 		out[i] = amplitude * float32(math.Sin(phase)+harm)
+	}
+	return out
+}
+
+// silkPitchOraclePulseTrain returns an impulse train with the given period
+// (samples at the SILK rate), whose 4 kHz correlation peaks sharply at one lag.
+func silkPitchOraclePulseTrain(bandwidth Bandwidth, nbSubfr, period int, amplitude float32) []float32 {
+	cfg := GetBandwidthConfig(bandwidth)
+	fsKHz := cfg.SampleRate / 1000
+	n := (peLTPMemLengthMS + nbSubfr*peSubfrLengthMS) * fsKHz
+	out := make([]float32, n)
+	for i := 10 * fsKHz / 4; i < n; i += period {
+		out[i] = amplitude
 	}
 	return out
 }

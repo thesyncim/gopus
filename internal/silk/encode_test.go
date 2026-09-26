@@ -16,10 +16,7 @@ func TestEncodeFrameBasic(t *testing.T) {
 	}
 
 	// Encode
-	encoded, err := Encode(pcm, BandwidthWideband, true)
-	if err != nil {
-		t.Fatalf("Encode failed: %v", err)
-	}
+	encoded := encodeTestPacket(t, BandwidthWideband, pcm)
 
 	// Verify we got output
 	if len(encoded) == 0 {
@@ -50,10 +47,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	}
 
 	// Encode
-	encoded, err := Encode(original, BandwidthWideband, true)
-	if err != nil {
-		t.Fatalf("Encode failed: %v", err)
-	}
+	encoded := encodeTestPacket(t, BandwidthWideband, original)
 
 	t.Logf("Encoded: %d bytes (original %d samples)", len(encoded), len(original))
 
@@ -104,13 +98,10 @@ func TestEncodeStereoBasic(t *testing.T) {
 	}
 
 	// Encode stereo
-	encoded, err := EncodeStereo(left, right, BandwidthWideband, true)
-	if err != nil {
-		t.Fatalf("EncodeStereo failed: %v", err)
-	}
+	encoded := encodeTestStereoPacket(t, BandwidthWideband, left, right)
 
 	if len(encoded) == 0 {
-		t.Fatal("EncodeStereo produced empty output")
+		t.Fatal("stereo Encode produced empty output")
 	}
 
 	t.Logf("Stereo encoded size: %d bytes", len(encoded))
@@ -132,16 +123,13 @@ func TestEncodeStereoRoundTrip(t *testing.T) {
 	}
 
 	// Encode stereo
-	encoded, err := EncodeStereo(left, right, BandwidthWideband, true)
-	if err != nil {
-		t.Fatalf("EncodeStereo failed: %v", err)
-	}
+	encoded := encodeTestStereoPacket(t, BandwidthWideband, left, right)
 
 	t.Logf("Stereo encoded: %d bytes (L=%d R=%d samples input)", len(encoded), len(left), len(right))
 
 	// Verify output size is reasonable
 	if len(encoded) == 0 {
-		t.Error("EncodeStereo produced empty output")
+		t.Error("stereo Encode produced empty output")
 	}
 	if len(encoded) > 600 {
 		t.Errorf("Stereo encoded size too large: %d bytes (expected < 600)", len(encoded))
@@ -172,10 +160,7 @@ func TestEncodeSilence(t *testing.T) {
 	frameSamples := config.SampleRate * 20 / 1000 // 20ms frame
 	pcm := make([]float32, frameSamples)          // All zeros
 
-	encoded, err := Encode(pcm, BandwidthWideband, false) // vadFlag=false for silence
-	if err != nil {
-		t.Fatalf("Encode silence failed: %v", err)
-	}
+	encoded := encodeTestPacket(t, BandwidthWideband, pcm)
 
 	if len(encoded) == 0 {
 		t.Error("Encode produced empty output for silence")
@@ -188,7 +173,7 @@ func TestEncodeSilence(t *testing.T) {
 func TestEncodeStreaming(t *testing.T) {
 	config := GetBandwidthConfig(BandwidthWideband)
 	frameSamples := config.SampleRate * 20 / 1000 // 20ms frame
-	es := NewEncoderState(BandwidthWideband)
+	es := newTestPacketEncoder(BandwidthWideband, 1)
 
 	// Encode multiple frames
 	for frame := range 5 {
@@ -198,10 +183,7 @@ func TestEncodeStreaming(t *testing.T) {
 			pcm[i] = float32(math.Sin(2*math.Pi*400*tm)) * (10000 * int16Scale)
 		}
 
-		encoded, err := es.EncodeFrame(pcm, true)
-		if err != nil {
-			t.Fatalf("Frame %d encode failed: %v", frame, err)
-		}
+		encoded := es.encode(t, pcm)
 
 		if len(encoded) == 0 {
 			t.Errorf("Frame %d produced empty output", frame)
@@ -211,10 +193,8 @@ func TestEncodeStreaming(t *testing.T) {
 	}
 }
 
-// TestMultiFrameRangeEncoderLifecycle validates that the rangeEncoder is
-// properly cleared after standalone encoding, allowing subsequent frames
-// to create their own encoder. This was a critical bug where frames 1+
-// would return nil instead of encoded bytes.
+// TestMultiFrameRangeEncoderLifecycle checks that an encoder coding packet
+// after packet into a fresh range coder produces a full packet every time.
 func TestMultiFrameRangeEncoderLifecycle(t *testing.T) {
 	if silkFixedEncodeBuild {
 		t.Skip("frame-size heuristic is calibrated against the float SILK encode path; FIXED_POINT first-frame warmup legitimately produces a smaller frame")
@@ -222,8 +202,7 @@ func TestMultiFrameRangeEncoderLifecycle(t *testing.T) {
 	config := GetBandwidthConfig(BandwidthWideband)
 	frameSamples := config.SampleRate * 20 / 1000 // 20ms frame
 
-	// Use the raw Encoder directly (not EncoderState) to validate fix
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestPacketEncoder(BandwidthWideband, 1)
 
 	frameSizes := make([]int, 10)
 	for frame := range 10 {
@@ -233,12 +212,11 @@ func TestMultiFrameRangeEncoderLifecycle(t *testing.T) {
 			pcm[i] = float32(math.Sin(2*math.Pi*400*tm)) * (10000 * int16Scale)
 		}
 
-		encoded := enc.EncodeFrame(pcm, nil, true)
+		encoded := enc.encode(t, pcm)
 		frameSizes[frame] = len(encoded)
 
-		// Every frame must produce output in standalone mode
 		if len(encoded) == 0 {
-			t.Fatalf("Frame %d produced 0 bytes - rangeEncoder lifecycle bug!", frame)
+			t.Fatalf("Frame %d produced 0 bytes", frame)
 		}
 	}
 
@@ -273,10 +251,7 @@ func TestEncodeDifferentBandwidths(t *testing.T) {
 				pcm[i] = float32(math.Sin(2*math.Pi*300*tm)) * (10000 * int16Scale)
 			}
 
-			encoded, err := Encode(pcm, tc.bandwidth, true)
-			if err != nil {
-				t.Fatalf("Encode failed: %v", err)
-			}
+			encoded := encodeTestPacket(t, tc.bandwidth, pcm)
 
 			if len(encoded) == 0 {
 				t.Error("Encode produced empty output")
@@ -309,15 +284,9 @@ func TestEncodeVoicedVsUnvoiced(t *testing.T) {
 		unvoiced[i] = float32((i*1103515245+12345)%65536-32768) * 0.3
 	}
 
-	encodedVoiced, err := Encode(voiced, BandwidthWideband, true)
-	if err != nil {
-		t.Fatalf("Encode voiced failed: %v", err)
-	}
+	encodedVoiced := encodeTestPacket(t, BandwidthWideband, voiced)
 
-	encodedUnvoiced, err := Encode(unvoiced, BandwidthWideband, true)
-	if err != nil {
-		t.Fatalf("Encode unvoiced failed: %v", err)
-	}
+	encodedUnvoiced := encodeTestPacket(t, BandwidthWideband, unvoiced)
 
 	t.Logf("Voiced frame: %d bytes, Unvoiced frame: %d bytes",
 		len(encodedVoiced), len(encodedUnvoiced))
@@ -325,7 +294,7 @@ func TestEncodeVoicedVsUnvoiced(t *testing.T) {
 
 func TestExcitationEncoding(t *testing.T) {
 	// Test that excitation encoding produces valid output
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestEncoder(BandwidthWideband)
 	config := GetBandwidthConfig(BandwidthWideband)
 	frameSamples := config.SampleRate * 20 / 1000 // 20ms frame
 
@@ -359,41 +328,38 @@ func TestExcitationEncoding(t *testing.T) {
 }
 
 func TestStereoWeightEncoding(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
 	config := GetBandwidthConfig(BandwidthWideband)
 	frameSamples := config.SampleRate * 20 / 1000 // 20ms frame
 
-	// Generate stereo test signal
-	left := make([]float32, frameSamples)
-	right := make([]float32, frameSamples)
-	for i := range left {
+	// Stereo input in the two channel input buffers (inputBuf[2:]).
+	left := make([]int16, frameSamples+2)
+	right := make([]int16, frameSamples+2)
+	for i := range frameSamples {
 		tm := float64(i) / float64(config.SampleRate)
-		left[i] = float32(math.Sin(2*math.Pi*300*tm)) * (10000 * int16Scale)
-		right[i] = float32(math.Sin(2*math.Pi*300*tm+0.5)) * (10000 * int16Scale) // Phase shifted
+		left[i+2] = int16(10000 * math.Sin(2*math.Pi*300*tm))
+		right[i+2] = int16(10000 * math.Sin(2*math.Pi*300*tm+0.5)) // Phase shifted
 	}
 
-	// Compute stereo weights
-	mid, side, weights := enc.encodeStereo(left, right)
+	var state stereoEncState
+	var scratch stereoLRToMSScratch
+	ix, midOnly, rates := silkStereoLRToMS(&state, left, right, 32000, 200, false, config.SampleRate/1000, frameSamples, &scratch)
 
-	// Verify mid/side have same length
-	if len(mid) != len(left) {
-		t.Errorf("Mid length %d != left length %d", len(mid), len(left))
-	}
-	if len(side) != len(left) {
-		t.Errorf("Side length %d != left length %d", len(side), len(left))
-	}
+	t.Logf("Stereo predictors: w0=%d, w1=%d (Q13) midOnly=%d rates=%v", state.predPrevQ13[0], state.predPrevQ13[1], midOnly, rates)
 
-	t.Logf("Stereo weights: w0=%d, w1=%d (Q13)", weights[0], weights[1])
-
-	// Verify weights are in reasonable range
-	// libopus clamps to Q14 range: [-16384, 16384] which represents [-2, 2] in Q13
-	// This matches silk_stereo_find_predictor.c line 57:
-	// pred_Q13 = silk_LIMIT( pred_Q13, -(1 << 14), 1 << 14 );
-	if weights[0] < -16384 || weights[0] > 16384 {
-		t.Errorf("Weight w0 out of range: %d (expected [-16384, 16384])", weights[0])
+	// silk_stereo_quant_pred picks predictors from the quantization table,
+	// whose levels lie within [-13732, 13732] (Q13).
+	for n := range 2 {
+		if w := state.predPrevQ13[n]; w < -2*13732 || w > 2*13732 {
+			t.Errorf("predictor %d out of range: %d", n, w)
+		}
+		if ix[n][0] < 0 || ix[n][0] > 2 || ix[n][1] < 0 || ix[n][1] > 4 || ix[n][2] < 0 || ix[n][2] > 4 {
+			t.Errorf("indices %d out of range: %v", n, ix[n])
+		}
 	}
-	if weights[1] < -16384 || weights[1] > 16384 {
-		t.Errorf("Weight w1 out of range: %d (expected [-16384, 16384])", weights[1])
+	// The split shares the total less 600 bps for the stereo parameters of a
+	// 20 ms frame (silk/stereo_LR_to_MS.c).
+	if rates[0]+rates[1] != 32000-600 {
+		t.Errorf("mid/side rates %v do not add up to %d", rates, 32000-600)
 	}
 }
 

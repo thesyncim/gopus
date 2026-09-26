@@ -27,6 +27,7 @@ type surroundEncodeRef struct {
 	coupledStreams int
 	mapping        []byte
 	packets        [][]byte
+	ranges         []uint32
 }
 
 // encodeLibopusSurround runs the libopus surround encoder oracle for the given
@@ -52,7 +53,7 @@ func encodeLibopusSurround(sampleRate, channels, mappingFamily, application int,
 
 	payload := libopustest.NewOraclePayloadVersion(
 		"GMEI",
-		1,
+		2,
 		uint32(sampleRate),
 		uint32(channels),
 		uint32(mappingFamily),
@@ -69,7 +70,7 @@ func encodeLibopusSurround(sampleRate, channels, mappingFamily, application int,
 	)
 	payload.Float32s(pcm...)
 
-	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "multistream surround reference encode", "GMEO")
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "multistream surround reference encode", "GMEO", 2)
 	if err != nil {
 		return nil, err
 	}
@@ -83,16 +84,18 @@ func encodeLibopusSurround(sampleRate, channels, mappingFamily, application int,
 	mapping := make([]byte, chans)
 	copy(mapping, reader.Bytes(chans))
 
-	packetCount := int(reader.U32())
+	packetCount := reader.Count(frameCount)
 	packets := make([][]byte, packetCount)
+	ranges := make([]uint32, packetCount)
 	for i := range packets {
+		ranges[i] = reader.U32()
 		n := int(reader.U32())
 		packets[i] = append([]byte(nil), reader.Bytes(n)...)
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		return nil, err
 	}
-	return &surroundEncodeRef{streams: streams, coupledStreams: coupled, mapping: mapping, packets: packets}, nil
+	return &surroundEncodeRef{streams: streams, coupledStreams: coupled, mapping: mapping, packets: packets, ranges: ranges}, nil
 }
 
 // generateSurroundSweep builds a multi-frame multichannel PCM buffer with a
@@ -178,10 +181,10 @@ func runSurroundEncodeParity(t *testing.T, sampleRate, channels, frameSize, fram
 		}
 		// The stream/coupled layout is asserted hard above. A per-frame byte (or, in
 		// VBR, length) divergence here is the documented ≤1-ULP CELT float boundary
-		// on the pure-Go builds (arm64 FMA, amd64-purego Go float vs the scalar
+		// on the pure-Go builds (arm64 FMA, amd64-nosimd Go float vs the scalar
 		// libopus oracle); only the amd64 asm/SIMD build is held strictly bit-exact.
 		// See project_arm64_celt_1ulp_drift.md.
-		if armEncodeFloatDrift() || !gopusBuildIsAsm {
+		if armEncodeFloatDrift() || !gopusBuildIsSIMD {
 			t.Logf("frame %d: documented pure-Go ≤1-ULP CELT float drift (gopus len=%d libopus len=%d firstMismatch=%d)",
 				i, len(got), len(want), mismatch)
 			return

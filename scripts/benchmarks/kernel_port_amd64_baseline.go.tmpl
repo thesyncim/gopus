@@ -1,0 +1,196 @@
+//go:build amd64
+
+package celt
+
+import "testing"
+
+var kernelPortBenchAMD64F32 float32
+var kernelPortBenchAMD64F32B0 float32
+var kernelPortBenchAMD64F32B1 float32
+var kernelPortBenchAMD64ID int
+var kernelPortBenchAMD64Cpx kissCpx
+var kernelPortBenchAMD64IY int32
+
+const kernelPortBenchAMD64Batch = 64
+
+func kernelPortBenchAMD64Float32(n int) []float32 {
+	x := make([]float32, n)
+	for i := range x {
+		x[i] = float32((i*31)%127-63) * 0.0078125
+	}
+	return x
+}
+
+func kernelPortBenchAMD64Complex(n int) []kissCpx {
+	x := make([]kissCpx, n)
+	for i := range x {
+		x[i] = kissCpx{r: float32((i*17)%113-56) * 0.015625, i: float32((i*29)%109-54) * 0.015625}
+	}
+	return x
+}
+
+func kernelPortBenchAMD64PVQBestIDInputs(n int) ([][]float32, [][]float32) {
+	absX := make([][]float32, kernelPortBenchAMD64Batch)
+	y := make([][]float32, kernelPortBenchAMD64Batch)
+	for batch := range absX {
+		absX[batch] = make([]float32, n)
+		y[batch] = make([]float32, n)
+		for i := 0; i < n; i++ {
+			absX[batch][i] = float32((i*7+batch*11)%19+1) * 0.125
+			y[batch][i] = float32((i*3+batch*5)%11) * 0.25
+		}
+	}
+	return absX, y
+}
+
+func BenchmarkPortAMD64CeltInnerProdSSEStyle(b *testing.B) {
+	const n = 480
+	x, y := make([]celtNorm, n), make([]celtNorm, n)
+	for i := range x {
+		x[i] = celtNorm(float32((i*19)%127-63) * 0.0078125)
+		y[i] = celtNorm(float32((i*23)%127-63) * 0.0078125)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		kernelPortBenchAMD64F32 = celtInnerProdSSEStyle(x, y)
+	}
+}
+
+func benchmarkPortAMD64KfBflyInner(b *testing.B, radix int, fn func([]kissCpx, []kissCpx, int, int, int, int)) {
+	const m, n, fstride = 8, 4, 8
+	mm := radix * m
+	size := n * mm
+	work := make([][]kissCpx, kernelPortBenchAMD64Batch)
+	for i := range work {
+		work[i] = make([]kissCpx, size)
+	}
+	w := kernelPortBenchAMD64Complex((radix*m-1)*fstride + 1)
+	b.ReportAllocs()
+	iteration := 0
+	for b.Loop() {
+		fn(work[iteration&(kernelPortBenchAMD64Batch-1)], w, m, n, mm, fstride)
+		iteration++
+	}
+	var result kissCpx
+	for i := range work {
+		result.r += work[i][i%size].r
+		result.i += work[i][i%size].i
+	}
+	kernelPortBenchAMD64Cpx = result
+}
+
+func BenchmarkPortAMD64KfBfly3Inner(b *testing.B) {
+	benchmarkPortAMD64KfBflyInner(b, 3, kfBfly3Inner)
+}
+
+func BenchmarkPortAMD64KfBfly4Inner(b *testing.B) {
+	benchmarkPortAMD64KfBflyInner(b, 4, kfBfly4Inner)
+}
+
+func BenchmarkPortAMD64KfBfly5Inner(b *testing.B) {
+	benchmarkPortAMD64KfBflyInner(b, 5, kfBfly5Inner)
+}
+
+func BenchmarkPortAMD64PVQSearchPulseLoop(b *testing.B) {
+	const n, pulses = 48, 16
+	absX := make([]float32, n)
+	yInitial := kernelPortBenchAMD64Float32(n)
+	for i := range yInitial {
+		absX[i] = float32((i*7)%19+1) * 0.125
+		yInitial[i] = float32((i * 3) % 6)
+	}
+	workY := make([][]float32, kernelPortBenchAMD64Batch)
+	workIY := make([][]int32, kernelPortBenchAMD64Batch)
+	for i := range workY {
+		workY[i] = make([]float32, n)
+		workIY[i] = make([]int32, n)
+	}
+	b.ReportAllocs()
+	iteration := 0
+	for b.Loop() {
+		if iteration != 0 && iteration&(kernelPortBenchAMD64Batch-1) == 0 {
+			for i := range workY {
+				copy(workY[i], yInitial)
+				clear(workIY[i])
+			}
+		}
+		slot := iteration & (kernelPortBenchAMD64Batch - 1)
+		kernelPortBenchAMD64F32, kernelPortBenchAMD64F32B1 = pvqSearchPulseLoopAVX(absX, workY[slot], workIY[slot], 3.25, 9.5, n, pulses)
+		kernelPortBenchAMD64IY = workIY[slot][slot%n]
+		iteration++
+	}
+}
+
+// BenchmarkPortAMD64PVQSearchFull measures the production dispatch, including
+// the x86 pulse search selected by the CPU feature flags.
+func BenchmarkPortAMD64PVQSearchFull(b *testing.B) {
+	const n, pulses = 48, 16
+	x := make([]celtNorm, n)
+	for i := range x {
+		x[i] = celtNorm(float32((i*31)%127-63) * 0.0078125)
+	}
+	iy := make([]int32, n)
+	signx := make([]byte, n)
+	y := make([]float32, n+3)
+	absX := make([]float32, n+3)
+	b.ReportAllocs()
+	for b.Loop() {
+		out, yy := opPVQSearchScratchNormWithInputMutation(x, pulses, &iy, &signx, &y, &absX, false)
+		kernelPortBenchAMD64IY = out[0]
+		kernelPortBenchAMD64F32 = float32(yy)
+	}
+}
+
+func BenchmarkPortAMD64ToneLPCCorr(b *testing.B) {
+	const n = 480
+	x := kernelPortBenchAMD64Float32(n + 2)
+	b.ReportAllocs()
+	for b.Loop() {
+		kernelPortBenchAMD64F32, kernelPortBenchAMD64F32B0, kernelPortBenchAMD64F32B1 = toneLPCCorrAVXFMA(x, n, 1, 2)
+	}
+}
+
+var kernelPortBenchAMD64Recip [4]float32
+
+func BenchmarkPortAMD64PVQRcpApprox4(b *testing.B) {
+	var src [kernelPortBenchAMD64Batch][4]float32
+	var dst [kernelPortBenchAMD64Batch][4]float32
+	for i := range src {
+		for lane := range src[i] {
+			src[i][lane] = float32((i*7+lane*13)%127+1) * 0.125
+		}
+	}
+	b.ReportAllocs()
+	iteration := 0
+	for b.Loop() {
+		slot := iteration & (kernelPortBenchAMD64Batch - 1)
+		x86RcpApprox4(&dst[slot], &src[slot])
+		iteration++
+	}
+	var result [4]float32
+	for i := range dst {
+		for lane := range dst[i] {
+			result[lane] += dst[i][lane]
+		}
+	}
+	kernelPortBenchAMD64Recip = result
+}
+
+func BenchmarkPortAMD64PVQBestID(b *testing.B) {
+	const n = 48
+	absX, y := kernelPortBenchAMD64PVQBestIDInputs(n)
+	b.ReportAllocs()
+	var ids [kernelPortBenchAMD64Batch]int
+	iteration := 0
+	for b.Loop() {
+		slot := iteration & (kernelPortBenchAMD64Batch - 1)
+		kernelPortBenchAMD64ID = x86PVQSearchBestIDSSE2(absX[slot], y[slot], 3.25, 9.5, n)
+		ids[slot] = kernelPortBenchAMD64ID
+		iteration++
+	}
+	var result int
+	for _, id := range ids {
+		result += id
+	}
+	kernelPortBenchAMD64ID = result
+}

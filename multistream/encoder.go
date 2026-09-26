@@ -128,6 +128,7 @@ type Encoder struct {
 	analysisInputScratch [][]float32 // routed per-stream analysis buffers (distinct length)
 	streamPacketsScratch [][]byte    // per-stream encoded packets
 	assembleScratch      [][]byte    // self-delimited framing slices for assembly
+	framingScratch       []byte      // one stream's self-delimited framing for exact budget accounting
 
 	// packetParser holds reusable parse/build working buffers and assembleArena
 	// backs the self-delimited reframing of the first N-1 stream packets during
@@ -1124,32 +1125,6 @@ func (e *Encoder) updateSurroundTrimFromPCM(pcm []float32, frameSize int) bool {
 	return true
 }
 
-// multistreamCVBRBoundScale computes a constrained-VBR burst scale that keeps
-// aggregate multistream packet bursts within the Opus 1275-byte packet cap.
-// A scale of 1 keeps libopus single-stream behavior (~2x base burst ceiling).
-func multistreamCVBRBoundScale(totalBitrate, sampleRate, frameSize int) float32 {
-	if totalBitrate <= 0 || sampleRate <= 0 || frameSize <= 0 {
-		return 1.0
-	}
-	targetBytes := (totalBitrate * frameSize) / (8 * sampleRate)
-	if targetBytes <= 0 {
-		return 1.0
-	}
-	const maxPacketBytes = 1275
-	// Reserve a small framing margin for self-delimited multistream headers and
-	// per-stream TOC/entropy tail variance.
-	const framingMarginBytes = 16
-	maxBurstBytes := max(maxPacketBytes-framingMarginBytes, 1)
-	burstMultiple := float32(maxBurstBytes) / float32(targetBytes)
-	if burstMultiple >= 2.0 {
-		return 1.0
-	}
-	if burstMultiple <= 1.0 {
-		return 0.0
-	}
-	return burstMultiple - 1.0
-}
-
 func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float32) {
 	rates := e.allocateRates(frameSize)
 	hasSurroundMask := false
@@ -1165,18 +1140,11 @@ func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float32) {
 		streamMasks = e.streamEnergyMask[:needed]
 		clear(streamMasks)
 	}
-	cvbrBoundScale := float32(1.0)
-	if len(e.encoders) > 0 && e.encoders[0].GetBitrateMode() == encoder.ModeCVBR {
-		cvbrBoundScale = multistreamCVBRBoundScale(e.totalBitrateForAllocation(frameSize), int(e.sampleRate), frameSize)
-	}
-
 	surroundBandwidth := e.surroundBandwidth(frameSize)
 	for i := 0; i < e.streams; i++ {
 		enc := e.encoders[i]
 		enc.SetAllocatedBitrate(rates[i])
 		enc.SetLFE(i == e.lfeStream)
-		enc.SetCELTCVBRBoundScale(cvbrBoundScale)
-		enc.SetCELTPayloadCeilingActive(true)
 
 		switch {
 		case e.isSurroundMapping():
@@ -1376,6 +1344,17 @@ func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int
 		return nil, fmt.Errorf("%w: got %d analysis samples for frameSize=%d channels=%d",
 			ErrInvalidInput, len(analysisPCM), frameSize, e.inputChannels)
 	}
+	// libopus rejects an undersized caller buffer before surround analysis or
+	// per-stream rate changes, so a rejected call leaves encoder state intact.
+	// The 100 ms framing carries one extra ToC byte per stream.
+	fs := int(e.sampleRate)
+	smallestPacket := e.streams*2 - 1
+	if frameSize > 0 && fs/frameSize == 10 {
+		smallestPacket += e.streams
+	}
+	if maxDataBytes < smallestPacket {
+		return nil, ErrBufferTooSmall
+	}
 
 	// Mirror libopus per-stream rate/control policy ahead of stream encodes.
 	e.applyPerStreamPolicy(frameSize, pcm)
@@ -1385,12 +1364,7 @@ func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int
 	// (opus_multistream_encoder.c opus_multistream_encode_native(), lines
 	// 918-928). rate_sum is the sum of the per-stream allocation that feeds the
 	// OPUS_AUTO branch.
-	fs := int(e.sampleRate)
 	if !e.VBR() {
-		smallestPacket := e.streams*2 - 1
-		if frameSize > 0 && fs/frameSize == 10 {
-			smallestPacket += e.streams
-		}
 		switch e.bitrate {
 		case encoder.BitrateAuto:
 			rateSum := e.allocatedRateSum(frameSize)
@@ -1406,9 +1380,17 @@ func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int
 	streamBuffers := e.routeInputToStreams(e.streamInputScratch, pcm, frameSize)
 	e.streamInputScratch = streamBuffers
 	analysisStreamBuffers := streamBuffers
-	if len(analysisPCM) != len(pcm) {
+	if e.mappingFamily == 3 || len(analysisPCM) != len(pcm) {
 		analysisFrameSize := len(analysisPCM) / e.inputChannels
-		analysisStreamBuffers = e.routeInputToStreams(e.analysisInputScratch, analysisPCM, analysisFrameSize)
+		if e.mappingFamily == 3 {
+			// opus_projection_encode_float gives opus_encode_native the original
+			// caller PCM for downmix analysis while copy_channel_in supplies the
+			// matrix-mixed samples to the elementary encoder.
+			analysisStreamBuffers = routeChannelsToStreams(e.analysisInputScratch, analysisPCM, e.mapping,
+				e.coupledStreams, analysisFrameSize, e.inputChannels, e.streams)
+		} else {
+			analysisStreamBuffers = e.routeInputToStreams(e.analysisInputScratch, analysisPCM, analysisFrameSize)
+		}
 		e.analysisInputScratch = analysisStreamBuffers
 	}
 
@@ -1482,9 +1464,20 @@ func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int
 			if len(packet) > 1 {
 				allDTX = false
 			}
-			// tot_size tracks the self-delimited size for non-last streams.
+			// libopus adds the repacketizer's actual output length to tot_size.
+			// Repacketization drops ordinary child-packet padding, and its
+			// self-delimited length encodes the final frame rather than the
+			// entire child packet.
 			if i != e.streams-1 {
-				totSize += len(packet) + frameLengthBytes(len(packet))
+				need := len(packet) + 2
+				if cap(e.framingScratch) < need {
+					e.framingScratch = make([]byte, need)
+				}
+				framedLen, frameErr := makeSelfDelimitedPacketInto(&e.packetParser, e.framingScratch[:need], packet)
+				if frameErr != nil {
+					return nil, fmt.Errorf("stream %d self-delimited framing failed: %w", i, frameErr)
+				}
+				totSize += framedLen
 			} else {
 				totSize += len(packet)
 			}

@@ -26,6 +26,7 @@ import (
 
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/container/ogg"
+	examplecleanup "github.com/thesyncim/gopus/examples/internal/cleanup"
 )
 
 const sampleRate = 48000
@@ -45,6 +46,12 @@ type decodeStats struct {
 }
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	input := flag.String("in", "", "Input Ogg Opus file")
 	url := flag.String("url", "", "Download Ogg Opus file from URL (overrides -sample)")
 	sample := flag.String("sample", "stereo", "Preset sample to download: stereo or speech")
@@ -60,33 +67,33 @@ func main() {
 		var err error
 		urlValue, err = resolveSampleURL(*sample)
 		if err != nil {
-			log.Fatalf("Resolve sample failed: %v", err)
+			return fmt.Errorf("resolve sample failed: %w", err)
 		}
 	}
 
 	if *ffplayFirst {
 		if err := playSourceWithFFplay(inputPath, urlValue); err != nil {
-			log.Fatalf("ffplay source failed: %v", err)
+			return fmt.Errorf("ffplay source failed: %w", err)
 		}
 	}
 
 	source, sourceLabel, sourceClose, err := openSource(inputPath, urlValue)
 	if err != nil {
-		log.Fatalf("Open source failed: %v", err)
+		return fmt.Errorf("open source failed: %w", err)
 	}
 	defer sourceClose()
 
 	if *pipe {
 		if *output != "" {
-			log.Fatalf("Cannot use -out with -pipe (raw PCM streaming does not write a WAV file).")
+			return errors.New("cannot use -out with -pipe (raw PCM streaming does not write a WAV file)")
 		}
 
 		stats, err := decodeOggToPipe(source)
 		if err != nil {
-			log.Fatalf("Decode failed: %v", err)
+			return fmt.Errorf("decode failed: %w", err)
 		}
 		printStats(sourceLabel, "", stats, true)
-		return
+		return nil
 	}
 
 	outPath := strings.TrimSpace(*output)
@@ -95,7 +102,7 @@ func main() {
 		if *play {
 			tmp, err := os.CreateTemp("", "gopus_decode_*.wav")
 			if err != nil {
-				log.Fatalf("Create temp WAV: %v", err)
+				return fmt.Errorf("create temp WAV: %w", err)
 			}
 			outPath = tmp.Name()
 			tempOutput = true
@@ -106,12 +113,12 @@ func main() {
 	}
 
 	if tempOutput {
-		defer os.Remove(outPath)
+		defer examplecleanup.OnReturn("remove temporary WAV", func() error { return os.Remove(outPath) })
 	}
 
 	stats, err := decodeOggToWav(source, outPath)
 	if err != nil {
-		log.Fatalf("Decode failed: %v", err)
+		return fmt.Errorf("decode failed: %w", err)
 	}
 
 	printStats(sourceLabel, outPath, stats, false)
@@ -122,6 +129,7 @@ func main() {
 			fmt.Println("Try playing the WAV with a media player or install ffmpeg for ffplay.")
 		}
 	}
+	return nil
 }
 
 func printStats(sourceLabel, outputPath string, stats decodeStats, piped bool) {
@@ -528,7 +536,7 @@ func playSourceWithFFplay(inputPath, url string) error {
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
 	}
-	defer resp.Body.Close()
+	defer examplecleanup.OnReturn("close source response", resp.Body.Close)
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("download: unexpected status %s", resp.Status)
 	}

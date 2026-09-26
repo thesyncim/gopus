@@ -207,7 +207,7 @@ func TestSILKPLCIIRVoicedToUnvoicedTransition(t *testing.T) {
 
 	// Now decoder reports unvoiced.
 	dec.signalType = 1
-	dec.mockSILKDecoder.wasVoiced = false
+	dec.wasVoiced = false
 
 	frameSize := subfrLength * nbSubfr
 

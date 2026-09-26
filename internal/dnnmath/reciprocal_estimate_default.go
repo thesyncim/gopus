@@ -1,5 +1,3 @@
-//go:build !arm64 || purego
-
 package dnnmath
 
 import "math"
@@ -7,7 +5,7 @@ import "math"
 // reciprocalEstimate32 reproduces the AArch64 FRECPE (single-precision reciprocal
 // estimate) instruction in portable Go. The arm64 build issues the hardware
 // instruction; this path mirrors its 8-bit table-based estimate bit-for-bit so
-// purego on arm64 matches the libopus NEON activation oracle, which feeds the
+// nosimd on arm64 matches the libopus NEON activation oracle, which feeds the
 // estimate straight into the sigmoid/tanh rational approximations without a
 // Newton-Raphson refinement step.
 //

@@ -42,6 +42,7 @@ import (
 
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/benchutil"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 // rfcConformanceRate is the rate the official vectors are decoded and compared
@@ -67,7 +68,8 @@ func TestRFCConformanceOpusCompare(t *testing.T) {
 
 	opusCompare, err := benchutil.OpusComparePath()
 	if err != nil {
-		t.Skipf("reference opus_compare unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "opus_compare", err)
+		return
 	}
 
 	for _, name := range testVectorNames {

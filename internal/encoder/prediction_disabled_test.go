@@ -2,31 +2,47 @@ package encoder
 
 import "testing"
 
+// encodeCELTFrameForPrediction codes one 20 ms CELT-only frame.
+func encodeCELTFrameForPrediction(t *testing.T, enc *Encoder) {
+	t.Helper()
+	pcm := make([]float32, 960*int(enc.channels))
+	for i := range pcm {
+		pcm[i] = float32(i%97) / 400
+	}
+	if _, err := enc.Encode(pcm, 960); err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+}
+
+// TestSetPredictionDisabledPropagatesToSubEncoders pins OPUS_SET_PREDICTION_DISABLED:
+// it sets silk_mode.reducedDependency, which SILK reads on every frame, and
+// CELT takes it through CELT_SET_PREDICTION at the next CELT or hybrid frame
+// (src/opus_encoder.c:2288-2295).
 func TestSetPredictionDisabledPropagatesToSubEncoders(t *testing.T) {
 	enc := NewEncoder(48000, 2)
-
-	enc.SetPredictionDisabled(true)
+	enc.SetMode(ModeCELT)
 	enc.ensureSILKEncoder()
-	enc.ensureSILKSideEncoder()
 	enc.ensureCELTEncoder()
 
-	if !enc.silkEncoder.ReducedDependency() {
-		t.Fatal("silkEncoder should have reduced dependency when prediction is disabled")
+	enc.SetPredictionDisabled(true)
+	enc.configureSILKMode(ModeSILK, 960, 1276, 32000, 1275*8, false)
+	if !enc.silkMode.ReducedDependency {
+		t.Fatal("silk_mode.reducedDependency should be set when prediction is disabled")
 	}
-	if enc.silkSideEncoder == nil || !enc.silkSideEncoder.ReducedDependency() {
-		t.Fatal("silkSideEncoder should have reduced dependency when prediction is disabled")
+	if got := enc.celtEncoder.Prediction(); got != 2 {
+		t.Fatalf("celtEncoder prediction mode before the next CELT frame = %d, want 2", got)
 	}
+	encodeCELTFrameForPrediction(t, enc)
 	if got := enc.celtEncoder.Prediction(); got != 0 {
 		t.Fatalf("celtEncoder prediction mode = %d, want 0 when prediction is disabled", got)
 	}
 
 	enc.SetPredictionDisabled(false)
-	if enc.silkEncoder.ReducedDependency() {
-		t.Fatal("silkEncoder reduced dependency should be disabled")
+	enc.configureSILKMode(ModeSILK, 960, 1276, 32000, 1275*8, false)
+	if enc.silkMode.ReducedDependency {
+		t.Fatal("silk_mode.reducedDependency should be cleared")
 	}
-	if enc.silkSideEncoder.ReducedDependency() {
-		t.Fatal("silkSideEncoder reduced dependency should be disabled")
-	}
+	encodeCELTFrameForPrediction(t, enc)
 	if got := enc.celtEncoder.Prediction(); got != 2 {
 		t.Fatalf("celtEncoder prediction mode = %d, want 2 when prediction is enabled", got)
 	}
@@ -34,6 +50,7 @@ func TestSetPredictionDisabledPropagatesToSubEncoders(t *testing.T) {
 
 func TestSetPredictionDisabledPersistsAcrossReset(t *testing.T) {
 	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeCELT)
 	enc.SetPredictionDisabled(true)
 	enc.ensureSILKEncoder()
 	enc.ensureCELTEncoder()
@@ -43,9 +60,11 @@ func TestSetPredictionDisabledPersistsAcrossReset(t *testing.T) {
 	if !enc.PredictionDisabled() {
 		t.Fatal("PredictionDisabled should remain true after Reset()")
 	}
-	if !enc.silkEncoder.ReducedDependency() {
-		t.Fatal("silkEncoder should keep reduced dependency after Reset()")
+	enc.configureSILKMode(ModeSILK, 960, 1276, 32000, 1275*8, false)
+	if !enc.silkMode.ReducedDependency {
+		t.Fatal("silk_mode.reducedDependency should stay set after Reset()")
 	}
+	encodeCELTFrameForPrediction(t, enc)
 	if got := enc.celtEncoder.Prediction(); got != 0 {
 		t.Fatalf("celtEncoder prediction mode after Reset() = %d, want 0", got)
 	}

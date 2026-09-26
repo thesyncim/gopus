@@ -54,11 +54,11 @@ func TestFrameTypeInactive(t *testing.T) {
 }
 
 func TestFrameTypeInactiveHighOffsetRoundtrip(t *testing.T) {
-	e := NewEncoder(BandwidthWideband)
+	e := newTestEncoder(BandwidthWideband)
 	var enc rangecoding.Encoder
 	buf := make([]byte, 32)
 	enc.Init(buf)
-	e.SetRangeEncoder(&enc)
+	e.rangeEncoder = &enc
 
 	// VAD inactive with typeOffset=1 (signal=0, quantOffset=1).
 	e.encodeFrameType(false, typeNoVoiceActivity, 1)
@@ -75,11 +75,11 @@ func TestFrameTypeInactiveHighOffsetRoundtrip(t *testing.T) {
 }
 
 func TestFrameTypeActiveVoicedHighOffsetRoundtrip(t *testing.T) {
-	e := NewEncoder(BandwidthWideband)
+	e := newTestEncoder(BandwidthWideband)
 	var enc rangecoding.Encoder
 	buf := make([]byte, 32)
 	enc.Init(buf)
-	e.SetRangeEncoder(&enc)
+	e.rangeEncoder = &enc
 
 	// VAD active with typeOffset=5 (signal=2, quantOffset=1).
 	e.encodeFrameType(true, typeVoiced, 1)

@@ -136,8 +136,13 @@ func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int32
 			// Reference: libopus vq.c line 274
 			iy[j] = int32(rcp * absX[j]) // rcp >= 0, absX >= 0: truncation == floor
 			y[j] = float32(iy[j])
-			yy += y[j] * y[j]
-			xy += absX[j] * y[j]
+			if neonRoundsReductionTerm(j, n) {
+				yy += round32(y[j] * y[j])
+				xy += round32(absX[j] * y[j])
+			} else {
+				yy += y[j] * y[j]
+				xy += absX[j] * y[j]
+			}
 			// We multiply y[j] by 2 so we don't have to do it in the main loop
 			// Reference: libopus vq.c line 279
 			y[j] *= 2
@@ -166,9 +171,8 @@ func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int32
 	// For each pulse, find the position that maximizes Rxy/sqrt(Ryy).
 	// Reference: libopus vq.c lines 299-362
 	//
-	// The entire outer pulse loop + inner position search is merged into
-	// pvqSearchPulseLoop (assembly on arm64/amd64) to eliminate per-pulse
-	// Go→asm transition overhead.
+	// pvqSearchPulseLoop combines the outer pulse loop and inner position
+	// search in one Go call.
 	if pulsesLeft > 0 && n > 0 {
 		xy, yy = pvqSearchPulseLoop(absX[:n], y[:n], iy[:n], xy, yy, n, pulsesLeft)
 	}
@@ -322,7 +326,7 @@ func opPVQRefineNorm(xn []opusVal32, iy []int32, iy0 []int32, k, up, margin int,
 		for i := range n {
 			if float32(rounding[i]-roundVal)*float32(dir) > 0 &&
 				absInt32(iy[i]-up32*iy0[i]) < int32(margin-1) &&
-				!(dir == -1 && iy[i] == 0) {
+				(dir != -1 || iy[i] != 0) {
 				roundVal = rounding[i]
 				roundPos = i
 			}

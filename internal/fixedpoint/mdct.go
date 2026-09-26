@@ -240,7 +240,7 @@ func (l *MDCTLookup) MDCTBackward(in, out []int32, window []int16, overlap, shif
 	n4 := n >> 2
 
 	// Headroom analysis over the input magnitudes.
-	var sumval int32 = int32(n2)
+	sumval := int32(n2)
 	var maxval int32
 	for i := 0; i < n2; i++ {
 		v := abs32(in[i*stride])

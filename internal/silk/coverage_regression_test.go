@@ -6,7 +6,7 @@ import (
 )
 
 func TestComputeSubframeGainsFromResidual_EdgeCases(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestEncoder(BandwidthWideband)
 
 	empty := enc.computeSubframeGainsFromResidual(nil, 4)
 	if len(empty) != 4 {
@@ -63,7 +63,7 @@ func TestComputeSubframeGainsFromResidual_EdgeCases(t *testing.T) {
 }
 
 func TestDetectPitch_NoSignalAndShortInput(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestEncoder(BandwidthWideband)
 
 	lags, lagIndex, contour := enc.detectPitch(nil, 4, 0, 0)
 	if lags != nil || lagIndex != 0 || contour != 0 {
@@ -103,7 +103,7 @@ func TestDetectPitch_NoSignalAndShortInput(t *testing.T) {
 }
 
 func TestBurgModifiedStoresResidualState(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestEncoder(BandwidthWideband)
 	cfg := GetBandwidthConfig(BandwidthWideband)
 	frameSamples := cfg.SampleRate * 20 / 1000
 

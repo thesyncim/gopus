@@ -156,7 +156,7 @@ func TestDecodeWithFECMultiFrameSILKMatchesLibopus(t *testing.T) {
 				// budget that is three orders of magnitude below any real desync (the
 				// fixed SILK LBRR concealment bug produced ~1.0-2.0).
 				tol := 0.0
-				if runtime.GOARCH == "amd64" && testPuregoBuild {
+				if runtime.GOARCH == "amd64" && testNoSimdBuild {
 					tol = fecMultiframeStereoPuregoTol
 				}
 				if maxDiff > tol {

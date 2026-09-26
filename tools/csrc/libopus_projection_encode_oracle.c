@@ -68,7 +68,7 @@ static int valid_sample_rate(uint32_t sample_rate) {
  *
  * Input layout (little-endian):
  *   magic "GPEI"
- *   u32 version (1)
+ *   u32 version (1 = packets, 2 = packets + final ranges)
  *   u32 sample_rate
  *   u32 channels
  *   u32 application
@@ -85,14 +85,14 @@ static int valid_sample_rate(uint32_t sample_rate) {
  *
  * Output layout (little-endian):
  *   magic "GPEO"
- *   u32 version (1)
+ *   u32 version (matches input)
  *   u32 streams
  *   u32 coupled_streams
  *   u32 demix_size
  *   raw demix_bytes[demix_size]
  *   u32 demix_gain
  *   u32 packet_count
- *   for each packet: u32 len, raw bytes[len]
+ *   for each packet: [u32 final_range when version >= 2], u32 len, raw bytes[len]
  */
 int main(void) {
   unsigned char magic[4];
@@ -132,7 +132,7 @@ int main(void) {
   }
 
   uint32_t b_bitrate = 0, b_bandwidth = 0;
-  if (!read_u32(&version) || version != 1) {
+  if (!read_u32(&version) || (version != 1 && version != 2)) {
     fprintf(stderr, "unsupported input version\n");
     return 1;
   }
@@ -211,7 +211,7 @@ int main(void) {
     return 1;
   }
 
-  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) || !write_u32((uint32_t)streams) ||
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(version) || !write_u32((uint32_t)streams) ||
       !write_u32((uint32_t)coupled_streams) || !write_u32((uint32_t)demix_size) ||
       !write_exact(demix_buf, (size_t)demix_size) || !write_u32((uint32_t)(int32_t)demix_gain) ||
       !write_u32(frame_count)) {
@@ -248,6 +248,26 @@ int main(void) {
       free(demix_buf);
       opus_projection_encoder_destroy(enc);
       return 1;
+    }
+
+    if (version >= 2) {
+      opus_uint32 final_range = 0;
+      if (opus_projection_encoder_ctl(enc, OPUS_GET_FINAL_RANGE(&final_range)) != OPUS_OK) {
+        fprintf(stderr, "OPUS_GET_FINAL_RANGE frame %u failed\n", i);
+        free(pcm);
+        free(packet);
+        free(demix_buf);
+        opus_projection_encoder_destroy(enc);
+        return 1;
+      }
+      if (!write_u32((uint32_t)final_range)) {
+        fprintf(stderr, "failed to write final range %u\n", i);
+        free(pcm);
+        free(packet);
+        free(demix_buf);
+        opus_projection_encoder_destroy(enc);
+        return 1;
+      }
     }
 
     if (!write_u32((uint32_t)nbytes) || (nbytes > 0 && !write_exact(packet, (size_t)nbytes))) {

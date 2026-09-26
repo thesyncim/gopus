@@ -48,7 +48,6 @@ type SILKCtrlSnapshot struct {
 	CodingQuality float32
 	InputQuality  float32
 	TargetRateBps int32
-	NBitsExceeded int32
 }
 
 // WithSILKCtrlSnapshotHook installs a per-frame snapshot callback for the
@@ -72,11 +71,10 @@ func WithSILKCtrlSnapshotHook(cb func(SILKCtrlSnapshot), fn func()) {
 		s.PitchL = tr.ctrlPitchL
 		s.SNRdBQ7 = e.snrDBQ7
 		s.InQBandsQ15 = e.inputQualityBandsQ15
-		s.SpeechActivQ8 = e.lastSpeechActivityQ8
+		s.SpeechActivQ8 = e.speechActivityQ8
 		s.CodingQuality = tr.ctrlCodingQual
 		s.InputQuality = tr.ctrlInputQual
-		s.TargetRateBps = e.lastControlTargetRateBps
-		s.NBitsExceeded = e.nBitsExceeded
+		s.TargetRateBps = e.targetRateBps
 		cb(s)
 	}, fn)
 }

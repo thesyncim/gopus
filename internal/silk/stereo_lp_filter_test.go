@@ -1,7 +1,6 @@
 package silk
 
 import (
-	"math"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -56,48 +55,6 @@ func TestStereoLPFilterImpulse(t *testing.T) {
 	}
 }
 
-func TestStereoLPFilterFloat(t *testing.T) {
-	// Test float version with known input
-	signal := []float32{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}
-	frameLength := 4
-
-	lp, hp := stereoLPFilterFloat(signal, frameLength)
-
-	// For constant input, LP should equal input and HP should be 0
-	for i := range frameLength {
-		if math.Abs(float64(lp[i]-1.0)) > 0.001 {
-			t.Errorf("LP[%d] = %f, want 1.0 (constant input)", i, lp[i])
-		}
-		if math.Abs(float64(hp[i])) > 0.001 {
-			t.Errorf("HP[%d] = %f, want 0.0 (constant input)", i, hp[i])
-		}
-	}
-}
-
-func TestStereoLPFilterFloatImpulse(t *testing.T) {
-	// Test float version with impulse
-	signal := []float32{0, 0, 4.0, 0, 0}
-	frameLength := 3
-
-	lp, hp := stereoLPFilterFloat(signal, frameLength)
-
-	// LP[n] = (s[n] + 2*s[n+1] + s[n+2]) / 4
-	expectedLP := []float32{1.0, 2.0, 1.0}
-	for i := range frameLength {
-		if math.Abs(float64(lp[i]-expectedLP[i])) > 0.001 {
-			t.Errorf("LP[%d] = %f, want %f", i, lp[i], expectedLP[i])
-		}
-	}
-
-	// HP[n] = signal[n+1] - LP[n]
-	expectedHP := []float32{-1.0, 2.0, -1.0}
-	for i := range frameLength {
-		if math.Abs(float64(hp[i]-expectedHP[i])) > 0.001 {
-			t.Errorf("HP[%d] = %f, want %f", i, hp[i], expectedHP[i])
-		}
-	}
-}
-
 func TestStereoConvertLRToMS(t *testing.T) {
 	// Test L/R to M/S conversion
 	// M = (L + R) / 2
@@ -126,71 +83,6 @@ func TestStereoConvertLRToMS(t *testing.T) {
 	}
 	if side[1] != 1000 {
 		t.Errorf("side[1] = %d, want 1000", side[1])
-	}
-}
-
-func TestStereoConvertLRToMSFloat(t *testing.T) {
-	left := []float32{1.0, 0.5, -0.5, 0.0}
-	right := []float32{1.0, -0.5, 0.5, 0.0}
-
-	mid, side := stereoConvertLRToMSFloat(left, right, 2)
-
-	// silk_stereo_LR_to_MS semantics: output index n maps to input n-2.
-	// n=0..1 are history slots and filled by caller state afterwards.
-	// n=2 -> input[0], n=3 -> input[1].
-	if math.Abs(float64(mid[0])) > 0.001 || math.Abs(float64(side[0])) > 0.001 {
-		t.Errorf("history slots should be zero before state injection, got mid[0]=%f side[0]=%f", mid[0], side[0])
-	}
-	if math.Abs(float64(mid[2]-1.0)) > 0.001 {
-		t.Errorf("mid[2] = %f, want 1.0", mid[2])
-	}
-	if math.Abs(float64(side[2])) > 0.001 {
-		t.Errorf("side[2] = %f, want 0.0", side[2])
-	}
-	if math.Abs(float64(mid[3])) > 0.001 {
-		t.Errorf("mid[3] = %f, want 0.0", mid[3])
-	}
-	if math.Abs(float64(side[3]-0.5)) > 0.001 {
-		t.Errorf("side[3] = %f, want 0.5", side[3])
-	}
-}
-
-func TestStereoFindPredictorFloat(t *testing.T) {
-	// Test predictor finding with perfectly correlated signals
-	// If y = 0.5 * x, predictor should be approximately 0.5 (4096 in Q13)
-	x := make([]float32, 100)
-	y := make([]float32, 100)
-
-	for i := range 100 {
-		x[i] = float32(i) / 100.0
-		y[i] = 0.5 * x[i]
-	}
-
-	predQ13 := stereoFindPredictorFloat(x, y, 100)
-
-	// Expected: 0.5 * 8192 = 4096
-	expectedQ13 := int32(4096)
-	tolerance := int32(100) // Allow some tolerance
-
-	diff := predQ13 - expectedQ13
-	if diff < 0 {
-		diff = -diff
-	}
-	if diff > tolerance {
-		t.Errorf("predQ13 = %d, want approximately %d (tolerance %d)", predQ13, expectedQ13, tolerance)
-	}
-}
-
-func TestStereoFindPredictorFloatUncorrelated(t *testing.T) {
-	// Test with uncorrelated signals - predictor should be near 0
-	x := []float32{1, -1, 1, -1, 1, -1, 1, -1}
-	y := []float32{1, 1, -1, -1, 1, 1, -1, -1}
-
-	predQ13 := stereoFindPredictorFloat(x, y, 8)
-
-	// Predictor should be small for uncorrelated signals
-	if predQ13 > 1000 || predQ13 < -1000 {
-		t.Errorf("predQ13 = %d, expected near 0 for uncorrelated signals", predQ13)
 	}
 }
 
@@ -238,47 +130,31 @@ func TestSILKIsqrt32MatchesLibopusCELTOracle(t *testing.T) {
 	}
 }
 
-func TestStereoEncoderLPFilterState(t *testing.T) {
-	// Test that encoder stereo state is preserved across frames
-	enc := NewEncoder(BandwidthWideband)
-
-	// First frame
-	left1 := make([]float32, 322) // 320 + 2 for look-ahead
-	right1 := make([]float32, 322)
-	for i := range left1 {
-		left1[i] = 0.5
-		right1[i] = 0.3
+func TestStereoLRToMSKeepsFilterHistory(t *testing.T) {
+	// silk_stereo_LR_to_MS carries the last two mid and side samples of a
+	// frame into the next one (sMid/sSide).
+	const frameLength = 320
+	buf0 := make([]int16, frameLength+2)
+	buf1 := make([]int16, frameLength+2)
+	for i := 2; i < frameLength+2; i++ {
+		buf0[i] = 16384
+		buf1[i] = 9830
 	}
+	var state stereoEncState
+	var scratch stereoLRToMSScratch
+	silkStereoLRToMS(&state, buf0, buf1, 32000, 200, false, 16, frameLength, &scratch)
 
-	mid1, side1, pred1 := enc.EncodeStereoLRToMS(left1, right1, 320, 16)
-
-	// State should be updated
-	if enc.stereo.sMid[0] == 0 && enc.stereo.sMid[1] == 0 {
-		t.Error("stereo.sMid should be updated after first frame")
+	wantMid := int16((16384 + 9830 + 1) >> 1)
+	wantSide := int16((16384 - 9830 + 1) >> 1)
+	if state.sMid != [2]int16{wantMid, wantMid} {
+		t.Errorf("sMid = %v, want [%d %d]", state.sMid, wantMid, wantMid)
 	}
-
-	// Second frame
-	left2 := make([]float32, 322)
-	right2 := make([]float32, 322)
-	for i := range left2 {
-		left2[i] = 0.6
-		right2[i] = 0.4
+	if state.sSide != [2]int16{wantSide, wantSide} {
+		t.Errorf("sSide = %v, want [%d %d]", state.sSide, wantSide, wantSide)
 	}
-
-	mid2, side2, pred2 := enc.EncodeStereoLRToMS(left2, right2, 320, 16)
-
-	// Outputs should be different due to state
-	_ = mid1
-	_ = side1
-	_ = pred1
-	_ = mid2
-	_ = side2
-	_ = pred2
-
-	// After reset, state should be cleared
-	enc.ResetStereoState()
-	if enc.stereo.sMid[0] != 0 || enc.stereo.sMid[1] != 0 {
-		t.Error("stereo.sMid should be 0 after reset")
+	// The mid output starts with the previous frame's history (zero here).
+	if buf0[0] != 0 || buf0[1] != 0 || buf0[2] != wantMid {
+		t.Errorf("mid = %v..., want [0 0 %d ...]", buf0[:3], wantMid)
 	}
 }
 
@@ -319,31 +195,5 @@ func BenchmarkStereoLPFilter(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		stereoLPFilter(signal, 320)
-	}
-}
-
-func BenchmarkStereoLPFilterFloat(b *testing.B) {
-	signal := make([]float32, 322) // 320 + 2 history
-	for i := range signal {
-		signal[i] = float32(i) / 100.0
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		stereoLPFilterFloat(signal, 320)
-	}
-}
-
-func BenchmarkStereoFindPredictorFloat(b *testing.B) {
-	x := make([]float32, 320)
-	y := make([]float32, 320)
-	for i := range x {
-		x[i] = float32(i) / 320.0
-		y[i] = float32(i) / 640.0
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		stereoFindPredictorFloat(x, y, 320)
 	}
 }

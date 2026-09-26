@@ -689,12 +689,13 @@ func compareCTLResults(t *testing.T, label string, isDecoder bool, ops []libopus
 		g, o := gopus[i], oracle[i]
 		op := ops[i]
 		mismatch := ""
-		if op.Op == libopustest.CTLOpSet {
+		switch op.Op {
+		case libopustest.CTLOpSet:
 			if g.Ret != o.Ret {
 				mismatch = fmt.Sprintf("SET %s(%d) ret gopus=%d oracle=%d",
 					ctlReqName(op.Request), op.Arg, g.Ret, o.Ret)
 			}
-		} else if op.Op == libopustest.CTLOpGet {
+		case libopustest.CTLOpGet:
 			if g.Ret != o.Ret {
 				mismatch = fmt.Sprintf("GET %s ret gopus=%d oracle=%d",
 					ctlReqName(op.Request), g.Ret, o.Ret)
@@ -716,13 +717,13 @@ func formatProgram(ops []libopustest.CTLOp) string {
 	for i, op := range ops {
 		switch op.Op {
 		case libopustest.CTLOpSet:
-			s.WriteString(fmt.Sprintf("  [%d] SET %s arg=%d\n", i, ctlReqName(op.Request), op.Arg))
+			fmt.Fprintf(&s, "  [%d] SET %s arg=%d\n", i, ctlReqName(op.Request), op.Arg)
 		case libopustest.CTLOpGet:
-			s.WriteString(fmt.Sprintf("  [%d] GET %s\n", i, ctlReqName(op.Request)))
+			fmt.Fprintf(&s, "  [%d] GET %s\n", i, ctlReqName(op.Request))
 		case libopustest.CTLOpProcess:
-			s.WriteString(fmt.Sprintf("  [%d] PROCESS\n", i))
+			fmt.Fprintf(&s, "  [%d] PROCESS\n", i)
 		case libopustest.CTLOpReset:
-			s.WriteString(fmt.Sprintf("  [%d] RESET\n", i))
+			fmt.Fprintf(&s, "  [%d] RESET\n", i)
 		}
 	}
 	return s.String()

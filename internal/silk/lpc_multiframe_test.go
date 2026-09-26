@@ -46,10 +46,7 @@ func TestLPCPredictionMultiFrame(t *testing.T) {
 		pcm := allPCM[frame*frameSamples : (frame+1)*frameSamples]
 
 		// Encode this frame
-		encoded, err := Encode(pcm, BandwidthWideband, true)
-		if err != nil {
-			t.Fatalf("Frame %d: Encode failed: %v", frame, err)
-		}
+		encoded := encodeTestPacket(t, BandwidthWideband, pcm)
 
 		// Decode using the same decoder (state persists!)
 		var rd rangecoding.Decoder
@@ -114,10 +111,7 @@ func TestLPCHistoryPreservation(t *testing.T) {
 	}
 
 	// Encode
-	encoded, err := Encode(pcm, BandwidthNarrowband, true)
-	if err != nil {
-		t.Fatalf("Encode failed: %v", err)
-	}
+	encoded := encodeTestPacket(t, BandwidthNarrowband, pcm)
 
 	// Create decoder
 	decoder := NewDecoder()
@@ -161,10 +155,7 @@ func TestLPCHistoryPreservation(t *testing.T) {
 	t.Logf("\n=== Decoding second frame ===")
 
 	// Encode another frame
-	encoded2, err := Encode(pcm, BandwidthNarrowband, true)
-	if err != nil {
-		t.Fatalf("Encode2 failed: %v", err)
-	}
+	encoded2 := encodeTestPacket(t, BandwidthNarrowband, pcm)
 
 	var rd2 rangecoding.Decoder
 	rd2.Init(encoded2)
@@ -203,10 +194,7 @@ func TestWithinFrameLPCBuildup(t *testing.T) {
 	}
 
 	// Encode
-	encoded, err := Encode(pcm, BandwidthNarrowband, true)
-	if err != nil {
-		t.Fatalf("Encode failed: %v", err)
-	}
+	encoded := encodeTestPacket(t, BandwidthNarrowband, pcm)
 
 	// Decode
 	decoder := NewDecoder()

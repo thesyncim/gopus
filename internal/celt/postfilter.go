@@ -733,6 +733,14 @@ func combFilterConstValue(base, g10, g11, g12, center, plus1, minus1, plus2, min
 	return sum
 }
 
+// combFilterConstSSEValue matches libopus celt/x86/pitch_sse.c:
+// comb_filter_const_sse() groups the outer tap products before the final add.
+func combFilterConstSSEValue(base, g10, g11, g12, center, plus1, minus1, plus2, minus2 float32) float32 {
+	main := add32(base, mul32(g10, center))
+	sides := add32(mul32(g11, add32(minus1, plus1)), mul32(g12, add32(plus2, minus2)))
+	return add32(main, sides)
+}
+
 // combFilterConstDispatch runs the constant-gain comb body, handing whole
 // 4-wide blocks to the NEON kernel on the fused arm64 build (bit-identical
 // per element). A scalar head keeps the incoming carry semantics, and the
@@ -767,7 +775,7 @@ func combFilterConstDispatch(dst, delay []float32, g10, g11, g12 float32, x4, x3
 	return x4, x3, x2, x1, true
 }
 
-func combFilterConstFloat32Hist(dst []float32, delay []celtSig, g10, g11, g12 float32, x4, x3, x2, x1 float32) (float32, float32, float32, float32) {
+func combFilterConstFloat32Hist(dst []float32, delay []celtSig, g10, g11, g12 float32, x4, x3, x2, x1 float32, sseCount int) (float32, float32, float32, float32) {
 	n := len(dst)
 	if n == 0 {
 		return x4, x3, x2, x1
@@ -778,6 +786,20 @@ func combFilterConstFloat32Hist(dst []float32, delay []celtSig, g10, g11, g12 fl
 	delay = delay[:n:n]
 	_ = dst[n-1]
 	_ = delay[n-1]
+	if combUsesSSE {
+		i := 0
+		for ; i < sseCount; i++ {
+			x0 := float32(delay[i])
+			dst[i] = combFilterConstSSEValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
+			x4, x3, x2, x1 = x3, x2, x1, x0
+		}
+		for ; i < n; i++ {
+			x0 := float32(delay[i])
+			dst[i] = combFilterConstValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
+			x4, x3, x2, x1 = x3, x2, x1, x0
+		}
+		return x4, x3, x2, x1
+	}
 	i := 0
 	for ; i+4 < n; i += 5 {
 		x0 := float32(delay[i])
@@ -806,7 +828,7 @@ func combFilterConstFloat32Hist(dst []float32, delay []celtSig, g10, g11, g12 fl
 	return x4, x3, x2, x1
 }
 
-func combFilterConstFloat32(dst, delay []float32, g10, g11, g12 float32, x4, x3, x2, x1 float32) (float32, float32, float32, float32) {
+func combFilterConstFloat32(dst, delay []float32, g10, g11, g12 float32, x4, x3, x2, x1 float32, sseCount int) (float32, float32, float32, float32) {
 	n := len(dst)
 	if n == 0 {
 		return x4, x3, x2, x1
@@ -817,6 +839,20 @@ func combFilterConstFloat32(dst, delay []float32, g10, g11, g12 float32, x4, x3,
 	delay = delay[:n:n]
 	_ = dst[n-1]
 	_ = delay[n-1]
+	if combUsesSSE {
+		i := 0
+		for ; i < sseCount; i++ {
+			x0 := delay[i]
+			dst[i] = combFilterConstSSEValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
+			x4, x3, x2, x1 = x3, x2, x1, x0
+		}
+		for ; i < n; i++ {
+			x0 := delay[i]
+			dst[i] = combFilterConstValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
+			x4, x3, x2, x1 = x3, x2, x1, x0
+		}
+		return x4, x3, x2, x1
+	}
 	i := 0
 	for ; i+4 < n; i += 5 {
 		x0 := delay[i]
@@ -971,18 +1007,22 @@ func combFilterWithSquarePlanarFloat32(samples []float32, hist []celtSig, histor
 	x3 = combPlanarAtFloat32(samples, hist, history, base1+i+1)
 	x2 = combPlanarAtFloat32(samples, hist, history, base1+i+2)
 	x1 = combPlanarAtFloat32(samples, hist, history, base1+i+3)
+	// libopus comb_filter_const_sse() chooses its SIMD prefix once for the
+	// entire constant body. Splitting history and current-frame storage must
+	// not start an artificial scalar tail at the history boundary.
+	sseEnd := i + ((n - i) &^ 3)
 	histEnd := t1 - frameOffset - 2
 	histLimit := min(histEnd, n)
 	if i < histLimit {
 		dst := samples[frameOffset+i : frameOffset+histLimit]
 		delay := hist[base1+i+4 : base1+histLimit+4]
-		x4, x3, x2, x1 = combFilterConstFloat32Hist(dst, delay, g10, g11, g12, x4, x3, x2, x1)
+		x4, x3, x2, x1 = combFilterConstFloat32Hist(dst, delay, g10, g11, g12, x4, x3, x2, x1, min(histLimit, sseEnd)-i)
 		i = histLimit
 	}
 	if i < n {
 		dst := samples[frameOffset+i : frameOffset+n]
 		delay := samples[frameOffset-t1+i+2 : frameOffset-t1+n+2]
-		combFilterConstFloat32(dst, delay, g10, g11, g12, x4, x3, x2, x1)
+		combFilterConstFloat32(dst, delay, g10, g11, g12, x4, x3, x2, x1, max(0, sseEnd-i))
 	}
 }
 
@@ -1079,6 +1119,15 @@ func combFilterWithInputSig(dst, src []celtSig, start int, t0, t1, n int, g0, g1
 	_ = delay1[n+4-1] // BCE hint
 	_ = srcFrame[n-1] // BCE hint
 	_ = dstFrame[n-1] // BCE hint
+	if combUsesSSE {
+		// libopus x86 builds that presume SSE bind comb_filter_const to
+		// comb_filter_const_sse, which sums the two side taps before adding
+		// them to the center term.
+		for full := i + (n-i)&^3; i < full; i++ {
+			dstFrame[i] = celtSig(combFilterConstSSEValue(float32(srcFrame[i]), g10, g11, g12,
+				float32(delay1[i+2]), float32(delay1[i+3]), float32(delay1[i+1]), float32(delay1[i+4]), float32(delay1[i])))
+		}
+	}
 	for ; i+3 < n; i += 4 {
 		d0, d1 := float32(delay1[i]), float32(delay1[i+1])
 		d2, d3 := float32(delay1[i+2]), float32(delay1[i+3])

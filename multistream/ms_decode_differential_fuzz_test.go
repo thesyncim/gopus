@@ -16,41 +16,11 @@
 //   - the surround per-stream decode gain, and
 //   - the projection demixing-matrix application (family 3).
 //
-// SCOPE: steady-state CLEAN-packet decode. Packet-loss / PLC / FEC concealment is
-// owned by a sibling single-stream-loss harness and is NOT exercised here.
-//
-// Per-stream MODE-TRANSITION frames (a stream whose coding mode crosses the
-// CELT_ONLY boundary versus its previous frame) are detected and excluded from
-// the strict assertion: the pcm_transition crossfade onto a previous-mode
-// packet-loss-concealment frame carries a documented upstream SILK/CELT PLC
-// parity gap that reproduces identically on the single-stream gopus.Decoder and
-// is gated separately by ms_mode_transition_libopus_parity_test.go. Those frames
-// are checked only within a loose bound (a gross crossfade regression still
-// trips) and logged; they are not this harness's concern. Every steady-state
-// frame is held to the strict per-arch budget below.
-//
-// Divergence classification (identical per-arch policy to the projection decode
-// parity test and the documented arm64 budget):
-//
-//   - sample-count / layout mismatch: HARD FAIL on every arch (integer-derived
-//     framing with no float boundary).
-//
-//   - steady-state PCM value mismatch within the documented per-build budget:
-//     tolerated and logged. On the amd64 asm/SIMD build (the strict reference) the
-//     float decode path matches the SIMD libopus oracle bit-for-bit, so the budget
-//     is zero. The pure-Go builds carry the documented ≤1-ULP CELT float drift
-//     (project_arm64_celt_1ulp_drift): darwin/arm64 FMA contraction, and the
-//     amd64 pure-Go build's Go float backend vs the scalar libopus oracle. It can
-//     flip a single per-stream sample, which propagates through the (≤1-magnitude)
-//     mapping/coupling/demix coefficients to a comparably small output difference
-//     (arm64 ≤1.7e-7; amd64-purego only denormal-magnitude ~1e-34 residue on
-//     near-silent short frames). The float budget is 1e-6 and the int16 budget is
-//     1 unit.
-//
-//   - steady-state PCM value mismatch beyond the budget: HARD FAIL on every arch
-//     (a real decode bug in per-stream decode, mapping/coupling, surround gain,
-//     or the projection demix). Minimize the (config, packet), bisect to the
-//     stage and fix to match libopus — never mask.
+// All CLEAN-packet frames, including per-stream mode transitions, are compared
+// strictly. Transition classification is diagnostic context only: every float
+// output must have the same raw bits as the matched libopus reference, and every
+// integer sample must match exactly. Packet-loss / PLC / FEC concealment is owned
+// by a sibling single-stream-loss harness and is not exercised here.
 //
 // Run the full sweep with:
 //   GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 go test \
@@ -67,34 +37,6 @@ import (
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
-
-const (
-	// decodeFloatBudget is the maximum tolerated steady-state per-sample float32
-	// difference on the pure-Go builds' documented ≤1-ULP CELT drift target. The
-	// amd64 asm/SIMD build is bit-exact (the budget collapses to zero there — see
-	// decodeBudgetActive).
-	decodeFloatBudget = 1e-6
-	// decodeInt16Budget is the matching steady-state int16 budget (one unit).
-	decodeInt16Budget = 1
-	// transitionGrossFloatBound catches a gross pcm_transition crossfade
-	// regression on a per-stream mode-transition frame while tolerating the
-	// documented upstream SILK/CELT PLC residual on that frame. Mirrors the loose
-	// transition-window bound in ms_mode_transition_libopus_parity_test.go.
-	transitionGrossFloatBound = 0.6
-	// transitionGrossInt16Bound is the int16 equivalent (0.6 * 32768).
-	transitionGrossInt16Bound = 19661
-)
-
-// decodeBudgetActive reports whether the documented per-build float/int16 decode
-// budget applies: the pure-Go float backend (arm64 FMA, and amd64-purego Go float
-// vs the scalar libopus oracle) carries the documented ≤1-ULP CELT decode drift,
-// which on near-silent short frames shows up as a few denormal-magnitude
-// (~1e-34) per-sample differences far below the 1e-6 budget. The amd64 asm/SIMD
-// build is held bit-exact (budget collapses to zero), and the gross-regression
-// transition bound stays hard on every build. See project_arm64_celt_1ulp_drift.md.
-func decodeBudgetActive() bool {
-	return armEncodeFloatDrift() || !gopusBuildIsAsm
-}
 
 // streamModeClass classifies an Opus TOC config (TOC>>3) into the coding-mode
 // family used for transition detection and diagnostics.
@@ -117,9 +59,8 @@ func isCELTConfig(cfg int) bool { return cfg >= 16 }
 // transitionFrameMask returns, for each packet index, whether decoding that
 // packet is a per-stream mode-transition frame: at least one stream crosses the
 // CELT_ONLY boundary versus that stream's previous frame. libopus applies its
-// pcm_transition crossfade exactly on those frames, so they carry the documented
-// upstream PLC residual and are excluded from the strict steady-state assertion.
-// It also returns the per-mode frame counts for diagnostics.
+// pcm_transition crossfade on those frames. The classification labels failures
+// and reports mode counts; it does not alter strict PCM comparisons.
 func transitionFrameMask(packets [][]byte, streams int) (mask []bool, modeCounts map[string]int) {
 	mask = make([]bool, len(packets))
 	modeCounts = map[string]int{}
@@ -154,25 +95,10 @@ func transitionFrameMask(packets [][]byte, streams int) (mask []bool, modeCounts
 	return mask, modeCounts
 }
 
-// floatDiffStats holds the per-region max-abs split used to classify a sweep
-// result: steady-state frames (held strict) versus transition frames (loose).
-type floatDiffStats struct {
-	steadyMaxAbs     float64
-	transitionMaxAbs float64
-}
-
-type int16DiffStats struct {
-	steadyMaxAbs     int
-	transitionMaxAbs int
-}
-
-// assertMSDecodeFloatFrameAware compares interleaved float32 PCM frame by frame.
-// Transition frames (transition[f]==true) are checked only against the loose
-// gross-regression bound; every other frame is held to the strict per-arch
-// budget (bit-exact on amd64). Returns the per-region max-abs for aggregation.
-func assertMSDecodeFloatFrameAware(t *testing.T, got, want []float32, channels, frameSize int, transition []bool, label string) floatDiffStats {
+// assertMSDecodeFloatFrameAware compares every interleaved float32 sample by
+// raw bits. Transition classification only labels failures and summary stats.
+func assertMSDecodeFloatFrameAware(t *testing.T, got, want []float32, channels, frameSize int, transition []bool, label string) {
 	t.Helper()
-	var stats floatDiffStats
 	if len(got) != len(want) {
 		t.Fatalf("%s: sample count mismatch gopus=%d libopus=%d", label, len(got), len(want))
 	}
@@ -199,33 +125,19 @@ func assertMSDecodeFloatFrameAware(t *testing.T, got, want []float32, channels, 
 		if mism == 0 {
 			continue
 		}
+		region := "steady"
 		if isTransition {
-			if frameMax > stats.transitionMaxAbs {
-				stats.transitionMaxAbs = frameMax
-			}
-			if frameMax > transitionGrossFloatBound {
-				t.Fatalf("%s frame %d: per-stream mode-transition crossfade grossly wrong: maxAbs=%g (>%g) — pcm_transition regression",
-					label, f, frameMax, transitionGrossFloatBound)
-			}
-			continue
+			region = "transition"
 		}
-		if frameMax > stats.steadyMaxAbs {
-			stats.steadyMaxAbs = frameMax
-		}
-		if decodeBudgetActive() && frameMax <= decodeFloatBudget {
-			continue
-		}
-		t.Fatalf("%s frame %d: steady-state decode not sample-exact: %d/%d samples differ, maxAbs=%g (firstIdx=%d got=%g want=%g) — real decode divergence; minimize+bisect+fix (NO MASK)",
-			label, f, mism, perFrame, frameMax, firstIdx, got[firstIdx], want[firstIdx])
+		t.Fatalf("%s frame %d (%s): float bits differ: %d/%d samples, maxAbs=%g (firstIdx=%d got=%08x %.10g want=%08x %.10g)",
+			label, f, region, mism, perFrame, frameMax, firstIdx, math.Float32bits(got[firstIdx]), got[firstIdx], math.Float32bits(want[firstIdx]), want[firstIdx])
 	}
-	return stats
 }
 
 // assertMSDecodeInt16FrameAware is the int16 analog of
 // assertMSDecodeFloatFrameAware.
-func assertMSDecodeInt16FrameAware(t *testing.T, got, want []int16, channels, frameSize int, transition []bool, label string) int16DiffStats {
+func assertMSDecodeInt16FrameAware(t *testing.T, got, want []int16, channels, frameSize int, transition []bool, label string) {
 	t.Helper()
-	var stats int16DiffStats
 	if len(got) != len(want) {
 		t.Fatalf("%s: sample count mismatch gopus=%d libopus=%d", label, len(got), len(want))
 	}
@@ -255,26 +167,13 @@ func assertMSDecodeInt16FrameAware(t *testing.T, got, want []int16, channels, fr
 		if mism == 0 {
 			continue
 		}
+		region := "steady"
 		if isTransition {
-			if frameMax > stats.transitionMaxAbs {
-				stats.transitionMaxAbs = frameMax
-			}
-			if frameMax > transitionGrossInt16Bound {
-				t.Fatalf("%s frame %d: per-stream mode-transition crossfade grossly wrong: maxAbs=%d (>%d) — pcm_transition regression",
-					label, f, frameMax, transitionGrossInt16Bound)
-			}
-			continue
+			region = "transition"
 		}
-		if frameMax > stats.steadyMaxAbs {
-			stats.steadyMaxAbs = frameMax
-		}
-		if decodeBudgetActive() && frameMax <= decodeInt16Budget {
-			continue
-		}
-		t.Fatalf("%s frame %d: steady-state decode not sample-exact: %d/%d samples differ, maxAbs=%d (firstIdx=%d got=%d want=%d) — real decode divergence; minimize+bisect+fix (NO MASK)",
-			label, f, mism, perFrame, frameMax, firstIdx, got[firstIdx], want[firstIdx])
+		t.Fatalf("%s frame %d (%s): int16 differs: %d/%d samples, maxAbs=%d (firstIdx=%d got=%d want=%d)",
+			label, f, region, mism, perFrame, frameMax, firstIdx, got[firstIdx], want[firstIdx])
 	}
-	return stats
 }
 
 // decodeSurroundGopusFloat32 decodes every packet through a fresh gopus
@@ -455,7 +354,7 @@ func buildDiscreteDecodeFuzzSweep() []msDecodeFuzzSpec {
 // runMSDecodeFuzz drives a multistream (family 1/255) decode sweep: it encodes
 // each seeded multichannel PCM buffer through the libopus surround oracle, then
 // decodes the SAME packets through gopus and the libopus decode oracle, asserting
-// sample-exact PCM per the per-arch budget (transition frames excepted).
+// sample-exact PCM, including mode-transition frames.
 func runMSDecodeFuzz(t *testing.T, specs []msDecodeFuzzSpec, label string) {
 	libopustest.RequireOracle(t)
 
@@ -466,13 +365,10 @@ func runMSDecodeFuzz(t *testing.T, specs []msDecodeFuzzSpec, label string) {
 	}
 
 	var (
-		tested         int
-		floatSteadyMax float64
-		floatTransMax  float64
-		int16SteadyMax int
-		int16TransMax  int
-		transFrames    int
-		modeTotals     = map[string]int{}
+		tested      int
+		failedSpecs int
+		transFrames int
+		modeTotals  = map[string]int{}
 	)
 
 	const (
@@ -484,8 +380,8 @@ func runMSDecodeFuzz(t *testing.T, specs []msDecodeFuzzSpec, label string) {
 
 	for idx := 0; idx < len(specs) && tested < budget; idx += stride {
 		spec := specs[idx]
-		tested++
-		t.Run(spec.name, func(t *testing.T) {
+		if !t.Run(spec.name, func(t *testing.T) {
+			tested++
 			pcm := seededMultichannelPCM(spec.seed, spec.channels, spec.frameSize, spec.frameCount)
 
 			ref, err := encodeLibopusSurround(sampleRate, spec.channels, spec.mappingFamily, application,
@@ -516,13 +412,7 @@ func runMSDecodeFuzz(t *testing.T, specs []msDecodeFuzzSpec, label string) {
 					libopustest.HelperUnavailable(t, "multistream reference decode", err)
 					return
 				}
-				s := assertMSDecodeInt16FrameAware(t, got, want, spec.channels, spec.frameSize, transition, "int16/"+spec.name)
-				if s.steadyMaxAbs > int16SteadyMax {
-					int16SteadyMax = s.steadyMaxAbs
-				}
-				if s.transitionMaxAbs > int16TransMax {
-					int16TransMax = s.transitionMaxAbs
-				}
+				assertMSDecodeInt16FrameAware(t, got, want, spec.channels, spec.frameSize, transition, "int16/"+spec.name)
 				return
 			}
 
@@ -535,27 +425,21 @@ func runMSDecodeFuzz(t *testing.T, specs []msDecodeFuzzSpec, label string) {
 				libopustest.HelperUnavailable(t, "multistream reference decode", err)
 				return
 			}
-			s := assertMSDecodeFloatFrameAware(t, got, want, spec.channels, spec.frameSize, transition, "float32/"+spec.name)
-			if s.steadyMaxAbs > floatSteadyMax {
-				floatSteadyMax = s.steadyMaxAbs
-			}
-			if s.transitionMaxAbs > floatTransMax {
-				floatTransMax = s.transitionMaxAbs
-			}
-		})
+			assertMSDecodeFloatFrameAware(t, got, want, spec.channels, spec.frameSize, transition, "float32/"+spec.name)
+		}) {
+			failedSpecs++
+		}
 	}
-	t.Logf("%s decode differential sweep: %d/%d specs; arch=%s; modes=%v; transition-frames=%d; steady float-maxAbs=%g int16-maxAbs=%d; transition float-maxAbs=%g int16-maxAbs=%d (steady budget float=%g int16=%d, active=%t)",
-		label, tested, len(specs), runtime.GOARCH, modeTotals, transFrames, floatSteadyMax, int16SteadyMax, floatTransMax, int16TransMax, decodeFloatBudget, decodeInt16Budget, decodeBudgetActive())
+	t.Logf("%s decode differential sweep: tested=%d/%d specs; failed=%d; arch=%s; modes=%v; transition-frames=%d (all frames strict)",
+		label, tested, len(specs), failedSpecs, runtime.GOARCH, modeTotals, transFrames)
 }
 
 // TestMultistreamSurroundDecodeDifferentialFuzz locks gopus multistream surround
 // (mapping family 1) DECODE to sample-exact parity against the libopus
 // opus_multistream_decode_float / opus_multistream_decode oracle across a broad
 // layout × frame-size × bitrate × rate-control × decode-gain × sample-format
-// matrix on CLEAN packets. Steady-state frames are bit-exact on amd64 (CI) and
-// within the documented ≤1-ULP CELT drift on darwin/arm64; per-stream
-// mode-transition frames carry the documented upstream PLC residual gated
-// separately by ms_mode_transition_libopus_parity_test.go.
+// matrix on CLEAN packets. Every decoded sample, including per-stream mode
+// transitions, must match the paired libopus output exactly.
 func TestMultistreamSurroundDecodeDifferentialFuzz(t *testing.T) {
 	runMSDecodeFuzz(t, buildSurroundDecodeFuzzSweep(), "surround")
 }
@@ -630,10 +514,8 @@ func buildProjectionDecodeFuzzSweep() []projectionDecodeFuzzSpec {
 // sample-exact parity against the libopus opus_projection_decode_float /
 // opus_projection_decode oracle across the order × frame-size × bitrate ×
 // sample-format matrix on CLEAN packets. The demixing application is itself
-// locked bit-exact in projection_matrix_libopus_test.go, so any steady-state
-// divergence is a per-stream decode residual; bit-exact on amd64 (CI), ≤1-ULP on
-// darwin/arm64. Per-stream mode-transition frames carry the documented upstream
-// PLC residual.
+// locked bit-exact in projection_matrix_libopus_test.go. Every decoded sample,
+// including per-stream mode transitions, must match the paired libopus output.
 func TestProjectionDecodeDifferentialFuzz(t *testing.T) {
 	libopustest.RequireOracle(t)
 
@@ -652,19 +534,16 @@ func TestProjectionDecodeDifferentialFuzz(t *testing.T) {
 	)
 
 	var (
-		tested         int
-		floatSteadyMax float64
-		floatTransMax  float64
-		int16SteadyMax int
-		int16TransMax  int
-		transFrames    int
-		modeTotals     = map[string]int{}
+		tested      int
+		failedSpecs int
+		transFrames int
+		modeTotals  = map[string]int{}
 	)
 
 	for idx := 0; idx < len(specs) && tested < budget; idx += stride {
 		spec := specs[idx]
-		tested++
-		t.Run(spec.name, func(t *testing.T) {
+		if !t.Run(spec.name, func(t *testing.T) {
+			tested++
 			pcm := generateAmbisonicsSweep(spec.channels, spec.frameSize, spec.frameCount)
 			// Encode through the libopus projection oracle (float input path) so
 			// both decoders consume byte-identical family-3 packets.
@@ -697,13 +576,7 @@ func TestProjectionDecodeDifferentialFuzz(t *testing.T) {
 					libopustest.HelperUnavailable(t, "projection reference decode", err)
 					return
 				}
-				s := assertMSDecodeInt16FrameAware(t, got, want, spec.channels, spec.frameSize, transition, "int16/"+spec.name)
-				if s.steadyMaxAbs > int16SteadyMax {
-					int16SteadyMax = s.steadyMaxAbs
-				}
-				if s.transitionMaxAbs > int16TransMax {
-					int16TransMax = s.transitionMaxAbs
-				}
+				assertMSDecodeInt16FrameAware(t, got, want, spec.channels, spec.frameSize, transition, "int16/"+spec.name)
 				return
 			}
 
@@ -716,17 +589,13 @@ func TestProjectionDecodeDifferentialFuzz(t *testing.T) {
 				libopustest.HelperUnavailable(t, "projection reference decode", err)
 				return
 			}
-			s := assertMSDecodeFloatFrameAware(t, got, want, spec.channels, spec.frameSize, transition, "float32/"+spec.name)
-			if s.steadyMaxAbs > floatSteadyMax {
-				floatSteadyMax = s.steadyMaxAbs
-			}
-			if s.transitionMaxAbs > floatTransMax {
-				floatTransMax = s.transitionMaxAbs
-			}
-		})
+			assertMSDecodeFloatFrameAware(t, got, want, spec.channels, spec.frameSize, transition, "float32/"+spec.name)
+		}) {
+			failedSpecs++
+		}
 	}
-	t.Logf("projection decode differential sweep: %d/%d specs; arch=%s; modes=%v; transition-frames=%d; steady float-maxAbs=%g int16-maxAbs=%d; transition float-maxAbs=%g int16-maxAbs=%d (steady budget float=%g int16=%d, active=%t)",
-		tested, len(specs), runtime.GOARCH, modeTotals, transFrames, floatSteadyMax, int16SteadyMax, floatTransMax, int16TransMax, decodeFloatBudget, decodeInt16Budget, decodeBudgetActive())
+	t.Logf("projection decode differential sweep: tested=%d/%d specs; failed=%d; arch=%s; modes=%v; transition-frames=%d (all frames strict)",
+		tested, len(specs), failedSpecs, runtime.GOARCH, modeTotals, transFrames)
 }
 
 // gopusEncodedDecodeSpec is one point in the gopus-emitted decode config space.
@@ -800,16 +669,15 @@ func TestMultistreamGopusEncodedDecodeDifferentialFuzz(t *testing.T) {
 	)
 
 	var (
-		tested         int
-		floatSteadyMax float64
-		floatTransMax  float64
-		transFrames    int
+		tested      int
+		failedSpecs int
+		transFrames int
 	)
 
 	for idx := 0; idx < len(specs) && tested < budget; idx += stride {
 		spec := specs[idx]
-		tested++
-		t.Run(spec.name, func(t *testing.T) {
+		if !t.Run(spec.name, func(t *testing.T) {
+			tested++
 			pcm := seededMultichannelPCM(spec.seed, spec.channels, spec.frameSize, spec.frameCount)
 
 			var (
@@ -878,15 +746,11 @@ func TestMultistreamGopusEncodedDecodeDifferentialFuzz(t *testing.T) {
 				libopustest.HelperUnavailable(t, "multistream reference decode", err)
 				return
 			}
-			s := assertMSDecodeFloatFrameAware(t, got, want, spec.channels, spec.frameSize, transition, "gopus-enc/"+spec.name)
-			if s.steadyMaxAbs > floatSteadyMax {
-				floatSteadyMax = s.steadyMaxAbs
-			}
-			if s.transitionMaxAbs > floatTransMax {
-				floatTransMax = s.transitionMaxAbs
-			}
-		})
+			assertMSDecodeFloatFrameAware(t, got, want, spec.channels, spec.frameSize, transition, "gopus-enc/"+spec.name)
+		}) {
+			failedSpecs++
+		}
 	}
-	t.Logf("gopus-encoded decode differential sweep: %d/%d specs; arch=%s; transition-frames=%d; steady float-maxAbs=%g; transition float-maxAbs=%g (steady budget=%g active=%t)",
-		tested, len(specs), runtime.GOARCH, transFrames, floatSteadyMax, floatTransMax, decodeFloatBudget, decodeBudgetActive())
+	t.Logf("gopus-encoded decode differential sweep: tested=%d/%d specs; failed=%d; arch=%s; transition-frames=%d (all frames strict)",
+		tested, len(specs), failedSpecs, runtime.GOARCH, transFrames)
 }

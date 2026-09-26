@@ -86,6 +86,12 @@ func encFrameSamples48k(d ExpertFrameDuration) int {
 		return 1920
 	case ExpertFrameDuration60Ms:
 		return 2880
+	case ExpertFrameDuration80Ms:
+		return 3840
+	case ExpertFrameDuration100Ms:
+		return 4800
+	case ExpertFrameDuration120Ms:
+		return 5760
 	default:
 		return 960
 	}
@@ -210,6 +216,12 @@ func encMsOf(d ExpertFrameDuration) int {
 		return 40
 	case ExpertFrameDuration60Ms:
 		return 60
+	case ExpertFrameDuration80Ms:
+		return 80
+	case ExpertFrameDuration100Ms:
+		return 100
+	case ExpertFrameDuration120Ms:
+		return 120
 	default:
 		return 20
 	}
@@ -357,25 +369,11 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 		packetCountMis     int
 		framingDiffs       int // packet-framing (TOC code field) divergence
 		rangeOnlyResiduals int // arm64 byte-equal but final_range differs
-		skippedLBRR        int
 	)
 	packetLoss := 20
 
 	for idx := 0; idx < len(specs) && tested < budget; idx += stride {
 		spec := specs[idx]
-		// Known pre-existing encoder finding (tracked separately, see
-		// decode_differential_fuzz_test.go header): SILK LBRR (in-band FEC) with
-		// stereo and >=40 ms frames can produce a delta-gain index outside
-		// silk_delta_gain_iCDF, which panics gopus encode (libopus only
-		// silk_assert()s it, disabled in release). This harness reproduces it for
-		// NB/MB and WB stereo (the prior note said NB/MB; WB is included here). It
-		// is an encoder-side bug unrelated to encode-vs-libopus byte parity, so
-		// skip it here rather than crash the sweep.
-		if spec.fec && spec.channels == 2 && spec.gmode == EncoderModeSILK &&
-			(spec.frameMs == ExpertFrameDuration40Ms || spec.frameMs == ExpertFrameDuration60Ms) {
-			skippedLBRR++
-			continue
-		}
 		tested++
 		t.Run(spec.name, func(t *testing.T) {
 			fs := encFrameSamples48k(spec.frameMs)
@@ -474,7 +472,7 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 					// pure-Go builds (arm64 always, amd64 vs the scalar libopus) carry
 					// the documented range-tail residual.
 					if g.FinalRange != o.FinalRange {
-						if runtime.GOARCH == "amd64" && !testPuregoBuild {
+						if runtime.GOARCH == "amd64" && !testNoSimdBuild {
 							t.Errorf("%s: packets byte-equal but final_range differs gopus=%08x libopus=%08x (UNEXPECTED on amd64)",
 								label, g.FinalRange, o.FinalRange)
 						} else {
@@ -513,7 +511,7 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 				// arch-INDEPENDENT framing bug found — SILK NB 10 ms CBR at the 6 kbps
 				// floor — is excluded from the sweep above and documented separately.)
 				if byte0(g.Packet) != byte0(o.Packet) {
-					if runtime.GOARCH == "amd64" && !testPuregoBuild {
+					if runtime.GOARCH == "amd64" && !testNoSimdBuild {
 						framingDiffs++
 						t.Errorf("%s: PACKET FRAMING divergence gopus toc=%02x(len=%d) libopus toc=%02x(len=%d) "+
 							"br=%d vbr=%d — same mode class, different TOC framing (UNEXPECTED on amd64)",
@@ -550,7 +548,7 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 				// pure-Go flips the same SILK FEC/stereo near-tie decisions, so apply
 				// the documented per-arch boundary to every pure-Go build and keep the
 				// amd64 asm build strict.
-				if runtime.GOARCH == "amd64" && !testPuregoBuild {
+				if runtime.GOARCH == "amd64" && !testNoSimdBuild {
 					if gClass == 0 {
 						silkByteFails++
 						t.Errorf("%s: SILK payload BYTE MISMATCH at byte %d (len g=%d o=%d, range g=%08x o=%08x) "+
@@ -565,7 +563,7 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 					}
 					continue
 				}
-				// Pure-Go (arm64 + amd64-purego): documented ≤1-ULP float-analysis
+				// Pure-Go (arm64 + amd64-nosimd): documented ≤1-ULP float-analysis
 				// boundary that flips a near-tie SILK/CELT decision (per-mode counter).
 				if gClass == 0 {
 					silkResiduals++
@@ -578,11 +576,10 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 			}
 		})
 	}
-	t.Logf("encode differential sweep: %d/%d specs × %d frames "+
-		"(skipped %d LBRR-panic specs); arch=%s; "+
+	t.Logf("encode differential sweep: %d/%d specs × %d frames; arch=%s; "+
 		"TOC-mode-flips=%d framing-diffs=%d packet-count-mismatch=%d amd64-SILK-byte-fails=%d "+
 		"arm64-SILK-float-residuals=%d arm64-CELT/Hybrid-float-residuals=%d arm64-range-tail-residuals=%d",
-		tested, len(specs), framesPerSpec, skippedLBRR, runtime.GOARCH,
+		tested, len(specs), framesPerSpec, runtime.GOARCH,
 		tocFlips, framingDiffs, packetCountMis, silkByteFails, silkResiduals, celtResiduals, rangeOnlyResiduals)
 }
 

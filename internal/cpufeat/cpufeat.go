@@ -1,7 +1,7 @@
 // Package cpufeat detects optional CPU instruction-set extensions at process
 // start and exposes them through the AMD64 and ARM64 variables so the codec can
 // gate its SIMD code paths at runtime. Detection runs in architecture-specific
-// init functions; on the purego build, or on an architecture other than the one
+// init functions; on the nosimd build, or on an architecture other than the one
 // queried, the corresponding variable stays at its zero value (no extensions).
 package cpufeat
 
@@ -26,11 +26,11 @@ type ARM64Features struct {
 }
 
 // AMD64 reports the detected amd64 CPU feature support. It is populated once at
-// package init and is the zero value (no extensions) on non-amd64 or purego
+// package init and is the zero value (no extensions) on non-amd64 or nosimd
 // builds.
 var AMD64 AMD64Features
 
 // ARM64 reports the detected arm64 CPU feature support. It is populated once at
-// package init and is the zero value (no extensions) on non-arm64 or purego
+// package init and is the zero value (no extensions) on non-arm64 or nosimd
 // builds.
 var ARM64 ARM64Features

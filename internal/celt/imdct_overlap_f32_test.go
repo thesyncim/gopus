@@ -9,10 +9,11 @@ import (
 )
 
 const (
-	libopusCELTIMDCTModeLong      = uint32(0)
-	libopusCELTIMDCTModeTransient = uint32(1)
-	libopusCELTIMDCTModeFFT       = uint32(2)
-	libopusCELTIMDCTModeForward   = uint32(3)
+	libopusCELTIMDCTModeLong         = uint32(0)
+	libopusCELTIMDCTModeTransient    = uint32(1)
+	libopusCELTIMDCTModeFFT          = uint32(2)
+	libopusCELTIMDCTModeForward      = uint32(3)
+	libopusCELTIMDCTModeForwardShort = uint32(4)
 )
 
 var libopusCELTIMDCTHelper libopustest.HelperCache
@@ -358,6 +359,63 @@ func TestMDCTForwardOverlapF32MatchesLibopusC(t *testing.T) {
 	}
 }
 
+// TestMDCTForwardShortBlocksMatchesLibopusC pins the transient (short-block)
+// forward MDCT to compute_mdcts(): one clt_mdct_forward() per block at shift
+// maxLM, interleaved with stride B, at unit and CELT signal scale.
+func TestMDCTForwardShortBlocksMatchesLibopusC(t *testing.T) {
+	if mdctQEXTScalePlacement {
+		t.Skip("forward MDCT uses ENABLE_QEXT scale placement; covered by TestHD96kMDCTMatchesLibopusQEXT")
+	}
+	libopustest.RequireOracle(t)
+
+	for _, tc := range []struct{ frameSize, shortBlocks int }{
+		{240, 2}, {480, 4}, {960, 8},
+	} {
+		for _, scale := range []float32{1, 32768} {
+			for seed := 1; seed <= 3; seed++ {
+				t.Run(fmt.Sprintf("frame=%d/blocks=%d/scale=%g/seed=%d", tc.frameSize, tc.shortBlocks, scale, seed), func(t *testing.T) {
+					const overlap = 120
+					input := make([]float64, tc.frameSize+overlap)
+					inputF32 := make([]float32, tc.frameSize+overlap)
+					fillMDCTForwardOracleInput(input, inputF32, seed)
+					for i := range inputF32 {
+						inputF32[i] *= scale
+					}
+
+					var scratch encoderScratch
+					got := append([]float32(nil), mdctForwardShortOverlapScratchF32Coeffs(inputF32, overlap, tc.shortBlocks, &scratch)...)
+
+					payload := libopustest.NewOraclePayload("GCII", libopusCELTIMDCTModeForwardShort, uint32(tc.frameSize), uint32(overlap), uint32(tc.shortBlocks))
+					for _, v := range inputF32 {
+						payload.Float32(v)
+					}
+					binPath, err := libopusCELTIMDCTHelper.Path(buildLibopusCELTIMDCTHelper)
+					if err != nil {
+						libopustest.HelperUnavailable(t, "CELT short-block forward MDCT", err)
+					}
+					reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "CELT short-block forward MDCT", "GCIO")
+					if err != nil {
+						libopustest.HelperUnavailable(t, "CELT short-block forward MDCT", err)
+					}
+					if gotMode := reader.U32(); gotMode != libopusCELTIMDCTModeForwardShort {
+						t.Fatalf("helper mode=%d want %d", gotMode, libopusCELTIMDCTModeForwardShort)
+					}
+					count := int(reader.U32())
+					reader.ExpectRemaining(count * 4)
+					want := make([]float32, count)
+					for i := range want {
+						want[i] = reader.Float32()
+					}
+					if err := reader.ExpectConsumed(); err != nil {
+						t.Fatal(err)
+					}
+					assertFloat32Bits(t, "short-block forward mdct", got, want)
+				})
+			}
+		}
+	}
+}
+
 func TestMDCTForwardOverlapF32CELTSignalScaleMatchesLibopusC(t *testing.T) {
 	if mdctQEXTScalePlacement {
 		// Under gopus_qext the forward MDCT folds the 1/nfft FFT scale into the
@@ -386,7 +444,7 @@ func TestMDCTForwardOverlapF32CELTSignalScaleMatchesLibopusC(t *testing.T) {
 	copy(got, coeffs)
 
 	want := probeLibopusCELTMDCTForward(t, frameSize, overlap, inputF32)
-	assertFloat32Close(t, "forward mdct celt-scale", got, want, 512, 1e-4)
+	assertFloat32Bits(t, "forward mdct celt-scale", got, want)
 }
 
 func probeLibopusCELTMDCTForward(t *testing.T, frameSize, overlap int, input []float32) []float32 {
@@ -448,9 +506,13 @@ func fillMDCTForwardOracleInput(input []float64, inputF32 []float32, seed int) {
 	}
 }
 
+// assertFloat32Bits requires every element to match the paired libopus
+// reference bit-for-bit. The oracles it guards pair each Go tier with the
+// libopus build for the same instruction set, so any difference is a parity
+// defect rather than tolerated drift.
 func assertFloat32Bits(t *testing.T, label string, got, want []float32) {
 	t.Helper()
-	assertFloat32Close(t, label, got, want, 64, 1e-5)
+	assertFloat32Close(t, label, got, want, 0, 0)
 }
 
 func assertFloat32Close(t *testing.T, label string, got, want []float32, maxULP uint32, maxAbs float64) {

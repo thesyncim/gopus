@@ -7,7 +7,7 @@ import (
 
 // imdctPreRotateFMA32KissScalarRef is an independent scalar reference for the
 // FMA-like IMDCT pre-rotation. It rounds the standalone product to float32 and
-// fuses the first multiply into the add via math.FMA, matching both the purego
+// fuses the first multiply into the add via math.FMA, matching both the nosimd
 // fallback and the arm64 assembly bit-for-bit.
 func imdctPreRotateFMA32KissScalarRef(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
 	for i := range n4 {
@@ -52,6 +52,26 @@ func TestIMDCTPreRotateFMA32KissMatchesScalar(t *testing.T) {
 	}
 }
 
+func TestIMDCTPreRotateFMA32KissNoAllocs(t *testing.T) {
+	const n2 = 120
+	const n4 = n2 / 2
+	spectrum := make([]float32, n2)
+	trig := make([]float32, n2)
+	fftIn := make([]complex64, n4)
+	for i := range spectrum {
+		spectrum[i] = float32(i%17-8) * 0.0625
+	}
+	for i := range trig {
+		trig[i] = float32(i%19-9) * 0.03125
+	}
+	imdctPreRotateFMA32Kiss(fftIn, spectrum, trig, n2, n4)
+	if allocs := testing.AllocsPerRun(100, func() {
+		imdctPreRotateFMA32Kiss(fftIn, spectrum, trig, n2, n4)
+	}); allocs != 0 {
+		t.Fatalf("allocs per call = %v, want 0", allocs)
+	}
+}
+
 func BenchmarkIMDCTPreRotateFMA32Kiss(b *testing.B) {
 	n2 := 120
 	n4 := n2 / 2
@@ -64,6 +84,7 @@ func BenchmarkIMDCTPreRotateFMA32Kiss(b *testing.B) {
 	for i := range trig {
 		trig[i] = float32((i%19)-9) * 0.03125
 	}
+	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		imdctPreRotateFMA32Kiss(fftIn, spectrum, trig, n2, n4)

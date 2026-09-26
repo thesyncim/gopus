@@ -1,4 +1,4 @@
-//go:build arm64 && !purego
+//go:build arm64 && !nosimd
 
 package celt
 
@@ -48,6 +48,11 @@ func TestMDCTFoldStoreNeonBitExact(t *testing.T) {
 			}
 			mdctFold1StoreNeon(got, bitrev, samples, window, trig, i0, n4, n2, xp1, xp2, wp1, wp2, blocks, preScale)
 			compareCpx(t, "fold1", n4, blocks, got, want)
+			if allocs := testing.AllocsPerRun(100, func() {
+				mdctFold1StoreNeon(got, bitrev, samples, window, trig, i0, n4, n2, xp1, xp2, wp1, wp2, blocks, preScale)
+			}); allocs != 0 {
+				t.Fatalf("fold1 n4=%d blocks=%d: %.2f allocs/op, want 0", n4, blocks, allocs)
+			}
 
 			// Trailing fold geometry.
 			if n4 < 2*limit1 {
@@ -61,12 +66,17 @@ func TestMDCTFoldStoreNeonBitExact(t *testing.T) {
 			got = make([]kissCpx, n4)
 			want = make([]kissCpx, n4)
 			for j := 0; j < 4*blocks; j++ {
-				re := mdctMulSubMixAlt(samples[xp2-2*j], samples[xp1-n2+2*j], window[wp2-2*j], window[wp1+2*j])
+				re := mdctNegMulAddMixEncode(samples[xp1-n2+2*j], samples[xp2-2*j], window[wp1+2*j], window[wp2-2*j])
 				im := mdctMulAddMix(samples[xp1+2*j], samples[xp2+n2-2*j], window[wp2-2*j], window[wp1+2*j])
 				mdctStoreDirectStageFMALike(want, bitrev[i0+j], preScale, re, im, trig[i0+j], trig[n4+i0+j])
 			}
 			mdctFold3StoreNeon(got, bitrev, samples, window, trig, i0, n4, n2, xp1, xp2, wp1, wp2, blocks, preScale)
 			compareCpx(t, "fold3", n4, blocks, got, want)
+			if allocs := testing.AllocsPerRun(100, func() {
+				mdctFold3StoreNeon(got, bitrev, samples, window, trig, i0, n4, n2, xp1, xp2, wp1, wp2, blocks, preScale)
+			}); allocs != 0 {
+				t.Fatalf("fold3 n4=%d blocks=%d: %.2f allocs/op, want 0", n4, blocks, allocs)
+			}
 		}
 	}
 }

@@ -138,6 +138,10 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 			} else {
 				d.applyPostfilterStereoPlanarFromFloat32(samplesL[:frameSize], samplesR[:frameSize], frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
 			}
+			if d.synthTrace != nil {
+				d.synthTrace.capturePostComb(0, samplesL[:frameSize])
+				d.synthTrace.capturePostComb(1, samplesR[:frameSize])
+			}
 			if downsampleOutput {
 				d.applyDeemphasisAndScaleStereoPlanarFloat32DownsampleToFloat32(d.directOutPCM[:outputFrameSize*2], samplesL[:frameSize], samplesR[:frameSize], downsample, 1.0/32768.0)
 			} else {
@@ -154,6 +158,10 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 				d.synthTrace.captureIMDCT(1, samplesR[:frameSize])
 			}
 			d.applyPostfilterStereoPlanarFromFloat32(samplesL, samplesR, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
+			if d.synthTrace != nil {
+				d.synthTrace.capturePostComb(0, samplesL[:frameSize])
+				d.synthTrace.capturePostComb(1, samplesR[:frameSize])
+			}
 			if downsampleOutput {
 				d.applyDeemphasisAndScaleStereoPlanarFloat32DownsampleToFloat32(d.directOutPCM[:outputFrameSize*2], samplesL, samplesR, downsample, 1.0/32768.0)
 			} else {
@@ -177,6 +185,9 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 		if directMonoFloat32 {
 			samplesF32 := d.synthesizeMonoLongToFloat32(specL)
 			d.applyPostfilterNoGainMonoFromFloat32(samplesF32, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
+			if d.synthTrace != nil {
+				d.synthTrace.capturePostComb(0, samplesF32[:frameSize])
+			}
 			if downsampleOutput {
 				d.applyDeemphasisAndScaleMonoFloat32DownsampleToFloat32(d.directOutPCM[:outputFrameSize], samplesF32, downsample, 1.0/32768.0)
 			} else {
@@ -198,6 +209,9 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 	}
 
 	d.applyPostfilterFloat32(samples, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
+	if d.synthTrace != nil && channels == 1 {
+		d.synthTrace.capturePostComb(0, samples[:frameSize])
+	}
 
 	// Step 7: Apply de-emphasis filter
 	if downsampleOutput && len(d.directOutPCM) >= outputFrameSize*channels {

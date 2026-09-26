@@ -22,25 +22,9 @@
 // BYTE-IDENTICAL frame for frame (TOC + payload) plus the post-encode final
 // range.
 //
-// Divergence classification (identical policy to the sibling harness so the
-// established same-arch evidence carries over):
-//
-//   - TOC mode-class flip (SILK vs Hybrid vs CELT): a deterministic
-//     mode-DECISION divergence. HARD FAIL on EVERY arch — the cross-frame mode
-//     hysteresis is integer logic, not a float LSB. This is the harness's
-//     primary target.
-//
-//   - DTX / output-cadence mismatch (one side emits a packet, the other emits
-//     nothing, or a 1-byte DTX TOC vs a real frame): the DTX run-length
-//     (nb_no_activity_ms_Q1) and the redundancy/st->first decision are integer
-//     state. HARD FAIL on every arch.
-//
-//   - Same-class payload / framing byte mismatch: on amd64 (the CI gate) the
-//     float analysis is bit-exact, so any mismatch is a HARD FAIL. On
-//     darwin/arm64 the documented <=1-ULP CELT float-analysis boundary
-//     (project_arm64_celt_1ulp_drift) can flip a near-tie quantization decision
-//     once enough float ops accumulate; it is logged as the per-arch residual,
-//     matching the sibling harness's documented behaviour.
+// Every selected configuration checks the return length, every packet byte,
+// and the post-encode final range against the same-architecture libopus build.
+// The diagnostics classify TOC, cadence, framing, payload, and range failures.
 //
 // Run the full sweep with:
 //   GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 go test -run TestEncodeStatefulTransitionFuzz .
@@ -305,35 +289,19 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 	}
 
 	var (
-		tested             int
-		tocFlips           int
-		cadenceMismatch    int
-		silkByteFails      int
-		framingFails       int
-		silkResiduals      int
-		celtResiduals      int
-		framingResiduals   int
-		rangeOnlyResiduals int
-		skippedLBRR        int
-		transitionsSeen    int // total per-frame mode-class or bandwidth changes observed (libopus side)
-		dtxRunsSeen        int // frames where libopus emitted nothing (DTX no-output)
-		modeFlipsInStream  int // streams that crossed >1 distinct TOC mode class
+		tested            int
+		tocFlips          int
+		cadenceMismatch   int
+		byteFails         int
+		framingFails      int
+		rangeFails        int
+		transitionsSeen   int // total per-frame mode-class or bandwidth changes observed (libopus side)
+		dtxRunsSeen       int // frames where libopus emitted nothing (DTX no-output)
+		modeFlipsInStream int // streams that crossed >1 distinct TOC mode class
 	)
 
 	for idx := 0; idx < len(specs) && tested < budget; idx += stride {
 		spec := specs[idx]
-		// Pre-existing encoder finding (see encode_differential_fuzz_test.go header
-		// and decode_differential_fuzz_test.go): SILK LBRR (in-band FEC) with stereo
-		// and >=40 ms frames can produce a delta-gain index outside
-		// silk_delta_gain_iCDF, which panics gopus encode (libopus only
-		// silk_assert()s it, disabled in release). Owned by the silk fixed-point
-		// agent; skip here so the transition sweep does not crash on a known,
-		// unrelated encoder-side bug.
-		if spec.fec && spec.channels == 2 && spec.gmode == EncoderModeSILK &&
-			(spec.frameMs == ExpertFrameDuration40Ms || spec.frameMs == ExpertFrameDuration60Ms) {
-			skippedLBRR++
-			continue
-		}
 		tested++
 		t.Run(spec.name, func(t *testing.T) {
 			fs := encFrameSamples48k(spec.frameMs)
@@ -376,7 +344,7 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 
 			enc, ok := configureEncXfr(spec)
 			if !ok {
-				t.Skipf("gopus rejected config %s", spec.name)
+				t.Fatalf("gopus rejected stateful encode config %s", spec.name)
 			}
 
 			gotRecs := make([]libopustest.EncodeDiffRecord, framesPerSpec)
@@ -404,6 +372,9 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 				g := gotRecs[f]
 				o := recs[f]
 				label := fmt.Sprintf("%s/frame%d", spec.name, f)
+				if o.Ret < 0 || len(o.Packet) != o.Ret {
+					t.Fatalf("%s: invalid libopus oracle record ret=%d packet len=%d", label, o.Ret, len(o.Packet))
+				}
 
 				gHas := len(g.Packet) > 0
 				oHas := o.Ret > 0
@@ -423,32 +394,23 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 					prevToc = byte0(o.Packet)
 				}
 
-				// DTX / output-cadence: the run-length counter and redundancy/first
-				// decision are integer state — a cadence mismatch is a HARD FAIL on
-				// every arch (it cannot be a float LSB).
-				if gHas != oHas {
+				if g.FinalRange != o.FinalRange {
+					rangeFails++
+					t.Errorf("%s: final_range differs gopus=%08x libopus=%08x", label, g.FinalRange, o.FinalRange)
+				}
+				if g.Ret != o.Ret || gHas != oHas {
 					cadenceMismatch++
-					t.Errorf("%s: DTX/output CADENCE mismatch gopus(len=%d) libopus(ret=%d) "+
-						"dtx=%t vbr=%d br=%d — cross-frame DTX run-length / redundancy divergence",
-						label, len(g.Packet), o.Ret, spec.dtx, spec.vbr, spec.bitrate)
-					continue
+					t.Errorf("%s: output length/cadence mismatch gopus(ret=%d,len=%d) libopus(ret=%d,len=%d) firstByte=%d dtx=%t vbr=%d br=%d",
+						label, g.Ret, len(g.Packet), o.Ret, len(o.Packet), firstByteDiff(g.Packet, o.Packet), spec.dtx, spec.vbr, spec.bitrate)
+					if gHas != oHas {
+						continue
+					}
 				}
 				if !gHas {
-					continue // both emitted nothing
+					continue // both emitted nothing; final ranges are checked above
 				}
 
 				if bytes.Equal(g.Packet, o.Packet) {
-					if g.FinalRange != o.FinalRange {
-						if runtime.GOARCH == "amd64" && !testPuregoBuild {
-							t.Errorf("%s: packets byte-equal but final_range differs gopus=%08x libopus=%08x (UNEXPECTED on amd64)",
-								label, g.FinalRange, o.FinalRange)
-						} else {
-							rangeOnlyResiduals++
-							t.Logf("%s: packets byte-equal, final_range differs gopus=%08x libopus=%08x — "+
-								"documented pure-Go CELT range-tail residual (bytes match)",
-								label, g.FinalRange, o.FinalRange)
-						}
-					}
 					continue
 				}
 
@@ -465,53 +427,17 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 
 				fb := firstByteDiff(g.Packet, o.Packet)
 
-				// Same mode class, different TOC byte: a packet-FRAMING (code field)
-				// divergence. On the amd64-asm build the float path is exact so this is a HARD FAIL.
-				// On every pure-Go build a framing flip that rides on a sub-frame length difference
-				// is the documented downstream symptom of the float boundary (the
-				// >20 ms repacketizer's equal-vs-unequal code 1/2 choice), logged as a
-				// residual — same policy as the sibling harness.
 				if byte0(g.Packet) != byte0(o.Packet) {
-					if runtime.GOARCH == "amd64" && !testPuregoBuild {
-						framingFails++
-						t.Errorf("%s: PACKET FRAMING divergence gopus toc=%02x(len=%d) libopus toc=%02x(len=%d) "+
-							"br=%d vbr=%d — same mode class, different TOC framing (UNEXPECTED on amd64)",
-							label, byte0(g.Packet), len(g.Packet), byte0(o.Packet), len(o.Packet), spec.bitrate, spec.vbr)
-						continue
-					}
-					framingResiduals++
-					t.Logf("%s: framing differs gopus toc=%02x(len=%d) libopus toc=%02x(len=%d) — pure-Go "+
-						"multiframe (>20 ms) repacketization code flip downstream of the float boundary",
-						label, byte0(g.Packet), len(g.Packet), byte0(o.Packet), len(o.Packet))
+					framingFails++
+					t.Errorf("%s: PACKET FRAMING divergence at byte %d gopus toc=%02x(len=%d) libopus toc=%02x(len=%d) br=%d vbr=%d",
+						label, fb, byte0(g.Packet), len(g.Packet), byte0(o.Packet), len(o.Packet), spec.bitrate, spec.vbr)
 					continue
 				}
 
-				// Payload byte mismatch with matching TOC. amd64-asm: HARD FAIL (bit-exact
-				// required). Pure-Go (arm64 + amd64-purego): documented <=1-ULP boundary.
-				if runtime.GOARCH == "amd64" && !testPuregoBuild {
-					if gClass == 0 {
-						silkByteFails++
-						t.Errorf("%s: SILK payload BYTE MISMATCH at byte %d (len g=%d o=%d, range g=%08x o=%08x) "+
-							"br=%d vbr=%d fec=%t dtx=%t cx=%d — same-arch SILK encode divergence (UNEXPECTED on amd64)",
-							label, fb, len(g.Packet), len(o.Packet), g.FinalRange, o.FinalRange,
-							spec.bitrate, spec.vbr, spec.fec, spec.dtx, spec.complexity)
-					} else {
-						silkByteFails++
-						t.Errorf("%s: %s payload BYTE MISMATCH at byte %d (len g=%d o=%d, range g=%08x o=%08x) "+
-							"br=%d vbr=%d cx=%d — float-analysis divergence (UNEXPECTED on amd64; bit-exact required)",
-							label, modeClassName(gClass), fb, len(g.Packet), len(o.Packet),
-							g.FinalRange, o.FinalRange, spec.bitrate, spec.vbr, spec.complexity)
-					}
-					continue
-				}
-				if gClass == 0 {
-					silkResiduals++
-				} else {
-					celtResiduals++
-				}
-				t.Logf("%s: %s payload differs at byte %d (len g=%d o=%d range g=%08x o=%08x) — documented arm64 "+
-					"<=1-ULP float boundary (project_arm64_celt_1ulp_drift), not a same-arch logic bug",
-					label, modeClassName(gClass), fb, len(g.Packet), len(o.Packet), g.FinalRange, o.FinalRange)
+				byteFails++
+				t.Errorf("%s: %s payload BYTE MISMATCH at byte %d (len g=%d o=%d, range g=%08x o=%08x) br=%d vbr=%d fec=%t dtx=%t cx=%d",
+					label, modeClassName(gClass), fb, len(g.Packet), len(o.Packet), g.FinalRange, o.FinalRange,
+					spec.bitrate, spec.vbr, spec.fec, spec.dtx, spec.complexity)
 			}
 
 			if len(distinctClasses) > 1 {
@@ -521,14 +447,12 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 	}
 
 	t.Logf("encode stateful-transition sweep: %d/%d specs x %d frames "+
-		"(seg=%d frames, %d segments; skipped %d LBRR-panic specs); arch=%s; "+
+		"(seg=%d frames, %d segments); arch=%s; "+
 		"coverage[ libopus-side transitions=%d dtx-no-output-frames=%d multi-mode-streams=%d ]; "+
-		"TOC-mode-flips=%d cadence-mismatch=%d amd64-byte-fails=%d amd64-framing-fails=%d "+
-		"arm64-SILK-residuals=%d arm64-CELT/Hybrid-residuals=%d arm64-framing-residuals=%d arm64-range-tail-residuals=%d",
-		tested, len(specs), framesPerSpec, segFrames, len(encXfrSegmentPlan), skippedLBRR, runtime.GOARCH,
+		"TOC-mode-flips=%d cadence-mismatch=%d byte-fails=%d framing-fails=%d range-fails=%d",
+		tested, len(specs), framesPerSpec, segFrames, len(encXfrSegmentPlan), runtime.GOARCH,
 		transitionsSeen, dtxRunsSeen, modeFlipsInStream,
-		tocFlips, cadenceMismatch, silkByteFails, framingFails,
-		silkResiduals, celtResiduals, framingResiduals, rangeOnlyResiduals)
+		tocFlips, cadenceMismatch, byteFails, framingFails, rangeFails)
 
 	// Coverage guard: the harness must actually have crossed transitions, else a
 	// future signal/plan change could silently turn it into a single-mode sweep
@@ -619,19 +543,13 @@ func TestEncodeStatefulDTXRunFuzz(t *testing.T) {
 		dtxFiredCases    int // libopus reached the DTX path at least once this case
 		dtxNoOutputCases int // libopus emitted a true no-output (ret==0) frame
 		dtxEnterExitSeen int // active->DTX and DTX->active transitions observed
-		residuals        int
-		rangeResiduals   int
-		framingResiduals int
+		rangeFails       int
+		framingFails     int
 	)
 
 	for _, k := range kases {
 		for _, ch := range []int{1, 2} {
-			// Known LBRR stereo>=40 ms panic (owned by silk fixed-point agent); skip.
 			for _, fr := range frameDurs {
-				if k.fec && ch == 2 && k.gmode == EncoderModeSILK &&
-					(fr == ExpertFrameDuration40Ms || fr == ExpertFrameDuration60Ms) {
-					continue
-				}
 				for _, vbr := range vbrModes {
 					k, ch, fr, vbr := k, ch, fr, vbr
 					name := fmt.Sprintf("%s_ch%d_%dms_vbr%d_fec%t", k.name, ch, encMsOf(fr), vbr, k.fec)
@@ -675,49 +593,49 @@ func TestEncodeStatefulDTXRunFuzz(t *testing.T) {
 						}
 						if k.gmode != EncoderModeAuto {
 							if err := enc.SetMode(k.gmode); err != nil {
-								t.Skipf("gopus rejected mode: %v", err)
+								t.Fatalf("gopus rejected mode: %v", err)
 							}
 						}
 						if err := enc.SetFrameSize(fs); err != nil {
-							t.Skipf("SetFrameSize: %v", err)
+							t.Fatalf("SetFrameSize: %v", err)
 						}
 						if err := enc.SetExpertFrameDuration(fr); err != nil {
-							t.Skipf("SetExpertFrameDuration: %v", err)
+							t.Fatalf("SetExpertFrameDuration: %v", err)
 						}
 						if k.autoBW {
 							if err := enc.SetBandwidthAuto(); err != nil {
-								t.Skipf("SetBandwidthAuto: %v", err)
+								t.Fatalf("SetBandwidthAuto: %v", err)
 							}
 						} else {
 							if err := enc.SetBandwidth(k.gbw); err != nil {
-								t.Skipf("SetBandwidth: %v", err)
+								t.Fatalf("SetBandwidth: %v", err)
 							}
 							if err := enc.SetMaxBandwidth(k.gbw); err != nil {
-								t.Skipf("SetMaxBandwidth: %v", err)
+								t.Fatalf("SetMaxBandwidth: %v", err)
 							}
 						}
 						if err := enc.SetBitrate(24000); err != nil {
-							t.Skipf("SetBitrate: %v", err)
+							t.Fatalf("SetBitrate: %v", err)
 						}
 						if err := enc.SetBitrateMode(vbr); err != nil {
-							t.Skipf("SetBitrateMode: %v", err)
+							t.Fatalf("SetBitrateMode: %v", err)
 						}
 						if err := enc.SetComplexity(10); err != nil {
-							t.Skipf("SetComplexity: %v", err)
+							t.Fatalf("SetComplexity: %v", err)
 						}
 						if err := enc.SetSignal(k.gsignal); err != nil {
-							t.Skipf("SetSignal: %v", err)
+							t.Fatalf("SetSignal: %v", err)
 						}
 						enc.SetFEC(k.fec)
 						if k.fec {
 							if err := enc.SetPacketLoss(20); err != nil {
-								t.Skipf("SetPacketLoss: %v", err)
+								t.Fatalf("SetPacketLoss: %v", err)
 							}
 						}
 						enc.SetDTX(true)
 						if ch == 2 {
 							if err := enc.SetForceChannels(2); err != nil {
-								t.Skipf("SetForceChannels: %v", err)
+								t.Fatalf("SetForceChannels: %v", err)
 							}
 						}
 
@@ -739,6 +657,9 @@ func TestEncodeStatefulDTXRunFuzz(t *testing.T) {
 							}
 							o := recs[f]
 							label := fmt.Sprintf("%s/frame%d", name, f)
+							if o.Ret < 0 || len(o.Packet) != o.Ret {
+								t.Fatalf("%s: invalid libopus oracle record ret=%d packet len=%d", label, o.Ret, len(o.Packet))
+							}
 
 							gHas := len(pkt) > 0
 							oHas := o.Ret > 0
@@ -754,25 +675,22 @@ func TestEncodeStatefulDTXRunFuzz(t *testing.T) {
 							}
 							prevDTX = oDTX
 
-							if gHas != oHas {
+							if enc.FinalRange() != o.FinalRange {
+								rangeFails++
+								t.Errorf("%s: final_range differs gopus=%08x libopus=%08x", label, enc.FinalRange(), o.FinalRange)
+							}
+							if len(pkt) != o.Ret || gHas != oHas {
 								cadenceMismatch++
-								t.Errorf("%s: DTX/output CADENCE mismatch gopus(len=%d) libopus(ret=%d) — "+
-									"cross-frame DTX run-length / redundancy divergence (HARD FAIL all arch)",
-									label, len(pkt), o.Ret)
-								continue
+								t.Errorf("%s: DTX/output length or cadence mismatch gopus(len=%d) libopus(ret=%d,len=%d) firstByte=%d",
+									label, len(pkt), o.Ret, len(o.Packet), firstByteDiff(pkt, o.Packet))
+								if gHas != oHas {
+									continue
+								}
 							}
 							if !gHas {
-								continue // both in DTX no-output this frame
+								continue // both in DTX no-output; final ranges are checked above
 							}
 							if bytes.Equal(pkt, o.Packet) {
-								if enc.FinalRange() != o.FinalRange {
-									if runtime.GOARCH == "amd64" && !testPuregoBuild {
-										t.Errorf("%s: packets byte-equal but final_range differs gopus=%08x libopus=%08x (UNEXPECTED on amd64)",
-											label, enc.FinalRange(), o.FinalRange)
-									} else {
-										rangeResiduals++
-									}
-								}
 								continue
 							}
 							gClass := tocModeClass(byte0(pkt), true)
@@ -787,25 +705,14 @@ func TestEncodeStatefulDTXRunFuzz(t *testing.T) {
 							}
 							fb := firstByteDiff(pkt, o.Packet)
 							if byte0(pkt) != byte0(o.Packet) {
-								if runtime.GOARCH == "amd64" && !testPuregoBuild {
-									byteFails++
-									t.Errorf("%s: PACKET FRAMING divergence gopus toc=%02x(len=%d) libopus toc=%02x(len=%d) (UNEXPECTED on amd64)",
-										label, byte0(pkt), len(pkt), byte0(o.Packet), len(o.Packet))
-								} else {
-									framingResiduals++
-								}
+								framingFails++
+								t.Errorf("%s: PACKET FRAMING divergence at byte %d gopus toc=%02x(len=%d) libopus toc=%02x(len=%d)",
+									label, fb, byte0(pkt), len(pkt), byte0(o.Packet), len(o.Packet))
 								continue
 							}
-							if runtime.GOARCH == "amd64" && !testPuregoBuild {
-								byteFails++
-								t.Errorf("%s: %s payload BYTE MISMATCH at byte %d (len g=%d o=%d range g=%08x o=%08x) — "+
-									"UNEXPECTED on amd64 (bit-exact required)",
-									label, modeClassName(gClass), fb, len(pkt), len(o.Packet), enc.FinalRange(), o.FinalRange)
-								continue
-							}
-							residuals++
-							t.Logf("%s: %s payload differs at byte %d (len g=%d o=%d) — documented pure-Go <=1-ULP float boundary",
-								label, modeClassName(gClass), fb, len(pkt), len(o.Packet))
+							byteFails++
+							t.Errorf("%s: %s payload BYTE MISMATCH at byte %d (len g=%d o=%d range g=%08x o=%08x)",
+								label, modeClassName(gClass), fb, len(pkt), len(o.Packet), enc.FinalRange(), o.FinalRange)
 						}
 						casesRun++
 						if sawDTX {
@@ -825,17 +732,16 @@ func TestEncodeStatefulDTXRunFuzz(t *testing.T) {
 
 	t.Logf("encode DTX-run sweep: %d cases (frames warm/silence/recover=%d/%d/%d, total=%d); arch=%s; "+
 		"coverage[ cases-reaching-DTX-path=%d cases-with-true-no-output(ret==0)=%d cases-with-active<->DTX-transition=%d ]; "+
-		"cadence-mismatch=%d amd64-byte-fails=%d arm64-residuals=%d arm64-framing-residuals=%d arm64-range-residuals=%d",
+		"cadence-mismatch=%d byte-fails=%d framing-fails=%d range-fails=%d",
 		casesRun, warmFrames, silenceFrames, recoverFrames, totalFrames, runtime.GOARCH,
 		dtxFiredCases, dtxNoOutputCases, dtxEnterExitSeen,
-		cadenceMismatch, byteFails, residuals, framingResiduals, rangeResiduals)
+		cadenceMismatch, byteFails, framingFails, rangeFails)
 
 	// The point of this test is the cross-frame DTX path: if libopus never
 	// reached DTX (ret 0 or 1) the silence/threshold assumptions broke and the
 	// cadence assertion is vacuous. We require the active<->DTX TRANSITION to be
 	// observed (the run-length counter both crossed and fell back), which is the
-	// state the harness exists to gate. (Skipped under -short where the case
-	// subset may not reach it.)
+	// state the harness exists to gate.
 	if !testing.Short() && casesRun > 0 && dtxEnterExitSeen == 0 {
 		t.Errorf("DTX-run sweep: libopus never showed an active<->DTX transition across %d cases — "+
 			"silence run too short or VAD did not classify it inactive", casesRun)

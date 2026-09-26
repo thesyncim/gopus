@@ -3,6 +3,8 @@ package celt
 import (
 	"runtime"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 // requireBitExactFloat skips a Tier-1 bit-exact CELT-float oracle on the builds
@@ -12,7 +14,7 @@ import (
 //   - the fused arm64 default build (celtFusedFloat): the NEON-shaped float path
 //     is quality-gated (opus_compare) rather than byte-identical to scalar C, the
 //     same posture libopus's own NEON kernels take.
-//   - the amd64 pure-Go build (-tags purego): gopus runs scalar Go float
+//   - the amd64 pure-Go build (-tags nosimd): gopus runs scalar Go float
 //     (libopusFloatInnerProdUsesSSEOrder is false), but the linux/amd64 CI libopus
 //     is the autoconf-default SSE/AVX RTCD build, so a scalar-vs-SIMD comparison
 //     would diverge by ~1 ULP. Comparing the pure-Go float path against a SIMD
@@ -30,4 +32,39 @@ func requireBitExactFloat(t *testing.T) {
 	if runtime.GOARCH == "amd64" && !libopusFloatInnerProdUsesSSEOrder {
 		t.Skip("bit-exact vs SIMD libopus; amd64 pure-Go float path is quality-gated (asm amd64 / pure-Go arm64 hold the bit-exact oracle)")
 	}
+}
+
+// requireRenormalizeVectorOracleMode keeps the vector renormalization oracle
+// enabled on arm64 when the caller selects the matching libopus build. The
+// pinned arm64 libopus config compiles celt_inner_prod to NEON even when the
+// helper passes arch=0, so fused Go SIMD needs the default C reference and the
+// scalar Go builds need GOPUS_LIBOPUS_REF_SCALAR=1.
+func requireRenormalizeVectorOracleMode(t *testing.T) {
+	t.Helper()
+	if runtime.GOARCH != "arm64" {
+		requireBitExactFloat(t)
+		return
+	}
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		t.Fatalf("resolve libopus reference variant: %v", err)
+	}
+	if celtFusedFloat != (variant == libopustooling.LibopusReferenceSIMD) {
+		t.Fatalf("Go CELT float mode and libopus reference do not match: Go SIMD=%t libopus=%s", celtFusedFloat, variant)
+	}
+}
+
+// requirePairedCELTOracleMode allows exact float-stage comparisons only when
+// the Go build and resolver select the same scalar or native SIMD lane.
+func requirePairedCELTOracleMode(t *testing.T) libopustooling.LibopusReferenceVariant {
+	t.Helper()
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		t.Fatalf("resolve libopus reference variant: %v", err)
+	}
+	goSIMD := libopusFloatInnerProdUsesNeonOrder || libopusFloatInnerProdUsesSSEOrder
+	if goSIMD != (variant == libopustooling.LibopusReferenceSIMD) {
+		t.Fatalf("Go CELT mode and libopus reference do not match: Go SIMD=%t libopus=%s", goSIMD, variant)
+	}
+	return variant
 }

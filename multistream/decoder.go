@@ -127,6 +127,7 @@ type streamState struct {
 	haveDecoded        bool
 	prevRedundancy     bool
 	lastFrameSize      int32
+	lastTOCFrameSize   int32
 	lastPacketDuration int32
 	lastDataLen        int32
 	decodeGainQ8       int32
@@ -171,14 +172,15 @@ func newStreamDecoder(sampleRate, channels int) *streamState {
 	hybridDec := hybrid.NewDecoderWithSharedDecoders(channels, silkDec, celtDec)
 	hybridDec.SetAPISampleRate(sampleRate)
 	return &streamState{
-		sampleRate:    int32(sampleRate),
-		channels:      int32(channels),
-		hybridDec:     hybridDec,
-		celtDec:       celtDec,
-		silkDec:       silkDec,
-		lastMode:      streamModeHybrid,
-		lastBandwidth: int32(types.BandwidthFullband),
-		lastFrameSize: int32(sampleRate / 50),
+		sampleRate:       int32(sampleRate),
+		channels:         int32(channels),
+		hybridDec:        hybridDec,
+		celtDec:          celtDec,
+		silkDec:          silkDec,
+		lastMode:         streamModeHybrid,
+		lastBandwidth:    int32(types.BandwidthFullband),
+		lastFrameSize:    int32(sampleRate / 50),
+		lastTOCFrameSize: int32(sampleRate / 400),
 	}
 }
 
@@ -203,6 +205,7 @@ func (d *streamState) Reset() {
 	d.haveDecoded = false
 	d.prevRedundancy = false
 	d.lastFrameSize = d.sampleRate / 50
+	d.lastTOCFrameSize = d.sampleRate / 400
 	d.lastPacketDuration = 0
 	d.lastDataLen = 0
 	d.resetOSCEPostfilterState()
@@ -475,7 +478,7 @@ func (d *streamState) decodeFramePayloadToFloat32(frame []byte, frameSize int, t
 	// transSize mirrors libopus IMIN(F5, audiosize): the transition crossfade
 	// spans at most 5 ms.
 	transSize := frameSize
-	if f5 := int(d.sampleRate) / 50 / 2; transSize > f5 {
+	if f5 := (int(d.sampleRate) / 50 >> 1) >> 1; transSize > f5 {
 		transSize = f5
 	}
 
@@ -538,13 +541,14 @@ func (d *streamState) decodeCELTModeWithTransition(frame []byte, frameSize, tran
 // decodePLCToFloat32 conceals frameSize samples for a lost or degenerate
 // (<=1-byte) frame. It mirrors opus_decode_frame's concealment loop
 // (src/opus_decoder.c:345): when the requested size exceeds F20 (20 ms) the
-// concealment is produced F20 samples at a time, each chunk advancing the
-// per-stream concealment state. SILK comfort-noise generation is sized to one
-// <=20 ms frame, so an unchunked >20 ms request would otherwise overrun its
-// scratch; chunking here matches libopus and keeps every concealer within bounds.
+// concealment is produced in chunks bounded by both F20 and the preceding
+// packet's per-frame TOC duration, each advancing the per-stream concealment
+// state. opus_decode_frame caps each NULL request to st->frame_size before its
+// F20 loop, and opus_decode_native repeats until the caller's request is filled.
 func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
 	f20 := int(d.sampleRate) / 50
-	if f20 <= 0 || frameSize <= f20 {
+	chunkLimit := min(f20, int(d.lastTOCFrameSize))
+	if chunkLimit <= 0 || frameSize <= chunkLimit {
 		return d.decodePLCChunkToFloat32(frameSize)
 	}
 
@@ -552,7 +556,7 @@ func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
 	out := make([]float32, 0, frameSize*channels)
 	remaining := frameSize
 	for remaining > 0 {
-		chunk := min(remaining, f20)
+		chunk := min(remaining, chunkLimit)
 		decoded, err := d.decodePLCChunkToFloat32(chunk)
 		if err != nil {
 			return nil, err
@@ -560,6 +564,7 @@ func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
 		out = append(out, decoded...)
 		remaining -= chunk
 	}
+	d.lastPacketDuration = int32(frameSize)
 	return out, nil
 }
 
@@ -574,7 +579,14 @@ func (d *streamState) decodePLCChunkToFloat32(frameSize int) ([]float32, error) 
 
 	switch d.lastMode {
 	case streamModeSILK:
-		return d.finishDecode32(d.decodeSILKToFloat32(nil, frameSize, d.lastPacketStereo, int(d.lastBandwidth)))
+		// opus_decode_frame asks silk_Decode for at least F10 samples, then
+		// copies only the requested prefix for an F5 PLC remainder.
+		silkSize := max(frameSize, int(d.sampleRate)/100)
+		out, err := d.decodeSILKToFloat32(nil, silkSize, d.lastPacketStereo, int(d.lastBandwidth))
+		if err != nil {
+			return nil, err
+		}
+		return d.finishDecode32(out[:frameSize*int(d.channels)], nil)
 	case streamModeHybrid:
 		out, err := d.finishDecode32(d.hybridDec.DecodeToFloat32WithPacketStereo(nil, frameSize, d.lastPacketStereo))
 		if extsupport.OSCERuntime && err == nil {
@@ -615,6 +627,14 @@ func (d *streamState) decodePacketToFloat32(data []byte, frameSize int) ([]float
 	if frameCount == 0 {
 		return nil, ErrInvalidPacket
 	}
+	packetFrameSize := opusSamplesPerFrameAtRate(data[0], int(d.sampleRate))
+	if frameCount*packetFrameSize > frameSize {
+		return nil, ErrBufferTooSmall
+	}
+	// opus_decode_native updates st->frame_size only after packet validation.
+	// This TOC duration remains the PLC cap across calls and is independent of
+	// the output capacity or the packet's total frame count.
+	d.lastTOCFrameSize = int32(packetFrameSize)
 
 	var qextPayloads streamQEXTPayloads
 	if extsupport.QEXT && !d.ignoreExtensions && toc.mode == streamModeCELT && len(parsed.padding) > 0 {

@@ -1,4 +1,4 @@
-//go:build arm64 && !purego
+//go:build arm64 && !nosimd
 
 package silk
 
@@ -69,6 +69,21 @@ func TestFloatToInt16ScaledBoundaries(t *testing.T) {
 	for i := range n {
 		if got[i] != want[i] {
 			t.Fatalf("i=%d in=%v: neon=%d scalar=%d", i, in[i], got[i], want[i])
+		}
+	}
+}
+
+func TestFloatToInt16ScaledZeroAlloc(t *testing.T) {
+	const n = 480
+	in := make([]float32, n)
+	for i := range in {
+		in[i] = float32((i*31)%127-63) * 0.0078125
+	}
+	out := make([]int16, n)
+	for _, scale := range []float32{1, 32768} {
+		floatToInt16Scaled(out, in, scale, n)
+		if allocs := testing.AllocsPerRun(100, func() { floatToInt16Scaled(out, in, scale, n) }); allocs != 0 {
+			t.Fatalf("scale=%g: got %g allocations per call, want 0", scale, allocs)
 		}
 	}
 }

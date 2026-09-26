@@ -21,6 +21,7 @@ type projectionEncodeRef struct {
 	demixing       []byte
 	demixingGain   int
 	packets        [][]byte
+	ranges         []uint32
 }
 
 // encodeLibopusProjection runs the libopus projection encoder oracle for the
@@ -48,7 +49,7 @@ func encodeLibopusProjection(sampleRate, channels, application, bitrate int, vbr
 
 	payload := libopustest.NewOraclePayloadVersion(
 		"GPEI",
-		1,
+		2,
 		uint32(sampleRate),
 		uint32(channels),
 		uint32(application),
@@ -70,7 +71,7 @@ func encodeLibopusProjection(sampleRate, channels, application, bitrate int, vbr
 		payload.Float32s(pcm32...)
 	}
 
-	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "projection reference encode", "GPEO")
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "projection reference encode", "GPEO", 2)
 	if err != nil {
 		return nil, err
 	}
@@ -81,9 +82,11 @@ func encodeLibopusProjection(sampleRate, channels, application, bitrate int, vbr
 	demixing := append([]byte(nil), reader.Bytes(demixSize)...)
 	demixGain := int(int32(reader.U32()))
 
-	packetCount := int(reader.U32())
+	packetCount := reader.Count(frameCount)
 	packets := make([][]byte, packetCount)
+	ranges := make([]uint32, packetCount)
 	for i := range packets {
+		ranges[i] = reader.U32()
 		n := int(reader.U32())
 		packets[i] = append([]byte(nil), reader.Bytes(n)...)
 	}
@@ -96,6 +99,7 @@ func encodeLibopusProjection(sampleRate, channels, application, bitrate int, vbr
 		demixing:       demixing,
 		demixingGain:   demixGain,
 		packets:        packets,
+		ranges:         ranges,
 	}, nil
 }
 
@@ -284,10 +288,10 @@ func runProjectionEncodeParity(t *testing.T, channels, frameSize, frameCount, bi
 		// The stream/coupled layout, the demixing matrix and the gain are asserted
 		// hard above. A per-frame byte (or VBR length) divergence with matching
 		// per-stream modes is the documented ≤1-ULP CELT float boundary on the
-		// pure-Go builds (arm64 FMA, amd64-purego Go float vs the scalar libopus
+		// pure-Go builds (arm64 FMA, amd64-nosimd Go float vs the scalar libopus
 		// oracle); only the amd64 asm/SIMD build is held strictly bit-exact. See
 		// project_arm64_celt_1ulp_drift.md.
-		if armEncodeFloatDrift() || !gopusBuildIsAsm {
+		if armEncodeFloatDrift() || !gopusBuildIsSIMD {
 			t.Logf("frame %d: documented pure-Go ≤1-ULP CELT float drift (gopus len=%d libopus len=%d firstMismatch=%d)",
 				i, len(got), len(want), mismatch)
 			continue

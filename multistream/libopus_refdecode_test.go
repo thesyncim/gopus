@@ -21,8 +21,8 @@ const (
 
 func getLibopusRefdecodePath() (string, error) {
 	libopusRefdecodeOnce.Do(func() {
-		if _, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); !ok {
-			libopusRefdecodeErr = fmt.Errorf("libopus reference tree not found")
+		if _, err := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); err != nil {
+			libopusRefdecodeErr = err
 			return
 		}
 		libopusRefdecodePath, libopusRefdecodeErr = libopustest.BuildCHelper(libopustest.CHelperConfig{

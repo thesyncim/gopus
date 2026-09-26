@@ -1,27 +1,10 @@
 package testvectors
 
-// libopus_refdecode_matched_tier_test.go — TIER-MATCHED quality reference decode.
+// libopus_refdecode_matched_tier_test.go — build-matched quality reference decode.
 //
-// The scalar reference decode (decodeWithLibopusReferencePacketsSingle in
-// libopus_refdecode_test.go) always links the bit-reproducible scalar libopus
-// (opus-1.6.1). That is correct for the bit-exact int16-PLC oracles, but it makes
-// a default (asm/SIMD) gopus build compare go-asm against pure-C scalar — an
-// unmatched pairing that conflates gopus's asm 1-ULP envelope with libopus's own
-// scalar-vs-SIMD envelope.
-//
-// This helper closes that gap WITHOUT touching the scalar helper: it links the
-// libopus reference whose SIMD tier MATCHES the gopus build under test —
-//
-//   - asm gopus build (default, !purego): SIMD libopus (opus-1.6.1-simd, built by
-//     `make ensure-libopus-simd`; NEON on arm64, SSE/AVX RTCD on amd64), so the
-//     comparison is asm-vs-SIMD.
-//   - pure-Go gopus build (-tags purego): scalar libopus (opus-1.6.1), so the
-//     comparison is pure-Go-vs-scalar and is expected to be ~bit-exact.
-//
-// gopusBuildIsAsm (build_tier_asm.go / build_tier_purego.go) is the selector;
-// CHelperConfig.SIMDRef drives the libopus tree choice. The transport payload and
-// reader contract are identical to the scalar helper, so quality tests can swap in
-// decodeWithMatchedTierReferencePacketsSingle with no other changes.
+// This helper links the libopus tree selected by the build-aware reference
+// resolver and invokes the matching Go decode path. The transport payload and
+// reader contract match the scalar helper, so quality tests can use either path.
 
 import (
 	"fmt"
@@ -36,19 +19,16 @@ var libopusRefdecodeMatchedTierHelper libopustest.HelperCache
 // binary linked against the libopus tier that matches the gopus build under test.
 func getLibopusRefdecodeMatchedTierPath() (string, error) {
 	return libopusRefdecodeMatchedTierHelper.Path(func() (string, error) {
-		if _, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); !ok {
-			return "", fmt.Errorf("libopus reference tree not found")
+		if _, err := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); err != nil {
+			return "", err
 		}
 		libArchive := libopustest.RefPath(".libs", "libopus.a")
-		if gopusBuildIsAsm {
-			libArchive = libopustest.SIMDRefPath(".libs", "libopus.a")
-		}
 		return libopustest.BuildCHelper(libopustest.CHelperConfig{
 			Label:      "matched-tier reference decode",
 			OutputBase: "gopus_libopus_refdecode_matched_tier",
 			SourceFile: "libopus_refdecode_single.c",
 			CFlags:     []string{"-O3", "-DNDEBUG"},
-			SIMDRef:    gopusBuildIsAsm,
+			SIMDRef:    gopusBuildIsSIMD,
 			Libs:       []string{libArchive, "-lm"},
 		})
 	})

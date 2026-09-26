@@ -490,7 +490,7 @@ func (e *Encoder) toneDetectOnlyF32(pcm []float32, frameSize int) TransientAnaly
 	if channels == 1 {
 		result.ToneFreq, result.Toneishness = toneDetectFloat32Mono(pcm[:samplesPerChannel], e.toneDetectFs(), false)
 	} else {
-		result.ToneFreq, result.Toneishness = toneDetectScratchF32(pcm, channels, e.toneDetectFs(), nil)
+		result.ToneFreq, result.Toneishness = toneDetectScratchF32(pcm, channels, e.toneDetectFs(), e.scratch.transientX)
 	}
 	return result
 }
@@ -775,17 +775,23 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 
 			// L and R high-pass filter computations interleaved so the CPU
 			// can overlap their independent chains to hide IIR multiply latency.
-			yL0 := hp0L + xL0; yR0 := hp0R + xR0
-			hp00L := hp0L; hp00R := hp0R
+			yL0 := hp0L + xL0
+			yR0 := hp0R + xR0
+			hp00L := hp0L
+			hp00R := hp0R
 			hp0L = hp0L - xL0 + hpFeedback*hp1L
 			hp0R = hp0R - xR0 + hpFeedback*hp1R
-			hp1L = xL0 - hp00L; hp1R = xR0 - hp00R
+			hp1L = xL0 - hp00L
+			hp1R = xR0 - hp00R
 
-			yL1 := hp0L + xL1; yR1 := hp0R + xR1
-			hp00L = hp0L; hp00R = hp0R
+			yL1 := hp0L + xL1
+			yR1 := hp0R + xR1
+			hp00L = hp0L
+			hp00R = hp0R
 			hp0L = hp0L - xL1 + hpFeedback*hp1L
 			hp0R = hp0R - xR1 + hpFeedback*hp1R
-			hp1L = xL1 - hp00L; hp1R = xR1 - hp00R
+			hp1L = xL1 - hp00L
+			hp1R = xR1 - hp00R
 
 			if i < warmupPairs {
 				yL0, yL1, yR0, yR1 = 0, 0, 0, 0
@@ -794,7 +800,8 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 			// Energy and masking for both channels interleaved.
 			pairL := yL0*yL0 + yL1*yL1
 			pairR := yR0*yR0 + yR1*yR1
-			meanL += pairL; meanR += pairR
+			meanL += pairL
+			meanR += pairR
 			maskL = pairL + forwardRetain*maskL
 			maskR = pairR + forwardRetain*maskR
 			energy[i] = forwardDecay * maskL

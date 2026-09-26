@@ -80,7 +80,7 @@ func main() {
 	flag.StringVar(&cfg.benchtimes, "benchtimes", "", "comma-separated minimum measurement times; bare numbers are milliseconds")
 	flag.IntVar(&cfg.count, "count", 3, "measurement runs per case; median ns/sample is reported")
 	flag.StringVar(&cfg.vectorDir, "vectors", filepath.Join("testvectors", "testdata", "opus_testvectors"), "official test-vector directory")
-	flag.StringVar(&cfg.libopusRoot, "libopus-root", filepath.Join("tmp_check", "opus-"+libopusVersion), "pinned libopus source/build directory")
+	flag.StringVar(&cfg.libopusRoot, "libopus-root", "", "validated libopus source/build directory (defaults to the build-matched tree)")
 	flag.StringVar(&cfg.gopusPGO, "gopus-pgo", "", "optional gopus PGO profile label to include in Markdown output")
 	flag.StringVar(&cfg.format, "format", "markdown", "output format: markdown or tsv")
 	flag.StringVar(&cfg.outPath, "out", "", "optional output path")
@@ -123,7 +123,10 @@ func run(cfg runConfig) error {
 		return err
 	}
 	vectorDir := absPath(root, cfg.vectorDir)
-	libopusRoot := absPath(root, cfg.libopusRoot)
+	libopusRoot, variant, err := prepareLibopusReferenceRoot(root, cfg.libopusRoot)
+	if err != nil {
+		return err
+	}
 
 	vectors, err := loadVectors(vectorDir)
 	if err != nil {
@@ -132,7 +135,7 @@ func run(cfg runConfig) error {
 	cases := makeCases(vectors, cfg.cases)
 	paths := makePaths(cfg.paths)
 
-	helper, err := buildLibopusHelper(root, libopusRoot)
+	helper, err := buildLibopusHelper(root, libopusRoot, variant)
 	if err != nil {
 		return err
 	}
@@ -550,14 +553,11 @@ func makeResult(implementation, path, vector string, minDuration time.Duration, 
 	}
 }
 
-func buildLibopusHelper(root, libopusRoot string) (string, error) {
+func buildLibopusHelper(root, libopusRoot string, variant libopustooling.LibopusReferenceVariant) (string, error) {
+	if err := libopustooling.ValidateLibopusReferenceBuild(libopusRoot, variant, libopusVersion); err != nil {
+		return "", err
+	}
 	staticLib := filepath.Join(libopusRoot, ".libs", "libopus.a")
-	if _, err := os.Stat(staticLib); err != nil {
-		libopustooling.EnsureLibopus(libopusVersion, []string{root})
-	}
-	if _, err := os.Stat(staticLib); err != nil {
-		return "", fmt.Errorf("pinned libopus static library not found at %s: %w", staticLib, err)
-	}
 
 	cc, err := libopustooling.FindCCompiler()
 	if err != nil {
@@ -572,18 +572,51 @@ func buildLibopusHelper(root, libopusRoot string) (string, error) {
 		"-std=c99",
 		"-O3",
 		"-DNDEBUG",
+	}
+	if variant == libopustooling.LibopusReferenceScalar {
+		args = append(args, strings.Fields(libopustooling.LibopusScalarCVectorizationFlags)...)
+	}
+	args = append(args,
 		"-I", filepath.Join(libopusRoot, "include"),
 		src,
 		staticLib,
 		"-lm",
 		"-o", out,
-	}
+	)
 	cmd := exec.Command(cc, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("build libopus benchmark helper: %w (%s)", err, bytes.TrimSpace(output))
 	}
 	return out, nil
+}
+
+func prepareLibopusReferenceRoot(root, requested string) (string, libopustooling.LibopusReferenceVariant, error) {
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", "", err
+	}
+	refRoot := requested
+	if refRoot == "" {
+		suffix, err := libopustooling.LibopusReferenceSourceSuffix(variant)
+		if err != nil {
+			return "", "", err
+		}
+		refRoot = filepath.Join(root, "tmp_check", "opus-"+libopusVersion+suffix)
+	} else {
+		refRoot = absPath(root, refRoot)
+	}
+	if requested == "" {
+		if variant == libopustooling.LibopusReferenceSIMD {
+			libopustooling.EnsureLibopusSIMD(libopusVersion, []string{root})
+		} else {
+			libopustooling.EnsureLibopusScalar(libopusVersion, []string{root})
+		}
+	}
+	if err := libopustooling.ValidateLibopusReferenceBuild(refRoot, variant, libopusVersion); err != nil {
+		return "", "", err
+	}
+	return refRoot, variant, nil
 }
 
 func runLibopusBenchmarks(helper string, vectors []benchmarkVector, cfg runConfig) ([]benchmarkResult, error) {

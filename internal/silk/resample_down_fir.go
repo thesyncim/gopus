@@ -140,10 +140,19 @@ func newDecoderDownsamplingResampler(fsIn, fsOut int) *DownsamplingResampler {
 }
 
 func newDownsamplingResampler(fsIn, fsOut int, forEncoder bool) *DownsamplingResampler {
-	r := &DownsamplingResampler{
-		fsInKHz:  int32(fsIn / 1000),
-		fsOutKHz: int32(fsOut / 1000),
-	}
+	r := &DownsamplingResampler{}
+	r.init(fsIn, fsOut, forEncoder)
+	return r
+}
+
+// init is the down_FIR branch of silk_resampler_init (silk/resampler.c): it
+// clears the filter state and configures the fsIn -> fsOut ratio, reusing the
+// state and scratch buffers when they are large enough.
+func (r *DownsamplingResampler) init(fsIn, fsOut int, forEncoder bool) {
+	r.sIIR = [2]int32{}
+	r.fsInKHz = int32(fsIn / 1000)
+	r.fsOutKHz = int32(fsOut / 1000)
+	r.inputDelay = 0
 
 	// Batch size: 10ms of input data
 	r.batchSize = r.fsInKHz * 10 // RESAMPLER_MAX_BATCH_SIZE_MS = 10
@@ -208,11 +217,9 @@ func newDownsamplingResampler(fsIn, fsOut int, forEncoder bool) *DownsamplingRes
 	}
 
 	// Initialize state
-	r.sFIR = make([]int32, r.firOrder)
-	r.delayBuf = make([]int16, r.fsInKHz)
-	r.scratchBuf = make([]int32, int(r.batchSize)+r.firOrder)
-
-	return r
+	clear(ensureInt32Slice(&r.sFIR, r.firOrder))
+	clear(ensureInt16Slice(&r.delayBuf, int(r.fsInKHz)))
+	ensureInt32Slice(&r.scratchBuf, int(r.batchSize)+r.firOrder)
 }
 
 // CopyFrom copies src's configuration and filter state into r, leaving r ready

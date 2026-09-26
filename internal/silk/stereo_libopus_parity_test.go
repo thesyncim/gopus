@@ -3,10 +3,12 @@ package silk
 import (
 	"fmt"
 	"math"
+	"slices"
 	"testing"
 	"unsafe"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/internal/rangecoding"
 	"github.com/thesyncim/gopus/internal/testsignal"
 )
@@ -379,13 +381,13 @@ func TestSILKStereoQuantPredMatchesLibopusOracle(t *testing.T) {
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			pred := tc.pred
-			ix := stereoQuantPred(&pred)
+			ix := silkStereoQuantPred(&pred)
 			if pred[0] != want[i].first || pred[1] != want[i].second {
 				t.Fatalf("pred=%v want [%d %d]", pred, want[i].first, want[i].second)
 			}
 			got := [6]int32{
-				int32(ix.Ix[0][0]), int32(ix.Ix[0][1]), int32(ix.Ix[0][2]),
-				int32(ix.Ix[1][0]), int32(ix.Ix[1][1]), int32(ix.Ix[1][2]),
+				int32(ix[0][0]), int32(ix[0][1]), int32(ix[0][2]),
+				int32(ix[1][0]), int32(ix[1][1]), int32(ix[1][2]),
 			}
 			if got != want[i].extra {
 				t.Fatalf("ix=%v want %v", got, want[i].extra)
@@ -582,36 +584,38 @@ func TestSILKStereoLRToMSMatchesLibopusOracle(t *testing.T) {
 
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			var enc Encoder
-			setStereoStateFromOracle(&enc.stereo, tc.state)
-			mid, side, ix, midOnly, midRate, sideRate, widthQ14 := enc.StereoLRToMSWithRates(
-				int16PCMToFloat32(tc.left), int16PCMToFloat32(tc.right),
-				tc.frameLength, tc.fsKHz, tc.totalRateBps, int32(tc.speechActQ8), tc.toMono,
-			)
-			if libopusStereoBoolWord(midOnly) != want[i].midOnly {
-				t.Fatalf("midOnly=%v want %d", midOnly, want[i].midOnly)
+			var state stereoEncState
+			var scratch stereoLRToMSScratch
+			setStereoStateFromOracle(&state, tc.state)
+			// The channel input buffers hold the frame at [2:]; the conversion
+			// leaves mid and side where silk_encode_frame reads them (inputBuf+1).
+			buf0 := make([]int16, tc.frameLength+2)
+			buf1 := make([]int16, tc.frameLength+2)
+			copy(buf0[2:], tc.left)
+			copy(buf1[2:], tc.right)
+			ix, midOnly, rates := silkStereoLRToMS(&state, buf0, buf1,
+				int32(tc.totalRateBps), int32(tc.speechActQ8), tc.toMono, tc.fsKHz, tc.frameLength, &scratch)
+			if int32(midOnly) != want[i].midOnly {
+				t.Fatalf("midOnly=%d want %d", midOnly, want[i].midOnly)
 			}
-			if int32(midRate) != want[i].midRate || int32(sideRate) != want[i].sideRate {
-				t.Fatalf("rates=%d/%d want %d/%d", midRate, sideRate, want[i].midRate, want[i].sideRate)
-			}
-			if int32(widthQ14) != want[i].state.widthPrevQ14 {
-				t.Fatalf("widthQ14=%d want %d", widthQ14, want[i].state.widthPrevQ14)
+			if rates[0] != want[i].midRate || rates[1] != want[i].sideRate {
+				t.Fatalf("rates=%d/%d want %d/%d", rates[0], rates[1], want[i].midRate, want[i].sideRate)
 			}
 			gotIx := [6]int32{
-				int32(ix.Ix[0][0]), int32(ix.Ix[0][1]), int32(ix.Ix[0][2]),
-				int32(ix.Ix[1][0]), int32(ix.Ix[1][1]), int32(ix.Ix[1][2]),
+				int32(ix[0][0]), int32(ix[0][1]), int32(ix[0][2]),
+				int32(ix[1][0]), int32(ix[1][1]), int32(ix[1][2]),
 			}
 			if gotIx != want[i].ix {
 				t.Fatalf("ix=%v want %v", gotIx, want[i].ix)
 			}
-			gotState := stereoStateForOracle(enc.stereo)
+			gotState := stereoStateForOracle(state)
 			if gotState != want[i].state {
 				t.Fatalf("state=%+v want %+v", gotState, want[i].state)
 			}
-			if !samePCM16FromFloat(mid, want[i].mid) {
+			if !slices.Equal(buf0[1:tc.frameLength+1], want[i].mid) {
 				t.Fatalf("mid output mismatch")
 			}
-			if !samePCM16FromFloat(side, want[i].side) {
+			if !slices.Equal(buf1[1:tc.frameLength+1], want[i].side) {
 				t.Fatalf("side output mismatch")
 			}
 		})
@@ -652,6 +656,38 @@ func TestSILKStereoPacket0WrapperMatchesLibopusOracle(t *testing.T) {
 	prepareSILKPacket0MidFrameCoreOracle(t, signal, bitRate, maxBits, payloadSizeMs, want)
 }
 
+// TestSILKStereoPacket0EncodeMatchesLibopusOracle codes the first packet with
+// PacketEncoder.Encode and compares the rate split, the VAD and SNR decisions
+// and the mid channel state after its frame with the instrumented silk_Encode
+// of the oracle.
+func TestSILKStereoPacket0EncodeMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, tc := range []struct {
+		name    string
+		bitRate int
+		maxBits int
+	}{
+		{"47600bps", 47600, 1275 * 8},
+		{"48000bps_capped", 48000, 1500},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			signal := chirpSweepWB20msStereo48kPacket0Signal(t)
+			want, err := probeLibopusSILKPacket0Wrapper(signal, tc.bitRate, tc.maxBits, true, 20, 0)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "silk packet0 wrapper", err)
+			}
+			s := NewPacketEncoder(2)
+			ctl := packet0EncControl(tc.bitRate, tc.maxBits, 20)
+			var re rangecoding.Encoder
+			re.Init(make([]byte, maxSilkPacketBytes))
+			if _, err := s.Encode(&ctl, signal, len(signal)/2, &re, 0, VADNoActivity); err != nil {
+				t.Fatalf("Encode: %v", err)
+			}
+			checkSILKPacket0MidState(t, s, want, true)
+		})
+	}
+}
+
 func TestSILKPacket0MidFrameCoreOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 	const (
@@ -664,121 +700,234 @@ func TestSILKPacket0MidFrameCoreOracle(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "silk stereo packet0 wrapper", err)
 	}
-	enc, re, midOut := prepareSILKPacket0MidFrameCoreOracle(t, signal, bitRate, maxBits, payloadSizeMs, want)
-
-	var quality [4]int32
-	for i := range quality {
-		quality[i] = want.midInputQualityBands[i]
-	}
-	enc.SetVADState(want.midSpeechActivityQ8, want.midInputTiltQ15, quality)
-	enc.stereoCondMid = enc
-	enc.stereoCondMidFramesEncoded = 0
-	enc.stereoChannelIdx = 0
-	enc.stereoPrevDecodeOnlyMiddle = 0
-	enc.SetBitrate(int(want.midTargetRateBps))
-	enc.SetPreAdjustedTargetRateBps(int(want.midTargetRateBps))
-	enc.SetMaxBits(int(want.maxBits))
-	enc.blockUseCBR = want.useCBR != 0
-	enc.SetRangeEncoder(re)
-	_ = enc.EncodeFrame(midOut, nil, want.midVAD != 0)
+	f := prepareSILKPacket0MidFrameCoreOracle(t, signal, bitRate, maxBits, payloadSizeMs, want)
+	nBytesOut := f.mid.encodeFrame(f.re, f.condCoding, f.maxBits, f.useCBR)
+	f.mid.nFramesEncoded++
 
 	if want.midEncodeRet != 0 {
 		t.Fatalf("libopus mid silk_encode_frame_FLP ret=%d", want.midEncodeRet)
 	}
-	if gotNBytesOut := int32((re.Tell() + 7) >> 3); gotNBytesOut != want.midNBytesOut {
-		t.Skipf("packet-0 mid silk_encode_frame_FLP oracle reached: nBytesOut=%d want %d", gotNBytesOut, want.midNBytesOut)
+	if nBytesOut != want.midNBytesOut {
+		t.Skipf("packet-0 mid silk_encode_frame_FLP oracle reached: nBytesOut=%d want %d", nBytesOut, want.midNBytesOut)
 	}
-	if gotTell := int32(re.Tell()); gotTell != want.midTellAfterFrame {
+	if gotTell := int32(f.re.Tell()); gotTell != want.midTellAfterFrame {
 		t.Skipf("packet-0 mid silk_encode_frame_FLP oracle reached: tellAfterFrame=%d want %d", gotTell, want.midTellAfterFrame)
 	}
-	if gotRange := int32(re.Range()); gotRange != want.midRangeAfterFrame {
+	if gotRange := int32(f.re.Range()); gotRange != want.midRangeAfterFrame {
 		t.Skipf("packet-0 mid silk_encode_frame_FLP oracle reached: rangeAfterFrame=%d want %d", gotRange, want.midRangeAfterFrame)
 	}
-	if int32(enc.previousGainIndex) != want.midLastGainIndex {
-		t.Fatalf("mid LastGainIndex=%d want %d", enc.previousGainIndex, want.midLastGainIndex)
+	checkSILKPacket0MidState(t, f.enc, want, false)
+}
+
+// checkSILKPacket0MidState compares the mid channel state after its first
+// frame, and the packet-level decisions that precede it, with the oracle.
+// sideCoded reports that the side frame has run its silk_control_SNR too.
+func checkSILKPacket0MidState(t testing.TB, s *PacketEncoder, want libopusSILKPacket0WrapperRecord, sideCoded bool) {
+	t.Helper()
+	mid, side := s.state[0], s.state[1]
+	if int32(s.stereo.midOnlyFlags[0]) != want.midOnly {
+		t.Fatalf("mid_only_flag=%d want %d", s.stereo.midOnlyFlags[0], want.midOnly)
 	}
-	if int32(enc.ecPrevSignalType) != want.midPrevSignalType {
-		t.Fatalf("mid prevSignalType=%d want %d", enc.ecPrevSignalType, want.midPrevSignalType)
+	if mid.targetRateBps != want.midTargetRateBps {
+		t.Fatalf("mid TargetRate_bps=%d want %d", mid.targetRateBps, want.midTargetRateBps)
 	}
-	if int32(enc.ecPrevLagIndex) != want.midPrevLag {
-		t.Fatalf("mid prevLag=%d want %d", enc.ecPrevLagIndex, want.midPrevLag)
+	if sideCoded && want.sideTargetRateBps > 0 && side.targetRateBps != want.sideTargetRateBps {
+		t.Fatalf("side TargetRate_bps=%d want %d", side.targetRateBps, want.sideTargetRateBps)
 	}
-	if int32(enc.lastQuantOffsetType) != want.midQuantOffsetType {
-		t.Fatalf("mid quantOffsetType=%d want %d", enc.lastQuantOffsetType, want.midQuantOffsetType)
+	checks := []struct {
+		name      string
+		got, want int32
+	}{
+		{"midVAD", boolWord(mid.vadFlags[0]), want.midVAD},
+		{"sideVAD", boolWord(side.vadFlags[0]), want.sideVAD},
+		{"midSpeechActivityQ8", mid.speechActivityQ8, want.midSpeechActivityQ8},
+		{"midInputTiltQ15", mid.inputTiltQ15, want.midInputTiltQ15},
+		{"midSNRDBQ7", mid.snrDBQ7, want.midSNRDBQ7},
+		{"midNFramesEncoded", mid.nFramesEncoded, want.midNFramesEncoded},
 	}
-	if int32(enc.lastSeed) != want.midSeed {
-		t.Fatalf("mid seed=%d want %d", enc.lastSeed, want.midSeed)
+	// The oracle runs silk_encode_frame_FLP; the FIXED_POINT build codes the
+	// frame with the silk_encode_frame_FIX analysis instead.
+	if !silkFixedEncodeBuild {
+		checks = append(checks, []struct {
+			name      string
+			got, want int32
+		}{
+			{"midLastGainIndex", int32(mid.previousGainIndex), want.midLastGainIndex},
+			{"midPrevSignalType", mid.ecPrevSignalType, want.midPrevSignalType},
+			{"midPrevLag", int32(mid.ecPrevLagIndex), want.midPrevLag},
+			{"midQuantOffsetType", int32(mid.lastQuantOffsetType), want.midQuantOffsetType},
+			{"midSeed", int32(mid.lastSeed), want.midSeed},
+			{"midFrameCounter", mid.frameCounter, want.midFrameCounter},
+		}...)
 	}
-	if gotSignalType, _ := enc.LastEncodedSignalInfo(); int32(gotSignalType) != want.midSignalType {
+	for _, check := range checks {
+		if check.got != check.want {
+			t.Fatalf("%s=%d want %d", check.name, check.got, check.want)
+		}
+	}
+	if want.midOnly == 0 {
+		if side.speechActivityQ8 != want.sideSpeechActivityQ8 || side.inputTiltQ15 != want.sideInputTiltQ15 {
+			t.Fatalf("side speech/tilt=%d/%d want %d/%d", side.speechActivityQ8, side.inputTiltQ15,
+				want.sideSpeechActivityQ8, want.sideInputTiltQ15)
+		}
+	}
+	for i, q := range mid.inputQualityBandsQ15 {
+		if q != want.midInputQualityBands[i] {
+			t.Fatalf("mid input_quality_bands_Q15[%d]=%d want %d", i, q, want.midInputQualityBands[i])
+		}
+	}
+	if gotSignalType, _ := mid.lastEncodedSignalInfo(); !silkFixedEncodeBuild && gotSignalType != want.midSignalType {
 		t.Fatalf("mid signalType=%d want %d", gotSignalType, want.midSignalType)
-	}
-	if int32(enc.frameCounter) != want.midFrameCounter {
-		t.Fatalf("mid frameCounter=%d want %d", enc.frameCounter, want.midFrameCounter)
-	}
-	if int32(enc.nFramesEncoded) != want.midNFramesEncoded {
-		t.Fatalf("mid nFramesEncoded=%d want %d", enc.nFramesEncoded, want.midNFramesEncoded)
 	}
 }
 
-func prepareSILKPacket0MidFrameCoreOracle(t testing.TB, signal []float32, bitRate, maxBits, payloadSizeMs int, want libopusSILKPacket0WrapperRecord) (*Encoder, *rangecoding.Encoder, []float32) {
+func boolWord(v bool) int32 {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+func packet0EncControl(bitRate, maxBits, payloadSizeMs int) EncControl {
+	return EncControl{
+		NChannelsAPI:              2,
+		NChannelsInternal:         2,
+		APISampleRate:             48000,
+		MaxInternalSampleRate:     16000,
+		MinInternalSampleRate:     8000,
+		DesiredInternalSampleRate: 16000,
+		PayloadSizeMs:             int32(payloadSizeMs),
+		BitRate:                   int32(bitRate),
+		Complexity:                10,
+		UseCBR:                    true,
+		MaxBits:                   int32(maxBits),
+	}
+}
+
+// silkPacket0MidFrame is the state prepareSILKPacket0MidFrameCoreOracle leaves
+// just before the mid channel's silk_encode_frame_FLP of the first packet.
+type silkPacket0MidFrame struct {
+	enc        *PacketEncoder
+	mid        *Encoder
+	re         *rangecoding.Encoder
+	maxBits    int
+	useCBR     bool
+	condCoding int
+}
+
+// prepareSILKPacket0MidFrameCoreOracle runs the first packet of a 48 kHz
+// stereo stream through the silk_Encode steps (silk/enc_API.c) up to the mid
+// channel's silk_encode_frame_FLP, step by step like the instrumented oracle,
+// checking the side information and the rate controls on the way.
+func prepareSILKPacket0MidFrameCoreOracle(t testing.TB, signal []float32, bitRate, maxBits, payloadSizeMs int, want libopusSILKPacket0WrapperRecord) silkPacket0MidFrame {
 	t.Helper()
-	left, right := downsampleStereo48kTo16kPacket0(t, signal)
-	enc := NewEncoder(BandwidthWideband)
-	sideEnc := NewEncoder(BandwidthWideband)
-	enc.SetBitrate(bitRate)
-	sideEnc.SetBitrate(bitRate)
-	enc.SetMaxBits(maxBits)
-	sideEnc.SetMaxBits(maxBits)
-	enc.SetVBR(false)
-	sideEnc.SetVBR(false)
-	enc.ResetPacketState()
-	sideEnc.ResetPacketState()
-	enc.nFramesPerPacket = 1
-	sideEnc.nFramesPerPacket = 1
+	const activity = VADNoActivity
+	s := NewPacketEncoder(2)
+	ctl := packet0EncControl(bitRate, maxBits, payloadSizeMs)
+	mid, side := s.state[0], s.state[1]
+
+	// Mono -> stereo transition of the first stereo packet.
+	side.reset()
+	s.stereo = stereoEncState{midSideAmpQ0: [4]int32{0, 1, 0, 1}, smthWidthQ14: 1 << 14}
+	s.nChannelsAPI, s.nChannelsInternal = 2, 2
+	for n, st := range []*Encoder{mid, side} {
+		st.nFramesEncoded = 0
+		// The side channel is forced to the rate of the mid channel.
+		var forceFsKHz int32
+		if n == 1 {
+			forceFsKHz = mid.fsKHz
+		}
+		st.control(&ctl, false, forceFsKHz)
+		st.inDTX = st.useDTX
+	}
+
+	// Resample each channel into its input buffer.
+	nIn := int(mid.frameLength) * 48000 / (int(mid.fsKHz) * 1000)
+	in := make([]int16, nIn)
+	for i := range in {
+		in[i] = opusmath.Float32ToInt16(signal[2*i])
+	}
+	mid.resampler.Resample(mid.inputBuf[2:2+mid.frameLength], in)
+	for i := range in {
+		in[i] = opusmath.Float32ToInt16(signal[2*i+1])
+	}
+	side.resampler.Resample(side.inputBuf[2:2+side.frameLength], in)
 
 	re := &rangecoding.Encoder{}
 	re.Init(make([]byte, maxSilkPacketBytes))
-	re.EncodeICDF16(0, []uint16{256 - (256 >> 4), 0}, 8)
+	if lbrrBits := s.encodeLBRR(re, 2); lbrrBits != 0 {
+		t.Fatalf("first packet coded %d LBRR bits", lbrrBits)
+	}
 	if gotTell, gotRange := int32(re.Tell()), int32(re.Range()); gotTell != want.sideInfoTraceTell[0] || gotRange != want.sideInfoTraceRange[0] {
 		t.Skipf("side info after header tell/range=%d/%d want %d/%d",
 			gotTell, gotRange, want.sideInfoTraceTell[0], want.sideInfoTraceRange[0])
 	}
-	encodeStereoLBRRPacket(re, enc, sideEnc, 1, &enc.stereo)
-	totalRate := stereoAllocationTargetRate(enc, bitRate, len(left), re.Tell())
-	midOut, sideOut, ix, _, midRate, sideRate, _ := enc.StereoLRToMSWithRates(
-		left, right, len(left), 16, totalRate, enc.speechActivityQ8, false,
-	)
-	_ = midOut
-	_ = sideOut
-	EncodeStereoIndices(re, ix)
+	mid.hpVariableCutoff()
+
+	// The first packet targets the full rate.
+	nBits := int32(bitRate * payloadSizeMs / 1000)
+	nBits /= mid.nFramesPerPacket
+	totalRate := silkLimit32(silkSMULBB(nBits, 50), int32(bitRate), 5000)
+	if totalRate != want.targetRateBps {
+		t.Fatalf("TargetRate=%d want %d", totalRate, want.targetRateBps)
+	}
+
+	ix, midOnly, rates := silkStereoLRToMS(&s.stereo, mid.inputBuf[:], side.inputBuf[:], totalRate,
+		mid.speechActivityQ8, false, int(mid.fsKHz), int(mid.frameLength), &s.stereoScratch)
+	s.stereo.predIx[0] = ix
+	s.stereo.midOnlyFlags[0] = midOnly
+	if midOnly == 0 {
+		side.encodeDoVAD(activity)
+	} else {
+		side.vadFlags[0] = false
+	}
+	stereoEncodePred(re, ix)
 	if gotTell, gotRange := int32(re.Tell()), int32(re.Range()); gotTell != want.sideInfoTraceTell[1] || gotRange != want.sideInfoTraceRange[1] {
 		t.Skipf("side info after stereo pred tell/range=%d/%d want %d/%d",
 			gotTell, gotRange, want.sideInfoTraceTell[1], want.sideInfoTraceRange[1])
 	}
-	if want.sideVAD == 0 {
-		EncodeStereoMidOnly(re, int(want.midOnly))
+	if !side.vadFlags[0] {
+		stereoEncodeMidOnly(re, midOnly)
 	}
 	gotTell := int32(re.Tell())
-	if gotTell, gotRange := int32(re.Tell()), int32(re.Range()); gotTell != want.sideInfoTraceTell[2] || gotRange != want.sideInfoTraceRange[2] {
+	if gotRange := int32(re.Range()); gotTell != want.sideInfoTraceTell[2] || gotRange != want.sideInfoTraceRange[2] {
 		t.Skipf("side info after mid-only tell/range=%d/%d want %d/%d",
 			gotTell, gotRange, want.sideInfoTraceTell[2], want.sideInfoTraceRange[2])
 	}
+	mid.encodeDoVAD(activity)
 
-	if int32(totalRate) != want.targetRateBps {
-		t.Fatalf("TargetRate=%d want %d", totalRate, want.targetRateBps)
+	if int32(midOnly) != want.midOnly {
+		t.Fatalf("mid_only_flag=%d want %d", midOnly, want.midOnly)
 	}
-	if int32(midRate) != want.midTargetRateBps || int32(sideRate) != want.sideTargetRateBps {
-		t.Fatalf("MStargetRates=%d/%d want %d/%d", midRate, sideRate, want.midTargetRateBps, want.sideTargetRateBps)
+	if rates[0] != want.midTargetRateBps || rates[1] != want.sideTargetRateBps {
+		t.Fatalf("MStargetRates=%d/%d want %d/%d", rates[0], rates[1], want.midTargetRateBps, want.sideTargetRateBps)
 	}
-	enc.controlSNR(midRate, maxNbSubfr)
-	if int32(enc.snrDBQ7) != want.midSNRDBQ7 {
-		t.Fatalf("mid SNR_dB_Q7=%d want %d", enc.snrDBQ7, want.midSNRDBQ7)
+	if boolWord(mid.vadFlags[0]) != want.midVAD || boolWord(side.vadFlags[0]) != want.sideVAD {
+		t.Fatalf("VAD mid/side=%v/%v want %d/%d", mid.vadFlags[0], side.vadFlags[0], want.midVAD, want.sideVAD)
 	}
-	if int32(sideEnc.snrDBQ7) != want.sideSNRDBQ7 {
-		t.Fatalf("side SNR_dB_Q7=%d want %d", sideEnc.snrDBQ7, want.sideSNRDBQ7)
+	if mid.speechActivityQ8 != want.midSpeechActivityQ8 || mid.inputTiltQ15 != want.midInputTiltQ15 {
+		t.Fatalf("mid speech/tilt=%d/%d want %d/%d", mid.speechActivityQ8, mid.inputTiltQ15,
+			want.midSpeechActivityQ8, want.midInputTiltQ15)
 	}
-	if int32(maxBits/2) != want.maxBits || want.useCBR != 0 || want.condCoding != codeIndependently {
-		t.Fatalf("frame controls maxBits/useCBR/condCoding=%d/%d/%d want %d/0/%d", maxBits/2, 0, codeIndependently, want.maxBits, codeIndependently)
+
+	// Rate constraints of the mid frame: a coded side channel takes the CBR
+	// flag and half the packet's bits off the mid channel.
+	frameMaxBits := int32(maxBits)
+	useCBR := ctl.UseCBR
+	if rates[1] > 0 {
+		useCBR = false
+		frameMaxBits -= int32(maxBits) / 2
+	}
+	mid.controlSNR(int(rates[0]), int(mid.nbSubfr))
+	if mid.snrDBQ7 != want.midSNRDBQ7 {
+		t.Fatalf("mid SNR_dB_Q7=%d want %d", mid.snrDBQ7, want.midSNRDBQ7)
+	}
+	if side.snrDBQ7 != want.sideSNRDBQ7 {
+		t.Fatalf("side SNR_dB_Q7=%d want %d", side.snrDBQ7, want.sideSNRDBQ7)
+	}
+	if frameMaxBits != want.maxBits || boolWord(useCBR) != want.useCBR || want.condCoding != codeIndependently {
+		t.Fatalf("frame controls maxBits/useCBR/condCoding=%d/%d/%d want %d/%d/%d",
+			frameMaxBits, boolWord(useCBR), codeIndependently, want.maxBits, want.useCBR, want.condCoding)
 	}
 	if gotTell != want.tellAfterSideInfo {
 		t.Fatalf("tellAfterSideInfo=%d want %d (libopus midVAD=%d sideVAD=%d midOnly=%d speech=%d/%d snr=%d/%d tilt=%d/%d)",
@@ -789,7 +938,14 @@ func prepareSILKPacket0MidFrameCoreOracle(t testing.TB, signal []float32, bitRat
 	if gotRange := int32(re.Range()); gotRange != want.rangeAfterSideInfo {
 		t.Skipf("rangeAfterSideInfo=%d want %d", gotRange, want.rangeAfterSideInfo)
 	}
-	return enc, re, midOut
+	return silkPacket0MidFrame{
+		enc:        s,
+		mid:        mid,
+		re:         re,
+		maxBits:    int(frameMaxBits),
+		useCBR:     useCBR,
+		condCoding: codeIndependently,
+	}
 }
 
 func chirpSweepWB20msStereo48kPacket0LRToMSInput(t testing.TB) ([]int16, []int16) {
@@ -891,30 +1047,6 @@ func stereoWave(n int, offset, step, wobble int16) []int16 {
 		out[i] = int16(v)
 	}
 	return out
-}
-
-func int16PCMToFloat32(in []int16) []float32 {
-	out := make([]float32, len(in))
-	for i, v := range in {
-		out[i] = float32(v) / 32768.0
-	}
-	return out
-}
-
-func pcmFloat32ToInt16Exact(v float32) int16 {
-	return int16(int32(v * 32768.0))
-}
-
-func samePCM16FromFloat(got []float32, want []int16) bool {
-	if len(got) != len(want) {
-		return false
-	}
-	for i := range got {
-		if pcmFloat32ToInt16Exact(got[i]) != want[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func setStereoStateFromOracle(st *stereoEncState, src libopusSILKStereoState) {

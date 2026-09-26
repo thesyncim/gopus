@@ -17,19 +17,56 @@ const (
 	libopusSILKLPCModeInnerProduct      = uint32(2)
 	libopusSILKLPCModeEnergy            = uint32(3)
 	libopusSILKLPCModeFindLPC           = uint32(4)
+	libopusSILKLPCModeAutocorrelation   = uint32(5)
 )
 
 var libopusSILKLPCHelper libopustest.HelperCache
 
 func getLibopusSILKLPCHelperPath() (string, error) {
+	libopusArchive := libopustest.RefPath(".libs", "libopus.a")
+	cflags := []string{"-DHAVE_CONFIG_H", "-O2"}
+	if silkLPCOracleUsesAVX2() {
+		libopusArchive = libopustest.SIMDRefPath(".libs", "libopus.a")
+		cflags = append(cflags, "-DGOPUS_LIBOPUS_REQUIRE_AVX2=1")
+	}
 	return libopusSILKLPCHelper.CHelperPath(libopustest.CHelperConfig{
 		Label:       "silk lpc",
 		OutputBase:  "gopus_libopus_silk_lpc",
 		SourceFile:  "libopus_silk_lpc_info.c",
-		CFlags:      []string{"-DHAVE_CONFIG_H", "-O2"},
+		CFlags:      cflags,
 		RefIncludes: []string{"celt", "silk", "silk/float"},
-		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+		SIMDRef:     silkLPCOracleUsesAVX2(),
+		Libs:        []string{libopusArchive, "-lm"},
 	})
+}
+
+func newLibopusSILKOracleReader(label, outputMagic string, data []byte, wantCount int) (*libopustest.OracleReader, int, error) {
+	reader, version, err := libopustest.NewOracleReaderVersion(label, outputMagic, data)
+	if err != nil {
+		return nil, 0, err
+	}
+	if version != 2 {
+		return nil, 0, fmt.Errorf("%s helper version=%d want 2", label, version)
+	}
+	arch := reader.U32()
+	innerProductImpl := reader.U32()
+	wantAVX2 := silkLPCOracleUsesAVX2()
+	if innerProductImpl > 1 || (innerProductImpl == 1) != wantAVX2 {
+		return nil, 0, fmt.Errorf("%s helper SILK_INNER_PRODUCT_FLP_IMPL=%d at arch=%d, Go expects AVX2=%t", label, innerProductImpl, arch, wantAVX2)
+	}
+	if innerProductImpl == 1 && arch < 4 {
+		return nil, 0, fmt.Errorf("%s helper reports AVX2 inner product at unsupported arch=%d", label, arch)
+	}
+	count := reader.Count(wantCount)
+	return reader, count, nil
+}
+
+func runLibopusSILKOracle(binPath string, payload []byte, label string, wantCount int) (*libopustest.OracleReader, int, error) {
+	data, err := libopustest.RunHelper(binPath, payload)
+	if err != nil {
+		return nil, 0, fmt.Errorf("run %s helper: %w", label, err)
+	}
+	return newLibopusSILKOracleReader(label, libopusSILKLPCOutputMagic, data, wantCount)
 }
 
 type libopusSILKBurgCase struct {
@@ -64,6 +101,12 @@ type libopusSILKEnergyCase struct {
 	x    []float32
 }
 
+type libopusSILKAutocorrelationCase struct {
+	name  string
+	order int
+	x     []float32
+}
+
 type libopusSILKFindLPCCase struct {
 	name                 string
 	subfrLength          int
@@ -95,11 +138,10 @@ func probeLibopusSILKBurgModified(cases []libopusSILKBurgCase) ([]libopusSILKBur
 		payload.Float32s(tc.x...)
 	}
 
-	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "silk lpc burg", libopusSILKLPCOutputMagic)
+	reader, count, err := runLibopusSILKOracle(binPath, payload.Bytes(), "silk lpc burg", len(cases))
 	if err != nil {
 		return nil, err
 	}
-	count := reader.Count(len(cases))
 	out := make([]libopusSILKBurgResult, count)
 	for i := range out {
 		out[i].resNrg = reader.Float32()
@@ -134,11 +176,10 @@ func probeLibopusSILKLPCAnalysisFilter(cases []libopusSILKLPCFilterCase) ([][]fl
 		payload.Float32s(tc.x...)
 	}
 
-	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "silk lpc analysis filter", libopusSILKLPCOutputMagic)
+	reader, count, err := runLibopusSILKOracle(binPath, payload.Bytes(), "silk lpc analysis filter", len(cases))
 	if err != nil {
 		return nil, err
 	}
-	count := reader.Count(len(cases))
 	out := make([][]float32, count)
 	for i := range out {
 		length := int(reader.U32())
@@ -171,11 +212,10 @@ func probeLibopusSILKInnerProductFLP(cases []libopusSILKInnerProductCase) ([]flo
 		payload.Float32s(tc.b...)
 	}
 
-	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "silk inner product flp", libopusSILKLPCOutputMagic)
+	reader, count, err := runLibopusSILKOracle(binPath, payload.Bytes(), "silk inner product flp", len(cases))
 	if err != nil {
 		return nil, err
 	}
-	count := reader.Count(len(cases))
 	out := make([]float64, count)
 	for i := range out {
 		out[i] = reader.Float64()
@@ -197,14 +237,48 @@ func probeLibopusSILKEnergyFLP(cases []libopusSILKEnergyCase) ([]float64, error)
 		payload.Float32s(tc.x...)
 	}
 
-	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "silk energy flp", libopusSILKLPCOutputMagic)
+	reader, count, err := runLibopusSILKOracle(binPath, payload.Bytes(), "silk energy flp", len(cases))
 	if err != nil {
 		return nil, err
 	}
-	count := reader.Count(len(cases))
 	out := make([]float64, count)
 	for i := range out {
 		out[i] = reader.Float64()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func probeLibopusSILKAutocorrelationFLP(cases []libopusSILKAutocorrelationCase) ([][]float32, error) {
+	binPath, err := getLibopusSILKLPCHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload(libopusSILKLPCInputMagic, libopusSILKLPCModeAutocorrelation, uint32(len(cases)))
+	for _, tc := range cases {
+		if tc.order <= 0 || tc.order > len(tc.x) || tc.order > 16 || len(tc.x) > 512 {
+			return nil, fmt.Errorf("%s: invalid autocorrelation length=%d order=%d", tc.name, len(tc.x), tc.order)
+		}
+		payload.U32(uint32(len(tc.x)))
+		payload.U32(uint32(tc.order))
+		payload.Float32s(tc.x...)
+	}
+	reader, count, err := runLibopusSILKOracle(binPath, payload.Bytes(), "silk autocorrelation flp", len(cases))
+	if err != nil {
+		return nil, err
+	}
+	out := make([][]float32, count)
+	for i := range out {
+		length := int(reader.U32())
+		if length != cases[i].order {
+			return nil, fmt.Errorf("%s: helper autocorrelation length=%d want %d", cases[i].name, length, cases[i].order)
+		}
+		out[i] = make([]float32, length)
+		for j := range out[i] {
+			out[i][j] = reader.Float32()
+		}
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		return nil, err
@@ -243,11 +317,10 @@ func probeLibopusSILKFindLPCFLP(cases []libopusSILKFindLPCCase) ([]libopusSILKFi
 		payload.Float32s(tc.x...)
 	}
 
-	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "silk find lpc flp", libopusSILKLPCOutputMagic)
+	reader, count, err := runLibopusSILKOracle(binPath, payload.Bytes(), "silk find lpc flp", len(cases))
 	if err != nil {
 		return nil, err
 	}
-	count := reader.Count(len(cases))
 	out := make([]libopusSILKFindLPCResult, count)
 	for i := range out {
 		order := int(reader.U32())
@@ -395,6 +468,36 @@ func TestSILKEnergyFLPMatchesLibopusOracle(t *testing.T) {
 	}
 }
 
+func TestSILKAutocorrelationF32MatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cancellation := make([]float32, 31)
+	pattern := [...]float32{1e20, 1, -1e20, 1, -1e20, 1, 1e20, 1}
+	for i := range cancellation {
+		cancellation[i] = pattern[i%len(pattern)]
+	}
+	cases := []libopusSILKAutocorrelationCase{
+		{name: "length31_order8_tail", order: 8, x: silkFLPOracleSignal(31, 0x70717273, 32768)},
+		{name: "length120_order9", order: 9, x: silkFLPOracleSignal(120, 0x81828384, 4096)},
+		{name: "finite_cancellation_tail", order: 7, x: cancellation},
+	}
+	want, err := probeLibopusSILKAutocorrelationFLP(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk autocorrelation flp", err)
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := make([]float32, tc.order)
+			autocorrelationF32(got, tc.x, len(tc.x), tc.order)
+			for j := range got {
+				if math.Float32bits(got[j]) != math.Float32bits(want[i][j]) {
+					t.Fatalf("autocorrelation[%d]=%08x %.10g want %08x %.10g", j,
+						math.Float32bits(got[j]), got[j], math.Float32bits(want[i][j]), want[i][j])
+				}
+			}
+		})
+	}
+}
+
 func TestSILKFindLPCFLPMatchesLibopusOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 	cases := []libopusSILKFindLPCCase{
@@ -465,16 +568,14 @@ func TestSILKFindLPCFLPMatchesLibopusOracle(t *testing.T) {
 			if tc.order == 10 {
 				bw = BandwidthMediumband
 			}
-			enc := NewEncoder(bw)
+			enc := newTestEncoder(bw)
 			if tc.useInterpolatedNLSFs {
-				enc.SetComplexity(10)
+				enc.setupComplexity(10)
 			} else {
-				enc.SetComplexity(0)
+				enc.setupComplexity(0)
 			}
-			if !tc.firstFrameAfterReset {
-				enc.MarkEncoded()
-			}
-			copy(enc.prevLSFQ15, tc.prevNLSF)
+			enc.firstFrameAfterReset = tc.firstFrameAfterReset
+			copy(enc.prevLSFQ15[:], tc.prevNLSF)
 
 			_, gotNLSF, gotInterp := enc.computeLPCAndNLSFWithInterp(tc.x, tc.nbSubfr, tc.subfrLength, tc.minInvGain)
 			if gotInterp != want[i].interpIdx {

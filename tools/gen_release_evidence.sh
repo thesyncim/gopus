@@ -195,7 +195,7 @@ write_summary() {
     echo "- Codec parity: gated by the required CI checks (lint-static-analysis, test-linux, perf-linux, test-macos, test-windows) on the tagged commit; verified green by release.yml, not re-run here."
     echo "- Pass/fail summaries: see the command table above and per-command logs."
     echo "- Benchmark guardrail result: see \`make bench-guard\` and encoder/decoder \`make bench-libopus-guard\` in the Performance rows."
-    echo "- Safety summary: see \`make test-assembly-safety\`, \`make test-fuzz-safety\`, and \`make test-soak-safety\` in the Safety rows."
+    echo "- Safety summary: see \`make test-kernel-safety\`, \`make test-fuzz-safety\`, and \`make test-soak-safety\` in the Safety rows."
     echo
     echo "## Bundle Files"
     echo
@@ -225,7 +225,7 @@ write_static_artifacts
 
 run_cmd "Performance" "Benchmark guardrails" make bench-guard
 run_cmd "Performance" "Libopus-relative benchmark guardrails" make bench-libopus-guard
-run_cmd "Safety" "Assembly safety matrix" make test-assembly-safety
+run_cmd "Safety" "SIMD and scalar kernel matrix" make test-kernel-safety
 run_cmd "Safety" "Fuzz safety gate" make test-fuzz-safety
 run_cmd "Safety" "Soak safety gate" make test-soak-safety
 run_cmd "Performance" "Hot-path benchmark sample" env GOWORK=off go test -run '^$' -bench '^Benchmark(DecoderDecode_CELT|DecoderDecodeInt16|EncoderEncode_CallerBuffer|EncoderEncodeInt16)$' -benchmem -count=1 .

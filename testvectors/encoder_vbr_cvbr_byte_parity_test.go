@@ -36,7 +36,6 @@ import (
 
 	gopus "github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/internal/libopustooling"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -504,8 +503,8 @@ func runVBRParityCase(t *testing.T, tc vbrCVBRCase, helperPath string) {
 		// every shaping/NSQ quantity and the iter-0 packet size — diverged for
 		// VoIP-SILK only. Hybrid/CELT used Audio/LowDelay (dc_reject) and matched;
 		// restricted-SILK CBR used dc_reject and stayed byte-exact. Implementing
-		// hp_cutoff for VoIP (encoder.preprocessInputHP / hpCutoff +
-		// silk.UpdateVariableHPCutoff) makes the SILK input track libopus.
+		// hp_cutoff for VoIP (encoder.preprocessInputHP / hpCutoff fed by
+		// silk.PacketEncoder.VariableHPSmth1Q15) makes the SILK input track libopus.
 		//
 		// linux/amd64 (CI): HARD per-frame size-parity gate. On darwin/arm64 a
 		// residual ≤1-ULP float-contraction difference in the SILK FLP shaping
@@ -670,7 +669,7 @@ func runCVBRParityCase(t *testing.T, tc vbrCVBRCase, helperPath string) {
 	refLens := make([]int, len(refResults))
 	goLens := make([]int, len(goResults))
 	var lenMismatch int
-	var firstLenMismatch int = -1
+	var firstLenMismatch = -1
 	for i := range refResults {
 		refLens[i] = len(refResults[i].data)
 		goLens[i] = len(goResults[i].data)
@@ -771,10 +770,7 @@ func TestVBRByteParityViaOpusDemoExhaustive(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
-	opusDemo, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
-	if !ok {
-		t.Skip("opus_demo not available; skipping exhaustive VBR parity")
-	}
+	opusDemo := requireFixtureOpusDemo(t)
 
 	tmpDir, err := os.MkdirTemp("", "gopus-vbr-demo-*")
 	if err != nil {
@@ -882,10 +878,7 @@ func TestCVBRSizeDistributionViaOpusDemoExhaustive(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
-	opusDemo, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
-	if !ok {
-		t.Skip("opus_demo not available; skipping exhaustive CVBR parity")
-	}
+	opusDemo := requireFixtureOpusDemo(t)
 
 	tmpDir, err := os.MkdirTemp("", "gopus-cvbr-demo-*")
 	if err != nil {

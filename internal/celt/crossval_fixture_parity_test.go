@@ -547,13 +547,24 @@ func TestOpusdecCrossvalFixtureCoverage(t *testing.T) {
 	}
 
 	for _, e := range entries {
-		if _, ok := scenarioByName[e.Name]; !ok {
+		sc, ok := scenarioByName[e.Name]
+		if !ok {
 			// Allow explicit platform hash aliases that intentionally map to an
 			// existing scenario's decoded reference payload.
 			if e.Name == "mono_20ms_single_windows_amd64_alias" {
 				continue
 			}
 			t.Fatalf("fixture has stale or unknown entry name %q", e.Name)
+		}
+		if e.SampleRate != sc.sampleRate || e.Channels != sc.channels {
+			t.Fatalf("fixture alias %q has rate/channels %d/%d, want %d/%d", e.Name, e.SampleRate, e.Channels, sc.sampleRate, sc.channels)
+		}
+		samples, err := decodeFloat32LEBase64(e.DecodedF32Base64)
+		if err != nil {
+			t.Fatalf("fixture alias %q: decode samples: %v", e.Name, err)
+		}
+		if want := (sc.numFrames*960 - 312) * sc.channels; len(samples) != want {
+			t.Fatalf("fixture alias %q: decoded length %d, want %d", e.Name, len(samples), want)
 		}
 	}
 }

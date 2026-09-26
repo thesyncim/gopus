@@ -111,7 +111,7 @@ func runDelayCompStream(frameSize, channels, totalFrames int) ([]float64, []floa
 	for f := range totalFrames {
 		start := f * frameSamples
 		end := start + frameSamples
-		block := e.applyDelayCompensation(inRes[start:end], frameSize)
+		block := applyDelayCompensation(e, inRes[start:end], frameSize)
 		for _, sample := range block {
 			out = append(out, float64(sample))
 		}
@@ -155,7 +155,7 @@ func TestDelayCompensation_StreamDelayStereo(t *testing.T) {
 	}
 }
 
-func TestPrepareCELTPCM_DelayCompensationGatedByLowDelay(t *testing.T) {
+func TestPCMBufDelayCompensationGatedByLowDelay(t *testing.T) {
 	const frameSize = 960
 	in := make([]opusRes, frameSize)
 	for i := range in {
@@ -165,7 +165,7 @@ func TestPrepareCELTPCM_DelayCompensationGatedByLowDelay(t *testing.T) {
 	normal := NewEncoder(48000, 1)
 	normal.SetMode(ModeCELT)
 	normal.SetLowDelay(false)
-	outNormal := normal.prepareCELTPCM(in, frameSize)
+	outNormal := applyDelayCompensation(normal, in, frameSize)
 	delaySamples := 48000 / 250
 	for i := range outNormal {
 		var want float64
@@ -180,7 +180,7 @@ func TestPrepareCELTPCM_DelayCompensationGatedByLowDelay(t *testing.T) {
 	lowDelay := NewEncoder(48000, 1)
 	lowDelay.SetMode(ModeCELT)
 	lowDelay.SetLowDelay(true)
-	outLowDelay := lowDelay.prepareCELTPCM(in, frameSize)
+	outLowDelay := applyDelayCompensation(lowDelay, in, frameSize)
 	for i := range outLowDelay {
 		if outLowDelay[i] != in[i] {
 			t.Fatalf("lowdelay sample %d: got=%.0f want=%.0f", i, outLowDelay[i], in[i])
@@ -229,7 +229,7 @@ func TestApplyDelayCompensationMatchesLegacyState(t *testing.T) {
 						channels,
 						frameSize,
 					)
-					got := enc.applyDelayCompensation(pcmRes, frameSize)
+					got := applyDelayCompensation(enc, pcmRes, frameSize)
 
 					requireEqualOpusResToFloat64Slices(t, "out", got[:frameSamples], legacyOut)
 					requireEqualOpusResToFloat64Slices(t, "delayBuffer", enc.delayBuffer, legacyDelay)
@@ -269,7 +269,7 @@ func BenchmarkApplyDelayCompensation(b *testing.B) {
 				for j, sample := range seed {
 					enc.delayBuffer[j] = opusRes(sample)
 				}
-				_ = enc.applyDelayCompensation(pcm, tc.frameSize)
+				_ = applyDelayCompensation(enc, pcm, tc.frameSize)
 			}
 		})
 
@@ -320,4 +320,12 @@ func frameSizeString(v int) string {
 	default:
 		return "x"
 	}
+}
+
+// applyDelayCompensation returns the frame's pcm_buf and advances the delay
+// buffer by the frame, as opus_encode_frame_native does.
+func applyDelayCompensation(e *Encoder, pcm []opusRes, frameSize int) []opusRes {
+	out := e.pcmBuf(pcm, frameSize)
+	e.updateDelayBuffer(pcm, frameSize)
+	return out
 }

@@ -320,15 +320,7 @@ func ProbeSILKShort2Float(samples []int16) ([]float32, error) {
 
 func floatQuantHelper() (string, error) {
 	floatQuantHelperOnce.Do(func() {
-		root := repoRoot()
 		libopusStatic := RefPath(".libs", "libopus.a")
-		if _, err := os.Stat(libopusStatic); err != nil {
-			if ScalarRefRequested() {
-				libopustooling.EnsureLibopusScalar(libopustooling.DefaultVersion, []string{root})
-			} else {
-				libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{root})
-			}
-		}
 		floatQuantHelperPath, floatQuantHelperErr = BuildCHelper(CHelperConfig{
 			Label:       "float quant",
 			OutputBase:  "gopus_shared_float_quant",

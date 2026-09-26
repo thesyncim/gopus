@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	examplecleanup "github.com/thesyncim/gopus/examples/internal/cleanup"
 )
 
 const (
@@ -156,7 +158,7 @@ func downloadCached(url, cacheDir string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("download %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer examplecleanup.OnReturn("close speech track response", resp.Body.Close)
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download %s: status %s", url, resp.Status)
 	}

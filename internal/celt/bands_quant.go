@@ -1,8 +1,6 @@
 package celt
 
 import (
-	"runtime"
-
 	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
@@ -12,14 +10,6 @@ const (
 	spreadLight      = 1
 	spreadNormal     = 2
 	spreadAggressive = 3
-)
-
-// Exported spread constants for callers outside the celt package.
-const (
-	SpreadNone       = spreadNone
-	SpreadLight      = spreadLight
-	SpreadNormal     = spreadNormal
-	SpreadAggressive = spreadAggressive
 )
 
 var orderyTable = []int{
@@ -706,7 +696,7 @@ func expRotation1Norm(x []celtNorm, length, stride int, c, s opusVal16) {
 	}
 	// With stride >= 4 four consecutive indices belong to four independent
 	// rotation chains, so the fused arm64 build runs both passes 4-wide
-	// (bit-identical per element); the scalar loops stay the purego oracle
+	// (bit-identical per element); the scalar loops stay the nosimd oracle
 	// and the stride<4 path.
 	if expRotationUsesNeon && stride >= 4 {
 		expRotation1StrideNeon(x, length, stride, c, s)
@@ -1762,8 +1752,13 @@ func stereoIthetaQ30Norm(x, y []celtNorm, stereo bool) int {
 			yv := float32(y[i])
 			m := xv + yv
 			s := xv - yv
-			emid = celtFloatMulAdd(m, m, emid)
-			eside = celtFloatMulAdd(s, s, eside)
+			if neonRoundsReductionTerm(i, n) {
+				emid += round32(m * m)
+				eside += round32(s * s)
+			} else {
+				emid = celtFloatMulAdd(m, m, emid)
+				eside = celtFloatMulAdd(s, s, eside)
+			}
 		}
 	} else {
 		if celtUseSSEFloatMath {
@@ -1804,15 +1799,15 @@ func celtAtan2pNormF32(y, x float32) float32 {
 	return 1 - celtAtanNormF32(x/y)
 }
 
-const celtUseFusedFloatMath = runtime.GOARCH == "arm64"
+const celtUseFusedFloatMath = celtFusedFloat
 const celtUseSSEFloatMath = libopusFloatInnerProdUsesSSEOrder
 
 func celtFloatMulAdd(a, b, c float32) float32 {
 	if celtUseFusedFloatMath {
 		// libopus arm/pitch_neon_intr.c:celt_inner_prod_neon forces
 		// vfmaq_f32 for NEON lanes; this is the scalar lane equivalent.
-		// celtUseFusedFloatMath is true only on arm64, where fma32 contracts
-		// to one FMADDS — the same single rounding as mdctFMA32's math.FMA
+		// celtUseFusedFloatMath is true on the arm64 SIMD build, where fma32
+		// contracts to one FMADDS — the same single rounding as mdctFMA32's math.FMA
 		// without its FCVT round-trips (this is a runtime-data path, so the
 		// constant-folding caveat that keeps mdctFMA32 on math.FMA does not
 		// apply).
@@ -1822,7 +1817,7 @@ func celtFloatMulAdd(a, b, c float32) float32 {
 }
 
 func celtInnerProdSSEStyle(x, y []celtNorm) float32 {
-	return celtInnerProdSSEStyleAsm(x, y)
+	return celtInnerProdSSEStyleImpl(x, y)
 }
 
 func celtInnerProdSSEStyleGo(x, y []celtNorm) float32 {
@@ -1844,14 +1839,14 @@ func celtInnerProdSSEStyleGo(x, y []celtNorm) float32 {
 }
 
 func celtInnerProdSSEStyleNorm(x, y []celtNorm) float32 {
-	return celtInnerProdSSEStyleAsm(x, y)
+	return celtInnerProdSSEStyleImpl(x, y)
 }
 
 // celtInnerProdNeonStyle reproduces libopus arm/pitch_neon_intr.c
 // celt_inner_prod_neon: a 4-lane vfmaq_f32 accumulator over 8-element groups,
 // a 4-element tail, the (acc0+acc2)+(acc1+acc3) reduction, and a scalar tail.
 // celtInnerProd8FMA32 implements this in NEON asm on arm64 and a bit-identical
-// math.FMA fallback under the purego tag.
+// math.FMA fallback under the nosimd tag.
 func celtInnerProdNeonStyle(x, y []celtNorm) float32 {
 	n := min(len(y), len(x))
 	return celtInnerProd8FMA32(x[:n:n], y[:n:n], n)
@@ -1973,7 +1968,8 @@ func intensityStereoWeighted(x, y []celtNorm, leftEnergy, rightEnergy celtEner) 
 	a1 := left / norm
 	a2 := right / norm
 	for i := 0; i < n; i++ {
-		x[i] = celtNorm(noFMA32Add(noFMA32Mul(a1, float32(x[i])), noFMA32Mul(a2, float32(y[i]))))
+		// clang fuses the left product of a1*l + a2*r (see thetaRDODistortion).
+		x[i] = celtNorm(fma32(a1, float32(x[i]), noFMA32Mul(a2, float32(y[i]))))
 	}
 }
 
@@ -1998,8 +1994,11 @@ func innerProductNorm(x, y []celtNorm) float32 {
 	return celtInnerProdLibopusOrder(x, y)
 }
 
+// thetaRDODistortion is quant_all_bands' dist0/dist1. clang contracts
+// w0*ip0 + w1*ip1 into one fmadd of the left product with the rounded right
+// product; fma32 does the same on arm64 and stays unfused on amd64, like gcc.
 func thetaRDODistortion(w0, w1 float32, xSave, xBand, ySave, yBand []celtNorm) float32 {
-	return w0*innerProductNorm(xSave, xBand) + w1*innerProductNorm(ySave, yBand)
+	return fma32(w0, innerProductNorm(xSave, xBand), noFMA32Mul(w1, innerProductNorm(ySave, yBand)))
 }
 
 func (ctx *bandCtx) bandEnergy(channel int) celtEner {
@@ -2191,17 +2190,18 @@ func computeThetaDecode(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b 
 	imid := 0
 	iside := 0
 	delta := 0
-	if itheta == 0 {
+	switch itheta {
+	case 0:
 		imid = 32767
 		iside = 0
 		*fill &= (1 << B) - 1
 		delta = -16384
-	} else if itheta == 16384 {
+	case 16384:
 		imid = 0
 		iside = 32767
 		*fill &= ((1 << B) - 1) << B
 		delta = 16384
-	} else {
+	default:
 		imid = bitexactCos(itheta)
 		iside = bitexactCos(16384 - itheta)
 		delta = fracMul16((n-1)<<7, bitexactLog2tanTheta(itheta))
@@ -2474,17 +2474,18 @@ func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b *in
 	imid := 0
 	iside := 0
 	delta := 0
-	if itheta == 0 {
+	switch itheta {
+	case 0:
 		imid = 32767
 		iside = 0
 		*fill &= (1 << B) - 1
 		delta = -16384
-	} else if itheta == 16384 {
+	case 16384:
 		imid = 0
 		iside = 32767
 		*fill &= ((1 << B) - 1) << B
 		delta = 16384
-	} else {
+	default:
 		imid = bitexactCos(itheta)
 		iside = bitexactCos(16384 - itheta)
 		delta = fracMul16((n-1)<<7, bitexactLog2tanTheta(itheta))

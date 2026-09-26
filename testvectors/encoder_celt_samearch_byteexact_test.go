@@ -74,10 +74,7 @@ func TestEncoderCELTSameArchByteExact(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
 
-	opusDemo, ok := getFixtureOpusDemoPathForEncoder()
-	if !ok {
-		t.Skip("opus_demo not found; same-arch byte-exact comparison unavailable")
-	}
+	opusDemo := requireFixtureOpusDemo(t)
 
 	tmpDir := t.TempDir()
 	for _, c := range celtSameArchByteExactCases() {
@@ -161,7 +158,7 @@ func TestEncoderCELTSameArchByteExact(t *testing.T) {
 					"CELT float FMA contraction vs scalar libopus (project_arm64_celt_1ulp_drift.md)", len(diffFrames), n)
 				return
 			}
-			if runtime.GOARCH == "amd64" && !gopusBuildIsAsm {
+			if runtime.GOARCH == "amd64" && !gopusBuildIsSIMD {
 				// The pure-Go amd64 build is byte-exact vs scalar libopus for almost
 				// every packet, but the Go amd64 float backend does not reproduce
 				// gcc's scalar CELT forward float path (MDCT/band-energy/pitch
@@ -169,16 +166,16 @@ func TestEncoderCELTSameArchByteExact(t *testing.T) {
 				// a raw-coded value and differ in their late raw bits. The pure-Go
 				// arm64 build IS byte-exact here (its float path matches scalar
 				// libopus), so this is the documented per-arch float-composition
-				// boundary on amd64-purego, not a logic bug. Hold the bulk byte-exact
+				// boundary on amd64-nosimd, not a logic bug. Hold the bulk byte-exact
 				// (a hard regression flips many packets / changes lengths) and log the
 				// residual. See project_arm64_celt_1ulp_drift.md.
 				for _, fi := range diffFrames {
 					if len(goPackets[fi]) != len(libPackets[fi]) {
-						t.Fatalf("CELT same-arch packet LENGTH mismatch frame %d: gopus=%d libopus=%d (arch=amd64 purego)",
+						t.Fatalf("CELT same-arch packet LENGTH mismatch frame %d: gopus=%d libopus=%d (arch=amd64 nosimd)",
 							fi, len(goPackets[fi]), len(libPackets[fi]))
 					}
 				}
-				t.Logf("RESIDUAL (amd64-purego CELT float codegen): %d/%d packets differ in late raw bits "+
+				t.Logf("RESIDUAL (amd64-nosimd CELT float codegen): %d/%d packets differ in late raw bits "+
 					"(equal length) — Go amd64 float vs gcc scalar libopus (project_arm64_celt_1ulp_drift.md)",
 					len(diffFrames), n)
 				return

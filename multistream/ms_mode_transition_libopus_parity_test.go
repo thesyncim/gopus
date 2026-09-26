@@ -22,6 +22,10 @@ import (
 // exercises the per-stream streamState transition handling against the libopus
 // multistream oracle.
 func encodeModeSwitchSingleStreamPackets(t *testing.T, channels int, frameSize int, modes []encoder.Mode) [][]byte {
+	return encodeModeSwitchSingleStreamPacketsWithSILKBandwidth(t, channels, frameSize, modes, types.BandwidthFullband)
+}
+
+func encodeModeSwitchSingleStreamPacketsWithSILKBandwidth(t *testing.T, channels int, frameSize int, modes []encoder.Mode, silkBandwidth types.Bandwidth) [][]byte {
 	t.Helper()
 	const sampleRate = 48000
 
@@ -31,6 +35,9 @@ func encodeModeSwitchSingleStreamPackets(t *testing.T, channels int, frameSize i
 		enc := encoder.NewEncoder(sampleRate, channels)
 		enc.SetFrameSize(frameSize)
 		enc.SetBandwidth(types.BandwidthFullband)
+		if m == encoder.ModeSILK && silkBandwidth != types.BandwidthFullband {
+			enc.SetBandwidth(silkBandwidth)
+		}
 		enc.SetBitrate(96000)
 		if err := enc.SetInBandFEC(0); err != nil {
 			t.Fatalf("SetInBandFEC: %v", err)

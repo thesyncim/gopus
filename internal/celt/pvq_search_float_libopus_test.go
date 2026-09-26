@@ -8,14 +8,9 @@ import (
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
-// TestOpPVQSearchFloatMatchesLibopusSameArch verifies that the gopus float PVQ
-// pulse search (op_pvq_search) is byte-exact against the SAME-ARCH float libopus
-// op_pvq_search_c kernel (built from the default float reference on this host).
-//
-// libopus has no ARM NEON op_pvq_search, so the float build runs the scalar C
-// kernel here; gopus's arm64 NEON pulse-loop assembly must reproduce it exactly.
-// This is a genuine gopus-arm64 vs libopus-arm64 comparison, not a cross-arch
-// precision guard.
+// TestOpPVQSearchFloatMatchesLibopusSameArch compares the selected Go path with
+// the matching float libopus kernel: scalar builds use op_pvq_search_c, while
+// the amd64 SIMD build calls libopus's x86 SSE2 implementation directly.
 func TestOpPVQSearchFloatMatchesLibopusSameArch(t *testing.T) {
 	libopustest.RequireOracle(t)
 
@@ -26,6 +21,10 @@ func TestOpPVQSearchFloatMatchesLibopusSameArch(t *testing.T) {
 	}
 
 	rng := rand.New(rand.NewSource(0x5045565131))
+	probe := libopustest.ProbeCELTPVQSearchFloat
+	if useX86PVQSearchSSE2 {
+		probe = libopustest.ProbeCELTPVQSearchFloatSSE2
+	}
 
 	// CELT PVQ band widths (M*nbBins for the static 48k mode bands) and a range
 	// of pulse counts spanning low-K (high bands) through high-K (pre-search).
@@ -80,7 +79,7 @@ func TestOpPVQSearchFloatMatchesLibopusSameArch(t *testing.T) {
 				xCopy := append([]float32(nil), x...)
 				goIy, goYY := opPVQSearchFloatForTest(xCopy, k)
 
-				libYY, libIy, err := libopustest.ProbeCELTPVQSearchFloat(x, k)
+				libYY, libIy, err := probe(x, k)
 				if err != nil {
 					t.Fatalf("n=%d k=%d trial=%d: float pvq oracle: %v", n, k, trial, err)
 				}
@@ -100,6 +99,30 @@ func TestOpPVQSearchFloatMatchesLibopusSameArch(t *testing.T) {
 				}
 				cases++
 			}
+		}
+	}
+
+	for _, x := range [][]float32{
+		{1, 1, 1, 1, 1, 1, 1, 1},
+		{1, -1, 1, -1, 1},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0},
+	} {
+		k := len(x) / 2
+		if k < 1 {
+			k = 1
+		}
+		goInput := make([]celtNorm, len(x))
+		for i, v := range x {
+			goInput[i] = celtNorm(v)
+		}
+		goIy, goYY := opPVQSearchNorm(goInput, k)
+		libYY, libIy, err := probe(x, k)
+		if err != nil {
+			t.Fatalf("tie vector n=%d k=%d: float pvq oracle: %v", len(x), k, err)
+		}
+		if math.Float32bits(float32(goYY)) != math.Float32bits(libYY) || !equalInt32Slices(goIy, libIy) {
+			t.Fatalf("tie vector n=%d k=%d mismatch: Go iy=%v yy=%08x, libopus iy=%v yy=%08x",
+				len(x), k, goIy, math.Float32bits(float32(goYY)), libIy, math.Float32bits(libYY))
 		}
 	}
 	t.Logf("op_pvq_search float same-arch parity: %d vectors byte-exact (iy + yy)", cases)
@@ -141,6 +164,18 @@ func TestOpPVQSearchFloatHighKNearTieResidual(t *testing.T) {
 		0.99997205, 0.99987245, 1.0001543, -1.0000563, -1.0001165, -1.0000064,
 	}
 	const k = 256
+	if useX86PVQSearchSSE2 {
+		goIy, goYY := opPVQSearchFloatForTest(append([]float32(nil), x...), k)
+		libYY, libIy, err := libopustest.ProbeCELTPVQSearchFloatSSE2(x, k)
+		if err != nil {
+			t.Fatalf("float SSE2 pvq oracle: %v", err)
+		}
+		if !equalInt32Slices(goIy, libIy) || math.Float32bits(goYY) != math.Float32bits(libYY) {
+			t.Fatalf("SIMD PVQ near-tie vector differs from SSE2 oracle: Go iy=%v yy=%08x, C iy=%v yy=%08x",
+				goIy, math.Float32bits(goYY), libIy, math.Float32bits(libYY))
+		}
+		return
+	}
 
 	goIy, _ := opPVQSearchFloatForTest(append([]float32(nil), x...), k)
 	_, libIy, err := libopustest.ProbeCELTPVQSearchFloat(x, k)
@@ -174,6 +209,18 @@ func TestOpPVQSearchFloatHighKNearTieResidual(t *testing.T) {
 	if moved == 0 {
 		t.Skip("toolchain happens to agree on this vector; residual not reproduced on this host")
 	}
+}
+
+func equalInt32Slices(a, b []int32) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func opPVQSearchFloatForTest(x []float32, k int) ([]int32, float32) {

@@ -1421,7 +1421,7 @@ func TestThetaRDODistortionMatchesLibopusFloatPath(t *testing.T) {
 
 func TestRenormalizeVectorMatchesLibopusFloatPath(t *testing.T) {
 	libopustest.RequireOracle(t)
-	requireBitExactFloat(t)
+	requireRenormalizeVectorOracleMode(t)
 	cases := []renormaliseOracleCase{
 		{fixtureExpRotationVector(8, 0x10203040), 1},
 		{fixtureExpRotationVector(21, 0x50607080), 0.5},

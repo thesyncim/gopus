@@ -546,7 +546,7 @@ func TestEnergyF32Libopus(t *testing.T) {
 
 // TestFindLPCWithInterpolation tests the full LPC analysis with interpolation
 func TestFindLPCWithInterpolation(t *testing.T) {
-	enc := NewEncoder(BandwidthNarrowband)
+	enc := newTestEncoder(BandwidthNarrowband)
 
 	// Generate test signal
 	n := 320 // 20ms at 8kHz would be 160, but using larger for testing

@@ -17,6 +17,9 @@ type synthesisStageTrace struct {
 	// imdct holds the post-IMDCT / overlap-add time buffer per channel
 	// (before the comb-filter postfilter runs).
 	imdct [2][]float32
+	// postComb holds the time buffer after the comb-filter postfilter and before
+	// de-emphasis, when the direct float output path captures it.
+	postComb [2][]float32
 }
 
 // EnableSynthesisStageTrace arms intermediate-stage capture for the next decoded
@@ -58,6 +61,14 @@ func (t *synthesisStageTrace) IMDCT(ch int) []float32 {
 	return t.imdct[ch]
 }
 
+// PostComb returns the postfilter output before de-emphasis.
+func (t *synthesisStageTrace) PostComb(ch int) []float32 {
+	if ch < 0 || ch >= len(t.postComb) {
+		return nil
+	}
+	return t.postComb[ch]
+}
+
 // captureSpec snapshots a per-channel post-denormalise spectrum buffer.
 func (t *synthesisStageTrace) captureSpec(ch int, spec []float32) {
 	if t == nil || ch < 0 || ch >= len(t.spec) {
@@ -84,4 +95,13 @@ func (t *synthesisStageTrace) captureIMDCT(ch int, samples []float32) {
 		t.n = len(samples)
 	}
 	t.captured = true
+}
+
+func (t *synthesisStageTrace) capturePostComb(ch int, samples []float32) {
+	if t == nil || ch < 0 || ch >= len(t.postComb) {
+		return
+	}
+	buf := make([]float32, len(samples))
+	copy(buf, samples)
+	t.postComb[ch] = buf
 }

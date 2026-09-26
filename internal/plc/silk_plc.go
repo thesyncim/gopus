@@ -598,9 +598,9 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 
 		var randStart int
 		if (energy1 >> uint(shift2)) < (energy2 >> uint(shift1)) {
-			randStart = max(0, (nbSubfr-1)*subfrLength-randBufSize)
+			randStart = max(0, (int(plcState.NbSubfr)-1)*int(plcState.SubfrLength)-randBufSize)
 		} else {
-			randStart = max(0, nbSubfr*subfrLength-randBufSize)
+			randStart = max(0, int(plcState.NbSubfr)*int(plcState.SubfrLength)-randBufSize)
 		}
 
 		for i := 0; i < randBufSize && randStart+i < len(excHistory); i++ {

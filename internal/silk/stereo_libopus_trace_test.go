@@ -20,22 +20,7 @@ func TestSILKPacket0MidFrameCoreTraceOracle(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "silk stereo packet0 wrapper", err)
 	}
-	enc, re, midOut := prepareSILKPacket0MidFrameCoreOracle(t, signal, bitRate, maxBits, payloadSizeMs, want)
-
-	var quality [4]int32
-	for i := range quality {
-		quality[i] = want.midInputQualityBands[i]
-	}
-	enc.SetVADState(want.midSpeechActivityQ8, want.midInputTiltQ15, quality)
-	enc.stereoCondMid = enc
-	enc.stereoCondMidFramesEncoded = 0
-	enc.stereoChannelIdx = 0
-	enc.stereoPrevDecodeOnlyMiddle = 0
-	enc.SetBitrate(int(want.midTargetRateBps))
-	enc.SetPreAdjustedTargetRateBps(int(want.midTargetRateBps))
-	enc.SetMaxBits(int(want.maxBits))
-	enc.blockUseCBR = want.useCBR != 0
-	enc.SetRangeEncoder(re)
+	f := prepareSILKPacket0MidFrameCoreOracle(t, signal, bitRate, maxBits, payloadSizeMs, want)
 
 	var afterIndices encodeFrameTrace
 	var afterPulses encodeFrameTrace
@@ -55,7 +40,7 @@ func TestSILKPacket0MidFrameCoreTraceOracle(t *testing.T) {
 			haveAfterPulses = true
 		}
 	}, func() {
-		_ = enc.EncodeFrame(midOut, nil, want.midVAD != 0)
+		_ = f.mid.encodeFrame(f.re, f.condCoding, f.maxBits, f.useCBR)
 	})
 	if !haveAfterIndices {
 		t.Fatalf("missing packet-0 mid after-indices trace")

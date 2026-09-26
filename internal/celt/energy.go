@@ -77,7 +77,7 @@ func decodeLaplaceWithRangeDecoder(rd *rangecoding.Decoder, fs int, decay int) i
 // intra=true: no inter-frame prediction (first frame or after loss)
 // intra=false: uses alpha prediction from previous frame
 // Reference: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c unquant_coarse_energy()
-func (d *Decoder) DecodeCoarseEnergy(nbBands int, intra bool, lm int) []celtGLog {
+func (d *Decoder) DecodeCoarseEnergy(nbBands int, intra bool, lm int) []CeltGLog {
 	return d.decodeCoarseEnergyGLogInto(nil, nbBands, intra, lm)
 }
 
@@ -260,7 +260,7 @@ func (d *Decoder) decodeCoarseEnergyRangeGLog(start, end int, intra bool, lm int
 
 // DecodeCoarseEnergyWithDecoder decodes coarse energies using an explicit range decoder.
 // This variant allows passing a range decoder directly rather than using d.rangeDecoder.
-func (d *Decoder) DecodeCoarseEnergyWithDecoder(rd *rangecoding.Decoder, nbBands int, intra bool, lm int) []celtGLog {
+func (d *Decoder) DecodeCoarseEnergyWithDecoder(rd *rangecoding.Decoder, nbBands int, intra bool, lm int) []CeltGLog {
 	// Temporarily set range decoder
 	oldRD := d.rangeDecoder
 	d.rangeDecoder = rd

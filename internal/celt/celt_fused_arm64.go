@@ -1,11 +1,10 @@
-//go:build arm64 && !purego
+//go:build arm64 && goexperiment.simd && !nosimd
 
 package celt
 
-// celtFusedFloat reports whether this build lets the compiler fuse a*b+c into
-// FMADD in the CELT float path (the default arm64/asm build, see
-// fma32_arm64_fast.go). Such a build is quality-gated (opus_compare), not
-// bit-exact with scalar libopus, exactly like libopus's own NEON kernels.
-// The bit-exact Tier-1 oracle is the purego build (and amd64, which does not
-// fuse), where celtFusedFloat is false.
+// celtFusedFloat selects the arithmetic order of the NEON libopus build that the
+// arm64 Go SIMD build pairs with: the NEON intrinsic kernels (for example
+// celt_inner_prod_neon) and clang's vectorized reductions
+// (neonRoundsReductionTerm). The transient high-pass and deemphasis forms it
+// also selects are not yet bit-exact with that build.
 const celtFusedFloat = true

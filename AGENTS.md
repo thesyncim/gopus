@@ -22,15 +22,22 @@ uses…", "removed…"); describe what the code does today.
   `opus_compare` quality on real audio. SILK decode is bit-exact; CELT/Hybrid sit
   in the near-exact envelope.
 
-## Tiers and the per-arch float budget
+## Paired scalar and SIMD references
 
-- The `purego` build tag is the scalar reference path: **bit-exact on every
-  architecture**, and the lane the byte-parity gates compare against.
-- The default build selects assembly (arm64 NEON, amd64 SSE/AVX2) only where
-  libopus does, and only behind a quality gate.
-- One residual is documented: a few CELT float kernels drift by ≤1 ULP on
-  darwin/arm64 — a per-arch float budget, exactly like libopus's own
-  NEON-vs-scalar difference. Do not chase ≤1-ULP arm64 float drift as a bug.
+- Go 1.27 is the minimum version. All codec kernels are Go implementations.
+- The ordinary build uses scalar Go. The `nosimd` build tag forces that path,
+  including when `GOEXPERIMENT=simd` is set.
+- `GOEXPERIMENT=simd` selects Go `archsimd` kernels where implemented, with
+  scalar fallbacks for other kernels.
+- Compare Go SIMD with libopus SIMD and Go scalar with libopus scalar on the
+  same CPU, using identical input, application, controls, and scalar widths.
+  Verify effective kernel dispatch as well as build flags and runtime features.
+- Same-path exact tests compare float bits, packets, and final ranges without
+  architecture-based ULP waivers. A difference between libopus's SIMD and scalar
+  paths cannot justify a mismatch against the matching reference.
+- The current unresolved differences and measured performance are recorded in
+  `reports/go-simd-kernel-evidence.md`. Passing a subset of tests does not prove
+  complete parity.
 
 ## Libopus type parity
 
@@ -88,8 +95,9 @@ measurement reflects steady state, not one-time lazy init).
 - Optional features are behind build tags, mirrored tag-for-flag with libopus:
   `gopus_dred`, `gopus_osce`, `gopus_qext`, `gopus_custom_modes`,
   `gopus_fixed_point`. The default build links zero of their code.
-- Run `go test` for the packages you touch (default and, where relevant, `-tags
-  purego`) before finishing a codec or runtime change.
+- Run `go test` for the packages you touch in the ordinary build and with
+  `GOEXPERIMENT=simd`; also run `-tags nosimd` when validating the scalar
+  reference lane.
 
 ## Layout
 

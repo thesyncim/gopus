@@ -10,8 +10,6 @@ import (
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
-const opusBitrateMax = -1
-
 // Encoder encodes audio frames using CELT transform coding.
 // It maintains state across frames for proper audio continuity via energy
 // prediction and overlap-add analysis.
@@ -96,17 +94,16 @@ type Encoder struct {
 	intensity      int32 // Previous intensity stereo decision (libopus hysteresis state)
 
 	// Bitrate control
-	targetBitrate int32 // Target bitrate in bits per second (0 = use buffer size)
+	targetBitrate int32 // st->bitrate in bits per second, or BitrateMax to fill the payload budget
 	frameBits     int32 // Per-frame bit budget for coarse energy (set during encoding)
-	// coarseAvailableBytes mirrors libopus quant_coarse_energy() nbAvailableBytes.
-	// When >0, it overrides budget/8 for coarse intra/decay decisions.
+	// coarseAvailableBytes mirrors libopus quant_coarse_energy() nbAvailableBytes
+	// while coarseAvailableSet is true; otherwise the coarse intra/decay
+	// decisions read budget/8.
 	coarseAvailableBytes int32
+	coarseAvailableSet   bool
 	maxPayloadBytes      int32 // Optional per-frame payload cap (excludes TOC byte)
 	vbr                  bool
 	constrainedVBR       bool
-	// constrainedVBRBoundScale scales libopus vbr_bound for constrained-VBR
-	// max-allowed computation. 1.0 matches libopus single-stream behavior.
-	constrainedVBRBoundScale opusVal16
 	// Constrained-VBR state mirrors libopus CELT encoder cadence.
 	// Units are Q3 bits unless noted.
 	vbrReservoir int32
@@ -129,10 +126,9 @@ type Encoder struct {
 	prevBandLogEnergy []celtGLog // Previous frame log-energy per band for spectral flux
 	lastTonality      opusVal16  // Running average tonality for smoothing
 	lastStereoSaving  opusVal16  // Running stereo_saving estimate from alloc_trim analysis
-	lastPitchChange   bool       // Previous frame pitch_change flag for VBR targeting
+	lastPitchChange   bool       // pitch_change of the most recent hybrid prefilter run
 	specAvg           celtGLog   // Smoothed spectral average for temporal VBR (libopus st->spec_avg)
-	lastTemporalVBR   celtGLog   // Previous frame's temporal_vbr for VBR target adjustment
-	lastTellFrac      int        // Previous frame's ec_tell_frac at VBR point (for tell estimation)
+	lastTemporalVBR   celtGLog   // temporal_vbr of the most recently analysed frame (compute_vbr input)
 
 	// Analysis bandwidth state used by bit allocation gating.
 	// This mirrors libopus use of st->analysis.bandwidth for clt_compute_allocation().
@@ -316,9 +312,10 @@ func NewEncoder(channels int) *Encoder {
 		prefilterTapset: 0,
 		prefilterMem:    make([]celtSig, combFilterMaxPeriod*channels),
 
-		// Default to VBR enabled to mirror libopus behavior.
-		vbr:                      true,
-		constrainedVBRBoundScale: 1.0,
+		// A standalone encoder codes VBR at 64 kb/s per channel until
+		// SetBitrate/SetVBR configure it.
+		targetBitrate: int32(64000 * channels),
+		vbr:           true,
 	}
 
 	// Energy arrays default to zero after allocation (matches libopus init).
@@ -447,6 +444,7 @@ func (e *Encoder) Reset() {
 	e.frameCount = 0
 	e.frameBits = 0
 	e.coarseAvailableBytes = 0
+	e.coarseAvailableSet = false
 	e.maxPayloadBytes = 0
 	e.delayedIntra = 1.0
 	e.lastCodedBands = 0
@@ -472,6 +470,10 @@ func (e *Encoder) Reset() {
 	e.lastTonality = opusVal16(0.5)
 	e.lastStereoSaving = 0
 	e.lastPitchChange = false
+	e.specAvg = 0
+	e.lastTemporalVBR = 0
+	e.silkSignalType = 0
+	e.silkOffset = 0
 	e.analysisBandwidth = 20
 	e.analysisValid = false
 	e.analysisActivity = 0
@@ -506,7 +508,7 @@ func (e *Encoder) SetSurroundTrim(trim celtGLog) {
 }
 
 // SurroundTrim returns the current surround trim adjustment.
-func (e *Encoder) SurroundTrim() celtGLog {
+func (e *Encoder) SurroundTrim() CeltGLog {
 	return e.surroundTrim
 }
 
@@ -562,22 +564,6 @@ func (e *Encoder) VBR() bool {
 // SetConstrainedVBR enables or disables constrained VBR mode.
 func (e *Encoder) SetConstrainedVBR(enabled bool) {
 	e.constrainedVBR = enabled
-}
-
-// ConstrainedVBR reports whether constrained VBR mode is enabled.
-func (e *Encoder) ConstrainedVBR() bool {
-	return e.constrainedVBR
-}
-
-// SetConstrainedVBRBoundScale sets a scale for constrained-VBR vbr_bound.
-// Valid range is [0, 1], where 1 matches libopus single-stream behavior.
-func (e *Encoder) SetConstrainedVBRBoundScale(scale float32) {
-	if scale < 0 {
-		scale = 0
-	} else if scale > 1 {
-		scale = 1
-	}
-	e.constrainedVBRBoundScale = scale
 }
 
 // SetPrediction controls CELT inter-frame prediction behavior.
@@ -659,11 +645,6 @@ func (e *Encoder) SetRangeEncoder(re *rangecoding.Encoder) {
 	e.rangeEncoder = re
 }
 
-// RangeEncoder returns the current range encoder.
-func (e *Encoder) RangeEncoder() *rangecoding.Encoder {
-	return e.rangeEncoder
-}
-
 // Channels returns the number of audio channels (1 or 2).
 func (e *Encoder) Channels() int {
 	return int(e.channels)
@@ -695,28 +676,15 @@ func (e *Encoder) SampleRate() int {
 // PrevEnergy returns the previous frame's band energies.
 // Used for inter-frame energy prediction in coarse energy encoding.
 // Layout: [band0_ch0, band1_ch0, ..., band20_ch0, band0_ch1, ..., band20_ch1]
-func (e *Encoder) PrevEnergy() []celtGLog {
+func (e *Encoder) PrevEnergy() []CeltGLog {
 	out := make([]celtGLog, len(e.prevEnergy))
 	copy(out, e.prevEnergy)
 	return out
 }
 
-// CopyPrevEnergyFloat32 copies the previous frame's band energies into dst as
-// float32, reusing dst when its capacity is sufficient. The same layout as
-// PrevEnergy is used.
-func (e *Encoder) CopyPrevEnergyFloat32(dst []float32) []float32 {
-	if cap(dst) < len(e.prevEnergy) {
-		dst = make([]float32, len(e.prevEnergy))
-	} else {
-		dst = dst[:len(e.prevEnergy)]
-	}
-	copy(dst, e.prevEnergy)
-	return dst
-}
-
 // PrevEnergy2 returns the band energies from two frames ago.
 // Used for anti-collapse detection.
-func (e *Encoder) PrevEnergy2() []celtGLog {
+func (e *Encoder) PrevEnergy2() []CeltGLog {
 	out := make([]celtGLog, len(e.prevEnergy2))
 	copy(out, e.prevEnergy2)
 	return out
@@ -742,43 +710,12 @@ func (e *Encoder) SetPrevEnergyWithPrev(prev, energies []celtGLog) {
 	copy(e.prevEnergy, energies)
 }
 
-// SetPrevEnergyWithPrevFloat32 is the float32 form of SetPrevEnergyWithPrev: it
-// sets the two-frames-ago energies from prev (falling back to the current
-// prevEnergy when prev has the wrong length) and the previous-frame energies
-// from energies.
-func (e *Encoder) SetPrevEnergyWithPrevFloat32(prev, energies []float32) {
-	if len(prev) == len(e.prevEnergy2) {
-		copy(e.prevEnergy2, prev)
-	} else {
-		copy(e.prevEnergy2, e.prevEnergy)
-	}
-	copy(e.prevEnergy, energies)
-}
-
-func (e *Encoder) setPrevEnergyWithPrevGLog(prev, energies []celtGLog) {
-	if len(prev) == len(e.prevEnergy2) {
-		copy(e.prevEnergy2, prev)
-	} else {
-		copy(e.prevEnergy2, e.prevEnergy)
-	}
-	copy(e.prevEnergy, energies)
-}
-
 // OverlapBuffer returns the overlap buffer for MDCT analysis.
 // Size is Overlap * channels samples.
 func (e *Encoder) OverlapBuffer() []float32 {
 	out := make([]float32, len(e.overlapBuffer))
 	copySigToFloat32(out, e.overlapBuffer)
 	return out
-}
-
-// OverlapBufferInto copies the overlap buffer into dst as float32 samples and
-// returns the number of samples written. It performs the same conversion as
-// OverlapBuffer without allocating, for the hot multi-frame encode path.
-func (e *Encoder) OverlapBufferInto(dst []float32) int {
-	n := min(len(e.overlapBuffer), len(dst))
-	copySigToFloat32(dst[:n], e.overlapBuffer[:n])
-	return n
 }
 
 // SetOverlapBuffer copies the given samples to the overlap buffer.
@@ -855,8 +792,10 @@ func (e *Encoder) FrameCount() int {
 	return int(e.frameCount)
 }
 
-// SetBitrate sets the target bitrate in bits per second.
-// This affects bit allocation for frame encoding.
+// SetBitrate sets st->bitrate, the rate in bits per second the VBR target and
+// the CBR payload size derive from; BitrateMax makes the encoder fill its
+// payload budget. It stores the rate as given: callers forwarding
+// OPUS_SET_BITRATE apply the range checks of celt_encoder_ctl.
 func (e *Encoder) SetBitrate(bps int) {
 	e.targetBitrate = int32(bps)
 }
@@ -1118,7 +1057,7 @@ func (e *Encoder) LFE() bool {
 // LastTonality returns the most recently computed tonality estimate.
 // The value ranges from 0 (noise-like spectrum) to 1 (pure tone).
 // This is used by computeVBRTarget for bit allocation decisions.
-func (e *Encoder) LastTonality() opusVal16 {
+func (e *Encoder) LastTonality() OpusVal16 {
 	return e.lastTonality
 }
 
@@ -1136,7 +1075,7 @@ func (e *Encoder) SetLastTonality(tonality opusVal16) {
 
 // PrevBandLogEnergy returns the previous frame's band log-energies.
 // Used for spectral flux computation in tonality analysis.
-func (e *Encoder) PrevBandLogEnergy() []celtGLog {
+func (e *Encoder) PrevBandLogEnergy() []CeltGLog {
 	out := make([]celtGLog, len(e.prevBandLogEnergy))
 	copy(out, e.prevBandLogEnergy)
 	return out
@@ -1150,7 +1089,7 @@ func (e *Encoder) GetLastDynalloc() DynallocResult {
 
 // GetLastBandLogE returns the last frame's primary band log-energies.
 // These are the bandLogE values passed to DynallocAnalysis.
-func (e *Encoder) GetLastBandLogE() []celtGLog {
+func (e *Encoder) GetLastBandLogE() []CeltGLog {
 	out := make([]celtGLog, len(e.lastBandLogE))
 	copy(out, e.lastBandLogE)
 	return out
@@ -1158,7 +1097,7 @@ func (e *Encoder) GetLastBandLogE() []celtGLog {
 
 // GetLastBandLogE2 returns the last frame's secondary band log-energies.
 // For transients, this is from the long MDCT; otherwise same as bandLogE.
-func (e *Encoder) GetLastBandLogE2() []celtGLog {
+func (e *Encoder) GetLastBandLogE2() []CeltGLog {
 	out := make([]celtGLog, len(e.lastBandLogE2))
 	copy(out, e.lastBandLogE2)
 	return out
@@ -1241,9 +1180,8 @@ type encoderScratch struct {
 	coarseError       []celtGLog
 	coarseDecisionE   []celtGLog
 	analysisEnergies  []celtGLog
-	silenceEnergyVBR  []celtGLog
-	silenceFreqVBR    []float32
 	prev1LogE         []celtGLog
+	dynallocOldBandE  []celtGLog
 
 	// Normalized coefficient buffers
 	normL []celtNorm
@@ -1603,7 +1541,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 
 // computeAllocationScratch computes bit allocation using scratch buffers (zero-alloc).
 // This is the zero-allocation version of ComputeAllocationWithEncoder.
-func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3, nbBands int, cap, offsets []int32, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) *AllocationResult {
+func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3, start, nbBands int, cap, offsets []int32, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) *AllocationResult {
 	maxNb := MaxBands
 	if e.perMode != nil {
 		maxNb = e.perMode.nbEBands
@@ -1641,7 +1579,7 @@ func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3,
 		result.Caps[i] = 0
 	}
 
-	if nbBands == 0 || totalBitsQ3 <= 0 {
+	if nbBands == 0 {
 		return result
 	}
 
@@ -1674,10 +1612,10 @@ func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3,
 
 	var codedBands int
 	if e.perMode != nil {
-		codedBands = cltComputeAllocationWithScratchModeEncode(re, 0, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
+		codedBands = cltComputeAllocationWithScratchModeEncode(re, start, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
 			totalBitsQ3, &balance, pulses, fineBits, finePriority, channels, lm, prev, signalBandwidth, e.allocationScratch(), e.perMode)
 	} else {
-		codedBands = cltComputeAllocationEncode(re, 0, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
+		codedBands = cltComputeAllocationEncode(re, start, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
 			totalBitsQ3, &balance, pulses, fineBits, finePriority, channels, lm, prev, signalBandwidth)
 	}
 
@@ -1687,4 +1625,14 @@ func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3,
 	result.DualStereo = dualVal != 0
 
 	return result
+}
+
+// LastCodedBands returns the last coded band count used for allocation skip decisions.
+func (e *Encoder) LastCodedBands() int {
+	return int(e.lastCodedBands)
+}
+
+// ConsecTransient returns the number of consecutive transient frames.
+func (e *Encoder) ConsecTransient() int {
+	return int(e.consecTransient)
 }

@@ -282,8 +282,10 @@ func computeStereoCorrelationLogs(normL, normR []celtNorm, nbBands, lm, intensit
 }
 
 // UpdateStereoSaving updates the running stereo_saving estimate used by libopus
-// compute_vbr(). The state is updated once per frame after alloc-trim analysis.
-func UpdateStereoSaving(prev opusVal16, normL, normR []celtNorm, nbBands, lm, intensity int) opusVal16 {
+// compute_vbr(). The state is updated once per frame after alloc-trim analysis:
+// stereo_saving = min(stereo_saving+0.25, -logXC2/2) (celt/celt_encoder.c:919).
+// The state is unbounded; compute_vbr caps the value it reads at 1.
+func UpdateStereoSaving(prev opusVal16, normL, normR []celtNorm, nbBands, lm, intensity int) OpusVal16 {
 	if len(normL) == 0 || len(normR) == 0 || nbBands <= 0 {
 		return prev
 	}
@@ -295,18 +297,7 @@ func UpdateStereoSaving(prev opusVal16, normL, normR []celtNorm, nbBands, lm, in
 	}
 
 	_, logXC2 := computeStereoCorrelationLogs(normL, normR, nbBands, lm, intensity)
-	limit := opusVal16(-0.5) * logXC2
-	next := prev + opusVal16(0.25)
-	if next > limit {
-		next = limit
-	}
-	if next < opusVal16(0) {
-		next = 0
-	}
-	if next > opusVal16(1) {
-		next = 1
-	}
-	return next
+	return min(prev+0.25, -(0.5 * logXC2))
 }
 
 func celtInnerProdNorm(x, y []celtNorm, start, end int) opusVal16 {
@@ -327,20 +318,24 @@ func celtInnerProdNorm(x, y []celtNorm, start, end int) opusVal16 {
 	return opusVal16(celtInnerProdLibopusOrder(x[start:end], y[start:end]))
 }
 
-// ComputeEquivRate computes the equivalent bitrate for allocation trim analysis.
-// This matches libopus computation in celt_encoder.c line 1925.
+// ComputeEquivRate computes equiv_rate, the equivalent 20 ms bitrate the
+// intensity hysteresis, allocation trim and signal-bandwidth floor read.
+// This matches libopus celt_encoder.c:1925-1927.
 //
 // Parameters:
-//   - nbCompressedBytes: target compressed packet size in bytes
-//   - channels: number of audio channels (1 or 2)
+//   - nbCompressedBytes: payload budget of the frame in bytes
+//   - channels: number of coded channels (1 or 2)
 //   - lm: log mode (frame size index: 0=2.5ms, 1=5ms, 2=10ms, 3=20ms)
-//   - targetBitrate: target bitrate in bps (0 if using fixed packet size)
+//   - targetBitrate: st->bitrate in bps; BitrateMax (or any non-positive value)
+//     codes a fixed packet size
 //
 // Returns: equivalent bitrate in bits per second
 //
 // Reference: libopus celt/celt_encoder.c line 1925:
 //
 //	equiv_rate = ((opus_int32)nbCompressedBytes*8*50 << (3-LM)) - (40*C+20)*((400>>LM) - 50);
+//	if (st->bitrate != OPUS_BITRATE_MAX)
+//	   equiv_rate = IMIN(equiv_rate, st->bitrate - (40*C+20)*((400>>LM) - 50));
 func ComputeEquivRate(nbCompressedBytes, channels, lm, targetBitrate int) int {
 	// Base computation from packet size
 	// 50 is the frame rate for 20ms frames at 48kHz

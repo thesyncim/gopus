@@ -137,7 +137,9 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 			w1 := float32(window[segLen-1-i])
 			x0 := float32(etmp[segLen-1-i])
 			x1 := float32(etmp[i])
-			overlap[i] = celtSig(mdctFMA32(w0, x0, w1*x1))
+			// prefilter_and_fold: w[i]*etmp[ov-1-i] + w[ov-1-i]*etmp[i]. clang
+			// fuses the left product and gcc fuses neither.
+			overlap[i] = celtSig(fma32(w0, x0, noFMA32Mul(w1, x1)))
 		}
 	}
 
@@ -499,6 +501,37 @@ func (d *Decoder) concealPeriodicPLCLimited(dst []float32, frameSize, lossCount 
 	return d.concealPeriodicPLCWithLimit(dst, frameSize, lossCount, continuePeriodic, commit, true)
 }
 
+// periodicPLCEnergy accumulates the selected PLC decay window. The paired
+// arm64 SIMD reference tested here accumulates complete four-sample vectors
+// with separate products and additions, then contracts its short remainder.
+// Scalar reference builds contract every sample.
+func periodicPLCEnergy(sum float32, samples []celtSig) float32 {
+	if libopusFloatInnerProdUsesNeonOrder {
+		vectorEnd := len(samples) &^ 3
+		for i := 0; i < vectorEnd; i++ {
+			sample := float32(samples[i])
+			sum = noFMA32Add(sum, noFMA32Mul(sample, sample))
+		}
+		for i := vectorEnd; i < len(samples); i++ {
+			sample := float32(samples[i])
+			sum = fma32(sample, sample, sum)
+		}
+		return sum
+	}
+	if libopusFloatInnerProdUsesSSEOrder {
+		for _, value := range samples {
+			sample := float32(value)
+			sum = noFMA32Add(sum, noFMA32Mul(sample, sample))
+		}
+		return sum
+	}
+	for _, value := range samples {
+		sample := float32(value)
+		sum = fma32(sample, sample, sum)
+	}
+	return sum
+}
+
 func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCount int, continuePeriodic bool, commit bool, limitEarly bool) bool {
 	if frameSize <= 0 || d.channels <= 0 {
 		return false
@@ -583,12 +616,8 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 			e2 := float32(1.0)
 			base1 := celtPLCLPCOrder + maxPeriod - decayLength
 			base2 := celtPLCLPCOrder + maxPeriod - 2*decayLength
-			for i := range decayLength {
-				v1 := float32(exc[base1+i])
-				v2 := float32(exc[base2+i])
-				e1 += noFMA32Mul(v1, v1)
-				e2 += noFMA32Mul(v2, v2)
-			}
+			e1 = periodicPLCEnergy(e1, exc[base1:base1+decayLength])
+			e2 = periodicPLCEnergy(e2, exc[base2:base2+decayLength])
 			if e1 > e2 {
 				e1 = e2
 			}
@@ -614,18 +643,19 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 			srcIdx := s1Base + j
 			if srcIdx >= 0 && srcIdx < len(buf) {
 				v := float32(buf[srcIdx])
-				s1 = noFMA32Add(s1, noFMA32Mul(v, v))
+				// celt_decoder.c celt_decode_lost accumulates S1 scalar-wise;
+				// arm64 contracts the product and sum, while amd64 does not.
+				s1 = fma32(v, v, s1)
 			}
 			j++
 		}
 
 		d.celtIIRFloat32(chOut, hist, lpc, totalSamples)
 
-		s2 := float32(0)
-		for i := range totalSamples {
-			v := float32(chOut[i])
-			s2 = noFMA32Add(s2, noFMA32Mul(v, v))
-		}
+		// celt_decoder.c celt_decode_lost accumulates S2 with the target's
+		// selected reduction order: arm64 NEON rounds four products before
+		// adding and contracts the tail; scalar arm64 contracts every sample.
+		s2 := periodicPLCEnergy(0, chOut[:totalSamples])
 		if !(s1 > float32(0.2)*s2) {
 			for i := range totalSamples {
 				chOut[i] = 0
@@ -664,6 +694,14 @@ func (d *Decoder) computePLCAutocorr(frame []celtSig, window []float32, ac []flo
 	if len(ac) < celtPLCLPCOrder+1 {
 		return
 	}
+	d.computePLCRawAutocorr(frame, window, ac)
+	applyCELTPLCLagWindow32(ac[:celtPLCLPCOrder+1], celtPLCLPCOrder)
+}
+
+func (d *Decoder) computePLCRawAutocorr(frame []celtSig, window []float32, ac []float32) {
+	if len(ac) < celtPLCLPCOrder+1 {
+		return
+	}
 	for i := 0; i <= celtPLCLPCOrder; i++ {
 		ac[i] = 0
 	}
@@ -691,20 +729,36 @@ func (d *Decoder) computePLCAutocorr(frame []celtSig, window []float32, ac []flo
 		}
 		ac[lag] += tail
 	}
-
-	applyCELTAutocorrNoiseAndLagWindow32(ac[:], celtPLCLPCOrder)
 }
 
-func applyCELTAutocorrNoiseAndLagWindow32(ac []float32, order int) {
+func applyCELTPitchLagWindow32(ac []float32, order int) {
 	if len(ac) <= order {
 		return
 	}
-	ac[0] *= float32(1.0001)
-	lagBase := float32(0.008) * float32(0.008)
+	ac[0] = float32(ac[0] * float32(1.0001))
+	const lagCoefficient = float32(0.008)
 	for i := 1; i <= order; i++ {
-		lag := ac[i] * lagBase
-		lag *= float32(i * i)
-		ac[i] -= lag
+		lag := float32(lagCoefficient * float32(i))
+		damped := float32(ac[i] * lag)
+		// pitch.c forms the second product with the subtraction, allowing
+		// the target's normal FP contraction after the rounded first product.
+		ac[i] = fma32(-lag, damped, ac[i])
+	}
+}
+
+func applyCELTPLCLagWindow32(ac []float32, order int) {
+	if len(ac) <= order {
+		return
+	}
+	ac[0] = float32(ac[0] * float32(1.0001))
+	const lagCoefficient = float32(0.008)
+	lagBase := float32(lagCoefficient * lagCoefficient)
+	for i := 1; i <= order; i++ {
+		damped := float32(ac[i] * lagBase)
+		damped = float32(damped * float32(i))
+		// celt_decoder.c leaves the final `* i` in `ac[i] -= ...`, so C
+		// contracts that product with the subtraction where supported.
+		ac[i] = fma32(-damped, float32(i), ac[i])
 	}
 }
 
@@ -914,7 +968,7 @@ func pitchXCorrFloat32Quality(x, y, xcorr []float32, length, maxPitch int) {
 // 4-lag blocks use the four-phase NEON FMLA kernel; the scalar tail uses
 // celtInnerProd's fused arm64 path so the whole correlation runs
 // single-rounding. Only reached when pitchXcorrUsesNeonFMA is set
-// (arm64 && !purego).
+// (arm64 && !nosimd).
 func pitchXCorrFloat32NeonFMA(x, y, xcorr []float32, length, maxPitch int) {
 	i := 0
 	for ; i < maxPitch-3; i += 4 {
@@ -1063,6 +1117,10 @@ func xcorrKernel4Float32SSEOrder(x, y []float32, sum *[4]float32, length int) {
 }
 
 func pitchXCorrFloat32AVX2FMAOrder(x, y, xcorr []float32, length, maxPitch int) {
+	if length < 16 {
+		pitchXCorrFloat32AVX2FMAOrderTiny(x, y, xcorr, length, maxPitch)
+		return
+	}
 	i := 0
 	for ; i < maxPitch-7; i += 8 {
 		var sums [8]float32
@@ -1071,6 +1129,36 @@ func pitchXCorrFloat32AVX2FMAOrder(x, y, xcorr []float32, length, maxPitch int) 
 	}
 	for ; i < maxPitch; i++ {
 		xcorr[i] = innerProdFloat32SSEOrder(x, y[i:], length)
+	}
+}
+
+func pitchXCorrFloat32AVX2FMAOrderTinyScalar(x, y, xcorr []float32, length, maxPitch int) {
+	if maxPitch <= 0 {
+		return
+	}
+	avxLimit := maxPitch &^ 7
+	for pitch := 0; pitch < avxLimit; pitch++ {
+		var lanes [8]float32
+		for j := 0; j < length; j++ {
+			xv, yv := x[j], y[pitch+j]
+			lane := j & 7
+			if j < 8 {
+				product := xv * yv
+				if xv != 0 && yv != 0 && product == product {
+					// FMA(x, y, +0) rounds the product once to float32.
+					lanes[lane] = product
+				} else {
+					// Keep signed-zero and NaN behavior of the initial fused step.
+					lanes[lane] = opusmath.FMA32(xv, yv, 0)
+				}
+			} else {
+				lanes[lane] = opusmath.FMA32(xv, yv, lanes[lane])
+			}
+		}
+		xcorr[pitch] = reduceAVX2PitchSum(lanes)
+	}
+	for pitch := avxLimit; pitch < maxPitch; pitch++ {
+		xcorr[pitch] = innerProdFloat32SSEOrder(x, y[pitch:], length)
 	}
 }
 
@@ -1098,22 +1186,17 @@ func innerProdFloat32(x, y []float32, length int) float32 {
 	}
 	x = x[:length]
 	y = y[:length]
-	var acc0, acc1, acc2, acc3 float32
-	for len(x) >= 4 {
-		acc0 += x[0] * y[0]
-		acc1 += x[1] * y[1]
-		acc2 += x[2] * y[2]
-		acc3 += x[3] * y[3]
-		x = x[4:]
-		y = y[4:]
-	}
+	// libopus celt_inner_prod_c is one serial MAC16_16 chain. Keep the
+	// scalar path in source order; the split accumulators belong to the
+	// explicitly paired NEON and SSE variants above.
+	var sum float32
 	for i := range x {
-		acc0 += x[i] * y[i]
+		sum = fma32(x[i], y[i], sum)
 	}
-	return acc0 + acc1 + acc2 + acc3
+	return sum
 }
 
-func innerProdFloat32SSEOrder(x, y []float32, length int) float32 {
+func innerProdFloat32SSEOrderScalar(x, y []float32, length int) float32 {
 	if length <= 0 {
 		return 0
 	}

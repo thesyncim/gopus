@@ -4,6 +4,7 @@ package gopus
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -424,8 +425,12 @@ func dredPearson(x, y []float64) float64 {
 
 func runDREDOpusCompare(t *testing.T, reference, decoded []float32) (float64, bool) {
 	t.Helper()
-	opusCompare, ok := libopustooling.FindOrEnsureOpusCompare(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
-	if !ok {
+	opusCompare, err := libopustooling.FindOrEnsureOpusCompare(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
+	if err != nil {
+		var configErr *libopustooling.LibopusReferenceConfigError
+		if errors.As(err, &configErr) {
+			t.Fatalf("libopus opus_compare reference configuration is invalid: %v", err)
+		}
 		t.Log("opus_compare unavailable; using in-process quality metrics only")
 		return 0, false
 	}

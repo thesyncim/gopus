@@ -24,6 +24,7 @@ import (
 
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/container/ogg"
+	examplecleanup "github.com/thesyncim/gopus/examples/internal/cleanup"
 	"github.com/thesyncim/gopus/internal/benchutil"
 )
 
@@ -35,6 +36,12 @@ var sampleURLs = map[string]string{
 }
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	input := flag.String("in", "", "Input Ogg Opus file")
 	url := flag.String("url", "", "Download Ogg Opus file from URL (overrides -sample)")
 	sample := flag.String("sample", "stereo", "Preset sample to download: stereo or speech")
@@ -51,15 +58,15 @@ func main() {
 	case "ffmpeg":
 		modeValue = "libopus"
 	default:
-		log.Fatalf("Invalid -mode %q (use gopus, libopus, or both)", *mode)
+		return fmt.Errorf("invalid -mode %q (use gopus, libopus, or both)", *mode)
 	}
 	if *batch < 1 {
-		log.Fatal("-batch must be >= 1")
+		return errors.New("-batch must be >= 1")
 	}
 
 	data, label, _, cleanup, err := loadInput(*input, *url, *sample)
 	if err != nil {
-		log.Fatalf("Load input failed: %v", err)
+		return fmt.Errorf("load input failed: %w", err)
 	}
 	defer cleanup()
 
@@ -68,7 +75,7 @@ func main() {
 
 	packets, channels, baseSamples, err := parsePacketStream(data)
 	if err != nil {
-		log.Fatalf("Parse packet stream failed: %v", err)
+		return fmt.Errorf("parse packet stream failed: %w", err)
 	}
 	durationSec := float64(baseSamples*(*batch)) / float64(sampleRate)
 
@@ -77,7 +84,7 @@ func main() {
 	if modeValue == "gopus" || modeValue == "both" {
 		times, samples, err := benchGopus(packets, channels, *batch, *iters, *warmup)
 		if err != nil {
-			log.Fatalf("Gopus benchmark failed: %v", err)
+			return fmt.Errorf("gopus benchmark failed: %w", err)
 		}
 		gopusSamples = samples
 		printResults("gopus", times, durationSec)
@@ -89,23 +96,23 @@ func main() {
 		if opusDemoPath == "" {
 			opusDemoPath, err = benchutil.OpusDemoPath()
 			if err != nil {
-				log.Fatalf("Resolve opus_demo failed: %v", err)
+				return fmt.Errorf("resolve opus_demo failed: %w", err)
 			}
 		}
 		bitstream, err := os.CreateTemp("", "gopus_bench_decode_*.bit")
 		if err != nil {
-			log.Fatalf("Create libopus bitstream failed: %v", err)
+			return fmt.Errorf("create libopus bitstream failed: %w", err)
 		}
 		bitstreamPath := bitstream.Name()
 		_ = bitstream.Close()
-		defer os.Remove(bitstreamPath)
+		defer examplecleanup.OnReturn("remove benchmark bitstream", func() error { return os.Remove(bitstreamPath) })
 		if err := benchutil.WriteRepeatedOpusDemoBitstream(bitstreamPath, packets, *batch); err != nil {
-			log.Fatalf("Prepare libopus bitstream failed: %v", err)
+			return fmt.Errorf("prepare libopus bitstream failed: %w", err)
 		}
 		fmt.Println("Running libopus(opus_demo) benchmark...")
 		times, err := benchLibopus(bitstreamPath, channels, opusDemoPath, *iters, *warmup)
 		if err != nil {
-			log.Fatalf("libopus benchmark failed: %v", err)
+			return fmt.Errorf("libopus benchmark failed: %w", err)
 		}
 		printResults("libopus(opus_demo)", times, durationSec)
 	}
@@ -113,6 +120,7 @@ func main() {
 	if gopusSamples > 0 {
 		fmt.Printf("Decoded samples (per channel, batched): %d\n", gopusSamples)
 	}
+	return nil
 }
 
 func loadInput(inputPath, urlValue, sample string) ([]byte, string, string, func(), error) {
@@ -179,7 +187,7 @@ func downloadBytes(url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer examplecleanup.OnReturn("close sample response", resp.Body.Close)
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return nil, fmt.Errorf("download: unexpected status %s", resp.Status)
 	}

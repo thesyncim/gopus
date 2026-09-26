@@ -6,7 +6,7 @@ package silk
 //
 // SILK is inherently fixed-point: the decode-side biquad
 // (silkBiquadAltStride1 in lp_variable_cutoff.go) and the adaptive cutoff
-// adaptation (UpdateVariableHPCutoff / HPCutoffCoefsQ28 in
+// adaptation (hpVariableCutoff / HPCutoffCoefsQ28 in
 // hp_variable_cutoff.go) are already integer and byte-exact against the
 // FIXED_POINT libopus reference in the default build.
 //
@@ -21,7 +21,7 @@ package silk
 // silk_HP_variable_cutoff (silk/HP_variable_cutoff.c) for a voiced frame: given
 // the previous frame's pitch lag/quality/activity it advances and returns the
 // updated variable_HP_smth1_Q15. It is the same arithmetic that
-// (*Encoder).UpdateVariableHPCutoff applies in the default build, exposed
+// (*Encoder).hpVariableCutoff applies in the default build, exposed
 // stand-alone so the fixed-point oracle can exercise it without an Encoder.
 func updateVariableHPSmth1Q15(fsKHz, prevLag, qualityQ15, speechActivityQ8, smth1Q15 int32) int32 {
 	pitchFreqHzQ16 := silkLSHIFT(silkMUL(fsKHz, 1000), 16) / prevLag

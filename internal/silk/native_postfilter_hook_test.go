@@ -15,10 +15,7 @@ func TestNativePostfilterHookFeedsMonoResampler(t *testing.T) {
 	for i := range pcm {
 		pcm[i] = 0.3 * float32(math.Sin(2*math.Pi*440*float64(i)/float64(config.SampleRate)))
 	}
-	encoded, err := Encode(pcm, BandwidthWideband, true)
-	if err != nil {
-		t.Fatalf("Encode: %v", err)
-	}
+	encoded := encodeTestPacket(t, BandwidthWideband, pcm)
 
 	rdRef := &rangecoding.Decoder{}
 	rdRef.Init(encoded)

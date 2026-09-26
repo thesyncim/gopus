@@ -7,7 +7,7 @@ import (
 )
 
 // prefilterDualInnerProdF32Ref is an independent reference for the
-// prefilterDualInnerProdF32NeonOrder kernel, kept so the asm/purego kernel can
+// prefilterDualInnerProdF32NeonOrder kernel, kept so the asm/nosimd kernel can
 // be proven bit-identical to the libopus-matching reference it replaced. It
 // fuses every lane and the scalar tail through mdctFMA32 (single-rounding
 // math.FMA) and applies the same float32 rounding barriers on the horizontal

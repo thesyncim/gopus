@@ -67,35 +67,6 @@ func (d *Decoder) applyDeemphasisAndScale(samples []float32, scale float32) {
 		d.applyDeemphasis2TapInterleaved(samples, samples, scale)
 		return
 	}
-	// Silence fast path: when de-emphasis state is zero and all samples are zero,
-	// output remains zero regardless of scale. Skipping the filter avoids extra work
-	// on CELT silence frames and keeps state at exact zero.
-	if d.channels == 1 {
-		if d.preemphState[0] == 0 {
-			allZero := true
-			for i := 0; i < len(samples); i++ {
-				if samples[i] != 0 {
-					allZero = false
-					break
-				}
-			}
-			if allZero {
-				return
-			}
-		}
-	} else if d.preemphState[0] == 0 && d.preemphState[1] == 0 {
-		allZero := true
-		for i := 0; i < len(samples); i++ {
-			if samples[i] != 0 {
-				allZero = false
-				break
-			}
-		}
-		if allZero {
-			return
-		}
-	}
-
 	// VERY_SMALL prevents denormal numbers that can cause performance issues.
 	// This matches libopus celt/celt_decoder.c celt_decode_with_ec().
 	// Using float32 constant to match libopus VERY_SMALL = 1e-30f
@@ -240,48 +211,6 @@ func (d *Decoder) applyDeemphasisAndScale(samples []float32, scale float32) {
 	}
 }
 
-// deemphasisStereoPlanar2StepFused is the fused-build de-emphasis for planar
-// stereo input written to interleaved float32 output. It mirrors the mono
-// 2-step FMADD recurrence (see applyDeemphasisAndScaleMonoFloat32ToFloat32) on
-// each channel: state stays coef*tmp, while the per-sample input term and the
-// state*(scale/coef) output term sit off the recurrence's critical path. The
-// two channels plus each channel's 2-step give four independent FMADD chains.
-// Quality-gated (celtFusedFloat), so the ~1 ULP difference vs the scalar core
-// is permitted exactly as for the mono path; end-to-end quality is held by the
-// opus_compare RFC-conformance gate.
-func deemphasisStereoPlanar2StepFused(dst, left, right []float32, n int, scale, stateL, stateR float32) (float32, float32) {
-	const verySmall float32 = 1e-30
-	const coef float32 = float32(PreemphCoef)
-	outScale := scale / coef
-	c2 := coef * coef
-	i := 0
-	for ; i+1 < n; i += 2 {
-		lc0 := coef * (left[i] + verySmall)
-		lc1 := coef * (left[i+1] + verySmall)
-		lp := coef*lc0 + lc1
-		ls0 := coef*stateL + lc0
-		stateL = c2*stateL + lp
-
-		rc0 := coef * (right[i] + verySmall)
-		rc1 := coef * (right[i+1] + verySmall)
-		rp := coef*rc0 + rc1
-		rs0 := coef*stateR + rc0
-		stateR = c2*stateR + rp
-
-		dst[2*i] = ls0 * outScale
-		dst[2*i+1] = rs0 * outScale
-		dst[2*i+2] = stateL * outScale
-		dst[2*i+3] = stateR * outScale
-	}
-	for ; i < n; i++ {
-		stateL = coef*stateL + coef*(left[i]+verySmall)
-		stateR = coef*stateR + coef*(right[i]+verySmall)
-		dst[2*i] = stateL * outScale
-		dst[2*i+1] = stateR * outScale
-	}
-	return stateL, stateR
-}
-
 func (d *Decoder) applyDeemphasisAndScaleStereoPlanarToFloat32(dst []float32, left, right []float32, scale float32) {
 	n := min(len(right), len(left))
 	if n == 0 {
@@ -301,29 +230,11 @@ func (d *Decoder) applyDeemphasisAndScaleStereoPlanarToFloat32(dst []float32, le
 	_ = left[n-1]
 	_ = right[n-1]
 
-	if d.preemphState[0] == 0 && d.preemphState[1] == 0 {
-		allZero := true
-		for i := 0; i < n; i++ {
-			if left[i] != 0 || right[i] != 0 {
-				allZero = false
-				break
-			}
-		}
-		if allZero {
-			clear(dst)
-			return
-		}
-	}
-
 	const verySmall float32 = 1e-30
 	const coef float32 = float32(PreemphCoef)
 	stateL := d.preemphState[0]
 	stateR := d.preemphState[1]
-	if celtFusedFloat {
-		stateL, stateR = deemphasisStereoPlanar2StepFused(dst, left, right, n, scale, stateL, stateR)
-	} else {
-		stateL, stateR = deemphasisStereoPlanarF32Core(dst, left, right, n, scale, stateL, stateR, coef, verySmall)
-	}
+	stateL, stateR = deemphasisStereoPlanarF32Core(dst, left, right, n, scale, stateL, stateR, coef, verySmall)
 
 	d.preemphState[0] = stateL
 	d.preemphState[1] = stateR
@@ -343,57 +254,11 @@ func (d *Decoder) applyDeemphasisAndScaleMonoFloat32ToFloat32(dst []float32, sam
 	dst = dst[:n]
 	samples = samples[:n]
 
-	if d.preemphState[0] == 0 {
-		allZero := true
-		for i := 0; i < n; i++ {
-			if samples[i] != 0 {
-				allZero = false
-				break
-			}
-		}
-		if allZero {
-			clear(dst)
-			return
-		}
-	}
-
 	const verySmall float32 = 1e-30
 	const coef float32 = float32(PreemphCoef)
 	state := d.preemphState[0]
 	_ = samples[n-1]
 	_ = dst[n-1]
-
-	if celtFusedFloat {
-		// Quality-gated fused build: rewrite the de-emphasis IIR so the
-		// recurrence is a single FMADD instead of the bit-exact build's
-		// FADD-then-FMUL barrier chain. state stays coef*tmp (so cross-frame
-		// continuity is preserved); the per-sample input term coef*(x+verySmall)
-		// and the output term state*(scale/coef) are off the recurrence's
-		// critical path. The 2-step (coef^2) form keeps only one FMADD on the
-		// serial path per pair of samples. Algebraically identical; differs by
-		// ~1 ULP, which the fused build's opus_compare gate (not bit-exact
-		// oracle, see requireBitExactFloat) allows.
-		outScale := scale / coef
-		c2 := coef * coef
-		i := 0
-		for ; i+1 < n; i += 2 {
-			cxv0 := coef * (samples[i] + verySmall)
-			cxv1 := coef * (samples[i+1] + verySmall)
-			p := coef*cxv0 + cxv1
-			s0 := coef*state + cxv0
-			state = c2*state + p
-			dst[i] = s0 * outScale
-			dst[i+1] = state * outScale
-		}
-		for ; i < n; i++ {
-			cxv := coef * (samples[i] + verySmall)
-			state = coef*state + cxv
-			dst[i] = state * outScale
-		}
-		d.preemphState[0] = state
-		return
-	}
-
 	i := 0
 	for ; i+7 < n; i += 8 {
 		tmp0 := samples[i] + verySmall + state
@@ -472,29 +337,11 @@ func (d *Decoder) applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(dst []floa
 	_ = left[n-1]
 	_ = right[n-1]
 
-	if d.preemphState[0] == 0 && d.preemphState[1] == 0 {
-		allZero := true
-		for i := 0; i < n; i++ {
-			if left[i] != 0 || right[i] != 0 {
-				allZero = false
-				break
-			}
-		}
-		if allZero {
-			clear(dst)
-			return
-		}
-	}
-
 	const verySmall float32 = 1e-30
 	const coef float32 = float32(PreemphCoef)
 	stateL := d.preemphState[0]
 	stateR := d.preemphState[1]
-	if celtFusedFloat {
-		stateL, stateR = deemphasisStereoPlanar2StepFused(dst, left, right, n, scale, stateL, stateR)
-	} else {
-		stateL, stateR = deemphasisStereoPlanarF32Core(dst, left, right, n, scale, stateL, stateR, coef, verySmall)
-	}
+	stateL, stateR = deemphasisStereoPlanarF32Core(dst, left, right, n, scale, stateL, stateR, coef, verySmall)
 
 	d.preemphState[0] = stateL
 	d.preemphState[1] = stateR
@@ -510,34 +357,6 @@ func (d *Decoder) applyDeemphasisAndScaleToFloat32(dst []float32, samples []floa
 	if d.deemphCoef1 != 0 {
 		d.applyDeemphasis2TapInterleaved(dst, samples, scale)
 		return
-	}
-
-	if d.channels == 1 {
-		if d.preemphState[0] == 0 {
-			allZero := true
-			for i := range n {
-				if samples[i] != 0 {
-					allZero = false
-					break
-				}
-			}
-			if allZero {
-				clear(dst)
-				return
-			}
-		}
-	} else if d.preemphState[0] == 0 && d.preemphState[1] == 0 {
-		allZero := true
-		for i := range n {
-			if samples[i] != 0 {
-				allZero = false
-				break
-			}
-		}
-		if allZero {
-			clear(dst)
-			return
-		}
 	}
 
 	const verySmall float32 = 1e-30
@@ -681,32 +500,6 @@ func (d *Decoder) applyDeemphasisAndScaleFloat32(samples []float32, scale float3
 		return
 	}
 
-	if d.channels == 1 {
-		if d.preemphState[0] == 0 {
-			allZero := true
-			for i := range n {
-				if samples[i] != 0 {
-					allZero = false
-					break
-				}
-			}
-			if allZero {
-				return
-			}
-		}
-	} else if d.preemphState[0] == 0 && d.preemphState[1] == 0 {
-		allZero := true
-		for i := range n {
-			if samples[i] != 0 {
-				allZero = false
-				break
-			}
-		}
-		if allZero {
-			return
-		}
-	}
-
 	const verySmall float32 = 1e-30
 	const coef float32 = float32(PreemphCoef)
 	if d.channels == 1 {
@@ -755,19 +548,6 @@ func (d *Decoder) applyDeemphasisAndScaleDownsampleToFloat32(dst []float32, samp
 			return
 		}
 		internal := n * downsample
-		if d.preemphState[0] == 0 {
-			allZero := true
-			for i := range internal {
-				if samples[i] != 0 {
-					allZero = false
-					break
-				}
-			}
-			if allZero {
-				clear(dst[:n])
-				return
-			}
-		}
 		state := d.preemphState[0]
 		out := 0
 		for i := range internal {
@@ -788,19 +568,6 @@ func (d *Decoder) applyDeemphasisAndScaleDownsampleToFloat32(dst []float32, samp
 		return
 	}
 	internal := n * downsample
-	if d.preemphState[0] == 0 && d.preemphState[1] == 0 {
-		allZero := true
-		for i := 0; i < internal*2; i++ {
-			if samples[i] != 0 {
-				allZero = false
-				break
-			}
-		}
-		if allZero {
-			clear(dst[:n*2])
-			return
-		}
-	}
 	stateL := d.preemphState[0]
 	stateR := d.preemphState[1]
 	out := 0
@@ -830,19 +597,6 @@ func (d *Decoder) applyDeemphasisAndScaleMonoFloat32DownsampleToFloat32(dst []fl
 		return
 	}
 	internal := n * downsample
-	if d.preemphState[0] == 0 {
-		allZero := true
-		for i := range internal {
-			if samples[i] != 0 {
-				allZero = false
-				break
-			}
-		}
-		if allZero {
-			clear(dst[:n])
-			return
-		}
-	}
 	const verySmall float32 = 1e-30
 	const coef float32 = float32(PreemphCoef)
 	state := d.preemphState[0]
@@ -869,19 +623,6 @@ func (d *Decoder) applyDeemphasisAndScaleStereoPlanarFloat32DownsampleToFloat32(
 		return
 	}
 	internal := n * downsample
-	if d.preemphState[0] == 0 && d.preemphState[1] == 0 {
-		allZero := true
-		for i := range internal {
-			if left[i] != 0 || right[i] != 0 {
-				allZero = false
-				break
-			}
-		}
-		if allZero {
-			clear(dst[:n*2])
-			return
-		}
-	}
 	const verySmall float32 = 1e-30
 	const coef float32 = float32(PreemphCoef)
 	stateL := d.preemphState[0]

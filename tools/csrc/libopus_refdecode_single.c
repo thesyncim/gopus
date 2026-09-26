@@ -19,6 +19,12 @@ enum {
   SAMPLE_FORMAT_INT24 = 2
 };
 
+typedef struct {
+  uint32_t samples;
+  opus_uint32 final_range;
+  uint32_t pcm_offset;
+} decode_step_record;
+
 static int read_exact(void *dst, size_t n) {
   return fread(dst, 1, n, stdin) == n;
 }
@@ -96,6 +102,7 @@ int main(void) {
   void *frame = NULL;
   void *decoded = NULL;
   opus_uint32 *ranges = NULL;
+  decode_step_record *step_records = NULL;
   size_t decoded_len = 0;
   size_t decoded_cap = 0;
   OpusDecoder *dec = NULL;
@@ -117,7 +124,7 @@ int main(void) {
   }
   if (version == 1) {
     sample_format = SAMPLE_FORMAT_FLOAT32;
-  } else if (version == 2 || version == 3 || version == 4 || version == 5 || version == 6 || version == 7) {
+  } else if (version >= 2 && version <= 8) {
     if (!read_u32(&sample_format)) {
       fprintf(stderr, "failed to read sample format\n");
       return 1;
@@ -152,6 +159,10 @@ int main(void) {
   }
   if (sample_rate != 8000 && sample_rate != 12000 && sample_rate != 16000 && sample_rate != 24000 && sample_rate != 48000) {
     fprintf(stderr, "invalid sample rate\n");
+    return 1;
+  }
+  if (version == 8 && (frame_size > sample_rate * 3 / 25 || packet_count > 1000000)) {
+    fprintf(stderr, "invalid v8 frame size or step count\n");
     return 1;
   }
 
@@ -192,6 +203,21 @@ int main(void) {
     ranges = (opus_uint32 *)calloc(packet_count, sizeof(*ranges));
     if (ranges == NULL) {
       fprintf(stderr, "failed to allocate final range buffer\n");
+      opus_decoder_destroy(dec);
+      free(frame);
+      return 1;
+    }
+  }
+  if (version == 8 && packet_count > 0) {
+    if ((size_t)packet_count > SIZE_MAX / sizeof(*step_records)) {
+      fprintf(stderr, "step record count overflow\n");
+      opus_decoder_destroy(dec);
+      free(frame);
+      return 1;
+    }
+    step_records = (decode_step_record *)calloc(packet_count, sizeof(*step_records));
+    if (step_records == NULL) {
+      fprintf(stderr, "failed to allocate step records\n");
       opus_decoder_destroy(dec);
       free(frame);
       return 1;
@@ -242,6 +268,14 @@ int main(void) {
       free(decoded);
       return 1;
     }
+    if (version == 8 && packet_len > 6 * 1275 + 12) {
+      fprintf(stderr, "invalid v8 packet length\n");
+      opus_decoder_destroy(dec);
+      free(frame);
+      free(decoded);
+      free(step_records);
+      return 1;
+    }
     if (packet_len > 0) {
       packet = (unsigned char *)malloc(packet_len);
       if (packet == NULL || !read_exact(packet, packet_len)) {
@@ -283,6 +317,26 @@ int main(void) {
       }
       ranges[i] = final_range;
     }
+    if (version == 8) {
+      if (decoded_len > UINT32_MAX) {
+        fprintf(stderr, "decoded PCM offset overflow\n");
+        opus_decoder_destroy(dec);
+        free(frame);
+        free(decoded);
+        free(step_records);
+        return 1;
+      }
+      step_records[i].samples = (uint32_t)decoded_samples;
+      step_records[i].pcm_offset = (uint32_t)decoded_len;
+      if (opus_decoder_ctl(dec, OPUS_GET_FINAL_RANGE(&step_records[i].final_range)) != OPUS_OK) {
+        fprintf(stderr, "OPUS_GET_FINAL_RANGE failed\n");
+        opus_decoder_destroy(dec);
+        free(frame);
+        free(decoded);
+        free(step_records);
+        return 1;
+      }
+    }
     if (!append_items(&decoded, &decoded_len, &decoded_cap, frame, (size_t)decoded_samples * (size_t)channels, item_size)) {
       fprintf(stderr, "failed to append decoded samples\n");
       opus_decoder_destroy(dec);
@@ -296,7 +350,7 @@ int main(void) {
   opus_decoder_destroy(dec);
 
   if (!write_exact(GOSO_MAGIC, 4) || decoded_len > UINT32_MAX ||
-      !write_u32(version == 6 ? 2 : 1) || !write_u32((uint32_t)decoded_len)) {
+      !write_u32(version == 8 ? 3 : version == 6 ? 2 : 1) || !write_u32((uint32_t)decoded_len)) {
     fprintf(stderr, "failed to write output header\n");
     free(frame);
     free(decoded);
@@ -319,9 +373,29 @@ int main(void) {
       return 1;
     }
   }
+  if (version == 8) {
+    if (!write_u32(packet_count)) {
+      fprintf(stderr, "failed to write step record count\n");
+      free(frame);
+      free(decoded);
+      free(step_records);
+      return 1;
+    }
+    for (i = 0; i < packet_count; i++) {
+      if (!write_u32(OPUS_OK) || !write_u32(step_records[i].samples) ||
+          !write_u32(step_records[i].final_range) || !write_u32(step_records[i].pcm_offset)) {
+        fprintf(stderr, "failed to write step record\n");
+        free(frame);
+        free(decoded);
+        free(step_records);
+        return 1;
+      }
+    }
+  }
 
   free(frame);
   free(decoded);
   free(ranges);
+  free(step_records);
   return 0;
 }

@@ -21,6 +21,10 @@ const (
 // NSQState holds the noise shaping quantizer state.
 // Mirrors libopus silk_nsq_state structure.
 type NSQState struct {
+	// delDecExactXqRound selects the libopus silk_NSQ_del_dec_avx2 rounding
+	// of the delayed-decision xq outputs for the current call.
+	delDecExactXqRound bool
+
 	// Buffer for quantized output signal
 	xq [2 * maxFrameLengthNSQ]int16
 
@@ -565,9 +569,8 @@ func shortTermPrediction(sLPCQ14 []int32, idx int, aQ12 []int16, order int) int3
 	}
 }
 
-// shortTermPrediction16 and shortTermPrediction10 are implemented in:
-//   - nsq_pred_arm64.s / nsq_pred_amd64.s (assembly, arm64 || amd64)
-//   - nsq_pred_default.go (pure Go fallback, !arm64 && !amd64)
+// shortTermPrediction16 and shortTermPrediction10 use the Go kernels in
+// nsq_pred.go on every architecture.
 
 // noiseShapeFeedback computes AR noise shaping feedback.
 // Matches libopus silk_NSQ_noise_shape_feedback_loop_c.

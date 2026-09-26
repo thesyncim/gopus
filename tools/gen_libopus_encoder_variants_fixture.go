@@ -69,11 +69,8 @@ type encoderVariantsFixturePacket struct {
 	FinalRange uint32 `json:"final_range"`
 }
 
-func getVariantsOpusDemoPath() string {
-	if p, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); ok {
-		return p
-	}
-	return ""
+func getVariantsOpusDemoPath() (string, error) {
+	return libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
 }
 
 func variantsOutputPath() string {
@@ -305,9 +302,9 @@ func runVariantsCase(opusDemoPath, tmpDir string, row encoderVariantsRefQRow, va
 }
 
 func main() {
-	opusDemoPath := getVariantsOpusDemoPath()
-	if opusDemoPath == "" {
-		fmt.Fprintf(os.Stderr, "opus_demo not found. expected tmp_check/opus-%s/opus_demo (run: make ensure-libopus)\n", libopustooling.DefaultVersion)
+	opusDemoPath, err := getVariantsOpusDemoPath()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "opus_demo unavailable: %v\n", err)
 		os.Exit(1)
 	}
 	provenance, ok := libopustooling.LibopusBuildProvenanceForTool(opusDemoPath)

@@ -1,4 +1,4 @@
-//go:build arm64 && !purego
+//go:build arm64 && !nosimd
 
 package celt
 
@@ -28,7 +28,7 @@ func TestCombFilterConstNeonBitExact(t *testing.T) {
 			got := append([]float32(nil), base...)
 			want := append([]float32(nil), base...)
 
-			ga4, ga3, ga2, ga1 := combFilterConstFloat32(got, delay, g10, g11, g12, x4, x3, x2, x1)
+			ga4, ga3, ga2, ga1 := combFilterConstFloat32(got, delay, g10, g11, g12, x4, x3, x2, x1, n&^3)
 
 			// Scalar reference: the simple rotated loop.
 			w4, w3, w2, w1 := x4, x3, x2, x1
@@ -49,5 +49,26 @@ func TestCombFilterConstNeonBitExact(t *testing.T) {
 					n, trial, ga4, ga3, ga2, ga1, w4, w3, w2, w1)
 			}
 		}
+	}
+}
+
+func TestCombFilterConstNeonZeroAllocs(t *testing.T) {
+	const n = 480
+	dst := make([]float32, n)
+	delay := make([]float32, n+4)
+	for i := range dst {
+		dst[i] = float32((i*17)%97-48) * 0.015625
+	}
+	for i := range delay {
+		delay[i] = float32((i*29)%101-50) * 0.0078125
+	}
+	const g10, g11, g12 = float32(0.15), float32(-0.08), float32(0.03)
+	call := func() {
+		combFilterConstNeon(dst, delay, g10, g11, g12, n/4)
+		kernelPortBenchF32 = dst[n-1]
+	}
+	call() // warm up before measuring steady-state allocations
+	if allocs := testing.AllocsPerRun(100, call); allocs != 0 {
+		t.Fatalf("allocs/op = %.2f, want 0", allocs)
 	}
 }

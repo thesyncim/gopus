@@ -605,7 +605,7 @@ func QuantEnergyFinalise(
 // Returns: bandLogE values suitable for quantization
 //
 // Reference: libopus celt/quant_bands.c amp2Log2()
-func Amp2Log2(bandE []celtEner, effEnd, end, channels int) []celtGLog {
+func Amp2Log2(bandE []celtEner, effEnd, end, channels int) []CeltGLog {
 	nbEBands := MaxBands
 	bandLogE := make([]celtGLog, channels*nbEBands)
 

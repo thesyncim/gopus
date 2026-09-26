@@ -8,6 +8,7 @@
 #endif
 
 #include "silk/float/main_FLP.h"
+#include "celt/cpu_support.h"
 
 #define INPUT_MAGIC "GSLT"
 #define OUTPUT_MAGIC "GSLU"
@@ -26,8 +27,27 @@ enum {
   MODE_LTP_QUANT = 0,
   MODE_LTP_VQ = 1,
   MODE_DECODE_PITCH = 2,
-  MODE_FIND_LTP_FLP = 3
+  MODE_FIND_LTP_FLP = 3,
+  MODE_CORR_MATRIX_VECTOR_FLP = 4
 };
+
+static int selected_arch;
+
+static int avx2_inner_product_is_selected(int arch) {
+#if defined(OPUS_X86_PRESUME_AVX2)
+  (void)arch;
+  return 1;
+#elif defined(OPUS_HAVE_RTCD) && defined(OPUS_X86_MAY_HAVE_AVX2)
+  return arch >= 4 && SILK_INNER_PRODUCT_FLP_IMPL[arch & OPUS_ARCHMASK] == silk_inner_product_FLP_avx2;
+#else
+  (void)arch;
+  return 0;
+#endif
+}
+
+static uint32_t inner_product_impl_selected(int arch) {
+  return avx2_inner_product_is_selected(arch) ? 1u : 0u;
+}
 
 static int set_binary_stdio(void) {
 #ifdef _WIN32
@@ -131,7 +151,7 @@ static int eval_quant(void) {
   if (!read_i32_vector(xX_Q17, nb_subfr * LTP_ORDER)) return 0;
 
   silk_quant_LTP_gains(B_Q14, cbk_index, &periodicity_index, &sum_log_gain_Q7,
-      &pred_gain_Q7, XX_Q17, xX_Q17, subfr_len, nb_subfr, 0);
+      &pred_gain_Q7, XX_Q17, xX_Q17, subfr_len, nb_subfr, selected_arch);
   return write_quant_record(periodicity_index, sum_log_gain_Q7, pred_gain_Q7, B_Q14, cbk_index);
 }
 
@@ -232,12 +252,45 @@ static int eval_find_ltp_flp(void) {
     if (lag_start < 0 || r_end > residual_len || lag_end > residual_len) return 0;
   }
 
-  silk_find_LTP_FLP(XX, xX, &residual[res_start], lag, subfr_len, nb_subfr, 0);
+  silk_find_LTP_FLP(XX, xX, &residual[res_start], lag, subfr_len, nb_subfr, selected_arch);
   for (i = 0; i < nb_subfr * LTP_ORDER * LTP_ORDER; i++) {
     if (!write_float(XX[i])) return 0;
   }
   for (i = 0; i < nb_subfr * LTP_ORDER; i++) {
     if (!write_float(xX[i])) return 0;
+  }
+  return 1;
+}
+
+static int eval_corr_matrix_vector_flp(void) {
+  uint32_t raw;
+  uint32_t length;
+  uint32_t order;
+  uint32_t i;
+  silk_float x[512];
+  silk_float y[512];
+  silk_float XX[16 * 16];
+  silk_float Xt[16];
+
+  if (!read_u32(&length) || !read_u32(&order)) return 0;
+  if (length == 0 || length > 480 || order == 0 || order > 16 || length + order - 1 > 512) return 0;
+  for (i = 0; i < length + order - 1; i++) {
+    if (!read_u32(&raw)) return 0;
+    memcpy(&x[i], &raw, sizeof(x[i]));
+  }
+  for (i = 0; i < length; i++) {
+    if (!read_u32(&raw)) return 0;
+    memcpy(&y[i], &raw, sizeof(y[i]));
+  }
+
+  silk_corrMatrix_FLP(x, (opus_int)length, (opus_int)order, XX, selected_arch);
+  silk_corrVector_FLP(x, y, (opus_int)length, (opus_int)order, Xt, selected_arch);
+  if (!write_u32(order)) return 0;
+  for (i = 0; i < order * order; i++) {
+    if (!write_float(XX[i])) return 0;
+  }
+  for (i = 0; i < order; i++) {
+    if (!write_float(Xt[i])) return 0;
   }
   return 1;
 }
@@ -248,6 +301,7 @@ static int eval_record(uint32_t mode) {
     case MODE_LTP_VQ: return eval_vq();
     case MODE_DECODE_PITCH: return eval_decode_pitch();
     case MODE_FIND_LTP_FLP: return eval_find_ltp_flp();
+    case MODE_CORR_MATRIX_VECTOR_FLP: return eval_corr_matrix_vector_flp();
   }
   return 0;
 }
@@ -257,14 +311,28 @@ int main(void) {
   uint32_t version;
   uint32_t mode;
   uint32_t count;
+  uint32_t inner_product_impl;
   uint32_t i;
 
   if (!set_binary_stdio()) return 1;
+#if defined(HAVE_CONFIG_H)
+  selected_arch = opus_select_arch();
+#else
+  selected_arch = 0;
+#endif
+#if defined(GOPUS_LIBOPUS_REQUIRE_AVX2)
+  if (!avx2_inner_product_is_selected(selected_arch)) {
+    fprintf(stderr, "paired libopus SILK helper selected no AVX2 inner product at arch %d\n", selected_arch);
+    return 1;
+  }
+#endif
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_FIND_LTP_FLP) return 1;
+  if (mode > MODE_CORR_MATRIX_VECTOR_FLP) return 1;
 
-  if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) return 1;
+  inner_product_impl = inner_product_impl_selected(selected_arch);
+  if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(2) ||
+      !write_u32((uint32_t)selected_arch) || !write_u32(inner_product_impl) || !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {
     if (!eval_record(mode)) return 1;
   }

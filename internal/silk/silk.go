@@ -963,6 +963,7 @@ func (d *Decoder) DecodePLCInto(bandwidth Bandwidth, frameSizeSamples int, outpu
 	if len(output) < frameSizeSamples {
 		return 0, ErrDecodeFailed
 	}
+	d.preparePLCFrameDecodeState(bandwidth, frameSizeSamples, 1)
 	// Get fade factor for this loss
 	fadeFactor := d.plcState.RecordLoss()
 	// Match libopus silk_PLC_conceal() input cadence: use decoder-state lossCnt.
@@ -1348,6 +1349,7 @@ func (d *Decoder) DecodePLCStereoInto(bandwidth Bandwidth, frameSizeSamples int,
 	if nativeSamples <= 0 {
 		return 0, nil
 	}
+	d.preparePLCFrameDecodeState(bandwidth, frameSizeSamples, 2)
 
 	// Get fade factor for this loss
 	fadeFactor := d.plcState.RecordLoss()

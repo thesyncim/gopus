@@ -127,8 +127,8 @@ func TestNB10msNativeDecodePathRegression(t *testing.T) {
 			frameSamples := cfg.SubframeSamples * tc.nSF
 			frameSizeAt48k := frameSamples * 48000 / cfg.SampleRate
 
-			enc := NewEncoder(tc.bw)
-			enc.SetBitrate(32000)
+			enc := newTestPacketEncoder(tc.bw, 1)
+			enc.ctl.BitRate = 32000
 			dec := NewDecoder()
 			resampler := dec.GetResampler(tc.bw)
 
@@ -140,12 +140,11 @@ func TestNB10msNativeDecodePathRegression(t *testing.T) {
 					ti := float64(sampleIdx) / float64(cfg.SampleRate)
 					frame[i] = float32(0.5 * math.Sin(2*math.Pi*440.0*ti))
 				}
-				pkt := enc.EncodeFrame(frame, nil, true)
+				pkt := enc.encode(t, frame)
 				if len(pkt) == 0 {
 					t.Fatalf("warmup frame %d: empty packet", f)
 				}
-				cp := append([]byte(nil), pkt...)
-				if _, err := dec.Decode(cp, tc.bw, frameSizeAt48k, true); err != nil {
+				if _, err := dec.Decode(pkt, tc.bw, frameSizeAt48k, true); err != nil {
 					t.Fatalf("warmup frame %d: decode error: %v", f, err)
 				}
 			}
@@ -155,7 +154,7 @@ func TestNB10msNativeDecodePathRegression(t *testing.T) {
 				ti := float64(i) / float64(cfg.SampleRate)
 				frame[i] = float32(0.5 * math.Sin(2*math.Pi*300.0*ti))
 			}
-			packet := enc.EncodeFrame(frame, nil, true)
+			packet := enc.encode(t, frame)
 			if len(packet) == 0 {
 				t.Fatal("test packet is empty")
 			}
@@ -215,8 +214,8 @@ func TestNB10msPublicDecodeRegression(t *testing.T) {
 			frameSamples := cfg.SubframeSamples * tc.nSF
 			frameSizeAt48k := frameSamples * 48000 / cfg.SampleRate
 
-			enc := NewEncoder(tc.bw)
-			enc.SetBitrate(32000)
+			enc := newTestPacketEncoder(tc.bw, 1)
+			enc.ctl.BitRate = 32000
 			dec := NewDecoder()
 
 			pcm := make([]float32, frameSamples)
@@ -224,7 +223,7 @@ func TestNB10msPublicDecodeRegression(t *testing.T) {
 				ti := float64(i) / float64(cfg.SampleRate)
 				pcm[i] = float32(0.4 * math.Sin(2*math.Pi*220.0*ti))
 			}
-			packet := enc.EncodeFrame(pcm, nil, true)
+			packet := enc.encode(t, pcm)
 			if len(packet) == 0 {
 				t.Fatal("empty packet")
 			}

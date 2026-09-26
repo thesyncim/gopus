@@ -1,4 +1,4 @@
-//go:build !amd64 || purego
+//go:build !amd64 || nosimd
 
 package celt
 
@@ -12,7 +12,7 @@ func pitchFMADD32(a, b, c float32) float32 {
 
 // pitchXcorrKernelAVX8 is the scalar fallback for builds without the AVX2 FMA
 // kernel. pitchXCorrFloat32AVX2FMAOrder is only reached when
-// libopusFloatPitchXCorrUsesAVX2FMA reports true (amd64 && !purego), so this
+// libopusFloatPitchXCorrUsesAVX2FMA reports true (amd64 && !nosimd), so this
 // path exists only to keep the shared helper compiling on other builds.
 func pitchXcorrKernelAVX8(x, y []float32, sum *[8]float32, length int) {
 	var sums [8][8]float32

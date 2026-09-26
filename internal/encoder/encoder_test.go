@@ -555,38 +555,6 @@ func TestAutoLongFrameSpeechLikePrefersCELTAtFullband(t *testing.T) {
 	}
 }
 
-// TestDownsample48to16 tests the downsampling function.
-func TestDownsample48to16(t *testing.T) {
-	// 960 samples at 48kHz should become 320 samples at 16kHz
-	pcm := generateTestSignal(960, 1)
-
-	// Create an encoder to access the downsampling method
-	enc := encoder.NewEncoder(48000, 1)
-	downsampled := enc.Downsample48to16Hybrid(pcm, 960)
-
-	expectedLen := 960 / 3
-	if len(downsampled) != expectedLen {
-		t.Errorf("Downsampled length = %d, want %d", len(downsampled), expectedLen)
-	}
-
-	// Verify downsampled signal has reasonable values
-	var maxVal float32
-	for _, s := range downsampled {
-		if s > maxVal {
-			maxVal = s
-		}
-		if -s > maxVal {
-			maxVal = -s
-		}
-	}
-
-	if maxVal < 0.01 {
-		t.Error("Downsampled signal appears to be silent")
-	}
-
-	t.Logf("Downsampled max value: %f", maxVal)
-}
-
 // TestModeAutoSelection tests automatic mode selection.
 func TestModeAutoSelection(t *testing.T) {
 	enc := encoder.NewEncoder(48000, 1)

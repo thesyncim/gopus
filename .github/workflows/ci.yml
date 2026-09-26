@@ -19,7 +19,7 @@ env:
   LIBOPUS_VERSION: "1.6.1"
   GOPUS_DISABLE_OPUSDEC: "0"
   GOPUS_DISABLE_OPUSENC: "1"
-  GOLANGCI_LINT_VERSION: "v1.64.8"
+  GOLANGCI_LINT_VERSION: "v2.13.2"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -96,7 +96,7 @@ jobs:
 
       - name: Install golangci-lint
         run: |
-          GOWORK=off go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
+          GOWORK=off go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Run lint/static analysis
@@ -120,7 +120,7 @@ jobs:
 
       - name: Install golangci-lint
         run: |
-          GOWORK=off go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
+          GOWORK=off go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Run lint/static analysis across optional-feature tag builds
@@ -142,7 +142,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Bootstrap scalar libopus
+        run: make ensure-libopus-scalar
+
       - name: Run fast package sweep
+        env:
+          GOPUS_LIBOPUS_REF_SCALAR: "1"
         run: make test-fast
 
   test-linux-parity:
@@ -170,6 +175,7 @@ jobs:
         with:
           path: |
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
@@ -185,7 +191,9 @@ jobs:
       - name: Run focused libopus quality gate
         run: |
           make fixtures-gen-platform
-          GOPUS_REQUIRE_PLATFORM_FIXTURES=1 make test-quality
+          make ensure-libopus-scalar
+          GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_LIBOPUS_REF_SCALAR=1 make test-quality
+          make test-precision-guard
 
   test-linux-conformance:
     name: test-linux-conformance
@@ -208,6 +216,7 @@ jobs:
         with:
           path: |
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
@@ -224,20 +233,16 @@ jobs:
         run: make test-conformance
 
       # Native same-arch (linux/amd64) precision guard. Regenerate the libopus
-      # reference fixtures from the libopus just built on this runner so the
-      # encoder precision guard compares gopus against an amd64 libopus built
-      # with this runner's own toolchain. This mirrors the macOS and
+      # reference fixtures from the libopus just built on this runner. The
+      # ordinary scalar Go encoder is compared with scalar libopus, using this
+      # runner's toolchain on both sides. This mirrors the macOS and
       # ubuntu-arm64 native-fixture jobs and gives linux/amd64 a PR-time native
       # precision guard (the pinned-Docker provenance job covers it on push).
       - name: Generate native libopus fixtures
         run: make fixtures-gen-platform
 
-      - name: Run native encoder precision guard (same-arch reference)
-        run: |
-          GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=exhaustive GOPUS_STRICT_LIBOPUS_REF=1 \
-            go test -tags gopus_libopus_oracle ./testvectors \
-              -run '^TestEncoderCompliancePrecisionGuard$' \
-              -count=1 -timeout=20m
+      - name: Run native encoder precision guard (same ISA)
+        run: make test-precision-guard
 
   test-linux-race:
     name: test-linux-race
@@ -641,8 +646,182 @@ jobs:
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: libopus-scalar-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
-      - name: Run build-config matrix gate (purego ./...)
+      - name: Run build-config matrix gate (nosimd ./...)
         run: make test-build-config-matrix
+
+  test-linux-simd:
+    name: test-linux-simd
+    if: github.event_name == 'push'
+    needs:
+      - changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache pinned libopus build
+        uses: actions/cache@v5
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Run Go SIMD parity gate
+        run: make test-simd
+
+  test-linux-simd-ab:
+    name: test-linux-simd-ab
+    if: github.event_name == 'pull_request'
+    needs:
+      - changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout pull request base
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: baseline
+          fetch-depth: 1
+
+      - name: Checkout pull request head
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
+          fetch-depth: 1
+
+      - name: Setup Go 1.27.1
+        uses: actions/setup-go@v6
+        with:
+          go-version: 1.27.1
+          cache: true
+          cache-dependency-path: |
+            baseline/go.mod
+            candidate/go.mod
+
+      - name: Cache pinned libopus builds
+        uses: actions/cache@v5
+        with:
+          path: |
+            baseline/tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            baseline/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
+            baseline/tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
+            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: simd-ab-libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('candidate/tools/ensure_libopus.sh') }}
+
+      - name: Install external Opus decoder for full parity
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq opus-tools
+          command -v opusdec
+
+      - name: Test native A/B comparator
+        run: python3 -m unittest discover -s candidate/scripts -p 'test_compare_simd_ab.py'
+
+      - name: Capture early native paired-reference evidence
+        id: early_native_evidence
+        continue-on-error: true
+        shell: bash
+        run: bash candidate/scripts/ci_simd_ab_early.sh baseline candidate "$RUNNER_TEMP/simd-ab-early"
+
+      - name: Upload early native paired-reference evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64-simd-ab-early-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/simd-ab-early
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Capture native Linux A/B evidence
+        shell: bash
+        run: bash candidate/scripts/ci_simd_ab.sh baseline candidate "$RUNNER_TEMP/simd-ab"
+
+      - name: Test CELT and SILK SIMD tails at page boundaries
+        working-directory: candidate
+        env:
+          GOEXPERIMENT: simd
+          GOPUS_REQUIRE_XCORR_SIMD: "1"
+        run: go test ./internal/celt ./internal/silk -run '^TestXcorrKernelAVX8PageEndTails$' -count=1 -timeout=10m
+
+      - name: Upload native Linux A/B evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64-simd-ab-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/simd-ab
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce early native paired-reference gate
+        if: always()
+        env:
+          EARLY_NATIVE_EVIDENCE_OUTCOME: ${{ steps.early_native_evidence.outcome }}
+        run: test "$EARLY_NATIVE_EVIDENCE_OUTCOME" = success
+
+  capture-linux-amd64-opusdec-fixture:
+    name: capture-linux-amd64-opusdec-fixture
+    if: github.event_name == 'pull_request'
+    needs:
+      - changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go 1.27.1
+        uses: actions/setup-go@v6
+        with:
+          go-version: 1.27.1
+          cache: true
+
+      - name: Install opusdec
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq opus-tools
+          command -v opusdec
+
+      - name: Capture live-decoded SIMD fixture
+        env:
+          GOEXPERIMENT: simd
+          GOPUS_REQUIRE_PLATFORM_FIXTURES: "1"
+          GOPUS_UPDATE_OPUSDEC_CROSSVAL_FIXTURE: "1"
+        run: |
+          set +e
+          go test ./internal/celt -run '^TestOpusdecCrossvalFixtureCoverage$' -count=1 -v > fixture-refresh.log 2>&1
+          rc=$?
+          set -e
+          cat fixture-refresh.log
+          if [ "$rc" -ne 0 ]; then
+            test "$rc" -eq 1
+            grep -q 'updated opusdec crossval fixture' fixture-refresh.log
+          fi
+          test -s internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json
+
+      - name: Upload native opusdec fixture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64-opusdec-crossval-${{ github.event.pull_request.head.sha }}
+          path: |
+            internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json
+            fixture-refresh.log
+          if-no-files-found: error
+          retention-days: 30
 
   test-linux-core-oracles:
     name: test-linux-core-oracles
@@ -665,11 +844,25 @@ jobs:
         with:
           path: |
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
+      - name: Bootstrap scalar libopus
+        run: make ensure-libopus-scalar
+
       - name: Run core float libopus C-oracle parity gate
+        env:
+          GOPUS_LIBOPUS_REF_SCALAR: "1"
         run: make test-core-oracles-parity
+
+      - name: Run SIMD PVQ parity against the compiled libopus SSE2 kernel
+        env:
+          GOEXPERIMENT: simd
+          GOPUS_TEST_TIER: parity
+          GOPUS_STRICT_LIBOPUS_REF: "1"
+          GOPUS_REQUIRE_PVQ_SIMD: "1"
+        run: go test -v ./internal/celt -run '^(TestPVQSearchSIMDDispatchUsesAVX|TestOpPVQSearchFloat)' -count=1 -timeout=20m
 
   test-linux-fixedpoint-parity:
     name: test-linux-fixedpoint-parity
@@ -719,6 +912,8 @@ jobs:
       - test-linux-extra-controls
       - test-linux-extra-controls-parity
       - test-linux-build-config-matrix
+      - test-linux-simd
+      - test-linux-simd-ab
       - test-linux-core-oracles
       - test-linux-fixedpoint-parity
     runs-on: ubuntu-latest
@@ -741,6 +936,8 @@ jobs:
           echo "test-linux-extra-controls: ${{ needs.test-linux-extra-controls.result }}"
           echo "test-linux-extra-controls-parity: ${{ needs.test-linux-extra-controls-parity.result }}"
           echo "test-linux-build-config-matrix: ${{ needs.test-linux-build-config-matrix.result }}"
+          echo "test-linux-simd: ${{ needs.test-linux-simd.result }}"
+          echo "test-linux-simd-ab: ${{ needs.test-linux-simd-ab.result }}"
           echo "test-linux-core-oracles: ${{ needs.test-linux-core-oracles.result }}"
           echo "test-linux-fixedpoint-parity: ${{ needs.test-linux-fixedpoint-parity.result }}"
           if [ "${{ needs.test-linux-fast.result }}" != "success" ]; then
@@ -789,6 +986,12 @@ jobs:
             exit 1
           fi
           if [ "${{ needs.test-linux-build-config-matrix.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ needs.test-linux-simd.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ needs.test-linux-simd-ab.result }}" != "success" ]; then
             exit 1
           fi
           if [ "${{ needs.test-linux-core-oracles.result }}" != "success" ]; then
@@ -849,6 +1052,7 @@ jobs:
         with:
           path: |
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
@@ -908,8 +1112,11 @@ jobs:
         run: |
           GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=exhaustive GOPUS_STRICT_LIBOPUS_REF=1 \
             go test -tags gopus_libopus_oracle ./testvectors \
-              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderCompliancePrecisionGuard|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' \
+              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' \
               -count=1 -timeout=20m
+
+      - name: Run native encoder precision guard (same ISA)
+        run: make test-precision-guard
 
       - name: Run test suite
         run: GOPUS_TEST_TIER=fast GOPUS_LIBOPUS_ORACLE=0 go test ./... -count=1 -timeout=25m
@@ -935,6 +1142,7 @@ jobs:
         with:
           path: |
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
@@ -964,8 +1172,11 @@ jobs:
         run: |
           GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=exhaustive GOPUS_STRICT_LIBOPUS_REF=1 \
             go test -tags gopus_libopus_oracle ./testvectors \
-              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderCompliancePrecisionGuard|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' \
+              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' \
               -count=1 -timeout=20m
+
+      - name: Run native encoder precision guard (same ISA)
+        run: make test-precision-guard
 
   test-windows:
     name: test-windows
@@ -976,6 +1187,7 @@ jobs:
     env:
       GOPUS_DISABLE_OPUSDEC: "1"
       GOPUS_DISABLE_OPUSENC: "1"
+      GOPUS_LIBOPUS_REF_SCALAR: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -991,6 +1203,7 @@ jobs:
         with:
           path: |
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
@@ -1034,6 +1247,10 @@ jobs:
         shell: msys2 {0}
         run: make ensure-libopus
 
+      - name: Bootstrap scalar libopus
+        shell: msys2 {0}
+        run: make ensure-libopus-scalar
+
       - name: Run core float libopus C-oracle parity gate
         shell: msys2 {0}
         run: make test-core-oracles-parity
@@ -1042,8 +1259,8 @@ jobs:
       # Linux and macOS lanes. They drive a large bash focus-gate matrix that is
       # impractical to keep green under the MSYS2/mingw toolchain; the Windows
       # lane still gates the core float C-oracle parity above plus the
-      # gopus_libopus_oracle decoder/encoder fixture parity below, all built
-      # against the native libopus C reference.
+      # gopus_libopus_oracle decoder/encoder fixture parity below against the
+      # scalar libopus C reference selected for ordinary Go builds.
       - name: Generate native libopus fixtures
         shell: msys2 {0}
         run: make fixtures-gen-platform
@@ -1061,8 +1278,12 @@ jobs:
         run: |
           GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=exhaustive GOPUS_STRICT_LIBOPUS_REF=1 \
             go test -tags gopus_libopus_oracle ./testvectors \
-              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderCompliancePrecisionGuard|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' \
+              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' \
               -count=1 -timeout=20m
+
+      - name: Run native encoder precision guard (same ISA)
+        shell: msys2 {0}
+        run: make test-precision-guard
 
       - name: Run test suite
         shell: msys2 {0}

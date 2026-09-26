@@ -111,7 +111,7 @@ func mdctForwardOverlapLegacyStagedReference(samples []float32, overlap int) []f
 	}
 
 	for ; i < n4; i++ {
-		f[2*i] = mdctMulSubMixAlt(samples[xp2], samples[xp1-n2], window[wp2], window[wp1])
+		f[2*i] = mdctNegMulAddMixEncode(samples[xp1-n2], samples[xp2], window[wp1], window[wp2])
 		f[2*i+1] = mdctMulAddMix(samples[xp1], samples[xp2+n2], window[wp2], window[wp1])
 		xp1 += 2
 		xp2 -= 2

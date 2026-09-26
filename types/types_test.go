@@ -67,7 +67,7 @@ func TestBandwidthValues(t *testing.T) {
 		BandwidthFullband,
 	}
 	for i := 1; i < len(ordered); i++ {
-		if !(ordered[i-1] < ordered[i]) {
+		if ordered[i-1] >= ordered[i] {
 			t.Errorf("Bandwidth not strictly increasing at index %d: %d !< %d",
 				i, ordered[i-1], ordered[i])
 		}

@@ -1,4 +1,4 @@
-//go:build amd64 && !purego
+//go:build amd64 && !nosimd
 
 package celt
 
@@ -27,7 +27,7 @@ func TestCeltInnerProdSSEAsmMatchesLibopusOrder(t *testing.T) {
 	}
 
 	for n := 0; n <= len(x); n++ {
-		got := celtInnerProdSSEStyleAsm(x[:n], y[:n])
+		got := celtInnerProdSSEStyleImpl(x[:n], y[:n])
 		want := celtInnerProdSSEStyleGo(x[:n], y[:n])
 		if math.Float32bits(got) != math.Float32bits(want) {
 			t.Fatalf("n=%d: asm=%08x(%v), want libopus-order %08x(%v)",

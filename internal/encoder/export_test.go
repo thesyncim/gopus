@@ -4,21 +4,6 @@ package encoder
 
 // Export unexported functions for testing
 
-// Downsample48to16Hybrid exports the hybrid downsampler for testing.
-func (e *Encoder) Downsample48to16Hybrid(samples []float64, frameSize int) []float32 {
-	if e.hybridState == nil {
-		e.hybridState = &HybridState{
-			prevHBGain:     1.0,
-			stereoWidthQ14: 16384,
-		}
-	}
-	samplesRes := make([]opusRes, len(samples))
-	for i, sample := range samples {
-		samplesRes[i] = opusRes(sample)
-	}
-	return e.resampleHybridSILKLowband(samplesRes, frameSize)
-}
-
 // TargetBytesForBitrate exports targetBytesForBitrate for testing at 48 kHz.
 func TargetBytesForBitrate(bitrate, frameSize int) int {
 	return NewEncoder(48000, 1).targetBytesForBitrate(bitrate, frameSize)
@@ -46,9 +31,10 @@ func (e *Encoder) UpdateFECState(pcm []float32, vadFlag bool) {
 // WriteFrameLength exports writeFrameLength for testing.
 var WriteFrameLength = writeFrameLength
 
-// SilkInputBitrate exports the internal SILK bitrate reservation logic for tests.
+// SilkInputBitrate exports the internal SILK bitrate reservation logic for tests,
+// for a frame whose byte budget is the full 1276-byte max_data_bytes cap.
 func (e *Encoder) SilkInputBitrate(frameSize int) int {
-	return e.silkInputBitrate(frameSize)
+	return e.silkTotalBitrate(frameSize, libopusMaxDataBytesCap, 0)
 }
 
 // DTXFrameThreshold is the number of 20ms frames before DTX activates.

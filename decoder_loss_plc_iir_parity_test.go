@@ -291,7 +291,7 @@ func TestSILKPLCIIRStereoMultiLossEnergyDecays(t *testing.T) {
 	packets := encodeSILKVoicedPLCTestSequence(t, channels)
 
 	const frameSize = 960
-	var prevEnergy float64 = math.MaxFloat64
+	var prevEnergy = math.MaxFloat64
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, channels))
 	if err != nil {
 		t.Fatalf("NewDecoder: %v", err)

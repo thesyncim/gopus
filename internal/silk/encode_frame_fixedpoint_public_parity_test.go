@@ -12,11 +12,11 @@ import (
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
-// TestPublicSILKEncodeFrameFixedByteExact drives the PUBLIC silk.Encoder API
-// (EncodeFrame) under the gopus_fixed_point build and asserts the SILK frame
-// payload it produces is byte-for-byte identical to the libopus FIXED_POINT
-// silk_encode_frame_FIX reference, replayed on the exact int16 x_buf / inputBuf
-// and pre-encode state the public encoder consumed.
+// TestPublicSILKEncodeFrameFixedByteExact drives PacketEncoder.Encode under the
+// gopus_fixed_point build and asserts the SILK frame payload it produces is
+// byte-for-byte identical to the libopus FIXED_POINT silk_encode_frame_FIX
+// reference, replayed on the exact int16 x_buf / inputBuf and pre-encode state
+// the encoder consumed.
 //
 // It covers mono NB/MB/WB at 10 and 20 ms in CBR and VBR. This is the
 // public-API capstone for the integer SILK encode path: the encoder's own
@@ -83,16 +83,20 @@ func TestPublicSILKEncodeFrameFixedByteExact(t *testing.T) {
 				pcm[i] = float32(v * 0.35)
 			}
 
-			enc := NewEncoder(c.bandwidth)
-			enc.SetComplexity(2)
-			enc.SetBitrate(c.bitrate)
-			enc.SetVBR(!c.cbr)
-			enc.SetVADState(200, 0, [4]int32{-1, -1, -1, -1})
+			p := newTestPacketEncoder(c.bandwidth, 1)
+			p.ctl.Complexity = 2
+			p.ctl.BitRate = int32(c.bitrate)
+			p.ctl.UseCBR = c.cbr
+			p.ctl.MaxBits = int32(c.bitrate * c.frameMs / 1000)
+			enc := p.enc.state[0]
 			enc.EnableFixedSnapshotForTest()
 
-			got := enc.EncodeFrame(pcm, nil, true)
+			got := p.encodeInto(t, pcm, 1)
 			if len(got) == 0 {
 				t.Fatalf("empty packet")
+			}
+			if !enc.vadFlags[0] {
+				t.Fatalf("test signal is not VAD active")
 			}
 
 			snap := enc.FixedPreEncodeForTest()

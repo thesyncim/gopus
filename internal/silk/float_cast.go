@@ -8,7 +8,7 @@ import "math"
 // precision so a surrounding add/sub cannot fuse, matching the scalar reference
 // on every build. It is the cheap barrier — an FMUL+FADD pair rather than the
 // FMUL+FMOV+FMOV+FADD of a Float32bits round-trip — and a no-op on amd64 and the
-// purego oracle, which do not contract FP.
+// nosimd oracle, which do not contract FP.
 func round32(x float32) float32 {
 	return float32(x)
 }

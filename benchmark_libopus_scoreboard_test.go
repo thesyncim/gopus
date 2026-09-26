@@ -42,6 +42,7 @@ package gopus_test
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -55,6 +56,7 @@ import (
 
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/libopustooling"
 	"github.com/thesyncim/gopus/internal/testsignal"
 )
 
@@ -190,57 +192,138 @@ type scoreboardLibopusBench struct {
 	err  error
 }
 
-// scoreboardTier selects which libopus reference the scoreboard links and how it
-// is labelled. The two FAIR tiers are:
-//
-//	asm     — gopus default build (NEON/amd64 asm) vs libopus-SIMD
-//	          (tmp_check/opus-1.6.1-simd, --enable-rtcd --enable-intrinsics).
-//	          This is the real-world asm-vs-asm comparison. Run gopus default.
-//	purego  — gopus -tags purego (scalar Go) vs libopus-no-asm
-//	          (tmp_check/opus-1.6.1, the SIMD-DISABLED parity reference). Fair
-//	          scalar-vs-scalar. Run with `go test -tags 'gopus_libopus_bench purego'`.
-//
-// Tier is chosen by GOPUS_BENCH_TIER (asm|purego). The default is purego, so a
-// bare run never silently compares gopus asm against scalar libopus (the
-// apples-to-oranges artifact that overstated gopus). GOPUS_BENCH_LIBOPUS_A still
-// overrides the linked .a with an explicit path for manual experiments.
+// scoreboardTier selects the instruction-matched libopus reference. The Go
+// build tags select scalar references for default and nosimd builds, and the
+// explicit SIMD tree for GOEXPERIMENT=simd builds. GOPUS_BENCH_TIER may confirm
+// that selection; conflicting values fail before benchmark setup.
 type scoreboardTier struct {
 	name    string
+	variant libopustooling.LibopusReferenceVariant
 	simdRef bool
 	libPath string
 	refDesc string
 }
 
-func resolveScoreboardTier() scoreboardTier {
-	tier := strings.TrimSpace(strings.ToLower(os.Getenv("GOPUS_BENCH_TIER")))
-	switch tier {
-	case "asm", "simd":
+func resolveScoreboardTier() (scoreboardTier, error) {
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		return scoreboardTier{}, err
+	}
+	requested := strings.TrimSpace(strings.ToLower(os.Getenv("GOPUS_BENCH_TIER")))
+	switch requested {
+	case "", "auto":
+	case "scalar", "nosimd":
+		if variant != libopustooling.LibopusReferenceScalar {
+			return scoreboardTier{}, &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("GOPUS_BENCH_TIER=%q conflicts with the Go SIMD build", requested)}
+		}
+	case "simd":
+		if variant != libopustooling.LibopusReferenceSIMD {
+			return scoreboardTier{}, &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("GOPUS_BENCH_TIER=simd conflicts with the Go scalar build")}
+		}
+	default:
+		return scoreboardTier{}, &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("invalid GOPUS_BENCH_TIER=%q (want auto, scalar/nosimd, or simd)", requested)}
+	}
+	if variant == libopustooling.LibopusReferenceSIMD {
 		return scoreboardTier{
-			name:    "asm-vs-asm",
+			name:    "simd-go-vs-simd-libopus",
+			variant: variant,
 			simdRef: true,
 			libPath: libopustest.SIMDRefPath(".libs", "libopus.a"),
-			refDesc: "libopus-SIMD (opus-1.6.1-simd, --enable-rtcd --enable-intrinsics)",
-		}
-	default: // "", "purego", "noasm"
-		return scoreboardTier{
-			name:    "purego-vs-noasm",
-			simdRef: false,
-			libPath: libopustest.RefPath(".libs", "libopus.a"),
-			refDesc: "libopus-no-asm (opus-1.6.1, SIMD-disabled parity reference)",
-		}
+			refDesc: "libopus SIMD (opus-1.6.1-simd, --enable-rtcd --enable-intrinsics)",
+		}, nil
+	}
+	return scoreboardTier{
+		name:    "scalar-go-vs-scalar-libopus",
+		variant: variant,
+		libPath: libopustest.ScalarRefPath(".libs", "libopus.a"),
+		refDesc: "libopus scalar (opus-1.6.1-scalar, --disable-asm --disable-rtcd --disable-intrinsics)",
+	}, nil
+}
+
+func scoreboardArchivePath(tier scoreboardTier, override string) (string, error) {
+	if override == "" {
+		return tier.libPath, nil
+	}
+	path, err := filepath.Abs(override)
+	if err != nil {
+		return "", fmt.Errorf("resolve GOPUS_BENCH_LIBOPUS_A=%q: %w", override, err)
+	}
+	if err := libopustooling.ValidateLibopusReferenceArchive(path, tier.variant, libopustooling.DefaultVersion); err != nil {
+		return "", err
+	}
+	want, err := filepath.Abs(tier.libPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve scoreboard libopus archive: %w", err)
+	}
+	if filepath.Clean(path) != filepath.Clean(want) {
+		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("GOPUS_BENCH_LIBOPUS_A=%q does not match the %s header tree %s", path, tier.variant, filepath.Dir(filepath.Dir(want)))}
+	}
+	return path, nil
+}
+
+func TestResolveScoreboardTierUsesPairedBuild(t *testing.T) {
+	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "")
+	t.Setenv("GOPUS_BENCH_TIER", "")
+	tier, err := resolveScoreboardTier()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := libopustooling.LibopusReferenceScalar
+	if !scoreboardGopusIsNoSimd {
+		want = libopustooling.LibopusReferenceSIMD
+	}
+	if tier.variant != want {
+		t.Fatalf("variant=%q want %q", tier.variant, want)
+	}
+	wantTree := "opus-" + libopustooling.DefaultVersion + "-scalar"
+	if want == libopustooling.LibopusReferenceSIMD {
+		wantTree = "opus-" + libopustooling.DefaultVersion + "-simd"
+	}
+	if got := filepath.Base(filepath.Dir(filepath.Dir(tier.libPath))); got != wantTree {
+		t.Fatalf("archive tree=%q want %q", got, wantTree)
+	}
+}
+
+func TestResolveScoreboardTierRejectsConflictingTier(t *testing.T) {
+	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "")
+	if scoreboardGopusIsNoSimd {
+		t.Setenv("GOPUS_BENCH_TIER", "simd")
+	} else {
+		t.Setenv("GOPUS_BENCH_TIER", "nosimd")
+	}
+	_, err := resolveScoreboardTier()
+	var configErr *libopustooling.LibopusReferenceConfigError
+	if !errors.As(err, &configErr) {
+		t.Fatalf("error=%v, want LibopusReferenceConfigError", err)
+	}
+}
+
+func TestScoreboardArchivePathRejectsUnstampedOverride(t *testing.T) {
+	tier, err := resolveScoreboardTier()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = scoreboardArchivePath(tier, filepath.Join(t.TempDir(), "libopus.a"))
+	var configErr *libopustooling.LibopusReferenceConfigError
+	if !errors.As(err, &configErr) {
+		t.Fatalf("error=%v, want LibopusReferenceConfigError", err)
 	}
 }
 
 func (s *scoreboardLibopusBench) helper() (string, error) {
 	s.once.Do(func() {
-		// Pick the libopus reference for the requested fair tier (see
-		// scoreboardTier). GOPUS_BENCH_LIBOPUS_A, if set, overrides the linked .a
-		// path while keeping the tier's reference-dir headers/macros.
-		t := resolveScoreboardTier()
-		libPath := t.libPath
+		t, err := resolveScoreboardTier()
+		if err != nil {
+			s.err = err
+			return
+		}
+		libPath, err := scoreboardArchivePath(t, os.Getenv("GOPUS_BENCH_LIBOPUS_A"))
+		if err != nil {
+			s.err = err
+			return
+		}
 		outBase := "gopus_libopus_codec_bench_" + strings.ReplaceAll(t.name, "-", "_")
-		if p := os.Getenv("GOPUS_BENCH_LIBOPUS_A"); p != "" {
-			libPath = p
+		if os.Getenv("GOPUS_BENCH_LIBOPUS_A") != "" {
 			outBase += "_override"
 		}
 		s.path, s.err = libopustest.BuildCHelper(libopustest.CHelperConfig{
@@ -255,6 +338,38 @@ func (s *scoreboardLibopusBench) helper() (string, error) {
 		})
 	})
 	return s.path, s.err
+}
+
+func prepareScoreboardReference(tb testing.TB) bool {
+	tb.Helper()
+	if _, err := scoreboardHelper.helper(); err != nil {
+		libopustest.HelperUnavailable(tb, "codec bench", err)
+		return false
+	}
+	return true
+}
+
+func validateScoreboardConfiguration(tb testing.TB) bool {
+	tb.Helper()
+	tier, err := resolveScoreboardTier()
+	if err != nil {
+		libopustest.HelperUnavailable(tb, "codec bench", err)
+		return false
+	}
+	if override := os.Getenv("GOPUS_BENCH_LIBOPUS_A"); override != "" {
+		if _, err := scoreboardArchivePath(tier, override); err != nil {
+			libopustest.HelperUnavailable(tb, "codec bench", err)
+			return false
+		}
+		return true
+	}
+	if _, err := os.Stat(tier.libPath); err == nil {
+		if err := libopustooling.ValidateLibopusReferenceArchive(tier.libPath, tier.variant, libopustooling.DefaultVersion); err != nil {
+			libopustest.HelperUnavailable(tb, "codec bench", err)
+			return false
+		}
+	}
+	return true
 }
 
 var scoreboardHelper scoreboardLibopusBench
@@ -318,7 +433,11 @@ func genLibopusPCMBytes(c scoreboardConfig, nFrames int) ([]byte, error) {
 
 // newGopusEncoder builds a configured gopus encoder for the config.
 func newGopusEncoder(c scoreboardConfig) (*gopus.Encoder, error) {
-	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: c.Rate, Channels: c.Channels, Application: gopus.ApplicationAudio})
+	application, err := scoreboardApplication(c.LibopusApp)
+	if err != nil {
+		return nil, err
+	}
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: c.Rate, Channels: c.Channels, Application: application})
 	if err != nil {
 		return nil, err
 	}
@@ -345,6 +464,60 @@ func newGopusEncoder(c scoreboardConfig) (*gopus.Encoder, error) {
 		return nil, err
 	}
 	return enc, nil
+}
+
+func scoreboardApplication(libopusApp string) (gopus.Application, error) {
+	switch libopusApp {
+	case "audio":
+		return gopus.ApplicationAudio, nil
+	case "voip":
+		return gopus.ApplicationVoIP, nil
+	case "restricted-silk":
+		return gopus.ApplicationRestrictedSilk, nil
+	case "restricted-celt":
+		return gopus.ApplicationRestrictedCelt, nil
+	default:
+		return 0, fmt.Errorf("unsupported libopus scoreboard application %q", libopusApp)
+	}
+}
+
+func TestScoreboardGopusApplicationMatchesLibopusConfig(t *testing.T) {
+	cases := []struct {
+		token string
+		want  gopus.Application
+	}{
+		{token: "audio", want: gopus.ApplicationAudio},
+		{token: "voip", want: gopus.ApplicationVoIP},
+		{token: "restricted-silk", want: gopus.ApplicationRestrictedSilk},
+		{token: "restricted-celt", want: gopus.ApplicationRestrictedCelt},
+	}
+	for _, tc := range cases {
+		got, err := scoreboardApplication(tc.token)
+		if err != nil {
+			t.Fatalf("application %q: %v", tc.token, err)
+		}
+		if got != tc.want {
+			t.Errorf("application %q=%v want %v", tc.token, got, tc.want)
+		}
+	}
+	if _, err := scoreboardApplication("unrecognized"); err == nil {
+		t.Fatal("unknown libopus application was accepted")
+	}
+
+	for _, c := range scoreboardConfigs() {
+		if c.Mode != gopus.EncoderModeSILK {
+			continue
+		}
+		enc, err := newGopusEncoder(c)
+		if err != nil {
+			t.Fatalf("build SILK scoreboard encoder: %v", err)
+		}
+		if got := enc.Application(); got != gopus.ApplicationVoIP {
+			t.Fatalf("SILK Go application=%v want %v to match libopus %q", got, gopus.ApplicationVoIP, c.LibopusApp)
+		}
+		return
+	}
+	t.Fatal("scoreboard has no SILK config")
 }
 
 // runLibopusEncode times the libopus encode helper for the config and returns its
@@ -453,7 +626,13 @@ func encodeGopusBatch(tb testing.TB, c scoreboardConfig, pcm []float32, nFrames 
 // BenchmarkScoreboardEncode times gopus Encode against libopus opus_encode_float
 // for every matched config and records the gopus/libopus ratio.
 func BenchmarkScoreboardEncode(b *testing.B) {
+	if !validateScoreboardConfiguration(b) {
+		return
+	}
 	libopustest.RequireOracle(b)
+	if !prepareScoreboardReference(b) {
+		return
+	}
 	for _, c := range scoreboardConfigs() {
 		c := c
 		b.Run(c.name(), func(b *testing.B) {
@@ -512,7 +691,13 @@ func BenchmarkScoreboardEncode(b *testing.B) {
 // for every matched config (decoding gopus-produced packets) and records the
 // gopus/libopus ratio.
 func BenchmarkScoreboardDecode(b *testing.B) {
+	if !validateScoreboardConfiguration(b) {
+		return
+	}
 	libopustest.RequireOracle(b)
+	if !prepareScoreboardReference(b) {
+		return
+	}
 	for _, c := range scoreboardConfigs() {
 		c := c
 		b.Run(c.name(), func(b *testing.B) {
@@ -609,9 +794,11 @@ func (a *scoreboardAgg) summary() (geomean, median float64, n int) {
 //
 //	go test -tags gopus_libopus_bench -run TestScoreboardSummary -v .
 func TestScoreboardSummary(t *testing.T) {
+	if !validateScoreboardConfiguration(t) {
+		return
+	}
 	libopustest.RequireOracle(t)
-	if _, err := scoreboardHelper.helper(); err != nil {
-		libopustest.HelperUnavailable(t, "codec bench", err)
+	if !prepareScoreboardReference(t) {
 		return
 	}
 
@@ -680,19 +867,18 @@ func TestScoreboardSummary(t *testing.T) {
 		})
 	}
 
-	tier := resolveScoreboardTier()
-	gopusBuild := "gopus default (NEON/amd64 asm)"
-	if scoreboardGopusIsPureGo {
-		gopusBuild = "gopus -tags purego (scalar Go)"
+	tier, err := resolveScoreboardTier()
+	if err != nil {
+		t.Fatalf("resolve scoreboard tier: %v", err)
+	}
+	gopusBuild := "gopus GOEXPERIMENT=simd"
+	if scoreboardGopusIsNoSimd {
+		gopusBuild = "gopus scalar Go (default or -tags nosimd)"
 	}
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "\nPERF TIER: %s\n  gopus side : %s\n  libopus side: %s\n",
 		tier.name, gopusBuild, tier.refDesc)
-	if (tier.name == "asm-vs-asm") != !scoreboardGopusIsPureGo {
-		fmt.Fprintf(&sb, "  WARNING: tier/build mismatch — asm-vs-asm wants the gopus DEFAULT build,\n"+
-			"           purego-vs-noasm wants `-tags purego`. Ratios below are NOT a fair tier.\n")
-	}
 	fmt.Fprintf(&sb, "\n%-26s %12s %12s %7s   %12s %12s %7s\n",
 		"config", "enc_gopus", "enc_libopus", "g/l", "dec_gopus", "dec_libopus", "g/l")
 	fmt.Fprintf(&sb, "%s\n", strings.Repeat("-", 100))

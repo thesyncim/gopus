@@ -1,5 +1,15 @@
 package celt
 
+func celtLPCXcorrKernel4Float32(x, y []float32, sum *[4]float32, length int) {
+	if libopusFloatInnerProdUsesSSEOrder {
+		// Float libopus routes celt_fir_c and celt_iir_c through
+		// xcorr_kernel_sse on amd64. Match its even/odd accumulators.
+		xcorrKernel4Float32SSEOrder(x, y, sum, length)
+		return
+	}
+	xcorrKernel4Float32(x, y, sum, length)
+}
+
 func xcorrKernel4Float32(x, y []float32, sum *[4]float32, length int) {
 	if length <= 0 {
 		return
@@ -191,7 +201,7 @@ func celtFIRFloat32(dst []celtSig, exc []celtSig, start, length int, lpc []float
 			exc[start+i+2],
 			exc[start+i+3],
 		}
-		xcorrKernel4Float32(rnum[:], exc[start+i-ord:], &sum, ord)
+		celtLPCXcorrKernel4Float32(rnum[:], exc[start+i-ord:], &sum, ord)
 		dst[i] = celtSig(sum[0])
 		dst[i+1] = celtSig(sum[1])
 		dst[i+2] = celtSig(sum[2])
@@ -199,8 +209,14 @@ func celtFIRFloat32(dst []celtSig, exc []celtSig, start, length int, lpc []float
 	}
 	for ; i < length; i++ {
 		sum := float32(exc[start+i])
+		// The paired arm64 NEON celt_fir_c tail rounds vector products before
+		// adding their lanes in order; other targets use the scalar expression.
 		for j := range ord {
-			sum += rnum[j] * exc[start+i+j-ord]
+			if libopusFloatInnerProdUsesNeonOrder {
+				sum = noFMA32Add(sum, noFMA32Mul(rnum[j], exc[start+i+j-ord]))
+			} else {
+				sum += rnum[j] * exc[start+i+j-ord]
+			}
 		}
 		dst[i] = celtSig(sum)
 	}
@@ -231,7 +247,7 @@ func (d *Decoder) celtIIRFloat32(dst []celtSig, hist []celtSig, lpc []float32, l
 			float32(dst[i+2]),
 			float32(dst[i+3]),
 		}
-		xcorrKernel4Float32(rden[:], y[i:], &sum, ord)
+		celtLPCXcorrKernel4Float32(rden[:], y[i:], &sum, ord)
 
 		y[i+ord] = -sum[0]
 		dst[i] = celtSig(sum[0])

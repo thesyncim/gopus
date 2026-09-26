@@ -67,7 +67,7 @@ func fillCtrlTrace(tr *encodeFrameTrace, signalType, quantOffset, numSubframes i
 	tr.ctrlQuantOffset = quantOffset
 	tr.ctrlNbSubfr = numSubframes
 	if params != nil {
-		tr.ctrlLambdaQ10 = params.LambdaQ10
+		tr.ctrlLambdaQ10 = float32ToInt32RoundEven(params.Lambda * 1024)
 		tr.ctrlCodingQual = params.CodingQuality
 		tr.ctrlInputQual = params.InputQuality
 	}

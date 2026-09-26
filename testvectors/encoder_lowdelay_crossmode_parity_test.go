@@ -411,7 +411,7 @@ func runLDParityCase(t *testing.T, tc ldMatrixCase, helperPath string) {
 
 	// RESTRICTED_LOWDELAY is CELT-only (asserted above on both encoders), so every
 	// diverging frame is a CELT float-analysis near-tie flip — the documented
-	// ≤1-ULP boundary on the pure-Go builds (arm64 FMA, and amd64-purego Go float
+	// ≤1-ULP boundary on the pure-Go builds (arm64 FMA, and amd64-nosimd Go float
 	// vs the scalar libopus this gate links). In unconstrained VBR a near-tie flip
 	// also shifts the chosen bit allocation, so a frame's length can change as a
 	// downstream effect of the same boundary. Only the amd64 asm/SIMD build is held
@@ -449,7 +449,7 @@ func runLDParityCase(t *testing.T, tc ldMatrixCase, helperPath string) {
 	if floatBoundary {
 		// Pure-Go CELT float residual: CELT float arithmetic on arm64 uses FMA
 		// contraction that diverges from clang -ffp-contract=on by ≤1 ULP per
-		// operation, and the amd64-purego Go float backend diverges from gcc's
+		// operation, and the amd64-nosimd Go float backend diverges from gcc's
 		// scalar CELT path by the same magnitude. The CELT-only mode and packet
 		// count are asserted strictly above on every build. amd64 asm/CI gate
 		// holds bit-exact. Reference: project_arm64_celt_1ulp_drift.md.

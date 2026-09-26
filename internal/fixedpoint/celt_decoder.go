@@ -338,9 +338,10 @@ func (d *CELTDecoder) decodeReceivedFrame(dec *rangecoding.Decoder, dataLen, fra
 			missing = 10
 		}
 		var safety int32
-		if LM == 0 {
+		switch LM {
+		case 0:
 			safety = gconst15
-		} else if LM == 1 {
+		case 1:
 			safety = gconst05
 		}
 		for c := 0; c < 2; c++ {

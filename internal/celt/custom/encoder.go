@@ -210,13 +210,17 @@ func (ce *CustomEncoder) Complexity() int {
 }
 
 // SetBitrate sets the target bitrate in bits per second, or −1 for max.
-// Mirrors OPUS_SET_BITRATE via opus_custom_encoder_ctl().
+// Mirrors OPUS_SET_BITRATE via opus_custom_encoder_ctl(): rates of 500 b/s or
+// less are rejected and rates above 750 kb/s per channel are capped.
 func (ce *CustomEncoder) SetBitrate(bps int) error {
 	if ce == nil {
 		return ErrEncoderNil
 	}
-	ce.bitrate = bps
-	ce.enc.SetBitrate(bps)
+	if bps <= 500 && bps != bitrateMax {
+		return ErrBadArg
+	}
+	ce.bitrate = min(bps, 750000*ce.channels)
+	ce.enc.SetBitrate(ce.bitrate)
 	return nil
 }
 
