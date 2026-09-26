@@ -263,8 +263,12 @@ func TestSilkTransitionPrefillStereoPrimesMidAndSide(t *testing.T) {
 	}
 	var packets [2][]byte
 	for i, enc := range []*Encoder{primed, plain} {
-		enc.configureSILKMode(960, 32000, 1275*8, false)
-		if err := enc.runPendingSILKPrefill(silk.VADNoDecision); err != nil {
+		enc.configureSILKMode(ModeHybrid, 960, 1276, 32000, 1275*8, false)
+		prefill := 0
+		if enc.silkPrefillPending {
+			prefill = 1
+		}
+		if err := enc.runPendingSILKPrefill(prefill, silk.VADNoDecision); err != nil {
 			t.Fatalf("prefill: %v", err)
 		}
 		if enc.silkPrefillPending {

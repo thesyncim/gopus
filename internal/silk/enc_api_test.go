@@ -23,17 +23,23 @@ func newTestPacketEncoder(bandwidth Bandwidth, channels int) *testPacketEncoder 
 	return newTestPacketEncoderAt(int(fs), bandwidth, channels)
 }
 
+// newTestPacketEncoderAt codes at the internal rate of bandwidth: it is the
+// desired rate and both rate limits, so the encoder starts there and stays.
 func newTestPacketEncoderAt(apiSampleRate int, bandwidth Bandwidth, channels int) *testPacketEncoder {
+	fs := int32(GetBandwidthConfig(bandwidth).SampleRate)
 	return &testPacketEncoder{
-		enc: NewPacketEncoder(apiSampleRate, channels, bandwidth),
+		enc: NewPacketEncoder(channels),
 		ctl: EncControl{
-			NChannelsAPI:      int32(channels),
-			NChannelsInternal: int32(channels),
-			APISampleRate:     int32(apiSampleRate),
-			PayloadSizeMs:     20,
-			BitRate:           int32(24000 * channels),
-			Complexity:        10,
-			MaxBits:           maxSilkPacketBytes * 8,
+			NChannelsAPI:              int32(channels),
+			NChannelsInternal:         int32(channels),
+			APISampleRate:             int32(apiSampleRate),
+			MaxInternalSampleRate:     fs,
+			MinInternalSampleRate:     fs,
+			DesiredInternalSampleRate: fs,
+			PayloadSizeMs:             20,
+			BitRate:                   int32(24000 * channels),
+			Complexity:                10,
+			MaxBits:                   maxSilkPacketBytes * 8,
 		},
 	}
 }
@@ -141,6 +147,36 @@ func TestPacketEncoderEncodeZeroAlloc(t *testing.T) {
 	}
 }
 
+// TestPacketEncoderInternalRateSwitchZeroAlloc steps the internal rate
+// 16 -> 12 -> 8 -> 12 -> 16 kHz, one step per packet, and checks that the
+// switches (silk_setup_resamplers carrying x_buf over, silk_setup_fs) reuse
+// the buffers of earlier switches.
+func TestPacketEncoderInternalRateSwitchZeroAlloc(t *testing.T) {
+	const apiRate = 48000
+	p := newTestPacketEncoderAt(apiRate, BandwidthWideband, 1)
+	p.ctl.MinInternalSampleRate = 8000
+	p.ctl.OpusCanSwitch = true
+	desired := [...]int32{12000, 8000, 12000, 16000}
+	frame := apiRate / 50
+	pcm := speechLikeSignal(apiRate, frame*len(desired), 1)
+	cycle := func() {
+		for i, fs := range desired {
+			p.ctl.DesiredInternalSampleRate = fs
+			p.encodeInto(t, pcm[i*frame:(i+1)*frame], 1)
+			if p.ctl.InternalSampleRate != fs {
+				t.Fatalf("internal rate %d, want %d", p.ctl.InternalSampleRate, fs)
+			}
+		}
+	}
+	p.encodeInto(t, pcm[:frame], 1)
+	for range 3 {
+		cycle()
+	}
+	if allocs := testing.AllocsPerRun(10, cycle); allocs != 0 {
+		t.Fatalf("rate switch allocs/op = %v, want 0", allocs)
+	}
+}
+
 func TestPacketEncoderInitRestoresFreshState(t *testing.T) {
 	const fs = 16000
 	pcm := speechLikeSignal(fs, 5*fs/50, 2)
@@ -166,10 +202,10 @@ func TestPacketEncoderInitRestoresFreshState(t *testing.T) {
 }
 
 func TestAllowBandwidthSwitchMatchesLibopusThreshold(t *testing.T) {
-	s := NewPacketEncoder(16000, 1, BandwidthWideband)
+	s := NewPacketEncoder(1)
 
 	s.updateAllowBandwidthSwitch(speechActivityDTXThresholdQ8-1, 20)
-	if !s.AllowBandwidthSwitch() {
+	if !s.allowBandwidthSwitch {
 		t.Fatal("low activity should allow bandwidth switching")
 	}
 	if s.timeSinceSwitchAllowedMs != 0 {
@@ -177,7 +213,7 @@ func TestAllowBandwidthSwitchMatchesLibopusThreshold(t *testing.T) {
 	}
 
 	s.updateAllowBandwidthSwitch(speechActivityDTXThresholdQ8, 20)
-	if s.AllowBandwidthSwitch() {
+	if s.allowBandwidthSwitch {
 		t.Fatal("activity at threshold should not allow bandwidth switching")
 	}
 	if s.timeSinceSwitchAllowedMs != 20 {
@@ -188,7 +224,7 @@ func TestAllowBandwidthSwitchMatchesLibopusThreshold(t *testing.T) {
 	// passes the maximum Q8 activity.
 	s.timeSinceSwitchAllowedMs = 5000
 	s.updateAllowBandwidthSwitch(255, 20)
-	if !s.AllowBandwidthSwitch() {
+	if !s.allowBandwidthSwitch {
 		t.Fatal("full delay threshold should allow even max Q8 activity")
 	}
 	if s.timeSinceSwitchAllowedMs != 0 {
@@ -237,6 +273,8 @@ func TestPrefillResetsChannelsAndKeepsLPStateOnlyForPrefill2(t *testing.T) {
 	const fs = 16000
 	for _, prefill := range []int{1, 2} {
 		p := newTestPacketEncoder(BandwidthWideband, 1)
+		// A first packet sets the internal rate the prefill 2 keeps.
+		p.encode(t, speechLikeSignal(fs, fs/50, 1))
 		st := p.enc.state[0]
 		st.lpState = LPState{InLPState: [2]int32{11, 22}, TransitionFrameNo: 17, Mode: -2}
 		st.frameCounter = 23
@@ -298,8 +336,8 @@ func TestOpusInactivityLowersSILKActivity(t *testing.T) {
 	}
 }
 
-func TestResetSideAfterMidOnly(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
+func TestResetAnalysisHistory(t *testing.T) {
+	enc := newTestEncoder(BandwidthWideband)
 	enc.isPreviousFrameVoiced = true
 	enc.pitchState.prevLag = 222
 	enc.previousGainIndex = 33
@@ -314,7 +352,7 @@ func TestResetSideAfterMidOnly(t *testing.T) {
 		enc.prevLSFQ15[i] = int16(i + 1)
 	}
 
-	enc.resetSideAfterMidOnly()
+	enc.resetAnalysisHistory()
 
 	if enc.previousGainIndex != 10 {
 		t.Fatalf("previousGainIndex = %d, want 10", enc.previousGainIndex)

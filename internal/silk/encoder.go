@@ -25,6 +25,24 @@ type Encoder struct {
 	inputBufIx int32
 	resampler  *LibopusResampler // API rate -> internal rate (sCmn.resampler_state)
 
+	// Sampling rates (silk_control_encoder): the API rate of the input, the
+	// API rate the resampler was set up for, and the limits and the request for
+	// the internal rate.
+	apiFsHz             int32 // sCmn.API_fs_Hz
+	prevAPIFsHz         int32 // sCmn.prev_API_fs_Hz
+	maxInternalFsHz     int32 // sCmn.maxInternal_fs_Hz
+	minInternalFsHz     int32 // sCmn.minInternal_fs_Hz
+	desiredInternalFsHz int32 // sCmn.desiredInternal_fs_Hz
+	// allowBandwidthSwitch is sCmn.allow_bandwidth_switch, the packet encoder's
+	// flag handed to silk_control_audio_bandwidth.
+	allowBandwidthSwitch bool
+
+	// silk_setup_resamplers scratch: x_buf as int16 at the internal rate and
+	// at the API rate, and the resampler taking x_buf back to the API rate.
+	xBufFix         []int16
+	xBufAPI         []int16
+	xBufAPIResample LibopusResampler
+
 	// Voice activity detection (sCmn.sVAD and the silk_encode_do_VAD_FLP outputs).
 	vad             silkVADState
 	vadScratch      []int16
@@ -53,15 +71,14 @@ type Encoder struct {
 	frameCounter          int32 // Frame counter for seed generation (seed = frameCounter & 3)
 
 	// LPC state
-	lpcOrder   int32   // Current LPC order (10 for NB/MB, 16 for WB)
-	prevLSFQ15 []int16 // Previous frame LSF (Q15) for interpolation
+	lpcOrder   int32              // sCmn.predictLPCOrder (10 for NB/MB, 16 for WB)
+	prevLSFQ15 [maxLPCOrder]int16 // sCmn.prev_NLSFq_Q15, the previous quantized NLSFs
 
 	// LP variable cutoff filter state (for smooth bandwidth transitions)
 	lpState LPState
 
 	// Pitch analysis state
-	pitchState       PitchAnalysisState // State for pitch estimation across frames
-	pitchAnalysisBuf []float32          // History buffer for pitch analysis (LTP memory + frame)
+	pitchState PitchAnalysisState // State for pitch estimation across frames
 
 	// VAD-derived state for the current frame (sCmn.speech_activity_Q8,
 	// input_tilt_Q15, input_quality_bands_Q15).
@@ -104,9 +121,10 @@ type Encoder struct {
 	// lookahead, in silk_float normalized to [-1, 1].
 	xBuf []float32
 
-	// Bandwidth configuration
-	bandwidth  Bandwidth
-	sampleRate int32
+	// Internal sampling rate (sCmn.fs_kHz, 0 until the first
+	// silk_control_encoder) and the bandwidth it codes.
+	fsKHz     int32
+	bandwidth Bandwidth
 
 	// FEC/LBRR (Low Bitrate Redundancy) state
 	// LBRR provides forward error correction by encoding redundant data
@@ -294,50 +312,44 @@ func ensureByteSlice(buf *[]byte, n int) []byte {
 	return *buf
 }
 
-// NewEncoder creates the state of one encoder channel coding at bandwidth, in
-// the state silk_init_encoder followed by the first silk_setup_fs leaves it.
-func NewEncoder(bandwidth Bandwidth) *Encoder {
-	config := GetBandwidthConfig(bandwidth)
-	fsKHz := config.SampleRate / 1000
-	frameSamples := 20 * fsKHz
-
+// newEncoder creates one encoder channel in the state silk_init_encoder
+// (silk/init_encoder.c) leaves it: it has no internal sampling rate until the
+// first silk_control_encoder picks one. The buffers are sized for the highest
+// internal rate, so a rate change reuses them.
+func newEncoder() *Encoder {
 	lbrrPulses := [maxFramesPerPacket][]int8{}
 	for i := range lbrrPulses {
 		lbrrPulses[i] = make([]int8, maxFrameLength)
 	}
-
-	// Pitch analysis buffer: LTP memory + max frame (20ms).
-	// Lookahead is zero-padded during residual computation.
-	pitchBufSamples := (ltpMemLengthMs + 20) * fsKHz
-	shapeBufSamples := (ltpMemLengthMs+laShapeMs)*fsKHz + frameSamples
-	pitchResSamples := pitchBufSamples + laPitchMs*fsKHz
 	enc := &Encoder{
-		prevLSFQ15:        make([]int16, config.LPCOrder),
-		xBuf:              make([]float32, shapeBufSamples),
-		nsqState:          NewNSQState(),
-		noiseShapeState:   NewNoiseShapeState(),
-		pitchAnalysisBuf:  make([]float32, pitchBufSamples),
-		scratchPitchRes32: make([]float32, pitchResSamples),
-		bandwidth:         bandwidth,
-		sampleRate:        int32(config.SampleRate),
-		lpcOrder:          int32(config.LPCOrder),
+		resampler: &LibopusResampler{},
+		// x_buf: LTP memory, noise shaping lookahead and one frame.
+		xBuf:            make([]float32, (ltpMemLengthMs+laShapeMs)*maxFsKHz+maxFrameLength),
+		nsqState:        NewNSQState(),
+		noiseShapeState: NewNoiseShapeState(),
+		// Pitch residual: LTP memory, one frame and the pitch lookahead.
+		scratchPitchRes32: make([]float32, (ltpMemLengthMs+laPitchMs)*maxFsKHz+maxFrameLength),
 		lbrrPulses:        lbrrPulses,
 	}
 	enc.reset()
 	return enc
 }
 
-// reset returns the channel to the state silk_init_encoder (silk/init_encoder.c)
-// followed by the first silk_setup_fs (silk/control_codec.c) leaves it, reusing
-// the allocated buffers. The resampler, VAD and every analysis, quantization and
-// LBRR history are cleared; the encoder keeps its bandwidth.
+// reset returns the channel to the state silk_init_encoder
+// (silk/init_encoder.c) leaves it, reusing the allocated buffers: every
+// analysis, quantization, VAD and LBRR history is cleared, no internal
+// sampling rate is set and the next frame is the first after a reset. The next
+// silk_control_encoder re-initializes the resampler.
 func (e *Encoder) reset() {
 	e.resetFixedState()
-	if e.resampler != nil {
-		e.resampler.Reset()
-	}
 	e.inputBuf = [maxFrameLength + 2]int16{}
 	e.inputBufIx = 0
+	e.apiFsHz = 0
+	e.prevAPIFsHz = 0
+	e.maxInternalFsHz = 0
+	e.minInternalFsHz = 0
+	e.desiredInternalFsHz = 0
+	e.allowBandwidthSwitch = false
 	silkVADInit(&e.vad)
 	e.vadFlags = [maxFramesPerPacket]bool{}
 	e.noSpeechCounter = 0
@@ -347,9 +359,11 @@ func (e *Encoder) reset() {
 	e.packetSizeMs = 0
 	e.nbSubfr = 0
 	e.frameLength = 0
+	e.firstFrameAfterReset = true
 	e.prefillFlag = false
 	e.controlledSinceLastPayload = false
 
+	e.previousGainIndex = 0
 	e.isPreviousFrameVoiced = false
 	e.variableHPSmth1Q15 = initVariableHPSmth1Q15()
 	e.ecPrevLagIndex = 0
@@ -357,13 +371,14 @@ func (e *Encoder) reset() {
 	e.lastQuantOffsetType = 0
 	e.lastSeed = 0
 	e.frameCounter = 0
-	clear(e.prevLSFQ15)
+	e.lpcOrder = 0
+	e.prevLSFQ15 = [maxLPCOrder]int16{}
 	e.lpState = LPState{}
 	e.pitchState = PitchAnalysisState{}
-	clear(e.pitchAnalysisBuf)
 	e.speechActivityQ8 = 0
 	e.inputTiltQ15 = 0
 	e.inputQualityBandsQ15 = [4]int32{}
+	e.nsqState.Reset()
 	e.noiseShapeState.Reset()
 	e.targetRateBps = 0
 	e.snrDBQ7 = 0
@@ -374,6 +389,8 @@ func (e *Encoder) reset() {
 	e.lastLPCGain = 0
 	e.lastNumSamples = 0
 	clear(e.xBuf)
+	e.fsKHz = 0
+	e.bandwidth = BandwidthNarrowband
 
 	e.lbrrEnabled = false
 	e.lbrrGainIncreases = 0
@@ -389,167 +406,27 @@ func (e *Encoder) reset() {
 	e.packetLossPercent = 0
 	e.nFramesEncoded = 0
 	e.nFramesPerPacket = 0
-
-	// The internal sampling rate changes from zero: silk_setup_fs resets
-	// part of the state to non-zero values and marks the first frame.
-	e.nsqState.Reset()
-	e.nsqState.lagPrev = 100
-	e.nsqState.prevGainQ16 = 1 << 16
-	e.pitchState.prevLag = 100
-	e.previousGainIndex = 10
-	e.firstFrameAfterReset = true
-	e.setupComplexity(0)
 }
 
-// resetSideAfterMidOnly mirrors libopus enc_API.c when stereo side coding
-// resumes after one or more mid-only frames: it clears the side channel's
-// shaping, NSQ, NLSF and LP filter memory and marks its next frame as the first
-// after a reset.
-func (e *Encoder) resetSideAfterMidOnly() {
+// resetAnalysisHistory clears the state silk_setup_fs (silk/control_codec.c)
+// resets when the internal sampling rate changes, and silk_Encode
+// (silk/enc_API.c) resets on the side channel when stereo side coding resumes
+// after mid-only frames: the noise shaping and quantizer state, the previous
+// NLSFs and the LP filter memory. The pitch lag and gain history restart at
+// their initial values and the next frame is coded as the first after a reset.
+func (e *Encoder) resetAnalysisHistory() {
 	e.noiseShapeState.Reset()
 	e.nsqState.Reset()
 	e.nsqState.lagPrev = 100
 	e.nsqState.prevGainQ16 = 1 << 16
-	clear(e.prevLSFQ15)
+	e.prevLSFQ15 = [maxLPCOrder]int16{}
 	e.lpState.InLPState = [2]int32{}
 	e.pitchState.prevLag = 100
 	e.previousGainIndex = 10
 	e.isPreviousFrameVoiced = false
 	e.firstFrameAfterReset = true
-	// Under the gopus_fixed_point build also reset the integer side-channel state
-	// (sShape/sNSQ/prev_NLSFq/sLP, LastGainIndex, prevLag) exactly as libopus
-	// enc_API.c does when side coding resumes. No-op on the float build.
-	e.resetStereoSideFixedState()
-}
-
-// setupComplexity is silk_setup_complexity (silk/control_codec.c): it sets the
-// pitch estimator, noise shaping and quantizer tuning for complexity 0-10.
-func (e *Encoder) setupComplexity(complexity int32) {
-	complexity = min(max(complexity, 0), 10)
-	e.complexity = complexity
-
-	fsKHz := e.sampleRate / 1000
-
-	switch {
-	case complexity < 1:
-		e.pitchEstimationComplexity = 0
-		e.pitchEstimationThresholdQ16 = 52429
-		e.pitchEstimationLPCOrder = 6
-		e.shapingLPCOrder = 12
-		e.laShape = 3 * fsKHz
-		e.nStatesDelayedDecision = 1
-		e.warpingQ16 = 0
-		e.nlsfSurvivors = 2
-	case complexity < 2:
-		e.pitchEstimationComplexity = 1
-		e.pitchEstimationThresholdQ16 = 49807
-		e.pitchEstimationLPCOrder = 8
-		e.shapingLPCOrder = 14
-		e.laShape = 5 * fsKHz
-		e.nStatesDelayedDecision = 1
-		e.warpingQ16 = 0
-		e.nlsfSurvivors = 3
-	case complexity < 3:
-		e.pitchEstimationComplexity = 0
-		e.pitchEstimationThresholdQ16 = 52429
-		e.pitchEstimationLPCOrder = 6
-		e.shapingLPCOrder = 12
-		e.laShape = 3 * fsKHz
-		e.nStatesDelayedDecision = 2
-		e.warpingQ16 = 0
-		e.nlsfSurvivors = 2
-	case complexity < 4:
-		e.pitchEstimationComplexity = 1
-		e.pitchEstimationThresholdQ16 = 49807
-		e.pitchEstimationLPCOrder = 8
-		e.shapingLPCOrder = 14
-		e.laShape = 5 * fsKHz
-		e.nStatesDelayedDecision = 2
-		e.warpingQ16 = 0
-		e.nlsfSurvivors = 4
-	case complexity < 6:
-		e.pitchEstimationComplexity = 1
-		e.pitchEstimationThresholdQ16 = 48497
-		e.pitchEstimationLPCOrder = 10
-		e.shapingLPCOrder = 16
-		e.laShape = 5 * fsKHz
-		e.nStatesDelayedDecision = 2
-		e.warpingQ16 = int32(float32(fsKHz) * float32(warpingMultiplier) * 65536.0)
-		e.nlsfSurvivors = 6
-	case complexity < 8:
-		e.pitchEstimationComplexity = 1
-		e.pitchEstimationThresholdQ16 = 47186
-		e.pitchEstimationLPCOrder = 12
-		e.shapingLPCOrder = 20
-		e.laShape = 5 * fsKHz
-		e.nStatesDelayedDecision = 3
-		e.warpingQ16 = int32(float32(fsKHz) * float32(warpingMultiplier) * 65536.0)
-		e.nlsfSurvivors = 8
-	default:
-		e.pitchEstimationComplexity = 2
-		e.pitchEstimationThresholdQ16 = 45875
-		e.pitchEstimationLPCOrder = 16
-		e.shapingLPCOrder = 24
-		e.laShape = 5 * fsKHz
-		e.nStatesDelayedDecision = maxDelDecStates
-		e.warpingQ16 = int32(float32(fsKHz) * float32(warpingMultiplier) * 65536.0)
-		e.nlsfSurvivors = 16
-	}
-
-	// Do not allow higher pitch estimation LPC order than predict LPC order.
-	e.pitchEstimationLPCOrder = min(e.pitchEstimationLPCOrder, e.lpcOrder)
-	e.shapeWinLength = subFrameLengthMs*fsKHz + 2*e.laShape
-}
-
-// setupPacketSize applies the packet-size half of silk_setup_fs
-// (silk/control_codec.c): the number of 20 ms frames per packet and the frame
-// geometry for 10 ms packets.
-func (e *Encoder) setupPacketSize(packetSizeMs int32) {
-	if packetSizeMs == e.packetSizeMs {
-		return
-	}
-	fsKHz := e.sampleRate / 1000
-	if packetSizeMs <= 10 {
-		e.nFramesPerPacket = 1
-		e.nbSubfr = 2
-		if packetSizeMs != 10 {
-			e.nbSubfr = 1
-		}
-		e.frameLength = packetSizeMs * fsKHz
-	} else {
-		e.nFramesPerPacket = packetSizeMs / 20
-		e.nbSubfr = maxNbSubfr
-		e.frameLength = 20 * fsKHz
-	}
-	e.packetSizeMs = packetSizeMs
-	e.targetRateBps = 0
-}
-
-// setupLBRR is silk_setup_LBRR (silk/control_codec.c), run once per packet:
-// LBRR is coded when the Opus layer asks for it, and the LBRR gain increase is
-// smaller after a packet that already carried LBRR (the previous packet was
-// coded at a lower rate).
-func (e *Encoder) setupLBRR(lbrrCoded bool) {
-	lbrrInPreviousPacket := e.lbrrEnabled
-	e.lbrrEnabled = lbrrCoded
-	if !e.lbrrEnabled {
-		return
-	}
-	if !lbrrInPreviousPacket {
-		e.lbrrGainIncreases = 7
-		return
-	}
-	e.lbrrGainIncreases = max(7-silkSMULWB(e.packetLossPercent, int32(silkFixConst(0.2, 16))), 3)
-}
-
-// Bandwidth returns the channel's coded bandwidth.
-func (e *Encoder) Bandwidth() Bandwidth {
-	return e.bandwidth
-}
-
-// SampleRate returns the channel's internal sampling rate in Hz.
-func (e *Encoder) SampleRate() int {
-	return int(e.sampleRate)
+	// The gopus_fixed_point build keeps the same history in its integer state.
+	e.resetFixedAnalysisHistory()
 }
 
 // lastEncodedSignalInfo returns the signal type and quantization offset of the
@@ -558,9 +435,4 @@ func (e *Encoder) SampleRate() int {
 func (e *Encoder) lastEncodedSignalInfo() (signalType, offset int32) {
 	signalType = e.ecPrevSignalType
 	return signalType, int32(getQuantizationOffset(int(signalType), e.lastQuantOffsetType))
-}
-
-// LBRREnabled reports whether LBRR is coded in the current packet.
-func (e *Encoder) LBRREnabled() bool {
-	return e.lbrrEnabled
 }

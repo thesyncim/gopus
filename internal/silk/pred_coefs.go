@@ -207,7 +207,7 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 				lpcRes := ensureFloat32Slice(&e.scratchLpcResF32, analyzeLen)
 
 				for k := 3; k >= 0; k-- {
-					interpolateNLSF(interpNLSF[:order], e.prevLSFQ15, lsfLast, k, order)
+					interpolateNLSF(interpNLSF[:order], e.prevLSFQ15[:], lsfLast, k, order)
 					// silk_NLSF2A_FLP calls silk_NLSF2A fixed-point
 					if !silkNLSF2A(lpcTmpQ12[:order], interpNLSF[:order], order) {
 						fallback := lsfToLPCDirect(interpNLSF[:order])

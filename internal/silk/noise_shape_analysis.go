@@ -19,7 +19,7 @@ func (e *Encoder) noiseShapeAnalysis(
 		e.noiseShapeState = NewNoiseShapeState()
 	}
 
-	fsKHz := max(int(e.sampleRate/1000), 8)
+	fsKHz := max(int(e.fsKHz), 8)
 
 	quantOffsetType := quantOffset
 	if signalType == typeVoiced {
@@ -176,7 +176,7 @@ func (e *Encoder) computeShapingARAndGains(
 		shapeOrder--
 	}
 
-	fsKHz := max(int(e.sampleRate/1000), 1)
+	fsKHz := max(int(e.fsKHz), 1)
 
 	laShape := max(int(e.laShape), 0)
 

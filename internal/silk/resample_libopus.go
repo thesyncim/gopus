@@ -27,7 +27,8 @@ type LibopusResampler struct {
 
 	copyMode  bool
 	up2HQMode bool
-	down      *DownsamplingResampler
+	down      *DownsamplingResampler // down_FIR stage, set when fsOut < fsIn
+	idleDown  *DownsamplingResampler // down_FIR stage kept for reuse by init
 }
 
 type libopusResamplerSnapshot struct {
@@ -243,10 +244,25 @@ func NewLibopusResamplerEnc(fsIn, fsOut int) *LibopusResampler {
 }
 
 func newLibopusResampler(fsIn, fsOut int, forEnc bool) *LibopusResampler {
-	r := &LibopusResampler{
-		fsInKHz:  int32(fsIn / 1000),
-		fsOutKHz: int32(fsOut / 1000),
-	}
+	r := &LibopusResampler{}
+	r.init(fsIn, fsOut, forEnc)
+	return r
+}
+
+// init is silk_resampler_init (silk/resampler.c): it clears the state and
+// configures the fsIn -> fsOut conversion, forEnc selecting the encoder
+// (delay_matrix_enc) or the decoder (delay_matrix_dec) delay compensation. The
+// state and scratch buffers are reused when they are large enough.
+func (r *LibopusResampler) init(fsIn, fsOut int, forEnc bool) {
+	r.sIIR = [6]int32{}
+	r.sFIR = [8]int16{}
+	r.fsInKHz = int32(fsIn / 1000)
+	r.fsOutKHz = int32(fsOut / 1000)
+	r.inputDelay = 0
+	r.invRatioQ16 = 0
+	r.batchSize = 0
+	r.copyMode = false
+	r.up2HQMode = false
 
 	// Delay compensation from libopus (delay_matrix_enc for the encoder input
 	// resampler, delay_matrix_dec for the decoder output resampler).
@@ -265,27 +281,32 @@ func newLibopusResampler(fsIn, fsOut int, forEnc bool) *LibopusResampler {
 	}
 
 	if fsOut < fsIn {
-		r.down = newDownsamplingResampler(fsIn, fsOut, forEnc)
-		return r
+		if r.down == nil {
+			r.down, r.idleDown = r.idleDown, nil
+			if r.down == nil {
+				r.down = &DownsamplingResampler{}
+			}
+		}
+		r.down.init(fsIn, fsOut, forEnc)
+		r.delayBuf = r.delayBuf[:0]
+		return
 	}
+	if r.down != nil {
+		r.idleDown, r.down = r.down, nil
+	}
+	clear(ensureInt16Slice(&r.delayBuf, int(r.fsInKHz)))
+	maxInputSamples := int(r.fsInKHz * resamplerMaxFrameMs)
+	maxOutputSamples := int(r.fsOutKHz * resamplerMaxFrameMs)
+	ensureInt16Slice(&r.scratchIn, maxInputSamples)
+	ensureInt16Slice(&r.scratchOut, maxOutputSamples)
+	ensureFloat32Slice(&r.scratchResult, maxOutputSamples)
 	if fsOut == fsIn {
 		r.copyMode = true
-		r.delayBuf = make([]int16, r.fsInKHz)
-		maxInputSamples := int(r.fsInKHz * resamplerMaxFrameMs)
-		r.scratchIn = make([]int16, maxInputSamples)
-		r.scratchOut = make([]int16, maxInputSamples)
-		r.scratchResult = make([]float32, maxInputSamples)
-		return r
+		return
 	}
 	if fsOut == fsIn*2 {
 		r.up2HQMode = true
-		r.delayBuf = make([]int16, r.fsInKHz)
-		maxInputSamples := int(r.fsInKHz * resamplerMaxFrameMs)
-		maxOutputSamples := int(r.fsOutKHz * resamplerMaxFrameMs)
-		r.scratchIn = make([]int16, maxInputSamples)
-		r.scratchOut = make([]int16, maxOutputSamples)
-		r.scratchResult = make([]float32, maxOutputSamples)
-		return r
+		return
 	}
 
 	// Batch size
@@ -303,21 +324,7 @@ func newLibopusResampler(fsIn, fsOut int, forEnc bool) *LibopusResampler {
 		r.invRatioQ16++
 	}
 
-	// Initialize delay buffer
-	r.delayBuf = make([]int16, r.fsInKHz)
-
-	// Pre-allocate scratch buffers for zero-allocation resampling.
-	// Opus allows up to 60ms frames, so size for that worst case.
-	// Max input: fsInKHz * 60
-	// Max output: fsOutKHz * 60
-	maxInputSamples := int(r.fsInKHz * resamplerMaxFrameMs)
-	maxOutputSamples := int(r.fsOutKHz * resamplerMaxFrameMs)
-	r.scratchBuf = make([]int16, 2*r.batchSize+resamplerOrderFIR12)
-	r.scratchIn = make([]int16, maxInputSamples)
-	r.scratchOut = make([]int16, maxOutputSamples)
-	r.scratchResult = make([]float32, maxOutputSamples)
-
-	return r
+	ensureInt16Slice(&r.scratchBuf, int(2*r.batchSize+resamplerOrderFIR12))
 }
 
 // ResamplerState holds the internal state of the resampler. For downsampling

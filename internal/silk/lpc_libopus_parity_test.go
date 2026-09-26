@@ -568,14 +568,14 @@ func TestSILKFindLPCFLPMatchesLibopusOracle(t *testing.T) {
 			if tc.order == 10 {
 				bw = BandwidthMediumband
 			}
-			enc := NewEncoder(bw)
+			enc := newTestEncoder(bw)
 			if tc.useInterpolatedNLSFs {
 				enc.setupComplexity(10)
 			} else {
 				enc.setupComplexity(0)
 			}
 			enc.firstFrameAfterReset = tc.firstFrameAfterReset
-			copy(enc.prevLSFQ15, tc.prevNLSF)
+			copy(enc.prevLSFQ15[:], tc.prevNLSF)
 
 			_, gotNLSF, gotInterp := enc.computeLPCAndNLSFWithInterp(tc.x, tc.nbSubfr, tc.subfrLength, tc.minInvGain)
 			if gotInterp != want[i].interpIdx {

@@ -676,7 +676,7 @@ func TestSILKStereoPacket0EncodeMatchesLibopusOracle(t *testing.T) {
 			if err != nil {
 				libopustest.HelperUnavailable(t, "silk packet0 wrapper", err)
 			}
-			s := NewPacketEncoder(48000, 2, BandwidthWideband)
+			s := NewPacketEncoder(2)
 			ctl := packet0EncControl(tc.bitRate, tc.maxBits, 20)
 			var re rangecoding.Encoder
 			re.Init(make([]byte, maxSilkPacketBytes))
@@ -790,14 +790,17 @@ func boolWord(v bool) int32 {
 
 func packet0EncControl(bitRate, maxBits, payloadSizeMs int) EncControl {
 	return EncControl{
-		NChannelsAPI:      2,
-		NChannelsInternal: 2,
-		APISampleRate:     48000,
-		PayloadSizeMs:     int32(payloadSizeMs),
-		BitRate:           int32(bitRate),
-		Complexity:        10,
-		UseCBR:            true,
-		MaxBits:           int32(maxBits),
+		NChannelsAPI:              2,
+		NChannelsInternal:         2,
+		APISampleRate:             48000,
+		MaxInternalSampleRate:     16000,
+		MinInternalSampleRate:     8000,
+		DesiredInternalSampleRate: 16000,
+		PayloadSizeMs:             int32(payloadSizeMs),
+		BitRate:                   int32(bitRate),
+		Complexity:                10,
+		UseCBR:                    true,
+		MaxBits:                   int32(maxBits),
 	}
 }
 
@@ -819,7 +822,7 @@ type silkPacket0MidFrame struct {
 func prepareSILKPacket0MidFrameCoreOracle(t testing.TB, signal []float32, bitRate, maxBits, payloadSizeMs int, want libopusSILKPacket0WrapperRecord) silkPacket0MidFrame {
 	t.Helper()
 	const activity = VADNoActivity
-	s := NewPacketEncoder(48000, 2, BandwidthWideband)
+	s := NewPacketEncoder(2)
 	ctl := packet0EncControl(bitRate, maxBits, payloadSizeMs)
 	mid, side := s.state[0], s.state[1]
 
@@ -827,14 +830,19 @@ func prepareSILKPacket0MidFrameCoreOracle(t testing.TB, signal []float32, bitRat
 	side.reset()
 	s.stereo = stereoEncState{midSideAmpQ0: [4]int32{0, 1, 0, 1}, smthWidthQ14: 1 << 14}
 	s.nChannelsAPI, s.nChannelsInternal = 2, 2
-	for _, st := range []*Encoder{mid, side} {
+	for n, st := range []*Encoder{mid, side} {
 		st.nFramesEncoded = 0
-		st.control(&ctl)
+		// The side channel is forced to the rate of the mid channel.
+		var forceFsKHz int32
+		if n == 1 {
+			forceFsKHz = mid.fsKHz
+		}
+		st.control(&ctl, false, forceFsKHz)
 		st.inDTX = st.useDTX
 	}
 
 	// Resample each channel into its input buffer.
-	nIn := int(mid.frameLength) * 48000 / int(mid.sampleRate)
+	nIn := int(mid.frameLength) * 48000 / (int(mid.fsKHz) * 1000)
 	in := make([]int16, nIn)
 	for i := range in {
 		in[i] = opusmath.Float32ToInt16(signal[2*i])
@@ -865,7 +873,7 @@ func prepareSILKPacket0MidFrameCoreOracle(t testing.TB, signal []float32, bitRat
 	}
 
 	ix, midOnly, rates := silkStereoLRToMS(&s.stereo, mid.inputBuf[:], side.inputBuf[:], totalRate,
-		mid.speechActivityQ8, false, int(mid.sampleRate/1000), int(mid.frameLength), &s.stereoScratch)
+		mid.speechActivityQ8, false, int(mid.fsKHz), int(mid.frameLength), &s.stereoScratch)
 	s.stereo.predIx[0] = ix
 	s.stereo.midOnlyFlags[0] = midOnly
 	if midOnly == 0 {

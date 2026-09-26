@@ -16,7 +16,6 @@ func TestOpusInputScratchFieldWidthsMatchFloatBuild(t *testing.T) {
 		"scratchDCPCM",
 		"scratchInputPCM",
 		"scratchDelayedPCM",
-		"scratchDelayState",
 		"scratchTransitionPrefill",
 		"scratchSilkPrefill",
 		"scratchCELTPrefill",

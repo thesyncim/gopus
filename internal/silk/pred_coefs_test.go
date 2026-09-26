@@ -26,7 +26,7 @@ func TestComputeMinInvGain(t *testing.T) {
 }
 
 func TestComputeLPCAndNLSFWithInterpRespectsComplexity(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestEncoder(BandwidthWideband)
 	enc.setupComplexity(0)
 	enc.firstFrameAfterReset = false
 

@@ -294,7 +294,7 @@ func TestEncodeVoicedVsUnvoiced(t *testing.T) {
 
 func TestExcitationEncoding(t *testing.T) {
 	// Test that excitation encoding produces valid output
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestEncoder(BandwidthWideband)
 	config := GetBandwidthConfig(BandwidthWideband)
 	frameSamples := config.SampleRate * 20 / 1000 // 20ms frame
 

@@ -573,20 +573,7 @@ gainSearch:
 	e.lastQuantOffsetType = int(frameIndices.quantOffsetType)
 	e.lastSeed = frameIndices.Seed
 	e.isPreviousFrameVoiced = (signalType == typeVoiced)
-	copy(e.prevLSFQ15, lsfQ15)
-
-	pitchBufFrameLen := len(framePCM)
-	if pitchBufFrameLen > 0 && len(e.pitchAnalysisBuf) > 0 {
-		if len(e.pitchAnalysisBuf) > pitchBufFrameLen {
-			copy(e.pitchAnalysisBuf, e.pitchAnalysisBuf[pitchBufFrameLen:])
-		}
-		start := len(e.pitchAnalysisBuf) - pitchBufFrameLen
-		if start < 0 {
-			start = 0
-			pitchBufFrameLen = len(e.pitchAnalysisBuf)
-		}
-		copy(e.pitchAnalysisBuf[start:], framePCM[:pitchBufFrameLen])
-	}
+	copy(e.prevLSFQ15[:], lsfQ15)
 
 	return e.finishFrame(frameSamples)
 }
@@ -610,18 +597,6 @@ func (e *Encoder) prefillFrame(in []int16) {
 		pcm[i] = float32(v) * (1.0 / silkSampleScale)
 	}
 	_ = e.updateShapeBuffer(pcm, frameSamples)
-	pitchBufFrameLen := len(pcm)
-	if pitchBufFrameLen > 0 && len(e.pitchAnalysisBuf) > 0 {
-		if len(e.pitchAnalysisBuf) > pitchBufFrameLen {
-			copy(e.pitchAnalysisBuf, e.pitchAnalysisBuf[pitchBufFrameLen:])
-		}
-		start := len(e.pitchAnalysisBuf) - pitchBufFrameLen
-		if start < 0 {
-			start = 0
-			pitchBufFrameLen = len(e.pitchAnalysisBuf)
-		}
-		copy(e.pitchAnalysisBuf[start:], pcm[:pitchBufFrameLen])
-	}
 	e.shiftInputBuffer(frameSamples)
 	e.frameCounter++
 }
@@ -699,7 +674,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		if e.noiseShapeState == nil {
 			e.noiseShapeState = NewNoiseShapeState()
 		}
-		fsKHz := max(int(e.sampleRate/1000), 8)
+		fsKHz := max(int(e.fsKHz), 8)
 		inputQualityBandsQ15 := e.inputQualityBandsQ15
 		// Match libopus: SNR_dB = (silk_float)psEnc->sCmn.SNR_dB_Q7 * ( 1 / 128.0f ) — float32.
 		snrDB := float32(e.snrDBQ7) * (1.0 / 128.0)
@@ -715,7 +690,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 	if signalType != typeVoiced {
 		ltpScaleQ14 = 0
 	}
-	ltpMemLengthSamples := ltpMemLengthMs * int(e.sampleRate/1000)
+	ltpMemLengthSamples := ltpMemLengthMs * int(e.fsKHz)
 	params := &NSQParams{
 		SignalType:             signalType,
 		QuantOffsetType:        quantOffset,
@@ -776,7 +751,7 @@ func (e *Encoder) updateShapeBuffer(pcm []float32, frameSamples int) []float32 {
 	if frameSamples <= 0 {
 		return pcm
 	}
-	fsKHz := max(int(e.sampleRate/1000), 1)
+	fsKHz := max(int(e.fsKHz), 1)
 	ltpMemSamples := ltpMemLengthMs * fsKHz
 	laShapeSamples := laShapeMs * fsKHz
 	keep := ltpMemSamples + laShapeSamples
@@ -843,7 +818,7 @@ func (e *Encoder) shiftInputBuffer(frameSamples int) {
 	if frameSamples <= 0 {
 		return
 	}
-	fsKHz := max(int(e.sampleRate/1000), 1)
+	fsKHz := max(int(e.fsKHz), 1)
 	ltpMemSamples := ltpMemLengthMs * fsKHz
 	laShapeSamples := laShapeMs * fsKHz
 	keep := ltpMemSamples + laShapeSamples

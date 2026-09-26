@@ -209,7 +209,9 @@ func (e *Encoder) frameSizeMsQ1(frameSize int) int32 {
 // decideDTXSuppress runs libopus decide_dtx_mode (opus_encoder.c:1115-1140),
 // called after the frame has been fully encoded so that the encoder state is
 // advanced exactly as libopus does before discarding the payload for a DTX
-// continuation packet (opus_encoder.c:2564-2572).
+// continuation packet (opus_encoder.c:2564-2572). The Opus-level decision only
+// runs while SILK's own DTX is off; otherwise, and without DTX, the inactivity
+// run restarts.
 //
 // activity is the resolved opus_int activity for this frame: for the SILK
 // VAD_NO_DECISION path libopus resolves it to signalType != TYPE_NO_VOICE_ACTIVITY
@@ -217,7 +219,7 @@ func (e *Encoder) frameSizeMsQ1(frameSize int) int32 {
 //
 // Returns true if the frame should be emitted as a 1-byte TOC-only DTX packet.
 func (e *Encoder) decideDTXSuppress(activity bool, frameSize int) bool {
-	if !e.dtxEnabled || e.dtx == nil {
+	if !e.dtxEnabled || e.silkMode.UseDTX || e.dtx == nil {
 		if e.dtx != nil {
 			e.dtx.noActivityMsQ1 = 0
 			e.dtx.inDTXMode = false
@@ -281,9 +283,14 @@ func (e *Encoder) subframeDTXSuppress(mode Mode, subVADPCM []opusRes, subFrameSi
 	return e.decideDTXSuppress(activity, subFrameSize)
 }
 
-// InDTX returns whether the encoder is currently in DTX mode.
-// This matches OPUS_GET_IN_DTX from libopus.
+// InDTX returns whether the encoder is currently in DTX mode, matching
+// OPUS_GET_IN_DTX (src/opus_encoder.c): after a SILK or Hybrid frame coded
+// with SILK's own DTX, SILK's no-speech run decides; otherwise the Opus-level
+// inactivity run does.
 func (e *Encoder) InDTX() bool {
+	if e.silkMode.UseDTX && (e.prevMode == ModeSILK || e.prevMode == ModeHybrid) && e.silk != nil {
+		return e.silk.InDTX(e.silkMode.NChannelsInternal)
+	}
 	if !e.dtxEnabled || e.dtx == nil {
 		return false
 	}

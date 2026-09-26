@@ -109,7 +109,7 @@ func TestSILKPitchAnalysisCoreMatchesLibopus(t *testing.T) {
 	}
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			enc := NewEncoder(tc.bandwidth)
+			enc := newTestEncoder(tc.bandwidth)
 			enc.pitchEstimationComplexity = int32(tc.complexity)
 			enc.pitchState.prevLag = int32(tc.prevLag)
 			enc.pitchState.ltpCorr = tc.ltpCorr
@@ -156,7 +156,7 @@ func TestSILKPitchAnalysisScratchMatchesLibopusFloatSize(t *testing.T) {
 			sizes.silkFloat, sizes.opusVal32, sizes.opusInt16)
 	}
 
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestEncoder(BandwidthWideband)
 	frame := silkPitchOracleWave(BandwidthWideband, 4, 200, 8000)
 	enc.detectPitch(frame, 4, 0.3, 0.2)
 

@@ -91,7 +91,18 @@ func TestSILKEncoderStateIntegerFieldWidthsMatchLibopus(t *testing.T) {
 		"nFramesEncoded",
 		"nFramesPerPacket",
 		"lastNumSamples",
-		"sampleRate",
+		"fsKHz",
+		"apiFsHz",
+		"prevAPIFsHz",
+		"maxInternalFsHz",
+		"minInternalFsHz",
+		"desiredInternalFsHz",
+	)
+	// silk_LP_state (silk/structs.h).
+	checkSILKFieldsHaveType(t, reflect.TypeFor[LPState](), int32Type,
+		"TransitionFrameNo",
+		"Mode",
+		"SavedFsKHz",
 	)
 	checkSILKFieldsHaveType(t, reflect.TypeFor[Encoder](), int16Type,
 		"ecPrevLagIndex",

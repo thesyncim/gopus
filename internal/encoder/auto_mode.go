@@ -599,8 +599,7 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxData
 	// Step 9: Mode selection with interpolated thresholds (lines 1492-1527).
 	// silk_mode.useDTX (opus_encoder.c:1461): DTX favours SILK only when the
 	// generalized DTX is unusable, i.e. DTX on AND the analysis is invalid/silent.
-	silkUseDTX := e.dtxEnabled && (!e.lastAnalysisValid && !isSilence)
-	mode := e.autoModeDecision(stereoWidth, voiceEst, equivRate, frameSize, maxDataBytes, silkUseDTX)
+	mode := e.autoModeDecision(stereoWidth, voiceEst, equivRate, frameSize, maxDataBytes, e.silkMode.UseDTX)
 
 	// Step 10: Frame size constraint (lines 1533-1537).
 	if mode != ModeCELT && frameSize < int(e.sampleRate)/100 {
@@ -625,19 +624,19 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxData
 	equivRate = e.computeEquivRate(e.bitrate, e.streamChannels, int32(frameRate), useVBR,
 		mode, e.complexity, e.packetLoss)
 
-	// Step 13: Auto bandwidth selection (lines 1583-1627).
-	// Run when CELT-only, first frame, or SILK allows bandwidth switch.
-	allowBWSwitch := e.silkAllowBandwidthSwitch()
-	if mode == ModeCELT || e.first || allowBWSwitch {
+	// Step 13: Auto bandwidth selection (lines 1583-1627). It runs for CELT-only
+	// frames, on the first frame, and when the last SILK packet reported that
+	// low speech activity allows a bandwidth switch.
+	if mode == ModeCELT || e.first || e.silkMode.AllowBandwidthSwitch {
 		bw := e.autoSelectBandwidth(voiceEst, equivRate)
 		e.bandwidth = bw
 		e.autoBandwidth = bw
-	}
-
-	// Prevent SWB/FB until SILK LP filter is inactive (lines 1625-1626).
-	if !e.first && mode != ModeCELT && !e.silkInWBModeWithoutVariableLP() &&
-		e.bandwidth > types.BandwidthWideband {
-		e.bandwidth = types.BandwidthWideband
+		// Prevent any transition to SWB/FB until the SILK layer has fully
+		// switched to WB and turned the variable LP filter off.
+		if !e.first && mode != ModeCELT && !e.silkMode.InWBModeWithoutVariableLP &&
+			e.bandwidth > types.BandwidthWideband {
+			e.bandwidth = types.BandwidthWideband
+		}
 	}
 
 	// Step 14: Bandwidth clamping (lines 1629-1684).
@@ -651,30 +650,8 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxData
 	// Step 16: Mode fixup based on final bandwidth (lines 1692-1695).
 	mode = autoModeFixup(mode, e.bandwidth)
 
-	// Track previous channels for stereo→mono transition. st->first is cleared
-	// later, at the common commit point in encodeOpusResWithAnalysisMaxBytes
-	// (libopus opus_encode_native line 2562), so the low-space / SILK nBytes==0
-	// early returns correctly leave it set.
-	e.prevChannels = e.streamChannels
-
+	// prev_channels and st->first advance at the end of the frame
+	// (opus_encode_frame_native), so the low-space and SILK DTX early returns
+	// leave them unchanged.
 	return mode
-}
-
-// silkAllowBandwidthSwitch checks if the SILK encoder allows bandwidth switching.
-// In libopus, this is set when SILK's internal sample rate is below the API rate.
-// Matches libopus silk_encode_frame_FLP.c allowBandwidthSwitch output.
-func (e *Encoder) silkAllowBandwidthSwitch() bool {
-	if e.silk == nil {
-		return false
-	}
-	return e.silk.AllowBandwidthSwitch()
-}
-
-// silkInWBModeWithoutVariableLP checks if SILK is in WB mode with LP filter inactive.
-// Matches libopus: silk_mode.inWBmodeWithoutVariableLP = (fs_kHz == 16 && sLP.mode == 0).
-func (e *Encoder) silkInWBModeWithoutVariableLP() bool {
-	if e.silk == nil {
-		return true // Conservative: don't restrict bandwidth if SILK not initialized.
-	}
-	return e.silk.InWBModeWithoutVariableLP()
 }

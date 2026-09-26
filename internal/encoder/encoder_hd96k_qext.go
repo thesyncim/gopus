@@ -63,6 +63,8 @@ func (e *Encoder) EncodeNativeHD96k(pcm []float32, frameSize int, dst []byte) (i
 	ce.SetLSBQuantizationEnabled(false)
 	ce.SetDelayCompensationEnabled(false)
 	ce.SetLSBDepth(int(e.lsbDepth))
+	// Every CELT frame sets the prediction (src/opus_encoder.c:2288-2295).
+	ce.SetPrediction(e.celtPredictionMode())
 	ce.SetComplexity(int(e.complexity))
 	ce.SetBitrate(int(e.bitrate))
 	switch e.bitrateMode {

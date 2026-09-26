@@ -24,18 +24,16 @@ type silkEncoderFixedFields struct {
 // silkFixedEncodeState holds the persistent silk_encoder_state_FIX-equivalent
 // state for the integer SILK encode path.
 type silkFixedEncodeState struct {
-	initialized bool
-
 	// scratch holds the reusable per-frame working buffers for the integer
 	// encode path, grown once and reused across every frame of a packet.
 	scratch *silkFixedEncodeScratch
 
-	// fs_kHz this state was configured for; a change forces re-init.
+	// fsKHz is the channel's internal rate (sCmn.fs_kHz).
 	fsKHz int
 
-	// Integer x_buf history (ltp_mem_length + la_shape + frame_length samples),
-	// matching silk_encoder_state_FIX.x_buf. The new frame is inserted at
-	// x_buf[ltp_mem_length + la_shape].
+	// Integer x_buf history (ltp_mem_length + la_shape + frame_length samples
+	// at the highest internal rate), matching silk_encoder_state_FIX.x_buf. The
+	// new frame is inserted at x_buf[ltp_mem_length + la_shape].
 	xBuf []int16
 
 	// Persistent NSQ state (silk_nsq_state).
@@ -294,42 +292,13 @@ func (e *Encoder) FixedPreEncodeForTest() FixedPreEncodeSnapshot {
 	}
 }
 
-// ensureFixedState lazily allocates / re-initializes the integer SILK state for
-// the encoder's current fs_kHz. It mirrors the parts of silk_init_encoder /
-// silk_control_encoder first-frame reset that establish the integer cross-frame
-// state (sNSQ.prev_gain_Q16, lagPrev, LastGainIndex, prevLag).
+// ensureFixedState returns the integer SILK state at the channel's current
+// internal rate. Encoder.reset sets it up (resetFixedState); silk_setup_fs
+// resets its analysis history on a rate change (resetFixedAnalysisHistory) and
+// silk_setup_resamplers carries its x_buf over (xBufToInt16/xBufFromInt16).
 func (e *Encoder) ensureFixedState() *silkFixedEncodeState {
-	fsKHz := int(e.sampleRate / 1000)
 	st := e.fixed
-	if st == nil {
-		st = &silkFixedEncodeState{}
-		e.fixed = st
-	}
-	if !st.initialized || st.fsKHz != fsKHz {
-		st.fsKHz = fsKHz
-		ltpMemLength := ltpMemLengthMs * fsKHz
-		laShape := laShapeMs * fsKHz
-		frameLength := 20 * fsKHz
-		st.xBuf = make([]int16, ltpMemLength+laShape+frameLength)
-		st.nsq = NSQState{}
-		st.frameCounter = 0
-		st.prevSignalType = typeNoVoiceActivity
-		st.prevLag = 0
-		st.firstFrameAfterReset = true
-		st.ltpCorrQ15 = 0
-		st.sumLogGainQ7 = 0
-		st.prevNLSFqQ15 = [maxLPCOrder]int16{}
-		st.lastGainIndex = 10
-		st.harmShapeGainSmthQ16 = 0
-		st.tiltSmthQ16 = 0
-		st.ecPrevLagIndex = 0
-		st.ecPrevSignalType = typeNoVoiceActivity
-		st.lbrrPrevLastGainIndex = 10
-		// control_codec first-frame reset (control_codec.c:254,257).
-		st.nsq.prevGainQ16 = 1 << 16
-		st.nsq.lagPrev = 100
-		st.initialized = true
-	}
+	st.fsKHz = int(e.fsKHz)
 	return st
 }
 
@@ -345,12 +314,46 @@ func (e *Encoder) prefillFrameFixed(in []int16) {
 	copy(st.xBuf[:keep], st.xBuf[frameSamples:frameSamples+keep])
 }
 
-// resetFixedState forces the integer SILK state to re-initialize on the next
-// frame. Called from Encoder.Reset under the tag.
+// resetFixedState returns the integer SILK state to the state
+// silk_init_encoder leaves it, with x_buf sized for the highest internal rate.
+// Called from Encoder.reset under the tag.
 func (e *Encoder) resetFixedState() {
-	if e.fixed != nil {
-		e.fixed.initialized = false
+	st := e.fixed
+	if st == nil {
+		st = &silkFixedEncodeState{}
+		e.fixed = st
 	}
+	st.fsKHz = 0
+	clear(ensureInt16Slice(&st.xBuf, (ltpMemLengthMs+laShapeMs)*maxFsKHz+maxFrameLength))
+	st.nsq = NSQState{}
+	st.frameCounter = 0
+	st.prevSignalType = typeNoVoiceActivity
+	st.prevLag = 0
+	st.firstFrameAfterReset = true
+	st.ltpCorrQ15 = 0
+	st.sumLogGainQ7 = 0
+	st.prevNLSFqQ15 = [maxLPCOrder]int16{}
+	st.lastGainIndex = 10
+	st.harmShapeGainSmthQ16 = 0
+	st.tiltSmthQ16 = 0
+	st.ecPrevLagIndex = 0
+	st.ecPrevSignalType = typeNoVoiceActivity
+	st.lbrrPrevLastGainIndex = 10
+	st.nsq.prevGainQ16 = 1 << 16
+	st.nsq.lagPrev = 100
+}
+
+// xBufToInt16 copies the first len(dst) samples of the integer x_buf for
+// silk_setup_resamplers (silk/control_codec.c), which resamples the FIXED_POINT
+// x_buf in place.
+func (e *Encoder) xBufToInt16(dst []int16) {
+	copy(dst, e.fixed.xBuf)
+}
+
+// xBufFromInt16 stores the resampled x_buf of silk_setup_resamplers
+// (silk/control_codec.c) back into the integer x_buf.
+func (e *Encoder) xBufFromInt16(src []int16) {
+	copy(e.fixed.xBuf, src)
 }
 
 // encodeFrameFixedBody runs the FIXED_POINT analysis + rate-control body for one

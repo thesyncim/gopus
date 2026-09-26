@@ -11,7 +11,7 @@ func TestSetPredictionDisabledPropagatesToSubEncoders(t *testing.T) {
 
 	// silk_mode.reducedDependency follows the prediction control for every
 	// SILK frame (src/opus_encoder.c).
-	enc.configureSILKMode(960, 32000, 1275*8, false)
+	enc.configureSILKMode(ModeSILK, 960, 1276, 32000, 1275*8, false)
 	if !enc.silkMode.ReducedDependency {
 		t.Fatal("silk_mode.reducedDependency should be set when prediction is disabled")
 	}
@@ -20,7 +20,7 @@ func TestSetPredictionDisabledPropagatesToSubEncoders(t *testing.T) {
 	}
 
 	enc.SetPredictionDisabled(false)
-	enc.configureSILKMode(960, 32000, 1275*8, false)
+	enc.configureSILKMode(ModeSILK, 960, 1276, 32000, 1275*8, false)
 	if enc.silkMode.ReducedDependency {
 		t.Fatal("silk_mode.reducedDependency should be cleared")
 	}
@@ -40,7 +40,7 @@ func TestSetPredictionDisabledPersistsAcrossReset(t *testing.T) {
 	if !enc.PredictionDisabled() {
 		t.Fatal("PredictionDisabled should remain true after Reset()")
 	}
-	enc.configureSILKMode(960, 32000, 1275*8, false)
+	enc.configureSILKMode(ModeSILK, 960, 1276, 32000, 1275*8, false)
 	if !enc.silkMode.ReducedDependency {
 		t.Fatal("silk_mode.reducedDependency should stay set after Reset()")
 	}

@@ -102,7 +102,7 @@ func (e *Encoder) hpVariableCutoff() {
 	if prevLag <= 0 {
 		return
 	}
-	fsKHz := e.sampleRate / 1000
+	fsKHz := e.fsKHz
 	if fsKHz <= 0 {
 		fsKHz = 8
 	}

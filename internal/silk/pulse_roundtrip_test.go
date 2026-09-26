@@ -30,7 +30,7 @@ func TestPulseEncodingRoundtrip(t *testing.T) {
 	}
 
 	// Create encoder
-	enc := NewEncoder(BandwidthNarrowband)
+	enc := newTestEncoder(BandwidthNarrowband)
 
 	// Initialize range encoder
 	output := make([]byte, 256)
@@ -155,7 +155,7 @@ func TestNSQExcitationScalingWithProperGain(t *testing.T) {
 // TestFullEncoderGainComputation tests the encoder's gain computation.
 func TestFullEncoderGainComputation(t *testing.T) {
 	// Create encoder
-	enc := NewEncoder(BandwidthNarrowband)
+	enc := newTestEncoder(BandwidthNarrowband)
 
 	// Create test PCM with known amplitude
 	pcmFloat := make([]float32, 160) // 20ms at 8kHz

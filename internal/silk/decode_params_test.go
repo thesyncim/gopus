@@ -54,7 +54,7 @@ func TestFrameTypeInactive(t *testing.T) {
 }
 
 func TestFrameTypeInactiveHighOffsetRoundtrip(t *testing.T) {
-	e := NewEncoder(BandwidthWideband)
+	e := newTestEncoder(BandwidthWideband)
 	var enc rangecoding.Encoder
 	buf := make([]byte, 32)
 	enc.Init(buf)
@@ -75,7 +75,7 @@ func TestFrameTypeInactiveHighOffsetRoundtrip(t *testing.T) {
 }
 
 func TestFrameTypeActiveVoicedHighOffsetRoundtrip(t *testing.T) {
-	e := NewEncoder(BandwidthWideband)
+	e := newTestEncoder(BandwidthWideband)
 	var enc rangecoding.Encoder
 	buf := make([]byte, 32)
 	enc.Init(buf)

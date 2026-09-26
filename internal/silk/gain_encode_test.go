@@ -49,7 +49,7 @@ func TestGainEncodeDecode(t *testing.T) {
 	// Test that encoded gains produce same decoded values
 	// GainDequantTable Q16 values range from 81920 (~1.25 float) to 1686110208 (~25729 float)
 	// These represent SILK gain levels, not direct amplitude multipliers
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestEncoder(BandwidthWideband)
 	dec := NewDecoder()
 
 	// Test gains using values from the CORRECT GainDequantTable range
@@ -93,7 +93,7 @@ func TestGainEncodeDecode(t *testing.T) {
 }
 
 func TestComputeSubframeGains(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestEncoder(BandwidthWideband)
 
 	// Test with known PCM data
 	tests := []struct {
@@ -149,7 +149,7 @@ func TestComputeSubframeGains(t *testing.T) {
 }
 
 func TestQuantizeLSF(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestEncoder(BandwidthWideband)
 	config := GetBandwidthConfig(BandwidthWideband)
 
 	// Create test LSF (evenly spaced)
@@ -184,7 +184,7 @@ func TestQuantizeLSF(t *testing.T) {
 }
 
 func TestQuantizeLSFNarrowband(t *testing.T) {
-	enc := NewEncoder(BandwidthNarrowband)
+	enc := newTestEncoder(BandwidthNarrowband)
 	config := GetBandwidthConfig(BandwidthNarrowband)
 
 	// Create test LSF
@@ -215,7 +215,7 @@ func TestLSFEncodeDecode(t *testing.T) {
 	// This test verifies the quantization produces valid indices
 	// that can be reconstructed using the libopus decoder logic
 
-	enc := NewEncoder(BandwidthNarrowband)
+	enc := newTestEncoder(BandwidthNarrowband)
 	config := GetBandwidthConfig(BandwidthNarrowband)
 	cb := &silk_NLSF_CB_NB_MB
 
@@ -265,7 +265,7 @@ func TestLSFEncodeDecode(t *testing.T) {
 }
 
 func TestInterpolationIndex(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestEncoder(BandwidthWideband)
 	config := GetBandwidthConfig(BandwidthWideband)
 
 	// Test first frame (no interpolation)
@@ -281,7 +281,7 @@ func TestInterpolationIndex(t *testing.T) {
 
 	// Simulate having encoded a frame
 	enc.firstFrameAfterReset = false
-	copy(enc.prevLSFQ15, lsfQ15)
+	copy(enc.prevLSFQ15[:], lsfQ15)
 
 	// Same LSF should give heavy interpolation
 	interpIdx = enc.computeInterpolationIndex(lsfQ15, config.LPCOrder)
@@ -300,7 +300,7 @@ func TestInterpolationIndex(t *testing.T) {
 }
 
 func TestComputeSymbolRate8(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestEncoder(BandwidthWideband)
 
 	// Test with libopus NLSF CB1 ICDF (uint8)
 	icdf := silk_NLSF_CB1_iCDF_WB

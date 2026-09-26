@@ -26,24 +26,29 @@ var ErrInvalidSampleCount = errors.New("silk: invalid number of input samples")
 // EncControl mirrors silk_EncControlStruct (silk/control.h): the controls the
 // Opus encoder sets before each Encode call and the status Encode reports back.
 type EncControl struct {
-	NChannelsAPI         int32 // I: number of API channels (1 or 2)
-	NChannelsInternal    int32 // I: number of coded channels (1 or 2)
-	APISampleRate        int32 // I: input sampling rate in Hz
-	PayloadSizeMs        int32 // I: packet duration in ms (10, 20, 40 or 60)
-	BitRate              int32 // I: target bitrate in bits/s
-	PacketLossPercentage int32 // I: uplink packet loss in percent (0-100)
-	Complexity           int32 // I: complexity (0-10)
-	LBRRCoded            bool  // I: code in-band FEC (LBRR) in this packet
-	UseDTX               bool  // I: discontinuous transmission
-	UseCBR               bool  // I: constant bitrate
-	MaxBits              int32 // I: maximum number of bits for the packet
-	ToMono               bool  // I: last frame before a stereo->mono transition
-	ReducedDependency    bool  // I: code every packet as the first after a reset
+	NChannelsAPI              int32 // I: number of API channels (1 or 2)
+	NChannelsInternal         int32 // I: number of coded channels (1 or 2)
+	APISampleRate             int32 // I: input sampling rate in Hz
+	MaxInternalSampleRate     int32 // I: maximum internal sampling rate in Hz (8000, 12000 or 16000)
+	MinInternalSampleRate     int32 // I: minimum internal sampling rate in Hz (8000, 12000 or 16000)
+	DesiredInternalSampleRate int32 // I: soft request for the internal sampling rate in Hz
+	PayloadSizeMs             int32 // I: packet duration in ms (10, 20, 40 or 60)
+	BitRate                   int32 // I: target bitrate in bits/s
+	PacketLossPercentage      int32 // I: uplink packet loss in percent (0-100)
+	Complexity                int32 // I: complexity (0-10)
+	LBRRCoded                 bool  // I: code in-band FEC (LBRR) in this packet
+	UseDTX                    bool  // I: discontinuous transmission
+	UseCBR                    bool  // I: constant bitrate
+	MaxBits                   int32 // I: maximum number of bits for the packet
+	ToMono                    bool  // I: last frame before a stereo->mono transition
+	OpusCanSwitch             bool  // I: the Opus encoder allows an internal bandwidth switch
+	ReducedDependency         bool  // I: code every packet as the first after a reset
 
 	InternalSampleRate        int32 // O: internal sampling rate in Hz
 	AllowBandwidthSwitch      bool  // O: low speech activity allows a bandwidth switch
 	InWBModeWithoutVariableLP bool  // O: wideband with the variable LP filter idle
 	StereoWidthQ14            int32 // O: smoothed stereo width (Q14)
+	SwitchReady               bool  // O: ready for the internal bandwidth switch
 	SignalType                int32 // O: signal type of the last coded frame
 	Offset                    int32 // O: quantization offset of the last coded frame
 }
@@ -64,34 +69,22 @@ type PacketEncoder struct {
 	allowBandwidthSwitch     bool
 	prevDecodeOnlyMiddle     bool
 
-	apiSampleRate int32
-	channels      int
-	bandwidth     Bandwidth
+	channels int // channel states silk_InitEncoder set up
 
 	buf           []int16 // API-rate int16 input block (buf in silk_Encode)
 	stereoScratch stereoLRToMSScratch
 }
 
 // NewPacketEncoder creates the SILK encoder for a stream of channels (1 or 2)
-// at apiSampleRate, coding at bandwidth, in the state silk_InitEncoder leaves
-// it.
-func NewPacketEncoder(apiSampleRate, channels int, bandwidth Bandwidth) *PacketEncoder {
-	s := &PacketEncoder{
-		apiSampleRate: int32(apiSampleRate),
-		channels:      channels,
-		bandwidth:     bandwidth,
-	}
+// in the state silk_InitEncoder leaves it: no internal sampling rate is set
+// until the first Encode call picks one from its controls.
+func NewPacketEncoder(channels int) *PacketEncoder {
+	s := &PacketEncoder{channels: channels}
 	for n := range channels {
-		s.state[n] = s.newChannel(bandwidth)
+		s.state[n] = newEncoder()
 	}
 	s.initPacketState()
 	return s
-}
-
-func (s *PacketEncoder) newChannel(bandwidth Bandwidth) *Encoder {
-	e := NewEncoder(bandwidth)
-	e.resampler = NewLibopusResamplerEnc(int(s.apiSampleRate), int(e.sampleRate))
-	return e
 }
 
 // initPacketState clears the packet-level state the way silk_InitEncoder does.
@@ -116,43 +109,15 @@ func (s *PacketEncoder) Init() {
 	s.initPacketState()
 }
 
-// SetBandwidth selects the SILK bandwidth the Opus layer codes at. A change
-// rebuilds the channel states for the new internal sampling rate, keeping only
-// their voice activity detectors, and clears the stereo state and the packet
-// rate control.
-func (s *PacketEncoder) SetBandwidth(bandwidth Bandwidth) {
-	if bandwidth == s.bandwidth {
-		return
+// InDTX reports the SILK half of OPUS_GET_IN_DTX (src/opus_encoder.c): the
+// first channel has gone NB_SPEECH_FRAMES_BEFORE_DTX frames without speech,
+// and so has the side channel when the last stereo frame coded it.
+func (s *PacketEncoder) InDTX(nChannelsInternal int32) bool {
+	inDTX := s.state[0].noSpeechCounter >= nbSpeechFramesBeforeDTX
+	if inDTX && nChannelsInternal == 2 && !s.prevDecodeOnlyMiddle {
+		inDTX = s.state[1].noSpeechCounter >= nbSpeechFramesBeforeDTX
 	}
-	s.bandwidth = bandwidth
-	for n := range s.channels {
-		old := s.state[n]
-		s.state[n] = s.newChannel(bandwidth)
-		s.state[n].vad = old.vad
-	}
-	s.stereo = stereoEncState{}
-	s.nBitsUsedLBRR = 0
-	s.nBitsExceeded = 0
-	s.timeSinceSwitchAllowedMs = 0
-	s.allowBandwidthSwitch = false
-	s.prevDecodeOnlyMiddle = false
-}
-
-// Bandwidth returns the coded SILK bandwidth.
-func (s *PacketEncoder) Bandwidth() Bandwidth {
-	return s.bandwidth
-}
-
-// AllowBandwidthSwitch reports the packet-level allowBandwidthSwitch flag of
-// the last coded packet.
-func (s *PacketEncoder) AllowBandwidthSwitch() bool {
-	return s.allowBandwidthSwitch
-}
-
-// InWBModeWithoutVariableLP reports whether the encoder codes wideband with the
-// variable LP filter idle (fs_kHz == 16 && sLP.mode == 0).
-func (s *PacketEncoder) InWBModeWithoutVariableLP() bool {
-	return s.state[0].sampleRate == 16000 && s.state[0].lpState.Mode == 0
+	return inDTX
 }
 
 // VariableHPSmth1Q15 returns the smoothed log-domain high-pass cutoff of the
@@ -172,6 +137,7 @@ func (s *PacketEncoder) VariableHPSmth1Q15() int32 {
 func (s *PacketEncoder) Encode(ctl *EncControl, samplesIn []float32, nSamplesIn int, re *rangecoding.Encoder, prefill, activity int) (int32, error) {
 	nChannelsAPI := int(ctl.NChannelsAPI)
 	nChannelsInternal := int(ctl.NChannelsInternal)
+	ctl.SwitchReady = false
 	if ctl.ReducedDependency {
 		for n := range nChannelsAPI {
 			s.state[n].firstFrameAfterReset = true
@@ -214,7 +180,7 @@ func (s *PacketEncoder) Encode(ctl *EncControl, samplesIn []float32, nSamplesIn 
 			// Save the sampling rate so the bandwidth switching code can keep
 			// handling transitions.
 			saveLP = s.state[0].lpState
-			saveLP.SavedFsKHz = s.state[0].sampleRate / 1000
+			saveLP.SavedFsKHz = s.state[0].fsKHz
 		}
 		for n := range nChannelsInternal {
 			s.state[n].reset()
@@ -238,7 +204,12 @@ func (s *PacketEncoder) Encode(ctl *EncControl, samplesIn []float32, nSamplesIn 
 	}
 
 	for n := range nChannelsInternal {
-		s.state[n].control(ctl)
+		// Force the side channel to the same rate as the mid.
+		var forceFsKHz int32
+		if n == 1 {
+			forceFsKHz = s.state[0].fsKHz
+		}
+		s.state[n].control(ctl, s.allowBandwidthSwitch, forceFsKHz)
 		if s.state[n].firstFrameAfterReset || transition {
 			for i := range s.state[0].nFramesPerPacket {
 				s.state[n].lbrrFlags[i] = 0
@@ -249,15 +220,15 @@ func (s *PacketEncoder) Encode(ctl *EncControl, samplesIn []float32, nSamplesIn 
 
 	// Input buffering/resampling and encoding.
 	st0 := s.state[0]
-	fsKHz := st0.sampleRate / 1000
+	fsKHz := st0.fsKHz
 	nSamplesToBufferMax := 10 * int32(nBlocksOf10ms) * fsKHz
-	nSamplesFromInputMax := nSamplesToBufferMax * s.apiSampleRate / (fsKHz * 1000)
+	nSamplesFromInputMax := nSamplesToBufferMax * st0.apiFsHz / (fsKHz * 1000)
 	buf := ensureInt16Slice(&s.buf, int(nSamplesFromInputMax))
 	var nBytesOut int32
 	for {
 		currNBitsUsedLBRR := 0
 		nSamplesToBuffer := min(st0.frameLength-st0.inputBufIx, nSamplesToBufferMax)
-		nSamplesFromInput := int(nSamplesToBuffer * s.apiSampleRate / (fsKHz * 1000))
+		nSamplesFromInput := int(nSamplesToBuffer * st0.apiFsHz / (fsKHz * 1000))
 		in := buf[:nSamplesFromInput]
 		switch {
 		case nChannelsAPI == 2 && nChannelsInternal == 2:
@@ -274,7 +245,7 @@ func (s *PacketEncoder) Encode(ctl *EncControl, samplesIn []float32, nSamplesIn 
 			st0.resampler.Resample(st0.inputBuf[st0.inputBufIx+2:st0.inputBufIx+2+nSamplesToBuffer], in)
 			st0.inputBufIx += nSamplesToBuffer
 
-			nSamplesToBuffer1 := min(st1.frameLength-st1.inputBufIx, 10*int32(nBlocksOf10ms)*(st1.sampleRate/1000))
+			nSamplesToBuffer1 := min(st1.frameLength-st1.inputBufIx, 10*int32(nBlocksOf10ms)*st1.fsKHz)
 			for n := range in {
 				in[n] = opusmath.Float32ToInt16(samplesIn[2*n+1])
 			}
@@ -374,7 +345,7 @@ func (s *PacketEncoder) Encode(ctl *EncControl, samplesIn []float32, nSamplesIn 
 				// Reset the side channel encoder memory for the first frame
 				// with side coding.
 				if s.prevDecodeOnlyMiddle {
-					st1.resetSideAfterMidOnly()
+					st1.resetAnalysisHistory()
 				}
 				st1.encodeDoVAD(activity)
 			} else {
@@ -478,8 +449,8 @@ func (s *PacketEncoder) Encode(ctl *EncControl, samplesIn []float32, nSamplesIn 
 	s.nPrevChannelsInternal = ctl.NChannelsInternal
 
 	ctl.AllowBandwidthSwitch = s.allowBandwidthSwitch
-	ctl.InWBModeWithoutVariableLP = s.InWBModeWithoutVariableLP()
-	ctl.InternalSampleRate = st0.sampleRate
+	ctl.InWBModeWithoutVariableLP = st0.fsKHz == 16 && st0.lpState.Mode == 0
+	ctl.InternalSampleRate = st0.fsKHz * 1000
 	ctl.StereoWidthQ14 = int32(s.stereo.smthWidthQ14)
 	if ctl.ToMono {
 		ctl.StereoWidthQ14 = 0
@@ -570,22 +541,6 @@ func (s *PacketEncoder) encodeLBRR(re *rangecoding.Encoder, nChannelsInternal in
 	return re.Tell() - lbrrStart
 }
 
-// control applies silk_control_encoder (silk/control_codec.c) to the channel
-// once per packet: the packet size, complexity, packet loss and LBRR setup. The
-// internal sampling rate is the one PacketEncoder.SetBandwidth selects.
-func (e *Encoder) control(ctl *EncControl) {
-	e.useDTX = ctl.UseDTX
-	e.useCBR = ctl.UseCBR
-	if e.controlledSinceLastPayload && !e.prefillFlag {
-		return
-	}
-	e.setupPacketSize(ctl.PayloadSizeMs)
-	e.setupComplexity(ctl.Complexity)
-	e.packetLossPercent = ctl.PacketLossPercentage
-	e.setupLBRR(ctl.LBRRCoded)
-	e.controlledSinceLastPayload = true
-}
-
 // encodeDoVAD is silk_encode_do_VAD_FLP (silk/float/encode_frame_FLP.c): it
 // runs the voice activity detector on the channel's frame and converts the
 // speech activity into the frame's VAD flag and the DTX state. activity is the
@@ -594,7 +549,7 @@ func (e *Encoder) control(ctl *EncControl) {
 func (e *Encoder) encodeDoVAD(activity int) {
 	const activityThreshold = speechActivityDTXThresholdQ8
 	frameLength := int(e.frameLength)
-	res := silkVADGetSAQ8(&e.vadScratch, &e.vad, e.inputBuf[1:1+frameLength], frameLength, int(e.sampleRate/1000))
+	res := silkVADGetSAQ8(&e.vadScratch, &e.vad, e.inputBuf[1:1+frameLength], frameLength, int(e.fsKHz))
 	e.speechActivityQ8 = res.speechActivityQ8
 	e.inputTiltQ15 = res.inputTiltQ15
 	e.inputQualityBandsQ15 = res.inputQualityBandsQ15

@@ -86,16 +86,23 @@ type HybridState struct {
 
 // encodeHybridFrameWithMaxPacketAndTransition allows callers assembling long packets
 // to gate CELT transition redundancy/prefill to the correct 20ms subframe,
-// matching libopus multi-frame cadence.
-func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, celtPCM []opusRes, frameSize int, maxPacketBytes int, maxDataBytes int, dredBitrate int, hardMaxPacketBytes bool, allowTransitionRedundancy bool, transitionToCELT bool, runCELTTransitionPrefill bool) ([]byte, error) {
+// matching libopus multi-frame cadence. celtPCM is the frame's delay-compensated
+// CELT input; the caller advances the delay buffer once the frame is coded.
+// silkDTX reports that silk_Encode returned no payload: the frame is TOC-only,
+// CELT does not run, and the frame ends before the delay buffer, the high-band
+// gain and the stereo width advance (src/opus_encoder.c:2242-2248).
+func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, celtPCM []opusRes, frameSize int, maxPacketBytes int, maxDataBytes int, dredBitrate int, hardMaxPacketBytes bool, allowTransitionRedundancy bool, transitionToCELT bool, runCELTTransitionPrefill bool) (frame []byte, silkDTX bool, err error) {
 	// Validate: only 10ms (Fs/100) or 20ms (Fs/50) for hybrid
 	if frameSize != int(e.sampleRate)/100 && frameSize != e.frame20ms() {
-		return nil, ErrInvalidHybridFrameSize
+		return nil, false, ErrInvalidHybridFrameSize
 	}
 
 	// Ensure sub-encoders exist
 	e.ensureSILKEncoder()
 	e.ensureCELTEncoder()
+	// A hybrid frame sets the CELT prediction before any redundant frame or
+	// transition prefill (src/opus_encoder.c:2288-2295).
+	e.celtEncoder.SetPrediction(e.celtPredictionMode())
 	// Hybrid CELT highband runs at the native API rate (SWB=24k, FB=48k); the
 	// CELT encoder upsamples sub-48k input to the 48 kHz core, matching libopus
 	// celt_encode_with_ec frame_size *= st->upsample.
@@ -104,13 +111,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 	e.syncCELTAnalysisToCELT()
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 
-	// Initialize hybrid state if needed
-	if e.hybridState == nil {
-		e.hybridState = &HybridState{
-			prevHBGain:     1.0,
-			stereoWidthQ14: 16384, // Full width (Q14 = 1.0)
-		}
-	}
+	e.ensureHybridState()
 
 	// Compute target buffer size based on bitrate mode.
 	// baseTargetBytes includes the TOC byte; payloadTarget is the shared range payload.
@@ -156,6 +157,18 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 	prevPacketMode := e.prevPacketMode
 	transitionCeltToHybrid := allowTransitionRedundancy && !transitionToCELT && !e.lowDelay && isConcreteMode(prevPacketMode) && prevPacketMode == ModeCELT
 	transitionSilkToCELT := allowTransitionRedundancy && transitionToCELT && !e.lowDelay
+	prefill := 0
+	if e.silkPrefillPending {
+		prefill = 1
+	}
+	// For the first frame at a new SILK bandwidth: the CELT->SILK redundant
+	// frame and a SILK prefill that keeps the sampling rate control.
+	if e.silkBWSwitch {
+		transitionCeltToHybrid = true
+		transitionSilkToCELT = false
+		e.silkBWSwitch = false
+		prefill = 2
+	}
 	transitionRedundancy := transitionCeltToHybrid || transitionSilkToCELT
 	redundancyBytes := 0
 	var redundancyData []byte
@@ -255,13 +268,29 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 		maxSilkRate := e.computeSilkRateForMax(maxBitsAsBitrate, frame20ms)
 		silkMaxBits = maxSilkRate * frameSize / int(e.sampleRate)
 	}
-	e.configureSILKMode(frameSize, silkBitrate, silkMaxBits, false)
+	e.configureSILKMode(ModeHybrid, frameSize, baseTargetBytes, silkBitrate, silkMaxBits, false)
 	activity := e.silkActivity()
-	if err := e.runPendingSILKPrefill(activity); err != nil {
-		return nil, err
+	if err := e.runPendingSILKPrefill(prefill, activity); err != nil {
+		return nil, false, err
 	}
-	if _, err := e.silk.Encode(&e.silkMode, pcm, frameSize, re, 0, activity); err != nil {
-		return nil, err
+	nBytes, err := e.silk.Encode(&e.silkMode, pcm, frameSize, re, 0, activity)
+	if err != nil {
+		return nil, false, err
+	}
+	e.silkMode.OpusCanSwitch = e.silkMode.SwitchReady && !e.nonfinalFrame
+	if nBytes == 0 {
+		e.hybridFinalRange = 0
+		return nil, true, nil
+	}
+	if e.silkMode.OpusCanSwitch {
+		// A hybrid frame codes SILK at 16 kHz (minInternalSampleRate), where
+		// SILK never asks to switch; the redundant CELT frame of a switch would
+		// end this frame.
+		redundancyBytes = computeRedundancyBytes(baseTargetBytes, int(e.bitrate), frameRate, e.celtInternalChannelsForMode(ModeHybrid))
+		transitionCeltToHybrid = false
+		transitionSilkToCELT = redundancyBytes != 0
+		transitionRedundancy = transitionSilkToCELT
+		e.silkBWSwitch = true
 	}
 
 	// Retrieve SILK signal info for CELT VBR target feedback.
@@ -284,9 +313,9 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 		if transitionRedundancy && redundancyBytes >= 2 {
 			redundancyBytes = clampRedundancyBytesAfterSilk(baseTargetBytes, re.Tell(), redundancyBytes, true)
 			if transitionCeltToHybrid {
-				data, rng, err := e.encodeCELTTransitionRedundancy(celtInput, frameSize, redundancyBytes)
+				data, rng, err := e.encodeCELTToSILKRedundancy(celtInput, e.effectiveBandwidth(), redundancyBytes)
 				if err != nil {
-					return nil, err
+					return nil, false, err
 				}
 				redundancyData = data
 				redundantRng = rng
@@ -307,6 +336,9 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 		} else {
 			re.EncodeBit(0, 12)
 		}
+	}
+	if !redundancyActive {
+		e.silkBWSwitch = false
 	}
 	if dredBitrate > 0 {
 		dredBytes := e.bitrateToBits(dredBitrate, frameSize) / 8
@@ -390,30 +422,29 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 		// run the PLC (src/opus_encoder.c:2578-2588).
 		e.hybridFinalRange = 0
 		mainPayload[0] = 0
-		return mainPayload[:1], nil
+		return mainPayload[:1], false, nil
 	}
 	if !redundancyActive {
 		e.hybridFinalRange = mainRng
-		return mainPayload, nil
+		return mainPayload, false, nil
 	}
 	if transitionSilkToCELT {
-		var err error
-		redundancyData, redundantRng, err = e.encodeCELTSilkToCELTRedundancy(celtInput, frameSize, redundancyBytes)
+		redundancyData, redundantRng, err = e.encodeSILKToCELTRedundancy(celtInput, frameSize, e.effectiveBandwidth(), redundancyBytes)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
 	if len(redundancyData) == 0 {
-		return nil, ErrEncodingFailed
+		return nil, false, ErrEncodingFailed
 	}
 	if len(mainPayload)+len(redundancyData) > len(e.hybridState.scratchPacket) {
-		return nil, ErrEncodingFailed
+		return nil, false, ErrEncodingFailed
 	}
 	out := e.hybridState.scratchPacket[:len(mainPayload)+len(redundancyData)]
 	copy(out, mainPayload)
 	copy(out[len(mainPayload):], redundancyData)
 	e.hybridFinalRange = mainRng ^ redundantRng
-	return out, nil
+	return out, false, nil
 }
 
 // computeRedundancyBytes matches libopus compute_redundancy_bytes().
@@ -471,33 +502,29 @@ func clampRedundancyBytesAfterSilk(maxDataBytes, tellBits, redundancyBytes int, 
 	return redundancyBytes
 }
 
-// encodeCELTTransitionRedundancy encodes the 5ms CELT redundancy frame used for
-// CELT->SILK/Hybrid transitions.
-func (e *Encoder) encodeCELTTransitionRedundancy(celtPCM []opusRes, frameSize, redundancyBytes int) ([]byte, uint32, error) {
-	if redundancyBytes < 2 || frameSize <= 0 {
-		return nil, 0, nil
-	}
+// encodeCELTToSILKRedundancy codes the 5 ms redundant CELT frame that starts a
+// switch from CELT to SILK or Hybrid, or a SILK internal bandwidth switch
+// (src/opus_encoder.c:2427-2441): the first Fs/200 samples of pcm_buf continue
+// the CELT stream at OPUS_BITRATE_MAX, coded to redundancyBytes at the TOC
+// bandwidth bw with the stream's channels and the CELT prediction setting in
+// force, and CELT is reset afterwards. It returns the redundant frame and its
+// final range.
+func (e *Encoder) encodeCELTToSILKRedundancy(celtPCM []opusRes, bw types.Bandwidth, redundancyBytes int) ([]byte, uint32, error) {
 	channels := int(e.channels)
-	redundancyFrameSize := int(e.sampleRate) / 200 // 5 ms at 48 kHz
-	if redundancyFrameSize <= 0 || frameSize < redundancyFrameSize {
-		return nil, 0, nil
-	}
+	redundancyFrameSize := int(e.sampleRate) / 200
 	redundancySamples := redundancyFrameSize * channels
-	if redundancySamples <= 0 || len(celtPCM) < redundancySamples {
+	if redundancyBytes < 2 || redundancyFrameSize <= 0 || len(celtPCM) < redundancySamples {
 		return nil, 0, nil
 	}
 
 	e.ensureCELTEncoder()
-	// The transition-redundancy CELT frame is a fixed 48 kHz-relative block, so it
-	// uses no input upsampling regardless of the API rate.
-	e.celtEncoder.SetUpsample(1)
-	e.celtEncoder.SetStreamChannels(e.celtInternalChannelsForMode(ModeHybrid))
+	e.celtEncoder.SetStreamChannels(e.celtInternalChannelsForMode(ModeCELT))
 	e.syncCELTAnalysisToCELT()
 	e.celtEncoder.SetHybrid(false)
 	e.celtEncoder.SetTopLevelDelayCompensatedInput(true)
 	e.celtEncoder.SetBitrate(celt.BitrateMax)
 	e.celtEncoder.SetVBR(false)
-	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
+	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(bw))
 	e.celtEncoder.SetLSBDepth(int(e.lsbDepth))
 	e.celtEncoder.SetDCRejectEnabled(false)
 	e.celtEncoder.SetMaxPayloadBytes(redundancyBytes)
@@ -509,44 +536,29 @@ func (e *Encoder) encodeCELTTransitionRedundancy(celtPCM []opusRes, frameSize, r
 	if err != nil {
 		return nil, 0, err
 	}
-	if len(redundancyData) < 2 {
-		return nil, 0, nil
-	}
-	if len(redundancyData) > len(e.hybridState.scratchRedundancy) {
-		return nil, 0, ErrEncodingFailed
-	}
-	out := e.hybridState.scratchRedundancy[:len(redundancyData)]
-	copy(out, redundancyData)
-	return out, redundantRng, nil
+	return e.keepRedundancy(redundancyData, redundantRng)
 }
 
-// encodeCELTSilkToCELTRedundancy matches libopus SILK/Hybrid->CELT transition
-// redundancy: reset CELT, prefill with 2.5 ms from the frame tail, then encode a
-// 5 ms redundant CELT frame from the end of the current frame.
-func (e *Encoder) encodeCELTSilkToCELTRedundancy(celtPCM []opusRes, frameSize, redundancyBytes int) ([]byte, uint32, error) {
-	if redundancyBytes < 2 || frameSize <= 0 {
-		return nil, 0, nil
-	}
+// encodeSILKToCELTRedundancy codes the 5 ms redundant CELT frame that ends a
+// switch from SILK or Hybrid to CELT, or ends the last frame before a SILK
+// internal bandwidth switch (src/opus_encoder.c:2519-2551): CELT is reset,
+// prefilled with the Fs/400 samples ahead of the last Fs/200 samples of
+// pcm_buf, and codes those last samples at OPUS_BITRATE_MAX to
+// redundancyBytes at the TOC bandwidth bw. It returns the redundant frame and
+// its final range.
+func (e *Encoder) encodeSILKToCELTRedundancy(celtPCM []opusRes, frameSize int, bw types.Bandwidth, redundancyBytes int) ([]byte, uint32, error) {
 	channels := int(e.channels)
 	sampleRate := int(e.sampleRate)
-	n2 := sampleRate / 200 // 5 ms at 48 kHz
-	n4 := sampleRate / 400 // 2.5 ms at 48 kHz
-	if n2 <= 0 || n4 <= 0 || frameSize < n2+n4 {
-		return nil, 0, nil
-	}
+	n2 := sampleRate / 200
+	n4 := sampleRate / 400
 	frameSamples := frameSize * channels
-	if frameSamples <= 0 || len(celtPCM) < frameSamples {
+	if redundancyBytes < 2 || n2 <= 0 || n4 <= 0 || frameSize < n2+n4 || len(celtPCM) < frameSamples {
 		return nil, 0, nil
 	}
 	prefillSamples := n4 * channels
 	redundancySamples := n2 * channels
 	prefillStart := frameSamples - redundancySamples - prefillSamples
-	prefillEnd := prefillStart + prefillSamples
 	redundancyStart := frameSamples - redundancySamples
-	redundancyEnd := redundancyStart + redundancySamples
-	if prefillStart < 0 || prefillEnd > len(celtPCM) || redundancyStart < 0 || redundancyEnd > len(celtPCM) {
-		return nil, 0, nil
-	}
 
 	e.ensureCELTEncoder()
 	e.celtEncoder.SetStreamChannels(e.celtInternalChannelsForMode(ModeCELT))
@@ -558,30 +570,49 @@ func (e *Encoder) encodeCELTSilkToCELTRedundancy(celtPCM []opusRes, frameSize, r
 	e.celtEncoder.SetPrediction(0)
 	e.celtEncoder.SetVBR(false)
 	e.celtEncoder.SetBitrate(celt.BitrateMax)
-	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
+	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(bw))
 	e.celtEncoder.SetLSBDepth(int(e.lsbDepth))
 	e.celtEncoder.SetDCRejectEnabled(false)
 
 	// Prefill 2.5 ms so CELT state matches decoder-side startup for the first CELT frame.
 	e.celtEncoder.SetMaxPayloadBytes(2)
-	_, _ = e.celtEncoder.EncodeFrame(celtPCM[prefillStart:prefillEnd], n4)
+	_, _ = e.celtEncoder.EncodeFrame(celtPCM[prefillStart:prefillStart+prefillSamples], n4)
 
 	e.celtEncoder.SetMaxPayloadBytes(redundancyBytes)
-	redundancyData, err := e.celtEncoder.EncodeFrame(celtPCM[redundancyStart:redundancyEnd], n2)
+	redundancyData, err := e.celtEncoder.EncodeFrame(celtPCM[redundancyStart:redundancyStart+redundancySamples], n2)
 	redundantRng := e.celtEncoder.FinalRange()
 	e.celtEncoder.SetMaxPayloadBytes(0)
 	if err != nil {
 		return nil, 0, err
 	}
-	if len(redundancyData) < 2 {
+	return e.keepRedundancy(redundancyData, redundantRng)
+}
+
+// keepRedundancy copies a redundant CELT frame into the scratch that outlives
+// the next CELT encode.
+func (e *Encoder) keepRedundancy(data []byte, rng uint32) ([]byte, uint32, error) {
+	if len(data) < 2 {
 		return nil, 0, nil
 	}
-	if len(redundancyData) > len(e.hybridState.scratchRedundancy) {
+	hs := e.ensureHybridState()
+	if len(data) > len(hs.scratchRedundancy) {
 		return nil, 0, ErrEncodingFailed
 	}
-	out := e.hybridState.scratchRedundancy[:len(redundancyData)]
-	copy(out, redundancyData)
-	return out, redundantRng, nil
+	out := hs.scratchRedundancy[:len(data)]
+	copy(out, data)
+	return out, rng, nil
+}
+
+// ensureHybridState creates the high-band gain and stereo width state at
+// unity gain and full width.
+func (e *Encoder) ensureHybridState() *HybridState {
+	if e.hybridState == nil {
+		e.hybridState = &HybridState{
+			prevHBGain:     1.0,
+			stereoWidthQ14: 16384,
+		}
+	}
+	return e.hybridState
 }
 
 // computeHybridBitAllocation computes SILK/CELT bitrates using the default packet
@@ -878,14 +909,15 @@ func (e *Encoder) applyStereoWidthFade(samples []opusRes, widthQ14Prev, widthQ14
 	return samples
 }
 
-// celtBandwidthFromTypes maps types.Bandwidth to CELT bandwidth.
+// celtBandwidthFromTypes maps the frame's bandwidth to the CELT bandwidth that
+// sets the end band opus_encode_frame_native hands CELT (CELT_SET_END_BAND):
+// 13 for narrowband, 17 for mediumband and wideband, 19 for superwideband and
+// 21 for fullband.
 func celtBandwidthFromTypes(bw types.Bandwidth) celt.CELTBandwidth {
 	switch bw {
 	case types.BandwidthNarrowband:
 		return celt.CELTNarrowband
-	case types.BandwidthMediumband:
-		return celt.CELTMediumband
-	case types.BandwidthWideband:
+	case types.BandwidthMediumband, types.BandwidthWideband:
 		return celt.CELTWideband
 	case types.BandwidthSuperwideband:
 		return celt.CELTSuperwideband

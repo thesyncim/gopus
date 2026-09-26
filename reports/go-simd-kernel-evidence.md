@@ -30,18 +30,18 @@ Strict matched CBR oracle, 19 configurations and 2,175 packets:
 
 On arm64 only Hybrid-SWB-20ms-mono-48k differs (7 packets, 3 final ranges).
 
-The per-frame encode differential sweep (`TestEncodeDifferentialFuzz`) has no
-CELT, hybrid or SILK payload differences on amd64. Its remaining differences are
-232 frames of TOC bandwidth in 10 ms SILK and hybrid packets, where libopus
-moves the SILK internal rate only through silk_control_audio_bandwidth.
+The per-frame encode differential sweep (`TestEncodeDifferentialFuzz`) matches
+libopus on every frame on amd64 in the Go SIMD, ordinary and `nosimd` lanes: no
+CELT, hybrid or SILK payload, TOC or final-range differences.
 
 Open differences, each with a live-oracle reproducer:
-- Encoder: SILK internal bandwidth control, the SILK-internal DTX wiring at the
-  Opus layer, the mode-transition redundancy flow, and the hybrid CELT path
-  (not yet the single CELT encoder); these drive the remaining stateful
-  transition and sub-48 kHz cases. Tonality analysis has no live oracle yet.
-  The multistream and projection encoders differ in rate allocation, surround
-  masking and analysis input.
+- Encoder: the hybrid CELT path (not yet the single CELT encoder), which
+  diverges at complexity 0 and can code past the frame budget when SILK leaves
+  it only a few bits, the hybrid mode-transition redundancy flow, and the CELT
+  and hybrid multi-frame packet flow; these drive the remaining stateful
+  transition and sub-48 kHz hybrid cases. Tonality analysis has no live oracle
+  yet. The multistream and projection encoders differ in rate allocation,
+  surround masking and analysis input.
 - Decoder: silent frames do not run the full deemphasis (VERY_SMALL), one
   SIMD-lane CELT stereo sample differs by 1 ULP, SILK stereo LBRR concealment
   uses a separate PLC path, and the multistream decoder keeps its own copy of
