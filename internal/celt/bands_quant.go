@@ -1921,10 +1921,6 @@ func celtCosNorm2F32(x float32) float32 {
 	return outputSign * p
 }
 
-func thetaUsesQEXT(ctx *bandCtx) bool {
-	return ctx != nil && (ctx.extEnc != nil || ctx.extDec != nil)
-}
-
 func thetaSplitGains(sctx *splitCtx, useQ30 bool) (mid, side float32) {
 	if sctx == nil {
 		return 0, 0
@@ -2563,7 +2559,7 @@ func quantPartitionEncodeWithExtBudget(ctx *bandCtx, x []celtNorm, n, b, B int, 
 			extB = &extBudget
 		}
 		computeThetaWithExtBudget(ctx, &sctx, x[:nHalf], y, nHalf, &b, extB, B, B0, lm, false, &fill)
-		mid, side := thetaSplitGains(&sctx, thetaUsesQEXT(ctx))
+		mid, side := thetaSplitGains(&sctx, celtQEXTFloatMath)
 		if B0 > 1 && (sctx.itheta&0x3fff) != 0 {
 			if sctx.itheta > 8192 {
 				sctx.delta -= sctx.delta >> (4 - lm)
@@ -2759,7 +2755,7 @@ func quantPartitionDecodeNoExt(ctx *bandCtx, x []celtNorm, n, b, B int, lowband 
 
 		sctx := splitCtx{}
 		computeThetaWithExtBudget(ctx, &sctx, x[:nHalf], y, nHalf, &b, nil, B, B0, lm, false, &fill)
-		mid, side := thetaSplitGains(&sctx, false)
+		mid, side := thetaSplitGains(&sctx, celtQEXTFloatMath)
 		if B0 > 1 && (sctx.itheta&0x3fff) != 0 {
 			if sctx.itheta > 8192 {
 				sctx.delta -= sctx.delta >> (4 - lm)
@@ -2937,7 +2933,7 @@ func quantPartitionDecodeWithExtBudget(ctx *bandCtx, x []celtNorm, n, b, B int, 
 
 		sctx := splitCtx{}
 		computeThetaWithExtBudget(ctx, &sctx, x[:nHalf], y, nHalf, &b, &extBudget, B, B0, lm, false, &fill)
-		mid, side := thetaSplitGains(&sctx, thetaUsesQEXT(ctx))
+		mid, side := thetaSplitGains(&sctx, celtQEXTFloatMath)
 		if B0 > 1 && (sctx.itheta&0x3fff) != 0 {
 			if sctx.itheta > 8192 {
 				sctx.delta -= sctx.delta >> (4 - lm)
@@ -3564,7 +3560,7 @@ func quantBandStereoPreparedLowbandWithExtBudget(ctx *bandCtx, x, y []celtNorm, 
 		extB = &extBudget
 	}
 	computeThetaWithExtBudget(ctx, &sctx, x, y, n, &b, extB, B, B, lm, true, &fill)
-	mid, side := thetaSplitGains(&sctx, thetaUsesQEXT(ctx))
+	mid, side := thetaSplitGains(&sctx, celtQEXTFloatMath)
 
 	if n == 2 {
 		mbits := b
@@ -3701,7 +3697,7 @@ func quantBandStereoDecodeNoExtFast(ctx *bandCtx, x, y []celtNorm, n, b, B int, 
 
 	sctx := splitCtx{}
 	computeThetaWithExtBudget(ctx, &sctx, x, y, n, &b, nil, B, B, lm, true, &fill)
-	mid, side := thetaSplitGains(&sctx, false)
+	mid, side := thetaSplitGains(&sctx, celtQEXTFloatMath)
 
 	if n == 2 {
 		mbits := b
@@ -3803,7 +3799,7 @@ func quantBandStereoDecodeWithExtBudget(ctx *bandCtx, x, y []celtNorm, n, b, B i
 
 	sctx := splitCtx{}
 	computeThetaWithExtBudget(ctx, &sctx, x, y, n, &b, &extBudget, B, B, lm, true, &fill)
-	mid, side := thetaSplitGains(&sctx, thetaUsesQEXT(ctx))
+	mid, side := thetaSplitGains(&sctx, celtQEXTFloatMath)
 
 	if n == 2 {
 		mbits := b

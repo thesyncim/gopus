@@ -29,33 +29,37 @@ func TestQEXTStatefulVBRPacketsMatchLibopus(t *testing.T) {
 }
 
 func TestQEXTStateful5msCubicPacketsMatchLibopus(t *testing.T) {
-	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 240, 2, 1, 128000, BitrateModeVBR, "")
+	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 240, 2, 1, 128000, BitrateModeVBR, "", true)
 }
 
 func TestQEXTStateful5msFinalisationPacketsMatchLibopus(t *testing.T) {
-	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 240, 3, 1, 128000, BitrateModeVBR, "")
+	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 240, 3, 1, 128000, BitrateModeVBR, "", true)
 }
 
 func TestQEXTStatefulStereoFinalisationPacketsMatchLibopus(t *testing.T) {
-	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 960, 3, 2, 256000, BitrateModeCVBR, "-cvbr")
+	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 960, 3, 2, 256000, BitrateModeCVBR, "-cvbr", true)
 }
 
 func TestQEXTStateful10msFixedStoragePacketsMatchLibopus(t *testing.T) {
-	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 480, 3, 1, 256000, BitrateModeVBR, "")
+	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 480, 3, 1, 256000, BitrateModeVBR, "", true)
+}
+
+func TestQEXTStateful5msStereoThetaRDOPacketsMatchLibopus(t *testing.T) {
+	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 240, 3, 2, 128000, BitrateModeCVBR, "-cvbr", false)
 }
 
 func testQEXTStatefulPacketsMatchLibopus(t *testing.T, bitrate int, mode BitrateMode, modeArg string) {
 	t.Helper()
-	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 960, 3, 1, bitrate, mode, modeArg)
+	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 960, 3, 1, bitrate, mode, modeArg, true)
 }
 
-func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames, channels, bitrate int, mode BitrateMode, modeArg string) {
+func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames, channels, bitrate int, mode BitrateMode, modeArg string, expectExtension bool) [][]byte {
 	t.Helper()
 	libopustest.RequireOracle(t)
 	opusDemo, err := benchutil.QEXTOpusDemoPath()
 	if err != nil {
 		libopustest.HelperUnavailable(t, "paired QEXT opus_demo", err)
-		return
+		return nil
 	}
 
 	pcm := make([]float32, frameSize*frames*channels)
@@ -116,6 +120,7 @@ func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames
 	}
 	pcm24 := make([]int32, frameSize*channels)
 	packet := make([]byte, 1276)
+	refPackets := make([][]byte, 0, frames)
 	offset := 0
 	for frame := range frames {
 		if len(bitstream)-offset < 8 {
@@ -129,8 +134,9 @@ func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames
 		}
 		refPacket := bitstream[offset : offset+refLen]
 		offset += refLen
-		if _, _, _, present, ok := qextParseExtensionRegion(refPacket); !ok || !present {
-			t.Fatalf("libopus frame %d lacks a valid QEXT extension", frame)
+		refPackets = append(refPackets, append([]byte(nil), refPacket...))
+		if _, _, _, present, ok := qextParseExtensionRegion(refPacket); !ok || present != expectExtension {
+			t.Fatalf("libopus frame %d extension: present=%t valid=%t, want present=%t", frame, present, ok, expectExtension)
 		}
 
 		for i, sample := range pcm[frame*frameSize*channels : (frame+1)*frameSize*channels] {
@@ -151,6 +157,7 @@ func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames
 	if !t.Failed() {
 		t.Logf("%d complete QEXT packets and final ranges match paired libopus", frames)
 	}
+	return refPackets
 }
 
 func TestQEXTStatefulEncodeInt24SteadyAllocations(t *testing.T) {
