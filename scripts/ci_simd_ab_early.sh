@@ -135,10 +135,16 @@ for mode in simd nosimd; do
     -run '^(TestCELTSilenceDecodeMatchesLibopusFloatBits|TestHotPathAllocsDecodeSilenceTransitions|TestHotPathAllocsMultistreamDecode)$' \
     -count=1 -timeout=10m
 
+  run_json_phase "candidate-$mode-multistream-encode-budget" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json "${build_args[@]}" ./multistream \
+    -run '^(TestMultistream(EncodeBudgetMatchesLibopus|EncodeTooSmallPreservesState|SelfDelimitedBudgetFramingWarmZeroAllocs)|TestProjectionAnalysisMatchesLibopus)$' \
+    -count=1 -timeout=10m
+
   run_json_phase "candidate-$mode-multistream-history-strict-decode" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json "${build_args[@]}" ./multistream \
-    -run '^(TestHybridToSILKFadeRequiresDecodedHistoryMatchesLibopus|TestTransitionPLCStageGainMatchesLibopus|TestCELTTransitionPLCStageHasInnerAndOuterGainChecks|TestMultistreamSurroundDecodeDifferentialFuzz|TestMultistreamDiscreteDecodeDifferentialFuzz|TestProjectionDecodeDifferentialFuzz|TestMultistreamGopusEncodedDecodeDifferentialFuzz)$' \
+    -run '^(TestHybridToSILKFadeRequiresDecodedHistoryMatchesLibopus|TestTransitionPLCStageGainMatchesLibopus|TestCELTTransitionPLCStageHasInnerAndOuterGainChecks|TestCELTTransitionFadeReplaysMatchedLibopus|TestTransitionFullSequenceMatchesLibopus|TestMultistreamSurroundDecodeDifferentialFuzz|TestMultistreamDiscreteDecodeDifferentialFuzz|TestProjectionDecodeDifferentialFuzz|TestMultistreamGopusEncodedDecodeDifferentialFuzz)$' \
     -count=1 -timeout=25m
 
   if [[ "$mode" == simd ]]; then

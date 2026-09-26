@@ -78,17 +78,21 @@ and mono/stereo silence-transition guards report zero allocations. The touched
 root, CELT, and multistream packages compile for Linux AMD64 with SIMD;
 that cross-compilation provides no native runtime parity evidence.
 
-Transition concealment applies the recursive libopus output gain before
-crossfading; the completed outer frame applies gain again. A live-C probe
-checks the preceding packet PCM, exact returned length, and every sample of
-a standalone 5 ms NULL-packet concealment step at gains 0 and +768. ARM64
-SIMD matches the complete standalone stage at both gains. Ordinary and
-`nosimd` first differ at sample 50 before gain, identifying a separate PLC
-residual. The full CELT-to-Hybrid transition head first differs at sample 2
-in all three local modes; its actual recursive context remains under trace.
-These probes retain exact assertions. They do not establish whole-transition
-parity or close any full-sweep leaf. The early native capture includes both
-probes and retains all 3,640 strict multistream/projection cases.
+Transition concealment uses the pinned C 5 ms bound and applies the recursive
+output gain before crossfading; the completed outer frame applies gain again.
+The fade rounds the window square, subtraction, and second product separately,
+then follows the selected C build's first-product/add contraction. A live-C
+probe checks the preceding PCM, returned length, and every standalone 5 ms
+concealment sample at gains 0 and +768. ARM64 SIMD matches both standalone
+stages and all five complete frames of the transition anchor at gains 0 and
+±768. Ordinary and `nosimd` retain a PLC mismatch at sample 50 before fading.
+A separate strict 30-case sequence covers both Hybrid/CELT directions, all five
+API rates, mono/stereo, and three gains; SIMD passes 15/30 and each scalar lane
+passes 18/30. Per-step lengths, ranges, and every PCM bit come from the matched
+stateful C decoder; remaining PLC/copy-window differences are hard failures.
+The early native capture includes these probes and all 3,640 strict
+multistream/projection cases. The latest completed native counts below are
+from `2ccd85af`, before this duration/fade checkpoint.
 
 The ARM64 checkpoint at `301be749` includes a strict diagnostic of all 1,440
 public encode-then-decode configurations, comparing every output float bit
@@ -125,9 +129,9 @@ with the public decode diagnostic, SIMD has 1,550 failures out of 5,080 cases
 versus 3,490 at `e6f2b332`; each scalar lane has 1,405 failures out of 5,080.
 These are failing configurations, not counts of independent defects.
 
-Native AMD64 early evidence at `036c4d51`, from
-[run 36253587780](https://github.com/thesyncim/gopus/actions/runs/36253587780),
-uses AMD EPYC 7763, Go 1.27.1, and GCC 13.3. SIMD C reports
+Native AMD64 early evidence at `2ccd85af`, from
+[run 36257213952](https://github.com/thesyncim/gopus/actions/runs/36257213952),
+uses AMD EPYC 9V45, Go 1.27.1, and GCC 13.3. SIMD C reports
 AVX2 dispatch (`opus_select_arch=4`); scalar C reports zero and no SIMD
 features. The strict 3,640-case multistream/projection sweep has no skips:
 
@@ -142,12 +146,13 @@ the mono/stereo history regression, and the warmed single-stream zero-allocation
 passes its existing allowance of eight allocations per call; that is not a
 zero-allocation result. The SIMD stereo PLC stage test fails at final PCM sample 234 by one float32 ULP;
 its captured earlier stages match. Scalar PLC passes. The existing exceptional
-SIMD pitch-xcorr oracle also fails. The full native run at this revision is
-cancelled during parity testing; the early subset is not a total mismatch
-inventory. All three kernel benchmark phases and the old/SIMD/`nosimd`
-end-to-end phases complete with exit status zero before cancellation. The
-`301be749` full run is also cancelled; neither partial parity artifact
-establishes a complete mismatch total.
+SIMD pitch-xcorr oracle also fails. Both native lanes pass the complete
+standalone 5 ms concealment stage at gains 0 and +768; the full transition
+head first differs at sample 1 in both lanes. The early subset is not a total
+mismatch inventory. The `036c4d51` full capture completes all three kernel
+benchmark phases and the old/SIMD/`nosimd` end-to-end phases with exit status
+zero; its parity phase is cancelled. The `301be749` parity capture is also
+partial. Neither establishes a complete mismatch total.
 
 The completed native `036c4d51` encoder differential family checks all
 1,788 configurations × eight frames with zero packet, range, framing, or
@@ -155,10 +160,19 @@ cadence differences. The same capture completes 2,268 surround encode
 configurations with 287 failing leaves and 432 projection encode
 configurations with 159 failing leaves. The projection harness also logs
 mode/float residuals under legacy allowances, so passing leaves in that
-family are not all exactness proofs. The mono 384 kbps CVBR anchor emits
-1,260 Go bytes versus 1,276 C bytes on frame zero; per-stream capacity and
-packet budgeting remain under investigation. These completed families are
-usable evidence within the interrupted full run, not a complete codec total.
+family are not all exactness proofs. The current multistream budget path uses C's per-stream CVBR bound and actual
+self-delimited repacketizer lengths when accounting for available packet space.
+It rejects insufficient capacity before advancing analysis state. The focused
+live-C gate covers caller capacities, CVBR bursts, CBR framing through 120 ms,
+and surround/projection layouts, comparing every packet byte and final range.
+All 12 focused budget cases match all 36 packet/range records in each local
+mode. Projection analysis consumes original caller PCM while coding consumes
+matrix-mixed PCM, matching the C callback contract; the dedicated CVBR/CBR
+regression matches another 12 records in each mode. Broader projection
+configurations retain exact failures. The framing helper allocates zero times
+after warmup, and the too-small-buffer state test passes in all three modes. All 20 selected CELT/encoder
+bitrate and VBR test families pass in each mode. Completed families within the
+interrupted full native run are usable evidence, not a complete codec total.
 
 Full parity remains incomplete. The complete native AMD64 SIMD sweep at
 `e6f2b332` contains 1,819 unique failing leaf cases across 24 test families:
@@ -170,9 +184,13 @@ they are neither current totals nor counts of independent bugs.
 Remaining investigations include:
 - Encode at `036c4d51`: matched ordinary ARM64 scalar C checks find 38 differing
   frames in 32/1,788 differential configurations and 293 differing frames in
-  176/2,844 executed stateful configurations. The stateful harness excludes
-  144 additional LBRR-panic specifications. Both tests return PASS under their
-  legacy float waivers; these results are not exact parity. All 260 native-rate
+  176/2,844 executed stateful configurations. A strict diagnostic at
+  `2ccd85af` enables all 144 excluded LBRR specifications: all 144 pass every
+  packet byte, length, and final range in each of ordinary, SIMD, and `nosimd`,
+  with no panics or skips. The six separately excluded DTX/LBRR cases execute
+  without panic but fail in all three lanes, with 67 differing frames per lane.
+  The committed stateful exclusions and legacy float waivers remain pending
+  cleanup; their PASS does not establish exact parity. All 260 native-rate
   configurations produce matching packets in the sub-48-kHz harness; that
   harness does not check final ranges. The paired scalar variant sweep has
   90/92 exact cases; 5 ms stereo chirp and speech differ. Long-frame, DTX,
@@ -416,21 +434,22 @@ end-to-end timing difference.
 
 ### Current native AMD64 interleaved encode
 
-[Run 36253587780](https://github.com/thesyncim/gopus/actions/runs/36253587780)
-compares assembly `8ac93c85` with `036c4d51` on AMD EPYC 7763,
+[Run 36257213952](https://github.com/thesyncim/gopus/actions/runs/36257213952)
+compares assembly `8ac93c85` with `2ccd85af` on AMD EPYC 9V45,
 Go 1.27.1, using four interleaved 500 ms samples, `-cpu=1`, matching PGO
 settings, and preallocated caller buffers.
 
 | Caller-buffer encode | Median ns/op | Sample range | Allocs/op |
 |---|---:|---:|---:|
-| Old assembly | 91,870 | 90,932–92,051 | 0 |
-| Go SIMD | 88,977 | 87,905–90,532 | 0 |
+| Old assembly | 52,067 | 51,593–52,426 | 0 |
+| Go SIMD | 47,190.5 | 47,132–47,494 | 0 |
 
-Go SIMD takes 3.1% less time in this same-run pair. The `301be749` pair on
-Xeon Platinum 8573C measures 94,975.5 → 81,601.5 ns/op (14.1% less time).
-Those different hosts cannot establish a revision-to-revision gain or loss.
-The completed benchmark phases in the full artifact supply the three-mode
-decode table and all 11 measurable AMD64 symbol rows at the same revision.
+Go SIMD takes 9.4% less time in this same-run pair. The `036c4d51` pair on
+EPYC 7763 measures 91,870 → 88,977 ns/op (3.1% less time); the `301be749`
+pair on Xeon Platinum 8573C measures 94,975.5 → 81,601.5 ns/op (14.1% less).
+Different hosts cannot establish a revision-to-revision gain or loss.
+The completed `036c4d51` benchmark phases supply the three-mode decode table
+and all 11 measurable AMD64 symbol rows; those timings retain their revision.
 
 ## Per-symbol inventory
 
