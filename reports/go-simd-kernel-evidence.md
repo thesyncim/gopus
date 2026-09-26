@@ -39,9 +39,8 @@ Open differences, each with a live-oracle reproducer:
   diverges at complexity 0 and can code past the frame budget when SILK leaves
   it only a few bits, the hybrid mode-transition redundancy flow, and the CELT
   and hybrid multi-frame packet flow; these drive the remaining stateful
-  transition and sub-48 kHz hybrid cases. Tonality analysis has no live oracle
-  yet. The multistream and projection encoders differ in rate allocation,
-  surround masking and analysis input.
+  transition and sub-48 kHz hybrid cases. The multistream and projection
+  encoders differ in rate allocation, surround masking and analysis input.
 - Decoder: silent frames do not run the full deemphasis (VERY_SMALL), one
   SIMD-lane CELT stereo sample differs by 1 ULP, SILK stereo LBRR concealment
   uses a separate PLC path, and the multistream decoder keeps its own copy of
@@ -50,8 +49,14 @@ Open differences, each with a live-oracle reproducer:
   on NaN payloads and signed zeros, and the scalar float32 FMA emulation
   (`float32(math.FMA(...))`) double-rounds in rare cases.
 - arm64: the NEON build's auto-vectorized reductions (PLC LPC/autocorrelation,
-  pitch search, tonality analysis and others) and clang's contraction in the
-  SILK float kernels are not yet mirrored everywhere.
+  pitch search and others) and clang's contraction in the SILK float kernels
+  are not yet mirrored everywhere.
+
+The tonality analysis (src/analysis.c, src/mlp.c) matches libopus bit for bit
+in all six lanes (amd64 and arm64; SIMD, ordinary and `nosimd`):
+`TestAnalysisMatchesLibopusLive` compares every AnalysisInfo field and the
+analyzer state after each frame, over every sample rate, both channel counts
+and every frame duration.
 
 ## Measurement method
 

@@ -257,3 +257,29 @@ func TestModeFixtureMetadata(t *testing.T) {
 		}
 	}
 }
+
+func clampToOpusDemoF32InPlace(in []float32) {
+	const inv24 = 1.0 / 8388608.0
+	for i, s := range in {
+		q := float32(int64(0.5 + float64(s)*8388608.0))
+		in[i] = q * float32(inv24)
+	}
+}
+
+func requireTestTier(t *testing.T, tier string) {
+	t.Helper()
+	if testTier() != tier {
+		t.Skipf("test tier %q required", tier)
+	}
+}
+
+func testTier() string {
+	if v := strings.TrimSpace(os.Getenv("GOPUS_TEST_TIER")); v != "" {
+		return strings.ToLower(v)
+	}
+	return testTierFast
+}
+
+const (
+	testTierFast = "fast"
+)

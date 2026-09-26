@@ -102,306 +102,194 @@ var tbands = [NbTBands + 1]int{
 	4, 8, 12, 16, 20, 24, 28, 32, 40, 48, 56, 64, 80, 96, 112, 136, 160, 192, 240,
 }
 
+// down2HPStep is one output sample of silk_resampler_down2_hp (src/analysis.c,
+// float build): the all-pass pair over the even sample in0 and the odd sample
+// in1, plus the high-pass branch. Each X = coef*Y is rounded in its own
+// statement as in C. It returns the new state, the output sample and the
+// high-pass sample.
+func down2HPStep(s0, s1, s2, in0, in1 float32) (float32, float32, float32, float32, float32) {
+	x0 := float32(0.6074371 * (in0 - s0))
+	x1 := float32(0.15063 * (in1 - s1))
+	x2 := float32(0.15063 * (-in1 - s2))
+	return in0 + x0, in1 + x1, -in1 + x2, 0.5 * (s0 + x0 + s1 + x1), s0 + x0 + s2 + x2
+}
+
+// silkResamplerDown2HP is silk_resampler_down2_hp (src/analysis.c) in the float
+// build: it halves the rate of in into out and returns the high-pass energy.
 func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 	len2 := min(len(out), len(in)/2)
 	if len2 <= 0 {
 		return 0
 	}
-	// BCE hints: ensure all accesses are in bounds
 	_ = in[2*len2-1]
 	_ = out[len2-1]
-	_ = s[2]
-
-	// Hoist filter state into locals to avoid repeated slice access
 	s0, s1, s2 := s[0], s[1], s[2]
-
-	// Keep this filter in the libopus float-build width.
-	const (
-		coef0 = float32(0.6074371)
-		coef1 = float32(0.15063)
-	)
-
-	var hpEner float32
-	k := 0
-	for ; k+1 < len2; k += 2 {
-		base := 2 * k
-
-		in32 := in[base]
-		y := in32 - s0
-		xf := coef0 * y
-		out32 := s0 + xf
-		s0 = in32 + xf
-		out32HP := out32
-
-		in32 = in[base+1]
-		y = in32 - s1
-		xf = coef1 * y
-		out32 = out32 + s1 + xf
-		s1 = in32 + xf
-
-		y = -in32 - s2
-		xf = coef1 * y
-		out32HP = out32HP + s2 + xf
-		s2 = -in32 + xf
-
-		hpEner += out32HP * out32HP
-		out[k] = 0.5 * out32
-
-		in32 = in[base+2]
-		y = in32 - s0
-		xf = coef0 * y
-		out32 = s0 + xf
-		s0 = in32 + xf
-		out32HP = out32
-
-		in32 = in[base+3]
-		y = in32 - s1
-		xf = coef1 * y
-		out32 = out32 + s1 + xf
-		s1 = in32 + xf
-
-		y = -in32 - s2
-		xf = coef1 * y
-		out32HP = out32HP + s2 + xf
-		s2 = -in32 + xf
-
-		hpEner += out32HP * out32HP
-		out[k+1] = 0.5 * out32
+	var hpEner, hp float32
+	for k := range len2 {
+		s0, s1, s2, out[k], hp = down2HPStep(s0, s1, s2, in[2*k], in[2*k+1])
+		hpEner += hp * hp
 	}
-	for ; k < len2; k++ {
-		base := 2 * k
-
-		in32 := in[base]
-		y := in32 - s0
-		xf := coef0 * y
-		out32 := s0 + xf
-		s0 = in32 + xf
-		out32HP := out32
-
-		in32 = in[base+1]
-		y = in32 - s1
-		xf = coef1 * y
-		out32 = out32 + s1 + xf
-		s1 = in32 + xf
-
-		y = -in32 - s2
-		xf = coef1 * y
-		out32HP = out32HP + s2 + xf
-		s2 = -in32 + xf
-
-		hpEner += out32HP * out32HP
-		out[k] = 0.5 * out32
-	}
-
-	// Write back filter state
 	s[0], s[1], s[2] = s0, s1, s2
-
-	// In libopus float builds, SHR64() is identity, so hp_ener accumulates the
-	// raw squared high-pass output (no /256 shift). Keep that behavior here.
 	return hpEner
 }
 
-func silkResamplerDown2HPScaled(s []float32, out []float32, in []float32, scale float32) float32 {
-	len2 := min(len(out), len(in)/2)
+// silkResamplerDown2HPMono is silkResamplerDown2HP over downmix_float of the
+// mono input pcm, which it reads directly.
+func silkResamplerDown2HPMono(s []float32, out []float32, pcm []float32) float32 {
+	len2 := min(len(out), len(pcm)/2)
 	if len2 <= 0 {
 		return 0
 	}
-	_ = in[2*len2-1]
+	_ = pcm[2*len2-1]
 	_ = out[len2-1]
-	_ = s[2]
-
 	s0, s1, s2 := s[0], s[1], s[2]
-
-	const (
-		coef0 = float32(0.6074371)
-		coef1 = float32(0.15063)
-	)
-
-	var hpEner float32
-	k := 0
-	j := 0
-	for ; k+1 < len2; k += 2 {
-		in32 := in[j] * scale
-		y := in32 - s0
-		xf := coef0 * y
-		out32 := s0 + xf
-		s0 = in32 + xf
-		out32HP := out32
-
-		in32 = in[j+1] * scale
-		y = in32 - s1
-		xf = coef1 * y
-		out32 = out32 + s1 + xf
-		s1 = in32 + xf
-
-		y = -in32 - s2
-		xf = coef1 * y
-		out32HP = out32HP + s2 + xf
-		s2 = -in32 + xf
-
-		hpEner += out32HP * out32HP
-		out[k] = 0.5 * out32
-		j += 2
-
-		in32 = in[j] * scale
-		y = in32 - s0
-		xf = coef0 * y
-		out32 = s0 + xf
-		s0 = in32 + xf
-		out32HP = out32
-
-		in32 = in[j+1] * scale
-		y = in32 - s1
-		xf = coef1 * y
-		out32 = out32 + s1 + xf
-		s1 = in32 + xf
-
-		y = -in32 - s2
-		xf = coef1 * y
-		out32HP = out32HP + s2 + xf
-		s2 = -in32 + xf
-
-		hpEner += out32HP * out32HP
-		out[k+1] = 0.5 * out32
-		j += 2
+	var hpEner, hp float32
+	for k := range len2 {
+		in0 := downmixCap(pcm[2*k] * celtSigScale)
+		in1 := downmixCap(pcm[2*k+1] * celtSigScale)
+		s0, s1, s2, out[k], hp = down2HPStep(s0, s1, s2, in0, in1)
+		hpEner += hp * hp
 	}
-	for ; k < len2; k++ {
-		in32 := in[j] * scale
-		y := in32 - s0
-		xf := coef0 * y
-		out32 := s0 + xf
-		s0 = in32 + xf
-		out32HP := out32
-
-		in32 = in[j+1] * scale
-		y = in32 - s1
-		xf = coef1 * y
-		out32 = out32 + s1 + xf
-		s1 = in32 + xf
-
-		y = -in32 - s2
-		xf = coef1 * y
-		out32HP = out32HP + s2 + xf
-		s2 = -in32 + xf
-
-		hpEner += out32HP * out32HP
-		out[k] = 0.5 * out32
-	}
-
 	s[0], s[1], s[2] = s0, s1, s2
 	return hpEner
 }
 
-func silkResamplerDown2HPStereo(s []float32, out []float32, in []float32, scale float32) float32 {
-	len2 := min(len(out), len(in)/4)
+// silkResamplerDown2HPStereo is silkResamplerDown2HP over downmix_float of the
+// interleaved stereo input pcm, halved after the cap as for two summed
+// channels, which it reads directly.
+func silkResamplerDown2HPStereo(s []float32, out []float32, pcm []float32) float32 {
+	len2 := min(len(out), len(pcm)/4)
 	if len2 <= 0 {
 		return 0
 	}
-	_ = in[4*len2-1]
+	_ = pcm[4*len2-1]
 	_ = out[len2-1]
-	_ = s[2]
-
 	s0, s1, s2 := s[0], s[1], s[2]
-
-	const (
-		coef0 = float32(0.6074371)
-		coef1 = float32(0.15063)
-	)
-
-	var hpEner float32
-	k := 0
-	for ; k+1 < len2; k += 2 {
-		base := 4 * k
-
-		mixed0 := (in[base] + in[base+1]) * scale
-		mixed1 := (in[base+2] + in[base+3]) * scale
-
-		in32 := mixed0
-		y := in32 - s0
-		xf := coef0 * y
-		out32 := s0 + xf
-		s0 = in32 + xf
-		out32HP := out32
-
-		in32 = mixed1
-		y = in32 - s1
-		xf = coef1 * y
-		out32 = out32 + s1 + xf
-		s1 = in32 + xf
-
-		y = -in32 - s2
-		xf = coef1 * y
-		out32HP = out32HP + s2 + xf
-		s2 = -in32 + xf
-
-		hpEner += out32HP * out32HP
-		out[k] = 0.5 * out32
-
-		base += 4
-
-		mixed0 = (in[base] + in[base+1]) * scale
-		mixed1 = (in[base+2] + in[base+3]) * scale
-
-		in32 = mixed0
-		y = in32 - s0
-		xf = coef0 * y
-		out32 = s0 + xf
-		s0 = in32 + xf
-		out32HP = out32
-
-		in32 = mixed1
-		y = in32 - s1
-		xf = coef1 * y
-		out32 = out32 + s1 + xf
-		s1 = in32 + xf
-
-		y = -in32 - s2
-		xf = coef1 * y
-		out32HP = out32HP + s2 + xf
-		s2 = -in32 + xf
-
-		hpEner += out32HP * out32HP
-		out[k+1] = 0.5 * out32
+	var hpEner, hp float32
+	for k := range len2 {
+		p := pcm[4*k : 4*k+4 : 4*k+4]
+		in0 := 0.5 * downmixCap(p[0]*celtSigScale+p[1]*celtSigScale)
+		in1 := 0.5 * downmixCap(p[2]*celtSigScale+p[3]*celtSigScale)
+		s0, s1, s2, out[k], hp = down2HPStep(s0, s1, s2, in0, in1)
+		hpEner += hp * hp
 	}
-	for ; k < len2; k++ {
-		base := 4 * k
-
-		mixed0 := (in[base] + in[base+1]) * scale
-		mixed1 := (in[base+2] + in[base+3]) * scale
-
-		in32 := mixed0
-		y := in32 - s0
-		xf := coef0 * y
-		out32 := s0 + xf
-		s0 = in32 + xf
-		out32HP := out32
-
-		in32 = mixed1
-		y = in32 - s1
-		xf = coef1 * y
-		out32 = out32 + s1 + xf
-		s1 = in32 + xf
-
-		y = -in32 - s2
-		xf = coef1 * y
-		out32HP = out32HP + s2 + xf
-		s2 = -in32 + xf
-
-		hpEner += out32HP * out32HP
-		out[k] = 0.5 * out32
-	}
-
 	s[0], s[1], s[2] = s0, s1, s2
 	return hpEner
 }
 
-func isDigitalSilence32(pcm []float32) bool {
-	for i := range pcm {
-		if pcm[i] != 0 {
+// analysisBinEnergy is the energy of the bin pair i and 480-i of the analysis
+// FFT, out[i].r² + out[N-i].r² + out[i].i² + out[N-i].i² in analysis.c's order.
+func analysisBinEnergy(out []complex64, i int) float32 {
+	a, b := real(out[i]), real(out[480-i])
+	c, d := imag(out[i]), imag(out[480-i])
+	return fma32(a, a, round32(b*b)) + c*c + d*d
+}
+
+// analysisIsDigitalSilence32 is is_digital_silence32 (src/analysis.c) in the
+// float build: the buffer is silent when its peak magnitude,
+// celt_maxabs32(pcm), is at most 1/2^lsbDepth. The analysis buffer never holds
+// NaN (downmix_float zeroes it), so the first sample outside the threshold
+// decides.
+func analysisIsDigitalSilence32(pcm []float32, lsbDepth int) bool {
+	threshold := float32(1) / float32(int32(1)<<lsbDepth)
+	for _, v := range pcm {
+		if v > threshold || v < -threshold {
 			return false
 		}
 	}
 	return true
+}
+
+// downmixCap is downmix_float's +6 dBFS cap (src/opus_encoder.c): it clamps the
+// SIG-scale sample to ±65536 and zeroes NaN.
+func downmixCap(v float32) float32 {
+	if v < -65536 {
+		v = -65536
+	}
+	if v > 65536 {
+		v = 65536
+	}
+	if v != v {
+		v = 0
+	}
+	return v
+}
+
+// downmixAndResample is downmix_and_resample (src/analysis.c) driven by
+// downmix_float (src/opus_encoder.c) for interleaved float input and the
+// all-channel c2 == -2 layout. subframe and offset are 24 kHz lengths. It writes
+// subframe analysis samples to y and returns the high-band energy, which only
+// 48 kHz input produces.
+func (s *TonalityAnalysisState) downmixAndResample(pcm []float32, channels int, y []float32, subframe, offset int) float32 {
+	if subframe <= 0 {
+		return 0
+	}
+	switch s.Fs {
+	case 48000:
+		subframe *= 2
+		offset *= 2
+	case 16000:
+		subframe = subframe * 2 / 3
+		offset = offset * 2 / 3
+	}
+	if s.Fs == 48000 && channels <= 2 {
+		var ret float32
+		if channels == 1 {
+			ret = silkResamplerDown2HPMono(s.DownmixState[:], y[:subframe/2], pcm[offset:offset+subframe])
+		} else {
+			ret = silkResamplerDown2HPStereo(s.DownmixState[:], y[:subframe/2], pcm[2*offset:2*(offset+subframe)])
+		}
+		return ret * (1.0 / 32768 / 32768)
+	}
+	if cap(s.scratchMono) < subframe {
+		s.scratchMono = make([]float32, subframe)
+	}
+	tmp := s.scratchMono[:subframe]
+	switch channels {
+	case 1:
+		for j := range tmp {
+			tmp[j] = downmixCap(pcm[j+offset] * celtSigScale)
+		}
+	case 2:
+		// Two summed channels are halved after the cap.
+		for j := range tmp {
+			k := 2 * (j + offset)
+			tmp[j] = 0.5 * downmixCap(pcm[k]*celtSigScale+pcm[k+1]*celtSigScale)
+		}
+	default:
+		for j := range tmp {
+			tmp[j] = pcm[(j+offset)*channels] * celtSigScale
+		}
+		for c := 1; c < channels; c++ {
+			for j := range tmp {
+				tmp[j] += pcm[(j+offset)*channels+c] * celtSigScale
+			}
+		}
+		for j, v := range tmp {
+			tmp[j] = downmixCap(v)
+		}
+	}
+	var ret float32
+	switch s.Fs {
+	case 48000:
+		ret = silkResamplerDown2HP(s.DownmixState[:], y, tmp)
+	case 24000:
+		copy(y[:subframe], tmp)
+	case 16000:
+		// The 3x repeat then 2x decimation is libopus's rough 16->24 kHz
+		// resampler; its high-band energy is discarded.
+		if cap(s.scratchResample3x) < 3*subframe {
+			s.scratchResample3x = make([]float32, 3*subframe)
+		}
+		tmp3x := s.scratchResample3x[:3*subframe]
+		for j, v := range tmp {
+			tmp3x[3*j] = v
+			tmp3x[3*j+1] = v
+			tmp3x[3*j+2] = v
+		}
+		silkResamplerDown2HP(s.DownmixState[:], y, tmp3x)
+	}
+	return ret * (1.0 / 32768 / 32768)
 }
 
 func analysisFloat2Int(x float32) int32 {
@@ -737,175 +625,43 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		alphaE2 = 1.0
 	}
 
+	// tonality_analysis works on 24 kHz lengths: len and offset are scaled here
+	// and scaled back by downmixAndResample.
 	frameSize := len(pcm) / channels
-	stereoScale := float32(0.5 * celtSigScale)
-	var mono []float32
-	if s.Fs != 48000 {
-		if cap(s.scratchMono) < frameSize {
-			s.scratchMono = make([]float32, frameSize)
-		}
-		mono = s.scratchMono[:frameSize]
-		if channels == 2 {
-			for i := range frameSize {
-				mono[i] = (pcm[2*i] + pcm[2*i+1]) * stereoScale
-			}
-		} else {
-			for i := range frameSize {
-				mono[i] = pcm[i] * celtSigScale
-			}
-		}
-	}
-
-	// 2. Buffer mono samples into InMem
-	// tonalityAnalysis is called with a new frame.
-	// We need 480 samples at 24kHz for one analysis iteration.
-	// But frames can be 2.5, 5, 10, 20ms.
-
-	var (
-		analysisLen int
-		firstCopy   int
-		hpEner      float32
-	)
-	oldMemFill := int(s.MemFill)
-	space := max(AnalysisBufSize-oldMemFill, 0)
-
-	// Match libopus downmix_and_resample split:
-	// fill remaining analysis buffer first, and only then process residual.
+	var len24 int
 	switch s.Fs {
 	case 48000:
-		analysisLen = frameSize / 2
-		firstCopy = min(analysisLen, space)
-		if firstCopy > 0 {
-			first := s.InMem[oldMemFill : oldMemFill+firstCopy]
-			var hp float32
-			switch channels {
-			case 2:
-				hp = silkResamplerDown2HPStereo(s.DownmixState[:], first, pcm[:firstCopy*4], stereoScale)
-			default:
-				hp = silkResamplerDown2HPScaled(s.DownmixState[:], first, pcm[:firstCopy*2], celtSigScale)
-			}
-			hp *= 1.0 / (celtSigScale * celtSigScale)
-			s.HPEnerAccum += hp
-		}
+		len24 = frameSize / 2
 	case 24000:
-		analysisLen = frameSize
-		firstCopy = min(analysisLen, space)
-		if firstCopy > 0 {
-			copy(s.InMem[oldMemFill:oldMemFill+firstCopy], mono[:firstCopy])
-		}
+		len24 = frameSize
 	case 16000:
-		analysisLen = (frameSize * 3) / 2
-		firstCopy = min(analysisLen, space)
-		if firstCopy > 0 {
-			firstInput := (firstCopy * 2) / 3
-			if firstInput > 0 {
-				firstOutput := (firstInput * 3) / 2
-				if cap(s.scratchResample3x) < firstInput*3 {
-					s.scratchResample3x = make([]float32, firstInput*3)
-				}
-				first := s.InMem[oldMemFill : oldMemFill+firstOutput]
-				tmp3x := s.scratchResample3x[:firstInput*3]
-				for i := range firstInput {
-					v := mono[i]
-					j := 3 * i
-					tmp3x[j] = v
-					tmp3x[j+1] = v
-					tmp3x[j+2] = v
-				}
-				hp := silkResamplerDown2HP(s.DownmixState[:], first, tmp3x)
-				hp *= 1.0 / (celtSigScale * celtSigScale)
-				s.HPEnerAccum += hp
-				firstCopy = firstOutput
-			} else {
-				firstCopy = 0
-			}
-		}
+		len24 = 3 * frameSize / 2
 	default:
-		// Handle supported float-analysis rates only.
 		return
 	}
-
-	if oldMemFill+analysisLen < AnalysisBufSize {
-		s.MemFill = int32(oldMemFill + analysisLen)
+	memFill := int(s.MemFill)
+	s.HPEnerAccum += s.downmixAndResample(pcm, channels, s.InMem[memFill:], min(len24, AnalysisBufSize-memFill), 0)
+	if memFill+len24 < AnalysisBufSize {
+		s.MemFill = int32(memFill + len24)
 		return
 	}
-
-	hpEner = s.HPEnerAccum
+	hpEner := s.HPEnerAccum
 	infoPos := int(s.WritePos)
 	nextWritePos := infoPos + 1
 	if nextWritePos >= DetectSize {
 		nextWritePos = 0
 	}
-	isSilence := isDigitalSilence32(s.InMem[:AnalysisBufSize])
+	isSilence := analysisIsDigitalSilence32(s.InMem[:AnalysisBufSize], int(s.LSBDepth))
 
 	inBuf := s.scratchFFTIn[:]
-	// Use 480 samples from InMem for FFT
 	for i := range 240 {
 		w := analysisWindow[i]
 		inBuf[i] = complex(w*s.InMem[i], w*s.InMem[240+i])
 		inBuf[480-i-1] = complex(w*s.InMem[480-i-1], w*s.InMem[480+240-i-1])
 	}
-
-	// Shift buffer and keep the residual input for the next analysis step.
 	copy(s.InMem[:240], s.InMem[AnalysisBufSize-240:AnalysisBufSize])
-	remaining := analysisLen - firstCopy
-	switch s.Fs {
-	case 48000:
-		if remaining > 0 {
-			rest := s.InMem[240 : 240+remaining]
-			var hp float32
-			switch channels {
-			case 2:
-				restSrcStart := firstCopy * 4
-				restSrcEnd := restSrcStart + remaining*4
-				hp = silkResamplerDown2HPStereo(s.DownmixState[:], rest, pcm[restSrcStart:restSrcEnd], stereoScale)
-			default:
-				restSrcStart := firstCopy * 2
-				restSrcEnd := restSrcStart + remaining*2
-				hp = silkResamplerDown2HPScaled(s.DownmixState[:], rest, pcm[restSrcStart:restSrcEnd], celtSigScale)
-			}
-			hp *= 1.0 / (celtSigScale * celtSigScale)
-			s.HPEnerAccum = hp
-		} else {
-			s.HPEnerAccum = 0
-		}
-	case 24000:
-		if remaining > 0 {
-			copy(s.InMem[240:240+remaining], mono[firstCopy:firstCopy+remaining])
-		}
-		s.HPEnerAccum = 0
-	case 16000:
-		if remaining > 0 {
-			restInput := (remaining * 2) / 3
-			restSrcStart := (firstCopy * 2) / 3
-			restSrcEnd := min(restSrcStart+restInput, frameSize)
-			restInput = restSrcEnd - restSrcStart
-			if restInput > 0 {
-				restOutput := (restInput * 3) / 2
-				if cap(s.scratchResample3x) < restInput*3 {
-					s.scratchResample3x = make([]float32, restInput*3)
-				}
-				rest := s.InMem[240 : 240+restOutput]
-				tmp3x := s.scratchResample3x[:restInput*3]
-				for i := 0; i < restInput; i++ {
-					v := mono[restSrcStart+i]
-					j := 3 * i
-					tmp3x[j] = v
-					tmp3x[j+1] = v
-					tmp3x[j+2] = v
-				}
-				hp := silkResamplerDown2HP(s.DownmixState[:], rest, tmp3x)
-				hp *= 1.0 / (celtSigScale * celtSigScale)
-				s.HPEnerAccum = hp
-				remaining = restOutput
-			} else {
-				remaining = 0
-				s.HPEnerAccum = 0
-			}
-		} else {
-			s.HPEnerAccum = 0
-		}
-	}
+	remaining := len24 - (AnalysisBufSize - memFill)
+	s.HPEnerAccum = s.downmixAndResample(pcm, channels, s.InMem[240:], remaining, AnalysisBufSize-memFill)
 	s.MemFill = int32(240 + remaining)
 	if isSilence {
 		prevPos := infoPos - 1
@@ -953,8 +709,8 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		x2r := imag(outBuf[i]) + imag(outBuf[480-i])
 		x2i := real(outBuf[480-i]) - real(outBuf[i])
 
-		xr2 := x1r * x1r
-		xi2 := x1i * x1i
+		xr2 := round32(x1r * x1r)
+		xi2 := round32(x1i * x1i)
 		atan := float32(0)
 		if xr2+xi2 >= 1e-18 {
 			xy := x1r * x1i
@@ -981,12 +737,12 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 				atan = num/den + s1 - s2
 			}
 		}
-		angle := analysisAtanScale * atan
+		angle := round32(analysisAtanScale * atan)
 		dAngle := angle - s.Angle[i]
 		d2Angle := dAngle - s.DAngle[i]
 
-		xr2 = x2r * x2r
-		xi2 = x2i * x2i
+		xr2 = round32(x2r * x2r)
+		xi2 = round32(x2i * x2i)
 		atan = 0
 		if xr2+xi2 >= 1e-18 {
 			xy := x2r * x2i
@@ -1013,7 +769,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 				atan = num/den + s1 - s2
 			}
 		}
-		angle2 := analysisAtanScale * atan
+		angle2 := round32(analysisAtanScale * atan)
 		dAngle2 := angle2 - angle
 		d2Angle2 := dAngle2 - dAngle
 
@@ -1024,7 +780,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			noisiness[i] = mod1
 		}
 		mod1 *= mod1
-		mod1 *= mod1
+		mod1 = round32(mod1 * mod1)
 
 		mod2 := d2Angle2 - float32(analysisFloat2Int(d2Angle2))
 		if mod2 < 0 {
@@ -1033,7 +789,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			noisiness[i] += mod2
 		}
 		mod2 *= mod2
-		mod2 *= mod2
+		mod2 = round32(mod2 * mod2)
 
 		avgMod := 0.25 * (s.D2Angle[i] + mod1 + 2*mod2)
 		tonality[i] = 1.0/(1.0+40.0*16.0*analysisPi4*avgMod) - 0.015
@@ -1078,11 +834,9 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	{
 		x1r := 2 * real(outBuf[0])
 		x2r := 2 * imag(outBuf[0])
-		E := x1r*x1r + x2r*x2r
+		E := fma32(x1r, x1r, round32(x2r*x2r))
 		for i := 1; i < 4; i++ {
-			binE := real(outBuf[i])*real(outBuf[i]) + real(outBuf[480-i])*real(outBuf[480-i]) +
-				imag(outBuf[i])*imag(outBuf[i]) + imag(outBuf[480-i])*imag(outBuf[480-i])
-			E += binE
+			E += analysisBinEnergy(outBuf, i)
 		}
 		E *= (1.0 / (celtSigScale * celtSigScale)) * analysisFFTEnergyScale
 		bandLog2[0] = log2Scale * opusmath.LogF32(E+1e-10)
@@ -1099,9 +853,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	binEArr := s.scratchBinE[:numBins]
 	{
 		for i := binStart; i < binEnd; i++ {
-			binE := real(outBuf[i])*real(outBuf[i]) + real(outBuf[480-i])*real(outBuf[480-i]) +
-				imag(outBuf[i])*imag(outBuf[i]) + imag(outBuf[480-i])*imag(outBuf[480-i])
-			binEArr[i-binStart] = binE
+			binEArr[i-binStart] = analysisBinEnergy(outBuf, i)
 		}
 	}
 	const analysisBinScale = (1.0 / (celtSigScale * celtSigScale)) * analysisFFTEnergyScale
@@ -1109,13 +861,19 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	// Band energies and tonal metrics using precomputed bin energies.
 	for b := range NbTBands {
 		var bandE, tE, nE, rawE float32
+		vecEnd := tbands[b] + (tbands[b+1]-tbands[b])&^15
 		for i := tbands[b]; i < tbands[b+1]; i++ {
 			binERaw := binEArr[i-binStart]
-			binE := binERaw * analysisBinScale
+			binE := round32(binERaw * analysisBinScale)
 			rawE += binERaw
 			bandE += binE
-			tE += binE * maxf(0, tonality[i])
-			nE += binE * 2.0 * (0.5 - noisiness[i])
+			if analysisNEONReductions && i < vecEnd {
+				tE += round32(binE * maxf(0, tonality[i]))
+				nE += round32(binE * 2.0 * (0.5 - noisiness[i]))
+			} else {
+				tE += binE * maxf(0, tonality[i])
+				nE += binE * 2.0 * (0.5 - noisiness[i])
+			}
 		}
 		bandERaw[b] = rawE
 
@@ -1134,7 +892,8 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			s.HighE[b] = logE[b]
 			s.LowE[b] = logE[b]
 		}
-		if s.HighE[b] > s.LowE[b]+7.5 {
+		// analysis.c compares against lowE[b] + 7.5 in C double.
+		if opusmath.CReal(s.HighE[b]) > opusmath.CReal(s.LowE[b])+7.5 {
 			if s.HighE[b]-logE[b] > logE[b]-s.LowE[b] {
 				s.HighE[b] -= 0.01
 			} else {
@@ -1155,9 +914,11 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			L1 += s.SqrtE[i][b]
 			L2 += s.E[i][b]
 		}
-		stationarity := minf(0.99, L1/opusmath.SqrtF32(1e-15+float32(NbFrames)*L2))
+		// analysis.c: L1/(float)sqrt(1e-15+NB_FRAMES*L2), with the sum and the
+		// square root in C double.
+		stationarity := minf(0.99, L1/float32(opusmath.SqrtCReal(1e-15+opusmath.CReal(float32(NbFrames)*L2))))
 		stationarity *= stationarity
-		stationarity *= stationarity
+		stationarity = round32(stationarity * stationarity)
 		frameStationarity += stationarity
 
 		bandTonality[b] = maxf(tE/(1e-15+bandE), stationarity*s.PrevBandTonality[b])
@@ -1209,7 +970,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		bandwidthMask = maxf(0.05*bandwidthMask, E)
 	}
 	if s.Fs == 48000 {
-		E := hpEner * (1.0 / (60.0 * 60.0))
+		E := round32(hpEner * (1.0 / (60.0 * 60.0)))
 		noiseRatio := float32(30.0)
 		if s.PrevBandwidth == 20 {
 			noiseRatio = 10.0
@@ -1240,7 +1001,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 
 	frameLoudness = 20.0 * opusmath.Log10F32(frameLoudness)
 	s.ETracker = maxf(s.ETracker-0.003, frameLoudness)
-	s.LowECount *= 1.0 - alphaE
+	s.LowECount = round32(s.LowECount * (1.0 - alphaE))
 	if frameLoudness < s.ETracker-30.0 {
 		s.LowECount += alphaE
 	}
@@ -1287,25 +1048,23 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	info.Loudness = frameLoudness
 
 	for i := range 4 {
-		features[i] = -0.12299*(BFCC[i]+s.Mem[i+24]) +
-			0.49195*(s.Mem[i]+s.Mem[i+16]) +
+		features[i] = fma32(-0.12299, BFCC[i]+s.Mem[i+24], round32(0.49195*(s.Mem[i]+s.Mem[i+16]))) +
 			0.69693*s.Mem[i+8] -
 			1.4349*s.CMean[i]
 	}
 	for i := range 4 {
-		s.CMean[i] = (1.0-alpha)*s.CMean[i] + alpha*BFCC[i]
+		s.CMean[i] = fma32(1.0-alpha, s.CMean[i], round32(alpha*BFCC[i]))
 	}
 	for i := range 4 {
-		features[4+i] = 0.63246*(BFCC[i]-s.Mem[i+24]) + 0.31623*(s.Mem[i]-s.Mem[i+16])
+		features[4+i] = fma32(0.63246, BFCC[i]-s.Mem[i+24], round32(0.31623*(s.Mem[i]-s.Mem[i+16])))
 	}
 	for i := range 3 {
-		features[8+i] = 0.53452*(BFCC[i]+s.Mem[i+24]) -
-			0.26726*(s.Mem[i]+s.Mem[i+16]) -
+		features[8+i] = fma32(0.53452, BFCC[i]+s.Mem[i+24], -round32(0.26726*(s.Mem[i]+s.Mem[i+16]))) -
 			0.53452*s.Mem[i+8]
 	}
 	if s.Count > 5 {
 		for i := range 9 {
-			s.Std[i] = (1.0-alpha)*s.Std[i] + alpha*features[i]*features[i]
+			s.Std[i] = fma32(1.0-alpha, s.Std[i], round32(alpha*features[i]*features[i]))
 		}
 	}
 	for i := range 4 {

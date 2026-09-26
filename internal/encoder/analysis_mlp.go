@@ -487,7 +487,7 @@ func (l *AnalysisGRULayer) ComputeGRU(state []float32, input []float32) {
 		}
 		gemmAccumF32(h[:n], l.recurrentWeightsF32[2*n:], n, n, stride, tmp[:n])
 		for i := range n {
-			state[i] = z[i]*state[i] + (1.0-z[i])*tansigApprox(WeightsScale*h[i])
+			state[i] = fma32(z[i], state[i], round32((1.0-z[i])*tansigApprox(WeightsScale*h[i])))
 		}
 		return
 	}
@@ -535,6 +535,6 @@ func (l *AnalysisGRULayer) ComputeGRU(state []float32, input []float32) {
 		gemmAccum(h[:n], l.RecurrentWeights[2*n:], n, n, stride, tmp[:n])
 	}
 	for i := range n {
-		state[i] = z[i]*state[i] + (1.0-z[i])*tansigApprox(WeightsScale*h[i])
+		state[i] = fma32(z[i], state[i], round32((1.0-z[i])*tansigApprox(WeightsScale*h[i])))
 	}
 }
