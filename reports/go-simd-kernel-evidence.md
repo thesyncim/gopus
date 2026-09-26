@@ -86,12 +86,26 @@ PLC energy follows each paired target's reduction and FMA order. All local
 lanes match the standalone gain probes and all five complete frames at gains
 0 and ±768. The strict 30-case transition/recovery matrix covers both
 Hybrid/CELT directions, five API rates, mono/stereo, and three gains: ordinary
-and `nosimd` pass 30/30; SIMD passes 24/30. A separate 60-case same-history
-standalone PLC matrix passes 60/60 in each scalar lane and 45/60 with SIMD.
+and `nosimd` pass 30/30, as does SIMD. A separate 60-case same-history
+standalone PLC matrix passes 60/60 in all three local modes. SIMD FIR tail
+products round separately before ordered addition, matching the selected C
+kernel. Eight direct FIR and four IIR cases also pass each local mode.
 Per-step lengths, ranges, and every PCM bit come from the matched stateful C
-decoder. Remaining SIMD stage differences stay hard failures. Native
-`e35dbfea` passes all 30 transition cases and the gain/replay probes in both
-lanes; the subsequent periodic-energy checkpoint requires native revalidation.
+decoder. Native `f6952200` passes all 30 transition cases, all 60 standalone
+stages, and the gain/replay probes in both lanes. The ARM64 FIR tail checkpoint
+is `f975f635`; its source change has no AMD64 arithmetic effect.
+
+SILK loss synthesis uses the current frame's subframe geometry while random
+excitation selection uses the saved good frame's geometry and full excitation
+history. The multistream decoder preserves the preceding packet's TOC duration
+as its PLC chunk bound and synthesizes at least 10 ms of SILK before trimming
+a shorter requested prefix. At `7d97ed7e`, both original scalar residual packet
+histories match all five frames and their independent 5/10 ms PLC probes in
+all three local modes. Another 18 mono/stereo NB/MB/WB loss-and-recovery cases
+match lengths, ranges, and every sample for 20→10, 10→20, and 10→15 ms requests.
+Native revalidation of this checkpoint is pending. General fractional CELT
+loss requests and concealment following transition redundancy need further
+coverage; the focused passes do not establish full decoder parity.
 
 The ARM64 checkpoint at `301be749` includes a strict diagnostic of all 1,440
 public encode-then-decode configurations, comparing every output float bit
@@ -128,40 +142,43 @@ with the public decode diagnostic, SIMD has 1,550 failures out of 5,080 cases
 versus 3,490 at `e6f2b332`; each scalar lane has 1,405 failures out of 5,080.
 These are failing configurations, not counts of independent defects.
 
-Native AMD64 early evidence at `e35dbfea`, from
-[run 36259188741](https://github.com/thesyncim/gopus/actions/runs/36259188741),
-uses AMD EPYC 7763, Go 1.27.1, and GCC 13.3. SIMD C reports
+Native AMD64 early evidence at `f6952200`, from
+[run 36260351550](https://github.com/thesyncim/gopus/actions/runs/36260351550),
+uses Intel Xeon Platinum 8370C, Go 1.27.1, and GCC 13.3. SIMD C reports
 AVX2 dispatch (`opus_select_arch=4`); scalar C reports zero and no SIMD
 features. The strict 3,640-case multistream/projection sweep has no skips:
 
 | AMD64 lane | Passing cases | Failing cases | Surround / discrete / projection / Go-encoded failures |
 |---|---:|---:|---:|
-| SIMD | 2,884 | 756 | 662 / 34 / 33 / 27 |
+| SIMD | 2,894 | 746 | 649 / 35 / 34 / 28 |
 | `nosimd` scalar | 3,638 | 2 | 0 / 2 / 0 / 0 |
 
 The two scalar failures are discrete four-channel 24 kbps CBR transitions:
 20 ms int16 and 60 ms float32. Their peak sample errors are 4,883 integer
-units and 0.110626 float units. The matched ARM64 scalar cases also fail.
-Compared with `2ccd85af`, scalar resolves ten leaves; SIMD resolves eleven
-and exposes one Go-encoded projection leaf with two one-ULP sample differences.
-Both lanes pass
-the six deemphasis helpers, state/downsample coverage, 40 public silence cases,
-the mono/stereo history regression, and the warmed single-stream zero-allocation guards. The multistream guard
-passes its existing allowance of eight allocations per call; that is not a
-zero-allocation result. The SIMD stereo PLC stage test fails at final PCM sample 234 by one float32 ULP;
-its captured earlier stages match. Scalar PLC passes. The existing exceptional
-SIMD pitch-xcorr oracle also fails. The AMD64 masked-tail fix applies C's
-zero-filled FMA updates to inactive sample lanes; expanded native CELT/SILK
-raw-bit and allocation gates plus primitive disassembly capture await validation.
-Short AVX kernels use hardware binary32 FMA instead of double-round scalar
-emulation on FMA hosts; their expanded native proof is pending. NaN payload
-selection remains open. Both native lanes pass the complete
-standalone 5 ms concealment stages, all five transition/recovery frames at
-gains 0 and ±768, the 30-case API-rate matrix, and the budget/projection gates. The early subset is not a total
-mismatch inventory. The `036c4d51` full capture completes all three kernel
-benchmark phases and the old/SIMD/`nosimd` end-to-end phases with exit status
-zero; its parity phase is cancelled. The `301be749` parity capture is also
-partial. Neither establishes a complete mismatch total.
+units and 0.110626 float units. The `e35dbfea` capture on AMD EPYC 7763 has
+756 SIMD failures and the same two scalar failures; the different hosts do
+not isolate a revision-to-revision effect. Both `f6952200` lanes pass the six
+deemphasis helpers, state/downsample coverage, 40 public silence cases,
+the mono/stereo history regression, and the warmed single-stream zero-allocation
+guards. The multistream guard passes its existing allowance of eight
+allocations per call; that is not a zero-allocation result. The SIMD stereo
+PLC stage test fails at final PCM sample 234 by one float32 ULP; its captured
+earlier stages match. Scalar PLC passes.
+
+Native CELT raw-bit xcorr checks pass 134/186 leaves; SILK passes 12/24.
+Masked-tail signed-zero and short hardware-FMA rounding cases pass. Remaining
+failures concern NaN payload/instruction order. CELT and SILK use live linked
+C kernels, and the artifact contains the actual C archive, build identity,
+primitive binary, and disassembly. Primitive intrinsics can compile to a
+different FMA encoding from the full kernel, so full-kernel results govern
+operand-priority fixes. The SILK finite/exceptional warm allocation guard passes
+with zero allocations. Both native lanes pass all 30 full transition cases,
+60 standalone concealment stages, gain/replay probes, and budget/projection
+gates. This early subset is not a total mismatch inventory.
+The `036c4d51` full capture completes all three kernel benchmark phases and
+the old/SIMD/`nosimd` end-to-end phases with exit status zero; its parity phase
+is cancelled. The `301be749` parity capture is also partial. Neither establishes
+a complete mismatch total.
 
 The completed native `036c4d51` encoder differential family checks all
 1,788 configurations × eight frames with zero packet, range, framing, or
@@ -198,17 +215,19 @@ Remaining investigations include:
   packet byte, length, and final range in each of ordinary, SIMD, and `nosimd`,
   with no panics or skips. The six separately excluded DTX/LBRR cases execute
   without panic but fail in all three lanes, with 67 differing frames per lane.
-  The committed stateful exclusions and legacy float waivers remain pending
-  cleanup; their PASS does not establish exact parity. All 260 native-rate
-  configurations produce matching packets in the sub-48-kHz harness; that
-  harness does not check final ranges. The paired scalar variant sweep has
+  The stateful gate executes all 150 of these configurations and requires
+  exact return lengths, every packet byte, and final ranges in every mode,
+  including DTX no-output records. All 260 native-rate configurations pass
+  strict byte and final-range checks in each local mode (six frames per case).
+  These gates contain no architecture-based byte/range waivers.
+  The paired scalar variant sweep has
   90/92 exact cases; 5 ms stereo chirp and speech differ. Long-frame, DTX,
   multistream/projection rate allocation and packet budgeting need exact traces.
 - Decode: non-silent CELT/Hybrid PCM, SILK stereo multi-frame FEC/LBRR,
   multistream transitions, and mapping/projection residuals need exact traces.
 - AMD64 kernels: exceptional pitch-cross-correlation inputs expose NaN-payload
-  and signed-zero instruction-order differences. Scalar float32 FMA emulation
-  through `float32(math.FMA(...))` also needs exact rounding verification.
+  instruction-order differences. Native raw-bit cases prove the masked-tail
+  signed-zero and short hardware-FMA rounding fixes; NaN selection remains open.
 - ARM64 SIMD analysis: the live AnalysisInfo/state sweeps have tonality,
   noisiness, slope, and RNN-state differences with clang 21. Ordinary and
   `nosimd` analysis pass locally; native SIMD analysis passes at `e6f2b332`.
@@ -441,7 +460,7 @@ samples versus 2.20% for assembly xcorr. The SSE-order dual prefilter takes
 identify live paths; they do not establish each kernel's contribution to the
 end-to-end timing difference.
 
-### Current native AMD64 interleaved encode
+### EPYC 9V45 interleaved encode
 
 [Run 36257213952](https://github.com/thesyncim/gopus/actions/runs/36257213952)
 compares assembly `8ac93c85` with `2ccd85af` on AMD EPYC 9V45,
@@ -459,6 +478,22 @@ pair on Xeon Platinum 8573C measures 94,975.5 → 81,601.5 ns/op (14.1% less).
 Different hosts cannot establish a revision-to-revision gain or loss.
 The completed `2ccd85af` benchmark phases supply the three-mode decode table
 and all 11 measurable AMD64 symbol rows at that revision.
+
+### Latest native AMD64 interleaved encode
+
+[Run 36260351550](https://github.com/thesyncim/gopus/actions/runs/36260351550)
+compares assembly `8ac93c85` with `f6952200` on Intel Xeon Platinum 8370C,
+Go 1.27.1, using four interleaved 500 ms samples, `-cpu=1`, matching PGO
+settings, and preallocated caller buffers.
+
+| Caller-buffer encode | Median ns/op | Sample range | Allocs/op |
+|---|---:|---:|---:|
+| Old assembly | 109,926 | 109,358–110,772 | 0 |
+| Go SIMD | 86,576.5 | 86,461–86,748 | 0 |
+
+Go SIMD takes 21.2% less time in this same-run pair. This early capture has
+no `nosimd` timing. Its full kernel/end-to-end capture is pending, so the
+53-row matrix retains the completed measurements and their recorded revisions.
 
 ## Per-symbol inventory
 

@@ -211,9 +211,6 @@ run_side() {
     run_mode "$side" "$root" default
     run_mode "$side" "$root" purego
     run_mode "$side" "$root" simd
-    run_phase "$side" "$root" default-full-parity \
-      env -u GOEXPERIMENT GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
-      bash ./tools/run_go_test_runnable.sh -json -count=1 -timeout=25m
   else
     run_mode "$side" "$root" default
     run_mode "$side" "$root" nosimd
@@ -222,14 +219,20 @@ run_side() {
     cp "$simd_opusdec_fixture" \
       "$root/internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json"
     run_mode "$side" "$root" simd
-    run_phase "$side" "$root" simd-full-parity \
-      env GOEXPERIMENT=simd GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
-      bash ./tools/run_go_test_runnable.sh -json -count=1 -timeout=25m
   fi
 }
 
 run_side baseline "$baseline_root"
 run_side candidate "$candidate_root"
+
+# Capture both sides' kernel and end-to-end measurements before the long
+# package sweeps. Full parity retains the same commands and timeouts.
+run_phase baseline "$baseline_root" default-full-parity \
+  env -u GOEXPERIMENT GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+  bash ./tools/run_go_test_runnable.sh -json -count=1 -timeout=25m
+run_phase candidate "$candidate_root" simd-full-parity \
+  env GOEXPERIMENT=simd GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+  bash ./tools/run_go_test_runnable.sh -json -count=1 -timeout=25m
 
 # On a packet-hash change, capture the exact native opusdec fixture generated
 # from the candidate bitstream for review. The comparison above still reads the
