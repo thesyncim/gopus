@@ -46,7 +46,6 @@ func buildLibopusHybridCombineHelper() (string, error) {
 		SourceFile:  "libopus_celt_filter_info.c",
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-DRESYNTH", "-O3", "-DNDEBUG"},
 		RefIncludes: []string{"src", "celt", "silk", "silk/float"},
-		SIMDRef:     true,
 		RefSources: []string{
 			"celt/celt_decoder.c", "celt/celt.c",
 			"celt/x86/pitch_sse.c", "celt/x86/x86_celt_map.c",

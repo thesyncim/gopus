@@ -2,48 +2,32 @@
 
 package celt
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
-// toneLPCCorr accumulates three correlations in four fused lanes and reduces
-// adjacent pairs before the scalar tail, matching the arm64 float path.
+// The pinned SIMD arm64 celt_encoder.c:tone_lpc vectorizes across the three
+// correlations. Its even prefix rounds each product before an ordered add;
+// only the final odd sample uses FMA. Each lane retains ascending sample order.
 func toneLPCCorr(x []float32, cnt, delay, delay2 int) (r00, r01, r02 float32) {
-	_ = x[:cnt]
-	_ = x[delay : delay+cnt]
-	_ = x[delay2 : delay2+cnt]
 	if cnt == 0 {
 		return
 	}
-	x0 := unsafe.Pointer(unsafe.SliceData(x))
-	x1 := unsafe.Add(x0, uintptr(delay*4))
-	x2 := unsafe.Add(x0, uintptr(delay2*4))
-	zero := archsimd.BroadcastFloat32x4(0)
-	a00, a01, a02 := zero, zero, zero
+	_ = x[delay2+cnt-1]
+	acc := archsimd.BroadcastFloat32x4(0)
 	i := 0
-	for ; i+3 < cnt; i += 4 {
-		xv := loadF32x4(unsafe.Add(x0, uintptr(i*4)))
-		a00 = xv.MulAdd(xv, a00)
-		a01 = xv.MulAdd(loadF32x4(unsafe.Add(x1, uintptr(i*4))), a01)
-		a02 = xv.MulAdd(loadF32x4(unsafe.Add(x2, uintptr(i*4))), a02)
+	for ; i+1 < cnt; i += 2 {
+		x0 := x[i]
+		y0 := archsimd.BroadcastFloat32x4(x0).SetElem(1, x[i+delay]).SetElem(2, x[i+delay2])
+		acc = acc.Add(archsimd.BroadcastFloat32x4(x0).Mul(y0))
+		x1 := x[i+1]
+		y1 := archsimd.BroadcastFloat32x4(x1).SetElem(1, x[i+1+delay]).SetElem(2, x[i+1+delay2])
+		acc = acc.Add(archsimd.BroadcastFloat32x4(x1).Mul(y1))
 	}
-	a00 = a00.ConcatAddPairs(a00)
-	a00 = a00.ConcatAddPairs(a00)
-	a01 = a01.ConcatAddPairs(a01)
-	a01 = a01.ConcatAddPairs(a01)
-	a02 = a02.ConcatAddPairs(a02)
-	a02 = a02.ConcatAddPairs(a02)
-	r00 = a00.GetElem(0)
-	r01 = a01.GetElem(0)
-	r02 = a02.GetElem(0)
-	for ; i < cnt; i++ {
+	if i < cnt {
 		xi := x[i]
-		r00 = mdctFMA32(xi, xi, r00)
-		r01 = mdctFMA32(xi, x[i+delay], r01)
-		r02 = mdctFMA32(xi, x[i+delay2], r02)
+		y := archsimd.BroadcastFloat32x4(xi).SetElem(1, x[i+delay]).SetElem(2, x[i+delay2])
+		acc = archsimd.BroadcastFloat32x4(xi).MulAdd(y, acc)
 	}
-	return
+	return acc.GetElem(0), acc.GetElem(1), acc.GetElem(2)
 }
 
 func toneLPCCorrDelay1(x []float32, cnt int) (r00, r01, r02 float32) {
