@@ -21,17 +21,74 @@ const DelayCompensation = 192
 // for internal processing, matching libopus CELT_SIG_SCALE.
 const CELTSigScale = 32768.0
 
-const (
-	maxAbsF32SignBit = uint32(1) << 31
-	maxAbsF32InfBits = uint32(0x7f800000)
-)
-
-func updateMaxAbsBitsF32(maxBits uint32, v float32) uint32 {
-	bits := math.Float32bits(v) &^ maxAbsF32SignBit
-	if bits <= maxAbsF32InfBits && bits > maxBits {
-		return bits
+func rawMaxAbsStep(maxVal, minVal, sample float32) (float32, float32) {
+	// celt_maxabs16 updates both extrema with MAX16/MIN16. Their second
+	// operand wins a tie or an unordered comparison, including signed zero.
+	if !(maxVal > sample) {
+		maxVal = sample
 	}
-	return maxBits
+	if !(minVal < sample) {
+		minVal = sample
+	}
+	return maxVal, minVal
+}
+
+func rawMaxAbsResult(maxVal, minVal float32) float32 {
+	negativeMin := -minVal
+	if maxVal > negativeMin {
+		return maxVal
+	}
+	return negativeMin
+}
+
+// rawInputSilence follows celt_encoder.c's sample_max scans. C uses the coded
+// channel count for the contiguous raw-input scan even when the physical PCM
+// and pre-emphasis use two channels. At sub-48 kHz rates pcm is zero-stuffed
+// into the core frame, so each scanned native sample maps through upsample.
+func (e *Encoder) rawInputSilence(pcm []float32, frameSize, overlap int) bool {
+	channels := int(e.channels)
+	codedChannels := int(e.streamChannels)
+	if codedChannels <= 0 || codedChannels > channels {
+		codedChannels = channels
+	}
+	upsample := e.effectiveUpsample()
+	firstEnd := codedChannels * (frameSize - overlap) / upsample
+	overlapEnd := firstEnd + codedChannels*overlap/upsample
+	var firstMaxVal, firstMinVal, overlapMaxVal, overlapMinVal float32
+	if upsample == 1 {
+		firstLimit := min(firstEnd, len(pcm))
+		for _, sample := range pcm[:firstLimit] {
+			firstMaxVal, firstMinVal = rawMaxAbsStep(firstMaxVal, firstMinVal, sample)
+		}
+		overlapLimit := min(overlapEnd, len(pcm))
+		for _, sample := range pcm[firstLimit:overlapLimit] {
+			overlapMaxVal, overlapMinVal = rawMaxAbsStep(overlapMaxVal, overlapMinVal, sample)
+		}
+	} else {
+		for i := 0; i < overlapEnd; i++ {
+			index := (i/channels)*upsample*channels + i%channels
+			if index >= len(pcm) {
+				break
+			}
+			if i < firstEnd {
+				firstMaxVal, firstMinVal = rawMaxAbsStep(firstMaxVal, firstMinVal, pcm[index])
+			} else {
+				overlapMaxVal, overlapMinVal = rawMaxAbsStep(overlapMaxVal, overlapMinVal, pcm[index])
+			}
+		}
+	}
+	firstMax := rawMaxAbsResult(firstMaxVal, firstMinVal)
+	newOverlapMax := rawMaxAbsResult(overlapMaxVal, overlapMinVal)
+	sampleMax := e.overlapMax
+	if !(sampleMax > firstMax) {
+		sampleMax = firstMax
+	}
+	e.overlapMax = newOverlapMax
+	if !(sampleMax > newOverlapMax) {
+		sampleMax = newOverlapMax
+	}
+	silenceThreshold := float32(math.Ldexp(1, -int(e.lsbDepth)))
+	return sampleMax <= silenceThreshold
 }
 
 func noFMA32Mul(a, b float32) float32 {
@@ -216,14 +273,13 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, outpu
 	if e.hd96kPreemph[1] != 0 {
 		return e.applyPreemphasis2TapAndSilenceCore(pcm, output, total, split, channels)
 	}
+	silence := e.rawInputSilence(pcm, frameSize, overlap)
 
 	coef := float32(PreemphCoef)
-	var firstMaxBits, overlapMaxBits uint32
 	if channels == 1 {
 		state := float32(e.preemphState[0])
 		for i := 0; i < split; i++ {
 			v := pcm[i]
-			firstMaxBits = updateMaxAbsBitsF32(firstMaxBits, v)
 			scaled := v * float32(CELTSigScale)
 			y := scaled - state
 			output[i] = y
@@ -231,7 +287,6 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, outpu
 		}
 		for i := split; i < total; i++ {
 			v := pcm[i]
-			overlapMaxBits = updateMaxAbsBitsF32(overlapMaxBits, v)
 			scaled := v * float32(CELTSigScale)
 			y := scaled - state
 			output[i] = y
@@ -245,8 +300,6 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, outpu
 		for ; i+1 < split; i += 2 {
 			vL := pcm[i]
 			vR := pcm[i+1]
-			firstMaxBits = updateMaxAbsBitsF32(firstMaxBits, vL)
-			firstMaxBits = updateMaxAbsBitsF32(firstMaxBits, vR)
 			scaledL := vL * float32(CELTSigScale)
 			scaledR := vR * float32(CELTSigScale)
 			yL := scaledL - stateL
@@ -259,8 +312,6 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, outpu
 		for ; i+1 < total; i += 2 {
 			vL := pcm[i]
 			vR := pcm[i+1]
-			overlapMaxBits = updateMaxAbsBitsF32(overlapMaxBits, vL)
-			overlapMaxBits = updateMaxAbsBitsF32(overlapMaxBits, vR)
 			scaledL := vL * float32(CELTSigScale)
 			scaledR := vR * float32(CELTSigScale)
 			yL := scaledL - stateL
@@ -274,17 +325,7 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, outpu
 		e.preemphState[1] = celtSig(stateR)
 	}
 
-	e.overlapMax = float32(0)
-	if overlapMaxBits != 0 {
-		e.overlapMax = math.Float32frombits(overlapMaxBits)
-	}
-	sampleMax := e.overlapMax
-	firstMax := math.Float32frombits(firstMaxBits)
-	if firstMax > sampleMax {
-		sampleMax = firstMax
-	}
-	silenceThreshold := float32(math.Ldexp(1, -int(e.lsbDepth)))
-	return sampleMax <= silenceThreshold
+	return silence
 }
 
 // applyPreemphasis2TapAndSilenceCore applies libopus's 2-tap CELT pre-emphasis
@@ -303,17 +344,12 @@ func (e *Encoder) applyPreemphasis2TapAndSilenceCore(pcm, output []float32, tota
 	coef0 := e.hd96kPreemph[0]
 	coef1 := e.hd96kPreemph[1]
 	coef2 := e.hd96kPreemph[2]
+	silence := e.rawInputSilence(pcm, total/channels, (total-split)/channels)
 
-	var firstMaxBits, overlapMaxBits uint32
 	if channels == 1 {
 		m := float32(e.preemphState[0])
 		for i := range total {
 			v := pcm[i]
-			if i < split {
-				firstMaxBits = updateMaxAbsBitsF32(firstMaxBits, v)
-			} else {
-				overlapMaxBits = updateMaxAbsBitsF32(overlapMaxBits, v)
-			}
 			x := v * float32(CELTSigScale)
 			tmp := noFMA32Mul(coef2, x)
 			y := noFMA32Add(tmp, m)
@@ -328,13 +364,6 @@ func (e *Encoder) applyPreemphasis2TapAndSilenceCore(pcm, output []float32, tota
 		for ; i+1 < total; i += 2 {
 			vL := pcm[i]
 			vR := pcm[i+1]
-			if i < split {
-				firstMaxBits = updateMaxAbsBitsF32(firstMaxBits, vL)
-				firstMaxBits = updateMaxAbsBitsF32(firstMaxBits, vR)
-			} else {
-				overlapMaxBits = updateMaxAbsBitsF32(overlapMaxBits, vL)
-				overlapMaxBits = updateMaxAbsBitsF32(overlapMaxBits, vR)
-			}
 			xL := vL * float32(CELTSigScale)
 			xR := vR * float32(CELTSigScale)
 			tmpL := noFMA32Mul(coef2, xL)
@@ -350,17 +379,7 @@ func (e *Encoder) applyPreemphasis2TapAndSilenceCore(pcm, output []float32, tota
 		e.preemphState[1] = celtSig(mR)
 	}
 
-	e.overlapMax = float32(0)
-	if overlapMaxBits != 0 {
-		e.overlapMax = math.Float32frombits(overlapMaxBits)
-	}
-	sampleMax := e.overlapMax
-	firstMax := math.Float32frombits(firstMaxBits)
-	if firstMax > sampleMax {
-		sampleMax = firstMax
-	}
-	silenceThreshold := float32(math.Ldexp(1, -int(e.lsbDepth)))
-	return sampleMax <= silenceThreshold
+	return silence
 }
 
 // ApplyPreemphasisWithScaling applies pre-emphasis with signal scaling.
