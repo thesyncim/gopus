@@ -51,6 +51,24 @@ run_phase() {
   return 0
 }
 
+run_json_phase() {
+  local phase="$1"
+  shift
+  local log="$artifact_root/$phase.jsonl"
+  local status="$artifact_root/$phase.exit"
+  echo "==> $phase"
+  "$@" >"$log" 2>&1
+  local rc=$?
+  printf '%s\n' "$rc" > "$status"
+  if [[ $rc -ne 0 ]]; then
+    overall_status=1
+    echo "$phase failed with exit=$rc"
+  else
+    echo "$phase passed"
+  fi
+  return 0
+}
+
 run_in_checkout() {
   local root="$1"
   shift
@@ -100,6 +118,29 @@ for mode in simd nosimd; do
       "${build_env[@]}" go test "${build_args[@]}" -c -pgo=auto -o "$output" "./$package"
   done
 
+  root_test_binary="$artifact_root/candidate-$mode-root.test"
+  run_phase "build-candidate-$mode-root" \
+    run_in_checkout "$candidate_root" \
+    "${build_env[@]}" go test "${build_args[@]}" -c -pgo=auto -o "$root_test_binary" .
+
+  run_json_phase "candidate-$mode-celt-deemphasis-state-plc" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json "${build_args[@]}" ./internal/celt \
+    -run '^(TestApplyDeemphasis.*MatchesLibopus|TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus|TestCELTPLCStagesMatchLibopusC)$' \
+    -count=1 -timeout=10m
+
+  run_json_phase "candidate-$mode-root-silence-allocation" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json "${build_args[@]}" . \
+    -run '^(TestCELTSilenceDecodeMatchesLibopusFloatBits|TestHotPathAllocsDecodeSilenceTransitions|TestHotPathAllocsMultistreamDecode)$' \
+    -count=1 -timeout=10m
+
+  run_json_phase "candidate-$mode-multistream-history-strict-decode" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json "${build_args[@]}" ./multistream \
+    -run '^(TestHybridToSILKFadeRequiresDecodedHistoryMatchesLibopus|TestMultistreamSurroundDecodeDifferentialFuzz|TestMultistreamDiscreteDecodeDifferentialFuzz|TestProjectionDecodeDifferentialFuzz|TestMultistreamGopusEncodedDecodeDifferentialFuzz)$' \
+    -count=1 -timeout=25m
+
   if [[ "$mode" == simd ]]; then
     run_phase candidate-simd-xcorr-silk-oracles \
       "${run_env[@]}" "$artifact_root/candidate-simd-celt.test" \
@@ -119,9 +160,6 @@ done
 run_phase build-baseline-test-binary \
   run_in_checkout "$baseline_root" env -u GOEXPERIMENT -u GOPUS_LIBOPUS_REF_SCALAR \
   go test -c -pgo=auto -o "$artifact_root/baseline-default-root.test" .
-run_phase build-candidate-simd-test-binary \
-  run_in_checkout "$candidate_root" env -u GOPUS_LIBOPUS_REF_SCALAR GOEXPERIMENT=simd \
-  go test -c -pgo=auto -o "$artifact_root/candidate-simd-root.test" .
 
 run_profile() {
   local side="$1" binary="$2" profile="$3" checkout

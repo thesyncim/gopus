@@ -1,10 +1,12 @@
 package celt
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 const (
@@ -82,13 +84,28 @@ func runLibopusCELTFilter(t *testing.T, payload *libopustest.OraclePayload, simd
 }
 
 func probeLibopusDeemphasis(t *testing.T, channels int, samples [][]float32, mem []float32) libopusDeemphasisResult {
+	return probeLibopusDeemphasisWithOptions(t, channels, samples, mem, 1, nil)
+}
+
+func probeLibopusDeemphasisWithOptions(t *testing.T, channels int, samples [][]float32, mem []float32, downsample int, accum []float32) libopusDeemphasisResult {
 	t.Helper()
 	n := len(samples[0])
+	if channels < 1 || channels > 2 || len(samples) != channels || len(mem) != channels || downsample < 1 || downsample > n {
+		t.Fatalf("invalid deemphasis probe dimensions: channels=%d samples=%d mem=%d downsample=%d n=%d", channels, len(samples), len(mem), downsample, n)
+	}
+	count := channels * (n / downsample)
+	accumFlag := uint32(0)
+	if accum != nil {
+		if len(accum) != count {
+			t.Fatalf("accum length=%d want %d", len(accum), count)
+		}
+		accumFlag = 1
+	}
 	payload := libopustest.NewOraclePayload("GCFI", libopusCELTFilterModeDeemphasis)
 	payload.U32(uint32(channels))
 	payload.U32(uint32(n))
-	payload.U32(1)
-	payload.U32(0)
+	payload.U32(uint32(downsample))
+	payload.U32(accumFlag)
 	payload.Float32(float32(PreemphCoef))
 	payload.Float32(0)
 	payload.Float32(1)
@@ -101,11 +118,15 @@ func probeLibopusDeemphasis(t *testing.T, channels int, samples [][]float32, mem
 			payload.Float32(sample)
 		}
 	}
-	reader := runLibopusCELTFilter(t, payload, false)
+	if accumFlag != 0 {
+		payload.Float32s(accum...)
+	}
+	variant := requirePairedCELTOracleMode(t)
+	reader := runLibopusCELTFilter(t, payload, variant == libopustooling.LibopusReferenceSIMD)
 	if gotMode := reader.U32(); gotMode != libopusCELTFilterModeDeemphasis {
 		t.Fatalf("helper mode=%d want %d", gotMode, libopusCELTFilterModeDeemphasis)
 	}
-	count := int(reader.U32())
+	count = int(reader.U32())
 	out := libopusDeemphasisResult{
 		mem: make([]float32, channels),
 		pcm: make([]float32, count),
@@ -125,7 +146,7 @@ func probeLibopusDeemphasis(t *testing.T, channels int, samples [][]float32, mem
 
 func TestApplyDeemphasisAndScaleToFloat32MatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
-	requireBitExactFloat(t)
+	requirePairedCELTOracleMode(t)
 
 	const n = 67
 	samples32 := make([]float32, n)
@@ -155,7 +176,7 @@ func TestApplyDeemphasisAndScaleToFloat32MatchesLibopus(t *testing.T) {
 
 func TestApplyDeemphasisAndScaleToFloat32StereoMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
-	requireBitExactFloat(t)
+	requirePairedCELTOracleMode(t)
 
 	const n = 61
 	left, right := makeStereoDeemphasisSamples(n)
@@ -179,7 +200,7 @@ func TestApplyDeemphasisAndScaleToFloat32StereoMatchesLibopus(t *testing.T) {
 
 func TestApplyDeemphasisAndScaleMonoFloat32ToFloat32MatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
-	requireBitExactFloat(t)
+	requirePairedCELTOracleMode(t)
 
 	const n = 73
 	samples := make([]float32, n)
@@ -208,7 +229,7 @@ func TestApplyDeemphasisAndScaleMonoFloat32ToFloat32MatchesLibopus(t *testing.T)
 
 func TestApplyDeemphasisAndScaleInPlaceMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
-	requireBitExactFloat(t)
+	requirePairedCELTOracleMode(t)
 
 	const n = 59
 	left, right := makeStereoDeemphasisSamples(n)
@@ -231,7 +252,7 @@ func TestApplyDeemphasisAndScaleInPlaceMatchesLibopus(t *testing.T) {
 
 func TestApplyDeemphasisAndScaleStereoPlanarToFloat32MatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
-	requireBitExactFloat(t)
+	requirePairedCELTOracleMode(t)
 
 	const n = 65
 	left32, right32 := makeStereoDeemphasisSamples(n)
@@ -250,7 +271,7 @@ func TestApplyDeemphasisAndScaleStereoPlanarToFloat32MatchesLibopus(t *testing.T
 
 func TestApplyDeemphasisAndScaleStereoPlanarFloat32ToFloat32MatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
-	requireBitExactFloat(t)
+	requirePairedCELTOracleMode(t)
 
 	const n = 71
 	left, right := makeStereoDeemphasisSamples(n)
@@ -267,6 +288,83 @@ func TestApplyDeemphasisAndScaleStereoPlanarFloat32ToFloat32MatchesLibopus(t *te
 	assertCELTFilterMemBits(t, dec, want.mem)
 }
 
+func TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	requirePairedCELTOracleMode(t)
+
+	for _, channels := range []int{1, 2} {
+		t.Run(fmt.Sprintf("channels=%d/transition", channels), func(t *testing.T) {
+			dec := NewDecoder(channels)
+			var oracleMem = make([]float32, channels)
+			for _, segment := range []struct {
+				name    string
+				length  int
+				silence bool
+			}{{"initial-silence", 17, true}, {"signal", 67, false}, {"silence-with-state", 23, true}, {"signal-again", 72, false}} {
+				t.Run(segment.name, func(t *testing.T) {
+					planes := make([][]float32, channels)
+					for ch := range channels {
+						planes[ch] = make([]float32, segment.length)
+						if !segment.silence {
+							for i := range segment.length {
+								planes[ch][i] = float32(math.Sin(float64(i+2+ch*7)*0.137)*1800 + math.Cos(float64(i+5+ch*11)*0.191)*900)
+							}
+						}
+					}
+					want := probeLibopusDeemphasis(t, channels, planes, oracleMem)
+					interleaved := interleaveDeemphasisPlanes(planes)
+					dec.applyDeemphasisAndScale(interleaved, 1.0/32768.0)
+					assertCELTFilterFloat32Bits(t, "pcm", interleaved, want.pcm)
+					assertCELTFilterMemBits(t, dec, want.mem)
+					copy(oracleMem, want.mem)
+				})
+			}
+		})
+
+		t.Run(fmt.Sprintf("channels=%d/downsample-state", channels), func(t *testing.T) {
+			const (
+				n          = 30
+				downsample = 3
+				outFrames  = n / downsample
+			)
+			planes := make([][]float32, channels)
+			for ch := range channels {
+				planes[ch] = make([]float32, n)
+				for i := range n {
+					planes[ch][i] = float32(math.Sin(float64(i+3+ch*5)*0.089)*950 + math.Cos(float64(i+1+ch*13)*0.127)*430)
+				}
+			}
+			initialMem := make([]float32, channels)
+			for ch := range channels {
+				initialMem[ch] = float32(41.25 - float64(ch)*83.5)
+			}
+			want := probeLibopusDeemphasisWithOptions(t, channels, planes, initialMem, downsample, nil)
+			dec := NewDecoder(channels)
+			copy(dec.preemphState[:], initialMem)
+			got := make([]float32, outFrames*channels)
+			interleaved := interleaveDeemphasisPlanes(planes)
+			dec.applyDeemphasisAndScaleDownsampleToFloat32(got, interleaved, downsample, 1.0/32768.0)
+			assertCELTFilterFloat32Bits(t, "downsample pcm", got, want.pcm)
+			assertCELTFilterMemBits(t, dec, want.mem)
+
+			accum := make([]float32, len(got))
+			for i := range accum {
+				accum[i] = float32(0.125*float64(i+1) - 0.75)
+			}
+			wantAccum := probeLibopusDeemphasisWithOptions(t, channels, planes, initialMem, downsample, accum)
+			dec = NewDecoder(channels)
+			copy(dec.preemphState[:], initialMem)
+			gotAccum := make([]float32, len(accum))
+			dec.applyDeemphasisAndScaleDownsampleToFloat32(gotAccum, interleaved, downsample, 1.0/32768.0)
+			for i := range gotAccum {
+				gotAccum[i] += accum[i]
+			}
+			assertCELTFilterFloat32Bits(t, "downsample accumulated pcm", gotAccum, wantAccum.pcm)
+			assertCELTFilterMemBits(t, dec, wantAccum.mem)
+		})
+	}
+}
+
 func makeStereoDeemphasisSamples(n int) ([]float32, []float32) {
 	left := make([]float32, n)
 	right := make([]float32, n)
@@ -275,6 +373,17 @@ func makeStereoDeemphasisSamples(n int) ([]float32, []float32) {
 		right[i] = float32(math.Cos(float64(i+6)*0.151)*1600 - math.Sin(float64(i+2)*0.083)*810)
 	}
 	return left, right
+}
+
+func interleaveDeemphasisPlanes(planes [][]float32) []float32 {
+	n := len(planes[0])
+	interleaved := make([]float32, n*len(planes))
+	for i := range n {
+		for ch := range planes {
+			interleaved[i*len(planes)+ch] = planes[ch][i]
+		}
+	}
+	return interleaved
 }
 
 func assertCELTFilterFloat32Bits(t *testing.T, label string, got, want []float32) {
@@ -368,9 +477,7 @@ func TestCELTFilterOracleDispatchIdentity(t *testing.T) {
 			t.Fatalf("comb mode %d oracle SIMD=%t, Go SSE/NEON selection=%t", mode, oracleSIMD, dispatched || combUsesSSE)
 		}
 	}
-	if celtFilterOracleUsesSIMD(libopusCELTFilterModeDeemphasis) {
-		t.Fatalf("deemphasis selects SIMD C without a matching Go SIMD kernel")
-	}
+	requirePairedCELTOracleMode(t)
 }
 
 func TestCombFilterWithSquareMatchesLibopus(t *testing.T) {

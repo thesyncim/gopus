@@ -266,7 +266,9 @@ func (d *streamState) transitionPLCToFloat32(transSize, prevMode, prevBW int, pr
 // CELT decoder matches the single decoder libopus uses, so decoding here advances
 // the same state.
 func (d *streamState) addHybridToSilkFadeOut(out []float32) error {
-	if int(d.lastMode) != streamModeHybrid {
+	// src/opus_decoder.c gates this on prev_mode; the Go mode sentinel is Hybrid
+	// even before a fresh or reset stream has decoded a frame.
+	if !d.haveDecoded || int(d.lastMode) != streamModeHybrid {
 		return nil
 	}
 	channels := int(d.channels)

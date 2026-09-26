@@ -1,6 +1,7 @@
 package gopus
 
 import (
+	"fmt"
 	"math"
 	"testing"
 )
@@ -214,6 +215,44 @@ func TestHotPathAllocsDecodeFloat32(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("Decode(float32) allocs/op = %.2f, want 0", allocs)
+	}
+}
+
+func TestHotPathAllocsDecodeSilenceTransitions(t *testing.T) {
+	for _, channels := range []int{1, 2} {
+		t.Run(fmt.Sprintf("channels=%d", channels), func(t *testing.T) {
+			dec, err := NewDecoder(DefaultDecoderConfig(48000, channels))
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			silenceTOC := byte(31 << 3)
+			if channels == 2 {
+				silenceTOC |= 4
+			}
+			silence := []byte{silenceTOC, 0xff, 0xfe}
+			signal := testCELTPacket()
+			if channels == 2 {
+				signal = testStereoCELTPacket()
+			}
+			pcm := make([]float32, 960*channels)
+			decodeCycle := func() {
+				t.Helper()
+				for _, packet := range [][]byte{silence, signal, silence} {
+					if n, err := dec.Decode(packet, pcm); err != nil {
+						t.Fatalf("Decode: %v", err)
+					} else if n != 960 {
+						t.Fatalf("Decode samples=%d want 960", n)
+					}
+				}
+			}
+			for range 5 {
+				decodeCycle()
+			}
+			allocs := testing.AllocsPerRun(200, decodeCycle)
+			if allocs != 0 {
+				t.Fatalf("Decode silence/signal/silence allocs/op = %.2f, want 0", allocs)
+			}
+		})
 	}
 }
 
