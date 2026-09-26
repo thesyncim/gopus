@@ -905,6 +905,9 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float32, frameSize int, analy
 func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSize int, maxDataBytes int, refreshAnalysis func()) ([]byte, error) {
 	channels := int(e.channels)
 	sampleRate := int(e.sampleRate)
+	// opus_encode_native clears rangeFinal at entry, including calls that emit
+	// a TOC-only packet through the low-space return path.
+	e.finalRange = 0
 	// A non-positive frame size is never a valid Opus duration; reject it before
 	// any sampleRate/frameSize division (libopus opus_encode_native returns
 	// OPUS_BAD_ARG). Without this guard frameSize==0 passes the length check below
