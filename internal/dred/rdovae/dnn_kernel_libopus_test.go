@@ -4,17 +4,13 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
-func TestRDOVAESGEMVFusedMatchesLibopusNEONOracle(t *testing.T) {
-	if runtime.GOARCH != "arm64" {
-		t.Skip("NEON sgemv path is arm64-only")
-	}
+func TestRDOVAESGEMVMatchesSelectedLibopusOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 
 	for _, tc := range []struct {
@@ -38,7 +34,7 @@ func TestRDOVAESGEMVFusedMatchesLibopusNEONOracle(t *testing.T) {
 				t.Fatalf("Float32ViewFromBytes error: %v", err)
 			}
 			got := make([]float32, tc.rows)
-			sgemvFused(got, view, tc.rows, tc.cols, colStride, x)
+			sgemv(got, view, tc.rows, tc.cols, colStride, x)
 			for i := range got {
 				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 					t.Fatalf("out[%d]=%s want %s", i, formatDNNKernelFloat(got[i]), formatDNNKernelFloat(want[i]))
@@ -48,10 +44,7 @@ func TestRDOVAESGEMVFusedMatchesLibopusNEONOracle(t *testing.T) {
 	}
 }
 
-func TestRDOVAECGEMV8x4MatchesLibopusNEONOracle(t *testing.T) {
-	if runtime.GOARCH != "arm64" {
-		t.Skip("NEON cgemv8x4 path is arm64-only")
-	}
+func TestRDOVAECGEMV8x4MatchesSelectedLibopusOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 
 	for _, tc := range []struct {

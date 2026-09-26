@@ -3,10 +3,11 @@ package dnnmath
 import (
 	"fmt"
 	"math"
-	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 const (
@@ -21,11 +22,20 @@ const (
 var libopusDNNActivationHelper libopustest.HelperCache
 
 func getLibopusDNNActivationHelperPath() (string, error) {
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	cflags := libopustooling.ScalarDNNBuildCFLAGS
+	if variant == libopustooling.LibopusReferenceSIMD {
+		cflags = libopustooling.DREDSIMDBuildCFLAGS
+	}
 	return libopusDNNActivationHelper.CHelperPath(libopustest.CHelperConfig{
 		Label:       "dnn activation",
 		OutputBase:  "gopus_libopus_dnn_activation",
 		SourceFile:  "libopus_dnn_activation_info.c",
 		RefIncludes: []string{"celt", "celt/x86", "dnn"},
+		CFlags:      strings.Fields(cflags),
 		Libs:        []string{"-lm"},
 	})
 }
@@ -53,10 +63,7 @@ func probeLibopusDNNActivation(mode uint32, input []float32) ([]float32, error) 
 	return out, nil
 }
 
-func TestNEONVectorActivationsMatchLibopusOracle(t *testing.T) {
-	if runtime.GOARCH != "arm64" {
-		t.Skip("NEON activation path is arm64-only")
-	}
+func TestDNNVectorActivationsMatchSelectedLibopusOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 
 	input := []float32{-12, -8, -2, -0.75, -0.125, 0, 0.125, 0.75, 2, 8, 12}

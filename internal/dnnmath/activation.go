@@ -6,13 +6,12 @@ package dnnmath
 
 import (
 	"math"
-	"runtime"
 
 	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
-var useNEONApproxActivation = runtime.GOARCH == "arm64"
-var useNEONCgemvQuantize = runtime.GOARCH == "arm64"
+const useNEONApproxActivation = dnnNEONEnabled
+const useNEONCgemvQuantize = dnnNEONEnabled
 
 // TanhApprox mirrors libopus' DNN ACTIVATION_TANH path.
 func TanhApprox(x float32) float32 {

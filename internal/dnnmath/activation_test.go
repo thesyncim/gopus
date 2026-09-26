@@ -2,7 +2,6 @@ package dnnmath
 
 import (
 	"math"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -80,7 +79,7 @@ func TestVectorActivationsMatchActiveTailPath(t *testing.T) {
 
 	wantTanh := TanhScalarApprox(in[0])
 	wantSigmoid := SigmoidScalarApprox(in[0])
-	if runtime.GOARCH == "arm64" {
+	if dnnNEONEnabled {
 		wantTanh = tanhTailNEON(in[0])
 		wantSigmoid = sigmoidTailNEON(in[0])
 	}
@@ -113,7 +112,7 @@ func TestExpVectorApproxMatchesActiveTailPath(t *testing.T) {
 	ExpVectorApprox(out, in, len(in))
 
 	want := ExpApprox(in[len(in)-1])
-	if runtime.GOARCH == "arm64" {
+	if dnnNEONEnabled {
 		want = expApproxNEON(in[len(in)-1])
 	}
 	if gotBits, wantBits := math.Float32bits(out[len(out)-1]), math.Float32bits(want); gotBits != wantBits {
@@ -144,7 +143,7 @@ func TestCgemv8x4QuantizeInputMatchesActiveArch(t *testing.T) {
 
 	for _, x := range cases {
 		var want int8
-		if runtime.GOARCH == "arm64" {
+		if dnnNEONEnabled {
 			want = int8(int32(math.RoundToEven(float64(float32(127) * x))))
 		} else {
 			want = int8(int(math.Floor(0.5 + float64(float32(127)*x))))

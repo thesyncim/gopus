@@ -1,8 +1,6 @@
 package rdovae
 
 import (
-	"runtime"
-
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/dnnmath"
 )
@@ -15,12 +13,11 @@ const (
 
 const maxInputs = 2048
 
-// Match the pinned libopus DNN kernels selected by the helper build. Linux
-// parity helpers explicitly disable x86 intrinsics, so amd64 stays on the
-// scalar path instead of simulating libopus' optional vector kernels. Keep
-// these as constants so the unused arch branch folds away.
+// Match the DNN kernels in the instruction-paired libopus DRED build. The
+// amd64 quantized path remains scalar; its byte parity is checked by the
+// native selected-C oracle.
 const (
-	useArm64DNNVectorKernels = runtime.GOARCH == "arm64"
+	useArm64DNNVectorKernels = rdovaeNEONEnabled
 	useX86DNNVectorKernels   = false
 	useNearestEvenQuant      = useArm64DNNVectorKernels || useX86DNNVectorKernels
 )

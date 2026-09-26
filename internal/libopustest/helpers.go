@@ -2,11 +2,14 @@ package libopustest
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/thesyncim/gopus/internal/libopustooling"
@@ -37,6 +40,7 @@ type scalarDNNBuildConfig struct {
 	resetBuild     func(string) error
 	buildEnv       func() ([]string, error)
 	writeStamp     func(string) error
+	simd           bool
 }
 
 var (
@@ -47,6 +51,15 @@ var (
 		resetBuild:   libopustooling.ResetScalarDNNBuildIfStale,
 		buildEnv:     libopustooling.ScalarDNNBuildEnv,
 		writeStamp:   libopustooling.WriteScalarDNNBuildStamp,
+	}
+	dredSIMDDNNBuild = scalarDNNBuildConfig{
+		label:        "dred",
+		buildFlavor:  "dred-simd",
+		buildCurrent: libopustooling.DREDSIMDBuildIsCurrent,
+		resetBuild:   libopustooling.ResetDREDSIMDBuildIfStale,
+		buildEnv:     libopustooling.DREDSIMDBuildEnv,
+		writeStamp:   libopustooling.WriteDREDSIMDBuildStamp,
+		simd:         true,
 	}
 	osceScalarDNNBuild = scalarDNNBuildConfig{
 		label:          "osce",
@@ -60,6 +73,13 @@ var (
 )
 
 func EnsureDREDBuild(repoRoot string) (sourceDir, buildDir string, err error) {
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", "", err
+	}
+	if variant == libopustooling.LibopusReferenceSIMD {
+		return ensureScalarDNNBuild(repoRoot, dredSIMDDNNBuild)
+	}
 	return ensureScalarDNNBuild(repoRoot, dredScalarDNNBuild)
 }
 
@@ -73,6 +93,9 @@ func ensureScalarDNNBuild(repoRoot string, cfg scalarDNNBuildConfig) (sourceDir,
 	buildDir = filepath.Join(repoRoot, "tmp_check", fmt.Sprintf("build-opus-%s-scalar-%s-%s", cfg.buildFlavor, runtime.GOOS, runtime.GOARCH))
 	libopusStatic := filepath.Join(buildDir, ".libs", "libopus.a")
 	if _, err := os.Stat(libopusStatic); err == nil && cfg.buildCurrent(buildDir) {
+		if err := validateDREDInstructionBuild(buildDir, cfg); err != nil {
+			return "", "", err
+		}
 		return sourceDir, buildDir, nil
 	}
 
@@ -119,11 +142,12 @@ func ensureScalarDNNBuild(repoRoot string, cfg scalarDNNBuildConfig) (sourceDir,
 			"--enable-dred",
 		}
 		configureArgs = append(configureArgs, cfg.configureExtra...)
-		configureArgs = append(configureArgs,
-			"--disable-asm",
-			"--disable-rtcd",
-			"--disable-intrinsics",
-		)
+		if cfg.simd {
+			configureArgs = append(configureArgs, "--enable-rtcd", "--enable-intrinsics")
+		} else {
+			configureArgs = append(configureArgs,
+				"--disable-asm", "--disable-rtcd", "--disable-intrinsics")
+		}
 		cmd := exec.Command(filepath.Join(sourceDir, "configure"), configureArgs...)
 		cmd.Dir = buildDir
 		cmd.Env = buildEnv
@@ -141,19 +165,63 @@ func ensureScalarDNNBuild(repoRoot string, cfg scalarDNNBuildConfig) (sourceDir,
 	if err := cfg.writeStamp(buildDir); err != nil {
 		return "", "", fmt.Errorf("write %s scalar build stamp: %w", cfg.label, err)
 	}
+	if err := validateDREDInstructionBuild(buildDir, cfg); err != nil {
+		return "", "", err
+	}
 
 	return sourceDir, buildDir, nil
+}
+
+func validateDREDInstructionBuild(buildDir string, cfg scalarDNNBuildConfig) error {
+	if cfg.buildFlavor != "dred" && cfg.buildFlavor != "dred-simd" {
+		return nil
+	}
+	config, err := os.ReadFile(filepath.Join(buildDir, "config.h"))
+	if err != nil {
+		return fmt.Errorf("read DRED %s config: %w", cfg.buildFlavor, err)
+	}
+	defined := func(name string) bool {
+		for _, line := range strings.Split(string(config), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 && fields[0] == "#define" && fields[1] == name {
+				return true
+			}
+		}
+		return false
+	}
+	if !defined("ENABLE_DRED") || !defined("ENABLE_DEEP_PLC") || defined("FIXED_POINT") ||
+		defined("ENABLE_OSCE") || defined("ENABLE_QEXT") || defined("CUSTOM_MODES") {
+		return fmt.Errorf("DRED %s reference has mismatched optional features", cfg.buildFlavor)
+	}
+	variant := libopustooling.LibopusReferenceScalar
+	if cfg.simd {
+		variant = libopustooling.LibopusReferenceSIMD
+	}
+	if err := libopustooling.ValidateLibopusInstructionConfig(string(config), variant, runtime.GOARCH); err != nil {
+		return fmt.Errorf("DRED %s instruction config: %w", cfg.buildFlavor, err)
+	}
+	return nil
 }
 
 type scalarDNNHelperConfig struct {
 	label  string
 	ensure func(repoRoot string) (sourceDir, buildDir string, err error)
+	cflags string
 }
 
 func BuildDREDHelper(repoRoot, sourceFile, outputBase string, includeInternal bool) (string, error) {
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	cflags := libopustooling.ScalarDNNBuildCFLAGS
+	if variant == libopustooling.LibopusReferenceSIMD {
+		cflags = libopustooling.DREDSIMDBuildCFLAGS
+	}
 	return buildScalarDNNHelper(repoRoot, sourceFile, outputBase, includeInternal, scalarDNNHelperConfig{
 		label:  "dred",
 		ensure: EnsureDREDBuild,
+		cflags: cflags,
 	})
 }
 
@@ -161,6 +229,7 @@ func BuildOSCEHelper(repoRoot, sourceFile, outputBase string, includeInternal bo
 	return buildScalarDNNHelper(repoRoot, sourceFile, outputBase, includeInternal, scalarDNNHelperConfig{
 		label:  "osce",
 		ensure: EnsureOSCEBuild,
+		cflags: "-O2",
 	})
 }
 
@@ -183,14 +252,12 @@ func buildScalarDNNHelper(repoRoot, sourceFile, outputBase string, includeIntern
 		return "", fmt.Errorf("%s libopus static library not found: %w", cfg.label, err)
 	}
 
-	outPath := helperOutputPath(buildDir, outputBase, sourceFile, cfg.label)
-	args := []string{
-		"-std=c99",
-		"-O2",
+	args := append([]string{"-std=c99"}, strings.Fields(cfg.cflags)...)
+	args = append(args,
 		"-DHAVE_CONFIG_H",
 		"-I", buildDir,
 		"-I", filepath.Join(sourceDir, "include"),
-	}
+	)
 	if includeInternal {
 		args = append(args,
 			"-I", sourceDir,
@@ -200,11 +267,53 @@ func buildScalarDNNHelper(repoRoot, sourceFile, outputBase string, includeIntern
 			"-I", filepath.Join(sourceDir, "silk"),
 		)
 	}
-	args = append(args, srcPath, libopusStatic, "-lm", "-o", outPath)
+	args = append(args, srcPath, libopusStatic, "-lm")
+	srcBytes, err := os.ReadFile(srcPath)
+	if err != nil {
+		return "", fmt.Errorf("read %s helper source: %w", cfg.label, err)
+	}
+	archiveBytes, err := os.ReadFile(libopusStatic)
+	if err != nil {
+		return "", fmt.Errorf("read %s archive: %w", cfg.label, err)
+	}
+	configBytes, err := os.ReadFile(filepath.Join(buildDir, "config.h"))
+	if err != nil {
+		return "", fmt.Errorf("read %s config: %w", cfg.label, err)
+	}
+	version, _ := exec.Command(ccPath, "--version").Output()
+	hash := sha256.New()
+	for _, part := range [][]byte{[]byte(ccPath), version, []byte(strings.Join(args, "\x00")), srcBytes, archiveBytes, configBytes} {
+		_, _ = hash.Write(part)
+	}
+	digest := hex.EncodeToString(hash.Sum(nil))[:16]
+	outPath := helperOutputPathWithDigest(buildDir, outputBase, sourceFile, cfg.label, digest)
+	if _, err := os.Stat(outPath); err == nil {
+		return outPath, nil
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	tmpPattern := "." + outputBase + "-*.tmp"
+	if runtime.GOOS == "windows" {
+		tmpPattern += ".exe"
+	}
+	tmp, err := os.CreateTemp(buildDir, tmpPattern)
+	if err != nil {
+		return "", err
+	}
+	tmpPath := tmp.Name()
+	_ = tmp.Close()
+	defer os.Remove(tmpPath)
+	args = append(args, "-o", tmpPath)
 
 	cmd := exec.Command(ccPath, args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("build %s helper %s: %w (%s)", cfg.label, sourceFile, err, bytes.TrimSpace(output))
+	}
+	if err := os.Rename(tmpPath, outPath); err != nil {
+		if _, statErr := os.Stat(outPath); statErr == nil {
+			return outPath, nil
+		}
+		return "", fmt.Errorf("install %s helper %s: %w", cfg.label, sourceFile, err)
 	}
 	return outPath, nil
 }

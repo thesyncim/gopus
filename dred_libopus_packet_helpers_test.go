@@ -83,6 +83,12 @@ func emitLibopusDREDPacketWithFrameSize(frameSize int) (libopusDREDPacket, error
 }
 
 func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPacket, error) {
+	return emitLibopusDREDPacketWithConfigRecord(cfg, false)
+}
+
+// The record variant returns frameIndex=640 and an empty packet when the
+// selected libopus encoder emitted no DRED across the complete search window.
+func emitLibopusDREDPacketWithConfigRecord(cfg libopusDREDPacketConfig, recordAbsence bool) (libopusDREDPacket, error) {
 	binPath, err := getLibopusDREDEmitPacketHelperPath()
 	if err != nil {
 		return libopusDREDPacket{}, err
@@ -124,6 +130,9 @@ func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPa
 	if cfg.DREDDuration != 0 {
 		env = append(env, fmt.Sprintf("GOPUS_DRED_DURATION=%d", cfg.DREDDuration))
 	}
+	if recordAbsence {
+		env = append(env, "GOPUS_DRED_EMISSION_RECORD=1")
+	}
 	out, err := libopustest.RunHelperEnv(binPath, libopusDREDPacketPCMInput(cfg, libopusDREDPacketMaxFramesToTry), env)
 	if err != nil {
 		return libopusDREDPacket{}, fmt.Errorf("run dred emit helper: %w", err)
@@ -133,8 +142,8 @@ func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPa
 	if err != nil {
 		return libopusDREDPacket{}, err
 	}
-	if version != 1 && version != 2 {
-		return libopusDREDPacket{}, fmt.Errorf("dred emit helper version=%d want 1 or 2", version)
+	if recordAbsence && version != 3 || !recordAbsence && version != 1 && version != 2 {
+		return libopusDREDPacket{}, fmt.Errorf("dred emit helper version=%d recordAbsence=%t", version, recordAbsence)
 	}
 	info := libopusDREDPacket{
 		sampleRate:     int(reader.U32()),
@@ -149,6 +158,9 @@ func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPa
 		return libopusDREDPacket{}, err
 	}
 	info.packet = append([]byte(nil), packet...)
+	if len(info.packet) == 0 && recordAbsence && info.frameIndex == libopusDREDPacketMaxFramesToTry {
+		return info, nil
+	}
 	if len(info.packet) == 0 {
 		return libopusDREDPacket{}, fmt.Errorf("dred emit helper returned an empty packet")
 	}

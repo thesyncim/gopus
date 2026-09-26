@@ -9,23 +9,20 @@
 //
 // For each (mode, duration, rate-control) point the harness drives both the
 // gopus encoder and the libopus opus_encode_float + OPUS_SET_DRED_DURATION oracle
-// with identical voiced PCM until each emits a DRED-bearing packet, then asserts:
-//   - the DRED emission frame index matches (the encoder's DRED gating decision),
-//   - the carried DRED payload is byte-exact,
-//   - the DRED-payload frame offset matches.
+// with identical voiced PCM across a 640-frame window, then asserts:
+//   - the DRED emission frame index or absence matches,
+//   - the first emitted DRED payload is byte-exact,
+//   - the first emitted DRED-payload frame offset matches.
 //
-// The DRED payload is produced by the integer RDOVAE entropy coder, so it must be
-// byte-exact on every arch (no float boundary in the DRED bitstream itself). The
-// primary CELT/Hybrid frame bytes can drift by the documented arm64 ≤1-ULP CELT
-// boundary, so this harness compares only the DRED payload + offset + emission
-// index (all integer), not the full primary frame.
+// The DRED payload passes through float DNN kernels, so each Go lane uses the
+// instruction-paired libopus DRED reference. This harness compares the carried
+// DRED payload, offset, and emission cadence independently of the primary frame.
 
 package gopus
 
 import (
 	"bytes"
 	"fmt"
-	"strings"
 	"testing"
 
 	encpkg "github.com/thesyncim/gopus/internal/encoder"
@@ -34,7 +31,8 @@ import (
 
 // TestEncoderDREDDurationDifferentialFuzz sweeps the DRED redundancy depth across
 // SILK/Hybrid/CELT primary modes and VBR/CBR, asserting the carried DRED payload
-// matches libopus byte-for-byte at every duration.
+// matches libopus byte-for-byte at every duration where it emits, and that
+// absence agrees where neither encoder emits in the complete search window.
 func TestEncoderDREDDurationDifferentialFuzz(t *testing.T) {
 	libopustest.RequireOracle(t)
 
@@ -42,17 +40,9 @@ func TestEncoderDREDDurationDifferentialFuzz(t *testing.T) {
 	// exercises the maximum 104-unit redundancy window. 0 means "no DRED" and is
 	// excluded — this sweep targets the carried payload across the active range.
 	//
-	// VBR exercises the full range from the shortest practical depth (8 = 80 ms)
-	// upward. The CBR arm starts at 32: at the two shortest depths (8, 16) under a
-	// fixed packet rate the DRED first-emission gating sits on a near-tie where
-	// the libopus DRED bit-budget can round to "no latents yet" on the exact frame
-	// gopus first emits (an off-by-one in the first DRED-bearing frame), and
-	// libopus sometimes cannot fit a DRED payload at all within the search window.
-	// This is the same near-tie sensitivity the per-stream mode classification
-	// shows, not a structural divergence — depths >= 32 (the useful range; the
-	// libopus default is 80) are deterministic and byte-exact.
-	vbrDurations := []int{8, 16, 32, 48, 64, 80, 96, 104}
-	cbrDurations := []int{32, 48, 64, 80, 96, 104}
+	// The full active range includes short CBR durations. If no DRED fits in
+	// the 640-frame window, both encoders must agree on that absence.
+	durations := []int{8, 16, 32, 48, 64, 80, 96, 104}
 
 	modes := []struct {
 		name      string
@@ -83,14 +73,11 @@ func TestEncoderDREDDurationDifferentialFuzz(t *testing.T) {
 		indexMismatch int
 		offsetMismat  int
 		payloadFails  int
+		absentOK      int
 	)
 
 	for _, m := range modes {
 		for _, rc := range rcModes {
-			durations := vbrDurations
-			if rc.cbr {
-				durations = cbrDurations
-			}
 			for _, dur := range durations {
 				name := fmt.Sprintf("%s/%s/dur%d", m.name, rc.name, dur)
 				t.Run(name, func(t *testing.T) {
@@ -109,15 +96,25 @@ func TestEncoderDREDDurationDifferentialFuzz(t *testing.T) {
 							cfg.Bitrate = 32000
 						}
 					}
-					packetInfo, err := emitLibopusDREDPacketWithConfig(cfg)
+					packetInfo, err := emitLibopusDREDPacketWithConfigRecord(cfg, true)
 					if err != nil {
-						// libopus may be unable to fit a DRED payload within the search
-						// window for a given (mode, rate, depth) point; that is an oracle
-						// emission-budget limitation, not a gopus divergence, so skip it.
-						if strings.Contains(err.Error(), "failed to emit a DRED-bearing packet") {
-							t.Skipf("libopus emitted no DRED packet for %s: %v", name, err)
+						t.Fatalf("DRED duration packet oracle: %v", err)
+					}
+					bitrate := 0
+					if rc.cbr {
+						bitrate = cfg.Bitrate
+					}
+					settings := encoderDREDPacketSettings{
+						mode: m.mode, bandwidth: m.bandwidth, frameSize: frameSize,
+						channels: m.channels, bitrate: bitrate, cbr: rc.cbr, dredDuration: dur,
+					}
+					if len(packetInfo.packet) == 0 {
+						gotPacket, gotPayload, _, gotFrameIndex := scanDREDEmissionWithSettings(t, settings, false)
+						if gotPacket != nil || gotPayload != nil || gotFrameIndex != packetInfo.frameIndex {
+							t.Fatalf("DRED absence mismatch: Go packet=%d payload=%d frame=%d C frame=%d",
+								len(gotPacket), len(gotPayload), gotFrameIndex, packetInfo.frameIndex)
 						}
-						libopustest.HelperUnavailable(t, "DRED duration packet", err)
+						absentOK++
 						return
 					}
 					wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
@@ -128,19 +125,7 @@ func TestEncoderDREDDurationDifferentialFuzz(t *testing.T) {
 						t.Fatalf("libopus %s packet missing DRED payload at duration %d", m.name, dur)
 					}
 
-					bitrate := 0
-					if rc.cbr {
-						bitrate = cfg.Bitrate
-					}
-					gotPacket, gotPayload, gotOffset, gotFrameIndex := encodeUntilDREDPacketWithSettings(t, encoderDREDPacketSettings{
-						mode:         m.mode,
-						bandwidth:    m.bandwidth,
-						frameSize:    frameSize,
-						channels:     m.channels,
-						bitrate:      bitrate,
-						cbr:          rc.cbr,
-						dredDuration: dur,
-					})
+					gotPacket, gotPayload, gotOffset, gotFrameIndex := encodeUntilDREDPacketWithSettings(t, settings)
 					if ParseTOC(gotPacket[0]).Mode != m.public {
 						t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, m.public)
 					}
@@ -161,6 +146,6 @@ func TestEncoderDREDDurationDifferentialFuzz(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("DRED duration differential sweep: %d specs; payload-exact=%d index-mismatch=%d offset-mismatch=%d payload-fails=%d",
-		tested, payloadOK, indexMismatch, offsetMismat, payloadFails)
+	t.Logf("DRED duration differential sweep: %d specs; payload-exact=%d absent-exact=%d index-mismatch=%d offset-mismatch=%d payload-fails=%d",
+		tested, payloadOK, absentOK, indexMismatch, offsetMismat, payloadFails)
 }

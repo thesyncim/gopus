@@ -18,11 +18,20 @@ var dnnKernelHelper HelperCache
 var dnnKernelScalarHelper HelperCache
 
 func dnnKernelHelperPath() (string, error) {
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	cflags := libopustooling.ScalarDNNBuildCFLAGS
+	if variant == libopustooling.LibopusReferenceSIMD {
+		cflags = libopustooling.DREDSIMDBuildCFLAGS
+	}
 	return dnnKernelHelper.CHelperPath(CHelperConfig{
 		Label:       "dnn kernel",
 		OutputBase:  "gopus_libopus_dnn_kernel",
 		SourceFile:  "libopus_dnn_kernel_info.c",
 		RefIncludes: []string{"celt", "celt/x86", "dnn"},
+		CFlags:      strings.Fields(cflags),
 		Libs:        []string{"-lm"},
 	})
 }

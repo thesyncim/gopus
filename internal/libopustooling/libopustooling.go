@@ -281,6 +281,12 @@ func validateLibopusConfigSIMD(config string, variant LibopusReferenceVariant, g
 	return nil
 }
 
+// ValidateLibopusInstructionConfig checks the complete SIMD/RTCD macro family
+// in a generated config.h against the selected Go instruction lane.
+func ValidateLibopusInstructionConfig(config string, variant LibopusReferenceVariant, goarch string) error {
+	return validateLibopusConfigSIMD(config, variant, goarch)
+}
+
 // ValidateLibopusReferenceArchive validates the provenance stamped beside an
 // archive path. Paired archives live under <source>/.libs/libopus.a.
 func ValidateLibopusReferenceArchive(archivePath string, variant LibopusReferenceVariant, version string) error {
@@ -343,11 +349,14 @@ const (
 	// DefaultVersion is the pinned libopus reference used by fixture tooling.
 	DefaultVersion = "1.6.1"
 
-	// ScalarDNNBuildCFLAGS keeps x86 libopus helper builds on the generic DNN
-	// path. --disable-intrinsics disables libopus RTCD feature selection, but
-	// x86 compilers still predefine __SSE2__, which makes dnn/vec.h include
-	// vec_avx.h unless the helper build explicitly undefines those macros.
-	ScalarDNNBuildCFLAGS = "-g -O2 -fvisibility=hidden -U__AVX__ -U__AVX2__ -U__FMA__ -U__SSE__ -U__SSE2__ -U__SSE3__ -U__SSSE3__ -U__SSE4_1__ -U__SSE4_2__"
+	// dnn/vec.h selects its vector implementation from compiler macros even
+	// when libopus RTCD and intrinsics are disabled. Clear those macros so the
+	// scalar DRED reference uses the generic DNN path on every architecture.
+	ScalarDNNBuildCFLAGS = LibopusScalarCFLAGS + " -DDISABLE_NEON -U__ARM_NEON__ -U__ARM_NEON -U__AVX__ -U__AVX2__ -U__FMA__ -U__SSE__ -U__SSE2__ -U__SSE3__ -U__SSSE3__ -U__SSE4_1__ -U__SSE4_2__"
+
+	// The SIMD DRED reference uses the native libopus instruction selection and
+	// optimization level paired with GOEXPERIMENT=simd.
+	DREDSIMDBuildCFLAGS = LibopusBaseCFLAGS
 
 	// OSCEScalarDNNBuildCFLAGS keeps OSCE BWE/LACE reference helpers on the
 	// generic DNN path even on ARM, where dnn/vec.h checks compiler NEON macros
@@ -363,6 +372,7 @@ const (
 	// fixtures exercise the generic DNN path on ARM too. The stamp is different
 	// so a stale plain scalar build cannot be reused as an OSCE build.
 	osceScalarDNNBuildStampFile = ".gopus-scalar-dnn-build-osce"
+	dredSIMDDNNBuildStampFile   = ".gopus-simd-dnn-build-dred"
 )
 
 // LibopusBuildProvenance captures the native helper build that produced a
@@ -921,6 +931,11 @@ func ScalarDNNBuildEnv() ([]string, error) {
 	return scalarDNNBuildEnv(ScalarDNNBuildCFLAGS)
 }
 
+// DREDSIMDBuildEnv pins the native compiler and flags for the DRED SIMD oracle.
+func DREDSIMDBuildEnv() ([]string, error) {
+	return scalarDNNBuildEnv(DREDSIMDBuildCFLAGS)
+}
+
 func scalarDNNBuildEnv(cflags string) ([]string, error) {
 	cc, err := FindCCompiler()
 	if err != nil {
@@ -945,12 +960,16 @@ func OSCEScalarDNNBuildEnv() ([]string, error) {
 }
 
 func scalarDNNBuildStamp(cflags string) (string, error) {
+	return dnnBuildStamp("gopus scalar libopus DNN helper build v4", cflags)
+}
+
+func dnnBuildStamp(label, cflags string) (string, error) {
 	cc, err := FindCCompiler()
 	if err != nil {
 		return "", err
 	}
 	var b strings.Builder
-	b.WriteString("gopus scalar libopus DNN helper build v4\n")
+	b.WriteString(label + "\n")
 	b.WriteString("GOOS=" + runtime.GOOS + "\n")
 	b.WriteString("GOARCH=" + runtime.GOARCH + "\n")
 	b.WriteString("CC=" + cc + "\n")
@@ -960,6 +979,42 @@ func scalarDNNBuildStamp(cflags string) (string, error) {
 	b.WriteString("CPPFLAGS=\n")
 	b.WriteString("LDFLAGS=\n")
 	return b.String(), nil
+}
+
+func dredSIMDBuildStamp() (string, error) {
+	return dnnBuildStamp("gopus SIMD libopus DRED helper build v1", DREDSIMDBuildCFLAGS)
+}
+
+// DREDSIMDBuildIsCurrent checks the isolated native-instruction DRED build.
+func DREDSIMDBuildIsCurrent(buildDir string) bool {
+	data, err := os.ReadFile(filepath.Join(buildDir, dredSIMDDNNBuildStampFile))
+	if err != nil {
+		return false
+	}
+	stamp, err := dredSIMDBuildStamp()
+	return err == nil && string(data) == stamp
+}
+
+// ResetDREDSIMDBuildIfStale removes only the stale DRED SIMD build directory.
+func ResetDREDSIMDBuildIfStale(buildDir string) error {
+	if _, err := os.Stat(buildDir); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if DREDSIMDBuildIsCurrent(buildDir) {
+		return nil
+	}
+	return os.RemoveAll(buildDir)
+}
+
+// WriteDREDSIMDBuildStamp records the native DRED helper build contract.
+func WriteDREDSIMDBuildStamp(buildDir string) error {
+	stamp, err := dredSIMDBuildStamp()
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(buildDir, dredSIMDDNNBuildStampFile), []byte(stamp), 0o644)
 }
 
 func compilerStampLine(cc string, arg string) string {

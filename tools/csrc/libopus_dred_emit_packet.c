@@ -192,11 +192,13 @@ int main(void) {
   const char *cbr_env = getenv("GOPUS_DRED_CBR");
   const char *pcm_stdin_env = getenv("GOPUS_DRED_PCM_STDIN");
   const char *dred_duration_env = getenv("GOPUS_DRED_DURATION");
+  const char *emission_record_env = getenv("GOPUS_DRED_EMISSION_RECORD");
   int force_channels = 0;
   int use_multistream = 0;
   int use_cbr = 0;
   int use_pcm_stdin = 0;
   int dred_duration = 80;
+  int emission_record = emission_record_env != NULL && strcmp(emission_record_env, "1") == 0;
 
   if (frame_size_env != NULL && frame_size_env[0] != '\0') {
     char *end = NULL;
@@ -406,7 +408,7 @@ int main(void) {
     }
     ret = opus_dred_parse(dred_dec, dred, packet, packet_len, max_dred_samples, sample_rate, &dred_end, 1);
     if (ret >= 0 && dred->process_stage == 1 && dred->nb_latents > 0) {
-      if (!write_exact(GODO_MAGIC, 4) || !write_u32(2) || !write_u32((uint32_t)sample_rate) ||
+      if (!write_exact(GODO_MAGIC, 4) || !write_u32(emission_record ? 3 : 2) || !write_u32((uint32_t)sample_rate) ||
           !write_u32((uint32_t)max_dred_samples) || !write_u32((uint32_t)packet_len) ||
           !write_u32((uint32_t)frame_idx) ||
           !write_exact(packet, (size_t)packet_len)) {
@@ -423,6 +425,20 @@ int main(void) {
     }
   }
 
+  if (emission_record) {
+    if (!write_exact(GODO_MAGIC, 4) || !write_u32(3) || !write_u32((uint32_t)sample_rate) ||
+        !write_u32((uint32_t)max_dred_samples) || !write_u32(0) || !write_u32((uint32_t)max_frames_to_try)) {
+      fprintf(stderr, "failed to write DRED absence record\n");
+      opus_dred_free(dred);
+      opus_dred_decoder_destroy(dred_dec);
+      destroy_encoder(enc, ms_enc);
+      return 1;
+    }
+    opus_dred_free(dred);
+    opus_dred_decoder_destroy(dred_dec);
+    destroy_encoder(enc, ms_enc);
+    return 0;
+  }
   fprintf(stderr, "failed to emit a DRED-bearing packet\n");
   opus_dred_free(dred);
   opus_dred_decoder_destroy(dred_dec);
