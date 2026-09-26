@@ -24,6 +24,7 @@ const (
 )
 
 var libopusPitchXcorrSIMDHelper libopustest.HelperCache
+var libopusPitchXcorrPrimitiveHelper libopustest.HelperCache
 
 type libopusPitchXcorrMetadata struct {
 	arch     uint32
@@ -119,6 +120,21 @@ func TestPitchXCorrPairedLibopusSIMDRawBits(t *testing.T) {
 		t.Fatalf("read paired libopus SIMD build stamp %s: %v", stampPath, err)
 	}
 	t.Logf("paired libopus SIMD stamp=%s\nselected_arch=%d cpu_features=%03b effective_dispatch=%02b", strings.TrimSpace(string(stamp)), metadata.arch, metadata.cpu, metadata.dispatch)
+	primitivePath, err := libopusPitchXcorrPrimitiveHelper.CHelperPath(libopustest.CHelperConfig{
+		Label:        "native xcorr primitive probe",
+		OutputBase:   "gopus_libopus_pitch_xcorr_primitives",
+		SourceFile:   "libopus_pitch_xcorr_primitive_probe.c",
+		ProbeRelPath: "config.h",
+		SIMDRef:      true,
+	})
+	if err != nil {
+		t.Fatalf("build native xcorr primitive probe: %v", err)
+	}
+	primitiveBits, err := libopustest.RunHelper(primitivePath, nil)
+	if err != nil {
+		t.Fatalf("run native xcorr primitive probe: %v", err)
+	}
+	t.Logf("native xcorr primitive helper=%s\nbits:\n%s", primitivePath, strings.TrimSpace(string(primitiveBits)))
 
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -262,6 +278,50 @@ func libopusPitchXcorrExceptionalCases() []libopusPitchXcorrCase {
 			x[3] = math.Float32frombits(0x7fc01234)
 			y[8] = math.Float32frombits(0xffc05678)
 		}),
+		makeCase("length9_fma32_single_round", 9, 8, func(x, y []float32) {
+			// Lane zero is seeded by c and then updated by a*b. The exact
+			// hardware FMA32 result differs from float32(math.FMA(float64(...))).
+			x[0], y[0] = math.Float32frombits(0xa20c2545), 1
+			x[8], y[8] = math.Float32frombits(0x3fcca800), math.Float32frombits(0x3f979800)
+		}),
+		makeCase("length10_sse_nan_operand_priority", 10, pitches, func(x, y []float32) {
+			// The last correlation hits -0 * -Inf, then a distinct NaN in
+			// its next four-lane SSE update. The C accumulator is the addend.
+			x[1], y[10] = math.Float32frombits(0x80000000), float32(math.Inf(-1))
+			x[5], y[14] = -0.5, math.Float32frombits(0x7fc01234)
+		}),
+	}
+	for _, length := range []int{9, 10, 15, 17} {
+		cases = append(cases, makeCase(fmt.Sprintf("length%d_negative_underflow_tail", length), length, pitches, func(x, y []float32) {
+			for i := range x {
+				x[i] = math.Float32frombits(0x80000001)
+			}
+			for i := range y {
+				y[i] = math.Float32frombits(0x00000001)
+			}
+		}))
+	}
+	for variant, operands := range [][3]uint32{
+		{0x7fc01234, 0xffc05678, 0x3f800000},
+		{0x7fa01234, 0xffc05678, 0x3f800000},
+		{0x7fc01234, 0xffa05678, 0x3f800000},
+		{0x7fa01234, 0xffa05678, 0x3f800000},
+		{0x7f800000, 0x00000000, 0xffc05678},
+		{0x7f800000, 0xff800000, 0x3f800000},
+	} {
+		operands := operands
+		cases = append(cases, makeCase(fmt.Sprintf("nan_fma_priority_%d", variant), 17, pitches, func(x, y []float32) {
+			for i := range x {
+				x[i] = 1
+			}
+			for i := range y {
+				y[i] = 1
+			}
+			x[0] = math.Float32frombits(operands[0])
+			y[0] = math.Float32frombits(operands[1])
+			x[8] = math.Float32frombits(operands[2])
+			y[8] = 1
+		}))
 	}
 	values := []float32{
 		0, math.Float32frombits(1 << 31), math.SmallestNonzeroFloat32,

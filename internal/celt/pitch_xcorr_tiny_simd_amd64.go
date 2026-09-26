@@ -65,6 +65,30 @@ func pitchXCorrFloat32AVX2FMAOrderTiny(x, y, xcorr []float32, length, maxPitch i
 					archsimd.LoadFloat32x8Array((*[8]float32)(yBatch[j+7:])), acc7)
 			}
 		}
+		if remaining := length & 7; remaining != 0 {
+			// pitch_avx.c mask-loads the final block and executes every FMA.
+			// An inactive +0*+0 lane turns a prior -0 accumulator into +0.
+			var zero archsimd.Float32x8
+			if remaining <= 1 {
+				acc1 = zero.MulAdd(zero, acc1)
+			}
+			if remaining <= 2 {
+				acc2 = zero.MulAdd(zero, acc2)
+			}
+			if remaining <= 3 {
+				acc3 = zero.MulAdd(zero, acc3)
+			}
+			if remaining <= 4 {
+				acc4 = zero.MulAdd(zero, acc4)
+			}
+			if remaining <= 5 {
+				acc5 = zero.MulAdd(zero, acc5)
+			}
+			if remaining <= 6 {
+				acc6 = zero.MulAdd(zero, acc6)
+			}
+			acc7 = zero.MulAdd(zero, acc7)
+		}
 		s04 := acc0.Add(acc4)
 		s15 := acc1.Add(acc5)
 		s26 := acc2.Add(acc6)
@@ -104,6 +128,12 @@ func pitchXCorrFloat32AVX2FMAOrderTiny10(x, y, xcorr []float32, maxPitch int) {
 		acc7 := archsimd.BroadcastFloat32x8(x[7]).MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 28))), zero)
 		acc0 = archsimd.BroadcastFloat32x8(x[8]).MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 32))), acc0)
 		acc1 = archsimd.BroadcastFloat32x8(x[9]).MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 36))), acc1)
+		acc2 = zero.MulAdd(zero, acc2)
+		acc3 = zero.MulAdd(zero, acc3)
+		acc4 = zero.MulAdd(zero, acc4)
+		acc5 = zero.MulAdd(zero, acc5)
+		acc6 = zero.MulAdd(zero, acc6)
+		acc7 = zero.MulAdd(zero, acc7)
 
 		s04 := acc0.Add(acc4)
 		s15 := acc1.Add(acc5)
@@ -145,6 +175,12 @@ func pitchXCorrFloat32AVX2FMAOrderTiny10(x, y, xcorr []float32, maxPitch int) {
 		acc7 := archsimd.BroadcastFloat32x8(x[7]).MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 28))), zero)
 		acc0 = archsimd.BroadcastFloat32x8(x[8]).MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 32))), acc0)
 		acc1 = archsimd.BroadcastFloat32x8(x[9]).MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 36))), acc1)
+		acc2 = zero.MulAdd(zero, acc2)
+		acc3 = zero.MulAdd(zero, acc3)
+		acc4 = zero.MulAdd(zero, acc4)
+		acc5 = zero.MulAdd(zero, acc5)
+		acc6 = zero.MulAdd(zero, acc6)
+		acc7 = zero.MulAdd(zero, acc7)
 
 		s04 := acc0.Add(acc4)
 		s15 := acc1.Add(acc5)
