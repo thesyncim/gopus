@@ -5,6 +5,7 @@ package gopus
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"os"
 	"os/exec"
@@ -30,6 +31,10 @@ func TestQEXTStatefulVBRPacketsMatchLibopus(t *testing.T) {
 
 func TestQEXTStateful5msCubicPacketsMatchLibopus(t *testing.T) {
 	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 240, 2, 1, 128000, BitrateModeVBR, "", true)
+}
+
+func TestQEXTStateful5msCBRTargetTruncationMatchesLibopus(t *testing.T) {
+	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 240, 3, 1, 256000, BitrateModeCBR, "-cbr", true)
 }
 
 func TestQEXTStateful5msFinalisationPacketsMatchLibopus(t *testing.T) {
@@ -78,12 +83,56 @@ func TestQEXTStateful40msCappedCBRPaddingMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestQEXTStatefulPacketMatrixMatchesLibopus(t *testing.T) {
+	rows := []struct {
+		frameSize int
+		bitrates  []int
+	}{
+		{240, []int{128000, 256000}},
+		{480, []int{128000, 256000}},
+		{960, []int{96000, 128000, 256000}},
+		{1920, []int{96000, 128000}},
+		{2880, []int{96000}},
+	}
+	modes := []struct {
+		mode BitrateMode
+		arg  string
+	}{
+		{BitrateModeCBR, "-cbr"},
+		{BitrateModeCVBR, "-cvbr"},
+		{BitrateModeVBR, ""},
+	}
+	configurations := 0
+	for _, channels := range []int{1, 2} {
+		for _, row := range rows {
+			for _, bitrate := range row.bitrates {
+				for _, mode := range modes {
+					name := fmt.Sprintf("channels%d_frame%d_bitrate%d_mode%d", channels, row.frameSize, bitrate, mode.mode)
+					t.Run(name, func(t *testing.T) {
+						// Presence may vary by frame; full packet bytes and range remain exact.
+						testQEXTStatefulPacketsWithSizeAndExtensionCheck(t, row.frameSize, 3, channels, bitrate, mode.mode, mode.arg, nil)
+					})
+					configurations++
+				}
+			}
+		}
+	}
+	if configurations != 60 {
+		t.Fatalf("QEXT matrix has %d configurations, want 60", configurations)
+	}
+}
+
 func testQEXTStatefulPacketsMatchLibopus(t *testing.T, bitrate int, mode BitrateMode, modeArg string) {
 	t.Helper()
 	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 960, 3, 1, bitrate, mode, modeArg, true)
 }
 
 func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames, channels, bitrate int, mode BitrateMode, modeArg string, expectExtension bool, caps ...int) [][]byte {
+	t.Helper()
+	return testQEXTStatefulPacketsWithSizeAndExtensionCheck(t, frameSize, frames, channels, bitrate, mode, modeArg, &expectExtension, caps...)
+}
+
+func testQEXTStatefulPacketsWithSizeAndExtensionCheck(t *testing.T, frameSize, frames, channels, bitrate int, mode BitrateMode, modeArg string, expectedExtension *bool, caps ...int) [][]byte {
 	t.Helper()
 	maxPayload := 1276
 	if len(caps) > 0 {
@@ -175,11 +224,16 @@ func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames
 				t.Fatalf("libopus frame %d framing: %v", frame, err)
 			}
 			_, present, err := findPacketExtension(padding, packetFrames, qextPacketExtensionID)
-			if err != nil || present != expectExtension {
-				t.Fatalf("libopus frame %d extension: present=%t err=%v, want present=%t", frame, present, err, expectExtension)
+			if err != nil {
+				t.Fatalf("libopus frame %d extension: %v", frame, err)
 			}
-		} else if _, _, _, present, ok := qextParseExtensionRegion(refPacket); !ok || present != expectExtension {
-			t.Fatalf("libopus frame %d extension: present=%t valid=%t, want present=%t", frame, present, ok, expectExtension)
+			if expectedExtension != nil && present != *expectedExtension {
+				t.Fatalf("libopus frame %d extension present=%t, want %t", frame, present, *expectedExtension)
+			}
+		} else if _, _, _, present, ok := qextParseExtensionRegion(refPacket); !ok {
+			t.Fatalf("libopus frame %d extension region invalid", frame)
+		} else if expectedExtension != nil && present != *expectedExtension {
+			t.Fatalf("libopus frame %d extension present=%t, want %t", frame, present, *expectedExtension)
 		}
 
 		for i, sample := range pcm[frame*frameSize*channels : (frame+1)*frameSize*channels] {

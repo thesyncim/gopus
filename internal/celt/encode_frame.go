@@ -1145,7 +1145,8 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 			vbrQ3 := int(e.computeVBR(int32(baseQ3), lm, codedChannels, budget.equivRate, int32(dynallocResult.TotBoost),
 				min(1, 2*tfEstimate), pitchChange, dynallocResult.MaxDepth, surroundMasking, e.lastTemporalVBR))
 			vbrQ3 += re.TellFrac()
-			cbrVBRTargetBytes = max((vbrQ3+(1<<(bitRes+2)))>>(bitRes+3), 0)
+			// celt_encoder.c uses target/(8<<BITRES), truncating toward zero.
+			cbrVBRTargetBytes = max(vbrQ3/(8<<bitRes), 0)
 		}
 		mainBytes, payloadBytes, _ := computeQEXTReservation(targetBytes, minAllowed, frameSize, codedChannels, e.celtModeFs(), toneishness, cbrVBRTargetBytes)
 		qextPayloadBytes = payloadBytes
