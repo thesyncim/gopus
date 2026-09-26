@@ -7,10 +7,12 @@ import unittest
 
 from compare_simd_ab import (
     REPLACEMENT_TESTS,
+    audited_test_replacements,
     baseline_cbr_errors,
     candidate_decode_errors,
     cbr_rows,
     compare_full_parity,
+    missing_baseline_tests,
     precision_gap,
     strict_cbr_errors,
     strict_cbr_summary,
@@ -115,6 +117,24 @@ class StrictCBRSummaryTest(unittest.TestCase):
 
 
 class IndependentOracleGateTest(unittest.TestCase):
+    def test_audited_replacements_require_every_recorded_leaf(self):
+        for old, targets in audited_test_replacements().items():
+            base = {old: "pass"}
+            candidate = dict.fromkeys(targets, "pass")
+            self.assertEqual(missing_baseline_tests(base, candidate), set())
+            for target in targets:
+                for status in ("skip", "fail", None):
+                    changed = dict(candidate)
+                    if status is None:
+                        del changed[target]
+                    else:
+                        changed[target] = status
+                    self.assertEqual(missing_baseline_tests(base, changed), {old})
+
+    def test_unreviewed_missing_test_is_rejected(self):
+        old = ("github.com/thesyncim/gopus", "TestUnreviewedRemovedCase")
+        self.assertEqual(missing_baseline_tests({old: "pass"}, {}), {old})
+
     def test_complete_failing_baseline_is_evidence(self):
         log = "    baseline.go:1: case1 50 2 FAIL\npass=0 residual=0 fail=1 skip=0\n"
         self.assertEqual(baseline_cbr_errors(1, log, expected_cases=1), [])

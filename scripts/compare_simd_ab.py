@@ -38,6 +38,37 @@ REPLACEMENT_TESTS = {
 }
 
 
+def audited_test_replacements():
+    # Exact names only: a renamed parent does not silently excuse absent
+    # children. Each replacement's reviewed leaf set must also pass.
+    path = pathlib.Path(__file__).with_name("simd_ab_test_replacements.json")
+    replacements = {}
+    for group in json.loads(path.read_text()):
+        targets = {(group["baseline_package"], test)
+                   for test in group["required_candidate_tests"]}
+        if not targets:
+            raise ValueError("empty audited test replacement")
+        for test in group["baseline_tests"]:
+            key = (group["baseline_package"], test)
+            if key in replacements:
+                raise ValueError(f"duplicate audited test replacement: {key}")
+            replacements[key] = targets
+    return replacements
+
+
+def missing_baseline_tests(base_tests, candidate_tests):
+    replacements = audited_test_replacements()
+    missing = set()
+    for key in base_tests.keys() - candidate_tests.keys():
+        if REMOVED_ASSEMBLY_TEST.fullmatch(key[1]):
+            continue
+        targets = replacements.get(key)
+        if targets and all(candidate_tests.get(target) == "pass" for target in targets):
+            continue
+        missing.add(key)
+    return missing
+
+
 def read_phase(root: pathlib.Path, side: str, phase: str):
     stem = root / f"{side}-{phase}"
     return int(stem.with_suffix(".exit").read_text().strip()), stem.with_suffix(".log").read_text()
@@ -170,7 +201,7 @@ def compare_full_parity(root: pathlib.Path):
     base_tests, base_packages, base_samples = full_parity(base_log)
     simd_tests, simd_packages, simd_samples = full_parity(simd_log)
     errors = []
-    missing = {key for key in base_tests.keys() - simd_tests.keys() if not REMOVED_ASSEMBLY_TEST.fullmatch(key[1])}
+    missing = missing_baseline_tests(base_tests, simd_tests)
     if missing:
         errors.append(f"Go SIMD omits {len(missing)} baseline tests: {sorted(missing)[:5]}")
     for key in sorted(REPLACEMENT_TESTS):
