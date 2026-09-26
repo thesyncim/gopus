@@ -200,10 +200,13 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	}
 
 	validateVariant := refVariant
-	if cfg.CustomRef && scalarRef {
-		validateVariant = libopustooling.LibopusReferenceCustomScalar
+	if cfg.CustomRef {
+		validateVariant = libopustooling.LibopusReferenceCustomSIMD
+		if scalarRef {
+			validateVariant = libopustooling.LibopusReferenceCustomScalar
+		}
 	}
-	if !cfg.FixedRef && (!cfg.CustomRef || scalarRef) {
+	if !cfg.FixedRef {
 		if err := libopustooling.ValidateLibopusReferenceBuild(refDir, validateVariant, libopustooling.DefaultVersion); err != nil {
 			ensureRef(libopustooling.DefaultVersion, []string{root})
 			if err := libopustooling.ValidateLibopusReferenceBuild(refDir, validateVariant, libopustooling.DefaultVersion); err != nil {

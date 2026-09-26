@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/thesyncim/gopus/internal/celt"
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 // decoderErrors for the CustomDecoder.
@@ -132,14 +133,9 @@ func (cd *CustomDecoder) Decode(data []byte, frameSize int) ([]int16, error) {
 	}
 	out := make([]int16, len(f))
 	for i, v := range f {
-		// Soft-clip to [-1, 1] then scale to int16.
-		s := v
-		if s > 1.0 {
-			s = 1.0
-		} else if s < -1.0 {
-			s = -1.0
-		}
-		out[i] = int16(s * 32767.0)
+		// opus_custom_decode applies RES2INT16: scale by 32768, saturate,
+		// and round to even (celt/celt_decoder.c, celt/float_cast.h).
+		out[i] = opusmath.Float32ToInt16(v)
 	}
 	return out, nil
 }

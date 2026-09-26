@@ -63,7 +63,7 @@ elif [[ "${ENABLE_CUSTOM}" == "1" ]]; then
   # (opus_custom_mode_create / opus_custom_encoder_create / ...). This is the
   # only build that can serve as an oracle for non-standard-rate custom modes.
   SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-custom"
-  CONFIGURE_FLAGS+=(--enable-custom-modes)
+  CONFIGURE_FLAGS+=(--enable-custom-modes --enable-rtcd --enable-intrinsics)
 elif [[ "${ENABLE_CUSTOM_SCALAR}" == "1" ]]; then
   # Opus Custom API on the scalar (generic-C) kernels, paired with scalar Go.
   SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-custom-scalar"

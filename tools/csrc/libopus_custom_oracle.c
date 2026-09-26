@@ -56,6 +56,9 @@
  *       nCacheBits * int32  cacheBits[]
  *       int32  nCacheCaps (= (maxLM+1)*2*nbEBands)
  *       nCacheCaps * int32  cacheCaps[]
+ *       uint32 shortDecRange
+ *       uint32 nDecodedShort
+ *       nDecodedShort * int16 decodedShort[]
  *
  * Reference: libopus include/opus_custom.h, celt/celt_encoder.c, celt/celt_decoder.c.
  */
@@ -135,6 +138,8 @@ static void emit_failure(int32_t status) {
     write_i32(0); /* nCacheIndex */
     write_i32(0); /* nCacheBits */
     write_i32(0); /* nCacheCaps */
+    write_u32(0); /* shortDecRange */
+    write_u32(0); /* nDecodedShort */
 }
 
 int main(void) {
@@ -227,6 +232,26 @@ int main(void) {
                 nDecoded = (uint32_t)dn * channels;
             }
         }
+        /* A separate decoder exercises the public short API with identical
+         * initial state; its RES2INT16 conversion is part of the oracle. */
+        opus_int16 decodedShort[MAX_FRAME * 2];
+        opus_uint32 shortDecRange = 0;
+        dec = opus_custom_decoder_create(mode, (int)channels, &err);
+        if (!dec || err != OPUS_OK) {
+            fprintf(stderr, "case %u: short decoder create error %d\n", c, err);
+            return 1;
+        }
+        if (opus_custom_decoder_ctl(dec, CELT_SET_SIGNALLING(0)) != OPUS_OK) {
+            fprintf(stderr, "case %u: short decoder signalling control failed\n", c);
+            return 1;
+        }
+        int shortSamples = opus_custom_decode(dec, packet, sz, decodedShort, (int)frame_size);
+        if (shortSamples <= 0 || opus_custom_decoder_ctl(dec, OPUS_GET_FINAL_RANGE(&shortDecRange)) != OPUS_OK) {
+            fprintf(stderr, "case %u: short decode failed %d\n", c, shortSamples);
+            return 1;
+        }
+        opus_custom_decoder_destroy(dec);
+        uint32_t nDecodedShort = (uint32_t)shortSamples * channels;
         /* Snapshot the mode geometry before destroying the mode. These are the
          * tables opus_custom_mode_create() derives for this (Fs, frame_size),
          * which the gopus celt/custom control plane must reproduce. */
@@ -300,6 +325,10 @@ int main(void) {
         for (int i = 0; i < g_nCacheBits; i++) write_i32(g_cbits[i]);
         write_i32(g_nCacheCaps);
         for (int i = 0; i < g_nCacheCaps; i++) write_i32(g_ccaps[i]);
+        if (!write_u32(shortDecRange) || !write_u32(nDecodedShort) ||
+            !write_exact(decodedShort, sizeof(*decodedShort) * nDecodedShort)) {
+            fprintf(stderr, "case %u: write short decode\n", c); return 1;
+        }
     }
 
     fflush(stdout);

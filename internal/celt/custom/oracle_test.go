@@ -53,11 +53,13 @@ type oracleCase struct {
 }
 
 type oracleResult struct {
-	status   int32
-	encRange uint32
-	decRange uint32
-	packet   []byte
-	decoded  []float32
+	status        int32
+	encRange      uint32
+	decRange      uint32
+	packet        []byte
+	decoded       []float32
+	shortDecRange uint32
+	decodedShort  []int16
 
 	// Mode geometry from opus_custom_mode_create (see oracle protocol).
 	overlap       int32
@@ -192,7 +194,24 @@ func runCustomOracle(t *testing.T, cases []oracleCase) []oracleResult {
 		res.cacheIndex = readI32Slice("cacheIndex")
 		res.cacheBits = readI32Slice("cacheBits")
 		res.cacheCaps = readI32Slice("cacheCaps")
+		var shortCount uint32
+		if err := binary.Read(r, binary.LittleEndian, &res.shortDecRange); err != nil {
+			t.Fatalf("oracle result[%d] short range: %v", i, err)
+		}
+		if err := binary.Read(r, binary.LittleEndian, &shortCount); err != nil {
+			t.Fatalf("oracle result[%d] short length: %v", i, err)
+		}
+		if shortCount > uint32(cases[i].frameSize*cases[i].channels) {
+			t.Fatalf("oracle result[%d] short length exceeds output capacity: %d", i, shortCount)
+		}
+		res.decodedShort = make([]int16, shortCount)
+		if err := binary.Read(r, binary.LittleEndian, res.decodedShort); err != nil {
+			t.Fatalf("oracle result[%d] short PCM: %v", i, err)
+		}
 		results[i] = res
+	}
+	if r.Len() != 0 {
+		t.Fatalf("oracle response has %d trailing bytes", r.Len())
 	}
 	return results
 }

@@ -22,6 +22,7 @@ const (
 	LibopusReferenceQEXTScalar   LibopusReferenceVariant = "qext-scalar"
 	LibopusReferenceQEXTSIMD     LibopusReferenceVariant = "qext-simd"
 	LibopusReferenceCustomScalar LibopusReferenceVariant = "custom-scalar"
+	LibopusReferenceCustomSIMD   LibopusReferenceVariant = "custom-simd"
 
 	LibopusBaseCFLAGS = "-O3 -DNDEBUG"
 	// Scalar C references retain the compiler's normal FMA contraction while
@@ -102,6 +103,8 @@ func LibopusReferenceSourceSuffix(variant LibopusReferenceVariant) (string, erro
 		return "-qext-simd", nil
 	case LibopusReferenceCustomScalar:
 		return "-custom-scalar", nil
+	case LibopusReferenceCustomSIMD:
+		return "-custom", nil
 	default:
 		return "", referenceConfigErrorf("unknown libopus reference variant %q", variant)
 	}
@@ -129,12 +132,12 @@ func validateLibopusReferenceBuildForPlatform(refDir string, variant LibopusRefe
 		wantConfigure += " --enable-qext"
 		wantQEXT = "1"
 	}
+	if variant == LibopusReferenceCustomScalar || variant == LibopusReferenceCustomSIMD {
+		wantConfigure += " --enable-custom-modes"
+		wantCustom = "1"
+	}
 	if variant == LibopusReferenceScalar || variant == LibopusReferenceCustomScalar || variant == LibopusReferenceQEXTScalar {
 		wantCFLAGS = LibopusScalarCFLAGS
-		if variant == LibopusReferenceCustomScalar {
-			wantConfigure += " --enable-custom-modes"
-			wantCustom = "1"
-		}
 		wantConfigure += " --disable-asm --disable-rtcd --disable-intrinsics"
 	} else {
 		wantConfigure += " --enable-rtcd --enable-intrinsics"
@@ -232,7 +235,7 @@ func validateLibopusConfigSIMD(config string, variant LibopusReferenceVariant, g
 	switch variant {
 	case LibopusReferenceQEXTScalar:
 		variant = LibopusReferenceScalar
-	case LibopusReferenceQEXTSIMD:
+	case LibopusReferenceQEXTSIMD, LibopusReferenceCustomSIMD:
 		variant = LibopusReferenceSIMD
 	}
 	defines := make(map[string]bool)

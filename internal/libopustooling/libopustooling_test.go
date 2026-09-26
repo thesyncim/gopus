@@ -267,6 +267,50 @@ func TestValidateLibopusReferenceBuildAcceptsCustomScalarStamp(t *testing.T) {
 	}
 }
 
+func TestValidateCustomReferenceBuildRequiresFeatureAndPairedISA(t *testing.T) {
+	for _, arch := range []string{"arm64", "amd64"} {
+		for _, variant := range []LibopusReferenceVariant{LibopusReferenceCustomScalar, LibopusReferenceCustomSIMD} {
+			t.Run(arch+"/"+string(variant), func(t *testing.T) {
+				dir := writePairedReferenceTree(t, t.TempDir(), variant, "linux", arch)
+				validate := func(v LibopusReferenceVariant) error {
+					return validateLibopusReferenceBuildForPlatform(dir, v, DefaultVersion, "linux", arch)
+				}
+				if err := validate(variant); err != nil {
+					t.Fatal(err)
+				}
+				other := LibopusReferenceCustomScalar
+				if variant == other {
+					other = LibopusReferenceCustomSIMD
+				}
+				if err := validate(other); err == nil {
+					t.Fatal("accepted the opposite instruction lane")
+				}
+				configPath := filepath.Join(dir, "config.h")
+				config, err := os.ReadFile(configPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(configPath, []byte(strings.ReplaceAll(string(config), "#define CUSTOM_MODES 1\n", "")), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := validate(variant); err == nil {
+					t.Fatal("accepted a reference without CUSTOM_MODES")
+				}
+				wrongISA := "#define CUSTOM_MODES 1\n"
+				if variant == LibopusReferenceCustomScalar {
+					wrongISA += testSIMDConfig(arch)
+				}
+				if err := os.WriteFile(configPath, []byte(wrongISA), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := validate(variant); err == nil {
+					t.Fatal("accepted config macros from the opposite instruction lane")
+				}
+			})
+		}
+	}
+}
+
 func TestValidateQEXTReferenceBuildRequiresFeatureAndPairedISA(t *testing.T) {
 	if runtime.GOARCH != "arm64" && runtime.GOARCH != "amd64" {
 		t.Skip("paired SIMD reference is defined for arm64 and amd64")
@@ -711,6 +755,11 @@ func writePairedReferenceTree(t *testing.T, root string, variant LibopusReferenc
 	case LibopusReferenceCustomScalar:
 		config = "#define CUSTOM_MODES 1\n"
 		configure = "--enable-static --disable-shared --enable-custom-modes --disable-asm --disable-rtcd --disable-intrinsics"
+		custom = "1"
+	case LibopusReferenceCustomSIMD:
+		config = "#define CUSTOM_MODES 1\n" + testSIMDConfig(goarch)
+		configure = "--enable-static --disable-shared --enable-custom-modes --enable-rtcd --enable-intrinsics"
+		cflags = LibopusBaseCFLAGS
 		custom = "1"
 	}
 	if err := os.WriteFile(filepath.Join(srcDir, "config.h"), []byte(config), 0o644); err != nil {
