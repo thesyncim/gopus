@@ -16,13 +16,6 @@ func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
 		xcorrKernelAVX8ScalarGo(x, y, sum, length)
 		return
 	}
-	if length < 16 {
-		// Setup and lane extraction cost more than the short scalar loop for the
-		// tiny CELT searches (N=5 and N=10).
-		xcorrKernelAVX8ScalarGo(x, y, sum, length)
-		return
-	}
-
 	if length >= 120 && length <= 240 {
 		xcorrKernelAVX8OnePass(x, y, sum, length)
 		return
@@ -41,7 +34,7 @@ func xcorrKernelAVX8OnePass(x, y *float32, sum *[8]float32, length int) {
 		*sum = [8]float32{}
 		return
 	}
-	if !archsimd.X86.FMA() || length < 16 {
+	if !archsimd.X86.FMA() {
 		xcorrKernelAVX8ScalarGo(x, y, sum, length)
 		return
 	}
