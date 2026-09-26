@@ -136,7 +136,10 @@ func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int32
 			// Reference: libopus vq.c line 274
 			iy[j] = int32(rcp * absX[j]) // rcp >= 0, absX >= 0: truncation == floor
 			y[j] = float32(iy[j])
-			if neonRoundsReductionTerm(j, n) {
+			// The selected NEON vq.c projection rounds products in 16- and
+			// 4-term vector blocks, then adds them in element order. Only
+			// the final n%4 terms use scalar fused multiply-adds.
+			if celtFusedFloat && j < n&^3 {
 				yy += round32(y[j] * y[j])
 				xy += round32(absX[j] * y[j])
 			} else {

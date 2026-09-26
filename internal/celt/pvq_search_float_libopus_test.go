@@ -64,8 +64,7 @@ func TestOpPVQSearchFloatMatchesLibopusSameArch(t *testing.T) {
 				case 2:
 					// Moderately peaky shape (still a realistic normalized band:
 					// one or two dominant bins plus a decaying tail). Exact ties are
-					// excluded here; see TestOpPVQSearchFloatHighKNearTieResidual for
-					// the documented clang-vectorization boundary.
+					// exercised separately by TestOpPVQSearchFloatHighKNearTieResidual.
 					for i := range x {
 						x[i] = float32(rng.NormFloat64()) / float32(i+2)
 					}
@@ -128,86 +127,28 @@ func TestOpPVQSearchFloatMatchesLibopusSameArch(t *testing.T) {
 	t.Logf("op_pvq_search float same-arch parity: %d vectors byte-exact (iy + yy)", cases)
 }
 
-// TestOpPVQSearchFloatHighKNearTieResidual documents the one PVQ-search
-// configuration that is NOT byte-exact against same-arch float libopus, and
-// proves it is irreducible rather than a gopus defect.
-//
-// The pre-search projection (taken only when K > N/2) accumulates
-// yy=sum(y*y) and xy=sum(absX*y). At -O3 clang auto-vectorizes op_pvq_search_c,
-// and the reduction order it emits is N-dependent: for some N it keeps four
-// 4-lane accumulators reduced with a horizontal (a0+a2)+(a1+a3) tree, for other
-// N it sums the SIMD product lanes back in scalar sequential order. No single
-// portable Go reduction reproduces every one of clang's per-N choices, so for a
-// high-K band whose normalized magnitudes are within ~1e-4 of each other, a
-// 1-ULP delta in xy/yy flips a best_id tie in the greedy search and moves one
-// pulse between two equal-magnitude bins (total pulses and yy stay equal).
-//
-// This path is unreachable from the real encoder: CELT high bands carry low K
-// (< N/2), so they skip the projection entirely, and broadband/noise bands that
-// do hit K > N/2 are not exact ties. Forcing the projection rcp/accumulation to
-// any one of clang's reduction orders is byte-neutral on the full CELT encode
-// (verified: same diverging-frame count), confirming the residual does not
-// drive real-encode divergence. We therefore record it precisely instead of
-// masking it with a fragile per-N reduction emulation.
+// TestOpPVQSearchFloatHighKNearTieResidual requires exact pulse placement on
+// a high-pulse vector whose competing scores differ at a rounding boundary.
 func TestOpPVQSearchFloatHighKNearTieResidual(t *testing.T) {
 	libopustest.RequireOracle(t)
-	if _, _, err := libopustest.ProbeCELTPVQSearchFloat([]float32{1, 0}, 1); err != nil {
-		libopustest.HelperUnavailable(t, "celt float pvq", err)
-		return
-	}
-
-	// The exact n=18, K=256 vector found during bisection: 18 magnitudes all
-	// within 1e-4 of 1.0 (K=256 > N/2 forces the projection pre-search).
 	x := []float32{
 		0.99995637, 1.000096, -1.0001544, 1.0001608, 1.0001048, 0.9999021,
 		0.99996865, 1.0000812, -0.9998345, -0.99997115, -0.99992955, -1.0000807,
 		0.99997205, 0.99987245, 1.0001543, -1.0000563, -1.0001165, -1.0000064,
 	}
 	const k = 256
+	probe := libopustest.ProbeCELTPVQSearchFloat
 	if useX86PVQSearchSSE2 {
-		goIy, goYY := opPVQSearchFloatForTest(append([]float32(nil), x...), k)
-		libYY, libIy, err := libopustest.ProbeCELTPVQSearchFloatSSE2(x, k)
-		if err != nil {
-			t.Fatalf("float SSE2 pvq oracle: %v", err)
-		}
-		if !equalInt32Slices(goIy, libIy) || math.Float32bits(goYY) != math.Float32bits(libYY) {
-			t.Fatalf("SIMD PVQ near-tie vector differs from SSE2 oracle: Go iy=%v yy=%08x, C iy=%v yy=%08x",
-				goIy, math.Float32bits(goYY), libIy, math.Float32bits(libYY))
-		}
+		probe = libopustest.ProbeCELTPVQSearchFloatSSE2
+	}
+	wantYY, wantIY, err := probe(x, k)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "high-pulse near-tie PVQ", err)
 		return
 	}
-
-	goIy, _ := opPVQSearchFloatForTest(append([]float32(nil), x...), k)
-	_, libIy, err := libopustest.ProbeCELTPVQSearchFloat(x, k)
-	if err != nil {
-		t.Fatalf("float pvq oracle: %v", err)
-	}
-
-	// Sanity: total pulse count and energy are identical; only one tie moves.
-	sumAbs := func(v []int32) int32 {
-		var s int32
-		for _, e := range v {
-			if e < 0 {
-				e = -e
-			}
-			s += e
-		}
-		return s
-	}
-	if got, want := sumAbs(goIy), sumAbs(libIy); got != want {
-		t.Fatalf("pulse-count invariant broken: go=%d lib=%d (not a pure tie move)", got, want)
-	}
-	moved := 0
-	for j := range goIy {
-		if goIy[j] != libIy[j] {
-			moved++
-		}
-	}
-	t.Logf("documented irreducible high-K near-tie residual: %d bins differ by a moved pulse (same total |iy|=%d)", moved, sumAbs(goIy))
-	t.Logf("  go =%v", goIy)
-	t.Logf("  lib=%v", libIy)
-	if moved == 0 {
-		t.Skip("toolchain happens to agree on this vector; residual not reproduced on this host")
+	gotIY, gotYY := opPVQSearchFloatForTest(append([]float32(nil), x...), k)
+	if !equalInt32Slices(gotIY, wantIY) || math.Float32bits(gotYY) != math.Float32bits(wantYY) {
+		t.Fatalf("high-pulse near-tie PVQ differs: Go pulses=%v yy=%08x C pulses=%v yy=%08x", gotIY, math.Float32bits(gotYY), wantIY, math.Float32bits(wantYY))
 	}
 }
 
