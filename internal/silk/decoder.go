@@ -707,6 +707,11 @@ func (d *Decoder) GetLastSignalType() int {
 	return int(d.state[0].indices.signalType)
 }
 
+// IsFirstFrameAfterReset reports whether the mono synthesis history is reset.
+func (d *Decoder) IsFirstFrameAfterReset() bool {
+	return d.state[0].firstFrameAfterReset
+}
+
 // GetLagPrev returns the previous pitch lag tracked by SILK decode state.
 func (d *Decoder) GetLagPrev() int {
 	return int(d.state[0].lagPrev)

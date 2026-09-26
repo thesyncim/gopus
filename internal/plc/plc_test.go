@@ -155,20 +155,23 @@ func (m *mockSILKDecoder) HistoryIndex() int           { return m.histIdx }
 
 type mockSILKExtendedDecoder struct {
 	mockSILKDecoder
-	signalType   int
-	ltpCoefQ14   [ltpOrder]int16
-	pitchLag     int
-	lastGainQ16  int32
-	ltpScaleQ14  int32
-	excitation   []int32
-	lpcQ12       []int16
-	slpcQ14      []int32
-	fsKHz        int
-	subfrLength  int
-	nbSubfr      int
-	ltpMemLength int
-	outBufQ0     []int16
+	firstFrameAfterReset bool
+	signalType           int
+	ltpCoefQ14           [ltpOrder]int16
+	pitchLag             int
+	lastGainQ16          int32
+	ltpScaleQ14          int32
+	excitation           []int32
+	lpcQ12               []int16
+	slpcQ14              []int32
+	fsKHz                int
+	subfrLength          int
+	nbSubfr              int
+	ltpMemLength         int
+	outBufQ0             []int16
 }
+
+func (m *mockSILKExtendedDecoder) IsFirstFrameAfterReset() bool { return m.firstFrameAfterReset }
 
 func (m *mockSILKExtendedDecoder) GetLastSignalType() int        { return m.signalType }
 func (m *mockSILKExtendedDecoder) GetLTPCoefficients() [5]int16  { return m.ltpCoefQ14 }

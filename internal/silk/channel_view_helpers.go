@@ -168,6 +168,11 @@ func (v *silkPLCChannelView) GetLastSignalType() int {
 	return signalTypeFromState(v.state())
 }
 
+func (v *silkPLCChannelView) IsFirstFrameAfterReset() bool {
+	st := v.state()
+	return st != nil && st.firstFrameAfterReset
+}
+
 func (v *silkPLCChannelView) GetLTPCoefficients() [ltpOrder]int16 {
 	state := v.d.ensureSILKPLCState(v.ch)
 	if state == nil {

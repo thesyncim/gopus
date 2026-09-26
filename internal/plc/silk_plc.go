@@ -150,6 +150,9 @@ type SILKOutBufProvider interface {
 type SILKDecoderStateExtended interface {
 	SILKDecoderState
 
+	// IsFirstFrameAfterReset reports whether synthesis history is reset.
+	IsFirstFrameAfterReset() bool
+
 	// GetLastSignalType returns 0=inactive, 1=unvoiced, 2=voiced.
 	GetLastSignalType() int
 
@@ -511,6 +514,12 @@ func ConcealSILKWithLTPInto(dec SILKDecoderStateExtended, plcState *SILKPLCState
 	}
 	if scratch == nil {
 		scratch = &SILKPLCScratch{}
+	}
+
+	// silk/PLC.c:silk_PLC_conceal clears the complete cached LPC vector
+	// after a decoder reset, including a stereo side-channel reset.
+	if dec.IsFirstFrameAfterReset() {
+		clear(plcState.PrevLPCQ12[:])
 	}
 
 	fsKHz := dec.GetSampleRateKHz()

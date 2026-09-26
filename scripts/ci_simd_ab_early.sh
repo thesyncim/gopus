@@ -177,7 +177,7 @@ for mode in simd nosimd; do
   run_json_phase "candidate-$mode-root-multiframe-fec" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json "${build_args[@]}" . \
-    -run '^TestDecodeWithFECMultiFrameSILKMatchesLibopus$' \
+    -run '^TestDecodeWithFEC(MultiFrameSILK|SideReset)MatchesLibopus$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-lowdelay-exact" \
