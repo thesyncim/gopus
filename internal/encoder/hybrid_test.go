@@ -336,43 +336,6 @@ func TestStereoWidthComputation(t *testing.T) {
 	}
 }
 
-// TestResamplerContinuity verifies the resampler maintains continuity across frames.
-func TestResamplerContinuity(t *testing.T) {
-	e := NewEncoder(48000, 1)
-
-	// Generate a continuous sine wave across multiple frames
-	freq := 1000.0 // 1kHz test tone
-	sampleRate := 48000.0
-	frameSize := 960
-
-	// Process 3 frames
-	var lastSample float32
-	for frame := range 3 {
-		samples := make([]opusRes, frameSize)
-		for i := range frameSize {
-			t := float64(frame*frameSize+i) / sampleRate
-			samples[i] = opusRes(math.Sin(2 * math.Pi * freq * t))
-		}
-
-		output := e.resampleHybridSILKLowband(samples, frameSize)
-
-		if frame > 0 && len(output) > 0 {
-			// Check continuity between frames
-			// The difference should be smooth (no discontinuity)
-			diff := math.Abs(float64(output[0]) - float64(lastSample))
-			expectedDiff := 2 * math.Pi * freq / 16000.0 // Max slope of sine at 16kHz
-			if diff > expectedDiff*2 {
-				t.Errorf("Frame %d: discontinuity at boundary, diff=%.6f (expected max %.6f)",
-					frame, diff, expectedDiff*2)
-			}
-		}
-
-		if len(output) > 0 {
-			lastSample = output[len(output)-1]
-		}
-	}
-}
-
 // TestHybridModeQuality runs an end-to-end quality test for hybrid encoding.
 func TestHybridModeQuality(t *testing.T) {
 	// Create encoder
@@ -467,20 +430,5 @@ func BenchmarkHBGainComputation(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		e.computeHBGain(25000)
-	}
-}
-
-// BenchmarkDownsample48to16 benchmarks the improved resampler.
-func BenchmarkDownsample48to16(b *testing.B) {
-	e := NewEncoder(48000, 1)
-
-	samples := make([]opusRes, 960)
-	for i := range samples {
-		samples[i] = opusRes(math.Sin(float64(i) * 0.1))
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		e.resampleHybridSILKLowband(samples, 960)
 	}
 }

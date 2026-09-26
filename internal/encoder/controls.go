@@ -114,15 +114,6 @@ func resolveUserBitrate(userBitrate, sampleRate, channels, frameSize, maxDataByt
 	return user
 }
 
-// silkPayloadMaxBits mirrors libopus SILK maxBits budgeting:
-// the Opus TOC byte is not part of the SILK range payload budget.
-func silkPayloadMaxBits(maxPacketBytes int) int {
-	if maxPacketBytes <= 1 {
-		return 0
-	}
-	return (maxPacketBytes - 1) * 8
-}
-
 // padToSize pads packet to exact size without truncating.
 // Used for CBR mode.
 func padToSize(packet []byte, targetSize int) []byte {

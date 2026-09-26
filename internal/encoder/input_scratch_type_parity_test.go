@@ -23,26 +23,7 @@ func TestOpusInputScratchFieldWidthsMatchFloatBuild(t *testing.T) {
 		"scratchQuantPCM",
 	)
 	checkFieldsHaveType(t, reflect.TypeFor[Encoder](), float32SliceType,
-		"scratchPCM32",
-		"scratchLeft",
-		"scratchRight",
-		"scratchMono",
-		"silkResampled",
-		"silkResampledR",
-		"silkResampledBuffer",
-		"scratchSilkAligned",
 		"floatInputFrame",
-	)
-	checkFieldsHaveType(t, reflect.TypeFor[HybridState](), opusResSliceType,
-		"scratchTransitionPCM",
-	)
-	checkFieldsHaveType(t, reflect.TypeFor[HybridState](), float32SliceType,
-		"scratchLookahead32",
-		"scratchSilkLookahead",
-		"scratchLaLeft",
-		"scratchLaRight",
-		"scratchLaOutLeft",
-		"scratchLaOutRight",
 	)
 	checkFieldsHaveType(t, reflect.TypeFor[Encoder](), int32Type,
 		"sampleRate",
@@ -58,7 +39,6 @@ func TestOpusInputScratchFieldWidthsMatchFloatBuild(t *testing.T) {
 		"prevChannels",
 		"toMono",
 		"fecConfig",
-		"silkResamplerRate",
 	)
 	checkFieldsHaveType(t, reflect.TypeFor[dtxState](), int32Type,
 		"noActivityMsQ1",

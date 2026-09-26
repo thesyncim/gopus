@@ -1,86 +1,61 @@
-//go:build gopus_fixed_point
-
 package silk
 
-// stereo_lr_to_ms_fixedpoint.go is a bit-exact integer port of libopus
-// silk/stereo_LR_to_MS.c (the encode-side adaptive Mid/Side conversion and
-// predictor estimation). It reuses the integer predictor estimation
-// (stereoFindPredictorQ13WithRatioQ14), LP/HP filter (stereoLPFilterInto) and
-// predictor VQ (stereoQuantPred) already present in the default build, and adds
-// the top-level driver matching the FIXED_POINT libopus oracle exactly.
-//
-// Layout matches libopus: in C, mid = &x1[-2], so x1 carries two history
-// samples ahead of the current frame. Here mid is a slice of length
-// frameLength+2 where mid[0..1] are the (history) samples and mid[2..]
-// correspond to x1[0..]. side is the matching length frameLength+2 buffer.
-// On output, x2[n-1] (n in [0,frameLength)) is written as side prediction; in
-// terms of the side slice that is side[n+1] for n in [0,frameLength). The
-// caller reconstructs x1/x2 from mid/side using the same pointer aliasing as
-// libopus (mid[2..] are the mid output samples, side[1..frameLength] hold the
-// predicted side output).
+// stereoLRToMSScratch holds the per-call working buffers of silkStereoLRToMS
+// (the side, LP_mid, HP_mid, LP_side and HP_side stack arrays of
+// silk_stereo_LR_to_MS).
+type stereoLRToMSScratch struct {
+	side   []int16
+	lpMid  []int16
+	hpMid  []int16
+	lpSide []int16
+	hpSide []int16
+}
 
-// silkStereoLRToMS is the integer port of silk_stereo_LR_to_MS.
+// silkStereoLRToMS is silk_stereo_LR_to_MS (silk/stereo_LR_to_MS.c), the
+// adaptive left/right to mid/side conversion with predictor estimation and the
+// mid/side rate split.
 //
-// Inputs:
-//   - state: encoder stereo state (updated in place).
-//   - mid: length frameLength+2. mid[2..frameLength+1] hold x1 (left input),
-//     mid[0..1] are overwritten with state history then become the mid signal.
-//   - side: length frameLength+2 scratch; side[2..frameLength+1] are filled
-//     from (x1-x2)/2, side[0..1] overwritten with history. On output
-//     side[n+1] (n in [0,frameLength)) holds the predicted side sample
-//     (i.e. libopus x2[n-1]).
-//   - x2: length frameLength, the right input. mid[n+2]/side computation reads
-//     x1=mid[n+2] and x2[n] for n in [0,frameLength).
-//
-// Outputs:
-//   - ix: quantization indices [2][3].
-//   - midOnlyFlag: 1 if only mid is coded.
-//   - midSideRatesBps: [2] mid/side bitrates.
+// buf0 and buf1 are the input buffers of the two channel encoders (inputBuf):
+// the frame's left and right samples sit at [2 : frameLength+2], so buf0[2:] and
+// buf1[2:] are the x1 and x2 of the C code. On return buf0[0 : frameLength+2]
+// holds the mid signal preceded by its two history samples (mid = &x1[-2]) and
+// buf1[1 : frameLength+1] holds the predicted side signal (x2[n-1]), the layout
+// silk_encode_frame reads from inputBuf+1.
 func silkStereoLRToMS(
 	state *stereoEncState,
-	mid []int16, // length frameLength+2; mid[2:] = x1 on input
-	side []int16, // length frameLength+2 scratch
-	x2 []int16, // length frameLength = right input
+	buf0, buf1 []int16,
 	totalRateBps int32,
 	prevSpeechActQ8 int32,
 	toMono bool,
 	fsKHz int,
 	frameLength int,
+	scratch *stereoLRToMSScratch,
 ) (ix [2][3]int8, midOnlyFlag int8, midSideRatesBps [2]int32) {
-	// Convert to basic mid/side signals.
-	// C: for n in [0,frame_length+2): sum/diff = x1[n-2] +/- x2[n-2].
-	// Here mid[n] already holds x1[n-2] for n>=2; for n=0,1 the C code reads
-	// x1[-2],x1[-1] / x2[-2],x2[-1] (the input look-behind). We mirror libopus
-	// by computing from the current frame buffers: mid[n] currently holds x1
-	// sample at offset n-2, and the corresponding right sample is x2[n-2].
-	// The first two entries (n=0,1) are immediately overwritten by the state
-	// history below, so their transient values do not matter as long as we
-	// don't read out of range. We therefore start at n=2.
+	mid := buf0[:frameLength+2]
+	x2 := buf1[:frameLength+2]
+	side := ensureInt16Slice(&scratch.side, frameLength+2)
+
+	// Convert to basic mid/side signals. mid[n] aliases x1[n-2]; the first two
+	// entries are replaced by the history below, so the loop starts at n = 2.
 	for n := 2; n < frameLength+2; n++ {
-		l := int32(mid[n])
-		r := int32(x2[n-2])
-		sum := l + r
-		diff := l - r
+		sum := int32(mid[n]) + int32(x2[n])
+		diff := int32(mid[n]) - int32(x2[n])
 		mid[n] = int16(silkRSHIFT_ROUND(sum, 1))
 		side[n] = silkSAT16(silkRSHIFT_ROUND(diff, 1))
 	}
 
-	// Buffering: prepend the saved history, then store the new tail.
-	mid[0] = state.sMid[0]
-	mid[1] = state.sMid[1]
-	side[0] = state.sSide[0]
-	side[1] = state.sSide[1]
-	state.sMid[0] = mid[frameLength]
-	state.sMid[1] = mid[frameLength+1]
-	state.sSide[0] = side[frameLength]
-	state.sSide[1] = side[frameLength+1]
+	// Buffering.
+	mid[0], mid[1] = state.sMid[0], state.sMid[1]
+	side[0], side[1] = state.sSide[0], state.sSide[1]
+	state.sMid[0], state.sMid[1] = mid[frameLength], mid[frameLength+1]
+	state.sSide[0], state.sSide[1] = side[frameLength], side[frameLength+1]
 
-	// LP and HP filter mid/side signals.
-	lpMid := make([]int16, frameLength)
-	hpMid := make([]int16, frameLength)
+	// LP and HP filter the mid and side signals.
+	lpMid := ensureInt16Slice(&scratch.lpMid, frameLength)
+	hpMid := ensureInt16Slice(&scratch.hpMid, frameLength)
 	stereoLPFilterInto(mid, lpMid, hpMid, frameLength)
-	lpSide := make([]int16, frameLength)
-	hpSide := make([]int16, frameLength)
+	lpSide := ensureInt16Slice(&scratch.lpSide, frameLength)
+	hpSide := ensureInt16Slice(&scratch.hpSide, frameLength)
 	stereoLPFilterInto(side, lpSide, hpSide, frameLength)
 
 	// Find energies and predictors.
@@ -103,12 +78,11 @@ func silkStereoLRToMS(
 	predQ13 := [2]int32{pred0Q13, pred1Q13}
 
 	// Ratio of the norms of residual and mid signals.
-	fracQ16 := silkSMLABB(hpRatioQ14, lpRatioQ14, 3)
-	if fracQ16 > int32(silkFixConst(1, 16)) {
-		fracQ16 = int32(silkFixConst(1, 16))
-	}
+	fracQ16 := min(silkSMLABB(hpRatioQ14, lpRatioQ14, 3), int32(silkFixConst(1, 16)))
 
-	// Determine bitrate distribution between mid and side, possibly reduce width.
+	// Determine the bitrate distribution between mid and side, and possibly
+	// reduce the stereo width. The subtraction approximates the stereo
+	// parameter rate.
 	if is10msFrame {
 		totalRateBps -= 1200
 	} else {
@@ -119,13 +93,15 @@ func silkStereoLRToMS(
 	}
 	minMidRateBps := silkSMLABB(2000, int32(fsKHz), 600)
 
+	// Default distribution: 8 parts for mid and (5+3*frac) parts for side.
 	frac3Q16 := silkMUL(3, fracQ16)
 	midSideRatesBps[0] = silkDiv32VarQ(totalRateBps, int32(silkFixConst(8+5, 16))+frac3Q16, 16+3)
 	var widthQ14 int32
 	if midSideRatesBps[0] < minMidRateBps {
+		// Mid bitrate below minimum: reduce the stereo width,
+		// width = 4 * ( 2 * side_rate - min_rate ) / ( ( 1 + 3 * frac ) * min_rate ).
 		midSideRatesBps[0] = minMidRateBps
 		midSideRatesBps[1] = totalRateBps - midSideRatesBps[0]
-		// width = 4 * ( 2 * side_rate - min_rate ) / ( ( 1 + 3 * frac ) * min_rate )
 		widthQ14 = silkDiv32VarQ(
 			silkLSHIFT(midSideRatesBps[1], 1)-minMidRateBps,
 			silkSMULWB(int32(silkFixConst(1, 16))+frac3Q16, minMidRateBps),
@@ -140,53 +116,55 @@ func silkStereoLRToMS(
 	// Smoother.
 	state.smthWidthQ14 = int16(silkSMLAWB(int32(state.smthWidthQ14), widthQ14-int32(state.smthWidthQ14), smoothCoefQ16))
 
-	// Width / mid-only decision.
-	midOnlyFlag = 0
+	// At very low bitrates or for inputs that are nearly amplitude panned,
+	// switch to panned-mono coding.
 	scalePred := func() {
 		swQ14 := int32(state.smthWidthQ14)
 		predQ13[0] = silkRSHIFT(silkSMULBB(swQ14, predQ13[0]), 14)
 		predQ13[1] = silkRSHIFT(silkSMULBB(swQ14, predQ13[1]), 14)
 	}
 	fracSmthQ14 := silkSMULWB(fracQ16, int32(state.smthWidthQ14))
-
 	switch {
 	case toMono:
+		// Last frame before a stereo->mono transition: collapse the width.
 		widthQ14 = 0
-		predQ13[0] = 0
-		predQ13[1] = 0
+		predQ13 = [2]int32{}
 		ix = silkStereoQuantPred(&predQ13)
 	case state.widthPrevQ14 == 0 &&
 		(8*totalRateBps < 13*minMidRateBps || fracSmthQ14 < int32(silkFixConst(0.05, 14))):
+		// Panned-mono coding; the previous frame already had zero width.
 		scalePred()
 		ix = silkStereoQuantPred(&predQ13)
 		widthQ14 = 0
-		predQ13[0] = 0
-		predQ13[1] = 0
+		predQ13 = [2]int32{}
 		midSideRatesBps[0] = totalRateBps
 		midSideRatesBps[1] = 0
 		midOnlyFlag = 1
 	case state.widthPrevQ14 != 0 &&
 		(8*totalRateBps < 11*minMidRateBps || fracSmthQ14 < int32(silkFixConst(0.02, 14))):
+		// Transition to zero-width stereo.
 		scalePred()
 		ix = silkStereoQuantPred(&predQ13)
 		widthQ14 = 0
-		predQ13[0] = 0
-		predQ13[1] = 0
+		predQ13 = [2]int32{}
 	case state.smthWidthQ14 > int16(silkFixConst(0.95, 14)):
+		// Full-width stereo coding.
 		ix = silkStereoQuantPred(&predQ13)
 		widthQ14 = int32(silkFixConst(1, 14))
 	default:
+		// Reduced-width stereo coding.
 		scalePred()
 		ix = silkStereoQuantPred(&predQ13)
 		widthQ14 = int32(state.smthWidthQ14)
 	}
 
-	// Keep encoding the tapered output until the side signal goes silent.
+	// Keep encoding until the tapered output has been transmitted.
 	if midOnlyFlag == 1 {
 		state.silentSideLen += int16(frameLength - stereoInterpLenMs*fsKHz)
 		if int32(state.silentSideLen) < int32(laShapeMs*fsKHz) {
 			midOnlyFlag = 0
 		} else {
+			// Limit to avoid wrapping around.
 			state.silentSideLen = 10000
 		}
 	} else {
@@ -195,10 +173,11 @@ func silkStereoLRToMS(
 
 	if midOnlyFlag == 0 && midSideRatesBps[1] < 1 {
 		midSideRatesBps[1] = 1
-		midSideRatesBps[0] = silkMax32(1, totalRateBps-midSideRatesBps[1])
+		midSideRatesBps[0] = max(1, totalRateBps-midSideRatesBps[1])
 	}
 
-	// Interpolate predictors and subtract prediction from side channel.
+	// Interpolate the predictors and subtract the prediction from the side
+	// channel, writing x2[n-1] = buf1[n+1].
 	ip0Q13 := -int32(state.predPrevQ13[0])
 	ip1Q13 := -int32(state.predPrevQ13[1])
 	wQ24 := silkLSHIFT(int32(state.widthPrevQ14), 10)
@@ -206,33 +185,25 @@ func silkStereoLRToMS(
 	delta0Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[0]-int32(state.predPrevQ13[0]), denomQ16), 16)
 	delta1Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[1]-int32(state.predPrevQ13[1]), denomQ16), 16)
 	deltawQ24 := silkLSHIFT(silkSMULWB(widthQ14-int32(state.widthPrevQ14), denomQ16), 10)
-
-	// libopus only ever calls silk_stereo_LR_to_MS with a full 10 ms or 20 ms
-	// SILK block (frame_length >= 10*fs_kHz > STEREO_INTERP_LEN_MS*fs_kHz), so
-	// this interpolation loop never reads past mid[frame_length+1]. The n <
-	// frameLength bound preserves that invariant for the degenerate short frames
-	// the sub-48 kHz API resampler can hand to the front-end, matching the
-	// equivalent guard on the float StereoLRToMSWithRates path.
 	interp := stereoInterpLenMs * fsKHz
-	for n := 0; n < interp && n < frameLength; n++ {
+	for n := 0; n < interp; n++ {
 		ip0Q13 += delta0Q13
 		ip1Q13 += delta1Q13
 		wQ24 += deltawQ24
 		sum := silkLSHIFT(silkADD_LSHIFT32(int32(mid[n])+int32(mid[n+2]), int32(mid[n+1]), 1), 9) // Q11
 		sum = silkSMLAWB(silkSMULWB(wQ24, int32(side[n+1])), sum, ip0Q13)                         // Q8
 		sum = silkSMLAWB(sum, silkLSHIFT(int32(mid[n+1]), 11), ip1Q13)                            // Q8
-		// x2[n-1] => side[n+1]
-		side[n+1] = silkSAT16(silkRSHIFT_ROUND(sum, 8))
+		x2[n+1] = silkSAT16(silkRSHIFT_ROUND(sum, 8))
 	}
 
 	ip0Q13 = -predQ13[0]
 	ip1Q13 = -predQ13[1]
 	wQ24 = silkLSHIFT(widthQ14, 10)
 	for n := interp; n < frameLength; n++ {
-		sum := silkLSHIFT(silkADD_LSHIFT32(int32(mid[n])+int32(mid[n+2]), int32(mid[n+1]), 1), 9)
-		sum = silkSMLAWB(silkSMULWB(wQ24, int32(side[n+1])), sum, ip0Q13)
-		sum = silkSMLAWB(sum, silkLSHIFT(int32(mid[n+1]), 11), ip1Q13)
-		side[n+1] = silkSAT16(silkRSHIFT_ROUND(sum, 8))
+		sum := silkLSHIFT(silkADD_LSHIFT32(int32(mid[n])+int32(mid[n+2]), int32(mid[n+1]), 1), 9) // Q11
+		sum = silkSMLAWB(silkSMULWB(wQ24, int32(side[n+1])), sum, ip0Q13)                         // Q8
+		sum = silkSMLAWB(sum, silkLSHIFT(int32(mid[n+1]), 11), ip1Q13)                            // Q8
+		x2[n+1] = silkSAT16(silkRSHIFT_ROUND(sum, 8))
 	}
 
 	state.predPrevQ13[0] = int16(predQ13[0])
@@ -242,30 +213,31 @@ func silkStereoLRToMS(
 	return ix, midOnlyFlag, midSideRatesBps
 }
 
-// silkStereoQuantPred is the integer port of silk_stereo_quant_pred.c using the
-// [2][3]int8 index layout that matches the C oracle and silkStereoLRToMS.
+// silkStereoQuantPred is silk_stereo_quant_pred (silk/stereo_quant_pred.c): it
+// quantizes the mid/side predictors to 80 levels in place and returns the
+// quantization indices.
 func silkStereoQuantPred(predQ13 *[2]int32) [2][3]int8 {
 	var ix [2][3]int8
 	stepConstQ16 := int32(silkFixConst(0.5/silkCReal(stereoQuantSubSteps), 16))
 
-	for n := 0; n < 2; n++ {
+	for n := range 2 {
 		errMinQ13 := int32(0x7FFFFFFF)
 		var quantPredQ13 int32
 	search:
-		for i := 0; i < stereoQuantTabSize-1; i++ {
+		for i := range stereoQuantTabSize - 1 {
 			lowQ13 := int32(silk_stereo_pred_quant_Q13[i])
 			stepQ13 := silkSMULWB(int32(silk_stereo_pred_quant_Q13[i+1])-lowQ13, stepConstQ16)
-			for j := 0; j < stereoQuantSubSteps; j++ {
+			for j := range stereoQuantSubSteps {
 				lvlQ13 := silkSMLABB(lowQ13, stepQ13, int32(2*j+1))
 				errQ13 := silkAbs32(predQ13[n] - lvlQ13)
-				if errQ13 < errMinQ13 {
-					errMinQ13 = errQ13
-					quantPredQ13 = lvlQ13
-					ix[n][0] = int8(i)
-					ix[n][1] = int8(j)
-				} else {
+				if errQ13 >= errMinQ13 {
+					// Error increasing, so we're past the optimum.
 					break search
 				}
+				errMinQ13 = errQ13
+				quantPredQ13 = lvlQ13
+				ix[n][0] = int8(i)
+				ix[n][1] = int8(j)
 			}
 		}
 		ix[n][2] = int8(silkDiv32_16(int32(ix[n][0]), 3))
@@ -273,7 +245,7 @@ func silkStereoQuantPred(predQ13 *[2]int32) [2][3]int8 {
 		predQ13[n] = quantPredQ13
 	}
 
-	// Subtract second from first predictor (helps when applying these).
+	// Subtract second from first predictor (helps when actually applying these).
 	predQ13[0] -= predQ13[1]
 	return ix
 }

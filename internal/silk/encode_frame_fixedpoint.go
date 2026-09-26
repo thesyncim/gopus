@@ -37,13 +37,6 @@ package silk
 // is still bit-exact; only the NSQ outer loop remains to be wired once the
 // del-dec outer driver lands.
 
-// Constants from silk/define.h used by the FIXED_POINT encode-frame driver.
-const (
-	nbSpeechFramesBeforeDTX = 10 // NB_SPEECH_FRAMES_BEFORE_DTX (eq 200 ms)
-	maxConsecutiveDTX       = 20 // MAX_CONSECUTIVE_DTX (eq 400 ms)
-	vadNoActivity           = 0  // VAD_NO_ACTIVITY
-)
-
 // nlsfCBForPredOrder selects the NLSF codebook for the prediction LPC order,
 // matching libopus: WB (order 16) uses silk_NLSF_CB_WB, NB/MB uses
 // silk_NLSF_CB_NB_MB.
@@ -90,6 +83,11 @@ type silkEncodeFrameFIXState struct {
 
 	// VAD activity decision from the Opus-level detector.
 	opusVADActivity int
+
+	// vadDone reports that the packet encoder already ran
+	// silk_encode_do_VAD_FIX for the frame: speechActivityQ8, inputTiltQ15,
+	// inputQualityBandsQ15 and indicesSignalType hold its outputs.
+	vadDone bool
 
 	// ----- mutable sCmn state -----
 	frameCounter         int32
@@ -225,7 +223,13 @@ func (e *Encoder) silkEncodeFrameFIXAnalyze(st *silkEncodeFrameFIXState) sEncCtr
 	/****************************/
 	/* Voice Activity Detection */
 	/****************************/
-	ctrl.vadFlag = e.silkEncodeDoVADFIX(st)
+	if st.vadDone {
+		if st.indicesSignalType != int8(typeNoVoiceActivity) {
+			ctrl.vadFlag = 1
+		}
+	} else {
+		ctrl.vadFlag = e.silkEncodeDoVADFIX(st)
+	}
 
 	/*****************************************/
 	/* Find pitch lags, initial LPC analysis */
@@ -762,14 +766,14 @@ func (e *Encoder) silkEncodeFrameFIX(st *silkEncodeFrameFIXState) silkEncodeFram
 func (e *Encoder) silkEncodeDoVADFIX(st *silkEncodeFrameFIXState) int {
 	const activityThreshold = speechActivityDTXThresholdQ8 // SILK_FIX_CONST(SPEECH_ACTIVITY_DTX_THRES, 8)
 
-	vadRes := silkVADGetSAQ8(e.fixedScratch(), &st.vad, st.vadInput, st.frameLength, st.fsKHz)
+	vadRes := silkVADGetSAQ8(&e.fixedScratch().vadX, &st.vad, st.vadInput, st.frameLength, st.fsKHz)
 	st.speechActivityQ8 = vadRes.speechActivityQ8
 	st.inputTiltQ15 = vadRes.inputTiltQ15
 	st.inputQualityBandsQ15 = vadRes.inputQualityBandsQ15
 
 	// If Opus VAD is inactive and Silk VAD is active: lower Silk VAD to just
 	// under the threshold.
-	if st.opusVADActivity == vadNoActivity && st.speechActivityQ8 >= activityThreshold {
+	if st.opusVADActivity == VADNoActivity && st.speechActivityQ8 >= activityThreshold {
 		st.speechActivityQ8 = activityThreshold - 1
 	}
 

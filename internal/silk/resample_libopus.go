@@ -525,6 +525,16 @@ func (r *LibopusResampler) processInt16Core(in []int16, inLen int32) []int16 {
 	return outInt16
 }
 
+// Resample is silk_resampler (silk/resampler.c): it resamples in (at least
+// 1 ms of input) into out, which holds len(in)*fsOut/fsIn samples.
+func (r *LibopusResampler) Resample(out, in []int16) {
+	if r.down != nil {
+		r.down.processWithDelay(out, in)
+		return
+	}
+	copy(out, r.processInt16Core(in, int32(len(in))))
+}
+
 func writeInt16AsFloat32(dst []float32, src []int16) int {
 	written := min(len(src), len(dst))
 	if written > 0 {

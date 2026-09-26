@@ -1,6 +1,7 @@
 package silk
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -223,7 +224,7 @@ func TestStereoPredWeights(t *testing.T) {
 }
 
 func TestStereoQuantPred80Levels(t *testing.T) {
-	// Test that stereoQuantPred produces valid indices for various Q13 values
+	// Test that silkStereoQuantPred produces valid indices for various Q13 values
 	testCases := []struct {
 		name    string
 		predQ13 [2]int32
@@ -259,23 +260,23 @@ func TestStereoQuantPred80Levels(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			predQ13 := tc.predQ13
-			ix := stereoQuantPred(&predQ13)
+			ix := silkStereoQuantPred(&predQ13)
 
 			// Verify index ranges
 			for n := range 2 {
-				if ix.Ix[n][0] < 0 || ix.Ix[n][0] > 2 {
-					t.Errorf("ix[%d][0] = %d, want [0, 2]", n, ix.Ix[n][0])
+				if ix[n][0] < 0 || ix[n][0] > 2 {
+					t.Errorf("ix[%d][0] = %d, want [0, 2]", n, ix[n][0])
 				}
-				if ix.Ix[n][1] < 0 || ix.Ix[n][1] > 4 {
-					t.Errorf("ix[%d][1] = %d, want [0, 4]", n, ix.Ix[n][1])
+				if ix[n][1] < 0 || ix[n][1] > 4 {
+					t.Errorf("ix[%d][1] = %d, want [0, 4]", n, ix[n][1])
 				}
-				if ix.Ix[n][2] < 0 || ix.Ix[n][2] > 4 {
-					t.Errorf("ix[%d][2] = %d, want [0, 4]", n, ix.Ix[n][2])
+				if ix[n][2] < 0 || ix[n][2] > 4 {
+					t.Errorf("ix[%d][2] = %d, want [0, 4]", n, ix[n][2])
 				}
 			}
 
 			// Verify joint index is valid (< 25)
-			jointIdx := 5*int(ix.Ix[0][2]) + int(ix.Ix[1][2])
+			jointIdx := 5*int(ix[0][2]) + int(ix[1][2])
 			if jointIdx >= 25 {
 				t.Errorf("joint index = %d, want < 25", jointIdx)
 			}
@@ -289,7 +290,7 @@ func TestStereoQuantPredDeltaCoding(t *testing.T) {
 	originalPred0 := predQ13[0]
 	originalPred1 := predQ13[1]
 
-	_ = stereoQuantPred(&predQ13)
+	_ = silkStereoQuantPred(&predQ13)
 
 	// After quantization, predQ13[0] should be the quantized delta
 	// predQ13[1] should be the quantized second predictor
@@ -329,7 +330,7 @@ func TestStereoEncodePredRoundtrip(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Quantize
 			predQ13 := tc.predQ13
-			ix := stereoQuantPred(&predQ13)
+			ix := silkStereoQuantPred(&predQ13)
 
 			// Encode to bitstream
 			buf := make([]byte, 100)
@@ -370,5 +371,27 @@ func TestSmulwb(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("smulwb(%d, %d) = %d, want %d", tc.a, tc.b, got, tc.want)
 		}
+	}
+}
+
+// TestInterpolationSamplesCount verifies the correct number of samples are interpolated.
+func TestInterpolationSamplesCount(t *testing.T) {
+	testCases := []struct {
+		fsKHz         int
+		wantInterpLen int
+	}{
+		{8, 64},   // 8kHz: 8ms * 8 = 64 samples
+		{12, 96},  // 12kHz: 8ms * 12 = 96 samples
+		{16, 128}, // 16kHz: 8ms * 16 = 128 samples
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("%dkHz", tc.fsKHz), func(t *testing.T) {
+			interpLen := stereoInterpLenMs * tc.fsKHz
+			if interpLen != tc.wantInterpLen {
+				t.Errorf("Interpolation length for %dkHz: got %d, want %d",
+					tc.fsKHz, interpLen, tc.wantInterpLen)
+			}
+		})
 	}
 }

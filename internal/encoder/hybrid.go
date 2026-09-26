@@ -23,7 +23,6 @@ import (
 	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/internal/rangecoding"
-	"github.com/thesyncim/gopus/internal/silk"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -60,12 +59,6 @@ type HybridState struct {
 	// stereoWidthQ14 is the stereo width in Q14 format.
 	// Reduced at low bitrates to improve coding efficiency.
 	stereoWidthQ14 int16
-	// silkStereoWidthQ14 is the current frame SILK stereo width decision (Q14).
-	// Hybrid stereo fade follows this value in libopus.
-	silkStereoWidthQ14 int16
-
-	// prevDecodeOnlyMiddle tracks the previous mid-only (no side) decision.
-	prevDecodeOnlyMiddle bool
 
 	// --- Scratch buffers for zero-allocation hybrid encoding ---
 
@@ -76,16 +69,6 @@ type HybridState struct {
 	scratchPacket [maxHybridPacketSize]byte
 	// scratchRedundancy stores CELT transition redundancy payload (2..257 bytes).
 	scratchRedundancy [257]byte
-	// scratchTransitionPCM stores gain-shaped transition redundancy input samples.
-	scratchTransitionPCM []opusRes
-
-	// Lookahead resampling scratch buffers.
-	scratchLookahead32   []float32 // opus_res-width lookahead for SILK resampling
-	scratchSilkLookahead []float32 // resampled lookahead output
-	scratchLaLeft        []float32 // deinterleaved left lookahead
-	scratchLaRight       []float32 // deinterleaved right lookahead
-	scratchLaOutLeft     []float32 // resampled left lookahead
-	scratchLaOutRight    []float32 // resampled right lookahead
 
 	// Energy tracking scratch buffers.
 	scratchBandLogE2  []float32 // bandLogE2 for transient analysis
@@ -104,7 +87,7 @@ type HybridState struct {
 // encodeHybridFrameWithMaxPacketAndTransition allows callers assembling long packets
 // to gate CELT transition redundancy/prefill to the correct 20ms subframe,
 // matching libopus multi-frame cadence.
-func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, celtPCM []opusRes, lookahead []opusRes, frameSize int, maxPacketBytes int, maxDataBytes int, dredBitrate int, hardMaxPacketBytes bool, allowTransitionRedundancy bool, transitionToCELT bool, runCELTTransitionPrefill bool) ([]byte, error) {
+func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, celtPCM []opusRes, frameSize int, maxPacketBytes int, maxDataBytes int, dredBitrate int, hardMaxPacketBytes bool, allowTransitionRedundancy bool, transitionToCELT bool, runCELTTransitionPrefill bool) ([]byte, error) {
 	// Validate: only 10ms (Fs/100) or 20ms (Fs/50) for hybrid
 	if frameSize != int(e.sampleRate)/100 && frameSize != e.frame20ms() {
 		return nil, ErrInvalidHybridFrameSize
@@ -112,9 +95,6 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 
 	// Ensure sub-encoders exist
 	e.ensureSILKEncoder()
-	if e.silkInternalChannels() == 2 {
-		e.ensureSILKSideEncoder()
-	}
 	e.ensureCELTEncoder()
 	// Hybrid CELT highband runs at the native API rate (SWB=24k, FB=48k); the
 	// CELT encoder upsamples sub-48k input to the 48 kHz core, matching libopus
@@ -127,9 +107,8 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 	// Initialize hybrid state if needed
 	if e.hybridState == nil {
 		e.hybridState = &HybridState{
-			prevHBGain:         1.0,
-			stereoWidthQ14:     16384, // Full width (Q14 = 1.0)
-			silkStereoWidthQ14: 16384, // Full width (Q14 = 1.0)
+			prevHBGain:     1.0,
+			stereoWidthQ14: 16384, // Full width (Q14 = 1.0)
 		}
 	}
 
@@ -180,17 +159,9 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 	transitionRedundancy := transitionCeltToHybrid || transitionSilkToCELT
 	redundancyBytes := 0
 	var redundancyData []byte
-	var redundancyPCM []opusRes
 	var redundantRng uint32
 	if transitionRedundancy {
 		redundancyBytes = computeRedundancyBytes(baseTargetBytes, int(e.bitrate), frameRate, e.celtInternalChannelsForMode(ModeHybrid))
-		if transitionCeltToHybrid && redundancyBytes > 0 {
-			// Match libopus input shaping for CELT->Hybrid redundancy:
-			// redundancy CELT sees the same HB gain contour as the main CELT path.
-			_, _, celtBitrateHBGainRed := e.computeHybridBitAllocationWithBudget(frameSize, baseTargetBytes, redundancyBytes)
-			hbGainRed := e.computeHBGain(celtBitrateHBGainRed)
-			redundancyPCM = e.prepareCELTTransitionRedundancyInput(celtPCM, hbGainRed)
-		}
 	}
 
 	// Compute bit allocation between SILK and CELT using the full packet budget
@@ -250,98 +221,9 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 		re.Limit(uint32(maxTargetBytes))
 	}
 
-	// Step 1: Resample native-Fs input to the 16 kHz SILK lowband.
-	silkInput := e.resampleHybridSILKLowband(pcm, frameSize)
-
-	// Resample lookahead if available (save/restore state)
-	var silkLookahead []float32
-	if len(lookahead) > 0 {
-		// Convert to float32 using scratch buffer
-		needed := len(lookahead)
-		if cap(e.hybridState.scratchLookahead32) < needed {
-			e.hybridState.scratchLookahead32 = make([]float32, needed)
-		}
-		lookahead32 := e.hybridState.scratchLookahead32[:needed]
-		copy(lookahead32, lookahead)
-
-		lookaheadFrames := len(lookahead) / int(e.channels)
-		targetLaSamples := lookaheadFrames * 16000 / int(e.sampleRate)
-		internalSilkChannels := e.silkInternalChannels()
-		neededOut := targetLaSamples * internalSilkChannels
-		if cap(e.hybridState.scratchSilkLookahead) < neededOut {
-			e.hybridState.scratchSilkLookahead = make([]float32, neededOut)
-		}
-		silkLookahead = e.hybridState.scratchSilkLookahead[:neededOut]
-
-		if e.channels == 1 {
-			state := e.silkResampler.State()
-			e.silkResampler.ProcessInto(lookahead32, silkLookahead)
-			e.silkResampler.SetState(state)
-		} else if internalSilkChannels == 1 {
-			if cap(e.hybridState.scratchLaLeft) < lookaheadFrames {
-				e.hybridState.scratchLaLeft = make([]float32, lookaheadFrames)
-			}
-			monoLa := e.hybridState.scratchLaLeft[:lookaheadFrames]
-			downmixStereoToSilkMonoLibopus(monoLa, lookahead32, lookaheadFrames)
-			state := e.silkResampler.State()
-			e.silkResampler.ProcessInto(monoLa, silkLookahead)
-			e.silkResampler.SetState(state)
-		} else {
-			// Stereo lookahead resampling with scratch buffers
-			halfLen := len(lookahead32) / 2
-			if cap(e.hybridState.scratchLaLeft) < halfLen {
-				e.hybridState.scratchLaLeft = make([]float32, halfLen)
-			}
-			if cap(e.hybridState.scratchLaRight) < halfLen {
-				e.hybridState.scratchLaRight = make([]float32, halfLen)
-			}
-			leftLa := e.hybridState.scratchLaLeft[:halfLen]
-			rightLa := e.hybridState.scratchLaRight[:halfLen]
-			for i := range halfLen {
-				leftLa[i] = lookahead32[i*2]
-				rightLa[i] = lookahead32[i*2+1]
-			}
-
-			halfOut := targetLaSamples
-			if cap(e.hybridState.scratchLaOutLeft) < halfOut {
-				e.hybridState.scratchLaOutLeft = make([]float32, halfOut)
-			}
-			if cap(e.hybridState.scratchLaOutRight) < halfOut {
-				e.hybridState.scratchLaOutRight = make([]float32, halfOut)
-			}
-			leftOut := e.hybridState.scratchLaOutLeft[:halfOut]
-			rightOut := e.hybridState.scratchLaOutRight[:halfOut]
-
-			stateL := e.silkResampler.State()
-			stateR := e.silkResamplerRight.State()
-			e.silkResampler.ProcessInto(leftLa, leftOut)
-			e.silkResamplerRight.ProcessInto(rightLa, rightOut)
-			e.silkResampler.SetState(stateL)
-			e.silkResamplerRight.SetState(stateR)
-
-			// Interleave into silkLookahead
-			for i := range halfOut {
-				silkLookahead[i*2] = leftOut[i]
-				silkLookahead[i*2+1] = rightOut[i]
-			}
-		}
-	}
-
-	// Step 2: SILK encodes first (uses shared range encoder)
-	e.silkEncoder.SetRangeEncoder(re)
-	e.silkEncoder.ResetPacketState()
-	if silkBitrate > 0 {
-		perChannel := silkBitrate / e.silkInternalChannels()
-		if perChannel > 0 {
-			e.silkEncoder.SetBitrate(perChannel)
-			if e.silkInternalChannels() == 2 {
-				e.silkSideEncoder.SetBitrate(perChannel)
-			}
-		}
-	}
-	e.silkEncoder.SetFEC(e.lbrrCoded)
-	e.silkEncoder.SetPacketLoss(int(e.packetLoss))
-
+	// Step 1: SILK codes the low band first, on the shared range coder
+	// (opus_encode_frame_native: silk_mode setup, then silk_Encode).
+	//
 	// Per libopus: in hybrid CBR mode, SILK is switched to VBR with a max bits cap.
 	// This allows SILK to use fewer bits and CELT to absorb the variation.
 	// In hybrid VBR/CVBR mode, SILK's maxBits is constrained to the SILK-appropriate
@@ -362,7 +244,6 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 	}
 	if e.bitrateMode == ModeCBR {
 		// Hybrid CBR: switch SILK to VBR with cap (libopus behavior)
-		e.silkEncoder.SetVBR(true)
 		otherBits := max(silkMaxBits-silkBitrate*frameSize/int(e.sampleRate), 0)
 		silkMaxBits -= otherBits * 3 / 4
 		if silkMaxBits < 0 {
@@ -370,26 +251,29 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 		}
 	} else {
 		// Hybrid VBR/CVBR: constrain SILK maxBits using the rate table.
-		e.silkEncoder.SetVBR(true)
 		maxBitsAsBitrate := silkMaxBits * int(e.sampleRate) / frameSize
 		maxSilkRate := e.computeSilkRateForMax(maxBitsAsBitrate, frame20ms)
 		silkMaxBits = maxSilkRate * frameSize / int(e.sampleRate)
 	}
-	e.silkEncoder.SetMaxBits(silkMaxBits)
-	if e.silkInternalChannels() == 2 {
-		e.silkSideEncoder.ResetPacketState()
-		e.silkSideEncoder.SetFEC(e.lbrrCoded)
-		e.silkSideEncoder.SetPacketLoss(int(e.packetLoss))
-		e.silkSideEncoder.SetVBR(true)
-		e.silkSideEncoder.SetMaxBits(silkMaxBits)
+	e.configureSILKMode(frameSize, silkBitrate, silkMaxBits, false)
+	activity := e.silkActivity()
+	if err := e.runPendingSILKPrefill(activity); err != nil {
+		return nil, err
 	}
-	e.encodeSILKHybrid(silkInput, silkLookahead, frameSize, silkBitrate)
+	if _, err := e.silk.Encode(&e.silkMode, pcm, frameSize, re, 0, activity); err != nil {
+		return nil, err
+	}
 
 	// Retrieve SILK signal info for CELT VBR target feedback.
 	// Per libopus opus_encoder.c line 2420-2424: after SILK encodes, its signal
 	// type and quantization offset are forwarded to CELT via silk_info.
-	silkSignalType, silkOffset := e.silkEncoder.LastEncodedSignalInfo()
-	e.celtEncoder.SetSilkInfo(silkSignalType, silkOffset)
+	e.celtEncoder.SetSilkInfo(int(e.silkMode.SignalType), int(e.silkMode.Offset))
+
+	// Step 2: HB_gain fade and stereo width reduction of the delay-compensated
+	// CELT input (src/opus_encoder.c:2313-2348). They precede the redundancy
+	// signaling, so a CELT->Hybrid redundant frame codes the faded input too.
+	celtInput := e.applyHBGainFade(celtPCM, hbGain)
+	celtInput = e.applyStereoWidthReduction(ModeHybrid, celtInput, frameSize)
 
 	// Step 2b: Encode redundancy flag between SILK and CELT.
 	// Per libopus opus_encoder.c: in hybrid mode, a redundancy flag is always
@@ -400,7 +284,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 		if transitionRedundancy && redundancyBytes >= 2 {
 			redundancyBytes = clampRedundancyBytesAfterSilk(baseTargetBytes, re.Tell(), redundancyBytes, true)
 			if transitionCeltToHybrid {
-				data, rng, err := e.encodeCELTTransitionRedundancy(redundancyPCM, frameSize, redundancyBytes)
+				data, rng, err := e.encodeCELTTransitionRedundancy(celtInput, frameSize, redundancyBytes)
 				if err != nil {
 					return nil, err
 				}
@@ -429,7 +313,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 		if dredBytes > 0 {
 			maxCELTBytes := maxTargetBytes - dredBytes*3/4
 			minCELTBytes := (re.Tell()+7)/8 + 5
-			if hardMaxPacketBytes && e.channels == 2 && e.hybridState != nil && e.hybridState.silkStereoWidthQ14 == 0 {
+			if hardMaxPacketBytes && e.silkStereoCollapsed() {
 				// Match libopus' collapsed-stereo hybrid path: when SILK has
 				// driven stereo width to zero, the inactive side channel lowers
 				// the CELT guard needed to preserve redundancy signaling.
@@ -466,21 +350,6 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 		e.maybePrefillCELTOnModeTransition(ModeHybrid)
 	}
 
-	// Step 3: Apply HB_gain fade on the delay-compensated CELT input.
-	// The CELT input is already delay-compensated by applyDelayCompensation
-	// in the caller (Fs/250 = 192 samples). No additional delay is needed here.
-	celtInput := e.applyHBGainFade(celtPCM, hbGain)
-	if e.channels == 2 {
-		targetWidthQ14 := int16(16384)
-		if e.hybridState != nil {
-			targetWidthQ14 = min(max(e.hybridState.silkStereoWidthQ14, 0), 16384)
-		}
-		if e.hybridState.stereoWidthQ14 < (1<<14) || targetWidthQ14 < (1<<14) {
-			celtInput = e.applyStereoWidthFade(celtInput, e.hybridState.stereoWidthQ14, targetWidthQ14)
-		}
-		e.hybridState.stereoWidthQ14 = targetWidthQ14
-	}
-
 	// Step 4: CELT encodes high frequencies (bands 17-21)
 	e.celtEncoder.SetRangeEncoder(re)
 	e.celtEncoder.SetLSBDepth(int(e.lsbDepth))
@@ -502,14 +371,27 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 	if useFinalHybridVBRTarget {
 		hybridCELTTargetBytes = maxTargetBytes
 	}
-	e.encodeCELTHybridImproved(celtInput, frameSize, hybridCELTTargetBytes, useFinalHybridVBRTarget, !useFinalHybridVBRTarget && maxPacketBytes == 0, dredCarrier)
+	// Once SILK has busted the frame budget the frame becomes a PLC frame and
+	// CELT does not run, so none of its state advances
+	// (src/opus_encoder.c:2487-2488).
+	if re.Tell() <= 8*payloadTarget {
+		e.encodeCELTHybridImproved(celtInput, frameSize, hybridCELTTargetBytes, useFinalHybridVBRTarget, !useFinalHybridVBRTarget && maxPacketBytes == 0, dredCarrier)
+	}
 	mainRng := e.celtEncoder.FinalRange()
 
 	// Update state for next frame
 	e.hybridState.prevHBGain = hbGain
 
 	// Finalize and append optional transition redundancy payload.
+	tell := re.Tell()
 	mainPayload := re.Done()
+	if tell > 8*payloadTarget && len(mainPayload) > 0 {
+		// SILK busted the frame budget: a single zero byte makes the decoder
+		// run the PLC (src/opus_encoder.c:2578-2588).
+		e.hybridFinalRange = 0
+		mainPayload[0] = 0
+		return mainPayload[:1], nil
+	}
 	if !redundancyActive {
 		e.hybridFinalRange = mainRng
 		return mainPayload, nil
@@ -702,35 +584,6 @@ func (e *Encoder) encodeCELTSilkToCELTRedundancy(celtPCM []opusRes, frameSize, r
 	return out, redundantRng, nil
 }
 
-// prepareCELTTransitionRedundancyInput shapes the 5 ms transition input with the
-// same HB gain contour used by hybrid CELT coding, without mutating celtPCM.
-func (e *Encoder) prepareCELTTransitionRedundancyInput(celtPCM []opusRes, hbGain opusVal16) []opusRes {
-	channels := int(e.channels)
-	redundancyFrameSize := int(e.sampleRate) / 200 // 5 ms at 48 kHz
-	if redundancyFrameSize <= 0 {
-		return celtPCM
-	}
-	redundancySamples := redundancyFrameSize * channels
-	if redundancySamples <= 0 || len(celtPCM) < redundancySamples {
-		return celtPCM
-	}
-
-	prevGain := opusVal16(1)
-	if e.hybridState != nil {
-		prevGain = e.hybridState.prevHBGain
-	}
-	if prevGain == hbGain && hbGain >= 1.0 {
-		return celtPCM
-	}
-
-	if cap(e.hybridState.scratchTransitionPCM) < redundancySamples {
-		e.hybridState.scratchTransitionPCM = make([]opusRes, redundancySamples)
-	}
-	out := e.hybridState.scratchTransitionPCM[:redundancySamples]
-	copy(out, celtPCM[:redundancySamples])
-	return e.applyHBGainFade(out, hbGain)
-}
-
 // computeHybridBitAllocation computes SILK/CELT bitrates using the default packet
 // budget for the current frame size (no transition redundancy reservation).
 func (e *Encoder) computeHybridBitAllocation(frame20ms bool) (silkBitrate, celtBitrate, celtBitrateHBGain int) {
@@ -894,102 +747,6 @@ func celtExp2Approx(x float32) float32 {
 	return opusmath.CeltExp2(x)
 }
 
-// resampleHybridSILKLowband resamples the native-Fs input to the SILK hybrid
-// lowband rate (always 16 kHz) using the libopus-matching SILK input resampler.
-// At 48 kHz API it downsamples 1:3; at 24 kHz native it downsamples 2:3.
-func (e *Encoder) resampleHybridSILKLowband(samples []opusRes, frameSize int) []float32 {
-	if len(samples) == 0 || frameSize <= 0 {
-		return nil
-	}
-
-	targetSamples := frameSize * 16000 / int(e.sampleRate)
-	if targetSamples <= 0 {
-		return nil
-	}
-
-	e.ensureSILKResampler(16000)
-
-	if e.channels == 1 {
-		// Mono: copy opus_res-width input into SILK resampling scratch.
-		if frameSize > len(samples) {
-			frameSize = len(samples)
-		}
-		pcm32 := e.scratchPCM32[:frameSize]
-		_ = pcm32[frameSize-1]   // BCE hint
-		_ = samples[frameSize-1] // BCE hint
-		copy(pcm32, samples[:frameSize])
-		out := e.ensureSilkResampled(targetSamples)
-		n := e.silkResampler.ProcessInto(pcm32, out)
-		return out[:n]
-	}
-
-	if e.silkInternalChannels() == 1 {
-		totalSamples := frameSize * 2
-		if totalSamples > len(samples) {
-			totalSamples = len(samples)
-			frameSize = totalSamples / 2
-		}
-		stereo32 := e.scratchPCM32[:frameSize*2]
-		stereoSamples := samples[:frameSize*2]
-		for i := 0; i < frameSize; i++ {
-			pair := stereoSamples[i*2 : i*2+2 : i*2+2]
-			outPair := stereo32[i*2 : i*2+2 : i*2+2]
-			outPair[0] = float32(pair[0])
-			outPair[1] = float32(pair[1])
-		}
-		mono := e.scratchMono[:frameSize]
-		downmixStereoToSilkMonoLibopus(mono, stereo32, frameSize)
-		out := e.ensureSilkResampled(targetSamples)
-		n := e.silkResampler.ProcessInto(mono, out)
-		if e.prevChannels == 2 && e.silkResamplerRight != nil {
-			rightOut := e.ensureSilkResampledR(targetSamples)
-			nR := e.silkResamplerRight.ProcessInto(mono, rightOut)
-			if nR < n {
-				n = nR
-			}
-			averageSilkResamplerOutputsLibopus(out, rightOut, n)
-		}
-		return out[:n]
-	}
-
-	// Stereo: copy opus_res-width input and deinterleave in a single pass.
-	totalSamples := frameSize * 2
-	if totalSamples > len(samples) {
-		totalSamples = len(samples)
-		frameSize = totalSamples / 2
-	}
-	left := e.scratchLeft[:frameSize]
-	right := e.scratchRight[:frameSize]
-	// Trim samples to exact stereo length for BCE elimination.
-	stereoSamples := samples[:frameSize*2]
-	for i := 0; i < frameSize; i++ {
-		// Use two-element sub-slice to prove both accesses in bounds with one check.
-		pair := stereoSamples[i*2 : i*2+2 : i*2+2]
-		left[i] = float32(pair[0])
-		right[i] = float32(pair[1])
-	}
-	leftOut := e.ensureSilkResampled(targetSamples)
-	rightOut := e.ensureSilkResampledR(targetSamples)
-	nL := e.silkResampler.ProcessInto(left, leftOut)
-	nR := e.silkResamplerRight.ProcessInto(right, rightOut)
-	n := min(nR, nL)
-	if n <= 0 {
-		return nil
-	}
-
-	interleaved := e.scratchPCM32[:n*2]
-	leftOut = leftOut[:n]
-	rightOut = rightOut[:n]
-	for i := range n {
-		// Use two-element sub-slice to prove both accesses in bounds with one check.
-		pair := interleaved[i*2 : i*2+2 : i*2+2]
-		pair[0] = leftOut[i]
-		pair[1] = rightOut[i]
-	}
-
-	return interleaved
-}
-
 // applyHBGainFade applies HB_gain to the CELT input with smooth gain fading.
 // This implements libopus gain_fade() for artifact-free transitions.
 //
@@ -1119,255 +876,6 @@ func (e *Encoder) applyStereoWidthFade(samples []opusRes, widthQ14Prev, widthQ14
 	}
 
 	return samples
-}
-
-// encodeSILKHybrid encodes SILK data for hybrid mode.
-// Uses the SILK encoder's EncodeFrame method with a shared range encoder.
-//
-// SILK supports both 10ms and 20ms frames. Hybrid packets should encode the
-// low band at the same duration as the Opus frame (no buffering).
-//
-// For stereo, uses mid-side encoding per RFC 6716 Section 4.2.8:
-// - Encode stereo prediction weights
-// - Encode mid channel with main SILK encoder
-// - Encode side channel with side SILK encoder
-func (e *Encoder) encodeSILKHybrid(pcm []float32, lookahead []float32, frameSize int, totalRateBps int) {
-	// For hybrid mode, SILK always operates at WB (16kHz)
-	// The input is already downsampled to 16kHz
-
-	// Calculate samples at 16kHz (input is at 16kHz after resampling)
-	silkSamples := frameSize * 16000 / int(e.sampleRate) // native Fs -> 16kHz (160 for 10ms, 320 for 20ms)
-
-	if e.silkInternalChannels() == 1 {
-		// Mono encoding
-		e.encodeSILKHybridMono(pcm, lookahead, silkSamples, totalRateBps)
-	} else {
-		// Stereo encoding
-		e.encodeSILKHybridStereo(pcm, lookahead, silkSamples, totalRateBps)
-	}
-}
-
-// encodeSILKHybridMono encodes mono SILK data for hybrid mode.
-//
-// Per RFC 6716, the SILK layer header contains:
-// 1. VAD flag for each frame (1 bit per frame)
-// 2. LBRR flag (1 bit)
-// 3. [LBRR data if LBRR flag set]
-// 4. Frame data
-func (e *Encoder) encodeSILKHybridMono(pcm []float32, lookahead []float32, silkSamples int, totalRateBps int) {
-	if e.hybridState != nil {
-		e.hybridState.silkStereoWidthQ14 = 16384
-	}
-	if totalRateBps > 0 {
-		e.silkEncoder.SetBitrate(totalRateBps)
-	}
-	inputSamples := pcm[:min(len(pcm), silkSamples)]
-	// Match standalone SILK mono buffering: encoder consumes inputBuf+1 with
-	// a 1-sample handoff across frames.
-	inputSamples = e.alignSilkMonoInput(inputSamples)
-	quantizeFloat32ToInt16LibopusInPlace(inputSamples)
-	vadFlag := e.computeSilkVAD(inputSamples, len(inputSamples), 16)
-	e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityBandsQ15)
-	lbrrFlag := false
-	if e.lbrrCoded {
-		lbrrFlag = e.silkEncoder.HasLBRRData()
-	}
-
-	// Get the shared range encoder
-	re := e.silkEncoder.GetRangeEncoderPtr()
-	if re == nil {
-		// Fall back to normal encoding if no shared encoder
-		_ = e.silkEncoder.EncodeFrame(inputSamples, lookahead, vadFlag)
-		return
-	}
-
-	// Header bits to patch at packet start
-	nFramesPerPacket := 1 // One SILK frame per packet (10ms or 20ms)
-	nChannels := 1        // mono
-	nBitsHeader := (nFramesPerPacket + 1) * nChannels
-
-	// Reserve header bits (VAD + LBRR) and encode any LBRR data from previous packet.
-	// This must always be called to ensure PatchInitialBits overwrites reserved bits
-	// instead of corrupting the frame payload.
-	e.silkEncoder.EncodeLBRRData(re, 1, true)
-
-	// Encode the frame (EncodeFrame in hybrid mode skips its own VAD/LBRR)
-	_ = e.silkEncoder.EncodeFrame(inputSamples, lookahead, vadFlag)
-
-	// Patch initial bits with actual VAD+LBRR flags
-	// Format: [VAD][LBRR]
-	flags := uint32(0)
-	if vadFlag {
-		flags |= 1 << 1
-	}
-	if lbrrFlag {
-		flags |= 1 << 0
-	}
-	re.PatchInitialBits(flags, uint(nBitsHeader))
-
-	// Match libopus enc_API packet-level nBitsExceeded update for shared range coding.
-	payloadSizeMs := (silkSamples * 1000) / 16000
-	nBytesOut := (re.Tell() + 7) >> 3
-	e.silkEncoder.UpdatePacketBitsExceeded(nBytesOut, payloadSizeMs, totalRateBps)
-}
-
-// encodeSILKHybridStereo encodes stereo SILK data for hybrid mode.
-// Uses mid-side encoding per RFC 6716 Section 4.2.8.
-func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, silkSamples int, totalRateBps int) {
-	// Deinterleave L/R channels and append 2-sample lookahead for LP filtering.
-	actualSamples := len(pcm) / 2
-	if actualSamples < silkSamples {
-		silkSamples = actualSamples
-	}
-
-	left := e.scratchLeft[:silkSamples+2]
-	right := e.scratchRight[:silkSamples+2]
-	stereoPCM := pcm[:silkSamples*2]
-	for i, j := 0, 0; i < silkSamples; i, j = i+1, j+2 {
-		left[i] = stereoPCM[j]
-		right[i] = stereoPCM[j+1]
-	}
-	// Use lookahead if provided, otherwise zero-pad.
-	if len(lookahead) >= 2 {
-		left[silkSamples] = lookahead[0]
-		right[silkSamples] = lookahead[1]
-		if len(lookahead) >= 4 {
-			left[silkSamples+1] = lookahead[2]
-			right[silkSamples+1] = lookahead[3]
-		} else {
-			left[silkSamples+1] = left[silkSamples]
-			right[silkSamples+1] = right[silkSamples]
-		}
-	} else {
-		lastL := float32(0)
-		lastR := float32(0)
-		if silkSamples > 0 {
-			lastL = left[silkSamples-1]
-			lastR = right[silkSamples-1]
-		}
-		left[silkSamples] = lastL
-		right[silkSamples] = lastR
-		left[silkSamples+1] = lastL
-		right[silkSamples+1] = lastR
-	}
-
-	// Convert to mid-side with libopus-aligned stereo front-end.
-	fsKHz := 16 // SILK wideband uses 16kHz
-	mid, side, predIdx, midOnly, midRate, sideRate, widthQ14 := e.silkEncoder.StereoLRToMSWithRates(
-		left, right, silkSamples, fsKHz, totalRateBps, e.lastVADActivityQ8, false,
-	)
-	if e.hybridState != nil {
-		e.hybridState.silkStereoWidthQ14 = widthQ14
-	}
-	// Apply per-channel split from stereo front-end before encoding.
-	if midRate > 0 {
-		e.silkEncoder.SetBitrate(midRate)
-	}
-	if e.silkSideEncoder != nil && sideRate > 0 {
-		e.silkSideEncoder.SetBitrate(sideRate)
-	}
-
-	// Compute VAD flags
-	vadMid := e.computeSilkVAD(mid, len(mid), fsKHz)
-	e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityBandsQ15)
-
-	vadSide := false
-	if !midOnly {
-		vadSide = e.computeSilkVADSide(side, len(side), fsKHz)
-	}
-	if e.silkSideEncoder != nil {
-		if e.silkVADSide != nil {
-			e.silkSideEncoder.SetVADState(e.silkVADSide.SpeechActivityQ8, e.silkVADSide.InputTiltQ15, e.silkVADSide.InputQualityBandsQ15)
-		} else {
-			e.silkSideEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityBandsQ15)
-		}
-	}
-
-	// Get shared range encoder
-	re := e.silkEncoder.GetRangeEncoderPtr()
-	if re == nil {
-		return
-	}
-	if e.silkSideEncoder != nil {
-		e.silkSideEncoder.SetRangeEncoder(re)
-		// Keep side packet bit-reservoir state aligned with the shared SILK packet state.
-		e.silkSideEncoder.SetBitsExceeded(e.silkEncoder.BitsExceeded())
-	}
-
-	// LBRR flags
-	lbrrMid := false
-	lbrrSide := false
-	if e.lbrrCoded {
-		lbrrMid = e.silkEncoder.HasLBRRData()
-		if e.silkSideEncoder != nil && !midOnly {
-			lbrrSide = e.silkSideEncoder.HasLBRRData()
-		}
-	}
-
-	// Header bits to patch at packet start (VAD/LBRR)
-	nBitsHeader := 2
-
-	// 1. Reserve header bits (VAD + LBRR) and encode any LBRR Mid data.
-	// Use nChannels=2 to reserve space for both Mid+Side flags.
-	e.silkEncoder.EncodeLBRRData(re, 2, true)
-
-	// 2. Encode LBRR Side (no header placeholder; already reserved).
-	if e.lbrrCoded && e.silkSideEncoder != nil && !midOnly {
-		e.silkSideEncoder.EncodeLBRRData(re, 1, false)
-	}
-
-	// 3. Encode Weights (pre-quantized indices)
-	silk.EncodeStereoIndices(re, predIdx)
-
-	// 3b. Encode mid-only flag when side VAD is inactive (libopus stereo flag).
-	if !vadSide {
-		if midOnly {
-			silk.EncodeStereoMidOnly(re, 1)
-		} else {
-			silk.EncodeStereoMidOnly(re, 0)
-		}
-	}
-
-	// 4. Encode Mid Frame
-	_ = e.silkEncoder.EncodeFrame(mid, nil, vadMid)
-
-	// 5. Encode Side Frame (skip if mid-only)
-	if e.silkSideEncoder != nil && !midOnly {
-		if e.hybridState != nil && e.hybridState.prevDecodeOnlyMiddle {
-			e.silkSideEncoder.ResetStereoSideAfterMidOnly()
-		}
-		_ = e.silkSideEncoder.EncodeFrame(side, nil, vadSide)
-	}
-
-	// 6. Patch both headers at once (Mid first, then Side).
-	flagsMid := uint32(0)
-	if vadMid {
-		flagsMid |= 1 << 1
-	}
-	if lbrrMid {
-		flagsMid |= 1 << 0
-	}
-	flagsSide := uint32(0)
-	if vadSide {
-		flagsSide |= 1 << 1
-	}
-	if lbrrSide {
-		flagsSide |= 1 << 0
-	}
-	flagsCombined := (flagsMid << 2) | flagsSide
-	re.PatchInitialBits(flagsCombined, uint(nBitsHeader*2))
-
-	// Match libopus enc_API packet-level nBitsExceeded update for shared range coding.
-	payloadSizeMs := (silkSamples * 1000) / 16000
-	nBytesOut := (re.Tell() + 7) >> 3
-	e.silkEncoder.UpdatePacketBitsExceeded(nBytesOut, payloadSizeMs, totalRateBps)
-	if e.silkSideEncoder != nil {
-		e.silkSideEncoder.SetBitsExceeded(e.silkEncoder.BitsExceeded())
-	}
-
-	if e.hybridState != nil {
-		e.hybridState.prevDecodeOnlyMiddle = midOnly
-	}
 }
 
 // celtBandwidthFromTypes maps types.Bandwidth to CELT bandwidth.
@@ -1845,7 +1353,7 @@ func (e *Encoder) computeHybridCELTVBRTargetBytes(limitBytes, frameSize int, tfE
 	vbrRateQ3 := e.celtEncoder.BitrateToBits(frameSize) << celt.BitRes
 	channels := int(e.celtInternalChannelsForMode(ModeHybrid))
 	baseTargetQ3 := vbrRateQ3 - ((9*channels + 4) << celt.BitRes)
-	if e.channels == 2 && e.hybridState != nil && e.hybridState.silkStereoWidthQ14 == 0 {
+	if e.silkStereoCollapsed() {
 		baseTargetQ3 = 0
 	}
 	if baseTargetQ3 < 0 {
@@ -2057,4 +1565,11 @@ func ComputeStereoWidth(pcm []opusRes, frameSize, channels int) OpusVal16 {
 	}
 
 	return opusVal16(width)
+}
+
+// silkStereoCollapsed reports whether silk_Encode coded the current frame of a
+// stereo stream at zero width (silk_mode.stereoWidth_Q14 == 0), leaving no
+// side channel.
+func (e *Encoder) silkStereoCollapsed() bool {
+	return e.channels == 2 && e.silkMode.NChannelsInternal == 2 && e.silkMode.StereoWidthQ14 == 0
 }

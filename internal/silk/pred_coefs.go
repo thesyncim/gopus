@@ -37,8 +37,9 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 	}
 
 	// Match libopus silk_LTP_analysis_filter_FLP: operate entirely in float.
-	// The input buffer is already int16-quantized (from quantizePCMToInt16),
-	// scaled to [-1,1]. We scale to int16 range without redundant quantization.
+	// The input buffer holds the int16-quantized input (RES2INT16 in
+	// silk_Encode) scaled to [-1,1]. We scale to int16 range without redundant
+	// quantization.
 	scale := float32(silkSampleScale)
 	pitchBufLen := len(pitchBuf)
 
@@ -179,7 +180,7 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 	silkA2NLSFInto(lsfQ15, lpcQ16, order, e.scratchA2nlsfP[:], e.scratchA2nlsfQ[:])
 
 	interpIdx := 4
-	useInterp := e.complexity >= 4 && !e.firstFrameAfterResetActive() && numSubframes == maxNbSubfr
+	useInterp := e.complexity >= 4 && !e.firstFrameAfterReset && numSubframes == maxNbSubfr
 	if useInterp {
 		halfOffset := (maxNbSubfr / 2) * subfrLen
 		if halfOffset+subfrLen*(maxNbSubfr/2) <= totalLen {

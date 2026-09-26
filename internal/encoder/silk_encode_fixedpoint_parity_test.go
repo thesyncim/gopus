@@ -58,7 +58,7 @@ func TestPublicEncoderSILKFixedPathEngaged(t *testing.T) {
 				if len(pkt) == 0 {
 					t.Fatalf("frame %d: empty packet", f)
 				}
-				if enc.silkEncoder != nil && len(enc.silkEncoder.FixedXBufForTest()) > 0 {
+				if enc.silk != nil && len(enc.silk.FixedXBufForTest()) > 0 {
 					engaged = true
 				}
 			}

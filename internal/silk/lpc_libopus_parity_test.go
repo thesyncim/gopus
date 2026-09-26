@@ -570,13 +570,11 @@ func TestSILKFindLPCFLPMatchesLibopusOracle(t *testing.T) {
 			}
 			enc := NewEncoder(bw)
 			if tc.useInterpolatedNLSFs {
-				enc.SetComplexity(10)
+				enc.setupComplexity(10)
 			} else {
-				enc.SetComplexity(0)
+				enc.setupComplexity(0)
 			}
-			if !tc.firstFrameAfterReset {
-				enc.MarkEncoded()
-			}
+			enc.firstFrameAfterReset = tc.firstFrameAfterReset
 			copy(enc.prevLSFQ15, tc.prevNLSF)
 
 			_, gotNLSF, gotInterp := enc.computeLPCAndNLSFWithInterp(tc.x, tc.nbSubfr, tc.subfrLength, tc.minInvGain)

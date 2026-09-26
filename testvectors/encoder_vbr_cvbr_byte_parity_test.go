@@ -503,8 +503,8 @@ func runVBRParityCase(t *testing.T, tc vbrCVBRCase, helperPath string) {
 		// every shaping/NSQ quantity and the iter-0 packet size — diverged for
 		// VoIP-SILK only. Hybrid/CELT used Audio/LowDelay (dc_reject) and matched;
 		// restricted-SILK CBR used dc_reject and stayed byte-exact. Implementing
-		// hp_cutoff for VoIP (encoder.preprocessInputHP / hpCutoff +
-		// silk.UpdateVariableHPCutoff) makes the SILK input track libopus.
+		// hp_cutoff for VoIP (encoder.preprocessInputHP / hpCutoff fed by
+		// silk.PacketEncoder.VariableHPSmth1Q15) makes the SILK input track libopus.
 		//
 		// linux/amd64 (CI): HARD per-frame size-parity gate. On darwin/arm64 a
 		// residual ≤1-ULP float-contraction difference in the SILK FLP shaping

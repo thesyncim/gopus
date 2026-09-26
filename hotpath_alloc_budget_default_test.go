@@ -6,10 +6,6 @@ package gopus
 // DecodeInt16 in the default (float) build: strictly zero.
 const decodeInt16HotPathAllocBudget = 0
 
-// encodeRestrictedSilkHotPathAllocBudget is the per-call allocation budget for
-// Encode in restricted-SILK mode in the default (float) build: strictly zero.
-const encodeRestrictedSilkHotPathAllocBudget = 0
-
 // SILK packet-loss-concealment budgets. The gopus decode entry (decoder.go /
 // decoder_opus_frame.go) is strictly zero-alloc for SILK PLC: the concealment
 // output is written into decoder-owned scratch and copied to the caller buffer.

@@ -4,21 +4,6 @@ package encoder
 
 // Export unexported functions for testing
 
-// Downsample48to16Hybrid exports the hybrid downsampler for testing.
-func (e *Encoder) Downsample48to16Hybrid(samples []float64, frameSize int) []float32 {
-	if e.hybridState == nil {
-		e.hybridState = &HybridState{
-			prevHBGain:     1.0,
-			stereoWidthQ14: 16384,
-		}
-	}
-	samplesRes := make([]opusRes, len(samples))
-	for i, sample := range samples {
-		samplesRes[i] = opusRes(sample)
-	}
-	return e.resampleHybridSILKLowband(samplesRes, frameSize)
-}
-
 // TargetBytesForBitrate exports targetBytesForBitrate for testing at 48 kHz.
 func TargetBytesForBitrate(bitrate, frameSize int) int {
 	return NewEncoder(48000, 1).targetBytesForBitrate(bitrate, frameSize)

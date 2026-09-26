@@ -11,8 +11,8 @@ import (
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
-// TestPublicStereoSILKEncodeFixedByteExact drives the PUBLIC stereo SILK encode
-// path (EncodeStereoWithEncoderVADFlags) under the gopus_fixed_point build and
+// TestPublicStereoSILKEncodeFixedByteExact drives the stereo PacketEncoder.Encode
+// path under the gopus_fixed_point build and
 // asserts that every mid and side frame it produced is byte-for-byte identical
 // to the libopus FIXED_POINT silk_encode_frame_FIX reference, replayed on the
 // exact int16 x_buf / inputBuf and pre-encode state the public stereo encoder
@@ -131,24 +131,17 @@ func TestPublicStereoSILKEncodeFixedByteExact(t *testing.T) {
 				right[i] = float32(r * 0.35)
 			}
 
-			enc := NewEncoder(c.bandwidth)
-			sideEnc := NewEncoder(c.bandwidth)
+			p := newTestPacketEncoder(c.bandwidth, 2)
+			p.ctl.Complexity = 2
+			p.ctl.BitRate = int32(c.bitrate)
+			p.ctl.UseCBR = c.cbr
+			p.ctl.MaxBits = int32(c.bitrate * c.frameMs * c.nFrames / 1000)
+			enc, sideEnc := p.enc.state[0], p.enc.state[1]
 			for _, e := range []*Encoder{enc, sideEnc} {
-				e.SetComplexity(2)
-				e.SetBitrate(c.bitrate)
-				e.SetVBR(!c.cbr)
 				e.EnableFixedSnapshotForTest()
 			}
 
-			vadFlags := make([]bool, c.nFrames)
-			for i := range vadFlags {
-				vadFlags[i] = true
-			}
-
-			got, err := EncodeStereoWithEncoderVADFlags(enc, sideEnc, left, right, c.bandwidth, vadFlags)
-			if err != nil {
-				t.Fatalf("EncodeStereoWithEncoderVADFlags: %v", err)
-			}
+			got := p.encodeInto(t, interleaveStereo(left, right), 1)
 			if len(got) == 0 {
 				t.Fatalf("empty stereo packet")
 			}

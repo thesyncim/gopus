@@ -280,7 +280,7 @@ func TestInterpolationIndex(t *testing.T) {
 	}
 
 	// Simulate having encoded a frame
-	enc.haveEncoded = true
+	enc.firstFrameAfterReset = false
 	copy(enc.prevLSFQ15, lsfQ15)
 
 	// Same LSF should give heavy interpolation

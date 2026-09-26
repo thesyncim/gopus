@@ -664,17 +664,17 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxData
 // In libopus, this is set when SILK's internal sample rate is below the API rate.
 // Matches libopus silk_encode_frame_FLP.c allowBandwidthSwitch output.
 func (e *Encoder) silkAllowBandwidthSwitch() bool {
-	if e.silkEncoder == nil {
+	if e.silk == nil {
 		return false
 	}
-	return e.silkEncoder.AllowBandwidthSwitch()
+	return e.silk.AllowBandwidthSwitch()
 }
 
 // silkInWBModeWithoutVariableLP checks if SILK is in WB mode with LP filter inactive.
 // Matches libopus: silk_mode.inWBmodeWithoutVariableLP = (fs_kHz == 16 && sLP.mode == 0).
 func (e *Encoder) silkInWBModeWithoutVariableLP() bool {
-	if e.silkEncoder == nil {
+	if e.silk == nil {
 		return true // Conservative: don't restrict bandwidth if SILK not initialized.
 	}
-	return e.silkEncoder.InWBModeWithoutVariableLP()
+	return e.silk.InWBModeWithoutVariableLP()
 }

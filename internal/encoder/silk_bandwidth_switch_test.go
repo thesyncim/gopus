@@ -31,15 +31,7 @@ func TestSILKEncoderReconfiguresOnBandwidthChangeMono(t *testing.T) {
 	pcm := generateSinePCM(frameSize, 1, 440.0)
 
 	check := func(expectBW silk.Bandwidth, expectRate int) {
-		if enc.silkEncoder == nil {
-			t.Fatal("silk encoder is nil")
-		}
-		if got := enc.silkEncoder.Bandwidth(); got != expectBW {
-			t.Fatalf("unexpected silk bandwidth: got %v want %v", got, expectBW)
-		}
-		if got := enc.silkEncoder.SampleRate(); got != expectRate {
-			t.Fatalf("unexpected silk sample rate: got %d want %d", got, expectRate)
-		}
+		checkSILKBandwidth(t, enc, expectBW, expectRate)
 	}
 
 	enc.SetBandwidth(types.BandwidthWideband)
@@ -81,24 +73,7 @@ func TestSILKEncoderReconfiguresOnBandwidthChangeStereo(t *testing.T) {
 	pcm := generateSinePCM(frameSize, 2, 330.0)
 
 	check := func(expectBW silk.Bandwidth, expectRate int) {
-		if enc.silkEncoder == nil {
-			t.Fatal("mid silk encoder is nil")
-		}
-		if enc.silkSideEncoder == nil {
-			t.Fatal("side silk encoder is nil")
-		}
-		if got := enc.silkEncoder.Bandwidth(); got != expectBW {
-			t.Fatalf("unexpected mid silk bandwidth: got %v want %v", got, expectBW)
-		}
-		if got := enc.silkSideEncoder.Bandwidth(); got != expectBW {
-			t.Fatalf("unexpected side silk bandwidth: got %v want %v", got, expectBW)
-		}
-		if got := enc.silkEncoder.SampleRate(); got != expectRate {
-			t.Fatalf("unexpected mid silk sample rate: got %d want %d", got, expectRate)
-		}
-		if got := enc.silkSideEncoder.SampleRate(); got != expectRate {
-			t.Fatalf("unexpected side silk sample rate: got %d want %d", got, expectRate)
-		}
+		checkSILKBandwidth(t, enc, expectBW, expectRate)
 	}
 
 	enc.SetBandwidth(types.BandwidthWideband)
@@ -151,15 +126,7 @@ func TestSILKEncoderForcedBandwidthOverridesMaxBandwidthMono(t *testing.T) {
 			if packet == nil {
 				t.Fatal("encode returned nil packet")
 			}
-			if enc.silkEncoder == nil {
-				t.Fatal("silk encoder is nil")
-			}
-			if got := enc.silkEncoder.Bandwidth(); got != tc.wantBW {
-				t.Fatalf("silk bandwidth=%v want %v", got, tc.wantBW)
-			}
-			if got := enc.silkEncoder.SampleRate(); got != tc.wantRateHz {
-				t.Fatalf("silk sample rate=%d want %d", got, tc.wantRateHz)
-			}
+			checkSILKBandwidth(t, enc, tc.wantBW, tc.wantRateHz)
 		})
 	}
 }
@@ -180,19 +147,23 @@ func TestSILKStereoSideEncoderForcedBandwidthOverridesMaxBandwidth(t *testing.T)
 	if packet == nil {
 		t.Fatal("encode returned nil packet")
 	}
-	if enc.silkEncoder == nil || enc.silkSideEncoder == nil {
-		t.Fatal("stereo SILK encoders are not initialized")
+	checkSILKBandwidth(t, enc, silk.BandwidthWideband, 16000)
+	if got := enc.silkMode.NChannelsInternal; got != 2 {
+		t.Fatalf("SILK coded %d channels, want 2", got)
 	}
-	if got := enc.silkEncoder.Bandwidth(); got != silk.BandwidthWideband {
-		t.Fatalf("mid silk bandwidth=%v want %v", got, silk.BandwidthWideband)
+}
+
+// checkSILKBandwidth checks the bandwidth the SILK encoder codes at and the
+// internal sampling rate silk_Encode reported for the last packet.
+func checkSILKBandwidth(t *testing.T, enc *Encoder, wantBW silk.Bandwidth, wantRateHz int) {
+	t.Helper()
+	if enc.silk == nil {
+		t.Fatal("silk encoder is nil")
 	}
-	if got := enc.silkSideEncoder.Bandwidth(); got != silk.BandwidthWideband {
-		t.Fatalf("side silk bandwidth=%v want %v", got, silk.BandwidthWideband)
+	if got := enc.silk.Bandwidth(); got != wantBW {
+		t.Fatalf("silk bandwidth=%v want %v", got, wantBW)
 	}
-	if got := enc.silkEncoder.SampleRate(); got != 16000 {
-		t.Fatalf("mid silk sample rate=%d want 16000", got)
-	}
-	if got := enc.silkSideEncoder.SampleRate(); got != 16000 {
-		t.Fatalf("side silk sample rate=%d want 16000", got)
+	if got := int(enc.silkMode.InternalSampleRate); got != wantRateHz {
+		t.Fatalf("silk internal sample rate=%d want %d", got, wantRateHz)
 	}
 }

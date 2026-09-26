@@ -29,8 +29,7 @@ type encodeAllocGuardCase struct {
 
 // encodeAllocGuardCases exercises the steady-state Encode hot path across
 // mono+stereo, CELT/SILK/Hybrid, and single-frame + long/multi-frame packets.
-// Stereo SILK in particular drives the dual mid/side encoder packet assembly,
-// which previously copied its result slice on every call.
+// Stereo SILK in particular drives the mid/side packet assembly of silk_Encode.
 var encodeAllocGuardCases = []encodeAllocGuardCase{
 	{"CELT-mono-20ms", ModeCELT, types.BandwidthFullband, 1, 960, 128000, false},
 	{"CELT-stereo-20ms", ModeCELT, types.BandwidthFullband, 2, 960, 128000, false},
@@ -47,14 +46,9 @@ var encodeAllocGuardCases = []encodeAllocGuardCase{
 	{"Hybrid-stereo-120ms", ModeHybrid, types.BandwidthFullband, 2, 5760, 96000, false},
 }
 
-// TestEncodeHotPathAllocs locks the steady-state per-call allocation count of
-// the internal Encode hot path. The default (float) build is strictly
-// zero-alloc across every case. The gated fixed-point build's integer CELT
-// encode driver is likewise zero-alloc (encoder-owned scratch threaded through
-// the whole frame), while the integer SILK encode bodies retain a bounded
-// per-frame footprint; the budget is therefore a per-case ceiling supplied by
-// encodeHotPathCaseBudget so the CELT cases are guarded at strict zero and the
-// SILK/Hybrid cases catch regressions against their measured baseline.
+// TestEncodeHotPathAllocs locks the steady-state internal Encode hot path at
+// zero allocations per call in every case, in the default build and in the
+// gated fixed-point build alike: both run on encoder-owned scratch.
 func TestEncodeHotPathAllocs(t *testing.T) {
 	for _, c := range encodeAllocGuardCases {
 		t.Run(c.name, func(t *testing.T) {
@@ -73,14 +67,13 @@ func TestEncodeHotPathAllocs(t *testing.T) {
 				}
 			}
 
-			budget := encodeHotPathCaseBudget(c)
 			allocs := testing.AllocsPerRun(100, func() {
 				if _, err := e.EncodeFloat32WithAnalysisMaxBytes(pcm, c.frameSize, pcm, 4000); err != nil {
 					t.Fatalf("Encode: %v", err)
 				}
 			})
-			if allocs > float64(budget) {
-				t.Fatalf("Encode allocs/op = %.2f, want <= %d", allocs, budget)
+			if allocs != 0 {
+				t.Fatalf("Encode allocs/op = %.2f, want 0", allocs)
 			}
 		})
 	}

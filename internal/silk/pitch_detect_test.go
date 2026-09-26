@@ -424,7 +424,7 @@ func TestPitchDetectionAccuracyLibopusStyle(t *testing.T) {
 		}
 
 		// Reset encoder for next test
-		enc.Reset()
+		enc.reset()
 	}
 }
 

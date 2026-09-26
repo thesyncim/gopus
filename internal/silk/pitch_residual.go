@@ -211,7 +211,7 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float32, int, int, p
 	// LTP memory + LA_SHAPE lookahead + current frame. LA_PITCH is covered
 	// by the LA_SHAPE region (LA_SHAPE >= LA_PITCH).
 	input32 := ensureFloat32Slice(&e.scratchPitchInput32, needed)
-	src := e.inputBuffer
+	src := e.xBuf
 	// Split into two loops to eliminate per-sample bounds check.
 	copyLen := min(needed, len(src))
 	if copyLen > 0 {

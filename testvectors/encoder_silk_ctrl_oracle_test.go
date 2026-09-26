@@ -369,7 +369,7 @@ func runSILKCtrlBisect(t *testing.T, helperPath string, channels, frameSize, bit
 			t.Logf("FRAME %d FIRST DIVERGENCE (ref nBytes=%d): %v", i, r.nBytes, diffs)
 			t.Logf("  ref: sig=%d qoff=%d lambda=%.6f gainsUnq=%v predGain=%.4f ltpCG=%.4f inQ=%.6f cdQ=%.6f",
 				r.signalType, r.quantOffset, r.lambda, r.gainsUnqQ16[:nbs], r.predGain, r.ltpredCodGain, r.inputQuality, r.codingQuality)
-			t.Logf("  go rate-control: SNR_dB_Q7=%d targetRateBps=%d nBitsExceeded=%d", s.SNRdBQ7, s.TargetRateBps, s.NBitsExceeded)
+			t.Logf("  go rate-control: SNR_dB_Q7=%d targetRateBps=%d", s.SNRdBQ7, s.TargetRateBps)
 			return
 		}
 	}
