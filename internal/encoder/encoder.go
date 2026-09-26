@@ -1007,10 +1007,11 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	e.silkMode.UseDTX = e.dtxEnabled && !e.lastAnalysisValid && !isSilence
 
 	var actualMode, prevModeNext Mode
-	if e.mode == ModeAuto {
-		// Full libopus auto-mode decision chain: voice_ratio, stereo_width,
-		// stream_channels, mode threshold interpolation, auto-bandwidth,
-		// bandwidth clamping, decide_fec, mode fixup.
+	if e.mode == ModeAuto || e.lowDelay {
+		// Full libopus mode and bandwidth decision chain: voice_ratio,
+		// stereo_width, stream_channels, auto-bandwidth, bandwidth clamping,
+		// decide_fec, and mode fixup. Low-delay applications pin CELT at
+		// opus_encoder.c:1470 and still run bandwidth selection.
 		actualMode, prevModeNext = e.autoModeAndBandwidthDecision(framePCM, frameSize, cbrMaxDataBytes, isSilence)
 	} else {
 		signalHint := e.signalType

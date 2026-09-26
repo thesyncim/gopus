@@ -553,7 +553,8 @@ func autoModeFixup(mode Mode, bandwidth types.Bandwidth) Mode {
 }
 
 // autoModeAndBandwidthDecision implements the full libopus auto-mode decision chain.
-// Called from Encode() when e.mode == ModeAuto.
+// Called from Encode() for automatic mode or a low-delay application, which
+// fixes CELT mode while retaining automatic channel and bandwidth decisions.
 // Updates e.bandwidth, e.streamChannels, e.voiceRatio, e.detectedBandwidth,
 // e.autoBandwidth, e.first.
 // Returns the selected mode.
@@ -596,10 +597,16 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxData
 	equivRate = e.computeEquivRate(e.bitrate, e.streamChannels, int32(frameRate), useVBR,
 		ModeAuto, e.complexity, e.packetLoss)
 
-	// Step 9: Mode selection with interpolated thresholds (lines 1492-1527).
-	// silk_mode.useDTX (opus_encoder.c:1461): DTX favours SILK only when the
-	// generalized DTX is unusable, i.e. DTX on AND the analysis is invalid/silent.
-	mode = e.autoModeDecision(stereoWidth, voiceEst, equivRate, frameSize, maxDataBytes, e.silkMode.UseDTX)
+	// Step 9: Application override or interpolated mode thresholds (lines 1466-1527).
+	if e.lowDelay {
+		// opus_encoder.c:1467-1473 pins restricted low-delay/CELT to CELT
+		// before the channel-dependent bandwidth decision at lines 1583-1627.
+		mode = ModeCELT
+	} else {
+		// silk_mode.useDTX (opus_encoder.c:1461) favours SILK only when the
+		// generalized DTX is unusable: DTX on with invalid/silent analysis.
+		mode = e.autoModeDecision(stereoWidth, voiceEst, equivRate, frameSize, maxDataBytes, e.silkMode.UseDTX)
+	}
 
 	// Step 10: Frame size constraint (lines 1533-1537).
 	if mode != ModeCELT && frameSize < int(e.sampleRate)/100 {
