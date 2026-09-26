@@ -1139,8 +1139,9 @@ func (e *Encoder) EncodeFineEnergy(energies []celtGLog, quantizedCoarse []celtGL
 
 // encodeFineEnergyFromError mirrors libopus quant_fine_energy() with prev_quant=NULL.
 // It consumes and updates errorVals in-place so the same residual state can be used
-// by energy finalisation and next-frame energyError clipping.
-func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []celtGLog, nbBands int, fineBits []int32, errorVals []celtGLog) {
+// by energy finalisation and next-frame energyError clipping. stateStride is
+// the mode's oldBandE channel stride; QEXT keeps its history in encoder state.
+func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []celtGLog, nbBands, stateStride int, fineBits []int32, errorVals []celtGLog) {
 	if e.rangeEncoder == nil {
 		return
 	}
@@ -1151,8 +1152,8 @@ func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []celtGLog, nbBand
 		nbBands = len(fineBits)
 	}
 
-	channels := int(e.channels)
-	if len(quantizedEnergies) < nbBands*channels || len(errorVals) < nbBands*channels {
+	channels := e.codedChannels()
+	if len(quantizedEnergies) < (channels-1)*stateStride+nbBands || len(errorVals) < nbBands*channels {
 		channels = 1
 	}
 
@@ -1172,7 +1173,8 @@ func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []celtGLog, nbBand
 		scale32 := float32(extra)
 		for c := 0; c < channels; c++ {
 			idx := c*nbBands + band
-			if idx >= len(quantizedEnergies) || idx >= len(errorVals) {
+			stateIdx := c*stateStride + band
+			if stateIdx >= len(quantizedEnergies) || idx >= len(errorVals) {
 				continue
 			}
 
@@ -1183,7 +1185,7 @@ func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []celtGLog, nbBand
 			re.EncodeRawBits(uint32(q2), uint(bits))
 
 			offset := (float32(q2)+0.5)*float32(uint(1)<<(14-bits))*(1.0/16384.0) - 0.5
-			quantizedEnergies[idx] = celtGLog(quantizedEnergies[idx] + offset)
+			quantizedEnergies[stateIdx] = celtGLog(quantizedEnergies[stateIdx] + offset)
 			errorVals[idx] = celtGLog(err - offset)
 		}
 	}
@@ -1601,12 +1603,12 @@ func (e *Encoder) EncodeFineEnergyWithEncoder(re *rangecoding.Encoder, energies 
 	e.EncodeFineEnergy(energies, quantizedCoarse, nbBands, fineBits)
 }
 
-func (e *Encoder) encodeFineEnergyFromErrorWithEncoder(re *rangecoding.Encoder, quantizedEnergies []celtGLog, nbBands int, fineBits []int32, errorVals []celtGLog) {
+func (e *Encoder) encodeFineEnergyFromErrorWithEncoder(re *rangecoding.Encoder, quantizedEnergies []celtGLog, nbBands, stateStride int, fineBits []int32, errorVals []celtGLog) {
 	oldRE := e.rangeEncoder
 	e.rangeEncoder = re
 	defer func() { e.rangeEncoder = oldRE }()
 
-	e.encodeFineEnergyFromError(quantizedEnergies, nbBands, fineBits, errorVals)
+	e.encodeFineEnergyFromError(quantizedEnergies, nbBands, stateStride, fineBits, errorVals)
 }
 
 // encodeFineEnergyFromErrorWithPrev mirrors libopus quant_fine_energy() when

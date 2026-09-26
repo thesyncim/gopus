@@ -91,7 +91,7 @@ func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, ene
 	if re == nil || nbBands <= 0 {
 		return false
 	}
-	channels := int(e.channels)
+	channels := e.codedChannels()
 	needed := nbBands * channels
 	if len(energies) < needed || len(quantizedEnergies) < needed || len(errorVals) < needed {
 		return false

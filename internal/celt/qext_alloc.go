@@ -159,12 +159,15 @@ func computeQEXTExtraAllocationEncode(start, end, qextEnd, totalQ3 int, channels
 		return
 	}
 
-	capVals := make([]int32, totBands)
-	depth := make([]int32, totBands)
-	flatE := make([]float32, totBands)
-	ncoef := make([]int32, totBands)
-	minVals := make([]float32, totBands)
-	follower := make([]float32, totBands)
+	// libopus keeps these bounded band arrays in the frame's stack storage.
+	var capStorage, depthStorage, ncoefStorage [MaxBands + nbQEXTBands]int32
+	var flatStorage, minStorage, followerStorage [MaxBands + nbQEXTBands]float32
+	capVals := capStorage[:totBands]
+	depth := depthStorage[:totBands]
+	flatE := flatStorage[:totBands]
+	ncoef := ncoefStorage[:totBands]
+	minVals := minStorage[:totBands]
+	follower := followerStorage[:totBands]
 
 	for i := start; i < end; i++ {
 		capVals[i] = 12

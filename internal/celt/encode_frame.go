@@ -1230,7 +1230,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 		if start > 0 {
 			e.EncodeFineEnergyRangeFromError(quantizedEnergies, start, nbBands, allocResult.FineBits)
 		} else {
-			e.encodeFineEnergyFromError(quantizedEnergies, nbBands, allocResult.FineBits, coarseResidual)
+			e.encodeFineEnergyFromError(quantizedEnergies, nbBands, nbBands, allocResult.FineBits, coarseResidual)
 		}
 	} else {
 		// Defensive fallback for unexpected sizing issues.
@@ -1246,6 +1246,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	var qextBandE []celtEner
 	var qextBandLogE []celtGLog
 	var qextQuantized []celtGLog
+	var qextOldBandE []celtGLog
 	var qextError []celtGLog
 	var qextNormL []celtNorm
 	var qextNormR []celtNorm
@@ -1285,10 +1286,9 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 
 			qextQuantized = qs.quantized[:qextEnd*codedChannels]
 			qextError = qs.qerr[:qextEnd*codedChannels]
-			qextOldBandE := qs.oldBandE[:MaxBands*codedChannels]
+			qextOldBandE = e.ensureQEXTOldBandE(codedChannels)[:MaxBands*codedChannels]
 			clear(qextQuantized)
 			clear(qextError)
-			clear(qextOldBandE)
 			var qextDelayedIntra float32
 			e.encodeQEXTCoarseEnergyWithEncoder(qextEnc, qextBandLogE, qextEnd, lm, qextPayloadBytes, qextOldBandE, qextQuantized, qextError, &qextDelayedIntra)
 		}
@@ -1401,7 +1401,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	}
 	if qextActive {
 		qextBandBits := qextFineBits[MaxBands : MaxBands+qextEnd]
-		e.encodeFineEnergyFromErrorWithEncoder(qextEnc, qextQuantized, qextEnd, qextBandBits, qextError)
+		e.encodeFineEnergyFromErrorWithEncoder(qextEnc, qextOldBandE, qextEnd, MaxBands, qextBandBits, qextError)
 
 		qextDualStereoVal := 0
 		if allocResult.DualStereo {

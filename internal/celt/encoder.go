@@ -455,6 +455,7 @@ func (e *Encoder) Reset() {
 	e.vbrDrift = 0
 	e.vbrCount = 0
 	e.clearLastQEXTPayload()
+	e.resetQEXTEnergyHistory()
 
 	// Reset spread decision state (match libopus init values)
 	// Reference: libopus celt_encoder.c line 3088-3089
@@ -1504,9 +1505,15 @@ func (e *Encoder) ensureScratch(frameSize int) {
 		qs.fineBits = ensureInt32Slice(&qs.fineBits, MaxBands+nbQEXTBands)
 		qs.bandE = ensureEnerSlice(&qs.bandE, nbQEXTBands*channels)
 		qs.bandLogE = ensureGLogSlice(&qs.bandLogE, nbQEXTBands*channels)
-		qs.quantized = ensureGLogSlice(&qs.quantized, nbQEXTBands*channels)
-		qs.qerr = ensureGLogSlice(&qs.qerr, nbQEXTBands*channels)
-		qs.oldBandE = ensureGLogSlice(&qs.oldBandE, MaxBands*channels)
+		// Coarse-energy trial passes use the full predictor stride even when
+		// only a few QEXT bands are coded. Keep their compact output views on
+		// this same backing storage through the trial and final passes.
+		qs.quantized = ensureGLogSlice(&qs.quantized, MaxBands*channels)
+		qs.qerr = ensureGLogSlice(&qs.qerr, MaxBands*channels)
+		// QEXT oldBandE is persistent CELT encoder state. In libopus it
+		// occupies the extra state storage after energyError and survives
+		// ordinary frame preparation until OPUS_RESET_STATE.
+		e.ensureQEXTOldBandE(channels)
 		qs.normL = ensureNormSliceNoClear(&qs.normL, frameSize)
 		qs.normR = ensureNormSliceNoClear(&qs.normR, frameSize)
 	}
