@@ -266,18 +266,19 @@ type Encoder struct {
 	delayBuffer  []opusRes
 
 	// Auto-mode state (matching libopus OpusEncoder fields)
-	voiceRatio        int32           // Persistent voice ratio (-1 = unset, 0-100)
-	detectedBandwidth types.Bandwidth // Analysis-detected bandwidth (0 = undetected)
-	streamChannels    int32           // Actual encoding channels (1 or 2)
-	prevChannels      int32           // Previous frame's streamChannels
-	autoBandwidth     types.Bandwidth // Last auto-selected bandwidth (for hysteresis)
-	first             bool            // First frame flag
-	lbrrCoded         bool            // Previous frame FEC coding decision
-	userBandwidth     types.Bandwidth // User-set bandwidth value
-	userBandwidthSet  bool            // Whether userBandwidth is explicitly set
-	widthMem          StereoWidthMem  // Stateful stereo width computation memory
-	toMono            int32           // Stereo->mono transition countdown (0=inactive)
-	fecConfig         int32           // FEC config: 0=disabled, 1=enabled, 2=music-safe
+	voiceRatio             int32           // Persistent voice ratio (-1 = unset, 0-100)
+	detectedBandwidth      types.Bandwidth // Analysis-detected bandwidth; narrowband is enum value 0.
+	detectedBandwidthValid bool            // Distinguishes a valid narrowband result from no analysis result.
+	streamChannels         int32           // Actual encoding channels (1 or 2)
+	prevChannels           int32           // Previous frame's streamChannels
+	autoBandwidth          types.Bandwidth // Last auto-selected bandwidth (for hysteresis)
+	first                  bool            // First frame flag
+	lbrrCoded              bool            // Previous frame FEC coding decision
+	userBandwidth          types.Bandwidth // User-set bandwidth value
+	userBandwidthSet       bool            // Whether userBandwidth is explicitly set
+	widthMem               StereoWidthMem  // Stateful stereo width computation memory
+	toMono                 int32           // Stereo->mono transition countdown (0=inactive)
+	fecConfig              int32           // FEC config: 0=disabled, 1=enabled, 2=music-safe
 
 	// pcmBump backs the three frameSize-sized input-domain PCM scratch buffers
 	// (scratchInputPCM/scratchQuantPCM/scratchDCPCM) with one contiguous
@@ -578,6 +579,7 @@ func (e *Encoder) Reset() {
 	e.intMode = ModeHybrid
 	e.intBandwidth = types.BandwidthFullband
 	e.detectedBandwidth = 0
+	e.detectedBandwidthValid = false
 	// C ref: opus_encoder.c OPUS_RESET_STATE sets st->bandwidth =
 	// OPUS_BANDWIDTH_FULLBAND. st->bandwidth (the decided bandwidth reported by
 	// OPUS_GET_BANDWIDTH) sits after OPUS_ENCODER_RESET_START, so the reset
@@ -864,23 +866,61 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float32, frameSize int, analy
 	if len(analysisPCM) < expectedLen || len(analysisPCM)%channels != 0 {
 		return nil, ErrInvalidFrameSize
 	}
-	// Back the three frameSize-sized input-domain PCM scratch buffers with one
-	// contiguous arena (carved to the current frame; the ensure* helpers reslice
-	// within their slots, falling back to a fresh make only if a stage ever needs
-	// more than expectedLen).
-	if expectedLen > 0 {
-		e.pcmBump.Ensure(3 * expectedLen)
-		e.scratchInputPCM = e.pcmBump.AllocN(expectedLen)
-		e.scratchQuantPCM = e.pcmBump.AllocN(expectedLen)
-		e.scratchDCPCM = e.pcmBump.AllocN(expectedLen)
-	}
-	inputPCM := e.ensureInputPCM(expectedLen)
-	copy(inputPCM, pcm[:expectedLen])
+	inputPCM := e.prepareOpusResInput(pcm)
 	e.SetFloatInputFrame(pcm)
 	defer e.ClearFloatInputFrame()
-	return e.encodeOpusResWithAnalysisMaxBytes(inputPCM, frameSize, maxDataBytes, func() {
+	return e.encodeOpusResWithAnalysisMaxBytes(inputPCM, frameSize, maxDataBytes, false, func() {
 		e.refreshFrameAnalysisF32(analysisPCM, frameSize)
 	})
+}
+
+// EncodeShortMixedWithAnalysisMaxBytes encodes the opus_res samples produced by
+// libopus's short input callback. analysisPCM contains the original short input
+// channels, converted exactly to float32 by division by 32768 before routing;
+// it is separate from any projection-mixed coding samples.
+func (e *Encoder) EncodeShortMixedWithAnalysisMaxBytes(pcm []float32, frameSize int, analysisPCM []float32, maxDataBytes int) ([]byte, error) {
+	channels := int(e.channels)
+	expectedLen := frameSize * channels
+	if len(pcm) != expectedLen || frameSize <= 0 {
+		return nil, ErrInvalidFrameSize
+	}
+	if len(analysisPCM) < expectedLen || len(analysisPCM)%channels != 0 {
+		return nil, ErrInvalidFrameSize
+	}
+	inputPCM := e.prepareOpusResInput(pcm)
+	// opus_encode_native uses min(16, st->lsb_depth) for this call while the
+	// configured control survives the call. The short callback has already
+	// formed coding PCM, so it must not be quantized a second time.
+	configuredDepth := e.lsbDepth
+	if e.lsbDepth > 16 {
+		e.lsbDepth = 16
+	}
+	if e.analyzer != nil {
+		e.analyzer.SetLSBDepth(int(e.lsbDepth))
+	}
+	defer func() {
+		e.lsbDepth = configuredDepth
+		if e.analyzer != nil {
+			e.analyzer.SetLSBDepth(int(configuredDepth))
+		}
+	}()
+	e.ClearFloatInputFrame()
+	return e.encodeOpusResWithAnalysisMaxBytes(inputPCM, frameSize, maxDataBytes, true, func() {
+		e.refreshFrameAnalysisF32(analysisPCM, frameSize)
+	})
+}
+
+func (e *Encoder) prepareOpusResInput(pcm []float32) []opusRes {
+	// The three frame-sized input buffers share one reusable arena.
+	if len(pcm) > 0 {
+		e.pcmBump.Ensure(3 * len(pcm))
+		e.scratchInputPCM = e.pcmBump.AllocN(len(pcm))
+		e.scratchQuantPCM = e.pcmBump.AllocN(len(pcm))
+		e.scratchDCPCM = e.pcmBump.AllocN(len(pcm))
+	}
+	inputPCM := e.ensureInputPCM(len(pcm))
+	copy(inputPCM, pcm)
+	return inputPCM
 }
 
 // encodeOpusResWithAnalysisMaxBytes is the core single-frame encode pipeline,
@@ -902,7 +942,7 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float32, frameSize int, analy
 // returns the assembled packet (or nil when more lookahead input is still
 // buffered). It returns ErrInvalidFrameSize / ErrEncodingFailed for malformed
 // requests and never panics on valid configuration.
-func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSize int, maxDataBytes int, refreshAnalysis func()) ([]byte, error) {
+func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSize int, maxDataBytes int, inputFromShort bool, refreshAnalysis func()) ([]byte, error) {
 	channels := int(e.channels)
 	sampleRate := int(e.sampleRate)
 	// opus_encode_native clears rangeFinal at entry, including calls that emit
@@ -947,9 +987,15 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	if refreshAnalysis != nil {
 		refreshAnalysis()
 	}
+	// opus_encode_native refreshes detected_bandwidth for every call before
+	// either the automatic or user-forced mode branch consumes it.
+	e.updateDetectedBandwidth()
 	lookaheadSamples := 0
 	vadPCM := inputPCM
-	pcmRes := e.quantizeInputToLSBDepth(inputPCM)
+	pcmRes := inputPCM
+	if !inputFromShort {
+		pcmRes = e.quantizeInputToLSBDepth(inputPCM)
+	}
 	pcmRes = e.preprocessInputHP(pcmRes, frameSize)
 	frameEnd := frameSize * channels
 	samplesNeeded := frameEnd + lookaheadSamples
@@ -1483,7 +1529,8 @@ func (e *Encoder) emitLowSpacePacket(frameSize, outDataBytes, cbrMaxDataBytes, e
 	// libopus pads to IMAX(cbr_max_data_bytes, ret) for CBR.
 	padTarget := max(cbrMaxDataBytes, ret)
 
-	pkt := make([]byte, ret)
+	e.ensurePacketScratch(padTarget)
+	pkt := e.scratchPacket[:ret]
 	pkt[0] = tocByte
 	if packetCode == 3 {
 		pkt[1] = byte(numMultiframes)
@@ -1496,7 +1543,7 @@ func (e *Encoder) emitLowSpacePacket(frameSize, outDataBytes, cbrMaxDataBytes, e
 	if padTarget <= ret {
 		return pkt, nil
 	}
-	padded := padToSize(pkt, padTarget)
+	padded := padToSizeInto(e.scratchPacket, pkt, padTarget)
 	return padded, nil
 }
 

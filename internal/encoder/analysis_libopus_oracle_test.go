@@ -53,18 +53,38 @@ var analysisOracleHashNames = [12]string{
 }
 
 func runLibopusAnalysisOracle(t *testing.T, fs, channels, frameSize, lsbDepth int, pcm []float32) []analysisOracleFrame {
+	return runLibopusAnalysisOracleConfigured(t, fs, channels, frameSize, lsbDepth, 0, -2, 0, pcm, nil)
+}
+
+func runLibopusAnalysisOracleShort(t *testing.T, fs, channels, frameSize, lsbDepth, c1, c2 int, pcm []int16) []analysisOracleFrame {
+	return runLibopusAnalysisOracleConfigured(t, fs, channels, frameSize, lsbDepth, c1, c2, 1, nil, pcm)
+}
+
+func runLibopusAnalysisOracleConfigured(t *testing.T, fs, channels, frameSize, lsbDepth, c1, c2, downmix int, pcm32 []float32, pcm16 []int16) []analysisOracleFrame {
 	t.Helper()
 	bin, err := libopusAnalysisHelper.Path(buildLibopusAnalysisHelper)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "tonality analysis", err)
 	}
-	numFrames := len(pcm) / (frameSize * channels)
-	c2 := int32(-2)
+	numSamples := len(pcm32)
+	if downmix == 1 {
+		numSamples = len(pcm16)
+	}
+	numFrames := numSamples / (frameSize * channels)
 	payload := libopustest.NewOraclePayload("GANI",
 		uint32(fs), uint32(channels), uint32(frameSize), uint32(numFrames), uint32(lsbDepth),
-		0, uint32(c2), 0, uint32(numFrames*frameSize*channels))
-	for _, v := range pcm[:numFrames*frameSize*channels] {
-		payload.U32(math.Float32bits(v))
+		uint32(c1), uint32(int32(c2)), uint32(downmix), uint32(numFrames*frameSize*channels))
+	if downmix == 1 {
+		for _, v := range pcm16[:numFrames*frameSize*channels] {
+			payload.I16(v)
+		}
+		if numFrames*frameSize*channels&1 != 0 {
+			payload.I16(0)
+		}
+	} else {
+		for _, v := range pcm32[:numFrames*frameSize*channels] {
+			payload.U32(math.Float32bits(v))
+		}
 	}
 	out, err := libopustest.RunHelper(bin, payload.Bytes())
 	if err != nil {
@@ -103,6 +123,43 @@ func runLibopusAnalysisOracle(t *testing.T, fs, channels, frameSize, lsbDepth in
 		}
 	}
 	return frames
+}
+
+func TestAnalysisShortProjectionInputMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const frameSize, frameCount = 960, 24
+	for _, channels := range []int{9, 16} {
+		t.Run(fmt.Sprintf("ch%d", channels), func(t *testing.T) {
+			pcm := make([]int16, channels*frameSize*frameCount)
+			for sample := range frameSize * frameCount {
+				tt := float64(sample) / 48000
+				amp := 0.25 + 0.1*math.Sin(2*math.Pi*1.5*tt)
+				for ch := range channels {
+					v := float32(amp * math.Sin(2*math.Pi*110*float64(ch+1)*tt))
+					pcm[sample*channels+ch] = int16(math.Round(float64(v) * 32768))
+				}
+			}
+			want := runLibopusAnalysisOracleShort(t, 48000, channels, frameSize, 16, 0, 1, pcm)
+			an := NewTonalityAnalysisState(48000)
+			an.SetLSBDepth(16)
+			frame := make([]float32, 2*frameSize)
+			for f := range frameCount {
+				for sample := range frameSize {
+					frame[2*sample] = float32(pcm[(f*frameSize+sample)*channels]) / 32768
+					frame[2*sample+1] = float32(pcm[(f*frameSize+sample)*channels+1]) / 32768
+				}
+				got := analysisInfoToOracle(an.RunAnalysis(frame, frameSize, 2))
+				if d := diffAnalysisInfo(got, want[f].ret); d != "" {
+					t.Errorf("frame %d returned info: %s; state:%s", f, d, analysisStateDiff(an, want[f]))
+					break
+				}
+				if d := analysisStateDiff(an, want[f]); d != "" {
+					t.Errorf("frame %d state: %s", f, d)
+					break
+				}
+			}
+		})
+	}
 }
 
 func analysisInfoToOracle(in AnalysisInfo) analysisOracleInfo {

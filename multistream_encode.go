@@ -39,16 +39,22 @@ func (e *MultistreamEncoder) Encode(pcm []float32, data []byte) (int, error) {
 //
 // Returns the number of bytes written to data, or an error.
 func (e *MultistreamEncoder) EncodeInt16(pcm []int16, data []byte) (int, error) {
-	expected := int(e.frameSize) * int(e.channels)
+	frameSizeArg := int(e.frameSize)
+	channels := int(e.channels)
+	expected := frameSizeArg * channels
 	if len(pcm) != expected {
 		return 0, ErrInvalidFrameSize
 	}
-
-	pcm32 := e.scratchPCM32[:len(pcm)]
-	for i, v := range pcm {
-		pcm32[i] = float32(v) / 32768.0
+	frameSize, err := selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application, int(e.sampleRate))
+	if err != nil {
+		return 0, err
 	}
-	return e.Encode(pcm32, data)
+	n, err := e.enc.EncodeInt16WithAnalysisMaxBytesInto(pcm[:frameSize*channels], frameSize, pcm, data)
+	if err != nil {
+		return 0, err
+	}
+	e.encodedOnce = true
+	return n, nil
 }
 
 // EncodeInt24 encodes 24-bit PCM samples stored in int32 values into an Opus multistream packet.

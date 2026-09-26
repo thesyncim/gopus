@@ -1,6 +1,7 @@
 package multistream
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"runtime"
@@ -117,10 +118,8 @@ func generateSurroundSweep(channels, frameSize, frameCount int) []float32 {
 	return pcm
 }
 
-// runSurroundEncodeParity drives both gopus and libopus surround encoders with
-// identical parameters and PCM, then asserts byte-exact packet equality. The
-// darwin/arm64 documented ≤1-ULP CELT drift is logged and skipped (CI is amd64,
-// where this is byte-exact).
+// runSurroundEncodeParity drives both encoders with identical PCM and controls,
+// then checks every packet byte and final range.
 func runSurroundEncodeParity(t *testing.T, sampleRate, channels, frameSize, frameCount, bitrate, complexity int, vbr, vbrConstraint bool) {
 	t.Helper()
 
@@ -136,7 +135,7 @@ func runSurroundEncodeParity(t *testing.T, sampleRate, channels, frameSize, fram
 	ref, err := encodeLibopusSurround(sampleRate, channels, mappingFamily, application,
 		bitrate, vbr, vbrConstraint, complexity, bandwidthAuto, frameSize, frameCount, maxPacketBytes, pcm)
 	if err != nil {
-		libopustest.HelperUnavailable(t, "multistream surround reference encode", err)
+		t.Fatalf("live C surround encode: %v", err)
 	}
 
 	enc, err := NewEncoderDefault(sampleRate, channels)
@@ -163,37 +162,16 @@ func runSurroundEncodeParity(t *testing.T, sampleRate, channels, frameSize, fram
 		if err != nil {
 			t.Fatalf("frame %d: gopus Encode: %v", i, err)
 		}
-		want := ref.packets[i]
-
-		diverged := len(got) != len(want)
-		mismatch := -1
-		if !diverged {
-			for j := range got {
-				if got[j] != want[j] {
-					mismatch = j
-					diverged = true
-					break
-				}
+		if !bytes.Equal(got, ref.packets[i]) || enc.GetFinalRange() != ref.ranges[i] {
+			mismatch := firstByteMismatch(got, ref.packets[i])
+			var byteValues string
+			if mismatch >= 0 && mismatch < len(got) && mismatch < len(ref.packets[i]) {
+				byteValues = fmt.Sprintf(" byte Go/C=%02x/%02x", got[mismatch], ref.packets[i][mismatch])
 			}
+			t.Errorf("frame %d: firstByte=%d%s len Go/C=%d/%d range Go/C=%08x/%08x", i,
+				mismatch, byteValues, len(got), len(ref.packets[i]),
+				enc.GetFinalRange(), ref.ranges[i])
 		}
-		if !diverged {
-			continue
-		}
-		// The stream/coupled layout is asserted hard above. A per-frame byte (or, in
-		// VBR, length) divergence here is the documented ≤1-ULP CELT float boundary
-		// on the pure-Go builds (arm64 FMA, amd64-nosimd Go float vs the scalar
-		// libopus oracle); only the amd64 asm/SIMD build is held strictly bit-exact.
-		// See project_arm64_celt_1ulp_drift.md.
-		if armEncodeFloatDrift() || !gopusBuildIsSIMD {
-			t.Logf("frame %d: documented pure-Go ≤1-ULP CELT float drift (gopus len=%d libopus len=%d firstMismatch=%d)",
-				i, len(got), len(want), mismatch)
-			return
-		}
-		if len(got) != len(want) {
-			t.Fatalf("frame %d: packet length mismatch: gopus=%d libopus=%d", i, len(got), len(want))
-		}
-		t.Fatalf("frame %d: byte %d mismatch: gopus=0x%02x libopus=0x%02x (len=%d)",
-			i, mismatch, got[mismatch], want[mismatch], len(got))
 	}
 }
 

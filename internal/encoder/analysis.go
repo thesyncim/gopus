@@ -861,7 +861,9 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	// Band energies and tonal metrics using precomputed bin energies.
 	for b := range NbTBands {
 		var bandE, tE, nE, rawE float32
-		vecEnd := tbands[b] + (tbands[b+1]-tbands[b])&^15
+		// The selected ARM C loop rounds products in four-bin groups. Its
+		// remaining one to three bins use the scalar fused accumulation.
+		vecEnd := tbands[b] + (tbands[b+1]-tbands[b])&^3
 		for i := tbands[b]; i < tbands[b+1]; i++ {
 			binERaw := binEArr[i-binStart]
 			binE := round32(binERaw * analysisBinScale)

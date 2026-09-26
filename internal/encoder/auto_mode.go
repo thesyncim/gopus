@@ -271,9 +271,11 @@ func (e *Encoder) autoVoiceRatioFromAnalysis() {
 // Matches libopus opus_encoder.c lines 1294-1304.
 func (e *Encoder) updateDetectedBandwidth() {
 	e.detectedBandwidth = 0
+	e.detectedBandwidthValid = false
 	if !e.lastAnalysisValid {
 		return
 	}
+	e.detectedBandwidthValid = true
 	abw := e.lastAnalysisInfo.BandwidthIndex
 	switch {
 	case abw <= 12:
@@ -510,7 +512,7 @@ func (e *Encoder) autoClampBandwidth(bandwidth types.Bandwidth, mode Mode, equiv
 	}
 
 	// Use detected bandwidth to reduce encoded bandwidth (lines 1653-1673).
-	if e.detectedBandwidth > 0 && !e.userBandwidthSet {
+	if e.detectedBandwidthValid && !e.userBandwidthSet {
 		var minDetected types.Bandwidth
 		switch {
 		case equivRate <= 18000*e.streamChannels && mode == ModeCELT:
@@ -577,10 +579,8 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxData
 	// Step 2: Compute voice_ratio from analysis (lines 1279-1291).
 	e.autoVoiceRatioFromAnalysis()
 
-	// Step 3: Compute detected bandwidth from analysis (lines 1294-1304).
-	e.updateDetectedBandwidth()
-
-	// Step 4: Compute stereo width (line 1322).
+	// Step 3: Compute stereo width (line 1322). Detected bandwidth is refreshed
+	// at native entry for both automatic and user-forced modes.
 	var stereoWidth opusVal16
 	if e.channels == 2 && e.forceChannels != 1 {
 		stereoWidth = e.computeStereoWidthForMode(pcm, frameSize)

@@ -126,6 +126,66 @@ func TestAutoClampBandwidthUsesPacketBudgetMaxRate(t *testing.T) {
 	}
 }
 
+func TestDetectedNarrowbandClampsAutoBandwidth(t *testing.T) {
+	enc := NewEncoder(48000, 2)
+	enc.SetBandwidthAuto()
+	enc.lastAnalysisValid = true
+	enc.lastAnalysisInfo.BandwidthIndex = 6
+	enc.updateDetectedBandwidth()
+	if !enc.detectedBandwidthValid || enc.detectedBandwidth != types.BandwidthNarrowband {
+		t.Fatalf("detected bandwidth=%v valid=%t want valid narrowband", enc.detectedBandwidth, enc.detectedBandwidthValid)
+	}
+	// libopus uses a nonzero OPUS_BANDWIDTH_NARROWBAND sentinel. Go's
+	// narrowband enum is zero, so validity must be tracked separately.
+	if got := enc.autoClampBandwidth(types.BandwidthFullband, ModeCELT, 50000, 100000); got != types.BandwidthWideband {
+		t.Fatalf("auto clamp with narrowband detection=%v want wideband", got)
+	}
+	enc.lastAnalysisValid = false
+	enc.updateDetectedBandwidth()
+	if enc.detectedBandwidthValid {
+		t.Fatal("missing analysis marked detected bandwidth valid")
+	}
+	if got := enc.autoClampBandwidth(types.BandwidthFullband, ModeCELT, 50000, 100000); got != types.BandwidthFullband {
+		t.Fatalf("auto clamp without analysis=%v want fullband", got)
+	}
+}
+
+func TestDetectedBandwidthRefreshesAcrossForcedModeAndReset(t *testing.T) {
+	enc := NewEncoder(48000, 2)
+	enc.SetMode(ModeAuto)
+	pcm := make([]opusRes, 960*2)
+	for i := range pcm {
+		pcm[i] = opusRes(float32((i%31)-15) / 32768)
+	}
+	encodeWithAnalysis := func(valid bool) {
+		t.Helper()
+		_, err := enc.encodeOpusResWithAnalysisMaxBytes(pcm, 960, 4000, false, func() {
+			enc.lastAnalysisValid = valid
+			enc.lastAnalysisInfo.BandwidthIndex = 6
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	encodeWithAnalysis(true)
+	if !enc.detectedBandwidthValid || enc.detectedBandwidth != types.BandwidthNarrowband {
+		t.Fatalf("automatic mode detection=%v valid=%t", enc.detectedBandwidth, enc.detectedBandwidthValid)
+	}
+	enc.SetMode(ModeCELT)
+	encodeWithAnalysis(false)
+	if enc.detectedBandwidthValid {
+		t.Fatal("forced mode retained stale detected bandwidth")
+	}
+	encodeWithAnalysis(true)
+	if !enc.detectedBandwidthValid || enc.detectedBandwidth != types.BandwidthNarrowband {
+		t.Fatalf("forced mode detection=%v valid=%t", enc.detectedBandwidth, enc.detectedBandwidthValid)
+	}
+	enc.Reset()
+	if enc.detectedBandwidthValid {
+		t.Fatal("reset retained detected bandwidth")
+	}
+}
+
 func TestAutoModeLowRateCELTFallbackUsesPacketBudget(t *testing.T) {
 	enc := NewEncoder(48000, 1)
 	enc.SetMode(ModeAuto)

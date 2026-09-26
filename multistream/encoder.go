@@ -119,6 +119,10 @@ type Encoder struct {
 	// surroundAnalysisEncoder computes CELT band energies for surround analysis.
 	surroundAnalysisEncoder *celt.Encoder
 
+	// The surround MDCT runs once per input channel and reuses its buffers.
+	surroundMDCTScratch celt.MDCTForwardScratch
+	surroundMDCTCoeffs  []float32
+
 	// Per-call encode scratch reused across Encode calls to reduce the
 	// steady-state encode allocation footprint. These slice headers and their
 	// element buffers are intra-call scratch consumed before the assembled
@@ -126,6 +130,7 @@ type Encoder struct {
 	// bytes are freshly allocated because the caller may retain them.
 	streamInputScratch   [][]float32 // routed per-stream input buffers
 	analysisInputScratch [][]float32 // routed per-stream analysis buffers (distinct length)
+	shortInputScratch    []float32   // original int16 PCM represented exactly in the float input domain
 	streamPacketsScratch [][]byte    // per-stream encoded packets
 	assembleScratch      [][]byte    // self-delimited framing slices for assembly
 	framingScratch       []byte      // one stream's self-delimited framing for exact budget accounting
@@ -993,10 +998,14 @@ func (e *Encoder) computeSurroundBandSMR(pcm []float32, frameSize int, bandSMR [
 			e.surroundBandScratch[i] = float32(math.Inf(-1))
 		}
 
+		if cap(e.surroundMDCTCoeffs) < freqSize {
+			e.surroundMDCTCoeffs = make([]float32, freqSize)
+		}
+		coeffs := e.surroundMDCTCoeffs[:freqSize]
 		for frame := range nbFrames {
 			start := frame * freqSize
 			end := start + freqSize + overlap
-			coeffs := celt.MDCTForwardWithOverlapFloat32(in[start:end], overlap)
+			e.surroundMDCTScratch.ForwardWithOverlapFloat32Into(in[start:end], overlap, coeffs)
 			if upsample != 1 {
 				bound := min(freqSize/upsample, len(coeffs))
 				for i := range bound {
@@ -1359,23 +1368,6 @@ func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int
 	// Mirror libopus per-stream rate/control policy ahead of stream encodes.
 	e.applyPerStreamPolicy(frameSize, pcm)
 
-	// For CBR, libopus shrinks the total caller budget to the bitrate-implied
-	// packet size before deriving each stream's curr_max
-	// (opus_multistream_encoder.c opus_multistream_encode_native(), lines
-	// 918-928). rate_sum is the sum of the per-stream allocation that feeds the
-	// OPUS_AUTO branch.
-	if !e.VBR() {
-		switch e.bitrate {
-		case encoder.BitrateAuto:
-			rateSum := e.allocatedRateSum(frameSize)
-			maxDataBytes = minInt(maxDataBytes, (bitrateToBits(rateSum, fs, frameSize)+4)/8)
-		case encoder.BitrateMax:
-			// No shrinking: keep the full caller budget.
-		default:
-			maxDataBytes = minInt(maxDataBytes, maxInt(smallestPacket, (bitrateToBits(e.bitrate, fs, frameSize)+4)/8))
-		}
-	}
-
 	// Route input channels to stream buffers
 	streamBuffers := e.routeInputToStreams(e.streamInputScratch, pcm, frameSize)
 	e.streamInputScratch = streamBuffers
@@ -1392,6 +1384,82 @@ func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int
 			analysisStreamBuffers = e.routeInputToStreams(e.analysisInputScratch, analysisPCM, analysisFrameSize)
 		}
 		e.analysisInputScratch = analysisStreamBuffers
+	}
+	packet, _, err := e.encodeRoutedStreams(streamBuffers, analysisStreamBuffers, frameSize, maxDataBytes, smallestPacket, false, nil)
+	return packet, err
+}
+
+// EncodeInt16WithAnalysisMaxBytesInto follows opus_multistream_encode() and
+// opus_projection_encode(): short input routing, original-input analysis, and
+// per-call 16-bit input depth are kept separate from the float API.
+func (e *Encoder) EncodeInt16WithAnalysisMaxBytesInto(pcm []int16, frameSize int, analysisPCM []int16, dst []byte) (int, error) {
+	expectedLen := frameSize * e.inputChannels
+	if frameSize <= 0 || len(pcm) != expectedLen {
+		return 0, ErrInvalidInput
+	}
+	if analysisPCM == nil {
+		analysisPCM = pcm
+	}
+	if len(analysisPCM) < expectedLen || len(analysisPCM)%e.inputChannels != 0 {
+		return 0, ErrInvalidInput
+	}
+	fs := int(e.sampleRate)
+	smallestPacket := e.streams*2 - 1
+	if fs/frameSize == 10 {
+		smallestPacket += e.streams
+	}
+	if len(dst) < smallestPacket {
+		return 0, ErrBufferTooSmall
+	}
+	shortScratchNeed := expectedLen + len(analysisPCM)
+	if cap(e.shortInputScratch) < shortScratchNeed {
+		e.shortInputScratch = make([]float32, shortScratchNeed)
+	}
+	codingOriginal := e.shortInputScratch[:expectedLen]
+	original := e.shortInputScratch[expectedLen:shortScratchNeed]
+	const shortScale = float32(1.0 / 32768.0)
+	for i, sample := range pcm {
+		codingOriginal[i] = float32(sample) * shortScale
+	}
+	for i, sample := range analysisPCM {
+		original[i] = float32(sample) * shortScale
+	}
+	// surround_analysis consumes the short copy callback, whose float-build
+	// output is exactly codingOriginal.
+	e.applyPerStreamPolicy(frameSize, codingOriginal)
+	var streamBuffers [][]float32
+	if e.mappingFamily == 3 && len(e.projectionMixing) > 0 {
+		streamBuffers = e.routeProjectionMixingShortToStreams(e.streamInputScratch, pcm, frameSize)
+	} else {
+		streamBuffers = e.routeInputToStreams(e.streamInputScratch, codingOriginal, frameSize)
+	}
+	e.streamInputScratch = streamBuffers
+	analysisFrameSize := len(analysisPCM) / e.inputChannels
+	analysisStreamBuffers := streamBuffers
+	if e.mappingFamily == 3 || analysisFrameSize != frameSize || &analysisPCM[0] != &pcm[0] {
+		// opus_encode_native analyzes the original input with c1/c2 selected
+		// from the mapping, even though projection mixes its coding samples.
+		analysisStreamBuffers = routeChannelsToStreams(e.analysisInputScratch, original, e.mapping,
+			e.coupledStreams, analysisFrameSize, e.inputChannels, e.streams)
+		e.analysisInputScratch = analysisStreamBuffers
+	}
+	_, written, err := e.encodeRoutedStreams(streamBuffers, analysisStreamBuffers, frameSize, len(dst), smallestPacket, true, dst)
+	return written, err
+}
+
+func (e *Encoder) encodeRoutedStreams(streamBuffers, analysisStreamBuffers [][]float32, frameSize, maxDataBytes, smallestPacket int, shortInput bool, dst []byte) ([]byte, int, error) {
+	fs := int(e.sampleRate)
+	// opus_multistream_encode_native shrinks the CBR caller budget before
+	// deriving the first stream's curr_max.
+	if !e.VBR() {
+		switch e.bitrate {
+		case encoder.BitrateAuto:
+			rateSum := e.allocatedRateSum(frameSize)
+			maxDataBytes = minInt(maxDataBytes, (bitrateToBits(rateSum, fs, frameSize)+4)/8)
+		case encoder.BitrateMax:
+		default:
+			maxDataBytes = minInt(maxDataBytes, maxInt(smallestPacket, (bitrateToBits(e.bitrate, fs, frameSize)+4)/8))
+		}
 	}
 
 	// Encode each stream.
@@ -1451,9 +1519,15 @@ func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int
 			enc.SetAllocatedBitrate(bitsToBitrate(currMax*8, fs, frameSize))
 		}
 
-		packet, err := enc.EncodeFloat32WithAnalysisMaxBytes(streamBuffers[i], frameSize, analysisStreamBuffers[i], currMax)
+		var packet []byte
+		var err error
+		if shortInput {
+			packet, err = enc.EncodeShortMixedWithAnalysisMaxBytes(streamBuffers[i], frameSize, analysisStreamBuffers[i], currMax)
+		} else {
+			packet, err = enc.EncodeFloat32WithAnalysisMaxBytes(streamBuffers[i], frameSize, analysisStreamBuffers[i], currMax)
+		}
 		if err != nil {
-			return nil, fmt.Errorf("stream %d encode failed: %w", i, err)
+			return nil, 0, fmt.Errorf("stream %d encode failed: %w", i, err)
 		}
 
 		if packet == nil {
@@ -1475,7 +1549,7 @@ func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int
 				}
 				framedLen, frameErr := makeSelfDelimitedPacketInto(&e.packetParser, e.framingScratch[:need], packet)
 				if frameErr != nil {
-					return nil, fmt.Errorf("stream %d self-delimited framing failed: %w", i, frameErr)
+					return nil, 0, fmt.Errorf("stream %d self-delimited framing failed: %w", i, frameErr)
 				}
 				totSize += framedLen
 			} else {
@@ -1486,15 +1560,19 @@ func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int
 
 	// If all streams are DTX (1-byte TOC or nil), return nil to signal silence
 	if allDTX {
-		return nil, nil
+		return nil, 0, nil
 	}
 
 	// Assemble multistream packet with RFC 6716 Appendix B framing.
+	if shortInput {
+		written, err := e.assembleMultistreamPacketInto(dst, streamPackets)
+		return nil, written, err
+	}
 	packet, err := e.assembleMultistreamPacket(streamPackets)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return packet, nil
+	return packet, len(packet), nil
 }
 
 // SetComplexity sets encoder complexity (0-10) for all stream encoders.

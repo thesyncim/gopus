@@ -1240,9 +1240,6 @@ type encoderScratch struct {
 	// MDCT input buffer for ComputeMDCTWithHistory
 	mdctInput []float32
 
-	// Band encode scratch (for quantAllBandsEncode)
-	bandEncode bandEncodeScratch
-
 	// Range encoder (reused between frames)
 	rangeEncoder rangecoding.Encoder
 
@@ -1531,19 +1528,21 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	// Band encode scratch. Carve the float-family fields (norm, lowbandScratch,
 	// hadamardTmpNorm, pvqY/pvqAbsX/pvqX, theta-RDO slots) from one contiguous
 	// arena first; the sizing/getters below reslice within their cap-pinned slots.
-	s.bandEncode.ensureFloatScratch(channels)
-	s.bandEncode.collapse = ensureByteSlice(&s.bandEncode.collapse, channels*MaxBands)
+	bandScratch := &e.bandEncScratch
+	bandScratch.ensureFloatScratch(channels)
+	bandScratch.collapse = ensureByteSlice(&bandScratch.collapse, channels*MaxBands)
 	normLen := 8 * EBands[MaxBands-1] // M=8 for 20ms frames
-	s.bandEncode.norm = ensureNormSliceNoClear(&s.bandEncode.norm, channels*normLen)
+	bandScratch.norm = ensureNormSliceNoClear(&bandScratch.norm, channels*normLen)
 	maxBand := 8 * (EBands[MaxBands] - EBands[MaxBands-1])
-	s.bandEncode.lowbandScratch = ensureNormSliceNoClear(&s.bandEncode.lowbandScratch, maxBand)
-	s.bandEncode.pvqSignx = ensureByteSlice(&s.bandEncode.pvqSignx, maxPVQN)
-	s.bandEncode.pvqY = ensureFloat32Slice(&s.bandEncode.pvqY, maxPVQN)
-	s.bandEncode.pvqAbsX = ensureFloat32Slice(&s.bandEncode.pvqAbsX, maxPVQN)
-	s.bandEncode.pvqIy = ensureInt32Slice(&s.bandEncode.pvqIy, maxPVQN)
-	s.bandEncode.qextIy = ensureInt32Slice(&s.bandEncode.qextIy, maxPVQN)
-	s.bandEncode.cwrsU = ensureUint32Slice(&s.bandEncode.cwrsU, 256)
-	s.bandEncode.hadamardTmpNorm = ensureNormSliceNoClear(&s.bandEncode.hadamardTmpNorm, maxBandWidth*16)
+	bandScratch.lowbandScratch = ensureNormSliceNoClear(&bandScratch.lowbandScratch, maxBand)
+	bandScratch.pvqSignx = ensureByteSlice(&bandScratch.pvqSignx, maxPVQN)
+	bandScratch.pvqY = ensureFloat32Slice(&bandScratch.pvqY, maxPVQN)
+	bandScratch.pvqAbsX = ensureFloat32Slice(&bandScratch.pvqAbsX, maxPVQN)
+	bandScratch.pvqIy = ensureInt32Slice(&bandScratch.pvqIy, maxPVQN)
+	bandScratch.qextIy = ensureInt32Slice(&bandScratch.qextIy, maxPVQN)
+	bandScratch.cwrsU = ensureUint32Slice(&bandScratch.cwrsU, 256)
+	bandScratch.hadamardTmpNorm = ensureNormSliceNoClear(&bandScratch.hadamardTmpNorm, maxBandWidth*16)
+	e.tfScratch.EnsureTFAnalysisScratch(MaxBands, maxBandWidth)
 }
 
 // computeAllocationScratch computes bit allocation using scratch buffers (zero-alloc).

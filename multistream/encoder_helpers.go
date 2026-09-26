@@ -118,9 +118,36 @@ func (e *Encoder) routeProjectionMixingToStreams(scratch [][]float32, pcm []floa
 //   - First N-1 packets use self-delimited packet framing
 //   - Last packet uses standard framing
 func (e *Encoder) assembleMultistreamPacket(streamPackets [][]byte) ([]byte, error) {
+	encoded, totalSize, err := e.prepareMultistreamPacket(streamPackets)
+	if err != nil {
+		return nil, err
+	}
+	if len(encoded) == 0 {
+		return nil, nil
+	}
+	// This API returns an owned packet that remains valid across later encodes.
+	output := make([]byte, totalSize)
+	copyAssembledPacket(output, encoded)
+	return output, nil
+}
+
+// assembleMultistreamPacketInto writes the packet directly into caller storage.
+func (e *Encoder) assembleMultistreamPacketInto(dst []byte, streamPackets [][]byte) (int, error) {
+	encoded, totalSize, err := e.prepareMultistreamPacket(streamPackets)
+	if err != nil {
+		return 0, err
+	}
+	if totalSize > len(dst) {
+		return 0, ErrBufferTooSmall
+	}
+	copyAssembledPacket(dst, encoded)
+	return totalSize, nil
+}
+
+func (e *Encoder) prepareMultistreamPacket(streamPackets [][]byte) ([][]byte, int, error) {
 	n := len(streamPackets)
 	if n == 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
 
 	encoded := e.assembleScratch
@@ -136,7 +163,7 @@ func (e *Encoder) assembleMultistreamPacket(streamPackets [][]byte) ([]byte, err
 	arenaNeed := 0
 	for i := 0; i < n-1; i++ {
 		if len(streamPackets[i]) == 0 {
-			return nil, ErrInvalidPacket
+			return nil, 0, ErrInvalidPacket
 		}
 		arenaNeed += len(streamPackets[i]) + 2
 	}
@@ -145,13 +172,13 @@ func (e *Encoder) assembleMultistreamPacket(streamPackets [][]byte) ([]byte, err
 	totalSize := 0
 	for i, packet := range streamPackets {
 		if len(packet) == 0 {
-			return nil, ErrInvalidPacket
+			return nil, 0, ErrInvalidPacket
 		}
 
 		if i < n-1 {
 			written, err := makeSelfDelimitedPacketInto(&e.packetParser, e.assembleArena.Tail(), packet)
 			if err != nil {
-				return nil, err
+				return nil, 0, err
 			}
 			packet = e.assembleArena.AllocN(written)
 		}
@@ -159,14 +186,13 @@ func (e *Encoder) assembleMultistreamPacket(streamPackets [][]byte) ([]byte, err
 		totalSize += len(packet)
 	}
 
-	// The assembled bytes are returned directly to the caller and may be
-	// retained (e.g. building a packet sequence), so this buffer is freshly
-	// allocated rather than reused.
-	output := make([]byte, totalSize)
+	return encoded, totalSize, nil
+}
+
+func copyAssembledPacket(output []byte, encoded [][]byte) {
 	offset := 0
 	for _, packet := range encoded {
 		copy(output[offset:], packet)
 		offset += len(packet)
 	}
-	return output, nil
 }
