@@ -1526,6 +1526,9 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	e.rng = re.Range()
 	bytes := re.Done()
 	if extsupport.QEXT && qextEnc != nil {
+		// libopus ec_enc_done leaves the secondary coder's raw bits at the
+		// end of its fixed storage, which the packet copies in full.
+		qextEnc.Shrink(uint32(qextEnc.Storage()))
 		qextEnc.Done()
 		e.setLastQEXTPayload(qextEnc.Buffer()[:qextEnc.Storage()])
 		if e.lastQEXTPayloadNonEmpty() {

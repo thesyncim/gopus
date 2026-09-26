@@ -40,6 +40,10 @@ func TestQEXTStatefulStereoFinalisationPacketsMatchLibopus(t *testing.T) {
 	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 960, 3, 2, 256000, BitrateModeCVBR, "-cvbr")
 }
 
+func TestQEXTStateful10msFixedStoragePacketsMatchLibopus(t *testing.T) {
+	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 480, 3, 1, 256000, BitrateModeVBR, "")
+}
+
 func testQEXTStatefulPacketsMatchLibopus(t *testing.T, bitrate int, mode BitrateMode, modeArg string) {
 	t.Helper()
 	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 960, 3, 1, bitrate, mode, modeArg)
