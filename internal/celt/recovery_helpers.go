@@ -137,7 +137,9 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 			w1 := float32(window[segLen-1-i])
 			x0 := float32(etmp[segLen-1-i])
 			x1 := float32(etmp[i])
-			overlap[i] = celtSig(mdctFMA32(w0, x0, w1*x1))
+			// prefilter_and_fold: w[i]*etmp[ov-1-i] + w[ov-1-i]*etmp[i]. clang
+			// fuses the left product and gcc fuses neither.
+			overlap[i] = celtSig(fma32(w0, x0, noFMA32Mul(w1, x1)))
 		}
 	}
 
