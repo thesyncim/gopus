@@ -5,6 +5,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
@@ -219,10 +220,10 @@ func TestTransitionPLCStageGainMatchesLibopus(t *testing.T) {
 	}
 }
 
-// TestCELTTransitionPLCStageHasInnerAndOuterGainChecks the transition head of a
-// full CELT boundary against the multistream C decoder. The outer frame applies
-// gain after crossfading, while the recursive PLC stage has already applied its
-// own gain; the first 2.5 ms therefore checks both applications in production.
+// TestCELTTransitionPLCStageHasInnerAndOuterGainChecks each complete frame of a
+// CELT boundary and its recovery sequence against the paired multistream C
+// decoder. The recursive PLC stage applies gain before the crossfade, and the
+// outer frame applies gain afterward.
 func TestCELTTransitionPLCStageHasInnerAndOuterGainChecks(t *testing.T) {
 	libopustest.RequireOracle(t)
 
@@ -232,42 +233,112 @@ func TestCELTTransitionPLCStageHasInnerAndOuterGainChecks(t *testing.T) {
 	if len(prevPacket) == 0 || len(nextPacket) == 0 {
 		t.Fatal("transition packets are empty")
 	}
-	got, err := decodeSurroundGopusFloat32(
-		transitionStageSampleRate,
-		channels,
-		ref.streams,
-		ref.coupledStreams,
-		spec.frameSize,
-		transitionStageGainQ8,
-		ref.mapping,
-		ref.packets,
-	)
-	if err != nil {
-		t.Fatalf("decode Go transition regression: %v", err)
+	for _, gainQ8 := range []int{0, transitionStageGainQ8, -transitionStageGainQ8} {
+		t.Run(fmt.Sprintf("gain_%d", gainQ8), func(t *testing.T) {
+			want, err := decodeWithLibopusReferencePacketsGain(
+				1, transitionStageSampleRate, channels, ref.streams, ref.coupledStreams,
+				spec.frameSize, gainQ8, ref.mapping, nil, ref.packets,
+			)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "multistream transition output reference", err)
+			}
+			perFrame := spec.frameSize * channels
+			if len(want) != len(ref.packets)*perFrame {
+				t.Fatalf("C decoded %d samples, want %d packets x %d samples", len(want), len(ref.packets), perFrame)
+			}
+			dec, err := NewDecoder(transitionStageSampleRate, channels, ref.streams, ref.coupledStreams, ref.mapping)
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			if err := dec.SetGain(gainQ8); err != nil {
+				t.Fatalf("SetGain(%d): %v", gainQ8, err)
+			}
+			for i, packet := range ref.packets {
+				got, err := dec.DecodeToFloat32(packet, spec.frameSize)
+				if err != nil {
+					t.Fatalf("frame %d Go decode: %v", i, err)
+				}
+				if len(got) != perFrame {
+					t.Fatalf("frame %d Go decoded %d samples, want %d", i, len(got), perFrame)
+				}
+				assertTransitionStagePCMExact(t, got, want[i*perFrame:(i+1)*perFrame],
+					fmt.Sprintf("frame %d with gain %d", i, gainQ8))
+			}
+		})
 	}
-	want, err := decodeWithLibopusReferencePacketsGain(
-		1,
-		transitionStageSampleRate,
-		channels,
-		ref.streams,
-		ref.coupledStreams,
-		spec.frameSize,
-		transitionStageGainQ8,
-		ref.mapping,
-		nil,
-		ref.packets,
+}
+
+// TestCELTTransitionFadeReplaysMatchedLibopus applies both multiplication
+// orders to the actual transition PLC and main Hybrid buffers. The C frame
+// selects the ordering used by src/opus_decoder.c smooth_fade on this build.
+func TestCELTTransitionFadeReplaysMatchedLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const channels = 2
+	spec, ref := encodeTransitionGainRegressionInput(t)
+	prevPacket, nextPacket, _, nextTOC := firstTransitionStreamPackets(t, ref.packets)
+	if nextTOC.mode != streamModeHybrid {
+		t.Fatalf("target mode=%d, want Hybrid", nextTOC.mode)
+	}
+	want, err := decodeWithLibopusReferencePackets(
+		1, transitionStageSampleRate, channels, ref.streams, ref.coupledStreams,
+		spec.frameSize, ref.mapping, nil, ref.packets[:2],
 	)
 	if err != nil {
-		libopustest.HelperUnavailable(t, "multistream transition output reference", err)
+		libopustest.HelperUnavailable(t, "transition fade replay", err)
 	}
 	perFrame := spec.frameSize * channels
-	transitionHead := (transitionStageSampleRate / 50 / 8) * channels
-	if len(got) != len(want) || len(got) < perFrame+transitionHead {
-		t.Fatalf("transition output lengths: Go=%d C=%d, need at least %d", len(got), len(want), perFrame+transitionHead)
+	if len(want) != 2*perFrame {
+		t.Fatalf("C returned %d samples, want %d", len(want), 2*perFrame)
 	}
-	assertTransitionStagePCMExact(t,
-		got[perFrame:perFrame+transitionHead],
-		want[perFrame:perFrame+transitionHead],
-		"full CELT-boundary transition head with inner and outer gain",
-	)
+	state := newStreamDecoder(transitionStageSampleRate, channels)
+	if _, err := state.Decode(prevPacket, spec.frameSize); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parseOpusPacket(nextPacket, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.frames) != 1 {
+		t.Fatalf("target has %d frames, want one", len(parsed.frames))
+	}
+	state.recordDecodeCall(spec.frameSize, len(nextPacket))
+	ts := transitionState{
+		active:           true,
+		prevMode:         int(state.lastMode),
+		prevBW:           int(state.lastBandwidth),
+		prevStereo:       state.lastPacketStereo,
+		pendingTransSize: transitionStageF5,
+	}
+	main, err := state.decodeHybridToFloat32(parsed.frames[0], spec.frameSize, nextTOC, &ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(main) != perFrame || len(ts.pcm) != transitionStageF5*channels {
+		t.Fatalf("actual main/transition buffers have lengths %d/%d", len(main), len(ts.pcm))
+	}
+	f2_5 := transitionStageF5 / 2
+	window := celt.GetWindowBufferF32(f2_5)
+	fused := append([]float32(nil), main...)
+	rounded := append([]float32(nil), main...)
+	copy(fused[:f2_5*channels], ts.pcm[:f2_5*channels])
+	copy(rounded[:f2_5*channels], ts.pcm[:f2_5*channels])
+	for i := range f2_5 {
+		w := streamSmoothFadeMul(window[i], window[i])
+		oneMinus := streamSmoothFadeSub(1, w)
+		for ch := range channels {
+			idx := (f2_5+i)*channels + ch
+			other := streamSmoothFadeMul(oneMinus, ts.pcm[idx])
+			fused[idx] = streamSmoothFadeMulAdd(w, main[idx], other)
+			rounded[idx] = streamSmoothFadeMul(w, main[idx]) + other
+		}
+	}
+	cFrame := want[perFrame:]
+	assertTransitionStagePCMExact(t, fused[:transitionStageF5*channels], cFrame[:transitionStageF5*channels], "actual-buffer fused transition window")
+	roundedDifferences := 0
+	for i := f2_5 * channels; i < transitionStageF5*channels; i++ {
+		if math.Float32bits(rounded[i]) != math.Float32bits(cFrame[i]) {
+			roundedDifferences++
+		}
+	}
+	t.Logf("crossfade samples differing under separately rounded first product: %d", roundedDifferences)
 }

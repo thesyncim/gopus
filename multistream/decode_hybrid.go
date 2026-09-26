@@ -180,13 +180,18 @@ func streamSmoothFade(in1, in2, out []float32, overlap, channels, sampleRate int
 				break
 			}
 			oneMinusW := streamSmoothFadeSub(float32(1), w)
-			out[idx] = streamSmoothFadeMul(w, in2[idx]) + streamSmoothFadeMul(oneMinusW, in1[idx])
+			out[idx] = streamSmoothFadeMulAdd(w, in2[idx], streamSmoothFadeMul(oneMinusW, in1[idx]))
 		}
 	}
 }
 
 //go:noinline
 func streamSmoothFadeMul(a, b float32) float32 { return a * b }
+
+// streamSmoothFadeMulAdd follows the contraction of the first product and sum
+// in libopus src/opus_decoder.c smooth_fade on targets whose C build uses FMA.
+// The rounded second product remains a separate operation.
+func streamSmoothFadeMulAdd(a, b, c float32) float32 { return a*b + c }
 
 //go:noinline
 func streamSmoothFadeSub(a, b float32) float32 { return a - b }

@@ -475,7 +475,7 @@ func (d *streamState) decodeFramePayloadToFloat32(frame []byte, frameSize int, t
 	// transSize mirrors libopus IMIN(F5, audiosize): the transition crossfade
 	// spans at most 5 ms.
 	transSize := frameSize
-	if f5 := int(d.sampleRate) / 50 / 2; transSize > f5 {
+	if f5 := (int(d.sampleRate) / 50 >> 1) >> 1; transSize > f5 {
 		transSize = f5
 	}
 
