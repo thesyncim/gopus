@@ -45,13 +45,15 @@ func TestSurroundLowSpaceThenRealFrameMatchesLibopus(t *testing.T) {
 	enc.SetVBRConstraint(false)
 	enc.SetComplexity(complexity)
 	enc.SetBandwidthAuto()
+	out := make([]byte, compositeMaxPacketBytes)
 	for frame := range frameCount {
 		start := frame * frameSize * channels
 		input := pcm[start : start+frameSize*channels]
-		got, err := enc.EncodeFloat32WithAnalysisMaxBytes(input, frameSize, input, compositeMaxPacketBytes)
+		n, err := enc.Encode(input, frameSize, out)
 		if err != nil {
 			t.Fatalf("frame %d Go encode: %v", frame, err)
 		}
+		got := out[:n]
 		if !bytes.Equal(got, ref.packets[frame]) || enc.GetFinalRange() != ref.ranges[frame] {
 			t.Fatalf("frame %d firstByte=%d len Go/C=%d/%d range Go/C=%08x/%08x",
 				frame, firstByteMismatch(got, ref.packets[frame]), len(got), len(ref.packets[frame]),

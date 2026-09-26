@@ -159,7 +159,7 @@ func TestEncoderControls_EncodeFloat32(t *testing.T) {
 		pcm[2*i+1] = v
 	}
 
-	packet, err := enc.EncodeFloat32(pcm, frameSize)
+	packet, err := encodePacket(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("EncodeFloat32 error: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestEncoderControls_EncodeFloat32(t *testing.T) {
 	}
 
 	// Length mismatch must surface ErrInvalidInput, same as Encode.
-	if _, err := enc.EncodeFloat32(pcm[:frameSize], frameSize); !errors.Is(err, ErrInvalidInput) {
+	if _, err := encodePacket(enc, pcm[:frameSize], frameSize); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("EncodeFloat32 short input: got %v, want ErrInvalidInput", err)
 	}
 }

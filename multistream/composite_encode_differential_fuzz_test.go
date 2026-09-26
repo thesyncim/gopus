@@ -168,7 +168,7 @@ func TestSurroundEncodeDifferentialFuzz(t *testing.T) {
 			for frame := range spec.frameCount {
 				start := frame * spec.frameSize * spec.channels
 				input := pcm[start : start+spec.frameSize*spec.channels]
-				got, err := enc.EncodeFloat32WithAnalysisMaxBytes(input, spec.frameSize, input, compositeMaxPacketBytes)
+				got, err := encodePacketMax(enc, input, spec.frameSize, input, compositeMaxPacketBytes)
 				if err != nil {
 					t.Fatalf("frame %d Go encode: %v", frame, err)
 				}
@@ -293,7 +293,7 @@ func TestProjectionEncodeDifferentialFuzz(t *testing.T) {
 				var got []byte
 				if spec.sampleFormat == 1 {
 					input := pcm16[start : start+spec.frameSize*spec.channels]
-					n, err := enc.EncodeInt16WithAnalysisMaxBytesInto(input, spec.frameSize, input, out)
+					n, err := enc.EncodeInt16WithAnalysis(input, spec.frameSize, input, out)
 					if err != nil {
 						t.Fatalf("frame %d Go short encode: %v", frame, err)
 					}
@@ -301,7 +301,7 @@ func TestProjectionEncodeDifferentialFuzz(t *testing.T) {
 				} else {
 					input := pcm[start : start+spec.frameSize*spec.channels]
 					var err error
-					got, err = enc.EncodeFloat32WithAnalysisMaxBytes(input, spec.frameSize, input, compositeMaxPacketBytes)
+					got, err = encodePacketMax(enc, input, spec.frameSize, input, compositeMaxPacketBytes)
 					if err != nil {
 						t.Fatalf("frame %d Go float encode: %v", frame, err)
 					}

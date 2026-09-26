@@ -3,6 +3,7 @@ package multistream
 import (
 	"bytes"
 	"errors"
+	"github.com/thesyncim/gopus/internal/encoder"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -96,7 +97,7 @@ func TestMultistreamEncodeBudgetMatchesLibopus(t *testing.T) {
 			for frame := range frameCount {
 				start := frame * tc.frameSize * tc.channels
 				input := pcm[start : start+tc.frameSize*tc.channels]
-				got, encodeErr := enc.EncodeFloat32WithAnalysisMaxBytes(input, tc.frameSize, input, tc.maxPacket)
+				got, encodeErr := encodePacketMax(enc, input, tc.frameSize, input, tc.maxPacket)
 				if encodeErr != nil {
 					t.Fatalf("frame %d encode: %v", frame, encodeErr)
 				}
@@ -110,9 +111,6 @@ func TestMultistreamEncodeBudgetMatchesLibopus(t *testing.T) {
 					cStreams, cErr := parseMultistreamPacket(want, enc.Streams())
 					if goErr == nil && cErr == nil {
 						for stream := range goStreams {
-							if !tc.vbr && frame == 0 {
-								t.Logf("stream %d raw=%d sd=%d C=%d", stream, len(enc.streamPacketsScratch[stream]), len(goStreams[stream]), len(cStreams[stream]))
-							}
 							if !bytes.Equal(goStreams[stream], cStreams[stream]) {
 								child := enc.encoders[stream]
 								t.Errorf("frame %d stream %d differs: Go=%d C=%d firstByte=%d bitrate=%d target=%d mode=%d childRange=%08x GoTail=%x CTail=%x", frame, stream,
@@ -156,12 +154,12 @@ func TestMultistreamEncodeTooSmallPreservesState(t *testing.T) {
 	enc.SetVBR(true)
 	enc.SetVBRConstraint(true)
 	for _, capacity := range []int{0, 1, 6} {
-		packet, encodeErr := enc.EncodeFloat32WithAnalysisMaxBytes(pcm, frameSize, pcm, capacity)
+		packet, encodeErr := encodePacketMax(enc, pcm, frameSize, pcm, capacity)
 		if !errors.Is(encodeErr, ErrBufferTooSmall) || packet != nil {
 			t.Fatalf("capacity=%d packet=%x error=%v want buffer-too-small", capacity, packet, encodeErr)
 		}
 	}
-	got, err := enc.EncodeFloat32WithAnalysisMaxBytes(pcm, frameSize, pcm, 4000)
+	got, err := encodePacketMax(enc, pcm, frameSize, pcm, 4000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,21 +170,18 @@ func TestMultistreamEncodeTooSmallPreservesState(t *testing.T) {
 }
 
 func TestMultistreamSelfDelimitedBudgetFramingWarmZeroAllocs(t *testing.T) {
-	const (
-		channels  = 6
-		frameSize = 1920
-	)
-	enc, err := NewEncoderDefault(48000, channels)
+	const frameSize = 1920
+	// A CBR stream packet of a 40 ms frame carries ordinary Opus padding,
+	// which the repacketizer drops when it self-delimits the stream.
+	streamEnc := encoder.NewEncoder(48000, 2)
+	streamEnc.SetBitrate(192000)
+	streamEnc.SetBitrateMode(encoder.ModeCBR)
+	pcm := generateSurroundSweep(2, frameSize, 1)
+	raw, err := streamEnc.EncodeFloat32WithAnalysisMaxBytes(pcm, frameSize, pcm, 4000)
 	if err != nil {
 		t.Fatal(err)
 	}
-	enc.SetBitrate(384000)
-	enc.SetVBR(false)
-	pcm := generateSurroundSweep(channels, frameSize, 1)
-	if _, err := enc.EncodeFloat32WithAnalysisMaxBytes(pcm, frameSize, pcm, 4000); err != nil {
-		t.Fatal(err)
-	}
-	raw := append([]byte(nil), enc.streamPacketsScratch[0]...)
+	raw = append([]byte(nil), raw...)
 	dst := make([]byte, len(raw)+2)
 	var scratch packetScratch
 	wantLen, err := makeSelfDelimitedPacketInto(&scratch, dst, raw)

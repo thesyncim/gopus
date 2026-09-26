@@ -58,7 +58,7 @@ func runMSRecoveryOracle(t *testing.T, label string, channels, sampleRate, bitra
 	packets := make([][]byte, numFrames)
 	for i := range numFrames {
 		pcm := generateMultichannelSine(channels, frameSize)
-		p, encErr := enc.Encode(pcm, frameSize)
+		p, encErr := encodePacket(enc, pcm, frameSize)
 		if encErr != nil {
 			t.Fatalf("%s frame %d Encode: %v", label, i, encErr)
 		}
@@ -261,7 +261,7 @@ func runMSFECRecoveryOracle(t *testing.T, label string, channels, sampleRate, bi
 	packets := make([][]byte, numFrames)
 	for i := range numFrames {
 		pcm := generateMultichannelSine(channels, frameSize)
-		p, encErr := enc.Encode(pcm, frameSize)
+		p, encErr := encodePacket(enc, pcm, frameSize)
 		if encErr != nil {
 			t.Fatalf("%s frame %d Encode: %v", label, i, encErr)
 		}
@@ -355,7 +355,7 @@ func TestLibopus_MSRecovery_ModeHandoverGap(t *testing.T) {
 		start, end := phase*(numFrames/2), (phase+1)*(numFrames/2)
 		for i := start; i < end; i++ {
 			pcm := generateMultichannelSine(channels, frameSize)
-			p, encErr := enc.Encode(pcm, frameSize)
+			p, encErr := encodePacket(enc, pcm, frameSize)
 			if encErr != nil {
 				t.Fatalf("phase%d frame %d Encode: %v", phase, i, encErr)
 			}
@@ -436,7 +436,7 @@ func TestLibopus_MSRecovery_16kSILKGap(t *testing.T) {
 	var packets [numFrames][]byte
 	for i := range packets {
 		pcm := generateMultichannelSine(channels, encFrameSize)
-		p, encErr := enc.Encode(pcm, encFrameSize)
+		p, encErr := encodePacket(enc, pcm, encFrameSize)
 		if encErr != nil {
 			t.Fatalf("frame %d Encode: %v", i, encErr)
 		}
@@ -513,7 +513,7 @@ func TestLibopus_MSRecovery_PerStreamIsolation(t *testing.T) {
 	packets := make([][]byte, numFrames)
 	for i := range packets {
 		pcm := generateMultichannelSine(channels, frameSize)
-		p, encErr := enc.Encode(pcm, frameSize)
+		p, encErr := encodePacket(enc, pcm, frameSize)
 		if encErr != nil {
 			t.Fatalf("frame %d Encode: %v", i, encErr)
 		}

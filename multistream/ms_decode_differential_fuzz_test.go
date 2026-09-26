@@ -718,7 +718,7 @@ func TestMultistreamGopusEncodedDecodeDifferentialFuzz(t *testing.T) {
 			for i := 0; i < spec.frameCount; i++ {
 				start := i * spec.frameSize * spec.channels
 				frame := pcm[start : start+spec.frameSize*spec.channels]
-				p, err := enc.EncodeFloat32WithAnalysisMaxBytes(frame, spec.frameSize, frame, maxPacketBytes)
+				p, err := encodePacketMax(enc, frame, spec.frameSize, frame, maxPacketBytes)
 				if err != nil {
 					t.Fatalf("frame %d: gopus encode: %v", i, err)
 				}

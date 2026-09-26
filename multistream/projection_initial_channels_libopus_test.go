@@ -51,7 +51,7 @@ func TestProjectionInitialMonoDecisionMatchesLibopus(t *testing.T) {
 		for frame := range frameCount {
 			start := frame * frameSize * channels
 			input := pcm[start : start+frameSize*channels]
-			got, encodeErr := enc.EncodeFloat32WithAnalysisMaxBytes(input, frameSize, input, maxPacket)
+			got, encodeErr := encodePacketMax(enc, input, frameSize, input, maxPacket)
 			if encodeErr != nil {
 				t.Fatalf("pass %d frame %d: Go encode: %v", pass, frame, encodeErr)
 			}

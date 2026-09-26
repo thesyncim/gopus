@@ -42,7 +42,7 @@ func TestSurroundLowSpaceFinalRangeMatchesLibopus(t *testing.T) {
 	for frame := range spec.frameCount {
 		start := frame * spec.frameSize * spec.channels
 		input := pcm[start : start+spec.frameSize*spec.channels]
-		got, err := enc.EncodeFloat32WithAnalysisMaxBytes(input, spec.frameSize, input, compositeMaxPacketBytes)
+		got, err := encodePacketMax(enc, input, spec.frameSize, input, compositeMaxPacketBytes)
 		if err != nil {
 			t.Fatalf("frame %d: %v", frame, err)
 		}
@@ -54,9 +54,15 @@ func TestSurroundLowSpaceFinalRangeMatchesLibopus(t *testing.T) {
 		if frame == 1 && enc.encoders[4].FinalRange() == 0 {
 			t.Fatal("frame 1 trailing child must establish a nonzero final range")
 		}
-		if frame >= 2 && (len(enc.streamPacketsScratch[4]) < 1 || len(enc.streamPacketsScratch[4]) > 2 || enc.encoders[4].FinalRange() != 0) {
-			t.Fatalf("frame %d low-space child len=%d range=%08x want TOC-only or padded TOC/range 0", frame,
-				len(enc.streamPacketsScratch[4]), enc.encoders[4].FinalRange())
+		if frame >= 2 {
+			streams, err := parseMultistreamPacket(got, enc.Streams())
+			if err != nil {
+				t.Fatalf("frame %d: parse: %v", frame, err)
+			}
+			if child := streams[4]; len(child) < 1 || len(child) > 2 || enc.encoders[4].FinalRange() != 0 {
+				t.Fatalf("frame %d low-space child len=%d range=%08x want TOC-only or padded TOC/range 0", frame,
+					len(child), enc.encoders[4].FinalRange())
+			}
 		}
 	}
 }

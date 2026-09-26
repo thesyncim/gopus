@@ -40,7 +40,6 @@ package encoder
 
 import (
 	"errors"
-	"math"
 
 	"github.com/thesyncim/gopus/internal/arena"
 	"github.com/thesyncim/gopus/internal/celt"
@@ -219,9 +218,6 @@ type Encoder struct {
 	// Phase inversion disabled (for stereo decorrelation)
 	phaseInversionDisabled bool
 
-	// celtSurroundTrim carries multistream surround-trim bias into CELT alloc-trim.
-	celtSurroundTrim opusVal32
-
 	// celtEnergyMask carries per-band surround masking into CELT dynalloc control.
 	celtEnergyMask []float32
 
@@ -280,8 +276,8 @@ type Encoder struct {
 	toMono                 int32           // Stereo->mono transition countdown (0=inactive)
 	fecConfig              int32           // FEC config: 0=disabled, 1=enabled, 2=music-safe
 
-	// pcmBump backs the three frameSize-sized input-domain PCM scratch buffers
-	// (scratchInputPCM/scratchQuantPCM/scratchDCPCM) with one contiguous
+	// pcmBump backs the two frameSize-sized input-domain PCM scratch buffers
+	// (scratchInputPCM/scratchDCPCM) with one contiguous
 	// allocation, carved per-frame at the encode entry and re-carved only when a
 	// larger frame is seen (so it sizes to the current frame, not the max).
 	pcmBump arena.Bump[opusRes]
@@ -300,7 +296,6 @@ type Encoder struct {
 	scratchSilkPrefill       []opusRes
 	scratchCELTPrefill       []opusRes // CELT transition prefill source (Fs/400 * channels)
 	hasCELTPrefill           bool
-	scratchQuantPCM          []opusRes // LSB-depth quantized input
 	floatInputFrame          []float32 // Current public float32 frame view, if available
 	floatInputExact          bool      // True when pcm originated from float32 samples
 }
@@ -869,7 +864,7 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float32, frameSize int, analy
 	inputPCM := e.prepareOpusResInput(pcm)
 	e.SetFloatInputFrame(pcm)
 	defer e.ClearFloatInputFrame()
-	return e.encodeOpusResWithAnalysisMaxBytes(inputPCM, frameSize, maxDataBytes, false, func() {
+	return e.encodeOpusResWithAnalysisMaxBytes(inputPCM, frameSize, maxDataBytes, func() {
 		e.refreshFrameAnalysisF32(analysisPCM, frameSize)
 	})
 }
@@ -889,8 +884,7 @@ func (e *Encoder) EncodeShortMixedWithAnalysisMaxBytes(pcm []float32, frameSize 
 	}
 	inputPCM := e.prepareOpusResInput(pcm)
 	// opus_encode_native uses min(16, st->lsb_depth) for this call while the
-	// configured control survives the call. The short callback has already
-	// formed coding PCM, so it must not be quantized a second time.
+	// configured control survives the call.
 	configuredDepth := e.lsbDepth
 	if e.lsbDepth > 16 {
 		e.lsbDepth = 16
@@ -905,17 +899,16 @@ func (e *Encoder) EncodeShortMixedWithAnalysisMaxBytes(pcm []float32, frameSize 
 		}
 	}()
 	e.ClearFloatInputFrame()
-	return e.encodeOpusResWithAnalysisMaxBytes(inputPCM, frameSize, maxDataBytes, true, func() {
+	return e.encodeOpusResWithAnalysisMaxBytes(inputPCM, frameSize, maxDataBytes, func() {
 		e.refreshFrameAnalysisF32(analysisPCM, frameSize)
 	})
 }
 
 func (e *Encoder) prepareOpusResInput(pcm []float32) []opusRes {
-	// The three frame-sized input buffers share one reusable arena.
+	// The two frame-sized input buffers share one reusable arena.
 	if len(pcm) > 0 {
-		e.pcmBump.Ensure(3 * len(pcm))
+		e.pcmBump.Ensure(2 * len(pcm))
 		e.scratchInputPCM = e.pcmBump.AllocN(len(pcm))
-		e.scratchQuantPCM = e.pcmBump.AllocN(len(pcm))
 		e.scratchDCPCM = e.pcmBump.AllocN(len(pcm))
 	}
 	inputPCM := e.ensureInputPCM(len(pcm))
@@ -931,10 +924,9 @@ func (e *Encoder) prepareOpusResInput(pcm []float32) []opusRes {
 // inputPCM is one frame of interleaved samples (frameSize per channel);
 // maxDataBytes is the caller's output budget after packet-size clamping; and
 // refreshAnalysis, if non-nil, runs the tonality analyzer on the untouched input
-// before any high-pass/DC/LSB processing, matching libopus run_analysis ordering.
+// before any high-pass/DC processing, matching libopus run_analysis ordering.
 //
-// The function applies LSB quantization and the variable high-pass / DC-reject
-// filters, refreshes the SILK variable-HP-cutoff smoother in the
+// The function applies the variable high-pass / DC-reject filters, refreshes the SILK variable-HP-cutoff smoother in the
 // hp_cutoff-before-silk_Encode order libopus uses, handles the "too little
 // space" TOC-only fast path, selects the coding mode and bandwidth (auto chain or
 // forced mode), performs delay compensation and mode-transition prefill, drives
@@ -942,7 +934,7 @@ func (e *Encoder) prepareOpusResInput(pcm []float32) []opusRes {
 // returns the assembled packet (or nil when more lookahead input is still
 // buffered). It returns ErrInvalidFrameSize / ErrEncodingFailed for malformed
 // requests and never panics on valid configuration.
-func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSize int, maxDataBytes int, inputFromShort bool, refreshAnalysis func()) ([]byte, error) {
+func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSize int, maxDataBytes int, refreshAnalysis func()) ([]byte, error) {
 	channels := int(e.channels)
 	sampleRate := int(e.sampleRate)
 	// opus_encode_native clears rangeFinal at entry, including calls that emit
@@ -982,8 +974,8 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	defer func() {
 		e.analysisReadBakSet = false
 	}()
-	// Run Opus analysis on the original input frame (before top-level dc_reject
-	// and LSB quantization) to match libopus run_analysis ordering.
+	// Run Opus analysis on the original input frame (before top-level dc_reject)
+	// to match libopus run_analysis ordering.
 	if refreshAnalysis != nil {
 		refreshAnalysis()
 	}
@@ -992,23 +984,24 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	e.updateDetectedBandwidth()
 	lookaheadSamples := 0
 	vadPCM := inputPCM
-	pcmRes := inputPCM
-	if !inputFromShort {
-		pcmRes = e.quantizeInputToLSBDepth(inputPCM)
-	}
 	frameEnd := frameSize * channels
 	samplesNeeded := frameEnd + lookaheadSamples
 	directFrameInput := lookaheadSamples == 0 && len(e.inputBuffer) == 0
-	var framePCM []opusRes
+	// rawFramePCM is the caller frame before the Opus-level high-pass: libopus
+	// reads it for compute_stereo_width() and the mode decisions, and only
+	// opus_encode_frame_native() applies dc_reject()/hp_cutoff() into pcm_buf.
+	var rawFramePCM []opusRes
 	if directFrameInput {
-		framePCM = pcmRes[:frameEnd]
+		rawFramePCM = inputPCM[:frameEnd]
 	} else {
-		e.inputBuffer = append(e.inputBuffer, pcmRes...)
+		e.inputBuffer = append(e.inputBuffer, inputPCM...)
 		if len(e.inputBuffer) < samplesNeeded {
 			return nil, nil
 		}
-		framePCM = e.inputBuffer[:frameEnd]
+		rawFramePCM = e.inputBuffer[:frameEnd]
 	}
+
+	stereoWidth := e.frameStereoWidth(rawFramePCM, frameSize)
 
 	// libopus "too little space" fast path (opus_encoder.c:1340). The resolved
 	// bitrate is already in e.bitrate; derive the CBR-clamped budget and effective
@@ -1048,9 +1041,10 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		}
 		return pkt, nil
 	}
-	// The low-space return in opus_encode_native precedes dc_reject/hp_cutoff.
-	// Advance the input filter only when libopus enters the frame encoder.
-	framePCM = e.preprocessInputHP(framePCM, frameSize)
+	// The high-pass runs after the "too little space" exit, so a TOC-only frame
+	// leaves hp_mem untouched (src/opus_encoder.c:1340 returns before
+	// opus_encode_frame_native() filters the input at lines 1968-2009).
+	framePCM := e.preprocessInputHP(rawFramePCM, frameSize)
 
 	// Allow SILK DTX when DTX is on but the generalized DTX cannot be used,
 	// e.g. because of the complexity setting or the sample rate
@@ -1063,11 +1057,11 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		// stereo_width, stream_channels, auto-bandwidth, bandwidth clamping,
 		// decide_fec, and mode fixup. Low-delay applications pin CELT at
 		// opus_encoder.c:1470 and still run bandwidth selection.
-		actualMode, prevModeNext = e.autoModeAndBandwidthDecision(framePCM, frameSize, cbrMaxDataBytes, isSilence)
+		actualMode, prevModeNext = e.autoModeAndBandwidthDecision(stereoWidth, frameSize, cbrMaxDataBytes, isSilence)
 	} else {
 		signalHint := e.signalType
 		if signalHint == types.SignalAuto {
-			signalHint = e.autoSignalFromPCM(framePCM, frameSize)
+			signalHint = e.autoSignalFromPCM(rawFramePCM, frameSize)
 		}
 		e.updateStreamChannelsForFrame(frameSize)
 		requestedMode := e.selectMode(frameSize, signalHint)
@@ -1742,7 +1736,7 @@ func (e *Encoder) hpCutoff(in []opusRes, frameSize int) []opusRes {
 	const verySmall = float32(1e-30)
 
 	src32 := e.floatInputFrame
-	if e.LSBDepth() != 24 || !e.floatInputExact || len(src32) < n {
+	if !e.floatInputExact || len(src32) < n {
 		src32 = nil
 	}
 
@@ -1829,7 +1823,7 @@ func (e *Encoder) dcReject(in []opusRes, frameSize int) []opusRes {
 	coef2 := float32(1.0) - coef
 	const verySmall = float32(1e-30)
 	src32 := e.floatInputFrame
-	if e.LSBDepth() != 24 || !e.floatInputExact || len(src32) < n {
+	if !e.floatInputExact || len(src32) < n {
 		src32 = nil
 	}
 	if channels == 2 {
@@ -1882,56 +1876,11 @@ func (e *Encoder) dcReject(in []opusRes, frameSize int) []opusRes {
 	return out
 }
 
-func quantizeOpusResToLSBDepthInPlace(samples []opusRes, depth int) {
-	if depth < 8 {
-		depth = 8
-	}
-	if depth > 24 {
-		depth = 24
-	}
-	scale := opusVal32(math.Ldexp(1.0, depth-1))
-	invScale := opusVal32(1.0) / scale
-	for i, v := range samples {
-		x := opusVal32(v)
-		q := floorOpusVal32(opusVal32(0.5) + x*scale)
-		samples[i] = opusRes(q * invScale)
-	}
-}
-
-func floorOpusVal32(x opusVal32) opusVal32 {
-	absBits := math.Float32bits(float32(x)) & 0x7fffffff
-	if absBits > 0x7f800000 || x > 9.22e18 || x < -9.22e18 {
-		return x
-	}
-	i := int64(x)
-	if opusVal32(i) > x {
-		i--
-	}
-	return opusVal32(i)
-}
-
-func (e *Encoder) quantizeInputToLSBDepth(pcm []opusRes) []opusRes {
-	if e.LSBDepth() == 24 {
-		return pcm
-	}
-	out := e.ensureQuantPCM(len(pcm))
-	copy(out, pcm)
-	quantizeOpusResToLSBDepthInPlace(out, e.LSBDepth())
-	return out
-}
-
 func (e *Encoder) ensureInputPCM(size int) []opusRes {
 	if cap(e.scratchInputPCM) < size {
 		e.scratchInputPCM = make([]opusRes, size)
 	}
 	return e.scratchInputPCM[:size]
-}
-
-func (e *Encoder) ensureQuantPCM(size int) []opusRes {
-	if cap(e.scratchQuantPCM) < size {
-		e.scratchQuantPCM = make([]opusRes, size)
-	}
-	return e.scratchQuantPCM[:size]
 }
 
 func (e *Encoder) ensureDCPCM(size int) []opusRes {
@@ -3173,7 +3122,6 @@ func (e *Encoder) ensureCELTEncoder() {
 	}
 	e.syncQEXTToCELT()
 	e.celtEncoder.SetLFE(e.lfe)
-	e.celtEncoder.SetSurroundTrim(e.celtSurroundTrim)
 	e.syncCELTEnergyMask()
 	e.celtEncoder.SetStreamChannels(int(e.streamChannels))
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
@@ -3333,19 +3281,6 @@ func (e *Encoder) PhaseInversionDisabled() bool {
 		return false
 	}
 	return e.phaseInversionDisabled
-}
-
-// SetCELTSurroundTrim sets the CELT alloc-trim surround bias.
-func (e *Encoder) SetCELTSurroundTrim(trim opusVal32) {
-	e.celtSurroundTrim = trim
-	if e.celtEncoder != nil {
-		e.celtEncoder.SetSurroundTrim(trim)
-	}
-}
-
-// CELTSurroundTrim returns the current CELT alloc-trim surround bias.
-func (e *Encoder) CELTSurroundTrim() OpusVal32 {
-	return e.celtSurroundTrim
 }
 
 // SetCELTEnergyMask sets per-band CELT surround masking (21 mono, 42 stereo).

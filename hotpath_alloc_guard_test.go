@@ -501,8 +501,8 @@ func TestHotPathAllocsMultistreamEncode(t *testing.T) {
 			t.Fatalf("Encode: %v", err)
 		}
 	})
-	if allocs > multistreamEncodeHotPathAllocBudget {
-		t.Fatalf("Multistream Encode allocs/op = %.2f, want <= %d", allocs, multistreamEncodeHotPathAllocBudget)
+	if allocs != 0 {
+		t.Fatalf("Multistream Encode allocs/op = %.2f, want 0", allocs)
 	}
 }
 

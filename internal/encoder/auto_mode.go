@@ -67,6 +67,17 @@ var fecThresholdsTable = [10]int{
 	22000, 1000, // FB
 }
 
+// frameStereoWidth runs compute_stereo_width() on the raw caller frame for every
+// stereo frame not forced to mono, whatever the mode and before the "too little
+// space" exit, so width_mem advances exactly as in opus_encode_native()
+// (src/opus_encoder.c:1321-1324).
+func (e *Encoder) frameStereoWidth(pcm []opusRes, frameSize int) opusVal16 {
+	if e.channels == 2 && e.forceChannels != 1 {
+		return e.computeStereoWidthForMode(pcm, frameSize)
+	}
+	return 0
+}
+
 // computeStereoWidthForMode implements libopus compute_stereo_width() (float-point path).
 // It updates e.widthMem and returns stereo width in [0, 1] range (Q15 scale as float).
 // Reference: opus_encoder.c lines 854-938.
@@ -563,7 +574,7 @@ func autoModeFixup(mode Mode, bandwidth types.Bandwidth) Mode {
 // Updates e.bandwidth, e.streamChannels, e.voiceRatio, e.detectedBandwidth,
 // e.autoBandwidth, e.first.
 // Returns the selected mode.
-func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxDataBytes int, isSilence bool) (mode, prevModeNext Mode) {
+func (e *Encoder) autoModeAndBandwidthDecision(stereoWidth opusVal16, frameSize, maxDataBytes int, isSilence bool) (mode, prevModeNext Mode) {
 	frameRate := int(e.sampleRate) / frameSize
 	if frameRate <= 0 {
 		frameRate = 50
@@ -579,12 +590,10 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxData
 	// Step 2: Compute voice_ratio from analysis (lines 1279-1291).
 	e.autoVoiceRatioFromAnalysis()
 
-	// Step 3: Compute stereo width (line 1322). Detected bandwidth is refreshed
-	// at native entry for both automatic and user-forced modes.
-	var stereoWidth opusVal16
-	if e.channels == 2 && e.forceChannels != 1 {
-		stereoWidth = e.computeStereoWidthForMode(pcm, frameSize)
-	}
+	// Step 3: stereoWidth is the frame's compute_stereo_width() result
+	// (line 1322), measured by frameStereoWidth before the low-space exit.
+	// Detected bandwidth is refreshed at native entry for both automatic and
+	// user-forced modes.
 
 	// Step 5: First-pass equiv_rate with e.channels (line 1410-1411).
 	equivRate := e.computeEquivRate(e.bitrate, int32(e.channels), int32(frameRate), useVBR,

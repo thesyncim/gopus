@@ -501,7 +501,6 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []celtGLog, startBand, nbBands
 			// expressions compile the same way on each architecture.
 			f := x - coef32*oldE - prevBandEnergy[c]
 			qi := floor32ToInt(f/float32(DB6) + 0.5)
-			qi0 := qi
 
 			decayBound := oldEBand
 			minDecay := float32(-28.0 * DB6)
@@ -516,11 +515,14 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []celtGLog, startBand, nbBands
 					qi = 0
 				}
 			}
+			// badness counts the budget clamps only, after the decay bound
+			// (quant_bands.c quant_coarse_energy_impl: qi0 = qi).
+			qi0 := qi
 
 			tell := e.rangeEncoder.Tell()
 			bitsLeft := budget - tell - 3*channels*(nbBands-band)
 			remaining := budget - tell
-			if band != 0 && bitsLeft < 30 {
+			if band != startBand && bitsLeft < 30 {
 				if bitsLeft < 24 && qi > 1 {
 					qi = 1
 				}

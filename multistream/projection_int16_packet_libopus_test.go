@@ -49,7 +49,7 @@ func TestProjectionInt16PacketRangeMatchesLibopus(t *testing.T) {
 			for frame := range frameCount {
 				start := frame * tc.frameSize * tc.channels
 				input := pcm[start : start+tc.frameSize*tc.channels]
-				n, err := enc.EncodeInt16WithAnalysisMaxBytesInto(input, tc.frameSize, input, out)
+				n, err := enc.EncodeInt16WithAnalysis(input, tc.frameSize, input, out)
 				if err != nil {
 					t.Fatalf("frame %d: %v", frame, err)
 				}
@@ -60,11 +60,11 @@ func TestProjectionInt16PacketRangeMatchesLibopus(t *testing.T) {
 				}
 			}
 			last := pcm[(frameCount-1)*tc.frameSize*tc.channels:]
-			if _, err := enc.EncodeInt16WithAnalysisMaxBytesInto(last, tc.frameSize, last, out); err != nil {
+			if _, err := enc.EncodeInt16WithAnalysis(last, tc.frameSize, last, out); err != nil {
 				t.Fatalf("warm short encode: %v", err)
 			}
 			if allocs := testing.AllocsPerRun(20, func() {
-				if _, err := enc.EncodeInt16WithAnalysisMaxBytesInto(last, tc.frameSize, last, out); err != nil {
+				if _, err := enc.EncodeInt16WithAnalysis(last, tc.frameSize, last, out); err != nil {
 					t.Fatalf("short encode: %v", err)
 				}
 			}); allocs != 0 {
@@ -84,7 +84,7 @@ func TestMultistreamShortCodingAndAnalysisInputsRemainSeparate(t *testing.T) {
 	analysis := make([]int16, 2*frameSize)
 	coding[0], coding[1] = 12345, -23456
 	analysis[0], analysis[1] = -11111, 22222
-	if _, err := enc.EncodeInt16WithAnalysisMaxBytesInto(coding, frameSize, analysis, make([]byte, 4000)); err != nil {
+	if _, err := enc.EncodeInt16WithAnalysis(coding, frameSize, analysis, make([]byte, 4000)); err != nil {
 		t.Fatal(err)
 	}
 	const scale = float32(1.0 / 32768.0)
@@ -126,7 +126,7 @@ func TestProjectionLongFloatMatchesLibopus(t *testing.T) {
 		enc.SetBandwidthAuto()
 		for f := range frameCount {
 			p := pcm[f*frameSize*channels : (f+1)*frameSize*channels]
-			got, err := enc.EncodeFloat32WithAnalysisMaxBytes(p, frameSize, p, 4000)
+			got, err := encodePacketMax(enc, p, frameSize, p, 4000)
 			if err != nil {
 				t.Fatal(err)
 			}

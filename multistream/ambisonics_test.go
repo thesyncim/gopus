@@ -67,8 +67,8 @@ func assertAmbisonicsPerStreamControlPolicy(t *testing.T, enc *Encoder) {
 		if got := enc.encoders[i].ForceChannels(); got != -1 {
 			t.Fatalf("stream %d force channels = %d, want -1", i, got)
 		}
-		if got := enc.encoders[i].CELTSurroundTrim(); got != 0 {
-			t.Fatalf("stream %d surround trim = %f, want 0", i, got)
+		if got := enc.encoders[i].CELTEnergyMask(); len(got) != 0 {
+			t.Fatalf("stream %d energy mask = %v, want none", i, got)
 		}
 	}
 }
@@ -90,7 +90,7 @@ func encodeAmbisonicsAndCheck(t *testing.T, label string, channels, family int, 
 		}
 	}
 
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodePacket(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode error: %v", err)
 	}

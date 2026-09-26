@@ -43,7 +43,9 @@
 //	// Encoder side:
 //	enc, err := NewEncoderAmbisonics(48000, 4, 3) // FOA, family 3
 //	demixMatrix := enc.GetDemixingMatrix()         // retrieve for decoder init
-//	packet, err := enc.Encode(pcm, frameSize)
+//	buf := make([]byte, 4000*enc.Streams())
+//	n, err := enc.Encode(pcm, frameSize, buf)
+//	packet := buf[:n]
 //
 //	// Decoder side:
 //	mapping := []byte{0, 1, 2, 3}

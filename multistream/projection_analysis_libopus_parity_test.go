@@ -55,7 +55,7 @@ func TestProjectionAnalysisMatchesLibopus(t *testing.T) {
 			for frame := range frameCount {
 				start := frame * channels * tc.frameSize
 				input := pcm[start : start+channels*tc.frameSize]
-				got, err := enc.EncodeFloat32WithAnalysisMaxBytes(input, tc.frameSize, input, maxPacketBytes)
+				got, err := encodePacketMax(enc, input, tc.frameSize, input, maxPacketBytes)
 				if err != nil {
 					t.Fatalf("frame %d: %v", frame, err)
 				}

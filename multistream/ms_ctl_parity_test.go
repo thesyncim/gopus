@@ -58,7 +58,7 @@ func TestMSDecoderCTL_GainBroadcast(t *testing.T) {
 	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(bitrate)
 
-	packet, err := enc.Encode(generateTestSignal(channels, frameSize, sampleRate, 997), frameSize)
+	packet, err := encodePacket(enc, generateTestSignal(channels, frameSize, sampleRate, 997), frameSize)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestMSDecoderCTL_FinalRangeXOR(t *testing.T) {
 	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(192000)
 
-	packet, err := enc.Encode(generateTestSignal(channels, sampleRate/50, sampleRate, 440), sampleRate/50)
+	packet, err := encodePacket(enc, generateTestSignal(channels, sampleRate/50, sampleRate, 440), sampleRate/50)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestMSDecoderCTL_LastPacketDurationReflectsFirstStream(t *testing.T) {
 	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(256000)
 
-	packet, err := enc.Encode(generateTestSignal(channels, frameSize, sampleRate, 220), frameSize)
+	packet, err := encodePacket(enc, generateTestSignal(channels, frameSize, sampleRate, 220), frameSize)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -336,7 +336,7 @@ func TestMSDecoderCTL_BandwidthReflectsFirstStream(t *testing.T) {
 	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(256000)
 
-	packet, err := enc.Encode(generateTestSignal(channels, frameSize, sampleRate, 220), frameSize)
+	packet, err := encodePacket(enc, generateTestSignal(channels, frameSize, sampleRate, 220), frameSize)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -629,7 +629,7 @@ func TestMSEncoderCTL_FinalRangeXOR(t *testing.T) {
 	enc.SetBitrate(256000)
 
 	pcm := generateTestSignal(channels, frameSize, sampleRate, 330)
-	if _, err := enc.Encode(pcm, frameSize); err != nil {
+	if _, err := encodePacket(enc, pcm, frameSize); err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
 
@@ -716,7 +716,7 @@ func TestMSDecoderCTL_GainAudioMatchesLibopus(t *testing.T) {
 	enc.SetBitrate(bitrate)
 
 	pcm := generateMultichannelSine(channels, frameSize)
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodePacket(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -773,7 +773,7 @@ func TestMSDecoderCTL_GainAudioMatchesLibopusSILK(t *testing.T) {
 	enc.SetBitrate(bitrate)
 
 	pcm := generateMultichannelSine(channels, frameSize)
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodePacket(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}

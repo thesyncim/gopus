@@ -562,7 +562,7 @@ func runLibopusSurroundTest(t *testing.T, label string, channels, bitrate int) {
 		pcm := generateMultichannelSine(channels, frameSize)
 		allInput = append(allInput, pcm...)
 
-		packet, err := enc.Encode(pcm, frameSize)
+		packet, err := encodePacket(enc, pcm, frameSize)
 		if err != nil {
 			t.Fatalf("Frame %d: Encode failed: %v", i, err)
 		}
@@ -716,7 +716,7 @@ func TestLibopus_DefaultMappingMatrix(t *testing.T) {
 				pcm := generateMultichannelSine(tc.channels, frameSize)
 				allInput = append(allInput, pcm...)
 
-				packet, err := enc.Encode(pcm, frameSize)
+				packet, err := encodePacket(enc, pcm, frameSize)
 				if err != nil {
 					t.Fatalf("Frame %d: Encode failed: %v", i, err)
 				}
@@ -844,7 +844,7 @@ func TestLibopus_FrameDurationMatrix(t *testing.T) {
 				packets := make([][]byte, numFrames)
 				for i := range numFrames {
 					pcm := generateMultichannelSine(layout.channels, fs.frameSize)
-					packet, err := enc.Encode(pcm, fs.frameSize)
+					packet, err := encodePacket(enc, pcm, fs.frameSize)
 					if err != nil {
 						t.Fatalf("Frame %d: Encode failed: %v", i, err)
 					}
@@ -947,7 +947,7 @@ func runLibopusAmbisonicsParityCase(t *testing.T, mappingFamily, channels, bitra
 		pcm := generateMultichannelSine(channels, frameSize)
 		allInput = append(allInput, pcm...)
 
-		packet, err := enc.Encode(pcm, frameSize)
+		packet, err := encodePacket(enc, pcm, frameSize)
 		if err != nil {
 			t.Fatalf("Frame %d: Encode failed: %v", i, err)
 		}
@@ -1144,7 +1144,7 @@ func TestLibopus_BitrateQuality(t *testing.T) {
 				pcm := generateMultichannelSine(tc.channels, frameSize)
 				allInput = append(allInput, pcm...)
 
-				packet, err := enc.Encode(pcm, frameSize)
+				packet, err := encodePacket(enc, pcm, frameSize)
 				if err != nil {
 					t.Fatalf("Frame %d: Encode failed: %v", i, err)
 				}
@@ -1227,7 +1227,7 @@ func TestLibopus_ContainerFormat(t *testing.T) {
 	frameSize := 960
 	pcm := generateMultichannelSine(6, frameSize)
 
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodePacket(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}

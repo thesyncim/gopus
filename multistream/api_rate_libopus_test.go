@@ -116,7 +116,7 @@ func TestLibopus_APIRateMultistreamDecodeMatchesReference(t *testing.T) {
 			pcm[i*channels+ch] = float32(0.25 * math.Sin(2*math.Pi*freq*float64(i)/encoderSampleRate))
 		}
 	}
-	packet, err := enc.Encode(pcm, encoderFrameSize)
+	packet, err := encodePacket(enc, pcm, encoderFrameSize)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestLibopus_APIRateMultistreamOutputGainMatchesReference(t *testing.T) {
 	enc.SetLowDelay(true)
 	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(encoderBitrate)
-	packet, err := enc.Encode(generateTestSignal(channels, frameSize, sampleRate, encoderFrequency), frameSize)
+	packet, err := encodePacket(enc, generateTestSignal(channels, frameSize, sampleRate, encoderFrequency), frameSize)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestLibopus_APIRateMultistreamDecodeToInt16MatchesReference(t *testing.T) {
 	enc.SetBitrate(encoderBitrate)
 	packets := make([][]byte, 2)
 	for i := range packets {
-		packet, err := enc.Encode(generateTestSignal(channels, frameSize, sampleRate, encoderFrequency+float64(i)*113), frameSize)
+		packet, err := encodePacket(enc, generateTestSignal(channels, frameSize, sampleRate, encoderFrequency+float64(i)*113), frameSize)
 		if err != nil {
 			t.Fatalf("Encode packet %d: %v", i, err)
 		}
@@ -282,7 +282,7 @@ func TestLibopus_APIRateMultistreamCELTDecodeAndPLCMatchesReference(t *testing.T
 	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(256000)
 	pcm := generateTestSignal(channels, encoderFrameSize, encoderSampleRate, 997)
-	packet, err := enc.Encode(pcm, encoderFrameSize)
+	packet, err := encodePacket(enc, pcm, encoderFrameSize)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestLibopus_APIRateMultistreamSILKRequestedPLCMatchesReference(t *testing.T
 	enc.SetMode(internalenc.ModeSILK)
 	enc.SetBandwidth(types.BandwidthWideband)
 	enc.SetBitrate(32000)
-	packet, err := enc.Encode(generateTestSignal(channels, encoderFrameSize, encoderSampleRate, 440), encoderFrameSize)
+	packet, err := encodePacket(enc, generateTestSignal(channels, encoderFrameSize, encoderSampleRate, 440), encoderFrameSize)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
