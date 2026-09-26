@@ -643,18 +643,19 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 			srcIdx := s1Base + j
 			if srcIdx >= 0 && srcIdx < len(buf) {
 				v := float32(buf[srcIdx])
-				s1 = noFMA32Add(s1, noFMA32Mul(v, v))
+				// celt_decoder.c celt_decode_lost accumulates S1 scalar-wise;
+				// arm64 contracts the product and sum, while amd64 does not.
+				s1 = fma32(v, v, s1)
 			}
 			j++
 		}
 
 		d.celtIIRFloat32(chOut, hist, lpc, totalSamples)
 
-		s2 := float32(0)
-		for i := range totalSamples {
-			v := float32(chOut[i])
-			s2 = noFMA32Add(s2, noFMA32Mul(v, v))
-		}
+		// celt_decoder.c celt_decode_lost accumulates S2 with the target's
+		// selected reduction order: arm64 NEON rounds four products before
+		// adding and contracts the tail; scalar arm64 contracts every sample.
+		s2 := periodicPLCEnergy(0, chOut[:totalSamples])
 		if !(s1 > float32(0.2)*s2) {
 			for i := range totalSamples {
 				chOut[i] = 0

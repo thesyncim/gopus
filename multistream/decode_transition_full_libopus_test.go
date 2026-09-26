@@ -144,3 +144,58 @@ func TestTransitionFullSequenceMatchesLibopus(t *testing.T) {
 		}
 	}
 }
+
+// TestTransitionPreviousCELTPLCStageMatchesLibopus isolates the CELT PLC audio
+// entering CELT→Hybrid transitions. A public C NULL decode after the identical
+// packet history requests exactly F5 samples/channel, matching the recursive
+// opus_decode_frame(NULL) CELT branch before its outer crossfade.
+func TestTransitionPreviousCELTPLCStageMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const frameSize48 = 480
+	modes := []encoder.Mode{encoder.ModeHybrid, encoder.ModeCELT, encoder.ModeHybrid, encoder.ModeCELT, encoder.ModeHybrid}
+	for _, channels := range []int{1, 2} {
+		packets := encodeModeSwitchSingleStreamPackets(t, channels, frameSize48, modes)
+		for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
+			frameSize := frameSize48 * sampleRate / 48000
+			f5 := sampleRate / 200
+			for _, gainQ8 := range []int{0, 768, -768} {
+				for _, target := range []int{2, 4} {
+					t.Run(fmt.Sprintf("ch%d/fs%d/g%d/target%d", channels, sampleRate, gainQ8, target), func(t *testing.T) {
+						steps := make([]transitionDecodeStep, target+1)
+						for i := range target {
+							steps[i] = transitionDecodeStep{packet: packets[i], frameSize: frameSize}
+						}
+						steps[target] = transitionDecodeStep{frameSize: f5}
+						want := decodeTransitionSequenceWithLibopus(t, sampleRate, channels, gainQ8, frameSize, steps)
+						dec := newStreamDecoder(sampleRate, channels)
+						if err := dec.SetGain(gainQ8); err != nil {
+							t.Fatal(err)
+						}
+						for i := range target {
+							got, err := dec.Decode(packets[i], frameSize)
+							if err != nil {
+								t.Fatalf("history frame %d: %v", i, err)
+							}
+							if want[i].samples != frameSize || len(got) != frameSize*channels || dec.FinalRange() != want[i].finalRange {
+								t.Fatalf("history frame %d length/range Go=(%d,%08x) C=(%d,%08x)",
+									i, len(got), dec.FinalRange(), want[i].samples*channels, want[i].finalRange)
+							}
+							assertTransitionStagePCMExact(t, got, want[i].pcm, fmt.Sprintf("history frame %d", i))
+						}
+						if dec.lastMode != streamModeCELT {
+							t.Fatalf("previous mode=%d, want CELT", dec.lastMode)
+						}
+						got, err := dec.transitionPLCToFloat32(f5, int(dec.lastMode), int(dec.lastBandwidth), dec.lastPacketStereo)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if want[target].samples != f5 || len(got) != f5*channels {
+							t.Fatalf("F5 PLC length Go=%d C=%d want %d", len(got), want[target].samples*channels, f5*channels)
+						}
+						assertTransitionStagePCMExact(t, got, want[target].pcm, "full CELT PLC stage")
+					})
+				}
+			}
+		}
+	}
+}
