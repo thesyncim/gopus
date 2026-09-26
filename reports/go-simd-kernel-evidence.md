@@ -361,9 +361,10 @@ MDCT/TF scratch gives zero warm allocations for the tested six-channel encode
 and eight-channel low-space path. All 228 focused test nodes pass each ARM
 mode, including 24-frame short/float transitions, projection, ownership and
 capacity-rejection state checks. The strict broad composite sweep passes
-2,844 nodes per lane; its one fixed 7.1/480/64k CBR case still differs in one
-byte despite matching each child range. All 432 five-frame projection cases
-are exact. Longer and broader composite coverage remains open.
+the full 2,268-case differential matrix and all 112 fixed surround cases in
+each local lane. The low-space high-pass state at `8d39f40d` matches C before
+and after a one-byte child packet, with a strict six-frame 7.1 CBR witness.
+All 432 five-frame projection cases are exact. Longer and broader composite coverage remains open.
 
 SILK PLC at `7a48ad92` clears all 16 cached LPC coefficients when the channel
 is in its first frame after reset, as `silk_PLC_conceal` requires. Captured
@@ -372,83 +373,69 @@ length and range against the live paired C decoder in all three ARM modes.
 Removing only the reset clear fails both histories. The broader FEC/PLC/side
 channel sweep passes 72 test nodes per lane, without failures or skips;
 8/12/16 kHz reset concealment checks allocate zero after warmup. Native AMD64
-confirmation is pending; both captured histories are in the early CI gate.
+SIMD and nosimd each pass all 13 FEC test nodes at `04e9628c` and `3f846cc4`,
+including both captured histories.
 
 ### Optional-feature exactness audit
 
-No complete optional-feature byte-parity claim is established. QEXT reference
-trees at `ac68c9b1` validate both the feature and scalar/SIMD identity. At
-`40a96c7e`, non-VoIP QEXT bypasses DC rejection as in C. Four matched signed24
-20 ms CBR packet cases require complete bytes and final ranges and pass in
-ordinary, SIMD and `nosimd`; feature preprocessing/state and selected-C
-VQ/extension-band/MDCT gates pass in each lane. This four-case gate does not
-establish broad QEXT signal, duration, or stateful parity.
+Full optional-feature parity remains incomplete. Every feature oracle selects
+and validates its feature configuration and scalar/SIMD instruction lane.
 
-At `9ab86894`, QEXT energy history persists across frames and clears on Reset,
-including both physical channels after a coded-channel change. Coarse-energy
-trial scratch retains its backing storage; fine coding updates the persistent
-history with the C channel stride. Three actual-C fine-energy cases compare
-packet bytes, final range, every history value and every residual exactly.
-A three-frame active CVBR packet witness and warmed active `EncodeInt24`
-allocation check also pass: 69 selected test nodes per ordinary, SIMD and
-`nosimd` ARM64 lane, zero failures or skips, zero steady-state allocations.
-The broader matched QEXT diagnostic still differs in 58/60 configurations;
-these focused results do not establish complete QEXT parity. Native AMD64
-confirmation of this checkpoint is pending.
+QEXT uses build-wide float theta gains (`536ce5b5`), fixed entropy storage,
+main-residual backup, multiframe CBR padding (`5789af08`), and C's per-subframe
+extension reservation (`2473de2e`). The matched 60-configuration/180-frame
+encoder matrix at `b91e2937` is **60/60 configurations, 180/180 frames byte-and-range exact**
+in ordinary, SIMD, nosimd and purego on ARM64. The QEXT target-byte conversion
+truncates the integer bit budget exactly as `celt_encoder.c` does.
+The strict witnesses cover 40/60 ms CBR, a 477-byte output cap, and VBR caps
+on either side of the 254-byte reservation boundary. Received-silence synthesis
+at `00c16855` clears main and extension spectra while preserving coder and
+energy history. Twelve coded/output-channel and extension-size cases plus two
+three-frame good/silence/recovery histories match every C PCM bit and range;
+removing only the extension clear fails all fourteen leaves. Focused QEXT
+suites pass 160 events including package completions in ordinary, SIMD,
+nosimd and purego, without failures/skips. Reverting only target-byte
+truncation fails the seven captured matrix configurations. Active encode allocation witnesses remain zero.
 
-QEXT allocation at `743ade54` reads the stabilized band energies and computes
-its remaining extension balance before fine-energy raw bits. Independent
-three-frame VBR and CVBR witnesses require complete packets and final ranges;
-reverting only the balance order fails the CVBR witness. All 71 focused test
-nodes pass each local mode without failures or skips. The broad diagnostic
-differs in 53/60 configurations and 122/180 frames at this checkpoint.
+Custom mode-owned FFT/MDCT tables match actual C twiddles, trig, windows and
+forward/inverse transforms, including shared base twiddles for short blocks.
+The two-tap preemphasis recurrence at `49634d64` matches C's rounded second
+product and first-product/subtraction contraction. Four three-frame input
+filter cases and 24 output-filter cells compare exact output/state and warm
+zero allocations; reverting their contraction fails all respective leaves.
+All supported cases in the existing custom suites require exact packet bytes,
+final ranges and PCM bits. The focused custom/filter/FMA/silence batch passes
+243 test nodes plus four packages in each ARM lane, with seven existing
+capability/duplicate-family skips and no failures. A separate ordinary-ARM64 80-record audit
+contains 68 supported exact packet/PCM records, eleven C-accepted wider-band
+records that Go rejects, and one invalid C geometry. These records include
+duplicates and are not a count of distinct modes. Wider-band support and native
+confirmation of the strict custom gates remain open.
 
-The quantized split-angle correction at `3755d6d4` reconstructs the encoded
-angle before recursive QEXT gains and budgets. The actual selected C oracle
-checks complete payloads, ranges, bit counts, seeds and collapse masks at
-LM 0/1/2; a line-revert fails the captured LM1 case. All 56 QEXT test nodes
-and both packages pass ordinary, SIMD and `nosimd`, without skips. A strict
-two-frame 5 ms packet witness passes, and existing three-frame witnesses
-remain enforced. The broader diagnostic differs in 53/60 configurations and
-118/180 frames; full QEXT parity remains open.
+DRED at `a03103c9` pairs the neural kernels as well as the codec with the
+selected C build. Ordinary/nosimd use scalar activations and RDOVAE kernels;
+ARM64 SIMD uses NEON. The strict duration sweep passes all 80 configurations in
+each ARM lane: 78 exact emitted payload/index/offset cases and two exact
+640-frame no-emission cases. Packet/kernel checks pass 40/40 and touched
+internal suites pass 309/309 per lane; ordinary purego also passes those
+internal checks and all 105 focused public DRED nodes. Native AMD64 binaries
+cross-compile; native execution remains pending. The full ordinary DRED root suite has 12,588 passing test nodes and failures
+in 13 explicit decoder matrix parents, beginning in FARGAN state.
+OSCE/deep-PLC and LPCNet suites also contain state/numerical mismatches.
+Those residuals remain hard failures at their existing gates.
 
-QEXT finalization at `156acf19` emits main fine bits from the saved residual
-while preserving refined extension history; six actual-C finalizer cases
-check every bit and state field. The secondary coder at `ddf84985` keeps raw
-end bits at their fixed storage offsets. A line revert fails the new strict
-three-frame 10 ms VBR witness. All 69 QEXT test nodes and both packages pass
-ordinary, SIMD and `nosimd`, without failures or skips. The broad 60-case,
-180-frame diagnostic currently differs in **31 configurations / 74 frames**.
-The full tag-enabled package sweep still fails other encoder/PVQ families;
-the focused QEXT result is not a complete package pass.
-
-Custom short decoding at `0ce1a5f1` uses C's 32768 scaling, ties-to-even and
-saturation. All 24 standard-duration mono/stereo amplitude cases match live
-C short PCM and ranges in ordinary, SIMD and `nosimd`; removing the conversion
-fix fails the witness. Custom reference validation checks both CUSTOM_MODES
-and scalar/SIMD provenance. The ordinary and purego package/helper sweeps each
-pass 284 nodes with seven existing custom capability skips. Nonstandard custom
-float PCM/packet parity and additional accepted modes remain open.
-
-DRED carried-payload tests contain
-structural fallbacks; OSCE/deep-PLC tests include numerical tolerances. Their
-neural and codec dispatch choices must both match C. Custom-mode tests include
-unsupported-oracle skips and packet/PCM allowances. Fixed-point kernel checks
-use matched captured integer CELT input, fullband and coded-channel controls,
-and a TOC-reserved CBR byte cap. All 162 configurations (five payloads each)
-pass exact payload lengths/bytes in all three local Go modes. This inner
-seam evidence does not prove raw public input parity or complete feature/ISA
-reference pairing. The audit and causal fixes remain active; passing
-these existing tests is not treated as 100% extension parity.
+Fixed-point kernel checks use matched captured integer CELT input, fullband
+and coded-channel controls, and a TOC-reserved CBR byte cap. All 162
+configurations (five payloads each) pass exact payload lengths/bytes in the
+three local modes. This inner seam does not prove raw public-input parity or
+complete feature/ISA pairing.
 
 Remaining strict investigations include:
 
-- Fixed-configuration surround edge cases, longer projection state sequences,
-  and native AMD64 confirmation of each new fix.
+- Longer surround/projection state sequences and native AMD64 confirmation
+  of each new extension fix.
   Counts above belong to their named matrices and revisions, not a global
   count of independent defects.
-- Native AMD64 confirmation of the exact side-reset FEC fix; local replay
-  uses the captured native packets with matching paired references.
 - Broader QEXT, DRED/OSCE, custom-mode and public fixed-point feature parity,
   with matching neural and codec dispatch on each side.
 - Broader multistream encode allocation coverage and optional-feature
@@ -767,7 +754,7 @@ phases before cancellation, so it supplies no new three-mode ratio. The
 53-row matrix retains the completed measurements and their recorded revisions.
 
 
-### Latest native AMD64 interleaved encode
+### Native AMD64 interleaved encode at 9056116d
 
 [Run 36274171857](https://github.com/thesyncim/gopus/actions/runs/36274171857)
 compares assembly `8ac93c85` with `9056116d` on AMD EPYC 9V74, Go 1.27.1,
@@ -784,6 +771,38 @@ end-to-end table and all 11 comparable AMD64 symbol rows use this revision.
 The earlier EPYC 7763 pair at `1ad86da2` measures 91,445.5 → 88,448.5 ns/op
 (3.3% less time); its different host does not establish a revision comparison.
 
+### Native AMD64 interleaved encode at 3f846cc4
+
+[Run 36279071274](https://github.com/thesyncim/gopus/actions/runs/36279071274)
+compares assembly `8ac93c85` with `3f846cc4` on AMD EPYC 7763, Go 1.27.1,
+GCC 13.3, GOAMD64=v1. Four interleaved 500 ms samples give **92,143 → 88,728
+ns/op (3.7% less time)**, all zero allocations. This CPU differs from the
+EPYC 9V74 used for the complete three-mode table and eleven AMD64 kernel rows;
+the two runs do not isolate a source-revision effect. All 47 early phases exit
+zero, including both native SIMD/scalar FEC lanes. The build-config job fails
+the fixed 7.1 low-space case covered by the local `8d39f40d` correction.
+
+### ARM64 correctly rounded FMA
+
+At `3e93446d`, public `opusmath.FMA32` uses a non-inlined FMADDS/RET on ARM64.
+The call boundary prevents Go constant folding from rounding through a wider
+intermediate. The unchanged exact tie witness and 200,000 finite cases pass;
+other architectures retain the correctly rounded software implementation.
+Five interleaved 300 ms samples on M4/Go 1.27.0 compare the software helper
+with this native helper, using otherwise identical SIMD binaries:
+
+| Fixture | Software FMA ns/op | Native FMA ns/op | Change | Allocs/op |
+|---|---:|---:|---:|---:|
+| CELT decode | 8,419 | 8,377 | -0.5% | 0 |
+| Hybrid decode | 16,115 | 16,223 | +0.7% | 0 |
+| SILK decode | 10,223 | 10,030 | -1.9% | 0 |
+| Caller-buffer encode | 47,771 | 47,192 | -1.2% | 0 |
+| VoIP encode | 53,208 | 52,067 | -2.1% | 0 |
+| Low-delay encode | 48,235 | 46,748 | -3.1% | 0 |
+
+Small deltas are near measurement noise. These are Go-to-Go measurements;
+they do not replace the assembly comparison or establish a new AMD64 result.
+
 ## Per-symbol inventory
 
 Former symbols identify the pre-port assembly entry points. `0` in the
@@ -797,7 +816,7 @@ comparable per-call Go operation and are marked n/a with the reason.
 |---:|---|---|---|---|---|---|---|
 | 1 | `combFilterConstNeon` | arm64 | `internal/celt/comb_const_simd_arm64.go`; `internal/celt/comb_const_default.go` | archsimd / scalar | N=480: old asm 115.4 (114.7–116.9) → Go SIMD 109.0 (107.7–113.0); scalar Go 617.7 (592.7–623.2; earlier Go 1.27.1 run) | 0 | measured on M4 with Go 1.27.0; Go SIMD is 5.5% faster than asm; exact and zero-alloc checks pass |
 | 2 | `cwrsiFastCore` | arm64 | `internal/celt/cwrs_fast_default.go` | scalar Go | live table-covered N=48, K=5: old asm 28.94 (28.85–29.34) → scalar Go 44.02 (43.81–44.12) ns/op | 0 | paired M4 Go 1.27.0; scalar Go is 52% slower than asm; exact output and zero-allocation checks pass |
-| 3 | `deemphasisStereoPlanarF32Core` | arm64 | `internal/celt/output_helpers.go` (`deemphasisChannel`) | exact scalar recurrence in every build | original direct N=480 old asm → scalar Go: 1,065 (1,065–1,068) → 1,167 (1,166–1,169); current live wrapper pair, e6 SIMD → exact recurrence: stereo 353.5 (349.9–367.6) → 868.9 (860.1–881.0), mono 225.9 (222.2–229.7) → 693.0 (686.4–706.9) | 0 | current live helper matches C bits; exact stereo costs 146% versus e6 reassociation; original asm comparison uses a separate fixture and toolchain measurement |
+| 3 | `deemphasisStereoPlanarF32Core` | arm64 | `internal/celt/output_helpers.go` (`deemphasisChannel`) | exact scalar recurrence in every build | b36c1c20 live N=480 diagnostic, scalar / SIMD build: mono 714.4 (657.5–976.2) / 1,552 (1,278–2,100); stereo 1,353 (1,350–1,355) / 1,599 (1,431–2,033). Recorded original direct old asm / scalar: 1,065 / 1,167 | 0 | five 300 ms samples per build on M4/Go 1.27.0; current recurrence and all input layouts match C exactly; SIMD-build timings are noisy and do not establish a regression ratio against the different original asm fixture |
 | 4 | `expRotation1PassNeon` | arm64 | `internal/celt/exp_rotation_simd_arm64.go`; `internal/celt/exp_rotation_default.go` | archsimd / scalar | old asm → Go → SIMD: len32/stride1 284.3 (283.6–289.3) → 286.9 (285.8–288.9) → 282.6 (280.6–284.3); len64/stride1 583.2 (581.0–584.1) → 579.7 (574.3–584.2) → 578.2 (574.5–592.8); len32/stride2 138.1 (136.6–145.2) → 148.8 (142.6–152.1) → 159.5 (155.8–167.2); len32/stride4 85.03 (84.45–85.53) → 80.54 (80.13–83.10) → 84.20 (83.98–84.38) | 0 | measured; SIMD near assembly except stride2 slower |
 | 5 | `haar1Stride1NEON` | arm64 | `internal/celt/haar1_simd_arm64.go`; `internal/celt/haar1_neon_default.go` | archsimd / scalar | N=32, old asm → Go → SIMD: 9.865 (9.791–14.28) → 14.37 (14.34–14.47) → 8.095 (8.057–8.133) | 0 | measured; SIMD 18% faster than asm median; asm range is noisy |
 | 6 | `haar1Stride2NEON` | arm64 | `internal/celt/haar1_simd_arm64.go`; `internal/celt/haar1_neon_default.go` | archsimd / scalar | N=32, old asm → Go → SIMD: 18.73 (14.25–20.18) → 25.88 (25.56–26.26) → 10.59 (10.55–10.80) | 0 | measured; SIMD 43% faster than asm median; asm range is noisy |
@@ -846,8 +865,8 @@ comparable per-call Go operation and are marked n/a with the reason.
 | 49 | `firInterpol32768Core` | arm64 | `internal/silk/resample_fir_simd_arm64.go`; `internal/silk/resample_fir_default.go`; `internal/silk/resample_libopus.go` | archsimd / scalar | nOut=240: old asm 122.9 (122.5–124.7) → scalar Go 293.8 (293.2–296.0) → Go SIMD production 114.2 (113.2–115.6); direct SIMD core 113.5 (111.5–114.2) | 0 | paired M4 Go 1.27.0; production Go SIMD is 7% faster than asm and 2.6× faster than scalar Go; exact and zero-alloc checks pass |
 | 50 | `firInterpol43691Core` | arm64 | `internal/silk/resample_fir_simd_arm64.go`; `internal/silk/resample_fir_default.go`; `internal/silk/resample_libopus.go` | archsimd / scalar | nOut=240: old asm 113.5 (113.2–114.5) → scalar Go 307.0 (304.7–308.7) → Go SIMD production 105.9 (105.7–106.5); direct SIMD core 106.2 (105.1–106.2) | 0 | paired M4 Go 1.27.0; production Go SIMD is 6.7% faster than asm and 2.9× faster than scalar Go; exact and zero-alloc checks pass |
 | 51 | `up2HQCore` | arm64 | `internal/silk/up2hq_core_default.go`; `internal/silk/resample_libopus.go` | scalar Go | N=240: old asm → Go → SIMD build: 1,120 (1,096–1,176) → 1,133 (1,126–1,137) → 1,166 (1,154–1,171) | 0 | measured; scalar and SIMD Go are within 4% of asm |
-| 52 | `convertFloat32ToInt16UnitBlocks` | arm64 | `pcm_convert_simd_arm64.go`; `pcm_convert_arm64_nosimd.go` | archsimd / scalar | n=480, paired M4 Go 1.27.0: old asm 63.13 (62.17–63.76) → prior SIMD 74.63 (73.88–75.71) → tuned SIMD 60.66 (59.99–61.23); scalar Go 630.1 (618.2–700.6) in an earlier fixture | 0 | recorded timings precede the 6bdc651a exact-tie rounding change; current performance needs remeasurement; actual-C ties/tails/invalid-lane and zero-allocation checks pass |
-| 53 | `convertFloat32ToInt16SaturatingBlocks` | arm64 | `pcm_convert_simd_arm64.go`; `pcm_convert_arm64_nosimd.go` | archsimd / scalar | n=480: old asm 52.31 (52.15–52.60); tuned Go SIMD 53.04 (52.23–53.90); original Go SIMD 102.7; scalar Go 646.5 (639.8–658.0) | 0 | recorded timings precede the 6bdc651a exact-tie rounding change; current performance needs remeasurement; actual-C rounding and warm zero-allocation checks pass |
+| 52 | `convertFloat32ToInt16UnitBlocks` | arm64 | `pcm_convert_simd_arm64.go`; `pcm_convert_arm64_nosimd.go` | archsimd / scalar | N=480, b36c1c20 M4/Go 1.27.0: scalar 424.7 / exact Go SIMD 131.5 (131.3–132.7); recorded old asm 63.13 (62.17–63.76) | 0 | five 300 ms samples per build; exact C tie/tail/invalid-lane checks and zero allocations pass; assembly timing is an earlier run with different rounding semantics and does not establish an exact-output speed ratio |
+| 53 | `convertFloat32ToInt16SaturatingBlocks` | arm64 | `pcm_convert_simd_arm64.go`; `pcm_convert_arm64_nosimd.go` | archsimd / scalar | N=480, b36c1c20 M4/Go 1.27.0: scalar 422.4 / exact Go SIMD 106.9 (106.7–107.0); recorded old asm 52.31 (52.15–52.60) | 0 | five 300 ms samples per build; exact C tie/tail/invalid-lane checks and zero allocations pass; assembly timing is an earlier run with different rounding semantics and does not establish an exact-output speed ratio |
 
 ## Native AMD64 parity and quality comparison
 
@@ -869,12 +888,11 @@ and raw-bit xcorr failures remain visible and are not waived.
 
 The 53-row inventory retains each measured revision and fixture. All 51
 comparable routines have direct allocation measurements; startup CPU helpers
-are not comparable per-call operations. The paired ARM64
-deemphasis/decode measurements cover the current recurrence; other ARM64 rows
-retain their recorded revisions and fixtures.
+are not comparable per-call operations. The tables retain the measured revisions and fixtures. The newest native
+checkpoint covers caller-buffer encode; a complete native three-mode/kernel
+refresh after the extension and rounding fixes remains pending.
 
-On the current native AMD64 run, long CELT and SILK xcorr, tiny xcorr, SILK
-float inner product, and the direct PVQ best-ID helper remain optimization
-targets. Xcorr requires exact exceptional-input arithmetic before its timings
-can support a complete correctness claim. The public encode/decode figures
+The 9056116d native kernel run identifies long CELT/SILK correlations and
+tone LPC as remaining direct performance costs. The later parity fixes and
+strict exceptional-input checks require a fresh same-run kernel comparison. The public encode/decode figures
 above measure the entire path with zero steady-state allocations.
