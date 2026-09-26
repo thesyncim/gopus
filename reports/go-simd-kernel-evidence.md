@@ -306,6 +306,27 @@ seeded smoothing, 12 kHz remainders and 40/60/120 ms frames. XY contraction,
 width rounding and the long-frame smoothing rate follow C. Each warm path
 allocates zero. Native confirmation of this estimator gate is pending.
 
+At `c740f561`, VoIP high-pass feedback follows the selected C product
+rounding and contraction order. All 40 direct filter cases (four successive
+frames, five API sample rates, mono/stereo, both input paths and seeded state)
+match every output and state bit in all three ARM64 modes, with zero warm
+allocations. These tests supply identical integer cutoff frequencies to the
+C and Go coefficient/filter stages. The public DTX gate passes all 108
+configurations × 26 frames per ARM mode, with exact packet bytes, ranges and
+cadence. The pre-fix SIMD source fails 107 of those 108 configurations and
+all 40 filter cases. Native confirmation of the new filter gate is pending.
+
+The coded-channel silence scan at `d75d9948` matches C's raw input prefix and
+saved overlap state while preemphasis consumes physical channels. Sixteen
+selected-C stage cases and four five-frame surround/projection byte/range
+witnesses pass in all three ARM modes, with zero warm stage allocations.
+The strict composite audit after this correction has 22/2,268 surround and
+40/432 projection configurations differing in scalar/`nosimd`, and 26/2,268
+and 41/432 in SIMD. All 216 float projection configurations are exact per
+lane; the remaining projection differences occur in the int16 family.
+The full multistream package passes ordinary and `purego`; the CELT package
+retains missing frozen opusdec input-hash failures under active investigation.
+
 ### Optional-feature exactness audit
 
 No complete optional-feature byte-parity claim is established. QEXT reference
