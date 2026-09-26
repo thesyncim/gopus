@@ -81,7 +81,7 @@ func TestCorpusSignalQualityParity(t *testing.T) {
 					// Tier-matched reference: SIMD libopus for the asm gopus
 					// build, scalar libopus for the pure-Go build, so the Q
 					// comparison is like-with-like.
-					refDecoded, err := decodeWithMatchedTierReferencePacketsSingle(channels, frameSize, packets)
+					refDecoded, err := decodeWithMatchedTierReferencePacketsSingle(sampleRate, channels, frameSize, packets)
 					if err != nil {
 						libopustest.HelperUnavailable(t, "matched-tier reference decode", err)
 					}

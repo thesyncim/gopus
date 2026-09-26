@@ -94,21 +94,22 @@ func TestDecoderParityRateMatrix(t *testing.T) {
 			if err != nil {
 				t.Fatalf("decode fixture packets: %v", err)
 			}
-			refDecoded, err := decodeLibopusDecoderRateMatrixSamples(c)
+			apiFrameSize := c.FrameSize * c.APIRate / 48000
+			refDecoded, err := decodeWithMatchedTierReferencePacketsSingle(c.APIRate, c.Channels, apiFrameSize, packets)
 			if err != nil {
-				t.Fatalf("decode fixture f32 samples: %v", err)
+				t.Fatalf("decode packets with matched libopus: %v", err)
 			}
 			internalDecoded := decodeWithInternalDecoderAtRate(t, packets, c.Channels, c.APIRate)
 
 			if len(refDecoded) == 0 || len(internalDecoded) == 0 {
 				t.Fatalf("decoded streams empty: ref=%d internal=%d", len(refDecoded), len(internalDecoded))
 			}
-
-			compareLen := min(len(internalDecoded), len(refDecoded))
+			if len(internalDecoded) != len(refDecoded) {
+				t.Fatalf("decoded length mismatch: Go=%d matched C=%d", len(internalDecoded), len(refDecoded))
+			}
 
 			// maxDelay scales with frame size converted to the API rate.
 			// Use at least 4 frames at the API rate, minimum 20 ms worth.
-			apiFrameSize := c.FrameSize * c.APIRate / 48000
 			if apiFrameSize < 1 {
 				apiFrameSize = c.APIRate / 50
 			}
@@ -123,8 +124,8 @@ func TestDecoderParityRateMatrix(t *testing.T) {
 				// At 48 kHz, opus_compare is applicable. Use the canonical comparator.
 				var err error
 				cmp, err = CompareDecodedFloat32(
-					internalDecoded[:compareLen],
-					refDecoded[:compareLen],
+					internalDecoded,
+					refDecoded,
 					c.APIRate,
 					c.Channels,
 					maxDelay,
@@ -137,8 +138,8 @@ func TestDecoderParityRateMatrix(t *testing.T) {
 				// Use delay-searched waveform correlation and RMS ratio instead.
 				// Q is set to 100 (perfect) so MinQ=0 gates pass and the meaningful
 				// bars are corr and RMS.
-				candidate := internalDecoded[:compareLen]
-				reference := refDecoded[:compareLen]
+				candidate := internalDecoded
+				reference := refDecoded
 				bestDelay, stats := bestWaveformDelayByCorrelation(candidate, reference, maxDelay)
 				cmp = QualityComparison{
 					Q:         100.0,

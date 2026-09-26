@@ -75,7 +75,7 @@ func TestRealContentCorpusQualityParity(t *testing.T) {
 						t.Fatal("gopus decoded empty output")
 					}
 
-					refDecoded, err := decodeWithMatchedTierReferencePacketsSingle(channels, frameSize, packets)
+					refDecoded, err := decodeWithMatchedTierReferencePacketsSingle(sampleRate, channels, frameSize, packets)
 					if err != nil {
 						libopustest.HelperUnavailable(t, "matched-tier reference decode", err)
 					}
@@ -128,7 +128,7 @@ func TestRealContentDecodeOfLibopusPacketsParity(t *testing.T) {
 					t.Fatal("gopus decoded empty output")
 				}
 
-				refDecoded, err := decodeWithMatchedTierReferencePacketsSingle(enc.Channels, enc.FrameSize, enc.decodedPackets)
+				refDecoded, err := decodeWithMatchedTierReferencePacketsSingle(sampleRate, enc.Channels, enc.FrameSize, enc.decodedPackets)
 				if err != nil {
 					libopustest.HelperUnavailable(t, "matched-tier reference decode", err)
 				}

@@ -4,7 +4,7 @@ package testvectors
 //
 // This helper links the libopus tree selected by the build-aware reference
 // resolver and invokes the matching Go decode path. The transport payload and
-// reader contract match the scalar helper, so quality tests can use either path.
+// reader contract match the single-stream helper.
 
 import (
 	"fmt"
@@ -34,9 +34,9 @@ func getLibopusRefdecodeMatchedTierPath() (string, error) {
 	})
 }
 
-// runMatchedTierReferencePacketsSingle mirrors runLibopusReferencePacketsSingle
-// but dispatches to the tier-matched binary.
-func runMatchedTierReferencePacketsSingle(channels, frameSize int, packets [][]byte, sampleFormat uint32) (*libopustest.OracleReader, error) {
+// runMatchedTierReferencePacketsSingle decodes through the tier-matched binary
+// at the same API sample rate as the Go decoder.
+func runMatchedTierReferencePacketsSingle(sampleRate, channels, frameSize int, packets [][]byte, sampleFormat uint32) (*libopustest.OracleReader, error) {
 	binPath, err := getLibopusRefdecodeMatchedTierPath()
 	if err != nil {
 		return nil, err
@@ -45,7 +45,7 @@ func runMatchedTierReferencePacketsSingle(channels, frameSize int, packets [][]b
 		return nil, fmt.Errorf("unsupported single-stream channel count: %d", channels)
 	}
 
-	payload := libopustest.NewOraclePayloadVersion("GOSI", 2, sampleFormat, uint32(channels), uint32(frameSize), uint32(len(packets)))
+	payload := libopustest.NewOraclePayloadVersion("GOSI", 3, sampleFormat, uint32(sampleRate), uint32(channels), uint32(frameSize), uint32(len(packets)))
 	for _, packet := range packets {
 		payload.U32(uint32(len(packet)))
 		payload.Raw(packet)
@@ -53,12 +53,10 @@ func runMatchedTierReferencePacketsSingle(channels, frameSize int, packets [][]b
 	return libopustest.RunOracle(binPath, payload.Bytes(), "matched-tier reference decode", "GOSO")
 }
 
-// decodeWithMatchedTierReferencePacketsSingle decodes packets with the libopus
-// reference whose SIMD tier matches the gopus build under test, returning float32
-// PCM. Use this for QUALITY (opus_compare Q) parity so the comparison is
-// like-with-like; keep the scalar helper for bit-exact oracles.
-func decodeWithMatchedTierReferencePacketsSingle(channels, frameSize int, packets [][]byte) ([]float32, error) {
-	reader, err := runMatchedTierReferencePacketsSingle(channels, frameSize, packets, libopusRefdecodeSingleFormatFloat32)
+// decodeWithMatchedTierReferencePacketsSingle returns float32 PCM from the
+// libopus build with the same CPU features as the Go decoder under test.
+func decodeWithMatchedTierReferencePacketsSingle(sampleRate, channels, frameSize int, packets [][]byte) ([]float32, error) {
+	reader, err := runMatchedTierReferencePacketsSingle(sampleRate, channels, frameSize, packets, libopusRefdecodeSingleFormatFloat32)
 	if err != nil {
 		return nil, err
 	}

@@ -11,7 +11,7 @@ package testvectors
 //   Channels:       mono, stereo
 //
 // Each test case:
-//   1. Loads frozen packets + libopus-decoded reference PCM from the fixture.
+//   1. Loads frozen packets and decodes them with a paired libopus build.
 //   2. Decodes the same packets with the gopus internal decoder.
 //   3. Gates the result with qualitycompare.AssertParity (auto-selects
 //      opus_compare-Q or waveform corr/RMS depending on the signal profile).
@@ -28,7 +28,7 @@ import (
 )
 
 // TestCorpusDecoderParity decodes each corpus fixture case with gopus and gates
-// quality against the frozen libopus reference with qualitycompare.AssertParity.
+// quality against a matched live libopus reference with qualitycompare.AssertParity.
 func TestCorpusDecoderParity(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
@@ -53,7 +53,10 @@ func TestCorpusDecoderParity(t *testing.T) {
 
 			// Decode with gopus.
 			gopusDecoded := decodeWithInternalDecoder(t, c.decodedPackets, c.Channels)
-			refDecoded := c.decodedSamples
+			refDecoded, err := decodeWithMatchedTierReferencePacketsSingle(fixture.SampleRate, c.Channels, c.FrameSize, c.decodedPackets)
+			if err != nil {
+				t.Fatalf("decode packets with matched libopus: %v", err)
+			}
 
 			if len(gopusDecoded) == 0 {
 				t.Fatalf("gopus decoded empty output for %s", c.Name)
@@ -61,9 +64,12 @@ func TestCorpusDecoderParity(t *testing.T) {
 			if len(refDecoded) == 0 {
 				t.Fatalf("reference decoded empty for %s", c.Name)
 			}
+			if len(gopusDecoded) != len(refDecoded) {
+				t.Fatalf("decoded length mismatch for %s: Go=%d matched C=%d", c.Name, len(gopusDecoded), len(refDecoded))
+			}
 
 			// Build signal profile: all samples are coded (no PLC/concealment here).
-			n := min(len(refDecoded), len(gopusDecoded))
+			n := len(refDecoded)
 			profile := qualitycompare.CodedProfile(fixture.SampleRate, c.Channels, n)
 
 			// Gate: near-exact intent — gopus must track libopus as closely as

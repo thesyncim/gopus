@@ -90,11 +90,14 @@ func TestDecoderHybridToCELT10msTransitionParity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("decode fixture packets: %v", err)
 			}
-			refDecoded, err := decodeLibopusDecoderMatrixSamples(c)
+			refDecoded, err := decodeWithMatchedTierReferencePacketsSingle(fixture.SampleRate, c.Channels, c.FrameSize, packets)
 			if err != nil {
-				t.Fatalf("decode fixture samples: %v", err)
+				t.Fatalf("decode packets with matched libopus: %v", err)
 			}
 			gotDecoded := decodeWithInternalDecoder(t, packets, c.Channels)
+			if len(gotDecoded) != len(refDecoded) {
+				t.Fatalf("decoded length mismatch: Go=%d matched C=%d", len(gotDecoded), len(refDecoded))
+			}
 
 			transitionIdx, err := firstHybridToCELTFrameIndex(c)
 			if err != nil {
@@ -143,11 +146,14 @@ func TestDecoderHybridToCELT20msTransitionParity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode fixture packets: %v", err)
 	}
-	refDecoded, err := decodeLibopusDecoderMatrixSamples(c)
+	refDecoded, err := decodeWithMatchedTierReferencePacketsSingle(fixture.SampleRate, c.Channels, c.FrameSize, packets)
 	if err != nil {
-		t.Fatalf("decode fixture samples: %v", err)
+		t.Fatalf("decode packets with matched libopus: %v", err)
 	}
 	gotDecoded := decodeWithInternalDecoder(t, packets, c.Channels)
+	if len(gotDecoded) != len(refDecoded) {
+		t.Fatalf("decoded length mismatch: Go=%d matched C=%d", len(gotDecoded), len(refDecoded))
+	}
 
 	transitionIdx, err := firstHybridToCELTFrameIndex(c)
 	if err != nil {
