@@ -18,7 +18,7 @@ import (
 
 func TestExportFrozenOpusdecInputs(t *testing.T) {
 	const producer = "1ee7f25232a25d640aa92ece60d952036c2b09bd"
-	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" || runtime.Version() != "go1.27.1" ||
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" || runtime.Version() != "go1.27.1-X:simd" ||
 		os.Getenv("GOAMD64") != "v1" || os.Getenv("GOEXPERIMENT") != "simd" ||
 		os.Getenv("GOPUS_FROZEN_PRODUCER_COMMIT") != producer {
 		t.Fatal("recovery requires the recorded native Linux AMD64 Go 1.27.1 SIMD producer")
