@@ -162,9 +162,6 @@ type Encoder struct {
 	useVBR        bool
 	vbrConstraint bool
 	bitrate       int32 // Target bits per second
-	// celtCVBRBoundScale scales CELT constrained-VBR burst bound.
-	// 1.0 matches libopus single-stream behavior.
-	celtCVBRBoundScale opusVal16
 
 	// FEC controls
 	fecEnabled        bool
@@ -331,7 +328,6 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		bitrateMode:            ModeCVBR,
 		useVBR:                 true,
 		vbrConstraint:          true,
-		celtCVBRBoundScale:     1.0,
 		bitrate:                64000,
 		fecEnabled:             false,
 		packetLoss:             0,
@@ -722,20 +718,6 @@ func (e *Encoder) VBR() bool {
 func (e *Encoder) SetVBRConstraint(constrained bool) {
 	e.vbrConstraint = constrained
 	e.bitrateMode = modeFromVBRFlags(e.useVBR, e.vbrConstraint)
-}
-
-// SetCELTCVBRBoundScale scales CELT constrained-VBR burst bound.
-// Valid range is [0, 1], where 1 keeps libopus single-stream behavior.
-func (e *Encoder) SetCELTCVBRBoundScale(scale float32) {
-	if scale < 0 {
-		scale = 0
-	} else if scale > 1 {
-		scale = 1
-	}
-	e.celtCVBRBoundScale = scale
-	if e.celtEncoder != nil {
-		e.celtEncoder.SetConstrainedVBRBoundScale(scale)
-	}
 }
 
 // VBRConstraint reports whether constrained VBR is enabled.
@@ -3110,7 +3092,6 @@ func (e *Encoder) ensureCELTEncoder() {
 	e.celtEncoder.SetLFE(e.lfe)
 	e.celtEncoder.SetSurroundTrim(e.celtSurroundTrim)
 	e.syncCELTEnergyMask()
-	e.celtEncoder.SetConstrainedVBRBoundScale(e.celtCVBRBoundScale)
 	e.celtEncoder.SetStreamChannels(int(e.streamChannels))
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	e.celtEncoder.SetPacketLoss(int(e.packetLoss))

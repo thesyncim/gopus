@@ -104,9 +104,6 @@ type Encoder struct {
 	maxPayloadBytes      int32 // Optional per-frame payload cap (excludes TOC byte)
 	vbr                  bool
 	constrainedVBR       bool
-	// constrainedVBRBoundScale scales libopus vbr_bound for constrained-VBR
-	// max-allowed computation. 1.0 matches libopus single-stream behavior.
-	constrainedVBRBoundScale opusVal16
 	// Constrained-VBR state mirrors libopus CELT encoder cadence.
 	// Units are Q3 bits unless noted.
 	vbrReservoir int32
@@ -317,9 +314,8 @@ func NewEncoder(channels int) *Encoder {
 
 		// A standalone encoder codes VBR at 64 kb/s per channel until
 		// SetBitrate/SetVBR configure it.
-		targetBitrate:            int32(64000 * channels),
-		vbr:                      true,
-		constrainedVBRBoundScale: 1.0,
+		targetBitrate: int32(64000 * channels),
+		vbr:           true,
 	}
 
 	// Energy arrays default to zero after allocation (matches libopus init).
@@ -568,17 +564,6 @@ func (e *Encoder) VBR() bool {
 // SetConstrainedVBR enables or disables constrained VBR mode.
 func (e *Encoder) SetConstrainedVBR(enabled bool) {
 	e.constrainedVBR = enabled
-}
-
-// SetConstrainedVBRBoundScale sets a scale for constrained-VBR vbr_bound.
-// Valid range is [0, 1], where 1 matches libopus single-stream behavior.
-func (e *Encoder) SetConstrainedVBRBoundScale(scale float32) {
-	if scale < 0 {
-		scale = 0
-	} else if scale > 1 {
-		scale = 1
-	}
-	e.constrainedVBRBoundScale = scale
 }
 
 // SetPrediction controls CELT inter-frame prediction behavior.

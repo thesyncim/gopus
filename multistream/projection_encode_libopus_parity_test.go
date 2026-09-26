@@ -21,6 +21,7 @@ type projectionEncodeRef struct {
 	demixing       []byte
 	demixingGain   int
 	packets        [][]byte
+	ranges         []uint32
 }
 
 // encodeLibopusProjection runs the libopus projection encoder oracle for the
@@ -48,7 +49,7 @@ func encodeLibopusProjection(sampleRate, channels, application, bitrate int, vbr
 
 	payload := libopustest.NewOraclePayloadVersion(
 		"GPEI",
-		1,
+		2,
 		uint32(sampleRate),
 		uint32(channels),
 		uint32(application),
@@ -70,7 +71,7 @@ func encodeLibopusProjection(sampleRate, channels, application, bitrate int, vbr
 		payload.Float32s(pcm32...)
 	}
 
-	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "projection reference encode", "GPEO")
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "projection reference encode", "GPEO", 2)
 	if err != nil {
 		return nil, err
 	}
@@ -81,9 +82,11 @@ func encodeLibopusProjection(sampleRate, channels, application, bitrate int, vbr
 	demixing := append([]byte(nil), reader.Bytes(demixSize)...)
 	demixGain := int(int32(reader.U32()))
 
-	packetCount := int(reader.U32())
+	packetCount := reader.Count(frameCount)
 	packets := make([][]byte, packetCount)
+	ranges := make([]uint32, packetCount)
 	for i := range packets {
+		ranges[i] = reader.U32()
 		n := int(reader.U32())
 		packets[i] = append([]byte(nil), reader.Bytes(n)...)
 	}
@@ -96,6 +99,7 @@ func encodeLibopusProjection(sampleRate, channels, application, bitrate int, vbr
 		demixing:       demixing,
 		demixingGain:   demixGain,
 		packets:        packets,
+		ranges:         ranges,
 	}, nil
 }
 

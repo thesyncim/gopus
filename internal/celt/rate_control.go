@@ -162,9 +162,6 @@ func (e *Encoder) constrainVBRBudget(b *FrameBudget, tell int) bool {
 		return false
 	}
 	vbrBound := b.vbrRate
-	if scale := e.constrainedVBRBoundScale; scale < 1 {
-		vbrBound = int32(scale * float32(b.vbrRate))
-	}
 	floor := int32(0)
 	if tell == 1 {
 		floor = 2
