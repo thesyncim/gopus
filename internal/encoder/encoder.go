@@ -1145,7 +1145,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 			e.hybridState.prevHBGain = 1
 		}
 		if frameSize > 3*f20 {
-			packet, err = e.encodeSILKMultiFramePacket(framePCM, vadPCM, frameSize, int(e.bitrate), int(encodingBitrate), dredBitrate, dredExtraDelay)
+			packet, err = e.encodeSILKMultiFramePacket(framePCM, vadPCM, frameSize, int(e.bitrate), int(encodingBitrate), dredBitrate, dredExtraDelay, maxDataBytes)
 		} else {
 			originalBitrate := e.bitrate
 			if encodingBitrate != originalBitrate {
@@ -3369,7 +3369,7 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []opusRes, celtPCM []opusRes,
 
 // encodeSILKMultiFramePacket encodes 80/100/120ms SILK packets by splitting
 // them into libopus-compatible 20/40/60ms SILK frames and repacketizing them.
-func (e *Encoder) encodeSILKMultiFramePacket(pcm []opusRes, vadPCM []opusRes, frameSize int, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay int) ([]byte, error) {
+func (e *Encoder) encodeSILKMultiFramePacket(pcm []opusRes, vadPCM []opusRes, frameSize int, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay, outDataBytes int) ([]byte, error) {
 	channels := int(e.channels)
 	if len(pcm) != frameSize*channels || len(vadPCM) != frameSize*channels {
 		return nil, ErrInvalidFrameSize
@@ -3411,12 +3411,19 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []opusRes, vadPCM []opusRes, fr
 	if encodingBitrate > 0 {
 		subframeBitrate = encodingBitrate
 	}
-	packetTargetBytes := max(e.targetBytesForBitrate(originalBitrate, frameSize), 1)
+	// opus_encode_native sizes the repacketizer by the whole output buffer in
+	// VBR and by IMIN(cbr_bytes, out_data_bytes) in CBR (src/opus_encoder.c).
+	repacketizeLen := outDataBytes
+	if e.bitrateMode == ModeCBR {
+		repacketizeLen = min(e.targetBytesForBitrate(originalBitrate, frameSize), outDataBytes)
+	}
+	repacketizeLen = max(repacketizeLen, 1)
 	maxHeaderBytes := 3
 	if frameCount > 2 {
 		maxHeaderBytes = 2 + (frameCount-1)*2
 	}
-	maxLenSum := max(frameCount+packetTargetBytes-maxHeaderBytes, frameCount)
+	maxLenSum := max(frameCount+repacketizeLen-maxHeaderBytes, frameCount)
+	e.ensurePacketScratch(maxLenSum + maxHeaderBytes)
 	currMaxByRate := max(subframeBitrate*encFrameSize/int(e.sampleRate)/8, 2)
 	dredBytes := 0
 	if dredBitrate > 0 {

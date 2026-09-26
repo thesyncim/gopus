@@ -86,6 +86,12 @@ func encFrameSamples48k(d ExpertFrameDuration) int {
 		return 1920
 	case ExpertFrameDuration60Ms:
 		return 2880
+	case ExpertFrameDuration80Ms:
+		return 3840
+	case ExpertFrameDuration100Ms:
+		return 4800
+	case ExpertFrameDuration120Ms:
+		return 5760
 	default:
 		return 960
 	}
@@ -210,6 +216,12 @@ func encMsOf(d ExpertFrameDuration) int {
 		return 40
 	case ExpertFrameDuration60Ms:
 		return 60
+	case ExpertFrameDuration80Ms:
+		return 80
+	case ExpertFrameDuration100Ms:
+		return 100
+	case ExpertFrameDuration120Ms:
+		return 120
 	default:
 		return 20
 	}
