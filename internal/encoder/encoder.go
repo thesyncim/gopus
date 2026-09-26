@@ -999,22 +999,25 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	// (src/opus_encoder.c:1458-1464).
 	e.silkMode.UseDTX = e.dtxEnabled && !e.lastAnalysisValid && !isSilence
 
-	var requestedMode Mode
+	var actualMode, prevModeNext Mode
 	if e.mode == ModeAuto {
 		// Full libopus auto-mode decision chain: voice_ratio, stereo_width,
 		// stream_channels, mode threshold interpolation, auto-bandwidth,
 		// bandwidth clamping, decide_fec, mode fixup.
-		requestedMode = e.autoModeAndBandwidthDecision(framePCM, frameSize, cbrMaxDataBytes, isSilence)
+		actualMode, prevModeNext = e.autoModeAndBandwidthDecision(framePCM, frameSize, cbrMaxDataBytes, isSilence)
 	} else {
 		signalHint := e.signalType
 		if signalHint == types.SignalAuto {
 			signalHint = e.autoSignalFromPCM(framePCM, frameSize)
 		}
 		e.updateStreamChannelsForFrame(frameSize)
-		requestedMode = e.selectMode(frameSize, signalHint)
+		requestedMode := e.selectMode(frameSize, signalHint)
 		if e.lfe {
 			requestedMode = ModeCELT
 		}
+		// The switch into CELT-only precedes the bandwidth clamp and the mode
+		// fixup, as in the auto path (src/opus_encoder.c:1541-1557).
+		requestedMode, prevModeNext = e.applyCELTTransitionDelay(frameSize, requestedMode)
 		// Run decide_fec for non-auto modes too. In libopus, decide_fec()
 		// runs unconditionally at line 1675 (not just in auto mode).
 		// This controls whether LBRR is actually coded based on bitrate,
@@ -1038,10 +1041,12 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		if e.restrictedSilkApp && e.bandwidth > types.BandwidthWideband {
 			e.bandwidth = types.BandwidthWideband
 		}
-		requestedMode = autoModeFixup(requestedMode, e.bandwidth)
+		actualMode = autoModeFixup(requestedMode, e.bandwidth)
+		if prevModeNext != ModeCELT {
+			prevModeNext = actualMode
+		}
 	}
-	actualMode, prevModeNext := e.applyCELTTransitionDelay(frameSize, requestedMode)
-	transitionToCELT := requestedMode == ModeCELT && actualMode != ModeCELT
+	transitionToCELT := prevModeNext == ModeCELT && actualMode != ModeCELT
 
 	dredExtraDelay := 0
 	if !e.lowDelay {

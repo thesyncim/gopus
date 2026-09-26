@@ -557,7 +557,7 @@ func autoModeFixup(mode Mode, bandwidth types.Bandwidth) Mode {
 // Updates e.bandwidth, e.streamChannels, e.voiceRatio, e.detectedBandwidth,
 // e.autoBandwidth, e.first.
 // Returns the selected mode.
-func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxDataBytes int, isSilence bool) Mode {
+func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxDataBytes int, isSilence bool) (mode, prevModeNext Mode) {
 	frameRate := int(e.sampleRate) / frameSize
 	if frameRate <= 0 {
 		frameRate = 50
@@ -599,7 +599,7 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxData
 	// Step 9: Mode selection with interpolated thresholds (lines 1492-1527).
 	// silk_mode.useDTX (opus_encoder.c:1461): DTX favours SILK only when the
 	// generalized DTX is unusable, i.e. DTX on AND the analysis is invalid/silent.
-	mode := e.autoModeDecision(stereoWidth, voiceEst, equivRate, frameSize, maxDataBytes, e.silkMode.UseDTX)
+	mode = e.autoModeDecision(stereoWidth, voiceEst, equivRate, frameSize, maxDataBytes, e.silkMode.UseDTX)
 
 	// Step 10: Frame size constraint (lines 1533-1537).
 	if mode != ModeCELT && frameSize < int(e.sampleRate)/100 {
@@ -608,6 +608,10 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxData
 	if e.lfe {
 		mode = ModeCELT
 	}
+	// A switch into CELT-only keeps the previous mode for this frame and
+	// codes the redundant CELT frame (lines 1541-1557), before the
+	// bandwidth decision and the mode fixup see the mode.
+	mode, prevModeNext = e.applyCELTTransitionDelay(frameSize, mode)
 
 	// Step 11: Stereo→mono transition delay (lines 1562-1570).
 	// When switching from stereo to mono, delay by two frames for smooth SILK downmix.
@@ -649,9 +653,12 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxData
 
 	// Step 16: Mode fixup based on final bandwidth (lines 1692-1695).
 	mode = autoModeFixup(mode, e.bandwidth)
+	if prevModeNext != ModeCELT {
+		prevModeNext = mode
+	}
 
 	// prev_channels and st->first advance at the end of the frame
 	// (opus_encode_frame_native), so the low-space and SILK DTX early returns
 	// leave them unchanged.
-	return mode
+	return mode, prevModeNext
 }

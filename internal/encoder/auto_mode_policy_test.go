@@ -55,7 +55,7 @@ func TestAutoModePreservesVoiceRatioOnDigitalSilence(t *testing.T) {
 	enc.voiceRatio = 73
 
 	pcm := make([]opusRes, 960)
-	_ = enc.autoModeAndBandwidthDecision(pcm, 960, maxSilkPacketBytes, true)
+	_, _ = enc.autoModeAndBandwidthDecision(pcm, 960, maxSilkPacketBytes, true)
 
 	if got := enc.voiceRatio; got != 73 {
 		t.Fatalf("voiceRatio on silence = %d, want preserved 73", got)
@@ -72,7 +72,7 @@ func TestAutoModeResetsVoiceRatioOnNonSilentFrame(t *testing.T) {
 
 	pcm := make([]opusRes, 960)
 	pcm[0] = opusRes(1.0 / (1 << 12))
-	_ = enc.autoModeAndBandwidthDecision(pcm, 960, maxSilkPacketBytes, false)
+	_, _ = enc.autoModeAndBandwidthDecision(pcm, 960, maxSilkPacketBytes, false)
 
 	if got := enc.voiceRatio; got != -1 {
 		t.Fatalf("voiceRatio on non-silence = %d, want reset -1", got)
