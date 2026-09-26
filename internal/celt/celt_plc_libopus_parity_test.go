@@ -623,7 +623,7 @@ func TestCELTPLCFIRMatchesLibopus(t *testing.T) {
 		exc32[i] = float32(exc[i])
 	}
 	lpc := makeCELTPLPCTestCoeffs()
-	for _, length := range []int{200, 320, 360, 600, 720, 1024} {
+	for _, length := range []int{200, 230, 286, 320, 360, 600, 720, 1024} {
 		t.Run(strconv.Itoa(length), func(t *testing.T) {
 			start := celtPLCLPCOrder + combFilterMaxPeriod - length
 			want := probeLibopusPLCFIR(t, exc32, start, length, lpc)

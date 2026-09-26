@@ -209,8 +209,14 @@ func celtFIRFloat32(dst []celtSig, exc []celtSig, start, length int, lpc []float
 	}
 	for ; i < length; i++ {
 		sum := float32(exc[start+i])
+		// The paired arm64 NEON celt_fir_c tail rounds vector products before
+		// adding their lanes in order; other targets use the scalar expression.
 		for j := range ord {
-			sum += rnum[j] * exc[start+i+j-ord]
+			if libopusFloatInnerProdUsesNeonOrder {
+				sum = noFMA32Add(sum, noFMA32Mul(rnum[j], exc[start+i+j-ord]))
+			} else {
+				sum += rnum[j] * exc[start+i+j-ord]
+			}
 		}
 		dst[i] = celtSig(sum)
 	}
