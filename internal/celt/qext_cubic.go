@@ -78,6 +78,7 @@ func cubicQuantPartition(ctx *bandCtx, x []celtNorm, n, b, B, lm int, gain opusV
 		ithetaQ30 = stereoIthetaQ30(x, y, false)
 		qtheta := (ithetaQ30 + (1 << (29 - thetaRes))) >> (30 - thetaRes)
 		ctx.re.EncodeUniform(uint32(qtheta), uint32((1<<thetaRes)+1))
+		ithetaQ30 = qtheta << (30 - thetaRes)
 	} else {
 		if ctx.rd == nil {
 			return 0

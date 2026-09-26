@@ -28,7 +28,16 @@ func TestQEXTStatefulVBRPacketsMatchLibopus(t *testing.T) {
 	testQEXTStatefulPacketsMatchLibopus(t, 128000, BitrateModeVBR, "")
 }
 
+func TestQEXTStateful5msCubicPacketsMatchLibopus(t *testing.T) {
+	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 240, 2, 128000, BitrateModeVBR, "")
+}
+
 func testQEXTStatefulPacketsMatchLibopus(t *testing.T, bitrate int, mode BitrateMode, modeArg string) {
+	t.Helper()
+	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 960, 3, bitrate, mode, modeArg)
+}
+
+func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames, bitrate int, mode BitrateMode, modeArg string) {
 	t.Helper()
 	libopustest.RequireOracle(t)
 	opusDemo, err := benchutil.QEXTOpusDemoPath()
@@ -37,8 +46,6 @@ func testQEXTStatefulPacketsMatchLibopus(t *testing.T, bitrate int, mode Bitrate
 		return
 	}
 
-	const frameSize = 960
-	const frames = 3
 	pcm := make([]float32, frameSize*frames)
 	state := uint32(0xadd44317)
 	for i := range pcm {
@@ -57,7 +64,7 @@ func testQEXTStatefulPacketsMatchLibopus(t *testing.T, bitrate int, mode Bitrate
 		t.Fatal(err)
 	}
 	args := []string{"-e", "restricted-celt", "48000", "1", strconv.Itoa(bitrate),
-		"-f32", "-complexity", "10", "-bandwidth", "FB", "-framesize", "20",
+		"-f32", "-complexity", "10", "-bandwidth", "FB", "-framesize", strconv.Itoa(frameSize / 48),
 		"-max_payload", "1276", "-qext"}
 	if modeArg != "" {
 		args = append(args, modeArg)
