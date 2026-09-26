@@ -109,79 +109,26 @@ func xcorrKernel8Float32(x, y []float32, sum *[8]float32, length int) {
 	}
 	x = x[:length]
 	y = y[:length+7]
-	// 'a' sub-accumulators receive x0 and x2; 'b' receive x1 and x3.
-	var s0a, s1a, s2a, s3a, s4a, s5a, s6a, s7a float32
-	var s0b, s1b, s2b, s3b, s4b, s5b, s6b, s7b float32
-	s0a, s1a, s2a, s3a = sum[0], sum[1], sum[2], sum[3]
-	s4a, s5a, s6a, s7a = sum[4], sum[5], sum[6], sum[7]
-	for len(x) >= 4 && len(y) >= 11 {
-		x0, x1, x2, x3 := x[0], x[1], x[2], x[3]
-		y0, y1, y2, y3, y4, y5, y6, y7, y8, y9, y10 := y[0], y[1], y[2], y[3], y[4], y[5], y[6], y[7], y[8], y[9], y[10]
-
-		// x0 → 'a' chains (8 independent FMAs, issued in 2 cycles)
-		s0a += x0 * y0
-		s1a += x0 * y1
-		s2a += x0 * y2
-		s3a += x0 * y3
-		s4a += x0 * y4
-		s5a += x0 * y5
-		s6a += x0 * y6
-		s7a += x0 * y7
-
-		// x1 → 'b' chains (8 independent FMAs, cycles 2–3; 'a' not needed yet)
-		s0b += x1 * y1
-		s1b += x1 * y2
-		s2b += x1 * y3
-		s3b += x1 * y4
-		s4b += x1 * y5
-		s5b += x1 * y6
-		s6b += x1 * y7
-		s7b += x1 * y8
-
-		// x2 → 'a' chains (cycles 4–5; 'a' from x0 finished at cycle 3 ✓)
-		s0a += x2 * y2
-		s1a += x2 * y3
-		s2a += x2 * y4
-		s3a += x2 * y5
-		s4a += x2 * y6
-		s5a += x2 * y7
-		s6a += x2 * y8
-		s7a += x2 * y9
-
-		// x3 → 'b' chains (cycles 6–7; 'b' from x1 finished at cycle 5 ✓)
-		s0b += x3 * y3
-		s1b += x3 * y4
-		s2b += x3 * y5
-		s3b += x3 * y6
-		s4b += x3 * y7
-		s5b += x3 * y8
-		s6b += x3 * y9
-		s7b += x3 * y10
-
-		x = x[4:]
-		y = y[4:]
-	}
+	// Each lag accumulates its products in tap order, as xcorr_kernel_c and
+	// celt_inner_prod_c do (celt/pitch.h, celt/pitch.c). The eight lags are
+	// independent chains, which gives the loop its instruction parallelism.
+	s0, s1, s2, s3 := sum[0], sum[1], sum[2], sum[3]
+	s4, s5, s6, s7 := sum[4], sum[5], sum[6], sum[7]
 	for len(x) >= 1 && len(y) >= 8 {
 		t := x[0]
-		s0a += t * y[0]
-		s1a += t * y[1]
-		s2a += t * y[2]
-		s3a += t * y[3]
-		s4a += t * y[4]
-		s5a += t * y[5]
-		s6a += t * y[6]
-		s7a += t * y[7]
+		s0 += t * y[0]
+		s1 += t * y[1]
+		s2 += t * y[2]
+		s3 += t * y[3]
+		s4 += t * y[4]
+		s5 += t * y[5]
+		s6 += t * y[6]
+		s7 += t * y[7]
 		x = x[1:]
 		y = y[1:]
 	}
-	sum[0] = s0a + s0b
-	sum[1] = s1a + s1b
-	sum[2] = s2a + s2b
-	sum[3] = s3a + s3b
-	sum[4] = s4a + s4b
-	sum[5] = s5a + s5b
-	sum[6] = s6a + s6b
-	sum[7] = s7a + s7b
+	sum[0], sum[1], sum[2], sum[3] = s0, s1, s2, s3
+	sum[4], sum[5], sum[6], sum[7] = s4, s5, s6, s7
 }
 
 func celtFIRFloat32(dst []celtSig, exc []celtSig, start, length int, lpc []float32) {
