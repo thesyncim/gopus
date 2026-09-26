@@ -29,15 +29,23 @@ func TestQEXTStatefulVBRPacketsMatchLibopus(t *testing.T) {
 }
 
 func TestQEXTStateful5msCubicPacketsMatchLibopus(t *testing.T) {
-	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 240, 2, 128000, BitrateModeVBR, "")
+	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 240, 2, 1, 128000, BitrateModeVBR, "")
+}
+
+func TestQEXTStateful5msFinalisationPacketsMatchLibopus(t *testing.T) {
+	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 240, 3, 1, 128000, BitrateModeVBR, "")
+}
+
+func TestQEXTStatefulStereoFinalisationPacketsMatchLibopus(t *testing.T) {
+	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 960, 3, 2, 256000, BitrateModeCVBR, "-cvbr")
 }
 
 func testQEXTStatefulPacketsMatchLibopus(t *testing.T, bitrate int, mode BitrateMode, modeArg string) {
 	t.Helper()
-	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 960, 3, bitrate, mode, modeArg)
+	testQEXTStatefulPacketsWithSizeMatchLibopus(t, 960, 3, 1, bitrate, mode, modeArg)
 }
 
-func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames, bitrate int, mode BitrateMode, modeArg string) {
+func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames, channels, bitrate int, mode BitrateMode, modeArg string) {
 	t.Helper()
 	libopustest.RequireOracle(t)
 	opusDemo, err := benchutil.QEXTOpusDemoPath()
@@ -46,15 +54,17 @@ func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames
 		return
 	}
 
-	pcm := make([]float32, frameSize*frames)
+	pcm := make([]float32, frameSize*frames*channels)
 	state := uint32(0xadd44317)
-	for i := range pcm {
+	for i := range frameSize * frames {
 		phase := 2 * math.Pi * (697*float64(i)/48000 + 101*float64(i*i)/(48000*48000))
 		state ^= state << 13
 		state ^= state >> 17
 		state ^= state << 5
 		noise := (float64(state&0xffff)/32768 - 1) * 0.08
-		pcm[i] = float32(0.29*math.Sin(phase) + 0.16*math.Sin(phase*2.7) + noise)
+		for c := range channels {
+			pcm[i*channels+c] = float32(0.29*math.Sin(phase+float64(c)*0.43) + 0.16*math.Sin(phase*2.7+float64(c)*0.19) + noise)
+		}
 	}
 
 	dir := t.TempDir()
@@ -63,7 +73,7 @@ func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames
 	if err := benchutil.WriteRepeatedRawFloat32(inputPath, pcm, 1); err != nil {
 		t.Fatal(err)
 	}
-	args := []string{"-e", "restricted-celt", "48000", "1", strconv.Itoa(bitrate),
+	args := []string{"-e", "restricted-celt", "48000", strconv.Itoa(channels), strconv.Itoa(bitrate),
 		"-f32", "-complexity", "10", "-bandwidth", "FB", "-framesize", strconv.Itoa(frameSize / 48),
 		"-max_payload", "1276", "-qext"}
 	if modeArg != "" {
@@ -78,7 +88,7 @@ func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames
 		t.Fatal(err)
 	}
 
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationRestrictedCelt})
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: channels, Application: ApplicationRestrictedCelt})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +110,7 @@ func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames
 	if err := enc.SetQEXT(true); err != nil {
 		t.Fatal(err)
 	}
-	pcm24 := make([]int32, frameSize)
+	pcm24 := make([]int32, frameSize*channels)
 	packet := make([]byte, 1276)
 	offset := 0
 	for frame := range frames {
@@ -119,7 +129,7 @@ func testQEXTStatefulPacketsWithSizeMatchLibopus(t *testing.T, frameSize, frames
 			t.Fatalf("libopus frame %d lacks a valid QEXT extension", frame)
 		}
 
-		for i, sample := range pcm[frame*frameSize : (frame+1)*frameSize] {
+		for i, sample := range pcm[frame*frameSize*channels : (frame+1)*frameSize*channels] {
 			// opus_demo -f32 uses this signed-24 conversion before opus_encode24.
 			pcm24[i] = int32(math.Floor(0.5 + float64(sample*8388608)))
 		}

@@ -1439,11 +1439,24 @@ func (e *Encoder) encodeEnergyFinaliseFromError(quantizedEnergies []celtGLog, nb
 	if len(quantizedEnergies) < nbBands*channels || len(errorVals) < nbBands*channels {
 		channels = 1
 	}
+	encodeEnergyFinaliseResidual(e.rangeEncoder, quantizedEnergies, errorVals, 0, nbBands, channels, fineQuant, finePriority, bitsLeft)
+}
 
-	re := e.rangeEncoder
-
+// encodeEnergyFinaliseResidual follows libopus quant_energy_finalise(). A nil
+// oldEBands leaves the refined energy history intact while coding final bits
+// from a residual backup, as the QEXT encoder does when it reserves bytes.
+func encodeEnergyFinaliseResidual(re *rangecoding.Encoder, oldEBands, errorVals []celtGLog, start, end, channels int, fineQuant, finePriority []int32, bitsLeft int) {
+	if re == nil || channels <= 0 {
+		return
+	}
+	start = max(start, 0)
+	end = min(end, MaxBands)
+	if end <= start {
+		return
+	}
+	bitsLeft = max(bitsLeft, 0)
 	for prio := range 2 {
-		for band := 0; band < nbBands && bitsLeft >= channels; band++ {
+		for band := start; band < end && bitsLeft >= channels; band++ {
 			if band >= len(fineQuant) || band >= len(finePriority) {
 				continue
 			}
@@ -1451,8 +1464,8 @@ func (e *Encoder) encodeEnergyFinaliseFromError(quantizedEnergies []celtGLog, nb
 				continue
 			}
 			for c := 0; c < channels; c++ {
-				idx := c*nbBands + band
-				if idx >= len(quantizedEnergies) || idx >= len(errorVals) {
+				idx := c*end + band
+				if idx >= len(errorVals) || (oldEBands != nil && idx >= len(oldEBands)) {
 					continue
 				}
 
@@ -1463,7 +1476,9 @@ func (e *Encoder) encodeEnergyFinaliseFromError(quantizedEnergies []celtGLog, nb
 				re.EncodeRawBits(uint32(q2), 1)
 
 				offset := (float32(q2) - 0.5) * float32(uint(1)<<(14-fineQuant[band]-1)) * (1.0 / 16384.0)
-				quantizedEnergies[idx] = celtGLog(quantizedEnergies[idx] + offset)
+				if oldEBands != nil {
+					oldEBands[idx] = celtGLog(oldEBands[idx] + offset)
+				}
 				errorVals[idx] = celtGLog(float32(errorVals[idx]) - offset)
 				bitsLeft--
 			}

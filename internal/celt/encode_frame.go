@@ -1221,6 +1221,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	// by coarse quantization. This mirrors libopus quant_fine_energy() ->
 	// quant_energy_finalise() operating on the same error[] buffer.
 	coarseResidual := e.scratch.coarseError
+	var qextErrorBak [MaxBands * 2]celtGLog
 	if len(coarseResidual) >= nbBands*codedChannels {
 		coarseResidual = coarseResidual[:nbBands*codedChannels]
 		if start > 0 {
@@ -1247,7 +1248,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	var qextNormL []celtNorm
 	var qextNormR []celtNorm
 	if extsupport.QEXT && qextEnc != nil {
-		if cfg, ok := computeQEXTModeConfig(int(e.sampleRate), qextShortMDCTSize(frameSize)); ok && end == nbBands {
+		if cfg, ok := computeQEXTModeConfig(int(e.sampleRate), qextShortMDCTSize(frameSize)); ok && end == e.predStride() {
 			qextCfg = cfg
 			qextEnd = qextCfg.EffBands
 			qextActive = qextEnd > 0
@@ -1312,6 +1313,10 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 			qextExtraBits,
 			qextFineBits,
 		)
+		if qextPayloadBytes > 0 && len(coarseResidual) >= nbBands*codedChannels {
+			// libopus preserves the residual before the extension refines it.
+			copy(qextErrorBak[:nbBands*codedChannels], coarseResidual[:nbBands*codedChannels])
+		}
 		if len(coarseResidual) >= nbBands*codedChannels {
 			if start > 0 {
 				e.encodeFineEnergyRangeFromErrorWithEncoder(qextEnc, quantizedEnergies, start, nbBands, qextFineBits)
@@ -1467,7 +1472,13 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	}
 	// Step 14.6: Encode energy finalization bits (leftover budget)
 	bitsLeft := max(targetBits-re.Tell(), 0)
-	if len(coarseResidual) >= nbBands*codedChannels {
+	if qextPayloadBytes > 0 && len(coarseResidual) >= nbBands*codedChannels {
+		// With extension bytes, libopus emits final raw bits from error_bak
+		// with oldBandE=NULL. The refined quantized energy and live residual
+		// remain the state used by the next frame.
+		encodeEnergyFinaliseResidual(re, nil, qextErrorBak[:nbBands*codedChannels], start, nbBands, codedChannels,
+			allocResult.FineBits, allocResult.FinePriority, bitsLeft)
+	} else if len(coarseResidual) >= nbBands*codedChannels {
 		if start > 0 {
 			e.EncodeEnergyFinaliseRangeFromError(quantizedEnergies, start, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft)
 		} else {
@@ -1480,9 +1491,9 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 			e.EncodeEnergyFinalise(energies, quantizedEnergies, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft)
 		}
 	}
-	// energyError keeps the post-finalise error[] residual of the coded bands,
-	// clipped to [-0.5, 0.5], for the next frame's stabilization; the other
-	// bands keep their values (celt_encoder.c:2707-2713).
+	// energyError keeps the refined residual for QEXT and the post-finalise
+	// residual otherwise, clipped to [-0.5, 0.5] for the next frame's
+	// stabilization. Other bands keep their values (celt_encoder.c:2707-2713).
 	for c := range codedChannels {
 		baseState := c * e.predStride()
 		baseFrame := c * nbBands
