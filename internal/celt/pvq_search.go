@@ -136,8 +136,13 @@ func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int32
 			// Reference: libopus vq.c line 274
 			iy[j] = int32(rcp * absX[j]) // rcp >= 0, absX >= 0: truncation == floor
 			y[j] = float32(iy[j])
-			yy += y[j] * y[j]
-			xy += absX[j] * y[j]
+			if neonRoundsReductionTerm(j, n) {
+				yy += round32(y[j] * y[j])
+				xy += round32(absX[j] * y[j])
+			} else {
+				yy += y[j] * y[j]
+				xy += absX[j] * y[j]
+			}
 			// We multiply y[j] by 2 so we don't have to do it in the main loop
 			// Reference: libopus vq.c line 279
 			y[j] *= 2

@@ -1760,8 +1760,13 @@ func stereoIthetaQ30Norm(x, y []celtNorm, stereo bool) int {
 			yv := float32(y[i])
 			m := xv + yv
 			s := xv - yv
-			emid = celtFloatMulAdd(m, m, emid)
-			eside = celtFloatMulAdd(s, s, eside)
+			if neonRoundsReductionTerm(i, n) {
+				emid += round32(m * m)
+				eside += round32(s * s)
+			} else {
+				emid = celtFloatMulAdd(m, m, emid)
+				eside = celtFloatMulAdd(s, s, eside)
+			}
 		}
 	} else {
 		if celtUseSSEFloatMath {
@@ -1971,7 +1976,8 @@ func intensityStereoWeighted(x, y []celtNorm, leftEnergy, rightEnergy celtEner) 
 	a1 := left / norm
 	a2 := right / norm
 	for i := 0; i < n; i++ {
-		x[i] = celtNorm(noFMA32Add(noFMA32Mul(a1, float32(x[i])), noFMA32Mul(a2, float32(y[i]))))
+		// clang fuses the left product of a1*l + a2*r (see thetaRDODistortion).
+		x[i] = celtNorm(fma32(a1, float32(x[i]), noFMA32Mul(a2, float32(y[i]))))
 	}
 }
 
@@ -1996,8 +2002,11 @@ func innerProductNorm(x, y []celtNorm) float32 {
 	return celtInnerProdLibopusOrder(x, y)
 }
 
+// thetaRDODistortion is quant_all_bands' dist0/dist1. clang contracts
+// w0*ip0 + w1*ip1 into one fmadd of the left product with the rounded right
+// product; fma32 does the same on arm64 and stays unfused on amd64, like gcc.
 func thetaRDODistortion(w0, w1 float32, xSave, xBand, ySave, yBand []celtNorm) float32 {
-	return w0*innerProductNorm(xSave, xBand) + w1*innerProductNorm(ySave, yBand)
+	return fma32(w0, innerProductNorm(xSave, xBand), noFMA32Mul(w1, innerProductNorm(ySave, yBand)))
 }
 
 func (ctx *bandCtx) bandEnergy(channel int) celtEner {

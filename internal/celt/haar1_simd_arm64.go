@@ -23,8 +23,9 @@ func haar1Stride1NEON(x []float32, n0 int) {
 		b := loadF32x4(unsafe.Add(off, 16)).ToBits()
 		even := a.ConcatEven(b).BitsToFloat32()
 		odd := a.ConcatOdd(b).BitsToFloat32()
-		sum := even.Add(odd).Mul(scale).ToBits()
-		diff := even.Sub(odd).Mul(scale).ToBits()
+		// haar1 scales each input before the butterfly (tmp1 = c*a, tmp2 = c*b).
+		sum := even.Mul(scale).Add(odd.Mul(scale)).ToBits()
+		diff := even.Mul(scale).Sub(odd.Mul(scale)).ToBits()
 		storeF32x4(off, sum.InterleaveLo(diff).BitsToFloat32())
 		storeF32x4(unsafe.Add(off, 16), sum.InterleaveHi(diff).BitsToFloat32())
 	}
