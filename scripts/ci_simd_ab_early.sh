@@ -95,6 +95,22 @@ capture_reference_artifacts() {
   done
 }
 
+capture_xcorr_primitive() {
+  local helper
+  helper="$(sed -n 's/.*native xcorr primitive helper=//p' "$artifact_root/candidate-simd-xcorr-silk-oracles.log" | head -n 1)"
+  case "$helper" in
+    */gopus_libopus_test_helpers/gopus_libopus_pitch_xcorr_primitives_*) ;;
+    *) echo 'missing native xcorr primitive helper path' >&2; return 1 ;;
+  esac
+  if [[ ! -x "$helper" ]]; then
+    echo "native xcorr primitive helper unavailable: $helper" >&2
+    return 1
+  fi
+  cp "$helper" "$artifact_root/xcorr-primitive-helper"
+  sha256sum "$helper" > "$artifact_root/xcorr-primitive-helper.sha256"
+  objdump -d "$helper" > "$artifact_root/xcorr-primitive-disassembly.txt"
+}
+
 run_phase libopus-reference-build \
   make -C "$candidate_root" ensure-libopus ensure-libopus-scalar ensure-libopus-simd
 run_phase capture-paired-libopus-reference-artifacts capture_reference_artifacts
@@ -123,6 +139,17 @@ for mode in simd nosimd; do
     run_in_checkout "$candidate_root" \
     "${build_env[@]}" go test "${build_args[@]}" -c -pgo=auto -o "$root_test_binary" .
 
+  if [[ "$mode" == simd ]]; then
+    run_phase candidate-simd-xcorr-silk-oracles \
+      "${run_env[@]}" "$artifact_root/candidate-simd-celt.test" \
+      -test.run '^TestPitchXCorrPairedLibopusSIMDRawBits$' -test.count=1 -test.timeout=10m -test.v
+    run_phase candidate-simd-xcorr-primitive-artifacts capture_xcorr_primitive
+    run_phase candidate-simd-silk-paired-xcorr \
+      "${run_env[@]}" "$artifact_root/candidate-simd-silk.test" \
+      -test.run '^Test(SilkPitchXCorrPairedLibopusSIMDRawBits|SilkPitchXcorrNativeZeroAlloc)$' \
+      -test.count=1 -test.timeout=10m -test.v
+  fi
+
   run_json_phase "candidate-$mode-celt-deemphasis-state-plc" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json "${build_args[@]}" ./internal/celt \
@@ -144,14 +171,8 @@ for mode in simd nosimd; do
   run_json_phase "candidate-$mode-multistream-history-strict-decode" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json "${build_args[@]}" ./multistream \
-    -run '^(TestHybridToSILKFadeRequiresDecodedHistoryMatchesLibopus|TestTransitionPLCStageGainMatchesLibopus|TestCELTTransitionPLCStageHasInnerAndOuterGainChecks|TestCELTTransitionFadeReplaysMatchedLibopus|TestTransitionFullSequenceMatchesLibopus|TestMultistreamSurroundDecodeDifferentialFuzz|TestMultistreamDiscreteDecodeDifferentialFuzz|TestProjectionDecodeDifferentialFuzz|TestMultistreamGopusEncodedDecodeDifferentialFuzz)$' \
+    -run '^(TestHybridToSILKFadeRequiresDecodedHistoryMatchesLibopus|TestTransitionPLCStageGainMatchesLibopus|TestCELTTransitionPLCStageHasInnerAndOuterGainChecks|TestCELTTransitionFadeReplaysMatchedLibopus|TestTransitionFullSequenceMatchesLibopus|TestTransitionPreviousCELTPLCStageMatchesLibopus|TestMultistreamSurroundDecodeDifferentialFuzz|TestMultistreamDiscreteDecodeDifferentialFuzz|TestProjectionDecodeDifferentialFuzz|TestMultistreamGopusEncodedDecodeDifferentialFuzz)$' \
     -count=1 -timeout=25m
-
-  if [[ "$mode" == simd ]]; then
-    run_phase candidate-simd-xcorr-silk-oracles \
-      "${run_env[@]}" "$artifact_root/candidate-simd-celt.test" \
-      -test.run '^TestPitchXCorrPairedLibopusSIMDRawBits$' -test.count=1 -test.timeout=10m -test.v
-  fi
 
   run_phase "candidate-$mode-lpc-ltp-oracles" \
     "${run_env[@]}" "$artifact_root/candidate-$mode-silk.test" \
