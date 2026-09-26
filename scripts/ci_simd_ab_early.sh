@@ -153,7 +153,7 @@ for mode in simd nosimd; do
   run_json_phase "candidate-$mode-celt-deemphasis-state-plc" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json "${build_args[@]}" ./internal/celt \
-    -run '^(TestApplyDeemphasis.*MatchesLibopus|TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus|TestCELTPLCStagesMatchLibopusC|TestCELTPLCFIRMatchesLibopus|TestCELTPLCIIRMatchesLibopus|TestCombFilterConstantBodyHistorySeamMatchesLibopus|TestCombFilterRampedHistorySeamMatchesLibopus|TestCombFilterConstSSEOrderZeroAllocs)$' \
+    -run '^(TestApplyDeemphasis.*MatchesLibopus|TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus|TestCELTPLCStagesMatchLibopusC|TestCELTPLCFIRMatchesLibopus|TestCELTPLCIIRMatchesLibopus|TestCombFilterConstantBodyHistorySeamMatchesLibopus|TestCombFilterRampedHistorySeamMatchesLibopus|TestCombFilterConstSSEOrderZeroAllocs|TestPitchSearchNearTieMatchesSelectedLibopus|TestExpRotationMatchesLibopusFloatPath)$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-root-silence-allocation" \
@@ -164,8 +164,8 @@ for mode in simd nosimd; do
 
   run_json_phase "candidate-$mode-multistream-encode-budget" \
     run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json "${build_args[@]}" ./multistream \
-    -run '^(TestMultistream(EncodeBudgetMatchesLibopus|EncodeTooSmallPreservesState|SelfDelimitedBudgetFramingWarmZeroAllocs)|TestProjectionAnalysisMatchesLibopus)$' \
+    "${run_env[@]}" go test -json "${build_args[@]}" ./multistream ./internal/encoder \
+    -run '^(TestMultistream(EncodeBudgetMatchesLibopus|EncodeTooSmallPreservesState|SelfDelimitedBudgetFramingWarmZeroAllocs)|TestProjectionAnalysisMatchesLibopus|TestInitialStereoToMonoMatchesLibopus|TestProjectionInitialMonoDecisionMatchesLibopus)$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-root-native-rate-dtx" \
@@ -174,10 +174,16 @@ for mode in simd nosimd; do
     -run '^(TestSub48NativeEncodeParity|TestEncodeStatefulDTXRunFuzz)$' \
     -count=1 -timeout=10m
 
+  run_json_phase "candidate-$mode-root-stateful-mono-transition" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json "${build_args[@]}" . \
+    -run '^TestEncodeStatefulTransitionFuzz$/^xfr_auto_ch1_(40|60)ms_(24000|32000|48000|64000)bps_vbr[012]_cx5_fecfalse_dtx(true|false)$' \
+    -count=1 -timeout=10m
+
   run_json_phase "candidate-$mode-multistream-history-strict-decode" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json "${build_args[@]}" ./multistream \
-    -run '^(TestHybridToSILKFadeRequiresDecodedHistoryMatchesLibopus|TestTransitionPLCStageGainMatchesLibopus|TestCELTTransitionPLCStageHasInnerAndOuterGainChecks|TestCELTTransitionFadeReplaysMatchedLibopus|TestTransitionFullSequenceMatchesLibopus|TestTransitionPreviousCELTPLCStageMatchesLibopus|TestSILKToCELTTransitionPLCMatchesLibopus|TestSILKPLCDurationChangesMatchLibopus|TestMultistreamSurroundDecodeDifferentialFuzz|TestMultistreamDiscreteDecodeDifferentialFuzz|TestProjectionDecodeDifferentialFuzz|TestMultistreamGopusEncodedDecodeDifferentialFuzz|TestProjectionDecodeIntoPrefilledBuffer)$' \
+    -run '^(TestHybridToSILKFadeRequiresDecodedHistoryMatchesLibopus|TestTransitionPLCStageGainMatchesLibopus|TestCELTTransitionPLCStageHasInnerAndOuterGainChecks|TestCELTTransitionFadeReplaysMatchedLibopus|TestTransitionFullSequenceMatchesLibopus|TestTransitionPreviousCELTPLCStageMatchesLibopus|TestSILKToCELTTransitionPLCMatchesLibopus|TestSILKPLCDurationChangesMatchLibopus|TestMultistreamSurroundDecodeDifferentialFuzz|TestMultistreamDiscreteDecodeDifferentialFuzz|TestProjectionDecodeDifferentialFuzz|TestMultistreamGopusEncodedDecodeDifferentialFuzz|TestProjectionDecodeIntoPrefilledBuffer|TestCELTActualRotationPacketsMatchLibopus)$' \
     -count=1 -timeout=25m
 
   run_phase "candidate-$mode-lpc-ltp-oracles" \

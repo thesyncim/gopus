@@ -28,10 +28,10 @@ and counts and also log packet/range differences. Allocation fields have no
 percentage allowance. Quality checks retain their normal floors without
 cross-feature exceptions. Fixture bytes, hashes, and baselines are unchanged.
 
-Decoder matrix/rate/loss/corpus/transition and long-frame encoder fixture
-consumers still have static numerical expectations without matched CPU
-provenance. Their conversion to live C is pending. Frozen packet inputs and
-fixture-honesty checks retain their independent roles.
+Decoder matrix/rate/loss/corpus/transition consumers use build-paired live C
+expectations. Frozen packet inputs and fixture-honesty checks retain their
+independent roles; frozen numerical expectations require their recorded
+producer environment. Long-frame encoder fixture coverage remains under audit.
 
 Strict matched CBR oracle, 19 configurations and 2,175 packets per lane:
 
@@ -108,37 +108,56 @@ General fractional CELT loss requests and concealment following transition
 redundancy need further coverage; the focused passes do not establish full
 decoder parity.
 
-The ARM64 checkpoint at `301be749` includes a strict diagnostic of all 1,440
-public encode-then-decode configurations, comparing every output float bit
-against the matched C reference. These counts do not include the encoder
-refactor at `036c4d51`:
+The public encode-then-decode diagnostic at `b3c81a20` checks all 1,440
+configurations, three packets each, in float32/int16/int24 output against
+build-paired C. Its temporary comparator requires identical float32 bits and
+lengths without architecture or overflow allowances:
 
-| ARM64 lane | Passing cases | Failing cases | Failing CELT / Hybrid cases |
-|---|---:|---:|---:|
-| SIMD, exact deemphasis | 1,197 | 243 | 78 / 165 |
-| Ordinary scalar | 1,334 | 106 | 17 / 89 |
-| `nosimd` scalar | 1,334 | 106 | 17 / 89 |
+| ARM64 lane | Passing configurations | Failing configurations | Failure scope |
+|---|---:|---:|---|
+| SIMD | 1,259 | 181 | 114 Hybrid / 67 CELT; int16 output only |
+| Ordinary scalar | 1,440 | 0 | none |
 
-The same strict SIMD diagnostic with the `e6f2b332` deemphasis implementation
-has 496 failures: 253 cases differ between the two failure sets, all passing
-with the exact recurrence. The committed public decode harness still has
-legacy tolerances; this diagnostic overrides them to expose the residuals.
+All 230 SIMD diagnostics differ by exactly one int16 unit. Float32 and int24
+outputs match in this sweep. The public conversion/soft-clip boundary remains
+under investigation; the committed older comparator still has tolerances.
+These results do not establish exact public SIMD int16 decode.
 Multistream decode assertions require exact float bits and integer samples,
-including mode transitions. The 3,640-case strict multistream/projection sweep
-at `7d97ed7e` has no skipped cases:
+including mode transitions. The complete 3,640-case strict ARM64 sweep at
+`b3c81a20` has no failures or skipped cases:
 
 | ARM64 lane | Passing cases | Failing cases | Surround / discrete / projection / Go-encoded failures |
 |---|---:|---:|---:|
-| SIMD | 2,356 | 1,284 | 1,071 / 147 / 18 / 48 |
-| Ordinary scalar | 2,366 | 1,274 | 1,065 / 145 / 16 / 48 |
-| `nosimd` scalar | 2,366 | 1,274 | 1,065 / 145 / 16 / 48 |
+| SIMD | 3,640 | 0 | 0 / 0 / 0 / 0 |
+| Ordinary scalar | 3,640 | 0 | 0 / 0 / 0 / 0 |
+| `nosimd` scalar | 3,640 | 0 | 0 / 0 / 0 / 0 |
 
-Every lane also passes the 30 full transition cases, 60 standalone CELT PLC
-stages, two complete SILK-transition histories with 5/10 ms standalone probes,
-and 18 SILK loss-duration/recovery cases in the same invocation. The broader
-non-silent CELT/Hybrid residuals remain strict failures. These counts describe
-configurations rather than independent defects and are separate from the
-public decoder diagnostic at `301be749` above.
+The rotation coefficient producer rounds gain-squared, multiplication by 0.5,
+and the complement separately, matching the selected C translation unit.
+Actual-C rotation outputs and two complete packet regressions check every
+sample and final range. Independent root runs repeat the full matrix after
+merging the incoming transition-order and scalar-correlation commits. These
+counts are separate from the older public decoder diagnostic above.
+
+The scalar encoder pitch path uses C's ascending four-lag accumulation. ARM
+SIMD uses one ordered vector chain across lags and the selected NEON inner
+product for fine candidates. All 21 actual-C raw-bit cases, four near-tie
+pitch cases, and warm allocation checks pass. All 48 mono stateful transition
+configurations pass 40 packet/range frames in all three ARM modes. Native
+confirmation of these new encoder gates is pending.
+
+Initial encoder channel state and reset high-pass memory match C. Direct
+auto/forced-SILK checks compare three packets and ranges each; projection
+checks five whole packets, all 25 elementary packets, and ranges, both fresh
+and after reset. All three ARM modes pass.
+
+The live decoder fixture consumers use the build-paired C reference on the
+same frozen input packets and require exact lengths. Separate producer checks
+reproduce 201 frozen PCM cases byte-for-byte (29 matrix, 18 loss, 24 corpus,
+130 API-rate cases) on their recorded ARM producer configuration. A missing
+producer compiler/platform is a strict availability failure, not a codec
+mismatch. Current Linux CI does not match the historical Debian GCC 12.2
+producer for its frozen matrix/loss fixtures.
 
 Native AMD64 early evidence at `f3176763`, from
 [run 36262586916](https://github.com/thesyncim/gopus/actions/runs/36262586916),
@@ -224,6 +243,24 @@ frame 2. Its legacy output also records 95 mode and 544 float residuals;
 these tolerated differences are not counted as exact parity. The native
 build-config CI job fails on these encoder tests; the exact decoder sweep
 remains 3,640/3,640 in both matched lanes.
+
+The complete ARM stateful sweep at merged `b3c81a20` has 2,862 passing and
+126 failing stereo configurations out of 2,988 in both ordinary and SIMD
+builds, with zero skips. A matching final range alone is insufficient:
+earlier children of a multi-frame packet can differ while its final child
+agrees. These failures remain under causal investigation.
+
+### Optional-feature exactness audit
+
+No complete optional-feature byte-parity claim is established. QEXT framing
+probes need the same bitrate on both sides, and feature-specific reference
+builds need scalar/SIMD identity validation. DRED carried-payload tests contain
+structural fallbacks; OSCE/deep-PLC tests include numerical tolerances. Their
+neural and codec dispatch choices must both match C. Custom-mode tests include
+unsupported-oracle skips and packet/PCM allowances. Fixed-point kernel checks
+do not prove the public encoder wrapper: its float preprocessing can differ
+from the C integer pipeline. The audit and causal fixes remain active; passing
+these existing tests is not treated as 100% extension parity.
 
 Remaining investigations include:
 - Encode: matched ordinary ARM64 scalar C checks at `036c4d51` find 38 differing
@@ -608,7 +645,7 @@ comparable per-call Go operation and are marked n/a with the reason.
 | 32 | `stereoMergeRescaleNEON` | arm64 | `internal/celt/stereo_merge_simd_arm64.go`; `internal/celt/stereo_merge_default.go` | archsimd / scalar | old asm → Go → SIMD: N=16 8.392 (8.366–8.427) → 12.79 (12.66–12.92) → 6.203 (6.169–6.215); N=64 17.61 (17.52–17.70) → 45.57 (45.49–46.16) → 12.05 (11.99–12.07); N=176 31.89 (31.78–31.91) → 121.7 (121.6–122.0) → 27.20 (27.08–27.30); N=480 71.40 (71.05–71.49) → 329.1 (328.5–329.5) → 70.09 (69.60–73.70) | 0 | measured; SIMD 2–32% faster than asm; scalar Go 1.5–4.6× slower |
 | 33 | `toneLPCCorrAVXFMA` | amd64 | `internal/celt/tone_lpc_corr_default.go`; `internal/celt/amd64_dispatch_helpers.go` | Go lane helper / scalar | N=480, EPYC 7763 old asm → scalar Go → Go SIMD: 586.6 (585.4–592.8) → 451.5 (451–456.2) → 453.1 (451.8–457) | 0 | run 36262586916 at f3176763; SIMD takes 22.8% less time than asm; the SIMD build selects the same scalar helper |
 | 34 | `toneLPCCorr` | arm64 | `internal/celt/tone_lpc_corr_scalar_arm64.go`; `internal/celt/tone_lpc_corr_simd_arm64.go` | archsimd / scalar | cnt=480, delays=1/2: recorded old asm 163.4 (163.0–163.5); earlier scalar Go 559.0 (558.3–559.5), earlier SIMD 117.7 (117.5–118.0); current exact-order SIMD 1,109 median (803.8–1,287), five 300 ms samples | 0 | M4/Go 1.27.0 current diagnostic is noisy and slower; earlier SIMD timing uses a reduction that fails selected-C parity, so its speedup is not a current claim; all 26 LPC / 12 tone-detection checks pass in three modes, SIMD warm allocations are zero; controlled performance tuning remains |
-| 35 | `xcorrKernel4Float32Neon4Acc` | arm64 | `internal/celt/xcorr_kernel_f32_4acc_simd_arm64.go`; `internal/celt/xcorr_kernel_f32_default.go` | archsimd / scalar | N=480: old asm → Go → SIMD: 189.2 (186.9–190.2) → 699.3 (697.0–699.9) → 167.8 (167.5–167.9) | 0 | timing only: SIMD 11% faster than asm; scalar Go 3.7× slower; live paired C probe exposes four-phase accumulation-order mismatch |
+| 35 | `xcorrKernel4Float32Neon4Acc` | arm64 | `internal/celt/xcorr_kernel_f32_neon_ordered_simd_arm64.go`; `internal/celt/xcorr_kernel_f32_default.go` | archsimd / scalar | N=480 recorded old asm 189.2 (186.9–190.2), scalar Go 699.3 (697.0–699.9), four-phase SIMD 167.8 (167.5–167.9); current ordered SIMD 402.2 (399.1–419.1), five 300 ms samples | 0 | replacement xcorrKernel4Float32NeonOrdered matches all 21 selected-C raw-bit cases with zero warm allocations; earlier four-phase speedup does not apply to exact arithmetic; current M4/Go 1.27.0 diagnostic is separate from the assembly run, and production batching remains optimization work |
 | 36 | `cpuid` | amd64 | Go runtime CPU feature flags used by `simd/archsimd` | startup feature discovery | n/a | n/a | not comparable; the old helper returns raw CPUID registers, while Go dispatch consumes cached feature flags and has no per-call replacement |
 | 37 | `xgetbv` | amd64 | Go runtime CPU feature flags used by `simd/archsimd` | startup feature discovery | n/a | n/a | not comparable; the old helper reads OS vector state during initialization, while Go dispatch consumes cached feature flags and has no per-call replacement |
 | 38 | `reciprocalEstimate32` | arm64 | `internal/dnnmath/reciprocal_estimate_default.go` | scalar Go | input set of 64 normal float32 values, old asm → Go → SIMD build: 1.405 (1.398–1.428) → 2.021 (1.918–2.285) → 1.932 (1.915–2.308) | 0 | measured; Go emulation is 44% slower than FRECPE asm; SIMD build uses the same scalar routine |
