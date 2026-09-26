@@ -153,7 +153,7 @@ for mode in simd nosimd; do
   run_json_phase "candidate-$mode-celt-deemphasis-state-plc" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json "${build_args[@]}" ./internal/celt \
-    -run '^(TestApplyDeemphasis.*MatchesLibopus|TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus|TestCELTPLCStagesMatchLibopusC|TestCELTPLCFIRMatchesLibopus|TestCELTPLCIIRMatchesLibopus|TestCombFilterConstantBodyHistorySeamMatchesLibopus)$' \
+    -run '^(TestApplyDeemphasis.*MatchesLibopus|TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus|TestCELTPLCStagesMatchLibopusC|TestCELTPLCFIRMatchesLibopus|TestCELTPLCIIRMatchesLibopus|TestCombFilterConstantBodyHistorySeamMatchesLibopus|TestCombFilterRampedHistorySeamMatchesLibopus|TestCombFilterConstSSEOrderZeroAllocs)$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-root-silence-allocation" \

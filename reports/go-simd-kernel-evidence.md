@@ -103,9 +103,10 @@ a shorter requested prefix. At `7d97ed7e`, both original scalar residual packet
 histories match all five frames and their independent 5/10 ms PLC probes in
 all three local modes. Another 18 mono/stereo NB/MB/WB loss-and-recovery cases
 match lengths, ranges, and every sample for 20→10, 10→20, and 10→15 ms requests.
-Native revalidation of this checkpoint is pending. General fractional CELT
-loss requests and concealment following transition redundancy need further
-coverage; the focused passes do not establish full decoder parity.
+Native `af24b0e1` passes the same history and duration cases in both modes.
+General fractional CELT loss requests and concealment following transition
+redundancy need further coverage; the focused passes do not establish full
+decoder parity.
 
 The ARM64 checkpoint at `301be749` includes a strict diagnostic of all 1,440
 public encode-then-decode configurations, comparing every output float bit
@@ -124,46 +125,52 @@ with the exact recurrence. The committed public decode harness still has
 legacy tolerances; this diagnostic overrides them to expose the residuals.
 Multistream decode assertions require exact float bits and integer samples,
 including mode transitions. The 3,640-case strict multistream/projection sweep
-has no skipped cases:
+at `7d97ed7e` has no skipped cases:
 
 | ARM64 lane | Passing cases | Failing cases | Surround / discrete / projection / Go-encoded failures |
 |---|---:|---:|---:|
-| SIMD | 2,333 | 1,307 | 1,080 / 151 / 26 / 50 |
-| Ordinary scalar | 2,341 | 1,299 | 1,075 / 149 / 25 / 50 |
-| `nosimd` scalar | 2,341 | 1,299 | 1,075 / 149 / 25 / 50 |
+| SIMD | 2,356 | 1,284 | 1,071 / 147 / 18 / 48 |
+| Ordinary scalar | 2,366 | 1,274 | 1,065 / 145 / 16 / 48 |
+| `nosimd` scalar | 2,366 | 1,274 | 1,065 / 145 / 16 / 48 |
 
-The same strict SIMD sweep at `e6f2b332` has 2,994 failures. Exact deemphasis
-and the decoded-history guard resolve 1,690 cases and expose three int16
-cases. For those three, actual C deemphasis matches Go PCM and final state
-for all 54 checked calls given identical incoming data; C clipping changes no
-samples, and each float-to-int16 conversion matches its own input. The residual
-is upstream float synthesis/history and remains a strict failure. Combined
-with the public decode diagnostic, SIMD has 1,550 failures out of 5,080 cases
-versus 3,490 at `e6f2b332`; each scalar lane has 1,405 failures out of 5,080.
-These are failing configurations, not counts of independent defects.
+Every lane also passes the 30 full transition cases, 60 standalone CELT PLC
+stages, two complete SILK-transition histories with 5/10 ms standalone probes,
+and 18 SILK loss-duration/recovery cases in the same invocation. The broader
+non-silent CELT/Hybrid residuals remain strict failures. These counts describe
+configurations rather than independent defects and are separate from the
+public decoder diagnostic at `301be749` above.
 
-Native AMD64 early evidence at `f6952200`, from
-[run 36260351550](https://github.com/thesyncim/gopus/actions/runs/36260351550),
-uses Intel Xeon Platinum 8370C, Go 1.27.1, and GCC 13.3. SIMD C reports
-AVX2 dispatch (`opus_select_arch=4`); scalar C reports zero and no SIMD
-features. The strict 3,640-case multistream/projection sweep has no skips:
+Native AMD64 early evidence at `af24b0e1`, from
+[run 36261586824](https://github.com/thesyncim/gopus/actions/runs/36261586824),
+uses AMD EPYC 7763, Go 1.27.1, and GCC 13.3. SIMD C reports AVX2 dispatch
+(`opus_select_arch=4`); scalar C reports zero and no SIMD features.
+The strict 3,640-case multistream/projection sweep has no skips:
 
 | AMD64 lane | Passing cases | Failing cases | Surround / discrete / projection / Go-encoded failures |
 |---|---:|---:|---:|
-| SIMD | 2,894 | 746 | 649 / 35 / 34 / 28 |
-| `nosimd` scalar | 3,638 | 2 | 0 / 2 / 0 / 0 |
+| SIMD | 2,886 | 754 | 662 / 32 / 33 / 27 |
+| `nosimd` scalar | 3,640 | 0 | 0 / 0 / 0 / 0 |
 
-The two scalar failures are discrete four-channel 24 kbps CBR transitions:
-20 ms int16 and 60 ms float32. Their peak sample errors are 4,883 integer
-units and 0.110626 float units. The `e35dbfea` capture on AMD EPYC 7763 has
-756 SIMD failures and the same two scalar failures; the different hosts do
-not isolate a revision-to-revision effect. Both `f6952200` lanes pass the six
-deemphasis helpers, state/downsample coverage, 40 public silence cases,
-the mono/stereo history regression, and the warmed single-stream zero-allocation
-guards. The multistream guard passes its existing allowance of eight
-allocations per call; that is not a zero-allocation result. The SIMD stereo
-PLC stage test fails at final PCM sample 234 by one float32 ULP; its captured
-earlier stages match. Scalar PLC passes.
+The complete scalar sweep is exact. Both native lanes also pass all 108 DTX
+configurations and all 260 native-rate encode configurations with strict bytes
+and final ranges. The six ARM64 DTX residuals are absent from these native
+AMD64 results. The `e35dbfea` capture on the same EPYC model has 756 SIMD
+failures and two scalar failures; `f6952200` on Xeon 8370C has 746 and two.
+Different CPU models do not isolate a revision-to-revision effect.
+Both `af24b0e1` lanes pass the six deemphasis helpers, state/downsample coverage,
+40 public silence cases, the mono/stereo history regression, eight FIR and
+four IIR cases, and the warmed single-stream zero-allocation guards.
+The multistream guard passes its existing allowance of eight allocations per
+call; that is not a zero-allocation result. The SIMD stereo PLC stage test
+fails at final PCM sample 234 by one float32 ULP; its captured earlier stages
+match. Scalar PLC passes. The next stage trace captures postfilter output and
+incoming deemphasis state with the original final PCM assertion intact.
+The SSE postfilter candidate computes C's arithmetic prefix once for the
+entire constant body, preserving it across separate history/current-frame
+storage spans. The direct C gate covers eight constant-boundary cases and
+two ramp/offset cases. They pass all local modes; native runtime proof and
+the complete SIMD sweep remain pending. The period-75 seed places the first
+artificial scalar tail at sample 117, matching the observed final PCM index234.
 
 Native CELT raw-bit xcorr checks pass 134/186 leaves; SILK passes 12/24.
 Masked-tail signed-zero and short hardware-FMA rounding cases pass. Remaining
@@ -172,7 +179,10 @@ C kernels, and the artifact contains the actual C archive, build identity,
 primitive binary, and disassembly. Primitive intrinsics can compile to a
 different FMA encoding from the full kernel, so full-kernel results govern
 operand-priority fixes. The SILK finite/exceptional warm allocation guard passes
-with zero allocations. Both native lanes pass all 30 full transition cases,
+with zero allocations. The `a89306e0` cold NaN replay follows the linked C
+operand order and has native verification pending; its expanded CELT gate has
+216 raw-bit leaves and warm zero-allocation assertions for all 38 production
+inputs. Both native lanes pass all 30 full transition cases,
 60 standalone concealment stages, gain/replay probes, and budget/projection
 gates. This early subset is not a total mismatch inventory.
 The `036c4d51` full capture completes all three kernel benchmark phases and
@@ -208,10 +218,12 @@ Those counts describe that revision and include fixture evidence failures;
 they are neither current totals nor counts of independent bugs.
 
 Remaining investigations include:
-- Encode at `036c4d51`: matched ordinary ARM64 scalar C checks find 38 differing
-  frames in 32/1,788 differential configurations and 293 differing frames in
-  176/2,844 executed stateful configurations. A strict diagnostic at
-  `2ccd85af` enables all 144 excluded LBRR specifications: all 144 pass every
+- Encode: matched ordinary ARM64 scalar C checks at `036c4d51` find 38 differing
+  frames in 32/1,788 differential configurations. The strict `7c0fa7f4` stateful
+  gate executes all 2,988 configurations: 2,812 pass and 176 fail, with zero
+  TOC-mode flips, eight length/cadence diagnostics, 293 payload-byte diagnostics,
+  and 59 final-range diagnostics. Failures span auto (166), Hybrid (8), and
+  CELT (2) configurations. All 144 restored LBRR specifications pass every
   packet byte, length, and final range in each of ordinary, SIMD, and `nosimd`,
   with no panics or skips. The six separately excluded DTX/LBRR cases execute
   without panic but fail in all three lanes, with 67 differing frames per lane.
@@ -479,7 +491,7 @@ Different hosts cannot establish a revision-to-revision gain or loss.
 The completed `2ccd85af` benchmark phases supply the three-mode decode table
 and all 11 measurable AMD64 symbol rows at that revision.
 
-### Latest native AMD64 interleaved encode
+### Xeon 8370C interleaved encode
 
 [Run 36260351550](https://github.com/thesyncim/gopus/actions/runs/36260351550)
 compares assembly `8ac93c85` with `f6952200` on Intel Xeon Platinum 8370C,
@@ -492,8 +504,26 @@ settings, and preallocated caller buffers.
 | Go SIMD | 86,576.5 | 86,461–86,748 | 0 |
 
 Go SIMD takes 21.2% less time in this same-run pair. This early capture has
-no `nosimd` timing. Its full kernel/end-to-end capture is pending, so the
+no `nosimd` timing. The full capture completes only the baseline benchmark
+phases before cancellation, so it supplies no new three-mode ratio. The
 53-row matrix retains the completed measurements and their recorded revisions.
+
+
+### Latest native AMD64 interleaved encode
+
+[Run 36261586824](https://github.com/thesyncim/gopus/actions/runs/36261586824)
+compares assembly `8ac93c85` with `af24b0e1` on AMD EPYC 7763, Go 1.27.1,
+using four interleaved 500 ms samples, `-cpu=1`, matching PGO settings,
+and preallocated caller buffers.
+
+| Caller-buffer encode | Median ns/op | Sample range | Allocs/op |
+|---|---:|---:|---:|
+| Old assembly | 91,888.5 | 91,426–92,087 | 0 |
+| Go SIMD | 88,076 | 87,965–88,236 | 0 |
+
+Go SIMD takes 4.1% less time in this same-run pair. No `nosimd` timing is
+available in this early capture. The complete three-mode/kernel matrix below
+retains its recorded measurement revisions.
 
 ## Per-symbol inventory
 
