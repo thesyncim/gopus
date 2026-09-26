@@ -354,6 +354,26 @@ opusdec comparisons and the integrity check pass locally. The complete CELT
 ordinary and `purego` suites each pass 3,039 test nodes, with three existing
 capability/producer skips and zero failures. Native confirmation is pending.
 
+Short multistream encoding at `32c923bd` uses original int16 analysis input,
+ordered projection mixing and per-call short-input LSB depth. The analyzer's
+ARM64 rounded four-bin epilogue matches all 202 live-C cases. Caller-owned
+MDCT/TF scratch gives zero warm allocations for the tested six-channel encode
+and eight-channel low-space path. All 228 focused test nodes pass each ARM
+mode, including 24-frame short/float transitions, projection, ownership and
+capacity-rejection state checks. The strict broad composite sweep passes
+2,844 nodes per lane; its one fixed 7.1/480/64k CBR case still differs in one
+byte despite matching each child range. All 432 five-frame projection cases
+are exact. Longer and broader composite coverage remains open.
+
+SILK PLC at `7a48ad92` clears all 16 cached LPC coefficients when the channel
+is in its first frame after reset, as `silk_PLC_conceal` requires. Captured
+native AMD64 40/60 ms packet histories match every prefix and FEC output bit,
+length and range against the live paired C decoder in all three ARM modes.
+Removing only the reset clear fails both histories. The broader FEC/PLC/side
+channel sweep passes 72 test nodes per lane, without failures or skips;
+8/12/16 kHz reset concealment checks allocate zero after warmup. Native AMD64
+confirmation is pending; both captured histories are in the early CI gate.
+
 ### Optional-feature exactness audit
 
 No complete optional-feature byte-parity claim is established. QEXT reference
@@ -392,6 +412,24 @@ two-frame 5 ms packet witness passes, and existing three-frame witnesses
 remain enforced. The broader diagnostic differs in 53/60 configurations and
 118/180 frames; full QEXT parity remains open.
 
+QEXT finalization at `156acf19` emits main fine bits from the saved residual
+while preserving refined extension history; six actual-C finalizer cases
+check every bit and state field. The secondary coder at `ddf84985` keeps raw
+end bits at their fixed storage offsets. A line revert fails the new strict
+three-frame 10 ms VBR witness. All 69 QEXT test nodes and both packages pass
+ordinary, SIMD and `nosimd`, without failures or skips. The broad 60-case,
+180-frame diagnostic currently differs in **31 configurations / 74 frames**.
+The full tag-enabled package sweep still fails other encoder/PVQ families;
+the focused QEXT result is not a complete package pass.
+
+Custom short decoding at `0ce1a5f1` uses C's 32768 scaling, ties-to-even and
+saturation. All 24 standard-duration mono/stereo amplitude cases match live
+C short PCM and ranges in ordinary, SIMD and `nosimd`; removing the conversion
+fix fails the witness. Custom reference validation checks both CUSTOM_MODES
+and scalar/SIMD provenance. The ordinary and purego package/helper sweeps each
+pass 284 nodes with seven existing custom capability skips. Nonstandard custom
+float PCM/packet parity and additional accepted modes remain open.
+
 DRED carried-payload tests contain
 structural fallbacks; OSCE/deep-PLC tests include numerical tolerances. Their
 neural and codec dispatch choices must both match C. Custom-mode tests include
@@ -409,14 +447,11 @@ Remaining strict investigations include:
   and native AMD64 confirmation of each new fix.
   Counts above belong to their named matrices and revisions, not a global
   count of independent defects.
-- SILK stereo multiframe FEC output, including the strict native AMD64 case
-  whose packet range agrees while recovered PCM differs. Its gate requires
-  exact prefix PCM/ranges and complete lengths before recovery, and logs the
-  first failing packet history for cross-host replay. All nine local cases
-  pass in ordinary, SIMD and `nosimd`; no architecture tolerance applies.
+- Native AMD64 confirmation of the exact side-reset FEC fix; local replay
+  uses the captured native packets with matching paired references.
 - Broader QEXT, DRED/OSCE, custom-mode and public fixed-point feature parity,
   with matching neural and codec dispatch on each side.
-- Active caller-buffer multistream encode allocations and optional-feature
+- Broader multistream encode allocation coverage and optional-feature
   allocation coverage. Owned-output convenience APIs allocate returned slices.
 - Legacy tests that accept numerical/packet differences are not evidence of
   exact parity. Strict replacement gates retain every selected case.
