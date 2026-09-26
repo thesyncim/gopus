@@ -82,7 +82,7 @@ func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, qextPayloa
 		}
 	}
 	if silence {
-		applyDecodedSilence(energies, coeffsL, coeffsR)
+		applyDecodedSilence(energies, coeffsL, coeffsR, spectrum.qext)
 	}
 	d.applyPendingPLCPrefilterAndFold()
 	samples := d.synthesizeDecodedFrame(frameSize, mode.LM, end, lm, header.shortBlocks, header.transient, header.postfilterPeriod, header.postfilterGain, header.postfilterTapset, energies, coeffsL, coeffsR, spectrum.qext)

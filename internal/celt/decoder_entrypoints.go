@@ -66,7 +66,7 @@ func (d *Decoder) decodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	coeffsL, coeffsR, qext := d.decodeHybridSpectrum(qextPayload, rd, totalBits, frameSize, start, end, lm, header.shortBlocks, allocation.spread, allocation.antiCollapseRsv, channels, d.phaseInversionDisabled, energies, prev1LogE, prev2LogE,
 		allocation.pulses, allocation.fineQuant, allocation.finePriority, allocation.tfRes, allocation.intensity, allocation.dualStereo, allocation.balance, allocation.codedBands)
 	if silence {
-		applyDecodedSilence(energies, coeffsL, coeffsR)
+		applyDecodedSilence(energies, coeffsL, coeffsR, qext)
 	}
 
 	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)

@@ -45,12 +45,16 @@ func decodeSilenceFlag(rd *rangecoding.Decoder, totalBits int) bool {
 
 // applyDecodedSilence mirrors the silence handling of celt_decode_with_ec()
 // just before celt_synthesis(): oldBandE is set to -28 for every coded band,
-// and denormalise_bands(silence=1) produces an all-zero spectrum, which the
-// synthesis then overlap-adds against the carried decode memory.
-func applyDecodedSilence(energies []celtGLog, coeffsL, coeffsR []celtNorm) {
+// and denormalise_bands(silence=1) produces an all-zero spectrum, including
+// QEXT bands, which synthesis overlap-adds against the carried decode memory.
+func applyDecodedSilence(energies []celtGLog, coeffsL, coeffsR []celtNorm, qext *preparedQEXTDecode) {
 	for i := range energies {
 		energies[i] = -28.0
 	}
 	clear(coeffsL)
 	clear(coeffsR)
+	if qext != nil {
+		clear(qext.coeffsL)
+		clear(qext.coeffsR)
+	}
 }

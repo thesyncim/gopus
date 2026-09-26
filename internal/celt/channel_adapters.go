@@ -246,7 +246,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 		antiCollapseGLog(coeffsMono, nil, collapse, lm, 1, start, end, monoEnergies, prev1LogE, prev2LogE, pulses, d.rng)
 	}
 	if silence {
-		applyDecodedSilence(monoEnergies, coeffsMono, nil)
+		applyDecodedSilence(monoEnergies, coeffsMono, nil, qext)
 	}
 
 	downsample := d.downsampleFactor()
@@ -418,7 +418,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 		antiCollapseGLog(coeffsL, coeffsR, collapse, lm, channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
 	}
 	if silence {
-		applyDecodedSilence(energies, coeffsL, coeffsR)
+		applyDecodedSilence(energies, coeffsL, coeffsR, qext)
 	}
 
 	energiesL := energies[:end]
@@ -580,7 +580,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 
 	coeffsMono, _, qext := d.decodeHybridSpectrum(qextPayload, rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, 1, false, monoEnergies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
 	if silence {
-		applyDecodedSilence(monoEnergies, coeffsMono, nil)
+		applyDecodedSilence(monoEnergies, coeffsMono, nil, qext)
 	}
 
 	downsample := d.downsampleFactor()
@@ -718,7 +718,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 
 	coeffsL, coeffsR, qext := d.decodeHybridSpectrum(qextPayload, rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, channels, d.phaseInversionDisabled, energies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
 	if silence {
-		applyDecodedSilence(energies, coeffsL, coeffsR)
+		applyDecodedSilence(energies, coeffsL, coeffsR, qext)
 	}
 
 	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)
