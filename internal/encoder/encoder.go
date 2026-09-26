@@ -351,7 +351,9 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		intBandwidth:           types.BandwidthFullband,
 		voiceRatio:             -1,
 		streamChannels:         int32(channels),
-		prevChannels:           int32(channels),
+		// opus_encoder_init zeroes the state before setting stream_channels;
+		// prev_channels stays zero until the first encoded frame.
+		prevChannels:           0,
 		autoBandwidth:          types.BandwidthFullband,
 		first:                  true,
 		prevHBGain:             1,
@@ -532,6 +534,9 @@ func (e *Encoder) SampleRate() int {
 
 // Reset clears the encoder state for a new stream.
 func (e *Encoder) Reset() {
+	// hp_mem is inside OPUS_ENCODER_RESET_START and is cleared by
+	// OPUS_RESET_STATE (opus_encoder.c:112-121, 3254).
+	e.hpMem = [4]float32{}
 	if len(e.delayBuffer) > 0 {
 		clear(e.delayBuffer)
 	}
@@ -581,7 +586,9 @@ func (e *Encoder) Reset() {
 	// start and is preserved.
 	e.bandwidth = types.BandwidthFullband
 	e.streamChannels = int32(e.channels)
-	e.prevChannels = int32(e.channels)
+	// OPUS_RESET_STATE clears prev_channels along with the other frame state;
+	// only stream_channels is then re-seeded (opus_encoder.c:3249-3265).
+	e.prevChannels = 0
 	e.autoBandwidth = types.BandwidthFullband
 	e.first = true
 	e.lbrrCoded = false
