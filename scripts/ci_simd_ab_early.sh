@@ -153,19 +153,19 @@ for mode in simd nosimd; do
   run_json_phase "candidate-$mode-celt-deemphasis-state-plc" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json "${build_args[@]}" ./internal/celt \
-    -run '^(TestApplyDeemphasis.*MatchesLibopus|TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus|TestCELTPLCStagesMatchLibopusC|TestCELTPLCFIRMatchesLibopus|TestCELTPLCIIRMatchesLibopus|TestCombFilterConstantBodyHistorySeamMatchesLibopus|TestCombFilterRampedHistorySeamMatchesLibopus|TestCombFilterConstSSEOrderZeroAllocs|TestPitchSearchNearTieMatchesSelectedLibopus|TestExpRotationMatchesLibopusFloatPath|TestPatchTransientHistoryStrideMatchesLibopus|TestPVQProjectionRoundingMatchesLibopus|TestOpPVQSearchFloatHighKNearTieResidual)$' \
+    -run '^(TestApplyDeemphasis.*MatchesLibopus|TestDeemphasisMatchesLibopus|TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus|TestCELTPLCStagesMatchLibopusC|TestCELTPLCFIRMatchesLibopus|TestCELTPLCIIRMatchesLibopus|TestCombFilterConstantBodyHistorySeamMatchesLibopus|TestCombFilterRampedHistorySeamMatchesLibopus|TestCombFilterConstSSEOrderZeroAllocs|TestPitchSearchNearTieMatchesSelectedLibopus|TestExpRotationMatchesLibopusFloatPath|TestPatchTransientHistoryStrideMatchesLibopus|TestPVQProjectionRoundingMatchesLibopus|TestOpPVQSearchFloatHighKNearTieResidual)$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-root-silence-allocation" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json "${build_args[@]}" . \
-    -run '^(TestCELTSilenceDecodeMatchesLibopusFloatBits|TestHotPathAllocsDecodeSilenceTransitions|TestHotPathAllocsMultistreamDecode|TestMultistreamCallerBuffer.*)$' \
+    -run '^(TestCELTSilenceDecodeMatchesLibopusFloatBits|TestCELTReceivedSilenceHistoryMatchesLibopus|TestHotPathAllocsDecodeSilenceTransitions|TestHotPathAllocsMultistreamDecode|TestMultistreamCallerBuffer.*)$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-multistream-encode-budget" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json "${build_args[@]}" ./multistream ./internal/encoder \
-    -run '^(TestMultistream(EncodeBudgetMatchesLibopus|EncodeTooSmallPreservesState|SelfDelimitedBudgetFramingWarmZeroAllocs)|TestSurroundTransientHistoryStrideMatchesLibopus|TestSurroundPVQProjectionRoundingMatchesLibopus|TestSurroundLowSpaceFinalRangeMatchesLibopus|TestProjectionAnalysisMatchesLibopus|TestInitialStereoToMonoMatchesLibopus|TestProjectionInitialMonoDecisionMatchesLibopus|TestStereoFadeMatchesLibopus|TestStereoWidthComputation|TestHPCutoffMatchesLibopus|TestClampRedundancyBytesAfterSilkMatchesLibopusFormula)$' \
+    -run '^(TestMultistream(EncodeBudgetMatchesLibopus|EncodeTooSmallPreservesState|SelfDelimitedBudgetFramingWarmZeroAllocs)|TestSurroundTransientHistoryStrideMatchesLibopus|TestSurroundPVQProjectionRoundingMatchesLibopus|TestSurroundLowSpaceFinalRangeMatchesLibopus|TestSurroundLowSpaceThenRealFrameMatchesLibopus|TestLowSpacePacketPreservesInputHighPassState|TestProjectionAnalysisMatchesLibopus|TestInitialStereoToMonoMatchesLibopus|TestProjectionInitialMonoDecisionMatchesLibopus|TestStereoFadeMatchesLibopus|TestStereoWidthComputation|TestHPCutoffMatchesLibopus|TestClampRedundancyBytesAfterSilkMatchesLibopusFormula)$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-root-native-rate-dtx" \
