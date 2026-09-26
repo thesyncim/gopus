@@ -72,27 +72,39 @@ import (
 // sub48NativeRates is the native sub-48k SILK/Hybrid sample-rate set under test.
 var sub48NativeRates = []int{8000, 12000, 16000, 24000}
 
-// sub48DurationMs maps the expert frame duration to its millisecond span (only
-// the SILK/Hybrid-legal durations used by this gate).
-func sub48DurationMs(d ExpertFrameDuration) int {
+// sub48DurationTenthsMs maps the expert frame duration to its span in tenths of
+// a millisecond.
+func sub48DurationTenthsMs(d ExpertFrameDuration) int {
 	switch d {
+	case ExpertFrameDuration2_5Ms:
+		return 25
+	case ExpertFrameDuration5Ms:
+		return 50
 	case ExpertFrameDuration10Ms:
-		return 10
+		return 100
 	case ExpertFrameDuration20Ms:
-		return 20
+		return 200
 	case ExpertFrameDuration40Ms:
-		return 40
+		return 400
 	case ExpertFrameDuration60Ms:
-		return 60
-	default:
-		return 20
+		return 600
 	}
+	panic(fmt.Sprintf("sub48: unsupported frame duration %d", d))
+}
+
+// sub48DurationLabel is the spec-name label of d, such as "2.5ms" or "20ms".
+func sub48DurationLabel(d ExpertFrameDuration) string {
+	t := sub48DurationTenthsMs(d)
+	if t%10 != 0 {
+		return fmt.Sprintf("%d.%dms", t/10, t%10)
+	}
+	return fmt.Sprintf("%dms", t/10)
 }
 
 // sub48NativeFrameSamples returns the per-channel NATIVE-Fs sample count for one
 // frame of the given duration — what libopus opus_encode(Fs) consumes.
 func sub48NativeFrameSamples(fs int, d ExpertFrameDuration) int {
-	return fs * sub48DurationMs(d) / 1000
+	return fs * sub48DurationTenthsMs(d) / 10000
 }
 
 // sub48Spec is one point in the sub-48k SILK/Hybrid encode configuration space.
@@ -158,7 +170,7 @@ func sub48BuildSweep() []sub48Spec {
 				cx := complexities[ci%len(complexities)]
 				ci++
 				specs = append(specs, sub48Spec{
-					name:     fmt.Sprintf("%s_%dms_%s", m.name, sub48DurationMs(dur), sub48ChName(ch)),
+					name:     fmt.Sprintf("%s_%s_%s", m.name, sub48DurationLabel(dur), sub48ChName(ch)),
 					mode:     m.mode,
 					forceMD:  m.forceMD,
 					gbw:      m.gbw,
@@ -239,7 +251,7 @@ func TestSub48NativeInputRateContract(t *testing.T) {
 	for _, fs := range sub48NativeRates {
 		for _, dur := range []ExpertFrameDuration{ExpertFrameDuration10Ms, ExpertFrameDuration20Ms} {
 			fs, dur := fs, dur
-			name := fmt.Sprintf("fs%d_%dms", fs, sub48DurationMs(dur))
+			name := fmt.Sprintf("fs%d_%s", fs, sub48DurationLabel(dur))
 			t.Run(name, func(t *testing.T) {
 				enc, err := NewEncoder(EncoderConfig{SampleRate: fs, Channels: 1, Application: ApplicationAudio})
 				if err != nil {
@@ -271,16 +283,16 @@ func TestSub48NativeInputRateContract(t *testing.T) {
 				// CONTRACT: native-Fs-length frame is ACCEPTED.
 				nativeFrame := make([]float32, nativeSamples)
 				if _, err := enc.EncodeFloat32(nativeFrame); err != nil {
-					t.Errorf("fs=%d %dms: EncodeFloat32(native %d samples) err=%v, want accepted",
-						fs, sub48DurationMs(dur), nativeSamples, err)
+					t.Errorf("fs=%d %s: EncodeFloat32(native %d samples) err=%v, want accepted",
+						fs, sub48DurationLabel(dur), nativeSamples, err)
 				}
 
 				// CONTRACT: legacy 48 kHz-relative-length frame is REJECTED.
 				relFrame := make([]float32, rel)
 				if _, err := enc.EncodeFloat32(relFrame); err != ErrInvalidFrameSize {
-					t.Errorf("fs=%d %dms: EncodeFloat32(48k-relative %d samples) err=%v, want ErrInvalidFrameSize "+
+					t.Errorf("fs=%d %s: EncodeFloat32(48k-relative %d samples) err=%v, want ErrInvalidFrameSize "+
 						"(native-Fs contract: input is native-Fs)",
-						fs, sub48DurationMs(dur), rel, err)
+						fs, sub48DurationLabel(dur), rel, err)
 				}
 			})
 		}
