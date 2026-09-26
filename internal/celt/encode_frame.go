@@ -607,12 +607,8 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	// false negatives in transient_analysis().
 	// Reference: libopus celt/celt_encoder.c lines 2215-2231
 	if lm > 0 && re.Tell()+3 <= totalBits && !transient && e.complexity >= 5 && !e.IsHybrid() && !e.lfe {
-		// Get previous frame's band energies (oldBandE in libopus)
-		oldBandE := ensureGLogSlice(&e.scratch.coarseOldStart, len(e.prevEnergy))
-		copy(oldBandE, e.prevEnergy)
-
 		spreadOld := ensureGLogSlice(&e.scratch.transientSpreadOld, end)
-		if PatchTransientDecisionWithScratch(energies, oldBandE, nbBands, 0, end, codedChannels, spreadOld) {
+		if PatchTransientDecisionWithScratch(energies, e.prevEnergy, nbBands, e.predStride(), 0, end, codedChannels, spreadOld) {
 			// Transient patched! Need to recompute MDCT with short blocks
 			transient = true
 			shortBlocks = mode.ShortBlocks

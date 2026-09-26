@@ -955,9 +955,11 @@ func (e *Encoder) DetectTransient(pcm []float32, frameSize int) bool {
 // PatchTransientDecisionWithScratch looks for sudden energy increases to decide
 // whether to force short blocks, taking the spread-old-energy workspace from
 // caller-owned scratch. It mirrors libopus celt/celt_encoder.c
-// patch_transient_decision().
-func PatchTransientDecisionWithScratch(newE []celtGLog, oldE []celtGLog, nbEBands, start, end, channels int, spreadOld []celtGLog) bool {
-	if len(newE) < end || len(oldE) < end {
+// patch_transient_decision(). newE has nbEBands values per channel; oldE
+// retains the mode's historyStride even when fewer bands are coded.
+func PatchTransientDecisionWithScratch(newE []celtGLog, oldE []celtGLog, nbEBands, historyStride, start, end, channels int, spreadOld []celtGLog) bool {
+	if channels < 1 || start < 0 || end <= start || nbEBands < end || historyStride < end ||
+		len(newE) < (channels-1)*nbEBands+end || len(oldE) < (channels-1)*historyStride+end {
 		return false
 	}
 
@@ -982,14 +984,14 @@ func PatchTransientDecisionWithScratch(newE []celtGLog, oldE []celtGLog, nbEBand
 	} else {
 		// Stereo: use max of left and right channel
 		v := oldE[start]
-		if oldE[start+nbEBands] > v {
-			v = oldE[start+nbEBands]
+		if oldE[start+historyStride] > v {
+			v = oldE[start+historyStride]
 		}
 		spreadOld[start] = v
 		for i := start + 1; i < end; i++ {
 			v = oldE[i]
-			if oldE[i+nbEBands] > v {
-				v = oldE[i+nbEBands]
+			if oldE[i+historyStride] > v {
+				v = oldE[i+historyStride]
 			}
 			if prev := spreadOld[i-1] - 1.0; prev > v {
 				v = prev
