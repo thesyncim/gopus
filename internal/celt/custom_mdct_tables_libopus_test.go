@@ -25,7 +25,7 @@ func TestCustomModeTransformsMatchLibopus(t *testing.T) {
 		libopustest.HelperUnavailable(t, "custom mode transforms", err)
 		return
 	}
-	for _, tc := range []struct{ fs, frame, maxLM int }{{24000, 40, 0}, {12000, 240, 3}, {44100, 360, 2}, {48000, 640, 3}, {48000, 720, 3}, {48000, 1024, 3}} {
+	for _, tc := range []struct{ fs, frame, maxLM int }{{16000, 60, 1}, {24000, 40, 0}, {12000, 240, 3}, {44100, 360, 2}, {48000, 640, 3}, {48000, 720, 3}, {48000, 1024, 3}} {
 		t.Run(fmt.Sprintf("%d_%d", tc.fs, tc.frame), func(t *testing.T) {
 			overlap := ((tc.frame >> tc.maxLM) >> 2) << 2
 			window := GetWindowBufferF32(overlap)

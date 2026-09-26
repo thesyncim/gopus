@@ -329,7 +329,7 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, outpu
 }
 
 // applyPreemphasis2TapAndSilenceCore applies libopus's 2-tap CELT pre-emphasis
-// (celt_preemphasis() coef[1] != 0 path) used by the native 96 kHz HD mode,
+// (celt_preemphasis() coef[1] != 0 path) used by custom and 96 kHz modes,
 // while tracking the overlap-region silence max exactly as the single-tap path.
 //
 // Float build (SIG_SHIFT=0, RES2SIG = CELT_SIG_SCALE*x):
@@ -339,7 +339,8 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, outpu
 //	out[i] = tmp + m
 //	m      = coef1*out[i] - coef0*tmp
 //
-// with coef = HD96kMode.Preemph = {coef0, coef1, coef2, coef3}.
+// The second product rounds before the first product contracts with the
+// subtraction, matching the selected C build of celt_preemphasis().
 func (e *Encoder) applyPreemphasis2TapAndSilenceCore(pcm, output []float32, total, split, channels int) bool {
 	coef0 := e.hd96kPreemph[0]
 	coef1 := e.hd96kPreemph[1]
@@ -354,7 +355,7 @@ func (e *Encoder) applyPreemphasis2TapAndSilenceCore(pcm, output []float32, tota
 			tmp := noFMA32Mul(coef2, x)
 			y := noFMA32Add(tmp, m)
 			output[i] = y
-			m = noFMA32Sub(noFMA32Mul(coef1, y), noFMA32Mul(coef0, tmp))
+			m = fma32(coef1, y, -noFMA32Mul(coef0, tmp))
 		}
 		e.preemphState[0] = celtSig(m)
 	} else {
@@ -372,8 +373,8 @@ func (e *Encoder) applyPreemphasis2TapAndSilenceCore(pcm, output []float32, tota
 			yR := noFMA32Add(tmpR, mR)
 			output[i] = yL
 			output[i+1] = yR
-			mL = noFMA32Sub(noFMA32Mul(coef1, yL), noFMA32Mul(coef0, tmpL))
-			mR = noFMA32Sub(noFMA32Mul(coef1, yR), noFMA32Mul(coef0, tmpR))
+			mL = fma32(coef1, yL, -noFMA32Mul(coef0, tmpL))
+			mR = fma32(coef1, yR, -noFMA32Mul(coef0, tmpR))
 		}
 		e.preemphState[0] = celtSig(mL)
 		e.preemphState[1] = celtSig(mR)

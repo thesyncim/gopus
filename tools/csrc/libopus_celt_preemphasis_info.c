@@ -55,13 +55,13 @@ int main(void) {
   uint32_t version;
   uint32_t count;
   uint32_t case_idx;
-  static const opus_val16 coef[4] = {0.8500061035f, 0.0f, 1.0f, 1.0f};
+  opus_val16 coef[4] = {0.8500061035f, 0.0f, 1.0f, 1.0f};
 
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
-  if (!read_u32(&version) || version != 1 || !read_u32(&count)) return 1;
+  if (!read_u32(&version) || (version != 1 && version != 2) || !read_u32(&count)) return 1;
 
-  if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) return 1;
+  if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(version) || !write_u32(count)) return 1;
   for (case_idx = 0; case_idx < count; case_idx++) {
     uint32_t channels;
     uint32_t n;
@@ -73,6 +73,14 @@ int main(void) {
 
     if (!read_u32(&channels) || !read_u32(&n)) return 1;
     if (channels < 1 || channels > 2) return 1;
+    /* Version 2 supplies custom-mode coefficients for this case. */
+    if (version == 2) {
+      for (i = 0; i < 4; i++) {
+        float v;
+        if (!read_f32(&v)) return 1;
+        coef[i] = (opus_val16)v;
+      }
+    }
     mem[0] = 0;
     mem[1] = 0;
     for (ch = 0; ch < channels; ch++) {

@@ -272,30 +272,10 @@ func TestOracleParityStandardModes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("case %d DecodeFloat: %v", i, err)
 		}
-		// The encode packet is byte-identical to the libopus oracle on every
-		// arch (asserted above). The decoded float PCM carries the documented
-		// ~1-ULP CELT drift (project_arm64_celt_1ulp_drift): gopus's float CELT
-		// synthesis does not reproduce the libopus build bit-for-bit -- on arm64
-		// the fused NEON-shaped path vs scalar libopus, on amd64 the longer
-		// frames vs the SIMD libopus the oracle links. Both are a few LSB at the
-		// ~1/32768 quantum, three orders of magnitude below any real divergence,
-		// so hold the decode to that per-arch budget rather than bit-exact.
-		if len(decoded) != len(results[i].decoded) {
-			t.Errorf("case %d (48000/%d): decoded length %d, libopus %d", i, tc.frameSize, len(decoded), len(results[i].decoded))
-			continue
+		if dec.FinalRange() != results[i].decRange {
+			t.Fatalf("case%d decode range=%08x want=%08x", i, dec.FinalRange(), results[i].decRange)
 		}
-		var maxAbs float64
-		for k := range decoded {
-			if d := math.Abs(float64(decoded[k]) - float64(results[i].decoded[k])); d > maxAbs {
-				maxAbs = d
-			}
-		}
-		if maxAbs > scaledFamilyDecodeArm64Tol {
-			t.Errorf("case %d (48000/%d): decoded PCM drift maxAbs=%g exceeds tol %g",
-				i, tc.frameSize, maxAbs, scaledFamilyDecodeArm64Tol)
-		} else {
-			t.Logf("case %d (48000/%d): %d-byte packet exact + decode within %.3e drift", i, tc.frameSize, len(got), maxAbs)
-		}
+		assertCustomDecodeExact(t, fmt.Sprintf("standard/%d", tc.frameSize), decoded, results[i].decoded)
 	}
 }
 
@@ -325,19 +305,7 @@ func nonStandardCases() []oracleCase {
 	return cases
 }
 
-// TestOracleParityNonStandardModes covers non-standard (Fs, frame_size) pairs
-// OUTSIDE the Fs==400*shortMdctSize family (e.g. 48000/640 NbEBands=19,
-// 44100/882), whose band layout is genuinely custom (compute_ebands derives a
-// non-48 kHz eBands/allocVectors table). For those it confirms that:
-//  1. libopus --enable-custom-modes accepts the mode and produces a packet,
-//  2. the gopus encoder produces a byte-identical packet on amd64 (range-state
-//     checked on arm64), and
-//  3. the gopus decoder reproduces the libopus PCM sample-for-sample (amd64) or
-//     within the documented arm64 1-ULP CELT drift, driven by the per-mode band
-//     tables threaded through the CELT decode data plane.
-//
-// The Fs==400*shortMdctSize family (16000/320, 24000/480, etc.) is covered by
-// TestOracleParityScaledBandFamily; those members are skipped here.
+// TestOracleParityNonStandardModes checks exact packets, ranges and PCM against the paired live C build.
 func TestOracleParityNonStandardModes(t *testing.T) {
 	cases := nonStandardCases()
 	results := runCustomOracle(t, cases)
@@ -363,14 +331,6 @@ func TestOracleParityNonStandardModes(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewEncoder: %v", err)
 			}
-			// The encoder drives genuinely custom band layouts via the same per-mode
-			// CELT tables as the decoder. The range-coder final state is the strict
-			// correctness gate (bit-identical coding decisions); the CELT forward
-			// float analysis of a custom layout does not reproduce the scalar libopus
-			// build bit-for-bit (FMA-fused NEON on arm64, Go float codegen vs gcc on
-			// amd64), so late raw bits can land one ULP apart. Hold the final state
-			// exact on every arch; the raw packet bytes are a logged residual when
-			// such drift occurs. See project_arm64_celt_1ulp_drift.md.
 			packet, err := enc.EncodeFloat(tc.pcm, tc.maxBytes)
 			if err != nil {
 				t.Fatalf("EncodeFloat: %v", err)
@@ -379,7 +339,7 @@ func TestOracleParityNonStandardModes(t *testing.T) {
 				t.Errorf("Fs=%d frame=%d: encoder final range gopus=%08x libopus=%08x",
 					tc.fs, tc.frameSize, enc.FinalRange(), results[i].encRange)
 			} else if !bytes.Equal(packet, results[i].packet) {
-				t.Logf("Fs=%d frame=%d: range-state exact; packet within per-arch CELT float drift (project_arm64_celt_1ulp_drift.md)",
+				t.Errorf("Fs=%d frame=%d: encoded packet differs from libopus",
 					tc.fs, tc.frameSize)
 			}
 
@@ -391,31 +351,20 @@ func TestOracleParityNonStandardModes(t *testing.T) {
 			if err != nil {
 				t.Fatalf("DecodeFloat: %v", err)
 			}
+			if dec.FinalRange() != results[i].decRange {
+				t.Fatalf("decoder range=%08x want=%08x", dec.FinalRange(), results[i].decRange)
+			}
 			if len(decoded) != len(results[i].decoded) {
 				t.Fatalf("Fs=%d frame=%d: decoded length gopus=%d libopus=%d",
 					tc.fs, tc.frameSize, len(decoded), len(results[i].decoded))
 			}
-			maxAbs := assertCustomDecodeWithinDrift(t,
+			assertCustomDecodeExact(t,
 				fmt.Sprintf("Fs=%d frame=%d", tc.fs, tc.frameSize), decoded, results[i].decoded)
-			t.Logf("Fs=%d frame=%d: decode within drift maxAbs=%.3e (project_arm64_celt_1ulp_drift.md); encode checked",
-				tc.fs, tc.frameSize, maxAbs)
 		})
 	}
 }
 
-// TestOracleParityNonStandardStereo proves that the native Opus Custom data
-// plane reproduces libopus --enable-custom-modes byte-for-byte (encode) and
-// sample-for-sample (decode) for a STEREO non-family custom mode (48000/640,
-// nbEBands=19). The energy-prediction history (oldBandE/oldLogE) is strided by
-// the mode's nbEBands rather than the static 21-band MaxBands, so the right
-// channel reads/writes at the correct per-mode offset.
-//
-// The encoded packet must match exactly on amd64; the decoded PCM matches
-// exactly on amd64 and within the documented arm64 1-ULP CELT drift on
-// darwin/arm64.
-//
-// Reference: libopus celt/celt_encoder.c opus_custom_encode_float /
-// celt/celt_decoder.c opus_custom_decode_float with a stereo custom CELTMode.
+// TestOracleParityNonStandardStereo checks exact packets, ranges and PCM against the paired live C build.
 func TestOracleParityNonStandardStereo(t *testing.T) {
 	const maxBytes = 400
 	specs := []struct{ fs, frameSize int }{
@@ -442,14 +391,11 @@ func TestOracleParityNonStandardStereo(t *testing.T) {
 			}
 
 			got, enc := gopusEncode(t, tc)
-			// Final state strict on every arch (bit-identical coding decisions); the
-			// raw packet bytes are a logged residual where the per-arch CELT float
-			// drift perturbs late bits (project_arm64_celt_1ulp_drift.md).
 			if enc.FinalRange() != results[i].encRange {
 				t.Errorf("Fs=%d frame=%d stereo: encoder final range gopus=%08x libopus=%08x",
 					tc.fs, tc.frameSize, enc.FinalRange(), results[i].encRange)
 			} else if !bytes.Equal(got, results[i].packet) {
-				t.Logf("Fs=%d frame=%d stereo: range-state exact; packet within per-arch CELT float drift (project_arm64_celt_1ulp_drift.md)",
+				t.Errorf("Fs=%d frame=%d stereo: encoded packet differs from libopus",
 					tc.fs, tc.frameSize)
 			}
 
@@ -461,14 +407,15 @@ func TestOracleParityNonStandardStereo(t *testing.T) {
 			if err != nil {
 				t.Fatalf("DecodeFloat: %v", err)
 			}
+			if dec.FinalRange() != results[i].decRange {
+				t.Fatalf("decoder range=%08x want=%08x", dec.FinalRange(), results[i].decRange)
+			}
 			if len(decoded) != len(results[i].decoded) {
 				t.Fatalf("Fs=%d frame=%d stereo: decoded length gopus=%d libopus=%d",
 					tc.fs, tc.frameSize, len(decoded), len(results[i].decoded))
 			}
-			maxAbs := assertCustomDecodeWithinDrift(t,
+			assertCustomDecodeExact(t,
 				fmt.Sprintf("Fs=%d frame=%d stereo", tc.fs, tc.frameSize), decoded, results[i].decoded)
-			t.Logf("Fs=%d frame=%d stereo: decode within drift maxAbs=%.3e (project_arm64_celt_1ulp_drift.md); encode checked",
-				tc.fs, tc.frameSize, maxAbs)
 		})
 	}
 }
@@ -595,21 +542,7 @@ func scaledBandFamilyCases() []oracleCase {
 	return cases
 }
 
-// scaledFamilyDecodeArm64Tol bounds the residual darwin/arm64-only CELT decode
-// drift (project_arm64_celt_1ulp_drift.md): the size-driven IMDCT/de-emphasis
-// kernels accumulate a single-ULP cosine/FMA difference per step that CI (amd64)
-// does not exhibit. On amd64 the decoded PCM is required to be sample-exact.
-const scaledFamilyDecodeArm64Tol = 2e-4
-
-// TestOracleParityScaledBandFamily proves that the native Opus Custom data plane
-// reproduces libopus --enable-custom-modes byte-for-byte (encode) and
-// sample-for-sample (decode) for the Fs==400*shortMdctSize family. The encoded
-// packet must match exactly on every architecture; the decoded PCM matches
-// exactly on amd64 and within the documented arm64 1-ULP CELT drift on
-// darwin/arm64.
-//
-// Reference: libopus celt/celt_encoder.c opus_custom_encode_float /
-// celt/celt_decoder.c opus_custom_decode_float with a custom CELTMode.
+// TestOracleParityScaledBandFamily checks exact packets, ranges and PCM against the paired live C build.
 func TestOracleParityScaledBandFamily(t *testing.T) {
 	cases := scaledBandFamilyCases()
 	results := runCustomOracle(t, cases)
@@ -628,15 +561,13 @@ func TestOracleParityScaledBandFamily(t *testing.T) {
 			}
 
 			got, enc := gopusEncode(t, tc)
-			// Final state strict on every arch; the raw packet bytes are byte-exact
-			// where the CELT forward float path reproduces the scalar libopus build
-			// and a logged residual where the per-arch float drift (FMA-fused NEON on
-			// arm64, Go float codegen vs gcc on amd64) perturbs late bits.
 			if enc.FinalRange() != results[i].encRange {
 				t.Errorf("Fs=%d frame=%d: encoder final range gopus=%08x libopus=%08x",
 					tc.fs, tc.frameSize, enc.FinalRange(), results[i].encRange)
 			}
-			byteExact := bytes.Equal(got, results[i].packet)
+			if !bytes.Equal(got, results[i].packet) {
+				t.Errorf("Fs=%d frame=%d: encoded packet differs from libopus", tc.fs, tc.frameSize)
+			}
 
 			dec, err := custom.NewDecoder(mode, tc.channels)
 			if err != nil {
@@ -646,14 +577,15 @@ func TestOracleParityScaledBandFamily(t *testing.T) {
 			if err != nil {
 				t.Fatalf("DecodeFloat: %v", err)
 			}
+			if dec.FinalRange() != results[i].decRange {
+				t.Fatalf("decoder range=%08x want=%08x", dec.FinalRange(), results[i].decRange)
+			}
 			if len(decoded) != len(results[i].decoded) {
 				t.Fatalf("Fs=%d frame=%d: decoded length gopus=%d libopus=%d",
 					tc.fs, tc.frameSize, len(decoded), len(results[i].decoded))
 			}
-			maxAbs := assertCustomDecodeWithinDrift(t,
+			assertCustomDecodeExact(t,
 				fmt.Sprintf("Fs=%d frame=%d", tc.fs, tc.frameSize), decoded, results[i].decoded)
-			t.Logf("Fs=%d frame=%d: packet byteExact=%t (%d bytes); decode within drift maxAbs=%.3e (project_arm64_celt_1ulp_drift.md)",
-				tc.fs, tc.frameSize, byteExact, len(got), maxAbs)
 		})
 	}
 }
@@ -839,16 +771,8 @@ func broadDecodeSweepCases() []oracleCase {
 	return cases
 }
 
-// TestOracleDecodeParityBroadSweep proves that the native Opus Custom DECODE data
-// plane reproduces libopus --enable-custom-modes sample-for-sample across a broad
-// grid of non-standard modes within the native band-cap: every short-block
-// decomposition (LM 0..3), scaled-band-family and genuinely custom band layouts,
-// 8k..96k sample rates, mono and stereo. The per-mode band tables (eBands, logN,
-// allocVectors, compute_pulse_cache index/bits/caps) and the size-driven
-// IMDCT/de-emphasis kernels are threaded through the decode path; libopus's own
-// packet is decoded and compared. PCM is sample-exact on amd64 and within the
-// documented arm64 1-ULP CELT drift on darwin/arm64
-// (project_arm64_celt_1ulp_drift.md).
+// TestOracleDecodeParityBroadSweep checks every decoded sample bit and final
+// range against the paired live C build.
 func TestOracleDecodeParityBroadSweep(t *testing.T) {
 	cases := broadDecodeSweepCases()
 	results := runCustomOracle(t, cases)
@@ -875,32 +799,21 @@ func TestOracleDecodeParityBroadSweep(t *testing.T) {
 			if err != nil {
 				t.Fatalf("DecodeFloat: %v", err)
 			}
+			if dec.FinalRange() != results[i].decRange {
+				t.Fatalf("decoder range=%08x want=%08x", dec.FinalRange(), results[i].decRange)
+			}
 			if len(decoded) != len(results[i].decoded) {
 				t.Fatalf("Fs=%d frame=%d ch=%d: decoded length gopus=%d libopus=%d",
 					tc.fs, tc.frameSize, tc.channels, len(decoded), len(results[i].decoded))
 			}
-			assertCustomDecodeWithinDrift(t,
+			assertCustomDecodeExact(t,
 				fmt.Sprintf("Fs=%d frame=%d ch=%d", tc.fs, tc.frameSize, tc.channels), decoded, results[i].decoded)
 		})
 	}
 }
 
-// TestOracleEncodeParityBroadSweep proves that the native Opus Custom ENCODE data
-// plane reproduces libopus --enable-custom-modes across the same broad grid of
-// non-standard modes within the native band-cap (nbEBands <= 21) that
-// TestOracleDecodeParityBroadSweep covers on the decode side: every short-block
-// decomposition (LM 0..3), the Fs==400*shortMdctSize family and genuinely custom
-// band layouts, 8k..96k sample rates, mono and stereo. The per-mode band tables
-// (eBands, logN, allocVectors, compute_pulse_cache index/bits/caps) and the
-// size-driven MDCT/pre-emphasis kernels are threaded through the encode path.
-//
-// The encoded packet is byte-identical to the libopus oracle on amd64. On
-// darwin/arm64 the documented 1-ULP CELT drift (project_arm64_celt_1ulp_drift.md)
-// can perturb the raw bits at the tail of the packet, so only the range-coder
-// final state is required to match there — the same arm64 contract as
-// TestOracleParityNonStandardModes and TestOracleParityNonStandardStereo. The
-// range-coder final state matching while only late raw bits differ confirms the
-// encoder made bit-identical coding decisions.
+// TestOracleEncodeParityBroadSweep checks exact packet bytes and final ranges
+// against the paired C build for every supported mode in the decode sweep.
 func TestOracleEncodeParityBroadSweep(t *testing.T) {
 	cases := broadDecodeSweepCases()
 	results := runCustomOracle(t, cases)
@@ -925,22 +838,12 @@ func TestOracleEncodeParityBroadSweep(t *testing.T) {
 				t.Fatalf("Fs=%d frame=%d ch=%d: packet length gopus=%d libopus=%d",
 					tc.fs, tc.frameSize, tc.channels, len(got), len(results[i].packet))
 			}
-			// The range-coder final state is the strict correctness gate: a match
-			// proves the encoder made bit-identical coding decisions. The CELT
-			// forward float path (MDCT/band-energy/pitch analysis) of a genuinely
-			// custom band layout does not reproduce the scalar libopus build
-			// bit-for-bit -- on arm64 the FMA-fused NEON path, on amd64 the Go
-			// float codegen vs gcc -- so a raw-coded value can land one ULP apart and
-			// perturb the late raw bits of an otherwise-identical packet. Hold the
-			// final state exact on every arch; the raw packet bytes are byte-exact
-			// when no such drift occurs and a logged residual when it does. See
-			// project_arm64_celt_1ulp_drift.md.
 			if enc.FinalRange() != results[i].encRange {
 				t.Fatalf("Fs=%d frame=%d ch=%d: encoder final range gopus=%08x libopus=%08x",
 					tc.fs, tc.frameSize, tc.channels, enc.FinalRange(), results[i].encRange)
 			}
 			if !bytes.Equal(got, results[i].packet) {
-				t.Logf("Fs=%d frame=%d ch=%d: range-state exact; packet within per-arch CELT float drift (project_arm64_celt_1ulp_drift.md)",
+				t.Errorf("Fs=%d frame=%d ch=%d: encoded packet differs from libopus",
 					tc.fs, tc.frameSize, tc.channels)
 			}
 		})
@@ -949,30 +852,17 @@ func TestOracleEncodeParityBroadSweep(t *testing.T) {
 
 // --- helpers ------------------------------------------------------------------
 
-// assertCustomDecodeWithinDrift holds a custom-mode float decode to the
-// documented ~1-ULP CELT drift budget (project_arm64_celt_1ulp_drift) on every
-// arch. The encode packet is byte-exact vs the libopus oracle, but the float
-// CELT synthesis does not reproduce the libopus build bit-for-bit: on arm64 the
-// fused NEON-shaped path vs scalar libopus, on amd64 the longer custom frames vs
-// the SIMD libopus the oracle links. Both are a few LSB at the ~1/32768 quantum,
-// far below any real divergence, so this gates the drift rather than asserting
-// bit-exactness. Returns the worst |Δ| for logging.
-func assertCustomDecodeWithinDrift(t *testing.T, label string, decoded, want []float32) float64 {
+// assertCustomDecodeExact compares every sample bit from the paired live C decoder.
+func assertCustomDecodeExact(t *testing.T, label string, decoded, want []float32) {
 	t.Helper()
-	var maxAbs float64
-	n := len(decoded)
-	if len(want) < n {
-		n = len(want)
+	if len(decoded) != len(want) {
+		t.Fatalf("%s samples=%d want=%d", label, len(decoded), len(want))
 	}
-	for k := 0; k < n; k++ {
-		if d := math.Abs(float64(decoded[k]) - float64(want[k])); d > maxAbs {
-			maxAbs = d
+	for i, v := range decoded {
+		if math.Float32bits(v) != math.Float32bits(want[i]) {
+			t.Fatalf("%s sample%d=%08x want=%08x", label, i, math.Float32bits(v), math.Float32bits(want[i]))
 		}
 	}
-	if maxAbs > scaledFamilyDecodeArm64Tol {
-		t.Fatalf("%s: decoded PCM drift maxAbs=%g exceeds tol %g", label, maxAbs, scaledFamilyDecodeArm64Tol)
-	}
-	return maxAbs
 }
 
 func firstSampleDivergence(a, b []float32) int {

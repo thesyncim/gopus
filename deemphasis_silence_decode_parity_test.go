@@ -72,3 +72,52 @@ func assertFloat32SliceBits(t *testing.T, label string, got, want []float32) {
 		}
 	}
 }
+
+// Received CELT silence carries synthesis overlap and filter memory from the
+// preceding signal. Compare the subsequent recovery with the same C history.
+func TestCELTReceivedSilenceHistoryMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, rate := range []int{48000, 16000} {
+		for _, channels := range []int{1, 2} {
+			t.Run(fmt.Sprintf("rate%d/ch%d", rate, channels), func(t *testing.T) {
+				packet := encodeAPIRateCELTPacketFrameSize(t, channels, 960)
+				silence := []byte{packet[0] & 0xfc, 0xff, 0xfe}
+				steps := []libopusAPIRateDecodeStep{{packet: packet}, {packet: silence}, {packet: silence}, {packet: packet}}
+				frame := rate / 50
+				want, ranges, err := decodeWithLibopusReferenceAPIRateFloat32StepsRanges(rate, channels, frame, steps)
+				if err != nil {
+					libopustest.HelperUnavailable(t, "CELT received silence history", err)
+				}
+				stride := frame * channels
+				if len(want) != len(steps)*stride || len(ranges) != len(steps) {
+					t.Fatalf("C samples/ranges=%d/%d", len(want), len(ranges))
+				}
+				tail := false
+				for _, v := range want[stride : 2*stride] {
+					if math.Abs(float64(v)) > 1e-10 {
+						tail = true
+						break
+					}
+				}
+				if !tail {
+					t.Fatal("received silence does not exercise nonzero synthesis history")
+				}
+				dec, err := NewDecoder(DefaultDecoderConfig(rate, channels))
+				if err != nil {
+					t.Fatal(err)
+				}
+				out := make([]float32, stride)
+				for i, step := range steps {
+					n, err := dec.Decode(step.packet, out)
+					if err != nil || n != frame {
+						t.Fatalf("step%d samples=%d want=%d err=%v", i, n, frame, err)
+					}
+					if dec.FinalRange() != ranges[i] {
+						t.Fatalf("step%d range=%08x want=%08x", i, dec.FinalRange(), ranges[i])
+					}
+					assertFloat32SliceBits(t, fmt.Sprintf("step%d", i), out, want[i*stride:(i+1)*stride])
+				}
+			})
+		}
+	}
+}
