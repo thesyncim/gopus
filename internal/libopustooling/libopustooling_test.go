@@ -231,6 +231,21 @@ func TestResolveLibopusReferenceVariantMatchesBuildTags(t *testing.T) {
 	}
 }
 
+func TestResolveLibopusQEXTReferenceVariantMatchesBuildTags(t *testing.T) {
+	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "auto")
+	want := LibopusReferenceQEXTScalar
+	if goLibopusReferenceSIMD && (runtime.GOARCH == "arm64" || runtime.GOARCH == "amd64") {
+		want = LibopusReferenceQEXTSIMD
+	}
+	got, err := ResolveLibopusQEXTReferenceVariant()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("QEXT variant=%q want %q", got, want)
+	}
+}
+
 func TestScalarReferenceCompilerPolicyMatchesEnsureScript(t *testing.T) {
 	script, err := os.ReadFile(filepath.Join("..", "..", "tools", "ensure_libopus.sh"))
 	if err != nil {
@@ -249,6 +264,67 @@ func TestValidateLibopusReferenceBuildAcceptsCustomScalarStamp(t *testing.T) {
 	dir := writePairedReferenceTree(t, t.TempDir(), LibopusReferenceCustomScalar, runtime.GOOS, runtime.GOARCH)
 	if err := ValidateLibopusReferenceBuild(dir, LibopusReferenceCustomScalar, DefaultVersion); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestValidateQEXTReferenceBuildRequiresFeatureAndPairedISA(t *testing.T) {
+	if runtime.GOARCH != "arm64" && runtime.GOARCH != "amd64" {
+		t.Skip("paired SIMD reference is defined for arm64 and amd64")
+	}
+	for _, variant := range []LibopusReferenceVariant{LibopusReferenceQEXTScalar, LibopusReferenceQEXTSIMD} {
+		dir := writePairedReferenceTree(t, t.TempDir(), variant, runtime.GOOS, runtime.GOARCH, "opus_demo")
+		if err := ValidateLibopusReferenceBuild(dir, variant, DefaultVersion); err != nil {
+			t.Fatalf("%s build: %v", variant, err)
+		}
+		other := LibopusReferenceQEXTScalar
+		if variant == other {
+			other = LibopusReferenceQEXTSIMD
+		}
+		if err := ValidateLibopusReferenceBuild(dir, other, DefaultVersion); err == nil {
+			t.Fatalf("%s build accepted as %s", variant, other)
+		}
+		tool := filepath.Join(dir, "opus_demo")
+		if runtime.GOOS == "windows" {
+			tool += ".exe"
+		}
+		if err := ValidateLibopusReferenceToolOverride(tool, "opus_demo", variant, DefaultVersion); err != nil {
+			t.Fatalf("%s tool: %v", variant, err)
+		}
+		if err := ValidateLibopusReferenceToolOverride(tool, "opus_demo", other, DefaultVersion); err == nil {
+			t.Fatalf("%s tool accepted as %s", variant, other)
+		}
+	}
+
+	for _, mutation := range []struct {
+		name string
+		file string
+		edit func(string) string
+	}{
+		{"missing stamp", ".gopus-libopus-build", func(string) string { return "" }},
+		{"wrong feature stamp", ".gopus-libopus-build", func(s string) string { return strings.Replace(s, "qext=1", "qext=0", 1) }},
+		{"missing feature macro", "config.h", func(s string) string { return strings.Replace(s, "#define ENABLE_QEXT 1\n", "", 1) }},
+		{"fixed-point config", "config.h", func(s string) string { return s + "#define FIXED_POINT 1\n" }},
+		{"custom config", "config.h", func(s string) string { return s + "#define CUSTOM_MODES 1\n" }},
+		{"wrong ISA macro", "config.h", func(s string) string { return "#define ENABLE_QEXT 1\n" }},
+	} {
+		t.Run(mutation.name, func(t *testing.T) {
+			dir := writePairedReferenceTree(t, t.TempDir(), LibopusReferenceQEXTSIMD, runtime.GOOS, runtime.GOARCH)
+			path := filepath.Join(dir, mutation.file)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mutation.name == "missing stamp" {
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.WriteFile(path, []byte(mutation.edit(string(data))), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := ValidateLibopusReferenceBuild(dir, LibopusReferenceQEXTSIMD, DefaultVersion); err == nil {
+				t.Fatal("invalid QEXT build accepted")
+			}
+		})
 	}
 }
 
@@ -616,13 +692,24 @@ func writePairedReferenceTree(t *testing.T, root string, variant LibopusReferenc
 	configure := "--enable-static --disable-shared --disable-asm --disable-rtcd --disable-intrinsics"
 	cflags := LibopusScalarCFLAGS
 	custom := "0"
+	qext := "0"
 	switch variant {
 	case LibopusReferenceScalar:
 	case LibopusReferenceSIMD:
 		config = testSIMDConfig(goarch)
 		configure = "--enable-static --disable-shared --enable-rtcd --enable-intrinsics"
 		cflags = LibopusBaseCFLAGS
+	case LibopusReferenceQEXTScalar:
+		config = "#define ENABLE_QEXT 1\n"
+		configure = "--enable-static --disable-shared --enable-qext --disable-asm --disable-rtcd --disable-intrinsics"
+		qext = "1"
+	case LibopusReferenceQEXTSIMD:
+		config = "#define ENABLE_QEXT 1\n" + testSIMDConfig(goarch)
+		configure = "--enable-static --disable-shared --enable-qext --enable-rtcd --enable-intrinsics"
+		cflags = LibopusBaseCFLAGS
+		qext = "1"
 	case LibopusReferenceCustomScalar:
+		config = "#define CUSTOM_MODES 1\n"
 		configure = "--enable-static --disable-shared --enable-custom-modes --disable-asm --disable-rtcd --disable-intrinsics"
 		custom = "1"
 	}
@@ -632,7 +719,7 @@ func writePairedReferenceTree(t *testing.T, root string, variant LibopusReferenc
 	stamp := strings.Join([]string{
 		"gopus libopus helper build v5",
 		"version=" + DefaultVersion,
-		"qext=0",
+		"qext=" + qext,
 		"fixed=0",
 		"custom=" + custom,
 		"host_os=" + testHostOS(goos),

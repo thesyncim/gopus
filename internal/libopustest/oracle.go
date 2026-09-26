@@ -131,6 +131,9 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	if cfg.ForceScalarRef && (cfg.SIMDRef || cfg.FixedRef || cfg.QEXTRef) {
 		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("ForceScalarRef cannot be combined with SIMD, fixed-point, or QEXT references")}
 	}
+	if cfg.QEXTRef && (cfg.FixedRef || cfg.CustomRef) {
+		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("QEXT reference cannot be combined with fixed-point or custom references")}
+	}
 	refVariant := pairedVariant
 	if cfg.SIMDRef {
 		refVariant = libopustooling.LibopusReferenceSIMD
@@ -138,8 +141,18 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	if cfg.ForceScalarRef {
 		refVariant = libopustooling.LibopusReferenceScalar
 	}
+	if cfg.QEXTRef {
+		if cfg.SIMDRef && pairedVariant != libopustooling.LibopusReferenceSIMD {
+			return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("QEXT SIMD helper conflicts with the scalar Go reference lane")}
+		}
+		if refVariant == libopustooling.LibopusReferenceSIMD {
+			refVariant = libopustooling.LibopusReferenceQEXTSIMD
+		} else {
+			refVariant = libopustooling.LibopusReferenceQEXTScalar
+		}
+	}
 	refDir := helperRefDir(cfg, refVariant)
-	scalarRef := refVariant == libopustooling.LibopusReferenceScalar
+	scalarRef := refVariant == libopustooling.LibopusReferenceScalar || refVariant == libopustooling.LibopusReferenceQEXTScalar
 	ensureRef := libopustooling.EnsureLibopusScalar
 	flavor := "scalar"
 	if refVariant == libopustooling.LibopusReferenceSIMD {
@@ -147,8 +160,12 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 		flavor = "simd"
 	}
 	if cfg.QEXTRef {
-		ensureRef = libopustooling.EnsureLibopusQEXT
-		flavor = "qext"
+		ensureRef = libopustooling.EnsureLibopusQEXTScalar
+		flavor = "qext-scalar"
+		if refVariant == libopustooling.LibopusReferenceQEXTSIMD {
+			ensureRef = libopustooling.EnsureLibopusQEXTSIMD
+			flavor = "qext-simd"
+		}
 	}
 	if cfg.FixedRef {
 		ensureRef = libopustooling.EnsureLibopusFixed
@@ -162,7 +179,7 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 			flavor = "custom-scalar"
 		}
 	}
-	if cfg.SIMDRef {
+	if cfg.SIMDRef && !cfg.QEXTRef {
 		ensureRef = libopustooling.EnsureLibopusSIMD
 		flavor = "simd"
 	}
@@ -186,7 +203,7 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	if cfg.CustomRef && scalarRef {
 		validateVariant = libopustooling.LibopusReferenceCustomScalar
 	}
-	if !cfg.FixedRef && !cfg.QEXTRef && (!cfg.CustomRef || scalarRef) {
+	if !cfg.FixedRef && (!cfg.CustomRef || scalarRef) {
 		if err := libopustooling.ValidateLibopusReferenceBuild(refDir, validateVariant, libopustooling.DefaultVersion); err != nil {
 			ensureRef(libopustooling.DefaultVersion, []string{root})
 			if err := libopustooling.ValidateLibopusReferenceBuild(refDir, validateVariant, libopustooling.DefaultVersion); err != nil {
@@ -233,7 +250,7 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 		args = append(args, "-ffunction-sections", "-fdata-sections")
 	}
 	args = append(args, cfg.CFlags...)
-	if scalarRef && !cfg.FixedRef && !cfg.QEXTRef {
+	if scalarRef && !cfg.FixedRef {
 		args = append(args, strings.Fields(libopustooling.LibopusScalarCVectorizationFlags)...)
 	}
 	args = append(args, "-I", refDir, "-I", filepath.Join(refDir, "include"))
@@ -245,7 +262,7 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	}
 	// An explicit SIMD reference keeps its platform dispatch even when other
 	// tests in the same Go build use the paired scalar reference.
-	if cfg.ForceScalarRef || (scalarRef && !cfg.SIMDRef && !cfg.FixedRef && !cfg.QEXTRef) {
+	if cfg.ForceScalarRef || (scalarRef && !cfg.SIMDRef && !cfg.FixedRef) {
 		// libopus's config.h has no include guard, so each compiled .c re-defines
 		// the x86 feature macros (OPUS_X86_MAY_HAVE_SSE4_1, ...) -- clearing them
 		// via -include is undone. Instead pre-define the SIMD headers' own include
@@ -332,7 +349,16 @@ func helperRefDir(cfg CHelperConfig, pairedVariant libopustooling.LibopusReferen
 		return FixedRefPath()
 	}
 	if cfg.QEXTRef {
-		return QEXTRefPath()
+		if pairedVariant == libopustooling.LibopusReferenceScalar {
+			pairedVariant = libopustooling.LibopusReferenceQEXTScalar
+		} else if pairedVariant == libopustooling.LibopusReferenceSIMD {
+			pairedVariant = libopustooling.LibopusReferenceQEXTSIMD
+		}
+		suffix, err := libopustooling.LibopusReferenceSourceSuffix(pairedVariant)
+		if err != nil {
+			panic(err)
+		}
+		return filepath.Join(repoRoot(), "tmp_check", "opus-"+libopustooling.DefaultVersion+suffix)
 	}
 	if cfg.CustomRef {
 		if pairedVariant == libopustooling.LibopusReferenceScalar {

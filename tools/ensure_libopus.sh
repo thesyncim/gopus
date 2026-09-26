@@ -6,6 +6,8 @@ TMP_DIR="${ROOT_DIR}/tmp_check"
 LIBOPUS_VERSION="${LIBOPUS_VERSION:-1.6.1}"
 TARBALL="${TMP_DIR}/opus-${LIBOPUS_VERSION}.tar.gz"
 LIBOPUS_ENABLE_QEXT="${LIBOPUS_ENABLE_QEXT:-0}"
+LIBOPUS_ENABLE_QEXT_SCALAR="${LIBOPUS_ENABLE_QEXT_SCALAR:-0}"
+LIBOPUS_ENABLE_QEXT_SIMD="${LIBOPUS_ENABLE_QEXT_SIMD:-0}"
 LIBOPUS_ENABLE_FIXED="${LIBOPUS_ENABLE_FIXED:-0}"
 LIBOPUS_ENABLE_CUSTOM="${LIBOPUS_ENABLE_CUSTOM:-0}"
 LIBOPUS_ENABLE_SIMD="${LIBOPUS_ENABLE_SIMD:-0}"
@@ -23,15 +25,17 @@ normalize_bool() {
 }
 
 ENABLE_QEXT="$(normalize_bool "${LIBOPUS_ENABLE_QEXT}" LIBOPUS_ENABLE_QEXT)"
+ENABLE_QEXT_SCALAR="$(normalize_bool "${LIBOPUS_ENABLE_QEXT_SCALAR}" LIBOPUS_ENABLE_QEXT_SCALAR)"
+ENABLE_QEXT_SIMD="$(normalize_bool "${LIBOPUS_ENABLE_QEXT_SIMD}" LIBOPUS_ENABLE_QEXT_SIMD)"
 ENABLE_FIXED="$(normalize_bool "${LIBOPUS_ENABLE_FIXED}" LIBOPUS_ENABLE_FIXED)"
 ENABLE_CUSTOM="$(normalize_bool "${LIBOPUS_ENABLE_CUSTOM}" LIBOPUS_ENABLE_CUSTOM)"
 ENABLE_SIMD="$(normalize_bool "${LIBOPUS_ENABLE_SIMD}" LIBOPUS_ENABLE_SIMD)"
 ENABLE_SCALAR="$(normalize_bool "${LIBOPUS_ENABLE_SCALAR}" LIBOPUS_ENABLE_SCALAR)"
 ENABLE_CUSTOM_SCALAR="$(normalize_bool "${LIBOPUS_ENABLE_CUSTOM_SCALAR}" LIBOPUS_ENABLE_CUSTOM_SCALAR)"
 
-VARIANT_COUNT=$((ENABLE_QEXT + ENABLE_FIXED + ENABLE_CUSTOM + ENABLE_SIMD + ENABLE_SCALAR + ENABLE_CUSTOM_SCALAR))
+VARIANT_COUNT=$((ENABLE_QEXT + ENABLE_QEXT_SCALAR + ENABLE_QEXT_SIMD + ENABLE_FIXED + ENABLE_CUSTOM + ENABLE_SIMD + ENABLE_SCALAR + ENABLE_CUSTOM_SCALAR))
 if [[ "${VARIANT_COUNT}" -gt 1 ]]; then
-  echo "error: LIBOPUS_ENABLE_QEXT, LIBOPUS_ENABLE_FIXED, LIBOPUS_ENABLE_CUSTOM, LIBOPUS_ENABLE_SIMD, LIBOPUS_ENABLE_SCALAR, and LIBOPUS_ENABLE_CUSTOM_SCALAR are mutually exclusive" >&2
+  echo "error: libopus build variants are mutually exclusive" >&2
   exit 1
 fi
 
@@ -45,6 +49,12 @@ CONFIGURE_FLAGS=(--enable-static --disable-shared)
 if [[ "${ENABLE_QEXT}" == "1" ]]; then
   SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-qext"
   CONFIGURE_FLAGS+=(--enable-qext)
+elif [[ "${ENABLE_QEXT_SCALAR}" == "1" ]]; then
+  SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-qext-scalar"
+  CONFIGURE_FLAGS+=(--enable-qext "${SCALAR_CONFIGURE_FLAGS[@]}")
+elif [[ "${ENABLE_QEXT_SIMD}" == "1" ]]; then
+  SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-qext-simd"
+  CONFIGURE_FLAGS+=(--enable-qext --enable-rtcd --enable-intrinsics)
 elif [[ "${ENABLE_FIXED}" == "1" ]]; then
   SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-fixed"
   CONFIGURE_FLAGS+=(--enable-fixed-point)
@@ -75,7 +85,7 @@ else
   SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}"
 fi
 
-if [[ "${ENABLE_SCALAR}" == "1" || "${ENABLE_CUSTOM_SCALAR}" == "1" ]]; then
+if [[ "${ENABLE_SCALAR}" == "1" || "${ENABLE_CUSTOM_SCALAR}" == "1" || "${ENABLE_QEXT_SCALAR}" == "1" ]]; then
   LIBOPUS_CFLAGS="${LIBOPUS_CFLAGS} ${SCALAR_C_VECTOR_FLAGS[*]}"
 fi
 
@@ -111,7 +121,8 @@ CUSTOM_STAMP="${ENABLE_CUSTOM}"
 if [[ "${ENABLE_CUSTOM_SCALAR}" == "1" ]]; then
   CUSTOM_STAMP=1
 fi
-BUILD_STAMP=$'gopus libopus helper build v5\nversion='"${LIBOPUS_VERSION}"$'\nqext='"${ENABLE_QEXT}"$'\nfixed='"${ENABLE_FIXED}"$'\ncustom='"${CUSTOM_STAMP}"$'\nhost_os='"${HOST_OS}"$'\nhost_arch='"${HOST_ARCH}"$'\nhost_bits='"${HOST_BITS}"$'\ncc='"${LIBOPUS_CC}"$'\ncc_path='"${CC_PATH}"$'\ncc_target='"${CC_TARGET}"$'\ncc_version='"${CC_VERSION}"$'\nconfigure='"${CONFIGURE_STAMP}"$'\nCFLAGS='"${LIBOPUS_CFLAGS}"$'\nCPPFLAGS='"${LIBOPUS_CPPFLAGS}"$'\nLDFLAGS='"${LIBOPUS_LDFLAGS}"$'\n'
+QEXT_STAMP=$((ENABLE_QEXT + ENABLE_QEXT_SCALAR + ENABLE_QEXT_SIMD))
+BUILD_STAMP=$'gopus libopus helper build v5\nversion='"${LIBOPUS_VERSION}"$'\nqext='"${QEXT_STAMP}"$'\nfixed='"${ENABLE_FIXED}"$'\ncustom='"${CUSTOM_STAMP}"$'\nhost_os='"${HOST_OS}"$'\nhost_arch='"${HOST_ARCH}"$'\nhost_bits='"${HOST_BITS}"$'\ncc='"${LIBOPUS_CC}"$'\ncc_path='"${CC_PATH}"$'\ncc_target='"${CC_TARGET}"$'\ncc_version='"${CC_VERSION}"$'\nconfigure='"${CONFIGURE_STAMP}"$'\nCFLAGS='"${LIBOPUS_CFLAGS}"$'\nCPPFLAGS='"${LIBOPUS_CPPFLAGS}"$'\nLDFLAGS='"${LIBOPUS_LDFLAGS}"$'\n'
 LOCK_DIR="${SRC_DIR}.lock"
 
 sha256_for_version() {

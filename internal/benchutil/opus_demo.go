@@ -66,27 +66,30 @@ func OpusDemoSupportsQEXT(path string) (bool, error) {
 	return bytes.Contains(out, []byte("-qext")), nil
 }
 
-// QEXTOpusDemoPath resolves an opus_demo binary that actually supports QEXT.
-// The default pinned tmp_check build does not guarantee ENABLE_QEXT, so callers
-// should use this helper for QEXT-specific parity tests.
+// QEXTOpusDemoPath resolves the QEXT-enabled opus_demo paired with the current
+// Go instruction lane.
 func QEXTOpusDemoPath() (string, error) {
+	variant, err := libopustooling.ResolveLibopusQEXTReferenceVariant()
+	if err != nil {
+		return "", err
+	}
 	if p := os.Getenv("GOPUS_QEXT_OPUS_DEMO_PATH"); p != "" {
+		if err := libopustooling.ValidateLibopusReferenceToolOverride(p, "opus_demo", variant, libopustooling.DefaultVersion); err != nil {
+			return "", fmt.Errorf("GOPUS_QEXT_OPUS_DEMO_PATH=%q: %w", p, err)
+		}
 		return requireQEXTOpusDemo("GOPUS_QEXT_OPUS_DEMO_PATH", p)
 	}
-
-	if p := os.Getenv("OPUS_DEMO_PATH"); p != "" && opusDemoIsExecutable(p) {
-		if ok, err := OpusDemoSupportsQEXT(p); err != nil {
-			return "", err
-		} else if ok {
-			return p, nil
+	if p := os.Getenv("OPUS_DEMO_PATH"); p != "" {
+		if err := libopustooling.ValidateLibopusReferenceToolOverride(p, "opus_demo", variant, libopustooling.DefaultVersion); err != nil {
+			return "", fmt.Errorf("OPUS_DEMO_PATH=%q: %w", p, err)
 		}
+		return requireQEXTOpusDemo("OPUS_DEMO_PATH", p)
 	}
-
-	if p, ok := libopustooling.FindOrEnsureQEXTOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); ok {
-		return requireQEXTOpusDemo("QEXT pinned libopus", p)
+	p, err := libopustooling.FindOrEnsureQEXTOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
+	if err != nil {
+		return "", err
 	}
-
-	return "", fmt.Errorf("QEXT-enabled opus_demo not found; run: make ensure-libopus-qext")
+	return requireQEXTOpusDemo("QEXT pinned libopus", p)
 }
 
 func requireQEXTOpusDemo(label, path string) (string, error) {
@@ -98,7 +101,7 @@ func requireQEXTOpusDemo(label, path string) (string, error) {
 		return "", err
 	}
 	if !ok {
-		return "", fmt.Errorf("opus_demo at %q was built without ENABLE_QEXT; run: make ensure-libopus-qext", path)
+		return "", fmt.Errorf("opus_demo at %q was built without ENABLE_QEXT", path)
 	}
 	return path, nil
 }

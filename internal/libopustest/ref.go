@@ -34,9 +34,18 @@ func ScalarRefPath(elem ...string) string {
 	return filepath.Join(append(base, elem...)...)
 }
 
-// QEXTRefPath returns a path under the pinned QEXT-enabled libopus reference tree.
+// QEXTRefPath returns a path under the QEXT-enabled reference tree paired with
+// the current Go instruction lane.
 func QEXTRefPath(elem ...string) string {
-	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + "-qext"}
+	variant, err := libopustooling.ResolveLibopusQEXTReferenceVariant()
+	if err != nil {
+		panic(err)
+	}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
 	return filepath.Join(append(base, elem...)...)
 }
 

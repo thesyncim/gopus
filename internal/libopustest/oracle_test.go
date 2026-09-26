@@ -72,12 +72,16 @@ func TestHelperOutputPathPlacesDigestBeforeWindowsSuffix(t *testing.T) {
 
 func TestHelperRefDirSelectsQEXTTree(t *testing.T) {
 	defaultDir := helperRefDir(CHelperConfig{}, libopustooling.LibopusReferenceScalar)
-	qextDir := helperRefDir(CHelperConfig{QEXTRef: true}, libopustooling.LibopusReferenceScalar)
-	if qextDir == defaultDir {
+	qextScalarDir := helperRefDir(CHelperConfig{QEXTRef: true}, libopustooling.LibopusReferenceScalar)
+	if qextScalarDir == defaultDir {
 		t.Fatal("QEXT helper ref dir did not switch trees")
 	}
-	if filepath.Base(qextDir) != "opus-1.6.1-qext" {
-		t.Fatalf("QEXT helper ref dir=%q", qextDir)
+	if filepath.Base(qextScalarDir) != "opus-1.6.1-qext-scalar" {
+		t.Fatalf("QEXT scalar helper ref dir=%q", qextScalarDir)
+	}
+	qextSIMDDir := helperRefDir(CHelperConfig{QEXTRef: true}, libopustooling.LibopusReferenceSIMD)
+	if filepath.Base(qextSIMDDir) != "opus-1.6.1-qext-simd" {
+		t.Fatalf("QEXT SIMD helper ref dir=%q", qextSIMDDir)
 	}
 }
 
