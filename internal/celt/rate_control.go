@@ -111,7 +111,7 @@ func (e *Encoder) BitrateToBits(frameSize int) int {
 // (nb_compr_bytes = cbr_bytes-1).
 func (e *Encoder) cbrPayloadBytes(frameSize int) int {
 	cbrBytes := (bitrateToBits(e.targetBitrate, int32(e.celtModeFs()), int32(frameSize)) + 4) / 8
-	if !(extsupport.QEXT && e.qextActive() && !e.hybrid) {
+	if !extsupport.QEXT || !e.qextActive() || e.hybrid {
 		cbrBytes = min(cbrBytes, opusMaxDataBytes)
 	}
 	payload := max(cbrBytes-1, 0)
