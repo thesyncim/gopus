@@ -827,8 +827,8 @@ func (e *Encoder) applyGainFade(samples []opusRes, g1, g2 opusVal16) []opusRes {
 
 	for i := range overlap {
 		w := opusVal16(window[i*inc])
-		w *= w
-		g := w*g2 + (1-w)*g1
+		w = round32(w * w)
+		g := fma32(w, g2, round32((1-w)*g1))
 		for c := range channels {
 			samples[i*channels+c] = g * samples[i*channels+c]
 		}

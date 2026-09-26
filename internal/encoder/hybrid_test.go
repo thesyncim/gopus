@@ -5,7 +5,6 @@
 package encoder
 
 import (
-	"github.com/thesyncim/gopus/internal/celt"
 	"math"
 	"testing"
 
@@ -215,52 +214,64 @@ func TestHybridCELTExp2ApproxMatchesLibopus(t *testing.T) {
 	}
 }
 
-// TestGainFadeMatchesLibopus pins applyHBGainFade to libopus gain_fade():
-// the fade runs whenever either gain is below one (a steady sub-unity gain
-// still crossfades the overlap as w*g2 + (1-w)*g1), the window is sampled at
-// window[i*inc] with inc = 48000/Fs, and the rest of the frame takes g2.
+// TestGainFadeMatchesLibopus compares the in-place Go gain fade with the
+// pinned C implementation at the supported native and half rates.
 func TestGainFadeMatchesLibopus(t *testing.T) {
-	window := celt.GetWindowBufferF32(hybridOverlap)
-	for _, tc := range []struct {
-		fs, channels int
-		g1, g2       opusVal16
+	libopustest.RequireOracle(t)
+	testCases := []struct {
+		name       string
+		sampleRate int
+		channels   int
+		g1, g2     opusVal16
 	}{
-		{48000, 1, 1, 0.75},
-		{48000, 1, 0.8203125, 0.8203125},
-		{48000, 2, 0.6, 0.9},
-		{24000, 1, 0.7, 0.7},
-		{24000, 2, 1, 0.5},
-		{48000, 1, 1, 1},
-	} {
-		frameSize := tc.fs / 50
-		e := &Encoder{channels: int32(tc.channels), sampleRate: int32(tc.fs), hybridState: &HybridState{prevHBGain: tc.g1}}
-		in := make([]opusRes, frameSize*tc.channels)
-		for i := range in {
-			in[i] = opusRes(float32(math.Sin(float64(i)*0.37)) * 0.9)
-		}
-		got := e.applyHBGainFade(append([]opusRes(nil), in...), tc.g2)
+		{name: "48k_mono_changing", sampleRate: 48000, channels: 1, g1: 1, g2: 0.75},
+		{name: "48k_mono_steady_hybrid_gain", sampleRate: 48000, channels: 1, g1: 0.8203125, g2: 0.8203125},
+		{name: "48k_mono_steady_near_unity", sampleRate: 48000, channels: 1, g1: 0.984375, g2: 0.984375},
+		{name: "48k_mono_unity", sampleRate: 48000, channels: 1, g1: 1, g2: 1},
+		{name: "48k_stereo_changing", sampleRate: 48000, channels: 2, g1: 0.6, g2: 0.9},
+		{name: "48k_stereo_steady_near_unity", sampleRate: 48000, channels: 2, g1: 0.984375, g2: 0.984375},
+		{name: "48k_stereo_unity", sampleRate: 48000, channels: 2, g1: 1, g2: 1},
+		{name: "24k_mono_changing", sampleRate: 24000, channels: 1, g1: 1, g2: 0.5},
+		{name: "24k_mono_steady", sampleRate: 24000, channels: 1, g1: 0.7, g2: 0.7},
+		{name: "24k_mono_unity", sampleRate: 24000, channels: 1, g1: 1, g2: 1},
+		{name: "24k_stereo_changing", sampleRate: 24000, channels: 2, g1: 1, g2: 0.5},
+		{name: "24k_stereo_steady_hybrid_gain", sampleRate: 24000, channels: 2, g1: 0.8203125, g2: 0.8203125},
+		{name: "24k_stereo_unity", sampleRate: 24000, channels: 2, g1: 1, g2: 1},
+	}
 
-		inc := 48000 / tc.fs
-		overlap := hybridOverlap / inc
-		for i := range frameSize {
-			for c := range tc.channels {
-				k := i*tc.channels + c
-				want := in[k]
-				if tc.g1 < 1 || tc.g2 < 1 {
-					g := tc.g2
-					if i < overlap {
-						w := opusVal16(window[i*inc])
-						w *= w
-						g = w*tc.g2 + (1-w)*tc.g1
-					}
-					want = g * in[k]
-				}
-				if math.Float32bits(float32(got[k])) != math.Float32bits(float32(want)) {
-					t.Fatalf("fs=%d ch=%d g1=%g g2=%g: out[%d] = %08x, want %08x", tc.fs, tc.channels, tc.g1, tc.g2, k,
-						math.Float32bits(float32(got[k])), math.Float32bits(float32(want)))
+	oracleCases := make([]libopustest.GainFadeParams, len(testCases))
+	inputs := make([][]opusRes, len(testCases))
+	for i, tc := range testCases {
+		frameSize := tc.sampleRate / 50
+		in := make([]opusRes, frameSize*tc.channels)
+		for j := range in {
+			in[j] = opusRes(float32(math.Sin(float64(j)*0.37)) * 0.9)
+		}
+		inputs[i] = in
+		oracleCases[i] = libopustest.GainFadeParams{
+			SampleRate: tc.sampleRate,
+			Channels:   tc.channels,
+			G1:         tc.g1,
+			G2:         tc.g2,
+			Samples:    in,
+		}
+	}
+	want, err := libopustest.ProbeGainFade(oracleCases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "gain fade", err)
+		return
+	}
+	for i, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := &Encoder{channels: int32(tc.channels), sampleRate: int32(tc.sampleRate), hybridState: &HybridState{prevHBGain: tc.g1}}
+			got := append([]opusRes(nil), inputs[i]...)
+			e.applyGainFade(got, tc.g1, tc.g2)
+			for j := range got {
+				if math.Float32bits(float32(got[j])) != math.Float32bits(want[i][j]) {
+					t.Fatalf("sample %d: Go=%08x C=%08x", j, math.Float32bits(float32(got[j])), math.Float32bits(want[i][j]))
 				}
 			}
-		}
+		})
 	}
 }
 

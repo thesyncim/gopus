@@ -485,8 +485,8 @@ func (e *Encoder) ApplyHybridPrefilter(preemph []float32, frameSize int, tfEstim
 	}
 }
 
-// TransientAnalysisHybrid performs transient analysis and updates preemph overlap state.
-// Returns transient flags, tf/tone metrics, shortBlocks choice, and optional bandLogE2.
+// TransientAnalysisHybrid runs tone detection, gates transient analysis, and updates preemph overlap state.
+// It returns transient flags, tf/tone metrics, the shortBlocks choice, and optional bandLogE2.
 func (e *Encoder) TransientAnalysisHybrid(preemph []float32, frameSize, nbBands, lm int, allowWeakTransients bool) (transient bool, weakTransient bool, tfEstimate, toneFreq, toneishness float32, shortBlocks int, bandLogE2 []CeltGLog) {
 	overlap := min(Overlap, frameSize)
 
@@ -494,26 +494,23 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float32, frameSize, nbBands,
 	preemphBufSize := overlap * channels
 	transientLen := (overlap + frameSize) * channels
 
+	transientInput := e.scratch.transientInput
+	if len(transientInput) < transientLen {
+		transientInput = make([]float32, transientLen)
+		e.scratch.transientInput = transientInput
+	}
+	transientInput = transientInput[:transientLen]
+	e.fillTransientHistoryFromPrefilterF32(overlap, transientInput[:preemphBufSize])
+	copy(transientInput[preemphBufSize:], preemph)
+
 	var result TransientAnalysisResult
-	if e.channels == 1 {
-		transientInput := e.scratch.transientInput
-		if len(transientInput) < transientLen {
-			transientInput = make([]float32, transientLen)
-			e.scratch.transientInput = transientInput
-		}
-		transientInput = transientInput[:transientLen]
-		e.fillTransientHistoryFromPrefilterF32(overlap, transientInput[:preemphBufSize])
-		copy(transientInput[preemphBufSize:], preemph)
+	// libopus always runs tone_detect and gates transient_analysis behind
+	// complexity >= 1 && !lfe (celt/celt_encoder.c:2020-2023).
+	if e.complexity < 1 || e.lfe {
+		result = e.toneDetectOnlyF32(transientInput, frameSize+overlap)
+	} else if e.channels == 1 {
 		result = e.transientAnalysisMonoFloat32(transientInput, frameSize+overlap, allowWeakTransients)
 	} else {
-		transientInput := e.scratch.transientInput
-		if len(transientInput) < transientLen {
-			transientInput = make([]float32, transientLen)
-			e.scratch.transientInput = transientInput
-		}
-		transientInput = transientInput[:transientLen]
-		e.fillTransientHistoryFromPrefilterF32(overlap, transientInput[:preemphBufSize])
-		copy(transientInput[preemphBufSize:], preemph)
 		result = e.TransientAnalysisF32(transientInput, frameSize+overlap, allowWeakTransients)
 	}
 	transient = result.IsTransient

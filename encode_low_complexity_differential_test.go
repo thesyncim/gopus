@@ -9,8 +9,9 @@ import (
 	"github.com/thesyncim/gopus/internal/testsignal"
 )
 
-// TestEncodeDifferentialLowComplexity encodes the 2.5 ms and 20 ms CELT-only
-// specs of the differential sweep at complexities 0 and 5 against libopus.
+// TestEncodeDifferentialLowComplexity checks low-complexity CELT and Hybrid
+// encodes against libopus, including the complexity-zero transient gate in
+// Hybrid SWB.
 // Below complexity 4 the coarse-energy intra decision reads delayedIntra, so
 // the silent frames the corpus signals start with must advance the encoder
 // state exactly as celt_encode_with_ec's full silent-frame pass does.
@@ -23,13 +24,21 @@ func TestEncodeDifferentialLowComplexity(t *testing.T) {
 	const sampleRate = 48000
 	const framesPerSpec = 8
 	for _, spec := range buildEncDiffSweep() {
-		if spec.gmode != EncoderModeCELT || spec.fec || spec.dtx {
+		if spec.fec || spec.dtx {
 			continue
 		}
-		if spec.frameMs != ExpertFrameDuration2_5Ms && spec.frameMs != ExpertFrameDuration20Ms {
+		complexities := []int(nil)
+		if spec.gmode == EncoderModeCELT && (spec.frameMs == ExpertFrameDuration2_5Ms || spec.frameMs == ExpertFrameDuration20Ms) {
+			complexities = []int{0, 5}
+		}
+		if spec.gmode == EncoderModeHybrid && spec.bitrate == 48000 && spec.vbr == BitrateModeVBR &&
+			((spec.channels == 1 && spec.frameMs == ExpertFrameDuration10Ms) || (spec.channels == 2 && spec.frameMs == ExpertFrameDuration20Ms)) {
+			complexities = []int{0, 1}
+		}
+		if len(complexities) == 0 {
 			continue
 		}
-		for _, complexity := range []int{0, 5} {
+		for _, complexity := range complexities {
 			t.Run(fmt.Sprintf("%s/cx%d", spec.name, complexity), func(t *testing.T) {
 				fs := encFrameSamples48k(spec.frameMs)
 				pcm, err := testsignal.GenerateCorpusSignal(spec.sigClass, sampleRate, fs*framesPerSpec*spec.channels, spec.channels)
@@ -72,7 +81,14 @@ func TestEncodeDifferentialLowComplexity(t *testing.T) {
 					}
 					o := want[f]
 					if !bytes.Equal(pkt, o.Packet) || enc.FinalRange() != o.FinalRange {
-						t.Fatalf("frame %d: gopus len=%d rng=%08x, libopus len=%d rng=%08x", f, len(pkt), enc.FinalRange(), len(o.Packet), o.FinalRange)
+						firstDiff := firstByteDiff(pkt, o.Packet)
+						var gotWindow, wantWindow []byte
+						if firstDiff >= 0 {
+							start := max(firstDiff-2, 0)
+							gotWindow = pkt[start:min(firstDiff+3, len(pkt))]
+							wantWindow = o.Packet[start:min(firstDiff+3, len(o.Packet))]
+						}
+						t.Fatalf("frame %d: gopus len=%d rng=%08x, libopus len=%d rng=%08x, firstByteDiff=%d go[%x] C[%x]", f, len(pkt), enc.FinalRange(), len(o.Packet), o.FinalRange, firstDiff, gotWindow, wantWindow)
 					}
 				}
 			})

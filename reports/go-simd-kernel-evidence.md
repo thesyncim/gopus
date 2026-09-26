@@ -13,9 +13,11 @@ set on the same machine. On amd64, Go SIMD (`GOEXPERIMENT=simd`) pairs with the
 SSE/AVX2 RTCD tree (`tmp_check/opus-1.6.1-simd`, gcc -O3), and ordinary Go and
 `nosimd` pair with the scalar tree (`tmp_check/opus-1.6.1-scalar`, -O3
 -fno-tree-vectorize -fno-tree-slp-vectorize). On arm64 the same three Go modes
-pair with clang 18 builds of the NEON and scalar trees. Build stamps, runtime
-dispatch and PCM identity are checked before any comparison, and every packet
-byte or final-range difference is a failure.
+pair with Apple clang 21.0.0 builds of the NEON and scalar trees. Build stamps, runtime
+dispatch and PCM identity are checked by the strict paired gates, which fail
+on every packet-byte or final-range difference. Some legacy stateful tests
+only log differences on ARM64 and `nosimd`; their PASS alone does not
+establish exact parity.
 
 Strict matched CBR oracle, 19 configurations and 2,175 packets:
 
@@ -24,23 +26,35 @@ Strict matched CBR oracle, 19 configurations and 2,175 packets:
 | amd64 Go SIMD | SSE/AVX2 RTCD, gcc | 19 / 19 |
 | amd64 ordinary Go | scalar, gcc | 19 / 19 |
 | amd64 `nosimd` | scalar, gcc | 19 / 19 |
-| arm64 Go SIMD | NEON, clang 18 | 18 / 19 |
-| arm64 ordinary Go | scalar, clang 18 | 18 / 19 |
-| arm64 `nosimd` | scalar, clang 18 | 18 / 19 |
+| arm64 Go SIMD | NEON, Apple clang 21 | 19 / 19 |
+| arm64 ordinary Go | scalar, Apple clang 21 | 19 / 19 |
+| arm64 `nosimd` | scalar, Apple clang 21 | 19 / 19 |
 
-On arm64 only Hybrid-SWB-20ms-mono-48k differs (7 packets, 3 final ranges).
+The ARM64 entries use Go 1.27.0 with the Hybrid transient gate and explicit
+gain-fade contraction, and report zero packet and final-range differences in
+each lane. The AMD64 entries are the native `b0c9c56a` CI results; native
+validation of these Hybrid changes is pending.
+
+The strict Hybrid low-complexity regression compares all eight frames of
+mono 10 ms and stereo 20 ms SWB 48 kbps VBR at complexities 0 and 1. Every
+packet and final range matches in ordinary, SIMD, and `nosimd` ARM64 builds.
+Both warmed caller-buffer complexity-0 allocation checks report zero. The
+independent gain-fade oracle calls libopus's actual static `gain_fade` and
+compares every output float bit across 13 in-place mono/stereo cases at
+48/24 kHz; all three local modes pass.
 
 The per-frame encode differential sweep (`TestEncodeDifferentialFuzz`) matches
 libopus on every frame on amd64 in the Go SIMD, ordinary and `nosimd` lanes: no
 CELT, hybrid or SILK payload, TOC or final-range differences.
 
 Open differences, each with a live-oracle reproducer:
-- Encoder: the hybrid CELT path (not yet the single CELT encoder), which
-  diverges at complexity 0 and can code past the frame budget when SILK leaves
-  it only a few bits, the hybrid mode-transition redundancy flow, and the CELT
-  and hybrid multi-frame packet flow; these drive the remaining stateful
-  transition and sub-48 kHz hybrid cases. The multistream and projection
-  encoders differ in rate allocation, surround masking and analysis input.
+- Encoder: Hybrid tight-budget and mode-transition redundancy handling, and
+  CELT/Hybrid multi-frame packet handling remain under investigation. The
+  matched ARM64 forced-Hybrid stateful sweep records 20 differing frames in
+  10 of 288 configurations in each of the three build modes (eight complexity-0
+  cases and two complexity-5 cases); its legacy PASS does not waive these
+  differences. The multistream and projection encoders differ in rate
+  allocation, surround masking and analysis input.
 - Decoder: silent frames do not run the full deemphasis (VERY_SMALL), one
   SIMD-lane CELT stereo sample differs by 1 ULP, SILK stereo LBRR concealment
   uses a separate PLC path, and the multistream decoder keeps its own copy of
@@ -52,11 +66,15 @@ Open differences, each with a live-oracle reproducer:
   pitch search and others) and clang's contraction in the SILK float kernels
   are not yet mirrored everywhere.
 
-The tonality analysis (src/analysis.c, src/mlp.c) matches libopus bit for bit
-in all six lanes (amd64 and arm64; SIMD, ordinary and `nosimd`):
-`TestAnalysisMatchesLibopusLive` compares every AnalysisInfo field and the
-analyzer state after each frame, over every sample rate, both channel counts
-and every frame duration.
+The live tonality-analysis tests compare every AnalysisInfo field and analyzer
+state after each frame, across sample rates, channels, and frame durations.
+Both `TestAnalysisMatchesLibopusLive` and its encoder-variant sweep pass on
+native AMD64 SIMD at `b0c9c56a`. Local ARM64 ordinary and `nosimd` package
+sweeps pass with Apple clang 21.0.0, but the SIMD sweep has exact tonality,
+noisiness, slope, and RNN-state differences. The `b0c9c56a` production files
+yield identical analysis and stereo PLC diagnostics in a baseline overlay.
+These differences require separate diagnosis; the CBR pass does not establish
+complete analysis parity.
 
 ## Measurement method
 

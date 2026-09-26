@@ -124,6 +124,77 @@ func TestHotPathAllocsEncodeRestrictedSilkLowComplexity(t *testing.T) {
 	}
 }
 
+func TestHotPathAllocsEncodeHybridComplexityZero(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		channels  int
+		frameSize int
+	}{
+		{name: "mono_10ms", channels: 1, frameSize: 480},
+		{name: "stereo_20ms", channels: 2, frameSize: 960},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: tc.channels, Application: ApplicationAudio})
+			if err != nil {
+				t.Fatalf("NewEncoder: %v", err)
+			}
+			if err := enc.SetMode(EncoderModeHybrid); err != nil {
+				t.Fatalf("SetMode: %v", err)
+			}
+			if err := enc.SetFrameSize(tc.frameSize); err != nil {
+				t.Fatalf("SetFrameSize: %v", err)
+			}
+			frameDuration := ExpertFrameDuration10Ms
+			if tc.frameSize == 960 {
+				frameDuration = ExpertFrameDuration20Ms
+			}
+			if err := enc.SetExpertFrameDuration(frameDuration); err != nil {
+				t.Fatalf("SetExpertFrameDuration: %v", err)
+			}
+			if err := enc.SetBandwidth(BandwidthSuperwideband); err != nil {
+				t.Fatalf("SetBandwidth: %v", err)
+			}
+			if err := enc.SetMaxBandwidth(BandwidthSuperwideband); err != nil {
+				t.Fatalf("SetMaxBandwidth: %v", err)
+			}
+			if err := enc.SetBitrate(48000); err != nil {
+				t.Fatalf("SetBitrate: %v", err)
+			}
+			if err := enc.SetBitrateMode(BitrateModeVBR); err != nil {
+				t.Fatalf("SetBitrateMode: %v", err)
+			}
+			if err := enc.SetComplexity(0); err != nil {
+				t.Fatalf("SetComplexity: %v", err)
+			}
+			if err := enc.SetSignal(SignalVoice); err != nil {
+				t.Fatalf("SetSignal: %v", err)
+			}
+			if tc.channels == 2 {
+				if err := enc.SetForceChannels(2); err != nil {
+					t.Fatalf("SetForceChannels: %v", err)
+				}
+			}
+
+			pcm := testSineFrame(tc.frameSize * tc.channels)
+			packet := make([]byte, 4000)
+			for range 5 {
+				if _, err := enc.Encode(pcm, packet); err != nil {
+					t.Fatalf("warmup Encode: %v", err)
+				}
+			}
+
+			allocs := testing.AllocsPerRun(200, func() {
+				if _, err := enc.Encode(pcm, packet); err != nil {
+					t.Fatalf("Encode: %v", err)
+				}
+			})
+			if allocs != 0 {
+				t.Fatalf("Hybrid complexity 0 Encode allocs/op = %.2f, want 0", allocs)
+			}
+		})
+	}
+}
+
 func TestHotPathAllocsDecodeFloat32(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
 	if err != nil {
