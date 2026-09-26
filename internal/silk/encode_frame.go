@@ -171,7 +171,7 @@ func (e *Encoder) encodeFrame(re *rangecoding.Encoder, condCoding int, maxBits i
 		quantOffset = processedQuantOffset
 	}
 	if noiseParams != nil {
-		noiseParams.LambdaQ10 = computeLambdaQ10(signalType, int(speechActivityQ8), quantOffset, int(e.nStatesDelayedDecision), noiseParams.CodingQuality, noiseParams.InputQuality)
+		noiseParams.Lambda = computeLambda(signalType, int(speechActivityQ8), quantOffset, int(e.nStatesDelayedDecision), noiseParams.CodingQuality, noiseParams.InputQuality)
 	}
 
 	// Step 7: Prepare indices and gains for bitrate control loop.
@@ -475,12 +475,9 @@ gainSearch:
 		if nBits > maxBits {
 			if !foundLower && iter >= 2 {
 				if noiseParams != nil {
-					lambda := max(
-						// Match libopus encode_frame_FLP.c:
-						// sEncCtrl.Lambda = silk_max_float(sEncCtrl.Lambda*1.5f, 1.5f)
-						// (Q10 => minimum 1.5 * 1024 = 1536).
-						noiseParams.LambdaQ10+noiseParams.LambdaQ10/2, 1536)
-					noiseParams.LambdaQ10 = lambda
+					// Adjust the quantizer's rate/distortion tradeoff
+					// (silk/float/encode_frame_FLP.c).
+					noiseParams.Lambda = max(noiseParams.Lambda*1.5, 1.5)
 				}
 				quantOffset = 0
 				foundUpper = false
@@ -686,7 +683,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 	copy(harmShapeGainQ14, noiseParams.HarmShapeGainQ14)
 	copy(tiltQ14, noiseParams.TiltQ14)
 	copy(lfShpQ14, noiseParams.LFShpQ14)
-	lambdaQ10 := noiseParams.LambdaQ10
+	lambdaQ10 := float32ToInt32RoundEven(noiseParams.Lambda * 1024)
 	if signalType != typeVoiced {
 		ltpScaleQ14 = 0
 	}

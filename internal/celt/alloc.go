@@ -471,12 +471,6 @@ func initCapsInto(caps []int32, nbBands, lm, channels int) {
 	}
 }
 
-// InitCapsInto initializes band caps into the provided slice.
-// This is an exported wrapper around initCapsInto for callers outside celt.
-func InitCapsInto(caps []int32, nbBands, lm, channels int) {
-	initCapsInto(caps, nbBands, lm, channels)
-}
-
 // ComputeAllocationWithEncoder computes bit allocation in Q3 and encodes the stereo params
 // to the range encoder. This is the encoding counterpart to ComputeAllocationWithDecoder.
 // prev is the last coded band count used for skip hysteresis (0 = no history).

@@ -104,6 +104,7 @@ func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, ene
 	savedPrev := e.prevEnergy
 	savedDelayed := e.delayedIntra
 	savedCoarseAvail := e.coarseAvailableBytes
+	savedCoarseSet := e.coarseAvailableSet
 	savedFrameBits := e.frameBits
 	savedQuant := e.scratch.quantizedEnergies
 	savedErr := e.scratch.coarseError
@@ -112,6 +113,7 @@ func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, ene
 		e.prevEnergy = savedPrev
 		e.delayedIntra = savedDelayed
 		e.coarseAvailableBytes = savedCoarseAvail
+		e.coarseAvailableSet = savedCoarseSet
 		e.frameBits = savedFrameBits
 		e.scratch.quantizedEnergies = savedQuant
 		e.scratch.coarseError = savedErr
@@ -125,6 +127,7 @@ func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, ene
 		e.delayedIntra = 0
 	}
 	e.coarseAvailableBytes = int32(nbAvailableBytes)
+	e.coarseAvailableSet = true
 	e.frameBits = int32(re.StorageBits())
 	e.scratch.quantizedEnergies = quantizedEnergies[:needed]
 	e.scratch.coarseError = errorVals[:needed]

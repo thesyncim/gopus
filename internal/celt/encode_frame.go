@@ -213,11 +213,33 @@ func applyUpsampleMDCTScaling(coeffs []float32, upsample int) {
 	}
 }
 
-// EncodeFrame encodes one CELT frame of float32 PCM and returns the packet
-// bytes. pcm is interleaved when the encoder is stereo. frameSize is given at
-// the encoder's API sample rate; at sub-48 kHz rates the input is upsampled to
-// the 48 kHz core block internally.
+// EncodeFrame encodes one CELT frame of float32 PCM into its own range coder
+// and returns the packet bytes: celt_encode_with_ec with enc == NULL and the
+// payload budget set with SetMaxPayloadBytes (or the budget opus_encode_native
+// hands CELT without one). pcm is interleaved when the encoder is stereo.
+// frameSize is given at the encoder's API sample rate; at sub-48 kHz rates the
+// input is upsampled to the 48 kHz core block internally.
 func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
+	return e.encodeWithEC(pcm, frameSize, 0, nil)
+}
+
+// EncodeWithEC ports celt_encode_with_ec with a caller-owned range coder
+// (enc != NULL): the frame continues the stream enc already holds (the SILK
+// layer of a hybrid frame), nbCompressedBytes is the payload budget of the
+// whole range coder (nb_compr_bytes), and the bytes enc filled on entry count
+// against it. It finishes enc (ec_enc_done) and returns its nbCompressedBytes
+// payload bytes.
+func (e *Encoder) EncodeWithEC(pcm []float32, frameSize, nbCompressedBytes int, enc *rangecoding.Encoder) ([]byte, error) {
+	if enc == nil {
+		return nil, ErrEncodingFailed
+	}
+	return e.encodeWithEC(pcm, frameSize, int32(nbCompressedBytes), enc)
+}
+
+// encodeWithEC is celt_encode_with_ec. With enc == nil the frame codes into
+// the encoder's own range coder with the payloadBudget budget; otherwise it
+// codes into enc with the nbCompressedBytes budget.
+func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes int32, enc *rangecoding.Encoder) ([]byte, error) {
 	channels := int(e.channels)
 
 	// At sub-48 kHz API rates the caller passes a native-Fs frame size and
@@ -273,7 +295,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	// Standalone CELT keeps this enabled by default.
 	// Top-level Opus integration disables it and compensates externally.
 	if e.delayCompensationEnabled {
-		samplesForFrame = e.ApplyDelayCompensationScratchHybrid(samplesForFrame, frameSize)
+		samplesForFrame = e.applyDelayCompensationScratch(samplesForFrame, frameSize)
 	}
 
 	// Step 4: Detect transient and compute tf_estimate using PRE-EMPHASIZED signal
@@ -309,12 +331,20 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	// rate and equiv_rate (celt_encoder.c:1873-1927). VBR starts from the full
 	// payload cap and shrinks once dynalloc and the allocation trim are coded.
 	e.clearLastQEXTPayload()
-	buf := ensureByteSlice(&e.scratch.reBuf, int(e.packetSizeCap()))
-	re := &e.scratch.rangeEncoder
-	re.Init(buf)
+	re := enc
+	if re == nil {
+		buf := ensureByteSlice(&e.scratch.reBuf, int(e.packetSizeCap()))
+		re = &e.scratch.rangeEncoder
+		re.Init(buf)
+		nbCompressedBytes = e.payloadBudget(frameSize)
+	}
 	e.SetRangeEncoder(re)
-	budget := e.initFrameBudget(frameSize, lm, codedChannels, e.payloadBudget(frameSize), re)
-	re.Shrink(uint32(budget.nbCompressedBytes))
+	budget := e.initFrameBudget(frameSize, lm, codedChannels, nbCompressedBytes, re)
+	// ec_enc_init sizes an own range coder to the budget; a shared one shrinks
+	// only to a CBR budget (celt_encoder.c:1911-1932).
+	if enc == nil || (budget.vbrRate == 0 && e.targetBitrate != BitrateMax) {
+		re.Shrink(uint32(budget.nbCompressedBytes))
+	}
 
 	// Reduces the likelihood of energy instability on fricatives at low bitrate
 	// in hybrid mode (celt_encoder.c:2028).
@@ -364,7 +394,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	}
 	totalBits := budget.TotalBits()
 	e.frameBits = int32(totalBits)
-	defer func() { e.frameBits = 0 }()
+	defer func() {
+		e.frameBits = 0
+		e.coarseAvailableSet = false
+	}()
 
 	if tell == 1 {
 		if isSilence {
@@ -693,7 +726,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	for c := range codedChannels {
 		baseState := c * predStride
 		baseFrame := c * nbBands
-		for band := range nbBands {
+		for band := start; band < nbBands; band++ {
 			stateIdx := baseState + band
 			frameIdx := baseFrame + band
 			if frameIdx >= len(energies) || stateIdx >= len(e.energyError) || stateIdx >= len(e.prevEnergy) {
@@ -711,6 +744,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		}
 	}
 
+	// quant_coarse_energy() reads the bytes left after the ones a shared range
+	// coder held on entry.
+	e.coarseAvailableBytes = budget.nbAvailableBytes
+	e.coarseAvailableSet = true
 	intra := false
 	if re.Tell()+3 <= totalBits {
 		intra = e.DecideIntraMode(energies, start, nbBands, lm)
@@ -746,10 +783,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			normL, normR, bandE = e.normalizeBandsStereoBinMulF32(mdctLeft, mdctRight, nbBands, 1<<lm)
 		}
 	} else if codedChannels == 1 {
-		normL, bandE = e.NormalizeBandsToArrayMonoWithBandEF32(mdctCoeffs, nbBands, frameSize)
+		normL, bandE = e.normalizeBandsMonoF32(mdctCoeffs, nbBands, frameSize)
 		normBandEScratch = bandE
 	} else {
-		normL, normR, bandE = e.NormalizeBandsToArrayStereoWithBandEF32(mdctLeft, mdctRight, nbBands, frameSize)
+		normL, normR, bandE = e.normalizeBandsStereoF32(mdctLeft, mdctRight, nbBands, frameSize)
 	}
 	_ = normBandEScratch
 	normLCelt := ensureNormSliceNoClear(&e.scratch.allocTrimNormL, len(normL))
@@ -1156,36 +1193,20 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	if e.lfe {
 		signalBandwidth = 1
 	}
-	var allocResult *AllocationResult
-	if e.IsHybrid() {
-		allocResult = e.ComputeAllocationHybridScratch(
-			re,
-			totalBitsQ3,
-			nbBands,
-			caps,
-			offsets,
-			allocTrim,
-			intensity,
-			dualStereo,
-			lm,
-			int(e.lastCodedBands),
-			signalBandwidth,
-		)
-	} else {
-		allocResult = e.computeAllocationScratch(
-			re,
-			totalBitsQ3,
-			nbBands,
-			caps,
-			offsets,
-			allocTrim,
-			intensity,
-			dualStereo,
-			lm,
-			int(e.lastCodedBands),
-			signalBandwidth,
-		)
-	}
+	allocResult := e.computeAllocationScratch(
+		re,
+		totalBitsQ3,
+		start,
+		nbBands,
+		caps,
+		offsets,
+		allocTrim,
+		intensity,
+		dualStereo,
+		lm,
+		int(e.lastCodedBands),
+		signalBandwidth,
+	)
 	if e.lastCodedBands != 0 {
 		lastCodedBands := int(e.lastCodedBands)
 		e.lastCodedBands = int32(min(lastCodedBands+1, max(lastCodedBands-1, allocResult.CodedBands)))
@@ -1462,18 +1483,13 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			e.EncodeEnergyFinalise(energies, quantizedEnergies, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft)
 		}
 	}
-	// Match libopus energyError update timing and range:
-	// store post-finalise error[] residual, clipped to [-0.5, 0.5], for
-	// next-frame stabilization.
-	// Keep this in float32 precision to mirror libopus float behavior.
-	// Reference: celt_encoder.c after quant_energy_finalise().
-	for i := range e.energyError {
-		e.energyError[i] = 0
-	}
+	// energyError keeps the post-finalise error[] residual of the coded bands,
+	// clipped to [-0.5, 0.5], for the next frame's stabilization; the other
+	// bands keep their values (celt_encoder.c:2707-2713).
 	for c := range codedChannels {
 		baseState := c * e.predStride()
 		baseFrame := c * nbBands
-		for band := range nbBands {
+		for band := start; band < nbBands; band++ {
 			stateIdx := baseState + band
 			if stateIdx >= len(e.energyError) {
 				continue
@@ -1512,6 +1528,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	if isSilence {
 		e.resetPrevEnergyToSilence(nbBands, codedChannels)
 	}
+	e.clearUncodedPrevEnergy(start, nbBands)
 	e.IncrementFrameCount()
 	if transient || transientGotDisabled {
 		e.consecTransient++
@@ -1608,15 +1625,9 @@ func ComputeMDCTWithHistory(samples, history []float32, shortBlocks int) []float
 	return MDCT(input)
 }
 
-// computeMDCTWithHistoryScratch computes MDCT using a history buffer with scratch buffers.
-// This is the zero-allocation version that uses pre-allocated buffers.
-func computeMDCTWithHistoryScratch(samples, history []float32, shortBlocks int, scratch *encoderScratch) []float32 {
-	return computeMDCTWithHistoryScratchOverlap(samples, history, shortBlocks, Overlap, scratch)
-}
-
-// computeMDCTWithHistoryScratchOverlap is the overlap-parametric form of
-// computeMDCTWithHistoryScratch. The 48 kHz path passes overlap=Overlap and is
-// byte-identical; the native 96 kHz HD mode passes overlap=240.
+// computeMDCTWithHistoryScratchOverlap computes the MDCT of the overlap
+// history followed by the frame with the encoder scratch buffers. The 48 kHz
+// path passes overlap=Overlap; the native 96 kHz HD mode passes overlap=240.
 func computeMDCTWithHistoryScratchOverlap(samples, history []float32, shortBlocks, overlap int, scratch *encoderScratch) []float32 {
 	if len(samples) == 0 {
 		return nil
@@ -1662,12 +1673,8 @@ func computeMDCTWithHistoryScratchOverlap(samples, history []float32, shortBlock
 	return mdctForwardOverlapScratchF32Coeffs(input, overlap, scratch)
 }
 
-// computeMDCTWithHistoryScratchStereoL computes MDCT for the left channel with scratch buffers.
-// Uses mdctLeft scratch buffer for output.
-func computeMDCTWithHistoryScratchStereoL(samples, history []float32, shortBlocks int, scratch *encoderScratch) []float32 {
-	return computeMDCTWithHistoryScratchStereoLOverlap(samples, history, shortBlocks, Overlap, scratch)
-}
-
+// computeMDCTWithHistoryScratchStereoLOverlap computes the MDCT of the left
+// channel into the mdctLeft scratch buffer.
 func computeMDCTWithHistoryScratchStereoLOverlap(samples, history []float32, shortBlocks, overlap int, scratch *encoderScratch) []float32 {
 	if len(samples) == 0 {
 		return nil
@@ -1719,12 +1726,8 @@ func computeMDCTWithHistoryScratchStereoLOverlap(samples, history []float32, sho
 	return coeffs[:frameSize]
 }
 
-// computeMDCTWithHistoryScratchStereoR computes MDCT for the right channel with scratch buffers.
-// Uses mdctRight scratch buffer for output.
-func computeMDCTWithHistoryScratchStereoR(samples, history []float32, shortBlocks int, scratch *encoderScratch) []float32 {
-	return computeMDCTWithHistoryScratchStereoROverlap(samples, history, shortBlocks, Overlap, scratch)
-}
-
+// computeMDCTWithHistoryScratchStereoROverlap computes the MDCT of the right
+// channel into the mdctRight scratch buffer.
 func computeMDCTWithHistoryScratchStereoROverlap(samples, history []float32, shortBlocks, overlap int, scratch *encoderScratch) []float32 {
 	if len(samples) == 0 {
 		return nil
@@ -1886,6 +1889,19 @@ func (e *Encoder) updateTonalityAnalysis(normCoeffs []celtNorm, energies []celtG
 		lastTonality = 1
 	}
 	e.lastTonality = opusVal16(lastTonality)
+}
+
+// clearUncodedPrevEnergy zeroes oldBandE outside the coded bands
+// [start,end) of every channel, in case start or end change
+// (celt_encoder.c:2790-2803).
+func (e *Encoder) clearUncodedPrevEnergy(start, end int) {
+	predStride := e.predStride()
+	end = min(end, predStride)
+	for c := range int(e.channels) {
+		band := e.prevEnergy[c*predStride : (c+1)*predStride]
+		clear(band[:start])
+		clear(band[end:])
+	}
 }
 
 // resetPrevEnergyToSilence sets the coded bands of the energy history to the

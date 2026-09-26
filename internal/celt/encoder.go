@@ -96,9 +96,11 @@ type Encoder struct {
 	// Bitrate control
 	targetBitrate int32 // st->bitrate in bits per second, or BitrateMax to fill the payload budget
 	frameBits     int32 // Per-frame bit budget for coarse energy (set during encoding)
-	// coarseAvailableBytes mirrors libopus quant_coarse_energy() nbAvailableBytes.
-	// When >0, it overrides budget/8 for coarse intra/decay decisions.
+	// coarseAvailableBytes mirrors libopus quant_coarse_energy() nbAvailableBytes
+	// while coarseAvailableSet is true; otherwise the coarse intra/decay
+	// decisions read budget/8.
 	coarseAvailableBytes int32
+	coarseAvailableSet   bool
 	maxPayloadBytes      int32 // Optional per-frame payload cap (excludes TOC byte)
 	vbr                  bool
 	constrainedVBR       bool
@@ -446,6 +448,7 @@ func (e *Encoder) Reset() {
 	e.frameCount = 0
 	e.frameBits = 0
 	e.coarseAvailableBytes = 0
+	e.coarseAvailableSet = false
 	e.maxPayloadBytes = 0
 	e.delayedIntra = 1.0
 	e.lastCodedBands = 0
@@ -567,11 +570,6 @@ func (e *Encoder) SetConstrainedVBR(enabled bool) {
 	e.constrainedVBR = enabled
 }
 
-// ConstrainedVBR reports whether constrained VBR mode is enabled.
-func (e *Encoder) ConstrainedVBR() bool {
-	return e.constrainedVBR
-}
-
 // SetConstrainedVBRBoundScale sets a scale for constrained-VBR vbr_bound.
 // Valid range is [0, 1], where 1 matches libopus single-stream behavior.
 func (e *Encoder) SetConstrainedVBRBoundScale(scale float32) {
@@ -662,11 +660,6 @@ func (e *Encoder) SetRangeEncoder(re *rangecoding.Encoder) {
 	e.rangeEncoder = re
 }
 
-// RangeEncoder returns the current range encoder.
-func (e *Encoder) RangeEncoder() *rangecoding.Encoder {
-	return e.rangeEncoder
-}
-
 // Channels returns the number of audio channels (1 or 2).
 func (e *Encoder) Channels() int {
 	return int(e.channels)
@@ -704,19 +697,6 @@ func (e *Encoder) PrevEnergy() []CeltGLog {
 	return out
 }
 
-// CopyPrevEnergyFloat32 copies the previous frame's band energies into dst as
-// float32, reusing dst when its capacity is sufficient. The same layout as
-// PrevEnergy is used.
-func (e *Encoder) CopyPrevEnergyFloat32(dst []float32) []float32 {
-	if cap(dst) < len(e.prevEnergy) {
-		dst = make([]float32, len(e.prevEnergy))
-	} else {
-		dst = dst[:len(e.prevEnergy)]
-	}
-	copy(dst, e.prevEnergy)
-	return dst
-}
-
 // PrevEnergy2 returns the band energies from two frames ago.
 // Used for anti-collapse detection.
 func (e *Encoder) PrevEnergy2() []CeltGLog {
@@ -745,34 +725,12 @@ func (e *Encoder) SetPrevEnergyWithPrev(prev, energies []celtGLog) {
 	copy(e.prevEnergy, energies)
 }
 
-// SetPrevEnergyWithPrevFloat32 is the float32 form of SetPrevEnergyWithPrev: it
-// sets the two-frames-ago energies from prev (falling back to the current
-// prevEnergy when prev has the wrong length) and the previous-frame energies
-// from energies.
-func (e *Encoder) SetPrevEnergyWithPrevFloat32(prev, energies []float32) {
-	if len(prev) == len(e.prevEnergy2) {
-		copy(e.prevEnergy2, prev)
-	} else {
-		copy(e.prevEnergy2, e.prevEnergy)
-	}
-	copy(e.prevEnergy, energies)
-}
-
 // OverlapBuffer returns the overlap buffer for MDCT analysis.
 // Size is Overlap * channels samples.
 func (e *Encoder) OverlapBuffer() []float32 {
 	out := make([]float32, len(e.overlapBuffer))
 	copySigToFloat32(out, e.overlapBuffer)
 	return out
-}
-
-// OverlapBufferInto copies the overlap buffer into dst as float32 samples and
-// returns the number of samples written. It performs the same conversion as
-// OverlapBuffer without allocating, for the hot multi-frame encode path.
-func (e *Encoder) OverlapBufferInto(dst []float32) int {
-	n := min(len(e.overlapBuffer), len(dst))
-	copySigToFloat32(dst[:n], e.overlapBuffer[:n])
-	return n
 }
 
 // SetOverlapBuffer copies the given samples to the overlap buffer.
@@ -1065,12 +1023,6 @@ func (e *Encoder) IsHybrid() bool {
 func (e *Encoder) SetSilkInfo(signalType, offset int) {
 	e.silkSignalType = signalType
 	e.silkOffset = offset
-}
-
-// SilkInfo returns the SILK signal classification set with SetSilkInfo
-// (st->silk_info), which Reset clears.
-func (e *Encoder) SilkInfo() (signalType, offset int) {
-	return e.silkSignalType, e.silkOffset
 }
 
 // FillHybridTFResolution applies the libopus hybrid fixed-TF fallback used when
@@ -1604,7 +1556,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 
 // computeAllocationScratch computes bit allocation using scratch buffers (zero-alloc).
 // This is the zero-allocation version of ComputeAllocationWithEncoder.
-func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3, nbBands int, cap, offsets []int32, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) *AllocationResult {
+func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3, start, nbBands int, cap, offsets []int32, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) *AllocationResult {
 	maxNb := MaxBands
 	if e.perMode != nil {
 		maxNb = e.perMode.nbEBands
@@ -1675,10 +1627,10 @@ func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3,
 
 	var codedBands int
 	if e.perMode != nil {
-		codedBands = cltComputeAllocationWithScratchModeEncode(re, 0, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
+		codedBands = cltComputeAllocationWithScratchModeEncode(re, start, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
 			totalBitsQ3, &balance, pulses, fineBits, finePriority, channels, lm, prev, signalBandwidth, e.allocationScratch(), e.perMode)
 	} else {
-		codedBands = cltComputeAllocationEncode(re, 0, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
+		codedBands = cltComputeAllocationEncode(re, start, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
 			totalBitsQ3, &balance, pulses, fineBits, finePriority, channels, lm, prev, signalBandwidth)
 	}
 
@@ -1688,4 +1640,14 @@ func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3,
 	result.DualStereo = dualVal != 0
 
 	return result
+}
+
+// LastCodedBands returns the last coded band count used for allocation skip decisions.
+func (e *Encoder) LastCodedBands() int {
+	return int(e.lastCodedBands)
+}
+
+// ConsecTransient returns the number of consecutive transient frames.
+func (e *Encoder) ConsecTransient() int {
+	return int(e.consecTransient)
 }

@@ -36,25 +36,6 @@ type FrameBudget struct {
 	tell0Frac         int32 // ec_tell_frac on entry
 }
 
-// CompressedBytes returns nbCompressedBytes, the payload bytes the range coder
-// may fill.
-func (b *FrameBudget) CompressedBytes() int { return int(b.nbCompressedBytes) }
-
-// AvailableBytes returns nbAvailableBytes: the budget left after the bytes the
-// range coder held on entry.
-func (b *FrameBudget) AvailableBytes() int { return int(b.nbAvailableBytes) }
-
-// EffectiveBytes returns effectiveBytes, the rate-derived budget TF analysis,
-// dynalloc and the weak-transient gate read.
-func (b *FrameBudget) EffectiveBytes() int { return int(b.effectiveBytes) }
-
-// EquivRate returns equiv_rate, the equivalent 20 ms bitrate the intensity
-// hysteresis, allocation trim and signal-bandwidth floor read.
-func (b *FrameBudget) EquivRate() int { return int(b.equivRate) }
-
-// VBR reports whether the frame codes at a variable bitrate (vbr_rate > 0).
-func (b *FrameBudget) VBR() bool { return b.vbrRate > 0 }
-
 // TotalBits returns total_bits = nbCompressedBytes*8.
 func (b *FrameBudget) TotalBits() int { return int(b.nbCompressedBytes) * 8 }
 
@@ -170,14 +151,6 @@ func (e *Encoder) initFrameBudget(frameSize, lm, c int, nbCompressedBytes int32,
 
 	b.equivRate = int32(ComputeEquivRate(int(nbCompressedBytes), c, lm, int(bitrate)))
 	return b
-}
-
-// HybridFrameBudget returns the celt_encode_with_ec budget of a hybrid frame
-// that codes after SILK into the range coder set with SetRangeEncoder.
-// nbComprBytes is the CELT payload budget opus_encode_frame_native hands CELT
-// (nb_compr_bytes) and frameSize the 48 kHz-core frame size.
-func (e *Encoder) HybridFrameBudget(frameSize, lm, nbComprBytes int) FrameBudget {
-	return e.initFrameBudget(frameSize, lm, e.codedChannels(), int32(nbComprBytes), e.rangeEncoder)
 }
 
 // constrainVBRBudget ports the constrained-VBR bust prevention of
@@ -318,21 +291,6 @@ func (e *Encoder) applyVBR(b *FrameBudget, in vbrFrameInputs) {
 	}
 	b.nbAvailableBytes = nbAvailableBytes
 	b.nbCompressedBytes = min(nbCompressedBytes, nbAvailableBytes)
-}
-
-// ApplyHybridVBR runs the celt_encode_with_ec variable-bitrate block for a
-// hybrid frame once its side information is coded: it sizes the frame from the
-// hybrid VBR target and advances the VBR state. totalBoost is the dynalloc boost
-// coded in the bitstream. The caller shrinks the range coder to
-// b.CompressedBytes().
-func (e *Encoder) ApplyHybridVBR(b *FrameBudget, lm int, tfEstimate float32, totalBoost int) {
-	e.applyVBR(b, vbrFrameInputs{
-		lm:         lm,
-		c:          e.codedChannels(),
-		tell:       int32(e.rangeEncoder.TellFrac()),
-		totalBoost: int32(totalBoost),
-		tfEstimate: tfEstimate,
-	})
 }
 
 // computeVBR ports compute_vbr() (celt/celt_encoder.c:1604-1718) for the float

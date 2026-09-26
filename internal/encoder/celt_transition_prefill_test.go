@@ -20,74 +20,67 @@ func makeTransitionPCM(frameSize, channels int) []opusRes {
 	return pcm
 }
 
-func TestCELTTransitionPrefillForcesOneIntraFrame(t *testing.T) {
+// stageCELTFrame runs the part of opus_encode_frame_native ahead of the CELT
+// prefill for a frame: pcm_buf, the delay buffer update and the CELT
+// controls.
+func stageCELTFrame(enc *Encoder, frame []opusRes, frameSize int) {
+	enc.pcmBuf(frame, frameSize)
+	enc.updateDelayBuffer(frame, frameSize)
+	enc.ensureCELTEncoder()
+}
+
+// TestCELTTransitionPrefillDisablesPrediction pins CELT_SET_PREDICTION(0)
+// after the transition prefill: the frame that follows codes without
+// prediction until the next frame sets the stream's prediction again.
+func TestCELTTransitionPrefillDisablesPrediction(t *testing.T) {
 	enc := NewEncoder(48000, 1)
-	enc.prevMode = ModeHybrid
-
 	frameSize := 480
-	frame := makeTransitionPCM(frameSize, 1)
-	enc.prepareCELTPCM(frame, frameSize)
+	stageCELTFrame(enc, makeTransitionPCM(frameSize, 1), frameSize)
+	enc.celtEncoder.SetPrediction(enc.celtPredictionMode())
 
-	enc.maybePrefillCELTOnModeTransition(ModeCELT)
-
-	if !enc.celtForceIntra {
-		t.Fatal("expected celtForceIntra after mode-transition prefill")
+	if !enc.prefillCELTOnModeSwitch(ModeCELT, ModeHybrid) {
+		t.Fatal("expected a CELT prefill after a hybrid frame")
 	}
-	if enc.celtEncoder == nil {
-		t.Fatal("expected CELT encoder to be initialized for prefill")
+	if got := enc.celtEncoder.FrameCount(); got != 1 {
+		t.Fatalf("CELT frames after prefill = %d, want 1", got)
 	}
-
-	if got := enc.celtPredictionModeForFrame(); got != 0 {
-		t.Fatalf("celtPredictionModeForFrame() first call = %d, want 0", got)
-	}
-	if enc.celtForceIntra {
-		t.Fatal("expected celtForceIntra to be consumed after first frame mode query")
-	}
-	if got := enc.celtPredictionModeForFrame(); got != enc.celtPredictionMode() {
-		t.Fatalf("celtPredictionModeForFrame() second call = %d, want default prediction mode", got)
+	if got := enc.celtEncoder.Prediction(); got != 0 {
+		t.Fatalf("CELT prediction after prefill = %d, want 0", got)
 	}
 }
 
 func TestCELTTransitionPrefillSkippedInLowDelay(t *testing.T) {
 	enc := NewEncoder(48000, 1)
 	enc.lowDelay = true
-	enc.prevMode = ModeHybrid
-
 	frameSize := 480
-	frame := makeTransitionPCM(frameSize, 1)
-	enc.prepareCELTPCM(frame, frameSize)
+	stageCELTFrame(enc, makeTransitionPCM(frameSize, 1), frameSize)
 
-	enc.maybePrefillCELTOnModeTransition(ModeCELT)
-
-	if enc.celtForceIntra {
-		t.Fatal("did not expect celtForceIntra in low-delay mode")
+	if enc.prefillCELTOnModeSwitch(ModeCELT, ModeHybrid) {
+		t.Fatal("did not expect a CELT prefill in low-delay mode")
 	}
-	if enc.celtEncoder != nil && enc.celtEncoder.FrameCount() != 0 {
+	if enc.celtEncoder.FrameCount() != 0 {
 		t.Fatal("did not expect CELT prefill frame in low-delay mode")
 	}
 }
 
 func TestCELTTransitionPrefillSkippedWithoutModeChange(t *testing.T) {
 	enc := NewEncoder(48000, 1)
-	enc.prevMode = ModeCELT
-
 	frameSize := 480
-	frame := makeTransitionPCM(frameSize, 1)
-	enc.prepareCELTPCM(frame, frameSize)
+	stageCELTFrame(enc, makeTransitionPCM(frameSize, 1), frameSize)
 
-	enc.maybePrefillCELTOnModeTransition(ModeCELT)
-
-	if enc.celtForceIntra {
-		t.Fatal("did not expect celtForceIntra when mode is unchanged")
+	if enc.prefillCELTOnModeSwitch(ModeCELT, ModeCELT) {
+		t.Fatal("did not expect a CELT prefill when the mode is unchanged")
 	}
-	if enc.celtEncoder != nil && enc.celtEncoder.FrameCount() != 0 {
+	if enc.prefillCELTOnModeSwitch(ModeCELT, ModeAuto) {
+		t.Fatal("did not expect a CELT prefill for the first frame")
+	}
+	if enc.celtEncoder.FrameCount() != 0 {
 		t.Fatal("did not expect CELT prefill frame when mode is unchanged")
 	}
 }
 
 func TestCELTTransitionPrefillSnapshotsLibopusDelayHistoryWindow(t *testing.T) {
 	enc := NewEncoder(48000, 1)
-	enc.prevMode = ModeHybrid
 
 	frameSize := 480
 	encoderBuffer := int(enc.sampleRate) / 100
@@ -107,7 +100,7 @@ func TestCELTTransitionPrefillSnapshotsLibopusDelayHistoryWindow(t *testing.T) {
 	for i := range frame {
 		frame[i] = opusRes(10000 + i)
 	}
-	enc.applyDelayCompensation(frame, frameSize)
+	stageCELTFrame(enc, frame, frameSize)
 
 	wantStart := encoderBuffer - delayComp - prefillFrameSize
 	if wantStart < 0 {
@@ -134,18 +127,20 @@ func TestCELTTransitionPrefillSnapshotsLibopusDelayHistoryWindow(t *testing.T) {
 		}
 	}
 
-	enc.maybePrefillCELTOnModeTransition(ModeCELT)
-	if !enc.celtForceIntra {
-		t.Fatal("expected celtForceIntra after transition prefill")
+	if !enc.prefillCELTOnModeSwitch(ModeCELT, ModeHybrid) {
+		t.Fatal("expected a CELT prefill after a hybrid frame")
 	}
-	if enc.celtEncoder == nil || enc.celtEncoder.FrameCount() != 1 {
+	if enc.celtEncoder.FrameCount() != 1 {
 		t.Fatal("expected one CELT prefill frame")
 	}
 }
 
-func TestCELTTransitionPrefillResyncsAnalysisAfterReset(t *testing.T) {
+// TestCELTTransitionPrefillClearsAnalysis pins OPUS_RESET_STATE ahead of the
+// prefill: it clears the analysis CELT_SET_ANALYSIS handed CELT for the
+// frame, so the prefill and the frame code without it
+// (src/opus_encoder.c:2416 and 2477-2486, celt/celt_encoder.c:3074-3092).
+func TestCELTTransitionPrefillClearsAnalysis(t *testing.T) {
 	enc := NewEncoder(48000, 1)
-	enc.prevMode = ModeCELT
 	enc.lastAnalysisValid = true
 	enc.lastAnalysisInfo = AnalysisInfo{
 		BandwidthIndex: 13,
@@ -155,37 +150,16 @@ func TestCELTTransitionPrefillResyncsAnalysisAfterReset(t *testing.T) {
 	}
 
 	frameSize := 480
-	frame := makeTransitionPCM(frameSize, 1)
-	enc.prepareCELTPCM(frame, frameSize)
-
-	enc.maybePrefillCELTOnModeTransition(ModeHybrid)
-
-	if enc.celtEncoder == nil {
-		t.Fatal("expected CELT encoder to be initialized for prefill")
-	}
+	stageCELTFrame(enc, makeTransitionPCM(frameSize, 1), frameSize)
+	enc.syncCELTAnalysisToCELT()
 	if got := enc.celtEncoder.AnalysisBandwidth(); got != 13 {
-		t.Fatalf("AnalysisBandwidth() after prefill = %d, want 13", got)
+		t.Fatalf("AnalysisBandwidth() before prefill = %d, want 13", got)
 	}
-}
 
-func TestCELTTransitionPrefillSkipsWhenDelayedTransitionAlreadyAdvancedPrevMode(t *testing.T) {
-	enc := NewEncoder(48000, 1)
-	// After a long hybrid->CELT transition packet, libopus advances prev_mode to
-	// CELT even though the previous packet TOC still says hybrid.
-	enc.prevMode = ModeCELT
-	enc.prevPacketMode = ModeHybrid
+	enc.prefillCELTOnModeSwitch(ModeHybrid, ModeCELT)
 
-	frameSize := 960
-	frame := makeTransitionPCM(frameSize, 1)
-	enc.prepareCELTPCM(frame, frameSize)
-
-	enc.maybePrefillCELTOnModeTransition(ModeCELT)
-
-	if enc.celtForceIntra {
-		t.Fatal("did not expect celtForceIntra after delayed transition already completed")
-	}
-	if enc.celtEncoder != nil && enc.celtEncoder.FrameCount() != 0 {
-		t.Fatal("did not expect CELT prefill when prevMode is already CELT")
+	if got := enc.celtEncoder.AnalysisBandwidth(); got == 13 {
+		t.Fatal("analysis survived the transition reset")
 	}
 }
 

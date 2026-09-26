@@ -9,141 +9,75 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/types"
 )
 
-// TestHybridBitAllocation verifies SILK/CELT bit allocation follows libopus tables.
-func TestHybridBitAllocation(t *testing.T) {
-	testCases := []struct {
-		name         string
-		totalBitrate int
-		channels     int
-		frame20ms    bool
-		fecEnabled   bool
-		// Expected ranges (not exact, as interpolation may vary)
-		minSilkBitrate int
-		maxSilkBitrate int
+// TestComputeSilkRateForHybridMatchesLibopus pins compute_silk_rate_for_hybrid()
+// (src/opus_encoder.c): the per-channel rate-table interpolation, the half
+// share of the rate beyond 64 kb/s, the CBR and superwideband boosts and the
+// stereo adjustment.
+func TestComputeSilkRateForHybridMatchesLibopus(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		rate      int32
+		bw        types.Bandwidth
+		frame20ms bool
+		vbr       bool
+		fec       bool
+		channels  int32
+		want      int32
 	}{
-		// From libopus rate table:
-		// At 24kbps mono, SILK should get ~18kbps
-		{"24kbps mono 20ms", 24000, 1, true, false, 15000, 20000},
-		// At 32kbps mono, SILK should get ~22kbps
-		{"32kbps mono 20ms", 32000, 1, true, false, 18000, 25000},
-		// At 64kbps mono, SILK should get ~38kbps
-		{"64kbps mono 20ms", 64000, 1, true, false, 35000, 45000},
-		// Stereo doubles the rates
-		{"48kbps stereo 20ms", 48000, 2, true, false, 30000, 42000},
-		// 10ms frames (entry 1 instead of 2)
-		{"32kbps mono 10ms", 32000, 1, false, false, 18000, 25000},
-		// FEC enabled (entry 4 instead of 2)
-		{"32kbps mono 20ms FEC", 32000, 1, true, true, 20000, 30000},
-	}
-
-	for _, tc := range testCases {
+		// 24000 sits on a table row: 18000.
+		{"24k mono 20ms", 24000, types.BandwidthFullband, true, true, false, 1, 18000},
+		// (13500*4000 + 16000*3600)/4000 between the 16k and 20k rows.
+		{"19.6k mono 10ms", 19600, types.BandwidthFullband, false, true, false, 1, 15750},
+		// 7600 below 12k interpolates from 0: 10000*7600/12000.
+		{"7.6k mono 20ms", 7600, types.BandwidthFullband, true, true, false, 1, 6333},
+		// FEC column: 28000 at 32k.
+		{"32k mono 20ms fec", 32000, types.BandwidthFullband, true, true, true, 1, 28000},
+		// Beyond 64k SILK takes half the excess: 38000+(80000-64000)/2.
+		{"80k mono", 80000, types.BandwidthFullband, true, true, false, 1, 46000},
+		// CBR and superwideband boosts.
+		{"24k mono cbr swb", 24000, types.BandwidthSuperwideband, true, false, false, 1, 18400},
+		// Stereo: per-channel 24000 -> 18000, doubled, minus 1000.
+		{"48k stereo", 48000, types.BandwidthFullband, true, true, false, 2, 35000},
+		// Stereo below 12k per channel keeps the doubled rate.
+		{"20k stereo", 20000, types.BandwidthFullband, true, true, false, 2, 16666},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			e := &Encoder{
-				sampleRate: 48000,
-				bitrate:    int32(tc.totalBitrate),
-				channels:   int32(tc.channels),
-				fecEnabled: tc.fecEnabled,
-			}
-
-			silkBitrate, celtBitrate, celtBitrateHBGain := e.computeHybridBitAllocation(tc.frame20ms)
-
-			t.Logf("Total: %d, SILK: %d, CELT: %d, CELT(HB): %d", tc.totalBitrate, silkBitrate, celtBitrate, celtBitrateHBGain)
-
-			// Verify SILK bitrate is in expected range
-			if silkBitrate < tc.minSilkBitrate || silkBitrate > tc.maxSilkBitrate {
-				t.Errorf("SILK bitrate %d not in expected range [%d, %d]",
-					silkBitrate, tc.minSilkBitrate, tc.maxSilkBitrate)
-			}
-
-			// Verify CELT encoder rate: silk + celt = raw bitrate
-			// Per libopus line 2454: CELT bitrate = st->bitrate_bps - silk_rate
-			if silkBitrate+celtBitrate != tc.totalBitrate {
-				t.Errorf("SILK (%d) + CELT (%d) = %d, expected %d (raw bitrate)",
-					silkBitrate, celtBitrate, silkBitrate+celtBitrate, tc.totalBitrate)
-			}
-
-			// Verify HB gain rate: silk + celtHBGain = bitrate - TOC overhead
-			// Per libopus line 2060: celt_rate = total_bitRate - silk_rate
-			frameSize := 480
-			if tc.frame20ms {
-				frameSize = 960
-			}
-			tocOverhead := 8 * 48000 / frameSize
-			expectedHBTotal := tc.totalBitrate - tocOverhead
-			if silkBitrate+celtBitrateHBGain != expectedHBTotal {
-				t.Errorf("SILK (%d) + CELT_HB (%d) = %d, expected %d (TOC-adjusted)",
-					silkBitrate, celtBitrateHBGain, silkBitrate+celtBitrateHBGain, expectedHBTotal)
-			}
-
-		})
-	}
-}
-
-func TestHybridBitAllocationDoesNotClampCELTRate(t *testing.T) {
-	e := &Encoder{
-		sampleRate: 48000,
-		bitrate:    8000,
-		channels:   1,
-	}
-	silkBitrate, celtBitrate, celtBitrateHBGain := e.computeHybridBitAllocation(true)
-	if silkBitrate != 6333 || celtBitrate != 1667 || celtBitrateHBGain != 1267 {
-		t.Fatalf("allocation=(silk=%d celt=%d hb=%d), want (6333,1667,1267)", silkBitrate, celtBitrate, celtBitrateHBGain)
-	}
-}
-
-func TestClampRedundancyBytesAfterSilkMatchesLibopusFormula(t *testing.T) {
-	tests := []struct {
-		name            string
-		maxDataBytes    int
-		tellBits        int
-		redundancyBytes int
-		hybrid          bool
-		want            int
-	}{
-		{
-			name:            "hybrid reserves length and celt guard",
-			maxDataBytes:    40,
-			tellBits:        100,
-			redundancyBytes: 30,
-			hybrid:          true,
-			want:            25,
-		},
-		{
-			name:            "silk packet has no length byte reserve",
-			maxDataBytes:    40,
-			tellBits:        100,
-			redundancyBytes: 30,
-			hybrid:          false,
-			want:            26,
-		},
-		{
-			name:            "minimum two bytes",
-			maxDataBytes:    4,
-			tellBits:        16,
-			redundancyBytes: 10,
-			hybrid:          true,
-			want:            2,
-		},
-		{
-			name:            "maximum 257 bytes",
-			maxDataBytes:    400,
-			tellBits:        0,
-			redundancyBytes: 300,
-			hybrid:          true,
-			want:            257,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := clampRedundancyBytesAfterSilk(tc.maxDataBytes, tc.tellBits, tc.redundancyBytes, tc.hybrid)
+			got := computeSilkRateForHybrid(tc.rate, tc.bw, tc.frame20ms, tc.vbr, tc.fec, tc.channels)
 			if got != tc.want {
-				t.Fatalf("clampRedundancyBytesAfterSilk() = %d, want %d", got, tc.want)
+				t.Fatalf("computeSilkRateForHybrid(%d) = %d, want %d", tc.rate, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestComputeRedundancyBytesMatchesLibopus pins compute_redundancy_bytes()
+// (src/opus_encoder.c): the 5 ms equivalent rate raised by half, the cap from
+// the frame budget, and the minimum below which the redundancy is dropped.
+func TestComputeRedundancyBytesMatchesLibopus(t *testing.T) {
+	for _, tc := range []struct {
+		maxDataBytes, bitrate, frameRate, channels int32
+		want                                       int32
+	}{
+		// (3*(24000+100*150)/2)/1600 = 36, below the cap ((240*8-200)*240/1200+100)/8 = 55.
+		{240, 24000, 50, 2, 36},
+		// The cap binds: ((120*8-200)*240/1200+100)/8 = 31.
+		{120, 24000, 50, 2, 31},
+		// ((50*8-120)*240/1200+60)/8 = 14.
+		{50, 32000, 50, 1, 14},
+		// At most 4+8*channels bytes is not worth coding.
+		{20, 32000, 50, 1, 0},
+		// At most 257 bytes.
+		{1276, 510000, 50, 2, 257},
+	} {
+		got := computeRedundancyBytes(tc.maxDataBytes, tc.bitrate, tc.frameRate, tc.channels)
+		if got != tc.want {
+			t.Fatalf("computeRedundancyBytes(%d, %d, %d, %d) = %d, want %d",
+				tc.maxDataBytes, tc.bitrate, tc.frameRate, tc.channels, got, tc.want)
+		}
 	}
 }
 
@@ -169,11 +103,9 @@ func TestHBGainComputation(t *testing.T) {
 		{"minimum bitrate (2kbps)", 2000, 0.72, 0.77},
 	}
 
-	e := &Encoder{}
-
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			gain := e.computeHBGain(tc.celtBitrate)
+			gain := hybridHBGain(int32(tc.celtBitrate))
 			gain64 := float64(gain)
 
 			t.Logf("CELT bitrate: %d, HB gain: %.4f", tc.celtBitrate, gain)
@@ -203,9 +135,9 @@ func TestHybridCELTExp2ApproxMatchesLibopus(t *testing.T) {
 		libopustest.HelperUnavailable(t, "celt math", err)
 	}
 	for i, sample := range samples {
-		got := celtExp2Approx(sample)
+		got := opusmath.CeltExp2(sample)
 		if math.Float32bits(got) != math.Float32bits(want[i]) {
-			t.Fatalf("celtExp2Approx(%g)=%08x(%g) want %08x(%g)",
+			t.Fatalf("CeltExp2(%g)=%08x(%g) want %08x(%g)",
 				sample,
 				math.Float32bits(got), got,
 				math.Float32bits(want[i]), want[i],
@@ -263,7 +195,7 @@ func TestGainFadeMatchesLibopus(t *testing.T) {
 	}
 	for i, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			e := &Encoder{channels: int32(tc.channels), sampleRate: int32(tc.sampleRate), hybridState: &HybridState{prevHBGain: tc.g1}}
+			e := &Encoder{channels: int32(tc.channels), sampleRate: int32(tc.sampleRate), prevHBGain: tc.g1}
 			got := append([]opusRes(nil), inputs[i]...)
 			e.applyGainFade(got, tc.g1, tc.g2)
 			for j := range got {
@@ -281,69 +213,30 @@ func TestGainFadeMatchesLibopus(t *testing.T) {
 // through untouched once prev_HB_gain has reset.
 func TestUnityHBGainFadeAfterHybrid(t *testing.T) {
 	const prev = opusVal16(0.8203125)
-	e := &Encoder{channels: 1, sampleRate: 48000, hybridState: &HybridState{prevHBGain: prev}}
+	e := &Encoder{channels: 1, sampleRate: 48000, prevHBGain: prev}
 	in := make([]opusRes, 960)
 	for i := range in {
 		in[i] = opusRes(float32(math.Cos(float64(i)*0.11)) * 0.5)
 	}
-	want := e.applyGainFade(append([]opusRes(nil), in...), prev, 1)
+	want := append([]opusRes(nil), in...)
+	e.applyGainFade(want, prev, 1)
 
-	got := e.applyUnityHBGainFade(append([]opusRes(nil), in...))
+	got := append([]opusRes(nil), in...)
+	e.fadeHighBand(got, 1)
 	for i := range want {
 		if math.Float32bits(float32(got[i])) != math.Float32bits(float32(want[i])) {
 			t.Fatalf("first frame out[%d] = %08x, want %08x", i, math.Float32bits(float32(got[i])), math.Float32bits(float32(want[i])))
 		}
 	}
-	if e.hybridState.prevHBGain != 1 {
-		t.Fatalf("prevHBGain = %g, want 1", e.hybridState.prevHBGain)
+	if e.prevHBGain != 1 {
+		t.Fatalf("prevHBGain = %g, want 1", e.prevHBGain)
 	}
-	got = e.applyUnityHBGainFade(append([]opusRes(nil), in...))
+	got = append([]opusRes(nil), in...)
+	e.fadeHighBand(got, 1)
 	for i := range in {
 		if math.Float32bits(float32(got[i])) != math.Float32bits(float32(in[i])) {
 			t.Fatalf("second frame out[%d] = %08x, want unchanged %08x", i, math.Float32bits(float32(got[i])), math.Float32bits(float32(in[i])))
 		}
-	}
-}
-
-// TestStereoWidthComputation verifies stereo width calculation.
-func TestStereoWidthComputation(t *testing.T) {
-	testCases := []struct {
-		name          string
-		leftPhase     float64 // Phase offset for left channel
-		rightPhase    float64 // Phase offset for right channel
-		expectedWidth float64 // Expected stereo width (0=mono, 1=full stereo)
-		tolerance     float64
-	}{
-		// Identical channels (mono)
-		{"mono signal", 0.0, 0.0, 0.0, 0.1},
-		// 90 degree phase difference (maximum stereo)
-		{"full stereo (90deg)", 0.0, math.Pi / 2, 0.7, 0.3},
-		// 180 degree (opposite phase) - correlation is -1, but abs(corr)=1, so width is low
-		// This is because phase-inverted signals are still correlated (just negatively)
-		{"opposite phase", 0.0, math.Pi, 0.0, 0.2},
-		// Small phase difference
-		{"slight stereo", 0.0, 0.2, 0.1, 0.15},
-	}
-
-	frameSize := 960
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Generate test signal
-			pcm := make([]opusRes, frameSize*2)
-			for i := range frameSize {
-				t := float64(i) / 48000.0 * 1000.0 * math.Pi // 1kHz
-				pcm[i*2] = opusRes(math.Sin(t + tc.leftPhase))
-				pcm[i*2+1] = opusRes(math.Sin(t + tc.rightPhase))
-			}
-
-			width := ComputeStereoWidth(pcm, frameSize, 2)
-
-			if math.Abs(float64(width)-tc.expectedWidth) > tc.tolerance {
-				t.Errorf("Stereo width %.4f not in expected range %.4f +/- %.4f",
-					width, tc.expectedWidth, tc.tolerance)
-			}
-		})
 	}
 }
 
@@ -391,16 +284,11 @@ func TestHybridModeQuality(t *testing.T) {
 	}
 }
 
-// BenchmarkHybridBitAllocation benchmarks bit allocation computation.
-func BenchmarkHybridBitAllocation(b *testing.B) {
-	e := &Encoder{
-		bitrate:  64000,
-		channels: 1,
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		e.computeHybridBitAllocation(true)
+// BenchmarkComputeSilkRateForHybrid benchmarks the SILK share of a hybrid
+// frame.
+func BenchmarkComputeSilkRateForHybrid(b *testing.B) {
+	for b.Loop() {
+		computeSilkRateForHybrid(64000, types.BandwidthFullband, true, true, false, 1)
 	}
 }
 
@@ -436,10 +324,7 @@ func TestHybridVBRPacketSizeCap(t *testing.T) {
 
 // BenchmarkHBGainComputation benchmarks HB gain calculation.
 func BenchmarkHBGainComputation(b *testing.B) {
-	e := &Encoder{}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		e.computeHBGain(25000)
+	for b.Loop() {
+		hybridHBGain(25000)
 	}
 }

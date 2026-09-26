@@ -36,25 +36,10 @@ func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float32, nbBands, frameSize i
 	return dst
 }
 
-// ComputeBandEnergiesF32 computes CELT band energies from float-build MDCT
-// coefficients and returns the encoder scratch view.
-func (e *Encoder) ComputeBandEnergiesF32(mdctCoeffs []float32, nbBands, frameSize int) []CeltGLog {
-	energiesLen := nbBands * int(e.channels)
-	dst := ensureGLogSlice(&e.scratch.energies, energiesLen)
-	e.ComputeBandEnergiesF32Into(mdctCoeffs, nbBands, frameSize, dst)
-	return dst
-}
-
 // ComputeBandEnergiesInto computes band energies into the provided destination buffer.
 // Use this instead of ComputeBandEnergies when you need to avoid buffer aliasing.
 func (e *Encoder) ComputeBandEnergiesInto(mdctCoeffs []float32, nbBands, frameSize int, dst []celtGLog) {
 	computeBandEnergiesGLogInto(mdctCoeffs, nbBands, frameSize, int(e.channels), dst)
-}
-
-// ComputeBandEnergiesF32Into computes CELT band energies into celt_glog-width
-// scratch for callers that already carry float-build MDCT coefficients.
-func (e *Encoder) ComputeBandEnergiesF32Into(mdctCoeffs []float32, nbBands, frameSize int, dst []celtGLog) {
-	computeBandEnergiesGLogF32Into(mdctCoeffs, nbBands, frameSize, int(e.channels), 1<<GetModeConfig(frameSize).LM, dst)
 }
 
 // ComputeBandEnergiesFloat32Into computes CELT band energies in libopus
@@ -599,19 +584,14 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []celtGLog, startBand, nbBands
 	return quantizedEnergies, badness
 }
 
+// coarseNbAvailableBytesForBudget returns the nbAvailableBytes argument of
+// quant_coarse_energy(): the frame's nbAvailableBytes while one is set, and
+// budget/8 otherwise.
 func (e *Encoder) coarseNbAvailableBytesForBudget(budget int) int {
-	nbAvailableBytes := budget / 8
-	if e.coarseAvailableBytes > 0 {
-		nbAvailableBytes = int(e.coarseAvailableBytes)
-		maxBytes := budget / 8
-		if nbAvailableBytes > maxBytes {
-			nbAvailableBytes = maxBytes
-		}
+	if e.coarseAvailableSet {
+		return int(e.coarseAvailableBytes)
 	}
-	if nbAvailableBytes < 0 {
-		nbAvailableBytes = 0
-	}
-	return nbAvailableBytes
+	return max(budget/8, 0)
 }
 
 // DecideIntraMode runs libopus-style two-pass intra/inter selection for coarse energy.
