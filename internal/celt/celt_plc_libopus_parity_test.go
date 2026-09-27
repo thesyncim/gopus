@@ -482,7 +482,13 @@ func TestPitchDownsampleSigMatchesLibopus(t *testing.T) {
 
 	for _, factor := range []int{2, 4} {
 		for _, channels := range []int{1, 2} {
-			t.Run(strconv.Itoa(factor)+"x/"+map[int]string{1: "mono", 2: "stereo"}[channels], func(t *testing.T) {
+			// The 2x cases keep the original subtest names the SIMD A/B gate
+			// tracks; other factors add a prefix.
+			name := map[int]string{1: "mono", 2: "stereo"}[channels]
+			if factor != 2 {
+				name = strconv.Itoa(factor) + "x/" + name
+			}
+			t.Run(name, func(t *testing.T) {
 				const length = plcDecodeBufferSize >> 1
 				x := makeCELTPLCTestSignal(length*factor*channels, uint32(0x5100+factor*10+channels), 2600)
 				want := probeLibopusPLCPitchDownsample(t, x, length, channels, factor)
