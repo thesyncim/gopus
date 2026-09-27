@@ -63,12 +63,14 @@ Native-96 encoder/PLC and broader feature-paired oracle validation remain open.
 
 QEXT PVQ refinement uses reusable pulse, refinement and rounding scratch.
 DRED reset clears runtime state while retaining its model-bound backing storage.
-On ARM64, the reset-inclusive 96-frame 5.1, FOA and high-rate cycles each
-allocate zero in scalar and SIMD. The selected-C PVQ oracle exercises reused
-scratch; base 5.1 and FOA retain exact 96-frame packet/range parity including
-reset/rearm. The high-rate ARM64 frame-10 payload witness is covered by the
-exact PVQ refinement proof above. The existing native CI batch also runs the independent reset-cycle allocation
-guard; AMD64 validation of these allocation fixes is pending.
+Stereo theta RDO reserves the pinned libopus snapshot bounds: 1275 bytes for
+main range-coder snapshots and 3825 bytes for QEXT snapshots. This prevents
+later frames from growing snapshot buffers as their coded size changes.
+On ARM64, baseline 5.1, FOA, high-rate 5.1 and high-rate 7.1 each match all
+96 selected-C packet bytes/ranges in scalar and SIMD. Every one-frame and
+warmed-cycle allocation check reports zero. The range-coder reservation test
+verifies existing snapshot bytes, length and scalar fields survive reservation.
+Native AMD64 validation of the snapshot-capacity checkpoint remains pending.
 
 ### QEXT float band-energy reduction
 

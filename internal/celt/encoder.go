@@ -1544,6 +1544,16 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	if extsupport.QEXT && e.qextActive() {
 		bandScratch.pvqUpIy = ensureInt32Slice(&bandScratch.pvqUpIy, maxPVQN)
 		bandScratch.pvqRefine = ensureInt32Slice(&bandScratch.pvqRefine, maxPVQN)
+		if channels == 2 && e.complexity >= 8 {
+			// libopus celt/bands.c allocates bytes_save to 1275 and
+			// ext_bytes_save to QEXT_PACKET_SIZE_CAP when theta RDO is active.
+			// Reserve both coder snapshots up front because their storage varies
+			// by frame and otherwise grows them during a later high-rate encode.
+			bandScratch.ecSave.ReserveBufferCapacity(celtPacketSizeCap)
+			bandScratch.ecSave0.ReserveBufferCapacity(celtPacketSizeCap)
+			bandScratch.extEcSave.ReserveBufferCapacity(qextPacketSizeCap)
+			bandScratch.extEcSave0.ReserveBufferCapacity(qextPacketSizeCap)
+		}
 	}
 	bandScratch.qextIy = ensureInt32Slice(&bandScratch.qextIy, maxPVQN)
 	bandScratch.cwrsU = ensureUint32Slice(&bandScratch.cwrsU, 256)

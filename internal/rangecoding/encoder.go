@@ -513,6 +513,17 @@ type EncoderState struct {
 	buf        []byte
 }
 
+// ReserveBufferCapacity reserves reusable storage for a future encoder
+// snapshot without changing the snapshot's logical length or scalar fields.
+func (state *EncoderState) ReserveBufferCapacity(capacity int) {
+	if state == nil || capacity <= cap(state.buf) {
+		return
+	}
+	buf := make([]byte, len(state.buf), capacity)
+	copy(buf, state.buf)
+	state.buf = buf
+}
+
 // SaveState captures the current encoder state for later restoration.
 // This allows trying different encoding choices and restoring to try again.
 func (e *Encoder) SaveState() *EncoderState {

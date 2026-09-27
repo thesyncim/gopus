@@ -70,6 +70,7 @@ func TestDREDQEXTSurroundAndProjectionEncodeMatchesLibopus(t *testing.T) {
 		{name: "surround_5_1", kind: dredQEXTSurround, channels: 6, bitrate: dredQEXTBitrate, duration: dredQEXTDuration},
 		{name: "projection_foa", kind: dredQEXTProjection, channels: 4, projection: true, bitrate: dredQEXTBitrate, duration: dredQEXTDuration},
 		{name: "surround_5_1_high_rate", kind: dredQEXTSurround, channels: 6, bitrate: dredQEXTHighBitrate, duration: dredQEXTHighRateDuration, requireBoth: true},
+		{name: "surround_7_1_high_rate", kind: dredQEXTSurround, channels: 8, bitrate: dredQEXTHighBitrate, duration: dredQEXTHighRateDuration, requireBoth: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

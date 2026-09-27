@@ -115,6 +115,38 @@ func TestEncoderStateRestoresFullActiveBuffer(t *testing.T) {
 	}
 }
 
+func TestEncoderStateReserveBufferCapacityPreservesSnapshotsAndAvoidsGrowth(t *testing.T) {
+	state := EncoderState{
+		storage: 2,
+		rng:     0x12345678,
+		buf:     []byte{0xa1, 0xb2},
+	}
+	state.ReserveBufferCapacity(16)
+	if len(state.buf) != 2 || cap(state.buf) < 16 || !bytes.Equal(state.buf, []byte{0xa1, 0xb2}) {
+		t.Fatalf("reserved snapshot buffer = len %d cap %d bytes %x", len(state.buf), cap(state.buf), state.buf)
+	}
+	if state.storage != 2 || state.rng != 0x12345678 {
+		t.Fatalf("reserving changed snapshot scalars: storage=%d rng=%08x", state.storage, state.rng)
+	}
+
+	buf := []byte{0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17}
+	var enc Encoder
+	enc.Init(buf)
+	enc.offs = 3
+	enc.endOffs = 2
+	enc.SaveStateInto(&state)
+	want := append([]byte(nil), buf[:len(buf)]...)
+	if len(state.buf) != len(buf) || cap(state.buf) < 16 || !bytes.Equal(state.buf, want) {
+		t.Fatalf("saved snapshot buffer = len %d cap %d bytes %x, want len %d bytes %x", len(state.buf), cap(state.buf), state.buf, len(want), want)
+	}
+	if state.offs != 3 || state.endOffs != 2 {
+		t.Fatalf("saved snapshot offsets = %d/%d, want 3/2", state.offs, state.endOffs)
+	}
+	if allocs := testing.AllocsPerRun(20, func() { enc.SaveStateInto(&state) }); allocs != 0 {
+		t.Fatalf("reserved SaveStateInto allocated %g times/run", allocs)
+	}
+}
+
 func TestEncoderStateShallowRestoreLeavesBufferDirty(t *testing.T) {
 	buf := []byte{
 		0x10, 0x11, 0x12, 0x13,
