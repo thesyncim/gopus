@@ -37,7 +37,6 @@ type scalarDNNBuildConfig struct {
 	buildFlavor    string
 	configureExtra []string
 	buildCurrent   func(string) bool
-	resetBuild     func(string) error
 	buildEnv       func() ([]string, error)
 	writeStamp     func(string) error
 	simd           bool
@@ -48,7 +47,6 @@ var (
 		label:        "dred",
 		buildFlavor:  "dred",
 		buildCurrent: libopustooling.ScalarDNNBuildIsCurrent,
-		resetBuild:   libopustooling.ResetScalarDNNBuildIfStale,
 		buildEnv:     libopustooling.ScalarDNNBuildEnv,
 		writeStamp:   libopustooling.WriteScalarDNNBuildStamp,
 	}
@@ -56,7 +54,6 @@ var (
 		label:        "dred",
 		buildFlavor:  "dred-simd",
 		buildCurrent: libopustooling.DREDSIMDBuildIsCurrent,
-		resetBuild:   libopustooling.ResetDREDSIMDBuildIfStale,
 		buildEnv:     libopustooling.DREDSIMDBuildEnv,
 		writeStamp:   libopustooling.WriteDREDSIMDBuildStamp,
 		simd:         true,
@@ -66,7 +63,6 @@ var (
 		buildFlavor:    "osce",
 		configureExtra: []string{"--enable-osce", "--enable-osce-bwe"},
 		buildCurrent:   libopustooling.OSCEScalarDNNBuildIsCurrent,
-		resetBuild:     libopustooling.ResetOSCEScalarDNNBuildIfStale,
 		buildEnv:       libopustooling.OSCEScalarDNNBuildEnv,
 		writeStamp:     libopustooling.WriteOSCEScalarDNNBuildStamp,
 	}
@@ -88,8 +84,16 @@ func EnsureOSCEBuild(repoRoot string) (sourceDir, buildDir string, err error) {
 }
 
 func ensureScalarDNNBuild(repoRoot string, cfg scalarDNNBuildConfig) (sourceDir, buildDir string, err error) {
-	referenceDir := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion)
-	sourceDir = filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+"-dredsrc-clean")
+	lock, err := lockOracleBuild(filepath.Join(repoRoot, "tmp_check", ".dnn-build.lock"))
+	if err != nil {
+		return "", "", err
+	}
+	defer func() { _ = lock.Close() }()
+
+	sourceDir, err = ensureDNNSource(repoRoot)
+	if err != nil {
+		return "", "", err
+	}
 	buildDir = filepath.Join(repoRoot, "tmp_check", fmt.Sprintf("build-opus-%s-scalar-%s-%s", cfg.buildFlavor, runtime.GOOS, runtime.GOARCH))
 	libopusStatic := filepath.Join(buildDir, ".libs", "libopus.a")
 	if _, err := os.Stat(libopusStatic); err == nil && cfg.buildCurrent(buildDir) {
@@ -99,36 +103,16 @@ func ensureScalarDNNBuild(repoRoot string, cfg scalarDNNBuildConfig) (sourceDir,
 		return sourceDir, buildDir, nil
 	}
 
-	if _, err := os.Stat(filepath.Join(sourceDir, "configure")); err != nil {
-		libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{repoRoot})
-		tarball := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+".tar.gz")
-		if _, err := os.Stat(tarball); err == nil {
-			if err := os.RemoveAll(sourceDir); err != nil {
-				return "", "", fmt.Errorf("remove stale %s source dir: %w", cfg.label, err)
-			}
-			if err := os.MkdirAll(sourceDir, 0o755); err != nil {
-				return "", "", fmt.Errorf("mkdir %s source dir: %w", cfg.label, err)
-			}
-			cmd := exec.Command("tar", "-xzf", tarball, "-C", sourceDir, "--strip-components=1")
-			if output, err := cmd.CombinedOutput(); err != nil {
-				return "", "", fmt.Errorf("extract %s libopus source: %w (%s)", cfg.label, err, bytes.TrimSpace(output))
-			}
-		} else if _, refErr := os.Stat(filepath.Join(referenceDir, "configure")); refErr == nil {
-			if _, cfgErr := os.Stat(filepath.Join(referenceDir, "Makefile")); cfgErr == nil {
-				return "", "", fmt.Errorf("clean %s source tree unavailable: %s is already configured", cfg.label, referenceDir)
-			}
-			sourceDir = referenceDir
-		} else {
-			return "", "", fmt.Errorf("libopus tarball not found and no prepared source tree present: %w", err)
-		}
+	// Configure and make can outlive a killed Go test process. Their private
+	// directory cannot be reset by the next lock owner; only a completed build
+	// becomes visible at the stable archive path.
+	publishedBuildDir := buildDir
+	buildDir, err = os.MkdirTemp(filepath.Dir(buildDir), filepath.Base(buildDir)+".stage-")
+	if err != nil {
+		return "", "", fmt.Errorf("stage %s build: %w", cfg.label, err)
 	}
-
-	if err := cfg.resetBuild(buildDir); err != nil {
-		return "", "", fmt.Errorf("reset stale %s scalar build dir: %w", cfg.label, err)
-	}
-	if err := os.MkdirAll(buildDir, 0o755); err != nil {
-		return "", "", fmt.Errorf("mkdir %s build dir: %w", cfg.label, err)
-	}
+	stagingBuildDir := buildDir
+	defer func() { _ = os.RemoveAll(stagingBuildDir) }()
 	buildEnv, err := cfg.buildEnv()
 	if err != nil {
 		return "", "", fmt.Errorf("prepare %s scalar build env: %w", cfg.label, err)
@@ -169,7 +153,62 @@ func ensureScalarDNNBuild(repoRoot string, cfg scalarDNNBuildConfig) (sourceDir,
 		return "", "", err
 	}
 
-	return sourceDir, buildDir, nil
+	if err := os.RemoveAll(publishedBuildDir); err != nil {
+		return "", "", fmt.Errorf("replace stale %s build: %w", cfg.label, err)
+	}
+	if err := os.Rename(buildDir, publishedBuildDir); err != nil {
+		return "", "", fmt.Errorf("publish %s build: %w", cfg.label, err)
+	}
+	return sourceDir, publishedBuildDir, nil
+}
+
+// ensureDNNSource publishes an entire unconfigured source tree atomically.
+// The caller holds the common DRED/OSCE build lock. An interrupted extraction
+// leaves only a private staging directory, never a partially visible source.
+func ensureDNNSource(repoRoot string) (string, error) {
+	tmpDir := filepath.Join(repoRoot, "tmp_check")
+	sourceDir := filepath.Join(tmpDir, "opus-"+libopustooling.DefaultVersion+"-dnnsrc-atomic")
+	if _, err := os.Stat(sourceDir); err == nil {
+		if err := validateDNNSource(sourceDir); err != nil {
+			return "", err
+		}
+		return sourceDir, nil
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+
+	tarball := filepath.Join(tmpDir, "opus-"+libopustooling.DefaultVersion+".tar.gz")
+	if _, err := os.Stat(tarball); os.IsNotExist(err) {
+		libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{repoRoot})
+	}
+	if _, err := os.Stat(tarball); err != nil {
+		return "", fmt.Errorf("pinned DNN libopus source archive unavailable: %w", err)
+	}
+	staging, err := os.MkdirTemp(tmpDir, ".opus-dnn-source-")
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = os.RemoveAll(staging) }()
+	cmd := exec.Command("tar", "-xzf", tarball, "-C", staging, "--strip-components=1")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("extract DNN libopus source: %w (%s)", err, bytes.TrimSpace(output))
+	}
+	if err := validateDNNSource(staging); err != nil {
+		return "", err
+	}
+	if err := os.Rename(staging, sourceDir); err != nil {
+		return "", fmt.Errorf("publish DNN source: %w", err)
+	}
+	return sourceDir, nil
+}
+
+func validateDNNSource(sourceDir string) error {
+	for _, name := range []string{"configure", "install-sh", "config.sub", "include/opus.h", "dnn/nnet.c"} {
+		if _, err := os.Stat(filepath.Join(sourceDir, filepath.FromSlash(name))); err != nil {
+			return fmt.Errorf("DNN source is missing %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 func validateDREDInstructionBuild(buildDir string, cfg scalarDNNBuildConfig) error {
