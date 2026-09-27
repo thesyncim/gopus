@@ -8,14 +8,16 @@
  * celt.HD96kMode + the qext extension decode chain.
  *
  * Protocol (little-endian):
- *   in : "GQDI" magic, u32 version(=1|2),
- *        u32 sampleFormat (0=float32, 1=int16, 2=int24),
+ *   in : "GQDI" magic, u32 version(=1|2|3),
+ *        u32 sampleFormat (0=float32, 1=int16, 2=int24; version 3 uses 2),
  *        u32 channels (1|2), u32 maxFrameSize (per-channel samples at 96 kHz),
- *        u32 packetCount, [version 2: i32 output gain in Q8 dB],
- *        then for each packet: u32 packetLen, packetLen bytes
+ *        u32 packetCount, [version 2 or 3: i32 output gain in Q8 dB],
+ *        then for each packet: [version 3: u32 sampleFormat (1|2)],
+ *        u32 packetLen, packetLen bytes
  *   out: "GQDO" magic, matching version,
  *        u32 totalSamples (interleaved element count across all packets),
- *        totalSamples elements of sampleFormat,
+ *        totalSamples elements of sampleFormat (version 3: int32; int16 frames
+ *        are sign-extended),
  *        u32 packetCount, packetCount * u32 finalRange
  */
 #include "config.h"
@@ -138,7 +140,7 @@ int main(void) {
     fprintf(stderr, "invalid input magic\n");
     return 1;
   }
-  if (!read_u32(&version) || (version != 1 && version != 2)) {
+  if (!read_u32(&version) || (version != 1 && version != 2 && version != 3)) {
     fprintf(stderr, "unsupported input version\n");
     return 1;
   }
@@ -146,12 +148,16 @@ int main(void) {
     fprintf(stderr, "failed to read header\n");
     return 1;
   }
-  if (version == 2 && !read_i32(&gain_q8)) {
+  if (version >= 2 && !read_i32(&gain_q8)) {
     fprintf(stderr, "failed to read gain\n");
     return 1;
   }
   if (sample_format != SAMPLE_FORMAT_FLOAT32 && sample_format != SAMPLE_FORMAT_INT16 && sample_format != SAMPLE_FORMAT_INT24) {
     fprintf(stderr, "unsupported sample format\n");
+    return 1;
+  }
+  if (version == 3 && sample_format != SAMPLE_FORMAT_INT24) {
+    fprintf(stderr, "mixed-format output must use int32 samples\n");
     return 1;
   }
   if (channels == 0 || channels > 2 || frame_size == 0) {
@@ -184,7 +190,7 @@ int main(void) {
     free(frame);
     return 1;
   }
-  if (version == 2 && opus_decoder_ctl(dec, OPUS_SET_GAIN(gain_q8)) != OPUS_OK) {
+  if (version >= 2 && opus_decoder_ctl(dec, OPUS_SET_GAIN(gain_q8)) != OPUS_OK) {
     fprintf(stderr, "OPUS_SET_GAIN failed\n");
     opus_decoder_destroy(dec);
     free(frame);
@@ -203,10 +209,27 @@ int main(void) {
 
   for (i = 0; i < packet_count; i++) {
     uint32_t packet_len = 0;
+    uint32_t packet_format = sample_format;
     unsigned char *packet = NULL;
     int decoded_samples = 0;
     opus_uint32 final_range = 0;
 
+    if (version == 3 && !read_u32(&packet_format)) {
+      fprintf(stderr, "failed to read packet sample format\n");
+      opus_decoder_destroy(dec);
+      free(frame);
+      free(decoded);
+      free(ranges);
+      return 1;
+    }
+    if (version == 3 && packet_format != SAMPLE_FORMAT_INT16 && packet_format != SAMPLE_FORMAT_INT24) {
+      fprintf(stderr, "unsupported mixed packet sample format\n");
+      opus_decoder_destroy(dec);
+      free(frame);
+      free(decoded);
+      free(ranges);
+      return 1;
+    }
     if (!read_u32(&packet_len)) {
       fprintf(stderr, "failed to read packet length\n");
       opus_decoder_destroy(dec);
@@ -228,9 +251,9 @@ int main(void) {
       }
     }
 
-    if (sample_format == SAMPLE_FORMAT_INT16) {
+    if (packet_format == SAMPLE_FORMAT_INT16) {
       decoded_samples = opus_decode(dec, packet, (opus_int32)packet_len, (opus_int16 *)frame, (int)frame_size, 0);
-    } else if (sample_format == SAMPLE_FORMAT_INT24) {
+    } else if (packet_format == SAMPLE_FORMAT_INT24) {
       decoded_samples = opus_decode24(dec, packet, (opus_int32)packet_len, (opus_int32 *)frame, (int)frame_size, 0);
     } else {
       decoded_samples = opus_decode_float(dec, packet, (opus_int32)packet_len, (float *)frame, (int)frame_size, 0);
@@ -254,6 +277,17 @@ int main(void) {
       return 1;
     }
     ranges[i] = final_range;
+
+    if (version == 3 && packet_format == SAMPLE_FORMAT_INT16) {
+      opus_int16 *narrow = (opus_int16 *)frame;
+      opus_int32 *wide = (opus_int32 *)frame;
+      size_t sample_count = (size_t)decoded_samples * (size_t)channels;
+      size_t j = sample_count;
+      while (j > 0) {
+        j--;
+        wide[j] = narrow[j];
+      }
+    }
 
     if (!append_items(&decoded, &decoded_len, &decoded_cap, frame, (size_t)decoded_samples * (size_t)channels, item_size)) {
       fprintf(stderr, "failed to append decoded samples\n");

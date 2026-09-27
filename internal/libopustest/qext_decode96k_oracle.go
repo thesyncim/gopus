@@ -52,11 +52,12 @@ func getQEXTDecode96kHelperPath() (string, error) {
 // which under ENABLE_QEXT runs the native 96 kHz CELT mode plus the >20 kHz
 // extension-band decode chain.
 type QEXTDecode96kParams struct {
-	SampleFormat uint32 // QEXTDecode96kFormat* (float32/int16/int24)
-	Channels     int
-	MaxFrameSize int      // per-channel sample capacity passed to opus_decode (96 kHz)
-	GainQ8       int32    // decoder output gain for version-2 probes; zero for version 1
-	Packets      [][]byte // Opus packets to decode in sequence through one decoder
+	SampleFormat  uint32 // QEXTDecode96kFormat* (float32/int16/int24)
+	Channels      int
+	MaxFrameSize  int      // per-channel sample capacity passed to opus_decode (96 kHz)
+	GainQ8        int32    // decoder output gain for version-2 probes; zero for version 1
+	PacketFormats []uint32 // per-packet int16/int24 formats for mixed-format probes
+	Packets       [][]byte // Opus packets to decode in sequence through one decoder
 }
 
 // QEXTDecode96kResult holds the decoded native 96 kHz PCM and per-packet final
@@ -66,6 +67,7 @@ type QEXTDecode96kResult struct {
 	PCM         []float32
 	Int16       []int16
 	Int24       []int32
+	MixedInt32  []int32 // mixed-format output; int16 samples are sign-extended
 	FinalRanges []uint32
 }
 
@@ -82,6 +84,38 @@ func ProbeQEXTDecode96k(p QEXTDecode96kParams) (QEXTDecode96kResult, error) {
 		version = 2
 	}
 	return probeQEXTDecode96k(p, binPath, version)
+}
+
+// ProbeQEXTDecode96kMixed decodes packets through one persistent QEXT-enabled
+// decoder while alternating opus_decode and opus_decode24. MixedInt32 stores
+// both formats as int32 values, sign-extending opus_decode output.
+func ProbeQEXTDecode96kMixed(p QEXTDecode96kParams) (QEXTDecode96kResult, error) {
+	return probeQEXTDecode96kMixed(p, getQEXTDecode96kHelperPath)
+}
+
+// ProbeQEXTDecode96kFixedMixed uses the selected FIXED_POINT+ENABLE_QEXT
+// archive for the same mixed opus_decode/opus_decode24 sequence.
+func ProbeQEXTDecode96kFixedMixed(p QEXTDecode96kParams) (QEXTDecode96kResult, error) {
+	return probeQEXTDecode96kMixed(p, func() (string, error) {
+		return qextDecode96kFixedHelper.Path(buildQEXTDecode96kFixedHelper)
+	})
+}
+
+func probeQEXTDecode96kMixed(p QEXTDecode96kParams, helper func() (string, error)) (QEXTDecode96kResult, error) {
+	if len(p.PacketFormats) != len(p.Packets) {
+		return QEXTDecode96kResult{}, fmt.Errorf("qext decode96k mixed: %d formats for %d packets", len(p.PacketFormats), len(p.Packets))
+	}
+	for i, format := range p.PacketFormats {
+		if format != QEXTDecode96kFormatInt16 && format != QEXTDecode96kFormatInt24 {
+			return QEXTDecode96kResult{}, fmt.Errorf("qext decode96k mixed: packet %d has unsupported format %d", i, format)
+		}
+	}
+	binPath, err := helper()
+	if err != nil {
+		return QEXTDecode96kResult{}, err
+	}
+	p.SampleFormat = QEXTDecode96kFormatInt24
+	return probeQEXTDecode96k(p, binPath, 3)
 }
 
 // ProbeQEXTDecode96kFixed decodes packets through the selected
@@ -111,7 +145,10 @@ func probeQEXTDecode96k(p QEXTDecode96kParams, binPath string, version uint32) (
 	if version >= 2 {
 		payload.I32(p.GainQ8)
 	}
-	for _, pkt := range p.Packets {
+	for i, pkt := range p.Packets {
+		if version == 3 {
+			payload.U32(p.PacketFormats[i])
+		}
 		payload.U32(uint32(len(pkt)))
 		payload.Raw(pkt)
 	}
@@ -123,21 +160,28 @@ func probeQEXTDecode96k(p QEXTDecode96kParams, binPath string, version uint32) (
 
 	total := int(reader.U32())
 	var res QEXTDecode96kResult
-	switch p.SampleFormat {
-	case QEXTDecode96kFormatInt16:
-		res.Int16 = make([]int16, total)
-		for i := range res.Int16 {
-			res.Int16[i] = reader.I16()
+	if version == 3 {
+		res.MixedInt32 = make([]int32, total)
+		for i := range res.MixedInt32 {
+			res.MixedInt32[i] = reader.I32()
 		}
-	case QEXTDecode96kFormatInt24:
-		res.Int24 = make([]int32, total)
-		for i := range res.Int24 {
-			res.Int24[i] = reader.I32()
-		}
-	default:
-		res.PCM = make([]float32, total)
-		for i := range res.PCM {
-			res.PCM[i] = reader.Float32()
+	} else {
+		switch p.SampleFormat {
+		case QEXTDecode96kFormatInt16:
+			res.Int16 = make([]int16, total)
+			for i := range res.Int16 {
+				res.Int16[i] = reader.I16()
+			}
+		case QEXTDecode96kFormatInt24:
+			res.Int24 = make([]int32, total)
+			for i := range res.Int24 {
+				res.Int24[i] = reader.I32()
+			}
+		default:
+			res.PCM = make([]float32, total)
+			for i := range res.PCM {
+				res.PCM[i] = reader.Float32()
+			}
 		}
 	}
 

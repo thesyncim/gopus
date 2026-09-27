@@ -268,3 +268,105 @@ func TestNative96kIntegerDecodeGainMatchesQEXTOracle(t *testing.T) {
 		}
 	}
 }
+
+func TestNative96kMixedIntegerFormatsMatchQEXTOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	opusDemo, err := benchutil.QEXTOpusDemoPath()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "QEXT-enabled opus_demo", err)
+	}
+
+	const frames = 6
+	const gainQ8 = 8 * 256
+	for _, channels := range []int{1, 2} {
+		packets := encodeNative96kQEXTPackets(t, opusDemo, channels, native96kSine(channels, frames), 320000)
+		formats := make([]uint32, len(packets))
+		for i := range formats {
+			formats[i] = libopustest.QEXTDecode96kFormatInt16
+			if i%2 != 0 {
+				formats[i] = libopustest.QEXTDecode96kFormatInt24
+			}
+		}
+		ref, err := libopustest.ProbeQEXTDecode96kMixed(libopustest.QEXTDecode96kParams{
+			Channels:      channels,
+			MaxFrameSize:  1920,
+			GainQ8:        gainQ8,
+			PacketFormats: formats,
+			Packets:       packets,
+		})
+		if err != nil {
+			libopustest.HelperUnavailable(t, "qext decode96k mixed-format helper", err)
+		}
+		frameSamples := 1920 * channels
+		if len(ref.MixedInt32) != len(packets)*frameSamples || len(ref.FinalRanges) != len(packets) {
+			t.Fatalf("%dch mixed oracle output: samples=%d ranges=%d", channels, len(ref.MixedInt32), len(ref.FinalRanges))
+		}
+		dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(96000, channels))
+		if err != nil {
+			t.Fatalf("NewDecoder(96000, %d): %v", channels, err)
+		}
+		if err := dec.SetGain(gainQ8); err != nil {
+			t.Fatalf("SetGain(%d): %v", gainQ8, err)
+		}
+		out16 := make([]int16, frameSamples)
+		out24 := make([]int32, frameSamples)
+		decode := func(frame int) error {
+			var n int
+			var err error
+			if formats[frame] == libopustest.QEXTDecode96kFormatInt16 {
+				n, err = dec.DecodeInt16(packets[frame], out16)
+			} else {
+				n, err = dec.DecodeInt24(packets[frame], out24)
+			}
+			if err != nil || n != 1920 {
+				return fmt.Errorf("frame %d samples=%d err=%v", frame, n, err)
+			}
+			if got, want := dec.FinalRange(), ref.FinalRanges[frame]; got != want {
+				return fmt.Errorf("frame %d final range=%08x want %08x", frame, got, want)
+			}
+			start := frame * frameSamples
+			for i := 0; i < frameSamples; i++ {
+				got := out24[i]
+				if formats[frame] == libopustest.QEXTDecode96kFormatInt16 {
+					got = int32(out16[i])
+				}
+				if want := ref.MixedInt32[start+i]; got != want {
+					return fmt.Errorf("frame %d sample[%d]=%d want %d", frame, i, got, want)
+				}
+			}
+			return nil
+		}
+
+		for frame := range packets {
+			if err := decode(frame); err != nil {
+				t.Fatalf("%dch: %v", channels, err)
+			}
+		}
+		dec.Reset()
+		if err := decode(0); err != nil {
+			t.Fatalf("%dch reset replay: %v", channels, err)
+		}
+
+		// Warm both public integer formats, then check their shared persistent
+		// decoder path with caller-owned buffers.
+		if _, err := dec.DecodeInt16(packets[0], out16); err != nil {
+			t.Fatalf("%dch warm int16: %v", channels, err)
+		}
+		if _, err := dec.DecodeInt24(packets[1], out24); err != nil {
+			t.Fatalf("%dch warm int24: %v", channels, err)
+		}
+		var decodeErr error
+		allocs := testing.AllocsPerRun(30, func() {
+			_, decodeErr = dec.DecodeInt16(packets[2], out16)
+			if decodeErr == nil {
+				_, decodeErr = dec.DecodeInt24(packets[3], out24)
+			}
+		})
+		if decodeErr != nil {
+			t.Fatalf("%dch warmed mixed decode: %v", channels, decodeErr)
+		}
+		if allocs != 0 {
+			t.Fatalf("%dch warmed mixed int16/int24 decode allocated %g times/call", channels, allocs)
+		}
+	}
+}
