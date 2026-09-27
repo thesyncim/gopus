@@ -71,6 +71,7 @@ type QEXTDecode96kResult struct {
 	Int24       []int32
 	MixedInt32  []int32 // mixed-format output; int16 samples are sign-extended
 	FinalRanges []uint32
+	Status      []int32 // per-packet decode status for fixed-QEXT sequence probes
 }
 
 // ProbeQEXTDecode96k decodes the supplied Opus packets through the QEXT-enabled
@@ -147,6 +148,22 @@ func ProbeQEXTDecodeFixed(p QEXTDecode96kParams) (QEXTDecode96kResult, error) {
 	return probeQEXTDecode96k(p, binPath, 5)
 }
 
+// ProbeQEXTDecodeFixedSequence decodes a persistent fixed-QEXT sequence while
+// recording errors and continuing with the same C decoder. Failed packets add
+// no PCM; Status records their negative opus_decode result.
+func ProbeQEXTDecodeFixedSequence(p QEXTDecode96kParams) (QEXTDecode96kResult, error) {
+	switch p.SampleRate {
+	case 8000, 12000, 16000, 24000, 48000, 96000:
+	default:
+		return QEXTDecode96kResult{}, fmt.Errorf("fixed qext decode sequence: unsupported sample rate %d", p.SampleRate)
+	}
+	binPath, err := qextDecode96kFixedHelper.Path(buildQEXTDecode96kFixedHelper)
+	if err != nil {
+		return QEXTDecode96kResult{}, err
+	}
+	return probeQEXTDecode96k(p, binPath, 6)
+}
+
 func probeQEXTDecode96k(p QEXTDecode96kParams, binPath string, version uint32) (QEXTDecode96kResult, error) {
 	if p.Channels < 1 || p.Channels > 2 {
 		return QEXTDecode96kResult{}, fmt.Errorf("qext decode96k: invalid channels %d", p.Channels)
@@ -166,7 +183,7 @@ func probeQEXTDecode96k(p QEXTDecode96kParams, binPath string, version uint32) (
 	if version >= 4 {
 		payload.U32(uint32(p.SampleRate))
 	}
-	if version == 5 {
+	if version >= 5 {
 		if p.PhaseInversionDisabled {
 			payload.U32(1)
 		} else {
@@ -217,6 +234,12 @@ func probeQEXTDecode96k(p QEXTDecode96kParams, binPath string, version uint32) (
 	res.FinalRanges = make([]uint32, nRanges)
 	for i := range res.FinalRanges {
 		res.FinalRanges[i] = reader.U32()
+	}
+	if version == 6 {
+		res.Status = make([]int32, nRanges)
+		for i := range res.Status {
+			res.Status[i] = int32(reader.U32())
+		}
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		return QEXTDecode96kResult{}, fmt.Errorf("qext decode96k oracle payload not fully consumed: %w", err)

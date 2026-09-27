@@ -6,19 +6,20 @@
  * with the configured integer downsample factor.
  *
  * Protocol (little-endian):
- *   in : "GQDI" magic, u32 version(=1|2|3|4|5),
+ *   in : "GQDI" magic, u32 version(=1|2|3|4|5|6),
  *        u32 sampleFormat (0=float32, 1=int16, 2=int24; version 3 uses 2),
  *        u32 channels (1|2), u32 maxFrameSize (per-channel samples at the API rate),
  *        u32 packetCount, [version 2/3/4: i32 output gain in Q8 dB],
  *        [version 4/5: u32 API sampleRate (8000|12000|16000|24000|48000|96000)],
- *        [version 5: u32 phaseInversionDisabled (0|1)],
+ *        [version 5/6: u32 phaseInversionDisabled (0|1)],
  *        then for each packet: [version 3: u32 sampleFormat (1|2)],
  *        u32 packetLen, packetLen bytes
  *   out: "GQDO" magic, matching version,
  *        u32 totalSamples (interleaved element count across all packets),
  *        totalSamples elements of sampleFormat (version 3: int32; int16 frames
  *        are sign-extended),
- *        u32 packetCount, packetCount * u32 finalRange
+ *        u32 packetCount, packetCount * u32 finalRange,
+ *        [version 6: packetCount * i32 decodeStatus]
  */
 #include "config.h"
 #include <stdint.h>
@@ -132,6 +133,7 @@ int main(void) {
   void *frame = NULL;
   void *decoded = NULL;
   opus_uint32 *ranges = NULL;
+  opus_int32 *statuses = NULL;
   size_t decoded_len = 0;
   size_t decoded_cap = 0;
   OpusDecoder *dec = NULL;
@@ -147,7 +149,7 @@ int main(void) {
     fprintf(stderr, "invalid input magic\n");
     return 1;
   }
-  if (!read_u32(&version) || (version != 1 && version != 2 && version != 3 && version != 4 && version != 5)) {
+  if (!read_u32(&version) || (version != 1 && version != 2 && version != 3 && version != 4 && version != 5 && version != 6)) {
     fprintf(stderr, "unsupported input version\n");
     return 1;
   }
@@ -163,7 +165,7 @@ int main(void) {
     fprintf(stderr, "failed to read sample rate\n");
     return 1;
   }
-  if (version == 5 && !read_u32(&phase_inversion_disabled)) {
+  if (version >= 5 && !read_u32(&phase_inversion_disabled)) {
     fprintf(stderr, "failed to read phase-inversion control\n");
     return 1;
   }
@@ -179,7 +181,7 @@ int main(void) {
     fprintf(stderr, "unsupported QEXT API sample rate\n");
     return 1;
   }
-  if (version == 5 && phase_inversion_disabled > 1) {
+  if (version >= 5 && phase_inversion_disabled > 1) {
     fprintf(stderr, "invalid phase-inversion control\n");
     return 1;
   }
@@ -219,7 +221,7 @@ int main(void) {
     free(frame);
     return 1;
   }
-  if (version == 5 && opus_decoder_ctl(dec, OPUS_SET_PHASE_INVERSION_DISABLED((int)phase_inversion_disabled)) != OPUS_OK) {
+  if (version >= 5 && opus_decoder_ctl(dec, OPUS_SET_PHASE_INVERSION_DISABLED((int)phase_inversion_disabled)) != OPUS_OK) {
     fprintf(stderr, "OPUS_SET_PHASE_INVERSION_DISABLED failed\n");
     opus_decoder_destroy(dec);
     free(frame);
@@ -233,6 +235,16 @@ int main(void) {
       opus_decoder_destroy(dec);
       free(frame);
       return 1;
+    }
+    if (version == 6) {
+      statuses = (opus_int32 *)calloc(packet_count, sizeof(*statuses));
+      if (statuses == NULL) {
+        fprintf(stderr, "failed to allocate decode status buffer\n");
+        opus_decoder_destroy(dec);
+        free(frame);
+        free(ranges);
+        return 1;
+      }
     }
   }
 
@@ -249,6 +261,7 @@ int main(void) {
       free(frame);
       free(decoded);
       free(ranges);
+      free(statuses);
       return 1;
     }
     if (version == 3 && packet_format != SAMPLE_FORMAT_INT16 && packet_format != SAMPLE_FORMAT_INT24) {
@@ -257,6 +270,7 @@ int main(void) {
       free(frame);
       free(decoded);
       free(ranges);
+      free(statuses);
       return 1;
     }
     if (!read_u32(&packet_len)) {
@@ -265,6 +279,7 @@ int main(void) {
       free(frame);
       free(decoded);
       free(ranges);
+      free(statuses);
       return 1;
     }
     if (packet_len > 0) {
@@ -276,6 +291,7 @@ int main(void) {
         free(frame);
         free(decoded);
         free(ranges);
+        free(statuses);
         return 1;
       }
     }
@@ -289,12 +305,14 @@ int main(void) {
     }
     free(packet);
 
-    if (decoded_samples < 0) {
+    if (version == 6) statuses[i] = decoded_samples;
+    if (decoded_samples < 0 && version != 6) {
       fprintf(stderr, "opus_decode failed: %d\n", decoded_samples);
       opus_decoder_destroy(dec);
       free(frame);
       free(decoded);
       free(ranges);
+      free(statuses);
       return 1;
     }
     if (opus_decoder_ctl(dec, OPUS_GET_FINAL_RANGE(&final_range)) != OPUS_OK) {
@@ -303,9 +321,12 @@ int main(void) {
       free(frame);
       free(decoded);
       free(ranges);
+      free(statuses);
       return 1;
     }
     ranges[i] = final_range;
+
+    if (decoded_samples < 0) decoded_samples = 0;
 
     if (version == 3 && packet_format == SAMPLE_FORMAT_INT16) {
       opus_int16 *narrow = (opus_int16 *)frame;
@@ -324,6 +345,7 @@ int main(void) {
       free(frame);
       free(decoded);
       free(ranges);
+      free(statuses);
       return 1;
     }
   }
@@ -336,6 +358,7 @@ int main(void) {
     free(frame);
     free(decoded);
     free(ranges);
+    free(statuses);
     return 1;
   }
   if (decoded_len > 0 && !write_exact(decoded, decoded_len * item_size)) {
@@ -343,6 +366,7 @@ int main(void) {
     free(frame);
     free(decoded);
     free(ranges);
+    free(statuses);
     return 1;
   }
   if (!write_u32(packet_count) || (packet_count > 0 && !write_exact(ranges, packet_count * sizeof(*ranges)))) {
@@ -350,11 +374,25 @@ int main(void) {
     free(frame);
     free(decoded);
     free(ranges);
+    free(statuses);
     return 1;
+  }
+  if (version == 6) {
+    for (i = 0; i < packet_count; i++) {
+      if (!write_u32((uint32_t)statuses[i])) {
+        fprintf(stderr, "failed to write decode statuses\n");
+        free(frame);
+        free(decoded);
+        free(ranges);
+        free(statuses);
+        return 1;
+      }
+    }
   }
 
   free(frame);
   free(decoded);
   free(ranges);
+  free(statuses);
   return 0;
 }

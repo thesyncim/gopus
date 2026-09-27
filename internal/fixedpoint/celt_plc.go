@@ -124,7 +124,7 @@ func plcCeltIir(buf []int32, base int, den []int16, n, ord int, mem []int16) {
 	} else {
 		rden = make([]int16, ord)
 	}
-	var yStorage [celtMaxFrameSize + celtOverlap + celtLPCOrder]int16
+	var yStorage [2*celtMaxFrameSize + 2*celtOverlap + celtLPCOrder]int16
 	var y []int16
 	if n+ord <= len(yStorage) {
 		y = yStorage[:n+ord]
@@ -264,7 +264,7 @@ func xcorrKernelI16(x, y []int16, sum *[4]int32, length int) {
 // scaling shift.
 func plcCeltAutocorr(x []int16, ac []int32, window []int16, overlap, lag, n int, scratch *celtEncodeScratch) int {
 	fastN := n - lag
-	var xxStorage [celtMaxPeriod]int16
+	var xxStorage [2 * celtMaxPeriod]int16
 	var xx []int16
 	if scratch != nil {
 		xx = ensureInt16(&scratch.pitchXX, n)

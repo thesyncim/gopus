@@ -132,9 +132,27 @@ An isolated source overlay passes the public and PVQ/band oracles without the
 unfinished encoder integration. Fixed-only band oracles and the float-QEXT
 integer-wrapper regressions pass independently. The type-parity guard retains
 its 26 existing findings with no baseline edits. Native AMD64 confirmation is
-pending; PLC, short-body loss handling, malformed-input state, and mode
-transitions remain outside this received-frame checkpoint. The native CI gate
-selects these public tests and paired PVQ/band oracles explicitly.
+pending. The native CI gate selects these public tests and paired PVQ/band
+oracles explicitly.
+
+### Fixed-QEXT loss and malformed-packet recovery
+
+The fixed Q31 decoder implements periodic and noise concealment, recovery
+energy adjustment, and prefilter folding at 48/96 kHz core geometry. Selected-C
+public tests cover eight rate/channel/control configurations spanning every API
+rate, stereo downmix, and both stereo phase-inversion settings. Single-loss and
+valid one-byte CELT-body sequences pass all 48 format/configuration cases. Six
+consecutive losses followed by received→loss recovery pass 24 further cases,
+including the noise-PLC state. All compare exact PCM bits and final ranges at
++8 dB gain, replay after reset, and require zero warm loss allocations.
+
+A persistent C decoder also checks received→malformed code-3→received histories
+for float32/int16/int24 APIs, including the error status and resumed output.
+The status-capable oracle retains failed calls in its sequence. Isolated local
+ARM64 SIMD and `nosimd` checks pass together with the 54 received-frame cases
+and the independent band oracles; ordinary mode passes the focused loss gates.
+The type-parity guard retains 26 findings without baseline changes. Native
+AMD64 and mode-transition confirmation remain open.
 
 ### Fixed surround and automatic CELT encoding
 
@@ -303,10 +321,14 @@ transition sequence, and six strict matched-float cases in SIMD/nosimd;
 default shared-path gates also pass. At `e8eb7bc5`, public automatic fixed
 encoding additionally matches selected C for the tested SILK and Hybrid
 sequences described above. Four fresh 96 kHz float-QEXT packet/range cases
-pass ordinary, SIMD, and `nosimd`. Automatic fixed CELT selection and active
-public fixed-QEXT encoding remain open. The last recorded paired active public
-fixed-QEXT inventory is 0/16 exact packets on the earlier bridge; the current
-in-progress QEXT core has not rerun that public matrix.
+pass ordinary, SIMD, and `nosimd`. Automatic fixed CELT and surround evidence
+appears above. Active public fixed-QEXT encoding remains in progress: the
+uncommitted 48 kHz bridge matches 5/8 packets (all four stereo frames and the
+first mono frame). Replaying the captured inputs through the inner fixed CELT
+encoder matches main and extension bytes for all four frames per channel
+layout. Native 96 kHz inner oracles also match C; public integration, remaining
+mono state, and combined DRED+QEXT validation remain open. These working-tree
+results do not constitute a published encoder checkpoint.
 
 [Native run 36284981747](https://github.com/thesyncim/gopus/actions/runs/36284981747)
 at `8bc2ed7c` supplies completed extension and benchmark phases; the full

@@ -11,6 +11,8 @@ func (d *Decoder) decodeFixedQEXTCELTFrame(_ *rangecoding.Decoder, _, _ int, _ b
 	return false, nil
 }
 
+func (d *Decoder) decodeFixedQEXTCELTLostFrame(_ int) bool { return false }
+
 func (d *Decoder) resetFixedQEXTCELT() {}
 
 func (d *Decoder) invalidateFixedQEXTCELT() {}

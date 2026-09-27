@@ -13,6 +13,7 @@ const (
 	qextCELTDecodeBufferSize48 = 2048
 	qextCELTDecodeBufferSize96 = 4096
 	qextCELTMaxQEXTBands       = 14
+	qextCELTOverlapMax         = 240
 )
 
 // QEXTCELTDecoder is the fixed-point ENABLE_QEXT CELT decoder state for the
@@ -55,6 +56,14 @@ type QEXTCELTDecoder struct {
 	postfilterTapset    int32
 	postfilterTapsetOld int32
 	disableInv          bool
+	lossDuration        int32
+	plcDuration         int32
+	lastFrameType       int32
+	lastPitchIndex      int32
+	skipPLC             bool
+	prefilterAndFold    bool
+	plcLPC              [2 * celtLPCOrder]int16
+	plcWindow           [qextCELTOverlapMax]int16
 	rng                 uint32
 	lastRes             []int32
 	decodeRows          [2][]int32
@@ -119,6 +128,9 @@ func NewQEXTCELTDecoder(channels, sampleRate int) (*QEXTCELTDecoder, error) {
 		eBands:        staticMDCT48000EBands[:],
 		qextEdges:     qextEdges,
 		qextLogN:      qextLogN,
+	}
+	for i := 0; i < len(window); i++ {
+		d.plcWindow[i] = int16(window[i] >> 16)
 	}
 	memSize := decodeBufSize + overlap
 	d.decodeMem = make([]int32, channels*memSize)
@@ -186,6 +198,13 @@ func (d *QEXTCELTDecoder) Reset() {
 	d.postfilterGainOld = 0
 	d.postfilterTapset = 0
 	d.postfilterTapsetOld = 0
+	d.lossDuration = 0
+	d.plcDuration = 0
+	d.lastFrameType = frameNone
+	d.lastPitchIndex = 0
+	d.skipPLC = false
+	d.prefilterAndFold = false
+	clear(d.plcLPC[:])
 	d.rng = 0
 	d.lastRes = nil
 }
@@ -194,12 +213,18 @@ func (d *QEXTCELTDecoder) Reset() {
 // that the caller has already initialized and positioned after outer packet
 // parsing. dataLen is the effective main CELT payload size used for tell
 // validation. qextPayload contains only the side range-coded bytes, without its
-// packet extension identifier. out is caller-owned interleaved raw int24
-// opus_res storage. The return value is the per-channel sample count, or a
-// negative Opus status (-1 bad argument, -2 short output, -3 coder overrun).
+// packet extension identifier. A main body of length zero or one follows the
+// CELT PLC path and ignores both coders. out is caller-owned interleaved raw
+// int24 opus_res storage. The return value is the per-channel sample count, or
+// a negative Opus status (-1 bad argument, -2 short output, -3 coder overrun).
 func (d *QEXTCELTDecoder) DecodeFrameWithEC(main *rangecoding.Decoder, dataLen, frameSize, codedChannels int, qextPayload []byte, out []int32) int {
-	if main == nil || dataLen <= 1 || codedChannels < 1 || codedChannels > 2 ||
-		d.start < 0 || d.start >= d.end || d.end > celt.MaxBands {
+	if dataLen < 0 || d.start < 0 || d.start >= d.end || d.end > celt.MaxBands {
+		return -1
+	}
+	if dataLen <= 1 {
+		return d.DecodeLost(frameSize, out)
+	}
+	if main == nil || codedChannels < 1 || codedChannels > 2 {
 		return -1
 	}
 	lm := -1
@@ -211,6 +236,12 @@ func (d *QEXTCELTDecoder) DecodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 	}
 	if lm < 0 || frameSize%d.downsample != 0 {
 		return -2
+	}
+	// libopus clears skip_plc only when a received frame begins after a run of
+	// no losses. It keeps the flag through the first received frame after PLC so
+	// an immediately following loss continues with noise concealment.
+	if d.lossDuration == 0 {
+		d.skipPLC = false
 	}
 	apiFrameSize := frameSize / d.downsample
 	if len(out) < d.channels*apiFrameSize {
@@ -269,6 +300,36 @@ func (d *QEXTCELTDecoder) DecodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 	intraEnergy := false
 	if tell+3 <= totalBits {
 		intraEnergy = main.DecodeBit(3) == 1
+	}
+	if !intraEnergy && d.lossDuration != 0 {
+		missing := d.lossDuration >> lm
+		if missing > 10 {
+			missing = 10
+		}
+		var safety int32
+		switch lm {
+		case 0:
+			safety = gconst15
+		case 1:
+			safety = gconst05
+		}
+		for c := 0; c < 2; c++ {
+			for band := d.start; band < d.end; band++ {
+				idx := c*celt.MaxBands + band
+				if d.oldBandE[idx] < max32(d.oldLogE[idx], d.oldLogE2[idx]) {
+					E0 := d.oldBandE[idx]
+					E1 := d.oldLogE[idx]
+					E2 := d.oldLogE2[idx]
+					slope := max32(E1-E0, half32(E2-E0))
+					slope = min32(slope, gconst(2))
+					E0 -= max32(0, int32(1+missing)*slope)
+					d.oldBandE[idx] = max32(-gconst(20), E0)
+				} else {
+					d.oldBandE[idx] = min32(min32(d.oldBandE[idx], d.oldLogE[idx]), d.oldLogE2[idx])
+				}
+				d.oldBandE[idx] -= safety
+			}
+		}
 	}
 
 	UnquantCoarseEnergy(main, d.oldBandE, d.start, d.end, celt.MaxBands, codedChannels, lm, intraEnergy)
@@ -368,6 +429,9 @@ func (d *QEXTCELTDecoder) DecodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 			d.oldBandE[i] = -gconst(28)
 		}
 	}
+	if d.prefilterAndFold {
+		d.prefilterAndFoldQEXT(N, decodeMem)
+	}
 
 	d.synthesisQEXT(X, N, codedChannels, cc, lm, transient, silence, qextEnd, outSyn)
 	d.applyQEXTCombFilter(decodeMem, N, lm, postfilterPitch, postfilterGain, postfilterTapset)
@@ -393,7 +457,7 @@ func (d *QEXTCELTDecoder) DecodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 			d.oldLogE[i] = min32(d.oldLogE[i], d.oldBandE[i])
 		}
 	}
-	maxBackground := gconst001 * int32(imin(160, M))
+	maxBackground := gconst001 * int32(imin(160, int(d.lossDuration)+M))
 	for i := range d.backgroundLogE {
 		d.backgroundLogE[i] = min32(d.backgroundLogE[i]+maxBackground, d.oldBandE[i])
 	}
@@ -414,6 +478,10 @@ func (d *QEXTCELTDecoder) DecodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 	} else {
 		d.rng = main.Range()
 	}
+	d.lossDuration = 0
+	d.plcDuration = 0
+	d.lastFrameType = frameNormal
+	d.prefilterAndFold = false
 	d.lastRes = out[:cc*apiFrameSize]
 	deemphasisQEXT(outSyn, d.lastRes, frameSize, cc, d.sampleRate, d.downsample, d.preemphMem)
 	if main.Tell() > totalBits || (len(qextPayload) != 0 && d.extDec.Tell() > qextTotalBits/(1<<bitRes)) {

@@ -9,10 +9,11 @@ import (
 )
 
 // decodeFixedQEXTCELTFrame records output from the selected fixed-point
-// ENABLE_QEXT CELT decoder. This received-frame path handles
-// CELT frames at every supported API rate without a mode transition. The float
-// decoder still runs first to retain the shared public state used by other
-// codec paths; the fixed result replaces its public samples and final range.
+// ENABLE_QEXT CELT decoder. This received-frame path supports API rates from
+// 8 kHz through 96 kHz when the packet does not cross a mode transition. Rates
+// below 48 kHz use the 48 kHz core geometry with integer output downsampling.
+// The float decoder still runs first to retain shared public state used by
+// other codec paths; the fixed result replaces its public samples and range.
 func (d *Decoder) decodeFixedQEXTCELTFrame(main *rangecoding.Decoder, dataLen, frameSize int, packetStereo bool, bandwidth celt.CELTBandwidth, qextPayload []byte, transition bool) (bool, error) {
 	if !d.fixedPacketActive {
 		return false, nil
@@ -63,6 +64,33 @@ func (d *Decoder) decodeFixedQEXTCELTFrame(main *rangecoding.Decoder, dataLen, f
 	d.appendFixedOutput(int16Out, res)
 	d.mainDecodeRng = core.FinalRange()
 	return true, nil
+}
+
+func (d *Decoder) decodeFixedQEXTCELTLostFrame(frameSize int) bool {
+	if !d.fixedPacketActive || d.fixedQEXT.invalid || d.fixedQEXT.decoder == nil || frameSize <= 0 {
+		return false
+	}
+	downsample := 48000 / int(d.sampleRate)
+	if downsample <= 0 {
+		downsample = 1
+	}
+	coreFrameSize := frameSize * downsample
+	needed := frameSize * int(d.channels)
+	if cap(d.fixedQEXT.res) < needed {
+		d.fixedQEXT.res = make([]int32, needed)
+	}
+	res := d.fixedQEXT.res[:needed]
+	if decoded := d.fixedQEXT.decoder.DecodeLost(coreFrameSize, res); decoded != frameSize {
+		d.invalidateFixedQEXTCELT()
+		return false
+	}
+	int16Out := d.fixedCELTScratch(needed)
+	for i, sample := range res {
+		int16Out[i] = fixedpoint.Res2Int16(sample)
+	}
+	d.appendFixedOutput(int16Out, res)
+	d.mainDecodeRng = d.fixedQEXT.decoder.FinalRange()
+	return true
 }
 
 // resetFixedQEXTCELT resets received-frame history while preserving the

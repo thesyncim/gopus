@@ -707,10 +707,10 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 				d.markFixedUnhandled()
 			}
 		} else if data == nil && extsupport.QEXT {
-			// The received-frame QEXT sidecar does not advance its Q31 PLC state
-			// yet. Decline exact output for this frame and later frames until reset.
-			d.invalidateFixedQEXTCELT()
-			d.markFixedUnhandled()
+			if !d.decodeFixedQEXTCELTLostFrame(min(F20, frameSize)) {
+				d.invalidateFixedQEXTCELT()
+				d.markFixedUnhandled()
+			}
 		} else if data == nil && !extsupport.QEXT && !d.fixedCELTPLCHookSuppressed() {
 			// CELT-only packet loss: run the integer FIXED_POINT celt_decode_lost
 			// so the int16/int24 PLC output is bit-exact with opus_decode(NULL).
