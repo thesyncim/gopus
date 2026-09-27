@@ -3,11 +3,11 @@ package dnnmath
 import (
 	"fmt"
 	"math"
-	"strings"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 const (
@@ -22,21 +22,13 @@ const (
 var libopusDNNActivationHelper libopustest.HelperCache
 
 func getLibopusDNNActivationHelperPath() (string, error) {
-	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	cwd, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
-	cflags := libopustooling.ScalarDNNBuildCFLAGS
-	if variant == libopustooling.LibopusReferenceSIMD {
-		cflags = libopustooling.DREDSIMDBuildCFLAGS
-	}
-	return libopusDNNActivationHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:       "dnn activation",
-		OutputBase:  "gopus_libopus_dnn_activation",
-		SourceFile:  "libopus_dnn_activation_info.c",
-		RefIncludes: []string{"celt", "celt/x86", "dnn"},
-		CFlags:      strings.Fields(cflags),
-		Libs:        []string{"-lm"},
+	repoRoot := filepath.Clean(filepath.Join(cwd, "..", ".."))
+	return libopusDNNActivationHelper.Path(func() (string, error) {
+		return libopustest.BuildDREDHelper(repoRoot, "libopus_dnn_activation_info.c", "gopus_libopus_dnn_activation", true)
 	})
 }
 
@@ -52,6 +44,10 @@ func probeLibopusDNNActivation(mode uint32, input []float32) ([]float32, error) 
 		return nil, err
 	}
 	count := reader.Count(len(input))
+	arch := reader.U32()
+	if err := libopustest.ValidateDNNDispatchArch(arch); err != nil {
+		return nil, err
+	}
 	reader.ExpectRemaining(4 * count)
 	out := make([]float32, count)
 	for i := range out {
@@ -87,6 +83,49 @@ func TestDNNVectorActivationsMatchSelectedLibopusOracle(t *testing.T) {
 			for i := range got {
 				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 					t.Fatalf("%s[%d]=%s want %s", tc.name, i, formatDNNFloat(got[i]), formatDNNFloat(want[i]))
+				}
+			}
+			if allocs := testing.AllocsPerRun(100, func() { tc.run(got, input, len(input)) }); allocs != 0 {
+				t.Fatalf("warm %s allocs=%g want 0", tc.name, allocs)
+			}
+		})
+	}
+	if dnnX86Enabled {
+		// The selected AVX2 archive uses the second operand for NaN in its
+		// MINPS/MAXPS clamps, including the scalar tail's broadcast lane.
+		exceptional := []float32{
+			math.Float32frombits(0x7fc01234),
+			float32(math.Inf(1)), float32(math.Inf(-1)),
+			math.MaxFloat32, -math.MaxFloat32, 0, math.Float32frombits(0x80000000),
+			math.Float32frombits(0xffc05678),
+			float32(math.Inf(1)),
+		}
+		for _, tc := range tests[:2] {
+			t.Run(tc.name+"_exceptional", func(t *testing.T) {
+				want, err := probeLibopusDNNActivation(tc.mode, exceptional)
+				if err != nil {
+					libopustest.HelperUnavailable(t, "selected DNN exceptional activation", err)
+				}
+				got := make([]float32, len(exceptional))
+				tc.run(got, exceptional, len(exceptional))
+				for i := range got {
+					if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+						t.Fatalf("%s[%d]=%s want %s", tc.name, i, formatDNNFloat(got[i]), formatDNNFloat(want[i]))
+					}
+				}
+			})
+		}
+		t.Run("exp_clamp", func(t *testing.T) {
+			clampInput := []float32{-100, -50, math.Nextafter32(-50, 0), -1, 0, 1, math.Nextafter32(50, 0), 50, 100}
+			want, err := probeLibopusDNNActivation(libopusDNNActivationExp, clampInput)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "selected DNN exponent clamp", err)
+			}
+			got := make([]float32, len(clampInput))
+			ExpVectorApprox(got, clampInput, len(clampInput))
+			for i := range got {
+				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+					t.Fatalf("exp[%d]=%s want %s", i, formatDNNFloat(got[i]), formatDNNFloat(want[i]))
 				}
 			}
 		})

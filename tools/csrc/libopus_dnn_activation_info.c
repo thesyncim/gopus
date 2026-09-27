@@ -9,7 +9,8 @@
 #endif
 
 #include "config.h"
-#include "dnn/vec.h"
+#include "celt/cpu_support.h"
+#include "dnn/nnet.h"
 
 #define INPUT_MAGIC "GDAI"
 #define OUTPUT_MAGIC "GDAO"
@@ -37,11 +38,20 @@ static int write_exact(const void *src, size_t size) {
 }
 
 static int read_u32(uint32_t *out) {
-  return read_exact(out, sizeof(*out));
+  unsigned char bytes[4];
+  if (!read_exact(bytes, sizeof(bytes))) return 0;
+  *out = (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8) |
+      ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
+  return 1;
 }
 
 static int write_u32(uint32_t value) {
-  return write_exact(&value, sizeof(value));
+  unsigned char bytes[4];
+  bytes[0] = (unsigned char)value;
+  bytes[1] = (unsigned char)(value >> 8);
+  bytes[2] = (unsigned char)(value >> 16);
+  bytes[3] = (unsigned char)(value >> 24);
+  return write_exact(bytes, sizeof(bytes));
 }
 
 int main(void) {
@@ -52,6 +62,7 @@ int main(void) {
   float *in = NULL;
   float *out = NULL;
   uint32_t i;
+  int arch;
 
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
@@ -77,19 +88,27 @@ int main(void) {
     memcpy(&in[i], &bits, sizeof(in[i]));
   }
 
+  arch = opus_select_arch();
+#if defined(OPUS_HAVE_RTCD) && defined(OPUS_X86_MAY_HAVE_AVX2)
+  if (arch == 4 && DNN_COMPUTE_ACTIVATION_IMPL[arch & OPUS_ARCHMASK] != compute_activation_avx2) {
+    free(in);
+    free(out);
+    return 1;
+  }
+#endif
   switch (mode) {
     case MODE_SIGMOID:
-      vec_sigmoid(out, in, (int)count);
+      compute_activation(out, in, (int)count, ACTIVATION_SIGMOID, arch);
       break;
     case MODE_TANH:
-      vec_tanh(out, in, (int)count);
+      compute_activation(out, in, (int)count, ACTIVATION_TANH, arch);
       break;
     case MODE_EXP:
-      softmax(out, in, (int)count);
+      compute_activation(out, in, (int)count, ACTIVATION_EXP, arch);
       break;
   }
 
-  if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) {
+  if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count) || !write_u32((uint32_t)arch)) {
     free(in);
     free(out);
     return 1;

@@ -82,6 +82,11 @@ func TestVectorActivationsMatchActiveTailPath(t *testing.T) {
 	if dnnNEONEnabled {
 		wantTanh = tanhTailNEON(in[0])
 		wantSigmoid = sigmoidTailNEON(in[0])
+	} else if dnnX86Enabled {
+		wantTanh = tanhApproxX86(in[0])
+		one := []float32{0}
+		sigmoidVectorX86(one, in, 1)
+		wantSigmoid = one[0]
 	}
 	if got, want := math.Float32bits(tanhOut[0]), math.Float32bits(wantTanh); got != want {
 		t.Fatalf("TanhVectorApprox tail bits=0x%08x want 0x%08x", got, want)
@@ -114,6 +119,10 @@ func TestExpVectorApproxMatchesActiveTailPath(t *testing.T) {
 	want := ExpApprox(in[len(in)-1])
 	if dnnNEONEnabled {
 		want = expApproxNEON(in[len(in)-1])
+	} else if dnnX86Enabled {
+		one := []float32{0}
+		expVectorX86(one, in[len(in)-1:], 1)
+		want = one[0]
 	}
 	if gotBits, wantBits := math.Float32bits(out[len(out)-1]), math.Float32bits(want); gotBits != wantBits {
 		t.Fatalf("ExpVectorApprox tail bits=0x%08x want 0x%08x", gotBits, wantBits)

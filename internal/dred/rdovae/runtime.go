@@ -13,14 +13,10 @@ const (
 
 const maxInputs = 2048
 
-// Match the DNN kernels in the instruction-paired libopus DRED build. The
-// amd64 quantized path remains scalar; its byte parity is checked by the
-// native selected-C oracle.
-const (
-	useArm64DNNVectorKernels = rdovaeNEONEnabled
-	useX86DNNVectorKernels   = false
-	useNearestEvenQuant      = useArm64DNNVectorKernels || useX86DNNVectorKernels
-)
+// Match the DNN kernels in the instruction-paired libopus DRED build.
+const useArm64DNNVectorKernels = rdovaeNEONEnabled
+
+var useX86DNNVectorKernels = rdovaeX86Enabled
 
 type decoderState struct {
 	initialized bool
@@ -242,6 +238,11 @@ func computeLinear(layer *LinearLayer, out, in []float32, scratch *runtimeScratc
 			sgemv(out[:n], layer.FloatWeights, n, m, n, in[:m])
 		}
 	} else if !layer.Weights.Empty() {
+		// dnn/nnet_arch.h selects subias for integer matrices on x86's
+		// USE_SU_BIAS path. Float matrices retain the ordinary bias.
+		if useX86DNNVectorKernels {
+			bias = layer.Subias
+		}
 		if !layer.WeightsIdx.Empty() {
 			sparseCGEMV8x4(out[:n], layer.Weights, layer.WeightsIdx, layer.Scale, n, m, in[:m], scratch.quant[:m])
 		} else {
@@ -261,6 +262,10 @@ func computeLinear(layer *LinearLayer, out, in []float32, scratch *runtimeScratc
 func sgemv(out []float32, weights FloatTensor, rows, cols, colStride int, x []float32) {
 	if useArm64DNNVectorKernels {
 		sgemvFused(out, weights, rows, cols, colStride, x)
+		return
+	}
+	if useX86DNNVectorKernels {
+		sgemvX86Fused(out, weights, rows, cols, colStride, x)
 		return
 	}
 	sgemvSplit(out, weights, rows, cols, colStride, x)
@@ -320,7 +325,11 @@ func cgemv8x4(out []float32, weights Int8Tensor, scale FloatTensor, rows, cols i
 	for i := range cols {
 		q[i] = quantizeInput(x[i])
 	}
-	if useNearestEvenQuant {
+	if useX86DNNVectorKernels {
+		cgemv8x4Unsigned(out, weights, scale, rows, cols, q)
+		return
+	}
+	if useArm64DNNVectorKernels {
 		for row := 0; row < rows; row += 8 {
 			var acc0, acc1, acc2, acc3, acc4, acc5, acc6, acc7 int
 			wOffset := row * cols
@@ -379,7 +388,11 @@ func sparseCGEMV8x4(out []float32, weights Int8Tensor, idx IntTensor, scale Floa
 	for i := range x {
 		q[i] = quantizeInput(x[i])
 	}
-	if useNearestEvenQuant {
+	if useX86DNNVectorKernels {
+		sparseCGEMV8x4Unsigned(out, weights, idx, scale, rows, q)
+		return
+	}
+	if useArm64DNNVectorKernels {
 		wOffset := 0
 		idxPos := 0
 		for row := 0; row < rows; row += 8 {
@@ -458,10 +471,70 @@ func computeActivation(output, input []float32, n, activation int) {
 }
 
 func quantizeInput(x float32) int8 {
-	if useNearestEvenQuant {
+	if useX86DNNVectorKernels {
+		return int8(dnnmath.Cgemv8x4QuantizeInputX86(x))
+	}
+	if useArm64DNNVectorKernels {
 		return dnnmath.Cgemv8x4QuantizeInput(x)
 	}
 	return dnnmath.Cgemv8x4QuantizeInputScalar(x)
+}
+
+// dnn/vec_avx.h emulates dpbusds on the selected AVX2 build with maddubs:
+// each unsigned×signed pair saturates to int16 before pairs enter int32 lanes.
+func cgemv8x4UnsignedBlock(acc *[8]int32, weights Int8Tensor, weightOffset int, quant []int8, quantOffset int) {
+	x0 := int32(uint8(quant[quantOffset]))
+	x1 := int32(uint8(quant[quantOffset+1]))
+	x2 := int32(uint8(quant[quantOffset+2]))
+	x3 := int32(uint8(quant[quantOffset+3]))
+	for row := range acc {
+		base := weightOffset + 4*row
+		pair0 := int32(weights.At(base))*x0 + int32(weights.At(base+1))*x1
+		pair1 := int32(weights.At(base+2))*x2 + int32(weights.At(base+3))*x3
+		acc[row] += saturateDNNPair(pair0) + saturateDNNPair(pair1)
+	}
+}
+
+func saturateDNNPair(x int32) int32 {
+	if x > 32767 {
+		return 32767
+	}
+	if x < -32768 {
+		return -32768
+	}
+	return x
+}
+
+func cgemv8x4Unsigned(out []float32, weights Int8Tensor, scale FloatTensor, rows, cols int, quant []int8) {
+	for row := 0; row < rows; row += 8 {
+		var acc [8]int32
+		weightOffset := row * cols
+		for col := 0; col < cols; col += 4 {
+			cgemv8x4UnsignedBlock(&acc, weights, weightOffset, quant, col)
+			weightOffset += 32
+		}
+		for k := range acc {
+			out[row+k] = float32(acc[k]) * scale.At(row+k)
+		}
+	}
+}
+
+func sparseCGEMV8x4Unsigned(out []float32, weights Int8Tensor, idx IntTensor, scale FloatTensor, rows int, quant []int8) {
+	weightOffset, idxPos := 0, 0
+	for row := 0; row < rows; row += 8 {
+		var acc [8]int32
+		colBlocks := int(idx.At(idxPos))
+		idxPos++
+		for range colBlocks {
+			col := int(idx.At(idxPos))
+			idxPos++
+			cgemv8x4UnsignedBlock(&acc, weights, weightOffset, quant, col)
+			weightOffset += 32
+		}
+		for k := range acc {
+			out[row+k] = float32(acc[k]) * scale.At(row+k)
+		}
+	}
 }
 
 // FloatTensor, IntTensor and Int8Tensor are convenience aliases for the

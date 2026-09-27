@@ -9,14 +9,20 @@
 #endif
 
 #include "config.h"
+#ifdef GOPUS_DIRECT_SCALAR_DNN
 #include "dnn/vec.h"
+#else
+#include "celt/cpu_support.h"
+#include "dnn/nnet.h"
+#endif
 
 #define INPUT_MAGIC "GDKI"
 #define OUTPUT_MAGIC "GDKO"
 
 enum {
   MODE_SGEMV = 0,
-  MODE_CGEMV8X4 = 1
+  MODE_CGEMV8X4 = 1,
+  MODE_LINEAR_CGEMV8X4 = 2
 };
 
 static int set_binary_stdio(void) {
@@ -36,11 +42,20 @@ static int write_exact(const void *src, size_t size) {
 }
 
 static int read_u32(uint32_t *out) {
-  return read_exact(out, sizeof(*out));
+  unsigned char bytes[4];
+  if (!read_exact(bytes, sizeof(bytes))) return 0;
+  *out = (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8) |
+      ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
+  return 1;
 }
 
 static int write_u32(uint32_t value) {
-  return write_exact(&value, sizeof(value));
+  unsigned char bytes[4];
+  bytes[0] = (unsigned char)value;
+  bytes[1] = (unsigned char)(value >> 8);
+  bytes[2] = (unsigned char)(value >> 16);
+  bytes[3] = (unsigned char)(value >> 24);
+  return write_exact(bytes, sizeof(bytes));
 }
 
 static int read_float(float *out) {
@@ -56,9 +71,9 @@ static int write_float(float value) {
   return write_u32(bits);
 }
 
-static int write_output(float *out, uint32_t rows) {
+static int write_output(float *out, uint32_t rows, int arch) {
   uint32_t i;
-  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) || !write_u32(rows)) return 0;
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) || !write_u32(rows) || !write_u32((uint32_t)arch)) return 0;
   for (i = 0; i < rows; i++) {
     if (!write_float(out[i])) return 0;
   }
@@ -72,6 +87,7 @@ static int run_sgemv(uint32_t rows, uint32_t cols, uint32_t col_stride) {
   float *out = NULL;
   uint32_t i;
   int ok;
+  int arch = 0;
 
   if (rows == 0 || cols == 0 || col_stride < rows || rows > 8192 || cols > 2048) return 0;
   weights_count = cols * col_stride;
@@ -86,8 +102,23 @@ static int run_sgemv(uint32_t rows, uint32_t cols, uint32_t col_stride) {
   for (i = 0; i < cols; i++) {
     if (!read_float(&x[i])) goto fail;
   }
+#ifdef GOPUS_DIRECT_SCALAR_DNN
   sgemv(out, weights, (int)rows, (int)cols, (int)col_stride, x);
-  ok = write_output(out, rows);
+#else
+  if (col_stride != rows) goto fail;
+  arch = opus_select_arch();
+#if defined(OPUS_HAVE_RTCD) && defined(OPUS_X86_MAY_HAVE_AVX2)
+  if (arch == 4 && DNN_COMPUTE_LINEAR_IMPL[arch & OPUS_ARCHMASK] != compute_linear_avx2) goto fail;
+#endif
+  {
+    LinearLayer layer = {0};
+    layer.float_weights = weights;
+    layer.nb_inputs = (int)cols;
+    layer.nb_outputs = (int)rows;
+    compute_linear(&layer, out, x, arch);
+  }
+#endif
+  ok = write_output(out, rows, arch);
   free(weights);
   free(x);
   free(out);
@@ -107,6 +138,7 @@ static int run_cgemv8x4(uint32_t rows, uint32_t cols) {
   float *out = NULL;
   uint32_t i;
   int ok;
+  int arch = 0;
 
   if (rows == 0 || cols == 0 || (rows & 7) != 0 || (cols & 7) != 0 || rows > 8192 || cols > 2048) return 0;
   weights_count = rows * cols;
@@ -123,8 +155,23 @@ static int run_cgemv8x4(uint32_t rows, uint32_t cols) {
   for (i = 0; i < cols; i++) {
     if (!read_float(&x[i])) goto fail;
   }
+#ifdef GOPUS_DIRECT_SCALAR_DNN
   cgemv8x4(out, weights, scale, (int)rows, (int)cols, x);
-  ok = write_output(out, rows);
+#else
+  arch = opus_select_arch();
+#if defined(OPUS_HAVE_RTCD) && defined(OPUS_X86_MAY_HAVE_AVX2)
+  if (arch == 4 && DNN_COMPUTE_LINEAR_IMPL[arch & OPUS_ARCHMASK] != compute_linear_avx2) goto fail;
+#endif
+  {
+    LinearLayer layer = {0};
+    layer.weights = weights;
+    layer.scale = scale;
+    layer.nb_inputs = (int)cols;
+    layer.nb_outputs = (int)rows;
+    compute_linear(&layer, out, x, arch);
+  }
+#endif
+  ok = write_output(out, rows, arch);
   free(weights);
   free(scale);
   free(x);
@@ -137,6 +184,87 @@ fail:
   free(out);
   return 0;
 }
+
+#ifndef GOPUS_DIRECT_SCALAR_DNN
+static int run_linear_cgemv8x4(uint32_t rows, uint32_t cols, uint32_t idx_count) {
+  uint32_t weight_count;
+  int *idx = NULL;
+  opus_int8 *weights = NULL;
+  float *scale = NULL;
+  float *x = NULL;
+  float *bias = NULL;
+  float *subias = NULL;
+  float *out = NULL;
+  uint32_t i;
+  int arch;
+  int ok = 0;
+  LinearLayer layer = {0};
+
+  if (rows == 0 || cols == 0 || (rows & 7) != 0 || (cols & 7) != 0 || rows > 8192 || cols > 2048) return 0;
+  if (idx_count > 0) {
+    uint32_t pos = 0;
+    uint32_t blocks = 0;
+    if (idx_count > rows / 8 + (rows / 8) * (cols / 4)) return 0;
+    idx = (int *)malloc(idx_count * sizeof(*idx));
+    if (idx == NULL) goto done;
+    for (i = 0; i < idx_count; i++) {
+      uint32_t value;
+      if (!read_u32(&value) || value > (uint32_t)INT32_MAX) goto done;
+      idx[i] = (int)value;
+    }
+    for (i = 0; i < rows / 8; i++) {
+      uint32_t count;
+      if (pos >= idx_count) goto done;
+      count = (uint32_t)idx[pos++];
+      if (count > cols / 4 || pos + count > idx_count) goto done;
+      for (uint32_t j = 0; j < count; j++) {
+        if (idx[pos + j] < 0 || (uint32_t)idx[pos + j] > cols - 4) goto done;
+      }
+      pos += count;
+      blocks += count;
+    }
+    if (pos != idx_count) goto done;
+    weight_count = blocks * 32;
+  } else {
+    if (rows > UINT32_MAX / cols) return 0;
+    weight_count = rows * cols;
+  }
+  weights = (opus_int8 *)malloc(weight_count ? weight_count : 1);
+  scale = (float *)malloc(rows * sizeof(*scale));
+  x = (float *)malloc(cols * sizeof(*x));
+  bias = (float *)malloc(rows * sizeof(*bias));
+  subias = (float *)malloc(rows * sizeof(*subias));
+  out = (float *)malloc(rows * sizeof(*out));
+  if (weights == NULL || scale == NULL || x == NULL || bias == NULL || subias == NULL || out == NULL) goto done;
+  if (!read_exact(weights, weight_count)) goto done;
+  for (i = 0; i < rows; i++) if (!read_float(&scale[i])) goto done;
+  for (i = 0; i < cols; i++) if (!read_float(&x[i])) goto done;
+  for (i = 0; i < rows; i++) if (!read_float(&bias[i])) goto done;
+  for (i = 0; i < rows; i++) if (!read_float(&subias[i])) goto done;
+  layer.bias = bias;
+  layer.subias = subias;
+  layer.weights = weights;
+  layer.weights_idx = idx;
+  layer.scale = scale;
+  layer.nb_inputs = (int)cols;
+  layer.nb_outputs = (int)rows;
+  arch = opus_select_arch();
+#if defined(OPUS_HAVE_RTCD) && defined(OPUS_X86_MAY_HAVE_AVX2)
+  if (arch == 4 && DNN_COMPUTE_LINEAR_IMPL[arch & OPUS_ARCHMASK] != compute_linear_avx2) goto done;
+#endif
+  compute_linear(&layer, out, x, arch);
+  ok = write_output(out, rows, arch);
+done:
+  free(idx);
+  free(weights);
+  free(scale);
+  free(x);
+  free(bias);
+  free(subias);
+  free(out);
+  return ok;
+}
+#endif
 
 int main(void) {
   char magic[4];
@@ -154,6 +282,12 @@ int main(void) {
       return run_sgemv(rows, cols, col_stride) ? 0 : 1;
     case MODE_CGEMV8X4:
       return run_cgemv8x4(rows, cols) ? 0 : 1;
+    case MODE_LINEAR_CGEMV8X4:
+#ifdef GOPUS_DIRECT_SCALAR_DNN
+      return 1;
+#else
+      return run_linear_cgemv8x4(rows, cols, col_stride) ? 0 : 1;
+#endif
   }
   return 1;
 }
