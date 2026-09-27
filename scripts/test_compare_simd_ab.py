@@ -134,7 +134,7 @@ class IndependentOracleGateTest(unittest.TestCase):
 
     def test_retired_internal_contracts_are_exact_names_only(self):
         retired = audited_test_retirements()
-        self.assertEqual(len(retired), 13)
+        self.assertEqual(len(retired), 15)
         self.assertFalse(retired & audited_test_replacements().keys())
         for key in retired:
             self.assertEqual(missing_baseline_tests({key: "pass"}, {}), set())

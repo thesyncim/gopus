@@ -67,5 +67,14 @@
     ],
     "retired_contract": "external CELT surround-trim setter and reset state",
     "source_review": "0e520c21: CELT has no external surround-trim control in libopus 1.6.1. celt/celt_encoder.c computes a local surround_trim from the energy mask for each encode. The setter/getter state API is absent; selected-C multistream mask/packet gates remain strict and do not claim to execute this retired mutation contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/multistream",
+    "baseline_tests": [
+      "TestEncode_SurroundTrimProduced",
+      "TestEncode_SurroundTrimProducedAt24k"
+    ],
+    "retired_contract": "external per-stream CELT surround-trim state",
+    "source_review": "0e520c21: libopus 1.6.1 celt/celt_encoder.c computes surround_trim locally from each energy mask. The multistream encoder has no external per-stream CELTSurroundTrim getter or state. TestEncode_SurroundEnergyMaskProduced and TestEncode_SurroundEnergyMaskProducedAt24k cover mask contents, a different contract; strict selected-C multistream mask and packet gates remain mandatory."
   }
 ]
