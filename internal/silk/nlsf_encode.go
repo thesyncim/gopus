@@ -202,23 +202,32 @@ func silkNLSFDelDecQuant(indices []int8, xQ10 []int16, wQ5 []int16, predQ8 []uin
 			}
 		} else {
 			// Sort/prune: for each state pair, put min in [j], max in [j+N].
+			// The selections are written as independent conditional
+			// assignments so they compile to conditional moves; the RD
+			// comparisons are data-dependent and mispredict as branches.
 			for j := range nlsfQuantDelDecStates {
 				rdLo := rdQ25[j]
 				rdHi := rdQ25[j+nlsfQuantDelDecStates]
-				if rdLo > rdHi {
-					rdQ25[j] = rdHi
-					rdQ25[j+nlsfQuantDelDecStates] = rdLo
-					rdMinQ25[j] = rdHi
-					rdMaxQ25[j] = rdLo
-					out0 := prevOutQ10[j]
-					prevOutQ10[j] = prevOutQ10[j+nlsfQuantDelDecStates]
-					prevOutQ10[j+nlsfQuantDelDecStates] = out0
-					indSort[j] = j + nlsfQuantDelDecStates
-				} else {
-					rdMinQ25[j] = rdLo
-					rdMaxQ25[j] = rdHi
-					indSort[j] = j
+				out0 := prevOutQ10[j]
+				out1 := prevOutQ10[j+nlsfQuantDelDecStates]
+				swap := rdLo > rdHi
+				sorted := j
+				if swap {
+					sorted = j + nlsfQuantDelDecStates
 				}
+				if swap {
+					rdLo, rdHi = rdHi, rdLo
+				}
+				if swap {
+					out0, out1 = out1, out0
+				}
+				rdQ25[j] = rdLo
+				rdQ25[j+nlsfQuantDelDecStates] = rdHi
+				rdMinQ25[j] = rdLo
+				rdMaxQ25[j] = rdHi
+				prevOutQ10[j] = out0
+				prevOutQ10[j+nlsfQuantDelDecStates] = out1
+				indSort[j] = sorted
 			}
 			for {
 				minMaxQ25 := int32(math.MaxInt32)
@@ -226,12 +235,20 @@ func silkNLSFDelDecQuant(indices []int8, xQ10 []int16, wQ5 []int16, predQ8 []uin
 				indMinMax := 0
 				indMaxMin := 0
 				for j := range nlsfQuantDelDecStates {
-					if minMaxQ25 > rdMaxQ25[j] {
-						minMaxQ25 = rdMaxQ25[j]
+					rdMax := rdMaxQ25[j]
+					lower := minMaxQ25 > rdMax
+					if lower {
+						minMaxQ25 = rdMax
+					}
+					if lower {
 						indMinMax = j
 					}
-					if maxMinQ25 < rdMinQ25[j] {
-						maxMinQ25 = rdMinQ25[j]
+					rdMin := rdMinQ25[j]
+					higher := maxMinQ25 < rdMin
+					if higher {
+						maxMinQ25 = rdMin
+					}
+					if higher {
 						indMaxMin = j
 					}
 				}

@@ -26,6 +26,9 @@ func celtPitchXcorrFloatImpl(x, y []float32, out []float32, length, maxPitch int
 		xcorrKernelAVX8(&x[0], &y[i], &sums, length)
 		copy(out[i:i+8], sums[:])
 	}
+	// Clear the upper register halves the 256-bit kernel leaves dirty before
+	// the scalar SSE code that follows.
+	archsimd.ClearAVXUpperBits()
 	// celt_pitch_xcorr_avx2 finishes the last maxPitch%8 lags with
 	// celt_inner_prod(), which the x86 SIMD build dispatches to
 	// celt_inner_prod_sse.

@@ -198,4 +198,7 @@ func xcorrKernelAVX8ScalarGo(x, y *float32, sum *[8]float32, length int) {
 
 func pitchXcorrKernelAVX8(x, y []float32, sum *[8]float32, length int) {
 	xcorrKernelAVX8(&x[0], &y[0], sum, length)
+	// Clear the upper register halves the 256-bit kernel leaves dirty, so
+	// the caller's scalar SSE code runs without false dependencies.
+	archsimd.ClearAVXUpperBits()
 }

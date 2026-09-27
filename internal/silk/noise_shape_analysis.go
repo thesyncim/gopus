@@ -315,18 +315,37 @@ func warpedAutocorrelationFLP32(out, state, in []float32, warping float32, lengt
 		order = maxShapeLpcOrder
 	}
 
-	var st [maxShapeLpcOrder + 1]silkCReal
-	var corr [maxShapeLpcOrder + 1]silkCReal
+	var st, corr warpedAutocorrState
 	w := silkCReal(warping)
 
 	// Clamp input slice so the compiler proves all in[n] accesses are in bounds.
 	if length > len(in) {
 		length = len(in)
 	}
-	in = in[:length]
-	_ = st[order]   // BCE hint for inner loop array access
-	_ = corr[order] // BCE hint for inner loop array access
+	warpedAutocorrelationSections(&st, &corr, in[:length], w, order)
 
+	maxOut := min(order+1, len(out))
+	for i := range maxOut {
+		out[i] = float32(corr[1+i])
+	}
+	maxState := min(order+1, len(state))
+	for i := range maxState {
+		state[i] = float32(st[1+i])
+	}
+}
+
+// warpedAutocorrState holds the allpass state or the correlations of
+// silk_warped_autocorrelation_FLP: C double i of the order+1 lives at index
+// i+1. The vector wavefront loads the element before the first one and
+// entries past order in lanes whose results it discards, so the array is
+// padded on both sides.
+type warpedAutocorrState [1 + maxShapeLpcOrder + 1 + 10]silkCReal
+
+// warpedAutocorrelationSamples runs the allpass sections of
+// silk_warped_autocorrelation_FLP for each input sample in turn.
+func warpedAutocorrelationSamples(state, corrAcc *warpedAutocorrState, in []float32, w silkCReal, order int) {
+	st := state[1 : order+2]
+	corr := corrAcc[1 : order+2]
 	for _, sample := range in {
 		tmp1 := silkCReal(sample)
 		// First iteration (i=0): sets st[0] then uses it for all remaining.
@@ -347,15 +366,6 @@ func warpedAutocorrelationFLP32(out, state, in []float32, warping float32, lengt
 		}
 		st[order] = tmp1
 		corr[order] += st0 * tmp1
-	}
-
-	maxOut := min(order+1, len(out))
-	for i := range maxOut {
-		out[i] = float32(corr[i])
-	}
-	maxState := min(order+1, len(state))
-	for i := range maxState {
-		state[i] = float32(st[i])
 	}
 }
 

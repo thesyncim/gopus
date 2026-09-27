@@ -39,6 +39,9 @@ func innerProductFLPAVX2(a, b []float32, length int) silkCReal {
 	acc0 = acc0.Add(acc1)
 	var lanes [4]float64
 	acc0.StoreArray(&lanes)
+	// Clear the dirty upper register halves before the scalar SSE tail and
+	// the caller's scalar code.
+	archsimd.ClearAVXUpperBits()
 	result := (lanes[0] + lanes[2]) + (lanes[1] + lanes[3])
 	for ; i < length; i++ {
 		result += float64(a[i]) * float64(b[i])

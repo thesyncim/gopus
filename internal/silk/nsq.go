@@ -70,6 +70,10 @@ type NSQState struct {
 
 	// Delayed decision states (NSQ_del_dec)
 	delDecStates [maxDelDecStates]nsqDelDecState
+
+	// Structure-of-arrays delayed decision states (NSQ_del_dec_avx2). Like
+	// delDecStates, they are per-call scratch that every call reinitializes.
+	delDecAVX2 nsqDelDecAVX2State
 }
 
 // NewNSQState creates a new NSQ state with proper initialization.
@@ -146,6 +150,7 @@ func (s *NSQState) Reset() {
 		s.sAR2Q14[i] = 0
 	}
 	s.delDecStates = [maxDelDecStates]nsqDelDecState{}
+	s.delDecAVX2 = nsqDelDecAVX2State{}
 	s.sLFARShpQ14 = 0
 	s.sDiffShpQ14 = 0
 	s.lagPrev = 0
@@ -725,17 +730,13 @@ func scaleNSQStates(
 // Matches libopus silk_LPC_analysis_filter behavior:
 // - First 'order' outputs are set to zero
 // - Remaining outputs computed as: out[ix] = in[ix] - sum(a[k] * in[ix-1-k])
-func rewhitenLTP(sLTP []int16, xq []int16, startIdx, offset int, aQ12 []int16, length, order int) {
-	// Set first 'order' outputs to zero (per libopus silk_LPC_analysis_filter)
-	for i := startIdx; i < startIdx+order && i < len(sLTP); i++ {
-		sLTP[i] = 0
-	}
-
-	// Compute LPC analysis filter for remaining samples
+// rewhitenLTPScalar computes the silk_LPC_analysis_filter outputs
+// sLTP[startIdx+ix] for ix in [from, length) one sample at a time.
+func rewhitenLTPScalar(sLTP []int16, xq []int16, startIdx, offset int, aQ12 []int16, from, length, order int) {
 	// libopus iterates ix from d to len-1 and writes to out[ix]
 	// Input pointer is in[ix-1], so it reads in[ix-1], in[ix-2], ..., in[ix-d]
 	// Output is: in[ix] - prediction
-	for ix := order; ix < length && startIdx+ix < len(sLTP); ix++ {
+	for ix := from; ix < length && startIdx+ix < len(sLTP); ix++ {
 		inIdx := startIdx + offset + ix
 		if inIdx < 0 || inIdx >= len(xq) {
 			continue

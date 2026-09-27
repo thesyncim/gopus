@@ -21,6 +21,9 @@ func pitchXCorrFloat32AVX2FMAOrderTiny(x, y, xcorr []float32, length, maxPitch i
 		pitchXCorrFloat32AVX2FMAOrderTinyScalar(x, y, xcorr, length, maxPitch)
 		return
 	}
+	// Clear the upper register halves the 256-bit lanes leave dirty, so the
+	// caller's scalar SSE code runs without false dependencies.
+	defer archsimd.ClearAVXUpperBits()
 	if length == 5 {
 		pitchXCorrFloat32AVX2FMAOrderTiny5(x, y, xcorr, maxPitch)
 		return

@@ -84,7 +84,9 @@ func bwexpanderF32(ar []float32, order int, chirp float32) {
 	}
 }
 
-func lpcAnalysisFilterF32(rLPC, predCoef, s []float32, length, order int) {
+// lpcAnalysisFilterF32Scalar is silk_LPC_analysis_filter_FLP one output
+// sample at a time.
+func lpcAnalysisFilterF32Scalar(rLPC, predCoef, s []float32, length, order int) {
 	if order > length {
 		return
 	}

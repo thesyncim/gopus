@@ -25,12 +25,11 @@ func noFMA32(a, b float32) float32 {
 }
 
 // noFMA64 returns a*b as a C double, forcing the product to materialize before
-// the caller adds or subtracts it. This mirrors the noFMA32 use when we need
-// to prevent the compiler from contracting a multiply-add into a single FMA.
-//
-//go:noinline
+// the caller adds or subtracts it. As in round32, the explicit conversion
+// rounds the product, and Go never contracts an explicitly rounded product
+// into an FMA, so the barrier holds after inlining.
 func noFMA64(a, b silkCReal) silkCReal {
-	return a * b
+	return silkCReal(a * b)
 }
 
 // float32ToInt32RoundEven mirrors lrintf-style round-to-nearest-even for
