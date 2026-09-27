@@ -3,7 +3,6 @@
 package silk
 
 import (
-	"bytes"
 	"fmt"
 	"math"
 	"testing"
@@ -11,24 +10,10 @@ import (
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
-// TestPublicStereoSILKEncodeFixedByteExact drives the stereo PacketEncoder.Encode
-// path under the gopus_fixed_point build and
-// asserts that every mid and side frame it produced is byte-for-byte identical
-// to the libopus FIXED_POINT silk_encode_frame_FIX reference, replayed on the
-// exact int16 x_buf / inputBuf and pre-encode state the public stereo encoder
-// fed to the validated per-channel payload driver.
-//
-// The integer stereo front-end (silkStereoLRToMS, the port of
-// silk/stereo_LR_to_MS.c) that produces those int16 mid/side frames is itself
-// oracle-verified byte-exact by TestSILKStereoLRToMSFixedLibopusParity, and the
-// stereo prediction-index / mid-only / VAD header symbols are coded
-// deterministically from its outputs. Proving every channel frame matches the
-// libopus FIXED_POINT per-frame oracle therefore establishes byte-exactness of
-// the assembled stereo SILK packet.
-//
-// Coverage: NB/MB/WB at 10/20 ms, CBR+VBR, single- and multi-frame packets
-// (exercising cross-frame stereo predictor state), plus a near-mono signal that
-// drives the mid-only (mono-collapse) decision.
+// TestPublicStereoSILKEncodeFixedByteExact compares complete stereo SILK
+// packets and final ranges with the selected FIXED_POINT silk_Encode API.
+// NB/MB/WB, CBR/VBR, 10/20/40/60ms packets and mid-only inputs exercise the
+// actual channel state, stereo symbols, and entropy coder shared by all blocks.
 func TestPublicStereoSILKEncodeFixedByteExact(t *testing.T) {
 	libopustest.RequireOracle(t)
 
@@ -136,66 +121,7 @@ func TestPublicStereoSILKEncodeFixedByteExact(t *testing.T) {
 			p.ctl.BitRate = int32(c.bitrate)
 			p.ctl.UseCBR = c.cbr
 			p.ctl.MaxBits = int32(c.bitrate * c.frameMs * c.nFrames / 1000)
-			enc, sideEnc := p.enc.state[0], p.enc.state[1]
-			for _, e := range []*Encoder{enc, sideEnc} {
-				e.EnableFixedSnapshotForTest()
-			}
-
-			got := p.encodeInto(t, interleaveStereo(left, right), 1)
-			if len(got) == 0 {
-				t.Fatalf("empty stereo packet")
-			}
-
-			// Collect every per-channel frame the public encoder fed to the
-			// validated payload driver and replay each against the libopus
-			// FIXED_POINT silk_encode_frame_FIX oracle.
-			midSnaps := enc.FixedAllSnapshotsForTest()
-			sideSnaps := sideEnc.FixedAllSnapshotsForTest()
-			if len(midSnaps) != c.nFrames {
-				t.Fatalf("mid snapshots: got %d want %d", len(midSnaps), c.nFrames)
-			}
-			// The side channel is coded only for non-mid-only frames; the number
-			// of side snapshots therefore must be <= nFrames.
-			if len(sideSnaps) > c.nFrames {
-				t.Fatalf("side snapshots: got %d want <= %d", len(sideSnaps), c.nFrames)
-			}
-
-			type chanSnap struct {
-				label string
-				snap  FixedPreEncodeSnapshot
-			}
-			var all []chanSnap
-			for i, s := range midSnaps {
-				all = append(all, chanSnap{label: fmt.Sprintf("mid[%d]", i), snap: s})
-			}
-			for i, s := range sideSnaps {
-				all = append(all, chanSnap{label: fmt.Sprintf("side[%d]", i), snap: s})
-			}
-
-			oracleCases := make([]silkFixedEncodeFramePayloadCase, len(all))
-			for i, cs := range all {
-				oracleCases[i] = buildPayloadCaseFromSnapshot(c.bandwidth, c.fsKHz, cs.snap)
-			}
-			want, err := probeLibopusSILKFixedEncodeFramePayload(oracleCases)
-			if err != nil {
-				libopustest.HelperUnavailable(t, "silk fixed encode frame payload", err)
-				return
-			}
-
-			midOnlyFrames := c.nFrames - len(sideSnaps)
-			t.Logf("packet bytes=%d frames(mid=%d side=%d mid_only=%d)", len(got), len(midSnaps), len(sideSnaps), midOnlyFrames)
-
-			for i, cs := range all {
-				w := want[i]
-				if w.nBytesOut <= 0 {
-					t.Fatalf("%s: oracle produced no bytes", cs.label)
-				}
-				gotFrame := encodeFrameOnlyFromSnapshot(c.bandwidth, c.fsKHz, c.cbr, cs.snap)
-				if !bytes.Equal(gotFrame[:w.nBytesOut], w.payload) {
-					t.Fatalf("%s payload vs libopus FIXED mismatch:\n got=%x\nwant=%x",
-						cs.label, gotFrame[:w.nBytesOut], w.payload)
-				}
-			}
+			assertFixedSILKAPI(t, p, [][]float32{interleaveStereo(left, right)}, -1)
 		})
 	}
 }

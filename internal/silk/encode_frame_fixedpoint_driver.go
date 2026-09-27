@@ -412,6 +412,13 @@ func (e *Encoder) encodeFrameFixedBody(
 	if e.useCBR {
 		cmnUseCBR = 1
 	}
+	// silk/control_codec.c:silk_setup_complexity enables NLSF interpolation
+	// at complexity 4 and above. Analysis uses its configured la_shape;
+	// x_buf insertion and history retain the fixed LA_SHAPE_MS lookahead.
+	var useInterpolatedNLSFs int32
+	if e.complexity >= 4 {
+		useInterpolatedNLSFs = 1
+	}
 
 	ps := &silkEncodeFramePayloadFIXState{
 		silkEncodeFrameFIXState: silkEncodeFrameFIXState{
@@ -421,7 +428,7 @@ func (e *Encoder) encodeFrameFixedBody(
 			nbSubfr:                     numSubframes,
 			ltpMemLength:                ltpMemLength,
 			laPitch:                     laPitch,
-			laShape:                     laShape,
+			laShape:                     int(e.laShape),
 			pitchLPCWinLength:           pitchLPCWinLength,
 			pitchEstimationLPCOrder:     pitchEstLPCOrder,
 			predictLPCOrder:             predictLPCOrder,
@@ -432,6 +439,7 @@ func (e *Encoder) encodeFrameFixedBody(
 			warpingQ16:                  e.warpingQ16,
 			useCBR:                      cmnUseCBR,
 			nlsfMSVQSurvivors:           int(e.nlsfSurvivors),
+			useInterpolatedNLSFs:        useInterpolatedNLSFs,
 			pitchEstimationThresholdQ16: e.pitchEstimationThresholdQ16,
 			snrDBQ7:                     e.snrDBQ7,
 			inputTiltQ15:                e.inputTiltQ15,

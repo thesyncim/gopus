@@ -70,6 +70,7 @@ type silkEncodeFrameFIXState struct {
 	warpingQ16              int32
 	useCBR                  int
 	nlsfMSVQSurvivors       int
+	useInterpolatedNLSFs    int32
 
 	pitchEstimationThresholdQ16 int32
 
@@ -328,7 +329,7 @@ func (e *Encoder) silkEncodeFrameFIXAnalyze(st *silkEncodeFrameFIXState) sEncCtr
 		nbSubfr:              st.nbSubfr,
 		frameLength:          st.frameLength,
 		signalType:           signalType,
-		useInterpolatedNLSFs: 0,
+		useInterpolatedNLSFs: st.useInterpolatedNLSFs,
 		firstFrameAfterReset: st.firstFrameAfterReset,
 		speechActivityQ8:     st.speechActivityQ8,
 		nlsfMSVQSurvivors:    st.nlsfMSVQSurvivors,
@@ -591,7 +592,7 @@ func (e *Encoder) silkEncodeFrameFIX(st *silkEncodeFrameFIXState) silkEncodeFram
 		nbSubfr:              st.nbSubfr,
 		frameLength:          st.frameLength,
 		signalType:           signalType,
-		useInterpolatedNLSFs: 0,
+		useInterpolatedNLSFs: st.useInterpolatedNLSFs,
 		firstFrameAfterReset: st.firstFrameAfterReset,
 		speechActivityQ8:     st.speechActivityQ8,
 		nlsfMSVQSurvivors:    st.nlsfMSVQSurvivors,
