@@ -6,7 +6,7 @@ import "testing"
 
 func TestQEXTActiveStereoDecodeMatchesLibopus(t *testing.T) {
 	packets := testQEXTStatefulPacketsWithSizeMatchLibopus(t, 960, 3, 2, 256000, BitrateModeCVBR, "-cvbr", true)
-	compareQEXTDecodeSequenceWithLibopus(t, 2, packets)
+	compareQEXTDecodeSequenceWithLibopus(t, 2, 960, packets)
 
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
 	if err != nil {

@@ -25,7 +25,7 @@ func qextSilencePacket(t *testing.T, codedChannels, extensionBytes int) []byte {
 	return packet[:n]
 }
 
-func compareQEXTDecodeSequenceWithLibopus(t *testing.T, outputChannels int, packets [][]byte) {
+func compareQEXTDecodeSequenceWithLibopus(t *testing.T, outputChannels, frameSize int, packets [][]byte) {
 	t.Helper()
 	libopustest.RequireOracle(t)
 	binPath, err := libopusQEXTDecodeSingleHelper.Path(buildLibopusQEXTDecodeSingleHelper)
@@ -33,12 +33,11 @@ func compareQEXTDecodeSequenceWithLibopus(t *testing.T, outputChannels int, pack
 		libopustest.HelperUnavailable(t, "qext stateful float decoder", err)
 		return
 	}
-	const frameSize = 960
 	samplesPerPacket := frameSize * outputChannels
-	payload := libopustest.NewOraclePayloadVersion("GOSI", 8, 0, 48000, 0, uint32(outputChannels), frameSize, uint32(len(packets)))
+	payload := libopustest.NewOraclePayloadVersion("GOSI", 8, 0, 48000, 0, uint32(outputChannels), uint32(frameSize), uint32(len(packets)))
 	for _, packet := range packets {
 		payload.U32(0) // decode_fec
-		payload.U32(frameSize)
+		payload.U32(uint32(frameSize))
 		payload.U32(uint32(len(packet)))
 		payload.Raw(packet)
 	}
@@ -59,7 +58,7 @@ func compareQEXTDecodeSequenceWithLibopus(t *testing.T, outputChannels int, pack
 	wantRanges := make([]uint32, len(packets))
 	for i := range packets {
 		status, samples, finalRange, offset := reader.U32(), reader.U32(), reader.U32(), reader.U32()
-		if status != 0 || samples != frameSize || offset != uint32(i*samplesPerPacket) {
+		if status != 0 || samples != uint32(frameSize) || offset != uint32(i*samplesPerPacket) {
 			t.Fatalf("C frame %d status=%d samples=%d offset=%d", i, status, samples, offset)
 		}
 		wantRanges[i] = finalRange
@@ -97,7 +96,7 @@ func TestQEXTReceivedSilencePacketMatchesLibopus(t *testing.T) {
 				name := fmt.Sprintf("coded%d_output%d_extension%d", codedChannels, outputChannels, extensionBytes)
 				t.Run(name, func(t *testing.T) {
 					packet := qextSilencePacket(t, codedChannels, extensionBytes)
-					compareQEXTDecodeSequenceWithLibopus(t, outputChannels, [][]byte{packet})
+					compareQEXTDecodeSequenceWithLibopus(t, outputChannels, 960, [][]byte{packet})
 				})
 			}
 		}
@@ -118,7 +117,7 @@ func TestQEXTReceivedSilenceRecoveryMatchesLibopus(t *testing.T) {
 				t.Fatalf("C packet count %d, want 2", len(packets))
 			}
 			sequence := [][]byte{packets[0], qextSilencePacket(t, channels, 64), packets[1]}
-			compareQEXTDecodeSequenceWithLibopus(t, channels, sequence)
+			compareQEXTDecodeSequenceWithLibopus(t, channels, 960, sequence)
 		})
 	}
 }

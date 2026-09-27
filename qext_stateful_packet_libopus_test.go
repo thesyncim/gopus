@@ -109,8 +109,9 @@ func TestQEXTStatefulPacketMatrixMatchesLibopus(t *testing.T) {
 				for _, mode := range modes {
 					name := fmt.Sprintf("channels%d_frame%d_bitrate%d_mode%d", channels, row.frameSize, bitrate, mode.mode)
 					t.Run(name, func(t *testing.T) {
-						// Presence may vary by frame; full packet bytes and range remain exact.
-						testQEXTStatefulPacketsWithSizeAndExtensionCheck(t, row.frameSize, 3, channels, bitrate, mode.mode, mode.arg, nil)
+						// Presence may vary by frame; every packet and decoded sample stays exact.
+						packets := testQEXTStatefulPacketsWithSizeAndExtensionCheck(t, row.frameSize, 3, channels, bitrate, mode.mode, mode.arg, nil)
+						compareQEXTDecodeSequenceWithLibopus(t, channels, row.frameSize, packets)
 					})
 					configurations++
 				}
