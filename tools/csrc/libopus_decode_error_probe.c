@@ -8,7 +8,7 @@
  * -----------
  * Input (stdin):
  *   magic[4]       "GDEI"
- *   version        u32 = 1 or 2
+ *   version        u32 = 1, 2 or 3
  *   channels       u32 (1 or 2)
  *   sample_rate    u32 (8000/12000/16000/24000/48000)
  *   count          u32  -- number of probe cases
@@ -21,17 +21,18 @@
  *
  * Output (stdout):
  *   magic[4]       "GDEO"
- *   version        u32 = 1 or 2 (echoes input version)
+ *   version        u32 (echoes input version)
  *   count          u32
  *   For each case:
  *     error_code   i32   (negative libopus error, or positive sample count on success)
- *     -- version 2 only, additionally emits the decoded PCM on success:
+ *     -- version 3 only: final_range u32 after each call, including errors
+ *     -- versions 2 and 3 additionally emit the decoded PCM on success:
  *     pcm_bytes    u32   (number of raw PCM bytes that follow; 0 when error_code<=0)
  *     pcm[pcm_bytes] raw little-endian samples (float32 / int16 / int32)
  *
- * Each probe case is decoded through a FRESH decoder so packet results are
- * independent and reproducible (no cross-case state leak). This makes the
- * helper a per-packet differential oracle for fuzzing.
+ * Versions 1 and 2 decode each case through a fresh decoder for independent
+ * fuzz probes. Version 3 retains decoder state across records, including
+ * failed calls, for stateful error/recovery comparisons.
  */
 
 #include <stdint.h>
@@ -99,7 +100,7 @@ int main(void) {
   if (!read_exact(magic, 4) || memcmp(magic, INPUT_MAGIC, 4) != 0) {
     fprintf(stderr, "bad input magic\n"); return 1;
   }
-  if (!read_u32(&version) || (version != 1 && version != 2)) {
+  if (!read_u32(&version) || (version != 1 && version != 2 && version != 3)) {
     fprintf(stderr, "bad version\n"); return 1;
   }
   if (!read_u32(&channels) || channels < 1 || channels > 2) {
@@ -148,13 +149,14 @@ int main(void) {
       }
     }
 
-    /* Each case gets a fresh decoder so state doesn't leak across cases */
-    opus_decoder_destroy(dec);
-    dec = opus_decoder_create((opus_int32)sample_rate, (int)channels, &err);
-    if (!dec || err != OPUS_OK) {
-      fprintf(stderr, "opus_decoder_create case %u failed\n", i);
-      free(packet);
-      return 1;
+    if (version < 3) {
+      opus_decoder_destroy(dec);
+      dec = opus_decoder_create((opus_int32)sample_rate, (int)channels, &err);
+      if (!dec || err != OPUS_OK) {
+        fprintf(stderr, "opus_decoder_create case %u failed\n", i);
+        free(packet);
+        return 1;
+      }
     }
 
     {
@@ -203,7 +205,17 @@ int main(void) {
         opus_decoder_destroy(dec);
         return 1;
       }
-      if (version == 2) {
+      if (version == 3) {
+        opus_uint32 final_range = 0;
+        if (opus_decoder_ctl(dec, OPUS_GET_FINAL_RANGE(&final_range)) != OPUS_OK ||
+            !write_u32(final_range)) {
+          fprintf(stderr, "write final range case %u failed\n", i);
+          free(pcm_buf);
+          opus_decoder_destroy(dec);
+          return 1;
+        }
+      }
+      if (version >= 2) {
         /* Emit decoded PCM bytes on success; nothing on error. */
         uint32_t pcm_bytes = 0;
         if (result > 0) {

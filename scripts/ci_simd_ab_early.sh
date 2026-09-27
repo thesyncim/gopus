@@ -226,7 +226,7 @@ for mode in simd nosimd; do
   run_json_phase "candidate-$mode-fixed-stateful-decode" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json -tags "gopus_fixed_point${feature_scalar_tag}" . \
-    -run '^Test(DecodeDifferentialFixedPoint|DecoderFixedPoint|DecodeWithFEC|HotPathAllocsDecode)' -count=1 -timeout=15m
+    -run '^Test(DecodeDifferentialFixedPoint|DecoderFixedPoint|DecodeWithFEC|HotPathAllocsDecode|DecodeMalformedVBRPreservesSelectedLibopusState|DecodeMalformedRawCSequenceWitnessPreservesState)' -count=1 -timeout=15m
 
   run_json_phase "candidate-$mode-fixed-silk-api" \
     run_in_checkout "$candidate_root" \

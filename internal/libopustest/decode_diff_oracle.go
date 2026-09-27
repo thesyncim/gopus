@@ -39,6 +39,8 @@ type DecodeDiffResult struct {
 	// Code is the raw opus_decode* return value: negative libopus error, or the
 	// positive decoded sample count per channel on success.
 	Code int32
+	// FinalRange is populated by the stateful version-3 oracle.
+	FinalRange uint32
 	// PCM holds the raw decoded sample bytes on success (Code > 0), little-endian
 	// in the requested Format. Empty when Code <= 0.
 	PCM []byte
@@ -78,6 +80,7 @@ func (r DecodeDiffResult) Int24() []int32 {
 }
 
 var decodeDiffHelper HelperCache
+var decodeSequenceFixedHelper HelperCache
 
 func buildDecodeDiffHelper() (string, error) {
 	return decodeDiffHelper.CHelperPath(CHelperConfig{
@@ -102,7 +105,31 @@ func DecodeDiffHelperPath() (string, error) {
 // All cases share sampleRate/channels (one decoder session). Call separately for
 // different stream configurations.
 func ProbeDecodeDiff(sampleRate, channels int, cases []DecodeDiffCase) ([]DecodeDiffResult, error) {
-	binPath, err := buildDecodeDiffHelper()
+	return probeDecodeDiff(sampleRate, channels, cases, 2)
+}
+
+// ProbeDecodeSequence retains one C decoder across all calls, including errors,
+// and returns each status, final range, and successful PCM output.
+func ProbeDecodeSequence(sampleRate, channels int, cases []DecodeDiffCase) ([]DecodeDiffResult, error) {
+	return probeDecodeDiff(sampleRate, channels, cases, 3)
+}
+
+func probeDecodeDiff(sampleRate, channels int, cases []DecodeDiffCase, version uint32) ([]DecodeDiffResult, error) {
+	var binPath string
+	var err error
+	if version == 3 && decodeSequenceFixedRef {
+		binPath, err = decodeSequenceFixedHelper.CHelperPath(CHelperConfig{
+			Label:      "fixed decode sequence",
+			OutputBase: "gopus_fixed_decode_sequence",
+			SourceFile: "libopus_decode_error_probe.c",
+			FixedRef:   true,
+			CFlags:     []string{"-DHAVE_CONFIG_H", "-O2"},
+			Libs:       []string{FixedRefPath(".libs", "libopus.a"), "-lm"},
+			DeadStrip:  true,
+		})
+	} else {
+		binPath, err = buildDecodeDiffHelper()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +137,7 @@ func ProbeDecodeDiff(sampleRate, channels int, cases []DecodeDiffCase) ([]Decode
 		return nil, nil
 	}
 
-	payload := NewOraclePayloadVersion(decodeDiffInputMagic, 2,
+	payload := NewOraclePayloadVersion(decodeDiffInputMagic, version,
 		uint32(channels),
 		uint32(sampleRate),
 		uint32(len(cases)),
@@ -131,7 +158,7 @@ func ProbeDecodeDiff(sampleRate, channels int, cases []DecodeDiffCase) ([]Decode
 		payload.Raw(c.Packet)
 	}
 
-	reader, err := RunOracleVersion(binPath, payload.Bytes(), "decode diff probe", decodeDiffOutputMagic, 2)
+	reader, err := RunOracleVersion(binPath, payload.Bytes(), "decode diff probe", decodeDiffOutputMagic, version)
 	if err != nil {
 		return nil, err
 	}
@@ -139,6 +166,9 @@ func ProbeDecodeDiff(sampleRate, channels int, cases []DecodeDiffCase) ([]Decode
 	out := make([]DecodeDiffResult, n)
 	for i := range out {
 		out[i].Code = reader.I32()
+		if version == 3 {
+			out[i].FinalRange = reader.U32()
+		}
 		pcmBytes := int(reader.U32())
 		if pcmBytes > 0 {
 			b := reader.Bytes(pcmBytes)

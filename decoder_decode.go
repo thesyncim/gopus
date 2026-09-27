@@ -379,6 +379,7 @@ func (d *Decoder) decodeMultiFrameFloat32(pcm []float32, data []byte, toc *TOC, 
 
 		if vbr {
 			var frameLens [48]int
+			explicitTotal := 0
 			for i := 0; i < m-1; i++ {
 				frameLen, bytesRead, err := parseFrameLength(data, offset)
 				if err != nil {
@@ -386,33 +387,22 @@ func (d *Decoder) decodeMultiFrameFloat32(pcm []float32, data []byte, toc *TOC, 
 				}
 				offset += bytesRead
 				frameLens[i] = frameLen
+				explicitTotal += frameLen
 			}
+			// opus_packet_parse_impl validates every length before opus_decode
+			// advances any frame state, including the implicit final length.
+			lastFrameLen := len(data) - offset - padding - explicitTotal
+			if lastFrameLen < 0 || lastFrameLen > maxOpusFrameBytes {
+				return 0, ErrInvalidPacket
+			}
+			frameLens[m-1] = lastFrameLen
 			frameDataOffset := offset
-			for i := 0; i < m-1; i++ {
+			for i := range m {
 				frameLen := frameLens[i]
-				if frameDataOffset+frameLen > len(data)-padding {
-					return 0, ErrInvalidPacket
-				}
 				if err := decodeFrame(i, data[frameDataOffset:frameDataOffset+frameLen]); err != nil {
 					return 0, err
 				}
 				frameDataOffset += frameLen
-			}
-			lastFrameLen := len(data) - frameDataOffset - padding
-			if lastFrameLen < 0 {
-				return 0, ErrInvalidPacket
-			}
-			if frameDataOffset+lastFrameLen > len(data)-padding {
-				return 0, ErrInvalidPacket
-			}
-			// libopus opus_packet_parse_impl (src/opus.c): the VBR last frame size
-			// is implicit (last_size), so it can exceed 1275; reject when
-			// last_size > 1275 ("last_size > 1275 → OPUS_INVALID_PACKET").
-			if lastFrameLen > maxOpusFrameBytes {
-				return 0, ErrInvalidPacket
-			}
-			if err := decodeFrame(m-1, data[frameDataOffset:frameDataOffset+lastFrameLen]); err != nil {
-				return 0, err
 			}
 		} else {
 			frameDataLen := len(data) - offset - padding

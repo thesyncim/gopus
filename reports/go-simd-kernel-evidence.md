@@ -33,6 +33,19 @@ expectations. Frozen packet inputs and fixture-honesty checks retain their
 independent roles; frozen numerical expectations require their recorded
 producer environment. Long-frame encoder fixture coverage remains under audit.
 
+Malformed code-3 VBR packets are fully prevalidated before Go decodes any frame,
+matching `opus_packet_parse_impl`. The stateful selected-C sequence oracle
+checks valid→malformed→valid→PLC→valid histories across mono/stereo and float32,
+int16, and int24 APIs. All 24 combinations of padding and later-frame overrun
+match C status, PCM, and final ranges; the exact raw witness
+`4b8302010000` also preserves the preceding range and following decode state.
+The focused selector passes 91 events in SIMD, nosimd, and fixed-SIMD, and 92 in
+ordinary and fixed-nosimd, without failures or skips. The malformed call
+allocates zero after warmup. Existing code-3 one-frame/padding and PLC coverage
+remains in the same selector. The sequence oracle uses its v3 wire format;
+fresh-decoder v1/v2 probes keep their existing wire semantics. These claims
+cover the standard decoder APIs, not cached DRED malformed-packet handling.
+
 ### Extension checkpoint
 
 QEXT at 48 kHz (`6e20f360`) passes 60 configurations / 180 sequential frames
