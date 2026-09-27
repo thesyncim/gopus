@@ -150,12 +150,14 @@ type bandEncodeScratch struct {
 	extEcSave0 rangecoding.EncoderState
 
 	// PVQ scratch buffers
-	pvqSignx []byte
-	pvqY     []float32
-	pvqAbsX  []float32
-	pvqX     []celtNorm
-	pvqIy    []int32
-	qextIy   []int32 // QEXT cubic pulse scratch; libopus uses C int.
+	pvqSignx  []byte
+	pvqY      []float32
+	pvqAbsX   []float32
+	pvqX      []celtNorm
+	pvqIy     []int32
+	pvqUpIy   []int32
+	pvqRefine []int32
+	qextIy    []int32 // QEXT cubic pulse scratch; libopus uses C int.
 
 	// CWRS scratch
 	cwrsU []uint32

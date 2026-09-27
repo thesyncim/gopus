@@ -1281,6 +1281,7 @@ func TestAlgQuantQEXTMatchesLibopusSource(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "celt qext vq", err)
 	}
+	var scratch bandEncodeScratch
 	for ci, tc := range cases {
 		x := make([]celtNorm, len(tc.x))
 		for i, sample := range tc.x {
@@ -1292,7 +1293,7 @@ func TestAlgQuantQEXTMatchesLibopusSource(t *testing.T) {
 		var extEnc rangecoding.Encoder
 		extBuf := make([]byte, 128)
 		extEnc.Init(extBuf)
-		gotCollapse := algQuantScratch(&enc, 0, x, len(x), tc.k, tc.spread, tc.b, opusVal16(tc.gain), tc.resynth, &extEnc, tc.extraBits, nil)
+		gotCollapse := algQuantScratch(&enc, 0, x, len(x), tc.k, tc.spread, tc.b, opusVal16(tc.gain), tc.resynth, &extEnc, tc.extraBits, &scratch)
 		gotPacket := enc.Done()
 		gotExtPacket := extEnc.Done()
 		if gotCollapse != want[ci].collapse {

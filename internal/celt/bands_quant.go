@@ -1645,7 +1645,11 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []celtNorm, n, k, spre
 		if n == 2 {
 			var refineVal int32
 			up := (1 << extraBits) - 1
-			pulses, upPulses, refineVal, yy32 = opPVQSearchN2Norm(xNorm, k, up)
+			if scratch != nil {
+				pulses, upPulses, refineVal, yy32 = opPVQSearchN2NormScratch(xNorm, k, up, &scratch.pvqIy, &scratch.pvqUpIy)
+			} else {
+				pulses, upPulses, refineVal, yy32 = opPVQSearchN2Norm(xNorm, k, up)
+			}
 			yy = yy32
 			collapsePulses = upPulses
 			index := encodePulsesFast32(pulses, n, k, uBuf)
@@ -1658,7 +1662,14 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []celtNorm, n, k, spre
 			extEnc.EncodeUniform(uint32(refineVal+int32((up-1)/2)), uint32(up))
 		} else {
 			up := (1 << extraBits) - 1
-			pulses, upPulses, refine, yy32 = opPVQSearchExtraNorm(xNorm, k, up)
+			if scratch != nil {
+				pulses, upPulses, refine, yy32 = opPVQSearchExtraNormScratch(
+					xNorm, k, up, &scratch.pvqIy, &scratch.pvqUpIy, &scratch.pvqRefine,
+					&scratch.pvqY, &scratch.pvqAbsX,
+				)
+			} else {
+				pulses, upPulses, refine, yy32 = opPVQSearchExtraNorm(xNorm, k, up)
+			}
 			yy = yy32
 			collapsePulses = upPulses
 			index := encodePulsesFast32(pulses, n, k, uBuf)

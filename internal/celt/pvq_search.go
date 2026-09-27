@@ -238,8 +238,22 @@ func opPVQSearchN2(x []celtNorm, k, up int) (iy []int32, upIy []int32, refine in
 }
 
 func opPVQSearchN2Norm(x []celtNorm, k, up int) (iy []int32, upIy []int32, refine int32, yy opusVal32) {
-	iy = make([]int32, 2)
-	upIy = make([]int32, 2)
+	return opPVQSearchN2NormScratch(x, k, up, nil, nil)
+}
+
+func opPVQSearchN2NormScratch(x []celtNorm, k, up int, iyBuf, upIyBuf *[]int32) (iy []int32, upIy []int32, refine int32, yy opusVal32) {
+	if iyBuf != nil {
+		iy = ensureInt32Slice(iyBuf, 2)
+	} else {
+		iy = make([]int32, 2)
+	}
+	if upIyBuf != nil {
+		upIy = ensureInt32Slice(upIyBuf, 2)
+	} else {
+		upIy = make([]int32, 2)
+	}
+	clear(iy)
+	clear(upIy)
 	if len(x) < 2 || k <= 0 || up <= 0 {
 		if k > 0 {
 			iy[0] = int32(k)
@@ -288,12 +302,17 @@ func opPVQSearchN2Norm(x []celtNorm, k, up int) (iy []int32, upIy []int32, refin
 	return iy, upIy, refine, yy
 }
 
-func opPVQRefineNorm(xn []opusVal32, iy []int32, iy0 []int32, k, up, margin int, same bool) bool {
+func opPVQRefineNorm(xn []opusVal32, iy []int32, iy0 []int32, k, up, margin int, same bool, roundingBuf *[]opusVal32) bool {
 	n := len(xn)
 	if n == 0 {
 		return true
 	}
-	rounding := make([]opusVal32, n)
+	var rounding []opusVal32
+	if roundingBuf != nil {
+		rounding = ensureFloat32Slice(roundingBuf, n)
+	} else {
+		rounding = make([]opusVal32, n)
+	}
 	iysum := int32(0)
 	k32 := int32(k)
 	up32 := int32(up)
@@ -347,10 +366,29 @@ func opPVQSearchExtra(x []celtNorm, k, up int) (iy []int32, upIy []int32, refine
 }
 
 func opPVQSearchExtraNorm(x []celtNorm, k, up int) (iy []int32, upIy []int32, refine []int32, yy opusVal32) {
+	return opPVQSearchExtraNormScratch(x, k, up, nil, nil, nil, nil, nil)
+}
+
+func opPVQSearchExtraNormScratch(x []celtNorm, k, up int, iyBuf, upIyBuf, refineBuf *[]int32, xnBuf, roundingBuf *[]opusVal32) (iy []int32, upIy []int32, refine []int32, yy opusVal32) {
 	n := len(x)
-	iy = make([]int32, n)
-	upIy = make([]int32, n)
-	refine = make([]int32, n)
+	if iyBuf != nil {
+		iy = ensureInt32Slice(iyBuf, n)
+	} else {
+		iy = make([]int32, n)
+	}
+	if upIyBuf != nil {
+		upIy = ensureInt32Slice(upIyBuf, n)
+	} else {
+		upIy = make([]int32, n)
+	}
+	if refineBuf != nil {
+		refine = ensureInt32Slice(refineBuf, n)
+	} else {
+		refine = make([]int32, n)
+	}
+	clear(iy)
+	clear(upIy)
+	clear(refine)
 	if n == 0 || k <= 0 || up <= 0 {
 		return iy, upIy, refine, 0
 	}
@@ -364,13 +402,18 @@ func opPVQSearchExtraNorm(x []celtNorm, k, up int) (iy []int32, upIy []int32, re
 		iy[0] = int32(k)
 		upIy[0] = int32(up * k)
 	} else {
-		xn := make([]opusVal32, n)
+		var xn []opusVal32
+		if xnBuf != nil {
+			xn = ensureFloat32Slice(xnBuf, n)
+		} else {
+			xn = make([]opusVal32, n)
+		}
 		rcp := opusVal32(float32(1) / float32(sum))
 		for i := range n {
 			xn[i] = opusVal32(absCeltNorm(x[i]) * float32(rcp))
 		}
-		failed = opPVQRefineNorm(xn, iy, iy, k, 1, k+1, true)
-		failed = failed || opPVQRefineNorm(xn, upIy, iy, up*k, up, up, false)
+		failed = opPVQRefineNorm(xn, iy, iy, k, 1, k+1, true, roundingBuf)
+		failed = failed || opPVQRefineNorm(xn, upIy, iy, up*k, up, up, false, roundingBuf)
 	}
 
 	if failed {

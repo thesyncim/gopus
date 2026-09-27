@@ -46,6 +46,17 @@ remains in the same selector. The sequence oracle uses its v3 wire format;
 fresh-decoder v1/v2 probes keep their existing wire semantics. These claims
 cover the standard decoder APIs, not cached DRED malformed-packet handling.
 
+### Combined-extension allocation guards
+
+QEXT PVQ refinement uses reusable pulse, refinement and rounding scratch.
+DRED reset clears runtime state while retaining its model-bound backing storage.
+On ARM64, the reset-inclusive 96-frame 5.1, FOA and high-rate cycles each
+allocate zero in scalar and SIMD. The selected-C PVQ oracle exercises reused
+scratch; base 5.1 and FOA retain exact 96-frame packet/range parity including
+reset/rearm. The high-rate ARM64 frame-10 payload witness remains failing.
+The existing native CI batch also runs the independent reset-cycle allocation
+guard; AMD64 validation of these allocation fixes is pending.
+
 ### QEXT float band-energy reduction
 
 `computeQEXTBandAmplitudesF32Into` uses the selected libopus inner-product
@@ -1536,10 +1547,10 @@ gates pass; the full artifact at this revision supplies direct timings in rows
 | VoIP encode | 76,544 (76,476–76,765) | 56,245 (56,138–56,361) | 94,358 (93,997–100,544) |
 | Low-delay encode | 71,871.5 (71,016–73,470) | 51,228.5 (51,154–51,392) | 89,314 (89,146–89,440) |
 
-### Latest early end-to-end capture at 54654e25 (AMD EPYC 7763)
+### Latest early end-to-end capture at 0d10beb6 (AMD EPYC 7763)
 
-Early artifact `10937319055` for [run 36336659808](https://github.com/thesyncim/gopus/actions/runs/36336659808)
-compares assembly `8ac93c85` with SIMD/nosimd `54654e25` on AMD EPYC 7763,
+Early artifact `10938258969` for [run 36339608359](https://github.com/thesyncim/gopus/actions/runs/36339608359)
+compares assembly `8ac93c85` with SIMD/nosimd `0d10beb6` on AMD EPYC 7763,
 Go 1.27.1, GCC 13.3.0, GOAMD64=v1. Four interleaved 500 ms samples use
 `-cpu=1`; all 72 E2E samples report 0 B/op and 0 allocs/op. Values are
 median (min–max) ns/op. The early correctness gate is failing combined-extension
@@ -1547,14 +1558,14 @@ allocation checks; these benchmark results do not establish complete parity.
 
 | Workload | Old assembly | Go SIMD | `nosimd` |
 |---|---:|---:|---:|
-| CELT decode | 20,356 (20,208–20,640) | 14,704 (14,643–15,258) | 22,486.5 (22,382–22,972) |
-| Hybrid decode | 28,361.5 (28,340–28,476) | 24,347 (24,281–24,443) | 34,649.5 (34,576–34,740) |
-| SILK decode | 22,725.5 (22,509–22,845) | 16,835 (16,814–16,931) | 22,439 (22,392–22,484) |
-| Caller-buffer encode | 91,811 (91,592–92,138) | 66,443 (66,212–66,656) | 111,258.5 (110,939–111,545) |
-| VoIP encode | 98,054 (97,491–98,379) | 72,436.5 (72,028–73,282) | 117,829.5 (117,489–117,909) |
-| Low-delay encode | 91,138.5 (90,774–91,509) | 66,420.5 (66,226–66,537) | 110,749.5 (110,592–110,863) |
+| CELT decode | 20,277.5 (20,209–20,319) | 14,710 (14,678–14,836) | 22,390.5 (22,325–22,434) |
+| Hybrid decode | 28,387 (28,340–28,564) | 24,368.5 (24,327–24,587) | 34,879 (34,810–34,963) |
+| SILK decode | 22,414.5 (22,373–22,558) | 16,946.5 (16,909–17,012) | 22,469.5 (22,423–22,685) |
+| Caller-buffer encode | 92,290.5 (91,615–92,335) | 66,548 (66,271–67,296) | 111,311 (111,129–111,871) |
+| VoIP encode | 98,085.5 (97,931–98,428) | 72,697.5 (71,979–73,091) | 118,129.5 (117,529–118,255) |
+| Low-delay encode | 91,148 (90,773–91,436) | 66,141 (66,101–66,289) | 111,061.5 (110,282–111,379) |
 
-Within this capture, SIMD takes 14.1–27.8% less time than assembly. Ratios
+Within this capture, SIMD takes 14.2–27.9% less time than assembly. Ratios
 compare modes on this runner; the different CPU prevents revision-to-revision
 claims from the f2af896b capture. Direct 53-symbol timings retain their own
 recorded revisions and provenance.

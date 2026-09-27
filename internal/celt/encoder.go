@@ -1541,6 +1541,10 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	bandScratch.pvqY = ensureFloat32Slice(&bandScratch.pvqY, maxPVQN)
 	bandScratch.pvqAbsX = ensureFloat32Slice(&bandScratch.pvqAbsX, maxPVQN)
 	bandScratch.pvqIy = ensureInt32Slice(&bandScratch.pvqIy, maxPVQN)
+	if extsupport.QEXT && e.qextActive() {
+		bandScratch.pvqUpIy = ensureInt32Slice(&bandScratch.pvqUpIy, maxPVQN)
+		bandScratch.pvqRefine = ensureInt32Slice(&bandScratch.pvqRefine, maxPVQN)
+	}
 	bandScratch.qextIy = ensureInt32Slice(&bandScratch.qextIy, maxPVQN)
 	bandScratch.cwrsU = ensureUint32Slice(&bandScratch.cwrsU, 256)
 	bandScratch.hadamardTmpNorm = ensureNormSliceNoClear(&bandScratch.hadamardTmpNorm, maxBandWidth*16)
