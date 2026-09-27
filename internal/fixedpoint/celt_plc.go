@@ -739,20 +739,21 @@ func (d *CELTDecoder) concealLost(frameSize int) ([][]int32, int) {
 
 // DecodeLost ports celt_decode_lost (celt/celt_decoder.c, FIXED_POINT, non-QEXT,
 // non-DEEP_PLC) followed by deemphasis, producing one concealed frame. It is the
-// data==NULL || len<=1 path of the decoder. frameSize is the per-channel sample
-// count; out receives channels*frameSize interleaved int16 PCM. Returns the
+// data==NULL || len<=1 path of the decoder. coreFrameSize is the per-channel
+// count at 48 kHz; out receives channels*(coreFrameSize/downsample) interleaved
+// int16 PCM. Returns the
 // per-channel sample count concealed.
-func (d *CELTDecoder) DecodeLost(frameSize int, out []int16) int {
-	outSyn, N := d.concealLost(frameSize)
+func (d *CELTDecoder) DecodeLost(coreFrameSize int, out []int16) int {
+	outSyn, N := d.concealLost(coreFrameSize)
 	C := d.channels
 
-	// deemphasis(out_syn, pcm, N, CC, downsample=1, preemph, preemph_memD, 0).
-	resPCM := d.resScratch(C * N)
-	Deemphasis(outSyn, resPCM, staticMDCT48000Preemph0, d.preemphMemD, N, 1, false)
+	outSamples := N / d.downsample
+	resPCM := d.resScratch(C * outSamples)
+	Deemphasis(outSyn, resPCM, staticMDCT48000Preemph0, d.preemphMemD, N, d.downsample, false)
 	for i := range resPCM {
 		out[i] = Res2Int16(resPCM[i])
 	}
-	return frameSize
+	return outSamples
 }
 
 // DecodeLostAccum ports the hybrid CELT-layer concealment of a lost frame: it
@@ -819,7 +820,7 @@ func (d *CELTDecoder) decodeLostNoise(N, LM, lossDuration int, decodeMem, outSyn
 	CeltSynthesis(d.mdct, d.window, d.eBands,
 		nbEBands, celtShortMdctSize, celtMaxLM, overlap,
 		X, outSyn, d.oldBandE,
-		start, effEnd, C, C, LM, 1, false, false)
+		start, effEnd, C, C, LM, d.downsample, false, false)
 
 	for c := 0; c < C; c++ {
 		pp := imax(d.postfilterPeriod, celtCombFilterMinPeriod)

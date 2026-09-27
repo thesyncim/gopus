@@ -380,7 +380,9 @@ func (s *SILKPLCState) UpdateFromGoodFrame(
 			if ltpGainQ14 > 0 {
 				scaleQ10 := (vPitchGainStartMinQ14 << 10) / ltpGainQ14
 				for i := range s.LTPCoefQ14 {
-					s.LTPCoefQ14[i] = int16((int32(s.LTPCoefQ14[i]) * scaleQ10) >> 10)
+					// silk/PLC.c uses silk_SMULBB: both operands are signed
+					// 16-bit, including a scale that exceeds int16's range.
+					s.LTPCoefQ14[i] = int16((int32(s.LTPCoefQ14[i]) * int32(int16(scaleQ10))) >> 10)
 				}
 			}
 		} else if ltpGainQ14 > vPitchGainStartMaxQ14 {

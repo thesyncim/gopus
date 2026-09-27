@@ -69,12 +69,6 @@ func (d *Decoder) celtDecodeLostFixedAPIRate(apiFrameSize int) bool {
 	if !d.fixedPacketActive || d.fixedCELT == nil {
 		return false
 	}
-	// The integer celt_decode_lost concealment runs the synthesis and deemphasis
-	// at the 48 kHz core rate only; sub-48k output decimation is not reproduced
-	// on the loss path, so decline there and let the float conversion conceal.
-	if int(d.sampleRate) != 48000 {
-		return false
-	}
 	channels := int(d.channels)
 
 	// celt_decode_lost retains the band range (st->start / st->end) set by the
@@ -82,7 +76,8 @@ func (d *Decoder) celtDecodeLostFixedAPIRate(apiFrameSize int) bool {
 	needed := apiFrameSize * channels
 
 	int16Out := d.fixedCELTScratch(needed)
-	d.fixedCELT.DecodeLost(apiFrameSize, int16Out)
+	coreFrameSize := apiFrameSize * (48000 / int(d.sampleRate))
+	d.fixedCELT.DecodeLost(coreFrameSize, int16Out)
 	res := d.fixedCELT.LastRes()
 
 	d.appendFixedOutput(int16Out[:needed], res[:needed])
@@ -93,12 +88,12 @@ func (d *Decoder) celtDecodeLostFixedAPIRate(apiFrameSize int) bool {
 // path can conceal the in-flight lost hybrid frame bit-exact. It mirrors the
 // prepareFixedHybrid gating: an active integer packet, the integer CELT decoder
 // already primed by a prior received hybrid frame (so its cross-frame state is
-// the same celt_dec libopus reuses across the loss), and the 48 kHz API rate
-// (the integer concealment synthesis/deemphasis runs at the 48 kHz core only;
-// sub-48k output decimation on the loss path is not reproduced). When false the
+// the same celt_dec libopus reuses across the loss). Synthesis runs at the
+// 48 kHz core rate and deemphasis emits the configured API rate. Rates below
+// 16 kHz use the same float lowband path as prepareFixedHybrid. When false the
 // caller marks the packet unhandled and the float PLC conversion is used.
 func (d *Decoder) fixedHybridLostApplicable() bool {
-	return d.fixedPacketActive && d.fixedCELT != nil && int(d.sampleRate) == 48000
+	return d.fixedPacketActive && d.fixedCELT != nil && int(d.sampleRate) >= 16000
 }
 
 // armFixedHybridLost arms the SILK PLC int16-lowband capture for a lost hybrid
