@@ -49,11 +49,17 @@ func QEXTRefPath(elem ...string) string {
 	return filepath.Join(append(base, elem...)...)
 }
 
-// FixedRefPath returns a path under the pinned fixed-point (--enable-fixed-point)
-// libopus reference tree. Its config.h defines FIXED_POINT, so C oracle helpers
-// built against it exercise the integer CELT/SILK kernels.
+// FixedRefPath returns a FIXED_POINT tree paired with the current Go build.
 func FixedRefPath(elem ...string) string {
-	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + "-fixed"}
+	variant, err := libopustooling.ResolveLibopusFixedReferenceVariant()
+	if err != nil {
+		panic(err)
+	}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
 	return filepath.Join(append(base, elem...)...)
 }
 

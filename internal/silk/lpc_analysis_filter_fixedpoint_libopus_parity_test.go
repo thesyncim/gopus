@@ -4,29 +4,15 @@ package silk
 
 import (
 	"math/rand"
-	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 const (
 	libopusSILKFixedLPCInputMagic  = "GSFI"
 	libopusSILKFixedLPCOutputMagic = "GSFO"
 )
-
-// fixedRefPath returns a path under the pinned --enable-fixed-point libopus
-// reference tree (tmp_check/opus-<version>-fixed). The SILK fixed-point oracle
-// is built and linked against this FIXED_POINT libopus, independent of the
-// shared float/qext reference machinery.
-func fixedRefPath(elem ...string) string {
-	_, file, _, _ := runtime.Caller(0)
-	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-	base := []string{repoRoot, "tmp_check", "opus-" + libopustooling.DefaultVersion + "-fixed"}
-	return filepath.Join(append(base, elem...)...)
-}
 
 type silkFixedLPCAnalysisCase struct {
 	name string

@@ -401,17 +401,17 @@ ensure-libopus:
 ensure-libopus-qext:
 	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_QEXT=1 ./tools/ensure_libopus.sh
 
-# Ensure tmp_check/opus-$(LIBOPUS_VERSION)-fixed/opus_demo exists, built with
-# --enable-fixed-point (config.h defines FIXED_POINT). This is the oracle for
-# the gopus_fixed_point integer CELT/SILK kernels.
+# Build both validated FIXED_POINT instruction variants. Helpers choose the
+# fixed-scalar or fixed-simd tree to match the active Go build.
 ensure-libopus-fixed:
-	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_FIXED=1 ./tools/ensure_libopus.sh
+	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_FIXED_SCALAR=1 ./tools/ensure_libopus.sh
+	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_FIXED_SIMD=1 ./tools/ensure_libopus.sh
 
 # Bit-exact parity for the gopus_fixed_point integer kernels against the
 # --enable-fixed-point libopus oracle.
 test-fixedpoint-parity: ensure-libopus-fixed
-	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
-		go test -tags 'gopus_fixed_point gopus_libopus_oracle' -count=1 ./internal/fixedpoint/...
+	$(GO_WORK_ENV) GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+		$(GO) test -tags 'gopus_fixed_point gopus_libopus_oracle' -count=1 ./internal/fixedpoint/...
 
 # Ensure tmp_check/opus-$(LIBOPUS_VERSION)-custom/opus_demo exists, built with
 # --enable-custom-modes (config.h defines CUSTOM_MODES). This is the oracle for

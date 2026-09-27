@@ -737,12 +737,22 @@ func writePairedReferenceTree(t *testing.T, root string, variant LibopusReferenc
 	cflags := LibopusScalarCFLAGS
 	custom := "0"
 	qext := "0"
+	fixed := "0"
 	switch variant {
 	case LibopusReferenceScalar:
 	case LibopusReferenceSIMD:
 		config = testSIMDConfig(goarch)
 		configure = "--enable-static --disable-shared --enable-rtcd --enable-intrinsics"
 		cflags = LibopusBaseCFLAGS
+	case LibopusReferenceFixedScalar:
+		config = "#define FIXED_POINT 1\n#define ENABLE_RES24 1\n"
+		configure = "--enable-static --disable-shared --enable-fixed-point --disable-asm --disable-rtcd --disable-intrinsics"
+		fixed = "1"
+	case LibopusReferenceFixedSIMD:
+		config = "#define FIXED_POINT 1\n#define ENABLE_RES24 1\n" + testSIMDConfig(goarch)
+		configure = "--enable-static --disable-shared --enable-fixed-point --enable-rtcd --enable-intrinsics"
+		cflags = LibopusBaseCFLAGS
+		fixed = "1"
 	case LibopusReferenceQEXTScalar:
 		config = "#define ENABLE_QEXT 1\n"
 		configure = "--enable-static --disable-shared --enable-qext --disable-asm --disable-rtcd --disable-intrinsics"
@@ -769,7 +779,7 @@ func writePairedReferenceTree(t *testing.T, root string, variant LibopusReferenc
 		"gopus libopus helper build v5",
 		"version=" + DefaultVersion,
 		"qext=" + qext,
-		"fixed=0",
+		"fixed=" + fixed,
 		"custom=" + custom,
 		"host_os=" + testHostOS(goos),
 		"host_arch=" + testHostArch(goarch),

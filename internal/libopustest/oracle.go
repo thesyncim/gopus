@@ -131,6 +131,9 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	if cfg.ForceScalarRef && (cfg.SIMDRef || cfg.FixedRef || cfg.QEXTRef) {
 		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("ForceScalarRef cannot be combined with SIMD, fixed-point, or QEXT references")}
 	}
+	if cfg.FixedRef && cfg.CustomRef {
+		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("fixed-point reference cannot be combined with custom references")}
+	}
 	if cfg.QEXTRef && (cfg.FixedRef || cfg.CustomRef) {
 		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("QEXT reference cannot be combined with fixed-point or custom references")}
 	}
@@ -151,8 +154,18 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 			refVariant = libopustooling.LibopusReferenceQEXTScalar
 		}
 	}
+	if cfg.FixedRef {
+		if cfg.SIMDRef && pairedVariant != libopustooling.LibopusReferenceSIMD {
+			return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("fixed SIMD helper conflicts with the scalar Go reference lane")}
+		}
+		if refVariant == libopustooling.LibopusReferenceSIMD {
+			refVariant = libopustooling.LibopusReferenceFixedSIMD
+		} else {
+			refVariant = libopustooling.LibopusReferenceFixedScalar
+		}
+	}
 	refDir := helperRefDir(cfg, refVariant)
-	scalarRef := refVariant == libopustooling.LibopusReferenceScalar || refVariant == libopustooling.LibopusReferenceQEXTScalar
+	scalarRef := refVariant == libopustooling.LibopusReferenceScalar || refVariant == libopustooling.LibopusReferenceQEXTScalar || refVariant == libopustooling.LibopusReferenceFixedScalar
 	ensureRef := libopustooling.EnsureLibopusScalar
 	flavor := "scalar"
 	if refVariant == libopustooling.LibopusReferenceSIMD {
@@ -168,8 +181,12 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 		}
 	}
 	if cfg.FixedRef {
-		ensureRef = libopustooling.EnsureLibopusFixed
-		flavor = "fixed"
+		ensureRef = libopustooling.EnsureLibopusFixedScalar
+		flavor = "fixed-scalar"
+		if refVariant == libopustooling.LibopusReferenceFixedSIMD {
+			ensureRef = libopustooling.EnsureLibopusFixedSIMD
+			flavor = "fixed-simd"
+		}
 	}
 	if cfg.CustomRef {
 		ensureRef = libopustooling.EnsureLibopusCustom
@@ -179,7 +196,7 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 			flavor = "custom-scalar"
 		}
 	}
-	if cfg.SIMDRef && !cfg.QEXTRef {
+	if cfg.SIMDRef && !cfg.QEXTRef && !cfg.FixedRef {
 		ensureRef = libopustooling.EnsureLibopusSIMD
 		flavor = "simd"
 	}
@@ -206,12 +223,10 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 			validateVariant = libopustooling.LibopusReferenceCustomScalar
 		}
 	}
-	if !cfg.FixedRef {
+	if err := libopustooling.ValidateLibopusReferenceBuild(refDir, validateVariant, libopustooling.DefaultVersion); err != nil {
+		ensureRef(libopustooling.DefaultVersion, []string{root})
 		if err := libopustooling.ValidateLibopusReferenceBuild(refDir, validateVariant, libopustooling.DefaultVersion); err != nil {
-			ensureRef(libopustooling.DefaultVersion, []string{root})
-			if err := libopustooling.ValidateLibopusReferenceBuild(refDir, validateVariant, libopustooling.DefaultVersion); err != nil {
-				return "", err
-			}
+			return "", err
 		}
 	}
 	if err := validateHelperReferenceArchives(cfg.Libs, refDir, refVariant); err != nil {
@@ -253,7 +268,7 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 		args = append(args, "-ffunction-sections", "-fdata-sections")
 	}
 	args = append(args, cfg.CFlags...)
-	if scalarRef && !cfg.FixedRef {
+	if scalarRef {
 		args = append(args, strings.Fields(libopustooling.LibopusScalarCVectorizationFlags)...)
 	}
 	args = append(args, "-I", refDir, "-I", filepath.Join(refDir, "include"))
@@ -265,7 +280,7 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	}
 	// An explicit SIMD reference keeps its platform dispatch even when other
 	// tests in the same Go build use the paired scalar reference.
-	if cfg.ForceScalarRef || (scalarRef && !cfg.SIMDRef && !cfg.FixedRef) {
+	if cfg.ForceScalarRef || (scalarRef && !cfg.SIMDRef) {
 		// libopus's config.h has no include guard, so each compiled .c re-defines
 		// the x86 feature macros (OPUS_X86_MAY_HAVE_SSE4_1, ...) -- clearing them
 		// via -include is undone. Instead pre-define the SIMD headers' own include
@@ -349,7 +364,17 @@ func helperNeedsConfig(cflags []string) bool {
 
 func helperRefDir(cfg CHelperConfig, pairedVariant libopustooling.LibopusReferenceVariant) string {
 	if cfg.FixedRef {
-		return FixedRefPath()
+		switch pairedVariant {
+		case libopustooling.LibopusReferenceScalar:
+			pairedVariant = libopustooling.LibopusReferenceFixedScalar
+		case libopustooling.LibopusReferenceSIMD:
+			pairedVariant = libopustooling.LibopusReferenceFixedSIMD
+		}
+		suffix, err := libopustooling.LibopusReferenceSourceSuffix(pairedVariant)
+		if err != nil {
+			panic(err)
+		}
+		return filepath.Join(repoRoot(), "tmp_check", "opus-"+libopustooling.DefaultVersion+suffix)
 	}
 	if cfg.QEXTRef {
 		switch pairedVariant {

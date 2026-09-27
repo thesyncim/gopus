@@ -885,7 +885,8 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-fixed
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-fixed-scalar
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-fixed-simd
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: libopus-fixed-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
@@ -1061,7 +1062,8 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-fixed
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-fixed-scalar
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-fixed-simd
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: libopus-fixed-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 

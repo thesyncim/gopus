@@ -19,6 +19,8 @@ type LibopusReferenceVariant string
 const (
 	LibopusReferenceScalar       LibopusReferenceVariant = "scalar"
 	LibopusReferenceSIMD         LibopusReferenceVariant = "simd"
+	LibopusReferenceFixedScalar  LibopusReferenceVariant = "fixed-scalar"
+	LibopusReferenceFixedSIMD    LibopusReferenceVariant = "fixed-simd"
 	LibopusReferenceQEXTScalar   LibopusReferenceVariant = "qext-scalar"
 	LibopusReferenceQEXTSIMD     LibopusReferenceVariant = "qext-simd"
 	LibopusReferenceCustomScalar LibopusReferenceVariant = "custom-scalar"
@@ -65,6 +67,19 @@ func ResolveLibopusQEXTReferenceVariant() (LibopusReferenceVariant, error) {
 	return LibopusReferenceQEXTScalar, nil
 }
 
+// ResolveLibopusFixedReferenceVariant selects FIXED_POINT with the current
+// Go build's scalar or SIMD instruction lane.
+func ResolveLibopusFixedReferenceVariant() (LibopusReferenceVariant, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	if variant == LibopusReferenceSIMD {
+		return LibopusReferenceFixedSIMD, nil
+	}
+	return LibopusReferenceFixedScalar, nil
+}
+
 func resolveLibopusReferenceVariantFor(goarch string, goSIMD bool, override string) (LibopusReferenceVariant, error) {
 	want := LibopusReferenceScalar
 	if goSIMD && (goarch == "arm64" || goarch == "amd64") {
@@ -97,6 +112,10 @@ func LibopusReferenceSourceSuffix(variant LibopusReferenceVariant) (string, erro
 		return "-scalar", nil
 	case LibopusReferenceSIMD:
 		return "-simd", nil
+	case LibopusReferenceFixedScalar:
+		return "-fixed-scalar", nil
+	case LibopusReferenceFixedSIMD:
+		return "-fixed-simd", nil
 	case LibopusReferenceQEXTScalar:
 		return "-qext-scalar", nil
 	case LibopusReferenceQEXTSIMD:
@@ -127,16 +146,21 @@ func validateLibopusReferenceBuildForPlatform(refDir string, variant LibopusRefe
 	wantConfigure := "--enable-static --disable-shared"
 	wantCustom := "0"
 	wantQEXT := "0"
+	wantFixed := "0"
 	wantCFLAGS := LibopusBaseCFLAGS
 	if variant == LibopusReferenceQEXTScalar || variant == LibopusReferenceQEXTSIMD {
 		wantConfigure += " --enable-qext"
 		wantQEXT = "1"
 	}
+	if variant == LibopusReferenceFixedScalar || variant == LibopusReferenceFixedSIMD {
+		wantConfigure += " --enable-fixed-point"
+		wantFixed = "1"
+	}
 	if variant == LibopusReferenceCustomScalar || variant == LibopusReferenceCustomSIMD {
 		wantConfigure += " --enable-custom-modes"
 		wantCustom = "1"
 	}
-	if variant == LibopusReferenceScalar || variant == LibopusReferenceCustomScalar || variant == LibopusReferenceQEXTScalar {
+	if variant == LibopusReferenceScalar || variant == LibopusReferenceCustomScalar || variant == LibopusReferenceQEXTScalar || variant == LibopusReferenceFixedScalar {
 		wantCFLAGS = LibopusScalarCFLAGS
 		wantConfigure += " --disable-asm --disable-rtcd --disable-intrinsics"
 	} else {
@@ -151,7 +175,7 @@ func validateLibopusReferenceBuildForPlatform(refDir string, variant LibopusRefe
 		return referenceConfigErrorf("invalid libopus build stamp in %s", refDir)
 	}
 	wantFields := map[string]string{
-		"version": version, "qext": wantQEXT, "fixed": "0", "custom": wantCustom,
+		"version": version, "qext": wantQEXT, "fixed": wantFixed, "custom": wantCustom,
 		"configure": wantConfigure, "CFLAGS": wantCFLAGS, "CPPFLAGS": "", "LDFLAGS": "",
 	}
 	for key, want := range wantFields {
@@ -178,8 +202,18 @@ func validateLibopusReferenceBuildForPlatform(refDir string, variant LibopusRefe
 	if gotQEXT := configDefinesMacro(string(config), "ENABLE_QEXT"); gotQEXT != (wantQEXT == "1") {
 		return referenceConfigErrorf("libopus %s config in %s: ENABLE_QEXT=%t, want %s", variant, refDir, gotQEXT, wantQEXT)
 	}
-	if configDefinesMacro(string(config), "FIXED_POINT") {
-		return referenceConfigErrorf("libopus %s config in %s defines FIXED_POINT for a float reference", variant, refDir)
+	if gotFixed := configDefinesMacro(string(config), "FIXED_POINT"); gotFixed != (wantFixed == "1") {
+		return referenceConfigErrorf("libopus %s config in %s: FIXED_POINT=%t, want %s", variant, refDir, gotFixed, wantFixed)
+	}
+	if wantFixed == "1" {
+		if !configDefinesMacro(string(config), "ENABLE_RES24") {
+			return referenceConfigErrorf("libopus %s config in %s lacks ENABLE_RES24", variant, refDir)
+		}
+		for _, macro := range []string{"ENABLE_DRED", "ENABLE_DEEP_PLC", "ENABLE_OSCE", "ENABLE_OSCE_BWE", "ENABLE_OSCE_TRAINING_DATA"} {
+			if configDefinesMacro(string(config), macro) {
+				return referenceConfigErrorf("libopus %s config in %s has unexpected %s", variant, refDir, macro)
+			}
+		}
 	}
 	if gotCustom := configDefinesMacro(string(config), "CUSTOM_MODES"); gotCustom != (wantCustom == "1") {
 		return referenceConfigErrorf("libopus %s config in %s: CUSTOM_MODES=%t, want %s", variant, refDir, gotCustom, wantCustom)
@@ -233,9 +267,9 @@ func configDefinesMacro(config, macro string) bool {
 
 func validateLibopusConfigSIMD(config string, variant LibopusReferenceVariant, goarch string) error {
 	switch variant {
-	case LibopusReferenceQEXTScalar:
+	case LibopusReferenceQEXTScalar, LibopusReferenceFixedScalar:
 		variant = LibopusReferenceScalar
-	case LibopusReferenceQEXTSIMD, LibopusReferenceCustomSIMD:
+	case LibopusReferenceQEXTSIMD, LibopusReferenceCustomSIMD, LibopusReferenceFixedSIMD:
 		variant = LibopusReferenceSIMD
 	}
 	defines := make(map[string]bool)
@@ -748,10 +782,14 @@ func EnsureLibopusQEXTSIMD(version string, roots []string) bool {
 	return ensureLibopusVariant(version, roots, "qext-simd")
 }
 
-// EnsureLibopusFixed invokes tools/ensure_libopus.sh with ENABLE_FIXED enabled
-// (libopus configured with --enable-fixed-point) from the first matching root.
-func EnsureLibopusFixed(version string, roots []string) bool {
-	return ensureLibopusVariant(version, roots, "fixed")
+// EnsureLibopusFixedScalar builds the FIXED_POINT generic-C reference.
+func EnsureLibopusFixedScalar(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "fixed-scalar")
+}
+
+// EnsureLibopusFixedSIMD builds the FIXED_POINT RTCD/intrinsics reference.
+func EnsureLibopusFixedSIMD(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "fixed-simd")
 }
 
 // EnsureLibopusCustom invokes tools/ensure_libopus.sh with ENABLE_CUSTOM enabled
@@ -826,8 +864,10 @@ func ensureLibopusVariant(version string, roots []string, variant string) bool {
 			env = append(env, "LIBOPUS_ENABLE_QEXT_SCALAR=1")
 		case "qext-simd":
 			env = append(env, "LIBOPUS_ENABLE_QEXT_SIMD=1")
-		case "fixed":
-			env = append(env, "LIBOPUS_ENABLE_FIXED=1")
+		case "fixed-scalar":
+			env = append(env, "LIBOPUS_ENABLE_FIXED_SCALAR=1")
+		case "fixed-simd":
+			env = append(env, "LIBOPUS_ENABLE_FIXED_SIMD=1")
 		case "custom":
 			env = append(env, "LIBOPUS_ENABLE_CUSTOM=1")
 		case "custom-scalar":
@@ -883,6 +923,10 @@ func findOrEnsureReferenceTool(version string, roots []string, tool string, vari
 		ensure = EnsureLibopusQEXTScalar
 	case LibopusReferenceQEXTSIMD:
 		ensure = EnsureLibopusQEXTSIMD
+	case LibopusReferenceFixedScalar:
+		ensure = EnsureLibopusFixedScalar
+	case LibopusReferenceFixedSIMD:
+		ensure = EnsureLibopusFixedSIMD
 	}
 	ensure(version, roots)
 	return findValidatedReferenceTool(version, roots, tool, variant, goos, goarch)
