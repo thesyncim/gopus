@@ -85,6 +85,18 @@ func TestHelperRefDirSelectsQEXTTree(t *testing.T) {
 	}
 }
 
+func TestHelperRefDirSelectsFixedQEXTTree(t *testing.T) {
+	defaultDir := helperRefDir(CHelperConfig{}, libopustooling.LibopusReferenceScalar)
+	combinedScalarDir := helperRefDir(CHelperConfig{FixedQEXTRef: true}, libopustooling.LibopusReferenceScalar)
+	if combinedScalarDir == defaultDir || filepath.Base(combinedScalarDir) != "opus-1.6.1-fixed-qext-scalar" {
+		t.Fatalf("fixed-QEXT scalar helper ref dir=%q", combinedScalarDir)
+	}
+	combinedSIMDDir := helperRefDir(CHelperConfig{FixedQEXTRef: true}, libopustooling.LibopusReferenceSIMD)
+	if filepath.Base(combinedSIMDDir) != "opus-1.6.1-fixed-qext-simd" {
+		t.Fatalf("fixed-QEXT SIMD helper ref dir=%q", combinedSIMDDir)
+	}
+}
+
 func TestHelperRefDirSelectsScalarTreeWhenRequested(t *testing.T) {
 	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "1")
 	defaultDir := helperRefDir(CHelperConfig{}, libopustooling.LibopusReferenceScalar)
@@ -187,6 +199,12 @@ func TestHelperConfigDigestTracksBuildInputs(t *testing.T) {
 	cfg.QEXTRef = true
 	if got := helperConfigDigest(cfg, refDir, srcPath); got == base {
 		t.Fatal("digest did not change when QEXT reference tree changed")
+	}
+	cfg.QEXTRef = false
+	base = helperConfigDigest(cfg, refDir, srcPath)
+	cfg.FixedQEXTRef = true
+	if got := helperConfigDigest(cfg, refDir, srcPath); got == base {
+		t.Fatal("digest did not change when fixed-QEXT reference tree changed")
 	}
 }
 

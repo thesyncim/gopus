@@ -63,6 +63,21 @@ func FixedRefPath(elem ...string) string {
 	return filepath.Join(append(base, elem...)...)
 }
 
+// FixedQEXTRefPath returns a FIXED_POINT + ENABLE_QEXT tree paired with the
+// current Go build's scalar or SIMD instruction lane.
+func FixedQEXTRefPath(elem ...string) string {
+	variant, err := libopustooling.ResolveLibopusFixedQEXTReferenceVariant()
+	if err != nil {
+		panic(err)
+	}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
+	return filepath.Join(append(base, elem...)...)
+}
+
 // SIMDRefPath returns a path under the SIMD/RTCD-enabled libopus reference tree
 // (built by `make ensure-libopus-simd`). Pair it with a Go SIMD build for
 // build-wide comparisons, or use it for a kernel test that invokes the matching

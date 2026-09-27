@@ -23,6 +23,9 @@
  *   IN v3 uses u32 raw sample words and a per-frame public input format.
  *   IN v4 is v3 with u32(configured_lsb_depth) after input_format.
  *   IN v5 appends u32(expert_frame_duration) after configured_lsb_depth.
+ *   IN v6 appends per-frame u32(force_mode) and u32(bandwidth) controls after
+ *       the per-frame input-format array, preserving a persistent encoder while
+ *       changing forced modes between calls.
  *
  * force_mode values map to opus_private.h:
  *   1000 = MODE_SILK_ONLY, 1001 = MODE_HYBRID, 1002 = MODE_CELT_ONLY,
@@ -111,7 +114,7 @@ int main(void) {
     return 1;
   }
   uint32_t version;
-  if (!read_u32(&version) || (version < 1 || version > 5)) {
+  if (!read_u32(&version) || (version < 1 || version > 6)) {
     fprintf(stderr, "bad input version %u\n", version);
     return 1;
   }
@@ -140,7 +143,7 @@ int main(void) {
     fprintf(stderr, "truncated v4 LSB depth\n");
     return 1;
   }
-  if (version == 5 && !read_u32(&expert_frame_duration)) {
+  if (version >= 5 && !read_u32(&expert_frame_duration)) {
     fprintf(stderr, "truncated v5 expert frame duration\n");
     return 1;
   }
@@ -159,7 +162,7 @@ int main(void) {
   }
   if (max_packet_bytes == 0 || max_packet_bytes > MAX_PACKET_BYTES ||
       (version == 2 && input_format != 0) || (version >= 3 && input_format != 3) ||
-      (version == 4 && (lsb_depth < 8 || lsb_depth > 24)) ||
+      (version >= 4 && lsb_depth != 0 && (lsb_depth < 8 || lsb_depth > 24)) ||
       (application != OPUS_APPLICATION_AUDIO && application != OPUS_APPLICATION_VOIP &&
        application != OPUS_APPLICATION_RESTRICTED_LOWDELAY)) {
     fprintf(stderr, "invalid v2 application/cap/format\n");
@@ -215,6 +218,8 @@ int main(void) {
   }
 
   uint32_t *reset_before = NULL;
+  uint32_t *frame_force_mode = NULL;
+  uint32_t *frame_bandwidth = NULL;
   if (version >= 2) {
     reset_before = (uint32_t *)calloc((size_t)num_frames, sizeof(uint32_t));
     if (reset_before == NULL) {
@@ -244,20 +249,38 @@ int main(void) {
       }
     }
   }
+  if (version >= 6) {
+    frame_force_mode = (uint32_t *)calloc((size_t)num_frames, sizeof(uint32_t));
+    frame_bandwidth = (uint32_t *)calloc((size_t)num_frames, sizeof(uint32_t));
+    if (frame_force_mode == NULL || frame_bandwidth == NULL) {
+      fprintf(stderr, "per-frame controls alloc failed\n");
+      free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before);
+      free(raw); free(pcm_float); free(pcm);
+      return 1;
+    }
+    for (uint32_t i = 0; i < num_frames; i++) {
+      if (!read_u32(&frame_force_mode[i]) || !read_u32(&frame_bandwidth[i])) {
+        fprintf(stderr, "truncated per-frame controls at %u\n", i);
+        free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before);
+        free(raw); free(pcm_float); free(pcm);
+        return 1;
+      }
+    }
+  }
 
   int err = OPUS_OK;
   OpusEncoder *enc = opus_encoder_create((opus_int32)sample_rate, (int)channels,
                                          (int)application, &err);
   if (enc == NULL || err != OPUS_OK) {
     fprintf(stderr, "opus_encoder_create failed: %d\n", err);
-    free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
+    free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
     return 1;
   }
 
 #define CTL(call) do { \
     if (opus_encoder_ctl(enc, call) != OPUS_OK) { \
       fprintf(stderr, "ctl failed: %s\n", #call); \
-      opus_encoder_destroy(enc); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm); return 1; \
+      opus_encoder_destroy(enc); free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm); return 1; \
     } \
   } while (0)
 
@@ -289,7 +312,7 @@ int main(void) {
       packet_status == NULL || packet_ranges == NULL) {
     fprintf(stderr, "alloc failed\n");
     free(pkt_buf); free(packets); free(packet_lens); free(packet_status); free(packet_ranges);
-    opus_encoder_destroy(enc); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
+    opus_encoder_destroy(enc); free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
     return 1;
   }
 
@@ -307,6 +330,18 @@ int main(void) {
         fprintf(stderr, "reassert force_mode failed at frame %u\n", f);
         goto fail;
       }
+    }
+    if (version >= 6 && frame_bandwidth[f] != 0) {
+      if (opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH((opus_int32)frame_bandwidth[f])) != OPUS_OK ||
+          opus_encoder_ctl(enc, OPUS_SET_MAX_BANDWIDTH((opus_int32)frame_bandwidth[f])) != OPUS_OK) {
+        fprintf(stderr, "per-frame bandwidth ctl failed at frame %u\n", f);
+        goto fail;
+      }
+    }
+    if (version >= 6 && frame_force_mode[f] != 0 &&
+        opus_encoder_ctl(enc, OPUS_SET_FORCE_MODE((opus_int32)frame_force_mode[f])) != OPUS_OK) {
+      fprintf(stderr, "per-frame force_mode ctl failed at frame %u\n", f);
+      goto fail;
     }
     int n;
     if (version >= 3) {
@@ -371,12 +406,12 @@ int main(void) {
 
   for (uint32_t i = 0; i < got; i++) free(packets[i]);
   free(packets); free(packet_lens); free(packet_status); free(packet_ranges); free(pkt_buf);
-  opus_encoder_destroy(enc); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
+  opus_encoder_destroy(enc); free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
   return 0;
 
 fail:
   for (uint32_t i = 0; i < got; i++) free(packets[i]);
   free(packets); free(packet_lens); free(packet_status); free(packet_ranges); free(pkt_buf);
-  opus_encoder_destroy(enc); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
+  opus_encoder_destroy(enc); free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
   return 1;
 }

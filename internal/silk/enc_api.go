@@ -135,6 +135,10 @@ func (s *PacketEncoder) VariableHPSmth1Q15() int32 {
 // without coding; re may then be nil. activity is the Opus-level voice activity
 // decision (VADNoDecision, VADNoActivity or active).
 func (s *PacketEncoder) Encode(ctl *EncControl, samplesIn []float32, nSamplesIn int, re *rangecoding.Encoder, prefill, activity int) (int32, error) {
+	return s.encode(ctl, samplesIn, nil, nSamplesIn, re, prefill, activity)
+}
+
+func (s *PacketEncoder) encode(ctl *EncControl, samplesIn []float32, samplesResQ8 []int32, nSamplesIn int, re *rangecoding.Encoder, prefill, activity int) (int32, error) {
 	nChannelsAPI := int(ctl.NChannelsAPI)
 	nChannelsInternal := int(ctl.NChannelsInternal)
 	ctl.SwitchReady = false
@@ -235,7 +239,11 @@ func (s *PacketEncoder) Encode(ctl *EncControl, samplesIn []float32, nSamplesIn 
 			st1 := s.state[1]
 			id := st0.nFramesEncoded
 			for n := range in {
-				in[n] = opusmath.Float32ToInt16(samplesIn[2*n])
+				if silkFixedEncodeBuild && samplesResQ8 != nil {
+					in[n] = silkResQ8ToInt16(samplesResQ8[2*n])
+				} else {
+					in[n] = opusmath.Float32ToInt16(samplesIn[2*n])
+				}
 			}
 			// Make sure to start both resamplers from the same state when
 			// switching from mono to stereo.
@@ -247,14 +255,23 @@ func (s *PacketEncoder) Encode(ctl *EncControl, samplesIn []float32, nSamplesIn 
 
 			nSamplesToBuffer1 := min(st1.frameLength-st1.inputBufIx, 10*int32(nBlocksOf10ms)*st1.fsKHz)
 			for n := range in {
-				in[n] = opusmath.Float32ToInt16(samplesIn[2*n+1])
+				if silkFixedEncodeBuild && samplesResQ8 != nil {
+					in[n] = silkResQ8ToInt16(samplesResQ8[2*n+1])
+				} else {
+					in[n] = opusmath.Float32ToInt16(samplesIn[2*n+1])
+				}
 			}
 			st1.resampler.Resample(st1.inputBuf[st1.inputBufIx+2:st1.inputBufIx+2+nSamplesToBuffer1], in)
 			st1.inputBufIx += nSamplesToBuffer1
 		case nChannelsAPI == 2 && nChannelsInternal == 1:
 			// Combine left and right channels before resampling.
 			for n := range in {
-				sum := int32(opusmath.Float32ToInt16(samplesIn[2*n] + samplesIn[2*n+1]))
+				var sum int32
+				if silkFixedEncodeBuild && samplesResQ8 != nil {
+					sum = int32(silkResQ8ToInt16(samplesResQ8[2*n] + samplesResQ8[2*n+1]))
+				} else {
+					sum = int32(opusmath.Float32ToInt16(samplesIn[2*n] + samplesIn[2*n+1]))
+				}
 				in[n] = int16(silkRSHIFT_ROUND(sum, 1))
 			}
 			st0.resampler.Resample(st0.inputBuf[st0.inputBufIx+2:st0.inputBufIx+2+nSamplesToBuffer], in)
@@ -272,12 +289,20 @@ func (s *PacketEncoder) Encode(ctl *EncControl, samplesIn []float32, nSamplesIn 
 			st0.inputBufIx += nSamplesToBuffer
 		default:
 			for n := range in {
-				in[n] = opusmath.Float32ToInt16(samplesIn[n])
+				if silkFixedEncodeBuild && samplesResQ8 != nil {
+					in[n] = silkResQ8ToInt16(samplesResQ8[n])
+				} else {
+					in[n] = opusmath.Float32ToInt16(samplesIn[n])
+				}
 			}
 			st0.resampler.Resample(st0.inputBuf[st0.inputBufIx+2:st0.inputBufIx+2+nSamplesToBuffer], in)
 			st0.inputBufIx += nSamplesToBuffer
 		}
-		samplesIn = samplesIn[nSamplesFromInput*nChannelsAPI:]
+		if silkFixedEncodeBuild && samplesResQ8 != nil {
+			samplesResQ8 = samplesResQ8[nSamplesFromInput*nChannelsAPI:]
+		} else {
+			samplesIn = samplesIn[nSamplesFromInput*nChannelsAPI:]
+		}
 		nSamplesIn -= nSamplesFromInput
 
 		// Default.
@@ -465,6 +490,20 @@ func (s *PacketEncoder) Encode(ctl *EncControl, samplesIn []float32, nSamplesIn 
 	}
 	ctl.SignalType, ctl.Offset = st0.lastEncodedSignalInfo()
 	return nBytesOut, nil
+}
+
+// silkResQ8ToInt16 ports RES2INT16(a) = SAT16(PSHR32(a, RES_SHIFT)) in
+// celt/arch.h for FIXED_POINT+ENABLE_RES24. PSHR32 adds 1<<(RES_SHIFT-1)
+// before the arithmetic shift.
+func silkResQ8ToInt16(sample int32) int16 {
+	value := (sample + 1<<7) >> 8
+	if value > 1<<15-1 {
+		return 1<<15 - 1
+	}
+	if value < -1<<15 {
+		return -1 << 15
+	}
+	return int16(value)
 }
 
 // updateAllowBandwidthSwitch updates the flag indicating if bandwidth switching

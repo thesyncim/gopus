@@ -7,19 +7,12 @@ import (
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
-// This file assembles the FIXED_POINT celt_encode_with_ec driver
-// (celt/celt_encoder.c) for the static 48000/960 custom mode, orchestrating the
-// already-ported integer kernels into a full frame encode that is bit-exact
-// with the reference MODE_ENCODE / MODE_ENCODE_SEQ oracles (the produced packet
-// bytes), for CBR, VBR and constrained-VBR (CVBR).
-//
-// Scope: a fresh or sequential encode with signalling disabled, matching a
-// celt_encoder_init + CELT_SET_SIGNALLING(0) encoder under OPUS_SET_VBR(0/1)
-// and OPUS_SET_VBR_CONSTRAINT(0/1). CELT_SET_ANALYSIS supplies the optional
-// per-frame AnalysisInfo consumed by the live Opus wrapper. It supports
-// the full-band path (start==0), the hybrid-CELT band subset (start>0), the LFE
-// path (st->lfe) and the surround energy_mask path (st->energy_mask). QEXT
-// remains out of scope.
+// This file ports the FIXED_POINT celt_encode_with_ec driver
+// (celt/celt_encoder.c) for the static 48000/960 custom mode. It orchestrates
+// integer CELT kernels for fresh and sequential CBR, VBR and constrained-VBR
+// encodes with signalling disabled. The driver handles pure CELT and Hybrid
+// band ranges, optional AnalysisInfo and SILKInfo controls, prediction and
+// coded-channel controls, LFE and surround energy masks. QEXT is unsupported.
 
 // spreadICDFEnc / trimICDFEnc mirror celt/celt.c spread_icdf[4] and trim_icdf[11].
 var spreadICDFEnc = []uint8{25, 23, 2, 0}
@@ -51,7 +44,7 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 	shortMdctSize := celtShortMdctSize
 	eBands := e.eBands
 	CC := e.channels
-	C := e.channels
+	C := int(e.streamChannels)
 	start := e.start
 	end := e.end
 	hybrid := start != 0
@@ -199,10 +192,9 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 	tfChan := 0
 	weakTransient := false
 	if e.complexity >= 1 && !e.lfe {
-		// allow_weak_transients = hybrid && effectiveBytes<15 && silk signalType!=2.
-		// The CELT-only encoder leaves silk_info.signalType at 0, so the type test
-		// holds whenever hybrid && effectiveBytes < 15.
-		allowWeak := hybrid && effectiveBytes < 15
+		// celt_encoder.c allows weak transients below 15 effective bytes unless
+		// SILK classifies the frame as voiced.
+		allowWeak := hybrid && effectiveBytes < 15 && e.silkSignalType != 2
 		ta := TransientAnalysis(in, N+overlap, CC, allowWeak, toneFreq, toneishness, sc)
 		isTransient = ta.IsTransient
 		tfEstimate = ta.TFEstimate
@@ -216,7 +208,7 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 
 	// run_prefilter: pitch/gain decision + comb-filter the time-domain in[].
 	enabled := ((e.lfe && nbAvailableBytes > 3) || nbAvailableBytes > 12*C) &&
-		!hybrid && !silence && tell+16 <= totalBits
+		!hybrid && !silence && tell+16 <= totalBits && !e.disablePrefilter
 	pfRes := e.runPrefilter(in, CC, N, overlap, enabled,
 		toneFreq, toneishness, tfEstimate, nbAvailableBytes)
 	pfOn := pfRes.PFOn
@@ -341,7 +333,7 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 			tfRes[i] = 1
 		}
 		tfSelect = 0
-	} else if hybrid && effectiveBytes < 15 {
+	} else if hybrid && effectiveBytes < 15 && e.silkSignalType != 2 {
 		// Low-bitrate hybrid forces 5 ms temporal resolution rather than 2.5 ms.
 		for i := 0; i < end; i++ {
 			tfRes[i] = 0
@@ -364,7 +356,7 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 		}
 	}
 	QuantCoarseEnergy(enc, bandLogE, e.oldBandE, errBuf, start, end, effEnd, nbEBands, C, LM,
-		totalBits, nbAvailableBytes, false, e.complexity >= 4, 0, e.lfe, &e.delayedIntra, sc)
+		totalBits, nbAvailableBytes, e.forceIntra, e.complexity >= 4, 0, e.lfe, &e.delayedIntra, sc)
 
 	TFEncode(start, end, isTransient, tfRes, LM, tfSelect, enc)
 
@@ -491,6 +483,14 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 				maxDepth, temporalVBRValue, nbEBands, e.lfe, e.energyMask != nil, surroundMasking, e.analysis)
 		} else {
 			target = baseTarget
+			// celt_encoder.c biases hybrid VBR from the SILK quantization
+			// offset before applying transient-based allocation.
+			if e.silkOffset < 100 {
+				target += 12 << bitRes >> (3 - LM)
+			}
+			if e.silkOffset > 100 {
+				target -= 18 << bitRes >> (3 - LM)
+			}
 			target += int(mult16x16Q14(int32(tfEstimate)-gconstQ(0.25, 14), int32(50<<bitRes)))
 			if tfEstimate > 11469 { // QCONST16(.7f,14)
 				target = imax(target, 50<<bitRes)

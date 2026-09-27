@@ -27,8 +27,10 @@ func fixedQ8OracleAnalysis(info AnalysisInfo) libopustest.CELTFixedQ8Analysis {
 func fixedQ8OracleFrame(enc *Encoder) libopustest.CELTFixedQ8Frame {
 	_, maxBytes, _ := enc.LastFixedCELTControls()
 	return libopustest.CELTFixedQ8Frame{
-		PCM:      append([]int32(nil), enc.LastFixedCELTInputQ8()...),
-		MaxBytes: maxBytes,
-		Analysis: fixedQ8OracleAnalysis(enc.LastFixedCELTAnalysis()),
+		PCM:           append([]int32(nil), enc.LastFixedCELTInputQ8()...),
+		MaxBytes:      maxBytes,
+		Analysis:      fixedQ8OracleAnalysis(enc.LastFixedCELTAnalysis()),
+		SetPrediction: true,
+		Prediction:    int32(enc.celtEncoder.Prediction()),
 	}
 }

@@ -38,3 +38,33 @@ func StereoFadeRes(pcm []int32, prevWidthQ14, widthQ14 int16, sampleRate int) {
 		pcm[2*i+1] = right + diff
 	}
 }
+
+// GainFadeRes24 applies src/opus_encoder.c:gain_fade to interleaved ENABLE_RES24
+// opus_res samples. samples is the current CELT frame after delay compensation;
+// channels is its interleaved channel count. The static 48 kHz CELT window and
+// Q15 products match the selected FIXED_POINT build.
+func GainFadeRes24(samples []int32, channels int, g1, g2 int16, sampleRate int) {
+	if channels < 1 || channels > 2 || len(samples)%channels != 0 || sampleRate <= 0 {
+		return
+	}
+	inc := 48000 / sampleRate
+	if inc < 1 {
+		inc = 1
+	}
+	frameSize := len(samples) / channels
+	overlap := len(staticMDCT48000Window) / inc
+	if overlap > frameSize {
+		overlap = frameSize
+	}
+	for i := 0; i < overlap; i++ {
+		w := mult16x16q15(staticMDCT48000Window[i*inc], staticMDCT48000Window[i*inc])
+		gain := int16((int32(w)*int32(g2) + int32(q15One-w)*int32(g1)) >> 15)
+		for c := 0; c < channels; c++ {
+			idx := i*channels + c
+			samples[idx] = mult16x32Q15(gain, samples[idx])
+		}
+	}
+	for i := overlap * channels; i < len(samples); i++ {
+		samples[i] = mult16x32Q15(g2, samples[i])
+	}
+}

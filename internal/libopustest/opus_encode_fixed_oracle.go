@@ -148,6 +148,10 @@ type OpusEncodeFixedMixedFrame struct {
 	FloatPCM    []float32
 	PCM24       []int32
 	ResetBefore bool
+	// Nonzero per-frame values override the global controls using libopus
+	// MODE_* and OPUS_BANDWIDTH_* values, respectively.
+	ForceMode int
+	Bandwidth int
 }
 
 // ProbeOpusEncodeFixedMixedRecords alternates the three public input APIs on
@@ -198,6 +202,12 @@ func probeOpusEncodeMixedRecords(binPath string, p OpusEncodeFixedParams, frames
 	if p.ExpertFrameDuration != 0 {
 		version = 5
 	}
+	for _, frame := range frames {
+		if frame.ForceMode != 0 || frame.Bandwidth != 0 {
+			version = 6
+			break
+		}
+	}
 	b2u := func(b bool) uint32 {
 		if b {
 			return 1
@@ -216,7 +226,7 @@ func probeOpusEncodeMixedRecords(binPath string, p OpusEncodeFixedParams, frames
 	if version >= 4 {
 		payload.U32(uint32(p.LSBDepth))
 	}
-	if version == 5 {
+	if version >= 5 {
 		payload.U32(uint32(p.ExpertFrameDuration))
 	}
 	for i, frame := range frames {
@@ -251,6 +261,12 @@ func probeOpusEncodeMixedRecords(binPath string, p OpusEncodeFixedParams, frames
 	}
 	for _, frame := range frames {
 		payload.U32(frame.Format)
+	}
+	if version >= 6 {
+		for _, frame := range frames {
+			payload.U32(uint32(frame.ForceMode))
+			payload.U32(uint32(frame.Bandwidth))
+		}
 	}
 	reader, err := RunOracleVersion(binPath, payload.Bytes(), "opus encode mixed records", opusEncodeFixedOutputMagic, version)
 	if err != nil {

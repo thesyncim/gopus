@@ -223,6 +223,7 @@ type Encoder struct {
 
 	encoderQEXTFields
 	encoderFixedCELTFields
+	encoderFixedOuterQ8Fields
 
 	// dnnBlob retains a validated USE_WEIGHTS_FILE blob for future optional
 	// extension paths (DRED/OSCE). Keeping it here mirrors libopus ctl lifetime.
@@ -349,11 +350,12 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		streamChannels:         int32(channels),
 		// opus_encoder_init zeroes the state before setting stream_channels;
 		// prev_channels stays zero until the first encoded frame.
-		prevChannels:         0,
-		autoBandwidth:        types.BandwidthFullband,
-		first:                true,
-		prevHBGain:           1,
-		hybridStereoWidthQ14: 1 << 14,
+		prevChannels:              0,
+		autoBandwidth:             types.BandwidthFullband,
+		first:                     true,
+		prevHBGain:                1,
+		hybridStereoWidthQ14:      1 << 14,
+		encoderFixedOuterQ8Fields: newFixedOuterQ8Fields(),
 	}
 	return e
 }
@@ -550,6 +552,7 @@ func (e *Encoder) Reset() {
 	e.frameFinalRange = 0
 	e.prevHBGain = 1
 	e.hybridStereoWidthQ14 = 1 << 14
+	e.resetFixedOuterQ8()
 	if e.celtEncoder != nil {
 		e.celtEncoder.Reset()
 		e.syncQEXTToCELT()
@@ -2126,6 +2129,7 @@ func (e *Encoder) maybePrefillSILKOnModeTransition(actualMode Mode, initSILK, ca
 		copy(prefill[prefillSamples-len(e.delayBuffer):], e.delayBuffer)
 	}
 	e.applySilkTransitionPrefillRamp(prefill, prefillFrameSize)
+	e.stageFixedSILKPrefill(captureCELTPrefill)
 
 	if captureCELTPrefill {
 		// CELT mode-transition prefill consumes this exact history slice in libopus:
@@ -2175,7 +2179,7 @@ func (e *Encoder) runPendingSILKPrefill(prefill, activity int) error {
 		return nil
 	}
 	e.silkPrefillPending = false
-	_, err := e.silk.Encode(&e.silkMode, e.scratchSilkPrefill, int(e.sampleRate)/100, nil, prefill, activity)
+	err := e.encodeSILKPrefill(prefill, activity)
 	e.silkMode.OpusCanSwitch = false
 	return err
 }

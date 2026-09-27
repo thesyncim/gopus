@@ -1,12 +1,17 @@
 /* Selected FIXED_POINT CELT encode oracle on exact opus_res Q8 input.
  * The caller supplies each frame's coding samples, packet budget, analysis
- * snapshot and energy mask. One CELTEncoder carries state across all frames.
+ * snapshot, energy mask, SILK info and prediction mode. One CELTEncoder carries
+ * state across all frames.
  *
- * Input, little endian: "GQRI", version 1, channels, frame_size, start, end,
+ * Input, little endian: "GQRI", version 3, input_channels, stream_channels,
+ * frame_size, start, end,
  * bitrate, complexity, sample_rate, vbr, constrained_vbr, lfe, lsb_depth,
- * frame_count, has_mask. For each frame: max_bytes, sample_count, sample_count
- * signed Q8 words; AnalysisInfo valid, ten scalar words in celt.h order,
- * 19 leak_boost bytes; then channels*21 signed mask words when has_mask.
+ * frame_count. For each frame: max_bytes, sample_count, sample_count signed Q8
+ * words; prefix_count uniform-8 symbols, reset_before, set_prediction,
+ * prediction_mode, SILK signal type and quantization offset; AnalysisInfo valid,
+ * ten scalar words in celt.h order, 19 leak_boost bytes, has_mask, then
+ * channels*21 signed mask words when has_mask. Prefix symbols leave the range
+ * coder in a nonempty state before celt_encode_with_ec continues it.
  * Output, little endian: "GQRO", version 1, frame_count; each frame has
  * packet_len, final_range, packet_len packet bytes.
  */
@@ -30,6 +35,9 @@
 
 #if !defined(FIXED_POINT) || !defined(ENABLE_RES24)
 #error "raw Q8 CELT oracle requires selected FIXED_POINT ENABLE_RES24 libopus"
+#endif
+#if defined(GOPUS_REQUIRE_QEXT) && !defined(ENABLE_QEXT)
+#error "fixed-QEXT raw Q8 CELT oracle requires selected ENABLE_QEXT libopus"
 #endif
 
 int celt_encode_with_ec(CELTEncoder *st, const opus_res *pcm, int frame_size,
@@ -77,8 +85,8 @@ static int read_analysis(AnalysisInfo *info) {
 
 int main(void) {
   unsigned char magic[4];
-  uint32_t version, channels, frame_size, start, end, bitrate, complexity;
-  uint32_t sample_rate, vbr, cvbr, lfe, lsb_depth, count, has_mask, f;
+  uint32_t version, channels, stream_channels, frame_size, start, end, bitrate, complexity;
+  uint32_t sample_rate, vbr, cvbr, lfe, lsb_depth, count, f;
   CELTEncoder *st = NULL;
   opus_res *pcm = NULL;
   unsigned char packet[1275];
@@ -90,21 +98,21 @@ int main(void) {
       _setmode(_fileno(stdout), _O_BINARY) == -1) return 1;
 #endif
   if (fread(magic, 1, 4, stdin) != 4 || memcmp(magic, "GQRI", 4) ||
-      !read_u32(&version) || version != 1 || !read_u32(&channels) ||
+      !read_u32(&version) || version != 3 || !read_u32(&channels) ||
+      !read_u32(&stream_channels) ||
       !read_u32(&frame_size) || !read_u32(&start) || !read_u32(&end) ||
       !read_u32(&bitrate) || !read_u32(&complexity) ||
       !read_u32(&sample_rate) || !read_u32(&vbr) || !read_u32(&cvbr) ||
-      !read_u32(&lfe) || !read_u32(&lsb_depth) || !read_u32(&count) ||
-      !read_u32(&has_mask)) return 1;
+      !read_u32(&lfe) || !read_u32(&lsb_depth) || !read_u32(&count)) return 1;
   for (i = 0; i < (int)(sizeof(rates)/sizeof(rates[0])); i++) {
     if (sample_rate == (uint32_t)rates[i]) valid_rate = 1;
   }
-  if (!valid_rate || channels < 1 || channels > 2 || frame_size < 20 ||
+  if (!valid_rate || channels < 1 || channels > 2 || stream_channels < 1 ||
+      stream_channels > channels || frame_size < 20 ||
       frame_size > 960 || (frame_size*48000)%sample_rate != 0 ||
       start >= end || end > 21 ||
       complexity > 10 || vbr > 1 || cvbr > 1 || lfe > 1 ||
-      lsb_depth < 8 || lsb_depth > 24 || count < 1 || count > 256 ||
-      has_mask > 1 || (has_mask && channels*21 > 42)) return 1;
+      lsb_depth < 8 || lsb_depth > 24 || count < 1 || count > 256) return 1;
   core_size = (int)(frame_size*48000/sample_rate);
   if (core_size != 120 && core_size != 240 &&
       core_size != 480 && core_size != 960) return 1;
@@ -114,6 +122,7 @@ int main(void) {
   if (celt_encoder_init(st, (opus_int32)sample_rate, (int)channels, opus_select_arch()) != OPUS_OK ||
       celt_encoder_ctl(st, CELT_SET_START_BAND_REQUEST, (int)start) != OPUS_OK ||
       celt_encoder_ctl(st, CELT_SET_END_BAND_REQUEST, (int)end) != OPUS_OK ||
+      celt_encoder_ctl(st, CELT_SET_CHANNELS(stream_channels)) != OPUS_OK ||
       celt_encoder_ctl(st, OPUS_SET_BITRATE_REQUEST, (opus_int32)(int32_t)bitrate) != OPUS_OK ||
       celt_encoder_ctl(st, OPUS_SET_COMPLEXITY_REQUEST, (int)complexity) != OPUS_OK ||
       celt_encoder_ctl(st, OPUS_SET_VBR_REQUEST, (int)vbr) != OPUS_OK ||
@@ -123,8 +132,10 @@ int main(void) {
       celt_encoder_ctl(st, CELT_SET_SIGNALLING_REQUEST, 0) != OPUS_OK) return 1;
   if (fwrite("GQRO", 1, 4, stdout) != 4 || !write_u32(1) || !write_u32(count)) return 1;
   for (f = 0; f < count; f++) {
-    uint32_t max_bytes, samples, j, raw;
+    uint32_t max_bytes, samples, j, raw, prefix_count, set_prediction, has_mask;
+    uint32_t reset_before, prediction, signal_type, silk_offset;
     AnalysisInfo analysis;
+    SILKInfo silk_info;
     ec_enc ec;
     int ret;
     if (!read_u32(&max_bytes) || !read_u32(&samples) ||
@@ -134,16 +145,30 @@ int main(void) {
       if (!read_u32(&raw)) return 1;
       pcm[j] = (opus_res)(int32_t)raw;
     }
-    if (!read_analysis(&analysis)) return 1;
+    if (!read_u32(&prefix_count) || prefix_count > 64) return 1;
+    ec_enc_init(&ec, packet, (int)max_bytes);
+    for (j = 0; j < prefix_count; j++) {
+      if (!read_u32(&raw) || raw >= 256) return 1;
+      ec_enc_uint(&ec, raw, 256);
+    }
+    if (!read_u32(&reset_before) || reset_before > 1 ||
+        !read_u32(&set_prediction) || set_prediction > 1 ||
+        !read_u32(&prediction) || prediction > 2 ||
+        !read_u32(&signal_type) || !read_u32(&silk_offset)) return 1;
+    if (!read_analysis(&analysis) || !read_u32(&has_mask) || has_mask > 1) return 1;
     if (has_mask) {
       for (j = 0; j < channels*21; j++) {
         if (!read_u32(&raw)) return 1;
         mask[j] = (celt_glog)(int32_t)raw;
       }
     }
-    if (celt_encoder_ctl(st, CELT_SET_ANALYSIS(&analysis)) != OPUS_OK ||
+    if (reset_before && celt_encoder_ctl(st, OPUS_RESET_STATE) != OPUS_OK) return 1;
+    silk_info.signalType = (opus_int32)signal_type;
+    silk_info.offset = (opus_int32)silk_offset;
+    if ((set_prediction && celt_encoder_ctl(st, CELT_SET_PREDICTION(prediction)) != OPUS_OK) ||
+        celt_encoder_ctl(st, CELT_SET_SILK_INFO(&silk_info)) != OPUS_OK ||
+        celt_encoder_ctl(st, CELT_SET_ANALYSIS(&analysis)) != OPUS_OK ||
         (has_mask && celt_encoder_ctl(st, OPUS_SET_ENERGY_MASK_REQUEST, mask) != OPUS_OK)) return 1;
-    ec_enc_init(&ec, packet, max_bytes);
     ret = celt_encode_with_ec(st, pcm, (int)frame_size, packet, (int)max_bytes, &ec);
     if (ret < 0 || ret > (int)max_bytes || !write_u32((uint32_t)ret) ||
         !write_u32(ec.rng) || fwrite(packet, 1, (size_t)ret, stdout) != (size_t)ret) return 1;

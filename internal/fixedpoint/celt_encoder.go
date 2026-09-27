@@ -2,16 +2,14 @@
 
 package fixedpoint
 
-// This file ports the FIXED_POINT (ENABLE_RES24) celt/celt_encoder.c encode
-// front-end for the static 48000/960 custom mode: forward pre-emphasis
-// (celt_preemphasis), the windowed forward MDCT striping (compute_mdcts) for
-// the normal and transient block layouts, then compute_band_energies and
-// normalise_bands, producing the interleaved post-MDCT signal (freq), the
-// per-band energies (bandE) and the normalised bands (X) exactly as
-// celt_encode_with_ec computes them just before quant_all_bands.
-//
-// Scope of this increment: the input -> normalized bands front-end only. The
-// transient/prefilter/allocation/quantisation stages are out of scope here.
+// This file ports the FIXED_POINT (ENABLE_RES24) CELT encoder front-end for
+// the static 48000/960 custom mode: forward pre-emphasis (celt_preemphasis),
+// windowed forward MDCT striping (compute_mdcts) for normal and transient
+// blocks, then compute_band_energies and normalise_bands. These stages produce
+// the interleaved post-MDCT signal (freq), per-band energies (bandE) and
+// normalised bands (X) consumed by celt_encode_with_ec before quant_all_bands.
+// The frame driver and its transient, prefilter, allocation and quantisation
+// stages are in celt_encode.go.
 
 // int16ToRes implements libopus INT16TORES(a) for the ENABLE_RES24 build:
 // SHL32(EXTEND32(a), RES_SHIFT) == a << 8.
@@ -30,8 +28,9 @@ func res2sig(a int32) int32 {
 // the MDCT lookup / window / band tables, mirroring the reset region of the
 // libopus OpusCustomEncoder fields the front-end touches.
 type CELTEncoder struct {
-	channels int
-	analysis CELTAnalysisInfo
+	channels       int
+	streamChannels int32
+	analysis       CELTAnalysisInfo
 
 	// upsample mirrors st->upsample = resampling_factor(API sample rate): 1 at
 	// 48 kHz, 2/3/4/6 at 24/16/12/8 kHz. celt_encode_with_ec multiplies the
@@ -45,6 +44,14 @@ type CELTEncoder struct {
 	// complexity / lsbDepth mirror st->complexity / st->lsb_depth.
 	complexity int
 	lsbDepth   int
+
+	// SilkInfo and prediction controls mirror CELTEncoder state in
+	// celt/celt_encoder.c. signalType and offset are opus_int32 fields; the
+	// prediction controls remain booleans after CELT_SET_PREDICTION maps 0..2.
+	silkSignalType   int32
+	silkOffset       int32
+	forceIntra       bool
+	disablePrefilter bool
 
 	// bitrate is st->bitrate (bits/s), OPUS_BITRATE_MAX when unset.
 	bitrate int
@@ -141,6 +148,26 @@ func (e *CELTEncoder) SetLSBDepth(depth int) {
 	e.lsbDepth = depth
 }
 
+// SetSilkInfo mirrors CELT_SET_SILK_INFO for hybrid CELT transient and rate
+// decisions (celt/celt_encoder.c).
+func (e *CELTEncoder) SetSilkInfo(signalType, offset int32) {
+	e.silkSignalType = signalType
+	e.silkOffset = offset
+}
+
+// SetPrediction mirrors CELT_SET_PREDICTION: mode 0 disables prediction and
+// forces intra energy coding, mode 1 disables the prefilter, and mode 2 enables
+// normal prediction.
+func (e *CELTEncoder) SetPrediction(mode int32) {
+	if mode < 0 {
+		mode = 0
+	} else if mode > 2 {
+		mode = 2
+	}
+	e.disablePrefilter = mode <= 1
+	e.forceIntra = mode == 0
+}
+
 // NewCELTEncoder allocates and resets an integer CELT encoder front-end for the
 // static 48000/960 mode with the given channel count (1 or 2). All cross-frame
 // state (pre-emphasis memory) starts at zero, matching celt_encoder_init.
@@ -155,18 +182,19 @@ func NewCELTEncoder(channels int) *CELTEncoder {
 // frame sizes (frameSize*upsample == the 48 kHz core N).
 func NewCELTEncoderRate(channels, sampleRate int) *CELTEncoder {
 	e := &CELTEncoder{
-		channels:    channels,
-		upsample:    resamplingFactor(sampleRate),
-		start:       0,
-		end:         celtNbEBands,
-		complexity:  5,
-		lsbDepth:    24,
-		bitrate:     opusBitrateMax,
-		preemphMemE: make([]int32, channels),
-		mdct:        NewStaticMDCTLookup48000(),
-		window:      staticMDCT48000Window[:],
-		eBands:      staticMDCT48000EBands[:],
-		logN:        staticMDCT48000LogN[:],
+		channels:       channels,
+		streamChannels: int32(channels),
+		upsample:       resamplingFactor(sampleRate),
+		start:          0,
+		end:            celtNbEBands,
+		complexity:     5,
+		lsbDepth:       24,
+		bitrate:        opusBitrateMax,
+		preemphMemE:    make([]int32, channels),
+		mdct:           NewStaticMDCTLookup48000(),
+		window:         staticMDCT48000Window[:],
+		eBands:         staticMDCT48000EBands[:],
+		logN:           staticMDCT48000LogN[:],
 	}
 	e.inMem = make([]int32, channels*celtOverlap)
 	e.prefilterMem = make([]int32, channels*combFilterMaxPeriod)
@@ -194,6 +222,14 @@ func (e *CELTEncoder) SetComplexity(c int) { e.complexity = c }
 // SetBitrate sets st->bitrate in bits/s (OPUS_SET_BITRATE_REQUEST).
 func (e *CELTEncoder) SetBitrate(b int) { e.bitrate = b }
 
+// SetStreamChannels mirrors CELT_SET_CHANNELS: CELT codes one or both of the
+// encoder's input channels while retaining the full input for stereo analysis.
+func (e *CELTEncoder) SetStreamChannels(channels int32) {
+	if channels >= 1 && channels <= int32(e.channels) {
+		e.streamChannels = channels
+	}
+}
+
 // SetVBR enables/disables variable bitrate (OPUS_SET_VBR_REQUEST).
 func (e *CELTEncoder) SetVBR(v bool) { e.vbr = v }
 
@@ -215,6 +251,42 @@ func (e *CELTEncoder) SetLFE(v bool) { e.lfe = v }
 // C*nbEBands celt_glog (Q24, channel-major) surround masking map, or nil to
 // disable it.
 func (e *CELTEncoder) SetEnergyMask(mask []int32) { e.energyMask = mask }
+
+// Reset clears the CELT frame state while preserving controls that sit before
+// ENCODER_RESET_START in celt/celt_encoder.c, including band range, prediction,
+// bitrate, VBR and stream channel count.
+func (e *CELTEncoder) Reset() {
+	e.rng = 0
+	e.spreadDecision = spreadNormal
+	e.delayedIntra = 1
+	e.specAvg = 0
+	e.intensity = 0
+	e.lastCodedBands = 0
+	e.stereoSaving = 0
+	e.consecTransient = 0
+	e.prefilterPeriod = 0
+	e.prefilterGain = 0
+	e.prefilterTapset = 0
+	e.spreading = SpreadingState{TonalAverage: 256}
+	e.overlapMax = 0
+	e.vbrReservoir = 0
+	e.vbrDrift = 0
+	e.vbrOffset = 0
+	e.vbrCount = 0
+	e.analysis = CELTAnalysisInfo{}
+	e.silkSignalType = 0
+	e.silkOffset = 0
+	e.energyMask = nil
+	clear(e.preemphMemE)
+	clear(e.inMem)
+	clear(e.prefilterMem)
+	clear(e.oldBandE)
+	clear(e.energyError)
+	for i := range e.oldLogE {
+		e.oldLogE[i] = -gconst(28)
+		e.oldLogE2[i] = -gconst(28)
+	}
+}
 
 // FrontEnd ports the input -> normalized bands stage of celt_encode_with_ec for
 // the static 48000/960 mode. pcm is channels*frameSize interleaved int16 PCM,

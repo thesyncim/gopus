@@ -139,6 +139,13 @@ func (e *Encoder) encodeFrameNative(pcm []opusRes, req frameRequest) (codedFrame
 	frameRate := fs / int32(frameSize)
 	hybrid := mode == ModeHybrid
 	e.frameFinalRange = 0
+	e.clearFixedCELTUsed()
+	if mode == ModeSILK {
+		// A SILK frame does not consume the CELT transition prefill staged by
+		// the SILK onset ramp. Drop it so a later SILK-to-Hybrid transition
+		// captures the current delay-buffer window instead of reusing it.
+		e.consumeFixedCELTPrefill()
+	}
 	currBW := e.effectiveBandwidth()
 
 	redundancy, celtToSILK := req.redundancy, req.celtToSILK
@@ -175,8 +182,12 @@ func (e *Encoder) encodeFrameNative(pcm []opusRes, req frameRequest) (codedFrame
 
 	celtPCM := e.pcmBuf(pcm, frameSize)
 	e.prepareFixedCELTPCM(frameSize)
+	if mode != ModeSILK && mode != req.prevMode && isConcreteMode(req.prevMode) {
+		e.captureFixedCELTTransitionPrefill()
+	}
 
 	hbGain := opusVal16(1)
+	fixedHBGainQ15 := int16(1<<15 - 1)
 	var silkBitRate int32
 	if mode != ModeCELT {
 		e.ensureSILKEncoder()
@@ -187,7 +198,9 @@ func (e *Encoder) encodeFrameNative(pcm []opusRes, req frameRequest) (codedFrame
 		if hybrid {
 			silkBitRate = computeSilkRateForHybrid(totalBitRate, currBW, frame20ms, vbr, e.lbrrCoded, streamChannels)
 			if len(e.celtEnergyMask) == 0 {
-				hbGain = hybridHBGain(totalBitRate - silkBitRate)
+				celtRate := totalBitRate - silkBitRate
+				hbGain = hybridHBGain(celtRate)
+				fixedHBGainQ15 = e.fixedHighBandGainQ15(celtRate)
 			}
 		} else {
 			silkBitRate = totalBitRate
@@ -225,7 +238,7 @@ func (e *Encoder) encodeFrameNative(pcm []opusRes, req frameRequest) (codedFrame
 		if err := e.runPendingSILKPrefill(prefill, activity); err != nil {
 			return codedFrame{}, err
 		}
-		nBytes, err := e.silk.Encode(&e.silkMode, pcm, frameSize, re, 0, activity)
+		nBytes, err := e.encodeSILKFrame(pcm, frameSize, re, activity)
 		if err != nil {
 			return codedFrame{}, err
 		}
@@ -264,6 +277,7 @@ func (e *Encoder) encodeFrameNative(pcm []opusRes, req frameRequest) (codedFrame
 	e.updateDelayBuffer(pcm, frameSize)
 	e.updateFixedDelayBuffer(frameSize)
 	e.fadeHighBand(celtPCM, hbGain)
+	e.fadeFixedHighBand(fixedHBGainQ15)
 	prevFixedWidth := e.hybridStereoWidthQ14
 	e.applyStereoWidth(mode, celtPCM, req.equivRate)
 	e.applyFixedStereoWidth(prevFixedWidth)
@@ -329,12 +343,13 @@ func (e *Encoder) encodeFrameNative(pcm []opusRes, req frameRequest) (codedFrame
 		e.celtEncoder.SetBitrate(celt.BitrateMax)
 		n2 := int(fs) / 200
 		var err error
-		redundant, err = e.encodeRedundantCELTFrame(celtPCM[:n2*channels], n2, int(redundancyBytes))
+		redundant, redundantRng, err = e.encodeRedundantCELTFrame(celtPCM[:n2*channels],
+			e.fixedFrameSliceQ8(0, n2), n2, int(redundancyBytes), hybrid, true)
 		if err != nil {
 			return codedFrame{}, err
 		}
-		redundantRng = e.celtEncoder.FinalRange()
 		e.celtEncoder.Reset()
+		e.resetFixedCELTState()
 	}
 
 	if !e.restrictedSilkApp {
@@ -344,22 +359,45 @@ func (e *Encoder) encodeFrameNative(pcm []opusRes, req frameRequest) (codedFrame
 	var frame []byte
 	if mode != ModeSILK {
 		e.configureCELTRate(mode, silkBitRate)
-		e.prefillCELTOnModeSwitch(mode, req.prevMode)
+		prefillPrediction := int32(e.celtEncoder.Prediction())
+		prefilled := e.prefillCELTOnModeSwitch(mode, req.prevMode)
+		fixedPrefilled := !prefilled
+		if prefilled {
+			prefillFrameSize := int(fs) / 400
+			startBand := 0
+			if hybrid {
+				startBand = 17
+			}
+			if prefill := e.fixedCELTTransitionPrefillInputQ8(prefillFrameSize); prefill != nil {
+				fixedPrefilled = e.prefillCELTFrameFixed(prefill, prefillFrameSize, startBand,
+					e.celtEncoder.Bitrate(), 2, prefillPrediction)
+			}
+			e.consumeFixedCELTPrefill()
+		}
 		// A frame whose SILK part busted the budget becomes a PLC frame
 		// without CELT.
 		if re.Tell() <= 8*nbComprBytes {
 			var err error
 			if hybrid {
-				frame, err = e.celtEncoder.EncodeWithEC(celtPCM, frameSize, nbComprBytes, re)
+				if fixedPCM := e.fixedHybridCELTPCMQ8(frameSize); fixedPCM != nil && fixedPrefilled {
+					var ok bool
+					frame, ok, err = e.encodeHybridCELTFrameFixed(fixedPCM, frameSize, e.celtEncoder.Bitrate(), nbComprBytes, re, prefilled)
+					if !ok && err == nil {
+						frame, err = e.celtEncoder.EncodeWithEC(celtPCM, frameSize, nbComprBytes, re)
+					}
+				} else {
+					frame, err = e.celtEncoder.EncodeWithEC(celtPCM, frameSize, nbComprBytes, re)
+				}
 			} else {
-				frame, err = e.encodeCELTOnlyFrame(celtPCM, frameSize, nbComprBytes)
+				frame, err = e.encodeCELTOnlyFrame(celtPCM, frameSize, nbComprBytes,
+					prefilled, fixedPrefilled)
 			}
 			if err != nil {
 				return codedFrame{}, err
 			}
 		}
 		e.frameFinalRange = e.celtEncoder.FinalRange()
-		if r, ok := e.fixedCELTFinalRange(); ok && mode == ModeCELT {
+		if r, ok := e.fixedCELTFinalRange(); ok && (mode == ModeCELT || hybrid) {
 			e.frameFinalRange = r
 		}
 	}
@@ -377,13 +415,16 @@ func (e *Encoder) encodeFrameNative(pcm []opusRes, req frameRequest) (codedFrame
 		e.celtEncoder.SetMaxPayloadBytes(2)
 		_, _ = e.celtEncoder.EncodeFrame(celtPCM[start:start+n4*channels], n4)
 		e.celtEncoder.SetMaxPayloadBytes(0)
+		if prefill := e.fixedFrameSliceQ8(frameSize-n2-n4, n4); prefill != nil {
+			e.prefillCELTFrameFixed(prefill, n4, 0, e.celtEncoder.Bitrate(), 2, 0)
+		}
 		start = (frameSize - n2) * channels
 		var err error
-		redundant, err = e.encodeRedundantCELTFrame(celtPCM[start:start+n2*channels], n2, int(redundancyBytes))
+		redundant, redundantRng, err = e.encodeRedundantCELTFrame(celtPCM[start:start+n2*channels],
+			e.fixedFrameSliceQ8(frameSize-n2, n2), n2, int(redundancyBytes), false, false)
 		if err != nil {
 			return codedFrame{}, err
 		}
-		redundantRng = e.celtEncoder.FinalRange()
 	}
 	e.frameFinalRange ^= redundantRng
 
@@ -464,24 +505,36 @@ func (e *Encoder) prefillCELTOnModeSwitch(mode, prevMode Mode) bool {
 // encodeRedundantCELTFrame codes a 5 ms redundant CELT frame of n samples at
 // the current CELT controls into its own range coder, redundancyBytes long,
 // and returns a copy that outlives the next CELT encode.
-func (e *Encoder) encodeRedundantCELTFrame(pcm []opusRes, n, redundancyBytes int) ([]byte, error) {
+func (e *Encoder) encodeRedundantCELTFrame(pcm []opusRes, pcmQ8 []int32, n, redundancyBytes int, hybrid, analysis bool) ([]byte, uint32, error) {
 	e.celtEncoder.SetMaxPayloadBytes(redundancyBytes)
+	if len(pcmQ8) == n*int(e.channels) {
+		if data, finalRange, ok, err := e.encodeRedundantCELTFrameFixed(pcmQ8, n,
+			e.celtEncoder.Bitrate(), redundancyBytes, hybrid, analysis); ok || err != nil {
+			e.celtEncoder.SetMaxPayloadBytes(0)
+			if err != nil {
+				return nil, 0, err
+			}
+			return append(e.redundancyScratch[:0], data...), finalRange, nil
+		}
+	}
 	data, err := e.celtEncoder.EncodeFrame(pcm, n)
 	e.celtEncoder.SetMaxPayloadBytes(0)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return append(e.redundancyScratch[:0], data...), nil
+	return append(e.redundancyScratch[:0], data...), e.celtEncoder.FinalRange(), nil
 }
 
 // encodeCELTOnlyFrame codes a CELT-only frame to the nbComprBytes budget: the
 // integer CELT encoder under the gopus_fixed_point build, the float one
 // otherwise.
-func (e *Encoder) encodeCELTOnlyFrame(pcm []opusRes, frameSize, nbComprBytes int) ([]byte, error) {
+func (e *Encoder) encodeCELTOnlyFrame(pcm []opusRes, frameSize, nbComprBytes int, prefilled, fixedReady bool) ([]byte, error) {
 	e.celtEncoder.SetMaxPayloadBytes(nbComprBytes)
 	defer e.celtEncoder.SetMaxPayloadBytes(0)
-	if out, ok, err := e.encodeCELTFrameFixed(pcm, frameSize, e.celtEncoder.Bitrate(), nbComprBytes); ok || err != nil {
-		return out, err
+	if fixedReady {
+		if out, ok, err := e.encodeCELTFrameFixed(pcm, frameSize, e.celtEncoder.Bitrate(), nbComprBytes, prefilled); ok || err != nil {
+			return out, err
+		}
 	}
 	return e.celtEncoder.EncodeFrame(pcm, frameSize)
 }

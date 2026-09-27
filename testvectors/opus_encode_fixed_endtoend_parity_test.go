@@ -4,7 +4,7 @@
 // selected FIXED_POINT libopus 1.6.1. Forced CELT streams compare complete
 // packets and final ranges on identical raw float input. The same frames also
 // compare their inner CELT payloads against selected C on exact opus_res Q8.
-// SILK and Hybrid coverage below reports its current resampler boundary.
+// SILK and Hybrid cases compare matched public input against selected C.
 package testvectors
 
 import (
@@ -15,7 +15,6 @@ import (
 
 	"github.com/thesyncim/gopus/internal/encoder"
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -276,13 +275,9 @@ func TestOpusEncodeFixedCELTFloatInputSingleFrameByteExact(t *testing.T) {
 	}
 }
 
-// TestOpusEncodeFixedSILKHybridResamplerCaveat records packet differences for
-// forced SILK and Hybrid streams on raw 48 kHz input. The SILK API-rate
-// resampling path in this build remains float32, while selected fixed libopus
-// uses integer resampling. The per-frame fixed SILK kernel has separate
-// identical-input byte gates; this test asserts packet count and reports the
-// public-wrapper difference without treating unmatched input as a codec oracle.
-func TestOpusEncodeFixedSILKHybridResamplerCaveat(t *testing.T) {
+// TestOpusEncodeFixedSILKHybridMatchedFloatInputByteExact compares public float
+// input against selected FIXED_POINT libopus on identical sample values.
+func TestOpusEncodeFixedSILKHybridMatchedFloatInputByteExact(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
 	libopustest.RequireOracle(t)
@@ -324,7 +319,8 @@ func TestOpusEncodeFixedSILKHybridResamplerCaveat(t *testing.T) {
 			enc.SetForceChannels(c.channels)
 
 			gotPackets := make([][]byte, 0, numFrames)
-			rawI16 := make([]int16, 0, numFrames*frameSize*c.channels)
+			gotRanges := make([]uint32, 0, numFrames)
+			oracleFrames := make([]libopustest.OpusEncodeFixedMixedFrame, numFrames)
 			for f := 0; f < numFrames; f++ {
 				pcm := make([]float32, c.channels*frameSize)
 				for i := 0; i < frameSize; i++ {
@@ -334,7 +330,7 @@ func TestOpusEncodeFixedSILKHybridResamplerCaveat(t *testing.T) {
 						pcm[i*c.channels+ch] = s
 					}
 				}
-				pkt, err := enc.Encode(pcm, frameSize)
+				pkt, err := enc.EncodeWithAnalysisMaxBytes(pcm, frameSize, pcm, 1275)
 				if err != nil {
 					t.Fatalf("frame %d: public Encode: %v", f, err)
 				}
@@ -342,43 +338,35 @@ func TestOpusEncodeFixedSILKHybridResamplerCaveat(t *testing.T) {
 					t.Fatalf("frame %d: empty packet", f)
 				}
 				gotPackets = append(gotPackets, append([]byte(nil), pkt...))
-				for _, v := range pcm {
-					rawI16 = append(rawI16, opusmath.Float32ToInt16(v))
-				}
+				gotRanges = append(gotRanges, enc.FinalRange())
+				oracleFrames[f] = libopustest.OpusEncodeFixedMixedFrame{Format: 1, FloatPCM: pcm}
 			}
 
-			want, err := libopustest.ProbeOpusEncodeFixed(libopustest.OpusEncodeFixedParams{
-				SampleRate:    fs,
-				Channels:      c.channels,
-				ForceMode:     c.forceMode,
-				Bandwidth:     c.oracleBW,
-				Bitrate:       bitrate,
-				Complexity:    complexity,
-				VBR:           false,
-				ForceChannels: c.channels,
-				FrameSize:     frameSize,
-				FrameCount:    numFrames,
-				PCM:           rawI16,
-			})
+			want, err := libopustest.ProbeOpusEncodeFixedMixedRecords(libopustest.OpusEncodeFixedParams{
+				SampleRate: fs, Channels: c.channels,
+				Application:    libopustest.OpusApplicationAudio,
+				MaxPacketBytes: 1275,
+				ForceMode:      c.forceMode, Bandwidth: c.oracleBW,
+				Bitrate: bitrate, Complexity: complexity,
+				VBR: false, VBRConstraint: false,
+				ForceChannels: c.channels, FrameSize: frameSize,
+			}, oracleFrames)
 			if err != nil {
-				libopustest.HelperUnavailable(t, "opus encode fixed", err)
+				libopustest.HelperUnavailable(t, "opus encode fixed float input", err)
 				return
 			}
 
-			if len(want) != len(gotPackets) {
-				t.Fatalf("packet count: gopus=%d FIXED opus_encode=%d", len(gotPackets), len(want))
+			if len(want) != len(gotPackets) || len(want) != len(gotRanges) {
+				t.Fatalf("record count: gopus=%d ranges=%d FIXED opus_encode_float=%d", len(gotPackets), len(gotRanges), len(want))
 			}
 
-			diverged := 0
 			for f := range want {
-				if !bytes.Equal(gotPackets[f], want[f]) {
-					diverged++
+				if want[f].Status < 0 || !bytes.Equal(gotPackets[f], want[f].Packet) || gotRanges[f] != want[f].FinalRange {
+					reportOpusEncodeFixedDiff(t, f, gotPackets[f], want[f].Packet)
+					t.Fatalf("frame %d: public packet/range mismatch status=%d range=%08x/%08x",
+						f, want[f].Status, gotRanges[f], want[f].FinalRange)
 				}
 			}
-			t.Logf("packets=%d byte-divergent=%d (documented float API-rate resampler "+
-				"caveat: gopus wrapper is float, libopus FIXED wrapper is integer; "+
-				"per-frame SILK encode is byte-exact given identical input)",
-				len(want), diverged)
 		})
 	}
 }

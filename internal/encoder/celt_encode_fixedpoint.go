@@ -101,22 +101,9 @@ func celtFixedEndBand(bw types.Bandwidth) int {
 	return 21
 }
 
-// celtFixedEncodeInScope reports whether the integer CELT encoder can produce a
-// byte-exact packet for this frame. Its scope matches
-// fixedpoint.CELTEncoder.EncodeWithEC: the static 48 kHz CELT mode at any
-// supported API rate (48/24/16/12/8 kHz, where the API-rate frameSize upsamples
-// to a valid 2.5/5/10/20 ms 48 kHz core block), start band 0, 1 or 2 channels,
-// no hybrid (SILK present), no LFE, no QEXT, no surround energy mask. Anything
-// else falls back to the float CELT encoder.
-//
-// It also requires a pure-CELT stream (restricted-low-delay or forced ModeCELT):
-// the integer encoder carries no SILK->CELT transition-prefill state, so a stream
-// that can switch modes stays on the float path to avoid a cross-frame state
-// mismatch.
-func (e *Encoder) celtFixedEncodeInScope(frameSize int) bool {
-	if !e.lowDelay && e.mode != ModeCELT {
-		return false
-	}
+// celtFixedFrameSizeInScope reports whether the integer CELT encoder supports
+// the frame's static 48 kHz mode and API-rate upsampling layout.
+func (e *Encoder) celtFixedFrameSizeInScope(frameSize int) bool {
 	if e.lfe {
 		return false
 	}
@@ -144,11 +131,30 @@ func (e *Encoder) celtFixedEncodeInScope(frameSize int) bool {
 	return true
 }
 
+// celtFixedEncodeInScope reports whether the integer CELT encoder can produce a
+// byte-exact pure-CELT frame. A stream that can switch to or from SILK stays on
+// the float path until its transition prefill runs through the integer encoder.
+func (e *Encoder) celtFixedEncodeInScope(frameSize int) bool {
+	if !e.lowDelay && e.mode != ModeCELT {
+		return false
+	}
+	return e.celtFixedFrameSizeInScope(frameSize)
+}
+
+// celtFixedHybridEncodeInScope reports whether the integer CELT encoder can
+// continue a shared range coder for one Hybrid frame.
+func (e *Encoder) celtFixedHybridEncodeInScope(frameSize int) bool {
+	if e.restrictedSilkApp {
+		return false
+	}
+	return e.celtFixedFrameSizeInScope(frameSize)
+}
+
 // encodeCELTFrameFixed runs the integer CELT encoder for one in-scope frame and
 // returns the CELT payload bytes (TOC-excluded), matching the float
 // celt.Encoder.EncodeFrame contract. ok is false when the frame is out of the
 // integer encoder's scope, in which case the caller must use the float path.
-func (e *Encoder) encodeCELTFrameFixed(pcm []opusRes, frameSize, bitrate, maxPayloadBytes int) (out []byte, ok bool, err error) {
+func (e *Encoder) encodeCELTFrameFixed(pcm []opusRes, frameSize, bitrate, maxPayloadBytes int, prefilled bool) (out []byte, ok bool, err error) {
 	e.fixedCELTUsed = false
 	if !e.celtFixedEncodeInScope(frameSize) {
 		return nil, false, nil
@@ -160,10 +166,13 @@ func (e *Encoder) encodeCELTFrameFixed(pcm []opusRes, frameSize, bitrate, maxPay
 
 	st := e.ensureFixedCELT(channels)
 	st.enc.SetBandRange(0, celtFixedEndBand(e.effectiveBandwidth()))
+	st.enc.SetStreamChannels(int32(e.celtEncoder.StreamChannels()))
 	st.enc.SetComplexity(int(e.complexity))
 	st.enc.SetBitrate(bitrate)
 	st.enc.SetLSBDepth(int(e.lsbDepth))
-	if e.lastAnalysisValid {
+	st.enc.SetPrediction(int32(e.celtEncoder.Prediction()))
+	st.enc.SetSilkInfo(0, 0)
+	if e.lastAnalysisValid && !prefilled {
 		st.lastAnalysis = e.lastAnalysisInfo
 		st.enc.SetAnalysisInfo(fixedpoint.CELTAnalysisInfo{
 			Valid:         true,
@@ -242,6 +251,143 @@ func (e *Encoder) encodeCELTFrameFixed(pcm []opusRes, frameSize, bitrate, maxPay
 	return out, true, nil
 }
 
+// encodeHybridCELTFrameFixed codes the Hybrid CELT bands into the range coder
+// already seeded by the SILK and redundancy-signalling layers. pcmQ8 is the
+// ENABLE_RES24 opus_res frame after top-level high-pass, delay, high-band and
+// stereo-width processing. The caller owns that frame and the shared coder.
+func (e *Encoder) encodeHybridCELTFrameFixed(pcmQ8 []int32, frameSize, bitrate, maxPayloadBytes int, re *rangecoding.Encoder, prefilled bool) (out []byte, ok bool, err error) {
+	e.fixedCELTUsed = false
+	if !e.celtFixedHybridEncodeInScope(frameSize) {
+		return nil, false, nil
+	}
+	if re == nil || len(pcmQ8) != frameSize*int(e.channels) {
+		return nil, false, ErrInvalidFrameSize
+	}
+
+	channels := int(e.channels)
+	st := e.ensureFixedCELT(channels)
+	st.enc.SetBandRange(17, celtFixedEndBand(e.effectiveBandwidth()))
+	st.enc.SetStreamChannels(int32(e.celtEncoder.StreamChannels()))
+	st.enc.SetComplexity(int(e.complexity))
+	st.enc.SetBitrate(bitrate)
+	st.enc.SetLSBDepth(int(e.lsbDepth))
+	st.enc.SetPrediction(int32(e.celtEncoder.Prediction()))
+	if !prefilled {
+		st.enc.SetSilkInfo(e.silkMode.SignalType, e.silkMode.Offset)
+	}
+	if e.lastAnalysisValid && !prefilled {
+		st.lastAnalysis = e.lastAnalysisInfo
+		st.enc.SetAnalysisInfo(fixedpoint.CELTAnalysisInfo{
+			Valid:         true,
+			Bandwidth:     e.lastAnalysisInfo.BandwidthIndex,
+			LeakBoost:     e.lastAnalysisInfo.LeakBoost,
+			Activity:      e.lastAnalysisInfo.Activity,
+			Tonality:      e.lastAnalysisInfo.Tonality,
+			TonalitySlope: e.lastAnalysisInfo.TonalitySlope,
+			MaxPitchRatio: e.lastAnalysisInfo.MaxPitchRatio,
+		})
+	} else {
+		st.lastAnalysis = AnalysisInfo{}
+		st.enc.SetAnalysisInfo(fixedpoint.CELTAnalysisInfo{})
+	}
+	st.enc.SetVBR(e.celtEncoder.VBR())
+	// libopus sets constrained VBR only for CELT-only frames. Hybrid VBR uses
+	// the rate left after SILK without constraining CELT to it.
+	st.enc.SetConstrainedVBR(false)
+
+	st.lastQ8 = pcmQ8
+	st.pcm16 = st.pcm16[:0]
+	st.lastMaxBytes = int32(maxPayloadBytes)
+	st.lastBitrate = int32(bitrate)
+	st.lastLSBDepth = e.lsbDepth
+
+	n := st.enc.EncodeWithECRes(pcmQ8, frameSize, re, maxPayloadBytes)
+	e.fixedFinalRange = re.Range()
+	e.fixedCELTUsed = true
+	return re.Buffer()[:n], true, nil
+}
+
+// encodeRedundantCELTFrameFixed codes one selected fixed-point 5 ms redundancy
+// frame. It continues the fixed CELT history while using the independent range
+// coder that carries the redundant packet section.
+func (e *Encoder) encodeRedundantCELTFrameFixed(pcmQ8 []int32, frameSize, bitrate, maxPayloadBytes int, hybrid, analysis bool) (out []byte, finalRange uint32, ok bool, err error) {
+	if !e.celtFixedFrameSizeInScope(frameSize) || len(pcmQ8) != frameSize*int(e.channels) || maxPayloadBytes <= 0 {
+		return nil, 0, false, nil
+	}
+	st := e.ensureFixedCELT(int(e.channels))
+	st.enc.SetBandRange(0, celtFixedEndBand(e.effectiveBandwidth()))
+	st.enc.SetStreamChannels(int32(e.celtEncoder.StreamChannels()))
+	st.enc.SetComplexity(int(e.complexity))
+	st.enc.SetBitrate(bitrate)
+	st.enc.SetLSBDepth(int(e.lsbDepth))
+	st.enc.SetPrediction(int32(e.celtEncoder.Prediction()))
+	if hybrid {
+		st.enc.SetSilkInfo(e.silkMode.SignalType, e.silkMode.Offset)
+	}
+	if analysis && e.lastAnalysisValid {
+		st.lastAnalysis = e.lastAnalysisInfo
+		st.enc.SetAnalysisInfo(fixedpoint.CELTAnalysisInfo{
+			Valid:         true,
+			Bandwidth:     e.lastAnalysisInfo.BandwidthIndex,
+			LeakBoost:     e.lastAnalysisInfo.LeakBoost,
+			Activity:      e.lastAnalysisInfo.Activity,
+			Tonality:      e.lastAnalysisInfo.Tonality,
+			TonalitySlope: e.lastAnalysisInfo.TonalitySlope,
+			MaxPitchRatio: e.lastAnalysisInfo.MaxPitchRatio,
+		})
+	} else {
+		st.lastAnalysis = AnalysisInfo{}
+		st.enc.SetAnalysisInfo(fixedpoint.CELTAnalysisInfo{})
+	}
+	st.enc.SetVBR(false)
+	st.enc.SetConstrainedVBR(false)
+	st.lastQ8 = pcmQ8
+	st.lastMaxBytes = int32(maxPayloadBytes)
+	st.lastBitrate = int32(bitrate)
+	st.lastLSBDepth = e.lsbDepth
+
+	if cap(st.rng.Buffer()) < maxPayloadBytes {
+		st.rng.Init(make([]byte, maxPayloadBytes))
+	} else {
+		buf := st.rng.Buffer()[:maxPayloadBytes]
+		clear(buf)
+		st.rng.Init(buf)
+	}
+	n := st.enc.EncodeWithECRes(pcmQ8, frameSize, st.rng, maxPayloadBytes)
+	return st.rng.Buffer()[:n], st.rng.Range(), true, nil
+}
+
+// prefillCELTFrameFixed mirrors the reset and 2-byte CELT tmp_prefill in
+// opus_encode_frame_native. pcmQ8 is the exact ENABLE_RES24 prefill window from
+// the fixed-point delay buffer. The current CELT controls survive Reset, while
+// SILKInfo and AnalysisInfo clear with the CELT reset region.
+func (e *Encoder) prefillCELTFrameFixed(pcmQ8 []int32, frameSize, startBand, bitrate, maxPayloadBytes int, prediction int32) bool {
+	if !e.celtFixedFrameSizeInScope(frameSize) || len(pcmQ8) != frameSize*int(e.channels) || maxPayloadBytes < 2 {
+		return false
+	}
+	st := e.ensureFixedCELT(int(e.channels))
+	st.enc.SetBandRange(startBand, celtFixedEndBand(e.effectiveBandwidth()))
+	st.enc.SetStreamChannels(int32(e.celtEncoder.StreamChannels()))
+	st.enc.SetComplexity(int(e.complexity))
+	st.enc.SetBitrate(bitrate)
+	st.enc.SetLSBDepth(int(e.lsbDepth))
+	st.enc.SetPrediction(prediction)
+	st.enc.SetVBR(e.celtEncoder.VBR())
+	st.enc.SetConstrainedVBR(startBand == 0 && e.bitrateMode == ModeCVBR)
+	st.enc.Reset()
+
+	if cap(st.rng.Buffer()) < maxPayloadBytes {
+		st.rng.Init(make([]byte, maxPayloadBytes))
+	} else {
+		buf := st.rng.Buffer()[:maxPayloadBytes]
+		clear(buf)
+		st.rng.Init(buf)
+	}
+	st.enc.EncodeWithECRes(pcmQ8, frameSize, st.rng, maxPayloadBytes)
+	st.enc.SetPrediction(0)
+	return true
+}
+
 // LastFixedCELTInputQ8 returns the exact opus_res frame consumed by integer
 // CELT. The view is valid until the next encode call.
 func (e *Encoder) LastFixedCELTInputQ8() []int32 {
@@ -291,6 +437,13 @@ func (e *Encoder) resetFixedCELT() {
 	e.fixedFrameCursor = 0
 	if e.fixedCELT != nil {
 		e.fixedCELT.enc = fixedpoint.NewCELTEncoderRate(e.fixedCELT.channels, int(e.sampleRate))
+	}
+}
+
+func (e *Encoder) resetFixedCELTState() {
+	if e.fixedCELT != nil {
+		e.fixedCELT.enc.Reset()
+		e.fixedCELT.lastAnalysis = AnalysisInfo{}
 	}
 }
 

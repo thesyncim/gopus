@@ -27,6 +27,7 @@ type CHelperConfig struct {
 	RefIncludes  []string
 	QEXTRef      bool
 	FixedRef     bool
+	FixedQEXTRef bool
 	CustomRef    bool
 	// SIMDRef links the SIMD/RTCD-enabled libopus tree (opus-1.6.1-simd). Pair it
 	// with a Go SIMD build or with a test that invokes the matching Go SIMD kernel.
@@ -128,11 +129,14 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if cfg.ForceScalarRef && (cfg.SIMDRef || cfg.FixedRef || cfg.QEXTRef) {
+	if cfg.ForceScalarRef && (cfg.SIMDRef || cfg.FixedRef || cfg.QEXTRef || cfg.FixedQEXTRef) {
 		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("ForceScalarRef cannot be combined with SIMD, fixed-point, or QEXT references")}
 	}
-	if cfg.FixedRef && cfg.CustomRef {
+	if (cfg.FixedRef || cfg.FixedQEXTRef) && cfg.CustomRef {
 		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("fixed-point reference cannot be combined with custom references")}
+	}
+	if cfg.FixedQEXTRef && (cfg.FixedRef || cfg.QEXTRef) {
+		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("fixed-QEXT reference cannot be combined with separate fixed-point or QEXT references")}
 	}
 	if cfg.QEXTRef && (cfg.FixedRef || cfg.CustomRef) {
 		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("QEXT reference cannot be combined with fixed-point or custom references")}
@@ -164,8 +168,18 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 			refVariant = libopustooling.LibopusReferenceFixedScalar
 		}
 	}
+	if cfg.FixedQEXTRef {
+		if cfg.SIMDRef && pairedVariant != libopustooling.LibopusReferenceSIMD {
+			return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("fixed-QEXT SIMD helper conflicts with the scalar Go reference lane")}
+		}
+		if refVariant == libopustooling.LibopusReferenceSIMD {
+			refVariant = libopustooling.LibopusReferenceFixedQEXTSIMD
+		} else {
+			refVariant = libopustooling.LibopusReferenceFixedQEXTScalar
+		}
+	}
 	refDir := helperRefDir(cfg, refVariant)
-	scalarRef := refVariant == libopustooling.LibopusReferenceScalar || refVariant == libopustooling.LibopusReferenceQEXTScalar || refVariant == libopustooling.LibopusReferenceFixedScalar
+	scalarRef := refVariant == libopustooling.LibopusReferenceScalar || refVariant == libopustooling.LibopusReferenceQEXTScalar || refVariant == libopustooling.LibopusReferenceFixedScalar || refVariant == libopustooling.LibopusReferenceFixedQEXTScalar
 	ensureRef := libopustooling.EnsureLibopusScalar
 	flavor := "scalar"
 	if refVariant == libopustooling.LibopusReferenceSIMD {
@@ -188,6 +202,14 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 			flavor = "fixed-simd"
 		}
 	}
+	if cfg.FixedQEXTRef {
+		ensureRef = libopustooling.EnsureLibopusFixedQEXTScalar
+		flavor = "fixed-qext-scalar"
+		if refVariant == libopustooling.LibopusReferenceFixedQEXTSIMD {
+			ensureRef = libopustooling.EnsureLibopusFixedQEXTSIMD
+			flavor = "fixed-qext-simd"
+		}
+	}
 	if cfg.CustomRef {
 		ensureRef = libopustooling.EnsureLibopusCustom
 		flavor = "custom"
@@ -196,7 +218,7 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 			flavor = "custom-scalar"
 		}
 	}
-	if cfg.SIMDRef && !cfg.QEXTRef && !cfg.FixedRef {
+	if cfg.SIMDRef && !cfg.QEXTRef && !cfg.FixedRef && !cfg.FixedQEXTRef {
 		ensureRef = libopustooling.EnsureLibopusSIMD
 		flavor = "simd"
 	}
@@ -363,6 +385,19 @@ func helperNeedsConfig(cflags []string) bool {
 }
 
 func helperRefDir(cfg CHelperConfig, pairedVariant libopustooling.LibopusReferenceVariant) string {
+	if cfg.FixedQEXTRef {
+		switch pairedVariant {
+		case libopustooling.LibopusReferenceScalar:
+			pairedVariant = libopustooling.LibopusReferenceFixedQEXTScalar
+		case libopustooling.LibopusReferenceSIMD:
+			pairedVariant = libopustooling.LibopusReferenceFixedQEXTSIMD
+		}
+		suffix, err := libopustooling.LibopusReferenceSourceSuffix(pairedVariant)
+		if err != nil {
+			panic(err)
+		}
+		return filepath.Join(repoRoot(), "tmp_check", "opus-"+libopustooling.DefaultVersion+suffix)
+	}
 	if cfg.FixedRef {
 		switch pairedVariant {
 		case libopustooling.LibopusReferenceScalar:
@@ -452,12 +487,13 @@ func forceScalarRefDefines() []string {
 
 func helperConfigDigest(cfg CHelperConfig, refDir, srcPath string) string {
 	h := sha256.New()
-	helperHashString(h, "v3")
+	helperHashString(h, "v4")
 	helperHashString(h, cfg.OutputBase)
 	helperHashString(h, cfg.SourceFile)
 	helperHashString(h, fmt.Sprintf("dead-strip=%t", cfg.DeadStrip))
 	helperHashString(h, fmt.Sprintf("qext-ref=%t", cfg.QEXTRef))
 	helperHashString(h, fmt.Sprintf("fixed-ref=%t", cfg.FixedRef))
+	helperHashString(h, fmt.Sprintf("fixed-qext-ref=%t", cfg.FixedQEXTRef))
 	helperHashString(h, fmt.Sprintf("custom-ref=%t", cfg.CustomRef))
 	helperHashString(h, fmt.Sprintf("simd-ref=%t", cfg.SIMDRef))
 	helperHashString(h, fmt.Sprintf("force-scalar-ref=%t", cfg.ForceScalarRef))

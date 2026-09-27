@@ -7,8 +7,44 @@ import (
 
 	"github.com/thesyncim/gopus/internal/fixedpoint"
 	"github.com/thesyncim/gopus/internal/opusmath"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 	"github.com/thesyncim/gopus/internal/silk"
 )
+
+type encoderFixedOuterQ8Fields struct {
+	fixedPrevHBGainQ15 int16
+	fixedSilkPrefillQ8 []int32
+	fixedCELTPrefillQ8 []int32
+	fixedSilkPrefillOK bool
+	fixedCELTPrefillOK bool
+}
+
+func newFixedOuterQ8Fields() encoderFixedOuterQ8Fields {
+	return encoderFixedOuterQ8Fields{fixedPrevHBGainQ15: 1<<15 - 1}
+}
+
+func (e *Encoder) resetFixedOuterQ8() {
+	e.fixedPrevHBGainQ15 = 1<<15 - 1
+	e.fixedSilkPrefillOK = false
+	e.fixedCELTPrefillOK = false
+	clear(e.fixedSilkPrefillQ8)
+	clear(e.fixedCELTPrefillQ8)
+}
+
+func (e *Encoder) fixedHighBandGainQ15(celtRate int32) int16 {
+	// celt_exp2 receives opus_val16 in fixed builds, so the C assignment
+	// narrows -celtRate to int16 before evaluating its Q16 result. This matches
+	// opus_encoder.c:2061 and celt/mathops.h; keep the wrap rather than clamping.
+	return int16((1<<15 - 1) - (fixedpoint.CeltExp2(int16(-celtRate)) >> 1))
+}
+
+func (e *Encoder) fadeFixedHighBand(gainQ15 int16) {
+	if !e.restrictedSilkApp && e.fixedFrameReady &&
+		(e.fixedPrevHBGainQ15 < 1<<15-1 || gainQ15 < 1<<15-1) {
+		fixedpoint.GainFadeRes24(e.fixedDelayed, int(e.channels), e.fixedPrevHBGainQ15, gainQ15, int(e.sampleRate))
+	}
+	e.fixedPrevHBGainQ15 = gainQ15
+}
 
 // fixedDCRejectRes ports src/opus_encoder.c:dc_reject for the selected
 // FIXED_POINT+ENABLE_RES24 build. Input and output are opus_res int32 Q8; hpMem
@@ -115,6 +151,131 @@ func (e *Encoder) prepareFixedCELTPCM(frameSize int) {
 		copy(e.fixedDelayed[delaySamples:], e.fixedFrameSource[:frameSamples-delaySamples])
 	}
 	e.fixedFrameReady = true
+}
+
+// fixedSILKInputQ8 returns the selected FIXED_POINT+ENABLE_RES24 input frame
+// after the outer encoder's Q8 high-pass. SILK applies RES2INT16 while loading
+// API-rate samples in silk/enc_API.c.
+func (e *Encoder) fixedSILKInputQ8(frameSize int) []int32 {
+	if !e.fixedFrameReady || len(e.fixedFrameSource) != frameSize*int(e.channels) {
+		return nil
+	}
+	return e.fixedFrameSource
+}
+
+func (e *Encoder) fixedHybridCELTPCMQ8(frameSize int) []int32 {
+	if !e.fixedFrameReady || len(e.fixedDelayed) != frameSize*int(e.channels) {
+		return nil
+	}
+	return e.fixedDelayed
+}
+
+func (e *Encoder) fixedFrameSliceQ8(offset, frameSize int) []int32 {
+	start := offset * int(e.channels)
+	end := start + frameSize*int(e.channels)
+	if !e.fixedFrameReady || start < 0 || end > len(e.fixedDelayed) {
+		return nil
+	}
+	return e.fixedDelayed[start:end]
+}
+
+func (e *Encoder) stageFixedSILKPrefill(captureCELTPrefill bool) {
+	if !e.fixedInputActive {
+		return
+	}
+	channels := int(e.channels)
+	frameSize := int(e.sampleRate) / 100
+	frameSamples := frameSize * channels
+	if cap(e.fixedSilkPrefillQ8) < frameSamples {
+		e.fixedSilkPrefillQ8 = make([]int32, frameSamples)
+	}
+	e.fixedSilkPrefillQ8 = e.fixedSilkPrefillQ8[:frameSamples]
+	clear(e.fixedSilkPrefillQ8)
+	if len(e.fixedDelayBuffer) >= frameSamples {
+		copy(e.fixedSilkPrefillQ8, e.fixedDelayBuffer[:frameSamples])
+	} else if len(e.fixedDelayBuffer) > 0 {
+		copy(e.fixedSilkPrefillQ8[frameSamples-len(e.fixedDelayBuffer):], e.fixedDelayBuffer)
+	}
+
+	prefillSamples := int(e.sampleRate) / 400
+	delayComp := int(e.sampleRate) / 250
+	rampStart := frameSize - delayComp - prefillSamples
+	rampStart = min(max(rampStart, 0), frameSize)
+	clear(e.fixedSilkPrefillQ8[:rampStart*channels])
+	if prefillSamples > 0 && rampStart < frameSize {
+		end := min(frameSize, rampStart+prefillSamples)
+		fixedpoint.GainFadeRes24(e.fixedSilkPrefillQ8[rampStart*channels:end*channels], channels, 0, 1<<15-1, int(e.sampleRate))
+	}
+	e.fixedSilkPrefillOK = true
+	e.fixedCELTPrefillOK = false
+	if !captureCELTPrefill || prefillSamples <= 0 || rampStart+prefillSamples > frameSize {
+		return
+	}
+	if cap(e.fixedCELTPrefillQ8) < prefillSamples*channels {
+		e.fixedCELTPrefillQ8 = make([]int32, prefillSamples*channels)
+	}
+	e.fixedCELTPrefillQ8 = e.fixedCELTPrefillQ8[:prefillSamples*channels]
+	copy(e.fixedCELTPrefillQ8, e.fixedSilkPrefillQ8[rampStart*channels:(rampStart+prefillSamples)*channels])
+	e.fixedCELTPrefillOK = true
+}
+
+func (e *Encoder) captureFixedCELTTransitionPrefill() {
+	if e.fixedCELTPrefillOK || !e.fixedInputActive || e.lowDelay {
+		return
+	}
+	channels := int(e.channels)
+	prefillSamples := int(e.sampleRate) / 400
+	start := int(e.sampleRate)/100 - int(e.sampleRate)/250 - prefillSamples
+	if prefillSamples <= 0 || start < 0 {
+		return
+	}
+	count := prefillSamples * channels
+	if cap(e.fixedCELTPrefillQ8) < count {
+		e.fixedCELTPrefillQ8 = make([]int32, count)
+	}
+	e.fixedCELTPrefillQ8 = e.fixedCELTPrefillQ8[:count]
+	clear(e.fixedCELTPrefillQ8)
+	first := start * channels
+	last := first + count
+	if last <= len(e.fixedDelayBuffer) {
+		copy(e.fixedCELTPrefillQ8, e.fixedDelayBuffer[first:last])
+	}
+	e.fixedCELTPrefillOK = true
+}
+
+func (e *Encoder) fixedSILKPrefillInputQ8(frameSize int) []int32 {
+	if !e.fixedSilkPrefillOK || len(e.fixedSilkPrefillQ8) != frameSize*int(e.channels) {
+		return nil
+	}
+	return e.fixedSilkPrefillQ8
+}
+
+func (e *Encoder) fixedCELTTransitionPrefillInputQ8(frameSize int) []int32 {
+	if !e.fixedCELTPrefillOK || len(e.fixedCELTPrefillQ8) != frameSize*int(e.channels) {
+		return nil
+	}
+	return e.fixedCELTPrefillQ8
+}
+
+func (e *Encoder) consumeFixedCELTPrefill() { e.fixedCELTPrefillOK = false }
+
+func (e *Encoder) consumeFixedSILKPrefill() { e.fixedSilkPrefillOK = false }
+
+func (e *Encoder) encodeSILKPrefill(prefill, activity int) error {
+	if fixedPCM := e.fixedSILKPrefillInputQ8(int(e.sampleRate) / 100); fixedPCM != nil {
+		_, err := e.silk.EncodeResQ8(&e.silkMode, fixedPCM, int(e.sampleRate)/100, nil, prefill, activity)
+		e.consumeFixedSILKPrefill()
+		return err
+	}
+	_, err := e.silk.Encode(&e.silkMode, e.scratchSilkPrefill, int(e.sampleRate)/100, nil, prefill, activity)
+	return err
+}
+
+func (e *Encoder) encodeSILKFrame(pcm []opusRes, frameSize int, re *rangecoding.Encoder, activity int) (int32, error) {
+	if fixedPCM := e.fixedSILKInputQ8(frameSize); fixedPCM != nil {
+		return e.silk.EncodeResQ8(&e.silkMode, fixedPCM, frameSize, re, 0, activity)
+	}
+	return e.silk.Encode(&e.silkMode, pcm, frameSize, re, 0, activity)
 }
 
 func (e *Encoder) updateFixedDelayBuffer(frameSize int) {

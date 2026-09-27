@@ -246,6 +246,21 @@ func TestResolveLibopusQEXTReferenceVariantMatchesBuildTags(t *testing.T) {
 	}
 }
 
+func TestResolveLibopusFixedQEXTReferenceVariantMatchesBuildTags(t *testing.T) {
+	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "auto")
+	want := LibopusReferenceFixedQEXTScalar
+	if goLibopusReferenceSIMD && (runtime.GOARCH == "arm64" || runtime.GOARCH == "amd64") {
+		want = LibopusReferenceFixedQEXTSIMD
+	}
+	got, err := ResolveLibopusFixedQEXTReferenceVariant()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("fixed QEXT variant=%q want %q", got, want)
+	}
+}
+
 func TestScalarReferenceCompilerPolicyMatchesEnsureScript(t *testing.T) {
 	script, err := os.ReadFile(filepath.Join("..", "..", "tools", "ensure_libopus.sh"))
 	if err != nil {
@@ -369,6 +384,58 @@ func TestValidateQEXTReferenceBuildRequiresFeatureAndPairedISA(t *testing.T) {
 				t.Fatal("invalid QEXT build accepted")
 			}
 		})
+	}
+}
+
+func TestValidateFixedQEXTReferenceBuildRequiresBothFeaturesAndPairedISA(t *testing.T) {
+	for _, arch := range []string{"arm64", "amd64"} {
+		for _, variant := range []LibopusReferenceVariant{LibopusReferenceFixedQEXTScalar, LibopusReferenceFixedQEXTSIMD} {
+			t.Run(arch+"/"+string(variant), func(t *testing.T) {
+				dir := writePairedReferenceTree(t, t.TempDir(), variant, "linux", arch, "opus_demo")
+				if err := validateLibopusReferenceBuildForPlatform(dir, variant, DefaultVersion, "linux", arch); err != nil {
+					t.Fatalf("valid combined build: %v", err)
+				}
+				other := LibopusReferenceFixedQEXTScalar
+				if variant == other {
+					other = LibopusReferenceFixedQEXTSIMD
+				}
+				if err := validateLibopusReferenceBuildForPlatform(dir, other, DefaultVersion, "linux", arch); err == nil {
+					t.Fatalf("accepted %s as %s", variant, other)
+				}
+				for _, mutation := range []struct {
+					name string
+					file string
+					edit func(string) string
+				}{
+					{"missing fixed stamp", ".gopus-libopus-build", func(s string) string { return strings.Replace(s, "fixed=1", "fixed=0", 1) }},
+					{"missing QEXT stamp", ".gopus-libopus-build", func(s string) string { return strings.Replace(s, "qext=1", "qext=0", 1) }},
+					{"missing fixed macro", "config.h", func(s string) string { return strings.Replace(s, "#define FIXED_POINT 1\n", "", 1) }},
+					{"missing RES24 macro", "config.h", func(s string) string { return strings.Replace(s, "#define ENABLE_RES24 1\n", "", 1) }},
+					{"missing QEXT macro", "config.h", func(s string) string { return strings.Replace(s, "#define ENABLE_QEXT 1\n", "", 1) }},
+					{"unexpected deep PLC", "config.h", func(s string) string { return s + "#define ENABLE_DEEP_PLC 1\n" }},
+					{"unexpected custom modes", "config.h", func(s string) string { return s + "#define CUSTOM_MODES 1\n" }},
+				} {
+					t.Run(mutation.name, func(t *testing.T) {
+						badDir := writePairedReferenceTree(t, t.TempDir(), variant, "linux", arch)
+						path := filepath.Join(badDir, mutation.file)
+						data, err := os.ReadFile(path)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if err := os.WriteFile(path, []byte(mutation.edit(string(data))), 0o644); err != nil {
+							t.Fatal(err)
+						}
+						if err := validateLibopusReferenceBuildForPlatform(badDir, variant, DefaultVersion, "linux", arch); err == nil {
+							t.Fatal("accepted incomplete or mismatched fixed-QEXT reference")
+						}
+					})
+				}
+				tool := filepath.Join(dir, "opus_demo")
+				if err := validateLibopusReferenceToolOverrideForPlatform(tool, "opus_demo", variant, DefaultVersion, "linux", arch); err != nil {
+					t.Fatalf("valid combined tool: %v", err)
+				}
+			})
+		}
 	}
 }
 
@@ -753,6 +820,17 @@ func writePairedReferenceTree(t *testing.T, root string, variant LibopusReferenc
 		configure = "--enable-static --disable-shared --enable-fixed-point --enable-rtcd --enable-intrinsics"
 		cflags = LibopusBaseCFLAGS
 		fixed = "1"
+	case LibopusReferenceFixedQEXTScalar:
+		config = "#define FIXED_POINT 1\n#define ENABLE_RES24 1\n#define ENABLE_QEXT 1\n"
+		configure = "--enable-static --disable-shared --enable-fixed-point --enable-qext --disable-asm --disable-rtcd --disable-intrinsics"
+		fixed = "1"
+		qext = "1"
+	case LibopusReferenceFixedQEXTSIMD:
+		config = "#define FIXED_POINT 1\n#define ENABLE_RES24 1\n#define ENABLE_QEXT 1\n" + testSIMDConfig(goarch)
+		configure = "--enable-static --disable-shared --enable-fixed-point --enable-qext --enable-rtcd --enable-intrinsics"
+		cflags = LibopusBaseCFLAGS
+		fixed = "1"
+		qext = "1"
 	case LibopusReferenceQEXTScalar:
 		config = "#define ENABLE_QEXT 1\n"
 		configure = "--enable-static --disable-shared --enable-qext --disable-asm --disable-rtcd --disable-intrinsics"

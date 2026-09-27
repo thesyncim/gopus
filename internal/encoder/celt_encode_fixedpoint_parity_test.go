@@ -116,7 +116,8 @@ func TestPublicCELTEncodeFixedByteExact(t *testing.T) {
 			vbr := c.mode != ModeCBR
 			cvbr := c.mode == ModeCVBR
 			want, err := libopustest.ProbeCELTFixedRawQ8(libopustest.CELTFixedQ8Params{
-				SampleRate: 48000, Channels: c.channels, FrameSize: frameSize,
+				SampleRate: 48000, Channels: c.channels,
+				StreamChannels: int(enc.celtEncoder.StreamChannels()), FrameSize: frameSize,
 				Start: start, End: end, Bitrate: bitrate, Complexity: c.complexity,
 				LSBDepth: lsbDepth, VBR: vbr, ConstrainedVBR: cvbr,
 				Frames: []libopustest.CELTFixedQ8Frame{frame},
@@ -143,6 +144,50 @@ func TestPublicCELTEncodeFixedByteExact(t *testing.T) {
 				}
 				t.Fatalf("public CELT packet mismatch: got %d bytes, want %d bytes, first diff at %d range=%08x/%08x\n got=% x\nwant=% x",
 					len(got), len(want[0].Packet), diff, enc.FinalRange(), want[0].FinalRange, got, want[0].Packet)
+			}
+
+			// The raw CELT oracle receives the coded channel count selected by
+			// the public encoder. Verify that count against an independent public
+			// libopus encode for a low-rate stereo case where auto channel
+			// selection can choose mono; this prevents the direct oracle from
+			// merely repeating a production channel-control mistake.
+			if c.channels == 2 && c.lm == 0 && c.bitrate == 32000 &&
+				c.complexity == 0 && c.mode == ModeCBR && !c.transient {
+				ref, err := libopustest.ProbeOpusEncodeFixedMixedRecords(libopustest.OpusEncodeFixedParams{
+					SampleRate: 48000, Channels: c.channels,
+					Application:    libopustest.OpusApplicationRestrictedLowDelay,
+					MaxPacketBytes: maxSilkPacketBytes,
+					ForceMode:      libopustest.OpusForceModeCELTOnly,
+					Bandwidth:      libopustest.OpusBandwidthFullband,
+					Bitrate:        c.bitrate,
+					Complexity:     c.complexity,
+					VBR:            false,
+					VBRConstraint:  false,
+					FrameSize:      frameSize,
+					FrameCount:     1,
+					LSBDepth:       24,
+				}, []libopustest.OpusEncodeFixedMixedFrame{{Format: 1, FloatPCM: pcm, ForceMode: libopustest.OpusForceModeCELTOnly, Bandwidth: libopustest.OpusBandwidthFullband}})
+				if err != nil {
+					libopustest.HelperUnavailable(t, "public fixed Opus encode", err)
+					return
+				}
+				if len(ref) != 1 {
+					t.Fatalf("public fixed C records=%d, want one successful record", len(ref))
+				}
+				if ref[0].Status != 0 {
+					t.Fatalf("public fixed C status=%d, want success", ref[0].Status)
+				}
+				codedChannels := 1
+				if packet[0]&0x04 != 0 {
+					codedChannels = 2
+				}
+				if int(enc.celtEncoder.StreamChannels()) != codedChannels {
+					t.Fatalf("public TOC coded channels=%d, CELT control selected=%d", codedChannels, enc.celtEncoder.StreamChannels())
+				}
+				if !bytes.Equal(packet, ref[0].Packet) || enc.FinalRange() != ref[0].FinalRange {
+					t.Fatalf("public fixed C packet mismatch: got %d bytes, want %d bytes, range=%08x/%08x\n got=% x\nwant=% x",
+						len(packet), len(ref[0].Packet), enc.FinalRange(), ref[0].FinalRange, packet, ref[0].Packet)
+				}
 			}
 		})
 	}

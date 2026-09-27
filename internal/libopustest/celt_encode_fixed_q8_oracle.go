@@ -18,17 +18,23 @@ type CELTFixedQ8Analysis struct {
 }
 
 type CELTFixedQ8Frame struct {
-	PCM        []int32
-	MaxBytes   int
-	Analysis   CELTFixedQ8Analysis
-	EnergyMask []int32
+	PCM            []int32
+	MaxBytes       int
+	Analysis       CELTFixedQ8Analysis
+	EnergyMask     []int32
+	PrefixUniform  []uint32
+	ResetBefore    bool
+	SetPrediction  bool
+	Prediction     int32
+	SilkSignalType int32
+	SilkOffset     int32
 }
 
 type CELTFixedQ8Params struct {
-	SampleRate, Channels, FrameSize, Start, End int
-	Bitrate, Complexity, LSBDepth               int
-	VBR, ConstrainedVBR, LFE                    bool
-	Frames                                      []CELTFixedQ8Frame
+	SampleRate, Channels, StreamChannels, FrameSize, Start, End int
+	Bitrate, Complexity, LSBDepth                               int
+	VBR, ConstrainedVBR, LFE                                    bool
+	Frames                                                      []CELTFixedQ8Frame
 }
 
 type CELTFixedQ8Record struct {
@@ -37,6 +43,7 @@ type CELTFixedQ8Record struct {
 }
 
 var celtFixedQ8Helper HelperCache
+var celtFixedQ8QEXTHelper HelperCache
 
 func buildCELTFixedQ8Helper() (string, error) {
 	return BuildCHelper(CHelperConfig{
@@ -51,7 +58,30 @@ func buildCELTFixedQ8Helper() (string, error) {
 	})
 }
 
+func buildCELTFixedQ8QEXTHelper() (string, error) {
+	return BuildCHelper(CHelperConfig{
+		Label:        "selected fixed-QEXT CELT raw Q8 encode",
+		OutputBase:   "gopus_libopus_celt_encode_fixed_q8_qext",
+		SourceFile:   "libopus_celt_encode_fixed_q8_info.c",
+		FixedQEXTRef: true,
+		CFlags:       []string{"-DHAVE_CONFIG_H", "-DGOPUS_REQUIRE_QEXT=1", "-O3", "-DNDEBUG"},
+		RefIncludes:  []string{"celt", "silk"},
+		Libs:         []string{FixedQEXTRefPath(".libs", "libopus.a"), "-lm"},
+		DeadStrip:    true,
+	})
+}
+
 func ProbeCELTFixedRawQ8(p CELTFixedQ8Params) ([]CELTFixedQ8Record, error) {
+	return probeCELTFixedRawQ8(p, &celtFixedQ8Helper, buildCELTFixedQ8Helper)
+}
+
+// ProbeCELTFixedQEXTQ8 runs the same fixed Q8 CELT encode helper against the
+// independently built FIXED_POINT + ENABLE_QEXT reference archive.
+func ProbeCELTFixedQEXTQ8(p CELTFixedQ8Params) ([]CELTFixedQ8Record, error) {
+	return probeCELTFixedRawQ8(p, &celtFixedQ8QEXTHelper, buildCELTFixedQ8QEXTHelper)
+}
+
+func probeCELTFixedRawQ8(p CELTFixedQ8Params, helper *HelperCache, build func() (string, error)) ([]CELTFixedQ8Record, error) {
 	validRate := false
 	for _, rate := range [...]int{8000, 12000, 16000, 24000, 48000} {
 		validRate = validRate || p.SampleRate == rate
@@ -63,20 +93,34 @@ func ProbeCELTFixedRawQ8(p CELTFixedQ8Params) ([]CELTFixedQ8Record, error) {
 		(p.Bitrate != -1 && p.Bitrate <= 0) {
 		return nil, fmt.Errorf("invalid fixed CELT Q8 controls")
 	}
+	streamChannels := p.StreamChannels
+	if streamChannels == 0 {
+		streamChannels = p.Channels
+	}
+	if streamChannels < 1 || streamChannels > p.Channels {
+		return nil, fmt.Errorf("invalid fixed CELT Q8 stream channel count")
+	}
 	core := p.FrameSize * (48000 / p.SampleRate)
 	if core != 120 && core != 240 && core != 480 && core != 960 {
 		return nil, fmt.Errorf("fixed CELT Q8 core frame size %d", core)
 	}
 	perFrame := p.FrameSize * p.Channels
-	hasMask := len(p.Frames[0].EnergyMask) != 0
 	for f, frame := range p.Frames {
 		if len(frame.PCM) != perFrame || frame.MaxBytes < 2 || frame.MaxBytes > 1275 ||
-			(hasMask && len(frame.EnergyMask) != p.Channels*21) ||
-			(!hasMask && len(frame.EnergyMask) != 0) {
+			len(frame.PrefixUniform) > 64 ||
+			(len(frame.EnergyMask) != 0 && len(frame.EnergyMask) != p.Channels*21) {
 			return nil, fmt.Errorf("invalid fixed CELT Q8 frame %d", f)
 		}
+		if frame.SetPrediction && (frame.Prediction < 0 || frame.Prediction > 2) {
+			return nil, fmt.Errorf("invalid fixed CELT Q8 prediction mode in frame %d", f)
+		}
+		for _, symbol := range frame.PrefixUniform {
+			if symbol >= 256 {
+				return nil, fmt.Errorf("invalid fixed CELT Q8 prefix symbol in frame %d", f)
+			}
+		}
 	}
-	bin, err := celtFixedQ8Helper.Path(buildCELTFixedQ8Helper)
+	bin, err := helper.Path(build)
 	if err != nil {
 		return nil, err
 	}
@@ -86,14 +130,23 @@ func ProbeCELTFixedRawQ8(p CELTFixedQ8Params) ([]CELTFixedQ8Record, error) {
 		}
 		return 0
 	}
-	payload := NewOraclePayload("GQRI", uint32(p.Channels), uint32(p.FrameSize),
+	payload := NewOraclePayloadVersion("GQRI", 3, uint32(p.Channels), uint32(streamChannels), uint32(p.FrameSize),
 		uint32(p.Start), uint32(p.End), uint32(int32(p.Bitrate)), uint32(p.Complexity),
 		uint32(p.SampleRate), b2u(p.VBR), b2u(p.ConstrainedVBR), b2u(p.LFE),
-		uint32(p.LSBDepth), uint32(len(p.Frames)), b2u(hasMask))
+		uint32(p.LSBDepth), uint32(len(p.Frames)))
 	for _, frame := range p.Frames {
 		payload.U32(uint32(frame.MaxBytes))
 		payload.U32(uint32(perFrame))
 		payload.I32s(frame.PCM...)
+		payload.U32(uint32(len(frame.PrefixUniform)))
+		for _, symbol := range frame.PrefixUniform {
+			payload.U32(symbol)
+		}
+		payload.U32(b2u(frame.ResetBefore))
+		payload.U32(b2u(frame.SetPrediction))
+		payload.I32(frame.Prediction)
+		payload.I32(frame.SilkSignalType)
+		payload.I32(frame.SilkOffset)
 		a := frame.Analysis
 		payload.U32(b2u(a.Valid))
 		for _, value := range [...]float32{a.Tonality, a.TonalitySlope, a.Noisiness,
@@ -104,7 +157,8 @@ func ProbeCELTFixedRawQ8(p CELTFixedQ8Params) ([]CELTFixedQ8Record, error) {
 		payload.Float32(a.ActivityProbability)
 		payload.Float32(a.MaxPitchRatio)
 		payload.Raw(a.LeakBoost[:])
-		if hasMask {
+		payload.U32(b2u(len(frame.EnergyMask) != 0))
+		if len(frame.EnergyMask) != 0 {
 			payload.I32s(frame.EnergyMask...)
 		}
 	}

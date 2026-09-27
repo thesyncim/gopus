@@ -10,7 +10,7 @@ FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-p
 .PHONY: verify-production verify-production-exhaustive verify-safety test-build-config-matrix
 .PHONY: test-simd test-precision-guard
 .PHONY: release-evidence release-preflight
-.PHONY: ensure-libopus ensure-libopus-qext ensure-libopus-fixed ensure-libopus-custom
+.PHONY: ensure-libopus ensure-libopus-qext ensure-libopus-fixed ensure-libopus-fixed-qext ensure-libopus-custom
 .PHONY: ensure-libopus-custom-scalar ensure-libopus-simd ensure-libopus-scalar
 .PHONY: test-fixedpoint-parity test-custom-parity test-corpus-quality ensure-testvectors
 .PHONY: fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants
@@ -406,6 +406,12 @@ ensure-libopus-qext:
 ensure-libopus-fixed:
 	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_FIXED_SCALAR=1 ./tools/ensure_libopus.sh
 	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_FIXED_SIMD=1 ./tools/ensure_libopus.sh
+
+# Build both FIXED_POINT + ENABLE_QEXT references without replacing either
+# existing feature tree. Helpers select the generic-C or SIMD tree by Go lane.
+ensure-libopus-fixed-qext:
+	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_FIXED_QEXT_SCALAR=1 ./tools/ensure_libopus.sh
+	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_FIXED_QEXT_SIMD=1 ./tools/ensure_libopus.sh
 
 # Bit-exact parity for the gopus_fixed_point integer kernels against the
 # --enable-fixed-point libopus oracle.
