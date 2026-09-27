@@ -126,7 +126,7 @@ for mode in simd nosimd; do
     build_args=(-tags nosimd)
   fi
 
-  for package in internal/celt internal/silk testvectors; do
+  for package in internal/celt internal/silk; do
     package_name="${package##*/}"
     output="$artifact_root/candidate-$mode-$package_name.test"
     run_phase "build-candidate-$mode-$package_name" \
@@ -150,59 +150,19 @@ for mode in simd nosimd; do
       -test.count=1 -test.timeout=10m -test.v
   fi
 
-  run_json_phase "candidate-$mode-celt-deemphasis-state-plc" \
+  # Exact union of the original selectors, sharing package/helper setup.
+  run_json_phase "candidate-$mode-standard-correctness-and-cbr-batch" \
     run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json "${build_args[@]}" ./internal/celt \
-    -run '^(TestApplyDeemphasis.*MatchesLibopus|TestDeemphasisMatchesLibopus|TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus|TestCELTPLCStagesMatchLibopusC|TestCELTPLCFIRMatchesLibopus|TestCELTPLCIIRMatchesLibopus|TestCombFilterConstantBodyHistorySeamMatchesLibopus|TestCombFilterRampedHistorySeamMatchesLibopus|TestCombFilterConstSSEOrderZeroAllocs|TestPitchSearchNearTieMatchesSelectedLibopus|TestExpRotationMatchesLibopusFloatPath|TestPatchTransientHistoryStrideMatchesLibopus|TestPVQProjectionRoundingMatchesLibopus|TestOpPVQSearchFloatHighKNearTieResidual)$' \
-    -count=1 -timeout=10m
-
-  run_json_phase "candidate-$mode-root-silence-allocation" \
-    run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json "${build_args[@]}" . \
-    -run '^(TestCELTSilenceDecodeMatchesLibopusFloatBits|TestCELTReceivedSilenceHistoryMatchesLibopus|TestHotPathAllocsDecodeSilenceTransitions|TestHotPathAllocsMultistreamDecode|TestMultistreamCallerBuffer.*)$' \
-    -count=1 -timeout=10m
-
-  run_json_phase "candidate-$mode-multistream-encode-budget" \
-    run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json "${build_args[@]}" ./multistream ./internal/encoder \
-    -run '^(TestPaddedStreamMatchesLibopusRepacketizer|TestMultistream(CBRDTXMatchesLibopus|EncodeBudgetMatchesLibopus|EncodeTooSmallPreservesState|SelfDelimitedBudgetFramingWarmZeroAllocs)|TestSurroundTransientHistoryStrideMatchesLibopus|TestSurroundPVQProjectionRoundingMatchesLibopus|TestSurroundLowSpaceFinalRangeMatchesLibopus|TestSurroundLowSpaceThenRealFrameMatchesLibopus|TestLowSpacePacketPreservesInputHighPassState|TestProjectionAnalysisMatchesLibopus|TestInitialStereoToMonoMatchesLibopus|TestProjectionInitialMonoDecisionMatchesLibopus|TestStereoFadeMatchesLibopus|TestStereoWidthComputation|TestHPCutoffMatchesLibopus|TestClampRedundancyBytesAfterSilkMatchesLibopusFormula)$' \
-    -count=1 -timeout=10m
-
-  run_json_phase "candidate-$mode-root-native-rate-dtx" \
-    run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json "${build_args[@]}" . \
-    -run '^(TestSub48NativeEncodeParity|TestEncodeStatefulDTXRunFuzz|TestStereoFadeTransitionPacketMatchesLibopus|TestLowDelayApplicationControlsMatchLibopus)$' \
-    -count=1 -timeout=10m
-
-  run_json_phase "candidate-$mode-root-multiframe-fec" \
-    run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json "${build_args[@]}" . \
-    -run '^TestDecodeWithFEC(MultiFrameSILK|SideReset)MatchesLibopus$' \
-    -count=1 -timeout=10m
-
-  run_json_phase "candidate-$mode-lowdelay-exact" \
-    run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json "${build_args[@]}" ./testvectors \
-    -run '^TestLowDelayCrossModeParity$' \
-    -count=1 -timeout=10m
-
-  run_json_phase "candidate-$mode-root-valid-decode-exact" \
-    run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json "${build_args[@]}" . \
-    -run '^TestDecodeDifferentialEncodeThenDecode$' \
-    -count=1 -timeout=10m
+    "${run_env[@]}" go test -json "${build_args[@]}" \
+    ./internal/celt . ./multistream ./internal/encoder ./testvectors ./internal/dnnmath ./internal/dred/rdovae \
+    -run '(^(TestApplyDeemphasis.*MatchesLibopus|TestDeemphasisMatchesLibopus|TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus|TestCELTPLCStagesMatchLibopusC|TestCELTPLCFIRMatchesLibopus|TestCELTPLCIIRMatchesLibopus|TestCombFilterConstantBodyHistorySeamMatchesLibopus|TestCombFilterRampedHistorySeamMatchesLibopus|TestCombFilterConstSSEOrderZeroAllocs|TestPitchSearchNearTieMatchesSelectedLibopus|TestExpRotationMatchesLibopusFloatPath|TestPatchTransientHistoryStrideMatchesLibopus|TestPVQProjectionRoundingMatchesLibopus|TestOpPVQSearchFloatHighKNearTieResidual)$)|(^(TestCELTSilenceDecodeMatchesLibopusFloatBits|TestCELTReceivedSilenceHistoryMatchesLibopus|TestHotPathAllocsDecodeSilenceTransitions|TestHotPathAllocsMultistreamDecode|TestMultistreamCallerBuffer.*)$)|(^(TestPaddedStreamMatchesLibopusRepacketizer|TestMultistream(CBRDTXMatchesLibopus|EncodeBudgetMatchesLibopus|EncodeTooSmallPreservesState|SelfDelimitedBudgetFramingWarmZeroAllocs)|TestSurroundTransientHistoryStrideMatchesLibopus|TestSurroundPVQProjectionRoundingMatchesLibopus|TestSurroundLowSpaceFinalRangeMatchesLibopus|TestSurroundLowSpaceThenRealFrameMatchesLibopus|TestLowSpacePacketPreservesInputHighPassState|TestProjectionAnalysisMatchesLibopus|TestInitialStereoToMonoMatchesLibopus|TestProjectionInitialMonoDecisionMatchesLibopus|TestStereoFadeMatchesLibopus|TestStereoWidthComputation|TestHPCutoffMatchesLibopus|TestClampRedundancyBytesAfterSilkMatchesLibopusFormula)$)|(^(TestSub48NativeEncodeParity|TestEncodeStatefulDTXRunFuzz|TestStereoFadeTransitionPacketMatchesLibopus|TestLowDelayApplicationControlsMatchLibopus)$)|(^TestDecodeWithFEC(MultiFrameSILK|SideReset)MatchesLibopus$)|(^TestLowDelayCrossModeParity$)|(^TestDecodeDifferentialEncodeThenDecode$)|(^(TestHybridToSILKFadeRequiresDecodedHistoryMatchesLibopus|TestTransitionPLCStageGainMatchesLibopus|TestCELTTransitionPLCStageHasInnerAndOuterGainChecks|TestCELTTransitionFadeReplaysMatchedLibopus|TestTransitionFullSequenceMatchesLibopus|TestTransitionPreviousCELTPLCStageMatchesLibopus|TestSILKToCELTTransitionPLCMatchesLibopus|TestSILKPLCDurationChangesMatchLibopus|TestMultistreamSurroundDecodeDifferentialFuzz|TestMultistreamDiscreteDecodeDifferentialFuzz|TestProjectionDecodeDifferentialFuzz|TestMultistreamGopusEncodedDecodeDifferentialFuzz|TestProjectionDecodeIntoPrefilledBuffer|TestCELTActualRotationPacketsMatchLibopus)$)|(^Test(DNNVectorActivationsMatchSelectedLibopusOracle|RDOVAECGEMV8x4MatchesSelectedLibopusOracle|RDOVAESGEMVMatchesSelectedLibopusOracle|RDOVAESparseFloatLinearMatchesSelectedLibopusOracle|RDOVAEIntegerLinearBiasMatchesSelectedLibopusOracle|RDOVAEIntegerInputQuantizerMatchesSelectedLibopusOracle)$)|(^TestEncoderCBRPairedOracleExact$)' \
+    -count=1 -timeout=25m
 
   run_json_phase "candidate-$mode-root-stateful-mono-transition" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json "${build_args[@]}" . \
     -run '^TestEncodeStatefulTransitionFuzz$/^xfr_auto_ch1_(40|60)ms_(24000|32000|48000|64000)bps_vbr[012]_cx5_fecfalse_dtx(true|false)$' \
     -count=1 -timeout=10m
-
-  run_json_phase "candidate-$mode-multistream-history-strict-decode" \
-    run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json "${build_args[@]}" ./multistream \
-    -run '^(TestHybridToSILKFadeRequiresDecodedHistoryMatchesLibopus|TestTransitionPLCStageGainMatchesLibopus|TestCELTTransitionPLCStageHasInnerAndOuterGainChecks|TestCELTTransitionFadeReplaysMatchedLibopus|TestTransitionFullSequenceMatchesLibopus|TestTransitionPreviousCELTPLCStageMatchesLibopus|TestSILKToCELTTransitionPLCMatchesLibopus|TestSILKPLCDurationChangesMatchLibopus|TestMultistreamSurroundDecodeDifferentialFuzz|TestMultistreamDiscreteDecodeDifferentialFuzz|TestProjectionDecodeDifferentialFuzz|TestMultistreamGopusEncodedDecodeDifferentialFuzz|TestProjectionDecodeIntoPrefilledBuffer|TestCELTActualRotationPacketsMatchLibopus)$' \
-    -count=1 -timeout=25m
 
   run_phase "candidate-$mode-lpc-ltp-oracles" \
     "${run_env[@]}" "$artifact_root/candidate-$mode-silk.test" \
@@ -223,78 +183,21 @@ for mode in simd nosimd; do
     "${run_env[@]}" go test -json -tags "gopus_qext${feature_scalar_tag}" . \
     -run '^Test(QEXT(Stateful|ActiveStereoDecode|ReceivedSilence|Decode96kOracle)|Native96k(Decode|IntegerDecode|MixedInteger)|HD96kPublicFinalRangeMatchesLibopus)' -count=1 -timeout=10m
 
-  run_json_phase "candidate-$mode-fixed-stateful-decode" \
-    run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_fixed_point${feature_scalar_tag}" . \
-    -run '^Test(DecodeDifferentialFixedPoint|DecoderFixedPoint|DecodeWithFEC|HotPathAllocsDecode|DecodeMalformedVBRPreservesSelectedLibopusState|DecodeMalformedRawCSequenceWitnessPreservesState)' -count=1 -timeout=15m
-
-  run_json_phase "candidate-$mode-fixed-silk-api" \
+  # Exact union of the original selectors, sharing package/helper setup.
+  run_json_phase "candidate-$mode-fixed-point-correctness-batch" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json -tags "gopus_fixed_point${feature_scalar_tag}" \
-    ./internal/silk -run '^Test(Public.*SILK|PacketEncoderEncodeZeroAlloc)' -count=1 -timeout=10m
-
-  run_json_phase "candidate-$mode-fixed-encode" \
-    run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_fixed_point${feature_scalar_tag}" \
-    . ./internal/encoder ./internal/celt ./testvectors \
-    -run '^(TestPublicFixedShortEncodeMatchesLibopus|TestPublicFixedVoIPShortCELTMatchesLibopus|TestPublicFixedShortExpertFrameDurationMatchesLibopus|TestPublicFixedLongCELTPacketsMatchLibopus|TestPublicFixedInputAPIsShareQ8History|TestPublicFixedVoIPInputAPIsShareQ8History|TestPublicFixedStereoWidthFadeMatchesLibopus|TestPublicFixedSILKHybridInputAPIsMatchLibopus|TestPublicFixedSILKHybridRatesDurationsAndDownmixMatchLibopus|TestPublicFixedSILKHybridModeTransitionsMatchLibopus|TestPublicFixedAutoSILKHybridSequencesMatchLibopus|TestPublicCELTEncodeFixedByteExact|TestPublicCELTEncodeFixedRateByteExact|TestOpusEncodeFixedCELTByteExact|TestOpusEncodeFixedCELTFloatInputSingleFrameByteExact|TestOpusEncodeFixedSILKHybridMatchedFloatInputByteExact|TestFixedPointTonalityAnalysisStagesMatchLibopus|TestEncodeDifferentialFuzzFixedPoint|TestFixedCBRRawTailMatchesLibopus|TestFixedStereoPrefilterThresholdMatchesLibopus|TestFixedOuterOpusEncodeRawInt16MatchesLibopus|TestFixedOuterOpusEncodeRecordsPreserveCalls|TestFixedHPCutoffResMatchesLibopus|TestFixedVoIPHPCutoffResetAndLowSpaceState|TestVoIPHPCutoffResetMatchesFreshEncoder|TestLowSpacePacketPreservesInputHighPassState|TestFixedDCRejectQ8MatchesLibopus|TestAllocationNonpositiveBudgetMatchesFixedLibopus|TestFixedCELTEnergyMaskFloatBoundaryConversion|TestPublicFixedCELTEnergyMaskAndLFEControlsMatchOracle|TestPublicFixedCELTEnergyMaskResetLifetimeMatchesOracle|TestPublicFixedCELTQ24MaskMatchesOracle|TestPublicFixedLFEMatchesOracle|TestPublicFixedShortFrameSILKRequestFallsBackToCELTOracle)$' \
+    . ./internal/silk ./internal/encoder ./internal/celt ./testvectors ./internal/fixedpoint \
+    -run '(^Test(DecodeDifferentialFixedPoint|DecoderFixedPoint|DecodeWithFEC|HotPathAllocsDecode|DecodeMalformedVBRPreservesSelectedLibopusState|DecodeMalformedRawCSequenceWitnessPreservesState))|(^Test(Public.*SILK|PacketEncoderEncodeZeroAlloc))|(^(TestPublicFixedShortEncodeMatchesLibopus|TestPublicFixedVoIPShortCELTMatchesLibopus|TestPublicFixedShortExpertFrameDurationMatchesLibopus|TestPublicFixedLongCELTPacketsMatchLibopus|TestPublicFixedInputAPIsShareQ8History|TestPublicFixedVoIPInputAPIsShareQ8History|TestPublicFixedStereoWidthFadeMatchesLibopus|TestPublicFixedSILKHybridInputAPIsMatchLibopus|TestPublicFixedSILKHybridRatesDurationsAndDownmixMatchLibopus|TestPublicFixedSILKHybridModeTransitionsMatchLibopus|TestPublicFixedAutoSILKHybridSequencesMatchLibopus|TestPublicCELTEncodeFixedByteExact|TestPublicCELTEncodeFixedRateByteExact|TestOpusEncodeFixedCELTByteExact|TestOpusEncodeFixedCELTFloatInputSingleFrameByteExact|TestOpusEncodeFixedSILKHybridMatchedFloatInputByteExact|TestFixedPointTonalityAnalysisStagesMatchLibopus|TestEncodeDifferentialFuzzFixedPoint|TestFixedCBRRawTailMatchesLibopus|TestFixedStereoPrefilterThresholdMatchesLibopus|TestFixedOuterOpusEncodeRawInt16MatchesLibopus|TestFixedOuterOpusEncodeRecordsPreserveCalls|TestFixedHPCutoffResMatchesLibopus|TestFixedVoIPHPCutoffResetAndLowSpaceState|TestVoIPHPCutoffResetMatchesFreshEncoder|TestLowSpacePacketPreservesInputHighPassState|TestFixedDCRejectQ8MatchesLibopus|TestAllocationNonpositiveBudgetMatchesFixedLibopus|TestFixedCELTEnergyMaskFloatBoundaryConversion|TestPublicFixedCELTEnergyMaskAndLFEControlsMatchOracle|TestPublicFixedCELTEnergyMaskResetLifetimeMatchesOracle|TestPublicFixedCELTQ24MaskMatchesOracle|TestPublicFixedLFEMatchesOracle|TestPublicFixedShortFrameSILKRequestFallsBackToCELTOracle)$)|(^(TestCELTHybridEncodeWithECSeededOracle|TestCELTResetClearsEnergyMaskOracle|TestAmp2Log2Oracle)$)' \
     -count=1 -timeout=25m
 
-  run_json_phase "candidate-$mode-fixed-celt-transition-oracles" \
-    run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_fixed_point${feature_scalar_tag}" \
-    ./internal/fixedpoint \
-    -run '^(TestCELTHybridEncodeWithECSeededOracle|TestCELTResetClearsEnergyMaskOracle|TestAmp2Log2Oracle)$' \
-    -count=1 -timeout=10m
-
-  run_json_phase "candidate-$mode-fixed-qext-paired-reference" \
+  # Exact union of the original selectors, sharing package/helper setup.
+  run_json_phase "candidate-$mode-fixed-qext-correctness-batch" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json -tags "gopus_fixed_point,gopus_qext${feature_scalar_tag}" \
-    ./internal/libopustest ./internal/fixedpoint \
-    -run '^(TestFixedQEXTArchiveAndPublicHelperUsePairedReference|TestCELTEncodeWithECFixedQEXTReferenceArchive)$' \
-    -count=1 -timeout=10m
-
-  run_json_phase "candidate-$mode-fixed-qext-encode" \
-    run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_fixed_point,gopus_qext${feature_scalar_tag}" \
-    . ./internal/encoder ./internal/fixedpoint \
-    -run '^(TestPublicFixedQEXTPacketsMatchLibopus|TestPublicFixedQEXTConstraintPersistsAcrossCBR|TestPublicFixedQEXTFrameSizeModeAndInputMatrix|TestPublicFixedQEXTWarmEncodeAllocations|TestPublicFixedQEXTHighBudgetWarmEncodeAllocations|TestPublicFixedQEXT96kDurationsMatchLibopus|TestFixedQEXTInputBypassesDCHighpassWithoutAdvancingMemory|TestCELTFixedQEXTMainPayloadMatchesLibopus|TestCELTFixedQEXTReservedMainPayloadMatchesLibopus|TestCELTFixedQEXTNative96KFrameMatchesLibopus|TestCELTFixedQEXTNative96KSidePayloadMatchesLibopus|TestCELTFixedQEXTNative96KShortFrameNoSidePayloadMatchesLibopus|TestCELTFixedQEXTNative96KStatefulResetMatchesLibopus|TestCELTFixedQEXTNative96KEncodeDoesNotAllocateAfterWarmup|TestCELTFixedQEXTExtraAllocationMatchesLibopus)$' \
+    ./internal/libopustest ./internal/fixedpoint . ./internal/encoder ./multistream \
+    -run '(^(TestFixedQEXTArchiveAndPublicHelperUsePairedReference|TestCELTEncodeWithECFixedQEXTReferenceArchive)$)|(^(TestPublicFixedQEXTPacketsMatchLibopus|TestPublicFixedQEXTConstraintPersistsAcrossCBR|TestPublicFixedQEXTFrameSizeModeAndInputMatrix|TestPublicFixedQEXTWarmEncodeAllocations|TestPublicFixedQEXTHighBudgetWarmEncodeAllocations|TestPublicFixedQEXT96kDurationsMatchLibopus|TestFixedQEXTInputBypassesDCHighpassWithoutAdvancingMemory|TestCELTFixedQEXTMainPayloadMatchesLibopus|TestCELTFixedQEXTReservedMainPayloadMatchesLibopus|TestCELTFixedQEXTNative96KFrameMatchesLibopus|TestCELTFixedQEXTNative96KSidePayloadMatchesLibopus|TestCELTFixedQEXTNative96KShortFrameNoSidePayloadMatchesLibopus|TestCELTFixedQEXTNative96KStatefulResetMatchesLibopus|TestCELTFixedQEXTNative96KEncodeDoesNotAllocateAfterWarmup|TestCELTFixedQEXTExtraAllocationMatchesLibopus)$)|(^(TestFixedPointTonalityAnalysisStagesMatchLibopus|TestFixedCELTEnergyMaskFloatBoundaryConversion|TestPublicFixedCELTEnergyMaskAndLFEControlsMatchOracle|TestPublicFixedCELTEnergyMaskResetLifetimeMatchesOracle|TestPublicFixedCELTQ24MaskMatchesOracle|TestPublicFixedLFEMatchesOracle|TestPublicFixedShortFrameSILKRequestFallsBackToCELTOracle)$)|(^(TestPublicFixedQEXTCELTReceivedFramesMatchSelectedReference|TestPublicFixedQEXTCELTMainWithoutExtensionMatchesSelectedReference|TestPublicFixedQEXTSmallBufferDoesNotAdvanceCELTState|TestPublicFixedQEXTLostCELTFrameMatchesSelectedReference|TestPublicFixedQEXTLostCELTBurstMatchesSelectedReference|TestPublicFixedQEXTStructuralMalformedPacketPreservesCELTState|TestPublicFixedQEXTHybridReceivedFramesMatchSelectedReference|TestPublicFixedQEXTCELTToHybridTransitionMatchesSelectedReference|TestPublicFixedQEXTHybridToCELTTransitionMatchesSelectedReference|TestPublicFixedQEXTHybridLostFrameMatchesSelectedReference|TestPublicFixedQEXTHybridLowerRateAndDownmixMatchesSelectedReference|TestPublicFixedQEXTHybridFECMatchesSelectedReference|TestPublicFixedQEXTHybridRedundancyDirectionsMatchSelectedReference|TestNative96kDecodeMatchesQEXTOracle(Mono|Stereo)|TestQEXTDecode96kOracleProducesNative96k|TestNative96kDecodeCrossFramePostfilterParity|TestNative96kIntegerDecodeFormatsMatchQEXTOracle|TestNative96kIntegerDecodeSmallBufferPreservesState|TestNative96kIntegerDecodeGainMatchesQEXTOracle|TestNative96kMixedIntegerFormatsMatchQEXTOracle|TestAlgQuantQEXTMatchesFixedLibopus|TestAlgUnquantQEXTMatchesSelectedLibopus|TestQuantAllBandsDecodeOracle|TestQuantAllBandsDecodeQEXTMatchesSelectedLibopus|TestQuantPartitionQEXTUsesZeroResolutionCubicLeaf)$)|(^(TestPublicFixedAutoCELTSequenceMatchesLibopus|TestCombFilterQEXTPFMatchesLibopus|TestFixedPointSurroundEncodeMatchesLibopus|TestFixedPointSurroundAnalysisMatchesLibopus|TestFixedPointSurroundMaskRoutingMatchesAnalyzer|TestFixedPointFloatSurroundEncodeMatchesLibopus|TestFixedQEXTMonoSurroundCELTResetMatchesLibopus|TestMultistreamEncodeDecodeAllocGuard)$)|(^(TestQEXTMDCTForwardMatchesFixedLibopus|TestQEXTMDCT96000ForwardMatchesFixedLibopus|TestQEXTMDCTBackwardMatchesSelectedLibopus|TestQEXTMDCTSilenceHeadroomMatchesFixedLibopus|TestQEXTKissFFTMatchesFixedLibopus|TestQEXTMDCTForwardDoesNotAllocateAfterWarmup|TestQEXTKissFFTDoesNotAllocate|TestAmp2Log2Oracle|TestCELTExp2DBFixedQEXTMatchesSelectedLibopus|TestDenormaliseBandsOracle|TestAntiCollapseMatchesLibopusFixed)$)' \
     -count=1 -timeout=25m
-
-  run_json_phase "candidate-$mode-fixed-qext-analysis" \
-    run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_fixed_point,gopus_qext${feature_scalar_tag}" \
-    ./internal/encoder \
-    -run '^(TestFixedPointTonalityAnalysisStagesMatchLibopus|TestFixedCELTEnergyMaskFloatBoundaryConversion|TestPublicFixedCELTEnergyMaskAndLFEControlsMatchOracle|TestPublicFixedCELTEnergyMaskResetLifetimeMatchesOracle|TestPublicFixedCELTQ24MaskMatchesOracle|TestPublicFixedLFEMatchesOracle|TestPublicFixedShortFrameSILKRequestFallsBackToCELTOracle)$' \
-    -count=1 -timeout=10m
-
-  run_json_phase "candidate-$mode-fixed-qext-received" \
-    run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_fixed_point,gopus_qext${feature_scalar_tag}" \
-    . ./internal/fixedpoint \
-    -run '^(TestPublicFixedQEXTCELTReceivedFramesMatchSelectedReference|TestPublicFixedQEXTCELTMainWithoutExtensionMatchesSelectedReference|TestPublicFixedQEXTSmallBufferDoesNotAdvanceCELTState|TestPublicFixedQEXTLostCELTFrameMatchesSelectedReference|TestPublicFixedQEXTLostCELTBurstMatchesSelectedReference|TestPublicFixedQEXTStructuralMalformedPacketPreservesCELTState|TestPublicFixedQEXTHybridReceivedFramesMatchSelectedReference|TestPublicFixedQEXTCELTToHybridTransitionMatchesSelectedReference|TestPublicFixedQEXTHybridToCELTTransitionMatchesSelectedReference|TestPublicFixedQEXTHybridLostFrameMatchesSelectedReference|TestPublicFixedQEXTHybridLowerRateAndDownmixMatchesSelectedReference|TestPublicFixedQEXTHybridFECMatchesSelectedReference|TestPublicFixedQEXTHybridRedundancyDirectionsMatchSelectedReference|TestNative96kDecodeMatchesQEXTOracle(Mono|Stereo)|TestQEXTDecode96kOracleProducesNative96k|TestNative96kDecodeCrossFramePostfilterParity|TestNative96kIntegerDecodeFormatsMatchQEXTOracle|TestNative96kIntegerDecodeSmallBufferPreservesState|TestNative96kIntegerDecodeGainMatchesQEXTOracle|TestNative96kMixedIntegerFormatsMatchQEXTOracle|TestAlgQuantQEXTMatchesFixedLibopus|TestAlgUnquantQEXTMatchesSelectedLibopus|TestQuantAllBandsDecodeOracle|TestQuantAllBandsDecodeQEXTMatchesSelectedLibopus|TestQuantPartitionQEXTUsesZeroResolutionCubicLeaf)$' \
-    -count=1 -timeout=10m
-
-  run_json_phase "candidate-$mode-fixed-surround" \
-    run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_fixed_point,gopus_qext${feature_scalar_tag}" \
-    ./internal/encoder ./internal/fixedpoint ./multistream \
-    -run '^(TestPublicFixedAutoCELTSequenceMatchesLibopus|TestCombFilterQEXTPFMatchesLibopus|TestFixedPointSurroundEncodeMatchesLibopus|TestFixedPointSurroundAnalysisMatchesLibopus|TestFixedPointSurroundMaskRoutingMatchesAnalyzer|TestFixedPointFloatSurroundEncodeMatchesLibopus|TestFixedQEXTMonoSurroundCELTResetMatchesLibopus|TestMultistreamEncodeDecodeAllocGuard)$' \
-    -count=1 -timeout=10m
-
-  run_json_phase "candidate-$mode-fixed-qext-transform" \
-    run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_fixed_point,gopus_qext${feature_scalar_tag}" \
-    ./internal/fixedpoint \
-    -run '^(TestQEXTMDCTForwardMatchesFixedLibopus|TestQEXTMDCT96000ForwardMatchesFixedLibopus|TestQEXTMDCTBackwardMatchesSelectedLibopus|TestQEXTMDCTSilenceHeadroomMatchesFixedLibopus|TestQEXTKissFFTMatchesFixedLibopus|TestQEXTMDCTForwardDoesNotAllocateAfterWarmup|TestQEXTKissFFTDoesNotAllocate|TestAmp2Log2Oracle|TestCELTExp2DBFixedQEXTMatchesSelectedLibopus|TestDenormaliseBandsOracle|TestAntiCollapseMatchesLibopusFixed)$' \
-    -count=1 -timeout=10m
-
-  run_json_phase "candidate-$mode-neural-kernel-parity" \
-    run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json "${build_args[@]}" \
-    ./internal/dnnmath ./internal/dred/rdovae \
-    -run '^Test(DNNVectorActivationsMatchSelectedLibopusOracle|RDOVAECGEMV8x4MatchesSelectedLibopusOracle|RDOVAESGEMVMatchesSelectedLibopusOracle|RDOVAESparseFloatLinearMatchesSelectedLibopusOracle|RDOVAEIntegerLinearBiasMatchesSelectedLibopusOracle|RDOVAEIntegerInputQuantizerMatchesSelectedLibopusOracle)$' \
-    -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-neural-analysis-parity" \
     run_in_checkout "$candidate_root" \
@@ -321,23 +224,14 @@ for mode in simd nosimd; do
     -run '^Test(DREDLowDelayReferenceOffsetAgainstLibopus|DREDLowDelayFullSequenceEncoderMatchesLibopus|DREDLongLossPCMMatchesLibopusRawBits|DREDLongSequenceAllDecodedPCMMatchesLibopusRawBits|DecoderCELTNeuralPLCAPIRatesMatchesLibopusRawBits|DREDBurgSelectedCFirstLossRawBits|DREDPredictorSelectedCFirstLossRawBits|ExplicitDRED.*Quality.*SixtyPercentLoss)$' \
     -count=1 -timeout=10m
 
-  run_json_phase "candidate-$mode-dred-qext-reference-packet-contract" \
+  # Exact union of the original selectors, sharing package/helper setup.
+  run_json_phase "candidate-$mode-dred-qext-correctness-batch" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json -tags "gopus_dred,gopus_qext${feature_scalar_tag}" \
     . ./internal/encoder ./internal/libopustest ./internal/libopustooling ./multistream \
-    -run '^(TestCombinedDREDQEXTBuildOptionalExtensionContract|TestCombinedDREDQEXTBuildPublicAPIContract|TestDREDQEXTFloatSurroundMasksMatchSelectedLibopus|TestMaybeBuildSingleFrameDREDPacketCarriesQEXTAndDRED|TestEncodeCELTDREDQEXTPacketCarriesBothExtensions|TestMaybeBuildLongCELTDREDQEXTPacketCarriesBothExtensions|TestResolveLibopusDREDQEXTReferenceMatchesGoISA|TestHelperRefDirSelectsDREDQEXTTree|TestCHelperReferenceSelectionRejectsConflictingVariants|TestDREDQEXTReferenceVariantPairsScalarAndSIMD|TestValidateDREDQEXTReferenceBuildRequiresCombinedFlagsAndPairedISA|TestExistingReferenceBuildsRejectDREDAndDeepPLCFeatures|TestDREDQEXTBuildEnvironmentClearsConflictingFeatureFlags)$' \
-    -count=1 -timeout=10m
-
-  run_json_phase "candidate-$mode-dred-qext-multistream-parity-allocation" \
-    run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_dred,gopus_qext${feature_scalar_tag}" \
-    ./multistream \
-    -run '^TestDREDQEXTSurroundAndProjectionEncodeMatchesLibopus$' \
+    -run '(^(TestCombinedDREDQEXTBuildOptionalExtensionContract|TestCombinedDREDQEXTBuildPublicAPIContract|TestDREDQEXTFloatSurroundMasksMatchSelectedLibopus|TestMaybeBuildSingleFrameDREDPacketCarriesQEXTAndDRED|TestEncodeCELTDREDQEXTPacketCarriesBothExtensions|TestMaybeBuildLongCELTDREDQEXTPacketCarriesBothExtensions|TestResolveLibopusDREDQEXTReferenceMatchesGoISA|TestHelperRefDirSelectsDREDQEXTTree|TestCHelperReferenceSelectionRejectsConflictingVariants|TestDREDQEXTReferenceVariantPairsScalarAndSIMD|TestValidateDREDQEXTReferenceBuildRequiresCombinedFlagsAndPairedISA|TestExistingReferenceBuildsRejectDREDAndDeepPLCFeatures|TestDREDQEXTBuildEnvironmentClearsConflictingFeatureFlags)$)|(^TestDREDQEXTSurroundAndProjectionEncodeMatchesLibopus$)' \
     -count=1 -timeout=25m
 
-  run_phase "candidate-$mode-strict-cbr" \
-    "${run_env[@]}" "$artifact_root/candidate-$mode-testvectors.test" \
-    -test.run '^TestEncoderCBRPairedOracleExact$' -test.count=1 -test.timeout=25m -test.v
 done
 
 run_phase build-baseline-test-binary \
