@@ -8,7 +8,7 @@ import (
 
 func TestDenormalizeBandGainsMatchScalar(t *testing.T) {
 	rng := rand.New(rand.NewSource(0xde7))
-	specials := []float32{0, -0.0, 32, 31.999998, 32.5, -50, -50.5, -51, -60, 1e4, -1e4, float32(math.NaN()), float32(math.Inf(1)), float32(math.Inf(-1))}
+	specials := []float32{0, float32(math.Copysign(0, -1)), 32, 31.999998, 32.5, -50, -50.5, -51, -60, 1e4, -1e4, float32(math.NaN()), float32(math.Inf(1)), float32(math.Inf(-1))}
 	for iter := 0; iter < 20000; iter++ {
 		end := 1 + rng.Intn(len(eMeans))
 		start := rng.Intn(end)
