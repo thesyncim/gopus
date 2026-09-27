@@ -544,6 +544,9 @@ func (e *Encoder) encodeCELTOnlyFrame(pcm []opusRes, frameSize, nbComprBytes int
 // halved for a conservative reduction, moves the SILK rate, and a hybrid
 // frame gives SILK 3/5 of the change.
 func (e *Encoder) silkSurroundRateOffset(silkBitRate int32) int32 {
+	if offset, ok := e.fixedSilkSurroundRateOffset(silkBitRate); ok {
+		return offset
+	}
 	end := 17
 	srate := float32(16000)
 	switch e.bandwidth {

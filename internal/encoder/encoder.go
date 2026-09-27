@@ -1087,8 +1087,11 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		if e.lfe {
 			requestedMode = ModeCELT
 		}
+		if requestedMode != ModeCELT && frameSize < sampleRate/100 {
+			requestedMode = ModeCELT
+		}
 		// The switch into CELT-only precedes the bandwidth clamp and the mode
-		// fixup, as in the auto path (src/opus_encoder.c:1541-1557).
+		// fixup, as in the auto path (src/opus_encoder.c:1533-1557).
 		requestedMode, prevModeNext = e.applyCELTTransitionDelay(frameSize, requestedMode)
 		// Run decide_fec for non-auto modes too. In libopus, decide_fec()
 		// runs unconditionally at line 1675 (not just in auto mode).
@@ -3204,6 +3207,7 @@ func (e *Encoder) ForceChannels() int {
 // SetLFE enables or disables LFE mode.
 func (e *Encoder) SetLFE(enabled bool) {
 	e.lfe = enabled
+	e.setFixedCELTLFE(enabled)
 	if e.celtEncoder != nil {
 		e.celtEncoder.SetLFE(enabled)
 		e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
@@ -3300,6 +3304,7 @@ func (e *Encoder) SetCELTEnergyMask(mask []float32) {
 		if e.celtEncoder != nil {
 			e.celtEncoder.SetEnergyMask(nil)
 		}
+		e.syncFixedCELTEnergyMask()
 		return
 	}
 	if cap(e.celtEnergyMask) < needed {
@@ -3309,6 +3314,7 @@ func (e *Encoder) SetCELTEnergyMask(mask []float32) {
 	}
 	copy(e.celtEnergyMask, mask[:needed])
 	e.syncCELTEnergyMask()
+	e.syncFixedCELTEnergyMask()
 }
 
 // CELTEnergyMask returns the current CELT energy mask.

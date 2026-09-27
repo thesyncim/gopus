@@ -26,6 +26,9 @@
  *   IN v6 appends per-frame u32(force_mode) and u32(bandwidth) controls after
  *       the per-frame input-format array, preserving a persistent encoder while
  *       changing forced modes between calls.
+ *   IN v7 appends u32(lfe), then one per-frame energy-mask action. Action 0
+ *       leaves the control unchanged, action 1 sets channels*21 Q24 celt_glog
+ *       values, and action 2 clears the control with a nil pointer.
  *
  * force_mode values map to opus_private.h:
  *   1000 = MODE_SILK_ONLY, 1001 = MODE_HYBRID, 1002 = MODE_CELT_ONLY,
@@ -47,8 +50,10 @@
 #include <io.h>
 #endif
 
+#include "config.h"
 #include "opus.h"
 #include "opus_private.h"
+#include "celt.h"
 
 #define INPUT_MAGIC  "GOEI"
 #define OUTPUT_MAGIC "GOEO"
@@ -114,7 +119,7 @@ int main(void) {
     return 1;
   }
   uint32_t version;
-  if (!read_u32(&version) || (version < 1 || version > 6)) {
+  if (!read_u32(&version) || (version < 1 || version > 7)) {
     fprintf(stderr, "bad input version %u\n", version);
     return 1;
   }
@@ -125,6 +130,7 @@ int main(void) {
   uint32_t input_format = 0;
   uint32_t lsb_depth = 0;
   uint32_t expert_frame_duration = 0;
+  uint32_t lfe = 0;
   if (!read_u32(&sample_rate)    || !read_u32(&channels)       ||
       !read_u32(&force_mode)     || !read_u32(&bandwidth)      ||
       !read_u32(&bitrate)        || !read_u32(&complexity)     ||
@@ -220,6 +226,8 @@ int main(void) {
   uint32_t *reset_before = NULL;
   uint32_t *frame_force_mode = NULL;
   uint32_t *frame_bandwidth = NULL;
+  uint32_t *frame_energy_mask_action = NULL;
+  celt_glog *frame_energy_mask = NULL;
   if (version >= 2) {
     reset_before = (uint32_t *)calloc((size_t)num_frames, sizeof(uint32_t));
     if (reset_before == NULL) {
@@ -267,20 +275,71 @@ int main(void) {
       }
     }
   }
+  if (version >= 7) {
+    if (!read_u32(&lfe) || lfe > 1) {
+      fprintf(stderr, "invalid LFE control\n");
+      free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before);
+      free(raw); free(pcm_float); free(pcm);
+      return 1;
+    }
+    size_t mask_count = (size_t)channels * 21;
+    if (num_frames > SIZE_MAX / mask_count / sizeof(celt_glog)) {
+      fprintf(stderr, "energy-mask dimensions overflow\n");
+      free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before);
+      free(raw); free(pcm_float); free(pcm);
+      return 1;
+    }
+    frame_energy_mask_action = (uint32_t *)calloc((size_t)num_frames, sizeof(uint32_t));
+    frame_energy_mask = (celt_glog *)calloc((size_t)num_frames * mask_count, sizeof(celt_glog));
+    if (frame_energy_mask_action == NULL || frame_energy_mask == NULL) {
+      fprintf(stderr, "energy-mask allocation failed\n");
+      free(frame_energy_mask_action); free(frame_energy_mask);
+      free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before);
+      free(raw); free(pcm_float); free(pcm);
+      return 1;
+    }
+    for (uint32_t f = 0; f < num_frames; f++) {
+      if (!read_u32(&frame_energy_mask_action[f]) || frame_energy_mask_action[f] > 2) {
+        fprintf(stderr, "invalid energy-mask action at frame %u\n", f);
+        free(frame_energy_mask_action); free(frame_energy_mask);
+        free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before);
+        free(raw); free(pcm_float); free(pcm);
+        return 1;
+      }
+      if (frame_energy_mask_action[f] == 1) {
+        for (size_t i = 0; i < mask_count; i++) {
+          uint32_t value;
+          if (!read_u32(&value)) {
+            fprintf(stderr, "truncated energy mask at frame %u\n", f);
+            free(frame_energy_mask_action); free(frame_energy_mask);
+            free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before);
+            free(raw); free(pcm_float); free(pcm);
+            return 1;
+          }
+#ifdef FIXED_POINT
+          frame_energy_mask[(size_t)f * mask_count + i] = (celt_glog)(opus_int32)value;
+#else
+          frame_energy_mask[(size_t)f * mask_count + i] =
+              (celt_glog)(opus_int32)value * (1.f / (1 << 24));
+#endif
+        }
+      }
+    }
+  }
 
   int err = OPUS_OK;
   OpusEncoder *enc = opus_encoder_create((opus_int32)sample_rate, (int)channels,
                                          (int)application, &err);
   if (enc == NULL || err != OPUS_OK) {
     fprintf(stderr, "opus_encoder_create failed: %d\n", err);
-    free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
+    free(frame_energy_mask_action); free(frame_energy_mask); free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
     return 1;
   }
 
 #define CTL(call) do { \
     if (opus_encoder_ctl(enc, call) != OPUS_OK) { \
       fprintf(stderr, "ctl failed: %s\n", #call); \
-      opus_encoder_destroy(enc); free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm); return 1; \
+      opus_encoder_destroy(enc); free(frame_energy_mask_action); free(frame_energy_mask); free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm); return 1; \
     } \
   } while (0)
 
@@ -302,6 +361,7 @@ int main(void) {
   if (force_mode != 0) {
     CTL(OPUS_SET_FORCE_MODE((opus_int32)force_mode));
   }
+  if (version >= 7) CTL(OPUS_SET_LFE((opus_int32)lfe));
 
   unsigned char *pkt_buf = (unsigned char *)malloc(MAX_PACKET_BYTES);
   unsigned char **packets = (unsigned char **)calloc((size_t)num_frames, sizeof(unsigned char *));
@@ -312,7 +372,7 @@ int main(void) {
       packet_status == NULL || packet_ranges == NULL) {
     fprintf(stderr, "alloc failed\n");
     free(pkt_buf); free(packets); free(packet_lens); free(packet_status); free(packet_ranges);
-    opus_encoder_destroy(enc); free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
+    opus_encoder_destroy(enc); free(frame_energy_mask_action); free(frame_energy_mask); free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
     return 1;
   }
 
@@ -342,6 +402,18 @@ int main(void) {
         opus_encoder_ctl(enc, OPUS_SET_FORCE_MODE((opus_int32)frame_force_mode[f])) != OPUS_OK) {
       fprintf(stderr, "per-frame force_mode ctl failed at frame %u\n", f);
       goto fail;
+    }
+    if (version >= 7) {
+      uint32_t action = frame_energy_mask_action[f];
+      if (action != 0) {
+        celt_glog *mask = action == 1
+            ? frame_energy_mask + (size_t)f * channels * 21
+            : NULL;
+        if (opus_encoder_ctl(enc, OPUS_SET_ENERGY_MASK_REQUEST, mask) != OPUS_OK) {
+          fprintf(stderr, "per-frame energy-mask ctl failed at frame %u\n", f);
+          goto fail;
+        }
+      }
     }
     int n;
     if (version >= 3) {
@@ -406,12 +478,12 @@ int main(void) {
 
   for (uint32_t i = 0; i < got; i++) free(packets[i]);
   free(packets); free(packet_lens); free(packet_status); free(packet_ranges); free(pkt_buf);
-  opus_encoder_destroy(enc); free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
+  opus_encoder_destroy(enc); free(frame_energy_mask_action); free(frame_energy_mask); free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
   return 0;
 
 fail:
   for (uint32_t i = 0; i < got; i++) free(packets[i]);
   free(packets); free(packet_lens); free(packet_status); free(packet_ranges); free(pkt_buf);
-  opus_encoder_destroy(enc); free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
+  opus_encoder_destroy(enc); free(frame_energy_mask_action); free(frame_energy_mask); free(frame_force_mode); free(frame_bandwidth); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
   return 1;
 }

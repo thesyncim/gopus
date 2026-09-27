@@ -37,6 +37,15 @@ const (
 	OpusBandwidthFullband      = 1105
 )
 
+// Per-frame CELT energy-mask actions for OpusEncodeFixedMixedFrame. An
+// unchanged action preserves the encoder's current control value; Clear asks
+// libopus to apply the control with a nil mask pointer.
+const (
+	OpusEnergyMaskUnchanged uint32 = iota
+	OpusEnergyMaskSet
+	OpusEnergyMaskClear
+)
+
 var opusEncodeFixedHelper HelperCache
 var opusEncodeFloatShortHelper HelperCache
 
@@ -122,8 +131,10 @@ type OpusEncodeFixedParams struct {
 	// ExpertFrameDuration sets OPUS_SET_EXPERT_FRAME_DURATION before encoding.
 	// Zero keeps OPUS_FRAMESIZE_ARG.
 	ExpertFrameDuration int
-	FrameSize           int // per-channel samples at SampleRate
-	FrameCount          int
+	// LFE sets OPUS_SET_LFE before any frame is encoded.
+	LFE        bool
+	FrameSize  int // per-channel samples at SampleRate
+	FrameCount int
 	// PCM is the interleaved int16 input for all frames,
 	// length FrameSize*Channels*FrameCount.
 	PCM []int16
@@ -152,6 +163,10 @@ type OpusEncodeFixedMixedFrame struct {
 	// MODE_* and OPUS_BANDWIDTH_* values, respectively.
 	ForceMode int
 	Bandwidth int
+	// EnergyMaskAction is one of OpusEnergyMaskUnchanged, OpusEnergyMaskSet, or
+	// OpusEnergyMaskClear. Set supplies channels*21 Q24 celt_glog values.
+	EnergyMaskAction uint32
+	EnergyMask       []int32
 }
 
 // ProbeOpusEncodeFixedMixedRecords alternates the three public input APIs on
@@ -204,9 +219,16 @@ func probeOpusEncodeMixedRecords(binPath string, p OpusEncodeFixedParams, frames
 	}
 	for _, frame := range frames {
 		if frame.ForceMode != 0 || frame.Bandwidth != 0 {
-			version = 6
-			break
+			if version < 6 {
+				version = 6
+			}
 		}
+		if frame.EnergyMaskAction != OpusEnergyMaskUnchanged {
+			version = 7
+		}
+	}
+	if p.LFE {
+		version = 7
 	}
 	b2u := func(b bool) uint32 {
 		if b {
@@ -255,6 +277,16 @@ func probeOpusEncodeMixedRecords(binPath string, p OpusEncodeFixedParams, frames
 		default:
 			return nil, fmt.Errorf("opus encode fixed mixed: frame %d invalid format %d", i, frame.Format)
 		}
+		if frame.EnergyMaskAction > OpusEnergyMaskClear {
+			return nil, fmt.Errorf("opus encode fixed mixed: frame %d invalid energy-mask action %d", i, frame.EnergyMaskAction)
+		}
+		if frame.EnergyMaskAction == OpusEnergyMaskSet {
+			if len(frame.EnergyMask) != p.Channels*21 {
+				return nil, fmt.Errorf("opus encode fixed mixed: frame %d energy-mask length=%d want=%d", i, len(frame.EnergyMask), p.Channels*21)
+			}
+		} else if len(frame.EnergyMask) != 0 {
+			return nil, fmt.Errorf("opus encode fixed mixed: frame %d energy mask requires set action", i)
+		}
 	}
 	for _, frame := range frames {
 		payload.U32(b2u(frame.ResetBefore))
@@ -266,6 +298,17 @@ func probeOpusEncodeMixedRecords(binPath string, p OpusEncodeFixedParams, frames
 		for _, frame := range frames {
 			payload.U32(uint32(frame.ForceMode))
 			payload.U32(uint32(frame.Bandwidth))
+		}
+	}
+	if version >= 7 {
+		payload.U32(b2u(p.LFE))
+		for _, frame := range frames {
+			payload.U32(frame.EnergyMaskAction)
+			if frame.EnergyMaskAction == OpusEnergyMaskSet {
+				for _, value := range frame.EnergyMask {
+					payload.I32(value)
+				}
+			}
 		}
 	}
 	reader, err := RunOracleVersion(binPath, payload.Bytes(), "opus encode mixed records", opusEncodeFixedOutputMagic, version)
