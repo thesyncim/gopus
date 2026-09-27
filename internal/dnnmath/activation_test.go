@@ -82,7 +82,7 @@ func TestVectorActivationsMatchActiveTailPath(t *testing.T) {
 	if dnnNEONEnabled {
 		wantTanh = tanhTailNEON(in[0])
 		wantSigmoid = sigmoidTailNEON(in[0])
-	} else if dnnX86Enabled {
+	} else if X86VectorKernels {
 		wantTanh = tanhApproxX86(in[0])
 		one := []float32{0}
 		sigmoidVectorX86(one, in, 1)
@@ -119,7 +119,7 @@ func TestExpVectorApproxMatchesActiveTailPath(t *testing.T) {
 	want := ExpApprox(in[len(in)-1])
 	if dnnNEONEnabled {
 		want = expApproxNEON(in[len(in)-1])
-	} else if dnnX86Enabled {
+	} else if X86VectorKernels {
 		one := []float32{0}
 		expVectorX86(one, in[len(in)-1:], 1)
 		want = one[0]

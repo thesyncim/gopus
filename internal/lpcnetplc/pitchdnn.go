@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/dnnmath"
 	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
@@ -378,7 +379,11 @@ func computeConv2D(layer *Conv2DLayer, out, mem, in []float32, height, hstride, 
 	copy(inBuf[:memSize], mem[:memSize])
 	copy(inBuf[memSize:memSize+timeStride], in[:timeStride])
 	copy(mem[:memSize], inBuf[timeStride:timeStride+memSize])
-	conv2D3x3Float(out, layer, inBuf, height, hstride)
+	if useX86DNNVectorKernels {
+		dnnmath.Conv2D3x3X86(out, layer.FloatWeights, layer.InChannels, layer.OutChannels, inBuf, height, hstride)
+	} else {
+		conv2D3x3Float(out, layer, inBuf, height, hstride)
+	}
 	if !layer.Bias.Empty() {
 		for i := 0; i < layer.OutChannels; i++ {
 			base := i * hstride

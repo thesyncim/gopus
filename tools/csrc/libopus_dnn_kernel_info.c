@@ -23,7 +23,8 @@ enum {
   MODE_SGEMV = 0,
   MODE_CGEMV8X4 = 1,
   MODE_LINEAR_CGEMV8X4 = 2,
-  MODE_LINEAR_SPARSE_SGEMV = 3
+  MODE_LINEAR_SPARSE_SGEMV = 3,
+  MODE_CONV2D_3X3 = 4
 };
 
 static int set_binary_stdio(void) {
@@ -274,6 +275,65 @@ done:
 }
 #endif
 
+#ifndef GOPUS_DIRECT_SCALAR_DNN
+static int check_selected_conv2d_arch(int arch) {
+#if defined(OPUS_HAVE_RTCD) && defined(OPUS_X86_MAY_HAVE_AVX2)
+  if (arch == 4 && DNN_COMPUTE_CONV2D_IMPL[arch & OPUS_ARCHMASK] != compute_conv2d_avx2) return 0;
+#endif
+  (void)arch;
+  return 1;
+}
+
+/* compute_conv2d with a 3x3 kernel, bias and tanh activation. The payload
+   carries in_channels (cols) and out_channels (rows); height is the third
+   header field and hstride equals height. */
+static int run_conv2d_3x3(uint32_t out_channels, uint32_t in_channels, uint32_t height) {
+  float *weights = NULL;
+  float *bias = NULL;
+  float *mem = NULL;
+  float *in = NULL;
+  float *out = NULL;
+  uint32_t i;
+  uint32_t weight_count;
+  uint32_t time_stride;
+  int arch;
+  int ok = 0;
+  Conv2dLayer conv = {0};
+
+  if (out_channels == 0 || in_channels == 0 || height == 0 || out_channels > 64 || in_channels > 64 || height > 512) return 0;
+  time_stride = in_channels * (height + 2);
+  if (3 * time_stride > 8192) return 0;
+  weight_count = out_channels * in_channels * 9;
+  weights = (float *)malloc(weight_count * sizeof(*weights));
+  bias = (float *)malloc(out_channels * sizeof(*bias));
+  mem = (float *)malloc(2 * time_stride * sizeof(*mem));
+  in = (float *)malloc(time_stride * sizeof(*in));
+  out = (float *)malloc(out_channels * height * sizeof(*out));
+  if (weights == NULL || bias == NULL || mem == NULL || in == NULL || out == NULL) goto done;
+  for (i = 0; i < weight_count; i++) if (!read_float(&weights[i])) goto done;
+  for (i = 0; i < out_channels; i++) if (!read_float(&bias[i])) goto done;
+  for (i = 0; i < 2 * time_stride; i++) if (!read_float(&mem[i])) goto done;
+  for (i = 0; i < time_stride; i++) if (!read_float(&in[i])) goto done;
+  conv.bias = bias;
+  conv.float_weights = weights;
+  conv.in_channels = (int)in_channels;
+  conv.out_channels = (int)out_channels;
+  conv.ktime = 3;
+  conv.kheight = 3;
+  arch = opus_select_arch();
+  if (!check_selected_conv2d_arch(arch)) goto done;
+  compute_conv2d(&conv, out, mem, in, (int)height, (int)height, ACTIVATION_TANH, arch);
+  ok = write_output(out, out_channels * height, arch);
+done:
+  free(weights);
+  free(bias);
+  free(mem);
+  free(in);
+  free(out);
+  return ok;
+}
+#endif
+
 int main(void) {
   char magic[4];
   uint32_t version;
@@ -301,6 +361,12 @@ int main(void) {
       return 1;
 #else
       return run_linear(rows, cols, col_stride, 1) ? 0 : 1;
+#endif
+    case MODE_CONV2D_3X3:
+#ifdef GOPUS_DIRECT_SCALAR_DNN
+      return 1;
+#else
+      return run_conv2d_3x3(rows, cols, col_stride) ? 0 : 1;
 #endif
   }
   return 1;

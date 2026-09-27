@@ -1,7 +1,8 @@
 // Package dnnmath provides the activation, exponent and input-quantization
 // kernels libopus' neural-network code (DRED, OSCE) relies on. Each kernel keeps
-// a scalar path that mirrors the generic libopus build and, on arm64, a NEON
-// path matching the SIMD reference so the DNN output is bit-exact per tier.
+// a scalar path that mirrors the generic libopus build and, in the Go SIMD
+// lane, the NEON (arm64) or AVX2/FMA (amd64) arithmetic of the matching libopus
+// SIMD reference, so the DNN output is bit-exact per tier.
 package dnnmath
 
 import (
@@ -148,7 +149,7 @@ func Exp2Approx(x float32) float32 {
 
 // Cgemv8x4QuantizeInput mirrors libopus' ARM NEON quantizer, which uses
 // nearest-even conversion after a float32 multiply. Other scalar callers use
-// floor(0.5 + 127*x); x86 SIMD uses Cgemv8x4QuantizeInputX86.
+// floor(0.5 + 127*x); the x86 SIMD kernels quantize inside CGEMV8x4X86.
 func Cgemv8x4QuantizeInput(x float32) int8 {
 	if useNEONCgemvQuantize {
 		return int8(opusmath.RoundToEvenF32ToInt32(float32(127) * x))

@@ -90,7 +90,7 @@ func TestDNNVectorActivationsMatchSelectedLibopusOracle(t *testing.T) {
 			}
 		})
 	}
-	if dnnX86Enabled {
+	if X86VectorKernels {
 		// The selected AVX2 archive uses the second operand for NaN in its
 		// MINPS/MAXPS clamps, including the scalar tail's broadcast lane.
 		exceptional := []float32{
@@ -126,6 +126,42 @@ func TestDNNVectorActivationsMatchSelectedLibopusOracle(t *testing.T) {
 			for i := range got {
 				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 					t.Fatalf("exp[%d]=%s want %s", i, formatDNNFloat(got[i]), formatDNNFloat(want[i]))
+				}
+			}
+		})
+	}
+}
+
+func TestDNNVectorActivationSweepMatchesSelectedLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	// 1027 inputs cover complete vectors and a three-element tail across the
+	// saturated and polynomial ranges with full-precision mantissas.
+	input := make([]float32, 1027)
+	seed := uint32(0x3c6ef372)
+	for i := range input {
+		seed = 1664525*seed + 1013904223
+		input[i] = float32(int32(seed>>7)-(1<<24)) * (24.0 / (1 << 24))
+	}
+	out := make([]float32, len(input))
+	for _, tc := range []struct {
+		name string
+		mode uint32
+		run  func([]float32, []float32, int)
+	}{
+		{name: "sigmoid", mode: libopusDNNActivationSigmoid, run: SigmoidVectorApprox},
+		{name: "tanh", mode: libopusDNNActivationTanh, run: TanhVectorApprox},
+		{name: "exp", mode: libopusDNNActivationExp, run: ExpVectorApprox},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			want, err := probeLibopusDNNActivation(tc.mode, input)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "dnn activation", err)
+			}
+			tc.run(out, input, len(input))
+			for i := range out {
+				if math.Float32bits(out[i]) != math.Float32bits(want[i]) {
+					t.Fatalf("%s(%g)[%d]=%s want %s", tc.name, input[i], i, formatDNNFloat(out[i]), formatDNNFloat(want[i]))
 				}
 			}
 		})

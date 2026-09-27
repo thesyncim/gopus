@@ -14,6 +14,7 @@ const (
 	DNNKernelCGEMV8x4          = uint32(1)
 	DNNKernelLinearCGEMV8x4    = uint32(2)
 	DNNKernelLinearSparseSGEMV = uint32(3)
+	DNNKernelConv2D3x3         = uint32(4)
 
 	dnnKernelInputMagic  = "GDKI"
 	dnnKernelOutputMagic = "GDKO"
@@ -96,6 +97,22 @@ func ProbeDNNLinearSparseSGEMV(rows, cols int, idx []int32, weights, x, bias []f
 	payload.Float32s(bias...)
 	payload.Float32s(make([]float32, rows)...)
 	return readDNNKernelOracle(binPath, payload.Bytes(), rows, true)
+}
+
+// ProbeDNNConv2D3x3 calls the selected DRED archive's compute_conv2d with a
+// 3x3 kernel, a bias and the tanh activation, using hstride == height. It
+// returns the outChannels*height outputs.
+func ProbeDNNConv2D3x3(outChannels, inChannels, height int, weights, bias, mem, in []float32) ([]float32, error) {
+	binPath, err := dnnKernelHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := NewOraclePayload(dnnKernelInputMagic, DNNKernelConv2D3x3, uint32(outChannels), uint32(inChannels), uint32(height))
+	payload.Float32s(weights...)
+	payload.Float32s(bias...)
+	payload.Float32s(mem...)
+	payload.Float32s(in...)
+	return readDNNKernelOracle(binPath, payload.Bytes(), outChannels*height, true)
 }
 
 func ProbeDNNKernelScalarCGEMV8x4(rows, cols int, weights []byte, scale, x []float32) ([]float32, error) {

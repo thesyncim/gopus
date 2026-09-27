@@ -14,17 +14,23 @@ func TestRDOVAESGEMVMatchesSelectedLibopusOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 
 	for _, tc := range []struct {
-		rows int
-		cols int
+		rows     int
+		cols     int
+		rounding bool
 	}{
 		{rows: 16, cols: 9},
 		{rows: 8, cols: 13},
 		{rows: 5, cols: 7},
+		{rows: 31, cols: 6, rounding: true},
 	} {
 		t.Run(fmt.Sprintf("rows_%d_cols_%d", tc.rows, tc.cols), func(t *testing.T) {
 			colStride := tc.rows
-			weights := deterministicDNNFloats(tc.cols * colStride)
-			x := deterministicDNNFloats(tc.cols)
+			floats := deterministicDNNFloats
+			if tc.rounding {
+				floats = roundingDNNFloats
+			}
+			weights := floats(tc.cols * colStride)
+			x := floats(tc.cols)
 			want, err := libopustest.ProbeDNNKernelSGEMV(tc.rows, tc.cols, colStride, weights, x)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "dnn sgemv", err)
@@ -132,8 +138,8 @@ func TestRDOVAECGEMV8x4MatchesSelectedLibopusOracle(t *testing.T) {
 				t.Fatalf("Float32ViewFromBytes(scale) error: %v", err)
 			}
 			got := make([]float32, tc.rows)
-			quant := make([]int8, tc.cols)
-			cgemv8x4(got, weightView, scaleView, tc.rows, tc.cols, x, quant)
+			var scratch runtimeScratch
+			cgemv8x4(got, weightView, scaleView, tc.rows, tc.cols, x, &scratch)
 			for i := range got {
 				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 					t.Fatalf("out[%d]=%s want %s", i, formatDNNKernelFloat(got[i]), formatDNNKernelFloat(want[i]))
@@ -305,4 +311,16 @@ func int32DNNBytes(values []int32) []byte {
 
 func formatDNNKernelFloat(v float32) string {
 	return fmt.Sprintf("0x%08x(%0.10g)", math.Float32bits(v), v)
+}
+
+// roundingDNNFloats returns values in (-1, 1) with full 24-bit mantissas, so
+// products round and fused versus separate multiply-adds differ.
+func roundingDNNFloats(n int) []float32 {
+	out := make([]float32, n)
+	seed := uint32(0x6a09e667)
+	for i := range out {
+		seed = 1664525*seed + 1013904223
+		out[i] = float32(int32(seed>>7)-(1<<24)) * (1.0 / (1 << 24))
+	}
+	return out
 }

@@ -4,32 +4,17 @@ package dnnmath
 
 import "simd/archsimd"
 
-var dnnX86Enabled = archsimd.X86.AVX2() && archsimd.X86.FMA()
-
-// Cgemv8x4QuantizeInputX86 matches dnn/vec_avx.h:vector_ps_to_epi8 in
-// libopus's AVX2/FMA DRED build. The unsigned byte encodes the +127 bias.
-func Cgemv8x4QuantizeInputX86(x float32) uint8 {
-	if !dnnX86Enabled {
-		return uint8(int32(Cgemv8x4QuantizeInputScalar(x)) + 127)
-	}
-	v := archsimd.BroadcastFloat32x4(x).MulAdd(
-		archsimd.BroadcastFloat32x4(127), archsimd.BroadcastFloat32x4(127))
-	// CVTPS2DQ then PACKUSDW/PACKUSWB: the second pack treats uint16
-	// values >=32768 as negative signed16 and saturates them back to zero.
-	q := v.Round().ConvertToInt32().GetElem(0)
-	if q < 0 || q >= 32768 {
-		return 0
-	}
-	if q > 255 {
-		return 255
-	}
-	return uint8(q)
-}
+// X86VectorKernels reports whether the SIMD lane selects libopus's AVX2/FMA
+// DNN kernels. The paired libopus build dispatches compute_linear,
+// compute_activation and compute_conv2d through dnn/x86/x86_dnn_map.c, whose
+// AVX2 slot (nnet_avx2.c, dnn/vec_avx.h with __AVX2__ and __FMA__) is taken
+// when celt/x86/x86cpu.c reports AVX, FMA and AVX2.
+var X86VectorKernels = archsimd.X86.AVX2() && archsimd.X86.FMA()
 
 // The selected x86 DRED archive uses dnn/vec_avx.h's AVX2/FMA Padé
 // polynomial and VRCPPS estimate for both complete vectors and the tail.
 func sigmoidVectorX86(out, in []float32, n int) {
-	if !dnnX86Enabled {
+	if !X86VectorKernels {
 		SigmoidVectorScalarApprox(out, in, n)
 		return
 	}
@@ -43,7 +28,7 @@ func sigmoidVectorX86(out, in []float32, n int) {
 }
 
 func tanhVectorX86(out, in []float32, n int) {
-	if !dnnX86Enabled {
+	if !X86VectorKernels {
 		TanhVectorScalarApprox(out, in, n)
 		return
 	}
@@ -57,14 +42,14 @@ func tanhVectorX86(out, in []float32, n int) {
 }
 
 func tanhApproxX86(x float32) float32 {
-	if !dnnX86Enabled {
+	if !X86VectorKernels {
 		return TanhScalarApprox(x)
 	}
 	return tanh8X86(archsimd.BroadcastFloat32x8(x)).GetLo().GetElem(0)
 }
 
 func expVectorX86(out, in []float32, n int) {
-	if !dnnX86Enabled {
+	if !X86VectorKernels {
 		ExpVectorScalarApprox(out, in, n)
 		return
 	}
@@ -77,11 +62,23 @@ func expVectorX86(out, in []float32, n int) {
 	}
 }
 
+// minPS returns _mm256_min_ps(a, b): MINPS yields its second operand when
+// either lane is NaN. archsimd's Min is commutative and leaves that operand
+// order to the compiler, so the selection is explicit here.
+func minPS(a, b archsimd.Float32x8) archsimd.Float32x8 {
+	return a.Merge(b, a.Less(b))
+}
+
+// maxPS returns _mm256_max_ps(a, b) with MAXPS's second-operand NaN result.
+func maxPS(a, b archsimd.Float32x8) archsimd.Float32x8 {
+	return a.Merge(b, a.Greater(b))
+}
+
 func exp8X86(x archsimd.Float32x8) archsimd.Float32x8 {
 	// dnn/vec_avx.h:exp8_approx scales and clamps before splitting the
 	// exponent bits from the FMA-evaluated cubic mantissa.
 	scaled := x.Mul(archsimd.BroadcastFloat32x8(1.44269504))
-	scaled = archsimd.BroadcastFloat32x8(-50).Max(archsimd.BroadcastFloat32x8(50).Min(scaled))
+	scaled = maxPS(archsimd.BroadcastFloat32x8(-50), minPS(archsimd.BroadcastFloat32x8(50), scaled))
 	integerFloat := scaled.Floor()
 	integer := integerFloat.ConvertToInt32()
 	frac := scaled.Sub(integerFloat)
@@ -98,7 +95,7 @@ func sigmoid8X86(x archsimd.Float32x8) archsimd.Float32x8 {
 	num := archsimd.BroadcastFloat32x8(0.00950985).MulAdd(x2, archsimd.BroadcastFloat32x8(6.02452230)).MulAdd(x2, archsimd.BroadcastFloat32x8(238.13200378))
 	den := archsimd.BroadcastFloat32x8(0.74287558).MulAdd(x2, archsimd.BroadcastFloat32x8(103.34200287)).MulAdd(x2, archsimd.BroadcastFloat32x8(952.72399902))
 	y := num.Mul(x).MulAdd(den.Reciprocal(), archsimd.BroadcastFloat32x8(0.5))
-	return archsimd.BroadcastFloat32x8(0).Max(archsimd.BroadcastFloat32x8(1).Min(y))
+	return maxPS(archsimd.BroadcastFloat32x8(0), minPS(archsimd.BroadcastFloat32x8(1), y))
 }
 
 func tanh8X86(x archsimd.Float32x8) archsimd.Float32x8 {
@@ -106,5 +103,5 @@ func tanh8X86(x archsimd.Float32x8) archsimd.Float32x8 {
 	num := archsimd.BroadcastFloat32x8(0.60863042).MulAdd(x2, archsimd.BroadcastFloat32x8(96.39235687)).MulAdd(x2, archsimd.BroadcastFloat32x8(952.52801514))
 	den := archsimd.BroadcastFloat32x8(11.88600922).MulAdd(x2, archsimd.BroadcastFloat32x8(413.36801147)).MulAdd(x2, archsimd.BroadcastFloat32x8(952.72399902))
 	y := num.Mul(x).Mul(den.Reciprocal())
-	return archsimd.BroadcastFloat32x8(-1).Max(archsimd.BroadcastFloat32x8(1).Min(y))
+	return maxPS(archsimd.BroadcastFloat32x8(-1), minPS(archsimd.BroadcastFloat32x8(1), y))
 }

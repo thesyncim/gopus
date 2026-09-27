@@ -2,11 +2,8 @@
 
 package dnnmath
 
-const dnnX86Enabled = false
-
-func Cgemv8x4QuantizeInputX86(x float32) uint8 {
-	return uint8(int32(Cgemv8x4QuantizeInputScalar(x)) + 127)
-}
+// X86VectorKernels is false outside the amd64 Go SIMD lane.
+const X86VectorKernels = false
 
 func sigmoidVectorX86(out, in []float32, n int) { SigmoidVectorScalarApprox(out, in, n) }
 func tanhVectorX86(out, in []float32, n int)    { TanhVectorScalarApprox(out, in, n) }

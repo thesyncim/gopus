@@ -105,6 +105,7 @@ type farganScratch struct {
 	recur       [3 * farganMaxRNNNeurons]float32
 	act         [farganMaxActivation]float32
 	quant       [farganMaxLinearInputs]int16
+	quantSU     [farganMaxLinearInputs]uint8
 }
 
 // FARGAN is the caller-owned FARGAN vocoder: a bound model plus its recurrent
@@ -582,25 +583,7 @@ func computeFARGANSignalConv1D(layer *LinearLayer, output, mem, input []float32,
 }
 
 func computeFARGANSignalLinear(layer *LinearLayer, out, in []float32, scratch *farganScratch) {
-	bias := layer.Bias
-	n := layer.NbOutputs
-	m := layer.NbInputs
-
-	if !layer.FloatWeights.Empty() {
-		sgemv(out[:n], layer.FloatWeights, n, m, n, in[:m])
-	} else if !layer.Weights.Empty() {
-		cgemv8x4(out[:n], layer.Weights, layer.Scale, n, m, in[:m], scratch.quant[:m])
-		if useSUBias && !layer.Subias.Empty() {
-			bias = layer.Subias
-		}
-	} else {
-		clear(out[:n])
-	}
-	if !bias.Empty() {
-		for i := range n {
-			out[i] += bias.At(i)
-		}
-	}
+	computeLinearQuant(layer, out, in, scratch.quant[:], scratch.quantSU[:])
 }
 
 func clampFARGANSample(x float32) float32 {
