@@ -71,6 +71,27 @@ inverse case also passes its warmed zero-allocation check. Native AMD64
 confirmation for these transform gates is pending. These results prove
 transform-stage parity; they do not establish public 96 kHz decoder parity.
 
+### Fixed encoder controls and QEXT energy math
+
+Local ARM64 / M4 Max / Go 1.27.0 evidence at `ca42ae29` covers selected-C
+packet bytes and final ranges for LFE with requested Auto/SILK/Hybrid/CELT,
+native Q24 energy masks, explicit mask clearing, mask lifetime across resets,
+and short-frame SILK requests that resolve to CELT. Ordinary, SIMD, and
+`nosimd` fixed builds pass the focused controls suite. The combined fixed+QEXT
+runtime-off checks use the matching C archive; `2885130a` selects that build's
+Q31 forward transform. The float short-frame and energy-mask wire checks use
+matching ordinary or QEXT-enabled C references.
+
+At `8d9750d0`, fixed+QEXT band energies use the source Q24 logarithm polynomial.
+The independent amp2Log2 oracle includes zero, epsilon, large and randomized
+amplitudes, both channel counts, and partial-band boundaries. Ordinary fixed
+and fixed+QEXT checks pass, as does the SIMD fixed+QEXT oracle. A clean source
+archive of this commit passes the combined SIMD controls and energy checks
+without any unfinished encoder/decoder integration files. Native AMD64
+confirmation is pending. Automatic stereo CELT, public combined-build surround,
+and active fixed-QEXT encode/decode remain open; these focused gates do not
+establish complete extension parity.
+
 ### Extension checkpoint
 
 QEXT at 48 kHz (`6e20f360`) passes 60 configurations / 180 sequential frames
@@ -776,7 +797,7 @@ Native AMD64 at `08a11a0f` passes 5,718 fixed-encode events in both SIMD and
 nosimd without failures or skips, including the forced-CELT VoIP short,
 mixed-input, long-duration, reset, and low-space selectors. VoIP SILK and
 Hybrid high-pass parity and 96 kHz remain outside this claim. The complete
-six-row performance table below remains at `1e2dbe77`.
+six-row performance table uses the `17e48afb` early capture described below.
 
 Remaining strict investigations include:
 

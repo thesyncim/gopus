@@ -237,14 +237,14 @@ for mode in simd nosimd; do
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json -tags "gopus_fixed_point${feature_scalar_tag}" \
     . ./internal/encoder ./internal/celt ./testvectors \
-    -run '^(TestPublicFixedShortEncodeMatchesLibopus|TestPublicFixedVoIPShortCELTMatchesLibopus|TestPublicFixedShortExpertFrameDurationMatchesLibopus|TestPublicFixedLongCELTPacketsMatchLibopus|TestPublicFixedInputAPIsShareQ8History|TestPublicFixedVoIPInputAPIsShareQ8History|TestPublicFixedStereoWidthFadeMatchesLibopus|TestPublicFixedSILKHybridInputAPIsMatchLibopus|TestPublicFixedSILKHybridRatesDurationsAndDownmixMatchLibopus|TestPublicFixedSILKHybridModeTransitionsMatchLibopus|TestPublicFixedAutoSILKHybridSequencesMatchLibopus|TestPublicCELTEncodeFixedByteExact|TestPublicCELTEncodeFixedRateByteExact|TestOpusEncodeFixedCELTByteExact|TestOpusEncodeFixedCELTFloatInputSingleFrameByteExact|TestOpusEncodeFixedSILKHybridMatchedFloatInputByteExact|TestFixedPointTonalityAnalysisStagesMatchLibopus|TestEncodeDifferentialFuzzFixedPoint|TestFixedCBRRawTailMatchesLibopus|TestFixedStereoPrefilterThresholdMatchesLibopus|TestFixedOuterOpusEncodeRawInt16MatchesLibopus|TestFixedOuterOpusEncodeRecordsPreserveCalls|TestFixedHPCutoffResMatchesLibopus|TestFixedVoIPHPCutoffResetAndLowSpaceState|TestVoIPHPCutoffResetMatchesFreshEncoder|TestLowSpacePacketPreservesInputHighPassState|TestFixedDCRejectQ8MatchesLibopus|TestAllocationNonpositiveBudgetMatchesFixedLibopus)$' \
+    -run '^(TestPublicFixedShortEncodeMatchesLibopus|TestPublicFixedVoIPShortCELTMatchesLibopus|TestPublicFixedShortExpertFrameDurationMatchesLibopus|TestPublicFixedLongCELTPacketsMatchLibopus|TestPublicFixedInputAPIsShareQ8History|TestPublicFixedVoIPInputAPIsShareQ8History|TestPublicFixedStereoWidthFadeMatchesLibopus|TestPublicFixedSILKHybridInputAPIsMatchLibopus|TestPublicFixedSILKHybridRatesDurationsAndDownmixMatchLibopus|TestPublicFixedSILKHybridModeTransitionsMatchLibopus|TestPublicFixedAutoSILKHybridSequencesMatchLibopus|TestPublicCELTEncodeFixedByteExact|TestPublicCELTEncodeFixedRateByteExact|TestOpusEncodeFixedCELTByteExact|TestOpusEncodeFixedCELTFloatInputSingleFrameByteExact|TestOpusEncodeFixedSILKHybridMatchedFloatInputByteExact|TestFixedPointTonalityAnalysisStagesMatchLibopus|TestEncodeDifferentialFuzzFixedPoint|TestFixedCBRRawTailMatchesLibopus|TestFixedStereoPrefilterThresholdMatchesLibopus|TestFixedOuterOpusEncodeRawInt16MatchesLibopus|TestFixedOuterOpusEncodeRecordsPreserveCalls|TestFixedHPCutoffResMatchesLibopus|TestFixedVoIPHPCutoffResetAndLowSpaceState|TestVoIPHPCutoffResetMatchesFreshEncoder|TestLowSpacePacketPreservesInputHighPassState|TestFixedDCRejectQ8MatchesLibopus|TestAllocationNonpositiveBudgetMatchesFixedLibopus|TestFixedCELTEnergyMaskFloatBoundaryConversion|TestPublicFixedCELTEnergyMaskAndLFEControlsMatchOracle|TestPublicFixedCELTEnergyMaskResetLifetimeMatchesOracle|TestPublicFixedCELTQ24MaskMatchesOracle|TestPublicFixedLFEMatchesOracle|TestPublicFixedShortFrameSILKRequestFallsBackToCELTOracle)$' \
     -count=1 -timeout=25m
 
   run_json_phase "candidate-$mode-fixed-celt-transition-oracles" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json -tags "gopus_fixed_point${feature_scalar_tag}" \
     ./internal/fixedpoint \
-    -run '^(TestCELTHybridEncodeWithECSeededOracle|TestCELTResetClearsEnergyMaskOracle)$' \
+    -run '^(TestCELTHybridEncodeWithECSeededOracle|TestCELTResetClearsEnergyMaskOracle|TestAmp2Log2Oracle)$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-fixed-qext-paired-reference" \
@@ -258,14 +258,14 @@ for mode in simd nosimd; do
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json -tags "gopus_fixed_point,gopus_qext${feature_scalar_tag}" \
     ./internal/encoder \
-    -run '^TestFixedPointTonalityAnalysisStagesMatchLibopus$' \
+    -run '^(TestFixedPointTonalityAnalysisStagesMatchLibopus|TestFixedCELTEnergyMaskFloatBoundaryConversion|TestPublicFixedCELTEnergyMaskAndLFEControlsMatchOracle|TestPublicFixedCELTEnergyMaskResetLifetimeMatchesOracle|TestPublicFixedCELTQ24MaskMatchesOracle|TestPublicFixedLFEMatchesOracle|TestPublicFixedShortFrameSILKRequestFallsBackToCELTOracle)$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-fixed-qext-transform" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json -tags "gopus_fixed_point,gopus_qext${feature_scalar_tag}" \
     ./internal/fixedpoint \
-    -run '^(TestQEXTMDCTForwardMatchesFixedLibopus|TestQEXTMDCT96000ForwardMatchesFixedLibopus|TestQEXTMDCTBackwardMatchesSelectedLibopus|TestQEXTMDCTSilenceHeadroomMatchesFixedLibopus|TestQEXTKissFFTMatchesFixedLibopus|TestQEXTMDCTForwardDoesNotAllocateAfterWarmup|TestQEXTKissFFTDoesNotAllocate)$' \
+    -run '^(TestQEXTMDCTForwardMatchesFixedLibopus|TestQEXTMDCT96000ForwardMatchesFixedLibopus|TestQEXTMDCTBackwardMatchesSelectedLibopus|TestQEXTMDCTSilenceHeadroomMatchesFixedLibopus|TestQEXTKissFFTMatchesFixedLibopus|TestQEXTMDCTForwardDoesNotAllocateAfterWarmup|TestQEXTKissFFTDoesNotAllocate|TestAmp2Log2Oracle)$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-neural-kernel-parity" \
