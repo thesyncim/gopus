@@ -430,22 +430,31 @@ func TestHybridRoundTrip(t *testing.T) {
 	}
 }
 
-// TestInvalidHybridFrameSize tests that invalid frame sizes return error for hybrid mode.
-// Note: long hybrid packets from 40ms through 120ms are valid and are encoded
-// as repeated 20ms hybrid frames.
+// TestInvalidHybridFrameSize tests forced hybrid mode against the frame sizes
+// libopus accepts. Sizes that are not Opus frame durations return an error.
+// Frames shorter than 10 ms fall back to CELT-only, as opus_encode_native does
+// when frame_size < Fs/100. Long hybrid packets from 40ms through 120ms are
+// valid and are encoded as repeated 20ms hybrid frames.
 func TestInvalidHybridFrameSize(t *testing.T) {
-	enc := encoder.NewEncoder(48000, 1)
-	enc.SetMode(encoder.ModeHybrid)
-
-	invalidSizes := []int{120, 240, 100, 500}
-
-	for _, size := range invalidSizes {
-		t.Run(string(rune('0'+size/100)), func(t *testing.T) {
-			pcm := make([]float64, size)
-
-			_, err := encodeTest(enc, pcm, size)
-			if err == nil {
+	for _, size := range []int{100, 500} {
+		t.Run(fmt.Sprintf("invalid_%d", size), func(t *testing.T) {
+			enc := encoder.NewEncoder(48000, 1)
+			enc.SetMode(encoder.ModeHybrid)
+			if _, err := encodeTest(enc, make([]float64, size), size); err == nil {
 				t.Errorf("Expected error for frame size %d in hybrid mode", size)
+			}
+		})
+	}
+	for _, size := range []int{120, 240} {
+		t.Run(fmt.Sprintf("celt_fallback_%d", size), func(t *testing.T) {
+			enc := encoder.NewEncoder(48000, 1)
+			enc.SetMode(encoder.ModeHybrid)
+			packet, err := encodeTest(enc, make([]float64, size), size)
+			if err != nil {
+				t.Fatalf("frame size %d in hybrid mode: %v", size, err)
+			}
+			if len(packet) == 0 || packet[0]>>3 < 16 {
+				t.Fatalf("frame size %d in hybrid mode: packet %x is not CELT-only", size, packet)
 			}
 		})
 	}
