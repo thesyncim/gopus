@@ -59,8 +59,8 @@ func warpedAutocorrelationSections(st, corr *warpedAutocorrState, in []float32, 
 			// leaves the final state and correlations for the next group.
 			if p := q - 3; p >= 0 {
 				if p < pairs {
-					warpedLane3Pair(t1, t2n).StoreArray((*[2]float64)(st[1+2*p : 3+2*p]))
-					warpedLane3Pair(ce, co).StoreArray((*[2]float64)(corr[1+2*p : 3+2*p]))
+					warpedLane3Pair(t1, t2n).StoreArray((*[2]silkCReal)(st[1+2*p : 3+2*p]))
+					warpedLane3Pair(ce, co).StoreArray((*[2]silkCReal)(corr[1+2*p : 3+2*p]))
 				} else {
 					st[1+order] = t1.GetHi().GetElem(1)
 					corr[1+order] = ce.GetHi().GetElem(1)
@@ -79,9 +79,9 @@ func warpedAutocorrelationSections(st, corr *warpedAutocorrState, in []float32, 
 // of the lane below it, and lane 0 takes C double i of the warpedAutocorrState
 // that starts at v.
 func warpedShiftIn(x archsimd.Float64x4, v unsafe.Pointer, i int) archsimd.Float64x4 {
-	row := archsimd.LoadFloat64x4Array((*[4]float64)(unsafe.Add(v, 8*i))) // {c[i-1], c[i], ...}
-	u := row.ConcatPermute128Scalars(0, 2, x)                             // {c[i-1], c[i], x0, x1}
-	return u.ConcatPermuteScalarsGrouped(1, 2, x)                         // {c[i], x0, x1, x2}
+	row := archsimd.LoadFloat64x4Array((*[4]silkCReal)(unsafe.Add(v, 8*i))) // {c[i-1], c[i], ...}
+	u := row.ConcatPermute128Scalars(0, 2, x)                               // {c[i-1], c[i], x0, x1}
+	return u.ConcatPermuteScalarsGrouped(1, 2, x)                           // {c[i], x0, x1, x2}
 }
 
 // warpedLane3Pair returns {a[3], b[3]}.
