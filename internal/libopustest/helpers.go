@@ -88,6 +88,11 @@ func EnsureOSCEBuild(repoRoot string) (sourceDir, buildDir string, err error) {
 }
 
 func ensureScalarDNNBuild(repoRoot string, cfg scalarDNNBuildConfig) (sourceDir, buildDir string, err error) {
+	unlock, err := lockDNNBuild(repoRoot)
+	if err != nil {
+		return "", "", err
+	}
+	defer unlock()
 	referenceDir := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion)
 	sourceDir = filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+"-dredsrc-clean")
 	buildDir = filepath.Join(repoRoot, "tmp_check", fmt.Sprintf("build-opus-%s-scalar-%s-%s", cfg.buildFlavor, runtime.GOOS, runtime.GOARCH))
