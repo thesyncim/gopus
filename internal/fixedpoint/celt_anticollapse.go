@@ -154,13 +154,6 @@ func celtLcgRand(seed uint32) uint32 {
 	return 1664525*seed + 1013904223
 }
 
-// celtExp2Db ports the FIXED_POINT (QEXT-off) celt_exp2_db macro:
-// celt_exp2(PSHR32(x, DB_SHIFT-10)). The input is celt_glog (Q24); the result
-// is Q16.
-func celtExp2Db(x int32) int32 {
-	return CeltExp2(int16(pshr32(x, dbShift-10)))
-}
-
 // celtUdiv ports celt/arch.h celt_udiv: unsigned division returning the
 // quotient as an int32.
 func celtUdiv(n, d uint32) int32 {

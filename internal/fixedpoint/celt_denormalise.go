@@ -24,17 +24,6 @@ func imin(a, b int) int {
 	return b
 }
 
-// celtExp2DbFrac implements the FIXED_POINT (non-QEXT) celt_exp2_db_frac macro:
-// SHL32(celt_exp2_frac(PSHR32(x, DB_SHIFT-10)), 14). Input x is a Q24 fractional
-// log-energy in [0, 1<<DB_SHIFT); the result is the Q14 mantissa lifted into the
-// upper bits by the left shift.
-func celtExp2DbFrac(x int32) int32 {
-	// PSHR32(x, DB_SHIFT-10) reduces Q24 to Q10; celt_exp2_frac takes Q10 in
-	// (opus_val16) and returns the Q14 mantissa.
-	q10 := int16(pshr32(x, 24-10))
-	return int32(CeltExp2Frac(q10)) << 14
-}
-
 // DenormaliseBands ports the FIXED_POINT celt/bands.c denormalise_bands: for the
 // active bands [start,end) it derives each band's gain from bandLogE[i] (biased
 // by eMeans[i]) and writes the de-normalised synthesis spectrum into freq. Bands

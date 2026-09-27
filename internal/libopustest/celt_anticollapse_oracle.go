@@ -16,19 +16,6 @@ const (
 
 var celtAntiCollapseHelper HelperCache
 
-func buildCELTAntiCollapseHelper() (string, error) {
-	return BuildCHelper(CHelperConfig{
-		Label:       "CELT fixed anti-collapse",
-		OutputBase:  "gopus_libopus_celt_anticollapse_fixed",
-		SourceFile:  "libopus_celt_anticollapse_fixed_info.c",
-		FixedRef:    true,
-		CFlags:      []string{"-DHAVE_CONFIG_H", "-O2"},
-		RefIncludes: []string{"celt", "silk"},
-		Libs:        []string{FixedRefPath(".libs", "libopus.a"), "-lm"},
-		DeadStrip:   true,
-	})
-}
-
 // ProbeCELTRenormaliseVector runs the FIXED_POINT renormalise_vector kernel
 // against the real libopus reference. x is the celt_norm (int32) input vector;
 // gain is the Q31 gain. It returns the renormalised vector of the same length.
