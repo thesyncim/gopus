@@ -495,6 +495,10 @@ type TonalityAnalysisState struct {
 	// DownmixState is the stereo->mono downmix filter memory (libopus
 	// "downmix_state").
 	DownmixState [3]float32
+	// fixed holds the integer input/resampler/FFT state when the fixed-point
+	// encoder build is selected. The analyzer's feature and classifier state
+	// remains float32 in both libopus builds.
+	fixed fixedAnalysisState
 	// Info is the DetectSize-deep ring of per-frame results, read back behind the
 	// analyzer lookahead (libopus "info").
 	Info [DetectSize]AnalysisInfo
@@ -518,9 +522,8 @@ type TonalityAnalysisState struct {
 // reset-scoped state is cleared.
 func NewTonalityAnalysisState(fs int) *TonalityAnalysisState {
 	s := &TonalityAnalysisState{
-		Fs:             int32(fs),
-		LSBDepth:       24,
-		scratchFFTKiss: make([]celt.KissCpx, 480),
+		Fs:       int32(fs),
+		LSBDepth: 24,
 	}
 	s.Reset()
 	return s
@@ -672,7 +675,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		return
 	}
 	memFill := int(s.MemFill)
-	s.HPEnerAccum += s.downmixAndResample(pcm, channels, s.InMem[memFill:], min(len24, AnalysisBufSize-memFill), 0)
+	s.HPEnerAccum += s.analysisDownmixAndResample(pcm, channels, memFill, min(len24, AnalysisBufSize-memFill), 0)
 	if memFill+len24 < AnalysisBufSize {
 		s.MemFill = int32(memFill + len24)
 		return
@@ -683,17 +686,11 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	if nextWritePos >= DetectSize {
 		nextWritePos = 0
 	}
-	isSilence := analysisIsDigitalSilence32(s.InMem[:AnalysisBufSize], int(s.LSBDepth))
-
-	inBuf := s.scratchFFTIn[:]
-	for i := range 240 {
-		w := analysisWindow[i]
-		inBuf[i] = complex(w*s.InMem[i], w*s.InMem[240+i])
-		inBuf[480-i-1] = complex(w*s.InMem[480-i-1], w*s.InMem[480+240-i-1])
-	}
-	copy(s.InMem[:240], s.InMem[AnalysisBufSize-240:AnalysisBufSize])
+	isSilence := s.analysisIsDigitalSilence()
+	s.analysisPrepareFFTInput()
+	s.analysisShiftInput()
 	remaining := len24 - (AnalysisBufSize - memFill)
-	s.HPEnerAccum = s.downmixAndResample(pcm, channels, s.InMem[240:], remaining, AnalysisBufSize-memFill)
+	s.HPEnerAccum = s.analysisDownmixAndResample(pcm, channels, 240, remaining, AnalysisBufSize-memFill)
 	s.MemFill = int32(240 + remaining)
 	if isSilence {
 		prevPos := infoPos - 1
@@ -705,10 +702,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		return
 	}
 
-	if cap(s.scratchFFTKiss) < 480 {
-		s.scratchFFTKiss = make([]celt.KissCpx, 480)
-	}
-	fft480(&s.scratchFFTOut, &s.scratchFFTIn, s.scratchFFTKiss[:480])
+	s.analysisRunFFT()
 	outBuf := s.scratchFFTOut[:]
 	if math.Float32bits(real(outBuf[0]))&0x7fffffff > 0x7f800000 {
 		s.Info[infoPos].Valid = false
@@ -775,7 +769,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		for i := 1; i < 4; i++ {
 			E += analysisBinEnergy(outBuf, i)
 		}
-		E *= (1.0 / (celtSigScale * celtSigScale)) * analysisFFTEnergyScale
+		E *= s.analysisEnergyScale()
 		bandLog2[0] = log2Scale * opusmath.LogF32(E+1e-10)
 	}
 
@@ -793,7 +787,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			binEArr[i-binStart] = analysisBinEnergy(outBuf, i)
 		}
 	}
-	const analysisBinScale = (1.0 / (celtSigScale * celtSigScale)) * analysisFFTEnergyScale
+	analysisBinScale := s.analysisEnergyScale()
 
 	// Band energies and tonal metrics using precomputed bin energies.
 	for b := range NbTBands {
@@ -909,7 +903,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		bandwidthMask = maxf(0.05*bandwidthMask, E)
 	}
 	if s.Fs == 48000 {
-		E := round32(hpEner * (1.0 / (60.0 * 60.0)))
+		E := s.analysisHighBandEnergy(hpEner)
 		noiseRatio := float32(30.0)
 		if s.PrevBandwidth == 20 {
 			noiseRatio = 10.0

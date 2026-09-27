@@ -6,22 +6,57 @@ import (
 	"math"
 	"testing"
 
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/testsignal"
 )
 
 var libopusAnalysisHelper libopustest.HelperCache
+var libopusFixedAnalysisHelper libopustest.HelperCache
 
 func buildLibopusAnalysisHelper() (string, error) {
-	return libopustest.BuildCHelper(libopustest.CHelperConfig{
+	config := libopustest.CHelperConfig{
 		Label:       "tonality analysis",
 		OutputBase:  "gopus_libopus_analysis_info",
 		SourceFile:  "libopus_analysis_info.c",
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
 		RefIncludes: []string{"include", "src", "celt", "silk", "silk/float"},
-		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 		DeadStrip:   true,
-	})
+	}
+	switch {
+	case fixedPointBuild && extsupport.QEXT:
+		config.FixedQEXTRef = true
+		config.Libs = []string{libopustest.FixedQEXTRefPath(".libs", "libopus.a"), "-lm"}
+	case fixedPointBuild:
+		config.FixedRef = true
+		config.Libs = []string{libopustest.FixedRefPath(".libs", "libopus.a"), "-lm"}
+	case extsupport.QEXT:
+		config.QEXTRef = true
+		config.Libs = []string{libopustest.QEXTRefPath(".libs", "libopus.a"), "-lm"}
+	default:
+		config.Libs = []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"}
+	}
+	return libopustest.BuildCHelper(config)
+}
+
+func buildLibopusFixedAnalysisHelper() (string, error) {
+	config := libopustest.CHelperConfig{
+		Label:       "fixed-point tonality analysis",
+		OutputBase:  "gopus_libopus_fixed_analysis_info",
+		SourceFile:  "libopus_analysis_info.c",
+		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
+		RefIncludes: []string{"include", "src", "celt", "silk", "silk/float"},
+		DeadStrip:   true,
+	}
+	switch {
+	case extsupport.QEXT:
+		config.FixedQEXTRef = true
+		config.Libs = []string{libopustest.FixedQEXTRefPath(".libs", "libopus.a"), "-lm"}
+	default:
+		config.FixedRef = true
+		config.Libs = []string{libopustest.FixedRefPath(".libs", "libopus.a"), "-lm"}
+	}
+	return libopustest.BuildCHelper(config)
 }
 
 // analysisOracleInfo is one AnalysisInfo as the helper reports it.
@@ -37,9 +72,11 @@ type analysisOracleInfo struct {
 
 // analysisOracleFrame is the helper's per-frame record.
 type analysisOracleFrame struct {
-	ret, latest analysisOracleInfo
-	scalars     [12]uint32
-	hashes      [12]uint32
+	ret, latest  analysisOracleInfo
+	scalars      [12]uint32
+	hashes       [12]uint32
+	downmixState [3]int32
+	inmem        []int32
 }
 
 var analysisOracleScalarNames = [12]string{
@@ -61,8 +98,26 @@ func runLibopusAnalysisOracleShort(t *testing.T, fs, channels, frameSize, lsbDep
 }
 
 func runLibopusAnalysisOracleConfigured(t *testing.T, fs, channels, frameSize, lsbDepth, c1, c2, downmix int, pcm32 []float32, pcm16 []int16) []analysisOracleFrame {
+	return runLibopusAnalysisOracleConfiguredWithHelper(t, fs, channels, frameSize, lsbDepth, c1, c2, downmix, pcm32, pcm16,
+		&libopusAnalysisHelper, buildLibopusAnalysisHelper)
+}
+
+func runLibopusFixedAnalysisOracle(t *testing.T, fs, channels, frameSize, lsbDepth int, pcm []float32) []analysisOracleFrame {
 	t.Helper()
-	bin, err := libopusAnalysisHelper.Path(buildLibopusAnalysisHelper)
+	return runLibopusAnalysisOracleConfiguredWithHelperVersion(t, fs, channels, frameSize, lsbDepth, 0, -2, 0, pcm, nil,
+		&libopusFixedAnalysisHelper, buildLibopusFixedAnalysisHelper, 2)
+}
+
+func runLibopusAnalysisOracleConfiguredWithHelper(t *testing.T, fs, channels, frameSize, lsbDepth, c1, c2, downmix int, pcm32 []float32, pcm16 []int16,
+	helper *libopustest.HelperCache, build func() (string, error)) []analysisOracleFrame {
+	return runLibopusAnalysisOracleConfiguredWithHelperVersion(t, fs, channels, frameSize, lsbDepth, c1, c2, downmix, pcm32, pcm16,
+		helper, build, 1)
+}
+
+func runLibopusAnalysisOracleConfiguredWithHelperVersion(t *testing.T, fs, channels, frameSize, lsbDepth, c1, c2, downmix int, pcm32 []float32, pcm16 []int16,
+	helper *libopustest.HelperCache, build func() (string, error), version uint32) []analysisOracleFrame {
+	t.Helper()
+	bin, err := helper.Path(build)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "tonality analysis", err)
 	}
@@ -71,7 +126,7 @@ func runLibopusAnalysisOracleConfigured(t *testing.T, fs, channels, frameSize, l
 		numSamples = len(pcm16)
 	}
 	numFrames := numSamples / (frameSize * channels)
-	payload := libopustest.NewOraclePayload("GANI",
+	payload := libopustest.NewOraclePayloadVersion("GANI", version,
 		uint32(fs), uint32(channels), uint32(frameSize), uint32(numFrames), uint32(lsbDepth),
 		uint32(c1), uint32(int32(c2)), uint32(downmix), uint32(numFrames*frameSize*channels))
 	if downmix == 1 {
@@ -90,14 +145,18 @@ func runLibopusAnalysisOracleConfigured(t *testing.T, fs, channels, frameSize, l
 	if err != nil {
 		t.Fatalf("run tonality analysis helper: %v", err)
 	}
-	if len(out) < 12 || string(out[:4]) != "GANO" || binary.LittleEndian.Uint32(out[4:]) != 1 {
+	if len(out) < 12 || string(out[:4]) != "GANO" || binary.LittleEndian.Uint32(out[4:]) != version {
 		t.Fatalf("malformed helper output header")
 	}
 	if n := int(binary.LittleEndian.Uint32(out[8:])); n != numFrames {
 		t.Fatalf("helper returned %d frames, want %d", n, numFrames)
 	}
 	const infoBytes = 12*4 + 20
-	const recordBytes = 2*infoBytes + 12*4 + 12*4
+	const baseRecordBytes = 2*infoBytes + 12*4 + 12*4
+	recordBytes := baseRecordBytes
+	if version == 2 {
+		recordBytes += (3 + AnalysisBufSize) * 4
+	}
 	body := out[12:]
 	if len(body) != numFrames*recordBytes {
 		t.Fatalf("helper output has %d bytes, want %d", len(body), numFrames*recordBytes)
@@ -120,6 +179,16 @@ func runLibopusAnalysisOracleConfigured(t *testing.T, fs, channels, frameSize, l
 		for i := range 12 {
 			frames[f].scalars[i] = binary.LittleEndian.Uint32(rec[2*infoBytes+4*i:])
 			frames[f].hashes[i] = binary.LittleEndian.Uint32(rec[2*infoBytes+48+4*i:])
+		}
+		if version == 2 {
+			stage := rec[baseRecordBytes:]
+			for i := range 3 {
+				frames[f].downmixState[i] = int32(binary.LittleEndian.Uint32(stage[4*i:]))
+			}
+			frames[f].inmem = make([]int32, AnalysisBufSize)
+			for i := range frames[f].inmem {
+				frames[f].inmem[i] = int32(binary.LittleEndian.Uint32(stage[4*(3+i):]))
+			}
 		}
 	}
 	return frames

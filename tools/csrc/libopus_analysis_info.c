@@ -9,17 +9,19 @@
  * can be compared field by field and bisected.
  *
  * Wire format (little-endian):
- *   IN:  "GANI" u32(version=1)
+ *   IN:  "GANI" u32(version=1 or 2)
  *              u32(sample_rate) u32(channels) u32(frame_size) u32(num_frames)
  *              u32(lsb_depth) i32(c1) i32(c2) u32(downmix: 0=float, 1=int16, 2=int24)
  *              u32(nsamples) then nsamples samples: float32 (downmix 0),
  *              int16 (downmix 1, padded to 4 bytes) or int32 (downmix 2).
- *   OUT: "GANO" u32(version=1) u32(num_frames)
+ *   OUT: "GANO" u32(version) u32(num_frames)
  *              num_frames x record:
  *                info(ret)      : 12 x u32 + 20 bytes leak_boost (see put_info)
  *                info(latest)   : same layout, tonal->info[write_pos-1]
  *                scalars        : u32 x 12 (see below)
  *                hashes         : u32 x 12 (see below)
+ *              version 2 adds the raw fixed-point downmix state and inmem ring
+ *              after each record for stage-by-stage analyzer comparisons.
  *
  * Reference: libopus src/analysis.c run_analysis(), src/opus_encoder.c
  * opus_encode_native(), downmix_float()/downmix_int()/downmix_int24().
@@ -33,6 +35,10 @@
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
+#endif
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
 #endif
 
 #include "opus.h"
@@ -82,7 +88,7 @@ int main(void) {
   _setmode(_fileno(stdout), _O_BINARY);
 #endif
   if (!read_exact(magic, 4) || memcmp(magic, INPUT_MAGIC, 4) != 0) return 2;
-  if (!read_exact(&version, 4) || version != 1) return 2;
+  if (!read_exact(&version, 4) || (version != 1 && version != 2)) return 2;
   if (!read_exact(&fs, 4) || !read_exact(&channels, 4) || !read_exact(&frame_size, 4) ||
       !read_exact(&num_frames, 4) || !read_exact(&lsb_depth, 4) || !read_exact(&c1, 4) ||
       !read_exact(&c2, 4) || !read_exact(&downmix_kind, 4) || !read_exact(&nsamples, 4))
@@ -104,7 +110,7 @@ int main(void) {
   if (mode == NULL || st == NULL) return 4;
   tonality_analysis_init(st, (opus_int32)fs);
 
-  if (!write_exact(OUTPUT_MAGIC, 4) || !put_u32(1) || !put_u32(num_frames)) return 5;
+  if (!write_exact(OUTPUT_MAGIC, 4) || !put_u32(version) || !put_u32(num_frames)) return 5;
   for (f = 0; f < num_frames; f++) {
     AnalysisInfo info;
     int latest;
@@ -131,6 +137,15 @@ int main(void) {
         !put_u32(hash_floats(st->mem, 32)) || !put_u32(hash_floats(st->cmean, 8)) ||
         !put_u32(hash_floats(st->std, 9)) || !put_u32(hash_floats(st->rnn_state, MAX_NEURONS)))
       return 5;
+    if (version == 2) {
+#ifndef FIXED_POINT
+      return 6;
+#else
+      int i;
+      for (i = 0; i < 3; i++) if (!put_u32((uint32_t)st->downmix_state[i])) return 5;
+      for (i = 0; i < ANALYSIS_BUF_SIZE; i++) if (!put_u32((uint32_t)st->inmem[i])) return 5;
+#endif
+    }
   }
   fflush(stdout);
   free(pcm);
