@@ -632,7 +632,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		// Capture the main decode's FinalRange AFTER redundancy flag reads but BEFORE any CELT redundancy decode.
 		// For SILK-only mode, the final range includes all bits read from the range decoder.
 		d.mainDecodeRng = rd.Range()
-		if !redundancy && !(d.haveDecoded && d.prevMode == ModeHybrid) {
+		if !redundancy && (!d.haveDecoded || d.prevMode != ModeHybrid) {
 			// Capture the integer SILK body before a CELT transition fade rewrites
 			// its first 5 ms in the float output buffer.
 			fixedSILKFrame = d.fixedCaptureSILKOutput(out[:audiosize*channels])
