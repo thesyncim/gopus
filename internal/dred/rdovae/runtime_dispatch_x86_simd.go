@@ -58,3 +58,27 @@ func sgemvX86Fused(out []float32, weights FloatTensor, rows, cols, colStride int
 		out[row] = sum
 	}
 }
+
+// dnn/vec_avx.h:sparse_sgemv8x4 keeps eight output lanes live while applying
+// each four-column block through four ascending AVX2 FMA operations.
+func sparseSGEMVX86Fused(out []float32, weights FloatTensor, idx IntTensor, x []float32) {
+	weightOffset, idxPos := 0, 0
+	for row := 0; row < len(out); row += 8 {
+		var acc archsimd.Float32x8
+		var w [8]float32
+		blocks := int(idx.At(idxPos))
+		idxPos++
+		for range blocks {
+			col := int(idx.At(idxPos))
+			idxPos++
+			for j := 0; j < 4; j++ {
+				for k := range w {
+					w[k] = weights.At(weightOffset + j*8 + k)
+				}
+				acc = archsimd.LoadFloat32x8Array(&w).MulAdd(archsimd.BroadcastFloat32x8(x[col+j]), acc)
+			}
+			weightOffset += SparseBlockSize
+		}
+		acc.Store(out[row:])
+	}
+}

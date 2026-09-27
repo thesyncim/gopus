@@ -22,7 +22,8 @@
 enum {
   MODE_SGEMV = 0,
   MODE_CGEMV8X4 = 1,
-  MODE_LINEAR_CGEMV8X4 = 2
+  MODE_LINEAR_CGEMV8X4 = 2,
+  MODE_LINEAR_SPARSE_SGEMV = 3
 };
 
 static int set_binary_stdio(void) {
@@ -186,10 +187,11 @@ fail:
 }
 
 #ifndef GOPUS_DIRECT_SCALAR_DNN
-static int run_linear_cgemv8x4(uint32_t rows, uint32_t cols, uint32_t idx_count) {
+static int run_linear(uint32_t rows, uint32_t cols, uint32_t idx_count, int float_sparse) {
   uint32_t weight_count;
   int *idx = NULL;
   opus_int8 *weights = NULL;
+  float *float_weights = NULL;
   float *scale = NULL;
   float *x = NULL;
   float *bias = NULL;
@@ -201,6 +203,7 @@ static int run_linear_cgemv8x4(uint32_t rows, uint32_t cols, uint32_t idx_count)
   LinearLayer layer = {0};
 
   if (rows == 0 || cols == 0 || (rows & 7) != 0 || (cols & 7) != 0 || rows > 8192 || cols > 2048) return 0;
+  if (float_sparse && idx_count == 0) return 0;
   if (idx_count > 0) {
     uint32_t pos = 0;
     uint32_t blocks = 0;
@@ -229,14 +232,17 @@ static int run_linear_cgemv8x4(uint32_t rows, uint32_t cols, uint32_t idx_count)
     if (rows > UINT32_MAX / cols) return 0;
     weight_count = rows * cols;
   }
-  weights = (opus_int8 *)malloc(weight_count ? weight_count : 1);
+  if (float_sparse) float_weights = (float *)malloc((weight_count ? weight_count : 1) * sizeof(*float_weights));
+  else weights = (opus_int8 *)malloc(weight_count ? weight_count : 1);
   scale = (float *)malloc(rows * sizeof(*scale));
   x = (float *)malloc(cols * sizeof(*x));
   bias = (float *)malloc(rows * sizeof(*bias));
   subias = (float *)malloc(rows * sizeof(*subias));
   out = (float *)malloc(rows * sizeof(*out));
-  if (weights == NULL || scale == NULL || x == NULL || bias == NULL || subias == NULL || out == NULL) goto done;
-  if (!read_exact(weights, weight_count)) goto done;
+  if ((float_sparse ? float_weights == NULL : weights == NULL) || scale == NULL || x == NULL || bias == NULL || subias == NULL || out == NULL) goto done;
+  if (float_sparse) {
+    for (i = 0; i < weight_count; i++) if (!read_float(&float_weights[i])) goto done;
+  } else if (!read_exact(weights, weight_count)) goto done;
   for (i = 0; i < rows; i++) if (!read_float(&scale[i])) goto done;
   for (i = 0; i < cols; i++) if (!read_float(&x[i])) goto done;
   for (i = 0; i < rows; i++) if (!read_float(&bias[i])) goto done;
@@ -244,6 +250,7 @@ static int run_linear_cgemv8x4(uint32_t rows, uint32_t cols, uint32_t idx_count)
   layer.bias = bias;
   layer.subias = subias;
   layer.weights = weights;
+  layer.float_weights = float_weights;
   layer.weights_idx = idx;
   layer.scale = scale;
   layer.nb_inputs = (int)cols;
@@ -257,6 +264,7 @@ static int run_linear_cgemv8x4(uint32_t rows, uint32_t cols, uint32_t idx_count)
 done:
   free(idx);
   free(weights);
+  free(float_weights);
   free(scale);
   free(x);
   free(bias);
@@ -286,7 +294,13 @@ int main(void) {
 #ifdef GOPUS_DIRECT_SCALAR_DNN
       return 1;
 #else
-      return run_linear_cgemv8x4(rows, cols, col_stride) ? 0 : 1;
+      return run_linear(rows, cols, col_stride, 0) ? 0 : 1;
+#endif
+    case MODE_LINEAR_SPARSE_SGEMV:
+#ifdef GOPUS_DIRECT_SCALAR_DNN
+      return 1;
+#else
+      return run_linear(rows, cols, col_stride, 1) ? 0 : 1;
 #endif
   }
   return 1;

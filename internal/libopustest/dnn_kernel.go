@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	DNNKernelSGEMV          = uint32(0)
-	DNNKernelCGEMV8x4       = uint32(1)
-	DNNKernelLinearCGEMV8x4 = uint32(2)
+	DNNKernelSGEMV             = uint32(0)
+	DNNKernelCGEMV8x4          = uint32(1)
+	DNNKernelLinearCGEMV8x4    = uint32(2)
+	DNNKernelLinearSparseSGEMV = uint32(3)
 
 	dnnKernelInputMagic  = "GDKI"
 	dnnKernelOutputMagic = "GDKO"
@@ -77,6 +78,23 @@ func ProbeDNNLinearCGEMV8x4(rows, cols int, idx []int32, weights []byte, scale, 
 	payload.Float32s(x...)
 	payload.Float32s(bias...)
 	payload.Float32s(subias...)
+	return readDNNKernelOracle(binPath, payload.Bytes(), rows, true)
+}
+
+// ProbeDNNLinearSparseSGEMV calls the selected DRED archive's compute_linear
+// with float weights and sparse block indices, including its float bias.
+func ProbeDNNLinearSparseSGEMV(rows, cols int, idx []int32, weights, x, bias []float32) ([]float32, error) {
+	binPath, err := dnnKernelHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := NewOraclePayload(dnnKernelInputMagic, DNNKernelLinearSparseSGEMV, uint32(rows), uint32(cols), uint32(len(idx)))
+	payload.I32s(idx...)
+	payload.Float32s(weights...)
+	payload.Float32s(make([]float32, rows)...)
+	payload.Float32s(x...)
+	payload.Float32s(bias...)
+	payload.Float32s(make([]float32, rows)...)
 	return readDNNKernelOracle(binPath, payload.Bytes(), rows, true)
 }
 

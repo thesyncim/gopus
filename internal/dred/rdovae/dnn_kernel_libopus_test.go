@@ -47,6 +47,64 @@ func TestRDOVAESGEMVMatchesSelectedLibopusOracle(t *testing.T) {
 	}
 }
 
+func TestRDOVAESparseFloatLinearMatchesSelectedLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, tc := range []struct {
+		name string
+		rows int
+		idx  []int32
+	}{
+		{name: "rows_8", rows: 8, idx: []int32{3, 0, 5, 12}},
+		{name: "rows_16", rows: 16, idx: []int32{2, 0, 8, 2, 1, 12}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const cols = 16
+			blocks := len(tc.idx) - tc.rows/8
+			weights := make([]float32, blocks*SparseBlockSize)
+			for i := range weights {
+				bits := uint32(0x3e400000) + (uint32(i*1664525+1013904223) & 0x00ffffff)
+				if i&1 != 0 {
+					bits |= 0x80000000
+				}
+				weights[i] = math.Float32frombits(bits)
+			}
+			x := make([]float32, cols)
+			for i := range x {
+				x[i] = math.Float32frombits(uint32(0x3f000000) + (uint32(i*1103515245+12345) & 0x007fffff))
+			}
+			bias := deterministicDNNFloats(tc.rows)
+			want, err := libopustest.ProbeDNNLinearSparseSGEMV(tc.rows, cols, tc.idx, weights, x, bias)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "selected DRED sparse float linear", err)
+			}
+			weightView, err := dnnblob.Float32ViewFromBytes(float32DNNBytes(weights), int32(4*len(weights)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			indexView, err := dnnblob.Int32ViewFromBytes(int32DNNBytes(tc.idx), int32(4*len(tc.idx)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			biasView, err := dnnblob.Float32ViewFromBytes(float32DNNBytes(bias), int32(4*len(bias)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			layer := LinearLayer{FloatWeights: weightView, WeightsIdx: indexView, Bias: biasView, NbInputs: cols, NbOutputs: tc.rows}
+			got := make([]float32, tc.rows)
+			var scratch runtimeScratch
+			computeLinear(&layer, got, x, &scratch)
+			for i := range got {
+				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+					t.Fatalf("out[%d]=%s want %s", i, formatDNNKernelFloat(got[i]), formatDNNKernelFloat(want[i]))
+				}
+			}
+			if allocs := testing.AllocsPerRun(100, func() { computeLinear(&layer, got, x, &scratch) }); allocs != 0 {
+				t.Fatalf("warm sparse float linear allocs=%g want 0", allocs)
+			}
+		})
+	}
+}
+
 func TestRDOVAECGEMV8x4MatchesSelectedLibopusOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 

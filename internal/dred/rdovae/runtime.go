@@ -294,6 +294,10 @@ func sgemvSplit(out []float32, weights FloatTensor, rows, cols, colStride int, x
 }
 
 func sparseSGEMV(out []float32, weights FloatTensor, idx IntTensor, x []float32) {
+	if useX86DNNVectorKernels {
+		sparseSGEMVX86Fused(out, weights, idx, x)
+		return
+	}
 	rows := len(out)
 	clear(out)
 	wOffset := 0
@@ -311,10 +315,10 @@ func sparseSGEMV(out []float32, weights FloatTensor, idx IntTensor, x []float32)
 			x3 := x[pos+3]
 			for k := range 8 {
 				base := wOffset + k
-				y[k] += weights.At(base)*x0 +
-					weights.At(base+8)*x1 +
-					weights.At(base+16)*x2 +
-					weights.At(base+24)*x3
+				y[k] = fma32(weights.At(base), x0, y[k])
+				y[k] = fma32(weights.At(base+8), x1, y[k])
+				y[k] = fma32(weights.At(base+16), x2, y[k])
+				y[k] = fma32(weights.At(base+24), x3, y[k])
 			}
 			wOffset += SparseBlockSize
 		}
