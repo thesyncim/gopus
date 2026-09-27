@@ -89,22 +89,35 @@ func TestPublicDREDDecoderDecodeWithCoreModelsStaysZeroAlloc(t *testing.T) {
 	if state := dec.dredState(); state != nil {
 		t.Fatalf("warmup Decode woke DRED sidecar: %+v", state)
 	}
+	// celt_decode_lost selects FRAME_PLC_NEURAL for a lost CELT frame once the
+	// PLC model is loaded, so the neural concealment state wakes while the DRED
+	// payload state stays asleep: no DRED payload was ever received.
 	if _, err := dec.Decode(nil, pcm); err != nil {
 		t.Fatalf("warmup Decode(nil): %v", err)
 	}
-	if state := dec.dredState(); state != nil {
-		t.Fatalf("warmup Decode(nil) woke DRED sidecar without a DRED payload: %+v", state)
+	state := dec.dredState()
+	if state == nil || state.decoderDREDNeuralState == nil {
+		t.Fatalf("warmup Decode(nil) did not run neural concealment: %+v", state)
+	}
+	if state.decoderDREDPayloadState != nil {
+		t.Fatalf("warmup Decode(nil) woke DRED payload state without a DRED payload: %+v", state)
+	}
+	if _, err := dec.Decode(packet, pcm); err != nil {
+		t.Fatalf("warmup recovery Decode: %v", err)
 	}
 
 	allocs := testing.AllocsPerRun(200, func() {
 		if _, err := dec.Decode(packet, pcm); err != nil {
 			t.Fatalf("Decode: %v", err)
 		}
+		if _, err := dec.Decode(nil, pcm); err != nil {
+			t.Fatalf("Decode(nil): %v", err)
+		}
 	})
 	if allocs != 0 {
-		t.Fatalf("public Decode with core DNN models allocs/op = %.2f, want 0", allocs)
+		t.Fatalf("public Decode and loss concealment with core DNN models allocs/op = %.2f, want 0", allocs)
 	}
-	if state := dec.dredState(); state != nil {
-		t.Fatalf("allocation guard woke DRED sidecar: %+v", state)
+	if state := dec.dredState(); state == nil || state.decoderDREDPayloadState != nil {
+		t.Fatalf("allocation guard woke DRED payload state: %+v", state)
 	}
 }
