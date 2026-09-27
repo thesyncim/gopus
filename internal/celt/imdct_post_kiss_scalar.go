@@ -23,30 +23,35 @@ func imdctPostRotateF32FromKissScalar(buf []float32, fft []kissCpx, trig []float
 	// (the two are distinct, non-aliasing buffers), so it folds the libopus
 	// "copy fft into buf, then rotate in place" into a single pass that reads
 	// the source complex pair directly — half the memory traffic, same arith.
-	yp0 := 0
-	yp1 := n2 - 2
-	for i := range limit {
+	// Output pair i is buf[2i:2i+2] and pair k = n4-1-i is buf[2k:2k+2]
+	// (libopus yp0 and yp1).
+	fft = fft[:n4]
+	trigA := trig[:n4]
+	trigB := trig[n4 : 2*n4]
+	fftLo := fft[:limit]
+	trigALo := trigA[:len(fftLo)]
+	trigBLo := trigB[:len(fftLo)]
+	for i, v := range fftLo {
 		k := n4 - 1 - i
-		re := fft[i].i
-		im := fft[i].r
-		t0 := trig[i]
-		t1 := trig[n4+i]
+		re := v.i
+		im := v.r
+		t0 := trigALo[i]
+		t1 := trigBLo[i]
 		yr := mdctMulAddMix(re, im, t0, t1)
 		yi := mdctMulSubMix(re, im, t1, t0)
 
 		re2 := fft[k].i
 		im2 := fft[k].r
-		buf[yp0] = yr
-		buf[yp1+1] = yi
+		lo := buf[2*i : 2*i+2 : 2*i+2]
+		hi := buf[2*k : 2*k+2 : 2*k+2]
+		lo[0] = yr
+		hi[1] = yi
 
-		t0 = trig[n4-i-1]
-		t1 = trig[n2-i-1]
+		t0 = trigA[k]
+		t1 = trigB[k]
 		yr = mdctMulAddMix(re2, im2, t0, t1)
 		yi = mdctMulSubMix(re2, im2, t1, t0)
-		buf[yp1] = yr
-		buf[yp0+1] = yi
-
-		yp0 += 2
-		yp1 -= 2
+		hi[0] = yr
+		lo[1] = yi
 	}
 }

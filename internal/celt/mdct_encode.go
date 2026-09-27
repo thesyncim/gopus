@@ -10,7 +10,7 @@ import (
 )
 
 func mdctMul(a, b float32) float32 {
-	return noFMA32Mul(a, b)
+	return float32(a * b)
 }
 
 func mdctMulAddMix(a, b, c, d float32) float32 {

@@ -215,13 +215,7 @@ func (d *Decoder) SetPrevEnergyWithPrev(prev, energies []float32) {
 	// nbEBands for a per-mode custom layout).
 	stride := d.predStride()
 	for c := range channels {
-		for band := 0; band < nbBands; band++ {
-			src := c*nbBands + band
-			dst := c*stride + band
-			if src < len(energies) {
-				d.prevEnergy[dst] = energies[src]
-			}
-		}
+		copy(d.prevEnergy[c*stride:c*stride+nbBands], energies[c*nbBands:(c+1)*nbBands])
 	}
 }
 
@@ -243,13 +237,7 @@ func (d *Decoder) setPrevEnergyGLogWithPrev(prev []celtGLog, energies []celtGLog
 	// Copy with layout conversion: compact [c*nbBands+band] -> prediction-stride.
 	stride := d.predStride()
 	for c := range channels {
-		for band := 0; band < nbBands; band++ {
-			src := c*nbBands + band
-			dst := c*stride + band
-			if src < len(energies) {
-				d.prevEnergy[dst] = energies[src]
-			}
-		}
+		copy(d.prevEnergy[c*stride:c*stride+nbBands], energies[c*nbBands:(c+1)*nbBands])
 	}
 }
 
@@ -273,17 +261,15 @@ func (d *Decoder) updateLogEGLog(energies []celtGLog, nbBands int, transient boo
 	}
 	stride := d.predStride()
 	for c := range channels {
-		base := c * stride
-		for band := 0; band < nbBands; band++ {
-			src := c*nbBands + band
-			dst := base + band
-			e := energies[src]
-			if transient {
-				if e < d.prevLogE[dst] {
-					d.prevLogE[dst] = e
-				}
-			} else {
-				d.prevLogE[dst] = e
+		src := energies[c*nbBands : (c+1)*nbBands]
+		dst := d.prevLogE[c*stride : c*stride+nbBands]
+		if !transient {
+			copy(dst, src)
+			continue
+		}
+		for band, e := range src {
+			if e < dst[band] {
+				dst[band] = e
 			}
 		}
 	}
@@ -316,12 +302,13 @@ func (d *Decoder) updateBackgroundEnergy(lm int) {
 	m := 1 << uint(lm)
 	maxIncUnits := min(int(d.plcLossDuration)+m, 160)
 	maxBackgroundIncrease := celtGLog(float32(maxIncUnits) * 0.001)
-	for i := range d.backgroundEnergy {
-		bg := d.backgroundEnergy[i] + maxBackgroundIncrease
-		e := d.prevEnergy[i]
-		if bg > e {
+	background := d.backgroundEnergy
+	prev := d.prevEnergy[:len(background)]
+	for i, bg := range background {
+		bg += maxBackgroundIncrease
+		if e := prev[i]; bg > e {
 			bg = e
 		}
-		d.backgroundEnergy[i] = bg
+		background[i] = bg
 	}
 }

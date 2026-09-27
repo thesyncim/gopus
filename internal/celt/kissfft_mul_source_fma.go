@@ -2,6 +2,10 @@
 
 package celt
 
+// kissMulSourceNaNFixup is false: the fused products have no separate
+// non-finite path.
+const kissMulSourceNaNFixup = false
+
 // kissMulAddSource computes a*b + c*d using source-order semantics.
 // In FMAlike mode this mirrors libopus arm64 codegen (round c*d first).
 func kissMulAddSource(a, b, c, d float32) (float32, bool) {

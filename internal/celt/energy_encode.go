@@ -673,8 +673,10 @@ func (e *Encoder) decideIntraMode(energies []celtGLog, startBand, nbBands int, l
 		maxDecay32 = float32(3.0 * DB6)
 	}
 
+	// Like libopus quant_coarse_energy(), the start state is a plain coder
+	// copy; the intra pass keeps the bytes it wrote since then.
 	startState := &e.scratch.coarseStartState
-	e.rangeEncoder.SaveStateInto(startState)
+	e.rangeEncoder.SaveStateShallowInto(startState)
 
 	oldStart := ensureGLogSlice(&e.scratch.coarseOldStart, len(e.prevEnergy))
 	copy(oldStart, e.prevEnergy)
@@ -728,11 +730,11 @@ func (e *Encoder) decideIntraMode(energies []celtGLog, startBand, nbBands int, l
 	channelsMatch := channels == int(e.channels)
 	keep := keepPass && startBand == 0 && channelsMatch
 	if keep {
-		e.rangeEncoder.SaveStateInto(&e.scratch.coarseIntraState)
+		e.rangeEncoder.SaveStateSinceInto(&e.scratch.coarseIntraState, startState)
 		copy(ensureGLogSliceNoClear(&e.scratch.coarseIntraOldE, len(workOldE)), workOldE)
 		copy(ensureGLogSliceNoClear(&e.scratch.coarseIntraErr, len(workErr)), workErr)
 	}
-	e.rangeEncoder.RestoreState(startState)
+	e.rangeEncoder.RestoreStateShallow(startState)
 	copy(e.prevEnergy, oldStart)
 
 	copy(workOldE, oldStart)
@@ -762,7 +764,7 @@ func (e *Encoder) decideIntraMode(energies []celtGLog, startBand, nbBands int, l
 	}
 	copy(e.prevEnergy, oldStart)
 	if !keep {
-		e.rangeEncoder.RestoreState(startState)
+		e.rangeEncoder.RestoreStateShallow(startState)
 		return useIntra, false
 	}
 	if useIntra {

@@ -251,3 +251,10 @@ func bflyMulSource4(ar, ai, wr, wi archsimd.Float32x4) (re, im archsimd.Float32x
 	im = ar.MulAdd(wi, ai.Mul(wr))
 	return re, im
 }
+
+// kfBflyScalarFastInput is false: the SIMD butterflies handle every stage.
+func kfBflyScalarFastInput([]kissCpx) bool { return false }
+
+func kfBfly2M4(fout []kissCpx, n int) {
+	kfBfly2M4Scalar(fout, n)
+}

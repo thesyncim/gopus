@@ -2,6 +2,10 @@
 
 package celt
 
+// kissMulSourceNaNFixup is false: the fused products have no separate
+// non-finite path.
+const kissMulSourceNaNFixup = false
+
 func kissMulAddSource(a, b, c, d float32) (float32, bool) {
 	return fma32(a, b, noFMA32Mul(c, d)), false
 }

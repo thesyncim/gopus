@@ -134,11 +134,10 @@ type bandEncodeScratch struct {
 	// fresh slice in that slot, identical to before. See ensureFloatScratch.
 	floatScratch arena.Bump[celtNorm]
 
-	// Theta RDO buffers (for stereo encoding): six per-band celtNorm slots,
+	// Theta RDO buffers (for stereo encoding): five per-band celtNorm slots,
 	// each bounded by maxBandWidth, all live simultaneously within one band's RDO.
 	xSave       []celtNorm
 	ySave       []celtNorm
-	normSave    []celtNorm
 	xResult0    []celtNorm
 	yResult0    []celtNorm
 	normResult0 []celtNorm
@@ -195,7 +194,7 @@ func (s *bandEncodeScratch) ensureFloatScratch(channels int) {
 	const maxPVQN = maxBandWidth * 2
 	normLen := 8 * EBands[MaxBands-1]
 	maxBand := 8 * (EBands[MaxBands] - EBands[MaxBands-1])
-	total := channels*normLen + maxBand + maxBandWidth*16 + 3*maxPVQN + 6*maxBandWidth
+	total := channels*normLen + maxBand + maxBandWidth*16 + 3*maxPVQN + 5*maxBandWidth
 	if s.floatScratch.Cap() >= total {
 		return
 	}
@@ -208,7 +207,6 @@ func (s *bandEncodeScratch) ensureFloatScratch(channels int) {
 	s.pvqX = s.floatScratch.Alloc(maxPVQN)
 	s.xSave = s.floatScratch.Alloc(maxBandWidth)
 	s.ySave = s.floatScratch.Alloc(maxBandWidth)
-	s.normSave = s.floatScratch.Alloc(maxBandWidth)
 	s.xResult0 = s.floatScratch.Alloc(maxBandWidth)
 	s.yResult0 = s.floatScratch.Alloc(maxBandWidth)
 	s.normResult0 = s.floatScratch.Alloc(maxBandWidth)
@@ -224,11 +222,6 @@ func (s *bandEncodeScratch) ensureXSave(n int) []celtNorm {
 // ensureYSave returns a pre-allocated buffer for saving Y during theta RDO.
 func (s *bandEncodeScratch) ensureYSave(n int) []celtNorm {
 	return ensureNormSliceNoClear(&s.ySave, n)
-}
-
-// ensureNormSave returns a pre-allocated buffer for saving norm during theta RDO.
-func (s *bandEncodeScratch) ensureNormSave(n int) []celtNorm {
-	return ensureNormSliceNoClear(&s.normSave, n)
 }
 
 // ensureXResult0 returns a pre-allocated buffer for X result during theta RDO.

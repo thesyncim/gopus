@@ -4,6 +4,11 @@ package celt
 
 const combUsesSSE = false
 
+// combOverlapVector is false: combFilterOverlap is the scalar loop here.
+const combOverlapVector = false
+
+const combOverlapMax = 240
+
 // combFilterConstSSE is only reached when combUsesSSE is true; builds without
 // the amd64 SIMD kernel keep the scalar form of the same operation order.
 func combFilterConstSSE(dst, src, delay []celtSig, from, to int, g10, g11, g12 float32) {

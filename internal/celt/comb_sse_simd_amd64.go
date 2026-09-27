@@ -46,6 +46,13 @@ func combFilterConstSSE(dst, src, delay []celtSig, from, to int, g10, g11, g12 f
 
 var combOverlapUsesAVX = archsimd.X86.AVX()
 
+// combOverlapVector reports that combFilterOverlap has a vector kernel.
+const combOverlapVector = true
+
+// combOverlapMax bounds the overlap the prefilter cross-fade runs through
+// combFilterOverlap.
+const combOverlapMax = 240
+
 // combFilterOverlap is the cross-faded part of libopus comb_filter over
 // len(dst) outputs, in place: d0[k] and d1[k] are x[i-T0-2+k] and
 // x[i-T1-2+k] for the first output i, and wsq holds window[i]^2. Four outputs

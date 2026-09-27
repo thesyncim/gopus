@@ -5,13 +5,19 @@ import (
 	"testing"
 )
 
-// TestAllocSearchSumsMatchReference checks the branch-free bisection sums of
+// TestAllocSearchSumsMatchReference checks the two-loop bisection sums of
 // clt_compute_allocation and interp_bits2pulses against the libopus
 // celt/rate.c loops written literally.
 func TestAllocSearchSumsMatchReference(t *testing.T) {
 	rng := rand.New(rand.NewSource(0xa110c))
 	for iter := 0; iter < 50000; iter++ {
-		n := 1 + rng.Intn(21)
+		n := 1 + rng.Intn(24)
+		// Some iterations use values outside the ranges the allocator
+		// produces, including negative ones.
+		wide := int32(1)
+		if iter%4 == 0 {
+			wide = 64
+		}
 		channels := int32(1 + rng.Intn(2))
 		floor := channels << bitRes
 		bandScale := make([]int32, n)
@@ -25,12 +31,19 @@ func TestAllocSearchSumsMatchReference(t *testing.T) {
 		for j := range n {
 			bandScale[j] = channels * int32(1+rng.Intn(176))
 			alloc[j] = int32(rng.Intn(200))
-			trim[j] = int32(rng.Intn(4000) - 2000)
-			offsets[j] = int32(rng.Intn(600))
-			thresh[j] = int32(rng.Intn(400))
-			caps[j] = int32(rng.Intn(3000))
-			bits1[j] = int32(rng.Intn(3000))
-			bits2[j] = int32(rng.Intn(3000))
+			trim[j] = int32(rng.Intn(4000)-2000) * wide
+			offsets[j] = int32(rng.Intn(600)) * wide
+			thresh[j] = int32(rng.Intn(400)) * wide
+			caps[j] = int32(rng.Intn(3000)) * wide
+			bits1[j] = int32(rng.Intn(3000)) * wide
+			bits2[j] = int32(rng.Intn(3000)) * wide
+			if wide > 1 {
+				offsets[j] -= 600 * 32
+				thresh[j] -= 400 * 32
+				caps[j] -= 3000 * 32
+				bits1[j] -= 3000 * 32
+				bits2[j] -= 3000 * 32
+			}
 		}
 
 		want := int32(0)

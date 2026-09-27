@@ -124,6 +124,8 @@ func (d *Decoder) decodeCoarseEnergyGLogInto(dst []celtGLog, nbBands int, intra 
 	}
 
 	budget := rd.StorageBits()
+	stride := d.predStride()
+	prevEnergy := d.prevEnergy
 
 	// Decode band-major to match libopus ordering.
 	var prevBandEnergy [2]float32
@@ -149,7 +151,7 @@ func (d *Decoder) decodeCoarseEnergyGLogInto(dst []celtGLog, nbBands int, intra 
 
 			// Apply prediction
 			// pred = alpha * prevEnergy[band] + prevBandEnergy
-			prevFrameEnergy := float32(d.prevEnergy[c*d.predStride()+band])
+			prevFrameEnergy := float32(prevEnergy[c*stride+band])
 			minEnergy := float32(-9.0 * DB6)
 			if prevFrameEnergy < minEnergy {
 				prevFrameEnergy = minEnergy
@@ -171,9 +173,7 @@ func (d *Decoder) decodeCoarseEnergyGLogInto(dst []celtGLog, nbBands int, intra 
 
 	// Update previous frame energy for next frame's inter-frame prediction
 	for c := range channels {
-		for band := 0; band < nbBands; band++ {
-			d.prevEnergy[c*d.predStride()+band] = dst[c*nbBands+band]
-		}
+		copy(prevEnergy[c*stride:c*stride+nbBands], dst[c*nbBands:(c+1)*nbBands])
 	}
 
 	return dst
@@ -324,25 +324,29 @@ func (d *Decoder) decodeFineEnergyGLogRange(energies []celtGLog, start, end int,
 	}
 
 	rd := d.rangeDecoder
+	channels := int(d.channels)
+	storageBits := rd.StorageBits()
 	for band := start; band < end; band++ {
 		extra := extraQuant[band]
 		if extra <= 0 {
 			continue
 		}
-		channels := int(d.channels)
-		if rd.Tell()+channels*int(extra) > rd.StorageBits() {
+		if rd.Tell()+channels*int(extra) > storageBits {
 			continue
 		}
 
-		prev := 0
+		prev := int32(0)
 		if prevQuant != nil && band < len(prevQuant) {
-			prev = int(prevQuant[band])
+			prev = prevQuant[band]
 		}
 
+		// The C shifts 1<<(14-extra) and 1<<(14-prev) are int values.
+		extraScale := float32(int32(1) << uint32(14-extra))
+		prevScale := float32(int32(1) << uint32(14-prev))
 		for c := range channels {
 			q2 := rd.DecodeRawBits(uint(extra))
-			offset := (float32(q2)+float32(0.5))*float32(uint(1)<<uint(14-extra))*float32(1.0/16384.0) - float32(0.5)
-			offset *= float32(uint(1)<<uint(14-prev)) * float32(1.0/16384.0)
+			offset := (float32(q2)+float32(0.5))*extraScale*float32(1.0/16384.0) - float32(0.5)
+			offset *= prevScale * float32(1.0/16384.0)
 
 			idx := c*end + band
 			if idx < len(energies) {

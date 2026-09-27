@@ -416,7 +416,16 @@ func kfBfly2(fout []kissCpx, m, N int) {
 		return
 	}
 	// m==4 degenerate radix-2 after radix-4
-	tw := float32(0.7071067812)
+	kfBfly2M4(fout, N)
+}
+
+// kfBfly2M4Twiddle is the kf_bfly2 m == 4 twiddle, 0.7071067812.
+const kfBfly2M4Twiddle = float32(0.7071067812)
+
+// kfBfly2M4Scalar is the kf_bfly2 radix-2 stage with m == 4 (after a radix-4
+// stage): N groups of eight values.
+func kfBfly2M4Scalar(fout []kissCpx, N int) {
+	tw := kfBfly2M4Twiddle
 	for range N {
 		fout2 := fout[4:]
 		t := fout2[0]
@@ -450,7 +459,7 @@ func kfBfly2(fout []kissCpx, m, N int) {
 	}
 }
 
-func kfBfly4(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
+func kfBfly4(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int, fast bool) {
 	if m == 1 {
 		kfBfly4M1(fout, N)
 		return
@@ -458,10 +467,14 @@ func kfBfly4(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 	if N <= 0 || mm <= 0 {
 		return
 	}
+	if fast {
+		kfBfly4InnerFast(fout, st.w, m, N, mm, fstride)
+		return
+	}
 	kfBfly4Inner(fout, st.w, m, N, mm, fstride)
 }
 
-func kfBfly3(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
+func kfBfly3(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int, fast bool) {
 	if N <= 0 || mm <= 0 {
 		return
 	}
@@ -469,15 +482,23 @@ func kfBfly3(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 		kfBfly3M1(fout, st.w, fstride, N, mm)
 		return
 	}
+	if fast {
+		kfBfly3InnerFast(fout, st.w, m, N, mm, fstride)
+		return
+	}
 	kfBfly3Inner(fout, st.w, m, N, mm, fstride)
 }
 
-func kfBfly5(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
+func kfBfly5(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int, fast bool) {
 	if N <= 0 || mm <= 0 {
 		return
 	}
 	if m == 1 {
 		kfBfly5M1(fout, st.w, fstride, N, mm)
+		return
+	}
+	if fast {
+		kfBfly5InnerFast(fout, st.w, m, N, mm, fstride)
 		return
 	}
 	kfBfly5Inner(fout, st.w, m, N, mm, fstride)
@@ -508,6 +529,7 @@ func (st *kissFFTState) fftImpl(fout []kissCpx) {
 
 	m := st.factors[2*L-1]
 	shift := max(st.shift, 0)
+	fast := kfBflyScalarFastInput(fout)
 	for i := L - 1; i >= 0; i-- {
 		m2 := 1
 		if i != 0 {
@@ -519,11 +541,11 @@ func (st *kissFFTState) fftImpl(fout []kissCpx) {
 		case 2:
 			kfBfly2(fout, m, N)
 		case 4:
-			kfBfly4(fout, twFstride, st, m, N, m2)
+			kfBfly4(fout, twFstride, st, m, N, m2, fast)
 		case 3:
-			kfBfly3(fout, twFstride, st, m, N, m2)
+			kfBfly3(fout, twFstride, st, m, N, m2, fast)
 		case 5:
-			kfBfly5(fout, twFstride, st, m, N, m2)
+			kfBfly5(fout, twFstride, st, m, N, m2, fast)
 		}
 		m = m2
 	}

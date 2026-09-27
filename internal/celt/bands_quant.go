@@ -114,145 +114,153 @@ func interleaveHadamardStride2Into(dst, src []celtNorm, n0 int) {
 	InterleaveStereoIntoF32(src[n0:n0<<1], src[:n0], dst)
 }
 
+// The fixed-stride Hadamard (de)interleaves slice each group of stride samples
+// once, so the per-sample accesses need no bounds checks.
 func deinterleaveHadamardStride4Into(dst, src []celtNorm, n0 int) {
 	row0 := dst[:n0]
-	row1 := dst[n0 : n0<<1]
-	row2 := dst[n0<<1 : n0*3]
-	row3 := dst[n0*3 : n0<<2]
-	for j, base := 0, 0; j < n0; j, base = j+1, base+4 {
-		row3[j] = src[base]
-		row0[j] = src[base+1]
-		row2[j] = src[base+2]
-		row1[j] = src[base+3]
+	row1 := dst[n0 : n0*2][:len(row0)]
+	row2 := dst[n0*2 : n0*3][:len(row0)]
+	row3 := dst[n0*3 : n0*4][:len(row0)]
+	for j := range row0 {
+		s := src[4*j : 4*j+4 : 4*j+4]
+		row3[j] = s[0]
+		row0[j] = s[1]
+		row2[j] = s[2]
+		row1[j] = s[3]
 	}
 }
 
 func interleaveHadamardStride4Into(dst, src []celtNorm, n0 int) {
 	row0 := src[:n0]
-	row1 := src[n0 : n0<<1]
-	row2 := src[n0<<1 : n0*3]
-	row3 := src[n0*3 : n0<<2]
-	for j, base := 0, 0; j < n0; j, base = j+1, base+4 {
-		dst[base] = row3[j]
-		dst[base+1] = row0[j]
-		dst[base+2] = row2[j]
-		dst[base+3] = row1[j]
+	row1 := src[n0 : n0*2][:len(row0)]
+	row2 := src[n0*2 : n0*3][:len(row0)]
+	row3 := src[n0*3 : n0*4][:len(row0)]
+	for j := range row0 {
+		d := dst[4*j : 4*j+4 : 4*j+4]
+		d[0] = row3[j]
+		d[1] = row0[j]
+		d[2] = row2[j]
+		d[3] = row1[j]
 	}
 }
 
 func deinterleaveHadamardStride8Into(dst, src []celtNorm, n0 int) {
 	row0 := dst[:n0]
-	row1 := dst[n0 : n0<<1]
-	row2 := dst[n0<<1 : n0*3]
-	row3 := dst[n0*3 : n0<<2]
-	row4 := dst[n0<<2 : n0*5]
-	row5 := dst[n0*5 : n0*6]
-	row6 := dst[n0*6 : n0*7]
-	row7 := dst[n0*7 : n0<<3]
-	for j, base := 0, 0; j < n0; j, base = j+1, base+8 {
-		row7[j] = src[base]
-		row0[j] = src[base+1]
-		row4[j] = src[base+2]
-		row3[j] = src[base+3]
-		row6[j] = src[base+4]
-		row1[j] = src[base+5]
-		row5[j] = src[base+6]
-		row2[j] = src[base+7]
+	row1 := dst[n0 : n0*2][:len(row0)]
+	row2 := dst[n0*2 : n0*3][:len(row0)]
+	row3 := dst[n0*3 : n0*4][:len(row0)]
+	row4 := dst[n0*4 : n0*5][:len(row0)]
+	row5 := dst[n0*5 : n0*6][:len(row0)]
+	row6 := dst[n0*6 : n0*7][:len(row0)]
+	row7 := dst[n0*7 : n0*8][:len(row0)]
+	for j := range row0 {
+		s := src[8*j : 8*j+8 : 8*j+8]
+		row7[j] = s[0]
+		row0[j] = s[1]
+		row4[j] = s[2]
+		row3[j] = s[3]
+		row6[j] = s[4]
+		row1[j] = s[5]
+		row5[j] = s[6]
+		row2[j] = s[7]
 	}
 }
 
 func interleaveHadamardStride8Into(dst, src []celtNorm, n0 int) {
 	row0 := src[:n0]
-	row1 := src[n0 : n0<<1]
-	row2 := src[n0<<1 : n0*3]
-	row3 := src[n0*3 : n0<<2]
-	row4 := src[n0<<2 : n0*5]
-	row5 := src[n0*5 : n0*6]
-	row6 := src[n0*6 : n0*7]
-	row7 := src[n0*7 : n0<<3]
-	for j, base := 0, 0; j < n0; j, base = j+1, base+8 {
-		dst[base] = row7[j]
-		dst[base+1] = row0[j]
-		dst[base+2] = row4[j]
-		dst[base+3] = row3[j]
-		dst[base+4] = row6[j]
-		dst[base+5] = row1[j]
-		dst[base+6] = row5[j]
-		dst[base+7] = row2[j]
+	row1 := src[n0 : n0*2][:len(row0)]
+	row2 := src[n0*2 : n0*3][:len(row0)]
+	row3 := src[n0*3 : n0*4][:len(row0)]
+	row4 := src[n0*4 : n0*5][:len(row0)]
+	row5 := src[n0*5 : n0*6][:len(row0)]
+	row6 := src[n0*6 : n0*7][:len(row0)]
+	row7 := src[n0*7 : n0*8][:len(row0)]
+	for j := range row0 {
+		d := dst[8*j : 8*j+8 : 8*j+8]
+		d[0] = row7[j]
+		d[1] = row0[j]
+		d[2] = row4[j]
+		d[3] = row3[j]
+		d[4] = row6[j]
+		d[5] = row1[j]
+		d[6] = row5[j]
+		d[7] = row2[j]
 	}
 }
 
 func deinterleaveHadamardStride16Into(dst, src []celtNorm, n0 int) {
 	row0 := dst[:n0]
-	row1 := dst[n0 : n0<<1]
-	row2 := dst[n0<<1 : n0*3]
-	row3 := dst[n0*3 : n0<<2]
-	row4 := dst[n0<<2 : n0*5]
-	row5 := dst[n0*5 : n0*6]
-	row6 := dst[n0*6 : n0*7]
-	row7 := dst[n0*7 : n0<<3]
-	row8 := dst[n0<<3 : n0*9]
-	row9 := dst[n0*9 : n0*10]
-	row10 := dst[n0*10 : n0*11]
-	row11 := dst[n0*11 : n0*12]
-	row12 := dst[n0*12 : n0*13]
-	row13 := dst[n0*13 : n0*14]
-	row14 := dst[n0*14 : n0*15]
-	row15 := dst[n0*15 : n0<<4]
-	for j, base := 0, 0; j < n0; j, base = j+1, base+16 {
-		row15[j] = src[base]
-		row0[j] = src[base+1]
-		row8[j] = src[base+2]
-		row7[j] = src[base+3]
-		row12[j] = src[base+4]
-		row3[j] = src[base+5]
-		row11[j] = src[base+6]
-		row4[j] = src[base+7]
-		row14[j] = src[base+8]
-		row1[j] = src[base+9]
-		row9[j] = src[base+10]
-		row6[j] = src[base+11]
-		row13[j] = src[base+12]
-		row2[j] = src[base+13]
-		row10[j] = src[base+14]
-		row5[j] = src[base+15]
+	row1 := dst[n0 : n0*2][:len(row0)]
+	row2 := dst[n0*2 : n0*3][:len(row0)]
+	row3 := dst[n0*3 : n0*4][:len(row0)]
+	row4 := dst[n0*4 : n0*5][:len(row0)]
+	row5 := dst[n0*5 : n0*6][:len(row0)]
+	row6 := dst[n0*6 : n0*7][:len(row0)]
+	row7 := dst[n0*7 : n0*8][:len(row0)]
+	row8 := dst[n0*8 : n0*9][:len(row0)]
+	row9 := dst[n0*9 : n0*10][:len(row0)]
+	row10 := dst[n0*10 : n0*11][:len(row0)]
+	row11 := dst[n0*11 : n0*12][:len(row0)]
+	row12 := dst[n0*12 : n0*13][:len(row0)]
+	row13 := dst[n0*13 : n0*14][:len(row0)]
+	row14 := dst[n0*14 : n0*15][:len(row0)]
+	row15 := dst[n0*15 : n0*16][:len(row0)]
+	for j := range row0 {
+		s := src[16*j : 16*j+16 : 16*j+16]
+		row15[j] = s[0]
+		row0[j] = s[1]
+		row8[j] = s[2]
+		row7[j] = s[3]
+		row12[j] = s[4]
+		row3[j] = s[5]
+		row11[j] = s[6]
+		row4[j] = s[7]
+		row14[j] = s[8]
+		row1[j] = s[9]
+		row9[j] = s[10]
+		row6[j] = s[11]
+		row13[j] = s[12]
+		row2[j] = s[13]
+		row10[j] = s[14]
+		row5[j] = s[15]
 	}
 }
 
 func interleaveHadamardStride16Into(dst, src []celtNorm, n0 int) {
 	row0 := src[:n0]
-	row1 := src[n0 : n0<<1]
-	row2 := src[n0<<1 : n0*3]
-	row3 := src[n0*3 : n0<<2]
-	row4 := src[n0<<2 : n0*5]
-	row5 := src[n0*5 : n0*6]
-	row6 := src[n0*6 : n0*7]
-	row7 := src[n0*7 : n0<<3]
-	row8 := src[n0<<3 : n0*9]
-	row9 := src[n0*9 : n0*10]
-	row10 := src[n0*10 : n0*11]
-	row11 := src[n0*11 : n0*12]
-	row12 := src[n0*12 : n0*13]
-	row13 := src[n0*13 : n0*14]
-	row14 := src[n0*14 : n0*15]
-	row15 := src[n0*15 : n0<<4]
-	for j, base := 0, 0; j < n0; j, base = j+1, base+16 {
-		dst[base] = row15[j]
-		dst[base+1] = row0[j]
-		dst[base+2] = row8[j]
-		dst[base+3] = row7[j]
-		dst[base+4] = row12[j]
-		dst[base+5] = row3[j]
-		dst[base+6] = row11[j]
-		dst[base+7] = row4[j]
-		dst[base+8] = row14[j]
-		dst[base+9] = row1[j]
-		dst[base+10] = row9[j]
-		dst[base+11] = row6[j]
-		dst[base+12] = row13[j]
-		dst[base+13] = row2[j]
-		dst[base+14] = row10[j]
-		dst[base+15] = row5[j]
+	row1 := src[n0 : n0*2][:len(row0)]
+	row2 := src[n0*2 : n0*3][:len(row0)]
+	row3 := src[n0*3 : n0*4][:len(row0)]
+	row4 := src[n0*4 : n0*5][:len(row0)]
+	row5 := src[n0*5 : n0*6][:len(row0)]
+	row6 := src[n0*6 : n0*7][:len(row0)]
+	row7 := src[n0*7 : n0*8][:len(row0)]
+	row8 := src[n0*8 : n0*9][:len(row0)]
+	row9 := src[n0*9 : n0*10][:len(row0)]
+	row10 := src[n0*10 : n0*11][:len(row0)]
+	row11 := src[n0*11 : n0*12][:len(row0)]
+	row12 := src[n0*12 : n0*13][:len(row0)]
+	row13 := src[n0*13 : n0*14][:len(row0)]
+	row14 := src[n0*14 : n0*15][:len(row0)]
+	row15 := src[n0*15 : n0*16][:len(row0)]
+	for j := range row0 {
+		d := dst[16*j : 16*j+16 : 16*j+16]
+		d[0] = row15[j]
+		d[1] = row0[j]
+		d[2] = row8[j]
+		d[3] = row7[j]
+		d[4] = row12[j]
+		d[5] = row3[j]
+		d[6] = row11[j]
+		d[7] = row4[j]
+		d[8] = row14[j]
+		d[9] = row1[j]
+		d[10] = row9[j]
+		d[11] = row6[j]
+		d[12] = row13[j]
+		d[13] = row2[j]
+		d[14] = row10[j]
+		d[15] = row5[j]
 	}
 }
 
@@ -429,27 +437,11 @@ func deinterleaveHadamardScratchBuf(x []celtNorm, n0, stride int, hadamard bool,
 }
 
 func deinterleaveHadamardIntoNorm(dst, src []celtNorm, n0, stride int, hadamard bool) {
-	n := n0 * stride
-	dst = dst[:n]
-	src = src[:n]
-	if hadamard {
-		ordery := orderyForStride(stride)
-		if len(ordery) >= stride {
-			for i := range stride {
-				row := ordery[i] * n0
-				for j := range n0 {
-					dst[row+j] = src[j*stride+i]
-				}
-			}
-			return
-		}
+	// Strides without a Hadamard ordering fall back to the plain deinterleave.
+	if hadamard && len(orderyForStride(stride)) < stride {
+		hadamard = false
 	}
-	for i := range stride {
-		row := i * n0
-		for j := range n0 {
-			dst[row+j] = src[j*stride+i]
-		}
-	}
+	deinterleaveHadamardInto(dst, src, n0, stride, hadamard)
 }
 
 func deinterleaveHadamardScratchBufNorm(x []celtNorm, n0, stride int, hadamard bool, decScratch *bandDecodeScratch, encScratch *bandEncodeScratch) {
@@ -809,10 +801,17 @@ func expRotation(x []celtNorm, length, dir, stride, k, spread int) {
 	}
 }
 
+// expRotationNorm is libopus exp_rotation(). The early return is kept in this
+// small function so it inlines into the callers; most bands take it.
 func expRotationNorm(x []celtNorm, length, dir, stride, k, spread int) {
 	if 2*k >= length || spread == spreadNone {
 		return
 	}
+	expRotationNormApply(x, length, dir, stride, k, spread)
+}
+
+// expRotationNormApply is the exp_rotation() body for bands that rotate.
+func expRotationNormApply(x []celtNorm, length, dir, stride, k, spread int) {
 	c, s, ok := expRotationCoefficients(length, k, spread)
 	if !ok {
 		spreadFactor := expRotationSpreadFactors[spread-1]
@@ -4028,10 +4027,12 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		}
 		collapse = make([]byte, channels*maxBands)
 	} else {
-		left = ensureNormSlice(&scratch.left, N)
+		// The band loop writes every coefficient of bands [start, end), so only
+		// the coefficients outside them need clearing.
+		left = ensureNormSliceNoClear(&scratch.left, N)
 		clearDecodedBandEdges(left, N, M*edges[start], M*edges[end])
 		if channels == 2 {
-			right = ensureNormSlice(&scratch.right, N)
+			right = ensureNormSliceNoClear(&scratch.right, N)
 			clearDecodedBandEdges(right, N, M*edges[start], M*edges[end])
 		} else if cap(scratch.right) > 0 {
 			scratch.right = scratch.right[:0]
@@ -4207,8 +4208,6 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 				lowbandY = norm2[effectiveLowband : effectiveLowband+nBand]
 			}
 		}
-		if effectiveLowband >= 0 && lowbandX != nil {
-		}
 
 		var lowbandOutX []celtNorm
 		var lowbandOutY []celtNorm
@@ -4230,7 +4229,13 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 				xCM = quantBandStereoDecode(&ctx, x, y, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, xCM|yCM)
 				yCM = xCM
 			} else {
-				xCM = quantBandDecode(&ctx, x, nBand, b, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM|yCM)
+				// Mono bands without QEXT go straight to the fast path
+				// quantBandDecode would pick.
+				if ctx.extBudget == 0 && ctx.extDec == nil && !ctx.extraBands {
+					xCM = quantBandDecodeNoExtFast(&ctx, x, nBand, b, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM|yCM)
+				} else {
+					xCM = quantBandDecode(&ctx, x, nBand, b, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM|yCM)
+				}
 				yCM = xCM
 			}
 		}
@@ -4543,148 +4548,19 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 				// Theta RDO: Try both rounding directions and pick the one with lower distortion.
 				// Enabled only for high complexity stereo (match libopus theta_rdo).
 				// Reference: libopus bands.c quant_all_bands(), theta_rdo logic
-				thetaRDO := thetaRDOEnabled && i < intensity
-				if thetaRDO {
-					// Compute channel weights for distortion measurement
+				if thetaRDOEnabled && i < intensity {
 					var leftE, rightE celtEner
 					if bandE != nil && len(bandE) > ctx.nbBands+i {
 						leftE = bandE[i]
 						rightE = bandE[ctx.nbBands+i]
 					}
-					w0, w1 := computeChannelWeights(leftE, rightE)
-
-					// Save original input data - use scratch if available
-					var xSave, ySave []celtNorm
-					if scratch != nil {
-						xSave = scratch.ensureXSave(nBand)
-						ySave = scratch.ensureYSave(nBand)
-					} else {
-						xSave = make([]celtNorm, nBand)
-						ySave = make([]celtNorm, nBand)
-					}
-					copy(xSave, xBand)
-					copy(ySave, yBand)
-
-					// Save norm data if not last band
-					var normSave []celtNorm
-					if lowbandOutX != nil {
-						if scratch != nil {
-							normSave = scratch.ensureNormSave(nBand)
-						} else {
-							normSave = make([]celtNorm, nBand)
-						}
-						copy(normSave, lowbandOutX)
-					}
-
-					// Save encoder state - use scratch if available
-					var ecSave *rangecoding.EncoderState
-					if scratch != nil {
-						re.SaveStateInto(&scratch.ecSave)
-						ecSave = &scratch.ecSave
-					} else {
-						ecSave = re.SaveState()
-					}
-					var extECSave *rangecoding.EncoderState
-					if ctx.extEnc != nil {
-						if scratch != nil {
-							ctx.extEnc.SaveStateInto(&scratch.extEcSave)
-							extECSave = &scratch.extEcSave
-						} else {
-							extECSave = ctx.extEnc.SaveState()
-						}
-					}
-					ctxSave := ctx
-
-					// Try encoding with theta_round = -1 (bias toward 0/16384)
-					ctx.thetaRound = -1
-					cm := xCM | yCM
-					xCM0 := quantBandStereoWithExtBudget(&ctx, xBand, yBand, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, cm, ctx.extBudget)
-
-					// Compute distortion for first trial
-					dist0 := thetaRDODistortion(w0, w1, xSave, xBand, ySave, yBand)
-
-					var ecSave0 *rangecoding.EncoderState
-					if scratch != nil {
-						re.SaveStateInto(&scratch.ecSave0)
-						ecSave0 = &scratch.ecSave0
-					} else {
-						ecSave0 = re.SaveState()
-					}
-					var extECSave0 *rangecoding.EncoderState
-					if ctx.extEnc != nil {
-						if scratch != nil {
-							ctx.extEnc.SaveStateInto(&scratch.extEcSave0)
-							extECSave0 = &scratch.extEcSave0
-						} else {
-							extECSave0 = ctx.extEnc.SaveState()
-						}
-					}
-					ctxSave0 := ctx
-					cm0 := xCM0
-
-					// Save first-trial result so we can restore it if it wins.
-					var xSave0, ySave0 []celtNorm
-					if scratch != nil {
-						xSave0 = scratch.ensureXResult0(nBand)
-						ySave0 = scratch.ensureYResult0(nBand)
-					} else {
-						xSave0 = make([]celtNorm, nBand)
-						ySave0 = make([]celtNorm, nBand)
-					}
-					copy(xSave0, xBand)
-					copy(ySave0, yBand)
-					var normSave0 []celtNorm
-					if lowbandOutX != nil {
-						if scratch != nil {
-							normSave0 = scratch.ensureNormResult0(nBand)
-						} else {
-							normSave0 = make([]celtNorm, nBand)
-						}
-						copy(normSave0, lowbandOutX)
-					}
-
-					// Restore coder and band state for the second trial.
-					re.RestoreStateShallow(ecSave)
-					if ctx.extEnc != nil && extECSave != nil {
-						ctx.extEnc.RestoreStateShallow(extECSave)
-					}
-					ctx = ctxSave
-					copy(xBand, xSave)
-					copy(yBand, ySave)
+					var refold func()
 					if i == start+1 {
-						specialHybridFoldingWithEdges(norm, norm2, edges, start, M, dualStereo != 0)
+						refold = func() { specialHybridFoldingWithEdges(norm, norm2, edges, start, M, dualStereo != 0) }
 					}
-					if lowbandOutX != nil && normSave != nil {
-						copy(lowbandOutX, normSave)
-					}
-
-					// Try encoding with theta_round = +1 (bias toward equal split)
-					ctx.thetaRound = 1
-					xCM1 := quantBandStereoWithExtBudget(&ctx, xBand, yBand, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, cm, ctx.extBudget)
-
-					// Compute distortion for second trial
-					dist1 := thetaRDODistortion(w0, w1, xSave, xBand, ySave, yBand)
-
-					// Pick the trial with lower distortion (higher inner product = lower distortion)
-					if dist0 >= dist1 {
-						// First trial (theta_round = -1) was better
-						xCM = cm0
-						re.RestoreState(ecSave0)
-						if ctx.extEnc != nil && extECSave0 != nil {
-							ctx.extEnc.RestoreState(extECSave0)
-						}
-						ctx = ctxSave0
-						copy(xBand, xSave0)
-						copy(yBand, ySave0)
-						if lowbandOutX != nil && normSave0 != nil {
-							copy(lowbandOutX, normSave0)
-						}
-					} else {
-						// Second trial (theta_round = +1) was better
-						xCM = xCM1
-					}
+					xCM = quantBandStereoThetaRDO(&ctx, re, scratch, xBand, yBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch,
+						xCM|yCM, leftE, rightE, refold)
 					yCM = xCM
-					ctx.thetaRound = 0 // Reset for subsequent bands
 				} else {
 					// No theta RDO: use standard encoding
 					ctx.thetaRound = 0
@@ -4711,4 +4587,83 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 	}
 
 	return collapse
+}
+
+// quantBandStereoThetaRDO is the theta_rdo branch of libopus quant_all_bands():
+// it codes the stereo band with theta rounded down, codes it again from the
+// same coder state with theta rounded up, and keeps the trial whose output has
+// the larger weighted inner product with the input. refold, when set, redoes
+// the special hybrid folding the first trial overwrote.
+func quantBandStereoThetaRDO(ctx *bandCtx, re *rangecoding.Encoder, scratch *bandEncodeScratch,
+	x, y []celtNorm, b, B int, lowband []celtNorm, lm int, lowbandOut, lowbandScratch []celtNorm,
+	fill int, leftE, rightE celtEner, refold func()) int {
+	if scratch == nil {
+		scratch = &bandEncodeScratch{}
+	}
+	n := len(x)
+	w0, w1 := computeChannelWeights(leftE, rightE)
+	xSave := scratch.ensureXSave(n)
+	ySave := scratch.ensureYSave(n)
+	copy(xSave, x)
+	copy(ySave, y)
+	ecSave := &scratch.ecSave
+	extSave := &scratch.extEcSave
+	re.SaveStateShallowInto(ecSave)
+	if ctx.extEnc != nil {
+		ctx.extEnc.SaveStateShallowInto(extSave)
+	}
+	// quantBandStereoWithExtBudget changes only remainingBits and seed in
+	// ctx, so those two fields carry the libopus ctx_save.
+	remainingSave, seedSave := ctx.remainingBits, ctx.seed
+
+	ctx.thetaRound = -1
+	cm0 := quantBandStereoWithExtBudget(ctx, x, y, n, b, B, lowband, lm, lowbandOut, lowbandScratch, fill, ctx.extBudget)
+	dist0 := thetaRDODistortion(w0, w1, xSave, x, ySave, y)
+
+	// Keep the first trial: coder state and the bytes written since ecSave,
+	// band output and folding output.
+	re.SaveStateSinceInto(&scratch.ecSave0, ecSave)
+	if ctx.extEnc != nil {
+		ctx.extEnc.SaveStateSinceInto(&scratch.extEcSave0, extSave)
+	}
+	remainingSave0, seedSave0 := ctx.remainingBits, ctx.seed
+	xSave0 := scratch.ensureXResult0(n)
+	ySave0 := scratch.ensureYResult0(n)
+	copy(xSave0, x)
+	copy(ySave0, y)
+	var normSave0 []celtNorm
+	if lowbandOut != nil {
+		normSave0 = scratch.ensureNormResult0(n)
+		copy(normSave0, lowbandOut)
+	}
+
+	re.RestoreStateShallow(ecSave)
+	if ctx.extEnc != nil {
+		ctx.extEnc.RestoreStateShallow(extSave)
+	}
+	ctx.remainingBits, ctx.seed = remainingSave, seedSave
+	copy(x, xSave)
+	copy(y, ySave)
+	if refold != nil {
+		refold()
+	}
+
+	ctx.thetaRound = 1
+	cm := quantBandStereoWithExtBudget(ctx, x, y, n, b, B, lowband, lm, lowbandOut, lowbandScratch, fill, ctx.extBudget)
+	dist1 := thetaRDODistortion(w0, w1, xSave, x, ySave, y)
+	if dist0 >= dist1 {
+		cm = cm0
+		re.RestoreState(&scratch.ecSave0)
+		if ctx.extEnc != nil {
+			ctx.extEnc.RestoreState(&scratch.extEcSave0)
+		}
+		ctx.remainingBits, ctx.seed = remainingSave0, seedSave0
+		copy(x, xSave0)
+		copy(y, ySave0)
+		if normSave0 != nil {
+			copy(lowbandOut, normSave0)
+		}
+	}
+	ctx.thetaRound = 0
+	return cm
 }

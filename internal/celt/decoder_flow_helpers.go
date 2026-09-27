@@ -33,7 +33,10 @@ func denormalizeBandsPackedDownsampleIntoFloat32(dst []float32, src []celtNorm, 
 		prefix := min(edges[start]*M, len(dst))
 		clear(dst[:prefix])
 	}
-	f := min(edges[start]*M, len(dst))
+	// Band k covers src[edges[k]*M : edges[k+1]*M] and lands at the same
+	// offset of dst, as the freq and X cursors of libopus denormalise_bands()
+	// advance together.
+	limit := min(len(src), len(dst))
 
 	var gainBuf [denormGainBands]float32
 	var gains []float32
@@ -43,12 +46,12 @@ func denormalizeBandsPackedDownsampleIntoFloat32(dst []float32, src []celtNorm, 
 	}
 	for band := start; band < end; band++ {
 		j := edges[band] * M
-		bandEnd := edges[band+1] * M
-		if j >= len(src) {
+		if j >= limit {
 			break
 		}
-		if bandEnd > len(src) {
-			bandEnd = len(src)
+		bandEnd := min(edges[band+1]*M, limit)
+		if bandEnd <= j {
+			continue
 		}
 		var gain float32
 		if gains != nil {
@@ -56,28 +59,19 @@ func denormalizeBandsPackedDownsampleIntoFloat32(dst []float32, src []celtNorm, 
 		} else {
 			gain = denormalizeBandGain(energies, band)
 		}
-		count := bandEnd - j
-		if room := len(dst) - f; count > room {
-			count = room
-		}
-		if count <= 0 {
-			if f >= len(dst) {
-				break
+		out := dst[j:bandEnd]
+		in := src[j:bandEnd][:len(out)]
+		// Low bands are only a few bins wide; their vector call/setup cost
+		// beats the per-lane win, so keep them on the tight inline loop and
+		// vector only the wide bands. Each product is bare, so the result
+		// matches on every build.
+		if len(out) < 8 {
+			for k, x := range in {
+				out[k] = float32(x) * gain
 			}
 			continue
 		}
-		// Low bands are only a few bins wide; their NEON call/setup cost beats the
-		// per-lane win, so keep them on the tight inline loop and vector only the
-		// wide bands. Each product is bare, so the result matches on every build.
-		if count < 8 {
-			for ; j < bandEnd && f < len(dst); j++ {
-				dst[f] = float32(src[j]) * gain
-				f++
-			}
-			continue
-		}
-		scaleFloat32Into(dst[f:f+count], src[j:j+count], gain)
-		f += count
+		scaleFloat32Into(out, in, gain)
 	}
 	if bound < len(dst) {
 		clear(dst[bound:])
@@ -259,14 +253,12 @@ func (d *Decoder) replicateMonoEnergyToSecondChannel() {
 		return
 	}
 	nbEBands := min(d.modeNbEBands(), stride)
-	for band := 0; band < nbEBands; band++ {
-		d.prevEnergy[stride+band] = d.prevEnergy[band]
-		if len(d.prevLogE) >= stride*2 {
-			d.prevLogE[stride+band] = d.prevLogE[band]
-		}
-		if len(d.prevLogE2) >= stride*2 {
-			d.prevLogE2[stride+band] = d.prevLogE2[band]
-		}
+	copy(d.prevEnergy[stride:stride+nbEBands], d.prevEnergy[:nbEBands])
+	if len(d.prevLogE) >= stride*2 {
+		copy(d.prevLogE[stride:stride+nbEBands], d.prevLogE[:nbEBands])
+	}
+	if len(d.prevLogE2) >= stride*2 {
+		copy(d.prevLogE2[stride:stride+nbEBands], d.prevLogE2[:nbEBands])
 	}
 }
 

@@ -56,8 +56,9 @@ func (e *Encoder) fillTransientHistoryFromPrefilterF32(overlap int, dst []float3
 	base := maxPeriod - overlap
 	for ch := range channels {
 		chBase := ch * maxPeriod
-		for i := range overlap {
-			dst[i*channels+ch] = float32(e.prefilterMem[chBase+base+i])
+		src := e.prefilterMem[chBase+base : chBase+base+overlap]
+		for i, v := range src {
+			dst[i*channels+ch] = float32(v)
 		}
 	}
 }

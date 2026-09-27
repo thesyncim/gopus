@@ -344,8 +344,8 @@ func (e *Encoder) Done() []byte {
 		if e.buf != nil {
 			start := int(e.offs)
 			endIdx := int(e.storage - e.endOffs)
-			for i := start; i < endIdx; i++ {
-				e.buf[i] = 0
+			if start < endIdx {
+				clear(e.buf[start:endIdx])
 			}
 		}
 		if used > 0 {
@@ -510,7 +510,9 @@ type EncoderState struct {
 	ext        uint32
 	err        int32
 	shrunk     bool
-	buf        []byte
+	// buf holds the packet bytes from bufOffs to storage.
+	bufOffs uint32
+	buf     []byte
 }
 
 // ReserveBufferCapacity reserves reusable storage for a future encoder
@@ -535,6 +537,41 @@ func (e *Encoder) SaveState() *EncoderState {
 // SaveStateInto captures the current encoder state into a pre-allocated state struct.
 // This is the allocation-free version of SaveState for hot paths.
 func (e *Encoder) SaveStateInto(state *EncoderState) {
+	e.saveScalarState(state)
+	e.saveBytes(state, 0)
+}
+
+// SaveStateSinceInto captures the encoder state like SaveStateInto, but saves
+// only the packet bytes from the front offset of the earlier state since to the
+// end of storage: the span that coding after since can have changed. It is the
+// libopus pattern of an ec_ctx copy plus a copy of the bytes from the saved
+// ec_range_bytes() onward (celt/bands.c theta RDO, celt/quant_bands.c
+// quant_coarse_energy()). RestoreState writes that span back.
+func (e *Encoder) SaveStateSinceInto(state, since *EncoderState) {
+	e.saveScalarState(state)
+	e.saveBytes(state, min(since.offs, e.storage))
+}
+
+func (e *Encoder) saveBytes(state *EncoderState, from uint32) {
+	state.bufOffs = from
+	n := int(e.storage - from)
+	if cap(state.buf) < n {
+		state.buf = make([]byte, n)
+	} else {
+		state.buf = state.buf[:n]
+	}
+	copy(state.buf, e.buf[from:e.storage])
+}
+
+// SaveStateShallowInto captures only the scalar encoder state, like a libopus
+// ec_ctx struct copy. The saved state is for RestoreStateShallow; it holds no
+// packet bytes, so RestoreState must not be used with it.
+func (e *Encoder) SaveStateShallowInto(state *EncoderState) {
+	e.saveScalarState(state)
+	state.buf = state.buf[:0]
+}
+
+func (e *Encoder) saveScalarState(state *EncoderState) {
 	state.storage = e.storage
 	state.offs = e.offs
 	state.endOffs = e.endOffs
@@ -547,20 +584,6 @@ func (e *Encoder) SaveStateInto(state *EncoderState) {
 	state.ext = e.ext
 	state.err = e.err
 	state.shrunk = e.shrunk
-
-	// Save the whole active storage. libopus theta RDO restores a shallow
-	// ec_ctx plus the byte span dirtied by the first trial; saving the full
-	// active buffer preserves the same middle-gap bytes for every caller.
-	if e.storage > 0 {
-		if cap(state.buf) < int(e.storage) {
-			state.buf = make([]byte, e.storage)
-		} else {
-			state.buf = state.buf[:e.storage]
-		}
-		copy(state.buf, e.buf[:e.storage])
-	} else {
-		state.buf = state.buf[:0]
-	}
 }
 
 func (e *Encoder) restoreScalarState(state *EncoderState) {
@@ -582,7 +605,7 @@ func (e *Encoder) restoreScalarState(state *EncoderState) {
 func (e *Encoder) RestoreState(state *EncoderState) {
 	e.restoreScalarState(state)
 	if len(state.buf) > 0 {
-		copy(e.buf[:state.storage], state.buf)
+		copy(e.buf[state.bufOffs:state.storage], state.buf)
 	}
 }
 

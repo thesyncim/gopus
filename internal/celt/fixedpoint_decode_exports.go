@@ -84,9 +84,8 @@ func DecodeCELTAllocation(rd *rangecoding.Decoder, totalBits, start, end, lm, ch
 	}
 	bitsQ3 -= a.AntiCollapseRsv
 
-	var allocScratch [5 * MaxBands]int32
-	a.CodedBands = cltComputeAllocationWithScratch(start, end, offsets, cap, a.AllocTrim, &a.Intensity, &a.DualStereo,
-		bitsQ3, &a.Balance, a.Pulses[:end], a.FineQuant[:end], a.FinePriority[:end], channels, lm, rd, allocScratch[:])
+	a.CodedBands = cltComputeAllocation(start, end, offsets, cap, a.AllocTrim, &a.Intensity, &a.DualStereo,
+		bitsQ3, &a.Balance, a.Pulses[:end], a.FineQuant[:end], a.FinePriority[:end], channels, lm, rd)
 
 	return a
 }

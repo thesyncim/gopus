@@ -852,12 +852,11 @@ func tfDecode(start, end int, isTransient bool, tfRes []int32, lm int, rd *range
 	if rd == nil {
 		return
 	}
+	tfRes = tfRes[:end]
 	budget := rd.StorageBits()
 	tell := rd.Tell()
-	logp := 4
-	if isTransient {
-		logp = 2
-	}
+	transient := boolToInt(isTransient)
+	logp := 4 - 2*transient
 	tfSelectRsv := lm > 0 && tell+logp+1 <= budget
 	if tfSelectRsv {
 		budget--
@@ -868,31 +867,18 @@ func tfDecode(start, end int, isTransient bool, tfRes []int32, lm int, rd *range
 		if tell+logp <= budget {
 			curr ^= rd.DecodeBit(uint(logp))
 			tell = rd.Tell()
-			if curr != 0 {
-				tfChanged = 1
-			}
+			tfChanged |= curr
 		}
 		tfRes[i] = int32(curr)
-		if isTransient {
-			logp = 4
-		} else {
-			logp = 5
-		}
+		logp = 5 - transient
 	}
+	row := &tfSelectTable[lm]
 	tfSelect := 0
-	if tfSelectRsv {
-		idx0 := tfSelectTable[lm][4*boolToInt(isTransient)+0+tfChanged]
-		idx1 := tfSelectTable[lm][4*boolToInt(isTransient)+2+tfChanged]
-		if idx0 != idx1 {
-			tfSelect = rd.DecodeBit(1)
-		}
+	if tfSelectRsv && row[4*transient+tfChanged] != row[4*transient+2+tfChanged] {
+		tfSelect = rd.DecodeBit(1)
 	}
+	base := 4*transient + 2*tfSelect
 	for i := start; i < end; i++ {
-		idx := 4*boolToInt(isTransient) + 2*tfSelect + int(tfRes[i])
-		tfRes[i] = int32(tfSelectTable[lm][idx])
+		tfRes[i] = int32(row[base+int(tfRes[i])])
 	}
-}
-
-func tfDecode32(start, end int, isTransient bool, tfRes []int32, lm int, rd *rangecoding.Decoder) {
-	tfDecode(start, end, isTransient, tfRes, lm, rd)
 }

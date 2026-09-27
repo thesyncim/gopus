@@ -4,7 +4,7 @@ package celt
 
 import "unsafe"
 
-// imdctTDACWindowFMA32 is the archsimd IMDCT TDAC overlap-add windowing. Per step
+// imdctTDACWindow is the archsimd IMDCT TDAC overlap-add windowing. Per step
 // it computes, with the fused mix shape of mdctMulSubMix/mdctMulAddMix,
 //
 //	out[yp]    = x2*w2 - round(x1*w1)
@@ -15,7 +15,7 @@ import "unsafe"
 // the arm64 VREV64 op added to this toolchain — which is the primitive that makes
 // this kernel vectorizable. Each accumulate is a fused FMLA and each product a
 // single-rounding FMUL, matching the scalar reference bit-for-bit.
-func imdctTDACWindowFMA32(out, xsrc, window []float32, yOut0, xOut0, xSrc0, wBwd0, count int) {
+func imdctTDACWindow(out, xsrc, window []float32, yOut0, xOut0, xSrc0, wBwd0, count int) {
 	if count <= 0 {
 		return
 	}

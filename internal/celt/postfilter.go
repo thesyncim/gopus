@@ -1100,19 +1100,43 @@ func combFilterWithInputSig(dst, src []celtSig, start int, t0, t1, n int, g0, g1
 	// a shift register removes 4 serial moves and lets the compiler reorder
 	// the FP work freely. The loop is short (~overlap) so unrolling is
 	// unnecessary; ILP comes from the 6 independent FMUL chains in `sum`.
+	// The five taps of each output are read through one five-element window of
+	// delay0 and delay1, so each iteration checks bounds once per delay line.
 	i := 0
-	for ; i < overlap; i++ {
-		w := window[i]
-		f := noFMA32Mul(w, w)
-		oneMinus := float32(1.0) - f
-		sum := float32(srcFrame[i]) +
-			(oneMinus*g00)*float32(delay0[i+2]) +
-			(oneMinus*g01)*(float32(delay0[i+3])+float32(delay0[i+1])) +
-			(oneMinus*g02)*(float32(delay0[i+4])+float32(delay0[i])) +
-			(f*g10)*float32(delay1[i+2]) +
-			(f*g11)*(float32(delay1[i+3])+float32(delay1[i+1])) +
-			(f*g12)*(float32(delay1[i+4])+float32(delay1[i]))
-		dstFrame[i] = celtSig(sum)
+	if overlap > 0 && combOverlapVector && overlap <= combOverlapMax {
+		// The vector cross-fade runs in place on dst, reading the delayed
+		// taps from src, so dst starts as a copy of the input.
+		var wsqBuf [combOverlapMax]float32
+		wsq := wsqBuf[:overlap]
+		for j, w := range window[:overlap] {
+			wsq[j] = noFMA32Mul(w, w)
+		}
+		dstO := dstFrame[:overlap]
+		copy(dstO, srcFrame[:overlap])
+		combFilterOverlap(dstO, delay0[:overlap+4], delay1[:overlap+4], wsq, g00, g01, g02, g10, g11, g12)
+		i = overlap
+	} else if overlap > 0 {
+		srcO := srcFrame[:overlap]
+		dstO := dstFrame[:len(srcO)]
+		win := window[:len(srcO)]
+		d0 := delay0[:len(srcO)+4]
+		d1 := delay1[:len(srcO)+4]
+		for j, x := range srcO {
+			w := win[j]
+			f := noFMA32Mul(w, w)
+			oneMinus := float32(1.0) - f
+			t0 := d0[j : j+5 : j+5]
+			t1 := d1[j : j+5 : j+5]
+			sum := float32(x) +
+				(oneMinus*g00)*float32(t0[2]) +
+				(oneMinus*g01)*(float32(t0[3])+float32(t0[1])) +
+				(oneMinus*g02)*(float32(t0[4])+float32(t0[0])) +
+				(f*g10)*float32(t1[2]) +
+				(f*g11)*(float32(t1[3])+float32(t1[1])) +
+				(f*g12)*(float32(t1[4])+float32(t1[0]))
+			dstO[j] = celtSig(sum)
+		}
+		i = overlap
 	}
 
 	if g1 == 0 {

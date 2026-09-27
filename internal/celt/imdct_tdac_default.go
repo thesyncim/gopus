@@ -2,22 +2,21 @@
 
 package celt
 
-// imdctTDACWindowFMA32 applies the IMDCT time-domain aliasing-cancellation
-// (TDAC) overlap-add windowing for the FMA-like float path. For each step
-// i in [0, count):
+// imdctTDACWindow applies the IMDCT time-domain aliasing-cancellation (TDAC)
+// overlap-add windowing of libopus clt_mdct_backward_c(). For each step i in
+// [0, count):
 //
 //	x1 = xsrc[xSrc0-i]
 //	x2 = out[yOut0+i]
 //	w1 = window[i]
 //	w2 = window[wBwd0-i]
-//	out[yOut0+i] = round(x2*w2 + round(-(x1*w1)))   (mdctMulSubMix(x2,x1,w2,w1))
-//	out[xOut0-i] = round(x2*w1 + round( x1*w2))      (mdctMulAddMix(x2,x1,w1,w2))
+//	out[yOut0+i] = mdctMulSubMix(x2, x1, w2, w1)
+//	out[xOut0-i] = mdctMulAddMix(x2, x1, w1, w2)
 //
-// The SIMD arm64 build supplies a Go vector version. This scalar form routes
-// through mdctMulSubMix/mdctMulAddMix so nosimd on arm64 fuses identically and
-// other targets keep their scalar (non-fused) rounding behavior. It is only
-// reached when mdctUseFMALikeMixEnabled is set.
-func imdctTDACWindowFMA32(out, xsrc, window []float32, yOut0, xOut0, xSrc0, wBwd0, count int) {
+// The mix helpers select the fused shape on arm64 and the separately rounded
+// products elsewhere. The SIMD arm64 build supplies a Go vector version. Each
+// iteration reads its x1 and x2 before writing, so xsrc may alias out.
+func imdctTDACWindow(out, xsrc, window []float32, yOut0, xOut0, xSrc0, wBwd0, count int) {
 	yp := yOut0
 	xpOut := xOut0
 	xpSrc := xSrc0

@@ -101,6 +101,9 @@ func (d *Decoder) outputDownsample(pcm []float32, frameSize int) int {
 func deemphasisChannel(y []float32, yStride int, x []float32, xStride, n, downsample int, coef, m float32, accum bool) float32 {
 	if downsample > 1 {
 		nd := n / downsample
+		if downsample == 2 && xStride == 1 && yStride == 1 {
+			return deemphasisDownsample2(y[:nd], x[:n], coef, m, accum)
+		}
 		if nd > 0 {
 			_ = y[(nd-1)*yStride]
 		}
@@ -162,6 +165,34 @@ func deemphasisChannel(y []float32, yStride int, x []float32, xStride, n, downsa
 	return m
 }
 
+// deemphasisDownsample2 is the downsample == 2 branch of deemphasisChannel for
+// contiguous x and y: y[o] takes the first sample of each input pair, and the
+// filter memory runs over every input.
+func deemphasisDownsample2(y, x []float32, coef, m float32, accum bool) float32 {
+	pairs := x[:2*len(y)]
+	if accum {
+		for o := range y {
+			p := pairs[2*o : 2*o+2 : 2*o+2]
+			tmp := p[0] + deemphasisVerySmall + m
+			m = mul32(coef, tmp)
+			y[o] = fma32(sig2res, tmp, y[o])
+			m = mul32(coef, p[1]+deemphasisVerySmall+m)
+		}
+	} else {
+		for o := range y {
+			p := pairs[2*o : 2*o+2 : 2*o+2]
+			tmp := p[0] + deemphasisVerySmall + m
+			m = mul32(coef, tmp)
+			y[o] = sig2res * tmp
+			m = mul32(coef, p[1]+deemphasisVerySmall+m)
+		}
+	}
+	for _, v := range x[len(pairs):] {
+		m = mul32(coef, v+deemphasisVerySmall+m)
+	}
+	return m
+}
+
 // deemphasisStereo runs the single-tap deemphasis of both channels in one
 // loop, writing interleaved output into y. libopus does this only for
 // deemphasis_stereo_simple() (no downsampling, no accumulation); the other
@@ -173,6 +204,9 @@ func deemphasisStereo(y []float32, x0, x1 []float32, xStride, n, downsample int,
 	_ = x1[(n-1)*xStride]
 	if downsample > 1 {
 		nd := n / downsample
+		if downsample == 2 && xStride == 1 {
+			return deemphasisStereoDownsample2(y[:2*nd], x0[:n], x1[:n], coef, m0, m1, accum)
+		}
 		if nd > 0 {
 			_ = y[2*nd-1]
 		}
@@ -233,6 +267,39 @@ func deemphasisStereo(y []float32, x0, x1 []float32, xStride, n, downsample int,
 		m1 = mul32(coef, tmp1)
 		y[2*j] = sig2res * tmp0
 		y[2*j+1] = sig2res * tmp1
+	}
+	return m0, m1
+}
+
+// deemphasisStereoDownsample2 is the downsample == 2 branch of
+// deemphasisStereo for contiguous x0 and x1, with the per-channel operations of
+// deemphasisDownsample2.
+func deemphasisStereoDownsample2(y, x0, x1 []float32, coef, m0, m1 float32, accum bool) (float32, float32) {
+	nd := len(y) / 2
+	pairs0 := x0[:2*nd]
+	pairs1 := x1[:len(pairs0)]
+	for o := range nd {
+		p0 := pairs0[2*o : 2*o+2 : 2*o+2]
+		p1 := pairs1[2*o : 2*o+2 : 2*o+2]
+		out := y[2*o : 2*o+2 : 2*o+2]
+		tmp0 := p0[0] + deemphasisVerySmall + m0
+		tmp1 := p1[0] + deemphasisVerySmall + m1
+		m0 = mul32(coef, tmp0)
+		m1 = mul32(coef, tmp1)
+		if accum {
+			out[0] = fma32(sig2res, tmp0, out[0])
+			out[1] = fma32(sig2res, tmp1, out[1])
+		} else {
+			out[0] = sig2res * tmp0
+			out[1] = sig2res * tmp1
+		}
+		m0 = mul32(coef, p0[1]+deemphasisVerySmall+m0)
+		m1 = mul32(coef, p1[1]+deemphasisVerySmall+m1)
+	}
+	tail1 := x1[len(pairs0):]
+	for i, v := range x0[len(pairs0):] {
+		m0 = mul32(coef, v+deemphasisVerySmall+m0)
+		m1 = mul32(coef, tail1[i]+deemphasisVerySmall+m1)
 	}
 	return m0, m1
 }

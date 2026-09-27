@@ -23,7 +23,7 @@ func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start
 	}
 
 	allocation.tfRes = ensureInt32Slice(&d.scratchTFRes, end)
-	tfDecode32(start, end, transient, allocation.tfRes, lm, rd)
+	tfDecode(start, end, transient, allocation.tfRes, lm, rd)
 
 	tell := rd.Tell()
 	if tell+4 <= totalBits {
@@ -38,32 +38,8 @@ func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start
 	} else {
 		initCapsInto(cap, end, lm, channels)
 	}
-	edges := d.modeEdges()
 	offsets := ensureInt32Slice(&d.scratchOffsets, end)
-	dynallocLogp := 6
-	totalBitsQ3 := totalBits << bitRes
-	tellFrac := rd.TellFrac()
-	for i := start; i < end; i++ {
-		width := channels * (edges[i+1] - edges[i]) << lm
-		quanta := min(width<<bitRes, max(6<<bitRes, width))
-		dynallocLoopLogp := dynallocLogp
-		boost := 0
-		j := 0
-		for ; tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < int(cap[i]); j++ {
-			flag := rd.DecodeBit(uint(dynallocLoopLogp))
-			tellFrac = rd.TellFrac()
-			if flag == 0 {
-				break
-			}
-			boost += quanta
-			totalBitsQ3 -= quanta
-			dynallocLoopLogp = 1
-		}
-		offsets[i] = int32(boost)
-		if j > 0 {
-			dynallocLogp = max(2, dynallocLogp-1)
-		}
-	}
+	totalBitsQ3, tellFrac := decodeDynallocOffsets(rd, offsets, cap, d.modeEdges(), start, end, lm, channels, totalBits<<bitRes)
 	allocation.offsets = offsets[:end]
 
 	allocTrim := 5
@@ -82,14 +58,46 @@ func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start
 	allocation.pulses = ensureInt32Slice(&d.scratchPulses, end)
 	allocation.fineQuant = ensureInt32Slice(&d.scratchFineQuant, end)
 	allocation.finePriority = ensureInt32Slice(&d.scratchFinePriority, end)
-	allocScratch := d.allocationScratch()
 	if pm != nil {
 		allocation.codedBands = cltComputeAllocationWithScratchMode(start, end, offsets, cap, allocTrim, &allocation.intensity, &allocation.dualStereo,
-			bitsQ3, &allocation.balance, allocation.pulses, allocation.fineQuant, allocation.finePriority, channels, lm, rd, allocScratch, pm)
+			bitsQ3, &allocation.balance, allocation.pulses, allocation.fineQuant, allocation.finePriority, channels, lm, rd, d.allocationScratch(), pm)
 	} else {
-		allocation.codedBands = cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, &allocation.intensity, &allocation.dualStereo,
-			bitsQ3, &allocation.balance, allocation.pulses, allocation.fineQuant, allocation.finePriority, channels, lm, rd, allocScratch)
+		allocation.codedBands = cltComputeAllocation(start, end, offsets, cap, allocTrim, &allocation.intensity, &allocation.dualStereo,
+			bitsQ3, &allocation.balance, allocation.pulses, allocation.fineQuant, allocation.finePriority, channels, lm, rd)
 	}
 
 	return allocation
+}
+
+// decodeDynallocOffsets decodes the dynalloc band boosts of
+// celt_decode_with_ec() into offsets[start:end]. It returns total_bits (in
+// 1/8 bits) less the boosts and the ec_tell_frac after the last boost flag.
+func decodeDynallocOffsets(rd *rangecoding.Decoder, offsets, cap []int32, edges []int, start, end, lm, channels, totalBitsQ3 int) (int, int) {
+	offsets = offsets[:end]
+	cap = cap[:end]
+	edges = edges[:end+1]
+	dynallocLogp := 6
+	tellFrac := rd.TellFrac()
+	for i := start; i < end; i++ {
+		width := channels * (edges[i+1] - edges[i]) << uint(lm)
+		quanta := min(width<<bitRes, max(6<<bitRes, width))
+		loopLogp := dynallocLogp
+		boost := 0
+		bandCap := int(cap[i])
+		for tellFrac+(loopLogp<<bitRes) < totalBitsQ3 && boost < bandCap {
+			flag := rd.DecodeBit(uint(loopLogp))
+			tellFrac = rd.TellFrac()
+			if flag == 0 {
+				break
+			}
+			boost += quanta
+			totalBitsQ3 -= quanta
+			loopLogp = 1
+		}
+		offsets[i] = int32(boost)
+		if boost > 0 {
+			dynallocLogp = max(2, dynallocLogp-1)
+		}
+	}
+	return totalBitsQ3, tellFrac
 }

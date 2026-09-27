@@ -192,8 +192,7 @@ func imdctOverlapWithPrevScratchF32Output32(spectrum []float32, prevOverlap []ce
 	}
 
 	buf := outF32[start : start+n2]
-	imdctPreRotateF32Spectrum(fftIn, spectrum, trig, n2, n4)
-	fftOut := kissFFT32ToScratch(fftIn, fftTmp, fftState)
+	fftOut := imdctPreRotateFFT(fftIn, fftTmp, spectrum, trig, n2, n4, fftState)
 	imdctPostRotateF32FromKiss(buf, fftOut, trig, n2, n4)
 
 	if overlap > 0 {
@@ -203,25 +202,7 @@ func imdctOverlapWithPrevScratchF32Output32(spectrum []float32, prevOverlap []ce
 		} else {
 			windowF32 = GetWindowBufferF32(overlap)
 		}
-		xp1 := overlap - 1
-		yp1 := 0
-		wp1 := 0
-		wp2 := overlap - 1
-		limit := overlap / 2
-		if mdctUseFMALikeMixEnabled && limit > 0 {
-			imdctTDACWindowFMA32(outF32, outF32, windowF32, yp1, xp1, xp1, wp2, limit)
-		} else {
-			for range limit {
-				x1 := outF32[xp1]
-				x2 := outF32[yp1]
-				outF32[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
-				outF32[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
-				yp1++
-				xp1--
-				wp1++
-				wp2--
-			}
-		}
+		imdctTDACWindow(outF32, outF32, windowF32, 0, overlap-1, overlap-1, overlap-1, overlap/2)
 	}
 
 	return outF32[:needed:needed]
@@ -263,8 +244,7 @@ func imdctInPlaceScratchF32Spectrum(spectrum []float32, out []float32, blockStar
 		buf = ensureFloat32Slice(&scratch.buf, n2)
 	}
 
-	imdctPreRotateF32Spectrum(fftIn, spectrum, trig, n2, n4)
-	fftOut := kissFFT32ToScratch(fftIn, fftTmp, fftState)
+	fftOut := imdctPreRotateFFT(fftIn, fftTmp, spectrum, trig, n2, n4, fftState)
 	imdctPostRotateF32FromKiss(buf, fftOut, trig, n2, n4)
 
 	start := blockStart + overlap/2
@@ -280,25 +260,7 @@ func imdctInPlaceScratchF32Spectrum(spectrum []float32, out []float32, blockStar
 			windowF32 = GetWindowBufferF32(overlap)
 		}
 		xp1 := blockStart + overlap - 1
-		yp1 := blockStart
-		wp1 := 0
-		wp2 := overlap - 1
-		limit := overlap / 2
-		if mdctUseFMALikeMixEnabled && limit > 0 {
-			imdctTDACWindowFMA32(out, buf, windowF32, yp1, xp1, xp1-start, wp2, limit)
-		} else {
-			for range limit {
-				bufIdx := xp1 - start
-				x1 := buf[bufIdx]
-				x2 := out[yp1]
-				out[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
-				out[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
-				yp1++
-				xp1--
-				wp1++
-				wp2--
-			}
-		}
+		imdctTDACWindow(out, buf, windowF32, blockStart, xp1, xp1-start, overlap-1, overlap/2)
 	}
 
 	copyStart := 0
