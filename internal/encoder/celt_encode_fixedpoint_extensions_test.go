@@ -186,15 +186,16 @@ func TestPublicFixedCELTEnergyMaskResetLifetimeMatchesOracle(t *testing.T) {
 	enc.SetForceChannels(channels)
 	enc.SetComplexity(5)
 	for frame, pcm := range pcmFrames {
-		if frame == 1 {
+		switch frame {
+		case 1:
 			enc.SetMode(ModeCELT)
 			enc.SetBandwidth(types.BandwidthFullband)
 			enc.SetCELTEnergyMaskQ24(mask)
-		} else if frame == 3 {
+		case 3:
 			// The transition prefill resets inner CELT energy_mask, so this
 			// explicit setter must restore it for the next frame.
 			enc.SetCELTEnergyMaskQ24(mask)
-		} else if frame == 4 {
+		case 4:
 			// A nil control clears the pointer; it differs from leaving it alone.
 			enc.SetCELTEnergyMaskQ24(nil)
 		}
