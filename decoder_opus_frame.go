@@ -15,10 +15,11 @@ func smoothFade(in1, in2, out []float32, overlap, channels, sampleRate int) {
 		return
 	}
 	inc := 48000 / sampleRate
-	if inc <= 0 {
-		inc = 1
+	windowSize := overlap * inc
+	if windowSize < overlap {
+		windowSize = overlap
 	}
-	win := celt.GetWindowBufferF32(overlap * inc)
+	win := celt.GetWindowBufferF32(windowSize)
 	if len(win) == 0 {
 		return
 	}

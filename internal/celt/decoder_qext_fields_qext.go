@@ -22,6 +22,10 @@ func (d *Decoder) clearQEXTState() {
 		return
 	}
 	d.qext.pendingPayload = nil
+	// These samples are decoder history, not scratch. opus_custom_decoder_init
+	// clears the native decode memory along with the other persistent CELT
+	// state; keep Reset equivalent for the native 96 kHz QEXT comb filter.
+	clear(d.qext.hd96kPostMem)
 	for i := range d.qext.oldBandE {
 		d.qext.oldBandE[i] = 0
 	}

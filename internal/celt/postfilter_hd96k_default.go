@@ -11,6 +11,9 @@ func (d *Decoder) hd96kPostfilterActive() bool { return false }
 func (d *Decoder) applyHD96kPostfilterInterleaved(_ []float32, _, _ int, _ int, _ float32, _ int) {
 }
 
+func (d *Decoder) applyHD96kPostfilterStereoPlanar(_, _ []float32, _, _, _ int, _ float32, _ int) {
+}
+
 // combFilterWithInputSigQEXT is the native 96 kHz prefilter comb dispatch. It is
 // only reachable under the gopus_qext build (overlap==240 never occurs
 // otherwise), so the default build keeps an unreachable stub that the

@@ -152,7 +152,7 @@ func (d *Decoder) prepareQEXTDecodeRange(payload []byte, mainRD *rangecoding.Dec
 
 	var qextMode *qextModeConfig
 	if end == MaxBands {
-		if cfg, ok := computeQEXTModeConfig(int(d.sampleRate), qextShortMDCTSize(frameSize)); ok {
+		if cfg, ok := computeQEXTModeConfig(int(d.sampleRate), qextShortMDCTSizeForMode(frameSize, d.modeConfig(frameSize))); ok {
 			qextEnd := min(hdr.EndBands, cfg.EffBands)
 			if qextEnd > 0 {
 				qext.cfg = cfg

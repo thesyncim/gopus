@@ -18,8 +18,14 @@ type CELTFixedQ8Analysis struct {
 }
 
 type CELTFixedQ8Frame struct {
-	PCM            []int32
-	MaxBytes       int
+	PCM      []int32
+	MaxBytes int
+	// StreamChannels and Bitrate optionally update the matching CELT controls
+	// immediately before this frame. Zero keeps the previous value. These
+	// controls let raw-Q8 traces reproduce the outer encoder's automatic
+	// mono/stereo decision and per-frame bitrate changes.
+	StreamChannels int32
+	Bitrate        int32
 	Analysis       CELTFixedQ8Analysis
 	EnergyMask     []int32
 	PrefixUniform  []uint32
@@ -153,10 +159,17 @@ func fixedCELTQ8Payload(p CELTFixedQ8Params, allowQEXT bool) (*OraclePayload, er
 	}
 	perFrame := p.FrameSize * p.Channels
 	for f, frame := range p.Frames {
-		if len(frame.PCM) != perFrame || frame.MaxBytes < 2 || frame.MaxBytes > 1275 ||
+		maxFrameBytes := 1275
+		if allowQEXT && p.QEXTEnabled {
+			maxFrameBytes = 4000
+		}
+		if len(frame.PCM) != perFrame || frame.MaxBytes < 2 || frame.MaxBytes > maxFrameBytes ||
 			len(frame.PrefixUniform) > 64 ||
 			(len(frame.EnergyMask) != 0 && len(frame.EnergyMask) != p.Channels*21) {
 			return nil, fmt.Errorf("invalid fixed CELT Q8 frame %d", f)
+		}
+		if frame.Bitrate > 1500000 || frame.Bitrate < -1 {
+			return nil, fmt.Errorf("invalid fixed CELT Q8 bitrate override in frame %d", f)
 		}
 		if frame.SetPrediction && (frame.Prediction < 0 || frame.Prediction > 2) {
 			return nil, fmt.Errorf("invalid fixed CELT Q8 prediction mode in frame %d", f)
@@ -177,6 +190,12 @@ func fixedCELTQ8Payload(p CELTFixedQ8Params, allowQEXT bool) (*OraclePayload, er
 	if p.QEXTEnabled || p.SampleRate == 96000 {
 		version = 4
 	}
+	for _, frame := range p.Frames {
+		if frame.StreamChannels != 0 || frame.Bitrate != 0 {
+			version = 5
+			break
+		}
+	}
 	payload := NewOraclePayloadVersion("GQRI", version, uint32(p.Channels), uint32(streamChannels), uint32(p.FrameSize),
 		uint32(p.Start), uint32(p.End), uint32(int32(p.Bitrate)), uint32(p.Complexity),
 		uint32(p.SampleRate), b2u(p.VBR), b2u(p.ConstrainedVBR), b2u(p.LFE),
@@ -188,6 +207,13 @@ func fixedCELTQ8Payload(p CELTFixedQ8Params, allowQEXT bool) (*OraclePayload, er
 	for _, frame := range p.Frames {
 		payload.U32(uint32(frame.MaxBytes))
 		payload.U32(uint32(perFrame))
+		if version >= 5 {
+			if frame.StreamChannels < 0 || frame.StreamChannels > int32(p.Channels) {
+				return nil, fmt.Errorf("invalid fixed CELT Q8 stream channel override")
+			}
+			payload.U32(uint32(frame.StreamChannels))
+			payload.I32(frame.Bitrate)
+		}
 		payload.I32s(frame.PCM...)
 		payload.U32(uint32(len(frame.PrefixUniform)))
 		for _, symbol := range frame.PrefixUniform {

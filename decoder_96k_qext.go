@@ -71,6 +71,7 @@ func (d *Decoder) decodeInt2496k(data []byte, pcm []int32) (int, error) {
 func init96kDecoder(d *Decoder) {
 	d.apiIs96kHz = true
 	d.sampleRate = 96000
+	d.hybridDecoder.SetAPISampleRate(96000)
 	// 20 ms at 96 kHz default frame size for PLC sizing.
 	d.lastFrameSize = 96000 / 50
 	// Switch the CELT decoder into the native HD96k mode (overlap 240,

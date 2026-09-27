@@ -40,6 +40,23 @@ func (d *Decoder) modeConfig(frameSize int) ModeConfig {
 			MDCTSize:    frameSize,
 		}
 	}
+	if d.sampleRate == 96000 && d.synthOverlap == 240 {
+		// The native 96 kHz mode uses shortMdctSize=240 for every duration.
+		// PLC and transition frames can therefore be shorter than the static
+		// 1920-sample frame while retaining the native mode's LM geometry.
+		nbShort := frameSize / 240
+		lm := 0
+		for 1<<lm < nbShort {
+			lm++
+		}
+		return ModeConfig{
+			FrameSize:   frameSize,
+			ShortBlocks: nbShort,
+			LM:          lm,
+			EffBands:    MaxBands,
+			MDCTSize:    frameSize,
+		}
+	}
 	return GetModeConfig(frameSize)
 }
 
@@ -65,6 +82,9 @@ func (d *Decoder) effectiveEndBand(frameSize int) int {
 func (d *Decoder) validFrameSize(frameSize int) bool {
 	if d.customScaleBase > 0 {
 		return frameSize > 0 && frameSize%d.customScaleBase == 0
+	}
+	if d.sampleRate == 96000 && d.synthOverlap == 240 {
+		return frameSize == 240 || frameSize == 480 || frameSize == 960 || frameSize == 1920
 	}
 	return ValidFrameSize(frameSize)
 }
@@ -344,21 +364,22 @@ func (d *Decoder) synthesizeStereoPlanarFromMonoLong(coeffs []float32) (outL, ou
 	if len(coeffs) == 0 {
 		return nil, nil
 	}
-	if len(d.overlapBuffer) < Overlap*2 {
-		d.overlapBuffer = make([]celtSig, Overlap*2)
+	overlap := d.synthOverlapLen()
+	if len(d.overlapBuffer) < overlap*2 {
+		d.overlapBuffer = make([]celtSig, overlap*2)
 	}
-	overlapL := d.overlapBuffer[:Overlap]
-	overlapR := d.overlapBuffer[Overlap : Overlap*2]
+	overlapL := d.overlapBuffer[:overlap]
+	overlapR := d.overlapBuffer[overlap : overlap*2]
 
-	outLFull := imdctOverlapWithPrevScratchF32Output32(coeffs, overlapL, Overlap, &d.scratchIMDCTF32)
-	outRFull := imdctOverlapWithPrevScratchF32Output32(coeffs, overlapR, Overlap, &d.scratchIMDCTF32R)
-	if len(outLFull) < len(coeffs)+Overlap || len(outRFull) < len(coeffs)+Overlap {
+	outLFull := imdctOverlapWithPrevScratchF32Output32(coeffs, overlapL, overlap, &d.scratchIMDCTF32)
+	outRFull := imdctOverlapWithPrevScratchF32Output32(coeffs, overlapR, overlap, &d.scratchIMDCTF32R)
+	if len(outLFull) < len(coeffs)+overlap || len(outRFull) < len(coeffs)+overlap {
 		return nil, nil
 	}
 
-	if Overlap > 0 {
-		copy(overlapL, outLFull[len(coeffs):len(coeffs)+Overlap])
-		copy(overlapR, outRFull[len(coeffs):len(coeffs)+Overlap])
+	if overlap > 0 {
+		copy(overlapL, outLFull[len(coeffs):len(coeffs)+overlap])
+		copy(overlapR, outRFull[len(coeffs):len(coeffs)+overlap])
 	}
 	return outLFull[:len(coeffs)], outRFull[:len(coeffs)]
 }

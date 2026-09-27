@@ -16,16 +16,16 @@ var projectionMatrixHelper libopustest.HelperCache
 
 func probeLibopusProjectionMatrix(t *testing.T, mode uint32, rows, cols, frameSize int, matrix []int16, input []float32) *libopustest.OracleReader {
 	t.Helper()
-	binPath, err := projectionMatrixHelper.CHelperPath(libopustest.CHelperConfig{
+	binPath, err := projectionMatrixHelper.CHelperPath(pairMultistreamReference(libopustest.CHelperConfig{
 		Label:        "projection matrix",
 		OutputBase:   "gopus_libopus_projection_matrix",
 		SourceFile:   "libopus_projection_matrix_info.c",
 		ProbeRelPath: "src/mapping_matrix.h",
 		CFlags:       []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
 		RefIncludes:  []string{"celt", "src"},
-		Libs:         []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+		Libs:         []string{"-lm"},
 		DeadStrip:    true,
-	})
+	}))
 	if err != nil {
 		libopustest.HelperUnavailable(t, "projection matrix", err)
 	}

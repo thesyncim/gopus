@@ -1220,10 +1220,8 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	} else {
 		e.lastCodedBands = int32(allocResult.CodedBands)
 	}
-	if codedChannels == 2 {
-		e.intensity = int32(allocResult.Intensity)
-		intensity = allocResult.Intensity
-	}
+	e.intensity = int32(allocResult.Intensity)
+	intensity = allocResult.Intensity
 	// Keep CELT allocation bandwidth gating driven only by explicit external
 	// analysis input (SetAnalysisBandwidth), matching libopus behavior where
 	// st->analysis.valid is supplied by the top-level analysis pipeline.
@@ -1505,7 +1503,9 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	}
 	// energyError keeps the refined residual for QEXT and the post-finalise
 	// residual otherwise, clipped to [-0.5, 0.5] for the next frame's
-	// stabilization. Other bands keep their values (celt_encoder.c:2707-2713).
+	// stabilization. libopus clears all channels/bands before writing the
+	// current coded channels (celt_encoder.c:2635).
+	clear(e.energyError)
 	for c := range codedChannels {
 		baseState := c * e.predStride()
 		baseFrame := c * nbBands
@@ -1547,11 +1547,12 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 			e.rng ^= qextEnc.Range()
 		}
 	}
-	e.setPrevEnergyWithPrevCoded(prev1LogE, quantizedEnergies, nbBands, codedChannels)
+	e.setPrevEnergyWithPrevCoded(quantizedEnergies, nbBands, codedChannels)
 	if isSilence {
 		e.resetPrevEnergyToSilence(nbBands, codedChannels)
 	}
 	e.clearUncodedPrevEnergy(start, nbBands)
+	e.updateLogEnergyHistory(start, nbBands, transient)
 	e.IncrementFrameCount()
 	if transient || transientGotDisabled {
 		e.consecTransient++
@@ -1574,12 +1575,7 @@ func foldStereoMDCTToMonoF32(dst, left, right []float32) []float32 {
 	return dst
 }
 
-func (e *Encoder) setPrevEnergyWithPrevCoded(prev []celtGLog, energies []celtGLog, nbBands, codedChannels int) {
-	if len(prev) == len(e.prevEnergy2) {
-		copy(e.prevEnergy2, prev)
-	} else {
-		copy(e.prevEnergy2, e.prevEnergy)
-	}
+func (e *Encoder) setPrevEnergyWithPrevCoded(energies []celtGLog, nbBands, codedChannels int) {
 	if nbBands > e.predStride() {
 		nbBands = e.predStride()
 	}
@@ -1605,6 +1601,35 @@ func (e *Encoder) setPrevEnergyWithPrevCoded(prev []celtGLog, energies []celtGLo
 	if e.channels == 2 && codedChannels == 1 {
 		for band := 0; band < nbBands; band++ {
 			e.prevEnergy[predStride+band] = e.prevEnergy[band]
+		}
+	}
+}
+
+// updateLogEnergyHistory follows celt_encoder.c's oldLogE/oldLogE2 update.
+// Non-transient frames shift oldLogE into oldLogE2 and replace oldLogE with
+// oldBandE. Transient frames keep oldLogE2 and clamp oldLogE downward.
+func (e *Encoder) updateLogEnergyHistory(start, end int, transient bool) {
+	if !transient {
+		copy(e.prevEnergy2, e.prevLogEnergy)
+	}
+	stride := e.predStride()
+	end = min(end, stride)
+	for channel := range int(e.channels) {
+		base := channel * stride
+		for band := range stride {
+			index := base + band
+			if band >= start && band < end {
+				if transient {
+					if e.prevEnergy[index] < e.prevLogEnergy[index] {
+						e.prevLogEnergy[index] = e.prevEnergy[index]
+					}
+				} else {
+					e.prevLogEnergy[index] = e.prevEnergy[index]
+				}
+			} else {
+				e.prevLogEnergy[index] = -28
+				e.prevEnergy2[index] = -28
+			}
 		}
 	}
 }

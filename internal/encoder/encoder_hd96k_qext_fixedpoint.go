@@ -99,10 +99,22 @@ func (e *Encoder) encodeNativeHD96kFixed(pcm []float32, frameSize int, dst []byt
 	}
 	e.fixedFrameReady = true
 	e.fixedFrameCursor = 0
+	equivRate := e.computeEquivRate(e.bitrate, e.streamChannels, int32(96000/frameSize),
+		e.bitrateMode != ModeCBR, ModeCELT, e.complexity, e.packetLoss)
+	prevStereoWidth := e.hybridStereoWidthQ14
+	width := hd96kStereoWidthQ14(equivRate)
+	e.silkMode.StereoWidthQ14 = int32(width)
+	if e.channels == 2 && len(e.celtEnergyMask) == 0 &&
+		(prevStereoWidth < 1<<14 || width < 1<<14) {
+		e.hybridStereoWidthQ14 = width
+		if !e.restrictedSilkApp {
+			fixedpoint.StereoFadeResQEXT(e.fixedDelayed, prevStereoWidth, width, 96000)
+		}
+	}
 	st.enc.SetQEXTEnabled(e.qextActive())
 	st.enc.SetLFE(e.lfe)
 	st.enc.SetBandRange(0, 21)
-	st.enc.SetStreamChannels(int32(channels))
+	st.enc.SetStreamChannels(e.streamChannels)
 	st.enc.SetComplexity(int(e.complexity))
 	st.enc.SetBitrate(int(celt.BitrateMax))
 	st.enc.SetLSBDepth(int(e.lsbDepth))
@@ -177,6 +189,6 @@ func (e *Encoder) encodeNativeHD96kFixed(pcm []float32, frameSize int, dst []byt
 	e.frameFinalRange = e.fixedFinalRange
 	e.finalRange = e.frameFinalRange
 	e.first = false
-	n, err := assembleHD96kPacket(dst, frameSize, e.fixedCELTOut, st.enc.LastQEXTPayload(), channels == 2)
+	n, err := assembleHD96kPacket(dst, frameSize, e.fixedCELTOut, st.enc.LastQEXTPayload(), e.streamChannels == 2)
 	return n, true, err
 }

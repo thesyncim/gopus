@@ -150,7 +150,7 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	hybridDec := hybrid.NewDecoderWithSharedDecoders(cfg.Channels, silkDec, celtDec)
 	hybridDec.SetAPISampleRate(internalRate)
 
-	transitionSamples := 48000 / 200 // 5ms at 48kHz
+	transitionSamples := max(48000, cfg.SampleRate) / 200 // 5 ms in the largest configured CELT geometry.
 
 	d := &Decoder{
 		silkDecoder:      silkDec,

@@ -480,16 +480,18 @@ func TestPitchDownsampleSigMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	requireBitExactFloat(t)
 
-	for _, channels := range []int{1, 2} {
-		t.Run(map[int]string{1: "mono", 2: "stereo"}[channels], func(t *testing.T) {
-			const length = plcDecodeBufferSize >> 1
-			x := makeCELTPLCTestSignal(length*2*channels, uint32(0x5100+channels), 2600)
-			want := probeLibopusPLCPitchDownsample(t, x, length, channels, 2)
+	for _, factor := range []int{2, 4} {
+		for _, channels := range []int{1, 2} {
+			t.Run(strconv.Itoa(factor)+"x/"+map[int]string{1: "mono", 2: "stereo"}[channels], func(t *testing.T) {
+				const length = plcDecodeBufferSize >> 1
+				x := makeCELTPLCTestSignal(length*factor*channels, uint32(0x5100+factor*10+channels), 2600)
+				want := probeLibopusPLCPitchDownsample(t, x, length, channels, factor)
 
-			got := make([]float32, length)
-			pitchDownsampleSig(x, got, length, channels, 2)
-			assertFloat32Bits(t, "xLP", got, want)
-		})
+				got := make([]float32, length)
+				pitchDownsampleSig(x, got, length, channels, factor)
+				assertFloat32Bits(t, "xLP", got, want)
+			})
+		}
 	}
 }
 
@@ -521,23 +523,27 @@ func TestPitchSearchPLCMatchesLibopus(t *testing.T) {
 		length   = plcDecodeBufferSize - 720
 		maxPitch = 720 - 100
 	)
-	y := make([]float32, length+maxPitch)
-	xLP := make([]float32, length)
-	src := makeCELTPLCTestSignal((length+maxPitch)*2, 0x71ab23cd, 1.0)
-	for i := range y {
-		y[i] = float32(src[i])
-	}
-	copy(xLP, y[720/2:])
+	for _, factor := range []int{2, 4} {
+		t.Run(strconv.Itoa(factor)+"x", func(t *testing.T) {
+			lp := make([]float32, plcDecodeBufferSize>>1)
+			src := makeCELTPLCTestSignal(len(lp)*factor, uint32(0x71ab23cd+factor), 1.0)
+			pitchDownsampleSig(src, lp, len(lp), 1, factor)
+			y := make([]float32, length+maxPitch)
+			copy(y, lp)
+			xLP := make([]float32, length)
+			copy(xLP, lp[720/2:])
 
-	var scratch plcPitchSearchScratch
-	scratch.xcorr = make([]float32, maxPitch>>1)
-	for i := range scratch.xcorr {
-		scratch.xcorr[i] = float32(math.NaN())
-	}
-	got := pitchSearchPLC(xLP, y, length, maxPitch, &scratch)
-	want := probeLibopusPLCPitchSearch(t, xLP, y, length, maxPitch)
-	if got != want {
-		t.Fatalf("pitch=%d want %d", got, want)
+			var scratch plcPitchSearchScratch
+			scratch.xcorr = make([]float32, maxPitch>>1)
+			for i := range scratch.xcorr {
+				scratch.xcorr[i] = float32(math.NaN())
+			}
+			got := pitchSearchPLC(xLP, y, length, maxPitch, &scratch)
+			want := probeLibopusPLCPitchSearch(t, xLP, y, length, maxPitch)
+			if got != want {
+				t.Fatalf("pitch search result=%d want %d", got, want)
+			}
+		})
 	}
 }
 
@@ -647,7 +653,7 @@ func TestCELTPLCIIRMatchesLibopus(t *testing.T) {
 
 	hist := makeCELTPLCTestSignal(plcDecodeBufferSize, 0x11a5011, 1300)
 	lpc := makeCELTPLPCTestCoeffs()
-	for _, length := range []int{240, 360, 600, 1080} {
+	for _, length := range []int{240, 360, 600, 1080, 2160} {
 		t.Run(strconv.Itoa(length), func(t *testing.T) {
 			in := makeCELTPLCTestSignal(length, 0x119911+uint32(length), 900)
 			want := probeLibopusPLCIIR(t, in, hist, lpc)

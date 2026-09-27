@@ -140,7 +140,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 	if len(data) <= 1 {
 		return d.decodePLC(frameSize)
 	}
-	if !ValidFrameSize(frameSize) {
+	if !d.validFrameSize(frameSize) {
 		return nil, ErrInvalidFrameSize
 	}
 
@@ -152,12 +152,9 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 	rd.Init(data)
 	d.SetRangeDecoder(rd)
 
-	mode := GetModeConfig(frameSize)
+	mode := d.modeConfig(frameSize)
 	lm := mode.LM
-	end := min(EffectiveBandsForFrameSize(d.bandwidth, frameSize), mode.EffBands)
-	if end < 1 {
-		end = 1
-	}
+	end := d.effectiveEndBand(frameSize)
 	start := 0
 
 	prev1Energy := ensureGLogSlice(&d.scratchPrevEnergyGLog, MaxBands)
@@ -323,7 +320,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 	if len(data) <= 1 {
 		return d.decodePLC(frameSize)
 	}
-	if !ValidFrameSize(frameSize) {
+	if !d.validFrameSize(frameSize) {
 		return nil, ErrInvalidFrameSize
 	}
 
@@ -340,12 +337,9 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 	rd.Init(data)
 	d.SetRangeDecoder(rd)
 
-	mode := GetModeConfig(frameSize)
+	mode := d.modeConfig(frameSize)
 	lm := mode.LM
-	end := min(EffectiveBandsForFrameSize(d.bandwidth, frameSize), mode.EffBands)
-	if end < 1 {
-		end = 1
-	}
+	end := d.effectiveEndBand(frameSize)
 	start := 0
 	prev1Energy := ensureGLogSlice(&d.scratchPrevEnergy, len(d.prevEnergy))
 	copy(prev1Energy, d.prevEnergy)
@@ -504,7 +498,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	if rd == nil {
 		return nil, ErrNilDecoder
 	}
-	if frameSize != 480 && frameSize != 960 {
+	if !d.validHybridFrameSize(frameSize) {
 		return nil, ErrInvalidFrameSize
 	}
 
@@ -541,12 +535,9 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 		qextPayload = d.takeQEXTPayload()
 	}
 
-	mode := GetModeConfig(frameSize)
+	mode := d.modeConfig(frameSize)
 	lm := mode.LM
-	end := min(EffectiveBandsForFrameSize(d.bandwidth, frameSize), mode.EffBands)
-	if end < 1 {
-		end = 1
-	}
+	end := d.effectiveEndBand(frameSize)
 	start := HybridCELTStartBand
 
 	totalBits := rd.StorageBits()
@@ -653,7 +644,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	if rd == nil {
 		return nil, ErrNilDecoder
 	}
-	if frameSize != 480 && frameSize != 960 {
+	if !d.validHybridFrameSize(frameSize) {
 		return nil, ErrInvalidFrameSize
 	}
 
@@ -672,12 +663,9 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 		qextPayload = d.takeQEXTPayload()
 	}
 
-	mode := GetModeConfig(frameSize)
+	mode := d.modeConfig(frameSize)
 	lm := mode.LM
-	end := min(EffectiveBandsForFrameSize(d.bandwidth, frameSize), mode.EffBands)
-	if end < 1 {
-		end = 1
-	}
+	end := d.effectiveEndBand(frameSize)
 	start := HybridCELTStartBand
 	prev1Energy := ensureGLogSlice(&d.scratchPrevEnergy, len(d.prevEnergy))
 	copy(prev1Energy, d.prevEnergy)
@@ -721,7 +709,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 		applyDecodedSilence(energies, coeffsL, coeffsR, qext)
 	}
 
-	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)
+	hybridBinStart := d.hybridBandStart(frameSize)
 	energiesL := energies[:end]
 	energiesR := energies[end:]
 	downsample := d.downsampleFactor()

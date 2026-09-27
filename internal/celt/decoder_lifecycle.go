@@ -99,8 +99,8 @@ func (d *Decoder) Reset() {
 	backgroundEnergy := ensureGLogSlice(&d.backgroundEnergy, d.predStride()*2)
 	overlapBuffer := ensureSigSlice(&d.overlapBuffer, d.synthOverlapLen()*channels)
 	preemphState := ensureSigSlice(&d.preemphState, channels)
-	postfilterMem := ensureSigSlice(&d.postfilterMem, combFilterHistory*channels)
-	plcDecodeMem := ensureSigSlice(&d.plcDecodeMem, plcDecodeBufferSize*channels)
+	postfilterMem := ensureSigSlice(&d.postfilterMem, d.plcCombFilterHistoryLen()*channels)
+	plcDecodeMem := ensureSigSlice(&d.plcDecodeMem, d.plcDecodeBufferLen()*channels)
 	plcLPC := ensureFloat32Slice(&d.plcLPC, celtPLCLPCOrder*channels)
 	clear(prevEnergy)
 	clear(prevEnergy2)
@@ -144,7 +144,6 @@ func (d *Decoder) Reset() {
 	d.rangeDecoder = nil
 	d.rangeDecoderScratch = rangecoding.Decoder{}
 	d.directOutPCM = nil
-	d.decoderQEXTFields = decoderQEXTFields{}
 	d.decoderDREDState = decoderDREDState{}
 	d.rng = 0
 	d.prevStreamChannels = 0

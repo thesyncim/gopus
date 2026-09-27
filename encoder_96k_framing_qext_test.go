@@ -3,14 +3,10 @@
 // encoder_96k_framing_qext_test.go: top-level Opus packet framing parity for
 // the native 96 kHz (Opus HD / QEXT) encode path.
 //
-// Scope: the TOC byte, frame-count byte, padding-length field, main CELT
-// payload region and the reserved QEXT extension (0xF8 extension-ID byte +
-// payload) must be assembled byte-for-byte like libopus --enable-qext at
-// Fs=96000. The main CELT payload bytes themselves still carry a pre-existing
-// HD-scale comb-prefilter residual (mono) / band-data divergence (stereo)
-// tracked in celt/encoder_hd96k_encode_qext.go; this test validates the
-// FRAMING structure (offsets, lengths, extension layout) regardless, and
-// asserts full-packet byte parity for any region that already matches.
+// Scope: compare the public native 96 kHz QEXT packet framing fields, including
+// the TOC, frame-count, padding length, CELT payload boundary, and extension
+// identifier. TestHD96kNativeEncodeMainPayloadParity checks the complete CELT
+// and QEXT payload bytes against the selected libopus build.
 
 package gopus
 

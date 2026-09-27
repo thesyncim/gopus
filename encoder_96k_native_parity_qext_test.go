@@ -79,50 +79,10 @@ func refMainCELTPayload(t *testing.T, pkt []byte) (main, qext []byte) {
 	return main, qext
 }
 
-// TestHD96kNativeEncodeMainPayloadParity compares the gopus native 96 kHz CELT
-// main payload (and QEXT extension payload) against the QEXT libopus reference.
-//
-// Status: the threaded overlap=240 analysis MDCT, the 2-tap HD pre-emphasis and
-// the Fs=96000 bitrate/QEXT-reservation budget reproduce the reference's early
-// frame structure. The analysis-side comb prefilter now runs at the HD scale
-// (run_prefilter max_period = QEXT_SCALE(COMBFILTER_MAXPERIOD) = 2048,
-// min_period = 2*COMBFILTER_MINPERIOD, pitch_index /= qext_scale; see
-// celt/prefilter.go), so the encoded postfilter octave/pitch/qg/tapset are now
-// bit-exact vs the reference (mono: silence/postfilter flags + pitch params all
-// match through ec_tell=12). The extra-band quant_all_bands now also receives
-// the signed ext_balance (no clamp), mirroring the decode side.
-//
-// The native HD96k analysis MDCT and band-energy bin scaling are now wired into
-// the encode path: EncodeFrame drives the overlap=240 long/short forward MDCT at
-// the native 3840/480 transform lengths (computeMDCTWithHistory* now honour the
-// passed overlap instead of the 48 kHz package constant), and band energies use
-// the libopus bin multiplier M=1<<LM (eBands[i]*M) instead of frameSize/120,
-// which mis-scaled the HD bin edges by 2x. With those in place:
-//   - the QEXT packet-space reservation now reserves qext_bytes=21 (payload 20)
-//     for both mono and stereo CBR @256k (mono main payload is 616 like stereo),
-//     because the corrected analysis feeds the right tell/tot_boost into the CBR
-//     compute_vbr() pivot, and
-//   - the coarse-energy intra decision now matches (stereo intra=1), and stereo
-//     coarse band energies decode bit-identically to the reference.
-//
-// The band-data analysis front-end normalises with the libopus bin multiplier
-// M=1<<LM (band edges eBands[i]*M), not frameSize/120, which doubled the per-band
-// bin reach at the HD scale and corrupted the normalised spectrum feeding
-// tf_analysis/spreading_decision/alloc_trim/quant_all_bands. With that fixed the
-// TF resolution, spreading, alloc-trim, intensity, dual-stereo and coded-band
-// allocation now match the reference, and the stereo PVQ band data is bit-exact
-// through band 15.
-//
-// Native-96k encode is byte-exact for both mono and stereo. The HD-scale comb
-// prefilter (comb_filter_qext, x!=y) filters the even/odd phases with the input
-// delay line (mem_buf) and the output buffer kept SEPARATE, so an already-written
-// output sample is never read back as comb input. The forward MDCT folds the
-// 1/nfft FFT scale into the post-rotation twiddles under the ENABLE_QEXT scale
-// placement (mdctQEXTScalePlacement), matching the QEXT clt_mdct_forward(); the
-// pre-rotation placement of the default build rounds the >20 kHz extension bins
-// by tens of ULP, which had flipped the band-16 stereo PVQ fold leaf.
-//
-// The test logs the first divergence and fails on any byte mismatch.
+// TestHD96kNativeEncodeMainPayloadParity compares the native 96 kHz CELT main
+// payload and QEXT side payload for one fullband CBR frame against the selected
+// libopus reference. It checks mono and stereo and fails at the first differing
+// byte.
 func TestHD96kNativeEncodeMainPayloadParity(t *testing.T) {
 	const frameSize = 1920
 	const bitrate = 256000

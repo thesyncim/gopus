@@ -9,6 +9,7 @@ import (
 	"errors"
 
 	"github.com/thesyncim/gopus/internal/celt"
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/internal/plc"
 	"github.com/thesyncim/gopus/internal/rangecoding"
 	"github.com/thesyncim/gopus/internal/silk"
@@ -165,6 +166,15 @@ func (d *Decoder) SetAPISampleRate(sampleRate int) {
 		}
 		if d.celtDecoder != nil {
 			d.celtDecoder.SetDownsample(48000 / sampleRate)
+		}
+	case 96000:
+		if extsupport.QEXT {
+			d.apiSampleRate = 96000
+			if d.silkDecoder != nil {
+				d.silkDecoder.SetAPISampleRate(96000)
+			}
+			// The shared CELT decoder is configured for its native 96 kHz
+			// mode by the top-level Opus decoder after this rate is selected.
 		}
 	default:
 		d.apiSampleRate = 48000
@@ -508,7 +518,11 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 		out = out[:totalSamples]
 	}
 	copy(out, silkUpsampled[:totalSamples])
-	if err := d.celtDecoder.AccumulateFrameHybridWithPacketStereo(rd, frameSize48, packetStereo, out); err != nil {
+	celtFrameSize := frameSize48
+	if d.apiSampleRate == 96000 {
+		celtFrameSize = frameSizeAPI
+	}
+	if err := d.celtDecoder.AccumulateFrameHybridWithPacketStereo(rd, celtFrameSize, packetStereo, out); err != nil {
 		return nil, err
 	}
 

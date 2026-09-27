@@ -15,7 +15,7 @@ const HybridCELTStartBand = 17
 //
 // Parameters:
 //   - rd: Range decoder (SILK has already consumed its portion)
-//   - frameSize: Expected output samples (480 or 960 for hybrid 10ms/20ms)
+//   - frameSize: Expected output samples for a valid Hybrid duration in the active mode
 //
 // Returns: PCM samples as float32 slice at 48kHz
 //
@@ -26,8 +26,9 @@ func (d *Decoder) decodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		return nil, ErrNilDecoder
 	}
 
-	// Hybrid only supports 10ms (480) and 20ms (960) frames
-	if frameSize != 480 && frameSize != 960 {
+	// The standard mode uses 10ms/20ms frames at 48 kHz. The native HD mode
+	// uses 20ms frames at 96 kHz with the same eight short blocks.
+	if !d.validHybridFrameSize(frameSize) {
 		return nil, ErrInvalidFrameSize
 	}
 
@@ -39,12 +40,9 @@ func (d *Decoder) decodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		qextPayload = d.takeQEXTPayload()
 	}
 
-	mode := GetModeConfig(frameSize)
+	mode := d.modeConfig(frameSize)
 	lm := mode.LM
-	end := min(EffectiveBandsForFrameSize(d.bandwidth, frameSize), mode.EffBands)
-	if end < 1 {
-		end = 1
-	}
+	end := d.effectiveEndBand(frameSize)
 	start := HybridCELTStartBand
 	prev1Energy, prev1LogE, prev2LogE := d.snapshotDecodeHistory()
 
@@ -69,11 +67,25 @@ func (d *Decoder) decodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		applyDecodedSilence(energies, coeffsL, coeffsR, qext)
 	}
 
-	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)
+	hybridBinStart := d.hybridBandStart(frameSize)
 	d.applyPendingPLCPrefilterAndFold()
 	samples := d.synthesizeHybridDecodedFrame(frameSize, mode.LM, end, hybridBinStart, header.shortBlocks, header.transient, header.postfilterPeriod, header.postfilterGain, header.postfilterTapset, energies, coeffsL, coeffsR, qext)
 	if err := d.finalizeDecodedFrameState(frameSize, start, end, lm, header.transient, energies, prev1Energy, qext, rd); err != nil {
 		return nil, err
 	}
 	return samples, nil
+}
+
+func (d *Decoder) validHybridFrameSize(frameSize int) bool {
+	if d.sampleRate == 96000 && d.synthOverlap == 240 {
+		return frameSize == 960 || frameSize == 1920
+	}
+	return frameSize == 480 || frameSize == 960
+}
+
+func (d *Decoder) hybridBandStart(frameSize int) int {
+	if d.sampleRate == 96000 && d.synthOverlap == 240 {
+		return ScaledBandStartBase(HybridCELTStartBand, frameSize, 240)
+	}
+	return ScaledBandStart(HybridCELTStartBand, frameSize)
 }

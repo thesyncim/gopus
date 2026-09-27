@@ -10,6 +10,29 @@ const (
 	plcDecodeBufferSize = 2048
 )
 
+func (d *Decoder) qextDecodeScale() int {
+	if d.sampleRate == 96000 && d.synthOverlap == 240 {
+		return 2
+	}
+	return 1
+}
+
+func (d *Decoder) plcDecodeBufferLen() int {
+	return plcDecodeBufferSize * d.qextDecodeScale()
+}
+
+func (d *Decoder) plcCombFilterMaxPeriod() int {
+	return combFilterMaxPeriod * d.qextDecodeScale()
+}
+
+func (d *Decoder) plcCombFilterMinPeriod() int {
+	return combFilterMinPeriod * d.qextDecodeScale()
+}
+
+func (d *Decoder) plcCombFilterHistoryLen() int {
+	return combFilterMaxPeriod*d.qextDecodeScale() + 2
+}
+
 var combFilterGains = [3][3]float32{
 	{0.3066406250, 0.2170410156, 0.1296386719},
 	{0.4638671875, 0.2680664062, 0.0000000000},
@@ -140,7 +163,7 @@ func (d *Decoder) updatePLCDecodeHistory(samples []float32, frameSize int, histo
 		d.plcDecodeMemRingActive = false
 		d.plcDecodeMemRingStart = 0
 	}
-	if d.channels == 2 && history == plcDecodeBufferSize {
+	if d.channels == 2 && history == d.plcDecodeBufferLen() {
 		histL := d.plcDecodeMem[:history]
 		histR := d.plcDecodeMem[history : 2*history]
 		if frameSize >= history {
@@ -280,7 +303,7 @@ func (d *Decoder) materializePLCDecodeHistory() {
 	if d == nil || !d.plcDecodeMemRingActive {
 		return
 	}
-	history := plcDecodeBufferSize
+	history := d.plcDecodeBufferLen()
 	channels := int(d.channels)
 	if channels <= 0 || len(d.plcDecodeMem) < history*channels {
 		d.plcDecodeMemRingActive = false
@@ -321,11 +344,12 @@ func (d *Decoder) materializePostfilterHistoryFromPLC() {
 		d.postfilterMemPLCBacked = false
 		return
 	}
-	history := combFilterHistory
+	history := d.plcCombFilterHistoryLen()
 	if len(d.postfilterMem) != history*channels {
 		d.postfilterMem = make([]celtSig, history*channels)
 	}
-	if len(d.plcDecodeMem) < plcDecodeBufferSize*channels {
+	plcHistory := d.plcDecodeBufferLen()
+	if len(d.plcDecodeMem) < plcHistory*channels {
 		d.postfilterMemFromPLC = false
 		d.postfilterMemPLCBacked = false
 		return
@@ -333,22 +357,22 @@ func (d *Decoder) materializePostfilterHistoryFromPLC() {
 	ringStart := 0
 	if d.plcDecodeMemRingActive {
 		ringStart = d.plcDecodeMemRingStart
-		if ringStart < 0 || ringStart >= plcDecodeBufferSize {
+		if ringStart < 0 || ringStart >= plcHistory {
 			ringStart = 0
 		}
 	}
-	srcStart := ringStart + plcDecodeBufferSize - history
-	if srcStart >= plcDecodeBufferSize {
-		srcStart -= plcDecodeBufferSize
+	srcStart := ringStart + plcHistory - history
+	if srcStart >= plcHistory {
+		srcStart -= plcHistory
 	}
 	for ch := range channels {
-		src := d.plcDecodeMem[ch*plcDecodeBufferSize : (ch+1)*plcDecodeBufferSize]
+		src := d.plcDecodeMem[ch*plcHistory : (ch+1)*plcHistory]
 		dst := d.postfilterMem[ch*history : (ch+1)*history]
-		if srcStart+history <= plcDecodeBufferSize {
+		if srcStart+history <= plcHistory {
 			copy(dst, src[srcStart:srcStart+history])
 			continue
 		}
-		first := plcDecodeBufferSize - srcStart
+		first := plcHistory - srcStart
 		copy(dst[:first], src[srcStart:])
 		copy(dst[first:], src[:history-first])
 	}
@@ -359,7 +383,7 @@ func (d *Decoder) materializePostfilterHistorySuffixFromPLC(need int) {
 	if d == nil || !d.postfilterMemFromPLC {
 		return
 	}
-	history := combFilterHistory
+	history := d.plcCombFilterHistoryLen()
 	if need >= history {
 		d.materializePostfilterHistoryFromPLC()
 		return
@@ -376,7 +400,8 @@ func (d *Decoder) materializePostfilterHistorySuffixFromPLC(need int) {
 	if len(d.postfilterMem) != history*channels {
 		d.postfilterMem = make([]celtSig, history*channels)
 	}
-	if len(d.plcDecodeMem) < plcDecodeBufferSize*channels {
+	plcHistory := d.plcDecodeBufferLen()
+	if len(d.plcDecodeMem) < plcHistory*channels {
 		d.postfilterMemFromPLC = false
 		d.postfilterMemPLCBacked = false
 		return
@@ -384,23 +409,23 @@ func (d *Decoder) materializePostfilterHistorySuffixFromPLC(need int) {
 	ringStart := 0
 	if d.plcDecodeMemRingActive {
 		ringStart = d.plcDecodeMemRingStart
-		if ringStart < 0 || ringStart >= plcDecodeBufferSize {
+		if ringStart < 0 || ringStart >= plcHistory {
 			ringStart = 0
 		}
 	}
-	srcStart := ringStart + plcDecodeBufferSize - need
-	if srcStart >= plcDecodeBufferSize {
-		srcStart -= plcDecodeBufferSize
+	srcStart := ringStart + plcHistory - need
+	if srcStart >= plcHistory {
+		srcStart -= plcHistory
 	}
 	dstStart := history - need
 	for ch := range channels {
-		src := d.plcDecodeMem[ch*plcDecodeBufferSize : (ch+1)*plcDecodeBufferSize]
+		src := d.plcDecodeMem[ch*plcHistory : (ch+1)*plcHistory]
 		dst := d.postfilterMem[ch*history+dstStart : (ch+1)*history]
-		if srcStart+need <= plcDecodeBufferSize {
+		if srcStart+need <= plcHistory {
 			copy(dst, src[srcStart:srcStart+need])
 			continue
 		}
-		first := plcDecodeBufferSize - srcStart
+		first := plcHistory - srcStart
 		copy(dst[:first], src[srcStart:])
 		copy(dst[first:], src[:need-first])
 	}
@@ -475,7 +500,7 @@ func (d *Decoder) updatePLCDecodeHistoryStereoPlanarFromFloat32(left, right []fl
 	}
 	histL := d.plcDecodeMem[:history]
 	histR := d.plcDecodeMem[history : 2*history]
-	if history != plcDecodeBufferSize || d.channels != 2 {
+	if history != d.plcDecodeBufferLen() || d.channels != 2 {
 		d.materializePLCDecodeHistory()
 		updatePlanarHistoryFromFloat32(histL, left, frameSize, history)
 		updatePlanarHistoryFromFloat32(histR, right, frameSize, history)
@@ -536,7 +561,7 @@ func (d *Decoder) applyPostfilterNoGainMonoFromFloat32(samples []float32, frameS
 	if frameSize <= 0 {
 		return
 	}
-	history := combFilterHistory
+	history := d.plcCombFilterHistoryLen()
 	channels := int(d.channels)
 	if len(d.postfilterMem) != history*channels {
 		d.postfilterMem = make([]celtSig, history*channels)
@@ -544,7 +569,7 @@ func (d *Decoder) applyPostfilterNoGainMonoFromFloat32(samples []float32, frameS
 		d.postfilterMemPLCBacked = false
 	}
 	d.clampDecodePostfilterPeriods()
-	d.updatePLCDecodeHistoryMonoFromFloat32(samples, frameSize, plcDecodeBufferSize)
+	d.updatePLCDecodeHistoryMonoFromFloat32(samples, frameSize, d.plcDecodeBufferLen())
 	d.markPostfilterHistoryFromPLC()
 	d.commitPostfilterStateNoGain(lm, newPeriod, newGain, newTapset)
 }
@@ -553,14 +578,14 @@ func (d *Decoder) applyPostfilterNoGainStereoPlanarFromFloat32(left, right []flo
 	if frameSize <= 0 {
 		return
 	}
-	history := combFilterHistory
+	history := d.plcCombFilterHistoryLen()
 	if len(d.postfilterMem) != history*2 {
 		d.postfilterMem = make([]celtSig, history*2)
 		d.postfilterMemFromPLC = false
 		d.postfilterMemPLCBacked = false
 	}
 	d.clampDecodePostfilterPeriods()
-	d.updatePLCDecodeHistoryStereoPlanarFromFloat32(left, right, frameSize, plcDecodeBufferSize)
+	d.updatePLCDecodeHistoryStereoPlanarFromFloat32(left, right, frameSize, d.plcDecodeBufferLen())
 	d.markPostfilterHistoryFromPLC()
 	d.commitPostfilterStateNoGain(lm, newPeriod, newGain, newTapset)
 }
@@ -593,8 +618,12 @@ func (d *Decoder) applyPostfilterStereoPlanarFromFloat32(left, right []float32, 
 	if len(left) < frameSize || len(right) < frameSize || frameSize <= 0 {
 		return
 	}
+	if d.hd96kPostfilterActive() {
+		d.applyHD96kPostfilterStereoPlanar(left, right, frameSize, lm, newPeriod, newGain, newTapset)
+		return
+	}
 
-	history := combFilterHistory
+	history := d.plcCombFilterHistoryLen()
 	if len(d.postfilterMem) != history*2 {
 		d.postfilterMem = make([]celtSig, history*2)
 		d.postfilterMemFromPLC = false
@@ -602,7 +631,7 @@ func (d *Decoder) applyPostfilterStereoPlanarFromFloat32(left, right []float32, 
 	}
 	d.clampDecodePostfilterPeriods()
 	if d.postfilterGainOld == 0 && d.postfilterGain == 0 && newGain == 0 {
-		d.updatePLCDecodeHistoryStereoPlanarFromFloat32(left, right, frameSize, plcDecodeBufferSize)
+		d.updatePLCDecodeHistoryStereoPlanarFromFloat32(left, right, frameSize, d.plcDecodeBufferLen())
 		d.markPostfilterHistoryFromPLC()
 		d.commitPostfilterStateNoGain(lm, newPeriod, newGain, newTapset)
 		return
@@ -630,7 +659,7 @@ func (d *Decoder) applyPostfilterStereoPlanarFromFloat32(left, right []float32, 
 	applyPostfilterChannelInPlaceFloat32(left, histL, frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq, overlap)
 	applyPostfilterChannelInPlaceFloat32(right, histR, frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq, overlap)
 
-	d.updatePLCDecodeHistoryStereoPlanarFromFloat32(left, right, frameSize, plcDecodeBufferSize)
+	d.updatePLCDecodeHistoryStereoPlanarFromFloat32(left, right, frameSize, d.plcDecodeBufferLen())
 	d.markPostfilterHistoryFromPLC()
 	d.postfilterPeriodOld = d.postfilterPeriod
 	d.postfilterGainOld = d.postfilterGain
@@ -654,6 +683,8 @@ func (d *Decoder) applyPostfilterFloat32(samples []float32, frameSize, lm int, n
 	}
 	if d.hd96kPostfilterActive() {
 		d.applyHD96kPostfilterInterleaved(samples, frameSize, lm, newPeriod, newGain, newTapset)
+		d.updatePLCDecodeHistory(samples[:frameSize*int(d.channels)], frameSize, d.plcDecodeBufferLen())
+		d.markPostfilterHistoryFromPLC()
 		return
 	}
 	if d.channels == 1 {
@@ -661,7 +692,7 @@ func (d *Decoder) applyPostfilterFloat32(samples []float32, frameSize, lm int, n
 			d.applyPostfilterNoGainMonoFromFloat32(samples[:frameSize], frameSize, lm, newPeriod, newGain, newTapset)
 			return
 		}
-		history := combFilterHistory
+		history := d.plcCombFilterHistoryLen()
 		if len(d.postfilterMem) != history {
 			d.postfilterMem = make([]celtSig, history)
 			d.postfilterMemFromPLC = false
@@ -684,7 +715,7 @@ func (d *Decoder) applyPostfilterFloat32(samples []float32, frameSize, lm int, n
 		window := d.scratchIMDCTF32.modeWindow(overlap)
 		windowSq := d.postfilterWindowSquareF32(overlap)
 		applyPostfilterChannelInPlaceFloat32(samples[:frameSize], d.postfilterMem[:history], frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq, overlap)
-		d.updatePLCDecodeHistoryMonoFromFloat32(samples[:frameSize], frameSize, plcDecodeBufferSize)
+		d.updatePLCDecodeHistoryMonoFromFloat32(samples[:frameSize], frameSize, d.plcDecodeBufferLen())
 		d.markPostfilterHistoryFromPLC()
 		d.postfilterPeriodOld = d.postfilterPeriod
 		d.postfilterGainOld = d.postfilterGain

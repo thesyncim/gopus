@@ -103,6 +103,17 @@ func qextShortMDCTSize(frameSize int) int {
 	return frameSize / mode.ShortBlocks
 }
 
+// qextShortMDCTSizeForMode derives the QEXT band's short-transform geometry
+// from the active CELT mode. Native 96 kHz CELT uses 240-bin short transforms
+// for every duration, including frame sizes whose 48 kHz mode has a different
+// LM/short-block decomposition.
+func qextShortMDCTSizeForMode(frameSize int, mode ModeConfig) int {
+	if mode.ShortBlocks <= 0 || frameSize%mode.ShortBlocks != 0 {
+		return frameSize
+	}
+	return frameSize / mode.ShortBlocks
+}
+
 // computeQEXTReservation mirrors the packet-space reservation part of the
 // libopus ENABLE_QEXT path closely enough for the CELT-only internal encode
 // flow. It returns the shrunken main payload size, the ext payload bytes

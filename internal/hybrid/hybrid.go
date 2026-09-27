@@ -314,7 +314,11 @@ func (d *Decoder) DecodePLCToFloat32WithPacketStereoInto(frameSize int, stereo b
 	// lowband, as opus_decode_frame's celt_decode_with_ec(NULL, celt_accum=1)
 	// does for a lost Hybrid frame.
 	if frameSize48 == 240 || frameSize48 == 480 || frameSize48 == 960 {
-		if err := d.celtDecoder.DecodeHybridFECPLC(frameSize48, output); err != nil {
+		celtFrameSize := frameSize48
+		if apiSampleRate == 96000 {
+			celtFrameSize = frameSizeAPI
+		}
+		if err := d.celtDecoder.DecodeHybridFECPLC(celtFrameSize, output); err != nil {
 			return err
 		}
 	} else {

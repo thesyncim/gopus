@@ -46,6 +46,32 @@ remains in the same selector. The sequence oracle uses its v3 wire format;
 fresh-decoder v1/v2 probes keep their existing wire semantics. These claims
 cover the standard decoder APIs, not cached DRED malformed-packet handling.
 
+### Native 96 kHz and feature-paired coverage
+
+On local ARM64, native-96 CELT encode auto-channel transitions and decoder
+2.5/5/10/20 ms paths match the selected libopus reference. Float-QEXT and
+fixed-QEXT decode cover mono/stereo input and output, float32/int16/int24,
+reset replay, PLC and valid Hybrid transitions. The new gates pass ordinary,
+SIMD and nosimd builds with exact PCM/final ranges and zero warm allocations.
+Fixed-QEXT 48 kHz short-frame gates cover 2.5/5/10/20 ms and all three output
+formats. Raw native-96 encoder gates also compare packet bytes, pitch and
+energy history. Native AMD64 confirmation of these additions is pending.
+
+SILK recovery follows the reference deep-PLC condition at 16 kHz; all 18
+combined DRED+QEXT duration-transition cases pass the paired scalar and SIMD
+oracles locally. Multistream helper archives, headers and feature flags match
+the active build, and the archive precedes trailing math linker flags.
+
+The broader local combined DRED+QEXT SIMD suite has three remaining strict
+PCM failures: stereo surround `fs480/br32000/vbrfalse/cfalse/g0/f32`, and
+TOA 16-channel projection `fs480/br256000` in float32 and int16. The stereo
+case differs in 164/960 samples (maximum absolute difference 9.31e-8); the
+projection cases differ in 3221/7680 float samples (1.11e-5 maximum) and
+212/7680 int16 samples (maximum 1). These cases remain enabled. Pinned libopus rejects
+fixed-point+DRED in `configure.ac`; that tag intersection has no supported C
+reference and is not covered by the paired parity claim. Full codec/extension parity remains
+unproven until the remaining failures and native validation are resolved.
+
 ### QEXT PVQ refinement byte parity
 
 `opPVQRefineNorm` materializes the product at libopus's `opus_val32` store
@@ -57,7 +83,7 @@ pass the strict 96-frame 5.1, FOA and high-rate 5.1 sequences with exact
 packet bytes/ranges and zero warm allocations. This closes the ARM64
 frame-10 QEXT payload witness. Native AMD64 still requires validation of this
 checkpoint; its preceding capture reports one FOA cycle allocation.
-Native-96 encoder/PLC and broader feature-paired oracle validation remain open.
+Native-96 coverage and the remaining feature-paired failures are scoped above.
 
 ### Combined-extension allocation guards
 

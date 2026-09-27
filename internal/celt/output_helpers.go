@@ -255,7 +255,11 @@ func deemphasis2TapChannel(y []float32, yStride int, x []float32, xStride, n, do
 		if j%downsample == 0 && out < nd {
 			s := mul32(coef3, tmp)
 			if accum {
-				y[out*yStride] = fma32(sig2res, s, y[out*yStride])
+				// libopus stores the deemphasized highband in scratch, then
+				// applies SIG2RES before ADD_RES in a separate pass. Keep the
+				// scale multiply rounded before the lowband accumulation.
+				scaled := float32(sig2res * s)
+				y[out*yStride] += scaled
 			} else {
 				y[out*yStride] = sig2res * s
 			}

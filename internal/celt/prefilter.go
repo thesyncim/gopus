@@ -611,7 +611,7 @@ func pitchSearch(xLP []float32, y []float32, length, maxPitch int, scratch *enco
 	Syy := float32(1)
 	for j := range halfLen {
 		yj := float32(y[j])
-		Syy += yj * yj
+		Syy = pitchSearchAddSquare(Syy, yj)
 	}
 	bestNum := [2]float32{-1, -1}
 	bestDen := [2]float32{0, 0}
@@ -624,7 +624,7 @@ func pitchSearch(xLP []float32, y []float32, length, maxPitch int, scratch *enco
 		for ; i < r.lo; i++ {
 			yi := float32(y[i])
 			yil := float32(y[i+halfLen])
-			Syy += yil*yil - yi*yi
+			Syy = pitchSearchSlideSyy(Syy, yil, yi)
 			if Syy < 1 {
 				Syy = 1
 			}
@@ -663,7 +663,7 @@ func pitchSearch(xLP []float32, y []float32, length, maxPitch int, scratch *enco
 			}
 			yi := float32(y[i])
 			yil := float32(y[i+halfLen])
-			Syy += yil*yil - yi*yi
+			Syy = pitchSearchSlideSyy(Syy, yil, yi)
 			if Syy < 1 {
 				Syy = 1
 			}
@@ -694,7 +694,7 @@ func findBestPitchF32(xcorr []float32, y []float32, length, maxPitch int, bestPi
 	_ = y[length+maxPitch-1]
 	_ = xcorr[maxPitch-1]
 	for j := range length {
-		Syy += y[j] * y[j]
+		Syy = pitchSearchAddSquare(Syy, y[j])
 	}
 	const xcorrScale = float32(1e-12)
 	for i := range maxPitch {
@@ -718,11 +718,34 @@ func findBestPitchF32(xcorr []float32, y []float32, length, maxPitch int, bestPi
 		}
 		yi := y[i]
 		yil := y[i+length]
-		Syy += yil*yil - yi*yi
+		Syy = pitchSearchSlideSyy(Syy, yil, yi)
 		if Syy < 1 {
 			Syy = 1
 		}
 	}
+}
+
+// pitchSearchAddSquare and pitchSearchSlideSyy match the float recurrence in
+// libopus celt/pitch.c find_best_pitch(). The selected ARM scalar C build
+// contracts Syy additions; the NEON build reduces vectorized square groups in
+// input order, then contracts only its scalar tail.
+func pitchSearchAddSquare(sum, value float32) float32 {
+	if libopusPitchSearchUsesFMA && !libopusFloatInnerProdUsesNeonOrder {
+		return opusmath.FMA32(value, value, sum)
+	}
+	return sum + value*value
+}
+
+func pitchSearchSlideSyy(sum, entering, leaving float32) float32 {
+	// celt/pitch.c find_best_pitch() forms Syy + (entering² - leaving²).
+	if libopusPitchSearchUsesFMA {
+		// The selected ARM C variants contract the entering square with the
+		// rounded negative leaving square, then add the rounded delta to Syy.
+		delta := opusmath.FMA32(entering, entering, -noFMA32Mul(leaving, leaving))
+		return noFMA32Add(sum, delta)
+	}
+	delta := noFMA32Sub(noFMA32Mul(entering, entering), noFMA32Mul(leaving, leaving))
+	return noFMA32Add(sum, delta)
 }
 
 type pitchSearchRange struct {
@@ -908,12 +931,14 @@ func removeDoubling(x []float32, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 	if bestXY < 0 {
 		bestXY = 0
 	}
-	pg := g
+	// celt/pitch.c sets pg to Q15ONE when best_yy <= best_xy, then clamps
+	// pg to the selected gain in either branch.
+	pg := float32(1)
 	if bestYY > bestXY {
 		pg = bestXY / noFMA32Add(bestYY, 1)
-		if pg > g {
-			pg = g
-		}
+	}
+	if pg > g {
+		pg = g
 	}
 
 	prev := innerProdFloat32(x0, xBase[maxPeriod-(T-1):maxPeriod-(T-1)+N], N)

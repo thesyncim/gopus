@@ -316,7 +316,7 @@ func NewDecoder() *Decoder {
 // resampler. It must be called before decoding any packets.
 func (d *Decoder) SetAPISampleRate(sampleRate int) {
 	switch sampleRate {
-	case 8000, 12000, 16000, 24000, 48000:
+	case 8000, 12000, 16000, 24000, 48000, 96000:
 		d.apiSampleRate = sampleRate
 	default:
 		d.apiSampleRate = 48000

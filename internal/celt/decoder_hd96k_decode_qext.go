@@ -44,6 +44,18 @@ func (d *Decoder) EnableHD96kMode() {
 	d.deemphCoef = m.Preemph[0]
 	d.deemphCoef1 = m.Preemph[1]
 	d.deemphCoef3 = m.Preemph[3]
+	plcHistory := d.plcDecodeBufferLen()
+	if len(d.plcDecodeMem) < plcHistory*channels {
+		d.plcDecodeMem = make([]celtSig, plcHistory*channels)
+		d.plcDecodeMemRingActive = false
+		d.plcDecodeMemRingStart = 0
+	}
+	postfilterHistory := d.plcCombFilterHistoryLen()
+	if len(d.postfilterMem) < postfilterHistory*channels {
+		d.postfilterMem = make([]celtSig, postfilterHistory*channels)
+		d.postfilterMemFromPLC = false
+		d.postfilterMemPLCBacked = false
+	}
 
 	if len(d.overlapBuffer) < m.Overlap*channels {
 		d.overlapBuffer = make([]celtSig, m.Overlap*channels)

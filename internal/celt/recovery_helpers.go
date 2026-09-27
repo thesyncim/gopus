@@ -85,7 +85,8 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 		return
 	}
 	channels := int(d.channels)
-	if len(d.plcDecodeMem) < plcDecodeBufferSize*channels {
+	plcHistory := d.plcDecodeBufferLen()
+	if len(d.plcDecodeMem) < plcHistory*channels {
 		return
 	}
 	d.materializePLCDecodeHistory()
@@ -93,9 +94,9 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 		return
 	}
 
-	const history = combFilterHistory
+	history := d.plcCombFilterHistoryLen()
 	segLen := overlap
-	if history <= 0 || segLen <= 0 || plcDecodeBufferSize < history {
+	if history <= 0 || segLen <= 0 || plcHistory < history {
 		return
 	}
 
@@ -108,12 +109,12 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 	traceArmed := d.plcStageTrace != nil && d.plcStageTrace.observeFold()
 
 	for ch := range channels {
-		hist := d.plcDecodeMem[ch*plcDecodeBufferSize : (ch+1)*plcDecodeBufferSize]
+		hist := d.plcDecodeMem[ch*plcHistory : (ch+1)*plcHistory]
 		overlap := d.overlapBuffer[ch*segLen : (ch+1)*segLen]
 		src := d.scratchPLCFoldSrc[:bufLen]
 		dst := d.scratchPLCFoldDst[:bufLen]
 
-		copy(src[:history], hist[plcDecodeBufferSize-history:])
+		copy(src[:history], hist[plcHistory-history:])
 		copy(src[history:], overlap)
 
 		if traceArmed {
@@ -301,18 +302,18 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int, out []float32) error {
 		coeffsR := d.scratchPLCHybridNormR[:frameSize]
 		clear(coeffsL)
 		clear(coeffsR)
-		fillHybridPLCNoiseCoeffs(coeffsL, frameSize, start, end, &seed)
-		fillHybridPLCNoiseCoeffs(coeffsR, frameSize, start, end, &seed)
-		denormalizeNormCoeffsDownsample(coeffsL, concealEnergy[:predStride], end, frameSize, d.downsampleFactor())
-		denormalizeNormCoeffsDownsample(coeffsR, concealEnergy[predStride:], end, frameSize, d.downsampleFactor())
+		fillHybridPLCNoiseCoeffs(coeffsL, start, end, mode.LM, d.modeEdges(), &seed)
+		fillHybridPLCNoiseCoeffs(coeffsR, start, end, mode.LM, d.modeEdges(), &seed)
+		denormalizeHybridPLCNoiseCoeffs(coeffsL, concealEnergy[:predStride], start, end, mode.LM, d.modeEdges(), d.downsampleFactor())
+		denormalizeHybridPLCNoiseCoeffs(coeffsR, concealEnergy[predStride:], start, end, mode.LM, d.modeEdges(), d.downsampleFactor())
 		samples := d.SynthesizeStereoFloat32(coeffsL, coeffsR, false, 1)
 		copy(d.scratchPLCF32[:outLen], samples[:min(outLen, len(samples))])
 	} else {
 		d.scratchPLCHybridNormL = ensureNormSlice(&d.scratchPLCHybridNormL, frameSize)
 		coeffs := d.scratchPLCHybridNormL[:frameSize]
 		clear(coeffs)
-		fillHybridPLCNoiseCoeffs(coeffs, frameSize, start, end, &seed)
-		denormalizeNormCoeffsDownsample(coeffs, concealEnergy[:predStride], end, frameSize, d.downsampleFactor())
+		fillHybridPLCNoiseCoeffs(coeffs, start, end, mode.LM, d.modeEdges(), &seed)
+		denormalizeHybridPLCNoiseCoeffs(coeffs, concealEnergy[:predStride], start, end, mode.LM, d.modeEdges(), d.downsampleFactor())
 		samples := d.SynthesizeFloat32(coeffs, false, 1)
 		copy(d.scratchPLCF32[:outLen], samples[:min(outLen, len(samples))])
 	}
@@ -324,28 +325,29 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int, out []float32) error {
 	return nil
 }
 
-func fillHybridPLCNoiseCoeffs(coeffs []celtNorm, frameSize, startBand, endBand int, seed *uint32) {
-	if len(coeffs) < frameSize || frameSize <= 0 {
+func fillHybridPLCNoiseCoeffs(coeffs []celtNorm, startBand, endBand, lm int, edges []int, seed *uint32) {
+	if len(coeffs) == 0 || lm < 0 || len(edges) < endBand+1 {
 		return
 	}
+	bandScale := 1 << uint(lm)
 	if startBand < 0 {
 		startBand = 0
 	}
-	if endBand > MaxBands {
-		endBand = MaxBands
+	if endBand >= len(edges) {
+		endBand = len(edges) - 1
 	}
 	if endBand < startBand {
 		endBand = startBand
 	}
 
 	for band := startBand; band < endBand; band++ {
-		start := ScaledBandStart(band, frameSize)
-		end := ScaledBandStart(band+1, frameSize)
+		start := edges[band] * bandScale
+		end := edges[band+1] * bandScale
 		if start < 0 {
 			start = 0
 		}
-		if end > frameSize {
-			end = frameSize
+		if end > len(coeffs) {
+			end = len(coeffs)
 		}
 		if start >= end {
 			continue
@@ -356,6 +358,42 @@ func fillHybridPLCNoiseCoeffs(coeffs []celtNorm, frameSize, startBand, endBand i
 		}
 		normalizeNormVectorInPlace(coeffs[start:end])
 	}
+}
+
+// denormalizeHybridPLCNoiseCoeffs applies the active mode's per-band energy
+// gains to noise-PLC vectors. libopus celt_decode_lost() builds each band's
+// bins at eBands[i]<<LM and then passes that vector through celt_synthesis();
+// using frameSize/Overlap is only equivalent for the 48 kHz modes.
+func denormalizeHybridPLCNoiseCoeffs(coeffs []celtNorm, energies []celtGLog, startBand, endBand, lm int, edges []int, downsample int) {
+	if len(coeffs) == 0 || len(energies) == 0 || lm < 0 || endBand <= startBand || len(edges) < endBand+1 {
+		return
+	}
+	if startBand < 0 {
+		startBand = 0
+	}
+	if endBand > len(energies) {
+		endBand = len(energies)
+	}
+	if endBand <= startBand || len(edges) < endBand+1 {
+		return
+	}
+	bandScale := 1 << uint(lm)
+	bound := min(edges[endBand]*bandScale, len(coeffs))
+	if downsample > 1 {
+		bound = min(bound, len(coeffs)/downsample)
+	}
+	for band := startBand; band < endBand; band++ {
+		from := min(edges[band]*bandScale, bound)
+		to := min(edges[band+1]*bandScale, bound)
+		if from >= to {
+			continue
+		}
+		gain := denormalizeBandGain(energies, band)
+		for i := from; i < to; i++ {
+			coeffs[i] = celtNorm(float32(coeffs[i]) * gain)
+		}
+	}
+	clear(coeffs[bound:])
 }
 
 // decodePLC generates concealment audio for a lost CELT packet.
@@ -496,10 +534,9 @@ func (d *Decoder) concealPeriodicPLCLimited(dst []float32, frameSize, lossCount 
 	return d.concealPeriodicPLCWithLimit(dst, frameSize, lossCount, continuePeriodic, commit, true)
 }
 
-// periodicPLCEnergy accumulates the selected PLC decay window. The paired
-// arm64 SIMD reference tested here accumulates complete four-sample vectors
-// with separate products and additions, then contracts its short remainder.
-// Scalar reference builds contract every sample.
+// periodicPLCEnergy follows the selected non-native-96 PLC energy reduction.
+// On arm64 that path accumulates complete four-sample groups separately and
+// contracts the short remainder; celt_decode_lost's 48 kHz geometry uses it.
 func periodicPLCEnergy(sum float32, samples []celtSig) float32 {
 	if libopusFloatInnerProdUsesNeonOrder {
 		vectorEnd := len(samples) &^ 3
@@ -527,6 +564,19 @@ func periodicPLCEnergy(sum float32, samples []celtSig) float32 {
 	return sum
 }
 
+func (d *Decoder) plcSynthesisEnergy(sum float32, samples []celtSig) float32 {
+	if d.qextDecodeScale() == 2 {
+		// The native QEXT CELT geometry in celt_decoder.c accumulates its float
+		// energy loops as per-sample MACs, including the QEXT-scaled PLC path.
+		for _, value := range samples {
+			sample := float32(value)
+			sum = fma32(sample, sample, sum)
+		}
+		return sum
+	}
+	return periodicPLCEnergy(sum, samples)
+}
+
 func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCount int, continuePeriodic bool, commit bool, limitEarly bool) bool {
 	overlap := d.synthOverlapLen()
 	if frameSize <= 0 || d.channels <= 0 {
@@ -534,10 +584,12 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 	}
 	channels := int(d.channels)
 	totalSamples := frameSize + overlap
+	decodeBufferSize := d.plcDecodeBufferLen()
+	maxPeriod := d.plcCombFilterMaxPeriod()
 	if len(dst) < totalSamples*channels {
 		return false
 	}
-	if len(d.plcDecodeMem) < plcDecodeBufferSize*channels {
+	if len(d.plcDecodeMem) < decodeBufferSize*channels {
 		return false
 	}
 	d.materializePLCDecodeHistory()
@@ -555,20 +607,19 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 	fade := 1.0
 	period := 0
 	if continuePeriodic &&
-		d.plcLastPitchPeriod >= combFilterMinPeriod &&
-		d.plcLastPitchPeriod <= combFilterMaxPeriod {
+		d.plcLastPitchPeriod >= int32(d.plcCombFilterMinPeriod()) &&
+		d.plcLastPitchPeriod <= int32(d.plcCombFilterMaxPeriod()) {
 		period = int(d.plcLastPitchPeriod)
 		fade = 0.8
 	} else {
 		period = d.searchPLCPitchPeriod()
 	}
-	if period < combFilterMinPeriod || period > combFilterMaxPeriod || period > combFilterHistory {
+	if period < d.plcCombFilterMinPeriod() || period > maxPeriod {
 		return false
 	}
 	d.plcLastPitchPeriod = int32(period)
 
-	const maxPeriod = combFilterMaxPeriod
-	if frameSize > plcDecodeBufferSize-maxPeriod || totalSamples > plcDecodeBufferSize {
+	if frameSize > decodeBufferSize-maxPeriod || totalSamples > decodeBufferSize {
 		return false
 	}
 	excLength := min(2*period, maxPeriod)
@@ -583,17 +634,17 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 	d.scratchPLCExc = ensureSigSlice(&d.scratchPLCExc, maxPeriod+celtPLCLPCOrder)
 	// Pitch changes across losses; reserve the full excitation bound once.
 	d.scratchPLCFIRTmp = ensureSigSlice(&d.scratchPLCFIRTmp, maxPeriod)
-	d.scratchPLCBuf = ensureSigSlice(&d.scratchPLCBuf, plcDecodeBufferSize+overlap)
+	d.scratchPLCBuf = ensureSigSlice(&d.scratchPLCBuf, decodeBufferSize+overlap)
 
 	window := d.scratchIMDCTF32.modeWindow(overlap)
 	window32 := d.scratchIMDCTF32.modeWindow(overlap)
 	continuePeriodic = lossCount > 1 && continuePeriodic
 	for ch := range channels {
-		hist := d.plcDecodeMem[ch*plcDecodeBufferSize : (ch+1)*plcDecodeBufferSize]
+		hist := d.plcDecodeMem[ch*decodeBufferSize : (ch+1)*decodeBufferSize]
 		lpc := d.plcLPC[ch*celtPLCLPCOrder : (ch+1)*celtPLCLPCOrder]
 
 		exc := d.scratchPLCExc[:maxPeriod+celtPLCLPCOrder]
-		copy(exc, hist[plcDecodeBufferSize-maxPeriod-celtPLCLPCOrder:])
+		copy(exc, hist[decodeBufferSize-maxPeriod-celtPLCLPCOrder:])
 
 		if !continuePeriodic {
 			d.computePLCLPC(exc[celtPLCLPCOrder:], lpc, window)
@@ -614,8 +665,8 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 			e2 := float32(1.0)
 			base1 := celtPLCLPCOrder + maxPeriod - decayLength
 			base2 := celtPLCLPCOrder + maxPeriod - 2*decayLength
-			e1 = periodicPLCEnergy(e1, exc[base1:base1+decayLength])
-			e2 = periodicPLCEnergy(e2, exc[base2:base2+decayLength])
+			e1 = d.plcSynthesisEnergy(e1, exc[base1:base1+decayLength])
+			e2 = d.plcSynthesisEnergy(e2, exc[base2:base2+decayLength])
 			if e1 > e2 {
 				e1 = e2
 			}
@@ -625,12 +676,12 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 		}
 
 		attenuation := float32(fade) * decay
-		buf := d.scratchPLCBuf[:plcDecodeBufferSize+overlap]
-		copy(buf[:plcDecodeBufferSize], hist)
-		copy(buf[:plcDecodeBufferSize-frameSize], buf[frameSize:plcDecodeBufferSize])
-		chOut := buf[plcDecodeBufferSize-frameSize : plcDecodeBufferSize-frameSize+totalSamples]
+		buf := d.scratchPLCBuf[:decodeBufferSize+overlap]
+		copy(buf[:decodeBufferSize], hist)
+		copy(buf[:decodeBufferSize-frameSize], buf[frameSize:decodeBufferSize])
+		chOut := buf[decodeBufferSize-frameSize : decodeBufferSize-frameSize+totalSamples]
 		s1 := float32(0)
-		s1Base := plcDecodeBufferSize - maxPeriod - frameSize + extrapolationOffset
+		s1Base := decodeBufferSize - maxPeriod - frameSize + extrapolationOffset
 		j := 0
 		for i := range totalSamples {
 			if j >= period {
@@ -653,7 +704,7 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 		// celt_decoder.c celt_decode_lost accumulates S2 with the target's
 		// selected reduction order: arm64 NEON rounds four products before
 		// adding and contracts the tail; scalar arm64 contracts every sample.
-		s2 := periodicPLCEnergy(0, chOut[:totalSamples])
+		s2 := d.plcSynthesisEnergy(0, chOut[:totalSamples])
 		if !(s1 > float32(0.2)*s2) {
 			for i := range totalSamples {
 				chOut[i] = 0
@@ -676,8 +727,8 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 	}
 
 	if commit {
-		d.updatePostfilterHistory(dst[:frameSize*channels], frameSize, combFilterHistory)
-		d.updatePLCDecodeHistory(dst[:frameSize*channels], frameSize, plcDecodeBufferSize)
+		d.updatePostfilterHistory(dst[:frameSize*channels], frameSize, d.plcCombFilterHistoryLen())
+		d.updatePLCDecodeHistory(dst[:frameSize*channels], frameSize, decodeBufferSize)
 	}
 	return true
 }
@@ -1347,7 +1398,8 @@ func (d *Decoder) searchPLCPitchPeriod() int {
 	if channels <= 0 {
 		return 0
 	}
-	if len(d.plcDecodeMem) < plcDecodeBufferSize*channels {
+	decodeBufferSize := d.plcDecodeBufferLen()
+	if len(d.plcDecodeMem) < decodeBufferSize*channels {
 		return 0
 	}
 	d.materializePLCDecodeHistory()
@@ -1361,12 +1413,16 @@ func (d *Decoder) searchPLCPitchPeriod() int {
 	if searchLen <= 0 || maxPitch <= 0 {
 		return 0
 	}
+	// celt_plc_pitch_search() keeps its 48 kHz analysis geometry under QEXT,
+	// while pitch_downsample() reads QEXT_SCALE(2) samples per output and the
+	// resulting period is multiplied by QEXT_SCALE before synthesis.
 	lpLen := plcDecodeBufferSize >> 1
 	if lpLen <= (plcPitchLagMax >> 1) {
 		return 0
 	}
 	d.scratchPLCPitchLP = ensureFloat32Slice(&d.scratchPLCPitchLP, lpLen)
-	pitchDownsampleSig(d.plcDecodeMem, d.scratchPLCPitchLP, lpLen, channels, 2)
+	qextScale := d.qextDecodeScale()
+	pitchDownsampleSig(d.plcDecodeMem, d.scratchPLCPitchLP, lpLen, channels, 2*qextScale)
 
 	searchOut := pitchSearchPLC(
 		d.scratchPLCPitchLP[plcPitchLagMax>>1:],
@@ -1375,11 +1431,11 @@ func (d *Decoder) searchPLCPitchPeriod() int {
 		maxPitch,
 		&d.scratchPLCPitchSearch,
 	)
-	pitch := plcPitchLagMax - searchOut
-	if pitch < combFilterMinPeriod || pitch > combFilterMaxPeriod {
+	pitch := (plcPitchLagMax - searchOut) * qextScale
+	if pitch < d.plcCombFilterMinPeriod() || pitch > d.plcCombFilterMaxPeriod() {
 		return 0
 	}
-	if pitch < plcPitchLagMin || pitch > plcPitchLagMax {
+	if pitch < plcPitchLagMin*qextScale || pitch > plcPitchLagMax*qextScale {
 		return 0
 	}
 	return pitch

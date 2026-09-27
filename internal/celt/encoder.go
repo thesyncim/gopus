@@ -40,9 +40,10 @@ type Encoder struct {
 	upsample int32
 
 	// Energy state (persists across frames, mirrors decoder)
-	prevEnergy  []celtGLog // Previous frame band energies [MaxBands * channels]
-	prevEnergy2 []celtGLog // Two frames ago energies (for anti-collapse)
-	energyError []celtGLog // Previous coarse quantization residuals [MaxBands * channels]
+	prevEnergy    []celtGLog // Current oldBandE history [MaxBands * channels]
+	prevLogEnergy []celtGLog // Current oldLogE history [MaxBands * channels]
+	prevEnergy2   []celtGLog // Current oldLogE2 history [MaxBands * channels]
+	energyError   []celtGLog // Previous coarse quantization residuals [MaxBands * channels]
 
 	// Analysis state for overlap (mirrors decoder's synthesis state)
 	overlapBuffer []celtSig // MDCT overlap [Overlap * channels]
@@ -251,9 +252,10 @@ func NewEncoder(channels int) *Encoder {
 		bandwidth:      CELTFullband,
 
 		// Allocate energy arrays for all bands and channels
-		prevEnergy:  make([]celtGLog, MaxBands*channels),
-		prevEnergy2: make([]celtGLog, MaxBands*channels),
-		energyError: make([]celtGLog, MaxBands*channels),
+		prevEnergy:    make([]celtGLog, MaxBands*channels),
+		prevLogEnergy: make([]celtGLog, MaxBands*channels),
+		prevEnergy2:   make([]celtGLog, MaxBands*channels),
+		energyError:   make([]celtGLog, MaxBands*channels),
 
 		// Overlap buffer for MDCT overlap-add analysis
 		// Size is Overlap (120) samples per channel
@@ -319,7 +321,11 @@ func NewEncoder(channels int) *Encoder {
 		vbr:           true,
 	}
 
-	// Energy arrays default to zero after allocation (matches libopus init).
+	// celt_encoder.c initializes oldBandE to zero and oldLogE/oldLogE2 to -28.
+	for i := range e.prevLogEnergy {
+		e.prevLogEnergy[i] = -28
+		e.prevEnergy2[i] = -28
+	}
 
 	return e
 }
@@ -413,7 +419,8 @@ func (e *Encoder) Reset() {
 	// Clear energy arrays (match libopus reset: oldBandE=0).
 	for i := range e.prevEnergy {
 		e.prevEnergy[i] = 0
-		e.prevEnergy2[i] = 0
+		e.prevLogEnergy[i] = -28
+		e.prevEnergy2[i] = -28
 		e.energyError[i] = 0
 	}
 
@@ -677,30 +684,28 @@ func (e *Encoder) PrevEnergy() []CeltGLog {
 	return out
 }
 
-// PrevEnergy2 returns the band energies from two frames ago.
-// Used for anti-collapse detection.
+// PrevEnergy2 returns the encoder's oldLogE2 band history.
 func (e *Encoder) PrevEnergy2() []CeltGLog {
 	out := make([]celtGLog, len(e.prevEnergy2))
 	copy(out, e.prevEnergy2)
 	return out
 }
 
-// SetPrevEnergy shifts current prev to prev2 and sets new prev energies.
-// This should be called after encoding a frame with the actual energies used.
+// SetPrevEnergy advances the encoder energy history as a non-transient frame.
 func (e *Encoder) SetPrevEnergy(energies []celtGLog) {
-	// Shift: current prev becomes prev2
-	copy(e.prevEnergy2, e.prevEnergy)
-	// Copy new energies to prev
+	copy(e.prevEnergy2, e.prevLogEnergy)
+	copy(e.prevLogEnergy, e.prevEnergy)
 	copy(e.prevEnergy, energies)
 }
 
-// SetPrevEnergyWithPrev updates prevEnergy using the provided previous state.
-// This avoids losing the prior frame when prevEnergy is updated during encoding.
+// SetPrevEnergyWithPrev advances CELT energy history from the supplied
+// oldBandE and current band energies as a non-transient frame.
 func (e *Encoder) SetPrevEnergyWithPrev(prev, energies []celtGLog) {
+	copy(e.prevEnergy2, e.prevLogEnergy)
 	if len(prev) == len(e.prevEnergy2) {
-		copy(e.prevEnergy2, prev)
+		copy(e.prevLogEnergy, prev)
 	} else {
-		copy(e.prevEnergy2, e.prevEnergy)
+		copy(e.prevLogEnergy, e.prevEnergy)
 	}
 	copy(e.prevEnergy, energies)
 }
@@ -879,13 +884,15 @@ func (e *Encoder) Bandwidth() CELTBandwidth {
 	return e.bandwidth
 }
 
-// scaleBase returns the short-MDCT base used to scale band-bin edges. It is
-// Overlap (120) for the 48 kHz modes and the custom mode's short-MDCT size for
-// the Fs==400*shortMdctSize family. The default build leaves customScaleBase at
-// zero, so this is a constant Overlap (zero-cost).
+// scaleBase returns the active mode's short-MDCT size. It is Overlap (120) for
+// standard 48 kHz modes, 240 for native 96 kHz CELT, and the configured size
+// for a custom mode.
 func (e *Encoder) scaleBase() int {
 	if e.customScaleBase > 0 {
 		return e.customScaleBase
+	}
+	if e.hd96kOverlap > 0 && e.sampleRate == 96000 {
+		return e.hd96kOverlap
 	}
 	return Overlap
 }

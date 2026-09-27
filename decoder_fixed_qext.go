@@ -64,7 +64,12 @@ func (d *Decoder) decodeFixedQEXTHybridHighband(silkInt16 []int16, filled int, m
 		downsample = 1
 	}
 	coreFrameSize := frameSizeAPI * downsample
-	if frameSize48 > 0 && frameSize48 != coreFrameSize {
+	wantCoreFrameSize := frameSize48
+	if d.sampleRate == 96000 {
+		coreFrameSize = frameSizeAPI
+		wantCoreFrameSize *= 2
+	}
+	if wantCoreFrameSize > 0 && wantCoreFrameSize != coreFrameSize {
 		d.fixedHybridErr = ErrInvalidPacket
 		return true
 	}

@@ -185,14 +185,15 @@ const (
 )
 
 // Delay matrix for decoder (from resampler.c)
-// in \ out  8  12  16  24  48
-var delayMatrixDec = [3][5]int8{
-	/*  8 */ {4, 0, 2, 0, 0},
-	/* 12 */ {0, 9, 4, 7, 4},
-	/* 16 */ {0, 3, 12, 7, 7},
+// in \ out  8  12  16  24  48  96
+var delayMatrixDec = [3][6]int8{
+	/*  8 */ {4, 0, 2, 0, 0, 0},
+	/* 12 */ {0, 9, 4, 7, 4, 4},
+	/* 16 */ {0, 3, 12, 7, 7, 7},
 }
 
-// rateID converts sample rate to index: 8000->0, 12000->1, 16000->2, 24000->3, 48000->4
+// rateID converts sample rate to index: 8000->0, 12000->1, 16000->2,
+// 24000->3, 48000->4, and 96000->5.
 func rateID(rate int) int {
 	switch rate {
 	case 8000:
@@ -205,6 +206,8 @@ func rateID(rate int) int {
 		return 3
 	case 48000:
 		return 4
+	case 96000:
+		return 5
 	default:
 		return 0
 	}
@@ -266,7 +269,7 @@ func (r *LibopusResampler) init(fsIn, fsOut int, forEnc bool) {
 	} else {
 		inIdx := rateID(fsIn)
 		outIdx := rateID(fsOut)
-		if inIdx < 3 && outIdx < 5 {
+		if inIdx < 3 && outIdx < 6 {
 			r.inputDelay = int32(delayMatrixDec[inIdx][outIdx])
 		}
 	}

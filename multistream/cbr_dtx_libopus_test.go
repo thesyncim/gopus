@@ -69,12 +69,12 @@ func TestMultistreamCBRDTXMatchesLibopus(t *testing.T) {
 
 func TestPaddedStreamMatchesLibopusRepacketizer(t *testing.T) {
 	libopustest.RequireOracle(t)
-	bin, err := libopustest.BuildCHelper(libopustest.CHelperConfig{
+	bin, err := libopustest.BuildCHelper(pairMultistreamReference(libopustest.CHelperConfig{
 		Label: "multistream CBR padding", OutputBase: "gopus_ms_cbr_pad",
 		SourceFile: "libopus_repacketizer_info.c", CFlags: []string{"-DHAVE_CONFIG_H", "-O2"},
 		RefIncludes: []string{"src", "celt", "silk"},
-		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
-	})
+		Libs:        []string{"-lm"},
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}

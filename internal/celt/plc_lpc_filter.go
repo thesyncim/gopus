@@ -178,7 +178,7 @@ func (d *Decoder) celtIIRFloat32(dst []celtSig, hist []celtSig, lpc []float32, l
 	var mem [ord]float32
 	for i := range ord {
 		rden[i] = float32(lpc[ord-1-i])
-		mem[i] = float32(hist[plcDecodeBufferSize-1-i])
+		mem[i] = float32(hist[len(hist)-1-i])
 	}
 	y := ensureFloat32Slice(&d.scratchPLCIIRY, length+ord)
 	for i := range ord {

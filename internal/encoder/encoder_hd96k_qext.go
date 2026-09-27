@@ -53,6 +53,14 @@ func (e *Encoder) EncodeNativeHD96k(pcm []float32, frameSize int, dst []byte) (i
 	if len(dst) < 3 {
 		return 0, ErrInvalidConfig
 	}
+	packetCap := libopusMaxDataBytesCap
+	if e.qextActive() {
+		packetCap = hd96kQEXTPacketSizeCap
+	}
+	maxDataBytes := min(len(dst), packetCap*6)
+	userBitrate := e.bitrate
+	e.updateHD96kStreamChannels(frameSize, maxDataBytes)
+	defer func() { e.bitrate = userBitrate }()
 	if n, handled, err := e.encodeNativeHD96kFixed(pcm, frameSize, dst); handled || err != nil {
 		return n, err
 	}
@@ -63,7 +71,7 @@ func (e *Encoder) EncodeNativeHD96k(pcm []float32, frameSize int, dst []byte) (i
 		ce.EnableHD96kMode()
 	}
 	ce.SetQEXTEnabled(e.qextActive())
-	ce.SetStreamChannels(channels)
+	ce.SetStreamChannels(int(e.streamChannels))
 	ce.SetBandwidth(celt.CELTFullband)
 	ce.SetHybrid(false)
 	ce.SetTopLevelDelayCompensatedInput(true)
@@ -82,22 +90,28 @@ func (e *Encoder) EncodeNativeHD96k(pcm []float32, frameSize int, dst []byte) (i
 	if useVBR {
 		ce.SetConstrainedVBR(e.bitrateMode == ModeCVBR)
 	}
-	packetCap := libopusMaxDataBytesCap
-	if e.qextActive() {
-		packetCap = hd96kQEXTPacketSizeCap
-	}
-	maxDataBytes := min(len(dst), packetCap*6)
 	if !useVBR {
 		cbrBytes := min((bitrateToBitsFs(int(e.bitrate), 96000, frameSize)+4)/8, maxDataBytes)
 		maxDataBytes = max(1, cbrBytes)
 	}
 	maxPayloadBytes := maxDataBytes - 1 // opus_encode_frame_native reserves the TOC byte.
+	if !e.qextActive() {
+		maxPayloadBytes = min(maxPayloadBytes, 1275)
+	}
 	if maxPayloadBytes < 2 {
 		return 0, ErrInvalidConfig
 	}
 	ce.SetMaxPayloadBytes(maxPayloadBytes)
 
-	mainPayload, err := ce.EncodeFrame(pcm, frameSize)
+	inputPCM := pcm
+	if !e.qextActive() {
+		inputPCM = e.dcRejectHD96kFloat(pcm, frameSize)
+	}
+	framePCM := e.prepareHD96kFloatPCM(inputPCM, frameSize)
+	equivRate := e.computeEquivRate(e.bitrate, e.streamChannels, int32(96000/frameSize),
+		e.bitrateMode != ModeCBR, ModeCELT, e.complexity, e.packetLoss)
+	e.applyHD96kFloatStereoWidth(framePCM, equivRate)
+	mainPayload, err := ce.EncodeFrame(framePCM, frameSize)
 	if err != nil {
 		return 0, err
 	}
@@ -111,7 +125,128 @@ func (e *Encoder) EncodeNativeHD96k(pcm []float32, frameSize int, dst []byte) (i
 	// The native 96 kHz CELT path always produces a frame, so mark it coded.
 	e.first = false
 
-	return assembleHD96kPacket(dst, frameSize, mainPayload, qextPayload, channels == 2)
+	return assembleHD96kPacket(dst, frameSize, mainPayload, qextPayload, e.streamChannels == 2)
+}
+
+// updateHD96kStreamChannels mirrors opus_encode_native's rate-dependent
+// mono/stereo selection before the native CELT frame is encoded. The native
+// 96 kHz route bypasses the regular frame driver, so it resolves the same
+// caller-budgeted bitrate and CBR byte rounding locally before using the
+// shared stream-channel decision.
+func (e *Encoder) updateHD96kStreamChannels(frameSize, maxDataBytes int) {
+	effectiveBitrate := resolveUserBitrate(int(e.bitrate), 96000, int(e.channels), frameSize, maxDataBytes)
+	if e.bitrateMode == ModeCBR {
+		cbrBytes := min((bitrateToBitsFs(effectiveBitrate, 96000, frameSize)+4)/8, maxDataBytes)
+		cbrBytes = max(1, cbrBytes)
+		effectiveBitrate = bitsToBitrateFs(cbrBytes*8, 96000, frameSize)
+	}
+	e.bitrate = int32(effectiveBitrate)
+	e.updateStreamChannelsForFrame(frameSize)
+}
+
+// hd96kStereoWidthQ14 matches opus_encoder.c's CELT-only stereo-width target
+// from the frame's equivalent rate. The high-rate native route bypasses the
+// shared frame driver, so it applies this source control before CELT itself.
+func hd96kStereoWidthQ14(equivRate int32) int16 {
+	switch {
+	case equivRate > 32000:
+		return 1 << 14
+	case equivRate < 16000:
+		return 0
+	default:
+		return int16((1 << 14) - 2048*(32000-equivRate)/(equivRate-14000))
+	}
+}
+
+// prepareHD96kFloatPCM builds opus_encode_frame_native's delayed pcm_buf for
+// the native 96 kHz mode and advances its 10 ms history before any CELT fades.
+func (e *Encoder) prepareHD96kFloatPCM(pcm []float32, frameSize int) []opusRes {
+	channels := int(e.channels)
+	frameSamples := frameSize * channels
+	if e.lowDelay {
+		out := e.ensureDelayedPCM(frameSamples)
+		copy(out, pcm)
+		return out
+	}
+	const encoderBuffer = 960
+	const delayCompensation = 384
+	bufferSamples := encoderBuffer * channels
+	if len(e.delayBuffer) != bufferSamples {
+		e.delayBuffer = make([]opusRes, bufferSamples)
+	}
+	pcmBuf := e.ensureInputPCM((frameSize + delayCompensation) * channels)
+	copy(pcmBuf[:delayCompensation*channels], e.delayBuffer[(encoderBuffer-delayCompensation)*channels:])
+	copy(pcmBuf[delayCompensation*channels:], pcm)
+	if encoderBuffer-frameSize-delayCompensation > 0 {
+		keep := (encoderBuffer - frameSize - delayCompensation) * channels
+		copy(e.delayBuffer[:keep], e.delayBuffer[frameSize*channels:frameSize*channels+keep])
+		copy(e.delayBuffer[keep:], pcmBuf)
+	} else {
+		start := (frameSize + delayCompensation - encoderBuffer) * channels
+		copy(e.delayBuffer, pcmBuf[start:start+bufferSamples])
+	}
+	return pcmBuf[:frameSamples]
+}
+
+// dcRejectHD96kFloat ports the float opus_encoder.c:dc_reject branch at Fs=96
+// kHz. QEXT bypasses this filter in the caller and leaves hp_mem unchanged.
+func (e *Encoder) dcRejectHD96kFloat(in []float32, frameSize int) []float32 {
+	channels := int(e.channels)
+	out := e.ensureDCPCM(frameSize * channels)
+	coef := round32(round32(float32(6.3)*float32(3)) / float32(96000))
+	coef2 := round32(float32(1) - coef)
+	const verySmall = float32(1e-30)
+	if channels == 2 {
+		m0, m2 := e.hpMem[0], e.hpMem[2]
+		for i := range frameSize {
+			x0, x1 := in[2*i], in[2*i+1]
+			out[2*i], out[2*i+1] = x0-m0, x1-m2
+			// opus_encoder.c's float expression contracts each multiply-add on
+			// targets with FMA: coef*x + VERY_SMALL, then + coef2*mem.
+			m0 = fma32(coef2, m0, fma32(coef, x0, verySmall))
+			m2 = fma32(coef2, m2, fma32(coef, x1, verySmall))
+		}
+		e.hpMem[0], e.hpMem[2] = m0, m2
+	} else {
+		m0 := e.hpMem[0]
+		for i := range frameSize {
+			x := in[i]
+			out[i] = x - m0
+			m0 = fma32(coef2, m0, fma32(coef, x, verySmall))
+		}
+		e.hpMem[0] = m0
+	}
+	return out
+}
+
+// applyHD96kFloatStereoWidth applies the native mode's 240-sample window and
+// the CELT-only width target from opus_encoder.c:2320-2348.
+func (e *Encoder) applyHD96kFloatStereoWidth(pcm []opusRes, equivRate int32) {
+	width := hd96kStereoWidthQ14(equivRate)
+	e.silkMode.StereoWidthQ14 = int32(width)
+	if e.channels != 2 || len(e.celtEnergyMask) != 0 ||
+		(e.hybridStereoWidthQ14 >= 1<<14 && width >= 1<<14) {
+		return
+	}
+	prev := e.hybridStereoWidthQ14
+	if !e.restrictedSilkApp {
+		window := celt.GetWindowBufferF32(240)
+		g1 := 1 - opusVal16(prev)*(1.0/16384)
+		g2 := 1 - opusVal16(width)*(1.0/16384)
+		frameSize := len(pcm) / 2
+		for i := 0; i < frameSize; i++ {
+			g := g2
+			if i < len(window) {
+				w := round32(window[i] * window[i])
+				g = fma32(w, g2, round32(round32(1-w)*g1))
+			}
+			diff := round32(0.5 * (pcm[i*2] - pcm[i*2+1]))
+			diff = round32(g * diff)
+			pcm[i*2] -= diff
+			pcm[i*2+1] += diff
+		}
+	}
+	e.hybridStereoWidthQ14 = width
 }
 
 func validHD96kFrameSize(frameSize int) bool {
