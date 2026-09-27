@@ -47,7 +47,7 @@ func TestSurroundTransientHistoryStrideMatchesLibopus(t *testing.T) {
 			enc.SetBandwidthAuto()
 			for f := range spec.frameCount {
 				frame := pcm[f*spec.frameSize*spec.channels : (f+1)*spec.frameSize*spec.channels]
-				got, err := enc.EncodeFloat32WithAnalysisMaxBytes(frame, spec.frameSize, frame, compositeMaxPacketBytes)
+				got, err := encodePacketMax(enc, frame, spec.frameSize, frame, compositeMaxPacketBytes)
 				if err != nil {
 					t.Fatalf("frame %d Go surround encode: %v", f, err)
 				}

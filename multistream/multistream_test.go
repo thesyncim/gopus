@@ -811,7 +811,7 @@ func TestDecodeIntegration(t *testing.T) {
 	}
 
 	pcm := generateTestSignal(channels, frameSize, sampleRate, baseFreq)
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodePacket(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode error: %v", err)
 	}

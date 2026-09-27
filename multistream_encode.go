@@ -5,31 +5,30 @@ package gopus
 // pcm: Input samples (interleaved). Length must be frameSize * channels.
 // data: Output buffer for the encoded packet. Recommended size is 4000 bytes per stream.
 //
-// Returns the number of bytes written to data, or an error.
-// Returns 0 bytes written if DTX suppresses all frames (silence detected in all streams).
+// Returns the number of bytes written to data, or an error. Like libopus
+// opus_multistream_encode_float(), len(data) is the packet budget every
+// stream's allocation is carved from. The steady-state path is allocation-free.
 func (e *MultistreamEncoder) Encode(pcm []float32, data []byte) (int, error) {
-	frameSizeArg := int(e.frameSize)
-	channels := int(e.channels)
-	expected := frameSizeArg * channels
-	if len(pcm) != expected {
-		return 0, ErrInvalidFrameSize
-	}
-	frameSize, err := selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application, int(e.sampleRate))
+	frameSize, err := e.codedFrameSize(len(pcm))
 	if err != nil {
 		return 0, err
 	}
-	inputSamples := frameSize * channels
-
-	// libopus threads the caller buffer size (max_data_bytes) into the per-stream
-	// curr_max budgeting (opus_multistream_encoder.c opus_multistream_encode_native()),
-	// so pass the caller output buffer length rather than a fixed per-stream cap.
-	packet, err := e.enc.EncodeFloat32WithAnalysisMaxBytes(pcm[:inputSamples], frameSize, pcm, len(data))
+	n, err := e.enc.EncodeWithAnalysis(pcm[:frameSize*int(e.channels)], frameSize, pcm, data)
 	if err != nil {
 		return 0, err
 	}
 	e.encodedOnce = true
+	return n, nil
+}
 
-	return copyEncodedPacket(packet, data)
+// codedFrameSize validates the caller frame length and returns the frame size
+// frame_size_select() codes for it.
+func (e *MultistreamEncoder) codedFrameSize(samples int) (int, error) {
+	frameSizeArg := int(e.frameSize)
+	if samples != frameSizeArg*int(e.channels) {
+		return 0, ErrInvalidFrameSize
+	}
+	return selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application, int(e.sampleRate))
 }
 
 // EncodeInt16 encodes int16 PCM samples into an Opus multistream packet.
@@ -37,19 +36,15 @@ func (e *MultistreamEncoder) Encode(pcm []float32, data []byte) (int, error) {
 // pcm: Input samples (interleaved). Length must be frameSize * channels.
 // data: Output buffer for the encoded packet.
 //
-// Returns the number of bytes written to data, or an error.
+// Returns the number of bytes written to data, or an error. It matches
+// libopus opus_multistream_encode(): the samples are scaled by 1/32768 and the
+// streams code them with a 16-bit LSB depth.
 func (e *MultistreamEncoder) EncodeInt16(pcm []int16, data []byte) (int, error) {
-	frameSizeArg := int(e.frameSize)
-	channels := int(e.channels)
-	expected := frameSizeArg * channels
-	if len(pcm) != expected {
-		return 0, ErrInvalidFrameSize
-	}
-	frameSize, err := selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application, int(e.sampleRate))
+	frameSize, err := e.codedFrameSize(len(pcm))
 	if err != nil {
 		return 0, err
 	}
-	n, err := e.enc.EncodeInt16WithAnalysisMaxBytesInto(pcm[:frameSize*channels], frameSize, pcm, data)
+	n, err := e.enc.EncodeInt16WithAnalysis(pcm[:frameSize*int(e.channels)], frameSize, pcm, data)
 	if err != nil {
 		return 0, err
 	}
@@ -66,7 +61,9 @@ func (e *MultistreamEncoder) EncodeInt16(pcm []int16, data []byte) (int, error) 
 //
 // The input values are interpreted as right-justified signed 24-bit PCM
 // carried in int32 containers with numeric range [-8388608, 8388607].
-// Left-shifted 24-in-32 input will be mis-scaled.
+// Left-shifted 24-in-32 input will be mis-scaled. INT24TORES scales exactly by
+// 1/8388608 and opus_multistream_encode24() codes at the float path's 24-bit
+// LSB depth, so the samples take the float path.
 func (e *MultistreamEncoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
 	expected := int(e.frameSize) * int(e.channels)
 	if len(pcm) != expected {

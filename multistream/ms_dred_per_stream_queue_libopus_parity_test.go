@@ -135,7 +135,7 @@ func TestMSPerStreamDREDQueueTwoStreamsIndependent(t *testing.T) {
 	enc.SetMode(internalenc.ModeCELT)
 	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(256000)
-	rawPacket, err := enc.Encode(generateMultichannelSine(channels, 960), 960)
+	rawPacket, err := encodePacket(enc, generateMultichannelSine(channels, 960), 960)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestMSPerStreamDREDQueueLibopusOracleRecoveryAudio(t *testing.T) {
 	packets := make([][]byte, numFrames)
 	for i := 0; i < numFrames; i++ {
 		pcm := generateMultichannelSine(channels, frameSize)
-		p, encErr := enc.Encode(pcm, frameSize)
+		p, encErr := encodePacket(enc, pcm, frameSize)
 		if encErr != nil {
 			t.Fatalf("frame %d Encode: %v", i, encErr)
 		}
@@ -447,7 +447,7 @@ func TestMSPerStreamDREDQueueCacheIsStreamScoped(t *testing.T) {
 	enc.SetMode(internalenc.ModeCELT)
 	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(256000)
-	rawPacket, err := enc.Encode(generateMultichannelSine(channels, 960), 960)
+	rawPacket, err := encodePacket(enc, generateMultichannelSine(channels, 960), 960)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}

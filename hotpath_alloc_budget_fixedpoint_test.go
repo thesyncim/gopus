@@ -15,10 +15,7 @@ const (
 	silkPLCStereoHotPathAllocBudget = 7
 )
 
-// Multistream wrapper budgets under -tags gopus_fixed_point. The float Decode
-// path uses fixed-point elementary decoders. These bounds include wrapper
-// allocations and are measured ceilings for the default stereo configuration.
-const (
-	multistreamEncodeHotPathAllocBudget = 1
-	multistreamDecodeHotPathAllocBudget = 8
-)
+// Multistream decode under -tags gopus_fixed_point uses fixed-point elementary
+// decoders. This ceiling includes wrapper allocations for the default stereo
+// configuration. The multistream encoder is zero-alloc in every build.
+const multistreamDecodeHotPathAllocBudget = 8

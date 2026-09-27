@@ -69,9 +69,11 @@
 // # Buffer ownership
 //
 // Constructors copy the caller's mapping (and demixing matrix) defensively, so
-// the caller may reuse or mutate those slices afterwards. Encode and the Decode*
-// methods allocate and return a fresh output slice on every call that the caller
-// fully owns; input slices are read-only and never retained past the call.
+// the caller may reuse or mutate those slices afterwards. The Encode* methods
+// write the packet into the caller's buffer, whose length is the packet budget,
+// and return its length without allocating. The Decode* methods allocate and
+// return a fresh output slice on every call that the caller fully owns; input
+// slices are read-only and never retained past the call.
 //
 // # Error conditions
 //

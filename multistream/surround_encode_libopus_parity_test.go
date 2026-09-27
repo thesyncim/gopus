@@ -158,7 +158,7 @@ func runSurroundEncodeParity(t *testing.T, sampleRate, channels, frameSize, fram
 	for i := range frameCount {
 		start := i * frameSize * channels
 		frame := pcm[start : start+frameSize*channels]
-		got, err := enc.EncodeFloat32WithAnalysisMaxBytes(frame, frameSize, frame, maxPacketBytes)
+		got, err := encodePacketMax(enc, frame, frameSize, frame, maxPacketBytes)
 		if err != nil {
 			t.Fatalf("frame %d: gopus Encode: %v", i, err)
 		}

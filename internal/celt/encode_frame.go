@@ -82,13 +82,13 @@ func (e *Encoder) quantizeInputToLSBDepthScratchF32(pcm []float32) []float32 {
 // compute_vbr surround target offset) from the externally supplied energy mask.
 // out holds MaxBands entries; the analysis clears the first end of them and
 // writes floors up to max(2, lastCodedBands), which exceeds end for the frames
-// after a bandwidth reduction. Without a usable mask it returns the configured
-// surround trim, zero masking, and ok=false.
+// after a bandwidth reduction. Without a usable mask it returns zero trim,
+// zero masking, and ok=false, as surround_trim and surround_masking start at 0.
 func (e *Encoder) computeSurroundDynallocFromMask(end int, out []celtGLog) (trim, masking celtGLog, ok bool) {
-	if e.lfe || e.hybrid || e.perMode != nil || len(e.energyMask) < MaxBands*int(e.channels) {
-		return e.surroundTrim, 0, false
-	}
 	clear(out[:end])
+	if e.lfe || e.hybrid || e.perMode != nil || len(e.energyMask) < MaxBands*int(e.channels) {
+		return 0, 0, false
+	}
 	channels := e.codedChannels()
 	maskEnd := max(2, int(e.lastCodedBands))
 
@@ -832,7 +832,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	for c := range codedChannels {
 		copy(oldBandE[c*nbBands:(c+1)*nbBands], prev1LogE[c*predStride:c*predStride+nbBands])
 	}
-	surroundTrimForAlloc := e.surroundTrim
+	surroundTrimForAlloc := celtGLog(0)
 	surroundMasking := celtGLog(0)
 	var surroundDynalloc []celtGLog
 	var surroundDynallocScratch [MaxBands]celtGLog

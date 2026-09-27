@@ -1044,7 +1044,6 @@ func TestEncoderGLogStateMatchesLibopusFloatSize(t *testing.T) {
 		{"energyError", unsafe.Sizeof(enc.energyError[0])},
 		{"energyMask", unsafe.Sizeof(enc.energyMask[0])},
 		{"specAvg", unsafe.Sizeof(enc.specAvg)},
-		{"surroundTrim", unsafe.Sizeof(enc.surroundTrim)},
 		{"lastTemporalVBR", unsafe.Sizeof(enc.lastTemporalVBR)},
 		{"lastBandLogE", unsafe.Sizeof(enc.lastBandLogE[0])},
 		{"lastBandLogE2", unsafe.Sizeof(enc.lastBandLogE2[0])},

@@ -19,7 +19,6 @@ func TestOpusInputScratchFieldWidthsMatchFloatBuild(t *testing.T) {
 		"scratchTransitionPrefill",
 		"scratchSilkPrefill",
 		"scratchCELTPrefill",
-		"scratchQuantPCM",
 	)
 	checkFieldsHaveType(t, reflect.TypeFor[Encoder](), float32SliceType,
 		"floatInputFrame",

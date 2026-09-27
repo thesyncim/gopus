@@ -142,7 +142,7 @@ func TestDefaultBuildMultistreamDecoderRealBlobDormant(t *testing.T) {
 		t.Fatalf("NewEncoderDefault error: %v", err)
 	}
 	pcm := generateTestSignal(channels, frameSize, sampleRate, 997)
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodePacket(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode error: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestDefaultBuildMultistreamDecoderDecodeAllocGuard(t *testing.T) {
 		t.Fatalf("NewEncoderDefault error: %v", err)
 	}
 	pcm := generateTestSignal(channels, frameSize, sampleRate, 997)
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodePacket(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode error: %v", err)
 	}
@@ -342,20 +342,20 @@ func TestDefaultBuildMultistreamEncoderDNNBlobKeepsAllocsFlat(t *testing.T) {
 	pcm := generateTestSignal(channels, frameSize, sampleRate, 997)
 
 	// Warm both encoders so steady-state Encode allocations are measured.
-	if _, err := baseline.Encode(pcm, frameSize); err != nil {
+	if _, err := encodePacket(baseline, pcm, frameSize); err != nil {
 		t.Fatalf("baseline Encode warmup error: %v", err)
 	}
-	if _, err := armed.Encode(pcm, frameSize); err != nil {
+	if _, err := encodePacket(armed, pcm, frameSize); err != nil {
 		t.Fatalf("armed Encode warmup error: %v", err)
 	}
 
 	baselineAllocs := testing.AllocsPerRun(50, func() {
-		if _, err := baseline.Encode(pcm, frameSize); err != nil {
+		if _, err := encodePacket(baseline, pcm, frameSize); err != nil {
 			t.Fatalf("baseline Encode: %v", err)
 		}
 	})
 	armedAllocs := testing.AllocsPerRun(50, func() {
-		if _, err := armed.Encode(pcm, frameSize); err != nil {
+		if _, err := encodePacket(armed, pcm, frameSize); err != nil {
 			t.Fatalf("armed Encode: %v", err)
 		}
 	})

@@ -91,7 +91,7 @@ func surroundSeedPacket(tb testing.TB, channels int) []byte {
 	for i := range pcm {
 		pcm[i] = float32((i*7+channels)%193-96) / 110
 	}
-	pkt, err := enc.Encode(pcm, robustFrameSize)
+	pkt, err := encodePacket(enc, pcm, robustFrameSize)
 	if err != nil {
 		tb.Fatalf("surround encode(%d ch): %v", channels, err)
 	}
@@ -121,7 +121,7 @@ func projectionSeedPacket(tb testing.TB, channels int) projectionSeed {
 	for i := range pcm {
 		pcm[i] = float32((i*5+channels)%107-53) / 90
 	}
-	pkt, err := enc.Encode(pcm, robustFrameSize)
+	pkt, err := encodePacket(enc, pcm, robustFrameSize)
 	if err != nil {
 		tb.Fatalf("projection encode(%d ch): %v", channels, err)
 	}

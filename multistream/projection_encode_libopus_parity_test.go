@@ -238,7 +238,7 @@ func runProjectionEncodeParity(t *testing.T, channels, frameSize, frameCount, bi
 		var got []byte
 		if sampleFormat == 1 {
 			input := pcm16[start : start+frameSize*channels]
-			n, err := enc.EncodeInt16WithAnalysisMaxBytesInto(input, frameSize, input, out)
+			n, err := enc.EncodeInt16WithAnalysis(input, frameSize, input, out)
 			if err != nil {
 				t.Fatalf("frame %d Go short encode: %v", frame, err)
 			}
@@ -246,7 +246,7 @@ func runProjectionEncodeParity(t *testing.T, channels, frameSize, frameCount, bi
 		} else {
 			input := pcm[start : start+frameSize*channels]
 			var err error
-			got, err = enc.EncodeFloat32WithAnalysisMaxBytes(input, frameSize, input, maxPacketBytes)
+			got, err = encodePacketMax(enc, input, frameSize, input, maxPacketBytes)
 			if err != nil {
 				t.Fatalf("frame %d Go float encode: %v", frame, err)
 			}

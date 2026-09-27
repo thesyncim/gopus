@@ -235,7 +235,7 @@ func TestGetDemixingMatrixMatchesDecoder(t *testing.T) {
 	// Encode and decode a frame to verify the pipeline works end-to-end.
 	frameSize := 960
 	pcm := generateMultichannelSine(channels, frameSize)
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodePacket(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}

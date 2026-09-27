@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/thesyncim/gopus/internal/arena"
 	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/encoder"
@@ -81,11 +80,14 @@ type Encoder struct {
 	// lfeStream is the stream index that carries LFE, or -1 when absent.
 	lfeStream int
 
+	// restrictedSilk mirrors st->application == OPUS_APPLICATION_RESTRICTED_SILK,
+	// which skips surround_analysis() and the energy masks.
+	restrictedSilk bool
+
 	// Optional projection-family mixing matrix coefficients (column-major S16).
 	projectionMixing []int16
 	projectionCols   int
 	projectionRows   int
-	projectionFrame  []float32
 
 	// projectionDemixingGain stores the gain field from the internal demixing matrix,
 	// matching OPUS_PROJECTION_GET_DEMIXING_MATRIX_GAIN.
@@ -94,9 +96,6 @@ type Encoder struct {
 
 	// streamBitrates stores per-stream rates computed by allocation policy.
 	streamBitrates []int
-
-	// streamSurroundTrim stores per-stream surround trim derived from surround masks.
-	streamSurroundTrim []float32
 
 	// streamEnergyMask stores per-stream CELT energy masks (max 42 values/stream).
 	streamEnergyMask []float32
@@ -116,38 +115,26 @@ type Encoder struct {
 	// surroundBandScratch stores temporary per-band energies for one channel.
 	surroundBandScratch [surroundBands]float32
 
-	// surroundAnalysisEncoder computes CELT band energies for surround analysis.
-	surroundAnalysisEncoder *celt.Encoder
-
 	// The surround MDCT runs once per input channel and reuses its buffers.
 	surroundMDCTScratch celt.MDCTForwardScratch
 	surroundMDCTCoeffs  []float32
 
-	// Per-call encode scratch reused across Encode calls to reduce the
-	// steady-state encode allocation footprint. These slice headers and their
-	// element buffers are intra-call scratch consumed before the assembled
-	// packet is produced; they never escape the encoder. The assembled output
-	// bytes are freshly allocated because the caller may retain them.
+	// surroundAnalysisEncoder computes CELT band energies for surround analysis.
+	surroundAnalysisEncoder *celt.Encoder
+
+	// Per-call encode scratch reused across Encode calls so the steady-state
+	// encode path is allocation-free.
 	streamInputScratch   [][]float32 // routed per-stream input buffers
 	analysisInputScratch [][]float32 // routed per-stream analysis buffers (distinct length)
-	shortInputScratch    []float32   // original int16 PCM represented exactly in the float input domain
-	streamPacketsScratch [][]byte    // per-stream encoded packets
-	assembleScratch      [][]byte    // self-delimited framing slices for assembly
-	framingScratch       []byte      // one stream's self-delimited framing for exact budget accounting
+	int16Scratch         []float32   // opus_res view of 16-bit analysis input
+	int16CodedScratch    []float32   // opus_res view of 16-bit coded input when it is not the analysis prefix
 
-	// packetParser holds reusable parse/build working buffers and assembleArena
-	// backs the self-delimited reframing of the first N-1 stream packets during
-	// assembly. The arena slices coexist until the final packet copy but never
-	// escape the assemble call.
-	packetParser  packetScratch
-	assembleArena arena.Bump[byte]
+	// packetParser holds reusable parse/build working buffers for the
+	// self-delimited reframing of the first N-1 stream packets.
+	packetParser packetScratch
 }
 
 const surroundBands = 21
-
-var surroundEBands = [surroundBands + 1]int{
-	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 13, 15, 17, 20, 23, 27, 32, 38, 46, 56, 69,
-}
 
 func mappingEqual(a, b []byte) bool {
 	if len(a) != len(b) {
@@ -296,7 +283,6 @@ func NewEncoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 		mappingFamily:           mappingFamily,
 		lfeStream:               lfeStream,
 		streamBitrates:          make([]int, streams),
-		streamSurroundTrim:      make([]float32, streams),
 		streamEnergyMask:        make([]float32, streams*2*surroundBands),
 		surroundBandSMR:         make([]float32, channels*surroundBands),
 		surroundWindowMem:       make([]float32, channels*celt.Overlap),
@@ -412,10 +398,6 @@ func (e *Encoder) Reset() {
 	for i, enc := range e.encoders {
 		enc.Reset()
 		enc.SetLFE(i == e.lfeStream)
-		enc.SetCELTSurroundTrim(0)
-		if i < len(e.streamSurroundTrim) {
-			e.streamSurroundTrim[i] = 0
-		}
 	}
 	if len(e.surroundBandSMR) > 0 {
 		clear(e.surroundBandSMR)
@@ -568,6 +550,7 @@ func (e *Encoder) VoIPApplication() bool {
 
 // SetRestrictedSilkApplication toggles restricted-SILK application behavior.
 func (e *Encoder) SetRestrictedSilkApplication(enabled bool) {
+	e.restrictedSilk = enabled
 	for _, enc := range e.encoders {
 		enc.SetRestrictedSilkApplication(enabled)
 	}
@@ -585,16 +568,6 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
-}
-
-func clampFloat32(v, lo, hi float32) float32 {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
 }
 
 var surroundLogSumDiffTable = [...]float32{
@@ -794,13 +767,13 @@ func (e *Encoder) allocateRates(frameSize int) []int {
 	return rates
 }
 
+// surroundBandwidth is the per-stream OPUS_SET_BANDWIDTH of a surround
+// layout. libopus derives it from st->bitrate_bps itself, so OPUS_AUTO and
+// OPUS_BITRATE_MAX (negative) select narrowband
+// (src/opus_multistream_encoder.c:941-957).
 func (e *Encoder) surroundBandwidth(frameSize int) types.Bandwidth {
 	fs := int(e.sampleRate)
-	if fs <= 0 {
-		fs = 48000
-	}
-	totalRate := e.bitrateForAllocation(frameSize)
-	equivRate := totalRate
+	equivRate := e.bitrate
 	if frameSize > 0 && frameSize*50 < fs {
 		equivRate -= 60 * (fs/frameSize - 50) * e.inputChannels
 	}
@@ -868,60 +841,6 @@ func surroundAnalysisFreqSize(frameSize int) (int, bool) {
 		}
 		return 0, false
 	}
-}
-
-func surroundTrimFromMask(maskL, maskR []float32) float32 {
-	if len(maskL) < surroundBands {
-		return 0
-	}
-	channels := 1
-	if len(maskR) >= surroundBands {
-		channels = 2
-	}
-	maskEnd := min(17, surroundBands)
-
-	maskAvg := float32(0)
-	count := 0
-	diff := float32(0)
-	for c := 0; c < channels; c++ {
-		mask := maskL
-		if c == 1 {
-			mask = maskR
-		}
-		for i := range maskEnd {
-			m := clampFloat32(mask[i], -2.0, 0.25)
-			if m > 0 {
-				m *= 0.5
-			}
-			width := surroundEBands[i+1] - surroundEBands[i]
-			maskAvg += m * float32(width)
-			count += width
-			diff += m * float32(1+2*i-maskEnd)
-		}
-	}
-	if count <= 0 {
-		return 0
-	}
-	maskAvg = maskAvg/float32(count) + 0.2
-	_ = maskAvg
-
-	denom := float32(channels * (maskEnd - 1) * (maskEnd + 1) * maskEnd)
-	if denom <= 0 {
-		return 0
-	}
-	diff = diff * 6.0 / denom
-	diff *= 0.5
-	diff = clampFloat32(diff, -0.031, 0.031)
-	return 64.0 * diff
-}
-
-func (e *Encoder) inputChannelForMapping(mappingIdx byte) int {
-	for i, v := range e.mapping {
-		if v == mappingIdx {
-			return i
-		}
-	}
-	return -1
 }
 
 func (e *Encoder) ensureSurroundInputScratch(size int) []float32 {
@@ -993,6 +912,17 @@ func (e *Encoder) computeSurroundBandSMR(pcm []float32, frameSize int, bandSMR [
 			m = celt.PreemphCoef * x
 		}
 		e.surroundPreemphMem[ch] = m
+		// Filter out NaNs and signals large enough to cause NaNs further down
+		// (surround_analysis(): !(sum < 1e18f) || celt_isnan(sum)). The sum
+		// only feeds this guard, so its accumulation order does not matter.
+		var sum float32
+		for _, v := range in {
+			sum += v * v
+		}
+		if !(sum < 1e18) {
+			clear(in)
+			e.surroundPreemphMem[ch] = 0
+		}
 
 		for i := range surroundBands {
 			e.surroundBandScratch[i] = float32(math.Inf(-1))
@@ -1082,135 +1012,66 @@ func (e *Encoder) computeSurroundBandSMR(pcm []float32, frameSize int, bandSMR [
 	return true
 }
 
-func (e *Encoder) updateSurroundTrimFromPCM(pcm []float32, frameSize int) bool {
-	if cap(e.streamSurroundTrim) < e.streams {
-		e.streamSurroundTrim = make([]float32, e.streams)
-	}
-	trim := e.streamSurroundTrim[:e.streams]
-	for i := range trim {
-		trim[i] = 0
-	}
-	if !e.isSurroundMapping() {
-		return false
-	}
-
-	needed := e.inputChannels * surroundBands
-	if cap(e.surroundBandSMR) < needed {
-		e.surroundBandSMR = make([]float32, needed)
-	}
-	bandSMR := e.surroundBandSMR[:needed]
-	clear(bandSMR)
-	if !e.computeSurroundBandSMR(pcm, frameSize, bandSMR) {
-		return false
-	}
-
-	for s := 0; s < e.streams; s++ {
-		if s == e.lfeStream {
-			trim[s] = 0
-			continue
-		}
-		if s < e.coupledStreams {
-			left := e.inputChannelForMapping(byte(2 * s))
-			right := e.inputChannelForMapping(byte(2*s + 1))
-			if left < 0 || right < 0 {
-				continue
-			}
-			trim[s] = surroundTrimFromMask(
-				bandSMR[left*surroundBands:(left+1)*surroundBands],
-				bandSMR[right*surroundBands:(right+1)*surroundBands],
-			)
-		} else {
-			mappingIdx := byte(2*e.coupledStreams + (s - e.coupledStreams))
-			mono := e.inputChannelForMapping(mappingIdx)
-			if mono < 0 {
-				continue
-			}
-			trim[s] = surroundTrimFromMask(
-				bandSMR[mono*surroundBands:(mono+1)*surroundBands],
-				nil,
-			)
-		}
-	}
-	return true
-}
-
+// applyPerStreamPolicy runs surround_analysis() and the per-stream
+// OPUS_SET_* controls of opus_multistream_encode_native()
+// (src/opus_multistream_encoder.c:897-962 and 976-1014).
 func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float32) {
 	rates := e.allocateRates(frameSize)
+	surround := e.isSurroundMapping()
+	// surround_analysis() and OPUS_SET_ENERGY_MASK are skipped for the
+	// restricted-SILK application, which has no CELT mode.
 	hasSurroundMask := false
-	if e.isSurroundMapping() {
-		hasSurroundMask = e.updateSurroundTrimFromPCM(pcm, frameSize)
+	if surround && !e.restrictedSilk {
+		needed := e.inputChannels * surroundBands
+		if cap(e.surroundBandSMR) < needed {
+			e.surroundBandSMR = make([]float32, needed)
+		}
+		e.surroundBandSMR = e.surroundBandSMR[:needed]
+		hasSurroundMask = e.computeSurroundBandSMR(pcm, frameSize, e.surroundBandSMR)
 	}
-	var streamMasks []float32
 	if hasSurroundMask {
 		needed := e.streams * 2 * surroundBands
 		if cap(e.streamEnergyMask) < needed {
 			e.streamEnergyMask = make([]float32, needed)
 		}
-		streamMasks = e.streamEnergyMask[:needed]
-		clear(streamMasks)
+		e.streamEnergyMask = e.streamEnergyMask[:needed]
 	}
 	surroundBandwidth := e.surroundBandwidth(frameSize)
 	for i := 0; i < e.streams; i++ {
 		enc := e.encoders[i]
 		enc.SetAllocatedBitrate(rates[i])
-		enc.SetLFE(i == e.lfeStream)
 
 		switch {
-		case e.isSurroundMapping():
+		case surround:
 			enc.SetBandwidth(surroundBandwidth)
 			if i < e.coupledStreams {
-				// Preserve surround image parity with libopus on coupled streams.
+				// To preserve the spatial image, force stereo CELT on coupled
+				// streams.
 				enc.SetMode(encoder.ModeCELT)
 				enc.SetForceChannels(2)
 			}
-			if i < len(e.streamSurroundTrim) {
-				enc.SetCELTSurroundTrim(e.streamSurroundTrim[i])
-			} else {
-				enc.SetCELTSurroundTrim(0)
-			}
-			enc.SetCELTEnergyMask(nil)
-			if hasSurroundMask && i != e.lfeStream {
-				base := i * 2 * surroundBands
-				if i < e.coupledStreams {
-					left := e.inputChannelForMapping(byte(2 * i))
-					right := e.inputChannelForMapping(byte(2*i + 1))
-					if left >= 0 && right >= 0 {
-						dst := streamMasks[base : base+2*surroundBands]
-						copy(dst[:surroundBands], e.surroundBandSMR[left*surroundBands:(left+1)*surroundBands])
-						copy(dst[surroundBands:], e.surroundBandSMR[right*surroundBands:(right+1)*surroundBands])
-						setStreamCELTEnergyMask(enc, dst)
-					}
-				} else {
-					mappingIdx := byte(2*e.coupledStreams + (i - e.coupledStreams))
-					mono := e.inputChannelForMapping(mappingIdx)
-					if mono >= 0 {
-						dst := streamMasks[base : base+surroundBands]
-						copy(dst, e.surroundBandSMR[mono*surroundBands:(mono+1)*surroundBands])
-						setStreamCELTEnergyMask(enc, dst)
-					}
-				}
-			}
 		case e.isAmbisonicsMapping():
 			enc.SetMode(encoder.ModeCELT)
-			enc.SetCELTSurroundTrim(0)
-			enc.SetCELTEnergyMask(nil)
-		default:
-			enc.SetCELTSurroundTrim(0)
-			enc.SetCELTEnergyMask(nil)
 		}
+		if !hasSurroundMask {
+			continue
+		}
+		// OPUS_SET_ENERGY_MASK hands each stream the bandSMR rows of its
+		// source channels. The LFE stream's CELT and SILK paths ignore the
+		// mask (celt_encoder.c:2111, opus_encoder.c:2069).
+		if i == e.lfeStream {
+			enc.SetCELTEnergyMask(nil)
+			continue
+		}
+		c1, c2 := streamSourceChannels(e.mapping, e.coupledStreams, i)
+		mask := e.streamEnergyMask[i*2*surroundBands : i*2*surroundBands+surroundBands]
+		copy(mask, e.surroundBandSMR[c1*surroundBands:(c1+1)*surroundBands])
+		if c2 >= 0 {
+			mask = e.streamEnergyMask[i*2*surroundBands : (i+1)*2*surroundBands]
+			copy(mask[surroundBands:], e.surroundBandSMR[c2*surroundBands:(c2+1)*surroundBands])
+		}
+		enc.SetCELTEnergyMask(mask)
 	}
-}
-
-func setStreamCELTEnergyMask(enc *encoder.Encoder, mask []float32) {
-	if enc == nil {
-		return
-	}
-	if len(mask) == 0 {
-		enc.SetCELTEnergyMask(nil)
-		return
-	}
-	n := min(len(mask), 2*surroundBands)
-	enc.SetCELTEnergyMask(mask[:n])
 }
 
 func (e *Encoder) initProjectionMixingDefaults() error {
@@ -1290,289 +1151,195 @@ func (e *Encoder) DemixingMatrixSize() int {
 	return ProjectionDemixingMatrixSize(e.inputChannels, e.streams, e.coupledStreams)
 }
 
-// Encode encodes multi-channel PCM samples to an Opus multistream packet.
+// Encode encodes one frame of interleaved float PCM into out and returns the
+// packet length, like libopus opus_multistream_encode_float(): len(out) is
+// max_data_bytes, which bounds every stream's budget.
 //
-// Parameters:
-//   - pcm: input samples as float32, sample-interleaved [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ...]
-//   - frameSize: number of samples per channel (must be valid for Opus: 120, 240, 480, 960, 1920, 2880)
-//
-// Returns:
-//   - The encoded multistream packet
-//   - nil, nil if DTX is active for all streams (all returned 1-byte TOC-only packets)
-//   - error if encoding fails
-//
-// The encoding process:
-//  1. Routes input channels to stream buffers via mapping table
-//  2. Encodes each stream independently using the unified encoder
-//  3. Assembles packets with self-delimiting framing per RFC 6716 Appendix B
-//
-// Reference: RFC 6716 Appendix B, RFC 7845 Section 5.1.1
-func (e *Encoder) Encode(pcm []float32, frameSize int) ([]byte, error) {
-	return e.EncodeWithAnalysis(pcm, frameSize, pcm)
+// pcm holds frameSize samples per input channel. The steady-state path is
+// allocation-free.
+func (e *Encoder) Encode(pcm []float32, frameSize int, out []byte) (int, error) {
+	return e.EncodeWithAnalysis(pcm, frameSize, pcm, out)
 }
 
-// EncodeWithAnalysis encodes the selected frame while letting child encoders
-// analyze the full caller frame selected by expert-frame-duration controls.
-func (e *Encoder) EncodeWithAnalysis(pcm []float32, frameSize int, analysisPCM []float32) ([]byte, error) {
-	return e.EncodeFloat32WithAnalysis(pcm, frameSize, analysisPCM)
+// EncodeWithAnalysis encodes the first frameSize samples per channel of the
+// caller frame while each stream's tonality analysis reads all of analysisPCM,
+// as opus_multistream_encode_native() does when frame_size_select() codes a
+// shorter frame than analysis_frame_size.
+func (e *Encoder) EncodeWithAnalysis(pcm []float32, frameSize int, analysisPCM []float32, out []byte) (int, error) {
+	return e.encodeNative(encodeInput{f32: pcm}, frameSize, analysisPCM, out)
 }
 
-// EncodeFloat32 encodes libopus float-build PCM samples to an Opus multistream packet.
-func (e *Encoder) EncodeFloat32(pcm []float32, frameSize int) ([]byte, error) {
-	return e.Encode(pcm, frameSize)
+// EncodeInt16 encodes one frame of interleaved 16-bit PCM into out, like
+// libopus opus_multistream_encode() and opus_projection_encode(): lsb_depth is
+// 16 and the projection mixing multiplies the integer samples.
+func (e *Encoder) EncodeInt16(pcm []int16, frameSize int, out []byte) (int, error) {
+	return e.EncodeInt16WithAnalysis(pcm, frameSize, pcm, out)
 }
 
-// EncodeFloat32WithAnalysis encodes the selected frame while letting child
-// encoders analyze the full caller frame selected by expert-frame-duration
-// controls. PCM routing and projection mixing stay in the libopus float domain.
-//
-// The top-level packet budget defaults to the libopus per-stream maximum
-// (maxOpusFrameBytes per stream), matching the recommended 4000-byte-per-stream
-// caller buffer. Use EncodeFloat32WithAnalysisMaxBytes to pass an explicit
-// caller buffer size, which libopus threads into the per-stream curr_max
-// budgeting (opus_multistream_encoder.c opus_multistream_encode_native()).
-func (e *Encoder) EncodeFloat32WithAnalysis(pcm []float32, frameSize int, analysisPCM []float32) ([]byte, error) {
-	return e.EncodeFloat32WithAnalysisMaxBytes(pcm, frameSize, analysisPCM, maxOpusFrameBytes*e.streams)
+// EncodeInt16WithAnalysis is EncodeInt16 with a caller analysis frame longer
+// than the coded frame (see EncodeWithAnalysis).
+func (e *Encoder) EncodeInt16WithAnalysis(pcm []int16, frameSize int, analysisPCM []int16, out []byte) (int, error) {
+	if len(analysisPCM) < len(pcm) {
+		return 0, fmt.Errorf("%w: got %d analysis samples for %d samples", ErrInvalidInput, len(analysisPCM), len(pcm))
+	}
+	// INT16TORES is exact in the float build, so the converted analysis frame
+	// also carries the coded samples; downmix_int() reads the same values.
+	if cap(e.int16Scratch) < len(analysisPCM) {
+		e.int16Scratch = make([]float32, len(analysisPCM))
+	}
+	analysis := e.int16Scratch[:len(analysisPCM)]
+	for i, v := range analysisPCM {
+		analysis[i] = float32(v) * (1.0 / 32768)
+	}
+	coded := analysis
+	if !sameInt16Prefix(pcm, analysisPCM) {
+		if cap(e.int16CodedScratch) < len(pcm) {
+			e.int16CodedScratch = make([]float32, len(pcm))
+		}
+		coded = e.int16CodedScratch[:len(pcm)]
+		for i, v := range pcm {
+			coded[i] = float32(v) * (1.0 / 32768)
+		}
+	}
+	return e.encodeNative(encodeInput{f32: coded[:len(pcm)], i16: pcm}, frameSize, analysis, out)
 }
 
-// EncodeFloat32WithAnalysisMaxBytes encodes one frame with an explicit caller
-// packet budget. maxDataBytes is the total output buffer size; libopus uses it
-// as the top-level max_data_bytes and derives each stream's curr_max from it
-// (opus_multistream_encoder.c opus_multistream_encode_native(), lines 1016-1024).
-func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int, analysisPCM []float32, maxDataBytes int) ([]byte, error) {
-	// Validate input length
+// sameInt16Prefix reports whether pcm is the leading part of analysisPCM.
+func sameInt16Prefix(pcm, analysisPCM []int16) bool {
+	return len(pcm) == 0 || (len(analysisPCM) >= len(pcm) && &pcm[0] == &analysisPCM[0])
+}
+
+// encodeInput is the caller frame handed to opus_multistream_encode_native():
+// f32 always holds the opus_res samples, and i16 holds the original 16-bit
+// samples when the caller used the int16 entry point, for the projection
+// encoder's integer mixing (mapping_matrix_multiply_channel_in_short).
+type encodeInput struct {
+	f32 []float32
+	i16 []int16
+}
+
+// encodeNative ports opus_multistream_encode_native()
+// (src/opus_multistream_encoder.c:846-1053).
+func (e *Encoder) encodeNative(in encodeInput, frameSize int, analysisPCM []float32, out []byte) (int, error) {
 	expectedLen := frameSize * e.inputChannels
-	if len(pcm) != expectedLen {
-		return nil, fmt.Errorf("%w: got %d samples, expected %d (frameSize=%d, channels=%d)",
-			ErrInvalidInput, len(pcm), expectedLen, frameSize, e.inputChannels)
+	if frameSize <= 0 || len(in.f32) != expectedLen {
+		return 0, fmt.Errorf("%w: got %d samples, expected %d (frameSize=%d, channels=%d)",
+			ErrInvalidInput, len(in.f32), expectedLen, frameSize, e.inputChannels)
 	}
 	if analysisPCM == nil {
-		analysisPCM = pcm
+		analysisPCM = in.f32
 	}
 	if len(analysisPCM) < expectedLen || len(analysisPCM)%e.inputChannels != 0 {
-		return nil, fmt.Errorf("%w: got %d analysis samples for frameSize=%d channels=%d",
+		return 0, fmt.Errorf("%w: got %d analysis samples for frameSize=%d channels=%d",
 			ErrInvalidInput, len(analysisPCM), frameSize, e.inputChannels)
 	}
+	maxDataBytes := len(out)
 	// libopus rejects an undersized caller buffer before surround analysis or
 	// per-stream rate changes, so a rejected call leaves encoder state intact.
 	// The 100 ms framing carries one extra ToC byte per stream.
 	fs := int(e.sampleRate)
 	smallestPacket := e.streams*2 - 1
-	if frameSize > 0 && fs/frameSize == 10 {
-		smallestPacket += e.streams
-	}
-	if maxDataBytes < smallestPacket {
-		return nil, ErrBufferTooSmall
-	}
-
-	// Mirror libopus per-stream rate/control policy ahead of stream encodes.
-	e.applyPerStreamPolicy(frameSize, pcm)
-
-	// Route input channels to stream buffers
-	streamBuffers := e.routeInputToStreams(e.streamInputScratch, pcm, frameSize)
-	e.streamInputScratch = streamBuffers
-	analysisStreamBuffers := streamBuffers
-	if e.mappingFamily == 3 || len(analysisPCM) != len(pcm) {
-		analysisFrameSize := len(analysisPCM) / e.inputChannels
-		if e.mappingFamily == 3 {
-			// opus_projection_encode_float gives opus_encode_native the original
-			// caller PCM for downmix analysis while copy_channel_in supplies the
-			// matrix-mixed samples to the elementary encoder.
-			analysisStreamBuffers = routeChannelsToStreams(e.analysisInputScratch, analysisPCM, e.mapping,
-				e.coupledStreams, analysisFrameSize, e.inputChannels, e.streams)
-		} else {
-			analysisStreamBuffers = e.routeInputToStreams(e.analysisInputScratch, analysisPCM, analysisFrameSize)
-		}
-		e.analysisInputScratch = analysisStreamBuffers
-	}
-	packet, _, err := e.encodeRoutedStreams(streamBuffers, analysisStreamBuffers, frameSize, maxDataBytes, smallestPacket, false, nil)
-	return packet, err
-}
-
-// EncodeInt16WithAnalysisMaxBytesInto follows opus_multistream_encode() and
-// opus_projection_encode(): short input routing, original-input analysis, and
-// per-call 16-bit input depth are kept separate from the float API.
-func (e *Encoder) EncodeInt16WithAnalysisMaxBytesInto(pcm []int16, frameSize int, analysisPCM []int16, dst []byte) (int, error) {
-	expectedLen := frameSize * e.inputChannels
-	if frameSize <= 0 || len(pcm) != expectedLen {
-		return 0, ErrInvalidInput
-	}
-	if analysisPCM == nil {
-		analysisPCM = pcm
-	}
-	if len(analysisPCM) < expectedLen || len(analysisPCM)%e.inputChannels != 0 {
-		return 0, ErrInvalidInput
-	}
-	fs := int(e.sampleRate)
-	smallestPacket := e.streams*2 - 1
 	if fs/frameSize == 10 {
 		smallestPacket += e.streams
 	}
-	if len(dst) < smallestPacket {
+	if maxDataBytes < smallestPacket {
 		return 0, ErrBufferTooSmall
 	}
-	shortScratchNeed := expectedLen + len(analysisPCM)
-	if cap(e.shortInputScratch) < shortScratchNeed {
-		e.shortInputScratch = make([]float32, shortScratchNeed)
-	}
-	codingOriginal := e.shortInputScratch[:expectedLen]
-	original := e.shortInputScratch[expectedLen:shortScratchNeed]
-	const shortScale = float32(1.0 / 32768.0)
-	for i, sample := range pcm {
-		codingOriginal[i] = float32(sample) * shortScale
-	}
-	for i, sample := range analysisPCM {
-		original[i] = float32(sample) * shortScale
-	}
-	// surround_analysis consumes the short copy callback, whose float-build
-	// output is exactly codingOriginal.
-	e.applyPerStreamPolicy(frameSize, codingOriginal)
-	var streamBuffers [][]float32
-	if e.mappingFamily == 3 && len(e.projectionMixing) > 0 {
-		streamBuffers = e.routeProjectionMixingShortToStreams(e.streamInputScratch, pcm, frameSize)
-	} else {
-		streamBuffers = e.routeInputToStreams(e.streamInputScratch, codingOriginal, frameSize)
-	}
-	e.streamInputScratch = streamBuffers
-	analysisFrameSize := len(analysisPCM) / e.inputChannels
-	analysisStreamBuffers := streamBuffers
-	if e.mappingFamily == 3 || analysisFrameSize != frameSize || &analysisPCM[0] != &pcm[0] {
-		// opus_encode_native analyzes the original input with c1/c2 selected
-		// from the mapping, even though projection mixes its coding samples.
-		analysisStreamBuffers = routeChannelsToStreams(e.analysisInputScratch, original, e.mapping,
-			e.coupledStreams, analysisFrameSize, e.inputChannels, e.streams)
-		e.analysisInputScratch = analysisStreamBuffers
-	}
-	_, written, err := e.encodeRoutedStreams(streamBuffers, analysisStreamBuffers, frameSize, len(dst), smallestPacket, true, dst)
-	return written, err
-}
 
-func (e *Encoder) encodeRoutedStreams(streamBuffers, analysisStreamBuffers [][]float32, frameSize, maxDataBytes, smallestPacket int, shortInput bool, dst []byte) ([]byte, int, error) {
-	fs := int(e.sampleRate)
-	// opus_multistream_encode_native shrinks the CBR caller budget before
-	// deriving the first stream's curr_max.
-	if !e.VBR() {
+	// Surround analysis and the per-stream OPUS_SET_* controls
+	// (lines 897-962).
+	e.applyPerStreamPolicy(frameSize, in.f32)
+
+	// For CBR, libopus shrinks the total caller budget to the bitrate-implied
+	// packet size before deriving each stream's curr_max (lines 918-928).
+	// rate_sum is the sum of the per-stream allocation that feeds the OPUS_AUTO
+	// branch.
+	vbr := e.VBR()
+	if !vbr {
 		switch e.bitrate {
 		case encoder.BitrateAuto:
 			rateSum := e.allocatedRateSum(frameSize)
 			maxDataBytes = minInt(maxDataBytes, (bitrateToBits(rateSum, fs, frameSize)+4)/8)
 		case encoder.BitrateMax:
+			// No shrinking: keep the full caller budget.
 		default:
 			maxDataBytes = minInt(maxDataBytes, maxInt(smallestPacket, (bitrateToBits(e.bitrate, fs, frameSize)+4)/8))
 		}
 	}
 
-	// Encode each stream.
-	//
-	// libopus opus_multistream_encoder.c opus_multistream_encode_native() sizes
-	// each stream's max_data_bytes (curr_max) from the remaining caller budget
-	// before handing it to opus_encode_native(), which in turn feeds the CELT
-	// nb_compr_bytes / SILK maxBits rate-control loops (opus_encoder.c). Passing a
-	// fixed per-stream cap instead of curr_max diverges from libopus on the hybrid
-	// VBR path, where CELT picks its per-frame size from within nb_compr_bytes.
-	//
-	//   curr_max = max_data_bytes - tot_size;                 (line 1016)
-	//   curr_max -= IMAX(0,2*(nb_streams-s-1)-1);             (line 1018, reserve)
-	//   if (Fs/frame_size == 10) curr_max -= nb_streams-s-1;  (line 1020-1021)
-	//   curr_max = IMIN(curr_max, MS_FRAME_TMP);              (line 1022)
-	//   if (s != nb_streams-1) curr_max -= curr_max>253?2:1;  (line 1024)
-	//
-	// tot_size accumulates the self-delimited size of the already-emitted streams,
-	// matching opus_repacketizer_out_range_impl()'s returned len (line 1048).
-	streamPackets := e.streamPacketsScratch
-	if cap(streamPackets) < e.streams {
-		streamPackets = make([][]byte, e.streams)
+	// copy_channel_in: each stream reads its left/right (or mono) input
+	// channel, through the mixing matrix for the projection encoder.
+	streamBuffers := e.routeInputToStreams(e.streamInputScratch, in, frameSize)
+	e.streamInputScratch = streamBuffers
+	analysisStreamBuffers := streamBuffers
+	if e.mappingFamily == 3 || len(analysisPCM) != len(in.f32) || &analysisPCM[0] != &in.f32[0] {
+		// opus_encode_native() runs the tonality analysis on the caller PCM
+		// through downmix() with the stream's c1/c2 input channels, so the
+		// projection encoder's analysis sees the unmixed input.
+		analysisFrameSize := len(analysisPCM) / e.inputChannels
+		analysisStreamBuffers = e.routeChannels(e.analysisInputScratch, analysisPCM, analysisFrameSize)
+		e.analysisInputScratch = analysisStreamBuffers
 	}
-	streamPackets = streamPackets[:e.streams]
-	e.streamPacketsScratch = streamPackets
-	allDTX := true
-	totSize := 0
-	hundredMs := frameSize > 0 && int(e.sampleRate)/frameSize == 10
 
+	// Each stream's max_data_bytes (curr_max) comes from the remaining caller
+	// budget (lines 1015-1024):
+	//
+	//   curr_max = max_data_bytes - tot_size;
+	//   curr_max -= IMAX(0,2*(nb_streams-s-1)-1);
+	//   if (Fs/frame_size == 10) curr_max -= nb_streams-s-1;
+	//   curr_max = IMIN(curr_max, MS_FRAME_TMP);
+	//   if (s != nb_streams-1) curr_max -= curr_max>253?2:1;
+	//
+	// and the repacketizer writes the stream straight into the caller buffer,
+	// self-delimited for all but the last stream (lines 1039-1048).
+	totSize := 0
+	hundredMs := fs/frameSize == 10
 	for i := 0; i < e.streams; i++ {
 		enc := e.encoders[i]
 
 		currMax := maxDataBytes - totSize
-		// Reserve one byte for the last stream and two for the others.
 		if r := 2*(e.streams-i-1) - 1; r > 0 {
 			currMax -= r
 		}
-		// For 100 ms, reserve an extra byte per stream for the ToC.
 		if hundredMs {
 			currMax -= e.streams - i - 1
 		}
-		if currMax > msFrameTmp {
-			currMax = msFrameTmp
-		}
-		// Repacketizer adds one or two bytes for self-delimited frames.
-		if i != e.streams-1 {
+		currMax = minInt(currMax, msFrameTmp)
+		last := i == e.streams-1
+		if !last {
 			if currMax > 253 {
 				currMax -= 2
 			} else {
 				currMax--
 			}
 		}
-		// For CBR, the last stream gets exactly the remaining budget so the
-		// total packet matches the requested constant rate
-		// (opus_multistream_encoder.c lines 1025-1026).
-		if !e.VBR() && i == e.streams-1 {
+		if !vbr && last {
 			enc.SetAllocatedBitrate(bitsToBitrate(currMax*8, fs, frameSize))
 		}
 
-		var packet []byte
-		var err error
-		if shortInput {
-			packet, err = enc.EncodeShortMixedWithAnalysisMaxBytes(streamBuffers[i], frameSize, analysisStreamBuffers[i], currMax)
-		} else {
-			packet, err = enc.EncodeFloat32WithAnalysisMaxBytes(streamBuffers[i], frameSize, analysisStreamBuffers[i], currMax)
-		}
+		packet, err := e.encodeStream(enc, streamBuffers[i], frameSize, analysisStreamBuffers[i], currMax, in.i16 != nil)
 		if err != nil {
-			return nil, 0, fmt.Errorf("stream %d encode failed: %w", i, err)
+			return 0, fmt.Errorf("stream %d encode failed: %w", i, err)
 		}
-
-		if packet == nil {
-			streamPackets[i] = []byte{}
-		} else {
-			streamPackets[i] = packet
-			// DTX packets are 1-byte TOC-only; full packets are >1 byte
-			if len(packet) > 1 {
-				allDTX = false
-			}
-			// libopus adds the repacketizer's actual output length to tot_size.
-			// Repacketization drops ordinary child-packet padding, and its
-			// self-delimited length encodes the final frame rather than the
-			// entire child packet.
-			if i != e.streams-1 {
-				need := len(packet) + 2
-				if cap(e.framingScratch) < need {
-					e.framingScratch = make([]byte, need)
-				}
-				framedLen, frameErr := makeSelfDelimitedPacketInto(&e.packetParser, e.framingScratch[:need], packet)
-				if frameErr != nil {
-					return nil, 0, fmt.Errorf("stream %d self-delimited framing failed: %w", i, frameErr)
-				}
-				totSize += framedLen
-			} else {
-				totSize += len(packet)
-			}
+		// The last stream's packet already fills its CBR budget, which is what
+		// the repacketizer's padding would produce.
+		n, err := writeStreamPacket(&e.packetParser, out[totSize:maxDataBytes], packet, last)
+		if err != nil {
+			return 0, fmt.Errorf("stream %d framing failed: %w", i, err)
 		}
+		totSize += n
 	}
+	return totSize, nil
+}
 
-	// If all streams are DTX (1-byte TOC or nil), return nil to signal silence
-	if allDTX {
-		return nil, 0, nil
-	}
-
-	// Assemble multistream packet with RFC 6716 Appendix B framing.
+// encodeStream runs one elementary opus_encode_native() call. The 16-bit entry
+// points pass lsb_depth 16, which libopus applies as IMIN(16, st->lsb_depth)
+// for this call only; the float entry points pass MAX_ENCODING_DEPTH.
+func (e *Encoder) encodeStream(enc *encoder.Encoder, pcm []float32, frameSize int, analysisPCM []float32, maxDataBytes int, shortInput bool) ([]byte, error) {
 	if shortInput {
-		written, err := e.assembleMultistreamPacketInto(dst, streamPackets)
-		return nil, written, err
+		return enc.EncodeShortMixedWithAnalysisMaxBytes(pcm, frameSize, analysisPCM, maxDataBytes)
 	}
-	packet, err := e.assembleMultistreamPacket(streamPackets)
-	if err != nil {
-		return nil, 0, err
-	}
-	return packet, len(packet), nil
+	return enc.EncodeFloat32WithAnalysisMaxBytes(pcm, frameSize, analysisPCM, maxDataBytes)
 }
 
 // SetComplexity sets encoder complexity (0-10) for all stream encoders.

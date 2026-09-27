@@ -19,18 +19,12 @@ const (
 	silkPLCStereoHotPathAllocBudget = 7
 )
 
-// Multistream wrapper budgets (default float build). The single-stream
-// Decoder/Encoder hot paths are strictly zero-alloc; the multistream wrappers
-// retain a small bounded per-frame footprint:
-//   - encode: the assembled packet bytes are returned to the caller (and the
-//     public inner Encoder.Encode may be retained), so they are freshly
-//     allocated each call.
-//   - decode: the elementary CELT/SILK/Hybrid per-stream output buffers and the
-//     opus framing parse (parseOpusPacket, invoked for the duration probe and
-//     the decode) allocate; the channel-mapped output is returned to the caller.
+// Multistream decode budget (default float build). The single-stream
+// Decoder/Encoder hot paths and the multistream encoder are strictly
+// zero-alloc; the multistream decoder retains a small bounded per-frame
+// footprint: the elementary CELT/SILK/Hybrid per-stream output buffers and the
+// opus framing parse (parseOpusPacket, invoked for the duration probe and the
+// decode) allocate, and the channel-mapped output is returned to the caller.
 //
-// These bounds catch regressions while documenting the residual.
-const (
-	multistreamEncodeHotPathAllocBudget = 1
-	multistreamDecodeHotPathAllocBudget = 8
-)
+// This bound catches regressions while documenting the residual.
+const multistreamDecodeHotPathAllocBudget = 8
