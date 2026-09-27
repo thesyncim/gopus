@@ -430,9 +430,13 @@ func TestValidateFixedQEXTReferenceBuildRequiresBothFeaturesAndPairedISA(t *test
 						}
 					})
 				}
-				tool := filepath.Join(dir, "opus_demo")
-				if err := validateLibopusReferenceToolOverrideForPlatform(tool, "opus_demo", variant, DefaultVersion, "linux", arch); err != nil {
-					t.Fatalf("valid combined tool: %v", err)
+				// The Linux tool check reads Unix execute bits, which a
+				// Windows filesystem does not store.
+				if runtime.GOOS != "windows" {
+					tool := filepath.Join(dir, "opus_demo")
+					if err := validateLibopusReferenceToolOverrideForPlatform(tool, "opus_demo", variant, DefaultVersion, "linux", arch); err != nil {
+						t.Fatalf("valid combined tool: %v", err)
+					}
 				}
 			})
 		}
