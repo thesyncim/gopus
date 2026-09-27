@@ -46,6 +46,19 @@ remains in the same selector. The sequence oracle uses its v3 wire format;
 fresh-decoder v1/v2 probes keep their existing wire semantics. These claims
 cover the standard decoder APIs, not cached DRED malformed-packet handling.
 
+### QEXT PVQ refinement byte parity
+
+`opPVQRefineNorm` materializes the product at libopus's `opus_val32` store
+before computing rounding residuals. Its floor expression uses C's double
+promotion for the unsuffixed `.5` literal in `celt/vq.c:op_pvq_refine`.
+The N=4, K=112, up=1023 selected-C regression checks pulse/refinement values,
+main/extension bytes and output coefficients. Both scalar and SIMD ARM64
+pass the strict 96-frame 5.1, FOA and high-rate 5.1 sequences with exact
+packet bytes/ranges and zero warm allocations. This closes the ARM64
+frame-10 QEXT payload witness. Native AMD64 still requires validation of this
+checkpoint; its preceding capture reports one FOA cycle allocation.
+Native-96 encoder/PLC and broader feature-paired oracle validation remain open.
+
 ### Combined-extension allocation guards
 
 QEXT PVQ refinement uses reusable pulse, refinement and rounding scratch.
@@ -53,8 +66,8 @@ DRED reset clears runtime state while retaining its model-bound backing storage.
 On ARM64, the reset-inclusive 96-frame 5.1, FOA and high-rate cycles each
 allocate zero in scalar and SIMD. The selected-C PVQ oracle exercises reused
 scratch; base 5.1 and FOA retain exact 96-frame packet/range parity including
-reset/rearm. The high-rate ARM64 frame-10 payload witness remains failing.
-The existing native CI batch also runs the independent reset-cycle allocation
+reset/rearm. The high-rate ARM64 frame-10 payload witness is covered by the
+exact PVQ refinement proof above. The existing native CI batch also runs the independent reset-cycle allocation
 guard; AMD64 validation of these allocation fixes is pending.
 
 ### QEXT float band-energy reduction

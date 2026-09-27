@@ -1,6 +1,10 @@
 package celt
 
-import "github.com/thesyncim/gopus/internal/rangecoding"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/internal/rangecoding"
+)
 
 // EPSILON is the minimum value used to prevent division by zero and similar issues.
 // This matches libopus celt/mathops.h EPSILON definition.
@@ -317,8 +321,11 @@ func opPVQRefineNorm(xn []opusVal32, iy []int32, iy0 []int32, k, up, margin int,
 	k32 := int32(k)
 	up32 := int32(up)
 	for i := range n {
-		tmp := float32(k) * float32(xn[i])
-		iy[i] = int32(floor32ToInt(float32(0.5) + tmp))
+		// vq.c op_pvq_refine stores this product as opus_val32 before it
+		// subtracts iy[i] to form rounding[i]. Materialize that float32
+		// rounding point so the compiler does not fuse the later subtraction.
+		tmp := float32(float32(k) * float32(xn[i]))
+		iy[i] = floorPVQRefineTmp(tmp)
 		rounding[i] = opusVal32(tmp - float32(iy[i]))
 	}
 	if !same {
@@ -358,6 +365,13 @@ func opPVQRefineNorm(xn []opusVal32, iy []int32, iy0 []int32, k, up, margin int,
 		iysum += dir
 	}
 	return false
+}
+
+// floorPVQRefineTmp matches vq.c op_pvq_refine(): the unsuffixed C literal
+// .5 promotes opus_val32 tmp to double before floor() converts it to int.
+func floorPVQRefineTmp(tmp float32) int32 {
+	argument := 0.5 + float64(tmp)
+	return int32(math.Floor(argument))
 }
 
 func opPVQSearchExtra(x []celtNorm, k, up int) (iy []int32, upIy []int32, refine []int32) {
