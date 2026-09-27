@@ -442,15 +442,8 @@ ensure-libopus-simd:
 ensure-libopus-scalar:
 	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_SCALAR=1 ./tools/ensure_libopus.sh
 
-# Byte/sample-exact parity for the gopus celt/custom modes against the
-# --enable-custom-modes libopus oracle. The arbitrary-band custom CELT path has no
-# SSE/NEON kernel (those only cover the standard 21-band layout), so it is scalar
-# Go regardless of build; the standard 48 kHz modes, however, DO use the asm CELT
-# kernels and would compare asm-SSE vs scalar-C. Run the whole gate as the pure-Go
-# build (-tags nosimd) against the scalar custom libopus
-# (GOPUS_LIBOPUS_REF_SCALAR=1 -> custom-scalar tree) so every mode is a
-# like-with-like scalar-Go vs scalar-C comparison; the asm standard-mode CELT path
-# is covered byte-exact by the testvectors CELT gates.
+# Byte/sample-exact custom-mode parity on the scalar Go and generic-C paths.
+# Native SIMD parity uses the paired custom reference in ci_simd_ab_early.sh.
 test-custom-parity: ensure-libopus-custom-scalar
 	$(GO_WORK_ENV) GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_REF_SCALAR=1 \
 		$(GO) test -tags 'gopus_custom_modes gopus_libopus_oracle nosimd' -count=1 ./internal/celt/custom/...

@@ -209,6 +209,31 @@ for mode in simd nosimd; do
     -test.run '^Test(SILKCorrelationMatrixVectorMatchesLibopusOracle|SILKAutocorrelationF32MatchesLibopusOracle|SILKBurgModifiedFLPMatchesLibopusOracle|SILKLPCAnalysisFilterFLPMatchesLibopusOracle|SILKInnerProductFLPMatchesLibopusOracle|SILKFindLPCFLPMatchesLibopusOracle|SILKFindLTPFLPMatchesLibopusOracle)$' \
     -test.count=1 -test.timeout=10m -test.v
 
+  # Feature helpers select the same scalar/SIMD reference as the Go build.
+  feature_scalar_tag=""
+  if [[ "$mode" == nosimd ]]; then feature_scalar_tag=",nosimd"; fi
+
+  run_json_phase "candidate-$mode-custom-mode-parity" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json -tags "gopus_custom_modes${feature_scalar_tag}" \
+    ./internal/celt/custom -count=1 -timeout=10m
+
+  run_json_phase "candidate-$mode-qext-stateful-parity" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json -tags "gopus_qext${feature_scalar_tag}" . \
+    -run '^TestQEXT(Stateful|ActiveStereoDecode|ReceivedSilence)' -count=1 -timeout=10m
+
+  run_json_phase "candidate-$mode-neural-analysis-parity" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json -tags "gopus_osce${feature_scalar_tag}" \
+    ./internal/lpcnetplc -count=1 -timeout=10m
+
+  run_json_phase "candidate-$mode-dred-initial-latents" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json -tags "gopus_dred${feature_scalar_tag}" \
+    ./internal/encoder -run '^TestEncoderDREDInitialLatentsTraceMatchesLibopus$' \
+    -count=1 -timeout=10m
+
   run_phase "candidate-$mode-strict-cbr" \
     "${run_env[@]}" "$artifact_root/candidate-$mode-testvectors.test" \
     -test.run '^TestEncoderCBRPairedOracleExact$' -test.count=1 -test.timeout=25m -test.v

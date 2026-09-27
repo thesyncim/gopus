@@ -33,7 +33,7 @@ expectations. Frozen packet inputs and fixture-honesty checks retain their
 independent roles; frozen numerical expectations require their recorded
 producer environment. Long-frame encoder fixture coverage remains under audit.
 
-### Extension checkpoint at `83f6c2f6`
+### Extension checkpoint at `580a670b`
 
 The 48 kHz QEXT matrix at `6e20f360` requires exact encoding and decoding for
 60 configurations and three sequential frames each: packets, both final ranges,
@@ -44,25 +44,39 @@ its direct selected-C probes and active stereo decode gate pass with zero warm
 allocations. Native 96 kHz QEXT synthesis still has an exactness residual and is
 not covered by the 48 kHz claim.
 
-PitchDNN convolution (`148ab244`) and recurrent blending (`6b2a20cf`) use the
-selected C product/FMA order. Direct conv transport checks the first conv1 output
-channel and all conv2 outputs; the GRU state is exact across all 16 frames in
-three local lanes. LPCNet's scalar LPC and weighted band-energy reductions at
-`83f6c2f6` match all 40 real-frame stage inputs in each local lane and allocate
-zero after warmup. Ordinary and `nosimd` complete 1920/2880 feature sequences
-pass; the SIMD sequence still differs in pitch/correlation, and broader DRED
-output state remains open. The actual macOS CI failure parent,
-`TestEncoderDREDInitialLatentsTraceMatchesLibopus`, passes all six cases locally,
-including `2ch_2880`, after this source correction.
+Wide custom modes at `736a2d27` use mode-sized histories, active band edges,
+mode-owned windows, and the C PLC duration units. Eleven wider layouts in mono
+and stereo pass 154 stateful configurations / 2,046 steps per local build:
+946 received packets and 1,100 lost-frame steps, with exact packet bytes,
+encoder/decoder final ranges, float PCM bits, and int16 PCM. All 22 mode/channel
+pairs have zero warmed allocations through float encode/decode, periodic and
+noise concealment, and recovery. The full custom package passes in ordinary,
+SIMD, `nosimd`, and `purego` (385 passing nodes including the package, seven
+existing capability/duplicate-family skips, zero failures). New geometry,
+stateful, and allocation leaves have no skips. Native AMD64 SIMD cross-compiles;
+its new wider-mode runtime matrix is pending.
 
-Native run `36280959850` at `9b71476d` passes Linux core, QEXT, custom, DRED,
-fixed-point, conformance, and the full `nosimd` build-config matrix. Its lint
-failure is the unchecked temporary-helper cleanup result; both branch histories
-contain the explicit cleanup fix. Its macOS DRED latent failure is reproduced
-and corrected as described above. The SIMD A/B job is cancelled by the concurrent
-lint push, so this run does not supply a completed performance refresh.
-All 53 measurement rows below retain their recorded source revisions; no new
-speed claim follows from these correctness fixes.
+PitchDNN convolution (`148ab244`), recurrent blending (`6b2a20cf`), scalar
+interpolation, and FARGAN blending (`580a670b`) use selected-C rounding order.
+LPCNet's LPC and weighted band-energy gates (`83f6c2f6`) check all 40 real-frame
+stage inputs and zero warm allocations in three local lanes. ARM SIMD analysis
+at `b4dc92f8` selects the NEON path: 40 frames match all 224 raw correlations,
+DNN pitch, and all 36 output feature bits. The actual macOS DRED latent test
+passes all six configurations locally, including stereo 60 ms, in scalar and
+SIMD. Full `gopus_osce ./internal/lpcnetplc` at `580a670b` passes 198 nodes in
+ordinary/`nosimd` and 241 in SIMD, with no failures or skips; named production
+state and interpolation gates require exact bits. Broader DRED output state
+remains under audit; tolerance-based checks are not a global exactness proof.
+
+[Native run 36282457957](https://github.com/thesyncim/gopus/actions/runs/36282457957)
+at `0330c9ca` passes macOS, Windows, lint, Linux core, custom, QEXT, DRED,
+fixed-point, conformance, and the full `nosimd` build-config matrix. All 47 early
+SIMD/scalar phases exit zero. Its full A/B job is still running at this checkpoint.
+The early interleaved caller-buffer benchmark measures 81,662 → 70,684 ns/op
+(13.4% less time), zero allocations, on Xeon Platinum 8573C; this does not
+compare revisions across different runner CPUs. The 53 kernel rows retain their
+recorded measurement revisions. Additive CI phases cover the new custom, QEXT,
+LPCNet, and DRED latent gates on paired native AMD64 SIMD/scalar builds.
 
 Strict matched CBR oracle, 19 configurations and 2,175 packets per lane:
 
@@ -434,14 +448,17 @@ The two-tap preemphasis recurrence at `49634d64` matches C's rounded second
 product and first-product/subtraction contraction. Four three-frame input
 filter cases and 24 output-filter cells compare exact output/state and warm
 zero allocations; reverting their contraction fails all respective leaves.
-All supported cases in the existing custom suites require exact packet bytes,
-final ranges and PCM bits. The focused custom/filter/FMA/silence batch passes
-243 test nodes plus four packages in each ARM lane, with seven existing
-capability/duplicate-family skips and no failures. A separate ordinary-ARM64 80-record audit
-contains 68 supported exact packet/PCM records, eleven C-accepted wider-band
-records that Go rejects, and one invalid C geometry. These records include
-duplicates and are not a count of distinct modes. Wider-band support and native
-confirmation of the strict custom gates remain open.
+Custom suites require exact packet bytes, final ranges, and PCM bits. Wider
+layouts at `736a2d27` use the mode's band count in history, energy prediction,
+analysis, and scratch. Custom comb filters use the mode-owned window even when
+its length equals a standard window; custom 96 kHz pitch limits retain the C
+custom-mode scale. Concealment uses active geometry and C's `1 << LM` duration
+units. The 154-history matrix covers 2,046 steps (946 received packets and 1,100
+losses), including reset replay, periodic/noise concealment, and recovery.
+Ordinary, SIMD, nosimd, and purego pass all exact outputs and ranges, and all
+22 mode/channel pairs are allocation-free after warmup, including loss/recovery.
+The seven existing custom-suite capability/duplicate-family skips are separate
+from these new cases. Native wider-mode runtime confirmation remains pending.
 
 DRED at `a03103c9` pairs the neural kernels as well as the codec with the
 selected C build. Ordinary/nosimd use scalar activations and RDOVAE kernels;
@@ -452,8 +469,9 @@ internal suites pass 309/309 per lane; ordinary purego also passes those
 internal checks and all 105 focused public DRED nodes. Native AMD64 binaries
 cross-compile; native execution remains pending. The full ordinary DRED root suite has 12,588 passing test nodes and failures
 in 13 explicit decoder matrix parents, beginning in FARGAN state.
-OSCE/deep-PLC and LPCNet suites also contain state/numerical mismatches.
-Those residuals remain hard failures at their existing gates.
+Full LPCNet/OSCE internal suites pass locally at `580a670b` in all three lanes.
+The broader public DRED/deep-PLC decoder matrices remain under audit; their
+existing failures remain hard gates until the matching state is proven.
 
 Fixed-point kernel checks use matched captured integer CELT input, fullband
 and coded-channel controls, and a TOC-reserved CBR byte cap. All 162
@@ -802,16 +820,23 @@ end-to-end table and all 11 comparable AMD64 symbol rows use this revision.
 The earlier EPYC 7763 pair at `1ad86da2` measures 91,445.5 → 88,448.5 ns/op
 (3.3% less time); its different host does not establish a revision comparison.
 
-### Native AMD64 interleaved encode at 3f846cc4
+### Native AMD64 interleaved encode at 0330c9ca
 
-[Run 36279071274](https://github.com/thesyncim/gopus/actions/runs/36279071274)
-compares assembly `8ac93c85` with `3f846cc4` on AMD EPYC 7763, Go 1.27.1,
-GCC 13.3, GOAMD64=v1. Four interleaved 500 ms samples give **92,143 → 88,728
-ns/op (3.7% less time)**, all zero allocations. This CPU differs from the
-EPYC 9V74 used for the complete three-mode table and eleven AMD64 kernel rows;
-the two runs do not isolate a source-revision effect. All 47 early phases exit
-zero, including both native SIMD/scalar FEC lanes. The build-config job fails
-the fixed 7.1 low-space case covered by the local `8d39f40d` correction.
+[Run 36282457957](https://github.com/thesyncim/gopus/actions/runs/36282457957)
+compares assembly `8ac93c85` with `0330c9ca` on Intel Xeon Platinum 8573C,
+Go 1.27.1, GCC 13.3, GOAMD64=v1. Four interleaved 500 ms samples give:
+
+| Caller-buffer encode | Median ns/op | Sample range | Allocs/op |
+|---|---:|---:|---:|
+| Old assembly | 81,662 | 81,608–84,332 | 0 |
+| Go SIMD | 70,684 | 70,315–71,024 | 0 |
+
+Go SIMD takes 13.4% less time within this run. All 47 early native paired-reference
+phases exit zero. Its full A/B capture remains in progress, so the complete
+three-mode table and eleven AMD64 kernel rows retain their EPYC 9V74
+`9056116d` measurements. The earlier EPYC 7763 pair at `3f846cc4` measures
+92,143 → 88,728 ns/op (3.7% less time). Different hosts do not establish
+revision-to-revision gains.
 
 ### ARM64 correctly rounded FMA
 
