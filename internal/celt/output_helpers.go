@@ -114,6 +114,16 @@ func deemphasisChannel(y []float32, yStride int, x []float32, xStride, n, downsa
 	_ = x[(n-1)*xStride]
 	_ = y[(n-1)*yStride]
 	if accum {
+		if xStride == 1 && yStride == 1 {
+			x = x[:n:n]
+			y = y[:n:n]
+			for j := range x {
+				tmp := x[j] + m + deemphasisVerySmall
+				m = mul32(coef, tmp)
+				y[j] = fma32(sig2res, tmp, y[j])
+			}
+			return m
+		}
 		for j := range n {
 			tmp := x[j*xStride] + m + deemphasisVerySmall
 			m = mul32(coef, tmp)
