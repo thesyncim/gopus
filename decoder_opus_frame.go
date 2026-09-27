@@ -289,6 +289,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			if d.prevMode != ModeCELT && d.dredNeuralConcealmentAvailable() {
 				cleanupHook, _ = d.beginHybridDREDLowbandHook()
 			}
+			fixedCursor := d.fixedOutputCursor()
 			n, err := d.decodeOpusFrameIntoWithStatePolicy(
 				d.scratchTransition,
 				nil,
@@ -303,6 +304,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			if err != nil {
 				return 0, err
 			}
+			d.fixedCaptureRecursiveTransition(fixedCursor, n*channels)
 			pcmTransition = d.scratchTransition[:n*channels]
 			// The recursive opus_decode_frame(NULL) applies decode_gain to the
 			// transition frame; the enclosing frame applies it again after the fade.
@@ -366,14 +368,12 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			if !fixedHybridPLCArmed {
 				d.markFixedUnhandled()
 			}
-			samples, err := d.hybridDecoder.DecodeToFloat32WithPacketStereo(nil, frameSize, packetStereoLocal)
-			if err != nil {
+			if err := d.hybridDecoder.DecodePLCToFloat32WithPacketStereoInto(frameSize, packetStereoLocal, out); err != nil {
 				if fixedHybridPLCArmed {
 					d.silkDecoder.ArmPLCLowbandCapture(nil)
 				}
 				return 0, err
 			}
-			copyFloat32(out, samples)
 			// Capture FinalRange for PLC
 			d.mainDecodeRng = d.hybridDecoder.FinalRange()
 			if fixedHybridPLCArmed {
@@ -772,7 +772,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	}
 
 	if transition && len(pcmTransition) > 0 {
-		if fixedHybridFrame {
+		if fixedHybridFrame || d.fixedTransitionAvailable() {
 			d.fixedApplyTransition(frameSize, audiosize, fs)
 		} else {
 			// The transition crossfade rewrites the float out buffer after the

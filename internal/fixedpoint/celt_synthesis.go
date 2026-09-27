@@ -74,7 +74,13 @@ func CeltSynthesis(mdct *MDCTLookup, window []int16, eBands []int16,
 		shift = maxLM - LM
 	}
 
-	freq := make([]int32, N)
+	var local [celtMaxFrameSize]int32
+	var freq []int32
+	if N <= len(local) {
+		freq = local[:N]
+	} else {
+		freq = make([]int32, N)
+	}
 
 	switch {
 	case CC == 2 && C == 1:

@@ -182,11 +182,41 @@ func AlgQuant(x []int32, n, k, spread, b int, enc *rangecoding.Encoder, gain int
 // pulse codeword from dec via the CWRS coder, normalises and inverse-rotates it
 // into X, and returns the anti-collapse mask. X is written, not read.
 func AlgUnquant(x []int32, n, k, spread, b int, dec *rangecoding.Decoder, gain int32) uint32 {
-	iy := make([]int, n)
-	ryy := decodePulses(iy, n, k, dec)
-	normaliseResidual(iy, x, n, ryy, gain)
+	var pulseStorage [celtMaxBandWidth]int32
+	var row [256]uint32
+	var iy []int32
+	if n <= len(pulseStorage) {
+		iy = pulseStorage[:n]
+	} else {
+		iy = make([]int32, n)
+	}
+	celt.DecodePulsesInto32(dec.DecodeUniform(celt.PVQ_V(n, k)), n, k, iy, row[:])
+	var ryy int32
+	for _, pulse := range iy {
+		v := int32(int16(pulse))
+		ryy += v * v
+	}
+	shift := int(CeltILog2(ryy)) >> 1
+	g := mult32x32q31(CeltRsqrtNorm32(vshr32(ryy, 2*(shift-7)-15)), gain)
+	for i := range iy {
+		x[i] = vshr32(mult16x32Q15(int16(iy[i]), g), shift+15-normShift)
+	}
 	expRotation(x, n, -1, b, k, spread)
-	return extractCollapseMask(iy, n, b)
+	if b <= 1 {
+		return 1
+	}
+	n0 := int(celtUdiv(uint32(n), uint32(b)))
+	var mask uint32
+	for i := 0; i < b; i++ {
+		var nonzero int32
+		for j := 0; j < n0; j++ {
+			nonzero |= iy[i*n0+j]
+		}
+		if nonzero != 0 {
+			mask |= 1 << uint(i)
+		}
+	}
+	return mask
 }
 
 // encodePulses ports celt/vq.c encode_pulses: compute the CWRS index of the
@@ -196,20 +226,4 @@ func encodePulses(y []int, n, k int, enc *rangecoding.Encoder) {
 	index := celt.EncodePulses(y, n, k)
 	nc := celt.PVQ_V(n, k)
 	enc.EncodeUniform(index, nc)
-}
-
-// decodePulses ports celt/vq.c decode_pulses: decode the uniform CWRS index
-// (ec_dec_uint with ft = V(N,K)), expand it to the pulse vector, and return Ryy
-// = sum(iy[i]^2), matching cwrsi's accumulated squared norm.
-func decodePulses(iy []int, n, k int, dec *rangecoding.Decoder) int32 {
-	nc := celt.PVQ_V(n, k)
-	index := dec.DecodeUniform(nc)
-	y := celt.DecodePulses(index, n, k)
-	var ryy int32
-	for i := 0; i < n; i++ {
-		iy[i] = y[i]
-		v := int32(int16(y[i]))
-		ryy += v * v
-	}
-	return ryy
 }

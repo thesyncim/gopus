@@ -155,8 +155,12 @@ func TestAntiCollapseMatchesLibopusFixed(t *testing.T) {
 			}
 
 			xGo := append([]int32(nil), x...)
+			pulses32 := make([]int32, len(pulses))
+			for i, v := range pulses {
+				pulses32[i] = int32(v)
+			}
 			AntiCollapse(xGo, append([]byte(nil), masks...), c.lm, c.c, size,
-				c.start, c.end, logE, prev1, prev2, pulses, eBands, c.nbEBands,
+				c.start, c.end, logE, prev1, prev2, pulses32, eBands, c.nbEBands,
 				seed, encode)
 
 			for i := 0; i < total; i++ {

@@ -81,6 +81,7 @@ type Decoder struct {
 	// positioned at the CELT start band, hands a clone of it (plus the SILK
 	// lowband) to the hook for the integer accum decode.
 	fixedHighband    FixedHybridHighband
+	fixedRangeClone  rangecoding.Decoder
 	scratchSilkInt16 []int16
 	scratchSilkL     []int16
 	scratchSilkR     []int16
@@ -488,8 +489,9 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 	// flags and with storage shrunk by afterSilk). The clone lets the integer
 	// decode consume the bitstream independently of the float CELT decode below.
 	if captureFixed {
-		rdClone := *rd
-		d.fixedHighband.DecodeHybridHighband(d.scratchSilkInt16, d.filledSilkInt16, &rdClone, frameSizeAPI, frameSize48, packetStereo)
+		d.fixedRangeClone = *rd
+		d.fixedHighband.DecodeHybridHighband(d.scratchSilkInt16, d.filledSilkInt16, &d.fixedRangeClone, frameSizeAPI, frameSize48, packetStereo)
+		d.fixedRangeClone = rangecoding.Decoder{}
 	}
 
 	// Step 3: Use SILK output directly

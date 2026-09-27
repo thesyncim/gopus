@@ -77,9 +77,14 @@ func Deemphasis(in [][]int32, pcm []int32, coef0 int16, mem []int32, N, downsamp
 	}
 
 	Nd := N / downsample
+	var local [celtMaxFrameSize]int32
 	var scratch []int32
 	if downsample > 1 {
-		scratch = make([]int32, N)
+		if N <= len(local) {
+			scratch = local[:N]
+		} else {
+			scratch = make([]int32, N)
+		}
 	}
 
 	for c := 0; c < C; c++ {

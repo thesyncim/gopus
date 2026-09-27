@@ -93,7 +93,13 @@ func plcCeltMaxabs16(x []int16) int32 {
 // the index in x of the first output sample. y receives n samples. x and y must
 // not alias (matching the celt_assert).
 func plcCeltFir(x []int16, xBase int, num []int16, y []int16, n, ord int) {
-	rnum := make([]int16, ord)
+	var rnumStorage [celtLPCOrder]int16
+	var rnum []int16
+	if ord <= len(rnumStorage) {
+		rnum = rnumStorage[:ord]
+	} else {
+		rnum = make([]int16, ord)
+	}
 	for i := 0; i < ord; i++ {
 		rnum[i] = num[ord-i-1]
 	}
@@ -111,8 +117,20 @@ func plcCeltFir(x []int16, xBase int, num []int16, y []int16, n, ord int) {
 // mem holds ord opus_val16 history values and is updated in place. The filter
 // writes n int32 samples to buf[base .. base+n-1] (in-place: _x == _y == buf).
 func plcCeltIir(buf []int32, base int, den []int16, n, ord int, mem []int16) {
-	rden := make([]int16, ord)
-	y := make([]int16, n+ord)
+	var rdenStorage [celtLPCOrder]int16
+	var rden []int16
+	if ord <= len(rdenStorage) {
+		rden = rdenStorage[:ord]
+	} else {
+		rden = make([]int16, ord)
+	}
+	var yStorage [celtMaxFrameSize + celtOverlap + celtLPCOrder]int16
+	var y []int16
+	if n+ord <= len(yStorage) {
+		y = yStorage[:n+ord]
+	} else {
+		y = make([]int16, n+ord)
+	}
 	for i := 0; i < ord; i++ {
 		rden[i] = den[ord-i-1]
 	}
@@ -246,9 +264,12 @@ func xcorrKernelI16(x, y []int16, sum *[4]int32, length int) {
 // scaling shift.
 func plcCeltAutocorr(x []int16, ac []int32, window []int16, overlap, lag, n int, scratch *celtEncodeScratch) int {
 	fastN := n - lag
+	var xxStorage [celtMaxPeriod]int16
 	var xx []int16
 	if scratch != nil {
 		xx = ensureInt16(&scratch.pitchXX, n)
+	} else if n <= len(xxStorage) {
+		xx = xxStorage[:n]
 	} else {
 		xx = make([]int16, n)
 	}
@@ -334,7 +355,7 @@ func ecILog(x int32) int16 {
 // It converts the lag+... autocorrelation ac (length p+1) into p int16 Q12 LPC
 // coefficients in lpc.
 func plcCeltLPC(lpc []int16, ac []int32, p int) {
-	lpcQ := make([]int32, celtLPCOrder)
+	var lpcQ [celtLPCOrder]int32
 	err := ac[0]
 	for i := 0; i < p; i++ {
 		lpcQ[i] = 0
@@ -538,9 +559,27 @@ func plcFindBestPitch(xcorr []int32, y []int16, length, maxPitch int, bestPitch 
 // samples, y has len+maxPitch samples; it returns the refined pitch lag.
 func plcPitchSearch(xLP, y []int16, length, maxPitch int) int {
 	lag := length + maxPitch
-	xLP4 := make([]int16, length>>2)
-	yLP4 := make([]int16, lag>>2)
-	xcorr := make([]int32, maxPitch>>1)
+	var xLP4Storage [(celtDecodeBufferSize - plcPitchLagMax) / 4]int16
+	var xLP4 []int16
+	if length>>2 <= len(xLP4Storage) {
+		xLP4 = xLP4Storage[:length>>2]
+	} else {
+		xLP4 = make([]int16, length>>2)
+	}
+	var yLP4Storage [(celtDecodeBufferSize - plcPitchLagMin) / 4]int16
+	var yLP4 []int16
+	if lag>>2 <= len(yLP4Storage) {
+		yLP4 = yLP4Storage[:lag>>2]
+	} else {
+		yLP4 = make([]int16, lag>>2)
+	}
+	var xcorrStorage [(plcPitchLagMax - plcPitchLagMin) / 2]int32
+	var xcorr []int32
+	if maxPitch>>1 <= len(xcorrStorage) {
+		xcorr = xcorrStorage[:maxPitch>>1]
+	} else {
+		xcorr = make([]int32, maxPitch>>1)
+	}
 	for j := 0; j < length>>2; j++ {
 		xLP4[j] = xLP[2*j]
 	}
@@ -708,8 +747,8 @@ func (d *CELTDecoder) concealLost(frameSize int) ([][]int32, int) {
 	N := M * shortMdctSize
 
 	decodeMemSize := celtDecodeBufferSize + overlap
-	decodeMem := make([][]int32, C)
-	outSyn := make([][]int32, C)
+	decodeMem := d.decodeRows[:C]
+	outSyn := d.synthesisRows[:C]
 	for c := 0; c < C; c++ {
 		decodeMem[c] = d.decodeMem[c*decodeMemSize : (c+1)*decodeMemSize]
 		outSyn[c] = decodeMem[c][celtDecodeBufferSize-N:]
@@ -783,7 +822,8 @@ func (d *CELTDecoder) decodeLostNoise(N, LM, lossDuration int, decodeMem, outSyn
 	// for the static 48000/960 mode.
 	effEnd := imax(start, imin(end, nbEBands))
 
-	X := make([]int32, C*N)
+	X := ensureInt32(&d.bandScratch.x, C*N)
+	clear(X)
 	moveLen := celtDecodeBufferSize - N + overlap
 	for c := 0; c < C; c++ {
 		copy(decodeMem[c][:moveLen], decodeMem[c][N:N+moveLen])
@@ -863,9 +903,16 @@ func (d *CELTDecoder) decodeLostPeriodic(N, LM int, decodeMem [][]int32) {
 	}
 
 	excLength := imin(2*pitchIndex, maxPeriod)
-	exc := make([]int16, maxPeriod+celtLPCOrder) // _exc; exc = _exc[celtLPCOrder:]
+	var excStorage [celtMaxPeriod + celtLPCOrder]int16
+	exc := excStorage[:] // _exc; exc = _exc[celtLPCOrder:]
 	excOff := celtLPCOrder
-	firTmp := make([]int16, excLength)
+	var firTmpStorage [celtMaxPeriod]int16
+	var firTmp []int16
+	if excLength <= len(firTmpStorage) {
+		firTmp = firTmpStorage[:excLength]
+	} else {
+		firTmp = make([]int16, excLength)
+	}
 
 	for c := 0; c < C; c++ {
 		buf := decodeMem[c]

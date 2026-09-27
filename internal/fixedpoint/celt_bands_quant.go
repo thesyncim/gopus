@@ -34,6 +34,8 @@ const (
 	// rounds to 1518500224 (not the double-precision 1518500247).
 	q707Q31          = int32(1518500224)
 	spreadAggressive = 3 // SPREAD_AGGRESSIVE
+	// The widest standard-mode band has 22 bins before LM expansion.
+	celtMaxBandWidth = 22 << celtMaxLM
 )
 
 // bandDecCtx mirrors the decode-relevant fields of libopus struct band_ctx.
@@ -307,9 +309,12 @@ func orderyForStride(stride int) []int {
 // When scratch is non-nil the encoder-owned transpose buffer is reused.
 func deinterleaveHadamard(x []int32, n0, stride int, hadamard bool, scratch *celtEncodeScratch) {
 	n := n0 * stride
+	var local [celtMaxBandWidth]int32
 	var tmp []int32
 	if scratch != nil {
 		tmp = ensureInt32(&scratch.hadamardTmp, n)
+	} else if n <= len(local) {
+		tmp = local[:n]
 	} else {
 		tmp = make([]int32, n)
 	}
@@ -334,9 +339,12 @@ func deinterleaveHadamard(x []int32, n0, stride int, hadamard bool, scratch *cel
 // When scratch is non-nil the encoder-owned transpose buffer is reused.
 func interleaveHadamard(x []int32, n0, stride int, hadamard bool, scratch *celtEncodeScratch) {
 	n := n0 * stride
+	var local [celtMaxBandWidth]int32
 	var tmp []int32
 	if scratch != nil {
 		tmp = ensureInt32(&scratch.hadamardTmp, n)
+	} else if n <= len(local) {
+		tmp = local[:n]
 	} else {
 		tmp = make([]int32, n)
 	}
@@ -699,8 +707,8 @@ func clearInt32(x []int32) {
 // totalBitsQ3 is len*(8<<BITRES)-anti_collapse_rsv (the value libopus passes as
 // total_bits). seed threads celt_lcg_rand through the noise fill.
 func QuantAllBandsDecode(dec *rangecoding.Decoder, channels, frameSize, lm, start, end int,
-	pulses, tfRes []int, shortBlocks, spread, dualStereo, intensity, totalBitsQ3, balance, codedBands int,
-	disableInv bool, seed *uint32) (left, right []int32, collapse []byte) {
+	pulses, tfRes []int32, shortBlocks, spread, dualStereo, intensity, totalBitsQ3, balance, codedBands int,
+	disableInv bool, seed *uint32, scratch *celtDecodeBandsScratch) (left, right []int32, collapse []byte) {
 
 	eBands := celt.EBands
 	nbEBands := celt.MaxBands // 21
@@ -710,25 +718,33 @@ func QuantAllBandsDecode(dec *rangecoding.Decoder, channels, frameSize, lm, star
 		B = M
 	}
 
-	left = make([]int32, frameSize)
-	if channels == 2 {
-		right = make([]int32, frameSize)
+	if scratch == nil {
+		scratch = new(celtDecodeBandsScratch)
 	}
-	collapse = make([]byte, channels*nbEBands)
+	x := ensureInt32(&scratch.x, channels*frameSize)
+	clear(x)
+	left = x[:frameSize:frameSize]
+	if channels == 2 {
+		right = x[frameSize:]
+	}
+	collapse = scratch.collapse[:channels*nbEBands]
+	clear(collapse)
 
 	normOffset := M * eBands[start]
 	normLen := M*eBands[nbEBands-1] - normOffset
 	if normLen < 0 {
 		normLen = 0
 	}
-	norm := make([]int32, channels*normLen)
+	norm := ensureInt32(&scratch.norm, channels*normLen)
+	clear(norm)
 	var norm2 []int32
 	if channels == 2 {
 		norm2 = norm[normLen:]
 	}
 
 	maxBand := M * (eBands[end] - eBands[end-1])
-	lowbandScratch := make([]int32, maxBand)
+	lowbandScratch := ensureInt32(&scratch.lowband, maxBand)
+	clear(lowbandScratch)
 
 	ctx := bandDecCtx{
 		dec:             dec,
@@ -767,7 +783,7 @@ func QuantAllBandsDecode(dec *rangecoding.Decoder, channels, frameSize, lm, star
 		b := 0
 		if i <= codedBands-1 {
 			currBalance := celtSudiv(balance, imin(3, codedBands-i))
-			b = imax(0, imin(16383, imin(remaining+1, pulses[i]+currBalance)))
+			b = imax(0, imin(16383, imin(remaining+1, int(pulses[i])+currBalance)))
 		}
 
 		if (M*eBands[i]-nBand >= M*eBands[start] || i == start+1) && (updateLowband || lowbandOffset == 0) {
@@ -777,7 +793,7 @@ func QuantAllBandsDecode(dec *rangecoding.Decoder, channels, frameSize, lm, star
 			specialHybridFolding(norm, norm2, eBands[:], start, M, dualStereo != 0)
 		}
 
-		ctx.tfChange = tfRes[i]
+		ctx.tfChange = int(tfRes[i])
 
 		effectiveLowband := -1
 		var xCM, yCM uint
@@ -843,7 +859,7 @@ func QuantAllBandsDecode(dec *rangecoding.Decoder, channels, frameSize, lm, star
 
 		collapse[i*channels] = byte(xCM)
 		collapse[i*channels+channels-1] = byte(yCM)
-		balance += pulses[i] + tell
+		balance += int(pulses[i]) + tell
 
 		updateLowband = b > (nBand << bitRes)
 		ctx.avoidSplitNoise = false
@@ -870,4 +886,11 @@ func specialHybridFolding(norm, norm2 []int32, eBands []int, start, M int, dualS
 	if dualStereo {
 		copy(norm2[n1:n1+(n2-n1)], norm2[2*n1-n2:2*n1-n2+(n2-n1)])
 	}
+}
+
+// celtDecodeBandsScratch owns the band vectors retained through synthesis.
+// These buffers contain no cross-frame state and are cleared before each use.
+type celtDecodeBandsScratch struct {
+	x, norm, lowband []int32
+	collapse         [2 * celt.MaxBands]byte
 }

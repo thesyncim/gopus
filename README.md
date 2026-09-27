@@ -158,7 +158,7 @@ here. The default build links ZERO of their code (enforced by
 | `gopus_custom_modes` | `--enable-custom-modes` |
 | `gopus_fixed_point` | `--enable-fixed-point` |
 
-Under their tag these are parity-complete — none are experimental:
+Feature oracles use the pinned libopus build with the matching flags:
 
 - **`gopus_dred`** — DRED (RDOVAE), control + standalone surfaces.
 - **`gopus_osce`** — OSCE BWE / LACE / NoLACE plus the deep-PLC family
@@ -170,7 +170,9 @@ Under their tag these are parity-complete — none are experimental:
   default-build API rates stay 8/12/16/24/48 kHz.
 - **`gopus_custom_modes`** — Opus Custom standard modes.
 - **`gopus_fixed_point`** — integer CELT/SILK pipeline (libopus `FIXED_POINT`);
-  public decode and encode are bit-exact vs the `--enable-fixed-point` oracle.
+  paired scalar/SIMD oracles check integer kernels, SILK packet encoding, and
+  stateful float32/int16/int24 decode. Full public encoder, FEC, and mode-transition
+  parity remains under validation.
 
 One more tag is orthogonal to the feature flags above and has no libopus
 equivalent:

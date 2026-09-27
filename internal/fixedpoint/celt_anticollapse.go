@@ -72,7 +72,7 @@ func RenormaliseVector(x []int32, n int, gain int32) {
 // per-band pulse count of length nbEBands. eBands is the mode band layout of
 // length nbEBands+1. seed threads through celt_lcg_rand. X is modified in place.
 func AntiCollapse(x []int32, collapseMasks []byte, lm, c, size, start, end int,
-	logE, prev1logE, prev2logE []int32, pulses []int, eBands []int16, nbEBands int,
+	logE, prev1logE, prev2logE []int32, pulses []int32, eBands []int16, nbEBands int,
 	seed uint32, encode bool) {
 	for i := start; i < end; i++ {
 		n0 := int(eBands[i+1]) - int(eBands[i])

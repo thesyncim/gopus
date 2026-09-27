@@ -13,10 +13,8 @@ import (
 // celt_synthesis, comb post-filter, deemphasis) into a full mono/stereo
 // non-PLC frame decode that is bit-exact with the reference MODE_DECODE oracle.
 //
-// Scope of this increment: a fresh (loss_duration==0), non-PLC, non-QEXT decode
-// of the static 48000/960 mode, including the st->downsample > 1 path that emits
-// 24k/16k/12k/8k output from the 48k core. PLC (data==NULL || len<=1) and DRED
-// are out of scope and not driven here.
+// The static 48000/960 mode supports received frames, periodic/noise PLC,
+// and 24/16/12/8 kHz output through core-rate synthesis and downsampling.
 
 const (
 	// celtDecodeBufferSize mirrors DECODE_BUFFER_SIZE == DEC_PITCH_BUF_SIZE.
@@ -29,6 +27,7 @@ const (
 	celtOverlap       = 120
 	celtShortMdctSize = 120
 	celtMaxLM         = 3
+	celtMaxFrameSize  = celtShortMdctSize << celtMaxLM
 )
 
 // CELTDecoder is the FIXED_POINT integer CELT decoder state for the static
@@ -82,7 +81,10 @@ type CELTDecoder struct {
 	// libopus writes via RES2INT24(a)=(a) for the FIXED_POINT ENABLE_RES24
 	// build). int16 output derives from it via Res2Int16; int24 output is the
 	// value itself. Reused across frames to avoid per-frame allocation.
-	res []int32
+	res           []int32
+	decodeRows    [2][]int32
+	synthesisRows [2][]int32
+	bandScratch   celtDecodeBandsScratch
 }
 
 // resScratch returns d.res resized to n, growing the backing array as needed.
@@ -172,7 +174,7 @@ func (d *CELTDecoder) Reset() {
 	d.lastFrameType = 0
 	d.skipPLC = false
 	d.prefilterAndFold = false
-	d.lpc = nil
+	clear(d.lpc)
 	d.postfilterPeriod = 0
 	d.postfilterPeriodOld = 0
 	d.postfilterGain = 0
@@ -259,8 +261,8 @@ func (d *CELTDecoder) decodeReceivedFrame(dec *rangecoding.Decoder, dataLen, fra
 	N := M * shortMdctSize
 
 	decodeMemSize := celtDecodeBufferSize + overlap
-	decodeMem := make([][]int32, CC)
-	outSyn := make([][]int32, CC)
+	decodeMem := d.decodeRows[:CC]
+	outSyn := d.synthesisRows[:CC]
 	for c := 0; c < CC; c++ {
 		decodeMem[c] = d.decodeMem[c*decodeMemSize : (c+1)*decodeMemSize]
 		outSyn[c] = decodeMem[c][celtDecodeBufferSize-N:]
@@ -370,18 +372,8 @@ func (d *CELTDecoder) decodeReceivedFrame(dec *rangecoding.Decoder, dataLen, fra
 
 	alloc := celt.DecodeCELTAllocation(dec, totalBits, start, end, LM, C, isTransient)
 
-	tfRes := make([]int, end)
-	for i := 0; i < end; i++ {
-		tfRes[i] = int(alloc.TFRes[i])
-	}
-	pulses := make([]int, nbEBands)
-	for i := 0; i < end; i++ {
-		pulses[i] = int(alloc.Pulses[i])
-	}
-	fineQuant := make([]int32, nbEBands)
-	finePriority := make([]int32, nbEBands)
-	copy(fineQuant, alloc.FineQuant)
-	copy(finePriority, alloc.FinePriority)
+	tfRes, pulses := alloc.TFRes[:end], alloc.Pulses[:nbEBands]
+	fineQuant, finePriority := alloc.FineQuant[:nbEBands], alloc.FinePriority[:nbEBands]
 
 	UnquantFineEnergy(dec, d.oldBandE, start, end, nbEBands, C, nil, fineQuant)
 
@@ -393,16 +385,12 @@ func (d *CELTDecoder) decodeReceivedFrame(dec *rangecoding.Decoder, dataLen, fra
 
 	seed := d.rng
 	totalBitsQ3 := dataLen*(8<<bitRes) - alloc.AntiCollapseRsv
-	left, right, collapse := QuantAllBandsDecode(dec, C, N, LM, start, end,
+	_, _, collapse := QuantAllBandsDecode(dec, C, N, LM, start, end,
 		pulses, tfRes, shortBlocks, alloc.Spread, alloc.DualStereo, alloc.Intensity,
-		totalBitsQ3, alloc.Balance, alloc.CodedBands, false, &seed)
+		totalBitsQ3, alloc.Balance, alloc.CodedBands, false, &seed, &d.bandScratch)
 
 	// X is interleaved [channel0 N][channel1 N].
-	X := make([]int32, C*N)
-	copy(X[:N], left)
-	if C == 2 {
-		copy(X[N:], right)
-	}
+	X := d.bandScratch.x[:C*N]
 
 	antiCollapseOn := false
 	if alloc.AntiCollapseRsv > 0 {

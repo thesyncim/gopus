@@ -175,12 +175,10 @@ func TestQuantAllBandsDecodeOracle(t *testing.T) {
 			dec := &rangecoding.Decoder{}
 			dec.Init(append([]byte(nil), coded...))
 			goSeed := startSeed
-			pulsesI := toIntSlice(pulses)
-			tfResI := toIntSlice(tfRes)
 			frameSize := 120 << c.lm
 			left, right, collapse := QuantAllBandsDecode(dec, c.channels, frameSize, c.lm,
-				start, end, pulsesI, tfResI, c.shortBlocks, c.spread, c.dualStereo,
-				c.intensity, int(totalBits), int(balance), codedBands, false, &goSeed)
+				start, end, pulses, tfRes, c.shortBlocks, c.spread, c.dualStereo,
+				c.intensity, int(totalBits), int(balance), codedBands, false, &goSeed, nil)
 
 			if ref.N != frameSize {
 				t.Fatalf("N mismatch: ref=%d go=%d", ref.N, frameSize)

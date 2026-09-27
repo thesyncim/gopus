@@ -31,7 +31,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	if d.is96kHz() {
 		return d.decode96kFloat32(data, pcm)
 	}
-	return d.decodeFloat32(data, pcm, true)
+	return d.decodePublicFloat32(data, pcm)
 }
 
 func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacket bool) (int, error) {

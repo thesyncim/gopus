@@ -4,6 +4,10 @@ package gopus
 
 import "github.com/thesyncim/gopus/internal/celt"
 
+func (d *Decoder) decodePublicFloat32(data []byte, pcm []float32) (int, error) {
+	return d.decodeFloat32(data, pcm, true)
+}
+
 // celtDecodeFixedAPIRate is a no-op in the default (float) build: it never
 // handles the CELT-only decode, so the caller falls through to the float CELT
 // decoder. It exists only to keep the dispatch in
@@ -34,6 +38,9 @@ func (d *Decoder) finishFixedHybridLost(_ int) bool      { return false }
 // redundancy / transition frames.
 func (d *Decoder) fixedDecodeRedundantCELT(_ []byte, _ celt.CELTBandwidth, _ bool) {}
 func (d *Decoder) fixedDecodeTransitionPLC(_ int)                                  {}
+func (d *Decoder) fixedCaptureRecursiveTransition(_, _ int)                        {}
+func (d *Decoder) fixedOutputCursor() int                                          { return -1 }
+func (d *Decoder) fixedTransitionAvailable() bool                                  { return false }
 func (d *Decoder) fixedApplyRedundancySilkToCelt(_, _ int)                         {}
 func (d *Decoder) fixedApplyRedundancyCeltToSilk(_, _ int)                         {}
 func (d *Decoder) fixedApplyTransition(_, _, _ int)                                {}

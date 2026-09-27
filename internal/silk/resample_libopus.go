@@ -599,7 +599,9 @@ func (r *LibopusResampler) ProcessIntoBoth(samples []float32, outF32 []float32, 
 		return 0
 	}
 	if r.down != nil {
-		return r.down.ProcessInto(samples, outF32)
+		written := r.down.ProcessInto(samples, outF32)
+		copy(outI16, r.down.scratchOut[:written])
+		return written
 	}
 
 	in, inLen := r.prepareInputFromFloat32(samples)
@@ -639,9 +641,9 @@ func (r *LibopusResampler) ProcessInt16IntoBoth(samples []int16, outF32 []float3
 		return 0
 	}
 	if r.down != nil {
-		// The < 16 kHz API downsample path is not exercised by hybrid decode
-		// (hybrid SILK is always WB -> >=16k API); fall back to float-only.
-		return r.down.ProcessInt16Into(samples, outF32)
+		written := r.down.ProcessInt16Into(samples, outF32)
+		copy(outI16, r.down.scratchOut[:written])
+		return written
 	}
 
 	in, inLen := r.prepareInputFromInt16(samples)

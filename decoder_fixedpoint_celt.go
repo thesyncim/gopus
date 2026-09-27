@@ -8,17 +8,35 @@ import (
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
+// decodePublicFloat32 mirrors FIXED_POINT opus_decode_float: decode into
+// opus_res, then apply RES2FLOAT without int16 rounding or soft clipping.
+func (d *Decoder) decodePublicFloat32(data []byte, pcm []float32) (int, error) {
+	d.beginFixedPacket()
+	defer d.endFixedPacket()
+	n, err := d.decodeFloat32(data, pcm, true)
+	if err != nil {
+		return n, err
+	}
+	needed := n * int(d.channels)
+	d.fixedApplyDecodeGain(needed)
+	if d.fixedInt16Ready(needed) {
+		for i, sample := range d.fixedRes[:needed] {
+			pcm[i] = float32(sample) * (1.0 / 8388608.0)
+		}
+	}
+	return n, nil
+}
+
 // celtDecodeFixedAPIRate runs the FIXED_POINT integer CELT decoder
 // (internal/fixedpoint.CELTDecoder) for a CELT-only frame and accumulates its
-// libopus-exact int16 (Res2Int16) and int24 (opus_res; RES2INT24(a)==a) output
-// for the in-flight DecodeInt16 / DecodeInt24 wrapper. It runs IN ADDITION to
+// libopus-exact opus_res output for the in-flight Decode, DecodeInt16, or
+// DecodeInt24 wrapper. It runs in addition to
 // the float CELT decoder (which has already filled out and advanced the float
-// cross-frame state), purely to capture integer-exact PCM.
+// cross-frame state) to capture integer-exact PCM.
 //
-// It only does work when an integer-output packet is active (beginFixedPacket
-// armed the accumulation). The float Decode path never arms one, so this is a
-// no-op there. A degenerate (len(data) <= 1, DTX/PLC) frame is declined so the
-// float conversion is used for that packet.
+// It only does work when beginFixedPacket armed the accumulation. A degenerate
+// (len(data) <= 1, DTX/PLC) frame is declined so the float-derived path handles
+// that packet.
 //
 // It returns handled=true when it accumulated a frame.
 func (d *Decoder) celtDecodeFixedAPIRate(data []byte, apiFrameSize int, packetStereo bool, celtBW celt.CELTBandwidth, out []float32) (bool, error) {
@@ -89,11 +107,11 @@ func (d *Decoder) celtDecodeLostFixedAPIRate(apiFrameSize int) bool {
 // prepareFixedHybrid gating: an active integer packet, the integer CELT decoder
 // already primed by a prior received hybrid frame (so its cross-frame state is
 // the same celt_dec libopus reuses across the loss). Synthesis runs at the
-// 48 kHz core rate and deemphasis emits the configured API rate. Rates below
-// 16 kHz use the same float lowband path as prepareFixedHybrid. When false the
+// 48 kHz core rate and deemphasis emits the configured API rate. The SILK
+// resampler supplies its integer lowband at every API rate. When false the
 // caller marks the packet unhandled and the float PLC conversion is used.
 func (d *Decoder) fixedHybridLostApplicable() bool {
-	return d.fixedPacketActive && d.fixedCELT != nil && int(d.sampleRate) >= 16000
+	return d.fixedPacketActive && d.fixedCELT != nil
 }
 
 // armFixedHybridLost arms the SILK PLC int16-lowband capture for a lost hybrid
@@ -131,8 +149,8 @@ func (d *Decoder) armFixedHybridLost(frameSizeAPI int, silkStereo bool) bool {
 // integer CELT cross-frame state through the loss and accumulates the concealed
 // highband onto the lowband, mirroring opus_decode_frame's
 // celt_decode_with_ec_dred(NULL, celt_accum=1) on a lost hybrid frame. The
-// combined opus_res / int16 output is stashed for the DecodeInt16 / DecodeInt24
-// wrappers. It returns true when the integer concealment produced a frame.
+// combined opus_res / int16 output is stashed for the public PCM wrappers.
+// It returns true when the integer concealment produced a frame.
 func (d *Decoder) finishFixedHybridLost(frameSizeAPI int) bool {
 	filled := d.silkDecoder.PLCLowbandCaptured()
 	d.silkDecoder.ArmPLCLowbandCapture(nil)
@@ -213,15 +231,6 @@ func (d *Decoder) finishFixedHybridLost(frameSizeAPI int) bool {
 // marks the packet unhandled and uses the float conversion.
 func (d *Decoder) prepareFixedHybrid(data []byte, celtBW celt.CELTBandwidth, needCeltReset bool) bool {
 	if !d.fixedPacketActive || len(data) <= 1 {
-		return false
-	}
-	// Hybrid SILK is always wideband (16 kHz internal). At an API rate below
-	// 16 kHz the SILK lowband is produced by the float downsampling resampler,
-	// which has no integer int16 output for INT16TORES, so the integer hybrid
-	// highband cannot reproduce the FIXED_POINT lowband. Decline so the float
-	// conversion handles the packet -- it is bit-exact with the FIXED_POINT
-	// opus_decode reference for these rates.
-	if int(d.sampleRate) < 16000 {
 		return false
 	}
 	if d.fixedCELT == nil {
@@ -321,7 +330,47 @@ func (d *Decoder) fixedDecodeTransitionPLC(transSizeAPI int) {
 	}
 	d.fixedTransitionRes = d.fixedTransitionRes[:needed]
 	copy(d.fixedTransitionRes, res[:needed])
+	if d.decodeGainQ8 != 0 {
+		fixedpoint.ApplyDecodeGainRes(d.fixedTransitionRes, fixedpoint.DecodeGainQ16(d.decodeGainQ8))
+	}
 	d.fixedTransitionValid = true
+}
+
+// fixedCaptureRecursiveTransition removes a concealed previous-mode frame from
+// the current packet's output while retaining the decoder state it advanced.
+// opus_decode_frame keeps that 5 ms opus_res frame separately as pcm_transition
+// before decoding and crossfading the received CELT frame.
+func (d *Decoder) fixedCaptureRecursiveTransition(cursor, needed int) {
+	d.fixedTransitionValid = false
+	if cursor < 0 || !d.fixedPacketActive || !d.fixedAllHandled ||
+		d.fixedCursor != cursor+needed || len(d.fixedRes) != d.fixedCursor ||
+		len(d.fixedInt16) != d.fixedCursor {
+		d.markFixedUnhandled()
+		return
+	}
+	if cap(d.fixedTransitionRes) < needed {
+		d.fixedTransitionRes = make([]int32, needed)
+	}
+	d.fixedTransitionRes = d.fixedTransitionRes[:needed]
+	copy(d.fixedTransitionRes, d.fixedRes[cursor:d.fixedCursor])
+	d.fixedRes = d.fixedRes[:cursor]
+	d.fixedInt16 = d.fixedInt16[:cursor]
+	d.fixedCursor = cursor
+	if d.decodeGainQ8 != 0 {
+		fixedpoint.ApplyDecodeGainRes(d.fixedTransitionRes, fixedpoint.DecodeGainQ16(d.decodeGainQ8))
+	}
+	d.fixedTransitionValid = true
+}
+
+func (d *Decoder) fixedOutputCursor() int {
+	if !d.fixedPacketActive {
+		return -1
+	}
+	return d.fixedCursor
+}
+
+func (d *Decoder) fixedTransitionAvailable() bool {
+	return d.fixedPacketActive && d.fixedTransitionValid
 }
 
 // fixedSnapshotHandled returns the current fixedAllHandled flag, and
@@ -423,9 +472,8 @@ func (d *Decoder) fixedApplyRedundancyCeltToSilk(frameSize, fs int) {
 	d.fixedRedundancyApplied++
 }
 
-// fixedApplyTransition applies the integer CELT->SILK transition crossfade onto
-// the in-flight Hybrid frame, mirroring opus_decoder.c:660-678 with
-// pcm_transition being the integer 5 ms CELT PLC frame.
+// fixedApplyTransition crossfades the previous mode's integer 5 ms PLC output
+// with the received Hybrid or CELT frame, mirroring opus_decoder.c:660-678.
 func (d *Decoder) fixedApplyTransition(frameSize, audiosize, fs int) {
 	channels := int(d.channels)
 	f2_5 := fs / 400
@@ -438,7 +486,7 @@ func (d *Decoder) fixedApplyTransition(frameSize, audiosize, fs int) {
 	}
 	trans := d.fixedTransitionRes
 	if audiosize >= f5 {
-		if len(trans) < f2_5*channels || len(res) < 2*f2_5*channels {
+		if len(trans) < 2*f2_5*channels || len(res) < 2*f2_5*channels {
 			d.markFixedUnhandled()
 			return
 		}
@@ -505,8 +553,8 @@ func (d *Decoder) DecodeHybridHighband(silkInt16 []int16, filled int, rd *rangec
 	d.appendFixedOutput(int16Out, res)
 }
 
-// beginFixedPacket arms the per-packet integer-output accumulation used by the
-// DecodeInt16 / DecodeInt24 wrappers. It must be paired with a read of
+// beginFixedPacket arms the per-packet opus_res accumulation used by the
+// Decode, DecodeInt16, and DecodeInt24 wrappers. It must be paired with a read of
 // fixedAllHandled / fixedInt16 / fixedRes after the float decode completes.
 func (d *Decoder) beginFixedPacket() {
 	d.fixedPacketActive = true

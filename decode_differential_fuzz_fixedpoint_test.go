@@ -4,6 +4,7 @@ package gopus
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"testing"
 
@@ -14,10 +15,14 @@ func fixedFrameSamplesAtRate(s encodeSweepSpec, sampleRate int) int {
 	return s.frameSamples48k() * sampleRate / 48000
 }
 
-// assertFixedDecodeSequence compares independent, stateful int16 and int24
-// decoders with the selected C FIXED_POINT build. Wire v8 records include each
+// assertFixedDecodeSequence compares independent, stateful float32, int16,
+// and int24 decoders with the selected C FIXED_POINT build. Wire v8 records include each
 // step's output count, final range, and offset into the complete PCM output.
 func assertFixedDecodeSequence(t *testing.T, sampleRate, channels, frameSamples int, packets [][]byte) {
+	assertFixedDecodeSequenceWithGain(t, sampleRate, channels, frameSamples, packets, 0)
+}
+
+func assertFixedDecodeSequenceWithGain(t *testing.T, sampleRate, channels, frameSamples int, packets [][]byte, gainQ8 int) {
 	t.Helper()
 	defer func() {
 		if t.Failed() {
@@ -31,8 +36,8 @@ func assertFixedDecodeSequence(t *testing.T, sampleRate, channels, frameSamples 
 		t.Fatal(err)
 	}
 	samplesPerFrame := frameSamples * channels
-	for _, format := range []uint32{libopusRefdecodeSingleFormatInt16, libopusRefdecodeSingleFormatInt24} {
-		payload := libopustest.NewOraclePayloadVersion("GOSI", 8, format, uint32(sampleRate), 0, uint32(channels), uint32(frameSamples), uint32(len(packets)))
+	for _, format := range []uint32{libopusRefdecodeSingleFormatInt16, libopusRefdecodeSingleFormatInt24, libopusRefdecodeSingleFormatFloat32} {
+		payload := libopustest.NewOraclePayloadVersion("GOSI", 8, format, uint32(sampleRate), uint32(int32(gainQ8)), uint32(channels), uint32(frameSamples), uint32(len(packets)))
 		for _, packet := range packets {
 			payload.U32(0)
 			payload.U32(uint32(frameSamples))
@@ -72,14 +77,20 @@ func assertFixedDecodeSequence(t *testing.T, sampleRate, channels, frameSamples 
 		if err != nil {
 			t.Fatal(err)
 		}
+		if err := dec.SetGain(gainQ8); err != nil {
+			t.Fatal(err)
+		}
 		out16 := make([]int16, samplesPerFrame)
 		out24 := make([]int32, samplesPerFrame)
+		outFloat := make([]float32, samplesPerFrame)
 		for frame, packet := range packets {
 			var n int
 			if format == libopusRefdecodeSingleFormatInt16 {
 				n, err = dec.DecodeInt16(packet, out16)
-			} else {
+			} else if format == libopusRefdecodeSingleFormatInt24 {
 				n, err = dec.DecodeInt24(packet, out24)
+			} else {
+				n, err = dec.Decode(packet, outFloat)
 			}
 			if err != nil || n != frameSamples {
 				t.Fatalf("format%d step%d Go samples=%d want%d err=%v", format, frame, n, frameSamples, err)
@@ -91,6 +102,8 @@ func assertFixedDecodeSequence(t *testing.T, sampleRate, channels, frameSamples 
 				got := out24[i]
 				if format == libopusRefdecodeSingleFormatInt16 {
 					got = int32(out16[i])
+				} else if format == libopusRefdecodeSingleFormatFloat32 {
+					got = int32(math.Float32bits(outFloat[i]))
 				}
 				if ref := want[frame*samplesPerFrame+i]; got != ref {
 					t.Fatalf("format%d step%d PCM[%d] Go=%d C=%d packet=%x", format, frame, i, got, ref, packet)
@@ -102,7 +115,7 @@ func assertFixedDecodeSequence(t *testing.T, sampleRate, channels, frameSamples 
 
 // TestDecodeDifferentialFixedPointEncodeThenDecode sweeps the full encoder config
 // space, decodes each multi-frame stateful sequence through the gopus_fixed_point
-// integer DecodeInt16 / DecodeInt24 and the libopus FIXED_POINT reference, and
+// Decode / DecodeInt16 / DecodeInt24 and the libopus FIXED_POINT reference, and
 // asserts bit-exact equality on every architecture.
 func TestDecodeDifferentialFixedPointEncodeThenDecode(t *testing.T) {
 	libopustest.RequireOracle(t)
@@ -139,7 +152,7 @@ func TestDecodeDifferentialFixedPointEncodeThenDecode(t *testing.T) {
 			assertFixedDecodeSequence(t, sampleRate, spec.channels, frameSamples, packets)
 		})
 	}
-	t.Logf("fixed encode-then-decode sweep: %d/%d specs × %d frames (int16+int24)", tested, len(specs), framesPerSpec)
+	t.Logf("fixed encode-then-decode sweep: %d/%d specs × %d frames (float32+int16+int24)", tested, len(specs), framesPerSpec)
 }
 
 // plcDropPattern returns a deterministic lost-frame map for a sequence of n
@@ -229,7 +242,7 @@ func TestDecodeDifferentialFixedPointPLC(t *testing.T) {
 			assertFixedDecodeSequence(t, sampleRate, spec.channels, frameSamples, steps)
 		})
 	}
-	t.Logf("fixed PLC sweep (CELT-only + SILK + Hybrid): %d specs × %d frames (int16+int24)", tested, framesPerSpec)
+	t.Logf("fixed PLC sweep (CELT-only + SILK + Hybrid): %d specs × %d frames (float32+int16+int24)", tested, framesPerSpec)
 }
 
 // TestDecodeDifferentialFixedPointMultiSampleRate checks received packets at
@@ -280,7 +293,7 @@ func TestDecodeDifferentialFixedPointMultiSampleRate(t *testing.T) {
 			}
 		})
 	}
-	t.Logf("fixed multi-rate sweep: %d specs / %d executed rate cases × %d frames (int16+int24)", tested, testedRates, framesPerSpec)
+	t.Logf("fixed multi-rate sweep: %d specs / %d executed rate cases × %d frames (float32+int16+int24)", tested, testedRates, framesPerSpec)
 }
 
 // TestDecodeDifferentialFixedPointLossSampleRates exercises periodic PLC,
@@ -316,5 +329,29 @@ func TestDecodeDifferentialFixedPointLossSampleRates(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A received Hybrid frame must advance the integer CELT state even when the API
+// rate omits its high band, so subsequent loss cannot reuse the preceding CELT
+// frame's synthesis state.
+func TestDecodeDifferentialFixedPointHybridTransitionLossSampleRates(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, channels := range []int{1, 2} {
+		t.Run(fmt.Sprintf("ch%d", channels), func(t *testing.T) {
+			celt := encodeFixedSingleModePacket(t, channels, 960, EncoderModeCELT, 0)
+			hybrid := encodeFixedSingleModePacket(t, channels, 960, EncoderModeHybrid, 960)
+			if ParseTOC(celt[0]).Mode != ModeCELT || ParseTOC(hybrid[0]).Mode != ModeHybrid {
+				t.Fatal("transition probe does not contain CELT followed by Hybrid")
+			}
+			packets := [][]byte{celt, hybrid, nil, nil, hybrid, celt, hybrid, nil, hybrid}
+			for _, rate := range []int{8000, 12000, 16000, 24000, 48000} {
+				for _, gain := range []int{0, 768, -768} {
+					t.Run(fmt.Sprintf("%dHz_gain%d", rate, gain), func(t *testing.T) {
+						assertFixedDecodeSequenceWithGain(t, rate, channels, rate/50, packets, gain)
+					})
+				}
+			}
+		})
 	}
 }
