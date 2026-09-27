@@ -26,6 +26,10 @@ const (
 
 type dredQualityRun struct {
 	decoded        []float32
+	frameIndices   []int
+	frameKinds     []uint32
+	frameSamples   []int
+	frameRanges    []uint32
 	lossReference  []float32
 	lossDecoded    []float32
 	lossFrames     int
@@ -158,6 +162,11 @@ func encodeDREDQualityPackets(t *testing.T, encoderBlob []byte) ([]float32, [][]
 
 func decodeDREDQualityPackets(t *testing.T, packets [][]byte, reference []float32, decoderBlob []byte, useDRED bool) dredQualityRun {
 	t.Helper()
+	return decodeDREDQualityPacketsWithTrailingPLC(t, packets, reference, decoderBlob, useDRED, false)
+}
+
+func decodeDREDQualityPacketsWithTrailingPLC(t *testing.T, packets [][]byte, reference []float32, decoderBlob []byte, useDRED, flushTrailing bool) dredQualityRun {
+	t.Helper()
 
 	dec, err := NewDecoder(DefaultDecoderConfig(dredQualitySampleRate, dredQualityChannels))
 	if err != nil {
@@ -209,7 +218,7 @@ func decodeDREDQualityPackets(t *testing.T, packets [][]byte, reference []float3
 					if err != nil {
 						t.Fatalf("decode loss frame=%d useDRED=%v: %v", originalFrame, useDRED, err)
 					}
-					run.appendDecodedFrame(reference, originalFrame, pcm[:n*dredQualityChannels], true, kindDRED)
+					run.appendDecodedFrame(reference, originalFrame, pcm[:n*dredQualityChannels], dec.FinalRange(), true, kindDRED)
 				}
 			}
 		}
@@ -218,7 +227,7 @@ func decodeDREDQualityPackets(t *testing.T, packets [][]byte, reference []float3
 		if err != nil {
 			t.Fatalf("Decode(frame=%d useDRED=%v) error: %v", frame, useDRED, err)
 		}
-		run.appendDecodedFrame(reference, frame, pcm[:n*dredQualityChannels], false, false)
+		run.appendDecodedFrame(reference, frame, pcm[:n*dredQualityChannels], dec.FinalRange(), false, false)
 		if payload, _, ok, err := findDREDPayload(packet); err != nil {
 			t.Fatalf("findDREDPayload(frame=%d): %v", frame, err)
 		} else if ok && len(payload) > 0 {
@@ -227,11 +236,31 @@ func decodeDREDQualityPackets(t *testing.T, packets [][]byte, reference []float3
 		expected = frame + 1
 		haveExpected = true
 	}
+	if flushTrailing && haveExpected {
+		for frame := expected; frame < len(packets); frame++ {
+			n, err := dec.Decode(nil, pcm)
+			if err != nil {
+				t.Fatalf("decode trailing loss frame=%d: %v", frame, err)
+			}
+			run.appendDecodedFrame(reference, frame, pcm[:n*dredQualityChannels], dec.FinalRange(), true, false)
+		}
+	}
 	return run
 }
 
-func (r *dredQualityRun) appendDecodedFrame(reference []float32, frame int, decoded []float32, lost, dred bool) {
+func (r *dredQualityRun) appendDecodedFrame(reference []float32, frame int, decoded []float32, finalRange uint32, lost, dred bool) {
 	r.decoded = append(r.decoded, decoded...)
+	r.frameIndices = append(r.frameIndices, frame)
+	kind := uint32(0)
+	if lost {
+		kind = 2
+		if dred {
+			kind = 1
+		}
+	}
+	r.frameKinds = append(r.frameKinds, kind)
+	r.frameSamples = append(r.frameSamples, len(decoded))
+	r.frameRanges = append(r.frameRanges, finalRange)
 	if !lost {
 		return
 	}
