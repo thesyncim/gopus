@@ -25,6 +25,8 @@ const (
 	LibopusReferenceFixedQEXTSIMD   LibopusReferenceVariant = "fixed-qext-simd"
 	LibopusReferenceQEXTScalar      LibopusReferenceVariant = "qext-scalar"
 	LibopusReferenceQEXTSIMD        LibopusReferenceVariant = "qext-simd"
+	LibopusReferenceDREDQEXTScalar  LibopusReferenceVariant = "dred-qext-scalar"
+	LibopusReferenceDREDQEXTSIMD    LibopusReferenceVariant = "dred-qext-simd"
 	LibopusReferenceCustomScalar    LibopusReferenceVariant = "custom-scalar"
 	LibopusReferenceCustomSIMD      LibopusReferenceVariant = "custom-simd"
 
@@ -95,6 +97,26 @@ func ResolveLibopusFixedQEXTReferenceVariant() (LibopusReferenceVariant, error) 
 	return LibopusReferenceFixedQEXTScalar, nil
 }
 
+// ResolveLibopusDREDQEXTReferenceVariant selects ENABLE_DRED, ENABLE_DEEP_PLC,
+// and ENABLE_QEXT with the instruction lane paired to the current Go build.
+func ResolveLibopusDREDQEXTReferenceVariant() (LibopusReferenceVariant, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	return dredQEXTVariantFor(variant)
+}
+
+func dredQEXTVariantFor(variant LibopusReferenceVariant) (LibopusReferenceVariant, error) {
+	if variant == LibopusReferenceSIMD {
+		return LibopusReferenceDREDQEXTSIMD, nil
+	}
+	if variant == LibopusReferenceScalar {
+		return LibopusReferenceDREDQEXTScalar, nil
+	}
+	return "", referenceConfigErrorf("cannot pair DRED-QEXT with base reference variant %q", variant)
+}
+
 func resolveLibopusReferenceVariantFor(goarch string, goSIMD bool, override string) (LibopusReferenceVariant, error) {
 	want := LibopusReferenceScalar
 	if goSIMD && (goarch == "arm64" || goarch == "amd64") {
@@ -139,6 +161,10 @@ func LibopusReferenceSourceSuffix(variant LibopusReferenceVariant) (string, erro
 		return "-qext-scalar", nil
 	case LibopusReferenceQEXTSIMD:
 		return "-qext-simd", nil
+	case LibopusReferenceDREDQEXTScalar:
+		return "-dred-qext-scalar", nil
+	case LibopusReferenceDREDQEXTSIMD:
+		return "-dred-qext-simd", nil
 	case LibopusReferenceCustomScalar:
 		return "-custom-scalar", nil
 	case LibopusReferenceCustomSIMD:
@@ -167,9 +193,17 @@ func validateLibopusReferenceBuildForPlatform(refDir string, variant LibopusRefe
 	wantQEXT := "0"
 	wantFixed := "0"
 	wantCFLAGS := LibopusBaseCFLAGS
+	wantDRED := false
+	var scalarVariant = false
+	var simdVariant = false
 	if variant == LibopusReferenceQEXTScalar || variant == LibopusReferenceQEXTSIMD {
 		wantConfigure += " --enable-qext"
 		wantQEXT = "1"
+	}
+	if variant == LibopusReferenceDREDQEXTScalar || variant == LibopusReferenceDREDQEXTSIMD {
+		wantConfigure += " --enable-qext --enable-dred"
+		wantQEXT = "1"
+		wantDRED = true
 	}
 	if variant == LibopusReferenceFixedScalar || variant == LibopusReferenceFixedSIMD {
 		wantConfigure += " --enable-fixed-point"
@@ -184,11 +218,22 @@ func validateLibopusReferenceBuildForPlatform(refDir string, variant LibopusRefe
 		wantConfigure += " --enable-custom-modes"
 		wantCustom = "1"
 	}
-	if variant == LibopusReferenceScalar || variant == LibopusReferenceCustomScalar || variant == LibopusReferenceQEXTScalar || variant == LibopusReferenceFixedScalar || variant == LibopusReferenceFixedQEXTScalar {
+	switch variant {
+	case LibopusReferenceScalar, LibopusReferenceCustomScalar, LibopusReferenceQEXTScalar, LibopusReferenceFixedScalar, LibopusReferenceFixedQEXTScalar, LibopusReferenceDREDQEXTScalar:
+		scalarVariant = true
+	case LibopusReferenceSIMD, LibopusReferenceCustomSIMD, LibopusReferenceQEXTSIMD, LibopusReferenceFixedSIMD, LibopusReferenceFixedQEXTSIMD, LibopusReferenceDREDQEXTSIMD:
+		simdVariant = true
+	}
+	if scalarVariant {
 		wantCFLAGS = LibopusScalarCFLAGS
+		if variant == LibopusReferenceDREDQEXTScalar {
+			wantCFLAGS = ScalarDNNBuildCFLAGS
+		}
 		wantConfigure += " --disable-asm --disable-rtcd --disable-intrinsics"
-	} else {
+	} else if simdVariant {
 		wantConfigure += " --enable-rtcd --enable-intrinsics"
+	} else {
+		return referenceConfigErrorf("unsupported libopus reference variant %q", variant)
 	}
 	data, err := os.ReadFile(filepath.Join(refDir, ".gopus-libopus-build"))
 	if err != nil {
@@ -201,6 +246,9 @@ func validateLibopusReferenceBuildForPlatform(refDir string, variant LibopusRefe
 	wantFields := map[string]string{
 		"version": version, "qext": wantQEXT, "fixed": wantFixed, "custom": wantCustom,
 		"configure": wantConfigure, "CFLAGS": wantCFLAGS, "CPPFLAGS": "", "LDFLAGS": "",
+	}
+	if wantDRED {
+		wantFields["dnn_model_sources"] = dredQEXTModelSourcesStamp
 	}
 	for key, want := range wantFields {
 		if got := fields[key]; got != want {
@@ -242,6 +290,17 @@ func validateLibopusReferenceBuildForPlatform(refDir string, variant LibopusRefe
 	if gotCustom := configDefinesMacro(string(config), "CUSTOM_MODES"); gotCustom != (wantCustom == "1") {
 		return referenceConfigErrorf("libopus %s config in %s: CUSTOM_MODES=%t, want %s", variant, refDir, gotCustom, wantCustom)
 	}
+	if gotDRED := configDefinesMacro(string(config), "ENABLE_DRED"); gotDRED != wantDRED {
+		return referenceConfigErrorf("libopus %s config in %s: ENABLE_DRED=%t, want %t", variant, refDir, gotDRED, wantDRED)
+	}
+	if gotDeepPLC := configDefinesMacro(string(config), "ENABLE_DEEP_PLC"); gotDeepPLC != wantDRED {
+		return referenceConfigErrorf("libopus %s config in %s: ENABLE_DEEP_PLC=%t, want %t", variant, refDir, gotDeepPLC, wantDRED)
+	}
+	for _, macro := range []string{"ENABLE_OSCE", "ENABLE_OSCE_BWE", "ENABLE_OSCE_TRAINING_DATA"} {
+		if configDefinesMacro(string(config), macro) {
+			return referenceConfigErrorf("libopus %s config in %s has unexpected %s", variant, refDir, macro)
+		}
+	}
 	archive := filepath.Join(refDir, ".libs", "libopus.a")
 	st, err := os.Stat(archive)
 	if err != nil {
@@ -249,6 +308,33 @@ func validateLibopusReferenceBuildForPlatform(refDir string, variant LibopusRefe
 	}
 	if st.IsDir() || st.Size() == 0 {
 		return referenceConfigErrorf("libopus %s archive at %s is empty or not a file", variant, archive)
+	}
+	if wantDRED {
+		if err := validateDREDQEXTModelSources(refDir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateDREDQEXTModelSources(refDir string) error {
+	for _, model := range []struct {
+		name string
+		want string
+	}{
+		{name: "pitchdnn_data.c", want: "921b6157ff7a6200741c8b3e0c6d0183f2c34567297d63b065486be2bbf995ac"},
+		{name: "dred_rdovae_enc_data.c", want: "3bf6d5cbfa3b1fee99a0e65253eeecaa92f861533b9c3926b494e2776c922e5e"},
+	} {
+		path := filepath.Join(refDir, "dnn", model.name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return referenceConfigErrorf("read pinned libopus DRED model source %s: %v", path, err)
+		}
+		gotBytes := sha256.Sum256(data)
+		got := hex.EncodeToString(gotBytes[:])
+		if got != model.want {
+			return referenceConfigErrorf("libopus DRED model source %s has sha256=%s, want %s", path, got, model.want)
+		}
 	}
 	return nil
 }
@@ -291,9 +377,9 @@ func configDefinesMacro(config, macro string) bool {
 
 func validateLibopusConfigSIMD(config string, variant LibopusReferenceVariant, goarch string) error {
 	switch variant {
-	case LibopusReferenceQEXTScalar, LibopusReferenceFixedScalar, LibopusReferenceFixedQEXTScalar:
+	case LibopusReferenceQEXTScalar, LibopusReferenceFixedScalar, LibopusReferenceFixedQEXTScalar, LibopusReferenceDREDQEXTScalar:
 		variant = LibopusReferenceScalar
-	case LibopusReferenceQEXTSIMD, LibopusReferenceCustomSIMD, LibopusReferenceFixedSIMD, LibopusReferenceFixedQEXTSIMD:
+	case LibopusReferenceQEXTSIMD, LibopusReferenceCustomSIMD, LibopusReferenceFixedSIMD, LibopusReferenceFixedQEXTSIMD, LibopusReferenceDREDQEXTSIMD:
 		variant = LibopusReferenceSIMD
 	}
 	defines := make(map[string]bool)
@@ -406,6 +492,8 @@ func validateLibopusReferenceToolOverrideForPlatform(path, tool string, variant 
 const (
 	// DefaultVersion is the pinned libopus reference used by fixture tooling.
 	DefaultVersion = "1.6.1"
+
+	dredQEXTModelSourcesStamp = "pitchdnn_data.c=921b6157ff7a6200741c8b3e0c6d0183f2c34567297d63b065486be2bbf995ac;dred_rdovae_enc_data.c=3bf6d5cbfa3b1fee99a0e65253eeecaa92f861533b9c3926b494e2776c922e5e"
 
 	// dnn/vec.h selects its vector implementation from compiler macros even
 	// when libopus RTCD and intrinsics are disabled. Clear those macros so the
@@ -806,6 +894,16 @@ func EnsureLibopusQEXTSIMD(version string, roots []string) bool {
 	return ensureLibopusVariant(version, roots, "qext-simd")
 }
 
+// EnsureLibopusDREDQEXTScalar builds the combined DRED + QEXT generic-C reference.
+func EnsureLibopusDREDQEXTScalar(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "dred-qext-scalar")
+}
+
+// EnsureLibopusDREDQEXTSIMD builds the combined DRED + QEXT RTCD/intrinsics reference.
+func EnsureLibopusDREDQEXTSIMD(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "dred-qext-simd")
+}
+
 // EnsureLibopusFixedScalar builds the FIXED_POINT generic-C reference.
 func EnsureLibopusFixedScalar(version string, roots []string) bool {
 	return ensureLibopusVariant(version, roots, "fixed-scalar")
@@ -898,6 +996,10 @@ func ensureLibopusVariant(version string, roots []string, variant string) bool {
 			env = append(env, "LIBOPUS_ENABLE_QEXT_SCALAR=1")
 		case "qext-simd":
 			env = append(env, "LIBOPUS_ENABLE_QEXT_SIMD=1")
+		case "dred-qext-scalar":
+			env = append(env, "LIBOPUS_ENABLE_DRED_QEXT_SCALAR=1", "LIBOPUS_CFLAGS="+ScalarDNNBuildCFLAGS)
+		case "dred-qext-simd":
+			env = append(env, "LIBOPUS_ENABLE_DRED_QEXT_SIMD=1", "LIBOPUS_CFLAGS="+DREDSIMDBuildCFLAGS)
 		case "fixed-scalar":
 			env = append(env, "LIBOPUS_ENABLE_FIXED_SCALAR=1")
 		case "fixed-simd":
@@ -915,6 +1017,12 @@ func ensureLibopusVariant(version string, roots []string, variant string) bool {
 		case "scalar":
 			env = append(env, "LIBOPUS_ENABLE_SCALAR=1")
 		}
+		switch variant {
+		case "dred-qext-scalar":
+			env = dredQEXTBuildEnvironment(env, version, "LIBOPUS_ENABLE_DRED_QEXT_SCALAR=1", ScalarDNNBuildCFLAGS)
+		case "dred-qext-simd":
+			env = dredQEXTBuildEnvironment(env, version, "LIBOPUS_ENABLE_DRED_QEXT_SIMD=1", DREDSIMDBuildCFLAGS)
+		}
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -927,6 +1035,29 @@ func ensureLibopusVariant(version string, roots []string, variant string) bool {
 		return err == nil
 	}
 	return false
+}
+
+func dredQEXTBuildEnvironment(env []string, version, selector, cflags string) []string {
+	filtered := env[:0]
+	for _, item := range env {
+		itemName, _, ok := strings.Cut(item, "=")
+		if !ok {
+			continue
+		}
+		if strings.HasPrefix(itemName, "LIBOPUS_ENABLE_") || itemName == "LIBOPUS_VERSION" ||
+			itemName == "LIBOPUS_CFLAGS" || itemName == "LIBOPUS_CPPFLAGS" ||
+			itemName == "LDFLAGS" || itemName == "CPPFLAGS" || itemName == "CFLAGS" {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return append(filtered,
+		"LIBOPUS_VERSION="+version,
+		selector,
+		"LIBOPUS_CFLAGS="+cflags,
+		"LIBOPUS_CPPFLAGS=",
+		"LDFLAGS=",
+	)
 }
 
 func tailForLog(s string, max int) string {
@@ -961,6 +1092,10 @@ func findOrEnsureReferenceTool(version string, roots []string, tool string, vari
 		ensure = EnsureLibopusQEXTScalar
 	case LibopusReferenceQEXTSIMD:
 		ensure = EnsureLibopusQEXTSIMD
+	case LibopusReferenceDREDQEXTScalar:
+		ensure = EnsureLibopusDREDQEXTScalar
+	case LibopusReferenceDREDQEXTSIMD:
+		ensure = EnsureLibopusDREDQEXTSIMD
 	case LibopusReferenceFixedScalar:
 		ensure = EnsureLibopusFixedScalar
 	case LibopusReferenceFixedSIMD:

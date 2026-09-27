@@ -131,9 +131,15 @@ and five active cross-frame postfilter frames per channel layout.
 An isolated source overlay passes the public and PVQ/band oracles without the
 unfinished encoder integration. Fixed-only band oracles and the float-QEXT
 integer-wrapper regressions pass independently. The type-parity guard retains
-its 26 existing findings with no baseline edits. Native AMD64 confirmation is
-pending. The native CI gate selects these public tests and paired PVQ/band
-oracles explicitly.
+its 26 existing findings with no baseline edits. The native CI gate selects
+these public tests and paired PVQ/band oracles explicitly.
+
+Native AMD64 at `f2af896b` also passes the received-frame/band gate in SIMD
+and `nosimd`: 224 passing test nodes per lane, with no failures or skips.
+The same early artifact passes 48 fixed-QEXT analysis nodes, 35 transform
+nodes, and 40 automatic-CELT/surround/allocation nodes in each lane. This
+validates those bounded checkpoints on AMD64; it predates the loss/recovery
+checkpoint and does not establish complete codec or combined-feature parity.
 
 ### Fixed-QEXT loss and malformed-packet recovery
 
@@ -172,8 +178,26 @@ active prefilter. These QEXT-build tests keep the runtime extension off.
 
 Isolated ordinary, SIMD and `nosimd` ARM64 checks pass. Fixed-only and default
 float surround gates also pass. Public surround/projection warm encode
-allocation guards pass for 5.1/7.1 and FOA/SOA/TOA. Native AMD64 confirmation
-and active combined DRED+QEXT validation remain pending.
+allocation guards pass for 5.1/7.1 and FOA/SOA/TOA. The native `f2af896b`
+early artifact passes this selected gate in SIMD and `nosimd`. Active combined
+DRED+QEXT validation remains pending.
+
+### Combined DRED and QEXT reference identity
+
+Combined-feature C helpers use isolated `dred-qext-scalar` and
+`dred-qext-simd` archives with ENABLE_DRED, ENABLE_DEEP_PLC and ENABLE_QEXT.
+The resolver rejects conflicting feature selections, mismatched instruction
+paths, unexpected OSCE/fixed-point flags, and missing or changed pinned model
+source hashes. Existing DRED helpers retain runtime QEXT-off unless their
+protocol explicitly enables it. The active combined helper enables QEXT in
+both implementations and checks the control on each elementary stream.
+
+Isolated reference-selector regressions pass locally in SIMD and `nosimd`.
+These checks establish oracle identity. Combined public encoding remains in
+progress: 96-frame 5.1 and FOA sequences match packets/ranges at 384 kb/s,
+while a 768 kb/s 5.1 witness differs in elementary stream 2 at frame 1 in both
+scalar and SIMD. Warm combined allocation checks also remain failing. These
+working-tree witnesses remain active until their runtime causes are fixed.
 
 ### Extension checkpoint
 
@@ -323,11 +347,11 @@ encoding additionally matches selected C for the tested SILK and Hybrid
 sequences described above. Four fresh 96 kHz float-QEXT packet/range cases
 pass ordinary, SIMD, and `nosimd`. Automatic fixed CELT and surround evidence
 appears above. Active public fixed-QEXT encoding remains in progress: the
-uncommitted 48 kHz bridge matches 5/8 packets (all four stereo frames and the
-first mono frame). Replaying the captured inputs through the inner fixed CELT
+uncommitted 48 kHz bridge matches 8/8 packets across mono/stereo and four
+persistent frames; CVBR→CBR and unconstrained-VBR→CBR histories also match. Replaying the captured inputs through the inner fixed CELT
 encoder matches main and extension bytes for all four frames per channel
-layout. Native 96 kHz inner oracles also match C; public integration, remaining
-mono state, and combined DRED+QEXT validation remain open. These working-tree
+layout. Native 96 kHz inner oracles also match C; public integration, broader
+encoder coverage, and combined DRED+QEXT validation remain open. These working-tree
 results do not constitute a published encoder checkpoint.
 
 [Native run 36284981747](https://github.com/thesyncim/gopus/actions/runs/36284981747)
@@ -398,8 +422,8 @@ in this artifact use zero-offset clean-reference windows; aligned native
 quality gates pass in run `36312921742` at `49595303`. This early artifact is not a full CI
 pass.
 
-The latest native six-workload early E2E capture is run `36329086078` at
-`c5537a97` on AMD EPYC 7763 / Go 1.27.1 / GCC 13.3.0. It uses four interleaved
+The latest native six-workload early E2E capture is run `36331924965` at
+`f2af896b` on AMD EPYC 9V74 / Go 1.27.1 / GCC 13.3.0. It uses four interleaved
 500 ms samples per workload and build; all 72 samples report zero allocations.
 Run `36319060882` at `17e48afb`, full artifact `10931588043`, supplies the eleven direct AMD64
 symbol rows below, with five 300 ms samples per mode and zero allocations. All
@@ -884,7 +908,7 @@ Native AMD64 at `08a11a0f` passes 5,718 fixed-encode events in both SIMD and
 nosimd without failures or skips, including the forced-CELT VoIP short,
 mixed-input, long-duration, reset, and low-space selectors. VoIP SILK and
 Hybrid high-pass parity and 96 kHz remain outside this claim. The complete
-six-row performance table uses the `c5537a97` early capture described below.
+six-row performance table uses the `f2af896b` early capture described below.
 
 Remaining strict investigations include:
 
@@ -1001,8 +1025,8 @@ within this run.
 
 ## End-to-end codec throughput
 
-The latest native six-workload early capture is documented in the [c5537a97
-E2E section](#latest-early-end-to-end-capture-at-c5537a97-amd-epyc-7763): it
+The latest native six-workload early capture is documented in the [f2af896b
+E2E section](#latest-early-end-to-end-capture-at-f2af896b-amd-epyc-9v74): it
 uses four interleaved 500 ms samples per workload and build, with zero
 allocations in all 72 samples. The capture is separate from the full artifact's
 three-sample E2E phase and does not establish a complete CI pass.
@@ -1471,28 +1495,29 @@ gates pass; the full artifact at this revision supplies direct timings in rows
 | VoIP encode | 76,544 (76,476–76,765) | 56,245 (56,138–56,361) | 94,358 (93,997–100,544) |
 | Low-delay encode | 71,871.5 (71,016–73,470) | 51,228.5 (51,154–51,392) | 89,314 (89,146–89,440) |
 
-### Latest early end-to-end capture at c5537a97 (AMD EPYC 7763)
+### Latest early end-to-end capture at f2af896b (AMD EPYC 9V74)
 
-Early artifact `10935810754` for [run 36329086078](https://github.com/thesyncim/gopus/actions/runs/36329086078)
-compares assembly `8ac93c85` with SIMD/nosimd `c5537a97` on AMD EPYC 7763,
+Early artifact `10936121257` for [run 36331924965](https://github.com/thesyncim/gopus/actions/runs/36331924965)
+compares assembly `8ac93c85` with SIMD/nosimd `f2af896b` on AMD EPYC 9V74,
 Go 1.27.1, GCC 13.3.0, `GOAMD64=v1`, and runtime AVX2/FMA. Medians and
 ranges use four interleaved 500 ms samples per workload/build at `-cpu=1`.
-All 72 samples report 0 B/op and 0 allocs/op, and all 89 recorded phases exit
+All 72 samples report 0 B/op and 0 allocs/op, and all 93 recorded phases exit
 successfully. This early artifact does not establish a complete CI pass.
 All six SIMD workloads take less time than assembly on this runner: CELT
-26.8%, Hybrid 14.4%, SILK 22.9%, caller-buffer encode 27.2%, VoIP 26.0%,
-and low-delay encode 26.5%. These are within-run comparisons; CPU and revision
-differ from earlier captures. The received-frame decoder checkpoint after
-`c5537a97` needs its own native validation.
+28.0%, Hybrid 12.6%, SILK 26.0%, caller-buffer encode 28.6%, VoIP 27.1%,
+and low-delay encode 28.2%. These are within-run comparisons; CPU and revision
+labels remain part of each result. The separate `c5537a97` / EPYC 7763 capture
+in artifact `10935810754` measures 14.4% less time for Hybrid; it does not
+establish a cross-host revision ratio.
 
 | Fixture | Old assembly | Go SIMD | `nosimd` |
 |---|---:|---:|---:|
-| CELT decode | 20,229.5 (20,192–20,248) | 14,805 (14,753–15,037) | 22,395 (22,377–22,525) |
-| Hybrid decode | 28,537 (28,335–28,663) | 24,428 (24,334–24,502) | 34,887 (34,816–34,965) |
-| SILK decode | 22,442 (22,366–22,529) | 17,292.5 (17,100–17,383) | 22,543.5 (22,400–22,665) |
-| Caller-buffer encode | 92,245.5 (91,532–92,557) | 67,200.5 (66,840–67,822) | 112,924.5 (112,842–113,430) |
-| VoIP encode | 98,947 (98,166–102,765) | 73,204 (73,065–73,412) | 119,491.5 (119,138–120,344) |
-| Low-delay encode | 91,327.5 (90,596–91,872) | 67,087.5 (66,619–69,607) | 112,535 (112,159–113,172) |
+| CELT decode | 15,694.5 (15,674–15,734) | 11,303.5 (11,281–11,324) | 17,067.5 (17,044–17,110) |
+| Hybrid decode | 23,130.5 (23,085–23,197) | 20,222.5 (20,155–20,276) | 28,534 (28,405–28,569) |
+| SILK decode | 18,274.5 (18,270–18,314) | 13,519 (13,491–13,729) | 18,176 (18,153–18,207) |
+| Caller-buffer encode | 71,885.5 (71,821–72,144) | 51,323.5 (51,066–51,553) | 89,088.5 (88,839–89,232) |
+| VoIP encode | 76,751.5 (76,652–76,832) | 55,930.5 (55,562–56,061) | 93,680 (93,622–93,732) |
+| Low-delay encode | 71,158 (70,911–71,187) | 51,104 (50,899–51,288) | 88,736.5 (88,481–88,807) |
 
 ### ARM64 correctly rounded FMA
 
@@ -1586,7 +1611,7 @@ The complete native default-tag run [36296680326](https://github.com/thesyncim/g
 at `1e2dbe77` passes 27,548 nodes with 25 existing skips and no failures. The
 captured artifact comparator passes; the comparator's 16 unit tests also pass.
 This earlier revision supplies historical end-to-end and AMD64 symbol
-measurements. The latest six-row E2E table is the early `c5537a97` EPYC 7763
+measurements. The latest six-row E2E table is the early `f2af896b` EPYC 9V74
 capture; the latest direct AMD64 symbol inventory uses full artifact
 `10931588043` at `17e48afb`. Native feature evidence at `08a11a0f` includes 5,718 fixed-encode
 events and 11,801 fixed stateful-decode events in both SIMD/nosimd lanes, plus
@@ -1616,8 +1641,8 @@ not describe the `1e2dbe77` comparator.
 The 53-row inventory retains each measured revision and fixture. All 51
 comparable routines have direct allocation measurements; startup CPU helpers
 are not comparable per-call operations. The latest six-row E2E table is the
-early `c5537a97` capture on AMD EPYC 7763. SIMD takes less time than assembly
-in all six workloads, including 14.4% less time for Hybrid decode. At
+early `f2af896b` capture on AMD EPYC 9V74. SIMD takes less time than assembly
+in all six workloads, including 12.6% less time for Hybrid decode. At
 `17e48afb` on EPYC 9V74, Hybrid takes 3.9% more time; the Xeon 8573C
 capture at `49595303` takes 11.5% less. These comparisons stay within each
 run and CPU; they do not isolate the effect of a source change across hosts.

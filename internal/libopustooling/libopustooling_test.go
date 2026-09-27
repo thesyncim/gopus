@@ -844,6 +844,16 @@ func writePairedReferenceTree(t *testing.T, root string, variant LibopusReferenc
 		configure = "--enable-static --disable-shared --enable-qext --enable-rtcd --enable-intrinsics"
 		cflags = LibopusBaseCFLAGS
 		qext = "1"
+	case LibopusReferenceDREDQEXTScalar:
+		config = "#define ENABLE_DRED 1\n#define ENABLE_DEEP_PLC 1\n#define ENABLE_QEXT 1\n"
+		configure = "--enable-static --disable-shared --enable-qext --enable-dred --disable-asm --disable-rtcd --disable-intrinsics"
+		cflags = ScalarDNNBuildCFLAGS
+		qext = "1"
+	case LibopusReferenceDREDQEXTSIMD:
+		config = "#define ENABLE_DRED 1\n#define ENABLE_DEEP_PLC 1\n#define ENABLE_QEXT 1\n" + testSIMDConfig(goarch)
+		configure = "--enable-static --disable-shared --enable-qext --enable-dred --enable-rtcd --enable-intrinsics"
+		cflags = DREDSIMDBuildCFLAGS
+		qext = "1"
 	case LibopusReferenceCustomScalar:
 		config = "#define CUSTOM_MODES 1\n"
 		configure = "--enable-static --disable-shared --enable-custom-modes --disable-asm --disable-rtcd --disable-intrinsics"
@@ -857,7 +867,26 @@ func writePairedReferenceTree(t *testing.T, root string, variant LibopusReferenc
 	if err := os.WriteFile(filepath.Join(srcDir, "config.h"), []byte(config), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	stamp := strings.Join([]string{
+	if variant == LibopusReferenceDREDQEXTScalar || variant == LibopusReferenceDREDQEXTSIMD {
+		_, testFile, _, ok := runtime.Caller(0)
+		if !ok {
+			t.Fatal("locate pinned source fixtures")
+		}
+		pinnedRoot := filepath.Clean(filepath.Join(filepath.Dir(testFile), "..", "..", "tmp_check", "opus-"+DefaultVersion))
+		if err := os.MkdirAll(filepath.Join(srcDir, "dnn"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"pitchdnn_data.c", "dred_rdovae_enc_data.c"} {
+			data, err := os.ReadFile(filepath.Join(pinnedRoot, "dnn", name))
+			if err != nil {
+				t.Fatalf("read pinned test source %s: %v", name, err)
+			}
+			if err := os.WriteFile(filepath.Join(srcDir, "dnn", name), data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	stampLines := []string{
 		"gopus libopus helper build v5",
 		"version=" + DefaultVersion,
 		"qext=" + qext,
@@ -874,8 +903,12 @@ func writePairedReferenceTree(t *testing.T, root string, variant LibopusReferenc
 		"CFLAGS=" + cflags,
 		"CPPFLAGS=",
 		"LDFLAGS=",
-		"",
-	}, "\n")
+	}
+	if variant == LibopusReferenceDREDQEXTScalar || variant == LibopusReferenceDREDQEXTSIMD {
+		stampLines = append(stampLines, "dnn_model_sources="+dredQEXTModelSourcesStamp)
+	}
+	stampLines = append(stampLines, "")
+	stamp := strings.Join(stampLines, "\n")
 	if err := os.WriteFile(filepath.Join(srcDir, ".gopus-libopus-build"), []byte(stamp), 0o644); err != nil {
 		t.Fatal(err)
 	}

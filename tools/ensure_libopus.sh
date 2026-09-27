@@ -8,6 +8,8 @@ TARBALL="${TMP_DIR}/opus-${LIBOPUS_VERSION}.tar.gz"
 LIBOPUS_ENABLE_QEXT="${LIBOPUS_ENABLE_QEXT:-0}"
 LIBOPUS_ENABLE_QEXT_SCALAR="${LIBOPUS_ENABLE_QEXT_SCALAR:-0}"
 LIBOPUS_ENABLE_QEXT_SIMD="${LIBOPUS_ENABLE_QEXT_SIMD:-0}"
+LIBOPUS_ENABLE_DRED_QEXT_SCALAR="${LIBOPUS_ENABLE_DRED_QEXT_SCALAR:-0}"
+LIBOPUS_ENABLE_DRED_QEXT_SIMD="${LIBOPUS_ENABLE_DRED_QEXT_SIMD:-0}"
 LIBOPUS_ENABLE_FIXED_SCALAR="${LIBOPUS_ENABLE_FIXED_SCALAR:-0}"
 LIBOPUS_ENABLE_FIXED_SIMD="${LIBOPUS_ENABLE_FIXED_SIMD:-0}"
 LIBOPUS_ENABLE_FIXED_QEXT_SCALAR="${LIBOPUS_ENABLE_FIXED_QEXT_SCALAR:-0}"
@@ -30,6 +32,8 @@ normalize_bool() {
 ENABLE_QEXT="$(normalize_bool "${LIBOPUS_ENABLE_QEXT}" LIBOPUS_ENABLE_QEXT)"
 ENABLE_QEXT_SCALAR="$(normalize_bool "${LIBOPUS_ENABLE_QEXT_SCALAR}" LIBOPUS_ENABLE_QEXT_SCALAR)"
 ENABLE_QEXT_SIMD="$(normalize_bool "${LIBOPUS_ENABLE_QEXT_SIMD}" LIBOPUS_ENABLE_QEXT_SIMD)"
+ENABLE_DRED_QEXT_SCALAR="$(normalize_bool "${LIBOPUS_ENABLE_DRED_QEXT_SCALAR}" LIBOPUS_ENABLE_DRED_QEXT_SCALAR)"
+ENABLE_DRED_QEXT_SIMD="$(normalize_bool "${LIBOPUS_ENABLE_DRED_QEXT_SIMD}" LIBOPUS_ENABLE_DRED_QEXT_SIMD)"
 ENABLE_FIXED_SCALAR="$(normalize_bool "${LIBOPUS_ENABLE_FIXED_SCALAR}" LIBOPUS_ENABLE_FIXED_SCALAR)"
 ENABLE_FIXED_SIMD="$(normalize_bool "${LIBOPUS_ENABLE_FIXED_SIMD}" LIBOPUS_ENABLE_FIXED_SIMD)"
 ENABLE_FIXED_QEXT_SCALAR="$(normalize_bool "${LIBOPUS_ENABLE_FIXED_QEXT_SCALAR}" LIBOPUS_ENABLE_FIXED_QEXT_SCALAR)"
@@ -39,7 +43,7 @@ ENABLE_SIMD="$(normalize_bool "${LIBOPUS_ENABLE_SIMD}" LIBOPUS_ENABLE_SIMD)"
 ENABLE_SCALAR="$(normalize_bool "${LIBOPUS_ENABLE_SCALAR}" LIBOPUS_ENABLE_SCALAR)"
 ENABLE_CUSTOM_SCALAR="$(normalize_bool "${LIBOPUS_ENABLE_CUSTOM_SCALAR}" LIBOPUS_ENABLE_CUSTOM_SCALAR)"
 
-VARIANT_COUNT=$((ENABLE_QEXT + ENABLE_QEXT_SCALAR + ENABLE_QEXT_SIMD + ENABLE_FIXED_SCALAR + ENABLE_FIXED_SIMD + ENABLE_FIXED_QEXT_SCALAR + ENABLE_FIXED_QEXT_SIMD + ENABLE_CUSTOM + ENABLE_SIMD + ENABLE_SCALAR + ENABLE_CUSTOM_SCALAR))
+VARIANT_COUNT=$((ENABLE_QEXT + ENABLE_QEXT_SCALAR + ENABLE_QEXT_SIMD + ENABLE_DRED_QEXT_SCALAR + ENABLE_DRED_QEXT_SIMD + ENABLE_FIXED_SCALAR + ENABLE_FIXED_SIMD + ENABLE_FIXED_QEXT_SCALAR + ENABLE_FIXED_QEXT_SIMD + ENABLE_CUSTOM + ENABLE_SIMD + ENABLE_SCALAR + ENABLE_CUSTOM_SCALAR))
 if [[ "${VARIANT_COUNT}" -gt 1 ]]; then
   echo "error: libopus build variants are mutually exclusive" >&2
   exit 1
@@ -61,6 +65,12 @@ elif [[ "${ENABLE_QEXT_SCALAR}" == "1" ]]; then
 elif [[ "${ENABLE_QEXT_SIMD}" == "1" ]]; then
   SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-qext-simd"
   CONFIGURE_FLAGS+=(--enable-qext --enable-rtcd --enable-intrinsics)
+elif [[ "${ENABLE_DRED_QEXT_SCALAR}" == "1" ]]; then
+  SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-dred-qext-scalar"
+  CONFIGURE_FLAGS+=(--enable-qext --enable-dred "${SCALAR_CONFIGURE_FLAGS[@]}")
+elif [[ "${ENABLE_DRED_QEXT_SIMD}" == "1" ]]; then
+  SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-dred-qext-simd"
+  CONFIGURE_FLAGS+=(--enable-qext --enable-dred --enable-rtcd --enable-intrinsics)
 elif [[ "${ENABLE_FIXED_SCALAR}" == "1" ]]; then
   SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-fixed-scalar"
   CONFIGURE_FLAGS+=(--enable-fixed-point "${SCALAR_CONFIGURE_FLAGS[@]}")
@@ -136,7 +146,7 @@ CUSTOM_STAMP="${ENABLE_CUSTOM}"
 if [[ "${ENABLE_CUSTOM_SCALAR}" == "1" ]]; then
   CUSTOM_STAMP=1
 fi
-QEXT_STAMP=$((ENABLE_QEXT + ENABLE_QEXT_SCALAR + ENABLE_QEXT_SIMD + ENABLE_FIXED_QEXT_SCALAR + ENABLE_FIXED_QEXT_SIMD))
+QEXT_STAMP=$((ENABLE_QEXT + ENABLE_QEXT_SCALAR + ENABLE_QEXT_SIMD + ENABLE_DRED_QEXT_SCALAR + ENABLE_DRED_QEXT_SIMD + ENABLE_FIXED_QEXT_SCALAR + ENABLE_FIXED_QEXT_SIMD))
 FIXED_STAMP=$((ENABLE_FIXED_SCALAR + ENABLE_FIXED_SIMD + ENABLE_FIXED_QEXT_SCALAR + ENABLE_FIXED_QEXT_SIMD))
 BUILD_STAMP=$'gopus libopus helper build v5\nversion='"${LIBOPUS_VERSION}"$'\nqext='"${QEXT_STAMP}"$'\nfixed='"${FIXED_STAMP}"$'\ncustom='"${CUSTOM_STAMP}"$'\nhost_os='"${HOST_OS}"$'\nhost_arch='"${HOST_ARCH}"$'\nhost_bits='"${HOST_BITS}"$'\ncc='"${LIBOPUS_CC}"$'\ncc_path='"${CC_PATH}"$'\ncc_target='"${CC_TARGET}"$'\ncc_version='"${CC_VERSION}"$'\nconfigure='"${CONFIGURE_STAMP}"$'\nCFLAGS='"${LIBOPUS_CFLAGS}"$'\nCPPFLAGS='"${LIBOPUS_CPPFLAGS}"$'\nLDFLAGS='"${LIBOPUS_LDFLAGS}"$'\n'
 LOCK_DIR="${SRC_DIR}.lock"
@@ -211,6 +221,21 @@ download_tarball() {
 }
 
 EXPECTED_SHA256="$(sha256_for_version "${LIBOPUS_VERSION}")"
+DRED_MODEL_SOURCE_HASHES=""
+if [[ "${ENABLE_DRED_QEXT_SCALAR}" == "1" || "${ENABLE_DRED_QEXT_SIMD}" == "1" ]]; then
+  case "${LIBOPUS_VERSION}" in
+    1.6.1)
+      PITCHDNN_DATA_SHA256="921b6157ff7a6200741c8b3e0c6d0183f2c34567297d63b065486be2bbf995ac"
+      DRED_RDOVAE_ENCODER_DATA_SHA256="3bf6d5cbfa3b1fee99a0e65253eeecaa92f861533b9c3926b494e2776c922e5e"
+      ;;
+    *)
+      echo "error: unsupported DRED model source hashes for libopus ${LIBOPUS_VERSION}" >&2
+      exit 1
+      ;;
+  esac
+  DRED_MODEL_SOURCE_HASHES="pitchdnn_data.c=${PITCHDNN_DATA_SHA256};dred_rdovae_enc_data.c=${DRED_RDOVAE_ENCODER_DATA_SHA256}"
+  BUILD_STAMP+="dnn_model_sources=${DRED_MODEL_SOURCE_HASHES}"$'\n'
+fi
 
 find_built_tool() {
   local tool="$1"
@@ -233,6 +258,15 @@ find_static_lib() {
   return 1
 }
 
+dred_model_sources_are_pinned() {
+  [[ -n "${DRED_MODEL_SOURCE_HASHES}" ]] || return 0
+  local pitchdnn="${SRC_DIR}/dnn/pitchdnn_data.c"
+  local encoder="${SRC_DIR}/dnn/dred_rdovae_enc_data.c"
+  [[ -f "${pitchdnn}" && -f "${encoder}" ]] || return 1
+  verify_sha256 "${pitchdnn}" "${PITCHDNN_DATA_SHA256}" || return 1
+  verify_sha256 "${encoder}" "${DRED_RDOVAE_ENCODER_DATA_SHA256}"
+}
+
 build_stamp_is_current() {
   local stamp="${SRC_DIR}/${BUILD_STAMP_FILE}"
   [[ -f "${stamp}" ]] && [[ "$(cat "${stamp}")"$'\n' == "${BUILD_STAMP}" ]]
@@ -242,6 +276,7 @@ build_outputs_are_current() {
   OPUS_DEMO_PATH="$(find_built_tool opus_demo)" || return 1
   OPUS_COMPARE_PATH="$(find_built_tool opus_compare)" || return 1
   LIBOPUS_STATIC_PATH="$(find_static_lib)" || return 1
+  dred_model_sources_are_pinned || return 1
   build_stamp_is_current
 }
 
@@ -275,6 +310,11 @@ trap 'rmdir "${LOCK_DIR}" 2>/dev/null || true' EXIT
 if build_outputs_are_current; then
   echo "${OPUS_DEMO_PATH}"
   exit 0
+fi
+
+if [[ -n "${DRED_MODEL_SOURCE_HASHES}" && -d "${SRC_DIR}" ]] && ! dred_model_sources_are_pinned; then
+  echo "Re-extracting isolated libopus ${LIBOPUS_VERSION} DRED-QEXT tree with unpinned DNN model data" >&2
+  rm -rf "${SRC_DIR}"
 fi
 
 if [[ ! -d "${SRC_DIR}" ]]; then

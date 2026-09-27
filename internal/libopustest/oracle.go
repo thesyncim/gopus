@@ -28,6 +28,7 @@ type CHelperConfig struct {
 	QEXTRef      bool
 	FixedRef     bool
 	FixedQEXTRef bool
+	DREDQEXTRef  bool
 	CustomRef    bool
 	// SIMDRef links the SIMD/RTCD-enabled libopus tree (opus-1.6.1-simd). Pair it
 	// with a Go SIMD build or with a test that invokes the matching Go SIMD kernel.
@@ -119,6 +120,9 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	if cfg.OutputBase == "" || cfg.SourceFile == "" {
 		return "", fmt.Errorf("helper output base and source file are required")
 	}
+	if err := validateCHelperReferenceSelection(cfg); err != nil {
+		return "", err
+	}
 	ccPath, err := libopustooling.FindCCompiler()
 	if err != nil {
 		return "", fmt.Errorf("cc not available: %w", err)
@@ -128,18 +132,6 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	pairedVariant, err := libopustooling.ResolveLibopusReferenceVariant()
 	if err != nil {
 		return "", err
-	}
-	if cfg.ForceScalarRef && (cfg.SIMDRef || cfg.FixedRef || cfg.QEXTRef || cfg.FixedQEXTRef) {
-		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("ForceScalarRef cannot be combined with SIMD, fixed-point, or QEXT references")}
-	}
-	if (cfg.FixedRef || cfg.FixedQEXTRef) && cfg.CustomRef {
-		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("fixed-point reference cannot be combined with custom references")}
-	}
-	if cfg.FixedQEXTRef && (cfg.FixedRef || cfg.QEXTRef) {
-		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("fixed-QEXT reference cannot be combined with separate fixed-point or QEXT references")}
-	}
-	if cfg.QEXTRef && (cfg.FixedRef || cfg.CustomRef) {
-		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("QEXT reference cannot be combined with fixed-point or custom references")}
 	}
 	refVariant := pairedVariant
 	if cfg.SIMDRef {
@@ -178,8 +170,17 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 			refVariant = libopustooling.LibopusReferenceFixedQEXTScalar
 		}
 	}
+	if cfg.DREDQEXTRef {
+		if cfg.SIMDRef && pairedVariant != libopustooling.LibopusReferenceSIMD {
+			return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("DRED-QEXT SIMD helper conflicts with the scalar Go reference lane")}
+		}
+		refVariant, err = libopustooling.ResolveLibopusDREDQEXTReferenceVariant()
+		if err != nil {
+			return "", err
+		}
+	}
 	refDir := helperRefDir(cfg, refVariant)
-	scalarRef := refVariant == libopustooling.LibopusReferenceScalar || refVariant == libopustooling.LibopusReferenceQEXTScalar || refVariant == libopustooling.LibopusReferenceFixedScalar || refVariant == libopustooling.LibopusReferenceFixedQEXTScalar
+	scalarRef := refVariant == libopustooling.LibopusReferenceScalar || refVariant == libopustooling.LibopusReferenceQEXTScalar || refVariant == libopustooling.LibopusReferenceFixedScalar || refVariant == libopustooling.LibopusReferenceFixedQEXTScalar || refVariant == libopustooling.LibopusReferenceDREDQEXTScalar
 	ensureRef := libopustooling.EnsureLibopusScalar
 	flavor := "scalar"
 	if refVariant == libopustooling.LibopusReferenceSIMD {
@@ -210,6 +211,14 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 			flavor = "fixed-qext-simd"
 		}
 	}
+	if cfg.DREDQEXTRef {
+		ensureRef = libopustooling.EnsureLibopusDREDQEXTScalar
+		flavor = "dred-qext-scalar"
+		if refVariant == libopustooling.LibopusReferenceDREDQEXTSIMD {
+			ensureRef = libopustooling.EnsureLibopusDREDQEXTSIMD
+			flavor = "dred-qext-simd"
+		}
+	}
 	if cfg.CustomRef {
 		ensureRef = libopustooling.EnsureLibopusCustom
 		flavor = "custom"
@@ -218,7 +227,7 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 			flavor = "custom-scalar"
 		}
 	}
-	if cfg.SIMDRef && !cfg.QEXTRef && !cfg.FixedRef && !cfg.FixedQEXTRef {
+	if cfg.SIMDRef && !cfg.QEXTRef && !cfg.FixedRef && !cfg.FixedQEXTRef && !cfg.DREDQEXTRef {
 		ensureRef = libopustooling.EnsureLibopusSIMD
 		flavor = "simd"
 	}
@@ -351,6 +360,22 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	return outPath, nil
 }
 
+func validateCHelperReferenceSelection(cfg CHelperConfig) error {
+	selected := 0
+	for _, enabled := range []bool{cfg.QEXTRef, cfg.FixedRef, cfg.FixedQEXTRef, cfg.DREDQEXTRef, cfg.CustomRef} {
+		if enabled {
+			selected++
+		}
+	}
+	if selected > 1 {
+		return &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("QEXT, fixed-point, fixed-QEXT, DRED-QEXT, and custom references are mutually exclusive")}
+	}
+	if cfg.ForceScalarRef && (cfg.SIMDRef || cfg.FixedRef || cfg.FixedQEXTRef || cfg.QEXTRef || cfg.DREDQEXTRef) {
+		return &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("ForceScalarRef cannot be combined with SIMD, fixed-point, or QEXT references")}
+	}
+	return nil
+}
+
 func helperOutputPath(dir, outputBase, sourceFile, flavor string) string {
 	return helperOutputPathForGOOS(dir, outputBase, sourceFile, flavor, runtime.GOOS, runtime.GOARCH)
 }
@@ -391,6 +416,19 @@ func helperRefDir(cfg CHelperConfig, pairedVariant libopustooling.LibopusReferen
 			pairedVariant = libopustooling.LibopusReferenceFixedQEXTScalar
 		case libopustooling.LibopusReferenceSIMD:
 			pairedVariant = libopustooling.LibopusReferenceFixedQEXTSIMD
+		}
+		suffix, err := libopustooling.LibopusReferenceSourceSuffix(pairedVariant)
+		if err != nil {
+			panic(err)
+		}
+		return filepath.Join(repoRoot(), "tmp_check", "opus-"+libopustooling.DefaultVersion+suffix)
+	}
+	if cfg.DREDQEXTRef {
+		switch pairedVariant {
+		case libopustooling.LibopusReferenceScalar:
+			pairedVariant = libopustooling.LibopusReferenceDREDQEXTScalar
+		case libopustooling.LibopusReferenceSIMD:
+			pairedVariant = libopustooling.LibopusReferenceDREDQEXTSIMD
 		}
 		suffix, err := libopustooling.LibopusReferenceSourceSuffix(pairedVariant)
 		if err != nil {
@@ -494,6 +532,7 @@ func helperConfigDigest(cfg CHelperConfig, refDir, srcPath string) string {
 	helperHashString(h, fmt.Sprintf("qext-ref=%t", cfg.QEXTRef))
 	helperHashString(h, fmt.Sprintf("fixed-ref=%t", cfg.FixedRef))
 	helperHashString(h, fmt.Sprintf("fixed-qext-ref=%t", cfg.FixedQEXTRef))
+	helperHashString(h, fmt.Sprintf("dred-qext-ref=%t", cfg.DREDQEXTRef))
 	helperHashString(h, fmt.Sprintf("custom-ref=%t", cfg.CustomRef))
 	helperHashString(h, fmt.Sprintf("simd-ref=%t", cfg.SIMDRef))
 	helperHashString(h, fmt.Sprintf("force-scalar-ref=%t", cfg.ForceScalarRef))

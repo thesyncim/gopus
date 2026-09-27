@@ -252,6 +252,21 @@ type scalarDNNHelperConfig struct {
 }
 
 func BuildDREDHelper(repoRoot, sourceFile, outputBase string, includeInternal bool) (string, error) {
+	if dredQEXTReferenceEnabled {
+		includes := []string{"dnn"}
+		if includeInternal {
+			includes = append(includes, "celt", "silk", "src")
+		}
+		return BuildCHelper(CHelperConfig{
+			Label:       "combined DRED-QEXT " + outputBase,
+			OutputBase:  outputBase,
+			SourceFile:  sourceFile,
+			CFlags:      []string{"-DHAVE_CONFIG_H"},
+			RefIncludes: includes,
+			DREDQEXTRef: true,
+			Libs:        []string{DREDQEXTRefPath(".libs", "libopus.a"), "-lm"},
+		})
+	}
 	variant, err := libopustooling.ResolveLibopusReferenceVariant()
 	if err != nil {
 		return "", err
