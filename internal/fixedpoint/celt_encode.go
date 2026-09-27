@@ -565,8 +565,6 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 			mainBytes := nbCompressedBytes - qextBytes - qextPadding - 1
 			enc.Shrink(uint32(mainBytes))
 			nbCompressedBytes = mainBytes
-			totalBits = nbCompressedBytes * 8
-			nbAvailableBytes = nbCompressedBytes - nbFilledBytes
 			qextBytes-- // The reserved region starts with the extension ID byte.
 		}
 	}
