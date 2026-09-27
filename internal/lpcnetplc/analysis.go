@@ -340,8 +340,15 @@ func computeBandEnergy(bandE []float32, spectrum []complex64, dredEncoder bool) 
 			im := imag(spectrum[idx])
 			tmp := re * re
 			tmp += im * im
-			// libopus dnn/freq.c:lpcn_compute_band_energy relies on rounded
-			// float products/adds here; avoid Go contracting the weighted add.
+			if !analysisUseRoundedVectorProducts {
+				// The selected scalar dnn/freq.c object fuses each weighted
+				// contribution into its band's running energy.
+				sum[i] = fma32(1-frac, tmp, sum[i])
+				sum[i+1] = fma32(frac, tmp, sum[i+1])
+				continue
+			}
+			// The selected SIMD object rounds vector products before adding
+			// their lanes to the running energy.
 			left := noFMA32Mul(1-frac, tmp)
 			right := noFMA32Mul(frac, tmp)
 			sum[i] = round32(sum[i] + left)
@@ -486,10 +493,18 @@ func lpcnLPC(lpc, ac []float32, order int) float32 {
 
 func lpcnRR(lpc, ac []float32, i int) float32 {
 	var rr float32
+	if !analysisUseRoundedVectorProducts {
+		// The selected scalar libopus dnn/freq.c:lpcn_lpc object accumulates
+		// each reflection-product in ascending order. The SIMD object rounds
+		// complete groups of four products before adding them in lane order.
+		for j := 0; j < i; j++ {
+			rr = fma32(lpc[j], ac[i-j], rr)
+		}
+		return rr
+	}
 	j := 0
-	// libopus dnn/freq.c:lpcn_lpc is compiled as 16/4-wide vector products on
-	// arm64 clang, with rounded FMUL products reduced in lane order; scalar
-	// leftovers use FMADD.
+	// libopus dnn/freq.c:lpcn_lpc rounds SIMD products in four-wide groups,
+	// adds each lane in order, then uses scalar FMADD for the remainder.
 	for ; j+15 < i; j += 16 {
 		rr += noFMA32Mul(lpc[j+0], ac[i-j-0])
 		rr += noFMA32Mul(lpc[j+1], ac[i-j-1])
