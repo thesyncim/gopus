@@ -85,11 +85,12 @@ func assertFixedDecodeSequenceWithGain(t *testing.T, sampleRate, channels, frame
 		outFloat := make([]float32, samplesPerFrame)
 		for frame, packet := range packets {
 			var n int
-			if format == libopusRefdecodeSingleFormatInt16 {
+			switch format {
+			case libopusRefdecodeSingleFormatInt16:
 				n, err = dec.DecodeInt16(packet, out16)
-			} else if format == libopusRefdecodeSingleFormatInt24 {
+			case libopusRefdecodeSingleFormatInt24:
 				n, err = dec.DecodeInt24(packet, out24)
-			} else {
+			default:
 				n, err = dec.Decode(packet, outFloat)
 			}
 			if err != nil || n != frameSamples {
@@ -100,9 +101,10 @@ func assertFixedDecodeSequenceWithGain(t *testing.T, sampleRate, channels, frame
 			}
 			for i := range samplesPerFrame {
 				got := out24[i]
-				if format == libopusRefdecodeSingleFormatInt16 {
+				switch format {
+				case libopusRefdecodeSingleFormatInt16:
 					got = int32(out16[i])
-				} else if format == libopusRefdecodeSingleFormatFloat32 {
+				case libopusRefdecodeSingleFormatFloat32:
 					got = int32(math.Float32bits(outFloat[i]))
 				}
 				if ref := want[frame*samplesPerFrame+i]; got != ref {
