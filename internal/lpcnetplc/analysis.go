@@ -838,6 +838,10 @@ func biquadInPlace(y, mem []float32) {
 }
 
 func pitchXCorrFloat(dst, x, y []float32, length, maxPitch int) {
+	if useX86SelectedPitchKernels {
+		celt.LPCNetPitchXCorrFloat32(dst, x, y, length, maxPitch)
+		return
+	}
 	if useNEONAnalysisKernels {
 		pitchXCorrFloatNEON(dst, x, y, length, maxPitch)
 		return
@@ -852,6 +856,9 @@ func pitchXCorrFloat(dst, x, y []float32, length, maxPitch int) {
 }
 
 func innerProdFloat(x, y []float32, length int) float32 {
+	if useX86SelectedPitchKernels {
+		return celt.LPCNetInnerProdFloat32(x, y, length)
+	}
 	if useNEONAnalysisKernels {
 		return innerProdFloatNEON(x, y, length)
 	}
