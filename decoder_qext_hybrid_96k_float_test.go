@@ -88,7 +88,6 @@ func assertFloatQEXTHybridNative96Sequence(t *testing.T, channels int, packets [
 		for i := 0; i < 120*channels; i++ {
 			if got, expected := math.Float32bits(plc[i]), math.Float32bits(want.PCM[6*frameSize*channels+i]); got != expected {
 				t.Fatalf("direct Hybrid PLC transition prefix[%d]=%08x C=%08x", i, got, expected)
-				break
 			}
 		}
 	}
