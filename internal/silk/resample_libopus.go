@@ -131,15 +131,6 @@ func (r *LibopusResampler) resampleIIRFIRSliceWithScratch(out []int16, in []int1
 	copy(r.sFIR[:], buf[lastNSamplesIn*2:lastNSamplesIn*2+resamplerOrderFIR12])
 }
 
-// Coefficients for 2x upsampler allpass filters (from resampler_rom.h)
-var (
-	// Tables for 2x upsampler, high quality
-	// Even samples: 3rd order allpass
-	silkResamplerUp2HQ0 = [3]int16{1746, 14986, 39083 - 65536}
-	// Odd samples: 3rd order allpass
-	silkResamplerUp2HQ1 = [3]int16{6854, 25769, 55542 - 65536}
-)
-
 var silkResamplerFracFIR12Flat = [48]int16{
 	189, -600, 617, 30567,
 	117, -159, -1070, 29704,
@@ -665,67 +656,63 @@ func (r *LibopusResampler) up2HQ(out []int16, in []int16) {
 	up2HQCore(out, in[:n:n], &r.sIIR)
 }
 
+// Allpass coefficients of silkResamplerUp2HQ0/1 as constants, so the hot loop
+// multiplies by immediates and keeps its six filter states in registers.
+const (
+	up2HQ00 int64 = 1746
+	up2HQ01 int64 = 14986
+	up2HQ02 int64 = 39083 - 65536
+	up2HQ10 int64 = 6854
+	up2HQ11 int64 = 25769
+	up2HQ12 int64 = 55542 - 65536
+)
+
 func up2HQCoreGo(out []int16, in []int16, sIIR *[6]int32) {
 	// Keep allpass filter state in locals during the hot loop.
 	s0, s1, s2 := sIIR[0], sIIR[1], sIIR[2]
 	s3, s4, s5 := sIIR[3], sIIR[4], sIIR[5]
 
-	c00 := int64(silkResamplerUp2HQ0[0])
-	c01 := int64(silkResamplerUp2HQ0[1])
-	c02 := int64(silkResamplerUp2HQ0[2])
-	c10 := int64(silkResamplerUp2HQ1[0])
-	c11 := int64(silkResamplerUp2HQ1[1])
-	c12 := int64(silkResamplerUp2HQ1[2])
-
-	_ = out[2*len(in)-1]
-
-	outPos := 0
-	for k := range in {
+	out = out[:2*len(in)]
+	for k, x := range in {
 		// Convert to Q10
-		in32 := int32(in[k]) << 10
+		in32 := int32(x) << 10
 
 		// First all-pass section for even output sample
-		Y := in32 - s0
-		X := int32((int64(Y) * c00) >> 16)
+		X := int32((int64(in32-s0) * up2HQ00) >> 16)
 		out32_1 := s0 + X
 		s0 = in32 + X
 
 		// Second all-pass section for even output sample
-		Y = out32_1 - s1
-		X = int32((int64(Y) * c01) >> 16)
+		X = int32((int64(out32_1-s1) * up2HQ01) >> 16)
 		out32_2 := s1 + X
 		s1 = out32_1 + X
 
 		// Third all-pass section for even output sample
-		Y = out32_2 - s2
-		X = Y + int32((int64(Y)*c02)>>16)
-		out32_1 = s2 + X
+		Y := out32_2 - s2
+		X = Y + int32((int64(Y)*up2HQ02)>>16)
+		evenOut := s2 + X
 		s2 = out32_2 + X
 
-		// Convert back to int16 and store even sample
-		out[outPos] = sat16RShiftRound10(out32_1)
-
 		// First all-pass section for odd output sample
-		Y = in32 - s3
-		X = int32((int64(Y) * c10) >> 16)
+		X = int32((int64(in32-s3) * up2HQ10) >> 16)
 		out32_1 = s3 + X
 		s3 = in32 + X
 
 		// Second all-pass section for odd output sample
-		Y = out32_1 - s4
-		X = int32((int64(Y) * c11) >> 16)
+		X = int32((int64(out32_1-s4) * up2HQ11) >> 16)
 		out32_2 = s4 + X
 		s4 = out32_1 + X
 
 		// Third all-pass section for odd output sample
 		Y = out32_2 - s5
-		X = Y + int32((int64(Y)*c12)>>16)
-		out32_1 = s5 + X
+		X = Y + int32((int64(Y)*up2HQ12)>>16)
+		oddOut := s5 + X
 		s5 = out32_2 + X
 
-		// Convert back to int16 and store odd sample
-		out[outPos+1] = sat16RShiftRound10(out32_1)
-		outPos += 2
+		// Convert back to int16 and store the output pair
+		pair := out[2*k : 2*k+2]
+		pair[0] = sat16RShiftRound10(evenOut)
+		pair[1] = sat16RShiftRound10(oddOut)
 	}
 
 	sIIR[0], sIIR[1], sIIR[2] = s0, s1, s2
@@ -751,6 +738,11 @@ func (r *LibopusResampler) firInterpol(out []int16, outIdx int, buf []int16, max
 		return outIdx
 	}
 
+	if done := firInterpolVec(out[outIdx:outIdx+nOut], buf, indexIncrQ16); done > 0 {
+		firInterpolGeneric(out[outIdx+done:outIdx+nOut], buf, int32(done)*indexIncrQ16, indexIncrQ16)
+		return outIdx + nOut
+	}
+
 	switch indexIncrQ16 {
 	case 21846: // 8 kHz -> 48 kHz: phases 0, 4, 8 per input step.
 		return r.firInterpol21846(out, outIdx, buf, nOut)
@@ -762,14 +754,22 @@ func (r *LibopusResampler) firInterpol(out []int16, outIdx int, buf []int16, max
 		return r.firInterpol65536(out, outIdx, buf, nOut)
 	}
 
-	// BCE hints for hot inner-loop accesses.
-	_ = out[outIdx+nOut-1]
-	lastIndexQ16 := int32(nOut-1) * indexIncrQ16
+	firInterpolGeneric(out[outIdx:outIdx+nOut], buf, 0, indexIncrQ16)
+	return outIdx + nOut
+}
+
+// firInterpolGeneric is the silk_resampler_private_IIR_FIR_INTERPOL loop for
+// any index increment, producing len(dst) outputs from indexQ16 onwards.
+func firInterpolGeneric(dst []int16, buf []int16, indexQ16, indexIncrQ16 int32) {
+	nOut := len(dst)
+	if nOut == 0 {
+		return
+	}
+	// BCE hint for the last tap read.
+	lastIndexQ16 := indexQ16 + int32(nOut-1)*indexIncrQ16
 	_ = buf[int(lastIndexQ16>>16)+7]
 
-	dst := out[outIdx : outIdx+nOut]
-	_ = dst[nOut-1]
-	for indexQ16, n := int32(0), 0; n < nOut; n, indexQ16 = n+1, indexQ16+indexIncrQ16 {
+	for n := 0; n < nOut; n, indexQ16 = n+1, indexQ16+indexIncrQ16 {
 		// Fractional position for table lookup (0..11), matching libopus smulwb(indexQ16&0xFFFF, 12).
 		tableIndex := int((uint32(indexQ16&0xFFFF) * 12) >> 16)
 		bufIdx := int(indexQ16 >> 16)
@@ -792,8 +792,6 @@ func (r *LibopusResampler) firInterpol(out []int16, outIdx int, buf []int16, max
 
 		dst[n] = sat16RShiftRound15(resQ15)
 	}
-
-	return outIdx + nOut
 }
 
 func (r *LibopusResampler) firInterpol21846(out []int16, outIdx int, buf []int16, nOut int) int {

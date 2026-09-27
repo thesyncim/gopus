@@ -177,23 +177,8 @@ func cltComputeAllocationWithScratch(start, end int, offsets, cap []int32, alloc
 	lo := 1
 	hi := len(BandAlloc) - 1
 	for lo <= hi {
-		done := 0
-		psum := int32(0)
 		mid := (lo + hi) >> 1
-		for j := end; j > start; j-- {
-			idx := j - 1
-			bitsj := (bandScale[idx] * int32(BandAlloc[mid][idx])) >> 2
-			if bitsj > 0 {
-				bitsj = max32(0, bitsj+trimOffset[idx])
-			}
-			bitsj += offsets[idx]
-			if bitsj >= thresh[idx] || done != 0 {
-				done = 1
-				psum += min32(bitsj, cap[idx])
-			} else if bitsj >= channels32<<bitRes {
-				psum += channels32 << bitRes
-			}
-		}
+		psum := allocSearchSum(bandScale[start:end], bandAlloc32[mid][start:end], trimOffset[start:end], offsets[start:end], thresh[start:end], cap[start:end], channels32<<bitRes)
 		if int(psum) > totalBitsQ3 {
 			hi = mid - 1
 		} else {
@@ -239,6 +224,83 @@ func cltComputeAllocationWithScratch(start, end int, offsets, cap []int32, alloc
 	return codedBands
 }
 
+// bandAlloc32 is BandAlloc as int32, the width the allocation search uses.
+var bandAlloc32 = func() (t [len(BandAlloc)][MaxBands]int32) {
+	for q, row := range BandAlloc {
+		for j, v := range row {
+			t[q][j] = int32(v)
+		}
+	}
+	return t
+}()
+
+// allocSearchSum is the per-band total of one step of the clt_compute_allocation
+// bisection over the static allocation vectors (libopus celt/rate.c): bands are
+// visited from the top, and once one reaches its threshold every lower band
+// contributes min(bits, cap); before that a band contributes allocFloor when
+// it reaches allocFloor. The loop selects each contribution without branches,
+// since whether a band reaches its threshold varies from step to step.
+func allocSearchSum(bandScale, alloc, trimOffset, offsets, thresh, cap []int32, allocFloor int32) int32 {
+	n := len(bandScale)
+	alloc = alloc[:n]
+	trimOffset = trimOffset[:n]
+	offsets = offsets[:n]
+	thresh = thresh[:n]
+	cap = cap[:n]
+	psum := int32(0)
+	done := int32(0)
+	for idx := n - 1; idx >= 0; idx-- {
+		bitsj := (bandScale[idx] * alloc[idx]) >> 2
+		if bitsj > 0 {
+			bitsj = max(0, bitsj+trimOffset[idx])
+		}
+		bitsj += offsets[idx]
+		done |= allocReached(bitsj, thresh[idx])
+		psum += allocBandContribution(bitsj, cap[idx], allocFloor, done)
+	}
+	return psum
+}
+
+// interpSearchSum is the per-band total of one interp_bits2pulses bisection
+// step, with the same threshold rule as allocSearchSum.
+func interpSearchSum(bits1, bits2, thresh, cap []int32, mid, allocFloor int32) int32 {
+	n := len(bits1)
+	bits2 = bits2[:n]
+	thresh = thresh[:n]
+	cap = cap[:n]
+	psum := int32(0)
+	done := int32(0)
+	for idx := n - 1; idx >= 0; idx-- {
+		tmp := bits1[idx] + ((mid * bits2[idx]) >> allocSteps)
+		done |= allocReached(tmp, thresh[idx])
+		psum += allocBandContribution(tmp, cap[idx], allocFloor, done)
+	}
+	return psum
+}
+
+// allocReached is 1 when bits reaches thresh and 0 otherwise.
+func allocReached(bits, thresh int32) int32 {
+	r := int32(0)
+	if bits >= thresh {
+		r = 1
+	}
+	return r
+}
+
+// allocBandContribution is min(bits, cap) once the threshold was reached
+// (done != 0), otherwise allocFloor when bits reaches it and 0 below.
+func allocBandContribution(bits, cap, allocFloor, done int32) int32 {
+	floor := int32(0)
+	if bits >= allocFloor {
+		floor = allocFloor
+	}
+	v := min(bits, cap)
+	if done == 0 {
+		v = floor
+	}
+	return v
+}
+
 func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []int32,
 	total int, balance *int, skipRsv int, intensity *int, intensityRsv int,
 	dualStereo *int, dualStereoRsv int, bits, ebits, finePriority []int32,
@@ -258,17 +320,7 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 	hi := 1 << allocSteps
 	for range allocSteps {
 		mid := (lo + hi) >> 1
-		psum := int32(0)
-		done := 0
-		for idx := len(bits1Band) - 1; idx >= 0; idx-- {
-			tmp := bits1Band[idx] + ((int32(mid) * bits2Band[idx]) >> allocSteps)
-			if tmp >= threshBand[idx] || done != 0 {
-				done = 1
-				psum += min32(tmp, capBand[idx])
-			} else if tmp >= allocFloor {
-				psum += allocFloor
-			}
-		}
+		psum := interpSearchSum(bits1Band, bits2Band, threshBand, capBand, int32(mid), allocFloor)
 		if int(psum) > total {
 			hi = mid
 		} else {

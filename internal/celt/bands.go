@@ -472,6 +472,18 @@ func denormalizeBandGain(energies []celtGLog, band int) float32 {
 	return celtExp2(e)
 }
 
+// denormGainBands bounds the band count whose gains denormalisation computes
+// in one batch.
+const denormGainBands = 32
+
+// denormalizeBandGainsScalar sets gains[band] = denormalizeBandGain(energies,
+// band) for band in [start, end).
+func denormalizeBandGainsScalar(gains []float32, energies []celtGLog, start, end int) {
+	for band := start; band < end; band++ {
+		gains[band] = denormalizeBandGain(energies, band)
+	}
+}
+
 func denormalizeEnergyGain(energy celtGLog) float32 {
 	e := float32(energy)
 	if e > 32 {

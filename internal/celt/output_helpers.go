@@ -32,6 +32,10 @@ func (d *Decoder) deemphasis(pcm []float32, x0, x1 []float32, xStride, n, downsa
 	downsample = max(downsample, 1)
 	channels := int(d.channels)
 	coef0 := d.deemphCoefficient()
+	if channels == 2 && d.deemphCoef1 == 0 {
+		d.preemphState[0], d.preemphState[1] = deemphasisStereo(pcm, x0, x1, xStride, n, downsample, coef0, d.preemphState[0], d.preemphState[1], accum)
+		return
+	}
 	for c := range channels {
 		x := x0
 		if c == 1 {
@@ -90,24 +94,33 @@ func (d *Decoder) outputDownsample(pcm []float32, frameSize int) int {
 // channel and returns the updated filter memory. The three loops are the
 // libopus branches: downsampling (tmp = x + VERY_SMALL + m into scratch, then
 // decimate), accumulation (tmp = x + m + VERY_SMALL, y += SIG2RES(tmp)) and the
-// plain path (tmp = x + VERY_SMALL + m, y = SIG2RES(tmp)), which is also the
-// operation order of deemphasis_stereo_simple(). mul32 keeps m = coef*tmp a
-// separately rounded product, as it is its own C statement.
+// plain path (tmp = x + VERY_SMALL + m, y = SIG2RES(tmp)). mul32 keeps
+// m = coef*tmp a separately rounded product, as it is its own C statement. The
+// downsampling loop emits scratch[j*downsample] as soon as it is computed,
+// which yields the same values as libopus' separate decimation pass.
 func deemphasisChannel(y []float32, yStride int, x []float32, xStride, n, downsample int, coef, m float32, accum bool) float32 {
 	if downsample > 1 {
 		nd := n / downsample
-		out := 0
-		for j := range n {
+		if nd > 0 {
+			_ = y[(nd-1)*yStride]
+		}
+		_ = x[(n-1)*xStride]
+		j := 0
+		for o := range nd {
 			tmp := x[j*xStride] + deemphasisVerySmall + m
 			m = mul32(coef, tmp)
-			if j%downsample == 0 && out < nd {
-				if accum {
-					y[out*yStride] = fma32(sig2res, tmp, y[out*yStride])
-				} else {
-					y[out*yStride] = sig2res * tmp
-				}
-				out++
+			if accum {
+				y[o*yStride] = fma32(sig2res, tmp, y[o*yStride])
+			} else {
+				y[o*yStride] = sig2res * tmp
 			}
+			j++
+			for end := j + downsample - 1; j < end; j++ {
+				m = mul32(coef, x[j*xStride]+deemphasisVerySmall+m)
+			}
+		}
+		for ; j < n; j++ {
+			m = mul32(coef, x[j*xStride]+deemphasisVerySmall+m)
 		}
 		return m
 	}
@@ -147,6 +160,81 @@ func deemphasisChannel(y []float32, yStride int, x []float32, xStride, n, downsa
 		y[j*yStride] = sig2res * tmp
 	}
 	return m
+}
+
+// deemphasisStereo runs the single-tap deemphasis of both channels in one
+// loop, writing interleaved output into y. libopus does this only for
+// deemphasis_stereo_simple() (no downsampling, no accumulation); the other
+// branches run each channel on its own. Every channel keeps exactly the
+// per-sample operations of deemphasisChannel, so interleaving the two
+// independent recurrences changes only instruction scheduling.
+func deemphasisStereo(y []float32, x0, x1 []float32, xStride, n, downsample int, coef, m0, m1 float32, accum bool) (float32, float32) {
+	_ = x0[(n-1)*xStride]
+	_ = x1[(n-1)*xStride]
+	if downsample > 1 {
+		nd := n / downsample
+		if nd > 0 {
+			_ = y[2*nd-1]
+		}
+		j := 0
+		for o := range nd {
+			tmp0 := x0[j*xStride] + deemphasisVerySmall + m0
+			tmp1 := x1[j*xStride] + deemphasisVerySmall + m1
+			m0 = mul32(coef, tmp0)
+			m1 = mul32(coef, tmp1)
+			if accum {
+				y[2*o] = fma32(sig2res, tmp0, y[2*o])
+				y[2*o+1] = fma32(sig2res, tmp1, y[2*o+1])
+			} else {
+				y[2*o] = sig2res * tmp0
+				y[2*o+1] = sig2res * tmp1
+			}
+			j++
+			for end := j + downsample - 1; j < end; j++ {
+				m0 = mul32(coef, x0[j*xStride]+deemphasisVerySmall+m0)
+				m1 = mul32(coef, x1[j*xStride]+deemphasisVerySmall+m1)
+			}
+		}
+		for ; j < n; j++ {
+			m0 = mul32(coef, x0[j*xStride]+deemphasisVerySmall+m0)
+			m1 = mul32(coef, x1[j*xStride]+deemphasisVerySmall+m1)
+		}
+		return m0, m1
+	}
+	y = y[:2*n]
+	if accum {
+		for j := range n {
+			tmp0 := x0[j*xStride] + m0 + deemphasisVerySmall
+			tmp1 := x1[j*xStride] + m1 + deemphasisVerySmall
+			m0 = mul32(coef, tmp0)
+			m1 = mul32(coef, tmp1)
+			y[2*j] = fma32(sig2res, tmp0, y[2*j])
+			y[2*j+1] = fma32(sig2res, tmp1, y[2*j+1])
+		}
+		return m0, m1
+	}
+	if xStride == 1 {
+		x0 = x0[:n:n]
+		x1 = x1[:n:n]
+		for j := range x0 {
+			tmp0 := x0[j] + deemphasisVerySmall + m0
+			tmp1 := x1[j] + deemphasisVerySmall + m1
+			m0 = mul32(coef, tmp0)
+			m1 = mul32(coef, tmp1)
+			y[2*j] = sig2res * tmp0
+			y[2*j+1] = sig2res * tmp1
+		}
+		return m0, m1
+	}
+	for j := range n {
+		tmp0 := x0[j*xStride] + deemphasisVerySmall + m0
+		tmp1 := x1[j*xStride] + deemphasisVerySmall + m1
+		m0 = mul32(coef, tmp0)
+		m1 = mul32(coef, tmp1)
+		y[2*j] = sig2res * tmp0
+		y[2*j+1] = sig2res * tmp1
+	}
+	return m0, m1
 }
 
 // deemphasis2TapChannel is the custom/QEXT deemphasis of one channel used when

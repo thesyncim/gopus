@@ -35,6 +35,12 @@ func denormalizeBandsPackedDownsampleIntoFloat32(dst []float32, src []celtNorm, 
 	}
 	f := min(edges[start]*M, len(dst))
 
+	var gainBuf [denormGainBands]float32
+	var gains []float32
+	if end <= denormGainBands {
+		gains = gainBuf[:end]
+		denormalizeBandGains(gains, energies, start, end)
+	}
 	for band := start; band < end; band++ {
 		j := edges[band] * M
 		bandEnd := edges[band+1] * M
@@ -44,7 +50,12 @@ func denormalizeBandsPackedDownsampleIntoFloat32(dst []float32, src []celtNorm, 
 		if bandEnd > len(src) {
 			bandEnd = len(src)
 		}
-		gain := denormalizeBandGain(energies, band)
+		var gain float32
+		if gains != nil {
+			gain = gains[band]
+		} else {
+			gain = denormalizeBandGain(energies, band)
+		}
 		count := bandEnd - j
 		if room := len(dst) - f; count > room {
 			count = room

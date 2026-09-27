@@ -241,12 +241,7 @@ func silkDecodeSigns(rd *rangecoding.Decoder, pulses []int16, length int, signal
 		p := sumPulses[i]
 		if p > 0 {
 			icdf0 := icdfPtr[silkMinInt(int(p&0x1F), 6)]
-			block := pulses[qPtr : qPtr+shellCodecFrameLength]
-			pulseSum := 0
-			if p>>5 == 0 {
-				pulseSum = int(p)
-			}
-			rd.DecodeICDF2_8SignBlock16(icdf0, (*[shellCodecFrameLength]int16)(block), pulseSum)
+			rd.DecodeICDF2_8SignBlock16(icdf0, (*[shellCodecFrameLength]int16)(pulses[qPtr:qPtr+shellCodecFrameLength]))
 		}
 		qPtr += shellCodecFrameLength
 	}
@@ -444,17 +439,17 @@ func silkDecodeParameters(st *decoderState, ctrl *decoderControl, condCoding int
 
 // silkLPCAnalysisFilter runs the whitening (analysis) LPC filter used by the
 // decoder to rebuild the LTP state buffer from past output. Mirrors libopus
-// silk/LPC_analysis_filter.c silk_LPC_analysis_filter. The order-16 case is
-// hoisted into silkLPCAnalysisFilterOrder16 for the WB hot path.
+// silk/LPC_analysis_filter.c silk_LPC_analysis_filter. The prediction is a
+// wrapping int32 sum, so silkLPCAnalysisFilterVec may compute a prefix of the
+// outputs with vectors before the scalar loop finishes the rest.
 func silkLPCAnalysisFilter(out []int16, in []int16, B []int16, length int, order int) {
-	if order == 16 && length >= 16 {
-		silkLPCAnalysisFilterOrder16(out, in, B, length)
+	clear(out[:order])
+	ix := silkLPCAnalysisFilterVec(out, in, B, length, order)
+	if order == maxLPCOrder {
+		silkLPCAnalysisFilterOrder16(out, in, B, ix, length)
 		return
 	}
-	for i := range order {
-		out[i] = 0
-	}
-	for ix := order; ix < length; ix++ {
+	for ; ix < length; ix++ {
 		outQ12 := silkSMULBB(int32(in[ix-1]), int32(B[0]))
 		for j := 1; j < order; j++ {
 			outQ12 = silkSMLABB(outQ12, int32(in[ix-1-j]), int32(B[j]))
@@ -465,12 +460,13 @@ func silkLPCAnalysisFilter(out []int16, in []int16, B []int16, length int, order
 	}
 }
 
-func silkLPCAnalysisFilterOrder16(out []int16, in []int16, B []int16, length int) {
-	_ = out[length-1]
-	_ = in[length-1]
+// silkLPCAnalysisFilterOrder16 computes outputs [from, length) of the order-16
+// silkLPCAnalysisFilter.
+func silkLPCAnalysisFilterOrder16(out []int16, in []int16, B []int16, from, length int) {
+	if from >= length || from < maxLPCOrder {
+		return
+	}
 	_ = B[15]
-
-	clear(out[:16])
 
 	b0 := int32(B[0])
 	b1 := int32(B[1])
@@ -489,25 +485,30 @@ func silkLPCAnalysisFilterOrder16(out []int16, in []int16, B []int16, length int
 	b14 := int32(B[14])
 	b15 := int32(B[15])
 
-	for ix := 16; ix < length; ix++ {
-		outQ12 := int32(in[ix-1]) * b0
-		outQ12 += int32(in[ix-2]) * b1
-		outQ12 += int32(in[ix-3]) * b2
-		outQ12 += int32(in[ix-4]) * b3
-		outQ12 += int32(in[ix-5]) * b4
-		outQ12 += int32(in[ix-6]) * b5
-		outQ12 += int32(in[ix-7]) * b6
-		outQ12 += int32(in[ix-8]) * b7
-		outQ12 += int32(in[ix-9]) * b8
-		outQ12 += int32(in[ix-10]) * b9
-		outQ12 += int32(in[ix-11]) * b10
-		outQ12 += int32(in[ix-12]) * b11
-		outQ12 += int32(in[ix-13]) * b12
-		outQ12 += int32(in[ix-14]) * b13
-		outQ12 += int32(in[ix-15]) * b14
-		outQ12 += int32(in[ix-16]) * b15
-		outQ12 = (int32(in[ix]) << 12) - outQ12
-		out[ix] = silkSAT16(silkRSHIFT_ROUND(outQ12, 12))
+	win := in[from-maxLPCOrder : length]
+	dst := out[from:length]
+	for ix := range dst {
+		// w[16-k] is in[from+ix-k].
+		w := (*[maxLPCOrder + 1]int16)(win)
+		win = win[1:]
+		outQ12 := int32(w[15]) * b0
+		outQ12 += int32(w[14]) * b1
+		outQ12 += int32(w[13]) * b2
+		outQ12 += int32(w[12]) * b3
+		outQ12 += int32(w[11]) * b4
+		outQ12 += int32(w[10]) * b5
+		outQ12 += int32(w[9]) * b6
+		outQ12 += int32(w[8]) * b7
+		outQ12 += int32(w[7]) * b8
+		outQ12 += int32(w[6]) * b9
+		outQ12 += int32(w[5]) * b10
+		outQ12 += int32(w[4]) * b11
+		outQ12 += int32(w[3]) * b12
+		outQ12 += int32(w[2]) * b13
+		outQ12 += int32(w[1]) * b14
+		outQ12 += int32(w[0]) * b15
+		outQ12 = (int32(w[16]) << 12) - outQ12
+		dst[ix] = silkSAT16(silkRSHIFT_ROUND(outQ12, 12))
 	}
 }
 
@@ -610,11 +611,12 @@ func processLTPVoiced(
 	return invGainQ31
 }
 
-// lShiftSAT32By4 is a decode-hot specialization of silkLShiftSAT32(x, 4).
-// It keeps exact saturation behavior while avoiding int64 work for this fixed shift.
+// lShiftSAT32By4 is silk_LSHIFT_SAT32(x, 4): x is limited to
+// [silk_int32_MIN>>4, silk_int32_MAX>>4] before the shift, so positive
+// saturation yields 0x07ffffff<<4 and negative saturation silk_int32_MIN.
 func lShiftSAT32By4(x int32) int32 {
 	if x > 0x07ffffff {
-		return 0x7fffffff
+		return 0x07ffffff << 4
 	}
 	if x < -0x08000000 {
 		return -0x80000000
@@ -622,62 +624,45 @@ func lShiftSAT32By4(x int32) int32 {
 	return x << 4
 }
 
-// synthesizeLPCOrder10 computes LPC synthesis for NB/MB (order 10).
-// This is a decode-core hot path and keeps the exact operation order.
+// synthesizeLPCOrder10 is the order-10 (NB/MB) LPC synthesis loop of libopus
+// silk/decode_core.c silk_decode_core. As in synthesizeLPCOrder16Core, the
+// wrapping int32 prediction sums the taps on older outputs first and adds the
+// tap on the newest output last.
 func synthesizeLPCOrder10(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq []int16, gainQ10 int32, subfrLength int) {
-	c0 := int32(A_Q12[0])
-	c1 := int32(A_Q12[1])
-	c2 := int32(A_Q12[2])
-	c3 := int32(A_Q12[3])
-	c4 := int32(A_Q12[4])
-	c5 := int32(A_Q12[5])
-	c6 := int32(A_Q12[6])
-	c7 := int32(A_Q12[7])
-	c8 := int32(A_Q12[8])
-	c9 := int32(A_Q12[9])
+	if subfrLength <= 0 {
+		return
+	}
+	_ = A_Q12[minLPCOrder-1]
+	c0 := int64(A_Q12[0])
+	c1 := int64(A_Q12[1])
+	c2 := int64(A_Q12[2])
+	c3 := int64(A_Q12[3])
+	c4 := int64(A_Q12[4])
+	c5 := int64(A_Q12[5])
+	c6 := int64(A_Q12[6])
+	c7 := int64(A_Q12[7])
+	c8 := int64(A_Q12[8])
+	c9 := int64(A_Q12[9])
 
-	// Keep the last 10 samples in locals and slide every iteration.
-	// This removes repeated indexed loads from sLPC in the hot loop.
-	v0 := sLPC[maxLPCOrder-1]
-	v1 := sLPC[maxLPCOrder-2]
-	v2 := sLPC[maxLPCOrder-3]
-	v3 := sLPC[maxLPCOrder-4]
-	v4 := sLPC[maxLPCOrder-5]
-	v5 := sLPC[maxLPCOrder-6]
-	v6 := sLPC[maxLPCOrder-7]
-	v7 := sLPC[maxLPCOrder-8]
-	v8 := sLPC[maxLPCOrder-9]
-	v9 := sLPC[maxLPCOrder-10]
-
-	sIdx := maxLPCOrder
-	for i := range subfrLength {
-		lpcPredQ10 := int32(minLPCOrder >> 1)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v0, c0)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v1, c1)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v2, c2)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v3, c3)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v4, c4)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v5, c5)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v6, c6)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v7, c7)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v8, c8)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v9, c9)
+	presQ14 = presQ14[:subfrLength]
+	pxq = pxq[:subfrLength]
+	// The window starts at the oldest tap: h[9-j] is the output j+1 samples back.
+	win := sLPC[maxLPCOrder-minLPCOrder : maxLPCOrder+subfrLength]
+	prev := win[minLPCOrder-1]
+	for i := range presQ14 {
+		h := (*[minLPCOrder + 1]int32)(win)
+		win = win[1:]
+		a := int32((int64(h[0])*c9)>>16) + int32((int64(h[1])*c8)>>16)
+		b := int32((int64(h[2])*c7)>>16) + int32((int64(h[3])*c6)>>16)
+		c := int32((int64(h[4])*c5)>>16) + int32((int64(h[5])*c4)>>16)
+		d := int32((int64(h[6])*c3)>>16) + int32((int64(h[7])*c2)>>16)
+		older := (a + b) + (c + (d + int32((int64(h[8])*c1)>>16)))
+		lpcPredQ10 := older + int32(minLPCOrder>>1) + int32((int64(prev)*c0)>>16)
 
 		s := silkAddSat32(presQ14[i], lShiftSAT32By4(lpcPredQ10))
-		sLPC[sIdx] = s
+		h[minLPCOrder] = s
 		pxq[i] = silkSAT16(silkRSHIFT_ROUND(silkSMULWW(s, gainQ10), 8))
-		sIdx++
-
-		v9 = v8
-		v8 = v7
-		v7 = v6
-		v6 = v5
-		v5 = v4
-		v4 = v3
-		v3 = v2
-		v2 = v1
-		v1 = v0
-		v0 = s
+		prev = s
 	}
 }
 

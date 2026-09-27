@@ -30,6 +30,30 @@ func celtSudiv(n, d int) int {
 	return int(int32(n) / int32(d))
 }
 
+// celtUdivBlocks is celt_udiv(n, B) for a block count B, which the band
+// code keeps a power of two; it shifts instead of dividing then.
+func celtUdivBlocks(n, B int) int {
+	if B > 0 && B&(B-1) == 0 && n >= 0 {
+		return n >> bits.TrailingZeros(uint(B))
+	}
+	return celtUdiv(n, B)
+}
+
+// celtSudivBalance is celt_sudiv(balance, d) for the band-balance divisor
+// d = IMIN(3, codedBands-i) of quant_all_bands, which is 1, 2 or 3; the
+// constant divisions truncate toward zero exactly as the C division does.
+func celtSudivBalance(n, d int) int {
+	switch d {
+	case 3:
+		return int(int32(n) / 3)
+	case 2:
+		return int(int32(n) / 2)
+	case 1:
+		return int(int32(n))
+	}
+	return celtSudiv(n, d)
+}
+
 func fracMul16(a, b int) int {
 	return int((16384 + int32(int16(a))*int32(int16(b))) >> 15)
 }

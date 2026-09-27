@@ -11,3 +11,10 @@ func combFilterConstSSE(dst, src, delay []celtSig, from, to int, g10, g11, g12 f
 		dst[i] = combFilterConstSSEValue(src[i], g10, g11, g12, delay[i+2], delay[i+3], delay[i+1], delay[i+4], delay[i])
 	}
 }
+
+// combFilterOverlap is the cross-faded part of libopus comb_filter over
+// len(dst) outputs, in place: d0[k] and d1[k] are x[i-T0-2+k] and
+// x[i-T1-2+k] for the first output i, and wsq holds window[i]^2.
+func combFilterOverlap(dst, d0, d1, wsq []float32, g00, g01, g02, g10, g11, g12 float32) {
+	combFilterOverlapScalar(dst, d0, d1, wsq, g00, g01, g02, g10, g11, g12)
+}
