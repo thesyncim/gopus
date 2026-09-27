@@ -65,7 +65,7 @@ func QEXTEncodeDepthExport(enc *rangecoding.Encoder, depth, cap int32, last *int
 // point decoder.
 func QEXTDecodeHeaderExport(dec *rangecoding.Decoder, channels, totalBytes int) QEXTDecodeHeader {
 	h := decodeQEXTHeader(dec, channels, totalBytes)
-	return QEXTDecodeHeader{EndBands: h.EndBands, Intensity: h.Intensity, DualStereo: h.DualStereo}
+	return QEXTDecodeHeader(h)
 }
 
 // QEXTDecodeExtraAllocationExport exposes the selected mode's shared
