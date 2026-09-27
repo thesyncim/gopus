@@ -1,4 +1,4 @@
-//go:build gopus_osce && arm64 && goexperiment.simd && !nosimd
+//go:build gopus_osce && arm64
 
 package lpcnetplc
 
@@ -11,9 +11,9 @@ import (
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
-// TestLPCNetSIMDPitchInputsMatchSelectedLibopus keeps the selected ARM NEON
-// correlation and inner-product path exact over the stateful DRED input runs.
-func TestLPCNetSIMDPitchInputsMatchSelectedLibopus(t *testing.T) {
+// TestLPCNetPitchInputsMatchSelectedLibopus keeps the selected ARM scalar or
+// NEON correlation and inner-product path exact over stateful DRED input runs.
+func TestLPCNetPitchInputsMatchSelectedLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	raw, err := probeLibopusPitchDNNModelBlob()
 	if err != nil {
