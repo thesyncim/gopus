@@ -46,6 +46,18 @@ remains in the same selector. The sequence oracle uses its v3 wire format;
 fresh-decoder v1/v2 probes keep their existing wire semantics. These claims
 cover the standard decoder APIs, not cached DRED malformed-packet handling.
 
+### QEXT float band-energy reduction
+
+`computeQEXTBandAmplitudesF32Into` uses the selected libopus inner-product
+reduction and adds the energy floor after that reduction, matching
+`celt/bands.c:compute_band_energies`. The live oracle verifies the C dispatch
+and compares amplitude and log-energy bits for 32 cases / 96 band energies.
+On ARM64, scalar and SIMD candidates match exactly; the sequential-reduction
+negative control differs from NEON in 24 of 96 energies. The paired public
+QEXT stateful/native-96 regression selectors pass in both modes. Native AMD64
+runs the same new oracle inside the existing QEXT CI phase. This kernel proof
+does not resolve the separate ARM64 frame-10 combined-extension packet witness.
+
 ### Fixed-point analysis and QEXT transforms
 
 At `e8eb7bc5`, local ARM64 validation on an M4 Max with Go 1.27.0 shows that the

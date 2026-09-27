@@ -28,10 +28,8 @@ func computeQEXTBandAmplitudesF32Into(mdctCoeffs []float32, cfg *qextModeConfig,
 			bandE[i] = celtEner(1e-27)
 			continue
 		}
-		sum := float32(1e-27)
-		for _, v := range mdctCoeffs[start:stop] {
-			sum += v * v
-		}
+		coeffBand := mdctCoeffs[start:stop:stop]
+		sum := noFMA32Add(float32(1e-27), celtInnerProdF32LibopusOrder(coeffBand))
 		bandE[i] = celtEner(opusmath.SqrtF32(sum))
 	}
 }
