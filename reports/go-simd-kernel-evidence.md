@@ -33,6 +33,37 @@ expectations. Frozen packet inputs and fixture-honesty checks retain their
 independent roles; frozen numerical expectations require their recorded
 producer environment. Long-frame encoder fixture coverage remains under audit.
 
+### Extension checkpoint at `83f6c2f6`
+
+The 48 kHz QEXT matrix at `6e20f360` requires exact encoding and decoding for
+60 configurations and three sequential frames each: packets, both final ranges,
+output lengths, and every float32 PCM bit. Ordinary, SIMD, `nosimd`, and `purego`
+ARM64 lanes each pass all 180 frames. QEXT cubic normalization uses the C helper's
+double square root/division before rounding its scale to float32 (`c9f2d830`);
+its direct selected-C probes and active stereo decode gate pass with zero warm
+allocations. Native 96 kHz QEXT synthesis still has an exactness residual and is
+not covered by the 48 kHz claim.
+
+PitchDNN convolution (`148ab244`) and recurrent blending (`6b2a20cf`) use the
+selected C product/FMA order. Direct conv transport checks the first conv1 output
+channel and all conv2 outputs; the GRU state is exact across all 16 frames in
+three local lanes. LPCNet's scalar LPC and weighted band-energy reductions at
+`83f6c2f6` match all 40 real-frame stage inputs in each local lane and allocate
+zero after warmup. Ordinary and `nosimd` complete 1920/2880 feature sequences
+pass; the SIMD sequence still differs in pitch/correlation, and broader DRED
+output state remains open. The actual macOS CI failure parent,
+`TestEncoderDREDInitialLatentsTraceMatchesLibopus`, passes all six cases locally,
+including `2ch_2880`, after this source correction.
+
+Native run `36280959850` at `9b71476d` passes Linux core, QEXT, custom, DRED,
+fixed-point, conformance, and the full `nosimd` build-config matrix. Its lint
+failure is the unchecked temporary-helper cleanup result; both branch histories
+contain the explicit cleanup fix. Its macOS DRED latent failure is reproduced
+and corrected as described above. The SIMD A/B job is cancelled by the concurrent
+lint push, so this run does not supply a completed performance refresh.
+All 53 measurement rows below retain their recorded source revisions; no new
+speed claim follows from these correctness fixes.
+
 Strict matched CBR oracle, 19 configurations and 2,175 packets per lane:
 
 | Lane | C reference | Exact configurations |
