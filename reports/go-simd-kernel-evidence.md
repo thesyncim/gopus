@@ -73,9 +73,16 @@ configurations × four frames, 864 loss/recovery configurations × nine frames,
 per lane match int16/int24 PCM, output counts, and final ranges. PLC gain scaling
 uses C's signed-16-bit multiply operand, and subrate CELT/Hybrid concealment
 uses core synthesis plus API-rate downsampling. This proves the tested integer
-APIs, not fixed-point float output or public encoder parity. The broader fixed
-SILK encoder probes retain 33 failing leaves in two families, independently
-reproduced before reference pairing; they remain under investigation.
+APIs, not fixed-point float output or public encoder parity. The full SILK packet API at `0dcd8581` matches the linked C `silk_Encode`
+packet bytes, lengths, final ranges, and entropy bit counts for all 108 existing
+mono/stereo cases plus 12 six-packet complexity/reset histories in ordinary,
+SIMD, and nosimd ARM64 builds. Configured analysis lookahead and NLSF
+interpolation follow `silk_setup_complexity`; buffer insertion retains its
+fixed lookahead. The signed16 transport is independently packet/range-neutral
+for the original Go input. Four existing warm allocation cases pass at zero.
+The full SILK package passes 1,086 ordinary / 1,100 SIMD nodes with five
+existing optional skips per mode; the new API gates have no skips. Full outer
+Opus encoder parity and fixed-point float/transition handling remain open.
 
 [Native run 36282457957](https://github.com/thesyncim/gopus/actions/runs/36282457957)
 at `0330c9ca` passes macOS, Windows, lint, Linux core and feature jobs, and all
@@ -83,7 +90,13 @@ at `0330c9ca` passes macOS, Windows, lint, Linux core and feature jobs, and all
 oracle leaves (sigmoid, tanh, and two CGEMV shapes), 18 missing-name coverage
 checks, and a fixture-fallback skip. These are not waived. Source-audited test
 mappings, two missing accumulation edge probes, and immutable fallback inputs
-address the coverage issues; native neural fixes are in progress. This run
+address the coverage issues. AMD64 neural fixes at `da837716` use the actual
+selected C activation/linear implementation, AVX2 unsigned quantization and
+Subias, and runtime CPU guards. Four local ARM64 modes each pass 237 selected-C
+nodes without failures/skips; native AVX2 exactness remains pending. Lower
+x86 dispatch slots have a safe scalar fallback, without a claim of exactness.
+The bounded IF/FARGAN correction at `48f0435f` matches raw IF, gain, and full
+continuity state in all three ARM64 modes; the long DRED quality gate stays open. This run
 predates the new extension phases and supplies no native acceptance proof for
 them. Its complete benchmark phases refresh the six end-to-end rows and all
 11 comparable AMD64 symbol rows on Xeon Platinum 8573C / Go 1.27.1. Four

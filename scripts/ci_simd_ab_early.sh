@@ -228,11 +228,16 @@ for mode in simd nosimd; do
     "${run_env[@]}" go test -json -tags "gopus_fixed_point${feature_scalar_tag}" . \
     -run '^TestDecodeDifferentialFixedPoint' -count=1 -timeout=15m
 
+  run_json_phase "candidate-$mode-fixed-silk-api" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json -tags "gopus_fixed_point${feature_scalar_tag}" \
+    ./internal/silk -run '^Test(Public.*SILK|PacketEncoderEncodeZeroAlloc)' -count=1 -timeout=10m
+
   run_json_phase "candidate-$mode-neural-kernel-parity" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json "${build_args[@]}" \
     ./internal/dnnmath ./internal/dred/rdovae \
-    -run '^Test(DNNVectorActivationsMatchSelectedLibopusOracle|RDOVAECGEMV8x4MatchesSelectedLibopusOracle|RDOVAESGEMVMatchesSelectedLibopusOracle)$' \
+    -run '^Test(DNNVectorActivationsMatchSelectedLibopusOracle|RDOVAECGEMV8x4MatchesSelectedLibopusOracle|RDOVAESGEMVMatchesSelectedLibopusOracle|RDOVAEIntegerLinearBiasMatchesSelectedLibopusOracle|RDOVAEIntegerInputQuantizerMatchesSelectedLibopusOracle)$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-neural-analysis-parity" \
