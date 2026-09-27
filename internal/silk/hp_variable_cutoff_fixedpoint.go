@@ -90,3 +90,36 @@ func silkBiquadAltStride2(in []int16, bQ28 [transitionNB]int32, aQ28 [transition
 		out[2*k+1] = silkSAT16(silkRSHIFT(out32Q14[1]+(1<<14)-1, 14))
 	}
 }
+
+// HPCutoffRes24 applies the FIXED_POINT+ENABLE_RES24 Opus VoIP input high-pass
+// stage from src/opus_encoder.c:hp_cutoff and its silk_biquad_res helper. Input
+// and output are interleaved opus_res Q8 samples. State follows C's
+// opus_val32 layout [L0,L1,R0,R1] in Q12; cutoffHz is already selected by the
+// Opus-level variable-cutoff smoother. It performs no allocation.
+func HPCutoffRes24(in, out []int32, state *[4]int32, fs, channels, cutoffHz int32) {
+	bQ28, aQ28 := HPCutoffCoefsQ28(cutoffHz, fs)
+	a0LQ28 := (-aQ28[0]) & 0x00003FFF
+	a0UQ28 := silkRSHIFT(-aQ28[0], 14)
+	a1LQ28 := (-aQ28[1]) & 0x00003FFF
+	a1UQ28 := silkRSHIFT(-aQ28[1], 14)
+	for c := int32(0); c < channels; c++ {
+		s0 := state[2*c]
+		s1 := state[2*c+1]
+		for i := c; i < int32(len(in)); i += channels {
+			inval := int32(silkSAT16(silkRSHIFT_ROUND(in[i], 8)))
+			out32Q14 := silkLSHIFT(silkSMLAWB(s0, bQ28[0], inval), 2)
+
+			s0 = s1 + silkRSHIFT_ROUND(silkSMULWB(out32Q14, a0LQ28), 14)
+			s0 = silkSMLAWB(s0, out32Q14, a0UQ28)
+			s0 = silkSMLAWB(s0, bQ28[1], inval)
+
+			s1 = silkRSHIFT_ROUND(silkSMULWB(out32Q14, a1LQ28), 14)
+			s1 = silkSMLAWB(s1, out32Q14, a1UQ28)
+			s1 = silkSMLAWB(s1, bQ28[2], inval)
+
+			out[i] = int32(silkSAT16(silkRSHIFT(out32Q14+(1<<14)-1, 14))) << 8
+		}
+		state[2*c] = s0
+		state[2*c+1] = s1
+	}
+}

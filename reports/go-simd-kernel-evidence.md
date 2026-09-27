@@ -56,8 +56,8 @@ arithmetic. Seven received frames in mono and stereo match all 40,320 PCM
 samples and final ranges per local build. Active cross-frame postfilter cases
 also match five frames each in mono/stereo with zero warm decode allocations.
 All four local builds pass the 17-node focused suite without failures/skips;
-the eight valid direct comb oracle cases pass. Native AMD64 at `8bc2ed7c`
-passes all 103 QEXT test nodes in SIMD and nosimd, including native 96 kHz,
+the eight valid direct comb oracle cases pass. Native AMD64 at `fe0f867d`
+passes 104 QEXT test nodes in SIMD and nosimd, including native 96 kHz,
 without failures or skips.
 
 Wide custom modes at `736a2d27` pass 154 stateful configurations / 2,046 steps
@@ -84,13 +84,18 @@ The full SIMD root/OSCE/multistream suite passes 20,279 test nodes with four
 existing opt-in skips (two DRED quality and two OSCE trace diagnostics), and
 no failures. The focused ordinary/nosimd checkpoints pass 97 nodes each plus
 two existing trace skips; the additional feature gate passes separately.
-Native AMD64 OSCE validation and performance for this checkpoint are pending.
+Native AMD64 at `fe0f867d` passes the exact-PCM OSCE gate (36 nodes); native
+performance is not measured, and the `6ce253b2` tree awaits native confirmation.
 
 AMD64 LPCNet at `2ffed676` routes pitch correlation and inner products through
 the same AVX2/FMA and SSE kernels as the selected C callsites. Sixteen-frame
 same-input primitive and full-prefix state gates enforce the dispatch identity
-and exact bits. Local primitive checks allocate zero; native AMD64 validation
-is pending.
+and exact bits. Local primitive checks allocate zero. In the native
+`fe0f867d` capture, emitted-feature and DNN-pitch checks pass, but the full-state
+oracle finds frame-0 mismatches in `exc_buf[352]` (Go `42a573ac`, C `42a573bc`),
+`lp_buf[353]` (Go `44f8dc89`, C `44f8dc8c`), and `xcorr_features[188]` (Go
+`3828c70a`, C `3828c704`); frames 3–15 pass. Native nosimd neural checks pass
+224 nodes with three existing skips. The full-state mismatch remains open.
 
 LPCNet at `9faa9bc1` matches all 224 raw correlations, DNN pitch, and 36 feature
 bits across 40 frames in ordinary, SIMD, and nosimd ARM64 builds, with zero warm
@@ -104,12 +109,13 @@ modes. The original 119-loss quality splice retains its input and behavior.
 Thirty mono/stereo cases cover five API rates and 20/40/60 ms nil/recovery
 requests, with zero warm allocations during active carrier/loss/recovery
 cycles. Both explicitly enabled sustained-loss quality gates pass unchanged;
-Go-versus-C concealed PCM has correlation and RMS ratio 1.0. Native AMD64 at `1e2dbe77` passes the full 220-slot and 119-loss raw-bit
-gates in nosimd. SIMD first differs at frame 27 / loss 4 / sample 0
-(`3ca46b12` versus C `3ca46b07`). The two nosimd quality-improvement
-gates fail even though the selected C and Go DRED PCM matches exactly; the
-selected C DRED envelope is 0.29208 versus PLC 0.28694. These remain open
-quality failures with unchanged thresholds.
+Go-versus-C concealed PCM has correlation and RMS ratio 1.0. Native AMD64 at
+`fe0f867d` passes the full 220-slot and 119-loss raw-bit gates in nosimd. SIMD
+first differs at record/frame 47, a plain PLC fallback, sample 0 (`3de93897`
+versus C `3de93898`). The two nosimd quality-improvement gates fail even though
+selected C and Go DRED PCM matches exactly; the selected C DRED envelope is
+0.29208 versus PLC 0.28694. The SIMD raw-PCM and quality-parity gates also fail.
+These quality failures remain open with unchanged thresholds.
 
 Fixed-point C references at `67731222` pair scalar and SIMD feature builds,
 validate archive/header/compiler identity, and reject mismatched neural/QEXT
@@ -124,8 +130,8 @@ The focused suite reports 11,202 passing events per lane without failures or
 skips. All 60 active loss/recovery allocation cases and four transition
 allocation cases allocate zero after warmup. Native AMD64 at `8bc2ed7c`
 passes the 9,534-configuration integer-output matrix in both SIMD/nosimd.
-Native AMD64 at `1e2dbe77` passes all 11,774 expanded decode test nodes
-in each SIMD/nosimd lane, including float output, transitions, and FEC,
+Native AMD64 at `fe0f867d` passes all 11,801 expanded fixed stateful-decode
+nodes in each SIMD/nosimd lane, including float output, transitions, and FEC,
 without failures or skips. The full SILK packet API at `0dcd8581` matches the linked C `silk_Encode`
 packet bytes, lengths, final ranges, and entropy bit counts for all 108 existing
 mono/stereo cases plus 12 six-packet complexity/reset histories in ordinary,
@@ -144,9 +150,10 @@ and 16 no-LBRR CELT→SILK recovery histories. Caller-owned SILK FEC and integer
 Hybrid concealment retain fixed-width state. Warm FEC, transitions, and active
 SILK receive/loss cycles allocate zero; malformed framing preserves decoder
 state. The float build passes its 458-event focused suite in ordinary and SIMD.
-Native AMD64 at `1e2dbe77` passes the expanded fixed decode/FEC gate in
-both SIMD/nosimd lanes. The ARM64 fixed-point outer-encode checkpoint below
-covers Audio and LowDelay; VoIP's fixed integer SILK biquad remains open.
+Native AMD64 at `fe0f867d` passes the expanded fixed decode/FEC gate in both
+SIMD/nosimd lanes. The ARM64 fixed-point outer-encode checkpoint below
+covers Audio and LowDelay. A selected forced-CELT VoIP follow-up covers the
+integer high-pass path; VoIP SILK and Hybrid high-pass parity remain open.
 
 [Native run 36284981747](https://github.com/thesyncim/gopus/actions/runs/36284981747)
 at `8bc2ed7c` supplies completed extension and benchmark phases; the full
@@ -204,6 +211,17 @@ Four interleaved caller-buffer samples measure 51,667.5 → 44,372 ns/op
 (14.1% less time), zero allocations. Hybrid decode takes 6.1% more time.
 Each ratio compares the same run and workload; captures on different CPUs
 do not establish revision-to-revision gains.
+
+A separate early capture at `fe0f867d`, [run 36308001239](https://github.com/thesyncim/gopus/actions/runs/36308001239),
+measures caller-buffer encoding on AMD EPYC 7763 / Go 1.27.1. Four interleaved
+500 ms samples give assembly `8ac93c85` a 92,040.5 ns/op median (91,856–92,321)
+and SIMD `fe0f867d` an 86,354.5 ns/op median (86,173–87,616): 6.18% less time,
+with 0 B/op and 0 allocs/op for every sample. This caller-buffer pair is
+separate from the complete six-row table at `1e2dbe77`; the successor run
+`36308889854` for `6ce253b2` supersedes and cancels `fe0f867d`'s full A/B
+phase after its early artifact. The complete six-row table remains at
+`1e2dbe77`; there is no measurement yet for `6ce253b2` or the scoped VoIP
+addition.
 
 The integrated multistream API writes into caller-owned output and passes
 7,342 package results in each local ordinary/SIMD lane. Final-stream CBR
@@ -631,18 +649,32 @@ failures or skips. Its 3,240 Q8 differential configurations match selected C
 packet bytes and final ranges in ordinary, SIMD, and nosimd builds. Six-frame
 histories apply at 48 kHz; lower-rate probes use one frame. The public fixed
 short-input tests cover Audio and LowDelay, mono and stereo, and int16, float32,
-and int24 input paths; the long CELT matrix covers 72 packets across 40/60 ms,
-mono/stereo, both applications, and three rate modes. A 120 ms `EncodeInt16`
+and int24 input paths. The long CELT matrix covers 108 packets across 40/60 ms,
+mono/stereo, three applications, and three rate modes. VoIP mixed-input histories
+cover four mono/stereo and complexity 0/10 cases across nine int16/float32/int24
+calls each, including reset replay. A 120 ms `EncodeInt16`
 expert-duration case also matches three 20 ms C packets and ranges. CBR raw-tail
 storage, stereo fade, DC-reject Q8 state, and nonpositive-allocation budgets
-have direct selected-C checks; warm allocation checks remain zero. VoIP remains
-outside this checkpoint because its fixed integer SILK biquad is not yet in the
-Go path. The 96 kHz QEXT case is also outside this fixed outer-encode matrix.
+have direct selected-C checks; warm allocation checks remain zero. The selected
+fixed C `hp_cutoff` path matches output Q8 samples and all four `hp_mem` words
+for 20 histories (five sample rates, mono/stereo, seeded/unseeded state), each
+with four sequential cutoffs and fractional/full-scale boundaries. Public
+forced-CELT VoIP `EncodeInt16` packets at 48 kHz match selected fixed libopus
+bytes and ranges for six frames in mono and stereo. The mixed-input VoIP
+histories match packet bytes/ranges across reset and all three public input
+formats in ordinary, SIMD, and nosimd builds. Reset replay from an elevated
+cutoff matches a fresh encoder; low-space state and warm allocations remain
+exact. This covers forced CELT only; VoIP SILK and Hybrid paths remain open. The
+96 kHz QEXT case is also outside this fixed outer-encode matrix.
 
 The broad fixed-tag package sweep is not a bit-parity result: some of its test
 helpers pair fixed-point Go with the float libopus fixture. Its failures remain
 unresolved diagnostics and are not counted as passing or waived parity cases.
-Native AMD64 confirmation of the new fixed outer-encode matrix is pending.
+Native AMD64 at `fe0f867d` passes 5,670 fixed-encode nodes in both SIMD and
+nosimd without failures or skips. This capture predates the scoped forced-CELT
+VoIP addition at `5911071b`, which awaits native confirmation. The complete
+six-row performance table below remains at `1e2dbe77`; no `6ce253b2` or VoIP
+performance claim is available.
 
 Remaining strict investigations include:
 

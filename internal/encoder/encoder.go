@@ -533,6 +533,8 @@ func (e *Encoder) Reset() {
 	// hp_mem is inside OPUS_ENCODER_RESET_START and is cleared by
 	// OPUS_RESET_STATE (opus_encoder.c:112-121, 3254).
 	e.hpMem = [4]float32{}
+	e.variableHPSmth2Q15 = 0
+	e.variableHPSmth2Inited = false
 	if len(e.delayBuffer) > 0 {
 		clear(e.delayBuffer)
 	}

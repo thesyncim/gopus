@@ -7,6 +7,7 @@ import (
 
 	"github.com/thesyncim/gopus/internal/fixedpoint"
 	"github.com/thesyncim/gopus/internal/opusmath"
+	"github.com/thesyncim/gopus/internal/silk"
 )
 
 // fixedDCRejectRes ports src/opus_encoder.c:dc_reject for the selected
@@ -72,18 +73,22 @@ func (e *Encoder) preprocessFixedInputRes(frameSize int) {
 		e.fixedFiltered = make([]int32, len(e.fixedRawRes))
 	}
 	e.fixedFiltered = e.fixedFiltered[:len(e.fixedRawRes)]
-	if !e.voipApp {
+	if e.voipApp {
+		// preprocessInputHP has already advanced variable_HP_smth2_Q15 once
+		// for this frame; hp_cutoff consumes its current integer-Hz value.
+		cutoffHz := silk.VariableHPCutoffHz(e.variableHPSmth2Q15)
+		silk.HPCutoffRes24(e.fixedRawRes, e.fixedFiltered, &e.fixedHPMem,
+			e.sampleRate, e.channels, cutoffHz)
+	} else {
 		fixedDCRejectRes(e.fixedRawRes, e.fixedFiltered, &e.fixedHPMem, int(e.sampleRate), int(e.channels), 3)
 	}
-	// The VoIP integer biquad is a separate selected-C stage. The short-path
-	// Q8 frame is used only when the non-VoIP filter above has run.
 }
 
 func (e *Encoder) prepareFixedCELTPCM(frameSize int) {
 	e.fixedFrameReady = false
 	channels := int(e.channels)
 	frameSamples := frameSize * channels
-	if !e.fixedInputActive || e.voipApp || e.fixedFrameCursor+frameSamples > len(e.fixedFiltered) {
+	if !e.fixedInputActive || e.fixedFrameCursor+frameSamples > len(e.fixedFiltered) {
 		return
 	}
 	e.fixedFrameSource = e.fixedFiltered[e.fixedFrameCursor : e.fixedFrameCursor+frameSamples]
