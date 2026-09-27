@@ -1123,10 +1123,9 @@ func combFilterWithInputSig(dst, src []celtSig, start int, t0, t1, n int, g0, g1
 		// libopus x86 builds that presume SSE bind comb_filter_const to
 		// comb_filter_const_sse, which sums the two side taps before adding
 		// them to the center term.
-		for full := i + (n-i)&^3; i < full; i++ {
-			dstFrame[i] = celtSig(combFilterConstSSEValue(float32(srcFrame[i]), g10, g11, g12,
-				float32(delay1[i+2]), float32(delay1[i+3]), float32(delay1[i+1]), float32(delay1[i+4]), float32(delay1[i])))
-		}
+		full := i + (n-i)&^3
+		combFilterConstSSE(dstFrame, srcFrame, delay1, i, full, g10, g11, g12)
+		i = full
 	}
 	for ; i+3 < n; i += 4 {
 		d0, d1 := float32(delay1[i]), float32(delay1[i+1])

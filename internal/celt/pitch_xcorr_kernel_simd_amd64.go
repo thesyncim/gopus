@@ -18,15 +18,60 @@ func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
 		xcorrKernelAVX8ScalarGo(x, y, sum, length)
 		return
 	}
+	tail := newXcorrTail8(unsafe.Pointer(x), length)
+	xcorrKernelAVX8Tail(x, y, sum, length, &tail)
+}
+
+// xcorrKernelAVX8Tail is celt_pitch_xcorr_avx2's xcorr_kernel_avx for eight
+// lags starting at y, with the masked tail block taken from tail.
+func xcorrKernelAVX8Tail(x, y *float32, sum *[8]float32, length int, tail *xcorrTail8) {
 	if length >= 120 && length <= 240 {
-		xcorrKernelAVX8OnePass(x, y, sum, length)
+		xcorrKernelAVX8OnePassTail(x, y, sum, length, tail)
 		return
 	}
 
 	// Run four correlations at a time. Keeping eight vector accumulators live
 	// alongside the x/y vectors spills them in the sample loop on amd64.
-	xcorrKernelAVX4(x, y, (*[4]float32)(unsafe.Pointer(&sum[0])), length)
-	xcorrKernelAVX4(x, (*float32)(unsafe.Add(unsafe.Pointer(y), 16)), (*[4]float32)(unsafe.Pointer(&sum[4])), length)
+	xcorrKernelAVX4Tail(x, y, (*[4]float32)(unsafe.Pointer(&sum[0])), length, tail)
+	xcorrKernelAVX4Tail(x, (*float32)(unsafe.Add(unsafe.Pointer(y), 16)), (*[4]float32)(unsafe.Pointer(&sum[4])), length, tail)
+}
+
+// xcorrTail8 is the masked final block of xcorr_kernel_avx: the rem = length%8
+// valid lanes of x, zero elsewhere, and the lane mask _mm256_maskload_ps
+// applies to y. One pitch cross-correlation shares it across all lags. When
+// yFull is set the caller guarantees eight readable floats at every masked y
+// load, so y loads full width and masks with an AND; otherwise it gathers only
+// the valid lanes.
+type xcorrTail8 struct {
+	x     archsimd.Float32x8
+	mask  archsimd.Uint32x8
+	rem   int
+	yFull bool
+}
+
+// xcorrTailMaskTable holds eight set lanes followed by eight clear ones;
+// xcorrTailMaskTable[8-rem:] starts the mask of the first rem lanes.
+var xcorrTailMaskTable = [16]uint32{
+	^uint32(0), ^uint32(0), ^uint32(0), ^uint32(0), ^uint32(0), ^uint32(0), ^uint32(0), ^uint32(0),
+}
+
+func newXcorrTail8(x unsafe.Pointer, length int) xcorrTail8 {
+	rem := length & 7
+	if rem == 0 {
+		return xcorrTail8{}
+	}
+	return xcorrTail8{
+		x:    loadXcorrTail8(unsafe.Add(x, 4*(length-rem)), rem),
+		mask: archsimd.LoadUint32x8Array((*[8]uint32)(xcorrTailMaskTable[8-rem:])),
+		rem:  rem,
+	}
+}
+
+func (t *xcorrTail8) loadY(p unsafe.Pointer) archsimd.Float32x8 {
+	if t.yFull {
+		return archsimd.LoadFloat32x8Array((*[8]float32)(p)).ToBits().And(t.mask).BitsToFloat32()
+	}
+	return loadXcorrTail8(p, t.rem)
 }
 
 // xcorrKernelAVX8OnePass keeps all eight correlation accumulators live in one
@@ -40,6 +85,11 @@ func xcorrKernelAVX8OnePass(x, y *float32, sum *[8]float32, length int) {
 		xcorrKernelAVX8ScalarGo(x, y, sum, length)
 		return
 	}
+	tail := newXcorrTail8(unsafe.Pointer(x), length)
+	xcorrKernelAVX8OnePassTail(x, y, sum, length, &tail)
+}
+
+func xcorrKernelAVX8OnePassTail(x, y *float32, sum *[8]float32, length int, tail *xcorrTail8) {
 
 	var acc0, acc1, acc2, acc3, acc4, acc5, acc6, acc7 archsimd.Float32x8
 	xp, yp := unsafe.Pointer(x), unsafe.Pointer(y)
@@ -62,16 +112,15 @@ func xcorrKernelAVX8OnePass(x, y *float32, sum *[8]float32, length int) {
 		yp = unsafe.Add(yp, 32)
 	}
 	if i < length {
-		remaining := length - i
-		xTail := loadXcorrTail8(xp, remaining)
-		acc0 = xTail.MulAdd(loadXcorrTail8(yp, remaining), acc0)
-		acc1 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 4), remaining), acc1)
-		acc2 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 8), remaining), acc2)
-		acc3 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 12), remaining), acc3)
-		acc4 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 16), remaining), acc4)
-		acc5 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 20), remaining), acc5)
-		acc6 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 24), remaining), acc6)
-		acc7 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 28), remaining), acc7)
+		xTail := tail.x
+		acc0 = xTail.MulAdd(tail.loadY(yp), acc0)
+		acc1 = xTail.MulAdd(tail.loadY(unsafe.Add(yp, 4)), acc1)
+		acc2 = xTail.MulAdd(tail.loadY(unsafe.Add(yp, 8)), acc2)
+		acc3 = xTail.MulAdd(tail.loadY(unsafe.Add(yp, 12)), acc3)
+		acc4 = xTail.MulAdd(tail.loadY(unsafe.Add(yp, 16)), acc4)
+		acc5 = xTail.MulAdd(tail.loadY(unsafe.Add(yp, 20)), acc5)
+		acc6 = xTail.MulAdd(tail.loadY(unsafe.Add(yp, 24)), acc6)
+		acc7 = xTail.MulAdd(tail.loadY(unsafe.Add(yp, 28)), acc7)
 	}
 	reduceXcorrAVX8Four(acc0, acc1, acc2, acc3).StoreArray((*[4]float32)(unsafe.Pointer(&sum[0])))
 	reduceXcorrAVX8Four(acc4, acc5, acc6, acc7).StoreArray((*[4]float32)(unsafe.Pointer(&sum[4])))
@@ -84,6 +133,11 @@ func xcorrKernelAVX8OnePass(x, y *float32, sum *[8]float32, length int) {
 }
 
 func xcorrKernelAVX4(x, y *float32, sum *[4]float32, length int) {
+	tail := newXcorrTail8(unsafe.Pointer(x), length)
+	xcorrKernelAVX4Tail(x, y, sum, length, &tail)
+}
+
+func xcorrKernelAVX4Tail(x, y *float32, sum *[4]float32, length int, tail *xcorrTail8) {
 	var acc0, acc1, acc2, acc3 archsimd.Float32x8
 	xp, yp := unsafe.Pointer(x), unsafe.Pointer(y)
 	i := 0
@@ -113,12 +167,11 @@ func xcorrKernelAVX4(x, y *float32, sum *[4]float32, length int) {
 		yp = unsafe.Add(yp, 32)
 	}
 	if i < length {
-		remaining := length - i
-		xTail := loadXcorrTail8(xp, remaining)
-		acc0 = xTail.MulAdd(loadXcorrTail8(yp, remaining), acc0)
-		acc1 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 4), remaining), acc1)
-		acc2 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 8), remaining), acc2)
-		acc3 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 12), remaining), acc3)
+		xTail := tail.x
+		acc0 = xTail.MulAdd(tail.loadY(yp), acc0)
+		acc1 = xTail.MulAdd(tail.loadY(unsafe.Add(yp, 4)), acc1)
+		acc2 = xTail.MulAdd(tail.loadY(unsafe.Add(yp, 8)), acc2)
+		acc3 = xTail.MulAdd(tail.loadY(unsafe.Add(yp, 12)), acc3)
 	}
 	sum[0] = reduceXcorrAVX8(acc0)
 	sum[1] = reduceXcorrAVX8(acc1)
@@ -201,4 +254,30 @@ func pitchXcorrKernelAVX8(x, y []float32, sum *[8]float32, length int) {
 	// Clear the upper register halves the 256-bit kernel leaves dirty, so
 	// the caller's scalar SSE code runs without false dependencies.
 	archsimd.ClearAVXUpperBits()
+}
+
+// pitchXCorrAVX2Blocks runs celt_pitch_xcorr_avx2's eight-lag blocks for
+// xcorr[0:maxPitch&^7] and returns the first lag it leaves to the scalar
+// tail. The x tail block is prepared once, and a y tail block loads full
+// width wherever y's capacity covers it.
+func pitchXCorrAVX2Blocks(x, y, xcorr []float32, length, maxPitch int) int {
+	if maxPitch < 8 || !archsimd.X86.FMA() {
+		return 0
+	}
+	x = x[:length]
+	blocks := maxPitch &^ 7
+	_ = xcorr[blocks-1]
+	_ = y[blocks+length-2]
+	tail := newXcorrTail8(unsafe.Pointer(unsafe.SliceData(x)), length)
+	// The widest masked load of lag i+7 reads y[i+7+length-rem : i+length-rem+15].
+	fullFrom := cap(y) - (length - tail.rem + 15)
+	yp := unsafe.Pointer(unsafe.SliceData(y))
+	i := 0
+	for ; i < blocks; i += 8 {
+		tail.yFull = i <= fullFrom
+		sum := (*[8]float32)(xcorr[i : i+8])
+		xcorrKernelAVX8Tail(&x[0], (*float32)(unsafe.Add(yp, 4*i)), sum, length, &tail)
+	}
+	archsimd.ClearAVXUpperBits()
+	return i
 }

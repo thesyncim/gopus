@@ -205,7 +205,7 @@ func TestHaar1StrideFastPathsMatchGenericExact(t *testing.T) {
 				haar1Stride2Generic(want, tc.n0)
 			case 4:
 				haar1Stride4Asm(got, tc.n0)
-				haar1Stride4(want, tc.n0)
+				haar1Stride4Generic(want, tc.n0)
 			}
 
 			if !reflect.DeepEqual(got, want) {

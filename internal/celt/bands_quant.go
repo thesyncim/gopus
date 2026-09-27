@@ -655,13 +655,13 @@ func haar1(x []celtNorm, n0, stride int) {
 	_ = x[maxIdx]
 	switch stride {
 	case 1:
-		haar1Stride1NEON(x[:2*n0:2*n0], n0)
+		haar1Stride1(x[:2*n0:2*n0], n0)
 		return
 	case 2:
-		haar1Stride2NEON(x[:4*n0:4*n0], n0)
+		haar1Stride2(x[:4*n0:4*n0], n0)
 		return
 	case 4:
-		haar1Stride4NEON(x[:8*n0:8*n0], n0)
+		haar1Stride4(x[:8*n0:8*n0], n0)
 		return
 	}
 	for i := range stride {
@@ -695,17 +695,21 @@ func expRotation1Norm(x []celtNorm, length, stride int, c, s opusVal16) {
 		return
 	}
 	// With stride >= 4 four consecutive indices belong to four independent
-	// rotation chains, so the fused arm64 build runs both passes 4-wide
+	// rotation chains, so the Go SIMD builds run both passes 4-wide
 	// (bit-identical per element); the scalar loops stay the nosimd oracle
 	// and the stride<4 path.
-	if expRotationUsesNeon && stride >= 4 {
-		expRotation1StrideNeon(x, length, stride, c, s)
+	if expRotationUsesSIMD && stride >= 4 {
+		expRotation1StrideSIMD(x, length, stride, c, s)
 		return
 	}
 	expRotation1NormScalar(x, length, stride, c, s)
 }
 
 func expRotation1NormScalar(x []celtNorm, length, stride int, c, s opusVal16) {
+	if stride == 1 {
+		expRotation1Stride1(x, length, float32(c), float32(s))
+		return
+	}
 	// xs[i] aliases x[i+stride] and has exactly length-stride elements — the
 	// trip count of the forward pass — so every access below is bounds-check
 	// free. The rotation itself is a serial cascade (each pair reads the
@@ -730,6 +734,38 @@ func expRotation1NormScalar(x []celtNorm, length, stride int, c, s opusVal16) {
 			xb[i] = celtNorm(expRotationMac32(c32, x1, ms32, x2))
 		}
 	}
+}
+
+// expRotation1Stride1 is exp_rotation1 for stride 1. Each step of either
+// pass rewrites the element the next step reads, so that element stays in a
+// register instead of taking a store-to-load round trip through x; every
+// element sees the same operations as in the strided loops.
+func expRotation1Stride1(x []celtNorm, length int, c, s float32) {
+	if length < 2 {
+		return
+	}
+	x = x[:length:length]
+	ms := -s
+	// Forward: step i rotates (x[i], x[i+1]); x[i+1] is the next step's x1.
+	x1 := float32(x[0])
+	for i := 1; i < length; i++ {
+		x2 := float32(x[i])
+		x[i-1] = celtNorm(expRotationMac32(c, x1, ms, x2))
+		x1 = expRotationMac32(c, x2, s, x1)
+	}
+	x[length-1] = celtNorm(x1)
+	// Backward: step i rotates (x[i], x[i+1]) for i = length-3 down to 0;
+	// x[i] is the next step's x2.
+	if length < 3 {
+		return
+	}
+	x2 := float32(x[length-2])
+	for i := length - 3; i >= 0; i-- {
+		x1 := float32(x[i])
+		x[i+1] = celtNorm(expRotationMac32(c, x2, s, x1))
+		x2 = expRotationMac32(c, x1, ms, x2)
+	}
+	x[0] = celtNorm(x2)
 }
 
 func expRotationMac32(a, b, c, d float32) float32 {
@@ -1766,20 +1802,7 @@ func stereoIthetaQ30Norm(x, y []celtNorm, stereo bool) int {
 			}
 		}
 	} else {
-		if celtUseSSEFloatMath {
-			emid = celtInnerProdSSEStyleNorm(x[:n], x[:n])
-			eside = celtInnerProdSSEStyleNorm(y[:n], y[:n])
-		} else if celtUseFusedFloatMath {
-			emid = celtInnerProdNeonStyleNorm(x[:n], x[:n])
-			eside = celtInnerProdNeonStyleNorm(y[:n], y[:n])
-		} else {
-			for i := 0; i < n; i++ {
-				xv := float32(x[i])
-				yv := float32(y[i])
-				emid = celtFloatMulAdd(xv, xv, emid)
-				eside = celtFloatMulAdd(yv, yv, eside)
-			}
-		}
+		emid, eside = celtInnerProdPairLibopusOrder(x, x, y, y)
 	}
 
 	if emid <= 0 && eside <= 0 {
@@ -1860,6 +1883,27 @@ func celtInnerProdNeonStyle(x, y []celtNorm) float32 {
 func celtInnerProdNeonStyleNorm(x, y []celtNorm) float32 {
 	n := min(len(y), len(x))
 	return celtInnerProd8FMA32(x[:n:n], y[:n:n], n)
+}
+
+// celtInnerProdPairLibopusOrder returns celtInnerProdLibopusOrder(x1, y1)
+// and celtInnerProdLibopusOrder(x2, y2) for pairs of the same length. The two
+// accumulations are independent C calls, so their chains interleave.
+func celtInnerProdPairLibopusOrder(x1, y1, x2, y2 []celtNorm) (float32, float32) {
+	n := min(len(y1), len(x1))
+	x1, y1 = x1[:n:n], y1[:n:n]
+	x2, y2 = x2[:n:n], y2[:n:n]
+	if celtUseFusedFloatMath {
+		return celtInnerProdNeonStyle(x1, y1), celtInnerProdNeonStyle(x2, y2)
+	}
+	if celtUseSSEFloatMath {
+		return celtInnerProdSSEStylePair(x1, y1, x2, y2)
+	}
+	var s1, s2 float32
+	for i := range x1 {
+		s1 = celtFloatMulAdd(float32(x1[i]), float32(y1[i]), s1)
+		s2 = celtFloatMulAdd(float32(x2[i]), float32(y2[i]), s2)
+	}
+	return s1, s2
 }
 
 func celtInnerProdLibopusOrder(x, y []celtNorm) float32 {
@@ -1999,7 +2043,8 @@ func innerProductNorm(x, y []celtNorm) float32 {
 // w0*ip0 + w1*ip1 into one fmadd of the left product with the rounded right
 // product; fma32 does the same on arm64 and stays unfused on amd64, like gcc.
 func thetaRDODistortion(w0, w1 float32, xSave, xBand, ySave, yBand []celtNorm) float32 {
-	return fma32(w0, innerProductNorm(xSave, xBand), noFMA32Mul(w1, innerProductNorm(ySave, yBand)))
+	ipx, ipy := celtInnerProdPairLibopusOrder(xSave, xBand, ySave, yBand)
+	return fma32(w0, ipx, noFMA32Mul(w1, ipy))
 }
 
 func (ctx *bandCtx) bandEnergy(channel int) celtEner {
@@ -4508,14 +4553,6 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 					}
 					copy(xSave, xBand)
 					copy(ySave, yBand)
-					var xTrial, yTrial []celtNorm
-					if scratch != nil {
-						xTrial = scratch.ensureThetaX(nBand)
-						yTrial = scratch.ensureThetaY(nBand)
-					} else {
-						xTrial = make([]celtNorm, nBand)
-						yTrial = make([]celtNorm, nBand)
-					}
 
 					// Save norm data if not last band
 					var normSave []celtNorm
@@ -4553,9 +4590,7 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 					xCM0 := quantBandStereoWithExtBudget(&ctx, xBand, yBand, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, cm, ctx.extBudget)
 
 					// Compute distortion for first trial
-					copy(xTrial, xBand)
-					copy(yTrial, yBand)
-					dist0 := thetaRDODistortion(w0, w1, xSave, xTrial, ySave, yTrial)
+					dist0 := thetaRDODistortion(w0, w1, xSave, xBand, ySave, yBand)
 
 					var ecSave0 *rangecoding.EncoderState
 					if scratch != nil {
@@ -4617,9 +4652,7 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 					xCM1 := quantBandStereoWithExtBudget(&ctx, xBand, yBand, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, cm, ctx.extBudget)
 
 					// Compute distortion for second trial
-					copy(xTrial, xBand)
-					copy(yTrial, yBand)
-					dist1 := thetaRDODistortion(w0, w1, xSave, xTrial, ySave, yTrial)
+					dist1 := thetaRDODistortion(w0, w1, xSave, xBand, ySave, yBand)
 
 					// Pick the trial with lower distortion (higher inner product = lower distortion)
 					if dist0 >= dist1 {

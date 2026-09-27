@@ -30,16 +30,29 @@ func pvqBestIDScalarLaneReference(absX, y []float32, xy, yy float32) int {
 			laneMax[lane] = x86MaxPS32(previous, score[lane])
 		}
 	}
-	max02 := x86MaxPS32(laneMax[0], laneMax[2])
-	max13 := x86MaxPS32(laneMax[1], laneMax[3])
-	bestScore := x86MaxPS32(max02, max13)
+	// _mm_max_ps(max, shuffle(max, 1,0,3,2)), then the same with 2,3,0,1.
+	var half, max2 [4]float32
+	for lane := range 4 {
+		half[lane] = x86MaxPS32(laneMax[lane], laneMax[lane^2])
+	}
+	for lane := range 4 {
+		max2[lane] = x86MaxPS32(half[lane], half[lane^1])
+	}
 	bestID := 0
 	for lane := range 4 {
-		if laneMax[lane] == bestScore && laneID[lane] > bestID {
+		if laneMax[lane] == max2[lane] && laneID[lane] > bestID {
 			bestID = laneID[lane]
 		}
 	}
 	return bestID
+}
+
+// x86MaxPS32 is one lane of _mm_max_ps(a, b): b unless a > b.
+func x86MaxPS32(a, b float32) float32 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func TestPVQBestIDVectorMatchesScalarLaneOrder(t *testing.T) {

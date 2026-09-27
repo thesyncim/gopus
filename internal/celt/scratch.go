@@ -134,7 +134,7 @@ type bandEncodeScratch struct {
 	// fresh slice in that slot, identical to before. See ensureFloatScratch.
 	floatScratch arena.Bump[celtNorm]
 
-	// Theta RDO buffers (for stereo encoding): eight per-band celtNorm slots,
+	// Theta RDO buffers (for stereo encoding): six per-band celtNorm slots,
 	// each bounded by maxBandWidth, all live simultaneously within one band's RDO.
 	xSave       []celtNorm
 	ySave       []celtNorm
@@ -142,8 +142,6 @@ type bandEncodeScratch struct {
 	xResult0    []celtNorm
 	yResult0    []celtNorm
 	normResult0 []celtNorm
-	thetaX      []celtNorm
-	thetaY      []celtNorm
 
 	// Theta RDO encoder state saves (reusable across bands)
 	ecSave     rangecoding.EncoderState
@@ -195,7 +193,7 @@ func (s *bandEncodeScratch) ensureFloatScratch(channels int) {
 	const maxPVQN = maxBandWidth * 2
 	normLen := 8 * EBands[MaxBands-1]
 	maxBand := 8 * (EBands[MaxBands] - EBands[MaxBands-1])
-	total := channels*normLen + maxBand + maxBandWidth*16 + 3*maxPVQN + 8*maxBandWidth
+	total := channels*normLen + maxBand + maxBandWidth*16 + 3*maxPVQN + 6*maxBandWidth
 	if s.floatScratch.Cap() >= total {
 		return
 	}
@@ -212,23 +210,23 @@ func (s *bandEncodeScratch) ensureFloatScratch(channels int) {
 	s.xResult0 = s.floatScratch.Alloc(maxBandWidth)
 	s.yResult0 = s.floatScratch.Alloc(maxBandWidth)
 	s.normResult0 = s.floatScratch.Alloc(maxBandWidth)
-	s.thetaX = s.floatScratch.Alloc(maxBandWidth)
-	s.thetaY = s.floatScratch.Alloc(maxBandWidth)
 }
 
 // ensureXSave returns a pre-allocated buffer for saving X during theta RDO.
+// The theta RDO callers of the ensure*Save and ensure*Result0 buffers copy all
+// n elements in before any read, so none of them zero-fills.
 func (s *bandEncodeScratch) ensureXSave(n int) []celtNorm {
-	return ensureNormSlice(&s.xSave, n)
+	return ensureNormSliceNoClear(&s.xSave, n)
 }
 
 // ensureYSave returns a pre-allocated buffer for saving Y during theta RDO.
 func (s *bandEncodeScratch) ensureYSave(n int) []celtNorm {
-	return ensureNormSlice(&s.ySave, n)
+	return ensureNormSliceNoClear(&s.ySave, n)
 }
 
 // ensureNormSave returns a pre-allocated buffer for saving norm during theta RDO.
 func (s *bandEncodeScratch) ensureNormSave(n int) []celtNorm {
-	return ensureNormSlice(&s.normSave, n)
+	return ensureNormSliceNoClear(&s.normSave, n)
 }
 
 // ensureXResult0 returns a pre-allocated buffer for X result during theta RDO.
@@ -244,16 +242,7 @@ func (s *bandEncodeScratch) ensureYResult0(n int) []celtNorm {
 
 // ensureNormResult0 returns a pre-allocated buffer for norm result during theta RDO.
 func (s *bandEncodeScratch) ensureNormResult0(n int) []celtNorm {
-	return ensureNormSlice(&s.normResult0, n)
-}
-
-func (s *bandEncodeScratch) ensureThetaX(n int) []celtNorm {
-	// Callers copy() the full n elements in before any read, so the zero-fill is dead work.
-	return ensureNormSliceNoClear(&s.thetaX, n)
-}
-
-func (s *bandEncodeScratch) ensureThetaY(n int) []celtNorm {
-	return ensureNormSliceNoClear(&s.thetaY, n)
+	return ensureNormSliceNoClear(&s.normResult0, n)
 }
 
 func (s *bandEncodeScratch) ensureHadamardTmpNorm(n int) []celtNorm {

@@ -15,12 +15,9 @@ func TestTFAnalysisScratchUsesLibopusNormWidth(t *testing.T) {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
 	var scratch TFAnalysisScratch
-	scratch.EnsureTFAnalysisScratch(MaxBands, 384)
-	if got := unsafe.Sizeof(scratch.Tmp[0]); got != uintptr(sizes.celtNorm) {
-		t.Fatalf("Tmp element size=%d want libopus celt_norm size %d", got, sizes.celtNorm)
-	}
-	if got := unsafe.Sizeof(scratch.Tmp1[0]); got != uintptr(sizes.celtNorm) {
-		t.Fatalf("Tmp1 element size=%d want libopus celt_norm size %d", got, sizes.celtNorm)
+	scratch.EnsureTFAnalysisScratch(MaxBands, 384, 3)
+	if got := unsafe.Sizeof(scratch.Levels[0]); got != uintptr(sizes.celtNorm) {
+		t.Fatalf("Levels element size=%d want libopus celt_norm size %d", got, sizes.celtNorm)
 	}
 }
 

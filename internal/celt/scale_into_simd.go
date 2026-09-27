@@ -1,4 +1,4 @@
-//go:build arm64 && goexperiment.simd && !nosimd
+//go:build (amd64 || arm64) && goexperiment.simd && !nosimd
 
 package celt
 
@@ -7,20 +7,17 @@ import (
 	"unsafe"
 )
 
-// scaleFloat32IntoNEON computes dst[i] = src[i]*gain over min(len(dst),len(src))
-// elements as 4-wide NEON FMULs (Float32x4.Mul) — each lane the same
-// single-rounding product as the scalar reference and the hand asm, so the
-// result is bit-exact.
+// scaleFloat32Into computes dst[i] = src[i]*gain over min(len(dst),len(src))
+// elements as 4-wide Float32x4.Mul products: each lane is the same
+// single-rounding product as the scalar loop, so the result is bit-exact.
 //
 // It loads through *[4]float32 views over advancing unsafe pointers instead of
-// archsimd.LoadFloat32x4(src[i:]). The slice form emits a length bounds check and
-// a panic path on every load and store, and that check machinery — not the SIMD —
-// dominates this load/store-bound kernel (3-5x slower, slower even than scalar
-// asm). With the checks gone and a 16-wide unroll (the widest that profiled best)
-// the archsimd loop beats the hand NEON asm. Each pointer advances only when a
-// later element remains, so no pointer reaches one past its slice; an empty
-// slice skips all loops, so SliceData is never dereferenced.
-func scaleFloat32IntoNEON(dst, src []float32, gain float32) {
+// archsimd.LoadFloat32x4(src[i:]), which would emit a length bounds check and a
+// panic path on every load and store of this load/store-bound kernel. Each
+// pointer advances only when a later element remains, so no pointer reaches one
+// past its slice; an empty slice skips all loops, so SliceData is never
+// dereferenced.
+func scaleFloat32Into(dst, src []float32, gain float32) {
 	n := min(len(dst), len(src))
 	g := archsimd.BroadcastFloat32x4(gain)
 	sp := unsafe.Pointer(unsafe.SliceData(src))

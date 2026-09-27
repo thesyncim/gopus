@@ -601,14 +601,24 @@ func (e *Encoder) coarseNbAvailableBytesForBudget(budget int) int {
 // startBand specifies the first band to encode (0 for CELT-only, 17 for hybrid mode).
 // This matches libopus quant_coarse_energy which iterates from start to end.
 func (e *Encoder) DecideIntraMode(energies []celtGLog, startBand, nbBands int, lm int) bool {
+	intra, _ := e.decideIntraMode(energies, startBand, nbBands, lm, false)
+	return intra
+}
+
+// decideIntraMode is DecideIntraMode. With keepPass, a two-pass decision on
+// a full band range leaves the range coder after the intra flag and the
+// selected pass, as quant_coarse_energy does, and reports true; the caller
+// then must not encode the flag, and EncodeCoarseEnergy applies the kept
+// pass. Otherwise the coder is restored.
+func (e *Encoder) decideIntraMode(energies []celtGLog, startBand, nbBands int, lm int, keepPass bool) (bool, bool) {
 	if e.rangeEncoder == nil {
-		return false
+		return false, false
 	}
 	if nbBands > e.predStride() {
 		nbBands = e.predStride()
 	}
 	if nbBands <= 0 {
-		return false
+		return false, false
 	}
 	if lm < 0 {
 		lm = 0
@@ -642,12 +652,12 @@ func (e *Encoder) DecideIntraMode(energies []celtGLog, startBand, nbBands int, l
 
 	tell := e.rangeEncoder.Tell()
 	if tell+3 > budget {
-		return false
+		return false, false
 	}
 
 	// Match libopus: without two-pass search, the threshold/force decision is final.
 	if !twoPass || intra {
-		return intra
+		return intra, false
 	}
 
 	maxDecay32 := float32(16.0 * DB6)
@@ -715,6 +725,13 @@ func (e *Encoder) DecideIntraMode(energies []celtGLog, startBand, nbBands int, l
 		stride,
 	)
 	tellIntra := e.rangeEncoder.TellFrac()
+	channelsMatch := channels == int(e.channels)
+	keep := keepPass && startBand == 0 && channelsMatch
+	if keep {
+		e.rangeEncoder.SaveStateInto(&e.scratch.coarseIntraState)
+		copy(ensureGLogSliceNoClear(&e.scratch.coarseIntraOldE, len(workOldE)), workOldE)
+		copy(ensureGLogSliceNoClear(&e.scratch.coarseIntraErr, len(workErr)), workErr)
+	}
 	e.rangeEncoder.RestoreState(startState)
 	copy(e.prevEnergy, oldStart)
 
@@ -743,9 +760,18 @@ func (e *Encoder) DecideIntraMode(energies []celtGLog, startBand, nbBands int, l
 	if badnessIntra == badnessInter && e.rangeEncoder.TellFrac()+intraBias > tellIntra {
 		useIntra = true
 	}
-	e.rangeEncoder.RestoreState(startState)
 	copy(e.prevEnergy, oldStart)
-	return useIntra
+	if !keep {
+		e.rangeEncoder.RestoreState(startState)
+		return useIntra, false
+	}
+	if useIntra {
+		e.rangeEncoder.RestoreState(&e.scratch.coarseIntraState)
+		copy(workOldE, e.scratch.coarseIntraOldE)
+		copy(workErr, e.scratch.coarseIntraErr)
+	}
+	e.coarsePassKept = true
+	return useIntra, true
 }
 
 // EncodeCoarseEnergy encodes coarse (6dB step) band energies.
@@ -780,6 +806,48 @@ func (e *Encoder) EncodeCoarseEnergy(energies []celtGLog, nbBands int, intra boo
 
 	newDistortion := coarseLossDistortion(energies, e.prevEnergy, nbBands, channels, e.predStride())
 
+	var quantizedEnergies []celtGLog
+	if e.coarsePassKept {
+		e.coarsePassKept = false
+		quantizedEnergies = e.applyKeptCoarsePass(nbBands, channels)
+	} else {
+		quantizedEnergies = e.encodeCoarseEnergy(energies, nbBands, intra, lm)
+	}
+
+	alpha32 := float32(AlphaCoef[lm])
+	if intra {
+		e.delayedIntra = opusVal32(newDistortion)
+	} else {
+		e.delayedIntra = opusVal32(alpha32*alpha32*float32(e.delayedIntra) + newDistortion)
+	}
+
+	return quantizedEnergies
+}
+
+// applyKeptCoarsePass takes the pass decideIntraMode kept: its quantized
+// energies and errors sit in the coarse scratch with the prediction stride,
+// and move to the nbBands-per-channel layout encodeCoarseEnergyPass writes,
+// updating prevEnergy the same way.
+func (e *Encoder) applyKeptCoarsePass(nbBands, channels int) []celtGLog {
+	stride := e.predStride()
+	quantized := e.scratch.quantizedEnergies[:len(e.scratch.quantizedEnergies)]
+	coarseErr := e.scratch.coarseError[:len(e.scratch.coarseError)]
+	for c := range channels {
+		// Channel c moves down from c*stride to c*nbBands; nbBands <= stride,
+		// so ascending copies never overwrite a band they still read.
+		copy(quantized[c*nbBands:(c+1)*nbBands], quantized[c*stride:c*stride+nbBands])
+		copy(coarseErr[c*nbBands:(c+1)*nbBands], coarseErr[c*stride:c*stride+nbBands])
+	}
+	quantized = ensureGLogSliceNoClear(&e.scratch.quantizedEnergies, nbBands*channels)
+	ensureGLogSliceNoClear(&e.scratch.coarseError, nbBands*channels)
+	for c := range channels {
+		copy(e.prevEnergy[c*stride:c*stride+nbBands], quantized[c*nbBands:(c+1)*nbBands])
+	}
+	return quantized
+}
+
+// encodeCoarseEnergy runs EncodeCoarseEnergy's coarse-energy pass.
+func (e *Encoder) encodeCoarseEnergy(energies []celtGLog, nbBands int, intra bool, lm int) []celtGLog {
 	budget := e.rangeEncoder.StorageBits()
 	if e.frameBits > 0 && int(e.frameBits) < budget {
 		budget = int(e.frameBits)
@@ -799,14 +867,6 @@ func (e *Encoder) EncodeCoarseEnergy(energies []celtGLog, nbBands int, intra boo
 	}
 
 	quantizedEnergies, _ := e.encodeCoarseEnergyPass(energies, 0, nbBands, intra, lm, budget, maxDecay32, false)
-
-	alpha32 := float32(AlphaCoef[lm])
-	if intra {
-		e.delayedIntra = opusVal32(newDistortion)
-	} else {
-		e.delayedIntra = opusVal32(alpha32*alpha32*float32(e.delayedIntra) + newDistortion)
-	}
-
 	return quantizedEnergies
 }
 

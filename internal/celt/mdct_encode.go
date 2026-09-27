@@ -479,6 +479,22 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				wp2 -= 2
 			}
 		} else {
+			// The windowed folds run four outputs per step on the SSE build;
+			// the descending loads reach one sample below each stream's last
+			// read, so gate on the exact bounds.
+			if lead := limit1 - i; mdctUseSSEForward && lead >= 4 {
+				blocks := lead >> 2
+				done := 4 * blocks
+				if xp1+n2+2*done-1 < len(samples) && xp2 < len(samples) && xp2-n2-2*done+1 >= 0 &&
+					wp1+2*done-1 < len(window) && wp2 < len(window) && wp2-2*done+1 >= 0 {
+					mdctLeadFoldSSE(fftStage, bitrev, samples, window, trig, i, n4, n2, xp1, xp2, wp1, wp2, blocks, preScale)
+					i += done
+					xp1 += 2 * done
+					xp2 -= 2 * done
+					wp1 += 2 * done
+					wp2 -= 2 * done
+				}
+			}
 			for ; i < limit1; i++ {
 				re := mdctMulAddMixEncode(float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
 				im := mdctMulSubMixEncode(float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
@@ -493,6 +509,18 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 
 			wp1 = 0
 			wp2 = overlap - 1
+			// The unwindowed middle runs four outputs per step on the SSE
+			// build; its loads reach one sample past each stream's last read.
+			if mid := n4 - limit1 - i; mdctUseSSEForward && mid >= 4 {
+				blocks := mid >> 2
+				done := 4 * blocks
+				if xp1+2*done-1 < len(samples) && xp2-2*done+1 >= 0 && xp2 < len(samples) {
+					mdctMidRotateSSE(fftStage, bitrev, samples, trig, i, n4, xp1, xp2, blocks, preScale)
+					i += done
+					xp1 += 2 * done
+					xp2 -= 2 * done
+				}
+			}
 			for ; i < n4-limit1; i++ {
 				re := float32(samples[xp2])
 				im := float32(samples[xp1])
@@ -503,6 +531,19 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				xp2 -= 2
 			}
 
+			if tail := n4 - i; mdctUseSSEForward && tail >= 4 {
+				blocks := tail >> 2
+				done := 4 * blocks
+				if xp1-n2 >= 0 && xp1+2*done-1 < len(samples) && xp2+n2 < len(samples) && xp2-2*done+1 >= 0 &&
+					wp1+2*done-1 < len(window) && wp2 < len(window) && wp2-2*done+1 >= 0 {
+					mdctTailFoldSSE(fftStage, bitrev, samples, window, trig, i, n4, n2, xp1, xp2, wp1, wp2, blocks, preScale)
+					i += done
+					xp1 += 2 * done
+					xp2 -= 2 * done
+					wp1 += 2 * done
+					wp2 -= 2 * done
+				}
+			}
 			for ; i < n4; i++ {
 				re := mdctNegMulAddMixEncode(float32(samples[xp1-n2]), float32(samples[xp2]), window[wp1], window[wp2])
 				im := mdctMulAddMixEncode(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
@@ -604,9 +645,13 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 		// (bit-identical per element), and the scalar loop finishes the
 		// n4%8 middle. QEXT moves the scale here, so that build keeps the
 		// scalar loop.
-		if mdctUsePostTwiddleNeon && !mdctQEXTScalePlacement {
+		if (mdctUsePostTwiddleNeon || mdctUseSSEForward) && !mdctQEXTScalePlacement {
 			if pairBlocks := n4 >> 3; pairBlocks > 0 {
-				mdctPostTwiddleNeon(coeffs, fftStage, trig, n2, n4, pairBlocks)
+				if mdctUseSSEForward {
+					mdctPostTwiddleSSE(coeffs, fftStage, trig, n2, n4, pairBlocks)
+				} else {
+					mdctPostTwiddleNeon(coeffs, fftStage, trig, n2, n4, pairBlocks)
+				}
 				i = 4 * pairBlocks
 				lo += 2 * i
 				hi -= 2 * i

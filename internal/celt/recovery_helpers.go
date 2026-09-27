@@ -1105,14 +1105,14 @@ func pitchXCorrFloat32AVX2FMAOrder(x, y, xcorr []float32, length, maxPitch int) 
 		pitchXCorrFloat32AVX2FMAOrderTiny(x, y, xcorr, length, maxPitch)
 		return
 	}
-	i := 0
+	i := pitchXCorrAVX2Blocks(x, y, xcorr, length, maxPitch)
 	for ; i < maxPitch-7; i += 8 {
 		var sums [8]float32
 		pitchXcorrKernelAVX8(x[:length], y[i:i+length+7], &sums, length)
 		copy(xcorr[i:i+8], sums[:])
 	}
-	for ; i < maxPitch; i++ {
-		xcorr[i] = innerProdFloat32SSEOrder(x, y[i:], length)
+	if i < maxPitch {
+		innerProdFloat32SSEOrderLags(x, y[i:], xcorr[i:maxPitch], length)
 	}
 }
 

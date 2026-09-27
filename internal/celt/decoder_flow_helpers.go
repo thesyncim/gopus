@@ -65,7 +65,7 @@ func denormalizeBandsPackedDownsampleIntoFloat32(dst []float32, src []celtNorm, 
 			}
 			continue
 		}
-		scaleFloat32IntoNEON(dst[f:f+count], src[j:j+count], gain)
+		scaleFloat32Into(dst[f:f+count], src[j:j+count], gain)
 		f += count
 	}
 	if bound < len(dst) {

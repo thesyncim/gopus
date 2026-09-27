@@ -40,9 +40,9 @@ func TestAnalysisFastAtan2fParityShape(t *testing.T) {
 		{-1, -1, float32(-3 * math.Pi / 4)},
 	}
 	for _, tc := range tests {
-		got := analysisFastAtan2f(tc.y, tc.x)
+		got := analysisAtan2(tc.y, tc.x)
 		if math.Abs(float64(got-tc.want)) > eps {
-			t.Fatalf("analysisFastAtan2f(%f,%f)=%.6f, want %.6f (+/- %.3f)", tc.y, tc.x, got, tc.want, eps)
+			t.Fatalf("analysisAtan2(%f,%f)=%.6f, want %.6f (+/- %.3f)", tc.y, tc.x, got, tc.want, eps)
 		}
 	}
 }

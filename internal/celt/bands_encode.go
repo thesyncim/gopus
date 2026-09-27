@@ -381,9 +381,7 @@ func normalizeBandsWithBandEIntoF32BinMulWidths(mdctCoeffs []float32, nbBands, b
 		}
 		g := float32(1.0) / amplitude
 
-		for i := range n {
-			norm[offset+i] = celtNorm(mdctCoeffs[offset+i] * g)
-		}
+		scaleFloat32Into(norm[offset:offset+n], mdctCoeffs[offset:offset+n], g)
 		offset += n
 	}
 }

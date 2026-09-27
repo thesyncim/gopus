@@ -101,9 +101,14 @@ type Encoder struct {
 	// decisions read budget/8.
 	coarseAvailableBytes int32
 	coarseAvailableSet   bool
-	maxPayloadBytes      int32 // Optional per-frame payload cap (excludes TOC byte)
-	vbr                  bool
-	constrainedVBR       bool
+	// coarsePassKept is set while the range coder holds the intra flag and
+	// the coarse-energy pass decideIntraMode selected, with its quantized
+	// energies and errors in the coarse scratch; EncodeCoarseEnergy applies
+	// them instead of encoding the pass again.
+	coarsePassKept  bool
+	maxPayloadBytes int32 // Optional per-frame payload cap (excludes TOC byte)
+	vbr             bool
+	constrainedVBR  bool
 	// Constrained-VBR state mirrors libopus CELT encoder cadence.
 	// Units are Q3 bits unless noted.
 	vbrReservoir int32
@@ -1234,6 +1239,9 @@ type encoderScratch struct {
 	// Coarse-energy two-pass scratch
 	coarseStartState rangecoding.EncoderState
 	coarseOldStart   []celtGLog
+	coarseIntraState rangecoding.EncoderState
+	coarseIntraOldE  []celtGLog
+	coarseIntraErr   []celtGLog
 
 	// Per-mode allocation work buffer (non-standard custom modes only).
 	allocWork []int32
@@ -1531,7 +1539,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	bandScratch.qextIy = ensureInt32Slice(&bandScratch.qextIy, maxPVQN)
 	bandScratch.cwrsU = ensureUint32Slice(&bandScratch.cwrsU, 256)
 	bandScratch.hadamardTmpNorm = ensureNormSliceNoClear(&bandScratch.hadamardTmpNorm, maxBandWidth*16)
-	e.tfScratch.EnsureTFAnalysisScratch(modeBands, maxBandWidth)
+	e.tfScratch.EnsureTFAnalysisScratch(modeBands, maxBandWidth, 3)
 }
 
 // computeAllocationScratch computes bit allocation using scratch buffers (zero-alloc).

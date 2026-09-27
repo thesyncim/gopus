@@ -13,6 +13,8 @@ var X86VectorKernels = archsimd.X86.AVX2() && archsimd.X86.FMA()
 
 // The selected x86 DRED archive uses dnn/vec_avx.h's AVX2/FMA Padé
 // polynomial and VRCPPS estimate for both complete vectors and the tail.
+// Every 256-bit kernel in this package ends with ClearAVXUpperBits, so the
+// scalar SSE code that follows runs without AVX-SSE transition penalties.
 func sigmoidVectorX86(out, in []float32, n int) {
 	if !X86VectorKernels {
 		SigmoidVectorScalarApprox(out, in, n)
@@ -25,6 +27,7 @@ func sigmoidVectorX86(out, in []float32, n int) {
 	for ; i < n; i++ {
 		out[i] = sigmoid8X86(archsimd.BroadcastFloat32x8(in[i])).GetLo().GetElem(0)
 	}
+	archsimd.ClearAVXUpperBits()
 }
 
 func tanhVectorX86(out, in []float32, n int) {
@@ -39,13 +42,16 @@ func tanhVectorX86(out, in []float32, n int) {
 	for ; i < n; i++ {
 		out[i] = tanhApproxX86(in[i])
 	}
+	archsimd.ClearAVXUpperBits()
 }
 
 func tanhApproxX86(x float32) float32 {
 	if !X86VectorKernels {
 		return TanhScalarApprox(x)
 	}
-	return tanh8X86(archsimd.BroadcastFloat32x8(x)).GetLo().GetElem(0)
+	y := tanh8X86(archsimd.BroadcastFloat32x8(x)).GetLo().GetElem(0)
+	archsimd.ClearAVXUpperBits()
+	return y
 }
 
 func expVectorX86(out, in []float32, n int) {
@@ -60,6 +66,7 @@ func expVectorX86(out, in []float32, n int) {
 	for ; i < n; i++ {
 		out[i] = exp8X86(archsimd.BroadcastFloat32x8(in[i])).GetLo().GetElem(0)
 	}
+	archsimd.ClearAVXUpperBits()
 }
 
 // minPS returns _mm256_min_ps(a, b): MINPS yields its second operand when

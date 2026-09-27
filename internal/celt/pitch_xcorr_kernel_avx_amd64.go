@@ -30,3 +30,9 @@ func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
 func pitchXcorrKernelAVX8(x, y []float32, sum *[8]float32, length int) {
 	xcorrKernelAVX8(&x[0], &y[0], sum, length)
 }
+
+// pitchXCorrAVX2Blocks leaves every lag to the per-block kernel on builds
+// without the AVX2 archsimd kernel.
+func pitchXCorrAVX2Blocks(x, y, xcorr []float32, length, maxPitch int) int {
+	return 0
+}

@@ -296,33 +296,65 @@ func analysisFloat2Int(x float32) int32 {
 	return opusmath.RoundToEvenF32ToInt32(x)
 }
 
-func analysisFastAtan2f(y, x float32) float32 {
-	x2 := x * x
-	y2 := y * y
-	if x2+y2 < 1e-18 {
-		return 0
+// analysisBins runs tonality_analysis's per-bin loop over bins 1..239 of the
+// FFT output: the two phase-acceleration estimates, the noisiness and the
+// per-bin tonality, updating the phase history.
+func (s *TonalityAnalysisState) analysisBins(out *[480]complex64, tonality, tonality2, noisiness []float32) {
+	s.analysisBinsScalar(out, s.analysisBinsSIMD(out, tonality, tonality2, noisiness), tonality, tonality2, noisiness)
+}
+
+// analysisBinsScalar is analysisBins for bins from..239.
+func (s *TonalityAnalysisState) analysisBinsScalar(out *[480]complex64, from int, tonality, tonality2, noisiness []float32) {
+	for i := from; i < 240; i++ {
+		x1r := real(out[i]) + real(out[480-i])
+		x1i := imag(out[i]) - imag(out[480-i])
+		x2r := imag(out[i]) + imag(out[480-i])
+		x2i := real(out[480-i]) - real(out[i])
+
+		angle := round32(analysisAtanScale * analysisAtan2(x1i, x1r))
+		dAngle := angle - s.Angle[i]
+		d2Angle := dAngle - s.DAngle[i]
+
+		angle2 := round32(analysisAtanScale * analysisAtan2(x2i, x2r))
+		dAngle2 := angle2 - angle
+		d2Angle2 := dAngle2 - dAngle
+
+		mod1 := d2Angle - float32(analysisFloat2Int(d2Angle))
+		noisiness[i] = opusmath.AbsF32(mod1)
+		mod1 *= mod1
+		mod1 = round32(mod1 * mod1)
+
+		mod2 := d2Angle2 - float32(analysisFloat2Int(d2Angle2))
+		noisiness[i] += opusmath.AbsF32(mod2)
+		mod2 *= mod2
+		mod2 = round32(mod2 * mod2)
+
+		avgMod := 0.25 * (s.D2Angle[i] + mod1 + 2*mod2)
+		tonality[i] = 1.0/(1.0+40.0*16.0*analysisPi4*avgMod) - 0.015
+		tonality2[i] = 1.0/(1.0+40.0*16.0*analysisPi4*mod2) - 0.015
+
+		s.Angle[i] = angle2
+		s.DAngle[i] = dAngle2
+		s.D2Angle[i] = mod2
 	}
+}
+
+// analysisAtan2 is analysis.c fast_atan2f(y, x). The two rational forms and
+// the quadrant terms are chosen by conditional moves rather than branches on
+// the spectrum. When x2 < y2 the second quadrant term is zero, and q + s1 - 0
+// is q + s1 exactly.
+func analysisAtan2(y, x float32) float32 {
+	x2 := round32(x * x)
+	y2 := round32(y * y)
 	xy := x * y
-	if x2 < y2 {
-		num := -xy * (y2 + analysisAtanCA*x2)
-		den := (y2 + analysisAtanCB*x2) * (y2 + analysisAtanCC*x2)
-		if y < 0 {
-			return num/den - analysisAtanCE
-		}
-		return num/den + analysisAtanCE
-	}
-	num := xy * (x2 + analysisAtanCA*y2)
-	den := (x2 + analysisAtanCB*y2) * (x2 + analysisAtanCC*y2)
-	if y < 0 {
-		if xy < 0 {
-			return num / den
-		}
-		return num/den - analysisAtanCE - analysisAtanCE
-	}
-	if xy < 0 {
-		return num/den + analysisAtanCE + analysisAtanCE
-	}
-	return num / den
+	swap := x2 < y2
+	p := opusmath.SelectF32(swap, y2, x2)
+	q := opusmath.SelectF32(swap, x2, y2)
+	num := opusmath.SelectF32(swap, -xy, xy) * (p + analysisAtanCA*q)
+	den := (p + analysisAtanCB*q) * (p + analysisAtanCC*q)
+	s1 := opusmath.SelectF32(y < 0, -analysisAtanCE, analysisAtanCE)
+	s2 := opusmath.SelectF32(swap, 0, opusmath.SelectF32(xy < 0, -analysisAtanCE, analysisAtanCE))
+	return opusmath.SelectF32(x2+y2 < 1e-18, 0, num/den+s1-s2)
 }
 
 // AnalysisInfo is the per-frame output of the tonality analyzer ("the brain").
@@ -703,102 +735,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	tonality := s.scratchTonality[:]
 	tonality2 := s.scratchTonality2[:]
 	noisiness := s.scratchNoisiness[:]
-	for i := 1; i < 240; i++ {
-		x1r := real(outBuf[i]) + real(outBuf[480-i])
-		x1i := imag(outBuf[i]) - imag(outBuf[480-i])
-		x2r := imag(outBuf[i]) + imag(outBuf[480-i])
-		x2i := real(outBuf[480-i]) - real(outBuf[i])
-
-		xr2 := round32(x1r * x1r)
-		xi2 := round32(x1i * x1i)
-		atan := float32(0)
-		if xr2+xi2 >= 1e-18 {
-			xy := x1r * x1i
-			if xr2 < xi2 {
-				num := -xy * (xi2 + analysisAtanCA*xr2)
-				den := (xi2 + analysisAtanCB*xr2) * (xi2 + analysisAtanCC*xr2)
-				if x1i < 0 {
-					atan = num/den - analysisAtanCE
-				} else {
-					atan = num/den + analysisAtanCE
-				}
-			} else {
-				num := xy * (xr2 + analysisAtanCA*xi2)
-				den := (xr2 + analysisAtanCB*xi2) * (xr2 + analysisAtanCC*xi2)
-				// fast_atan2f evaluates q + (y<0 ? -cE : cE) - (x*y<0 ? -cE : cE)
-				// in full; the two cE terms do not cancel exactly in float.
-				s1, s2 := analysisAtanCE, analysisAtanCE
-				if x1i < 0 {
-					s1 = -analysisAtanCE
-				}
-				if xy < 0 {
-					s2 = -analysisAtanCE
-				}
-				atan = num/den + s1 - s2
-			}
-		}
-		angle := round32(analysisAtanScale * atan)
-		dAngle := angle - s.Angle[i]
-		d2Angle := dAngle - s.DAngle[i]
-
-		xr2 = round32(x2r * x2r)
-		xi2 = round32(x2i * x2i)
-		atan = 0
-		if xr2+xi2 >= 1e-18 {
-			xy := x2r * x2i
-			if xr2 < xi2 {
-				num := -xy * (xi2 + analysisAtanCA*xr2)
-				den := (xi2 + analysisAtanCB*xr2) * (xi2 + analysisAtanCC*xr2)
-				if x2i < 0 {
-					atan = num/den - analysisAtanCE
-				} else {
-					atan = num/den + analysisAtanCE
-				}
-			} else {
-				num := xy * (xr2 + analysisAtanCA*xi2)
-				den := (xr2 + analysisAtanCB*xi2) * (xr2 + analysisAtanCC*xi2)
-				// fast_atan2f evaluates q + (y<0 ? -cE : cE) - (x*y<0 ? -cE : cE)
-				// in full; the two cE terms do not cancel exactly in float.
-				s1, s2 := analysisAtanCE, analysisAtanCE
-				if x2i < 0 {
-					s1 = -analysisAtanCE
-				}
-				if xy < 0 {
-					s2 = -analysisAtanCE
-				}
-				atan = num/den + s1 - s2
-			}
-		}
-		angle2 := round32(analysisAtanScale * atan)
-		dAngle2 := angle2 - angle
-		d2Angle2 := dAngle2 - dAngle
-
-		mod1 := d2Angle - float32(analysisFloat2Int(d2Angle))
-		if mod1 < 0 {
-			noisiness[i] = -mod1
-		} else {
-			noisiness[i] = mod1
-		}
-		mod1 *= mod1
-		mod1 = round32(mod1 * mod1)
-
-		mod2 := d2Angle2 - float32(analysisFloat2Int(d2Angle2))
-		if mod2 < 0 {
-			noisiness[i] += -mod2
-		} else {
-			noisiness[i] += mod2
-		}
-		mod2 *= mod2
-		mod2 = round32(mod2 * mod2)
-
-		avgMod := 0.25 * (s.D2Angle[i] + mod1 + 2*mod2)
-		tonality[i] = 1.0/(1.0+40.0*16.0*analysisPi4*avgMod) - 0.015
-		tonality2[i] = 1.0/(1.0+40.0*16.0*analysisPi4*mod2) - 0.015
-
-		s.Angle[i] = angle2
-		s.DAngle[i] = dAngle2
-		s.D2Angle[i] = mod2
-	}
+	s.analysisBins(&s.scratchFFTOut, tonality, tonality2, noisiness)
 	for i := 2; i < 239; i++ {
 		tt := minf(tonality2[i], maxf(tonality2[i-1], tonality2[i+1]))
 		tonality[i] = 0.9 * maxf(tonality[i], tt-0.1)
@@ -1120,19 +1057,9 @@ func bandwidthTypeFromIndex(bandwidth int) types.Bandwidth {
 	}
 }
 
-func maxf(a, b float32) float32 {
-	if a > b {
-		return a
-	}
-	return b
-}
+func maxf(a, b float32) float32 { return opusmath.MaxF32(a, b) }
 
-func minf(a, b float32) float32 {
-	if a < b {
-		return a
-	}
-	return b
-}
+func minf(a, b float32) float32 { return opusmath.MinF32(a, b) }
 
 // tonalityGetInfo mirrors libopus tonality_get_info() and derives the
 // smoothed music-probability thresholds used for mode switching.

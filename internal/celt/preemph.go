@@ -33,6 +33,64 @@ func rawMaxAbsStep(maxVal, minVal, sample float32) (float32, float32) {
 	return maxVal, minVal
 }
 
+// rawMaxMinScanScalar is celt_maxabs16's sequential MAX16/MIN16 loop.
+func rawMaxMinScanScalar(x []float32, maxVal, minVal float32) (float32, float32) {
+	for _, sample := range x {
+		maxVal, minVal = rawMaxAbsStep(maxVal, minVal, sample)
+	}
+	return maxVal, minVal
+}
+
+// rawMaxMinScanStuffed folds native samples [from, to) into the running
+// MAX16/MIN16 extrema. pcm is the zero-stuffed core frame, where native
+// sample i of the channels-interleaved input sits at
+// (i/channels)*upsample*channels + i%channels; the scan stops at the end of
+// pcm.
+func rawMaxMinScanStuffed(pcm []float32, from, to, channels, upsample int, maxVal, minVal float32) (float32, float32) {
+	if from >= to {
+		return maxVal, minVal
+	}
+	c := from % channels
+	index := (from/channels)*upsample*channels + c
+	skip := (upsample - 1) * channels
+	for i := from; i < to && index < len(pcm); i++ {
+		maxVal, minVal = rawMaxAbsStep(maxVal, minVal, pcm[index])
+		index++
+		if c++; c == channels {
+			c = 0
+			index += skip
+		}
+	}
+	return maxVal, minVal
+}
+
+// preemphInterleavedScalar is celt_preemphasis's single-tap loop over
+// channels-interleaved pcm: each channel carries m = coef*s into the next
+// output of that channel.
+func preemphInterleavedScalar(pcm, out []float32, total, channels int, coef float32, state [2]float32) [2]float32 {
+	if channels == 1 {
+		m := state[0]
+		for i := range total {
+			scaled := pcm[i] * float32(CELTSigScale)
+			out[i] = scaled - m
+			m = coef * scaled
+		}
+		state[0] = m
+		return state
+	}
+	mL, mR := state[0], state[1]
+	for i := 0; i+1 < total; i += 2 {
+		scaledL := pcm[i] * float32(CELTSigScale)
+		scaledR := pcm[i+1] * float32(CELTSigScale)
+		out[i] = scaledL - mL
+		out[i+1] = scaledR - mR
+		mL = coef * scaledL
+		mR = coef * scaledR
+	}
+	state[0], state[1] = mL, mR
+	return state
+}
+
 func rawMaxAbsResult(maxVal, minVal float32) float32 {
 	negativeMin := -minVal
 	if maxVal > negativeMin {
@@ -57,25 +115,12 @@ func (e *Encoder) rawInputSilence(pcm []float32, frameSize, overlap int) bool {
 	var firstMaxVal, firstMinVal, overlapMaxVal, overlapMinVal float32
 	if upsample == 1 {
 		firstLimit := min(firstEnd, len(pcm))
-		for _, sample := range pcm[:firstLimit] {
-			firstMaxVal, firstMinVal = rawMaxAbsStep(firstMaxVal, firstMinVal, sample)
-		}
+		firstMaxVal, firstMinVal = rawMaxMinScan(pcm[:firstLimit], firstMaxVal, firstMinVal)
 		overlapLimit := min(overlapEnd, len(pcm))
-		for _, sample := range pcm[firstLimit:overlapLimit] {
-			overlapMaxVal, overlapMinVal = rawMaxAbsStep(overlapMaxVal, overlapMinVal, sample)
-		}
+		overlapMaxVal, overlapMinVal = rawMaxMinScan(pcm[firstLimit:overlapLimit], overlapMaxVal, overlapMinVal)
 	} else {
-		for i := 0; i < overlapEnd; i++ {
-			index := (i/channels)*upsample*channels + i%channels
-			if index >= len(pcm) {
-				break
-			}
-			if i < firstEnd {
-				firstMaxVal, firstMinVal = rawMaxAbsStep(firstMaxVal, firstMinVal, pcm[index])
-			} else {
-				overlapMaxVal, overlapMinVal = rawMaxAbsStep(overlapMaxVal, overlapMinVal, pcm[index])
-			}
-		}
+		firstMaxVal, firstMinVal = rawMaxMinScanStuffed(pcm, 0, firstEnd, channels, upsample, firstMaxVal, firstMinVal)
+		overlapMaxVal, overlapMinVal = rawMaxMinScanStuffed(pcm, firstEnd, overlapEnd, channels, upsample, overlapMaxVal, overlapMinVal)
 	}
 	firstMax := rawMaxAbsResult(firstMaxVal, firstMinVal)
 	newOverlapMax := rawMaxAbsResult(overlapMaxVal, overlapMinVal)
@@ -275,55 +320,10 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, outpu
 	}
 	silence := e.rawInputSilence(pcm, frameSize, overlap)
 
-	coef := float32(PreemphCoef)
-	if channels == 1 {
-		state := float32(e.preemphState[0])
-		for i := 0; i < split; i++ {
-			v := pcm[i]
-			scaled := v * float32(CELTSigScale)
-			y := scaled - state
-			output[i] = y
-			state = coef * scaled
-		}
-		for i := split; i < total; i++ {
-			v := pcm[i]
-			scaled := v * float32(CELTSigScale)
-			y := scaled - state
-			output[i] = y
-			state = coef * scaled
-		}
-		e.preemphState[0] = celtSig(state)
-	} else {
-		stateL := float32(e.preemphState[0])
-		stateR := float32(e.preemphState[1])
-		i := 0
-		for ; i+1 < split; i += 2 {
-			vL := pcm[i]
-			vR := pcm[i+1]
-			scaledL := vL * float32(CELTSigScale)
-			scaledR := vR * float32(CELTSigScale)
-			yL := scaledL - stateL
-			yR := scaledR - stateR
-			output[i] = yL
-			output[i+1] = yR
-			stateL = coef * scaledL
-			stateR = coef * scaledR
-		}
-		for ; i+1 < total; i += 2 {
-			vL := pcm[i]
-			vR := pcm[i+1]
-			scaledL := vL * float32(CELTSigScale)
-			scaledR := vR * float32(CELTSigScale)
-			yL := scaledL - stateL
-			yR := scaledR - stateR
-			output[i] = yL
-			output[i+1] = yR
-			stateL = coef * scaledL
-			stateR = coef * scaledR
-		}
-		e.preemphState[0] = celtSig(stateL)
-		e.preemphState[1] = celtSig(stateR)
-	}
+	var state [2]float32
+	copy(state[:channels], e.preemphState)
+	state = preemphInterleaved(pcm, output, total, channels, float32(PreemphCoef), state)
+	copy(e.preemphState, state[:channels])
 
 	return silence
 }

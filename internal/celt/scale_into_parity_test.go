@@ -7,8 +7,8 @@ import (
 
 // scaleFloat32IntoRef is the scalar reference: dst[i] = src[i]*gain as a single
 // per-lane float32 product (mul32 == round32(a*b), a no-op rounding on a value
-// that is already float32). Whatever scaleFloat32IntoNEON the build selects —
-// arm64 asm, amd64/arm64 archsimd, or the portable fallback — must reproduce
+// that is already float32). Whatever scaleFloat32Into the build selects —
+// amd64/arm64 archsimd or the scalar loop — must reproduce
 // this bit-for-bit, since every path is a bare multiply with no FMA contraction.
 func scaleFloat32IntoRef(dst, src []float32, gain float32) {
 	n := min(len(dst), len(src))
@@ -27,10 +27,10 @@ func scaleParityF32(seed uint64, i int) float32 {
 	return float32(int64(x%4000001)-2000000) / 7000.0
 }
 
-// benchmarkScaleInto times the build-selected scaleFloat32IntoNEON (kernel=true:
-// arm64 asm, archsimd under goexperiment.simd, or the portable fallback) against
-// the always-compiled scalar reference (kernel=false), so a single binary anchors
-// the kernel to scalar and an A/B across build tags compares asm vs archsimd.
+// benchmarkScaleInto times the build-selected scaleFloat32Into (kernel=true:
+// archsimd under goexperiment.simd on amd64 and arm64, otherwise the scalar
+// loop) against the always-compiled scalar reference (kernel=false), so a
+// single binary anchors the kernel to scalar.
 func benchmarkScaleInto(b *testing.B, n int, kernel bool) {
 	src := make([]float32, n)
 	dst := make([]float32, n)
@@ -42,7 +42,7 @@ func benchmarkScaleInto(b *testing.B, n int, kernel bool) {
 	b.ResetTimer()
 	if kernel {
 		for range b.N {
-			scaleFloat32IntoNEON(dst, src, gain)
+			scaleFloat32Into(dst, src, gain)
 		}
 		return
 	}
@@ -78,7 +78,7 @@ func TestScaleFloat32IntoBitExact(t *testing.T) {
 			for i := range got {
 				got[i] = math.Float32frombits(0x7fc00000) // poison to catch missed stores
 			}
-			scaleFloat32IntoNEON(got, src, gain)
+			scaleFloat32Into(got, src, gain)
 			for i := range n {
 				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 					t.Fatalf("n=%d gain=%g i=%d: got %#08x want %#08x",

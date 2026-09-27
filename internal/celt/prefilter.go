@@ -191,19 +191,23 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 	offset := max(shortMdctSize-overlap, 0)
 	window := e.scratch.modeWindow(overlap)
 
-	var before [2]opusVal32
-	var after [2]opusVal32
 	for ch := range channels {
 		preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 		outCh := out[ch*perChanLen : (ch+1)*perChanLen]
-		preSub := preCh[maxPeriod : maxPeriod+frameSize]
-		before[ch] = absSumSig(preSub)
 		if offset > 0 {
 			combFilterWithInputSig(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
 		}
 		combFilterWithInputSig(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
-		outSub := outCh[maxPeriod : maxPeriod+frameSize]
-		after[ch] = absSumSig(outSub)
+	}
+	// before[c] and after[c] are run_prefilter's serial ABS32 sums over the
+	// input and the comb-filtered output.
+	var before, after [2]opusVal32
+	preSub := func(ch int) []celtSig { return pre[ch*perChanLen+maxPeriod : ch*perChanLen+maxPeriod+frameSize] }
+	outSub := func(ch int) []celtSig { return out[ch*perChanLen+maxPeriod : ch*perChanLen+maxPeriod+frameSize] }
+	if channels == 2 {
+		before[0], before[1], after[0], after[1] = absSumSig4(preSub(0), preSub(1), outSub(0), outSub(1))
+	} else {
+		before[0], after[0] = absSumSig2(preSub(0), outSub(0))
 	}
 
 	cancelPitch := false

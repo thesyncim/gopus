@@ -3,6 +3,8 @@
 
 package celt
 
+import "github.com/thesyncim/gopus/internal/opusmath"
+
 // EMeans contains the mean log-energy per band in libopus float-build width.
 // These values are in log2 units (1.0 = 6 dB) and represent typical
 // energy distribution across frequency bands.
@@ -209,10 +211,7 @@ func DynallocAnalysis(
 		for i := range end {
 			idx := c*nbBands + i
 			if idx < len(bandLogE32) {
-				depth := bandLogE32[idx] - noiseFloor[i]
-				if depth > maxDepth32 {
-					maxDepth32 = depth
-				}
+				maxDepth32 = opusmath.MaxF32(maxDepth32, bandLogE32[idx]-noiseFloor[i])
 			}
 		}
 	}
@@ -700,10 +699,7 @@ func DynallocAnalysisWithScratch(
 		for i := 0; i < end; i++ {
 			idx := c*nbBands + i
 			if idx < len(bandLogE32) {
-				depth := bandLogE32[idx] - noiseFloor[i]
-				if depth > maxDepth32 {
-					maxDepth32 = depth
-				}
+				maxDepth32 = opusmath.MaxF32(maxDepth32, bandLogE32[idx]-noiseFloor[i])
 			}
 		}
 	}
@@ -728,39 +724,26 @@ func DynallocAnalysisWithScratch(
 		for i := 0; i < end; i++ {
 			idx := nbBands + i
 			if idx < len(bandLogE32) {
-				ch2Val := bandLogE32[idx] - noiseFloor[i]
-				if ch2Val > mask[i] {
-					mask[i] = ch2Val
-				}
+				mask[i] = opusmath.MaxF32(mask[i], bandLogE32[idx]-noiseFloor[i])
 			}
 		}
 	}
 
 	copy(sig[:end], mask[:end])
 
+	// The masking model's MAXG/MING steps are conditional moves with C's
+	// operand order: MAXG(a, b) is a > b ? a : b.
 	for i := 1; i < end; i++ {
-		if mask[i-1]-2.0 > mask[i] {
-			mask[i] = mask[i-1] - 2.0
-		}
+		mask[i] = opusmath.MaxF32(mask[i], mask[i-1]-2.0)
 	}
 
 	for i := end - 2; i >= 0; i-- {
-		if mask[i+1]-3.0 > mask[i] {
-			mask[i] = mask[i+1] - 3.0
-		}
+		mask[i] = opusmath.MaxF32(mask[i], mask[i+1]-3.0)
 	}
 
+	floorDepth := opusmath.MaxF32(0, maxDepth32-12.0)
 	for i := 0; i < end; i++ {
-		maskThresh := float32(0)
-		if maxDepth32-12.0 > mask[i] {
-			maskThresh = maxDepth32 - 12.0
-		} else {
-			maskThresh = mask[i]
-		}
-		if maskThresh < 0 {
-			maskThresh = 0
-		}
-		smr := sig[i] - maskThresh
+		smr := sig[i] - opusmath.MaxF32(floorDepth, mask[i])
 
 		shift := min(max(-floor32ToInt(0.5+smr), 0), 5)
 		result.SpreadWeight[i] = 32 >> shift
@@ -809,29 +792,16 @@ func DynallocAnalysisWithScratch(
 				if bandLogE3[i] > bandLogE3[i-1]+0.5 {
 					last = i
 				}
-				if f[i-1]+1.5 < bandLogE3[i] {
-					f[i] = f[i-1] + 1.5
-				} else {
-					f[i] = bandLogE3[i]
-				}
+				f[i] = opusmath.MinF32(f[i-1]+1.5, bandLogE3[i])
 			}
 
 			for i := last - 1; i >= 0; i-- {
-				fwd := f[i+1] + 2.0
-				if fwd > bandLogE3[i] {
-					fwd = bandLogE3[i]
-				}
-				if fwd < f[i] {
-					f[i] = fwd
-				}
+				f[i] = opusmath.MinF32(f[i], opusmath.MinF32(f[i+1]+2.0, bandLogE3[i]))
 			}
 
 			offset := float32(1.0)
 			for i := 2; i < end-2; i++ {
-				medVal := medianOf5f(bandLogE3[i-2:])
-				if medVal-offset > f[i] {
-					f[i] = medVal - offset
-				}
+				f[i] = opusmath.MaxF32(f[i], medianOf5f(bandLogE3[i-2:])-offset)
 			}
 
 			if end >= 3 {
@@ -853,9 +823,7 @@ func DynallocAnalysisWithScratch(
 			}
 
 			for i := 0; i < end; i++ {
-				if noiseFloor[i] > f[i] {
-					f[i] = noiseFloor[i]
-				}
+				f[i] = opusmath.MaxF32(f[i], noiseFloor[i])
 			}
 		}
 

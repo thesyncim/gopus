@@ -205,119 +205,21 @@ func ComputeImportance(bandLogE, oldBandE []celtGLog, nbBands, channels, lm, lsb
 	return importance
 }
 
+// l1MetricNorm is libopus celt_encoder.c l1_metric: the left-to-right sum of
+// |tmp[i]| plus the LM*bias preference for frequency resolution.
 func l1MetricNorm(tmp []celtNorm, N int, LM int, bias float32) float32 {
 	n := min(N, len(tmp))
 	var L1 float32
 	if celtAbsSumUsesNeon {
 		L1 = l1AbsSumNeon(tmp, n)
 	} else {
-		// Sixteen independent accumulators fill the FADD throughput slots:
-		// 16 ops / 4 dispatch = 4 cycles per 16-element block, exactly matching
-		// the 4-cycle FADD latency so no stall on any chain between iterations.
-		// Each conditional negate emits a FABS-style instruction without branching.
-		buf := tmp[:n]
-		var a0, a1, a2, a3, a4, a5, a6, a7 float32
-		var a8, a9, a10, a11, a12, a13, a14, a15 float32
-		for len(buf) >= 16 {
-			v0, v1, v2, v3 := buf[0], buf[1], buf[2], buf[3]
-			v4, v5, v6, v7 := buf[4], buf[5], buf[6], buf[7]
-			v8, v9, v10, v11 := buf[8], buf[9], buf[10], buf[11]
-			v12, v13, v14, v15 := buf[12], buf[13], buf[14], buf[15]
-			if v0 < 0 {
-				v0 = -v0
-			}
-			if v1 < 0 {
-				v1 = -v1
-			}
-			if v2 < 0 {
-				v2 = -v2
-			}
-			if v3 < 0 {
-				v3 = -v3
-			}
-			if v4 < 0 {
-				v4 = -v4
-			}
-			if v5 < 0 {
-				v5 = -v5
-			}
-			if v6 < 0 {
-				v6 = -v6
-			}
-			if v7 < 0 {
-				v7 = -v7
-			}
-			if v8 < 0 {
-				v8 = -v8
-			}
-			if v9 < 0 {
-				v9 = -v9
-			}
-			if v10 < 0 {
-				v10 = -v10
-			}
-			if v11 < 0 {
-				v11 = -v11
-			}
-			if v12 < 0 {
-				v12 = -v12
-			}
-			if v13 < 0 {
-				v13 = -v13
-			}
-			if v14 < 0 {
-				v14 = -v14
-			}
-			if v15 < 0 {
-				v15 = -v15
-			}
-			a0 += v0
-			a1 += v1
-			a2 += v2
-			a3 += v3
-			a4 += v4
-			a5 += v5
-			a6 += v6
-			a7 += v7
-			a8 += v8
-			a9 += v9
-			a10 += v10
-			a11 += v11
-			a12 += v12
-			a13 += v13
-			a14 += v14
-			a15 += v15
-			buf = buf[16:]
-		}
-		// 4-wide tail for remaining elements
-		for len(buf) >= 4 {
-			v0, v1, v2, v3 := buf[0], buf[1], buf[2], buf[3]
-			if v0 < 0 {
-				v0 = -v0
-			}
-			if v1 < 0 {
-				v1 = -v1
-			}
-			if v2 < 0 {
-				v2 = -v2
-			}
-			if v3 < 0 {
-				v3 = -v3
-			}
-			a0 += v0
-			a1 += v1
-			a2 += v2
-			a3 += v3
-			buf = buf[4:]
-		}
-		for _, v := range buf {
-			if v < 0 {
-				v = -v
-			}
-			a0 += v
-		}
-		L1 = (a0 + a1 + a2 + a3) + (a4 + a5 + a6 + a7) + (a8 + a9 + a10 + a11) + (a12 + a13 + a14 + a15)
+		L1 = absSumSerial(tmp[:n])
 	}
+	return l1MetricFinish(L1, LM, bias)
+}
+
+// l1MetricFinish is l1_metric's MAC16_32_Q15(L1, LM*bias, L1).
+func l1MetricFinish(L1 float32, LM int, bias float32) float32 {
 	return L1 + float32(LM)*bias*L1
 }
 
@@ -339,17 +241,17 @@ func haar1Norm(x []celtNorm, n0, stride int) {
 	switch stride {
 	case 1:
 		if 2*n0 <= len(x) {
-			haar1Stride1NEON(x[:2*n0:2*n0], n0)
+			haar1Stride1(x[:2*n0:2*n0], n0)
 		}
 		return
 	case 2:
 		if 4*n0 <= len(x) {
-			haar1Stride2NEON(x[:4*n0:4*n0], n0)
+			haar1Stride2(x[:4*n0:4*n0], n0)
 		}
 		return
 	case 4:
 		if 8*n0 <= len(x) {
-			haar1Stride4NEON(x[:8*n0:8*n0], n0)
+			haar1Stride4(x[:8*n0:8*n0], n0)
 		}
 		return
 	}
@@ -597,29 +499,30 @@ func TFAnalysis(X []celtNorm, N0, nbEBands int, isTransient bool, lm int, tfEsti
 // Standard layouts keep metric and Viterbi paths on the stack. Wider custom
 // layouts reuse Metric, Path0, and Path1. Output and transform buffers live here.
 type TFAnalysisScratch struct {
-	Tmp                  []celtNorm // Band coefficients working buffer
-	Tmp1                 []celtNorm // Copy for transient analysis
-	TfRes                []int32    // Output buffer
+	// Levels holds one band's coefficients at each Haar level tf_analysis
+	// measures: level 0, the transient -1 level, and one level per k step.
+	Levels               []celtNorm
+	TfRes                []int32 // Output buffer
 	Metric, Path0, Path1 []int32
 }
 
+// tfAnalysisMaxLevels bounds tfAnalysisLevels for CELT's largest frame, LM 3.
+const tfAnalysisMaxLevels = 5
+
+// tfAnalysisLevels is the number of Haar levels tf_analysis measures per band
+// at frame size lm: level 0, the transient -1 level, and lm+1 k steps at most.
+func tfAnalysisLevels(lm int) int {
+	return lm + 2
+}
+
 // EnsureTFAnalysisScratch ensures scratch buffers are large enough.
-func (s *TFAnalysisScratch) EnsureTFAnalysisScratch(nbEBands, maxBandWidth int) {
+func (s *TFAnalysisScratch) EnsureTFAnalysisScratch(nbEBands, maxBandWidth, lm int) {
 	if nbEBands > MaxBands {
 		s.Metric = ensureInt32Slice(&s.Metric, nbEBands)
 		s.Path0 = ensureInt32Slice(&s.Path0, nbEBands)
 		s.Path1 = ensureInt32Slice(&s.Path1, nbEBands)
 	}
-	if cap(s.Tmp) < maxBandWidth {
-		s.Tmp = make([]celtNorm, maxBandWidth)
-	} else {
-		s.Tmp = s.Tmp[:maxBandWidth]
-	}
-	if cap(s.Tmp1) < maxBandWidth {
-		s.Tmp1 = make([]celtNorm, maxBandWidth)
-	} else {
-		s.Tmp1 = s.Tmp1[:maxBandWidth]
-	}
+	s.Levels = ensureNormSliceNoClear(&s.Levels, tfAnalysisLevels(lm)*maxBandWidth)
 	if cap(s.TfRes) < nbEBands {
 		s.TfRes = make([]int32, nbEBands)
 	} else {
@@ -641,7 +544,7 @@ func TFAnalysisWithScratch(X []celtNorm, N0, nbEBands int, isTransient bool, lm 
 			maxBandWidth = bw
 		}
 	}
-	scratch.EnsureTFAnalysisScratch(nbEBands, maxBandWidth)
+	scratch.EnsureTFAnalysisScratch(nbEBands, maxBandWidth, lm)
 
 	tfRes = scratch.TfRes[:nbEBands]
 	for i := range tfRes {
@@ -671,8 +574,8 @@ func TFAnalysisWithScratch(X []celtNorm, N0, nbEBands int, isTransient bool, lm 
 		path0 = scratch.Path0[:nbEBands]
 		path1 = scratch.Path1[:nbEBands]
 	}
-	tmp := scratch.Tmp
-
+	var levelLM [tfAnalysisMaxLevels]int
+	var levelL1 [tfAnalysisMaxLevels]float32
 	for i := range nbEBands {
 		bandStart := edges[i] << lm
 		bandEnd := edges[i+1] << lm
@@ -680,48 +583,57 @@ func TFAnalysisWithScratch(X []celtNorm, N0, nbEBands int, isTransient bool, lm 
 
 		narrow := (edges[i+1] - edges[i]) == 1
 
-		// Use scratch buffer
-		tmpSlice := tmp[:N]
-		for j := 0; j < N && bandStart+j < len(X); j++ {
-			tmpSlice[j] = X[bandStart+j]
+		// Build every Haar level the metric compares, then measure them
+		// together: each l1_metric is its own serial sum, so the sums of
+		// different levels run as independent chains.
+		levels := scratch.Levels
+		level0 := levels[:N]
+		copy(level0, X[bandStart:min(bandEnd, len(X))])
+		if bandEnd > len(X) {
+			clear(level0[max(len(X)-bandStart, 0):])
 		}
-
-		var initLM int
+		count := 1
+		levelLM[0] = 0
 		if isTransient {
-			initLM = lm
+			levelLM[0] = lm
 		}
-		L1 := l1MetricNorm(tmpSlice, N, initLM, bias)
-		bestL1 := L1
-		bestLevel := 0
-
 		if isTransient && !narrow {
-			// Use scratch tmp1 instead of allocating
-			tmp1 := scratch.Tmp1[:N]
-			copy(tmp1, tmpSlice)
+			tmp1 := levels[N : 2*N]
+			copy(tmp1, level0)
 			haar1Norm(tmp1, N>>lm, 1<<lm)
-			L1 = l1MetricNorm(tmp1, N, lm+1, bias)
-			if L1 < bestL1 {
-				bestL1 = L1
-				bestLevel = -1
-			}
+			levelLM[1] = lm + 1
+			count = 2
 		}
-
+		firstK := count
 		maxK := lm
 		if !isTransient && !narrow {
 			maxK = lm + 1
 		}
+		prev := level0
 		for k := 0; k < maxK; k++ {
-			var B int
+			cur := levels[count*N : (count+1)*N]
+			copy(cur, prev)
+			haar1Norm(cur, N>>k, 1<<k)
 			if isTransient {
-				B = lm - k - 1
+				levelLM[count] = lm - k - 1
 			} else {
-				B = k + 1
+				levelLM[count] = k + 1
 			}
+			prev = cur
+			count++
+		}
+		absSumLevels(levels, N, count, levelL1[:count])
 
-			haar1Norm(tmpSlice, N>>k, 1<<k)
-			L1 = l1MetricNorm(tmpSlice, N, B, bias)
-
-			if L1 < bestL1 {
+		bestL1 := l1MetricFinish(levelL1[0], levelLM[0], bias)
+		bestLevel := 0
+		if firstK == 2 {
+			if L1 := l1MetricFinish(levelL1[1], levelLM[1], bias); L1 < bestL1 {
+				bestL1 = L1
+				bestLevel = -1
+			}
+		}
+		for k := 0; k < maxK; k++ {
+			if L1 := l1MetricFinish(levelL1[firstK+k], levelLM[firstK+k], bias); L1 < bestL1 {
 				bestL1 = L1
 				bestLevel = k + 1
 			}

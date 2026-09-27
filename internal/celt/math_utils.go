@@ -10,6 +10,8 @@ const bitexactThetaMax = 16384
 
 //go:generate go run ../../tools/gen_math_utils_tables.go -out math_utils_tables_static.go
 
+// celtUdiv is celt_udiv: an unsigned 32-bit division of n, clamped at zero,
+// by a positive d.
 func celtUdiv(n, d int) int {
 	if d <= 0 {
 		return 0
@@ -17,17 +19,15 @@ func celtUdiv(n, d int) int {
 	if n < 0 {
 		n = 0
 	}
-	return n / d
+	return int(uint32(n) / uint32(d))
 }
 
+// celtSudiv is celt_sudiv: a signed 32-bit division by a positive d.
 func celtSudiv(n, d int) int {
 	if d <= 0 {
 		return 0
 	}
-	if n < 0 {
-		return -celtUdiv(-n, d)
-	}
-	return celtUdiv(n, d)
+	return int(int32(n) / int32(d))
 }
 
 func fracMul16(a, b int) int {

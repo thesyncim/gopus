@@ -1,12 +1,10 @@
-//go:build !arm64 || nosimd || !goexperiment.simd
+//go:build (!arm64 && !amd64) || nosimd || !goexperiment.simd
 
 package celt
 
-// haar1Stride1NEON is the portable fallback for the arm64 NEON kernel. It runs
-// the stride==1 Hadamard butterfly over n0 contiguous (even,odd) pairs with the
-// same per-element noFMA32 ops as haar1PairNorm, keeping the nosimd/amd64 builds
-// bit-exact with scalar libopus.
-func haar1Stride1NEON(x []float32, n0 int) {
+// haar1Stride1 is the scalar stride==1 Hadamard butterfly over n0 contiguous
+// (even,odd) pairs, with the same per-element noFMA32 ops as haar1PairNorm.
+func haar1Stride1(x []float32, n0 int) {
 	const invSqrt2 = float32(0.7071067811865476)
 	// Caller slices x to 2*n0, so len(buf)>=2 proves both buf[0] and buf[1] are
 	// in bounds — no per-pair bounds checks. Two pairs per iteration halves loop
@@ -31,10 +29,9 @@ func haar1Stride1NEON(x []float32, n0 int) {
 	}
 }
 
-// haar1Stride2NEON is the portable fallback for the stride==2 arm64 kernel.
-// The two outer passes are fused into a single 4-element stride loop, which is
+// haar1Stride2 is the scalar stride==2 butterfly. The two outer passes are fused into a single 4-element stride loop, which is
 // cache-friendlier and eliminates the stride-4 counter that blocked BCE.
-func haar1Stride2NEON(x []float32, n0 int) {
+func haar1Stride2(x []float32, n0 int) {
 	const invSqrt2 = float32(0.7071067811865476)
 	// Each group of 4 = one iteration of the original two outer passes.
 	// Caller ensures len(x) >= 4*n0 via the slice argument.
@@ -52,9 +49,8 @@ func haar1Stride2NEON(x []float32, n0 int) {
 	}
 }
 
-// haar1Stride4NEON is the portable fallback for the stride==4 arm64 kernel.
-// The four outer passes are fused into a single 8-element stride loop.
-func haar1Stride4NEON(x []float32, n0 int) {
+// haar1Stride4 is the scalar stride==4 butterfly. The four outer passes are fused into a single 8-element stride loop.
+func haar1Stride4(x []float32, n0 int) {
 	const invSqrt2 = float32(0.7071067811865476)
 	// Each group of 8 = one iteration of the original four outer passes.
 	// Caller ensures len(x) >= 8*n0 via the slice argument.

@@ -15,7 +15,11 @@
 
 package celt
 
-import "github.com/thesyncim/gopus/internal/opusmath"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
+)
 
 // TransientAnalysisResult holds the results of transient analysis.
 // This provides both the transient decision and the tf_estimate metric.
@@ -503,10 +507,10 @@ func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, all
 		mask = energy[i] + backwardRetain*mask
 		ei := backwardScale * mask
 		energy[i] = ei
-		maxE = max(maxE, ei)
+		maxE = opusmath.MaxF32(maxE, ei)
 	}
 
-	meanGeom := opusmath.SqrtF32(mean * maxE * float32(0.5*float32(len2)))
+	meanGeom := transientFrameEnergy(mean, maxE, len2)
 	const epsilon = 1e-15
 	normE := float32(64*len2) / (meanGeom + epsilon)
 
@@ -704,15 +708,14 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 			eiR := backwardScale * maskR
 			energy[i] = eiL
 			energyR[i] = eiR
-			// Branchless running max (FMAXS): bit-identical for these non-negative
-			// finite energies, avoids a per-sample data-dependent branch.
-			maxEL = max(maxEL, eiL)
-			maxER = max(maxER, eiR)
+			// MAX16(maxE, 0.125f*mem0) as a conditional move.
+			maxEL = opusmath.MaxF32(maxEL, eiL)
+			maxER = opusmath.MaxF32(maxER, eiR)
 		}
 
 		const epsilon = 1e-15
-		normEL := float32(64*len2) / (opusmath.SqrtF32(meanL*maxEL*float32(0.5*float32(len2))) + epsilon)
-		normER := float32(64*len2) / (opusmath.SqrtF32(meanR*maxER*float32(0.5*float32(len2))) + epsilon)
+		normEL := float32(64*len2) / (transientFrameEnergy(meanL, maxEL, len2) + epsilon)
+		normER := float32(64*len2) / (transientFrameEnergy(meanR, maxER, len2) + epsilon)
 
 		const epsF32 = float32(1e-15)
 		var unmaskL, unmaskR int
@@ -838,12 +841,12 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 			mask = energy[i] + backwardRetain*mask
 			ei := backwardScale * mask
 			energy[i] = ei
-			maxE = max(maxE, ei)
+			maxE = opusmath.MaxF32(maxE, ei)
 		}
 
 		// Compute frame energy as geometric mean of mean and max
 		// This is a compromise between old and new transient detectors
-		meanGeom := opusmath.SqrtF32(mean * maxE * float32(0.5*float32(len2)))
+		meanGeom := transientFrameEnergy(mean, maxE, len2)
 
 		// Inverse of mean energy (with epsilon to avoid division by zero)
 		const epsilon = 1e-15
@@ -1032,4 +1035,12 @@ func PatchTransientDecisionWithScratch(newE []celtGLog, oldE []celtGLog, nbEBand
 
 	// Return true if mean increase > 1.0 (in log domain, this is ~6 dB)
 	return meanDiff > 1.0
+}
+
+// transientFrameEnergy is transient_analysis's celt_sqrt(mean*maxE*.5*len2)
+// (celt/celt_encoder.c): the float product mean*maxE widens to C double for
+// the .5 and len2 factors, which it holds exactly, and for the square root
+// before rounding to float.
+func transientFrameEnergy(mean, maxE float32, len2 int) float32 {
+	return float32(math.Sqrt(opusmath.CReal(mean*maxE) * 0.5 * opusmath.CReal(len2)))
 }

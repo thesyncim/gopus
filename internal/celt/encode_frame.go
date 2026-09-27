@@ -747,12 +747,15 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	e.coarseAvailableSet = true
 	intra := false
 	if re.Tell()+3 <= totalBits {
-		intra = e.DecideIntraMode(energies, start, nbBands, lm)
-		var intraBit int
-		if intra {
-			intraBit = 1
+		var kept bool
+		intra, kept = e.decideIntraMode(energies, start, nbBands, lm, start == 0)
+		if !kept {
+			var intraBit int
+			if intra {
+				intraBit = 1
+			}
+			re.EncodeBit(intraBit, 3)
 		}
-		re.EncodeBit(intraBit, 3)
 	} else {
 		intra = false
 	}

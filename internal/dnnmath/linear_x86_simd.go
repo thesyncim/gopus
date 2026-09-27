@@ -58,6 +58,7 @@ func SGEMVX86(out []float32, weights dnnblob.Float32View, rows, cols, colStride 
 		}
 		acc.Store(out[row:])
 	}
+	archsimd.ClearAVXUpperBits()
 	for ; row < rows; row++ {
 		var sum float32
 		for col := range cols {
@@ -92,6 +93,7 @@ func SparseSGEMV8x4X86(out []float32, weights dnnblob.Float32View, idx dnnblob.I
 		}
 		acc.Store(out[row:])
 	}
+	archsimd.ClearAVXUpperBits()
 }
 
 // CGEMV8x4X86 mirrors dnn/vec_avx.h:cgemv8x4. The input is quantized to
@@ -110,6 +112,7 @@ func CGEMV8x4X86(out []float32, weights dnnblob.Int8View, scale dnnblob.Float32V
 		}
 		storeScaledX86(out, row, acc, scale)
 	}
+	archsimd.ClearAVXUpperBits()
 }
 
 // SparseCGEMV8x4X86 mirrors dnn/vec_avx.h:sparse_cgemv8x4 with the same
@@ -130,6 +133,7 @@ func SparseCGEMV8x4X86(out []float32, weights dnnblob.Int8View, idx dnnblob.Int3
 		}
 		storeScaledX86(out, row, acc, scale)
 	}
+	archsimd.ClearAVXUpperBits()
 }
 
 // quantizeInputX86 mirrors dnn/vec_avx.h:vector_ps_to_epi8: a fused
@@ -232,4 +236,5 @@ func Conv2D3x3X86(out []float32, weights dnnblob.Float32View, inChannels, outCha
 			}
 		}
 	}
+	archsimd.ClearAVXUpperBits()
 }

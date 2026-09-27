@@ -9,7 +9,7 @@ import (
 
 const haarScale = float32(0.7071067811865476)
 
-func haar1Stride1NEON(x []float32, n0 int) {
+func haar1Stride1(x []float32, n0 int) {
 	if n0 <= 0 {
 		return
 	}
@@ -36,7 +36,7 @@ func haar1Stride1NEON(x []float32, n0 int) {
 	}
 }
 
-func haar1Stride2NEON(x []float32, n0 int) {
+func haar1Stride2(x []float32, n0 int) {
 	if n0 <= 0 {
 		return
 	}
@@ -67,7 +67,7 @@ func haar1Stride2NEON(x []float32, n0 int) {
 	}
 }
 
-func haar1Stride4NEON(x []float32, n0 int) {
+func haar1Stride4(x []float32, n0 int) {
 	if n0 <= 0 {
 		return
 	}

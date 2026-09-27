@@ -41,6 +41,64 @@ func innerProdFloat32SSEOrder(x, y []float32, length int) float32 {
 	return sum
 }
 
+// innerProdFloat32SSEOrderLags stores innerProdFloat32SSEOrder(x, y[l:],
+// length) in xcorr[l] for every l < len(xcorr). Each lag keeps its own
+// celt_inner_prod_sse accumulator and reduction; the lags' chains are
+// independent, so up to five of them share one pass over x.
+func innerProdFloat32SSEOrderLags(x, y, xcorr []float32, length int) {
+	if length <= 0 || !archsimd.X86.AVX() {
+		for l := range xcorr {
+			xcorr[l] = innerProdFloat32SSEOrder(x, y[l:], length)
+		}
+		return
+	}
+	for l := 0; l < len(xcorr); l += 5 {
+		innerProdFloat32SSEOrderUpTo5(x, y[l:], xcorr[l:min(l+5, len(xcorr))], length)
+	}
+}
+
+// innerProdFloat32SSEOrderUpTo5 is innerProdFloat32SSEOrderLags for at most
+// five lags; y must hold length+len(out)-1 samples.
+func innerProdFloat32SSEOrderUpTo5(x, y, out []float32, length int) {
+	n := len(out)
+	x = x[:length]
+	y = y[:length+n-1]
+	xp := unsafe.Pointer(unsafe.SliceData(x))
+	yp := unsafe.Pointer(unsafe.SliceData(y))
+	var a0, a1, a2, a3, a4 archsimd.Float32x4
+	i := 0
+	for ; i+4 <= length; i += 4 {
+		off := uintptr(i) * 4
+		xv := loadF32x4(unsafe.Add(xp, off))
+		yo := unsafe.Add(yp, off)
+		a0 = a0.Add(xv.Mul(loadF32x4(yo)))
+		if n > 1 {
+			a1 = a1.Add(xv.Mul(loadF32x4(unsafe.Add(yo, 4))))
+		}
+		if n > 2 {
+			a2 = a2.Add(xv.Mul(loadF32x4(unsafe.Add(yo, 8))))
+		}
+		if n > 3 {
+			a3 = a3.Add(xv.Mul(loadF32x4(unsafe.Add(yo, 12))))
+		}
+		if n > 4 {
+			a4 = a4.Add(xv.Mul(loadF32x4(unsafe.Add(yo, 16))))
+		}
+	}
+	acc := [5]archsimd.Float32x4{a0, a1, a2, a3, a4}
+	for l := range n {
+		a := acc[l]
+		sum := add32(add32(a.GetElem(0), a.GetElem(2)), add32(a.GetElem(1), a.GetElem(3)))
+		for j := i; j < length; j++ {
+			sum = add32(sum, mul32(x[j], y[j+l]))
+		}
+		if sum != sum {
+			sum = opusmath.PitchXcorrSSENaNReplay(x, y[l:], length)
+		}
+		out[l] = sum
+	}
+}
+
 // prefilterDualInnerProdF32SSEOrder reproduces libopus x86/pitch_sse.c
 // dual_inner_prod_sse: two 4-lane MULPS/ADDPS accumulators sharing each x
 // load, the (a0+a2)+(a1+a3) reductions, and a separate multiply/add scalar
