@@ -23,6 +23,7 @@ func TestAmp2Log2Oracle(t *testing.T) {
 		name string
 		fn   genFn
 	}{
+		{"zero", func(total int) []int32 { return make([]int32, total) }},
 		{"epsilon", func(total int) []int32 {
 			x := make([]int32, total)
 			for i := range x {
