@@ -98,8 +98,17 @@ cover mono/stereo output samples and ranges, reset replay, +8 dB gain, and
 received→undersized→received histories with exact resumed PCM. Ordinary,
 SIMD, and `nosimd` ARM64 builds pass with zero warmed allocations. This
 checkpoint covers the float codec build; native fixed-QEXT decoding remains
-under integration. The early QEXT CI selector matches 29 intended test names,
+under integration. The early QEXT CI selector matches 30 intended test names,
 including these integer wrapper gates; its expanded local SIMD gate passes.
+At `c29a4833`, a persistent mixed int16/int24 sequence also matches selected C
+PCM and ranges at +8 dB gain for mono/stereo, including reset replay and zero
+warm allocations for consecutive calls in both formats. Ordinary, SIMD and
+`nosimd` ARM64 builds pass; this remains float-QEXT codec evidence.
+At `3b8fca64`, fixed-QEXT exponentiation matches selected C for 526 inputs;
+paired denormalisation and anti-collapse oracles pass in the combined SIMD
+build. The fixed-only denormalisation and anti-collapse gates also pass. These
+are local ARM64 kernel results; native AMD64 and full-packet fixed-QEXT output
+remain separate, open checks. The early fixed-QEXT gate includes these oracles.
 
 ### Extension checkpoint
 

@@ -221,7 +221,7 @@ for mode in simd nosimd; do
   run_json_phase "candidate-$mode-qext-stateful-parity" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json -tags "gopus_qext${feature_scalar_tag}" . \
-    -run '^Test(QEXT(Stateful|ActiveStereoDecode|ReceivedSilence|Decode96kOracle)|Native96k(Decode|IntegerDecode)|HD96kPublicFinalRangeMatchesLibopus)' -count=1 -timeout=10m
+    -run '^Test(QEXT(Stateful|ActiveStereoDecode|ReceivedSilence|Decode96kOracle)|Native96k(Decode|IntegerDecode|MixedInteger)|HD96kPublicFinalRangeMatchesLibopus)' -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-fixed-stateful-decode" \
     run_in_checkout "$candidate_root" \
@@ -265,7 +265,7 @@ for mode in simd nosimd; do
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json -tags "gopus_fixed_point,gopus_qext${feature_scalar_tag}" \
     ./internal/fixedpoint \
-    -run '^(TestQEXTMDCTForwardMatchesFixedLibopus|TestQEXTMDCT96000ForwardMatchesFixedLibopus|TestQEXTMDCTBackwardMatchesSelectedLibopus|TestQEXTMDCTSilenceHeadroomMatchesFixedLibopus|TestQEXTKissFFTMatchesFixedLibopus|TestQEXTMDCTForwardDoesNotAllocateAfterWarmup|TestQEXTKissFFTDoesNotAllocate|TestAmp2Log2Oracle)$' \
+    -run '^(TestQEXTMDCTForwardMatchesFixedLibopus|TestQEXTMDCT96000ForwardMatchesFixedLibopus|TestQEXTMDCTBackwardMatchesSelectedLibopus|TestQEXTMDCTSilenceHeadroomMatchesFixedLibopus|TestQEXTKissFFTMatchesFixedLibopus|TestQEXTMDCTForwardDoesNotAllocateAfterWarmup|TestQEXTKissFFTDoesNotAllocate|TestAmp2Log2Oracle|TestCELTExp2DBFixedQEXTMatchesSelectedLibopus|TestDenormaliseBandsOracle|TestAntiCollapseMatchesLibopusFixed)$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-neural-kernel-parity" \
