@@ -48,24 +48,27 @@ cover the standard decoder APIs, not cached DRED malformed-packet handling.
 
 ### Fixed-point analysis and QEXT transforms
 
-At `e8eb7bc5`, the fixed-point encoder analysis path matches selected C for 24
-rate/channel/duration combinations: 16, 24, and 48 kHz; mono and stereo; and
-5, 20, 40, and 60 ms frames. The oracle compares raw downmix and input-history
-buffers, analysis features, and returned state across 12-frame sequences and
-reset replay; warmed analysis allocates zero. Public automatic fixed encoding
-matches selected C for eight-frame 16 kHz mono SILK and 48 kHz mono Hybrid
-sequences, including reset replay, packet bytes, ranges, and zero warmed
-caller-buffer allocations in ordinary, SIMD, and `nosimd` builds. The combined
-fixed+QEXT build pairs these public cases with the matching
-`FIXED_POINT`+`ENABLE_QEXT` C archive while runtime QEXT is off. Automatic CELT
-and active public fixed-QEXT encoding remain outside this evidence.
+At `e8eb7bc5`, local ARM64 validation on an M4 Max with Go 1.27.0 shows that the
+fixed-point encoder analysis path matches selected C for 24 rate/channel/
+duration combinations: 16, 24, and 48 kHz; mono and stereo; and 5, 20, 40, and
+60 ms frames. The oracle compares raw downmix and input-history buffers,
+analysis features, and returned state across 12-frame sequences and reset
+replay; warmed analysis allocates zero. Public automatic fixed encoding matches
+selected C for eight-frame 16 kHz mono SILK and 48 kHz mono Hybrid sequences,
+including reset replay, packet bytes, ranges, and zero warmed caller-buffer
+allocations in ordinary, SIMD, and `nosimd` builds. The combined fixed+QEXT
+build pairs these public cases with the matching `FIXED_POINT`+`ENABLE_QEXT` C
+archive while runtime QEXT is off. Native AMD64 confirmation for these analyzer
+and public-auto cases is pending. Automatic CELT and active public fixed-QEXT
+encoding remain outside this evidence.
 
 The fixed+QEXT Q31 transform oracles at `d58977eb` and `65cc937c` match the
-selected `FIXED_POINT`+`ENABLE_QEXT` C implementation exactly. Forward FFT/MDCT
-coverage includes 48 and 96 kHz modes, all tested shifts, and silence/headroom
-cases. The inverse MDCT oracle covers eight mode/shift/stride combinations at
-48 and 96 kHz. Each inverse case also passes its warmed zero-allocation check.
-Ordinary, SIMD, and `nosimd` builds pass these transform gates. They prove
+selected `FIXED_POINT`+`ENABLE_QEXT` C implementation exactly in local ARM64
+ordinary, SIMD, and `nosimd` builds. Forward FFT/MDCT coverage includes 48 and
+96 kHz modes, all tested shifts, and silence/headroom cases. The inverse MDCT
+oracle covers eight mode/shift/stride combinations at 48 and 96 kHz. Each
+inverse case also passes its warmed zero-allocation check. Native AMD64
+confirmation for these transform gates is pending. These results prove
 transform-stage parity; they do not establish public 96 kHz decoder parity.
 
 ### Extension checkpoint
