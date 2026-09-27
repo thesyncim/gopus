@@ -4,10 +4,9 @@ package celt
 
 // celtInnerProd8FMA32 is the arm64 nosimd inner-product kernel. It reproduces
 // the 4-lane accumulation order of celtInnerProdNeonStyle and the single-rounding
-// FMA the NEON SIMD path emits, but reaches it through fma32 (a*b+c) rather than
-// the portable math.FMA. On arm64 the backend contracts a*b+c into one FMADDS,
-// which is bit-identical to float32(math.FMA(a,b,c)) for float32 inputs (the
-// f64 round-trip is double-rounding-safe) while avoiding its FCVT round-trips.
+// FMA the NEON SIMD path emits through fma32 (a*b+c): on arm64 the backend
+// contracts a*b+c into one single-rounding FMADDS. float32(math.FMA(a,b,c))
+// rounds twice and can differ.
 // The libopus-oracle parity suite (TestCeltInnerProd8FMA32MatchesReference and
 // the CELT synthesis-stage / stereo-merge tests) gates the contraction.
 func celtInnerProd8FMA32(x, y []float32, n int) float32 {

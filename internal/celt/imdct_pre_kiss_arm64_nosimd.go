@@ -6,10 +6,9 @@ package celt
 // pre-rotation. It matches the arm64 SIMD kernel exactly: each output fuses
 // its first product into the add and rounds the second product on its own,
 // matching the clang -ffp-contract=on float path of libopus
-// clt_mdct_backward_c(). It fuses through fma32 (a*b+c) rather than the portable
-// math.FMA; on arm64 the backend contracts a*b+c into one FMADDS, which is
-// bit-identical to float32(math.FMA(a,b,c)) for float32 inputs (the f64
-// round-trip is double-rounding-safe) while avoiding its FCVT round-trips. The
+// clt_mdct_backward_c(). It fuses through fma32 (a*b+c); on arm64 the backend
+// contracts a*b+c into one single-rounding FMADDS, which
+// float32(math.FMA(a,b,c)) does not always reproduce because it rounds twice. The
 // kernel runs on arm64 without SIMD (mdctUseFMALikeMixEnabled); the SIMD path
 // supplies the matching fused rotation. The libopus-oracle parity suite
 // and TestIMDCTPreRotateFMA32KissMatchesScalar gate the contraction.

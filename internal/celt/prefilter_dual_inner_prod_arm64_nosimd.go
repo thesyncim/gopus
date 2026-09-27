@@ -5,10 +5,9 @@ package celt
 // prefilterDualInnerProdAsm is the arm64 nosimd fallback for the NEON dual
 // inner-product kernel. It reproduces the 4-lane fused-multiply-add order of
 // prefilterDualInnerProdF32NeonOrder exactly, but reaches the FMA through
-// fma32 (a*b+c) rather than the portable math.FMA. On arm64 the backend
-// contracts a*b+c into one FMADDS, which is bit-identical to
-// float32(math.FMA(a,b,c)) for float32 inputs (the f64 round-trip is
-// double-rounding-safe) while avoiding its FCVT round-trips. The kernel only
+// fma32 (a*b+c). On arm64 the backend contracts a*b+c into one FMADDS, the
+// single-rounding float32 fused multiply-add that vfmaq_f32 performs per lane.
+// float32(math.FMA(a,b,c)) rounds twice and can differ. The kernel only
 // runs on arm64 without SIMD (libopusFloatInnerProdUsesNeonOrder), while the
 // SIMD path emits the matching vfmaq_f32 accumulation; the libopus-oracle parity
 // suite and TestPrefilterDualInnerProdMatchesReference gate the contraction.
