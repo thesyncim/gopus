@@ -189,7 +189,10 @@ func ensureDNNSource(repoRoot string) (string, error) {
 		return "", err
 	}
 	defer func() { _ = os.RemoveAll(staging) }()
-	cmd := exec.Command("tar", "-xzf", tarball, "-C", staging, "--strip-components=1")
+	// Run tar beside the archive with relative names: GNU tar reads a
+	// drive-letter archive path such as D:\... as a remote host:path.
+	cmd := exec.Command("tar", "-xzf", filepath.Base(tarball), "-C", filepath.Base(staging), "--strip-components=1")
+	cmd.Dir = tmpDir
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("extract DNN libopus source: %w (%s)", err, bytes.TrimSpace(output))
 	}
