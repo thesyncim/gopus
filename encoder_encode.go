@@ -37,12 +37,10 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 	return copyEncodedPacket(packet, data)
 }
 
-// encode96k handles Encode for a 96 kHz API-rate Encoder.
-//
-// When QEXT is enabled the native 96 kHz CELT-only HD path runs (1920-sample
-// frames, >20 kHz extension bands carried in the QEXT padding extension) and
-// the full Opus packet is assembled by the encoder package's HD96k framing.
-// Otherwise it falls back to a 2:1 decimate + 48 kHz internal encode.
+// encode96k handles Encode for a 96 kHz API-rate Encoder. In a QEXT build,
+// supported audio CELT durations use the native 96 kHz mode; runtime QEXT
+// selects whether the extension payload is present. Application modes without
+// a native route use the 48 kHz compatibility path.
 func (e *Encoder) encode96k(pcm []float32, data []byte) (int, error) {
 	if len(data) == 0 {
 		return 0, ErrBufferTooSmall
@@ -93,7 +91,13 @@ func (e *Encoder) EncodeInt16(pcm []int16, data []byte) (int, error) {
 // the per-call 16-bit LSB-depth cap and short-input analysis callback.
 func (e *Encoder) encodeInt16Packet(pcm32 []float32, data []byte) (int, error) {
 	if e.is96kHz() {
-		// QEXT's 96 kHz encoder follows the public float Encode path.
+		// opus_encode_native caps the configured LSB depth at 16 bits for the
+		// short API before selecting the native 96 kHz CELT path.
+		configuredDepth := e.enc.LSBDepth()
+		if configuredDepth > 16 {
+			e.enc.SetLSBDepth(16)
+		}
+		defer e.enc.SetLSBDepth(configuredDepth)
 		return e.Encode(pcm32, data)
 	}
 	if len(data) == 0 {

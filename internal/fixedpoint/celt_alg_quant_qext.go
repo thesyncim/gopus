@@ -89,13 +89,6 @@ func computeQEXTPVQRefineBits(extEnc *rangecoding.Encoder, totalBits, extBudget 
 	return int(extraBits)
 }
 
-func pulseCWRSBuffer(scratch *celtEncodeScratch) *[]uint32 {
-	if scratch == nil {
-		return nil
-	}
-	return &scratch.qextCWRS
-}
-
 func opPvqSearchN2QEXT(x []int32, iy, upIy []int32, k, up int, refine *int32, shift int) int32 {
 	sum := add32(abs32(x[0]), abs32(x[1]))
 	if sum < epsilon {

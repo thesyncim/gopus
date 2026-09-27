@@ -46,6 +46,14 @@ const (
 	OpusEnergyMaskClear
 )
 
+// Per-frame Opus VBR control actions for OpusEncodeFixedMixedFrame. An
+// unchanged action preserves the current encoder control.
+const (
+	OpusVBRUnchanged uint32 = iota
+	OpusVBREnable
+	OpusVBRDisable
+)
+
 var opusEncodeFixedHelper HelperCache
 var opusEncodeFloatShortHelper HelperCache
 
@@ -159,6 +167,7 @@ type OpusEncodeFixedMixedFrame struct {
 	FloatPCM    []float32
 	PCM24       []int32
 	ResetBefore bool
+	VBRAction   uint32 // OpusVBRUnchanged, OpusVBREnable, or OpusVBRDisable.
 	// Nonzero per-frame values override the global controls using libopus
 	// MODE_* and OPUS_BANDWIDTH_* values, respectively.
 	ForceMode int
@@ -224,11 +233,18 @@ func probeOpusEncodeMixedRecords(binPath string, p OpusEncodeFixedParams, frames
 			}
 		}
 		if frame.EnergyMaskAction != OpusEnergyMaskUnchanged {
-			version = 7
+			if version < 7 {
+				version = 7
+			}
+		}
+		if frame.VBRAction != OpusVBRUnchanged {
+			version = 8
 		}
 	}
 	if p.LFE {
-		version = 7
+		if version < 7 {
+			version = 7
+		}
 	}
 	b2u := func(b bool) uint32 {
 		if b {
@@ -280,6 +296,9 @@ func probeOpusEncodeMixedRecords(binPath string, p OpusEncodeFixedParams, frames
 		if frame.EnergyMaskAction > OpusEnergyMaskClear {
 			return nil, fmt.Errorf("opus encode fixed mixed: frame %d invalid energy-mask action %d", i, frame.EnergyMaskAction)
 		}
+		if frame.VBRAction > OpusVBRDisable {
+			return nil, fmt.Errorf("opus encode fixed mixed: frame %d invalid VBR action %d", i, frame.VBRAction)
+		}
 		if frame.EnergyMaskAction == OpusEnergyMaskSet {
 			if len(frame.EnergyMask) != p.Channels*21 {
 				return nil, fmt.Errorf("opus encode fixed mixed: frame %d energy-mask length=%d want=%d", i, len(frame.EnergyMask), p.Channels*21)
@@ -289,7 +308,11 @@ func probeOpusEncodeMixedRecords(binPath string, p OpusEncodeFixedParams, frames
 		}
 	}
 	for _, frame := range frames {
-		payload.U32(b2u(frame.ResetBefore))
+		flags := b2u(frame.ResetBefore)
+		if version >= 8 {
+			flags |= frame.VBRAction << 1
+		}
+		payload.U32(flags)
 	}
 	for _, frame := range frames {
 		payload.U32(frame.Format)

@@ -556,6 +556,11 @@ func (e *Encoder) SetConstrainedVBR(enabled bool) {
 	e.constrainedVBR = enabled
 }
 
+// ConstrainedVBR reports whether VBR is constrained by the configured target.
+func (e *Encoder) ConstrainedVBR() bool {
+	return e.constrainedVBR
+}
+
 // SetPrediction controls CELT inter-frame prediction behavior.
 // Valid modes mirror libopus CELT_SET_PREDICTION:
 // - 0: disable prediction and force intra (disable_pf=1, force_intra=1)

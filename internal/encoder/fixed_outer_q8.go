@@ -5,6 +5,7 @@ package encoder
 import (
 	"math/bits"
 
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/internal/fixedpoint"
 	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/internal/rangecoding"
@@ -115,6 +116,10 @@ func (e *Encoder) preprocessFixedInputRes(frameSize int) {
 		cutoffHz := silk.VariableHPCutoffHz(e.variableHPSmth2Q15)
 		silk.HPCutoffRes24(e.fixedRawRes, e.fixedFiltered, &e.fixedHPMem,
 			e.sampleRate, e.channels, cutoffHz)
+	} else if extsupport.QEXT && e.qextActive() {
+		// opus_encoder.c:2005-2008 copies the QEXT input directly in non-VoIP
+		// mode, preserving hp_mem instead of advancing dc_reject state.
+		copy(e.fixedFiltered, e.fixedRawRes)
 	} else {
 		fixedDCRejectRes(e.fixedRawRes, e.fixedFiltered, &e.fixedHPMem, int(e.sampleRate), int(e.channels), 3)
 	}

@@ -134,11 +134,12 @@ type Decoder struct {
 	buildMonoInputScratch []float32 // Size: maxFramesPerPacket * maxFrameLength = 960
 
 	// Scratch buffers for stereo SILK decode paths.
-	stereoLeftNative  []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
-	stereoRightNative []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
-	stereoMidNative   []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
-	stereoMidFrame    []int16 // Size: maxFrameLength + 2
-	stereoSideFrame   []int16 // Size: maxFrameLength + 2
+	stereoLeftNative  []int16   // Size: maxFramesPerPacket * maxFrameLength = 960
+	stereoRightNative []int16   // Size: maxFramesPerPacket * maxFrameLength = 960
+	stereoMidNative   []int16   // Size: maxFramesPerPacket * maxFrameLength = 960
+	stereoMidFloat    []float32 // Reusable float view of stereo mid for mono Hybrid output.
+	stereoMidFrame    []int16   // Size: maxFrameLength + 2
+	stereoSideFrame   []int16   // Size: maxFrameLength + 2
 
 	// Scratch buffers for stereo SILK packet-loss concealment (decodePLCStereo).
 	// These mirror the stereo good-frame scratch so PLC stays allocation-free.
@@ -268,7 +269,7 @@ func NewDecoder() *Decoder {
 	// buffers). All of these are pure per-frame scratch — overwritten before read —
 	// so backing them from a shared per-type arena is bit-exact.
 	d.scratchI16.Ensure(maxSLTPSize + maxPulsesSize + maxLPCOrder + maxResamplerIn +
-		maxResamplerOut + maxResamplerBuf + 6*maxOutInt16Size + 2*(maxFrameLength+2))
+		maxResamplerOut + maxResamplerBuf + 7*maxOutInt16Size + 2*(maxFrameLength+2))
 	d.scratchSLTP = d.scratchI16.AllocN(maxSLTPSize)
 	d.scratchOutInt16 = d.scratchI16.AllocN(maxOutInt16Size)
 	d.scratchFECOut = d.scratchI16.AllocN(maxOutInt16Size)
@@ -281,6 +282,7 @@ func NewDecoder() *Decoder {
 	d.monoOutput = d.scratchI16.AllocN(maxOutInt16Size)
 	d.stereoLeftNative = d.scratchI16.AllocN(maxOutInt16Size)
 	d.stereoRightNative = d.scratchI16.AllocN(maxOutInt16Size)
+	d.stereoMidNative = d.scratchI16.AllocN(maxOutInt16Size)
 	d.stereoMidFrame = d.scratchI16.AllocN(maxFrameLength + 2)
 	d.stereoSideFrame = d.scratchI16.AllocN(maxFrameLength + 2)
 
@@ -291,7 +293,7 @@ func NewDecoder() *Decoder {
 	d.scratchSumPulses = d.scratchI32.AllocN(maxIterSize)
 	d.scratchNLshifts = d.scratchI32.AllocN(maxIterSize)
 
-	d.scratchF32.Ensure(maxOutputSize + maxResamplerOut + maxUpsampleSize + 5*maxOutInt16Size)
+	d.scratchF32.Ensure(maxOutputSize + maxResamplerOut + maxUpsampleSize + 6*maxOutInt16Size)
 	d.scratchOutput = d.scratchF32.AllocN(maxOutputSize)
 	d.resamplerScratchResult = d.scratchF32.AllocN(maxResamplerOut)
 	d.upsampleScratch = d.scratchF32.AllocN(maxUpsampleSize)
@@ -300,9 +302,7 @@ func NewDecoder() *Decoder {
 	d.plcSideNative = d.scratchF32.AllocN(maxOutInt16Size)
 	d.plcLeftUp = d.scratchF32.AllocN(maxOutInt16Size)
 	d.plcRightUp = d.scratchF32.AllocN(maxOutInt16Size)
-	if nativeLowbandCaptureEnabled {
-		d.stereoMidNative = make([]int16, maxOutInt16Size)
-	}
+	d.stereoMidFloat = d.scratchF32.AllocN(maxOutInt16Size)
 	resetDecoderState(&d.state[0])
 	resetDecoderState(&d.state[1])
 

@@ -51,6 +51,13 @@ func (e *Encoder) fixedCELTFinalRange() (uint32, bool) {
 	return 0, false
 }
 
+func (e *Encoder) fixedQEXTPayloadIfUsed() ([]byte, bool) {
+	if !e.fixedCELTUsed || e.fixedCELT == nil {
+		return nil, false
+	}
+	return e.fixedCELT.enc.LastQEXTPayload(), true
+}
+
 // clearFixedCELTUsed resets the integer-CELT-used flag at the start of each
 // packet so a stale value from a previous CELT frame cannot mis-gate the TOC
 // frame-size conversion for a subsequent SILK/Hybrid frame.
@@ -63,6 +70,9 @@ func (e *Encoder) clearFixedCELTUsed() { e.fixedCELTUsed = false }
 type fixedCELTState struct {
 	enc          *fixedpoint.CELTEncoder
 	channels     int
+	modeFs       int32
+	hd96Delay    []int32
+	hd96Frame    []int32
 	pcm16        []int16
 	rng          *rangecoding.Encoder
 	lastQ8       []int32
@@ -124,9 +134,6 @@ func (e *Encoder) celtFixedFrameSizeInScope(frameSize int) bool {
 	}
 	c := int(e.channels)
 	if c != 1 && c != 2 {
-		return false
-	}
-	if extsupport.QEXT && e.qextActive() {
 		return false
 	}
 	if !e.fixedCELTEnergyMaskInScope() {
@@ -358,6 +365,9 @@ func (e *Encoder) encodeCELTFrameFixed(pcm []opusRes, frameSize, bitrate, maxPay
 	}
 
 	st := e.ensureFixedCELT(channels)
+	// QEXT is enabled for the pure CELT frame itself. Prefill, Hybrid and
+	// redundancy calls set it off at their own fixed-CELT entry points.
+	st.enc.SetQEXTEnabled(extsupport.QEXT && e.qextActive())
 	st.enc.SetLFE(e.lfe)
 	st.enc.SetBandRange(0, celtFixedEndBand(e.effectiveBandwidth()))
 	st.enc.SetStreamChannels(int32(e.celtEncoder.StreamChannels()))
@@ -381,17 +391,11 @@ func (e *Encoder) encodeCELTFrameFixed(pcm []opusRes, frameSize, bitrate, maxPay
 		st.lastAnalysis = AnalysisInfo{}
 		st.enc.SetAnalysisInfo(fixedpoint.CELTAnalysisInfo{})
 	}
-	switch e.bitrateMode {
-	case ModeCBR:
-		st.enc.SetVBR(false)
-		st.enc.SetConstrainedVBR(false)
-	case ModeCVBR:
-		st.enc.SetVBR(true)
-		st.enc.SetConstrainedVBR(true)
-	case ModeVBR:
-		st.enc.SetVBR(true)
-		st.enc.SetConstrainedVBR(false)
-	}
+	// Mirror the live float CELT controls after configureCELTRate. libopus
+	// updates constrained_vbr only in its VBR branch, so CBR preserves the
+	// constraint left by initialization or the previous VBR frame.
+	st.enc.SetVBR(e.celtEncoder.VBR())
+	st.enc.SetConstrainedVBR(e.celtEncoder.ConstrainedVBR())
 
 	// All supported public input APIs carry opus_res Q8 through DC rejection and
 	// the delay buffer. The int16 seam serves callers outside that source path.
@@ -411,9 +415,13 @@ func (e *Encoder) encodeCELTFrameFixed(pcm []opusRes, frameSize, bitrate, maxPay
 		}
 	}
 
-	// nbCompressedBytes is the output buffer cap; EncodeWithEC self-computes the
-	// CBR byte count and clamps below it, and uses it directly as the VBR ceiling.
+	// The fixed CELT main payload is capped at 1275 bytes. QEXT also reserves an
+	// extension payload, so its frame budget follows the caller's packet capacity
+	// instead of truncating the combined CELT result at the legacy payload limit.
 	nbCompressedBytes := celtPacketSizeCap
+	if extsupport.QEXT && e.qextActive() && maxPayloadBytes > nbCompressedBytes {
+		nbCompressedBytes = maxPayloadBytes
+	}
 	if maxPayloadBytes > 0 && maxPayloadBytes < nbCompressedBytes {
 		nbCompressedBytes = maxPayloadBytes
 	}
@@ -438,7 +446,7 @@ func (e *Encoder) encodeCELTFrameFixed(pcm []opusRes, frameSize, bitrate, maxPay
 	} else {
 		n = st.enc.EncodeWithEC(st.pcm16, frameSize, st.rng, nbCompressedBytes)
 	}
-	e.fixedFinalRange = st.rng.Range()
+	e.fixedFinalRange = st.enc.FinalRange()
 	out = append(e.fixedCELTOut[:0], st.rng.Buffer()[:n]...)
 	e.fixedCELTOut = out
 	e.fixedCELTUsed = true
@@ -460,6 +468,7 @@ func (e *Encoder) encodeHybridCELTFrameFixed(pcmQ8 []int32, frameSize, bitrate, 
 
 	channels := int(e.channels)
 	st := e.ensureFixedCELT(channels)
+	st.enc.SetQEXTEnabled(false)
 	st.enc.SetLFE(e.lfe)
 	st.enc.SetBandRange(17, celtFixedEndBand(e.effectiveBandwidth()))
 	st.enc.SetStreamChannels(int32(e.celtEncoder.StreamChannels()))
@@ -510,6 +519,7 @@ func (e *Encoder) encodeRedundantCELTFrameFixed(pcmQ8 []int32, frameSize, bitrat
 		return nil, 0, false, nil
 	}
 	st := e.ensureFixedCELT(int(e.channels))
+	st.enc.SetQEXTEnabled(false)
 	st.enc.SetLFE(e.lfe)
 	st.enc.SetBandRange(0, celtFixedEndBand(e.effectiveBandwidth()))
 	st.enc.SetStreamChannels(int32(e.celtEncoder.StreamChannels()))
@@ -562,6 +572,7 @@ func (e *Encoder) prefillCELTFrameFixed(pcmQ8 []int32, frameSize, startBand, bit
 		return false
 	}
 	st := e.ensureFixedCELT(int(e.channels))
+	st.enc.SetQEXTEnabled(false)
 	st.enc.SetLFE(e.lfe)
 	st.enc.SetBandRange(startBand, celtFixedEndBand(e.effectiveBandwidth()))
 	st.enc.SetStreamChannels(int32(e.celtEncoder.StreamChannels()))
@@ -613,10 +624,15 @@ func (e *Encoder) LastFixedCELTControls() (bitrate, maxBytes, lsbDepth int) {
 }
 
 func (e *Encoder) ensureFixedCELT(channels int) *fixedCELTState {
-	if e.fixedCELT == nil || e.fixedCELT.channels != channels {
+	return e.ensureFixedCELTRate(channels, int(e.sampleRate))
+}
+
+func (e *Encoder) ensureFixedCELTRate(channels, modeFs int) *fixedCELTState {
+	if e.fixedCELT == nil || e.fixedCELT.channels != channels || int(e.fixedCELT.modeFs) != modeFs {
 		e.fixedCELT = &fixedCELTState{
-			enc:      fixedpoint.NewCELTEncoderRate(channels, int(e.sampleRate)),
+			enc:      fixedpoint.NewCELTEncoderRate(channels, modeFs),
 			channels: channels,
+			modeFs:   int32(modeFs),
 			rng:      &rangecoding.Encoder{},
 		}
 		e.fixedMaskPending = e.fixedMaskActive
@@ -629,8 +645,8 @@ func (e *Encoder) ensureFixedCELT(channels int) *fixedCELTState {
 }
 
 // resetFixedCELT clears the integer CELT cross-frame state, mirroring the float
-// celtEncoder.Reset() done on a CELT mode transition. The API-rate upsample is
-// preserved by recreating at the encoder's sample rate.
+// celtEncoder.Reset() done on a CELT mode transition. The selected mode rate is
+// preserved when the fixed state is recreated.
 func (e *Encoder) resetFixedCELT() {
 	e.fixedMaskPending = false
 	e.fixedMaskActive = false
@@ -642,7 +658,8 @@ func (e *Encoder) resetFixedCELT() {
 	e.fixedFrameReady = false
 	e.fixedFrameCursor = 0
 	if e.fixedCELT != nil {
-		e.fixedCELT.enc = fixedpoint.NewCELTEncoderRate(e.fixedCELT.channels, int(e.sampleRate))
+		clear(e.fixedCELT.hd96Delay)
+		e.fixedCELT.enc = fixedpoint.NewCELTEncoderRate(e.fixedCELT.channels, int(e.fixedCELT.modeFs))
 	}
 }
 

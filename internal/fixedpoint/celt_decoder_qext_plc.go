@@ -10,6 +10,16 @@ const qextPLCPitchBufferSize = celtDecodeBufferSize / 2
 // coreFrameSize is measured at the native CELT rate; out receives interleaved
 // raw int24 opus_res samples at the decoder API rate.
 func (d *QEXTCELTDecoder) DecodeLost(coreFrameSize int, out []int32) int {
+	return d.decodeLost(coreFrameSize, out, false)
+}
+
+// DecodeLostAccum runs the QEXT CELT PLC path and adds its deemphasized output
+// to the caller's existing opus_res samples, as hybrid CELT accumulation does.
+func (d *QEXTCELTDecoder) DecodeLostAccum(coreFrameSize int, accum []int32) int {
+	return d.decodeLost(coreFrameSize, accum, true)
+}
+
+func (d *QEXTCELTDecoder) decodeLost(coreFrameSize int, out []int32, accum bool) int {
 	lm := -1
 	for candidate := 0; candidate <= celtMaxLM; candidate++ {
 		if d.shortMDCTSize<<candidate == coreFrameSize {
@@ -51,7 +61,7 @@ func (d *QEXTCELTDecoder) DecodeLost(coreFrameSize int, out []int32) int {
 	d.plcDuration = min32(10000, d.plcDuration+int32(M))
 
 	d.lastRes = out[:cc*apiFrameSize]
-	deemphasisQEXT(outSyn, d.lastRes, N, cc, d.sampleRate, d.downsample, d.preemphMem)
+	deemphasisQEXT(outSyn, d.lastRes, N, cc, d.sampleRate, d.downsample, d.preemphMem, accum)
 	return apiFrameSize
 }
 

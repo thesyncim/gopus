@@ -90,6 +90,7 @@ func TestQuantAllBandsDecodeOracle(t *testing.T) {
 		spread      int
 		dualStereo  int
 		intensity   int
+		disableInv  bool
 		pulseKind   int
 		tfKind      int
 		nbytes      int
@@ -123,6 +124,7 @@ func TestQuantAllBandsDecodeOracle(t *testing.T) {
 						spread:      spread,
 						dualStereo:  ds,
 						intensity:   intensity,
+						disableInv:  false,
 						pulseKind:   pk,
 						tfKind:      tfKind,
 						nbytes:      40 + int(seed>>20)%80,
@@ -133,9 +135,19 @@ func TestQuantAllBandsDecodeOracle(t *testing.T) {
 		}
 	}
 
+	// Preserve the original phase-inversion-enabled vectors and add selected
+	// stereo copies with inversion disabled, matching the C decoder control.
+	for _, c := range cases {
+		if c.channels == 2 && c.dualStereo == 0 && c.pulseKind == 3 &&
+			c.spread == spreadAggressive && (c.lm == 0 || c.lm == 3) {
+			c.disableInv = true
+			cases = append(cases, c)
+		}
+	}
+
 	for idx, c := range cases {
-		name := fmt.Sprintf("c%d_ch%d_lm%d_sb%d_spread%d_ds%d_pk%d_tf%d",
-			idx, c.channels, c.lm, c.shortBlocks, c.spread, c.dualStereo, c.pulseKind, c.tfKind)
+		name := fmt.Sprintf("c%d_ch%d_lm%d_sb%d_spread%d_ds%d_inv%t_pk%d_tf%d",
+			idx, c.channels, c.lm, c.shortBlocks, c.spread, c.dualStereo, c.disableInv, c.pulseKind, c.tfKind)
 		t.Run(name, func(t *testing.T) {
 			end := nbEBands
 			start := 0
@@ -160,7 +172,7 @@ func TestQuantAllBandsDecodeOracle(t *testing.T) {
 				TotalBits:   totalBits,
 				Balance:     balance,
 				CodedBands:  codedBands,
-				DisableInv:  false,
+				DisableInv:  c.disableInv,
 				Seed:        startSeed,
 				NbEBands:    nbEBands,
 				Pulses:      pulses,
@@ -178,7 +190,7 @@ func TestQuantAllBandsDecodeOracle(t *testing.T) {
 			frameSize := 120 << c.lm
 			left, right, collapse := QuantAllBandsDecode(dec, c.channels, frameSize, c.lm,
 				start, end, pulses, tfRes, c.shortBlocks, c.spread, c.dualStereo,
-				c.intensity, int(totalBits), int(balance), codedBands, false, &goSeed, nil)
+				c.intensity, int(totalBits), int(balance), codedBands, c.disableInv, &goSeed, nil)
 
 			if ref.N != frameSize {
 				t.Fatalf("N mismatch: ref=%d go=%d", ref.N, frameSize)

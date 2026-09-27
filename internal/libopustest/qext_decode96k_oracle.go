@@ -56,9 +56,11 @@ type QEXTDecode96kParams struct {
 	Channels               int
 	SampleRate             int      // API rate for selected fixed-QEXT probes
 	PhaseInversionDisabled bool     // explicit control for version-5 selected fixed-QEXT probes
+	IgnoreExtensions       bool     // OPUS_SET_IGNORE_EXTENSIONS for selected fixed-QEXT probes
 	MaxFrameSize           int      // per-channel API-rate sample capacity passed to opus_decode
 	GainQ8                 int32    // decoder output gain for version-2 probes; zero for version 1
 	PacketFormats          []uint32 // per-packet int16/int24 formats for mixed-format probes
+	DecodeFEC              []bool   // per-packet decode_fec flag for version-8 sequence probes
 	Packets                [][]byte // Opus packets to decode in sequence through one decoder
 }
 
@@ -134,7 +136,7 @@ func ProbeQEXTDecode96kFixed(p QEXTDecode96kParams) (QEXTDecode96kResult, error)
 
 // ProbeQEXTDecodeFixed decodes a received sequence through the selected
 // FIXED_POINT+ENABLE_QEXT reference. Protocol v5 carries the API sample rate
-// and phase-inversion control explicitly.
+// and phase-inversion control explicitly; v7 adds the extension-ignore control.
 func ProbeQEXTDecodeFixed(p QEXTDecode96kParams) (QEXTDecode96kResult, error) {
 	switch p.SampleRate {
 	case 8000, 12000, 16000, 24000, 48000, 96000:
@@ -145,7 +147,11 @@ func ProbeQEXTDecodeFixed(p QEXTDecode96kParams) (QEXTDecode96kResult, error) {
 	if err != nil {
 		return QEXTDecode96kResult{}, err
 	}
-	return probeQEXTDecode96k(p, binPath, 5)
+	version := uint32(5)
+	if p.IgnoreExtensions {
+		version = 7
+	}
+	return probeQEXTDecode96k(p, binPath, version)
 }
 
 // ProbeQEXTDecodeFixedSequence decodes a persistent fixed-QEXT sequence while
@@ -162,6 +168,25 @@ func ProbeQEXTDecodeFixedSequence(p QEXTDecode96kParams) (QEXTDecode96kResult, e
 		return QEXTDecode96kResult{}, err
 	}
 	return probeQEXTDecode96k(p, binPath, 6)
+}
+
+// ProbeQEXTDecodeFixedFECSequence decodes a persistent selected fixed-QEXT
+// sequence with an explicit decode_fec flag for each packet. Protocol v8 also
+// records each public decode status so callers can verify recovery behavior.
+func ProbeQEXTDecodeFixedFECSequence(p QEXTDecode96kParams) (QEXTDecode96kResult, error) {
+	switch p.SampleRate {
+	case 8000, 12000, 16000, 24000, 48000, 96000:
+	default:
+		return QEXTDecode96kResult{}, fmt.Errorf("fixed qext decode FEC sequence: unsupported sample rate %d", p.SampleRate)
+	}
+	if len(p.DecodeFEC) != len(p.Packets) {
+		return QEXTDecode96kResult{}, fmt.Errorf("fixed qext decode FEC sequence: %d flags for %d packets", len(p.DecodeFEC), len(p.Packets))
+	}
+	binPath, err := qextDecode96kFixedHelper.Path(buildQEXTDecode96kFixedHelper)
+	if err != nil {
+		return QEXTDecode96kResult{}, err
+	}
+	return probeQEXTDecode96k(p, binPath, 8)
 }
 
 func probeQEXTDecode96k(p QEXTDecode96kParams, binPath string, version uint32) (QEXTDecode96kResult, error) {
@@ -190,9 +215,23 @@ func probeQEXTDecode96k(p QEXTDecode96kParams, binPath string, version uint32) (
 			payload.U32(0)
 		}
 	}
+	if version >= 7 {
+		if p.IgnoreExtensions {
+			payload.U32(1)
+		} else {
+			payload.U32(0)
+		}
+	}
 	for i, pkt := range p.Packets {
 		if version == 3 {
 			payload.U32(p.PacketFormats[i])
+		}
+		if version == 8 {
+			if p.DecodeFEC[i] {
+				payload.U32(1)
+			} else {
+				payload.U32(0)
+			}
 		}
 		payload.U32(uint32(len(pkt)))
 		payload.Raw(pkt)
@@ -235,7 +274,7 @@ func probeQEXTDecode96k(p QEXTDecode96kParams, binPath string, version uint32) (
 	for i := range res.FinalRanges {
 		res.FinalRanges[i] = reader.U32()
 	}
-	if version == 6 {
+	if version == 6 || version == 8 {
 		res.Status = make([]int32, nRanges)
 		for i := range res.Status {
 			res.Status[i] = int32(reader.U32())

@@ -46,7 +46,7 @@ func TestCELTTFAnalysisParity(t *testing.T) {
 					lambda := rng.Intn(40)
 					tfEstimate := int16(rng.Intn(1 << 14))
 
-					tfResGo := make([]int, length)
+					tfResGo := make([]int32, length)
 					selGo := TFAnalysis(eBands, length, isTransient, tfResGo, lambda, x, n0, lm, tfEstimate, tfChan, importance, nil)
 
 					selC, tfResC, err := libopustest.ProbeCELTTFAnalysis(eBands, length, isTransient, lambda, x, n0, lm, tfEstimate, tfChan, importance)
@@ -58,7 +58,7 @@ func TestCELTTFAnalysisParity(t *testing.T) {
 						t.Fatalf("%s: tf_select Go=%d C=%d", name, selGo, selC)
 					}
 					for i := range tfResGo {
-						if tfResGo[i] != tfResC[i] {
+						if int(tfResGo[i]) != tfResC[i] {
 							t.Fatalf("%s: tf_res[%d] Go=%d C=%d (full Go=%v C=%v)", name, i, tfResGo[i], tfResC[i], tfResGo, tfResC)
 						}
 					}
@@ -76,13 +76,13 @@ func TestCELTTFEncodeParity(t *testing.T) {
 				for _, bufSize := range []int{2, 8, 64} {
 					for trial := 0; trial < 6; trial++ {
 						end := 21
-						tfRes := make([]int, end)
+						tfRes := make([]int32, end)
 						for i := range tfRes {
-							tfRes[i] = rng.Intn(2)
+							tfRes[i] = int32(rng.Intn(2))
 						}
 						preBits := rng.Intn(bufSize * 6)
 
-						goTFRes := append([]int(nil), tfRes...)
+						goTFRes := append([]int32(nil), tfRes...)
 						buf := make([]byte, bufSize)
 						var enc rangecoding.Encoder
 						enc.Init(buf)
@@ -95,7 +95,7 @@ func TestCELTTFEncodeParity(t *testing.T) {
 						// zero-padded buffer that ec_enc_done() finalised into).
 						goBuf := buf
 
-						cBuf, cTFRes, err := libopustest.ProbeCELTTFEncode(0, end, isTransient, tfRes, lm, tfSelect, bufSize, preBits)
+						cBuf, cTFRes, err := libopustest.ProbeCELTTFEncode(0, end, isTransient, toIntSlice(tfRes), lm, tfSelect, bufSize, preBits)
 						if err != nil {
 							t.Fatalf("oracle: %v", err)
 						}
@@ -104,7 +104,7 @@ func TestCELTTFEncodeParity(t *testing.T) {
 							t.Fatalf("%s: coded bytes differ Go=%x C=%x", name, goBuf, cBuf)
 						}
 						for i := range goTFRes {
-							if goTFRes[i] != cTFRes[i] {
+							if int(goTFRes[i]) != cTFRes[i] {
 								t.Fatalf("%s: tf_res[%d] Go=%d C=%d", name, i, goTFRes[i], cTFRes[i])
 							}
 						}

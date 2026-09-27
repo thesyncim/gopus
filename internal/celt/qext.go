@@ -144,7 +144,11 @@ func computeQEXTReservation(nbCompressedBytes, minAllowed, frameSize, channels, 
 	if cbrVBRTargetBytes > 0 {
 		targetBytes = cbrVBRTargetBytes
 	}
-	qextBytes += roundFloat32ToInt(scale * float32((nbCompressedBytes-targetBytes)-qextBytes))
+	// In the float libopus build, qext_bytes is an int and MULT16_32_Q15
+	// expands to float multiplication. The compound assignment converts the
+	// complete float sum back to int, truncating toward zero; rounding the
+	// adjustment separately can move one byte between the main and side coders.
+	qextBytes = int(float32(qextBytes) + scale*float32((nbCompressedBytes-targetBytes)-qextBytes))
 	qextBytes = max(nbCompressedBytes-1275, max(21, qextBytes))
 
 	paddingBytes = (qextBytes + 253) / 254
@@ -164,11 +168,4 @@ func computeQEXTReservation(nbCompressedBytes, minAllowed, frameSize, channels, 
 		return nbCompressedBytes, 0, 0
 	}
 	return mainBytes, payloadBytes, paddingBytes
-}
-
-func roundFloat32ToInt(x float32) int {
-	if x >= 0 {
-		return int(x + 0.5)
-	}
-	return int(x - 0.5)
 }

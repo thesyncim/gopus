@@ -67,6 +67,8 @@ func (e *Encoder) fixedSilkSurroundRateOffset(_ int32) (int32, bool) { return 0,
 // fixedCELTFinalRange never reports an integer range in the default build.
 func (e *Encoder) fixedCELTFinalRange() (uint32, bool) { return 0, false }
 
+func (e *Encoder) fixedQEXTPayloadIfUsed() ([]byte, bool) { return nil, false }
+
 // clearFixedCELTUsed is a no-op in the default build.
 func (e *Encoder) clearFixedCELTUsed() {}
 

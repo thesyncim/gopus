@@ -25,6 +25,9 @@ func (e *Encoder) syncQEXTToCELT() {
 }
 
 func (e *Encoder) lastQEXTPayload() []byte {
+	if payload, used := e.fixedQEXTPayloadIfUsed(); used {
+		return payload
+	}
 	if e.celtEncoder == nil {
 		return nil
 	}

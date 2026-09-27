@@ -166,6 +166,12 @@ func (d *QEXTCELTDecoder) SetBandRange(start, end int) {
 	d.end = end
 }
 
+// SetStartBand selects the next frame's CELT start band while preserving the
+// current end band, matching CELT_SET_START_BAND on transition/PLC frames.
+func (d *QEXTCELTDecoder) SetStartBand(start int) {
+	d.start = start
+}
+
 // SetPhaseInversionDisabled controls the stereo phase inversion in CELT band
 // decoding. Mono decoders start with phase inversion disabled, matching
 // celt_decoder.c; Reset preserves this control.
@@ -218,10 +224,26 @@ func (d *QEXTCELTDecoder) Reset() {
 // int24 opus_res storage. The return value is the per-channel sample count, or
 // a negative Opus status (-1 bad argument, -2 short output, -3 coder overrun).
 func (d *QEXTCELTDecoder) DecodeFrameWithEC(main *rangecoding.Decoder, dataLen, frameSize, codedChannels int, qextPayload []byte, out []int32) int {
+	return d.decodeFrameWithEC(main, dataLen, frameSize, codedChannels, qextPayload, out, false)
+}
+
+// DecodeHybridAccumWithEC decodes a QEXT CELT highband from the shared main
+// range coder and adds its fixed-point deemphasis output to the existing SILK
+// opus_res samples in accum. main must already be positioned after SILK parsing
+// and any redundancy flags. dataLen is the main CELT storage length after any
+// trailing redundancy bytes have been excluded.
+func (d *QEXTCELTDecoder) DecodeHybridAccumWithEC(main *rangecoding.Decoder, dataLen, frameSize, codedChannels int, qextPayload []byte, accum []int32) int {
+	return d.decodeFrameWithEC(main, dataLen, frameSize, codedChannels, qextPayload, accum, true)
+}
+
+func (d *QEXTCELTDecoder) decodeFrameWithEC(main *rangecoding.Decoder, dataLen, frameSize, codedChannels int, qextPayload []byte, out []int32, accum bool) int {
 	if dataLen < 0 || d.start < 0 || d.start >= d.end || d.end > celt.MaxBands {
 		return -1
 	}
 	if dataLen <= 1 {
+		if accum {
+			return d.decodeLost(frameSize, out, true)
+		}
 		return d.DecodeLost(frameSize, out)
 	}
 	if main == nil || codedChannels < 1 || codedChannels > 2 {
@@ -483,7 +505,7 @@ func (d *QEXTCELTDecoder) DecodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 	d.lastFrameType = frameNormal
 	d.prefilterAndFold = false
 	d.lastRes = out[:cc*apiFrameSize]
-	deemphasisQEXT(outSyn, d.lastRes, frameSize, cc, d.sampleRate, d.downsample, d.preemphMem)
+	deemphasisQEXT(outSyn, d.lastRes, frameSize, cc, d.sampleRate, d.downsample, d.preemphMem, accum)
 	if main.Tell() > totalBits || (len(qextPayload) != 0 && d.extDec.Tell() > qextTotalBits/(1<<bitRes)) {
 		return -3
 	}

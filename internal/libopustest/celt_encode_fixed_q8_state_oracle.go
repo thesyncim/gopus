@@ -46,6 +46,7 @@ type CELTFixedQ8EncoderState struct {
 	OldLogE                   []int32
 	OldLogE2                  []int32
 	EnergyError               []int32
+	QEXTOldBandE              []int32
 }
 
 // CELTFixedQ8StateRecord combines a raw CELT packet with the exact logical C
@@ -73,7 +74,7 @@ func buildCELTFixedQ8QEXTStateHelper() (string, error) {
 // ProbeCELTFixedQEXTQ8State encodes the same raw Q8 frames as ProbeCELTFixedQEXTQ8
 // and also returns explicit C encoder state after each frame.
 func ProbeCELTFixedQEXTQ8State(p CELTFixedQ8Params) ([]CELTFixedQ8StateRecord, error) {
-	payload, err := fixedCELTQ8Payload(p)
+	payload, err := fixedCELTQ8Payload(p, true)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +95,7 @@ func ProbeCELTFixedQEXTQ8State(p CELTFixedQ8Params) ([]CELTFixedQ8StateRecord, e
 			return nil, fmt.Errorf("fixed CELT Q8 state frame %d packet size %d", i, n)
 		}
 		out[i].Packet = append([]byte(nil), reader.Bytes(n)...)
-		state, err := readCELTFixedQ8EncoderState(reader)
+		state, err := readCELTFixedQ8EncoderState(reader, p)
 		if err != nil {
 			return nil, fmt.Errorf("fixed CELT Q8 state frame %d: %w", i, err)
 		}
@@ -106,7 +107,7 @@ func ProbeCELTFixedQEXTQ8State(p CELTFixedQ8Params) ([]CELTFixedQ8StateRecord, e
 	return out, nil
 }
 
-func readCELTFixedQ8EncoderState(reader *OracleReader) (CELTFixedQ8EncoderState, error) {
+func readCELTFixedQ8EncoderState(reader *OracleReader, params CELTFixedQ8Params) (CELTFixedQ8EncoderState, error) {
 	var state CELTFixedQ8EncoderState
 	state.RNG = reader.U32()
 	if reader.Count(24) == 0 {
@@ -147,16 +148,23 @@ func readCELTFixedQ8EncoderState(reader *OracleReader) (CELTFixedQ8EncoderState,
 	state.AnalysisMaxPitchRatioBits = reader.U32()
 	copy(state.AnalysisLeakBoost[:], reader.Bytes(len(state.AnalysisLeakBoost)))
 	var err error
+	channels := params.Channels
+	overlap := 120
+	maxPeriod := 1024
+	if params.SampleRate == 96000 {
+		overlap = 240
+		maxPeriod = 2048
+	}
 	if state.EnergyMask, err = readI32Array(reader, 42); err != nil {
 		return state, err
 	}
-	if state.PreemphMemE, err = readI32Array(reader, 2); err != nil {
+	if state.PreemphMemE, err = readI32Array(reader, channels); err != nil {
 		return state, err
 	}
-	if state.InMem, err = readI32Array(reader, 240); err != nil {
+	if state.InMem, err = readI32Array(reader, channels*overlap); err != nil {
 		return state, err
 	}
-	if state.PrefilterMem, err = readI32Array(reader, 2048); err != nil {
+	if state.PrefilterMem, err = readI32Array(reader, channels*maxPeriod); err != nil {
 		return state, err
 	}
 	if state.OldBandE, err = readI32Array(reader, 42); err != nil {
@@ -169,6 +177,9 @@ func readCELTFixedQ8EncoderState(reader *OracleReader) (CELTFixedQ8EncoderState,
 		return state, err
 	}
 	if state.EnergyError, err = readI32Array(reader, 42); err != nil {
+		return state, err
+	}
+	if state.QEXTOldBandE, err = readI32Array(reader, params.Channels*14); err != nil {
 		return state, err
 	}
 	return state, reader.Err()

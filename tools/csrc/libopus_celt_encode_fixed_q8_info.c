@@ -3,10 +3,11 @@
  * snapshot, energy mask, SILK info and prediction mode. One CELTEncoder carries
  * state across all frames.
  *
- * Input, little endian: "GQRI", version 3, input_channels, stream_channels,
+ * Input, little endian: "GQRI", version 3 or 4, input_channels, stream_channels,
  * frame_size, start, end,
  * bitrate, complexity, sample_rate, vbr, constrained_vbr, lfe, lsb_depth,
- * frame_count. For each frame: max_bytes, sample_count, sample_count signed Q8
+ * frame_count. Version 4 inserts qext_enabled after lsb_depth. For each frame:
+ * max_bytes, sample_count, sample_count signed Q8
  * words; prefix_count uniform-8 symbols, reset_before, set_prediction,
  * prediction_mode, SILK signal type and quantization offset; AnalysisInfo valid,
  * ten scalar words in celt.h order, 19 leak_boost bytes, has_mask, then
@@ -96,6 +97,7 @@ static int write_encoder_state(CELTEncoder *opaque) {
   celt_glog *oldLogE = oldBandE + channels*bands;
   celt_glog *oldLogE2 = oldLogE + channels*bands;
   celt_glog *energyError = oldLogE2 + channels*bands;
+  celt_glog *qextOldBandE = energyError + channels*bands;
   int32_t scalars[] = {
     (int32_t)st->spread_decision,
     (int32_t)st->delayedIntra,
@@ -139,7 +141,8 @@ static int write_encoder_state(CELTEncoder *opaque) {
       !write_i32_array(oldBandE, channels*bands) ||
       !write_i32_array(oldLogE, channels*bands) ||
       !write_i32_array(oldLogE2, channels*bands) ||
-      !write_i32_array(energyError, channels*bands)) return 0;
+      !write_i32_array(energyError, channels*bands) ||
+      !write_i32_array(qextOldBandE, channels*NB_QEXT_BANDS)) return 0;
   return 1;
 }
 #endif
@@ -170,36 +173,53 @@ static int read_analysis(AnalysisInfo *info) {
 int main(void) {
   unsigned char magic[4];
   uint32_t version, channels, stream_channels, frame_size, start, end, bitrate, complexity;
-  uint32_t sample_rate, vbr, cvbr, lfe, lsb_depth, count, f;
+  uint32_t sample_rate, vbr, cvbr, lfe, lsb_depth, qext_enabled = 0, count, f;
   CELTEncoder *st = NULL;
   opus_res *pcm = NULL;
-  unsigned char packet[1275];
+  unsigned char packet_storage[1276];
+  unsigned char *packet = packet_storage + 1;
   celt_glog mask[2 * 21];
   const int rates[] = {8000, 12000, 16000, 24000, 48000};
-  int valid_rate = 0, core_size, i;
+  int valid_rate = 0, core_size, i, max_frame_size = 960;
 #ifdef _WIN32
   if (_setmode(_fileno(stdin), _O_BINARY) == -1 ||
       _setmode(_fileno(stdout), _O_BINARY) == -1) return 1;
 #endif
   if (fread(magic, 1, 4, stdin) != 4 || memcmp(magic, "GQRI", 4) ||
-      !read_u32(&version) || version != 3 || !read_u32(&channels) ||
+      !read_u32(&version) || (version != 3 && version != 4) || !read_u32(&channels) ||
       !read_u32(&stream_channels) ||
       !read_u32(&frame_size) || !read_u32(&start) || !read_u32(&end) ||
       !read_u32(&bitrate) || !read_u32(&complexity) ||
       !read_u32(&sample_rate) || !read_u32(&vbr) || !read_u32(&cvbr) ||
-      !read_u32(&lfe) || !read_u32(&lsb_depth) || !read_u32(&count)) return 1;
+      !read_u32(&lfe) || !read_u32(&lsb_depth)) return 1;
+  if (version >= 4 && (!read_u32(&qext_enabled) || qext_enabled > 1)) return 1;
+  if (!read_u32(&count)) return 1;
   for (i = 0; i < (int)(sizeof(rates)/sizeof(rates[0])); i++) {
     if (sample_rate == (uint32_t)rates[i]) valid_rate = 1;
   }
+#ifdef ENABLE_QEXT
+  if (sample_rate == 96000 && version >= 4) {
+    valid_rate = 1;
+    max_frame_size = 1920;
+  }
+#endif
   if (!valid_rate || channels < 1 || channels > 2 || stream_channels < 1 ||
       stream_channels > channels || frame_size < 20 ||
-      frame_size > 960 || (frame_size*48000)%sample_rate != 0 ||
+      frame_size > (uint32_t)max_frame_size ||
       start >= end || end > 21 ||
       complexity > 10 || vbr > 1 || cvbr > 1 || lfe > 1 ||
       lsb_depth < 8 || lsb_depth > 24 || count < 1 || count > 256) return 1;
-  core_size = (int)(frame_size*48000/sample_rate);
+#ifdef ENABLE_QEXT
+  if (sample_rate == 96000) core_size = (int)frame_size;
+  else
+#endif
+  {
+    if ((frame_size*48000)%sample_rate != 0) return 1;
+    core_size = (int)(frame_size*48000/sample_rate);
+  }
   if (core_size != 120 && core_size != 240 &&
-      core_size != 480 && core_size != 960) return 1;
+      core_size != 480 && core_size != 960 &&
+      !(sample_rate == 96000 && core_size == 1920)) return 1;
   pcm = (opus_res *)malloc((size_t)channels * frame_size * sizeof(*pcm));
   st = (CELTEncoder *)calloc(1, celt_encoder_get_size((int)channels));
   if (!pcm || !st) return 1;
@@ -213,6 +233,7 @@ int main(void) {
       celt_encoder_ctl(st, OPUS_SET_VBR_CONSTRAINT_REQUEST, (int)cvbr) != OPUS_OK ||
       celt_encoder_ctl(st, OPUS_SET_LSB_DEPTH_REQUEST, (int)lsb_depth) != OPUS_OK ||
       celt_encoder_ctl(st, OPUS_SET_LFE_REQUEST, (int)lfe) != OPUS_OK ||
+      (qext_enabled && celt_encoder_ctl(st, OPUS_SET_QEXT(qext_enabled)) != OPUS_OK) ||
       celt_encoder_ctl(st, CELT_SET_SIGNALLING_REQUEST, 0) != OPUS_OK) return 1;
 #ifdef GOPUS_STATE_TRACE
   if (fwrite("GQSO", 1, 4, stdout) != 4 || !write_u32(1) || !write_u32(count)) return 1;
@@ -229,6 +250,7 @@ int main(void) {
     if (!read_u32(&max_bytes) || !read_u32(&samples) ||
         max_bytes < 2 || max_bytes > 1275 ||
         samples != channels*frame_size) return 1;
+    memset(packet_storage, 0, sizeof(packet_storage));
     for (j = 0; j < samples; j++) {
       if (!read_u32(&raw)) return 1;
       pcm[j] = (opus_res)(int32_t)raw;
@@ -258,8 +280,13 @@ int main(void) {
         celt_encoder_ctl(st, CELT_SET_ANALYSIS(&analysis)) != OPUS_OK ||
         (has_mask && celt_encoder_ctl(st, OPUS_SET_ENERGY_MASK_REQUEST, mask) != OPUS_OK)) return 1;
     ret = celt_encode_with_ec(st, pcm, (int)frame_size, packet, (int)max_bytes, &ec);
-    if (ret < 0 || ret > (int)max_bytes || !write_u32((uint32_t)ret) ||
-        !write_u32(ec.rng) || fwrite(packet, 1, (size_t)ret, stdout) != (size_t)ret) return 1;
+    if (ret < 0 || ret > (int)max_bytes || !write_u32((uint32_t)ret)) return 1;
+#ifdef GOPUS_STATE_TRACE
+    if (!write_u32(((struct OpusCustomEncoder *)st)->rng)) return 1;
+#else
+    if (!write_u32(ec.rng)) return 1;
+#endif
+    if (fwrite(packet, 1, (size_t)ret, stdout) != (size_t)ret) return 1;
 #ifdef GOPUS_STATE_TRACE
     if (!write_encoder_state(st)) return 1;
 #endif

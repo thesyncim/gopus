@@ -24,13 +24,24 @@ func res2sig(a int32) int32 {
 }
 
 // CELTEncoder is the FIXED_POINT integer CELT encoder front-end state for the
-// static 48000/960 custom mode. It owns the per-channel pre-emphasis memory and
-// the MDCT lookup / window / band tables, mirroring the reset region of the
-// libopus OpusCustomEncoder fields the front-end touches.
+// static 48000/960 and 96000/1920 modes. It owns per-channel pre-emphasis memory
+// and mode geometry, mirroring the libopus OpusCustomEncoder fields it touches.
 type CELTEncoder struct {
 	channels       int
 	streamChannels int32
 	analysis       CELTAnalysisInfo
+
+	// Static mode geometry. Sub-48 kHz API rates use the 48 kHz mode with
+	// zero-stuffing; 96 kHz selects the native 240-sample mode in ENABLE_QEXT.
+	modeFs        int
+	shortMdctSize int
+	overlap       int
+	maxLM         int
+	maxPeriod     int
+	qextScale     int
+	preemph0      int16
+	preemph1      int16
+	preemph2Q30   int32
 
 	// upsample mirrors st->upsample = resampling_factor(API sample rate): 1 at
 	// 48 kHz, 2/3/4/6 at 24/16/12/8 kHz. celt_encode_with_ec multiplies the
@@ -113,10 +124,12 @@ type CELTEncoder struct {
 	overlapMax      int32
 	rng             uint32
 
-	mdct   *MDCTLookup
-	window []int16
-	eBands []int16
-	logN   []int16
+	mdct       *MDCTLookup
+	window     []int16
+	eBands     []int16
+	logN       []int16
+	qext       celtQEXTState
+	finalRange uint32
 
 	// scratch holds the reusable per-frame/per-band encode working buffers,
 	// grown once and reused across every frame of a packet.
@@ -176,15 +189,45 @@ func NewCELTEncoder(channels int) *CELTEncoder {
 }
 
 // NewCELTEncoderRate allocates and resets an integer CELT encoder front-end for
-// the static 48000/960 mode at the given API sample rate (48000/24000/16000/
-// 12000/8000), mirroring celt_encoder_init: the mode is always 48 kHz and only
-// st->upsample = resampling_factor(rate) differs. The caller passes API-rate
-// frame sizes (frameSize*upsample == the 48 kHz core N).
+// the static 48000/960 mode at API rates through 48 kHz, and the native
+// 96000/1920 mode at 96 kHz. The caller passes API-rate frame sizes; lower
+// rates use the 48 kHz mode's zero-stuffing factor.
 func NewCELTEncoderRate(channels, sampleRate int) *CELTEncoder {
+	modeFs := 48000
+	shortMdctSize := celtShortMdctSize
+	overlap := celtOverlap
+	maxPeriod := combFilterMaxPeriod
+	qextScale := 1
+	preemph0 := staticMDCT48000Preemph0
+	var preemph1 int16
+	var preemph2Q30 int32
+	if sampleRate == 96000 && fixedQEXTBuild {
+		modeFs = 96000
+		shortMdctSize = 240
+		overlap = 240
+		maxPeriod *= 2
+		qextScale = 2
+		preemph0 = 30245 // celt/static_modes_fixed.h mode96000_1920_240 preemph[0]
+		preemph1 = 7209  // celt/static_modes_fixed.h mode96000_1920_240 preemph[1]
+		const preemph2, preemph3 = int16(6197), int16(5415)
+		// celt/celt_encoder.c computes coef2_q30 from the exact fixed mode
+		// coefficients with one Newton step before the two-tap pre-emphasis.
+		residual := int32(1<<25) - mult16x16(int32(preemph3), int32(preemph2))
+		preemph2Q30 = shl32(int32(preemph2), 18) + pshr32(mult16x16(residual, int32(preemph2)), 7)
+	}
 	e := &CELTEncoder{
 		channels:       channels,
 		streamChannels: int32(channels),
 		upsample:       resamplingFactor(sampleRate),
+		modeFs:         modeFs,
+		shortMdctSize:  shortMdctSize,
+		overlap:        overlap,
+		maxLM:          celtMaxLM,
+		maxPeriod:      maxPeriod,
+		qextScale:      qextScale,
+		preemph0:       preemph0,
+		preemph1:       preemph1,
+		preemph2Q30:    preemph2Q30,
 		start:          0,
 		end:            celtNbEBands,
 		complexity:     5,
@@ -196,12 +239,13 @@ func NewCELTEncoderRate(channels, sampleRate int) *CELTEncoder {
 		eBands:         staticMDCT48000EBands[:],
 		logN:           staticMDCT48000LogN[:],
 	}
-	e.inMem = make([]int32, channels*celtOverlap)
-	e.prefilterMem = make([]int32, channels*combFilterMaxPeriod)
+	e.inMem = make([]int32, channels*overlap)
+	e.prefilterMem = make([]int32, channels*maxPeriod)
 	e.oldBandE = make([]int32, 2*celtNbEBands)
 	e.oldLogE = make([]int32, 2*celtNbEBands)
 	e.oldLogE2 = make([]int32, 2*celtNbEBands)
 	e.energyError = make([]int32, 2*celtNbEBands)
+	e.initQEXTState(channels)
 	for i := range e.oldLogE {
 		e.oldLogE[i] = -gconst(28)
 		e.oldLogE2[i] = -gconst(28)
@@ -221,6 +265,9 @@ func (e *CELTEncoder) SetComplexity(c int) { e.complexity = c }
 
 // SetBitrate sets st->bitrate in bits/s (OPUS_SET_BITRATE_REQUEST).
 func (e *CELTEncoder) SetBitrate(b int) { e.bitrate = b }
+
+// Bitrate reports the persistent CELT target bitrate control.
+func (e *CELTEncoder) Bitrate() int { return e.bitrate }
 
 // SetStreamChannels mirrors CELT_SET_CHANNELS: CELT codes one or both of the
 // encoder's input channels while retaining the full input for stereo analysis.
@@ -256,6 +303,8 @@ func (e *CELTEncoder) SetEnergyMask(mask []int32) { e.energyMask = mask }
 // ENCODER_RESET_START in celt/celt_encoder.c, including band range, prediction,
 // bitrate, VBR and stream channel count.
 func (e *CELTEncoder) Reset() {
+	e.resetQEXTState()
+	e.finalRange = 0
 	e.rng = 0
 	e.spreadDecision = spreadNormal
 	e.delayedIntra = 1
@@ -288,6 +337,9 @@ func (e *CELTEncoder) Reset() {
 	}
 }
 
+// FinalRange returns the range coder state from the last completed frame.
+func (e *CELTEncoder) FinalRange() uint32 { return e.finalRange }
+
 // FrontEnd ports the input -> normalized bands stage of celt_encode_with_ec for
 // the static 48000/960 mode. pcm is channels*frameSize interleaved int16 PCM,
 // frameSize the 48k-core per-channel sample count (shortMdctSize<<LM), and
@@ -297,13 +349,13 @@ func (e *CELTEncoder) Reset() {
 // (celt_norm, interleaved), advancing the per-channel pre-emphasis memory.
 func (e *CELTEncoder) FrontEnd(pcm []int16, frameSize int, isTransient bool) (freq, bandE, X []int32) {
 	nbEBands := celtNbEBands
-	overlap := celtOverlap
-	shortMdctSize := celtShortMdctSize
+	overlap := e.overlap
+	shortMdctSize := e.shortMdctSize
 	C := e.channels
 	CC := e.channels
 
 	LM := 0
-	for LM = 0; LM <= celtMaxLM; LM++ {
+	for LM = 0; LM <= e.maxLM; LM++ {
 		if shortMdctSize<<LM == frameSize {
 			break
 		}
@@ -344,18 +396,15 @@ func (e *CELTEncoder) FrontEnd(pcm []int16, frameSize int, isTransient bool) (fr
 	return freq, bandE, X
 }
 
-// preemphasis ports libopus celt_preemphasis for the static 48000/960 mode
-// (coef[1]==0, !clip). With upsample==1 it takes the fast path: inp[i] = x - m
-// and m = MULT16_32_Q15(coef0, x), where x = RES2SIG(pcmp[CC*i]).
-// With upsample>1 (sub-48 kHz API rate) it zero-stuffs the input up to the 48
-// kHz core rate: inp is cleared, the Nu input samples are scattered into
-// inp[i*upsample], then the same pre-emphasis recurrence runs over all N
-// (zero-stuffed) samples. It advances st->preemph_memE[c].
+// preemphasis ports libopus celt_preemphasis for the selected static mode.
+// The 48 kHz mode uses its one-tap fast path; the native 96 kHz mode uses the
+// ENABLE_QEXT two-tap recurrence. Lower API rates zero-stuff to the 48 kHz
+// mode before applying the one-tap recurrence.
 func (e *CELTEncoder) preemphasis(pcmp []int32, inp []int32, N, CC, c int) {
-	coef0 := staticMDCT48000Preemph0
+	coef0 := e.preemph0
 	m := e.preemphMemE[c]
 	upsample := e.upsample
-	if upsample <= 1 {
+	if upsample <= 1 && e.preemph1 == 0 {
 		for i := 0; i < N; i++ {
 			x := res2sig(pcmp[CC*i])
 			inp[i] = x - m
@@ -373,8 +422,14 @@ func (e *CELTEncoder) preemphasis(pcmp []int32, inp []int32, N, CC, c int) {
 	}
 	for i := 0; i < N; i++ {
 		x := inp[i]
-		inp[i] = x - m
-		m = mult16x32q15(coef0, x)
+		if e.preemph1 != 0 {
+			tmp := shl32(mult32x32q31(e.preemph2Q30, x), 1)
+			inp[i] = tmp + m
+			m = mult16x32q15(e.preemph1, inp[i]) - mult16x32q15(coef0, tmp)
+		} else {
+			inp[i] = x - m
+			m = mult16x32q15(coef0, x)
+		}
 	}
 	e.preemphMemE[c] = m
 }
@@ -386,16 +441,16 @@ func (e *CELTEncoder) preemphasis(pcmp []int32, inp []int32, N, CC, c int) {
 // it then scales the lowest B*N/upsample bins per channel by upsample and zeros
 // the upper bins, dropping the spectral images introduced by zero-stuffing.
 func (e *CELTEncoder) computeMDCTs(shortBlocks int, in, out []int32, C, CC, LM int) {
-	overlap := celtOverlap
+	overlap := e.overlap
 	var N, B, shift int
 	if shortBlocks != 0 {
 		B = shortBlocks
-		N = celtShortMdctSize
-		shift = celtMaxLM
+		N = e.shortMdctSize
+		shift = e.maxLM
 	} else {
 		B = 1
-		N = celtShortMdctSize << LM
-		shift = celtMaxLM - LM
+		N = e.shortMdctSize << LM
+		shift = e.maxLM - LM
 	}
 	sc := e.ensureScratch()
 	for c := 0; c < CC; c++ {

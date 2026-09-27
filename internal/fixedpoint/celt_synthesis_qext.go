@@ -60,7 +60,7 @@ func (d *QEXTCELTDecoder) synthesisQEXT(x []int32, N, C, CC, lm int, transient, 
 	}
 }
 
-func deemphasisQEXT(in [][]int32, out []int32, N, channels, sampleRate, downsample int, mem []int32) {
+func deemphasisQEXT(in [][]int32, out []int32, N, channels, sampleRate, downsample int, mem []int32, accum bool) {
 	var coef0, coef1, coef3 int16
 	if sampleRate == 96000 {
 		coef0, coef1, coef3 = 30245, 7209, 5415
@@ -81,7 +81,12 @@ func deemphasisQEXT(in [][]int32, out []int32, N, channels, sampleRate, downsamp
 				m = mult16x32q15(coef0, tmp)
 			}
 			if i%downsample == 0 && apiIndex < apiSamples {
-				out[apiIndex*channels+c] = sig2res(tmp)
+				idx := apiIndex*channels + c
+				if accum {
+					out[idx] = add32(out[idx], sig2res(tmp))
+				} else {
+					out[idx] = sig2res(tmp)
+				}
 				apiIndex++
 			}
 		}

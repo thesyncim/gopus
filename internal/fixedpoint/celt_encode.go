@@ -8,23 +8,23 @@ import (
 )
 
 // This file ports the FIXED_POINT celt_encode_with_ec driver
-// (celt/celt_encoder.c) for the static 48000/960 custom mode. It orchestrates
+// (celt/celt_encoder.c) for the 48000/960 CELT mode and, in combined
+// FIXED_POINT + ENABLE_QEXT builds, the native 96000/1920 mode. It orchestrates
 // integer CELT kernels for fresh and sequential CBR, VBR and constrained-VBR
 // encodes with signalling disabled. The driver handles pure CELT and Hybrid
 // band ranges, optional AnalysisInfo and SILKInfo controls, prediction and
-// coded-channel controls, LFE and surround energy masks. QEXT is unsupported.
+// coded-channel controls, LFE, surround energy masks and the QEXT side coder.
 
 // spreadICDFEnc / trimICDFEnc mirror celt/celt.c spread_icdf[4] and trim_icdf[11].
 var spreadICDFEnc = []uint8{25, 23, 2, 0}
 var trimICDFEnc = []uint8{126, 124, 119, 109, 87, 41, 19, 9, 4, 2, 0}
 
-// EncodeWithEC ports celt_encode_with_ec for one frame on the static 48000/960
+// EncodeWithEC ports celt_encode_with_ec for one frame in the encoder's active
 // mode (CBR, VBR or constrained-VBR per SetVBR/SetConstrainedVBR). pcm is
-// channels*frameSize interleaved int16 PCM, frameSize the 48k-core per-channel
-// sample count (shortMdctSize<<LM). enc must be initialised against a buffer of
-// nbCompressedBytes (the max payload size; the VBR rate control resizes the
-// stream below that). It returns the number of packet bytes produced (the caller
-// reads enc.Done()). The encoder's cross-frame state is advanced.
+// channels*frameSize interleaved int16 PCM; frameSize is the per-channel sample
+// count at the API rate. enc is initialized with nbCompressedBytes of capacity;
+// VBR rate control may shrink it. The call advances cross-frame state and
+// returns the produced byte count.
 func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.Encoder, nbCompressedBytes int) int {
 	if cap(e.shortPCMRes) < len(pcm) {
 		e.shortPCMRes = make([]int32, len(pcm))
@@ -39,9 +39,13 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 // EncodeWithECRes codes the exact ENABLE_RES24 opus_res Q8 input carried by
 // opus_encode_native after DC rejection and delay compensation.
 func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecoding.Encoder, nbCompressedBytes int) int {
+	e.clearQEXTPayload()
+	e.finalRange = 0
+	enableQEXT := e.qextEnabled()
 	nbEBands := celtNbEBands
-	overlap := celtOverlap
-	shortMdctSize := celtShortMdctSize
+	overlap := e.overlap
+	shortMdctSize := e.shortMdctSize
+	modeFs := e.modeFs
 	eBands := e.eBands
 	CC := e.channels
 	C := int(e.streamChannels)
@@ -49,19 +53,18 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 	end := e.end
 	hybrid := start != 0
 
-	maxPeriod := combFilterMaxPeriod
+	maxPeriod := e.maxPeriod
 
 	upsample := e.upsample
 	if upsample < 1 {
 		upsample = 1
 	}
-	// frame_size *= st->upsample: the public frame_size is at the API rate; the
-	// CELT core always runs at 48 kHz, so the MDCT layout is sized from the
-	// upsampled count and all bitrate/Fs arithmetic below uses mode->Fs==48000.
+	// frame_size *= st->upsample. Modes below 48 kHz zero-stuff to the 48 kHz
+	// core; the native 96 kHz mode keeps its input rate and geometry.
 	frameSize *= upsample
 
 	LM := 0
-	for LM = 0; LM <= celtMaxLM; LM++ {
+	for LM = 0; LM <= e.maxLM; LM++ {
 		if shortMdctSize<<LM == frameSize {
 			break
 		}
@@ -75,7 +78,10 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 	tell := enc.Tell()
 	nbFilledBytes := (tell + 4) >> 3
 
-	const packetSizeCap = 1275
+	packetSizeCap := 1275
+	if enableQEXT {
+		packetSizeCap = 3825
+	}
 	if nbCompressedBytes > packetSizeCap {
 		nbCompressedBytes = packetSizeCap
 	}
@@ -83,16 +89,16 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 	vbrRate := 0
 	var effectiveBytes int
 	if e.vbr && e.bitrate != opusBitrateMax {
-		vbrRate = bitrateToBits(e.bitrate, frameSize) << bitRes
+		vbrRate = bitrateToBits(e.bitrate, modeFs, frameSize) << bitRes
 		effectiveBytes = vbrRate >> (3 + bitRes)
 	} else {
 		vbrRate = 0
 		tmp := e.bitrate * frameSize
 		if tell > 1 {
-			tmp += tell * 48000
+			tmp += tell * modeFs
 		}
 		if e.bitrate != opusBitrateMax {
-			v := (tmp + 4*48000) / (8 * 48000)
+			v := (tmp + 4*modeFs) / (8 * modeFs)
 			if v < nbCompressedBytes {
 				nbCompressedBytes = v
 			}
@@ -185,7 +191,7 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 			e.prefilterMem[(1+c)*maxPeriod-overlap:(1+c)*maxPeriod])
 	}
 
-	toneFreq, toneishness := ToneDetect(in, CC, N+overlap, 48000, sc)
+	toneFreq, toneishness := ToneDetect(in, CC, N+overlap, modeFs, sc)
 
 	isTransient := false
 	tfEstimate := int16(0)
@@ -319,7 +325,7 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 		eBands, LM, effectiveBytes, e.lfe, surroundDynalloc,
 		importance, spreadWeight, toneFreq, toneishness, &totBoost, e.analysis, sc)
 
-	tfRes := ensureInt(&sc.tfRes, nbEBands)
+	tfRes := ensureInt32(&sc.tfRes, nbEBands)
 	tfSelect := 0
 	if enableTFAnalysis {
 		lambda := imax(80, 20480/effectiveBytes+2)
@@ -341,7 +347,7 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 		tfSelect = boolToInt(isTransient)
 	} else {
 		for i := 0; i < end; i++ {
-			tfRes[i] = boolToInt(isTransient)
+			tfRes[i] = int32(boolToInt(isTransient))
 		}
 		tfSelect = 0
 	}
@@ -382,7 +388,7 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 			}
 		default:
 			e.spreadDecision = SpreadingDecision(X, eBands, nbEBands, e.spreadDecision,
-				&e.spreading, boolToInt(pfOn && shortBlocks == 0), effEnd, C, M, spreadWeight)
+				&e.spreading, boolToInt(pfOn && shortBlocks == 0), effEnd, C, M, shortMdctSize, spreadWeight)
 		}
 		enc.EncodeICDF(e.spreadDecision, spreadICDFEnc, 5)
 	} else {
@@ -462,7 +468,7 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 
 	// Variable bitrate rate control.
 	if vbrRate > 0 {
-		lmDiff := celtMaxLM - LM
+		lmDiff := e.maxLM - LM
 		if v := packetSizeCap >> (3 - LM); v < nbCompressedBytes {
 			nbCompressedBytes = v
 		}
@@ -480,7 +486,7 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 		if !hybrid {
 			target = computeVBR(eBands, baseTarget, LM, equivRate, e.lastCodedBands, C, e.intensity,
 				e.constrainedVBR, e.stereoSaving, totBoost, tfEstimate, pitchChange,
-				maxDepth, temporalVBRValue, nbEBands, e.lfe, e.energyMask != nil, surroundMasking, e.analysis)
+				maxDepth, temporalVBRValue, nbEBands, shortMdctSize, e.lfe, e.energyMask != nil, surroundMasking, e.analysis, enableQEXT)
 		} else {
 			target = baseTarget
 			// celt_encoder.c biases hybrid VBR from the SILK quantization
@@ -540,6 +546,38 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 		enc.Shrink(uint32(nbCompressedBytes))
 	}
 
+	// celt_encoder.c reserves QEXT space after normal VBR sizing and before
+	// allocating the main CELT bands. The fixed bridge keeps the main entropy
+	// coder in caller storage and retains the side coder payload separately.
+	qextBytes, qextPadding, qextMode, qextEdges, qextLogN, qextEnd := 0, 0, celtBandGeometry{}, []int16(nil), []int16(nil), 0
+	if enableQEXT {
+		var hasQEXTMode bool
+		qextMode, qextEdges, qextLogN, qextEnd, hasQEXTMode = fixedQEXTBandMode(modeFs, shortMdctSize)
+		sc.qextGeometry = qextMode
+		if !hasQEXTMode || end != nbEBands {
+			qextEnd = 0
+		}
+		qextBytes, qextPadding = e.reserveQEXTBytes(nbCompressedBytes, minAllowed, vbrRate, frameSize, modeFs, shortMdctSize, LM, C,
+			equivRate, e.lastCodedBands, e.intensity, tellFrac, e.constrainedVBR, e.stereoSaving,
+			totBoost, tfEstimate, pitchChange, maxDepth, temporalVBRValue, e.lfe, e.energyMask != nil,
+			surroundMasking, e.analysis, toneishness)
+		if qextBytes > 0 {
+			mainBytes := nbCompressedBytes - qextBytes - qextPadding - 1
+			enc.Shrink(uint32(mainBytes))
+			nbCompressedBytes = mainBytes
+			totalBits = nbCompressedBytes * 8
+			nbAvailableBytes = nbCompressedBytes - nbFilledBytes
+			qextBytes-- // The reserved region starts with the extension ID byte.
+		}
+	}
+	var qextEnc *rangecoding.Encoder
+	if qextBytes > 0 {
+		qextEnc = e.initQEXTEncoder(qextBytes)
+		if qextEnd > 0 {
+			qextEnc.EncodeBit(boolToInt(qextEnd == 14), 1)
+		}
+	}
+
 	// Bit allocation.
 	bits := (int32(nbCompressedBytes)*8)<<bitRes - int32(enc.TellFrac()) - 1
 	antiCollapseRsv := 0
@@ -553,7 +591,7 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 		switch {
 		case equivRate < 32000*C:
 			minBandwidth = 13
-		case equivRate < 48000*C:
+		case equivRate < modeFs*C:
 			minBandwidth = 16
 		case equivRate < 60000*C:
 			minBandwidth = 18
@@ -585,14 +623,49 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 	finePriority := ensureInt32(&sc.finePriority, nbEBands)
 	copy(fineQuant, alloc.FineBits)
 	copy(finePriority, alloc.FinePriority)
-	pulses := ensureInt(&sc.pulses, nbEBands)
+	pulses := ensureInt32(&sc.pulses, nbEBands)
 	for i := 0; i < len(alloc.BandBits) && i < nbEBands; i++ {
-		pulses[i] = int(alloc.BandBits[i])
+		pulses[i] = alloc.BandBits[i]
 	}
 
 	QuantFineEnergy(enc, e.oldBandE, errBuf, start, end, nbEBands, C, nil, fineQuant)
 	for i := 0; i < nbEBands*CC; i++ {
 		e.energyError[i] = 0
+	}
+
+	var qextExtraPulses, qextExtraQuant, qextErrorBackup []int32
+	var qextBandE, qextBandLogE, qextError []int32
+	var qextGeometry *celtBandGeometry
+	if qextEnc != nil {
+		qextExtraPulses = ensureInt32(&sc.qextExtraPulses, nbEBands+14)
+		qextExtraQuant = ensureInt32(&sc.qextExtraQuant, nbEBands+14)
+		qextErrorBackup = ensureInt32(&sc.qextErrorBackup, C*nbEBands)
+		if qextEnd > 0 {
+			qextGeometry = &sc.qextGeometry
+			qextBandE = ensureInt32(&sc.qextBandE, C*14)
+			qextBandLogE = ensureInt32(&sc.qextBandLogE, C*14)
+			qextError = ensureInt32(&sc.qextError, C*14)
+			qextOldBandE := e.qext.oldBandE[:C*14]
+			ComputeBandEnergies(freq, qextEdges, qextLogN, qextBandE, 14, shortMdctSize, qextEnd, C, LM)
+			NormaliseBands(freq, X, qextBandE, qextEdges, 14, shortMdctSize, qextEnd, C, M)
+			Amp2Log2(qextBandE, qextBandLogE, 14, qextEnd, qextEnd, C)
+			if C == 2 {
+				qextEnc.EncodeUniform(uint32(qextEnd), uint32(qextEnd+1))
+				qextEnc.EncodeBit(dualStereo, 1)
+			}
+			var qextDelayedIntra int32
+			QuantCoarseEnergy(qextEnc, qextBandLogE, qextOldBandE, qextError,
+				0, qextEnd, qextEnd, 14, C, LM, qextBytes*8, qextBytes,
+				e.forceIntra, e.complexity >= 4, 0, e.lfe, &qextDelayedIntra, sc)
+		}
+		qextTotalBitsQ3 := int32(qextBytes*(8<<bitRes)) - int32(enc.TellFrac()) - 1
+		computeQEXTExtraAllocationFixed(start, end, qextEnd, qextTotalBitsQ3, C, LM,
+			bandLogE, sc.qextBandLogE, e.logN, qextLogN, qextEdges, qextGeometry,
+			toneFreq, toneishness, qextEnc, qextExtraPulses, qextExtraQuant)
+		copy(qextErrorBackup, errBuf[:C*nbEBands])
+		if qextBytes > 0 {
+			QuantFineEnergy(qextEnc, e.oldBandE, errBuf, start, end, nbEBands, C, fineQuant, qextExtraQuant)
+		}
 	}
 
 	// Residual quantisation.
@@ -601,10 +674,44 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 		y = X[N:]
 	}
 	seed := e.rng
-	collapse := QuantAllBandsEncode(enc, C, N, LM, start, end, X, y, bandE,
-		pulses, tfRes, shortBlocks, e.spreadDecision, dualStereo, e.intensity,
-		nbCompressedBytes*(8<<bitRes)-antiCollapseRsv, alloc.Balance, codedBands,
-		e.complexity, false, &seed, sc)
+	var collapse []byte
+	if qextEnc != nil {
+		qextBand := QEXTBandState{
+			Encoder: qextEnc, ExtraPulses: qextExtraPulses[:end],
+			TotalBitsQ3: int32(qextBytes * (8 << bitRes)), Caps: alloc.Caps,
+		}
+		collapse = QuantAllBandsEncodeQEXT(enc, C, N, LM, start, end, X, y, bandE,
+			pulses, tfRes, shortBlocks, e.spreadDecision, dualStereo, e.intensity,
+			nbCompressedBytes*(8<<bitRes)-antiCollapseRsv, alloc.Balance, codedBands,
+			e.complexity, false, &seed, sc, qextBand)
+	} else {
+		collapse = QuantAllBandsEncode(enc, C, N, LM, start, end, X, y, bandE,
+			pulses, tfRes, shortBlocks, e.spreadDecision, dualStereo, e.intensity,
+			nbCompressedBytes*(8<<bitRes)-antiCollapseRsv, alloc.Balance, codedBands,
+			e.complexity, false, &seed, sc)
+	}
+	if qextGeometry != nil {
+		qextOldBandE := e.qext.oldBandE[:C*14]
+		qextError = qextError[:C*14]
+		extBalance := int32(qextBytes*(8<<bitRes)) - int32(qextEnc.TellFrac())
+		for i := 0; i < qextEnd; i++ {
+			extBalance -= qextExtraPulses[nbEBands+i] + int32(C)*int32(qextExtraQuant[nbEBands+1]<<bitRes)
+		}
+		QuantFineEnergy(qextEnc, qextOldBandE, qextError, 0, qextEnd, 14, C, nil, qextExtraQuant[nbEBands:])
+		qextPulses := qextExtraPulses[nbEBands : nbEBands+qextEnd]
+		qextTFRes := ensureInt32(&sc.qextTFRes, qextEnd)
+		clear(qextTFRes[:qextEnd])
+		clear(qextExtraPulses[:qextEnd])
+		sc.qextDummy.Init(nil)
+		qextNested := QEXTBandState{
+			Encoder: &sc.qextDummy, ExtraPulses: qextExtraPulses[:qextEnd],
+			mode: qextGeometry,
+		}
+		collapse = QuantAllBandsEncodeQEXT(qextEnc, C, N, LM, 0, qextEnd, X, y, qextBandE,
+			qextPulses, qextTFRes, shortBlocks, e.spreadDecision, dualStereo, qextEnd,
+			qextBytes*(8<<bitRes), int(extBalance), qextEnd,
+			e.complexity, false, &seed, sc, qextNested)
+	}
 	e.rng = seed
 	_ = collapse
 
@@ -614,7 +721,11 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 		enc.EncodeRawBits(uint32(boolToInt(antiCollapseOn)), 1)
 	}
 
-	QuantEnergyFinalise(enc, e.oldBandE, errBuf, start, end, nbEBands, C, fineQuant, finePriority, nbCompressedBytes*8-enc.Tell())
+	if qextBytes == 0 {
+		QuantEnergyFinalise(enc, e.oldBandE, errBuf, start, end, nbEBands, C, fineQuant, finePriority, nbCompressedBytes*8-enc.Tell())
+	} else {
+		QuantEnergyFinalise(enc, nil, qextErrorBackup, start, end, nbEBands, C, fineQuant, finePriority, nbCompressedBytes*8-enc.Tell())
+	}
 
 	for c := 0; c < C; c++ {
 		for i := start; i < end; i++ {
@@ -664,7 +775,10 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 	} else {
 		e.consecTransient = 0
 	}
-	e.rng = enc.Range()
+	mainRange := enc.Range()
+	qextRange := e.finishQEXTEncoder()
+	e.rng = mainRange ^ qextRange
+	e.finalRange = e.rng
 
 	// celt_encoder.c leaves CBR raw bits at the end of the fixed-size coder
 	// storage before ec_enc_done. Shrink to the same size marks that layout for
@@ -684,8 +798,8 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 func (e *CELTEncoder) runPrefilter(in []int32, CC, N, overlap int, enabled bool,
 	toneFreq int16, toneishness int32, tfEstimate int16, nbAvailableBytes int) PrefilterResult {
 
-	maxPeriod := combFilterMaxPeriod
-	offset := celtShortMdctSize - overlap
+	maxPeriod := e.maxPeriod
+	offset := e.shortMdctSize - overlap
 
 	sc := e.scratch
 	row := N + maxPeriod
@@ -722,6 +836,7 @@ func (e *CELTEncoder) runPrefilter(in []int32, CC, N, overlap int, enabled bool,
 		PrefilterPeriod:         e.prefilterPeriod,
 		PrefilterGain:           e.prefilterGain,
 		PrefilterTapset:         e.prefilterTapset,
+		Scale:                   e.qextScale,
 		PrefilterTapsetDecision: e.spreading.TapsetDecision,
 		LossRate:                0,
 		AnalysisValid:           e.analysis.Valid,
@@ -830,10 +945,10 @@ func (e *CELTEncoder) temporalVBR(bandLogE []int32, start, end, nbEBands, C, sho
 	return temporalVBR
 }
 
-// bitrateToBits ports celt.h bitrate_to_bits for the 48000 Hz core:
-// bitrate*6/(6*48000/frame_size), with the inner division evaluated first.
-func bitrateToBits(bitrate, frameSize int) int {
-	return bitrate * 6 / (6 * 48000 / frameSize)
+// bitrateToBits ports celt.h bitrate_to_bits for the active CELT mode:
+// bitrate*6/(6*Fs/frame_size), with the inner division evaluated first.
+func bitrateToBits(bitrate, sampleRate, frameSize int) int {
+	return bitrate * 6 / (6 * sampleRate / frameSize)
 }
 
 // surroundMasking ports the energy_mask-driven surround masking block of
@@ -909,8 +1024,8 @@ func (e *CELTEncoder) surroundMasking(surroundDynalloc []int32, eBands []int16, 
 // non-QEXT build. It returns the target rate in eighth bits per frame.
 func computeVBR(eBands []int16, baseTarget, LM, equivRate, lastCodedBands, C, intensity int,
 	constrainedVBR bool, stereoSaving int16, totBoost int, tfEstimate int16,
-	pitchChange bool, maxDepth, temporalVBR int32, nbEBands int,
-	lfe, hasSurroundMask bool, surroundMasking int32, analysis CELTAnalysisInfo) int {
+	pitchChange bool, maxDepth, temporalVBR int32, nbEBands, shortMdctSize int,
+	lfe, hasSurroundMask bool, surroundMasking int32, analysis CELTAnalysisInfo, enableQEXT bool) int {
 
 	codedBands := lastCodedBands
 	if codedBands == 0 {
@@ -966,6 +1081,9 @@ func computeVBR(eBands []int16, baseTarget, LM, equivRate, lastCodedBands, C, in
 
 	// floor_depth
 	bins := int(eBands[nbEBands-2]) << LM
+	if enableQEXT {
+		bins = shortMdctSize << LM
+	}
 	floorDepth := int(shr32(mult16x32Q15(int16((C*bins)<<bitRes), maxDepth), dbShift-15))
 	if v := target >> 2; v > floorDepth {
 		floorDepth = v

@@ -79,6 +79,18 @@ func TestComputeQEXTModeConfigRejectsUnknownModeConfig(t *testing.T) {
 	}
 }
 
+func TestComputeQEXTReservationTruncatesFloatCompoundAssignment(t *testing.T) {
+	// celt_encoder.c computes qext_bytes += scale * delta, where the float
+	// result is converted back to int only after it is added to qext_bytes.
+	// With this input, the initial reservation is 1042 and the adjustment is
+	// -521.25: C truncates 520.75 to 520, rather than rounding the adjustment
+	// to -521 and producing 521.
+	mainBytes, payloadBytes, paddingBytes := computeQEXTReservation(1503, 2, 960, 1, 48000, 0.5, 0)
+	if mainBytes != 979 || payloadBytes != 519 || paddingBytes != 3 {
+		t.Fatalf("computeQEXTReservation()=(%d,%d,%d), want (979,519,3)", mainBytes, payloadBytes, paddingBytes)
+	}
+}
+
 func TestQEXTDepthRoundTrip(t *testing.T) {
 	depths := []int{0, 7, 7, 48, 12, 0, 48, 3, 3, 0}
 

@@ -8,13 +8,14 @@ package fixedpoint
 func combFilterPFFixedWindow(y []int32, yOff int, x []int32, xOff, t0, t1, n int,
 	g0, g1 int16, tapset0, tapset1 int, _ []int16, overlap int,
 ) {
-	window := staticQEXTMDCT48000Window[:0]
-	if overlap > len(staticQEXTMDCT48000Window) {
-		panic("fixed-QEXT 48 kHz prefilter overlap exceeds Q31 window")
+	window := staticQEXTMDCT48000Window[:]
+	if overlap > len(window) {
+		window = staticQEXTMDCT96000Window[:]
 	}
-	if overlap > 0 {
-		window = staticQEXTMDCT48000Window[:overlap]
+	if overlap > len(window) {
+		panic("fixed-QEXT prefilter overlap exceeds the selected Q31 mode window")
 	}
+	window = window[:overlap]
 	CombFilterQEXTPF(y, yOff, x, xOff, t0, t1, n, g0, g1,
 		tapset0, tapset1, window, overlap)
 }

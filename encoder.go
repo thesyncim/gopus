@@ -147,9 +147,10 @@ func NewEncoder(cfg EncoderConfig) (*Encoder, error) {
 		return nil, ErrInvalidApplication
 	}
 
-	// Under gopus_qext, 96 kHz requests route through the 48 kHz internal
-	// pipeline with 2:1 decimation at the input boundary.
-	// C ref: opus_encoder.c opus_encoder_init() ENABLE_QEXT gate (Fs != 96000).
+	// The public 96 kHz API retains a 48 kHz internal encoder for the
+	// application-limited compatibility path. gopus_qext intercepts supported
+	// CELT durations and encodes them in the native 96 kHz mode.
+	// C ref: opus_encoder.c opus_encoder_init() ENABLE_QEXT rate selection.
 	internalRate := cfg.SampleRate
 	if cfg.SampleRate == 96000 {
 		internalRate = 48000

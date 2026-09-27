@@ -254,6 +254,13 @@ for mode in simd nosimd; do
     -run '^(TestFixedQEXTArchiveAndPublicHelperUsePairedReference|TestCELTEncodeWithECFixedQEXTReferenceArchive)$' \
     -count=1 -timeout=10m
 
+  run_json_phase "candidate-$mode-fixed-qext-encode" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json -tags "gopus_fixed_point,gopus_qext${feature_scalar_tag}" \
+    . ./internal/encoder ./internal/fixedpoint \
+    -run '^(TestPublicFixedQEXTPacketsMatchLibopus|TestPublicFixedQEXTConstraintPersistsAcrossCBR|TestPublicFixedQEXTFrameSizeModeAndInputMatrix|TestPublicFixedQEXTWarmEncodeAllocations|TestPublicFixedQEXTHighBudgetWarmEncodeAllocations|TestPublicFixedQEXT96kDurationsMatchLibopus|TestFixedQEXTInputBypassesDCHighpassWithoutAdvancingMemory|TestCELTFixedQEXTMainPayloadMatchesLibopus|TestCELTFixedQEXTReservedMainPayloadMatchesLibopus|TestCELTFixedQEXTNative96KFrameMatchesLibopus|TestCELTFixedQEXTNative96KSidePayloadMatchesLibopus|TestCELTFixedQEXTNative96KShortFrameNoSidePayloadMatchesLibopus|TestCELTFixedQEXTNative96KStatefulResetMatchesLibopus|TestCELTFixedQEXTNative96KEncodeDoesNotAllocateAfterWarmup|TestCELTFixedQEXTExtraAllocationMatchesLibopus)$' \
+    -count=1 -timeout=25m
+
   run_json_phase "candidate-$mode-fixed-qext-analysis" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json -tags "gopus_fixed_point,gopus_qext${feature_scalar_tag}" \
@@ -265,7 +272,7 @@ for mode in simd nosimd; do
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json -tags "gopus_fixed_point,gopus_qext${feature_scalar_tag}" \
     . ./internal/fixedpoint \
-    -run '^(TestPublicFixedQEXTCELTReceivedFramesMatchSelectedReference|TestPublicFixedQEXTCELTMainWithoutExtensionMatchesSelectedReference|TestPublicFixedQEXTSmallBufferDoesNotAdvanceCELTState|TestPublicFixedQEXTLostCELTFrameMatchesSelectedReference|TestPublicFixedQEXTLostCELTBurstMatchesSelectedReference|TestPublicFixedQEXTStructuralMalformedPacketPreservesCELTState|TestAlgQuantQEXTMatchesFixedLibopus|TestAlgUnquantQEXTMatchesSelectedLibopus|TestQuantAllBandsDecodeOracle|TestQuantAllBandsDecodeQEXTMatchesSelectedLibopus|TestQuantPartitionQEXTUsesZeroResolutionCubicLeaf)$' \
+    -run '^(TestPublicFixedQEXTCELTReceivedFramesMatchSelectedReference|TestPublicFixedQEXTCELTMainWithoutExtensionMatchesSelectedReference|TestPublicFixedQEXTSmallBufferDoesNotAdvanceCELTState|TestPublicFixedQEXTLostCELTFrameMatchesSelectedReference|TestPublicFixedQEXTLostCELTBurstMatchesSelectedReference|TestPublicFixedQEXTStructuralMalformedPacketPreservesCELTState|TestPublicFixedQEXTHybridReceivedFramesMatchSelectedReference|TestPublicFixedQEXTCELTToHybridTransitionMatchesSelectedReference|TestPublicFixedQEXTHybridToCELTTransitionMatchesSelectedReference|TestPublicFixedQEXTHybridLostFrameMatchesSelectedReference|TestPublicFixedQEXTHybridLowerRateAndDownmixMatchesSelectedReference|TestPublicFixedQEXTHybridFECMatchesSelectedReference|TestPublicFixedQEXTHybridRedundancyDirectionsMatchSelectedReference|TestNative96kDecodeMatchesQEXTOracle(Mono|Stereo)|TestQEXTDecode96kOracleProducesNative96k|TestNative96kDecodeCrossFramePostfilterParity|TestNative96kIntegerDecodeFormatsMatchQEXTOracle|TestNative96kIntegerDecodeSmallBufferPreservesState|TestNative96kIntegerDecodeGainMatchesQEXTOracle|TestNative96kMixedIntegerFormatsMatchQEXTOracle|TestAlgQuantQEXTMatchesFixedLibopus|TestAlgUnquantQEXTMatchesSelectedLibopus|TestQuantAllBandsDecodeOracle|TestQuantAllBandsDecodeQEXTMatchesSelectedLibopus|TestQuantPartitionQEXTUsesZeroResolutionCubicLeaf)$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-fixed-surround" \
@@ -313,6 +320,20 @@ for mode in simd nosimd; do
     -tags "gopus_dred${feature_scalar_tag}" . ./internal/lpcnetplc \
     -run '^Test(DREDLowDelayReferenceOffsetAgainstLibopus|DREDLowDelayFullSequenceEncoderMatchesLibopus|DREDLongLossPCMMatchesLibopusRawBits|DREDLongSequenceAllDecodedPCMMatchesLibopusRawBits|DecoderCELTNeuralPLCAPIRatesMatchesLibopusRawBits|DREDBurgSelectedCFirstLossRawBits|DREDPredictorSelectedCFirstLossRawBits|ExplicitDRED.*Quality.*SixtyPercentLoss)$' \
     -count=1 -timeout=10m
+
+  run_json_phase "candidate-$mode-dred-qext-reference-packet-contract" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json -tags "gopus_dred,gopus_qext${feature_scalar_tag}" \
+    . ./internal/encoder ./internal/libopustest ./internal/libopustooling ./multistream \
+    -run '^(TestCombinedDREDQEXTBuildOptionalExtensionContract|TestCombinedDREDQEXTBuildPublicAPIContract|TestDREDQEXTFloatSurroundMasksMatchSelectedLibopus|TestMaybeBuildSingleFrameDREDPacketCarriesQEXTAndDRED|TestEncodeCELTDREDQEXTPacketCarriesBothExtensions|TestMaybeBuildLongCELTDREDQEXTPacketCarriesBothExtensions|TestResolveLibopusDREDQEXTReferenceMatchesGoISA|TestHelperRefDirSelectsDREDQEXTTree|TestCHelperReferenceSelectionRejectsConflictingVariants|TestDREDQEXTReferenceVariantPairsScalarAndSIMD|TestValidateDREDQEXTReferenceBuildRequiresCombinedFlagsAndPairedISA|TestExistingReferenceBuildsRejectDREDAndDeepPLCFeatures|TestDREDQEXTBuildEnvironmentClearsConflictingFeatureFlags)$' \
+    -count=1 -timeout=10m
+
+  run_json_phase "candidate-$mode-dred-qext-multistream-parity-allocation" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json -tags "gopus_dred,gopus_qext${feature_scalar_tag}" \
+    ./multistream \
+    -run '^TestDREDQEXTSurroundAndProjectionEncodeMatchesLibopus$' \
+    -count=1 -timeout=25m
 
   run_phase "candidate-$mode-strict-cbr" \
     "${run_env[@]}" "$artifact_root/candidate-$mode-testvectors.test" \

@@ -195,6 +195,9 @@ func (d *Decoder) armFixedHybridLost(frameSizeAPI int, silkStereo bool) bool {
 func (d *Decoder) finishFixedHybridLost(frameSizeAPI int) bool {
 	filled := d.silkDecoder.PLCLowbandCaptured()
 	d.silkDecoder.ArmPLCLowbandCapture(nil)
+	if d.finishFixedQEXTHybridLost(frameSizeAPI, filled) {
+		return true
+	}
 	if d.fixedCELT == nil {
 		return false
 	}
@@ -268,6 +271,9 @@ func (d *Decoder) finishFixedHybridLost(frameSizeAPI int) bool {
 // celt_accum=1) adds at most one 20 ms CELT concealment frame. The SILK FEC
 // resampler output is int16 scaled by 1/32768 in the float decoder.
 func (d *Decoder) fixedDecodeHybridFEC(pcm []float32, frameSizeAPI, celtFrameSize int, celtBW celt.CELTBandwidth) bool {
+	if d.decodeFixedQEXTHybridFEC(pcm, frameSizeAPI, celtFrameSize, celtBW) {
+		return true
+	}
 	if !d.fixedPacketActive || frameSizeAPI <= 0 {
 		return false
 	}
@@ -345,6 +351,9 @@ func (d *Decoder) fixedHybridArmed() bool {
 // CELT decoder as the main hybrid highband, in the same order as the reference,
 // so the shared decode_mem / energy state stays bit-identical.
 func (d *Decoder) fixedDecodeRedundantCELT(redundantData []byte, celtBW celt.CELTBandwidth, reset bool) {
+	if d.decodeFixedQEXTRedundantCELT(redundantData, celtBW, reset) {
+		return
+	}
 	if !d.fixedHybridArmed() || d.fixedCELT == nil {
 		return
 	}
@@ -385,6 +394,9 @@ func (d *Decoder) fixedDecodeRedundantCELT(redundantData []byte, celtBW celt.CEL
 // reference. The transSizeAPI*channels opus_res output is captured in
 // d.fixedTransitionRes.
 func (d *Decoder) fixedDecodeTransitionPLC(transSizeAPI int) {
+	if d.decodeFixedQEXTTransitionPLC(transSizeAPI) {
+		return
+	}
 	if !d.fixedHybridArmed() || d.fixedCELT == nil {
 		return
 	}
@@ -526,9 +538,10 @@ func (d *Decoder) fixedApplyRedundancySilkToCelt(frameSize, fs int) {
 		d.markFixedUnhandled()
 		return
 	}
-	fixedpoint.SmoothFadeRes(res[start:], d.fixedRedundantRes[f2_5*channels:], res[start:], f2_5, channels, fs)
+	d.fixedSmoothFadeRes(res[start:], d.fixedRedundantRes[f2_5*channels:], res[start:], f2_5, channels, fs)
 	fixedRefreshInt16(res, int16Out)
 	d.fixedRedundancyApplied++
+	d.fixedRedundancySilkToCeltApplied++
 }
 
 // fixedApplyRedundancyCeltToSilk applies the integer CELT->SILK redundancy
@@ -550,9 +563,10 @@ func (d *Decoder) fixedApplyRedundancyCeltToSilk(frameSize, fs int) {
 			res[channels*i+c] = d.fixedRedundantRes[channels*i+c]
 		}
 	}
-	fixedpoint.SmoothFadeRes(d.fixedRedundantRes[f2_5*channels:], res[f2_5*channels:], res[f2_5*channels:], f2_5, channels, fs)
+	d.fixedSmoothFadeRes(d.fixedRedundantRes[f2_5*channels:], res[f2_5*channels:], res[f2_5*channels:], f2_5, channels, fs)
 	fixedRefreshInt16(res, int16Out)
 	d.fixedRedundancyApplied++
+	d.fixedRedundancyCeltToSilkApplied++
 }
 
 // fixedApplyTransition crossfades the previous mode's integer 5 ms PLC output
@@ -574,9 +588,9 @@ func (d *Decoder) fixedApplyTransition(frameSize, audiosize, fs int) {
 			return
 		}
 		copy(res[:f2_5*channels], trans[:f2_5*channels])
-		fixedpoint.SmoothFadeRes(trans[f2_5*channels:], res[f2_5*channels:], res[f2_5*channels:], f2_5, channels, fs)
+		d.fixedSmoothFadeRes(trans[f2_5*channels:], res[f2_5*channels:], res[f2_5*channels:], f2_5, channels, fs)
 	} else {
-		fixedpoint.SmoothFadeRes(trans, res, res, f2_5, channels, fs)
+		d.fixedSmoothFadeRes(trans, res, res, f2_5, channels, fs)
 	}
 	fixedRefreshInt16(res, int16Out)
 	d.fixedTransitionApplied++
@@ -596,6 +610,9 @@ func (d *Decoder) finishFixedHybrid() error {
 // with celt_accum=1. The combined opus_res / int16 output is stashed for the
 // DecodeInt16 / DecodeInt24 wrappers.
 func (d *Decoder) DecodeHybridHighband(silkInt16 []int16, filled int, rd *rangecoding.Decoder, frameSizeAPI, frameSize48 int, packetStereo bool) {
+	if d.decodeFixedQEXTHybridHighband(silkInt16, filled, rd, frameSizeAPI, frameSize48, packetStereo) {
+		return
+	}
 	channels := int(d.channels)
 	needed := frameSizeAPI * channels
 
@@ -681,6 +698,7 @@ func (d *Decoder) fixedClearHybridFrame() {
 	d.fixedHybridFrameActive = false
 	d.fixedRedundantValid = false
 	d.fixedTransitionValid = false
+	d.clearFixedQEXTHybrid()
 }
 
 // endFixedPacket disarms the accumulation. fixedAllHandled stays valid for the

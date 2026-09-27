@@ -344,6 +344,11 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		}
 		// Capture the final range from decoding the redundancy frame
 		redundantRng = d.celtDecoder.FinalRange()
+		if extsupport.QEXT {
+			if fixedRange, ok := d.fixedQEXTRedundantFinalRange(); ok {
+				redundantRng = fixedRange
+			}
+		}
 		return samples, nil
 	}
 
@@ -363,11 +368,16 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			// path is declined (no active packet, integer CELT not yet primed, or a
 			// rate below 48 kHz) the int16/int24 wrappers use the float conversion.
 			fixedHybridPLCArmed := false
-			if !extsupport.QEXT {
+			if extsupport.QEXT {
+				fixedHybridPLCArmed = d.armFixedQEXTHybridLost(frameSize, packetStereoLocal)
+			} else {
 				fixedHybridPLCArmed = d.armFixedHybridLost(frameSize, packetStereoLocal)
 			}
 			if !fixedHybridPLCArmed {
 				d.markFixedUnhandled()
+				if extsupport.QEXT {
+					d.invalidateFixedQEXTCELT()
+				}
 			}
 			if err := d.hybridDecoder.DecodePLCToFloat32WithPacketStereoInto(frameSize, packetStereoLocal, out); err != nil {
 				if fixedHybridPLCArmed {
@@ -389,7 +399,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			// SILK opus_res lowband). prepareFixedHybrid is a no-op in the default
 			// build and on the float Decode path, where the float conversion is used.
 			fixedHybridArmed := false
-			if !extsupport.QEXT {
+			if extsupport.QEXT {
+				fixedHybridArmed = d.prepareFixedQEXTHybrid(data, celtBW, needCeltReset, packetStereoLocal, qextPayload)
+			} else {
 				fixedHybridArmed = d.prepareFixedHybrid(data, celtBW, needCeltReset)
 			}
 			fixedHybridFrame = fixedHybridArmed
@@ -484,6 +496,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			}
 			// Capture the main decode's FinalRange before any redundancy post-processing
 			d.mainDecodeRng = d.hybridDecoder.FinalRange()
+			if fixedHybridArmed && extsupport.QEXT {
+				d.mainDecodeRng = d.fixedQEXTHybridFinalRange()
+			}
 		}
 
 	case ModeSILK:
@@ -691,7 +706,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		// DecodeInt24 can use its exact opus_res output. The dispatch is a no-op
 		// in the default build.
 		if data != nil && extsupport.QEXT {
-			handled, fixedErr := d.decodeFixedQEXTCELTFrame(rd, mainLen, min(F20, frameSize), packetStereoLocal, celtBW, qextPayload, transition)
+			handled, fixedErr := d.decodeFixedQEXTCELTFrame(rd, mainLen, min(F20, frameSize), packetStereoLocal, celtBW, qextPayload)
 			if fixedErr != nil {
 				return 0, fixedErr
 			}
@@ -706,11 +721,16 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			if !handled {
 				d.markFixedUnhandled()
 			}
-		} else if data == nil && extsupport.QEXT {
+		} else if data == nil && extsupport.QEXT && !d.fixedCELTPLCHookSuppressed() {
 			if !d.decodeFixedQEXTCELTLostFrame(min(F20, frameSize)) {
 				d.invalidateFixedQEXTCELT()
 				d.markFixedUnhandled()
 			}
+		} else if data == nil && extsupport.QEXT {
+			// A Hybrid transition already decoded this QEXT CELT PLC frame into
+			// fixedTransitionRes. The recursive float decode only fills the
+			// pcmTransition scratch and must not advance/append the QEXT sidecar a
+			// second time.
 		} else if data == nil && !extsupport.QEXT && !d.fixedCELTPLCHookSuppressed() {
 			// CELT-only packet loss: run the integer FIXED_POINT celt_decode_lost
 			// so the int16/int24 PLC output is bit-exact with opus_decode(NULL).

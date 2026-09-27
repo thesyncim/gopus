@@ -158,7 +158,7 @@ The status-capable oracle retains failed calls in its sequence. Isolated local
 ARM64 SIMD and `nosimd` checks pass together with the 54 received-frame cases
 and the independent band oracles; ordinary mode passes the focused loss gates.
 The type-parity guard retains 26 findings without baseline changes. Native
-AMD64 and mode-transition confirmation remain open.
+AMD64 confirmation remains open. The Hybrid transition checkpoint below supplies local mode-transition evidence.
 
 ### Fixed surround and automatic CELT encoding
 
@@ -193,11 +193,39 @@ protocol explicitly enables it. The active combined helper enables QEXT in
 both implementations and checks the control on each elementary stream.
 
 Isolated reference-selector regressions pass locally in SIMD and `nosimd`.
-These checks establish oracle identity. Combined public encoding remains in
-progress: 96-frame 5.1 and FOA sequences match packets/ranges at 384 kb/s,
-while a 768 kb/s 5.1 witness differs in elementary stream 2 at frame 1 in both
-scalar and SIMD. Warm combined allocation checks also remain failing. These
-working-tree witnesses remain active until their runtime causes are fixed.
+At 384 kb/s, 96-frame 5.1 and FOA public sequences match every packet and final
+range in both lanes, with zero warm per-frame and full-cycle allocations.
+Reusable extension-list and padding buffers keep multistream framing allocation-free.
+The float QEXT reservation follows C compound-assignment truncation; the direct
+mono-child witness matches selected C bytes/ranges in both instruction lanes.
+
+The complete 768 kb/s 5.1 witness remains a hard gate. At frame 10, coupled
+stream 1 differs only in its 215-byte QEXT payload, starting at byte 173.
+CELT main bytes, DRED bytes, packet lengths, masks, rates, and final ranges match.
+The failure reproduces in scalar and SIMD and remains selected by native CI.
+
+### Fixed-QEXT public encoder and Hybrid decoder checkpoint
+
+The active 48 kHz fixed-QEXT encoder matches all eight baseline packets and
+24 expanded cases covering frame sizes, CBR/CVBR/VBR, mono/stereo, three input
+formats, caller capacity and reset. VBR constraint transitions, including LFE
+and energy-mask controls, match selected C. Normal and greater-than-1275-byte
+output paths allocate zero after warmup.
+
+Native 96 kHz fixed-QEXT encoding matches selected FIXED_POINT+ENABLE_QEXT C in
+96 combinations: two channel counts, four durations, runtime QEXT on/off,
+256/4000-byte buffers, and three bitrate modes. Each checks four frames with
+mixed int16/float32/int24 input, a reset, exact packets/ranges and zero warm
+allocations. The evidence covers CELT-only ApplicationAudio with forced channel counts.
+Automatic stereo channel selection remains an identified native-route gap;
+other applications and compatibility routes require separate parity evidence.
+
+Hybrid selected-C decode tests cover active/absent/same-packet ignored QEXT,
+persistent state and reset, CELT↔Hybrid transitions, loss recovery, lower rates,
+stereo downmix, FEC and both explicit redundancy directions. PCM and final
+ranges match with zero warm allocations. Redundancy packets use the selected
+fixed-QEXT C encoder. Public encoder and Hybrid decoder gates pass local ARM64
+ordinary, SIMD and nosimd builds; native AMD64 confirmation is pending.
 
 ### Extension checkpoint
 
@@ -346,13 +374,9 @@ default shared-path gates also pass. At `e8eb7bc5`, public automatic fixed
 encoding additionally matches selected C for the tested SILK and Hybrid
 sequences described above. Four fresh 96 kHz float-QEXT packet/range cases
 pass ordinary, SIMD, and `nosimd`. Automatic fixed CELT and surround evidence
-appears above. Active public fixed-QEXT encoding remains in progress: the
-uncommitted 48 kHz bridge matches 8/8 packets across mono/stereo and four
-persistent frames; CVBR→CBR and unconstrained-VBR→CBR histories also match. Replaying the captured inputs through the inner fixed CELT
-encoder matches main and extension bytes for all four frames per channel
-layout. Native 96 kHz inner oracles also match C; public integration, broader
-encoder coverage, and combined DRED+QEXT validation remain open. These working-tree
-results do not constitute a published encoder checkpoint.
+appears above. The fixed-QEXT public encoder checkpoint above covers active 48 kHz and native
+96 kHz CELT encoding. Combined DRED+QEXT retains the explicit high-rate residual
+above; full codec/extension parity is not established.
 
 [Native run 36284981747](https://github.com/thesyncim/gopus/actions/runs/36284981747)
 at `8bc2ed7c` supplies completed extension and benchmark phases; the full

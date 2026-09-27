@@ -64,7 +64,7 @@ func TestOpPvqSearchMatchesLibopusFixed(t *testing.T) {
 					libopustest.HelperUnavailable(t, "CELT fixed pvq", err)
 				}
 
-				iy := make([]int, c.n)
+				iy := make([]int32, c.n)
 				gotYY := OpPvqSearch(xGo, iy, c.k, c.n, nil)
 
 				if gotYY != wantYY {
@@ -72,7 +72,7 @@ func TestOpPvqSearchMatchesLibopusFixed(t *testing.T) {
 						c.n, c.k, r.name, trial, gotYY, wantYY)
 				}
 				for i := 0; i < c.n; i++ {
-					if int32(iy[i]) != wantIY[i] {
+					if iy[i] != wantIY[i] {
 						t.Fatalf("OpPvqSearch iy[%d] N=%d K=%d range=%s trial=%d got=%d want=%d",
 							i, c.n, c.k, r.name, trial, iy[i], wantIY[i])
 					}
@@ -109,14 +109,14 @@ func TestOpPvqSearchSilencePathsMatchLibopusFixed(t *testing.T) {
 			libopustest.HelperUnavailable(t, "CELT fixed pvq", err)
 		}
 
-		iy := make([]int, len(in.x))
+		iy := make([]int32, len(in.x))
 		gotYY := OpPvqSearch(xGo, iy, in.k, len(in.x), nil)
 
 		if gotYY != wantYY {
 			t.Fatalf("OpPvqSearch[%s] yy got=%d want=%d", in.name, gotYY, wantYY)
 		}
 		for i := range in.x {
-			if int32(iy[i]) != wantIY[i] {
+			if iy[i] != wantIY[i] {
 				t.Fatalf("OpPvqSearch[%s] iy[%d] got=%d want=%d", in.name, i, iy[i], wantIY[i])
 			}
 		}

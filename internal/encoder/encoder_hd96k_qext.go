@@ -6,8 +6,8 @@ import "github.com/thesyncim/gopus/internal/celt"
 
 // Native 96 kHz (Opus HD / QEXT) top-level packet framing.
 //
-// At Fs=96000 libopus runs a CELT-only fullband encode (config 31, 20 ms /
-// 1920 samples) and carries the >20 kHz extension-band data in a reserved QEXT
+// At Fs=96000 libopus runs CELT-only fullband frames (configs 28–31, 2.5–20 ms /
+// 240–1920 samples) and, when QEXT is enabled at runtime, carries the >20 kHz extension-band data in a reserved QEXT
 // extension that rides inside the Opus padding region. The packet layout is
 // produced by celt_encode_with_ec() itself (celt/celt_encoder.c lines
 // 2562-2581 under ENABLE_QEXT):
@@ -27,6 +27,7 @@ import "github.com/thesyncim/gopus/internal/celt"
 // assembles them into the final Opus packet byte-for-byte.
 
 const hd96kFrameSize = 1920
+const hd96kQEXTPacketSizeCap = 3825
 
 // hd96kQEXTExtIDByte is QEXT_EXTENSION_ID<<1 (124<<1), the extension-ID byte
 // that precedes the QEXT payload in the padding region.
@@ -36,17 +37,24 @@ const hd96kQEXTExtIDByte = byte(qextExtensionID << 1)
 // assembles the complete Opus packet (TOC + frame-count + padding-length +
 // main CELT payload + QEXT extension). It mirrors the libopus --enable-qext
 // Fs=96000 encode path. pcm holds frameSize*channels interleaved float samples
-// at 96 kHz; frameSize must be hd96kFrameSize (20 ms). dst receives the packet.
+// at 96 kHz; frameSize must be 240, 480, 960, or 1920 samples per channel.
+// dst receives the packet.
 //
 // The CELT main payload and QEXT payload are produced by the native HD96k CELT
 // encode; this routine owns only the top-level Opus framing of those payloads.
 func (e *Encoder) EncodeNativeHD96k(pcm []float32, frameSize int, dst []byte) (int, error) {
-	if frameSize != hd96kFrameSize {
+	if !validHD96kFrameSize(frameSize) {
 		return 0, ErrInvalidFrameSize
 	}
 	channels := int(e.channels)
 	if len(pcm) != frameSize*channels {
 		return 0, ErrInvalidFrameSize
+	}
+	if len(dst) < 3 {
+		return 0, ErrInvalidConfig
+	}
+	if n, handled, err := e.encodeNativeHD96kFixed(pcm, frameSize, dst); handled || err != nil {
+		return n, err
 	}
 
 	e.ensureCELTEncoder()
@@ -54,7 +62,7 @@ func (e *Encoder) EncodeNativeHD96k(pcm []float32, frameSize int, dst []byte) (i
 	if !ce.HD96kEncodeEnabled() {
 		ce.EnableHD96kMode()
 	}
-	ce.SetQEXTEnabled(true)
+	ce.SetQEXTEnabled(e.qextActive())
 	ce.SetStreamChannels(channels)
 	ce.SetBandwidth(celt.CELTFullband)
 	ce.SetHybrid(false)
@@ -66,18 +74,28 @@ func (e *Encoder) EncodeNativeHD96k(pcm []float32, frameSize int, dst []byte) (i
 	// Every CELT frame sets the prediction (src/opus_encoder.c:2288-2295).
 	ce.SetPrediction(e.celtPredictionMode())
 	ce.SetComplexity(int(e.complexity))
-	ce.SetBitrate(int(e.bitrate))
-	switch e.bitrateMode {
-	case ModeCBR:
-		ce.SetVBR(false)
-		ce.SetConstrainedVBR(false)
-	case ModeCVBR:
-		ce.SetVBR(true)
-		ce.SetConstrainedVBR(true)
-	case ModeVBR:
-		ce.SetVBR(true)
-		ce.SetConstrainedVBR(false)
+	useVBR := e.bitrateMode != ModeCBR
+	if useVBR {
+		ce.SetBitrate(int(e.bitrate))
 	}
+	ce.SetVBR(useVBR)
+	if useVBR {
+		ce.SetConstrainedVBR(e.bitrateMode == ModeCVBR)
+	}
+	packetCap := libopusMaxDataBytesCap
+	if e.qextActive() {
+		packetCap = hd96kQEXTPacketSizeCap
+	}
+	maxDataBytes := min(len(dst), packetCap*6)
+	if !useVBR {
+		cbrBytes := min((bitrateToBitsFs(int(e.bitrate), 96000, frameSize)+4)/8, maxDataBytes)
+		maxDataBytes = max(1, cbrBytes)
+	}
+	maxPayloadBytes := maxDataBytes - 1 // opus_encode_frame_native reserves the TOC byte.
+	if maxPayloadBytes < 2 {
+		return 0, ErrInvalidConfig
+	}
+	ce.SetMaxPayloadBytes(maxPayloadBytes)
 
 	mainPayload, err := ce.EncodeFrame(pcm, frameSize)
 	if err != nil {
@@ -93,8 +111,11 @@ func (e *Encoder) EncodeNativeHD96k(pcm []float32, frameSize int, dst []byte) (i
 	// The native 96 kHz CELT path always produces a frame, so mark it coded.
 	e.first = false
 
-	stereo := channels == 2
-	return assembleHD96kPacket(dst, mainPayload, qextPayload, stereo)
+	return assembleHD96kPacket(dst, frameSize, mainPayload, qextPayload, channels == 2)
+}
+
+func validHD96kFrameSize(frameSize int) bool {
+	return frameSize == 240 || frameSize == 480 || frameSize == 960 || frameSize == hd96kFrameSize
 }
 
 // assembleHD96kPacket lays out the native 96 kHz CELT-only fullband Opus
@@ -104,9 +125,12 @@ func (e *Encoder) EncodeNativeHD96k(pcm []float32, frameSize int, dst []byte) (i
 // When qextPayload is empty (QEXT not reserved for this frame) the packet uses
 // code 0 (single frame, no padding) so the framing degrades to a plain CELT FB
 // packet, exactly as libopus does when qext_bytes <= 20.
-func assembleHD96kPacket(dst, mainPayload, qextPayload []byte, stereo bool) (int, error) {
-	// config 31: CELT-only fullband, 20 ms.
-	const config = 31
+func assembleHD96kPacket(dst []byte, frameSize int, mainPayload, qextPayload []byte, stereo bool) (int, error) {
+	// CELT-only fullband configs map 2.5/5/10/20 ms to 28/29/30/31.
+	config := 28
+	for size := 240; size < frameSize; size <<= 1 {
+		config++
+	}
 	toc := byte(config << 3)
 	if stereo {
 		toc |= 0x04

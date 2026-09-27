@@ -34,6 +34,7 @@ type CELTFixedQ8Params struct {
 	SampleRate, Channels, StreamChannels, FrameSize, Start, End int
 	Bitrate, Complexity, LSBDepth                               int
 	VBR, ConstrainedVBR, LFE                                    bool
+	QEXTEnabled                                                 bool
 	Frames                                                      []CELTFixedQ8Frame
 }
 
@@ -72,17 +73,20 @@ func buildCELTFixedQ8QEXTHelper() (string, error) {
 }
 
 func ProbeCELTFixedRawQ8(p CELTFixedQ8Params) ([]CELTFixedQ8Record, error) {
-	return probeCELTFixedRawQ8(p, &celtFixedQ8Helper, buildCELTFixedQ8Helper)
+	if p.QEXTEnabled || p.SampleRate == 96000 {
+		return nil, fmt.Errorf("fixed CELT Q8 helper does not support runtime QEXT or native 96 kHz")
+	}
+	return probeCELTFixedRawQ8(p, &celtFixedQ8Helper, buildCELTFixedQ8Helper, false)
 }
 
 // ProbeCELTFixedQEXTQ8 runs the same fixed Q8 CELT encode helper against the
 // independently built FIXED_POINT + ENABLE_QEXT reference archive.
 func ProbeCELTFixedQEXTQ8(p CELTFixedQ8Params) ([]CELTFixedQ8Record, error) {
-	return probeCELTFixedRawQ8(p, &celtFixedQ8QEXTHelper, buildCELTFixedQ8QEXTHelper)
+	return probeCELTFixedRawQ8(p, &celtFixedQ8QEXTHelper, buildCELTFixedQ8QEXTHelper, true)
 }
 
-func probeCELTFixedRawQ8(p CELTFixedQ8Params, helper *HelperCache, build func() (string, error)) ([]CELTFixedQ8Record, error) {
-	payload, err := fixedCELTQ8Payload(p)
+func probeCELTFixedRawQ8(p CELTFixedQ8Params, helper *HelperCache, build func() (string, error), allowQEXT bool) ([]CELTFixedQ8Record, error) {
+	payload, err := fixedCELTQ8Payload(p, allowQEXT)
 	if err != nil {
 		return nil, err
 	}
@@ -110,12 +114,22 @@ func probeCELTFixedRawQ8(p CELTFixedQ8Params, helper *HelperCache, build func() 
 	return out, nil
 }
 
-func fixedCELTQ8Payload(p CELTFixedQ8Params) (*OraclePayload, error) {
+func fixedCELTQ8Payload(p CELTFixedQ8Params, allowQEXT bool) (*OraclePayload, error) {
 	validRate := false
 	for _, rate := range [...]int{8000, 12000, 16000, 24000, 48000} {
 		validRate = validRate || p.SampleRate == rate
 	}
-	if !validRate || p.Channels < 1 || p.Channels > 2 || p.FrameSize <= 0 || p.FrameSize > 960 ||
+	if allowQEXT && p.SampleRate == 96000 {
+		validRate = true
+	}
+	maxFrameSize := 960
+	if p.SampleRate == 96000 {
+		maxFrameSize = 1920
+	}
+	if p.QEXTEnabled && !allowQEXT {
+		return nil, fmt.Errorf("runtime QEXT requires the paired fixed-QEXT CELT helper")
+	}
+	if !validRate || p.Channels < 1 || p.Channels > 2 || p.FrameSize <= 0 || p.FrameSize > maxFrameSize ||
 		p.Start < 0 || p.Start >= p.End || p.End > 21 ||
 		p.Complexity < 0 || p.Complexity > 10 || p.LSBDepth < 8 || p.LSBDepth > 24 ||
 		len(p.Frames) < 1 || len(p.Frames) > 256 ||
@@ -129,8 +143,12 @@ func fixedCELTQ8Payload(p CELTFixedQ8Params) (*OraclePayload, error) {
 	if streamChannels < 1 || streamChannels > p.Channels {
 		return nil, fmt.Errorf("invalid fixed CELT Q8 stream channel count")
 	}
-	core := p.FrameSize * (48000 / p.SampleRate)
-	if core != 120 && core != 240 && core != 480 && core != 960 {
+	core := p.FrameSize
+	if p.SampleRate != 96000 {
+		core = p.FrameSize * (48000 / p.SampleRate)
+	}
+	if core != 120 && core != 240 && core != 480 && core != 960 &&
+		!(p.SampleRate == 96000 && core == 1920) {
 		return nil, fmt.Errorf("fixed CELT Q8 core frame size %d", core)
 	}
 	perFrame := p.FrameSize * p.Channels
@@ -155,10 +173,18 @@ func fixedCELTQ8Payload(p CELTFixedQ8Params) (*OraclePayload, error) {
 		}
 		return 0
 	}
-	payload := NewOraclePayloadVersion("GQRI", 3, uint32(p.Channels), uint32(streamChannels), uint32(p.FrameSize),
+	version := uint32(3)
+	if p.QEXTEnabled || p.SampleRate == 96000 {
+		version = 4
+	}
+	payload := NewOraclePayloadVersion("GQRI", version, uint32(p.Channels), uint32(streamChannels), uint32(p.FrameSize),
 		uint32(p.Start), uint32(p.End), uint32(int32(p.Bitrate)), uint32(p.Complexity),
 		uint32(p.SampleRate), b2u(p.VBR), b2u(p.ConstrainedVBR), b2u(p.LFE),
-		uint32(p.LSBDepth), uint32(len(p.Frames)))
+		uint32(p.LSBDepth))
+	if version >= 4 {
+		payload.U32(b2u(p.QEXTEnabled))
+	}
+	payload.U32(uint32(len(p.Frames)))
 	for _, frame := range p.Frames {
 		payload.U32(uint32(frame.MaxBytes))
 		payload.U32(uint32(perFrame))

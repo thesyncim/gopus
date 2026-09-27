@@ -29,6 +29,8 @@
  *   IN v7 appends u32(lfe), then one per-frame energy-mask action. Action 0
  *       leaves the control unchanged, action 1 sets channels*21 Q24 celt_glog
  *       values, and action 2 clears the control with a nil pointer.
+ *   IN v8 packs reset and per-frame VBR action into the reset word: bit 0 is
+ *       reset_before, bits 1-2 are VBR action (0 unchanged, 1 enable, 2 disable).
  *
  * force_mode values map to opus_private.h:
  *   1000 = MODE_SILK_ONLY, 1001 = MODE_HYBRID, 1002 = MODE_CELT_ONLY,
@@ -119,7 +121,7 @@ int main(void) {
     return 1;
   }
   uint32_t version;
-  if (!read_u32(&version) || (version < 1 || version > 7)) {
+  if (!read_u32(&version) || (version < 1 || version > 8)) {
     fprintf(stderr, "bad input version %u\n", version);
     return 1;
   }
@@ -236,7 +238,9 @@ int main(void) {
       return 1;
     }
     for (uint32_t i = 0; i < num_frames; i++) {
-      if (!read_u32(&reset_before[i]) || reset_before[i] > 1) {
+      if (!read_u32(&reset_before[i]) ||
+          (version < 8 && reset_before[i] > 1) ||
+          (version >= 8 && (reset_before[i] & ~7u) != 0)) {
         fprintf(stderr, "invalid reset flag %u\n", i);
         free(reset_before); free(raw); free(pcm_float); free(pcm);
         return 1;
@@ -379,10 +383,18 @@ int main(void) {
   uint32_t got = 0;
   size_t per = (size_t)frame_size * channels;
   for (uint32_t f = 0; f < num_frames; f++) {
-    if (version >= 2 && reset_before[f] != 0 &&
+    if (version >= 2 && (reset_before[f] & 1u) != 0 &&
         opus_encoder_ctl(enc, OPUS_RESET_STATE) != OPUS_OK) {
       fprintf(stderr, "reset failed at frame %u\n", f);
       goto fail;
+    }
+    if (version >= 8) {
+      uint32_t vbr_action = (reset_before[f] >> 1) & 3u;
+      if (vbr_action > 2 || (vbr_action != 0 &&
+          opus_encoder_ctl(enc, OPUS_SET_VBR((opus_int32)(vbr_action == 1))) != OPUS_OK)) {
+        fprintf(stderr, "per-frame VBR ctl failed at frame %u\n", f);
+        goto fail;
+      }
     }
     /* FORCE_MODE is cleared after each call in libopus; reassert it. */
     if (force_mode != 0) {

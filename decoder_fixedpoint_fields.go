@@ -84,8 +84,10 @@ type decoderFixedFields struct {
 	// integer output was finished by the opus_res-domain redundancy / transition
 	// crossfade. They are diagnostic counters used by the parity gate to confirm
 	// the paths are exercised.
-	fixedRedundancyApplied int
-	fixedTransitionApplied int
+	fixedRedundancyApplied           int
+	fixedTransitionApplied           int
+	fixedRedundancySilkToCeltApplied int
+	fixedRedundancyCeltToSilkApplied int
 
 	// fixedHybridPLCSilk receives the resampled int16 SILK PLC lowband captured
 	// during the float hybrid PLC decode (armed via the SILK decoder), used to
