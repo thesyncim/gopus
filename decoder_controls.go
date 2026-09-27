@@ -6,6 +6,7 @@ func (d *Decoder) Reset() {
 	d.silkDecoder.Reset()
 	d.celtDecoder.Reset()
 	d.resetFixedCELT()
+	d.resetFixedQEXTCELT()
 	d.hybridDecoder.Reset()
 	// Use the internal 48 kHz rate for lastFrameSize when the API is 96 kHz.
 	// C ref: opus_decoder.c OPUS_RESET_STATE, st->frame_size = Fs/400.
@@ -70,6 +71,7 @@ func (d *Decoder) Gain() int {
 // SetPhaseInversionDisabled toggles CELT stereo phase inversion during decoding.
 func (d *Decoder) SetPhaseInversionDisabled(disabled bool) {
 	d.celtDecoder.SetPhaseInversionDisabled(disabled)
+	d.setFixedQEXTPhaseInversionDisabled(disabled)
 }
 
 // PhaseInversionDisabled reports whether CELT stereo phase inversion is disabled.

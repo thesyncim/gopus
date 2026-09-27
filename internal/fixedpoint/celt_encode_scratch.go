@@ -57,10 +57,16 @@ type celtEncodeScratch struct {
 
 	// Per-band scratch shared by AlgQuant / OpPvqSearch / the Hadamard
 	// (de)interleave; reused across every band of every frame.
-	pvqIy       []int   // AlgQuant codeword (N+3 headroom)
-	pvqY        []int32 // OpPvqSearch working codeword
-	pvqSignx    []bool  // OpPvqSearch sign mask
-	hadamardTmp []int32 // (de)interleaveHadamard transpose buffer
+	pvqIy        []int    // AlgQuant codeword (N+3 headroom)
+	pvqY         []int32  // OpPvqSearch working codeword
+	pvqSignx     []bool   // OpPvqSearch sign mask
+	qextIy       []int32  // QEXT base pulse vector
+	qextUpIy     []int32  // QEXT refined pulse vector
+	qextRefine   []int32  // QEXT per-dimension refinement values
+	qextXNorm    []int32  // QEXT normalized absolute input
+	qextCWRS     []uint32 // QEXT base pulse CWRS row
+	qextRounding []int32  // QEXT PVQ refinement rounding scores
+	hadamardTmp  []int32  // (de)interleaveHadamard transpose buffer
 
 	// Analysis buffers.
 	toneLPC      []int32 // toneDetect LPC coeffs (length 2)

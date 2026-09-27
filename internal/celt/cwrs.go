@@ -1274,6 +1274,16 @@ func encodePulsesFast32(y []int32, n, k int, uBuf *[]uint32) uint32 {
 	return index
 }
 
+// EncodePulses32Scratch converts a fixed-width signed pulse vector to its CWRS
+// index. It mirrors celt/vq.c encode_pulses for FIXED_POINT callers and reuses
+// the caller's CWRS scratch buffer when supplied.
+func EncodePulses32Scratch(y []int32, n, k int, uBuf *[]uint32) uint32 {
+	if len(y) != n {
+		return 0
+	}
+	return encodePulsesFast32(y, n, k, uBuf)
+}
+
 // ClearCache is a no-op for compatibility.
 // The new implementation uses a static table and doesn't need cache clearing.
 func ClearCache() {

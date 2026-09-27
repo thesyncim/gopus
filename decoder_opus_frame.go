@@ -669,6 +669,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		if needCeltReset {
 			d.celtDecoder.Reset()
 			d.resetFixedCELT()
+			d.resetFixedQEXTCELT()
 			if data != nil {
 				d.celtDecoder.SetBandwidth(celtBW)
 			}
@@ -685,11 +686,19 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		// Capture the main decode's FinalRange (no redundancy post-processing for CELT-only)
 		d.mainDecodeRng = d.celtDecoder.FinalRange()
 
-		// Under -tags gopus_fixed_point, an active integer-output packet
-		// (DecodeInt16 / DecodeInt24) additionally runs the integer FIXED_POINT
-		// CELT decoder to accumulate libopus-exact int16/int24 output. The
-		// dispatch is a no-op in the default build and on the float Decode path.
-		if data != nil && !extsupport.QEXT {
+		// Under -tags gopus_fixed_point, an active public decode packet also
+		// runs the integer FIXED_POINT CELT decoder so Decode, DecodeInt16, and
+		// DecodeInt24 can use its exact opus_res output. The dispatch is a no-op
+		// in the default build.
+		if data != nil && extsupport.QEXT {
+			handled, fixedErr := d.decodeFixedQEXTCELTFrame(rd, mainLen, min(F20, frameSize), packetStereoLocal, celtBW, qextPayload, transition)
+			if fixedErr != nil {
+				return 0, fixedErr
+			}
+			if !handled {
+				d.markFixedUnhandled()
+			}
+		} else if data != nil {
 			handled, fixedErr := d.celtDecodeFixedAPIRate(data, min(F20, frameSize), packetStereoLocal, celtBW, out)
 			if fixedErr != nil {
 				return 0, fixedErr
@@ -697,6 +706,11 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			if !handled {
 				d.markFixedUnhandled()
 			}
+		} else if data == nil && extsupport.QEXT {
+			// The received-frame QEXT sidecar does not advance its Q31 PLC state
+			// yet. Decline exact output for this frame and later frames until reset.
+			d.invalidateFixedQEXTCELT()
+			d.markFixedUnhandled()
 		} else if data == nil && !extsupport.QEXT && !d.fixedCELTPLCHookSuppressed() {
 			// CELT-only packet loss: run the integer FIXED_POINT celt_decode_lost
 			// so the int16/int24 PLC output is bit-exact with opus_decode(NULL).

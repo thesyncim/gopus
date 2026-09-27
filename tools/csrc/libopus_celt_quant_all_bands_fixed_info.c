@@ -11,6 +11,7 @@
 #include "config.h"
 #include "celt/arch.h"
 #include "celt/entdec.h"
+#include "celt/celt.h"
 #include "celt/modes.h"
 #include "celt/bands.h"
 #include "opus_custom.h"
@@ -69,6 +70,10 @@ int main(void) {
   int32_t total_bits, balance;
   uint32_t i, padded, N, total_x;
   int *pulses = NULL, *tf_res = NULL;
+#ifdef ENABLE_QEXT
+  int *extra_pulses = NULL, *extra_caps = NULL;
+  ec_dec ext_dec;
+#endif
   unsigned char *coded = NULL;
   celt_norm *X = NULL;
   unsigned char *collapse_masks = NULL;
@@ -100,6 +105,13 @@ int main(void) {
   pulses = (int *)malloc(nbEBands * sizeof(int));
   tf_res = (int *)malloc(nbEBands * sizeof(int));
   if (!pulses || !tf_res) goto done;
+#ifdef ENABLE_QEXT
+  extra_pulses = (int *)calloc(nbEBands + NB_QEXT_BANDS, sizeof(int));
+  extra_caps = (int *)calloc(nbEBands + NB_QEXT_BANDS, sizeof(int));
+  if (!extra_pulses || !extra_caps) goto done;
+  /* Match celt_decode_with_ec when the runtime extension payload is absent. */
+  ec_dec_init(&ext_dec, NULL, 0);
+#endif
   for (i = 0; i < nbEBands; i++) {
     uint32_t v;
     if (!read_u32(&v)) goto done;
@@ -135,7 +147,11 @@ int main(void) {
                   channels == 2 ? X + N : NULL, collapse_masks, NULL, pulses,
                   (int)shortBlocks, (int)spread, (int)dual_stereo, (int)intensity,
                   tf_res, total_bits, balance, &dec, (int)LM, (int)codedBands,
-                  &seed, 0, 0, (int)disable_inv);
+                  &seed, 0, 0, (int)disable_inv
+#ifdef ENABLE_QEXT
+                  , &ext_dec, extra_pulses, 0, extra_caps
+#endif
+                  );
 
   if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) || !write_u32(N) ||
       !write_u32(channels) || !write_u32(seed)) {
@@ -158,6 +174,10 @@ int main(void) {
 done:
   free(pulses);
   free(tf_res);
+#ifdef ENABLE_QEXT
+  free(extra_pulses);
+  free(extra_caps);
+#endif
   free(coded);
   free(X);
   free(collapse_masks);

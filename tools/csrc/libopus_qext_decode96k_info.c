@@ -8,10 +8,12 @@
  * celt.HD96kMode + the qext extension decode chain.
  *
  * Protocol (little-endian):
- *   in : "GQDI" magic, u32 version(=1|2|3),
+ *   in : "GQDI" magic, u32 version(=1|2|3|4|5),
  *        u32 sampleFormat (0=float32, 1=int16, 2=int24; version 3 uses 2),
  *        u32 channels (1|2), u32 maxFrameSize (per-channel samples at 96 kHz),
- *        u32 packetCount, [version 2 or 3: i32 output gain in Q8 dB],
+ *        u32 packetCount, [version 2/3/4: i32 output gain in Q8 dB],
+ *        [version 4/5: u32 sampleRate (48000|96000)],
+ *        [version 5: u32 phaseInversionDisabled (0|1)],
  *        then for each packet: [version 3: u32 sampleFormat (1|2)],
  *        u32 packetLen, packetLen bytes
  *   out: "GQDO" magic, matching version,
@@ -118,6 +120,8 @@ int main(void) {
   int32_t gain_q8 = 0;
   uint32_t sample_format = SAMPLE_FORMAT_FLOAT32;
   uint32_t channels = 0;
+  uint32_t sample_rate = 96000;
+  uint32_t phase_inversion_disabled = 0;
   uint32_t frame_size = 0;
   uint32_t packet_count = 0;
   size_t frame_samples = 0;
@@ -140,7 +144,7 @@ int main(void) {
     fprintf(stderr, "invalid input magic\n");
     return 1;
   }
-  if (!read_u32(&version) || (version != 1 && version != 2 && version != 3)) {
+  if (!read_u32(&version) || (version != 1 && version != 2 && version != 3 && version != 4 && version != 5)) {
     fprintf(stderr, "unsupported input version\n");
     return 1;
   }
@@ -152,12 +156,28 @@ int main(void) {
     fprintf(stderr, "failed to read gain\n");
     return 1;
   }
+  if (version >= 4 && !read_u32(&sample_rate)) {
+    fprintf(stderr, "failed to read sample rate\n");
+    return 1;
+  }
+  if (version == 5 && !read_u32(&phase_inversion_disabled)) {
+    fprintf(stderr, "failed to read phase-inversion control\n");
+    return 1;
+  }
   if (sample_format != SAMPLE_FORMAT_FLOAT32 && sample_format != SAMPLE_FORMAT_INT16 && sample_format != SAMPLE_FORMAT_INT24) {
     fprintf(stderr, "unsupported sample format\n");
     return 1;
   }
   if (version == 3 && sample_format != SAMPLE_FORMAT_INT24) {
     fprintf(stderr, "mixed-format output must use int32 samples\n");
+    return 1;
+  }
+  if (version >= 4 && sample_rate != 48000 && sample_rate != 96000) {
+    fprintf(stderr, "unsupported native QEXT sample rate\n");
+    return 1;
+  }
+  if (version == 5 && phase_inversion_disabled > 1) {
+    fprintf(stderr, "invalid phase-inversion control\n");
     return 1;
   }
   if (channels == 0 || channels > 2 || frame_size == 0) {
@@ -183,15 +203,21 @@ int main(void) {
     return 1;
   }
 
-  /* Native 96 kHz: with ENABLE_QEXT this runs the 96 kHz CELT mode. */
-  dec = opus_decoder_create(96000, (int)channels, &err);
+  /* The selected native QEXT mode is chosen by the API sample rate. */
+  dec = opus_decoder_create((int)sample_rate, (int)channels, &err);
   if (dec == NULL || err != OPUS_OK) {
-    fprintf(stderr, "opus_decoder_create(96000) failed: %d\n", err);
+    fprintf(stderr, "opus_decoder_create(%u) failed: %d\n", sample_rate, err);
     free(frame);
     return 1;
   }
   if (version >= 2 && opus_decoder_ctl(dec, OPUS_SET_GAIN(gain_q8)) != OPUS_OK) {
     fprintf(stderr, "OPUS_SET_GAIN failed\n");
+    opus_decoder_destroy(dec);
+    free(frame);
+    return 1;
+  }
+  if (version == 5 && opus_decoder_ctl(dec, OPUS_SET_PHASE_INVERSION_DISABLED((int)phase_inversion_disabled)) != OPUS_OK) {
+    fprintf(stderr, "OPUS_SET_PHASE_INVERSION_DISABLED failed\n");
     opus_decoder_destroy(dec);
     free(frame);
     return 1;

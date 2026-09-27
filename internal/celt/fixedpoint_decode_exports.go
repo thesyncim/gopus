@@ -10,6 +10,7 @@ type CELTDecodeAllocation struct {
 	TFRes           [MaxBands]int32
 	Offsets         [MaxBands]int32
 	Pulses          [MaxBands]int32
+	Caps            [MaxBands]int32
 	FineQuant       [MaxBands]int32
 	FinePriority    [MaxBands]int32
 	Spread          int
@@ -45,6 +46,7 @@ func DecodeCELTAllocation(rd *rangecoding.Decoder, totalBits, start, end, lm, ch
 	var capStorage [MaxBands]int32
 	cap := capStorage[:end]
 	initCapsInto(cap, end, lm, channels)
+	copy(a.Caps[:end], cap)
 	offsets := a.Offsets[:end]
 	dynallocLogp := 6
 	totalBitsQ3 := totalBits << bitRes

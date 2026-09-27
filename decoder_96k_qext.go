@@ -20,12 +20,14 @@ func (d *Decoder) is96kHz() bool { return d.apiIs96kHz }
 // The top-level sample rate is 96000 so 20 ms CELT frames decode to 1920
 // samples/channel; the CELT decoder runs the native HD96k mode.
 func (d *Decoder) decode96kFloat32(data []byte, pcm []float32) (int, error) {
-	return d.decodeFloat32(data, pcm, true)
+	return d.decodePublicFloat32(data, pcm)
 }
 
 // decodeInt1696k decodes at 96 kHz into int16 through the decoder-owned float
 // scratch used by raw packet decoding, then applies the int16 output stage.
 func (d *Decoder) decodeInt1696k(data []byte, pcm []int16) (int, error) {
+	d.beginFixedPacket()
+	defer d.endFixedPacket()
 	channels := int(d.channels)
 	// Reuse the decoder-owned float scratch used by the other public integer
 	// wrappers. Match the caller's exact length on every call: exposing a
@@ -39,13 +41,16 @@ func (d *Decoder) decodeInt1696k(data []byte, pcm []int16) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	softClipAndFloat32ToInt16(pcm[:n*channels], d.scratchPCM[:n*channels], n, channels, d.softClipMem[:])
+	d.fixedApplyDecodeGain(n * channels)
+	d.finishInt16Output(pcm, d.scratchPCM, n, channels)
 	return n, nil
 }
 
 // decodeInt2496k decodes at 96 kHz into int32 (24-bit) through the
 // decoder-owned float scratch used by raw packet decoding.
 func (d *Decoder) decodeInt2496k(data []byte, pcm []int32) (int, error) {
+	d.beginFixedPacket()
+	defer d.endFixedPacket()
 	channels := int(d.channels)
 	// Keep the temporary float buffer decoder-owned and set its length to the
 	// caller's length for the same undersized-buffer behavior as Decode.
@@ -56,7 +61,8 @@ func (d *Decoder) decodeInt2496k(data []byte, pcm []int32) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	float32ToInt24Slice(pcm[:n*channels], d.scratchPCM[:n*channels], n, channels)
+	d.fixedApplyDecodeGain(n * channels)
+	d.finishInt24Output(pcm, d.scratchPCM, n, channels)
 	return n, nil
 }
 

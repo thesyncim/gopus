@@ -52,12 +52,14 @@ func getQEXTDecode96kHelperPath() (string, error) {
 // which under ENABLE_QEXT runs the native 96 kHz CELT mode plus the >20 kHz
 // extension-band decode chain.
 type QEXTDecode96kParams struct {
-	SampleFormat  uint32 // QEXTDecode96kFormat* (float32/int16/int24)
-	Channels      int
-	MaxFrameSize  int      // per-channel sample capacity passed to opus_decode (96 kHz)
-	GainQ8        int32    // decoder output gain for version-2 probes; zero for version 1
-	PacketFormats []uint32 // per-packet int16/int24 formats for mixed-format probes
-	Packets       [][]byte // Opus packets to decode in sequence through one decoder
+	SampleFormat           uint32 // QEXTDecode96kFormat* (float32/int16/int24)
+	Channels               int
+	SampleRate             int      // explicit native rate for selected fixed-QEXT probes
+	PhaseInversionDisabled bool     // explicit control for version-5 selected fixed-QEXT probes
+	MaxFrameSize           int      // per-channel sample capacity passed to opus_decode (96 kHz)
+	GainQ8                 int32    // decoder output gain for version-2 probes; zero for version 1
+	PacketFormats          []uint32 // per-packet int16/int24 formats for mixed-format probes
+	Packets                [][]byte // Opus packets to decode in sequence through one decoder
 }
 
 // QEXTDecode96kResult holds the decoded native 96 kHz PCM and per-packet final
@@ -129,6 +131,20 @@ func ProbeQEXTDecode96kFixed(p QEXTDecode96kParams) (QEXTDecode96kResult, error)
 	return probeQEXTDecode96k(p, binPath, 2)
 }
 
+// ProbeQEXTDecodeFixed decodes a received sequence through the selected
+// FIXED_POINT+ENABLE_QEXT reference at 48 or 96 kHz. Protocol v5 carries the
+// API sample rate and phase-inversion control explicitly.
+func ProbeQEXTDecodeFixed(p QEXTDecode96kParams) (QEXTDecode96kResult, error) {
+	if p.SampleRate != 48000 && p.SampleRate != 96000 {
+		return QEXTDecode96kResult{}, fmt.Errorf("fixed qext decode: unsupported sample rate %d", p.SampleRate)
+	}
+	binPath, err := qextDecode96kFixedHelper.Path(buildQEXTDecode96kFixedHelper)
+	if err != nil {
+		return QEXTDecode96kResult{}, err
+	}
+	return probeQEXTDecode96k(p, binPath, 5)
+}
+
 func probeQEXTDecode96k(p QEXTDecode96kParams, binPath string, version uint32) (QEXTDecode96kResult, error) {
 	if p.Channels < 1 || p.Channels > 2 {
 		return QEXTDecode96kResult{}, fmt.Errorf("qext decode96k: invalid channels %d", p.Channels)
@@ -144,6 +160,16 @@ func probeQEXTDecode96k(p QEXTDecode96kParams, binPath string, version uint32) (
 	payload.U32(uint32(len(p.Packets)))
 	if version >= 2 {
 		payload.I32(p.GainQ8)
+	}
+	if version >= 4 {
+		payload.U32(uint32(p.SampleRate))
+	}
+	if version == 5 {
+		if p.PhaseInversionDisabled {
+			payload.U32(1)
+		} else {
+			payload.U32(0)
+		}
 	}
 	for i, pkt := range p.Packets {
 		if version == 3 {

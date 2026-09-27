@@ -99,6 +99,7 @@ type Decoder struct {
 	decoderOSCEFields
 	decoderHD96kFields
 	decoderFixedFields
+	fixedQEXT decoderFixedQEXTFields
 
 	// Decoder-side DNN readiness mirrors the validated model families retained
 	// by OPUS_SET_DNN_BLOB so optional paths can stay dormant until they are real.
