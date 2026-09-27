@@ -92,6 +92,15 @@ confirmation is pending. Automatic stereo CELT, public combined-build surround,
 and active fixed-QEXT encode/decode remain open; these focused gates do not
 establish complete extension parity.
 
+At `e3ab22d9`, public 96 kHz int16 and int24 decoding reuses decoder-owned
+scratch and preserves integer soft-clip history. Selected float-QEXT C checks
+cover mono/stereo output samples and ranges, reset replay, +8 dB gain, and
+received→undersized→received histories with exact resumed PCM. Ordinary,
+SIMD, and `nosimd` ARM64 builds pass with zero warmed allocations. This
+checkpoint covers the float codec build; native fixed-QEXT decoding remains
+under integration. The early QEXT CI selector matches 29 intended test names,
+including these integer wrapper gates; its expanded local SIMD gate passes.
+
 ### Extension checkpoint
 
 QEXT at 48 kHz (`6e20f360`) passes 60 configurations / 180 sequential frames
