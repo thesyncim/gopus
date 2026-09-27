@@ -397,13 +397,12 @@ func (e *CELTEncoder) computeMDCTs(shortBlocks int, in, out []int32, C, CC, LM i
 		N = celtShortMdctSize << LM
 		shift = celtMaxLM - LM
 	}
-	sc := e.scratch
+	sc := e.ensureScratch()
 	for c := 0; c < CC; c++ {
 		for b := 0; b < B; b++ {
-			e.mdct.MDCTForward(
+			e.mdctForward(
 				in[c*(B*N+overlap)+b*N:],
-				out[b+c*N*B:],
-				e.window, overlap, shift, B, sc)
+				out[b+c*N*B:], overlap, shift, B, sc)
 		}
 	}
 	if CC == 2 && C == 1 {

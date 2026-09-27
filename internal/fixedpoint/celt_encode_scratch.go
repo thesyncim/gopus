@@ -35,8 +35,9 @@ type celtEncodeScratch struct {
 	pulses           []int   // nbEBands pulse allocation
 
 	// MDCTForward per-sub-block buffers (computeMDCTs calls it B*CC times).
-	mdctF  []int32  // N2 windowed reals
-	mdctF2 []FFTCpx // N4 pre-rotated complex bins
+	mdctF    []int32  // N2 windowed reals
+	mdctF2   []FFTCpx // N4 pre-rotated complex bins
+	qextMDCT qextMDCTScratch
 
 	// run_prefilter buffers.
 	prePeriodic [][]int32 // CC pitch-history rows of length N+maxPeriod
