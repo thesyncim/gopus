@@ -245,6 +245,13 @@ for mode in simd nosimd; do
     "${run_env[@]}" go test -json -tags "gopus_osce${feature_scalar_tag}" \
     ./internal/lpcnetplc -count=1 -timeout=10m
 
+  run_json_phase "candidate-$mode-osce-exact-pcm" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json -tags "gopus_osce${feature_scalar_tag}" \
+    . ./internal/osce/... ./multistream \
+    -run '^Test(OSCE(EndToEndSampleParity|BWE(RawSignalNet|ForwardPass|CrossFade))|LACEAndNoLACEFeatureStateMatchesLibopusRawBits|MultistreamDecoderOSCE|StreamOSCE)' \
+    -count=1 -timeout=10m
+
   run_json_phase "candidate-$mode-dred-initial-latents" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json -tags "gopus_dred${feature_scalar_tag}" \

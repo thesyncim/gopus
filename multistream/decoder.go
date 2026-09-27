@@ -427,8 +427,8 @@ func (d *streamState) decodeSILKToFloat32(data []byte, frameSize int, packetSter
 		return nil, fmt.Errorf("multistream: invalid SILK bandwidth: %d", opusBandwidth)
 	}
 	if extsupport.OSCERuntime && data != nil {
-		restoreOSCELACEHook := d.installOSCELACESilkPostfilterHook(bw, packetStereo)
-		defer restoreOSCELACEHook()
+		d.installOSCELACESilkPostfilterHook(bw, packetStereo)
+		defer d.clearOSCELACESilkPostfilterHook()
 	}
 
 	var out32 []float32
@@ -487,8 +487,8 @@ func (d *streamState) decodeSILKToFloat32(data []byte, frameSize int, packetSter
 // data!=nil branch.
 func (d *streamState) decodeSILKWithDecoder(rd *rangecoding.Decoder, frameSize int, packetStereo bool, bw silk.Bandwidth) ([]float32, error) {
 	if extsupport.OSCERuntime {
-		restoreOSCELACEHook := d.installOSCELACESilkPostfilterHook(bw, packetStereo)
-		defer restoreOSCELACEHook()
+		d.installOSCELACESilkPostfilterHook(bw, packetStereo)
+		defer d.clearOSCELACESilkPostfilterHook()
 	}
 
 	channels := int(d.channels)

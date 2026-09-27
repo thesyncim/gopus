@@ -1388,7 +1388,8 @@ func adashapeProcessFrame(
 			}
 			sum += v
 		}
-		tenv[i] = dnnmath.CeltLog(sum*f + 1.52587890625e-05)
+		// dnn/nndsp.c stores the logarithm before accumulating mean.
+		tenv[i] = float32(dnnmath.CeltLog(sum*f + 1.52587890625e-05))
 		mean += tenv[i]
 	}
 	mean /= float32(tenvSize)

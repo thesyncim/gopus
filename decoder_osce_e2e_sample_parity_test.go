@@ -2,30 +2,9 @@
 
 package gopus
 
-// TestOSCEEndToEndSampleParity is the sample-level end-to-end oracle for
-// LACE/NoLACE and OSCE BWE.  It encodes a SILK WB test sequence, decodes with
-// libopus (OSCE-enabled build, `--enable-osce --enable-osce-bwe`) via
-// `tools/csrc/libopus_osce_decode_single.c`, decodes with gopus (same model
-// blobs, same controls), and compares the float32 PCM output sample-by-sample
-// against the `qualitycompare.QualityBarNearExact` bar.
-//
-// The test is gated on the OSCE-enabled libopus oracle build
-// (`internal/libopustest.EnsureOSCEBuild`).  It skips cleanly when the
-// helper binaries are unavailable, matching the existing forward-pass oracle
-// patterns.
-//
-// Sub-tests:
-//   - lace_mono:    SILK WB mono, complexity 6 (LACE), OSCE BWE off.
-//   - nolace_mono:  SILK WB mono, complexity 7 (NoLACE), OSCE BWE off.
-//   - bwe_mono:     SILK WB mono, complexity 4, OSCE BWE on.
-//   - lace_stereo:  SILK WB stereo, complexity 6 (LACE), OSCE BWE off.
-//   - nolace_bwe_stereo: SILK WB stereo, complexity 7 (NoLACE) + OSCE BWE.
-//
-// Parity bar: QualityBarNearExact (Q>=20, corr>=0.997, RMS [0.98,1.02]) --
-// the same bar SILK/CELT/Hybrid decode meets vs libopus.  OSCE is a
-// postfilter; its output is band-limited at 16 kHz (LACE/NoLACE) or 48 kHz
-// (BWE) and is expected to track libopus very closely given bit/near-exact
-// forward-pass parity.
+// TestOSCEEndToEndSampleParity compares every float32 PCM bit from the public
+// LACE/NoLACE/BWE decoder with the scalar OSCE-enabled libopus build, using
+// identical packets, model weights, and controls. The quality gate also runs.
 
 import (
 	"encoding/binary"
@@ -36,6 +15,7 @@ import (
 	internalenc "github.com/thesyncim/gopus/internal/encoder"
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/qualitycompare"
+	"github.com/thesyncim/gopus/internal/silk"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -140,7 +120,7 @@ func TestOSCEEndToEndSampleParity(t *testing.T) {
 
 	const (
 		frameSize  = 960 // 20 ms @ 48 kHz
-		numPackets = 6   // enough for LACE fade-in + steady-state
+		numPackets = 24  // fade-in and recurrent state across varied packets
 		sampleRate = 48000
 	)
 
@@ -166,7 +146,7 @@ func TestOSCEEndToEndSampleParity(t *testing.T) {
 			if len(pkt) == 0 {
 				t.Fatalf("Encode mono SILK WB packet %d: empty", i)
 			}
-			packets = append(packets, pkt)
+			packets = append(packets, append([]byte(nil), pkt...))
 		}
 		return packets
 	}
@@ -196,7 +176,7 @@ func TestOSCEEndToEndSampleParity(t *testing.T) {
 			if len(pkt) == 0 {
 				t.Fatalf("Encode stereo SILK WB packet %d: empty", i)
 			}
-			packets = append(packets, pkt)
+			packets = append(packets, append([]byte(nil), pkt...))
 		}
 		return packets
 	}
@@ -231,16 +211,69 @@ func TestOSCEEndToEndSampleParity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Decode packet %d: %v", i, err)
 			}
+			if n != frameSize {
+				t.Fatalf("Decode packet %d count=%d, want %d", i, n, frameSize)
+			}
 			offset += n * channels
+		}
+		// The same decoder and caller-owned PCM exercise active recurrent state.
+		warmPCM := make([]float32, frameSize*channels)
+		idx := 0
+		if allocs := testing.AllocsPerRun(20, func() {
+			n, err := dec.Decode(packets[idx], warmPCM)
+			if err != nil || n != frameSize {
+				t.Fatalf("warm Decode returned %d, %v", n, err)
+			}
+			idx = (idx + 1) % len(packets)
+		}); allocs != 0 {
+			t.Fatalf("warm decode allocations=%g, want 0", allocs)
+		}
+		if rmsOfFloat32(warmPCM) == 0 {
+			t.Fatal("warm decoder output has zero energy")
+		}
+		for i, v := range warmPCM {
+			if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
+				t.Fatalf("warm PCM[%d]=%v is not finite", i, v)
+			}
+		}
+		// A malformed multiframe SILK packet must leave no callback installed
+		// after Decode returns. Reset then replays a complete valid history.
+		badPacket := []byte{0x4b, 0x83, 0x02, 0x01, 0, 0}
+		if channels == 2 {
+			badPacket[0] |= 4
+		}
+		errorPCM := make([]float32, 2880*channels)
+		if _, err := dec.Decode(badPacket, errorPCM); err != ErrInvalidPacket {
+			t.Fatalf("malformed Decode error=%v, want ErrInvalidPacket", err)
+		}
+		featuresBefore := dec.osceLACE.osceLACEFeatures
+		if channels == 2 {
+			_, err = dec.silkDecoder.DecodeStereo(packets[0][1:], silk.BandwidthWideband, frameSize, true)
+		} else {
+			_, err = dec.silkDecoder.Decode(packets[0][1:], silk.BandwidthWideband, frameSize, true)
+		}
+		if err != nil {
+			t.Fatalf("SILK decode after public error: %v", err)
+		}
+		if dec.osceLACE.osceLACEFeatures != featuresBefore {
+			t.Fatal("OSCE callback remains active after public Decode error")
+		}
+		dec.Reset()
+		for frame, pkt := range packets {
+			n, err := dec.Decode(pkt, warmPCM)
+			if err != nil || n != frameSize {
+				t.Fatalf("reset Decode frame=%d returned %d, %v", frame, n, err)
+			}
+			for i, v := range warmPCM {
+				want := out[frame*len(warmPCM)+i]
+				if math.Float32bits(v) != math.Float32bits(want) {
+					t.Fatalf("reset frame=%d sample=%d Go=%08x initial=%08x", frame, i, math.Float32bits(v), math.Float32bits(want))
+				}
+			}
 		}
 		return out[:offset]
 	}
 
-	// OSCE BWE is sample-aligned with libopus: the BBWENet forward pass is fed
-	// the same &samplesOut1_tmp[n][1] one-sample-delayed lowband libopus uses
-	// and the fade-in into BWE follows libopus' prev_osce_extended_mode gating
-	// (no cold-start / CELT->BBWE cross-fade), so the output meets the same
-	// near-exact bar as LACE/NoLACE/SILK (measured Q~99.8, delay=0, corr=1.0).
 	subtests := []struct {
 		name       string
 		channels   int
@@ -272,6 +305,18 @@ func TestOSCEEndToEndSampleParity(t *testing.T) {
 			name: "lace_stereo", channels: 2, complexity: 6,
 			enableBWE: false, enableLACE: true,
 			mergedBlob: func() []byte { return mergedLACE },
+			qualBar:    qualitycompare.QualityBarNearExact,
+		},
+		{
+			name: "nolace_stereo", channels: 2, complexity: 7,
+			enableBWE: false, enableLACE: true,
+			mergedBlob: func() []byte { return mergedLACE },
+			qualBar:    qualitycompare.QualityBarNearExact,
+		},
+		{
+			name: "bwe_stereo", channels: 2, complexity: 4,
+			enableBWE: true, enableLACE: false,
+			mergedBlob: func() []byte { return mergedAll },
 			qualBar:    qualitycompare.QualityBarNearExact,
 		},
 		{
@@ -343,10 +388,14 @@ func TestOSCEEndToEndSampleParity(t *testing.T) {
 				}
 			}
 
-			// Align lengths for comparison (both should be equal).
+			if len(gopusPCM) != len(libopusPCM) {
+				t.Fatalf("PCM length Go=%d C=%d", len(gopusPCM), len(libopusPCM))
+			}
 			n := len(gopusPCM)
-			if len(libopusPCM) < n {
-				n = len(libopusPCM)
+			for i := range gopusPCM {
+				if math.Float32bits(gopusPCM[i]) != math.Float32bits(libopusPCM[i]) {
+					t.Fatalf("frame=%d sample=%d Go=%08x C=%08x", i/(frameSize*tc.channels), i%(frameSize*tc.channels), math.Float32bits(gopusPCM[i]), math.Float32bits(libopusPCM[i]))
+				}
 			}
 
 			// Primary oracle: opus_compare Q metric via qualitycompare.

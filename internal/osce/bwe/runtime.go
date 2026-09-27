@@ -519,36 +519,38 @@ func (s *State) upsample2x(ch int, xOut, xIn []float32) {
 	for k := range xIn {
 		x := xIn[k]
 
+		// dnn/osce.c:upsamp_2x shares each rounded product between
+		// the output and recursive state updates.
 		// even sample, pass 1
 		y := x - sEven[0]
-		X := y * he0
+		X := roundMul32(y, he0)
 		tmp1 := sEven[0] + X
 		sEven[0] = x + X
 		// pass 2
 		y = tmp1 - sEven[1]
-		X = y * he1
+		X = roundMul32(y, he1)
 		tmp2 := sEven[1] + X
 		sEven[1] = tmp1 + X
 		// pass 3
 		y = tmp2 - sEven[2]
-		X = y * (1 + he2)
+		X = roundMul32(y, (1 + he2))
 		tmp3 := sEven[2] + X
 		sEven[2] = tmp2 + X
 		xOut[2*k] = tmp3
 
 		// odd sample, pass 1
 		y = x - sOdd[0]
-		X = y * ho0
+		X = roundMul32(y, ho0)
 		tmp1 = sOdd[0] + X
 		sOdd[0] = x + X
 		// pass 2
 		y = tmp1 - sOdd[1]
-		X = y * ho1
+		X = roundMul32(y, ho1)
 		tmp2 = sOdd[1] + X
 		sOdd[1] = tmp1 + X
 		// pass 3
 		y = tmp2 - sOdd[2]
-		X = y * (1 + ho2)
+		X = roundMul32(y, (1 + ho2))
 		tmp3 = sOdd[2] + X
 		sOdd[2] = tmp2 + X
 		xOut[2*k+1] = tmp3
@@ -578,8 +580,12 @@ func (s *State) interpol32(ch int, xOut, xIn []float32) {
 
 	iOut := 0
 	for k := 0; k < numSamples; k += 2 {
-		var v0, v1, v2 float32
-		for j := range 8 {
+		// dnn/osce.c:interpol_3_2 contracts the first product into the
+		// rounded second product, then accumulates taps 2 through 7.
+		v0 := mulAdd32(buffer[k], frac01_24[0], roundMul32(buffer[k+1], frac01_24[1]))
+		v1 := mulAdd32(buffer[k], frac17_24[0], roundMul32(buffer[k+1], frac17_24[1]))
+		v2 := mulAdd32(buffer[k+1], frac09_24[0], roundMul32(buffer[k+2], frac09_24[1]))
+		for j := 2; j < 8; j++ {
 			v0 += buffer[k+j] * frac01_24[j]
 			v1 += buffer[k+j] * frac17_24[j]
 			v2 += buffer[k+1+j] * frac09_24[j]
@@ -628,8 +634,16 @@ func computeLinear(layer *LinearLayer, out, in []float32) {
 		// weight(row, col) = w[col*n + row]. Mirrors libopus sgemv layout.
 		for i := range n {
 			var sum float32
-			for j := range m {
-				sum += layer.FloatWeights.At(j*n+i) * in[j]
+			if n == 1 {
+				// dnn/nnet_arch.h:compute_linear_c's scalar sgemv
+				// materializes products for the single-output gain layer.
+				for j := range m {
+					sum += roundMul32(layer.FloatWeights.At(j*n+i), in[j])
+				}
+			} else {
+				for j := range m {
+					sum += layer.FloatWeights.At(j*n+i) * in[j]
+				}
 			}
 			out[i] = sum
 		}
@@ -799,7 +813,9 @@ func computeGenericGRU(inputW, recurrentW *LinearLayer, state, in []float32) {
 	}
 	computeActivation(h, h, n, actTanh)
 	for i := range n {
-		h[i] = z[i]*state[i] + (1-z[i])*h[i]
+		// dnn/nnet.c:compute_generic_gru rounds the trailing product
+		// before the first product's multiply-add.
+		h[i] = mulAdd32(z[i], state[i], roundMul32(1-z[i], h[i]))
 		state[i] = h[i]
 	}
 }
@@ -852,7 +868,9 @@ func adaconvProcessFrame(
 			for k := range kernelSize {
 				idx := (o*inChannels+ic)*kernelSize + k
 				v := kernelBuf[idx]
-				norm += v * v
+				// dnn/nndsp.c:scale_kernel materializes squared kernel
+				// values before the ordered reduction.
+				norm += roundMul32(v, v)
 			}
 		}
 		invNorm := scaleKernelInvNorm(norm)
@@ -941,7 +959,10 @@ func adashapeProcessFrame(
 			}
 			sum += v
 		}
-		tenv[i] = dnnmath.CeltLog(sum*f + 1.52587890625e-05)
+		// dnn/nndsp.c:adashape_process_frame stores celt_log's float
+		// result before adding it to mean. Keep its log2-to-ln product
+		// separate from that addition.
+		tenv[i] = float32(dnnmath.CeltLog(mulAdd32(sum, f, 1.52587890625e-05)))
 		mean += tenv[i]
 	}
 	mean /= float32(tenvSize)
@@ -977,4 +998,17 @@ func adashapeProcessFrame(
 	for i := range frameSize {
 		xOut[i] = outBuf[i] * xIn[i]
 	}
+}
+
+// mulAdd32 follows the scalar OSCE reference's contraction policy: an FMADD on
+// arm64 and separate operations on amd64. OSCE uses this scalar C build in both
+// Go SIMD and nosimd configurations.
+func mulAdd32(a, b, c float32) float32 {
+	return a*b + c
+}
+
+// roundMul32 preserves a C float product shared by subsequent expressions.
+// The explicit conversion prevents contraction into their additions.
+func roundMul32(a, b float32) float32 {
+	return float32(a * b)
 }

@@ -43,30 +43,28 @@ func (d *streamState) applyOSCEPLCSilk(out []float32, frameSize int, silkBW silk
 	}, nil, frameSize)
 }
 
-func (d *streamState) installOSCELACESilkPostfilterHook(silkBW silk.Bandwidth, packetStereo bool) func() {
+func (d *streamState) installOSCELACESilkPostfilterHook(silkBW silk.Bandwidth, packetStereo bool) {
 	if d == nil || d.silkDec == nil {
-		return func() {}
+		return
 	}
-	restore := func() {
-		d.silkDec.SetNativePostfilterHook(nil)
-	}
+	d.silkDec.SetNativePostfilterHook(nil)
 	if !d.osceLACEEnabled {
 		d.resetOSCELACEState(packetStereo)
-		return restore
+		return
 	}
 	state := d.osceState
 	if state == nil || state.laceModel == nil || !state.laceModel.Loaded() {
 		d.resetOSCELACEState(packetStereo)
-		return restore
+		return
 	}
 	if silkBW != silk.BandwidthWideband {
 		d.resetOSCELACEState(packetStereo)
-		return restore
+		return
 	}
 	mode := pickStreamOSCELACEMode(int(d.complexity))
 	if mode == streamOSCELACEModeNone {
 		d.resetOSCELACEState(packetStereo)
-		return restore
+		return
 	}
 
 	channels := 1
@@ -74,21 +72,34 @@ func (d *streamState) installOSCELACESilkPostfilterHook(silkBW silk.Bandwidth, p
 		channels = 2
 	}
 	d.prepareOSCELACEState(mode, channels)
-	d.silkDec.SetNativePostfilterHook(func(channel int, samples []int16, ctrl silk.LatestDecoderControl) bool {
-		if channel < 0 || channel >= channels {
-			return false
-		}
-		if ctrl.FsKHz != 16 || ctrl.NbSubfr != streamOSCELACESubframesPerFrame || len(samples) < streamOSCELACEFrameSamples {
-			d.resetOSCELACEState(packetStereo)
-			return false
-		}
-		if !d.runOSCELACEChannel(samples, mode, channel, ctrl, true) {
-			d.resetOSCELACEState(packetStereo)
-			return false
-		}
-		return true
-	})
-	return restore
+	d.osceLACEHookChannels = channels
+	d.osceLACEHookStereo = packetStereo
+	d.osceLACEHookMode = mode
+	if d.osceLACEHook == nil {
+		d.osceLACEHook = d.processOSCELACESilkPostfilter
+	}
+	d.silkDec.SetNativePostfilterHook(d.osceLACEHook)
+}
+
+func (d *streamState) clearOSCELACESilkPostfilterHook() {
+	if d != nil && d.silkDec != nil {
+		d.silkDec.SetNativePostfilterHook(nil)
+	}
+}
+
+func (d *streamState) processOSCELACESilkPostfilter(channel int, samples []int16, ctrl silk.LatestDecoderControl) bool {
+	if channel < 0 || channel >= d.osceLACEHookChannels {
+		return false
+	}
+	if ctrl.FsKHz != 16 || ctrl.NbSubfr != streamOSCELACESubframesPerFrame || len(samples) < streamOSCELACEFrameSamples {
+		d.resetOSCELACEState(d.osceLACEHookStereo)
+		return false
+	}
+	if !d.runOSCELACEChannel(samples, d.osceLACEHookMode, channel, ctrl, true) {
+		d.resetOSCELACEState(d.osceLACEHookStereo)
+		return false
+	}
+	return true
 }
 
 type streamOSCELACEMode int

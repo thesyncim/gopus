@@ -2,7 +2,10 @@
 
 package multistream
 
-import "github.com/thesyncim/gopus/internal/dnnblob"
+import (
+	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/silk"
+)
 
 type decoderOSCEFields struct {
 	osceModelsLoaded   bool
@@ -12,6 +15,12 @@ type decoderOSCEFields struct {
 }
 
 type streamOSCEFields struct {
+	// The callback is bound once; per-packet context stays decoder-owned.
+	osceLACEHook         silk.NativePostfilterHook
+	osceLACEHookChannels int
+	osceLACEHookStereo   bool
+	osceLACEHookMode     streamOSCELACEMode
+
 	osceLACEEnabled bool
 	osceBWEEnabled  bool
 	osceState       *streamOSCEState

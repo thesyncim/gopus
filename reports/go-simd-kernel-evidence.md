@@ -57,6 +57,28 @@ skips). New geometry, stateful, and allocation leaves have no skips. Native
 AMD64 at `8bc2ed7c` passes 384 test nodes plus seven existing skips in each
 SIMD/nosimd lane, with no failures.
 
+OSCE public PCM matches all 24 sequential packets in seven configurations:
+mono/stereo LACE, NoLACE, BWE, and stereo NoLACE+BWE. Every return count and
+float PCM bit matches in ordinary, SIMD, and nosimd ARM64 builds; resetting
+replays the complete exact history. Warm public single-stream and active
+multistream decoding allocate zero. Callback cleanup is checked after a
+malformed packet. Both Go modes use scalar OSCE DNN arithmetic and the same
+OSCE-enabled scalar C reference; compiler contraction and intermediate C
+float/double widths are preserved. The independent feature oracle matches all
+372 feature values, two bit-count values, and four periods over 16 frames at
+each LPC order (10 and 16), with zero warm allocations in all three builds.
+The full SIMD root/OSCE/multistream suite passes 20,279 test nodes with four
+existing opt-in skips (two DRED quality and two OSCE trace diagnostics), and
+no failures. The focused ordinary/nosimd checkpoints pass 97 nodes each plus
+two existing trace skips; the additional feature gate passes separately.
+Native AMD64 OSCE validation and performance for this checkpoint are pending.
+
+AMD64 LPCNet at `2ffed676` routes pitch correlation and inner products through
+the same AVX2/FMA and SSE kernels as the selected C callsites. Sixteen-frame
+same-input primitive and full-prefix state gates enforce the dispatch identity
+and exact bits. Local primitive checks allocate zero; native AMD64 validation
+is pending.
+
 LPCNet at `9faa9bc1` matches all 224 raw correlations, DNN pitch, and 36 feature
 bits across 40 frames in ordinary, SIMD, and nosimd ARM64 builds, with zero warm
 stage allocations. At `3eb38788`, selected-C Burg, predictor, and neural fade

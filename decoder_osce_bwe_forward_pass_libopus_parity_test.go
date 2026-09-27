@@ -19,30 +19,8 @@ import (
 // drives both libopus and gopus on the same deterministic 1 kHz 16 kHz
 // sinusoid, and compares their 48 kHz outputs.
 //
-// Comparator status:
-//
-//		The pure-Go runtime in `internal/osce/bwe` now uses the libopus DNN
-//		activation / exponential approximations plus the CELT log/sin helpers
-//		used by the BWE Valin and AdaShape paths.
-//
-//		Additionally, libopus quantises the BBWENet float output to int16
-//		with a 21-sample delay buffer in `osce_bwe(...)` before returning.
-//		The gopus `State.ProcessDelayed` path mirrors that public wrapper while
-//		`State.Process` remains available for raw BBWENet math parity.
-//
-//	  - Both pipelines accept the same shapes (160 / 320 samples) and emit
-//	    the expected number of output samples (480 / 960).
-//	  - The libopus-computed feature vectors and the gopus-computed feature
-//	    vectors agree to within `featureTolerance` per element. (The feature
-//	    extractor port is independent of the math-approximation issues
-//	    above and is therefore the tighter numerical path.)
-//	  - When the gopus forward pass is fed the libopus-computed features
-//	    (so feature-extractor drift is eliminated), the delayed/int16-wrapper
-//	    output is exact for 10 ms and within a ratcheted one-LSB numerical
-//	    envelope for 20 ms.
-//
-// TestOSCEBWERawSignalNetMatchesLibopus separately exercises the raw BBWENet
-// float path and keeps the signal-net math tolerance near float32 roundoff.
+// Feature extraction, the raw signal net, and the delayed int16 wrapper
+// each compare every float bit with the selected scalar OSCE C build.
 func TestOSCEBWEForwardPassMatchesLibopusNumericalParity(t *testing.T) {
 	libopustest.RequireOracle(t)
 	binPath, err := getLibopusOSCEBWEForwardHelperPath()
@@ -67,8 +45,7 @@ func TestOSCEBWEForwardPassMatchesLibopusNumericalParity(t *testing.T) {
 		outputRMSTolerance float64
 	}{
 		{"10ms", 160, 1, 0, 0},
-		// 20 ms still has one int16 threshold crossing in the delayed wrapper.
-		{"20ms", 320, 2, 3.1e-5, 1.2e-6},
+		{"20ms", 320, 2, 0, 0},
 	}
 
 	const (
@@ -120,6 +97,9 @@ func TestOSCEBWEForwardPassMatchesLibopusNumericalParity(t *testing.T) {
 			maxFeatErrIF := float32(0)
 			maxIdxIF := -1
 			for i := range gopusFeatures {
+				if math.Float32bits(gopusFeatures[i]) != math.Float32bits(refFeatures[i]) {
+					t.Fatalf("feature=%d Go=%08x C=%08x", i, math.Float32bits(gopusFeatures[i]), math.Float32bits(refFeatures[i]))
+				}
 				d := gopusFeatures[i] - refFeatures[i]
 				if d < 0 {
 					d = -d
@@ -167,6 +147,9 @@ func TestOSCEBWEForwardPassMatchesLibopusNumericalParity(t *testing.T) {
 			var maxAbsErr float32
 			var sumSq float64
 			for i := 0; i < len(refOut); i++ {
+				if math.Float32bits(gopusOut[i]) != math.Float32bits(refOut[i]) {
+					t.Fatalf("delayed sample=%d Go=%08x C=%08x", i, math.Float32bits(gopusOut[i]), math.Float32bits(refOut[i]))
+				}
 				d := gopusOut[i] - refOut[i]
 				ad := d
 				if ad < 0 {
@@ -275,6 +258,9 @@ func TestOSCEBWERawSignalNetMatchesLibopus(t *testing.T) {
 			var maxAbsErr float32
 			var sumSq float64
 			for i := range refOut {
+				if math.Float32bits(gotOut[i]) != math.Float32bits(refOut[i]) {
+					t.Fatalf("raw sample=%d Go=%08x C=%08x", i, math.Float32bits(gotOut[i]), math.Float32bits(refOut[i]))
+				}
 				d := gotOut[i] - refOut[i]
 				ad := d
 				if ad < 0 {
@@ -284,6 +270,13 @@ func TestOSCEBWERawSignalNetMatchesLibopus(t *testing.T) {
 					maxAbsErr = ad
 				}
 				sumSq += float64(d) * float64(d)
+			}
+			if allocs := testing.AllocsPerRun(20, func() {
+				if err := state.Process(in16f, gotOut, refFeatures); err != nil {
+					t.Fatal(err)
+				}
+			}); allocs != 0 {
+				t.Fatalf("warm signal-net allocations=%g, want 0", allocs)
 			}
 			rms := math.Sqrt(sumSq / float64(len(refOut)))
 			t.Logf("OSCE BWE raw signal-net parity (%s): maxAbs=%g rms=%g (tolerances: maxAbs<=%g rms<=%g)",
@@ -390,6 +383,9 @@ func TestOSCEBWEForwardPassPLCContinuityMatchesLibopus(t *testing.T) {
 	maxFeatErrLM := float32(0)
 	maxFeatErrIF := float32(0)
 	for i := range gopusFeatures2 {
+		if math.Float32bits(gopusFeatures2[i]) != math.Float32bits(refFeatures[i]) {
+			t.Fatalf("continuity feature=%d Go=%08x C=%08x", i, math.Float32bits(gopusFeatures2[i]), math.Float32bits(refFeatures[i]))
+		}
 		d := gopusFeatures2[i] - refFeatures[i]
 		if d < 0 {
 			d = -d
@@ -439,6 +435,9 @@ func TestOSCEBWEForwardPassPLCContinuityMatchesLibopus(t *testing.T) {
 	var maxAbsErr float32
 	var sumSq float64
 	for i := 0; i < len(refOut); i++ {
+		if math.Float32bits(gopusOut2WithLibopusFeat[i]) != math.Float32bits(refOut[i]) {
+			t.Fatalf("continuity sample=%d Go=%08x C=%08x", i, math.Float32bits(gopusOut2WithLibopusFeat[i]), math.Float32bits(refOut[i]))
+		}
 		d := gopusOut2WithLibopusFeat[i] - refOut[i]
 		ad := d
 		if ad < 0 {

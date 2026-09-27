@@ -496,8 +496,8 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			silkBW = silk.BandwidthWideband
 		}
 		if extsupport.OSCERuntime && data != nil {
-			restoreOSCELACEHook := d.installOSCELACESilkPostfilterHook(mode, silkBW, packetStereoLocal)
-			defer restoreOSCELACEHook()
+			d.installOSCELACESilkPostfilterHook(mode, silkBW, packetStereoLocal)
+			defer d.clearOSCELACESilkPostfilterHook()
 		}
 
 		silkDecodeSize := max(frameSize, F10)
