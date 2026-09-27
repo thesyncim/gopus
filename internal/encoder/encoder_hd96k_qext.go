@@ -84,6 +84,10 @@ func (e *Encoder) EncodeNativeHD96k(pcm []float32, frameSize int, dst []byte) (i
 		return 0, err
 	}
 	qextPayload := ce.LastQEXTPayload()
+	// src/opus_encoder.c reads the CELT encoder's final range after the native
+	// frame is encoded. QEXT's CELT range combines the main and side coders.
+	e.frameFinalRange = ce.FinalRange()
+	e.finalRange = e.frameFinalRange
 
 	// C ref: opus_encode_native clears st->first once a frame is committed.
 	// The native 96 kHz CELT path always produces a frame, so mark it coded.
