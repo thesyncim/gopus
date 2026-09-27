@@ -1,42 +1,10 @@
 //go:build gopus_fixed_point
 
-// encode_differential_fuzz_fixedpoint_test.go — FIXED_POINT ENCODE-side
-// differential fuzz harness comparing the PUBLIC gopus integer-CELT encode path
-// against the FIXED_POINT libopus encoder oracle across the full handled
-// configuration space, asserting BYTE-EXACT inner CELT payloads (and TOC bytes).
-//
-// This is the fixed-point analog of the float-build encode_differential_fuzz_test.go
-// (root package). The float harness can compare FULL top-level opus_encode packets
-// because the default gopus build is all-float, exactly like libopus
-// opus_encode_float() — there is no float-vs-integer wrapper boundary.
-//
-// Under gopus_fixed_point the situation is different and is the reason this harness
-// lives at the inner-CELT-payload level rather than the full-packet level:
-//
-//   - gopus_fixed_point swaps only the INNER SILK/CELT frame encoders to the
-//     integer (FIXED_POINT) paths. The Opus API wrapper around them — dc_reject(),
-//     the SILK API-rate resampler, the CELT delay buffer / float2int16 — still runs
-//     in FLOAT (the same float code the default build uses).
-//   - libopus FIXED_POINT opus_encode() runs that whole wrapper in INTEGER.
-//
-// So a raw-PCM top-level opus_encode comparison diverges in the wrapper before the
-// inner encoder runs (documented in testvectors/opus_encode_fixed_endtoend_parity_test.go).
-// The byte-exact relationship that IS achievable, and the one this fuzz sweeps
-// broadly, is:
-//
-//   - Forced CELT-only (or restricted-low-delay): capture the EXACT int16 the
-//     integer CELT encoder consumed via Encoder.LastFixedCELTInput16(), feed that
-//     identical int16 to the FIXED_POINT celt_encode_with_ec reference, and assert
-//     the inner CELT payload (packet[1:]) is byte-for-byte identical. Plus, the
-//     assembled TOC byte must equal the FIXED opus_encode() TOC for the config.
-//
-// Why CELT-only (not SILK/Hybrid): the SILK path's input is produced by the FLOAT
-// API-rate resampler in gopus vs the INTEGER silk_resampler in libopus FIXED, so a
-// public-encoder SILK byte comparison from raw PCM is not byte-exact (the FIXED
-// SILK encode is itself byte-exact given identical int16, proven per-frame by
-// silk.TestPublicSILKEncodeFrameFixedByteExact — a different, internal gate). The
-// integer CELT path captures the post-resampler/post-float2int16 int16 it actually
-// consumed, so its comparison sidesteps the wrapper boundary and IS byte-exact.
+// This fixed-point encode differential sweep drives public forced-CELT streams.
+// For each frame it compares the complete inner CELT payload and final range
+// against selected FIXED_POINT celt_encode_with_ec on the exact opus_res Q8
+// samples, analysis, and output cap consumed by Go. It also compares the TOC
+// against selected C opus_encode_float on the original public input.
 //
 // Coverage (the handled integer-CELT public-encode space):
 //   - API sample rates: 48000 + sub-rates 24000/16000/12000/8000 (upsample 1/2/3/4/6)
@@ -47,17 +15,8 @@
 //   - rate control: CBR / CVBR / VBR
 //   - bandwidth: NB/MB/WB/SWB/FB (end-band selection)
 //   - signal: several seeded corpus classes incl. transients and near-silence
-//   - 48 kHz cases run STATEFULLY over a multi-frame stream (cross-frame integer
-//     CELT state: energy histories, VBR reservoir, prefilter memory, transient
-//     run) compared against the stateful FIXED celt_encode_with_ec sequence oracle.
-//     Sub-rate cases compare per-frame against the per-frame FIXED rate oracle
-//     (the sequence oracle is 48 kHz-only).
-//
-// Any inner-payload or TOC byte mismatch is a HARD FAIL on every arch: the integer
-// CELT encode consumes identical int16 and runs identical integer arithmetic, so
-// there is NO float boundary to excuse a divergence (unlike the float harness's
-// documented arm64 ≤1-ULP CELT analysis residual). A divergence here is a real
-// fixed-point encode bug.
+//   - 48 kHz cases replay six consecutive frames in one C CELT encoder.
+//     Sub-rate cases use a fresh encoder on each side.
 //
 // Run:
 //   GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
@@ -276,9 +235,8 @@ func TestEncodeDifferentialFuzzFixedPoint(t *testing.T) {
 	libopustest.RequireOracle(t)
 
 	const (
-		numFrames    = 6 // stateful 48 kHz stream length
-		celtStart    = 0
-		celtMaxBytes = celtPacketSizeCap - 1
+		numFrames = 6 // stateful 48 kHz stream length
+		celtStart = 0
 	)
 
 	specs := buildEncFixSweep()
@@ -373,16 +331,17 @@ func TestEncodeDifferentialFuzzFixedPoint(t *testing.T) {
 			cvbr := spec.mode == ModeCVBR
 
 			if spec.rate == 48000 {
-				// Stateful multi-frame: encode a whole stream, capture each frame's
-				// consumed int16, then replay the FIXED celt_encode_with_ec sequence
-				// over the concatenated int16 so cross-frame integer state matches
-				// frame for frame.
+				// Replay the same stateful sequence in the selected C CELT encoder,
+				// using each frame's exact opus_res Q8 input and controls.
 				enc := configureFixCELT(spec)
 				type captured struct {
-					packet   []byte
-					consumed []int16
+					packet []byte
+					rangeV uint32
 				}
 				caps := make([]captured, 0, numFrames)
+				frames := make([]libopustest.CELTFixedQ8Frame, 0, numFrames)
+				topFrames := make([]libopustest.OpusEncodeFixedMixedFrame, 0, numFrames)
+				innerBitrate, lsbDepth := 0, 0
 				inScope := true
 				for f := 0; f < numFrames; f++ {
 					pcm := genFixFrame(spec, f, numFrames)
@@ -397,14 +356,25 @@ func TestEncodeDifferentialFuzzFixedPoint(t *testing.T) {
 					if len(pkt) < 1 {
 						t.Fatalf("frame %d: empty packet", f)
 					}
-					in16 := enc.LastFixedCELTInput16()
-					if len(in16) != spec.channels*spec.frameSize {
-						t.Fatalf("frame %d: LastFixedCELTInput16 len=%d want %d",
-							f, len(in16), spec.channels*spec.frameSize)
+					inQ8 := enc.LastFixedCELTInputQ8()
+					if len(inQ8) != spec.channels*spec.frameSize {
+						t.Fatalf("frame %d: LastFixedCELTInputQ8 len=%d want %d",
+							f, len(inQ8), spec.channels*spec.frameSize)
 					}
+					rate, maxBytes, depth := enc.LastFixedCELTControls()
+					if f == 0 {
+						innerBitrate, lsbDepth = rate, depth
+					} else if rate != innerBitrate || depth != lsbDepth {
+						t.Fatalf("frame %d: inner bitrate/depth changed %d/%d %d/%d", f, rate, innerBitrate, depth, lsbDepth)
+					}
+					frame := fixedQ8OracleFrame(enc)
+					frame.MaxBytes = maxBytes
+					frames = append(frames, frame)
+					topFrames = append(topFrames, libopustest.OpusEncodeFixedMixedFrame{
+						Format: 1, FloatPCM: append([]float32(nil), pcm...),
+					})
 					caps = append(caps, captured{
-						packet:   append([]byte(nil), pkt...),
-						consumed: append([]int16(nil), in16...),
+						packet: append([]byte(nil), pkt...), rangeV: enc.FinalRange(),
 					})
 				}
 				if !inScope {
@@ -414,26 +384,22 @@ func TestEncodeDifferentialFuzzFixedPoint(t *testing.T) {
 				celtCases++
 				stateful48k++
 
-				consumedAll := make([]int16, 0, numFrames*spec.frameSize*spec.channels)
-				for _, c := range caps {
-					consumedAll = append(consumedAll, c.consumed...)
-				}
-
-				// TOC parity against the FIXED top-level opus_encode().
-				topPackets, err := libopustest.ProbeOpusEncodeFixed(libopustest.OpusEncodeFixedParams{
-					SampleRate:    spec.rate,
-					Channels:      spec.channels,
-					ForceMode:     libopustest.OpusForceModeCELTOnly,
-					Bandwidth:     spec.oracleBW,
-					Bitrate:       spec.bitrate,
-					Complexity:    spec.complexity,
-					VBR:           vbr,
-					VBRConstraint: cvbr,
-					ForceChannels: spec.channels,
-					FrameSize:     spec.frameSize,
-					FrameCount:    numFrames,
-					PCM:           consumedAll,
-				})
+				// Compare TOC against the same raw float input through selected C.
+				topPackets, err := libopustest.ProbeOpusEncodeFixedMixedRecords(libopustest.OpusEncodeFixedParams{
+					SampleRate:     spec.rate,
+					Channels:       spec.channels,
+					Application:    libopustest.OpusApplicationRestrictedLowDelay,
+					MaxPacketBytes: 4000,
+					ForceMode:      libopustest.OpusForceModeCELTOnly,
+					Bandwidth:      spec.oracleBW,
+					Bitrate:        spec.bitrate,
+					Complexity:     spec.complexity,
+					VBR:            vbr,
+					VBRConstraint:  cvbr,
+					ForceChannels:  spec.channels,
+					FrameSize:      spec.frameSize,
+					FrameCount:     numFrames,
+				}, topFrames)
 				if err != nil {
 					libopustest.HelperUnavailable(t, "opus encode fixed", err)
 					return
@@ -442,11 +408,13 @@ func TestEncodeDifferentialFuzzFixedPoint(t *testing.T) {
 					t.Fatalf("FIXED opus_encode packet count=%d gopus=%d", len(topPackets), len(caps))
 				}
 
-				wantInner, err := libopustest.ProbeCELTFixedEncodeSeq(
-					consumedAll, spec.channels, spec.frameSize, celtStart, end,
-					spec.bitrate, spec.complexity, vbr, cvbr, celtMaxBytes, numFrames)
+				wantInner, err := libopustest.ProbeCELTFixedRawQ8(libopustest.CELTFixedQ8Params{
+					SampleRate: spec.rate, Channels: spec.channels, FrameSize: spec.frameSize,
+					Start: celtStart, End: end, Bitrate: innerBitrate, Complexity: spec.complexity,
+					LSBDepth: lsbDepth, VBR: vbr, ConstrainedVBR: cvbr, Frames: frames,
+				})
 				if err != nil {
-					libopustest.HelperUnavailable(t, "celt fixed encode seq", err)
+					libopustest.HelperUnavailable(t, "celt fixed encode raw Q8", err)
 					return
 				}
 				if len(wantInner) != len(caps) {
@@ -455,22 +423,24 @@ func TestEncodeDifferentialFuzzFixedPoint(t *testing.T) {
 
 				for f, c := range caps {
 					subRateFrames++
-					if c.packet[0] != topPackets[f][0] {
+					if topPackets[f].Status < 0 || len(topPackets[f].Packet) == 0 {
+						t.Fatalf("%s/frame%d: selected C opus_encode_float status=%d", spec.name, f, topPackets[f].Status)
+					}
+					if c.packet[0] != topPackets[f].Packet[0] {
 						tocFails++
 						t.Errorf("%s/frame%d: TOC MISMATCH gopus=%02x FIXED opus_encode=%02x",
-							spec.name, f, c.packet[0], topPackets[f][0])
+							spec.name, f, c.packet[0], topPackets[f].Packet[0])
 						continue
 					}
 					got := c.packet[1:]
 					want := wantInner[f]
-					if !bytes.Equal(got, want) {
+					if !bytes.Equal(got, want.Packet) || c.rangeV != want.FinalRange {
 						payloadFails++
-						fb := firstByteDiffFix(got, want)
+						fb := firstByteDiffFix(got, want.Packet)
 						t.Errorf("%s/frame%d: INNER CELT PAYLOAD BYTE MISMATCH at byte %d "+
-							"(len got=%d want=%d) br=%d cx=%d %v end=%d ch=%d — same int16 input, "+
-							"integer encode divergence (HARD FAIL all arch)\n got=% x\nwant=% x",
-							spec.name, f, fb, len(got), len(want), spec.bitrate, spec.complexity,
-							spec.mode, end, spec.channels, got, want)
+							"(len got=%d want=%d range=%08x/%08x) br=%d cx=%d %v end=%d ch=%d — same Q8 input\n got=% x\nwant=% x",
+							spec.name, f, fb, len(got), len(want.Packet), c.rangeV, want.FinalRange, spec.bitrate, spec.complexity,
+							spec.mode, end, spec.channels, got, want.Packet)
 					}
 				}
 				return
@@ -495,26 +465,29 @@ func TestEncodeDifferentialFuzzFixedPoint(t *testing.T) {
 			celtCases++
 			subRateFrames++
 
-			in16 := enc.LastFixedCELTInput16()
-			if len(in16) != spec.channels*spec.frameSize {
-				t.Fatalf("LastFixedCELTInput16 len=%d want %d", len(in16), spec.channels*spec.frameSize)
+			frame := fixedQ8OracleFrame(enc)
+			if len(frame.PCM) != spec.channels*spec.frameSize {
+				t.Fatalf("LastFixedCELTInputQ8 len=%d want %d", len(frame.PCM), spec.channels*spec.frameSize)
 			}
+			innerBitrate, maxBytes, lsbDepth := enc.LastFixedCELTControls()
+			frame.MaxBytes = maxBytes
 
-			// TOC parity against the FIXED top-level opus_encode() (single frame).
-			topPackets, err := libopustest.ProbeOpusEncodeFixed(libopustest.OpusEncodeFixedParams{
-				SampleRate:    spec.rate,
-				Channels:      spec.channels,
-				ForceMode:     libopustest.OpusForceModeCELTOnly,
-				Bandwidth:     spec.oracleBW,
-				Bitrate:       spec.bitrate,
-				Complexity:    spec.complexity,
-				VBR:           vbr,
-				VBRConstraint: cvbr,
-				ForceChannels: spec.channels,
-				FrameSize:     spec.frameSize,
-				FrameCount:    1,
-				PCM:           append([]int16(nil), in16...),
-			})
+			// Compare TOC against the same raw float input through selected C.
+			topPackets, err := libopustest.ProbeOpusEncodeFixedMixedRecords(libopustest.OpusEncodeFixedParams{
+				SampleRate:     spec.rate,
+				Channels:       spec.channels,
+				Application:    libopustest.OpusApplicationRestrictedLowDelay,
+				MaxPacketBytes: 4000,
+				ForceMode:      libopustest.OpusForceModeCELTOnly,
+				Bandwidth:      spec.oracleBW,
+				Bitrate:        spec.bitrate,
+				Complexity:     spec.complexity,
+				VBR:            vbr,
+				VBRConstraint:  cvbr,
+				ForceChannels:  spec.channels,
+				FrameSize:      spec.frameSize,
+				FrameCount:     1,
+			}, []libopustest.OpusEncodeFixedMixedFrame{{Format: 1, FloatPCM: pcm}})
 			if err != nil {
 				libopustest.HelperUnavailable(t, "opus encode fixed", err)
 				return
@@ -522,29 +495,37 @@ func TestEncodeDifferentialFuzzFixedPoint(t *testing.T) {
 			if len(topPackets) != 1 {
 				t.Fatalf("FIXED opus_encode packet count=%d want 1", len(topPackets))
 			}
-			if pkt[0] != topPackets[0][0] {
+			if topPackets[0].Status < 0 || len(topPackets[0].Packet) == 0 {
+				t.Fatalf("selected C opus_encode_float status=%d", topPackets[0].Status)
+			}
+			if pkt[0] != topPackets[0].Packet[0] {
 				tocFails++
 				t.Errorf("%s: TOC MISMATCH gopus=%02x FIXED opus_encode=%02x",
-					spec.name, pkt[0], topPackets[0][0])
+					spec.name, pkt[0], topPackets[0].Packet[0])
 				return
 			}
 
-			want, err := libopustest.ProbeCELTFixedEncodeRate(
-				append([]int16(nil), in16...), spec.channels, spec.frameSize, celtStart, end,
-				spec.bitrate, spec.complexity, celtMaxBytes, spec.rate, vbr, cvbr, false, nil)
+			want, err := libopustest.ProbeCELTFixedRawQ8(libopustest.CELTFixedQ8Params{
+				SampleRate: spec.rate, Channels: spec.channels, FrameSize: spec.frameSize,
+				Start: celtStart, End: end, Bitrate: innerBitrate, Complexity: spec.complexity,
+				LSBDepth: lsbDepth, VBR: vbr, ConstrainedVBR: cvbr,
+				Frames: []libopustest.CELTFixedQ8Frame{frame},
+			})
 			if err != nil {
-				libopustest.HelperUnavailable(t, "celt fixed encode rate", err)
+				libopustest.HelperUnavailable(t, "celt fixed encode raw Q8", err)
 				return
 			}
+			if len(want) != 1 {
+				t.Fatalf("fixed raw Q8 oracle records=%d want 1", len(want))
+			}
 			got := pkt[1:]
-			if !bytes.Equal(got, want) {
+			if !bytes.Equal(got, want[0].Packet) || enc.FinalRange() != want[0].FinalRange {
 				payloadFails++
-				fb := firstByteDiffFix(got, want)
+				fb := firstByteDiffFix(got, want[0].Packet)
 				t.Errorf("%s: INNER CELT PAYLOAD BYTE MISMATCH at byte %d (len got=%d want=%d) "+
-					"rate=%d br=%d cx=%d %v end=%d ch=%d — same int16 input, integer encode "+
-					"divergence (HARD FAIL all arch)\n got=% x\nwant=% x",
-					spec.name, fb, len(got), len(want), spec.rate, spec.bitrate, spec.complexity,
-					spec.mode, end, spec.channels, got, want)
+					"rate=%d br=%d cx=%d %v end=%d ch=%d range=%08x/%08x — same Q8 input\n got=% x\nwant=% x",
+					spec.name, fb, len(got), len(want[0].Packet), spec.rate, spec.bitrate, spec.complexity,
+					spec.mode, end, spec.channels, enc.FinalRange(), want[0].FinalRange, got, want[0].Packet)
 			}
 		})
 	}

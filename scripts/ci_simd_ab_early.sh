@@ -233,6 +233,13 @@ for mode in simd nosimd; do
     "${run_env[@]}" go test -json -tags "gopus_fixed_point${feature_scalar_tag}" \
     ./internal/silk -run '^Test(Public.*SILK|PacketEncoderEncodeZeroAlloc)' -count=1 -timeout=10m
 
+  run_json_phase "candidate-$mode-fixed-encode" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json -tags "gopus_fixed_point${feature_scalar_tag}" \
+    . ./internal/encoder ./internal/celt ./testvectors \
+    -run '^(TestPublicFixedShortEncodeMatchesLibopus|TestPublicFixedShortExpertFrameDurationMatchesLibopus|TestPublicFixedLongCELTPacketsMatchLibopus|TestPublicFixedInputAPIsShareQ8History|TestPublicFixedStereoWidthFadeMatchesLibopus|TestPublicCELTEncodeFixedByteExact|TestPublicCELTEncodeFixedRateByteExact|TestOpusEncodeFixedCELTByteExact|TestOpusEncodeFixedCELTFloatInputSingleFrameByteExact|TestEncodeDifferentialFuzzFixedPoint|TestFixedCBRRawTailMatchesLibopus|TestFixedStereoPrefilterThresholdMatchesLibopus|TestFixedOuterOpusEncodeRawInt16MatchesLibopus|TestFixedOuterOpusEncodeRecordsPreserveCalls|TestFixedDCRejectQ8MatchesLibopus|TestAllocationNonpositiveBudgetMatchesFixedLibopus)$' \
+    -count=1 -timeout=25m
+
   run_json_phase "candidate-$mode-neural-kernel-parity" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json "${build_args[@]}" \

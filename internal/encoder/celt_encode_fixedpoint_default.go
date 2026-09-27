@@ -24,3 +24,10 @@ func (e *Encoder) fixedCELTFinalRange() (uint32, bool) { return 0, false }
 
 // clearFixedCELTUsed is a no-op in the default build.
 func (e *Encoder) clearFixedCELTUsed() {}
+
+func (e *Encoder) prepareFixedInputRes(_ []float32) {}
+func (e *Encoder) clearFixedInputRes()              {}
+func (e *Encoder) preprocessFixedInputRes(_ int)    {}
+func (e *Encoder) prepareFixedCELTPCM(_ int)        {}
+func (e *Encoder) updateFixedDelayBuffer(_ int)     {}
+func (e *Encoder) applyFixedStereoWidth(_ int16)    {}

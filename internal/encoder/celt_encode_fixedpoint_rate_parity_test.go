@@ -124,38 +124,43 @@ func TestPublicCELTEncodeFixedRateByteExact(t *testing.T) {
 			}
 			got := packet[1:] // strip TOC byte; single un-padded CELT frame
 
-			consumed := enc.LastFixedCELTInput16()
-			if len(consumed) != c.channels*frameSize {
-				t.Fatalf("LastFixedCELTInput16 len=%d want %d", len(consumed), c.channels*frameSize)
+			frame := fixedQ8OracleFrame(enc)
+			if len(frame.PCM) != c.channels*frameSize {
+				t.Fatalf("LastFixedCELTInputQ8 len=%d want %d", len(frame.PCM), c.channels*frameSize)
 			}
-			pcm16 := append([]int16(nil), consumed...)
+			bitrate, _, lsbDepth := enc.LastFixedCELTControls()
 
 			vbr := c.mode != ModeCBR
 			cvbr := c.mode == ModeCVBR
 			end := celtFixedEndBand(enc.effectiveBandwidth())
-			nbCompressedBytes := celtPacketSizeCap - 1
-
-			want, err := libopustest.ProbeCELTFixedEncodeRate(pcm16, c.channels, frameSize, 0, end,
-				c.bitrate, c.complexity, nbCompressedBytes, c.rate, vbr, cvbr, false, nil)
+			want, err := libopustest.ProbeCELTFixedRawQ8(libopustest.CELTFixedQ8Params{
+				SampleRate: c.rate, Channels: c.channels, FrameSize: frameSize,
+				Start: 0, End: end, Bitrate: bitrate, Complexity: c.complexity,
+				LSBDepth: lsbDepth, VBR: vbr, ConstrainedVBR: cvbr,
+				Frames: []libopustest.CELTFixedQ8Frame{frame},
+			})
 			if err != nil {
-				libopustest.HelperUnavailable(t, "celt fixed encode rate", err)
+				libopustest.HelperUnavailable(t, "celt fixed encode raw Q8", err)
 				return
 			}
+			if len(want) != 1 {
+				t.Fatalf("raw Q8 oracle records=%d want 1", len(want))
+			}
 
-			if !bytes.Equal(got, want) {
+			if !bytes.Equal(got, want[0].Packet) || enc.FinalRange() != want[0].FinalRange {
 				n := len(got)
-				if len(want) < n {
-					n = len(want)
+				if len(want[0].Packet) < n {
+					n = len(want[0].Packet)
 				}
 				diff := -1
 				for i := 0; i < n; i++ {
-					if got[i] != want[i] {
+					if got[i] != want[0].Packet[i] {
 						diff = i
 						break
 					}
 				}
-				t.Fatalf("public CELT packet mismatch (rate=%d frameSize=%d end=%d): got %d bytes, want %d bytes, first diff at %d\n got=% x\nwant=% x",
-					c.rate, frameSize, end, len(got), len(want), diff, got, want)
+				t.Fatalf("public CELT packet mismatch (rate=%d frameSize=%d end=%d): got %d bytes, want %d bytes, first diff at %d range=%08x/%08x\n got=% x\nwant=% x",
+					c.rate, frameSize, end, len(got), len(want[0].Packet), diff, enc.FinalRange(), want[0].FinalRange, got, want[0].Packet)
 			}
 		})
 	}

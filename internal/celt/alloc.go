@@ -514,7 +514,7 @@ func ComputeAllocationWithEncoderStart(re *rangecoding.Encoder, start, totalBits
 		DualStereo:   false,
 	}
 
-	if nbBands == 0 || totalBitsQ3 <= 0 {
+	if nbBands == 0 {
 		return result
 	}
 
@@ -602,7 +602,7 @@ func ComputeAllocationWithEncoderStartInto(sc *AllocEncodeScratch, re *rangecodi
 		result.Caps[i] = 0
 	}
 
-	if nbBands == 0 || totalBitsQ3 <= 0 {
+	if nbBands == 0 {
 		return result
 	}
 

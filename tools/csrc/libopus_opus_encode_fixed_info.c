@@ -15,6 +15,14 @@
  *              [int16 ... ] [pad to 4]
  *   OUT: "GOEO" u32(version=1) u32(num_packets)
  *              [num_packets × u32(packet_len) bytes(packet_len) pad-to-4]
+ *   IN v2 appends u32(application) u32(max_packet_bytes) u32(input_format=0)
+ *         to the header and u32(reset_before_frame) for every frame after PCM.
+ *   OUT v2: "GOEO" u32(version=2) u32(num_frames)
+ *           [num_frames × u32(status) u32(packet_len) u32(final_range)
+ *                         bytes(packet_len) pad-to-4]
+ *   IN v3 uses u32 raw sample words and a per-frame public input format.
+ *   IN v4 is v3 with u32(configured_lsb_depth) after input_format.
+ *   IN v5 appends u32(expert_frame_duration) after configured_lsb_depth.
  *
  * force_mode values map to opus_private.h:
  *   1000 = MODE_SILK_ONLY, 1001 = MODE_HYBRID, 1002 = MODE_CELT_ONLY,
@@ -103,13 +111,17 @@ int main(void) {
     return 1;
   }
   uint32_t version;
-  if (!read_u32(&version) || version != 1) {
+  if (!read_u32(&version) || (version < 1 || version > 5)) {
     fprintf(stderr, "bad input version %u\n", version);
     return 1;
   }
 
   uint32_t sample_rate, channels, force_mode, bandwidth, bitrate, complexity;
   uint32_t vbr, vbr_constraint, force_channels, frame_size, num_frames, nsamples;
+  uint32_t application = OPUS_APPLICATION_AUDIO, max_packet_bytes = MAX_PACKET_BYTES;
+  uint32_t input_format = 0;
+  uint32_t lsb_depth = 0;
+  uint32_t expert_frame_duration = 0;
   if (!read_u32(&sample_rate)    || !read_u32(&channels)       ||
       !read_u32(&force_mode)     || !read_u32(&bandwidth)      ||
       !read_u32(&bitrate)        || !read_u32(&complexity)     ||
@@ -117,6 +129,19 @@ int main(void) {
       !read_u32(&force_channels) || !read_u32(&frame_size)     ||
       !read_u32(&num_frames)     || !read_u32(&nsamples)) {
     fprintf(stderr, "truncated header\n");
+    return 1;
+  }
+  if (version >= 2 && (!read_u32(&application) || !read_u32(&max_packet_bytes) ||
+                       !read_u32(&input_format))) {
+    fprintf(stderr, "truncated v2 header\n");
+    return 1;
+  }
+  if (version >= 4 && !read_u32(&lsb_depth)) {
+    fprintf(stderr, "truncated v4 LSB depth\n");
+    return 1;
+  }
+  if (version == 5 && !read_u32(&expert_frame_duration)) {
+    fprintf(stderr, "truncated v5 expert frame duration\n");
     return 1;
   }
 
@@ -132,54 +157,116 @@ int main(void) {
     fprintf(stderr, "invalid complexity %u\n", complexity);
     return 1;
   }
+  if (max_packet_bytes == 0 || max_packet_bytes > MAX_PACKET_BYTES ||
+      (version == 2 && input_format != 0) || (version >= 3 && input_format != 3) ||
+      (version == 4 && (lsb_depth < 8 || lsb_depth > 24)) ||
+      (application != OPUS_APPLICATION_AUDIO && application != OPUS_APPLICATION_VOIP &&
+       application != OPUS_APPLICATION_RESTRICTED_LOWDELAY)) {
+    fprintf(stderr, "invalid v2 application/cap/format\n");
+    return 1;
+  }
   if ((uint64_t)nsamples != (uint64_t)frame_size * channels * num_frames) {
     fprintf(stderr, "nsamples mismatch\n");
     return 1;
   }
 
-  opus_int16 *pcm = (opus_int16 *)malloc((size_t)nsamples * sizeof(opus_int16));
-  if (pcm == NULL && nsamples != 0) {
+  opus_int16 *pcm = NULL;
+  uint32_t *raw = NULL;
+  float *pcm_float = NULL;
+  uint32_t *frame_format = NULL;
+  if (version >= 3) {
+    raw = (uint32_t *)malloc((size_t)nsamples * sizeof(uint32_t));
+    pcm = (opus_int16 *)malloc((size_t)frame_size * channels * sizeof(opus_int16));
+    pcm_float = (float *)malloc((size_t)frame_size * channels * sizeof(float));
+  } else {
+    pcm = (opus_int16 *)malloc((size_t)nsamples * sizeof(opus_int16));
+  }
+  if (pcm == NULL || (version >= 3 && (raw == NULL || pcm_float == NULL))) {
     fprintf(stderr, "pcm malloc failed\n");
+    free(raw); free(pcm_float);
     return 1;
   }
   for (uint32_t i = 0; i < nsamples; i++) {
-    unsigned char b[2];
-    if (!read_exact(b, 2)) {
-      fprintf(stderr, "truncated PCM at %u\n", i);
-      free(pcm);
-      return 1;
+    if (version >= 3) {
+      if (!read_u32(&raw[i])) {
+        fprintf(stderr, "truncated PCM at %u\n", i);
+        free(raw); free(pcm_float); free(pcm);
+        return 1;
+      }
+    } else {
+      unsigned char b[2];
+      if (!read_exact(b, 2)) {
+        fprintf(stderr, "truncated PCM at %u\n", i);
+        free(pcm);
+        return 1;
+      }
+      pcm[i] = (opus_int16)((uint16_t)b[0] | ((uint16_t)b[1] << 8));
     }
-    pcm[i] = (opus_int16)((uint16_t)b[0] | ((uint16_t)b[1] << 8));
   }
   /* consume input padding to 4-byte boundary */
   {
-    size_t pad = (4 - ((size_t)nsamples * 2) % 4) % 4;
+    size_t pad = version >= 3 ? 0 : (4 - ((size_t)nsamples * 2) % 4) % 4;
     unsigned char tmp[4];
     if (pad > 0 && !read_exact(tmp, pad)) {
       fprintf(stderr, "truncated PCM pad\n");
-      free(pcm);
+      free(raw); free(pcm_float); free(pcm);
       return 1;
+    }
+  }
+
+  uint32_t *reset_before = NULL;
+  if (version >= 2) {
+    reset_before = (uint32_t *)calloc((size_t)num_frames, sizeof(uint32_t));
+    if (reset_before == NULL) {
+      fprintf(stderr, "reset flag alloc failed\n");
+      free(raw); free(pcm_float); free(pcm);
+      return 1;
+    }
+    for (uint32_t i = 0; i < num_frames; i++) {
+      if (!read_u32(&reset_before[i]) || reset_before[i] > 1) {
+        fprintf(stderr, "invalid reset flag %u\n", i);
+        free(reset_before); free(raw); free(pcm_float); free(pcm);
+        return 1;
+      }
+    }
+  }
+  if (version >= 3) {
+    frame_format = (uint32_t *)calloc((size_t)num_frames, sizeof(uint32_t));
+    if (frame_format == NULL) {
+      free(reset_before); free(raw); free(pcm_float); free(pcm);
+      return 1;
+    }
+    for (uint32_t i = 0; i < num_frames; i++) {
+      if (!read_u32(&frame_format[i]) || frame_format[i] > 2) {
+        fprintf(stderr, "invalid frame format %u\n", i);
+        free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
+        return 1;
+      }
     }
   }
 
   int err = OPUS_OK;
   OpusEncoder *enc = opus_encoder_create((opus_int32)sample_rate, (int)channels,
-                                         OPUS_APPLICATION_AUDIO, &err);
+                                         (int)application, &err);
   if (enc == NULL || err != OPUS_OK) {
     fprintf(stderr, "opus_encoder_create failed: %d\n", err);
-    free(pcm);
+    free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
     return 1;
   }
 
 #define CTL(call) do { \
     if (opus_encoder_ctl(enc, call) != OPUS_OK) { \
       fprintf(stderr, "ctl failed: %s\n", #call); \
-      opus_encoder_destroy(enc); free(pcm); return 1; \
+      opus_encoder_destroy(enc); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm); return 1; \
     } \
   } while (0)
 
   CTL(OPUS_SET_BITRATE((opus_int32)bitrate));
   CTL(OPUS_SET_COMPLEXITY((opus_int32)complexity));
+  if (lsb_depth != 0) CTL(OPUS_SET_LSB_DEPTH((opus_int32)lsb_depth));
+  if (expert_frame_duration != 0) {
+    CTL(OPUS_SET_EXPERT_FRAME_DURATION((opus_int32)expert_frame_duration));
+  }
   CTL(OPUS_SET_VBR((opus_int32)(vbr ? 1 : 0)));
   CTL(OPUS_SET_VBR_CONSTRAINT((opus_int32)(vbr_constraint ? 1 : 0)));
   if (bandwidth != 0) {
@@ -194,18 +281,26 @@ int main(void) {
   }
 
   unsigned char *pkt_buf = (unsigned char *)malloc(MAX_PACKET_BYTES);
-  unsigned char **packets = (unsigned char **)malloc((size_t)num_frames * sizeof(unsigned char *));
-  int *packet_lens = (int *)malloc((size_t)num_frames * sizeof(int));
-  if (pkt_buf == NULL || packets == NULL || packet_lens == NULL) {
+  unsigned char **packets = (unsigned char **)calloc((size_t)num_frames, sizeof(unsigned char *));
+  int *packet_lens = (int *)calloc((size_t)num_frames, sizeof(int));
+  int *packet_status = (int *)calloc((size_t)num_frames, sizeof(int));
+  opus_uint32 *packet_ranges = (opus_uint32 *)calloc((size_t)num_frames, sizeof(opus_uint32));
+  if (pkt_buf == NULL || packets == NULL || packet_lens == NULL ||
+      packet_status == NULL || packet_ranges == NULL) {
     fprintf(stderr, "alloc failed\n");
-    free(pkt_buf); free(packets); free(packet_lens);
-    opus_encoder_destroy(enc); free(pcm);
+    free(pkt_buf); free(packets); free(packet_lens); free(packet_status); free(packet_ranges);
+    opus_encoder_destroy(enc); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
     return 1;
   }
 
   uint32_t got = 0;
   size_t per = (size_t)frame_size * channels;
   for (uint32_t f = 0; f < num_frames; f++) {
+    if (version >= 2 && reset_before[f] != 0 &&
+        opus_encoder_ctl(enc, OPUS_RESET_STATE) != OPUS_OK) {
+      fprintf(stderr, "reset failed at frame %u\n", f);
+      goto fail;
+    }
     /* FORCE_MODE is cleared after each call in libopus; reassert it. */
     if (force_mode != 0) {
       if (opus_encoder_ctl(enc, OPUS_SET_FORCE_MODE((opus_int32)force_mode)) != OPUS_OK) {
@@ -213,31 +308,60 @@ int main(void) {
         goto fail;
       }
     }
-    int n = opus_encode(enc, pcm + (size_t)f * per, (int)frame_size,
-                        pkt_buf, MAX_PACKET_BYTES);
-    if (n < 0) {
+    int n;
+    if (version >= 3) {
+      const uint32_t *src = raw + (size_t)f * per;
+      if (frame_format[f] == 0) {
+        for (size_t i = 0; i < per; i++) pcm[i] = (opus_int16)(int32_t)src[i];
+        n = opus_encode(enc, pcm, (int)frame_size, pkt_buf, (int)max_packet_bytes);
+      } else if (frame_format[f] == 1) {
+        for (size_t i = 0; i < per; i++) memcpy(&pcm_float[i], &src[i], sizeof(float));
+        n = opus_encode_float(enc, pcm_float, (int)frame_size, pkt_buf, (int)max_packet_bytes);
+      } else {
+        n = opus_encode24(enc, (const opus_int32 *)src, (int)frame_size,
+                          pkt_buf, (int)max_packet_bytes);
+      }
+    } else {
+      n = opus_encode(enc, pcm + (size_t)f * per, (int)frame_size,
+                      pkt_buf, (int)max_packet_bytes);
+    }
+    if (n < 0 && version == 1) {
       fprintf(stderr, "opus_encode frame %u failed: %d\n", f, n);
       goto fail;
     }
-    if (n == 0) {
+    if (n == 0 && version == 1) {
       continue; /* DTX silence */
     }
-    packets[got] = (unsigned char *)malloc((size_t)n);
-    if (packets[got] == NULL) {
-      fprintf(stderr, "packet copy malloc failed at %u\n", f);
+    packet_status[got] = n < 0 ? n : OPUS_OK;
+    if (n > 0) {
+      packets[got] = (unsigned char *)malloc((size_t)n);
+      if (packets[got] == NULL) {
+        fprintf(stderr, "packet copy malloc failed at %u\n", f);
+        goto fail;
+      }
+      memcpy(packets[got], pkt_buf, (size_t)n);
+      packet_lens[got] = n;
+    }
+    if (version >= 2 && n >= 0 &&
+        opus_encoder_ctl(enc, OPUS_GET_FINAL_RANGE(&packet_ranges[got])) != OPUS_OK) {
+      fprintf(stderr, "final range failed at frame %u\n", f);
       goto fail;
     }
-    memcpy(packets[got], pkt_buf, (size_t)n);
-    packet_lens[got] = n;
     got++;
   }
 
-  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) || !write_u32(got)) {
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(version) || !write_u32(got)) {
     fprintf(stderr, "write header failed\n");
     goto fail;
   }
   for (uint32_t i = 0; i < got; i++) {
-    if (!write_u32((uint32_t)packet_lens[i]) ||
+    if (version >= 2 && (!write_u32((uint32_t)packet_status[i]) ||
+                         !write_u32((uint32_t)packet_lens[i]) ||
+                         !write_u32((uint32_t)packet_ranges[i]))) {
+      fprintf(stderr, "write record %u failed\n", i);
+      goto fail;
+    }
+    if ((version == 1 && !write_u32((uint32_t)packet_lens[i])) ||
         !write_exact(packets[i], (size_t)packet_lens[i]) ||
         !write_pad((size_t)packet_lens[i])) {
       fprintf(stderr, "write packet %u failed\n", i);
@@ -246,13 +370,13 @@ int main(void) {
   }
 
   for (uint32_t i = 0; i < got; i++) free(packets[i]);
-  free(packets); free(packet_lens); free(pkt_buf);
-  opus_encoder_destroy(enc); free(pcm);
+  free(packets); free(packet_lens); free(packet_status); free(packet_ranges); free(pkt_buf);
+  opus_encoder_destroy(enc); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
   return 0;
 
 fail:
   for (uint32_t i = 0; i < got; i++) free(packets[i]);
-  free(packets); free(packet_lens); free(pkt_buf);
-  opus_encoder_destroy(enc); free(pcm);
+  free(packets); free(packet_lens); free(packet_status); free(packet_ranges); free(pkt_buf);
+  opus_encoder_destroy(enc); free(frame_format); free(reset_before); free(raw); free(pcm_float); free(pcm);
   return 1;
 }

@@ -86,7 +86,28 @@ func (e *Encoder) EncodeInt16(pcm []int16, data []byte) (int, error) {
 	for i, v := range pcm {
 		pcm32[i] = float32(v) / 32768.0
 	}
-	return e.Encode(pcm32, data)
+	return e.encodeInt16Packet(pcm32, data)
+}
+
+// encodeInt16Packet uses opus_encode_native's short-input policy, including
+// the per-call 16-bit LSB-depth cap and short-input analysis callback.
+func (e *Encoder) encodeInt16Packet(pcm32 []float32, data []byte) (int, error) {
+	if e.is96kHz() {
+		// QEXT's 96 kHz encoder follows the public float Encode path.
+		return e.Encode(pcm32, data)
+	}
+	if len(data) == 0 {
+		return 0, ErrBufferTooSmall
+	}
+	frameSize, err := selectExpertFrameSize(int(e.frameSize), e.expertFrameDuration, e.application, e.internalSampleRate())
+	if err != nil {
+		return 0, err
+	}
+	packet, err := e.enc.EncodeShortMixedWithAnalysisMaxBytes(pcm32[:frameSize*int(e.channels)], frameSize, pcm32, len(data))
+	if err != nil {
+		return 0, err
+	}
+	return copyEncodedPacket(packet, data)
 }
 
 // EncodeInt24 encodes 24-bit PCM samples stored in int32 values into an Opus packet.

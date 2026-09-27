@@ -31,6 +31,7 @@ func res2sig(a int32) int32 {
 // libopus OpusCustomEncoder fields the front-end touches.
 type CELTEncoder struct {
 	channels int
+	analysis CELTAnalysisInfo
 
 	// upsample mirrors st->upsample = resampling_factor(API sample rate): 1 at
 	// 48 kHz, 2/3/4/6 at 24/16/12/8 kHz. celt_encode_with_ec multiplies the
@@ -73,6 +74,9 @@ type CELTEncoder struct {
 	// preemphMemE mirrors st->preemph_memE: the per-channel pre-emphasis filter
 	// state carried between frames.
 	preemphMemE []int32
+	// shortPCMRes carries the int16 API's INT16TORES conversion into the
+	// ENABLE_RES24 Q8 encoder without narrowing a direct opus_res input.
+	shortPCMRes []int32
 
 	// inMem holds CC*overlap celt_sig: the run_prefilter "in_mem" carried between
 	// frames (the previous frame's trailing overlap, after prefiltering).
@@ -110,6 +114,31 @@ type CELTEncoder struct {
 	// scratch holds the reusable per-frame/per-band encode working buffers,
 	// grown once and reused across every frame of a packet.
 	scratch *celtEncodeScratch
+}
+
+// CELTAnalysisInfo carries the fields consumed by the fixed-point CELT encoder.
+// The values retain AnalysisInfo's float width even in a FIXED_POINT build;
+// celt/celt_encoder.c uses float analysis for trim, pitch, allocation and VBR.
+type CELTAnalysisInfo struct {
+	Valid         bool
+	Bandwidth     int32
+	LeakBoost     [19]uint8
+	Activity      float32
+	Tonality      float32
+	TonalitySlope float32
+	MaxPitchRatio float32
+}
+
+// SetAnalysisInfo mirrors CELT_SET_ANALYSIS for the current subframe. An
+// invalid value clears the prior frame's analysis decisions.
+func (e *CELTEncoder) SetAnalysisInfo(info CELTAnalysisInfo) {
+	e.analysis = info
+}
+
+// SetLSBDepth mirrors CELT_SET_LSB_DEPTH_REQUEST. opus_encode_native passes the
+// per-call API input depth to CELT after opus_encode clamps short input to 16.
+func (e *CELTEncoder) SetLSBDepth(depth int) {
+	e.lsbDepth = depth
 }
 
 // NewCELTEncoder allocates and resets an integer CELT encoder front-end for the
@@ -224,8 +253,12 @@ func (e *CELTEncoder) FrontEnd(pcm []int16, frameSize int, isTransient bool) (fr
 	// from prefilter_mem (zero on a fresh encoder's first frame) and the body is
 	// the pre-emphasised input. celt_preemphasis writes into in[c*(N+overlap)+overlap].
 	in := make([]int32, CC*(N+overlap))
+	pcmRes := make([]int32, len(pcm))
+	for i, sample := range pcm {
+		pcmRes[i] = int16ToRes(sample)
+	}
 	for c := 0; c < CC; c++ {
-		e.preemphasis(pcm[c:], in[c*(N+overlap)+overlap:], N, CC, c)
+		e.preemphasis(pcmRes[c:], in[c*(N+overlap)+overlap:], N, CC, c)
 	}
 
 	freq = make([]int32, CC*N)
@@ -241,18 +274,18 @@ func (e *CELTEncoder) FrontEnd(pcm []int16, frameSize int, isTransient bool) (fr
 
 // preemphasis ports libopus celt_preemphasis for the static 48000/960 mode
 // (coef[1]==0, !clip). With upsample==1 it takes the fast path: inp[i] = x - m
-// and m = MULT16_32_Q15(coef0, x), where x = RES2SIG(INT16TORES(pcmp[CC*i])).
+// and m = MULT16_32_Q15(coef0, x), where x = RES2SIG(pcmp[CC*i]).
 // With upsample>1 (sub-48 kHz API rate) it zero-stuffs the input up to the 48
 // kHz core rate: inp is cleared, the Nu input samples are scattered into
 // inp[i*upsample], then the same pre-emphasis recurrence runs over all N
 // (zero-stuffed) samples. It advances st->preemph_memE[c].
-func (e *CELTEncoder) preemphasis(pcmp []int16, inp []int32, N, CC, c int) {
+func (e *CELTEncoder) preemphasis(pcmp []int32, inp []int32, N, CC, c int) {
 	coef0 := staticMDCT48000Preemph0
 	m := e.preemphMemE[c]
 	upsample := e.upsample
 	if upsample <= 1 {
 		for i := 0; i < N; i++ {
-			x := res2sig(int16ToRes(pcmp[CC*i]))
+			x := res2sig(pcmp[CC*i])
 			inp[i] = x - m
 			m = mult16x32q15(coef0, x)
 		}
@@ -264,7 +297,7 @@ func (e *CELTEncoder) preemphasis(pcmp []int16, inp []int32, N, CC, c int) {
 	}
 	Nu := N / upsample
 	for i := 0; i < Nu; i++ {
-		inp[i*upsample] = res2sig(int16ToRes(pcmp[CC*i]))
+		inp[i*upsample] = res2sig(pcmp[CC*i])
 	}
 	for i := 0; i < N; i++ {
 		x := inp[i]

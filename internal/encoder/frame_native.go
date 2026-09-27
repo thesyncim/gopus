@@ -174,6 +174,7 @@ func (e *Encoder) encodeFrameNative(pcm []opusRes, req frameRequest) (codedFrame
 	re.Init(payload)
 
 	celtPCM := e.pcmBuf(pcm, frameSize)
+	e.prepareFixedCELTPCM(frameSize)
 
 	hbGain := opusVal16(1)
 	var silkBitRate int32
@@ -261,8 +262,11 @@ func (e *Encoder) encodeFrameNative(pcm []opusRes, req frameRequest) (codedFrame
 	// The delay buffer takes the frame; the high-band gain and stereo width
 	// fades then run on pcm_buf so that they do not affect SILK.
 	e.updateDelayBuffer(pcm, frameSize)
+	e.updateFixedDelayBuffer(frameSize)
 	e.fadeHighBand(celtPCM, hbGain)
+	prevFixedWidth := e.hybridStereoWidthQ14
 	e.applyStereoWidth(mode, celtPCM, req.equivRate)
+	e.applyFixedStereoWidth(prevFixedWidth)
 
 	// The redundancy flag, position and size.
 	signalBits := 17

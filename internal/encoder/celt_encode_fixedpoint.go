@@ -19,10 +19,19 @@ const fixedPointBuild = true
 // encoderFixedCELTFields carries the integer (FIXED_POINT) CELT encoder state
 // added under the gopus_fixed_point build. It is empty in the default build.
 type encoderFixedCELTFields struct {
-	fixedCELT       *fixedCELTState
-	fixedCELTOut    []byte
-	fixedFinalRange uint32
-	fixedCELTUsed   bool
+	fixedCELT        *fixedCELTState
+	fixedCELTOut     []byte
+	fixedFinalRange  uint32
+	fixedCELTUsed    bool
+	fixedRawRes      []int32
+	fixedFiltered    []int32
+	fixedFrameSource []int32
+	fixedDelayed     []int32
+	fixedDelayBuffer []int32
+	fixedHPMem       [4]int32
+	fixedInputActive bool
+	fixedFrameReady  bool
+	fixedFrameCursor int
 }
 
 // fixedCELTFinalRange returns the integer CELT encoder's final range coder state
@@ -45,10 +54,15 @@ func (e *Encoder) clearFixedCELTUsed() { e.fixedCELTUsed = false }
 // lazily and carries all CELT cross-frame state, so once a CELT-mode packet is
 // routed to it every subsequent CELT frame must continue through it.
 type fixedCELTState struct {
-	enc      *fixedpoint.CELTEncoder
-	channels int
-	pcm16    []int16
-	rng      *rangecoding.Encoder
+	enc          *fixedpoint.CELTEncoder
+	channels     int
+	pcm16        []int16
+	rng          *rangecoding.Encoder
+	lastQ8       []int32
+	lastAnalysis AnalysisInfo
+	lastMaxBytes int32
+	lastBitrate  int32
+	lastLSBDepth int32
 }
 
 // celtFixedUpsample mirrors celt_encoder_init's st->upsample =
@@ -148,6 +162,22 @@ func (e *Encoder) encodeCELTFrameFixed(pcm []opusRes, frameSize, bitrate, maxPay
 	st.enc.SetBandRange(0, celtFixedEndBand(e.effectiveBandwidth()))
 	st.enc.SetComplexity(int(e.complexity))
 	st.enc.SetBitrate(bitrate)
+	st.enc.SetLSBDepth(int(e.lsbDepth))
+	if e.lastAnalysisValid {
+		st.lastAnalysis = e.lastAnalysisInfo
+		st.enc.SetAnalysisInfo(fixedpoint.CELTAnalysisInfo{
+			Valid:         true,
+			Bandwidth:     e.lastAnalysisInfo.BandwidthIndex,
+			LeakBoost:     e.lastAnalysisInfo.LeakBoost,
+			Activity:      e.lastAnalysisInfo.Activity,
+			Tonality:      e.lastAnalysisInfo.Tonality,
+			TonalitySlope: e.lastAnalysisInfo.TonalitySlope,
+			MaxPitchRatio: e.lastAnalysisInfo.MaxPitchRatio,
+		})
+	} else {
+		st.lastAnalysis = AnalysisInfo{}
+		st.enc.SetAnalysisInfo(fixedpoint.CELTAnalysisInfo{})
+	}
 	switch e.bitrateMode {
 	case ModeCBR:
 		st.enc.SetVBR(false)
@@ -160,14 +190,22 @@ func (e *Encoder) encodeCELTFrameFixed(pcm []opusRes, frameSize, bitrate, maxPay
 		st.enc.SetConstrainedVBR(false)
 	}
 
-	// Convert the delay-compensated float frame to int16 with the libopus
-	// FLOAT2INT16 quantization, matching opus_encode_float -> celt_encode_with_ec.
-	if cap(st.pcm16) < len(pcm) {
-		st.pcm16 = make([]int16, len(pcm))
-	}
-	st.pcm16 = st.pcm16[:len(pcm)]
-	for i, v := range pcm {
-		st.pcm16[i] = opusmath.Float32ToInt16(float32(v))
+	// All supported public input APIs carry opus_res Q8 through DC rejection and
+	// the delay buffer. The int16 seam serves callers outside that source path.
+	var pcmRes []int32
+	if e.fixedFrameReady && len(e.fixedDelayed) == len(pcm) {
+		pcmRes = e.fixedDelayed
+		st.lastQ8 = pcmRes
+		st.pcm16 = st.pcm16[:0]
+	} else {
+		st.lastQ8 = nil
+		if cap(st.pcm16) < len(pcm) {
+			st.pcm16 = make([]int16, len(pcm))
+		}
+		st.pcm16 = st.pcm16[:len(pcm)]
+		for i, v := range pcm {
+			st.pcm16[i] = opusmath.Float32ToInt16(float32(v))
+		}
 	}
 
 	// nbCompressedBytes is the output buffer cap; EncodeWithEC self-computes the
@@ -176,6 +214,9 @@ func (e *Encoder) encodeCELTFrameFixed(pcm []opusRes, frameSize, bitrate, maxPay
 	if maxPayloadBytes > 0 && maxPayloadBytes < nbCompressedBytes {
 		nbCompressedBytes = maxPayloadBytes
 	}
+	st.lastMaxBytes = int32(nbCompressedBytes)
+	st.lastBitrate = int32(bitrate)
+	st.lastLSBDepth = e.lsbDepth
 
 	if cap(st.rng.Buffer()) < nbCompressedBytes {
 		buf := make([]byte, nbCompressedBytes)
@@ -188,7 +229,12 @@ func (e *Encoder) encodeCELTFrameFixed(pcm []opusRes, frameSize, bitrate, maxPay
 		st.rng.Init(buf)
 	}
 
-	n := st.enc.EncodeWithEC(st.pcm16, frameSize, st.rng, nbCompressedBytes)
+	var n int
+	if pcmRes != nil {
+		n = st.enc.EncodeWithECRes(pcmRes, frameSize, st.rng, nbCompressedBytes)
+	} else {
+		n = st.enc.EncodeWithEC(st.pcm16, frameSize, st.rng, nbCompressedBytes)
+	}
 	e.fixedFinalRange = st.rng.Range()
 	out = append(e.fixedCELTOut[:0], st.rng.Buffer()[:n]...)
 	e.fixedCELTOut = out
@@ -196,14 +242,31 @@ func (e *Encoder) encodeCELTFrameFixed(pcm []opusRes, frameSize, bitrate, maxPay
 	return out, true, nil
 }
 
-// LastFixedCELTInput16 returns the int16 PCM frame the integer CELT encoder
-// consumed for the most recent frame, for parity tests that drive the same
-// samples through the bare FIXED_POINT celt_encode_with_ec oracle.
-func (e *Encoder) LastFixedCELTInput16() []int16 {
-	if e.fixedCELT == nil {
+// LastFixedCELTInputQ8 returns the exact opus_res frame consumed by integer
+// CELT. The view is valid until the next encode call.
+func (e *Encoder) LastFixedCELTInputQ8() []int32 {
+	if !e.fixedCELTUsed || e.fixedCELT == nil {
 		return nil
 	}
-	return e.fixedCELT.pcm16
+	return e.fixedCELT.lastQ8
+}
+
+// LastFixedCELTAnalysis returns the analysis snapshot consumed by the last
+// integer CELT frame. The value contains no borrowed buffers.
+func (e *Encoder) LastFixedCELTAnalysis() AnalysisInfo {
+	if !e.fixedCELTUsed || e.fixedCELT == nil {
+		return AnalysisInfo{}
+	}
+	return e.fixedCELT.lastAnalysis
+}
+
+// LastFixedCELTControls reports the rate and caller capacity that the last
+// integer CELT frame received, including the short API's effective LSB depth.
+func (e *Encoder) LastFixedCELTControls() (bitrate, maxBytes, lsbDepth int) {
+	if !e.fixedCELTUsed || e.fixedCELT == nil {
+		return 0, 0, 0
+	}
+	return int(e.fixedCELT.lastBitrate), int(e.fixedCELT.lastMaxBytes), int(e.fixedCELT.lastLSBDepth)
 }
 
 func (e *Encoder) ensureFixedCELT(channels int) *fixedCELTState {
@@ -221,6 +284,11 @@ func (e *Encoder) ensureFixedCELT(channels int) *fixedCELTState {
 // celtEncoder.Reset() done on a CELT mode transition. The API-rate upsample is
 // preserved by recreating at the encoder's sample rate.
 func (e *Encoder) resetFixedCELT() {
+	e.fixedHPMem = [4]int32{}
+	clear(e.fixedDelayBuffer)
+	e.fixedInputActive = false
+	e.fixedFrameReady = false
+	e.fixedFrameCursor = 0
 	if e.fixedCELT != nil {
 		e.fixedCELT.enc = fixedpoint.NewCELTEncoderRate(e.fixedCELT.channels, int(e.sampleRate))
 	}

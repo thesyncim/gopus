@@ -862,6 +862,8 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float32, frameSize int, analy
 		return nil, ErrInvalidFrameSize
 	}
 	inputPCM := e.prepareOpusResInput(pcm)
+	e.prepareFixedInputRes(pcm)
+	defer e.clearFixedInputRes()
 	e.SetFloatInputFrame(pcm)
 	defer e.ClearFloatInputFrame()
 	return e.encodeOpusResWithAnalysisMaxBytes(inputPCM, frameSize, maxDataBytes, func() {
@@ -883,6 +885,8 @@ func (e *Encoder) EncodeShortMixedWithAnalysisMaxBytes(pcm []float32, frameSize 
 		return nil, ErrInvalidFrameSize
 	}
 	inputPCM := e.prepareOpusResInput(pcm)
+	e.prepareFixedInputRes(pcm)
+	defer e.clearFixedInputRes()
 	// opus_encode_native uses min(16, st->lsb_depth) for this call while the
 	// configured control survives the call.
 	configuredDepth := e.lsbDepth
@@ -1045,6 +1049,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	// leaves hp_mem untouched (src/opus_encoder.c:1340 returns before
 	// opus_encode_frame_native() filters the input at lines 1968-2009).
 	framePCM := e.preprocessInputHP(rawFramePCM, frameSize)
+	e.preprocessFixedInputRes(frameSize)
 
 	// Allow SILK DTX when DTX is on but the generalized DTX cannot be used,
 	// e.g. because of the complexity setting or the sample rate

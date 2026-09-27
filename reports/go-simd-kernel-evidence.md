@@ -132,7 +132,8 @@ Hybrid concealment retain fixed-width state. Warm FEC, transitions, and active
 SILK receive/loss cycles allocate zero; malformed framing preserves decoder
 state. The float build passes its 458-event focused suite in ordinary and SIMD.
 Native AMD64 at `1e2dbe77` passes the expanded fixed decode/FEC gate in
-both SIMD/nosimd lanes. Full outer fixed-point Opus encoding remains open.
+both SIMD/nosimd lanes. The ARM64 fixed-point outer-encode checkpoint below
+covers Audio and LowDelay; VoIP's fixed integer SILK biquad remains open.
 
 [Native run 36284981747](https://github.com/thesyncim/gopus/actions/runs/36284981747)
 at `8bc2ed7c` supplies completed extension and benchmark phases; the full
@@ -611,8 +612,24 @@ allocation gates. The full SILK packet API at `0dcd8581` matches C bytes,
 ranges, and bit counts for 108 cases plus 12 complexity/reset histories.
 Fixed FEC at `69792f0e` passes 577 focused events per ARM64 mode across
 ordinary, SIMD, nosimd, and purego, including gain/reset, long recovery, malformed
-framing, and zero warm allocations. Full outer fixed-point Opus encoding and
-native AMD64 confirmation of the expanded FEC matrix remain open.
+framing, and zero warm allocations. The outer encode checkpoint passes 2,428
+focused test events in each ordinary, SIMD, nosimd, and purego build, with no
+failures or skips. Its 3,240 Q8 differential configurations match selected C
+packet bytes and final ranges in ordinary, SIMD, and nosimd builds. Six-frame
+histories apply at 48 kHz; lower-rate probes use one frame. The public fixed
+short-input tests cover Audio and LowDelay, mono and stereo, and int16, float32,
+and int24 input paths; the long CELT matrix covers 72 packets across 40/60 ms,
+mono/stereo, both applications, and three rate modes. A 120 ms `EncodeInt16`
+expert-duration case also matches three 20 ms C packets and ranges. CBR raw-tail
+storage, stereo fade, DC-reject Q8 state, and nonpositive-allocation budgets
+have direct selected-C checks; warm allocation checks remain zero. VoIP remains
+outside this checkpoint because its fixed integer SILK biquad is not yet in the
+Go path. The 96 kHz QEXT case is also outside this fixed outer-encode matrix.
+
+The broad fixed-tag package sweep is not a bit-parity result: some of its test
+helpers pair fixed-point Go with the float libopus fixture. Its failures remain
+unresolved diagnostics and are not counted as passing or waived parity cases.
+Native AMD64 confirmation of the new fixed outer-encode matrix is pending.
 
 Remaining strict investigations include:
 
