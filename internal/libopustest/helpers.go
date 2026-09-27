@@ -302,7 +302,7 @@ func buildScalarDNNHelper(repoRoot, sourceFile, outputBase string, includeIntern
 	}
 	tmpPath := tmp.Name()
 	_ = tmp.Close()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 	args = append(args, "-o", tmpPath)
 
 	cmd := exec.Command(ccPath, args...)
