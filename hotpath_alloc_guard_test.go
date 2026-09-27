@@ -273,10 +273,7 @@ func TestHotPathAllocsDecodeInt16(t *testing.T) {
 			t.Fatalf("DecodeInt16: %v", err)
 		}
 	})
-	// The default (float) build is strictly zero-alloc. Under
-	// -tags gopus_fixed_point, DecodeInt16 additionally runs the integer
-	// FIXED_POINT CELT decoder for libopus-exact output, which is not yet
-	// zero-alloc; allow its documented per-frame allocation budget there.
+	// Both float and fixed-point builds reuse decoder-owned working buffers.
 	if allocs > decodeInt16HotPathAllocBudget {
 		t.Fatalf("Decode(int16) allocs/op = %.2f, want <= %d", allocs, decodeInt16HotPathAllocBudget)
 	}

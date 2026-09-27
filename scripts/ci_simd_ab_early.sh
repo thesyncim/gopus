@@ -226,7 +226,7 @@ for mode in simd nosimd; do
   run_json_phase "candidate-$mode-fixed-stateful-decode" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json -tags "gopus_fixed_point${feature_scalar_tag}" . \
-    -run '^Test(DecodeDifferentialFixedPoint|DecoderFixedPoint|HotPathAllocsDecode)' -count=1 -timeout=15m
+    -run '^Test(DecodeDifferentialFixedPoint|DecoderFixedPoint|DecodeWithFEC|HotPathAllocsDecode)' -count=1 -timeout=15m
 
   run_json_phase "candidate-$mode-fixed-silk-api" \
     run_in_checkout "$candidate_root" \
@@ -249,6 +249,13 @@ for mode in simd nosimd; do
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json -tags "gopus_dred${feature_scalar_tag}" \
     ./internal/encoder -run '^TestEncoderDREDInitialLatentsTraceMatchesLibopus$' \
+    -count=1 -timeout=10m
+
+  run_json_phase "candidate-$mode-dred-stateful-concealment" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" GOPUS_DRED_AUDIO_QUALITY=1 go test -json \
+    -tags "gopus_dred${feature_scalar_tag}" . ./internal/lpcnetplc \
+    -run '^Test(DREDLongLossPCMMatchesLibopusRawBits|DecoderCELTNeuralPLCAPIRatesMatchesLibopusRawBits|DREDBurgSelectedCFirstLossRawBits|DREDPredictorSelectedCFirstLossRawBits|ExplicitDRED.*Quality.*SixtyPercentLoss)$' \
     -count=1 -timeout=10m
 
   run_phase "candidate-$mode-strict-cbr" \

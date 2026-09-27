@@ -33,7 +33,7 @@ expectations. Frozen packet inputs and fixture-honesty checks retain their
 independent roles; frozen numerical expectations require their recorded
 producer environment. Long-frame encoder fixture coverage remains under audit.
 
-### Extension checkpoint at `a3488fc1`
+### Extension checkpoint
 
 QEXT at 48 kHz (`6e20f360`) passes 60 configurations / 180 sequential frames
 with exact packets, encoder/decoder final ranges, lengths, and every float PCM
@@ -59,12 +59,14 @@ SIMD/nosimd lane, with no failures.
 
 LPCNet at `9faa9bc1` matches all 224 raw correlations, DNN pitch, and 36 feature
 bits across 40 frames in ordinary, SIMD, and nosimd ARM64 builds, with zero warm
-stage allocations. Full LPCNet/OSCE passes 198 ordinary/nosimd and 241 SIMD
-nodes without failures/skips. Broad public DRED suites pass 12,629 ordinary /
-12,641 SIMD / 12,629 nosimd nodes, with two optional quality skips per lane.
-Explicitly enabling those quality checks exposes one sustained-loss quality
-failure in every lane; its threshold stays unchanged. Public DRED concealment
-is therefore not a full exactness result.
+stage allocations. At `3eb38788`, selected-C Burg, predictor, and neural fade arithmetic
+matches all 119 concealed mono 20 ms frames in a 220-packet history bit for bit.
+Thirty mono/stereo cases cover five API rates and 20/40/60 ms nil/recovery
+requests, with zero warm allocations during active carrier/loss/recovery cycles. All three ARM64 modes pass these exact gates and the explicitly
+enabled sustained-loss quality gate (correlation and RMS ratio both 1.0), with
+no tolerance changes. This loss-only comparison does not establish exactness
+for the 101 received frames in the same history; that investigation remains
+open. Native AMD64 confirmation also remains open.
 
 Fixed-point C references at `67731222` pair scalar and SIMD feature builds,
 validate archive/header/compiler identity, and reject mismatched neural/QEXT
@@ -78,8 +80,9 @@ API rates, both channel counts, and three decode gains over nine steps.
 The focused suite reports 11,202 passing events per lane without failures or
 skips. All 60 active loss/recovery allocation cases and four transition
 allocation cases allocate zero after warmup. Native AMD64 at `8bc2ed7c`
-passes the 9,534-configuration integer-output matrix in both SIMD/nosimd;
-float-output and transition confirmation on AMD64 remains pending. The full SILK packet API at `0dcd8581` matches the linked C `silk_Encode`
+passes the 9,534-configuration integer-output matrix in both SIMD/nosimd.
+Native AMD64 SIMD at `3ef3d5e1` passes all 11,201 expanded decode test nodes,
+including float output and transitions; the expanded nosimd lane remains pending. The full SILK packet API at `0dcd8581` matches the linked C `silk_Encode`
 packet bytes, lengths, final ranges, and entropy bit counts for all 108 existing
 mono/stereo cases plus 12 six-packet complexity/reset histories in ordinary,
 SIMD, and nosimd ARM64 builds. Configured analysis lookahead and NLSF
@@ -87,8 +90,17 @@ interpolation follow `silk_setup_complexity`; buffer insertion retains its
 fixed lookahead. The signed16 transport is independently packet/range-neutral
 for the original Go input. Four existing warm allocation cases pass at zero.
 The full SILK package passes 1,086 ordinary / 1,100 SIMD nodes with five
-existing optional skips per mode; the new API gates have no skips. Full outer
-Opus encoder, FEC, and broader cross-mode transition parity remain open.
+existing optional skips per mode; the new API gates have no skips.
+
+Fixed FEC at `69792f0e` matches selected C output bits, counts, and final
+ranges through mode/rate/channel/gain/reset histories. The focused suite passes
+577 events in each ordinary, SIMD, nosimd, and purego ARM64 mode, without
+failures/skips. Coverage includes 90 FEC matrix cases, four 40/60 ms histories,
+and 16 no-LBRR CELT→SILK recovery histories. Caller-owned SILK FEC and integer
+Hybrid concealment retain fixed-width state. Warm FEC, transitions, and active
+SILK receive/loss cycles allocate zero; malformed framing preserves decoder
+state. The float build passes its 458-event focused suite in ordinary and SIMD.
+Native AMD64 confirmation and full outer fixed-point Opus encoding remain open.
 
 [Native run 36284981747](https://github.com/thesyncim/gopus/actions/runs/36284981747)
 at `8bc2ed7c` supplies completed extension and benchmark phases; the full
@@ -102,7 +114,8 @@ modes each pass 240 selected-C nodes without failures/skips, with zero warm
 allocations; native AVX2 confirmation remains pending. Lower x86 dispatch
 slots have a safe scalar fallback without an exactness claim. The bounded
 IF/FARGAN correction at `48f0435f` matches raw IF, gain, and full continuity
-state in three ARM64 modes; the sustained-loss DRED quality gate remains open.
+state in three ARM64 modes; the sustained-loss DRED gate above uses the full
+concealed PCM sequence.
 Coverage mappings and immutable fallback inputs address the earlier full-job
 coverage failures without changing tolerances or fixtures.
 
@@ -115,6 +128,14 @@ workflow is canceled. The common process lock and complete source/build
 publication at `79b25887` address this race; native confirmation remains open.
 Local process exclusion, owner-exit release, incomplete-source rejection, and
 a cold concurrent C build pass; Linux/Windows oracle packages cross-compile.
+
+[Native run 36288212304](https://github.com/thesyncim/gopus/actions/runs/36288212304)
+at `3ef3d5e1` supplies completed SIMD phases: 11,201 fixed decode tests, 128
+fixed SILK API tests, 103 QEXT tests, 384 custom tests plus seven existing skips,
+3,777 multistream strict decode tests, and 181 encode-budget tests. Each
+completed phase exits zero. The artifact ends during neural tests, without
+numerical results for that phase or nosimd/performance phases. It does not
+establish a complete CI pass or update the performance measurements.
 
 The latest completed benchmark phases at `c4f4b3cc` supply six end-to-end rows
 and all 11 comparable AMD64 symbol rows on AMD EPYC 7763 / Go 1.27.1. Four
@@ -526,9 +547,12 @@ each ARM lane: 78 exact emitted payload/index/offset cases and two exact
 internal suites pass 309/309 per lane; ordinary purego also passes those
 internal checks and all 105 focused public DRED nodes. Native AMD64 SIMD at `0330c9ca` has four failing direct neural
 oracle leaves. Local LPCNet stage fixes at `9faa9bc1` pass ordinary/SIMD/nosimd;
-the broad public DRED suite passes each lane, but enabling the optional
-sustained-loss quality gate exposes one failure per lane. These named matrix
-passes do not establish exact public concealment.
+the selected-C Burg/predictor/fade gate matches all 119 concealed mono frames
+from a 220-packet history. Thirty mono/stereo cases match exact nil/recovery
+PCM at five API rates and 20/40/60 ms durations in ordinary, SIMD, and nosimd.
+The sustained-loss quality gate passes with correlation/RMS ratio 1.0 in all
+three modes. The 101 received frames in that long history and native AMD64
+confirmation remain under investigation.
 
 Fixed-point references at `67731222` pair feature and instruction variants.
 The 162 integer CELT kernel configurations (five captured input payloads each)
@@ -538,7 +562,10 @@ int16, and int24 outputs in three local modes. Hybrid→CELT transition/gain
 histories and active concealment/recovery also pass exactness and zero warm
 allocation gates. The full SILK packet API at `0dcd8581` matches C bytes,
 ranges, and bit counts for 108 cases plus 12 complexity/reset histories.
-Full outer Opus encoder and fixed-point FEC parity remain under investigation.
+Fixed FEC at `69792f0e` passes 577 focused events per ARM64 mode across
+ordinary, SIMD, nosimd, and purego, including gain/reset, long recovery, malformed
+framing, and zero warm allocations. Full outer fixed-point Opus encoding and
+native AMD64 confirmation of the expanded FEC matrix remain open.
 
 Remaining strict investigations include:
 
