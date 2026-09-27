@@ -77,6 +77,8 @@ func xcorrKernelAVX8OnePass(x, y *float32, sum *[8]float32, length int) {
 	}
 	reduceXcorrAVX8Four(acc0, acc1, acc2, acc3).StoreArray((*[4]float32)(unsafe.Pointer(&sum[0])))
 	reduceXcorrAVX8Four(acc4, acc5, acc6, acc7).StoreArray((*[4]float32)(unsafe.Pointer(&sum[4])))
+	// Clear before the legacy-SSE NaN checks; the outer wrapper clears after this block.
+	archsimd.ClearAVXUpperBits()
 	for corr := range sum {
 		if sum[corr] != sum[corr] {
 			sum[corr] = opusmath.PitchXcorrAVX2NaNReplay(
@@ -123,10 +125,9 @@ func xcorrKernelAVX4(x, y *float32, sum *[4]float32, length int) {
 		acc2 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 8), remaining), acc2)
 		acc3 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 12), remaining), acc3)
 	}
-	sum[0] = reduceXcorrAVX8(acc0)
-	sum[1] = reduceXcorrAVX8(acc1)
-	sum[2] = reduceXcorrAVX8(acc2)
-	sum[3] = reduceXcorrAVX8(acc3)
+	reduceXcorrAVX8Four(acc0, acc1, acc2, acc3).StoreArray(sum)
+	// Clear before the legacy-SSE NaN checks; the outer wrapper clears after this block.
+	archsimd.ClearAVXUpperBits()
 	for corr := range sum {
 		if sum[corr] != sum[corr] {
 			sum[corr] = opusmath.PitchXcorrAVX2NaNReplay(
@@ -137,18 +138,18 @@ func xcorrKernelAVX4(x, y *float32, sum *[4]float32, length int) {
 
 func loadXcorrTail8(p unsafe.Pointer, remaining int) archsimd.Float32x8 {
 	// Read only valid tail lanes before loading the stack vector, so a tail at a
-	// page boundary never turns into a full-width memory read.
-	var lanes [8]float32
+	// page boundary never turns into a full-width memory read. Integer loads keep
+	// the bit patterns exact; the AVX zero store also avoids legacy SSE while
+	// correlation accumulators are live.
+	var lanes [8]uint32
+	var zero archsimd.Uint32x8
+	zero.StoreArray(&lanes)
 	for lane := range 8 {
 		if lane < remaining {
-			lanes[lane] = *(*float32)(unsafe.Add(p, uintptr(lane*4)))
+			lanes[lane] = *(*uint32)(unsafe.Add(p, uintptr(lane*4)))
 		}
 	}
-	return archsimd.LoadFloat32x8Array(&lanes)
-}
-
-func reduceXcorrAVX8(v archsimd.Float32x8) float32 {
-	return reduceXcorrAVX8Lanes(v).GetLo().GetElem(0)
+	return archsimd.LoadUint32x8Array(&lanes).BitsToFloat32()
 }
 
 // reduceXcorrAVX8Lanes leaves the exact horizontal sum broadcast in all lanes.

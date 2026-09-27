@@ -106,9 +106,15 @@ func pitchXCorrFloat32AVX2FMAOrderTiny(x, y, xcorr []float32, length, maxPitch i
 			// than the lane-ordered AVX kernel. Recompute only this group with
 			// that kernel's exact short-length path.
 			var exact [8]float32
+			// Use an AVX store before replay to avoid legacy SSE with dirty YMM state.
+			var exactZero archsimd.Float32x8
+			exactZero.StoreArray(&exact)
 			xcorrKernelAVX8(&x[0], &yBatch[0], &exact, length)
 			copy(out[:], exact[:])
 		}
+	}
+	if avxLimit != 0 {
+		archsimd.ClearAVXUpperBits()
 	}
 	for pitch := avxLimit; pitch < maxPitch; pitch++ {
 		xcorr[pitch] = innerProdFloat32SSEOrder(x, y[pitch:], length)
@@ -154,6 +160,7 @@ func pitchXCorrFloat32AVX2FMAOrderTiny10(x, y, xcorr []float32, maxPitch int) {
 		}
 
 		xp := unsafe.Pointer(unsafe.SliceData(x))
+		archsimd.ClearAVXUpperBits()
 		xcorr[8] = innerProdFloat32SSEOrder10(xp, unsafe.Add(yp, 32))
 		xcorr[9] = innerProdFloat32SSEOrder10(xp, unsafe.Add(yp, 36))
 		return
@@ -196,9 +203,15 @@ func pitchXCorrFloat32AVX2FMAOrderTiny10(x, y, xcorr []float32, maxPitch int) {
 		result.StoreArray(out)
 		if result.NotEqual(result).ToBits() != 0 {
 			var exact [8]float32
+			// Use an AVX store before replay to avoid legacy SSE with dirty YMM state.
+			var exactZero archsimd.Float32x8
+			exactZero.StoreArray(&exact)
 			xcorrKernelAVX8(&x[0], &y[pitch], &exact, 10)
 			copy(out[:], exact[:])
 		}
+	}
+	if avxLimit != 0 {
+		archsimd.ClearAVXUpperBits()
 	}
 	for pitch := avxLimit; pitch < maxPitch; pitch++ {
 		xcorr[pitch] = innerProdFloat32SSEOrder(x, y[pitch:], 10)
@@ -257,9 +270,15 @@ func pitchXCorrFloat32AVX2FMAOrderTiny5(x, y, xcorr []float32, maxPitch int) {
 		result.StoreArray(out)
 		if result.NotEqual(result).ToBits() != 0 {
 			var exact [8]float32
+			// Use an AVX store before replay to avoid legacy SSE with dirty YMM state.
+			var exactZero archsimd.Float32x8
+			exactZero.StoreArray(&exact)
 			xcorrKernelAVX8(&x[0], &y[pitch], &exact, 5)
 			copy(out[:], exact[:])
 		}
+	}
+	if avxLimit != 0 {
+		archsimd.ClearAVXUpperBits()
 	}
 	for pitch := avxLimit; pitch < maxPitch; pitch++ {
 		xcorr[pitch] = innerProdFloat32SSEOrder(x, y[pitch:], 5)
