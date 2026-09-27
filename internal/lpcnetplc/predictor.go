@@ -8,13 +8,12 @@ import (
 	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
-// Match the pinned libopus DNN kernels selected by the helper build. Linux
-// parity helpers explicitly disable x86 intrinsics, so amd64 stays on the
-// scalar path instead of simulating libopus' optional vector kernels.
-// Keep the architecture-wide switches constant so unused variants fold away
-// when they cannot apply to the target build.
+// Match the pinned libopus DNN kernels selected by the paired reference build.
+// The ARM scalar build quantizes with floor-half and accumulates float blocks;
+// the selected NEON build uses nearest-even quantization and integer blocks.
+// Keep these switches constant so unused variants fold away.
 const (
-	useArm64DNNVectorKernels = runtime.GOARCH == "arm64"
+	useArm64DNNVectorKernels = runtime.GOARCH == "arm64" && useNEONAnalysisKernels
 	useX86DNNVectorKernels   = false
 	useSUBias                = useX86DNNVectorKernels
 	useIntegerInt8Accum      = useArm64DNNVectorKernels || useX86DNNVectorKernels
@@ -339,5 +338,7 @@ func useNearestEvenQuant() bool {
 }
 
 func useFusedFloatDense() bool {
-	return useArm64DNNVectorKernels || useX86AVX2FMA
+	// The ARM scalar compute_linear_c and selected NEON float dense kernels
+	// both use an ascending FMA chain, independent of int8 quantization.
+	return runtime.GOARCH == "arm64" || useX86AVX2FMA
 }

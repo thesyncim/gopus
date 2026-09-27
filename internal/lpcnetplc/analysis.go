@@ -376,8 +376,15 @@ func computeBandEnergyInverse(bandE []float32, spectrum []complex64) {
 			tmp += im * im
 			// libopus dnn/freq.c:compute_band_energy_inverse has unsuffixed 1e-9.
 			tmp = float32(1.0 / (opusmath.CReal(tmp) + 1e-9))
-			sum[i] += (1 - frac) * tmp
-			sum[i+1] += frac * tmp
+			if analysisUseRoundedVectorProducts {
+				// The selected NEON freq.o rounds each weighted product before
+				// adding its four-bin vector lanes to the band sums.
+				sum[i] = round32(sum[i] + noFMA32Mul(1-frac, tmp))
+				sum[i+1] = round32(sum[i+1] + noFMA32Mul(frac, tmp))
+			} else {
+				sum[i] += (1 - frac) * tmp
+				sum[i+1] += frac * tmp
+			}
 		}
 	}
 	sum[0] *= 2
@@ -583,7 +590,9 @@ func burgAnalysis(dst, x []float32, minInvGain float32, subfrLength, nbSubfr, or
 		}
 	}
 	copy(last, first)
-	caf[0] = c0 + 1e-5*c0 + 1e-9
+	// burg.c stores the conditioning constants as float before promoting the
+	// correlation sum to double.
+	caf[0] = c0 + opusmath.CReal(float32(1e-5))*c0 + opusmath.CReal(float32(1e-9))
 	cab[0] = caf[0]
 	invGain := opusmath.CReal(1.0)
 	reachedMaxGain := false
@@ -594,8 +603,10 @@ func burgAnalysis(dst, x []float32, minInvGain float32, subfrLength, nbSubfr, or
 			tmp1 := opusmath.CReal(xPtr[n])
 			tmp2 := opusmath.CReal(xPtr[subfrLength-n-1])
 			for k := range n {
-				first[k] -= opusmath.CReal(xPtr[n]) * opusmath.CReal(xPtr[n-k-1])
-				last[k] -= opusmath.CReal(xPtr[subfrLength-n-1]) * opusmath.CReal(xPtr[subfrLength-n+k])
+				// burg.c multiplies two float operands for each row update;
+				// the rounded product is then subtracted from the double row.
+				first[k] -= opusmath.CReal(noFMA32Mul(xPtr[n], xPtr[n-k-1]))
+				last[k] -= opusmath.CReal(noFMA32Mul(xPtr[subfrLength-n-1], xPtr[subfrLength-n+k]))
 				atmp := af[k]
 				tmp1 += opusmath.CReal(xPtr[n-k-1]) * atmp
 				tmp2 += opusmath.CReal(xPtr[subfrLength-n+k]) * atmp
@@ -675,7 +686,7 @@ func burgAnalysis(dst, x []float32, minInvGain float32, subfrLength, nbSubfr, or
 			tmp1 += atmp * atmp
 			dst[k] = float32(-atmp)
 		}
-		nrgF -= 1e-5 * c0 * tmp1
+		nrgF -= opusmath.CReal(float32(1e-5)) * c0 * tmp1
 	}
 	if nrgF < 0 {
 		return 0

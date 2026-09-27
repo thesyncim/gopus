@@ -1,4 +1,4 @@
-//go:build gopus_osce
+//go:build gopus_dred || gopus_osce
 
 package lpcnetplc
 

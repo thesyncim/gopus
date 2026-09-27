@@ -287,7 +287,10 @@ func (d *Decoder) decodeCELTNeuralPLCInto(pcm []float32, frameSizeSamples int, s
 		return 0, false, nil
 	}
 	sampleRate := int(d.sampleRate)
-	chunkLimit := sampleRate / 25 * 3
+	// opus_decode_native() runs lost requests longer than F20 as a sequence
+	// of at-most-20 ms opus_decode_frame() calls. The neural CELT state and
+	// crossfade advance after each of those frames.
+	chunkLimit := sampleRate / 50
 	if chunkLimit <= 0 || frameSizeSamples <= chunkLimit {
 		// Prime the neural entry history (no cached-DRED queue) then run a single
 		// neural-PLC concealment frame.

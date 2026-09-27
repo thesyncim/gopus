@@ -328,8 +328,10 @@ func (d *Decoder) runStereoDREDConceal(
 		for i := 0; i < blend; i++ {
 			w := window[i]
 			idx := 2 * i
-			d.scratchPLC[idx] = (1-w)*float32(baseline[idx]) + w*d.scratchPLC[idx]
-			d.scratchPLC[idx+1] = (1-w)*float32(baseline[idx+1]) + w*d.scratchPLC[idx+1]
+			// celt_decoder.c rounds window*neural before fusing the periodic
+			// baseline contribution into the first loss crossfade.
+			d.scratchPLC[idx] = fma32(1-w, float32(baseline[idx]), noFMA32Mul(w, d.scratchPLC[idx]))
+			d.scratchPLC[idx+1] = fma32(1-w, float32(baseline[idx+1]), noFMA32Mul(w, d.scratchPLC[idx+1]))
 		}
 	}
 
@@ -550,7 +552,9 @@ func (d *Decoder) concealNeural48kMono(
 		window := GetWindowBufferF32(Overlap)
 		blend := min(Overlap, frameSize)
 		for i := 0; i < blend; i++ {
-			d.scratchPLC[i] = (1-window[i])*float32(baseline[i]) + window[i]*d.scratchPLC[i]
+			// celt_decoder.c rounds window*neural before fusing the periodic
+			// baseline contribution into the first loss crossfade.
+			d.scratchPLC[i] = fma32(1-window[i], float32(baseline[i]), noFMA32Mul(window[i], d.scratchPLC[i]))
 		}
 	}
 
