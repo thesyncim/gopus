@@ -135,7 +135,7 @@ func TestEncoderStateReserveBufferCapacityPreservesSnapshotsAndAvoidsGrowth(t *t
 	enc.offs = 3
 	enc.endOffs = 2
 	enc.SaveStateInto(&state)
-	want := append([]byte(nil), buf[:len(buf)]...)
+	want := append([]byte(nil), buf...)
 	if len(state.buf) != len(buf) || cap(state.buf) < 16 || !bytes.Equal(state.buf, want) {
 		t.Fatalf("saved snapshot buffer = len %d cap %d bytes %x, want len %d bytes %x", len(state.buf), cap(state.buf), state.buf, len(want), want)
 	}
