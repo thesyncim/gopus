@@ -148,7 +148,7 @@ func fixedCELTQ8Payload(p CELTFixedQ8Params, allowQEXT bool) (*OraclePayload, er
 		core = p.FrameSize * (48000 / p.SampleRate)
 	}
 	if core != 120 && core != 240 && core != 480 && core != 960 &&
-		!(p.SampleRate == 96000 && core == 1920) {
+		(p.SampleRate != 96000 || core != 1920) {
 		return nil, fmt.Errorf("fixed CELT Q8 core frame size %d", core)
 	}
 	perFrame := p.FrameSize * p.Channels
