@@ -29,7 +29,7 @@ func TestSurroundPVQProjectionRoundingMatchesLibopus(t *testing.T) {
 			pcm := seededMultichannelPCM(spec.seed, spec.channels, spec.frameSize, spec.frameCount)
 			ref, err := encodeLibopusSurround(compositeSampleRate, spec.channels, 1, compositeApplication,
 				spec.bitrate, spec.vbr, spec.vbrConstraint, spec.complexity, compositeBandwidthAuto,
-				spec.frameSize, spec.frameCount, compositeMaxPacketBytes, pcm)
+				spec.frameSize, spec.frameCount, compositeMaxPacketBytes, pcm, false)
 			if err != nil {
 				t.Fatalf("live C surround encode: %v", err)
 			}

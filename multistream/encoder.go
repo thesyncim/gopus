@@ -1321,9 +1321,14 @@ func (e *Encoder) encodeNative(in encodeInput, frameSize int, analysisPCM []floa
 		if err != nil {
 			return 0, fmt.Errorf("stream %d encode failed: %w", i, err)
 		}
-		// The last stream's packet already fills its CBR budget, which is what
-		// the repacketizer's padding would produce.
-		n, err := writeStreamPacket(&e.packetParser, out[totSize:maxDataBytes], packet, last)
+		// opus_multistream_encode_native pads the final CBR stream to the
+		// remaining packet budget, including TOC-only DTX frames.
+		var n int
+		if last && !vbr && len(packet) < maxDataBytes-totSize {
+			n, err = padStreamPacketInto(&e.packetParser, out[totSize:maxDataBytes], packet)
+		} else {
+			n, err = writeStreamPacket(&e.packetParser, out[totSize:maxDataBytes], packet, last)
+		}
 		if err != nil {
 			return 0, fmt.Errorf("stream %d framing failed: %w", i, err)
 		}

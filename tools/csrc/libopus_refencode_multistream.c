@@ -64,7 +64,7 @@ static int valid_sample_rate(uint32_t sample_rate) {
 /*
  * Input layout (little-endian):
  *   magic "GMEI"
- *   u32 version (1 = packets, 2 = packets + final ranges)
+ *   u32 version (1 = packets, 2 = packets + final ranges, 3 = DTX control)
  *   u32 sample_rate
  *   u32 channels
  *   u32 mapping_family
@@ -78,6 +78,7 @@ static int valid_sample_rate(uint32_t sample_rate) {
  *   u32 frame_count
  *   u32 max_packet_bytes
  *   u32 sample_format        (0 float32, 1 int16)
+ *   u32 dtx                  (version >= 3)
  *   PCM samples: frame_count * frame_size * channels in the requested format
  *
  * Output layout (little-endian):
@@ -106,6 +107,7 @@ int main(void) {
   uint32_t frame_count = 0;
   uint32_t max_packet_bytes = 0;
   uint32_t sample_format = SAMPLE_FORMAT_FLOAT32;
+  uint32_t dtx = 0;
 
   int streams = 0;
   int coupled_streams = 0;
@@ -127,7 +129,7 @@ int main(void) {
   }
 
   uint32_t b_bitrate = 0, b_bandwidth = 0;
-  if (!read_u32(&version) || (version != 1 && version != 2)) {
+  if (!read_u32(&version) || (version != 1 && version != 2 && version != 3)) {
     fprintf(stderr, "unsupported input version\n");
     return 1;
   }
@@ -139,6 +141,7 @@ int main(void) {
     fprintf(stderr, "failed to read header\n");
     return 1;
   }
+  if (version >= 3 && (!read_u32(&dtx) || dtx > 1)) return 1;
   bitrate = (int32_t)b_bitrate;
   bandwidth = (int32_t)b_bandwidth;
 
@@ -161,7 +164,8 @@ int main(void) {
       opus_multistream_encoder_ctl(enc, OPUS_SET_VBR((int)vbr)) != OPUS_OK ||
       opus_multistream_encoder_ctl(enc, OPUS_SET_VBR_CONSTRAINT((int)vbr_constraint)) != OPUS_OK ||
       opus_multistream_encoder_ctl(enc, OPUS_SET_COMPLEXITY((int)complexity)) != OPUS_OK ||
-      opus_multistream_encoder_ctl(enc, OPUS_SET_BANDWIDTH(bandwidth)) != OPUS_OK) {
+      opus_multistream_encoder_ctl(enc, OPUS_SET_BANDWIDTH(bandwidth)) != OPUS_OK ||
+      opus_multistream_encoder_ctl(enc, OPUS_SET_DTX((int)dtx)) != OPUS_OK) {
     fprintf(stderr, "encoder ctl failed\n");
     opus_multistream_encoder_destroy(enc);
     return 1;

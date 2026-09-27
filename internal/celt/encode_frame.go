@@ -80,15 +80,16 @@ func (e *Encoder) quantizeInputToLSBDepthScratchF32(pcm []float32) []float32 {
 // in celt_encode_with_ec (celt/celt_encoder.c:2108-2185): it derives the
 // per-band dynalloc floors, the surround trim, and surround_masking (the
 // compute_vbr surround target offset) from the externally supplied energy mask.
-// out holds MaxBands entries; the analysis clears the first end of them and
+// out holds MaxBands entries for standard modes; the analysis clears the first
+// end of them and
 // writes floors up to max(2, lastCodedBands), which exceeds end for the frames
 // after a bandwidth reduction. Without a usable mask it returns zero trim,
 // zero masking, and ok=false, as surround_trim and surround_masking start at 0.
 func (e *Encoder) computeSurroundDynallocFromMask(end int, out []celtGLog) (trim, masking celtGLog, ok bool) {
-	clear(out[:end])
 	if e.lfe || e.hybrid || e.perMode != nil || len(e.energyMask) < MaxBands*int(e.channels) {
 		return 0, 0, false
 	}
+	clear(out[:end])
 	channels := e.codedChannels()
 	maskEnd := max(2, int(e.lastCodedBands))
 

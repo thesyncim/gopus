@@ -133,3 +133,86 @@ func writeStreamPacket(p *packetScratch, dst, packet []byte, last bool) (int, er
 	}
 	return copy(dst, packet), nil
 }
+
+// padStreamPacketInto follows repacketizer.c's code-3 padding branch. packet
+// is encoder-owned and does not overlap the caller's dst. Existing
+// extensions use the same canonical generation and leading 0x01 padding as C.
+func padStreamPacketInto(p *packetScratch, dst, packet []byte) (int, error) {
+	parsed, err := parseOpusPacketInto(p, packet, false)
+	if err != nil {
+		return 0, err
+	}
+	frames := parsed.frames
+	vbr := false
+	total := 0
+	for _, frame := range frames {
+		total += len(frame)
+		vbr = vbr || len(frame) != len(frames[0])
+	}
+	lengthBytes := 0
+	if vbr {
+		for _, frame := range frames[:len(frames)-1] {
+			lengthBytes += frameLengthBytes(len(frame))
+		}
+	}
+	base := 2 + lengthBytes + total
+	padAmount := len(dst) - base
+	if padAmount < 0 {
+		return 0, ErrBufferTooSmall
+	}
+	paddingBytes := 0
+	if padAmount > 0 {
+		paddingBytes = (padAmount + 254) / 255
+	}
+	p.extensions = p.extensions[:0]
+	var iter packetExtensionIterator
+	initPacketExtensionIterator(&iter, parsed.padding, len(frames))
+	for {
+		var ext packetExtensionData
+		ok, err := iter.next(&ext)
+		if err != nil {
+			return 0, err
+		}
+		if !ok {
+			break
+		}
+		p.extensions = append(p.extensions, ext)
+	}
+	extLen, err := generatePacketExtensions(nil, padAmount-paddingBytes, p.extensions, len(frames), false)
+	if err != nil {
+		return 0, err
+	}
+	dst[0] = parsed.tocBase | 3
+	dst[1] = byte(len(frames))
+	if vbr {
+		dst[1] |= 0x80
+	}
+	offset := 2
+	if padAmount > 0 {
+		dst[1] |= 0x40
+		remaining := padAmount
+		for remaining > 255 {
+			dst[offset] = 255
+			offset++
+			remaining -= 255
+		}
+		dst[offset] = byte(remaining - 1)
+		offset++
+	}
+	if vbr {
+		for _, frame := range frames[:len(frames)-1] {
+			offset += writeFrameLength(dst[offset:], len(frame))
+		}
+	}
+	for _, frame := range frames {
+		offset += copy(dst[offset:], frame)
+	}
+	if extLen == 0 {
+		clear(dst[offset:])
+	} else {
+		if _, err := generatePacketExtensions(dst[offset:], len(dst)-offset, p.extensions, len(frames), true); err != nil {
+			return 0, err
+		}
+	}
+	return len(dst), nil
+}

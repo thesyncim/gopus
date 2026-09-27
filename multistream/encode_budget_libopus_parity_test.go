@@ -61,7 +61,7 @@ func TestMultistreamEncodeBudgetMatchesLibopus(t *testing.T) {
 				}
 			} else {
 				ref, refErr := encodeLibopusSurround(48000, tc.channels, 1, 2049, tc.bitrate, tc.vbr, tc.vbrConstraint,
-					10, -1000, tc.frameSize, frameCount, tc.maxPacket, pcm)
+					10, -1000, tc.frameSize, frameCount, tc.maxPacket, pcm, false)
 				err = refErr
 				if err == nil {
 					refPackets, refRanges = ref.packets, ref.ranges
@@ -138,7 +138,7 @@ func TestMultistreamEncodeTooSmallPreservesState(t *testing.T) {
 	)
 	pcm := generateSurroundSweep(channels, frameSize, 1)
 	ref, err := encodeLibopusSurround(48000, channels, 1, 2049, 384000, true, true,
-		10, -1000, frameSize, 1, 4000, pcm)
+		10, -1000, frameSize, 1, 4000, pcm, false)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "multistream undersized-budget reference", err)
 		return

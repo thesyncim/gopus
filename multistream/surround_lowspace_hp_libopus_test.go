@@ -22,7 +22,7 @@ func TestSurroundLowSpaceThenRealFrameMatchesLibopus(t *testing.T) {
 	pcm := generateSurroundSweep(channels, frameSize, frameCount)
 	ref, err := encodeLibopusSurround(compositeSampleRate, channels, 1, compositeApplication,
 		bitrate, false, false, complexity, compositeBandwidthAuto,
-		frameSize, frameCount, compositeMaxPacketBytes, pcm)
+		frameSize, frameCount, compositeMaxPacketBytes, pcm, false)
 	if err != nil {
 		t.Fatalf("live C surround encode: %v", err)
 	}

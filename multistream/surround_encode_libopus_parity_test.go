@@ -33,7 +33,7 @@ type surroundEncodeRef struct {
 
 // encodeLibopusSurround runs the libopus surround encoder oracle for the given
 // parameters and PCM (interleaved float32, frameCount frames of frameSize each).
-func encodeLibopusSurround(sampleRate, channels, mappingFamily, application int, bitrate int, vbr, vbrConstraint bool, complexity, bandwidth, frameSize, frameCount, maxPacketBytes int, pcm []float32) (*surroundEncodeRef, error) {
+func encodeLibopusSurround(sampleRate, channels, mappingFamily, application int, bitrate int, vbr, vbrConstraint bool, complexity, bandwidth, frameSize, frameCount, maxPacketBytes int, pcm []float32, dtx bool) (*surroundEncodeRef, error) {
 	binPath, err := surroundRefencodeHelper.CHelperPath(libopustest.CHelperConfig{
 		Label:      "multistream surround reference encode",
 		OutputBase: "gopus_libopus_refencode_public_multistream",
@@ -54,7 +54,7 @@ func encodeLibopusSurround(sampleRate, channels, mappingFamily, application int,
 
 	payload := libopustest.NewOraclePayloadVersion(
 		"GMEI",
-		2,
+		3,
 		uint32(sampleRate),
 		uint32(channels),
 		uint32(mappingFamily),
@@ -68,10 +68,11 @@ func encodeLibopusSurround(sampleRate, channels, mappingFamily, application int,
 		uint32(frameCount),
 		uint32(maxPacketBytes),
 		0, // SAMPLE_FORMAT_FLOAT32
+		boolU32(dtx),
 	)
 	payload.Float32s(pcm...)
 
-	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "multistream surround reference encode", "GMEO", 2)
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "multistream surround reference encode", "GMEO", 3)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +134,7 @@ func runSurroundEncodeParity(t *testing.T, sampleRate, channels, frameSize, fram
 	pcm := generateSurroundSweep(channels, frameSize, frameCount)
 
 	ref, err := encodeLibopusSurround(sampleRate, channels, mappingFamily, application,
-		bitrate, vbr, vbrConstraint, complexity, bandwidthAuto, frameSize, frameCount, maxPacketBytes, pcm)
+		bitrate, vbr, vbrConstraint, complexity, bandwidthAuto, frameSize, frameCount, maxPacketBytes, pcm, false)
 	if err != nil {
 		t.Fatalf("live C surround encode: %v", err)
 	}

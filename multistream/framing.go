@@ -27,6 +27,7 @@ type packetScratch struct {
 	frameSizes []int
 	frames     [][]byte
 	lengths    []int // build-side frame length scratch
+	extensions []packetExtensionData
 }
 
 func (p *packetScratch) sizes(n int) []int {
@@ -635,9 +636,7 @@ func generatePacketExtensions(dst []byte, length int, extensions []packetExtensi
 		return 0, ErrPacketTooShort
 	}
 
-	frameMinIdx := make([]int, nbFrames)
-	frameMaxIdx := make([]int, nbFrames)
-	frameRepeatIdx := make([]int, nbFrames)
+	var frameMinIdx, frameMaxIdx, frameRepeatIdx [maxPacketExtensionFrames]int
 	for f := range nbFrames {
 		frameMinIdx[f] = len(extensions)
 	}
@@ -653,7 +652,7 @@ func generatePacketExtensions(dst []byte, length int, extensions []packetExtensi
 			frameMaxIdx[ext.Frame] = i + 1
 		}
 	}
-	copy(frameRepeatIdx, frameMinIdx)
+	copy(frameRepeatIdx[:], frameMinIdx[:])
 
 	pos := 0
 	written := 0

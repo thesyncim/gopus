@@ -386,7 +386,7 @@ func runMSDecodeFuzz(t *testing.T, specs []msDecodeFuzzSpec, label string) {
 
 			ref, err := encodeLibopusSurround(sampleRate, spec.channels, spec.mappingFamily, application,
 				spec.bitrate, spec.vbr, spec.vbrConstraint, 10, bandwidthAuto,
-				spec.frameSize, spec.frameCount, maxPacketBytes, pcm)
+				spec.frameSize, spec.frameCount, maxPacketBytes, pcm, false)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "multistream surround reference encode", err)
 				return

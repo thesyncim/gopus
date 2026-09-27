@@ -52,7 +52,7 @@ func encodeTransitionGainRegressionInput(t *testing.T) (msDecodeFuzzSpec, *surro
 		spec.frameSize,
 		spec.frameCount,
 		4000,
-		pcm,
+		pcm, false,
 	)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "multistream transition PLC input packets", err)
