@@ -56,7 +56,7 @@ arithmetic. Seven received frames in mono and stereo match all 40,320 PCM
 samples and final ranges per local build. Active cross-frame postfilter cases
 also match five frames each in mono/stereo with zero warm decode allocations.
 All four local builds pass the 17-node focused suite without failures/skips;
-the eight valid direct comb oracle cases pass. Native AMD64 at `fe0f867d`
+the eight valid direct comb oracle cases pass. Native AMD64 at `08a11a0f`
 passes 104 QEXT test nodes in SIMD and nosimd, including native 96 kHz,
 without failures or skips.
 
@@ -84,18 +84,22 @@ The full SIMD root/OSCE/multistream suite passes 20,279 test nodes with four
 existing opt-in skips (two DRED quality and two OSCE trace diagnostics), and
 no failures. The focused ordinary/nosimd checkpoints pass 97 nodes each plus
 two existing trace skips; the additional feature gate passes separately.
-Native AMD64 at `fe0f867d` passes the exact-PCM OSCE gate (36 nodes); native
-performance is not measured, and the `6ce253b2` tree awaits native confirmation.
+Native AMD64 at `08a11a0f` passes the exact-PCM OSCE gate (36 nodes).
 
-AMD64 LPCNet at `2ffed676` routes pitch correlation and inner products through
-the same AVX2/FMA and SSE kernels as the selected C callsites. Sixteen-frame
-same-input primitive and full-prefix state gates enforce the dispatch identity
-and exact bits. Local primitive checks allocate zero. In the native
-`fe0f867d` capture, emitted-feature and DNN-pitch checks pass, but the full-state
-oracle finds frame-0 mismatches in `exc_buf[352]` (Go `42a573ac`, C `42a573bc`),
-`lp_buf[353]` (Go `44f8dc89`, C `44f8dc8c`), and `xcorr_features[188]` (Go
-`3828c70a`, C `3828c704`); frames 3–15 pass. Native nosimd neural checks pass
-224 nodes with three existing skips. The full-state mismatch remains open.
+AMD64 LPCNet production analysis routes pitch correlation, inner products, and
+the `dnn/lpcnet_enc.c` `celt_fir` stage through the selected C arithmetic. The
+FIR seeds four sums from input samples before calling `xcorr_kernel`; x86 maps
+the SSE and later dispatch slots to SSE even/odd accumulators, including arch
+4. Go uses the existing SSE-order kernel only in the amd64 SIMD
+build. A live selected-C `celt_fir` oracle checks all 160 outputs with order 16
+and nonzero seeds; local ARM64 ordinary/SIMD/nosimd paths match exactly with
+zero warm allocations. The native 16-frame full-prefix state gate remains
+required. Native `08a11a0f` emitted-feature and DNN-pitch checks pass, but the
+full-state oracle has frame-0 mismatches in `exc_buf[352]` (Go `42a573ac`, C
+`42a573bc`), `lp_buf[353]` (Go `44f8dc89`, C `44f8dc8c`), and
+`xcorr_features[188]` (Go `3828c70a`, C `3828c704`); frames 3–15 pass. Native
+nosimd neural checks pass 224 nodes with three existing skips. Native x86
+confirmation of the FIR bridge remains pending.
 
 LPCNet at `9faa9bc1` matches all 224 raw correlations, DNN pitch, and 36 feature
 bits across 40 frames in ordinary, SIMD, and nosimd ARM64 builds, with zero warm
@@ -110,12 +114,14 @@ Thirty mono/stereo cases cover five API rates and 20/40/60 ms nil/recovery
 requests, with zero warm allocations during active carrier/loss/recovery
 cycles. Both explicitly enabled sustained-loss quality gates pass unchanged;
 Go-versus-C concealed PCM has correlation and RMS ratio 1.0. Native AMD64 at
-`fe0f867d` passes the full 220-slot and 119-loss raw-bit gates in nosimd. SIMD
-first differs at record/frame 47, a plain PLC fallback, sample 0 (`3de93897`
-versus C `3de93898`). The two nosimd quality-improvement gates fail even though
-selected C and Go DRED PCM matches exactly; the selected C DRED envelope is
-0.29208 versus PLC 0.28694. The SIMD raw-PCM and quality-parity gates also fail.
-These quality failures remain open with unchanged thresholds.
+`08a11a0f` passes the full 220-slot and 119-loss raw-bit gates in nosimd. SIMD
+first differs on Intel Xeon 8573C at frame 27 (kind 2, plain PLC fallback),
+sample 0 (`3ca3213b` versus C `3ca32103`); the EPYC 7763 capture at `6ce253b2`
+first differs at frame 47, also kind 2 (`3de93897` versus C `3de93898`). The two nosimd
+quality-improvement gates fail even though selected C and Go DRED PCM matches
+exactly; the selected C DRED envelope is 0.29208 versus PLC 0.28694. The SIMD
+raw-PCM and quality-parity gates also fail. These quality failures remain open
+with unchanged thresholds.
 
 Fixed-point C references at `67731222` pair scalar and SIMD feature builds,
 validate archive/header/compiler identity, and reject mismatched neural/QEXT
@@ -130,7 +136,7 @@ The focused suite reports 11,202 passing events per lane without failures or
 skips. All 60 active loss/recovery allocation cases and four transition
 allocation cases allocate zero after warmup. Native AMD64 at `8bc2ed7c`
 passes the 9,534-configuration integer-output matrix in both SIMD/nosimd.
-Native AMD64 at `fe0f867d` passes all 11,801 expanded fixed stateful-decode
+Native AMD64 at `08a11a0f` passes all 11,801 expanded fixed stateful-decode
 nodes in each SIMD/nosimd lane, including float output, transitions, and FEC,
 without failures or skips. The full SILK packet API at `0dcd8581` matches the linked C `silk_Encode`
 packet bytes, lengths, final ranges, and entropy bit counts for all 108 existing
@@ -150,7 +156,7 @@ and 16 no-LBRR CELT→SILK recovery histories. Caller-owned SILK FEC and integer
 Hybrid concealment retain fixed-width state. Warm FEC, transitions, and active
 SILK receive/loss cycles allocate zero; malformed framing preserves decoder
 state. The float build passes its 458-event focused suite in ordinary and SIMD.
-Native AMD64 at `fe0f867d` passes the expanded fixed decode/FEC gate in both
+Native AMD64 at `08a11a0f` passes the expanded fixed decode/FEC gate in both
 SIMD/nosimd lanes. The ARM64 fixed-point outer-encode checkpoint below
 covers Audio and LowDelay. A selected forced-CELT VoIP follow-up covers the
 integer high-pass path; VoIP SILK and Hybrid high-pass parity remain open.
@@ -205,6 +211,17 @@ recorded, the full comparator passes against the captured artifacts; all 16
 comparator unit tests pass. Fixture regeneration intentionally exits nonzero.
 CI is not fully passing.
 
+[Native early run 36309916340](https://github.com/thesyncim/gopus/actions/runs/36309916340)
+at `08a11a0f` uses Intel Xeon 8573C, Go 1.27.1, and GCC 13.3.0. SIMD and
+nosimd each pass 5,718 fixed-encode events, including the selected forced-CELT
+VoIP short/mixed/long/reset/low-space gates, with no failures or skips. Both
+lanes also pass 11,801 fixed stateful-decode events, fixed SILK 129, QEXT 104,
+and OSCE exact-PCM 36; DRED initial-latent gates pass eight events in each
+lane, and neural primitive gates pass 44 SIMD / 36 nosimd events. Nosimd neural
+analysis passes 224 nodes with three existing skips. The LPCNet full-state
+frame-0 differences and DRED quality/raw-PCM failures remain as detailed
+above. The early artifact is not a full CI pass.
+
 The latest completed benchmark phases at `1e2dbe77` supply six end-to-end
 rows and all 11 comparable AMD64 symbol rows on AMD EPYC 9V45 / Go 1.27.1.
 Four interleaved caller-buffer samples measure 51,667.5 → 44,372 ns/op
@@ -217,11 +234,22 @@ measures caller-buffer encoding on AMD EPYC 7763 / Go 1.27.1. Four interleaved
 500 ms samples give assembly `8ac93c85` a 92,040.5 ns/op median (91,856–92,321)
 and SIMD `fe0f867d` an 86,354.5 ns/op median (86,173–87,616): 6.18% less time,
 with 0 B/op and 0 allocs/op for every sample. This caller-buffer pair is
-separate from the complete six-row table at `1e2dbe77`; the successor run
-`36308889854` for `6ce253b2` supersedes and cancels `fe0f867d`'s full A/B
-phase after its early artifact. The complete six-row table remains at
-`1e2dbe77`; there is no measurement yet for `6ce253b2` or the scoped VoIP
-addition.
+separate from the complete six-row table at `1e2dbe77`. The `6ce253b2` early
+capture, [run 36308889854](https://github.com/thesyncim/gopus/actions/runs/36308889854),
+measures four interleaved 500 ms caller-buffer samples on the same EPYC 7763
+and Go 1.27.1 toolchain: assembly `8ac93c85` has a 91,695 ns/op median
+(90,737–91,775), and SIMD `6ce253b2` has a 70,920 ns/op median
+(70,327–71,161), 22.66% less time. All samples use 0 B/op and 0 allocs/op.
+The `08a11a0f` early capture, [run 36309916340](https://github.com/thesyncim/gopus/actions/runs/36309916340),
+measures four interleaved 500 ms samples on an Intel Xeon 8573C / Go 1.27.1:
+assembly `8ac93c85` has a 95,858.5 ns/op median (95,794–96,701), and SIMD
+`08a11a0f` has a 64,380.5 ns/op median (63,954–65,605), 32.84% less time.
+All samples also use 0 B/op and 0 allocs/op. These early measurements are
+caller-buffer only, on separate CPUs, and do not establish a cross-host
+revision gain or a VoIP-specific performance result. The complete six-row
+table remains at `1e2dbe77`; the early native script now collects four
+interleaved 500 ms samples for all six E2E benchmarks across baseline, SIMD,
+and nosimd binaries.
 
 The integrated multistream API writes into caller-owned output and passes
 7,342 package results in each local ordinary/SIMD lane. Final-stream CBR
@@ -670,11 +698,11 @@ exact. This covers forced CELT only; VoIP SILK and Hybrid paths remain open. The
 The broad fixed-tag package sweep is not a bit-parity result: some of its test
 helpers pair fixed-point Go with the float libopus fixture. Its failures remain
 unresolved diagnostics and are not counted as passing or waived parity cases.
-Native AMD64 at `fe0f867d` passes 5,670 fixed-encode nodes in both SIMD and
-nosimd without failures or skips. This capture predates the scoped forced-CELT
-VoIP addition, which awaits native confirmation. The complete
-six-row performance table below remains at `1e2dbe77`; no `6ce253b2` or VoIP
-performance claim is available.
+Native AMD64 at `08a11a0f` passes 5,718 fixed-encode events in both SIMD and
+nosimd without failures or skips, including the forced-CELT VoIP short,
+mixed-input, long-duration, reset, and low-space selectors. VoIP SILK and
+Hybrid high-pass parity and 96 kHz remain outside this claim. The complete
+six-row performance table below remains at `1e2dbe77`.
 
 Remaining strict investigations include:
 

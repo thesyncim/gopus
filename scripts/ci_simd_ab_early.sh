@@ -296,7 +296,7 @@ run_profile() {
   fi
 }
 
-if [[ -x "$artifact_root/baseline-default-root.test" && -x "$artifact_root/candidate-simd-root.test" ]]; then
+if [[ -x "$artifact_root/baseline-default-root.test" && -x "$artifact_root/candidate-simd-root.test" && -x "$artifact_root/candidate-nosimd-root.test" ]]; then
   run_profile baseline "$artifact_root/baseline-default-root.test" "$artifact_root/baseline-callerbuffer.cpu"
   run_profile candidate-simd "$artifact_root/candidate-simd-root.test" "$artifact_root/candidate-simd-callerbuffer.cpu"
 
@@ -315,16 +315,68 @@ if [[ -x "$artifact_root/baseline-default-root.test" && -x "$artifact_root/candi
           -test.run '^$' \
           -test.bench '^BenchmarkEncoderEncode_CallerBuffer$' \
           -test.benchtime=500ms -test.count=1 -test.cpu=1 -test.benchmem
-      if ! grep -Eq '0 B/op[[:space:]]+0 allocs/op' "$artifact_root/interleaved-callerbuffer-$side-$sample.log"; then
+      if ! grep -Eq '[[:space:]]0 B/op[[:space:]]+0 allocs/op[[:space:]]*$' "$artifact_root/interleaved-callerbuffer-$side-$sample.log"; then
         printf 'expected a zero-allocation caller-buffer benchmark row\n' >> "$artifact_root/interleaved-callerbuffer-$side-$sample.log"
         printf '1\n' > "$artifact_root/interleaved-callerbuffer-$side-$sample.exit"
         overall_status=1
       fi
     done
   done
+
+  e2e_bench_pattern='^Benchmark(DecoderDecode_(CELT|Hybrid|SILK)|EncoderEncode_(CallerBuffer|VoIP|LowDelay))$'
+  e2e_row_pattern='^Benchmark(DecoderDecode_(CELT|Hybrid|SILK)|EncoderEncode_(CallerBuffer|VoIP|LowDelay))(-[0-9]+)?[[:space:]]'
+  e2e_benchmarks=(
+    BenchmarkDecoderDecode_CELT
+    BenchmarkDecoderDecode_Hybrid
+    BenchmarkDecoderDecode_SILK
+    BenchmarkEncoderEncode_CallerBuffer
+    BenchmarkEncoderEncode_VoIP
+    BenchmarkEncoderEncode_LowDelay
+  )
+  for sample in 1 2 3 4; do
+    case $((sample % 3)) in
+      1) sides=(baseline candidate-simd candidate-nosimd) ;;
+      2) sides=(candidate-simd candidate-nosimd baseline) ;;
+      0) sides=(candidate-nosimd baseline candidate-simd) ;;
+    esac
+    for side in "${sides[@]}"; do
+      case "$side" in
+        baseline)
+          binary="$artifact_root/baseline-default-root.test"
+          checkout="$baseline_root"
+          ;;
+        candidate-simd)
+          binary="$artifact_root/candidate-simd-root.test"
+          checkout="$candidate_root"
+          ;;
+        candidate-nosimd)
+          binary="$artifact_root/candidate-nosimd-root.test"
+          checkout="$candidate_root"
+          ;;
+      esac
+      phase="interleaved-e2e-$side-$sample"
+      run_phase "$phase" \
+        run_in_checkout "$checkout" env "$binary" \
+          -test.run '^$' \
+          -test.bench "$e2e_bench_pattern" \
+          -test.benchtime=500ms -test.count=1 -test.cpu=1 -test.benchmem
+      rows="$(grep -E "$e2e_row_pattern" "$artifact_root/$phase.log" || true)"
+      row_count="$(printf '%s\n' "$rows" | wc -l | tr -d '[:space:]')"
+      names_valid=1
+      for benchmark in "${e2e_benchmarks[@]}"; do
+        count="$(grep -Ec "^${benchmark}(-[0-9]+)?[[:space:]]" "$artifact_root/$phase.log" || true)"
+        if [[ "$count" -ne 1 ]]; then names_valid=0; fi
+      done
+      if [[ "$row_count" -ne 6 || "$names_valid" -ne 1 ]] || printf '%s\n' "$rows" | grep -Ev '[[:space:]]0 B/op[[:space:]]+0 allocs/op[[:space:]]*$' >/dev/null; then
+        printf 'expected six zero-allocation E2E benchmark rows; found %s\n' "$row_count" >> "$artifact_root/$phase.log"
+        printf '1\n' > "$artifact_root/$phase.exit"
+        overall_status=1
+      fi
+    done
+  done
 else
   overall_status=1
-  printf 'profile/e2e binaries unavailable after an earlier build failure\n' > "$artifact_root/profile-bench-skipped.txt"
+  printf 'baseline, SIMD, or nosimd E2E binaries unavailable after an earlier build failure\n' > "$artifact_root/profile-bench-skipped.txt"
 fi
 
 printf '%s\n' "$overall_status" > "$artifact_root/early.exit"

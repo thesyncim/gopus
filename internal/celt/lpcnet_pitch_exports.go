@@ -12,3 +12,10 @@ func LPCNetPitchXCorrFloat32(dst, x, y []float32, length, maxPitch int) {
 func LPCNetInnerProdFloat32(x, y []float32, length int) float32 {
 	return innerProdFloat32(x, y, length)
 }
+
+// LPCNetFIRXCorrKernel4Float32 runs the selected CELT xcorr kernel used by
+// libopus celt_fir_c from dnn/lpcnet_enc.c. On amd64 SIMD builds this keeps
+// the SSE even/odd accumulator order selected by celt/x86/x86_celt_map.c.
+func LPCNetFIRXCorrKernel4Float32(x, y []float32, sum *[4]float32, length int) {
+	celtLPCXcorrKernel4Float32(x, y, sum, length)
+}

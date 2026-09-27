@@ -723,7 +723,11 @@ func celtFIRFloat(inWithHistory, coeffs, out []float32) {
 			inWithHistory[analysisLPCOrder+i+2],
 			inWithHistory[analysisLPCOrder+i+3],
 		}
-		xcorrKernel4Float32(rnum[:], inWithHistory[i:], &sum, analysisLPCOrder)
+		if useX86SelectedPitchKernels {
+			celt.LPCNetFIRXCorrKernel4Float32(rnum[:], inWithHistory[i:], &sum, analysisLPCOrder)
+		} else {
+			xcorrKernel4Float32(rnum[:], inWithHistory[i:], &sum, analysisLPCOrder)
+		}
 		out[i] = sum[0]
 		out[i+1] = sum[1]
 		out[i+2] = sum[2]
