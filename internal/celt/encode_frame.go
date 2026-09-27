@@ -83,8 +83,9 @@ func (e *Encoder) quantizeInputToLSBDepthScratchF32(pcm []float32) []float32 {
 // out holds MaxBands entries for standard modes; the analysis clears the first
 // end of them and
 // writes floors up to max(2, lastCodedBands), which exceeds end for the frames
-// after a bandwidth reduction. Without a usable mask it returns zero trim,
-// zero masking, and ok=false, as surround_trim and surround_masking start at 0.
+// after a bandwidth reduction. Without a usable mask it leaves out untouched and
+// returns zero trim, zero masking, and ok=false, as surround_trim and
+// surround_masking start at 0.
 func (e *Encoder) computeSurroundDynallocFromMask(end int, out []celtGLog) (trim, masking celtGLog, ok bool) {
 	if e.lfe || e.hybrid || e.perMode != nil || len(e.energyMask) < MaxBands*int(e.channels) {
 		return 0, 0, false
