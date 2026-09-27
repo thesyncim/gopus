@@ -173,6 +173,7 @@ func TestFARGANSubframeStageTrace(t *testing.T) {
 	}
 	rt.PrimeContinuity(pcm0[:], contFeatures[:])
 	rt.state = farganStateFromLibopusResult(wantCont)
+	initialState := rt.state
 
 	// Build a conditioning vector exactly as Synthesize would, then run a single
 	// subframe with cond[0..FARGAN_COND_SIZE].
@@ -210,4 +211,12 @@ func TestFARGANSubframeStageTrace(t *testing.T) {
 	cmp("gru3", got.gru3, want.gru3)
 	cmp("skipOut", got.skipOut, want.skipOut)
 	cmp("pcm", got.pcm, want.pcm)
+
+	// The traced path and the production subframe share the GRU kernel. Keep
+	// the retained production states tied to the linked C stage output too.
+	rt.state = initialState
+	rt.runSubframe(pcm[:], cond, rt.state.lastPeriod)
+	cmp("production gru1", rt.state.gru1State[:], want.gru1)
+	cmp("production gru2", rt.state.gru2State[:], want.gru2)
+	cmp("production gru3", rt.state.gru3State[:], want.gru3)
 }

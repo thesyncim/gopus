@@ -3,3 +3,5 @@
 package lpcnetplc
 
 const analysisUseRoundedVectorProducts = true
+
+const pitchDNNWindowRoundedProducts = true

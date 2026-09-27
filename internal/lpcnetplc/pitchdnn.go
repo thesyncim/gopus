@@ -308,33 +308,36 @@ func (p *PitchDNN) Compute(ifFeatures, xcorrFeatures []float32) float32 {
 	end := minInt(pitchPitchClassCount-1, pos+2)
 	var sum float32
 	var count float32
-	// libopus dnn/pitchdnn.c:compute_pitchdnn accumulates "sum += p*i" and
-	// "count += p" over the [pos-2,pos+2] window. On arm64 the pinned scalar
-	// reference is built with clang -ffp-contract=on; disassembly of
-	// compute_pitchdnn shows the loop unrolled by 4, where the leading groups of
-	// four iterations compute each p*i as a separate rounded FMUL followed by a
-	// plain FADD (the products are NOT fused into the accumulator), while the
-	// scalar remainder iterations fuse "sum = fmadd(p, i, sum)". Go's arm64
-	// backend would otherwise contract "sum += p*float32(i)" into an FMADD, so
-	// force the rounded product with noFMA32Mul for the unrolled groups and use
-	// the explicit fused fma32 only for the remainder.
-	n := end - start + 1
-	unrolled := start + (n/4)*4
-	i := start
-	for ; i < unrolled; i++ {
-		v := opusmath.ExpF32(p.scratch.output[i])
-		sum += noFMA32Mul(v, float32(i))
-		count += v
+	// The selected scalar C build accumulates every term with FMADD. The ARM
+	// SIMD build rounds four products with FMUL, then adds them in ascending
+	// order, and uses FMADD for any remaining terms (dnn/pitchdnn.c).
+	if pitchDNNWindowRoundedProducts {
+		n := end - start + 1
+		unrolled := start + (n/4)*4
+		i := start
+		for ; i < unrolled; i++ {
+			v := opusmath.ExpF32(p.scratch.output[i])
+			sum += noFMA32Mul(v, float32(i))
+			count += v
+		}
+		for ; i <= end; i++ {
+			v := opusmath.ExpF32(p.scratch.output[i])
+			sum = fma32(v, float32(i), sum)
+			count += v
+		}
+	} else {
+		for i := start; i <= end; i++ {
+			v := opusmath.ExpF32(p.scratch.output[i])
+			sum = fma32(v, float32(i), sum)
+			count += v
+		}
 	}
-	for ; i <= end; i++ {
-		v := opusmath.ExpF32(p.scratch.output[i])
-		sum = fma32(v, float32(i), sum)
-		count += v
-	}
-	if count == 0 {
-		return 0
-	}
-	return (float32(1.0)/60)*(sum/count) - 1.5
+	return pitchDNNInterpolate(sum, count)
+}
+
+func pitchDNNInterpolate(sum, count float32) float32 {
+	// The C return expression rounds the product before subtracting 1.5.
+	return noFMA32Mul(float32(1.0)/60, sum/count) - 1.5
 }
 
 func loadConv2DLayer(blob *dnnblob.Blob, spec Conv2DLayerSpec) (Conv2DLayer, error) {

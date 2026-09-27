@@ -551,10 +551,9 @@ func computeFARGANGRU(inputWeights, recurrentWeights *LinearLayer, state, in []f
 	computeActivation(h, h, n, activationTanh)
 	for i := range n {
 		// libopus compute_generic_gru() (dnn/nnet.c): "h[i] = z[i]*state[i] +
-		// (1-z[i])*h[i]". clang -ffp-contract=on rounds (1-z)*h first, then fuses
-		// the leading product into the add as fma(z, state, (1-z)*h). Matching
-		// that operand order is required for bit-exact arm64 NEON parity.
-		h[i] = fma32(z[i], state[i], (1-z[i])*h[i])
+		// (1-z[i])*h[i]". The selected C build rounds (1-z)*h before fusing
+		// z*state into the add. The explicit product barrier preserves that order.
+		h[i] = fma32(z[i], state[i], noFMA32Mul(1-z[i], h[i]))
 		state[i] = h[i]
 	}
 }
