@@ -45,12 +45,13 @@ type msFixedEncodeRef struct {
 // float32 (opus_multistream_encode_float) public entry point.
 func encodeLibopusMultistreamFixed(sampleRate, channels, mappingFamily, application, bitrate int, vbr, vbrConstraint bool, complexity, bandwidth, frameSize, frameCount, maxPacketBytes, sampleFormat int, floatPCM []float32, int16PCM []int16) (*msFixedEncodeRef, error) {
 	binPath, err := multistreamFixedRefencodeHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:      "multistream fixed reference encode",
-		OutputBase: "gopus_libopus_refencode_multistream_fixed",
-		SourceFile: "libopus_refencode_multistream.c",
-		FixedRef:   true,
-		CFlags:     []string{"-O3", "-DNDEBUG"},
-		Libs:       []string{libopustest.FixedRefPath(".libs", "libopus.a"), "-lm"},
+		Label:       "multistream fixed reference encode",
+		OutputBase:  "gopus_libopus_refencode_multistream_fixed",
+		SourceFile:  "libopus_refencode_multistream.c",
+		FixedRef:    true,
+		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
+		RefIncludes: []string{"celt", "silk", "src"},
+		Libs:        []string{libopustest.FixedRefPath(".libs", "libopus.a"), "-lm"},
 	})
 	if err != nil {
 		return nil, err

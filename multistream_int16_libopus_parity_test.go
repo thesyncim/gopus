@@ -22,11 +22,12 @@ type multistreamShortRef struct {
 
 func encodeLibopusMultistreamShort(sampleRate, channels, family, bitrate, frameSize, frameCount, maxBytes int, vbr bool, pcm []int16) (*multistreamShortRef, error) {
 	bin, err := multistreamShortRefHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:      "multistream short reference encode",
-		OutputBase: "gopus_libopus_refencode_multistream_short",
-		SourceFile: "libopus_refencode_multistream.c",
-		CFlags:     []string{"-O3", "-DNDEBUG"},
-		Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+		Label:       "multistream short reference encode",
+		OutputBase:  "gopus_libopus_refencode_multistream_short",
+		SourceFile:  "libopus_refencode_multistream.c",
+		CFlags:      []string{"-O3", "-DNDEBUG"},
+		RefIncludes: []string{"celt", "src"},
+		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 	})
 	if err != nil {
 		return nil, err
