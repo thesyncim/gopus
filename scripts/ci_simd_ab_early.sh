@@ -268,6 +268,13 @@ for mode in simd nosimd; do
     -run '^(TestPublicFixedQEXTCELTReceivedFramesMatchSelectedReference|TestPublicFixedQEXTCELTMainWithoutExtensionMatchesSelectedReference|TestPublicFixedQEXTSmallBufferDoesNotAdvanceCELTState|TestAlgQuantQEXTMatchesFixedLibopus|TestAlgUnquantQEXTMatchesSelectedLibopus|TestQuantAllBandsDecodeOracle|TestQuantAllBandsDecodeQEXTMatchesSelectedLibopus|TestQuantPartitionQEXTUsesZeroResolutionCubicLeaf)$' \
     -count=1 -timeout=10m
 
+  run_json_phase "candidate-$mode-fixed-surround" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json -tags "gopus_fixed_point,gopus_qext${feature_scalar_tag}" \
+    ./internal/encoder ./internal/fixedpoint ./multistream \
+    -run '^(TestPublicFixedAutoCELTSequenceMatchesLibopus|TestCombFilterQEXTPFMatchesLibopus|TestFixedPointSurroundEncodeMatchesLibopus|TestFixedPointSurroundAnalysisMatchesLibopus|TestFixedPointSurroundMaskRoutingMatchesAnalyzer|TestFixedPointFloatSurroundEncodeMatchesLibopus|TestFixedQEXTMonoSurroundCELTResetMatchesLibopus|TestMultistreamEncodeDecodeAllocGuard)$' \
+    -count=1 -timeout=10m
+
   run_json_phase "candidate-$mode-fixed-qext-transform" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json -tags "gopus_fixed_point,gopus_qext${feature_scalar_tag}" \

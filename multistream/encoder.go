@@ -9,12 +9,9 @@ package multistream
 import (
 	"errors"
 	"fmt"
-	"math"
 
-	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/encoder"
-	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -97,30 +94,9 @@ type Encoder struct {
 	// streamBitrates stores per-stream rates computed by allocation policy.
 	streamBitrates []int
 
-	// streamEnergyMask stores per-stream CELT energy masks (max 42 values/stream).
-	streamEnergyMask []float32
-
-	// surroundBandSMR stores per-channel surround masks (21 bands per channel).
-	surroundBandSMR []float32
-
-	// surroundWindowMem mirrors libopus surround_analysis overlap history (per channel).
-	surroundWindowMem []float32
-
-	// surroundPreemphMem mirrors libopus surround_analysis preemphasis memory (per channel).
-	surroundPreemphMem []float32
-
-	// surroundInputScratch holds per-channel overlap+frame analysis input.
-	surroundInputScratch []float32
-
-	// surroundBandScratch stores temporary per-band energies for one channel.
-	surroundBandScratch [surroundBands]float32
-
-	// The surround MDCT runs once per input channel and reuses its buffers.
-	surroundMDCTScratch celt.MDCTForwardScratch
-	surroundMDCTCoeffs  []float32
-
-	// surroundAnalysisEncoder computes CELT band energies for surround analysis.
-	surroundAnalysisEncoder *celt.Encoder
+	// surroundAnalysis owns per-channel history and typed scratch matching the
+	// active libopus float or FIXED_POINT build.
+	surroundAnalysis surroundAnalysisState
 
 	// Per-call encode scratch reused across Encode calls so the steady-state
 	// encode path is allocation-free.
@@ -273,21 +249,17 @@ func NewEncoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 	lfeStream := inferLFEStream(mappingFamily, channels, streams)
 
 	enc := &Encoder{
-		sampleRate:              int32(sampleRate),
-		inputChannels:           channels,
-		streams:                 streams,
-		coupledStreams:          coupledStreams,
-		mapping:                 mappingCopy,
-		encoders:                encoders,
-		bitrate:                 256000, // Default 256 kbps total
-		mappingFamily:           mappingFamily,
-		lfeStream:               lfeStream,
-		streamBitrates:          make([]int, streams),
-		streamEnergyMask:        make([]float32, streams*2*surroundBands),
-		surroundBandSMR:         make([]float32, channels*surroundBands),
-		surroundWindowMem:       make([]float32, channels*celt.Overlap),
-		surroundPreemphMem:      make([]float32, channels),
-		surroundAnalysisEncoder: celt.NewEncoder(1),
+		sampleRate:       int32(sampleRate),
+		inputChannels:    channels,
+		streams:          streams,
+		coupledStreams:   coupledStreams,
+		mapping:          mappingCopy,
+		encoders:         encoders,
+		bitrate:          256000, // Default 256 kbps total
+		mappingFamily:    mappingFamily,
+		lfeStream:        lfeStream,
+		streamBitrates:   make([]int, streams),
+		surroundAnalysis: newSurroundAnalysisState(channels, streams),
 	}
 	enc.applyLFEFlags()
 	return enc, nil
@@ -399,18 +371,7 @@ func (e *Encoder) Reset() {
 		enc.Reset()
 		enc.SetLFE(i == e.lfeStream)
 	}
-	if len(e.surroundBandSMR) > 0 {
-		clear(e.surroundBandSMR)
-	}
-	if len(e.streamEnergyMask) > 0 {
-		clear(e.streamEnergyMask)
-	}
-	if len(e.surroundWindowMem) > 0 {
-		clear(e.surroundWindowMem)
-	}
-	if len(e.surroundPreemphMem) > 0 {
-		clear(e.surroundPreemphMem)
-	}
+	e.surroundAnalysis.reset()
 }
 
 func (e *Encoder) applyLFEFlags() {
@@ -843,199 +804,13 @@ func surroundAnalysisFreqSize(frameSize int) (int, bool) {
 	}
 }
 
-func (e *Encoder) ensureSurroundInputScratch(size int) []float32 {
-	if cap(e.surroundInputScratch) < size {
-		e.surroundInputScratch = make([]float32, size)
-	}
-	return e.surroundInputScratch[:size]
-}
-
-func (e *Encoder) computeSurroundBandSMR(pcm []float32, frameSize int, bandSMR []float32) bool {
-	if frameSize <= 0 || e.inputChannels < 3 || e.inputChannels > 8 {
-		return false
-	}
-	if len(pcm) < frameSize*e.inputChannels {
-		return false
-	}
-	if len(bandSMR) < e.inputChannels*surroundBands {
-		return false
-	}
-
-	var pos [8]int
-	if !channelPositions(e.inputChannels, pos[:]) {
-		return false
-	}
-
-	upsample := resamplingFactor(int(e.sampleRate))
-	if upsample <= 0 {
-		return false
-	}
-	analysisFrameSize := frameSize * upsample
-	freqSize, ok := surroundAnalysisFreqSize(analysisFrameSize)
-	if !ok || analysisFrameSize%freqSize != 0 {
-		return false
-	}
-	nbFrames := analysisFrameSize / freqSize
-	overlap := celt.Overlap
-
-	if cap(e.surroundWindowMem) < e.inputChannels*overlap {
-		e.surroundWindowMem = make([]float32, e.inputChannels*overlap)
-	}
-	if cap(e.surroundPreemphMem) < e.inputChannels {
-		e.surroundPreemphMem = make([]float32, e.inputChannels)
-	}
-	if e.surroundAnalysisEncoder == nil {
-		e.surroundAnalysisEncoder = celt.NewEncoder(1)
-	}
-
-	in := e.ensureSurroundInputScratch(overlap + analysisFrameSize)
-
-	var maskLogE [3][surroundBands]float32
-	for c := range 3 {
-		for i := range surroundBands {
-			maskLogE[c][i] = -28.0
-		}
-	}
-
-	for ch := 0; ch < e.inputChannels; ch++ {
-		copy(in[:overlap], e.surroundWindowMem[ch*overlap:(ch+1)*overlap])
-		clear(in[overlap:])
-
-		for i := range frameSize {
-			in[overlap+i*upsample] = pcm[i*e.inputChannels+ch] * float32(celt.CELTSigScale)
-		}
-
-		m := e.surroundPreemphMem[ch]
-		for i := range analysisFrameSize {
-			x := in[overlap+i]
-			in[overlap+i] = x - m
-			m = celt.PreemphCoef * x
-		}
-		e.surroundPreemphMem[ch] = m
-		// Filter out NaNs and signals large enough to cause NaNs further down
-		// (surround_analysis(): !(sum < 1e18f) || celt_isnan(sum)). The sum
-		// only feeds this guard, so its accumulation order does not matter.
-		var sum float32
-		for _, v := range in {
-			sum += v * v
-		}
-		if !(sum < 1e18) {
-			clear(in)
-			e.surroundPreemphMem[ch] = 0
-		}
-
-		for i := range surroundBands {
-			e.surroundBandScratch[i] = float32(math.Inf(-1))
-		}
-
-		if cap(e.surroundMDCTCoeffs) < freqSize {
-			e.surroundMDCTCoeffs = make([]float32, freqSize)
-		}
-		coeffs := e.surroundMDCTCoeffs[:freqSize]
-		for frame := range nbFrames {
-			start := frame * freqSize
-			end := start + freqSize + overlap
-			e.surroundMDCTScratch.ForwardWithOverlapFloat32Into(in[start:end], overlap, coeffs)
-			if upsample != 1 {
-				bound := min(freqSize/upsample, len(coeffs))
-				for i := range bound {
-					coeffs[i] *= float32(upsample)
-				}
-				for i := bound; i < len(coeffs); i++ {
-					coeffs[i] = 0
-				}
-			}
-
-			var tmp [surroundBands]float32
-			e.surroundAnalysisEncoder.ComputeBandEnergiesFloat32Into(coeffs, surroundBands, freqSize, tmp[:])
-			for i := range surroundBands {
-				if tmp[i] > e.surroundBandScratch[i] {
-					e.surroundBandScratch[i] = tmp[i]
-				}
-			}
-		}
-
-		for i := 1; i < surroundBands; i++ {
-			if e.surroundBandScratch[i-1]-1.0 > e.surroundBandScratch[i] {
-				e.surroundBandScratch[i] = e.surroundBandScratch[i-1] - 1.0
-			}
-		}
-		for i := surroundBands - 2; i >= 0; i-- {
-			if e.surroundBandScratch[i+1]-2.0 > e.surroundBandScratch[i] {
-				e.surroundBandScratch[i] = e.surroundBandScratch[i+1] - 2.0
-			}
-		}
-
-		copy(bandSMR[ch*surroundBands:(ch+1)*surroundBands], e.surroundBandScratch[:])
-
-		switch pos[ch] {
-		case 1:
-			for i := range surroundBands {
-				maskLogE[0][i] = logSum32(maskLogE[0][i], e.surroundBandScratch[i])
-			}
-		case 3:
-			for i := range surroundBands {
-				maskLogE[2][i] = logSum32(maskLogE[2][i], e.surroundBandScratch[i])
-			}
-		case 2:
-			for i := range surroundBands {
-				maskLogE[0][i] = logSum32(maskLogE[0][i], e.surroundBandScratch[i]-0.5)
-				maskLogE[2][i] = logSum32(maskLogE[2][i], e.surroundBandScratch[i]-0.5)
-			}
-		}
-
-		copy(e.surroundWindowMem[ch*overlap:(ch+1)*overlap], in[analysisFrameSize:analysisFrameSize+overlap])
-	}
-
-	for i := range surroundBands {
-		maskLogE[1][i] = min(maskLogE[0][i], maskLogE[2][i])
-	}
-	channelOffset := 0.5 * opusmath.CeltLog2(2.0/float32(e.inputChannels-1))
-	for c := range 3 {
-		for i := range surroundBands {
-			maskLogE[c][i] += channelOffset
-		}
-	}
-
-	for ch := 0; ch < e.inputChannels; ch++ {
-		row := bandSMR[ch*surroundBands : (ch+1)*surroundBands]
-		if pos[ch] == 0 {
-			clear(row)
-			continue
-		}
-		mask := maskLogE[pos[ch]-1][:]
-		for i := range surroundBands {
-			row[i] -= mask[i]
-		}
-	}
-
-	return true
-}
-
 // applyPerStreamPolicy runs surround_analysis() and the per-stream
 // OPUS_SET_* controls of opus_multistream_encode_native()
 // (src/opus_multistream_encoder.c:897-962 and 976-1014).
-func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float32) {
+func (e *Encoder) applyPerStreamPolicy(frameSize int, input encodeInput) {
 	rates := e.allocateRates(frameSize)
 	surround := e.isSurroundMapping()
-	// surround_analysis() and OPUS_SET_ENERGY_MASK are skipped for the
-	// restricted-SILK application, which has no CELT mode.
-	hasSurroundMask := false
-	if surround && !e.restrictedSilk {
-		needed := e.inputChannels * surroundBands
-		if cap(e.surroundBandSMR) < needed {
-			e.surroundBandSMR = make([]float32, needed)
-		}
-		e.surroundBandSMR = e.surroundBandSMR[:needed]
-		hasSurroundMask = e.computeSurroundBandSMR(pcm, frameSize, e.surroundBandSMR)
-	}
-	if hasSurroundMask {
-		needed := e.streams * 2 * surroundBands
-		if cap(e.streamEnergyMask) < needed {
-			e.streamEnergyMask = make([]float32, needed)
-		}
-		e.streamEnergyMask = e.streamEnergyMask[:needed]
-	}
+	e.surroundAnalysis.applyEnergyMasks(e, frameSize, input)
 	surroundBandwidth := e.surroundBandwidth(frameSize)
 	for i := 0; i < e.streams; i++ {
 		enc := e.encoders[i]
@@ -1053,24 +828,6 @@ func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float32) {
 		case e.isAmbisonicsMapping():
 			enc.SetMode(encoder.ModeCELT)
 		}
-		if !hasSurroundMask {
-			continue
-		}
-		// OPUS_SET_ENERGY_MASK hands each stream the bandSMR rows of its
-		// source channels. The LFE stream's CELT and SILK paths ignore the
-		// mask (celt_encoder.c:2111, opus_encoder.c:2069).
-		if i == e.lfeStream {
-			enc.SetCELTEnergyMask(nil)
-			continue
-		}
-		c1, c2 := streamSourceChannels(e.mapping, e.coupledStreams, i)
-		mask := e.streamEnergyMask[i*2*surroundBands : i*2*surroundBands+surroundBands]
-		copy(mask, e.surroundBandSMR[c1*surroundBands:(c1+1)*surroundBands])
-		if c2 >= 0 {
-			mask = e.streamEnergyMask[i*2*surroundBands : (i+1)*2*surroundBands]
-			copy(mask[surroundBands:], e.surroundBandSMR[c2*surroundBands:(c2+1)*surroundBands])
-		}
-		enc.SetCELTEnergyMask(mask)
 	}
 }
 
@@ -1248,7 +1005,7 @@ func (e *Encoder) encodeNative(in encodeInput, frameSize int, analysisPCM []floa
 
 	// Surround analysis and the per-stream OPUS_SET_* controls
 	// (lines 897-962).
-	e.applyPerStreamPolicy(frameSize, in.f32)
+	e.applyPerStreamPolicy(frameSize, in)
 
 	// For CBR, libopus shrinks the total caller budget to the bitrate-implied
 	// packet size before deriving each stream's curr_max (lines 918-928).

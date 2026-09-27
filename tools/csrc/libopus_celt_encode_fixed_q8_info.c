@@ -40,8 +40,15 @@
 #error "fixed-QEXT raw Q8 CELT oracle requires selected ENABLE_QEXT libopus"
 #endif
 
+#ifdef GOPUS_STATE_TRACE
+/* Include the pinned encoder implementation so this test-only helper can read
+ * its private state fields without depending on struct padding or offsets. */
+static int opus_custom_encoder_get_size(const CELTMode *mode, int channels);
+#include "celt_encoder.c"
+#else
 int celt_encode_with_ec(CELTEncoder *st, const opus_res *pcm, int frame_size,
     unsigned char *compressed, int nbCompressedBytes, ec_enc *enc);
+#endif
 
 static int read_u32(uint32_t *out) {
   unsigned char b[4];
@@ -59,6 +66,83 @@ static int write_u32(uint32_t value) {
   b[3] = (unsigned char)(value >> 24);
   return fwrite(b, 1, 4, stdout) == 4;
 }
+
+static int write_float(float value) {
+  uint32_t bits;
+  memcpy(&bits, &value, sizeof(bits));
+  return write_u32(bits);
+}
+
+#ifdef GOPUS_STATE_TRACE
+static int write_i32_array(const opus_int32 *values, int count) {
+  int i;
+  if (count < 0 || !write_u32((uint32_t)count)) return 0;
+  for (i = 0; i < count; i++) {
+    if (!write_u32((uint32_t)values[i])) return 0;
+  }
+  return 1;
+}
+
+/* Emit scalar state first, followed by explicit logical array contents. Keep
+ * this order synchronized with CELTFixedQ8EncoderState in Go. */
+static int write_encoder_state(CELTEncoder *opaque) {
+  struct OpusCustomEncoder *st = (struct OpusCustomEncoder *)opaque;
+  int channels = st->channels;
+  int overlap = st->mode->overlap;
+  int bands = st->mode->nbEBands;
+  int max_period = QEXT_SCALE2(COMBFILTER_MAXPERIOD, st->qext_scale);
+  celt_sig *prefilter_mem = st->in_mem + channels*overlap;
+  celt_glog *oldBandE = (celt_glog *)(st->in_mem + channels*(overlap+max_period));
+  celt_glog *oldLogE = oldBandE + channels*bands;
+  celt_glog *oldLogE2 = oldLogE + channels*bands;
+  celt_glog *energyError = oldLogE2 + channels*bands;
+  int32_t scalars[] = {
+    (int32_t)st->spread_decision,
+    (int32_t)st->delayedIntra,
+    (int32_t)st->tonal_average,
+    (int32_t)st->lastCodedBands,
+    (int32_t)st->hf_average,
+    (int32_t)st->tapset_decision,
+    (int32_t)st->prefilter_period,
+    (int32_t)st->prefilter_gain,
+    (int32_t)st->prefilter_tapset,
+    (int32_t)st->consec_transient,
+    (int32_t)st->vbr_reservoir,
+    (int32_t)st->vbr_drift,
+    (int32_t)st->vbr_offset,
+    (int32_t)st->vbr_count,
+    (int32_t)st->overlap_max,
+    (int32_t)st->stereo_saving,
+    (int32_t)st->intensity,
+    (int32_t)st->spec_avg,
+    (int32_t)st->force_intra,
+    (int32_t)st->disable_pf,
+    (int32_t)st->silk_info.signalType,
+    (int32_t)st->silk_info.offset,
+    (int32_t)st->analysis.valid,
+    (int32_t)st->analysis.bandwidth,
+  };
+  int i;
+  if (!write_u32(st->rng) || !write_u32((uint32_t)(sizeof(scalars)/sizeof(scalars[0])))) return 0;
+  for (i = 0; i < (int)(sizeof(scalars)/sizeof(scalars[0])); i++) {
+    if (!write_u32((uint32_t)scalars[i])) return 0;
+  }
+  if (!write_float(st->analysis.activity) ||
+      !write_float(st->analysis.tonality) ||
+      !write_float(st->analysis.tonality_slope) ||
+      !write_float(st->analysis.max_pitch_ratio) ||
+      fwrite(st->analysis.leak_boost, 1, LEAK_BANDS, stdout) != LEAK_BANDS ||
+      !write_i32_array(st->energy_mask, st->energy_mask ? channels*bands : 0) ||
+      !write_i32_array(st->preemph_memE, channels) ||
+      !write_i32_array(st->in_mem, channels*overlap) ||
+      !write_i32_array(prefilter_mem, channels*max_period) ||
+      !write_i32_array(oldBandE, channels*bands) ||
+      !write_i32_array(oldLogE, channels*bands) ||
+      !write_i32_array(oldLogE2, channels*bands) ||
+      !write_i32_array(energyError, channels*bands)) return 0;
+  return 1;
+}
+#endif
 
 static int read_float(float *out) {
   uint32_t bits;
@@ -130,7 +214,11 @@ int main(void) {
       celt_encoder_ctl(st, OPUS_SET_LSB_DEPTH_REQUEST, (int)lsb_depth) != OPUS_OK ||
       celt_encoder_ctl(st, OPUS_SET_LFE_REQUEST, (int)lfe) != OPUS_OK ||
       celt_encoder_ctl(st, CELT_SET_SIGNALLING_REQUEST, 0) != OPUS_OK) return 1;
+#ifdef GOPUS_STATE_TRACE
+  if (fwrite("GQSO", 1, 4, stdout) != 4 || !write_u32(1) || !write_u32(count)) return 1;
+#else
   if (fwrite("GQRO", 1, 4, stdout) != 4 || !write_u32(1) || !write_u32(count)) return 1;
+#endif
   for (f = 0; f < count; f++) {
     uint32_t max_bytes, samples, j, raw, prefix_count, set_prediction, has_mask;
     uint32_t reset_before, prediction, signal_type, silk_offset;
@@ -172,6 +260,9 @@ int main(void) {
     ret = celt_encode_with_ec(st, pcm, (int)frame_size, packet, (int)max_bytes, &ec);
     if (ret < 0 || ret > (int)max_bytes || !write_u32((uint32_t)ret) ||
         !write_u32(ec.rng) || fwrite(packet, 1, (size_t)ret, stdout) != (size_t)ret) return 1;
+#ifdef GOPUS_STATE_TRACE
+    if (!write_encoder_state(st)) return 1;
+#endif
   }
   free(st);
   free(pcm);

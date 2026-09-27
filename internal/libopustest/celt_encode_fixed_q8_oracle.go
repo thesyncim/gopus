@@ -82,6 +82,35 @@ func ProbeCELTFixedQEXTQ8(p CELTFixedQ8Params) ([]CELTFixedQ8Record, error) {
 }
 
 func probeCELTFixedRawQ8(p CELTFixedQ8Params, helper *HelperCache, build func() (string, error)) ([]CELTFixedQ8Record, error) {
+	payload, err := fixedCELTQ8Payload(p)
+	if err != nil {
+		return nil, err
+	}
+	bin, err := helper.Path(build)
+	if err != nil {
+		return nil, err
+	}
+	reader, err := RunOracle(bin, payload.Bytes(), "selected fixed CELT raw Q8 encode", "GQRO")
+	if err != nil {
+		return nil, err
+	}
+	reader.Count(len(p.Frames))
+	out := make([]CELTFixedQ8Record, len(p.Frames))
+	for i := range out {
+		n := int(reader.U32())
+		out[i].FinalRange = reader.U32()
+		if n < 0 || n > p.Frames[i].MaxBytes {
+			return nil, fmt.Errorf("fixed CELT Q8 frame %d packet size %d", i, n)
+		}
+		out[i].Packet = append([]byte(nil), reader.Bytes(n)...)
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func fixedCELTQ8Payload(p CELTFixedQ8Params) (*OraclePayload, error) {
 	validRate := false
 	for _, rate := range [...]int{8000, 12000, 16000, 24000, 48000} {
 		validRate = validRate || p.SampleRate == rate
@@ -119,10 +148,6 @@ func probeCELTFixedRawQ8(p CELTFixedQ8Params, helper *HelperCache, build func() 
 				return nil, fmt.Errorf("invalid fixed CELT Q8 prefix symbol in frame %d", f)
 			}
 		}
-	}
-	bin, err := helper.Path(build)
-	if err != nil {
-		return nil, err
 	}
 	b2u := func(v bool) uint32 {
 		if v {
@@ -162,22 +187,5 @@ func probeCELTFixedRawQ8(p CELTFixedQ8Params, helper *HelperCache, build func() 
 			payload.I32s(frame.EnergyMask...)
 		}
 	}
-	reader, err := RunOracle(bin, payload.Bytes(), "selected fixed CELT raw Q8 encode", "GQRO")
-	if err != nil {
-		return nil, err
-	}
-	reader.Count(len(p.Frames))
-	out := make([]CELTFixedQ8Record, len(p.Frames))
-	for i := range out {
-		n := int(reader.U32())
-		out[i].FinalRange = reader.U32()
-		if n < 0 || n > p.Frames[i].MaxBytes {
-			return nil, fmt.Errorf("fixed CELT Q8 frame %d packet size %d", i, n)
-		}
-		out[i].Packet = append([]byte(nil), reader.Bytes(n)...)
-	}
-	if err := reader.ExpectConsumed(); err != nil {
-		return nil, err
-	}
-	return out, nil
+	return payload, nil
 }

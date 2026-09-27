@@ -356,6 +356,10 @@ func quantPartitionEncode(ctx *bandEncCtx, x []int32, n, b, B int, lowband []int
 		qalloc := sctx.qalloc
 		mid := shl32(int32(imid), 16)
 		side := shl32(int32(iside), 16)
+		if fixedQEXTBuild {
+			mid = CeltCosNorm32(int32(itheta) << 16)
+			side = CeltCosNorm32((1 << 30) - (int32(itheta) << 16))
+		}
 
 		if B0 > 1 && (itheta&0x3fff) != 0 {
 			if itheta > 8192 {
@@ -554,6 +558,10 @@ func quantBandStereoEncode(ctx *bandEncCtx, x, y []int32, n, b, B int, lowband [
 	qalloc := sctx.qalloc
 	mid := shl32(int32(imid), 16)
 	side := shl32(int32(iside), 16)
+	if fixedQEXTBuild {
+		mid = CeltCosNorm32(int32(itheta) << 16)
+		side = CeltCosNorm32((1 << 30) - (int32(itheta) << 16))
+	}
 
 	var cm uint
 	if n == 2 {

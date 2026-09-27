@@ -749,11 +749,11 @@ func (e *CELTEncoder) runPrefilter(in []int32, CC, N, overlap int, enabled bool,
 			before[c] += abs32(shr32(in[base+overlap+i], 12))
 		}
 		if offset != 0 {
-			combFilterPF(in, base+overlap, pre[c], maxPeriod,
+			combFilterPFFixedWindow(in, base+overlap, pre[c], maxPeriod,
 				prefilterPeriod, prefilterPeriod, offset, -e.prefilterGain, -e.prefilterGain,
 				e.prefilterTapset, e.prefilterTapset, nil, 0)
 		}
-		combFilterPF(in, base+overlap+offset, pre[c], maxPeriod+offset,
+		combFilterPFFixedWindow(in, base+overlap+offset, pre[c], maxPeriod+offset,
 			prefilterPeriod, pitchIndex, N-offset, -e.prefilterGain, -gain1,
 			e.prefilterTapset, res.Tapset, e.window, overlap)
 		for i := 0; i < N; i++ {
@@ -782,7 +782,7 @@ func (e *CELTEncoder) runPrefilter(in []int32, CC, N, overlap int, enabled bool,
 		for c := 0; c < CC; c++ {
 			base := c * (N + overlap)
 			copy(in[base+overlap:base+overlap+N], pre[c][maxPeriod:maxPeriod+N])
-			combFilterPF(in, base+overlap+offset, pre[c], maxPeriod+offset,
+			combFilterPFFixedWindow(in, base+overlap+offset, pre[c], maxPeriod+offset,
 				prefilterPeriod, pitchIndex, overlap, -e.prefilterGain, 0,
 				e.prefilterTapset, res.Tapset, e.window, overlap)
 		}

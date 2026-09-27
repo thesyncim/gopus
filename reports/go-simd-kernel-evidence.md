@@ -136,6 +136,27 @@ pending; PLC, short-body loss handling, malformed-input state, and mode
 transitions remain outside this received-frame checkpoint. The native CI gate
 selects these public tests and paired PVQ/band oracles explicitly.
 
+### Fixed surround and automatic CELT encoding
+
+The selected fixed-reference automatic-CELT sequence matches every packet byte
+and final range for eight persistent frames in mono low-space and stereo
+automatic-channel configurations, including reset replay and zero warmed
+allocations. In a QEXT build, the prefilter uses the Q31 mode window and the
+band encoder uses Q31 split gains even with the extension disabled at runtime.
+A direct selected-C prefilter oracle checks the coefficient path independently.
+
+Seven multistream surround fixtures match selected C packets and ranges over
+six frames with two resets: 3/4/5/6/7 channels at 10 ms, 7.1 at 20 ms CBR,
+and 7.1 at 24 kHz/40 ms. The fixed analyzer matches raw band energies, Q24
+masks, and per-stream mask routing. The mono QEXT-build surround regression
+matches all logical C state across a four-frame sequence with a reset and
+active prefilter. These QEXT-build tests keep the runtime extension off.
+
+Isolated ordinary, SIMD and `nosimd` ARM64 checks pass. Fixed-only and default
+float surround gates also pass. Public surround/projection warm encode
+allocation guards pass for 5.1/7.1 and FOA/SOA/TOA. Native AMD64 confirmation
+and active combined DRED+QEXT validation remain pending.
+
 ### Extension checkpoint
 
 QEXT at 48 kHz (`6e20f360`) passes 60 configurations / 180 sequential frames

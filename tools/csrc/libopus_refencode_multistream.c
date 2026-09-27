@@ -9,6 +9,7 @@
 #endif
 
 #include "opus_multistream.h"
+#include "opus_private.h"
 
 #define GMEI_MAGIC "GMEI"
 #define GMEO_MAGIC "GMEO"
@@ -64,7 +65,8 @@ static int valid_sample_rate(uint32_t sample_rate) {
 /*
  * Input layout (little-endian):
  *   magic "GMEI"
- *   u32 version (1 = packets, 2 = packets + final ranges, 3 = DTX control)
+ *   u32 version (1 = packets, 2 = packets + final ranges, 3 = DTX control,
+ *                4 = reset-before-frame flags, 5 = per-stream encode diagnostics)
  *   u32 sample_rate
  *   u32 channels
  *   u32 mapping_family
@@ -79,7 +81,8 @@ static int valid_sample_rate(uint32_t sample_rate) {
  *   u32 max_packet_bytes
  *   u32 sample_format        (0 float32, 1 int16)
  *   u32 dtx                  (version >= 3)
- *   PCM samples: frame_count * frame_size * channels in the requested format
+ *   for each frame: u32 reset_before when version >= 4, then PCM samples:
+ *     frame_size * channels in the requested format
  *
  * Output layout (little-endian):
  *   magic "GMEO"
@@ -90,6 +93,9 @@ static int valid_sample_rate(uint32_t sample_rate) {
  *   raw mapping[channels]
  *   u32 packet_count
  *   for each packet: [u32 final_range when version >= 2], u32 len, raw bytes[len]
+ *   for version 5, each packet is followed by u32 stream_count and one record
+ *   per elementary stream: TOC, final range, bitrate, bandwidth, forced
+ *   channels, complexity, encoded packet length, and decoded sample count.
  */
 int main(void) {
   unsigned char magic[4];
@@ -129,7 +135,7 @@ int main(void) {
   }
 
   uint32_t b_bitrate = 0, b_bandwidth = 0;
-  if (!read_u32(&version) || (version != 1 && version != 2 && version != 3)) {
+  if (!read_u32(&version) || (version < 1 || version > 5)) {
     fprintf(stderr, "unsupported input version\n");
     return 1;
   }
@@ -214,6 +220,23 @@ int main(void) {
   }
 
   for (uint32_t i = 0; i < frame_count; i++) {
+    if (version >= 4) {
+      uint32_t reset_before = 0;
+      if (!read_u32(&reset_before) || reset_before > 1) {
+        fprintf(stderr, "invalid reset flag for frame %u\n", i);
+        free(pcm);
+        free(packet);
+        opus_multistream_encoder_destroy(enc);
+        return 1;
+      }
+      if (reset_before && opus_multistream_encoder_ctl(enc, OPUS_RESET_STATE) != OPUS_OK) {
+        fprintf(stderr, "OPUS_RESET_STATE frame %u failed\n", i);
+        free(pcm);
+        free(packet);
+        opus_multistream_encoder_destroy(enc);
+        return 1;
+      }
+    }
     if (!read_exact(pcm, frame_samples * item_size)) {
       fprintf(stderr, "failed to read pcm frame %u\n", i);
       free(pcm);
@@ -262,6 +285,64 @@ int main(void) {
       free(packet);
       opus_multistream_encoder_destroy(enc);
       return 1;
+    }
+
+    if (version >= 5) {
+      const unsigned char *stream_packet = packet;
+      opus_int32 remaining = (opus_int32)nbytes;
+      if (!write_u32((uint32_t)streams)) {
+        fprintf(stderr, "failed to write stream count for frame %u\n", i);
+        free(pcm);
+        free(packet);
+        opus_multistream_encoder_destroy(enc);
+        return 1;
+      }
+      for (int s = 0; s < streams; s++) {
+        OpusEncoder *stream_enc = NULL;
+        opus_uint32 stream_range = 0;
+        opus_int32 stream_bitrate = 0;
+        opus_int32 stream_bandwidth = 0;
+        opus_int32 stream_force_channels = 0;
+        opus_int32 stream_complexity = 0;
+        opus_int32 packet_offset = 0;
+        unsigned char toc = 0;
+        opus_int16 sizes[48];
+        int count = opus_packet_parse_impl(stream_packet, remaining, s != streams - 1,
+                                           &toc, NULL, sizes, NULL, &packet_offset, NULL, NULL);
+        if (count < 0 || packet_offset <= 0 || packet_offset > remaining ||
+            opus_multistream_encoder_ctl(enc, OPUS_MULTISTREAM_GET_ENCODER_STATE(s, &stream_enc)) != OPUS_OK ||
+            stream_enc == NULL || opus_encoder_ctl(stream_enc, OPUS_GET_FINAL_RANGE(&stream_range)) != OPUS_OK ||
+            opus_encoder_ctl(stream_enc, OPUS_GET_BITRATE(&stream_bitrate)) != OPUS_OK ||
+            opus_encoder_ctl(stream_enc, OPUS_GET_BANDWIDTH(&stream_bandwidth)) != OPUS_OK ||
+            opus_encoder_ctl(stream_enc, OPUS_GET_FORCE_CHANNELS(&stream_force_channels)) != OPUS_OK ||
+            opus_encoder_ctl(stream_enc, OPUS_GET_COMPLEXITY(&stream_complexity)) != OPUS_OK) {
+          fprintf(stderr, "failed to inspect stream %d frame %u\n", s, i);
+          free(pcm);
+          free(packet);
+          opus_multistream_encoder_destroy(enc);
+          return 1;
+        }
+        int decoded_samples = opus_packet_get_nb_samples(stream_packet, packet_offset, (opus_int32)sample_rate);
+        if (decoded_samples < 0 || !write_u32((uint32_t)toc) || !write_u32((uint32_t)stream_range) ||
+            !write_u32((uint32_t)stream_bitrate) || !write_u32((uint32_t)stream_bandwidth) ||
+            !write_u32((uint32_t)stream_force_channels) || !write_u32((uint32_t)stream_complexity) ||
+            !write_u32((uint32_t)packet_offset) || !write_u32((uint32_t)decoded_samples)) {
+          fprintf(stderr, "failed to write stream %d diagnostics for frame %u\n", s, i);
+          free(pcm);
+          free(packet);
+          opus_multistream_encoder_destroy(enc);
+          return 1;
+        }
+        stream_packet += packet_offset;
+        remaining -= packet_offset;
+      }
+      if (remaining != 0) {
+        fprintf(stderr, "frame %u has %d trailing bytes after elementary streams\n", i, remaining);
+        free(pcm);
+        free(packet);
+        opus_multistream_encoder_destroy(enc);
+        return 1;
+      }
     }
   }
 
