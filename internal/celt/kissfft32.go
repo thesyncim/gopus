@@ -70,6 +70,8 @@ func kissSub(a, b float32) float32 {
 
 func getKissFFTState(nfft int) *kissFFTState {
 	switch nfft {
+	case 960:
+		return getKissFFTState960()
 	case 320:
 		return getKissFFTState320()
 	case 60:

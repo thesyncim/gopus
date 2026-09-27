@@ -1515,7 +1515,12 @@ func algUnquantInto(shape []celtNorm, rd *rangecoding.Decoder, band, n, k, sprea
 		yy1 := float32(pulses[1]) * float32(pulses[1])
 		yy = opusVal16(yy0 + yy1)
 	} else {
-		refine := make([]int32, n)
+		var refine []int32
+		if scratch != nil {
+			refine = scratch.ensurePVQRefine(n)
+		} else {
+			refine = make([]int32, n)
+		}
 		useEntropy := (extDec.StorageBits() - extDec.Tell()) > (n-1)*(extraBits+3)+1
 		for i := 0; i < n-1; i++ {
 			refine[i] = int32(ecDecRefine(extDec, up, extraBits, useEntropy))

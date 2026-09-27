@@ -106,6 +106,7 @@ type bandDecodeScratch struct {
 
 	// Scratch buffers for PVQ/folding operations
 	pvqPulses  []int32 // Pulse vector from CWRS decode; libopus uses C int.
+	pvqRefine  []int32 // Separate QEXT refinement vector while pulses stay live.
 	pvqNorm    []celtNorm
 	foldResult []celtNorm
 	cwrsU      []uint32 // CWRS u-row scratch buffer
@@ -376,6 +377,10 @@ func (s *bandDecodeScratch) getBandStorageR(band, n int) []celtNorm {
 // ensurePVQPulses returns a pre-allocated buffer for PVQ pulse vector.
 func (s *bandDecodeScratch) ensurePVQPulses(n int) []int32 {
 	return ensureInt32Slice(&s.pvqPulses, n)
+}
+
+func (s *bandDecodeScratch) ensurePVQRefine(n int) []int32 {
+	return ensureInt32Slice(&s.pvqRefine, n)
 }
 
 // ensurePVQNorm returns a pre-allocated buffer for normalized vector.

@@ -3,6 +3,7 @@
 package celt
 
 import (
+	"math"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -29,6 +30,7 @@ type hd96kOracleMode struct {
 	Preemph                            [4]float32
 	EBands, LogN                       []int16
 	Window, Trig                       []float32
+	FFTTwiddles                        []kissCpx
 	MdctN, MdctMaxShift                int
 }
 
@@ -72,47 +74,28 @@ func probeLibopusHD96kMode(t *testing.T) hd96kOracleMode {
 	for i := range m.Trig {
 		m.Trig[i] = reader.Float32()
 	}
+	m.FFTTwiddles = make([]kissCpx, int(reader.U32()))
+	for i := range m.FFTTwiddles {
+		m.FFTTwiddles[i] = kissCpx{r: reader.Float32(), i: reader.Float32()}
+	}
 	if err := reader.ExpectConsumed(); err != nil {
 		t.Fatalf("qext mode oracle payload not fully consumed: %v", err)
 	}
 	return m
 }
 
-// hd96kFloatTableTol bounds the honest cosine-kernel residual on the
-// MDCT trig / window tables (root cause documented in
-// project_arm64_celt_1ulp_drift.md). The closed-form float window also drifts a
-// few ULP on amd64 (gopus's float path vs the SIMD qext libopus the oracle
-// links), so the bounded residual budget is applied on every arch. Scalars and
-// the integer eBands/logN tables must still match exactly on every platform
-// (checked separately, not through this float-table helper).
-const hd96kFloatTableTol = float32(1e-6)
-
-// checkF32Table compares a computed float32 table against the libopus oracle,
-// holding it to the bounded per-arch CELT float residual budget on every arch.
+// checkF32Table compares every static table coefficient with the selected
+// libopus QEXT mode, including the source literal's final float32 rounding.
 func checkF32Table(t *testing.T, name string, got, want []float32) {
 	t.Helper()
 	if len(got) != len(want) {
 		t.Fatalf("%s length: got %d want %d", name, len(got), len(want))
 	}
-	var maxResidual float32
-	maxIdx := -1
 	for i := range want {
-		d := got[i] - want[i]
-		if d < 0 {
-			d = -d
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("%s[%d]: got %08x want %08x", name, i,
+				math.Float32bits(got[i]), math.Float32bits(want[i]))
 		}
-		if d == 0 {
-			continue
-		}
-		if d > maxResidual {
-			maxResidual, maxIdx = d, i
-		}
-	}
-	if maxIdx >= 0 {
-		if maxResidual > hd96kFloatTableTol {
-			t.Fatalf("%s residual %v at index %d exceeds budget %v", name, maxResidual, maxIdx, hd96kFloatTableTol)
-		}
-		t.Logf("RESIDUAL cosine-kernel drift on %s: max %v at index %d (<= %v, project_arm64_celt_1ulp_drift.md)", name, maxResidual, maxIdx, hd96kFloatTableTol)
 	}
 }
 
@@ -157,4 +140,16 @@ func TestHD96kModeMatchesLibopusQEXT(t *testing.T) {
 
 	checkF32Table(t, "window240", got.Window, ref.Window)
 	checkF32Table(t, "mdctTrig", got.MdctTrig, ref.Trig)
+	fft := getKissFFTState(960)
+	if len(fft.w) != len(ref.FFTTwiddles) {
+		t.Fatalf("FFT twiddle count: got %d want %d", len(fft.w), len(ref.FFTTwiddles))
+	}
+	for i := range ref.FFTTwiddles {
+		if math.Float32bits(fft.w[i].r) != math.Float32bits(ref.FFTTwiddles[i].r) ||
+			math.Float32bits(fft.w[i].i) != math.Float32bits(ref.FFTTwiddles[i].i) {
+			t.Fatalf("FFT twiddle[%d]: got (%08x,%08x) want (%08x,%08x)", i,
+				math.Float32bits(fft.w[i].r), math.Float32bits(fft.w[i].i),
+				math.Float32bits(ref.FFTTwiddles[i].r), math.Float32bits(ref.FFTTwiddles[i].i))
+		}
+	}
 }

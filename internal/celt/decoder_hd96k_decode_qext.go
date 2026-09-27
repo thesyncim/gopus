@@ -18,13 +18,11 @@ package celt
 // DecodeFrame(data, 1920) then runs the full native decode through the existing
 // parametric kernels.
 //
-// Parity status: the base bands, the >20 kHz QEXT extension bands, the
-// 3840-MDCT long synthesis (overlap=240), the 2-tap HD de-emphasis and the
-// cross-frame comb-filter postfilter (libopus comb_filter_qext,
-// postfilter_hd96k_qext.go) are sample-exact vs the QEXT libopus reference (mono
-// and stereo) on amd64; arm64 stays within the documented 1-ULP CELT budget. The
-// native 96 kHz encode routing and the top-level Opus packet framing of the
-// reserved extension payload remain.
+// The native 96 kHz decode oracle compares every mono/stereo float32 bit and
+// packet final range against selected QEXT libopus. Its packet histories
+// exercise the base and extension bands, 3840-MDCT synthesis (overlap=240),
+// 2-tap HD de-emphasis, and active cross-frame comb_filter_qext. Native 96 kHz
+// encode routing and top-level framing of the reserved extension payload remain.
 
 // EnableHD96kMode reconfigures the decoder for the native 96 kHz HD mode.
 // It is idempotent and must be called before decoding 96 kHz frames. The

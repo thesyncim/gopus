@@ -235,15 +235,18 @@ func combFilterScalarFloat32(buf []float32, history, t0, t1, n int, g0, g1 float
 	i := 0
 	for ; i < overlap; i++ {
 		x0 := x(i - t1 + 2)
-		f := window[i] * window[i]
-		oneMinus := float32(1.0) - f
-		*y(i) = x(i) +
-			noFMA32Mul(oneMinus*g00, x(i-t0)) +
-			noFMA32Mul(oneMinus*g01, x(i-t0+1)+x(i-t0-1)) +
-			noFMA32Mul(oneMinus*g02, x(i-t0+2)+x(i-t0-2)) +
-			noFMA32Mul(f*g10, x2) +
-			noFMA32Mul(f*g11, x1+x3) +
-			noFMA32Mul(f*g12, x0+x4)
+		f := noFMA32Mul(window[i], window[i])
+		oneMinus := noFMA32Sub(1, f)
+		// celt.c comb_filter rounds each interpolated gain, then the
+		// selected ARM libopus kernel accumulates six taps with FMADD.
+		t := x(i)
+		t = fma32(noFMA32Mul(oneMinus, g00), x(i-t0), t)
+		t = fma32(noFMA32Mul(oneMinus, g01), noFMA32Add(x(i-t0+1), x(i-t0-1)), t)
+		t = fma32(noFMA32Mul(oneMinus, g02), noFMA32Add(x(i-t0+2), x(i-t0-2)), t)
+		t = fma32(noFMA32Mul(f, g10), x2, t)
+		t = fma32(noFMA32Mul(f, g11), noFMA32Add(x1, x3), t)
+		t = fma32(noFMA32Mul(f, g12), noFMA32Add(x0, x4), t)
+		*y(i) = t
 		x4 = x3
 		x3 = x2
 		x2 = x1
@@ -254,12 +257,22 @@ func combFilterScalarFloat32(buf []float32, history, t0, t1, n int, g0, g1 float
 	}
 	// Constant-filter tail (libopus comb_filter_const): rolling taps x1..x4
 	// carry over from the overlap loop. SHL32(.,1) is a no-op in the float build.
+	if combUsesSSE {
+		// The x86 C kernel handles the original constant-body four-sample
+		// prefix with grouped side products, independently of the QEXT phase
+		// storage. Its scalar remainder follows below.
+		for end := i + ((n - i) &^ 3); i < end; i++ {
+			x0 := x(i - t1 + 2)
+			*y(i) = combFilterConstSSEValue(x(i), g10, g11, g12, x2, x1, x3, x0, x4)
+			x4, x3, x2, x1 = x3, x2, x1, x0
+		}
+	}
 	for ; i < n; i++ {
 		x0 := x(i - t1 + 2)
 		t := x(i)
-		t += noFMA32Mul(g10, x2)
-		t += noFMA32Mul(g11, x1+x3)
-		t += noFMA32Mul(g12, x0+x4)
+		t = fma32(g10, x2, t)
+		t = fma32(g11, noFMA32Add(x1, x3), t)
+		t = fma32(g12, noFMA32Add(x0, x4), t)
 		*y(i) = t
 		x4 = x3
 		x3 = x2

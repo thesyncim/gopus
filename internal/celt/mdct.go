@@ -54,6 +54,8 @@ func getMDCTTrigF32(n int) []float32 {
 		return mdctTrig960F32Static[:]
 	case 1920:
 		return mdctTrig1920F32Static[:]
+	case 3840:
+		return getMDCTTrig3840F32()
 	default:
 		return buildMDCTTrigF32(n)
 	}
