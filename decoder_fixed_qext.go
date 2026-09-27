@@ -9,15 +9,15 @@ import (
 )
 
 // decodeFixedQEXTCELTFrame records output from the selected fixed-point
-// ENABLE_QEXT CELT decoder. This received-frame path is supported for native
-// 48 kHz and 96 kHz CELT frames that do not cross a mode transition. The float
+// ENABLE_QEXT CELT decoder. This received-frame path handles
+// CELT frames at every supported API rate without a mode transition. The float
 // decoder still runs first to retain the shared public state used by other
 // codec paths; the fixed result replaces its public samples and final range.
 func (d *Decoder) decodeFixedQEXTCELTFrame(main *rangecoding.Decoder, dataLen, frameSize int, packetStereo bool, bandwidth celt.CELTBandwidth, qextPayload []byte, transition bool) (bool, error) {
 	if !d.fixedPacketActive {
 		return false, nil
 	}
-	if frameSize <= 0 || (d.sampleRate != 48000 && d.sampleRate != 96000) || transition {
+	if frameSize <= 0 || transition {
 		d.invalidateFixedQEXTCELT()
 		return false, nil
 	}
@@ -53,7 +53,7 @@ func (d *Decoder) decodeFixedQEXTCELTFrame(main *rangecoding.Decoder, dataLen, f
 	if decoded < 0 {
 		return false, ErrInvalidPacket
 	}
-	if decoded != coreFrameSize {
+	if decoded != frameSize {
 		return false, ErrInvalidPacket
 	}
 	int16Out := d.fixedCELTScratch(needed)

@@ -28,44 +28,12 @@ func qextSilencePacket(t *testing.T, codedChannels, extensionBytes int) []byte {
 func compareQEXTDecodeSequenceWithLibopus(t *testing.T, outputChannels, frameSize int, packets [][]byte) {
 	t.Helper()
 	libopustest.RequireOracle(t)
-	binPath, err := libopusQEXTDecodeSingleHelper.Path(buildLibopusQEXTDecodeSingleHelper)
+	wantPCM, wantRanges, err := selectedQEXTDecodeSequenceReference(outputChannels, frameSize, packets)
 	if err != nil {
-		libopustest.HelperUnavailable(t, "qext stateful float decoder", err)
+		libopustest.HelperUnavailable(t, "selected QEXT decoder", err)
 		return
 	}
 	samplesPerPacket := frameSize * outputChannels
-	payload := libopustest.NewOraclePayloadVersion("GOSI", 8, 0, 48000, 0, uint32(outputChannels), uint32(frameSize), uint32(len(packets)))
-	for _, packet := range packets {
-		payload.U32(0) // decode_fec
-		payload.U32(uint32(frameSize))
-		payload.U32(uint32(len(packet)))
-		payload.Raw(packet)
-	}
-	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "qext stateful float decoder", "GOSO", 3)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantPCM := make([]float32, len(packets)*samplesPerPacket)
-	if count := reader.Count(len(wantPCM)); count != len(wantPCM) {
-		t.Fatalf("C PCM count %d, want %d", count, len(wantPCM))
-	}
-	for i := range wantPCM {
-		wantPCM[i] = reader.Float32()
-	}
-	if count := reader.Count(len(packets)); count != len(packets) {
-		t.Fatalf("C record count %d, want %d", count, len(packets))
-	}
-	wantRanges := make([]uint32, len(packets))
-	for i := range packets {
-		status, samples, finalRange, offset := reader.U32(), reader.U32(), reader.U32(), reader.U32()
-		if status != 0 || samples != uint32(frameSize) || offset != uint32(i*samplesPerPacket) {
-			t.Fatalf("C frame %d status=%d samples=%d offset=%d", i, status, samples, offset)
-		}
-		wantRanges[i] = finalRange
-	}
-	if err := reader.ExpectConsumed(); err != nil {
-		t.Fatal(err)
-	}
 
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, outputChannels))
 	if err != nil {

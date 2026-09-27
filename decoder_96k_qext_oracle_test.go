@@ -60,7 +60,7 @@ func testNative96kDecodeMatchesQEXTOracle(t *testing.T, channels int) {
 	pcm96 := native96kSine(channels, frames)
 	packets := encodeNative96kQEXTPackets(t, opusDemo, channels, pcm96, 320000)
 
-	ref, err := libopustest.ProbeQEXTDecode96k(libopustest.QEXTDecode96kParams{
+	ref, err := probeQEXTDecodePublicReference(libopustest.QEXTDecode96kParams{
 		SampleFormat: libopustest.QEXTDecode96kFormatFloat32,
 		Channels:     channels,
 		MaxFrameSize: 1920,
@@ -296,7 +296,7 @@ func TestNative96kDecodeCrossFramePostfilterParity(t *testing.T) {
 				t.Fatalf("no cross-frame active postfilter in %d packets; comb path not exercised", len(packets))
 			}
 
-			ref, err := libopustest.ProbeQEXTDecode96k(libopustest.QEXTDecode96kParams{
+			ref, err := probeQEXTDecodePublicReference(libopustest.QEXTDecode96kParams{
 				SampleFormat: libopustest.QEXTDecode96kFormatFloat32,
 				Channels:     ch,
 				MaxFrameSize: 1920,

@@ -21,6 +21,7 @@ const (
 type QEXTCELTDecoder struct {
 	channels            int
 	sampleRate          int
+	downsample          int
 	shortMDCTSize       int
 	overlap             int
 	decodeBufSize       int
@@ -62,16 +63,32 @@ type QEXTCELTDecoder struct {
 	dummyDec            rangecoding.Decoder
 }
 
-// NewQEXTCELTDecoder allocates a fixed-point QEXT decoder for a native Opus
-// 48 kHz or 96 kHz mode and one or two output channels.
+// NewQEXTCELTDecoder allocates a fixed-point QEXT decoder for an Opus API
+// sample rate and one or two output channels. Rates below 48 kHz use the native
+// 48 kHz CELT mode and emit the requested downsampled output rate.
 func NewQEXTCELTDecoder(channels, sampleRate int) (*QEXTCELTDecoder, error) {
 	if channels < 1 || channels > 2 {
 		return nil, fmt.Errorf("QEXT CELT channels must be 1 or 2, got %d", channels)
 	}
+	coreSampleRate := sampleRate
+	downsample := 1
+	switch sampleRate {
+	case 8000:
+		downsample, coreSampleRate = 6, 48000
+	case 12000:
+		downsample, coreSampleRate = 4, 48000
+	case 16000:
+		downsample, coreSampleRate = 3, 48000
+	case 24000:
+		downsample, coreSampleRate = 2, 48000
+	case 48000, 96000:
+	default:
+		return nil, fmt.Errorf("unsupported QEXT CELT sample rate %d", sampleRate)
+	}
 	var shortMDCTSize, overlap, decodeBufSize int
 	var mdct *QEXTMDCTLookup
 	var window []int32
-	switch sampleRate {
+	switch coreSampleRate {
 	case 48000:
 		shortMDCTSize, overlap, decodeBufSize = 120, 120, qextCELTDecodeBufferSize48
 		mdct, window = NewStaticQEXTMDCTLookup48000(), staticQEXTMDCT48000Window[:]
@@ -79,15 +96,16 @@ func NewQEXTCELTDecoder(channels, sampleRate int) (*QEXTCELTDecoder, error) {
 		shortMDCTSize, overlap, decodeBufSize = 240, 240, qextCELTDecodeBufferSize96
 		mdct, window = NewStaticQEXTMDCTLookup96000(), staticQEXTMDCT96000Window[:]
 	default:
-		return nil, fmt.Errorf("unsupported native QEXT CELT sample rate %d", sampleRate)
+		return nil, fmt.Errorf("unsupported QEXT CELT sample rate %d", sampleRate)
 	}
-	_, qextEdges, qextLogN, qextMaxBands, ok := fixedQEXTBandMode(sampleRate, shortMDCTSize)
+	_, qextEdges, qextLogN, qextMaxBands, ok := fixedQEXTBandMode(coreSampleRate, shortMDCTSize)
 	if !ok {
 		return nil, fmt.Errorf("unsupported native QEXT CELT mode %d/%d", sampleRate, shortMDCTSize)
 	}
 	d := &QEXTCELTDecoder{
 		channels:      channels,
-		sampleRate:    sampleRate,
+		sampleRate:    coreSampleRate,
+		downsample:    downsample,
 		shortMDCTSize: shortMDCTSize,
 		overlap:       overlap,
 		decodeBufSize: decodeBufSize,
@@ -191,7 +209,11 @@ func (d *QEXTCELTDecoder) DecodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 			break
 		}
 	}
-	if lm < 0 || len(out) < d.channels*frameSize {
+	if lm < 0 || frameSize%d.downsample != 0 {
+		return -2
+	}
+	apiFrameSize := frameSize / d.downsample
+	if len(out) < d.channels*apiFrameSize {
 		return -2
 	}
 
@@ -392,10 +414,10 @@ func (d *QEXTCELTDecoder) DecodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 	} else {
 		d.rng = main.Range()
 	}
-	d.lastRes = out[:cc*frameSize]
-	deemphasisQEXT(outSyn, d.lastRes, frameSize, cc, d.sampleRate, d.preemphMem)
+	d.lastRes = out[:cc*apiFrameSize]
+	deemphasisQEXT(outSyn, d.lastRes, frameSize, cc, d.sampleRate, d.downsample, d.preemphMem)
 	if main.Tell() > totalBits || (len(qextPayload) != 0 && d.extDec.Tell() > qextTotalBits/(1<<bitRes)) {
 		return -3
 	}
-	return frameSize
+	return apiFrameSize
 }

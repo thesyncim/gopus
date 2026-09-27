@@ -89,16 +89,17 @@ and fixed+QEXT checks pass, as does the SIMD fixed+QEXT oracle. A clean source
 archive of this commit passes the combined SIMD controls and energy checks
 without any unfinished encoder/decoder integration files. Native AMD64
 confirmation is pending. Automatic stereo CELT, public combined-build surround,
-and active fixed-QEXT encode/decode remain open; these focused gates do not
-establish complete extension parity.
+and active fixed-QEXT encoding remain outside these focused gates. Received
+fixed-QEXT decoder coverage is documented below; complete extension parity
+remains open.
 
 At `e3ab22d9`, public 96 kHz int16 and int24 decoding reuses decoder-owned
 scratch and preserves integer soft-clip history. Selected float-QEXT C checks
 cover mono/stereo output samples and ranges, reset replay, +8 dB gain, and
 received→undersized→received histories with exact resumed PCM. Ordinary,
 SIMD, and `nosimd` ARM64 builds pass with zero warmed allocations. This
-checkpoint covers the float codec build; native fixed-QEXT decoding remains
-under integration. The early QEXT CI selector matches 30 intended test names,
+checkpoint covers the float codec build; fixed-QEXT received-frame evidence
+appears below. The early QEXT CI selector matches 30 intended test names,
 including these integer wrapper gates; its expanded local SIMD gate passes.
 At `c29a4833`, a persistent mixed int16/int24 sequence also matches selected C
 PCM and ranges at +8 dB gain for mono/stereo, including reset replay and zero
@@ -107,8 +108,33 @@ warm allocations for consecutive calls in both formats. Ordinary, SIMD and
 At `3b8fca64`, fixed-QEXT exponentiation matches selected C for 526 inputs;
 paired denormalisation and anti-collapse oracles pass in the combined SIMD
 build. The fixed-only denormalisation and anti-collapse gates also pass. These
-are local ARM64 kernel results; native AMD64 and full-packet fixed-QEXT output
-remain separate, open checks. The early fixed-QEXT gate includes these oracles.
+are local ARM64 kernel results; native AMD64 confirmation is pending. The early
+fixed-QEXT gate includes these oracles.
+
+### Fixed-QEXT received-frame decoding
+
+The fixed-QEXT received-frame checkpoint covers all 54 selected-C cases at
+8/12/16/24/48/96 kHz across mono, stereo, stereo-packet-to-mono output, and
+float32/int16/int24 APIs. Every PCM sample and final range matches. Each case
+covers three persistent frames, +5 dB gain, explicit phase-inversion control,
+reset replay, and zero warmed allocations. Ordinary, SIMD, and `nosimd` ARM64
+builds pass. Three main-only format cases also match, and 18 rate/format cases
+verify received→undersized→received state with exact resumed PCM and range.
+
+Independent band oracles check dual-stereo extension budget halving and the
+qn==1 branch without angle refinement, including both entropy coder states.
+A selected-C cubic leaf oracle checks the zero-resolution branch. Public QEXT
+decoder tests select fixed or float C according to the Go codec build; the
+native 96 kHz tests include seven received packets per mono/stereo sequence
+and five active cross-frame postfilter frames per channel layout.
+
+An isolated source overlay passes the public and PVQ/band oracles without the
+unfinished encoder integration. Fixed-only band oracles and the float-QEXT
+integer-wrapper regressions pass independently. The type-parity guard retains
+its 26 existing findings with no baseline edits. Native AMD64 confirmation is
+pending; PLC, short-body loss handling, malformed-input state, and mode
+transitions remain outside this received-frame checkpoint. The native CI gate
+selects these public tests and paired PVQ/band oracles explicitly.
 
 ### Extension checkpoint
 

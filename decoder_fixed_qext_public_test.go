@@ -28,7 +28,7 @@ func TestPublicFixedQEXTCELTReceivedFramesMatchSelectedReference(t *testing.T) {
 		libopustest.QEXTDecode96kFormatInt16,
 		libopustest.QEXTDecode96kFormatInt24,
 	}
-	for _, sampleRate := range []int{48000, 96000} {
+	for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000, 96000} {
 		frameSize := sampleRate / 50
 		for _, channelCase := range []struct {
 			packetChannels int
@@ -40,11 +40,11 @@ func TestPublicFixedQEXTCELTReceivedFramesMatchSelectedReference(t *testing.T) {
 			{packetChannels: 2, outputChannels: 1, phaseDisabled: true},
 		} {
 			var packets [][]byte
-			if sampleRate == 48000 {
-				packets = encodeNative48kQEXTPackets(t, opusDemo, channelCase.packetChannels, frames)
-			} else {
+			if sampleRate == 96000 {
 				packets = encodeNative96kQEXTPackets(t, opusDemo, channelCase.packetChannels,
 					native96kSine(channelCase.packetChannels, frames), 320000)
+			} else {
+				packets = encodeNative48kQEXTPackets(t, opusDemo, channelCase.packetChannels, frames)
 			}
 			for _, format := range formats {
 				formatName := map[uint32]string{
@@ -122,10 +122,10 @@ func TestPublicFixedQEXTCELTReceivedFramesMatchSelectedReference(t *testing.T) {
 						if err != nil || n != frameSize {
 							t.Fatalf("frame %d samples=%d err=%v, want %d,nil", frame, n, err, frameSize)
 						}
-						compareFrame(frame)
 						if got := dec.FinalRange(); got != ref.FinalRanges[frame] {
 							t.Fatalf("frame %d final range=%08x want %08x", frame, got, ref.FinalRanges[frame])
 						}
+						compareFrame(frame)
 					}
 
 					dec.Reset()
@@ -267,9 +267,9 @@ func TestPublicFixedQEXTSmallBufferDoesNotAdvanceCELTState(t *testing.T) {
 		libopustest.HelperUnavailable(t, "QEXT-enabled opus_demo", err)
 	}
 	const gainQ8 = 5 * 256
-	for _, sampleRate := range []int{48000, 96000} {
+	for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000, 96000} {
 		frameSize := sampleRate / 50
-		packets := encodeQEXTPacketsAtNativeRate(t, opusDemo, sampleRate, 1, 2)
+		packets := encodeQEXTPacketsForAPIRate(t, opusDemo, sampleRate, 1, 2)
 		for i, packet := range packets {
 			packets[i], err = stripFixedQEXTPacketExtension(packet)
 			if err != nil {
@@ -381,12 +381,12 @@ func TestPublicFixedQEXTSmallBufferDoesNotAdvanceCELTState(t *testing.T) {
 	}
 }
 
-func encodeQEXTPacketsAtNativeRate(t *testing.T, opusDemo string, sampleRate, channels, frames int) [][]byte {
+func encodeQEXTPacketsForAPIRate(t *testing.T, opusDemo string, sampleRate, channels, frames int) [][]byte {
 	t.Helper()
-	if sampleRate == 48000 {
-		return encodeNative48kQEXTPackets(t, opusDemo, channels, frames)
+	if sampleRate == 96000 {
+		return encodeNative96kQEXTPackets(t, opusDemo, channels, native96kSine(channels, frames), 320000)
 	}
-	return encodeNative96kQEXTPackets(t, opusDemo, channels, native96kSine(channels, frames), 320000)
+	return encodeNative48kQEXTPackets(t, opusDemo, channels, frames)
 }
 
 func stripFixedQEXTPacketExtension(packet []byte) ([]byte, error) {

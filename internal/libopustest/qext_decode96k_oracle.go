@@ -47,24 +47,24 @@ func getQEXTDecode96kHelperPath() (string, error) {
 	return qextDecode96kHelper.Path(buildQEXTDecode96kHelper)
 }
 
-// QEXTDecode96kParams configures a native 96 kHz QEXT full-packet decode probe.
-// The reference decoder is created with opus_decoder_create(96000, channels),
-// which under ENABLE_QEXT runs the native 96 kHz CELT mode plus the >20 kHz
-// extension-band decode chain.
+// QEXTDecode96kParams configures a QEXT full-packet decode probe. Selected
+// fixed-reference probes use SampleRate as the API rate: ENABLE_QEXT uses the
+// native 96 kHz CELT geometry at 96 kHz and the 48 kHz geometry with API-rate
+// downsampling for rates through 48 kHz.
 type QEXTDecode96kParams struct {
 	SampleFormat           uint32 // QEXTDecode96kFormat* (float32/int16/int24)
 	Channels               int
-	SampleRate             int      // explicit native rate for selected fixed-QEXT probes
+	SampleRate             int      // API rate for selected fixed-QEXT probes
 	PhaseInversionDisabled bool     // explicit control for version-5 selected fixed-QEXT probes
-	MaxFrameSize           int      // per-channel sample capacity passed to opus_decode (96 kHz)
+	MaxFrameSize           int      // per-channel API-rate sample capacity passed to opus_decode
 	GainQ8                 int32    // decoder output gain for version-2 probes; zero for version 1
 	PacketFormats          []uint32 // per-packet int16/int24 formats for mixed-format probes
 	Packets                [][]byte // Opus packets to decode in sequence through one decoder
 }
 
-// QEXTDecode96kResult holds the decoded native 96 kHz PCM and per-packet final
-// range. For float32 output PCM is populated; Int16/Int24 carry the integer
-// formats. Exactly one of the three is non-nil depending on SampleFormat.
+// QEXTDecode96kResult holds decoded interleaved PCM and per-packet final ranges.
+// For float32 output PCM is populated; Int16/Int24 carry the integer formats.
+// Exactly one of the three is non-nil depending on SampleFormat.
 type QEXTDecode96kResult struct {
 	PCM         []float32
 	Int16       []int16
@@ -132,10 +132,12 @@ func ProbeQEXTDecode96kFixed(p QEXTDecode96kParams) (QEXTDecode96kResult, error)
 }
 
 // ProbeQEXTDecodeFixed decodes a received sequence through the selected
-// FIXED_POINT+ENABLE_QEXT reference at 48 or 96 kHz. Protocol v5 carries the
-// API sample rate and phase-inversion control explicitly.
+// FIXED_POINT+ENABLE_QEXT reference. Protocol v5 carries the API sample rate
+// and phase-inversion control explicitly.
 func ProbeQEXTDecodeFixed(p QEXTDecode96kParams) (QEXTDecode96kResult, error) {
-	if p.SampleRate != 48000 && p.SampleRate != 96000 {
+	switch p.SampleRate {
+	case 8000, 12000, 16000, 24000, 48000, 96000:
+	default:
 		return QEXTDecode96kResult{}, fmt.Errorf("fixed qext decode: unsupported sample rate %d", p.SampleRate)
 	}
 	binPath, err := qextDecode96kFixedHelper.Path(buildQEXTDecode96kFixedHelper)

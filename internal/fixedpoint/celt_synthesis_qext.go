@@ -12,11 +12,11 @@ func (d *QEXTCELTDecoder) synthesisQEXT(x []int32, N, C, CC, lm int, transient, 
 	}
 
 	denormalise := func(src, dst, logE, qextLogE []int32, end int) {
-		DenormaliseBands(src, dst, logE, d.eBands, d.shortMDCTSize, d.start, end, M, 1, silence)
+		DenormaliseBands(src, dst, logE, d.eBands, d.shortMDCTSize, d.start, end, M, d.downsample, silence)
 		if qextEnd == 0 {
 			return
 		}
-		DenormaliseBands(src, dst, qextLogE, d.qextEdges, d.shortMDCTSize, 0, qextEnd, M, 1, silence)
+		DenormaliseBands(src, dst, qextLogE, d.qextEdges, d.shortMDCTSize, 0, qextEnd, M, d.downsample, silence)
 	}
 	backward := func(freq []int32, dst []int32) {
 		for b := 0; b < B; b++ {
@@ -60,15 +60,17 @@ func (d *QEXTCELTDecoder) synthesisQEXT(x []int32, N, C, CC, lm int, transient, 
 	}
 }
 
-func deemphasisQEXT(in [][]int32, out []int32, N, channels, sampleRate int, mem []int32) {
+func deemphasisQEXT(in [][]int32, out []int32, N, channels, sampleRate, downsample int, mem []int32) {
 	var coef0, coef1, coef3 int16
 	if sampleRate == 96000 {
 		coef0, coef1, coef3 = 30245, 7209, 5415
 	} else {
 		coef0 = 27853
 	}
+	apiSamples := N / downsample
 	for c := 0; c < channels; c++ {
 		m := mem[c]
+		apiIndex := 0
 		for i := 0; i < N; i++ {
 			sig := in[c][i]
 			tmp := saturateSig(sig + m)
@@ -78,7 +80,10 @@ func deemphasisQEXT(in [][]int32, out []int32, N, channels, sampleRate int, mem 
 			} else {
 				m = mult16x32q15(coef0, tmp)
 			}
-			out[i*channels+c] = sig2res(tmp)
+			if i%downsample == 0 && apiIndex < apiSamples {
+				out[apiIndex*channels+c] = sig2res(tmp)
+				apiIndex++
+			}
 		}
 		mem[c] = m
 	}

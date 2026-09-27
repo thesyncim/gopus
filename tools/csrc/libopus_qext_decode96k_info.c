@@ -1,18 +1,16 @@
-/* Native 96 kHz QEXT full-packet decode oracle.
+/* Selected ENABLE_QEXT full-packet decode oracle.
  *
- * Decodes a sequence of Opus packets through a single QEXT-enabled OpusDecoder
- * created at Fs=96000. With ENABLE_QEXT the libopus decoder runs the native
- * 96 kHz CELT mode (mode96000_1920_240: 1920-sample frames, 3840-MDCT, 8 short
- * blocks) plus the >20 kHz extension-band decode chain, producing real native
- * 96 kHz PCM (not a 2:1 resample of 48 kHz). gopus mirrors this with
- * celt.HD96kMode + the qext extension decode chain.
+ * Decodes a sequence of Opus packets through one QEXT-enabled OpusDecoder at
+ * the requested API sample rate. At 96 kHz libopus selects its native
+ * 96 kHz CELT geometry; API rates through 48 kHz use the 48 kHz CELT geometry
+ * with the configured integer downsample factor.
  *
  * Protocol (little-endian):
  *   in : "GQDI" magic, u32 version(=1|2|3|4|5),
  *        u32 sampleFormat (0=float32, 1=int16, 2=int24; version 3 uses 2),
- *        u32 channels (1|2), u32 maxFrameSize (per-channel samples at 96 kHz),
+ *        u32 channels (1|2), u32 maxFrameSize (per-channel samples at the API rate),
  *        u32 packetCount, [version 2/3/4: i32 output gain in Q8 dB],
- *        [version 4/5: u32 sampleRate (48000|96000)],
+ *        [version 4/5: u32 API sampleRate (8000|12000|16000|24000|48000|96000)],
  *        [version 5: u32 phaseInversionDisabled (0|1)],
  *        then for each packet: [version 3: u32 sampleFormat (1|2)],
  *        u32 packetLen, packetLen bytes
@@ -81,6 +79,11 @@ static int set_binary_stdio(void) {
   if (_setmode(_fileno(stdout), _O_BINARY) == -1) return 0;
 #endif
   return 1;
+}
+
+static int supported_sample_rate(uint32_t sample_rate) {
+  return sample_rate == 8000 || sample_rate == 12000 || sample_rate == 16000 ||
+         sample_rate == 24000 || sample_rate == 48000 || sample_rate == 96000;
 }
 
 static int append_items(void **out, size_t *out_len, size_t *out_cap, const void *src, size_t n, size_t item_size) {
@@ -172,8 +175,8 @@ int main(void) {
     fprintf(stderr, "mixed-format output must use int32 samples\n");
     return 1;
   }
-  if (version >= 4 && sample_rate != 48000 && sample_rate != 96000) {
-    fprintf(stderr, "unsupported native QEXT sample rate\n");
+  if (version >= 4 && !supported_sample_rate(sample_rate)) {
+    fprintf(stderr, "unsupported QEXT API sample rate\n");
     return 1;
   }
   if (version == 5 && phase_inversion_disabled > 1) {
