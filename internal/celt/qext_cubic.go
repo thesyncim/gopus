@@ -1,6 +1,10 @@
 package celt
 
-import "github.com/thesyncim/gopus/internal/rangecoding"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/internal/rangecoding"
+)
 
 func cubicQEXTThresholdQ3(ctx *bandCtx, n, lm int) int {
 	if ctx == nil {
@@ -164,7 +168,10 @@ func cubicSynthesis(x []celtNorm, iy []int32, n, k, face, sign int, gain opusVal
 		clear(x[:n])
 		return
 	}
-	scale := float32(gain) * celtRSqrt(sum)
+	// C ref: celt/vq.c cubic_synthesis() assigns 1.f/sqrt(sum) to
+	// opus_val32. sqrt and the division use double before the float32 store.
+	mag := float32(1 / math.Sqrt(float64(sum)))
+	scale := mag * float32(gain)
 	for i := range n {
 		x[i] = celtNorm(float32(x[i]) * scale)
 	}
