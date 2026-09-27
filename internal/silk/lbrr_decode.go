@@ -16,15 +16,18 @@ import (
 // from the requested API-rate frame size. Shared setup for the FEC entry points.
 func preparePacketRangeDecoder(data []byte, frameSizeSamples, sampleRate int) (rangecoding.Decoder, int, int, error) {
 	var rd rangecoding.Decoder
-	rd.Init(data)
+	framesPerPacket, nbSubfr, err := preparePacketRangeDecoderInto(&rd, data, frameSizeSamples, sampleRate)
+	return rd, framesPerPacket, nbSubfr, err
+}
 
+func preparePacketRangeDecoderInto(rd *rangecoding.Decoder, data []byte, frameSizeSamples, sampleRate int) (int, int, error) {
+	rd.Init(data)
 	duration := FrameDurationFromSamples(frameSizeSamples, sampleRate)
 	framesPerPacket, nbSubfr, err := frameParams(duration)
 	if err != nil {
-		return rangecoding.Decoder{}, 0, 0, err
+		return 0, 0, err
 	}
-
-	return rd, framesPerPacket, nbSubfr, nil
+	return framesPerPacket, nbSubfr, nil
 }
 
 // DecodeFEC decodes LBRR (Low Bitrate Redundancy) frames for Forward Error Correction.
@@ -47,18 +50,43 @@ func (d *Decoder) DecodeFEC(
 	stereo bool,
 	outputChannels int,
 ) ([]float32, error) {
-	if len(data) == 0 {
+	if !d.validFECOutputSize(frameSizeSamples, outputChannels) {
 		return nil, ErrDecodeFailed
+	}
+	output := make([]float32, frameSizeSamples*outputChannels)
+	n, err := d.DecodeFECInto(data, bandwidth, frameSizeSamples, stereo, outputChannels, output)
+	if err != nil {
+		return nil, err
+	}
+	return output[:n], nil
+}
+
+// DecodeFECInto writes the SILK LBRR output into caller-owned interleaved PCM.
+// Its returned count is the number of written samples across all channels.
+func (d *Decoder) DecodeFECInto(
+	data []byte,
+	bandwidth Bandwidth,
+	frameSizeSamples int,
+	stereo bool,
+	outputChannels int,
+	output []float32,
+) (int, error) {
+	if len(data) == 0 {
+		return 0, ErrDecodeFailed
+	}
+	if !d.validFECOutputSize(frameSizeSamples, outputChannels) || len(output) < frameSizeSamples*outputChannels {
+		return 0, ErrDecodeFailed
 	}
 
 	// Keep SILK bandwidth/resampler transition cadence aligned with normal decode.
 	d.NotifyBandwidthChange(bandwidth)
 
-	rd, framesPerPacket, nbSubfr, err := preparePacketRangeDecoder(data, frameSizeSamples, d.outputSampleRate())
+	rd := &d.fecRangeDecoder
+	framesPerPacket, nbSubfr, err := preparePacketRangeDecoderInto(rd, data, frameSizeSamples, d.outputSampleRate())
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	d.SetRangeDecoder(&rd)
+	d.SetRangeDecoder(rd)
 
 	config := GetBandwidthConfig(bandwidth)
 	fsKHz := config.SampleRate / 1000
@@ -72,15 +100,15 @@ func (d *Decoder) DecodeFEC(
 		initFrameDecodeState(stSide, fsKHz, framesPerPacket, nbSubfr)
 		// libopus order: both channels' VAD + LBRR-present flags, then both
 		// channels' per-frame LBRR flags symbol (see decodeVADFlagsAndLBRRFlag).
-		decodeVADFlagsAndLBRRFlag(&rd, stMid, framesPerPacket)
-		decodeVADFlagsAndLBRRFlag(&rd, stSide, framesPerPacket)
-		decodeLBRRFlagsSymbol(&rd, stMid, framesPerPacket)
-		decodeLBRRFlagsSymbol(&rd, stSide, framesPerPacket)
-		return d.decodeStereoFECFrames(&rd, stMid, stSide, bandwidth, framesPerPacket, frameSizeSamples, outputChannels)
+		decodeVADFlagsAndLBRRFlag(rd, stMid, framesPerPacket)
+		decodeVADFlagsAndLBRRFlag(rd, stSide, framesPerPacket)
+		decodeLBRRFlagsSymbol(rd, stMid, framesPerPacket)
+		decodeLBRRFlagsSymbol(rd, stSide, framesPerPacket)
+		return d.decodeStereoFECFrames(rd, stMid, stSide, bandwidth, framesPerPacket, frameSizeSamples, outputChannels, output)
 	}
 
 	// Decode VAD and LBRR flags
-	decodeVADAndLBRRFlags(&rd, stMid, framesPerPacket)
+	decodeVADAndLBRRFlags(rd, stMid, framesPerPacket)
 
 	// Decode FEC/LBRR frames. Match libopus decode_fec cadence:
 	// if a packet frame has no LBRR, decode that frame as loss concealment.
@@ -107,14 +135,13 @@ func (d *Decoder) DecodeFEC(
 			continue
 		}
 
-		d.decodeLBRRFrameInto(0, stMid, &rd, i, frameOut, true)
+		d.decodeLBRRFrameInto(0, stMid, rd, i, frameOut, true)
 		d.syncLegacyPLCState(stMid, frameOut)
 		lastFrameLost = false
 	}
 
 	// Resample from native rate to 48kHz using the same int16 path as normal decode.
 	resampler := d.GetResampler(bandwidth)
-	output := make([]float32, frameSizeSamples*outputChannels)
 	outputOffset := 0
 
 	for f := range framesPerPacket {
@@ -127,17 +154,15 @@ func (d *Decoder) DecodeFEC(
 		n := resampler.ProcessInt16Into(resamplerInput, output[outputOffset:])
 		outputOffset += n
 	}
-	output = output[:outputOffset]
-
 	// Handle channel expansion/reduction
 	if outputChannels == 2 && !stereo {
-		// Mono to stereo: duplicate samples
-		stereoOutput := make([]float32, len(output)*2)
-		for i, s := range output {
-			stereoOutput[i*2] = s
-			stereoOutput[i*2+1] = s
+		// Expand backward so the caller buffer is safe to reuse in place.
+		for i := outputOffset - 1; i >= 0; i-- {
+			s := output[i]
+			output[i*2] = s
+			output[i*2+1] = s
 		}
-		output = stereoOutput
+		outputOffset *= 2
 	}
 
 	// Match libopus decode_fec cadence:
@@ -151,7 +176,17 @@ func (d *Decoder) DecodeFEC(
 	}
 
 	d.haveDecoded = true
-	return output, nil
+	return outputOffset, nil
+}
+
+func (d *Decoder) validFECOutputSize(frameSizeSamples, outputChannels int) bool {
+	if outputChannels < 1 || outputChannels > 2 || frameSizeSamples <= 0 ||
+		frameSizeSamples > int(^uint(0)>>1)/outputChannels {
+		return false
+	}
+	rate := d.outputSampleRate()
+	return frameSizeSamples == rate/100 || frameSizeSamples == rate/50 ||
+		frameSizeSamples == rate/25 || frameSizeSamples == rate*3/50
 }
 
 // decodeStereoFECFrames recovers a stereo packet's frames from LBRR data: per
@@ -164,14 +199,15 @@ func (d *Decoder) decodeStereoFECFrames(
 	stMid, stSide *decoderState,
 	bandwidth Bandwidth,
 	framesPerPacket, frameSizeSamples, outputChannels int,
-) ([]float32, error) {
+	output []float32,
+) (int, error) {
 	if rd == nil || stMid == nil || stSide == nil || framesPerPacket <= 0 {
-		return nil, ErrDecodeFailed
+		return 0, ErrDecodeFailed
 	}
 	frameLength := int(stMid.frameLength)
 	totalLen := framesPerPacket * frameLength
 	if frameLength <= 0 || totalLen <= 0 {
-		return nil, ErrDecodeFailed
+		return 0, ErrDecodeFailed
 	}
 
 	config := GetBandwidthConfig(bandwidth)
@@ -182,14 +218,14 @@ func (d *Decoder) decodeStereoFECFrames(
 
 	leftNative, rightNative, ok := d.GetStereoInt16Scratch(totalLen)
 	if !ok {
-		return nil, ErrDecodeFailed
+		return 0, ErrDecodeFailed
 	}
 	lastFrameLost := false
 
 	for i := range framesPerPacket {
 		frameIndex := int(stMid.nFramesDecoded)
 		if frameIndex < 0 || frameIndex >= maxFramesPerPacket {
-			return nil, ErrDecodeFailed
+			return 0, ErrDecodeFailed
 		}
 
 		var predQ13 [2]int32
@@ -207,7 +243,7 @@ func (d *Decoder) decodeStereoFECFrames(
 		hasSide := d.prevDecodeOnlyMiddle == 0 || stSide.LBRRFlags[frameIndex] != 0
 		midFrame, sideFrame, ok := d.stereoFrameScratch(frameLength)
 		if !ok {
-			return nil, ErrDecodeFailed
+			return 0, ErrDecodeFailed
 		}
 		clear(midFrame)
 		clear(sideFrame)
@@ -226,7 +262,7 @@ func (d *Decoder) decodeStereoFECFrames(
 		if hasSide {
 			sideFrameIndex := int(stSide.nFramesDecoded)
 			if sideFrameIndex < 0 || sideFrameIndex >= maxFramesPerPacket {
-				return nil, ErrDecodeFailed
+				return 0, ErrDecodeFailed
 			}
 			if stSide.LBRRFlags[sideFrameIndex] != 0 {
 				d.decodeLBRRFrameInto(1, stSide, rd, sideFrameIndex, sideOut, true)
@@ -251,28 +287,27 @@ func (d *Decoder) decodeStereoFECFrames(
 		lastFrameLost = !midRecovered
 	}
 
-	var output []float32
+	outputLen := 0
 	if outputChannels == 2 {
 		leftResampler := d.GetResamplerForChannel(bandwidth, 0)
 		rightResampler := d.GetResamplerForChannel(bandwidth, 1)
 		leftScratch, rightScratch, ok := d.stereoFloat32Scratch(frameSizeSamples)
 		if !ok {
-			return nil, ErrDecodeFailed
+			return 0, ErrDecodeFailed
 		}
 		nLeft := leftResampler.ProcessInt16Into(leftNative[:totalLen], leftScratch)
 		nRight := rightResampler.ProcessInt16Into(rightNative[:totalLen], rightScratch)
 		n := min(nRight, nLeft)
 		if n < 0 {
-			return nil, ErrDecodeFailed
+			return 0, ErrDecodeFailed
 		}
-		output = make([]float32, n*2)
+		outputLen = n * 2
 		for i := range n {
 			output[i*2] = leftScratch[i]
 			output[i*2+1] = rightScratch[i]
 		}
 	} else {
 		resampler := d.GetResampler(bandwidth)
-		output = make([]float32, frameSizeSamples)
 		outputOffset := 0
 		for f := range framesPerPacket {
 			start := f * frameLength
@@ -280,7 +315,7 @@ func (d *Decoder) decodeStereoFECFrames(
 			resamplerInput := d.BuildMonoResamplerInputInt16(leftNative[start:end])
 			outputOffset += resampler.ProcessInt16Into(resamplerInput, output[outputOffset:])
 		}
-		output = output[:outputOffset]
+		outputLen = outputOffset
 	}
 
 	if d.plcState != nil && !lastFrameLost {
@@ -289,7 +324,7 @@ func (d *Decoder) decodeStereoFECFrames(
 	}
 
 	d.haveDecoded = true
-	return output, nil
+	return outputLen, nil
 }
 
 // decodeFECLostFrameInto is silk_decode_frame() for a frame of an FEC packet

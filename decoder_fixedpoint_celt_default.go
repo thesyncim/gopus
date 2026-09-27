@@ -8,6 +8,11 @@ func (d *Decoder) decodePublicFloat32(data []byte, pcm []float32) (int, error) {
 	return d.decodeFloat32(data, pcm, true)
 }
 
+func (d *Decoder) decodeFECPublicFloat32(data []byte, pcm []float32) (int, error) {
+	return d.decodeWithFECFloat32(data, pcm)
+}
+func (d *Decoder) fixedCaptureSILKOutput(_ []float32) bool { return false }
+
 // celtDecodeFixedAPIRate is a no-op in the default (float) build: it never
 // handles the CELT-only decode, so the caller falls through to the float CELT
 // decoder. It exists only to keep the dispatch in
@@ -32,6 +37,9 @@ func (d *Decoder) finishFixedHybrid() error                                     
 // lost hybrid frames always use the float PLC + conversion there.
 func (d *Decoder) armFixedHybridLost(_ int, _ bool) bool { return false }
 func (d *Decoder) finishFixedHybridLost(_ int) bool      { return false }
+func (d *Decoder) fixedDecodeHybridFEC(_ []float32, _, _ int, _ celt.CELTBandwidth) bool {
+	return false
+}
 
 // The integer Hybrid redundancy / transition helpers are no-ops in the default
 // build; the int16/int24 wrappers there always use the float conversion for

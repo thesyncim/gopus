@@ -19,8 +19,9 @@ import (
 // Reference: RFC 6716 Section 4.2
 type Decoder struct {
 	// Range decoder reference (set per frame)
-	rangeDecoder  *rangecoding.Decoder
-	apiSampleRate int
+	rangeDecoder    *rangecoding.Decoder
+	fecRangeDecoder rangecoding.Decoder
+	apiSampleRate   int
 
 	// Frame state (persists across frames)
 	haveDecoded           bool  // True after first frame decoded

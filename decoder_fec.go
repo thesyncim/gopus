@@ -435,24 +435,22 @@ func (d *Decoder) decodeFECViaSILK(pcm []float32, frameSize int) (int, error) {
 		silkBW = silk.BandwidthWideband
 	}
 
-	fecSamples, err := d.silkDecoder.DecodeFEC(d.fecData, silkBW, frameSize, d.fecStereo, int(d.channels))
+	needed, err := d.silkDecoder.DecodeFECInto(d.fecData, silkBW, frameSize, d.fecStereo, int(d.channels), pcm)
 	if err != nil {
 		return 0, err
 	}
-
-	needed := len(fecSamples)
-	if len(pcm) < needed {
-		return 0, ErrBufferTooSmall
-	}
-	copy(pcm[:needed], fecSamples)
 
 	return needed, nil
 }
 
 // decodeSILKFEC decodes SILK LBRR data for FEC recovery.
 func (d *Decoder) decodeSILKFEC(pcm []float32, frameSize int) (int, error) {
-	if _, err := d.decodeFECViaSILK(pcm, frameSize); err != nil {
+	n, err := d.decodeFECViaSILK(pcm, frameSize)
+	if err != nil {
 		return 0, err
+	}
+	if n != frameSize*int(d.channels) || !d.fixedCaptureSILKOutput(pcm[:n]) {
+		d.markFixedUnhandled()
 	}
 	d.mainDecodeRng = d.silkDecoder.FinalRange()
 	d.redundantRng = 0
@@ -479,6 +477,9 @@ func (d *Decoder) decodeHybridFEC(pcm []float32, frameSize int) (int, error) {
 	// 20 ms keep the SILK output alone.
 	celtFrameSize := min(d.frameSize48FromAPI(frameSize), 48000/50)
 	celtAPIFrames := min(frameSize, celtFrameSize*int(d.sampleRate)/48000)
+	if !d.fixedDecodeHybridFEC(pcm[:needed], frameSize, celtFrameSize, celtBW) {
+		d.markFixedUnhandled()
+	}
 	if err := d.celtDecoder.DecodeHybridFECPLC(celtFrameSize, pcm[:min(needed, celtAPIFrames*channels)]); err != nil {
 		return 0, err
 	}

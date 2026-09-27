@@ -331,6 +331,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	// path (gopus_fixed_point), so the redundancy / transition post-processing runs
 	// its opus_res-domain equivalent and keeps the int16/int24 output bit-exact.
 	fixedHybridFrame := false
+	fixedSILKFrame := false
 	var redundantAudio []float32
 	var redundantRng uint32 // Captured final range from redundancy decoding
 
@@ -486,9 +487,6 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		}
 
 	case ModeSILK:
-		// SILK output is not produced by the integer CELT path; the int16/int24
-		// wrappers must use the float conversion for this packet.
-		d.markFixedUnhandled()
 		if d.haveDecoded && d.prevMode == ModeCELT {
 			d.silkDecoder.Reset()
 		}
@@ -634,9 +632,16 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		// Capture the main decode's FinalRange AFTER redundancy flag reads but BEFORE any CELT redundancy decode.
 		// For SILK-only mode, the final range includes all bits read from the range decoder.
 		d.mainDecodeRng = rd.Range()
+		if !redundancy && !(d.haveDecoded && d.prevMode == ModeHybrid) {
+			// Capture the integer SILK body before a CELT transition fade rewrites
+			// its first 5 ms in the float output buffer.
+			fixedSILKFrame = d.fixedCaptureSILKOutput(out[:audiosize*channels])
+		}
 
 		if transition && !redundancy && len(pcmTransition) == 0 {
 			transSize := min(F5, audiosize)
+			fixedCursor := d.fixedOutputCursor()
+			mainRng := d.mainDecodeRng
 			n, err := d.decodeOpusFrameIntoWithStatePolicy(
 				d.scratchTransition,
 				nil,
@@ -650,6 +655,10 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			if err != nil {
 				return 0, err
 			}
+			// The recursive PLC frame has its own zero range; the enclosing
+			// packet reports the SILK range decoder's value.
+			d.mainDecodeRng = mainRng
+			d.fixedCaptureRecursiveTransition(fixedCursor, n*channels)
 			pcmTransition = d.scratchTransition[:n*channels]
 			// The recursive opus_decode_frame(NULL) applies decode_gain to the
 			// transition frame; the enclosing frame applies it again after the fade.
@@ -785,6 +794,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		} else {
 			smoothFade(pcmTransition, out, out, F2_5, channels, fs)
 		}
+	}
+	if mode == ModeSILK && !fixedSILKFrame {
+		d.markFixedUnhandled()
 	}
 
 	d.prevMode = mode

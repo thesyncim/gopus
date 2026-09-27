@@ -307,10 +307,8 @@ func TestHotPathAllocsDecodePLC(t *testing.T) {
 	}
 }
 
-// TestHotPathAllocsDecodeSILKPLCMono guards the SILK packet-loss path: a
-// steady-state Decode(nil) after a SILK packet must not allocate in the gopus
-// decode entry. The only permitted allocations are the SILK PLC concealment
-// kernel's own working buffers (plc.ConcealSILKWithLTP), bounded by the budget.
+// TestHotPathAllocsDecodeSILKPLCMono requires zero allocations over received
+// audio and loss, keeping the concealment state active throughout measurement.
 func TestHotPathAllocsDecodeSILKPLCMono(t *testing.T) {
 	packet := encodeFrameForDecodeGuard(t, ApplicationVoIP, 1, BandwidthWideband, 24000)
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
@@ -327,18 +325,30 @@ func TestHotPathAllocsDecodeSILKPLCMono(t *testing.T) {
 		}
 	}
 	allocs := testing.AllocsPerRun(300, func() {
-		if _, err := dec.Decode(nil, pcm); err != nil {
-			t.Fatalf("Decode PLC: %v", err)
+		if n, err := dec.Decode(packet, pcm); err != nil || n != 960 {
+			t.Fatalf("Decode received samples=%d err=%v", n, err)
+		}
+		if n, err := dec.Decode(nil, pcm); err != nil || n != 960 {
+			t.Fatalf("Decode PLC samples=%d err=%v", n, err)
 		}
 	})
+	active := false
+	for _, sample := range pcm {
+		if math.IsNaN(float64(sample)) || math.IsInf(float64(sample), 0) {
+			t.Fatal("SILK concealment output must be finite")
+		}
+		active = active || sample != 0
+	}
+	if !active {
+		t.Fatal("SILK concealment measurement must contain active output")
+	}
 	if allocs > silkPLCMonoHotPathAllocBudget {
 		t.Fatalf("Decode(SILK mono PLC) allocs/op = %.2f, want <= %d", allocs, silkPLCMonoHotPathAllocBudget)
 	}
 }
 
-// TestHotPathAllocsDecodeSILKPLCStereo guards the stereo SILK packet-loss path.
-// As with mono, the gopus decode entry is zero-alloc; the residual is the SILK
-// PLC concealment kernel run once per internal channel (mid/side).
+// TestHotPathAllocsDecodeSILKPLCStereo exercises both SILK channels over
+// received/lost cycles with zero warm allocations.
 func TestHotPathAllocsDecodeSILKPLCStereo(t *testing.T) {
 	packet := encodeFrameForDecodeGuard(t, ApplicationVoIP, 2, BandwidthWideband, 32000)
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
@@ -355,10 +365,23 @@ func TestHotPathAllocsDecodeSILKPLCStereo(t *testing.T) {
 		}
 	}
 	allocs := testing.AllocsPerRun(300, func() {
-		if _, err := dec.Decode(nil, pcm); err != nil {
-			t.Fatalf("Decode PLC: %v", err)
+		if n, err := dec.Decode(packet, pcm); err != nil || n != 960 {
+			t.Fatalf("Decode received samples=%d err=%v", n, err)
+		}
+		if n, err := dec.Decode(nil, pcm); err != nil || n != 960 {
+			t.Fatalf("Decode PLC samples=%d err=%v", n, err)
 		}
 	})
+	active := false
+	for _, sample := range pcm {
+		if math.IsNaN(float64(sample)) || math.IsInf(float64(sample), 0) {
+			t.Fatal("SILK concealment output must be finite")
+		}
+		active = active || sample != 0
+	}
+	if !active {
+		t.Fatal("SILK concealment measurement must contain active output")
+	}
 	if allocs > silkPLCStereoHotPathAllocBudget {
 		t.Fatalf("Decode(SILK stereo PLC) allocs/op = %.2f, want <= %d", allocs, silkPLCStereoHotPathAllocBudget)
 	}

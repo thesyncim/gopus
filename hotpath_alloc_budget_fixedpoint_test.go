@@ -6,13 +6,10 @@ package gopus
 // storage without allocations after warmup.
 const decodeInt16HotPathAllocBudget = 0
 
-// SILK packet-loss-concealment budgets under -tags gopus_fixed_point. SILK PLC
-// runs the same float concealment path as the default build, so the residual
-// allocations are identical: the decode entry is zero-alloc and only the SILK
-// PLC kernel (plc.ConcealSILKWithLTP) allocates its working buffers.
+// SILK mono/stereo loss and recovery reuse decoder-owned working buffers.
 const (
-	silkPLCMonoHotPathAllocBudget   = 4
-	silkPLCStereoHotPathAllocBudget = 7
+	silkPLCMonoHotPathAllocBudget   = 0
+	silkPLCStereoHotPathAllocBudget = 0
 )
 
 // Multistream decode under -tags gopus_fixed_point uses fixed-point elementary

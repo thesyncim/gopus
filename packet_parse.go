@@ -172,6 +172,80 @@ func ParsePacket(data []byte) (PacketInfo, error) {
 	return info, nil
 }
 
+// validatePacketFraming checks the same packet-size constraints as ParsePacket
+// without materializing a FrameSizes slice. DecodeWithFEC only needs to reject
+// malformed framing before it changes decoder state.
+func validatePacketFraming(data []byte) error {
+	toc, count, err := packetFrameCount(data)
+	if err != nil {
+		return err
+	}
+	switch toc.FrameCode {
+	case 0:
+		if len(data)-1 > maxOpusFrameBytes {
+			return ErrInvalidPacket
+		}
+	case 1:
+		frameDataLen := len(data) - 1
+		if frameDataLen%2 != 0 || frameDataLen/2 > maxOpusFrameBytes {
+			return ErrInvalidPacket
+		}
+	case 2:
+		if len(data) < 2 {
+			return ErrPacketTooShort
+		}
+		first, headerBytes, err := parseFrameLength(data, 1)
+		if err != nil {
+			return err
+		}
+		last := len(data) - 1 - headerBytes - first
+		if last < 0 || last > maxOpusFrameBytes {
+			return ErrInvalidPacket
+		}
+	case 3:
+		vbr := data[1]&0x80 != 0
+		hasPadding := data[1]&0x40 != 0
+		offset := 2
+		padding := 0
+		if hasPadding {
+			for {
+				if offset >= len(data) {
+					return ErrPacketTooShort
+				}
+				b := int(data[offset])
+				offset++
+				if b == 255 {
+					padding += 254
+				} else {
+					padding += b
+					break
+				}
+			}
+		}
+		if vbr {
+			total := 0
+			for range count - 1 {
+				n, bytesRead, err := parseFrameLength(data, offset)
+				if err != nil {
+					return err
+				}
+				total += n
+				offset += bytesRead
+			}
+			last := len(data) - offset - padding - total
+			if last < 0 || last > maxOpusFrameBytes {
+				return ErrInvalidPacket
+			}
+		} else {
+			frameDataLen := len(data) - offset - padding
+			if frameDataLen < 0 || frameDataLen%count != 0 || frameDataLen/count > maxOpusFrameBytes {
+				return ErrInvalidPacket
+			}
+		}
+	}
+	return nil
+}
+
 // parseFrameLength parses a frame length from the packet data at the given offset.
 // Per RFC 6716 Section 3.2.1, lengths < 252 use one byte, lengths >= 252 use two bytes.
 // Returns the length, number of bytes read, and any error.

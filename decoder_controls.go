@@ -5,6 +5,7 @@ package gopus
 func (d *Decoder) Reset() {
 	d.silkDecoder.Reset()
 	d.celtDecoder.Reset()
+	d.resetFixedCELT()
 	d.hybridDecoder.Reset()
 	// Use the internal 48 kHz rate for lastFrameSize when the API is 96 kHz.
 	// C ref: opus_decoder.c OPUS_RESET_STATE, st->frame_size = Fs/400.

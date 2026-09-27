@@ -464,6 +464,10 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 	if d.is96kHz() {
 		return d.decode96kFloat32(nil, pcm)
 	}
+	return d.decodeFECPublicFloat32(data, pcm)
+}
+
+func (d *Decoder) decodeWithFECFloat32(data []byte, pcm []float32) (int, error) {
 	sampleRate := int(d.sampleRate)
 
 	if len(data) > 0 {
@@ -473,7 +477,7 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 		// full frame structure here so DecodeWithFEC rejects the same packets as
 		// Decode (e.g. an odd-length code-1 packet) rather than running FEC/PLC on
 		// a structurally invalid bitstream.
-		if _, err := ParsePacket(data); err != nil {
+		if err := validatePacketFraming(data); err != nil {
 			return 0, err
 		}
 		toc, frameCount, err := packetFrameCount(data)
