@@ -725,6 +725,41 @@ func combPlanarAtFloat32(samples []float32, hist []celtSig, history, pos int) fl
 	return samples[pos-history]
 }
 
+// combPlanarRun returns the comb input from absolute position pos on, as a
+// slice of whichever buffer holds it (hist below history, samples above), and
+// how many consecutive outputs can read their five taps pos+i..pos+i+4 from
+// that slice alone. It returns 0 when the taps of the first output straddle the
+// two buffers.
+func combPlanarRun(samples []float32, hist []celtSig, history, pos int) ([]float32, int) {
+	if pos >= history {
+		src := samples[pos-history:]
+		return src, max(len(src)-4, 0)
+	}
+	if pos >= 0 && pos+4 < history {
+		return hist[pos:history], history - 4 - pos
+	}
+	return nil, 0
+}
+
+// combFilterOverlapScalar is the scalar form of combFilterOverlap.
+func combFilterOverlapScalar(dst, d0, d1, wsq []float32, g00, g01, g02, g10, g11, g12 float32) {
+	n := len(dst)
+	d0 = d0[:n+4]
+	d1 = d1[:n+4]
+	wsq = wsq[:n]
+	for i := range dst {
+		f := wsq[i]
+		oneMinus := float32(1.0) - f
+		dst[i] = dst[i] +
+			(oneMinus*g00)*d0[i+2] +
+			(oneMinus*g01)*(d0[i+3]+d0[i+1]) +
+			(oneMinus*g02)*(d0[i+4]+d0[i]) +
+			(f*g10)*d1[i+2] +
+			(f*g11)*(d1[i+3]+d1[i+1]) +
+			(f*g12)*(d1[i+4]+d1[i])
+	}
+}
+
 func combFilterConstValue(base, g10, g11, g12, center, plus1, minus1, plus2, minus2 float32) float32 {
 	sum := base
 	sum += g10 * center
@@ -775,59 +810,12 @@ func combFilterConstDispatch(dst, delay []float32, g10, g11, g12 float32, x4, x3
 	return x4, x3, x2, x1, true
 }
 
-func combFilterConstFloat32Hist(dst []float32, delay []celtSig, g10, g11, g12 float32, x4, x3, x2, x1 float32, sseCount int) (float32, float32, float32, float32) {
-	n := len(dst)
-	if n == 0 {
-		return x4, x3, x2, x1
-	}
-	if a4, a3, a2, a1, ok := combFilterConstDispatch(dst, delay, g10, g11, g12, x4, x3, x2, x1); ok {
-		return a4, a3, a2, a1
-	}
-	delay = delay[:n:n]
-	_ = dst[n-1]
-	_ = delay[n-1]
-	if combUsesSSE {
-		i := 0
-		for ; i < sseCount; i++ {
-			x0 := float32(delay[i])
-			dst[i] = combFilterConstSSEValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
-			x4, x3, x2, x1 = x3, x2, x1, x0
-		}
-		for ; i < n; i++ {
-			x0 := float32(delay[i])
-			dst[i] = combFilterConstValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
-			x4, x3, x2, x1 = x3, x2, x1, x0
-		}
-		return x4, x3, x2, x1
-	}
-	i := 0
-	for ; i+4 < n; i += 5 {
-		x0 := float32(delay[i])
-		dst[i] = combFilterConstValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
-
-		x4 = float32(delay[i+1])
-		dst[i+1] = combFilterConstValue(dst[i+1], g10, g11, g12, x1, x0, x2, x4, x3)
-
-		x3 = float32(delay[i+2])
-		dst[i+2] = combFilterConstValue(dst[i+2], g10, g11, g12, x0, x4, x1, x3, x2)
-
-		x2 = float32(delay[i+3])
-		dst[i+3] = combFilterConstValue(dst[i+3], g10, g11, g12, x4, x3, x0, x2, x1)
-
-		x1 = float32(delay[i+4])
-		dst[i+4] = combFilterConstValue(dst[i+4], g10, g11, g12, x3, x2, x4, x1, x0)
-	}
-	for ; i < n; i++ {
-		x0 := float32(delay[i])
-		dst[i] = combFilterConstValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
-		x4 = x3
-		x3 = x2
-		x2 = x1
-		x1 = x0
-	}
-	return x4, x3, x2, x1
-}
-
+// combFilterConstFloat32 is the constant-gain part of libopus comb_filter,
+// dst[i] += g10*x[i-T] + g11*(x[i-T+1]+x[i-T-1]) + g12*(x[i-T+2]+x[i-T-2]),
+// where delay[i] is x[i-T+2] and x4..x1 carry x[-T-2..-T+1]. The first
+// sseCount outputs use the comb_filter_const_sse operation order; with the
+// amd64 SIMD kernel, whole blocks of four of them run as vectors, which
+// computes the same per-output expression. It returns the updated carries.
 func combFilterConstFloat32(dst, delay []float32, g10, g11, g12 float32, x4, x3, x2, x1 float32, sseCount int) (float32, float32, float32, float32) {
 	n := len(dst)
 	if n == 0 {
@@ -841,6 +829,17 @@ func combFilterConstFloat32(dst, delay []float32, g10, g11, g12 float32, x4, x3,
 	_ = delay[n-1]
 	if combUsesSSE {
 		i := 0
+		for head := min(sseCount, 4); i < head; i++ {
+			x0 := delay[i]
+			dst[i] = combFilterConstSSEValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
+			x4, x3, x2, x1 = x3, x2, x1, x0
+		}
+		if blocks := (sseCount - i) &^ 3; blocks > 0 && i == 4 {
+			// delay[i-4+k] is x[i+k-T-2], the kernel's delay line.
+			combFilterConstSSE(dst[i:i+blocks], dst[i:i+blocks], delay[i-4:i+blocks], 0, blocks, g10, g11, g12)
+			i += blocks
+			x4, x3, x2, x1 = delay[i-4], delay[i-3], delay[i-2], delay[i-1]
+		}
 		for ; i < sseCount; i++ {
 			x0 := delay[i]
 			dst[i] = combFilterConstSSEValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
@@ -933,49 +932,30 @@ func combFilterWithSquarePlanarFloat32(samples []float32, hist []celtSig, histor
 
 	i := 0
 	base0 := start - t0 - 2
-	if windowSq != nil && overlap > 0 && base0 >= 0 && base1 >= 0 && base0+overlap+4 <= history && base1+overlap+4 <= history {
-		delay0 := hist[base0 : base0+overlap+4]
-		delay1 := hist[base1 : base1+overlap+4]
-		x4 = float32(delay1[0])
-		x3 = float32(delay1[1])
-		x2 = float32(delay1[2])
-		x1 = float32(delay1[3])
+	if windowSq != nil {
 		windowSqView := windowSq[:overlap]
-		for ; i < overlap; i++ {
+		for i < overlap {
+			// Each run keeps both delay streams inside one buffer, hist or
+			// samples; a stream that straddles the two takes a scalar step.
+			d0, n0 := combPlanarRun(samples, hist, history, base0+i)
+			d1, n1 := combPlanarRun(samples, hist, history, base1+i)
+			count := min(n0, n1, overlap-i)
+			if count > 0 {
+				combFilterOverlap(samples[frameOffset+i:frameOffset+i+count], d0, d1, windowSqView[i:i+count], g00, g01, g02, g10, g11, g12)
+				i += count
+				continue
+			}
 			f := windowSqView[i]
 			oneMinus := float32(1.0) - f
-			x0 := float32(delay1[i+4])
-			sum := samples[frameOffset+i] +
-				(oneMinus*g00)*float32(delay0[i+2]) +
-				(oneMinus*g01)*(float32(delay0[i+3])+float32(delay0[i+1])) +
-				(oneMinus*g02)*(float32(delay0[i+4])+float32(delay0[i])) +
-				(f*g10)*x2 +
-				(f*g11)*(x1+x3) +
-				(f*g12)*(x0+x4)
-			samples[frameOffset+i] = sum
-			x4 = x3
-			x3 = x2
-			x2 = x1
-			x1 = x0
-		}
-	} else if windowSq != nil {
-		windowSqView := windowSq[:overlap]
-		for ; i < overlap; i++ {
-			f := windowSqView[i]
-			oneMinus := float32(1.0) - f
-			x0 := combPlanarAtFloat32(samples, hist, history, base1+i+4)
 			sum := samples[frameOffset+i] +
 				(oneMinus*g00)*combPlanarAtFloat32(samples, hist, history, base0+i+2) +
 				(oneMinus*g01)*(combPlanarAtFloat32(samples, hist, history, base0+i+3)+combPlanarAtFloat32(samples, hist, history, base0+i+1)) +
 				(oneMinus*g02)*(combPlanarAtFloat32(samples, hist, history, base0+i+4)+combPlanarAtFloat32(samples, hist, history, base0+i)) +
-				(f*g10)*x2 +
-				(f*g11)*(x1+x3) +
-				(f*g12)*(x0+x4)
+				(f*g10)*combPlanarAtFloat32(samples, hist, history, base1+i+2) +
+				(f*g11)*(combPlanarAtFloat32(samples, hist, history, base1+i+3)+combPlanarAtFloat32(samples, hist, history, base1+i+1)) +
+				(f*g12)*(combPlanarAtFloat32(samples, hist, history, base1+i+4)+combPlanarAtFloat32(samples, hist, history, base1+i))
 			samples[frameOffset+i] = sum
-			x4 = x3
-			x3 = x2
-			x2 = x1
-			x1 = x0
+			i++
 		}
 	} else {
 		windowView := window[:overlap]
@@ -1016,7 +996,7 @@ func combFilterWithSquarePlanarFloat32(samples []float32, hist []celtSig, histor
 	if i < histLimit {
 		dst := samples[frameOffset+i : frameOffset+histLimit]
 		delay := hist[base1+i+4 : base1+histLimit+4]
-		x4, x3, x2, x1 = combFilterConstFloat32Hist(dst, delay, g10, g11, g12, x4, x3, x2, x1, min(histLimit, sseEnd)-i)
+		x4, x3, x2, x1 = combFilterConstFloat32(dst, delay, g10, g11, g12, x4, x3, x2, x1, min(histLimit, sseEnd)-i)
 		i = histLimit
 	}
 	if i < n {

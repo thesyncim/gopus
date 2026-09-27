@@ -384,6 +384,43 @@ func TestHotPathAllocsDecodeSILKPLCStereo(t *testing.T) {
 	}
 }
 
+// TestHotPathAllocsDecodeSILKAndHybridStereo covers the stereo SILK decode
+// kernels (MS-to-LR, LPC synthesis/analysis, resampler up2HQ and FIR
+// interpolation) and the hybrid CELT band path at steady state.
+func TestHotPathAllocsDecodeSILKAndHybridStereo(t *testing.T) {
+	cases := []struct {
+		name    string
+		bw      Bandwidth
+		bitrate int
+	}{
+		{"SILK-WB", BandwidthWideband, 32000},
+		{"Hybrid-SWB", BandwidthSuperwideband, 48000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			packet := encodeFrameForDecodeGuard(t, ApplicationVoIP, 2, tc.bw, tc.bitrate)
+			dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			pcm := make([]float32, 960*2)
+			for range 3 {
+				if _, err := dec.Decode(packet, pcm); err != nil {
+					t.Fatalf("warmup Decode: %v", err)
+				}
+			}
+			allocs := testing.AllocsPerRun(200, func() {
+				if _, err := dec.Decode(packet, pcm); err != nil {
+					t.Fatalf("Decode: %v", err)
+				}
+			})
+			if allocs != 0 {
+				t.Fatalf("Decode(%s stereo) allocs/op = %.2f, want 0", tc.name, allocs)
+			}
+		})
+	}
+}
+
 func TestHotPathAllocsDecodeStereo(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
 	if err != nil {

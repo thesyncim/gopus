@@ -793,166 +793,59 @@ func (d *Decoder) DecodeICDF9_8Slice(icdf []uint8) int {
 	return 8
 }
 
-// DecodeICDF2_8SignBlock applies binary 8-bit ICDF sign decoding to a
-// 16-sample pulse block. Positive entries are conditionally negated when the
-// decoded symbol is 0, matching repeated DecodeICDF2_8 calls. When pulseSum is
-// positive, it must be the exact sum of positive magnitudes in block and is
-// used to stop scanning once all sign-coded pulses have been consumed.
+// DecodeICDF2_8SignBlock16 decodes the sign of every positive entry of one
+// 16-sample SILK shell block, in order, with the binary 8-bit iCDF
+// {icdf0, 0}. Symbol 0 negates the entry and symbol 1 keeps it, which is
+// libopus silk/decode_pulses.c silk_decode_signs:
+// q[j] *= silk_dec_map(ec_dec_icdf(dec, icdf, 8)).
 //
-//go:nosplit
-func (d *Decoder) DecodeICDF2_8SignBlock(icdf0 uint8, block []int16, pulseSum int) {
-	_ = block[15]
-	d.DecodeICDF2_8SignBlock16(icdf0, (*[16]int16)(block[:16]), pulseSum)
-}
-
-// DecodeICDF2_8SignBlock16 applies binary 8-bit ICDF sign decoding to one
-// fixed SILK shell block. The array form lets hot SILK callers avoid carrying
-// slice bounds through the unrolled sign loop.
-//
-//go:nosplit
-func (d *Decoder) DecodeICDF2_8SignBlock16(icdf0 uint8, block *[16]int16, pulseSum int) {
+// The loop visits only the positive entries, found from a bit mask, and
+// updates the range state with masks instead of branching on each sign, whose
+// outcome is unpredictable.
+func (d *Decoder) DecodeICDF2_8SignBlock16(icdf0 uint8, block *[16]int16) {
+	// Pulse magnitudes are non-negative, so the sign bit of -v marks v > 0.
+	var nonzero uint32
+	for j, v := range block {
+		nonzero |= uint32(-int32(v)) >> 31 << j
+	}
+	if nonzero == 0 {
+		return
+	}
 	icdf := uint32(icdf0)
-	remaining := pulseSum
 	buf := d.buf
 	offs := d.offs
 	nbitsTotal := d.nbitsTotal
 	rng := d.rng
 	val := d.val
 	rem := d.rem
-	for i := 0; i < 16; i += 4 {
-		v := block[i]
-		if (v | block[i+1] | block[i+2] | block[i+3]) == 0 {
-			continue
+	for nonzero != 0 {
+		j := bits.TrailingZeros32(nonzero) & 15
+		nonzero &= nonzero - 1
+		s := (rng >> 8) * icdf
+		// neg is all ones when val >= s, which decodes symbol 0.
+		var neg uint32
+		if val >= s {
+			neg = ^uint32(0)
 		}
-		if v > 0 {
-			t := rng
-			s := (t >> 8) * icdf
-			if val >= s {
-				val -= s
-				rng = t - s
-				block[i] = -v
-			} else {
-				rng = s
-			}
-			for rng <= EC_CODE_BOT {
-				nbitsTotal += EC_SYM_BITS
-				rng <<= EC_SYM_BITS
+		val -= s & neg
+		rng = (rng-s)&neg | s&^neg
+		v := block[j]
+		block[j] = (v ^ int16(neg)) - int16(neg)
+		for rng <= EC_CODE_BOT {
+			nbitsTotal += EC_SYM_BITS
+			rng <<= EC_SYM_BITS
 
-				sym := uint32(rem)
-				if int(offs) < len(buf) {
-					rem = int32(buf[offs])
-					offs++
-				} else {
-					rem = 0
-				}
-				sym = (sym<<EC_SYM_BITS | uint32(rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
-				val = ((val << EC_SYM_BITS) + (EC_SYM_MAX &^ sym)) & (EC_CODE_TOP - 1)
-			}
-			if remaining > 0 {
-				remaining -= int(v)
-				if remaining <= 0 {
-					goto done
-				}
-			}
-		}
-		v = block[i+1]
-		if v > 0 {
-			t := rng
-			s := (t >> 8) * icdf
-			if val >= s {
-				val -= s
-				rng = t - s
-				block[i+1] = -v
+			sym := uint32(rem)
+			if int(offs) < len(buf) {
+				rem = int32(buf[offs])
+				offs++
 			} else {
-				rng = s
+				rem = 0
 			}
-			for rng <= EC_CODE_BOT {
-				nbitsTotal += EC_SYM_BITS
-				rng <<= EC_SYM_BITS
-
-				sym := uint32(rem)
-				if int(offs) < len(buf) {
-					rem = int32(buf[offs])
-					offs++
-				} else {
-					rem = 0
-				}
-				sym = (sym<<EC_SYM_BITS | uint32(rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
-				val = ((val << EC_SYM_BITS) + (EC_SYM_MAX &^ sym)) & (EC_CODE_TOP - 1)
-			}
-			if remaining > 0 {
-				remaining -= int(v)
-				if remaining <= 0 {
-					goto done
-				}
-			}
-		}
-		v = block[i+2]
-		if v > 0 {
-			t := rng
-			s := (t >> 8) * icdf
-			if val >= s {
-				val -= s
-				rng = t - s
-				block[i+2] = -v
-			} else {
-				rng = s
-			}
-			for rng <= EC_CODE_BOT {
-				nbitsTotal += EC_SYM_BITS
-				rng <<= EC_SYM_BITS
-
-				sym := uint32(rem)
-				if int(offs) < len(buf) {
-					rem = int32(buf[offs])
-					offs++
-				} else {
-					rem = 0
-				}
-				sym = (sym<<EC_SYM_BITS | uint32(rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
-				val = ((val << EC_SYM_BITS) + (EC_SYM_MAX &^ sym)) & (EC_CODE_TOP - 1)
-			}
-			if remaining > 0 {
-				remaining -= int(v)
-				if remaining <= 0 {
-					goto done
-				}
-			}
-		}
-		v = block[i+3]
-		if v > 0 {
-			t := rng
-			s := (t >> 8) * icdf
-			if val >= s {
-				val -= s
-				rng = t - s
-				block[i+3] = -v
-			} else {
-				rng = s
-			}
-			for rng <= EC_CODE_BOT {
-				nbitsTotal += EC_SYM_BITS
-				rng <<= EC_SYM_BITS
-
-				sym := uint32(rem)
-				if int(offs) < len(buf) {
-					rem = int32(buf[offs])
-					offs++
-				} else {
-					rem = 0
-				}
-				sym = (sym<<EC_SYM_BITS | uint32(rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
-				val = ((val << EC_SYM_BITS) + (EC_SYM_MAX &^ sym)) & (EC_CODE_TOP - 1)
-			}
-			if remaining > 0 {
-				remaining -= int(v)
-				if remaining <= 0 {
-					goto done
-				}
-			}
+			sym = (sym<<EC_SYM_BITS | uint32(rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
+			val = ((val << EC_SYM_BITS) + (EC_SYM_MAX &^ sym)) & (EC_CODE_TOP - 1)
 		}
 	}
-done:
 	d.offs = offs
 	d.nbitsTotal = nbitsTotal
 	d.rng = rng
@@ -1033,22 +926,16 @@ func (d *Decoder) DecodeBit(logp uint) int {
 	dval := d.val
 	s := r >> logp
 
-	// Per libopus: bit is 1 when dval < s (bottom region).
-	ret := 0
+	// Per libopus: bit is 1 when dval < s (bottom region). one is all ones
+	// then, and the updates select with it instead of branching.
+	var one uint32
 	if dval < s {
-		ret = 1
-	} else {
-		d.val = dval - s
+		one = ^uint32(0)
 	}
-
-	if ret == 1 {
-		d.rng = s
-	} else {
-		d.rng = r - s
-	}
-
+	d.val = dval - s&^one
+	d.rng = s&one | (r-s)&^one
 	d.normalize()
-	return ret
+	return int(one & 1)
 }
 
 // SkipToTell advances the decoder's bit accounting so Tell() reports exactly
@@ -1073,11 +960,10 @@ func (d *Decoder) TellFrac() int {
 	nbits := int(d.nbitsTotal) << 3
 	l := ilog(d.rng)
 	r := d.rng >> (l - 16)
-	b := int((r >> 12) - 8)
-	if r > tellFracCorrection[b] {
-		b++
-	}
-	return nbits - ((l << 3) + b)
+	b := (r >> 12) - 8
+	// b += r > correction[b], without a branch: both are below 1<<16.
+	b += (tellFracCorrection[b&7] - r) >> 31
+	return nbits - ((l << 3) + int(b))
 }
 
 // State returns the internal range decoder state (rng, val).

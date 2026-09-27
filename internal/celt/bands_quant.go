@@ -3240,7 +3240,7 @@ func quantBandPreparedLowbandWithExtBudget(ctx *bandCtx, x []celtNorm, n, b, B i
 	}
 
 	N0 := n
-	N_B := celtUdiv(n, B)
+	N_B := celtUdivBlocks(n, B)
 	longBlocks := B == 1
 
 	recombine := 0
@@ -3341,7 +3341,7 @@ func prepareQuantBandLowband(dst, src []celtNorm, n, B, tfChange int, scratch *b
 	dst = dst[:n]
 	copy(dst, src[:n])
 
-	N_B := celtUdiv(n, B)
+	N_B := celtUdivBlocks(n, B)
 	recombine := max(tfChange, 0)
 	if recombine != 0 {
 		for k := range recombine {
@@ -3380,7 +3380,7 @@ func quantBandDecodeNoExtFast(ctx *bandCtx, x []celtNorm, n, b, B int, lowband [
 	}
 
 	N0 := n
-	N_B := celtUdiv(n, B)
+	N_B := celtUdivBlocks(n, B)
 	longBlocks := B == 1
 
 	recombine := 0
@@ -3474,7 +3474,7 @@ func quantBandDecodeWithExtBudget(ctx *bandCtx, x []celtNorm, n, b, B int, lowba
 	}
 
 	N0 := n
-	N_B := celtUdiv(n, B)
+	N_B := celtUdivBlocks(n, B)
 	longBlocks := B == 1
 
 	recombine := 0
@@ -4097,7 +4097,7 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 				extBalance -= extTell
 			}
 			if i <= codedBands-1 && i < len(extraBits) {
-				extCurrBalance := celtSudiv(extBalance, min(3, codedBands-i))
+				extCurrBalance := celtSudivBalance(extBalance, min(3, codedBands-i))
 				extRemaining := ctx.extTotalBits - extTell
 				ctx.extBudget = max(0, min(16383, min(extRemaining, int(extraBits[i])+extCurrBalance)))
 			}
@@ -4126,7 +4126,7 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		b := 0
 		currBalance := 0
 		if i <= codedBands-1 {
-			currBalance = celtSudiv(balance, min(3, codedBands-i))
+			currBalance = celtSudivBalance(balance, min(3, codedBands-i))
 			b = max(0, min(16383, min(remaining+1, int(pulses[i])+currBalance)))
 		}
 		if ctx.resynth && (M*edges[i]-nBand >= M*edges[start] || i == start+1) && (updateLowband || lowbandOffset == 0) {
@@ -4409,7 +4409,7 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 				extBalance -= extTell
 			}
 			if i <= codedBands-1 && i < len(extraBits) {
-				extCurrBalance := celtSudiv(extBalance, min(3, codedBands-i))
+				extCurrBalance := celtSudivBalance(extBalance, min(3, codedBands-i))
 				extRemaining := ctx.extTotalBits - extTell
 				ctx.extBudget = max(0, min(16383, min(extRemaining, int(extraBits[i])+extCurrBalance)))
 			}
@@ -4438,7 +4438,7 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 		b := 0
 		currBalance := 0
 		if i <= codedBands-1 {
-			currBalance = celtSudiv(balance, min(3, codedBands-i))
+			currBalance = celtSudivBalance(balance, min(3, codedBands-i))
 			b = max(0, min(16383, min(remaining+1, int(pulses[i])+currBalance)))
 		}
 		if ctx.resynth && (M*edges[i]-nBand >= M*edges[start] || i == start+1) && (updateLowband || lowbandOffset == 0) {

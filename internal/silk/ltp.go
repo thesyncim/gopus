@@ -84,17 +84,12 @@ func (d *Decoder) updateHistoryInt16(samples []int16) {
 	}
 	idx := d.historyIndex
 	pos := 0
-	const inv32768 = 1.0 / 32768.0
 	for pos < len(samples) {
 		n := historyLen - idx
 		if remain := len(samples) - pos; n > remain {
 			n = remain
 		}
-		dst := hist[idx : idx+n]
-		src := samples[pos : pos+n]
-		for i, s := range src {
-			dst[i] = float32(s) * inv32768
-		}
+		writeInt16AsFloat32Core(hist[idx:idx+n], samples[pos:pos+n], n)
 		pos += n
 		idx += n
 		if idx == historyLen {
