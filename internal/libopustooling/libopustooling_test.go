@@ -878,6 +878,11 @@ func writePairedReferenceTree(t *testing.T, root string, variant LibopusReferenc
 		}
 		for _, name := range []string{"pitchdnn_data.c", "dred_rdovae_enc_data.c"} {
 			data, err := os.ReadFile(filepath.Join(pinnedRoot, "dnn", name))
+			if errors.Is(err, os.ErrNotExist) && os.Getenv("GOPUS_STRICT_LIBOPUS_REF") != "1" {
+				// The DNN model sources appear only after the pinned model
+				// archive is extracted; strict reference runs require them.
+				t.Skipf("pinned DNN model source %s is not extracted: %v", name, err)
+			}
 			if err != nil {
 				t.Fatalf("read pinned test source %s: %v", name, err)
 			}
