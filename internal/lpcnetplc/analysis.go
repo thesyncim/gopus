@@ -181,8 +181,14 @@ func (a *Analysis) computeFrameFeatures(in []float32) {
 	a.ifFeatures[0] = clampUnit((1.0 / 64.0) * (10*log10f(1e-15+real(a.scratch.spectrum[0])*real(a.scratch.spectrum[0])) - 6))
 	for i := 1; i < pitchIFMaxFreq; i++ {
 		prod := mulConj(a.scratch.spectrum[i], a.prevIF[i])
-		norm := float32(1.0) / opusmath.SqrtF32(1e-15+real(prod)*real(prod)+imag(prod)*imag(prod))
-		prod *= complex(norm, 0)
+		// lpcnet_enc.c forms the float norm sum in this order, then computes
+		// sqrt and the reciprocal in double before narrowing the scale once.
+		normSum := fma32(real(prod), real(prod), 1e-15)
+		normSum = fma32(imag(prod), imag(prod), normSum)
+		norm := float32(1.0 / opusmath.SqrtCReal(opusmath.CReal(normSum)))
+		// C_MULBYSCALAR scales the two components separately. Complex
+		// multiplication would add a zero cross-term and change signed zero.
+		prod = complex(real(prod)*norm, imag(prod)*norm)
 		a.ifFeatures[3*i-2] = real(prod)
 		a.ifFeatures[3*i-1] = imag(prod)
 		energy := real(a.scratch.spectrum[i])*real(a.scratch.spectrum[i]) + imag(a.scratch.spectrum[i])*imag(a.scratch.spectrum[i])
@@ -911,7 +917,12 @@ func clampUnit(x float32) float32 {
 }
 
 func mulConj(a, b complex64) complex64 {
-	return complex(real(a)*real(b)+imag(a)*imag(b), imag(a)*real(b)-real(a)*imag(b))
+	// C_MULC in lpcnet_enc.c rounds the second product before adding the
+	// first with FMADD. The imaginary subtraction rounds its negated product.
+	return complex(
+		fma32(real(a), real(b), noFMA32Mul(imag(a), imag(b))),
+		fma32(imag(a), real(b), -noFMA32Mul(real(a), imag(b))),
+	)
 }
 
 var analysisBandEdges = [...]int{
