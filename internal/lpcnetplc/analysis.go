@@ -17,9 +17,6 @@ const (
 	analysisPitchBufSize = PitchMaxPeriod + 2*FrameSize
 )
 
-// libopus DRED reference builds are scalar, with asm/rtcd/intrinsics disabled.
-var useNEONAnalysisKernels = false
-
 type analysisScratch struct {
 	frame       [FrameSize]float32
 	window      [analysisWindowSize]float32
