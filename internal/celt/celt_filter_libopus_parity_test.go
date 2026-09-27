@@ -564,3 +564,30 @@ func TestCombFilterWithInputF32MatchesLibopus(t *testing.T) {
 		})
 	}
 }
+
+// Hybrid accumulation preserves both silent and tiny SILK lowbands while
+// carrying CELT deemphasis memory through the same selected C operation.
+func TestDeemphasisHybridLowbandEdgesMatchLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	requirePairedCELTOracleMode(t)
+	for _, name := range []string{"zero-lowband", "tiny-both-bands"} {
+		t.Run(name, func(t *testing.T) {
+			const n = 120
+			celtSignal := make([]float32, n)
+			lowband := make([]float32, n)
+			for i := range n {
+				celtSignal[i] = float32(math.Sin(float64(i+3)*0.13) * 810)
+				if name == "tiny-both-bands" {
+					celtSignal[i] *= 1e-8
+					lowband[i] = float32(math.Cos(float64(i+7)*0.07) * 1e-9)
+				}
+			}
+			mem := []float32{0}
+			want := probeLibopusDeemphasisWithOptions(t, 1, [][]float32{celtSignal}, mem, 1, lowband)
+			dec := NewDecoder(1)
+			dec.deemphasis(lowband, celtSignal, celtSignal, 1, n, 1, true)
+			assertCELTFilterFloat32Bits(t, "hybrid lowband", lowband, want.pcm)
+			assertCELTFilterMemBits(t, dec, want.mem)
+		})
+	}
+}

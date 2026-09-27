@@ -221,7 +221,19 @@ for mode in simd nosimd; do
   run_json_phase "candidate-$mode-qext-stateful-parity" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json -tags "gopus_qext${feature_scalar_tag}" . \
-    -run '^TestQEXT(Stateful|ActiveStereoDecode|ReceivedSilence)' -count=1 -timeout=10m
+    -run '^Test(QEXT(Stateful|ActiveStereoDecode|ReceivedSilence|Decode96kOracle)|Native96kDecode)' -count=1 -timeout=10m
+
+  run_json_phase "candidate-$mode-fixed-stateful-decode" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json -tags "gopus_fixed_point${feature_scalar_tag}" . \
+    -run '^TestDecodeDifferentialFixedPoint' -count=1 -timeout=15m
+
+  run_json_phase "candidate-$mode-neural-kernel-parity" \
+    run_in_checkout "$candidate_root" \
+    "${run_env[@]}" go test -json "${build_args[@]}" \
+    ./internal/dnnmath ./internal/dred/rdovae \
+    -run '^Test(DNNVectorActivationsMatchSelectedLibopusOracle|RDOVAECGEMV8x4MatchesSelectedLibopusOracle|RDOVAESGEMVMatchesSelectedLibopusOracle)$' \
+    -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-neural-analysis-parity" \
     run_in_checkout "$candidate_root" \

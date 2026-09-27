@@ -1207,5 +1207,175 @@
       "TestHybridPrefilterMatchesDisabledTransition/ch2/gain0.46875"
     ],
     "source_review": "036c4d51: unified encode entry runs the disabled prefilter transition for hybrid. The current live entry invariant checks complete preemphasis/history/overlap/period/gain/tapset/pitch-change state with both zero and active incoming gain, plus warm allocations. This preserves branch/state coverage, without claiming a C numeric oracle."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestApplyDeemphasisAndScaleInPlaceMatchesLibopus",
+      "TestApplyDeemphasisAndScaleMonoFloat32ToFloat32MatchesInterleaved",
+      "TestApplyDeemphasisAndScaleMonoFloat32ToFloat32MatchesLibopus",
+      "TestApplyDeemphasisAndScaleStereoPlanarFloat32ToFloat32MatchesInterleaved",
+      "TestApplyDeemphasisAndScaleStereoPlanarFloat32ToFloat32MatchesLibopus",
+      "TestApplyDeemphasisAndScaleStereoPlanarToFloat32MatchesLibopus",
+      "TestApplyDeemphasisAndScaleToFloat32MatchesLibopus",
+      "TestApplyDeemphasisAndScaleToFloat32StereoMatchesLibopus"
+    ],
+    "source_review": "3f846cc4: one Decoder.deemphasis replaces all eight wrappers; each matrix leaf executes interleaved and planar paths, and ds1/accum=false also executes in-place. All output and memory bits compare to selected C. Stateful odd lengths 17/67/23/72 remain separately exercised.",
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisMatchesLibopus/loud/ch1/ds1/accum=false"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisMatchesLibopus/loud/ch2/ds1/accum=false"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisMatchesLibopus/small/ch1/ds1/accum=false"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisMatchesLibopus/small/ch2/ds1/accum=false"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisMatchesLibopus/silence/ch1/ds1/accum=false"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisMatchesLibopus/silence/ch2/ds1/accum=false"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus/channels=1/transition/initial-silence"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus/channels=1/transition/signal"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus/channels=1/transition/silence-with-state"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus/channels=1/transition/signal-again"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus/channels=2/transition/initial-silence"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus/channels=2/transition/signal"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus/channels=2/transition/silence-with-state"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus/channels=2/transition/signal-again"
+      }
+    ]
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/hybrid",
+    "baseline_tests": [
+      "TestHybridBandCombineMatchesLibopusAccum"
+    ],
+    "source_review": "3f846cc4: Hybrid lowband accumulation occurs inside Decoder.deemphasis; this selected-C leaf compares live accumulation output and memory with a nonzero lowband seed, matching the removed combine contract.",
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisMatchesLibopus/loud/ch1/ds1/accum=true"
+      }
+    ]
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/dnnmath",
+    "baseline_tests": [
+      "TestNEONVectorActivationsMatchLibopusOracle"
+    ],
+    "source_review": "a03103c9: same input vectors and raw-bit assertions retained; helper and Go entry select the actual instruction lane. Mapping must require every replacement PASS; activation/CGEMV native failures therefore remain hard.",
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/dnnmath",
+        "test": "TestDNNVectorActivationsMatchSelectedLibopusOracle/sigmoid"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/dnnmath",
+        "test": "TestDNNVectorActivationsMatchSelectedLibopusOracle/tanh"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/dnnmath",
+        "test": "TestDNNVectorActivationsMatchSelectedLibopusOracle/exp"
+      }
+    ]
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/dred/rdovae",
+    "baseline_tests": [
+      "TestRDOVAECGEMV8x4MatchesLibopusNEONOracle"
+    ],
+    "source_review": "a03103c9: same input vectors and raw-bit assertions retained; helper and Go entry select the actual instruction lane. Mapping must require every replacement PASS; activation/CGEMV native failures therefore remain hard.",
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/dred/rdovae",
+        "test": "TestRDOVAECGEMV8x4MatchesSelectedLibopusOracle/rows_8_cols_8"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/dred/rdovae",
+        "test": "TestRDOVAECGEMV8x4MatchesSelectedLibopusOracle/rows_16_cols_16"
+      }
+    ]
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/dred/rdovae",
+    "baseline_tests": [
+      "TestRDOVAESGEMVFusedMatchesLibopusNEONOracle"
+    ],
+    "source_review": "a03103c9: same input vectors and raw-bit assertions retained; helper and Go entry select the actual instruction lane. Mapping must require every replacement PASS; activation/CGEMV native failures therefore remain hard.",
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/dred/rdovae",
+        "test": "TestRDOVAESGEMVMatchesSelectedLibopusOracle/rows_16_cols_9"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/dred/rdovae",
+        "test": "TestRDOVAESGEMVMatchesSelectedLibopusOracle/rows_8_cols_13"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/dred/rdovae",
+        "test": "TestRDOVAESGEMVMatchesSelectedLibopusOracle/rows_5_cols_7"
+      }
+    ]
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/hybrid",
+    "baseline_tests": [
+      "TestHybridBandCombineMatchesLibopusAccumSmallMagnitudes"
+    ],
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisHybridLowbandEdgesMatchLibopus/tiny-both-bands"
+      }
+    ],
+    "source_review": "Hybrid lowband accumulation runs inside Decoder.deemphasis. The selected-C replacement checks every output and memory bit with the corresponding tiny or zero SILK lowband and nonzero CELT input."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/hybrid",
+    "baseline_tests": [
+      "TestHybridBandCombineMatchesLibopusAccumZeroSilk"
+    ],
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisHybridLowbandEdgesMatchLibopus/zero-lowband"
+      }
+    ],
+    "source_review": "Hybrid lowband accumulation runs inside Decoder.deemphasis. The selected-C replacement checks every output and memory bit with the corresponding tiny or zero SILK lowband and nonzero CELT input."
   }
 ]
