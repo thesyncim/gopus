@@ -144,9 +144,15 @@ func (e *Encoder) EnablePerModeTables(nbEBands, scaleBase int, eBands []int16, l
 	if e.perMode != nil {
 		n := nbEBands * int(e.channels)
 		e.prevEnergy = make([]celtGLog, n)
+		e.prevLogEnergy = make([]celtGLog, n)
 		e.prevEnergy2 = make([]celtGLog, n)
 		e.energyError = make([]celtGLog, n)
 		e.prevBandLogEnergy = make([]celtGLog, n)
+		// celt_encoder.c initializes oldLogE and oldLogE2 to -28.
+		for i := range n {
+			e.prevLogEnergy[i] = -28
+			e.prevEnergy2[i] = -28
+		}
 	}
 }
 
