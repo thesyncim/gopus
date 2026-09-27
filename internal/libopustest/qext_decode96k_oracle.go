@@ -15,6 +15,7 @@ const (
 )
 
 var qextDecode96kHelper HelperCache
+var qextDecode96kFixedHelper HelperCache
 
 func buildQEXTDecode96kHelper() (string, error) {
 	return BuildCHelper(CHelperConfig{
@@ -26,6 +27,19 @@ func buildQEXTDecode96kHelper() (string, error) {
 		QEXTRef:     true,
 		Libs:        []string{QEXTRefPath(".libs", "libopus.a"), "-lm"},
 		DeadStrip:   true,
+	})
+}
+
+func buildQEXTDecode96kFixedHelper() (string, error) {
+	return BuildCHelper(CHelperConfig{
+		Label:        "fixed qext decode96k",
+		OutputBase:   "gopus_libopus_fixed_qext_decode96k",
+		SourceFile:   "libopus_qext_decode96k_info.c",
+		CFlags:       []string{"-DHAVE_CONFIG_H", "-DENABLE_QEXT", "-O3", "-DNDEBUG", "-ffp-contract=off"},
+		RefIncludes:  []string{"celt", "silk"},
+		FixedQEXTRef: true,
+		Libs:         []string{FixedQEXTRefPath(".libs", "libopus.a"), "-lm"},
+		DeadStrip:    true,
 	})
 }
 
@@ -41,6 +55,7 @@ type QEXTDecode96kParams struct {
 	SampleFormat uint32 // QEXTDecode96kFormat* (float32/int16/int24)
 	Channels     int
 	MaxFrameSize int      // per-channel sample capacity passed to opus_decode (96 kHz)
+	GainQ8       int32    // decoder output gain for version-2 probes; zero for version 1
 	Packets      [][]byte // Opus packets to decode in sequence through one decoder
 }
 
@@ -62,6 +77,25 @@ func ProbeQEXTDecode96k(p QEXTDecode96kParams) (QEXTDecode96kResult, error) {
 	if err != nil {
 		return QEXTDecode96kResult{}, err
 	}
+	version := uint32(1)
+	if p.GainQ8 != 0 {
+		version = 2
+	}
+	return probeQEXTDecode96k(p, binPath, version)
+}
+
+// ProbeQEXTDecode96kFixed decodes packets through the selected
+// FIXED_POINT+ENABLE_QEXT libopus reference. Version 2 adds an explicit output
+// gain control while retaining the version-1 packet and result layout.
+func ProbeQEXTDecode96kFixed(p QEXTDecode96kParams) (QEXTDecode96kResult, error) {
+	binPath, err := qextDecode96kFixedHelper.Path(buildQEXTDecode96kFixedHelper)
+	if err != nil {
+		return QEXTDecode96kResult{}, err
+	}
+	return probeQEXTDecode96k(p, binPath, 2)
+}
+
+func probeQEXTDecode96k(p QEXTDecode96kParams, binPath string, version uint32) (QEXTDecode96kResult, error) {
 	if p.Channels < 1 || p.Channels > 2 {
 		return QEXTDecode96kResult{}, fmt.Errorf("qext decode96k: invalid channels %d", p.Channels)
 	}
@@ -69,17 +103,20 @@ func ProbeQEXTDecode96k(p QEXTDecode96kParams) (QEXTDecode96kResult, error) {
 		return QEXTDecode96kResult{}, fmt.Errorf("qext decode96k: invalid maxFrameSize %d", p.MaxFrameSize)
 	}
 
-	payload := NewOraclePayloadVersion(qextDecode96kInputMagic, 1)
+	payload := NewOraclePayloadVersion(qextDecode96kInputMagic, version)
 	payload.U32(p.SampleFormat)
 	payload.U32(uint32(p.Channels))
 	payload.U32(uint32(p.MaxFrameSize))
 	payload.U32(uint32(len(p.Packets)))
+	if version >= 2 {
+		payload.I32(p.GainQ8)
+	}
 	for _, pkt := range p.Packets {
 		payload.U32(uint32(len(pkt)))
 		payload.Raw(pkt)
 	}
 
-	reader, err := RunOracle(binPath, payload.Bytes(), "qext decode96k", qextDecode96kOutputMagic)
+	reader, err := RunOracleVersion(binPath, payload.Bytes(), "qext decode96k", qextDecode96kOutputMagic, version)
 	if err != nil {
 		return QEXTDecode96kResult{}, err
 	}

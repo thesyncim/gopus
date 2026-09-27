@@ -23,29 +23,40 @@ func (d *Decoder) decode96kFloat32(data []byte, pcm []float32) (int, error) {
 	return d.decodeFloat32(data, pcm, true)
 }
 
-// decodeInt1696k decodes at 96 kHz into int16, routing through decode96kFloat32.
+// decodeInt1696k decodes at 96 kHz into int16 through the decoder-owned float
+// scratch used by raw packet decoding, then applies the int16 output stage.
 func (d *Decoder) decodeInt1696k(data []byte, pcm []int16) (int, error) {
 	channels := int(d.channels)
-	needed := len(pcm)
-	scratch := make([]float32, needed)
-	n, err := d.decode96kFloat32(data, scratch)
+	// Reuse the decoder-owned float scratch used by the other public integer
+	// wrappers. Match the caller's exact length on every call: exposing a
+	// warmed larger scratch slice here would let an undersized output buffer
+	// decode farther than the public API permits.
+	d.ensureScratchPCM(len(pcm))
+	// Integer decode owns the soft-clip history. The public float wrapper clears
+	// that history after each Decode call, so route through the raw packet decode
+	// with clearing disabled before applying the int16 soft clip below.
+	n, err := d.decodeFloat32(data, d.scratchPCM, false)
 	if err != nil {
 		return 0, err
 	}
-	softClipAndFloat32ToInt16(pcm[:n*channels], scratch[:n*channels], n, channels, d.softClipMem[:])
+	softClipAndFloat32ToInt16(pcm[:n*channels], d.scratchPCM[:n*channels], n, channels, d.softClipMem[:])
 	return n, nil
 }
 
-// decodeInt2496k decodes at 96 kHz into int32 (24-bit), routing through decode96kFloat32.
+// decodeInt2496k decodes at 96 kHz into int32 (24-bit) through the
+// decoder-owned float scratch used by raw packet decoding.
 func (d *Decoder) decodeInt2496k(data []byte, pcm []int32) (int, error) {
 	channels := int(d.channels)
-	needed := len(pcm)
-	scratch := make([]float32, needed)
-	n, err := d.decode96kFloat32(data, scratch)
+	// Keep the temporary float buffer decoder-owned and set its length to the
+	// caller's length for the same undersized-buffer behavior as Decode.
+	d.ensureScratchPCM(len(pcm))
+	// opus_decode24 does not soft-clip its opus_res output. Keep the int16
+	// soft-clip history untouched while decoding this format.
+	n, err := d.decodeFloat32(data, d.scratchPCM, false)
 	if err != nil {
 		return 0, err
 	}
-	float32ToInt24Slice(pcm[:n*channels], scratch[:n*channels], n, channels)
+	float32ToInt24Slice(pcm[:n*channels], d.scratchPCM[:n*channels], n, channels)
 	return n, nil
 }
 

@@ -8,16 +8,17 @@
  * celt.HD96kMode + the qext extension decode chain.
  *
  * Protocol (little-endian):
- *   in : "GQDI" magic, u32 version(=1),
+ *   in : "GQDI" magic, u32 version(=1|2),
  *        u32 sampleFormat (0=float32, 1=int16, 2=int24),
  *        u32 channels (1|2), u32 maxFrameSize (per-channel samples at 96 kHz),
- *        u32 packetCount,
+ *        u32 packetCount, [version 2: i32 output gain in Q8 dB],
  *        then for each packet: u32 packetLen, packetLen bytes
- *   out: "GQDO" magic, u32 version(=1),
+ *   out: "GQDO" magic, matching version,
  *        u32 totalSamples (interleaved element count across all packets),
  *        totalSamples elements of sampleFormat,
  *        u32 packetCount, packetCount * u32 finalRange
  */
+#include "config.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,6 +52,13 @@ static int read_u32(uint32_t *out) {
   unsigned char b[4];
   if (!read_exact(b, 4)) return 0;
   *out = (uint32_t)b[0] | ((uint32_t)b[1] << 8) | ((uint32_t)b[2] << 16) | ((uint32_t)b[3] << 24);
+  return 1;
+}
+
+static int read_i32(int32_t *out) {
+  uint32_t v;
+  if (!read_u32(&v)) return 0;
+  *out = (int32_t)v;
   return 1;
 }
 
@@ -105,6 +113,7 @@ static int append_items(void **out, size_t *out_len, size_t *out_cap, const void
 int main(void) {
   unsigned char magic[4];
   uint32_t version = 0;
+  int32_t gain_q8 = 0;
   uint32_t sample_format = SAMPLE_FORMAT_FLOAT32;
   uint32_t channels = 0;
   uint32_t frame_size = 0;
@@ -129,12 +138,16 @@ int main(void) {
     fprintf(stderr, "invalid input magic\n");
     return 1;
   }
-  if (!read_u32(&version) || version != 1) {
+  if (!read_u32(&version) || (version != 1 && version != 2)) {
     fprintf(stderr, "unsupported input version\n");
     return 1;
   }
   if (!read_u32(&sample_format) || !read_u32(&channels) || !read_u32(&frame_size) || !read_u32(&packet_count)) {
     fprintf(stderr, "failed to read header\n");
+    return 1;
+  }
+  if (version == 2 && !read_i32(&gain_q8)) {
+    fprintf(stderr, "failed to read gain\n");
     return 1;
   }
   if (sample_format != SAMPLE_FORMAT_FLOAT32 && sample_format != SAMPLE_FORMAT_INT16 && sample_format != SAMPLE_FORMAT_INT24) {
@@ -168,6 +181,12 @@ int main(void) {
   dec = opus_decoder_create(96000, (int)channels, &err);
   if (dec == NULL || err != OPUS_OK) {
     fprintf(stderr, "opus_decoder_create(96000) failed: %d\n", err);
+    free(frame);
+    return 1;
+  }
+  if (version == 2 && opus_decoder_ctl(dec, OPUS_SET_GAIN(gain_q8)) != OPUS_OK) {
+    fprintf(stderr, "OPUS_SET_GAIN failed\n");
+    opus_decoder_destroy(dec);
     free(frame);
     return 1;
   }
@@ -249,7 +268,7 @@ int main(void) {
   opus_decoder_destroy(dec);
 
   if (!write_exact(GQDO_MAGIC, 4) || decoded_len > UINT32_MAX ||
-      !write_u32(1) || !write_u32((uint32_t)decoded_len)) {
+      !write_u32(version) || !write_u32((uint32_t)decoded_len)) {
     fprintf(stderr, "failed to write output header\n");
     free(frame);
     free(decoded);
