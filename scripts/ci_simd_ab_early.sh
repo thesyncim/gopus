@@ -265,7 +265,7 @@ for mode in simd nosimd; do
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" go test -json -tags "gopus_fixed_point,gopus_qext${feature_scalar_tag}" \
     ./internal/fixedpoint \
-    -run '^(TestQEXTMDCTForwardMatchesFixedLibopus|TestQEXTMDCT96000ForwardMatchesFixedLibopus|TestQEXTMDCTSilenceHeadroomMatchesFixedLibopus|TestQEXTKissFFTMatchesFixedLibopus|TestQEXTMDCTForwardDoesNotAllocateAfterWarmup|TestQEXTKissFFTDoesNotAllocate)$' \
+    -run '^(TestQEXTMDCTForwardMatchesFixedLibopus|TestQEXTMDCT96000ForwardMatchesFixedLibopus|TestQEXTMDCTBackwardMatchesSelectedLibopus|TestQEXTMDCTSilenceHeadroomMatchesFixedLibopus|TestQEXTKissFFTMatchesFixedLibopus|TestQEXTMDCTForwardDoesNotAllocateAfterWarmup|TestQEXTKissFFTDoesNotAllocate)$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-neural-kernel-parity" \
