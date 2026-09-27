@@ -92,11 +92,11 @@ func (d *Decoder) Reset() {
 
 	// Energy-prediction history is always two channels wide (libopus 2*nbEBands),
 	// even for mono, so the right-channel shadow survives a concealed loss gap.
-	prevEnergy := ensureGLogSlice(&d.prevEnergy, MaxBands*2)
-	prevEnergy2 := ensureGLogSlice(&d.prevEnergy2, MaxBands*2)
-	prevLogE := ensureGLogSlice(&d.prevLogE, MaxBands*2)
-	prevLogE2 := ensureGLogSlice(&d.prevLogE2, MaxBands*2)
-	backgroundEnergy := ensureGLogSlice(&d.backgroundEnergy, MaxBands*2)
+	prevEnergy := ensureGLogSlice(&d.prevEnergy, d.predStride()*2)
+	prevEnergy2 := ensureGLogSlice(&d.prevEnergy2, d.predStride()*2)
+	prevLogE := ensureGLogSlice(&d.prevLogE, d.predStride()*2)
+	prevLogE2 := ensureGLogSlice(&d.prevLogE2, d.predStride()*2)
+	backgroundEnergy := ensureGLogSlice(&d.backgroundEnergy, d.predStride()*2)
 	overlapBuffer := ensureSigSlice(&d.overlapBuffer, d.synthOverlapLen()*channels)
 	preemphState := ensureSigSlice(&d.preemphState, channels)
 	postfilterMem := ensureSigSlice(&d.postfilterMem, combFilterHistory*channels)

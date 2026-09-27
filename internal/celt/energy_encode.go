@@ -430,8 +430,8 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []celtGLog, startBand, nbBands
 	if e.rangeEncoder == nil {
 		return energies, 0
 	}
-	if nbBands > MaxBands {
-		nbBands = MaxBands
+	if nbBands > e.predStride() {
+		nbBands = e.predStride()
 	}
 	if nbBands < 0 {
 		nbBands = 0
@@ -602,8 +602,8 @@ func (e *Encoder) DecideIntraMode(energies []celtGLog, startBand, nbBands int, l
 	if e.rangeEncoder == nil {
 		return false
 	}
-	if nbBands > MaxBands {
-		nbBands = MaxBands
+	if nbBands > e.predStride() {
+		nbBands = e.predStride()
 	}
 	if nbBands <= 0 {
 		return false
@@ -758,8 +758,8 @@ func (e *Encoder) EncodeCoarseEnergy(energies []celtGLog, nbBands int, intra boo
 	if e.rangeEncoder == nil {
 		return energies
 	}
-	if nbBands > MaxBands {
-		nbBands = MaxBands
+	if nbBands > e.predStride() {
+		nbBands = e.predStride()
 	}
 	if nbBands < 0 {
 		nbBands = 0
@@ -818,8 +818,8 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []celtGLog, start, end int, i
 	if start < 0 {
 		start = 0
 	}
-	if end > MaxBands {
-		end = MaxBands
+	if end > e.predStride() {
+		end = e.predStride()
 	}
 	if end <= start {
 		return energies
@@ -1088,8 +1088,8 @@ func (e *Encoder) EncodeFineEnergy(energies []celtGLog, quantizedCoarse []celtGL
 	if e.rangeEncoder == nil {
 		return
 	}
-	if nbBands > MaxBands {
-		nbBands = MaxBands
+	if nbBands > e.predStride() {
+		nbBands = e.predStride()
 	}
 	if nbBands > len(fineBits) {
 		nbBands = len(fineBits)
@@ -1145,8 +1145,8 @@ func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []celtGLog, nbBand
 	if e.rangeEncoder == nil {
 		return
 	}
-	if nbBands > MaxBands {
-		nbBands = MaxBands
+	if nbBands > e.predStride() {
+		nbBands = e.predStride()
 	}
 	if nbBands > len(fineBits) {
 		nbBands = len(fineBits)
@@ -1199,8 +1199,8 @@ func (e *Encoder) EncodeFineEnergyRange(energies []celtGLog, quantizedCoarse []c
 	if start < 0 {
 		start = 0
 	}
-	if end > MaxBands {
-		end = MaxBands
+	if end > e.predStride() {
+		end = e.predStride()
 	}
 	if end <= start {
 		return
@@ -1252,8 +1252,8 @@ func (e *Encoder) EncodeFineEnergyRangeFromError(quantizedEnergies []celtGLog, s
 	if start < 0 {
 		start = 0
 	}
-	if end > MaxBands {
-		end = MaxBands
+	if end > e.predStride() {
+		end = e.predStride()
 	}
 	if end <= start {
 		return
@@ -1310,8 +1310,8 @@ func (e *Encoder) EncodeEnergyRemainder(energies []celtGLog, quantizedEnergies [
 	if e.rangeEncoder == nil {
 		return
 	}
-	if nbBands > MaxBands {
-		nbBands = MaxBands
+	if nbBands > e.predStride() {
+		nbBands = e.predStride()
 	}
 	if nbBands > len(remainderBits) {
 		nbBands = len(remainderBits)
@@ -1375,8 +1375,8 @@ func (e *Encoder) EncodeEnergyFinalise(energies []celtGLog, quantizedEnergies []
 	if e.rangeEncoder == nil {
 		return
 	}
-	if nbBands > MaxBands {
-		nbBands = MaxBands
+	if nbBands > e.predStride() {
+		nbBands = e.predStride()
 	}
 	if nbBands <= 0 {
 		return
@@ -1425,8 +1425,8 @@ func (e *Encoder) encodeEnergyFinaliseFromError(quantizedEnergies []celtGLog, nb
 	if e.rangeEncoder == nil {
 		return
 	}
-	if nbBands > MaxBands {
-		nbBands = MaxBands
+	if nbBands > e.predStride() {
+		nbBands = e.predStride()
 	}
 	if nbBands <= 0 {
 		return
@@ -1450,7 +1450,6 @@ func encodeEnergyFinaliseResidual(re *rangecoding.Encoder, oldEBands, errorVals 
 		return
 	}
 	start = max(start, 0)
-	end = min(end, MaxBands)
 	if end <= start {
 		return
 	}
@@ -1494,8 +1493,8 @@ func (e *Encoder) EncodeEnergyFinaliseRange(energies []celtGLog, quantizedEnergi
 	if start < 0 {
 		start = 0
 	}
-	if end > MaxBands {
-		end = MaxBands
+	if end > e.predStride() {
+		end = e.predStride()
 	}
 	if end <= start {
 		return
@@ -1548,8 +1547,8 @@ func (e *Encoder) EncodeEnergyFinaliseRangeFromError(quantizedEnergies []celtGLo
 	if start < 0 {
 		start = 0
 	}
-	if end > MaxBands {
-		end = MaxBands
+	if end > e.predStride() {
+		end = e.predStride()
 	}
 	if end <= start {
 		return
@@ -1632,8 +1631,8 @@ func (e *Encoder) encodeFineEnergyFromErrorWithPrev(quantizedEnergies []celtGLog
 	if e.rangeEncoder == nil {
 		return
 	}
-	if nbBands > MaxBands {
-		nbBands = MaxBands
+	if nbBands > e.predStride() {
+		nbBands = e.predStride()
 	}
 	if nbBands > len(extraQuant) {
 		nbBands = len(extraQuant)

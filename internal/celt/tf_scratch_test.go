@@ -69,7 +69,7 @@ func TestTFAnalysisWithScratchMatchesAllocatingPath(t *testing.T) {
 			xNorm := float64sToNorms(x)
 			wantRes, wantSelect := TFAnalysis(xNorm, n0, nbBands, tc.transient, tc.lm, opusVal16(tc.tfEstimate), tc.effective, tc.importance)
 			var scratch TFAnalysisScratch
-			gotRes, gotSelect := TFAnalysisWithScratch(xNorm, n0, nbBands, tc.transient, tc.lm, opusVal16(tc.tfEstimate), tc.effective, tc.importance, &scratch)
+			gotRes, gotSelect := TFAnalysisWithScratch(xNorm, n0, nbBands, tc.transient, tc.lm, opusVal16(tc.tfEstimate), tc.effective, tc.importance, &scratch, EBands[:])
 			if gotSelect != wantSelect || !reflect.DeepEqual(gotRes, wantRes) {
 				t.Fatalf("scratch TF = select %d res %v, want select %d res %v", gotSelect, gotRes, wantSelect, wantRes)
 			}

@@ -39,12 +39,8 @@ func NewDecoder(mode *CustomMode, channels int) (*CustomDecoder, error) {
 	if channels < 1 || channels > 2 {
 		return nil, ErrInvalidChannels
 	}
-	// Decline modes whose band layout exceeds the native data-plane capacity
-	// (nbEBands > maxNativeBands). The static history buffers are sized by
-	// MaxBands, so a wider per-mode layout would index them out of range and the
-	// decode would diverge; returning ErrNonStandard keeps the boundary clean.
 	if !mode.nativeSupported() {
-		return nil, ErrNonStandard
+		return nil, ErrInvalidBandCount
 	}
 
 	dec := celt.NewDecoder(channels)
@@ -101,12 +97,10 @@ func (cd *CustomDecoder) Channels() int { return cd.channels }
 //
 // Returns frameSize*channels float32 samples, interleaved for stereo.
 //
-// DecodeFloat decodes sample-identically to libopus --enable-custom-modes
-// (within the documented arm64 1-ULP CELT drift) for the standard 48 kHz modes
-// and every non-standard mode within the native band-cap (NbEBands <= 21): the
-// per-mode band tables (eBands, allocVectors, compute_pulse_cache) computed by
-// NewMode are threaded through the CELT decode data plane. Modes with a wider
-// band layout are declined at NewDecoder time with ErrNonStandard.
+// Decoding and concealment use the mode's band edges, window, and history
+// stride. The returned samples borrow decoder scratch and remain valid until
+// the next decode call. Oracle tests check exact PCM and final ranges against
+// the selected libopus --enable-custom-modes build.
 //
 // Reference: libopus include/opus_custom.h opus_custom_decode_float().
 func (cd *CustomDecoder) DecodeFloat(data []byte, frameSize int) ([]float32, error) {

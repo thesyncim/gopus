@@ -652,25 +652,11 @@ func ecILOG(v uint32) int {
 	return l
 }
 
-// maxNativeBands is the largest per-mode band count the native gopus CELT data
-// plane currently supports. The static codec history and energy-prediction
-// buffers (oldBandE/oldLogE/energyError and their encoder twins) are sized by
-// the static MaxBands (21). A non-standard custom mode whose band layout exceeds
-// that count (compute_ebands can yield up to ~24 bands at high Fs with a small
-// short-MDCT, e.g. 32000/100 -> 22 bands) would index those buffers out of
-// range, so such modes are declined with ErrNonStandard rather than crashing or
-// emitting a non-conformant bitstream. libopus sizes every CELTMode buffer by
-// the mode's own nbEBands, so this is a gopus-side capacity limit, not a libopus
-// constraint.
-//
-// Reference: libopus celt/modes.c compute_ebands(), celt/celt_encoder.c /
-// celt/celt_decoder.c oldBandE[i+c*m->nbEBands] indexing.
-const maxNativeBands = 21
+// maxNativeBands matches BARK_BANDS in libopus celt/modes.c. Mode-owned
+// history and scratch buffers use NbEBands, including layouts above MaxBands.
+const maxNativeBands = 25
 
-// nativeSupported reports whether gopus can drive this mode through the native
-// CELT data plane. Standard modes and any non-standard mode whose band count is
-// within maxNativeBands are supported; wider band layouts are declined with
-// ErrNonStandard.
+// nativeSupported checks the band-count bound of libopus compute_ebands().
 func (m *CustomMode) nativeSupported() bool {
 	if m == nil {
 		return false
@@ -678,7 +664,7 @@ func (m *CustomMode) nativeSupported() bool {
 	if m.isStandard {
 		return true
 	}
-	return m.NbEBands <= maxNativeBands
+	return m.NbEBands > 0 && m.NbEBands <= maxNativeBands
 }
 
 // IsStandard reports whether the mode corresponds to a standard Opus 48 kHz

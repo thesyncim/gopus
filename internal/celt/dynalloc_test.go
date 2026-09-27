@@ -110,6 +110,7 @@ func TestDynallocStereoCarriesLastAcrossChannels(t *testing.T) {
 		nil,
 		false, nil,
 		&scratch,
+		EBands[:],
 	)
 	if gotScratch.Offsets[0] != got.Offsets[0] {
 		t.Fatalf("scratch offset[0]=%d want %d", gotScratch.Offsets[0], got.Offsets[0])

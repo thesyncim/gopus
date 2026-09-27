@@ -20,7 +20,6 @@ package custom_test
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"math"
 	"testing"
@@ -673,14 +672,8 @@ func assertI32EqI16(t *testing.T, name string, got []int16, want []int32) {
 	}
 }
 
-// wideBandCapCases enumerates non-standard custom modes whose compute_ebands
-// band count exceeds the native gopus capacity (maxNativeBands == 21). At high
-// sample rates with a small short-MDCT, compute_ebands yields 22+ bands; the
-// static gopus energy/history buffers are sized by MaxBands, so these are
-// declined with ErrNonStandard rather than crashing or emitting a non-conformant
-// bitstream. libopus accepts them (its CELTMode buffers are sized by the mode's
-// own nbEBands), so this records the precise gopus-side capacity boundary.
-func wideBandCapCases() []struct{ fs, frame int } {
+// wideBandCases covers custom layouts beyond the standard 21-band table.
+func wideBandCases() []struct{ fs, frame int } {
 	return []struct{ fs, frame int }{
 		{32000, 100},  // nbEBands 22, LM 0
 		{32000, 200},  // nbEBands 22, LM 1
@@ -696,15 +689,10 @@ func wideBandCapCases() []struct{ fs, frame int } {
 	}
 }
 
-// TestOracleNonStandardBandCapDeclined verifies that, for non-standard custom
-// modes whose band layout exceeds the native data-plane capacity (nbEBands > 21),
-// libopus --enable-custom-modes accepts the mode and produces a packet, while the
-// gopus celt/custom encoder and decoder both decline with ErrNonStandard. This is
-// the documented gopus-side boundary: such wide-band modes are not yet driven
-// byte-exact, so gopus refuses them rather than emitting a divergent bitstream.
-func TestOracleNonStandardBandCapDeclined(t *testing.T) {
+// TestOracleWideBandModeParity checks mode admission and geometry against C.
+func TestOracleWideBandModeParity(t *testing.T) {
 	const maxBytes = 200
-	specs := wideBandCapCases()
+	specs := wideBandCases()
 	var cases []oracleCase
 	for _, s := range specs {
 		cases = append(cases, oracleCase{s.fs, s.frame, 1, maxBytes, generateSine(440.0, float64(s.fs), s.frame)})
@@ -714,7 +702,7 @@ func TestOracleNonStandardBandCapDeclined(t *testing.T) {
 	for i, s := range specs {
 		t.Run(fmt.Sprintf("Fs%d_frame%d", s.fs, s.frame), func(t *testing.T) {
 			if results[i].status < 0 {
-				t.Skipf("libopus rejected custom mode (Fs=%d frame=%d) status=%d", s.fs, s.frame, results[i].status)
+				t.Fatalf("libopus rejected known custom mode (Fs=%d frame=%d) status=%d", s.fs, s.frame, results[i].status)
 			}
 			mode, err := custom.NewMode(s.fs, s.frame)
 			if err != nil {
@@ -726,18 +714,18 @@ func TestOracleNonStandardBandCapDeclined(t *testing.T) {
 			if int32(mode.NbEBands) != int32(len(results[i].eBands)-1) {
 				t.Errorf("nbEBands gopus=%d libopus=%d", mode.NbEBands, len(results[i].eBands)-1)
 			}
-			if _, err := custom.NewEncoder(mode, 1); !errors.Is(err, custom.ErrNonStandard) {
-				t.Errorf("NewEncoder: want ErrNonStandard, got %v", err)
+			if _, err := custom.NewEncoder(mode, 1); err != nil {
+				t.Errorf("NewEncoder: %v", err)
 			}
-			if _, err := custom.NewDecoder(mode, 1); !errors.Is(err, custom.ErrNonStandard) {
-				t.Errorf("NewDecoder: want ErrNonStandard, got %v", err)
+			if _, err := custom.NewDecoder(mode, 1); err != nil {
+				t.Errorf("NewDecoder: %v", err)
 			}
 		})
 	}
 }
 
 // broadDecodeSweepCases enumerates a wide grid of non-standard custom modes
-// within the native band-cap (nbEBands <= 21), spanning all four short-block
+// with up to 21 bands, spanning all four short-block
 // decompositions (LM 0..3), the Fs==400*shortMdctSize family and genuinely
 // custom band layouts, several sample rates (8k..96k) and both channel counts.
 // Every entry is a mode libopus --enable-custom-modes accepts.
@@ -788,7 +776,7 @@ func TestOracleDecodeParityBroadSweep(t *testing.T) {
 				t.Fatalf("NewMode(%d,%d): %v", tc.fs, tc.frameSize, err)
 			}
 			if mode.NbEBands > 21 {
-				t.Fatalf("Fs=%d frame=%d unexpectedly exceeds native band-cap (nbEBands=%d)",
+				t.Fatalf("Fs=%d frame=%d unexpectedly exceeds this fixture group's 21 bands (nbEBands=%d)",
 					tc.fs, tc.frameSize, mode.NbEBands)
 			}
 			dec, err := custom.NewDecoder(mode, tc.channels)
@@ -829,7 +817,7 @@ func TestOracleEncodeParityBroadSweep(t *testing.T) {
 				t.Fatalf("NewMode(%d,%d): %v", tc.fs, tc.frameSize, err)
 			}
 			if mode.NbEBands > 21 {
-				t.Fatalf("Fs=%d frame=%d unexpectedly exceeds native band-cap (nbEBands=%d)",
+				t.Fatalf("Fs=%d frame=%d unexpectedly exceeds this fixture group's 21 bands (nbEBands=%d)",
 					tc.fs, tc.frameSize, mode.NbEBands)
 			}
 

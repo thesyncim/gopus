@@ -170,6 +170,7 @@ func runGoDynallocCase(tc libopusCELTDynallocCase, scratch *DynallocScratch) Dyn
 			surround,
 			tc.analysisValid, leak,
 			scratch,
+			EBands[:],
 		)
 	}
 	return DynallocAnalysis(

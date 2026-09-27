@@ -85,10 +85,10 @@ func (e *Encoder) quantizeInputToLSBDepthScratchF32(pcm []float32) []float32 {
 // after a bandwidth reduction. Without a usable mask it returns the configured
 // surround trim, zero masking, and ok=false.
 func (e *Encoder) computeSurroundDynallocFromMask(end int, out []celtGLog) (trim, masking celtGLog, ok bool) {
-	clear(out[:end])
-	if e.lfe || e.hybrid || len(e.energyMask) < MaxBands*int(e.channels) {
+	if e.lfe || e.hybrid || e.perMode != nil || len(e.energyMask) < MaxBands*int(e.channels) {
 		return e.surroundTrim, 0, false
 	}
+	clear(out[:end])
 	channels := e.codedChannels()
 	maskEnd := max(2, int(e.lastCodedBands))
 
@@ -812,8 +812,12 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 		e.scratch.logN = logN
 	}
 	logN = logN[:nbBands]
-	for i := 0; i < nbBands && i < len(LogN); i++ {
-		logN[i] = int16(LogN[i])
+	for i := range nbBands {
+		if e.perMode != nil {
+			logN[i] = int16(e.perMode.logN[i])
+		} else {
+			logN[i] = int16(LogN[i])
+		}
 	}
 	// Determine VBR mode (match encoder settings)
 	isVBR := e.vbr
@@ -847,6 +851,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 		surroundDynalloc,
 		e.analysisValid, e.dynallocLeakBoost(),
 		&e.dynallocScratch,
+		e.modeEdges(),
 	)
 	// Store for next frame's VBR computation
 	e.lastDynalloc = dynallocResult
@@ -873,7 +878,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 		if codedChannels == 2 && tfChannel == 1 {
 			tfInput = normRCelt
 		}
-		tfRes, tfSelect = TFAnalysisWithScratch(tfInput, len(tfInput), nbBands, transient, lm, opusVal16(tfEstimate), effectiveBytes, importance, &e.tfScratch)
+		tfRes, tfSelect = TFAnalysisWithScratch(tfInput, len(tfInput), nbBands, transient, lm, opusVal16(tfEstimate), effectiveBytes, importance, &e.tfScratch, e.modeEdges())
 
 		// Encode TF decisions using the computed values
 		TFEncodeWithSelect(re, start, end, transient, tfRes, lm, tfSelect)
@@ -1039,7 +1044,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	if codedChannels == 2 {
 		// Always use MS for LM=0 (2.5ms), matching libopus.
 		if lm != 0 {
-			dualStereo = stereoAnalysisDecision(normL, normR, lm, nbBands)
+			dualStereo = stereoAnalysisDecision(normL, normR, lm, nbBands, e.modeEdges())
 		} else {
 			dualStereo = false
 		}
@@ -1094,9 +1099,10 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 				surroundTrimForAlloc,
 				tonalitySlope,
 				e.analysisValid,
+				e.modeEdges(),
 			)
 			if codedChannels == 2 {
-				e.lastStereoSaving = UpdateStereoSaving(e.lastStereoSaving, trimNormL, trimNormR, nbBands, lm, intensity)
+				e.lastStereoSaving = UpdateStereoSaving(e.lastStereoSaving, trimNormL, trimNormR, nbBands, lm, intensity, e.modeEdges())
 			}
 		}
 		re.EncodeICDF(allocTrim, trimICDF, 7)
@@ -1569,8 +1575,8 @@ func (e *Encoder) setPrevEnergyWithPrevCoded(prev []celtGLog, energies []celtGLo
 	} else {
 		copy(e.prevEnergy2, e.prevEnergy)
 	}
-	if nbBands > MaxBands {
-		nbBands = MaxBands
+	if nbBands > e.predStride() {
+		nbBands = e.predStride()
 	}
 	if nbBands < 0 {
 		nbBands = 0

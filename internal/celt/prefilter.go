@@ -189,7 +189,7 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 	mode := e.modeConfig(frameSize)
 	shortMdctSize := frameSize / mode.ShortBlocks
 	offset := max(shortMdctSize-overlap, 0)
-	window := GetWindowBufferF32(overlap)
+	window := e.scratch.modeWindow(overlap)
 
 	var before [2]opusVal32
 	var after [2]opusVal32

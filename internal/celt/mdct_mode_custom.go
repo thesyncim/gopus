@@ -46,3 +46,13 @@ func (s *customMDCTState) mdctLookup(n int) *mdctTransformLookup {
 	}
 	return nil
 }
+
+func (s *customMDCTState) modeWindow(overlap int) []float32 {
+	if s.customTransforms != nil {
+		window := s.customTransforms.blocks[0].window
+		if len(window) == overlap {
+			return window
+		}
+	}
+	return GetWindowBufferF32(overlap)
+}

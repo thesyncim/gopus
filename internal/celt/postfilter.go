@@ -578,7 +578,7 @@ func applyPostfilterChannelInPlaceFloat32(samples []float32, hist []celtSig, fra
 }
 
 func (d *Decoder) postfilterWindowSquareF32(overlap int) []float32 {
-	window := GetWindowBufferF32(overlap)
+	window := d.scratchIMDCTF32.modeWindow(overlap)
 	if len(window) == 0 {
 		return nil
 	}
@@ -623,7 +623,7 @@ func (d *Decoder) applyPostfilterStereoPlanarFromFloat32(left, right []float32, 
 	d.materializePostfilterHistorySuffixFromPLC(postfilterHistoryNeed(t0, t1, t1b, t2))
 
 	overlap := d.synthOverlapLen()
-	window := GetWindowBufferF32(overlap)
+	window := d.scratchIMDCTF32.modeWindow(overlap)
 	windowSq := d.postfilterWindowSquareF32(overlap)
 	histL := d.postfilterMem[:history]
 	histR := d.postfilterMem[history : 2*history]
@@ -681,7 +681,7 @@ func (d *Decoder) applyPostfilterFloat32(samples []float32, frameSize, lm int, n
 		t1b, t2, tap1b, tap2 := sanitizePostfilterParams(t1, t2, g1, g2, tap1, tap2)
 		d.materializePostfilterHistorySuffixFromPLC(postfilterHistoryNeed(t0, t1, t1b, t2))
 		overlap := d.synthOverlapLen()
-		window := GetWindowBufferF32(overlap)
+		window := d.scratchIMDCTF32.modeWindow(overlap)
 		windowSq := d.postfilterWindowSquareF32(overlap)
 		applyPostfilterChannelInPlaceFloat32(samples[:frameSize], d.postfilterMem[:history], frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq, overlap)
 		d.updatePLCDecodeHistoryMonoFromFloat32(samples[:frameSize], frameSize, plcDecodeBufferSize)

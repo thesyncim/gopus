@@ -376,7 +376,13 @@ func pvqVCompute(n, k int) uint32 {
 
 	// For larger values, compute using the row-based algorithm
 	// This is more efficient than recursive computation
-	u := make([]uint32, k+2)
+	var row [MaxPVQK + 2]uint32
+	u := row[:]
+	if k+2 > len(row) {
+		u = make([]uint32, k+2)
+	} else {
+		u = u[:k+2]
+	}
 	return ncwrsUrow(n, k, u)
 }
 

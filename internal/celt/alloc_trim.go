@@ -68,6 +68,7 @@ func AllocTrimAnalysis(
 		surroundTrim,
 		tonalitySlope,
 		tonalitySlope != 0,
+		EBands[:],
 	)
 	return trimIndex
 }
@@ -85,6 +86,7 @@ func allocTrimAnalysisDetailed(
 	surroundTrim celtGLog,
 	tonalitySlope opusVal16,
 	analysisValid bool,
+	edges []int,
 ) (int, allocTrimDetail) {
 	detail := allocTrimDetail{}
 
@@ -107,7 +109,7 @@ func allocTrimAnalysisDetailed(
 	// Stereo correlation adjustment
 	// Reference: libopus lines 884-920
 	if channels == 2 && normCoeffsRight != nil && len(normCoeffs) > 0 && len(normCoeffsRight) > 0 {
-		logXC := computeStereoCorrelationTrim(normCoeffs, normCoeffsRight, nbBands, lm, intensity)
+		logXC := computeStereoCorrelationTrim(normCoeffs, normCoeffsRight, nbBands, lm, intensity, edges)
 
 		// trim += max(-4, 0.75 * logXC)
 		stereoAdjust := opusVal16(0.75) * logXC
@@ -195,12 +197,12 @@ func allocTrimAnalysisDetailed(
 // It measures inter-channel correlation to estimate mid-side coding savings.
 //
 // Reference: libopus celt/celt_encoder.c alloc_trim_analysis() lines 884-920
-func computeStereoCorrelationTrim(normL, normR []celtNorm, nbBands, lm, intensity int) opusVal16 {
-	logXC, _ := computeStereoCorrelationLogs(normL, normR, nbBands, lm, intensity)
+func computeStereoCorrelationTrim(normL, normR []celtNorm, nbBands, lm, intensity int, edges []int) opusVal16 {
+	logXC, _ := computeStereoCorrelationLogs(normL, normR, nbBands, lm, intensity, edges)
 	return logXC
 }
 
-func computeStereoCorrelationLogs(normL, normR []celtNorm, nbBands, lm, intensity int) (opusVal16, opusVal16) {
+func computeStereoCorrelationLogs(normL, normR []celtNorm, nbBands, lm, intensity int, edges []int) (opusVal16, opusVal16) {
 	// Compute inter-channel correlation for low frequencies (first 8 bands)
 	// libopus uses inner product of normalized coefficients between channels
 
@@ -208,8 +210,8 @@ func computeStereoCorrelationLogs(normL, normR []celtNorm, nbBands, lm, intensit
 
 	// Compute correlation for first 8 bands
 	for band := 0; band < 8 && band < nbBands; band++ {
-		bandStart := EBands[band] << lm
-		bandEnd := EBands[band+1] << lm
+		bandStart := edges[band] << lm
+		bandEnd := edges[band+1] << lm
 
 		if bandStart >= len(normL) || bandStart >= len(normR) {
 			break
@@ -241,8 +243,8 @@ func computeStereoCorrelationLogs(normL, normR []celtNorm, nbBands, lm, intensit
 	// Also compute minimum correlation across higher bands (up to intensity threshold)
 	minXC := sum
 	for band := 8; band < intensity && band < nbBands; band++ {
-		bandStart := EBands[band] << lm
-		bandEnd := EBands[band+1] << lm
+		bandStart := edges[band] << lm
+		bandEnd := edges[band+1] << lm
 
 		if bandStart >= len(normL) || bandStart >= len(normR) {
 			break
@@ -285,7 +287,7 @@ func computeStereoCorrelationLogs(normL, normR []celtNorm, nbBands, lm, intensit
 // compute_vbr(). The state is updated once per frame after alloc-trim analysis:
 // stereo_saving = min(stereo_saving+0.25, -logXC2/2) (celt/celt_encoder.c:919).
 // The state is unbounded; compute_vbr caps the value it reads at 1.
-func UpdateStereoSaving(prev opusVal16, normL, normR []celtNorm, nbBands, lm, intensity int) OpusVal16 {
+func UpdateStereoSaving(prev opusVal16, normL, normR []celtNorm, nbBands, lm, intensity int, edges []int) OpusVal16 {
 	if len(normL) == 0 || len(normR) == 0 || nbBands <= 0 {
 		return prev
 	}
@@ -296,7 +298,7 @@ func UpdateStereoSaving(prev opusVal16, normL, normR []celtNorm, nbBands, lm, in
 		intensity = nbBands
 	}
 
-	_, logXC2 := computeStereoCorrelationLogs(normL, normR, nbBands, lm, intensity)
+	_, logXC2 := computeStereoCorrelationLogs(normL, normR, nbBands, lm, intensity, edges)
 	return min(prev+0.25, -(0.5 * logXC2))
 }
 

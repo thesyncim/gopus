@@ -20,7 +20,7 @@ var (
 	ErrInvalidChannels  = errors.New("opus custom: invalid channel count (must be 1 or 2)")
 	ErrInputLength      = errors.New("opus custom: input PCM length does not match frameSize*channels")
 	ErrMaxBytes         = errors.New("opus custom: maxBytes must be positive")
-	ErrNonStandard      = errors.New("opus custom: mode band layout exceeds native data-plane capacity (NbEBands > 21); not yet driven byte-exact")
+	ErrInvalidBandCount = errors.New("opus custom: invalid mode band count")
 )
 
 // CustomEncoder holds per-stream encoding state for a CustomMode.
@@ -54,13 +54,8 @@ func NewEncoder(mode *CustomMode, channels int) (*CustomEncoder, error) {
 	if channels < 1 || channels > 2 {
 		return nil, ErrInvalidChannels
 	}
-	// Decline modes whose band layout exceeds the native data-plane capacity
-	// (nbEBands > maxNativeBands). The static energy/history buffers are sized by
-	// MaxBands, so such modes cannot be driven byte-exact yet; returning
-	// ErrNonStandard keeps the boundary clean (no crash, no non-conformant
-	// bitstream).
 	if !mode.nativeSupported() {
-		return nil, ErrNonStandard
+		return nil, ErrInvalidBandCount
 	}
 
 	enc := celt.NewEncoder(channels)
@@ -130,24 +125,14 @@ func (ce *CustomEncoder) Channels() int { return ce.channels }
 
 // EncodeFloat encodes frameSize samples per channel from pcm (float32, range
 // −1.0…+1.0, interleaved for stereo) and writes at most maxBytes of compressed
-// data. Returns the number of bytes written.
+// data. Returns the encoded packet.
 //
 // The caller supplies pcm with exactly frameSize*channels samples.
-// maxBytes controls the maximum packet size (CBR budget for standard modes).
+// maxBytes controls the maximum packet size and the CBR budget.
 //
-// Standard modes (48 kHz, 120/240/480/960 samples), the Fs==400*shortMdctSize
-// family (e.g. 16000/320, 24000/480) and genuinely custom band layouts such as
-// 48000/640 (NbEBands=19) produce output byte-identical to libopus
-// --enable-custom-modes (gated by TestOracleParityScaledBandFamily,
-// TestOracleParityNonStandardModes and TestOracleParityNonStandardStereo). For
-// the custom layouts the per-mode band/allocation/cache tables computed by
-// NewMode (eBands, logN, allocVectors and the compute_pulse_cache
-// index/bits/caps) are threaded through the CELT encode data plane, mirroring the
-// symmetric decode path.
-//
-// Modes whose band layout exceeds the native data-plane capacity (NbEBands > 21)
-// are declined at NewEncoder time with ErrNonStandard, so EncodeFloat is only
-// reachable for within-cap modes.
+// Encoding uses the mode's band edges, allocation tables, pulse cache, window,
+// and history stride. The returned packet borrows encoder scratch and remains
+// valid until the next encode call.
 //
 // Reference: libopus include/opus_custom.h opus_custom_encode_float().
 func (ce *CustomEncoder) EncodeFloat(pcm []float32, maxBytes int) ([]byte, error) {

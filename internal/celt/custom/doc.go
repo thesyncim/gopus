@@ -48,18 +48,8 @@
 //     libopus --enable-custom-modes: the per-mode band tables (eBands, widths,
 //     logN, allocVectors and the compute_pulse_cache index/bits/caps) computed by
 //     NewMode are threaded through both halves of the CELT data plane.
-//   - The native DECODE plane reproduces libopus sample-for-sample across the
-//     whole non-standard space within the native band-cap (every short-block
-//     decomposition LM 0..3, 8k..96k, mono and stereo), verified by
-//     TestOracleDecodeParityBroadSweep.
-//
-// Band-cap boundary: non-standard modes whose compute_ebands band count exceeds
-// the native data-plane capacity (NbEBands > 21, which occurs at high sample
-// rates with a small short-MDCT, e.g. 32000/100 or 44100/120 -> 22 bands) are
-// declined by NewEncoder and NewDecoder with ErrNonStandard. The static gopus
-// energy/history buffers are sized by MaxBands, so these wider layouts cannot be
-// driven byte-exact yet; declining them keeps the boundary clean rather than
-// emitting a non-conformant bitstream. libopus accepts them because its CELTMode
-// buffers are sized by the mode's own nbEBands; see
-// TestOracleNonStandardBandCapDeclined.
+//   - Modes with more than 21 bands use mode-sized energy histories and scratch.
+//     TestOracleWideBandStatefulParity checks exact packets, final ranges,
+//     float PCM, and int16 PCM for mono and stereo histories with reset,
+//     periodic concealment, noise concealment, and recovery.
 package custom

@@ -93,7 +93,7 @@ func (d *Decoder) ensureEnergyState(channels int) {
 	if channels > 2 {
 		channels = 2
 	}
-	needed := MaxBands * channels
+	needed := d.predStride() * channels
 	if len(d.prevEnergy) < needed {
 		prev := make([]celtGLog, needed)
 		copy(prev, d.prevEnergy)
@@ -145,7 +145,7 @@ func (d *Decoder) ensureQEXTOldBandE() []celtGLog {
 }
 
 func (d *Decoder) allocationScratch() []int32 {
-	return ensureInt32Slice(&d.scratchAllocWork, MaxBands*5)
+	return ensureInt32Slice(&d.scratchAllocWork, d.predStride()*5)
 }
 
 func (d *Decoder) snapshotDecodeHistory() ([]celtGLog, []celtGLog, []celtGLog) {
@@ -208,7 +208,7 @@ func (d *Decoder) SetPrevEnergyWithPrev(prev, energies []float32) {
 
 	// Determine nbBands from the energies array length
 	channels := int(d.channels)
-	nbBands := min(len(energies)/channels, MaxBands)
+	nbBands := min(len(energies)/channels, d.predStride())
 
 	// Copy with layout conversion: compact [c*nbBands+band] -> prediction-stride
 	// [c*predStride+band] (predStride == MaxBands for the static codec, the mode's
@@ -238,7 +238,7 @@ func (d *Decoder) setPrevEnergyGLogWithPrev(prev []celtGLog, energies []celtGLog
 
 	// Determine nbBands from the energies array length
 	channels := int(d.channels)
-	nbBands := min(len(energies)/channels, MaxBands)
+	nbBands := min(len(energies)/channels, d.predStride())
 
 	// Copy with layout conversion: compact [c*nbBands+band] -> prediction-stride.
 	stride := d.predStride()
@@ -254,8 +254,8 @@ func (d *Decoder) setPrevEnergyGLogWithPrev(prev []celtGLog, energies []celtGLog
 }
 
 func (d *Decoder) updateLogEGLog(energies []celtGLog, nbBands int, transient bool) {
-	if nbBands > MaxBands {
-		nbBands = MaxBands
+	if nbBands > d.predStride() {
+		nbBands = d.predStride()
 	}
 	if nbBands <= 0 {
 		return

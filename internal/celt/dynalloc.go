@@ -633,30 +633,10 @@ func DynallocAnalysisWithScratch(
 	analysisValid bool,
 	analysisLeakBoost []uint8,
 	scratch *DynallocScratch,
+	edges []int,
 ) DynallocResult {
 	if scratch == nil {
-		return DynallocAnalysis(
-			bandLogE,
-			bandLogE2,
-			oldBandE,
-			nbBands,
-			start,
-			end,
-			channels,
-			lsbDepth,
-			lm,
-			logN,
-			effectiveBytes,
-			isTransient,
-			vbr,
-			constrainedVBR,
-			lfe,
-			toneFreq,
-			toneishness,
-			surroundDynalloc,
-			analysisValid,
-			analysisLeakBoost,
-		)
+		scratch = &DynallocScratch{}
 	}
 
 	scratch.EnsureDynallocScratch(nbBands, channels)
@@ -949,20 +929,20 @@ func DynallocAnalysisWithScratch(
 		if toneishness > 0.98 && toneFreq >= 0 {
 			freqBin := floor32ToInt(0.5 + toneFreq*120.0/3.1415927)
 			for i := start; i < end; i++ {
-				if freqBin >= EBands[i] && freqBin <= EBands[i+1] {
+				if freqBin >= edges[i] && freqBin <= edges[i+1] {
 					follower[i] += 2.0
 				}
-				if freqBin >= EBands[i]-1 && freqBin <= EBands[i+1]+1 {
+				if freqBin >= edges[i]-1 && freqBin <= edges[i+1]+1 {
 					follower[i] += 1.0
 				}
-				if freqBin >= EBands[i]-2 && freqBin <= EBands[i+1]+2 {
+				if freqBin >= edges[i]-2 && freqBin <= edges[i+1]+2 {
 					follower[i] += 1.0
 				}
-				if freqBin >= EBands[i]-3 && freqBin <= EBands[i+1]+3 {
+				if freqBin >= edges[i]-3 && freqBin <= edges[i+1]+3 {
 					follower[i] += 0.5
 				}
 			}
-			if end > start && freqBin >= EBands[end] {
+			if end > start && freqBin >= edges[end] {
 				follower[end-1] += 2.0
 				if end-2 >= start {
 					follower[end-2] += 1.0
@@ -990,7 +970,7 @@ func DynallocAnalysisWithScratch(
 			}
 			followerVal := follower[i]
 
-			width := channels * ScaledBandWidth(i, 120<<lm)
+			width := channels * ((edges[i+1] - edges[i]) << lm)
 			if width <= 0 {
 				width = 1
 			}

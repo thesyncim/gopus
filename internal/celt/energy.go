@@ -82,8 +82,8 @@ func (d *Decoder) DecodeCoarseEnergy(nbBands int, intra bool, lm int) []CeltGLog
 }
 
 func (d *Decoder) decodeCoarseEnergyGLogInto(dst []celtGLog, nbBands int, intra bool, lm int) []celtGLog {
-	if nbBands > MaxBands {
-		nbBands = MaxBands
+	if nbBands > d.predStride() {
+		nbBands = d.predStride()
 	}
 	if nbBands < 0 {
 		nbBands = 0
@@ -186,8 +186,8 @@ func (d *Decoder) decodeCoarseEnergyRangeGLog(start, end int, intra bool, lm int
 	if start < 0 {
 		start = 0
 	}
-	if end > MaxBands {
-		end = MaxBands
+	if end > d.predStride() {
+		end = d.predStride()
 	}
 	if end <= start {
 		return
@@ -313,8 +313,8 @@ func (d *Decoder) decodeFineEnergyGLogRange(energies []celtGLog, start, end int,
 	if start < 0 {
 		start = 0
 	}
-	if end > MaxBands {
-		end = MaxBands
+	if end > d.predStride() {
+		end = d.predStride()
 	}
 	if end > len(extraQuant) {
 		end = len(extraQuant)
@@ -359,8 +359,8 @@ func (d *Decoder) DecodeEnergyRemainder(energies []celtGLog, nbBands int, remain
 	if d.rangeDecoder == nil {
 		return
 	}
-	if nbBands > MaxBands {
-		nbBands = MaxBands
+	if nbBands > d.predStride() {
+		nbBands = d.predStride()
 	}
 	if nbBands > len(remainderBits) {
 		nbBands = len(remainderBits)
@@ -429,8 +429,8 @@ func (d *Decoder) decodeEnergyFinaliseGLogRange(start, end int, energies []celtG
 	if d.rangeDecoder == nil {
 		return
 	}
-	if end > MaxBands {
-		end = MaxBands
+	if end > d.predStride() {
+		end = d.predStride()
 	}
 	if start < 0 {
 		start = 0
