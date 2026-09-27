@@ -672,7 +672,7 @@ helpers pair fixed-point Go with the float libopus fixture. Its failures remain
 unresolved diagnostics and are not counted as passing or waived parity cases.
 Native AMD64 at `fe0f867d` passes 5,670 fixed-encode nodes in both SIMD and
 nosimd without failures or skips. This capture predates the scoped forced-CELT
-VoIP addition at `5911071b`, which awaits native confirmation. The complete
+VoIP addition, which awaits native confirmation. The complete
 six-row performance table below remains at `1e2dbe77`; no `6ce253b2` or VoIP
 performance claim is available.
 
