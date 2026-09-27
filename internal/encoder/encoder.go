@@ -1026,15 +1026,24 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		e.bitrate = int32(bitsToBitrateFs(cbrBytes*8, sampleRate, frameSize))
 		cbrMaxDataBytes = max(1, cbrBytes)
 	}
-	effBitrate := int(e.bitrate)
+	primaryBitrate := e.bitrate
+	encodingBitrate := primaryBitrate
+	dredBitrate := 0
 	if e.dredEncodingActive() {
 		if plan, ok := e.computeDREDEmissionPlan(frameSize); ok {
-			effBitrate -= int(plan.bitrate)
-			if effBitrate < 0 {
-				effBitrate = 0
+			dredBitrate = int(plan.bitrate)
+			encodingBitrate -= plan.bitrate
+			if encodingBitrate < 1 {
+				encodingBitrate = 1
 			}
 		}
 	}
+	// libopus reserves DRED bitrate before its channel and bandwidth decisions
+	// (src/opus_encoder.c:1337-1338). Keep the pre-reservation budget separately
+	// for packet repacketization, while the selected primary mode uses the reduced
+	// per-frame bitrate through primary frame encoding.
+	e.bitrate = encodingBitrate
+	effBitrate := int(encodingBitrate)
 	if cbrMaxDataBytes < 3 || effBitrate < 3*frameRate*8 ||
 		(frameRate < 50 && (cbrMaxDataBytes*frameRate < 300 || effBitrate < 2400)) {
 		pkt, err := e.emitLowSpacePacket(frameSize, maxDataBytes, cbrMaxDataBytes, effBitrate)
@@ -1134,23 +1143,6 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		e.updateFrameActivity(vadPCM, isSilence, actualMode)
 	}
 
-	encodingBitrate := e.bitrate
-	dredBitrate := 0
-	if e.dredEncodingActive() {
-		if dredPlan, ok := e.computeDREDEmissionPlan(frameSize); ok {
-			dredBitrate = int(dredPlan.bitrate)
-			// Reserve DRED bytes from the primary encoder's bitrate budget.
-			// libopus opus_encoder.c (line 1338) reduces st->bitrate_bps by
-			// dred_bitrate_bps before passing it to all three primary modes
-			// (SILK/Hybrid/CELT). The reduced bitrate then flows into each
-			// mode's compute_vbr step, shrinking the primary-frame target.
-			encodingBitrate -= int32(dredPlan.bitrate)
-			if encodingBitrate < 1 {
-				encodingBitrate = 1
-			}
-		}
-	}
-
 	var frameData []byte
 	var packet []byte
 	var err error
@@ -1178,7 +1170,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		packet, err = e.encodeMultiFramePacket(framePCM, vadPCM, multiFramePacket{
 			mode:            actualMode,
 			frameSize:       frameSize,
-			originalBitrate: int(e.bitrate),
+			originalBitrate: int(primaryBitrate),
 			encodingBitrate: int(encodingBitrate),
 			dredBitrate:     dredBitrate,
 			dredExtraDelay:  dredExtraDelay,
@@ -1189,8 +1181,6 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 			toCELT:          transitionToCELT,
 		})
 	} else {
-		originalBitrate := e.bitrate
-		e.bitrate = encodingBitrate
 		dredNoDecision := actualMode != ModeCELT && e.dredEncodingActive() && !e.lastOpusVADValid
 		var frame codedFrame
 		frame, err = e.encodeFrameNative(framePCM, frameRequest{
@@ -1203,12 +1193,14 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 			redundancy:   redundancy,
 			celtToSILK:   celtToSILK,
 		})
-		e.bitrate = originalBitrate
 		if err == nil && dredNoDecision {
 			e.backfillDREDActivityForFrame(frameSize, e.silkMode.SignalType != 0)
 		}
 		frameData, packetBW, silkDTX = frame.data, frame.bw, frame.dtx
 	}
+	// Primary encoding uses the reserved rate; packet assembly, DRED sizing,
+	// and CBR/CVBR padding use the original per-frame budget.
+	e.bitrate = primaryBitrate
 	if err != nil {
 		return nil, err
 	}
@@ -2954,6 +2946,9 @@ func (e *Encoder) encodeMultiFramePacket(pcm, vadPCM []opusRes, p multiFramePack
 
 	stereo := e.packetStereoForMode(mode)
 	if dredActive {
+		// DRED plan and extension sizing use the original packet budget. The
+		// primary frames above use p.encodingBitrate after reservation.
+		e.bitrate = int32(p.originalBitrate)
 		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, mode, packetBW, frameSize, tocFrameSize, firstFrameMaxBytes, stereo, !sameSize, qextExtensions[:qextExtensionCount]); err != nil {
 			return nil, err
 		} else if ok {
