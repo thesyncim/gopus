@@ -161,9 +161,10 @@ func computeGenericGRU(inputWeights, recurrentWeights *LinearLayer, state, in []
 	}
 	computeActivation(h, h, n, activationTanh)
 	for i := range n {
-		// libopus: "h[i] = z[i]*state[i] + (1-z[i])*h[i]". clang rounds (1-z)*h
-		// first then fuses the leading product as fma(z, state, (1-z)*h).
-		h[i] = fma32(z[i], state[i], (1-z[i])*h[i])
+		// libopus dnn/nnet.c:compute_generic_gru rounds (1-z)*h before
+		// fusing z*state into it. Keep that rounded product explicit so Go
+		// does not select z*state as the non-fused product.
+		h[i] = fma32(z[i], state[i], noFMA32Mul(1-z[i], h[i]))
 		state[i] = h[i]
 	}
 }
