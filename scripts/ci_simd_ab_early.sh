@@ -269,7 +269,7 @@ for mode in simd nosimd; do
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" GOPUS_DRED_AUDIO_QUALITY=1 go test -json \
     -tags "gopus_dred${feature_scalar_tag}" . ./internal/lpcnetplc \
-    -run '^Test(DREDLongLossPCMMatchesLibopusRawBits|DREDLongSequenceAllDecodedPCMMatchesLibopusRawBits|DecoderCELTNeuralPLCAPIRatesMatchesLibopusRawBits|DREDBurgSelectedCFirstLossRawBits|DREDPredictorSelectedCFirstLossRawBits|ExplicitDRED.*Quality.*SixtyPercentLoss)$' \
+    -run '^Test(DREDLowDelayReferenceOffsetAgainstLibopus|DREDLongLossPCMMatchesLibopusRawBits|DREDLongSequenceAllDecodedPCMMatchesLibopusRawBits|DecoderCELTNeuralPLCAPIRatesMatchesLibopusRawBits|DREDBurgSelectedCFirstLossRawBits|DREDPredictorSelectedCFirstLossRawBits|ExplicitDRED.*Quality.*SixtyPercentLoss)$' \
     -count=1 -timeout=10m
 
   run_phase "candidate-$mode-strict-cbr" \
@@ -282,23 +282,25 @@ run_phase build-baseline-test-binary \
   go test -c -pgo=auto -o "$artifact_root/baseline-default-root.test" .
 
 run_profile() {
-  local side="$1" binary="$2" profile="$3" checkout
+  local side="$1" binary="$2" profile="$3" workload="$4" benchmark="$5" checkout
   if [[ "$side" == baseline ]]; then checkout="$baseline_root"; else checkout="$candidate_root"; fi
-  run_phase "$side-callerbuffer-cpu-profile" \
+  run_phase "$side-$workload-cpu-profile" \
     run_in_checkout "$checkout" env "$binary" \
       -test.run '^$' \
-      -test.bench '^BenchmarkEncoderEncode_CallerBuffer$' \
+      -test.bench "$benchmark" \
       -test.benchtime=3s -test.count=1 -test.cpu=1 -test.benchmem \
       -test.cpuprofile="$profile"
   if [[ ! -s "$profile" ]]; then
-    printf 'missing CPU profile: %s\n' "$profile" >> "$artifact_root/$side-callerbuffer-cpu-profile.log"
+    printf 'missing CPU profile: %s\n' "$profile" >> "$artifact_root/$side-$workload-cpu-profile.log"
     overall_status=1
   fi
 }
 
 if [[ -x "$artifact_root/baseline-default-root.test" && -x "$artifact_root/candidate-simd-root.test" && -x "$artifact_root/candidate-nosimd-root.test" ]]; then
-  run_profile baseline "$artifact_root/baseline-default-root.test" "$artifact_root/baseline-callerbuffer.cpu"
-  run_profile candidate-simd "$artifact_root/candidate-simd-root.test" "$artifact_root/candidate-simd-callerbuffer.cpu"
+  run_profile baseline "$artifact_root/baseline-default-root.test" "$artifact_root/baseline-callerbuffer.cpu" callerbuffer '^BenchmarkEncoderEncode_CallerBuffer$'
+  run_profile candidate-simd "$artifact_root/candidate-simd-root.test" "$artifact_root/candidate-simd-callerbuffer.cpu" callerbuffer '^BenchmarkEncoderEncode_CallerBuffer$'
+  run_profile baseline "$artifact_root/baseline-default-root.test" "$artifact_root/baseline-hybrid-decode.cpu" hybrid-decode '^BenchmarkDecoderDecode_Hybrid$'
+  run_profile candidate-simd "$artifact_root/candidate-simd-root.test" "$artifact_root/candidate-simd-hybrid-decode.cpu" hybrid-decode '^BenchmarkDecoderDecode_Hybrid$'
 
   for sample in 1 2 3 4; do
     if (( sample % 2 == 1 )); then sides=(baseline candidate-simd); else sides=(candidate-simd baseline); fi

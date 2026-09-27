@@ -22,6 +22,9 @@ const (
 	dredQualitySampleRate = 48000
 	dredQualityFrameSize  = 960
 	dredQualityChannels   = 1
+	// OPUS_GET_LOOKAHEAD returns Fs/400 for RESTRICTED_LOWDELAY; the quality
+	// reference follows the C decoder output timeline after this encoder delay.
+	dredQualityLookaheadSamples = dredQualitySampleRate / 400
 )
 
 type dredQualityRun struct {
@@ -74,6 +77,10 @@ func TestExplicitDREDImprovesConcealedAudioQualityAtSixtyPercentLoss(t *testing.
 
 	plc := decodeDREDQualityPackets(t, packets, reference, decoderBlob, false)
 	dred := decodeDREDQualityPackets(t, packets, reference, decoderBlob, true)
+	zeroOffsetReference := dredQualityLossReferenceAtOffset(t, reference, len(packets), 0)
+	t.Logf("uncompensated zero-offset envelope diagnostic: PLC=%.5f DRED=%.5f",
+		dredQualityEnvelope(zeroOffsetReference, plc.lossDecoded, dredQualitySampleRate),
+		dredQualityEnvelope(zeroOffsetReference, dred.lossDecoded, dredQualitySampleRate))
 	if dred.dredFrames == 0 {
 		t.Fatal("explicit DRED did not recover any lost frames")
 	}
@@ -264,10 +271,8 @@ func (r *dredQualityRun) appendDecodedFrame(reference []float32, frame int, deco
 	if !lost {
 		return
 	}
-	start := frame * dredQualityFrameSize * dredQualityChannels
-	end := start + dredQualityFrameSize*dredQualityChannels
-	if start >= 0 && end <= len(reference) {
-		r.lossReference = append(r.lossReference, reference[start:end]...)
+	if refFrame, ok := dredQualityFrameReference(reference, frame); ok {
+		r.lossReference = append(r.lossReference, refFrame...)
 		r.lossDecoded = append(r.lossDecoded, decoded...)
 		r.lossFrames++
 		if dred {
@@ -276,6 +281,19 @@ func (r *dredQualityRun) appendDecodedFrame(reference []float32, frame int, deco
 			r.fallbackFrames++
 		}
 	}
+}
+
+func dredQualityFrameReference(reference []float32, frame int) ([]float32, bool) {
+	return dredQualityFrameReferenceWithOffset(reference, frame, dredQualityLookaheadSamples)
+}
+
+func dredQualityFrameReferenceWithOffset(reference []float32, frame, offset int) ([]float32, bool) {
+	start := (frame*dredQualityFrameSize - offset) * dredQualityChannels
+	end := start + dredQualityFrameSize*dredQualityChannels
+	if start < 0 || end > len(reference) {
+		return nil, false
+	}
+	return reference[start:end], true
 }
 
 func dredQualityPacketDelivered(frame int) bool {

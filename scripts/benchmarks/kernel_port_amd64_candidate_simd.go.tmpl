@@ -2,7 +2,10 @@
 
 package celt
 
-import "testing"
+import (
+	"simd/archsimd"
+	"testing"
+)
 
 var kernelPortBenchAMD64Recip [4]float32
 
@@ -18,7 +21,7 @@ func BenchmarkPortAMD64PVQRcpApprox4(b *testing.B) {
 	iteration := 0
 	for b.Loop() {
 		slot := iteration & (kernelPortBenchAMD64Batch - 1)
-		x86RcpApprox4(&dst[slot], &src[slot])
+		archsimd.LoadFloat32x4Array(&src[slot]).Reciprocal().StoreArray(&dst[slot])
 		iteration++
 	}
 	var result [4]float32

@@ -93,13 +93,13 @@ the SSE and later dispatch slots to SSE even/odd accumulators, including arch
 4. Go uses the existing SSE-order kernel only in the amd64 SIMD
 build. A live selected-C `celt_fir` oracle checks all 160 outputs with order 16
 and nonzero seeds; local ARM64 ordinary/SIMD/nosimd paths match exactly with
-zero warm allocations. The native 16-frame full-prefix state gate remains
-required. Native `08a11a0f` emitted-feature and DNN-pitch checks pass, but the
-full-state oracle has frame-0 mismatches in `exc_buf[352]` (Go `42a573ac`, C
-`42a573bc`), `lp_buf[353]` (Go `44f8dc89`, C `44f8dc8c`), and
-`xcorr_features[188]` (Go `3828c70a`, C `3828c704`); frames 3–15 pass. Native
-nosimd neural checks pass 224 nodes with three existing skips. Native x86
-confirmation of the FIR bridge remains pending.
+zero warm allocations. The native 16-frame full-prefix state gate passes in
+capture `36311118585` at `6c730f47`: AMD64 SIMD neural analysis has 242 passing
+events, three existing skips, and zero failures. This includes the full-state
+oracle and selected-C FIR checks. The earlier `08a11a0f` and `6ce253b2`
+artifacts recorded frame-0 differences in `exc_buf[352]`, `lp_buf[353]`, and
+`xcorr_features[188]`; the `6c730f47` capture passes all 16 frames. Native
+nosimd neural checks pass 224 nodes with three existing skips.
 
 LPCNet at `9faa9bc1` matches all 224 raw correlations, DNN pitch, and 36 feature
 bits across 40 frames in ordinary, SIMD, and nosimd ARM64 builds, with zero warm
@@ -109,19 +109,33 @@ quality history. At `e53ca99c`, the full timeline covers all 220 slots: 100
 received frames and 120 concealed frames, including ordinary PLC for the final
 lost packet without a recovery carrier. Every PCM bit, frame index/kind, return
 length, and final range matches the selected C decoder in all three ARM64
-modes. The original 119-loss quality splice retains its input and behavior.
+modes. The 119 loss frames and decoded PCM splice remain unchanged; the clean
+reference frame indices account for encoder lookahead.
 Thirty mono/stereo cases cover five API rates and 20/40/60 ms nil/recovery
 requests, with zero warm allocations during active carrier/loss/recovery
-cycles. Both explicitly enabled sustained-loss quality gates pass unchanged;
-Go-versus-C concealed PCM has correlation and RMS ratio 1.0. Native AMD64 at
-`08a11a0f` passes the full 220-slot and 119-loss raw-bit gates in nosimd. SIMD
-first differs on Intel Xeon 8573C at frame 27 (kind 2, plain PLC fallback),
-sample 0 (`3ca3213b` versus C `3ca32103`); the EPYC 7763 capture at `6ce253b2`
-first differs at frame 47, also kind 2 (`3de93897` versus C `3de93898`). The two nosimd
-quality-improvement gates fail even though selected C and Go DRED PCM matches
-exactly; the selected C DRED envelope is 0.29208 versus PLC 0.28694. The SIMD
-raw-PCM and quality-parity gates also fail. These quality failures remain open
-with unchanged thresholds.
+cycles. Both explicitly enabled sustained-loss quality gates pass with their
+thresholds unchanged;
+Go-versus-C concealed PCM has correlation and RMS ratio 1.0. The quality
+references account for the confirmed restricted-low-delay encoder delay: live
+C `OPUS_GET_LOOKAHEAD` returns 120 samples at 48 kHz, and the mode-paired
+DRED-enabled C helper's no-loss decode of the same 220 generated packets has
+its best source alignment at 120 samples (correlation 0.953347 versus
+-0.277066 at zero offset). Both quality builders shift only their clean reference slices; decoded PCM, packet
+bytes, loss schedule, frame counts, final ranges, and thresholds are unchanged.
+On M4 Max / Go 1.27.0 / Apple clang 21.0.0, ordinary and nosimd use scalar
+Go and scalar C helpers; their zero-offset diagnostic PLC/DRED envelopes
+0.26871/0.29676 become 0.50838/0.71983 with the source offset. The SIMD Go
+lane pairs with the ARM64 NEON C reference; its envelopes change from
+0.24121/0.28734 to 0.55517/0.70999. The two enabled quality gates pass in all
+three modes, and the full 220-slot and 119-loss raw-bit selectors still pass
+unchanged. In native capture `36311118585` at `6c730f47`, SIMD DRED passes 41
+events including the full sequence, loss, and zero-offset quality gates;
+nosimd raw PCM also passes both sequences. The nosimd quality selector has two
+zero-offset quality failures plus its aggregate package failure (`.29208` DRED
+versus `.28694` PLC envelope). The native rerun with the C-confirmed 120-sample
+reference offset is pending. Earlier `08a11a0f` and `6ce253b2` captures recorded
+SIMD raw-PCM mismatches at plain-PLC fallback frames 27 and 47; the `6c730f47`
+raw-bit gates pass, so those earlier mismatches are not current failures.
 
 Fixed-point C references at `67731222` pair scalar and SIMD feature builds,
 validate archive/header/compiler identity, and reject mismatched neural/QEXT
@@ -203,13 +217,16 @@ decode/FEC (11,774 nodes), fixed SILK API (128), QEXT (103), custom modes
 (384 plus seven existing skips), multistream strict decode (3,777), public
 valid decode (1,441), native-rate/DTX (376), low delay (121), and multistream
 encode budgets (181). Direct neural kernels and initial DRED latents pass.
-SIMD LPCNet analysis has two failing leaves (1920/2880 samples): the first
-pitch feature differs despite all 16 same-input PitchDNN stage records
-matching. SIMD DRED and the nosimd quality-improvement failures above remain
-open. With the two source-audited multistream surround-trim API retirements
-recorded, the full comparator passes against the captured artifacts; all 16
-comparator unit tests pass. Fixture regeneration intentionally exits nonzero.
-CI is not fully passing.
+This run records two SIMD LPCNet analysis leaves failing (1920/2880 samples):
+the first pitch feature differs despite all 16 same-input PitchDNN stage
+records matching. Its DRED quality measurements use zero-offset clean-reference
+windows; the C-confirmed 120-sample alignment and later native results are
+described below. The later `6c730f47` capture passes the LPCNet full-state and
+raw-DRED PCM gates; its remaining nosimd quality failures use the zero-offset
+reference. With the two source-audited multistream surround-trim API retirements
+recorded, the full artifact comparator passes against the captured artifacts;
+the 16 comparator unit tests also pass. Fixture regeneration intentionally
+exits nonzero. Native aligned nosimd quality results remain pending.
 
 [Native early run 36309916340](https://github.com/thesyncim/gopus/actions/runs/36309916340)
 at `08a11a0f` uses Intel Xeon 8573C, Go 1.27.1, and GCC 13.3.0. SIMD and
@@ -218,16 +235,22 @@ VoIP short/mixed/long/reset/low-space gates, with no failures or skips. Both
 lanes also pass 11,801 fixed stateful-decode events, fixed SILK 129, QEXT 104,
 and OSCE exact-PCM 36; DRED initial-latent gates pass eight events in each
 lane, and neural primitive gates pass 44 SIMD / 36 nosimd events. Nosimd neural
-analysis passes 224 nodes with three existing skips. The LPCNet full-state
-frame-0 differences and DRED quality/raw-PCM failures remain as detailed
-above. The early artifact is not a full CI pass.
+analysis passes 224 nodes with three existing skips. The full-state frame-0
+differences and DRED raw-PCM mismatch in this capture are superseded by the
+passing 16-frame and full raw-bit gates at `6c730f47`. The DRED quality figures
+in this artifact use zero-offset clean-reference windows; aligned native
+nosimd quality results remain pending. This early artifact is not a full CI
+pass.
 
-The latest completed benchmark phases at `1e2dbe77` supply six end-to-end
-rows and all 11 comparable AMD64 symbol rows on AMD EPYC 9V45 / Go 1.27.1.
-Four interleaved caller-buffer samples measure 51,667.5 → 44,372 ns/op
-(14.1% less time), zero allocations. Hybrid decode takes 6.1% more time.
-Each ratio compares the same run and workload; captures on different CPUs
-do not establish revision-to-revision gains.
+The latest six-workload native E2E capture is run `36311118585` at
+`6c730f47`, on AMD EPYC 7763 / Go 1.27.1 / GCC 13.3.0. It uses four
+interleaved 500 ms samples for each workload and build, with zero allocations
+in all samples; the medians and ranges are below. The complete direct AMD64
+symbol capture at `1e2dbe77` supplies 11 comparable rows on AMD EPYC 9V45 / Go
+1.27.1. Its four interleaved caller-buffer samples measure 51,667.5 → 44,372
+ns/op (14.1% less time), zero allocations; Hybrid decode takes 6.1% more time.
+Each ratio compares the same run and workload; captures on different CPUs do
+not establish revision-to-revision gains.
 
 A separate early capture at `fe0f867d`, [run 36308001239](https://github.com/thesyncim/gopus/actions/runs/36308001239),
 measures caller-buffer encoding on AMD EPYC 7763 / Go 1.27.1. Four interleaved
@@ -247,7 +270,7 @@ assembly `8ac93c85` has a 95,858.5 ns/op median (95,794–96,701), and SIMD
 All samples also use 0 B/op and 0 allocs/op. These early measurements are
 caller-buffer only, on separate CPUs, and do not establish a cross-host
 revision gain or a VoIP-specific performance result. The complete six-row
-table remains at `1e2dbe77`; the early native script now collects four
+table remains at `1e2dbe77`; the early native script collects four
 interleaved 500 ms samples for all six E2E benchmarks across baseline, SIMD,
 and nosimd binaries.
 
@@ -1133,6 +1156,48 @@ Hybrid decode takes 6.1% more time than assembly; CELT and SILK decode take
 phases. The EPYC 7763 capture uses a different CPU and establishes no revision
 comparison.
 
+### Completed native end-to-end benchmark phases at 08a11a0f
+
+The completed full artifact `10928708319` for [run
+36309916340](https://github.com/thesyncim/gopus/actions/runs/36309916340)
+compares assembly `8ac93c85` with candidate SIMD/nosimd `08a11a0f` on Intel
+Xeon 8573C, Go 1.27.1, GCC 13.3, GOAMD64=v1 with runtime AVX2/FMA. Each row is
+the median and range from three 300 ms samples at `-cpu=1`; every sample
+reports 0 B/op and 0 allocs/op. It is separate from the full six-row table and
+11 comparable AMD64 symbol rows at `1e2dbe77`; the 53-row inventory retains
+each symbol's recorded revision.
+
+| Fixture | Old assembly | Go SIMD | `nosimd` | SIMD vs assembly |
+|---|---:|---:|---:|---:|
+| CELT decode | 23,595 (23,557–23,622) | 14,656 (14,651–14,668) | 21,455 (21,435–21,468) | 37.89% less time |
+| Hybrid decode | 30,034 (30,034–30,159) | 26,479 (26,323–27,025) | 32,178 (32,172–32,191) | 11.84% less time |
+| SILK decode | 21,091 (21,051–21,116) | 19,243 (19,240–19,292) | 20,446 (20,421–20,611) | 8.76% less time |
+| Caller-buffer encode | 95,334 (95,219–95,657) | 64,120 (63,981–64,372) | 98,026 (97,801–98,043) | 32.74% less time |
+| VoIP encode | 100,419 (100,316–100,731) | 69,433 (69,177–69,449) | 103,420 (103,319–104,235) | 30.86% less time |
+| Low-delay encode | 94,922 (94,780–94,969) | 64,014 (63,850–64,774) | 97,760 (97,517–99,567) | 32.56% less time |
+
+### Native early end-to-end capture at 6c730f47
+
+[Run 36311118585](https://github.com/thesyncim/gopus/actions/runs/36311118585)
+compares assembly `8ac93c85` with candidate SIMD/nosimd `6c730f47` on AMD EPYC
+7763, Go 1.27.1, GCC 13.3, GOAMD64=v1 with runtime AVX2/FMA. Each row is the
+median and range from four interleaved 500 ms samples at `-cpu=1`; all samples
+report 0 B/op and 0 allocs/op. This early artifact records the E2E phases; it
+does not report the full A/B workflow result.
+
+| Fixture | Old assembly | Go SIMD | `nosimd` | SIMD vs assembly |
+|---|---:|---:|---:|---:|
+| CELT decode | 20,299 (20,174–20,430) | 15,448 (15,399–15,564) | 22,136 (22,047–22,236) | 23.9% less time |
+| Hybrid decode | 28,378 (28,323–28,452) | 29,283.5 (29,203–29,290) | 35,398 (35,293–35,639) | 3.2% more time |
+| SILK decode | 22,660 (22,534–22,767) | 21,704.5 (21,620–21,720) | 23,060 (22,961–23,192) | 4.2% less time |
+| Caller-buffer encode | 91,919 (91,797–92,380) | 71,867 (71,573–72,034) | 114,042 (113,945–114,143) | 21.8% less time |
+| VoIP encode | 98,407 (98,068–98,882) | 77,797 (77,475–77,865) | 120,566.5 (120,336–120,734) | 20.9% less time |
+| Low-delay encode | 91,222.5 (90,783–92,064) | 71,331 (71,110–71,619) | 113,596.5 (113,460–113,959) | 21.8% less time |
+
+A separate caller-buffer-only capture in the same run has four 500 ms samples:
+assembly `8ac93c85` measures 91,641.5 ns/op median and SIMD `6c730f47` measures
+71,613 ns/op, with zero allocations in each sample.
+
 ### ARM64 correctly rounded FMA
 
 At `3e93446d`, public `opusmath.FMA32` uses a non-inlined FMADDS/RET on ARM64.
@@ -1221,27 +1286,35 @@ comparable per-call Go operation and are marked n/a with the reason.
 
 ## Native AMD64 parity and quality comparison
 
-Run [36248080529](https://github.com/thesyncim/gopus/actions/runs/36248080529)
-at `e6f2b332` passes all 19 strict CBR cases in ordinary, SIMD and `nosimd`:
-zero packet differences and zero final-range differences out of 2,175 per
-mode. The per-frame encode differential sweep passes. The dedicated Hybrid
-SWB stereo decode reproducer also passes. The full SIMD suite has 1,819 failing
-leaf cases, including the different stereo PCM mismatch and the stateful,
-multistream, projection and exceptional-float cases listed above.
+The complete native default-tag run [36296680326](https://github.com/thesyncim/gopus/actions/runs/36296680326)
+at `1e2dbe77` passes 27,548 nodes with 25 existing skips and no failures. The
+captured artifact comparator passes; the comparator's 16 unit tests also pass.
+This revision supplies six end-to-end rows and 11 comparable AMD64 symbol rows
+in the performance inventory below. Native feature evidence at `08a11a0f` includes
+5,718 fixed-encode events and 11,801 fixed stateful-decode events in both
+SIMD/nosimd lanes, plus fixed SILK 129, QEXT 104, OSCE exact-PCM 36, and DRED
+initial-latent eight per lane. Its early artifact is not a full CI pass.
 
-The native A/B job remains red. Its coverage comparison reports 105 baseline
-sub-48 kHz names absent because the names carry corrected 2.5/5 ms durations,
-and one fixture fallback skipped. These are explicit evidence gaps; a baseline
-failure or equal failure count is not a correctness result. Fixture-honesty
-and raw-bit xcorr failures remain visible and are not waived.
+Native capture `36311118585` at `6c730f47` passes the LPCNet full-state SIMD
+oracle, including all 16 frames, and resolves the earlier `08a11a0f` / `6ce253b2`
+state differences. Its DRED SIMD lane passes 41 events, including exact
+119-loss and full 220-frame raw PCM plus zero-offset quality gates. Nosimd
+passes both raw PCM sequences, while its zero-offset quality selector has two
+failing leaves and one aggregate package failure. Native nosimd quality with
+the C-confirmed 120-sample alignment remains pending. The earlier
+`e6f2b332` coverage/name and fixture status is historical and does not describe
+the `1e2dbe77` comparator.
 
 ## Measurement follow-up
 
 The 53-row inventory retains each measured revision and fixture. All 51
 comparable routines have direct allocation measurements; startup CPU helpers
-are not comparable per-call operations. The newest native checkpoint at
-`1e2dbe77` covers all six end-to-end fixtures and eleven comparable AMD64
-symbol rows. Long CELT/SILK correlations, tone LPC correlation, inner products,
-and PVQ search remain direct performance costs on this EPYC capture. Hybrid
-decode is 6.1% slower than assembly. The six public workloads allocate zero in
-steady state. Measurements for subsequent parity fixes remain pending.
+are not comparable per-call operations. The complete six-row end-to-end table
+and 11 comparable AMD64 symbol rows at `1e2dbe77` remain labeled with their
+EPYC 9V45 capture; the 53 symbol rows retain their individual revisions. The
+latest early six-workload capture at `6c730f47` on EPYC 7763 and the completed
+`08a11a0f` capture on Xeon 8573C are listed below. Long CELT/SILK correlations,
+tone LPC correlation, inner products, and PVQ search remain direct performance
+costs in the EPYC capture. The 6c measurement includes the selected-C FIR
+bridge; reference-alignment test and report changes are outside the captured
+runtime.
