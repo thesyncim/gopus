@@ -59,14 +59,18 @@ SIMD/nosimd lane, with no failures.
 
 LPCNet at `9faa9bc1` matches all 224 raw correlations, DNN pitch, and 36 feature
 bits across 40 frames in ordinary, SIMD, and nosimd ARM64 builds, with zero warm
-stage allocations. At `3eb38788`, selected-C Burg, predictor, and neural fade arithmetic
-matches all 119 concealed mono 20 ms frames in a 220-packet history bit for bit.
+stage allocations. At `3eb38788`, selected-C Burg, predictor, and neural fade
+arithmetic matches all 119 concealed mono 20 ms frames in the sustained-loss
+quality history. At `e53ca99c`, the full timeline covers all 220 slots: 100
+received frames and 120 concealed frames, including ordinary PLC for the final
+lost packet without a recovery carrier. Every PCM bit, frame index/kind, return
+length, and final range matches the selected C decoder in all three ARM64
+modes. The original 119-loss quality splice retains its input and behavior.
 Thirty mono/stereo cases cover five API rates and 20/40/60 ms nil/recovery
-requests, with zero warm allocations during active carrier/loss/recovery cycles. All three ARM64 modes pass these exact gates and the explicitly
-enabled sustained-loss quality gate (correlation and RMS ratio both 1.0), with
-no tolerance changes. This loss-only comparison does not establish exactness
-for the 101 received frames in the same history; that investigation remains
-open. Native AMD64 confirmation also remains open.
+requests, with zero warm allocations during active carrier/loss/recovery
+cycles. Both explicitly enabled sustained-loss quality gates pass unchanged;
+Go-versus-C concealed PCM has correlation and RMS ratio 1.0. Native AMD64
+confirmation of these expanded gates remains open.
 
 Fixed-point C references at `67731222` pair scalar and SIMD feature builds,
 validate archive/header/compiler identity, and reject mismatched neural/QEXT
@@ -547,12 +551,13 @@ each ARM lane: 78 exact emitted payload/index/offset cases and two exact
 internal suites pass 309/309 per lane; ordinary purego also passes those
 internal checks and all 105 focused public DRED nodes. Native AMD64 SIMD at `0330c9ca` has four failing direct neural
 oracle leaves. Local LPCNet stage fixes at `9faa9bc1` pass ordinary/SIMD/nosimd;
-the selected-C Burg/predictor/fade gate matches all 119 concealed mono frames
-from a 220-packet history. Thirty mono/stereo cases match exact nil/recovery
-PCM at five API rates and 20/40/60 ms durations in ordinary, SIMD, and nosimd.
-The sustained-loss quality gate passes with correlation/RMS ratio 1.0 in all
-three modes. The 101 received frames in that long history and native AMD64
-confirmation remain under investigation.
+the full-sequence gate at `e53ca99c` matches all 220 mono time slots: 100
+received and 120 concealed frames, including trailing PLC. PCM bits, frame
+kinds, return counts, and final ranges match selected C in ordinary, SIMD, and
+nosimd. Thirty mono/stereo rate/duration cases match exact nil/recovery PCM
+with zero warm allocations. Both enabled sustained-loss quality gates pass;
+the original 119-loss comparison has correlation/RMS ratio 1.0. Native AMD64
+confirmation remains open.
 
 Fixed-point references at `67731222` pair feature and instruction variants.
 The 162 integer CELT kernel configurations (five captured input payloads each)

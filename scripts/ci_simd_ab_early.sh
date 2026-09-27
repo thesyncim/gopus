@@ -255,7 +255,7 @@ for mode in simd nosimd; do
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" GOPUS_DRED_AUDIO_QUALITY=1 go test -json \
     -tags "gopus_dred${feature_scalar_tag}" . ./internal/lpcnetplc \
-    -run '^Test(DREDLongLossPCMMatchesLibopusRawBits|DecoderCELTNeuralPLCAPIRatesMatchesLibopusRawBits|DREDBurgSelectedCFirstLossRawBits|DREDPredictorSelectedCFirstLossRawBits|ExplicitDRED.*Quality.*SixtyPercentLoss)$' \
+    -run '^Test(DREDLongLossPCMMatchesLibopusRawBits|DREDLongSequenceAllDecodedPCMMatchesLibopusRawBits|DecoderCELTNeuralPLCAPIRatesMatchesLibopusRawBits|DREDBurgSelectedCFirstLossRawBits|DREDPredictorSelectedCFirstLossRawBits|ExplicitDRED.*Quality.*SixtyPercentLoss)$' \
     -count=1 -timeout=10m
 
   run_phase "candidate-$mode-strict-cbr" \
