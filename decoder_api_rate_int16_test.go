@@ -52,6 +52,7 @@ func TestDecodeInt16PLCNoSoftClipMatchesLibopus(t *testing.T) {
 			got = append(got, frame[:n*channels]...)
 
 			assertAPIRateQualityInt16(t, got, want, sampleRate, channels, "high-gain int16 PLC")
+			assertAPIRateInt16Exact(t, got, want, "high-gain int16 PLC")
 		})
 	}
 }
@@ -100,6 +101,7 @@ func TestDecodeInt16OverlongPLCRequestAPIRatePCMMatchesLibopus(t *testing.T) {
 			got = append(got, frame[:n*channels]...)
 
 			assertAPIRateQualityInt16PLC(t, got, want, sampleRate, channels, true, "CELT overlong int16 PLC request")
+			assertAPIRateInt16Exact(t, got, want, "CELT overlong int16 PLC request")
 		})
 	}
 }
@@ -145,6 +147,7 @@ func TestDecodeInt16APIRatePCMMatchesLibopus(t *testing.T) {
 						got = append(got, frame[:n*channels]...)
 					}
 					assertAPIRateQualityInt16(t, got, want, sampleRate, channels, tc.name+" api-rate int16 decode")
+					assertAPIRateInt16Exact(t, got, want, tc.name+" api-rate int16 decode")
 				})
 			}
 		}
@@ -189,6 +192,7 @@ func TestDecodeInt16PacketAfterShortPLCAPIRateMatchesLibopus(t *testing.T) {
 					got = append(got, frame[:n*channels]...)
 				}
 				assertAPIRateQualityInt16(t, got, want, sampleRate, channels, "packet-short-plc-packet int16 decode")
+				assertAPIRateInt16Exact(t, got, want, "packet-short-plc-packet int16 decode")
 			})
 		}
 	}

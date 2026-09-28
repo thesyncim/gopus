@@ -1,24 +1,18 @@
 package gopus
 
-// int16 PLC-vs-float32 parity: mode × channels × loss-pattern.
+// int16 PLC parity: mode × channels × loss-pattern.
 //
 // Two complementary assertions for DecodeInt16 packet-loss concealment:
 //
 //  1. libopus oracle assertion: DecodeInt16(nil,...) output matches
-//     libopus opus_decode(NULL,...) (int16) within the trusted near-exact bar
-//     (same bar as TestDecodeInt16APIRatePCMMatchesLibopus). libopus shares a
-//     single float PLC core for both decode and decode_float; the int16 output
-//     is float PLC + FLOAT2INT16 quantization (celt/float_cast.h). Both paths
-//     go through the identical concealment, so the int16 output is deterministic
-//     with respect to the float output modulo the well-understood arm64 1-ULP
-//     tail that the near-exact quality bar absorbs.
+//     libopus opus_decode(NULL,...) (int16) sample for sample. The reference
+//     archive matches the active float or fixed build and instruction lane.
 //
-//  2. self-consistency assertion: DecodeInt16(nil,...) == float32ToInt16(Decode(nil,...))
-//     for every loss-pattern frame. This asserts that the int16 path is strictly
-//     the float path + quantization and not an independent concealment branch
-//     (matches opus_decoder.c: opus_decode / opus_decode_float share the same
-//     inner decode then diverge only at the final sample-format conversion,
-//     FLOAT2INT16 / celt/float_cast.h, line ~53).
+//  2. Float-build self-consistency assertion:
+//     DecodeInt16(nil,...) == float32ToInt16(Decode(nil,...)). Fixed CELT and
+//     Hybrid compare each public output format with its matching libopus API:
+//     opus_decode uses RES2INT16(Q8), while opus_decode_float uses RES2FLOAT(Q8)
+//     and conversion ties need not round-trip (celt/arch.h).
 //
 // Loss patterns (applied after warmupCount good packets):
 //
@@ -29,7 +23,6 @@ package gopus
 //	trailing - loss at end, no recovery packet
 
 import (
-	"math"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -132,17 +125,56 @@ func plcInt16DecodeSteps(steps []plcInt16LossStep) []libopusAPIRateDecodeStep {
 	return out
 }
 
+// Fixed CELT and Hybrid expose different C conversions at the int16 and float
+// public boundaries. Compare each Go boundary with the matching selected-C
+// boundary on the same packet and PLC sequence (celt/arch.h: RES2INT16 and
+// RES2FLOAT), instead of asserting an invalid cross-format round trip.
+func assertPLCFormatsMatchSelectedC(t *testing.T, label string, sampleRate, channels, frameSize int, steps []plcInt16LossStep) {
+	t.Helper()
+	libopustest.RequireOracle(t)
+	libSteps := plcInt16DecodeSteps(steps)
+	wantF, err := decodeWithLibopusReferenceAPIRateFloat32Steps(sampleRate, channels, frameSize, libSteps)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "float PLC reference decode", err)
+	}
+	want16, err := decodeWithLibopusReferenceAPIRateInt16Steps(sampleRate, channels, frameSize, libSteps)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "int16 PLC reference decode", err)
+	}
+	decF := mustNewTestDecoder(t, sampleRate, channels)
+	dec16 := mustNewTestDecoder(t, sampleRate, channels)
+	bufF := make([]float32, frameSize*channels)
+	buf16 := make([]int16, frameSize*channels)
+	gotF := make([]float32, 0, len(wantF))
+	got16 := make([]int16, 0, len(want16))
+	for i, step := range steps {
+		nF, err := decF.Decode(step.packet, bufF)
+		if err != nil {
+			t.Fatalf("Decode step[%d]: %v", i, err)
+		}
+		n16, err := dec16.DecodeInt16(step.packet, buf16)
+		if err != nil {
+			t.Fatalf("DecodeInt16 step[%d]: %v", i, err)
+		}
+		if nF != n16 {
+			t.Fatalf("step[%d] sample count mismatch: float32=%d int16=%d", i, nF, n16)
+		}
+		gotF = append(gotF, bufF[:nF*channels]...)
+		got16 = append(got16, buf16[:n16*channels]...)
+	}
+	assertAPIRateQualityFloat32PLC(t, gotF, wantF, sampleRate, channels, true, label+" float PLC vs libopus")
+	assertAPIRateQualityInt16PLC(t, got16, want16, sampleRate, channels, true, label+" int16 PLC vs libopus")
+	assertAPIRateFloat32BitsExact(t, gotF, wantF, label+" float PLC vs libopus")
+	assertAPIRateInt16Exact(t, got16, want16, label+" int16 PLC vs libopus")
+}
+
 // TestDecodeInt16PLCModeChannelLossMatrixMatchesLibopus asserts that
 // DecodeInt16(nil,...) matches libopus opus_decode(NULL,...) across
 // mode {SILK,CELT,Hybrid} × channels {1,2} × loss-pattern {single, burst,
 // periodic, leading, trailing} at the 48 kHz API rate.
 //
-// The quality bar is the same trusted near-exact bar used by
-// TestDecodeInt16APIRatePCMMatchesLibopus: opus_compare MinQ=20 for 48 kHz
-// streams with ≥480 samples/channel of real content; corr/RMS near-exact for
-// PLC-dominated or sub-48k streams.  The arm64 1-ULP float tail that produces
-// ≤1 LSB int16 divergence on CELT/Hybrid is absorbed by the quality bar and
-// is not a defect (documented in arm64_celt_1ulp_drift memory).
+// Quality diagnostics accompany an exact selected-C int16 comparison for each
+// packet and loss sequence.
 func TestDecodeInt16PLCModeChannelLossMatrixMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 
@@ -161,12 +193,6 @@ func TestDecodeInt16PLCModeChannelLossMatrixMatchesLibopus(t *testing.T) {
 				name := mc.mode + "_ch" + itoaSmall(channels) + "_" + pat.name
 
 				t.Run(name, func(t *testing.T) {
-					if celtIntegerPLCActive && mc.mode == "celt" && pat.name != "leading" {
-						t.Skip("CELT PLC routes to the integer decoder under gopus_fixed_point (vs float oracle); see TestDecoderFixedPointCELTPLCParity")
-					}
-					if hybridIntegerPLCActive && mc.mode == "hybrid" && pat.name != "leading" {
-						t.Skip("Hybrid PLC routes to the integer decoder under gopus_fixed_point (vs float oracle); see TestDecodeDifferentialFixedPointPLC")
-					}
 					// Oracle: libopus int16.
 					libSteps := plcInt16DecodeSteps(steps)
 					want, err := decodeWithLibopusReferenceAPIRateInt16Steps(sampleRate, channels, frameSize, libSteps)
@@ -203,25 +229,26 @@ func TestDecodeInt16PLCModeChannelLossMatrixMatchesLibopus(t *testing.T) {
 						}
 					}
 					assertAPIRateQualityInt16PLC(t, got, want, sampleRate, channels, hasPLC, name+" int16 PLC vs libopus")
+					assertAPIRateInt16Exact(t, got, want, name+" int16 PLC vs libopus")
 				})
 			}
 		}
 	}
 }
 
-// TestDecodeInt16PLCEqualsFloat32PLCQuantized asserts that the int16 PLC path
-// is exactly the float32 PLC path quantized by the standard int16 converter.
+// TestDecodeInt16PLCEqualsFloat32PLCQuantized asserts the float-build int16 PLC
+// path is exactly the float32 PLC path quantized by the int16 converter. Fixed
+// CELT and Hybrid instead compare both public output formats exactly to their
+// matching selected-C API on the same packet-loss sequence.
 //
-// This verifies the libopus invariant that opus_decode and opus_decode_float share
-// a single inner decode + PLC engine, diverging only at the final sample-format
-// conversion (FLOAT2INT16 in celt/float_cast.h, ~line 53).  A separate int16
-// concealment branch would violate this invariant and break the parity matrix.
+// In the float build, opus_decode and opus_decode_float share the same PLC
+// output before FLOAT2INT16 conversion (opus_decoder.c).
 //
 // The test uses two fresh independent decoders with the same warm-up sequence so
 // both decoders hold identical state before the PLC step.  The float32 PLC output
 // is converted to int16 using float32ToInt16NoSoftClip — the same function that
 // DecodeInt16 uses internally — so the comparison is sample-for-sample exact
-// on all platforms including darwin/arm64 where the NEON VCVT rounding and the
+// on float builds including darwin/arm64 where the NEON VCVT rounding and the
 // scalar roundFloat32ToInt32Even can differ by ±1 LSB on half-integer inputs.
 func TestDecodeInt16PLCEqualsFloat32PLCQuantized(t *testing.T) {
 	const sampleRate = 48000
@@ -239,11 +266,9 @@ func TestDecodeInt16PLCEqualsFloat32PLCQuantized(t *testing.T) {
 				name := mc.mode + "_ch" + itoaSmall(channels) + "_" + pat.name
 
 				t.Run(name, func(t *testing.T) {
-					if celtIntegerPLCActive && mc.mode == "celt" {
-						t.Skip("CELT PLC routes to the integer decoder under gopus_fixed_point, diverging from float; see TestDecoderFixedPointCELTPLCParity")
-					}
-					if hybridIntegerPLCActive && mc.mode == "hybrid" {
-						t.Skip("Hybrid PLC routes to the integer decoder under gopus_fixed_point, diverging from float; see TestDecodeDifferentialFixedPointPLC")
+					if (celtIntegerPLCActive && mc.mode == "celt") || (hybridIntegerPLCActive && mc.mode == "hybrid") {
+						assertPLCFormatsMatchSelectedC(t, name, sampleRate, channels, frameSize, steps)
+						return
 					}
 					decF := mustNewTestDecoder(t, sampleRate, channels)
 					dec16 := mustNewTestDecoder(t, sampleRate, channels)
@@ -330,6 +355,7 @@ func TestDecodeInt16PLCLeadingColdMatchesLibopus(t *testing.T) {
 				got = append(got, buf[:n*channels]...)
 			}
 			assertAPIRateQualityInt16PLC(t, got, want, sampleRate, channels, true, mc.mode+" cold int16 PLC")
+			assertAPIRateInt16Exact(t, got, want, mc.mode+" cold int16 PLC")
 		})
 	}
 }
@@ -350,12 +376,6 @@ func TestDecodeInt16PLCBurstMatchesLibopus(t *testing.T) {
 			}
 
 			t.Run(mc.mode+"_ch"+itoaSmall(channels), func(t *testing.T) {
-				if celtIntegerPLCActive && mc.mode == "celt" {
-					t.Skip("CELT burst PLC routes to the integer decoder under gopus_fixed_point (vs float oracle); the bit-exact strict gate is TestDecoderFixedPointCELTPLCParity")
-				}
-				if hybridIntegerPLCActive && mc.mode == "hybrid" {
-					t.Skip("Hybrid burst PLC routes to the integer decoder under gopus_fixed_point (vs float oracle); the bit-exact strict gate is TestDecodeDifferentialFixedPointPLC")
-				}
 				// Warm up then 3-frame burst loss then recovery.
 				libSteps := []libopusAPIRateDecodeStep{
 					{packet: pkt},
@@ -383,6 +403,7 @@ func TestDecodeInt16PLCBurstMatchesLibopus(t *testing.T) {
 					got = append(got, buf[:n*channels]...)
 				}
 				assertAPIRateQualityInt16PLC(t, got, want, sampleRate, channels, true, mc.mode+" burst int16 PLC")
+				assertAPIRateInt16Exact(t, got, want, mc.mode+" burst int16 PLC")
 			})
 		}
 	}
@@ -441,6 +462,7 @@ func TestDecodeInt16PLCPeriodicDecaysMatchesLibopus(t *testing.T) {
 	}
 
 	assertAPIRateQualityInt16PLC(t, got, want, sampleRate, channels, true, "SILK periodic int16 PLC")
+	assertAPIRateInt16Exact(t, got, want, "SILK periodic int16 PLC")
 }
 
 // TestDecodeInt16PLCTrailingMatchesLibopus verifies trailing loss (loss at end
@@ -459,12 +481,6 @@ func TestDecodeInt16PLCTrailingMatchesLibopus(t *testing.T) {
 			}
 
 			t.Run(mc.mode+"_ch"+itoaSmall(channels), func(t *testing.T) {
-				if celtIntegerPLCActive && mc.mode == "celt" {
-					t.Skip("CELT trailing PLC routes to the integer decoder under gopus_fixed_point (vs float oracle); see TestDecoderFixedPointCELTPLCParity")
-				}
-				if hybridIntegerPLCActive && mc.mode == "hybrid" {
-					t.Skip("Hybrid trailing PLC routes to the integer decoder under gopus_fixed_point (vs float oracle); see TestDecodeDifferentialFixedPointPLC")
-				}
 				libSteps := []libopusAPIRateDecodeStep{
 					{packet: pkt},
 					{packet: nil},
@@ -489,6 +505,7 @@ func TestDecodeInt16PLCTrailingMatchesLibopus(t *testing.T) {
 					got = append(got, buf[:n*channels]...)
 				}
 				assertAPIRateQualityInt16PLC(t, got, want, sampleRate, channels, true, mc.mode+" trailing int16 PLC")
+				assertAPIRateInt16Exact(t, got, want, mc.mode+" trailing int16 PLC")
 			})
 		}
 	}
@@ -530,6 +547,7 @@ func TestDecodeInt16PLCSubRateMatchesLibopus(t *testing.T) {
 					got = append(got, buf[:n*channels]...)
 				}
 				assertAPIRateQualityInt16PLC(t, got, want, sampleRate, channels, true, mc.mode+" sub-rate int16 PLC")
+				assertAPIRateInt16Exact(t, got, want, mc.mode+" sub-rate int16 PLC")
 			})
 		}
 	}
@@ -574,13 +592,14 @@ func TestDecodeInt16PLCResetBoundaryNoLeak(t *testing.T) {
 	}
 }
 
-// TestDecodeInt16PLCSelfConsistencyWarmupN asserts the float-path-quantized
-// identity for warm-up sequences of length 1, 3, and 6 before the first PLC.
-// Each warmup length exercises a different decoder state depth.
+// TestDecodeInt16PLCSelfConsistencyWarmupN asserts the float-build
+// float-path-quantized identity for warm-up sequences of length 1, 3, and 6
+// before the first PLC. Fixed CELT and Hybrid compare both output formats
+// exactly with selected C. Each warmup length exercises a different decoder state.
 //
 // The float32 PLC output is converted to int16 using float32ToInt16NoSoftClip,
-// the same function DecodeInt16 uses, ensuring exact equality on all platforms
-// including arm64 where NEON VCVT and scalar rounding differ by ±1 LSB.
+// the same function float-build DecodeInt16 uses, ensuring exact equality on
+// all platforms including arm64.
 func TestDecodeInt16PLCSelfConsistencyWarmupN(t *testing.T) {
 	const (
 		sampleRate = 48000
@@ -597,11 +616,13 @@ func TestDecodeInt16PLCSelfConsistencyWarmupN(t *testing.T) {
 		for _, warmup := range []int{1, 3, 6} {
 			name := mc.mode + "_warmup" + itoaSmall(warmup)
 			t.Run(name, func(t *testing.T) {
-				if celtIntegerPLCActive && mc.mode == "celt" {
-					t.Skip("CELT PLC routes to the integer decoder under gopus_fixed_point, diverging from float; see TestDecoderFixedPointCELTPLCParity")
-				}
-				if hybridIntegerPLCActive && mc.mode == "hybrid" {
-					t.Skip("Hybrid PLC routes to the integer decoder under gopus_fixed_point, diverging from float; see TestDecodeDifferentialFixedPointPLC")
+				if (celtIntegerPLCActive && mc.mode == "celt") || (hybridIntegerPLCActive && mc.mode == "hybrid") {
+					steps := make([]plcInt16LossStep, warmup+1)
+					for i := range warmup {
+						steps[i].packet = pkt
+					}
+					assertPLCFormatsMatchSelectedC(t, name, sampleRate, channels, frameSize, steps)
+					return
 				}
 				decF := mustNewTestDecoder(t, sampleRate, channels)
 				dec16 := mustNewTestDecoder(t, sampleRate, channels)
@@ -703,6 +724,3 @@ func TestDecodeInt16PLCSingleSampleEnergy(t *testing.T) {
 		t.Fatalf("SILK int16 PLC burst energy did not decay: frame1=%.2e frame2=%.2e", energy, energy2)
 	}
 }
-
-// Compile-time check: math imported for energy calculation.
-var _ = math.Pi

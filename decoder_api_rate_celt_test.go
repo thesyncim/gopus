@@ -117,6 +117,7 @@ func TestDecodeCELTAPIRatePCMMatchesLibopus(t *testing.T) {
 					got = append(got, frame[:n*channels]...)
 				}
 				assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, "CELT api-rate decode")
+				assertAPIRateFloat32BitsExact(t, got, want, "CELT api-rate decode")
 			})
 		}
 	}
@@ -166,6 +167,7 @@ func TestDecodeCELTRequestedPLCDurationMatchesLibopus(t *testing.T) {
 					got = append(got, frame[:n*channels]...)
 
 					assertAPIRateQualityFloat32PLC(t, got, want, sampleRate, channels, true, "CELT requested PLC duration")
+					assertAPIRateFloat32BitsExact(t, got, want, "CELT requested PLC duration")
 				})
 			}
 		}
@@ -216,6 +218,7 @@ func TestDecodeInt16CELTRequestedPLCDurationMatchesLibopus(t *testing.T) {
 					got = append(got, frame[:n*channels]...)
 
 					assertAPIRateQualityInt16PLC(t, got, want, sampleRate, channels, true, "CELT requested int16 PLC duration")
+					assertAPIRateInt16Exact(t, got, want, "CELT requested int16 PLC duration")
 				})
 			}
 		}
