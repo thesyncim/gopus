@@ -122,9 +122,16 @@ func (d *Decoder) decodeFixedQEXTTransitionPLC(transSizeAPI int) bool {
 	return true
 }
 
-func (d *Decoder) decodeFixedQEXTRedundantCELT(redundantData []byte, celtBW celt.CELTBandwidth, reset bool) bool {
-	if !d.fixedHybridArmed() || !d.fixedQEXT.hybridActive || d.fixedQEXT.decoder == nil {
+func (d *Decoder) decodeFixedQEXTRedundantCELTWithChannels(redundantData []byte, celtBW celt.CELTBandwidth, reset bool, codedChannels int) bool {
+	if !d.fixedPacketActive || d.fixedQEXT.invalid || codedChannels < 1 || codedChannels > 2 {
 		return false
+	}
+	if d.fixedQEXT.decoder == nil {
+		decoder, err := fixedpoint.NewQEXTCELTDecoder(int(d.channels), int(d.sampleRate))
+		if err != nil {
+			return false
+		}
+		d.fixedQEXT.decoder = decoder
 	}
 	downsample := 48000 / int(d.sampleRate)
 	if downsample <= 0 {
@@ -144,7 +151,7 @@ func (d *Decoder) decodeFixedQEXTRedundantCELT(redundantData []byte, celtBW celt
 	d.fixedQEXT.redundantDec.Init(redundantData)
 	coreFrameSize := frameSizeAPI * downsample
 	decoded := d.fixedQEXT.decoder.DecodeFrameWithEC(&d.fixedQEXT.redundantDec,
-		len(redundantData), coreFrameSize, d.fixedQEXT.hybridChannels, nil, res)
+		len(redundantData), coreFrameSize, codedChannels, nil, res)
 	if decoded != frameSizeAPI {
 		d.fixedHybridErr = ErrInvalidPacket
 		return true

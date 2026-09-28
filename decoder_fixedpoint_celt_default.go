@@ -26,7 +26,8 @@ func (d *Decoder) celtDecodeFixedAPIRate(_ []byte, _ int, _ bool, _ celt.CELTBan
 func (d *Decoder) celtDecodeLostFixedAPIRate(_ int) bool { return false }
 
 // resetFixedCELT is a no-op in the default build.
-func (d *Decoder) resetFixedCELT() {}
+func (d *Decoder) resetFixedCELT()                         {}
+func (d *Decoder) setFixedCELTPhaseInversionDisabled(bool) {}
 
 // prepareFixedHybrid / finishFixedHybrid are no-ops in the default build: the
 // Hybrid int16/int24 wrappers always use the float conversion there.
@@ -44,19 +45,21 @@ func (d *Decoder) fixedDecodeHybridFEC(_ []float32, _, _ int, _ celt.CELTBandwid
 // The integer Hybrid redundancy / transition helpers are no-ops in the default
 // build; the int16/int24 wrappers there always use the float conversion for
 // redundancy / transition frames.
-func (d *Decoder) fixedDecodeRedundantCELT(_ []byte, _ celt.CELTBandwidth, _ bool) {}
-func (d *Decoder) fixedDecodeTransitionPLC(_ int)                                  {}
-func (d *Decoder) fixedCaptureRecursiveTransition(_, _ int)                        {}
-func (d *Decoder) fixedOutputCursor() int                                          { return -1 }
-func (d *Decoder) fixedTransitionAvailable() bool                                  { return false }
-func (d *Decoder) fixedApplyRedundancySilkToCelt(_, _ int)                         {}
-func (d *Decoder) fixedApplyRedundancyCeltToSilk(_, _ int)                         {}
-func (d *Decoder) fixedApplyTransition(_, _, _ int)                                {}
-func (d *Decoder) fixedClearHybridFrame()                                          {}
-func (d *Decoder) fixedSnapshotHandled() bool                                      { return false }
-func (d *Decoder) fixedRestoreHandled(_ bool)                                      {}
-func (d *Decoder) fixedSuppressCELTPLC(_ bool) bool                                { return false }
-func (d *Decoder) fixedCELTPLCHookSuppressed() bool                                { return false }
+func (d *Decoder) fixedDecodeRedundantCELT(_ []byte, _ celt.CELTBandwidth, _ bool, _ int) bool {
+	return false
+}
+func (d *Decoder) fixedDecodeTransitionPLC(_ int)           {}
+func (d *Decoder) fixedCaptureRecursiveTransition(_, _ int) {}
+func (d *Decoder) fixedOutputCursor() int                   { return -1 }
+func (d *Decoder) fixedTransitionAvailable() bool           { return false }
+func (d *Decoder) fixedApplyRedundancySilkToCelt(_, _ int)  {}
+func (d *Decoder) fixedApplyRedundancyCeltToSilk(_, _ int)  {}
+func (d *Decoder) fixedApplyTransition(_, _, _ int)         {}
+func (d *Decoder) fixedClearHybridFrame()                   {}
+func (d *Decoder) fixedSnapshotHandled() bool               { return false }
+func (d *Decoder) fixedRestoreHandled(_ bool)               {}
+func (d *Decoder) fixedSuppressCELTPLC(_ bool) bool         { return false }
+func (d *Decoder) fixedCELTPLCHookSuppressed() bool         { return false }
 
 // The integer-output accumulation helpers are no-ops in the default build; the
 // int16/int24 wrappers there always use the float conversion.

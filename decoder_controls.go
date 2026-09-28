@@ -71,6 +71,7 @@ func (d *Decoder) Gain() int {
 // SetPhaseInversionDisabled toggles CELT stereo phase inversion during decoding.
 func (d *Decoder) SetPhaseInversionDisabled(disabled bool) {
 	d.celtDecoder.SetPhaseInversionDisabled(disabled)
+	d.setFixedCELTPhaseInversionDisabled(disabled)
 	d.setFixedQEXTPhaseInversionDisabled(disabled)
 }
 

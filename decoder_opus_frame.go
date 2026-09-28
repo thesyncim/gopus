@@ -437,7 +437,11 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 					// frame is decoded (start band 0, no reset) on the same
 					// integer CELT decoder before the main hybrid accum, so the
 					// shared decode_mem / energy state stays bit-identical.
-					d.fixedDecodeRedundantCELT(redundantData, celtBW, false)
+					codedChannels := 1
+					if packetStereoLocal {
+						codedChannels = 2
+					}
+					d.fixedDecodeRedundantCELT(redundantData, celtBW, false, codedChannels)
 					decoded, err := decodeRedundantCELT(redundantData)
 					if err != nil {
 						return err
@@ -648,7 +652,8 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		// Capture the main decode's FinalRange AFTER redundancy flag reads but BEFORE any CELT redundancy decode.
 		// For SILK-only mode, the final range includes all bits read from the range decoder.
 		d.mainDecodeRng = rd.Range()
-		if !redundancy && (!d.haveDecoded || d.prevMode != ModeHybrid) {
+		if (!d.haveDecoded || d.prevMode != ModeHybrid) ||
+			(redundancy && celtToSilk && d.prevRedundancy) {
 			// Capture the integer SILK body before a CELT transition fade rewrites
 			// its first 5 ms in the float output buffer.
 			fixedSILKFrame = d.fixedCaptureSILKOutput(out[:audiosize*channels])
@@ -754,11 +759,10 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 
 	if redundancy {
 		// Redundancy post-processing rewrites the output after the main decode.
-		// For a Hybrid frame handled by the integer path the equivalent
-		// opus_res-domain redundancy decode + smooth_fade below keeps the
-		// int16/int24 output bit-exact; otherwise the int16/int24 wrappers must
-		// use the float conversion for this packet.
-		if !fixedHybridFrame {
+		// Hybrid and captured SILK frames run the equivalent opus_res-domain
+		// redundancy decode + smooth_fade below. Other frames use the float
+		// conversion for this packet.
+		if !fixedHybridFrame && !(mode == ModeSILK && fixedSILKFrame) {
 			d.markFixedUnhandled()
 		}
 		transition = false
@@ -767,6 +771,13 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 
 	if redundancy && celtToSilk && len(redundantAudio) == 0 && data != nil && redundancyBytes > 0 && mainLen >= 0 && mainLen+redundancyBytes <= len(data) {
 		redundantData := data[mainLen : mainLen+redundancyBytes]
+		if mode == ModeSILK {
+			codedChannels := 1
+			if packetStereoLocal {
+				codedChannels = 2
+			}
+			d.fixedDecodeRedundantCELT(redundantData, celtBW, false, codedChannels)
+		}
 		decoded, err := decodeRedundantCELT(redundantData)
 		if err != nil {
 			return 0, err
@@ -792,7 +803,11 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		// Mirror the reference on the integer CELT decoder: OPUS_RESET_STATE,
 		// start band 0, decode the SILK->CELT redundancy frame, then the integer
 		// opus_res smooth_fade onto the in-flight Hybrid frame.
-		d.fixedDecodeRedundantCELT(redundantData, celtBW, true)
+		codedChannels := 1
+		if packetStereoLocal {
+			codedChannels = 2
+		}
+		d.fixedDecodeRedundantCELT(redundantData, celtBW, true, codedChannels)
 		decoded, err := decodeRedundantCELT(redundantData)
 		if err != nil {
 			return 0, err
@@ -802,7 +817,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		if start >= 0 && start < len(out) && len(redundantAudio) >= F5*channels {
 			smoothFade(out[start:], redundantAudio[F2_5*channels:], out[start:], F2_5, channels, fs)
 		}
-		if fixedHybridFrame {
+		if fixedHybridFrame || fixedSILKFrame {
 			d.fixedApplyRedundancySilkToCelt(frameSize, fs)
 		}
 	}
@@ -810,7 +825,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	if redundancy && celtToSilk && (d.prevMode != ModeSILK || d.prevRedundancy) && len(redundantAudio) >= F5*channels {
 		copy(out[:F2_5*channels], redundantAudio[:F2_5*channels])
 		smoothFade(redundantAudio[F2_5*channels:], out[F2_5*channels:], out[F2_5*channels:], F2_5, channels, fs)
-		if fixedHybridFrame {
+		if fixedHybridFrame || fixedSILKFrame {
 			d.fixedApplyRedundancyCeltToSilk(frameSize, fs)
 		}
 	}

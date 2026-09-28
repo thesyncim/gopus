@@ -94,6 +94,7 @@ int main(void) {
   uint32_t sample_format = SAMPLE_FORMAT_FLOAT32;
   uint32_t sample_rate = 48000;
   int32_t decode_gain = 0;
+  uint32_t phase_inversion_disabled = 0;
   uint32_t channels = 0;
   uint32_t frame_size = 0;
   uint32_t packet_count = 0;
@@ -124,7 +125,7 @@ int main(void) {
   }
   if (version == 1) {
     sample_format = SAMPLE_FORMAT_FLOAT32;
-  } else if (version >= 2 && version <= 8) {
+  } else if (version >= 2 && version <= 9) {
     if (!read_u32(&sample_format)) {
       fprintf(stderr, "failed to read sample format\n");
       return 1;
@@ -140,6 +141,10 @@ int main(void) {
         return 1;
       }
       decode_gain = (int32_t)raw_gain;
+    }
+    if (version >= 9 && !read_u32(&phase_inversion_disabled)) {
+      fprintf(stderr, "failed to read phase inversion control\n");
+      return 1;
     }
   } else {
     fprintf(stderr, "unsupported input version\n");
@@ -161,7 +166,7 @@ int main(void) {
     fprintf(stderr, "invalid sample rate\n");
     return 1;
   }
-  if (version == 8 && (frame_size > sample_rate * 3 / 25 || packet_count > 1000000)) {
+  if (version >= 8 && (frame_size > sample_rate * 3 / 25 || packet_count > 1000000)) {
     fprintf(stderr, "invalid v8 frame size or step count\n");
     return 1;
   }
@@ -194,6 +199,15 @@ int main(void) {
     err = opus_decoder_ctl(dec, OPUS_SET_GAIN(decode_gain));
     if (err != OPUS_OK) {
       fprintf(stderr, "opus_decoder_ctl(OPUS_SET_GAIN) failed: %d\n", err);
+      opus_decoder_destroy(dec);
+      free(frame);
+      return 1;
+    }
+  }
+  if (version >= 9) {
+    if (phase_inversion_disabled > 1 ||
+        opus_decoder_ctl(dec, OPUS_SET_PHASE_INVERSION_DISABLED((int)phase_inversion_disabled)) != OPUS_OK) {
+      fprintf(stderr, "OPUS_SET_PHASE_INVERSION_DISABLED failed\n");
       opus_decoder_destroy(dec);
       free(frame);
       return 1;
@@ -268,7 +282,7 @@ int main(void) {
       free(decoded);
       return 1;
     }
-    if (version == 8 && packet_len > 6 * 1275 + 12) {
+    if (version >= 8 && packet_len > 6 * 1275 + 12) {
       fprintf(stderr, "invalid v8 packet length\n");
       opus_decoder_destroy(dec);
       free(frame);

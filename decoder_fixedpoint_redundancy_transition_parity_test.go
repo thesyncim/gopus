@@ -3,6 +3,7 @@
 package gopus
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -289,6 +290,242 @@ func TestDecoderFixedPointHybridRedundancyTransitionParity(t *testing.T) {
 
 			assertFixedExact(t, "int16", got16, int16ToInt32(refInt16))
 			assertFixedExact(t, "int24", got24, refInt24)
+		})
+	}
+}
+
+// TestDecoderFixedPointRedundancyCodedOutputChannelParity keeps the CELT
+// redundancy decode's packet-coded channel count separate from the public
+// decoder output channel count. libopus passes stream_channels as C while
+// retaining the decoder's channel count as CC during synthesis.
+func TestDecoderFixedPointRedundancyCodedOutputChannelParity(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	const sampleRate = 48000
+	const frameSize = 960
+	modes := []EncoderMode{
+		EncoderModeHybrid, EncoderModeHybrid, EncoderModeCELT,
+		EncoderModeHybrid, EncoderModeHybrid,
+	}
+
+	for _, tc := range []struct {
+		name           string
+		codedChannels  int
+		outputChannels int
+	}{
+		{name: "stereo_packet_mono_output", codedChannels: 2, outputChannels: 1},
+		{name: "mono_packet_stereo_output", codedChannels: 1, outputChannels: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			packets := encodeFixedModeSwitchSequence(t, tc.codedChannels, frameSize, modes)
+
+			refInt16, err := decodeWithLibopusFixedInt16(sampleRate, tc.outputChannels, frameSize, packets)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "fixed reference decode int16", err)
+				return
+			}
+			refInt24, err := decodeWithLibopusFixedInt24(sampleRate, tc.outputChannels, frameSize, packets)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "fixed reference decode int24", err)
+				return
+			}
+
+			dec16, err := NewDecoder(DefaultDecoderConfig(sampleRate, tc.outputChannels))
+			if err != nil {
+				t.Fatal(err)
+			}
+			dec24, err := NewDecoder(DefaultDecoderConfig(sampleRate, tc.outputChannels))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for p, packet := range packets {
+				out16 := make([]int16, frameSize*tc.outputChannels)
+				if _, err := dec16.DecodeInt16(packet, out16); err != nil {
+					t.Fatalf("packet %d DecodeInt16: %v", p, err)
+				}
+				frame16 := int16ToInt32(out16)
+				out24 := make([]int32, frameSize*tc.outputChannels)
+				if _, err := dec24.DecodeInt24(packet, out24); err != nil {
+					t.Fatalf("packet %d DecodeInt24: %v", p, err)
+				}
+				start := p * frameSize * tc.outputChannels
+				assertFixedExact(t, fmt.Sprintf("int16 packet %d", p), frame16, int16ToInt32(refInt16[start:start+len(frame16)]))
+				assertFixedExact(t, fmt.Sprintf("int24 packet %d", p), out24, refInt24[start:start+len(out24)])
+			}
+
+			if dec16.fixedRedundancyApplied == 0 {
+				t.Fatalf("stream did not exercise integer redundancy decode")
+			}
+		})
+	}
+}
+
+func decodeWithLibopusFixedPhaseControl(sampleFormat uint32, sampleRate, channels, frameSize int, disabled bool, packets [][]byte) (*libopustest.OracleReader, error) {
+	binPath, err := getFixedRefdecodeHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	phase := uint32(0)
+	if disabled {
+		phase = 1
+	}
+	payload := libopustest.NewOraclePayloadVersion("GOSI", 9,
+		sampleFormat, uint32(sampleRate), 0, phase,
+		uint32(channels), uint32(frameSize), uint32(len(packets)))
+	for _, packet := range packets {
+		payload.U32(0) // decode_fec
+		payload.U32(uint32(frameSize))
+		payload.U32(uint32(len(packet)))
+		payload.Raw(packet)
+	}
+	return libopustest.RunOracle(binPath, payload.Bytes(), "fixed reference phase-control decode", "GOSO")
+}
+
+func TestFixedPointPhaseInversionControlMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const sampleRate, channels, frameSize = 48000, 2, 960
+	packets := encodeFixedModeSwitchSequence(t, channels, frameSize,
+		[]EncoderMode{EncoderModeCELT, EncoderModeCELT, EncoderModeCELT})
+	if len(packets) < 2 {
+		t.Fatalf("encoder produced %d packets", len(packets))
+	}
+	for i, packet := range packets {
+		if len(packet) == 0 || packet[0]&4 == 0 {
+			t.Fatalf("packet %d is not stereo-coded: %x", i, packet[:min(len(packet), 1)])
+		}
+	}
+
+	for _, phaseDisabled := range []bool{true, false} {
+		name := "phase_enabled"
+		if phaseDisabled {
+			name = "phase_disabled"
+		}
+		t.Run(name, func(t *testing.T) {
+			for _, sampleFormat := range []uint32{libopusRefdecodeSingleFormatInt16, libopusRefdecodeSingleFormatInt24} {
+				refReader, err := decodeWithLibopusFixedPhaseControl(sampleFormat, sampleRate, channels, frameSize, phaseDisabled, packets)
+				if err != nil {
+					libopustest.HelperUnavailable(t, "fixed reference phase-control decode", err)
+					return
+				}
+				count := refReader.Count(-1)
+				if count != len(packets)*frameSize*channels {
+					t.Fatalf("reference samples=%d want %d", count, len(packets)*frameSize*channels)
+				}
+				want16 := make([]int16, count)
+				want24 := make([]int32, count)
+				if sampleFormat == libopusRefdecodeSingleFormatInt16 {
+					refReader.ExpectRemaining(count * 2)
+					for i := range want16 {
+						want16[i] = refReader.I16()
+					}
+				} else {
+					refReader.ExpectRemaining(count * 4)
+					for i := range want24 {
+						want24[i] = refReader.I32()
+					}
+				}
+				if err := refReader.ExpectConsumed(); err != nil {
+					t.Fatal(err)
+				}
+
+				dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if dec.PhaseInversionDisabled() {
+					t.Fatal("stereo decoder default disables phase inversion")
+				}
+				if phaseDisabled {
+					// Set before the fixed CELT sidecar exists; its lazy creation
+					// must inherit the public decoder control.
+					dec.SetPhaseInversionDisabled(true)
+				}
+				got16 := make([]int16, 0, count)
+				got24 := make([]int32, 0, count)
+				out16 := make([]int16, frameSize*channels)
+				out24 := make([]int32, frameSize*channels)
+				for p, packet := range packets {
+					if sampleFormat == libopusRefdecodeSingleFormatInt16 {
+						if n, err := dec.DecodeInt16(packet, out16); err != nil || n != frameSize {
+							t.Fatalf("packet %d DecodeInt16 samples=%d err=%v", p, n, err)
+						}
+						got16 = append(got16, out16...)
+					} else {
+						if n, err := dec.DecodeInt24(packet, out24); err != nil || n != frameSize {
+							t.Fatalf("packet %d DecodeInt24 samples=%d err=%v", p, n, err)
+						}
+						got24 = append(got24, out24...)
+					}
+				}
+				if sampleFormat == libopusRefdecodeSingleFormatInt16 {
+					assertFixedExact(t, "phase-control int16", int16ToInt32(got16), int16ToInt32(want16))
+				} else {
+					assertFixedExact(t, "phase-control int24", got24, want24)
+				}
+
+				// A live control update reaches an already initialized Q15 CELT
+				// decoder. Reset clears codec history but preserves the control,
+				// as OPUS_RESET_STATE does for disable_inv.
+				dec.SetPhaseInversionDisabled(!phaseDisabled)
+				dec.Reset()
+				if got := dec.PhaseInversionDisabled(); got == phaseDisabled {
+					t.Fatalf("phase-inversion setting after Reset=%t, want %t", got, !phaseDisabled)
+				}
+				refReader, err = decodeWithLibopusFixedPhaseControl(sampleFormat, sampleRate, channels, frameSize, !phaseDisabled, packets)
+				if err != nil {
+					libopustest.HelperUnavailable(t, "fixed reference phase-control reset decode", err)
+					return
+				}
+				count = refReader.Count(-1)
+				if sampleFormat == libopusRefdecodeSingleFormatInt16 {
+					refReader.ExpectRemaining(count * 2)
+					for i := range want16 {
+						want16[i] = refReader.I16()
+					}
+				} else {
+					refReader.ExpectRemaining(count * 4)
+					for i := range want24 {
+						want24[i] = refReader.I32()
+					}
+				}
+				if err := refReader.ExpectConsumed(); err != nil {
+					t.Fatal(err)
+				}
+				if sampleFormat == libopusRefdecodeSingleFormatInt16 {
+					got16 = got16[:0]
+					for p, packet := range packets {
+						if n, err := dec.DecodeInt16(packet, out16); err != nil || n != frameSize {
+							t.Fatalf("post-reset packet %d DecodeInt16 samples=%d err=%v", p, n, err)
+						}
+						got16 = append(got16, out16...)
+					}
+					assertFixedExact(t, "post-reset phase-control int16", int16ToInt32(got16), int16ToInt32(want16))
+				} else {
+					got24 = got24[:0]
+					for p, packet := range packets {
+						if n, err := dec.DecodeInt24(packet, out24); err != nil || n != frameSize {
+							t.Fatalf("post-reset packet %d DecodeInt24 samples=%d err=%v", p, n, err)
+						}
+						got24 = append(got24, out24...)
+					}
+					assertFixedExact(t, "post-reset phase-control int24", got24, want24)
+				}
+
+				// Measure the warmed fixed-point CELT path with caller-owned
+				// output storage; helper setup and reset are outside the run.
+				allocs := testing.AllocsPerRun(20, func() {
+					if sampleFormat == libopusRefdecodeSingleFormatInt16 {
+						if _, err := dec.DecodeInt16(packets[len(packets)-1], out16); err != nil {
+							panic(err)
+						}
+					} else if _, err := dec.DecodeInt24(packets[len(packets)-1], out24); err != nil {
+						panic(err)
+					}
+				})
+				if allocs != 0 {
+					t.Fatalf("warmed phase-control decode allocated %g times/run", allocs)
+				}
+			}
 		})
 	}
 }

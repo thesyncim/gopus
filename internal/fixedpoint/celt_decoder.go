@@ -37,6 +37,10 @@ const (
 // the reset region of libopus OpusCustomDecoder.
 type CELTDecoder struct {
 	channels int
+	// disableInv mirrors celt_decoder_init: st->disable_inv = (channels == 1).
+	// CELT_SET_CHANNELS changes the packet-coded stream count, not this output
+	// decoder control.
+	disableInv int32
 
 	// downsample mirrors st->downsample (resampling_factor of the output rate):
 	// 1 for 48k, 2 for 24k, 3 for 16k, 4 for 12k, 6 for 8k.
@@ -145,6 +149,7 @@ func NewCELTDecoderRate(channels, sampleRate int) *CELTDecoder {
 		window:        staticMDCT48000Window[:],
 		eBands:        staticMDCT48000EBands[:],
 	}
+	d.SetPhaseInversionDisabled(channels == 1)
 	d.decodeMem = make([]int32, channels*(celtDecodeBufferSize+celtOverlap))
 	d.oldBandE = make([]int32, 2*celtNbEBands)
 	d.oldLogE = make([]int32, 2*celtNbEBands)
@@ -157,6 +162,21 @@ func NewCELTDecoderRate(channels, sampleRate int) *CELTDecoder {
 		d.oldLogE2[i] = -gconst(28)
 	}
 	return d
+}
+
+// SetPhaseInversionDisabled mirrors OPUS_SET_PHASE_INVERSION_DISABLED. Reset
+// preserves this decoder control, matching the float CELT decoder lifecycle.
+func (d *CELTDecoder) SetPhaseInversionDisabled(disabled bool) {
+	d.disableInv = 0
+	if disabled {
+		d.disableInv = 1
+	}
+}
+
+// PhaseInversionDisabled reports the current CELT stereo phase-inversion
+// control, including celt_decoder_init's output-channel default.
+func (d *CELTDecoder) PhaseInversionDisabled() bool {
+	return d.disableInv != 0
 }
 
 // SetBandRange sets the active band range (st->start / st->end), matching the
@@ -215,13 +235,25 @@ func (d *CELTDecoder) FinalRange() uint32 {
 // decimated, so it writes channels*(frameSize/downsample) interleaved int16 PCM
 // into out and returns the number of per-channel output samples decoded.
 func (d *CELTDecoder) DecodeWithEC(data []byte, frameSize int, out []int16) int {
+	return d.DecodeWithECChannels(data, frameSize, d.channels, out)
+}
+
+// DecodeWithECChannels decodes a received frame whose packet-coded channel
+// count can differ from the decoder's output channel count. codedChannels
+// mirrors OpusDecoder.stream_channels (C in celt_decode_with_ec); d.channels
+// remains the output channel count (CC), and controls synthesis/deemphasis
+// history storage.
+func (d *CELTDecoder) DecodeWithECChannels(data []byte, frameSize, codedChannels int, out []int16) int {
+	if codedChannels < 1 || codedChannels > 2 {
+		return -1
+	}
 	// data == NULL || len <= 1 selects the packet-loss concealment path.
 	if len(data) <= 1 {
 		return d.DecodeLost(frameSize, out)
 	}
 	dec := &d.rangeDecoder
 	dec.Init(data)
-	outSyn, N := d.decodeReceivedFrame(dec, len(data), frameSize)
+	outSyn, N := d.decodeReceivedFrame(dec, len(data), frameSize, codedChannels)
 
 	// deemphasis(out_syn, pcm, N, CC, st->downsample, preemph, preemph_memD, accum=0).
 	outSamples := N / d.downsample
@@ -247,8 +279,18 @@ func (d *CELTDecoder) DecodeWithEC(data []byte, frameSize int, out []int16) int 
 // opus_res output (RES2INT24(a)==a, int16 via Res2Int16). It returns the number of
 // per-channel output samples decoded.
 func (d *CELTDecoder) DecodeHybridAccum(dec *rangecoding.Decoder, coreFrameSize int, accumPCM []int32) int {
+	return d.DecodeHybridAccumChannels(dec, coreFrameSize, d.channels, accumPCM)
+}
+
+// DecodeHybridAccumChannels decodes a hybrid frame whose CELT stream channel
+// count can differ from the decoder's output channel count, then accumulates
+// the synthesized CELT signal into accumPCM.
+func (d *CELTDecoder) DecodeHybridAccumChannels(dec *rangecoding.Decoder, coreFrameSize, codedChannels int, accumPCM []int32) int {
+	if codedChannels < 1 || codedChannels > 2 {
+		return -1
+	}
 	dataLen := dec.StorageBits() / 8
-	outSyn, N := d.decodeReceivedFrame(dec, dataLen, coreFrameSize)
+	outSyn, N := d.decodeReceivedFrame(dec, dataLen, coreFrameSize, codedChannels)
 
 	// deemphasis(out_syn, pcm, N, CC, st->downsample, preemph, preemph_memD, accum=1).
 	d.deemphasisMode(outSyn, accumPCM, N, true)
@@ -262,14 +304,14 @@ func (d *CELTDecoder) DecodeHybridAccum(dec *rangecoding.Decoder, coreFrameSize 
 // in bytes (len) used for total_bits; frameSize is the 48k-core per-channel sample
 // count. It returns the per-channel synthesis buffers and N; the caller applies
 // deemphasis (with or without accumulation).
-func (d *CELTDecoder) decodeReceivedFrame(dec *rangecoding.Decoder, dataLen, frameSize int) ([][]int32, int) {
+func (d *CELTDecoder) decodeReceivedFrame(dec *rangecoding.Decoder, dataLen, frameSize, codedChannels int) ([][]int32, int) {
 	nbEBands := len(d.eBands) - 1
 	overlap := d.overlap
 	shortMdctSize := d.shortMdctSize
 	start := d.start
 	end := d.end
 	CC := d.channels
-	C := d.channels
+	C := codedChannels
 
 	LM := 0
 	for LM = 0; LM <= d.maxLM; LM++ {
@@ -418,7 +460,7 @@ func (d *CELTDecoder) decodeReceivedFrame(dec *rangecoding.Decoder, dataLen, fra
 	} else {
 		_, _, collapse = QuantAllBandsDecode(dec, C, N, LM, start, end,
 			pulses, tfRes, shortBlocks, alloc.Spread, alloc.DualStereo, alloc.Intensity,
-			totalBitsQ3, alloc.Balance, alloc.CodedBands, false, &seed, &d.bandScratch)
+			totalBitsQ3, alloc.Balance, alloc.CodedBands, d.disableInv != 0, &seed, &d.bandScratch)
 	}
 
 	// X is interleaved [channel0 N][channel1 N].

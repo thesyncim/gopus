@@ -4,6 +4,7 @@ package gopus
 
 import (
 	"github.com/thesyncim/gopus/internal/celt"
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/internal/fixedpoint"
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
@@ -88,9 +89,7 @@ func (d *Decoder) celtDecodeFixedAPIRate(data []byte, apiFrameSize int, packetSt
 		return false, nil
 	}
 	channels := int(d.channels)
-	if d.fixedCELT == nil {
-		d.fixedCELT = fixedpoint.NewCELTDecoderRate(channels, int(d.sampleRate))
-	}
+	d.ensureFixedCELTDecoder()
 
 	downsample := 48000 / int(d.sampleRate)
 	if downsample <= 0 {
@@ -104,7 +103,13 @@ func (d *Decoder) celtDecodeFixedAPIRate(data []byte, apiFrameSize int, packetSt
 	needed := apiFrameSize * channels
 
 	int16Out := d.fixedCELTScratch(needed)
-	d.fixedCELT.DecodeWithEC(data, coreFrameSize, int16Out)
+	codedChannels := 1
+	if packetStereo {
+		codedChannels = 2
+	}
+	if decoded := d.fixedCELT.DecodeWithECChannels(data, coreFrameSize, codedChannels, int16Out); decoded != apiFrameSize {
+		return false, nil
+	}
 	res := d.fixedCELT.LastRes()
 
 	// Stash the integer-exact output for the int16/int24 wrappers.
@@ -128,6 +133,7 @@ func (d *Decoder) celtDecodeLostFixedAPIRate(apiFrameSize int) bool {
 	if !d.fixedPacketActive || d.fixedCELT == nil {
 		return false
 	}
+	d.fixedCELT.SetPhaseInversionDisabled(d.celtDecoder.PhaseInversionDisabled())
 	channels := int(d.channels)
 
 	// celt_decode_lost retains the band range (st->start / st->end) set by the
@@ -201,6 +207,7 @@ func (d *Decoder) finishFixedHybridLost(frameSizeAPI int) bool {
 	if d.fixedCELT == nil {
 		return false
 	}
+	d.fixedCELT.SetPhaseInversionDisabled(d.celtDecoder.PhaseInversionDisabled())
 	channels := d.fixedHybridPLCChannels
 	needed := frameSizeAPI * channels
 
@@ -282,9 +289,7 @@ func (d *Decoder) fixedDecodeHybridFEC(pcm []float32, frameSizeAPI, celtFrameSiz
 	if len(pcm) < needed {
 		return false
 	}
-	if d.fixedCELT == nil {
-		d.fixedCELT = fixedpoint.NewCELTDecoderRate(channels, int(d.sampleRate))
-	}
+	d.ensureFixedCELTDecoder()
 	if d.haveDecoded && d.prevMode != ModeHybrid && !d.prevRedundancy {
 		d.fixedCELT.Reset()
 	}
@@ -322,9 +327,7 @@ func (d *Decoder) prepareFixedHybrid(data []byte, celtBW celt.CELTBandwidth, nee
 	if !d.fixedPacketActive || len(data) <= 1 {
 		return false
 	}
-	if d.fixedCELT == nil {
-		d.fixedCELT = fixedpoint.NewCELTDecoderRate(int(d.channels), int(d.sampleRate))
-	}
+	d.ensureFixedCELTDecoder()
 	d.fixedHybridEnd = celtBW.EffectiveBands()
 	d.fixedHybridReset = needCeltReset
 	d.fixedHybridErr = nil
@@ -350,13 +353,14 @@ func (d *Decoder) fixedHybridArmed() bool {
 // opus_res output is captured in d.fixedRedundantRes. It runs on the same integer
 // CELT decoder as the main hybrid highband, in the same order as the reference,
 // so the shared decode_mem / energy state stays bit-identical.
-func (d *Decoder) fixedDecodeRedundantCELT(redundantData []byte, celtBW celt.CELTBandwidth, reset bool) {
-	if d.decodeFixedQEXTRedundantCELT(redundantData, celtBW, reset) {
-		return
+func (d *Decoder) fixedDecodeRedundantCELT(redundantData []byte, celtBW celt.CELTBandwidth, reset bool, codedChannels int) bool {
+	if !d.fixedPacketActive {
+		return false
 	}
-	if !d.fixedHybridArmed() || d.fixedCELT == nil {
-		return
+	if extsupport.QEXT {
+		return d.decodeFixedQEXTRedundantCELTWithChannels(redundantData, celtBW, reset, codedChannels)
 	}
+	d.ensureFixedCELTDecoder()
 	channels := int(d.channels)
 	downsample := 48000 / int(d.sampleRate)
 	if downsample <= 0 {
@@ -375,7 +379,9 @@ func (d *Decoder) fixedDecodeRedundantCELT(redundantData []byte, celtBW celt.CEL
 		d.fixedRedundantScratch = make([]int16, needed)
 	}
 	scratch := d.fixedRedundantScratch[:needed]
-	d.fixedCELT.DecodeWithEC(redundantData, coreFrameSize, scratch)
+	if decoded := d.fixedCELT.DecodeWithECChannels(redundantData, coreFrameSize, codedChannels, scratch); decoded != f5API {
+		return false
+	}
 	res := d.fixedCELT.LastRes()
 
 	if cap(d.fixedRedundantRes) < needed {
@@ -384,6 +390,7 @@ func (d *Decoder) fixedDecodeRedundantCELT(redundantData []byte, celtBW celt.CEL
 	d.fixedRedundantRes = d.fixedRedundantRes[:needed]
 	copy(d.fixedRedundantRes, res[:needed])
 	d.fixedRedundantValid = true
+	return true
 }
 
 // fixedDecodeTransitionPLC decodes the integer (opus_res) 5 ms CELT PLC transition
@@ -400,6 +407,7 @@ func (d *Decoder) fixedDecodeTransitionPLC(transSizeAPI int) {
 	if !d.fixedHybridArmed() || d.fixedCELT == nil {
 		return
 	}
+	d.fixedCELT.SetPhaseInversionDisabled(d.celtDecoder.PhaseInversionDisabled())
 	channels := int(d.channels)
 	downsample := 48000 / int(d.sampleRate)
 	if downsample <= 0 {
@@ -617,6 +625,7 @@ func (h *fixedHybridHighbandHook) DecodeHybridHighband(silkInt16 []int16, filled
 	if d.decodeFixedQEXTHybridHighband(silkInt16, filled, rd, frameSizeAPI, frameSize48, packetStereo) {
 		return
 	}
+	d.fixedCELT.SetPhaseInversionDisabled(d.celtDecoder.PhaseInversionDisabled())
 	channels := int(d.channels)
 	needed := frameSizeAPI * channels
 
@@ -644,7 +653,11 @@ func (h *fixedHybridHighbandHook) DecodeHybridHighband(silkInt16 []int16, filled
 	}
 	coreFrameSize := frameSizeAPI * downsample
 
-	d.fixedCELT.DecodeHybridAccum(rd, coreFrameSize, res)
+	codedChannels := 1
+	if packetStereo {
+		codedChannels = 2
+	}
+	d.fixedCELT.DecodeHybridAccumChannels(rd, coreFrameSize, codedChannels, res)
 
 	if cap(d.fixedHybridInt16) < needed {
 		d.fixedHybridInt16 = make([]int16, needed)
@@ -798,6 +811,20 @@ func (d *Decoder) fixedInt24PLCOutput(pcm []int32, n, channels int) bool {
 func (d *Decoder) resetFixedCELT() {
 	if d.fixedCELT != nil {
 		d.fixedCELT.Reset()
+	}
+}
+
+func (d *Decoder) ensureFixedCELTDecoder() *fixedpoint.CELTDecoder {
+	if d.fixedCELT == nil {
+		d.fixedCELT = fixedpoint.NewCELTDecoderRate(int(d.channels), int(d.sampleRate))
+	}
+	d.fixedCELT.SetPhaseInversionDisabled(d.celtDecoder.PhaseInversionDisabled())
+	return d.fixedCELT
+}
+
+func (d *Decoder) setFixedCELTPhaseInversionDisabled(disabled bool) {
+	if d.fixedCELT != nil {
+		d.fixedCELT.SetPhaseInversionDisabled(disabled)
 	}
 }
 

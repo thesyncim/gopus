@@ -23,7 +23,7 @@ func (d *Decoder) decodeFixedQEXTHybridHighband(_ []int16, _ int, _ *rangecoding
 
 func (d *Decoder) decodeFixedQEXTTransitionPLC(_ int) bool { return false }
 
-func (d *Decoder) decodeFixedQEXTRedundantCELT(_ []byte, _ celt.CELTBandwidth, _ bool) bool {
+func (d *Decoder) decodeFixedQEXTRedundantCELTWithChannels(_ []byte, _ celt.CELTBandwidth, _ bool, _ int) bool {
 	return false
 }
 
