@@ -12,9 +12,18 @@ import (
 // loop, as the auto-vectorized libopus loop does; the remainder runs scalar.
 func stereoSplitInto(x, y []celtNorm) {
 	y = y[:len(x)]
+	if !archsimd.X86.AVX() {
+		stereoSplitScalar(x, y)
+		return
+	}
+	stereoSplitIntoAVX(x, y)
+}
+
+//go:noinline
+func stereoSplitIntoAVX(x, y []celtNorm) {
 	blocks := len(x) &^ 3
 	if blocks > 0 {
-		c := archsimd.BroadcastFloat32x4(stereoSplitInvSqrt2)
+		c := broadcastF32x4Arch(stereoSplitInvSqrt2)
 		xp := unsafe.Pointer(unsafe.SliceData(x))
 		yp := unsafe.Pointer(unsafe.SliceData(y))
 		for j := 0; j < blocks; j += 4 {

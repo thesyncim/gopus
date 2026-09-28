@@ -20,7 +20,11 @@ func innerProductFLPAVX2(a, b []float32, length int) silkCReal {
 	if !silkUseInnerProductFLPAVX2FMA {
 		return innerProductF32Libopus(a, b, length)
 	}
+	return innerProductFLPAVX2Vector(a, b, length)
+}
 
+//go:noinline
+func innerProductFLPAVX2Vector(a, b []float32, length int) silkCReal {
 	var acc0, acc1 archsimd.Float64x4
 	i := 0
 	for ; i+8 <= length; i += 8 {

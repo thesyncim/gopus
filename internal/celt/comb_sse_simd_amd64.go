@@ -22,9 +22,20 @@ func combFilterConstSSE(dst, src, delay []celtSig, from, to int, g10, g11, g12 f
 	_ = dst[to-1]
 	_ = src[to-1]
 	_ = delay[to+3]
-	g10v := archsimd.BroadcastFloat32x4(g10)
-	g11v := archsimd.BroadcastFloat32x4(g11)
-	g12v := archsimd.BroadcastFloat32x4(g12)
+	if !archsimd.X86.AVX() {
+		for i := from; i < to; i++ {
+			dst[i] = combFilterConstSSEValue(src[i], g10, g11, g12, delay[i+2], delay[i+3], delay[i+1], delay[i+4], delay[i])
+		}
+		return
+	}
+	combFilterConstSSEAVX(dst, src, delay, from, to, g10, g11, g12)
+}
+
+//go:noinline
+func combFilterConstSSEAVX(dst, src, delay []celtSig, from, to int, g10, g11, g12 float32) {
+	g10v := broadcastF32x4Arch(g10)
+	g11v := broadcastF32x4Arch(g11)
+	g12v := broadcastF32x4Arch(g12)
 	dp := unsafe.Pointer(unsafe.SliceData(dst))
 	sp := unsafe.Pointer(unsafe.SliceData(src))
 	xp := unsafe.Pointer(unsafe.SliceData(delay))
@@ -61,33 +72,40 @@ const combOverlapMax = 240
 // own vector. The kernel stays on 128-bit vectors, as the libopus SSE decoder
 // does, so it does not move the core to a lower AVX frequency license.
 func combFilterOverlap(dst, d0, d1, wsq []float32, g00, g01, g02, g10, g11, g12 float32) {
+	if combOverlapUsesAVX && len(dst) >= 4 {
+		combFilterOverlapAVX(dst, d0, d1, wsq, g00, g01, g02, g10, g11, g12)
+		return
+	}
+	combFilterOverlapScalar(dst, d0, d1, wsq, g00, g01, g02, g10, g11, g12)
+}
+
+//go:noinline
+func combFilterOverlapAVX(dst, d0, d1, wsq []float32, g00, g01, g02, g10, g11, g12 float32) {
 	n := len(dst)
+	_ = d0[n+3]
+	_ = d1[n+3]
+	_ = wsq[n-1]
+	one := broadcastF32x4Arch(1)
+	vg00, vg01, vg02 := broadcastF32x4Arch(g00), broadcastF32x4Arch(g01), broadcastF32x4Arch(g02)
+	vg10, vg11, vg12 := broadcastF32x4Arch(g10), broadcastF32x4Arch(g11), broadcastF32x4Arch(g12)
+	dp := unsafe.Pointer(unsafe.SliceData(dst))
+	ap := unsafe.Pointer(unsafe.SliceData(d0))
+	bp := unsafe.Pointer(unsafe.SliceData(d1))
+	wp := unsafe.Pointer(unsafe.SliceData(wsq))
 	i := 0
-	if combOverlapUsesAVX && n >= 4 {
-		_ = d0[n+3]
-		_ = d1[n+3]
-		_ = wsq[n-1]
-		one := archsimd.BroadcastFloat32x4(1)
-		vg00, vg01, vg02 := archsimd.BroadcastFloat32x4(g00), archsimd.BroadcastFloat32x4(g01), archsimd.BroadcastFloat32x4(g02)
-		vg10, vg11, vg12 := archsimd.BroadcastFloat32x4(g10), archsimd.BroadcastFloat32x4(g11), archsimd.BroadcastFloat32x4(g12)
-		dp := unsafe.Pointer(unsafe.SliceData(dst))
-		ap := unsafe.Pointer(unsafe.SliceData(d0))
-		bp := unsafe.Pointer(unsafe.SliceData(d1))
-		wp := unsafe.Pointer(unsafe.SliceData(wsq))
-		for ; i+4 <= n; i += 4 {
-			f := loadF32x4(unsafe.Add(wp, 4*i))
-			a := unsafe.Add(ap, 4*i)
-			b := unsafe.Add(bp, 4*i)
-			oneMinus := one.Sub(f)
-			sum := loadF32x4(unsafe.Add(dp, 4*i)).
-				Add(oneMinus.Mul(vg00).Mul(loadF32x4(unsafe.Add(a, 8)))).
-				Add(oneMinus.Mul(vg01).Mul(loadF32x4(unsafe.Add(a, 12)).Add(loadF32x4(unsafe.Add(a, 4))))).
-				Add(oneMinus.Mul(vg02).Mul(loadF32x4(unsafe.Add(a, 16)).Add(loadF32x4(a)))).
-				Add(f.Mul(vg10).Mul(loadF32x4(unsafe.Add(b, 8)))).
-				Add(f.Mul(vg11).Mul(loadF32x4(unsafe.Add(b, 12)).Add(loadF32x4(unsafe.Add(b, 4))))).
-				Add(f.Mul(vg12).Mul(loadF32x4(unsafe.Add(b, 16)).Add(loadF32x4(b))))
-			storeF32x4(unsafe.Add(dp, 4*i), sum)
-		}
+	for ; i+4 <= n; i += 4 {
+		f := loadF32x4(unsafe.Add(wp, 4*i))
+		a := unsafe.Add(ap, 4*i)
+		b := unsafe.Add(bp, 4*i)
+		oneMinus := one.Sub(f)
+		sum := loadF32x4(unsafe.Add(dp, 4*i)).
+			Add(oneMinus.Mul(vg00).Mul(loadF32x4(unsafe.Add(a, 8)))).
+			Add(oneMinus.Mul(vg01).Mul(loadF32x4(unsafe.Add(a, 12)).Add(loadF32x4(unsafe.Add(a, 4))))).
+			Add(oneMinus.Mul(vg02).Mul(loadF32x4(unsafe.Add(a, 16)).Add(loadF32x4(a)))).
+			Add(f.Mul(vg10).Mul(loadF32x4(unsafe.Add(b, 8)))).
+			Add(f.Mul(vg11).Mul(loadF32x4(unsafe.Add(b, 12)).Add(loadF32x4(unsafe.Add(b, 4))))).
+			Add(f.Mul(vg12).Mul(loadF32x4(unsafe.Add(b, 16)).Add(loadF32x4(b))))
+		storeF32x4(unsafe.Add(dp, 4*i), sum)
 	}
 	if i < n {
 		combFilterOverlapScalar(dst[i:], d0[i:], d1[i:], wsq[i:], g00, g01, g02, g10, g11, g12)

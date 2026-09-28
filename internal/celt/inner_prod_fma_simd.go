@@ -4,7 +4,6 @@ package celt
 
 import (
 	"github.com/thesyncim/gopus/internal/opusmath"
-	"simd/archsimd"
 	"unsafe"
 )
 
@@ -19,7 +18,7 @@ import (
 // MulAdd lowers to the FMA instruction unconditionally, so callers must ensure the
 // feature is present — always on arm64 NEON, gated on archsimd.X86.FMA() on amd64.
 func innerProd8FMA32ArchSIMD(x, y []float32, n int) float32 {
-	acc := archsimd.BroadcastFloat32x4(0)
+	acc := broadcastF32x4Arch(0)
 	if n <= 0 {
 		return 0
 	}

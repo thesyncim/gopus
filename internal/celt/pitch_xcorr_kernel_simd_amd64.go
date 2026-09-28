@@ -15,7 +15,7 @@ func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
 		*sum = [8]float32{}
 		return
 	}
-	if !archsimd.X86.FMA() {
+	if !libopusFloatPitchXCorrUsesAVX2FMA() {
 		xcorrKernelAVX8ScalarGo(x, y, sum, length)
 		return
 	}
@@ -26,6 +26,10 @@ func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
 // xcorrKernelAVX8Tail is celt_pitch_xcorr_avx2's xcorr_kernel_avx for eight
 // lags starting at y, with the masked tail block taken from tail.
 func xcorrKernelAVX8Tail(x, y *float32, sum *[8]float32, length int, tail *xcorrTail8) {
+	if !libopusFloatPitchXCorrUsesAVX2FMA() {
+		xcorrKernelAVX8ScalarGo(x, y, sum, length)
+		return
+	}
 	xcorrKernelAVX8OnePassTail(x, y, sum, length, tail)
 }
 
@@ -48,6 +52,7 @@ var xcorrTailMaskTable = [16]uint32{
 	^uint32(0), ^uint32(0), ^uint32(0), ^uint32(0), ^uint32(0), ^uint32(0), ^uint32(0), ^uint32(0),
 }
 
+//go:noinline
 func newXcorrTail8(x unsafe.Pointer, length int) xcorrTail8 {
 	rem := length & 7
 	if rem == 0 {
@@ -73,7 +78,7 @@ func xcorrKernelAVX8OnePass(x, y *float32, sum *[8]float32, length int) {
 		*sum = [8]float32{}
 		return
 	}
-	if !archsimd.X86.FMA() {
+	if !libopusFloatPitchXCorrUsesAVX2FMA() {
 		xcorrKernelAVX8ScalarGo(x, y, sum, length)
 		return
 	}
@@ -81,6 +86,7 @@ func xcorrKernelAVX8OnePass(x, y *float32, sum *[8]float32, length int) {
 	xcorrKernelAVX8OnePassTail(x, y, sum, length, &tail)
 }
 
+//go:noinline
 func xcorrKernelAVX8OnePassTail(x, y *float32, sum *[8]float32, length int, tail *xcorrTail8) {
 	// Each FMA is written y*x + acc: the product commutes exactly, and the
 	// y register is the one the three-operand FMA overwrites, so x stays live
@@ -207,7 +213,7 @@ func pitchXcorrKernelAVX8(x, y []float32, sum *[8]float32, length int) {
 // tail. The x tail block is prepared once, and a y tail block loads full
 // width wherever y's capacity covers it.
 func pitchXCorrAVX2Blocks(x, y, xcorr []float32, length, maxPitch int) int {
-	if maxPitch < 8 || !archsimd.X86.FMA() {
+	if maxPitch < 8 || !libopusFloatPitchXCorrUsesAVX2FMA() {
 		return 0
 	}
 	x = x[:length]

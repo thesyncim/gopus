@@ -7,6 +7,8 @@ import (
 	"unsafe"
 )
 
+var silkWarpedAutocorrUsesAVX2 = archsimd.X86.AVX2()
+
 // warpedAutocorrelationSections runs silk_warped_autocorrelation_FLP four
 // input samples at a time as a wavefront: lane j of each Float64x4 carries
 // sample n+j through allpass pair p = q-j at step q. A pair of sample n+j
@@ -16,6 +18,15 @@ import (
 // the same order as the one-sample loop. The correlation accumulators travel
 // with the lanes too, so each C[i] still sums the samples in input order.
 func warpedAutocorrelationSections(st, corr *warpedAutocorrState, in []float32, w silkCReal, order int) {
+	if !silkWarpedAutocorrUsesAVX2 {
+		warpedAutocorrelationSamples(st, corr, in, w, order)
+		return
+	}
+	warpedAutocorrelationSectionsAVX2(st, corr, in, w, order)
+}
+
+//go:noinline
+func warpedAutocorrelationSectionsAVX2(st, corr *warpedAutocorrState, in []float32, w silkCReal, order int) {
 	pairs := order / 2
 	warp := archsimd.BroadcastFloat64x4(w)
 	// startMask[q] selects the lanes at and above q: at step q < 4 lane q

@@ -9,15 +9,17 @@ import (
 )
 
 // mdctUseSSEForward runs the bulk of the forward MDCT pre- and post-rotation
-// on four float32 lanes. Every lane evaluates the same rounded products and
-// sums as clt_mdct_forward_c's scalar loop, so the result is bit-exact.
-const mdctUseSSEForward = true
+// on four float32 lanes when the host supports AVX. The vector helpers remain
+// behind noinline calls so unsupported instructions cannot cross this gate.
+var mdctUseSSEForward = archsimd.X86.AVX()
 
 // mdctMidRotateSSE is clt_mdct_forward_c's unwindowed fold plus pre-rotation
 // for 4*blocks outputs starting at i0: re = in[xp2-2k], im = in[xp1+2k],
 // yr = re*t0 - im*t1, yi = im*t0 + re*t1, each scaled and stored at
 // fftStage[bitrev[i0+k]]. The loads read in[xp1 : xp1+8*blocks] and
 // in[xp2-8*blocks+1 : xp2+1].
+//
+//go:noinline
 func mdctMidRotateSSE(fftStage []kissCpx, bitrev []int, in, trig []float32, i0, n4, xp1, xp2, blocks int, scale float32) {
 	_ = in[xp1+8*blocks-1]
 	_ = in[xp2]
@@ -29,7 +31,7 @@ func mdctMidRotateSSE(fftStage []kissCpx, bitrev []int, in, trig []float32, i0, 
 	tp := unsafe.Pointer(unsafe.SliceData(trig))
 	sp := unsafe.Pointer(unsafe.SliceData(fftStage))
 	n := len(fftStage)
-	s4 := archsimd.BroadcastFloat32x4(scale)
+	s4 := broadcastF32x4Arch(scale)
 	for b := range blocks {
 		i := i0 + 4*b
 		p1 := unsafe.Add(ip, 4*(xp1+8*b))
@@ -67,6 +69,8 @@ func mdctStorePair(sp unsafe.Pointer, n, idx int, v uint64) {
 // n4-4-i..n4-1-i, which together tile coeffs contiguously from both ends.
 // yr = im*t1 - re*t0 lands at coeffs[2i] and yi = re*t1 + im*t0 at
 // coeffs[n2-1-2i]. The caller finishes the n4%8 middle.
+//
+//go:noinline
 func mdctPostTwiddleSSE(coeffs []float32, fftStage []kissCpx, trig []float32, n2, n4, pairBlocks int) {
 	if pairBlocks == 0 {
 		return
@@ -148,6 +152,8 @@ func mdctRotateStore(sp unsafe.Pointer, n int, br []int, t0, t1, s4, re, im arch
 // mdctMulAddMixEncode and mdctMulSubMixEncode evaluate them on amd64. The
 // loads read samples[xp1+n2 : xp1+n2+8*blocks], samples[xp2-n2-8*blocks+1 :
 // xp2+1], window[wp1 : wp1+8*blocks] and window[wp2-8*blocks+1 : wp2+1].
+//
+//go:noinline
 func mdctLeadFoldSSE(fftStage []kissCpx, bitrev []int, samples, window, trig []float32, i0, n4, n2, xp1, xp2, wp1, wp2, blocks int, scale float32) {
 	_ = samples[xp1+n2+8*blocks-1]
 	_ = samples[xp2]
@@ -162,7 +168,7 @@ func mdctLeadFoldSSE(fftStage []kissCpx, bitrev []int, samples, window, trig []f
 	tp := unsafe.Pointer(unsafe.SliceData(trig))
 	fp := unsafe.Pointer(unsafe.SliceData(fftStage))
 	n := len(fftStage)
-	s4 := archsimd.BroadcastFloat32x4(scale)
+	s4 := broadcastF32x4Arch(scale)
 	for b := range blocks {
 		d := 8 * b
 		a := mdctEvenAsc(unsafe.Add(sp, 4*(xp1+n2+d)))
@@ -185,6 +191,8 @@ func mdctLeadFoldSSE(fftStage []kissCpx, bitrev []int, samples, window, trig []f
 // mdctNegMulAddMixEncode and mdctMulAddMixEncode evaluate them on amd64. The
 // loads read samples[xp1-n2 : xp1+8*blocks], samples[xp2-8*blocks+1 :
 // xp2+n2+1], window[wp1 : wp1+8*blocks] and window[wp2-8*blocks+1 : wp2+1].
+//
+//go:noinline
 func mdctTailFoldSSE(fftStage []kissCpx, bitrev []int, samples, window, trig []float32, i0, n4, n2, xp1, xp2, wp1, wp2, blocks int, scale float32) {
 	_ = samples[xp1-n2]
 	_ = samples[xp1+8*blocks-1]
@@ -200,7 +208,7 @@ func mdctTailFoldSSE(fftStage []kissCpx, bitrev []int, samples, window, trig []f
 	tp := unsafe.Pointer(unsafe.SliceData(trig))
 	fp := unsafe.Pointer(unsafe.SliceData(fftStage))
 	n := len(fftStage)
-	s4 := archsimd.BroadcastFloat32x4(scale)
+	s4 := broadcastF32x4Arch(scale)
 	for b := range blocks {
 		d := 8 * b
 		a3 := mdctEvenAsc(unsafe.Add(sp, 4*(xp1-n2+d)))

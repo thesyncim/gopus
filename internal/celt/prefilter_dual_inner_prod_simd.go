@@ -1,23 +1,22 @@
-//go:build (amd64 || arm64) && goexperiment.simd && !nosimd
+//go:build arm64 && goexperiment.simd && !nosimd
 
 package celt
 
 import (
 	"github.com/thesyncim/gopus/internal/opusmath"
-	"simd/archsimd"
 	"unsafe"
 )
 
 // prefilterDualInnerProdArchSIMD computes sum1=<x,y1> and sum2=<x,y2> with two
-// 4-lane fused-multiply-add accumulators (archsimd MulAdd → FMLA/VFMADD), loading
+// 4-lane fused-multiply-add accumulators (archsimd MulAdd → FMLA), loading
 // through raw pointers (loadF32x4) to drop the per-load slice bounds check. Lane L
 // of each accumulator sums elements L, L+4, L+8, … and the reductions are
 // (a0+a2)+(a1+a3) with a scalar fused tail, matching the scalar reference
-// bit-for-bit. Four lanes is mandatory; MulAdd needs the FMA feature, so callers
-// gate amd64 on archsimd.X86.FMA() (arm64 NEON always has FMLA).
+// bit-for-bit. Four lanes are mandatory; the arm64 build uses this implementation
+// because NEON provides FMLA.
 func prefilterDualInnerProdArchSIMD(x, y1, y2 []float32, length int) (float32, float32) {
-	acc1 := archsimd.BroadcastFloat32x4(0)
-	acc2 := archsimd.BroadcastFloat32x4(0)
+	acc1 := broadcastF32x4Arch(0)
+	acc2 := broadcastF32x4Arch(0)
 	xp := unsafe.Pointer(unsafe.SliceData(x))
 	y1p := unsafe.Pointer(unsafe.SliceData(y1))
 	y2p := unsafe.Pointer(unsafe.SliceData(y2))

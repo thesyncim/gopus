@@ -21,7 +21,7 @@ func kfBfly2M4SIMD(fout []kissCpx, N int) {
 	}
 	_ = fout[8*N-1]
 	p := unsafe.Pointer(unsafe.SliceData(fout))
-	tw := archsimd.BroadcastFloat32x4(kfBfly2M4Twiddle)
+	tw := broadcastF32x4Arch(kfBfly2M4Twiddle)
 	lane0 := archsimd.LoadInt32x4Array(&[4]int32{-1, 0, 0, 0}).ToMask()
 	lane1 := archsimd.LoadInt32x4Array(&[4]int32{0, -1, 0, 0}).ToMask()
 	lane2 := archsimd.LoadInt32x4Array(&[4]int32{0, 0, -1, 0}).ToMask()
@@ -32,7 +32,7 @@ func kfBfly2M4SIMD(fout []kissCpx, N int) {
 		difIR := i.Sub(r).Mul(tw) // lane 1: (fout2[1].i - fout2[1].r) * tw; lane 3 likewise
 		sumIR := i.Add(r).Mul(tw) // lane 3: (fout2[3].i + fout2[3].r) * tw
 		tr := r.IfElse(lane0, sumRI.IfElse(lane1, i.IfElse(lane2, difIR)))
-		ti := i.IfElse(lane0, difIR.IfElse(lane1, r.Neg().IfElse(lane2, sumIR.Neg())))
+		ti := i.IfElse(lane0, difIR.IfElse(lane1, negF32x4AVX(r).IfElse(lane2, negF32x4AVX(sumIR))))
 		bflyStoreCpx4AMD64(unsafe.Add(p, 32), fr.Sub(tr), fi.Sub(ti))
 		bflyStoreCpx4AMD64(p, fr.Add(tr), fi.Add(ti))
 		p = unsafe.Add(p, 64)

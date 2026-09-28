@@ -140,6 +140,42 @@ for mode in simd nosimd; do
     "${build_env[@]}" go test "${build_args[@]}" -c -pgo=auto -o "$root_test_binary" .
 
   if [[ "$mode" == simd ]]; then
+    run_phase build-candidate-simd-encoder \
+      run_in_checkout "$candidate_root" \
+      "${build_env[@]}" go test -c -pgo=auto -o "$artifact_root/candidate-simd-encoder.test" ./internal/encoder
+    run_phase build-candidate-simd-dnnmath \
+      run_in_checkout "$candidate_root" \
+      "${build_env[@]}" go test -c -pgo=auto -o "$artifact_root/candidate-simd-dnnmath.test" ./internal/dnnmath
+    # Native AVX2 hosts cannot detect an illegal AVX2 instruction on the AVX
+    # fallback path. CPU emulation exercises those paths without a C helper,
+    # whose subprocess would otherwise run against the host CPU features.
+    run_phase candidate-cpu-emulator-version qemu-x86_64 --version
+    for cpu in Penryn SandyBridge; do
+      run_phase "candidate-simd-$cpu-analysis" \
+        env GOPUS_TEST_TIER=fast GOMAXPROCS=2 \
+        qemu-x86_64 -cpu "$cpu" "$artifact_root/candidate-simd-encoder.test" \
+        -test.run '^TestAnalysis(Bins(CPUFallback|MatchesScalar|ZeroAllocs)|Atan2MatchesBranchyForm)$' \
+        -test.count=1 -test.timeout=2m -test.v
+      run_phase "candidate-simd-$cpu-dnn-dispatch" \
+        env GOPUS_TEST_TIER=fast GOMAXPROCS=2 \
+        qemu-x86_64 -cpu "$cpu" "$artifact_root/candidate-simd-dnnmath.test" \
+        -test.run '^TestDNNX86CPUFallback$' -test.count=1 -test.timeout=2m -test.v
+      run_phase "candidate-simd-$cpu-silk-dispatch" \
+        env GOPUS_TEST_TIER=fast GOMAXPROCS=2 \
+        qemu-x86_64 -cpu "$cpu" "$artifact_root/candidate-simd-silk.test" \
+        -test.run '^TestSILKAMD64SIMDRequiresAVX2$' \
+        -test.count=1 -test.timeout=2m -test.v
+      run_phase "candidate-simd-$cpu-celt-dispatch" \
+        env GOPUS_TEST_TIER=fast GOMAXPROCS=2 \
+        qemu-x86_64 -cpu "$cpu" "$artifact_root/candidate-simd-celt.test" \
+        -test.run '^TestCELT(CPUFeatureFallbackMath|AVXSafeFloatAbsNeg|AVX2XCorrFallbackMath|RawMaxMinInitialNaNMatchesSequential)$' \
+        -test.count=1 -test.timeout=2m -test.v
+      run_phase "candidate-simd-$cpu-public-smoke" \
+        env GOPUS_TEST_TIER=fast GOMAXPROCS=2 \
+        qemu-x86_64 -cpu "$cpu" "$root_test_binary" \
+        -test.run '^$' -test.bench '^(BenchmarkDecoderDecode_(CELT|Hybrid|SILK)|BenchmarkEncoderEncode_(CallerBuffer|VoIP|LowDelay))$' \
+        -test.benchtime=3x -test.count=1 -test.timeout=2m -test.benchmem
+    done
     run_phase candidate-simd-xcorr-silk-oracles \
       "${run_env[@]}" "$artifact_root/candidate-simd-celt.test" \
       -test.run '^TestPitchXCorrPairedLibopusSIMDRawBits$' -test.count=1 -test.timeout=10m -test.v

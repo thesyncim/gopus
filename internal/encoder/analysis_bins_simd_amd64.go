@@ -8,13 +8,24 @@ import (
 	"simd/archsimd"
 )
 
-// analysisBinsSIMD runs tonality_analysis's per-bin phase loop for bins
-// 1..236, four bins per step, and returns the first bin left to the scalar
-// loop. Every lane evaluates the scalar loop's operations in the same order:
-// fast_atan2f's two rational forms and quadrant terms are chosen with lane
-// masks, float2int rounds to nearest even, and the tonality reciprocals are
-// IEEE divisions.
+// Go 1.27 lowers Float32x4.Abs and Neg to AVX2 instructions even though
+// their API lists AVX (golang/go#81405). Keep this kernel behind AVX2.
+var analysisBinsUseAVX2 = archsimd.X86.AVX2()
+
 func (s *TonalityAnalysisState) analysisBinsSIMD(out *[480]complex64, tonality, tonality2, noisiness []float32) int {
+	if !analysisBinsUseAVX2 {
+		return 1
+	}
+	return s.analysisBinsAVX2(out, tonality, tonality2, noisiness)
+}
+
+// analysisBinsAVX2 runs tonality_analysis's per-bin phase loop for bins
+// 1..236, four bins per step, and returns the first bin left to the scalar
+// loop. Every lane preserves the scalar operand order. The call boundary
+// keeps Go 1.27 from hoisting SIMD instructions above the CPU check.
+//
+//go:noinline
+func (s *TonalityAnalysisState) analysisBinsAVX2(out *[480]complex64, tonality, tonality2, noisiness []float32) int {
 	tonality = tonality[:240]
 	tonality2 = tonality2[:240]
 	noisiness = noisiness[:240]

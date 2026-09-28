@@ -14,12 +14,21 @@ import (
 // vectorized spreading_decision() loop of the libopus SIMD build does.
 func spreadCountThresholds(x []celtNorm, n int, nf float32) (t0, t1, t2 int) {
 	x = x[:n]
+	if !archsimd.X86.AVX() {
+		return spreadCountThresholdsScalar(x, nf)
+	}
+	return spreadCountThresholdsAVX(x, n, nf)
+}
+
+//go:noinline
+func spreadCountThresholdsAVX(x []celtNorm, n int, nf float32) (t0, t1, t2 int) {
+	x = x[:n]
 	blocks := n &^ 3
 	if blocks > 0 {
-		nf4 := archsimd.BroadcastFloat32x4(nf)
-		c0 := archsimd.BroadcastFloat32x4(spreadThresholds[0])
-		c1 := archsimd.BroadcastFloat32x4(spreadThresholds[1])
-		c2 := archsimd.BroadcastFloat32x4(spreadThresholds[2])
+		nf4 := broadcastF32x4Arch(nf)
+		c0 := broadcastF32x4Arch(spreadThresholds[0])
+		c1 := broadcastF32x4Arch(spreadThresholds[1])
+		c2 := broadcastF32x4Arch(spreadThresholds[2])
 		var n0, n1, n2 archsimd.Int32x4
 		p := unsafe.Pointer(unsafe.SliceData(x))
 		for j := 0; j < blocks; j += 4 {

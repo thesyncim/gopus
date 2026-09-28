@@ -16,6 +16,14 @@ var absSumMask = [4]uint32{0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff}
 // that element i of all four slices lands in one vector, and the adds run in
 // element order, so each lane performs exactly its slice's serial additions.
 func absSumQuad(a, b, c, d []float32) (float32, float32, float32, float32) {
+	if !archsimd.X86.AVX() {
+		return absSumSerial4(a, b, c, d)
+	}
+	return absSumQuadAVX(a, b, c, d)
+}
+
+//go:noinline
+func absSumQuadAVX(a, b, c, d []float32) (float32, float32, float32, float32) {
 	n := len(a)
 	b, c, d = b[:n], c[:n], d[:n]
 	blocks := n &^ 3
@@ -56,6 +64,14 @@ func absSumQuad(a, b, c, d []float32) (float32, float32, float32, float32) {
 // absSumPair is absSumQuad for two slices: the two accumulators occupy the
 // low lanes, and each block's elements are added in order.
 func absSumPair(a, b []float32) (float32, float32) {
+	if !archsimd.X86.AVX() {
+		return absSumSerial2(a, b)
+	}
+	return absSumPairAVX(a, b)
+}
+
+//go:noinline
+func absSumPairAVX(a, b []float32) (float32, float32) {
 	n := len(a)
 	b = b[:n]
 	blocks := n &^ 3

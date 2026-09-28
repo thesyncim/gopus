@@ -7,7 +7,7 @@ import (
 	"unsafe"
 )
 
-var silkLPCAnalysisFilterUsesAVX = archsimd.X86.AVX()
+var silkLPCAnalysisFilterUsesAVX2 = archsimd.X86.AVX2()
 
 // silkLPCAnalysisFilterVec computes silk_LPC_analysis_filter outputs eight at
 // a time from index max(order, 16) on and returns the first index it did not
@@ -19,13 +19,19 @@ var silkLPCAnalysisFilterUsesAVX = archsimd.X86.AVX()
 // kernel stays on 128-bit vectors, which keep the core's normal frequency.
 func silkLPCAnalysisFilterVec(out, in, B []int16, length, order int) int {
 	ix := order
-	if !silkLPCAnalysisFilterUsesAVX || order <= 0 || order > maxLPCOrder || length > len(in) || length > len(out) {
+	if !silkLPCAnalysisFilterUsesAVX2 || order <= 0 || order > maxLPCOrder || length > len(in) || length > len(out) {
 		return ix
 	}
 	start := max(order, maxLPCOrder)
 	if start+8 > length {
 		return ix
 	}
+	return silkLPCAnalysisFilterVecAVX2(out, in, B, length, order, start)
+}
+
+//go:noinline
+func silkLPCAnalysisFilterVecAVX2(out, in, B []int16, length, order, start int) int {
+	ix := order
 	for ; ix < start; ix++ {
 		outQ12 := silkSMULBB(int32(in[ix-1]), int32(B[0]))
 		for j := 1; j < order; j++ {

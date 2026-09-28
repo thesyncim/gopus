@@ -7,7 +7,7 @@ import (
 	"unsafe"
 )
 
-var firInterpolUsesAVX = archsimd.X86.AVX()
+var firInterpolUsesAVX2 = archsimd.X86.AVX2()
 
 // silkResamplerFIR12Taps holds, for each of the 12 interpolation phases, the
 // eight taps silk_resampler_private_IIR_FIR_INTERPOL applies to
@@ -30,12 +30,17 @@ var silkResamplerFIR12Taps = func() (taps [12][8]int16) {
 // instruction's signed saturation.
 func firInterpolVec(dst, buf []int16, indexIncrQ16 int32) int {
 	nOut := len(dst) &^ 7
-	if !firInterpolUsesAVX || nOut == 0 {
+	if !firInterpolUsesAVX2 || nOut == 0 {
 		return 0
 	}
 	if last := int((int32(nOut-1)*indexIncrQ16)>>16) + 8; last > len(buf) {
 		return 0
 	}
+	return firInterpolVecAVX2(dst, buf, indexIncrQ16, nOut)
+}
+
+//go:noinline
+func firInterpolVecAVX2(dst, buf []int16, indexIncrQ16 int32, nOut int) int {
 	taps := &silkResamplerFIR12Taps
 	base := unsafe.Pointer(unsafe.SliceData(buf))
 	one := archsimd.BroadcastInt32x4(1)

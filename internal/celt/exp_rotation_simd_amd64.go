@@ -2,10 +2,7 @@
 
 package celt
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "unsafe"
 
 // expRotation1Pass4 runs blocks 4-wide spreading-rotation steps starting at
 // index first, advancing 4 indices per iteration in direction dir (+1
@@ -17,6 +14,8 @@ import (
 // which is exp_rotation1's MAC16_16(MULT16_16(c, x2), s, x1) without
 // contraction, as gcc compiles it for x86 and as expRotationMac32 evaluates
 // it on amd64. stride >= 4 keeps the four lanes of a block independent.
+//
+//go:noinline
 func expRotation1Pass4(x []float32, first, stride, blocks, dir int, c, s float32) {
 	if blocks == 0 {
 		return
@@ -24,9 +23,9 @@ func expRotation1Pass4(x []float32, first, stride, blocks, dir int, c, s float32
 	_ = x[first+stride+3]
 	_ = x[first+(blocks-1)*dir*4]
 	_ = x[first+(blocks-1)*dir*4+stride+3]
-	cv := archsimd.BroadcastFloat32x4(c)
-	sv := archsimd.BroadcastFloat32x4(s)
-	msv := archsimd.BroadcastFloat32x4(-s)
+	cv := broadcastF32x4Arch(c)
+	sv := broadcastF32x4Arch(s)
+	msv := broadcastF32x4Arch(-s)
 	base := unsafe.Pointer(unsafe.SliceData(x))
 	for b := range blocks {
 		p1 := unsafe.Add(base, (first+b*dir*4)*4)

@@ -13,8 +13,8 @@ import (
 var pvqBestIDVectorSink int
 
 func pvqBestIDScalarLaneReference(absX, y []float32, xy, yy float32) int {
-	xy4 := archsimd.BroadcastFloat32x4(xy)
-	yy4 := archsimd.BroadcastFloat32x4(yy)
+	xy4 := broadcastF32x4Arch(xy)
+	yy4 := broadcastF32x4Arch(yy)
 	var laneMax [4]float32
 	var laneID [4]int
 	for i := 0; i < len(absX); i += 4 {

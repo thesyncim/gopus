@@ -7,11 +7,22 @@ import (
 	"unsafe"
 )
 
+var silkLPCAnalysisF32UsesAVX2 = archsimd.X86.AVX2()
+
 // lpcAnalysisFilterF32 is silk_LPC_analysis_filter_FLP. GCC -O3 vectorizes
 // the libopus filter across output samples; this computes eight output
 // samples per vector with the same per-sample multiply and add order,
 // LPC_pred = s[-1]*c[0] + s[-2]*c[1] + ..., and no fused multiply-add.
 func lpcAnalysisFilterF32(rLPC, predCoef, s []float32, length, order int) {
+	if !silkLPCAnalysisF32UsesAVX2 {
+		lpcAnalysisFilterF32Scalar(rLPC, predCoef, s, length, order)
+		return
+	}
+	lpcAnalysisFilterF32AVX2(rLPC, predCoef, s, length, order)
+}
+
+//go:noinline
+func lpcAnalysisFilterF32AVX2(rLPC, predCoef, s []float32, length, order int) {
 	switch order {
 	case 6, 8, 10, 12, 16:
 	default:

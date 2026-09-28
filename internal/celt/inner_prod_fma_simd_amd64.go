@@ -16,7 +16,7 @@ func celtInnerProd8FMA32(x, y []float32, n int) float32 {
 	if n <= 0 {
 		return 0
 	}
-	if archsimd.X86.FMA() {
+	if archsimd.X86.AVX() && archsimd.X86.FMA() {
 		return innerProd8FMA32ArchSIMD(x, y, n)
 	}
 	return innerProd8FMA32Scalar(x, y, n)

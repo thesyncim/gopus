@@ -2,10 +2,7 @@
 
 package celt
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "unsafe"
 
 // scaleFloat32Into computes dst[i] = src[i]*gain over min(len(dst),len(src))
 // elements as 4-wide Float32x4.Mul products: each lane is the same
@@ -18,8 +15,17 @@ import (
 // past its slice; an empty slice skips all loops, so SliceData is never
 // dereferenced.
 func scaleFloat32Into(dst, src []float32, gain float32) {
+	if !hasCELTFloat32x4SIMD() {
+		scaleFloat32IntoScalar(dst, src, gain)
+		return
+	}
+	scaleFloat32IntoArchSIMD(dst, src, gain)
+}
+
+//go:noinline
+func scaleFloat32IntoArchSIMD(dst, src []float32, gain float32) {
 	n := min(len(dst), len(src))
-	g := archsimd.BroadcastFloat32x4(gain)
+	g := broadcastF32x4Arch(gain)
 	sp := unsafe.Pointer(unsafe.SliceData(src))
 	dp := unsafe.Pointer(unsafe.SliceData(dst))
 	i := 0
@@ -46,5 +52,12 @@ func scaleFloat32Into(dst, src []float32, gain float32) {
 			sp = unsafe.Add(sp, 4)
 			dp = unsafe.Add(dp, 4)
 		}
+	}
+}
+
+func scaleFloat32IntoScalar(dst, src []float32, gain float32) {
+	n := min(len(dst), len(src))
+	for i := 0; i < n; i++ {
+		dst[i] = noFMA32Mul(src[i], gain)
 	}
 }

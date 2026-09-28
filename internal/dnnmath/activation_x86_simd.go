@@ -13,13 +13,20 @@ var X86VectorKernels = archsimd.X86.AVX2() && archsimd.X86.FMA()
 
 // The selected x86 DRED archive uses dnn/vec_avx.h's AVX2/FMA Padé
 // polynomial and VRCPPS estimate for both complete vectors and the tail.
-// Every 256-bit kernel in this package ends with ClearAVXUpperBits, so the
-// scalar SSE code that follows runs without AVX-SSE transition penalties.
+// The 256-bit activation bodies clear upper vector registers before
+// returning to scalar callers.
+// Guard wrappers keep Go 1.27 zero-vector hoisting inside the noinline AVX2
+// bodies, after the CPU check (golang/go#81571).
 func sigmoidVectorX86(out, in []float32, n int) {
 	if !X86VectorKernels {
 		SigmoidVectorScalarApprox(out, in, n)
 		return
 	}
+	sigmoidVectorX86AVX2(out, in, n)
+}
+
+//go:noinline
+func sigmoidVectorX86AVX2(out, in []float32, n int) {
 	i := 0
 	for ; i+8 <= n; i += 8 {
 		sigmoid8X86(archsimd.LoadFloat32x8(in[i:])).Store(out[i:])
@@ -35,6 +42,11 @@ func tanhVectorX86(out, in []float32, n int) {
 		TanhVectorScalarApprox(out, in, n)
 		return
 	}
+	tanhVectorX86AVX2(out, in, n)
+}
+
+//go:noinline
+func tanhVectorX86AVX2(out, in []float32, n int) {
 	i := 0
 	for ; i+8 <= n; i += 8 {
 		tanh8X86(archsimd.LoadFloat32x8(in[i:])).Store(out[i:])
@@ -49,6 +61,11 @@ func tanhApproxX86(x float32) float32 {
 	if !X86VectorKernels {
 		return TanhScalarApprox(x)
 	}
+	return tanhApproxX86AVX2(x)
+}
+
+//go:noinline
+func tanhApproxX86AVX2(x float32) float32 {
 	y := tanh8X86(archsimd.BroadcastFloat32x8(x)).GetLo().GetElem(0)
 	archsimd.ClearAVXUpperBits()
 	return y
@@ -59,6 +76,11 @@ func expVectorX86(out, in []float32, n int) {
 		ExpVectorScalarApprox(out, in, n)
 		return
 	}
+	expVectorX86AVX2(out, in, n)
+}
+
+//go:noinline
+func expVectorX86AVX2(out, in []float32, n int) {
 	i := 0
 	for ; i+8 <= n; i += 8 {
 		exp8X86(archsimd.LoadFloat32x8(in[i:])).Store(out[i:])

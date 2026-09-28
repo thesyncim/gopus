@@ -17,6 +17,11 @@ func up2HQCore(out []int16, in []int16, sIIR *[6]int32) {
 		up2HQCoreGo(out, in, sIIR)
 		return
 	}
+	up2HQCoreAVX2(out, in, sIIR)
+}
+
+//go:noinline
+func up2HQCoreAVX2(out []int16, in []int16, sIIR *[6]int32) {
 	out = out[:2*len(in)]
 	sa := archsimd.LoadInt32x4Array(&[4]int32{sIIR[0], 0, sIIR[3], 0})
 	sb := archsimd.LoadInt32x4Array(&[4]int32{sIIR[1], 0, sIIR[4], 0})

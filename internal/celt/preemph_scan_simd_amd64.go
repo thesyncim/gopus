@@ -15,13 +15,21 @@ import (
 // sequential result depend on its position, so that input takes the scalar
 // scan.
 func rawMaxMinScan(x []float32, maxVal, minVal float32) (float32, float32) {
+	if !archsimd.X86.AVX() || maxVal != maxVal || minVal != minVal {
+		return rawMaxMinScanScalar(x, maxVal, minVal)
+	}
+	return rawMaxMinScanAVX(x, maxVal, minVal)
+}
+
+//go:noinline
+func rawMaxMinScanAVX(x []float32, maxVal, minVal float32) (float32, float32) {
 	n := len(x)
 	if n < 8 {
 		return rawMaxMinScanScalar(x, maxVal, minVal)
 	}
 	p := unsafe.Pointer(unsafe.SliceData(x))
-	hi := archsimd.BroadcastFloat32x4(maxVal)
-	lo := archsimd.BroadcastFloat32x4(minVal)
+	hi := broadcastF32x4Arch(maxVal)
+	lo := broadcastF32x4Arch(minVal)
 	nan := archsimd.Int32x4{}
 	i := 0
 	for ; i+4 <= n; i += 4 {
@@ -45,17 +53,22 @@ func rawMaxMinScan(x []float32, maxVal, minVal float32) (float32, float32) {
 // outputs run per step with the scalar loop's exact products and
 // differences. It returns the updated per-channel state.
 func preemphInterleaved(pcm, out []float32, total, channels int, coef float32, state [2]float32) [2]float32 {
-	if total < channels+4 {
+	if total < channels+4 || !archsimd.X86.AVX() {
 		return preemphInterleavedScalar(pcm, out, total, channels, coef, state)
 	}
+	return preemphInterleavedAVX(pcm, out, total, channels, coef, state)
+}
+
+//go:noinline
+func preemphInterleavedAVX(pcm, out []float32, total, channels int, coef float32, state [2]float32) [2]float32 {
 	pcm = pcm[:total]
 	out = out[:total]
 	for c := range channels {
 		scaled := pcm[c] * float32(CELTSigScale)
 		out[c] = scaled - state[c]
 	}
-	scale := archsimd.BroadcastFloat32x4(float32(CELTSigScale))
-	coef4 := archsimd.BroadcastFloat32x4(coef)
+	scale := broadcastF32x4Arch(float32(CELTSigScale))
+	coef4 := broadcastF32x4Arch(coef)
 	pp := unsafe.Pointer(unsafe.SliceData(pcm))
 	op := unsafe.Pointer(unsafe.SliceData(out))
 	i := channels

@@ -15,12 +15,21 @@ const haar1Scale = float32(0.7071067811865476)
 // four pairs per step. Each lane scales both inputs before the sum and the
 // difference, exactly as the scalar loop does.
 func haar1Stride1(x []float32, n0 int) {
+	if !archsimd.X86.AVX() {
+		haar1StrideScalarAMD64(x, n0, 1)
+		return
+	}
+	haar1Stride1AVX(x, n0)
+}
+
+//go:noinline
+func haar1Stride1AVX(x []float32, n0 int) {
 	if n0 <= 0 {
 		return
 	}
 	_ = x[2*n0-1]
 	p := unsafe.Pointer(unsafe.SliceData(x))
-	scale := archsimd.BroadcastFloat32x4(haar1Scale)
+	scale := broadcastF32x4Arch(haar1Scale)
 	i := 0
 	for ; i+4 <= n0; i += 4 {
 		off := unsafe.Add(p, i*8)
@@ -44,12 +53,21 @@ func haar1Stride1(x []float32, n0 int) {
 // haar1Stride2 runs haar1's stride-2 butterfly over n0 groups of four,
 // pairing x[4j+i] with x[4j+2+i]; two groups per step.
 func haar1Stride2(x []float32, n0 int) {
+	if !archsimd.X86.AVX() {
+		haar1StrideScalarAMD64(x, n0, 2)
+		return
+	}
+	haar1Stride2AVX(x, n0)
+}
+
+//go:noinline
+func haar1Stride2AVX(x []float32, n0 int) {
 	if n0 <= 0 {
 		return
 	}
 	_ = x[4*n0-1]
 	p := unsafe.Pointer(unsafe.SliceData(x))
-	scale := archsimd.BroadcastFloat32x4(haar1Scale)
+	scale := broadcastF32x4Arch(haar1Scale)
 	i := 0
 	for ; i+2 <= n0; i += 2 {
 		off := unsafe.Add(p, i*16)
@@ -78,17 +96,37 @@ func haar1Stride2(x []float32, n0 int) {
 // haar1Stride4 runs haar1's stride-4 butterfly over n0 groups of eight,
 // pairing the low and high four lanes of each group.
 func haar1Stride4(x []float32, n0 int) {
+	if !archsimd.X86.AVX() {
+		haar1StrideScalarAMD64(x, n0, 4)
+		return
+	}
+	haar1Stride4AVX(x, n0)
+}
+
+//go:noinline
+func haar1Stride4AVX(x []float32, n0 int) {
 	if n0 <= 0 {
 		return
 	}
 	_ = x[8*n0-1]
 	p := unsafe.Pointer(unsafe.SliceData(x))
-	scale := archsimd.BroadcastFloat32x4(haar1Scale)
+	scale := broadcastF32x4Arch(haar1Scale)
 	for i := range n0 {
 		off := unsafe.Add(p, i*32)
 		lo := loadF32x4(off).Mul(scale)
 		hi := loadF32x4(unsafe.Add(off, 16)).Mul(scale)
 		storeF32x4(off, lo.Add(hi))
 		storeF32x4(unsafe.Add(off, 16), lo.Sub(hi))
+	}
+}
+
+// haar1StrideScalarAMD64 keeps the vector kernels' per-pair operation order
+// when the host does not support AVX.
+func haar1StrideScalarAMD64(x []float32, n0, stride int) {
+	for i := 0; i < n0; i++ {
+		base := 2 * stride * i
+		for j := 0; j < stride; j++ {
+			haar1PairNorm(x, base+j, base+stride+j, haar1Scale)
+		}
 	}
 }

@@ -12,9 +12,19 @@ import (
 // exactly as the scalar loop does; the remainder runs scalar.
 func scalePulsesInto(out []celtNorm, pulses []int32, g float32) {
 	out = out[:len(pulses)]
+	if !archsimd.X86.AVX() {
+		scalePulsesIntoScalar(out, pulses, g)
+		return
+	}
+	scalePulsesIntoAVX(out, pulses, g)
+}
+
+//go:noinline
+func scalePulsesIntoAVX(out []celtNorm, pulses []int32, g float32) {
+	out = out[:len(pulses)]
 	blocks := len(pulses) &^ 3
 	if blocks > 0 {
-		g4 := archsimd.BroadcastFloat32x4(g)
+		g4 := broadcastF32x4Arch(g)
 		pp := unsafe.Pointer(unsafe.SliceData(pulses))
 		op := unsafe.Pointer(unsafe.SliceData(out))
 		for j := 0; j < blocks; j += 4 {

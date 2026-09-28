@@ -17,10 +17,15 @@ func pitchXCorrFloat32AVX2FMAOrderTiny(x, y, xcorr []float32, length, maxPitch i
 	if maxPitch <= 0 {
 		return
 	}
-	if !archsimd.X86.FMA() {
+	if !libopusFloatPitchXCorrUsesAVX2FMA() {
 		pitchXCorrFloat32AVX2FMAOrderTinyScalar(x, y, xcorr, length, maxPitch)
 		return
 	}
+	pitchXCorrFloat32AVX2FMAOrderTinyAVX2(x, y, xcorr, length, maxPitch)
+}
+
+//go:noinline
+func pitchXCorrFloat32AVX2FMAOrderTinyAVX2(x, y, xcorr []float32, length, maxPitch int) {
 	// Clear the upper register halves the 256-bit lanes leave dirty, so the
 	// caller's scalar SSE code runs without false dependencies.
 	defer archsimd.ClearAVXUpperBits()

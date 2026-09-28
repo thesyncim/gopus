@@ -113,6 +113,8 @@ func nsqDelDecAVX2Supports(params *NSQParams) bool {
 // noiseShapeQuantizeDelDecAVX2 runs the frame on the structure-of-arrays
 // states (silk_NSQ_del_dec_avx2) and returns the winner's seed. It produces
 // the same pulses, xq and NSQ state as noiseShapeQuantizeDelDecStates.
+//
+//go:noinline
 func noiseShapeQuantizeDelDecAVX2(nsq *NSQState, input []int16, params *NSQParams, f *nsqDelDecFrame) int {
 	st := &nsq.delDecAVX2
 	subfrLength := params.SubfrLength
@@ -350,6 +352,8 @@ func nsqRemapRing(maps *[decisionDelay][maxDelDecStates]uint8, perm archsimd.Int
 // subframe: every state advances as one vector lane. Lanes at and above
 // nStates compute unused values that the masked winner and replacement
 // searches never select.
+//
+//go:noinline
 func (st *nsqDelDecAVX2State) quantizeSubframe(
 	nsq *NSQState,
 	f *nsqDelDecFrame,

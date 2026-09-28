@@ -38,11 +38,15 @@ func xcorrKernelAVX8OnePass(x, y *float32, sum *[8]float32, length int) {
 		*sum = [8]float32{}
 		return
 	}
-	if !archsimd.X86.FMA() {
+	if !silkUsePitchXcorrAVX2FMA {
 		xcorrKernelAVX8ScalarGo(x, y, sum, length)
 		return
 	}
+	xcorrKernelAVX8OnePassVector(x, y, sum, length)
+}
 
+//go:noinline
+func xcorrKernelAVX8OnePassVector(x, y *float32, sum *[8]float32, length int) {
 	var acc0, acc1, acc2, acc3, acc4, acc5, acc6, acc7 archsimd.Float32x8
 	xp, yp := unsafe.Pointer(x), unsafe.Pointer(y)
 	i := 0
@@ -87,6 +91,7 @@ func xcorrKernelAVX8OnePass(x, y *float32, sum *[8]float32, length int) {
 	}
 }
 
+//go:noinline
 func xcorrKernelAVX4(x, y *float32, sum *[4]float32, length int) {
 	xp := unsafe.Pointer(x)
 	yp := unsafe.Pointer(y)

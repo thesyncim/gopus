@@ -3,9 +3,9 @@
 package celt
 
 // expRotationUsesSIMD enables the four-lane spreading-rotation passes for
-// stride >= 4 on the Go SIMD builds. Each lane evaluates exp_rotation1's
-// per-index operations in the scalar order.
-const expRotationUsesSIMD = true
+// stride >= 4 when the host supports the required vector instructions. Each
+// lane evaluates exp_rotation1's per-index operations in the scalar order.
+var expRotationUsesSIMD = expRotationHostSupportsSIMD()
 
 // expRotation1StrideSIMD is exp_rotation1 for stride >= 4. Four consecutive
 // indices then belong to four independent rotation chains: in the forward
@@ -14,6 +14,10 @@ const expRotationUsesSIMD = true
 // is the mirror image. Blocks run on four lanes; the remaining indices run in
 // the scalar loop, in the same order relative to their chains.
 func expRotation1StrideSIMD(x []celtNorm, length, stride int, c, s opusVal16) {
+	if !expRotationUsesSIMD {
+		expRotation1NormScalar(x, length, stride, c, s)
+		return
+	}
 	c32 := float32(c)
 	s32 := float32(s)
 	ms32 := -s32

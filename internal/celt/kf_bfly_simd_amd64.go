@@ -28,8 +28,8 @@ func kfBfly5InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 	wBase := unsafe.Pointer(unsafe.SliceData(w))
 	ya := *(*kissCpx)(unsafe.Add(wBase, fstride*m*8))
 	yb := *(*kissCpx)(unsafe.Add(wBase, fstride*2*m*8))
-	yar, yai := archsimd.BroadcastFloat32x4(ya.r), archsimd.BroadcastFloat32x4(ya.i)
-	ybr, ybi := archsimd.BroadcastFloat32x4(yb.r), archsimd.BroadcastFloat32x4(yb.i)
+	yar, yai := broadcastF32x4Arch(ya.r), broadcastF32x4Arch(ya.i)
+	ybr, ybi := broadcastF32x4Arch(yb.r), broadcastF32x4Arch(yb.i)
 	foutBase := unsafe.Pointer(unsafe.SliceData(fout))
 
 	for j := 0; j < m; j += 4 {
@@ -62,7 +62,7 @@ func kfBfly5InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 			s5r := s0r.Add(s7r.Mul(yar).Add(s8r.Mul(ybr)))
 			s5i := s0i.Add(s7i.Mul(yar).Add(s8i.Mul(ybr)))
 			s6r := s10i.Mul(yai).Add(s9i.Mul(ybi))
-			s6i := s10r.Mul(yai).Add(s9r.Mul(ybi)).Neg()
+			s6i := negF32x4AVX(s10r.Mul(yai).Add(s9r.Mul(ybi)))
 			bflyStoreCpx4AMD64(p1, s5r.Sub(s6r), s5i.Sub(s6i))
 			bflyStoreCpx4AMD64(p4, s5r.Add(s6r), s5i.Add(s6i))
 
@@ -131,8 +131,8 @@ func kfBfly3InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 	_ = w[fstride*m]
 
 	wBase := unsafe.Pointer(unsafe.SliceData(w))
-	epi3i := archsimd.BroadcastFloat32x4(w[fstride*m].i)
-	half := archsimd.BroadcastFloat32x4(0.5)
+	epi3i := broadcastF32x4Arch(w[fstride*m].i)
+	half := broadcastF32x4Arch(0.5)
 	foutBase := unsafe.Pointer(unsafe.SliceData(fout))
 	for j := 0; j < m; j += 4 {
 		w1r, w1i := bflyGatherTwiddle4AMD64(wBase, j*fstride, fstride)
@@ -207,8 +207,8 @@ func bflyGatherTwiddle4AMD64(wBase unsafe.Pointer, start, stride int) (re, im ar
 	t1 := *(*kissCpx)(unsafe.Add(wBase, (start+stride)*8))
 	t2 := *(*kissCpx)(unsafe.Add(wBase, (start+2*stride)*8))
 	t3 := *(*kissCpx)(unsafe.Add(wBase, (start+3*stride)*8))
-	re = archsimd.BroadcastFloat32x4(t0.r).SetElem(1, t1.r).SetElem(2, t2.r).SetElem(3, t3.r)
-	im = archsimd.BroadcastFloat32x4(t0.i).SetElem(1, t1.i).SetElem(2, t2.i).SetElem(3, t3.i)
+	re = broadcastF32x4Arch(t0.r).SetElem(1, t1.r).SetElem(2, t2.r).SetElem(3, t3.r)
+	im = broadcastF32x4Arch(t0.i).SetElem(1, t1.i).SetElem(2, t2.i).SetElem(3, t3.i)
 	return re, im
 }
 
