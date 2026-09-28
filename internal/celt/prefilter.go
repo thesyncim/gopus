@@ -912,9 +912,8 @@ func prefilterDualInnerProdF32SSEOrderScalar(x, y1, y2 []float32, length int) (f
 // prefilterDualInnerProdF32NeonOrder reproduces libopus
 // arm/pitch_neon_intr.c dual_inner_prod_neon: two 4-lane vfmaq_f32 accumulators
 // over 8-element groups, a 4-element tail, the (acc0+acc2)+(acc1+acc3)
-// reductions, and a fused multiply-add scalar tail. prefilterDualInnerProdAsm
-// implements this in NEON asm on arm64 and a bit-identical math.FMA fallback
-// under the nosimd tag.
+// reductions, and a fused multiply-add scalar tail. The arm64 SIMD Go kernel
+// uses archsimd; scalar Go builds preserve the same operation order.
 func prefilterDualInnerProdF32NeonOrder(x, y1, y2 []float32, length int) (float32, float32) {
 	return prefilterDualInnerProdAsm(x, y1, y2, length)
 }
@@ -982,8 +981,7 @@ func pitchAutocorr5F32(lp []float32, length int, ac *[5]float32) {
 	}
 }
 
-// prefilterInnerProd and prefilterDualInnerProd are implemented in:
-//   prefilter_innerprod_asm.go + prefilter_innerprod_{arm64,amd64}.s  (SIMD path)
-//   prefilter_innerprod_default.go                                     (Go fallback)
+// prefilterDualInnerProdF32 selects scalar Go by default and archsimd kernels
+// under GOEXPERIMENT=simd where the architecture-specific implementation exists.
 
 var secondCheck = [16]int{0, 0, 3, 2, 3, 2, 5, 2, 3, 2, 3, 2, 5, 2, 3, 2}

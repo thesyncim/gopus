@@ -7,15 +7,11 @@ import (
 	"testing"
 )
 
-// celtInnerProd8FMA32Ref is the original celtInnerProdNeonStyle body, kept here
-// so the asm/nosimd kernel can be proven bit-identical to the libopus-matching
-// 4-lane FMA reference it replaced. It fuses each lane through opusmath.FMA32
-// (single-rounding math.FMA) exactly like the kernel under test, so the
-// comparison holds on every architecture: the kernel is a fused
-// vfmaq_f32-shaped accumulator regardless of host (it is reached in production
-// only on arm64, where opusmath.FMA32 maps to FMADDS). celtFloatMulAdd is not used
-// here because it drops to non-fused a*b+c on non-arm64 hosts, which would not
-// match the kernel's unconditional FMA and would diverge by 1 ULP.
+// celtInnerProd8FMA32Ref is an independent reference for the libopus-matching
+// four-lane FMA accumulation. It fuses each lane through opusmath.FMA32
+// (single-rounding math.FMA), matching the Go kernel's lane and reduction order
+// across build configurations. celtFloatMulAdd is not used here because it can
+// select non-fused a*b+c on non-arm64 hosts and differ by 1 ULP.
 func celtInnerProd8FMA32Ref(x, y []float32) float32 {
 	var acc [4]float32
 	i := 0

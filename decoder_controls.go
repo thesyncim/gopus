@@ -115,7 +115,8 @@ func (d *Decoder) IgnoreExtensions() bool {
 	return d.ignoreExtensions
 }
 
-// Pitch returns the most recent decoded pitch period.
+// Pitch returns the decoded pitch period in samples. It returns zero when no pitch
+// is available.
 func (d *Decoder) Pitch() int {
 	if d.lastPacketMode == ModeCELT {
 		if d.celtDecoder == nil {

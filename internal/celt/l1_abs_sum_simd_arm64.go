@@ -15,7 +15,7 @@ const celtAbsSumUsesNeon = true
 // 4-lane archsimd accumulator (Abs + Add), loading through raw pointers
 // (loadF32x4) to drop the per-load slice bounds check. Lane k sums |tmp[k]|,
 // |tmp[k+4]|, … and the reduction is (a0+a1)+(a2+a3)+tail — the exact order of
-// l1AbsSumNeonReference, so it is bit-exact with the NEON kernel it replaces
+// l1AbsSumNeonReference, so it matches libopus's NEON reduction order exactly
 // (TestL1AbsSumNeonBitExact). Scalar and SIMD reductions have distinct operation
 // orders; parity comparisons use the corresponding reference instruction path.
 func l1AbsSumNeon(tmp []float32, n int) float32 {

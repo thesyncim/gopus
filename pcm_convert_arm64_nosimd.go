@@ -2,13 +2,11 @@
 
 package gopus
 
-// The non-nosimd arm64 build converts float32 PCM to int16 with the NEON
-// celt_float2int16 kernel (FMUL by 32768, FCVTNS, SMIN, SQXTN) over whole
-// 16-sample blocks, then finishes the remainder with the scalar round-to-even
-// float32ToInt16. FCVTNS rounds to nearest with ties to even, matching libopus
-// float2int (lrintf) under the default IEEE rounding mode. These pure-Go
-// fallbacks reproduce the arm64 block/tail split exactly so the nosimd build
-// matches the libopus oracle without hand-written assembly.
+// The arm64 scalar Go path follows libopus celt_float2int16's 16-sample block
+// and scalar-tail rounding. Full blocks use the FCVTNS-equivalent round-to-even
+// behavior; FCVTNS matches libopus float2int (lrintf) under the default IEEE
+// rounding mode. The arm64 Go SIMD path handles full blocks with archsimd and
+// uses the same scalar tail.
 
 const pcmConvertBlock = 16
 

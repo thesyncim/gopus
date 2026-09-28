@@ -4,11 +4,11 @@ package celt
 
 import "github.com/thesyncim/gopus/internal/opusmath"
 
-// prefilterDualInnerProdAsm is the portable fallback for the arm64 NEON dual
-// inner-product kernel. It reproduces the 4-lane fused-multiply-add order of
+// prefilterDualInnerProdAsm is the scalar Go implementation of the arm64 NEON
+// dual inner-product operation order. It reproduces the four-lane fused multiply-add order of
 // prefilterDualInnerProdF32NeonOrder exactly. The arm64 Go path fuses both the
-// fma32 main loop and the scalar-tail multiply-add into FMADDS, so the fallback
-// uses math.FMA throughout to stay bit-identical to the asm.
+// fma32 main loop and the scalar-tail multiply-add into FMADDS, so this path
+// uses math.FMA throughout to stay bit-identical to the matching C reference.
 func prefilterDualInnerProdAsm(x, y1, y2 []float32, length int) (float32, float32) {
 	if length <= 0 {
 		return 0, 0

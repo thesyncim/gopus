@@ -15,7 +15,7 @@ import (
 //	x[i]        = c*x1 + round(-s*x2)
 //
 // The two tap products round as plain Muls and the cross terms are fused
-// MulAdds, matching expRotationMac32 and the hand asm bit-for-bit. stride >= 4
+// MulAdds, matching expRotationMac32 bit-for-bit. stride >= 4
 // keeps the four lanes of a block independent; raw-pointer loads (loadF32x4)
 // skip the per-lane bounds check.
 func expRotation1Pass4(x []float32, first, stride, blocks, dir int, c, s float32) {

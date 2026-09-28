@@ -102,8 +102,8 @@ func TestAlgUnquantQEXTRefinedEnergyPublicBoundaryMatchesSelectedLibopus(t *test
 	var extEnc rangecoding.Encoder
 	extEnc.Init(make([]byte, 32))
 	for range n - 1 {
-		// This live band-0/right-channel leaf takes the large negative
-		// refinement branch for each of its first n-1 pulses.
+		// This live leaf matches the right channel in band 0 and takes the
+		// large negative refinement path for each of its first n-1 pulses.
 		ecEncRefine(&extEnc, -up, up, extraBits, true)
 	}
 	caseData := algUnquantQEXTOracleCase{
@@ -142,7 +142,7 @@ func TestAlgUnquantQEXTRefinedEnergyPublicBoundaryMatchesSelectedLibopus(t *test
 
 func TestAlgUnquantQEXTRefinedEnergyTailMatchesSelectedLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
-	// The selected-C N=6 tuple exercises four vector-body terms and a
+	// The selected C N=6 tuple exercises four terms in the vector body and a
 	// two-element contracted scalar tail on the ARM SIMD oracle.
 	caseData := algUnquantQEXTOracleCase{
 		name:      "selected_c_n6_scalar_tail",

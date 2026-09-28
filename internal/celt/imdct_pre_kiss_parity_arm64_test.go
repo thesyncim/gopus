@@ -7,8 +7,8 @@ import (
 
 // imdctPreRotateFMA32KissScalarRef is an independent scalar reference for the
 // FMA-like IMDCT pre-rotation. It rounds the standalone product to float32 and
-// fuses the first multiply into the add via math.FMA, matching both the nosimd
-// fallback and the arm64 assembly bit-for-bit.
+// fuses the first multiply into the add via math.FMA, matching the scalar Go and
+// arm64 Go SIMD implementations bit-for-bit.
 func imdctPreRotateFMA32KissScalarRef(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
 	for i := range n4 {
 		x1 := float64(spectrum[2*i])

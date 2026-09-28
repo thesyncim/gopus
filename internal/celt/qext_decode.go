@@ -152,8 +152,8 @@ func (d *Decoder) prepareQEXTDecodeRange(payload []byte, mainRD *rangecoding.Dec
 	var qextMode *qextModeConfig
 	if end == MaxBands {
 		if cfg, ok := computeQEXTModeConfig(int(d.sampleRate), qextShortMDCTSizeForMode(frameSize, d.modeConfig(frameSize))); ok {
-			// Non-fullband packets use the extension coder directly for extra
-			// main-band allocation; only fullband modes carry this header.
+			// Supported fullband packets carry this header; non-fullband packets
+			// use the extension coder directly for extra main-band allocation.
 			hdr := decodeQEXTHeader(extDec, channels, len(payload))
 			// celt_decoder.c decodes every signaled extension band, including
 			// bands beyond the mode spectrum; quant_all_bands discards those bins.

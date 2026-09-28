@@ -2,13 +2,12 @@
 
 package celt
 
-// celtAbsSumUsesNeon is false off the fused arm64 build, so the float abs-sum
-// callers keep the scalar left-to-right reduction and the amd64/nosimd
-// byte-exact gate holds.
+// celtAbsSumUsesNeon selects the four-lane Go SIMD reduction only in the
+// arm64 SIMD build. Ordinary and nosimd builds keep the scalar reduction.
 const celtAbsSumUsesNeon = false
 
-// l1AbsSumNeon preserves the four-lane reduction order used by the arm64
-// vector path while keeping the default and nosimd builds assembly-free.
+// l1AbsSumNeon preserves the four-lane reduction order for reference checks.
+// The production path in this file remains scalar.
 func l1AbsSumNeon(tmp []float32, n int) float32 {
 	n = min(n, len(tmp))
 	var acc [4]float32

@@ -10,9 +10,9 @@ import (
 // kernel applies, selecting the same rounding shape as the production flags:
 // when mdctUseFMALikeMixEnabled is set (arm64) it rounds the standalone product
 // to float32 and fuses the first multiply into the add/sub via math.FMA,
-// matching the nosimd fallback and the arm64 assembly bit-for-bit; otherwise it
-// keeps both products separately rounded and non-fused, matching the kernel on
-// non-arm64 hosts where the kernel is built but only reached on arm64.
+// matching the arm64 Go SIMD and scalar implementations bit-for-bit; otherwise
+// it keeps both products separately rounded and non-fused, matching the kernel
+// on non-arm64 hosts where the arm64 implementation is not selected.
 func imdctTDACWindowScalarRef(out, xsrc, window []float32, yOut0, xOut0, xSrc0, wBwd0, count int) {
 	for i := range count {
 		x1 := xsrc[xSrc0-i]

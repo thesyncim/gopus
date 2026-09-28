@@ -15,7 +15,7 @@ package testvectors
 //   1. encodes the real-content PCM live with the gopus encoder,
 //   2. decodes the SAME packets with BOTH gopus and the libopus reference whose
 //      SIMD tier matches the gopus build (decodeWithMatchedTierReferencePacketsSingle:
-//      asm gopus ↔ SIMD libopus, pure-Go gopus ↔ scalar libopus), and
+//      Go SIMD ↔ SIMD libopus, scalar Go ↔ scalar libopus), and
 //   3. gates gopus vs libopus with qualitycompare.AssertParity at the anchored
 //      IntentNearExact bar.
 //

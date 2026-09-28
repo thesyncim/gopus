@@ -358,19 +358,15 @@ verify-safety: ensure-libopus
 	$(MAKE) test-soak-safety
 	$(MAKE) release-evidence
 
-# Bit-exact libopus float kernels must match under every build config, not only
-# the default arm64 build. The rounding barrier that stops the arm64 backend from
-# contracting a*b+c into FMADD (where libopus does not) is a GOARCH property, so a
-# build constraint that drops it under -tags nosimd silently diverges from
-# libopus. This gate reruns the libopus oracle suite under nosimd so that class of
-# regression fails here. The default arm64 build is covered by the normal parity
-# run; amd64 is covered by CI.
+# The ordinary build uses scalar Go kernels. `GOEXPERIMENT=simd` opts into
+# Go `archsimd` kernels where they are implemented, and `-tags nosimd` forces
+# scalar selection even when the experiment is enabled. This gate runs the
+# scalar oracle suite under `nosimd`; `test-simd` runs the opt-in SIMD suite.
 #
-# The pure-Go build has no assembly/SIMD, so the C oracle must link the scalar
-# (generic-C) libopus reference, NOT the default tree (which autotools-enables
-# RTCD + SSE/AVX on amd64 and NEON on Linux arm64). GOPUS_LIBOPUS_REF_SCALAR=1
-# routes RefPath() to opus-$(LIBOPUS_VERSION)-scalar so the comparison is
-# scalar-Go vs scalar-C and can stay bit-exact.
+# The scalar Go gate must use generic-C libopus as its oracle. The default
+# libopus tree may enable RTCD and platform SIMD, so GOPUS_LIBOPUS_REF_SCALAR=1
+# routes RefPath() to opus-$(LIBOPUS_VERSION)-scalar and keeps the comparison
+# scalar Go vs scalar C.
 test-build-config-matrix: ensure-libopus ensure-libopus-scalar
 	$(GO_WORK_ENV) GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_REF_SCALAR=1 $(GO) test -tags nosimd ./... -count=1 -timeout=25m
 
@@ -442,9 +438,8 @@ ensure-libopus-simd:
 # Ensure tmp_check/opus-$(LIBOPUS_VERSION)-scalar/.libs/libopus.a exists, built
 # with the scalar generic-C kernels (--disable-asm --disable-rtcd
 # --disable-intrinsics). Its config.h leaves the platform SIMD macros undefined,
-# so it is the bit-reproducible parity reference for the pure-Go gopus build (no
-# assembly/SIMD). The default tree autotools-enables SIMD on amd64 / Linux arm64,
-# so it is NOT a valid pure-Go oracle there.
+# so it is the bit-reproducible parity reference for scalar Go builds (ordinary
+# builds and `-tags nosimd`). Go SIMD builds use the paired `-simd` reference.
 ensure-libopus-scalar:
 	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_SCALAR=1 ./tools/ensure_libopus.sh
 
@@ -457,8 +452,8 @@ test-custom-parity: ensure-libopus-custom-scalar
 # Live (fixture-free) gopus-vs-libopus decode parity on the extended synthetic
 # corpus signal classes across SILK/Hybrid/CELT mono+stereo configs, plus the
 # frame-duration axis (2.5/5/10/40/60 ms) over a representative class slice.
-# Uses a tier-matched libopus reference (asm gopus vs SIMD libopus, pure-Go
-# gopus vs scalar libopus), so it needs both reference trees built.
+# Uses a tier-matched libopus reference (Go SIMD vs SIMD libopus, scalar Go vs
+# scalar libopus), so it needs both reference trees built.
 test-corpus-quality: ensure-libopus ensure-libopus-simd
 	$(GO_WORK_ENV) GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
 		$(GO) test -tags gopus_libopus_oracle -count=1 ./testvectors -run '^(TestCorpusSignalQualityParity|TestCorpusFrameSizeQualityParity)$$'

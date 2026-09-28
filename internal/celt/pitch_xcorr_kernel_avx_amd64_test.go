@@ -13,8 +13,8 @@ import (
 
 var xcorrKernelAVX8BenchmarkSink [8]float32
 
-// scalar reference reproducing the lane-ordered AVX2 accumulation that the asm
-// kernel must match bit-for-bit.
+// scalar reference reproduces the lane-ordered AVX2 accumulation used by the
+// matching libopus kernel.
 func xcorrKernelAVX8Scalar(x, y []float32, length int) [8]float32 {
 	var sums [8][8]float32
 	j := 0

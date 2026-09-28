@@ -11,8 +11,8 @@ import (
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
-// celt_decoder.c reads the QEXT header only for a supported fullband mode.
-// Other bandwidths use the untouched extension coder for main-band refinement.
+// Supported fullband modes in celt_decoder.c consume the QEXT header.
+// Other bandwidths use the extension coder directly for main-band refinement.
 func TestQEXTNonFullbandHeaderMatchesSelectedLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	for _, channels := range []int{1, 2} {

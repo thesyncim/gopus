@@ -19,8 +19,8 @@ const mdctUseNeonMidFold = true
 //
 // The compute is vectorized four lanes at a time (ConcatEven deinterleave, the
 // descending re reversed with reverse4, fused MulAdd, scaling Mul), matching
-// mdctStoreDirectStageFMALike bit-for-bit; only the bit-reversed store is
-// scalar, exactly as the asm scatters it.
+// mdctStoreDirectStageFMALike bit-for-bit; the bit-reversed output placement
+// remains scalar.
 func mdctMidFoldStoreNeon(dst []kissCpx, bitrev []int, samples []float32, trig []float32, i0, n4, xp1, xp2, blocks int, preScale float32) {
 	const intBytes = int(unsafe.Sizeof(int(0)))
 	if blocks == 0 {

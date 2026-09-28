@@ -5,19 +5,13 @@ import (
 	"testing"
 )
 
-// imdct_specialized_poc_test.go MEASURES the headroom for a specialized/unrolled
-// IMDCT against the production transform. It is a measurement scaffold only: it
-// times the exact transform sizes the CELT 48 kHz 20 ms mono decode bench drives
-// (frame N=960 -> n2=480 spectrum -> n4=240-point complex FFT) so the FFT, the
-// pre/post rotation, and the whole IMDCT can be timed in isolation under both the
-// default (NEON/amd64 asm) build and the `-tags nosimd` (scalar Go) build.
-//
-// The point of the POC: on the asm tier the FFT butterflies + IMDCT rotations are
-// already hand-written NEON (kf_bfly_arm64.s, imdct_pre/post_kiss_arm64.s). A
-// pure-Go unrolled transform would have to BEAT that NEON. Running these
-// benchmarks under `-tags nosimd` (scalar Go, the best a pure-Go unrolled
-// transform can do without SIMD codegen) vs the default build (NEON) quantifies
-// the gap directly — no new transform code, no bit-exactness risk.
+// imdct_specialized_poc_test.go measures headroom for a specialized/unrolled
+// IMDCT against the production transform. It times the exact transform sizes
+// used by the CELT 48 kHz 20 ms mono decode benchmark (frame N=960 -> n2=480
+// spectrum -> n4=240-point complex FFT), so the FFT, pre/post rotation, and whole
+// IMDCT can be measured in isolation. Run with GOEXPERIMENT=simd to measure the
+// opt-in Go SIMD kernels, and with the ordinary build or `-tags nosimd` to
+// measure scalar Go. The ordinary arm64 build is scalar.
 
 // pocFFTInput240 builds a deterministic n=240 complex input (pre-rotated spectrum
 // shape) for the FFT-only benchmark.
@@ -33,8 +27,8 @@ func pocFFTInput240() []complex64 {
 }
 
 // BenchmarkPOCFFT240 times the production complex FFT at the decode bench's
-// transform size (n4=240). Under the default build this is the NEON butterfly
-// path; under `-tags nosimd` it is the scalar-Go fallback. Compare the two.
+// transform size (n4=240). Its implementation follows GOARCH and build
+// constraints; GOEXPERIMENT=simd enables eligible Go SIMD kernels.
 func BenchmarkPOCFFT240(b *testing.B) {
 	in := pocFFTInput240()
 	scratch := make([]kissCpx, len(in))
@@ -46,8 +40,8 @@ func BenchmarkPOCFFT240(b *testing.B) {
 
 // BenchmarkPOCIMDCT480 times the full IMDCT used by the 48 kHz 20 ms mono decode
 // (pre-rotate + FFT + post-rotate + TDAC), matching synthesizeMonoLongToFloat32:
-// spectrum n2=480, overlap=120. Under the default build the rotations + FFT are
-// NEON asm; under `-tags nosimd` they are scalar Go.
+// spectrum n2=480, overlap=120. Run with GOEXPERIMENT=simd to measure eligible
+// Go SIMD kernels, or with the ordinary/nosimd build to measure scalar Go.
 func BenchmarkPOCIMDCT480(b *testing.B) {
 	const (
 		n2      = 480

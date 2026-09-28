@@ -12,8 +12,8 @@ import (
 // It loads/stores through raw pointers (loadF32x4/storeF32x4) to drop the slice
 // bounds check on every access. Mul, Sub and Add are distinct archsimd ops — no
 // fused multiply-add across separate results — so each lane keeps the two-rounding
-// shape of the scalar noFMA32 reference and the hand asm, and the result is
-// bit-exact. The caller passes len(y) == len(x), so the y walk stays in range.
+// shape of the scalar noFMA32 reference, and the result is bit-exact. The
+// caller passes len(y) == len(x), so the y walk stays in range.
 func stereoMergeRescaleNEON(x, y []float32, mid, lgain, rgain float32) {
 	n := len(x)
 	if n <= 0 {

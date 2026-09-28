@@ -1625,8 +1625,8 @@ func algUnquantInto(shape []celtNorm, rd *rangecoding.Decoder, band, n, k, sprea
 		sumSq := opusVal16(0)
 		for i := range n {
 			if celtUseFusedFloatMath && i < n&^3 {
-				// celt/vq.c alg_unquant's paired ARM SIMD object rounds vector-
-				// body terms separately, then contracts the scalar tail.
+				// celt/vq.c alg_unquant's paired ARM SIMD object rounds terms in
+				// its vector body separately, then contracts the scalar tail.
 				sumSq = opusVal16(noFMA32Add(float32(sumSq), noFMA32Mul(float32(pulses[i]), float32(pulses[i]))))
 			} else {
 				sumSq = opusVal16(float32(sumSq) + float32(pulses[i])*float32(pulses[i]))
@@ -1935,8 +1935,8 @@ func celtInnerProdSSEStyleNorm(x, y []celtNorm) float32 {
 // celtInnerProdNeonStyle reproduces libopus arm/pitch_neon_intr.c
 // celt_inner_prod_neon: a 4-lane vfmaq_f32 accumulator over 8-element groups,
 // a 4-element tail, the (acc0+acc2)+(acc1+acc3) reduction, and a scalar tail.
-// celtInnerProd8FMA32 implements this in NEON asm on arm64 and a bit-identical
-// math.FMA fallback under the nosimd tag.
+// celtInnerProd8FMA32 implements this with Go kernels: arm64 SIMD uses archsimd,
+// while scalar builds preserve the same fused lane and reduction order.
 func celtInnerProdNeonStyle(x, y []celtNorm) float32 {
 	n := min(len(y), len(x))
 	return celtInnerProd8FMA32(x[:n:n], y[:n:n], n)

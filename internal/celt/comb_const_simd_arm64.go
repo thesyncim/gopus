@@ -17,7 +17,7 @@ const combUsesNeon = true
 //
 // four lanes at a time. The two tap sums round as plain FADDs and the three
 // accumulates are fused FMLAs (MulAdd), matching the scalar combFilterConstValue
-// and the hand asm bit-for-bit. Loads go through raw pointers (loadF32x4) to skip
+// bit-for-bit. Loads go through raw pointers (loadF32x4) to skip
 // the per-access slice bounds check; blocks counts four-output vectors.
 func combFilterConstNeonBlock(base, d0, d1, g10v, g11v, g12v archsimd.Float32x4) archsimd.Float32x4 {
 	lo := d0.ToBits().ReshapeToUint8s()

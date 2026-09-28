@@ -8,14 +8,14 @@ import (
 )
 
 // prefilterDualInnerProdF32Ref is an independent reference for the
-// prefilterDualInnerProdF32NeonOrder kernel, kept so the asm/nosimd kernel can
-// be proven bit-identical to the libopus-matching reference it replaced. It
+// prefilterDualInnerProdF32NeonOrder Go kernel. It
 // fuses every lane and the scalar tail through opusmath.FMA32 (single-rounding
 // math.FMA) and applies the same float32 rounding barriers on the horizontal
 // reduction as the kernel, so the comparison holds on every architecture. The
-// kernel is reached in production only on arm64, where opusmath.FMA32 maps to FMADDS
-// and the asm path emits the matching vfmaq_f32 accumulation. fma32 is not used
-// here because it drops to non-fused a*b+c on non-arm64 hosts.
+// kernel is reached in production only on arm64, where the Go SIMD path uses
+// fused vector operations and the scalar path preserves the same accumulation
+// order. fma32 is not used here because it can select non-fused a*b+c on
+// non-arm64 hosts.
 func prefilterDualInnerProdF32Ref(x, y1, y2 []float32, length int) (float32, float32) {
 	var acc1 [4]float32
 	var acc2 [4]float32

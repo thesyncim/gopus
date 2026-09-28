@@ -122,7 +122,7 @@ func CustomRefPath(elem ...string) string {
 // CustomScalarRefPath returns a path under the scalar custom-modes libopus
 // reference tree (--enable-custom-modes on the generic-C kernels, built with
 // --disable-asm --disable-rtcd --disable-intrinsics). It is the bit-reproducible
-// Opus Custom oracle for the pure-Go celt/custom parity gate.
+// Opus Custom oracle for the scalar Go celt/custom parity gate.
 func CustomScalarRefPath(elem ...string) string {
 	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + "-custom-scalar"}
 	return filepath.Join(append(base, elem...)...)

@@ -124,7 +124,7 @@ elif [[ "${ENABLE_CUSTOM_FIXED_QEXT_SIMD}" == "1" ]]; then
   SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-custom-fixed-qext-simd"
   CONFIGURE_FLAGS+=(--enable-custom-modes --enable-fixed-point --enable-qext --enable-rtcd --enable-intrinsics)
 elif [[ "${ENABLE_SCALAR}" == "1" ]]; then
-  # Scalar (generic-C) parity reference for the pure-Go build. See the
+  # Scalar (generic-C) parity reference for scalar Go builds. See the
   # SCALAR_CONFIGURE_FLAGS comment above.
   SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-scalar"
   CONFIGURE_FLAGS+=("${SCALAR_CONFIGURE_FLAGS[@]}")

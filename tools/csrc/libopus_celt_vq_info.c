@@ -31,7 +31,7 @@ void celt_fatal(const char *str, const char *file, int line) {
 
 /* The SSE2 PVQ search is the libopus x86 reference kernel, but it only exists in
  * a build whose config.h defines OPUS_X86_MAY_HAVE_SSE2 (celt/x86/vq_sse.h).
- * The --disable-intrinsics scalar libopus.a (the pure-Go parity tree) has no
+ * The --disable-intrinsics scalar libopus.a (the scalar Go parity tree) has no
  * op_pvq_search_sse2 symbol, so gate on the same config macro libopus uses:
  * link the real _sse2 kernel when it is present, otherwise provide a _c-backed
  * fallback so the helper links and exercises op_pvq_search_c. */

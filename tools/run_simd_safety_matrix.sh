@@ -49,13 +49,13 @@ case "${host_arch}" in
     done
     ;;
   arm64)
-    run_lane "arm64 assembly vet" \
+    run_lane "arm64 package vet" \
       env GOWORK=off go vet . ./internal/celt ./internal/silk ./internal/dnnmath
-    run_lane "linux/arm64 assembly vet" \
+    run_lane "linux/arm64 package vet" \
       env GOWORK=off GOOS=linux GOARCH=arm64 go vet . ./internal/celt ./internal/silk ./internal/dnnmath
-    run_lane "arm64 opt-in tone LPC assembly vet" \
+    run_lane "arm64 opt-in tone LPC package vet" \
       env GOWORK=off go vet -tags=gopus_neon_tone_lpc_corr ./internal/celt
-    run_lane "linux/arm64 opt-in tone LPC assembly vet" \
+    run_lane "linux/arm64 opt-in tone LPC package vet" \
       env GOWORK=off GOOS=linux GOARCH=arm64 go vet -tags=gopus_neon_tone_lpc_corr ./internal/celt
     run_lane "arm64 source contract" \
       env GOWORK=off go test . -run "${ROOT_KERNEL_RE}" -count=1

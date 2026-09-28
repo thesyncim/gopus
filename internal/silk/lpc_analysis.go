@@ -71,7 +71,8 @@ func burgLPC(signal []float32, order int) []int16 {
 	return lpcQ12
 }
 
-// energyF32, innerProductF32 are in inner_prod_asm.go (arm64) / inner_prod_default.go (other).
+// energyF32 and innerProductF32 select Go SIMD implementations where available
+// and scalar Go implementations otherwise.
 
 // a2nlsfFLP converts LPC coefficients to NLSF using floating point.
 // This matches libopus silk_A2NLSF_FLP / silk_A2NLSF.

@@ -84,10 +84,12 @@ trap cleanup EXIT
 # internal/libopustest Probe* exports). gopus_custom_modes carries real non-test CELT
 # custom-mode source, so it must be analyzed too.
 #
-# GOARCH: arm64 is the dev host (native, also exercises arm64 && !nosimd asm
-# paths); amd64 is analyzed cross (the amd64 && !nosimd kernels). Both archs are
-# shipped/tested in CI (macos-latest + ubuntu-24.04-arm are arm64; ubuntu-latest
-# + windows-latest are amd64).
+# GOARCH: arm64 is the dev host and amd64 is analyzed cross. Source selection
+# follows GOARCH, build tags, and the inherited GOEXPERIMENT setting: ordinary
+# builds select scalar Go, while GOEXPERIMENT=simd opts into archsimd files and
+# `nosimd` forces scalar selection. Both architectures are shipped/tested in CI
+# (macos-latest + ubuntu-24.04-arm are arm64; ubuntu-latest + windows-latest are
+# amd64).
 #
 # The oracle overlay is combined with each feature tag because the parity tests
 # that reference cross-package probes are themselves tag-gated; a probe is only
