@@ -11,6 +11,7 @@
 #include "config.h"
 #endif
 
+#include "celt/cpu_support.h"
 #include "nnet.h"
 #include "fargan.h"
 #include "fargan_data.h"
@@ -24,6 +25,17 @@
 #define INPUT_MAGIC "GFCI"
 #define OUTPUT_MAGIC "GFCO"
 #define NB_FEATURES 20
+
+static int selected_dnn_dispatch_is_valid(int arch) {
+#if defined(OPUS_HAVE_RTCD) && defined(OPUS_X86_MAY_HAVE_AVX2)
+  if ((arch & OPUS_ARCHMASK) == 4 &&
+      (DNN_COMPUTE_LINEAR_IMPL[arch & OPUS_ARCHMASK] != compute_linear_avx2 ||
+       DNN_COMPUTE_ACTIVATION_IMPL[arch & OPUS_ARCHMASK] != compute_activation_avx2)) return 0;
+#else
+  (void)arch;
+#endif
+  return 1;
+}
 
 static int set_binary_stdio(void) {
 #ifdef _WIN32
@@ -61,24 +73,6 @@ static int write_bits_array(const float *src, int count) {
   return 1;
 }
 
-static void compute_generic_dense_c(const LinearLayer *layer, float *output, const float *input, int activation) {
-  compute_linear_c(layer, output, input);
-  compute_activation_c(output, output, layer->nb_outputs, activation);
-}
-
-static void compute_generic_conv1d_c(const LinearLayer *layer, float *output, float *mem, const float *input, int input_size, int activation) {
-  float tmp[COND_NET_FCONV1_STATE_SIZE + COND_NET_FCONV1_IN_SIZE];
-  if (layer->nb_inputs != input_size) {
-    memcpy(tmp, mem, (size_t)(layer->nb_inputs - input_size) * sizeof(float));
-  }
-  memcpy(&tmp[layer->nb_inputs - input_size], input, (size_t)input_size * sizeof(float));
-  compute_linear_c(layer, output, tmp);
-  compute_activation_c(output, output, layer->nb_outputs, activation);
-  if (layer->nb_inputs != input_size) {
-    memcpy(mem, &tmp[input_size], (size_t)(layer->nb_inputs - input_size) * sizeof(float));
-  }
-}
-
 static int clamp_pembed_index(int period) {
   int idx = period - 32;
   if (idx < 0) return 0;
@@ -86,7 +80,7 @@ static int clamp_pembed_index(int period) {
   return idx;
 }
 
-static void compute_fargan_cond_info(FARGAN *model, float *cond, float *cond_state, const float *features, int period) {
+static void compute_fargan_cond_info(FARGAN *model, float *cond, float *cond_state, const float *features, int period, int arch) {
   int i;
   int slot = clamp_pembed_index(period);
   float dense_in[NB_FEATURES + COND_NET_PEMBED_OUT_SIZE];
@@ -98,9 +92,9 @@ static void compute_fargan_cond_info(FARGAN *model, float *cond, float *cond_sta
     dense_in[NB_FEATURES + i] = model->cond_net_pembed.float_weights[slot * COND_NET_PEMBED_OUT_SIZE + i];
   }
 
-  compute_generic_dense_c(&model->cond_net_fdense1, conv1_in, dense_in, ACTIVATION_TANH);
-  compute_generic_conv1d_c(&model->cond_net_fconv1, fdense2_in, cond_state, conv1_in, COND_NET_FCONV1_IN_SIZE, ACTIVATION_TANH);
-  compute_generic_dense_c(&model->cond_net_fdense2, cond, fdense2_in, ACTIVATION_TANH);
+  compute_generic_dense(&model->cond_net_fdense1, conv1_in, dense_in, ACTIVATION_TANH, arch);
+  compute_generic_conv1d(&model->cond_net_fconv1, fdense2_in, cond_state, conv1_in, COND_NET_FCONV1_IN_SIZE, ACTIVATION_TANH, arch);
+  compute_generic_dense(&model->cond_net_fdense2, cond, fdense2_in, ACTIVATION_TANH, arch);
 }
 
 int main(void) {
@@ -111,6 +105,7 @@ int main(void) {
   float cond_state[COND_NET_FCONV1_STATE_SIZE];
   float cond[COND_NET_FDENSE2_OUT_SIZE];
   FARGAN model;
+  int arch;
 
   if (!set_binary_stdio()) {
     fprintf(stderr, "failed to set binary stdio mode\n");
@@ -141,9 +136,15 @@ int main(void) {
     return 1;
   }
 
-  compute_fargan_cond_info(&model, cond, cond_state, features, (int)period);
+  arch = opus_select_arch();
+  if (!selected_dnn_dispatch_is_valid(arch)) {
+    fprintf(stderr, "selected AVX2 DNN dispatch table mismatch\n");
+    return 1;
+  }
+  compute_fargan_cond_info(&model, cond, cond_state, features, (int)period, arch);
 
-  if (!write_exact(OUTPUT_MAGIC, 4) || !write_exact(&version, sizeof(version))) {
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_exact(&version, sizeof(version)) ||
+      !write_exact(&arch, sizeof(arch))) {
     fprintf(stderr, "failed to write header\n");
     return 1;
   }
