@@ -10,7 +10,7 @@ libopus feature set, CPU dispatch, sample format, controls, and decoder history.
 
 | Priority | Surface | Finding | Current evidence |
 |---|---|---|---|
-| P1 | Public FEC robustness | Independent decoder sessions cannot prove persistent FEC history; accept/count checks omit PCM. | The stereo-coded/mono-API concealment correction passes 128 channel/duration/API cases with exact PCM, ranges, recovery and zero warm allocations in eight local lanes. The persistent FEC suffix has a tested 2.5 ms Hybrid-to-SILK CELT overlap correction. The complete malformed-input exactness sweep is under validation. |
+| P1 | Public FEC robustness | Independent decoder sessions cannot prove persistent FEC history; accept/count checks omit PCM. | The stereo-coded/mono-API concealment correction passes 128 channel/duration/API cases with exact PCM, ranges, recovery and zero warm allocations in eight local lanes. The 2.5 ms Hybrid-to-SILK CELT overlap correction passes 16 transition cases in all eight lanes at `2f334bed`. The strict persistent mutation sweep still exposes additional PCM differences; they remain under investigation. |
 | P1 | Malformed fixed multistream | A feature-based bypass omits accepted fixed-point PCM; float gates use a coarse tolerance. | Pre-fade SILK capture and per-child integer reconstruction pass all 9,000 mutations in each of the four fixed scalar/SIMD lanes. Zero warm allocations and full PCM/range/PLC/reset regressions pass. SILK and Hybrid multistream final ranges include the redundant CELT contribution at `70be920b`. |
 | P1 | Multistream oracle errors | Infrastructure failures can be mistaken for C packet rejection. | The test requires the typed child exit and complete negative decode diagnostic. Build, launch, protocol and forged-marker failures remain errors; classification and mutation gates pass. |
 | P1 | Multistream mode changes | A 5 ms window has a gross-error budget and the rest has a numerical tolerance. | Every float bit, including the transition window, matches in all eight local feature/ISA lanes. Exact assertions apply to the full output. |
@@ -31,8 +31,8 @@ libopus feature set, CPU dispatch, sample format, controls, and decoder history.
 | P1 | QEXT multiframe decode | Go-generated expected output cannot establish independent C equality; mono SIMD cubic reduction must match selected C rounding. | Independent selected-C combined/separate packet sequences match every float bit and range for mono/stereo. The cubic correction and 11-size boundary grid pass exact and zero-allocation gates at `77cb9a9d`. |
 | P2 | Automatic encoder modes | Mode-only comparisons omit packet bytes and final ranges. | The C helper records every packet/range for 432 configurations × 10 frames. All eight local lanes pass at `a0a9c877`. |
 | P2 | Multistream short-input encode | Float-input packet evidence does not cover the public int16 API. | Five layouts × six stateful frames compare actual C short-input packets/ranges; all eight local lanes pass at `73347769`. |
-| P2 | Legacy ARM CELT gates | A shared architecture skip omits exact kernel and self-equivalence checks; two private C helpers omit QEXT feature selection. | The review enables matching-ISA checks and adapts the C helpers to the selected feature ABI. Validation is in progress; skipped checks do not count as parity proof. |
-| P2 | Custom control oracle | Fixed coefficients require their C Q scales, and declared-supported geometries must fail on unexpected oracle rejection. | The helper normalization and strict geometry classification are under final review; rejected 44.1 kHz/882-sample geometry retains independent C/Go error checks. |
+| P2 | Legacy ARM CELT gates | A shared architecture skip omits exact kernel and self-equivalence checks; two private C helpers omit QEXT feature selection. | Sixteen focused checks pass all eight local lanes without skips at `ba23ba99`. VQ/partition helpers use the selected float feature archive and `opus_select_arch()` for RTCD calls. Native AMD64 validation is pending. |
+| P2 | Custom control oracle | Fixed coefficients require their C Q scales, and declared-supported geometries must fail on unexpected oracle rejection. | The full custom package passes all eight local lanes at `00eeb471`; all five scaled-band modes retain mono/stereo coverage. Rejected 44.1 kHz/882-sample geometry has independent C/Go error checks. |
 
 Here, eight local lanes means default, fixed-point, QEXT, and fixed-point+QEXT,
 each with scalar and SIMD Go and matching C builds, on ARM64 with Go 1.27.1.
@@ -42,8 +42,9 @@ no extra CI jobs are required.
 
 ## Open runtime witnesses
 
-The persistent FEC suffix correction needs the complete malformed-input
-exactness sweep. DRED retains a confirmed SILK-history mismatch; its source
+The clean FEC transition correction passes its exact matrix. A strict persistent
+malformed FEC sweep still finds additional PCM differences: 48 of 1,000 tested
+default SIMD mutations, with matching prime output, sample counts and ranges. DRED retains a confirmed SILK-history mismatch; its source
 cadence is under investigation. Mono QEXT SIMD reconstruction passes its
 selected-C primitive and public-sequence gates at `77cb9a9d`. The SILK SNR correction passes the original frame-91 witness
 and the strict 2,500-frame matrix. Native AMD64 validates the selected-correlation
