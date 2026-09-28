@@ -51,7 +51,8 @@ func TestInnerProdSSEOrderLagsMatchesPerLag(t *testing.T) {
 		innerProdFloat32SSEOrderLags(x, y, got, length)
 		for l := range lags {
 			want := innerProdFloat32SSEOrder(x, y[l:], length)
-			if !sameFloatBits(got[l], want) && !(want != want && got[l] != got[l]) {
+			bothNaN := math.IsNaN(float64(want)) && math.IsNaN(float64(got[l]))
+			if !sameFloatBits(got[l], want) && !bothNaN {
 				t.Fatalf("trial %d length %d lag %d: got %08x want %08x", trial, length, l, math.Float32bits(got[l]), math.Float32bits(want))
 			}
 		}
