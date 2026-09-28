@@ -1,4 +1,4 @@
-//go:build gopus_fixed_point && gopus_qext
+//go:build gopus_fixed_point
 
 package gopus
 
@@ -13,7 +13,7 @@ import (
 // The fixed opus_decode_frame gain stage saturates opus_res before converting
 // it to float. Check the same high-amplitude packet used by the control test,
 // including positive and negative gains that exercise its saturation boundary.
-func TestFixedQEXTDecodeGainClampMatchesSelectedLibopus(t *testing.T) {
+func TestFixedDecodeGainClampMatchesSelectedLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	packet := minimalHybridTestPacket20ms()
 	for _, gain := range []int{-256, 0, 256, 8 * 256} {
@@ -21,7 +21,7 @@ func TestFixedQEXTDecodeGainClampMatchesSelectedLibopus(t *testing.T) {
 			want, err := decodeWithLibopusReferenceAPIRateFloat32StepsGain(48000, 1, 960, gain,
 				[]libopusAPIRateDecodeStep{{packet: packet}})
 			if err != nil {
-				libopustest.HelperUnavailable(t, "selected fixed-QEXT gain", err)
+				libopustest.HelperUnavailable(t, "selected fixed gain", err)
 			}
 			d, err := NewDecoder(DefaultDecoderConfig(48000, 1))
 			if err != nil {

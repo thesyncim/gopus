@@ -199,7 +199,7 @@ func TestDecoder_GainAppliedToDecodeOutput(t *testing.T) {
 
 	gotRatio := gainRMS / baseRMS
 	wantRatio := float64(decodeGainLinear(256))
-	if celtIntegerPLCActive && extsupport.QEXT {
+	if celtIntegerPLCActive {
 		// src/opus_decoder.c:opus_decode_frame clamps gained opus_res to
 		// +/-32767 before RES2FLOAT divides by 2^23. This packet reaches
 		// that clamp, so its RMS does not follow an unclipped linear gain.
