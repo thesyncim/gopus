@@ -77,6 +77,13 @@ losses and every supported API rate, with zero warm caller-buffer allocations.
 Empty repeat markers preserve following multistream QEXT payloads at `e404dcf6`;
 CELT/Hybrid mono/stereo recovery sequences pass all four QEXT feature/ISA lanes.
 
+CELT coarse-energy trial snapshots reserve the base-packet capacity at
+`f093c171`. Increasing packet budgets reuse that storage without allocations;
+the focused allocation guard and full CELT package pass scalar and SIMD.
+The native 96 kHz variable-budget reproducer also passes exact packet/range
+and zero warm allocation checks in both instruction lanes. This storage fix
+does not close the separate native 96 kHz mode-selection gap.
+
 ## Deliberate boundaries
 
 Real-audio quality and perceptual loss tests remain useful independent evidence;
