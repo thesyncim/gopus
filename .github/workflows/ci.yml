@@ -1109,11 +1109,11 @@ jobs:
 
           GOPUS_LIBOPUS_REF_SCALAR=1 GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
             go test -tags gopus_qext ./internal/celt . \
-              -run '^(TestQEXTFirstLossPublicPLCMatchesSelectedReference|TestQEXTNative96PLCPitchPeriodMatchesSelectedReference|TestPublicQEXTHybridNative96TransitionsMatchSelectedFloatReference)$' \
+              -run '^(TestSelectedSIMDPLCRawAutocorrMatchesArchive|TestQEXTFirstLossPublicPLCMatchesSelectedReference|TestQEXTNative96PLCPitchPeriodMatchesSelectedReference|TestPublicQEXTHybridNative96TransitionsMatchSelectedFloatReference)$' \
               -count=1 -timeout=10m
           GOEXPERIMENT=simd GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
             go test -tags gopus_qext ./internal/celt . \
-              -run '^(TestQEXTFirstLossPublicPLCMatchesSelectedReference|TestQEXTNative96PLCPitchPeriodMatchesSelectedReference|TestPublicQEXTHybridNative96TransitionsMatchSelectedFloatReference)$' \
+              -run '^(TestSelectedSIMDPLCRawAutocorrMatchesArchive|TestQEXTFirstLossPublicPLCMatchesSelectedReference|TestQEXTNative96PLCPitchPeriodMatchesSelectedReference|TestPublicQEXTHybridNative96TransitionsMatchSelectedFloatReference)$' \
               -count=1 -timeout=10m
 
       - name: Run supported DRED feature-tag C-oracle parity gate

@@ -788,21 +788,40 @@ func (d *Decoder) computePLCRawAutocorr(frame []celtSig, window []float32, ac []
 	pitchXCorrSig(x, x, ac[:celtPLCLPCOrder+1], fastN, celtPLCLPCOrder+1)
 	for lag := 0; lag <= celtPLCLPCOrder; lag++ {
 		tail := float32(0)
-		for i := lag + fastN; i < n; i++ {
-			if extsupport.QEXT && pitchXcorrUsesNeonFMA {
-				// celt/celt_lpc.c accumulates the post-xcorr tail separately
-				// from celt_pitch_xcorr in the paired QEXT ARM SIMD build.
-				tail = noFMA32Add(tail, noFMA32Mul(float32(x[i]), float32(x[i-lag])))
-			} else {
+		if pitchXcorrUsesNeonFMA {
+			// The selected arm64 SIMD celt_lpc.o rounds products in complete
+			// four-term groups (batched by 16 for longer tails), adds them in
+			// order, then uses FMAs for residual samples.
+			tail = celtPLCAutocorrTailNeon(x, lag+fastN, lag, n)
+		} else {
+			for i := lag + fastN; i < n; i++ {
 				tail += float32(x[i]) * float32(x[i-lag])
 			}
 		}
-		if extsupport.QEXT && pitchXcorrUsesNeonFMA {
+		if pitchXcorrUsesNeonFMA {
 			ac[lag] = noFMA32Add(ac[lag], tail)
 		} else {
 			ac[lag] += tail
 		}
 	}
+}
+
+func celtPLCAutocorrTailNeon(x []celtSig, start, lag, end int) float32 {
+	tail := float32(0)
+	i := start
+	for ; i+4 <= end; i += 4 {
+		var products [4]float32
+		for j := range products {
+			products[j] = noFMA32Mul(float32(x[i+j]), float32(x[i+j-lag]))
+		}
+		for _, product := range products {
+			tail = noFMA32Add(tail, product)
+		}
+	}
+	for ; i < end; i++ {
+		tail = fma32(float32(x[i]), float32(x[i-lag]), tail)
+	}
+	return tail
 }
 
 func applyCELTPitchLagWindow32(ac []float32, order int) {
