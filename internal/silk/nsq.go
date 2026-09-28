@@ -2,6 +2,8 @@
 // Reference: libopus silk/NSQ.c and silk/NSQ_del_dec.c
 package silk
 
+import "math/bits"
+
 // NSQ constants from libopus define.h
 const (
 	nsqLpcBufLength   = 16  // NSQ_LPC_BUF_LENGTH = MAX_LPC_ORDER
@@ -955,36 +957,10 @@ func silk_INVERSE32_varQ(b32 int32, qres int) int32 {
 	return 0
 }
 
-// silk_CLZ32 counts leading zeros in a 32-bit value.
+// silk_CLZ32 counts leading zeros in a 32-bit value (32 for zero, 0 for a
+// negative value), as libopus silk/macros.h silk_CLZ32.
 func silk_CLZ32(x int32) int {
-	if x == 0 {
-		return 32
-	}
-	n := 0
-	if x < 0 {
-		return 0 // Negative number has no leading zeros in 2's complement
-	}
-	ux := uint32(x)
-	if ux <= 0x0000FFFF {
-		n += 16
-		ux <<= 16
-	}
-	if ux <= 0x00FFFFFF {
-		n += 8
-		ux <<= 8
-	}
-	if ux <= 0x0FFFFFFF {
-		n += 4
-		ux <<= 4
-	}
-	if ux <= 0x3FFFFFFF {
-		n += 2
-		ux <<= 2
-	}
-	if ux <= 0x7FFFFFFF {
-		n += 1
-	}
-	return n
+	return bits.LeadingZeros32(uint32(x))
 }
 
 // silk_LSHIFT_SAT32 shifts left with saturation.

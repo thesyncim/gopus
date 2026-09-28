@@ -445,8 +445,12 @@ func silkDecodeParameters(st *decoderState, ctrl *decoderControl, condCoding int
 func silkLPCAnalysisFilter(out []int16, in []int16, B []int16, length int, order int) {
 	clear(out[:order])
 	ix := silkLPCAnalysisFilterVec(out, in, B, length, order)
-	if order == maxLPCOrder {
+	switch order {
+	case maxLPCOrder:
 		silkLPCAnalysisFilterOrder16(out, in, B, ix, length)
+		return
+	case minLPCOrder:
+		silkLPCAnalysisFilterOrder10(out, in, B, ix, length)
 		return
 	}
 	for ; ix < length; ix++ {
@@ -508,6 +512,46 @@ func silkLPCAnalysisFilterOrder16(out []int16, in []int16, B []int16, from, leng
 		outQ12 += int32(w[1]) * b14
 		outQ12 += int32(w[0]) * b15
 		outQ12 = (int32(w[16]) << 12) - outQ12
+		dst[ix] = silkSAT16(silkRSHIFT_ROUND(outQ12, 12))
+	}
+}
+
+// silkLPCAnalysisFilterOrder10 computes outputs [from, length) of the order-10
+// silkLPCAnalysisFilter.
+func silkLPCAnalysisFilterOrder10(out []int16, in []int16, B []int16, from, length int) {
+	if from >= length || from < minLPCOrder {
+		return
+	}
+	_ = B[minLPCOrder-1]
+
+	b0 := int32(B[0])
+	b1 := int32(B[1])
+	b2 := int32(B[2])
+	b3 := int32(B[3])
+	b4 := int32(B[4])
+	b5 := int32(B[5])
+	b6 := int32(B[6])
+	b7 := int32(B[7])
+	b8 := int32(B[8])
+	b9 := int32(B[9])
+
+	win := in[from-minLPCOrder : length]
+	dst := out[from:length]
+	for ix := range dst {
+		// w[10-k] is in[from+ix-k].
+		w := (*[minLPCOrder + 1]int16)(win)
+		win = win[1:]
+		outQ12 := int32(w[9]) * b0
+		outQ12 += int32(w[8]) * b1
+		outQ12 += int32(w[7]) * b2
+		outQ12 += int32(w[6]) * b3
+		outQ12 += int32(w[5]) * b4
+		outQ12 += int32(w[4]) * b5
+		outQ12 += int32(w[3]) * b6
+		outQ12 += int32(w[2]) * b7
+		outQ12 += int32(w[1]) * b8
+		outQ12 += int32(w[0]) * b9
+		outQ12 = (int32(w[10]) << 12) - outQ12
 		dst[ix] = silkSAT16(silkRSHIFT_ROUND(outQ12, 12))
 	}
 }
@@ -684,6 +728,51 @@ func synthesizeLPCGeneric(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq []in
 	}
 }
 
+// silkDecodeExcitation rebuilds the Q14 excitation of silk_decode_core from
+// the decoded pulses: each pulse is scaled to Q14, pulled towards zero by
+// QUANT_LEVEL_ADJUST_Q10, offset by the quantization offset and negated when
+// the LCG seed is negative, and the seed then absorbs the pulse. The two sign
+// tests of the C loop are branch-free masks here.
+func silkDecodeExcitation(exc []int32, pulses []int16, seed, offsetQ14 int32) {
+	const adjQ14 = int32(quantLevelAdjustQ10 << 4)
+	pulses = pulses[:len(exc)]
+	for i, p := range pulses {
+		seed = silkRand(seed)
+		pulse := int32(p)
+		e := pulse<<14 + (pulse>>31)&adjQ14 - ((-pulse)>>31)&adjQ14 + offsetQ14
+		m := seed >> 31
+		exc[i] = (e ^ m) - m
+		seed += pulse
+	}
+}
+
+// silkLTPSynthesis runs the voiced long-term prediction of one subframe of
+// silk_decode_core: presQ14[i] is exc[i] plus twice the five-tap silk_SMLAWB
+// prediction from sLTPQ15 lag samples back, and sLTPQ15[bufIdx+i] receives
+// presQ14[i] << 1. The prediction is a wrapping int32 sum, so the tap order is
+// free; each output is stored before later samples read it, as in C.
+func silkLTPSynthesis(presQ14, exc, sLTPQ15 []int32, bufIdx, lag int, bQ14 *[ltpOrder]int16) {
+	n := len(presQ14)
+	exc = exc[:n]
+	b0 := int64(bQ14[0])
+	b1 := int64(bQ14[1])
+	b2 := int64(bQ14[2])
+	b3 := int64(bQ14[3])
+	b4 := int64(bQ14[4])
+	// w[i+4-j] is tap j of output i; w[lag+2+i] is where output i goes.
+	w := sLTPQ15[bufIdx-lag-ltpOrder/2 : bufIdx+n]
+	out := w[lag+ltpOrder/2:]
+	out = out[:n]
+	for i := range presQ14 {
+		t := (*[ltpOrder]int32)(w[i : i+ltpOrder])
+		pred := 2 + int32((int64(t[4])*b0)>>16) + int32((int64(t[3])*b1)>>16) +
+			int32((int64(t[2])*b2)>>16) + int32((int64(t[1])*b3)>>16) + int32((int64(t[0])*b4)>>16)
+		p := exc[i] + pred<<1
+		presQ14[i] = p
+		out[i] = p << 1
+	}
+}
+
 // silkDecodeCore reconstructs one SILK frame's PCM from the decoded pulses and
 // control parameters. It rebuilds the gain-scaled excitation (applying the
 // quantization offset, rate-dither adjustment and per-sample sign from the LCG
@@ -698,22 +787,7 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 	subfrLength := int(st.subfrLength)
 	lpcOrder := int(st.lpcOrder)
 
-	randSeed := int32(st.indices.Seed)
-	offsetQ14 := int32(offsetQ10) << 4
-	quantAdjustQ14 := int32(quantLevelAdjustQ10 << 4)
-	for i := range frameLength {
-		randSeed = silkRand(randSeed)
-		pulse := int32(pulses[i])
-		exc := pulse << 14
-		negPulseMask := pulse >> 31
-		posPulseMask := (-pulse) >> 31
-		exc += (negPulseMask & quantAdjustQ14) - (posPulseMask & quantAdjustQ14)
-		exc += offsetQ14
-		seedMask := randSeed >> 31
-		exc = (exc ^ seedMask) - seedMask
-		st.excQ14[i] = exc
-		randSeed += pulse
-	}
+	silkDecodeExcitation(st.excQ14[:frameLength], pulses, int32(st.indices.Seed), int32(offsetQ10)<<4)
 
 	bufs := initDecodeCoreBuffers(st)
 	sLPC := bufs.sLPC
@@ -756,26 +830,14 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 
 		var presQ14 []int32
 		if signalType == typeVoiced {
-			lag := int(ctrl.pitchL[k])
-			predLagPtr := sLTPBufIdx - lag + ltpOrder/2
 			// Use pre-allocated presQ14 buffer if available
 			if st.scratchPresQ14 != nil && len(st.scratchPresQ14) >= subfrLength {
 				presQ14 = st.scratchPresQ14[:subfrLength]
 			} else {
 				presQ14 = make([]int32, subfrLength)
 			}
-			for i := range subfrLength {
-				ltpPredQ13 := int32(2)
-				ltpPredQ13 = silkSMLAWB(ltpPredQ13, sLTP_Q15[predLagPtr+0], int32(B_Q14[0]))
-				ltpPredQ13 = silkSMLAWB(ltpPredQ13, sLTP_Q15[predLagPtr-1], int32(B_Q14[1]))
-				ltpPredQ13 = silkSMLAWB(ltpPredQ13, sLTP_Q15[predLagPtr-2], int32(B_Q14[2]))
-				ltpPredQ13 = silkSMLAWB(ltpPredQ13, sLTP_Q15[predLagPtr-3], int32(B_Q14[3]))
-				ltpPredQ13 = silkSMLAWB(ltpPredQ13, sLTP_Q15[predLagPtr-4], int32(B_Q14[4]))
-				predLagPtr++
-				presQ14[i] = silkADD_LSHIFT32(pexc[i], ltpPredQ13, 1)
-				sLTP_Q15[sLTPBufIdx] = silkLSHIFT(presQ14[i], 1)
-				sLTPBufIdx++
-			}
+			silkLTPSynthesis(presQ14, pexc, sLTP_Q15, sLTPBufIdx, int(ctrl.pitchL[k]), (*[ltpOrder]int16)(B_Q14))
+			sLTPBufIdx += subfrLength
 		} else {
 			presQ14 = pexc[:subfrLength]
 		}
