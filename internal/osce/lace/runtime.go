@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 
+	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/dnnmath"
 	"github.com/thesyncim/gopus/internal/opusmath"
@@ -1205,24 +1206,12 @@ func adacombProcessFrame(
 
 	// Output for last kernel over overlap_size samples (uses last_pitch_lag).
 	lastK := *lastPitchLag
-	for i := range overlapSize {
-		var sum float32
-		idx := pInputOffset + i - leftPadding - lastK
-		for k := range kernelSize {
-			sum += lastKernel[k] * inputBuf[idx+k]
-		}
-		outputBufLast[i] = sum
-	}
+	lastInputOffset := pInputOffset - leftPadding - lastK
+	celt.PitchXCorrFloat32(outputBufLast[:overlapSize], lastKernel[:kernelSize], inputBuf[lastInputOffset:], kernelSize, overlapSize)
 
 	// Output for new kernel over frame_size samples (uses pitch_lag).
-	for i := range frameSize {
-		var sum float32
-		idx := pInputOffset + i - leftPadding - pitchLag
-		for k := range kernelSize {
-			sum += kernelBuf[k] * inputBuf[idx+k]
-		}
-		outputBuf[i] = sum
-	}
+	inputOffset := pInputOffset - leftPadding - pitchLag
+	celt.PitchXCorrFloat32(outputBuf[:frameSize], kernelBuf[:kernelSize], inputBuf[inputOffset:], kernelSize, frameSize)
 
 	// Overlap mix. libopus dnn/nndsp.c:adacomb_process_frame:
 	//   output_buffer[i] = last_global_gain*window[i]*output_buffer_last[i]
@@ -1333,21 +1322,16 @@ func adaconvProcessFrame(
 			base := ic*(frameSize+kernelSize) + kernelSize
 			kernelOld := lastKernel[(o*inChannels+ic)*kernelSize : (o*inChannels+ic)*kernelSize+kernelSize]
 			kernelNew := kernelBuf[(o*inChannels+ic)*kernelSize : (o*inChannels+ic)*kernelSize+kernelSize]
-			for i := range frameSize {
-				var sumNew float32
-				for k := range kernelSize {
-					sumNew += kernelNew[k] * inputBuf[base+i+k-leftPadding]
-				}
-				if i < overlapSize {
-					var sumOld float32
-					for k := range kernelSize {
-						sumOld += kernelOld[k] * inputBuf[base+i+k-leftPadding]
-					}
-					outputBuf[o*frameSize+i] += window[i] * sumOld
-					outputBuf[o*frameSize+i] += (1.0 - window[i]) * sumNew
-				} else {
-					outputBuf[o*frameSize+i] += sumNew
-				}
+			input := inputBuf[base-leftPadding:]
+			var channelBuffer0, channelBuffer1 [maxFrame]float32
+			celt.PitchXCorrFloat32(channelBuffer0[:overlapSize], kernelOld, input, kernelSize, overlapSize)
+			celt.PitchXCorrFloat32(channelBuffer1[:frameSize], kernelNew, input, kernelSize, frameSize)
+			for i := range overlapSize {
+				outputBuf[o*frameSize+i] += window[i] * channelBuffer0[i]
+				outputBuf[o*frameSize+i] += (1.0 - window[i]) * channelBuffer1[i]
+			}
+			for i := overlapSize; i < frameSize; i++ {
+				outputBuf[o*frameSize+i] += channelBuffer1[i]
 			}
 		}
 	}

@@ -35,15 +35,17 @@
  *
  * Output format on stdout (binary):
  *   8-byte ASCII tag "OSCELAC\0"
- *   int32 version        (== 1)
+ *   int32 version        (== 2)
  *   int32 mode_id        (0 = LACE, 1 = NoLACE)
+ *   int32 selected_arch  (opus_select_arch() used by the C forward pass)
  *   int32 num_out_samples (== NUM_SAMPLES_16K, == 320)
  *   float32[num_out_samples] x_out (16 kHz, float in [-1, 1])
  *
  * When TRACE=1 and MODE=lace, stdout instead carries:
  *   8-byte ASCII tag "OSCELTR\0"
- *   int32 version
+ *   int32 version        (== 2)
  *   int32 mode_id
+ *   int32 selected_arch  (opus_select_arch() used by the C forward pass)
  *   int32 sample_rate
  *   int32 frame_samples
  *   int32 subframes
@@ -75,6 +77,8 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+
+#include "cpu_support.h"
 
 #ifndef ENABLE_OSCE
 #error "libopus_osce_lace_forward.c requires libopus built with --enable-osce"
@@ -157,11 +161,12 @@ static int write_i32(int32_t v) {
   return fwrite(&v, sizeof(v), 1, stdout) == 1;
 }
 
-static int write_trace_header(int mode_id, int stage_count) {
+static int write_trace_header(int mode_id, int arch, int stage_count) {
   static const char tag[8] = {'O','S','C','E','L','T','R','\0'};
   if (fwrite(tag, 1, sizeof(tag), stdout) != sizeof(tag)) return 0;
-  return write_i32(1)
+  return write_i32(2)
       && write_i32((int32_t)mode_id)
+      && write_i32((int32_t)arch)
       && write_i32(16000)
       && write_i32(320)
       && write_i32(4)
@@ -316,7 +321,7 @@ static int trace_lace_process_20ms_frame(
     periods_f[i_subframe] = (float)periods[i_subframe];
   }
 
-  if (!write_trace_header(0, 31)) return 0;
+  if (!write_trace_header(0, arch, 31)) return 0;
   if (!write_trace_record(TRACE_STAGE_INPUT, -1, 1, 4 * LACE_FRAME_SIZE, x_in, 4 * LACE_FRAME_SIZE)) return 0;
   if (!write_trace_record(TRACE_STAGE_FEATURES, -1, 1, 4 * LACE_NUM_FEATURES, features, 4 * LACE_NUM_FEATURES)) return 0;
   if (!write_trace_record(TRACE_STAGE_NUMBITS, -1, 1, 2, numbits, 2)) return 0;
@@ -443,7 +448,7 @@ static int trace_nolace_process_20ms_frame(
     periods_f[i_subframe] = (float)periods[i_subframe];
   }
 
-  if (!write_trace_header(1, 16)) return 0;
+  if (!write_trace_header(1, arch, 16)) return 0;
   if (!write_trace_record(TRACE_STAGE_INPUT, -1, 1, 4 * NOLACE_FRAME_SIZE, x_in, 4 * NOLACE_FRAME_SIZE)) return 0;
   if (!write_trace_record(TRACE_STAGE_FEATURES, -1, 1, 4 * NOLACE_NUM_FEATURES, features, 4 * NOLACE_NUM_FEATURES)) return 0;
   if (!write_trace_record(TRACE_STAGE_NUMBITS, -1, 1, 2, numbits, 2)) return 0;
@@ -618,6 +623,9 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+  /* Match the architecture OpusDecoder passes to osce_enhance_frame. */
+  const int arch = opus_select_arch();
+
   /* Generate the same 1 kHz sinusoid the gopus side uses. */
   static float x_in[320];
   fill_sinusoid_float(x_in, num_samples, 1000.0, 0.5);
@@ -660,12 +668,12 @@ int main(int argc, char *argv[]) {
     const char *trace_env = getenv("TRACE");
     if (trace_env != NULL && strcmp(trace_env, "1") == 0) {
       int ok = trace_lace_process_20ms_frame(&model->lace, &state, x_out, x_in,
-                                             features, numbits, periods, 0 /*arch=GENERIC*/);
+                                             features, numbits, periods, arch);
       free(model);
       return ok ? 0 : 1;
     }
     lace_process_20ms_frame(&model->lace, &state, x_out, x_in,
-                            features, numbits, periods, 0 /*arch=GENERIC*/);
+                            features, numbits, periods, arch);
   } else {
     /* NoLACE */
     NoLACEState state;
@@ -674,22 +682,23 @@ int main(int argc, char *argv[]) {
     const char *trace_env = getenv("TRACE");
     if (trace_env != NULL && strcmp(trace_env, "1") == 0) {
       int ok = trace_nolace_process_20ms_frame(&model->nolace, &state, x_out, x_in,
-                                               features, numbits, periods, 0 /*arch=GENERIC*/);
+                                               features, numbits, periods, arch);
       free(model);
       return ok ? 0 : 1;
     }
     nolace_process_20ms_frame(&model->nolace, &state, x_out, x_in,
-                              features, numbits, periods, 0 /*arch=GENERIC*/);
+                              features, numbits, periods, arch);
   }
 
   /* Emit header + binary payload. */
   static const char tag[8] = {'O','S','C','E','L','A','C','\0'};
   if (fwrite(tag, 1, sizeof(tag), stdout) != sizeof(tag)) goto write_err;
-  int32_t hdr[3];
-  hdr[0] = 1;
+  int32_t hdr[4];
+  hdr[0] = 2;
   hdr[1] = mode_id;
-  hdr[2] = num_samples;
-  if (fwrite(hdr, sizeof(int32_t), 3, stdout) != 3) goto write_err;
+  hdr[2] = arch;
+  hdr[3] = num_samples;
+  if (fwrite(hdr, sizeof(int32_t), 4, stdout) != 4) goto write_err;
   if (fwrite(x_out, sizeof(float), (size_t)num_samples, stdout) != (size_t)num_samples) goto write_err;
 
   free(model);

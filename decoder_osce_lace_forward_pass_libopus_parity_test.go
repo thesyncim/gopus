@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/dnnmath"
 	"github.com/thesyncim/gopus/internal/libopustest"
 	osceLACE "github.com/thesyncim/gopus/internal/osce/lace"
 )
@@ -25,10 +27,9 @@ import (
 // runtime is driven on the same input + same zero-features / zero-numbits /
 // small-period inputs and the two 16 kHz 320-sample outputs are compared.
 //
-// Parity is near float32 roundoff but remains a numerical comparator: the feature-net trace
-// matches libopus through conv2/tconv and stays at float epsilon after the GRU,
-// while residual drift now comes from the AdaComb/AdaConv signal filters. See
-// `cases` below for the active envelope.
+// The helper reports the selected libopus architecture, and the test requires
+// the x86 C and Go paths to select the same scalar or AVX2 lane. The forward
+// comparison then checks that path against the same deterministic input.
 func TestOSCELACEForwardPassMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	binPath, err := getLibopusOSCELACEForwardHelperPath()
@@ -76,25 +77,12 @@ func TestOSCELACEForwardPassMatchesLibopus(t *testing.T) {
 	numbits := []float32{0, 0}
 	periods := []int{60, 60, 60, 60}
 
-	// Per-mode tolerances. The helper build and Go runtime both use the scalar
-	// DNN math path, so both are hard numerical contracts.
-	//
-	// LACE is a bit-exact oracle (maxAbs 0, rms 0 vs libopus).
-	//
-	// NoLACE is also a hard gate: matching libopus' scale_kernel norm (rounded,
-	// non-fused squares) and the prebuilt sgemv FMA boundary (rows==2 gain
-	// layers fuse, rows==1 round) brings the full forward pass to
-	// maxAbs ~4.5e-8 / rms ~1.3e-8 vs libopus -- comfortably inside the
-	// original 2e-7 / 5e-8 contract. The residual is sub-ULP AdaShape exp/log
-	// transcendental noise, not signal-net drift.
 	cases := []struct {
-		name               string
-		mode               string
-		outputAbsTolerance float32
-		outputRMSTolerance float64
+		name string
+		mode string
 	}{
-		{"LACE", "lace", 1.5e-7, 5e-8},
-		{"NoLACE", "nolace", 2e-7, 5e-8},
+		{"LACE", "lace"},
+		{"NoLACE", "nolace"},
 	}
 
 	for _, tc := range cases {
@@ -141,9 +129,6 @@ func TestOSCELACEForwardPassMatchesLibopus(t *testing.T) {
 				t.Fatalf("libopus %s reference has zero energy", tc.mode)
 			}
 
-			var maxAbsErr float32
-			maxAbsIdx := -1
-			var sumSq float64
 			for i := 0; i < inputLen; i++ {
 				if math.IsNaN(float64(out[i])) || math.IsInf(float64(out[i]), 0) {
 					t.Fatalf("gopus %s output[%d]=%v is not finite", tc.mode, i, out[i])
@@ -151,28 +136,11 @@ func TestOSCELACEForwardPassMatchesLibopus(t *testing.T) {
 				if math.IsNaN(float64(refOut[i])) || math.IsInf(float64(refOut[i]), 0) {
 					t.Fatalf("libopus %s reference[%d]=%v is not finite", tc.mode, i, refOut[i])
 				}
-				d := out[i] - refOut[i]
-				ad := d
-				if ad < 0 {
-					ad = -ad
+				if gotBits, wantBits := math.Float32bits(out[i]), math.Float32bits(refOut[i]); gotBits != wantBits {
+					t.Fatalf("OSCE %s forward-pass first difference at sample %d: Go=%08x libopus=%08x", tc.name, i, gotBits, wantBits)
 				}
-				if ad > maxAbsErr {
-					maxAbsErr = ad
-					maxAbsIdx = i
-				}
-				sumSq += float64(d) * float64(d)
 			}
-			rms := math.Sqrt(sumSq / float64(inputLen))
-			t.Logf("OSCE %s forward-pass parity: maxAbs=%g (idx %d) rms=%g (tolerances: maxAbs<=%g rms<=%g)",
-				tc.name, maxAbsErr, maxAbsIdx, rms, tc.outputAbsTolerance, tc.outputRMSTolerance)
-			if maxAbsErr > tc.outputAbsTolerance {
-				t.Fatalf("OSCE %s forward-pass max-abs error %g exceeds %g (signal-net divergence beyond numerical contract)",
-					tc.name, maxAbsErr, tc.outputAbsTolerance)
-			}
-			if rms > tc.outputRMSTolerance {
-				t.Fatalf("OSCE %s forward-pass rms error %g exceeds %g (signal-net divergence beyond numerical contract)",
-					tc.name, rms, tc.outputRMSTolerance)
-			}
+			t.Logf("OSCE %s forward-pass output is bit-exact", tc.name)
 		})
 	}
 }
@@ -357,10 +325,14 @@ func runOSCELACEForwardHelper(binPath string, numIn16 int, mode string) (out16k 
 	if err != nil {
 		return nil, err
 	}
-	if version != 1 {
-		return nil, fmt.Errorf("libopus OSCE LACE forward version=%d, want 1", version)
+	if version != 2 {
+		return nil, fmt.Errorf("libopus OSCE LACE forward version=%d, want 2", version)
 	}
 	modeID := int(reader.I32())
+	arch := int(reader.I32())
+	if err := verifyLibopusOSCEArch(arch); err != nil {
+		return nil, err
+	}
 	wantModeID := 0
 	if mode == "nolace" {
 		wantModeID = 1
@@ -394,10 +366,14 @@ func runOSCELACEForwardTraceHelper(binPath string, numIn16 int, mode string) ([]
 	if err != nil {
 		return nil, err
 	}
-	if version != 1 {
-		return nil, fmt.Errorf("libopus OSCE LACE trace version=%d, want 1", version)
+	if version != 2 {
+		return nil, fmt.Errorf("libopus OSCE LACE trace version=%d, want 2", version)
 	}
 	modeID := int(reader.I32())
+	arch := int(reader.I32())
+	if err := verifyLibopusOSCEArch(arch); err != nil {
+		return nil, err
+	}
 	wantModeID := 0
 	if mode == "nolace" {
 		wantModeID = 1
@@ -451,6 +427,20 @@ func runOSCELACEForwardTraceHelper(binPath string, numIn16 int, mode string) ([]
 		return nil, err
 	}
 	return records, nil
+}
+
+func verifyLibopusOSCEArch(arch int) error {
+	if runtime.GOARCH != "amd64" {
+		return nil
+	}
+	want := 0
+	if dnnmath.X86VectorKernels {
+		want = 4
+	}
+	if arch != want {
+		return fmt.Errorf("libopus OSCE selected arch=%d, Go amd64 SIMD lane expects arch=%d (X86VectorKernels=%t)", arch, want, dnnmath.X86VectorKernels)
+	}
+	return nil
 }
 
 func compareFloat32(got, want []float32) (maxAbs float32, maxIdx int, rms float64) {
