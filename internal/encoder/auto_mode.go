@@ -93,10 +93,11 @@ func (e *Encoder) computeStereoWidthForMode(pcm []opusRes, frameSize int) opusVa
 	var xx, xy, yy opusVal32
 	for i, j := 0, 0; i < frameSize-3; i, j = i+4, j+8 {
 		var pxx, pxy, pyy opusVal32
-		x0, y0 := pcm[j], pcm[j+1]
-		x1, y1 := pcm[j+2], pcm[j+3]
-		x2, y2 := pcm[j+4], pcm[j+5]
-		x3, y3 := pcm[j+6], pcm[j+7]
+		p := pcm[j : j+8 : j+8]
+		x0, y0 := p[0], p[1]
+		x1, y1 := p[2], p[3]
+		x2, y2 := p[4], p[5]
+		x3, y3 := p[6], p[7]
 		pxx += x0 * x0
 		pxy += x0 * y0
 		pyy += y0 * y0

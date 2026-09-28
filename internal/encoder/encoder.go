@@ -1826,60 +1826,40 @@ func (e *Encoder) dcReject(in []opusRes, frameSize int) []opusRes {
 	}
 	coef := float32(6.3) * float32(3) / float32(fs)
 	coef2 := float32(1.0) - coef
-	const verySmall = float32(1e-30)
-	src32 := e.floatInputFrame
-	if !e.floatInputExact || len(src32) < n {
-		src32 = nil
+	src := in
+	if e.floatInputExact && len(e.floatInputFrame) >= n {
+		src = e.floatInputFrame
 	}
+	src = src[:n]
+	out = out[:len(src)]
+	verySmall := dcRejectVerySmall[0]
 	if channels == 2 {
 		m0 := e.hpMem[0]
 		m2 := e.hpMem[2]
-		if src32 != nil {
-			for i := range frameSize {
-				x0 := src32[2*i]
-				x1 := src32[2*i+1]
-				out0 := x0 - m0
-				out1 := x1 - m2
-				m0 = coef*x0 + verySmall + coef2*m0
-				m2 = coef*x1 + verySmall + coef2*m2
-				out[2*i] = out0
-				out[2*i+1] = out1
-			}
-		} else {
-			for i := range frameSize {
-				x0 := in[2*i]
-				x1 := in[2*i+1]
-				out0 := x0 - m0
-				out1 := x1 - m2
-				m0 = coef*x0 + verySmall + coef2*m0
-				m2 = coef*x1 + verySmall + coef2*m2
-				out[2*i] = out0
-				out[2*i+1] = out1
-			}
+		for k := 0; k+1 < len(src); k += 2 {
+			x0 := src[k]
+			x1 := src[k+1]
+			out[k] = x0 - m0
+			out[k+1] = x1 - m2
+			m0 = coef*x0 + verySmall + coef2*m0
+			m2 = coef*x1 + verySmall + coef2*m2
 		}
 		e.hpMem[0] = m0
 		e.hpMem[2] = m2
 	} else {
 		m0 := e.hpMem[0]
-		if src32 != nil {
-			for i := range n {
-				x := src32[i]
-				y := x - m0
-				m0 = coef*x + verySmall + coef2*m0
-				out[i] = y
-			}
-		} else {
-			for i := range n {
-				x := in[i]
-				y := x - m0
-				m0 = coef*x + verySmall + coef2*m0
-				out[i] = y
-			}
+		for i, x := range src {
+			out[i] = x - m0
+			m0 = coef*x + verySmall + coef2*m0
 		}
 		e.hpMem[0] = m0
 	}
 	return out
 }
+
+// dcRejectVerySmall holds libopus VERY_SMALL as a variable, so the dc_reject
+// loops keep it in a register instead of reloading the constant every sample.
+var dcRejectVerySmall = [1]float32{1e-30}
 
 func (e *Encoder) ensureInputPCM(size int) []opusRes {
 	if cap(e.scratchInputPCM) < size {

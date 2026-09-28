@@ -82,15 +82,15 @@ func absSumLevels(levels []celtNorm, n, count int, sums []float32) {
 	level := func(l int) []float32 { return levels[l*n : (l+1)*n] }
 	l := 0
 	for ; count-l >= 5; l += 5 {
-		sums[l], sums[l+1], sums[l+2], sums[l+3], sums[l+4] = absSumSerial5(level(l), level(l+1), level(l+2), level(l+3), level(l+4))
+		sums[l], sums[l+1], sums[l+2], sums[l+3], sums[l+4] = absSumFive(level(l), level(l+1), level(l+2), level(l+3), level(l+4))
 	}
 	switch count - l {
 	case 4:
-		sums[l], sums[l+1], sums[l+2], sums[l+3] = absSumSerial4(level(l), level(l+1), level(l+2), level(l+3))
+		sums[l], sums[l+1], sums[l+2], sums[l+3] = absSumQuad(level(l), level(l+1), level(l+2), level(l+3))
 	case 3:
 		sums[l], sums[l+1], sums[l+2] = absSumSerial3(level(l), level(l+1), level(l+2))
 	case 2:
-		sums[l], sums[l+1] = absSumSerial2(level(l), level(l+1))
+		sums[l], sums[l+1] = absSumPair(level(l), level(l+1))
 	case 1:
 		sums[l] = absSumSerial(level(l))
 	}
@@ -102,7 +102,7 @@ func absSumSig2(a, b []celtSig) (opusVal32, opusVal32) {
 	if celtAbsSumUsesNeon {
 		return l1AbsSumNeon(a, len(a)), l1AbsSumNeon(b, len(b))
 	}
-	return absSumSerial2(a, b)
+	return absSumPair(a, b)
 }
 
 // absSumSig4 is absSumSig2 for four equal-length slices.
@@ -110,5 +110,5 @@ func absSumSig4(a, b, c, d []celtSig) (opusVal32, opusVal32, opusVal32, opusVal3
 	if celtAbsSumUsesNeon {
 		return l1AbsSumNeon(a, len(a)), l1AbsSumNeon(b, len(b)), l1AbsSumNeon(c, len(c)), l1AbsSumNeon(d, len(d))
 	}
-	return absSumSerial4(a, b, c, d)
+	return absSumQuad(a, b, c, d)
 }

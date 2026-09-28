@@ -9,6 +9,11 @@ const deemphasisVerySmall float32 = 1e-30
 // sig2res is libopus SIG2RES in the float build: 1/CELT_SIG_SCALE.
 const sig2res float32 = 1.0 / 32768.0
 
+// deemphasisLoopConsts holds deemphasisVerySmall and sig2res as variables. The
+// hot deemphasis loops read them once into registers; Go reloads constant
+// float operands from memory on every iteration.
+var deemphasisLoopConsts = [2]float32{deemphasisVerySmall, sig2res}
+
 // deemphCoefficient returns the first de-emphasis tap (mode->preemph[0]) of the
 // active mode. Zero d.deemphCoef selects the 48 kHz PreemphCoef.
 func (d *Decoder) deemphCoefficient() float32 {
@@ -150,10 +155,11 @@ func deemphasisChannel(y []float32, yStride int, x []float32, xStride, n, downsa
 	if xStride == 1 && yStride == 1 {
 		x = x[:n:n]
 		y = y[:n:n]
+		verySmall, scale := deemphasisLoopConsts[0], deemphasisLoopConsts[1]
 		for j := range x {
-			tmp := x[j] + deemphasisVerySmall + m
+			tmp := x[j] + verySmall + m
 			m = mul32(coef, tmp)
-			y[j] = sig2res * tmp
+			y[j] = scale * tmp
 		}
 		return m
 	}
@@ -250,13 +256,15 @@ func deemphasisStereo(y []float32, x0, x1 []float32, xStride, n, downsample int,
 	if xStride == 1 {
 		x0 = x0[:n:n]
 		x1 = x1[:n:n]
-		for j := range x0 {
-			tmp0 := x0[j] + deemphasisVerySmall + m0
-			tmp1 := x1[j] + deemphasisVerySmall + m1
+		verySmall, scale := deemphasisLoopConsts[0], deemphasisLoopConsts[1]
+		for k := 0; k+1 < len(y); k += 2 {
+			j := k >> 1
+			tmp0 := x0[j] + verySmall + m0
+			tmp1 := x1[j] + verySmall + m1
 			m0 = mul32(coef, tmp0)
 			m1 = mul32(coef, tmp1)
-			y[2*j] = sig2res * tmp0
-			y[2*j+1] = sig2res * tmp1
+			y[k] = scale * tmp0
+			y[k+1] = scale * tmp1
 		}
 		return m0, m1
 	}

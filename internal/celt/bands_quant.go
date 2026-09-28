@@ -738,30 +738,35 @@ func expRotation1Stride1(x []celtNorm, length int, c, s float32) {
 	}
 	x = x[:length:length]
 	ms := -s
+	// Each product pair is expRotationMac32 written out, a*b + float32(c*d),
+	// so the loops carry no inlined call sites.
 	// Forward: step i rotates (x[i], x[i+1]); x[i+1] is the next step's x1.
 	x1 := float32(x[0])
 	for i := 1; i < length; i++ {
 		x2 := float32(x[i])
-		x[i-1] = celtNorm(expRotationMac32(c, x1, ms, x2))
-		x1 = expRotationMac32(c, x2, s, x1)
+		x[i-1] = celtNorm(c*x1 + float32(ms*x2))
+		x1 = c*x2 + float32(s*x1)
 	}
 	x[length-1] = celtNorm(x1)
-	// Backward: step i rotates (x[i], x[i+1]) for i = length-3 down to 0;
-	// x[i] is the next step's x2.
+	// Backward: step j-1 rotates (x[j-1], x[j]) for j = length-2 down to 1;
+	// x[j-1] is the next step's x2.
 	if length < 3 {
 		return
 	}
 	x2 := float32(x[length-2])
-	for i := length - 3; i >= 0; i-- {
-		x1 := float32(x[i])
-		x[i+1] = celtNorm(expRotationMac32(c, x2, s, x1))
-		x2 = expRotationMac32(c, x1, ms, x2)
+	for j := length - 2; j >= 1; j-- {
+		x1 := float32(x[j-1])
+		x[j] = celtNorm(c*x2 + float32(s*x1))
+		x2 = c*x1 + float32(ms*x2)
 	}
 	x[0] = celtNorm(x2)
 }
 
+// expRotationMac32 is exp_rotation1's MAC16_16(MULT16_16(a, b), c, d) in
+// the float build: c*d rounds on its own and a*b may contract with the add
+// (fma32).
 func expRotationMac32(a, b, c, d float32) float32 {
-	return fma32(a, b, noFMA32Mul(c, d))
+	return a*b + float32(c*d)
 }
 
 func expRotation(x []celtNorm, length, dir, stride, k, spread int) {
@@ -1167,6 +1172,9 @@ func normalizeResidualKnownEnergyIntoAndCollapse32(out []celtNorm, pulses []int3
 		return 0
 	}
 	scale := celtRSqrt(energy32) * float32(gain)
+	if n >= 16 {
+		return normalizeResidualWide(out, pulses, scale, b)
+	}
 
 	if b <= 1 {
 		i := 0
@@ -1224,6 +1232,33 @@ func normalizeResidualKnownEnergyIntoAndCollapse32(out []celtNorm, pulses []int3
 	}
 	for ; i < n; i++ {
 		out[i] = celtNorm(float32(pulses[i]) * scale)
+	}
+	return mask
+}
+
+// normalizeResidualWide is normalizeResidualKnownEnergyIntoAndCollapse32 for
+// vectors long enough for the vector scaling kernel: the pulses scale in one
+// pass, then extract_collapse_mask() tests each block.
+func normalizeResidualWide(out []celtNorm, pulses []int32, scale float32, b int) int {
+	scalePulsesInto(out, pulses, scale)
+	if b <= 1 {
+		return 1
+	}
+	n0 := celtUdiv(len(pulses), b)
+	if n0 <= 0 {
+		clear(out)
+		return 0
+	}
+	mask := 0
+	blocks := pulses[:b*n0]
+	for blk := range b {
+		var tmp int32
+		for _, v := range blocks[blk*n0 : (blk+1)*n0] {
+			tmp |= v
+		}
+		if tmp != 0 {
+			mask |= 1 << blk
+		}
 	}
 	return mask
 }
@@ -1992,14 +2027,21 @@ func thetaSplitGains(sctx *splitCtx, useQ30 bool) (mid, side float32) {
 }
 
 func stereoSplit(x, y []celtNorm) {
-	if len(x) == 0 || len(y) == 0 {
-		return
-	}
 	n := min(len(y), len(x))
-	const invSqrt2 float32 = 0.70710678
-	for i := 0; i < n; i++ {
-		l := noFMA32Mul(invSqrt2, float32(x[i]))
-		r := noFMA32Mul(invSqrt2, float32(y[i]))
+	stereoSplitInto(x[:n], y[:n])
+}
+
+// stereoSplitInvSqrt2 is stereo_split()'s QCONST32(.70710678f,31) in the
+// float build.
+const stereoSplitInvSqrt2 float32 = 0.70710678
+
+// stereoSplitScalar is libopus stereo_split(): x, y become the rotated
+// (l+r, r-l) pair with l and r the rounded 1/sqrt(2) products.
+func stereoSplitScalar(x, y []celtNorm) {
+	y = y[:len(x)]
+	for i, xv := range x {
+		l := noFMA32Mul(stereoSplitInvSqrt2, float32(xv))
+		r := noFMA32Mul(stereoSplitInvSqrt2, float32(y[i]))
 		x[i] = celtNorm(noFMA32Add(l, r))
 		y[i] = celtNorm(noFMA32Sub(r, l))
 	}
@@ -3430,11 +3472,11 @@ func quantBandDecodeNoExtFast(ctx *bandCtx, x []celtNorm, n, b, B int, lowband [
 	xOrig := x
 
 	if B0 > 1 {
+		// The decoder's quant_partition writes every element of X before
+		// reading it, so libopus deinterleaves only the lowband here; X is
+		// decoded straight into the work buffer.
 		if ctx.scratch != nil {
 			x = ctx.scratch.ensureQuantWork(n)
-			deinterleaveHadamardInto(x, xOrig, N_B>>recombine, B0<<recombine, longBlocks)
-		} else {
-			deinterleaveHadamardScratchBuf(x, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
 		}
 		if lowband != nil {
 			deinterleaveHadamardScratchBufNorm(lowband, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
@@ -3524,11 +3566,11 @@ func quantBandDecodeWithExtBudget(ctx *bandCtx, x []celtNorm, n, b, B int, lowba
 	xOrig := x
 
 	if B0 > 1 {
+		// The decoder's quant_partition writes every element of X before
+		// reading it, so libopus deinterleaves only the lowband here; X is
+		// decoded straight into the work buffer.
 		if ctx.scratch != nil {
 			x = ctx.scratch.ensureQuantWork(n)
-			deinterleaveHadamardInto(x, xOrig, N_B>>recombine, B0<<recombine, longBlocks)
-		} else {
-			deinterleaveHadamardScratchBuf(x, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
 		}
 		if lowband != nil {
 			deinterleaveHadamardScratchBufNorm(lowband, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)

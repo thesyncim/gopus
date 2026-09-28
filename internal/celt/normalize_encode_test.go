@@ -15,7 +15,7 @@ func TestNormalizeBandsMonoF32MatchesSeparatePasses(t *testing.T) {
 	bandE := make([]celtEner, nbBands)
 	NormalizeBandsToArrayIntoF32(mdct, nbBands, frameSize, norm, bandE)
 
-	normGot, bandEGot := enc.normalizeBandsMonoF32(mdct, nbBands, frameSize)
+	normGot, bandEGot := enc.normalizeBandsMonoF32(mdct, nbBands, frameSize, nil)
 	for i := range frameSize {
 		if normGot[i] != norm[i] {
 			t.Fatalf("norm[%d]=%v, want %v", i, normGot[i], norm[i])
@@ -46,7 +46,7 @@ func TestNormalizeBandsStereoF32MatchesSeparatePasses(t *testing.T) {
 	NormalizeBandsToArrayIntoF32(left, nbBands, frameSize, normL, bandEL)
 	NormalizeBandsToArrayIntoF32(right, nbBands, frameSize, normR, bandER)
 
-	normLGot, normRGot, bandEGot := enc.normalizeBandsStereoF32(left, right, nbBands, frameSize)
+	normLGot, normRGot, bandEGot := enc.normalizeBandsStereoF32(left, right, nbBands, frameSize, nil)
 	for i := range frameSize {
 		if normLGot[i] != normL[i] {
 			t.Fatalf("normL[%d]=%v, want %v", i, normLGot[i], normL[i])

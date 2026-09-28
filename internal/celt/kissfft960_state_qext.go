@@ -8,6 +8,7 @@ package celt
 var kissFFTState960QEXT = func() *kissFFTState {
 	state := newDynamicKissFFTState(960, nil)
 	state.w = fftTwiddles960QEXTStatic[:]
+	state.stageTw = newKissStageTwiddles(state.factors, state.fstride, state.shift, state.w)
 	return state
 }()
 

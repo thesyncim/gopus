@@ -6,9 +6,85 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"simd/archsimd"
 	"testing"
 	"unsafe"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
+
+// xcorrKernelAVX4 and xcorrKernelAVX4Tail run four correlations per pass,
+// the split form the one-pass kernel is checked against.
+func xcorrKernelAVX4(x, y *float32, sum *[4]float32, length int) {
+	tail := newXcorrTail8(unsafe.Pointer(x), length)
+	xcorrKernelAVX4Tail(x, y, sum, length, &tail)
+}
+
+func xcorrKernelAVX4Tail(x, y *float32, sum *[4]float32, length int, tail *xcorrTail8) {
+	var acc0, acc1, acc2, acc3 archsimd.Float32x8
+	xp, yp := unsafe.Pointer(x), unsafe.Pointer(y)
+	i := 0
+	for ; i+16 <= length; i += 16 {
+		xv := archsimd.LoadFloat32x8Array((*[8]float32)(xp))
+		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp)), acc0)
+		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 4))), acc1)
+		acc2 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 8))), acc2)
+		acc3 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 12))), acc3)
+		xp1 := unsafe.Add(xp, 32)
+		yp1 := unsafe.Add(yp, 32)
+		xv = archsimd.LoadFloat32x8Array((*[8]float32)(xp1))
+		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp1)), acc0)
+		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp1, 4))), acc1)
+		acc2 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp1, 8))), acc2)
+		acc3 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp1, 12))), acc3)
+		xp = unsafe.Add(xp, 64)
+		yp = unsafe.Add(yp, 64)
+	}
+	for ; i+8 <= length; i += 8 {
+		xv := archsimd.LoadFloat32x8Array((*[8]float32)(xp))
+		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp)), acc0)
+		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 4))), acc1)
+		acc2 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 8))), acc2)
+		acc3 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 12))), acc3)
+		xp = unsafe.Add(xp, 32)
+		yp = unsafe.Add(yp, 32)
+	}
+	if i < length {
+		xTail := tail.x
+		acc0 = xTail.MulAdd(loadXcorrTail8(yp, tail.rem), acc0)
+		acc1 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 4), tail.rem), acc1)
+		acc2 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 8), tail.rem), acc2)
+		acc3 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 12), tail.rem), acc3)
+	}
+	reduceXcorrAVX8Four(acc0, acc1, acc2, acc3).StoreArray(sum)
+	// Clear before the legacy-SSE NaN checks; the outer wrapper clears after this block.
+	archsimd.ClearAVXUpperBits()
+	for corr := range sum {
+		if sum[corr] != sum[corr] {
+			sum[corr] = opusmath.PitchXcorrAVX2NaNReplay(
+				unsafe.Slice(x, length), unsafe.Slice(y, length+3)[corr:], length)
+		}
+	}
+}
+
+// reduceXcorrAVX8Lanes leaves the exact horizontal sum broadcast in all lanes.
+func reduceXcorrAVX8Lanes(v archsimd.Float32x8) archsimd.Float32x8 {
+	v = v.Add(v.ConcatPermute128Scalars(1, 0, v))
+	v = v.ConcatAddPairsGrouped(v)
+	v = v.ConcatAddPairsGrouped(v)
+	return v
+}
+
+// reduceXcorrAVX8Four packs four lane-zero sums with three vector shuffles.
+func reduceXcorrAVX8Four(v0, v1, v2, v3 archsimd.Float32x8) archsimd.Float32x4 {
+	r0 := reduceXcorrAVX8Lanes(v0)
+	r1 := reduceXcorrAVX8Lanes(v1)
+	r2 := reduceXcorrAVX8Lanes(v2)
+	r3 := reduceXcorrAVX8Lanes(v3)
+	p01 := r0.ConcatPermuteScalarsGrouped(0, 0, 4, 4, r1)
+	p23 := r2.ConcatPermuteScalarsGrouped(0, 0, 4, 4, r3)
+	return p01.ConcatPermuteScalarsGrouped(0, 2, 4, 6, p23).GetLo()
+}
 
 func xcorrKernelAVX8SplitForTest(x, y *float32, sum *[8]float32, length int) {
 	xcorrKernelAVX4(x, y, (*[4]float32)(unsafe.Pointer(&sum[0])), length)

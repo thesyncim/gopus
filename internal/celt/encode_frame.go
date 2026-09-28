@@ -33,10 +33,7 @@ func (e *Encoder) fillMDCTHistoryFromPrefilter(channel, overlap int, dst []float
 		return
 	}
 	start := channel * overlap
-	src := e.overlapBuffer[start : start+overlap]
-	for i := range overlap {
-		dst[i] = float32(src[i])
-	}
+	copy(dst[:overlap], e.overlapBuffer[start:start+overlap])
 }
 
 func (e *Encoder) fillTransientHistoryFromPrefilterF32(overlap int, dst []float32) {
@@ -54,11 +51,23 @@ func (e *Encoder) fillTransientHistoryFromPrefilterF32(overlap int, dst []float3
 		return
 	}
 	base := maxPeriod - overlap
+	if channels == 2 {
+		src0 := e.prefilterMem[base : base+overlap]
+		src1 := e.prefilterMem[maxPeriod+base : maxPeriod+base+overlap]
+		out := dst[:2*len(src0)]
+		for i, v := range src0 {
+			_ = out[1]
+			out[0] = v
+			out[1] = src1[i]
+			out = out[2:]
+		}
+		return
+	}
 	for ch := range channels {
 		chBase := ch * maxPeriod
 		src := e.prefilterMem[chBase+base : chBase+base+overlap]
 		for i, v := range src {
-			dst[i*channels+ch] = float32(v)
+			dst[i*channels+ch] = v
 		}
 	}
 }
@@ -586,7 +595,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 
 	// Step 6: Compute band energies
 	energies := ensureGLogSlice(&e.scratch.energies, nbBands*codedChannels)
-	e.computeBandEnergiesGLogActive(mdctCoeffs, nbBands, frameSize, codedChannels, 1<<lm, energies)
+	bandAmp := e.computeFrameBandEnergies(mdctCoeffs, nbBands, frameSize, codedChannels, lm, energies)
 	if e.lfe {
 		applyLFEBandLogEClamp(energies, nbBands, codedChannels)
 	}
@@ -663,7 +672,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 
 			// Recompute band energies with short block coefficients
 			energies = ensureGLogSlice(&e.scratch.energies, nbBands*codedChannels)
-			e.computeBandEnergiesGLogActive(mdctCoeffs, nbBands, frameSize, codedChannels, 1<<lm, energies)
+			bandAmp = e.computeFrameBandEnergies(mdctCoeffs, nbBands, frameSize, codedChannels, lm, energies)
 			if e.lfe {
 				applyLFEBandLogEClamp(energies, nbBands, codedChannels)
 			}
@@ -784,10 +793,10 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 			normL, normR, bandE = e.normalizeBandsStereoBinMulF32(mdctLeft, mdctRight, nbBands, 1<<lm)
 		}
 	} else if codedChannels == 1 {
-		normL, bandE = e.normalizeBandsMonoF32(mdctCoeffs, nbBands, frameSize)
+		normL, bandE = e.normalizeBandsMonoF32(mdctCoeffs, nbBands, frameSize, bandAmp)
 		normBandEScratch = bandE
 	} else {
-		normL, normR, bandE = e.normalizeBandsStereoF32(mdctLeft, mdctRight, nbBands, frameSize)
+		normL, normR, bandE = e.normalizeBandsStereoF32(mdctLeft, mdctRight, nbBands, frameSize, bandAmp)
 	}
 	_ = normBandEScratch
 	normLCelt := ensureNormSliceNoClear(&e.scratch.allocTrimNormL, len(normL))
@@ -1562,6 +1571,21 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	}
 
 	return bytes, nil
+}
+
+// computeFrameBandEnergies fills energies with the frame's band log energies.
+// For the standard band layout it runs compute_band_energies() and amp2Log2()
+// together and returns the linear amplitudes, which normalise_bands() then
+// reuses; otherwise it returns nil.
+func (e *Encoder) computeFrameBandEnergies(mdctCoeffs []float32, nbBands, frameSize, channels, lm int, energies []celtGLog) []celtEner {
+	if e.perMode == nil && e.hd96kOverlap == 0 && frameSize == Overlap<<lm {
+		amp := ensureEnerSlice(&e.scratch.bandAmp, nbBands*channels)
+		if computeBandAmplitudesGLogF32(mdctCoeffs, nbBands, frameSize, channels, 1<<lm, amp, energies) {
+			return amp
+		}
+	}
+	e.computeBandEnergiesGLogActive(mdctCoeffs, nbBands, frameSize, channels, 1<<lm, energies)
+	return nil
 }
 
 func foldStereoMDCTToMonoF32(dst, left, right []float32) []float32 {

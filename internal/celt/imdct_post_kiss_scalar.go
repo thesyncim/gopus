@@ -25,33 +25,27 @@ func imdctPostRotateF32FromKissScalar(buf []float32, fft []kissCpx, trig []float
 	// the source complex pair directly — half the memory traffic, same arith.
 	// Output pair i is buf[2i:2i+2] and pair k = n4-1-i is buf[2k:2k+2]
 	// (libopus yp0 and yp1).
-	fft = fft[:n4]
+	// fft is read through its float view: pair i is in[2i] = r, in[2i+1] = i.
+	// lo and hi step by two on their own, like libopus yp0 and yp1, so every
+	// access is a scaled float index.
+	in := kissFloats(fft[:n4])
 	trigA := trig[:n4]
 	trigB := trig[n4 : 2*n4]
-	fftLo := fft[:limit]
-	trigALo := trigA[:len(fftLo)]
-	trigBLo := trigB[:len(fftLo)]
-	for i, v := range fftLo {
+	out := buf[:len(in)]
+	hi := len(in) - 2
+	for i, lo := 0, 0; i < limit && lo+1 < len(in); i, lo = i+1, lo+2 {
 		k := n4 - 1 - i
-		re := v.i
-		im := v.r
-		t0 := trigALo[i]
-		t1 := trigBLo[i]
-		yr := mdctMulAddMix(re, im, t0, t1)
-		yi := mdctMulSubMix(re, im, t1, t0)
-
-		re2 := fft[k].i
-		im2 := fft[k].r
-		lo := buf[2*i : 2*i+2 : 2*i+2]
-		hi := buf[2*k : 2*k+2 : 2*k+2]
-		lo[0] = yr
-		hi[1] = yi
-
-		t0 = trigA[k]
-		t1 = trigB[k]
-		yr = mdctMulAddMix(re2, im2, t0, t1)
-		yi = mdctMulSubMix(re2, im2, t1, t0)
-		hi[0] = yr
-		lo[1] = yi
+		if hi < 0 || hi+1 >= len(in) {
+			break
+		}
+		re, im := in[lo+1], in[lo]
+		re2, im2 := in[hi+1], in[hi]
+		t0, t1 := trigA[i], trigB[i]
+		t2, t3 := trigA[k], trigB[k]
+		out[lo] = mdctMulAddMix(re, im, t0, t1)
+		out[hi+1] = mdctMulSubMix(re, im, t1, t0)
+		out[hi] = mdctMulAddMix(re2, im2, t2, t3)
+		out[lo+1] = mdctMulSubMix(re2, im2, t3, t2)
+		hi -= 2
 	}
 }

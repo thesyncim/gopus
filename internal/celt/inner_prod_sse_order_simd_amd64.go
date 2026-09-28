@@ -3,6 +3,7 @@
 package celt
 
 import (
+	"math"
 	"simd/archsimd"
 	"unsafe"
 
@@ -61,8 +62,15 @@ func innerProdFloat32SSEOrderLags(x, y, xcorr []float32, length int) {
 // five lags; y must hold length+len(out)-1 samples.
 func innerProdFloat32SSEOrderUpTo5(x, y, out []float32, length int) {
 	n := len(out)
+	if n < 5 {
+		for l := range out {
+			out[l] = innerProdFloat32SSEOrder(x, y[l:], length)
+		}
+		return
+	}
+	out = out[:5]
 	x = x[:length]
-	y = y[:length+n-1]
+	y = y[:length+4]
 	xp := unsafe.Pointer(unsafe.SliceData(x))
 	yp := unsafe.Pointer(unsafe.SliceData(y))
 	var a0, a1, a2, a3, a4 archsimd.Float32x4
@@ -72,31 +80,31 @@ func innerProdFloat32SSEOrderUpTo5(x, y, out []float32, length int) {
 		xv := loadF32x4(unsafe.Add(xp, off))
 		yo := unsafe.Add(yp, off)
 		a0 = a0.Add(xv.Mul(loadF32x4(yo)))
-		if n > 1 {
-			a1 = a1.Add(xv.Mul(loadF32x4(unsafe.Add(yo, 4))))
-		}
-		if n > 2 {
-			a2 = a2.Add(xv.Mul(loadF32x4(unsafe.Add(yo, 8))))
-		}
-		if n > 3 {
-			a3 = a3.Add(xv.Mul(loadF32x4(unsafe.Add(yo, 12))))
-		}
-		if n > 4 {
-			a4 = a4.Add(xv.Mul(loadF32x4(unsafe.Add(yo, 16))))
-		}
+		a1 = a1.Add(xv.Mul(loadF32x4(unsafe.Add(yo, 4))))
+		a2 = a2.Add(xv.Mul(loadF32x4(unsafe.Add(yo, 8))))
+		a3 = a3.Add(xv.Mul(loadF32x4(unsafe.Add(yo, 12))))
+		a4 = a4.Add(xv.Mul(loadF32x4(unsafe.Add(yo, 16))))
 	}
-	acc := [5]archsimd.Float32x4{a0, a1, a2, a3, a4}
-	for l := range n {
-		a := acc[l]
-		sum := add32(add32(a.GetElem(0), a.GetElem(2)), add32(a.GetElem(1), a.GetElem(3)))
-		for j := i; j < length; j++ {
-			sum = add32(sum, mul32(x[j], y[j+l]))
-		}
-		if sum != sum {
-			sum = opusmath.PitchXcorrSSENaNReplay(x, y[l:], length)
-		}
-		out[l] = sum
+	out[0] = innerProdSSEOrderFinish(a0, x, y, i)
+	out[1] = innerProdSSEOrderFinish(a1, x, y[1:], i)
+	out[2] = innerProdSSEOrderFinish(a2, x, y[2:], i)
+	out[3] = innerProdSSEOrderFinish(a3, x, y[3:], i)
+	out[4] = innerProdSSEOrderFinish(a4, x, y[4:], i)
+}
+
+// innerProdSSEOrderFinish completes one celt_inner_prod_sse lag from its
+// four-lane accumulator a over x[:i]: the (a0+a2)+(a1+a3) reduction, the
+// scalar tail over x[i:], and the NaN replay.
+func innerProdSSEOrderFinish(a archsimd.Float32x4, x, y []float32, i int) float32 {
+	sum := add32(add32(a.GetElem(0), a.GetElem(2)), add32(a.GetElem(1), a.GetElem(3)))
+	y = y[:len(x)]
+	for j := i; j < len(x); j++ {
+		sum = add32(sum, mul32(x[j], y[j]))
 	}
+	if math.Float32bits(sum)&0x7fffffff > 0x7f800000 {
+		sum = opusmath.PitchXcorrSSENaNReplay(x, y, len(x))
+	}
+	return sum
 }
 
 // prefilterDualInnerProdF32SSEOrder reproduces libopus x86/pitch_sse.c

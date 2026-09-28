@@ -15,28 +15,33 @@ func imdctPreRotateFFT(fftIn []complex64, fftTmp []kissCpx, spectrum, trig []flo
 		return kissFFT32ToScratch(fftIn, fftTmp, st)
 	}
 	fft := fftTmp[:n4]
-	imdctPreRotateKissScalar(fft, st.bitrev, spectrum, trig, n2, n4)
+	imdctPreRotateKissScalar(fft, st.bitrevFloat, spectrum, trig, n2, n4)
 	st.fftImpl(fft)
 	return fft
 }
 
 // imdctPreRotateKissScalar is imdctPreRotateNoFMAScalar with the result
-// written to dst[bitrev[i]] instead of fftIn[i].
-func imdctPreRotateKissScalar(dst []kissCpx, bitrev []int, spectrum, trig []float32, n2, n4 int) {
+// written to dst[bitrev[i]] instead of fftIn[i]; revFloat holds the float
+// offsets 2*bitrev[i] (kissFFTState.bitrevFloat).
+func imdctPreRotateKissScalar(dst []kissCpx, revFloat []int, spectrum, trig []float32, n2, n4 int) {
+	out := kissFloats(dst)
 	spectrum = spectrum[:n2]
 	t0s := trig[:n4]
 	t1s := trig[n4 : 2*n4]
-	bitrev = bitrev[:len(t0s)]
+	revFloat = revFloat[:len(t0s)]
 	t1s = t1s[:len(t0s)]
-	for i, rev := range bitrev {
-		x1 := spectrum[2*i]
-		x2 := spectrum[n2-1-2*i]
+	// x1 walks the even spectrum entries up from the start and x2 the odd
+	// entries down from the end, like libopus xp1 and xp2.
+	j1, j2 := 0, n2-1
+	for i, o := range revFloat {
+		x1 := spectrum[j1]
+		x2 := spectrum[j2]
+		j1 += 2
+		j2 -= 2
 		t0 := t0s[i]
 		t1 := t1s[i]
 		// The conversions round each product on its own, as noFMA32Mul does.
-		dst[rev] = kissCpx{
-			float32(x1*t0) - float32(x2*t1),
-			float32(x2*t0) + float32(x1*t1),
-		}
+		out[o] = float32(x1*t0) - float32(x2*t1)
+		out[o+1] = float32(x2*t0) + float32(x1*t1)
 	}
 }

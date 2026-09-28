@@ -349,8 +349,31 @@ func normalizeBandsWithBandEInto(mdctCoeffs []float32, nbBands, frameSize int, n
 	}
 }
 
+// normalizeBandsWithBandEIntoF32 is normalise_bands() for the standard band
+// layout with M = frameSize/Overlap. Narrow bands, the common case for short
+// frames, scale inline; wide ones use scaleFloat32Into.
 func normalizeBandsWithBandEIntoF32(mdctCoeffs []float32, nbBands, frameSize int, norm []celtNorm, bandE []celtEner) {
-	normalizeBandsWithBandEIntoF32BinMul(mdctCoeffs, nbBands, frameSize/Overlap, norm, bandE)
+	binMul := frameSize / Overlap
+	if binMul <= 0 {
+		return
+	}
+	nbBands = min(nbBands, MaxBands, len(bandE))
+	for band := range nbBands {
+		lo, hi := EBands[band]*binMul, EBands[band+1]*binMul
+		if hi > len(mdctCoeffs) {
+			return
+		}
+		g := float32(1.0) / max(float32(bandE[band]), float32(1e-27))
+		src := mdctCoeffs[lo:hi]
+		dst := norm[lo:hi]
+		if len(src) >= 16 {
+			scaleFloat32Into(dst, src, g)
+			continue
+		}
+		for i, v := range src {
+			dst[i] = v * g
+		}
+	}
 }
 
 func normalizeBandsWithBandEIntoF32BinMul(mdctCoeffs []float32, nbBands, binMul int, norm []celtNorm, bandE []celtEner) {

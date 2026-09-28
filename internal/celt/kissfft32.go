@@ -30,6 +30,12 @@ type kissFFTState struct {
 	bitrev  []int
 	w       []kissCpx
 	fstride []int // Pre-computed fstride array for fftImpl (avoids per-call allocation)
+	// bitrevFloat holds 2*bitrev[i], the float offset of each bit-reversed
+	// slot in the kissFloats view of the FFT buffer.
+	bitrevFloat []int
+	// stageTw holds each factor stage's twiddles packed for the Fast
+	// butterflies; see kissStageTwiddles.
+	stageTw []kissStageTwiddles
 }
 
 var (
@@ -128,7 +134,8 @@ func newDynamicKissFFTState(nfft int, base *kissFFTState) *kissFFTState {
 		fstride[i+1] = fstride[i] * p
 	}
 
-	return &kissFFTState{nfft: nfft, shift: shift, factors: factors, bitrev: bitrev, w: w, fstride: fstride}
+	return &kissFFTState{nfft: nfft, shift: shift, factors: factors, bitrev: bitrev, w: w, fstride: fstride,
+		bitrevFloat: kissBitrevFloat(bitrev), stageTw: newKissStageTwiddles(factors, fstride, shift, w)}
 }
 
 func newStaticKissFFTState(nfft int) *kissFFTState {
@@ -178,13 +185,25 @@ func newStaticKissFFTState(nfft int) *kissFFTState {
 	}
 
 	return &kissFFTState{
-		nfft:    nfft,
-		shift:   shift,
-		factors: factors,
-		bitrev:  bitrev,
-		w:       twiddles,
-		fstride: fstride,
+		nfft:        nfft,
+		shift:       shift,
+		factors:     factors,
+		bitrev:      bitrev,
+		w:           twiddles,
+		fstride:     fstride,
+		bitrevFloat: kissBitrevFloat(bitrev),
+		stageTw:     newKissStageTwiddles(factors, fstride, shift, twiddles),
 	}
+}
+
+// kissBitrevFloat returns the float offsets 2*bitrev[i] of the bit-reversed
+// FFT slots.
+func kissBitrevFloat(bitrev []int) []int {
+	off := make([]int, len(bitrev))
+	for i, rev := range bitrev {
+		off[i] = 2 * rev
+	}
+	return off
 }
 
 // kfFactor computes the radix factors for kiss FFT.
@@ -459,7 +478,7 @@ func kfBfly2M4Scalar(fout []kissCpx, N int) {
 	}
 }
 
-func kfBfly4(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int, fast bool) {
+func kfBfly4(fout []kissCpx, fstride int, st *kissFFTState, stage, m, N, mm int, fast bool) {
 	if m == 1 {
 		kfBfly4M1(fout, N)
 		return
@@ -468,13 +487,13 @@ func kfBfly4(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int, fast b
 		return
 	}
 	if fast {
-		kfBfly4InnerFast(fout, st.w, m, N, mm, fstride)
+		kfBfly4InnerFast(fout, st.stageTw[stage].tw4, N, mm)
 		return
 	}
 	kfBfly4Inner(fout, st.w, m, N, mm, fstride)
 }
 
-func kfBfly3(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int, fast bool) {
+func kfBfly3(fout []kissCpx, fstride int, st *kissFFTState, stage, m, N, mm int, fast bool) {
 	if N <= 0 || mm <= 0 {
 		return
 	}
@@ -483,13 +502,13 @@ func kfBfly3(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int, fast b
 		return
 	}
 	if fast {
-		kfBfly3InnerFast(fout, st.w, m, N, mm, fstride)
+		kfBfly3InnerFast(fout, st.stageTw[stage].tw3, st.w[fstride*m].i, N, mm)
 		return
 	}
 	kfBfly3Inner(fout, st.w, m, N, mm, fstride)
 }
 
-func kfBfly5(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int, fast bool) {
+func kfBfly5(fout []kissCpx, fstride int, st *kissFFTState, stage, m, N, mm int, fast bool) {
 	if N <= 0 || mm <= 0 {
 		return
 	}
@@ -498,7 +517,7 @@ func kfBfly5(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int, fast b
 		return
 	}
 	if fast {
-		kfBfly5InnerFast(fout, st.w, m, N, mm, fstride)
+		kfBfly5InnerFast(fout, st.stageTw[stage].tw5, st.w[fstride*m], st.w[fstride*2*m], N, mm)
 		return
 	}
 	kfBfly5Inner(fout, st.w, m, N, mm, fstride)
@@ -541,11 +560,11 @@ func (st *kissFFTState) fftImpl(fout []kissCpx) {
 		case 2:
 			kfBfly2(fout, m, N)
 		case 4:
-			kfBfly4(fout, twFstride, st, m, N, m2, fast)
+			kfBfly4(fout, twFstride, st, i, m, N, m2, fast)
 		case 3:
-			kfBfly3(fout, twFstride, st, m, N, m2, fast)
+			kfBfly3(fout, twFstride, st, i, m, N, m2, fast)
 		case 5:
-			kfBfly5(fout, twFstride, st, m, N, m2, fast)
+			kfBfly5(fout, twFstride, st, i, m, N, m2, fast)
 		}
 		m = m2
 	}

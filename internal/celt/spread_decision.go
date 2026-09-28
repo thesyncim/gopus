@@ -241,7 +241,7 @@ func computeSpreadWeights(bandLogE []celtGLog, nbBands, channels, lsbDepth int) 
 			eMean = float32(eMeans[i])
 		}
 		// noise_floor = 0.0625*logN + 0.5 + (9-lsb_depth) - eMeans + 0.0062*(i+5)^2
-		noiseFloor[i] = 0.0625*logNVal + 0.5 + float32(9-lsbDepth) - eMean + 0.0062*float32((i+5)*(i+5))
+		noiseFloor[i] = 0.0625*logNVal + 0.5 + float32(9-lsbDepth) - eMean + float32(0.0062*float32(i+5))*float32(i+5)
 	}
 
 	// Compute maxDepth (maximum signal relative to noise floor across all bands/channels)

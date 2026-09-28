@@ -2,11 +2,17 @@ package celt
 
 // normalizeBandsMonoF32 runs normalise_bands() on float-build mono MDCT
 // coefficients and returns the normalized coefficients and the linear band
-// amplitudes.
-func (e *Encoder) normalizeBandsMonoF32(mdctCoeffs []float32, nbBands, frameSize int) (norm []CeltNorm, bandE []CeltEner) {
+// amplitudes. amp, when non-nil, holds the compute_band_energies() amplitudes
+// already computed for these coefficients.
+func (e *Encoder) normalizeBandsMonoF32(mdctCoeffs []float32, nbBands, frameSize int, amp []celtEner) (norm []CeltNorm, bandE []CeltEner) {
 	norm = ensureNormSliceNoClear(&e.scratch.normL, frameSize)
 	bandE = ensureEnerSlice(&e.scratch.bandE, nbBands)
-	NormalizeBandsToArrayIntoF32(mdctCoeffs, nbBands, frameSize, norm, bandE)
+	if amp != nil {
+		copy(bandE, amp[:nbBands])
+		normalizeBandsWithBandEIntoF32(mdctCoeffs, nbBands, frameSize, norm, bandE)
+	} else {
+		NormalizeBandsToArrayIntoF32(mdctCoeffs, nbBands, frameSize, norm, bandE)
+	}
 	if e.lfe {
 		applyLFELinearBandEClamp(bandE, nbBands, 1)
 		normalizeBandsWithBandEIntoF32(mdctCoeffs, nbBands, frameSize, norm, bandE)
@@ -15,22 +21,24 @@ func (e *Encoder) normalizeBandsMonoF32(mdctCoeffs []float32, nbBands, frameSize
 }
 
 // normalizeBandsStereoF32 runs normalise_bands() on float-build stereo MDCT
-// coefficients. The bandE layout is [L bands][R bands].
-func (e *Encoder) normalizeBandsStereoF32(mdctLeft, mdctRight []float32, nbBands, frameSize int) (normL, normR []CeltNorm, bandE []CeltEner) {
+// coefficients. The bandE layout is [L bands][R bands]; amp, when non-nil,
+// holds the compute_band_energies() amplitudes already computed for these
+// coefficients in that layout.
+func (e *Encoder) normalizeBandsStereoF32(mdctLeft, mdctRight []float32, nbBands, frameSize int, amp []celtEner) (normL, normR []CeltNorm, bandE []CeltEner) {
 	normL = ensureNormSliceNoClear(&e.scratch.normL, frameSize)
 	normR = ensureNormSliceNoClear(&e.scratch.normR, frameSize)
-	bandEL := ensureEnerSlice(&e.scratch.bandEL, nbBands)
-	bandER := ensureEnerSlice(&e.scratch.bandER, nbBands)
-	NormalizeBandsToArrayIntoF32(mdctLeft, nbBands, frameSize, normL, bandEL)
-	NormalizeBandsToArrayIntoF32(mdctRight, nbBands, frameSize, normR, bandER)
 	bandE = ensureEnerSlice(&e.scratch.bandE, nbBands*2)
-	copy(bandE[:nbBands], bandEL)
-	copy(bandE[nbBands:], bandER)
+	if amp != nil {
+		copy(bandE, amp[:2*nbBands])
+	} else {
+		ComputeLinearBandAmplitudesIntoF32(mdctLeft, nbBands, frameSize, bandE[:nbBands])
+		ComputeLinearBandAmplitudesIntoF32(mdctRight, nbBands, frameSize, bandE[nbBands:])
+	}
 	if e.lfe {
 		applyLFELinearBandEClamp(bandE, nbBands, 2)
-		normalizeBandsWithBandEIntoF32(mdctLeft, nbBands, frameSize, normL, bandE[:nbBands])
-		normalizeBandsWithBandEIntoF32(mdctRight, nbBands, frameSize, normR, bandE[nbBands:])
 	}
+	normalizeBandsWithBandEIntoF32(mdctLeft, nbBands, frameSize, normL, bandE[:nbBands])
+	normalizeBandsWithBandEIntoF32(mdctRight, nbBands, frameSize, normR, bandE[nbBands:])
 	return normL, normR, bandE
 }
 

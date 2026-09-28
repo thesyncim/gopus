@@ -32,3 +32,15 @@ func kissMulAddSourceNonFinite(a, b, c, d float32) float32 {
 func kissMulSubSourceNonFinite(a, b, c, d float32) float32 {
 	return a*b - c*d
 }
+
+// kissMulSubFast returns a*b - c*d with both products rounded to float32, the
+// kissMulSubSource value without its NaN flag. The Fast butterflies use it on
+// bounded input, where no product is NaN.
+func kissMulSubFast(a, b, c, d float32) float32 {
+	return float32(a*b) - float32(c*d)
+}
+
+// kissMulAddFast returns a*b + c*d like kissMulSubFast.
+func kissMulAddFast(a, b, c, d float32) float32 {
+	return float32(a*b) + float32(c*d)
+}

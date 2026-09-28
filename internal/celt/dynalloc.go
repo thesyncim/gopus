@@ -136,7 +136,9 @@ func computeNoiseFloor32(i, lsbDepth int, logN int16) float32 {
 	if i < len(EMeans) {
 		eMean = float32(EMeans[i])
 	}
-	return 0.0625*float32(logN) + 0.5 + float32(9-lsbDepth) - eMean + 0.0062*float32((i+5)*(i+5))
+	// GCONST(.0062f)*(i+5)*(i+5) multiplies left to right, rounding after
+	// each product.
+	return 0.0625*float32(logN) + 0.5 + float32(9-lsbDepth) - eMean + float32(0.0062*float32(i+5))*float32(i+5)
 }
 
 // DynallocAnalysis performs dynamic allocation analysis to compute:

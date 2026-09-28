@@ -205,6 +205,30 @@ func computeBandEnergiesGLogF32IntoEdges(mdctCoeffs []float32, nbBands, frameSiz
 	}
 }
 
+// computeBandAmplitudesGLogF32 is compute_band_energies() followed by
+// amp2Log2() for the standard band layout with M = binMul: amp receives the
+// linear band amplitudes and dst their log2 energies relative to eMeans, both
+// laid out [c*nbBands+band] over channels blocks of frameSize coefficients. dst
+// matches computeBandEnergiesGLogF32Into. It reports false, with both outputs
+// unspecified, when a band reaches past the coefficients; callers then use the
+// general routines.
+func computeBandAmplitudesGLogF32(mdctCoeffs []float32, nbBands, frameSize, channels, binMul int, amp []celtEner, dst []celtGLog) bool {
+	if nbBands < 0 || nbBands > MaxBands || channels < 1 || channels > 2 || binMul <= 0 ||
+		len(mdctCoeffs) < frameSize*channels || len(amp) < nbBands*channels || len(dst) < nbBands*channels ||
+		EBands[nbBands]*binMul > frameSize {
+		return false
+	}
+	for c := range channels {
+		coeffs := mdctCoeffs[c*frameSize : (c+1)*frameSize]
+		for band := range nbBands {
+			a := celtSqrt(float32(1e-27) + celtInnerProdF32LibopusOrder(coeffs[EBands[band]*binMul:EBands[band+1]*binMul]))
+			amp[c*nbBands+band] = celtEner(a)
+			dst[c*nbBands+band] = celtGLog(celtLog2(a) - float32(eMeans[band]*DB6))
+		}
+	}
+	return true
+}
+
 func computeBandEnergiesFloat32Into(mdctCoeffs []float32, nbBands, frameSize, channels int, dst []float32) {
 	if nbBands > MaxBands {
 		nbBands = MaxBands

@@ -136,16 +136,18 @@ func (e *Encoder) rawInputSilence(pcm []float32, frameSize, overlap int) bool {
 	return sampleMax <= silenceThreshold
 }
 
+// noFMA32Mul, noFMA32Add and noFMA32Sub are mul32, add32 and sub32 spelled
+// out, so each call inlines as a single level.
 func noFMA32Mul(a, b float32) float32 {
-	return mul32(a, b)
+	return float32(a * b)
 }
 
 func noFMA32Add(a, b float32) float32 {
-	return add32(a, b)
+	return float32(a + b)
 }
 
 func noFMA32Sub(a, b float32) float32 {
-	return sub32(a, b)
+	return float32(a - b)
 }
 
 // ApplyPreemphasis applies the pre-emphasis filter to PCM input samples.

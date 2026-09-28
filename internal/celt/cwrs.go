@@ -224,6 +224,35 @@ var pvqUDense = func() [15][177]uint32 {
 	return dense
 }()
 
+// pvqUSym holds U(n,k) for n < 15 on both sides of the diagonal, so
+// pvqUSym[n] is a full row of U(n, *).
+var pvqUSym = func() [15][177]uint32 {
+	var sym [15][177]uint32
+	for n := range sym {
+		for k := range sym[n] {
+			if k >= n {
+				sym[n][k] = pvqUDense[n][k]
+			} else {
+				sym[n][k] = pvqUDense[k][n]
+			}
+		}
+	}
+	return sym
+}()
+
+// pvqUCol is the transpose of pvqUDense, pvqUCol[n][k] == U(k,n) for
+// k <= min(n, 14), so walking U(*, n) reads one contiguous row. The row is
+// padded to 16 entries.
+var pvqUCol = func() [177][16]uint32 {
+	var col [177][16]uint32
+	for n := range col {
+		for k := 0; k <= min(n, 14); k++ {
+			col[n][k] = pvqUDense[k][n]
+		}
+	}
+	return col
+}()
+
 //go:nosplit
 func pvqUDenseUnchecked(row, col int) uint32 {
 	return pvqUDense[row][col]
@@ -734,70 +763,67 @@ func cwrsiTableLookup32(n, k int, i uint32, y []int32) uint32 {
 	var yy uint32
 	j := 0
 	for nCur := n; nCur > 2; nCur-- {
-		var p, q uint32
-		var s int
-		var k0, yj int
-
+		var p uint32
+		var s bool
+		k0 := k
 		if k >= nCur {
-			p = pvqUDenseUnchecked(nCur, k+1)
+			// Lots of pulses: every U(nCur, *) lookup comes from one row
+			// (libopus CELT_PVQ_U_ROW[_n] and, by symmetry, the
+			// CELT_PVQ_U_ROW[--_k][_n] column walk).
+			row := &pvqUSym[nCur]
+			p = row[k+1]
 			if i >= p {
-				s = -1
+				s = true
 				i -= p
 			}
-
-			k0 = k
-			q = pvqUDenseUnchecked(nCur, nCur)
-
-			if q > i {
+			if row[nCur] > i {
 				k = nCur
 				for {
 					k--
-					p = pvqUDenseUnchecked(k, nCur)
+					p = row[k]
 					if p <= i {
 						break
 					}
 				}
 			} else {
-				for p = pvqUDenseUnchecked(nCur, k); p > i; p = pvqUDenseUnchecked(nCur, k) {
+				for {
+					p = row[k]
+					if p <= i {
+						break
+					}
 					k--
 				}
 			}
-			i -= p
-			yj = k0 - k
-			if s != 0 {
-				yj = -yj
-			}
-			y[j] = int32(yj)
-			yy += uint32(yj * yj)
 		} else {
-			p = pvqUDenseUnchecked(k, nCur)
-			q = pvqUDenseUnchecked(k+1, nCur)
-
+			// Lots of dimensions: U(*, nCur) lookups walk column nCur.
+			col := &pvqUCol[nCur]
+			p = col[k]
+			q := col[k+1]
 			if p <= i && i < q {
 				i -= p
 				y[j] = 0
-			} else {
-				if i >= q {
-					s = -1
-					i -= q
+				j++
+				continue
+			}
+			if i >= q {
+				s = true
+				i -= q
+			}
+			for {
+				k--
+				p = col[k]
+				if p <= i {
+					break
 				}
-				k0 = k
-				for {
-					k--
-					p = pvqUDenseUnchecked(k, nCur)
-					if p <= i {
-						break
-					}
-				}
-				i -= p
-				yj = k0 - k
-				if s != 0 {
-					yj = -yj
-				}
-				y[j] = int32(yj)
-				yy += uint32(yj * yj)
 			}
 		}
+		i -= p
+		yj := k0 - k
+		if s {
+			yj = -yj
+		}
+		y[j] = int32(yj)
+		yy += uint32(yj * yj)
 		j++
 	}
 

@@ -1166,6 +1166,7 @@ type encoderScratch struct {
 	energies  []celtGLog
 	bandLogE2 []celtGLog
 	bandE     []celtEner
+	bandAmp   []celtEner
 	bandEL    []celtEner
 	bandER    []celtEner
 
@@ -1319,7 +1320,7 @@ func (s *encoderScratch) ensureEncodeFloatArena(frameSize, channels, overlap, ma
 
 	total := expectedLen*3 + combinedLen + transientLen + prefilterLen*2 +
 		pitchBufLen + xcorrLen + xlp4Len + ylp4Len + yyLookupLen +
-		frameSize*2 + frameSize*2 + bandCount*8 + modeBands*2 + overlap*2 +
+		frameSize*2 + frameSize*2 + bandCount*9 + modeBands*2 + overlap*2 +
 		frameSize*2 + frameSize*2 + frameSize*2 + frameSize + frameSize/2 +
 		sp2*2 + spc + frameSize*2 + spc + maxPVQN*2
 	if s.f32.Cap() >= total {
@@ -1344,6 +1345,7 @@ func (s *encoderScratch) ensureEncodeFloatArena(frameSize, channels, overlap, ma
 	s.energies = s.f32.Alloc(bandCount)
 	s.bandLogE2 = s.f32.Alloc(bandCount)
 	s.bandE = s.f32.Alloc(bandCount)
+	s.bandAmp = s.f32.Alloc(bandCount)
 	s.coarseError = s.f32.Alloc(bandCount)
 	s.quantizedEnergies = s.f32.Alloc(bandCount)
 	s.prev1LogE = s.f32.Alloc(bandCount)
@@ -1427,6 +1429,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.energies = ensureGLogSlice(&s.energies, bandCount)
 	s.bandLogE2 = ensureGLogSlice(&s.bandLogE2, bandCount)
 	s.bandE = ensureEnerSlice(&s.bandE, bandCount)
+	s.bandAmp = ensureEnerSlice(&s.bandAmp, bandCount)
 	s.coarseError = ensureGLogSlice(&s.coarseError, bandCount)
 	s.bandEL = ensureEnerSlice(&s.bandEL, modeBands)
 	s.bandER = ensureEnerSlice(&s.bandER, modeBands)

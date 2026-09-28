@@ -583,46 +583,71 @@ func TFAnalysisWithScratch(X []celtNorm, N0, nbEBands int, isTransient bool, lm 
 
 		narrow := (edges[i+1] - edges[i]) == 1
 
-		// Build every Haar level the metric compares, then measure them
-		// together: each l1_metric is its own serial sum, so the sums of
-		// different levels run as independent chains.
-		levels := scratch.Levels
-		level0 := levels[:N]
-		copy(level0, X[bandStart:min(bandEnd, len(X))])
-		if bandEnd > len(X) {
-			clear(level0[max(len(X)-bandStart, 0):])
-		}
-		count := 1
 		levelLM[0] = 0
 		if isTransient {
 			levelLM[0] = lm
 		}
+		firstK := 1
 		if isTransient && !narrow {
-			tmp1 := levels[N : 2*N]
-			copy(tmp1, level0)
-			haar1Norm(tmp1, N>>lm, 1<<lm)
 			levelLM[1] = lm + 1
-			count = 2
+			firstK = 2
 		}
-		firstK := count
 		maxK := lm
 		if !isTransient && !narrow {
 			maxK = lm + 1
 		}
-		prev := level0
-		for k := 0; k < maxK; k++ {
-			cur := levels[count*N : (count+1)*N]
-			copy(cur, prev)
-			haar1Norm(cur, N>>k, 1<<k)
+		for k := range maxK {
 			if isTransient {
-				levelLM[count] = lm - k - 1
+				levelLM[firstK+k] = lm - k - 1
 			} else {
-				levelLM[count] = k + 1
+				levelLM[firstK+k] = k + 1
 			}
-			prev = cur
-			count++
 		}
-		absSumLevels(levels, N, count, levelL1[:count])
+		count := firstK + maxK
+		levels := scratch.Levels
+		if count <= 2 && bandEnd <= len(X) {
+			// One or two levels: the first is the band itself, so only the
+			// Haar level needs a copy.
+			band := X[bandStart:bandEnd]
+			if count == 1 {
+				if celtAbsSumUsesNeon {
+					levelL1[0] = l1AbsSumNeon(band, N)
+				} else {
+					levelL1[0] = absSumSerial(band)
+				}
+			} else {
+				tmp := levels[:N]
+				copy(tmp, band)
+				if firstK == 2 {
+					haar1Norm(tmp, N>>lm, 1<<lm)
+				} else {
+					haar1Norm(tmp, N, 1)
+				}
+				levelL1[0], levelL1[1] = absSumSig2(band, tmp)
+			}
+		} else {
+			// Build every Haar level the metric compares, then measure them
+			// together: each l1_metric is its own serial sum, so the sums of
+			// different levels run as independent chains.
+			level0 := levels[:N]
+			copy(level0, X[bandStart:min(bandEnd, len(X))])
+			if bandEnd > len(X) {
+				clear(level0[max(len(X)-bandStart, 0):])
+			}
+			if firstK == 2 {
+				tmp1 := levels[N : 2*N]
+				copy(tmp1, level0)
+				haar1Norm(tmp1, N>>lm, 1<<lm)
+			}
+			prev := level0
+			for k := range maxK {
+				cur := levels[(firstK+k)*N : (firstK+k+1)*N]
+				copy(cur, prev)
+				haar1Norm(cur, N>>k, 1<<k)
+				prev = cur
+			}
+			absSumLevels(levels, N, count, levelL1[:count])
+		}
 
 		bestL1 := l1MetricFinish(levelL1[0], levelLM[0], bias)
 		bestLevel := 0

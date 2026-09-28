@@ -34,9 +34,15 @@ func TestKfBflyInnerFastMatchesScalar(t *testing.T) {
 		radix      int
 		fast, want bfly
 	}{
-		{"radix3", 3, kfBfly3InnerFast, kfBfly3InnerScalar},
-		{"radix4", 4, kfBfly4InnerFast, kfBfly4InnerScalar},
-		{"radix5", 5, kfBfly5InnerFast, kfBfly5InnerScalar},
+		{"radix3", 3, func(fout, w []kissCpx, m, N, mm, fstride int) {
+			kfBfly3InnerFast(fout, packKissTwiddles3(w, m, fstride), w[fstride*m].i, N, mm)
+		}, kfBfly3InnerScalar},
+		{"radix4", 4, func(fout, w []kissCpx, m, N, mm, fstride int) {
+			kfBfly4InnerFast(fout, packKissTwiddles4(w, m, fstride), N, mm)
+		}, kfBfly4InnerScalar},
+		{"radix5", 5, func(fout, w []kissCpx, m, N, mm, fstride int) {
+			kfBfly5InnerFast(fout, packKissTwiddles5(w, m, fstride), w[fstride*m], w[2*fstride*m], N, mm)
+		}, kfBfly5InnerScalar},
 	}
 	for _, tc := range cases {
 		for iter := 0; iter < 500; iter++ {
@@ -147,11 +153,11 @@ func kissFFTStagesForTest(st *kissFFTState, fout []kissCpx, fast bool) {
 		case 2:
 			kfBfly2(fout, m, N)
 		case 4:
-			kfBfly4(fout, twFstride, st, m, N, m2, fast)
+			kfBfly4(fout, twFstride, st, i, m, N, m2, fast)
 		case 3:
-			kfBfly3(fout, twFstride, st, m, N, m2, fast)
+			kfBfly3(fout, twFstride, st, i, m, N, m2, fast)
 		case 5:
-			kfBfly5(fout, twFstride, st, m, N, m2, fast)
+			kfBfly5(fout, twFstride, st, i, m, N, m2, fast)
 		}
 		m = m2
 	}

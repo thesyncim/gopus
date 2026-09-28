@@ -434,16 +434,14 @@ func (e *Encoder) Tell() int {
 // It is the bit-exact port of libopus ec_tell_frac, including the eight-entry
 // correction table that refines the fractional bit count from the range.
 func (e *Encoder) TellFrac() int {
-	correction := [8]uint32{35733, 38967, 42495, 46340, 50535, 55109, 60097, 65535}
-
 	nbits := int(e.nbitsTotal) << 3
 	l := int(ilog(e.rng))
 	r := e.rng >> (uint(l) - 16)
-	b := int((r >> 12) - 8)
-	if r > correction[b] {
-		b++
-	}
-	return nbits - ((l << 3) + b)
+	// r lies in [2^15, 2^16), so b is 0..7; the mask only drops the bounds
+	// check.
+	b := (r >> 12) - 8
+	b += (tellFracCorrection[b&7] - r) >> 31
+	return nbits - ((l << 3) + int(b))
 }
 
 // Range returns the current range value.
@@ -663,33 +661,31 @@ func (e *Encoder) EncodeUniform(val uint32, ft uint32) {
 	if ft <= 1 {
 		return // Only one possible value, nothing to encode
 	}
-
-	// Calculate number of bits needed
+	// ec_enc_uint: with more than EC_UINT_BITS bits of range the high bits go
+	// through ec_encode and the low ftb bits through ec_enc_bits, both
+	// written out here so the common PVQ index path makes no further calls.
 	ftb := uint(ilog(ft - 1))
 	if ftb > EC_SYM_BITS {
-		// Multi-byte case: encode high bits with range coder, low bits raw
 		ftb -= EC_SYM_BITS
-		ft1 := (ft - 1) >> ftb
-		e.encodeUniformInternal(val>>ftb, ft1+1)
-		// Encode low bits raw
-		e.EncodeRawBits(val&((1<<ftb)-1), ftb)
-	} else {
-		// Single-byte case
-		e.encodeUniformInternal(val, ft)
+		e.encodeUniformInternal(val>>ftb, ((ft-1)>>ftb)+1)
+		if uint(e.nendBits)+ftb > EC_WINDOW_SIZE {
+			e.flushEndWindow()
+		}
+		e.endWindow |= (val & (1<<ftb - 1)) << uint(e.nendBits)
+		e.nendBits += int32(ftb)
+		e.nbitsTotal += int32(ftb)
+		return
 	}
+	e.encodeUniformInternal(val, ft)
 }
 
-// encodeUniformInternal encodes a uniform value when ft <= 256.
-// Uses the same approach as Encode() for uniformly distributed values.
+// encodeUniformInternal is ec_encode(val, val+1, ft) for a uniform symbol.
 func (e *Encoder) encodeUniformInternal(val uint32, ft uint32) {
-	// For uniform distribution, fl=val, fh=val+1
-	// Using the Encode formula adapted for uniform case
 	r := e.rng / ft
 	if val > 0 {
 		e.val += e.rng - r*(ft-val)
 		e.rng = r
 	} else {
-		// val == 0: stay at current position
 		e.rng -= r * (ft - 1)
 	}
 	e.normalize()
@@ -704,20 +700,28 @@ func (e *Encoder) EncodeRawBits(val uint32, bits uint) {
 	if bits == 0 {
 		return
 	}
-	window := e.endWindow
-	used := int(e.nendBits)
-	if used+int(bits) > EC_WINDOW_SIZE {
-		for used >= EC_SYM_BITS {
-			e.writeEndByte(byte(window & EC_SYM_MAX))
-			window >>= EC_SYM_BITS
-			used -= EC_SYM_BITS
-		}
+	if uint(e.nendBits)+bits > EC_WINDOW_SIZE {
+		e.flushEndWindow()
 	}
-	window |= val << used
-	used += int(bits)
-	e.endWindow = window
-	e.nendBits = int32(used)
+	e.endWindow |= val << uint(e.nendBits)
+	e.nendBits += int32(bits)
 	e.nbitsTotal += int32(bits)
+}
+
+// flushEndWindow writes the whole bytes of the raw-bit window to the end of
+// the buffer, the ec_enc_bits refill that makes room for a new value.
+//
+//go:noinline
+func (e *Encoder) flushEndWindow() {
+	window := e.endWindow
+	used := e.nendBits
+	for used >= EC_SYM_BITS {
+		e.writeEndByte(byte(window & EC_SYM_MAX))
+		window >>= EC_SYM_BITS
+		used -= EC_SYM_BITS
+	}
+	e.endWindow = window
+	e.nendBits = used
 }
 
 // writeEndByte writes a byte to the end of the buffer (growing backwards).

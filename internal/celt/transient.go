@@ -650,19 +650,27 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 		var maskL, maskR float32
 		meanL := float32(0)
 		meanR := float32(0)
-		idx := 0
-		_ = pcm[4*len2-1]
-		for i := range len2 {
-			xL0 := float32(pcm[idx])
-			xR0 := float32(pcm[idx+1])
-			xL1 := float32(pcm[idx+2])
-			xR1 := float32(pcm[idx+3])
-			if deferStereoToneDetect {
-				toneBuf[i<<1] = xL0 + xR0
-				toneBuf[(i<<1)+1] = xL1 + xR1
+		energyR = energyR[:len(energy)]
+		src := pcm[:4*len(energy)]
+		var tone []float32
+		if deferStereoToneDetect {
+			tone = toneBuf[:2*len(energy)]
+		}
+		for i := range energy {
+			// src and tone advance by one sample pair per step, so each
+			// iteration checks its bounds once.
+			_ = src[3]
+			xL0 := float32(src[0])
+			xR0 := float32(src[1])
+			xL1 := float32(src[2])
+			xR1 := float32(src[3])
+			src = src[4:]
+			if tone != nil {
+				_ = tone[1]
+				tone[0] = xL0 + xR0
+				tone[1] = xL1 + xR1
+				tone = tone[2:]
 			}
-			idx += 4
-
 			// L and R high-pass filter computations interleaved so the CPU
 			// can overlap their independent chains to hide IIR multiply latency.
 			yL0 := hp0L + xL0
@@ -701,7 +709,7 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 		var maxEL, maxER float32
 		maskL = 0
 		maskR = 0
-		for i := len2 - 1; i >= 0; i-- {
+		for i := len(energy) - 1; i >= 0; i-- {
 			maskL = energy[i] + backwardRetain*maskL
 			maskR = energyR[i] + backwardRetain*maskR
 			eiL := backwardScale * maskL
