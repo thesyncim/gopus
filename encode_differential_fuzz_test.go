@@ -19,24 +19,10 @@
 // FIXED_POINT oracle cannot: gopus_fixed_point keeps a float wrapper, documented
 // in testvectors/opus_encode_fixed_endtoend_parity_test.go.)
 //
-// Divergence classification (per frame):
-//
-//   - TOC mode-class flip: gopus and libopus assemble a different coding mode in
-//     the TOC byte (SILK vs Hybrid vs CELT). This is a deterministic
-//     mode-DECISION difference, not a float LSB, and is a HARD FAIL on every
-//     arch. Surfacing this is the harness's primary goal.
-//
-//   - SILK-path byte mismatch (TOC mode == SILK on both sides): the SILK encoder
-//     is integer (range-coded), so it must be byte-exact same-arch. HARD FAIL.
-//
-//   - CELT/Hybrid payload byte mismatch with matching TOC: the documented
-//     darwin/arm64 ≤1-ULP CELT float-analysis boundary
-//     (project_arm64_celt_1ulp_drift). The float MDCT / band-energy / pitch
-//     analysis that feeds the CELT quantization decisions can differ by 1 ULP
-//     between the arm64 FMA-fused Go math and the arm64 libopus build, flipping a
-//     near-tie quantization/spreading decision. On amd64 (the CI gate) this is a
-//     HARD FAIL (bit-exact required); on arm64 it is logged as the documented
-//     per-arch residual, not failed.
+// Every emitted packet and final-range value must match the selected libopus
+// build, which uses the same optional features and instruction lane as gopus.
+// A mode decision, packet framing, payload byte, emission cadence, or final
+// range difference is a test failure on every architecture.
 //
 // Run the full sweep with:
 //   GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 go test -run TestEncodeDifferentialFuzz .
@@ -359,16 +345,15 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 		stride = len(specs) / budget
 	}
 
-	// Aggregate stats so the verdict on mode-classification is explicit.
+	// Aggregate stats so the failure summary identifies the first affected layer.
 	var (
-		tested             int
-		tocFlips           int
-		silkByteFails      int // amd64-only hard failures
-		silkResiduals      int // arm64 documented float-boundary SILK frames
-		celtResiduals      int // arm64 documented float-boundary CELT/Hybrid frames
-		packetCountMis     int
-		framingDiffs       int // packet-framing (TOC code field) divergence
-		rangeOnlyResiduals int // arm64 byte-equal but final_range differs
+		tested          int
+		tocFlips        int
+		silkByteFails   int
+		celtByteFails   int
+		packetCountMis  int
+		framingDiffs    int
+		rangeMismatches int
 	)
 	packetLoss := 20
 
@@ -461,26 +446,12 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 				}
 
 				if bytes.Equal(g.Packet, o.Packet) {
-					// Byte-identical packet: this is the parity deliverable. The
-					// post-encode final_range is the range coder's internal accumulated
-					// state, which the float CELT analysis can perturb by an amount that
-					// rounds away in the emitted bytes. On short CELT frames (2.5 ms) the
-					// pure-Go float tail leaves identical bytes but a different
-					// final_range; since the bitstream is identical this is a documented
-					// residual, not a divergence. The amd64 asm build's float path
-					// matches the SIMD libopus exactly, so it must match there; both
-					// pure-Go builds (arm64 always, amd64 vs the scalar libopus) carry
-					// the documented range-tail residual.
+					// Packet bytes and range-coder state are both part of the parity
+					// contract, even when a range difference does not change a byte.
 					if g.FinalRange != o.FinalRange {
-						if runtime.GOARCH == "amd64" && !testNoSimdBuild {
-							t.Errorf("%s: packets byte-equal but final_range differs gopus=%08x libopus=%08x (UNEXPECTED on amd64)",
-								label, g.FinalRange, o.FinalRange)
-						} else {
-							rangeOnlyResiduals++
-							t.Logf("%s: packets byte-equal, final_range differs gopus=%08x libopus=%08x — "+
-								"documented pure-Go CELT range-tail residual (bytes match)",
-								label, g.FinalRange, o.FinalRange)
-						}
+						rangeMismatches++
+						t.Errorf("%s: packets byte-equal but final_range differs gopus=%08x libopus=%08x",
+							label, g.FinalRange, o.FinalRange)
 					}
 					continue
 				}
@@ -497,90 +468,32 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 
 				fb := firstByteDiff(g.Packet, o.Packet)
 
-				// Same mode class but a different TOC byte is a packet-FRAMING
-				// divergence (the code 0/1/2/3 field). For frame durations >20 ms the
-				// encoder repacketizes into 2–3 internal <=20 ms Opus frames and picks
-				// code 1 (equal-size CBR) vs code 2 (explicit-size) by whether those
-				// sub-frames came out equal length. When the float boundary (below)
-				// shifts one sub-frame's byte count, that equal-vs-unequal choice flips
-				// — so a framing divergence that rides on a length difference is a
-				// DOWNSTREAM symptom of the same float boundary, not an independent
-				// framing bug, and is logged as a residual on every pure-Go build. The
-				// amd64 asm build's float path matches the SIMD libopus exactly, so a
-				// framing divergence there is real and is a HARD FAIL. (The one
-				// arch-INDEPENDENT framing bug found — SILK NB 10 ms CBR at the 6 kbps
-				// floor — is excluded from the sweep above and documented separately.)
+				// Same mode class but a different TOC byte is a packet-framing
+				// divergence (the code 0/1/2/3 field).
 				if byte0(g.Packet) != byte0(o.Packet) {
-					if runtime.GOARCH == "amd64" && !testNoSimdBuild {
-						framingDiffs++
-						t.Errorf("%s: PACKET FRAMING divergence gopus toc=%02x(len=%d) libopus toc=%02x(len=%d) "+
-							"br=%d vbr=%d — same mode class, different TOC framing (UNEXPECTED on amd64)",
-							label, byte0(g.Packet), len(g.Packet), byte0(o.Packet), len(o.Packet), spec.bitrate, spec.vbr)
-						continue
-					}
 					framingDiffs++
-					t.Logf("%s: framing differs gopus toc=%02x(len=%d) libopus toc=%02x(len=%d) — pure-Go "+
-						"multiframe (>20 ms) repacketization code flip downstream of the float boundary",
+					t.Errorf("%s: packet framing differs gopus toc=%02x(len=%d) libopus toc=%02x(len=%d)",
 						label, byte0(g.Packet), len(g.Packet), byte0(o.Packet), len(o.Packet))
 					continue
 				}
 
-				// Payload byte mismatch with matching TOC mode class. The SILK
-				// encoder core is integer/range-coded and byte-exact given identical
-				// int16 input (proven per-frame by
-				// silk.TestPublicSILKEncodeFrameFixedByteExact and the fixed-point
-				// end-to-end gate); the CELT analysis is float. The only same-arch
-				// variable feeding either is the FLOAT Opus-API wrapper (dc_reject,
-				// the float→int16 conversion, stereo width analysis) plus, for CELT,
-				// the float MDCT/band-energy/pitch analysis. The documented ≤1-ULP
-				// float boundary (project_arm64_celt_1ulp_drift) perturbs those float
-				// ops and flips a near-tie quantization decision; for SILK it shows up
-				// once enough float ops accumulate (frame-0 exact, drift emerging on
-				// later / longer 40–60 ms frames; 20 ms mono stays exact), confirming
-				// an input-perturbation boundary, not a logic bug.
-				//
-				// The strict bit-exact build is the amd64 asm/SIMD build: gopus's SSE
-				// kernels are tuned to match the SIMD libopus the oracle links there.
-				// The pure-Go builds do NOT: arm64 Go's FMA-fused math vs the arm64
-				// libopus build, AND amd64 Go's float backend vs gcc's scalar C (the
-				// build-config-matrix lane links the scalar libopus). The arm64 pure-Go
-				// build happens to stay bit-exact vs scalar libopus here, but amd64
-				// pure-Go flips the same SILK FEC/stereo near-tie decisions, so apply
-				// the documented per-arch boundary to every pure-Go build and keep the
-				// amd64 asm build strict.
-				if runtime.GOARCH == "amd64" && !testNoSimdBuild {
-					if gClass == 0 {
-						silkByteFails++
-						t.Errorf("%s: SILK payload BYTE MISMATCH at byte %d (len g=%d o=%d, range g=%08x o=%08x) "+
-							"br=%d vbr=%d fec=%t dtx=%t — same-arch SILK encode divergence (UNEXPECTED on amd64)",
-							label, fb, len(g.Packet), len(o.Packet), g.FinalRange, o.FinalRange,
-							spec.bitrate, spec.vbr, spec.fec, spec.dtx)
-					} else {
-						t.Errorf("%s: %s payload BYTE MISMATCH at byte %d (len g=%d o=%d, range g=%08x o=%08x) "+
-							"br=%d vbr=%d — float-analysis divergence (UNEXPECTED on amd64; bit-exact required)",
-							label, modeClassName(gClass), fb, len(g.Packet), len(o.Packet),
-							g.FinalRange, o.FinalRange, spec.bitrate, spec.vbr)
-					}
-					continue
-				}
-				// Pure-Go (arm64 + amd64-nosimd): documented ≤1-ULP float-analysis
-				// boundary that flips a near-tie SILK/CELT decision (per-mode counter).
 				if gClass == 0 {
-					silkResiduals++
+					silkByteFails++
 				} else {
-					celtResiduals++
+					celtByteFails++
 				}
-				t.Logf("%s: %s payload differs at byte %d (len g=%d o=%d range g=%08x o=%08x) — documented "+
-					"pure-Go ≤1-ULP float boundary (project_arm64_celt_1ulp_drift), not a same-arch logic bug",
-					label, modeClassName(gClass), fb, len(g.Packet), len(o.Packet), g.FinalRange, o.FinalRange)
+				t.Errorf("%s: %s payload differs at byte %d (len g=%d o=%d range g=%08x o=%08x) "+
+					"br=%d vbr=%d fec=%t dtx=%t",
+					label, modeClassName(gClass), fb, len(g.Packet), len(o.Packet), g.FinalRange, o.FinalRange,
+					spec.bitrate, spec.vbr, spec.fec, spec.dtx)
 			}
 		})
 	}
 	t.Logf("encode differential sweep: %d/%d specs × %d frames; arch=%s; "+
-		"TOC-mode-flips=%d framing-diffs=%d packet-count-mismatch=%d amd64-SILK-byte-fails=%d "+
-		"arm64-SILK-float-residuals=%d arm64-CELT/Hybrid-float-residuals=%d arm64-range-tail-residuals=%d",
+		"TOC-mode-flips=%d framing-diffs=%d packet-count-mismatch=%d SILK-byte-mismatches=%d "+
+		"CELT/Hybrid-byte-mismatches=%d range-mismatches=%d",
 		tested, len(specs), framesPerSpec, runtime.GOARCH,
-		tocFlips, framingDiffs, packetCountMis, silkByteFails, silkResiduals, celtResiduals, rangeOnlyResiduals)
+		tocFlips, framingDiffs, packetCountMis, silkByteFails, celtByteFails, rangeMismatches)
 }
 
 func byte0(b []byte) byte {
