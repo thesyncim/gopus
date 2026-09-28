@@ -8,9 +8,8 @@ import (
 )
 
 // TestSurroundLowSpaceFinalRangeMatchesLibopus keeps a stateful low-budget
-// witness where the trailing stream emits a padded TOC-only packet after a
-// coded frame.
-// opus_encode_native clears rangeFinal for that packet on every call.
+// witness where the trailing stream emits both bare and padded empty packets.
+// opus_encode_native clears rangeFinal for each empty packet.
 func TestSurroundLowSpaceFinalRangeMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	var spec surroundFuzzSpec
@@ -39,6 +38,7 @@ func TestSurroundLowSpaceFinalRangeMatchesLibopus(t *testing.T) {
 	enc.SetVBRConstraint(spec.vbrConstraint)
 	enc.SetComplexity(spec.complexity)
 	enc.SetBandwidthAuto()
+	var sawBare, sawPadded bool
 	for frame := range spec.frameCount {
 		start := frame * spec.frameSize * spec.channels
 		input := pcm[start : start+spec.frameSize*spec.channels]
@@ -51,18 +51,35 @@ func TestSurroundLowSpaceFinalRangeMatchesLibopus(t *testing.T) {
 				firstByteMismatch(got, ref.packets[frame]), len(got), len(ref.packets[frame]),
 				enc.GetFinalRange(), ref.ranges[frame])
 		}
-		if frame == 1 && enc.encoders[4].FinalRange() == 0 {
-			t.Fatal("frame 1 trailing child must establish a nonzero final range")
+		streams, err := parseMultistreamPacket(ref.packets[frame], ref.streams)
+		if err != nil {
+			t.Fatalf("frame %d: parse reference: %v", frame, err)
 		}
-		if frame >= 2 {
-			streams, err := parseMultistreamPacket(got, enc.Streams())
-			if err != nil {
-				t.Fatalf("frame %d: parse: %v", frame, err)
-			}
-			if child := streams[4]; len(child) < 1 || len(child) > 2 || enc.encoders[4].FinalRange() != 0 {
-				t.Fatalf("frame %d low-space child len=%d range=%08x want TOC-only or padded TOC/range 0", frame,
-					len(child), enc.encoders[4].FinalRange())
+		child := streams[4]
+		parsed, err := parseOpusPacket(child, false)
+		if err != nil {
+			t.Fatalf("frame %d: parse trailing reference: %v", frame, err)
+		}
+		empty := true
+		for _, payload := range parsed.frames {
+			if len(payload) != 0 {
+				empty = false
 			}
 		}
+		if empty {
+			if enc.encoders[4].FinalRange() != 0 {
+				t.Fatalf("frame %d empty trailing child range=%08x want 0", frame, enc.encoders[4].FinalRange())
+			}
+			if len(child) == 1 {
+				sawBare = true
+			} else if len(child) == 2 {
+				sawPadded = true
+			}
+		} else if enc.encoders[4].FinalRange() == 0 {
+			t.Fatalf("frame %d coded trailing child has zero final range", frame)
+		}
+	}
+	if !sawBare || !sawPadded {
+		t.Fatalf("selected C trailing stream lacks bare/padded empty packet pair (bare=%t padded=%t)", sawBare, sawPadded)
 	}
 }

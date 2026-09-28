@@ -33,8 +33,24 @@ func TestSurroundLowSpaceThenRealFrameMatchesLibopus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse first reference packet: %v", err)
 	}
-	if got := firstStreams[len(firstStreams)-1]; !bytes.Equal(got, []byte{0x73, 0x01}) {
-		t.Fatalf("first LFE packet=%x want empty code-3 packet", got)
+	firstLFE := firstStreams[len(firstStreams)-1]
+	parsed, err := parseOpusPacket(firstLFE, false)
+	if err != nil {
+		t.Fatalf("parse first LFE packet: %v", err)
+	}
+	if len(parsed.frames) != 1 || len(parsed.frames[0]) != 0 {
+		t.Fatalf("first LFE packet=%x want one empty frame", firstLFE)
+	}
+	secondStreams, err := parseMultistreamPacket(ref.packets[1], ref.streams)
+	if err != nil {
+		t.Fatalf("parse second reference packet: %v", err)
+	}
+	secondLFE, err := parseOpusPacket(secondStreams[len(secondStreams)-1], false)
+	if err != nil {
+		t.Fatalf("parse second LFE packet: %v", err)
+	}
+	if len(secondLFE.frames) == 0 || len(secondLFE.frames[0]) == 0 {
+		t.Fatalf("second LFE packet=%x want coded recovery frame", secondStreams[len(secondStreams)-1])
 	}
 	enc, err := NewEncoderDefault(compositeSampleRate, channels)
 	if err != nil {
