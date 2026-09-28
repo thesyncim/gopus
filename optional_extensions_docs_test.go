@@ -36,10 +36,10 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		ext    gopus.OptionalExtension
 		status string
 	}{
-		{name: "DNN blob loading", ext: gopus.OptionalExtensionDNNBlob, status: "Supported under `gopus_dred` / `gopus_osce`"},
-		{name: "QEXT", ext: gopus.OptionalExtensionQEXT, status: "Supported under `gopus_qext`"},
-		{name: "DRED", ext: gopus.OptionalExtensionDRED, status: "Supported under `gopus_dred` (control + standalone)"},
-		{name: "OSCE BWE", ext: gopus.OptionalExtensionOSCEBWE, status: "Supported under `gopus_osce`"},
+		{name: "DNN blob loading", ext: gopus.OptionalExtensionDNNBlob, status: "Available under `gopus_dred` / `gopus_osce`"},
+		{name: "QEXT", ext: gopus.OptionalExtensionQEXT, status: "Available under `gopus_qext`"},
+		{name: "DRED", ext: gopus.OptionalExtensionDRED, status: "Available under `gopus_dred` (control + standalone)"},
+		{name: "OSCE BWE", ext: gopus.OptionalExtensionOSCEBWE, status: "Available under `gopus_osce`"},
 	} {
 		wantLine := fmt.Sprintf("| %s | %s | `%s` |", tc.name, tc.status, optionalExtensionDocSymbol(tc.ext))
 		if !containsDocText(optionalDoc, wantLine) {
@@ -53,14 +53,15 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"`-tags gopus_osce`; QEXT requires `-tags gopus_qext`; DRED",
 		"control/standalone surfaces require `-tags gopus_dred`; OSCE BWE/LACE/NoLACE",
 		"require `-tags gopus_osce`.",
-		"parity-complete and supported, exactly as libopus exposes them behind the",
-		"corresponding compile flag.",
+		"A build tag enables its API and implementation; it",
+		"does not imply that every feature, architecture, control sequence, and packet",
+		"combination has completed parity validation.",
 		"make test-dnn-blob-parity",
 		"make test-qext-parity",
 		"make test-dred-tag",
 		"make test-extra-controls-parity",
-		"enables the OSCE and deep-PLC family exactly as",
-		"link zero code into the default build",
+		"enables the OSCE and deep-PLC family exposed by",
+		"The tagged implementation is excluded from the default build.",
 	} {
 		if !containsDocText(optionalDoc, needle) {
 			t.Fatalf("README.md missing %q", needle)
@@ -69,7 +70,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	assertOptionalExtensionDocsMatchSupport(t, optionalDoc)
 
 	examples := mustReadDocForTest(t, "examples/README.md")
-	if !strings.Contains(examples, "These examples target the supported default build. QEXT examples require `-tags gopus_qext`; DRED examples require `-tags gopus_dred`; OSCE BWE remains extra-controls parity only.") {
+	if !containsDocText(examples, "Most examples use the default build. Optional APIs require their matching build tag: QEXT uses `-tags gopus_qext`, DRED uses `-tags gopus_dred`, and OSCE uses `-tags gopus_osce`.") {
 		t.Fatal("examples/README.md missing default-build note")
 	}
 }
