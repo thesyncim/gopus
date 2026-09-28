@@ -99,18 +99,30 @@ All seven public OSCE PCM cases pass on local ARM64 in ordinary, SIMD and
 OSCE uses `-O2 -fno-tree-vectorize -fno-tree-slp-vectorize`. The 12-frame BWE
 state oracle matches features, latent state and AF3 dense stages exactly.
 Native AMD64 confirmation of the corrected reference pairing remains pending.
-The full OSCE+DRED+QEXT scalar root suite exposes received-SILK, FEC and
-Hybrid PCM differences outside those focused gates. A LACE raw-feature case
-also differs by one float32 LSB; both findings remain under diagnosis.
+OSCE's inactive-model path applies libopus's native SILK output clamp before
+resampling. The combined OSCE+DRED+QEXT received-frame, FEC and Hybrid
+selectors pass scalar and SIMD locally with this behavior. A LACE raw-feature
+case still differs by one float32 LSB in the selected SIMD lane and remains
+under diagnosis.
 The full public QEXT SIMD package and the 15 corrected scalar QEXT test
 groups pass with paired helpers. The CELT trace helper uses the selected
 feature archive and its matching decoder-state layout. Public oracle
 constructors in `testvectors` select the matching archive and validate its
-feature/ISA stamp. This exposes three fixed-point CBR failures (SILK NB,
-SILK WB and CELT FB) that reproduce with and without QEXT and remain under
-diagnosis. Custom fixed-point standard modes require the integer backend;
-their strict C oracle exposes the float-backend mismatch. Supported custom-mode
-combinations remain under validation.
+feature/ISA stamp. Fixed SILK 10 ms frames use libopus's 14 ms pitch-LPC
+window. The NB/WB direct state/packet/range oracle and public SILK CBR selectors
+pass fixed-only and fixed+QEXT in ordinary, SIMD and nosimd builds. One fixed
+CELT FB 5 ms stereo CBR case still differs at frame 162.
+
+Standard custom fixed-point modes use the integer CELT backend. Packet/range,
+float/int16 PCM, controls, PLC/recovery/reset and zero-allocation checks pass
+scalar and SIMD with and without QEXT. Nonstandard fixed custom modes remain
+under implementation. Float custom QEXT uses 96 kHz preemphasis, the matching
+static transform where selected by C, doubled pitch history for the applicable
+modes, and concealed history for postfilter recovery. The broad selected-C
+custom oracle and stateful/allocation groups pass scalar and SIMD. The
+2048-sample custom QEXT geometry has an explicit [upstream invalid-read
+exception](libopus-custom-qext-boundaries.md); Go's received/loss/recovery
+safety checks pass with zero steady-state allocations.
 Dormant-control comparisons do not establish active combined-feature parity.
 These open checks prevent a complete parity claim. Pinned libopus rejects
 fixed-point with DRED or OSCE in `configure.ac`; requests for those unsupported
