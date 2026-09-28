@@ -3,6 +3,7 @@
 package gopus_test
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"testing"
@@ -55,11 +56,11 @@ func celtFixedFullbandTOC(frameSize48 int, stereo bool) (byte, bool) {
 
 // TestDecoderFixedPointCELTParity validates that, under -tags gopus_fixed_point,
 // the public Decoder.DecodeInt16 and Decoder.DecodeInt24 of CELT-only packets
-// are bit-exact with the libopus FIXED_POINT celt_decode_with_ec sequence
-// decode (one decoder, real cross-frame state). The public int16/int24 paths
-// route CELT-only frames directly to the integer internal/fixedpoint.CELTDecoder
-// output -- no float32 round-trip -- so they reproduce libopus' RES2INT16 /
-// RES2INT24 conversions exactly:
+// are bit-exact with the matching public libopus decode sequence, including
+// the active ENABLE_QEXT feature when that tag is enabled. Both decoders retain
+// state across all packets. The public int16/int24 paths route CELT-only frames
+// through the integer internal/fixedpoint.CELTDecoder output, so they reproduce
+// libopus' RES2INT16 / RES2INT24 conversions exactly:
 //
 //	int16 sample = SAT16(PSHR32(opus_res, 8))   (RES2INT16)
 //	int24 sample = opus_res                       (RES2INT24, ENABLE_RES24)
@@ -101,7 +102,6 @@ func TestDecoderFixedPointCELTParity(t *testing.T) {
 			}
 
 			const frames = 6
-			var celtPayloads [][]byte
 			var opusPackets [][]byte
 			for frame := 0; frame < frames; frame++ {
 				transient := c.transient && frame%2 == 1
@@ -123,21 +123,26 @@ func TestDecoderFixedPointCELTParity(t *testing.T) {
 				// EncodeFrame returns a slice aliasing the encoder's reused range
 				// coder buffer, so copy it before the next frame overwrites it.
 				payloadCopy := append([]byte(nil), payload...)
-				celtPayloads = append(celtPayloads, payloadCopy)
 				pkt := make([]byte, len(payloadCopy)+1)
 				pkt[0] = toc
 				copy(pkt[1:], payloadCopy)
 				opusPackets = append(opusPackets, pkt)
 			}
-			if len(celtPayloads) == 0 {
+			if len(opusPackets) == 0 {
 				t.Fatalf("no packets produced")
 			}
 
-			// libopus FIXED_POINT reference: decode the CELT payloads through one
-			// fixed-point CELT decoder (48 kHz output, fullband).
-			ref, err := libopustest.ProbeCELTFixedDecodeSeq(celtPayloads, channels, c.frameSize48, 0, 21, 48000)
+			// Decode the complete packets through the public libopus decoder selected
+			// for this build. In particular, fixed+QEXT must use the same QEXT archive
+			// as the public Go decoder rather than the fixed-only inner CELT helper.
+			refInt16, err := probeFixedPublicDecodeSequence(48000, channels, c.frameSize48, opusPackets, libopustest.DecodeDiffFormatInt16)
 			if err != nil {
-				libopustest.HelperUnavailable(t, "celt fixed decode seq", err)
+				libopustest.HelperUnavailable(t, "fixed public decode int16", err)
+				return
+			}
+			refInt24, err := probeFixedPublicDecodeSequence(48000, channels, c.frameSize48, opusPackets, libopustest.DecodeDiffFormatInt24)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "fixed public decode int24", err)
 				return
 			}
 
@@ -155,7 +160,10 @@ func TestDecoderFixedPointCELTParity(t *testing.T) {
 				if n != c.frameSize48 {
 					t.Fatalf("packet %d: decoded %d samples, want %d", p, n, c.frameSize48)
 				}
-				want := ref[p]
+				want := refInt16[p].Int16()
+				if got, wantRange := dec.FinalRange(), refInt16[p].FinalRange; got != wantRange {
+					t.Fatalf("packet %d final range: gopus=0x%08x libopus=0x%08x", p, got, wantRange)
+				}
 				for i := 0; i < c.frameSize48*channels; i++ {
 					if out[i] != want[i] {
 						t.Fatalf("packet %d sample %d: gopus=%d libopus=%d", p, i, out[i], want[i])
@@ -180,8 +188,15 @@ func TestDecoderFixedPointCELTParity(t *testing.T) {
 				if n != c.frameSize48 {
 					t.Fatalf("packet %d: DecodeInt24 decoded %d samples, want %d", p, n, c.frameSize48)
 				}
-				want := ref[p]
+				want := refInt16[p].Int16()
+				want24 := refInt24[p].Int24()
+				if got, wantRange := dec24.FinalRange(), refInt24[p].FinalRange; got != wantRange {
+					t.Fatalf("packet %d final range: gopus=0x%08x libopus=0x%08x", p, got, wantRange)
+				}
 				for i := 0; i < c.frameSize48*channels; i++ {
+					if out[i] != want24[i] {
+						t.Fatalf("packet %d sample %d: int24=%d libopus int24=%d", p, i, out[i], want24[i])
+					}
 					got16 := res2int16FromInt24(out[i])
 					if got16 != want[i] {
 						t.Fatalf("packet %d sample %d: RES2INT16(int24)=%d (int24=%d) libopus int16=%d",
@@ -191,6 +206,25 @@ func TestDecoderFixedPointCELTParity(t *testing.T) {
 			}
 		})
 	}
+}
+
+func probeFixedPublicDecodeSequence(sampleRate, channels, frameSize int, packets [][]byte, format uint32) ([]libopustest.DecodeDiffResult, error) {
+	cases := make([]libopustest.DecodeDiffCase, len(packets))
+	for i, packet := range packets {
+		cases[i] = libopustest.DecodeDiffCase{
+			Packet: packet, Format: format, FrameSize: uint32(frameSize),
+		}
+	}
+	results, err := libopustest.ProbeDecodeSequence(sampleRate, channels, cases)
+	if err != nil {
+		return nil, err
+	}
+	for i, result := range results {
+		if result.Code != int32(frameSize) {
+			return nil, fmt.Errorf("packet %d: libopus decoded %d samples, want %d", i, result.Code, frameSize)
+		}
+	}
+	return results, nil
 }
 
 // res2int16FromInt24 mirrors libopus RES2INT16(a) = SAT16(PSHR32(a, 8)) for the

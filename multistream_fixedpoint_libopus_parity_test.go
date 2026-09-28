@@ -12,16 +12,16 @@ var multistreamFixedRefdecodeHelper libopustest.HelperCache
 
 // runLibopusMultistreamFixedDecode drives the libopus multistream public API
 // (opus_multistream_decode / opus_multistream_decode24) built against the
-// FIXED_POINT reference tree (--enable-fixed-point, ENABLE_RES24), so the
-// int16/int24 output is the FIXED_POINT result rather than the float build.
+// fixed-point reference selected by the current Go build, including ENABLE_QEXT.
 func runLibopusMultistreamFixedDecode(sampleRate, channels, streams, coupled, frameSize, sampleFormat int, mapping []byte, packets [][]byte) (*libopustest.OracleReader, error) {
-	binPath, err := multistreamFixedRefdecodeHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:      "multistream fixed reference decode",
-		OutputBase: "gopus_libopus_refdecode_multistream_fixed",
-		SourceFile: "libopus_refdecode_multistream.c",
-		FixedRef:   true,
-		CFlags:     []string{"-O3", "-DNDEBUG"},
-		Libs:       []string{libopustest.FixedRefPath(".libs", "libopus.a"), "-lm"},
+	binPath, err := multistreamFixedRefdecodeHelper.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:      "multistream fixed reference decode",
+			OutputBase: "gopus_libopus_refdecode_multistream_fixed",
+			SourceFile: "libopus_refdecode_multistream.c",
+			CFlags:     []string{"-O3", "-DNDEBUG"},
+			DeadStrip:  true,
+		})
 	})
 	if err != nil {
 		return nil, err
