@@ -89,7 +89,7 @@ func projectionPacketsHaveMixedStreamModes(packets [][]byte, streams int) bool {
 				continue
 			}
 			config := int(streamPacket[0] >> 3)
-			mode := uint8(1)
+			var mode uint8
 			if config < 12 {
 				mode = 1 // SILK
 			} else if config < 16 {
