@@ -133,8 +133,7 @@ func encodeFixedDecodeGainCELTSequence(t *testing.T, channels, frameSize, frames
 // FIXED_POINT opus_decode / opus_decode24 reference, for the integer CELT path.
 // The gain stage (celt_exp2(MULT16_16_P15(...)) -> MULT32_32_Q16 -> SATURATE) is
 // applied to the integer-exact opus_res accumulation rather than dropping to the
-// lossy float conversion. Bit-exact on amd64; subject to the documented per-arch
-// 1-ULP CELT drift budget on arm64.
+// float conversion. The selected fixed reference must match on every architecture.
 func TestDecoderFixedPointDecodeGainParity(t *testing.T) {
 	libopustest.RequireOracle(t)
 

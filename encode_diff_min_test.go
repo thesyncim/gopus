@@ -11,14 +11,13 @@ import (
 // TestEncodeDiffSILKCBRFloorFinding pins byte-exactness vs the same-arch libopus
 // oracle at the SILK NB 10 ms CBR 6 kbps rate floor (and adjacent corners).
 //
-// It drives a deterministic low-level constant tone (so the result does not
-// depend on any float-analysis near-tie — this isolates a genuine same-arch
-// rate-control/framing path from the documented arm64 ≤1-ULP float boundary).
+// A deterministic low-level tone exercises the rate-control and framing paths
+// at the minimum supported CBR budget.
 //
 // At the 6 kbps floor the SILK rate-control loop can bust its maxBits target on
 // a voiced frame; libopus then signals PLC (a single zero payload byte) and
 // CBR-pads the packet to a code-3 frame (opus_encoder.c lines 2580-2599). gopus
-// now mirrors that busted-target path, so every frame is byte-exact across the
+// follows that budget-exhaustion path; the exact gate covers the
 // floor and the adjacent 8/12/16 kbps NB 10 ms, 6/8 kbps NB 20 ms, and 12 kbps
 // WB 10 ms configs.
 func TestEncodeDiffSILKCBRFloorFinding(t *testing.T) {

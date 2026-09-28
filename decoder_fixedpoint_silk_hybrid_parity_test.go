@@ -146,8 +146,7 @@ func encodeFixedSILKSequence(t *testing.T, channels, frameSize, frames int, bw B
 // opus_decode24 reference. gopus' silk.Decoder is inherently integer (int16
 // native samples + the int16 silk_resampler), and the int16/int24 output of a
 // SILK-only frame round-trips through float32 without loss, so the existing
-// public path is already FIXED_POINT-exact (subject to the documented per-arch
-// 1-ULP budget).
+// public path is checked against the selected FIXED_POINT reference.
 func TestDecoderFixedPointSILKParity(t *testing.T) {
 	libopustest.RequireOracle(t)
 

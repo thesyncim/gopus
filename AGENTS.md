@@ -19,8 +19,8 @@ uses…", "removed…"); describe what the code does today.
   evidence, not a shortcut.
 - Parity is proven on two tiers (see README "Parity & testing"): bit-exact kernel
   oracles plus differential fuzzing of every public decode entry point, and
-  `opus_compare` quality on real audio. SILK decode is bit-exact; CELT/Hybrid sit
-  in the near-exact envelope.
+  `opus_compare` quality on real audio. Exact packet, range, and sample gates
+  use matching C build configurations; quality scores complement those gates.
 
 ## Paired scalar and SIMD references
 
