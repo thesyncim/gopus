@@ -36,9 +36,8 @@ var (
 	antiCollapseFixtureErr  error
 )
 
-// TestAntiCollapseVsLibopus compares anti-collapse behavior against libopus.
-// This test generates audio, encodes with libopus (which may trigger anti-collapse),
-// and decodes with both libopus and gopus to compare outputs.
+// TestAntiCollapseVsLibopus decodes pinned CELT packets and compares public PCM
+// with the libopus reference selected for the active feature and instruction lane.
 func TestAntiCollapseVsLibopus(t *testing.T) {
 	if _, err := loadAntiCollapseFixture(); err != nil {
 		t.Fatalf("anti-collapse fixture unavailable: %v", err)
@@ -154,6 +153,8 @@ func compareAntiCollapseOutput(t *testing.T, name string, signalGen func(int) []
 			t.Fatalf("non-CELT packet detected in fixture/reference for %s (toc=0x%02x)", name, pkt[0])
 		}
 	}
+	fixtureDecoded := libopusDecoded
+	libopusDecoded, exactReference := selectedAntiCollapseReferencePCM(t, fixtureDecoded, opusPackets, frameSize, preSkip)
 
 	// Decode with gopus
 	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
@@ -163,14 +164,10 @@ func compareAntiCollapseOutput(t *testing.T, name string, signalGen func(int) []
 	var gopusDecoded []float32
 	pcmBuf := make([]float32, 5760) // 60ms @ 48kHz, mono
 
-	for _, pkt := range opusPackets {
-		if len(pkt) == 0 {
-			continue
-		}
+	for i, pkt := range opusPackets {
 		n, err := dec.Decode(pkt, pcmBuf)
 		if err != nil {
-			t.Logf("Warning: decode error on packet: %v", err)
-			continue
+			t.Fatalf("decode fixture packet %d: %v", i, err)
 		}
 		gopusDecoded = append(gopusDecoded, pcmBuf[:n]...)
 	}
@@ -186,31 +183,50 @@ func compareAntiCollapseOutput(t *testing.T, name string, signalGen func(int) []
 	}
 
 	// Compare outputs
-	minLen := min(len(gopusDecoded), len(libopusDecoded))
+	if len(gopusDecoded) < len(libopusDecoded) {
+		t.Fatalf("decoded %d gopus samples, selected libopus reference has %d", len(gopusDecoded), len(libopusDecoded))
+	}
+	minLen := len(libopusDecoded)
 
 	if minLen == 0 {
 		t.Fatal("No samples to compare")
 	}
 
-	// Compute metrics
+	if exactReference {
+		for i := range libopusDecoded {
+			if math.Float32bits(gopusDecoded[i]) != math.Float32bits(libopusDecoded[i]) {
+				t.Fatalf("selected libopus PCM[%d]: gopus=%08x C=%08x", i,
+					math.Float32bits(gopusDecoded[i]), math.Float32bits(libopusDecoded[i]))
+			}
+		}
+	}
+	assertAntiCollapseQuality(t, gopusDecoded[:minLen], libopusDecoded, "selected libopus")
+	if exactReference && antiCollapseCheckFixtureQuality {
+		assertAntiCollapseQuality(t, gopusDecoded[:minLen], fixtureDecoded, "frozen libopus fixture")
+	}
+}
+
+func assertAntiCollapseQuality(t *testing.T, got, want []float32, label string) {
+	t.Helper()
+	// Compute metrics using the fixture's original acceptance criteria.
 	maxDiff := float64(0)
 	sumSquaredErr := float64(0)
 	sumSignal := float64(0)
 
-	for i := range minLen {
-		diff := math.Abs(float64(gopusDecoded[i] - libopusDecoded[i]))
+	for i := range want {
+		diff := math.Abs(float64(got[i] - want[i]))
 		if diff > maxDiff {
 			maxDiff = diff
 		}
 		sumSquaredErr += diff * diff
-		sumSignal += float64(libopusDecoded[i]) * float64(libopusDecoded[i])
+		sumSignal += float64(want[i]) * float64(want[i])
 	}
 
-	mse := sumSquaredErr / float64(minLen)
+	mse := sumSquaredErr / float64(len(want))
 	snr := 10 * math.Log10(sumSignal/sumSquaredErr)
 
-	t.Logf("Comparison results:")
-	t.Logf("  Samples compared: %d", minLen)
+	t.Logf("Comparison against %s:", label)
+	t.Logf("  Samples compared: %d", len(want))
 	t.Logf("  Max abs diff: %.6f", maxDiff)
 	t.Logf("  MSE: %.9f", mse)
 	t.Logf("  SNR: %.2f dB", snr)

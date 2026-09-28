@@ -1,7 +1,10 @@
 #include <stdint.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define CELT_DECODER_C
 
 #ifdef _WIN32
 #include <fcntl.h>
@@ -20,8 +23,47 @@
 #define PLC_LPC_ORDER 24
 #define PLC_DECODE_BUFFER_SIZE 2048
 #define PLC_MAX_PERIOD 1024
-#define PLC_PITCH_LAG_MAX 720
-#define PLC_PITCH_LAG_MIN 100
+
+/* Mode 6 invokes the pinned decoder's actual loss path. Capture the decay
+ * operands at the source MIN32 and its immediately following celt_sqrt call,
+ * so the stage oracle reports values from the same frame/channel execution. */
+static int g_capture_periodic_energy;
+static int g_periodic_energy_count;
+static int g_periodic_decay_pending;
+static opus_val32 g_periodic_energy1[2];
+static opus_val32 g_periodic_energy2[2];
+static opus_val16 g_periodic_decay[2];
+
+static opus_val32 gopus_capture_min32(opus_val32 a, opus_val32 b) {
+  opus_val32 result = a < b ? a : b;
+  if (g_capture_periodic_energy && g_periodic_energy_count < 2) {
+    int channel = g_periodic_energy_count++;
+    g_periodic_energy1[channel] = result;
+    g_periodic_energy2[channel] = b;
+    g_periodic_decay_pending = 1;
+  }
+  return result;
+}
+
+static opus_val16 gopus_capture_celt_sqrt(opus_val32 value) {
+  opus_val16 result = (opus_val16)sqrt(value);
+  if (g_capture_periodic_energy && g_periodic_decay_pending) {
+    g_periodic_decay[g_periodic_energy_count - 1] = result;
+    g_periodic_decay_pending = 0;
+  }
+  return result;
+}
+
+/* Compile the pinned decoder source with the selected reference configuration.
+ * Standalone PLC loops can produce different reduction codegen, so retain the
+ * complete celt_decode_lost() context. Linked leaves come from that archive. */
+#undef MIN32
+#define MIN32(a, b) gopus_capture_min32((a), (b))
+#undef celt_sqrt
+#define celt_sqrt(x) gopus_capture_celt_sqrt((x))
+#include "celt/celt_decoder.c"
+#undef MIN32
+#undef celt_sqrt
 
 enum {
   MODE_LPC = 0,
@@ -393,239 +435,100 @@ static int run_remove_doubling(void) {
 }
 
 static int run_periodic_conceal(void) {
-  int arch = opus_select_arch();
   uint32_t channels = 0;
   uint32_t frame_size = 0;
   uint32_t overlap = 0;
   uint32_t continue_periodic = 0;
   uint32_t last_pitch_period = 0;
-  celt_coef *window = NULL;
-  celt_sig *decode_mem = NULL;
-  celt_sig *generated = NULL;
-  opus_val16 *lp_pitch_buf = NULL;
-  opus_val32 energy1[2] = {0, 0};
-  opus_val32 energy2[2] = {0, 0};
-  opus_val16 decay_value[2] = {0, 0};
-  int pitch_index = 0;
+  float *window = NULL;
+  CELTDecoder *st = NULL;
+  int decode_buffer_size = 0;
   int count = 0;
+  int lm = 0;
   uint32_t c;
 
   if (!read_u32(&channels) || !read_u32(&frame_size) || !read_u32(&overlap) ||
       !read_u32(&continue_periodic) || !read_u32(&last_pitch_period)) {
     return 0;
   }
-  if (channels == 0 || channels > 2 || frame_size == 0 || frame_size > PLC_DECODE_BUFFER_SIZE - PLC_MAX_PERIOD ||
+  if (channels == 0 || channels > 2 || frame_size < 120 || frame_size > 960 ||
       overlap == 0 || overlap > 960 || continue_periodic > 1) {
     return 0;
   }
+  if (frame_size % 120 != 0 || ((frame_size / 120) & ((frame_size / 120) - 1)) != 0) return 0;
+  for (count = 1; count < (int)(frame_size / 120); count <<= 1) lm++;
   count = (int)(frame_size + overlap);
-  if (count > PLC_DECODE_BUFFER_SIZE) return 0;
 
   window = (celt_coef *)malloc((size_t)overlap * sizeof(*window));
-  decode_mem = (celt_sig *)calloc((size_t)channels * (PLC_DECODE_BUFFER_SIZE + overlap), sizeof(*decode_mem));
-  generated = (celt_sig *)malloc((size_t)channels * (size_t)count * sizeof(*generated));
-  lp_pitch_buf = (opus_val16 *)malloc((PLC_DECODE_BUFFER_SIZE >> 1) * sizeof(*lp_pitch_buf));
-  if (window == NULL || decode_mem == NULL || generated == NULL || lp_pitch_buf == NULL) {
-    free(window);
-    free(decode_mem);
-    free(generated);
-    free(lp_pitch_buf);
-    return 0;
-  }
+  if (window == NULL) return 0;
   if (!read_float_array((float *)window, overlap)) {
     free(window);
-    free(decode_mem);
-    free(generated);
-    free(lp_pitch_buf);
     return 0;
   }
+  st = (CELTDecoder *)calloc(1, (size_t)celt_decoder_get_size((int)channels));
+  if (st == NULL || celt_decoder_init(st, 48000, (int)channels) != OPUS_OK) goto done;
+  if (overlap != (uint32_t)st->overlap || memcmp(window, st->mode->window, overlap * sizeof(*window)) != 0) goto done;
+
+  /* This mode consumes the 48 kHz synthetic history (QEXT scale 1). */
+  decode_buffer_size = PLC_DECODE_BUFFER_SIZE;
   for (c = 0; c < channels; c++) {
-    celt_sig *hist = decode_mem + c * (PLC_DECODE_BUFFER_SIZE + overlap);
-    if (!read_float_array((float *)hist, PLC_DECODE_BUFFER_SIZE)) {
-      free(window);
-      free(decode_mem);
-      free(generated);
-      free(lp_pitch_buf);
-      return 0;
-    }
+    celt_sig *hist = st->_decode_mem + c * (decode_buffer_size + st->overlap);
+    if (!read_float_array((float *)hist, PLC_DECODE_BUFFER_SIZE)) goto done;
   }
 
-  if (continue_periodic && last_pitch_period >= 15 && last_pitch_period <= PLC_MAX_PERIOD) {
-    pitch_index = (int)last_pitch_period;
-  } else {
-    celt_sig *planes[2] = {NULL, NULL};
-    planes[0] = decode_mem;
-    if (channels == 2) planes[1] = decode_mem + PLC_DECODE_BUFFER_SIZE + overlap;
-    pitch_downsample(planes, lp_pitch_buf, PLC_DECODE_BUFFER_SIZE >> 1, (int)channels, 2, arch);
-    pitch_search(lp_pitch_buf + (PLC_PITCH_LAG_MAX >> 1), lp_pitch_buf,
-                 PLC_DECODE_BUFFER_SIZE - PLC_PITCH_LAG_MAX,
-                 PLC_PITCH_LAG_MAX - PLC_PITCH_LAG_MIN, &pitch_index, arch);
-    pitch_index = PLC_PITCH_LAG_MAX - pitch_index;
-  }
-  if (pitch_index < 15 || pitch_index > PLC_MAX_PERIOD) {
-    free(window);
-    free(decode_mem);
-    free(generated);
-    free(lp_pitch_buf);
-    return 0;
+  st->plc_duration = 0;
+  st->loss_duration = 0;
+  st->skip_plc = 0;
+  st->start = 0;
+  st->last_frame_type = continue_periodic ? FRAME_PLC_PERIODIC : FRAME_NORMAL;
+  if (continue_periodic) {
+    opus_val16 *lpc;
+    celt_glog *old_band_e;
+    celt_glog *old_log_e;
+    celt_glog *old_log_e2;
+    celt_glog *background_log_e;
+    if (last_pitch_period < 15 || last_pitch_period > PLC_MAX_PERIOD) goto done;
+    st->last_pitch_index = (int)last_pitch_period;
+    old_band_e = (celt_glog *)(st->_decode_mem +
+        (decode_buffer_size + st->overlap) * channels);
+    old_log_e = old_band_e + 2 * st->mode->nbEBands;
+    old_log_e2 = old_log_e + 2 * st->mode->nbEBands;
+    background_log_e = old_log_e2 + 2 * st->mode->nbEBands;
+    lpc = (opus_val16 *)(background_log_e + 2 * st->mode->nbEBands);
+    if (!read_float_array((float *)lpc, channels * PLC_LPC_ORDER)) goto done;
   }
 
+  g_periodic_energy_count = 0;
+  g_periodic_decay_pending = 0;
+  g_capture_periodic_energy = 1;
+#ifdef ENABLE_DEEP_PLC
+  celt_decode_lost(st, (int)frame_size, lm, NULL);
+#else
+  celt_decode_lost(st, (int)frame_size, lm);
+#endif
+  g_capture_periodic_energy = 0;
+  if (g_periodic_energy_count != (int)channels || g_periodic_decay_pending) goto done;
+
+  if (!write_u32((uint32_t)st->last_pitch_index) || !write_u32((uint32_t)count)) goto done;
   for (c = 0; c < channels; c++) {
-    celt_sig *buf = decode_mem + c * (PLC_DECODE_BUFFER_SIZE + overlap);
-    opus_val16 lpc[PLC_LPC_ORDER];
-    opus_val16 *exc = NULL;
-    opus_val16 *fir_tmp = NULL;
-    opus_val16 decay;
-    opus_val16 attenuation;
-    opus_val16 fade = continue_periodic ? QCONST16(.8f, 15) : Q15ONE;
-    opus_val32 S1 = 0;
-    int exc_length = 2 * pitch_index < PLC_MAX_PERIOD ? 2 * pitch_index : PLC_MAX_PERIOD;
-    int extrapolation_offset = PLC_MAX_PERIOD - pitch_index;
-    int i;
-    int j;
-
-    exc = (opus_val16 *)malloc((PLC_MAX_PERIOD + PLC_LPC_ORDER) * sizeof(*exc));
-    fir_tmp = (opus_val16 *)malloc((size_t)exc_length * sizeof(*fir_tmp));
-    if (exc == NULL || fir_tmp == NULL) {
-      free(exc);
-      free(fir_tmp);
-      free(window);
-      free(decode_mem);
-      free(generated);
-      free(lp_pitch_buf);
-      return 0;
-    }
-    for (i = 0; i < PLC_MAX_PERIOD + PLC_LPC_ORDER; i++) {
-      exc[i] = SROUND16(buf[PLC_DECODE_BUFFER_SIZE - PLC_MAX_PERIOD - PLC_LPC_ORDER + i], SIG_SHIFT);
-    }
-
-    if (!continue_periodic) {
-      opus_val32 ac[PLC_LPC_ORDER + 1];
-      _celt_autocorr(exc + PLC_LPC_ORDER, ac, window, (int)overlap,
-                      PLC_LPC_ORDER, PLC_MAX_PERIOD, arch);
-      ac[0] *= 1.0001f;
-      for (i = 1; i <= PLC_LPC_ORDER; i++) {
-        ac[i] -= ac[i] * (0.008f * 0.008f) * i * i;
-      }
-      _celt_lpc(lpc, ac, PLC_LPC_ORDER);
-    } else {
-      if (!read_float_array((float *)lpc, PLC_LPC_ORDER)) {
-        free(exc);
-        free(fir_tmp);
-        free(window);
-        free(decode_mem);
-        free(generated);
-        free(lp_pitch_buf);
-        return 0;
-      }
-    }
-
-    celt_fir(exc + PLC_LPC_ORDER + PLC_MAX_PERIOD - exc_length, lpc,
-             fir_tmp, exc_length, PLC_LPC_ORDER, arch);
-    OPUS_COPY(exc + PLC_LPC_ORDER + PLC_MAX_PERIOD - exc_length, fir_tmp, exc_length);
-
-    {
-      opus_val32 E1 = 1, E2 = 1;
-      int decay_length = exc_length >> 1;
-      for (i = 0; i < decay_length; i++) {
-        opus_val16 e;
-        e = exc[PLC_LPC_ORDER + PLC_MAX_PERIOD - decay_length + i];
-        E1 += MULT16_16(e, e);
-        e = exc[PLC_LPC_ORDER + PLC_MAX_PERIOD - 2 * decay_length + i];
-        E2 += MULT16_16(e, e);
-      }
-      if (E1 > E2) E1 = E2;
-      decay = celt_sqrt(frac_div32(SHR32(E1, 1), E2));
-      energy1[c] = E1;
-      energy2[c] = E2;
-      decay_value[c] = decay;
-    }
-
-    OPUS_MOVE(buf, buf + frame_size, PLC_DECODE_BUFFER_SIZE - frame_size);
-    attenuation = MULT16_16_Q15(fade, decay);
-    for (i = 0, j = 0; i < count; i++, j++) {
-      opus_val16 tmp;
-      if (j >= pitch_index) {
-        j -= pitch_index;
-        attenuation = MULT16_16_Q15(attenuation, decay);
-      }
-      buf[PLC_DECODE_BUFFER_SIZE - frame_size + i] =
-          SHL32(EXTEND32(MULT16_16_Q15(attenuation, exc[PLC_LPC_ORDER + extrapolation_offset + j])), SIG_SHIFT);
-      tmp = SROUND16(buf[PLC_DECODE_BUFFER_SIZE - PLC_MAX_PERIOD - frame_size + extrapolation_offset + j], SIG_SHIFT);
-      S1 += MULT16_16(tmp, tmp);
-    }
-
-    {
-      opus_val16 lpc_mem[PLC_LPC_ORDER];
-      for (i = 0; i < PLC_LPC_ORDER; i++) {
-        lpc_mem[i] = SROUND16(buf[PLC_DECODE_BUFFER_SIZE - frame_size - 1 - i], SIG_SHIFT);
-      }
-      celt_iir(buf + PLC_DECODE_BUFFER_SIZE - frame_size, lpc,
-               buf + PLC_DECODE_BUFFER_SIZE - frame_size, count, PLC_LPC_ORDER,
-               lpc_mem, arch);
-    }
-
-    {
-      opus_val32 S2 = 0;
-      for (i = 0; i < count; i++) {
-        opus_val16 tmp = SROUND16(buf[PLC_DECODE_BUFFER_SIZE - frame_size + i], SIG_SHIFT);
-        S2 += MULT16_16(tmp, tmp);
-      }
-      if (!(S1 > 0.2f * S2)) {
-        for (i = 0; i < count; i++) {
-          buf[PLC_DECODE_BUFFER_SIZE - frame_size + i] = 0;
-        }
-      } else if (S1 < S2) {
-        opus_val16 ratio = celt_sqrt(frac_div32(SHR32(S1, 1) + 1, S2 + 1));
-        for (i = 0; i < (int)overlap; i++) {
-          opus_val16 tmp_g = Q15ONE - MULT16_16_Q15(COEF2VAL16(window[i]), Q15ONE - ratio);
-          buf[PLC_DECODE_BUFFER_SIZE - frame_size + i] =
-              MULT16_32_Q15(tmp_g, buf[PLC_DECODE_BUFFER_SIZE - frame_size + i]);
-        }
-        for (i = (int)overlap; i < count; i++) {
-          buf[PLC_DECODE_BUFFER_SIZE - frame_size + i] =
-              MULT16_32_Q15(ratio, buf[PLC_DECODE_BUFFER_SIZE - frame_size + i]);
-        }
-      }
-    }
-
-    for (i = 0; i < count; i++) {
-      generated[c * count + i] = buf[PLC_DECODE_BUFFER_SIZE - frame_size + i];
-    }
-    free(exc);
-    free(fir_tmp);
-  }
-
-  if (!write_u32((uint32_t)pitch_index) || !write_u32((uint32_t)count)) {
-    free(window);
-    free(decode_mem);
-    free(generated);
-    free(lp_pitch_buf);
-    return 0;
+    celt_sig *hist = st->_decode_mem + c * (decode_buffer_size + st->overlap);
+    if (!write_float_array((const float *)(hist + decode_buffer_size - frame_size), (uint32_t)count)) goto done;
   }
   for (c = 0; c < channels; c++) {
-    if (!write_float_array((const float *)(generated + c * count), (uint32_t)count)) {
-      free(window);
-      free(decode_mem);
-      free(generated);
-      free(lp_pitch_buf);
-      return 0;
-    }
+    if (!write_float((float)g_periodic_energy1[c]) ||
+        !write_float((float)g_periodic_energy2[c]) ||
+        !write_float((float)g_periodic_decay[c])) goto done;
   }
-  for (c = 0; c < channels; c++) {
-    if (!write_float((float)energy1[c]) || !write_float((float)energy2[c]) || !write_float((float)decay_value[c])) {
-      free(window);
-      free(decode_mem);
-      free(generated);
-      free(lp_pitch_buf);
-      return 0;
-    }
-  }
+
+  free(st);
   free(window);
-  free(decode_mem);
-  free(generated);
-  free(lp_pitch_buf);
   return 1;
+
+done:
+  g_capture_periodic_energy = 0;
+  free(st);
+  free(window);
+  return 0;
 }
 
 int main(void) {

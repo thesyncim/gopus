@@ -70,20 +70,27 @@ The PLC decay E1/E2 loops use scalar source-order accumulation; the S2 energy
 check retains its separate selected reduction. ARM SIMD autocorrelation tails
 preserve the selected C multiply/add rounding boundaries.
 
-Native AMD64 early artifact `10955464289` from run 36388744337 at
-`b08e7923` reports zero failing candidate phases across all 29 exit records.
+Native AMD64 early artifact `10957259097` from run 36392981049 at
+`8aec7796` reports zero failing candidate phases across all 29 exit records.
 Both native-96 trace arithmetic and FOA encode-cycle allocation gates pass in
 scalar and SIMD. Extension scratch reserves the per-stream packet envelope;
 the framing regression checks the first larger extension after a short warmup
 with exact bytes and zero allocations.
 
 The ARM64 PLC reductions are selected by both ISA and ENABLE_QEXT build
-configuration. Default SIMD full CELT, public transition/projection selectors,
-and their QEXT counterparts pass locally with this feature scope. The macOS
-job enforces these paths with matched C archives in its existing job. Final
-validation of the complete PR head remains required before a full-matrix claim.
-Pinned libopus rejects fixed-point+DRED in `configure.ac`; requests for that
-unsupported C reference fail explicitly instead of selecting a subset archive.
+configuration. The full CELT package passes locally in six matched configurations:
+default, QEXT, and DRED+QEXT, each scalar and SIMD. The synthetic periodic PLC
+oracle seeds the pinned `celt_decode_lost` source path; stage assertions compare
+its decay E1/E2 values with the production `periodicPLCDecayEnergy` helper.
+The 800-cell PVQ grid uses matching feature headers and archives. Anti-collapse
+feature tests decode the original packets through a matching live C reference
+and require identical PCM bits; fixture quality floors remain unchanged.
+Existing AMD64 and macOS CI jobs include these focused oracle gates.
+
+Final native validation of these oracle changes remains required. DRED without
+QEXT also needs a dedicated matching C reference before a complete feature-matrix
+claim. Pinned libopus rejects fixed-point+DRED in `configure.ac`; requests for
+that unsupported C reference fail explicitly instead of selecting a subset archive.
 
 ### QEXT PVQ refinement byte parity
 
@@ -94,9 +101,8 @@ The N=4, K=112, up=1023 selected-C regression checks pulse/refinement values,
 main/extension bytes and output coefficients. Both scalar and SIMD ARM64
 pass the strict 96-frame 5.1, FOA and high-rate 5.1 sequences with exact
 packet bytes/ranges and zero warm allocations. This closes the ARM64
-frame-10 QEXT payload witness. Native AMD64 still requires validation of this
-checkpoint; its preceding capture reports one FOA cycle allocation.
-Native-96 coverage and the remaining feature-paired failures are scoped above.
+frame-10 QEXT payload witness. The native AMD64 scalar/SIMD phases at `8aec7796` pass the corresponding
+packet and allocation gates. Native-96 coverage is scoped above.
 
 ### Combined-extension allocation guards
 
@@ -109,7 +115,7 @@ On ARM64, baseline 5.1, FOA, high-rate 5.1 and high-rate 7.1 each match all
 96 selected-C packet bytes/ranges in scalar and SIMD. Every one-frame and
 warmed-cycle allocation check reports zero. The range-coder reservation test
 verifies existing snapshot bytes, length and scalar fields survive reservation.
-Native AMD64 validation of the snapshot-capacity checkpoint remains pending.
+Native AMD64 scalar/SIMD phases at `8aec7796` pass these allocation gates.
 
 ### QEXT float band-energy reduction
 
@@ -1601,35 +1607,32 @@ gates pass; the full artifact at this revision supplies direct timings in rows
 | VoIP encode | 76,544 (76,476–76,765) | 56,245 (56,138–56,361) | 94,358 (93,997–100,544) |
 | Low-delay encode | 71,871.5 (71,016–73,470) | 51,228.5 (51,154–51,392) | 89,314 (89,146–89,440) |
 
-### Latest early end-to-end capture at 0d10beb6 (AMD EPYC 7763)
+### Latest early end-to-end capture at 8aec7796 (AMD EPYC 7763)
 
-Early artifact `10938258969` for [run 36339608359](https://github.com/thesyncim/gopus/actions/runs/36339608359)
-compares assembly `8ac93c85` with SIMD/nosimd `0d10beb6` on AMD EPYC 7763,
+Early artifact `10957259097` for [run 36392981049](https://github.com/thesyncim/gopus/actions/runs/36392981049)
+compares assembly `8ac93c85` with SIMD/nosimd `8aec7796` on AMD EPYC 7763,
 Go 1.27.1, GCC 13.3.0, GOAMD64=v1. Four interleaved 500 ms samples use
 `-cpu=1`; all 72 E2E samples report 0 B/op and 0 allocs/op. Values are
-median (min–max) ns/op. The early correctness gate is failing combined-extension
-allocation checks; these benchmark results do not establish complete parity.
+median (min–max) ns/op. All 29 candidate correctness/profile phases pass.
 
 | Workload | Old assembly | Go SIMD | `nosimd` |
 |---|---:|---:|---:|
-| CELT decode | 20,277.5 (20,209–20,319) | 14,710 (14,678–14,836) | 22,390.5 (22,325–22,434) |
-| Hybrid decode | 28,387 (28,340–28,564) | 24,368.5 (24,327–24,587) | 34,879 (34,810–34,963) |
-| SILK decode | 22,414.5 (22,373–22,558) | 16,946.5 (16,909–17,012) | 22,469.5 (22,423–22,685) |
-| Caller-buffer encode | 92,290.5 (91,615–92,335) | 66,548 (66,271–67,296) | 111,311 (111,129–111,871) |
-| VoIP encode | 98,085.5 (97,931–98,428) | 72,697.5 (71,979–73,091) | 118,129.5 (117,529–118,255) |
-| Low-delay encode | 91,148 (90,773–91,436) | 66,141 (66,101–66,289) | 111,061.5 (110,282–111,379) |
+| CELT decode | 20,227 (20,178–20,235) | 13,314.5 (13,289–13,347) | 16,704.5 (16,681–16,761) |
+| Hybrid decode | 28,381 (28,323–28,394) | 24,033.5 (23,985–24,057) | 30,637.5 (30,553–30,652) |
+| SILK decode | 22,463.5 (22,410–22,681) | 16,430 (16,408–16,459) | 21,057 (20,999–21,101) |
+| Caller-buffer encode | 91,908 (91,657–92,161) | 64,655 (64,458–64,797) | 101,076 (100,193–101,609) |
+| VoIP encode | 98,131 (97,787–98,610) | 69,992.5 (69,516–70,197) | 107,224.5 (106,498–107,567) |
+| Low-delay encode | 91,038.5 (90,653–92,004) | 64,547 (64,486–64,882) | 100,333.5 (99,630–100,842) |
 
-Within this capture, SIMD takes 14.2–27.9% less time than assembly. Ratios
-compare modes on this runner; the different CPU prevents revision-to-revision
-claims from the f2af896b capture. Direct 53-symbol timings retain their own
-recorded revisions and provenance.
+SIMD takes 15.3–34.2% less time than assembly across these six workloads.
+The scalar Go build is faster than assembly for CELT and SILK decode, and
+8.0–10.2% slower for the other four workloads. These are same-runner mode
+comparisons. The 53 direct-kernel rows retain their separately recorded
+revisions; these E2E results do not refresh their microbenchmarks.
 
-Both native instruction lanes pass 176 fixed-QEXT encoder and 416 received/
-Hybrid/PLC/band test nodes without failures or skips. All three combined
-DRED+QEXT fixtures match 96 packets/ranges per fixture in both lanes, including
-768 kb/s 5.1. Combined allocation gates fail: FOA records one allocation and
-the high-rate 96-frame cycle records 24,760; ordinary 5.1 records zero.
-The ARM64 frame-10 QEXT payload residual remains a separate active witness.
+Direct libopus scalar and SIMD E2E timings are absent from this artifact and
+remain required for the paired C/Go performance table. Native validation of
+the subsequent oracle changes remains pending.
 
 ### Early end-to-end capture at f2af896b (AMD EPYC 9V74)
 

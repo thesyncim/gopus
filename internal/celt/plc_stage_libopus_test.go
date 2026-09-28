@@ -19,15 +19,16 @@ const seedCELTMonoPacketHex = "f89ecc3c1abc39107aac7c6f0f14812ad56396763f3811fbb
 var libopusCELTPLCStageTraceHelper libopustest.HelperCache
 
 func buildLibopusCELTPLCStageTraceHelper() (string, error) {
-	return libopustest.BuildCHelper(libopustest.CHelperConfig{
+	cfg := libopustest.CHelperConfig{
 		Label:       "CELT PLC stage trace",
 		OutputBase:  "gopus_libopus_celt_plc_stage_trace",
 		SourceFile:  "libopus_celt_plc_stage_trace.c",
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
 		RefIncludes: []string{"src", "celt", "silk", "silk/float"},
-		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 		DeadStrip:   true,
-	})
+	}
+	configureCELTOracleReference(&cfg)
+	return libopustest.BuildCHelper(cfg)
 }
 
 type libopusCELTPLCStageTrace struct {

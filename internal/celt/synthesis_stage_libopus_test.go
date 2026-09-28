@@ -21,15 +21,16 @@ const seedCELTStereoPacketHex = "fcb52acea9460bf0f037b801bba616f25e64ee93308b76f
 var libopusCELTSynthesisTraceHelper libopustest.HelperCache
 
 func buildLibopusCELTSynthesisTraceHelper() (string, error) {
-	return libopustest.BuildCHelper(libopustest.CHelperConfig{
+	cfg := libopustest.CHelperConfig{
 		Label:       "CELT synthesis stage trace",
 		OutputBase:  "gopus_libopus_celt_synthesis_trace",
 		SourceFile:  "libopus_celt_synthesis_trace.c",
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
 		RefIncludes: []string{"src", "celt", "silk", "silk/float"},
-		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 		DeadStrip:   true,
-	})
+	}
+	configureCELTOracleReference(&cfg)
+	return libopustest.BuildCHelper(cfg)
 }
 
 type libopusCELTSynthesisTrace struct {

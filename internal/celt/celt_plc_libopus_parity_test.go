@@ -24,15 +24,16 @@ const (
 var libopusCELTPLCHelper libopustest.HelperCache
 
 func buildLibopusCELTPLCHelper() (string, error) {
-	return libopustest.BuildCHelper(libopustest.CHelperConfig{
+	cfg := libopustest.CHelperConfig{
 		Label:       "CELT PLC",
 		OutputBase:  "gopus_libopus_celt_plc",
 		SourceFile:  "libopus_celt_plc_info.c",
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
 		RefIncludes: []string{"celt", "silk"},
-		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 		DeadStrip:   true,
-	})
+	}
+	configureCELTOracleReference(&cfg)
+	return libopustest.BuildCHelper(cfg)
 }
 
 func runLibopusCELTPLC(t *testing.T, payload *libopustest.OraclePayload) *libopustest.OracleReader {
@@ -252,8 +253,8 @@ func TestPeriodicPLCSynthesisStagesMatchLibopusBits(t *testing.T) {
 				energy1, energy2 := float32(1), float32(1)
 				base1 := celtPLCLPCOrder + combFilterMaxPeriod - decayLength
 				base2 := celtPLCLPCOrder + combFilterMaxPeriod - 2*decayLength
-				energy1 = periodicPLCEnergy(energy1, excAfterFIR[base1:base1+decayLength])
-				energy2 = periodicPLCEnergy(energy2, excAfterFIR[base2:base2+decayLength])
+				energy1 = periodicPLCDecayEnergy(energy1, excAfterFIR[base1:base1+decayLength])
+				energy2 = periodicPLCDecayEnergy(energy2, excAfterFIR[base2:base2+decayLength])
 				if energy1 > energy2 {
 					energy1 = energy2
 				}
@@ -398,8 +399,8 @@ func TestPeriodicPLCEnergyMatchesLibopusVectorRemainders(t *testing.T) {
 			exc := hist[plcDecodeBufferSize-combFilterMaxPeriod-celtPLCLPCOrder:]
 			base1 := celtPLCLPCOrder + combFilterMaxPeriod - decayLength
 			base2 := celtPLCLPCOrder + combFilterMaxPeriod - 2*decayLength
-			gotE1 := periodicPLCEnergy(1, exc[base1:base1+decayLength])
-			gotE2 := periodicPLCEnergy(1, exc[base2:base2+decayLength])
+			gotE1 := periodicPLCDecayEnergy(1, exc[base1:base1+decayLength])
+			gotE2 := periodicPLCDecayEnergy(1, exc[base2:base2+decayLength])
 			assertFloat32BitExact(t, "raw E1", []float32{gotE1}, want.energy1)
 			assertFloat32BitExact(t, "raw E2", []float32{gotE2}, want.energy2)
 

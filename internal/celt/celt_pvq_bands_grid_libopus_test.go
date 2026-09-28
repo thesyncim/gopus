@@ -47,7 +47,7 @@ var pvqGridHelper libopustest.HelperCache
 // pvqGridHelperPath returns the path to the CELT encode helper that supports
 // the GCGI/GCGO grid protocol (libopus_celt_encode_info.c).
 func pvqGridHelperPath() (string, error) {
-	return pvqGridHelper.CHelperPath(libopustest.CHelperConfig{
+	cfg := libopustest.CHelperConfig{
 		Label:       "celt pvq grid",
 		OutputBase:  "gopus_libopus_celt_pvq_grid",
 		SourceFile:  "libopus_celt_encode_info.c",
@@ -55,7 +55,9 @@ func pvqGridHelperPath() (string, error) {
 		RefIncludes: []string{"celt", "silk", "src", "include"},
 		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 		DeadStrip:   true,
-	})
+	}
+	configureCELTOracleReference(&cfg)
+	return pvqGridHelper.CHelperPath(cfg)
 }
 
 // pvqGridBandwidth describes one bandwidth dimension of the grid.
