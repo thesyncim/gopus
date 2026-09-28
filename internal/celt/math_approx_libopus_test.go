@@ -2,7 +2,6 @@ package celt
 
 import (
 	"math"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -181,6 +180,21 @@ func TestCELTStereoIthetaQ30MatchesLibopus(t *testing.T) {
 		{Stereo: false, X: []float32{0.70710677}, Y: []float32{0.70710677}},
 		{Stereo: true, X: []float32{1, 0.5, -0.25, 0.125}, Y: []float32{1, -0.5, 0.25, -0.125}},
 		{Stereo: true, X: []float32{0.25, -0.5, 0.75, -1}, Y: []float32{-0.25, 0.5, -0.75, 1}},
+		// This N=5 input exercises stereo_itheta's four-wide SIMD product
+		// prefix and one fused scalar remainder on the selected arm64 build.
+		{
+			Stereo: true,
+			X: []float32{
+				math.Float32frombits(0xbe38ef35), math.Float32frombits(0x3f565fd9),
+				math.Float32frombits(0x3d591687), math.Float32frombits(0x3ede9100),
+				math.Float32frombits(0xbf125461),
+			},
+			Y: []float32{
+				math.Float32frombits(0x3f1d9e84), math.Float32frombits(0x3f2eb1c4),
+				math.Float32frombits(0xbf4ce704), math.Float32frombits(0x3f12d0e5),
+				math.Float32frombits(0x3e410625),
+			},
+		},
 	}
 	seed := uint32(0x89abcdef)
 	for _, n := range []int{1, 2, 3, 5, 16, 31, 64} {
@@ -201,26 +215,19 @@ func TestCELTStereoIthetaQ30MatchesLibopus(t *testing.T) {
 	}
 	for i, tc := range cases {
 		got := stereoIthetaQ30(float32SliceToNorm(tc.X), float32SliceToNorm(tc.Y), tc.Stereo)
-		if !stereoIthetaQ30MatchesLibopusBuild(got, int(want[i])) {
-			t.Fatalf("case %d stereo=%v n=%d stereoIthetaQ30=%d want %d",
-				i, tc.Stereo, len(tc.X), got, int32(want[i]))
+		if int32(got) != int32(want[i]) {
+			t.Fatalf("case %d stereo=%v n=%d stereoIthetaQ30=%d want %d x=%08x y=%08x",
+				i, tc.Stereo, len(tc.X), got, int32(want[i]), float32SliceBits(tc.X), float32SliceBits(tc.Y))
 		}
 	}
 }
 
-func stereoIthetaQ30MatchesLibopusBuild(got, want int) bool {
-	if int32(got) == int32(want) {
-		return true
+func float32SliceBits(values []float32) []uint32 {
+	bits := make([]uint32, len(values))
+	for i, value := range values {
+		bits[i] = math.Float32bits(value)
 	}
-	// Apple clang may contract the arm64 float accumulation inside libopus.
-	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
-		diff := got - want
-		if diff < 0 {
-			diff = -diff
-		}
-		return diff <= 64
-	}
-	return false
+	return bits
 }
 
 func TestCELTBitexactCosMatchesLibopus(t *testing.T) {

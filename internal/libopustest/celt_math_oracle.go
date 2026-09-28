@@ -1,5 +1,7 @@
 package libopustest
 
+import "github.com/thesyncim/gopus/internal/extsupport"
+
 const (
 	celtMathInputMagic  = "GCMI"
 	celtMathOutputMagic = "GCMO"
@@ -38,7 +40,7 @@ type CELTStereoIthetaCase struct {
 var celtMathHelper HelperCache
 
 func buildCELTMathHelper() (string, error) {
-	return BuildCHelper(CHelperConfig{
+	cfg := CHelperConfig{
 		Label:       "celt math",
 		OutputBase:  "gopus_libopus_celt_math",
 		SourceFile:  "libopus_celt_math_info.c",
@@ -46,7 +48,25 @@ func buildCELTMathHelper() (string, error) {
 		RefIncludes: []string{"celt", "silk"},
 		Libs:        []string{RefPath(".libs", "libopus.a"), "-lm"},
 		DeadStrip:   true,
-	})
+	}
+	// These probes exercise CELT's floating-point math primitives, including
+	// in fixed-point public builds. Select the matching float QEXT archive when
+	// the helper's code is compiled with ENABLE_QEXT; fixed-point archives use
+	// a different celt_norm domain and do not match this helper's float inputs.
+	if extsupport.QEXT {
+		if dredQEXTReferenceEnabled && !customModesReferenceEnabled {
+			cfg.DREDQEXTRef = true
+			cfg.RefIncludes = append(cfg.RefIncludes, "dnn")
+			cfg.Libs = []string{DREDQEXTRefPath(".libs", "libopus.a"), "-lm"}
+		} else if customModesReferenceEnabled {
+			cfg.CustomQEXTRef = true
+			cfg.Libs = []string{CustomQEXTRefPath(".libs", "libopus.a"), "-lm"}
+		} else {
+			cfg.QEXTRef = true
+			cfg.Libs = []string{QEXTRefPath(".libs", "libopus.a"), "-lm"}
+		}
+	}
+	return BuildCHelper(cfg)
 }
 
 func getCELTMathHelperPath() (string, error) {

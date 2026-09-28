@@ -1839,7 +1839,12 @@ func stereoIthetaQ30Norm(x, y []celtNorm, stereo bool) int {
 			yv := float32(y[i])
 			m := xv + yv
 			s := xv - yv
-			if neonRoundsReductionTerm(i, n) {
+			// vq.c:stereo_itheta is auto-vectorized as four-sample product
+			// groups on the ARM SIMD build. Those group products round before
+			// the ordered scalar adds; only the tail after the last full group
+			// uses scalar FMADD. This loop has a different vector width from the
+			// 16-term inner-product reductions used elsewhere in CELT.
+			if celtFusedFloat && i < n&^3 {
 				emid += round32(m * m)
 				eside += round32(s * s)
 			} else {
