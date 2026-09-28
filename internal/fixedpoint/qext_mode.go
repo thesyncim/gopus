@@ -24,8 +24,12 @@ var fixedQEXTBandGeometry180 = celtBandGeometry{
 
 func fixedQEXTBandMode(sampleRate, shortMDCTSize int) (geometry celtBandGeometry, edges, logN []int16, qextEnd int, ok bool) {
 	scale := 1
-	if sampleRate == 96000 {
+	switch sampleRate {
+	case 48000:
+	case 96000:
 		scale = 2
+	default:
+		return celtBandGeometry{}, nil, nil, 0, false
 	}
 	if shortMDCTSize*48000 == 120*sampleRate {
 		geometry = fixedQEXTBandGeometry240
