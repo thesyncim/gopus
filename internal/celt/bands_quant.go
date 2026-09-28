@@ -1582,9 +1582,7 @@ func algUnquantInto(shape []celtNorm, rd *rangecoding.Decoder, band, n, k, sprea
 				pulses[1] += refine
 			}
 		}
-		yy0 := float32(pulses[0]) * float32(pulses[0])
-		yy1 := float32(pulses[1]) * float32(pulses[1])
-		yy = opusVal16(yy0 + yy1)
+		yy = opusVal16(pvqN2Energy(float32(pulses[0]), float32(pulses[1])))
 	} else {
 		var refine []int32
 		if scratch != nil {
