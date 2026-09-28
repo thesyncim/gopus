@@ -412,13 +412,9 @@ func normalizeBandsWithBandEIntoF32BinMulWidths(mdctCoeffs []float32, nbBands, b
 // NormalizeBandsToArray normalizes bands into a single contiguous array (length = frameSize).
 // This mirrors libopus normalise_bands(): divide by the per-band LINEAR amplitude.
 //
-// CRITICAL FIX: This function now uses LINEAR band amplitudes computed directly from MDCT
-// coefficients, NOT log-domain energies converted back to linear. The log-domain roundtrip
-// was introducing quantization errors that corrupted PVQ encoding.
-//
-// The energies parameter is now IGNORED - we compute linear amplitudes directly from mdctCoeffs.
-// This matches libopus which calls compute_band_energies() to get linear bandE, then uses
-// that directly in normalise_bands().
+// Linear band amplitudes are computed directly from mdctCoeffs, matching
+// compute_band_energies followed by normalise_bands in libopus. The energies
+// argument is unused; normalization does not round-trip through log energies.
 //
 // Reference: libopus celt/bands.c normalise_bands() (float path, lines 172-187)
 func (e *Encoder) NormalizeBandsToArray(mdctCoeffs []float32, energies []celtGLog, nbBands, frameSize int) []CeltNorm {

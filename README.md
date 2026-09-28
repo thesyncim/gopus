@@ -199,11 +199,12 @@ combination has completed parity validation.
 | DNN blob loading | Available under `gopus_dred` / `gopus_osce` | `OptionalExtensionDNNBlob` |
 | QEXT | Available under `gopus_qext` | `OptionalExtensionQEXT` |
 | DRED | Available under `gopus_dred` (control + standalone) | `OptionalExtensionDRED` |
-| OSCE BWE | Available under `gopus_osce` | `OptionalExtensionOSCEBWE` |
+| OSCE BWE | Extra controls under `gopus_osce`; support probe returns false | `OptionalExtensionOSCEBWE` |
 
 The `gopus_osce` tag enables the OSCE and deep-PLC family exposed by
-libopus's `--enable-osce`. The tagged implementation is excluded from the
-default build.
+libopus's `--enable-osce`. These controls are available for parity work;
+`SupportsOptionalExtension(OptionalExtensionOSCEBWE)` reports false. The tagged
+implementation is excluded from the default build.
 
 ```sh
 go test -tags gopus_qext ./...

@@ -18,7 +18,8 @@ const (
 
 // DecoderConfig configures a Decoder instance.
 type DecoderConfig struct {
-	// SampleRate must be one of: 8000, 12000, 16000, 24000, 48000.
+	// SampleRate must be 8000, 12000, 16000, 24000, or 48000 Hz.
+	// Builds with gopus_qext also accept 96000 Hz.
 	SampleRate int
 	// Channels must be 1 (mono) or 2 (stereo).
 	Channels int

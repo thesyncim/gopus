@@ -9,7 +9,8 @@ package gopus
 // When DTX is active during silence, returns a 1-byte TOC-only packet.
 // Returns 0 bytes only when buffering (internal lookahead not yet filled).
 //
-// Buffer sizing: 4000 bytes is sufficient for any Opus packet.
+// The output buffer length is the packet byte budget. Longer packets and
+// optional extensions can require more than the recommended 4000 bytes.
 func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 	if e.is96kHz() {
 		return e.encode96k(pcm, data)

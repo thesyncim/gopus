@@ -37,13 +37,13 @@
 //   - Standard 48 kHz modes (120/240/480/960) are byte- and sample-exact against
 //     the libopus custom-modes encoder/decoder.
 //   - The control plane of the Fs==400*shortMdctSize family (e.g. 8k/160,
-//     12k/240, 16k/320, 24k/480, 32k/640) is now parameterized and proven exact:
+//     12k/240, 16k/320, 24k/480, 32k/640) uses parameterized mode geometry:
 //     CustomMode.InScaledBandFamily reports membership, and
 //     TestOracleControlPlaneScaledBandFamily verifies the full mode geometry
 //     (maxLM, nbShortMdcts, shortMdctSize, overlap, eBands, effEBands, logN and
 //     per-rate pre-emphasis) against opus_custom_mode_create, plus the
 //     band-bin scaling celt.ScaledBandStartBase/EndBase == eBands[i]<<LM.
-//   - Genuinely custom band layouts outside that family (e.g. 48000/640,
+//   - Custom band layouts outside that family (e.g. 48000/640,
 //     NbEBands=19) are also encoded and decoded byte/sample-identically to
 //     libopus --enable-custom-modes: the per-mode band tables (eBands, widths,
 //     logN, allocVectors and the compute_pulse_cache index/bits/caps) computed by

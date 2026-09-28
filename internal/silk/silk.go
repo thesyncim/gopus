@@ -1512,9 +1512,8 @@ func (d *Decoder) DecodePLCStereoInto(bandwidth Bandwidth, frameSizeSamples int,
 }
 
 // plcStereoFloatScratch returns a zeroed slice of length n backed by *buf,
-// growing the backing buffer if necessary. The clear matches the freshly
-// allocated make([]float32, n) the PLC path previously used so concealment
-// output that only partially fills the buffer keeps the libopus zero tail.
+// growing the backing buffer if necessary. Clearing the active slice preserves
+// the libopus zero tail when concealment writes only part of the output.
 func (d *Decoder) plcStereoFloatScratch(buf *[]float32, n int) []float32 {
 	if n < 0 {
 		n = 0

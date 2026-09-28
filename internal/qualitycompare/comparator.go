@@ -45,8 +45,7 @@ func CompareDecodedFloat32(candidate, reference []float32, sampleRate, channels,
 }
 
 // waveformCorrelationRMS computes Pearson correlation and RMS ratio over the
-// common prefix (canonical secondary diagnostics; previously duplicated as
-// decoderParityStats).
+// common prefix. These are secondary quality diagnostics, not exactness checks.
 func waveformCorrelationRMS(a, b []float32) (corr, rmsRatio float64) {
 	n := min(len(b), len(a))
 	if n == 0 {
@@ -93,17 +92,16 @@ type QualityBar struct {
 	Desc    string  // human-readable basis, e.g. "near-exact (matches SILK/CELT)".
 }
 
-// Trusted quality bars. "near-exact" is the bar SILK/CELT (and now Hybrid) decode
-// already meet vs libopus (measured Q>=99.7); it is far above the RFC-8251
-// conformance floor (Q>=0) yet still strictly below bit-exactness, leaving room
-// only for the transcendental/platform rounding tail that is not a gopus defect.
+// Quality bars measure decoded-waveform agreement with libopus. They complement
+// exact packet and sample comparisons; a quality pass does not establish bit
+// equality or excuse a difference against a matching C reference.
 var (
 	QualityBarNearExact = QualityBar{MinQ: 20.0, MinCorr: 0.997, RMSLo: 0.98, RMSHi: 1.02, Desc: "near-exact vs libopus (SILK/CELT/Hybrid bar)"}
 	QualityBarRFC       = QualityBar{MinQ: 0.0, MinCorr: 0.985, RMSLo: 0.97, RMSHi: 1.03, Desc: "RFC 8251 conformance floor"}
 )
 
 // QualityBarForMode returns the trusted bar for a decode-parity case by dominant
-// mode. All three modes now meet the near-exact bar vs libopus.
+// mode. SILK, CELT and Hybrid use the same decoded-waveform quality bar.
 func QualityBarForMode(mode string, channels int) QualityBar {
 	switch mode {
 	case "silk", "celt", "hybrid":

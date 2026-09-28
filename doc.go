@@ -42,12 +42,15 @@
 //
 // # PCM And Buffers
 //
-// Float32 samples are normalized to [-1.0, 1.0]. Int16 helpers are available
-// for common audio APIs. Stereo and multichannel PCM is interleaved.
+// Float32 samples use normalized full scale [-1.0, 1.0]. Int16 and Int24 methods
+// expose the corresponding integer sample formats. Stereo and multichannel PCM
+// is interleaved.
 //
 // Decode output needs room for up to 5760 samples per channel, the default
-// 120 ms cap at 48 kHz. A 4000-byte encode buffer is sufficient for any Opus
-// packet.
+// 120 ms cap at 48 kHz. DecoderConfig controls the accepted packet size and
+// decoded duration. A 4000-byte encode buffer suits the example above; longer
+// packets and optional extensions can require more space. Encode uses the
+// output buffer length as its packet byte budget.
 //
 // # Packet Loss
 //

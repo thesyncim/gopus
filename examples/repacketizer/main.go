@@ -95,7 +95,8 @@ func merge(packets [][]byte) ([]byte, error) {
 		}
 	}
 
-	// 4000 bytes is large enough for any single Opus packet.
+	// The example's combined packet fits this buffer; Out reports insufficient
+	// space if the input packets require a larger result.
 	out := make([]byte, 4000)
 	n, err := rp.Out(out)
 	if err != nil {
