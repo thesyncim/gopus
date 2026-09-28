@@ -165,7 +165,7 @@ func malformedPCMWorst(format uint32, got, want []float32) float32 {
 }
 
 // malformedPCMFirstBitMismatch compares float and int16 normalized outputs.
-// Int24 uses malformedAssertInt24Raw so float32 normalization cannot erase bits.
+// Int24 uses assertFreshDecodeInt24MatchesOracle so float32 normalization cannot erase bits.
 func malformedPCMFirstBitMismatch(got, want []float32) int {
 	for i := range got {
 		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
@@ -173,34 +173,6 @@ func malformedPCMFirstBitMismatch(got, want []float32) int {
 		}
 	}
 	return -1
-}
-
-func malformedAssertInt24Raw(t *testing.T, label string, sampleRate, channels int, c libopustest.DecodeDiffCase, want libopustest.DecodeDiffResult) {
-	t.Helper()
-	dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
-	if err != nil {
-		t.Fatalf("%s: NewDecoder: %v", label, err)
-	}
-	frameSize := int(c.FrameSize)
-	if frameSize == 0 {
-		frameSize = 5760
-	}
-	buf := make([]int32, frameSize*channels)
-	n, err := dec.DecodeInt24(c.Packet, buf)
-	if err != nil || int32(n) != want.Code {
-		t.Fatalf("%s: raw DecodeInt24 samples=%d err=%v, C=%d", label, n, err, want.Code)
-	}
-	gotPCM, wantPCM := buf[:n*channels], want.Int24()
-	if len(gotPCM) != len(wantPCM) {
-		t.Fatalf("%s: raw int24 length=%d want %d", label, len(gotPCM), len(wantPCM))
-	}
-	for i := range gotPCM {
-		if gotPCM[i] != wantPCM[i] {
-			t.Errorf("%s: raw int24 sample %d=%08x want=%08x packet=% x", label, i,
-				uint32(gotPCM[i]), uint32(wantPCM[i]), c.Packet)
-			break
-		}
-	}
 }
 
 // TestDecodeDifferentialMalformed mutates valid packets and asserts gopus and
@@ -293,7 +265,7 @@ func TestDecodeDifferentialMalformed(t *testing.T) {
 						label, worst, malformedPCMGrossTol, m)
 				}
 				if format == libopustest.DecodeDiffFormatInt24 {
-					malformedAssertInt24Raw(t, label, 48000, channels, cases[i], or)
+					assertFreshDecodeInt24MatchesOracle(t, label, 48000, channels, cases[i], or)
 				} else if sample := malformedPCMFirstBitMismatch(gpcm, want); sample >= 0 {
 					t.Errorf("%s: PCM sample %d bits=%08x want=%08x packet=% x", label, sample,
 						math.Float32bits(gpcm[sample]), math.Float32bits(want[sample]), m)

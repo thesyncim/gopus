@@ -52,7 +52,8 @@ func diffFuzzBudget(full int) int {
 // gopusDecodeProbe decodes one packet through a fresh gopus decoder, mirroring
 // the oracle's fresh-decoder-per-case isolation. It returns the decoded PCM as
 // float32 (converting int16/int24 to the same 1/32768 / 1/8388608 scale the
-// oracle PCM is compared at), the per-channel sample count, and any error.
+// diagnostic uses), the per-channel sample count, and any error. Exact int24
+// assertions use assertFreshDecodeInt24MatchesOracle to retain every int32 bit.
 func gopusDecodeProbe(sampleRate, channels int, c libopustest.DecodeDiffCase) (pcm []float32, samples int, err error) {
 	dec, derr := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
 	if derr != nil {
@@ -164,8 +165,7 @@ func pcmExactTolerance(toc byte, format uint32) float32 {
 }
 
 // arm64PCMTolerance is the arm64-only per-sample budget of pcmExactTolerance,
-// for float32, int16 and int24 alike (int24 samples beyond the conversion
-// overflow band are skipped in pcmDiffWorst).
+// used by the long-stream float32 diagnostic.
 const arm64PCMTolerance = 4.0 / 32768.0
 
 // pcmDiffWorst returns the worst tolerated-scale per-sample |Δ| between gopus and
@@ -178,18 +178,7 @@ func pcmDiffWorst(toc byte, format uint32, got, want []float32) (worst float32, 
 		return 0, -1, 0, false
 	}
 	tol = pcmExactTolerance(toc, format)
-	// int24 conversion (RES2INT24 = float2int(32768*256*x)) overflows int32 once
-	// |x| >= 256, where both libopus' lrintf and Go's int32() cast are
-	// implementation-defined. Real audio never reaches this; it only arises from
-	// pathological random-encoded content that decodes to hundreds× full scale.
-	// float32/int16 stay exact there, so skip int24 samples in the overflow band
-	// rather than compare two undefined-behaviour saturations.
-	int24Overflow := format == libopustest.DecodeDiffFormatInt24
-	const int24OverflowMag = 250.0 // safe margin below the 256.0 int32-overflow point
 	for i := range got {
-		if int24Overflow && (absF32(got[i]) >= int24OverflowMag || absF32(want[i]) >= int24OverflowMag) {
-			continue
-		}
 		d := absF32(got[i] - want[i])
 		if d > worst {
 			worst = d
@@ -449,8 +438,43 @@ func encodeOneFrame(enc *Encoder, pcm []float32) (pkt []byte, err error) {
 	return enc.EncodeFloat32(pcm)
 }
 
+// assertFreshDecodeInt24MatchesOracle preserves every public int32 output bit
+// against the paired C opus_decode24 call, with independent fresh decoder state.
+func assertFreshDecodeInt24MatchesOracle(t *testing.T, label string, sampleRate, channels int, c libopustest.DecodeDiffCase, want libopustest.DecodeDiffResult) bool {
+	t.Helper()
+	if c.DecodeFEC {
+		t.Fatal("raw int24 probe requires a non-FEC decode case")
+	}
+	dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+	if err != nil {
+		t.Fatalf("%s: NewDecoder: %v", label, err)
+	}
+	frameSize := int(c.FrameSize)
+	if frameSize == 0 {
+		frameSize = 5760
+	}
+	buf := make([]int32, frameSize*channels)
+	n, err := dec.DecodeInt24(c.Packet, buf)
+	if err != nil || int32(n) != want.Code {
+		t.Fatalf("%s: raw DecodeInt24 samples=%d err=%v, C=%d", label, n, err, want.Code)
+	}
+	gotPCM, wantPCM := buf[:n*channels], want.Int24()
+	if len(gotPCM) != len(wantPCM) {
+		t.Fatalf("%s: raw int24 length=%d want %d", label, len(gotPCM), len(wantPCM))
+	}
+	for i := range gotPCM {
+		if gotPCM[i] != wantPCM[i] {
+			t.Errorf("%s: raw int24 sample %d=%08x want=%08x packet=% x", label, i,
+				uint32(gotPCM[i]), uint32(wantPCM[i]), c.Packet)
+			return false
+		}
+	}
+	return true
+}
+
 // assertExactValidDecodePCM compares every output sample as float32 bits. The
-// int16 and int24 oracle outputs are scaled to float32 exactly before this call.
+// int16 output is scaled exactly. Int24 uses its original int32 representation
+// in assertFreshDecodeInt24MatchesOracle.
 func assertExactValidDecodePCM(t *testing.T, label string, got, want []float32) bool {
 	t.Helper()
 	if len(got) != len(want) {
@@ -525,12 +549,18 @@ func TestDecodeDifferentialEncodeThenDecode(t *testing.T) {
 				}
 				for i, p := range packets {
 					or := oracle[i]
-					gpcm, gn, gerr := gopusDecodeProbe(48000, spec.channels, cases[i])
 					label := fmt.Sprintf("%s/fmt%d/frame%d", spec.name, format, i)
 					if or.Code < 0 {
 						t.Errorf("%s: libopus rejected (code=%d) a gopus packet — packet=% x", label, or.Code, p)
 						continue
 					}
+					if format == libopustest.DecodeDiffFormatInt24 {
+						if assertFreshDecodeInt24MatchesOracle(t, label, 48000, spec.channels, cases[i], or) {
+							matchedDecodes++
+						}
+						continue
+					}
+					gpcm, gn, gerr := gopusDecodeProbe(48000, spec.channels, cases[i])
 					if gerr != nil {
 						t.Errorf("%s: libopus accepted (n=%d) but gopus rejected: %v — packet=% x",
 							label, or.Code, gerr, p)

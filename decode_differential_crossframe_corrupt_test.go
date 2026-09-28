@@ -164,7 +164,7 @@ func runCrossFrameCorruptCases(t *testing.T, cases []crossFrameCorruptCase) {
 					t.Errorf("%s: gross PCM divergence (worst |Δ|=%g, tol=%g) on accepted packet=% x", label, worst, malformedPCMGrossTol, c.packet)
 				}
 				if format == libopustest.DecodeDiffFormatInt24 {
-					malformedAssertInt24Raw(t, label, 48000, channels, diffCases[i], or)
+					assertFreshDecodeInt24MatchesOracle(t, label, 48000, channels, diffCases[i], or)
 				} else if sample := malformedPCMFirstBitMismatch(gpcm, want); sample >= 0 {
 					t.Errorf("%s: PCM sample %d bits=%08x want=%08x packet=% x", label, sample,
 						math.Float32bits(gpcm[sample]), math.Float32bits(want[sample]), c.packet)
