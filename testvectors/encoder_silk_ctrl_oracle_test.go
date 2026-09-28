@@ -47,21 +47,17 @@ func silkEncodeFrameDumpSource() string {
 
 func getSILKCtrlHelperPath(t testing.TB) (string, bool) {
 	t.Helper()
-	path, err := silkCtrlHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:      "silk ctrl",
-		OutputBase: "gopus_libopus_silk_ctrl",
-		SourceFile: "libopus_silk_ctrl_info.c",
-		CFlags:     []string{"-DHAVE_CONFIG_H", "-O2", "-DNDEBUG"},
-		RefIncludes: []string{
-			"silk", "silk/float", "celt",
-		},
-		Sources: []string{
-			// The override TU that supplies our instrumented silk_encode_frame_FLP.
-			// It is placed before libopus.a (BuildCHelper link order) so the linker
-			// resolves the symbol here and skips the archived encode_frame_FLP.o.
-			silkEncodeFrameDumpSource(),
-		},
-		Libs: []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+	path, err := silkCtrlHelper.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:      "silk ctrl",
+			OutputBase: "gopus_libopus_silk_ctrl",
+			SourceFile: "libopus_silk_ctrl_info.c",
+			CFlags:     []string{"-DHAVE_CONFIG_H", "-O2", "-DNDEBUG"},
+			RefIncludes: []string{
+				"silk", "silk/float", "celt",
+			},
+			Sources: []string{silkEncodeFrameDumpSource()},
+		})
 	})
 	if err != nil {
 		if libopustest.StrictRefRequired() {
