@@ -101,17 +101,25 @@ state oracle matches features, latent state and AF3 dense stages exactly.
 Native AMD64 confirmation of the corrected reference pairing remains pending.
 OSCE's inactive-model path applies libopus's native SILK output clamp before
 resampling. The combined OSCE+DRED+QEXT received-frame, FEC and Hybrid
-selectors pass scalar and SIMD locally with this behavior. A LACE raw-feature
-case still differs by one float32 LSB in the selected SIMD lane and remains
-under diagnosis.
+selectors pass scalar and SIMD locally with this behavior. LACE's 32-frame
+raw-feature matrix matches every feature, bit-count and period bit for LPC
+orders 10 and 16 in the selected scalar and SIMD lanes, with zero warm
+allocations. ARM64 filterbank accumulation follows the selected C contraction
+order separately for the 18-band noisy and 64-band clean paths. The full LACE
+package and public OSCE sample-parity gate pass in both local lanes; native
+AMD64 confirmation remains pending.
 The full public QEXT SIMD package and the 15 corrected scalar QEXT test
 groups pass with paired helpers. The CELT trace helper uses the selected
 feature archive and its matching decoder-state layout. Public oracle
 constructors in `testvectors` select the matching archive and validate its
 feature/ISA stamp. Fixed SILK 10 ms frames use libopus's 14 ms pitch-LPC
 window. The NB/WB direct state/packet/range oracle and public SILK CBR selectors
-pass fixed-only and fixed+QEXT in ordinary, SIMD and nosimd builds. One fixed
-CELT FB 5 ms stereo CBR case still differs at frame 162.
+pass fixed-only and fixed+QEXT in ordinary, SIMD and nosimd builds. The fixed
+CELT prefilter uses the exact C `.99f` Q29 tone threshold. The complete CBR
+matrix passes fixed-only and fixed+QEXT in both scalar and SIMD lanes: each
+lane matches all 19 cases, 2,175 packets and final ranges. Focused prefilter
+oracles cover values immediately below, at and above the threshold and the
+5 ms stereo input that exercises it.
 
 Standard custom fixed-point modes use the integer CELT backend. Packet/range,
 float/int16 PCM, controls, PLC/recovery/reset and zero-allocation checks pass
@@ -119,7 +127,20 @@ scalar and SIMD with and without QEXT. Scaled fixed custom modes at 32, 24, 16,
 12 and 8 kHz match selected-C packets, ranges and PCM locally in scalar and
 SIMD builds. The 32 kHz/640-sample and 16 kHz/320-sample stateful checks cover
 mono/stereo PLC, recovery and reset; warm allocation checks remain zero.
-Other custom geometries and dynamic fixed QEXT remain under implementation.
+Generated non-QEXT fixed custom geometries pass the selected scalar and SIMD
+stateful matrix across 11 modes, including up to 23 bands, mono/stereo,
+40/200/600-byte budgets, reset and periodic/noise concealment. Custom pulse
+splitting uses the mode's own cache. Warm encode/decode and PLC/recovery checks
+allocate zero; QEXT decoding retains allocation scratch in decoder state.
+Dynamic fixed QEXT integration remains under implementation. A broader
+fixed-QEXT package sweep also exposes Q15 internal decoder/synthesis calls
+using QEXT-conditioned arithmetic; their explicit coefficient-mode selection
+remains under correction, with the exact C checks retained.
+Generated fixed-QEXT transform tables and forward/inverse MDCT results match
+live C across 13 custom geometries, including maxshift zero, all transform
+shifts, contiguous and strided output, and the 2048-sample geometry. Warm
+transforms allocate zero. These transform checks do not establish full custom
+QEXT codec parity or compare the invalid C PLC behavior.
 Float custom QEXT uses 96 kHz preemphasis, the matching
 static transform where selected by C, doubled pitch history for the applicable
 modes, and concealed history for postfilter recovery. The broad selected-C
