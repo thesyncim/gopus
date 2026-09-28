@@ -221,16 +221,18 @@ func (d *Decoder) decodeToFloat32Into(data []byte, frameSize int, applyProjectio
 
 	decodedStreams := d.ensureDecodedStreamsScratch()
 	for i := 0; i < d.streams; i++ {
-		var endDREDCapture func()
-		if extsupport.DREDRuntime && d.dredPayloadScannerActive() {
-			if st, ok := d.decoders[i].(*streamState); ok && len(packets[i]) > 0 {
+		var captureState *streamState
+		capturing := false
+		if extsupport.DREDRuntime && len(packets[i]) > 0 {
+			if st, ok := d.decoders[i].(*streamState); ok {
 				toc := parseStreamTOC(packets[i][0])
-				endDREDCapture = d.beginDREDRawMonoGoodFrameCapture(i, st, toc.mode, packets[i])
+				captureState = st
+				capturing = d.beginDREDRawMonoFrameCapture(i, st, toc.mode, packets[i])
 			}
 		}
 		decoded, decodeErr := d.decodeStreamToFloat32(i, packets[i], decodeFrameSize)
-		if endDREDCapture != nil {
-			endDREDCapture()
+		if capturing {
+			d.endDREDRawMonoFrameCapture(i, captureState)
 		}
 		if decodeErr != nil {
 			return 0, fmt.Errorf("multistream: stream %d decode error: %w", i, decodeErr)
@@ -301,15 +303,29 @@ func (d *Decoder) decodePLCChunkToFloat32Into(frameSize int, applyProjection boo
 	// each stream's clipping memory intact for the next received packet.
 	decodedStreams := d.ensureDecodedStreamsScratch()
 	for i := 0; i < d.streams; i++ {
+		st, _ := d.decoders[i].(*streamState)
+		capturing := false
+		if extsupport.DREDRuntime && st != nil {
+			capturing = d.beginDREDRawMonoFrameCapture(i, st, int(st.lastMode), nil)
+		}
 		if extsupport.DREDRuntime {
 			if decoded, ok, err := d.decodeDREDPLCStream(i, frameSize); err != nil {
+				if capturing {
+					d.endDREDRawMonoFrameCapture(i, st)
+				}
 				return err
 			} else if ok {
+				if capturing {
+					d.endDREDRawMonoFrameCapture(i, st)
+				}
 				decodedStreams[i] = decoded
 				continue
 			}
 		}
 		decoded, err := d.decodeStreamToFloat32(i, nil, frameSize)
+		if capturing {
+			d.endDREDRawMonoFrameCapture(i, st)
+		}
 		if err != nil {
 			channels := streamChannels(i, d.coupledStreams)
 			decoded = d.silenceScratchFor(frameSize * channels)

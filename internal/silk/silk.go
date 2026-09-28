@@ -1020,6 +1020,7 @@ func (d *Decoder) DecodePLCInto(bandwidth Bandwidth, frameSizeSamples int, outpu
 	// Use LTP-aware concealment whenever per-channel SILK PLC state is valid.
 	// Fall back to legacy concealment only when required state is unavailable.
 	var concealed []float32
+	var concealedQ0 []int16
 	hookLagPrev := 0
 	usedDeepPLCHook := false
 	if state := d.ensureSILKPLCState(0); state != nil && d.state[0].nbSubfr > 0 {
@@ -1028,7 +1029,7 @@ func (d *Decoder) DecodePLCInto(bandwidth Bandwidth, frameSizeSamples int, outpu
 		// sLPC_Q14_buf history, matching libopus silk_PLC_conceal. The
 		// Decoder-level accessor reports a stale order and would force the
 		// float-derived LPC fallback, corrupting unvoiced concealment.
-		concealedQ0 := d.concealSILKFrame(0, &d.state[0], nativeSamples)
+		concealedQ0 = d.concealSILKFrame(0, &d.state[0], nativeSamples)
 		if d.scratchOutput != nil && len(d.scratchOutput) >= nativeSamples {
 			concealed = d.scratchOutput[:nativeSamples]
 		} else {
@@ -1064,6 +1065,12 @@ func (d *Decoder) DecodePLCInto(bandwidth Bandwidth, frameSizeSamples int, outpu
 		if lag := int((state.PitchLQ8 + 128) >> 8); lag > 0 {
 			d.state[0].lagPrev = int32(lag)
 		}
+	}
+	// libopus silk_PLC updates LPCNet with each classical concealed 10 ms
+	// channel-0 block before CNG and PLC glue. Deep PLC instead calls
+	// lpcnet_plc_conceal and must not feed its rendered samples back as updates.
+	if !usedDeepPLCHook && len(concealedQ0) >= nativeSamples {
+		d.fireRawMonoLossFrameHook(0, &d.state[0], concealedQ0[:nativeSamples])
 	}
 
 	// Update decoder state for PLC gluing and outBuf cadence.
@@ -1250,6 +1257,7 @@ func (d *Decoder) recordPLCLossForState(st *decoderState, concealed []float32) {
 // comfort noise generation (silk_CNG) and the energy capture of
 // silk_PLC_glue_frames, in that order. frame is modified in place by CNG.
 func (d *Decoder) finishLostFrame(channel int, st *decoderState, frame []int16) {
+	d.fireNativeLossHook(channel)
 	st.lossCnt++
 	d.updateHistoryInt16(frame)
 	silkUpdateOutBuf(st, frame)
@@ -1470,8 +1478,9 @@ func (d *Decoder) decodePLCStereoInto(bandwidth Bandwidth, frameSizeSamples int,
 	sideView := d.plcDecoderView(1)
 	usedDeepPLCHook := false
 	hookLagPrev := 0
+	var midQ0 []int16
 	if midState != nil && midView != nil && d.state[0].nbSubfr > 0 {
-		midQ0 := d.concealSILKFrame(0, &d.state[0], nativeSamples)
+		midQ0 = d.concealSILKFrame(0, &d.state[0], nativeSamples)
 		scale := float32(1.0 / 32768.0)
 		for i := 0; i < nativeSamples && i < len(midQ0); i++ {
 			mid[i] = float32(midQ0[i]) * scale
@@ -1500,6 +1509,10 @@ func (d *Decoder) decodePLCStereoInto(bandwidth Bandwidth, frameSizeSamples int,
 		d.state[0].lagPrev = int32(hookLagPrev)
 	} else if !usedDeepPLCHook && hookLagPrev > 0 {
 		d.state[0].lagPrev = int32(hookLagPrev)
+	}
+	if !usedDeepPLCHook && len(midQ0) >= nativeSamples {
+		// Stereo SILK keeps its LPCNet PLC state on the mid/channel-0 path.
+		d.fireRawMonoLossFrameHook(0, &d.state[0], midQ0[:nativeSamples])
 	}
 	if hasSide && sideState != nil && sideView != nil && d.state[1].nbSubfr > 0 {
 		sideQ0 := d.concealSILKFrame(1, &d.state[1], nativeSamples)

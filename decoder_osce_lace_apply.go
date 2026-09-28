@@ -26,28 +26,30 @@ func pickOSCELACEMode(complexity int) osceLACEMode {
 	return osceLACEModeNone
 }
 
-func (d *Decoder) installOSCELACESilkPostfilterHook(mode Mode, silkBW silk.Bandwidth, packetStereoLocal bool) {
+func (d *Decoder) osceLACEEnabledForComplexity() bool {
+	if d == nil {
+		return false
+	}
+	if d.osceLACEOverrideSet {
+		return d.osceLACEEnabled
+	}
+	return d.complexity >= 6
+}
+
+func (d *Decoder) installOSCELACESilkPostfilterHook(mode Mode, _ silk.Bandwidth, packetStereoLocal bool) {
 	if d == nil || d.silkDecoder == nil {
 		return
 	}
 	d.silkDecoder.SetNativePostfilterHook(nil)
-	if !d.osceLACEEnabled || !d.osceLACEModelLoaded {
-		d.resetOSCELACEPostfilterState(packetStereoLocal)
+	if mode != ModeSILK && mode != ModeHybrid {
 		return
 	}
-	state := d.osceLACE
-	if state == nil || state.osceLACEModel == nil || !state.osceLACEModel.Loaded() {
-		d.resetOSCELACEPostfilterState(packetStereoLocal)
-		return
+	if d.osceLACE == nil {
+		d.osceLACE = &decoderOSCELACEState{}
 	}
-	if mode != ModeSILK || silkBW != silk.BandwidthWideband {
-		d.resetOSCELACEPostfilterState(packetStereoLocal)
-		return
-	}
-	pickedMode := pickOSCELACEMode(int(d.complexity))
-	if pickedMode == osceLACEModeNone {
-		d.resetOSCELACEPostfilterState(packetStereoLocal)
-		return
+	pickedMode := osceLACEModeNone
+	if d.osceLACEEnabledForComplexity() {
+		pickedMode = pickOSCELACEMode(int(d.complexity))
 	}
 
 	channels := 1
@@ -75,11 +77,11 @@ func (d *Decoder) processOSCELACESilkPostfilter(channel int, samples []int16, ct
 		return false
 	}
 	if ctrl.FsKHz != 16 || ctrl.NbSubfr != osceLACESubframesPerFrame || len(samples) < osceLACEFrameSamples {
-		d.resetOSCELACEPostfilterState(d.osceLACEHookStereo)
+		d.resetOSCELACEChannel(channel, d.osceLACEHookMode)
 		return false
 	}
 	if !d.applyOSCELACEMonoChannelWithControl(samples, d.osceLACEHookMode, channel, ctrl, true) {
-		d.resetOSCELACEPostfilterState(d.osceLACEHookStereo)
+		d.resetOSCELACEChannel(channel, d.osceLACEHookMode)
 		return false
 	}
 	return true
@@ -147,7 +149,13 @@ func (d *Decoder) applyOSCELACEMonoChannelWithControl(native []int16, mode osceL
 			numBits,
 		)
 	}
+	modelLoaded := d.osceLACEModelLoaded && state.osceLACEModel != nil && state.osceLACEModel.Loaded()
+	if !modelLoaded {
+		mode = osceLACEModeNone
+	}
 	switch mode {
+	case osceLACEModeNone:
+		copy(state.applyOutFloat[:osceLACEFrameSamples], state.applyInFloat[:osceLACEFrameSamples])
 	case osceLACEModeNoLACE:
 		if err := state.osceNoLACERuntime[channelIdx].Process(
 			state.applyInFloat[:osceLACEFrameSamples],
@@ -238,19 +246,11 @@ func (state *decoderOSCELACEState) applyOSCELACEOutputReset(channelIdx int) {
 // Without this clearing the next SILK WB packet would incorrectly skip
 // the LACE fade-in cross-fade because `prevLACEActive` could still be true
 // from many packets ago.
-func (d *Decoder) osceLACEMarkInactiveIfModeIneligible(mode Mode, bandwidth Bandwidth) {
-	if d == nil || d.osceLACE == nil {
-		return
-	}
-	// LACE/NoLACE runs in SILK-only mode at 16 kHz internal sample rate.
-	// Hybrid, CELT, and lower-bandwidth SILK bypass the postfilter.
-	if mode == ModeSILK && bandwidth == BandwidthWideband {
-		// SILK packet with a LACE-eligible bandwidth: the SILK-only post-
-		// decode hook handles the flag itself based on the actual SILK
-		// internal bandwidth.
-		return
-	}
-	d.osceLACE.prevLACEActive = false
+func (d *Decoder) osceLACEMarkInactiveIfModeIneligible(_ Mode, _ Bandwidth) {
+	// SILK invokes the native OSCE hook for every decoded frame; the hook
+	// resets its channel state when the internal rate or frame duration is
+	// unsupported. Hybrid uses the same native 16 kHz post-SILK hook. CELT
+	// frames do not enter SILK and leave its OSCE state untouched.
 }
 
 func (d *Decoder) resetOSCELACEPostfilterState(packetStereoLocal bool) {
@@ -269,4 +269,21 @@ func (d *Decoder) resetOSCELACEPostfilterState(packetStereoLocal bool) {
 	}
 	d.osceLACE.prevLACEActive = false
 	d.osceLACE.laceMethod = osceLACEModeNone
+}
+
+func (d *Decoder) resetOSCELACEChannel(channel int, mode osceLACEMode) {
+	state := d.osceLACE
+	if state == nil || channel < 0 || channel >= len(state.laceResetFrames) {
+		return
+	}
+	state.osceLACEFeatures[channel].Reset()
+	switch mode {
+	case osceLACEModeLACE:
+		state.osceLACERuntime[channel].Reset()
+	case osceLACEModeNoLACE:
+		state.osceNoLACERuntime[channel].Reset()
+	}
+	state.laceMethod = mode
+	state.prevLACEActive = true
+	state.laceResetFrames[channel] = 2
 }

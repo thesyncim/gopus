@@ -8,10 +8,11 @@ import (
 )
 
 type decoderOSCEFields struct {
-	osceModelsLoaded   bool
-	osceBWEModelLoaded bool
-	osceBWEEnabled     bool
-	osceLACEEnabled    bool
+	osceModelsLoaded    bool
+	osceBWEModelLoaded  bool
+	osceBWEEnabled      bool
+	osceLACEEnabled     bool
+	osceLACEOverrideSet bool
 }
 
 type streamOSCEFields struct {
@@ -21,9 +22,10 @@ type streamOSCEFields struct {
 	osceLACEHookStereo   bool
 	osceLACEHookMode     streamOSCELACEMode
 
-	osceLACEEnabled bool
-	osceBWEEnabled  bool
-	osceState       *streamOSCEState
+	osceLACEEnabled     bool
+	osceLACEOverrideSet bool
+	osceBWEEnabled      bool
+	osceState           *streamOSCEState
 }
 
 func (d *Decoder) setOSCEModelState(models dnnblob.DecoderModelState) {

@@ -71,6 +71,7 @@ func TestDecodeWithFECMultiFrameSILKMatchesLibopus(t *testing.T) {
 			// decoder is warmed up) and verify each as an FEC recovery step.
 			recovered := 0
 			partial := 0
+			missingPrefix := 0
 			replayLogged := false
 			logReplay := func(recovery int) {
 				if replayLogged {
@@ -186,6 +187,9 @@ func TestDecodeWithFECMultiFrameSILKMatchesLibopus(t *testing.T) {
 				if channels == 1 && isPartialMultiFrameLBRR(t, packets[r]) {
 					partial++
 				}
+				if channels == 1 && hasMissingLBRRPrefixBeforePresentFrame(t, packets[r]) {
+					missingPrefix++
+				}
 			}
 
 			if recovered == 0 {
@@ -198,7 +202,10 @@ func TestDecodeWithFECMultiFrameSILKMatchesLibopus(t *testing.T) {
 				t.Fatalf("no PARTIAL multi-frame LBRR packets emitted for %s; "+
 					"test does not exercise the multi-LBRR-frame mix it targets", tc.name)
 			}
-			t.Logf("%s: verified %d FEC recoveries (%d partial multi-frame LBRR)", tc.name, recovered, partial)
+			if channels == 1 && missingPrefix == 0 {
+				t.Fatalf("no multi-frame LBRR packet begins with a missing frame followed by present LBRR for %s", tc.name)
+			}
+			t.Logf("%s: verified %d FEC recoveries (%d partial, %d missing-prefix multi-frame LBRR)", tc.name, recovered, partial, missingPrefix)
 		})
 	}
 }
@@ -290,6 +297,36 @@ func isPartialMultiFrameLBRR(t *testing.T, packet []byte) bool {
 		set += flags[i]
 	}
 	return set > 0 && set < nFrames
+}
+
+// hasMissingLBRRPrefixBeforePresentFrame reports a FEC packet whose first
+// internal 20 ms frame has no LBRR while a later frame does. The PLC prefix
+// resets that channel's OSCE state before the later LBRR frame runs its
+// postfilter within the same DecodeWithFEC call.
+func hasMissingLBRRPrefixBeforePresentFrame(t *testing.T, packet []byte) bool {
+	t.Helper()
+	toc := ParseTOC(packet[0])
+	if toc.Mode == ModeCELT || toc.FrameSize <= 960 {
+		return false
+	}
+	first, err := extractFirstFramePayload(packet, toc)
+	if err != nil || len(first) == 0 {
+		return false
+	}
+	nFrames := toc.FrameSize / 960
+	if nFrames < 2 || nFrames > 3 {
+		return false
+	}
+	flags, ok := decodeMonoLBRRFlagsForTest(first, nFrames)
+	if !ok || flags[0] != 0 {
+		return false
+	}
+	for i := 1; i < nFrames; i++ {
+		if flags[i] != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // silk_LBRR_flags_iCDF for 2- and 3-frame packets (silk/tables_other.c). Used

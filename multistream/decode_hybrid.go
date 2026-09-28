@@ -3,6 +3,7 @@ package multistream
 import (
 	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/silk"
 )
 
 // decodeHybridModeWithTransition wraps the Hybrid decode with the libopus
@@ -131,6 +132,8 @@ func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc str
 	rd := &d.rangeDecoder
 	rd.Init(frame)
 	out := d.framePCMFor(frameSize * channels)
+	d.installOSCELACESilkPostfilterHook(silk.BandwidthWideband, toc.stereo)
+	defer d.clearOSCELACESilkPostfilterHook()
 	if err := d.hybridDec.DecodeWithDecoderHookToFloat32(rd, frameSize, toc.stereo, afterSilk, out); err != nil {
 		return nil, err
 	}

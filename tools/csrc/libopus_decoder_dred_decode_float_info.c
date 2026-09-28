@@ -167,6 +167,14 @@ static int write_i32(int32_t v) {
   return write_u32((uint32_t)v);
 }
 
+static int write_i32_array(const opus_int32 *src, int count) {
+  int i;
+  for (i = 0; i < count; i++) {
+    if (!write_i32(src[i])) return 0;
+  }
+  return 1;
+}
+
 static int write_f32(float v) {
   union {
     float f;
@@ -247,9 +255,9 @@ int main(void) {
   int silk_prev_signal_type = 0;
   float silk_smid[2] = {0, 0};
   float silk_outbuf[MAX_FRAME_LENGTH + 2 * MAX_SUB_FRAME_LENGTH];
-  float silk_slpc_q14[MAX_LPC_ORDER];
-  float silk_exc_q14[MAX_FRAME_LENGTH];
-  float silk_resampler_iir[SILK_RESAMPLER_MAX_IIR_ORDER];
+  opus_int32 silk_slpc_q14[MAX_LPC_ORDER];
+  opus_int32 silk_exc_q14[MAX_FRAME_LENGTH];
+  opus_int32 silk_resampler_iir[SILK_RESAMPLER_MAX_IIR_ORDER];
   float silk_resampler_fir[RESAMPLER_ORDER_FIR_12];
   float silk_resampler_delay[96];
   float warmup_preemph_mem[2] = {0, 0};
@@ -555,13 +563,13 @@ int main(void) {
       silk_outbuf[i] = (1.0f / 32768.0f) * silk_state->outBuf[i];
     }
     for (i = 0; i < MAX_LPC_ORDER; i++) {
-      silk_slpc_q14[i] = (float)silk_state->sLPC_Q14_buf[i];
+      silk_slpc_q14[i] = silk_state->sLPC_Q14_buf[i];
     }
     for (i = 0; i < MAX_FRAME_LENGTH; i++) {
-      silk_exc_q14[i] = (float)silk_state->exc_Q14[i];
+      silk_exc_q14[i] = silk_state->exc_Q14[i];
     }
     for (i = 0; i < SILK_RESAMPLER_MAX_IIR_ORDER; i++) {
-      silk_resampler_iir[i] = (float)silk_state->resampler_state.sIIR[i];
+      silk_resampler_iir[i] = silk_state->resampler_state.sIIR[i];
     }
     for (i = 0; i < RESAMPLER_ORDER_FIR_12; i++) {
       silk_resampler_fir[i] = (1.0f / 32768.0f) * silk_state->resampler_state.sFIR.i16[i];
@@ -572,7 +580,7 @@ int main(void) {
   }
 
   if (!write_exact(OUTPUT_MAGIC, 4) ||
-      !write_u32(5) ||
+      !write_u32(6) ||
       !write_i32(parse_ret) ||
       !write_i32(dred_end) ||
       !write_i32(warmup_ret) ||
@@ -720,9 +728,9 @@ int main(void) {
       }
       if (!write_f32_array(silk_smid, 2) ||
           !write_f32_array(silk_outbuf, MAX_FRAME_LENGTH + 2 * MAX_SUB_FRAME_LENGTH) ||
-          !write_f32_array(silk_slpc_q14, MAX_LPC_ORDER) ||
-          !write_f32_array(silk_exc_q14, MAX_FRAME_LENGTH) ||
-          !write_f32_array(silk_resampler_iir, SILK_RESAMPLER_MAX_IIR_ORDER) ||
+          !write_i32_array(silk_slpc_q14, MAX_LPC_ORDER) ||
+          !write_i32_array(silk_exc_q14, MAX_FRAME_LENGTH) ||
+          !write_i32_array(silk_resampler_iir, SILK_RESAMPLER_MAX_IIR_ORDER) ||
           !write_f32_array(silk_resampler_fir, RESAMPLER_ORDER_FIR_12) ||
           !write_f32_array(silk_resampler_delay, 96)) {
         fprintf(stderr, "failed to write decoder DRED SILK state\n");

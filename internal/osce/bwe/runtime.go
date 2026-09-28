@@ -154,6 +154,26 @@ func (s *State) SetModel(blob *dnnblob.Blob) error {
 	return nil
 }
 
+// SetModelPreservingState replaces the BBWENet weights without resetting the
+// recurrent and filter history. libopus's decoder model control reloads OSCE
+// weights while retaining each SILK channel's OSCE BWE state.
+func (s *State) SetModelPreservingState(blob *dnnblob.Blob) error {
+	if s == nil {
+		return errInvalidBWEModel
+	}
+	if blob == nil {
+		s.model = nil
+		return nil
+	}
+	model, err := LoadModel(blob)
+	if err != nil {
+		s.model = nil
+		return err
+	}
+	s.model = model
+	return nil
+}
+
 // Model returns the bound BBWENet model, or nil when the runtime has not yet
 // been loaded with a valid weights blob.
 func (s *State) Model() *Model {

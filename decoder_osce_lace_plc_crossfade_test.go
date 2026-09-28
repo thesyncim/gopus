@@ -246,8 +246,8 @@ func TestDecoderOSCELACEPLC(t *testing.T) {
 		t.Fatalf("Decode(nil) PLC returned %d samples, want %d", gotPLC, frameSize)
 	}
 
-	if dec.osceLACE != nil && dec.osceLACE.prevLACEActive {
-		t.Fatalf("prevLACEActive=true after SILK WB PLC; libopus resets OSCE LACE on the lost branch")
+	if dec.osceLACE == nil || dec.osceLACE.laceResetFrames[0] != 2 || dec.osceLACE.laceMethod != osceLACEModeLACE {
+		t.Fatal("SILK WB PLC must retain LACE and arm its two-frame output reset")
 	}
 
 	// PLC output must be non-zero -- the silk_resampler upsampling alone
@@ -308,8 +308,8 @@ func TestDecoderOSCELACEPLC(t *testing.T) {
 		if gotPLC != frameSize {
 			t.Fatalf("Decode(nil) stereo PLC returned %d samples, want %d", gotPLC, frameSize)
 		}
-		if dec.osceLACE != nil && dec.osceLACE.prevLACEActive {
-			t.Fatalf("prevLACEActive=true after stereo SILK WB PLC; libopus resets OSCE LACE on the lost branch")
+		if dec.osceLACE == nil || dec.osceLACE.laceResetFrames != [2]int{2, 2} || dec.osceLACE.laceMethod != osceLACEModeLACE {
+			t.Fatal("stereo SILK WB PLC must retain LACE and arm both channel resets")
 		}
 
 		var leftEnergy, rightEnergy, diffEnergy float64

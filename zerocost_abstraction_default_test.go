@@ -8,7 +8,7 @@ import "testing"
 // abstraction pattern that makes optional features truly zero-cost.
 //
 // The hot float decode/encode path calls gated capability methods directly on
-// the concrete *Decoder / *Encoder type (e.g. d.is96kHz(), d.osceLACEActive(),
+// the concrete *Decoder / *Encoder type (e.g. d.is96kHz(), d.osceBWEActive(),
 // d.beginFixedPacket()). There is NO interface dispatch and NO runtime
 // "am I fixed-point?" flag: the selection is purely compile-time build-tag file
 // selection. In the default build the gated files are excluded and a sibling
@@ -27,9 +27,6 @@ func TestDefaultBuildGatedDispatchIsCompileTimeNoOp(t *testing.T) {
 	}
 	if d.osceBWEActive() {
 		t.Error("Decoder.osceBWEActive() must be a constant false in the default build")
-	}
-	if d.osceLACEActive() {
-		t.Error("Decoder.osceLACEActive() must be a constant false in the default build")
 	}
 	if d.fixedInt16Ready(0) {
 		t.Error("Decoder.fixedInt16Ready() must be a constant false in the default build")

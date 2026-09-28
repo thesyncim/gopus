@@ -192,7 +192,7 @@ func newStreamDecoder(sampleRate, channels int) *streamState {
 	}
 	hybridDec := hybrid.NewDecoderWithSharedDecoders(channels, silkDec, celtDec)
 	hybridDec.SetAPISampleRate(sampleRate)
-	return &streamState{
+	d := &streamState{
 		sampleRate:       int32(sampleRate),
 		channels:         int32(channels),
 		hybridDec:        hybridDec,
@@ -203,6 +203,8 @@ func newStreamDecoder(sampleRate, channels int) *streamState {
 		lastFrameSize:    int32(sampleRate / 50),
 		lastTOCFrameSize: int32(sampleRate / 400),
 	}
+	d.initOSCELossHook()
+	return d
 }
 
 // Decode decodes a packet for mono streams.

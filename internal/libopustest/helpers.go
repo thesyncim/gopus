@@ -37,6 +37,7 @@ var (
 type scalarDNNBuildConfig struct {
 	label        string
 	buildFlavor  string
+	cflags       string
 	dred         bool
 	osce         bool
 	qext         bool
@@ -130,6 +131,10 @@ func osceScalarNoVectorBuildEnv() ([]string, error) {
 // featureDNNBuildConfig gives every optional-feature combination its own
 // archive and compiler contract. DRED-only uses its established build paths.
 func featureDNNBuildConfig(dred, osce, qext, custom bool, variant libopustooling.LibopusReferenceVariant) scalarDNNBuildConfig {
+	return featureDNNBuildConfigWithExtraCFlags(dred, osce, qext, custom, variant, "")
+}
+
+func featureDNNBuildConfigWithExtraCFlags(dred, osce, qext, custom bool, variant libopustooling.LibopusReferenceVariant, extraCFlags string) scalarDNNBuildConfig {
 	features := make([]string, 0, 4)
 	if dred {
 		features = append(features, "dred")
@@ -148,6 +153,9 @@ func featureDNNBuildConfig(dred, osce, qext, custom bool, variant libopustooling
 	if simd {
 		flavor += "-simd"
 	}
+	if extraCFlags != "" {
+		flavor += "-weights-file"
+	}
 	cflags := osceScalarNoVectorCFLAGS
 	buildEnv := osceScalarNoVectorBuildEnv
 	if simd {
@@ -157,9 +165,27 @@ func featureDNNBuildConfig(dred, osce, qext, custom bool, variant libopustooling
 		cflags = libopustooling.ScalarDNNBuildCFLAGS
 		buildEnv = libopustooling.ScalarDNNBuildEnv
 	}
+	if extraCFlags != "" {
+		cflags += " " + extraCFlags
+		baseBuildEnv := buildEnv
+		buildEnv = func() ([]string, error) {
+			env, err := baseBuildEnv()
+			if err != nil {
+				return nil, err
+			}
+			for i, value := range env {
+				if strings.HasPrefix(value, "CFLAGS=") {
+					env[i] = "CFLAGS=" + strings.TrimPrefix(value, "CFLAGS=") + " " + extraCFlags
+					return env, nil
+				}
+			}
+			return nil, fmt.Errorf("%s build environment is missing CFLAGS", strings.Join(features, "+"))
+		}
+	}
 	cfg := scalarDNNBuildConfig{
 		label:       strings.Join(features, "+"),
 		buildFlavor: flavor,
+		cflags:      cflags,
 		dred:        dred,
 		osce:        osce,
 		qext:        qext,
@@ -501,6 +527,36 @@ func BuildDREDHelper(root, sourceFile, outputBase string, includeInternal bool) 
 		label:  "dred",
 		ensure: EnsureDREDBuild,
 		cflags: cflags,
+	})
+}
+
+// BuildDREDWeightsFileHelper builds a DNN-feature reference with USE_WEIGHTS_FILE
+// defined for both libopus and the helper. It lets sequence oracles load the
+// same runtime model blob at the same point as the Go decoder.
+func BuildDREDWeightsFileHelper(root, sourceFile, outputBase string, includeInternal bool) (string, error) {
+	if err := validateDREDReferenceBuildPairing(); err != nil {
+		return "", err
+	}
+	if err := validateDNNFloatReferencePairing(true); err != nil {
+		return "", err
+	}
+	if root == "" {
+		root = repoRoot()
+	}
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	cfg := featureDNNBuildConfigWithExtraCFlags(
+		true, osceDNNFeatureEnabled, extsupport.QEXT, customModesReferenceEnabled,
+		variant, "-DUSE_WEIGHTS_FILE",
+	)
+	return buildScalarDNNHelper(root, sourceFile, outputBase, includeInternal, scalarDNNHelperConfig{
+		label: "DRED weights-file",
+		ensure: func(repoRoot string) (string, string, error) {
+			return ensureScalarDNNBuild(repoRoot, cfg)
+		},
+		cflags: cfg.cflags,
 	})
 }
 

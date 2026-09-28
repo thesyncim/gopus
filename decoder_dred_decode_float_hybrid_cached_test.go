@@ -68,8 +68,8 @@ func TestDecoderCachedHybridDREDDecodeMatrixMatchesLiveSequenceOracle(t *testing
 			if err != nil {
 				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
-			pcmTol, plcTol, farganTol, celtTol := cachedHybridLiveSequenceTolerances(tc.bandwidth, tc.frameSize)
-			assertDecoderCachedDREDFirstLossMatchesLiveSequenceOracleWithTolerances(t, "cached hybrid", packetInfo, pcmTol, plcTol, farganTol, celtTol)
+
+			assertDecoderCachedDREDFirstLossMatchesLiveSequenceOracle(t, "cached hybrid", packetInfo)
 		})
 	}
 }
@@ -118,8 +118,8 @@ func TestDecoderCachedHybridDREDThenNextPacketMatchesLiveSequenceOracle(t *testi
 			if got != n {
 				t.Fatalf("explicit DRED decode=%d want %d", got, n)
 			}
-			_, plcTol, farganTol, celtTol := cachedHybridLiveSequenceTolerances(tc.bandwidth, tc.frameSize)
-			assertDecodedPCMQuality(t, pcm[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "cached hybrid live-sequence first-loss pcm")
+
+			assertDecodedPCMExactAndQuality(t, pcm[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "cached hybrid live-sequence first-loss pcm")
 
 			nextPCM := make([]float32, dec.maxPacketSamples)
 			gotNext, err := dec.Decode(nextPacket, nextPCM)
@@ -130,10 +130,10 @@ func TestDecoderCachedHybridDREDThenNextPacketMatchesLiveSequenceOracle(t *testi
 				t.Fatalf("Decode(next hybrid packet)=%d want %d", gotNext, want.next.ret)
 			}
 
-			assertDecodedPCMQuality(t, nextPCM[:gotNext], want.next.pcm[:gotNext], dec.SampleRate(), dec.Channels(), "cached hybrid next packet live-sequence pcm")
-			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "cached hybrid next packet live-sequence plc", plcTol)
-			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "cached hybrid next packet live-sequence fargan", farganTol)
-			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.next.celt48k, "cached hybrid next packet live-sequence celt", celtTol)
+			assertDecodedPCMExactAndQuality(t, nextPCM[:gotNext], want.next.pcm[:gotNext], dec.SampleRate(), dec.Channels(), "cached hybrid next packet live-sequence pcm")
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "cached hybrid next packet live-sequence plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "cached hybrid next packet live-sequence fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.next.celt48k, "cached hybrid next packet live-sequence celt")
 		})
 	}
 }
@@ -161,8 +161,8 @@ func TestDecoderCachedHybridDREDSecondLossMatchesLiveSequenceOracle(t *testing.T
 			if err != nil {
 				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
-			pcmTol, plcTol, farganTol, celtTol := cachedHybridLiveSequenceTolerances(tc.bandwidth, tc.frameSize)
-			assertDecoderCachedDREDSecondLossMatchesLiveSequenceOracleWithTolerances(t, "cached hybrid", packetInfo, pcmTol, plcTol, farganTol, celtTol)
+
+			assertDecoderCachedDREDSecondLossMatchesLiveSequenceOracle(t, "cached hybrid", packetInfo)
 		})
 	}
 }
@@ -214,15 +214,15 @@ func TestDecoderCachedHybridSecondLossThenNextPacketMatchesLiveSequenceOracle(t 
 			if got != n {
 				t.Fatalf("explicit DRED decode=%d want %d", got, n)
 			}
-			_, plcTol, farganTol, celtTol := cachedHybridLiveSequenceTolerances(tc.bandwidth, tc.frameSize)
-			assertDecodedPCMQuality(t, pcm0[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "cached hybrid live-sequence warmup pcm")
+
+			assertDecodedPCMExactAndQuality(t, pcm0[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "cached hybrid live-sequence warmup pcm")
 
 			pcm1 := make([]float32, dec.maxPacketSamples)
 			got = decodeCachedCarrierDREDViaExplicit(t, dec, dred, 2*n, pcm1, n)
 			if got != n {
 				t.Fatalf("explicit DRED decode=%d want %d", got, n)
 			}
-			assertDecodedPCMQuality(t, pcm1[:got], want.step1.pcm[:got], dec.SampleRate(), dec.Channels(), "cached hybrid live-sequence second-loss pcm")
+			assertDecodedPCMExactAndQuality(t, pcm1[:got], want.step1.pcm[:got], dec.SampleRate(), dec.Channels(), "cached hybrid live-sequence second-loss pcm")
 
 			nextPCM := make([]float32, dec.maxPacketSamples)
 			gotNext, err := dec.Decode(nextPacket, nextPCM)
@@ -233,10 +233,10 @@ func TestDecoderCachedHybridSecondLossThenNextPacketMatchesLiveSequenceOracle(t 
 				t.Fatalf("Decode(next hybrid packet)=%d want %d", gotNext, want.next.ret)
 			}
 
-			assertDecodedPCMQuality(t, nextPCM[:gotNext], want.next.pcm[:gotNext], dec.SampleRate(), dec.Channels(), "cached hybrid second-loss next packet live-sequence pcm")
-			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "cached hybrid second-loss next packet live-sequence plc", plcTol)
-			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "cached hybrid second-loss next packet live-sequence fargan", farganTol)
-			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.next.celt48k, "cached hybrid second-loss next packet live-sequence celt", celtTol)
+			assertDecodedPCMExactAndQuality(t, nextPCM[:gotNext], want.next.pcm[:gotNext], dec.SampleRate(), dec.Channels(), "cached hybrid second-loss next packet live-sequence pcm")
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "cached hybrid second-loss next packet live-sequence plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "cached hybrid second-loss next packet live-sequence fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.next.celt48k, "cached hybrid second-loss next packet live-sequence celt")
 		})
 	}
 }
@@ -283,17 +283,16 @@ func TestDecoderCachedHybridDRED16kDecodeMatrixMatchesLiveSequenceOracle(t *test
 				t.Fatalf("libopus 16k cached hybrid decoder first-loss ret=%d want %d", want.step0.ret, n)
 			}
 
-			_, plcTol, farganTol, celtTol := cachedHybridLiveSequenceTolerances(tc.bandwidth, tc.frameSize)
 			pcm := make([]float32, n*dec.Channels())
 			got := decodeCachedCarrierDREDViaExplicit(t, dec, dred, n, pcm, n)
 			if got != n {
 				t.Fatalf("explicit DRED decode=%d want %d", got, n)
 			}
 
-			assertDecodedPCMQuality(t, pcm[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "16k cached hybrid first-loss live-sequence pcm")
-			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "16k cached hybrid first-loss live-sequence plc", plcTol)
-			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "16k cached hybrid first-loss live-sequence fargan", farganTol)
-			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, "16k cached hybrid first-loss live-sequence celt", celtTol)
+			assertDecodedPCMExactAndQuality(t, pcm[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "16k cached hybrid first-loss live-sequence pcm")
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "16k cached hybrid first-loss live-sequence plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "16k cached hybrid first-loss live-sequence fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.step0.celt48k, "16k cached hybrid first-loss live-sequence celt")
 		})
 	}
 }
@@ -329,17 +328,16 @@ func TestDecoderCachedHybridDREDAPIRateDecodeMatrixMatchesLiveSequenceOracle(t *
 				t.Fatalf("libopus %d Hz cached hybrid decoder first-loss ret=%d want %d", tc.sampleRate, want.step0.ret, n)
 			}
 
-			_, plcTol, farganTol, celtTol := cachedHybridLiveSequenceTolerances(tc.bandwidth, tc.frameSize)
 			pcm := make([]float32, n*dec.Channels())
 			got := decodeCachedCarrierDREDViaExplicit(t, dec, dred, n, pcm, n)
 			if got != n {
 				t.Fatalf("explicit DRED decode=%d want %d", got, n)
 			}
 
-			assertDecodedPCMQuality(t, pcm[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "API-rate cached hybrid first-loss live-sequence pcm")
-			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "API-rate cached hybrid first-loss live-sequence plc", plcTol)
-			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "API-rate cached hybrid first-loss live-sequence fargan", farganTol)
-			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, "API-rate cached hybrid first-loss live-sequence celt", celtTol)
+			assertDecodedPCMExactAndQuality(t, pcm[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "API-rate cached hybrid first-loss live-sequence pcm")
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "API-rate cached hybrid first-loss live-sequence plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "API-rate cached hybrid first-loss live-sequence fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.step0.celt48k, "API-rate cached hybrid first-loss live-sequence celt")
 		})
 	}
 }
@@ -385,8 +383,8 @@ func TestDecoderCachedHybridDREDAPIRateThenNextPacketMatchesLiveSequenceOracle(t
 			if got != n {
 				t.Fatalf("explicit DRED decode=%d want %d", got, n)
 			}
-			_, plcTol, farganTol, celtTol := cachedHybridLiveSequenceTolerances(tc.bandwidth, tc.frameSize)
-			assertDecodedPCMQuality(t, pcm[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "API-rate cached hybrid live-sequence first-loss pcm")
+
+			assertDecodedPCMExactAndQuality(t, pcm[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "API-rate cached hybrid live-sequence first-loss pcm")
 
 			nextPCM := make([]float32, dec.maxPacketSamples)
 			gotNext, err := dec.Decode(nextPacket, nextPCM)
@@ -397,10 +395,10 @@ func TestDecoderCachedHybridDREDAPIRateThenNextPacketMatchesLiveSequenceOracle(t
 				t.Fatalf("Decode(next hybrid packet)=%d want %d", gotNext, want.next.ret)
 			}
 
-			assertDecodedPCMQuality(t, nextPCM[:gotNext], want.next.pcm[:gotNext], dec.SampleRate(), dec.Channels(), "API-rate cached hybrid next packet live-sequence pcm")
-			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "API-rate cached hybrid next packet live-sequence plc", plcTol)
-			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "API-rate cached hybrid next packet live-sequence fargan", farganTol)
-			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.next.celt48k, "API-rate cached hybrid next packet live-sequence celt", celtTol)
+			assertDecodedPCMExactAndQuality(t, nextPCM[:gotNext], want.next.pcm[:gotNext], dec.SampleRate(), dec.Channels(), "API-rate cached hybrid next packet live-sequence pcm")
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "API-rate cached hybrid next packet live-sequence plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "API-rate cached hybrid next packet live-sequence fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.next.celt48k, "API-rate cached hybrid next packet live-sequence celt")
 		})
 	}
 }
@@ -439,27 +437,25 @@ func TestDecoderCachedHybridDREDAPIRateSecondLossMatchesLiveSequenceOracle(t *te
 				t.Fatalf("libopus %d Hz cached hybrid decoder second-loss ret=%d want %d", tc.sampleRate, want.step1.ret, n)
 			}
 
-			_, plcTol, farganTol, celtTol := cachedHybridLiveSequenceTolerances(tc.bandwidth, tc.frameSize)
-
 			pcm0 := make([]float32, n*dec.Channels())
 			got := decodeCachedCarrierDREDViaExplicit(t, dec, dred, n, pcm0, n)
 			if got != n {
 				t.Fatalf("explicit DRED decode=%d want %d", got, n)
 			}
-			assertDecodedPCMQuality(t, pcm0[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "API-rate cached hybrid warmup live-sequence pcm")
-			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "API-rate cached hybrid warmup live-sequence plc", plcTol)
-			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "API-rate cached hybrid warmup live-sequence fargan", farganTol)
-			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, "API-rate cached hybrid warmup live-sequence celt", celtTol)
+			assertDecodedPCMExactAndQuality(t, pcm0[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "API-rate cached hybrid warmup live-sequence pcm")
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "API-rate cached hybrid warmup live-sequence plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "API-rate cached hybrid warmup live-sequence fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.step0.celt48k, "API-rate cached hybrid warmup live-sequence celt")
 
 			pcm1 := make([]float32, n*dec.Channels())
 			got = decodeCachedCarrierDREDViaExplicit(t, dec, dred, 2*n, pcm1, n)
 			if got != n {
 				t.Fatalf("explicit DRED decode=%d want %d", got, n)
 			}
-			assertDecodedPCMQuality(t, pcm1[:got], want.step1.pcm[:got], dec.SampleRate(), dec.Channels(), "API-rate cached hybrid second-loss live-sequence pcm")
-			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step1.state, "API-rate cached hybrid second-loss live-sequence plc", plcTol)
-			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step1.fargan, "API-rate cached hybrid second-loss live-sequence fargan", farganTol)
-			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step1.celt48k, "API-rate cached hybrid second-loss live-sequence celt", celtTol)
+			assertDecodedPCMExactAndQuality(t, pcm1[:got], want.step1.pcm[:got], dec.SampleRate(), dec.Channels(), "API-rate cached hybrid second-loss live-sequence pcm")
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step1.state, "API-rate cached hybrid second-loss live-sequence plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step1.fargan, "API-rate cached hybrid second-loss live-sequence fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.step1.celt48k, "API-rate cached hybrid second-loss live-sequence celt")
 		})
 	}
 }
@@ -503,21 +499,19 @@ func TestDecoderCachedHybridDREDAPIRateSecondLossThenNextPacketMatchesLiveSequen
 				t.Fatalf("libopus %d Hz cached hybrid decoder follow-up ret=%d want >0", tc.sampleRate, want.next.ret)
 			}
 
-			_, plcTol, farganTol, celtTol := cachedHybridLiveSequenceTolerances(tc.bandwidth, tc.frameSize)
-
 			pcm0 := make([]float32, n*dec.Channels())
 			got := decodeCachedCarrierDREDViaExplicit(t, dec, dred, n, pcm0, n)
 			if got != n {
 				t.Fatalf("explicit DRED decode=%d want %d", got, n)
 			}
-			assertDecodedPCMQuality(t, pcm0[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "API-rate cached hybrid live-sequence warmup pcm")
+			assertDecodedPCMExactAndQuality(t, pcm0[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "API-rate cached hybrid live-sequence warmup pcm")
 
 			pcm1 := make([]float32, n*dec.Channels())
 			got = decodeCachedCarrierDREDViaExplicit(t, dec, dred, 2*n, pcm1, n)
 			if got != n {
 				t.Fatalf("explicit DRED decode=%d want %d", got, n)
 			}
-			assertDecodedPCMQuality(t, pcm1[:got], want.step1.pcm[:got], dec.SampleRate(), dec.Channels(), "API-rate cached hybrid live-sequence second-loss pcm")
+			assertDecodedPCMExactAndQuality(t, pcm1[:got], want.step1.pcm[:got], dec.SampleRate(), dec.Channels(), "API-rate cached hybrid live-sequence second-loss pcm")
 
 			nextPCM := make([]float32, dec.maxPacketSamples)
 			gotNext, err := dec.Decode(nextPacket, nextPCM)
@@ -528,10 +522,10 @@ func TestDecoderCachedHybridDREDAPIRateSecondLossThenNextPacketMatchesLiveSequen
 				t.Fatalf("Decode(next hybrid packet)=%d want %d", gotNext, want.next.ret)
 			}
 
-			assertDecodedPCMQuality(t, nextPCM[:gotNext], want.next.pcm[:gotNext], dec.SampleRate(), dec.Channels(), "API-rate cached hybrid second-loss next packet live-sequence pcm")
-			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "API-rate cached hybrid second-loss next packet live-sequence plc", plcTol)
-			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "API-rate cached hybrid second-loss next packet live-sequence fargan", farganTol)
-			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.next.celt48k, "API-rate cached hybrid second-loss next packet live-sequence celt", celtTol)
+			assertDecodedPCMExactAndQuality(t, nextPCM[:gotNext], want.next.pcm[:gotNext], dec.SampleRate(), dec.Channels(), "API-rate cached hybrid second-loss next packet live-sequence pcm")
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "API-rate cached hybrid second-loss next packet live-sequence plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "API-rate cached hybrid second-loss next packet live-sequence fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.next.celt48k, "API-rate cached hybrid second-loss next packet live-sequence celt")
 		})
 	}
 }
@@ -588,8 +582,8 @@ func TestDecoderCachedHybridDRED16kThenNextPacketMatchesLiveSequenceOracle(t *te
 			if got != n {
 				t.Fatalf("explicit DRED decode=%d want %d", got, n)
 			}
-			_, plcTol, farganTol, celtTol := cachedHybridLiveSequenceTolerances(tc.bandwidth, tc.frameSize)
-			assertDecodedPCMQuality(t, pcm[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "16k cached hybrid live-sequence first-loss pcm")
+
+			assertDecodedPCMExactAndQuality(t, pcm[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "16k cached hybrid live-sequence first-loss pcm")
 
 			nextPCM := make([]float32, dec.maxPacketSamples)
 			gotNext, err := dec.Decode(nextPacket, nextPCM)
@@ -600,10 +594,10 @@ func TestDecoderCachedHybridDRED16kThenNextPacketMatchesLiveSequenceOracle(t *te
 				t.Fatalf("Decode(next hybrid packet)=%d want %d", gotNext, want.next.ret)
 			}
 
-			assertDecodedPCMQuality(t, nextPCM[:gotNext], want.next.pcm[:gotNext], dec.SampleRate(), dec.Channels(), "16k cached hybrid next packet live-sequence pcm")
-			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "16k cached hybrid next packet live-sequence plc", plcTol)
-			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "16k cached hybrid next packet live-sequence fargan", farganTol)
-			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.next.celt48k, "16k cached hybrid next packet live-sequence celt", celtTol)
+			assertDecodedPCMExactAndQuality(t, nextPCM[:gotNext], want.next.pcm[:gotNext], dec.SampleRate(), dec.Channels(), "16k cached hybrid next packet live-sequence pcm")
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "16k cached hybrid next packet live-sequence plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "16k cached hybrid next packet live-sequence fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.next.celt48k, "16k cached hybrid next packet live-sequence celt")
 		})
 	}
 }
@@ -653,27 +647,25 @@ func TestDecoderCachedHybridDRED16kSecondLossMatchesLiveSequenceOracle(t *testin
 				t.Fatalf("libopus 16k cached hybrid decoder second-loss ret=%d want %d", want.step1.ret, n)
 			}
 
-			_, plcTol, farganTol, celtTol := cachedHybridLiveSequenceTolerances(tc.bandwidth, tc.frameSize)
-
 			pcm0 := make([]float32, n*dec.Channels())
 			got := decodeCachedCarrierDREDViaExplicit(t, dec, dred, n, pcm0, n)
 			if got != n {
 				t.Fatalf("explicit DRED decode=%d want %d", got, n)
 			}
-			assertDecodedPCMQuality(t, pcm0[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "16k cached hybrid warmup live-sequence pcm")
-			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "16k cached hybrid warmup live-sequence plc", plcTol)
-			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "16k cached hybrid warmup live-sequence fargan", farganTol)
-			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, "16k cached hybrid warmup live-sequence celt", celtTol)
+			assertDecodedPCMExactAndQuality(t, pcm0[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "16k cached hybrid warmup live-sequence pcm")
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "16k cached hybrid warmup live-sequence plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "16k cached hybrid warmup live-sequence fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.step0.celt48k, "16k cached hybrid warmup live-sequence celt")
 
 			pcm1 := make([]float32, n*dec.Channels())
 			got = decodeCachedCarrierDREDViaExplicit(t, dec, dred, 2*n, pcm1, n)
 			if got != n {
 				t.Fatalf("explicit DRED decode=%d want %d", got, n)
 			}
-			assertDecodedPCMQuality(t, pcm1[:got], want.step1.pcm[:got], dec.SampleRate(), dec.Channels(), "16k cached hybrid second-loss live-sequence pcm")
-			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step1.state, "16k cached hybrid second-loss live-sequence plc", plcTol)
-			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step1.fargan, "16k cached hybrid second-loss live-sequence fargan", farganTol)
-			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step1.celt48k, "16k cached hybrid second-loss live-sequence celt", celtTol)
+			assertDecodedPCMExactAndQuality(t, pcm1[:got], want.step1.pcm[:got], dec.SampleRate(), dec.Channels(), "16k cached hybrid second-loss live-sequence pcm")
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step1.state, "16k cached hybrid second-loss live-sequence plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step1.fargan, "16k cached hybrid second-loss live-sequence fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.step1.celt48k, "16k cached hybrid second-loss live-sequence celt")
 		})
 	}
 }
@@ -728,21 +720,19 @@ func TestDecoderCachedHybridDRED16kSecondLossThenNextPacketMatchesLiveSequenceOr
 				t.Fatalf("libopus 16k cached hybrid decoder follow-up ret=%d want >0", want.next.ret)
 			}
 
-			_, plcTol, farganTol, celtTol := cachedHybridLiveSequenceTolerances(tc.bandwidth, tc.frameSize)
-
 			pcm0 := make([]float32, n*dec.Channels())
 			got := decodeCachedCarrierDREDViaExplicit(t, dec, dred, n, pcm0, n)
 			if got != n {
 				t.Fatalf("explicit DRED decode=%d want %d", got, n)
 			}
-			assertDecodedPCMQuality(t, pcm0[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "16k cached hybrid live-sequence warmup pcm")
+			assertDecodedPCMExactAndQuality(t, pcm0[:got], want.step0.pcm[:got], dec.SampleRate(), dec.Channels(), "16k cached hybrid live-sequence warmup pcm")
 
 			pcm1 := make([]float32, n*dec.Channels())
 			got = decodeCachedCarrierDREDViaExplicit(t, dec, dred, 2*n, pcm1, n)
 			if got != n {
 				t.Fatalf("explicit DRED decode=%d want %d", got, n)
 			}
-			assertDecodedPCMQuality(t, pcm1[:got], want.step1.pcm[:got], dec.SampleRate(), dec.Channels(), "16k cached hybrid live-sequence second-loss pcm")
+			assertDecodedPCMExactAndQuality(t, pcm1[:got], want.step1.pcm[:got], dec.SampleRate(), dec.Channels(), "16k cached hybrid live-sequence second-loss pcm")
 
 			nextPCM := make([]float32, dec.maxPacketSamples)
 			gotNext, err := dec.Decode(nextPacket, nextPCM)
@@ -753,10 +743,10 @@ func TestDecoderCachedHybridDRED16kSecondLossThenNextPacketMatchesLiveSequenceOr
 				t.Fatalf("Decode(next hybrid packet)=%d want %d", gotNext, want.next.ret)
 			}
 
-			assertDecodedPCMQuality(t, nextPCM[:gotNext], want.next.pcm[:gotNext], dec.SampleRate(), dec.Channels(), "16k cached hybrid second-loss next packet live-sequence pcm")
-			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "16k cached hybrid second-loss next packet live-sequence plc", plcTol)
-			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "16k cached hybrid second-loss next packet live-sequence fargan", farganTol)
-			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.next.celt48k, "16k cached hybrid second-loss next packet live-sequence celt", celtTol)
+			assertDecodedPCMExactAndQuality(t, nextPCM[:gotNext], want.next.pcm[:gotNext], dec.SampleRate(), dec.Channels(), "16k cached hybrid second-loss next packet live-sequence pcm")
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "16k cached hybrid second-loss next packet live-sequence plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "16k cached hybrid second-loss next packet live-sequence fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.next.celt48k, "16k cached hybrid second-loss next packet live-sequence celt")
 		})
 	}
 }

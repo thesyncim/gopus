@@ -68,48 +68,30 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 		if packetFrameSize <= 0 {
 			packetFrameSize = frameSize
 		}
-		neuralReady := dredPossible && d.dredNeuralConcealmentAvailable()
-		n := frameSize
-		usedNeuralConcealment := false
-		if neuralReady && d.prevMode == ModeSILK && channels >= 1 && channels <= 2 {
-			n, usedNeuralConcealment, err = d.decodeSILKNeuralPLCInto(pcm, frameSize, plcDecodeState{
-				packetFrameSize:    packetFrameSize,
-				mode:               d.prevMode,
-				bandwidth:          d.lastBandwidth,
-				packetStereo:       d.prevPacketStereo,
-				useDecoderPLCState: true,
-			})
-		} else if d.dredNeuralConcealmentAvailable() && (d.prevMode == ModeCELT || sampleRate == 16000 && d.prevMode == ModeHybrid) && channels >= 1 && channels <= 2 {
-			// CELT starts at band 0, so celt_decode_lost selects FRAME_PLC_NEURAL
-			// at every supported API rate when its model and complexity gates pass.
-			// opus_decode(NULL) has no DRED sidecar and leaves cached DRED unused.
-			n, usedNeuralConcealment, err = d.decodeCELTNeuralPLCInto(pcm, frameSize, plcDecodeState{
-				packetFrameSize:    packetFrameSize,
-				mode:               d.prevMode,
-				bandwidth:          d.lastBandwidth,
-				packetStereo:       d.prevPacketStereo,
-				useDecoderPLCState: true,
-			})
+		if d.prevMode == ModeSILK || d.prevMode == ModeHybrid {
+			if d.beginDREDRawMonoFrameCapture(d.prevMode) {
+				defer d.endDREDRawMonoFrameCapture()
+			}
 		}
+		// The public loss path passes no DRED feature queue to the codec.
+		// libopus selects main-model neural PLC when deep PLC is enabled at
+		// complexity 5 or higher; sidecar availability does not enable it.
+		state := plcDecodeState{
+			packetFrameSize:    packetFrameSize,
+			mode:               d.prevMode,
+			bandwidth:          d.lastBandwidth,
+			packetStereo:       d.prevPacketStereo,
+			useDecoderPLCState: true,
+		}
+		n, usedNeuralConcealment, err := d.decodeNeuralPLCInto(pcm, frameSize, state, false)
 		if err != nil {
 			return 0, err
 		}
-		// libopus opus_decode(NULL,...) passes dred==NULL, so the cached-DRED
-		// FEC-feature feed gated on `dred != NULL && process_stage == 2`
-		// (opus_decoder.c:736) is skipped and a public packet-loss decode runs
-		// PLAIN PLC, consuming no cached DRED. Mirror that here for CELT/hybrid
-		// (and the 16 kHz CELT neural path): do NOT auto-apply cached DRED on a
-		// public Decode(nil). DRED is only applied through the explicit
-		// DRED-decode path (decodeExplicitDREDFloat). This matches the SILK
-		// public-loss reconciliation done in cc04ecf0.
+		// opus_decode(NULL,...) passes no DRED sidecar. Public loss follows the
+		// selected PLC path, including neural concealment when its gates pass.
+		// Cached DRED features are consumed only by explicit DRED decode.
 		if !usedNeuralConcealment {
-			n, err = d.decodePLCChunksInto(pcm, frameSize, plcDecodeState{
-				packetFrameSize:    packetFrameSize,
-				mode:               d.prevMode,
-				bandwidth:          d.lastBandwidth,
-				packetStereo:       d.prevPacketStereo,
-				useDecoderPLCState: true,
-			})
+			n, err = d.decodePLCChunksInto(pcm, frameSize, state)
 		}
 		if err != nil {
 			return 0, err
@@ -124,17 +106,10 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 		// intentionally excluded so the BWE never overwrites richer
 		// concealment output.
 		//
-		// LACE/NoLACE does not enhance packet-loss frames in libopus:
-		// `silk_decode_frame` calls `osce_reset` on the lost branch.
-		// Keep that state transition here before optional BWE runs on the
-		// concealed SILK lowband.
+		// LACE/NoLACE resets at each internal SILK loss boundary before CNG
+		// and frame gluing. Optional BWE processes the resulting lowband here.
 		if extsupport.OSCERuntime {
 			packetStereoLocal := d.prevPacketStereo
-			if d.lastPacketMode == ModeSILK &&
-				d.lastBandwidth == BandwidthWideband &&
-				sampleRate == 48000 && d.osceLACEActive() {
-				d.resetOSCELACEPostfilterState(packetStereoLocal)
-			}
 			if !usedNeuralConcealment && d.lastPacketMode == ModeSILK &&
 				d.lastBandwidth == BandwidthWideband &&
 				sampleRate == 48000 && d.osceBWEActive() {
@@ -176,10 +151,8 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 		return 0, ErrBufferTooSmall
 	}
 
-	if dredPossible {
-		if endRawDREDCapture := d.beginDREDRawMonoGoodFrameCapture(toc.Mode); endRawDREDCapture != nil {
-			defer endRawDREDCapture()
-		}
+	if d.beginDREDRawMonoFrameCapture(toc.Mode) {
+		defer d.endDREDRawMonoFrameCapture()
 	}
 
 	if frameCode == 0 {

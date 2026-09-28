@@ -20,6 +20,7 @@ type decoderOSCEFields struct {
 	osceBWEEnabled      bool
 	osceBWE             *decoderOSCEBWEState
 	osceLACEEnabled     bool
+	osceLACEOverrideSet bool
 	osceLACE            *decoderOSCELACEState
 }
 
@@ -31,8 +32,4 @@ func (d *Decoder) setOSCEModelState(models dnnblob.DecoderModelState) {
 
 func (d *Decoder) osceBWEActive() bool {
 	return d != nil && d.osceBWEEnabled
-}
-
-func (d *Decoder) osceLACEActive() bool {
-	return d != nil && d.osceLACEEnabled
 }

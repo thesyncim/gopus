@@ -179,5 +179,6 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	if cfg.SampleRate == 96000 {
 		init96kDecoder(d)
 	}
+	d.initOSCELossHook()
 	return d, nil
 }

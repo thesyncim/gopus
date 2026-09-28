@@ -267,6 +267,17 @@ func (s *LACEState) SetModel(model *Model) error {
 	return nil
 }
 
+// SetModelPreservingState replaces the model weights without resetting the
+// recurrent or filter history. Libopus's decoder DNN-blob control reloads the
+// OSCE model while retaining each SILK channel's OSCE state.
+func (s *LACEState) SetModelPreservingState(model *Model) error {
+	if s == nil {
+		return errLACENoModel
+	}
+	s.model = model
+	return nil
+}
+
 // Loaded reports whether the runtime has a valid model binding.
 func (s *LACEState) Loaded() bool {
 	return s != nil && s.model != nil && s.model.Loaded()
@@ -301,6 +312,17 @@ func (s *NoLACEState) SetModel(model *Model) error {
 	}
 	s.model = model
 	s.Reset()
+	return nil
+}
+
+// SetModelPreservingState replaces the model weights without resetting the
+// recurrent or filter history. Libopus's decoder DNN-blob control reloads the
+// OSCE model while retaining each SILK channel's OSCE state.
+func (s *NoLACEState) SetModelPreservingState(model *Model) error {
+	if s == nil {
+		return errLACENoModel
+	}
+	s.model = model
 	return nil
 }
 

@@ -17,8 +17,9 @@ func (d *Decoder) OSCEBWE() (bool, error) {
 	return d.osceBWEEnabled, nil
 }
 
-// SetOSCELACE exposes the extra libopus OSCE LACE/NoLACE postfilter
-// activation control only when built with -tags gopus_osce.
+// SetOSCELACE sets an explicit OSCE LACE/NoLACE postfilter override in
+// gopus_osce builds. Without an override, decoder complexity selects the
+// method as libopus does.
 //
 // The default gopus build keeps this outside the public API surface.
 // libopus selects between OSCE_METHOD_NONE / OSCE_METHOD_LACE / OSCE_METHOD_NOLACE
@@ -27,11 +28,12 @@ func (d *Decoder) OSCEBWE() (bool, error) {
 // the SILK lowband output before the silk_resampler / OSCE BWE stages.
 func (d *Decoder) SetOSCELACE(enabled bool) error {
 	d.osceLACEEnabled = enabled
+	d.osceLACEOverrideSet = true
 	return nil
 }
 
-// OSCELACE reports decoder-side OSCE LACE/NoLACE postfilter activation state
-// for explicit extra-controls builds.
+// OSCELACE reports whether the OSCE LACE/NoLACE gate is enabled by the
+// explicit override or by decoder complexity.
 func (d *Decoder) OSCELACE() (bool, error) {
-	return d.osceLACEEnabled, nil
+	return d.osceLACEEnabledForComplexity(), nil
 }

@@ -82,15 +82,15 @@ func upsample16kTo48k(in []float32, channels int) []float32 {
 	return out
 }
 
-// assertConcealedAudioMatchesLibopus is the END-TO-END audio gate for a concealed
-// frame: it scores the gopus output against the libopus oracle output with the
-// trusted opus_compare comparator (48 kHz upsampled) and gates on the near-exact
-// bar. AssertQuality logs the measured Q / corr / RMS.
+// assertConcealedAudioMatchesLibopus checks exact PCM bits and applies the
+// independent opus_compare quality gate for a concealed frame. It upsamples
+// 16 kHz output to 48 kHz for the quality score.
 func assertConcealedAudioMatchesLibopus(t *testing.T, got, want []float32, channels int, label string) {
 	t.Helper()
 	if len(got) != len(want) {
 		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
 	}
+	assertFloat32BitsEqual(t, got, want, label+" PCM bits")
 	gotUp := upsample16kTo48k(got, channels)
 	wantUp := upsample16kTo48k(want, channels)
 	cmp, err := qualitycompare.CompareDecodedFloat32(gotUp, wantUp, 48000, channels, concealMaxDelay(len(wantUp)/channels))
@@ -179,8 +179,6 @@ func TestDecoderFirstLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
 	if want.next.ret <= 0 {
 		t.Fatalf("libopus decoder DRED next ret=%d want >0", want.next.ret)
 	}
-	frameSize48 := n * 48000 / dec.SampleRate()
-	_, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize48)
 
 	gotN, err := dec.Decode(nil, pcm)
 	if err != nil {
@@ -203,9 +201,9 @@ func TestDecoderFirstLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
 	}
 
 	assertConcealedAudioMatchesLibopus(t, nextPCM[:gotNext], want.next.pcm[:gotNext], dec.Channels(), "first-loss next packet live-sequence pcm")
-	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "first-loss next packet live-sequence plc", plcTol)
-	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "first-loss next packet live-sequence fargan", farganTol)
-	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.next.celt48k, "first-loss next packet live-sequence celt", celtTol)
+	assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "first-loss next packet live-sequence plc")
+	assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "first-loss next packet live-sequence fargan")
+	assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.next.celt48k, "first-loss next packet live-sequence celt")
 }
 
 func TestDecoderSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
@@ -228,8 +226,6 @@ func TestDecoderSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) 
 	if want.next.ret <= 0 {
 		t.Fatalf("libopus decoder DRED next ret=%d want >0", want.next.ret)
 	}
-	frameSize48 := n * 48000 / dec.SampleRate()
-	_, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize48)
 
 	gotN, err := dec.Decode(nil, pcm)
 	if err != nil {
@@ -259,9 +255,9 @@ func TestDecoderSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) 
 	}
 
 	assertConcealedAudioMatchesLibopus(t, nextPCM[:gotNext], want.next.pcm[:gotNext], dec.Channels(), "second-loss next packet live-sequence pcm")
-	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "second-loss next packet live-sequence plc", plcTol)
-	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "second-loss next packet live-sequence fargan", farganTol)
-	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.next.celt48k, "second-loss next packet live-sequence celt", celtTol)
+	assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "second-loss next packet live-sequence plc")
+	assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "second-loss next packet live-sequence fargan")
+	assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.next.celt48k, "second-loss next packet live-sequence celt")
 }
 
 func TestDecoderFirstLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOracle(t *testing.T) {
@@ -292,7 +288,7 @@ func TestDecoderFirstLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOrac
 			if gotN != n {
 				t.Fatalf("Decode(nil)=%d want %d", gotN, n)
 			}
-			_, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
+
 			assertConcealedAudioMatchesLibopus(t, pcm[:n], want.step0.pcm[:n], dec.Channels(), fmt.Sprintf("first-loss frame-size %d live-sequence pcm", frameSize))
 
 			nextPCM := make([]float32, dec.maxPacketSamples)
@@ -305,9 +301,9 @@ func TestDecoderFirstLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOrac
 			}
 
 			assertConcealedAudioMatchesLibopus(t, nextPCM[:gotNext], want.next.pcm[:gotNext], dec.Channels(), fmt.Sprintf("first-loss frame-size %d next packet live-sequence pcm", frameSize))
-			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "first-loss frame-size next packet live-sequence plc", plcTol)
-			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "first-loss frame-size next packet live-sequence fargan", farganTol)
-			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.next.celt48k, "first-loss frame-size next packet live-sequence celt", celtTol)
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "first-loss frame-size next packet live-sequence plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "first-loss frame-size next packet live-sequence fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.next.celt48k, "first-loss frame-size next packet live-sequence celt")
 		})
 	}
 }
@@ -343,7 +339,7 @@ func TestDecoderSecondLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOra
 			if gotN != n {
 				t.Fatalf("Decode(nil, first)=%d want %d", gotN, n)
 			}
-			_, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
+
 			assertConcealedAudioMatchesLibopus(t, pcm[:n], want.step0.pcm[:n], dec.Channels(), fmt.Sprintf("second-loss frame-size %d warmup live-sequence pcm", frameSize))
 
 			gotN, err = dec.Decode(nil, pcm)
@@ -365,9 +361,9 @@ func TestDecoderSecondLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOra
 			}
 
 			assertConcealedAudioMatchesLibopus(t, nextPCM[:gotNext], want.next.pcm[:gotNext], dec.Channels(), fmt.Sprintf("second-loss frame-size %d next packet live-sequence pcm", frameSize))
-			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "second-loss frame-size next packet live-sequence plc", plcTol)
-			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "second-loss frame-size next packet live-sequence fargan", farganTol)
-			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.next.celt48k, "second-loss frame-size next packet live-sequence celt", celtTol)
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "second-loss frame-size next packet live-sequence plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "second-loss frame-size next packet live-sequence fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.next.celt48k, "second-loss frame-size next packet live-sequence celt")
 		})
 	}
 }

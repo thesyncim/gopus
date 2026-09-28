@@ -10,7 +10,20 @@ const nativePostfilterEnabled = true
 type NativePostfilterHook func(channel int, samples []int16, ctrl LatestDecoderControl) bool
 
 type nativePostfilterExtras struct {
-	hook NativePostfilterHook
+	hook     NativePostfilterHook
+	lossHook func(channel int)
+}
+
+// SetNativeLossHook installs the per-channel postfilter reset callback at the
+// silk_decode_frame loss boundary, before comfort noise and PLC frame gluing.
+func (d *Decoder) SetNativeLossHook(hook func(channel int)) {
+	d.nativePostfilter.lossHook = hook
+}
+
+func (d *Decoder) fireNativeLossHook(channel int) {
+	if d.nativePostfilter.lossHook != nil {
+		d.nativePostfilter.lossHook(channel)
+	}
 }
 
 // SetNativePostfilterHook installs the per-frame native post-filter callback;

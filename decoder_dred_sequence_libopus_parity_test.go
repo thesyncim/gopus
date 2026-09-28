@@ -17,21 +17,25 @@ const (
 
 	libopusDecoderDREDSequenceSampleFormatFloat32 = uint32(0)
 	libopusDecoderDREDSequenceSampleFormatInt16   = uint32(1)
+	libopusDecoderDREDSequenceSampleFormatInt24   = uint32(2)
 
-	libopusDecoderDREDSequenceSourceNone        = 0
-	libopusDecoderDREDSequenceSourceLost        = 1
-	libopusDecoderDREDSequenceSourceNextDRED    = 2
-	libopusDecoderDREDSequenceSourceCarrierDRED = 3
+	libopusDecoderDREDSequenceSourceNone             = 0
+	libopusDecoderDREDSequenceSourceLost             = 1
+	libopusDecoderDREDSequenceSourceNextDRED         = 2
+	libopusDecoderDREDSequenceSourceCarrierDRED      = 3
+	libopusDecoderDREDSequenceSourceQueueCarrierDRED = 4
 )
 
 type libopusDecoderDREDSequenceStepInfo struct {
-	ret     int
-	state   lpcnetplc.StateSnapshot
-	fargan  lpcnetplc.FARGANSnapshot
-	celt48k libopusDecoderDREDCELTSnapshot
-	silk    libopusDecoderDREDSILKSnapshot
-	pcm     []float32
-	pcm16   []int16
+	ret        int
+	finalRange uint32
+	state      lpcnetplc.StateSnapshot
+	fargan     lpcnetplc.FARGANSnapshot
+	celt48k    libopusDecoderDREDCELTSnapshot
+	silk       libopusDecoderDREDSILKSnapshot
+	pcm        []float32
+	pcm16      []int16
+	pcm24      []int32
 }
 
 type libopusDecoderDREDSILKSnapshot struct {
@@ -41,9 +45,9 @@ type libopusDecoderDREDSILKSnapshot struct {
 	PrevSignalType int
 	SMid           [2]float32
 	OutBuf         [480]float32
-	SLPCQ14        [16]float32
-	ExcQ14         [320]float32
-	ResamplerIIR   [6]float32
+	SLPCQ14        [16]int32
+	ExcQ14         [320]int32
+	ResamplerIIR   [6]int32
 	ResamplerFIR   [8]float32
 	ResamplerDelay [96]float32
 }
@@ -60,41 +64,101 @@ type libopusDecoderDREDSequenceInfo struct {
 	next            libopusDecoderDREDSequenceStepInfo
 }
 
-var libopusDecoderDREDSequenceHelper libopustest.HelperCache
+type libopusDecoderDREDSequenceOptions struct {
+	seedRepeats         int
+	complexity          int
+	resetAfterSeed      bool
+	loadModelAfterSeed  bool
+	useWeightsFile      bool
+	lossBeforeModelLoad bool
+	decoderModelBlob    []byte
+}
+
+var (
+	libopusDecoderDREDSequenceHelper            libopustest.HelperCache
+	libopusDecoderDREDWeightsFileSequenceHelper libopustest.HelperCache
+)
 
 func getLibopusDecoderDREDSequenceHelperPath() (string, error) {
 	return cachedLibopusDREDHelperPath(&libopusDecoderDREDSequenceHelper, "libopus_decoder_dred_sequence_info.c", "gopus_libopus_decoder_dred_sequence", true)
 }
 
+func getLibopusDecoderDREDWeightsFileSequenceHelperPath() (string, error) {
+	return libopusDecoderDREDWeightsFileSequenceHelper.Path(func() (string, error) {
+		return libopustest.BuildDREDWeightsFileHelper("", "libopus_decoder_dred_sequence_info.c", "gopus_libopus_decoder_dred_sequence_weights_file", true)
+	})
+}
+
 func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byte, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples int, decodeNextPacket bool) (libopusDecoderDREDSequenceInfo, error) {
-	return probeLibopusDecoderDREDSequenceWithSampleFormat(seedPacket, carrierPacket, nextPacket, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples, decodeNextPacket, libopusDecoderDREDSequenceSampleFormatFloat32)
+	return probeLibopusDecoderDREDSequenceWithSampleFormat(seedPacket, carrierPacket, nextPacket, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples, decodeNextPacket, libopusDecoderDREDSequenceSampleFormatFloat32, true)
 }
 
 func probeLibopusDecoderDREDSequenceInt16(seedPacket, carrierPacket, nextPacket []byte, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples int, decodeNextPacket bool) (libopusDecoderDREDSequenceInfo, error) {
-	return probeLibopusDecoderDREDSequenceWithSampleFormat(seedPacket, carrierPacket, nextPacket, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples, decodeNextPacket, libopusDecoderDREDSequenceSampleFormatInt16)
+	return probeLibopusDecoderDREDSequenceWithSampleFormat(seedPacket, carrierPacket, nextPacket, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples, decodeNextPacket, libopusDecoderDREDSequenceSampleFormatInt16, true)
 }
 
-func probeLibopusDecoderDREDSequenceWithSampleFormat(seedPacket, carrierPacket, nextPacket []byte, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples int, decodeNextPacket bool, sampleFormat uint32) (libopusDecoderDREDSequenceInfo, error) {
-	binPath, err := getLibopusDecoderDREDSequenceHelperPath()
+func probeLibopusDecoderDREDSequenceInt24(seedPacket, carrierPacket, nextPacket []byte, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples int, decodeNextPacket bool) (libopusDecoderDREDSequenceInfo, error) {
+	return probeLibopusDecoderDREDSequenceWithSampleFormat(seedPacket, carrierPacket, nextPacket, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples, decodeNextPacket, libopusDecoderDREDSequenceSampleFormatInt24, true)
+}
+
+// probeLibopusDecoderDREDSequenceInt24WithoutCarrierDecode mirrors the explicit
+// DRED API path: decode the seed in int24 mode, parse the carrier payload, and
+// call opus_decoder_dred_decode24 without first decoding the carrier packet.
+func probeLibopusDecoderDREDSequenceInt24WithoutCarrierDecode(seedPacket, carrierPacket, nextPacket []byte, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples int, decodeNextPacket bool) (libopusDecoderDREDSequenceInfo, error) {
+	return probeLibopusDecoderDREDSequenceWithSampleFormat(seedPacket, carrierPacket, nextPacket, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples, decodeNextPacket, libopusDecoderDREDSequenceSampleFormatInt24, false)
+}
+
+func probeLibopusDecoderDREDSequenceWithSampleFormat(seedPacket, carrierPacket, nextPacket []byte, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples int, decodeNextPacket bool, sampleFormat uint32, decodeCarrierPacket bool) (libopusDecoderDREDSequenceInfo, error) {
+	return probeLibopusDecoderDREDSequenceWithSampleFormats(seedPacket, carrierPacket, nextPacket, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples, decodeNextPacket, sampleFormat, sampleFormat, sampleFormat, decodeCarrierPacket)
+}
+
+func probeLibopusDecoderDREDSequenceWithSampleFormats(seedPacket, carrierPacket, nextPacket []byte, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples int, decodeNextPacket bool, stepSampleFormat, seedSampleFormat, carrierSampleFormat uint32, decodeCarrierPacket bool) (libopusDecoderDREDSequenceInfo, error) {
+	return probeLibopusDecoderDREDSequenceWithOptions(seedPacket, carrierPacket, nextPacket,
+		maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples,
+		step1Source, step1OffsetSamples, decodeNextPacket, stepSampleFormat,
+		seedSampleFormat, carrierSampleFormat, decodeCarrierPacket,
+		libopusDecoderDREDSequenceOptions{seedRepeats: 1, complexity: 10})
+}
+
+func probeLibopusDecoderDREDSequenceWithOptions(seedPacket, carrierPacket, nextPacket []byte, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples int, decodeNextPacket bool, stepSampleFormat, seedSampleFormat, carrierSampleFormat uint32, decodeCarrierPacket bool, options libopusDecoderDREDSequenceOptions) (libopusDecoderDREDSequenceInfo, error) {
+	var binPath string
+	var err error
+	if options.useWeightsFile {
+		binPath, err = getLibopusDecoderDREDWeightsFileSequenceHelperPath()
+	} else {
+		binPath, err = getLibopusDecoderDREDSequenceHelperPath()
+	}
 	if err != nil {
 		return libopusDecoderDREDSequenceInfo{}, err
 	}
-	if sampleFormat != libopusDecoderDREDSequenceSampleFormatFloat32 && sampleFormat != libopusDecoderDREDSequenceSampleFormatInt16 {
-		return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("invalid decoder DRED sequence sample format %d", sampleFormat)
+	validSampleFormat := func(format uint32) bool {
+		return format == libopusDecoderDREDSequenceSampleFormatFloat32 || format == libopusDecoderDREDSequenceSampleFormatInt16 || format == libopusDecoderDREDSequenceSampleFormatInt24
 	}
-	decoderModelBlob, err := probeLibopusDecoderNeuralModelBlob()
-	if err != nil {
-		return libopusDecoderDREDSequenceInfo{}, err
+	if !validSampleFormat(stepSampleFormat) || !validSampleFormat(seedSampleFormat) || !validSampleFormat(carrierSampleFormat) {
+		return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("invalid decoder DRED sequence sample formats: step=%d seed=%d carrier=%d", stepSampleFormat, seedSampleFormat, carrierSampleFormat)
+	}
+	if options.seedRepeats < 0 || options.seedRepeats > 1024 {
+		return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("invalid decoder DRED sequence seed repeat count %d", options.seedRepeats)
+	}
+	if options.complexity < 0 || options.complexity > 10 {
+		return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("invalid decoder DRED sequence complexity %d", options.complexity)
+	}
+	if options.lossBeforeModelLoad && (!options.useWeightsFile || !options.loadModelAfterSeed) {
+		return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("pre-load classical loss requires a deferred USE_WEIGHTS_FILE model load")
+	}
+	decoderModelBlob := options.decoderModelBlob
+	if decoderModelBlob == nil {
+		decoderModelBlob, err = probeLibopusDecoderNeuralModelBlob()
+		if err != nil {
+			return libopusDecoderDREDSequenceInfo{}, err
+		}
 	}
 	dredModelBlob, err := probeLibopusDREDModelBlob()
 	if err != nil {
 		return libopusDecoderDREDSequenceInfo{}, err
 	}
 
-	payloadVersion := uint32(1)
-	if sampleFormat != libopusDecoderDREDSequenceSampleFormatFloat32 {
-		payloadVersion = 2
-	}
+	payloadVersion := uint32(7)
 	payload := libopustest.NewOraclePayloadVersion(libopusDecoderDREDSequenceInputMagic, payloadVersion,
 		uint32(sampleRate),
 		uint32(maxDREDSamples),
@@ -114,9 +178,31 @@ func probeLibopusDecoderDREDSequenceWithSampleFormat(seedPacket, carrierPacket, 
 		nextFlag = 1
 	}
 	payload.U32(nextFlag)
-	if payloadVersion >= 2 {
-		payload.U32(sampleFormat)
+	payload.U32(stepSampleFormat)
+	var decodeCarrierFlag uint32
+	if decodeCarrierPacket {
+		decodeCarrierFlag = 1
 	}
+	payload.U32(decodeCarrierFlag)
+	payload.U32(seedSampleFormat)
+	payload.U32(carrierSampleFormat)
+	payload.U32(uint32(options.seedRepeats))
+	payload.U32(uint32(options.complexity))
+	var resetAfterSeed uint32
+	if options.resetAfterSeed {
+		resetAfterSeed = 1
+	}
+	payload.U32(resetAfterSeed)
+	var loadModelAfterSeed uint32
+	if options.loadModelAfterSeed {
+		loadModelAfterSeed = 1
+	}
+	payload.U32(loadModelAfterSeed)
+	var lossBeforeModelLoad uint32
+	if options.lossBeforeModelLoad {
+		lossBeforeModelLoad = 1
+	}
+	payload.U32(lossBeforeModelLoad)
 	for _, chunk := range [][]byte{
 		seedPacket,
 		carrierPacket,
@@ -127,7 +213,7 @@ func probeLibopusDecoderDREDSequenceWithSampleFormat(seedPacket, carrierPacket, 
 		payload.Raw(chunk)
 	}
 
-	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "decoder dred sequence", libopusDecoderDREDSequenceOutputMagic)
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "decoder dred sequence", libopusDecoderDREDSequenceOutputMagic, 2)
 	if err != nil {
 		return libopusDecoderDREDSequenceInfo{}, err
 	}
@@ -175,6 +261,19 @@ func probeLibopusDecoderDREDSequenceWithSampleFormat(seedPacket, carrierPacket, 
 		}
 		return dst, nil
 	}
+	readPCM24 := func(ret int) ([]int32, error) {
+		if ret <= 0 || info.channels <= 0 {
+			return nil, nil
+		}
+		dst := make([]int32, ret*info.channels)
+		for i := range dst {
+			dst[i] = reader.I32()
+		}
+		if err := reader.Err(); err != nil {
+			return nil, err
+		}
+		return dst, nil
+	}
 	parseSnapshot := func(step *libopusDecoderDREDSequenceStepInfo) error {
 		step.ret = int(reader.I32())
 		step.state.Blend = int(reader.I32())
@@ -185,6 +284,11 @@ func probeLibopusDecoderDREDSequenceWithSampleFormat(seedPacket, carrierPacket, 
 		step.state.FECReadPos = int(reader.I32())
 		step.state.FECFillPos = int(reader.I32())
 		step.state.FECSkip = int(reader.I32())
+		for i := range step.state.FEC {
+			if err := readBits(step.state.FEC[i][:]); err != nil {
+				return err
+			}
+		}
 		step.fargan.ContInitialized = reader.I32() != 0
 		step.fargan.LastPeriod = int(reader.I32())
 		step.celt48k.LastFrameType = int(reader.I32())
@@ -229,9 +333,17 @@ func probeLibopusDecoderDREDSequenceWithSampleFormat(seedPacket, carrierPacket, 
 		for _, dst := range [][]float32{
 			step.silk.SMid[:],
 			step.silk.OutBuf[:],
-			step.silk.SLPCQ14[:],
-			step.silk.ExcQ14[:],
-			step.silk.ResamplerIIR[:],
+		} {
+			if err := readBits(dst); err != nil {
+				return err
+			}
+		}
+		for _, dst := range [][]int32{step.silk.SLPCQ14[:], step.silk.ExcQ14[:], step.silk.ResamplerIIR[:]} {
+			for i := range dst {
+				dst[i] = reader.I32()
+			}
+		}
+		for _, dst := range [][]float32{
 			step.silk.ResamplerFIR[:],
 			step.silk.ResamplerDelay[:],
 		} {
@@ -239,10 +351,12 @@ func probeLibopusDecoderDREDSequenceWithSampleFormat(seedPacket, carrierPacket, 
 				return err
 			}
 		}
-		return nil
+		step.finalRange = reader.U32()
+		return reader.Err()
 	}
 
-	if sampleFormat == libopusDecoderDREDSequenceSampleFormatInt16 {
+	switch stepSampleFormat {
+	case libopusDecoderDREDSequenceSampleFormatInt16:
 		if info.step0.pcm16, err = readPCM16(info.step0.ret); err != nil {
 			return libopusDecoderDREDSequenceInfo{}, err
 		}
@@ -252,7 +366,17 @@ func probeLibopusDecoderDREDSequenceWithSampleFormat(seedPacket, carrierPacket, 
 		if info.next.pcm16, err = readPCM16(info.next.ret); err != nil {
 			return libopusDecoderDREDSequenceInfo{}, err
 		}
-	} else {
+	case libopusDecoderDREDSequenceSampleFormatInt24:
+		if info.step0.pcm24, err = readPCM24(info.step0.ret); err != nil {
+			return libopusDecoderDREDSequenceInfo{}, err
+		}
+		if info.step1.pcm24, err = readPCM24(info.step1.ret); err != nil {
+			return libopusDecoderDREDSequenceInfo{}, err
+		}
+		if info.next.pcm24, err = readPCM24(info.next.ret); err != nil {
+			return libopusDecoderDREDSequenceInfo{}, err
+		}
+	default:
 		if info.step0.pcm, err = readPCM(info.step0.ret); err != nil {
 			return libopusDecoderDREDSequenceInfo{}, err
 		}
@@ -305,7 +429,7 @@ func prepareCachedDREDDecodeInt16ParityStateForDecoderRateAndPacketWithChannels(
 		t.Fatalf("NewDecoder error: %v", err)
 	}
 	setDecoderComplexityForLibopusDREDParityTest(t, dec)
-	if err := dec.SetDNNBlob(requireLibopusDecoderNeuralModelBlob(t)); err != nil {
+	if err := dec.SetDNNBlob(dredHistoryDecoderModelBlob(t)); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)
 	}
 	setDREDDecoderBlobFromBytesForTest(t, dec, modelBlob)
@@ -623,16 +747,14 @@ func TestDecoderFirstLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.T
 		t.Fatalf("explicit DRED decode=%d want %d", gotN, n)
 	}
 
-	frameSize48 := n * 48000 / dec.SampleRate()
-	_, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize48)
 	// END-TO-END concealed-audio gate via the trusted quality comparator (16 kHz
 	// corr/RMS; opus_compare Q only valid at 48 kHz). Internal-state oracles below
 	// stay bit-exact.
 	assertConcealedAudioMatchesLibopus(t, pcm[:n], want.step0.pcm[:n], dec.Channels(), "concealed pcm live-sequence oracle")
-	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "live 16k first-loss sequence oracle plc", plcTol)
-	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "live 16k first-loss sequence oracle fargan", farganTol)
-	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, "live 16k first-loss sequence oracle celt", celtTol)
-	assertDecoderDREDSILKStateApproxEqualWithin(t, dec, want.step0.silk, silkpkg.BandwidthWideband, "live 16k first-loss sequence oracle silk", celtTol)
+	assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "live 16k first-loss sequence oracle plc")
+	assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "live 16k first-loss sequence oracle fargan")
+	assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.step0.celt48k, "live 16k first-loss sequence oracle celt")
+	assertDecoderDREDSILKStateBitsMatch(t, dec, want.step0.silk, silkpkg.BandwidthWideband, "live 16k first-loss sequence oracle silk")
 }
 
 func TestDecoderSecondLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.T) {
@@ -663,13 +785,11 @@ func TestDecoderSecondLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.
 		t.Fatalf("explicit DRED decode(second)=%d want %d", gotN, n)
 	}
 
-	frameSize48 := n * 48000 / dec.SampleRate()
-	_, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize48)
 	assertConcealedAudioMatchesLibopus(t, pcm[:n], want.step1.pcm[:n], dec.Channels(), "second concealed pcm live-sequence oracle")
-	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step1.state, "live 16k second-loss sequence oracle plc", plcTol)
-	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step1.fargan, "live 16k second-loss sequence oracle fargan", farganTol)
-	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step1.celt48k, "live 16k second-loss sequence oracle celt", celtTol)
-	assertDecoderDREDSILKStateApproxEqualWithin(t, dec, want.step1.silk, silkpkg.BandwidthWideband, "live 16k second-loss sequence oracle silk", celtTol)
+	assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step1.state, "live 16k second-loss sequence oracle plc")
+	assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step1.fargan, "live 16k second-loss sequence oracle fargan")
+	assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.step1.celt48k, "live 16k second-loss sequence oracle celt")
+	assertDecoderDREDSILKStateBitsMatch(t, dec, want.step1.silk, silkpkg.BandwidthWideband, "live 16k second-loss sequence oracle silk")
 }
 
 func TestDecoderFirstLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequenceOracle(t *testing.T) {
@@ -696,12 +816,11 @@ func TestDecoderFirstLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequenceO
 				t.Fatalf("explicit DRED decode=%d want %d", gotN, n)
 			}
 
-			_, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
 			assertConcealedAudioMatchesLibopus(t, pcm[:n], want.step0.pcm[:n], dec.Channels(), fmt.Sprintf("concealed frame-size %d pcm live-sequence oracle", frameSize))
-			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "live 16k first-loss frame-size sequence oracle plc", plcTol)
-			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "live 16k first-loss frame-size sequence oracle fargan", farganTol)
-			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, "live 16k first-loss frame-size sequence oracle celt", celtTol)
-			assertDecoderDREDSILKStateApproxEqualWithin(t, dec, want.step0.silk, silkpkg.BandwidthWideband, "live 16k first-loss frame-size sequence oracle silk", celtTol)
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "live 16k first-loss frame-size sequence oracle plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "live 16k first-loss frame-size sequence oracle fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.step0.celt48k, "live 16k first-loss frame-size sequence oracle celt")
+			assertDecoderDREDSILKStateBitsMatch(t, dec, want.step0.silk, silkpkg.BandwidthWideband, "live 16k first-loss frame-size sequence oracle silk")
 		})
 	}
 }
@@ -736,12 +855,11 @@ func TestDecoderSecondLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequence
 				t.Fatalf("explicit DRED decode(second)=%d want %d", gotN, n)
 			}
 
-			_, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
 			assertConcealedAudioMatchesLibopus(t, pcm[:n], want.step1.pcm[:n], dec.Channels(), fmt.Sprintf("second concealed frame-size %d pcm live-sequence oracle", frameSize))
-			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step1.state, "live 16k second-loss frame-size sequence oracle plc", plcTol)
-			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step1.fargan, "live 16k second-loss frame-size sequence oracle fargan", farganTol)
-			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step1.celt48k, "live 16k second-loss frame-size sequence oracle celt", celtTol)
-			assertDecoderDREDSILKStateApproxEqualWithin(t, dec, want.step1.silk, silkpkg.BandwidthWideband, "live 16k second-loss frame-size sequence oracle silk", celtTol)
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step1.state, "live 16k second-loss frame-size sequence oracle plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step1.fargan, "live 16k second-loss frame-size sequence oracle fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.step1.celt48k, "live 16k second-loss frame-size sequence oracle celt")
+			assertDecoderDREDSILKStateBitsMatch(t, dec, want.step1.silk, silkpkg.BandwidthWideband, "live 16k second-loss frame-size sequence oracle silk")
 		})
 	}
 }

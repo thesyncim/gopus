@@ -77,6 +77,9 @@ func TestEncoderCTLSequence_DREDDurationFuzz(t *testing.T) {
 // covered by the default decoder reset path.
 func TestDecoderCTLSequence_OSCERoundTrip(t *testing.T) {
 	dec := mustNewTestDecoder(t, 48000, 2)
+	if err := dec.SetComplexity(0); err != nil {
+		t.Fatalf("SetComplexity(0): %v", err)
+	}
 
 	if v, err := dec.OSCEBWE(); err != nil || v {
 		t.Fatalf("default OSCEBWE()=%v err=%v, want false/nil", v, err)

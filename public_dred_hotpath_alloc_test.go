@@ -71,6 +71,9 @@ func TestPublicDREDDecoderDecodeWithCoreModelsStaysZeroAlloc(t *testing.T) {
 	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob: %v", err)
 	}
+	if err := dec.SetComplexity(5); err != nil {
+		t.Fatalf("SetComplexity(5): %v", err)
+	}
 	if !dec.dredNeuralModelsLoaded() {
 		t.Fatal("decoder did not retain neural model readiness")
 	}

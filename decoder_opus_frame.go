@@ -286,9 +286,10 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			// transition PLC through the DRED neural concealment hook so the
 			// LPCNet PCM history / continuity state is advanced by the same one
 			// concealed frame before DRED recovery begins.
-			cleanupHook := func() {}
-			if d.prevMode != ModeCELT && d.dredNeuralConcealmentAvailable() {
-				cleanupHook, _ = d.beginHybridDREDLowbandHook()
+			hookInstalled := false
+			if d.prevMode != ModeCELT && d.complexity >= 5 && d.dredNeuralConcealmentAvailable() {
+				d.prepareDREDHistoryForSILKTransition()
+				hookInstalled = d.beginHybridDREDLowbandHook()
 			}
 			fixedCursor := d.fixedOutputCursor()
 			n, err := d.decodeOpusFrameIntoWithStatePolicy(
@@ -301,7 +302,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 				packetStereoLocal,
 				useDecoderPLCState,
 			)
-			cleanupHook()
+			if hookInstalled {
+				d.endHybridDREDLowbandHook()
+			}
 			if err != nil {
 				return 0, err
 			}
@@ -357,6 +360,12 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	case ModeHybrid:
 		if data != nil && d.haveDecoded && d.prevMode == ModeCELT {
 			d.silkDecoder.Reset()
+		}
+		if data != nil && extsupport.OSCERuntime {
+			// SILK runs at 16 kHz inside Hybrid. libopus calls
+			// osce_enhance_frame for that lowband before CELT is decoded.
+			d.installOSCELACESilkPostfilterHook(mode, silk.BandwidthWideband, packetStereoLocal)
+			defer d.clearOSCELACESilkPostfilterHook()
 		}
 		if data == nil {
 			// A lost hybrid frame conceals via the float PLC (SILK PLC + float CELT
@@ -464,18 +473,39 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 					// fixedDecodeTransitionPLC already advanced the integer CELT
 					// PLC state, so the recursive decode must only fill the float
 					// pcmTransition buffer.
-					handled := d.fixedSnapshotHandled()
-					suppressed := d.fixedSuppressCELTPLC(true)
-					n, err := d.decodeOpusFrameInto(d.scratchTransition, nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
-					d.fixedSuppressCELTPLC(suppressed)
-					d.fixedRestoreHandled(handled)
-					if err != nil {
-						return 0, err
+					n := transSize
+					usedNeuralTransition := false
+					if d.prevMode == ModeCELT && d.complexity >= 5 && d.dredNeuralConcealmentAvailable() {
+						d.prepareDREDHistoryForCELTTransition()
+						var transitionErr error
+						n, usedNeuralTransition, transitionErr = d.decodeCELTNeuralPLCInto(d.scratchTransition, transSize, plcDecodeState{
+							packetFrameSize:    packetFrameSize,
+							mode:               d.prevMode,
+							bandwidth:          d.lastBandwidth,
+							packetStereo:       d.prevPacketStereo,
+							useDecoderPLCState: true,
+						})
+						if transitionErr != nil {
+							return 0, transitionErr
+						}
+					}
+					if !usedNeuralTransition {
+						handled := d.fixedSnapshotHandled()
+						suppressed := d.fixedSuppressCELTPLC(true)
+						var err error
+						n, err = d.decodeOpusFrameInto(d.scratchTransition, nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, d.prevPacketStereo)
+						d.fixedSuppressCELTPLC(suppressed)
+						d.fixedRestoreHandled(handled)
+						if err != nil {
+							return 0, err
+						}
 					}
 					pcmTransition = d.scratchTransition[:n*channels]
 					// The recursive opus_decode_frame(NULL) applies decode_gain to the
 					// transition frame; the enclosing frame applies it again after the fade.
-					d.applyOutputGain(pcmTransition)
+					if !usedNeuralTransition {
+						d.applyOutputGain(pcmTransition)
+					}
 				}
 
 				if needCeltReset {
@@ -671,27 +701,57 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			transSize := min(F5, audiosize)
 			fixedCursor := d.fixedOutputCursor()
 			mainRng := d.mainDecodeRng
-			n, err := d.decodeOpusFrameIntoWithStatePolicy(
-				d.scratchTransition,
-				nil,
-				transSize,
-				packetFrameSize,
-				d.prevMode,
-				d.lastBandwidth,
-				packetStereoLocal,
-				useDecoderPLCState,
-			)
-			if err != nil {
-				return 0, err
+			n := transSize
+			usedNeuralTransition := false
+			if d.prevMode == ModeCELT && d.complexity >= 5 && d.dredNeuralConcealmentAvailable() {
+				d.prepareDREDHistoryForCELTTransition()
+				n, usedNeuralTransition, err = d.decodeCELTNeuralPLCInto(d.scratchTransition, transSize, plcDecodeState{
+					packetFrameSize:    packetFrameSize,
+					mode:               d.prevMode,
+					bandwidth:          d.lastBandwidth,
+					packetStereo:       d.prevPacketStereo,
+					useDecoderPLCState: useDecoderPLCState,
+				})
+				if err != nil {
+					return 0, err
+				}
+			}
+			if usedNeuralTransition {
+				if extsupport.QEXT {
+					if !d.decodeFixedQEXTCELTLostFrame(transSize) {
+						d.markFixedUnhandled()
+					}
+				} else if !d.celtDecodeLostFixedAPIRate(transSize) {
+					d.markFixedUnhandled()
+				}
+			} else {
+				n, err = d.decodeOpusFrameIntoWithStatePolicy(
+					d.scratchTransition,
+					nil,
+					transSize,
+					packetFrameSize,
+					d.prevMode,
+					d.lastBandwidth,
+					d.prevPacketStereo,
+					useDecoderPLCState,
+				)
+				if err != nil {
+					return 0, err
+				}
 			}
 			// The recursive PLC frame has its own zero range; the enclosing
 			// packet reports the SILK range decoder's value.
 			d.mainDecodeRng = mainRng
+			if n < 0 || n*channels > len(d.scratchTransition) {
+				return 0, ErrInvalidPacket
+			}
 			d.fixedCaptureRecursiveTransition(fixedCursor, n*channels)
 			pcmTransition = d.scratchTransition[:n*channels]
 			// The recursive opus_decode_frame(NULL) applies decode_gain to the
 			// transition frame; the enclosing frame applies it again after the fade.
-			d.applyOutputGain(pcmTransition)
+			if !usedNeuralTransition {
+				d.applyOutputGain(pcmTransition)
+			}
 		}
 
 	case ModeCELT:
@@ -711,6 +771,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		// that a subsequent PLC frame depends on.
 		if err := d.celtDecoder.DecodeFrameWithPacketStereoToFloat32AtAPIRate(data, min(F20, frameSize), packetStereoLocal, out); err != nil {
 			return 0, err
+		}
+		if data != nil && mainLen > 1 {
+			d.clearDREDBlendAfterCELTPacket()
 		}
 		// Capture the main decode's FinalRange (no redundancy post-processing for CELT-only)
 		d.mainDecodeRng = d.celtDecoder.FinalRange()

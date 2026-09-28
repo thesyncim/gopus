@@ -79,12 +79,12 @@ func assertInt24ParitySelectedCExact(t *testing.T, got, want []int32, sampleRate
 	if len(got) != len(want) {
 		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
 	}
-	assertAPIRateQualityFloat32(t, int32Int24ToFloat32(got), int32Int24ToFloat32(want), sampleRate, channels, label)
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("%s sample[%d]=%d want %d", label, i, got[i], want[i])
 		}
 	}
+	assertAPIRateQualityFloat32(t, int32Int24ToFloat32(got), int32Int24ToFloat32(want), sampleRate, channels, label)
 }
 
 // TestDecodeInt24SILKAPIRatePCMMatchesLibopus verifies that Decoder.DecodeInt24

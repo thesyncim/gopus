@@ -26,37 +26,29 @@ func (d *Decoder) decodePLCForFECWithState(
 	if packetFrameSize <= 0 {
 		packetFrameSize = frameSize
 	}
-	neuralReady := extsupport.DREDRuntime && d.dredNeuralConcealmentAvailable()
+	state := plcDecodeState{
+		packetFrameSize:    packetFrameSize,
+		mode:               mode,
+		bandwidth:          bandwidth,
+		packetStereo:       packetStereo,
+		useDecoderPLCState: false,
+	}
+	if extsupport.DREDRuntime && (mode == ModeSILK || mode == ModeHybrid) {
+		if d.beginDREDRawMonoFrameCapture(mode) {
+			defer d.endDREDRawMonoFrameCapture()
+		}
+	}
 	usedNeuralConcealment := false
 	var n int
 	var err error
-	if neuralReady && mode == ModeSILK && channels >= 1 && channels <= 2 {
-		n, usedNeuralConcealment, err = d.decodeSILKNeuralPLCInto(pcm, frameSize, plcDecodeState{
-			packetFrameSize:    packetFrameSize,
-			mode:               mode,
-			bandwidth:          bandwidth,
-			packetStereo:       packetStereo,
-			useDecoderPLCState: false,
-		})
-		if err != nil {
-			return 0, err
-		}
+	n, usedNeuralConcealment, err = d.decodeNeuralPLCInto(pcm, frameSize, state, true)
+	if err != nil {
+		return 0, err
 	}
-	// libopus opus_decode(NULL,...) / decode_fec PLC fallback passes dred==NULL,
-	// so the cached-DRED FEC-feature feed gated on
-	// `dred != NULL && process_stage == 2` (opus_decoder.c:736) is skipped and
-	// a public packet-loss decode runs PLAIN PLC, consuming no cached DRED.
-	// Mirror that here for CELT/hybrid: do NOT auto-apply cached DRED on the
-	// public FEC-fallback PLC path. DRED is only applied through the explicit
-	// DRED-decode path. Matches the SILK reconciliation in cc04ecf0.
+	// FEC fallback has no DRED sidecar. Public loss uses the model-gated PLC
+	// path, and cached DRED features are consumed only by explicit DRED decode.
 	if !usedNeuralConcealment {
-		n, err = d.decodePLCChunksInto(pcm, frameSize, plcDecodeState{
-			packetFrameSize:    packetFrameSize,
-			mode:               mode,
-			bandwidth:          bandwidth,
-			packetStereo:       packetStereo,
-			useDecoderPLCState: false,
-		})
+		n, err = d.decodePLCChunksInto(pcm, frameSize, state)
 	}
 	if err != nil {
 		return 0, err
@@ -70,6 +62,32 @@ func (d *Decoder) decodePLCForFECWithState(
 		d.markDREDConcealed()
 	}
 	return frameSize, nil
+}
+
+// decodeNeuralPLCInto selects the libopus loss path for the current mode. FEC
+// recursion can also enter SILK deep PLC below complexity 5 when queued FEC
+// features remain; ordinary public loss uses only the complexity gate.
+func (d *Decoder) decodeNeuralPLCInto(pcm []float32, frameSize int, state plcDecodeState, allowQueuedFEC bool) (int, bool, error) {
+	if !extsupport.DREDRuntime || d == nil || d.channels < 1 || d.channels > 2 ||
+		!d.dredNeuralConcealmentAvailable() {
+		return 0, false, nil
+	}
+	deepPLCEnabled := d.complexity >= 5
+	if allowQueuedFEC && (state.mode == ModeSILK || state.mode == ModeHybrid) && d.dredFECFeaturesQueued() {
+		deepPLCEnabled = true
+	}
+	if !deepPLCEnabled {
+		return 0, false, nil
+	}
+	switch state.mode {
+	case ModeSILK, ModeHybrid:
+		return d.decodeSILKNeuralPLCInto(pcm, frameSize, state)
+	case ModeCELT:
+		if d.complexity >= 5 {
+			return d.decodeCELTNeuralPLCInto(pcm, frameSize, state)
+		}
+	}
+	return 0, false, nil
 }
 
 // extractFirstFramePayload extracts the first Opus frame payload bytes from
@@ -300,18 +318,35 @@ func (d *Decoder) decodeFECFrame(pcm []float32, requestedFrameSize int) (int, er
 	}
 
 	prefixSize := frameSize - packetFrameSize
+	captureMode := d.fecMode
+	if prefixSize > 0 && (d.prevMode == ModeSILK || d.prevMode == ModeHybrid) {
+		captureMode = d.prevMode
+	}
+	if extsupport.DREDRuntime {
+		if d.beginDREDRawMonoFrameCapture(captureMode) {
+			defer d.endDREDRawMonoFrameCapture()
+		}
+	}
+
 	if prefixSize > 0 {
 		prefixPacketFrameSize := int(d.lastFrameSize)
 		if prefixPacketFrameSize <= 0 {
 			prefixPacketFrameSize = packetFrameSize
 		}
-		n, err := d.decodePLCChunksInto(pcm, prefixSize, plcDecodeState{
+		prefixState := plcDecodeState{
 			packetFrameSize:    prefixPacketFrameSize,
 			mode:               d.prevMode,
 			bandwidth:          d.lastBandwidth,
 			packetStereo:       d.prevPacketStereo,
 			useDecoderPLCState: true,
-		})
+		}
+		n, usedNeuralConcealment, err := d.decodeNeuralPLCInto(pcm, prefixSize, prefixState, true)
+		if err != nil {
+			return 0, err
+		}
+		if !usedNeuralConcealment {
+			n, err = d.decodePLCChunksInto(pcm, prefixSize, prefixState)
+		}
 		if err != nil {
 			return 0, err
 		}
@@ -321,11 +356,6 @@ func (d *Decoder) decodeFECFrame(pcm []float32, requestedFrameSize int) (int, er
 	}
 
 	fecPCM := pcm[prefixSize*channels:]
-	if extsupport.DREDRuntime {
-		if endRawDREDCapture := d.beginDREDRawMonoGoodFrameCapture(d.fecMode); endRawDREDCapture != nil {
-			defer endRawDREDCapture()
-		}
-	}
 
 	n, err := d.decodeLBRRFrames(fecPCM, packetFrameSize)
 	if err != nil {
@@ -376,13 +406,18 @@ func (d *Decoder) clearFECState() {
 // decodeLBRRFrames decodes LBRR (FEC) data from the stored packet.
 func (d *Decoder) decodeLBRRFrames(pcm []float32, frameSize int) (int, error) {
 	if len(d.fecData) <= 1 {
-		return d.decodePLCChunksInto(pcm, frameSize, plcDecodeState{
+		state := plcDecodeState{
 			packetFrameSize:    frameSize,
-			mode:               d.prevMode,
-			bandwidth:          d.lastBandwidth,
-			packetStereo:       d.prevPacketStereo,
+			mode:               d.fecMode,
+			bandwidth:          d.fecBandwidth,
+			packetStereo:       d.fecStereo,
 			useDecoderPLCState: true,
-		})
+		}
+		n, usedNeuralConcealment, err := d.decodeNeuralPLCInto(pcm, frameSize, state, true)
+		if err != nil || usedNeuralConcealment {
+			return n, err
+		}
+		return d.decodePLCChunksInto(pcm, frameSize, state)
 	}
 	switch d.fecMode {
 	case ModeSILK:
@@ -399,7 +434,13 @@ func (d *Decoder) decodeFECViaSILK(pcm []float32, frameSize int) (int, error) {
 	if !ok {
 		silkBW = silk.BandwidthWideband
 	}
-
+	if extsupport.OSCERuntime {
+		d.installOSCELACESilkPostfilterHook(d.fecMode, silkBW, d.fecStereo)
+		defer d.clearOSCELACESilkPostfilterHook()
+	}
+	if extsupport.DREDRuntime && d.beginDREDFECLowbandHook() {
+		defer d.endHybridDREDLowbandHook()
+	}
 	// silk_Decode initializes channel_state[1] and resets the stereo
 	// predictor/resampler when internal channel count grows from mono to stereo.
 	// The regular frame path performs this setup before entering SILK; FEC can

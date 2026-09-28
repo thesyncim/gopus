@@ -106,6 +106,15 @@ func (d *Decoder) SetRawMonoFrameHook(hook silk.RawMonoFrameHook) {
 	d.silkDecoder.SetRawMonoFrameHook(hook)
 }
 
+// SetRawMonoLossFrameHook forwards the SILK loss-history hook used by
+// decoder-side neural PLC/DRED paths.
+func (d *Decoder) SetRawMonoLossFrameHook(hook silk.RawMonoFrameHook) {
+	if d == nil || d.silkDecoder == nil {
+		return
+	}
+	d.silkDecoder.SetRawMonoLossFrameHook(hook)
+}
+
 // SetDeepPLCLossMonoHook forwards the SILK lowband loss hook used by
 // decoder-side neural PLC/DRED paths.
 func (d *Decoder) SetDeepPLCLossMonoHook(hook silk.DeepPLCLossMonoHook) {

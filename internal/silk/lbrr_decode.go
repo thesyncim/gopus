@@ -385,8 +385,43 @@ func (d *Decoder) decodeFECLostFrameInto(channel int, st *decoderState, frameOut
 		return
 	}
 	copy(frameOut, d.concealSILKFrame(channel, st, len(frameOut)))
+	usedDeepPLC, deepPLCLagPrev := d.replaceFECLossWithDeepPLC(channel, st, frameOut)
+	if !usedDeepPLC {
+		d.fireRawMonoLossFrameHook(channel, st, frameOut)
+	}
 	d.finishLostFrame(channel, st, frameOut)
-	st.lagPrev = d.concealLagPrev(channel)
+	if usedDeepPLC {
+		st.plcSkipRecoveryGlue = true
+	}
+	if deepPLCLagPrev > 0 {
+		st.lagPrev = int32(deepPLCLagPrev)
+	} else {
+		st.lagPrev = d.concealLagPrev(channel)
+	}
+}
+
+// replaceFECLossWithDeepPLC mirrors the ENABLE_DEEP_PLC branch in
+// silk/PLC.c:silk_PLC_conceal for a missing LBRR frame. It replaces only the
+// mono 16 kHz output before silk_decode_frame runs CNG and PLC glue.
+func (d *Decoder) replaceFECLossWithDeepPLC(channel int, st *decoderState, frame []int16) (bool, int) {
+	if !dredHooksEnabled || channel != 0 || st == nil || st.fsKHz != 16 ||
+		len(frame) == 0 || len(frame) > len(d.scratchOutput) || !d.hasDeepPLCLossMonoHook() {
+		return false, 0
+	}
+	concealed := d.scratchOutput[:len(frame)]
+	const scale = float32(1.0 / 32768.0)
+	for i, sample := range frame {
+		concealed[i] = float32(sample) * scale
+	}
+	used, lagPrev := d.fireDeepPLCLossMonoHook(concealed)
+	if !used {
+		return false, 0
+	}
+	for i, sample := range concealed {
+		frame[i] = float32ToInt16(sample)
+	}
+	d.applyDeepPLCHistoryMono(st, concealed)
+	return true, lagPrev
 }
 
 // HasLBRR checks if the given packet contains LBRR (FEC) data.
