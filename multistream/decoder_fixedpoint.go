@@ -333,11 +333,12 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 			return d.decodeMultiframeToResFixed(data, frameSize)
 		}
 	}
-	if toc.mode == streamModeCELT {
+	switch toc.mode {
+	case streamModeCELT:
 		if err := d.prepareFixedCELTFrame(streamModeCELT, parsed, toc); err != nil {
 			return nil, false, err
 		}
-	} else if toc.mode == streamModeSILK {
+	case streamModeSILK:
 		if err := d.prepareFixedSILKRedundancy(toc); err != nil {
 			return nil, false, err
 		}
