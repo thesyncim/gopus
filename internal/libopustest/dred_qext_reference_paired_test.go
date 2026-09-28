@@ -4,6 +4,7 @@ import (
 	"errors"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustooling"
@@ -11,6 +12,46 @@ import (
 
 func TestResolveLibopusDREDQEXTReferenceMatchesGoISA(t *testing.T) {
 	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "auto")
+	if err := validateDREDReferenceBuildPairing(); err != nil {
+		var configErr *libopustooling.LibopusReferenceConfigError
+		if !errors.As(err, &configErr) {
+			t.Fatalf("fixed+DRED reference rejection error=%T %v, want LibopusReferenceConfigError", err, err)
+		}
+		if !strings.Contains(err.Error(), "FIXED_POINT with ENABLE_DRED") {
+			t.Fatalf("fixed+DRED reference rejection=%q lacks incompatible-feature explanation", err)
+		}
+		if _, err := resolveDREDQEXTReferenceVariantForCurrentBuild(); !errors.As(err, &configErr) {
+			t.Fatalf("DRED-QEXT resolver error=%T %v, want LibopusReferenceConfigError", err, err)
+		}
+		pathRejected := false
+		func() {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					pathErr, ok := recovered.(error)
+					if !ok || !errors.As(pathErr, &configErr) || !strings.Contains(pathErr.Error(), "FIXED_POINT with ENABLE_DRED") {
+						t.Fatalf("DRED-QEXT path panic=%v, want explicit incompatible-feature error", recovered)
+					}
+					pathRejected = true
+				}
+			}()
+			_ = DREDQEXTRefPath(".libs", "libopus.a")
+		}()
+		if !pathRejected {
+			t.Fatal("DRED-QEXT path returned an archive for unsupported fixed+DRED pairing")
+		}
+		if _, err := BuildCHelper(CHelperConfig{
+			Label:       "unsupported fixed+DRED oracle",
+			OutputBase:  "unsupported_fixed_dred_oracle",
+			SourceFile:  "unused.c",
+			DREDQEXTRef: true,
+		}); !errors.As(err, &configErr) {
+			t.Fatalf("DRED-QEXT helper error=%T %v, want LibopusReferenceConfigError", err, err)
+		}
+		if _, err := BuildDREDHelper(t.TempDir(), "unused.c", "unsupported_fixed_dred", false); !errors.As(err, &configErr) {
+			t.Fatalf("DRED helper error=%T %v, want LibopusReferenceConfigError", err, err)
+		}
+		return
+	}
 	want := libopustooling.LibopusReferenceDREDQEXTScalar
 	if goReferenceSIMDEnabled() && (runtime.GOARCH == "arm64" || runtime.GOARCH == "amd64") {
 		want = libopustooling.LibopusReferenceDREDQEXTSIMD

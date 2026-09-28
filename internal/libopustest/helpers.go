@@ -252,6 +252,9 @@ type scalarDNNHelperConfig struct {
 }
 
 func BuildDREDHelper(repoRoot, sourceFile, outputBase string, includeInternal bool) (string, error) {
+	if err := validateDREDReferenceBuildPairing(); err != nil {
+		return "", err
+	}
 	if dredQEXTReferenceEnabled {
 		includes := []string{"dnn"}
 		if includeInternal {

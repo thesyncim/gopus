@@ -81,7 +81,7 @@ func FixedQEXTRefPath(elem ...string) string {
 // DREDQEXTRefPath returns the ENABLE_DRED + ENABLE_DEEP_PLC + ENABLE_QEXT
 // reference tree paired with the current Go scalar or SIMD instruction lane.
 func DREDQEXTRefPath(elem ...string) string {
-	variant, err := libopustooling.ResolveLibopusDREDQEXTReferenceVariant()
+	variant, err := resolveDREDQEXTReferenceVariantForCurrentBuild()
 	if err != nil {
 		panic(err)
 	}

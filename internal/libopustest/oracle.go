@@ -123,6 +123,11 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	if err := validateCHelperReferenceSelection(cfg); err != nil {
 		return "", err
 	}
+	if cfg.DREDQEXTRef {
+		if err := validateDREDReferenceBuildPairing(); err != nil {
+			return "", err
+		}
+	}
 	ccPath, err := libopustooling.FindCCompiler()
 	if err != nil {
 		return "", fmt.Errorf("cc not available: %w", err)
@@ -174,7 +179,7 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 		if cfg.SIMDRef && pairedVariant != libopustooling.LibopusReferenceSIMD {
 			return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("DRED-QEXT SIMD helper conflicts with the scalar Go reference lane")}
 		}
-		refVariant, err = libopustooling.ResolveLibopusDREDQEXTReferenceVariant()
+		refVariant, err = resolveDREDQEXTReferenceVariantForCurrentBuild()
 		if err != nil {
 			return "", err
 		}

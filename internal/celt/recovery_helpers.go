@@ -564,6 +564,20 @@ func periodicPLCEnergy(sum float32, samples []celtSig) float32 {
 	return sum
 }
 
+// periodicPLCDecayEnergy matches celt_decode_lost's initial E1/E2 loop. The
+// C loop updates one scalar accumulator per sample; the arm64 CELT SIMD kernels
+// do not change that loop's source-order fused multiply-add behavior.
+func periodicPLCDecayEnergy(sum float32, samples []celtSig) float32 {
+	if libopusFloatInnerProdUsesNeonOrder {
+		for _, value := range samples {
+			sample := float32(value)
+			sum = fma32(sample, sample, sum)
+		}
+		return sum
+	}
+	return periodicPLCEnergy(sum, samples)
+}
+
 func (d *Decoder) plcSynthesisEnergy(sum float32, samples []celtSig) float32 {
 	if d.qextDecodeScale() == 2 {
 		// The native QEXT CELT geometry in celt_decoder.c accumulates its float
@@ -665,8 +679,8 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 			e2 := float32(1.0)
 			base1 := celtPLCLPCOrder + maxPeriod - decayLength
 			base2 := celtPLCLPCOrder + maxPeriod - 2*decayLength
-			e1 = d.plcSynthesisEnergy(e1, exc[base1:base1+decayLength])
-			e2 = d.plcSynthesisEnergy(e2, exc[base2:base2+decayLength])
+			e1 = periodicPLCDecayEnergy(e1, exc[base1:base1+decayLength])
+			e2 = periodicPLCDecayEnergy(e2, exc[base2:base2+decayLength])
 			if e1 > e2 {
 				e1 = e2
 			}
@@ -774,9 +788,20 @@ func (d *Decoder) computePLCRawAutocorr(frame []celtSig, window []float32, ac []
 	for lag := 0; lag <= celtPLCLPCOrder; lag++ {
 		tail := float32(0)
 		for i := lag + fastN; i < n; i++ {
-			tail += float32(x[i]) * float32(x[i-lag])
+			if pitchXcorrUsesNeonFMA {
+				// celt/celt_lpc.c accumulates the post-xcorr tail separately
+				// from celt_pitch_xcorr; retain its product and add rounding
+				// boundaries in the paired ARM SIMD build.
+				tail = noFMA32Add(tail, noFMA32Mul(float32(x[i]), float32(x[i-lag])))
+			} else {
+				tail += float32(x[i]) * float32(x[i-lag])
+			}
 		}
-		ac[lag] += tail
+		if pitchXcorrUsesNeonFMA {
+			ac[lag] = noFMA32Add(ac[lag], tail)
+		} else {
+			ac[lag] += tail
+		}
 	}
 }
 
