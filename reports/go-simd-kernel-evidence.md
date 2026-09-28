@@ -70,8 +70,10 @@ The PLC decay E1/E2 loops use scalar source-order accumulation; the S2 energy
 check retains its separate selected reduction. ARM SIMD autocorrelation tails
 preserve the selected C multiply/add rounding boundaries.
 
-Native AMD64 early artifact `10957259097` from run 36392981049 at
-`8aec7796` reports zero failing candidate phases across all 29 exit records.
+Native AMD64 early artifact `10959036129` from run 36395691789 at
+`e2672dd2` reports zero failing candidate phases across all 29 exit records.
+The five added PLC/PVQ/anti-collapse gates pass in QEXT and DRED+QEXT, each
+scalar and SIMD. The corresponding macOS gates also pass.
 Both native-96 trace arithmetic and FOA encode-cycle allocation gates pass in
 scalar and SIMD. Extension scratch reserves the per-stream packet envelope;
 the framing regression checks the first larger extension after a short warmup
@@ -90,9 +92,13 @@ same quality floors. DRED-only references use the existing DNN helper builder
 with ENABLE_DRED and without ENABLE_QEXT.
 Existing AMD64 and macOS CI jobs include these focused oracle gates.
 
-Final native validation of these oracle changes remains required. Combined
-OSCE/QEXT reference selection is under audit; dormant-control comparisons do
-not establish active combined-feature parity. OSCE remains a parity-only surface. Pinned libopus rejects fixed-point+DRED in `configure.ac`; requests for
+The DRED-only anti-collapse addition still needs native AMD64 validation.
+Correctly selected OSCE SIMD references expose seven public PCM failures;
+LACE/NoLACE fixes pass locally, while BWE diagnosis remains active. A full
+public QEXT SIMD sweep also exposes 15 failing top-level groups whose shared
+reference builders require feature-pairing corrections and reruns. Dormant-control
+comparisons do not establish active combined-feature parity. OSCE remains a
+parity-only surface. These open checks prevent a complete parity claim. Pinned libopus rejects fixed-point+DRED in `configure.ac`; requests for
 that unsupported C reference fail explicitly instead of selecting a subset archive.
 
 ### QEXT PVQ refinement byte parity
