@@ -238,41 +238,41 @@ gopus is built for real-time use, where steady allocation is the enemy:
   replacements, same-host assembly comparisons, allocations, and unresolved
   parity differences.
 
-The latest recorded AMD64 end-to-end run compares Go with the previous assembly
-baseline on the same workload, using an AMD EPYC 7763, Go 1.27.1, GCC 13.3,
-GOAMD64=v1, and PGO. Four interleaved 500 ms samples report zero allocations
-for all rows. Values are median ns/op.
+The recorded AMD64 end-to-end run compares assembly `8ac93c85` with Go
+`905eec03` on an AMD EPYC 9V74, Go 1.27.1, GCC 13.3, GOAMD64=v1, and PGO.
+Four interleaved 500 ms samples report zero allocations for all rows.
+Values are median ns/op.
 
 | Workload | Old assembly | Go SIMD | `nosimd` |
-| --- | ---: | ---: | ---: |
-| CELT decode | 20,281.5 | 13,545 | 16,668 |
-| Hybrid decode | 28,442.5 | 24,367 | 30,701 |
-| SILK decode | 22,479 | 16,460 | 21,222.5 |
-| Caller-buffer encode | 92,144.5 | 64,915.5 | 100,802 |
-| VoIP encode | 98,179.5 | 70,047 | 106,786 |
-| Low-delay encode | 91,436.5 | 64,768.5 | 100,178 |
+|---|---:|---:|---:|
+| CELT decode | 15,657 | 10,337 | 12,985 |
+| Hybrid decode | 23,048 | 19,927.5 | 25,434.5 |
+| SILK decode | 18,325.5 | 13,348.5 | 17,306 |
+| Caller-buffer encode | 72,320.5 | 48,796 | 80,746 |
+| VoIP encode | 77,107.5 | 52,905 | 84,948.5 |
+| Low-delay encode | 71,480 | 48,789 | 80,473.5 |
 
-The separate paired C comparison uses identical inputs and controls, pairing
-scalar Go with scalar C and SIMD Go with SIMD C. It comes from [run
-36444790749](https://github.com/thesyncim/gopus/actions/runs/36444790749) at
-revision `d9d2c07a`, on the same runner and toolchain. Each case has three 250 ms
-minimum runs. Times are µs per packet. Go rows report zero allocations; C
-allocation counts are not measured.
+The paired C comparison uses identical inputs and controls, pairing scalar Go
+with scalar C and SIMD Go with SIMD C. Both tables come from [run
+36456014367](https://github.com/thesyncim/gopus/actions/runs/36456014367),
+artifact `10987206160`, on the same runner and toolchain. Each C/Go case has
+three 250 ms minimum runs. Times are µs per packet. Go rows report zero
+allocations; C allocation counts are not measured.
 
 | Workload | C scalar | Go scalar | C SIMD | Go SIMD |
-| --- | ---: | ---: | ---: | ---: |
-| CELT-FB-20ms-stereo-128k encode | 179.80 | 191.93 | 134.29 | 130.40 |
-| CELT-FB-5ms-mono-64k encode | 19.92 | 23.62 | 18.71 | 19.98 |
-| Hybrid-FB-20ms-mono-64k encode | 358.50 | 358.10 | 254.68 | 281.42 |
-| Hybrid-FB-20ms-stereo-96k encode | 203.08 | 219.22 | 151.69 | 142.33 |
-| SILK-WB-20ms-mono-32k encode | 687.66 | 615.31 | 449.19 | 387.32 |
-| RFC vectors Float32 decode | 30.78 | 32.98 | 28.97 | 27.88 |
-| RFC vectors Int16 decode | 33.97 | 36.42 | 31.47 | 31.29 |
+|---|---:|---:|---:|---:|
+| CELT-FB-20ms-stereo-128k | 153.50 | 150.50 | 114.46 | 99.77 |
+| CELT-FB-5ms-mono-64k | 16.80 | 18.51 | 15.66 | 15.41 |
+| Hybrid-FB-20ms-mono-64k | 307.35 | 290.93 | 197.07 | 171.19 |
+| Hybrid-FB-20ms-stereo-96k | 176.09 | 174.87 | 131.16 | 111.90 |
+| SILK-WB-20ms-mono-32k | 591.74 | 514.80 | 318.51 | 249.72 |
+| RFC vectors Float32 | 25.58 | 26.36 | 24.12 | 22.10 |
+| RFC vectors Int16 | 28.65 | 29.34 | 26.25 | 24.99 |
 
-These measurements are workload-specific. The early artifact reports BWE mono
-and stereo passing, with five LACE/NoLACE sample cases still mismatching across
-OSCE feature builds. Those exactness issues are under investigation; these
-base-codec performance measurements do not establish OSCE parity.
+These measurements are workload-specific. Decoder rows aggregate 20,075
+identical packets; encoder timings do not establish long-stream packet parity.
+All seven OSCE output cases pass the same runner's scalar/SIMD checks across
+OSCE, OSCE+QEXT and DRED+OSCE+QEXT.
 
 Run the benchmarks for numbers on your machine:
 
@@ -292,7 +292,7 @@ proven. The pinned `tmp_check/opus-1.6.1/` is the reference; when behavior is
 uncertain, gopus matches libopus unless fixture evidence says otherwise.
 
 Open validation cases include long-running SILK CBR packet equality, mono QEXT
-multi-frame reconstruction, native amd64 LACE/NoLACE output, Hybrid packet-loss
+multi-frame reconstruction, Hybrid packet-loss
 recovery, and fixed-point malformed multistream output. The [evidence report](reports/go-simd-kernel-evidence.md)
 records the passing matrices, active investigations, and the documented unsafe
 libopus custom-QEXT boundary. Passing short matrices does not close these cases.
@@ -310,8 +310,7 @@ Validation uses two tiers against a live libopus C oracle:
 
 Parity tests pair Go and C by feature configuration and instruction lane, using
 identical inputs and controls. Strict packet gates fail on every byte or
-final-range difference. Five LACE/NoLACE sample mismatches remain in the early
-native AMD64 OSCE artifact, and the complete feature/build/input matrix remains
+final-range difference. The complete feature/build/input matrix remains
 under validation; the
 [kernel evidence report](reports/go-simd-kernel-evidence.md) records tested
 revisions, measurements, and remaining work. Comparing Go SIMD with scalar C,

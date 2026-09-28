@@ -11,7 +11,7 @@ libopus feature set, CPU dispatch, sample format, controls, and decoder history.
 | Priority | Surface | Finding | Current evidence |
 |---|---|---|---|
 | P1 | Public FEC robustness | The C probe uses independent decoders while Go retains its primed decoder; accept/count checks omit PCM. | A persistent C probe reproduces a PCM difference after an exact Hybrid prime and a plain loss call. Runtime investigation is open. |
-| P1 | Malformed fixed multistream | A feature-based bypass omits accepted fixed-point PCM; float gates use a coarse tolerance. | Strict raw-format comparisons pass default scalar/SIMD. Fixed scalar/SIMD expose 128 differing cases out of 1,125 mutations; fixed+QEXT expose 129. The first mono witness differs by one int16 bit in multistream while single-stream Go and C agree. |
+| P1 | Malformed fixed multistream | A feature-based bypass omits accepted fixed-point PCM; float gates use a coarse tolerance. | Pre-fade SILK capture and per-child integer reconstruction pass all 9,000 mutations in each of the four fixed scalar/SIMD lanes. A compact multiframe witness also checks the redundant CELT contribution to final range; broader range and allocation validation is in progress. |
 | P1 | Multistream oracle errors | Infrastructure failures can be mistaken for C packet rejection. | The test distinguishes the helper's explicit negative decode status from build, execution, and protocol failures; broader validation accompanies the fixed multistream repair. |
 | P1 | Multistream mode changes | A 5 ms window has a gross-error budget and the rest has a numerical tolerance. | Every float bit, including the transition window, matches in all eight local feature/ISA lanes. Exact assertions apply to the full output. |
 | P1 | Multistream recovery queue | Correlation and RMS alone do not prove sample equality. | All 17 PLC, FEC, and handover scenarios pass exact full-output checks in all eight local lanes. Quality diagnostics remain additional checks. |
@@ -32,8 +32,9 @@ no extra CI jobs are required.
 
 In addition to the Hybrid loss and malformed fixed multistream cases above,
 mono QEXT second-frame reconstruction and long-running SILK CBR packet equality
-remain under investigation. Native AMD64 LACE/NoLACE output also requires
-validation of the selected-correlation correction.
+remain under investigation. Native AMD64 validates the selected-correlation
+correction: all seven LACE/NoLACE/BWE cases pass both instruction lanes across
+OSCE, OSCE+QEXT and DRED+OSCE+QEXT at `905eec03`.
 
 The [kernel and end-to-end evidence report](go-simd-kernel-evidence.md) records
 measured coverage, revisions, and all 53 replacement routines. Complete codec

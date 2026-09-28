@@ -48,18 +48,14 @@ and SIMD lanes; fixed output is not inferred by converting C float output.
 The no-LBRR FEC correction at `31119cba` preserves packet-driven SILK state
 and passes exact loss/recovery and warm zero-allocation regressions.
 
-Native early artifact `10983122541` from
-[run 36444790749](https://github.com/thesyncim/gopus/actions/runs/36444790749)
-at `d9d2c07a` contains 94 exit records: 90 succeed; three SIMD OSCE phases and
-the aggregate status fail. BWE mono/stereo pass. Five LACE/NoLACE sample cases
-fail in OSCE, OSCE+QEXT and DRED+OSCE+QEXT; their native SIMD arithmetic is under
-investigation. The selected-correlation fix at `31903086` passes local ARM64
-exact forward/public-output and zero-allocation gates; native AMD64 validation
-is pending. Runs at `a8283fd7` and `949cfc32` are superseded. The current
+Native early artifact `10987206160` from
 [run 36456014367](https://github.com/thesyncim/gopus/actions/runs/36456014367)
-at `905eec03` includes the correlation correction and the documentation contract
-fix: all completed jobs pass, including the build matrix and macOS; the native
-SIMD job remains in progress at this checkpoint. It does not include all subsequent local changes.
+at `905eec03` contains 94 successful exit records, including the aggregate
+status. All seven LACE/NoLACE/BWE end-to-end cases pass in scalar and SIMD
+across OSCE, OSCE+QEXT and DRED+OSCE+QEXT. This validates the selected-correlation
+correction at `31903086` on AMD64. All completed CI jobs pass, including the
+build matrix and macOS; the native A/B job remains in progress at this
+checkpoint. The run does not include subsequent local changes.
 Early artifacts do not constitute a full CI pass.
 
 The [codebase parity audit](parity-evidence-audit.md) separates confirmed runtime
@@ -130,22 +126,22 @@ combinations are outside the supported reference configuration.
 
 ### Native AMD64 end-to-end measurements
 
-Early artifact `10983122541` from [run 36444790749](https://github.com/thesyncim/gopus/actions/runs/36444790749)
-compares assembly `8ac93c85` with SIMD/nosimd `d9d2c07a` on AMD EPYC 7763,
+Early artifact `10987206160` from [run 36456014367](https://github.com/thesyncim/gopus/actions/runs/36456014367)
+compares assembly `8ac93c85` with SIMD/nosimd `905eec03` on AMD EPYC 9V74,
 Go 1.27.1, GCC 13.3.0, GOAMD64=v1, PGO enabled. Four interleaved 500 ms
 samples use `-cpu=1`; all 72 samples report 0 B/op and 0 allocs/op.
-Values are median ns/op. These base-codec measurements do not establish OSCE parity.
+Values are median ns/op.
 
 | Workload | Old assembly | Go SIMD | `nosimd` |
 |---|---:|---:|---:|
-| CELT decode | 20,281.5 | 13,545 | 16,668 |
-| Hybrid decode | 28,442.5 | 24,367 | 30,701 |
-| SILK decode | 22,479 | 16,460 | 21,222.5 |
-| Caller-buffer encode | 92,144.5 | 64,915.5 | 100,802 |
-| VoIP encode | 98,179.5 | 70,047 | 106,786 |
-| Low-delay encode | 91,436.5 | 64,768.5 | 100,178 |
+| CELT decode | 15,657 | 10,337 | 12,985 |
+| Hybrid decode | 23,048 | 19,927.5 | 25,434.5 |
+| SILK decode | 18,325.5 | 13,348.5 | 17,306 |
+| Caller-buffer encode | 72,320.5 | 48,796 | 80,746 |
+| VoIP encode | 77,107.5 | 52,905 | 84,948.5 |
+| Low-delay encode | 71,480 | 48,789 | 80,473.5 |
 
-SIMD takes 14.3–33.2% less time than assembly in these six workloads.
+SIMD takes 13.5–34.0% less time than assembly in these six workloads.
 Scalar takes less time for CELT/SILK decode and more for Hybrid decode and encode.
 The 11 AMD64 kernel rows retain their separate `6c466ded` measurements from
 artifact `10979051418`; ARM64 rows retain their own measured revisions.
@@ -159,22 +155,23 @@ All Go rows allocate zero; C allocations are not measured.
 
 | Workload | C scalar | Go scalar | C SIMD | Go SIMD |
 |---|---:|---:|---:|---:|
-| CELT-FB-20ms-stereo-128k | 179.80 | 191.93 | 134.29 | 130.40 |
-| CELT-FB-5ms-mono-64k | 19.92 | 23.62 | 18.71 | 19.98 |
-| Hybrid-FB-20ms-mono-64k | 358.50 | 358.10 | 254.68 | 281.42 |
-| Hybrid-FB-20ms-stereo-96k | 203.08 | 219.22 | 151.69 | 142.33 |
-| SILK-WB-20ms-mono-32k | 687.66 | 615.31 | 449.19 | 387.32 |
-| RFC vectors Float32 | 30.78 | 32.98 | 28.97 | 27.88 |
-| RFC vectors Int16 | 33.97 | 36.42 | 31.47 | 31.29 |
+| CELT-FB-20ms-stereo-128k | 153.50 | 150.50 | 114.46 | 99.77 |
+| CELT-FB-5ms-mono-64k | 16.80 | 18.51 | 15.66 | 15.41 |
+| Hybrid-FB-20ms-mono-64k | 307.35 | 290.93 | 197.07 | 171.19 |
+| Hybrid-FB-20ms-stereo-96k | 176.09 | 174.87 | 131.16 | 111.90 |
+| SILK-WB-20ms-mono-32k | 591.74 | 514.80 | 318.51 | 249.72 |
+| RFC vectors Float32 | 25.58 | 26.36 | 24.12 | 22.10 |
+| RFC vectors Int16 | 28.65 | 29.34 | 26.25 | 24.99 |
 
-SIMD Go trails SIMD C by 6.8% for short CELT and 10.5% for Hybrid mono encode;
-its other encode rows take 2.9–13.8% less time. SIMD vector decode takes
-3.7%/0.6% less time for float32/int16. Scalar Go trails C by 6.7%/18.6% for
-20/5 ms CELT, 8.0% for Hybrid stereo, and 7.2% for both decode formats.
+SIMD Go takes 1.6–21.6% less time than SIMD C across the five encode rows,
+and 8.4%/4.8% less time for float32/int16 vector decode. Scalar Go takes 10.2%
+more time for short CELT and 3.0%/2.4% more for float32/int16 decode; the other
+scalar encode rows take less time than C. Small differences require repeated
+measurements before tuning decisions.
 Decoder rows aggregate 20,075 identical packets; encoder rows use identical PCM
-and controls. BWE mono/stereo exactness passes on this runner; five LACE/NoLACE
-sample cases still fail. Those OSCE failures are separate from these base-codec
-performance measurements.
+and controls. The encoder timings do not establish long-stream packet parity.
+All seven OSCE end-to-end exactness cases pass in scalar/SIMD across OSCE,
+OSCE+QEXT and DRED+OSCE+QEXT on this runner.
 
 ## Per-symbol inventory
 
