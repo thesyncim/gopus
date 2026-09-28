@@ -278,26 +278,16 @@ func TestOracleParityStandardModes(t *testing.T) {
 	}
 }
 
-// nonStandardCases enumerates several (Fs, frame_size) combinations libopus
-// allows for custom modes that are NOT one of the four 48 kHz static modes.
-// frame_size must be even, 40..1024, frame_size*1000 >= Fs, and the short block
-// <= 3.3 ms (matches opus_custom_mode_create validation).
+// nonStandardCases enumerates the non-scaled custom layout used by the exact
+// data-plane parity checks. Rejected FFT factorizations are covered separately
+// by TestOracleCustomRejectsUnsupportedFFTFactors.
 func nonStandardCases() []oracleCase {
 	const maxBytes = 200
 	specs := []struct{ fs, frameSize int }{
 		{48000, 640}, // 48 kHz, non-power-of-two frame
-		{44100, 882}, // 20 ms at 44.1 kHz
-		{32000, 640}, // 20 ms at 32 kHz
-		{24000, 480}, // 20 ms at 24 kHz
-		{16000, 320}, // 20 ms at 16 kHz
-		{8000, 160},  // 20 ms at 8 kHz
-		{12000, 240}, // 20 ms at 12 kHz
 	}
 	var cases []oracleCase
 	for _, s := range specs {
-		if s.frameSize%2 != 0 {
-			continue
-		}
 		pcm := generateSine(440.0, float64(s.fs), s.frameSize)
 		cases = append(cases, oracleCase{s.fs, s.frameSize, 1, maxBytes, pcm})
 	}
@@ -312,7 +302,7 @@ func TestOracleParityNonStandardModes(t *testing.T) {
 	for i, tc := range cases {
 		t.Run(fmt.Sprintf("Fs%d_frame%d", tc.fs, tc.frameSize), func(t *testing.T) {
 			if results[i].status < 0 {
-				t.Skipf("libopus rejected custom mode (Fs=%d frame=%d) status=%d", tc.fs, tc.frameSize, results[i].status)
+				t.Fatalf("libopus rejected defined custom mode (Fs=%d frame=%d) status=%d", tc.fs, tc.frameSize, results[i].status)
 			}
 
 			mode, err := custom.NewMode(tc.fs, tc.frameSize)
@@ -323,7 +313,7 @@ func TestOracleParityNonStandardModes(t *testing.T) {
 				t.Fatalf("mode Fs=%d frame=%d unexpectedly flagged standard", tc.fs, tc.frameSize)
 			}
 			if mode.InScaledBandFamily() {
-				t.Skipf("Fs=%d frame=%d is in the scaled-band family (covered by TestOracleParityScaledBandFamily)", tc.fs, tc.frameSize)
+				t.Fatalf("Fs=%d frame=%d unexpectedly belongs to the scaled-band family", tc.fs, tc.frameSize)
 			}
 
 			enc, err := custom.NewEncoder(mode, tc.channels)
@@ -379,7 +369,7 @@ func TestOracleParityNonStandardStereo(t *testing.T) {
 	for i, tc := range cases {
 		t.Run(fmt.Sprintf("Fs%d_frame%d_stereo", tc.fs, tc.frameSize), func(t *testing.T) {
 			if results[i].status < 0 {
-				t.Skipf("libopus rejected custom mode (Fs=%d frame=%d ch=2) status=%d", tc.fs, tc.frameSize, results[i].status)
+				t.Fatalf("libopus rejected defined stereo custom mode (Fs=%d frame=%d) status=%d", tc.fs, tc.frameSize, results[i].status)
 			}
 			mode, err := custom.NewMode(tc.fs, tc.frameSize)
 			if err != nil {
@@ -449,7 +439,7 @@ func TestOracleControlPlaneScaledBandFamily(t *testing.T) {
 	for i, tc := range cases {
 		t.Run(fmt.Sprintf("Fs%d_frame%d", tc.fs, tc.frameSize), func(t *testing.T) {
 			if results[i].status < 0 {
-				t.Skipf("libopus rejected custom mode (Fs=%d frame=%d) status=%d", tc.fs, tc.frameSize, results[i].status)
+				t.Fatalf("libopus rejected defined scaled-band mode (Fs=%d frame=%d) status=%d", tc.fs, tc.frameSize, results[i].status)
 			}
 			mode, err := custom.NewMode(tc.fs, tc.frameSize)
 			if err != nil {
@@ -479,8 +469,9 @@ func TestOracleControlPlaneScaledBandFamily(t *testing.T) {
 				t.Errorf("effEBands: gopus=%d libopus=%d", mode.EffEBands, r.effEBands)
 			}
 			for j := range mode.Preemph {
-				if mode.Preemph[j] != r.preemph[j] {
-					t.Errorf("preemph[%d]: gopus=%v libopus=%v", j, mode.Preemph[j], r.preemph[j])
+				wantPreemph := oraclePreemphExpected(mode.Preemph, j)
+				if wantPreemph != r.preemph[j] {
+					t.Errorf("preemph[%d]: expected=%v libopus=%v", j, wantPreemph, r.preemph[j])
 				}
 			}
 			if len(mode.EBands) != len(r.eBands) {
@@ -549,7 +540,7 @@ func TestOracleParityScaledBandFamily(t *testing.T) {
 	for i, tc := range cases {
 		t.Run(fmt.Sprintf("Fs%d_frame%d", tc.fs, tc.frameSize), func(t *testing.T) {
 			if results[i].status < 0 {
-				t.Skipf("libopus rejected custom mode (Fs=%d frame=%d) status=%d", tc.fs, tc.frameSize, results[i].status)
+				t.Fatalf("libopus rejected defined scaled-band mode (Fs=%d frame=%d) status=%d", tc.fs, tc.frameSize, results[i].status)
 			}
 			mode, err := custom.NewMode(tc.fs, tc.frameSize)
 			if err != nil {
@@ -603,7 +594,6 @@ func TestOracleControlPlaneNonStandard(t *testing.T) {
 	const maxBytes = 200
 	specs := []struct{ fs, frameSize int }{
 		{48000, 640},
-		{44100, 882},
 	}
 	var cases []oracleCase
 	for _, s := range specs {
@@ -614,7 +604,7 @@ func TestOracleControlPlaneNonStandard(t *testing.T) {
 	for i, tc := range cases {
 		t.Run(fmt.Sprintf("Fs%d_frame%d", tc.fs, tc.frameSize), func(t *testing.T) {
 			if results[i].status < 0 {
-				t.Skipf("libopus rejected custom mode (Fs=%d frame=%d) status=%d", tc.fs, tc.frameSize, results[i].status)
+				t.Fatalf("libopus rejected defined control-plane mode (Fs=%d frame=%d) status=%d", tc.fs, tc.frameSize, results[i].status)
 			}
 			mode, err := custom.NewMode(tc.fs, tc.frameSize)
 			if err != nil {
@@ -741,7 +731,8 @@ func broadDecodeSweepCases() []oracleCase {
 		{12000, 80}, {16000, 120}, {24000, 160}, {48000, 360}, {96000, 800},
 		{48000, 320}, {44100, 360}, {96000, 720},
 		// LM=3 (20 ms equivalents and other non-power-of-two long frames).
-		{16000, 320}, {24000, 480}, {32000, 640}, {48000, 640}, {44100, 720},
+		{8000, 160}, {12000, 240}, {16000, 320}, {24000, 480}, {32000, 640},
+		{48000, 640}, {44100, 720},
 		{16000, 240}, {32000, 480}, {48000, 720}, {48000, 800},
 	}
 	var cases []oracleCase
@@ -768,7 +759,7 @@ func TestOracleDecodeParityBroadSweep(t *testing.T) {
 	for i, tc := range cases {
 		t.Run(fmt.Sprintf("Fs%d_frame%d_ch%d", tc.fs, tc.frameSize, tc.channels), func(t *testing.T) {
 			if results[i].status < 0 {
-				t.Skipf("libopus rejected custom mode (Fs=%d frame=%d ch=%d) status=%d",
+				t.Fatalf("libopus rejected defined custom mode (Fs=%d frame=%d ch=%d) status=%d",
 					tc.fs, tc.frameSize, tc.channels, results[i].status)
 			}
 			mode, err := custom.NewMode(tc.fs, tc.frameSize)
@@ -809,7 +800,7 @@ func TestOracleEncodeParityBroadSweep(t *testing.T) {
 	for i, tc := range cases {
 		t.Run(fmt.Sprintf("Fs%d_frame%d_ch%d", tc.fs, tc.frameSize, tc.channels), func(t *testing.T) {
 			if results[i].status < 0 {
-				t.Skipf("libopus rejected custom mode (Fs=%d frame=%d ch=%d) status=%d",
+				t.Fatalf("libopus rejected defined custom mode (Fs=%d frame=%d ch=%d) status=%d",
 					tc.fs, tc.frameSize, tc.channels, results[i].status)
 			}
 			mode, err := custom.NewMode(tc.fs, tc.frameSize)

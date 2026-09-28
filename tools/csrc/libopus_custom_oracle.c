@@ -264,7 +264,16 @@ int main(void) {
         int g_nbShortMdcts  = mode->nbShortMdcts;
         int g_shortMdctSize = mode->shortMdctSize;
         float g_preemph[4];
-        for (int i = 0; i < 4; i++) g_preemph[i] = (float)mode->preemph[i];
+        for (int i = 0; i < 4; i++) {
+#if defined(FIXED_POINT)
+            /* modes.c stores these four coefficients at their Q15, SIG_SHIFT,
+             * and Q13 scales; the Go custom-mode API exposes normalized floats. */
+            int shift = i == 2 ? SIG_SHIFT : (i == 3 ? 13 : 15);
+            g_preemph[i] = (float)mode->preemph[i] / (float)(1 << shift);
+#else
+            g_preemph[i] = (float)mode->preemph[i];
+#endif
+        }
         int g_nEdges = g_nbEBands + 1;
         opus_int16 g_eBands[64];
         opus_int16 g_logN[64];
