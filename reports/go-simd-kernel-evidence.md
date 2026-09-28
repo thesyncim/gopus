@@ -41,7 +41,9 @@ allocation gates pass. A persistent
 Hybrid-prime → PLC sequence matches after the channel-routing correction at
 `ae6d505a`; the clean FEC Hybrid-to-SILK overlap correction passes 16 rate/channel/gain/
 LBRR cases in all eight local lanes at `2f334bed`. Strict persistent malformed
-FEC still has additional PCM differences under investigation.
+FEC passes 8,000 sequences in each of six local float/fixed/QEXT scalar/SIMD
+lanes at `a8cdf338`, with exact PCM/ranges and no skipped primes. Both
+rate-switch witnesses also pass normal recovery and following PLC.
 Malformed multistream fixed output matches all 9,000 mutations in each of the
 four fixed feature/ISA lanes at `70be920b`, including per-child redundancy
 reconstruction. SILK/Hybrid multistream final ranges include the redundant
@@ -68,7 +70,10 @@ PLC, native crossfade, and Hybrid QEXT routing pass all eight applicable local
 lanes at `3885a34d`. Signaled QEXT bands beyond the physical spectrum and mixed
 integer-format clipping pass their exact PCM/range and zero-allocation gates
 at `28cb897e`. Open adjacent cases include non-fullband QEXT SIMD refinement,
-OSCE-selected DRED history, and default signalling in the internal custom API.
+OSCE-selected DRED history, comfort-noise rate-transition history, and the
+public pitch getter after a SILK rate reset. Custom default signalling, finite
+header budgets, control defaults, error state and reset lifetime pass the full
+custom package in all eight local lanes at `17e27246`.
 Mono-to-stereo loss recovery passes all eight local lanes at `a676f2db`, and
 multistream QEXT after empty extension-repeat markers passes all four QEXT
 feature/ISA lanes at `e404dcf6`.
@@ -80,7 +85,9 @@ all four local float/fixed-QEXT scalar/SIMD lanes. The internal staged CELT
 input also matches C. Energy-trial snapshot storage remains allocation-free
 as budgets increase (`f093c171`, `2eaeab92`). The independent SILK PLC
 rate-change reset regression passes float/fixed scalar/SIMD at `170fd3b9`;
-the two persistent malformed-FEC witnesses remain open.
+the persistent malformed-FEC witnesses pass at `a8cdf338`. Multistream
+96 kHz input uses shared analysis and projection routing at `cb821a49`,
+with exact 48/96 kHz projection packets/ranges and zero warm allocations.
 
 The decoder audit requires exact PCM equality alongside waveform-quality
 checks. Each public output format uses its corresponding C API and matching

@@ -291,9 +291,10 @@ architecture, input format, control sequence, and packet mode is not yet
 proven. The pinned `tmp_check/opus-1.6.1/` is the reference; when behavior is
 uncertain, gopus matches libopus unless fixture evidence says otherwise.
 
-Open validation includes DRED/OSCE history, the complete malformed FEC sweep,
-non-fullband QEXT SIMD refinement, internal custom-mode signalling, and native
-AMD64 oracle coverage. Native 96 kHz encoder mode/budget sequences, including
+Open validation includes DRED/OSCE loss history, non-fullband QEXT SIMD
+refinement, SILK comfort-noise and pitch state across rate changes, and native
+AMD64 oracle coverage. The strict 8,000-case malformed-FEC sweep passes six
+local feature/ISA lanes; the full custom package passes all eight. Native 96 kHz encoder mode/budget sequences, including
 40 ms packets and QEXT off/on, pass exact packet/range and warm zero-allocation
 checks in all four local float/fixed scalar/SIMD lanes. Native 96 kHz multistream encode/decode, long-burst PLC,
 Hybrid QEXT routing, and discarded extension bands pass their matching local

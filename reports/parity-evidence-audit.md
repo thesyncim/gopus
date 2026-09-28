@@ -10,7 +10,7 @@ libopus feature set, CPU dispatch, sample format, controls, and decoder history.
 
 | Priority | Surface | Finding | Current evidence |
 |---|---|---|---|
-| P1 | Public FEC robustness | Independent decoder sessions cannot prove persistent FEC history; accept/count checks omit PCM. | The stereo-coded/mono-API concealment correction passes 128 channel/duration/API cases with exact PCM, ranges, recovery and zero warm allocations in eight local lanes. The 2.5 ms Hybrid-to-SILK CELT overlap correction passes 16 transition cases in all eight lanes at `2f334bed`. The strict persistent mutation sweep still exposes additional PCM differences; they remain under investigation. |
+| P1 | Public FEC robustness | Independent decoder sessions cannot prove persistent FEC history; accept/count checks omit PCM. | The stereo-coded/mono-API concealment correction passes 128 channel/duration/API cases with exact PCM, ranges, recovery and zero warm allocations in eight local lanes. The 2.5 ms Hybrid-to-SILK CELT overlap correction passes 16 transition cases in all eight lanes at `2f334bed`. The strict persistent mutation sweep passes all 8,000 sequences in six local float/fixed/QEXT scalar/SIMD lanes at `a8cdf338`, with exact prime/FEC PCM and ranges and no skipped primes. Both rate-switch witnesses also pass normal recovery and following PLC. |
 | P1 | Malformed fixed multistream | A feature-based bypass omits accepted fixed-point PCM; float gates use a coarse tolerance. | Pre-fade SILK capture and per-child integer reconstruction pass all 9,000 mutations in each of the four fixed scalar/SIMD lanes. Zero warm allocations and full PCM/range/PLC/reset regressions pass. SILK and Hybrid multistream final ranges include the redundant CELT contribution at `70be920b`. |
 | P1 | Multistream oracle errors | Infrastructure failures can be mistaken for C packet rejection. | The test requires the typed child exit and complete negative decode diagnostic. Build, launch, protocol and forged-marker failures remain errors; classification and mutation gates pass. |
 | P1 | Multistream mode changes | A 5 ms window has a gross-error budget and the rest has a numerical tolerance. | Every float bit, including the transition window, matches in all eight local feature/ISA lanes. Exact assertions apply to the full output. |
@@ -46,11 +46,13 @@ no extra CI jobs are required.
 
 ## Open runtime witnesses
 
-The clean FEC transition correction passes its exact matrix. A strict persistent
-malformed FEC sweep still finds additional PCM differences: two of 8,000 tested
-default scalar and SIMD sequences, with matching prime output, sample counts and ranges.
-Both fixed-point configurations pass 8,000 sequences in both instruction lanes. DRED retains a confirmed SILK-history mismatch; its source
-cadence is under investigation. Mono QEXT SIMD reconstruction passes its
+The persistent malformed FEC sweep passes 8,000 sequences per lane at
+`a8cdf338`: default, fixed-point and float-QEXT, each scalar/SIMD. The default
+lanes contain 6,715 matching accepted FEC calls and 1,285 matching rejections,
+with no skipped primes. Coded-channel transitions, per-frame resampling and
+PLC's rate-reset signal type have exact recovery regressions. DRED/OSCE
+history and mixed missing-LBRR neural concealment integration remain under
+validation. Mono QEXT SIMD reconstruction passes its
 selected-C primitive and public-sequence gates at `77cb9a9d`. The SILK SNR correction passes the original frame-91 witness
 and the strict 2,500-frame matrix. Native AMD64 validates the selected-correlation
 correction: all seven LACE/NoLACE/BWE cases pass both instruction lanes across
@@ -67,9 +69,12 @@ the physical spectrum; its exact PCM/range, stereo synthesis-stage and zero
 warm allocation gates pass at `28cb897e`, together with integer-format clipping
 lifecycle checks.
 
-Open adjacent findings are non-fullband QEXT SIMD refinement, automatic OSCE
-selection in DRED history, and default packet signalling in the internal custom
-wrapper. The custom wrapper is not called by root or multistream public APIs.
+Open adjacent findings are non-fullband QEXT SIMD refinement, DRED/OSCE
+loss history, SILK comfort-noise history across rate changes, and the public
+pitch getter after a rate reset. The custom wrapper matches default packet
+signalling, finite header budgets, constructor controls, and error/reset state
+at `17e27246`; its complete package passes all eight local lanes. It is not
+called by root or multistream public APIs.
 Mono-to-stereo recovery preserves independent channel history at `a676f2db`: root
 and multistream pass all eight local lanes, all three output formats, 0/1/2/6/15
 losses and every supported API rate, with zero warm caller-buffer allocations.
@@ -95,14 +100,18 @@ concealment at `170fd3b9`, and starts random-scale state at the C decoder
 initialization value. The Hybrid-to-SILK FEC rate-change regression compares
 exact PCM, counts and ranges for narrow/medium/wide bands and short/long loss
 requests. It and the zero-allocation guard pass local float/fixed scalar/SIMD
-lanes. The two persistent malformed-FEC witnesses remain open.
+lanes. The persistent malformed-FEC witnesses and their recovery sequences
+pass at `a8cdf338`.
 
 Native 96 kHz root and multistream encoding share mode selection, input
 history and the SILK/Hybrid/CELT frame driver at `a86354c6`. Four local
 float/fixed-QEXT scalar/SIMD lanes pass C packet/range and warm allocation
 checks for QEXT off/on, fresh/primed low-budget sequences and packets through
 40 ms. The internal CELT gate compares the actual staged input with C.
-Native AMD64 validation of this checkpoint is pending.
+Multistream uses the shared analysis and short-input projection route at
+`cb821a49`; 48/96 kHz projection packet/range and zero-allocation checks pass
+the applicable float/fixed-QEXT scalar/SIMD lanes. Native AMD64 validation of
+these checkpoints is pending.
 
 ## Deliberate boundaries
 
