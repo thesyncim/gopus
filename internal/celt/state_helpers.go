@@ -2,86 +2,13 @@ package celt
 
 import "github.com/thesyncim/gopus/internal/extsupport"
 
-// handleChannelTransition detects and handles mono-to-stereo channel transitions.
-// When transitioning from mono to stereo, the right channel overlap buffer must be
-// initialized from the left channel to match libopus behavior.
-// This ensures smooth crossfade during the transition.
-//
-// Additionally, energy history arrays (prevEnergy, prevEnergy2, prevLogE, prevLogE2)
-// must be copied/initialized for the right channel. In libopus, mono frames always
-// copy their energy to the right channel position after decoding:
-//
-//	if (C==1) OPUS_COPY(&oldBandE[nbEBands], oldBandE, nbEBands);
-//
-// This means when transitioning to stereo, the right channel already has valid energy.
-// We replicate this behavior here for transitions.
-//
-// Reference: libopus celt/celt_decoder.c - mono-to-stereo handling
-//
-// Returns true if a mono-to-stereo transition occurred.
+// handleChannelTransition mirrors CELT_SET_CHANNELS in celt_decoder.c.
+// Received mono frames update both energy histories during decoding; changing
+// the coded channel count preserves each output channel's overlap and PLC state.
 func (d *Decoder) handleChannelTransition(streamChannels int) bool {
-	prevChannels := d.prevStreamChannels
+	previous := d.prevStreamChannels
 	d.prevStreamChannels = int32(streamChannels)
-
-	// Detect mono-to-stereo transition: previous was mono (1), current is stereo (2)
-	if prevChannels == 1 && streamChannels == 2 && d.channels == 2 {
-		// Copy left channel overlap buffer to right channel for smooth transition
-		// Overlap buffer layout: [Left: 0..Overlap-1] [Right: Overlap..2*Overlap-1]
-		// This matches libopus which copies decode_mem[0] to decode_mem[1] on transition
-		if len(d.overlapBuffer) >= Overlap*2 {
-			for i := range Overlap {
-				d.overlapBuffer[Overlap+i] = d.overlapBuffer[i]
-			}
-		}
-
-		// Copy left channel energy state to right channel.
-		// This matches libopus behavior where mono frames always update both channels'
-		// energy history (via OPUS_COPY(&oldBandE[nbEBands], oldBandE, nbEBands)).
-		// Energy arrays layout: [Left: 0..stride-1] [Right: stride..2*stride-1],
-		// where stride is MaxBands for the static codec and the mode's nbEBands for
-		// a per-mode custom layout.
-		stride := d.predStride()
-		if len(d.prevEnergy) >= stride*2 {
-			for i := range stride {
-				d.prevEnergy[stride+i] = d.prevEnergy[i]
-			}
-		}
-		if len(d.prevEnergy2) >= stride*2 {
-			for i := range stride {
-				d.prevEnergy2[stride+i] = d.prevEnergy2[i]
-			}
-		}
-		if len(d.prevLogE) >= stride*2 {
-			for i := range stride {
-				d.prevLogE[stride+i] = d.prevLogE[i]
-			}
-		}
-		if len(d.prevLogE2) >= stride*2 {
-			for i := range stride {
-				d.prevLogE2[stride+i] = d.prevLogE2[i]
-			}
-		}
-		if len(d.backgroundEnergy) >= stride*2 {
-			for i := range stride {
-				d.backgroundEnergy[stride+i] = d.backgroundEnergy[i]
-			}
-		}
-
-		// NOTE: preemphState is NOT copied during transition.
-		// In libopus, each channel maintains its own independent de-emphasis filter state.
-		// During mono packets on a stereo decoder, both states are updated independently
-		// (with the same input but different state histories). At transition to stereo,
-		// each channel continues with its own state - no copying is done.
-
-		return true
-	}
-
-	// Detect stereo-to-mono transition: previous was stereo (2), current is mono (1)
-	if prevChannels == 2 && streamChannels == 1 && d.channels == 2 {
-		return true
-	}
-
-	return false
+	return d.channels == 2 && previous != 0 && previous != int32(streamChannels)
 }
 
 // ensureEnergyState ensures the decoder has room for the requested channel count
