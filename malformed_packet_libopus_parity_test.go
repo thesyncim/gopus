@@ -65,13 +65,14 @@ type libopusDecodeErrorResult struct {
 var malformedDecodeErrorHelper libopustest.HelperCache
 
 func buildMalformedDecodeErrorHelper() (string, error) {
-	return malformedDecodeErrorHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:      "decode error probe",
-		OutputBase: "gopus_malformed_decode_error",
-		SourceFile: "libopus_decode_error_probe.c",
-		CFlags:     []string{"-DHAVE_CONFIG_H", "-O2"},
-		Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
-		DeadStrip:  true,
+	return malformedDecodeErrorHelper.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:      "decode error probe",
+			OutputBase: "gopus_malformed_decode_error",
+			SourceFile: "libopus_decode_error_probe.c",
+			CFlags:     []string{"-DHAVE_CONFIG_H", "-O2"},
+			DeadStrip:  true,
+		})
 	})
 }
 
@@ -431,7 +432,7 @@ func bufferTooSmallCases48k1ch() []bufferTooSmallProbeCase {
 	return []bufferTooSmallProbeCase{
 		{
 			name:       "buf_too_small_code0_20ms",
-			packet:     []byte{0x60, 0xFF, 0xFF, 0xFF, 0xFF}, // CELT FB 20ms
+			packet:     []byte{0xF8, 0xFF, 0xFF, 0xFF, 0xFF}, // CELT FB 20ms
 			frameSize:  480,                                  // only 480, packet needs 960
 			sampleRate: 48000,
 			channels:   1,
@@ -439,7 +440,7 @@ func bufferTooSmallCases48k1ch() []bufferTooSmallProbeCase {
 		{
 			name: "buf_too_small_code1_2x20ms",
 			// code-1: 2 frames × 960 = 1920 samples needed; give 960
-			packet:     []byte{0x61, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+			packet:     []byte{0xF9, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
 			frameSize:  960,
 			sampleRate: 48000,
 			channels:   1,
@@ -632,14 +633,11 @@ func TestMalformedPacketBufferTooSmallParity(t *testing.T) {
 			pcm := make([]float32, tc.frameSize*tc.channels)
 			_, gopusErr := dec.Decode(tc.packet, pcm)
 
-			if wantCode == libopusErrBufTooSmall {
-				if !errors.Is(gopusErr, gopus.ErrBufferTooSmall) {
-					t.Errorf("libopus OPUS_BUFFER_TOO_SMALL, gopus=%v want ErrBufferTooSmall", gopusErr)
-				}
-			} else if wantCode >= 0 {
-				// libopus unexpectedly succeeded; either test data is wrong or
-				// the frame_size was large enough.  Log and skip the assertion.
-				t.Logf("libopus returned %d (not BUFFER_TOO_SMALL) — skipping parity check", wantCode)
+			if wantCode != libopusErrBufTooSmall {
+				t.Fatalf("libopus returned %d, want OPUS_BUFFER_TOO_SMALL (%d)", wantCode, libopusErrBufTooSmall)
+			}
+			if !errors.Is(gopusErr, gopus.ErrBufferTooSmall) {
+				t.Errorf("libopus OPUS_BUFFER_TOO_SMALL, gopus=%v want ErrBufferTooSmall", gopusErr)
 			}
 		})
 	}
@@ -807,8 +805,7 @@ func TestMalformedPacketAllRatesAndChannels(t *testing.T) {
 					return
 				}
 				if res[0].code != libopusErrInvalidPkt {
-					t.Logf("libopus returned %d (not OPUS_INVALID_PACKET) — skipping", res[0].code)
-					return
+					t.Fatalf("libopus returned %d, want OPUS_INVALID_PACKET (%d)", res[0].code, libopusErrInvalidPkt)
 				}
 				dec, decErr := gopus.NewDecoder(gopus.DefaultDecoderConfig(rate, ch))
 				if decErr != nil {

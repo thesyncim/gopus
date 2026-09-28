@@ -277,7 +277,7 @@ func TestDecoderSILKDecodeWithFECNoLBRRWithCachedDREDRequestedDurationMatchesLiv
 			t.Fatalf("extractFirstFramePayload: %v", err)
 		}
 		if packetHasLBRR(firstFrameData, toc) {
-			t.Skip("cached SILK DRED FEC-fallback fixture unexpectedly carries LBRR")
+			t.Fatal("cached SILK DRED FEC-fallback fixture unexpectedly carries LBRR")
 		}
 
 		for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
@@ -352,7 +352,7 @@ func TestDecoderSILKDecodeWithFECNoLBRRWithCachedDREDLossesMatchLiveLostSequence
 				t.Fatalf("extractFirstFramePayload: %v", err)
 			}
 			if packetHasLBRR(firstFrameData, toc) {
-				t.Skip("cached SILK DRED FEC-fallback fixture unexpectedly carries LBRR")
+				t.Fatal("cached SILK DRED FEC-fallback fixture unexpectedly carries LBRR")
 			}
 			dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacket(t, sampleRate, packetInfo)
 			wantFrame, err := packetSamplesAtRate(packetInfo.packet, sampleRate)

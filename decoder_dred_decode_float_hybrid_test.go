@@ -30,7 +30,7 @@ func TestDecoderExplicitHybridDREDDecodeMatrixMatchesLibopus(t *testing.T) {
 				Bandwidth: tc.bandwidth,
 			})
 			if packetInfo.sampleRate != 48000 || n != tc.frameSize {
-				t.Skipf("hybrid explicit parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", tc.frameSize, packetInfo.sampleRate, n)
+				t.Fatalf("hybrid explicit parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", tc.frameSize, packetInfo.sampleRate, n)
 			}
 
 			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)

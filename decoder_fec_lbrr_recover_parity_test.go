@@ -364,7 +364,7 @@ func TestDecodeWithFECStereoHybridAfterLongLossRangeExact(t *testing.T) {
 		{"SetForceChannels", func() error { return enc.SetForceChannels(2) }},
 	} {
 		if err := set.fn(); err != nil {
-			t.Skipf("%s: %v", set.name, err)
+			t.Fatalf("%s: %v", set.name, err)
 		}
 	}
 	enc.SetFEC(true)
@@ -386,10 +386,10 @@ func TestDecodeWithFECStereoHybridAfterLongLossRangeExact(t *testing.T) {
 		}
 		pkt, err := enc.EncodeFloat32(pcm)
 		if err != nil || len(pkt) == 0 {
-			t.Skipf("encode frame %d: %v len=%d", f, err, len(pkt))
+			t.Fatalf("encode frame %d: %v len=%d", f, err, len(pkt))
 		}
 		if ParseTOC(pkt[0]).Mode != ModeHybrid {
-			t.Skipf("frame %d not hybrid", f)
+			t.Fatalf("frame %d not hybrid", f)
 		}
 		packets = append(packets, append([]byte(nil), pkt...))
 		if recoveryIdx < 0 && f > warmUp+lossBurst && packetHasInBandFEC(t, pkt) {
@@ -397,7 +397,7 @@ func TestDecodeWithFECStereoHybridAfterLongLossRangeExact(t *testing.T) {
 		}
 	}
 	if recoveryIdx < 0 {
-		t.Skip("no warm LBRR-carrying hybrid recovery packet emitted")
+		t.Fatal("no warm LBRR-carrying hybrid recovery packet emitted")
 	}
 
 	// Decode plan: warm-up normal decodes, a long PLC burst (Decode(nil)) that

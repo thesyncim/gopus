@@ -56,7 +56,7 @@ func encodeFixedCELTSequence(t *testing.T, channels, frameSize, frames int) [][]
 			t.Fatalf("frame %d Encode: %v", f, err)
 		}
 		if toc := ParseTOC(pkt[0]); toc.Mode != ModeCELT {
-			t.Skipf("encoder produced mode %v, want CELT", toc.Mode)
+			t.Fatalf("encoder produced mode %v, want CELT", toc.Mode)
 		}
 		packets = append(packets, append([]byte(nil), pkt...))
 	}

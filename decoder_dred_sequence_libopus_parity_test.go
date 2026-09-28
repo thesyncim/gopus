@@ -297,7 +297,7 @@ func prepareCachedDREDDecodeInt16ParityStateForDecoderRateAndPacketWithChannels(
 		channels = 2
 	}
 	if wantChannels > 0 && channels != wantChannels {
-		t.Skipf("cached DRED int16 parity requires %d-channel packet, got sampleRate=%d channels=%d", wantChannels, packetInfo.sampleRate, channels)
+		t.Fatalf("cached DRED int16 parity requires %d-channel packet, got sampleRate=%d channels=%d", wantChannels, packetInfo.sampleRate, channels)
 	}
 
 	dec, err := NewDecoder(DefaultDecoderConfig(decoderSampleRate, channels))

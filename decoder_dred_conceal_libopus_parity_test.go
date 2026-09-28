@@ -122,7 +122,7 @@ func prepareDecoderForNeuralConcealmentParityForFrameSize(t *testing.T, frameSiz
 		channels = 2
 	}
 	if channels != 1 {
-		t.Skipf("conceal parity test requires mono packet, got sampleRate=%d channels=%d", packetInfo.sampleRate, channels)
+		t.Fatalf("conceal parity test requires mono packet, got sampleRate=%d channels=%d", packetInfo.sampleRate, channels)
 	}
 
 	dec, err := NewDecoder(DefaultDecoderConfig(16000, channels))

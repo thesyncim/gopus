@@ -172,7 +172,7 @@ func TestDecoderFixedPointSILKParity(t *testing.T) {
 			packets := encodeFixedSILKSequence(t, c.channels, c.frameSize, frames, c.bw)
 			for _, pkt := range packets {
 				if toc := ParseTOC(pkt[0]); toc.Mode != ModeSILK {
-					t.Skipf("encoder produced mode %v, want SILK", toc.Mode)
+					t.Fatalf("encoder produced mode %v, want SILK", toc.Mode)
 				}
 			}
 
@@ -252,7 +252,7 @@ func TestDecoderFixedPointHybridParity(t *testing.T) {
 			for f := 0; f < c.frames; f++ {
 				pkt := encodeAPIRateHybridPacketFrameSize(t, c.channels, c.frameSize)
 				if toc := ParseTOC(pkt[0]); toc.Mode != ModeHybrid {
-					t.Skipf("encoder produced mode %v, want Hybrid", toc.Mode)
+					t.Fatalf("encoder produced mode %v, want Hybrid", toc.Mode)
 				}
 				packets = append(packets, pkt)
 			}

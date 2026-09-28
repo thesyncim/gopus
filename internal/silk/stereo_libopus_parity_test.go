@@ -688,37 +688,6 @@ func TestSILKStereoPacket0EncodeMatchesLibopusOracle(t *testing.T) {
 	}
 }
 
-func TestSILKPacket0MidFrameCoreOracle(t *testing.T) {
-	libopustest.RequireOracle(t)
-	const (
-		bitRate       = 48000
-		maxBits       = 1500
-		payloadSizeMs = 20
-	)
-	signal := chirpSweepWB20msStereo48kPacket0Signal(t)
-	want, err := probeLibopusSILKPacket0Wrapper(signal, bitRate, maxBits, true, payloadSizeMs, 0)
-	if err != nil {
-		libopustest.HelperUnavailable(t, "silk stereo packet0 wrapper", err)
-	}
-	f := prepareSILKPacket0MidFrameCoreOracle(t, signal, bitRate, maxBits, payloadSizeMs, want)
-	nBytesOut := f.mid.encodeFrame(f.re, f.condCoding, f.maxBits, f.useCBR)
-	f.mid.nFramesEncoded++
-
-	if want.midEncodeRet != 0 {
-		t.Fatalf("libopus mid silk_encode_frame_FLP ret=%d", want.midEncodeRet)
-	}
-	if nBytesOut != want.midNBytesOut {
-		t.Skipf("packet-0 mid silk_encode_frame_FLP oracle reached: nBytesOut=%d want %d", nBytesOut, want.midNBytesOut)
-	}
-	if gotTell := int32(f.re.Tell()); gotTell != want.midTellAfterFrame {
-		t.Skipf("packet-0 mid silk_encode_frame_FLP oracle reached: tellAfterFrame=%d want %d", gotTell, want.midTellAfterFrame)
-	}
-	if gotRange := int32(f.re.Range()); gotRange != want.midRangeAfterFrame {
-		t.Skipf("packet-0 mid silk_encode_frame_FLP oracle reached: rangeAfterFrame=%d want %d", gotRange, want.midRangeAfterFrame)
-	}
-	checkSILKPacket0MidState(t, f.enc, want, false)
-}
-
 // checkSILKPacket0MidState compares the mid channel state after its first
 // frame, and the packet-level decisions that precede it, with the oracle.
 // sideCoded reports that the side frame has run its silk_control_SNR too.
@@ -859,7 +828,7 @@ func prepareSILKPacket0MidFrameCoreOracle(t testing.TB, signal []float32, bitRat
 		t.Fatalf("first packet coded %d LBRR bits", lbrrBits)
 	}
 	if gotTell, gotRange := int32(re.Tell()), int32(re.Range()); gotTell != want.sideInfoTraceTell[0] || gotRange != want.sideInfoTraceRange[0] {
-		t.Skipf("side info after header tell/range=%d/%d want %d/%d",
+		t.Fatalf("side info after header tell/range=%d/%d want %d/%d",
 			gotTell, gotRange, want.sideInfoTraceTell[0], want.sideInfoTraceRange[0])
 	}
 	mid.hpVariableCutoff()
@@ -883,7 +852,7 @@ func prepareSILKPacket0MidFrameCoreOracle(t testing.TB, signal []float32, bitRat
 	}
 	stereoEncodePred(re, ix)
 	if gotTell, gotRange := int32(re.Tell()), int32(re.Range()); gotTell != want.sideInfoTraceTell[1] || gotRange != want.sideInfoTraceRange[1] {
-		t.Skipf("side info after stereo pred tell/range=%d/%d want %d/%d",
+		t.Fatalf("side info after stereo pred tell/range=%d/%d want %d/%d",
 			gotTell, gotRange, want.sideInfoTraceTell[1], want.sideInfoTraceRange[1])
 	}
 	if !side.vadFlags[0] {
@@ -891,7 +860,7 @@ func prepareSILKPacket0MidFrameCoreOracle(t testing.TB, signal []float32, bitRat
 	}
 	gotTell := int32(re.Tell())
 	if gotRange := int32(re.Range()); gotTell != want.sideInfoTraceTell[2] || gotRange != want.sideInfoTraceRange[2] {
-		t.Skipf("side info after mid-only tell/range=%d/%d want %d/%d",
+		t.Fatalf("side info after mid-only tell/range=%d/%d want %d/%d",
 			gotTell, gotRange, want.sideInfoTraceTell[2], want.sideInfoTraceRange[2])
 	}
 	mid.encodeDoVAD(activity)
@@ -936,7 +905,7 @@ func prepareSILKPacket0MidFrameCoreOracle(t testing.TB, signal []float32, bitRat
 			want.midInputTiltQ15, want.sideInputTiltQ15)
 	}
 	if gotRange := int32(re.Range()); gotRange != want.rangeAfterSideInfo {
-		t.Skipf("rangeAfterSideInfo=%d want %d", gotRange, want.rangeAfterSideInfo)
+		t.Fatalf("rangeAfterSideInfo=%d want %d", gotRange, want.rangeAfterSideInfo)
 	}
 	return silkPacket0MidFrame{
 		enc:        s,

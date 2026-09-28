@@ -544,7 +544,7 @@ func prepareCachedDREDDecodeParityStateForDecoderRateAndPacketWithChannels(t *te
 		channels = 2
 	}
 	if wantChannels > 0 && channels != wantChannels {
-		t.Skipf("cached DRED decode parity requires %d-channel packet, got sampleRate=%d channels=%d", wantChannels, packetInfo.sampleRate, channels)
+		t.Fatalf("cached DRED decode parity requires %d-channel packet, got sampleRate=%d channels=%d", wantChannels, packetInfo.sampleRate, channels)
 	}
 
 	dec, err := NewDecoder(DefaultDecoderConfig(decoderSampleRate, channels))
@@ -774,7 +774,7 @@ func assertDecoderCachedStereoDREDLiveSequenceMatchesLibopus(t *testing.T, label
 	dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacketWithChannels(t, packetInfo.sampleRate, packetInfo, 2)
 	dred := parseCarrierDREDForExplicitDecode(t, packetInfo.sampleRate, packetInfo)
 	if packetInfo.sampleRate != 48000 || n != packetCfg.FrameSize {
-		t.Skipf("%s cached stereo live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", label, packetCfg.FrameSize, packetInfo.sampleRate, n)
+		t.Fatalf("%s cached stereo live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", label, packetCfg.FrameSize, packetInfo.sampleRate, n)
 	}
 
 	step1Source := 0

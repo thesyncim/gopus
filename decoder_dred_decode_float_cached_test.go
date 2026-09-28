@@ -244,7 +244,7 @@ func TestDecoderCachedStereoDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 	dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacketWithChannels(t, packetInfo.sampleRate, packetInfo, 2)
 	dred := parseCarrierDREDForExplicitDecode(t, packetInfo.sampleRate, packetInfo)
 	if packetInfo.sampleRate != 48000 || n != frameSize {
-		t.Skipf("cached stereo CELT live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
+		t.Fatalf("cached stereo CELT live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
 	}
 	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, libopusDecoderDREDSequenceSourceCarrierDRED, n, libopusDecoderDREDSequenceSourceNone, 0, false)
 	if err != nil {
@@ -300,7 +300,7 @@ func TestDecoderCachedStereoDREDSecondLossMatchesLiveSequenceOracle(t *testing.T
 	dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacketWithChannels(t, packetInfo.sampleRate, packetInfo, 2)
 	dred := parseCarrierDREDForExplicitDecode(t, packetInfo.sampleRate, packetInfo)
 	if packetInfo.sampleRate != 48000 || n != frameSize {
-		t.Skipf("cached stereo CELT second-loss parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
+		t.Fatalf("cached stereo CELT second-loss parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
 	}
 	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, libopusDecoderDREDSequenceSourceCarrierDRED, n, libopusDecoderDREDSequenceSourceCarrierDRED, 2*n, false)
 	if err != nil {
@@ -444,7 +444,7 @@ func TestDecoderCachedStereoDREDThenNextPacketMatchesLiveSequenceOracle(t *testi
 	dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacketWithChannels(t, packetInfo.sampleRate, packetInfo, 2)
 	dred := parseCarrierDREDForExplicitDecode(t, packetInfo.sampleRate, packetInfo)
 	if packetInfo.sampleRate != 48000 || n != frameSize {
-		t.Skipf("cached stereo CELT follow-up parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
+		t.Fatalf("cached stereo CELT follow-up parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
 	}
 	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, libopusDecoderDREDSequenceSourceCarrierDRED, n, libopusDecoderDREDSequenceSourceNone, 0, true)
 	if err != nil {
@@ -507,7 +507,7 @@ func TestDecoderCachedStereoDREDSecondLossThenNextPacketMatchesLiveSequenceOracl
 	dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacketWithChannels(t, packetInfo.sampleRate, packetInfo, 2)
 	dred := parseCarrierDREDForExplicitDecode(t, packetInfo.sampleRate, packetInfo)
 	if packetInfo.sampleRate != 48000 || n != frameSize {
-		t.Skipf("cached stereo CELT second-loss follow-up parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
+		t.Fatalf("cached stereo CELT second-loss follow-up parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
 	}
 	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, libopusDecoderDREDSequenceSourceCarrierDRED, n, libopusDecoderDREDSequenceSourceCarrierDRED, 2*n, true)
 	if err != nil {
@@ -638,7 +638,7 @@ func TestDecoderCachedDREDThenNextPacketMatchesLiveSequenceOracle(t *testing.T) 
 
 			dec, n := prepareCachedDREDDecodeParityStateForPacket(t, packetInfo)
 			if packetInfo.sampleRate != 48000 || n != frameSize {
-				t.Skipf("cached CELT live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
+				t.Fatalf("cached CELT live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
 			}
 			dred := parseCarrierDREDForExplicitDecode(t, packetInfo.sampleRate, packetInfo)
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, libopusDecoderDREDSequenceSourceCarrierDRED, n, libopusDecoderDREDSequenceSourceNone, 0, true)
@@ -698,7 +698,7 @@ func TestDecoderCachedDREDThenNextPacketCELTSuperwidebandMatchesLiveSequenceOrac
 			dec, n := prepareCachedDREDDecodeParityStateForPacket(t, packetInfo)
 			dred := parseCarrierDREDForExplicitDecode(t, packetInfo.sampleRate, packetInfo)
 			if packetInfo.sampleRate != 48000 || n != frameSize {
-				t.Skipf("cached CELT SWB live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
+				t.Fatalf("cached CELT SWB live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
 			}
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, libopusDecoderDREDSequenceSourceCarrierDRED, n, libopusDecoderDREDSequenceSourceNone, 0, true)
 			if err != nil {
@@ -792,7 +792,7 @@ func TestDecoderCachedDREDSecondLossThenNextPacketMatchesLiveSequenceOracle(t *t
 
 			dec, n := prepareCachedDREDDecodeParityStateForPacket(t, packetInfo)
 			if packetInfo.sampleRate != 48000 || n != frameSize {
-				t.Skipf("cached CELT second-loss live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
+				t.Fatalf("cached CELT second-loss live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
 			}
 			dred := parseCarrierDREDForExplicitDecode(t, packetInfo.sampleRate, packetInfo)
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, libopusDecoderDREDSequenceSourceCarrierDRED, n, libopusDecoderDREDSequenceSourceCarrierDRED, 2*n, true)
@@ -862,7 +862,7 @@ func TestDecoderCachedDREDSecondLossThenNextPacketCELTSuperwidebandMatchesLiveSe
 			dec, n := prepareCachedDREDDecodeParityStateForPacket(t, packetInfo)
 			dred := parseCarrierDREDForExplicitDecode(t, packetInfo.sampleRate, packetInfo)
 			if packetInfo.sampleRate != 48000 || n != frameSize {
-				t.Skipf("cached CELT SWB second-loss live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
+				t.Fatalf("cached CELT SWB second-loss live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
 			}
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, libopusDecoderDREDSequenceSourceCarrierDRED, n, libopusDecoderDREDSequenceSourceCarrierDRED, 2*n, true)
 			if err != nil {
@@ -948,7 +948,7 @@ func TestDecoderCachedDREDThenNextPacketCELTWidebandMatchesLiveSequenceOracle(t 
 			dec, n := prepareCachedDREDDecodeParityStateForPacket(t, packetInfo)
 			dred := parseCarrierDREDForExplicitDecode(t, packetInfo.sampleRate, packetInfo)
 			if packetInfo.sampleRate != 48000 || n != frameSize {
-				t.Skipf("cached CELT WB live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
+				t.Fatalf("cached CELT WB live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
 			}
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, libopusDecoderDREDSequenceSourceCarrierDRED, n, libopusDecoderDREDSequenceSourceNone, 0, true)
 			if err != nil {
@@ -1024,7 +1024,7 @@ func TestDecoderCachedDREDSecondLossThenNextPacketCELTWidebandMatchesLiveSequenc
 			dec, n := prepareCachedDREDDecodeParityStateForPacket(t, packetInfo)
 			dred := parseCarrierDREDForExplicitDecode(t, packetInfo.sampleRate, packetInfo)
 			if packetInfo.sampleRate != 48000 || n != frameSize {
-				t.Skipf("cached CELT WB second-loss live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
+				t.Fatalf("cached CELT WB second-loss live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
 			}
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, libopusDecoderDREDSequenceSourceCarrierDRED, n, libopusDecoderDREDSequenceSourceCarrierDRED, 2*n, true)
 			if err != nil {

@@ -158,7 +158,7 @@ func TestDecoderFixedPointDecodeGainParity(t *testing.T) {
 			t.Run(fmt.Sprintf("%s_gain%d", c.name, g), func(t *testing.T) {
 				packets := encodeFixedDecodeGainCELTSequence(t, c.channels, c.frameSize, c.frames)
 				if toc := ParseTOC(packets[0][0]); toc.Mode != ModeCELT {
-					t.Skipf("first packet mode %v, want CELT", toc.Mode)
+					t.Fatalf("first packet mode %v, want CELT", toc.Mode)
 				}
 
 				refInt16, err := decodeWithLibopusFixedInt16Gain(sampleRate, c.channels, c.frameSize, g, packets)
