@@ -158,16 +158,21 @@ its independent fixed-only C oracle coexists with the Q31 QEXT oracle. The full
 fixed-point package passes scalar and SIMD with QEXT enabled. Custom fixed QEXT
 stateful checks pass 18 mode/channel cases in scalar and SIMD, including variable
 frame sizes and packet budgets. Received/loss/recovery/reset allocation checks
-remain zero. The full public fixed-QEXT suite still has feature-pairing failures
-under correction. Automatic mono/stereo transitions at 48 and 96 kHz match
+remain zero. The public QEXT packet CLI uses the same fixed/float configuration
+and instruction lane as Go. Its 60-configuration stateful packet matrix and
+CBR framing, finalisation, budget-boundary and silence-recovery checks pass
+locally in fixed-QEXT scalar and SIMD builds. Decoder traces expose normalized
+signal, gain and energy units for both fixed and float references. Automatic
+mono/stereo transitions at 48 and 96 kHz match
 selected C packets, final ranges and raw state in scalar and SIMD, with QEXT
 enabled and disabled. Active QEXT transitions allocate zero after warmup.
 The QEXT encoder gain fade uses the mode’s Q31 window converted through
 COEF2VAL16. Its selected-C oracle matches 24 rate/channel/direction cases, and
 all 12 rate/channel allocation checks remain zero. The full public
 CELT/SILK/Hybrid transition witness passes fixed-only and fixed-QEXT in both
-scalar and SIMD builds. The remaining fixed encoder FEC/DTX and fixed-QEXT
-Hybrid loss/multistream discrepancies are under investigation.
+scalar and SIMD builds. Fixed encoder FEC/DTX, fixed-QEXT Hybrid loss and
+multistream decoding, and fixed decoding of accepted corrupt packets remain
+under investigation. These focused results do not establish full public parity.
 Generated fixed-QEXT transform tables and forward/inverse MDCT results match
 live C across 13 custom geometries, including maxshift zero, all transform
 shifts, contiguous and strided output, and the 2048-sample geometry. Warm
