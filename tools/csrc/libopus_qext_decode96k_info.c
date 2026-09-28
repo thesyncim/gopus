@@ -6,7 +6,7 @@
  * with the configured integer downsample factor.
  *
  * Protocol (little-endian):
- *   in : "GQDI" magic, u32 version(=1|2|3|4|5|6|7|8),
+ *   in : "GQDI" magic, u32 version(=1|2|3|4|5|6|7|8|9),
  *        u32 sampleFormat (0=float32, 1=int16, 2=int24; version 3 uses 2),
  *        u32 channels (1|2), u32 maxFrameSize (per-channel samples at the API rate),
  *        u32 packetCount, [version 2/3/4: i32 output gain in Q8 dB],
@@ -15,6 +15,7 @@
  *        [version 7: u32 ignoreExtensions (0|1)],
  *        then for each packet: [version 3: u32 sampleFormat (1|2)],
  *        [version 8: u32 decodeFEC (0|1)],
+ *        [version 9: u32 ignoreExtensions (0|1)],
  *        u32 packetLen, packetLen bytes
  *   out: "GQDO" magic, matching version,
  *        u32 totalSamples (interleaved element count across all packets),
@@ -152,7 +153,7 @@ int main(void) {
     fprintf(stderr, "invalid input magic\n");
     return 1;
   }
-  if (!read_u32(&version) || (version != 1 && version != 2 && version != 3 && version != 4 && version != 5 && version != 6 && version != 7 && version != 8)) {
+  if (!read_u32(&version) || (version != 1 && version != 2 && version != 3 && version != 4 && version != 5 && version != 6 && version != 7 && version != 8 && version != 9)) {
     fprintf(stderr, "unsupported input version\n");
     return 1;
   }
@@ -269,6 +270,7 @@ int main(void) {
     uint32_t packet_len = 0;
     uint32_t packet_format = sample_format;
     uint32_t decode_fec = 0;
+    uint32_t packet_ignore_extensions = ignore_extensions;
     unsigned char *packet = NULL;
     int decoded_samples = 0;
     opus_uint32 final_range = 0;
@@ -309,6 +311,24 @@ int main(void) {
       free(statuses);
       return 1;
     }
+    if (version == 9 && !read_u32(&packet_ignore_extensions)) {
+      fprintf(stderr, "failed to read per-packet extension-ignore control\n");
+      opus_decoder_destroy(dec);
+      free(frame);
+      free(decoded);
+      free(ranges);
+      free(statuses);
+      return 1;
+    }
+    if (version == 9 && packet_ignore_extensions > 1) {
+      fprintf(stderr, "invalid per-packet extension-ignore control\n");
+      opus_decoder_destroy(dec);
+      free(frame);
+      free(decoded);
+      free(ranges);
+      free(statuses);
+      return 1;
+    }
     if (!read_u32(&packet_len)) {
       fprintf(stderr, "failed to read packet length\n");
       opus_decoder_destroy(dec);
@@ -330,6 +350,17 @@ int main(void) {
         free(statuses);
         return 1;
       }
+    }
+
+    if (version == 9 && opus_decoder_ctl(dec, OPUS_SET_IGNORE_EXTENSIONS((int)packet_ignore_extensions)) != OPUS_OK) {
+      fprintf(stderr, "per-packet OPUS_SET_IGNORE_EXTENSIONS failed\n");
+      free(packet);
+      opus_decoder_destroy(dec);
+      free(frame);
+      free(decoded);
+      free(ranges);
+      free(statuses);
+      return 1;
     }
 
     if (packet_format == SAMPLE_FORMAT_INT16) {

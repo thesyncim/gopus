@@ -50,16 +50,17 @@ func getQEXTDecode96kHelperPath() (string, error) {
 // native 96 kHz CELT geometry at 96 kHz and the 48 kHz geometry with API-rate
 // downsampling for rates through 48 kHz.
 type QEXTDecode96kParams struct {
-	SampleFormat           uint32 // QEXTDecode96kFormat* (float32/int16/int24)
-	Channels               int
-	SampleRate             int      // API rate for selected fixed-QEXT probes
-	PhaseInversionDisabled bool     // explicit control for version-5 selected fixed-QEXT probes
-	IgnoreExtensions       bool     // OPUS_SET_IGNORE_EXTENSIONS for selected fixed-QEXT probes
-	MaxFrameSize           int      // per-channel API-rate sample capacity passed to opus_decode
-	GainQ8                 int32    // decoder output gain for version-2 probes; zero for version 1
-	PacketFormats          []uint32 // per-packet int16/int24 formats for mixed-format probes
-	DecodeFEC              []bool   // per-packet decode_fec flag for version-8 sequence probes
-	Packets                [][]byte // Opus packets to decode in sequence through one decoder
+	SampleFormat             uint32 // QEXTDecode96kFormat* (float32/int16/int24)
+	Channels                 int
+	SampleRate               int      // API rate for selected fixed-QEXT probes
+	PhaseInversionDisabled   bool     // explicit control for version-5 selected fixed-QEXT probes
+	IgnoreExtensions         bool     // OPUS_SET_IGNORE_EXTENSIONS for selected fixed-QEXT probes
+	MaxFrameSize             int      // per-channel API-rate sample capacity passed to opus_decode
+	GainQ8                   int32    // decoder output gain for version-2 probes; zero for version 1
+	PacketFormats            []uint32 // per-packet int16/int24 formats for mixed-format probes
+	DecodeFEC                []bool   // per-packet decode_fec flag for version-8 sequence probes
+	IgnoreExtensionsByPacket []bool   // per-packet OPUS_SET_IGNORE_EXTENSIONS for version-9 probes
+	Packets                  [][]byte // Opus packets to decode in sequence through one decoder
 }
 
 // QEXTDecode96kResult holds decoded interleaved PCM and per-packet final ranges.
@@ -136,10 +137,8 @@ func ProbeQEXTDecode96kFixed(p QEXTDecode96kParams) (QEXTDecode96kResult, error)
 // FIXED_POINT+ENABLE_QEXT reference. Protocol v5 carries the API sample rate
 // and phase-inversion control explicitly; v7 adds the extension-ignore control.
 func ProbeQEXTDecodeFixed(p QEXTDecode96kParams) (QEXTDecode96kResult, error) {
-	switch p.SampleRate {
-	case 8000, 12000, 16000, 24000, 48000, 96000:
-	default:
-		return QEXTDecode96kResult{}, fmt.Errorf("fixed qext decode: unsupported sample rate %d", p.SampleRate)
+	if err := validateQEXTDecodeSampleRate(p.SampleRate); err != nil {
+		return QEXTDecode96kResult{}, fmt.Errorf("fixed qext decode: %w", err)
 	}
 	binPath, err := qextDecode96kFixedHelper.Path(buildQEXTDecode96kFixedHelper)
 	if err != nil {
@@ -150,6 +149,32 @@ func ProbeQEXTDecodeFixed(p QEXTDecode96kParams) (QEXTDecode96kResult, error) {
 		version = 7
 	}
 	return probeQEXTDecode96k(p, binPath, version)
+}
+
+// ProbeQEXTDecodeFixedPerPacketIgnore decodes a persistent
+// fixed-QEXT sequence while selecting OPUS_SET_IGNORE_EXTENSIONS separately
+// for each packet.
+func ProbeQEXTDecodeFixedPerPacketIgnore(p QEXTDecode96kParams) (QEXTDecode96kResult, error) {
+	if err := validateQEXTDecodeSampleRate(p.SampleRate); err != nil {
+		return QEXTDecode96kResult{}, fmt.Errorf("fixed qext decode: %w", err)
+	}
+	if len(p.IgnoreExtensionsByPacket) != len(p.Packets) {
+		return QEXTDecode96kResult{}, fmt.Errorf("fixed qext decode per-packet ignore: %d flags for %d packets", len(p.IgnoreExtensionsByPacket), len(p.Packets))
+	}
+	binPath, err := qextDecode96kFixedHelper.Path(buildQEXTDecode96kFixedHelper)
+	if err != nil {
+		return QEXTDecode96kResult{}, err
+	}
+	return probeQEXTDecode96k(p, binPath, 9)
+}
+
+func validateQEXTDecodeSampleRate(sampleRate int) error {
+	switch sampleRate {
+	case 8000, 12000, 16000, 24000, 48000, 96000:
+		return nil
+	default:
+		return fmt.Errorf("unsupported sample rate %d", sampleRate)
+	}
 }
 
 // ProbeQEXTDecodeFixedSequence decodes a persistent fixed-QEXT sequence while
@@ -226,6 +251,13 @@ func probeQEXTDecode96k(p QEXTDecode96kParams, binPath string, version uint32) (
 		}
 		if version == 8 {
 			if p.DecodeFEC[i] {
+				payload.U32(1)
+			} else {
+				payload.U32(0)
+			}
+		}
+		if version == 9 {
+			if p.IgnoreExtensionsByPacket[i] {
 				payload.U32(1)
 			} else {
 				payload.U32(0)
