@@ -67,8 +67,7 @@ the physical spectrum; its exact PCM/range, stereo synthesis-stage and zero
 warm allocation gates pass at `28cb897e`, together with integer-format clipping
 lifecycle checks.
 
-Open adjacent findings are native 96 kHz encoder budget/mode boundaries,
-non-fullband QEXT SIMD refinement, automatic OSCE
+Open adjacent findings are non-fullband QEXT SIMD refinement, automatic OSCE
 selection in DRED history, and default packet signalling in the internal custom
 wrapper. The custom wrapper is not called by root or multistream public APIs.
 Mono-to-stereo recovery preserves independent channel history at `a676f2db`: root
@@ -82,7 +81,28 @@ CELT coarse-energy trial snapshots reserve the base-packet capacity at
 the focused allocation guard and full CELT package pass scalar and SIMD.
 The native 96 kHz variable-budget reproducer also passes exact packet/range
 and zero warm allocation checks in both instruction lanes. This storage fix
-does not close the separate native 96 kHz mode-selection gap.
+has separate mode-selection evidence below.
+
+Fixed-point CELT energy trials reserve both range-coder snapshots to the mode
+packet capacity at `2eaeab92`. Increasing-budget allocation, coarse-energy,
+CBR/VBR encode and native 96 kHz QEXT oracle checks pass all four applicable
+local feature/ISA lanes. The native 96 kHz multistream variable-budget witness
+matches C packets/ranges and allocates zero after warmup. These checks cover
+storage ownership; shared encoder mode selection is validated separately below.
+
+SILK PLC checks the internal rate before both decoded-frame updates and
+concealment at `170fd3b9`, and starts random-scale state at the C decoder
+initialization value. The Hybrid-to-SILK FEC rate-change regression compares
+exact PCM, counts and ranges for narrow/medium/wide bands and short/long loss
+requests. It and the zero-allocation guard pass local float/fixed scalar/SIMD
+lanes. The two persistent malformed-FEC witnesses remain open.
+
+Native 96 kHz root and multistream encoding share mode selection, input
+history and the SILK/Hybrid/CELT frame driver at `a86354c6`. Four local
+float/fixed-QEXT scalar/SIMD lanes pass C packet/range and warm allocation
+checks for QEXT off/on, fresh/primed low-budget sequences and packets through
+40 ms. The internal CELT gate compares the actual staged input with C.
+Native AMD64 validation of this checkpoint is pending.
 
 ## Deliberate boundaries
 

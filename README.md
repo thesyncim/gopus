@@ -101,7 +101,7 @@ WebRTC control, and benchmarks.
 | Area | gopus |
 | --- | --- |
 | Coding modes | SILK, CELT, Hybrid, with automatic mode selection |
-| Sample rates | 8, 12, 16, 24, 48 kHz by default; native 96 kHz CELT with `gopus_qext` |
+| Sample rates | 8, 12, 16, 24, 48 kHz by default; native 96 kHz with `gopus_qext` |
 | Channels | Mono, stereo, multistream, projection / ambisonics |
 | Frame sizes | 2.5–120 ms |
 | Bitrate control | CBR, VBR, CVBR, low-delay, DTX |
@@ -164,9 +164,9 @@ Feature oracles use the pinned libopus build with the matching flags:
 - **`gopus_dred`** — DRED (RDOVAE), control and standalone surfaces.
 - **`gopus_osce`** — OSCE BWE / LACE / NoLACE plus the deep-PLC family
   (PitchDNN / FARGAN), matching the `--enable-osce` feature set.
-- **`gopus_qext`** — QEXT framing and native 96 kHz (Opus HD). Native 96 kHz is
-  CELT-only fullband and is available only under this tag; default-build API
-  rates stay 8/12/16/24/48 kHz. Paired C tests cover selected encoder, decoder,
+- **`gopus_qext`** — QEXT framing and native 96 kHz (Opus HD). Native 96 kHz
+  uses the shared SILK/Hybrid/CELT mode and history driver and is available only
+  under this tag; default-build API rates stay 8/12/16/24/48 kHz. Paired C tests cover selected encoder, decoder,
   and loss cases; the complete QEXT feature/build matrix is still under review.
 - **`gopus_custom_modes`** — Opus Custom standard modes.
 - **`gopus_fixed_point`** — integer CELT/SILK pipeline (libopus `FIXED_POINT`).
@@ -292,9 +292,10 @@ proven. The pinned `tmp_check/opus-1.6.1/` is the reference; when behavior is
 uncertain, gopus matches libopus unless fixture evidence says otherwise.
 
 Open validation includes DRED/OSCE history, the complete malformed FEC sweep,
-native 96 kHz encoder budget/mode boundaries, non-fullband QEXT SIMD refinement,
-internal custom-mode signalling, and native
-AMD64 oracle coverage. Native 96 kHz multistream encode/decode, long-burst PLC,
+non-fullband QEXT SIMD refinement, internal custom-mode signalling, and native
+AMD64 oracle coverage. Native 96 kHz encoder mode/budget sequences, including
+40 ms packets and QEXT off/on, pass exact packet/range and warm zero-allocation
+checks in all four local float/fixed scalar/SIMD lanes. Native 96 kHz multistream encode/decode, long-burst PLC,
 Hybrid QEXT routing, and discarded extension bands pass their matching local
 feature/ISA matrices. Malformed Hybrid main-length and projection full-output
 gates pass all eight local lanes. QEXT mono/stereo multiframe reconstruction
