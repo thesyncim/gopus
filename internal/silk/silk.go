@@ -563,10 +563,7 @@ func (d *Decoder) DecodeStereoWithDecoderInto(
 	if n < 0 || n*2 > len(output) {
 		return 0, ErrDecodeFailed
 	}
-	for i := range n {
-		output[i*2] = leftScratch[i]
-		output[i*2+1] = rightScratch[i]
-	}
+	interleaveStereoFloat32(output[:2*n], leftScratch[:n], rightScratch[:n])
 
 	d.finalizeSuccessfulDecode(frameSizeSamples, 2)
 	return n, nil
@@ -1548,4 +1545,15 @@ func (d *Decoder) plcStereoRightI16Scratch(n int) []int16 {
 
 func float32ToInt16(v float32) int16 {
 	return opusmath.Float32ToInt16(v)
+}
+
+// interleaveStereoFloat32 writes left[i] and right[i] to dst[2i] and dst[2i+1];
+// dst holds 2*len(left) samples and right at least len(left).
+func interleaveStereoFloat32(dst, left, right []float32) {
+	right = right[:len(left)]
+	for i, l := range left {
+		pair := (*[2]float32)(dst[2*i : 2*i+2])
+		pair[0] = l
+		pair[1] = right[i]
+	}
 }

@@ -66,13 +66,20 @@ func silkStereoMSToLR(state *stereoDecState, mid []int16, side []int16, predQ13 
 // the prediction loop of libopus silk/stereo_MS_to_LR.c; the fixed-predictor
 // loop is the same with zero deltas.
 func stereoPredictSideScalar(mid, side []int16, from, to int, pred0, pred1, delta0, delta1 int32) {
-	for n := from; n < to; n++ {
+	if from >= to {
+		return
+	}
+	m := mid[from : to+2]
+	out := side[from+1 : to+1]
+	for i, sv := range out {
+		w := (*[3]int16)(m[i : i+3])
 		pred0 += delta0
 		pred1 += delta1
-		sum := silkLSHIFT(silkADD_LSHIFT32(int32(mid[n])+int32(mid[n+2]), int32(mid[n+1]), 1), 9)
-		sum = silkSMLAWB(silkLSHIFT(int32(side[n+1]), 8), sum, pred0)
-		sum = silkSMLAWB(sum, silkLSHIFT(int32(mid[n+1]), 11), pred1)
-		side[n+1] = silkSAT16(silkRSHIFT_ROUND(sum, 8))
+		m1 := int32(w[1])
+		sum := silkLSHIFT(silkADD_LSHIFT32(int32(w[0])+int32(w[2]), m1, 1), 9)
+		sum = silkSMLAWB(silkLSHIFT(int32(sv), 8), sum, pred0)
+		sum = silkSMLAWB(sum, silkLSHIFT(m1, 11), pred1)
+		out[i] = silkSAT16(silkRSHIFT_ROUND(sum, 8))
 	}
 }
 
