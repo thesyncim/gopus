@@ -9,20 +9,18 @@ import (
 )
 
 // TestCELTMonoRecoveryAfterLongGapMatchesLibopus is the focused regression for a
-// mono CELT loss-recovery bug: libopus keeps the right-channel energy slot as a
+// mono CELT loss-recovery path: libopus keeps the right-channel energy slot as a
 // per-frame shadow copy of the left channel
 // (`if (C==1) OPUS_COPY(&oldBandE[nbEBands], oldBandE, nbEBands)`), and the
 // loss-recovery prediction folds it back in
 // (`oldBandE[i] = MAXG(oldBandE[i], oldBandE[nbEBands+i])`). Over a long
 // concealment gap the noise PLC decays only the left channel; the recovery frame
 // then folds the undecayed right shadow back into the coarse-energy prediction
-// base. gopus mono decoders previously had no right-channel slot, so the recovery
-// frame's energy prediction diverged (corr collapsed from 1.0 to ~0.1, peak PCM
-// error ~0.3) even though the range coder stayed in lock-step.
+// base. The decoder keeps the same shadow slot through concealment and recovery.
 //
 // The decode plan replays the libopus opus_demo loss-recovery model against the
 // stateful single-decoder oracle (libopus_refdecode_single.c). Short bursts stay
-// in periodic PLC (which does not touch oldBandE) and were already bit-exact;
+// in periodic PLC (which does not touch oldBandE) and remain bit-exact;
 // long gaps cross into noise PLC and are the regressors. Both the per-step final
 // range (integer entropy state) and the decoded PCM are asserted.
 func TestCELTMonoRecoveryAfterLongGapMatchesLibopus(t *testing.T) {
@@ -70,6 +68,10 @@ func TestCELTMonoRecoveryAfterLongGapMatchesLibopus(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: oracle unavailable: %v", sp.name, err)
 			}
+			if len(want) != len(steps)*sp.frameSamp*sp.channels || len(wantRanges) != len(steps) {
+				t.Fatalf("%s: reference samples/ranges=%d/%d want=%d/%d", sp.name,
+					len(want), len(wantRanges), len(steps)*sp.frameSamp*sp.channels, len(steps))
+			}
 
 			dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, sp.channels))
 			if err != nil {
@@ -83,32 +85,25 @@ func TestCELTMonoRecoveryAfterLongGapMatchesLibopus(t *testing.T) {
 				if e != nil {
 					t.Fatalf("%s: step %d decode: %v", sp.name, i, e)
 				}
+				if n != sp.frameSamp {
+					t.Fatalf("%s: step %d samples=%d want %d", sp.name, i, n, sp.frameSamp)
+				}
 				got := buf[:n*sp.channels]
 				wantSlice := want[off : off+n*sp.channels]
 				off += n * sp.channels
 
-				if i < len(wantRanges) {
-					if gr := dec.FinalRange(); gr != wantRanges[i] {
-						t.Fatalf("%s: step %d final range gopus=%d libopus=%d (entropy desync)",
-							sp.name, i, gr, wantRanges[i])
-					}
+				if gr := dec.FinalRange(); gr != wantRanges[i] {
+					t.Fatalf("%s: step %d final range gopus=%d libopus=%d (entropy desync)",
+						sp.name, i, gr, wantRanges[i])
 				}
 
-				maxAbs, idx := maxAbsDiff(got, wantSlice)
-				// Float-domain tolerance. The pre-fix bug produced peak errors of
-				// ~0.3 on the recovery frame; the algorithm-exact path lands at the
-				// ~1e-6 float-noise level (single-tree float accumulation order).
-				const tol = 5e-4
-				if maxAbs > tol {
-					kind := "normal"
-					if s.packet == nil {
-						kind = "PLC"
-					} else if i == recoveryStepIdx {
-						kind = "RECOVERY"
-					}
-					t.Fatalf("%s: step %d (%s) PCM diverges: maxAbs=%.6e at sample %d (tol=%.1e)",
-						sp.name, i, kind, maxAbs, idx, tol)
+				kind := "normal"
+				if s.packet == nil {
+					kind = "PLC"
+				} else if i == recoveryStepIdx {
+					kind = "RECOVERY"
 				}
+				assertAPIRateFloat32BitsExact(t, got, wantSlice, fmt.Sprintf("%s step %d (%s)", sp.name, i, kind))
 			}
 		})
 	}
@@ -210,19 +205,3 @@ func buildCELTLossPlan(packets [][]byte, mask []bool) ([]libopusAPIRateDecodeSte
 	}
 	return steps, recoveryStepIdx
 }
-
-func maxAbsDiff(got, want []float32) (float64, int) {
-	n := min(len(want), len(got))
-	maxAbs := 0.0
-	idx := -1
-	for i := range n {
-		d := math.Abs(float64(got[i]) - float64(want[i]))
-		if d > maxAbs {
-			maxAbs = d
-			idx = i
-		}
-	}
-	return maxAbs, idx
-}
-
-var _ = fmt.Sprint
