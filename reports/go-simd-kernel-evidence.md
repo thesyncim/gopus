@@ -192,7 +192,16 @@ Fixed multistream gain matches selected C for ±2 dB, ±8 dB and both control
 extremes, in fixed-only and fixed-QEXT scalar/SIMD. Each case checks four received
 frames, exact int16/int24 output and zero warm allocations. The full internal
 encoder package passes fixed-QEXT scalar/SIMD with feature-matched public
-references. Multistream PLC, projection and float-output work remains in progress.
+references. Fixed multistream CELT loss decoding matches selected C for every
+2.5 ms request quantum through 120 ms, long loss sequences, coded/output-channel
+changes and mixed output formats. The CELT/SILK/CELT transition sequence matches
+7,680 samples at gains 0 and ±3 dB in fixed-only scalar and fixed-QEXT SIMD.
+Public float output converts mapped integer samples through RES2FLOAT. Projection
+decoding matches float32 bits, int16 and int24 samples across eight configurations;
+received/loss/recovery sequences, buffer preflight/retry and warm zero-allocation
+checks pass in fixed-only SIMD and fixed-QEXT scalar/SIMD/nosimd lanes. Broader Hybrid
+redundancy/PLC, high-order projection controls, high-amplitude fixed CELT packet
+parity and native AMD64 OSCE remain under investigation.
 Generated fixed-QEXT transform tables and forward/inverse MDCT results match
 live C across 13 custom geometries, including maxshift zero, all transform
 shifts, contiguous and strided output, and the 2048-sample geometry. Warm
