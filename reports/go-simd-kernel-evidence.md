@@ -78,18 +78,21 @@ the framing regression checks the first larger extension after a short warmup
 with exact bytes and zero allocations.
 
 The ARM64 PLC reductions are selected by both ISA and ENABLE_QEXT build
-configuration. The full CELT package passes locally in six matched configurations:
-default, QEXT, and DRED+QEXT, each scalar and SIMD. The synthetic periodic PLC
+configuration. The full CELT package passes locally in eight configurations:
+default, QEXT, DRED, and DRED+QEXT, each scalar and SIMD. The synthetic periodic PLC
 oracle seeds the pinned `celt_decode_lost` source path; stage assertions compare
 its decay E1/E2 values with the production `periodicPLCDecayEnergy` helper.
 The 800-cell PVQ grid uses matching feature headers and archives. Anti-collapse
-feature tests decode the original packets through a matching live C reference
-and require identical PCM bits; fixture quality floors remain unchanged.
+tests decode the original packets through a matching live C reference and
+require identical PCM bits. Default float and DRED-only builds also retain
+the frozen fixture quality checks; feature-specific comparisons retain the
+same quality floors. DRED-only references use the existing DNN helper builder
+with ENABLE_DRED and without ENABLE_QEXT.
 Existing AMD64 and macOS CI jobs include these focused oracle gates.
 
-Final native validation of these oracle changes remains required. DRED without
-QEXT also needs a dedicated matching C reference before a complete feature-matrix
-claim. Pinned libopus rejects fixed-point+DRED in `configure.ac`; requests for
+Final native validation of these oracle changes remains required. Combined
+OSCE/QEXT reference selection is under audit; dormant-control comparisons do
+not establish active combined-feature parity. OSCE remains a parity-only surface. Pinned libopus rejects fixed-point+DRED in `configure.ac`; requests for
 that unsupported C reference fail explicitly instead of selecting a subset archive.
 
 ### QEXT PVQ refinement byte parity
