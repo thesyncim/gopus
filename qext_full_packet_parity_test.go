@@ -20,7 +20,6 @@ import (
 	"math"
 	"testing"
 
-	"github.com/thesyncim/gopus/internal/benchutil"
 	internalenc "github.com/thesyncim/gopus/internal/encoder"
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/types"
@@ -91,7 +90,7 @@ func qextSinePCM(channels, frameSize int) []float32 {
 // VBR target rather than using the naive nbCompressedBytes−qextBytes/3
 // shortcut.  This test gates that behaviour from regressing.
 func TestQEXTCBRExtensionFramingByteParityMatchesLibopus(t *testing.T) {
-	opusDemo, err := benchutil.QEXTOpusDemoPath()
+	opusDemo, err := libopustest.PublicAPIOpusDemoPath()
 	if err != nil {
 		libopustest.HelperUnavailable(t, "paired QEXT opus_demo", err)
 		return
@@ -207,7 +206,7 @@ func TestQEXTCBRExtensionFramingByteParityMatchesLibopus(t *testing.T) {
 // (159−200)*4/5 < 0 → qext_bytes = 0 → no QEXT extension.
 // For 2-ch 128 kbps / 20 ms: nbCompressedBytes = 319, offset = 400, same logic.
 func TestQEXTExtensionAbsentBelowThresholdMatchesLibopus(t *testing.T) {
-	opusDemo, err := benchutil.QEXTOpusDemoPath()
+	opusDemo, err := libopustest.PublicAPIOpusDemoPath()
 	if err != nil {
 		t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
 	}
@@ -258,7 +257,7 @@ func TestQEXTExtensionAbsentBelowThresholdMatchesLibopus(t *testing.T) {
 // payload byte count from gopus matches the libopus oracle exactly for a
 // representative CBR matrix (channel × bitrate).
 func TestQEXTCBRExtensionSizeExactMatchesLibopus(t *testing.T) {
-	opusDemo, err := benchutil.QEXTOpusDemoPath()
+	opusDemo, err := libopustest.PublicAPIOpusDemoPath()
 	if err != nil {
 		t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
 	}
@@ -399,7 +398,7 @@ func TestQEXTMultistreamEncoderProducesQEXTExtension(t *testing.T) {
 // binary) produces audio matching the per-stream libopus oracle decode.
 // This is the multistream QEXT decode parity test.
 func TestQEXTMultistreamDecodeMatchesLibopusOracle(t *testing.T) {
-	opusDemo, err := benchutil.QEXTOpusDemoPath()
+	opusDemo, err := libopustest.PublicAPIOpusDemoPath()
 	if err != nil {
 		t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
 	}

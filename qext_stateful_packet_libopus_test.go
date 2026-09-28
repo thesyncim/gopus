@@ -140,7 +140,7 @@ func testQEXTStatefulPacketsWithSizeAndExtensionCheck(t *testing.T, frameSize, f
 		maxPayload = caps[0]
 	}
 	libopustest.RequireOracle(t)
-	opusDemo, err := benchutil.QEXTOpusDemoPath()
+	opusDemo, err := libopustest.PublicAPIOpusDemoPath()
 	if err != nil {
 		libopustest.HelperUnavailable(t, "paired QEXT opus_demo", err)
 		return nil
