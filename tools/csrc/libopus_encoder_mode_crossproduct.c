@@ -20,13 +20,16 @@
  *
  * Output:
  *   4 bytes  magic  "GCPO"
- *   4 bytes  version = 1
+ *   4 bytes  version = 2
  *   4 bytes  count
  *   Per case:
  *     4 bytes  num_frames
  *     Per frame:
  *       4 bytes  ret      (bytes encoded, or negative error code)
  *       4 bytes  toc_byte (first byte of encoded packet, 0 if error)
+ *       4 bytes  final_range
+ *       4 bytes  packet_length (0 if ret <= 0)
+ *       packet_length bytes of encoded packet
  *
  * Encodes each case with a fresh encoder, stateful (not reset between frames).
  * The chosen application controls the encoder; signal sets OPUS_SET_SIGNAL.
@@ -92,7 +95,7 @@ int main(void) {
     return 1;
   }
 
-  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) || !write_u32(count)) {
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(2) || !write_u32(count)) {
     fprintf(stderr, "failed to write output header\n");
     return 1;
   }
@@ -162,13 +165,22 @@ int main(void) {
     for (f = 0; f < num_frames; f++) {
       int ret;
       uint32_t toc_byte = 0;
+      opus_uint32 final_range = 0;
       const float *frame_pcm = pcm_buf + (size_t)f * frame_size * channels;
 
       ret = opus_encode_float(enc, frame_pcm, (int)frame_size, out_buf, max_db);
       if (ret > 0) {
         toc_byte = (uint32_t)out_buf[0];
       }
-      if (!write_i32((int32_t)ret) || !write_u32(toc_byte)) {
+      if (opus_encoder_ctl(enc, OPUS_GET_FINAL_RANGE(&final_range)) != OPUS_OK) {
+        opus_encoder_destroy(enc);
+        free(pcm_buf); free(out_buf);
+        fprintf(stderr, "case %u frame %u: final range query failed\n", i, f);
+        return 1;
+      }
+      if (!write_i32((int32_t)ret) || !write_u32(toc_byte) ||
+          !write_u32(final_range) || !write_u32(ret > 0 ? (uint32_t)ret : 0) ||
+          (ret > 0 && !write_exact(out_buf, (size_t)ret))) {
         opus_encoder_destroy(enc);
         free(pcm_buf); free(out_buf);
         fprintf(stderr, "case %u frame %u: write error\n", i, f);
