@@ -19,6 +19,7 @@ package multistream
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	internalenc "github.com/thesyncim/gopus/internal/encoder"
@@ -30,6 +31,19 @@ import (
 // ---------------------------------------------------------------------------
 // Decoder CTL broadcast parity
 // ---------------------------------------------------------------------------
+
+func assertMSControlPCMExact(t *testing.T, got, want []float32, label string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s PCM samples Go=%d C=%d", label, len(got), len(want))
+	}
+	for i, sample := range got {
+		if math.Float32bits(sample) != math.Float32bits(want[i]) {
+			t.Fatalf("%s PCM sample %d Go=%08x C=%08x", label, i,
+				math.Float32bits(sample), math.Float32bits(want[i]))
+		}
+	}
+}
 
 // TestMSDecoderCTL_GainBroadcast asserts that SetGain broadcasts to all per-
 // stream decoders and that the decoded audio matches the libopus oracle with
@@ -98,6 +112,7 @@ func TestMSDecoderCTL_GainBroadcast(t *testing.T) {
 	}
 	cmp := compareWaveformF32(got, want)
 	qualitycompare.AssertQuality(t, cmp, qualityBarWaveformNearExact, "MS decoder gain broadcast vs libopus oracle")
+	assertMSControlPCMExact(t, got, want, "MS decoder gain broadcast")
 }
 
 // TestMSDecoderCTL_GainZeroRoundtrip asserts that SetGain(0) restores the
@@ -745,6 +760,7 @@ func TestMSDecoderCTL_GainAudioMatchesLibopus(t *testing.T) {
 	}
 	cmp := compareWaveformF32(got, want)
 	qualitycompare.AssertQuality(t, cmp, qualityBarWaveformNearExact, "6ch gain CTL audio vs libopus oracle")
+	assertMSControlPCMExact(t, got, want, "6ch gain CTL audio")
 }
 
 // TestMSDecoderCTL_GainAudioMatchesLibopusSILK validates gain CTL on a SILK
@@ -802,4 +818,5 @@ func TestMSDecoderCTL_GainAudioMatchesLibopusSILK(t *testing.T) {
 	}
 	cmp := compareWaveformF32(got, want)
 	qualitycompare.AssertQuality(t, cmp, qualityBarWaveformNearExact, "3ch SILK gain CTL audio vs libopus oracle")
+	assertMSControlPCMExact(t, got, want, "3ch SILK gain CTL audio")
 }
