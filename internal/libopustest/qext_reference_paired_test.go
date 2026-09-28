@@ -12,6 +12,13 @@ import (
 
 func TestQEXTArchiveAndHelperUsePairedReference(t *testing.T) {
 	RequireOracle(t)
+	identity, err := ResolvePublicAPIReferenceIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !identity.QEXT {
+		t.Fatalf("selected public archive identity reports QEXT=%t for a QEXT build", identity.QEXT)
+	}
 	variant, err := libopustooling.ResolveLibopusQEXTReferenceVariant()
 	if err != nil {
 		t.Fatal(err)

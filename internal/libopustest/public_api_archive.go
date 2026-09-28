@@ -86,6 +86,8 @@ func ResolvePublicAPIReferenceIdentity() (PublicAPIReferenceIdentity, error) {
 		ArchivePath: archive,
 		BuildDir:    filepath.Dir(filepath.Dir(archive)),
 		Variant:     variant,
+		QEXT:        extsupport.QEXT,
+		Custom:      customModesReferenceEnabled,
 	}
 	return identity, identity.Validate()
 }
