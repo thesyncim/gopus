@@ -1105,7 +1105,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	var qextNormL []celtNorm
 	var qextNormR []celtNorm
 	if extsupport.QEXT && qextEnc != nil {
-		if cfg, ok := computeQEXTModeConfig(int(e.sampleRate), qextShortMDCTSize(frameSize)); ok && end == e.predStride() {
+		if cfg, ok := computeQEXTModeConfig(int(e.sampleRate), qextShortMDCTSizeForMode(frameSize, mode)); ok && end == e.predStride() {
 			qextCfg = cfg
 			qextEnd = qextCfg.EffBands
 			qextActive = qextEnd > 0

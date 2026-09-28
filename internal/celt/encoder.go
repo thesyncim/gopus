@@ -29,7 +29,7 @@ type Encoder struct {
 	// Configuration (mirrors decoder)
 	channels       int32         // libopus CELTEncoder.channels
 	streamChannels int32         // coded channels, mirrors CELT_SET_CHANNELS
-	sampleRate     int32         // Always 48000
+	sampleRate     int32         // 48000 for standard CELT, 96000 for native HD mode.
 	lsbDepth       int32         // Input LSB depth (8-24 bits)
 	bandwidth      CELTBandwidth // Active bandwidth cap (NB..FB)
 	// upsample mirrors libopus CELTEncoder.upsample = resampling_factor(Fs):
@@ -898,13 +898,12 @@ func (e *Encoder) scaleBase() int {
 }
 
 // modeConfig returns the frame-size-dependent ModeConfig for the active mode.
-// For a custom mode in the Fs==400*shortMdctSize family it derives LM from the
-// short-block decomposition (frameSize/customScaleBase) rather than the 48 kHz
-// grid, so 20 ms family frames (e.g. 24000/480) get LM=3/ShortBlocks=8 like
-// libopus instead of the 48 kHz LM=2.
+// Custom-family and native 96 kHz HD modes derive LM from the active mode's
+// short-MDCT size instead of the 48 kHz grid, matching their short-block count.
 func (e *Encoder) modeConfig(frameSize int) ModeConfig {
-	if e.customScaleBase > 0 {
-		nbShort := frameSize / e.customScaleBase
+	if e.customScaleBase > 0 || (e.hd96kOverlap > 0 && e.sampleRate == 96000) {
+		shortMDCTSize := e.scaleBase()
+		nbShort := frameSize / shortMDCTSize
 		lm := 0
 		for (1 << lm) < nbShort {
 			lm++
