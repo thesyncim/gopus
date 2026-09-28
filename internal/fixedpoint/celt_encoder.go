@@ -127,12 +127,13 @@ type CELTEncoder struct {
 	overlapMax      int32
 	rng             uint32
 
-	mdct       *MDCTLookup
-	window     []int16
-	eBands     []int16
-	logN       []int16
-	qext       celtQEXTState
-	finalRange uint32
+	mdct         *MDCTLookup
+	customTables fixedCustomTables
+	window       []int16
+	eBands       []int16
+	logN         []int16
+	qext         celtQEXTState
+	finalRange   uint32
 
 	// scratch holds the reusable per-frame/per-band encode working buffers,
 	// grown once and reused across every frame of a packet.

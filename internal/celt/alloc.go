@@ -650,6 +650,7 @@ type AllocEncodeScratch struct {
 	finePriority []int32
 	caps         []int32
 	result       AllocationResult
+	modeWork     []int32
 }
 
 // ComputeAllocationWithEncoderStartInto is the allocation-free counterpart to

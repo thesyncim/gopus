@@ -4,15 +4,19 @@ package celt
 
 import "github.com/thesyncim/gopus/internal/rangecoding"
 
+// MaxCustomBands bounds custom-mode band arrays in the fixed CELT driver.
+// celt/modes.c compute_ebands() uses at most the 25 Bark intervals.
+const MaxCustomBands = 25
+
 // CELTDecodeAllocation holds the per-band bit allocation and side parameters the
 // CELT decoder prologue derives between the spread decision and quant_all_bands.
 type CELTDecodeAllocation struct {
-	TFRes           [MaxBands]int32
-	Offsets         [MaxBands]int32
-	Pulses          [MaxBands]int32
-	Caps            [MaxBands]int32
-	FineQuant       [MaxBands]int32
-	FinePriority    [MaxBands]int32
+	TFRes           [MaxCustomBands]int32
+	Offsets         [MaxCustomBands]int32
+	Pulses          [MaxCustomBands]int32
+	Caps            [MaxCustomBands]int32
+	FineQuant       [MaxCustomBands]int32
+	FinePriority    [MaxCustomBands]int32
 	Spread          int
 	AllocTrim       int
 	Intensity       int

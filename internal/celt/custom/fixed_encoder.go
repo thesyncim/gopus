@@ -24,7 +24,7 @@ func newFixedCustomEncoder(mode *CustomMode, channels int) (fixedCustomEncoder, 
 		return nil, ErrFixedCustomModeUnsupported
 	}
 	enc := fixedpoint.NewCELTEncoder(channels)
-	if mode.InScaledBandFamily() {
+	if !mode.isStandard {
 		enc = fixedpoint.NewCELTEncoderCustom(channels, fixedCustomModeConfig(mode))
 		if enc == nil {
 			return nil, ErrFixedCustomModeUnsupported
@@ -38,9 +38,11 @@ func newFixedCustomEncoder(mode *CustomMode, channels int) (fixedCustomEncoder, 
 }
 
 func fixedCustomModeSupported(mode *CustomMode) bool {
-	return !customQEXT && mode.InScaledBandFamily() ||
-		mode.isStandard && mode.Fs == 48000 && mode.ShortMdctSize == 120 &&
+	if mode.isStandard {
+		return mode.Fs == 48000 && mode.ShortMdctSize == 120 &&
 			(mode.FrameSize == 120 || mode.FrameSize == 240 || mode.FrameSize == 480 || mode.FrameSize == 960)
+	}
+	return !customQEXT
 }
 
 func fixedCustomModeConfig(mode *CustomMode) fixedpoint.CELTCustomMode {
@@ -48,6 +50,9 @@ func fixedCustomModeConfig(mode *CustomMode) fixedpoint.CELTCustomMode {
 		Fs: mode.Fs, FrameSize: mode.FrameSize,
 		ShortMdctSize: mode.ShortMdctSize, Overlap: mode.Overlap,
 		MaxLM: mode.MaxLM, EffEBands: mode.EffEBands,
+		EBands: mode.EBands, LogN: mode.LogN, AllocVectors: mode.AllocVectors,
+		CacheIndex: mode.CacheIndex, CacheBits: mode.CacheBits, CacheCaps: mode.CacheCaps,
+		ScaledBandFamily: mode.InScaledBandFamily(),
 	}
 }
 

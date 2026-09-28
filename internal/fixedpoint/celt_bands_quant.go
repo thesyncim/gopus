@@ -46,6 +46,7 @@ type bandDecCtx struct {
 	extBudget       int
 	extraBands      bool
 	qextMode        bool
+	customCache     fixedCustomTables
 	bandEdges       []int16
 	bandLogN        []int16
 	bandCaps        []int32
@@ -150,9 +151,11 @@ func computeThetaDecode(ctx *bandDecCtx, sctx *bandSplit, n int, b *int, B, B0, 
 	dec := ctx.dec
 	i := ctx.band
 
-	logN := int(celt.LogN[i])
+	logN := 0
 	if i >= 0 && i < len(ctx.bandLogN) {
 		logN = int(ctx.bandLogN[i])
+	} else if i >= 0 && i < len(celt.LogN) {
+		logN = int(celt.LogN[i])
 	}
 	pulseCap := logN + lm*(1<<bitRes)
 	off := qthetaOffset
@@ -449,6 +452,8 @@ func quantPartitionDecodeWithExtBudget(ctx *bandDecCtx, x []int32, n, b, B int, 
 	if lm != -1 {
 		if ctx.qextMode {
 			maxBits = qextMaxPulsesBits(ctx.band, lm)
+		} else if ctx.customCache != nil {
+			maxBits = ctx.customCache.MaxPulsesBits(ctx.band, lm)
 		} else {
 			maxBits = celt.MaxPulsesBitsExport(ctx.band, lm)
 		}
@@ -521,8 +526,13 @@ func quantPartitionDecodeWithExtBudget(ctx *bandDecCtx, x []int32, n, b, B int, 
 		q = qextBitsToPulses(ctx.band, lm, b)
 		currBits = qextPulsesToBits(ctx.band, lm, q)
 	} else {
-		q = celt.BitsToPulsesExport(ctx.band, lm, b)
-		currBits = celt.PulsesToBitsExport(ctx.band, lm, q)
+		if ctx.customCache != nil {
+			q = ctx.customCache.BitsToPulses(ctx.band, lm, b)
+			currBits = ctx.customCache.PulsesToBits(ctx.band, lm, q)
+		} else {
+			q = celt.BitsToPulsesExport(ctx.band, lm, b)
+			currBits = celt.PulsesToBitsExport(ctx.band, lm, q)
+		}
 	}
 	ctx.remainingBits -= currBits
 	for ctx.remainingBits < 0 && q > 0 {
@@ -531,7 +541,11 @@ func quantPartitionDecodeWithExtBudget(ctx *bandDecCtx, x []int32, n, b, B int, 
 		if ctx.qextMode {
 			currBits = qextPulsesToBits(ctx.band, lm, q)
 		} else {
-			currBits = celt.PulsesToBitsExport(ctx.band, lm, q)
+			if ctx.customCache != nil {
+				currBits = ctx.customCache.PulsesToBits(ctx.band, lm, q)
+			} else {
+				currBits = celt.PulsesToBitsExport(ctx.band, lm, q)
+			}
 		}
 		ctx.remainingBits -= currBits
 	}
@@ -894,7 +908,7 @@ func QuantAllBandsDecode(dec *rangecoding.Decoder, channels, frameSize, lm, star
 	disableInv bool, seed *uint32, scratch *celtDecodeBandsScratch) (left, right []int32, collapse []byte) {
 	return quantAllBandsDecodeMode(dec, channels, frameSize, lm, start, end,
 		pulses, tfRes, shortBlocks, spread, dualStereo, intensity, totalBitsQ3, balance, codedBands,
-		disableInv, seed, staticMDCT48000EBands[:], staticMDCT48000LogN[:], celt.MaxBands, false, false, nil, scratch)
+		disableInv, seed, staticMDCT48000EBands[:], staticMDCT48000LogN[:], celt.MaxBands, false, false, nil, nil, scratch)
 }
 
 // QEXTBandDecodeState carries the side decoder's per-band refinement budget
@@ -914,7 +928,7 @@ func QuantAllBandsDecodeQEXT(dec *rangecoding.Decoder, channels, frameSize, lm, 
 ) (left, right []int32, collapse []byte) {
 	return quantAllBandsDecodeMode(dec, channels, frameSize, lm, start, end,
 		pulses, tfRes, shortBlocks, spread, dualStereo, intensity, totalBitsQ3, balance, codedBands,
-		disableInv, seed, staticMDCT48000EBands[:], staticMDCT48000LogN[:], celt.MaxBands, false, false, &qext, scratch)
+		disableInv, seed, staticMDCT48000EBands[:], staticMDCT48000LogN[:], celt.MaxBands, false, false, &qext, nil, scratch)
 }
 
 func quantAllQEXTExtraBandsDecode(dec *rangecoding.Decoder, channels, frameSize, lm, end int,
@@ -923,13 +937,13 @@ func quantAllQEXTExtraBandsDecode(dec *rangecoding.Decoder, channels, frameSize,
 ) (left, right []int32, collapse []byte) {
 	return quantAllBandsDecodeMode(dec, channels, frameSize, lm, 0, end,
 		pulses, tfRes, shortBlocks, spread, dualStereo, intensity, totalBitsQ3, balance, end,
-		disableInv, seed, edges, logN, len(logN), true, true, nil, scratch)
+		disableInv, seed, edges, logN, len(logN), true, true, nil, nil, scratch)
 }
 
 func quantAllBandsDecodeMode(dec *rangecoding.Decoder, channels, frameSize, lm, start, end int,
 	pulses, tfRes []int32, shortBlocks, spread, dualStereo, intensity, totalBitsQ3, balance, codedBands int,
 	disableInv bool, seed *uint32, eBands, logN []int16, nbEBands int, qextMode, extraBands bool,
-	qext *QEXTBandDecodeState, scratch *celtDecodeBandsScratch,
+	qext *QEXTBandDecodeState, customCache fixedCustomTables, scratch *celtDecodeBandsScratch,
 ) (left, right []int32, collapse []byte) {
 
 	M := 1 << lm
@@ -972,6 +986,7 @@ func quantAllBandsDecodeMode(dec *rangecoding.Decoder, channels, frameSize, lm, 
 		extTotalBits:    qextTotalBits(qext),
 		extraBands:      extraBands,
 		qextMode:        qextMode,
+		customCache:     customCache,
 		bandEdges:       eBands,
 		bandLogN:        logN,
 		bandCaps:        qextCaps(qext),
@@ -1161,5 +1176,5 @@ func specialHybridFolding[T celtBandEdge](norm, norm2 []int32, eBands []T, start
 // These buffers contain no cross-frame state and are cleared before each use.
 type celtDecodeBandsScratch struct {
 	x, norm, lowband []int32
-	collapse         [2 * celt.MaxBands]byte
+	collapse         [2 * celt.MaxCustomBands]byte
 }

@@ -401,7 +401,11 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 	}
 
 	cap := ensureInt32(&sc.caps, nbEBands)
-	celt.InitCapsInto(cap, nbEBands, LM, C)
+	if e.customTables != nil {
+		e.customTables.InitCapsInto(cap, nbEBands, LM, C)
+	} else {
+		celt.InitCapsInto(cap, nbEBands, LM, C)
+	}
 
 	// Dynalloc boost coding.
 	dynallocLogp := 6
@@ -607,8 +611,14 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 	for i := range offsets32 {
 		offsets32[i] = int32(offsets[i])
 	}
-	alloc := celt.ComputeAllocationWithEncoderStartInto(&sc.allocScratch, enc, start, int(bits), end, C, cap, offsets32,
-		allocTrim, e.intensity, dualStereo != 0, LM, e.lastCodedBands, signalBandwidth)
+	var alloc *celt.AllocationResult
+	if e.customTables != nil {
+		alloc = e.customTables.ComputeAllocationWithEncoderStartInto(&sc.allocScratch, enc, start, int(bits), end, C, cap, offsets32,
+			allocTrim, e.intensity, dualStereo != 0, LM, e.lastCodedBands, signalBandwidth)
+	} else {
+		alloc = celt.ComputeAllocationWithEncoderStartInto(&sc.allocScratch, enc, start, int(bits), end, C, cap, offsets32,
+			allocTrim, e.intensity, dualStereo != 0, LM, e.lastCodedBands, signalBandwidth)
+	}
 	codedBands := alloc.CodedBands
 	e.intensity = alloc.Intensity
 	dualStereo = boolToInt(alloc.DualStereo)
@@ -683,6 +693,10 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 			pulses, tfRes, shortBlocks, e.spreadDecision, dualStereo, e.intensity,
 			nbCompressedBytes*(8<<bitRes)-antiCollapseRsv, alloc.Balance, codedBands,
 			e.complexity, false, &seed, sc, qextBand)
+	} else if e.customTables != nil {
+		collapse = e.quantAllBandsCustom(enc, C, N, LM, start, end, X, y, bandE,
+			pulses, tfRes, shortBlocks, dualStereo,
+			nbCompressedBytes*(8<<bitRes)-antiCollapseRsv, alloc.Balance, codedBands, &seed, sc)
 	} else {
 		collapse = QuantAllBandsEncode(enc, C, N, LM, start, end, X, y, bandE,
 			pulses, tfRes, shortBlocks, e.spreadDecision, dualStereo, e.intensity,

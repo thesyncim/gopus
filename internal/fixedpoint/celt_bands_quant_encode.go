@@ -34,6 +34,7 @@ type bandEncCtx struct {
 	caps            []int32
 	logN            []int16
 	qextPulseCache  bool
+	customCache     fixedCustomTables
 	extraBands      bool
 	bandE           []int32 // celt_ener[2*nbEBands], channel-major (per-band, then per-band+nbEBands)
 	nbEBands        int
@@ -388,6 +389,8 @@ func quantPartitionEncodeQEXT(ctx *bandEncCtx, x []int32, n, b, B int, lowband [
 	if lm != -1 {
 		if ctx.qextPulseCache {
 			maxBits = qextMaxPulsesBits(ctx.band, lm)
+		} else if ctx.customCache != nil {
+			maxBits = ctx.customCache.MaxPulsesBits(ctx.band, lm)
 		} else {
 			maxBits = celt.MaxPulsesBitsExport(ctx.band, lm)
 		}
@@ -459,8 +462,13 @@ func quantPartitionEncodeQEXT(ctx *bandEncCtx, x []int32, n, b, B int, lowband [
 		q = qextBitsToPulses(ctx.band, lm, b)
 		currBits = qextPulsesToBits(ctx.band, lm, q)
 	} else {
-		q = celt.BitsToPulsesExport(ctx.band, lm, b)
-		currBits = celt.PulsesToBitsExport(ctx.band, lm, q)
+		if ctx.customCache != nil {
+			q = ctx.customCache.BitsToPulses(ctx.band, lm, b)
+			currBits = ctx.customCache.PulsesToBits(ctx.band, lm, q)
+		} else {
+			q = celt.BitsToPulsesExport(ctx.band, lm, b)
+			currBits = celt.PulsesToBitsExport(ctx.band, lm, q)
+		}
 	}
 	ctx.remainingBits -= currBits
 	for ctx.remainingBits < 0 && q > 0 {
@@ -469,7 +477,11 @@ func quantPartitionEncodeQEXT(ctx *bandEncCtx, x []int32, n, b, B int, lowband [
 		if ctx.qextPulseCache {
 			currBits = qextPulsesToBits(ctx.band, lm, q)
 		} else {
-			currBits = celt.PulsesToBitsExport(ctx.band, lm, q)
+			if ctx.customCache != nil {
+				currBits = ctx.customCache.PulsesToBits(ctx.band, lm, q)
+			} else {
+				currBits = celt.PulsesToBitsExport(ctx.band, lm, q)
+			}
 		}
 		ctx.remainingBits -= currBits
 	}
@@ -894,6 +906,7 @@ func quantAllBandsEncodeMode(geometry celtBandGeometry, enc *rangecoding.Encoder
 		scratch:         scratch,
 		extraBands:      extraBands,
 		qextPulseCache:  geometry.qextMode,
+		customCache:     geometry.customCache,
 	}
 	if qext != nil {
 		ctx.extEnc = qext.Encoder

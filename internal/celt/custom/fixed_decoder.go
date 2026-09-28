@@ -16,7 +16,7 @@ func newFixedCustomDecoder(mode *CustomMode, channels int) (fixedCustomDecoder, 
 		return nil, ErrFixedCustomModeUnsupported
 	}
 	dec := fixedpoint.NewCELTDecoder(channels)
-	if mode.InScaledBandFamily() {
+	if !mode.isStandard {
 		dec = fixedpoint.NewCELTDecoderCustom(channels, fixedCustomModeConfig(mode))
 		if dec == nil {
 			return nil, ErrFixedCustomModeUnsupported

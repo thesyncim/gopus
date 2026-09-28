@@ -27,13 +27,14 @@ const (
 	celtOverlap       = 120
 	celtShortMdctSize = 120
 	celtMaxLM         = 3
-	celtMaxFrameSize  = celtShortMdctSize << celtMaxLM
+	// celtMaxFrameSize bounds custom CELT frames when QEXT is disabled.
+	celtMaxFrameSize = 1024
 )
 
 // CELTDecoder is the FIXED_POINT integer CELT decoder state for the static
-// 48000/960 custom mode. It owns the cross-frame decode_mem overlap buffer, the
-// energy histories and the post-filter / deemphasis state, matching the reset
-// region of libopus OpusCustomDecoder.
+// 48000/960 mode or a generated custom mode. It owns the cross-frame decode_mem
+// overlap buffer, energy histories and post-filter / deemphasis state, matching
+// the reset region of libopus OpusCustomDecoder.
 type CELTDecoder struct {
 	channels int
 
@@ -75,6 +76,8 @@ type CELTDecoder struct {
 
 	// decodeMem holds channels*(celtDecodeBufferSize+overlap) celt_sig samples.
 	decodeMem []int32
+	// rangeDecoder holds the per-frame range coder without a decode-path heap allocation.
+	rangeDecoder rangecoding.Decoder
 	// oldBandE/oldLogE/oldLogE2/backgroundLogE are 2*nbEBands celt_glog each.
 	oldBandE       []int32
 	oldLogE        []int32
@@ -82,9 +85,11 @@ type CELTDecoder struct {
 	backgroundLogE []int32
 	preemphMemD    []int32
 
-	mdct   *MDCTLookup
-	window []int16
-	eBands []int16
+	mdct         *MDCTLookup
+	customTables fixedCustomTables
+	window       []int16
+	eBands       []int16
+	customLogN   []int16
 
 	// res holds the opus_res output of the most recent decode (the value
 	// libopus writes via RES2INT24(a)=(a) for the FIXED_POINT ENABLE_RES24
@@ -214,7 +219,7 @@ func (d *CELTDecoder) DecodeWithEC(data []byte, frameSize int, out []int16) int 
 	if len(data) <= 1 {
 		return d.DecodeLost(frameSize, out)
 	}
-	dec := &rangecoding.Decoder{}
+	dec := &d.rangeDecoder
 	dec.Init(data)
 	outSyn, N := d.decodeReceivedFrame(dec, len(data), frameSize)
 
@@ -385,7 +390,12 @@ func (d *CELTDecoder) decodeReceivedFrame(dec *rangecoding.Decoder, dataLen, fra
 
 	UnquantCoarseEnergy(dec, d.oldBandE, start, end, nbEBands, C, LM, intraEner)
 
-	alloc := celt.DecodeCELTAllocation(dec, totalBits, start, end, LM, C, isTransient)
+	var alloc celt.CELTDecodeAllocation
+	if d.customTables != nil {
+		alloc = d.customTables.DecodeCELTAllocation(dec, totalBits, start, end, LM, C, isTransient)
+	} else {
+		alloc = celt.DecodeCELTAllocation(dec, totalBits, start, end, LM, C, isTransient)
+	}
 
 	tfRes, pulses := alloc.TFRes[:end], alloc.Pulses[:nbEBands]
 	fineQuant, finePriority := alloc.FineQuant[:nbEBands], alloc.FinePriority[:nbEBands]
@@ -400,9 +410,16 @@ func (d *CELTDecoder) decodeReceivedFrame(dec *rangecoding.Decoder, dataLen, fra
 
 	seed := d.rng
 	totalBitsQ3 := dataLen*(8<<bitRes) - alloc.AntiCollapseRsv
-	_, _, collapse := QuantAllBandsDecode(dec, C, N, LM, start, end,
-		pulses, tfRes, shortBlocks, alloc.Spread, alloc.DualStereo, alloc.Intensity,
-		totalBitsQ3, alloc.Balance, alloc.CodedBands, false, &seed, &d.bandScratch)
+	var collapse []byte
+	if d.customTables != nil {
+		_, _, collapse = d.quantAllBandsCustom(dec, C, N, LM, start, end,
+			pulses, tfRes, shortBlocks, alloc.Spread, alloc.DualStereo, alloc.Intensity,
+			totalBitsQ3, alloc.Balance, alloc.CodedBands, &seed)
+	} else {
+		_, _, collapse = QuantAllBandsDecode(dec, C, N, LM, start, end,
+			pulses, tfRes, shortBlocks, alloc.Spread, alloc.DualStereo, alloc.Intensity,
+			totalBitsQ3, alloc.Balance, alloc.CodedBands, false, &seed, &d.bandScratch)
+	}
 
 	// X is interleaved [channel0 N][channel1 N].
 	X := d.bandScratch.x[:C*N]

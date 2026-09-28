@@ -46,6 +46,7 @@ type QEXTCELTDecoder struct {
 	freq                []int32
 	baseBands           celtDecodeBandsScratch
 	qextBands           celtDecodeBandsScratch
+	decodeAlloc         celt.CELTDecodeAllocation
 	extraPulses         [celt.MaxBands + qextCELTMaxQEXTBands]int32
 	extraQuant          [celt.MaxBands + qextCELTMaxQEXTBands]int32
 	tfZero              [qextCELTMaxQEXTBands]int32
@@ -355,7 +356,8 @@ func (d *QEXTCELTDecoder) decodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 	}
 
 	UnquantCoarseEnergy(main, d.oldBandE, d.start, d.end, celt.MaxBands, codedChannels, lm, intraEnergy)
-	alloc := celt.DecodeCELTAllocation(main, totalBits, d.start, d.end, lm, codedChannels, transient)
+	d.decodeAlloc = celt.DecodeCELTAllocation(main, totalBits, d.start, d.end, lm, codedChannels, transient)
+	alloc := &d.decodeAlloc
 	fineQuant := alloc.FineQuant[:celt.MaxBands]
 	finePriority := alloc.FinePriority[:celt.MaxBands]
 	UnquantFineEnergy(main, d.oldBandE, d.start, d.end, celt.MaxBands, codedChannels, nil, fineQuant)

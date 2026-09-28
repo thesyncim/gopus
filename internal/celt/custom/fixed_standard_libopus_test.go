@@ -4,25 +4,11 @@ package custom_test
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/celt/custom"
 )
-
-func TestFixedCustomNonstandardFailsClosed(t *testing.T) {
-	mode, err := custom.NewMode(48000, 640)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := custom.NewEncoder(mode, 1); !errors.Is(err, custom.ErrFixedCustomModeUnsupported) {
-		t.Fatalf("encoder error=%v, want fixed-mode unsupported", err)
-	}
-	if _, err := custom.NewDecoder(mode, 1); !errors.Is(err, custom.ErrFixedCustomModeUnsupported) {
-		t.Fatalf("decoder error=%v, want fixed-mode unsupported", err)
-	}
-}
 
 func TestFixedCustomStandardStatefulParity(t *testing.T) {
 	var cases []customSequenceCase
