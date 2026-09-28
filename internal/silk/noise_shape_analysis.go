@@ -49,7 +49,13 @@ func (e *Encoder) noiseShapeAnalysis(
 	if signalType == typeVoiced {
 		SNRAdjDB += float32(harmSNRIncrDB) * e.ltpCorr
 	} else {
-		SNRAdjDB += (-0.4*snrDB + 6.0) * (1.0 - inputQuality)
+		// Match noise_shape_analysis_FLP.c's expression order: first round
+		// -0.4f*SNR_dB_Q7, then compute fma(product, 1/128, 6), then
+		// fma(term, 1-input_quality, SNR_adj_dB). The selected arm64 object
+		// emits this multiply followed by two FMADD instructions.
+		unvoicedTerm := noFMA32(float32(-0.4), float32(e.snrDBQ7))
+		unvoicedTerm = unvoicedTerm*(1.0/128.0) + 6.0
+		SNRAdjDB += unvoicedTerm * (1.0 - inputQuality)
 	}
 
 	params := e.noiseShapeState.ComputeNoiseShapeParams(

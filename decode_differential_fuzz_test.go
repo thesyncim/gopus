@@ -31,7 +31,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -145,47 +144,6 @@ func tocMode(toc byte) diffMode {
 	default:
 		return diffModeCELT
 	}
-}
-
-// pcmExactTolerance returns the max absolute per-sample float32 difference
-// tolerated for a packet, in the shared float32 comparison scale.
-//
-// Every amd64 build is bit-exact against its paired libopus reference (the Go
-// SIMD build against SIMD libopus, the scalar builds against scalar libopus),
-// so the tolerance there is 0 for every mode and format.
-//
-// arm64 keeps a budget of 4/32768 until its paired reference is exact: its
-// CELT/Hybrid float path still rounds a few LSB differently from the clang
-// build. This budget applies to arm64 only.
-func pcmExactTolerance(toc byte, format uint32) float32 {
-	if runtime.GOARCH != "arm64" {
-		return 0
-	}
-	return arm64PCMTolerance
-}
-
-// arm64PCMTolerance is the arm64-only per-sample budget of pcmExactTolerance,
-// used by the long-stream float32 diagnostic.
-const arm64PCMTolerance = 4.0 / 32768.0
-
-// pcmDiffWorst returns the worst tolerated-scale per-sample |Δ| between gopus and
-// oracle PCM, the index, the tolerance, and whether they are within tolerance. It
-// does not touch *testing.T so callers can decide how to report (hard fail vs
-// allow-listed residual).
-func pcmDiffWorst(toc byte, format uint32, got, want []float32) (worst float32, worstIdx int, tol float32, ok bool) {
-	worstIdx = -1
-	if len(got) != len(want) {
-		return 0, -1, 0, false
-	}
-	tol = pcmExactTolerance(toc, format)
-	for i := range got {
-		d := absF32(got[i] - want[i])
-		if d > worst {
-			worst = d
-			worstIdx = i
-		}
-	}
-	return worst, worstIdx, tol, worst <= tol
 }
 
 // ---- (a) encode-then-decode sweep -----------------------------------------
