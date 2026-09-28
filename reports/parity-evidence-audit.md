@@ -69,9 +69,12 @@ the physical spectrum; its exact PCM/range, stereo synthesis-stage and zero
 warm allocation gates pass at `28cb897e`, together with integer-format clipping
 lifecycle checks.
 
-Open adjacent findings are non-fullband QEXT SIMD refinement, DRED/OSCE
-loss history, SILK comfort-noise history across rate changes, and the public
-pitch getter after a rate reset. The custom wrapper matches default packet
+Open validation covers DRED/OSCE loss history and the native AMD64 neural
+stage diagnostics. Non-fullband QEXT header/refinement matches selected C
+at `4186cbb3`, including the vector body and scalar tail. SILK pitch reporting
+uses rate-reset state at `949ca0f3`; comfort-noise excitation history survives
+rate changes at `1d99069e`, with eight exact public sequences and zero warm
+allocations in float/fixed scalar/SIMD. The custom wrapper matches default packet
 signalling, finite header budgets, constructor controls, and error/reset state
 at `17e27246`; its complete package passes all eight local lanes. It is not
 called by root or multistream public APIs.

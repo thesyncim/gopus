@@ -239,40 +239,40 @@ gopus is built for real-time use, where steady allocation is the enemy:
   parity differences.
 
 The recorded AMD64 end-to-end run compares assembly `8ac93c85` with Go
-`905eec03` on an AMD EPYC 9V74, Go 1.27.1, GCC 13.3, GOAMD64=v1, and PGO.
+`c6353190` on an AMD EPYC 7763, Go 1.27.1, GCC 13.3, GOAMD64=v1, and PGO.
 Four interleaved 500 ms samples report zero allocations for all rows.
-Values are median ns/op.
+Values are median ns/op; this revision predates the current local fixes.
 
 | Workload | Old assembly | Go SIMD | `nosimd` |
 |---|---:|---:|---:|
-| CELT decode | 15,657 | 10,337 | 12,985 |
-| Hybrid decode | 23,048 | 19,927.5 | 25,434.5 |
-| SILK decode | 18,325.5 | 13,348.5 | 17,306 |
-| Caller-buffer encode | 72,320.5 | 48,796 | 80,746 |
-| VoIP encode | 77,107.5 | 52,905 | 84,948.5 |
-| Low-delay encode | 71,480 | 48,789 | 80,473.5 |
+| CELT decode | 20,292 | 13,626 | 17,142 |
+| Hybrid decode | 28,371 | 24,119 | 30,528.5 |
+| SILK decode | 22,627.5 | 16,375 | 20,975.5 |
+| Caller-buffer encode | 91,864.5 | 63,522 | 99,694.5 |
+| VoIP encode | 98,276 | 68,427.5 | 105,616 |
+| Low-delay encode | 91,068.5 | 63,300.5 | 99,360.5 |
 
 The paired C comparison uses identical inputs and controls, pairing scalar Go
 with scalar C and SIMD Go with SIMD C. Both tables come from [run
-36456014367](https://github.com/thesyncim/gopus/actions/runs/36456014367),
-artifact `10987206160`, on the same runner and toolchain. Each C/Go case has
+36486700048](https://github.com/thesyncim/gopus/actions/runs/36486700048),
+artifact `11001601766`, on the same runner and toolchain. Each C/Go case has
 three 250 ms minimum runs. Times are µs per packet. Go rows report zero
 allocations; C allocation counts are not measured.
 
 | Workload | C scalar | Go scalar | C SIMD | Go SIMD |
 |---|---:|---:|---:|---:|
-| CELT-FB-20ms-stereo-128k | 153.50 | 150.50 | 114.46 | 99.77 |
-| CELT-FB-5ms-mono-64k | 16.80 | 18.51 | 15.66 | 15.41 |
-| Hybrid-FB-20ms-mono-64k | 307.35 | 290.93 | 197.07 | 171.19 |
-| Hybrid-FB-20ms-stereo-96k | 176.09 | 174.87 | 131.16 | 111.90 |
-| SILK-WB-20ms-mono-32k | 591.74 | 514.80 | 318.51 | 249.72 |
-| RFC vectors Float32 | 25.58 | 26.36 | 24.12 | 22.10 |
-| RFC vectors Int16 | 28.65 | 29.34 | 26.25 | 24.99 |
+| CELT-FB-20ms-stereo-128k | 178.20 | 184.37 | 133.61 | 123.14 |
+| CELT-FB-5ms-mono-64k | 19.90 | 23.13 | 18.60 | 19.29 |
+| Hybrid-FB-20ms-mono-64k | 358.64 | 355.29 | 253.52 | 278.83 |
+| Hybrid-FB-20ms-stereo-96k | 201.85 | 212.33 | 151.04 | 134.97 |
+| SILK-WB-20ms-mono-32k | 691.19 | 615.66 | 448.37 | 387.50 |
+| RFC vectors Float32 | 30.69 | 33.02 | 29.03 | 27.47 |
+| RFC vectors Int16 | 33.86 | 35.94 | 31.48 | 31.14 |
 
 These measurements are workload-specific. Decoder rows aggregate 20,075
 identical packets; encoder timings do not establish long-stream packet parity.
-All seven OSCE output cases pass the same runner's scalar/SIMD checks across
-OSCE, OSCE+QEXT and DRED+OSCE+QEXT.
+The artifact retains failing neural-stage exactness diagnostics, tracked in the
+[evidence report](reports/go-simd-kernel-evidence.md).
 
 Run the benchmarks for numbers on your machine:
 
@@ -291,9 +291,9 @@ architecture, input format, control sequence, and packet mode is not yet
 proven. The pinned `tmp_check/opus-1.6.1/` is the reference; when behavior is
 uncertain, gopus matches libopus unless fixture evidence says otherwise.
 
-Open validation includes DRED/OSCE loss history, non-fullband QEXT SIMD
-refinement, SILK comfort-noise and pitch state across rate changes, and native
-AMD64 oracle coverage. The strict 8,000-case malformed-FEC sweep passes six
+Open validation includes DRED/OSCE loss history and native AMD64 neural
+stage diagnostics. QEXT non-fullband refinement, SILK comfort-noise history
+and pitch state across rate changes pass their exact local regressions. The strict 8,000-case malformed-FEC sweep passes six
 local feature/ISA lanes; the full custom package passes all eight. Native 96 kHz encoder mode/budget sequences, including
 40 ms packets and QEXT off/on, pass exact packet/range and warm zero-allocation
 checks in all four local float/fixed scalar/SIMD lanes. Native 96 kHz multistream encode/decode, long-burst PLC,

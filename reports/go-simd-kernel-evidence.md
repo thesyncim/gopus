@@ -47,8 +47,8 @@ rate-switch witnesses also pass normal recovery and following PLC.
 Malformed multistream fixed output matches all 9,000 mutations in each of the
 four fixed feature/ISA lanes at `70be920b`, including per-child redundancy
 reconstruction. SILK/Hybrid multistream final ranges include the redundant
-CELT contribution. DRED retains a confirmed SILK-history mismatch under identical C/Go
-priming formats. Sixteen CELT oracle checks pass all eight local lanes without blanket ARM
+CELT contribution. DRED/OSCE history and recovery integration remain under
+validation against identical C/Go priming formats. Sixteen CELT oracle checks pass all eight local lanes without blanket ARM
 SIMD skips at `ba23ba99`; native AMD64 validation of their selected RTCD
 paths is pending. These remain separate from the passing
 matrices below.
@@ -69,9 +69,11 @@ per lane, with exact accepted float/int16/int24 output. Multistream long-burst
 PLC, native crossfade, and Hybrid QEXT routing pass all eight applicable local
 lanes at `3885a34d`. Signaled QEXT bands beyond the physical spectrum and mixed
 integer-format clipping pass their exact PCM/range and zero-allocation gates
-at `28cb897e`. Open adjacent cases include non-fullband QEXT SIMD refinement,
-OSCE-selected DRED history, comfort-noise rate-transition history, and the
-public pitch getter after a SILK rate reset. Custom default signalling, finite
+at `28cb897e`. Non-fullband QEXT parsing and refined-energy body/tail rounding
+match selected C at `4186cbb3`. Public pitch after rate reset matches C at
+`949ca0f3`; comfort-noise excitation retention passes eight exact sequences
+and warm zero-allocation guards in float/fixed scalar/SIMD at `1d99069e`.
+DRED/OSCE integration and native AMD64 neural-stage findings remain open. Custom default signalling, finite
 header budgets, control defaults, error state and reset lifetime pass the full
 custom package in all eight local lanes at `17e27246`.
 Mono-to-stereo loss recovery passes all eight local lanes at `a676f2db`, and
@@ -106,6 +108,12 @@ sweep. Full artifact `10989480229` retains baseline failures and the deliberate
 fixture-generation nonzero exit as diagnostic evidence. The run does not
 include subsequent local changes.
 
+Native early artifact `11001601766` at `c6353190` retains seven failing
+phases: six feature/ISA configurations report the same LACE trace NaN-sign
+difference, and SIMD neural analysis reports FARGAN-conditioner and PLC-feature
+differences. These are active AMD64 findings. Its independent performance
+samples are recorded below; they do not make this checkpoint fully passing.
+
 The [codebase parity audit](parity-evidence-audit.md) separates confirmed runtime
 witnesses from oracle and assertion gaps, with validation status for each.
 
@@ -138,7 +146,7 @@ They describe their explicit cases and revisions, not all possible inputs.
 | DRED+QEXT multistream | 96-frame 5.1, 7.1 and first-order ambisonic sequences; reset and simultaneous extensions | Exact packets/ranges and zero warm allocations in scalar/SIMD |
 | DRED+OSCE+QEXT reference | Feature/ISA identity and decoder state layout including QEXT history | Warm-up gates pass both lanes; full public SIMD suite passes at `69a94bce` |
 | Malformed multi-frame decode | Valid → malformed → valid → PLC → valid; mono/stereo, three formats, padding and frame overruns | All 24 combinations preserve C status, PCM, ranges and recovery; zero allocations |
-| Custom modes | Float/fixed, generated geometries, controls, PLC, recovery and reset; all five scaled-band modes mono/stereo | Full package passes all eight local lanes at `00eeb471`, subject to the explicit C undefined-behavior boundary below |
+| Custom modes | Float/fixed, generated geometries, controls, PLC, recovery and reset; all five scaled-band modes mono/stereo | Signalling, finite budgets, defaults, error ordering and reset lifetime pass the full package in all eight local lanes at `17e27246`, subject to the explicit C undefined-behavior boundary below |
 | Automatic encoder modes | 432 configurations × 10 frames, identical input/controls/budget and public float API | All packet bytes and final ranges pass all eight local lanes at `a0a9c877` |
 | Multistream int16 encode | Coupled/discrete stereo, quad, 5.1 and 7.1 layouts; six persistent frames each | Actual C short-input API packets and ranges pass all eight local lanes at `73347769` |
 | QEXT cubic reconstruction | Captured mono leaf and 11 vector boundary sizes; mono/stereo combined and separate packet sequences | Exact primitive/state/public PCM/ranges and zero warm allocations at `77cb9a9d` |
@@ -185,25 +193,25 @@ combinations are outside the supported reference configuration.
 
 ### Native AMD64 end-to-end measurements
 
-Early artifact `10987206160` from [run 36456014367](https://github.com/thesyncim/gopus/actions/runs/36456014367)
-compares assembly `8ac93c85` with SIMD/nosimd `905eec03` on AMD EPYC 9V74,
+Early artifact `11001601766` from [run 36486700048](https://github.com/thesyncim/gopus/actions/runs/36486700048)
+compares assembly `8ac93c85` with SIMD/nosimd `c6353190` on AMD EPYC 7763,
 Go 1.27.1, GCC 13.3.0, GOAMD64=v1, PGO enabled. Four interleaved 500 ms
 samples use `-cpu=1`; all 72 samples report 0 B/op and 0 allocs/op.
-Values are median ns/op.
+Values are median ns/op. This revision predates the current local fixes.
 
 | Workload | Old assembly | Go SIMD | `nosimd` |
 |---|---:|---:|---:|
-| CELT decode | 15,657 | 10,337 | 12,985 |
-| Hybrid decode | 23,048 | 19,927.5 | 25,434.5 |
-| SILK decode | 18,325.5 | 13,348.5 | 17,306 |
-| Caller-buffer encode | 72,320.5 | 48,796 | 80,746 |
-| VoIP encode | 77,107.5 | 52,905 | 84,948.5 |
-| Low-delay encode | 71,480 | 48,789 | 80,473.5 |
+| CELT decode | 20,292 | 13,626 | 17,142 |
+| Hybrid decode | 28,371 | 24,119 | 30,528.5 |
+| SILK decode | 22,627.5 | 16,375 | 20,975.5 |
+| Caller-buffer encode | 91,864.5 | 63,522 | 99,694.5 |
+| VoIP encode | 98,276 | 68,427.5 | 105,616 |
+| Low-delay encode | 91,068.5 | 63,300.5 | 99,360.5 |
 
-SIMD takes 13.5–34.0% less time than assembly in these six workloads.
+SIMD takes 15.0–32.9% less time than assembly in these six workloads.
 Scalar takes less time for CELT/SILK decode and more for Hybrid decode and encode.
-The 11 AMD64 kernel rows use the same revision and runner in full artifact
-`10989480229`; ARM64 rows retain their own measured revisions.
+The 11 AMD64 kernel rows retain their `905eec03` / EPYC 9V74 measurements in
+artifact `10989480229`; ARM64 rows retain their own measured revisions.
 Absolute timings across different CPU models are not revision comparisons.
 
 ### Matched libopus 1.6.1 comparison
@@ -214,23 +222,23 @@ All Go rows allocate zero; C allocations are not measured.
 
 | Workload | C scalar | Go scalar | C SIMD | Go SIMD |
 |---|---:|---:|---:|---:|
-| CELT-FB-20ms-stereo-128k | 153.50 | 150.50 | 114.46 | 99.77 |
-| CELT-FB-5ms-mono-64k | 16.80 | 18.51 | 15.66 | 15.41 |
-| Hybrid-FB-20ms-mono-64k | 307.35 | 290.93 | 197.07 | 171.19 |
-| Hybrid-FB-20ms-stereo-96k | 176.09 | 174.87 | 131.16 | 111.90 |
-| SILK-WB-20ms-mono-32k | 591.74 | 514.80 | 318.51 | 249.72 |
-| RFC vectors Float32 | 25.58 | 26.36 | 24.12 | 22.10 |
-| RFC vectors Int16 | 28.65 | 29.34 | 26.25 | 24.99 |
+| CELT-FB-20ms-stereo-128k | 178.20 | 184.37 | 133.61 | 123.14 |
+| CELT-FB-5ms-mono-64k | 19.90 | 23.13 | 18.60 | 19.29 |
+| Hybrid-FB-20ms-mono-64k | 358.64 | 355.29 | 253.52 | 278.83 |
+| Hybrid-FB-20ms-stereo-96k | 201.85 | 212.33 | 151.04 | 134.97 |
+| SILK-WB-20ms-mono-32k | 691.19 | 615.66 | 448.37 | 387.50 |
+| RFC vectors Float32 | 30.69 | 33.02 | 29.03 | 27.47 |
+| RFC vectors Int16 | 33.86 | 35.94 | 31.48 | 31.14 |
 
-SIMD Go takes 1.6–21.6% less time than SIMD C across the five encode rows,
-and 8.4%/4.8% less time for float32/int16 vector decode. Scalar Go takes 10.2%
-more time for short CELT and 3.0%/2.4% more for float32/int16 decode; the other
-scalar encode rows take less time than C. Small differences require repeated
-measurements before tuning decisions.
+SIMD Go takes 3.8% more time than SIMD C for short CELT and 10.0% more for
+mono Hybrid; the other three encode rows take 7.8–13.6% less time. SIMD vector
+decode takes 5.4%/1.1% less time for float32/int16. Scalar Go trails C by
+3.5–16.2% in three encode rows and 7.6%/6.1% in vector decode; mono Hybrid
+and SILK take less time. These are workload-specific results from this runner.
 Decoder rows aggregate 20,075 identical packets; encoder rows use identical PCM
-and controls. The encoder timings do not establish long-stream packet parity.
-All seven OSCE end-to-end exactness cases pass in scalar/SIMD across OSCE,
-OSCE+QEXT and DRED+OSCE+QEXT on this runner.
+and controls. Encoder timings do not establish long-stream packet parity.
+The artifact retains failing neural-stage exactness diagnostics; performance
+results do not establish complete correctness.
 
 ## Per-symbol inventory
 
