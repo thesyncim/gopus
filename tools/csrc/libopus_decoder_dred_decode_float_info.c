@@ -95,6 +95,9 @@ typedef struct {
   opus_int16 plc_pcm[GOPUS_PLC_UPDATE_SAMPLES];
   int plc_fill;
   float plc_preemphasis_mem;
+#ifdef ENABLE_QEXT
+  celt_glog qext_oldBandE[2 * NB_QEXT_BANDS];
+#endif
   celt_sig _decode_mem[1];
 } GopusInternalCELTDecoder;
 

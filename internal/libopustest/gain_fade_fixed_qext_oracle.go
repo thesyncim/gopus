@@ -42,7 +42,7 @@ func ProbeFixedQEXTGainFade(cases []FixedQEXTGainFadeCase) ([][]int32, error) {
 			return nil, fmt.Errorf("fixed-QEXT gain fade: case %d unsupported sample rate %d", i, c.SampleRate)
 		}
 		if c.Channels < 1 || c.Channels > 2 || c.FrameSize < c.SampleRate/400 ||
-			c.FrameSize > 3840 || c.G1 < 0 || c.G1 > 32767 || c.G2 < 0 || c.G2 > 32767 {
+			c.FrameSize > 3840 || c.G1 < 0 || c.G2 < 0 {
 			return nil, fmt.Errorf("fixed-QEXT gain fade: case %d has invalid parameters", i)
 		}
 		wantSamples := c.FrameSize * c.Channels
