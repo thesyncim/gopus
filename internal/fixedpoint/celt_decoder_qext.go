@@ -285,6 +285,15 @@ func (d *QEXTCELTDecoder) decodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 	if d.lossDuration == 0 {
 		d.skipPLC = false
 	}
+	if d.channels == 1 {
+		// celt_decode_with_ec (celt/celt_decoder.c) merges the mono channel's
+		// two energy histories before decoding. Noise PLC updates only oldBandE[0],
+		// so the second history can retain the pre-loss value until this frame.
+		for band := 0; band < d.nbEBands; band++ {
+			second := d.nbEBands + band
+			d.oldBandE[band] = max32(d.oldBandE[band], d.oldBandE[second])
+		}
+	}
 	apiFrameSize := frameSize / d.downsample
 	if len(out) < d.channels*apiFrameSize {
 		return -2
