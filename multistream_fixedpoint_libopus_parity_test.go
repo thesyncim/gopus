@@ -231,6 +231,27 @@ func TestMultistreamDecodeFixedPointParity(t *testing.T) {
 
 			assertFixedExact(t, "int16", got16, int16ToInt32(refInt16))
 			assertFixedExact(t, "int24", got24, refInt24)
+
+			// Reset must rewind the integer CELT state alongside the float
+			// decoder state. Replaying the same sequence must reproduce the
+			// selected FIXED_POINT stream after reset.
+			dec16.Reset()
+			dec24.Reset()
+			var replay16, replay24 []int32
+			for p, pkt := range msPackets {
+				o16 := make([]int16, frameSize48*lo.channels)
+				if _, err := dec16.DecodeInt16(pkt, o16); err != nil {
+					t.Fatalf("reset replay packet %d DecodeInt16: %v", p, err)
+				}
+				replay16 = append(replay16, int16ToInt32(o16)...)
+				o24 := make([]int32, frameSize48*lo.channels)
+				if _, err := dec24.DecodeInt24(pkt, o24); err != nil {
+					t.Fatalf("reset replay packet %d DecodeInt24: %v", p, err)
+				}
+				replay24 = append(replay24, o24...)
+			}
+			assertFixedExact(t, "reset replay int16", replay16, int16ToInt32(refInt16))
+			assertFixedExact(t, "reset replay int24", replay24, refInt24)
 		})
 	}
 }

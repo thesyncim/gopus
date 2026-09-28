@@ -13,6 +13,7 @@ type streamFixedFields struct {
 	fixedCELT    *fixedpoint.CELTDecoder
 	fixedCELTPCM []int16
 	fixedRes     []int32
+	qext         streamFixedQEXTFields
 
 	// fixedHybridHook implements hybrid.FixedHybridHighband for the integer
 	// Hybrid highband decode (start band 17, celt_accum onto the SILK opus_res
@@ -27,6 +28,14 @@ type streamFixedFields struct {
 	// shared decoder has already advanced past) to decline redundant frames.
 	fixedHybridRedundant bool
 	fixedHybridHandled   bool
+}
+
+// decoderFixedFields holds caller-independent output scratch for the integer
+// multistream decode. The mapped result aliases this storage until the next
+// fixed decode on the same decoder.
+type decoderFixedFields struct {
+	fixedStreamRes [][]int32
+	fixedOutput    []int32
 }
 
 // setFixedHybridRedundancy records the Opus-layer redundancy decision the float

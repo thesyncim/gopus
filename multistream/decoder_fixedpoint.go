@@ -3,9 +3,7 @@
 package multistream
 
 import (
-	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/extsupport"
-	"github.com/thesyncim/gopus/internal/fixedpoint"
 	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/internal/plc"
 	"github.com/thesyncim/gopus/internal/rangecoding"
@@ -20,10 +18,10 @@ import (
 // to its output channel(s) in the integer domain.
 //
 // The second return value reports whether every stream frame was produced by
-// the integer path (CELT-only) or is integer-exact through the SILK round-trip.
-// When it is false the packet contains a frame the integer path does not cover
-// (Hybrid, multi-frame edge cases, projection, decode gain, or a concealment
-// frame); the caller must fall back to the float conversion for that packet.
+// the integer path or is integer-exact through the SILK round-trip. When it is
+// false the packet contains a frame the integer path does not cover (projection,
+// unsupported Hybrid redundancy, or a concealment frame); the caller must fall
+// back to the float conversion for that packet.
 //
 // The output opus_res values feed RES2INT16 (int16) or RES2INT24==identity
 // (int24) per the libopus copy_channel_out routines.
@@ -32,9 +30,6 @@ func (d *Decoder) DecodeToResFixed(data []byte, frameSize int) ([]int32, bool, e
 		return nil, false, nil
 	}
 	if len(d.projectionDemixing) != 0 && d.projectionCols > 0 {
-		return nil, false, nil
-	}
-	if extsupport.QEXT && !d.ignoreExtensions {
 		return nil, false, nil
 	}
 	for _, dec := range d.decoders {
@@ -46,11 +41,11 @@ func (d *Decoder) DecodeToResFixed(data []byte, frameSize int) ([]int32, bool, e
 		return nil, false, nil
 	}
 
-	packets, err := parseMultistreamPacket(data, d.streams)
+	packets, err := parseMultistreamPacketScratch(d.packetsScratch, &d.packetParser, &d.reframeArena, data, d.streams)
 	if err != nil {
 		return nil, false, err
 	}
-	duration, err := validateStreamDurationsAtRate(packets, int(d.sampleRate))
+	duration, err := validateStreamDurationsAtRateScratch(&d.packetParser, packets, int(d.sampleRate))
 	if err != nil {
 		return nil, false, err
 	}
@@ -65,10 +60,11 @@ func (d *Decoder) DecodeToResFixed(data []byte, frameSize int) ([]int32, bool, e
 	// corrupt the shared float cross-frame state) when the caller falls back to
 	// the float conversion.
 	for i := 0; i < d.streams; i++ {
-		if _, ok := d.decoders[i].(*streamState); !ok {
+		st, ok := d.decoders[i].(*streamState)
+		if !ok {
 			return nil, false, nil
 		}
-		if !fixedHandleableStreamPacket(packets[i], int(d.sampleRate)) {
+		if !fixedHandleableStreamPacket(packets[i], int(d.sampleRate), &st.packetParser) {
 			return nil, false, nil
 		}
 	}
@@ -77,7 +73,10 @@ func (d *Decoder) DecodeToResFixed(data []byte, frameSize int) ([]int32, bool, e
 	// float state exactly once and yields bit-exact opus_res. A post-check
 	// decline would mean state was advanced but the result is unusable, so it is
 	// surfaced as an error rather than silently re-decoded by the caller.
-	streamRes := make([][]int32, d.streams)
+	if cap(d.fixedStreamRes) < d.streams {
+		d.fixedStreamRes = make([][]int32, d.streams)
+	}
+	streamRes := d.fixedStreamRes[:d.streams]
 	for i := 0; i < d.streams; i++ {
 		st := d.decoders[i].(*streamState)
 		res, handled, derr := st.decodePacketToResFixed(packets[i], decodeFrameSize)
@@ -98,12 +97,12 @@ func (d *Decoder) DecodeToResFixed(data []byte, frameSize int) ([]int32, bool, e
 		}
 	}
 
-	out := applyChannelMappingRes(streamRes, d.mapping, d.coupledStreams, decodeFrameSize, d.outputChannels)
+	d.fixedOutput = applyChannelMappingResInto(d.fixedOutput, streamRes, d.mapping, d.coupledStreams, decodeFrameSize, d.outputChannels)
 
 	d.plcState.Reset()
 	d.plcState.SetLastFrameParams(plc.ModeHybrid, decodeFrameSize, d.outputChannels)
 
-	return out, true, nil
+	return d.fixedOutput, true, nil
 }
 
 // applyChannelMappingRes routes per-stream opus_res samples to output channels,
@@ -111,7 +110,17 @@ func (d *Decoder) DecodeToResFixed(data []byte, frameSize int) ([]int32, bool, e
 // each stream channel feeds the output channel(s) selected by the mapping, and
 // muted channels (mapping value 255) stay zero.
 func applyChannelMappingRes(streamRes [][]int32, mapping []byte, coupledStreams, frameSize, outputChannels int) []int32 {
-	out := make([]int32, frameSize*outputChannels)
+	return applyChannelMappingResInto(nil, streamRes, mapping, coupledStreams, frameSize, outputChannels)
+}
+
+func applyChannelMappingResInto(out []int32, streamRes [][]int32, mapping []byte, coupledStreams, frameSize, outputChannels int) []int32 {
+	needed := frameSize * outputChannels
+	if cap(out) < needed {
+		out = make([]int32, needed)
+	} else {
+		out = out[:needed]
+		clear(out)
+	}
 	for outCh := 0; outCh < outputChannels; outCh++ {
 		mappingIdx := mapping[outCh]
 		if mappingIdx == 255 {
@@ -138,12 +147,15 @@ func applyChannelMappingRes(streamRes [][]int32, mapping []byte, coupledStreams,
 // CELT-only (decoded by the integer CELT decoder), SILK-only (integer-exact
 // through the lossless float->int16 round-trip), or Hybrid (integer SILK
 // opus_res lowband plus integer CELT highband, start band 17, celt_accum).
-// Multi-frame packets and degenerate (DTX/PLC) frames are not covered. A Hybrid
-// stream at an API rate below 16 kHz is also declined: its wideband SILK lowband
-// is produced by the float downsampling resampler, which has no integer int16
-// output for INT16TORES, so the integer hybrid path cannot reproduce it (the
-// float conversion is bit-exact with the FIXED_POINT reference for those rates).
-func fixedHandleableStreamPacket(data []byte, sampleRate int) bool {
+// CELT code-3 packets decode each frame sequentially, and SILK packets are
+// integer-exact through their float32/int16 round-trip. Hybrid packets with
+// multiple frames and degenerate (DTX/PLC) frames are declined before state is
+// advanced. A Hybrid stream at an API rate below 16 kHz is also declined: its
+// wideband SILK lowband is produced by the float downsampling resampler, which
+// has no integer int16 output for INT16TORES, so the integer hybrid path cannot
+// reproduce it (the float conversion is bit-exact with the FIXED_POINT
+// reference for those rates).
+func fixedHandleableStreamPacket(data []byte, sampleRate int, scratch *packetScratch) bool {
 	if len(data) <= 1 {
 		return false
 	}
@@ -154,11 +166,19 @@ func fixedHandleableStreamPacket(data []byte, sampleRate int) bool {
 	if toc.mode == streamModeHybrid && sampleRate < 16000 {
 		return false
 	}
-	parsed, err := parseOpusPacket(data, false)
-	if err != nil || len(parsed.frames) != 1 {
+	parsed, err := parseOpusPacketInto(scratch, data, false)
+	if err != nil || len(parsed.frames) == 0 {
 		return false
 	}
-	return len(parsed.frames[0]) > 1
+	if toc.mode == streamModeHybrid && len(parsed.frames) != 1 {
+		return false
+	}
+	for _, frame := range parsed.frames {
+		if len(frame) <= 1 {
+			return false
+		}
+	}
+	return true
 }
 
 // decodePacketToResFixed decodes one elementary-stream packet to interleaved
@@ -169,9 +189,7 @@ func fixedHandleableStreamPacket(data []byte, sampleRate int) bool {
 // following float Decode or PLC frame is unaffected), then captures
 // integer-exact opus_res:
 //
-//   - CELT-only: the FIXED_POINT integer CELT decoder
-//     (internal/fixedpoint.CELTDecoder), exactly as the single-stream public
-//     decoder does.
+//   - CELT-only: the fixed-point integer CELT decoder selected by the build.
 //   - SILK-only: opus_res = INT16TORES(int16) where the int16 is the lossless
 //     float->int16 of the SILK output, matching libopus' FIXED_POINT SILK
 //     opus_res (the SILK output is integer-native and round-trips through
@@ -180,6 +198,15 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 	channels := int(d.channels)
 
 	toc := parseStreamTOC(data[0])
+	parsed, err := parseOpusPacketInto(&d.packetParser, data, false)
+	if err != nil || len(parsed.frames) == 0 || frameSize%len(parsed.frames) != 0 {
+		return nil, false, nil
+	}
+	if toc.mode == streamModeCELT {
+		if err := d.prepareFixedQEXTCELTFrame(parsed, toc); err != nil {
+			return nil, false, err
+		}
+	}
 
 	// A Hybrid frame must arm the integer highband hook on the stream's hybrid
 	// decoder before the float decode runs, so the float hybrid decode also drives
@@ -189,8 +216,10 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 	// the float decode instead.
 	hybridArmed := false
 	if toc.mode == streamModeHybrid {
-		if parsed, perr := parseOpusPacket(data, false); perr == nil && len(parsed.frames) == 1 {
-			hybridArmed = d.prepareFixedHybridStream(toc)
+		var err error
+		hybridArmed, err = d.prepareFixedHybridStream(toc)
+		if err != nil {
+			return nil, false, err
 		}
 	}
 
@@ -208,17 +237,12 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 	}
 	res := d.fixedRes[:needed]
 
-	parsed, perr := parseOpusPacket(data, false)
-	if perr != nil || len(parsed.frames) != 1 {
-		return nil, false, nil
-	}
-
 	switch toc.mode {
 	case streamModeSILK:
 		floatToRes(res, floatOut)
 		return res, true, nil
 	case streamModeCELT:
-		if d.celtFixedRes(parsed.frames[0], frameSize, toc, res) {
+		if d.celtFixedRes(parsed, frameSize, toc, res) {
 			return res, true, nil
 		}
 		return nil, false, nil
@@ -231,36 +255,6 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 	default:
 		return nil, false, nil
 	}
-}
-
-// prepareFixedHybridStream arms the integer Hybrid highband hook on the stream's
-// hybrid decoder for the in-flight frame, mirroring the single-stream
-// prepareFixedHybrid. The integer CELT decoder is created lazily and shared with
-// the CELT-only path. It records the CELT end band from the packet bandwidth.
-// The multistream float Hybrid decode never resets its CELT decoder mid-session,
-// so the integer CELT decoder is likewise never reset here; the two stay in
-// lockstep across frames. It returns true once the hook is armed.
-func (d *streamState) prepareFixedHybridStream(toc streamTOC) bool {
-	// Hybrid SILK is always wideband (16 kHz internal). At an API rate below
-	// 16 kHz the SILK lowband is produced by the float downsampling resampler,
-	// which has no integer int16 output for INT16TORES, so the integer hybrid
-	// highband cannot reproduce the FIXED_POINT lowband. Decline so the stream's
-	// float conversion handles the frame (bit-exact with the FIXED_POINT
-	// reference for these rates).
-	if int(d.sampleRate) < 16000 {
-		return false
-	}
-	if d.fixedCELT == nil {
-		d.fixedCELT = fixedpoint.NewCELTDecoderRate(int(d.channels), int(d.sampleRate))
-	}
-	if d.fixedHybridHook == nil {
-		d.fixedHybridHook = &streamFixedHybridHook{st: d}
-	}
-	d.fixedHybridEnd = celt.BandwidthFromOpusConfig(toc.bandwidth).EffectiveBands()
-	d.fixedHybridRedundant = false
-	d.fixedHybridHandled = false
-	d.hybridDec.SetFixedHighband(d.fixedHybridHook)
-	return true
 }
 
 // finishFixedHybridStream disarms the integer Hybrid highband hook after the
@@ -313,8 +307,6 @@ func (h *streamFixedHybridHook) DecodeHybridHighband(silkInt16 []int16, filled i
 		res[i] = int32(s) << 8
 	}
 
-	d.fixedCELT.SetBandRange(celt.HybridCELTStartBand, d.fixedHybridEnd)
-
 	downsample := 48000 / int(d.sampleRate)
 	if downsample <= 0 {
 		downsample = 1
@@ -322,47 +314,13 @@ func (h *streamFixedHybridHook) DecodeHybridHighband(silkInt16 []int16, filled i
 	coreFrameSize := frameSizeAPI * downsample
 
 	rdClone := *rd
-	d.fixedCELT.DecodeHybridAccum(&rdClone, coreFrameSize, res)
+	if !d.decodeFixedHybridAccum(&rdClone, coreFrameSize, packetStereo, res) {
+		d.fixedHybridHandled = false
+		return
+	}
 
 	d.fixedHybridRes = res
 	d.fixedHybridHandled = true
-}
-
-// celtFixedRes runs the FIXED_POINT integer CELT decoder for a CELT-only frame
-// and writes its opus_res output into res. It mirrors the single-stream
-// celtDecodeFixedAPIRate: the integer decoder runs in addition to the float
-// decoder (which already advanced the float cross-frame state). It returns true
-// when it produced a frame.
-func (d *streamState) celtFixedRes(frame []byte, frameSize int, toc streamTOC, res []int32) bool {
-	if len(frame) <= 1 {
-		return false
-	}
-	channels := int(d.channels)
-	if d.fixedCELT == nil {
-		d.fixedCELT = fixedpoint.NewCELTDecoderRate(channels, int(d.sampleRate))
-	}
-
-	downsample := 48000 / int(d.sampleRate)
-	if downsample <= 0 {
-		downsample = 1
-	}
-	coreFrameSize := frameSize * downsample
-
-	celtBW := celt.BandwidthFromOpusConfig(toc.bandwidth)
-	d.fixedCELT.SetBandRange(0, celtBW.EffectiveBands())
-
-	needed := frameSize * channels
-	if cap(d.fixedCELTPCM) < needed {
-		d.fixedCELTPCM = make([]int16, needed)
-	}
-	int16Out := d.fixedCELTPCM[:needed]
-	d.fixedCELT.DecodeWithEC(frame, coreFrameSize, int16Out)
-	celtRes := d.fixedCELT.LastRes()
-	if len(celtRes) < needed {
-		return false
-	}
-	copy(res, celtRes[:needed])
-	return true
 }
 
 // floatToRes converts float32 PCM to opus_res via the lossless int16

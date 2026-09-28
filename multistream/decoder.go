@@ -248,6 +248,7 @@ func (d *streamState) Reset() {
 	d.lastPacketDuration = 0
 	d.lastDataLen = 0
 	d.rangeDecoder = rangecoding.Decoder{}
+	d.resetFixedDecoderState()
 	d.resetOSCEPostfilterState()
 }
 
@@ -780,6 +781,7 @@ type Decoder struct {
 	dnnBlob            *dnnblob.Blob
 	decoderDREDFields
 	decoderOSCEFields
+	decoderFixedFields
 	pitchDNNLoaded    bool
 	plcModelLoaded    bool
 	farganModelLoaded bool
