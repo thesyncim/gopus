@@ -220,8 +220,8 @@ for mode in simd nosimd; do
   run_json_phase "candidate-$mode-dred-stateful-concealment" \
     run_in_checkout "$candidate_root" \
     "${run_env[@]}" GOPUS_DRED_AUDIO_QUALITY=1 go test -json \
-    -tags "gopus_dred${feature_scalar_tag}" . ./internal/lpcnetplc \
-    -run '^Test(DREDLowDelayReferenceOffsetAgainstLibopus|DREDLowDelayFullSequenceEncoderMatchesLibopus|DREDLongLossPCMMatchesLibopusRawBits|DREDLongSequenceAllDecodedPCMMatchesLibopusRawBits|DecoderCELTNeuralPLCAPIRatesMatchesLibopusRawBits|DREDBurgSelectedCFirstLossRawBits|DREDPredictorSelectedCFirstLossRawBits|ExplicitDRED.*Quality.*SixtyPercentLoss)$' \
+    -tags "gopus_dred${feature_scalar_tag}" . ./internal/celt ./internal/lpcnetplc \
+    -run '^Test(DREDLowDelayReferenceOffsetAgainstLibopus|DREDLowDelayFullSequenceEncoderMatchesLibopus|DREDLongLossPCMMatchesLibopusRawBits|DREDLongSequenceAllDecodedPCMMatchesLibopusRawBits|DecoderCELTNeuralPLCAPIRatesMatchesLibopusRawBits|DREDBurgSelectedCFirstLossRawBits|DREDPredictorSelectedCFirstLossRawBits|ExplicitDRED.*Quality.*SixtyPercentLoss|AntiCollapseVsLibopus)$' \
     -count=1 -timeout=10m
 
   # Exact union of the original selectors, sharing package/helper setup.
@@ -332,6 +332,46 @@ if [[ -x "$artifact_root/baseline-default-root.test" && -x "$artifact_root/candi
         overall_status=1
       fi
     done
+  done
+
+  cat > "$artifact_root/paired-libopus-e2e-info.txt" <<'EOF'
+Paired end-to-end codec timings use tools/encoderbenchcmp and tools/testvectorbenchcmp.
+Scalar rows compile Go with -tags nosimd and select the stamped libopus scalar archive.
+SIMD rows compile Go with GOEXPERIMENT=simd and select the stamped libopus SIMD archive.
+Encoder cases are reported individually for CELT, SILK, and Hybrid; decode aggregates all
+official RFC 8251 vectors for float32 and int16 output paths. Each report uses three runs
+with a 250 ms minimum per run; Go uses the same -pgo=auto policy as the adjacent E2E
+benchmarks. The reports enforce and print Go allocs_per_op=0; C allocations are not
+measured. The paired archives, config.h files, and build stamps are in libopus-scalar/ and
+libopus-simd/.
+EOF
+
+  run_phase candidate-paired-libopus-testvectors \
+    run_in_checkout "$candidate_root" make ensure-testvectors
+  vector_status="$(cat "$artifact_root/candidate-paired-libopus-testvectors.exit")"
+  for mode in nosimd simd; do
+    if [[ "$mode" == simd ]]; then
+      mode_env=(env -u GOPUS_LIBOPUS_REF_SCALAR GOEXPERIMENT=simd GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1)
+      mode_args=()
+    else
+      mode_env=(env -u GOEXPERIMENT GOPUS_LIBOPUS_REF_SCALAR=1 GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1)
+      mode_args=(-tags nosimd)
+    fi
+
+    run_phase "candidate-$mode-libopus-encoder-e2e" \
+      run_in_checkout "$candidate_root" \
+      "${mode_env[@]}" go run -pgo=auto "${mode_args[@]}" ./tools/encoderbenchcmp \
+      -cases=per-case -benchtime=250ms -count=3 -format=tsv -max-gopus-allocs-per-op=0
+    if [[ "$vector_status" == 0 ]]; then
+      run_phase "candidate-$mode-libopus-decode-e2e" \
+        run_in_checkout "$candidate_root" \
+        "${mode_env[@]}" go run -pgo=auto "${mode_args[@]}" ./tools/testvectorbenchcmp \
+        -cases=aggregate -paths=all -benchtime=250ms -count=3 -format=tsv -max-gopus-allocs-per-op=0
+    else
+      printf 'official test-vector preparation failed with exit=%s; see candidate-paired-libopus-testvectors.log\n' \
+        "$vector_status" > "$artifact_root/candidate-$mode-libopus-decode-e2e.log"
+      printf '%s\n' "$vector_status" > "$artifact_root/candidate-$mode-libopus-decode-e2e.exit"
+    fi
   done
 else
   overall_status=1
