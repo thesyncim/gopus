@@ -85,6 +85,7 @@ type Encoder struct {
 	projectionMixing []int16
 	projectionCols   int
 	projectionRows   int
+	projectionShortResFields
 
 	// projectionDemixingGain stores the gain field from the internal demixing matrix,
 	// matching OPUS_PROJECTION_GET_DEMIXING_MATRIX_GAIN.
@@ -1079,7 +1080,7 @@ func (e *Encoder) encodeNative(in encodeInput, frameSize int, analysisPCM []floa
 			enc.SetAllocatedBitrate(bitsToBitrate(currMax*8, fs, frameSize))
 		}
 
-		packet, err := e.encodeStream(enc, streamBuffers[i], frameSize, analysisStreamBuffers[i], currMax, in.i16 != nil)
+		packet, err := e.encodeStream(enc, i, streamBuffers[i], frameSize, analysisStreamBuffers[i], currMax, in.i16 != nil)
 		if err != nil {
 			return 0, fmt.Errorf("stream %d encode failed: %w", i, err)
 		}
@@ -1102,8 +1103,11 @@ func (e *Encoder) encodeNative(in encodeInput, frameSize int, analysisPCM []floa
 // encodeStream runs one elementary opus_encode_native() call. The 16-bit entry
 // points pass lsb_depth 16, which libopus applies as IMIN(16, st->lsb_depth)
 // for this call only; the float entry points pass MAX_ENCODING_DEPTH.
-func (e *Encoder) encodeStream(enc *encoder.Encoder, pcm []float32, frameSize int, analysisPCM []float32, maxDataBytes int, shortInput bool) ([]byte, error) {
+func (e *Encoder) encodeStream(enc *encoder.Encoder, stream int, pcm []float32, frameSize int, analysisPCM []float32, maxDataBytes int, shortInput bool) ([]byte, error) {
 	if shortInput {
+		if e.mappingFamily == 3 && len(e.projectionMixing) > 0 {
+			return e.encodeProjectionShortStream(enc, stream, pcm, frameSize, analysisPCM, maxDataBytes)
+		}
 		return enc.EncodeShortMixedWithAnalysisMaxBytes(pcm, frameSize, analysisPCM, maxDataBytes)
 	}
 	return enc.EncodeFloat32WithAnalysisMaxBytes(pcm, frameSize, analysisPCM, maxDataBytes)

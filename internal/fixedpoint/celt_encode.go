@@ -163,6 +163,9 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 	if e.overlapMax > sampleMax {
 		sampleMax = e.overlapMax
 	}
+	// celt_encoder.c enables st->clip by default and takes the clipping path
+	// when an opus_res input exceeds 65536 at RES_SHIFT precision.
+	needClip := sampleMax > 65536<<resShift
 	silence := sampleMax == 0
 
 	if tell == 1 {
@@ -185,7 +188,7 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 	}
 
 	for c := 0; c < CC; c++ {
-		e.preemphasis(pcm[c:], in[c*(N+overlap)+overlap:], N, CC, c)
+		e.preemphasis(pcm[c:], in[c*(N+overlap)+overlap:], N, CC, c, needClip)
 		// in[c*(N+overlap) .. +overlap] = prefilter_mem[(1+c)*maxPeriod-overlap ..]
 		copy(in[c*(N+overlap):c*(N+overlap)+overlap],
 			e.prefilterMem[(1+c)*maxPeriod-overlap:(1+c)*maxPeriod])

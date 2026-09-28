@@ -391,7 +391,7 @@ func (e *CELTEncoder) FrontEnd(pcm []int16, frameSize int, isTransient bool) (fr
 		pcmRes[i] = int16ToRes(sample)
 	}
 	for c := 0; c < CC; c++ {
-		e.preemphasis(pcmRes[c:], in[c*(N+overlap)+overlap:], N, CC, c)
+		e.preemphasis(pcmRes[c:], in[c*(N+overlap)+overlap:], N, CC, c, false)
 	}
 
 	freq = make([]int32, CC*N)
@@ -409,11 +409,11 @@ func (e *CELTEncoder) FrontEnd(pcm []int16, frameSize int, isTransient bool) (fr
 // The 48 kHz mode uses its one-tap fast path; the native 96 kHz mode uses the
 // ENABLE_QEXT two-tap recurrence. Lower API rates zero-stuff to the 48 kHz
 // mode before applying the one-tap recurrence.
-func (e *CELTEncoder) preemphasis(pcmp []int32, inp []int32, N, CC, c int) {
+func (e *CELTEncoder) preemphasis(pcmp []int32, inp []int32, N, CC, c int, needClip bool) {
 	coef0 := e.preemph0
 	m := e.preemphMemE[c]
 	upsample := e.upsample
-	if upsample <= 1 && e.preemph1 == 0 {
+	if upsample <= 1 && e.preemph1 == 0 && !needClip {
 		for i := 0; i < N; i++ {
 			x := res2sig(pcmp[CC*i])
 			inp[i] = x - m
@@ -428,6 +428,16 @@ func (e *CELTEncoder) preemphasis(pcmp []int32, inp []int32, N, CC, c int) {
 	Nu := N / upsample
 	for i := 0; i < Nu; i++ {
 		inp[i*upsample] = res2sig(pcmp[CC*i])
+	}
+	if needClip {
+		const limit = int32(65536 << sigShift)
+		for i := 0; i < Nu; i++ {
+			if inp[i*upsample] < -limit {
+				inp[i*upsample] = -limit
+			} else if inp[i*upsample] > limit {
+				inp[i*upsample] = limit
+			}
+		}
 	}
 	for i := 0; i < N; i++ {
 		x := inp[i]

@@ -1,7 +1,6 @@
 package multistream
 
 import (
-	"math"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -23,11 +22,14 @@ func TestProjectionShortMixingMatchesLibopus(t *testing.T) {
 	for _, tc := range []struct {
 		name                string
 		channels, frameSize int
+		coherent            bool
 	}{
-		{"foa_5ms", 4, 240},
-		{"foa_60ms", 4, 2880},
-		{"soa_20ms", 9, 960},
-		{"soa_60ms", 9, 2880},
+		{"foa_5ms", 4, 240, false},
+		{"foa_60ms", 4, 2880, false},
+		{"soa_20ms", 9, 960, false},
+		{"soa_60ms", 9, 2880, false},
+		{"soa_coherent_20ms", 9, 960, true},
+		{"third_order_coherent_20ms", 16, 960, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			enc, err := NewProjectionEncoder(48000, tc.channels)
@@ -40,6 +42,16 @@ func TestProjectionShortMixingMatchesLibopus(t *testing.T) {
 			input := make([]int16, tc.frameSize*tc.channels)
 			for i := range input {
 				input[i] = int16((i*7919+tc.channels*3137)%65536 - 32768)
+			}
+			if tc.coherent {
+				for sample := range tc.frameSize {
+					for col := range tc.channels {
+						input[sample*tc.channels+col] = int16(32767 - (sample+col)%31)
+						if enc.projectionMixing[col*tc.channels] < 0 {
+							input[sample*tc.channels+col] = int16(-32768 + (sample+col)%31)
+						}
+					}
+				}
 			}
 			payload := libopustest.NewOraclePayloadVersion("GMSI", 1,
 				uint32(tc.channels), uint32(tc.channels), uint32(tc.frameSize))
@@ -62,7 +74,8 @@ func TestProjectionShortMixingMatchesLibopus(t *testing.T) {
 					mappingIdx := enc.mapping[row]
 					streamIdx, chanInStream := resolveMapping(mappingIdx, enc.coupledStreams)
 					channels := streamChannels(streamIdx, enc.coupledStreams)
-					got := math.Float32bits(buffers[streamIdx][sample*channels+chanInStream])
+					idx := sample*channels + chanInStream
+					got := projectionShortOracleBits(enc, streamIdx, idx, buffers[streamIdx][idx])
 					want := reader.U32()
 					if got != want {
 						t.Fatalf("sample=%d outputRow=%d stream=%d/%d bits Go/C=%08x/%08x", sample, row, streamIdx, chanInStream, got, want)
