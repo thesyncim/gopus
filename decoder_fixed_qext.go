@@ -32,7 +32,7 @@ func (d *Decoder) prepareFixedQEXTHybrid(data []byte, celtBW celt.CELTBandwidth,
 	d.fixedRedundantValid = false
 	d.fixedTransitionValid = false
 	d.fixedHybridFrameActive = true
-	d.hybridDecoder.SetFixedHighband(d)
+	d.hybridDecoder.SetFixedHighband((*fixedHybridHighbandHook)(d))
 	return true
 }
 

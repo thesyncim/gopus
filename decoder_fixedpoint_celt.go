@@ -331,7 +331,7 @@ func (d *Decoder) prepareFixedHybrid(data []byte, celtBW celt.CELTBandwidth, nee
 	d.fixedRedundantValid = false
 	d.fixedTransitionValid = false
 	d.fixedHybridFrameActive = true
-	d.hybridDecoder.SetFixedHighband(d)
+	d.hybridDecoder.SetFixedHighband((*fixedHybridHighbandHook)(d))
 	return true
 }
 
@@ -603,13 +603,17 @@ func (d *Decoder) finishFixedHybrid() error {
 	return d.fixedHybridErr
 }
 
+// fixedHybridHighbandHook binds hybrid's fixed-point callback to decoder state.
+type fixedHybridHighbandHook Decoder
+
 // DecodeHybridHighband implements hybrid.FixedHybridHighband. It builds the
 // opus_res SILK lowband (INT16TORES: int16 << RES_SHIFT) from the resampled int16
 // SILK output, then accumulates the integer CELT highband (start band 17) onto it
 // from the cloned shared range decoder, matching libopus celt_decode_with_ec_dred
 // with celt_accum=1. The combined opus_res / int16 output is stashed for the
 // DecodeInt16 / DecodeInt24 wrappers.
-func (d *Decoder) DecodeHybridHighband(silkInt16 []int16, filled int, rd *rangecoding.Decoder, frameSizeAPI, frameSize48 int, packetStereo bool) {
+func (h *fixedHybridHighbandHook) DecodeHybridHighband(silkInt16 []int16, filled int, rd *rangecoding.Decoder, frameSizeAPI, frameSize48 int, packetStereo bool) {
+	d := (*Decoder)(h)
 	if d.decodeFixedQEXTHybridHighband(silkInt16, filled, rd, frameSizeAPI, frameSize48, packetStereo) {
 		return
 	}
