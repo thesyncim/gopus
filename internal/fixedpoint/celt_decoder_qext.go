@@ -408,7 +408,9 @@ func (d *QEXTCELTDecoder) decodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 	}
 	if qextActive {
 		header := celt.QEXTDecodeHeaderExport(&d.extDec, codedChannels, len(qextPayload))
-		qextEnd = imin(header.EndBands, d.qextMaxBands)
+		// The bitstream can signal bands beyond the mode spectrum.
+		// quant_all_bands consumes them into normalization scratch.
+		qextEnd = header.EndBands
 		qextIntensity = imin(header.Intensity, qextEnd)
 		if codedChannels == 2 && header.DualStereo && qextIntensity != 0 {
 			qextDualStereo = 1
@@ -464,7 +466,7 @@ func (d *QEXTCELTDecoder) decodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 			qextDualStereo, qextIntensity, qextTotalBits, extBalance, d.disableInv, &seed,
 			d.qextEdges, d.qextLogN, &d.qextBands)
 		first := int(d.qextEdges[0]) * M
-		last := int(d.qextEdges[qextEnd]) * M
+		last := imin(int(d.qextEdges[qextEnd])*M, N)
 		for c := 0; c < codedChannels; c++ {
 			copy(X[c*N+first:c*N+last], d.qextBands.x[c*N+first:c*N+last])
 		}

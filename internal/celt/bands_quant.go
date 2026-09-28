@@ -4067,7 +4067,10 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 	N := frameSize
 	normOffset := M * edges[start]
 	normLen := max(M*edges[maxBands-1]-normOffset, 0)
-	maxBand := M * (edges[end] - edges[end-1])
+	maxBand := 0
+	for i := start; i < end; i++ {
+		maxBand = max(maxBand, M*(edges[i+1]-edges[i]))
+	}
 	if scratch != nil {
 		// Back the band-decode-local float scratch with one contiguous arena
 		// before the inline/getter sizing below reslices within each slot.
@@ -4113,6 +4116,16 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		lowbandScratch = make([]celtNorm, maxBand)
 	} else {
 		lowbandScratch = ensureNormSliceNoClear(&scratch.lowband, maxBand)
+	}
+
+	if edges[end]*M > frameSize {
+		// The decoder uses its final physical band as folding scratch, even
+		// when additional signaled QEXT bands are decoded only for their bits.
+		effectiveEnd := end
+		for edges[effectiveEnd]*M > frameSize {
+			effectiveEnd--
+		}
+		lowbandScratch = left[edges[effectiveEnd-1]*M:]
 	}
 
 	lowbandOffset := 0
@@ -4175,10 +4188,20 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 			continue
 		}
 
-		x := left[bandStart:bandEnd]
-		var y []celtNorm
-		if channels == 2 {
-			y = right[bandStart:bandEnd]
+		var x, y []celtNorm
+		if bandEnd > frameSize {
+			// celt/bands.c quant_all_bands routes bands beyond effEBands
+			// into the shared normalization scratch while consuming their bits.
+			x = norm[:nBand]
+			if channels == 2 {
+				y = norm[:nBand]
+			}
+			lowbandScratch = nil
+		} else {
+			x = left[bandStart:bandEnd]
+			if channels == 2 {
+				y = right[bandStart:bandEnd]
+			}
 		}
 
 		tell := rd.TellFrac()
@@ -4202,6 +4225,9 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		}
 
 		ctx.tfChange = int(tfRes[i])
+		if last {
+			lowbandScratch = nil
+		}
 
 		effectiveLowband := -1
 		xCM := 0

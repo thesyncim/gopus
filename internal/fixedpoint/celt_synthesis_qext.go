@@ -3,6 +3,9 @@
 package fixedpoint
 
 func (d *QEXTCELTDecoder) synthesisQEXT(x []int32, N, C, CC, lm int, transient, silence bool, qextEnd int, outSyn [][]int32) {
+	// QEXT decoding consumes all signaled bands; celt_synthesis renders only
+	// the bands present in this mode (two extension bands at 48 kHz).
+	qextEnd = min(qextEnd, d.qextMaxBands)
 	M := 1 << lm
 	B, NB, shift := 1, N, d.maxLM-lm
 	if transient {

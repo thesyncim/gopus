@@ -24,10 +24,9 @@ func QEXTDecodeExtraAllocationModeExport(start, end, qextEnd, totalQ3, channels,
 			return false
 		}
 		cfg, ok := computeQEXTModeConfig(sampleRate, shortMDCTSize)
-		if !ok || qextEnd > cfg.EffBands {
+		if !ok {
 			return false
 		}
-		cfg.EffBands = qextEnd
 		mode = &cfg
 	}
 	computeQEXTExtraAllocationDecodeWithEdges(start, end, qextEnd, totalQ3, channels, lm,

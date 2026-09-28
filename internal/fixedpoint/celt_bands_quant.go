@@ -982,9 +982,21 @@ func quantAllBandsDecodeMode(dec *rangecoding.Decoder, channels, frameSize, lm, 
 		norm2 = norm[normLen:]
 	}
 
-	maxBand := M * (int(eBands[end]) - int(eBands[end-1]))
+	maxBand := 0
+	for i := start; i < end; i++ {
+		maxBand = max(maxBand, M*int(eBands[i+1]-eBands[i]))
+	}
 	lowbandScratch := ensureInt32(&scratch.lowband, maxBand)
 	clear(lowbandScratch)
+
+	if int(eBands[end])*M > frameSize {
+		// Match quant_all_bands decoding scratch in the last physical band.
+		effectiveEnd := end
+		for int(eBands[effectiveEnd])*M > frameSize {
+			effectiveEnd--
+		}
+		lowbandScratch = left[int(eBands[effectiveEnd-1])*M:]
+	}
 
 	ctx := bandDecCtx{
 		dec:             dec,
@@ -1018,10 +1030,20 @@ func quantAllBandsDecodeMode(dec *rangecoding.Decoder, channels, frameSize, lm, 
 		bandEnd := int(eBands[i+1]) * M
 		nBand := bandEnd - bandStart
 
-		x := left[bandStart:bandEnd]
-		var yCh []int32
-		if channels == 2 {
-			yCh = right[bandStart:bandEnd]
+		var x, yCh []int32
+		if bandEnd > frameSize {
+			// celt/bands.c quant_all_bands consumes out-of-spectrum bands
+			// into shared normalization scratch, preserving entropy and RNG state.
+			x = norm[:nBand]
+			if channels == 2 {
+				yCh = norm[:nBand]
+			}
+			lowbandScratch = nil
+		} else {
+			x = left[bandStart:bandEnd]
+			if channels == 2 {
+				yCh = right[bandStart:bandEnd]
+			}
 		}
 
 		tell := dec.TellFrac()
@@ -1060,6 +1082,9 @@ func quantAllBandsDecodeMode(dec *rangecoding.Decoder, channels, frameSize, lm, 
 		}
 
 		ctx.tfChange = int(tfRes[i])
+		if last {
+			lowbandScratch = nil
+		}
 
 		effectiveLowband := -1
 		var xCM, yCM uint

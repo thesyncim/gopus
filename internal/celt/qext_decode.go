@@ -153,7 +153,9 @@ func (d *Decoder) prepareQEXTDecodeRange(payload []byte, mainRD *rangecoding.Dec
 	var qextMode *qextModeConfig
 	if end == MaxBands {
 		if cfg, ok := computeQEXTModeConfig(int(d.sampleRate), qextShortMDCTSizeForMode(frameSize, d.modeConfig(frameSize))); ok {
-			qextEnd := min(hdr.EndBands, cfg.EffBands)
+			// celt_decoder.c decodes every signaled extension band, including
+			// bands beyond the mode spectrum; quant_all_bands discards those bins.
+			qextEnd := hdr.EndBands
 			if qextEnd > 0 {
 				qext.cfg = cfg
 				qext.end = qextEnd

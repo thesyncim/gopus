@@ -644,7 +644,10 @@ func (d *Decoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
 
 	if len(pcm) >= d.maxPacketSamples*channels {
 		d.ensureScratchPCM(d.maxPacketSamples * channels)
-		n, err := d.decodeFloat32(data, d.scratchPCM, false)
+		// opus_decode24 disables output soft clipping and clears the int16
+		// soft-clip history after a received packet. PLC returns before that
+		// state update, so keep its separate path above unchanged.
+		n, err := d.decodeFloat32(data, d.scratchPCM, true)
 		if err != nil {
 			return 0, err
 		}
@@ -671,7 +674,7 @@ func (d *Decoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
 	}
 
 	d.ensureScratchPCM(needed)
-	n, err := d.decodeFloat32(data, d.scratchPCM, false)
+	n, err := d.decodeFloat32(data, d.scratchPCM, true)
 	if err != nil {
 		return 0, err
 	}

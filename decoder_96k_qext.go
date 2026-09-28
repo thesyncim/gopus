@@ -42,7 +42,15 @@ func (d *Decoder) decodeInt1696k(data []byte, pcm []int16) (int, error) {
 		return 0, err
 	}
 	d.fixedApplyDecodeGain(n * channels)
-	d.finishInt16Output(pcm, d.scratchPCM, n, channels)
+	if len(data) == 0 {
+		// opus_decode_native returns from its PLC branch before soft clipping.
+		// Keep the existing clip history for the next received packet.
+		if !d.fixedInt16PLCOutput(pcm, n, channels) {
+			float32ToInt16NoSoftClip(pcm, d.scratchPCM, n, channels)
+		}
+	} else {
+		d.finishInt16Output(pcm, d.scratchPCM, n, channels)
+	}
 	return n, nil
 }
 
@@ -55,9 +63,10 @@ func (d *Decoder) decodeInt2496k(data []byte, pcm []int32) (int, error) {
 	// Keep the temporary float buffer decoder-owned and set its length to the
 	// caller's length for the same undersized-buffer behavior as Decode.
 	d.ensureScratchPCM(len(pcm))
-	// opus_decode24 does not soft-clip its opus_res output. Keep the int16
-	// soft-clip history untouched while decoding this format.
-	n, err := d.decodeFloat32(data, d.scratchPCM, false)
+	// opus_decode24 disables clipping in opus_decode_native, which clears the
+	// int16 soft-clip history after a received packet. The native PLC branch
+	// returns before that clearing step.
+	n, err := d.decodeFloat32(data, d.scratchPCM, true)
 	if err != nil {
 		return 0, err
 	}
