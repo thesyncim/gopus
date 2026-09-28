@@ -29,7 +29,7 @@ func haar1ReferenceNorm(x []celtNorm, n0, stride int) {
 
 func TestHaar1MatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
-	requireBitExactFloat(t)
+	requirePairedCELTOracleMode(t)
 	makeInput := func(n int, seed uint32) []float32 {
 		x := make([]float32, n)
 		for i := range x {
@@ -75,7 +75,7 @@ func TestHaar1MatchesLibopus(t *testing.T) {
 
 func TestHaar1NormMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
-	requireBitExactFloat(t)
+	requirePairedCELTOracleMode(t)
 	cases := []haar1OracleCase{
 		{nameHaarCase(8, 1), []float32{0.25, -0.5, 0.75, -1, 0.125, -0.25, 0.5, -0.75}, 8, 1},
 		{nameHaarCase(16, 2), makeHaarNormInput(32, 0x5012), 16, 2},
@@ -137,15 +137,6 @@ func TestHaar1SpecializedMatchesGeneric(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.stride == 1 || tc.stride == 2 {
-				// stride 1 and 2 route haar1 to the NEON kernels, which use the
-				// same separate-FMUL/FADD/FSUB lane math as libopus's NEON path.
-				// That is bit-exact with the scalar reference on the non-fused
-				// oracle builds, but the fused arm64 build contracts the
-				// reference's a*b+c into FMA, so a byte-for-byte match no longer
-				// holds there (it is opus_compare-gated instead).
-				requireBitExactFloat(t)
-			}
 			n := tc.n0 * tc.stride
 			input := make([]celtNorm, n)
 			for i := range input {

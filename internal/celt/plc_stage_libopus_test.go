@@ -308,7 +308,7 @@ func TestCELTPLCStagesMatchLibopusC(t *testing.T) {
 // difference before the seed frame enters PLC history.
 func TestCELTPLCSeedSynthesisStagesMatchLibopusC(t *testing.T) {
 	libopustest.RequireOracle(t)
-	requireBitExactFloat(t)
+	requirePairedCELTOracleMode(t)
 	const frameSize = 960
 	for _, tc := range []struct {
 		name, packetHex string

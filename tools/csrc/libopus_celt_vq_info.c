@@ -12,6 +12,7 @@
 #include "opus.h"
 #include "celt/bands.h"
 #include "celt/celt.h"
+#include "celt/cpu_support.h"
 #include "celt/cwrs.h"
 #include "celt/mathops.h"
 #include "celt/modes.h"
@@ -162,7 +163,7 @@ static int eval_renormalise_vector(void) {
       return 0;
     }
   }
-  renormalise_vector(x, (int)len_u, gain, 0);
+  renormalise_vector(x, (int)len_u, gain, opus_select_arch());
   if (!write_u32(len_u)) {
     free(x);
     return 0;
@@ -278,7 +279,8 @@ static int eval_alg_unquant(void) {
     return 0;
   }
   ec_dec_init(&dec, payload, payload_len_u);
-  collapse = alg_unquant(x, (int)n_u, (int)k_u, (int)spread_u, (int)b_u, &dec, gain);
+  collapse = alg_unquant(x, (int)n_u, (int)k_u, (int)spread_u, (int)b_u, &dec, gain
+      ARG_QEXT(NULL) ARG_QEXT(0));
   if (!write_u32(collapse) || !write_u32(n_u)) {
     free(payload);
     free(x);
@@ -335,7 +337,7 @@ static int eval_alg_quant(void) {
   }
   ec_enc_init(&enc, buf, (opus_uint32)storage_u);
   collapse = alg_quant(x, (int)n_u, (int)k_u, (int)spread_u, (int)b_u,
-      &enc, gain, (int)resynth_u, 0);
+      &enc, gain, (int)resynth_u ARG_QEXT(NULL) ARG_QEXT(0), opus_select_arch());
   ec_enc_done(&enc);
   packet_len = compact_packet(&enc, packet);
   if (!write_u32(collapse) || !write_u32(packet_len) ||
@@ -401,8 +403,8 @@ static int eval_theta_dist(void) {
   ey = ADD32(ey, min_e/3);
   w0 = VSHR32(ex, 0);
   w1 = VSHR32(ey, 0);
-  p0 = celt_inner_prod_norm_shift(x0, x1, (int)n_u, 0);
-  p1 = celt_inner_prod_norm_shift(y0, y1, (int)n_u, 0);
+  p0 = celt_inner_prod_norm_shift(x0, x1, (int)n_u, opus_select_arch());
+  p1 = celt_inner_prod_norm_shift(y0, y1, (int)n_u, opus_select_arch());
   dist = MULT16_32_Q15(w0, p0) + MULT16_32_Q15(w1, p1);
   if (!write_float(w0) || !write_float(w1) ||
       !write_float(p0) || !write_float(p1) || !write_float(dist)) {
@@ -449,7 +451,7 @@ static int eval_stereo_itheta(void) {
       return 0;
     }
   }
-  itheta = stereo_itheta(x, y, (int)stereo_u, (int)len_u, 0);
+  itheta = stereo_itheta(x, y, (int)stereo_u, (int)len_u, opus_select_arch());
   if (!write_u32((uint32_t)itheta)) {
     free(x);
     free(y);
@@ -601,8 +603,8 @@ static int eval_stereo_merge(void) {
   }
 
   mid = mid_f;
-  xp = celt_inner_prod_norm_shift(y, x, (int)len_u, 0);
-  side = celt_inner_prod_norm_shift(y, y, (int)len_u, 0);
+  xp = celt_inner_prod_norm_shift(y, x, (int)len_u, opus_select_arch());
+  side = celt_inner_prod_norm_shift(y, y, (int)len_u, opus_select_arch());
   xp = MULT32_32_Q31(mid, xp);
   el = SHR32(MULT32_32_Q31(mid, mid), 3) + side - 2*xp;
   er = SHR32(MULT32_32_Q31(mid, mid), 3) + side + 2*xp;

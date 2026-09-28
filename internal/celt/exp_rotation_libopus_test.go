@@ -342,15 +342,16 @@ func probeLibopusMult32_32Q31(cases []mult32OracleCase) ([]float32, error) {
 }
 
 func buildLibopusCELTVQHelper() (string, error) {
-	return libopustest.BuildCHelper(libopustest.CHelperConfig{
+	cfg := libopustest.CHelperConfig{
 		Label:       "celt vq",
 		OutputBase:  "gopus_libopus_celt_vq",
 		SourceFile:  "libopus_celt_vq_info.c",
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
 		RefIncludes: []string{"celt", "silk"},
-		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 		DeadStrip:   true,
-	})
+	}
+	configureCELTOracleReference(&cfg)
+	return libopustest.BuildCHelper(cfg)
 }
 
 func buildLibopusCELTQEXTVQHelper() (string, error) {
@@ -1405,7 +1406,7 @@ func TestStereoIthetaMatchesLibopusFloatPath(t *testing.T) {
 
 func TestThetaRDODistortionMatchesLibopusFloatPath(t *testing.T) {
 	libopustest.RequireOracle(t)
-	requireBitExactFloat(t)
+	requirePairedCELTOracleMode(t)
 	cases := []thetaDistOracleCase{
 		{
 			ex: 1, ey: 1,

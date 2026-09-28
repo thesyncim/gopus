@@ -30,15 +30,16 @@ type zeroPulsePartitionOracleResult struct {
 }
 
 func buildLibopusCELTPartitionHelper() (string, error) {
-	return libopustest.BuildCHelper(libopustest.CHelperConfig{
+	cfg := libopustest.CHelperConfig{
 		Label:       "celt partition",
 		OutputBase:  "gopus_libopus_celt_partition",
 		SourceFile:  "libopus_celt_partition_info.c",
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
 		RefIncludes: []string{"celt", "silk"},
-		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 		DeadStrip:   true,
-	})
+	}
+	configureCELTOracleReference(&cfg)
+	return libopustest.BuildCHelper(cfg)
 }
 
 func probeLibopusZeroPulsePartition(cases []zeroPulsePartitionOracleCase) ([]zeroPulsePartitionOracleResult, error) {
@@ -101,7 +102,7 @@ func makeZeroPulseLowband(n int, seed uint32) []float32 {
 
 func TestQuantPartitionZeroPulseMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
-	requireBitExactFloat(t)
+	requirePairedCELTOracleMode(t)
 	cases := []zeroPulsePartitionOracleCase{
 		{name: "noise_lm0_b1", n: 3, blocks: 1, lm: 0, band: 3, fill: 1, seed: 0x13579bdf, gain: 1},
 		{name: "noise_lm1_b2_partial_fill", n: 8, blocks: 2, lm: 1, band: 6, fill: 1, seed: 0x2468ace0, gain: 0.75},
