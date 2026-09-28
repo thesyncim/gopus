@@ -25,7 +25,7 @@ func newFixedCustomEncoder(mode *CustomMode, channels int) (fixedCustomEncoder, 
 	}
 	enc := fixedpoint.NewCELTEncoder(channels)
 	if !mode.isStandard {
-		enc = fixedpoint.NewCELTEncoderCustom(channels, fixedCustomModeConfig(mode))
+		enc = newFixedCustomCELTEncoder(channels, fixedCustomModeConfig(mode))
 		if enc == nil {
 			return nil, ErrFixedCustomModeUnsupported
 		}

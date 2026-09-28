@@ -9,12 +9,14 @@ import (
 const fixedQEXTBuild = true
 
 type celtQEXTState struct {
-	enabled    bool
-	active     bool
-	buffer     []byte
-	payloadLen int
-	encoder    rangecoding.Encoder
-	oldBandE   []int32
+	enabled      bool
+	active       bool
+	buffer       []byte
+	payloadLen   int
+	encoder      rangecoding.Encoder
+	oldBandE     []int32
+	customMDCT   *QEXTMDCTLookup
+	customWindow []int32
 }
 
 // SetQEXTEnabled toggles the fixed-point CELT extension coder.
