@@ -153,5 +153,5 @@ func (d *CELTDecoder) quantAllBandsCustom(dec *rangecoding.Decoder, C, N, LM, st
 	seed *uint32) (left, right []int32, collapse []byte) {
 	return quantAllBandsDecodeMode(dec, C, N, LM, start, end, pulses, tfRes, shortBlocks,
 		spread, dualStereo, intensity, totalBitsQ3, balance, codedBands, false, seed,
-		d.eBands, d.customLogN, len(d.eBands)-1, false, false, nil, d.customTables, &d.bandScratch)
+		d.eBands, d.customLogN, len(d.eBands)-1, false, false, false, nil, d.customTables, &d.bandScratch)
 }

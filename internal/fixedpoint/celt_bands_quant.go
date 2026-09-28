@@ -52,6 +52,9 @@ type bandDecCtx struct {
 	bandCaps        []int32
 	spread          int
 	tfChange        int
+	// q31Coefficients selects Q31 angle gains independently of QEXT side-band
+	// geometry. CELTDecoder remains Q15 when QEXT is also compiled.
+	q31Coefficients bool
 	remainingBits   int
 	intensity       int
 	band            int
@@ -478,7 +481,7 @@ func quantPartitionDecodeWithExtBudget(ctx *bandDecCtx, x []int32, n, b, B int, 
 		qalloc := sctx.qalloc
 		mid := shl32(int32(imid), 16)
 		side := shl32(int32(iside), 16)
-		if qextUseQ31() {
+		if ctx.q31Coefficients {
 			mid = CeltCosNorm32(sctx.ithetaQ30)
 			side = CeltCosNorm32((1 << 30) - sctx.ithetaQ30)
 		}
@@ -795,7 +798,7 @@ func quantBandStereoDecodeWithExtBudget(ctx *bandDecCtx, x, y []int32, n, b, B i
 	qalloc := sctx.qalloc
 	mid := shl32(int32(imid), 16)
 	side := shl32(int32(iside), 16)
-	if qextUseQ31() {
+	if ctx.q31Coefficients {
 		mid = CeltCosNorm32(sctx.ithetaQ30)
 		side = CeltCosNorm32((1 << 30) - sctx.ithetaQ30)
 	}
@@ -893,13 +896,15 @@ func clearInt32(x []int32) {
 	}
 }
 
-// QuantAllBandsDecode ports celt/bands.c quant_all_bands (decode, QEXT off). It
-// fills the normalized celt_norm X (and stereo Y) buffers and per-band collapse
-// masks from the range decoder. The bit allocation (pulses), the time-frequency
-// resolution (tfRes), the per-band balance and the coded-band count come from
-// the decoder prologue; the mode tables are the static 48000/960 mode shared
-// with the float path. X and Y must be length M*shortMdctSize per channel;
-// collapse has length channels*nbEBands.
+// QuantAllBandsDecode ports the Q15 celt/bands.c quant_all_bands decode path.
+// It fills the normalized celt_norm X (and stereo Y) buffers and per-band
+// collapse masks from the range decoder. The bit allocation (pulses), the
+// time-frequency resolution (tfRes), the per-band balance and the coded-band
+// count come from the decoder prologue; the mode tables are the static
+// 48000/960 mode shared with the float path. CELTDecoder uses this Q15 path,
+// including in builds that also compile the separate Q31 QEXTCELTDecoder. X
+// and Y must be length M*shortMdctSize per channel; collapse has length
+// channels*nbEBands.
 //
 // totalBitsQ3 is len*(8<<BITRES)-anti_collapse_rsv (the value libopus passes as
 // total_bits). seed threads celt_lcg_rand through the noise fill.
@@ -908,7 +913,7 @@ func QuantAllBandsDecode(dec *rangecoding.Decoder, channels, frameSize, lm, star
 	disableInv bool, seed *uint32, scratch *celtDecodeBandsScratch) (left, right []int32, collapse []byte) {
 	return quantAllBandsDecodeMode(dec, channels, frameSize, lm, start, end,
 		pulses, tfRes, shortBlocks, spread, dualStereo, intensity, totalBitsQ3, balance, codedBands,
-		disableInv, seed, staticMDCT48000EBands[:], staticMDCT48000LogN[:], celt.MaxBands, false, false, nil, nil, scratch)
+		disableInv, seed, staticMDCT48000EBands[:], staticMDCT48000LogN[:], celt.MaxBands, false, false, false, nil, nil, scratch)
 }
 
 // QEXTBandDecodeState carries the side decoder's per-band refinement budget
@@ -920,15 +925,16 @@ type QEXTBandDecodeState struct {
 	Caps        []int32
 }
 
-// QuantAllBandsDecodeQEXT runs the standard CELT geometry with an independent
-// fixed-point QEXT range decoder supplying angle and PVQ refinement symbols.
+// QuantAllBandsDecodeQEXT runs the standard CELT geometry with Q31 angle gains
+// and an independent fixed-point QEXT range decoder supplying angle and PVQ
+// refinement symbols. QEXTCELTDecoder uses this path for its main bands.
 func QuantAllBandsDecodeQEXT(dec *rangecoding.Decoder, channels, frameSize, lm, start, end int,
 	pulses, tfRes []int32, shortBlocks, spread, dualStereo, intensity, totalBitsQ3, balance, codedBands int,
 	disableInv bool, seed *uint32, qext QEXTBandDecodeState, scratch *celtDecodeBandsScratch,
 ) (left, right []int32, collapse []byte) {
 	return quantAllBandsDecodeMode(dec, channels, frameSize, lm, start, end,
 		pulses, tfRes, shortBlocks, spread, dualStereo, intensity, totalBitsQ3, balance, codedBands,
-		disableInv, seed, staticMDCT48000EBands[:], staticMDCT48000LogN[:], celt.MaxBands, false, false, &qext, nil, scratch)
+		disableInv, seed, staticMDCT48000EBands[:], staticMDCT48000LogN[:], celt.MaxBands, false, false, true, &qext, nil, scratch)
 }
 
 func quantAllQEXTExtraBandsDecode(dec *rangecoding.Decoder, channels, frameSize, lm, end int,
@@ -937,12 +943,12 @@ func quantAllQEXTExtraBandsDecode(dec *rangecoding.Decoder, channels, frameSize,
 ) (left, right []int32, collapse []byte) {
 	return quantAllBandsDecodeMode(dec, channels, frameSize, lm, 0, end,
 		pulses, tfRes, shortBlocks, spread, dualStereo, intensity, totalBitsQ3, balance, end,
-		disableInv, seed, edges, logN, len(logN), true, true, nil, nil, scratch)
+		disableInv, seed, edges, logN, len(logN), true, true, true, nil, nil, scratch)
 }
 
 func quantAllBandsDecodeMode(dec *rangecoding.Decoder, channels, frameSize, lm, start, end int,
 	pulses, tfRes []int32, shortBlocks, spread, dualStereo, intensity, totalBitsQ3, balance, codedBands int,
-	disableInv bool, seed *uint32, eBands, logN []int16, nbEBands int, qextMode, extraBands bool,
+	disableInv bool, seed *uint32, eBands, logN []int16, nbEBands int, qextMode, extraBands, q31Coefficients bool,
 	qext *QEXTBandDecodeState, customCache fixedCustomTables, scratch *celtDecodeBandsScratch,
 ) (left, right []int32, collapse []byte) {
 
@@ -986,6 +992,7 @@ func quantAllBandsDecodeMode(dec *rangecoding.Decoder, channels, frameSize, lm, 
 		extTotalBits:    qextTotalBits(qext),
 		extraBands:      extraBands,
 		qextMode:        qextMode,
+		q31Coefficients: q31Coefficients,
 		customCache:     customCache,
 		bandEdges:       eBands,
 		bandLogN:        logN,

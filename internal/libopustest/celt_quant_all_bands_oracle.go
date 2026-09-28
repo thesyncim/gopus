@@ -6,9 +6,14 @@ const (
 )
 
 var celtQuantAllBandsHelper HelperCache
+var celtQuantAllBandsQ15Helper HelperCache
 
 func getCELTQuantAllBandsHelperPath() (string, error) {
 	return celtQuantAllBandsHelper.Path(buildCELTQuantAllBandsHelper)
+}
+
+func getCELTQuantAllBandsQ15HelperPath() (string, error) {
+	return celtQuantAllBandsQ15Helper.Path(buildCELTQuantAllBandsQ15Helper)
 }
 
 // CELTQuantAllBandsParams describes a quant_all_bands decode pass against the
@@ -55,11 +60,22 @@ type CELTQuantAllBandsResult struct {
 	Collapse                          []byte
 }
 
-// ProbeCELTFixedQuantAllBands runs the real FIXED_POINT libopus quant_all_bands
-// (decode side, QEXT off) over the supplied inputs and returns the resulting
-// normalized X[] (channels*N) plus collapse masks.
+// ProbeCELTFixedQuantAllBands runs the build-selected FIXED_POINT libopus
+// quant_all_bands implementation over the supplied inputs and returns the
+// resulting normalized X[] (channels*N) plus collapse masks.
 func ProbeCELTFixedQuantAllBands(p CELTQuantAllBandsParams) (*CELTQuantAllBandsResult, error) {
-	binPath, err := getCELTQuantAllBandsHelperPath()
+	return probeCELTFixedQuantAllBands(p, getCELTQuantAllBandsHelperPath)
+}
+
+// ProbeCELTFixedQuantAllBandsQ15 runs the non-QEXT FIXED_POINT Q15 kernel.
+// It selects a fixed-only archive when the caller binary also compiles the
+// separate QEXT coefficient-domain implementation.
+func ProbeCELTFixedQuantAllBandsQ15(p CELTQuantAllBandsParams) (*CELTQuantAllBandsResult, error) {
+	return probeCELTFixedQuantAllBands(p, getCELTQuantAllBandsQ15HelperPath)
+}
+
+func probeCELTFixedQuantAllBands(p CELTQuantAllBandsParams, helperPath func() (string, error)) (*CELTQuantAllBandsResult, error) {
+	binPath, err := helperPath()
 	if err != nil {
 		return nil, err
 	}

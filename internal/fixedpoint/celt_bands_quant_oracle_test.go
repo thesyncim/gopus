@@ -160,7 +160,7 @@ func TestQuantAllBandsDecodeOracle(t *testing.T) {
 			startSeed := uint32(0xfeed1234) ^ c.seed
 
 			// Reference.
-			ref, err := libopustest.ProbeCELTFixedQuantAllBands(libopustest.CELTQuantAllBandsParams{
+			ref, err := libopustest.ProbeCELTFixedQuantAllBandsQ15(libopustest.CELTQuantAllBandsParams{
 				Channels:    c.channels,
 				LM:          c.lm,
 				Start:       start,

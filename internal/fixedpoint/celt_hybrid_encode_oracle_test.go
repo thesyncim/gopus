@@ -11,6 +11,17 @@ import (
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
+// probeCELTFixedQ8ForBuild selects the archive matching CELTEncoder's
+// compile-time arithmetic. The QEXT build uses Q31 CELT coefficients even
+// when the runtime extension is disabled, so its oracle still comes from the
+// FIXED_POINT+ENABLE_QEXT archive.
+func probeCELTFixedQ8ForBuild(p libopustest.CELTFixedQ8Params) ([]libopustest.CELTFixedQ8Record, error) {
+	if fixedQEXTBuild {
+		return libopustest.ProbeCELTFixedQEXTQ8(p)
+	}
+	return libopustest.ProbeCELTFixedRawQ8(p)
+}
+
 func TestCELTHybridEncodeWithECSeededOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 	const (
@@ -60,7 +71,7 @@ func TestCELTHybridEncodeWithECSeededOracle(t *testing.T) {
 				}
 			}
 
-			want, err := libopustest.ProbeCELTFixedRawQ8(libopustest.CELTFixedQ8Params{
+			want, err := probeCELTFixedQ8ForBuild(libopustest.CELTFixedQ8Params{
 				SampleRate: 48000, Channels: stream.channels, StreamChannels: stream.streamChannels, FrameSize: frameSize,
 				Start: start, End: end, Bitrate: 4000, Complexity: 10,
 				LSBDepth: 24, VBR: true, ConstrainedVBR: false, Frames: frames,
@@ -142,7 +153,7 @@ func TestCELTResetClearsEnergyMaskOracle(t *testing.T) {
 				}
 			}
 
-			want, err := libopustest.ProbeCELTFixedRawQ8(libopustest.CELTFixedQ8Params{
+			want, err := probeCELTFixedQ8ForBuild(libopustest.CELTFixedQ8Params{
 				SampleRate: 48000, Channels: channels, StreamChannels: channels, FrameSize: frameSize,
 				Start: 0, End: 21, Bitrate: 256000, Complexity: 10,
 				LSBDepth: 24, VBR: true, ConstrainedVBR: false, Frames: frames,

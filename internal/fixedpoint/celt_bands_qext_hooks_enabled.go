@@ -4,8 +4,6 @@ package fixedpoint
 
 import "github.com/thesyncim/gopus/internal/rangecoding"
 
-func qextUseQ31() bool { return true }
-
 func algUnquantBandQEXT(x []int32, n, k, spread, blocks int, dec, extDec *rangecoding.Decoder, gain int32, extraBits int) uint {
 	return uint(AlgUnquantQEXT(x, n, k, spread, blocks, dec, extDec, gain, extraBits))
 }

@@ -437,7 +437,7 @@ func (d *CELTDecoder) decodeReceivedFrame(dec *rangecoding.Decoder, dataLen, fra
 		// its pseudo-random seed (celt_decoder.c). seed holds that advanced value;
 		// using the pre-decode d.rng instead would desync the anti-collapse noise
 		// fill from the reference on collapsed transient bands.
-		AntiCollapse(X, collapse, LM, C, N, start, end,
+		antiCollapseQ15(X, collapse, LM, C, N, start, end,
 			d.oldBandE, d.oldLogE, d.oldLogE2, pulses, d.eBands, nbEBands, seed, false)
 	}
 

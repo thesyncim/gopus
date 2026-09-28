@@ -74,6 +74,22 @@ func RenormaliseVector(x []int32, n int, gain int32) {
 func AntiCollapse(x []int32, collapseMasks []byte, lm, c, size, start, end int,
 	logE, prev1logE, prev2logE []int32, pulses []int32, eBands []int16, nbEBands int,
 	seed uint32, encode bool) {
+	antiCollapse(x, collapseMasks, lm, c, size, start, end,
+		logE, prev1logE, prev2logE, pulses, eBands, nbEBands, seed, encode, fixedQEXTBuild)
+}
+
+// antiCollapseQ15 uses the non-QEXT energy polynomial for the Q15 CELT decoder,
+// including in builds that also contain the separate QEXT decoder.
+func antiCollapseQ15(x []int32, collapseMasks []byte, lm, c, size, start, end int,
+	logE, prev1logE, prev2logE []int32, pulses []int32, eBands []int16, nbEBands int,
+	seed uint32, encode bool) {
+	antiCollapse(x, collapseMasks, lm, c, size, start, end,
+		logE, prev1logE, prev2logE, pulses, eBands, nbEBands, seed, encode, false)
+}
+
+func antiCollapse(x []int32, collapseMasks []byte, lm, c, size, start, end int,
+	logE, prev1logE, prev2logE []int32, pulses []int32, eBands []int16, nbEBands int,
+	seed uint32, encode, qext bool) {
 	for i := start; i < end; i++ {
 		n0 := int(eBands[i+1]) - int(eBands[i])
 		// depth in 1/8 bits: celt_udiv(1+pulses[i], N0)>>LM
@@ -107,7 +123,12 @@ func AntiCollapse(x []int32, collapseMasks []byte, lm, c, size, start, end int,
 			// GCONST(16.f) = 16<<DB_SHIFT.
 			if ediff < int32(16)<<dbShift {
 				// r32 = SHR32(celt_exp2_db(-Ediff),1); r = 2*MIN16(16383,r32)
-				r32 := celtExp2Db(-ediff) >> 1
+				var r32 int32
+				if qext {
+					r32 = celtExp2Db(-ediff) >> 1
+				} else {
+					r32 = celtExp2DbQ15(-ediff) >> 1
+				}
 				r = 2 * min32(16383, r32)
 			} else {
 				r = 0
