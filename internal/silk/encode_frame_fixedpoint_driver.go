@@ -373,7 +373,12 @@ func (e *Encoder) encodeFrameFixedBody(
 	ltpMemLength := ltpMemLengthMs * fsKHz
 	laShape := laShapeMs * fsKHz
 	laPitch := laPitchMs * fsKHz
+	// silk/control_codec.c uses FIND_PITCH_LPC_WIN_MS for four-subframe
+	// frames and FIND_PITCH_LPC_WIN_MS_2_SF for the two-subframe 10 ms path.
 	pitchLPCWinLength := (ltpMemLengthMs + (laPitchMs << 1)) * fsKHz
+	if numSubframes != maxNbSubfr {
+		pitchLPCWinLength = (10 + (laPitchMs << 1)) * fsKHz
+	}
 
 	// reducedDependency / first packet: code the first frame as
 	// first_frame_after_reset (libopus enc_API.c:268).

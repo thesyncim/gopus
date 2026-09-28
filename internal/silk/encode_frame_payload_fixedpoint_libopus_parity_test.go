@@ -156,7 +156,11 @@ func genericFrameCase(name string, rng *rand.Rand, genIdx, fsKHz, nbSubfr, predi
 	ltpMemLength := 20 * fsKHz
 	laPitch := laPitchMs * fsKHz
 	laShape := laShapeMs * fsKHz
-	pitchLPCWinLength := (20 + (laPitchMs << 1)) * fsKHz
+	pitchLPCWinLengthMs := 20 + (laPitchMs << 1)
+	if nbSubfr != maxNbSubfr {
+		pitchLPCWinLengthMs = 10 + (laPitchMs << 1)
+	}
+	pitchLPCWinLength := pitchLPCWinLengthMs * fsKHz
 	shapeWinLength := 5*fsKHz + 2*laShape
 	_ = frameMs
 
