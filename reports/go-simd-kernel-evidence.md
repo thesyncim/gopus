@@ -26,12 +26,11 @@ without a comparable per-call replacement.
 
 ## Current correctness status
 
-**Complete codec/extension parity is not yet proven.** The QEXT N=2 energy
-correction at `defe5eb3` matches selected-C contraction and closes the scalar
-mono reconstruction witness. Native ARM64 SIMD retains a mono QEXT spectrum
-mismatch at bin 800, which propagates to public PCM; this remains under
-investigation. The stereo extension-budget correction passes its spectrum,
-synthesis and PCM regression. ARM64 SIMD Q30 stereo-angle arithmetic matches
+**Complete codec/extension parity is not yet proven.** QEXT N=2 energy
+at `defe5eb3` and cubic energy at `77cb9a9d` match selected-C contraction.
+Mono and stereo QEXT multiframe decode require independent C output, exact
+float bits and final ranges, with zero warm allocations. The cubic boundary
+grid covers 11 vector sizes. ARM64 SIMD Q30 stereo-angle arithmetic matches
 the selected C primitive at `3f1f4ab1`.
 
 A strict 13-configuration, 2,500-frame encode/decode soak passes in ARM64 scalar
@@ -40,12 +39,15 @@ sample count matches selected C. The SILK unvoiced SNR calculation preserves
 the C operation order, including the first rounded product; warm encoder
 allocation gates pass. A persistent
 Hybrid-prime → PLC sequence matches after the channel-routing correction at
-`ae6d505a`; the persistent FEC probe retains a separate suffix mismatch.
+`ae6d505a`; the persistent FEC suffix has a tested Hybrid-to-SILK overlap correction;
+its full malformed-input exactness sweep is still under validation.
 Malformed multistream fixed output matches all 9,000 mutations in each of the
 four fixed feature/ISA lanes at `70be920b`, including per-child redundancy
 reconstruction. SILK/Hybrid multistream final ranges include the redundant
-CELT contribution. The open FEC case and DRED history audit remain separate
-from the passing matrices below.
+CELT contribution. DRED retains a confirmed SILK-history mismatch under identical C/Go
+priming formats. Legacy ARM SIMD skips and private CELT helper feature
+selection are also under review. These remain separate from the passing
+matrices below.
 
 The decoder audit requires exact PCM equality alongside waveform-quality
 checks. Each public output format uses its corresponding C API and matching
@@ -97,7 +99,16 @@ They describe their explicit cases and revisions, not all possible inputs.
 | DRED+OSCE+QEXT reference | Feature/ISA identity and decoder state layout including QEXT history | Warm-up gates pass both lanes; full public SIMD suite passes at `69a94bce` |
 | Malformed multi-frame decode | Valid → malformed → valid → PLC → valid; mono/stereo, three formats, padding and frame overruns | All 24 combinations preserve C status, PCM, ranges and recovery; zero allocations |
 | Custom modes | Float/fixed, generated geometries, controls, PLC, recovery and reset | Selected-C matrices pass subject to the explicit C undefined-behavior boundary below |
+| Automatic encoder modes | 432 configurations × 10 frames, identical input/controls/budget and public float API | All packet bytes and final ranges pass all eight local lanes at `a0a9c877` |
+| Multistream int16 encode | Coupled/discrete stereo, quad, 5.1 and 7.1 layouts; six persistent frames each | Actual C short-input API packets and ranges pass all eight local lanes at `73347769` |
+| QEXT cubic reconstruction | Captured mono leaf and 11 vector boundary sizes; mono/stereo combined and separate packet sequences | Exact primitive/state/public PCM/ranges and zero warm allocations at `77cb9a9d` |
 | Allocation and type discipline | Caller-owned encode/decode buffers, extension scratch, fixed integer composition | Warm allocation gates pass; type guard retains 27 recorded findings with no added debt |
+
+After integration with the CELT/SILK optimization commit `50f7cda0`, the full
+13 × 2,500-frame soak, 12,960 decoder format cases, CELT encoder gate and
+4,320-frame automatic-mode encoder matrix pass default/fixed+QEXT scalar/SIMD.
+The new standard-band and deferred SILK history equivalence/allocation tests
+also pass those four lanes.
 
 Full package results provide broader regression coverage alongside these exact
 gates. The root public suite passes default scalar/SIMD, fixed SIMD, fixed+QEXT
@@ -201,7 +212,7 @@ comparable per-call Go operation and are marked n/a with the reason.
 | 7 | `haar1Stride4NEON` | arm64 | `internal/celt/haar1_simd_arm64.go`; `internal/celt/haar1_scalar.go` | archsimd / scalar | original direct N=32 old asm → scalar Go → Go SIMD: 14.47 (14.40–14.63) → 41.43 (41.35–41.53) → 17.70 (17.64–17.72); refined Go-only paired direct N=32: 11.69 → 11.14 median; live wrapper n0=32 (helper groups=16): 11.25 → 8.00 median | 0 | refined SIMD improves 4.7% on the direct N=32 fixture and 29% on the live wrapper fixture; exact parity, full CELT modes, and focused checkptr pass; asm comparison is from an earlier run |
 | 8 | `imdctPostRotateF32FromKiss` | arm64 | `internal/celt/imdct_post_kiss_simd_arm64.go`; `internal/celt/imdct_post_kiss_default.go` | archsimd / scalar | N=120: old asm → Go → SIMD: 57.00 (56.43–60.80) → 56.72 (56.41–57.17) → 57.09 (56.93–57.23) | 0 | measured; SIMD within 0.2% of asm |
 | 9 | `imdctPreRotateFMA32Kiss` | arm64 | `internal/celt/imdct_pre_kiss_simd_arm64.go`; `internal/celt/imdct_pre_kiss_arm64_nosimd.go` | archsimd / scalar | N=120: old asm 19.28 (19.19–19.31) → scalar Go 74.08 (73.89–74.25; earlier Go 1.27.1 run) → Go SIMD 20.41 (20.40–20.49) | 0 | measured on M4 with Go 1.27.0; Go SIMD is 5.9% slower than asm and 23% faster than the first SIMD port |
-| 10 | `imdctTDACWindowFMA32` | arm64 | `internal/celt/imdct_tdac_simd_arm64.go`; `internal/celt/imdct_tdac_default.go` | archsimd / scalar | overlap=120/count=60: old asm → Go → SIMD: 24.96 (24.95–25.44) → 95.45 (95.02–96.67) → 25.22 (25.00–25.43) | 0 | measured; SIMD within 1.0% of asm |
+| 10 | `imdctTDACWindowFMA32` | arm64 | `internal/celt/imdct_tdac_simd_arm64.go`; `internal/celt/imdct_tdac_nosimd.go` | archsimd / scalar | overlap=120/count=60: old asm → Go → SIMD: 24.96 (24.95–25.44) → 95.45 (95.02–96.67) → 25.22 (25.00–25.43) | 0 | measured; SIMD within 1.0% of asm |
 | 11 | `celtInnerProd8FMA32` | arm64 | `internal/celt/inner_prod_fma_simd_arm64.go`; `internal/celt/inner_prod_fma_simd_amd64.go`; `internal/celt/inner_prod_fma_default.go` | archsimd / scalar | N=16: 5.94–6.00 → 3.49; N=64: 20.94–21.00 → 6.13–6.43; N=176: 56.24–56.30 → 19.96–20.04 | 0 | measured; faster on M4 |
 | 12 | `celtInnerProdSSEStyleAsm` | amd64 | `internal/celt/innerprod_sse_simd_amd64.go`; `internal/celt/innerprod_sse_default.go` | archsimd / scalar | N=480, old asm → scalar Go → Go SIMD: 89.01 (88.86–90.07) → 393.7 (393.4–394.7) → 82.21 (82.14–89.65) | 0 | run 36456014367 / artifact 10989480229; asm 8ac93c85 vs Go 905eec03; five 300 ms samples, AMD EPYC 9V74, Go 1.27.1, GCC 13.3; zero allocations; SIMD takes 7.6% less time than asm in this fixture |
 | 13 | `kfBfly4M1Core` | arm64 | `internal/celt/kf_bfly_simd_arm64.go`; `internal/celt/kf_bfly4m1_default.go` | archsimd / scalar | N=128: old asm 103–105, scalar Go 161–166, prior SIMD 157–162 in original paired run; refined SIMD 120.9 median versus prior SIMD 178.0 median in seven paired 500 ms samples | 0 | refined SIMD is 32% faster than prior SIMD in its paired run and about 16% slower than the recorded asm baseline; exact bits, zero alloc, full CELT modes, and focused checkptr pass |
