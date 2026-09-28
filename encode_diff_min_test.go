@@ -88,9 +88,9 @@ func TestEncodeDiffSILKCBRFloorFinding(t *testing.T) {
 					t.Fatalf("frame %d: %v", f, eerr)
 				}
 				o := recs[f]
-				if !bytes.Equal(pkt, o.Packet) {
-					t.Errorf("frame %d: divergence at %s (br=%d): gopus toc=%02x(len=%d) libopus toc=%02x(len=%d)",
-						f, c.name, c.bitrate, byte0(pkt), len(pkt), byte0(o.Packet), len(o.Packet))
+				if !bytes.Equal(pkt, o.Packet) || enc.FinalRange() != o.FinalRange {
+					t.Errorf("frame %d: divergence at %s (br=%d): gopus toc=%02x(len=%d) range=%08x libopus toc=%02x(len=%d) range=%08x",
+						f, c.name, c.bitrate, byte0(pkt), len(pkt), enc.FinalRange(), byte0(o.Packet), len(o.Packet), o.FinalRange)
 				}
 			}
 		})
