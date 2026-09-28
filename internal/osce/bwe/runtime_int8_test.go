@@ -80,17 +80,21 @@ func TestComputeLinearInt8MatchesDequantisedFloat(t *testing.T) {
 	const rows, cols = 256, 128
 	weights, scale := makeRandomInt8LayerData(rng, rows, cols)
 	bias := make([]float32, rows)
+	subias := make([]float32, rows)
 	for i := range bias {
 		bias[i] = float32(rng.Float64()*0.2 - 0.1)
+		subias[i] = float32(rng.Float64()*0.2 - 0.1)
 	}
 
 	weightsView := mustInt8View(t, weights)
 	scaleView := mustFloat32View(t, scale)
 	biasView := mustFloat32View(t, bias)
+	subiasView := mustFloat32View(t, subias)
 
 	// Int8 layer.
 	int8Layer := &LinearLayer{
 		Bias:      biasView,
+		Subias:    subiasView,
 		Weights:   weightsView,
 		Scale:     scaleView,
 		NbInputs:  cols,
@@ -109,9 +113,15 @@ func TestComputeLinearInt8MatchesDequantisedFloat(t *testing.T) {
 	// quantisation + tile layout. This is the same calculation, just
 	// expressed as a float-only function so the parity check is
 	// independent of the integer accumulator implementation.
+	// dnn/nnet_arch.h:compute_linear adds the SU bias instead of the bias
+	// when dnn/vec_avx.h defines USE_SU_BIAS.
 	ref := referenceCGEMV8x4(weights, scale, rows, cols, in)
+	refBias := bias
+	if dnnmath.X86VectorKernels {
+		refBias = subias
+	}
 	for i := range rows {
-		ref[i] += bias[i]
+		ref[i] += refBias[i]
 	}
 
 	for i := range rows {
@@ -126,9 +136,14 @@ func TestComputeLinearInt8MatchesDequantisedFloat(t *testing.T) {
 // products in floating point so a round-trip parity check can compare two
 // independent code paths.
 func referenceCGEMV8x4(weights []int8, scale []float32, rows, cols int, x []float32) []float32 {
+	x86 := dnnmath.X86VectorKernels
 	q := make([]int32, cols)
 	for i := range cols {
-		q[i] = int32(dnnmath.Cgemv8x4QuantizeInput(x[i]))
+		if x86 {
+			q[i] = referenceQuantizeInputX86(x[i])
+		} else {
+			q[i] = int32(dnnmath.Cgemv8x4QuantizeInput(x[i]))
+		}
 	}
 	out := make([]float32, rows)
 	wOffset := 0
@@ -141,10 +156,12 @@ func referenceCGEMV8x4(weights []int8, scale []float32, rows, cols int, x []floa
 			x3 := q[col+3]
 			for r := range 8 {
 				base := wOffset + r*4
-				acc[r] += int32(weights[base])*x0 +
-					int32(weights[base+1])*x1 +
-					int32(weights[base+2])*x2 +
-					int32(weights[base+3])*x3
+				p0 := int32(weights[base])*x0 + int32(weights[base+1])*x1
+				p1 := int32(weights[base+2])*x2 + int32(weights[base+3])*x3
+				if x86 {
+					p0, p1 = saturateInt16(p0), saturateInt16(p1)
+				}
+				acc[r] += p0 + p1
 			}
 			wOffset += 32
 		}
@@ -153,6 +170,28 @@ func referenceCGEMV8x4(weights []int8, scale []float32, rows, cols int, x []floa
 		}
 	}
 	return out
+}
+
+// referenceQuantizeInputX86 models dnn/vec_avx.h:vector_ps_to_epi8, which
+// the AVX2 cgemv8x4 uses: a fused 127*x+127 rounded to nearest-even, then
+// PACKUSDW/PACKUSWB saturation to an unsigned byte. The product 127*x and
+// the sum are exact in float64, so one float32 rounding matches the fused
+// single-precision multiply-add.
+func referenceQuantizeInputX86(x float32) int32 {
+	v := math.RoundToEven(float64(float32(math.FMA(float64(x), 127, 127))))
+	switch {
+	case v < 0 || v >= 32768:
+		return 0
+	case v > 255:
+		return 255
+	}
+	return int32(v)
+}
+
+// saturateInt16 models VPMADDUBSW's signed 16-bit saturation of each pair
+// of byte products.
+func saturateInt16(v int32) int32 {
+	return max(min(v, math.MaxInt16), math.MinInt16)
 }
 
 // makeRandomInt8LayerData fabricates an int8 weight tile buffer plus matching
