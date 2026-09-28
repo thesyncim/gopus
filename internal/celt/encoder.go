@@ -106,11 +106,11 @@ type Encoder struct {
 	// the coarse-energy pass decideIntraMode selected, with its quantized
 	// energies and errors in the coarse scratch; EncodeCoarseEnergy applies
 	// them instead of encoding the pass again.
-	coarsePassKept  bool
-	maxPayloadBytes int32 // Optional per-frame payload cap (excludes TOC byte)
+	coarsePassKept   bool
+	maxPayloadBytes  int32 // Optional per-frame payload cap (excludes TOC byte)
 	customSignalling bool  // celt_encode_with_ec st->signalling: custom header is in packet.
-	vbr             bool
-	constrainedVBR  bool
+	vbr              bool
+	constrainedVBR   bool
 	// Constrained-VBR state mirrors libopus CELT encoder cadence.
 	// Units are Q3 bits unless noted.
 	vbrReservoir int32

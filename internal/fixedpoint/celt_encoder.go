@@ -72,8 +72,8 @@ type CELTEncoder struct {
 
 	// vbr / constrainedVBR mirror st->vbr and st->constrained_vbr. constrainedVBR
 	// defaults to 1 (the celt_encoder_init default).
-	vbr            bool
-	constrainedVBR bool
+	vbr              bool
+	constrainedVBR   bool
 	customSignalling bool // celt_encode_with_ec st->signalling for opus_custom_encode.
 
 	// lfe mirrors st->lfe: the low-frequency-effects encode path (forces the
