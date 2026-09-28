@@ -236,6 +236,13 @@ func TestMultistreamMainModelNeuralPLCWithoutDREDMatchesLibopus(t *testing.T) {
 				if dec.dred != nil && len(dec.dred.dredCache) != 0 {
 					t.Fatalf("step %d activated multistream DRED payload sidecar without a payload", stepIdx)
 				}
+				if dec.dred != nil {
+					for stream, recovery := range dec.dred.dredRecovery {
+						if recovery != 0 {
+							t.Fatalf("step %d advanced DRED sidecar cursor for main-model-only stream %d: %d want 0", stepIdx, stream, recovery)
+						}
+					}
+				}
 				if stepIdx >= 1 {
 					if dec.dred == nil || len(dec.dred.dredPLC) != 1 {
 						t.Fatalf("step %d missing main-model PLC runtime", stepIdx)
@@ -274,6 +281,13 @@ func TestMultistreamMainModelNeuralPLCWithoutDREDMatchesLibopus(t *testing.T) {
 				for i, sample := range got {
 					if bits := math.Float32bits(sample); bits != ref.pcmBits[i] {
 						t.Fatalf("post-reset step %d PCM[%d]=%08x C=%08x complexity=%d", stepIdx, i, bits, ref.pcmBits[i], complexity)
+					}
+				}
+				if dec.dred != nil {
+					for stream, recovery := range dec.dred.dredRecovery {
+						if recovery != 0 {
+							t.Fatalf("post-reset step %d advanced DRED sidecar cursor for main-model-only stream %d: %d want 0", stepIdx, stream, recovery)
+						}
 					}
 				}
 			}

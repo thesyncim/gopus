@@ -2,24 +2,16 @@
 
 package multistream
 
-// Multistream per-stream DRED recovery queue libopus oracle parity.
+// Multistream per-stream DRED sidecar cursor checks.
 //
-// Verifies that each stream in a multistream decoder maintains an independent
-// DRED recovery queue that advances in lock-step with the libopus multistream
-// decoder's per-stream state, matching the behavior of
-// opus_multistream_decode_float (opus_multistream.c, libopus 1.6.1).
+// The Go DRED sidecar keeps cache and recovery-cursor state per child stream.
+// The pinned C multistream decoder loops over child decoders and calls
+// opus_decode_native with dred=NULL and dred_offset=0; ordinary main-model PLC
+// can therefore run on every child without advancing this Go sidecar cursor.
 //
-// Key invariants (from libopus):
-//  1. A stream without DRED falls back to PLC; a stream WITH DRED in its
-//     payload uses opus_decoder_dred_decode_float for that stream.
-//  2. Each stream's PLC state (blend, FEC fill/skip) is completely independent.
-//  3. When only stream S has a DRED payload, streams ≠ S experience plain PLC
-//     while stream S applies DRED recovery.
-//  4. After recovery, the queue of stream S must advance exactly one frame per
-//     loss (decodeOffset += frameSize).
-//
-// Reference: opus_multistream.c opus_multistream_decode_float (libopus 1.6.1),
-// which calls opus_decoder_dred_decode_float per stream independently.
+// The tests keep that cursor isolated to streams with cached DRED payloads and
+// compare child PLC output against the corresponding single-stream path where
+// applicable.
 
 import (
 	"fmt"
@@ -33,13 +25,13 @@ import (
 )
 
 // TestMSPerStreamDREDQueueOnlyTargetStreamAdvances verifies that after a packet
-// loss, only the stream carrying the DRED payload advances its recovery cursor
-// while the other streams remain at zero (plain PLC, no DRED).
+// loss, only the stream carrying the DRED payload advances its sidecar recovery
+// cursor. Other children can still use main-model PLC without DRED sidecar data.
 //
 // This directly exercises the per-stream queue isolation: two streams in a
 // 3-channel (stereo+mono) multistream; only the mono stream (targetStream=1)
-// has a DRED payload.  After one packet loss the mono stream's blend/recovery
-// state increments but the stereo stream (stream 0) stays clean.
+// has a DRED payload. After one packet loss the mono stream's sidecar recovery
+// cursor increments while the stereo stream's sidecar cursor stays at zero.
 func TestMSPerStreamDREDQueueOnlyTargetStreamAdvances(t *testing.T) {
 	const (
 		channels     = 3
@@ -106,10 +98,11 @@ func TestMSPerStreamDREDQueueOnlyTargetStreamAdvances(t *testing.T) {
 // We construct a packet where stream 0 (stereo) and stream 2 (mono) both carry
 // a DRED payload, while stream 1 (stereo) does not.  After a packet loss:
 //   - Streams 0 and 2 must both advance their recovery cursors.
-//   - Stream 1 must stay at zero (plain PLC).
+//   - Stream 1 must keep its sidecar cursor at zero; its ordinary child PLC
+//     still runs independently.
 //
-// Reference: per-stream DRED independence in opus_multistream_decode_float,
-// opus_multistream.c (libopus 1.6.1).
+// The pinned C `opus_multistream_decode_native` passes no `OpusDRED` state to
+// its child decoders; these assertions cover the Go sidecar cursor only.
 func TestMSPerStreamDREDQueueTwoStreamsIndependent(t *testing.T) {
 	const channels = 6
 	streams, coupledStreams, mapping, err := DefaultMapping(channels)
@@ -192,9 +185,9 @@ func TestMSPerStreamDREDQueueTwoStreamsIndependent(t *testing.T) {
 
 // TestMSPerStreamDREDQueueCursorAdvancesPerLoss verifies that a stream's DRED
 // recovery cursor (dredRecovery) advances by exactly frameSize per additional
-// loss, matching the per-step offset arithmetic in libopus
-// opus_decoder_dred_decode_float (opus_decoder.c:1593, `dred_offset` increments
-// by frame_size per lost-ago step).
+// loss while the cached sidecar remains available. This is Go-sidecar
+// bookkeeping; public libopus multistream decode passes no OpusDRED argument to
+// its child decoders.
 func TestMSPerStreamDREDQueueCursorAdvancesPerLoss(t *testing.T) {
 	const (
 		channels     = 3
@@ -252,11 +245,11 @@ func TestMSPerStreamDREDQueueCursorAdvancesPerLoss(t *testing.T) {
 // Decode(nil)) matches the reference single-stream decoder running on the same
 // stream's sub-packet.
 //
-// This mirrors the libopus guarantee that
-// opus_multistream_decode_float(NULL,...) per stream produces the same audio as
-// opus_decode_float(NULL,...) on that stream's sub-packet in isolation.
+// For ordinary public decode, libopus opus_multistream_decode_native calls each
+// child decoder independently. This test checks that the Go multistream DRED
+// path produces the same target-stream output as its single-stream counterpart.
 //
-// Reference: opus_multistream.c opus_multistream_decode_float, libopus 1.6.1.
+// Reference: src/opus_multistream_decoder.c opus_multistream_decode_native.
 func TestMSPerStreamDREDQueueMatchesSingleStreamOracle(t *testing.T) {
 	for _, channels := range []int{3, 6} {
 		channels := channels

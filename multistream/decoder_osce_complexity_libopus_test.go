@@ -226,12 +226,26 @@ func TestMultistreamOSCEComplexityLifecycleMatchesSelectedLibopus(t *testing.T) 
 			// The C decoder has its static OSCE models from initialization. Bind
 			// the equivalent selected weights to Go only after the complexity-0/5
 			// control frames, which do not select a postfilter.
-			if dec.decoders[0].(*streamState).osceState != nil {
-				t.Fatal("Go bound OSCE runtime before the late model update")
+			st := dec.decoders[0].(*streamState)
+			if state := st.osceState; state != nil {
+				if state.laceModel != nil && state.laceModel.Loaded() {
+					t.Fatal("Go bound OSCE LACE model before the late model update")
+				}
+				for ch := range state.laceRuntime {
+					if state.laceRuntime[ch].Loaded() || state.noLACERuntime[ch].Loaded() {
+						t.Fatalf("Go bound OSCE runtime for channel %d before the late model update", ch)
+					}
+				}
 			}
 			dec.SetDNNBlob(model)
-			if dec.decoders[0].(*streamState).osceState == nil {
-				t.Fatal("late SetDNNBlob did not bind the stream OSCE runtime")
+			state := dec.decoders[0].(*streamState).osceState
+			if state == nil || state.laceModel == nil || !state.laceModel.Loaded() {
+				t.Fatal("late SetDNNBlob did not bind the stream OSCE LACE model")
+			}
+			for ch := range state.laceRuntime {
+				if !state.laceRuntime[ch].Loaded() || !state.noLACERuntime[ch].Loaded() {
+					t.Fatalf("late SetDNNBlob did not bind OSCE runtime for channel %d", ch)
+				}
 			}
 		}
 		if step.reset {

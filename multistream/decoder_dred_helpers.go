@@ -831,7 +831,7 @@ func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float32, bool, e
 		if err != nil || !ok {
 			return decoded, ok, err
 		}
-		if stream < len(s.dredRecovery) {
+		if hasSidecar && stream < len(s.dredRecovery) {
 			s.dredRecovery[stream] += frameSize
 		}
 		st.recordDecodeCall(frameSize, 0)
@@ -882,7 +882,7 @@ func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float32, bool, e
 	if !okConceal {
 		return nil, false, nil
 	}
-	if stream < len(s.dredRecovery) {
+	if hasSidecar && stream < len(s.dredRecovery) {
 		s.dredRecovery[stream] += frameSize
 	}
 	st.recordDecodeCall(frameSize, 0)
