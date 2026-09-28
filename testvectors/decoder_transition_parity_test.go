@@ -3,7 +3,7 @@ package testvectors
 import (
 	"encoding/base64"
 	"fmt"
-	"runtime"
+	"math"
 	"testing"
 
 	gopus "github.com/thesyncim/gopus"
@@ -12,7 +12,7 @@ import (
 // transitionFrameComparison scores a single decoded frame (no delay search:
 // both sides follow the same decode cadence so the frame index is aligned) via
 // the canonical comparator. maxDelay=0 yields the delay-0-only opus_compare Q
-// that this test has always measured per frame.
+// used for the per-frame quality diagnostic.
 func transitionFrameComparison(ref, got []float32, channels, frameSamples, frameIndex int) (QualityComparison, error) {
 	start := frameIndex * frameSamples
 	end := start + frameSamples
@@ -51,9 +51,8 @@ func firstHybridToCELTFrameIndex(c libopusDecoderMatrixCaseFile) (int, error) {
 }
 
 // transitionPostBar guards the CELT frame immediately after a hybrid->CELT
-// transition; it must stay in near-bit-exact territory. Documented explicit bar
-// (Q-only, corr/RMS unchecked) preserving the original Q>=90 post-transition
-// gate.
+// transition. The exact PCM assertion applies to the complete sequence; this
+// Q-only check also requires a score of at least 90 for the following frame.
 var transitionPostBar = QualityBar{MinQ: 90.0, Desc: "post-transition celt frame (Q>=90)"}
 
 func TestDecoderHybridToCELT10msTransitionParity(t *testing.T) {
@@ -65,10 +64,8 @@ func TestDecoderHybridToCELT10msTransitionParity(t *testing.T) {
 		t.Fatalf("load decoder matrix fixture: %v", err)
 	}
 
-	// Guard the first CELT frame after a hybrid run in 10ms profiles.
-	// The transition frame is a genuinely harder edge, so its bar is an explicit,
-	// deliberately-loose regression bound (Q>=0; corr/RMS unchecked) rather than
-	// the near-exact decode bar.
+	// Compare the entire selected-C sequence exactly and retain per-frame
+	// quality diagnostics around the first Hybrid-to-CELT transition.
 	cases := []struct {
 		name string
 		bar  QualityBar
@@ -99,6 +96,8 @@ func TestDecoderHybridToCELT10msTransitionParity(t *testing.T) {
 				t.Fatalf("decoded length mismatch: Go=%d matched C=%d", len(gotDecoded), len(refDecoded))
 			}
 
+			assertTransitionSequenceExact(t, gotDecoded, refDecoded, c.FrameSize*c.Channels)
+
 			transitionIdx, err := firstHybridToCELTFrameIndex(c)
 			if err != nil {
 				t.Fatalf("find transition: %v", err)
@@ -109,14 +108,9 @@ func TestDecoderHybridToCELT10msTransitionParity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("transition frame quality: %v", err)
 			}
-			bar := tc.bar
-			if runtime.GOARCH == "amd64" && tc.name == "hybrid-fb-10ms-stereo-24k" {
-				// amd64 shows stable but slightly lower transition quality versus arm64 on this edge case.
-				bar = QualityBar{MinQ: -5.0, Desc: "10ms hybrid->celt transition frame (amd64 carve-out, Q>=-5)"}
-			}
-			AssertQuality(t, cmp, bar, fmt.Sprintf("%s transition frame=%d", tc.name, transitionIdx))
+			AssertQuality(t, cmp, tc.bar, fmt.Sprintf("%s transition frame=%d", tc.name, transitionIdx))
 
-			// The following CELT frame should remain in near-bit-exact territory.
+			// Score the following CELT frame independently too.
 			if transitionIdx+1 < c.Frames {
 				nextCmp, err := transitionFrameComparison(refDecoded, gotDecoded, c.Channels, frameSamples, transitionIdx+1)
 				if err != nil {
@@ -155,6 +149,8 @@ func TestDecoderHybridToCELT20msTransitionParity(t *testing.T) {
 		t.Fatalf("decoded length mismatch: Go=%d matched C=%d", len(gotDecoded), len(refDecoded))
 	}
 
+	assertTransitionSequenceExact(t, gotDecoded, refDecoded, c.FrameSize*c.Channels)
+
 	transitionIdx, err := firstHybridToCELTFrameIndex(c)
 	if err != nil {
 		t.Fatalf("find transition: %v", err)
@@ -189,5 +185,17 @@ func decoderMatrixPacketMode(toc byte) string {
 		return "celt"
 	default:
 		return "unknown"
+	}
+}
+
+func assertTransitionSequenceExact(t *testing.T, got, want []float32, frameSamples int) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("PCM length=%d want=%d", len(got), len(want))
+	}
+	for i := range got {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("frame=%d sample=%d bits=%08x want=%08x", i/frameSamples, i%frameSamples, math.Float32bits(got[i]), math.Float32bits(want[i]))
+		}
 	}
 }
