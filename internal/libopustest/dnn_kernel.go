@@ -31,6 +31,12 @@ func dnnKernelHelperPath() (string, error) {
 	})
 }
 
+// DNNKernelOraclePath returns the selected kernel helper so native test runs
+// can retain its linked machine code alongside the numerical oracle evidence.
+func DNNKernelOraclePath() (string, error) {
+	return dnnKernelHelperPath()
+}
+
 func dnnKernelScalarHelperPath() (string, error) {
 	return dnnKernelScalarHelper.CHelperPath(CHelperConfig{
 		Label:       "scalar dnn kernel",

@@ -17,6 +17,12 @@ func TestX86SGEMVScalarRemainderMatchesSelectedLibopus(t *testing.T) {
 		t.Skip("selected AVX2/FMA DNN kernel requires AVX2 and FMA")
 	}
 
+	helper, err := libopustest.DNNKernelOraclePath()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "selected DNN machine code", err)
+	}
+	t.Logf("native DNN primitive helper=%s", helper)
+
 	// The scalar row remainder in dnn/vec_avx.h is compiled in the AVX2/FMA
 	// translation unit. This product pair distinguishes a fused update from
 	// its independently rounded multiply and add:
