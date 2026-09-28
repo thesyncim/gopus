@@ -67,8 +67,12 @@ per lane, with exact accepted float/int16/int24 output. Multistream long-burst
 PLC, native crossfade, and Hybrid QEXT routing pass all eight applicable local
 lanes at `3885a34d`. Signaled QEXT bands beyond the physical spectrum and mixed
 integer-format clipping pass their exact PCM/range and zero-allocation gates
-at `28cb897e`. Open adjacent cases include non-fullband QEXT SIMD refinement,
+at `28cb897e`. Open adjacent cases include native 96 kHz encoder budget/mode
+boundaries, non-fullband QEXT SIMD refinement,
 OSCE-selected DRED history, and default signalling in the internal custom API.
+Mono-to-stereo loss recovery passes all eight local lanes at `a676f2db`, and
+multistream QEXT after empty extension-repeat markers passes all four QEXT
+feature/ISA lanes at `e404dcf6`.
 
 The decoder audit requires exact PCM equality alongside waveform-quality
 checks. Each public output format uses its corresponding C API and matching

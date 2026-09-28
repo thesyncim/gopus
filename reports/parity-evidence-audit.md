@@ -67,10 +67,15 @@ the physical spectrum; its exact PCM/range, stereo synthesis-stage and zero
 warm allocation gates pass at `28cb897e`, together with integer-format clipping
 lifecycle checks.
 
-Open adjacent findings are non-fullband QEXT SIMD refinement, automatic OSCE
+Open adjacent findings are native 96 kHz encoder budget/mode boundaries,
+non-fullband QEXT SIMD refinement, automatic OSCE
 selection in DRED history, and default packet signalling in the internal custom
 wrapper. The custom wrapper is not called by root or multistream public APIs.
-A mono-to-stereo recovery witness after six losses is also under investigation.
+Mono-to-stereo recovery preserves independent channel history at `a676f2db`: root
+and multistream pass all eight local lanes, all three output formats, 0/1/2/6/15
+losses and every supported API rate, with zero warm caller-buffer allocations.
+Empty repeat markers preserve following multistream QEXT payloads at `e404dcf6`;
+CELT/Hybrid mono/stereo recovery sequences pass all four QEXT feature/ISA lanes.
 
 ## Deliberate boundaries
 

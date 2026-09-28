@@ -292,7 +292,8 @@ proven. The pinned `tmp_check/opus-1.6.1/` is the reference; when behavior is
 uncertain, gopus matches libopus unless fixture evidence says otherwise.
 
 Open validation includes DRED/OSCE history, the complete malformed FEC sweep,
-non-fullband QEXT SIMD refinement, internal custom-mode signalling, and native
+native 96 kHz encoder budget/mode boundaries, non-fullband QEXT SIMD refinement,
+internal custom-mode signalling, and native
 AMD64 oracle coverage. Native 96 kHz multistream encode/decode, long-burst PLC,
 Hybrid QEXT routing, and discarded extension bands pass their matching local
 feature/ISA matrices. Malformed Hybrid main-length and projection full-output
