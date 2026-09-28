@@ -9,6 +9,8 @@ import (
 
 var libopusCELTTraceHelper libopustest.HelperCache
 
+// libopusCELTTrace reports signal, gain and log-energy values in float units.
+// The C helper removes fixed-point Q formats before serializing those fields.
 type libopusCELTTrace struct {
 	decodedSamples      int
 	internalSamples     int
