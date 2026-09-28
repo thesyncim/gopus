@@ -332,31 +332,9 @@ func pitchDownsampleSig(x []celtSig, xLP []float32, length, channels, factor int
 	if factor == 2 {
 		switch channels {
 		case 1:
-			// Sliding-window FIR: each output xLP[i] = 0.25*(x[2i-1]+x[2i+1]) + 0.5*x[2i].
-			// Slicing src to exactly 2*length lets the compiler prove every window
-			// access (win[0:3]) is in bounds, eliminating per-sample bounds checks.
 			xLP[0] = firQuarter*float32(x[1]) + firHalf*float32(x[0])
 			if length > 1 && len(x) >= 2*length {
-				src := x[:2*length]
-				win := src[1:] // win[0]=x[2i-1], win[1]=x[2i], win[2]=x[2i+1] at i=1
-				dst := xLP[1:length]
-				// 4-output unroll: consecutive outputs share y[2i+1]=y[2(i+1)-1],
-				// reducing loads from 12 to 9 per 4 outputs.
-				for len(dst) >= 4 && len(win) >= 9 {
-					w0, w1, w2, w3, w4, w5, w6, w7, w8 := win[0], win[1], win[2], win[3], win[4], win[5], win[6], win[7], win[8]
-					dst[0] = firQuarter*float32(w0) + firQuarter*float32(w2) + firHalf*float32(w1)
-					dst[1] = firQuarter*float32(w2) + firQuarter*float32(w4) + firHalf*float32(w3)
-					dst[2] = firQuarter*float32(w4) + firQuarter*float32(w6) + firHalf*float32(w5)
-					dst[3] = firQuarter*float32(w6) + firQuarter*float32(w8) + firHalf*float32(w7)
-					win = win[8:]
-					dst = dst[4:]
-				}
-				for len(dst) > 0 && len(win) >= 3 {
-					v := firQuarter*float32(win[0]) + firQuarter*float32(win[2]) + firHalf*float32(win[1])
-					dst[0] = v
-					win = win[2:]
-					dst = dst[1:]
-				}
+				pitchDownsample2(xLP[:length], x[:2*length], nil)
 			}
 		case 2:
 			chStride := len(x) / 2
@@ -366,32 +344,7 @@ func pitchDownsampleSig(x []celtSig, xLP []float32, length, channels, factor int
 			v1 := firQuarter*float32(x1[1]) + firHalf*float32(x1[0])
 			xLP[0] = v0 + v1
 			if length > 1 && len(x0) >= 2*length && len(x1) >= 2*length {
-				s0 := x0[:2*length]
-				s1 := x1[:2*length]
-				w0 := s0[1:]
-				w1 := s1[1:]
-				dst := xLP[1:length]
-				// 2× unroll: w0[2] shared between pair; L and R independent (12
-				// FMULs per 2 outputs saturate 4-wide dispatch with latency hiding).
-				for len(dst) >= 2 && len(w0) >= 5 && len(w1) >= 5 {
-					vv0_0 := firQuarter*float32(w0[0]) + firQuarter*float32(w0[2]) + firHalf*float32(w0[1])
-					vv1_0 := firQuarter*float32(w1[0]) + firQuarter*float32(w1[2]) + firHalf*float32(w1[1])
-					vv0_1 := firQuarter*float32(w0[2]) + firQuarter*float32(w0[4]) + firHalf*float32(w0[3])
-					vv1_1 := firQuarter*float32(w1[2]) + firQuarter*float32(w1[4]) + firHalf*float32(w1[3])
-					dst[0] = vv0_0 + vv1_0
-					dst[1] = vv0_1 + vv1_1
-					w0 = w0[4:]
-					w1 = w1[4:]
-					dst = dst[2:]
-				}
-				for len(dst) > 0 && len(w0) >= 3 && len(w1) >= 3 {
-					vv0 := firQuarter*float32(w0[0]) + firQuarter*float32(w0[2]) + firHalf*float32(w0[1])
-					vv1 := firQuarter*float32(w1[0]) + firQuarter*float32(w1[2]) + firHalf*float32(w1[1])
-					dst[0] = vv0 + vv1
-					w0 = w0[2:]
-					w1 = w1[2:]
-					dst = dst[1:]
-				}
+				pitchDownsample2(xLP[:length], x0[:2*length], x1[:2*length])
 			}
 		}
 		handled = true
@@ -926,7 +879,68 @@ func computePitchGain(xy, xx, yy float32) float32 {
 	return xy / opusmath.SqrtF32(den)
 }
 
-func celtFIR5F32(x []float32, num [5]float32) {
+// pitchDownsample2Scalar computes outputs [start, len(dst)) of the factor-2
+// pitch_downsample() decimation: dst[i] is 0.25*x[2i-1] + 0.25*x[2i+1] +
+// 0.5*x[2i] of x0, plus the same sum of x1 when x1 is not nil, in the C
+// operation order. x0 and x1 hold 2*len(dst) samples and start is at least 1.
+func pitchDownsample2Scalar(dst, x0, x1 []float32, start int) {
+	const (
+		firQuarter = float32(0.25)
+		firHalf    = float32(0.5)
+	)
+	n := len(dst)
+	if start < 1 || start >= n || len(x0) < 2*n || (x1 != nil && len(x1) < 2*n) {
+		return
+	}
+	// w[0], w[1] and w[2] are x[2i-1], x[2i] and x[2i+1] of output i.
+	w0 := x0[2*start-1 : 2*n]
+	dst = dst[start:]
+	if x1 == nil {
+		// 4-output unroll: consecutive outputs share x[2i+1] = x[2(i+1)-1],
+		// reducing loads from 12 to 9 per 4 outputs.
+		for len(dst) >= 4 && len(w0) >= 9 {
+			a0, a1, a2, a3, a4, a5, a6, a7, a8 := w0[0], w0[1], w0[2], w0[3], w0[4], w0[5], w0[6], w0[7], w0[8]
+			dst[0] = firQuarter*float32(a0) + firQuarter*float32(a2) + firHalf*float32(a1)
+			dst[1] = firQuarter*float32(a2) + firQuarter*float32(a4) + firHalf*float32(a3)
+			dst[2] = firQuarter*float32(a4) + firQuarter*float32(a6) + firHalf*float32(a5)
+			dst[3] = firQuarter*float32(a6) + firQuarter*float32(a8) + firHalf*float32(a7)
+			w0 = w0[8:]
+			dst = dst[4:]
+		}
+		for len(dst) > 0 && len(w0) >= 3 {
+			dst[0] = firQuarter*float32(w0[0]) + firQuarter*float32(w0[2]) + firHalf*float32(w0[1])
+			w0 = w0[2:]
+			dst = dst[1:]
+		}
+		return
+	}
+	w1 := x1[2*start-1 : 2*n]
+	// 2x unroll: w[2] is shared by the pair, and the channels are independent.
+	for len(dst) >= 2 && len(w0) >= 5 && len(w1) >= 5 {
+		vv0_0 := firQuarter*float32(w0[0]) + firQuarter*float32(w0[2]) + firHalf*float32(w0[1])
+		vv1_0 := firQuarter*float32(w1[0]) + firQuarter*float32(w1[2]) + firHalf*float32(w1[1])
+		vv0_1 := firQuarter*float32(w0[2]) + firQuarter*float32(w0[4]) + firHalf*float32(w0[3])
+		vv1_1 := firQuarter*float32(w1[2]) + firQuarter*float32(w1[4]) + firHalf*float32(w1[3])
+		dst[0] = vv0_0 + vv1_0
+		dst[1] = vv0_1 + vv1_1
+		w0 = w0[4:]
+		w1 = w1[4:]
+		dst = dst[2:]
+	}
+	for len(dst) > 0 && len(w0) >= 3 && len(w1) >= 3 {
+		vv0 := firQuarter*float32(w0[0]) + firQuarter*float32(w0[2]) + firHalf*float32(w0[1])
+		vv1 := firQuarter*float32(w1[0]) + firQuarter*float32(w1[2]) + firHalf*float32(w1[1])
+		dst[0] = vv0 + vv1
+		w0 = w0[2:]
+		w1 = w1[2:]
+		dst = dst[1:]
+	}
+}
+
+// celtFIR5Scalar is libopus celt_fir5() (celt/celt_lpc.c) in the float
+// build: each output adds the five taps on the previous inputs, starting from
+// zero filter memory, in the C order.
+func celtFIR5Scalar(x []float32, num [5]float32) {
 	n0 := num[0]
 	n1 := num[1]
 	n2 := num[2]

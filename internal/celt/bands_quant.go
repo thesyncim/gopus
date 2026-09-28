@@ -4165,6 +4165,14 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		ctx.seed = *seed
 		ctx.seedActive = true
 	}
+	if channels == 1 && dualStereo == 0 && extDec == nil {
+		quantAllBandsDecodeMono(&ctx, left, norm, lowbandScratch, collapse, edges, pulses, tfRes,
+			lm, B, start, end, normOffset, totalBitsQ3, balance, codedBands)
+		if seed != nil {
+			*seed = ctx.seed
+		}
+		return left, right, collapse
+	}
 	extBalance := 0
 	extTell := 0
 
@@ -4348,6 +4356,94 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 	}
 
 	return left, right, collapse
+}
+
+// quantAllBandsDecodeMono is the band loop of quantAllBandsDecodeWithScratchWithMode
+// for a mono frame without QEXT, the libopus quant_all_bands() decode loop
+// with C == 1, dual_stereo == 0 and no extension decoder. left receives the
+// decoded bands, norm holds the folding history and collapse the per-band
+// collapse masks.
+func quantAllBandsDecodeMono(ctx *bandCtx, left, norm, lowbandScratch []celtNorm, collapse []byte, edges []int,
+	pulses, tfRes []int32, lm, B, start, end, normOffset, totalBitsQ3, balance, codedBands int) {
+	rd := ctx.rd
+	M := 1 << lm
+	startEdge := M * edges[start]
+	lowbandOffset := 0
+	updateLowband := true
+	for i := start; i < end; i++ {
+		ctx.band = i
+		bandStart := edges[i] * M
+		nBand := edges[i+1]*M - bandStart
+		if nBand <= 0 {
+			continue
+		}
+		x := left[bandStart : bandStart+nBand]
+
+		tell := rd.TellFrac()
+		if i != start {
+			balance -= tell
+		}
+		remaining := totalBitsQ3 - tell - 1
+		ctx.remainingBits = remaining
+		b := 0
+		if i <= codedBands-1 {
+			currBalance := celtSudivBalance(balance, min(3, codedBands-i))
+			b = max(0, min(16383, min(remaining+1, int(pulses[i])+currBalance)))
+		}
+		if (bandStart-nBand >= startEdge || i == start+1) && (updateLowband || lowbandOffset == 0) {
+			lowbandOffset = i
+		}
+		if i == start+1 {
+			specialHybridFoldingWithEdges(norm, nil, edges, start, M, false)
+		}
+
+		ctx.tfChange = int(tfRes[i])
+		var lowbandX []celtNorm
+		var xCM int
+		if lowbandOffset != 0 && (ctx.spread != spreadAggressive || B > 1 || ctx.tfChange < 0) {
+			effectiveLowband := max(0, M*edges[lowbandOffset]-normOffset-nBand)
+			foldStart := lowbandOffset
+			for {
+				foldStart--
+				if foldStart <= start {
+					foldStart = start
+					break
+				}
+				if M*edges[foldStart] <= effectiveLowband+normOffset {
+					break
+				}
+			}
+			foldEnd := lowbandOffset - 1
+			for {
+				foldEnd++
+				if foldEnd >= i {
+					break
+				}
+				if M*edges[foldEnd] >= effectiveLowband+normOffset+nBand {
+					break
+				}
+			}
+			for _, cm := range collapse[foldStart:foldEnd] {
+				xCM |= int(cm)
+			}
+			if effectiveLowband+nBand <= len(norm) {
+				lowbandX = norm[effectiveLowband : effectiveLowband+nBand]
+			}
+		} else {
+			xCM = (1 << B) - 1
+		}
+
+		var lowbandOutX []celtNorm
+		if outStart := bandStart - normOffset; i != end-1 && outStart >= 0 && outStart+nBand <= len(norm) {
+			lowbandOutX = norm[outStart : outStart+nBand]
+		}
+		xCM = quantBandDecodeNoExtFast(ctx, x, nBand, b, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM)
+		collapse[i] = byte(xCM)
+		balance += int(pulses[i]) + tell
+
+		updateLowband = b > (nBand << bitRes)
+		ctx.avoidSplitNoise = false
+	}
 }
 
 // quantAllBandsEncode encodes all frequency bands using PVQ quantization.

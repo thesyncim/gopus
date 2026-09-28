@@ -198,35 +198,37 @@ func silkDecodeShellSplit(rd *rangecoding.Decoder, p int32, rows *[17][]uint8) (
 }
 
 // silkShellDecoder decodes the locations of pulses4 pulses within a 16-sample
-// shell block by recursively splitting the count down a binary tree of
-// silkDecodeShellSplit calls. Mirrors libopus silk/shell_coder.c
-// silk_shell_decoder.
-func silkShellDecoder(pulses []int16, rd *rangecoding.Decoder, pulses4 int32) {
-	// These are small fixed-size arrays, using stack allocation via array
-	var pulses3 [2]int16
-	var pulses2 [4]int16
-	var pulses1 [8]int16
+// shell block, mirroring libopus silk/shell_coder.c silk_shell_decoder. The
+// split tree is walked depth first, so its decode_split steps run in the C
+// order: each node range-decodes its left count and descends into both
+// halves. A subtree whose count is zero is filled with zeros without visiting
+// its nodes, whose decode_split calls read nothing from the range decoder.
+func silkShellDecoder(pulses *[shellCodecFrameLength]int16, rd *rangecoding.Decoder, pulses4 int32) {
+	left, right := silkDecodeShellSplit(rd, pulses4, &silk_shell_code_table3_rows)
+	silkShellDecode8((*[8]int16)(pulses[:8]), rd, int32(left))
+	silkShellDecode8((*[8]int16)(pulses[8:]), rd, int32(right))
+}
 
-	pulses3[0], pulses3[1] = silkDecodeShellSplit(rd, pulses4, &silk_shell_code_table3_rows)
-	pulses2[0], pulses2[1] = silkDecodeShellSplit(rd, int32(pulses3[0]), &silk_shell_code_table2_rows)
+// silkShellDecode8 decodes an 8-sample subtree holding n pulses.
+func silkShellDecode8(pulses *[8]int16, rd *rangecoding.Decoder, n int32) {
+	if n == 0 {
+		*pulses = [8]int16{}
+		return
+	}
+	left, right := silkDecodeShellSplit(rd, n, &silk_shell_code_table2_rows)
+	silkShellDecode4((*[4]int16)(pulses[:4]), rd, int32(left))
+	silkShellDecode4((*[4]int16)(pulses[4:]), rd, int32(right))
+}
 
-	pulses1[0], pulses1[1] = silkDecodeShellSplit(rd, int32(pulses2[0]), &silk_shell_code_table1_rows)
-	pulses[0], pulses[1] = silkDecodeShellSplit(rd, int32(pulses1[0]), &silk_shell_code_table0_rows)
-	pulses[2], pulses[3] = silkDecodeShellSplit(rd, int32(pulses1[1]), &silk_shell_code_table0_rows)
-
-	pulses1[2], pulses1[3] = silkDecodeShellSplit(rd, int32(pulses2[1]), &silk_shell_code_table1_rows)
-	pulses[4], pulses[5] = silkDecodeShellSplit(rd, int32(pulses1[2]), &silk_shell_code_table0_rows)
-	pulses[6], pulses[7] = silkDecodeShellSplit(rd, int32(pulses1[3]), &silk_shell_code_table0_rows)
-
-	pulses2[2], pulses2[3] = silkDecodeShellSplit(rd, int32(pulses3[1]), &silk_shell_code_table2_rows)
-
-	pulses1[4], pulses1[5] = silkDecodeShellSplit(rd, int32(pulses2[2]), &silk_shell_code_table1_rows)
-	pulses[8], pulses[9] = silkDecodeShellSplit(rd, int32(pulses1[4]), &silk_shell_code_table0_rows)
-	pulses[10], pulses[11] = silkDecodeShellSplit(rd, int32(pulses1[5]), &silk_shell_code_table0_rows)
-
-	pulses1[6], pulses1[7] = silkDecodeShellSplit(rd, int32(pulses2[3]), &silk_shell_code_table1_rows)
-	pulses[12], pulses[13] = silkDecodeShellSplit(rd, int32(pulses1[6]), &silk_shell_code_table0_rows)
-	pulses[14], pulses[15] = silkDecodeShellSplit(rd, int32(pulses1[7]), &silk_shell_code_table0_rows)
+// silkShellDecode4 decodes a 4-sample subtree holding n pulses.
+func silkShellDecode4(pulses *[4]int16, rd *rangecoding.Decoder, n int32) {
+	if n == 0 {
+		*pulses = [4]int16{}
+		return
+	}
+	left, right := silkDecodeShellSplit(rd, n, &silk_shell_code_table1_rows)
+	pulses[0], pulses[1] = silkDecodeShellSplit(rd, int32(left), &silk_shell_code_table0_rows)
+	pulses[2], pulses[3] = silkDecodeShellSplit(rd, int32(right), &silk_shell_code_table0_rows)
 }
 
 // silkDecodeSigns range-decodes and applies the sign of every non-zero pulse,
@@ -293,7 +295,7 @@ func silkDecodePulsesWithScratch(rd *rangecoding.Decoder, pulses []int16, signal
 	for i := 0; i < iter; i++ {
 		off := i * shellCodecFrameLength
 		if sumPulses[i] > 0 {
-			silkShellDecoder(pulses[off:off+shellCodecFrameLength], rd, sumPulses[i])
+			silkShellDecoder((*[shellCodecFrameLength]int16)(pulses[off:off+shellCodecFrameLength]), rd, sumPulses[i])
 		} else {
 			for j := range shellCodecFrameLength {
 				pulses[off+j] = 0

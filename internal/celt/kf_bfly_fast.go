@@ -93,6 +93,14 @@ func kissFloats(x []kissCpx) []float32 {
 	return unsafe.Slice(&x[0].r, 2*len(x))
 }
 
+// floatPairs views the even-length x as consecutive (x[2k], x[2k+1]) pairs.
+func floatPairs(x []float32) []kissCpx {
+	if len(x) < 2 {
+		return nil
+	}
+	return unsafe.Slice((*kissCpx)(unsafe.Pointer(&x[0])), len(x)/2)
+}
+
 // kfBfly5InnerFast is kfBfly5InnerScalar for a stage whose FFT input passed
 // kissFFTInputBounded, with the stage twiddles packed per butterfly and
 // ya = w[fstride*m], yb = w[2*fstride*m]. No product can be NaN, so the
