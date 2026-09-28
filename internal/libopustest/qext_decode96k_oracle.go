@@ -18,14 +18,12 @@ var qextDecode96kHelper HelperCache
 var qextDecode96kFixedHelper HelperCache
 
 func buildQEXTDecode96kHelper() (string, error) {
-	return BuildCHelper(CHelperConfig{
+	return BuildPublicAPIHelper(CHelperConfig{
 		Label:       "qext decode96k",
 		OutputBase:  "gopus_libopus_qext_decode96k",
 		SourceFile:  "libopus_qext_decode96k_info.c",
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-DENABLE_QEXT", "-O3", "-DNDEBUG", "-ffp-contract=off"},
 		RefIncludes: []string{"celt", "silk"},
-		QEXTRef:     true,
-		Libs:        []string{QEXTRefPath(".libs", "libopus.a"), "-lm"},
 		DeadStrip:   true,
 	})
 }

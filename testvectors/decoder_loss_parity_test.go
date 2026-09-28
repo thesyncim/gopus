@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus"
+	"github.com/thesyncim/gopus/internal/extsupport"
 )
 
 // decoderLossQualityBar returns the trusted QualityBar for a loss/FEC fixture
@@ -297,7 +298,16 @@ func TestDecoderLossParityLibopusFixture(t *testing.T) {
 			for _, r := range c.Results {
 				t.Run(r.Pattern, func(t *testing.T) {
 					t.Parallel()
-					refDecoded := decodeLossPatternWithPairedLibopus(t, opusDemo, c, r.LossBits)
+					var refDecoded []float32
+					if extsupport.DREDRuntime || extsupport.QEXT {
+						var err error
+						refDecoded, err = decodeLossPatternWithMatchedTierReference(fixture.SampleRate, c.Channels, packets, r.parsedLossBits)
+						if err != nil {
+							t.Fatalf("matched-feature libopus loss decode: %v", err)
+						}
+					} else {
+						refDecoded = decodeLossPatternWithPairedLibopus(t, opusDemo, c, r.LossBits)
+					}
 					gotDecoded := decodeWithInternalDecoderLossPattern(
 						t,
 						fixture.SampleRate,
