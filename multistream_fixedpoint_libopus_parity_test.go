@@ -3,6 +3,7 @@
 package gopus
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -14,6 +15,10 @@ var multistreamFixedRefdecodeHelper libopustest.HelperCache
 // (opus_multistream_decode / opus_multistream_decode24) built against the
 // fixed-point reference selected by the current Go build, including ENABLE_QEXT.
 func runLibopusMultistreamFixedDecode(sampleRate, channels, streams, coupled, frameSize, sampleFormat int, mapping []byte, packets [][]byte) (*libopustest.OracleReader, error) {
+	return runLibopusMultistreamFixedDecodeWithGain(sampleRate, channels, streams, coupled, frameSize, sampleFormat, 0, mapping, packets)
+}
+
+func runLibopusMultistreamFixedDecodeWithGain(sampleRate, channels, streams, coupled, frameSize, sampleFormat, gainQ8 int, mapping []byte, packets [][]byte) (*libopustest.OracleReader, error) {
 	binPath, err := multistreamFixedRefdecodeHelper.Path(func() (string, error) {
 		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
 			Label:      "multistream fixed reference decode",
@@ -30,7 +35,7 @@ func runLibopusMultistreamFixedDecode(sampleRate, channels, streams, coupled, fr
 	payload := libopustest.NewOraclePayloadVersion(
 		"GMSI", 4,
 		uint32(sampleRate),
-		0,
+		uint32(gainQ8),
 		uint32(sampleFormat),
 		1,
 		uint32(channels),
@@ -50,7 +55,11 @@ func runLibopusMultistreamFixedDecode(sampleRate, channels, streams, coupled, fr
 }
 
 func decodeLibopusMultistreamFixedInt16(sampleRate, channels, streams, coupled, frameSize int, mapping []byte, packets [][]byte) ([]int16, error) {
-	reader, err := runLibopusMultistreamFixedDecode(sampleRate, channels, streams, coupled, frameSize, libopusRefdecodeMSFormatInt16, mapping, packets)
+	return decodeLibopusMultistreamFixedInt16WithGain(sampleRate, channels, streams, coupled, frameSize, 0, mapping, packets)
+}
+
+func decodeLibopusMultistreamFixedInt16WithGain(sampleRate, channels, streams, coupled, frameSize, gainQ8 int, mapping []byte, packets [][]byte) ([]int16, error) {
+	reader, err := runLibopusMultistreamFixedDecodeWithGain(sampleRate, channels, streams, coupled, frameSize, libopusRefdecodeMSFormatInt16, gainQ8, mapping, packets)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +76,11 @@ func decodeLibopusMultistreamFixedInt16(sampleRate, channels, streams, coupled, 
 }
 
 func decodeLibopusMultistreamFixedInt24(sampleRate, channels, streams, coupled, frameSize int, mapping []byte, packets [][]byte) ([]int32, error) {
-	reader, err := runLibopusMultistreamFixedDecode(sampleRate, channels, streams, coupled, frameSize, libopusRefdecodeMSFormatInt24, mapping, packets)
+	return decodeLibopusMultistreamFixedInt24WithGain(sampleRate, channels, streams, coupled, frameSize, 0, mapping, packets)
+}
+
+func decodeLibopusMultistreamFixedInt24WithGain(sampleRate, channels, streams, coupled, frameSize, gainQ8 int, mapping []byte, packets [][]byte) ([]int32, error) {
+	reader, err := runLibopusMultistreamFixedDecodeWithGain(sampleRate, channels, streams, coupled, frameSize, libopusRefdecodeMSFormatInt24, gainQ8, mapping, packets)
 	if err != nil {
 		return nil, err
 	}
@@ -252,6 +265,83 @@ func TestMultistreamDecodeFixedPointParity(t *testing.T) {
 			}
 			assertFixedExact(t, "reset replay int16", replay16, int16ToInt32(refInt16))
 			assertFixedExact(t, "reset replay int24", replay24, refInt24)
+		})
+	}
+}
+
+func TestMultistreamDecodeFixedPointGainMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	const sampleRate, channels, streams, coupled, frameSize = 48000, 2, 1, 1, 960
+	mapping := []byte{0, 1}
+	packets := make([][]byte, 4)
+	for i := range packets {
+		packets[i] = encodeAPIRateCELTPacketFrameSizeVariant(t, channels, frameSize, 128000, i+41)
+		if toc := ParseTOC(packets[i][0]); toc.Mode != ModeCELT {
+			t.Fatalf("packet %d mode = %v, want CELT", i, toc.Mode)
+		}
+	}
+
+	for _, gainQ8 := range []int{512, -512, 2048, -2048, 32767, -32768} {
+		t.Run(fmt.Sprintf("gain_%d", gainQ8), func(t *testing.T) {
+			want16, err := decodeLibopusMultistreamFixedInt16WithGain(sampleRate, channels, streams, coupled, frameSize, gainQ8, mapping, packets)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "multistream fixed int16 decode with gain", err)
+				return
+			}
+			want24, err := decodeLibopusMultistreamFixedInt24WithGain(sampleRate, channels, streams, coupled, frameSize, gainQ8, mapping, packets)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "multistream fixed int24 decode with gain", err)
+				return
+			}
+
+			dec16, err := NewMultistreamDecoder(sampleRate, channels, streams, coupled, mapping)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := dec16.SetGain(gainQ8); err != nil {
+				t.Fatalf("SetGain(%d): %v", gainQ8, err)
+			}
+			got16 := make([]int32, 0, len(want16))
+			out16 := make([]int16, frameSize*channels)
+			for i, packet := range packets {
+				if n, err := dec16.DecodeInt16(packet, out16); err != nil || n != frameSize {
+					t.Fatalf("DecodeInt16 packet %d: samples=%d err=%v", i, n, err)
+				}
+				got16 = append(got16, int16ToInt32(out16)...)
+			}
+			assertFixedExact(t, "gained int16", got16, int16ToInt32(want16))
+			if allocs := testing.AllocsPerRun(100, func() {
+				if n, err := dec16.DecodeInt16(packets[0], out16); err != nil || n != frameSize {
+					t.Fatalf("warm gained DecodeInt16: samples=%d err=%v", n, err)
+				}
+			}); allocs != 0 {
+				t.Fatalf("warm gained DecodeInt16 allocations=%g want 0", allocs)
+			}
+
+			dec24, err := NewMultistreamDecoder(sampleRate, channels, streams, coupled, mapping)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := dec24.SetGain(gainQ8); err != nil {
+				t.Fatalf("SetGain(%d): %v", gainQ8, err)
+			}
+			got24 := make([]int32, 0, len(want24))
+			out24 := make([]int32, frameSize*channels)
+			for i, packet := range packets {
+				if n, err := dec24.DecodeInt24(packet, out24); err != nil || n != frameSize {
+					t.Fatalf("DecodeInt24 packet %d: samples=%d err=%v", i, n, err)
+				}
+				got24 = append(got24, out24...)
+			}
+			assertFixedExact(t, "gained int24", got24, want24)
+			if allocs := testing.AllocsPerRun(100, func() {
+				if n, err := dec24.DecodeInt24(packets[0], out24); err != nil || n != frameSize {
+					t.Fatalf("warm gained DecodeInt24: samples=%d err=%v", n, err)
+				}
+			}); allocs != 0 {
+				t.Fatalf("warm gained DecodeInt24 allocations=%g want 0", allocs)
+			}
 		})
 	}
 }

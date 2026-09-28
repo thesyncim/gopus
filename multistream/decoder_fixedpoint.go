@@ -4,6 +4,7 @@ package multistream
 
 import (
 	"github.com/thesyncim/gopus/internal/extsupport"
+	"github.com/thesyncim/gopus/internal/fixedpoint"
 	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/internal/plc"
 	"github.com/thesyncim/gopus/internal/rangecoding"
@@ -32,11 +33,6 @@ func (d *Decoder) DecodeToResFixed(data []byte, frameSize int) ([]int32, bool, e
 	if len(d.projectionDemixing) != 0 && d.projectionCols > 0 {
 		return nil, false, nil
 	}
-	for _, dec := range d.decoders {
-		if st, ok := dec.(*streamState); ok && st.decodeGainQ8 != 0 {
-			return nil, false, nil
-		}
-	}
 	if extsupport.DREDRuntime && d.dredSidecarActive() {
 		return nil, false, nil
 	}
@@ -45,6 +41,7 @@ func (d *Decoder) DecodeToResFixed(data []byte, frameSize int) ([]int32, bool, e
 	if err != nil {
 		return nil, false, err
 	}
+	d.packetsScratch = packets
 	duration, err := validateStreamDurationsAtRateScratch(&d.packetParser, packets, int(d.sampleRate))
 	if err != nil {
 		return nil, false, err
@@ -223,7 +220,7 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 		}
 	}
 
-	floatOut, err := d.decodePacketToFloat32(data, frameSize)
+	floatOut, err := d.decodePacketToFloat32Unscaled(data, frameSize)
 	if hybridArmed {
 		d.finishFixedHybridStream()
 	}
@@ -237,24 +234,38 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 	}
 	res := d.fixedRes[:needed]
 
+	var handled bool
 	switch toc.mode {
 	case streamModeSILK:
 		floatToRes(res, floatOut)
-		return res, true, nil
+		handled = true
 	case streamModeCELT:
-		if d.celtFixedRes(parsed, frameSize, toc, res) {
-			return res, true, nil
-		}
-		return nil, false, nil
+		handled = d.celtFixedRes(parsed, frameSize, toc, res)
 	case streamModeHybrid:
 		if hybridArmed && d.fixedHybridHandled && len(d.fixedHybridRes) >= needed {
 			copy(res, d.fixedHybridRes[:needed])
-			return res, true, nil
+			handled = true
 		}
-		return nil, false, nil
-	default:
+	}
+	if !handled {
 		return nil, false, nil
 	}
+	if d.decodeGainQ8 != 0 {
+		fixedpoint.ApplyDecodeGainRes(res, fixedpoint.DecodeGainQ16(int(d.decodeGainQ8)))
+	}
+	return res, true, nil
+}
+
+// decodePacketToFloat32Unscaled advances the shared float decoder state for a
+// fixed-domain public decode without applying its final output gain. The fixed
+// opus_res path applies that gain with the source integer MULT32_32_Q16 and
+// saturation semantics after each stream is decoded.
+func (d *streamState) decodePacketToFloat32Unscaled(data []byte, frameSize int) ([]float32, error) {
+	gain := d.decodeGainQ8
+	d.decodeGainQ8 = 0
+	out, err := d.decodePacketToFloat32(data, frameSize)
+	d.decodeGainQ8 = gain
+	return out, err
 }
 
 // finishFixedHybridStream disarms the integer Hybrid highband hook after the

@@ -112,6 +112,67 @@ func TestFixedQEXTMultistreamDecodeUsesSidePayload(t *testing.T) {
 		t.Fatalf("warm fixed+QEXT multistream DecodeInt24 allocations=%g want 0", allocs)
 	}
 
+	for _, gainQ8 := range []int{512, -512, 2048, -2048, 32767, -32768} {
+		t.Run(fmt.Sprintf("decode_gain_%d", gainQ8), func(t *testing.T) {
+			wantGain16, err := decodeLibopusMultistreamFixedInt16WithGain(sampleRate, channels, streams, coupled, frameSize, gainQ8, mapping, packets)
+			if err != nil {
+				t.Fatalf("selected fixed+QEXT C int16 decode with gain: %v", err)
+			}
+			wantGain24, err := decodeLibopusMultistreamFixedInt24WithGain(sampleRate, channels, streams, coupled, frameSize, gainQ8, mapping, packets)
+			if err != nil {
+				t.Fatalf("selected fixed+QEXT C int24 decode with gain: %v", err)
+			}
+
+			gainDec16, err := NewMultistreamDecoder(sampleRate, channels, streams, coupled, mapping)
+			if err != nil {
+				t.Fatalf("NewMultistreamDecoder gain int16: %v", err)
+			}
+			if err := gainDec16.SetGain(gainQ8); err != nil {
+				t.Fatalf("SetGain(%d) int16: %v", gainQ8, err)
+			}
+			gotGain16 := make([]int32, 0, len(wantGain16))
+			gainOut16 := make([]int16, frameSize*channels)
+			for i, packet := range packets {
+				if n, err := gainDec16.DecodeInt16(packet, gainOut16); err != nil || n != frameSize {
+					t.Fatalf("gain DecodeInt16 packet %d returned samples=%d, err=%v; want %d", i, n, err, frameSize)
+				}
+				gotGain16 = append(gotGain16, int16ToInt32(gainOut16)...)
+			}
+			assertFixedExact(t, "fixed+QEXT multistream gained int16", gotGain16, int16ToInt32(wantGain16))
+			if allocs := testing.AllocsPerRun(100, func() {
+				if n, err := gainDec16.DecodeInt16(packet, gainOut16); err != nil || n != frameSize {
+					t.Fatalf("warm gained DecodeInt16 returned samples=%d, err=%v; want %d", n, err, frameSize)
+				}
+			}); allocs != 0 {
+				t.Fatalf("warm fixed+QEXT gained DecodeInt16 allocations=%g want 0", allocs)
+			}
+
+			gainDec24, err := NewMultistreamDecoder(sampleRate, channels, streams, coupled, mapping)
+			if err != nil {
+				t.Fatalf("NewMultistreamDecoder gain int24: %v", err)
+			}
+			if err := gainDec24.SetGain(gainQ8); err != nil {
+				t.Fatalf("SetGain(%d) int24: %v", gainQ8, err)
+			}
+			gotGain24 := make([]int32, 0, len(wantGain24))
+			gainOut24 := make([]int32, frameSize*channels)
+			for i, packet := range packets {
+				if n, err := gainDec24.DecodeInt24(packet, gainOut24); err != nil || n != frameSize {
+					t.Fatalf("gain DecodeInt24 packet %d returned samples=%d, err=%v; want %d", i, n, err, frameSize)
+				}
+				gotGain24 = append(gotGain24, gainOut24...)
+			}
+			assertFixedExact(t, "fixed+QEXT multistream gained int24", gotGain24, wantGain24)
+			if allocs := testing.AllocsPerRun(100, func() {
+				if n, err := gainDec24.DecodeInt24(packet, gainOut24); err != nil || n != frameSize {
+					t.Fatalf("warm gained DecodeInt24 returned samples=%d, err=%v; want %d", n, err, frameSize)
+				}
+			}); allocs != 0 {
+				t.Fatalf("warm fixed+QEXT gained DecodeInt24 allocations=%g want 0", allocs)
+			}
+		})
+	}
+
 	t.Run("multi_frame", func(t *testing.T) {
 		const multiFrameSize, frameSizeMs = 1920, 40
 		multiPCM := qextSinePCM(channels, multiFrameSize)
