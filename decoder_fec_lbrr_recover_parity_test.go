@@ -12,7 +12,7 @@ package gopus
 //     (both channels carrying LBRR), decoded through DecodeWithFEC.
 //
 // Both cases verify:
-//   - Byte-exact or quality-pass recovery against libopus oracle (when available).
+//   - Exact recovery samples against the selected libopus oracle.
 //   - Non-silent recovery output (FEC must provide audible signal).
 //   - The PLC-fallback path (no LBRR in packet) matches Decode(nil) exactly.
 //
@@ -88,9 +88,9 @@ func TestDecodeWithFECMonoFirstPacketLBRRMatchesLibopus(t *testing.T) {
 				got = append(got, buf[:n*channels]...)
 			}
 
-			cmpLen := min(len(got), len(want))
-			assertAPIRateQualityFloat32(t, got[:cmpLen], want[:cmpLen], sampleRate, channels,
+			assertAPIRateQualityFloat32(t, got, want, sampleRate, channels,
 				"mono first-packet LBRR FEC decode")
+			assertAPIRateFloat32BitsExact(t, got, want, "mono first-packet LBRR FEC decode")
 		})
 	}
 }
@@ -153,9 +153,9 @@ func TestDecodeWithFECStereoWarmLBRRMatchesLibopus(t *testing.T) {
 				got = append(got, buf[:n*channels]...)
 			}
 
-			cmpLen := min(len(got), len(want))
-			assertAPIRateQualityFloat32(t, got[:cmpLen], want[:cmpLen], sampleRate, channels,
+			assertAPIRateQualityFloat32(t, got, want, sampleRate, channels,
 				"stereo warm LBRR FEC decode")
+			assertAPIRateFloat32BitsExact(t, got, want, "stereo warm LBRR FEC decode")
 		})
 	}
 }
@@ -306,9 +306,9 @@ func TestDecodeWithFECMonoFirstPacketByteExact(t *testing.T) {
 			}
 
 			wantFEC := want[fs*channels:]
-			cmpLen := min(len(fecBuf), len(wantFEC))
-			assertAPIRateQualityFloat32(t, fecBuf[:cmpLen], wantFEC[:cmpLen], sampleRate, channels,
+			assertAPIRateQualityFloat32(t, fecBuf, wantFEC, sampleRate, channels,
 				"mono first-packet LBRR byte-exact")
+			assertAPIRateFloat32BitsExact(t, fecBuf, wantFEC, "mono first-packet LBRR byte-exact")
 		})
 	}
 }

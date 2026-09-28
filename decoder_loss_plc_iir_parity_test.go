@@ -13,7 +13,7 @@ package gopus
 //
 // Where the oracle is unavailable the tests fall back to structural invariants
 // (non-panic, correct length, energy monotonically decaying over loss run).
-// Oracle-backed quality checks use the libopus reference decoder.
+// Oracle-backed checks compare exact samples from the selected libopus decoder.
 //
 // Reference: libopus silk/PLC.c (silk_PLC_conceal, silk_PLC_update).
 
@@ -85,7 +85,7 @@ func encodeSILKVoicedPLCTestSequence(t *testing.T, channels int) [][]byte {
 
 // TestSILKPLCIIRFirstLossOutputNonSilentMatchesLibopus verifies that the first
 // concealed frame after a voiced SILK sequence is non-silent and (with oracle)
-// matches libopus quality. Covers the lossCnt=0 branch in silk_PLC_conceal()
+// matches libopus samples. Covers the lossCnt=0 branch in silk_PLC_conceal()
 // where harmAttQ15_0=0.99 and randScaleQ14 is initialised.
 func TestSILKPLCIIRFirstLossOutputNonSilentMatchesLibopus(t *testing.T) {
 	const channels = 1
@@ -124,7 +124,7 @@ func TestSILKPLCIIRFirstLossOutputNonSilentMatchesLibopus(t *testing.T) {
 		t.Fatalf("first PLC frame RMS²=%.2e, expected non-silent speech extrapolation", energy)
 	}
 
-	// With oracle: verify quality matches libopus.
+	// With oracle: verify exact samples and retain the quality diagnostic.
 	if !libopustest.OracleEnabled() {
 		return
 	}
@@ -156,8 +156,9 @@ func TestSILKPLCIIRFirstLossOutputNonSilentMatchesLibopus(t *testing.T) {
 		t.Fatalf("oracle compare: Decode(nil) PLC: %v", err)
 	}
 
-	assertAPIRateQualityFloat32PLC(t, gotPLC[:len(wantPLC)], wantPLC, 48000, channels, true,
+	assertAPIRateQualityFloat32PLC(t, gotPLC, wantPLC, 48000, channels, true,
 		"SILK PLC IIR first-loss mono")
+	assertAPIRateFloat32BitsExact(t, gotPLC, wantPLC, "SILK PLC IIR first-loss mono")
 }
 
 // TestSILKPLCIIRMultiLossEnergyDecaysMatchesLibopus verifies that energy
@@ -241,10 +242,10 @@ func TestSILKPLCIIRMultiLossEnergyDecaysMatchesLibopus(t *testing.T) {
 		}
 		got = append(got, buf2[:n*channels]...)
 	}
-	cmpLen := min(len(got), len(want))
 	// PLC frames dominate the comparison; use PLC quality bar.
-	assertAPIRateQualityFloat32PLC(t, got[:cmpLen], want[:cmpLen], 48000, channels, true,
+	assertAPIRateQualityFloat32PLC(t, got, want, 48000, channels, true,
 		"SILK PLC IIR multi-loss mono")
+	assertAPIRateFloat32BitsExact(t, got, want, "SILK PLC IIR multi-loss mono")
 }
 
 // TestSILKPLCIIRVoicedUnvoicedTransitionNoPanic verifies that the full-stack

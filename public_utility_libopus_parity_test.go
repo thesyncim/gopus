@@ -204,6 +204,7 @@ func TestDecodeGainTransitionMatchesLibopus(t *testing.T) {
 			got = append(got, frame[:n*channels]...)
 
 			assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, "gain transition float32")
+			assertAPIRateFloat32BitsExact(t, got, want, "gain transition float32")
 		})
 	}
 }
@@ -255,6 +256,7 @@ func TestDecodeGainChangeTransitionMatchesLibopus(t *testing.T) {
 				got = append(got, frame[:n*channels]...)
 
 				assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, "gain change transition float32")
+				assertAPIRateFloat32BitsExact(t, got, want, "gain change transition float32")
 			})
 		}
 	}
