@@ -2,8 +2,8 @@
 
 package fixedpoint
 
-// QEXTKissFFTState is one Q31 KISS-FFT configuration from a QEXT CELT mode. Its
-// tables are baked from the pinned libopus static mode.
+// QEXTKissFFTState is one Q31 KISS-FFT configuration from a QEXT CELT mode.
+// Static modes share pinned tables; custom modes generate them at construction.
 type QEXTKissFFTState struct {
 	nfft       int
 	scale      int32
@@ -17,7 +17,7 @@ type QEXTKissFFTState struct {
 // Nfft returns the transform length.
 func (st *QEXTKissFFTState) Nfft() int { return st.nfft }
 
-// OpusFFT reproduces opus_fft_c() for a QEXT static KISS configuration.
+// OpusFFT reproduces opus_fft_c() for a QEXT KISS configuration.
 // fin and fout are caller-owned buffers and must each hold nfft samples.
 func (st *QEXTKissFFTState) OpusFFT(fin, fout []FFTCpx) {
 	for i, rev := range st.bitrev {
@@ -75,7 +75,11 @@ func qextOpusFFTImpl(st *QEXTKissFFTState, fout []FFTCpx, downshift int) {
 		switch st.factors[2*i] {
 		case 2:
 			qextFFTDownshift(fout, st.nfft, &downshift, 1)
-			qextKFBfly2(fout, 0, fstride[i])
+			if m == 1 {
+				kfBfly2CustomM1(fout, fstride[i])
+			} else {
+				qextKFBfly2(fout, 0, fstride[i])
+			}
 		case 4:
 			qextFFTDownshift(fout, st.nfft, &downshift, 2)
 			qextKFBfly4(fout, 0, st.twiddles, fstride[i]<<shift, m, fstride[i], m2)
@@ -91,8 +95,7 @@ func qextOpusFFTImpl(st *QEXTKissFFTState, fout []FFTCpx, downshift int) {
 	qextFFTDownshift(fout, st.nfft, &downshift, downshift)
 }
 
-// QEXTMDCTLookup holds one static Q31 MDCT mode table and its four sub-FFT
-// states.
+// QEXTMDCTLookup holds a Q31 MDCT mode table and its sub-FFT states.
 type QEXTMDCTLookup struct {
 	n        int
 	maxshift int
@@ -104,7 +107,7 @@ type QEXTMDCTLookup struct {
 // N returns the full (shift==0) MDCT length.
 func (l *QEXTMDCTLookup) N() int { return l.n }
 
-// Window returns the pinned static mode's overlap window in Q31.
+// Window returns the mode's overlap window in Q31.
 func (l *QEXTMDCTLookup) Window() []int32 { return l.window }
 
 // staticQEXTMDCTLookup48000 owns the immutable ENABLE_QEXT tables from the
