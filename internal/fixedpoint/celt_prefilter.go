@@ -460,7 +460,7 @@ func PrefilterAnalysis(pre [][]int32, cc, n int, p PrefilterParams, scratch *cel
 	var pitchIndex int
 	var gain1 int16
 
-	if p.Enabled && p.Toneishness > 532676608 { // QCONST32(.99f, 29)
+	if p.Enabled && p.Toneishness > 531502208 { // QCONST32(.99f, 29) in fixed_generic.h
 		multiple := 1
 		toneFreq := p.ToneFreq
 		scaledToneFreq := int32(toneFreq) * int32(scale)
