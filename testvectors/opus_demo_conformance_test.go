@@ -1,39 +1,20 @@
-// Package testvectors: opus_demo end-to-end conformance harness.
+// Package testvectors: selected-libopus CLI conformance.
 //
-// This file drives the canonical libopus 1.6.1 `opus_demo` CLI (built by
-// tools/ensure_libopus.sh) and the gopus encoder/decoder over identical PCM
-// inputs across a (channels × bandwidth × frame size × bitrate × application ×
-// FEC × DTX) matrix, then asserts:
+// The harness drives opus_demo and gopus over identical, quantized PCM across
+// channels, bandwidths, durations, bitrates, applications, FEC, and DTX.
+// Decode compares exact samples through equivalent public output formats.
+// Encoder quality is measured separately; dedicated encoder oracles gate packet
+// bytes and final ranges with matching controls and input framing.
 //
-//   - DECODE: sample-exact parity between the gopus decode of the opus_demo
-//     reference bitstream and the opus_demo `-d` decode of the same bitstream,
-//     for the cells whose decode path is bit-exact (SILK on all platforms;
-//     CELT/hybrid on amd64), and a high quality floor for the arm64 CELT/hybrid
-//     ≤1-ULP residual. This is the harness's strongest, sample-level gate.
-//   - ENCODE: a decoded-quality floor between the gopus-encoded and
-//     opus_demo-encoded streams (both decoded by opus_demo). Byte-exact encode
-//     parity for specific forced-mode configurations is gated separately by the
-//     dedicated-oracle tests (encoder_cbr_byte_parity_test.go and friends);
-//     opus_demo's auto-mode encoder makes per-frame mode/redundancy decisions
-//     that gopus's auto-mode encoder is not required to reproduce byte-for-byte.
+// opus_demo -f32 reads float32 LE PCM, quantizes it to 24-bit samples, and calls
+// opus_encode24. Its decode path calls opus_decode24 and writes each result as
+// float32(value)/8388608 (src/opus_demo.c FORMAT_F32_LE branches). Comparing that
+// output with opus_decode_float is not a same-format exactness check. This test
+// compares Go DecodeInt24 with the CLI output and independently compares Go
+// Decode with the selected C opus_decode_float helper.
 //
-// Wire-format / reference notes:
-//   - opus_demo encode (`-e app rate ch bitrate -f32 ... in out`) reads raw
-//     float32 LE PCM and writes a length-prefixed bitstream: each packet is a
-//     big-endian u32 length, a big-endian u32 encoder final range, then the
-//     packet bytes (src/opus_demo.c int_to_char / char_to_int).
-//   - opus_demo with `-f32` quantizes each float sample to a 24-bit integer via
-//     floor(.5 + s*8388608) and calls opus_encode24(); in the float build
-//     opus_res is float so the encoder input is exactly q/8388608.  The harness
-//     feeds the *same* quantized float values to the gopus float Encode() path
-//     so both encoders observe identical input (matchOpusDemoF32Input).
-//   - Byte-exactness scope follows the documented per-arch budget: SILK is pure
-//     fixed-point and byte-exact on all platforms; CELT/Hybrid are byte-exact on
-//     amd64 (integer CELT path) but carry a ≤1-ULP FMA residual on darwin/arm64
-//     (project_arm64_celt_1ulp_drift.md), reported as an honest diff count.
-//
-// Gating: runs only at the parity tier with GOPUS_STRICT_LIBOPUS_REF=1 (the
-// CI conformance lane sets both), so it is skipped in the fast package sweep.
+// The CLI bitstream uses big-endian u32 packet lengths and encoder final ranges,
+// followed by packet bytes. The tests require the parity tier and strict live C.
 package testvectors
 
 import (
@@ -44,12 +25,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/benchutil"
-	"github.com/thesyncim/gopus/internal/encoder"
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/testsignal"
 	"github.com/thesyncim/gopus/types"
@@ -62,22 +41,19 @@ const conformanceSampleRate = 48000
 // conformanceApp identifies an opus_demo application string and its gopus
 // encoder configuration.
 type conformanceApp struct {
-	name      string // opus_demo application argument
-	configure func(*encoder.Encoder)
+	name        string // opus_demo application argument
+	application gopus.Application
 }
 
 var conformanceApps = map[string]conformanceApp{
 	"voip": {
-		name:      "voip",
-		configure: func(e *encoder.Encoder) { e.SetVoIPApplication(true) },
+		name: "voip", application: gopus.ApplicationVoIP,
 	},
 	"audio": {
-		name:      "audio",
-		configure: func(e *encoder.Encoder) {},
+		name: "audio", application: gopus.ApplicationAudio,
 	},
 	"restricted-lowdelay": {
-		name:      "restricted-lowdelay",
-		configure: func(e *encoder.Encoder) { e.SetLowDelay(true) },
+		name: "restricted-lowdelay", application: gopus.ApplicationLowDelay,
 	},
 }
 
@@ -111,34 +87,6 @@ type conformanceCell struct {
 	signal    string // testsignal corpus class
 }
 
-// decodeSampleExactExpected reports whether decoding the given reference
-// packets with the gopus decoder is expected to be sample-identical to the
-// opus_demo decode.
-//
-// The decision is driven by the *actual* per-packet mode in the reference
-// bitstream rather than the requested bandwidth, because opus_demo's auto-mode
-// encoder may emit hybrid (SILK+CELT) packets for e.g. WB/VoIP. The SILK decode
-// path is pure fixed point and sample-exact on every platform. The CELT and
-// hybrid decode paths carry a ~1-ULP float residual against opus_demo's decode
-// on every platform: on darwin/arm64 the documented FMA drift
-// (project_arm64_celt_1ulp_drift.md), and on amd64 the float CELT synthesis
-// versus opus_demo's -f32 (opus_decode24) integer-decode path -- libopus's own
-// opus_decode_float and opus_decode24 already differ by ~1 ULP there. So a
-// bitstream containing any CELT/hybrid packet falls back to a very high quality
-// floor; only pure-SILK bitstreams are gated sample-exact.
-func decodeSampleExactExpected(packets [][]byte) bool {
-	for _, pkt := range packets {
-		info, err := gopus.ParsePacket(pkt)
-		if err != nil {
-			return false
-		}
-		if info.TOC.Mode != gopus.ModeSILK {
-			return false // CELT/hybrid packet carries the ~1-ULP float residual
-		}
-	}
-	return true
-}
-
 func (c conformanceCell) label() string {
 	return fmt.Sprintf("%dch-%s-%s-%sms-%dk-%s-fec%v-dtx%v-%s",
 		c.channels, c.app, c.bandwidth, c.frame, c.bitrate/1000,
@@ -168,7 +116,7 @@ func conformanceMatrix() []conformanceCell {
 		{1, "voip", "WB", "20", 24000, false, true, false, speechNoise},
 		{1, "voip", "WB", "20", 16000, false, false, true, silence},
 
-		// --- CELT / hybrid audio cells: amd64 byte-exact, arm64 residual ---
+		// --- CELT / Hybrid audio cells ---
 		{1, "audio", "SWB", "20", 64000, true, false, false, music},
 		{1, "audio", "FB", "20", 96000, true, false, false, music},
 		{1, "audio", "FB", "10", 128000, true, false, false, transient},
@@ -291,53 +239,91 @@ func runOpusDemoDecode(t *testing.T, opusDemo string, channels int, packets [][]
 	return out
 }
 
-// configureGopusEncoder builds a gopus encoder matching the opus_demo cell.
-func configureGopusEncoder(c conformanceCell) *encoder.Encoder {
-	enc := encoder.NewEncoder(conformanceSampleRate, c.channels)
-	conformanceApps[c.app].configure(enc)
-	enc.SetBandwidth(conformanceBandwidth[c.bandwidth])
-	enc.SetBitrate(c.bitrate)
-	enc.SetComplexity(10)
-	enc.SetVBR(!c.cbr)
-	enc.SetFEC(c.fec)
-	enc.SetDTX(c.dtx)
-	return enc
-}
-
-// gopusEncodePackets encodes the PCM frame-by-frame, mirroring the opus_demo
-// per-frame encode loop.
+// gopusEncodePackets uses the same public int24 input boundary and controls as
+// opus_demo -f32. The PCM is already quantized by matchOpusDemoF32Input.
 func gopusEncodePackets(t *testing.T, c conformanceCell, pcm []float32) [][]byte {
 	t.Helper()
-	enc := configureGopusEncoder(c)
+	cfg := gopus.EncoderConfig{
+		SampleRate:  conformanceSampleRate,
+		Channels:    c.channels,
+		Application: conformanceApps[c.app].application,
+	}
+	enc, err := gopus.NewEncoder(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	frameSize := conformanceFrameMs[c.frame]
+	for _, set := range []func() error{
+		func() error { return enc.SetBandwidth(conformanceBandwidth[c.bandwidth]) },
+		func() error { return enc.SetBitrate(c.bitrate) },
+		func() error { return enc.SetComplexity(10) },
+		func() error { return enc.SetLSBDepth(24) },
+		func() error { return enc.SetFrameSize(frameSize) },
+		func() error { return enc.SetPacketLoss(0) },
+	} {
+		if err := set(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	enc.SetVBR(!c.cbr)
+	enc.SetVBRConstraint(false)
+	enc.SetFEC(c.fec)
+	enc.SetDTX(c.dtx)
 	step := frameSize * c.channels
+	input := make([]int32, step)
+	packet := make([]byte, 15000) // src/opus_demo.c: MAX_PACKET
 	var packets [][]byte
 	for off := 0; off+step <= len(pcm); off += step {
-		pkt, err := enc.Encode(pcm[off:off+step], frameSize)
-		if err != nil {
-			t.Fatalf("gopus Encode: %v", err)
+		for i := range input {
+			input[i] = int32(pcm[off+i] * 8388608)
 		}
-		packets = append(packets, append([]byte(nil), pkt...))
+		n, err := enc.EncodeInt24(input, packet)
+		if err != nil {
+			t.Fatalf("gopus EncodeInt24: %v", err)
+		}
+		packets = append(packets, append([]byte(nil), packet[:n]...))
 	}
 	return packets
 }
 
-// gopusDecodePackets decodes a packet list with the gopus root decoder.
+// gopusDecodePackets compares both public output formats with their matching
+// C APIs on the same packets, then returns the CLI-compatible int24 samples.
 func gopusDecodePackets(t *testing.T, channels int, packets [][]byte) []float32 {
 	t.Helper()
 	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(conformanceSampleRate, channels))
 	if err != nil {
 		t.Fatalf("gopus NewDecoder: %v", err)
 	}
-	buf := make([]float32, 5760*channels)
-	var out []float32
-	for _, pkt := range packets {
+	dec24, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(conformanceSampleRate, channels))
+	if err != nil {
+		t.Fatalf("gopus NewDecoder int24: %v", err)
+	}
+	const capacity = 5760
+	buf := make([]float32, capacity*channels)
+	buf24 := make([]int32, capacity*channels)
+	var out, floatOutput []float32
+	for i, pkt := range packets {
 		n, err := dec.Decode(pkt, buf)
 		if err != nil {
-			t.Fatalf("gopus Decode: %v", err)
+			t.Fatalf("gopus Decode packet %d: %v", i, err)
 		}
-		out = append(out, buf[:n*channels]...)
+		n24, err := dec24.DecodeInt24(pkt, buf24)
+		if err != nil {
+			t.Fatalf("gopus DecodeInt24 packet %d: %v", i, err)
+		}
+		if n != n24 {
+			t.Fatalf("packet %d samples: float=%d int24=%d", i, n, n24)
+		}
+		floatOutput = append(floatOutput, buf[:n*channels]...)
+		for _, sample := range buf24[:n24*channels] {
+			out = append(out, float32(sample)*(1.0/8388608.0))
+		}
 	}
+	wantFloat, err := decodeWithLibopusReferencePacketsSingle(channels, capacity, packets)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "conformance float decode", err)
+	}
+	assertConformanceSampleBits(t, "opus_decode_float", floatOutput, wantFloat)
 	return out
 }
 
@@ -348,25 +334,14 @@ func abs(x int) int {
 	return x
 }
 
-// TestOpusDemoEndToEndConformance is the opus_demo-driven encode/decode
-// conformance harness. For each matrix cell it:
-//
-//  1. generates a deterministic testsignal,
-//  2. quantizes it to opus_demo's `-f32` 24-bit input representation,
-//  3. encodes the input with opus_demo and decodes that reference bitstream with
-//     both opus_demo and gopus, gating the gopus decode sample-exact where the
-//     decode path is bit-exact (SILK everywhere; CELT/hybrid on amd64) and to a
-//     high quality floor on the arm64 CELT/hybrid ≤1-ULP residual,
-//  4. encodes the same input with gopus, decodes both the gopus and opus_demo
-//     encoder outputs with opus_demo, and holds the gopus-encoded stream to a
-//     decoded-quality floor (the two encoders' auto-mode per-frame decisions are
-//     not required to be byte-identical).
+// TestOpusDemoEndToEndConformance compares decoded samples through matching
+// C APIs and measures encoder quality using the same canonical decoder.
 func TestOpusDemoEndToEndConformance(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
 	requireStrictLibopusReference(t)
 
-	opusDemo, err := benchutil.OpusDemoPath()
+	opusDemo, err := libopustest.PublicAPIOpusDemoPath()
 	if err != nil {
 		libopustest.HelperUnavailable(t, "opus_demo", err)
 		return
@@ -393,26 +368,14 @@ func TestOpusDemoEndToEndConformance(t *testing.T) {
 				t.Fatal("gopus produced no packets")
 			}
 
-			// --- DECODE conformance: gopus decodes the opus_demo reference
-			// bitstream and is compared against opus_demo's own decode of the
-			// same bitstream. This isolates the decoder paths from any
-			// encoder-side mode-decision differences. A pure-SILK bitstream is
-			// gated sample-exact on all platforms; any CELT/hybrid packet is
-			// gated sample-exact on amd64 and held to a high quality floor on
-			// arm64 (driven by the actual per-packet mode, not the requested
-			// bandwidth).
+			// Both CLI outputs use opus_decode24 semantics. The Go helper also
+			// checks Decode against the independent C opus_decode_float API.
 			refDecPCM := runOpusDemoDecode(t, opusDemo, c.channels, refPackets)
 			gotDecPCM := gopusDecodePackets(t, c.channels, refPackets)
-			assertDecodeParity(t, c, refPackets, gotDecPCM, refDecPCM)
+			assertDecodeParity(t, c, gotDecPCM, refDecPCM)
 
-			// --- ENCODE conformance: gopus's auto-mode encoder makes per-frame
-			// mode/redundancy decisions that need not be byte-identical to
-			// opus_demo's auto-mode encoder, so we hold the gopus-encoded stream
-			// to a quality floor against the original input PCM, scored through
-			// the same canonical opus_compare comparator (decoded-vs-original)
-			// the encoder-compliance suite uses. The opus_demo-encoded stream is
-			// scored the same way as a reference for context. We also sanity-
-			// check that gopus produces a comparable packet count.
+			// Score both encoders against the original input through the same
+			// decoder and comparator. opus_demo can emit a final padded frame.
 			if d := abs(len(gopusPackets) - len(refPackets)); d > 1 {
 				t.Errorf("ENCODE packet-count mismatch: gopus=%d opus_demo=%d", len(gopusPackets), len(refPackets))
 			}
@@ -421,35 +384,30 @@ func TestOpusDemoEndToEndConformance(t *testing.T) {
 	}
 }
 
-// assertDecodeParity gates the gopus decode of the opus_demo reference
-// bitstream against the opus_demo decode: sample-exact where expected, and a
-// high quality floor otherwise.
-func assertDecodeParity(t *testing.T, c conformanceCell, refPackets [][]byte, got, ref []float32) {
+// assertDecodeParity requires CLI-compatible sample equality and retains the
+// independent decoded-quality check on the identical, sample-aligned outputs.
+func assertDecodeParity(t *testing.T, c conformanceCell, got, ref []float32) {
 	t.Helper()
-	n := min(len(got), len(ref))
-	if n == 0 {
-		t.Fatal("decode produced no samples")
-	}
-	got, ref = got[:n], ref[:n]
-
-	if decodeSampleExactExpected(refPackets) {
-		if bytes.Equal(float32sToBytes(ref), float32sToBytes(got)) {
-			return // strongest assertion: bit-identical decode
-		}
-		t.Errorf("DECODE sample parity FAILED (expected sample-exact on %s)", runtime.GOARCH)
-		return
-	}
-	// CELT/hybrid: ~1-ULP float residual vs opus_demo's decode; hold a very high
-	// quality floor (≤1-ULP can never move opus_compare's Q materially below 99).
-	const celtHybridDecodeQualityFloor = 99.0
+	assertConformanceSampleBits(t, "opus_decode24", got, ref)
+	const decodeQualityFloor = 99.0
 	q, _, err := ComputeOpusCompareQualityFloat32WithDelay(got, ref, conformanceSampleRate, c.channels, 960)
 	if err != nil {
 		t.Fatalf("opus_compare quality: %v", err)
 	}
-	if q < celtHybridDecodeQualityFloor {
-		t.Errorf("DECODE quality below floor: Q=%.3f (< %.2f)", q, celtHybridDecodeQualityFloor)
-	} else {
-		t.Logf("DECODE CELT/hybrid residual OK: Q=%.3f", q)
+	if q < decodeQualityFloor {
+		t.Errorf("DECODE quality below floor: Q=%.3f (< %.2f)", q, decodeQualityFloor)
+	}
+}
+
+func assertConformanceSampleBits(t *testing.T, format string, got, want []float32) {
+	t.Helper()
+	if len(got) == 0 || len(got) != len(want) {
+		t.Fatalf("%s sample count: Go=%d C=%d", format, len(got), len(want))
+	}
+	for i := range got {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("%s sample %d: Go=%08x C=%08x", format, i, math.Float32bits(got[i]), math.Float32bits(want[i]))
+		}
 	}
 }
 

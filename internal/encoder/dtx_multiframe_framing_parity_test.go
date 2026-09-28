@@ -1,21 +1,14 @@
-// dtx_multiframe_framing_parity_test.go is a byte-structure parity gate for the
-// multi-frame (>20ms CELT/Hybrid, >60ms SILK) DTX packet framing. libopus runs
-// decide_dtx_mode once per internal sub-frame (opus_encoder.c:1769-1831), so when
-// a trailing sub-frame DTXs while an earlier sub-frame is still active the packet
-// is a MIX of real and length-0 frames (code 2 for two sub-frames, code 3 VBR for
-// three) padded to the CBR target — NOT collapsed to an all-empty TOC-only
-// packet. This drives a decaying speech->silence stream at 40/60ms and asserts
-// that gopus's per-packet framing (TOC frame-code, sub-frame count, which
-// sub-frames are length-0, and padding presence) matches the libopus oracle for
-// every packet. The deep CELT payload bytes are NOT compared because they carry
-// the documented darwin/arm64 ≤1-ULP FMA drift (project_arm64_celt_1ulp_drift.md)
-// — the framing is integer-exact on every arch.
+// Multi-frame DTX packets preserve active and empty subframes, with CBR padding.
+// libopus decides DTX per internal subframe (src/opus_encoder.c:decide_dtx_mode).
+// This gate compares every packet byte with the selected C build and checks the
+// framing fingerprint across speech, fade, silence and recovery sequences.
 //
 //go:build gopus_libopus_oracle
 
 package encoder
 
 import (
+	"bytes"
 	"math"
 	"testing"
 
@@ -116,10 +109,8 @@ func TestDTXMultiframeFramingParity(t *testing.T) {
 		{"celt_fb_60ms_mono", 2880, "celt", "fb", 64000},
 		{"hybrid_fb_40ms_mono", 1920, "hybrid", "fb", 48000},
 		{"hybrid_fb_60ms_mono", 2880, "hybrid", "fb", 48000},
-		// SILK >60ms packets are also multi-frame (80ms->2x40, 100ms->5x20,
-		// 120ms->2x60, opus_encoder.c:1713-1725). The old whole-frame DTX path
-		// could not build a TOC for these (no single-frame SILK config beyond
-		// 60ms) and errored; the per-sub-frame path frames them correctly.
+		// SILK uses multiple frames beyond 60 ms: 80 ms → 2×40, 100 ms →
+		// 5×20, and 120 ms → 2×60 (opus_encoder.c:1713-1725).
 		{"silk_wb_80ms_mono", 3840, "silk", "wb", 16000},
 		{"silk_wb_100ms_mono", 4800, "silk", "wb", 16000},
 		{"silk_wb_120ms_mono", 5760, "silk", "wb", 16000},
@@ -138,6 +129,9 @@ func TestDTXMultiframeFramingParity(t *testing.T) {
 						t.Fatalf("[sp=%d fade=%d] packet count gopus=%d libopus=%d", sp, fade, len(got), len(want))
 					}
 					for i := range want {
+						if !bytes.Equal(got[i], want[i].Data) {
+							t.Fatalf("[sp=%d fade=%d] frame %d packet mismatch: Go=%x C=%x", sp, fade, i, got[i], want[i].Data)
+						}
 						gf, gErr := framingOf(got[i])
 						wf, wErr := framingOf(want[i].Data)
 						if gErr != nil || wErr != nil {
