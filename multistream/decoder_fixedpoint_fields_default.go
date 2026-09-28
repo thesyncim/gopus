@@ -30,3 +30,7 @@ func (*streamState) endFixedHybridPLCCapture() {}
 func (d *streamState) decodeHybridPLCChunkToFloat32(frameSize int, out []float32) error {
 	return d.hybridDec.DecodePLCToFloat32WithPacketStereoInto(frameSize, d.lastPacketStereo, out)
 }
+
+func (d *streamState) decodeHybridTransitionPLCToFloat32(frameSize int, out []float32) error {
+	return d.hybridDec.DecodePLCToFloat32WithPacketStereoInto(frameSize, d.lastPacketStereo, out)
+}

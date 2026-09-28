@@ -259,7 +259,7 @@ func (d *streamState) transitionPLCToFloat32(transSize, prevMode, prevBW int, pr
 		}
 	case streamModeHybrid:
 		out = d.transitionPCMFor(transSize * channels)
-		err = d.hybridDec.DecodePLCToFloat32WithPacketStereoInto(transSize, prevStereo, out)
+		err = d.decodeHybridTransitionPLCToFloat32(transSize, out)
 	case streamModeCELT:
 		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(prevBW))
 		out = d.transitionPCMFor(transSize * channels)

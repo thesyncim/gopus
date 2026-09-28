@@ -13,10 +13,14 @@ type streamFixedQEXTFields struct{}
 func (d *streamState) beginFixedCELTTransition(mode int, gainQ8 int32) {
 	d.fixedTransitionArmed = d.fixedCELT != nil && d.haveDecoded &&
 		((mode != streamModeCELT && d.lastMode == streamModeCELT) ||
-			(mode == streamModeCELT && d.lastMode == streamModeSILK && !d.prevRedundancy))
+			(mode == streamModeCELT && (d.lastMode == streamModeSILK || d.lastMode == streamModeHybrid) && !d.prevRedundancy))
 	d.fixedTransitionReady = false
 	d.fixedTransitionHasMain = false
 	d.fixedTransitionGainQ8 = gainQ8
+}
+
+func (d *streamState) canCaptureFixedHybridTransition() bool {
+	return d.fixedCELT != nil
 }
 
 func (d *streamState) endFixedCELTTransition() {
@@ -127,11 +131,11 @@ func (d *streamState) applyFixedCELTTransition(res []int32, frameSize int) {
 	}
 }
 
-func (d *streamState) prepareFixedCELTFrame(mode int, _ parsedOpusPacket, toc streamTOC) error {
+func (d *streamState) prepareFixedCELTFrame(mode int, _ parsedOpusPacket, toc streamTOC, forceReset bool) error {
 	if d.fixedCELT == nil {
 		d.fixedCELT = fixedpoint.NewCELTDecoderRate(int(d.channels), int(d.sampleRate))
 	}
-	if d.haveDecoded && int(d.lastMode) != mode && !d.prevRedundancy {
+	if forceReset || (d.haveDecoded && int(d.lastMode) != mode && !d.prevRedundancy) {
 		d.fixedCELT.Reset()
 	}
 	d.fixedCELT.SetPhaseInversionDisabled(d.celtDec.PhaseInversionDisabled())
@@ -225,18 +229,22 @@ func (d *streamState) celtFixedRes(parsed parsedOpusPacket, frameSize int, toc s
 }
 
 func (d *streamState) canDecodeLostFixed() bool {
-	return d.lastTOCFrameSize > 0 && (d.lastMode == streamModeSILK || d.fixedCELT != nil)
+	if d.lastTOCFrameSize <= 0 {
+		return false
+	}
+	return d.concealmentMode() == streamModeSILK || d.fixedCELT != nil
 }
 
 func (d *streamState) decodeLostFixed(frameSize int, floatPCM []float32) ([]int32, error) {
 	channels := int(d.channels)
+	mode := d.concealmentMode()
 	needed := frameSize * channels
 	if cap(d.fixedRes) < needed {
 		d.fixedRes = make([]int32, needed)
 	} else {
 		d.fixedRes = d.fixedRes[:needed]
 	}
-	if d.lastMode == streamModeSILK {
+	if mode == streamModeSILK {
 		if len(floatPCM) < needed {
 			return nil, ErrInvalidPacket
 		}
@@ -258,7 +266,7 @@ func (d *streamState) decodeLostFixed(frameSize int, floatPCM []float32) ([]int3
 	if chunkLimit <= 0 {
 		return nil, ErrInvalidPacket
 	}
-	if d.lastMode == streamModeHybrid {
+	if mode == streamModeHybrid {
 		if len(d.fixedHybridPLCLowband) < needed {
 			return nil, ErrInvalidPacket
 		}
@@ -269,7 +277,7 @@ func (d *streamState) decodeLostFixed(frameSize int, floatPCM []float32) ([]int3
 		coreFrameSize := chunk * downsample
 		start := offset * channels
 		end := start + chunk*channels
-		if d.lastMode == streamModeHybrid {
+		if mode == streamModeHybrid {
 			for i, sample := range d.fixedHybridPLCLowband[start:end] {
 				d.fixedRes[start+i] = int32(sample) << 8
 			}

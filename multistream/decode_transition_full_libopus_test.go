@@ -8,7 +8,10 @@ import (
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
-var transitionSequenceRefHelper libopustest.HelperCache
+var (
+	transitionSequenceRefHelper       libopustest.HelperCache
+	publicTransitionSequenceRefHelper libopustest.HelperCache
+)
 
 type transitionDecodeStep struct {
 	packet    []byte
@@ -25,18 +28,41 @@ type transitionDecodeResult struct {
 // each step has its own frame capacity, returned sample count, final range, and
 // PCM span. The packet sequence preserves decoder history across transitions.
 func decodeTransitionSequenceWithLibopus(t *testing.T, sampleRate, channels, gainQ8, maxFrameSize int, steps []transitionDecodeStep) []transitionDecodeResult {
+	return decodeTransitionSequenceWithBuilder(
+		t, &transitionSequenceRefHelper, buildMultistreamFloatShadowReferenceHelper,
+		"single-stream float-shadow transition sequence reference", "gopus_transition_sequence_float_shadow_ref",
+		sampleRate, channels, gainQ8, maxFrameSize, steps,
+	)
+}
+
+func decodePublicTransitionSequenceWithLibopus(t *testing.T, sampleRate, channels, gainQ8, maxFrameSize int, steps []transitionDecodeStep) []transitionDecodeResult {
+	return decodeTransitionSequenceWithBuilder(
+		t, &publicTransitionSequenceRefHelper, buildMultistreamReferenceHelper,
+		"single-stream public transition sequence reference", "gopus_transition_sequence_public_ref",
+		sampleRate, channels, gainQ8, maxFrameSize, steps,
+	)
+}
+
+func decodeTransitionSequenceWithBuilder(
+	t *testing.T,
+	helperCache *libopustest.HelperCache,
+	buildHelper func(libopustest.CHelperConfig) (string, error),
+	label, outputBase string,
+	sampleRate, channels, gainQ8, maxFrameSize int,
+	steps []transitionDecodeStep,
+) []transitionDecodeResult {
 	t.Helper()
-	path, err := transitionSequenceRefHelper.Path(func() (string, error) {
-		return buildMultistreamFloatShadowReferenceHelper(libopustest.CHelperConfig{
-			Label:      "single-stream transition sequence reference",
-			OutputBase: "gopus_transition_sequence_ref",
+	path, err := helperCache.Path(func() (string, error) {
+		return buildHelper(libopustest.CHelperConfig{
+			Label:      label,
+			OutputBase: outputBase,
 			SourceFile: "libopus_refdecode_single.c",
 			CFlags:     []string{"-O3", "-DNDEBUG"},
 			Libs:       []string{"-lm"},
 		})
 	})
 	if err != nil {
-		libopustest.HelperUnavailable(t, "single-stream transition sequence reference", err)
+		libopustest.HelperUnavailable(t, label, err)
 	}
 	payload := libopustest.NewOraclePayloadVersion(
 		"GOSI", 8, 0, uint32(sampleRate), uint32(int32(gainQ8)),
@@ -51,9 +77,9 @@ func decodeTransitionSequenceWithLibopus(t *testing.T, sampleRate, channels, gai
 		payload.U32(uint32(len(step.packet)))
 		payload.Raw(step.packet)
 	}
-	reader, err := libopustest.RunOracleVersion(path, payload.Bytes(), "single-stream transition sequence reference", "GOSO", 3)
+	reader, err := libopustest.RunOracleVersion(path, payload.Bytes(), label, "GOSO", 3)
 	if err != nil {
-		libopustest.HelperUnavailable(t, "single-stream transition sequence reference", err)
+		libopustest.HelperUnavailable(t, label, err)
 	}
 	pcmCount := reader.Count(-1)
 	if pcmCount < 0 || pcmCount > len(steps)*maxFrameSize*channels {

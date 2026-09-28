@@ -176,7 +176,7 @@ func (d *Decoder) DecodePLCToResFixed(frameSize int) ([]int32, bool, error) {
 // the float shadow decoder advances a lost Hybrid frame. The fixed CELT PLC
 // path adds its highband to this same opus_res lowband afterward.
 func (d *streamState) beginFixedHybridPLCCapture(frameSize int) {
-	d.fixedHybridPLCCapturing = d.lastMode == streamModeHybrid
+	d.fixedHybridPLCCapturing = d.concealmentMode() == streamModeHybrid
 	d.fixedHybridPLCCursor = 0
 	if !d.fixedHybridPLCCapturing {
 		return
@@ -230,6 +230,55 @@ func (d *streamState) decodeHybridPLCChunkToFloat32(frameSize int, out []float32
 	}
 	d.fixedHybridPLCCursor += want
 	return err
+}
+
+// decodeHybridTransitionPLCToFloat32 captures the integer Hybrid PLC source
+// while the float shadow advances it for a Hybrid-to-CELT transition. The
+// fixed CELT decoder must still hold the previous Hybrid history here; the
+// target CELT packet resets it only after this capture completes.
+func (d *streamState) decodeHybridTransitionPLCToFloat32(frameSize int, out []float32) error {
+	if !d.fixedTransitionArmed {
+		return d.hybridDec.DecodePLCToFloat32WithPacketStereoInto(frameSize, d.lastPacketStereo, out)
+	}
+	d.beginFixedHybridPLCCapture(frameSize)
+	err := d.decodeHybridPLCChunkToFloat32(frameSize, out)
+	d.endFixedHybridPLCCapture()
+	if err != nil {
+		return err
+	}
+	return d.captureFixedHybridTransitionPLC(frameSize)
+}
+
+// captureFixedHybridTransitionPLC composes the captured integer SILK lowband
+// with the previous Hybrid CELT decoder's loss output and stores it as the
+// inner-gain transition source.
+func (d *streamState) captureFixedHybridTransitionPLC(frameSize int) error {
+	if !d.fixedTransitionArmed {
+		return nil
+	}
+	if d.concealmentMode() != streamModeHybrid {
+		return ErrInvalidPacket
+	}
+	res, err := d.decodeLostFixed(frameSize, nil)
+	if err != nil {
+		return err
+	}
+	needed := frameSize * int(d.channels)
+	if len(res) < needed {
+		return ErrInvalidPacket
+	}
+	if cap(d.fixedTransitionRes) < needed {
+		d.fixedTransitionRes = make([]int32, needed)
+	} else {
+		d.fixedTransitionRes = d.fixedTransitionRes[:needed]
+	}
+	copy(d.fixedTransitionRes, res[:needed])
+	if d.fixedTransitionGainQ8 != 0 {
+		fixedpoint.ApplyDecodeGainRes(d.fixedTransitionRes, fixedpoint.DecodeGainQ16(int(d.fixedTransitionGainQ8)))
+	}
+	d.fixedTransitionHasMain = false
+	d.fixedTransitionReady = true
+	return nil
 }
 
 func fixedCELTCodedChannels(packetStereo bool) int {
@@ -333,8 +382,14 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 			return d.decodeMultiframeToResFixed(data, frameSize)
 		}
 	}
-	if toc.mode == streamModeCELT {
-		if err := d.prepareFixedCELTFrame(streamModeCELT, parsed, toc); err != nil {
+	prevMode := int(d.lastMode)
+	resetFixedCELT := d.haveDecoded && prevMode != toc.mode && !d.prevRedundancy
+	deferFixedCELTPrepare := toc.mode == streamModeCELT && prevMode == streamModeHybrid && resetFixedCELT
+	if deferFixedCELTPrepare && !d.canCaptureFixedHybridTransition() {
+		return nil, false, nil
+	}
+	if toc.mode == streamModeCELT && !deferFixedCELTPrepare {
+		if err := d.prepareFixedCELTFrame(streamModeCELT, parsed, toc, false); err != nil {
 			return nil, false, err
 		}
 	} else if toc.mode == streamModeSILK {
@@ -366,6 +421,11 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 	}
 	if err != nil {
 		return nil, false, err
+	}
+	if deferFixedCELTPrepare {
+		if err := d.prepareFixedCELTFrame(streamModeCELT, parsed, toc, true); err != nil {
+			return nil, false, err
+		}
 	}
 
 	needed := frameSize * channels
@@ -449,7 +509,7 @@ type streamFixedHybridHook struct {
 // contract), so the highband reads from the correct bit position without
 // re-parsing the flag. A redundant frame (recorded by afterSilk in
 // fixedHybridRedundant) drives a distinct decode and crossfade the integer
-// hybrid path does not reproduce, so it declines.
+// path reconstructs with decodeFixedRedundantCELT and finishFixedRedundancy.
 func (h *streamFixedHybridHook) DecodeHybridHighband(silkInt16 []int16, filled int, rd *rangecoding.Decoder, frameSizeAPI, frameSize48 int, packetStereo bool) {
 	d := h.st
 	channels := int(d.channels)
@@ -497,7 +557,7 @@ func (h *streamFixedHybridHook) DecodeHybridHighband(silkInt16 []int16, filled i
 // floatToRes converts float32 PCM to opus_res via the lossless int16
 // round-trip: opus_res = INT16TORES(int16) = int16 << RES_SHIFT (RES_SHIFT=8).
 // This matches libopus' FIXED_POINT opus_res for integer-native SILK output and
-// provides a faithful fallback for declined frames.
+// SILK PLC, whose samples already have integer precision.
 func floatToRes(res []int32, samples []float32) {
 	n := len(res)
 	if len(samples) < n {

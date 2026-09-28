@@ -618,8 +618,13 @@ func (d *streamState) decodeCELTModeWithTransition(frame []byte, frameSize, tran
 func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
 	f20 := int(d.sampleRate) / 50
 	chunkLimit := min(f20, int(d.lastTOCFrameSize))
+	mode := d.concealmentMode()
 	if chunkLimit <= 0 {
-		return d.decodePLCChunkToFloat32(frameSize)
+		out, err := d.decodePLCChunkToFloat32(frameSize)
+		if err == nil {
+			d.recordPLCMode(mode)
+		}
+		return out, err
 	}
 
 	channels := int(d.channels)
@@ -627,7 +632,7 @@ func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
 	remaining := frameSize
 	for remaining > 0 {
 		chunk := min(remaining, chunkLimit)
-		if d.lastMode == streamModeCELT {
+		if mode == streamModeCELT {
 			chunk = nextCELTPLCChunk(remaining, chunkLimit, f20)
 		}
 		decoded, err := d.decodePLCChunkToFloat32(chunk)
@@ -635,10 +640,31 @@ func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
 			return nil, err
 		}
 		out = append(out, decoded...)
+		d.recordPLCMode(mode)
 		remaining -= chunk
 	}
 	d.lastPacketDuration = int32(frameSize)
 	return out, nil
+}
+
+// concealmentMode mirrors opus_decode_frame's NULL-input selection: a packet
+// that ends with CELT redundancy leaves CELT as the mode for the next loss.
+// See src/opus_decoder.c, where prev_redundancy selects MODE_CELT_ONLY.
+func (d *streamState) concealmentMode() int32 {
+	if d.prevRedundancy {
+		return streamModeCELT
+	}
+	return d.lastMode
+}
+
+// recordPLCMode mirrors the state update at the end of opus_decode_frame for a
+// NULL frame: the selected mode becomes the previous mode and redundancy is
+// consumed by the first loss frame. See src/opus_decoder.c.
+func (d *streamState) recordPLCMode(mode int32) {
+	if d.haveDecoded && mode != 0 {
+		d.lastMode = mode
+		d.prevRedundancy = false
+	}
 }
 
 // nextCELTPLCChunk mirrors opus_decode_frame's NULL-frame size rounding.
@@ -670,7 +696,8 @@ func (d *streamState) decodePLCChunkToFloat32(frameSize int) ([]float32, error) 
 		return out, nil
 	}
 
-	switch d.lastMode {
+	mode := d.concealmentMode()
+	switch mode {
 	case streamModeSILK:
 		// opus_decode_frame asks silk_Decode for at least F10 samples, then
 		// copies only the requested prefix for an F5 PLC remainder.
@@ -685,7 +712,7 @@ func (d *streamState) decodePLCChunkToFloat32(frameSize int) ([]float32, error) 
 		err := d.decodeHybridPLCChunkToFloat32(frameSize, out)
 		out, err = d.finishDecode32(out, err)
 		if extsupport.OSCERuntime && err == nil {
-			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeHybrid, bandwidth: int(d.lastBandwidth), stereo: d.lastPacketStereo}, nil, frameSize)
+			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: int(mode), bandwidth: int(d.lastBandwidth), stereo: d.lastPacketStereo}, nil, frameSize)
 		}
 		return out, err
 	case streamModeCELT:
@@ -694,7 +721,7 @@ func (d *streamState) decodePLCChunkToFloat32(frameSize int) ([]float32, error) 
 		err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(nil, frameSize, d.lastPacketStereo, out)
 		out, err = d.finishDecode32(out, err)
 		if extsupport.OSCERuntime && err == nil {
-			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeCELT, bandwidth: int(d.lastBandwidth), stereo: d.lastPacketStereo}, nil, frameSize)
+			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: int(mode), bandwidth: int(d.lastBandwidth), stereo: d.lastPacketStereo}, nil, frameSize)
 		}
 		return out, err
 	default:
