@@ -11,6 +11,10 @@ import (
 // hook once redundancy is known to be absent, mirroring opus_decode_frame, then
 // crossfaded onto the front of the decoded Hybrid frame.
 func (d *streamState) decodeHybridModeWithTransition(frame []byte, frameSize, transSize int, toc streamTOC) ([]float32, error) {
+	// The shared Hybrid decoder can be idle while standalone SILK or CELT
+	// packets update the stream's packet-channel state. Keep its next transition
+	// decision aligned with opus_decoder's previous ToC channel count.
+	d.hybridDec.SetPrevPacketStereo(d.lastPacketStereo)
 	var ts transitionState
 	if d.haveDecoded && int(d.lastMode) == streamModeCELT {
 		ts.active = true
@@ -50,12 +54,9 @@ func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc str
 	needCeltReset := d.haveDecoded && int(d.lastMode) != toc.mode && !d.prevRedundancy
 	d.celtDec.SetBandwidth(celtBW)
 
-	const (
-		f10  = 480
-		f5   = f10 >> 1
-		f2_5 = f5 >> 1
-	)
 	fs := int(d.sampleRate)
+	f5 := fs / 200
+	f2_5 := f5 / 2
 
 	redundancy := false
 	celtToSilk := false
