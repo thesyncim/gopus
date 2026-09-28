@@ -69,6 +69,54 @@ func (d *Decoder) fixedCaptureSILKOutput(pcm []float32) bool {
 	return true
 }
 
+// fixedAccumulateFECHybridToSILKFade appends the integer CELT silence overlap
+// to the most recently captured SILK FEC samples. The C frame decoder performs
+// this celt_accum step after SILK decode when a SILK packet follows Hybrid.
+func (d *Decoder) fixedAccumulateFECHybridToSILKFade(frameSizeAPI, fadeSamplesAPI int, packetStereo bool, celtBW celt.CELTBandwidth) bool {
+	if !d.fixedPacketActive {
+		return true
+	}
+	if extsupport.QEXT {
+		return d.fixedAccumulateQEXTFECHybridToSILKFade(frameSizeAPI, fadeSamplesAPI, packetStereo, celtBW)
+	}
+	if d.fixedCELT == nil || frameSizeAPI <= 0 || fadeSamplesAPI <= 0 || fadeSamplesAPI > frameSizeAPI {
+		return false
+	}
+
+	channels := int(d.channels)
+	needed := frameSizeAPI * channels
+	fadeNeeded := fadeSamplesAPI * channels
+	offset := len(d.fixedRes) - needed
+	if offset < 0 || len(d.fixedInt16) != len(d.fixedRes) {
+		return false
+	}
+
+	downsample := 48000 / int(d.sampleRate)
+	if downsample <= 0 {
+		downsample = 1
+	}
+	d.fixedCELT.SetPhaseInversionDisabled(d.celtDecoder.PhaseInversionDisabled())
+	d.fixedCELT.SetBandRange(0, celtBW.EffectiveBands())
+	d.fixedCELT.SetStartBand(0)
+	codedChannels := 1
+	if packetStereo {
+		codedChannels = 2
+	}
+	if decoded := d.fixedCELT.DecodeWithECChannels(celtSilenceFrame2B[:], fadeSamplesAPI*downsample, codedChannels, d.fixedCELTScratch(fadeNeeded)); decoded != fadeSamplesAPI {
+		return false
+	}
+	component := d.fixedCELT.LastRes()
+	if len(component) < fadeNeeded {
+		return false
+	}
+	for i := range fadeNeeded {
+		res := d.fixedRes[offset+i] + component[i] // libopus ADD_RES / ADD32.
+		d.fixedRes[offset+i] = res
+		d.fixedInt16[offset+i] = fixedpoint.Res2Int16(res)
+	}
+	return true
+}
+
 // celtDecodeFixedAPIRate runs the FIXED_POINT integer CELT decoder
 // (internal/fixedpoint.CELTDecoder) for a CELT-only frame and accumulates its
 // libopus-exact opus_res output for the in-flight Decode, DecodeInt16, or

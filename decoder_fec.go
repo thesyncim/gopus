@@ -417,9 +417,40 @@ func (d *Decoder) decodeSILKFEC(pcm []float32, frameSize int) (int, error) {
 	if n != frameSize*int(d.channels) || !d.fixedCaptureSILKOutput(pcm[:n]) {
 		d.markFixedUnhandled()
 	}
+	if err := d.applyFECHybridToSILKFade(pcm, frameSize); err != nil {
+		return 0, err
+	}
 	d.mainDecodeRng = d.silkDecoder.FinalRange()
 	d.redundantRng = 0
 	return frameSize, nil
+}
+
+// applyFECHybridToSILKFade mirrors opus_decode_frame's 2.5 ms CELT silence
+// accumulation when a SILK FEC frame follows a Hybrid frame. The public FEC
+// path decodes SILK directly, so it does not pass through the ordinary frame
+// dispatcher that applies this CELT overlap fade.
+func (d *Decoder) applyFECHybridToSILKFade(pcm []float32, frameSize int) error {
+	if !d.haveDecoded || d.prevMode != ModeHybrid {
+		return nil
+	}
+
+	fadeSamples := int(d.sampleRate) / 400
+	channels := int(d.channels)
+	if fadeSamples <= 0 || fadeSamples > frameSize || len(pcm) < fadeSamples*channels {
+		return ErrInvalidFrameSize
+	}
+
+	// opus_decode_frame sets CELT's end band from the packet bandwidth, its
+	// stream channel count from the packet TOC, and start band to zero before
+	// decoding the 0xffff silence frame with celt_accum=1.
+	celtBW := celt.BandwidthFromOpusConfig(int(d.fecBandwidth))
+	if !d.fixedAccumulateFECHybridToSILKFade(frameSize, fadeSamples, d.fecStereo, celtBW) {
+		d.markFixedUnhandled()
+	}
+	d.celtDecoder.SetBandwidth(celtBW)
+	return d.celtDecoder.AccumulateFrameWithPacketStereoAtAPIRate(
+		celtSilenceFrame2B[:], fadeSamples, d.fecStereo, pcm[:fadeSamples*channels],
+	)
 }
 
 // decodeHybridFEC decodes Hybrid mode LBRR data for FEC recovery.

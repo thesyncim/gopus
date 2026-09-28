@@ -12,6 +12,9 @@ func (d *Decoder) decodeFECPublicFloat32(data []byte, pcm []float32) (int, error
 	return d.decodeWithFECFloat32(data, pcm)
 }
 func (d *Decoder) fixedCaptureSILKOutput(_ []float32) bool { return false }
+func (d *Decoder) fixedAccumulateFECHybridToSILKFade(_, _ int, _ bool, _ celt.CELTBandwidth) bool {
+	return true
+}
 
 // celtDecodeFixedAPIRate is a no-op in the default (float) build: it never
 // handles the CELT-only decode, so the caller falls through to the float CELT

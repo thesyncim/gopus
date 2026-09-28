@@ -122,6 +122,44 @@ func (d *Decoder) decodeFixedQEXTTransitionPLC(transSizeAPI int) bool {
 	return true
 }
 
+func (d *Decoder) fixedAccumulateQEXTFECHybridToSILKFade(frameSizeAPI, fadeSamplesAPI int, packetStereo bool, celtBW celt.CELTBandwidth) bool {
+	if !d.fixedPacketActive {
+		return true
+	}
+	if d.fixedQEXT.invalid || d.fixedQEXT.decoder == nil || frameSizeAPI <= 0 || fadeSamplesAPI <= 0 || fadeSamplesAPI > frameSizeAPI {
+		return false
+	}
+	channels := int(d.channels)
+	needed := frameSizeAPI * channels
+	fadeNeeded := fadeSamplesAPI * channels
+	offset := len(d.fixedRes) - needed
+	if offset < 0 || len(d.fixedInt16) != len(d.fixedRes) {
+		return false
+	}
+
+	downsample := 48000 / int(d.sampleRate)
+	if downsample <= 0 {
+		downsample = 1
+	}
+	d.fixedQEXT.decoder.SetPhaseInversionDisabled(d.celtDecoder.PhaseInversionDisabled())
+	d.fixedQEXT.decoder.SetBandRange(0, celtBW.EffectiveBands())
+	codedChannels := 1
+	if packetStereo {
+		codedChannels = 2
+	}
+	rd := &d.scratchRangeDecoder
+	rd.Init(celtSilenceFrame2B[:])
+	if decoded := d.fixedQEXT.decoder.DecodeHybridAccumWithEC(
+		rd, len(celtSilenceFrame2B), fadeSamplesAPI*downsample, codedChannels, nil, d.fixedRes[offset:offset+fadeNeeded],
+	); decoded != fadeSamplesAPI {
+		return false
+	}
+	for i := range fadeNeeded {
+		d.fixedInt16[offset+i] = fixedpoint.Res2Int16(d.fixedRes[offset+i])
+	}
+	return true
+}
+
 func (d *Decoder) decodeFixedQEXTRedundantCELTWithChannels(redundantData []byte, celtBW celt.CELTBandwidth, reset bool, codedChannels int) bool {
 	if !d.fixedPacketActive || d.fixedQEXT.invalid || codedChannels < 1 || codedChannels > 2 {
 		return false

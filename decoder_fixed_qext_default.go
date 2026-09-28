@@ -23,6 +23,10 @@ func (d *Decoder) decodeFixedQEXTHybridHighband(_ []int16, _ int, _ *rangecoding
 
 func (d *Decoder) decodeFixedQEXTTransitionPLC(_ int) bool { return false }
 
+func (d *Decoder) fixedAccumulateQEXTFECHybridToSILKFade(_, _ int, _ bool, _ celt.CELTBandwidth) bool {
+	return false
+}
+
 func (d *Decoder) decodeFixedQEXTRedundantCELTWithChannels(_ []byte, _ celt.CELTBandwidth, _ bool, _ int) bool {
 	return false
 }
