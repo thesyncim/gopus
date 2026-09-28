@@ -712,8 +712,16 @@ jobs:
             baseline/go.mod
             candidate/go.mod
 
-      - name: Cache pinned libopus builds
-        uses: actions/cache@v5
+      - name: Identify native C toolchain
+        id: native_c_toolchain
+        shell: bash
+        run: |
+          native_cc_fingerprint=$( { cc --version; cc -dumpmachine; } | sha256sum | cut -d ' ' -f 1)
+          echo "fingerprint=$native_cc_fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Restore pinned libopus builds
+        id: native_libopus_cache
+        uses: actions/cache/restore@v5
         with:
           path: |
             baseline/tmp_check/opus-${{ env.LIBOPUS_VERSION }}
@@ -722,7 +730,12 @@ jobs:
             candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}
             candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
             candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
-          key: simd-ab-libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('candidate/tools/ensure_libopus.sh') }}
+            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-*-scalar
+            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-*-simd
+            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-simd
+            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-dnnsrc-atomic
+            candidate/tmp_check/build-opus-*-linux-amd64
+          key: simd-ab-libopus-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.native_c_toolchain.outputs.fingerprint }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('candidate/tools/ensure_libopus.sh', 'candidate/internal/libopustooling/*.go', 'candidate/internal/libopustest/helpers.go') }}
 
       - name: Install Opus decoder and CPU compatibility emulator
         run: |
@@ -748,6 +761,26 @@ jobs:
           path: ${{ runner.temp }}/simd-ab-early
           if-no-files-found: error
           retention-days: 30
+
+      # Completed reference builds remain reusable when a codec gate fails.
+      # The reference resolvers still validate compiler, flags, ISA and models.
+      - name: Save pinned libopus builds
+        if: always() && steps.native_libopus_cache.outputs.cache-primary-key != '' && steps.native_libopus_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            baseline/tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            baseline/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
+            baseline/tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
+            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-*-scalar
+            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-*-simd
+            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-simd
+            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-dnnsrc-atomic
+            candidate/tmp_check/build-opus-*-linux-amd64
+          key: ${{ steps.native_libopus_cache.outputs.cache-primary-key }}
 
       - name: Capture native Linux A/B evidence
         shell: bash
