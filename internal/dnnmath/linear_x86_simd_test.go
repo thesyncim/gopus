@@ -18,8 +18,8 @@ func TestX86SGEMVScalarRemainderMatchesSelectedLibopus(t *testing.T) {
 	}
 
 	// The scalar row remainder in dnn/vec_avx.h is compiled in the AVX2/FMA
-	// translation unit. This product pair distinguishes its fused update from
-	// a rounded multiply followed by an add:
+	// translation unit. This product pair distinguishes a fused update from
+	// its independently rounded multiply and add:
 	//   (1 + 2^-23) * (1 - 2^-23) - 1 == -2^-46 when fused, 0 when split.
 	a := math.Float32frombits(0x3f800001)
 	b := math.Float32frombits(0x3f7ffffe)
