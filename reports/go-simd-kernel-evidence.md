@@ -8,18 +8,40 @@ reference path.
 
 ## Correctness status
 
-Native AMD64 early artifact `10972069502` at `bcc559d9` contains 91 command
-exit records: 85 succeed; three SIMD OSCE phases, two fixed-QEXT phases and the
-aggregate status fail. The 28-case SGEMV oracle passes natively with separately
-rounded scalar-row products and fused vector blocks. Neural-analysis and the
-other DRED phases pass. The OSCE state oracle localizes the first difference to
-frame 0, state element 677 (`bf32e19b` in Go, `bf32e19c` in C); scalar OSCE passes.
-The fixed-QEXT phases exercise decoder, DTX and multistream fixes listed below
-that require a fresh native run. Independent selected-C BWE int8 expectations
-model AVX2 quantization and saturating dot products.
-Eleven AMD64 kernel rows below retain final artifact `10968657063` at `83affdb9`
-and its five-sample measurements. Completed base-codec checks and performance
-results do not imply complete codec parity.
+Native AMD64 early artifact `10976982834` at `6c466ded` contains 94 command
+exit records: 90 succeed; three SIMD OSCE phases and the aggregate status fail.
+Both fixed and fixed-QEXT phases pass. The OSCE BWE fix uses the selected CELT
+32-tap cross-correlation reduction; selected-C actual-model and public sequence
+checks pass on local ARM64 and emulated AMD64 with C arch 4 / Go AVX2. Native
+AMD64 validation of that fix is pending. Eleven AMD64 kernel rows retain final
+artifact `10968657063` at `83affdb9` and its five-sample measurements.
+Complete codec/extension parity is not yet proven.
+
+The fixed multistream decoder checkpoint `1e3edd99` passes all 3,640 expanded
+cases on local ARM64 in fixed scalar and fixed+QEXT scalar/SIMD: 3,024 surround,
+400 discrete, 144 projection, and 72 Go-encoded decode cases. Integer Hybrid PLC,
+redundancy, multi-frame composition, and degenerate frames match the selected C
+reference. The 8/12 kHz Hybrid received/loss/recovery cases pass fixed and
+fixed+QEXT in default, SIMD, and nosimd builds with zero warm allocations.
+Remaining investigations include Hybrid-to-CELT transition PCM, loss following
+SILK-to-CELT redundancy, the fixed projection encoder stereo-width decision,
+and float-QEXT multistream PCM. These cases remain strict live-C checks.
+
+The local ARM64 public root suite passes in the default scalar (288.8 s),
+default SIMD (270.9 s), fixed SIMD (538.5 s), and fixed+QEXT SIMD (545.3 s)
+configurations with Go 1.27.1 and live paired references. The fixed+QEXT run
+covers the multistream transition/projection checkpoint `11bedc18`; it precedes
+the additional Hybrid PLC and high-range conversion regression cases.
+The focused fixed-scalar CELT mode-reset/channel test also passes on the
+current transition implementation. These full-suite results do not cover the
+remaining native AMD64 OSCE and expanded Hybrid redundancy checks.
+
+Higher-order projection decode checks cover 9- and 16-channel layouts, mixed
+per-stream modes, all three output formats, and gains of ±6 dB plus both Q8
+limits. Int24 conversion preserves the target's native float-to-int overflow
+result before fractional rounding correction. A selected-C primitive oracle
+covers both overflow signs, infinities, NaNs, and ties; local ARM64 checks pass.
+Native AMD64 confirmation remains pending.
 
 The live oracle comparisons use libopus 1.6.1 with the same effective
 instruction path on the same machine. Go SIMD (`GOEXPERIMENT=simd`) pairs with the SSE/AVX2 RTCD
@@ -1849,26 +1871,27 @@ with this native helper, using otherwise identical SIMD binaries:
 Small deltas are near measurement noise. These are Go-to-Go measurements;
 they do not replace the assembly comparison or establish a new AMD64 result.
 
-### Native end-to-end capture at 83affdb9 (AMD EPYC 9V45)
+### Native end-to-end capture at 6c466ded (Intel Xeon 6973P-C)
 
-Early artifact `10967297691` from [run 36414593219](https://github.com/thesyncim/gopus/actions/runs/36414593219)
-compares assembly `8ac93c85` with SIMD/nosimd `83affdb9` on AMD EPYC 9V45,
+Early artifact `10976982834` from [run 36435145306](https://github.com/thesyncim/gopus/actions/runs/36435145306)
+compares assembly `8ac93c85` with SIMD/nosimd `6c466ded` on Intel Xeon 6973P-C,
 Go 1.27.1, GCC 13.3.0, GOAMD64=v1, PGO enabled. Four interleaved 500 ms
 samples use `-cpu=1`; all 72 samples report 0 B/op and 0 allocs/op.
 Values are median ns/op. These base-codec measurements do not establish OSCE parity.
 
 | Workload | Old assembly | Go SIMD | `nosimd` |
 |---|---:|---:|---:|
-| CELT decode | 12,121 | 8,130.5 | 10,133 |
-| Hybrid decode | 16,940 | 14,755.5 | 18,608.5 |
-| SILK decode | 13,718 | 10,260 | 12,968 |
-| Caller-buffer encode | 55,226.5 | 38,776.5 | 60,445 |
-| VoIP encode | 59,435 | 41,592.5 | 62,237 |
-| Low-delay encode | 54,867.5 | 38,629 | 58,650 |
+| CELT decode | 16,807 | 9,662.5 | 11,654 |
+| Hybrid decode | 21,451.5 | 16,700.5 | 19,333 |
+| SILK decode | 15,413.5 | 11,151.5 | 13,027.5 |
+| Caller-buffer encode | 69,743.5 | 43,919.5 | 65,199.5 |
+| VoIP encode | 73,568.5 | 46,109.5 | 67,915.5 |
+| Low-delay encode | 69,417.5 | 43,000.5 | 63,938 |
 
-SIMD takes 12.9–32.9% less time than assembly in this run. Scalar trails assembly
-for Hybrid decode and the three encode workloads. The 53 kernel rows retain
-their own measured revisions; this run refreshes the end-to-end comparisons.
+SIMD takes 22.1–42.5% less time than assembly in this run. Scalar also beats
+assembly in these six workloads. Eleven AMD64 kernel rows retain final artifact
+`10968657063` at `83affdb9`; ARM64 rows retain their own measured revisions.
+CPU models differ across runs, so absolute timings are not revision regressions.
 
 ### Matched libopus 1.6.1 comparison
 
@@ -1878,21 +1901,21 @@ All Go rows allocate zero; C allocations are not measured.
 
 | Workload | C scalar | Go scalar | C SIMD | Go SIMD |
 |---|---:|---:|---:|---:|
-| CELT-FB-20ms-stereo-128k | 119.29 | 118.62 | 87.40 | 77.79 |
-| CELT-FB-5ms-mono-64k | 13.43 | 15.18 | 12.33 | 12.38 |
-| Hybrid-FB-20ms-mono-64k | 243.68 | 222.20 | 160.41 | 135.77 |
-| Hybrid-FB-20ms-stereo-96k | 138.82 | 139.56 | 102.01 | 91.54 |
-| SILK-WB-20ms-mono-32k | 484.20 | 394.74 | 277.14 | 221.86 |
-| RFC vectors Float32 | 20.28 | 20.99 | 21.00 | 18.36 |
-| RFC vectors Int16 | 22.16 | 22.46 | 21.42 | 19.43 |
+| CELT-FB-20ms-stereo-128k | 140.71 | 147.77 | 100.05 | 86.33 |
+| CELT-FB-5ms-mono-64k | 14.72 | 15.98 | 13.91 | 13.09 |
+| Hybrid-FB-20ms-mono-64k | 257.40 | 227.95 | 167.83 | 203.91 |
+| Hybrid-FB-20ms-stereo-96k | 158.81 | 163.19 | 112.84 | 95.54 |
+| SILK-WB-20ms-mono-32k | 521.35 | 401.66 | 309.22 | 299.09 |
+| RFC vectors Float32 | 21.13 | 22.53 | 20.31 | 19.57 |
+| RFC vectors Int16 | 24.83 | 24.73 | 22.55 | 21.41 |
 
-SIMD encode takes 10.3–20.0% less time than SIMD C except 5 ms CELT, which is
-within 0.4%. SIMD vector decode takes 12.6%/9.3% less time for float32/int16.
-Scalar Go trails C by 13.1% for 5 ms CELT and 3.5%/1.4% for float32/int16 decode;
-its other encode rows range from 0.5% slower to 18.5% faster.
+SIMD Go trails SIMD C by 21.5% for Hybrid mono encode on this runner; its
+other encode rows take 3.3–15.3% less time. SIMD vector decode takes 3.6%/5.1%
+less time for float32/int16. Scalar Go trails C by 5.0% for 20 ms CELT,
+8.6% for 5 ms CELT, 2.8% for Hybrid stereo, and 6.6% for float32 decode.
 Decoder rows aggregate 20,075 identical packets; encoder rows use identical PCM
-and controls. Three SIMD OSCE correctness phases fail in this artifact and remain
-under investigation; their scalar counterparts pass.
+and controls. Three SIMD OSCE correctness phases fail at the measured revision;
+the local BWE reduction fix requires native AMD64 validation.
 
 ## Per-symbol inventory
 
