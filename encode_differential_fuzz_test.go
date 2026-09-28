@@ -11,13 +11,9 @@
 // full Opus packets (TOC + payload) AND the post-encode range-coder final range,
 // frame for frame.
 //
-// Why the FLOAT oracle (not the FIXED_POINT opus_encode oracle): the default
-// gopus build is float, and its Opus API wrapper (dc_reject, the SILK API-rate
-// resampler, stereo analysis) runs in float — exactly like libopus
-// opus_encode_float(). There is therefore NO float-vs-integer wrapper boundary,
-// so a top-level full-packet comparison CAN be byte-exact on the same arch. (The
-// FIXED_POINT oracle cannot: gopus_fixed_point keeps a float wrapper, documented
-// in testvectors/opus_encode_fixed_endtoend_parity_test.go.)
+// This test exercises the float-input public API: both EncodeFloat32 and
+// opus_encode_float receive the same PCM. Integer-input API coverage lives in
+// the corresponding fixed-point and int24 encoder parity tests.
 //
 // Every emitted packet and final-range value must match the selected libopus
 // build, which uses the same optional features and instruction lane as gopus.
