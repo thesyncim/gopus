@@ -174,9 +174,9 @@ CELT/SILK/Hybrid transition witness passes fixed-only and fixed-QEXT in both
 scalar and SIMD builds. The full fixed-QEXT encoder transition sweep passes
 2,988 configurations with 40 frames each in both scalar and SIMD, including
 FEC and DTX. Input filtering and the variable high-pass smoother advance once
-per native child frame. These full sweeps precede the planar CELT merge; the
-merged source passes focused filtering tests and the full SIMD CELT package,
-with the full transition sweep being repeated on that source. Fixed decoder coded/output-channel and
+per native child frame. Both full sweeps run on the production tree with the planar CELT
+optimization integrated. Focused filtering tests and the full SIMD CELT
+package also pass on that source. Fixed decoder coded/output-channel and
 phase-inversion controls match selected C, including control changes and reset.
 Malformed and cross-frame corruption gates pass in fixed-only scalar, SIMD and
 nosimd, and fixed-QEXT scalar/SIMD. The focused mono QEXT loss/recovery regression matches

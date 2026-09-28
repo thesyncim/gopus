@@ -1722,11 +1722,6 @@ func (e *Encoder) hpCutoff(in []opusRes, frameSize int) []opusRes {
 	return e.hpCutoffFrameAtCutoff(in, frameSize, 0, cutoffHz)
 }
 
-func (e *Encoder) hpCutoffFrame(in []opusRes, frameSize int, mode Mode, floatOffset int) []opusRes {
-	cutoffHz := e.updateVariableHPCutoff(mode)
-	return e.hpCutoffFrameAtCutoff(in, frameSize, floatOffset, cutoffHz)
-}
-
 func (e *Encoder) updateVariableHPCutoff(mode Mode) int32 {
 	// opus_encoder.c advances this smoother for every native frame, including
 	// non-VoIP frames where the selected filter is dc_reject or QEXT bypass.
@@ -1841,11 +1836,7 @@ func (e *Encoder) hpCutoffFrameAtCutoff(in []opusRes, frameSize int, floatOffset
 	return out
 }
 
-// dcReject applies a DC rejection filter (1st-order high-pass filter at 3Hz).
-func (e *Encoder) dcReject(in []opusRes, frameSize int) []opusRes {
-	return e.dcRejectFrame(in, frameSize, 0)
-}
-
+// dcRejectFrame applies a first-order DC rejection filter at 3 Hz.
 func (e *Encoder) dcRejectFrame(in []opusRes, frameSize int, floatOffset int) []opusRes {
 	channels := int(e.channels)
 	n := frameSize * channels
