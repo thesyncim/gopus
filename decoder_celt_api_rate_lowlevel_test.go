@@ -7,6 +7,35 @@ import (
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
+func decodeWithPrivateFloatCELTAPIRateReference(sampleRate, channels, frameSize int, packets [][]byte) ([]float32, error) {
+	binPath, err := privateFloatCELTAPIRateReferenceHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayloadVersion("GOSI", 5,
+		libopusRefdecodeSingleFormatFloat32, uint32(sampleRate), 0,
+		uint32(channels), uint32(frameSize), uint32(len(packets)))
+	for _, packet := range packets {
+		payload.U32(0) // decode_fec
+		payload.U32(uint32(len(packet)))
+		payload.Raw(packet)
+	}
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "private float CELT API-rate reference decode", "GOSO")
+	if err != nil {
+		return nil, err
+	}
+	nSamples := reader.Count(-1)
+	reader.ExpectRemaining(nSamples * 4)
+	decoded := make([]float32, nSamples)
+	for i := range decoded {
+		decoded[i] = reader.Float32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return decoded, nil
+}
+
 func TestCELTDecoderAPIRateToFloat32MatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	for _, frameSize48 := range []int{240, 960} {
@@ -24,7 +53,7 @@ func TestCELTDecoderAPIRateToFloat32MatchesLibopus(t *testing.T) {
 						if err != nil {
 							t.Fatalf("packetSamplesAtRate: %v", err)
 						}
-						want, err := decodeWithLibopusReferenceAPIRateFloat32(sampleRate, decoderChannels, frameSize, [][]byte{packet})
+						want, err := decodeWithPrivateFloatCELTAPIRateReference(sampleRate, decoderChannels, frameSize, [][]byte{packet})
 						if err != nil {
 							libopustest.HelperUnavailable(t, "low-level CELT API-rate reference decode", err)
 						}
@@ -59,7 +88,7 @@ func TestCELTDecoderAPIRatePLCMatchesLibopus(t *testing.T) {
 					if err != nil {
 						t.Fatalf("packetSamplesAtRate: %v", err)
 					}
-					want, err := decodeWithLibopusReferenceAPIRateFloat32(sampleRate, decoderChannels, frameSize, [][]byte{packet, nil})
+					want, err := decodeWithPrivateFloatCELTAPIRateReference(sampleRate, decoderChannels, frameSize, [][]byte{packet, nil})
 					if err != nil {
 						libopustest.HelperUnavailable(t, "low-level CELT API-rate PLC reference decode", err)
 					}
