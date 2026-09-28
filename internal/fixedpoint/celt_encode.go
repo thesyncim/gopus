@@ -82,6 +82,11 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 	if enableQEXT {
 		packetSizeCap = 3825
 	}
+	// celt/quant_bands.c keeps both coarse-energy trial states. Reserve the
+	// legal packet bound so varying VBR storage does not grow their copies
+	// during later frames.
+	sc.qceEncStart.ReserveBufferCapacity(packetSizeCap)
+	sc.qceEncIntra.ReserveBufferCapacity(packetSizeCap)
 	if nbCompressedBytes > packetSizeCap {
 		nbCompressedBytes = packetSizeCap
 	}
