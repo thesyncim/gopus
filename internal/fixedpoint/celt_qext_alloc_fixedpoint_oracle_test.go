@@ -15,12 +15,13 @@ import (
 func TestCELTFixedQEXTExtraAllocationMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	cases := []struct {
-		sampleRate int
-		channels   int
-		lm         int
-		totalQ3    int32
-		storage    int
-		realistic  bool
+		sampleRate  int
+		channels    int
+		lm          int
+		totalQ3     int32
+		storage     int
+		realistic   bool
+		toneishness int32
 	}{
 		// These retain the original 96 kHz full-budget channel/LM matrix.
 		{sampleRate: 96000, channels: 1, lm: 0, totalQ3: 50000, storage: 256},
@@ -32,6 +33,11 @@ func TestCELTFixedQEXTExtraAllocationMatchesLibopus(t *testing.T) {
 		{sampleRate: 48000, channels: 2, lm: 3, totalQ3: 50000, storage: 256, realistic: true},
 		{sampleRate: 48000, channels: 1, lm: 0, totalQ3: 1100, storage: 32, realistic: true},
 		{sampleRate: 96000, channels: 2, lm: 0, totalQ3: 3400, storage: 48, realistic: true},
+		// Hold tone frequency below the C threshold so the QCONST32(.98f,29)
+		// comparison decides the minimum-depth branch.
+		{sampleRate: 48000, channels: 1, lm: 0, totalQ3: 500, storage: 32, realistic: true, toneishness: celtToneishnessQ29 - 1},
+		{sampleRate: 48000, channels: 1, lm: 0, totalQ3: 500, storage: 32, realistic: true, toneishness: celtToneishnessQ29},
+		{sampleRate: 48000, channels: 1, lm: 0, totalQ3: 500, storage: 32, realistic: true, toneishness: celtToneishnessQ29 + 1},
 	}
 	for _, tc := range cases {
 		qextEnd := 14
@@ -39,6 +45,9 @@ func TestCELTFixedQEXTExtraAllocationMatchesLibopus(t *testing.T) {
 			qextEnd = 2
 		}
 		name := fmt.Sprintf("rate_%d/channels_%d/lm_%d/budget_%d", tc.sampleRate, tc.channels, tc.lm, tc.totalQ3)
+		if tc.toneishness != 0 {
+			name += fmt.Sprintf("/tone_%d", tc.toneishness)
+		}
 		t.Run(name, func(t *testing.T) {
 			mainLogE := make([]int32, tc.channels*celtNbEBands)
 			qextLogE := make([]int32, tc.channels*14)
@@ -63,6 +72,13 @@ func TestCELTFixedQEXTExtraAllocationMatchesLibopus(t *testing.T) {
 				toneQ29 = 526133493
 				if int32(float32(toneQ29)) == toneQ29 {
 					t.Fatal("Q29 fixture is exactly representable as float32")
+				}
+			}
+			if tc.toneishness != 0 {
+				toneFreq = 1
+				toneQ29 = tc.toneishness
+				for i := range qextLogE {
+					qextLogE[i] = -80 * (1 << dbShift)
 				}
 			}
 			const end = celtNbEBands

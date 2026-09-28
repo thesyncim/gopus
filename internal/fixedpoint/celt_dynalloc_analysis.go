@@ -216,7 +216,7 @@ func DynallocAnalysis(bandLogE, bandLogE2, oldBandE []int32, nbEBands, start, en
 			}
 		}
 		// Compensate for under-allocation on tones.
-		if toneishness > gconstQ(0.98, 29) {
+		if toneishness > celtToneishnessQ29 {
 			// freq_bin = PSHR32(tone_freq*QCONST16(120/M_PI,9), 13+9)
 			freqBin := int(pshr32(int32(toneFreq)*int32(19557), 13+9))
 			for i := start; i < end; i++ {

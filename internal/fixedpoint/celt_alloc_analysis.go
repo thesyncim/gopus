@@ -317,7 +317,7 @@ func AllocTrimAnalysis(eBands []int16, x []int32, bandLogE []int32, end, lm, c, 
 		minXC = min16(1024, abs16(minXC))
 
 		// logXC = celt_log2(QCONST32(1.001f, 20)-MULT16_16(sum, sum))
-		const q1001Q20 = int32(1049624) // QCONST32(1.001f,20)=.5+1.001*(1<<20)
+		const q1001Q20 = int32(1049625) // QCONST32(1.001f,20) in fixed_generic.h
 		logXC := int32(CeltLog2(q1001Q20 - mult16x16(int32(sum), int32(sum))))
 		// logXC2 = MAX16(HALF16(logXC), celt_log2(QCONST32(1.001f,20)-MULT16_16(minXC,minXC)))
 		logXC2 := max32(logXC>>1, int32(CeltLog2(q1001Q20-mult16x16(int32(minXC), int32(minXC)))))

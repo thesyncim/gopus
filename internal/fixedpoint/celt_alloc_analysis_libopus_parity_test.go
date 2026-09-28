@@ -160,3 +160,28 @@ func TestCELTAllocTrimAnalysisParity(t *testing.T) {
 		}
 	}
 }
+
+func TestCELTAllocTrimAnalysisQCONST32RoundingBoundary(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	const nbEBands = 21
+	n0 := int(eband5ms[nbEBands]) + 16
+	x := make([]int32, 2*n0)
+	for i := 0; i < 8; i++ {
+		x[i] = 1 << 24
+		x[n0+i] = 651 << 14
+	}
+	bandLogE := make([]int32, 2*nbEBands)
+
+	got := AllocTrimAnalysis(eband5ms, x, bandLogE, nbEBands, 0, 2, n0, nbEBands, 100, 0, 8, 0, 64000, false, 0)
+	want, err := libopustest.ProbeCELTAllocTrimAnalysis(eband5ms, x, bandLogE, nbEBands, 0, 2, n0, 100, 0, 8, 0, 64000, false, 0)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "CELT fixed allocation trim", err)
+	}
+	if want.StereoSaving != 95 {
+		t.Fatalf("boundary fixture no longer reaches the selected-C QCONST32 result: stereo_saving=%d want 95", want.StereoSaving)
+	}
+	if got.TrimIndex != want.TrimIndex || got.StereoSaving != want.StereoSaving {
+		t.Fatalf("alloc trim Go=%+v want selected libopus C=%+v", got, want)
+	}
+}

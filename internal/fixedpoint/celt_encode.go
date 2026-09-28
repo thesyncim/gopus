@@ -313,7 +313,7 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 	X := ensureInt32(&sc.bandX, C*N)
 	NormaliseBands(freq, X, bandE, eBands, nbEBands, shortMdctSize, effEnd, C, M)
 
-	enableTFAnalysis := effectiveBytes >= 15*C && !hybrid && e.complexity >= 2 && !e.lfe && toneishness < gconstQ(0.98, 29)
+	enableTFAnalysis := effectiveBytes >= 15*C && !hybrid && e.complexity >= 2 && !e.lfe && toneishness < celtToneishnessQ29
 
 	offsets := ensureInt(&sc.offsets, nbEBands)
 	importance := ensureInt(&sc.importance, nbEBands)

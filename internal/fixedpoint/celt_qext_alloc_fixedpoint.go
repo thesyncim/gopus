@@ -12,12 +12,11 @@ const (
 	qextDepthShift                 = 8
 	qextFlatLogShift               = dbShift - 10
 	qextToneScaleQ15         int32 = 32767
-	qextMinToneishnessQ29    int32 = 526133494 // QCONST32(.98f, 29)
-	qextToneFreqThresholdQ14       = 21791     // QCONST16(1.33f, 14)
-	qextFlatQuarterQ24       int32 = 1 << 20   // GCONST(.0625f)
-	qextFlatCurveQ24         int32 = 104019    // GCONST(.0062f)
-	qextExtraBandBiasQ10     int32 = 3072      // QCONST16(3.f, 10)
-	qextExtraBandSlopeQ10    int32 = 205       // QCONST16(.2f, 10)
+	qextToneFreqThresholdQ14       = 21791   // QCONST16(1.33f, 14)
+	qextFlatQuarterQ24       int32 = 1 << 20 // GCONST(.0625f)
+	qextFlatCurveQ24         int32 = 104019  // GCONST(.0062f)
+	qextExtraBandBiasQ10     int32 = 3072    // QCONST16(3.f, 10)
+	qextExtraBandSlopeQ10    int32 = 205     // QCONST16(.2f, 10)
 )
 
 // computeQEXTExtraAllocationFixed ports the FIXED_POINT encode branch of
@@ -72,7 +71,7 @@ func computeQEXTExtraAllocationFixed(start, end, qextEnd int, totalQ3 int32, cha
 	if mode != nil {
 		minDepth := int16(0)
 		minBudget := int32(3 * channels * (int(qextEdges[qextEnd]) - int(qextEdges[0])) << uint(lm+bitRes))
-		if totalQ3 >= minBudget && (toneishness < qextMinToneishnessQ29 || toneFreq > qextToneFreqThresholdQ14) {
+		if totalQ3 >= minBudget && (toneishness < celtToneishnessQ29 || toneFreq > qextToneFreqThresholdQ14) {
 			minDepth = int16(qextDepthScale)
 		}
 		for i := 0; i < qextEnd; i++ {
