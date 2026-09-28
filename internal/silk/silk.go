@@ -233,7 +233,7 @@ func (d *Decoder) DecodeStereoToMono(
 
 	// Handle PLC for nil data (lost packet)
 	if data == nil {
-		return d.decodePLC(bandwidth, frameSizeSamples)
+		return d.decodePLCStereoToMono(bandwidth, frameSizeSamples)
 	}
 
 	// Convert TOC frame size to duration
@@ -1330,6 +1330,15 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 	return output[:n], nil
 }
 
+func (d *Decoder) decodePLCStereoToMono(bandwidth Bandwidth, frameSizeSamples int) ([]float32, error) {
+	output := make([]float32, frameSizeSamples)
+	n, err := d.DecodePLCStereoToMonoInto(bandwidth, frameSizeSamples, output)
+	if err != nil {
+		return nil, err
+	}
+	return output[:n], nil
+}
+
 // DecodeMonoToStereoPLCInto preserves the mono-packet stereo-output routing
 // used by DecodeMonoToStereo while writing into caller-owned PCM.
 func (d *Decoder) DecodeMonoToStereoPLCInto(bandwidth Bandwidth, frameSizeSamples int, stereoToMono bool, output []float32) (int, error) {
@@ -1359,10 +1368,26 @@ func (d *Decoder) DecodeMonoToStereoPLCInto(bandwidth Bandwidth, frameSizeSample
 // destination buffer, which must hold at least 2*frameSizeSamples samples.
 // Returns the number of interleaved samples written.
 func (d *Decoder) DecodePLCStereoInto(bandwidth Bandwidth, frameSizeSamples int, output []float32) (int, error) {
+	return d.decodePLCStereoInto(bandwidth, frameSizeSamples, output, 2)
+}
+
+// DecodePLCStereoToMonoInto generates concealment for a stereo SILK stream and
+// writes its mid channel at the decoder API rate. Both mid and side PLC states
+// advance, while the side signal is not converted to left/right because
+// libopus emits the mid channel when the API decoder has one output channel.
+// The caller owns output, which must hold frameSizeSamples samples.
+func (d *Decoder) DecodePLCStereoToMonoInto(bandwidth Bandwidth, frameSizeSamples int, output []float32) (int, error) {
+	return d.decodePLCStereoInto(bandwidth, frameSizeSamples, output, 1)
+}
+
+func (d *Decoder) decodePLCStereoInto(bandwidth Bandwidth, frameSizeSamples int, output []float32, apiChannels int) (int, error) {
 	if bandwidth > BandwidthWideband {
 		return 0, ErrInvalidBandwidth
 	}
-	if len(output) < frameSizeSamples*2 {
+	if apiChannels != 1 && apiChannels != 2 {
+		return 0, ErrDecodeFailed
+	}
+	if len(output) < frameSizeSamples*apiChannels {
 		return 0, ErrDecodeFailed
 	}
 
@@ -1452,7 +1477,8 @@ func (d *Decoder) DecodePLCStereoInto(bandwidth Bandwidth, frameSizeSamples int,
 		d.state[1].lastGainIndex = 10
 	}
 
-	// Convert concealed mid/side to left/right using the saved stereo predictor.
+	// Prepare the concealed mid/side history. A mono API output receives the
+	// mid channel directly; stereo output converts mid/side to left/right.
 	midFrame, sideFrame, ok := d.stereoFrameScratch(nativeSamples)
 	if !ok {
 		midFrame = make([]int16, nativeSamples+2)
@@ -1466,6 +1492,26 @@ func (d *Decoder) DecodePLCStereoInto(bandwidth Bandwidth, frameSizeSamples int,
 			sideFrame[i+2] = float32ToInt16(side[i])
 		}
 	}
+	if apiChannels == 1 {
+		// silk_Decode buffers two samples of the mid channel and resamples from
+		// sMid[1], followed by the current frame except for its final sample.
+		// See silk/dec_API.c's non-stereo-output branch after SILK PLC.
+		copy(midFrame[:2], d.stereo.sMid[:])
+		copy(d.stereo.sMid[:], midFrame[nativeSamples:nativeSamples+2])
+		resampler := d.GetResamplerForChannel(bandwidth, 0)
+		captureI16 := d.plcLowbandCaptureArm && len(d.plcLowbandCapture) > 0
+		if captureI16 {
+			midI16 := d.plcStereoLeftI16Scratch(frameSizeSamples)
+			n := resampler.ProcessInt16IntoBoth(midFrame[1:nativeSamples+1], output, midI16)
+			n = min(n, len(midI16), len(d.plcLowbandCapture))
+			copy(d.plcLowbandCapture, midI16[:n])
+			d.plcLowbandCaptured = n
+			return n, nil
+		}
+		n := resampler.ProcessInt16Into(midFrame[1:nativeSamples+1], output)
+		return n, nil
+	}
+	// Convert concealed mid/side to left/right using the saved stereo predictor.
 	d.plcPredQ13[0] = int32(d.stereo.predPrevQ13[0])
 	d.plcPredQ13[1] = int32(d.stereo.predPrevQ13[1])
 	silkStereoMSToLR(&d.stereo, midFrame, sideFrame, d.plcPredQ13[:], config.SampleRate/1000, nativeSamples)

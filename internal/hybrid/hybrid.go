@@ -286,39 +286,35 @@ func (d *Decoder) DecodePLCToFloat32WithPacketStereoInto(frameSize int, stereo b
 
 	// Generate SILK PLC through the SILK decoder's native nil-packet path.
 	// This keeps concealment cadence/state aligned with SILK-mode PLC.
-	silkChannels := channels
-	if stereo {
-		silkChannels = 2
-	}
-	silkUpsampled := d.ensureSilkUpsampled(plcSilkFrameSize * silkChannels)
+	silkUpsampled := d.ensureSilkUpsampled(plcSilkFrameSize * channels)
 	clear(silkUpsampled)
 	d.silkDecoder.NotifyBandwidthChange(silk.BandwidthWideband)
 	if stereo {
-		n, err := d.silkDecoder.DecodePLCStereoInto(silk.BandwidthWideband, plcSilkFrameSize, silkUpsampled)
-		if err != nil {
-			return err
-		}
-		silkUpsampled = silkUpsampled[:n]
-	} else {
-		mono := silkUpsampled
-		if channels == 2 {
-			if cap(d.plcMonoScratch) < plcSilkFrameSize {
-				d.plcMonoScratch = make([]float32, plcSilkFrameSize)
+		if channels == 1 {
+			n, err := d.silkDecoder.DecodePLCStereoToMonoInto(silk.BandwidthWideband, plcSilkFrameSize, silkUpsampled)
+			if err != nil {
+				return err
 			}
-			mono = d.plcMonoScratch[:plcSilkFrameSize]
-		}
-		n, err := d.silkDecoder.DecodePLCInto(silk.BandwidthWideband, plcSilkFrameSize, mono)
-		if err != nil {
-			return err
-		}
-		if d.channels == 2 {
-			for i := range n {
-				val := mono[i]
-				silkUpsampled[i*2] = val
-				silkUpsampled[i*2+1] = val
-			}
-			silkUpsampled = silkUpsampled[:n*2]
+			silkUpsampled = silkUpsampled[:n]
 		} else {
+			n, err := d.silkDecoder.DecodePLCStereoInto(silk.BandwidthWideband, plcSilkFrameSize, silkUpsampled)
+			if err != nil {
+				return err
+			}
+			silkUpsampled = silkUpsampled[:n]
+		}
+	} else {
+		if channels == 2 {
+			n, err := d.silkDecoder.DecodeMonoToStereoPLCInto(silk.BandwidthWideband, plcSilkFrameSize, false, silkUpsampled)
+			if err != nil {
+				return err
+			}
+			silkUpsampled = silkUpsampled[:n]
+		} else {
+			n, err := d.silkDecoder.DecodePLCInto(silk.BandwidthWideband, plcSilkFrameSize, silkUpsampled)
+			if err != nil {
+				return err
+			}
 			silkUpsampled = silkUpsampled[:n]
 		}
 	}
