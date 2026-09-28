@@ -46,43 +46,87 @@ func rawMaxMinScanAVX(x []float32, maxVal, minVal float32) (float32, float32) {
 	return rawMaxMinScanScalar(x[i:], maxVal, minVal)
 }
 
-// preemphInterleaved applies celt_preemphasis's single-tap filter to
-// channels-interleaved pcm: out[i] = s[i] - coef*s[i-channels] with
-// s = CELT_SIG_SCALE*pcm, the first channels samples continuing from state.
-// Each output needs only the previous scaled sample of its channel, so four
-// outputs run per step with the scalar loop's exact products and
-// differences. It returns the updated per-channel state.
-func preemphInterleaved(pcm, out []float32, total, channels int, coef float32, state [2]float32) [2]float32 {
-	if total < channels+4 || !archsimd.X86.AVX() {
-		return preemphInterleavedScalar(pcm, out, total, channels, coef, state)
+// preemphMono applies celt_preemphasis's single-tap filter to mono pcm:
+// out[i] = s[i] - coef*s[i-1] with s = CELT_SIG_SCALE*pcm, the first output
+// continuing from the carried m. Each output needs only the previous scaled
+// sample, so four outputs run per step with the scalar loop's exact products
+// and differences. It returns the updated m.
+func preemphMono(pcm, out []float32, coef, m float32) float32 {
+	total := len(pcm)
+	if total < 5 || !archsimd.X86.AVX() {
+		return preemphMonoScalar(pcm, out, coef, m)
 	}
-	return preemphInterleavedAVX(pcm, out, total, channels, coef, state)
+	return preemphMonoAVX(pcm, out, coef, m)
 }
 
 //go:noinline
-func preemphInterleavedAVX(pcm, out []float32, total, channels int, coef float32, state [2]float32) [2]float32 {
-	pcm = pcm[:total]
+func preemphMonoAVX(pcm, out []float32, coef, m float32) float32 {
+	total := len(pcm)
 	out = out[:total]
-	for c := range channels {
-		scaled := pcm[c] * float32(CELTSigScale)
-		out[c] = scaled - state[c]
-	}
+	out[0] = pcm[0]*float32(CELTSigScale) - m
 	scale := broadcastF32x4Arch(float32(CELTSigScale))
 	coef4 := broadcastF32x4Arch(coef)
 	pp := unsafe.Pointer(unsafe.SliceData(pcm))
 	op := unsafe.Pointer(unsafe.SliceData(out))
-	i := channels
+	i := 1
 	for ; i+4 <= total; i += 4 {
 		scaled := loadF32x4(unsafe.Add(pp, 4*i)).Mul(scale)
-		prev := coef4.Mul(loadF32x4(unsafe.Add(pp, 4*(i-channels))).Mul(scale))
+		prev := coef4.Mul(loadF32x4(unsafe.Add(pp, 4*(i-1))).Mul(scale))
 		storeF32x4(unsafe.Add(op, 4*i), scaled.Sub(prev))
 	}
 	for ; i < total; i++ {
 		scaled := pcm[i] * float32(CELTSigScale)
-		out[i] = scaled - mul32(coef, pcm[i-channels]*float32(CELTSigScale))
+		out[i] = scaled - mul32(coef, pcm[i-1]*float32(CELTSigScale))
 	}
-	for c := range channels {
-		state[c] = coef * (pcm[total-channels+c] * float32(CELTSigScale))
+	return coef * (pcm[total-1] * float32(CELTSigScale))
+}
+
+// preemphStereoPlanar applies celt_preemphasis's single-tap filter to
+// interleaved stereo pcm and writes each channel to its planar output:
+// out_c[i] = s_c[i] - coef*s_c[i-1] with s = CELT_SIG_SCALE*pcm, the first
+// outputs continuing from state. Each step loads four current and four
+// previous sample pairs, splits them into channels, and forms four outputs
+// per channel with the scalar loop's exact products and differences. It
+// returns the updated per-channel m.
+func preemphStereoPlanar(pcm, outL, outR []float32, coef float32, state [2]float32) [2]float32 {
+	n := len(outL)
+	if n < 5 || !archsimd.X86.AVX() {
+		return preemphStereoPlanarScalar(pcm, outL, outR, coef, state)
 	}
-	return state
+	return preemphStereoPlanarAVX(pcm, outL, outR, coef, state)
+}
+
+//go:noinline
+func preemphStereoPlanarAVX(pcm, outL, outR []float32, coef float32, state [2]float32) [2]float32 {
+	n := len(outL)
+	pcm = pcm[:2*n]
+	outR = outR[:n]
+	outL[0] = pcm[0]*float32(CELTSigScale) - state[0]
+	outR[0] = pcm[1]*float32(CELTSigScale) - state[1]
+	scale := broadcastF32x4Arch(float32(CELTSigScale))
+	coef4 := broadcastF32x4Arch(coef)
+	pp := unsafe.Pointer(unsafe.SliceData(pcm))
+	lp := unsafe.Pointer(unsafe.SliceData(outL))
+	rp := unsafe.Pointer(unsafe.SliceData(outR))
+	i := 1
+	for ; i+4 <= n; i += 4 {
+		cur0 := loadF32x4(unsafe.Add(pp, 8*i))
+		cur1 := loadF32x4(unsafe.Add(pp, 8*i+16))
+		prev0 := loadF32x4(unsafe.Add(pp, 8*(i-1)))
+		prev1 := loadF32x4(unsafe.Add(pp, 8*(i-1)+16))
+		curL := cur0.ConcatPermuteScalars(0, 2, 4, 6, cur1)
+		curR := cur0.ConcatPermuteScalars(1, 3, 5, 7, cur1)
+		prevL := prev0.ConcatPermuteScalars(0, 2, 4, 6, prev1)
+		prevR := prev0.ConcatPermuteScalars(1, 3, 5, 7, prev1)
+		storeF32x4(unsafe.Add(lp, 4*i), curL.Mul(scale).Sub(coef4.Mul(prevL.Mul(scale))))
+		storeF32x4(unsafe.Add(rp, 4*i), curR.Mul(scale).Sub(coef4.Mul(prevR.Mul(scale))))
+	}
+	for ; i < n; i++ {
+		outL[i] = pcm[2*i]*float32(CELTSigScale) - mul32(coef, pcm[2*i-2]*float32(CELTSigScale))
+		outR[i] = pcm[2*i+1]*float32(CELTSigScale) - mul32(coef, pcm[2*i-1]*float32(CELTSigScale))
+	}
+	return [2]float32{
+		coef * (pcm[2*n-2] * float32(CELTSigScale)),
+		coef * (pcm[2*n-1] * float32(CELTSigScale)),
+	}
 }

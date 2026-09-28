@@ -20,55 +20,23 @@ var (
 	ErrEncodingFailed = errors.New("celt: encoding failed")
 )
 
-// fillMDCTHistoryFromPrefilter mirrors libopus overlap sourcing for CELT MDCT:
-// in[0:overlap] comes from the previous filtered output tail (st->in_mem).
-func (e *Encoder) fillMDCTHistoryFromPrefilter(channel, overlap int, dst []float32) {
-	if overlap <= 0 || len(dst) < overlap || channel < 0 {
-		return
-	}
-	if len(e.overlapBuffer) < (channel+1)*overlap {
-		for i := range overlap {
-			dst[i] = 0
-		}
-		return
-	}
-	start := channel * overlap
-	copy(dst[:overlap], e.overlapBuffer[start:start+overlap])
-}
-
-func (e *Encoder) fillTransientHistoryFromPrefilterF32(overlap int, dst []float32) {
-	if overlap <= 0 || e.channels <= 0 {
+// fillTransientHistoryFromPrefilterF32 loads each channel's overlap head of
+// the planar in buffer from the tail of prefilter_mem, as celt_encode_with_ec
+// does before transient_analysis.
+func (e *Encoder) fillTransientHistoryFromPrefilterF32(overlap, frameSize int, in []float32) {
+	if overlap <= 0 {
 		return
 	}
 	channels := int(e.channels)
-	need := overlap * channels
-	if len(dst) < need {
-		return
-	}
+	stride := frameSize + overlap
 	maxPeriod := e.combMaxPeriod()
-	if len(e.prefilterMem) < maxPeriod*channels {
-		clear(dst[:need])
-		return
-	}
-	base := maxPeriod - overlap
-	if channels == 2 {
-		src0 := e.prefilterMem[base : base+overlap]
-		src1 := e.prefilterMem[maxPeriod+base : maxPeriod+base+overlap]
-		out := dst[:2*len(src0)]
-		for i, v := range src0 {
-			_ = out[1]
-			out[0] = v
-			out[1] = src1[i]
-			out = out[2:]
-		}
-		return
-	}
 	for ch := range channels {
-		chBase := ch * maxPeriod
-		src := e.prefilterMem[chBase+base : chBase+base+overlap]
-		for i, v := range src {
-			dst[i*channels+ch] = v
+		head := in[ch*stride : ch*stride+overlap]
+		if len(e.prefilterMem) < (ch+1)*maxPeriod {
+			clear(head)
+			continue
 		}
+		copySigToFloat32(head, e.prefilterMem[(ch+1)*maxPeriod-overlap:(ch+1)*maxPeriod])
 	}
 }
 
@@ -220,9 +188,7 @@ func applyUpsampleMDCTScaling(coeffs []float32, upsample int) {
 	for i := range bound {
 		coeffs[i] *= up
 	}
-	for i := bound; i < len(coeffs); i++ {
-		coeffs[i] = 0
-	}
+	clear(coeffs[bound:])
 }
 
 // EncodeFrame encodes one CELT frame of float32 PCM into its own range coder
@@ -316,28 +282,15 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	// - Current frame's pre-emphasized samples (indices overlap to overlap+N-1)
 	// Reference: libopus celt_encoder.c line 2030
 	overlap := min(e.analysisOverlap(), frameSize)
-	mdctPrevL := ensureFloat32Slice(&e.scratch.mdctPrevL, overlap)[:overlap]
-	mdctPrevR := ensureFloat32Slice(&e.scratch.mdctPrevR, overlap)[:overlap]
-	e.fillMDCTHistoryFromPrefilter(0, overlap, mdctPrevL)
-	if e.channels == 2 {
-		e.fillMDCTHistoryFromPrefilter(1, overlap, mdctPrevR)
-	}
 
-	// Build combined signal for transient analysis: [overlap from previous frame] + [current frame]
-	// Total length: (overlap + frameSize) * channels - use scratch buffer
-	preemphBufSize := overlap * channels
-	transientLen := (overlap + frameSize) * channels
-	transientInput := e.scratch.transientInput
-	if len(transientInput) < transientLen {
-		transientInput = make([]float32, transientLen)
-		e.scratch.transientInput = transientInput
-	}
-	transientInput = transientInput[:transientLen]
-	// Match libopus celt_preemphasis() ordering, but write the current frame
-	// directly after the overlap history so transient analysis needs no copy.
-	preemph := transientInput[preemphBufSize:]
-	e.fillTransientHistoryFromPrefilterF32(overlap, transientInput[:preemphBufSize])
-	isSilence := e.applyPreemphasisWithScalingAndSilenceCore(samplesForFrame, preemph, frameSize, overlap)
+	// in is celt_encode_with_ec's planar buffer: channel c occupies
+	// in[c*(N+overlap):(c+1)*(N+overlap)]. Its overlap head holds the tail of
+	// prefilter_mem for transient analysis until run_prefilter swaps in the
+	// filtered in_mem history for the MDCT.
+	stride := frameSize + overlap
+	in := ensureFloat32Slice(&e.scratch.planarIn, channels*stride)
+	e.fillTransientHistoryFromPrefilterF32(overlap, frameSize, in)
+	isSilence := e.applyPreemphasisWithScalingAndSilenceCore(samplesForFrame, in, frameSize, overlap)
 
 	// Initialize the range encoder, then the frame budget: byte budget, VBR
 	// rate and equiv_rate (celt_encoder.c:1873-1927). VBR starts from the full
@@ -370,11 +323,11 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	// outputs stay 0.
 	var transientResult TransientAnalysisResult
 	if e.complexity < 1 || e.lfe {
-		transientResult = e.toneDetectOnlyF32(transientInput[:transientLen], frameSize+overlap)
+		transientResult = e.toneDetectOnlyF32(in, stride)
 	} else if e.channels == 1 {
-		transientResult = e.transientAnalysisMonoFloat32(transientInput[:transientLen], frameSize+overlap, allowWeakTransients)
+		transientResult = e.transientAnalysisMonoFloat32(in, stride, allowWeakTransients)
 	} else {
-		transientResult = e.TransientAnalysisF32(transientInput, frameSize+overlap, allowWeakTransients)
+		transientResult = e.TransientAnalysisF32(in, stride, allowWeakTransients)
 	}
 	transient := transientResult.IsTransient
 	weakTransient := transientResult.WeakTransient
@@ -456,7 +409,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	if e.analysisValid {
 		maxPitchRatio = e.analysisMaxPitchRatio
 	}
-	pfResult := e.runPrefilter(preemph, frameSize, prefilterTapset, enabled, tfEstimate, nbAvailableBytes, toneFreq, toneishness, maxPitchRatio)
+	pfResult := e.runPrefilter(in, frameSize, prefilterTapset, enabled, tfEstimate, nbAvailableBytes, toneFreq, toneishness, maxPitchRatio)
 	pitchChange := e.pitchChanged(pfResult, prevPrefilterPeriod, prevPrefilterGain)
 
 	if !e.IsHybrid() && start == 0 && re.Tell()+16 <= totalBits {
@@ -492,58 +445,10 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	secondMdct := shortBlocks > 1 && e.complexity >= 8
 	var bandLogE2 []celtGLog
 	if secondMdct {
-		if e.channels == 1 {
-			// Use scratch for hist buffer
-			hist := e.scratch.leftHist
-			if len(hist) < overlap {
-				hist = make([]float32, overlap)
-				e.scratch.leftHist = hist
-			}
-			hist = hist[:overlap]
-			copy(hist, mdctPrevL[:overlap])
-			mdctLong := computeMDCTWithHistoryScratchOverlap(preemph, hist, 1, overlap, &e.scratch)
-			applyUpsampleMDCTScaling(mdctLong, upsample)
-			// Use bandLogE2 scratch buffer to avoid aliasing with energies
-			bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*codedChannels)
-			e.computeBandEnergiesGLogActive(mdctLong, nbBands, frameSize, codedChannels, 1<<lm, bandLogE2)
-		} else {
-			left, right := deinterleaveStereoScratchF32(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
-			// Use scratch for hist buffers
-			leftHist := e.scratch.leftHist
-			rightHist := e.scratch.rightHist
-			if len(leftHist) < overlap {
-				leftHist = make([]float32, overlap)
-				e.scratch.leftHist = leftHist
-			}
-			if len(rightHist) < overlap {
-				rightHist = make([]float32, overlap)
-				e.scratch.rightHist = rightHist
-			}
-			leftHist = leftHist[:overlap]
-			rightHist = rightHist[:overlap]
-			copy(leftHist, mdctPrevL[:overlap])
-			copy(rightHist, mdctPrevR[:overlap])
-			mdctLeftLong := computeMDCTWithHistoryScratchStereoLOverlap(left, leftHist, 1, overlap, &e.scratch)
-			mdctRightLong := computeMDCTWithHistoryScratchStereoROverlap(right, rightHist, 1, overlap, &e.scratch)
-			applyUpsampleMDCTScaling(mdctLeftLong, upsample)
-			applyUpsampleMDCTScaling(mdctRightLong, upsample)
-			mdctLong := e.scratch.mdctCoeffsF32
-			if codedChannels == 1 {
-				mdctLong = foldStereoMDCTToMonoF32(mdctLong, mdctLeftLong, mdctRightLong)
-			} else {
-				mdctLongLen := len(mdctLeftLong) + len(mdctRightLong)
-				if len(mdctLong) < mdctLongLen {
-					mdctLong = make([]float32, mdctLongLen)
-					e.scratch.mdctCoeffsF32 = mdctLong
-				}
-				mdctLong = mdctLong[:mdctLongLen]
-				copy(mdctLong, mdctLeftLong)
-				copy(mdctLong[len(mdctLeftLong):], mdctRightLong)
-			}
-			// Use bandLogE2 scratch buffer to avoid aliasing with energies
-			bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*codedChannels)
-			e.computeBandEnergiesGLogActive(mdctLong, nbBands, frameSize, codedChannels, 1<<lm, bandLogE2)
-		}
+		mdctLong := e.computeFrameMDCT(in, frameSize, overlap, 1, codedChannels, upsample)
+		// Use bandLogE2 scratch buffer to avoid aliasing with energies
+		bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*codedChannels)
+		e.computeBandEnergiesGLogActive(mdctLong, nbBands, frameSize, codedChannels, 1<<lm, bandLogE2)
 		if bandLogE2 != nil {
 			offset := celtGLog(0.5 * float32(lm))
 			for i := range bandLogE2 {
@@ -553,44 +458,9 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	}
 
 	// Step 5: Compute MDCT with proper overlap handling
-	var mdctCoeffs []float32
-	var mdctLeft, mdctRight []float32
-	if e.channels == 1 {
-		hist := ensureFloat32Slice(&e.scratch.leftHist, overlap)
-		hist = hist[:overlap]
-		copy(hist, mdctPrevL[:overlap])
-		mdctCoeffs = computeMDCTWithHistoryScratchOverlap(preemph, hist, shortBlocks, overlap, &e.scratch)
-		applyUpsampleMDCTScaling(mdctCoeffs, upsample)
-	} else {
-		// Stereo: MDCT Left and Right directly - use scratch buffers
-		left, right := deinterleaveStereoScratchF32(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
-
-		leftHistory := ensureFloat32Slice(&e.scratch.leftHist, overlap)
-		rightHistory := ensureFloat32Slice(&e.scratch.rightHist, overlap)
-		leftHistory = leftHistory[:overlap]
-		rightHistory = rightHistory[:overlap]
-		copy(leftHistory, mdctPrevL[:overlap])
-		copy(rightHistory, mdctPrevR[:overlap])
-		// Use overlap-aware MDCT for both channels with scratch buffers
-		mdctLeft = computeMDCTWithHistoryScratchStereoLOverlap(left, leftHistory, shortBlocks, overlap, &e.scratch)
-		mdctRight = computeMDCTWithHistoryScratchStereoROverlap(right, rightHistory, shortBlocks, overlap, &e.scratch)
-		applyUpsampleMDCTScaling(mdctLeft, upsample)
-		applyUpsampleMDCTScaling(mdctRight, upsample)
-
-		mdctCoeffs = e.scratch.mdctCoeffsF32
-		if codedChannels == 1 {
-			mdctCoeffs = foldStereoMDCTToMonoF32(mdctCoeffs, mdctLeft, mdctRight)
-			tfChannel = 0
-		} else {
-			coeffsLen := len(mdctLeft) + len(mdctRight)
-			if len(mdctCoeffs) < coeffsLen {
-				mdctCoeffs = make([]float32, coeffsLen)
-				e.scratch.mdctCoeffsF32 = mdctCoeffs
-			}
-			mdctCoeffs = mdctCoeffs[:coeffsLen]
-			copy(mdctCoeffs[:len(mdctLeft)], mdctLeft)
-			copy(mdctCoeffs[len(mdctLeft):], mdctRight)
-		}
+	mdctCoeffs := e.computeFrameMDCT(in, frameSize, overlap, shortBlocks, codedChannels, upsample)
+	if codedChannels < channels {
+		tfChannel = 0
 	}
 
 	// Step 6: Compute band energies
@@ -627,47 +497,9 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 			tfEstimate = 0.2 // Match libopus: tf_estimate = QCONST16(.2f,14)
 
 			// Recompute MDCT with short blocks
-			if e.channels == 1 {
-				hist := ensureFloat32Slice(&e.scratch.leftHist, overlap)
-				hist = hist[:overlap]
-				copy(hist, mdctPrevL[:overlap])
-				mdctCoeffs = computeMDCTWithHistoryScratchOverlap(preemph, hist, shortBlocks, overlap, &e.scratch)
-				applyUpsampleMDCTScaling(mdctCoeffs, upsample)
-			} else {
-				// For stereo, recompute both channels - use scratch buffers
-				left, right := deinterleaveStereoScratchF32(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
-				leftHist := e.scratch.leftHist
-				rightHist := e.scratch.rightHist
-				if len(leftHist) < overlap {
-					leftHist = make([]float32, overlap)
-					e.scratch.leftHist = leftHist
-				}
-				if len(rightHist) < overlap {
-					rightHist = make([]float32, overlap)
-					e.scratch.rightHist = rightHist
-				}
-				leftHist = leftHist[:overlap]
-				rightHist = rightHist[:overlap]
-				copy(leftHist, mdctPrevL[:overlap])
-				copy(rightHist, mdctPrevR[:overlap])
-				mdctLeft = computeMDCTWithHistoryScratchStereoLOverlap(left, leftHist, shortBlocks, overlap, &e.scratch)
-				mdctRight = computeMDCTWithHistoryScratchStereoROverlap(right, rightHist, shortBlocks, overlap, &e.scratch)
-				applyUpsampleMDCTScaling(mdctLeft, upsample)
-				applyUpsampleMDCTScaling(mdctRight, upsample)
-				mdctCoeffs = e.scratch.mdctCoeffsF32
-				if codedChannels == 1 {
-					mdctCoeffs = foldStereoMDCTToMonoF32(mdctCoeffs, mdctLeft, mdctRight)
-					tfChannel = 0
-				} else {
-					coeffsLen := len(mdctLeft) + len(mdctRight)
-					if len(mdctCoeffs) < coeffsLen {
-						mdctCoeffs = make([]float32, coeffsLen)
-						e.scratch.mdctCoeffsF32 = mdctCoeffs
-					}
-					mdctCoeffs = mdctCoeffs[:coeffsLen]
-					copy(mdctCoeffs[:len(mdctLeft)], mdctLeft)
-					copy(mdctCoeffs[len(mdctLeft):], mdctRight)
-				}
+			mdctCoeffs = e.computeFrameMDCT(in, frameSize, overlap, shortBlocks, codedChannels, upsample)
+			if codedChannels < channels {
+				tfChannel = 0
 			}
 
 			// Recompute band energies with short block coefficients
@@ -781,6 +613,11 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	var normL, normR []celtNorm
 	var bandE []celtEner
 	var normBandEScratch []celtEner
+	var mdctLeft, mdctRight []float32
+	if codedChannels == 2 {
+		mdctLeft = mdctCoeffs[:frameSize]
+		mdctRight = mdctCoeffs[frameSize : 2*frameSize]
+	}
 	if e.hd96kOverlap > 0 {
 		// Native 96 kHz HD mode: band edges are eBands[i]*M with M=1<<LM
 		// (compute_band_energies/normalise_bands), not frameSize/120, which would
@@ -1698,158 +1535,32 @@ func ComputeMDCTWithHistory(samples, history []float32, shortBlocks int) []float
 	return MDCT(input)
 }
 
-// computeMDCTWithHistoryScratchOverlap computes the MDCT of the overlap
-// history followed by the frame with the encoder scratch buffers. The 48 kHz
-// path passes overlap=Overlap; the native 96 kHz HD mode passes overlap=240.
-func computeMDCTWithHistoryScratchOverlap(samples, history []float32, shortBlocks, overlap int, scratch *encoderScratch) []float32 {
-	if len(samples) == 0 {
-		return nil
-	}
-
-	if overlap > len(samples) {
-		overlap = len(samples)
-	}
-
-	// Use scratch input buffer
-	inputLen := len(samples) + overlap
-	input := scratch.mdctInput
-	if len(input) < inputLen {
-		input = make([]float32, inputLen)
-		scratch.mdctInput = input
-	}
-	input = input[:inputLen]
-
-	// Copy history overlap into the head of the input buffer.
-	if overlap > 0 && len(history) > 0 {
-		if len(history) >= overlap {
-			copy(input[:overlap], history[len(history)-overlap:])
-		} else {
-			copy(input[overlap-len(history):overlap], history)
+// computeFrameMDCT is compute_mdcts over celt_encode_with_ec's planar in
+// buffer (channel stride frameSize+overlap). It returns codedChannels*frameSize
+// coefficients in the mdctCoeffsF32 scratch: a stereo input coded as mono
+// folds the two channel spectra, and the upsample scaling then applies to each
+// coded channel.
+func (e *Encoder) computeFrameMDCT(in []float32, frameSize, overlap, shortBlocks, codedChannels, upsample int) []float32 {
+	scratch := &e.scratch
+	stride := frameSize + overlap
+	var coeffs []float32
+	if e.channels == 1 || codedChannels == 2 {
+		channels := int(e.channels)
+		coeffs = ensureFloat32Slice(&scratch.mdctCoeffsF32, channels*frameSize)
+		for ch := range channels {
+			mdctForwardShortOverlapScratchIntoF32Coeffs(in[ch*stride:(ch+1)*stride], overlap, shortBlocks, coeffs[ch*frameSize:(ch+1)*frameSize], scratch)
 		}
+	} else {
+		left := ensureFloat32Slice(&scratch.mdctLeftF32, frameSize)
+		right := ensureFloat32Slice(&scratch.mdctRightF32, frameSize)
+		mdctForwardShortOverlapScratchIntoF32Coeffs(in[:stride], overlap, shortBlocks, left, scratch)
+		mdctForwardShortOverlapScratchIntoF32Coeffs(in[stride:2*stride], overlap, shortBlocks, right, scratch)
+		coeffs = foldStereoMDCTToMonoF32(scratch.mdctCoeffsF32, left, right)
 	}
-
-	// Append current frame samples after the overlap.
-	copy(input[overlap:], samples)
-
-	// Update history with the current frame tail (overlap samples).
-	if overlap > 0 && len(history) > 0 {
-		if len(history) >= overlap {
-			copy(history, samples[len(samples)-overlap:])
-		} else {
-			copy(history, samples[len(samples)-len(history):])
-		}
+	for ch := range codedChannels {
+		applyUpsampleMDCTScaling(coeffs[ch*frameSize:(ch+1)*frameSize], upsample)
 	}
-
-	if shortBlocks > 1 {
-		return mdctForwardShortOverlapScratchF32Coeffs(input, overlap, shortBlocks, scratch)
-	}
-	return mdctForwardOverlapScratchF32Coeffs(input, overlap, scratch)
-}
-
-// computeMDCTWithHistoryScratchStereoLOverlap computes the MDCT of the left
-// channel into the mdctLeft scratch buffer.
-func computeMDCTWithHistoryScratchStereoLOverlap(samples, history []float32, shortBlocks, overlap int, scratch *encoderScratch) []float32 {
-	if len(samples) == 0 {
-		return nil
-	}
-
-	if overlap > len(samples) {
-		overlap = len(samples)
-	}
-
-	// Use scratch input buffer (shared, but reused between L and R sequentially)
-	inputLen := len(samples) + overlap
-	input := scratch.mdctInput
-	if len(input) < inputLen {
-		input = make([]float32, inputLen)
-		scratch.mdctInput = input
-	}
-	input = input[:inputLen]
-
-	// Copy history overlap into the head of the input buffer.
-	if overlap > 0 && len(history) > 0 {
-		if len(history) >= overlap {
-			copy(input[:overlap], history[len(history)-overlap:])
-		} else {
-			copy(input[overlap-len(history):overlap], history)
-		}
-	}
-
-	// Append current frame samples after the overlap.
-	copy(input[overlap:], samples)
-
-	// Update history with the current frame tail (overlap samples).
-	if overlap > 0 && len(history) > 0 {
-		if len(history) >= overlap {
-			copy(history, samples[len(samples)-overlap:])
-		} else {
-			copy(history, samples[len(samples)-len(history):])
-		}
-	}
-
-	// Use mdctLeft for output
-	frameSize := len(samples)
-	coeffs := ensureFloat32Slice(&scratch.mdctLeftF32, frameSize)
-
-	if shortBlocks > 1 {
-		return mdctForwardShortOverlapScratchIntoF32Coeffs(input, overlap, shortBlocks, coeffs[:frameSize], scratch)
-	}
-	mdctForwardOverlapF32Scratch(input, overlap, coeffs[:frameSize],
-		scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp, scratch.mdctLookup(2*(len(input)-overlap)))
-	return coeffs[:frameSize]
-}
-
-// computeMDCTWithHistoryScratchStereoROverlap computes the MDCT of the right
-// channel into the mdctRight scratch buffer.
-func computeMDCTWithHistoryScratchStereoROverlap(samples, history []float32, shortBlocks, overlap int, scratch *encoderScratch) []float32 {
-	if len(samples) == 0 {
-		return nil
-	}
-
-	if overlap > len(samples) {
-		overlap = len(samples)
-	}
-
-	// Use scratch input buffer (shared, but reused between L and R sequentially)
-	inputLen := len(samples) + overlap
-	input := scratch.mdctInput
-	if len(input) < inputLen {
-		input = make([]float32, inputLen)
-		scratch.mdctInput = input
-	}
-	input = input[:inputLen]
-
-	// Copy history overlap into the head of the input buffer.
-	if overlap > 0 && len(history) > 0 {
-		if len(history) >= overlap {
-			copy(input[:overlap], history[len(history)-overlap:])
-		} else {
-			copy(input[overlap-len(history):overlap], history)
-		}
-	}
-
-	// Append current frame samples after the overlap.
-	copy(input[overlap:], samples)
-
-	// Update history with the current frame tail (overlap samples).
-	if overlap > 0 && len(history) > 0 {
-		if len(history) >= overlap {
-			copy(history, samples[len(samples)-overlap:])
-		} else {
-			copy(history, samples[len(samples)-len(history):])
-		}
-	}
-
-	// Use mdctRight for output
-	frameSize := len(samples)
-	coeffs := ensureFloat32Slice(&scratch.mdctRightF32, frameSize)
-
-	if shortBlocks > 1 {
-		return mdctForwardShortOverlapScratchIntoF32Coeffs(input, overlap, shortBlocks, coeffs[:frameSize], scratch)
-	}
-	mdctForwardOverlapF32Scratch(input, overlap, coeffs[:frameSize],
-		scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp, scratch.mdctLookup(2*(len(input)-overlap)))
-	return coeffs[:frameSize]
+	return coeffs
 }
 
 // updateSpecAvg ports the temporal-VBR analysis of celt_encode_with_ec

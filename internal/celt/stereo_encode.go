@@ -193,20 +193,6 @@ func ConvertMidSideToLR(mid, side []celtNorm) (left, right []CeltNorm) {
 	return left, right
 }
 
-// deinterleaveStereoScratchF32 separates interleaved float-build stereo using
-// float-width scratch buffers.
-func deinterleaveStereoScratchF32(interleaved []float32, leftBuf, rightBuf *[]float32) (left, right []float32) {
-	if len(interleaved) < 2 {
-		return nil, nil
-	}
-
-	n := len(interleaved) / 2
-	left = ensureFloat32Slice(leftBuf, n)
-	right = ensureFloat32Slice(rightBuf, n)
-	DeinterleaveStereoIntoF32(interleaved, left, right)
-	return left, right
-}
-
 // DeinterleaveStereoInto separates interleaved stereo samples into pre-allocated L and R slices.
 // left and right must each have capacity >= len(interleaved)/2.
 func DeinterleaveStereoInto(interleaved, left, right []celtNorm) {

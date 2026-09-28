@@ -574,6 +574,9 @@ type DynallocScratch struct {
 	Sig       []float32
 	Follower  []float32
 	BandLogE3 []float32
+
+	// Zero-padded copies of short band-energy inputs.
+	padE, padE2 []celtGLog
 }
 
 // EnsureDynallocScratch ensures scratch buffers are large enough.
@@ -621,7 +624,10 @@ func (s *DynallocScratch) EnsureDynallocScratch(nbBands, channels int) {
 	}
 }
 
-// DynallocAnalysisWithScratch is the zero-allocation version of DynallocAnalysis.
+// DynallocAnalysisWithScratch is the zero-allocation version of DynallocAnalysis:
+// dynalloc_analysis from celt_encoder.c over the caller's scratch. bandLogE and
+// bandLogE2 hold channels bands of stride nbBands (a nil bandLogE2 reads
+// bandLogE); missing trailing energies read as zero.
 func DynallocAnalysisWithScratch(
 	bandLogE, bandLogE2 []celtGLog,
 	oldBandE []celtGLog,
@@ -639,55 +645,40 @@ func DynallocAnalysisWithScratch(
 	if scratch == nil {
 		scratch = &DynallocScratch{}
 	}
-
+	nbBands = max(nbBands, 0)
 	scratch.EnsureDynallocScratch(nbBands, channels)
-	if nbBands < 0 {
-		nbBands = 0
-	}
-	if end > nbBands {
-		end = nbBands
-	}
-	if start < 0 {
-		start = 0
-	}
-	if start > end {
-		start = end
-	}
+	end = min(end, nbBands)
+	start = min(max(start, 0), end)
 
 	result := DynallocResult{
 		MaxDepth:     celtGLog(-31.9),
 		Offsets:      scratch.Offsets[:nbBands],
 		SpreadWeight: scratch.SpreadWeight[:nbBands],
 		Importance:   scratch.Importance[:nbBands],
-		TotBoost:     0,
+	}
+	clear(result.Offsets)
+	clear(result.SpreadWeight)
+	clear(result.Importance)
+	if end <= 0 {
+		return result
 	}
 
-	// Zero output arrays
-	for i := range result.Offsets {
-		result.Offsets[i] = 0
-		result.SpreadWeight[i] = 0
-		result.Importance[i] = 0
+	// Every loop below indexes [0,end) of a channel, so each channel view is
+	// sliced to end once.
+	total := channels * nbBands
+	if bandLogE2 == nil {
+		bandLogE2 = bandLogE
+	}
+	bandLogE = scratch.dynallocPadded(bandLogE, total, &scratch.padE)
+	bandLogE2 = scratch.dynallocPadded(bandLogE2, total, &scratch.padE2)
+	e0 := bandLogE[:end]
+	var e1 []celtGLog
+	if channels == 2 {
+		e1 = bandLogE[nbBands : nbBands+end]
 	}
 
-	bandLogE32 := bandLogE
-	var bandLogE2_32 []celtGLog
-	if bandLogE2 != nil {
-		bandLogE2_32 = bandLogE2
-	}
-
-	var oldBandE32 []celtGLog
-	if oldBandE != nil {
-		oldLen := len(oldBandE)
-		maxOldLen := nbBands * channels
-		if oldLen > maxOldLen {
-			oldLen = maxOldLen
-		}
-		oldBandE32 = oldBandE[:oldLen]
-	}
-
-	// Compute noise floor per band
 	noiseFloor := scratch.NoiseFloor[:end]
-	for i := 0; i < end; i++ {
+	for i := range noiseFloor {
 		logNVal := int16(0)
 		if i < len(logN) {
 			logNVal = logN[i]
@@ -695,285 +686,242 @@ func DynallocAnalysisWithScratch(
 		noiseFloor[i] = computeNoiseFloor32(i, lsbDepth, logNVal)
 	}
 
-	// Compute maxDepth
-	maxDepth32 := float32(result.MaxDepth)
+	maxDepth := float32(result.MaxDepth)
 	for c := range channels {
-		for i := 0; i < end; i++ {
-			idx := c*nbBands + i
-			if idx < len(bandLogE32) {
-				maxDepth32 = opusmath.MaxF32(maxDepth32, bandLogE32[idx]-noiseFloor[i])
-			}
+		ec := bandLogE[c*nbBands : c*nbBands+end]
+		for i, v := range ec {
+			maxDepth = opusmath.MaxF32(maxDepth, v-noiseFloor[i])
 		}
 	}
-	result.MaxDepth = celtGLog(maxDepth32)
+	result.MaxDepth = celtGLog(maxDepth)
 
-	// Compute spread_weight using masking model
-	mask := scratch.Mask[:nbBands]
-	sig := scratch.Sig[:nbBands]
-
-	for i := 0; i < nbBands; i++ {
-		mask[i] = 0
-		sig[i] = 0
+	// Masking model for the spreading decision. The MAXG/MING steps are
+	// conditional moves with C's operand order: MAXG(a, b) is a > b ? a : b.
+	mask := scratch.Mask[:end]
+	sig := scratch.Sig[:end]
+	for i, v := range e0 {
+		mask[i] = v - noiseFloor[i]
 	}
-
-	for i := 0; i < end; i++ {
-		if i < len(bandLogE32) {
-			mask[i] = bandLogE32[i] - noiseFloor[i]
-		}
-	}
-
 	if channels == 2 {
-		for i := 0; i < end; i++ {
-			idx := nbBands + i
-			if idx < len(bandLogE32) {
-				mask[i] = opusmath.MaxF32(mask[i], bandLogE32[idx]-noiseFloor[i])
-			}
+		for i, v := range e1 {
+			mask[i] = opusmath.MaxF32(mask[i], v-noiseFloor[i])
 		}
 	}
-
-	copy(sig[:end], mask[:end])
-
-	// The masking model's MAXG/MING steps are conditional moves with C's
-	// operand order: MAXG(a, b) is a > b ? a : b.
+	copy(sig, mask)
 	for i := 1; i < end; i++ {
 		mask[i] = opusmath.MaxF32(mask[i], mask[i-1]-2.0)
 	}
-
 	for i := end - 2; i >= 0; i-- {
 		mask[i] = opusmath.MaxF32(mask[i], mask[i+1]-3.0)
 	}
-
-	floorDepth := opusmath.MaxF32(0, maxDepth32-12.0)
-	for i := 0; i < end; i++ {
-		smr := sig[i] - opusmath.MaxF32(floorDepth, mask[i])
-
+	floorDepth := opusmath.MaxF32(0, maxDepth-12.0)
+	spreadWeight := result.SpreadWeight[:end]
+	for i, v := range sig {
+		smr := v - opusmath.MaxF32(floorDepth, mask[i])
 		shift := min(max(-floor32ToInt(0.5+smr), 0), 5)
-		result.SpreadWeight[i] = 32 >> shift
+		spreadWeight[i] = 32 >> shift
 	}
 
-	// Dynamic allocation (budget permitting)
-	// Reference: libopus line 1121: if (effectiveBytes >= (30 + 5*LM) && !lfe)
-	minBytes := 30 + 5*lm
-	if effectiveBytes >= minBytes && !lfe {
-		follower := scratch.Follower[:channels*nbBands]
-		for i := range follower {
-			follower[i] = 0
-		}
-		last := 0
-
-		for c := range channels {
-			bandLogE3 := scratch.BandLogE3[:end]
-			for i := 0; i < end; i++ {
-				idx := c*nbBands + i
-				if bandLogE2_32 != nil && idx < len(bandLogE2_32) {
-					bandLogE3[i] = bandLogE2_32[idx]
-				} else if idx < len(bandLogE32) {
-					bandLogE3[i] = bandLogE32[idx]
-				} else {
-					bandLogE3[i] = 0
-				}
-			}
-
-			if lm == 0 {
-				for i := 0; i < min(8, end); i++ {
-					idx := c*nbBands + i
-					if oldBandE32 != nil && idx < len(oldBandE32) {
-						if oldBandE32[idx] > bandLogE3[i] {
-							bandLogE3[i] = oldBandE32[idx]
-						}
-					}
-				}
-			}
-
-			f := follower[c*nbBands : (c+1)*nbBands]
-			if end > 0 {
-				f[0] = bandLogE3[0]
-			}
-
-			for i := 1; i < end; i++ {
-				if bandLogE3[i] > bandLogE3[i-1]+0.5 {
-					last = i
-				}
-				f[i] = opusmath.MinF32(f[i-1]+1.5, bandLogE3[i])
-			}
-
-			for i := last - 1; i >= 0; i-- {
-				f[i] = opusmath.MinF32(f[i], opusmath.MinF32(f[i+1]+2.0, bandLogE3[i]))
-			}
-
-			offset := float32(1.0)
-			for i := 2; i < end-2; i++ {
-				f[i] = opusmath.MaxF32(f[i], medianOf5f(bandLogE3[i-2:])-offset)
-			}
-
-			if end >= 3 {
-				tmp := medianOf3f(bandLogE3[0:3]) - offset
-				if tmp > f[0] {
-					f[0] = tmp
-				}
-				if tmp > f[1] {
-					f[1] = tmp
-				}
-
-				tmp = medianOf3f(bandLogE3[end-3:end]) - offset
-				if tmp > f[end-2] {
-					f[end-2] = tmp
-				}
-				if tmp > f[end-1] {
-					f[end-1] = tmp
-				}
-			}
-
-			for i := 0; i < end; i++ {
-				f[i] = opusmath.MaxF32(f[i], noiseFloor[i])
-			}
-		}
-
-		if channels == 2 {
-			for i := start; i < end; i++ {
-				ch0 := follower[i]
-				ch1 := follower[nbBands+i]
-				if ch0-4.0 > ch1 {
-					follower[nbBands+i] = ch0 - 4.0
-				}
-				if ch1-4.0 > ch0 {
-					follower[i] = ch1 - 4.0
-				}
-
-				boost0 := float32(0.0)
-				boost1 := float32(0.0)
-				if i < len(bandLogE32) {
-					boost0 = bandLogE32[i] - follower[i]
-					if boost0 < 0 {
-						boost0 = 0
-					}
-				}
-				if nbBands+i < len(bandLogE32) {
-					boost1 = bandLogE32[nbBands+i] - follower[nbBands+i]
-					if boost1 < 0 {
-						boost1 = 0
-					}
-				}
-				follower[i] = (boost0 + boost1) / 2.0
-			}
-		} else {
-			for i := start; i < end; i++ {
-				if i < len(bandLogE32) {
-					follower[i] = bandLogE32[i] - follower[i]
-					if follower[i] < 0 {
-						follower[i] = 0
-					}
-				}
-			}
-		}
-
-		for i := start; i < end; i++ {
-			if i < len(surroundDynalloc) {
-				v := float32(surroundDynalloc[i])
-				if v > follower[i] {
-					follower[i] = v
-				}
-			}
-		}
-
-		for i := start; i < end; i++ {
-			result.Importance[i] = int32(dynallocImportanceFromFollower(follower[i]))
-		}
-
-		// For non-transient CBR/CVBR frames, libopus halves dynalloc.
-		if (!vbr || constrainedVBR) && !isTransient {
-			for i := start; i < end; i++ {
-				follower[i] *= 0.5
-			}
-		}
-
-		for i := start; i < end; i++ {
-			if i < 8 {
-				follower[i] *= 2.0
-			}
-			if i >= 12 {
-				follower[i] /= 2.0
-			}
-		}
-
-		if toneishness > 0.98 && toneFreq >= 0 {
-			freqBin := floor32ToInt(0.5 + toneFreq*120.0/3.1415927)
-			for i := start; i < end; i++ {
-				if freqBin >= edges[i] && freqBin <= edges[i+1] {
-					follower[i] += 2.0
-				}
-				if freqBin >= edges[i]-1 && freqBin <= edges[i+1]+1 {
-					follower[i] += 1.0
-				}
-				if freqBin >= edges[i]-2 && freqBin <= edges[i+1]+2 {
-					follower[i] += 1.0
-				}
-				if freqBin >= edges[i]-3 && freqBin <= edges[i+1]+3 {
-					follower[i] += 0.5
-				}
-			}
-			if end > start && freqBin >= edges[end] {
-				follower[end-1] += 2.0
-				if end-2 >= start {
-					follower[end-2] += 1.0
-				}
-			}
-		}
-
-		if analysisValid {
-			// Match libopus dynalloc: follower += analysis->leak_boost/64 on the
-			// first LEAK_BANDS when analysis is valid.
-			leakEnd := min(end, leakBands)
-			if leakEnd > start {
-				for i := start; i < leakEnd; i++ {
-					if i < len(analysisLeakBoost) {
-						follower[i] += float32(analysisLeakBoost[i]) * (1.0 / 64.0)
-					}
-				}
-			}
-		}
-
-		totBoost := 0
-		for i := start; i < end; i++ {
-			if follower[i] > 4.0 {
-				follower[i] = 4.0
-			}
-			followerVal := follower[i]
-
-			width := channels * ((edges[i+1] - edges[i]) << lm)
-			if width <= 0 {
-				width = 1
-			}
-
-			var boost, boostBits int
-			if width < 6 {
-				boost = int(followerVal)
-				boostBits = boost * width << bitRes
-			} else if width > 48 {
-				boost = int(followerVal * 8.0)
-				boostBits = (boost * width << bitRes) / 8
-			} else {
-				boost = int(followerVal * float32(width) / 6.0)
-				boostBits = boost * 6 << bitRes
-			}
-
-			if (!vbr || (constrainedVBR && !isTransient)) &&
-				(totBoost+boostBits)>>bitRes>>3 > 2*effectiveBytes/3 {
-				cap := (2 * effectiveBytes / 3) << bitRes << 3
-				result.Offsets[i] = int32(cap - totBoost)
-				totBoost = cap
-				break
-			}
-
-			result.Offsets[i] = int32(boost)
-			totBoost += boostBits
-		}
-		result.TotBoost = totBoost
-	} else {
+	// Dynamic allocation, budget permitting (effectiveBytes >= 30 + 5*LM).
+	if effectiveBytes < 30+5*lm || lfe {
 		for i := start; i < end; i++ {
 			result.Importance[i] = 13
 		}
+		return result
 	}
 
+	follower := scratch.Follower[:total]
+	clear(follower)
+	last := 0
+	bandLogE3 := scratch.BandLogE3[:end]
+	for c := range channels {
+		copy(bandLogE3, bandLogE2[c*nbBands:c*nbBands+end])
+		if lm == 0 {
+			// 2.5 ms frames: the first 8 bands have one bin each, so their
+			// energy takes the max with the previous frame's.
+			for i := range min(8, end) {
+				if idx := c*nbBands + i; idx < len(oldBandE) && oldBandE[idx] > bandLogE3[i] {
+					bandLogE3[i] = oldBandE[idx]
+				}
+			}
+		}
+
+		f := follower[c*nbBands : c*nbBands+end]
+		f[0] = bandLogE3[0]
+		for i := 1; i < end; i++ {
+			if bandLogE3[i] > bandLogE3[i-1]+0.5 {
+				last = i
+			}
+			f[i] = opusmath.MinF32(f[i-1]+1.5, bandLogE3[i])
+		}
+		for i := last - 1; i >= 0; i-- {
+			f[i] = opusmath.MinF32(f[i], opusmath.MinF32(f[i+1]+2.0, bandLogE3[i]))
+		}
+
+		const offset = float32(1.0)
+		for i := 2; i < end-2; i++ {
+			f[i] = opusmath.MaxF32(f[i], medianOf5f(bandLogE3[i-2:])-offset)
+		}
+		if end >= 3 {
+			tmp := medianOf3f(bandLogE3[0:3]) - offset
+			if tmp > f[0] {
+				f[0] = tmp
+			}
+			if tmp > f[1] {
+				f[1] = tmp
+			}
+			tmp = medianOf3f(bandLogE3[end-3:end]) - offset
+			if tmp > f[end-2] {
+				f[end-2] = tmp
+			}
+			if tmp > f[end-1] {
+				f[end-1] = tmp
+			}
+		}
+		for i, nf := range noiseFloor {
+			f[i] = opusmath.MaxF32(f[i], nf)
+		}
+	}
+
+	f0 := follower[start:end]
+	if channels == 2 {
+		// Consider 24 dB cross-talk between the channels.
+		f1 := follower[nbBands+start : nbBands+end]
+		l, r := e0[start:], e1[start:len(f0)+start]
+		for i := range f0 {
+			ch0, ch1 := f0[i], f1[i]
+			if ch0-4.0 > ch1 {
+				ch1 = ch0 - 4.0
+				f1[i] = ch1
+			}
+			if ch1-4.0 > ch0 {
+				ch0 = ch1 - 4.0
+			}
+			boost0 := l[i] - ch0
+			if boost0 < 0 {
+				boost0 = 0
+			}
+			boost1 := r[i] - ch1
+			if boost1 < 0 {
+				boost1 = 0
+			}
+			f0[i] = (boost0 + boost1) / 2.0
+		}
+	} else {
+		l := e0[start:]
+		for i := range f0 {
+			v := l[i] - f0[i]
+			if v < 0 {
+				v = 0
+			}
+			f0[i] = v
+		}
+	}
+
+	for i := start; i < min(end, len(surroundDynalloc)); i++ {
+		if v := float32(surroundDynalloc[i]); v > follower[i] {
+			follower[i] = v
+		}
+	}
+
+	importance := result.Importance[start:end]
+	for i, v := range f0 {
+		importance[i] = dynallocImportanceFromFollower(v)
+	}
+
+	// Non-transient CBR/CVBR frames halve the dynalloc contribution.
+	if (!vbr || constrainedVBR) && !isTransient {
+		for i := range f0 {
+			f0[i] *= 0.5
+		}
+	}
+	for i := start; i < end; i++ {
+		if i < 8 {
+			follower[i] *= 2.0
+		}
+		if i >= 12 {
+			follower[i] /= 2.0
+		}
+	}
+
+	// Compensate for Opus' under-allocation on tones.
+	if toneishness > 0.98 && toneFreq >= 0 {
+		freqBin := floor32ToInt(0.5 + toneFreq*120.0/3.1415927)
+		for i := start; i < end; i++ {
+			if freqBin >= edges[i] && freqBin <= edges[i+1] {
+				follower[i] += 2.0
+			}
+			if freqBin >= edges[i]-1 && freqBin <= edges[i+1]+1 {
+				follower[i] += 1.0
+			}
+			if freqBin >= edges[i]-2 && freqBin <= edges[i+1]+2 {
+				follower[i] += 1.0
+			}
+			if freqBin >= edges[i]-3 && freqBin <= edges[i+1]+3 {
+				follower[i] += 0.5
+			}
+		}
+		if end > start && freqBin >= edges[end] {
+			follower[end-1] += 2.0
+			if end-2 >= start {
+				follower[end-2] += 1.0
+			}
+		}
+	}
+
+	if analysisValid {
+		// follower += analysis->leak_boost/64 on the first LEAK_BANDS.
+		for i := start; i < min(end, leakBands, len(analysisLeakBoost)); i++ {
+			follower[i] += float32(analysisLeakBoost[i]) * (1.0 / 64.0)
+		}
+	}
+
+	totBoost := 0
+	bandEdges := edges[start : end+1]
+	for i := range f0 {
+		followerVal := f0[i]
+		if followerVal > 4.0 {
+			followerVal = 4.0
+			f0[i] = followerVal
+		}
+		width := max(channels*((bandEdges[i+1]-bandEdges[i])<<lm), 1)
+
+		var boost, boostBits int
+		if width < 6 {
+			boost = int(followerVal)
+			boostBits = boost * width << bitRes
+		} else if width > 48 {
+			boost = int(followerVal * 8.0)
+			boostBits = (boost * width << bitRes) / 8
+		} else {
+			boost = int(followerVal * float32(width) / 6.0)
+			boostBits = boost * 6 << bitRes
+		}
+
+		// CBR and non-transient CVBR frames limit dynalloc to 2/3 of the bits.
+		if (!vbr || (constrainedVBR && !isTransient)) &&
+			(totBoost+boostBits)>>bitRes>>3 > 2*effectiveBytes/3 {
+			cap := (2 * effectiveBytes / 3) << bitRes << 3
+			result.Offsets[start+i] = int32(cap - totBoost)
+			totBoost = cap
+			break
+		}
+
+		result.Offsets[start+i] = int32(boost)
+		totBoost += boostBits
+	}
+	result.TotBoost = totBoost
 	return result
+}
+
+// dynallocPadded returns x when it holds n values, or else x's values
+// followed by zeros in buf.
+func (s *DynallocScratch) dynallocPadded(x []celtGLog, n int, buf *[]celtGLog) []celtGLog {
+	if len(x) >= n {
+		return x[:n]
+	}
+	p := ensureGLogSlice(buf, n)
+	copy(p, x)
+	clear(p[len(x):])
+	return p
 }

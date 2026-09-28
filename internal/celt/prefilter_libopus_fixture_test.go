@@ -103,9 +103,13 @@ func TestRunPrefilterParityAgainstLibopusFixture(t *testing.T) {
 
 		prefilterMem, preemph, _ := buildPrefilterFixtureSignal(c.SignalSeed, c.Channels, c.FrameSize)
 		copyFloat64ToSig(enc.prefilterMem, prefilterMem)
-		goInput := make([]float32, len(preemph))
+		// runPrefilter takes celt_encode_with_ec's planar in buffer: per
+		// channel, the overlap head followed by the frame.
+		overlap := min(Overlap, c.FrameSize)
+		stride := c.FrameSize + overlap
+		goInput := make([]float32, c.Channels*stride)
 		for i, v := range preemph {
-			goInput[i] = float32(v)
+			goInput[(i%c.Channels)*stride+overlap+i/c.Channels] = float32(v)
 		}
 
 		got := enc.runPrefilter(goInput, c.FrameSize, c.Tapset, c.Enabled, float32(c.TFEstimate), c.NBAvailableBytes, float32(c.ToneFreq), float32(c.Toneishness), float32(c.MaxPitchRatio))

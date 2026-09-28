@@ -1417,8 +1417,9 @@ func stereoMerge(x, y []celtNorm, mid opusVal16) {
 		xp = celtInnerProdNeonStyle(y, x)
 		side = celtInnerProdNeonStyle(y, y)
 	} else if celtUseSSEFloatMath {
-		xp = celtInnerProdSSEStyle(y, x)
-		side = celtInnerProdSSEStyle(y, y)
+		// Both celt_inner_prod calls in one pass; each sum keeps its own
+		// SSE lane order.
+		xp, side = celtInnerProdSSEStylePair(y, x, y, y)
 	} else {
 		for i := range n {
 			xv := float32(x[i])

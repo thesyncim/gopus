@@ -11,6 +11,7 @@ package celt
 
 import (
 	"math"
+	"math/rand"
 	"testing"
 )
 
@@ -1105,5 +1106,94 @@ func TestImportanceIntegrationWithTF(t *testing.T) {
 	// Verify results are valid
 	if len(tfRes1) != nbBands || len(tfRes2) != nbBands {
 		t.Error("TF result length mismatch")
+	}
+}
+
+// TestDynallocScratchMatchesReferenceRandomized requires the scratch
+// dynalloc_analysis to match the allocating reference in every output bit over
+// random energies, band ranges, frame sizes, rate modes and tone inputs.
+func TestDynallocScratchMatchesReferenceRandomized(t *testing.T) {
+	rng := rand.New(rand.NewSource(0x5eed))
+	logN := make([]int16, MaxBands)
+	for i := range logN {
+		logN[i] = int16(LogN[i])
+	}
+	var scratch DynallocScratch
+	energy := func() celtGLog {
+		switch rng.Intn(8) {
+		case 0:
+			return 0
+		case 1:
+			return celtGLog(-28 + rng.Float32()*4)
+		}
+		return celtGLog(rng.Float32()*24 - 8)
+	}
+	for trial := range 4000 {
+		channels := 1 + rng.Intn(2)
+		lm := rng.Intn(4)
+		end := 1 + rng.Intn(MaxBands)
+		start := 0
+		if rng.Intn(3) == 0 {
+			start = min(HybridCELTStartBand, end)
+		}
+		bandLogE := make([]celtGLog, channels*MaxBands)
+		oldBandE := make([]celtGLog, channels*MaxBands)
+		for i := range bandLogE {
+			bandLogE[i] = energy()
+			oldBandE[i] = energy()
+		}
+		var bandLogE2 []celtGLog
+		if rng.Intn(2) == 0 {
+			bandLogE2 = make([]celtGLog, len(bandLogE))
+			for i := range bandLogE2 {
+				bandLogE2[i] = energy()
+			}
+		}
+		var surround []celtGLog
+		if rng.Intn(3) == 0 {
+			surround = make([]celtGLog, MaxBands)
+			for i := range surround {
+				surround[i] = celtGLog(rng.Float32() * 3)
+			}
+		}
+		leak := make([]uint8, leakBands)
+		for i := range leak {
+			leak[i] = uint8(rng.Intn(256))
+		}
+		toneFreq, toneishness := float32(-1), float32(0)
+		if rng.Intn(3) == 0 {
+			toneFreq, toneishness = rng.Float32()*3.1, 0.97+rng.Float32()*0.03
+		}
+		effectiveBytes := 10 + rng.Intn(300)
+		isTransient, vbr, cvbr, lfe := rng.Intn(2) == 0, rng.Intn(2) == 0, rng.Intn(2) == 0, rng.Intn(10) == 0
+		analysisValid := rng.Intn(2) == 0
+		lsbDepth := 16 + rng.Intn(9)
+
+		want := DynallocAnalysis(bandLogE, bandLogE2, oldBandE, MaxBands, start, end, channels, lsbDepth, lm, logN,
+			effectiveBytes, isTransient, vbr, cvbr, lfe, toneFreq, toneishness, surround, analysisValid, leak)
+		got := DynallocAnalysisWithScratch(bandLogE, bandLogE2, oldBandE, MaxBands, start, end, channels, lsbDepth, lm, logN,
+			effectiveBytes, isTransient, vbr, cvbr, lfe, toneFreq, toneishness, surround, analysisValid, leak, &scratch, EBands[:])
+		if math.Float32bits(float32(got.MaxDepth)) != math.Float32bits(float32(want.MaxDepth)) || got.TotBoost != want.TotBoost {
+			t.Fatalf("trial %d: maxDepth/totBoost got %v/%d want %v/%d", trial, got.MaxDepth, got.TotBoost, want.MaxDepth, want.TotBoost)
+		}
+		for i := range MaxBands {
+			if got.Offsets[i] != want.Offsets[i] || got.SpreadWeight[i] != want.SpreadWeight[i] || got.Importance[i] != want.Importance[i] {
+				t.Fatalf("trial %d band %d: got off/spread/imp %d/%d/%d want %d/%d/%d", trial, i,
+					got.Offsets[i], got.SpreadWeight[i], got.Importance[i], want.Offsets[i], want.SpreadWeight[i], want.Importance[i])
+			}
+		}
+	}
+	bandLogE := make([]celtGLog, 2*MaxBands)
+	for i := range bandLogE {
+		bandLogE[i] = energy()
+	}
+	leak := make([]uint8, leakBands)
+	run := func() {
+		DynallocAnalysisWithScratch(bandLogE, nil, bandLogE, MaxBands, 0, MaxBands, 2, 24, 0, logN,
+			200, false, false, false, false, 0.5, 0.99, nil, true, leak, &scratch, EBands[:])
+	}
+	run()
+	if allocs := testing.AllocsPerRun(50, run); allocs != 0 {
+		t.Fatalf("warm allocations=%v want 0", allocs)
 	}
 }

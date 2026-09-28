@@ -264,6 +264,9 @@ func toneDetectScratch(in []float32, channels int, sampleRate int, xBuf []float3
 	return toneDetectFloat32Mono(x, sampleRate, lane4Corr)
 }
 
+// toneDetectScratchF32 is tone_detect over celt_encode_with_ec's planar in
+// buffer: channel c occupies in[c*n:(c+1)*n] with n = len(in)/channels, and
+// stereo sums the two channels before the LPC fit.
 func toneDetectScratchF32(in []float32, channels int, sampleRate int, xBuf []float32) (float32, float32) {
 	n := len(in) / channels
 	if n < 4 {
@@ -278,8 +281,9 @@ func toneDetectScratchF32(in []float32, channels int, sampleRate int, xBuf []flo
 	}
 
 	if channels == 2 {
-		for i := range n {
-			x[i] = in[i*2] + in[i*2+1]
+		right := in[n : 2*n]
+		for i, v := range in[:n] {
+			x[i] = v + right[i]
 		}
 	} else {
 		copy(x, in[:n])
@@ -337,7 +341,8 @@ func toneDetectFloat32Mono(x []float32, sampleRate int, lane4Corr bool) (float32
 // the signal energy varies over time relative to a masked threshold.
 //
 // Parameters:
-//   - pcm: input PCM samples (mono or interleaved stereo)
+//   - pcm: pre-emphasized samples, planar like celt_encode_with_ec's in
+//     buffer: channel c occupies pcm[c*len(pcm)/channels:]
 //   - frameSize: frame size in samples (120, 240, 480, or 960)
 //   - allowWeakTransients: for hybrid mode at low bitrate
 //
@@ -651,20 +656,25 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 		meanL := float32(0)
 		meanR := float32(0)
 		energyR = energyR[:len(energy)]
-		src := pcm[:4*len(energy)]
+		// pcm is planar with channel stride samplesPerChannel, as C indexes
+		// in[i+c*len].
+		srcL := pcm[:2*len(energy)]
+		srcR := pcm[samplesPerChannel : samplesPerChannel+2*len(energy)]
 		var tone []float32
 		if deferStereoToneDetect {
 			tone = toneBuf[:2*len(energy)]
 		}
 		for i := range energy {
-			// src and tone advance by one sample pair per step, so each
+			// srcL, srcR and tone advance by one sample pair per step, so each
 			// iteration checks its bounds once.
-			_ = src[3]
-			xL0 := float32(src[0])
-			xR0 := float32(src[1])
-			xL1 := float32(src[2])
-			xR1 := float32(src[3])
-			src = src[4:]
+			_ = srcL[1]
+			_ = srcR[1]
+			xL0 := float32(srcL[0])
+			xR0 := float32(srcR[0])
+			xL1 := float32(srcL[1])
+			xR1 := float32(srcR[1])
+			srcL = srcL[2:]
+			srcR = srcR[2:]
 			if tone != nil {
 				_ = tone[1]
 				tone[0] = xL0 + xR0
@@ -773,72 +783,41 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 		var hp0, hp1 float32
 		var mask float32
 		mean := float32(0)
-		if channels == 1 {
-			src := pcm[:samplesPerChannel]
-			_ = src[2*len2-1]
-			for i := range len2 {
-				j := i << 1
+		src := pcm[c*samplesPerChannel : (c+1)*samplesPerChannel]
+		_ = src[2*len2-1]
+		for i := range len2 {
+			j := i << 1
 
-				x0 := float32(src[j])
-				if deferMonoToneDetect {
-					monoToneX[j] = x0
-				}
-				y0 := hp0 + x0
-				hp00 := hp0
-				hp0 = hp0 - x0 + hpFeedback*hp1
-				hp1 = x0 - hp00
-
-				x1 := float32(src[j+1])
-				if deferMonoToneDetect {
-					monoToneX[j+1] = x1
-				}
-				y1 := hp0 + x1
-				hp00 = hp0
-				hp0 = hp0 - x1 + hpFeedback*hp1
-				hp1 = x1 - hp00
-
-				if i < warmupPairs {
-					y0 = 0
-					y1 = 0
-				}
-
-				pair := y0*y0 + y1*y1
-				mean += pair
-				mask = pair + forwardRetain*mask
-				energy[i] = forwardDecay * mask
+			x0 := float32(src[j])
+			if deferMonoToneDetect {
+				monoToneX[j] = x0
 			}
-			if deferMonoToneDetect && samplesPerChannel > 2*len2 {
-				monoToneX[samplesPerChannel-1] = float32(src[samplesPerChannel-1])
+			y0 := hp0 + x0
+			hp00 := hp0
+			hp0 = hp0 - x0 + hpFeedback*hp1
+			hp1 = x0 - hp00
+
+			x1 := float32(src[j+1])
+			if deferMonoToneDetect {
+				monoToneX[j+1] = x1
 			}
-		} else {
-			stride := channels
-			idx := c
-			_ = pcm[(2*len2-1)*stride+c]
-			for i := range len2 {
-				x0 := float32(pcm[idx])
-				idx += stride
-				y0 := hp0 + x0
-				hp00 := hp0
-				hp0 = hp0 - x0 + hpFeedback*hp1
-				hp1 = x0 - hp00
+			y1 := hp0 + x1
+			hp00 = hp0
+			hp0 = hp0 - x1 + hpFeedback*hp1
+			hp1 = x1 - hp00
 
-				x1 := float32(pcm[idx])
-				idx += stride
-				y1 := hp0 + x1
-				hp00 = hp0
-				hp0 = hp0 - x1 + hpFeedback*hp1
-				hp1 = x1 - hp00
-
-				if i < warmupPairs {
-					y0 = 0
-					y1 = 0
-				}
-
-				pair := y0*y0 + y1*y1
-				mean += pair
-				mask = pair + forwardRetain*mask
-				energy[i] = forwardDecay * mask
+			if i < warmupPairs {
+				y0 = 0
+				y1 = 0
 			}
+
+			pair := y0*y0 + y1*y1
+			mean += pair
+			mask = pair + forwardRetain*mask
+			energy[i] = forwardDecay * mask
+		}
+		if deferMonoToneDetect && samplesPerChannel > 2*len2 {
+			monoToneX[samplesPerChannel-1] = float32(src[samplesPerChannel-1])
 		}
 
 		// Backward pass: compute pre-echo threshold
@@ -953,7 +932,8 @@ transientMetricsDone:
 // of one long MDCT for better time resolution at the cost of frequency resolution.
 //
 // Parameters:
-//   - pcm: input PCM samples (mono or interleaved stereo)
+//   - pcm: pre-emphasized samples, planar like celt_encode_with_ec's in
+//     buffer: channel c occupies pcm[c*len(pcm)/channels:]
 //   - frameSize: frame size in samples (120, 240, 480, or 960)
 //
 // Returns: true if transient detected and short blocks should be used
