@@ -115,8 +115,12 @@ CELT FB 5 ms stereo CBR case still differs at frame 162.
 
 Standard custom fixed-point modes use the integer CELT backend. Packet/range,
 float/int16 PCM, controls, PLC/recovery/reset and zero-allocation checks pass
-scalar and SIMD with and without QEXT. Nonstandard fixed custom modes remain
-under implementation. Float custom QEXT uses 96 kHz preemphasis, the matching
+scalar and SIMD with and without QEXT. Scaled fixed custom modes at 32, 24, 16,
+12 and 8 kHz match selected-C packets, ranges and PCM locally in scalar and
+SIMD builds. The 32 kHz/640-sample and 16 kHz/320-sample stateful checks cover
+mono/stereo PLC, recovery and reset; warm allocation checks remain zero.
+Other custom geometries and dynamic fixed QEXT remain under implementation.
+Float custom QEXT uses 96 kHz preemphasis, the matching
 static transform where selected by C, doubled pitch history for the applicable
 modes, and concealed history for postfilter recovery. The broad selected-C
 custom oracle and stateful/allocation groups pass scalar and SIMD. The

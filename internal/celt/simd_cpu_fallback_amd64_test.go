@@ -167,10 +167,17 @@ func TestCELTCPUFeatureFallbackMath(t *testing.T) {
 			t.Fatalf("MDCT output %d is not finite: %v", i, v)
 		}
 	}
+	// Use a standard CELT frame for the allocation assertion: uncommon sizes
+	// build their trig, FFT, and window tables per call rather than caching them.
+	const mdctOverlap = 120
+	mdctAllocInput, mdctAllocOut := make([]float32, 240), make([]float32, 120)
+	for i := range mdctAllocInput {
+		mdctAllocInput[i] = float32((i*11)%23-11) / 13
+	}
 
 	// Warm the selected no-AVX wrappers and MDCT scratch before measuring the
 	// steady-state fallback path.
-	mdctScratch.ForwardWithOverlapFloat32Into(mdctInput, 8, mdctOut)
+	mdctScratch.ForwardWithOverlapFloat32Into(mdctAllocInput, mdctOverlap, mdctAllocOut)
 	allocs := testing.AllocsPerRun(20, func() {
 		hi, lo := rawMaxMinScan(values, 0, 0)
 		state := preemphInterleaved(pcm, gotPreemph, len(pcm), 1, float32(PreemphCoef), state)
@@ -184,8 +191,8 @@ func TestCELTCPUFeatureFallbackMath(t *testing.T) {
 		combFilterConstSSE(combWant, combSrc, combDelay, 0, combN, 0.125, -0.0625, 0.03125)
 		combFilterOverlap(combOverlapGot, combD0, combD1, combWindow, 0.125, -0.0625, 0.03125, 0.25, -0.125, 0.0625)
 		t0, t1, t2 := spreadCountThresholds(gotPulses, len(gotPulses), 0.375)
-		mdctScratch.ForwardWithOverlapFloat32Into(mdctInput, 8, mdctOut)
-		celtCPUFeatureSink = hi + lo + state[0] + state[1] + s0 + s1 + float32(t0+t1+t2) + mdctOut[0] + scaleGot[0] + mergeLeft[0] + combWant[0] + combOverlapGot[0]
+		mdctScratch.ForwardWithOverlapFloat32Into(mdctAllocInput, mdctOverlap, mdctAllocOut)
+		celtCPUFeatureSink = hi + lo + state[0] + state[1] + s0 + s1 + float32(t0+t1+t2) + mdctAllocOut[0] + scaleGot[0] + mergeLeft[0] + combWant[0] + combOverlapGot[0]
 	})
 	if allocs != 0 {
 		t.Fatalf("no-AVX selected kernels allocated %v times", allocs)
