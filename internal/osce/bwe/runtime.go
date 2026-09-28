@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 
+	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/dnnmath"
 	"github.com/thesyncim/gopus/internal/opusmath"
@@ -893,31 +894,27 @@ func adaconvProcessFrame(
 		}
 	}
 
-	// Compute output: cross-correlation of kernel0/kernel1 with the input
-	// signal. For sample i: y[i] = sum_k kernel[k] * input[i + k - leftPadding].
+	// Compute output with the selected CELT correlation kernel. libopus
+	// dnn/nndsp.c passes zero-padded ADACONV_MAX_KERNEL_SIZE kernels to
+	// celt_pitch_xcorr, even when this stage's model kernel is shorter.
+	var kernelOld, kernelNew [maxKernel]float32
+	var sumOld, sumNew [maxFrame]float32
 	for o := range outChannels {
 		for ic := range inChannels {
-			// pInput points into inputBuf at p_input[i_in_channels * (frame_size+kernel_size)] +
-			// kernel_size (the start of the new frame). Apply left padding.
 			base := ic*(frameSize+kernelSize) + kernelSize
-			// Old kernel (kernel0 from previous frame's last_kernel).
-			kernelOld := lastKernel[(o*inChannels+ic)*kernelSize : (o*inChannels+ic)*kernelSize+kernelSize]
-			kernelNew := kernelBuf[(o*inChannels+ic)*kernelSize : (o*inChannels+ic)*kernelSize+kernelSize]
+			clear(kernelOld[:])
+			clear(kernelNew[:])
+			copy(kernelOld[:], lastKernel[(o*inChannels+ic)*kernelSize:(o*inChannels+ic)*kernelSize+kernelSize])
+			copy(kernelNew[:], kernelBuf[(o*inChannels+ic)*kernelSize:(o*inChannels+ic)*kernelSize+kernelSize])
+			input := inputBuf[base-leftPadding:]
+			celt.PitchXCorrFloat32(sumOld[:overlapSize], kernelOld[:], input, maxKernel, overlapSize)
+			celt.PitchXCorrFloat32(sumNew[:frameSize], kernelNew[:], input, maxKernel, frameSize)
 			for i := range frameSize {
-				// Compute new-frame contribution.
-				var sumNew float32
-				for k := range kernelSize {
-					sumNew += kernelNew[k] * inputBuf[base+i+k-leftPadding]
-				}
 				if i < overlapSize {
-					var sumOld float32
-					for k := range kernelSize {
-						sumOld += kernelOld[k] * inputBuf[base+i+k-leftPadding]
-					}
-					outputBuf[o*frameSize+i] += window[i] * sumOld
-					outputBuf[o*frameSize+i] += (1.0 - window[i]) * sumNew
+					outputBuf[o*frameSize+i] += window[i] * sumOld[i]
+					outputBuf[o*frameSize+i] += (1.0 - window[i]) * sumNew[i]
 				} else {
-					outputBuf[o*frameSize+i] += sumNew
+					outputBuf[o*frameSize+i] += sumNew[i]
 				}
 			}
 		}

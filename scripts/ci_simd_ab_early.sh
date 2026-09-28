@@ -308,7 +308,7 @@ for mode in simd nosimd; do
       run_in_checkout "$candidate_root" \
       "${run_env[@]}" go test -json -tags "${osce_features}${feature_scalar_tag}" \
       . ./internal/osce/... ./multistream ./internal/libopustest ./internal/celt ./internal/dnnmath \
-      -run '^Test(OSCE(EndToEndSampleParity|BWE(RawSignalNet|ForwardPass|CrossFade))|BWE(FeatureFFTMatchesLibopus|VariableSequenceStateMatchesSelectedLibopus)|LACEAndNoLACEFeatureStateMatchesLibopusRawBits|X86SGEMVScalarRemainderMatchesSelectedLibopus|MultistreamDecoderOSCE|StreamOSCE|MultistreamReferenceFeaturePairing|CurrentPublicAPIHelperConfig|DNNFeatureBuild|DNNCompilerTarget|DNNVectorActivationsMatchSelectedLibopusOracle|DNNVectorActivationSweepMatchesSelectedLibopusOracle|CGEMV8x4MatchesSelectedLibopus|ComputeLinearInt8MatchesSelectedLibopus|AntiCollapseVsLibopus)' \
+      -run '^Test(OSCE(EndToEndSampleParity|BWE(RawSignalNet|ForwardPass|CrossFade))|BWE(FeatureFFTMatchesLibopus|VariableSequenceStateMatchesSelectedLibopus|ProcessDoesNotAllocateAfterWarmup)|FNetConv1UsesSelectedDNNLinearKernel|LACEAndNoLACEFeatureStateMatchesLibopusRawBits|X86SGEMVScalarRemainderMatchesSelectedLibopus|MultistreamDecoderOSCE|StreamOSCE|MultistreamReferenceFeaturePairing|CurrentPublicAPIHelperConfig|DNNFeatureBuild|DNNCompilerTarget|DNNVectorActivationsMatchSelectedLibopusOracle|DNNVectorActivationSweepMatchesSelectedLibopusOracle|CGEMV8x4MatchesSelectedLibopus|ComputeLinearInt8MatchesSelectedLibopus|AntiCollapseVsLibopus)' \
       -count=1 -timeout=10m
   done
 

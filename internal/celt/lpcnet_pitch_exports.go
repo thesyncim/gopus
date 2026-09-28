@@ -1,9 +1,10 @@
 package celt
 
-// LPCNetPitchXCorrFloat32 runs the selected CELT pitch correlation kernel used
-// by libopus dnn/lpcnet_enc.c:compute_frame_features. The caller supplies
-// len(x) >= length, len(y) >= length+maxPitch-1, and len(dst) >= maxPitch.
-func LPCNetPitchXCorrFloat32(dst, x, y []float32, length, maxPitch int) {
+// PitchXCorrFloat32 runs the selected CELT pitch correlation kernel used by
+// libopus dnn/nndsp.c:adaconv_process_frame and dnn/lpcnet_enc.c:compute_frame_features.
+// The caller supplies len(x) >= length, len(y) >= length+maxPitch-1, and
+// len(dst) >= maxPitch.
+func PitchXCorrFloat32(dst, x, y []float32, length, maxPitch int) {
 	pitchXCorrFloat32(x, y, dst, length, maxPitch)
 }
 
