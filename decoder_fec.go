@@ -72,63 +72,6 @@ func (d *Decoder) decodePLCForFECWithState(
 	return frameSize, nil
 }
 
-func (d *Decoder) decodeNoLBRRFECFallback(
-	pcm []float32,
-	requestedFrameSize int,
-	packetFrameSize int,
-	mode Mode,
-	bandwidth Bandwidth,
-	packetStereo bool,
-) (int, error) {
-	if packetFrameSize <= 0 {
-		packetFrameSize = int(d.lastFrameSize)
-	}
-	if packetFrameSize <= 0 {
-		packetFrameSize = int(d.sampleRate) / 50
-	}
-	if requestedFrameSize <= packetFrameSize {
-		return d.decodePLCForFECWithState(pcm, requestedFrameSize, packetFrameSize, mode, bandwidth, packetStereo)
-	}
-	channels := int(d.channels)
-	needed := requestedFrameSize * channels
-	if len(pcm) < needed {
-		return 0, ErrBufferTooSmall
-	}
-
-	prefixSize := requestedFrameSize - packetFrameSize
-	prefixPacketFrameSize := int(d.lastFrameSize)
-	if prefixPacketFrameSize <= 0 {
-		prefixPacketFrameSize = packetFrameSize
-	}
-	n, err := d.decodePLCChunksInto(pcm, prefixSize, plcDecodeState{
-		packetFrameSize:    prefixPacketFrameSize,
-		mode:               d.prevMode,
-		bandwidth:          d.lastBandwidth,
-		packetStereo:       d.prevPacketStereo,
-		useDecoderPLCState: true,
-	})
-	if err != nil {
-		return 0, err
-	}
-	if n != prefixSize {
-		return 0, ErrInvalidFrameSize
-	}
-	if d.decodeGainQ8 != 0 {
-		d.applyOutputGain(pcm[:prefixSize*channels])
-	}
-
-	suffix := pcm[prefixSize*channels : requestedFrameSize*channels]
-	n, err = d.decodePLCForFECWithState(suffix, packetFrameSize, packetFrameSize, mode, bandwidth, packetStereo)
-	if err != nil {
-		return 0, err
-	}
-	if n != packetFrameSize {
-		return 0, ErrInvalidFrameSize
-	}
-	d.lastPacketDuration = int32(requestedFrameSize)
-	return requestedFrameSize, nil
-}
-
 // extractFirstFramePayload extracts the first Opus frame payload bytes from
 // a packet. This excludes packet-level TOC and framing headers.
 func extractFirstFramePayload(data []byte, toc TOC) ([]byte, error) {
@@ -299,6 +242,14 @@ func (d *Decoder) storeFECData(data []byte, toc TOC, frameCount, frameSize int) 
 		d.clearFECState()
 		return
 	}
+	d.storeFECDataForDecode(data, toc, frameCount, frameSize)
+}
+
+// opus_decode_frame passes a SILK or Hybrid packet to silk_Decode with
+// lostFlag=FLAG_DECODE_LBRR even when every LBRR flag is zero. SILK parses the
+// packet header and then conceals the absent LBRR frame, updating its packet
+// cadence and resampler state. Keep that packet available for this decode call.
+func (d *Decoder) storeFECDataForDecode(data []byte, toc TOC, frameCount, frameSize int) {
 	if cap(d.fecData) < len(data) {
 		d.fecData = make([]byte, len(data))
 	} else {
@@ -317,7 +268,7 @@ func (d *Decoder) storeFECData(data []byte, toc TOC, frameCount, frameSize int) 
 // decodeFECFrame decodes LBRR data from the stored FEC packet.
 // This is used to recover a lost frame using forward error correction.
 func (d *Decoder) decodeFECFrame(pcm []float32, requestedFrameSize int) (int, error) {
-	if !d.hasFEC || len(d.fecData) == 0 {
+	if !d.hasFEC {
 		return 0, errNoFECData
 	}
 	channels := int(d.channels)
@@ -391,7 +342,12 @@ func (d *Decoder) decodeFECFrame(pcm []float32, requestedFrameSize int) (int, er
 	}
 	d.applyOutputGain(pcm[:frameSize*channels])
 
-	d.prevMode = d.fecMode
+	// opus_decode_frame treats payloads of at most one byte as PLC, so its
+	// previous mode remains the concealment mode even though opus_decode_native
+	// selected the packet mode before entering the frame decoder.
+	if len(d.fecData) > 1 {
+		d.prevMode = d.fecMode
+	}
 	d.lastPacketMode = d.fecMode
 	d.lastBandwidth = d.fecBandwidth
 	d.bandwidthKnown = true
@@ -419,6 +375,15 @@ func (d *Decoder) clearFECState() {
 
 // decodeLBRRFrames decodes LBRR (FEC) data from the stored packet.
 func (d *Decoder) decodeLBRRFrames(pcm []float32, frameSize int) (int, error) {
+	if len(d.fecData) <= 1 {
+		return d.decodePLCChunksInto(pcm, frameSize, plcDecodeState{
+			packetFrameSize:    frameSize,
+			mode:               d.prevMode,
+			bandwidth:          d.lastBandwidth,
+			packetStereo:       d.prevPacketStereo,
+			useDecoderPLCState: true,
+		})
+	}
 	switch d.fecMode {
 	case ModeSILK:
 		return d.decodeSILKFEC(pcm, frameSize)

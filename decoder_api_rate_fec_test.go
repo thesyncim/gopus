@@ -93,7 +93,7 @@ func TestDecodeWithFECCELTRequestedPLCDurationMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 
-					assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, "CELT requested FEC duration")
+					assertSelectedPublicAPIRateFloat32(t, got, want, sampleRate, channels, "CELT requested FEC duration")
 				})
 			}
 		}
@@ -207,7 +207,7 @@ func TestDecodeWithFECNoLBRRAPIRatePCMMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 
-					assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, tc.name+" api-rate no-LBRR FEC decode")
+					assertSelectedPublicAPIRateFloat32(t, got, want, sampleRate, channels, tc.name+" api-rate no-LBRR FEC decode")
 				})
 			}
 		}
@@ -308,11 +308,86 @@ func TestDecodeWithFECNoLBRRRequestedDurationMatchesLibopus(t *testing.T) {
 						// <3e-3 abs, corr~=0.99999, rms~=1.0), so gate on the trusted
 						// near-exact corr/RMS bar and log Q. Steady-state per-mode Q is
 						// covered by TestDecoderParityLibopusMatrix.
-						assertAPIRateQualityFloat32PLC(t, got, want, sampleRate, channels, true, tc.name+" requested no-LBRR duration")
+						assertSelectedPublicAPIRateFloat32PLC(t, got, want, sampleRate, channels, true, tc.name+" requested no-LBRR duration")
 					})
 				}
 			}
 		}
+	}
+}
+
+// opus_decode_frame treats a payload of at most one byte as PLC even when the
+// enclosing decode_fec call supplies a packet. The requested prefix and the
+// empty recovery frame must follow the selected C decoder's state sequence.
+func TestDecodeWithFECEmptyPayloadRequestedDurationMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const (
+		sampleRate = 48000
+		channels   = 2
+		requested  = 5760
+	)
+	seed := encodeAPIRateSILKPacket(t, channels)
+	for _, toc := range []byte{0x70, 0x58, 0x40} {
+		t.Run("toc_"+itoaSmall(int(toc)), func(t *testing.T) {
+			packet := []byte{toc}
+			steps := []libopusAPIRateDecodeStep{{packet: seed}, {packet: packet, fec: true}}
+			want, err := decodeWithLibopusReferenceAPIRateFloat32Steps(sampleRate, channels, requested, steps)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "api-rate empty-payload FEC reference decode", err)
+			}
+
+			dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+			if err != nil {
+				t.Fatal(err)
+			}
+			frame := make([]float32, requested*channels)
+			seedSamples, err := dec.Decode(seed, frame)
+			if err != nil {
+				t.Fatalf("Decode seed: %v", err)
+			}
+			got := append([]float32(nil), frame[:seedSamples*channels]...)
+			clear(frame)
+			n, err := dec.DecodeWithFEC(packet, frame, true)
+			if err != nil || n != requested {
+				t.Fatalf("DecodeWithFEC empty packet=(%d,%v), want %d", n, err, requested)
+			}
+			got = append(got, frame[:n*channels]...)
+			assertSelectedPublicAPIRateFloat32PLC(t, got, want, sampleRate, channels, true, "empty-payload FEC")
+		})
+	}
+}
+
+func TestDecodeWithFECNoLBRRPacketWarmZeroAllocs(t *testing.T) {
+	const (
+		sampleRate = 48000
+		channels   = 2
+		requested  = 1920
+	)
+	seed := encodeAPIRateSILKPacket(t, channels)
+	recovery := encodeAPIRateHybridPacket(t, channels)
+	if PacketHasLBRR(recovery) {
+		t.Fatal("recovery packet unexpectedly carries LBRR")
+	}
+	dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame := make([]float32, requested*channels)
+	if _, err := dec.Decode(seed, frame); err != nil {
+		t.Fatalf("Decode seed: %v", err)
+	}
+	for range 4 {
+		if n, err := dec.DecodeWithFEC(recovery, frame, true); err != nil || n != requested {
+			t.Fatalf("warm DecodeWithFEC=(%d,%v), want %d", n, err, requested)
+		}
+	}
+	allocs := testing.AllocsPerRun(20, func() {
+		if n, err := dec.DecodeWithFEC(recovery, frame, true); err != nil || n != requested {
+			t.Fatalf("DecodeWithFEC=(%d,%v), want %d", n, err, requested)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("warm DecodeWithFEC allocations=%g, want 0", allocs)
 	}
 }
 
@@ -361,7 +436,7 @@ func TestDecodeWithFECNilAPIRatePCMMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 
-					assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, tc.name+" api-rate nil FEC decode")
+					assertSelectedPublicAPIRateFloat32(t, got, want, sampleRate, channels, tc.name+" api-rate nil FEC decode")
 				})
 			}
 		}
@@ -416,7 +491,7 @@ func TestDecodeWithFECOverlongNoLBRRRequestMatchesLibopus(t *testing.T) {
 			}
 			got = append(got, frame[:n*channels]...)
 
-			assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, "CELT overlong no-LBRR FEC request")
+			assertSelectedPublicAPIRateFloat32(t, got, want, sampleRate, channels, "CELT overlong no-LBRR FEC request")
 		})
 	}
 }
@@ -534,7 +609,7 @@ func TestDecodeWithFECLBRRAPIRatePCMMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 
-					assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, tc.name+" api-rate FEC decode")
+					assertSelectedPublicAPIRateFloat32(t, got, want, sampleRate, channels, tc.name+" api-rate FEC decode")
 				})
 			}
 		}
@@ -656,7 +731,7 @@ func TestDecodeWithFECLBRRRequestedDurationMatchesLibopus(t *testing.T) {
 						}
 						got = append(got, frame[:n*channels]...)
 
-						assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, tc.name+" requested LBRR duration")
+						assertSelectedPublicAPIRateFloat32(t, got, want, sampleRate, channels, tc.name+" requested LBRR duration")
 					})
 				}
 			}
@@ -727,7 +802,7 @@ func TestDecodeWithFECNilAfterLBRRAPIRatePCMMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 
-					assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, tc.name+" api-rate nil FEC after LBRR decode")
+					assertSelectedPublicAPIRateFloat32(t, got, want, sampleRate, channels, tc.name+" api-rate nil FEC after LBRR decode")
 				})
 			}
 		}

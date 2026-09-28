@@ -504,7 +504,13 @@ func (d *Decoder) decodeWithFECFloat32(data []byte, pcm []float32) (int, error) 
 				if extsupport.DREDRuntime && d.dredCachedPayloadActive() {
 					return d.decodePLCForFECWithState(pcm, requestedFrameSize, frameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
 				}
-				return d.decodeNoLBRRFECFallback(pcm, requestedFrameSize, frameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
+				d.storeFECDataForDecode(firstFrameData, toc, frameCount, frameSize)
+				n, err := d.decodeFECFrame(pcm, requestedFrameSize)
+				if err != nil {
+					d.clearFECState()
+					return 0, err
+				}
+				return n, nil
 			}
 			d.storeFECData(firstFrameData, toc, frameCount, frameSize)
 			if n, err := d.decodeFECFrame(pcm, requestedFrameSize); err == nil {

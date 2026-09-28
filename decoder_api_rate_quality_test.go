@@ -164,3 +164,44 @@ func int16SliceToFloat32(in []int16) []float32 {
 	}
 	return out
 }
+
+// The fixed CELT and Hybrid public APIs are bit exact against the selected
+// fixed libopus build. Keep this assertion alongside the quality diagnostics:
+// a high quality score alone does not prove fixed-point PCM parity.
+func assertAPIRateInt16Exact(t *testing.T, got, want []int16, label string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("%s sample[%d]=%d want %d", label, i, got[i], want[i])
+		}
+	}
+}
+
+func assertAPIRateFloat32BitsExact(t *testing.T, got, want []float32, label string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
+	}
+	for i := range want {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("%s sample[%d]=%08x want %08x", label, i, math.Float32bits(got[i]), math.Float32bits(want[i]))
+		}
+	}
+}
+
+// The public API-rate reference helper selects the active libopus feature and
+// instruction lane. Keep quality diagnostics and compare every output bit.
+// Call this only when want comes from decodeWithLibopusReferenceAPIRateFloat32.
+func assertSelectedPublicAPIRateFloat32(t *testing.T, got, want []float32, sampleRate, channels int, label string) {
+	t.Helper()
+	assertSelectedPublicAPIRateFloat32PLC(t, got, want, sampleRate, channels, false, label)
+}
+
+func assertSelectedPublicAPIRateFloat32PLC(t *testing.T, got, want []float32, sampleRate, channels int, plcDominated bool, label string) {
+	t.Helper()
+	assertAPIRateQualityFloat32PLC(t, got, want, sampleRate, channels, plcDominated, label)
+	assertAPIRateFloat32BitsExact(t, got, want, label)
+}
