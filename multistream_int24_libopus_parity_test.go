@@ -29,11 +29,8 @@ func decodeLibopusMultistreamInt24(sampleRate, channels, streams, coupled, frame
 	return out, nil
 }
 
-// TestMultistreamDecodeInt24MatchesLibopus verifies that MultistreamDecoder.DecodeInt24
-// produces near-exact output vs libopus opus_multistream_decode24() for stereo packets.
-//
-// The ≤1 LSB tolerance absorbs the documented darwin/arm64 1-ULP float drift
-// in the CELT path (same budget as the float32/int16 multistream decode tests).
+// TestMultistreamDecodeInt24MatchesLibopus compares stereo int24 samples with
+// the selected libopus opus_multistream_decode24 build.
 func TestMultistreamDecodeInt24MatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 
@@ -69,8 +66,7 @@ func TestMultistreamDecodeInt24MatchesLibopus(t *testing.T) {
 	}
 	got = got[:nDec*channels]
 
-	// Apply the trusted near-exact quality bar (absorbs arm64 ≤1 LSB drift).
-	assertInt24ParityNearExact(t, got, want, sampleRate, channels, "multistream int24 decode")
+	assertInt24ParitySelectedCExact(t, got, want, sampleRate, channels, "multistream int24 decode")
 }
 
 // TestMultistreamDecodeInt24SliceMatchesDecodeInt24 verifies that
