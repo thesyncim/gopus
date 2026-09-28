@@ -20,6 +20,12 @@ type synthesisStageTrace struct {
 	// postComb holds the time buffer after the comb-filter postfilter and before
 	// de-emphasis, when the direct float output path captures it.
 	postComb [2][]float32
+	// qextEnergy records the decoded QEXT log energies for diagnostic parity
+	// tests. It is populated only when a trace is armed.
+	qextEnergy [2][]float32
+	baseEnergy [2][]float32
+	baseNorm   [2][]float32
+	qextNorm   [2][]float32
 }
 
 // EnableSynthesisStageTrace arms intermediate-stage capture for the next decoded
@@ -67,6 +73,82 @@ func (t *synthesisStageTrace) PostComb(ch int) []float32 {
 		return nil
 	}
 	return t.postComb[ch]
+}
+
+func (t *synthesisStageTrace) QEXTEnergy(ch int) []float32 {
+	if ch < 0 || ch >= len(t.qextEnergy) {
+		return nil
+	}
+	return t.qextEnergy[ch]
+}
+
+func (t *synthesisStageTrace) BaseEnergy(ch int) []float32 {
+	if ch < 0 || ch >= len(t.baseEnergy) {
+		return nil
+	}
+	return t.baseEnergy[ch]
+}
+
+func (t *synthesisStageTrace) BaseNorm(ch int) []float32 {
+	if ch < 0 || ch >= len(t.baseNorm) {
+		return nil
+	}
+	return t.baseNorm[ch]
+}
+
+func (t *synthesisStageTrace) QEXTNorm(ch int) []float32 {
+	if ch < 0 || ch >= len(t.qextNorm) {
+		return nil
+	}
+	return t.qextNorm[ch]
+}
+
+func (t *synthesisStageTrace) captureBaseNorm(ch int, coeffs []celtNorm, n int) {
+	if t == nil || ch < 0 || ch >= len(t.baseNorm) || n <= 0 || len(coeffs) < n {
+		return
+	}
+	out := make([]float32, n)
+	for i := range n {
+		out[i] = float32(coeffs[i])
+	}
+	t.baseNorm[ch] = out
+}
+
+func (t *synthesisStageTrace) captureQEXTNorm(ch int, coeffs []celtNorm, n int) {
+	if t == nil || ch < 0 || ch >= len(t.qextNorm) || n <= 0 || len(coeffs) < n {
+		return
+	}
+	out := make([]float32, n)
+	for i := range n {
+		out[i] = float32(coeffs[i])
+	}
+	t.qextNorm[ch] = out
+}
+
+func (t *synthesisStageTrace) captureBaseEnergy(energies []celtGLog, bands, channels int) {
+	if t == nil || bands <= 0 || channels <= 0 || channels > len(t.baseEnergy) || len(energies) < bands*channels {
+		return
+	}
+	for ch := range channels {
+		out := make([]float32, bands)
+		for band := range bands {
+			out[band] = float32(energies[ch*bands+band])
+		}
+		t.baseEnergy[ch] = out
+	}
+}
+
+func (t *synthesisStageTrace) captureQEXTEnergy(energies []celtGLog, bands, channels int) {
+	if t == nil || bands <= 0 || channels <= 0 || channels > len(t.qextEnergy) || len(energies) < bands*channels {
+		return
+	}
+	for ch := range channels {
+		out := make([]float32, bands)
+		for band := range bands {
+			out[band] = float32(energies[ch*bands+band])
+		}
+		t.qextEnergy[ch] = out
+	}
 }
 
 // captureSpec snapshots a per-channel post-denormalise spectrum buffer.

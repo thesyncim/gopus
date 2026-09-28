@@ -13,12 +13,16 @@ import (
 var qextCELTSynthesisTraceHelper libopustest.HelperCache
 
 type qextCELTSynthesisTrace struct {
-	n        int
-	channels int
-	freq     [][]float32
-	imdct    [][]float32
-	postComb [][]float32
-	final    []float32
+	n          int
+	channels   int
+	freq       [][]float32
+	imdct      [][]float32
+	postComb   [][]float32
+	qextEnergy [][]float32
+	qextNorm   [][]float32
+	baseEnergy [][]float32
+	baseNorm   [][]float32
+	final      []float32
 }
 
 func buildQEXTCELTSynthesisTraceHelper() (string, error) {
@@ -44,7 +48,7 @@ func traceQEXTCELTSynthesisSequence(t *testing.T, packets [][]byte, targetStep, 
 		payload.U32(uint32(len(packet)))
 		payload.Raw(packet)
 	}
-	reader, err := libopustest.RunOracle(bin, payload.Bytes(), "QEXT CELT synthesis trace", "GCSO")
+	reader, err := libopustest.RunOracleVersion(bin, payload.Bytes(), "QEXT CELT synthesis trace", "GCSO", 2)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "QEXT CELT synthesis trace", err)
 	}
@@ -62,7 +66,6 @@ func traceQEXTCELTSynthesisSequence(t *testing.T, packets [][]byte, targetStep, 
 		postComb: make([][]float32, gotChannels),
 		final:    make([]float32, n*gotChannels),
 	}
-	reader.ExpectRemaining(n * gotChannels * 4 * 4)
 	for ch := range gotChannels {
 		trace.freq[ch] = make([]float32, n)
 		for i := range n {
@@ -83,6 +86,50 @@ func traceQEXTCELTSynthesisSequence(t *testing.T, packets [][]byte, targetStep, 
 	}
 	for i := range trace.final {
 		trace.final[i] = reader.Float32()
+	}
+	energyCount := int(reader.U32())
+	if energyCount < 0 || energyCount > 64 {
+		t.Fatalf("invalid selected-C QEXT energy count %d", energyCount)
+	}
+	trace.qextEnergy = make([][]float32, gotChannels)
+	for ch := range gotChannels {
+		trace.qextEnergy[ch] = make([]float32, energyCount)
+		for i := range energyCount {
+			trace.qextEnergy[ch][i] = reader.Float32()
+		}
+	}
+	qextNormCount := int(reader.U32())
+	if qextNormCount < 0 || qextNormCount > n {
+		t.Fatalf("invalid selected-C QEXT normalized coefficient count %d", qextNormCount)
+	}
+	trace.qextNorm = make([][]float32, gotChannels)
+	for ch := range gotChannels {
+		trace.qextNorm[ch] = make([]float32, qextNormCount)
+		for i := range qextNormCount {
+			trace.qextNorm[ch][i] = reader.Float32()
+		}
+	}
+	baseEnergyCount := int(reader.U32())
+	if baseEnergyCount < 0 || baseEnergyCount > 64 {
+		t.Fatalf("invalid selected-C base energy count %d", baseEnergyCount)
+	}
+	trace.baseEnergy = make([][]float32, gotChannels)
+	for ch := range gotChannels {
+		trace.baseEnergy[ch] = make([]float32, baseEnergyCount)
+		for i := range baseEnergyCount {
+			trace.baseEnergy[ch][i] = reader.Float32()
+		}
+	}
+	baseNormCount := int(reader.U32())
+	if baseNormCount < 0 || baseNormCount > n {
+		t.Fatalf("invalid selected-C base normalized coefficient count %d", baseNormCount)
+	}
+	trace.baseNorm = make([][]float32, gotChannels)
+	for ch := range gotChannels {
+		trace.baseNorm[ch] = make([]float32, baseNormCount)
+		for i := range baseNormCount {
+			trace.baseNorm[ch][i] = reader.Float32()
+		}
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		t.Fatal(err)
@@ -134,7 +181,20 @@ func TestQEXTSynthesisStagesMatchSelectedLibopus(t *testing.T) {
 		t.Fatalf("Go trace capture=%t channels=%d n=%d", stage.Captured(), stage.Channels(), stage.N())
 	}
 	want := traceQEXTCELTSynthesis(t, packet)
+	qextStart := 100 * (want.n / 120)
 	for ch := range 2 {
+		if i, gotBits, wantBits := firstQEXTFloat32Difference(stage.QEXTEnergy(ch), want.qextEnergy[ch]); i >= 0 {
+			t.Errorf("channel %d QEXT energy first difference at %d: Go=%08x C=%08x", ch, i, gotBits, wantBits)
+		}
+		if i, gotBits, wantBits := firstQEXTFloat32Difference(stage.QEXTNorm(ch)[qextStart:], want.qextNorm[ch][qextStart:]); i >= 0 {
+			t.Errorf("channel %d QEXT normalized coefficient first difference at %d: Go=%08x C=%08x", ch, i+qextStart, gotBits, wantBits)
+		}
+		if i, gotBits, wantBits := firstQEXTFloat32Difference(stage.BaseEnergy(ch), want.baseEnergy[ch]); i >= 0 {
+			t.Errorf("channel %d base energy first difference at %d: Go=%08x C=%08x", ch, i, gotBits, wantBits)
+		}
+		if i, gotBits, wantBits := firstQEXTFloat32Difference(stage.BaseNorm(ch)[:qextStart], want.baseNorm[ch][:qextStart]); i >= 0 {
+			t.Errorf("channel %d base normalized coefficient first difference at %d: Go=%08x C=%08x", ch, i, gotBits, wantBits)
+		}
 		for _, pair := range []struct {
 			name string
 			got  []float32

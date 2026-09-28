@@ -82,6 +82,20 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 	// Step 6: Synthesis (IMDCT + window + overlap-add)
 	var samples []float32
 	channels := int(d.channels)
+	if d.synthTrace != nil {
+		d.synthTrace.captureBaseEnergy(energies, end, channels)
+		d.synthTrace.captureBaseNorm(0, coeffsL, frameSize)
+		if channels == 2 {
+			d.synthTrace.captureBaseNorm(1, coeffsR, frameSize)
+		}
+	}
+	if d.synthTrace != nil && extsupport.QEXT && qext != nil {
+		d.synthTrace.captureQEXTEnergy(qext.energies, qext.end, channels)
+		d.synthTrace.captureQEXTNorm(0, qext.coeffsL, frameSize)
+		if channels == 2 {
+			d.synthTrace.captureQEXTNorm(1, qext.coeffsR, frameSize)
+		}
+	}
 	downsample := d.downsampleFactor()
 	outputFrameSize := frameSize / d.outputDownsample(d.directOutPCM, frameSize)
 	// The native 96 kHz HD mode needs the HD-specific de-emphasis (2-tap) and

@@ -90,6 +90,31 @@ func ProbeQEXTDecode96k(p QEXTDecode96kParams) (QEXTDecode96kResult, error) {
 	return probeQEXTDecode96k(p, binPath, version)
 }
 
+// ProbeQEXTDecodePublic decodes a sequence through the public libopus
+// configuration selected by the current Go build. It carries the API sample
+// rate and decoder controls needed to compare public QEXT decode paths below
+// and at 96 kHz.
+func ProbeQEXTDecodePublic(p QEXTDecode96kParams) (QEXTDecode96kResult, error) {
+	if err := validateQEXTDecodeSampleRate(p.SampleRate); err != nil {
+		return QEXTDecode96kResult{}, fmt.Errorf("public qext decode: %w", err)
+	}
+	if len(p.IgnoreExtensionsByPacket) != 0 && len(p.IgnoreExtensionsByPacket) != len(p.Packets) {
+		return QEXTDecode96kResult{}, fmt.Errorf("public qext decode per-packet ignore: %d flags for %d packets", len(p.IgnoreExtensionsByPacket), len(p.Packets))
+	}
+	binPath, err := getQEXTDecode96kHelperPath()
+	if err != nil {
+		return QEXTDecode96kResult{}, err
+	}
+	version := uint32(5)
+	if p.IgnoreExtensions {
+		version = 7
+	}
+	if len(p.IgnoreExtensionsByPacket) != 0 {
+		version = 9
+	}
+	return probeQEXTDecode96k(p, binPath, version)
+}
+
 // ProbeQEXTDecode96kMixed decodes packets through one persistent QEXT-enabled
 // decoder while alternating opus_decode and opus_decode24. MixedInt32 stores
 // both formats as int32 values, sign-extending opus_decode output.

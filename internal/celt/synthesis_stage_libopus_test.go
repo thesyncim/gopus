@@ -41,6 +41,35 @@ type libopusCELTSynthesisTrace struct {
 	final    []float32
 }
 
+func consumeCELTSynthesisTraceV2Tail(t *testing.T, reader *libopustest.OracleReader, channels int) {
+	t.Helper()
+	for _, section := range []struct {
+		name string
+		max  uint32
+	}{
+		{name: "QEXT energy", max: 64},
+		{name: "QEXT normalized coefficients", max: 2048},
+		{name: "base energy", max: 64},
+		{name: "base normalized coefficients", max: 2048},
+	} {
+		count := reader.U32()
+		if err := reader.Err(); err != nil {
+			t.Fatal(err)
+		}
+		if count > section.max {
+			t.Fatalf("selected C %s count=%d exceeds %d", section.name, count, section.max)
+		}
+		for range channels {
+			for range count {
+				reader.Float32()
+			}
+		}
+		if err := reader.Err(); err != nil {
+			t.Fatalf("selected C %s: %v", section.name, err)
+		}
+	}
+}
+
 func traceLibopusCELTSynthesis(t *testing.T, sampleRate, channels, frameSize, targetStep int, packets [][]byte) *libopusCELTSynthesisTrace {
 	t.Helper()
 	binPath, err := libopusCELTSynthesisTraceHelper.Path(buildLibopusCELTSynthesisTraceHelper)
@@ -55,7 +84,7 @@ func traceLibopusCELTSynthesis(t *testing.T, sampleRate, channels, frameSize, ta
 		payload.U32(uint32(len(pkt)))
 		payload.Raw(pkt)
 	}
-	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "CELT synthesis stage trace", "GCSO")
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "CELT synthesis stage trace", "GCSO", 2)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "CELT synthesis stage trace", err)
 	}
@@ -67,7 +96,6 @@ func traceLibopusCELTSynthesis(t *testing.T, sampleRate, channels, frameSize, ta
 	trace.imdct = make([][]float32, cc)
 	trace.postComb = make([][]float32, cc)
 	trace.final = make([]float32, n*cc)
-	reader.ExpectRemaining((n*cc*3 + n*cc) * 4)
 	for ch := range cc {
 		trace.freq[ch] = make([]float32, n)
 		for i := range trace.freq[ch] {
@@ -89,6 +117,7 @@ func traceLibopusCELTSynthesis(t *testing.T, sampleRate, channels, frameSize, ta
 	for i := range trace.final {
 		trace.final[i] = reader.Float32()
 	}
+	consumeCELTSynthesisTraceV2Tail(t, reader, cc)
 	if err := reader.ExpectConsumed(); err != nil {
 		t.Fatal(err)
 	}

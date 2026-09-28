@@ -47,11 +47,27 @@
 #include "mdct.h"
 #include "bands.h"
 
+/* The trace reserves QEXT-sized storage even for non-QEXT libopus builds. */
+#ifdef ENABLE_QEXT
+#define GOPUS_TRACE_QEXT_BANDS NB_QEXT_BANDS
+#else
+#define GOPUS_TRACE_QEXT_BANDS 14
+#endif
+
 /* Capture state, armed for the target frame only. */
 static int g_capture_armed = 0;
 static int g_capture_N = 0;
 static int g_capture_freq_idx = 0;
 static int g_capture_qext_idx = 0;
+static int g_qext_energy_count = 0;
+static float g_qext_energy_capture[2][GOPUS_TRACE_QEXT_BANDS];
+static int g_qext_norm_count = 0;
+static float g_qext_norm_capture[2][2048];
+static int g_base_energy_count = 0;
+static int g_base_energy_idx = 0;
+static float g_base_energy_capture[2][64];
+static int g_base_norm_count = 0;
+static float g_base_norm_capture[2][2048];
 static int g_imdct_captured[2] = {0, 0};
 static int g_comb_calls[2] = {0, 0};
 static celt_sig *g_freq_capture[2] = {NULL, NULL};
@@ -100,12 +116,32 @@ static void gopus_capture_denormalise_bands(const CELTMode *m, const celt_norm *
     * the buffer passed to clt_mdct_backward(). */
    if (g_capture_armed && m->nbEBands == NB_QEXT_BANDS &&
        g_capture_qext_idx < 2 && g_freq_capture[g_capture_qext_idx]) {
+      int qext_channel = g_capture_qext_idx;
+      int qext_count = end - start;
+      int qext_band;
+      if (qext_count > NB_QEXT_BANDS) qext_count = NB_QEXT_BANDS;
+      g_qext_energy_count = qext_count;
+      for (qext_band = 0; qext_band < qext_count; qext_band++)
+         g_qext_energy_capture[qext_channel][qext_band] = (float)bandLogE[qext_band];
+      g_qext_norm_count = N > 2048 ? 2048 : N;
+      OPUS_COPY(g_qext_norm_capture[qext_channel], X, g_qext_norm_count);
       OPUS_COPY(g_freq_capture[g_capture_qext_idx], freq, N);
       g_capture_qext_idx++;
       g_capture_N = N;
       return;
    }
 #endif
+   if (g_capture_armed && m->nbEBands != GOPUS_TRACE_QEXT_BANDS && g_base_energy_idx < 2) {
+      int base_count = end - start;
+      int base_band;
+      if (base_count > 64) base_count = 64;
+      g_base_energy_count = base_count;
+      for (base_band = 0; base_band < base_count; base_band++)
+         g_base_energy_capture[g_base_energy_idx][base_band] = (float)bandLogE[start + base_band];
+      g_base_norm_count = N > 2048 ? 2048 : N;
+      OPUS_COPY(g_base_norm_capture[g_base_energy_idx], X, g_base_norm_count);
+      g_base_energy_idx++;
+   }
    if (g_capture_armed && g_capture_freq_idx < 2 && g_freq_capture[g_capture_freq_idx]) {
       OPUS_COPY(g_freq_capture[g_capture_freq_idx], freq, N);
       g_capture_freq_idx++;
@@ -265,6 +301,11 @@ int main(void) {
       g_capture_armed = 1;
       g_capture_freq_idx = 0;
       g_capture_qext_idx = 0;
+      g_qext_energy_count = 0;
+      g_qext_norm_count = 0;
+      g_base_energy_count = 0;
+      g_base_energy_idx = 0;
+      g_base_norm_count = 0;
       g_imdct_captured[0] = 0;
       g_imdct_captured[1] = 0;
       g_comb_calls[0] = 0;
@@ -301,7 +342,7 @@ int main(void) {
         return 1;
       }
 
-      if (!write_exact(GCSO_MAGIC, 4) || !write_u32(1) ||
+      if (!write_exact(GCSO_MAGIC, 4) || !write_u32(2) ||
           !write_u32((uint32_t)N) || !write_u32((uint32_t)CC) ||
           !write_u32((uint32_t)frame_size)) {
         fprintf(stderr, "failed to write output header\n");
@@ -341,6 +382,54 @@ int main(void) {
         if (!write_float(frame[j])) {
           fprintf(stderr, "failed to write final\n");
           return 1;
+        }
+      }
+      if (!write_u32((uint32_t)g_qext_energy_count)) {
+        fprintf(stderr, "failed to write QEXT energy count\n");
+        return 1;
+      }
+      for (ch = 0; ch < (uint32_t)CC; ch++) {
+        for (j = 0; j < g_qext_energy_count; j++) {
+          if (!write_float(g_qext_energy_capture[ch][j])) {
+            fprintf(stderr, "failed to write QEXT energy\n");
+            return 1;
+          }
+        }
+      }
+      if (!write_u32((uint32_t)g_qext_norm_count)) {
+        fprintf(stderr, "failed to write QEXT normalized coefficient count\n");
+        return 1;
+      }
+      for (ch = 0; ch < (uint32_t)CC; ch++) {
+        for (j = 0; j < g_qext_norm_count; j++) {
+          if (!write_float(g_qext_norm_capture[ch][j])) {
+            fprintf(stderr, "failed to write QEXT normalized coefficient\n");
+            return 1;
+          }
+        }
+      }
+      if (!write_u32((uint32_t)g_base_energy_count)) {
+        fprintf(stderr, "failed to write base energy count\n");
+        return 1;
+      }
+      for (ch = 0; ch < (uint32_t)CC; ch++) {
+        for (j = 0; j < g_base_energy_count; j++) {
+          if (!write_float(g_base_energy_capture[ch][j])) {
+            fprintf(stderr, "failed to write base energy\n");
+            return 1;
+          }
+        }
+      }
+      if (!write_u32((uint32_t)g_base_norm_count)) {
+        fprintf(stderr, "failed to write base normalized coefficient count\n");
+        return 1;
+      }
+      for (ch = 0; ch < (uint32_t)CC; ch++) {
+        for (j = 0; j < g_base_norm_count; j++) {
+          if (!write_float(g_base_norm_capture[ch][j])) {
+            fprintf(stderr, "failed to write base normalized coefficient\n");
+            return 1;
+          }
         }
       }
 

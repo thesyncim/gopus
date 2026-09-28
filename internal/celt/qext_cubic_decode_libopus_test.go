@@ -47,6 +47,7 @@ func TestQEXTCubicDecodeMatchesLibopus(t *testing.T) {
 		{"large_norm", 11, 1, 1, 0, 0x36905829, [10]int32{1628, 0, 392, 16, 1682, 2014, 340, 51, 1733, 1977}},
 		{"signed_last_face", 3, 1, 9, 1, 0x3e4fe736, [10]int32{3, 1, 1, 1, 1, 3, 6, 4, 0, 0}},
 		{"transient_block", 4, 8, 3, 1, 0x3eb425cc, [10]int32{6, 8, 15, 0, 1, 14, 3, 6, 7, 0}},
+		{"public_mono_multiframe_band0", 14, 1, 0, 0, 0x3f7ffdd0, [10]int32{0, 10831, 48, 5000, 15953, 11580, 481, 4308, 15595, 12409}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			const n = 10
