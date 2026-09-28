@@ -15,8 +15,9 @@ type streamFixedQEXTFields struct {
 }
 
 func (d *streamState) beginFixedCELTTransition(mode int, gainQ8 int32) {
-	d.fixedTransitionArmed = d.qext.decoder != nil && d.haveDecoded && !d.prevRedundancy &&
-		((mode == streamModeSILK && d.lastMode == streamModeCELT) || (mode == streamModeCELT && d.lastMode == streamModeSILK))
+	d.fixedTransitionArmed = d.qext.decoder != nil && d.haveDecoded &&
+		((mode != streamModeCELT && d.lastMode == streamModeCELT) ||
+			(mode == streamModeCELT && d.lastMode == streamModeSILK && !d.prevRedundancy))
 	d.fixedTransitionReady = false
 	d.fixedTransitionHasMain = false
 	d.fixedTransitionGainQ8 = gainQ8
@@ -38,7 +39,7 @@ func (d *streamState) captureFixedCELTTransition(main []float32, frameSize, tran
 	}
 	channels := int(d.channels)
 	needed := transSize * channels
-	if len(main) < needed {
+	if main != nil && len(main) < needed {
 		return
 	}
 	downsample := 48000 / int(d.sampleRate)
@@ -57,11 +58,13 @@ func (d *streamState) captureFixedCELTTransition(main []float32, frameSize, tran
 	if d.qext.decoder.DecodeLost(coreFrameSize, d.fixedTransitionRes) != transSize {
 		return
 	}
-	floatToRes(d.fixedTransitionMain, main[:needed])
+	if main != nil {
+		floatToRes(d.fixedTransitionMain, main[:needed])
+	}
 	if d.fixedTransitionGainQ8 != 0 {
 		fixedpoint.ApplyDecodeGainRes(d.fixedTransitionRes, fixedpoint.DecodeGainQ16(int(d.fixedTransitionGainQ8)))
 	}
-	d.fixedTransitionHasMain = true
+	d.fixedTransitionHasMain = main != nil
 	d.fixedTransitionReady = true
 }
 
@@ -162,22 +165,50 @@ func (d *streamState) prepareFixedCELTFrame(mode int, parsed parsedOpusPacket, t
 	return nil
 }
 
-func (d *streamState) prepareFixedHybridStream(toc streamTOC) (bool, error) {
-	if int(d.sampleRate) < 16000 {
-		return false, nil
+func (d *streamState) prepareFixedSILKRedundancy(toc streamTOC) error {
+	if err := d.ensureFixedQEXTCELT(); err != nil {
+		return err
 	}
-	if err := d.prepareFixedCELTFrame(streamModeHybrid, parsedOpusPacket{}, toc); err != nil {
+	d.fixedHybridPrevMode = d.lastMode
+	d.fixedHybridPrevRedundancy = d.prevRedundancy
+	d.fixedHybridRedundant = false
+	d.fixedHybridRedundantToSilk = false
+	d.fixedHybridRedundantData = nil
+	d.fixedHybridRedundantValid = false
+	d.fixedHybridCodedChannels = fixedCELTCodedChannels(toc.stereo)
+	d.fixedHybridEnd = celt.BandwidthFromOpusConfig(toc.bandwidth).EffectiveBands()
+	d.qext.decoder.SetPhaseInversionDisabled(d.celtDec.PhaseInversionDisabled())
+	d.qext.decoder.SetBandRange(0, d.fixedHybridEnd)
+	return nil
+}
+
+func (d *streamState) prepareFixedHybridStream(toc streamTOC) (bool, error) {
+	d.fixedHybridPrevMode = d.lastMode
+	d.fixedHybridPrevRedundancy = d.prevRedundancy
+	if err := d.ensureFixedQEXTCELT(); err != nil {
 		return false, err
 	}
 	if d.fixedHybridHook == nil {
 		d.fixedHybridHook = &streamFixedHybridHook{st: d}
 	}
 	d.fixedHybridEnd = celt.BandwidthFromOpusConfig(toc.bandwidth).EffectiveBands()
-	d.qext.decoder.SetBandRange(celt.HybridCELTStartBand, d.fixedHybridEnd)
+	d.qext.decoder.SetPhaseInversionDisabled(d.celtDec.PhaseInversionDisabled())
 	d.fixedHybridRedundant = false
 	d.fixedHybridHandled = false
 	d.hybridDec.SetFixedHighband(d.fixedHybridHook)
 	return true, nil
+}
+
+// prepareFixedHybridHighband preserves the previous CELT history until the
+// redundancy flags decide whether opus_decode_frame needs transition PLC.
+func (d *streamState) prepareFixedHybridHighband(frameSize int) {
+	if d.fixedTransitionArmed && !d.fixedHybridRedundant {
+		d.captureFixedCELTTransition(nil, frameSize, min(frameSize, int(d.sampleRate)/200), true)
+	}
+	if d.haveDecoded && d.fixedHybridPrevMode != streamModeHybrid && !d.fixedHybridPrevRedundancy {
+		d.qext.decoder.Reset()
+	}
+	d.qext.decoder.SetBandRange(celt.HybridCELTStartBand, d.fixedHybridEnd)
 }
 
 func (d *streamState) celtFixedRes(parsed parsedOpusPacket, frameSize int, toc streamTOC, res []int32) bool {
@@ -211,16 +242,26 @@ func (d *streamState) celtFixedRes(parsed parsedOpusPacket, frameSize int, toc s
 }
 
 func (d *streamState) canDecodeLostFixed() bool {
-	return d.qext.decoder != nil && d.lastTOCFrameSize > 0
+	return d.lastTOCFrameSize > 0 && (d.lastMode == streamModeSILK || d.qext.decoder != nil)
 }
 
-func (d *streamState) decodeLostFixed(frameSize int) ([]int32, error) {
+func (d *streamState) decodeLostFixed(frameSize int, floatPCM []float32) ([]int32, error) {
 	channels := int(d.channels)
 	needed := frameSize * channels
 	if cap(d.fixedRes) < needed {
 		d.fixedRes = make([]int32, needed)
 	} else {
 		d.fixedRes = d.fixedRes[:needed]
+	}
+	if d.lastMode == streamModeSILK {
+		if len(floatPCM) < needed {
+			return nil, ErrInvalidPacket
+		}
+		floatToRes(d.fixedRes, floatPCM[:needed])
+		return d.fixedRes, nil
+	}
+	if d.qext.decoder == nil {
+		return nil, ErrInvalidPacket
 	}
 	res := d.fixedRes
 	downsample := 48000 / int(d.sampleRate)
@@ -232,13 +273,28 @@ func (d *streamState) decodeLostFixed(frameSize int) ([]int32, error) {
 	if chunkLimit <= 0 {
 		return nil, ErrInvalidPacket
 	}
+	if d.lastMode == streamModeHybrid {
+		if len(d.fixedHybridPLCLowband) < needed {
+			return nil, ErrInvalidPacket
+		}
+		d.qext.decoder.SetStartBand(celt.HybridCELTStartBand)
+	}
 	for offset := 0; offset < frameSize; {
 		chunk := nextCELTPLCChunk(frameSize-offset, chunkLimit, frameSize20ms)
 		coreFrameSize := chunk * downsample
 		start := offset * channels
 		end := start + chunk*channels
-		if decoded := d.qext.decoder.DecodeLost(coreFrameSize, res[start:end]); decoded != chunk {
-			return nil, ErrInvalidPacket
+		if d.lastMode == streamModeHybrid {
+			for i, sample := range d.fixedHybridPLCLowband[start:end] {
+				res[start+i] = int32(sample) << 8
+			}
+			if decoded := d.qext.decoder.DecodeLostAccum(coreFrameSize, res[start:end]); decoded != chunk {
+				return nil, ErrInvalidPacket
+			}
+		} else {
+			if decoded := d.qext.decoder.DecodeLost(coreFrameSize, res[start:end]); decoded != chunk {
+				return nil, ErrInvalidPacket
+			}
 		}
 		offset += chunk
 	}
@@ -246,7 +302,7 @@ func (d *streamState) decodeLostFixed(frameSize int) ([]int32, error) {
 }
 
 func (d *streamState) decodeFixedHybridAccum(rd *rangecoding.Decoder, coreFrameSize int, packetStereo bool, accum []int32) bool {
-	if d.fixedHybridRedundant || d.qext.decoder == nil || rd == nil {
+	if d.qext.decoder == nil || rd == nil {
 		return false
 	}
 	d.qext.decoder.SetBandRange(celt.HybridCELTStartBand, d.fixedHybridEnd)
@@ -256,6 +312,71 @@ func (d *streamState) decodeFixedHybridAccum(rd *rangecoding.Decoder, coreFrameS
 		downsample = 1
 	}
 	return decoded == coreFrameSize/downsample
+}
+
+func (d *streamState) decodeFixedRedundantCELT(reset bool) bool {
+	if !d.fixedHybridRedundant || len(d.fixedHybridRedundantData) <= 1 || d.qext.decoder == nil {
+		return false
+	}
+	channels := int(d.channels)
+	downsample := 48000 / int(d.sampleRate)
+	if downsample <= 0 {
+		downsample = 1
+	}
+	f5 := int(d.sampleRate) / 200
+	needed := f5 * channels
+	coreFrameSize := f5 * downsample
+	if cap(d.fixedHybridRedundantRes) < needed {
+		d.fixedHybridRedundantRes = make([]int32, needed)
+	} else {
+		d.fixedHybridRedundantRes = d.fixedHybridRedundantRes[:needed]
+	}
+	if reset {
+		d.qext.decoder.Reset()
+	}
+	d.qext.decoder.SetBandRange(0, d.fixedHybridEnd)
+	d.qext.rangeDecoder.Init(d.fixedHybridRedundantData)
+	if decoded := d.qext.decoder.DecodeFrameWithEC(&d.qext.rangeDecoder, len(d.fixedHybridRedundantData), coreFrameSize, d.fixedHybridCodedChannels, nil, d.fixedHybridRedundantRes); decoded != f5 {
+		return false
+	}
+	d.fixedHybridRedundantValid = true
+	return true
+}
+
+func (d *streamState) finishFixedRedundancy(res []int32, frameSize int) bool {
+	if !d.fixedHybridRedundant {
+		return true
+	}
+	if !d.fixedHybridRedundantValid && !d.decodeFixedRedundantCELT(!d.fixedHybridRedundantToSilk) {
+		return false
+	}
+	channels := int(d.channels)
+	f2_5 := int(d.sampleRate) / 400
+	f5 := int(d.sampleRate) / 200
+	needed := frameSize * channels
+	if f2_5 <= 0 || len(res) < needed || len(d.fixedHybridRedundantRes) < f5*channels {
+		return false
+	}
+	if d.fixedHybridRedundantToSilk {
+		if d.fixedHybridPrevMode == streamModeSILK && !d.fixedHybridPrevRedundancy {
+			return true
+		}
+		for c := 0; c < channels; c++ {
+			for i := 0; i < f2_5; i++ {
+				res[i*channels+c] = d.fixedHybridRedundantRes[i*channels+c]
+			}
+		}
+		fadeIn1 := d.fixedHybridRedundantRes[f2_5*channels:]
+		fadeIn2 := res[f2_5*channels:]
+		fixedpoint.SmoothFadeResQEXT(fadeIn1, fadeIn2, fadeIn2, f2_5, channels, int(d.sampleRate))
+		return true
+	}
+	start := (frameSize - f2_5) * channels
+	if start < 0 {
+		return false
+	}
+	fixedpoint.SmoothFadeResQEXT(res[start:], d.fixedHybridRedundantRes[f2_5*channels:], res[start:], f2_5, channels, int(d.sampleRate))
+	return true
 }
 
 func (d *streamState) resetFixedDecoderState() {

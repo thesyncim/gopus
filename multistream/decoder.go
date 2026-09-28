@@ -149,6 +149,7 @@ type streamState struct {
 	rangeDecoder  rangecoding.Decoder
 	framePCM      []float32
 	transitionPCM []float32
+	redundantPCM  []float32
 	packetPCM     []float32
 	plcPCM        []float32
 
@@ -224,6 +225,13 @@ func (d *streamState) transitionPCMFor(n int) []float32 {
 		d.transitionPCM = make([]float32, n)
 	}
 	return d.transitionPCM[:n]
+}
+
+func (d *streamState) redundantPCMFor(n int) []float32 {
+	if cap(d.redundantPCM) < n {
+		d.redundantPCM = make([]float32, n)
+	}
+	return d.redundantPCM[:n]
 }
 
 func (d *streamState) plcPCMFor(n int) []float32 {
@@ -674,7 +682,7 @@ func (d *streamState) decodePLCChunkToFloat32(frameSize int) ([]float32, error) 
 		return d.finishDecode32(out[:frameSize*int(d.channels)], nil)
 	case streamModeHybrid:
 		out := d.framePCMFor(frameSize * int(d.channels))
-		err := d.hybridDec.DecodePLCToFloat32WithPacketStereoInto(frameSize, d.lastPacketStereo, out)
+		err := d.decodeHybridPLCChunkToFloat32(frameSize, out)
 		out, err = d.finishDecode32(out, err)
 		if extsupport.OSCERuntime && err == nil {
 			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeHybrid, bandwidth: int(d.lastBandwidth), stereo: d.lastPacketStereo}, nil, frameSize)

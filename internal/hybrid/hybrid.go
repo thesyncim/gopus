@@ -115,6 +115,25 @@ func (d *Decoder) SetDeepPLCLossMonoHook(hook silk.DeepPLCLossMonoHook) {
 	d.silkDecoder.SetDeepPLCLossMonoHook(hook)
 }
 
+// ArmFixedPLCLowbandCapture forwards the integer lowband capture used by the
+// fixed-point multistream Hybrid PLC path. buf receives the resampled SILK
+// int16 samples produced by the next PLC decode.
+func (d *Decoder) ArmFixedPLCLowbandCapture(buf []int16) {
+	if d == nil || d.silkDecoder == nil {
+		return
+	}
+	d.silkDecoder.ArmPLCLowbandCapture(buf)
+}
+
+// FixedPLCLowbandCaptured reports the interleaved int16 sample count from the
+// most recent SILK PLC decode captured by ArmFixedPLCLowbandCapture.
+func (d *Decoder) FixedPLCLowbandCaptured() int {
+	if d == nil || d.silkDecoder == nil {
+		return 0
+	}
+	return d.silkDecoder.PLCLowbandCaptured()
+}
+
 // DecodeStereo decodes a Hybrid stereo frame and returns 48kHz PCM samples.
 // If data is nil, performs Packet Loss Concealment (PLC) instead of decoding.
 // Returns interleaved stereo samples [L0, R0, L1, R1, ...] at 48kHz.

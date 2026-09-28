@@ -83,11 +83,18 @@ func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc str
 				}
 			}
 		}
-		// Hand the final redundancy decision to the gopus_fixed_point integer
-		// highband hook (which runs next, against a clone of this same decoder
-		// positioned at the CELT start band) so it can decline redundant frames it
-		// does not reproduce. A no-op in the default build.
-		d.setFixedHybridRedundancy(redundancy)
+		// Hand the final redundancy decision and trailing CELT frame to the
+		// gopus_fixed_point highband path. The shared range decoder has already
+		// consumed the flags and excluded these trailing bytes.
+		var fixedRedundantData []byte
+		if redundancy && redundancyBytes > 0 && mainLen >= 0 && mainLen+redundancyBytes <= len(frame) {
+			fixedRedundantData = frame[mainLen : mainLen+redundancyBytes]
+		}
+		codedChannels := 1
+		if toc.stereo {
+			codedChannels = 2
+		}
+		d.setFixedRedundancy(redundancy, celtToSilk, fixedRedundantData, codedChannels)
 		// pcm_transition for a CELT->Hybrid mode change: decode the 5 ms PLC frame
 		// in the previous CELT mode now that redundancy is known to be absent and
 		// before the CELT decoder is reset (opus_decode_frame lines ~540-543).
@@ -106,7 +113,7 @@ func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc str
 		// the redundancy-updated CELT state (no reset). Mirrors opus_decode_frame.
 		if redundancy && celtToSilk && redundancyBytes > 0 && mainLen >= 0 && mainLen+redundancyBytes <= len(frame) {
 			redundantData := frame[mainLen : mainLen+redundancyBytes]
-			redundantAudio = make([]float32, f5*channels)
+			redundantAudio = d.redundantPCMFor(f5 * channels)
 			if rerr := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(redundantData, f5, toc.stereo, redundantAudio); rerr != nil {
 				return rerr
 			}
@@ -133,7 +140,7 @@ func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc str
 			d.celtDec.Reset()
 			d.celtDec.SetBandwidth(celtBW)
 			redundantData := frame[mainLen : mainLen+redundancyBytes]
-			redundantAudio = make([]float32, f5*channels)
+			redundantAudio = d.redundantPCMFor(f5 * channels)
 			if err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(redundantData, f5, toc.stereo, redundantAudio); err != nil {
 				return nil, err
 			}

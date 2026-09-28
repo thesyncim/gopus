@@ -160,6 +160,11 @@ func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, tran
 	}
 
 	redundancyValid := redundancy && redundancyBytes > 0 && mainLen >= 0 && mainLen+redundancyBytes <= len(frame)
+	var fixedRedundantData []byte
+	if redundancyValid {
+		fixedRedundantData = frame[mainLen : mainLen+redundancyBytes]
+	}
+	d.setFixedRedundancy(redundancyValid, celtToSilk, fixedRedundantData, fixedCELTCodedChannels(toc.stereo))
 
 	// A CELT->SILK redundant frame is decoded BEFORE the Hybrid->SILK fade-out so
 	// the fade-out gate sees the redundancy decision (opus_decode_frame ordering).
@@ -170,7 +175,7 @@ func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, tran
 	if redundancyValid && celtToSilk {
 		d.celtDec.SetBandwidth(celtBW)
 		redundantData := frame[mainLen : mainLen+redundancyBytes]
-		redundantAudio = make([]float32, f5*channels)
+		redundantAudio = d.redundantPCMFor(f5 * channels)
 		if err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(redundantData, f5, toc.stereo, redundantAudio); err != nil {
 			return nil, err
 		}
@@ -191,7 +196,7 @@ func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, tran
 		d.celtDec.Reset()
 		d.celtDec.SetBandwidth(celtBW)
 		redundantData := frame[mainLen : mainLen+redundancyBytes]
-		redundantAudio = make([]float32, f5*channels)
+		redundantAudio = d.redundantPCMFor(f5 * channels)
 		if err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(redundantData, f5, toc.stereo, redundantAudio); err != nil {
 			return nil, err
 		}
@@ -253,15 +258,18 @@ func (d *streamState) transitionPLCToFloat32(transSize, prevMode, prevBW int, pr
 			out = out[:transSize*channels]
 		}
 	case streamModeHybrid:
-		out, err = d.hybridDec.DecodeToFloat32WithPacketStereo(nil, transSize, prevStereo)
+		out = d.transitionPCMFor(transSize * channels)
+		err = d.hybridDec.DecodePLCToFloat32WithPacketStereoInto(transSize, prevStereo, out)
 	case streamModeCELT:
 		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(prevBW))
-		out = make([]float32, transSize*channels)
+		out = d.transitionPCMFor(transSize * channels)
 		if err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(nil, transSize, prevStereo, out); err != nil {
 			return nil, err
 		}
 	default:
-		return make([]float32, transSize*int(d.channels)), nil
+		out = d.transitionPCMFor(transSize * channels)
+		clear(out)
+		return out, nil
 	}
 	if err != nil {
 		return nil, err

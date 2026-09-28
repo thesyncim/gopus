@@ -13,6 +13,7 @@ import (
 // the CELT decoder is created lazily on the first CELT-only / Hybrid frame so
 // SILK-only streams pay no allocation.
 type streamFixedFields struct {
+	streamFixedMultiframeFields
 	fixedCELT    *fixedpoint.CELTDecoder
 	fixedCELTPCM []int16
 	fixedRes     []int32
@@ -33,16 +34,22 @@ type streamFixedFields struct {
 	// Hybrid highband decode (start band 17, celt_accum onto the SILK opus_res
 	// lowband). It is armed on the stream's hybrid decoder only while an integer
 	// Hybrid frame is in flight and shares fixedCELT with the CELT-only path.
-	fixedHybridHook         *streamFixedHybridHook
-	fixedHybridRes          []int32
-	fixedHybridEnd          int
-	fixedHybridRangeDecoder rangecoding.Decoder
-	// fixedHybridRedundant records the Opus-layer redundancy decision the float
-	// Hybrid afterSilk callback already read from the shared range decoder. The
-	// integer highband hook reads it (rather than re-parsing the flag, which the
-	// shared decoder has already advanced past) to decline redundant frames.
-	fixedHybridRedundant bool
-	fixedHybridHandled   bool
+	fixedHybridHook            *streamFixedHybridHook
+	fixedHybridRes             []int32
+	fixedHybridPLCLowband      []int16
+	fixedHybridPLCCapturing    bool
+	fixedHybridPLCCursor       int
+	fixedHybridEnd             int
+	fixedHybridRangeDecoder    rangecoding.Decoder
+	fixedHybridRedundant       bool
+	fixedHybridRedundantToSilk bool
+	fixedHybridRedundantData   []byte
+	fixedHybridRedundantRes    []int32
+	fixedHybridRedundantValid  bool
+	fixedHybridCodedChannels   int
+	fixedHybridPrevMode        int32
+	fixedHybridPrevRedundancy  bool
+	fixedHybridHandled         bool
 }
 
 // decoderFixedFields holds caller-independent output scratch for the integer
@@ -53,10 +60,16 @@ type decoderFixedFields struct {
 	fixedOutput    []int32
 }
 
-// setFixedHybridRedundancy records the Opus-layer redundancy decision the float
-// Hybrid afterSilk callback read from the shared range decoder, so the integer
-// highband hook (which runs after afterSilk) can decline a redundant frame
-// without re-parsing the already-consumed flag.
-func (d *streamState) setFixedHybridRedundancy(redundant bool) {
+// setFixedRedundancy records the redundancy decision already read by the float
+// SILK or Hybrid path. The fixed CELT decoder uses these packet bytes without
+// reparsing the shared range decoder.
+func (d *streamState) setFixedRedundancy(redundant, celtToSilk bool, data []byte, codedChannels int) {
 	d.fixedHybridRedundant = redundant
+	d.fixedHybridRedundantToSilk = redundant && celtToSilk
+	d.fixedHybridRedundantData = nil
+	d.fixedHybridRedundantValid = false
+	d.fixedHybridCodedChannels = codedChannels
+	if redundant {
+		d.fixedHybridRedundantData = data
+	}
 }
