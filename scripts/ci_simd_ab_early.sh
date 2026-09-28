@@ -273,8 +273,8 @@ for mode in simd nosimd; do
     run_json_phase "candidate-$mode-$osce_phase" \
       run_in_checkout "$candidate_root" \
       "${run_env[@]}" go test -json -tags "${osce_features}${feature_scalar_tag}" \
-      . ./internal/osce/... ./multistream ./internal/libopustest ./internal/celt \
-      -run '^Test(OSCE(EndToEndSampleParity|BWE(RawSignalNet|ForwardPass|CrossFade))|BWE(FeatureFFTMatchesLibopus|VariableSequenceStateMatchesSelectedLibopus)|LACEAndNoLACEFeatureStateMatchesLibopusRawBits|MultistreamDecoderOSCE|StreamOSCE|MultistreamReferenceFeaturePairing|CurrentPublicAPIHelperConfig|DNNFeatureBuild|DNNCompilerTarget|AntiCollapseVsLibopus)' \
+      . ./internal/osce/... ./multistream ./internal/libopustest ./internal/celt ./internal/dnnmath \
+      -run '^Test(OSCE(EndToEndSampleParity|BWE(RawSignalNet|ForwardPass|CrossFade))|BWE(FeatureFFTMatchesLibopus|VariableSequenceStateMatchesSelectedLibopus)|LACEAndNoLACEFeatureStateMatchesLibopusRawBits|X86SGEMVScalarRemainderMatchesSelectedLibopus|MultistreamDecoderOSCE|StreamOSCE|MultistreamReferenceFeaturePairing|CurrentPublicAPIHelperConfig|DNNFeatureBuild|DNNCompilerTarget|AntiCollapseVsLibopus)' \
       -count=1 -timeout=10m
   done
 

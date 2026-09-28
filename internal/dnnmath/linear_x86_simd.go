@@ -13,9 +13,8 @@ import (
 // -mavx -mfma -mavx2. Callers select them only when X86VectorKernels is set.
 
 // SGEMVX86 mirrors dnn/vec_avx.h:sgemv: complete 16-, 8- and 4-row blocks
-// accumulate each lane through an ascending-column FMA chain, and the
-// remaining rows use the rounded multiply and add GCC emits for the scalar
-// tail loop.
+// and the remaining scalar rows accumulate through ascending-column FMA
+// chains selected by the AVX2/FMA reference build.
 func SGEMVX86(out []float32, weights dnnblob.Float32View, rows, cols, colStride int, x []float32) {
 	row := 0
 	for ; row+16 <= rows; row += 16 {
@@ -62,9 +61,13 @@ func SGEMVX86(out []float32, weights dnnblob.Float32View, rows, cols, colStride 
 	for ; row < rows; row++ {
 		var sum float32
 		for col := range cols {
-			// The explicit conversion keeps the product rounded, as in the
-			// VMULSS/VADDSS tail of compute_linear_avx2.
-			sum += float32(weights.At(col*colStride+row) * x[col])
+			// dnn/vec_avx.h:sgemv's scalar remainder is compiled in the
+			// AVX2/FMA translation unit, so GCC contracts this update to
+			// VFMADDSS just like the complete vector blocks.
+			sum = archsimd.BroadcastFloat32x4(weights.At(col*colStride+row)).MulAdd(
+				archsimd.BroadcastFloat32x4(x[col]),
+				archsimd.BroadcastFloat32x4(sum),
+			).GetElem(0)
 		}
 		out[row] = sum
 	}
