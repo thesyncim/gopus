@@ -12,19 +12,18 @@ import (
 var fixedRefdecodeHelper libopustest.HelperCache
 
 // getFixedRefdecodeHelperPath builds the libopus_refdecode_single.c full-pipeline
-// opus_decode / opus_decode24 helper against the FIXED_POINT reference tree
-// (--enable-fixed-point, ENABLE_RES24), so the int16/int24 output is the libopus
-// FIXED_POINT opus_decode result rather than the float build.
+// opus_decode / opus_decode24 helper against the public fixed-point reference
+// selected for this Go build, including ENABLE_QEXT when that tag is active.
 func getFixedRefdecodeHelperPath() (string, error) {
-	return fixedRefdecodeHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:       "fixed-point reference decode",
-		OutputBase:  "gopus_libopus_refdecode_fixed",
-		SourceFile:  "libopus_refdecode_single.c",
-		FixedRef:    true,
-		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
-		RefIncludes: []string{"celt", "silk"},
-		Libs:        []string{libopustest.FixedRefPath(".libs", "libopus.a"), "-lm"},
-		DeadStrip:   true,
+	return fixedRefdecodeHelper.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:       "fixed-point reference decode",
+			OutputBase:  "gopus_libopus_refdecode_fixed",
+			SourceFile:  "libopus_refdecode_single.c",
+			CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
+			RefIncludes: []string{"celt", "silk"},
+			DeadStrip:   true,
+		})
 	})
 }
 

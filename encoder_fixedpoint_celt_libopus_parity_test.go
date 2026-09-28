@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
@@ -164,7 +165,11 @@ func TestPublicEncodeFixedCELTLibopusParity(t *testing.T) {
 		vbr := c.mode != BitrateModeCBR
 		constrained := c.mode == BitrateModeCVBR
 
-		want, err := libopustest.ProbeCELTFixedRawQ8(libopustest.CELTFixedQ8Params{
+		probe := libopustest.ProbeCELTFixedRawQ8
+		if extsupport.QEXT {
+			probe = libopustest.ProbeCELTFixedQEXTQ8
+		}
+		want, err := probe(libopustest.CELTFixedQ8Params{
 			SampleRate: 48000, Channels: c.channels, FrameSize: frameSize,
 			Start: start, End: end, Bitrate: innerBitrate, Complexity: c.complexity,
 			LSBDepth: lsbDepth, VBR: vbr, ConstrainedVBR: constrained, Frames: fed,

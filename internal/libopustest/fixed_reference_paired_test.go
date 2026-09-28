@@ -12,9 +12,13 @@ import (
 
 func TestFixedArchiveAndHelperUsePairedReference(t *testing.T) {
 	RequireOracle(t)
-	variant, err := libopustooling.ResolveLibopusFixedReferenceVariant()
+	identity, err := ResolvePublicAPIReferenceIdentity()
 	if err != nil {
 		t.Fatal(err)
+	}
+	variant := identity.Variant
+	if !strings.Contains(string(variant), "fixed") {
+		t.Fatalf("selected public reference variant %q is not fixed-point", variant)
 	}
 	helper, err := getOpusEncodeFixedHelperPath()
 	if err != nil {
@@ -24,7 +28,7 @@ func TestFixedArchiveAndHelperUsePairedReference(t *testing.T) {
 	if !strings.Contains(filepath.Base(helper), "_"+string(variant)+"_") {
 		t.Fatalf("fixed helper %q does not identify %s", helper, variant)
 	}
-	archive := FixedRefPath(".libs", "libopus.a")
+	archive := identity.ArchivePath
 	suffix, err := libopustooling.LibopusReferenceSourceSuffix(variant)
 	if err != nil {
 		t.Fatal(err)
@@ -35,9 +39,13 @@ func TestFixedArchiveAndHelperUsePairedReference(t *testing.T) {
 	if err := libopustooling.ValidateLibopusReferenceArchive(archive, variant, libopustooling.DefaultVersion); err != nil {
 		t.Fatal(err)
 	}
-	other := libopustooling.LibopusReferenceFixedScalar
-	if variant == other {
-		other = libopustooling.LibopusReferenceFixedSIMD
+	var other libopustooling.LibopusReferenceVariant
+	if strings.HasSuffix(string(variant), "-scalar") {
+		other = libopustooling.LibopusReferenceVariant(strings.TrimSuffix(string(variant), "-scalar") + "-simd")
+	} else if strings.HasSuffix(string(variant), "-simd") {
+		other = libopustooling.LibopusReferenceVariant(strings.TrimSuffix(string(variant), "-simd") + "-scalar")
+	} else {
+		t.Fatalf("selected fixed variant %q has no instruction lane", variant)
 	}
 	if err := libopustooling.ValidateLibopusReferenceArchive(archive, other, libopustooling.DefaultVersion); err == nil {
 		t.Fatal("accepted opposite fixed ISA")

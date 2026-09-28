@@ -58,14 +58,13 @@ var opusEncodeFixedHelper HelperCache
 var opusEncodeFloatShortHelper HelperCache
 
 func buildOpusEncodeFixedHelper() (string, error) {
-	return BuildCHelper(CHelperConfig{
+	return BuildPublicAPIHelper(CHelperConfig{
 		Label:       "opus encode fixed",
 		OutputBase:  "gopus_libopus_opus_encode_fixed",
 		SourceFile:  "libopus_opus_encode_fixed_info.c",
-		FixedRef:    true,
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
 		RefIncludes: []string{"celt", "silk", "src"},
-		Libs:        []string{FixedRefPath(".libs", "libopus.a"), "-lm"},
+		Libs:        []string{"-lm"},
 		DeadStrip:   true,
 	})
 }
