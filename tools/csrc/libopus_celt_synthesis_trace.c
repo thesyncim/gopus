@@ -51,6 +51,7 @@
 static int g_capture_armed = 0;
 static int g_capture_N = 0;
 static int g_capture_freq_idx = 0;
+static int g_capture_qext_idx = 0;
 static int g_imdct_captured[2] = {0, 0};
 static int g_comb_calls[2] = {0, 0};
 static celt_sig *g_freq_capture[2] = {NULL, NULL};
@@ -93,6 +94,18 @@ static void gopus_capture_denormalise_bands(const CELTMode *m, const celt_norm *
       int downsample, int silence, int N)
 {
    denormalise_bands(m, X, freq, bandLogE, start, end, M, downsample, silence);
+#ifdef ENABLE_QEXT
+   /* celt_synthesis() first writes the base bands, then overwrites the same
+    * spectrum with QEXT bands. Keep the final per-channel spectrum, matching
+    * the buffer passed to clt_mdct_backward(). */
+   if (g_capture_armed && m->nbEBands == NB_QEXT_BANDS &&
+       g_capture_qext_idx < 2 && g_freq_capture[g_capture_qext_idx]) {
+      OPUS_COPY(g_freq_capture[g_capture_qext_idx], freq, N);
+      g_capture_qext_idx++;
+      g_capture_N = N;
+      return;
+   }
+#endif
    if (g_capture_armed && g_capture_freq_idx < 2 && g_freq_capture[g_capture_freq_idx]) {
       OPUS_COPY(g_freq_capture[g_capture_freq_idx], freq, N);
       g_capture_freq_idx++;
@@ -251,6 +264,7 @@ int main(void) {
     if (i == target_step) {
       g_capture_armed = 1;
       g_capture_freq_idx = 0;
+      g_capture_qext_idx = 0;
       g_imdct_captured[0] = 0;
       g_imdct_captured[1] = 0;
       g_comb_calls[0] = 0;

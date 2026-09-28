@@ -4268,9 +4268,18 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		}
 
 		if dualStereo != 0 {
-			xCM = quantBandDecode(&ctx, x, nBand, b/2, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM)
-			if channels == 2 {
-				yCM = quantBandDecode(&ctx, y, nBand, b/2, B, lowbandY, lm, lowbandOutY, 1.0, lowbandScratch, yCM)
+			if ctx.extDec != nil {
+				// The QEXT branch in pinned celt/bands.c quant_all_bands
+				// passes ext_b/2 to each dual-stereo quant_band call.
+				xCM = quantBandDecodeWithExtBudget(&ctx, x, nBand, b/2, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM, ctx.extBudget/2)
+				if channels == 2 {
+					yCM = quantBandDecodeWithExtBudget(&ctx, y, nBand, b/2, B, lowbandY, lm, lowbandOutY, 1.0, lowbandScratch, yCM, ctx.extBudget/2)
+				}
+			} else {
+				xCM = quantBandDecode(&ctx, x, nBand, b/2, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM)
+				if channels == 2 {
+					yCM = quantBandDecode(&ctx, y, nBand, b/2, B, lowbandY, lm, lowbandOutY, 1.0, lowbandScratch, yCM)
+				}
 			}
 		} else {
 			if channels == 2 {
