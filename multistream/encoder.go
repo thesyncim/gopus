@@ -1002,6 +1002,11 @@ func (e *Encoder) encodeNative(in encodeInput, frameSize int, analysisPCM []floa
 	if maxDataBytes < smallestPacket {
 		return 0, ErrBufferTooSmall
 	}
+	if in.i16 != nil {
+		for _, enc := range e.encoders {
+			enc.ReserveShortEncodeScratch(frameSize, maxDataBytes)
+		}
+	}
 
 	// Surround analysis and the per-stream OPUS_SET_* controls
 	// (lines 897-962).
