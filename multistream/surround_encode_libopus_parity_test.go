@@ -4,21 +4,12 @@ import (
 	"bytes"
 	"fmt"
 	"math"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 var surroundRefencodeHelper libopustest.HelperCache
-
-// armEncodeFloatDrift reports the darwin/arm64-only ≤1-ULP CELT float drift that
-// can flip a single quantization step and cascade into differing packet bytes.
-// CI runs amd64, where surround encode is byte-exact. See
-// project_arm64_celt_1ulp_drift.md.
-func armEncodeFloatDrift() bool {
-	return runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"
-}
 
 // surroundEncodeRef holds the result of driving libopus
 // opus_multistream_surround_encoder_create + opus_multistream_encode_float
