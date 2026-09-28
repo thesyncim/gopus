@@ -8,6 +8,13 @@ reference path.
 
 ## Correctness status
 
+The latest native AMD64 early artifact at `83affdb9` contains 89 command exit
+records: 85 succeed; three SIMD OSCE feature phases and their aggregate status
+fail. BWE feature extraction is exact, while signal-network and public OSCE PCM
+checks differ. Scalar OSCE counterparts pass. These failures are active work;
+the other completed CI jobs and the base-codec performance results do not imply
+complete codec parity.
+
 The live oracle comparisons use libopus 1.6.1 with the same effective
 instruction path on the same machine. Go SIMD (`GOEXPERIMENT=simd`) pairs with the SSE/AVX2 RTCD
 reference on AMD64 and the NEON reference on ARM64. Ordinary Go and `nosimd`
@@ -29,8 +36,13 @@ percentage allowance. Quality checks retain their normal floors without
 cross-feature exceptions. Fixture bytes, hashes, and baselines are unchanged.
 
 Decoder matrix/rate/loss/corpus/transition consumers use build-paired live C
-expectations. Frozen packet inputs and fixture-honesty checks retain their
-independent roles; frozen numerical expectations require their recorded
+expectations. On local ARM64, the combined OSCE/DRED/QEXT loss and native
+96 kHz selectors pass scalar and SIMD; loss comparisons also pass the race detector.
+The 96-frame DRED+QEXT surround/projection sequences cover reset and active
+simultaneous extensions in 5.1, 7.1 and first-order ambisonics. They match packets
+and final ranges with zero warm allocations in both instruction lanes. The
+24-frame 9/16-channel projection comparisons also pass both lanes. Frozen packet
+inputs and fixture-honesty checks retain their independent roles; frozen numerical expectations require their recorded
 producer environment. Long-frame encoder fixture coverage remains under audit.
 
 Malformed code-3 VBR packets are fully prevalidated before Go decodes any frame,
@@ -132,10 +144,19 @@ stateful matrix across 11 modes, including up to 23 bands, mono/stereo,
 40/200/600-byte budgets, reset and periodic/noise concealment. Custom pulse
 splitting uses the mode's own cache. Warm encode/decode and PLC/recovery checks
 allocate zero; QEXT decoding retains allocation scratch in decoder state.
-Dynamic fixed QEXT integration remains under implementation. A broader
-fixed-QEXT package sweep also exposes Q15 internal decoder/synthesis calls
-using QEXT-conditioned arithmetic; their explicit coefficient-mode selection
-remains under correction, with the exact C checks retained.
+Custom fixed QEXT encoding matches selected-C packets and final ranges across
+16 mode/channel cases, including generated wide-band modes and 96 kHz. Warm
+encoder allocation checks pass for 44.1 kHz/1024 and 96 kHz/2048 geometries.
+QEXT side modes exist only at 48 and 96 kHz, matching live C cache geometry.
+The Q15 decoder selects its coefficient arithmetic explicitly in QEXT builds;
+its independent fixed-only C oracle coexists with the Q31 QEXT oracle. The full
+fixed-point package passes scalar and SIMD with QEXT enabled. Custom fixed QEXT
+stateful checks pass 18 mode/channel cases in scalar and SIMD, including variable
+frame sizes and packet budgets. Received/loss/recovery/reset allocation checks
+remain zero. The full public fixed-QEXT suite still has feature-pairing failures
+under correction. Automatic mono/stereo transitions at 48 and 96 kHz match
+selected C packets, final ranges and raw state in scalar and SIMD, with QEXT
+enabled and disabled. Active QEXT transitions allocate zero after warmup.
 Generated fixed-QEXT transform tables and forward/inverse MDCT results match
 live C across 13 custom geometries, including maxshift zero, all transform
 shifts, contiguous and strided output, and the 2048-sample geometry. Warm
@@ -1782,6 +1803,51 @@ with this native helper, using otherwise identical SIMD binaries:
 
 Small deltas are near measurement noise. These are Go-to-Go measurements;
 they do not replace the assembly comparison or establish a new AMD64 result.
+
+### Native end-to-end capture at 83affdb9 (AMD EPYC 9V45)
+
+Early artifact `10967297691` from [run 36414593219](https://github.com/thesyncim/gopus/actions/runs/36414593219)
+compares assembly `8ac93c85` with SIMD/nosimd `83affdb9` on AMD EPYC 9V45,
+Go 1.27.1, GCC 13.3.0, GOAMD64=v1, PGO enabled. Four interleaved 500 ms
+samples use `-cpu=1`; all 72 samples report 0 B/op and 0 allocs/op.
+Values are median ns/op. These base-codec measurements do not establish OSCE parity.
+
+| Workload | Old assembly | Go SIMD | `nosimd` |
+|---|---:|---:|---:|
+| CELT decode | 12,121 | 8,130.5 | 10,133 |
+| Hybrid decode | 16,940 | 14,755.5 | 18,608.5 |
+| SILK decode | 13,718 | 10,260 | 12,968 |
+| Caller-buffer encode | 55,226.5 | 38,776.5 | 60,445 |
+| VoIP encode | 59,435 | 41,592.5 | 62,237 |
+| Low-delay encode | 54,867.5 | 38,629 | 58,650 |
+
+SIMD takes 12.9–32.9% less time than assembly in this run. Scalar trails assembly
+for Hybrid decode and the three encode workloads. The 53 kernel rows retain
+their own measured revisions; this run refreshes the end-to-end comparisons.
+
+### Matched libopus 1.6.1 comparison
+
+Same runner/revision; C scalar vs Go scalar and C SIMD vs Go SIMD. Three
+250 ms minimum runs per case. Values are µs/packet (lower is faster).
+All Go rows allocate zero; C allocations are not measured.
+
+| Workload | C scalar | Go scalar | C SIMD | Go SIMD |
+|---|---:|---:|---:|---:|
+| CELT-FB-20ms-stereo-128k | 119.29 | 118.62 | 87.40 | 77.79 |
+| CELT-FB-5ms-mono-64k | 13.43 | 15.18 | 12.33 | 12.38 |
+| Hybrid-FB-20ms-mono-64k | 243.68 | 222.20 | 160.41 | 135.77 |
+| Hybrid-FB-20ms-stereo-96k | 138.82 | 139.56 | 102.01 | 91.54 |
+| SILK-WB-20ms-mono-32k | 484.20 | 394.74 | 277.14 | 221.86 |
+| RFC vectors Float32 | 20.28 | 20.99 | 21.00 | 18.36 |
+| RFC vectors Int16 | 22.16 | 22.46 | 21.42 | 19.43 |
+
+SIMD encode takes 10.3–20.0% less time than SIMD C except 5 ms CELT, which is
+within 0.4%. SIMD vector decode takes 12.6%/9.3% less time for float32/int16.
+Scalar Go trails C by 13.1% for 5 ms CELT and 3.5%/1.4% for float32/int16 decode;
+its other encode rows range from 0.5% slower to 18.5% faster.
+Decoder rows aggregate 20,075 identical packets; encoder rows use identical PCM
+and controls. Three SIMD OSCE correctness phases fail in this artifact and remain
+under investigation; their scalar counterparts pass.
 
 ## Per-symbol inventory
 

@@ -36,14 +36,16 @@ allocation probe used a 32-coefficient MDCT with overlap 8, which builds dynamic
 trig, FFT, and window tables per call. The follow-up keeps that small-size
 determinism/finite-output check and measures allocations with a separate
 standard 120-coefficient frame and overlap 120, which use the pinned tables.
-The updated selector still needs a Penryn QEMU rerun. The run's overall
-conclusion is cancelled, so these phase results do not establish a complete
-CI pass.
+Run [36412029034](https://github.com/thesyncim/gopus/actions/runs/36412029034/job/108894625360)
+at `2b8615ba` reports all five Penryn phases and all five Sandy Bridge phases
+passing, including the corrected CELT allocation selector, analysis, DNN,
+SILK and public encode/decode smoke checks. The run's overall conclusion is
+cancelled, so these phase results do not establish a complete CI pass.
 
 Local validation cross-compiles Linux AMD64 and ARM64 SIMD test binaries with
 Go 1.27.1; AMD64 uses `GOAMD64=v1`. Selected CELT scale/rotation/inner-product/comb/stereo, analysis and DNN
 activation checks pass locally on ARM64. Disassembly checks the guarded entry points
 and CELT AVX-only broadcast encodings. Native execution is represented by the
-existing A/B evidence; the CELT Penryn allocation assertion is pending rerun
-with the standard-size fixture. Existing native performance measurements
+existing A/B evidence, and both emulated CPU feature configurations pass their
+compatibility phases. Existing native performance measurements
 describe their recorded revision; they do not measure these CPU safety changes.
