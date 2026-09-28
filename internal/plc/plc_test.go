@@ -747,8 +747,8 @@ func TestSILKPLCStateCreation(t *testing.T) {
 		t.Errorf("PrevGainQ16[1] = %d, want %d", state.PrevGainQ16[1], 1<<16)
 	}
 
-	if state.RandScaleQ14 != (1 << 14) {
-		t.Errorf("RandScaleQ14 = %d, want %d", state.RandScaleQ14, 1<<14)
+	if state.RandScaleQ14 != 0 {
+		t.Errorf("RandScaleQ14 = %d, want 0", state.RandScaleQ14)
 	}
 
 	if state.SubfrLength != 20 {
@@ -786,8 +786,8 @@ func TestSILKPLCStateReset(t *testing.T) {
 		t.Error("After reset: LastFrameLost should be false")
 	}
 
-	if state.RandScaleQ14 != (1 << 14) {
-		t.Errorf("After reset: RandScaleQ14 = %d, want %d", state.RandScaleQ14, 1<<14)
+	if state.RandScaleQ14 != 0 {
+		t.Errorf("After reset: RandScaleQ14 = %d, want 0", state.RandScaleQ14)
 	}
 }
 

@@ -51,3 +51,33 @@ func TestConcealSILKResetDiscardsCachedLPC(t *testing.T) {
 		})
 	}
 }
+
+func TestSILKPLCUpdateResetsBeforeGoodFrameAtNewRate(t *testing.T) {
+	state := NewSILKPLCState()
+	state.FsKHz = 16
+	state.PitchLQ8 = 3456 << 8
+	state.PrevGainQ16 = [2]int32{3 << 16, 4 << 16}
+
+	const (
+		fsKHz      = 12
+		nbSubfr    = 4
+		subfrLen   = 60
+		frameLen   = nbSubfr * subfrLen
+		initialLag = frameLen << 7
+	)
+	pitchL := []int32{120, 120, 120, 120}
+	ltpCoefQ14 := make([]int16, nbSubfr*ltpOrder)
+	gainsQ16 := []int32{1 << 16, 2 << 16, 3 << 16, 4 << 16}
+	lpcQ12 := make([]int16, 10)
+
+	// PLC.c silk_PLC runs silk_PLC_Reset before silk_PLC_update on a rate
+	// change. A voiced update with zero LTP gain leaves pitchL_Q8 at the reset
+	// frameLength<<7 value, rather than retaining the old-rate lag.
+	state.UpdateFromGoodFrame(2, pitchL, ltpCoefQ14, 0, gainsQ16, lpcQ12, fsKHz, nbSubfr, subfrLen)
+	if state.FsKHz != fsKHz || state.PitchLQ8 != initialLag {
+		t.Fatalf("rate-change update FsKHz=%d PitchLQ8=%d, want FsKHz=%d PitchLQ8=%d", state.FsKHz, state.PitchLQ8, fsKHz, initialLag)
+	}
+	if state.PrevGainQ16 != [2]int32{3 << 16, 4 << 16} {
+		t.Fatalf("good-frame update gains=%v, want last two frame gains", state.PrevGainQ16)
+	}
+}

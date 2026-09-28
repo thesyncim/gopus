@@ -236,6 +236,20 @@ type SILKPLCState struct {
 	LastFrameLost bool
 }
 
+// resetForRateChange is silk_PLC_Reset in libopus silk/PLC.c. The decoder
+// calls it from silk_PLC before both good-frame updates and concealment when
+// decoder_set_fs changes the internal sampling rate.
+func (s *SILKPLCState) resetForRateChange(fsKHz, frameLength int) {
+	if s.FsKHz == int32(fsKHz) {
+		return
+	}
+	s.PitchLQ8 = int32(frameLength) << 7
+	s.PrevGainQ16 = [2]int32{1 << 16, 1 << 16}
+	s.SubfrLength = 20
+	s.NbSubfr = 2
+	s.FsKHz = int32(fsKHz)
+}
+
 // SILKPLCScratch holds the working buffers for one channel's concealment.
 // Each decoder channel keeps its own scratch; none of these slices is codec
 // history and every used element is initialized on each concealment call.
@@ -247,9 +261,10 @@ type SILKPLCScratch struct {
 	sLPCQ14 []int32
 }
 
-// NewSILKPLCState returns a SILKPLCState initialized to the libopus
-// silk_PLC_Reset defaults (unit gains, 16 kHz WB geometry, unit random scale,
-// zero seed), with the pitch lag pre-seeded to half a 16 kHz 20 ms frame.
+// NewSILKPLCState returns a SILKPLCState initialized to the zero-initialized
+// decoder state followed by libopus silk_PLC_Reset (unit gains, 16 kHz WB
+// geometry, zero random scale and seed), with the pitch lag pre-seeded to half
+// a 16 kHz 20 ms frame.
 func NewSILKPLCState() *SILKPLCState {
 	return &SILKPLCState{
 		// Default pitch lag: half frame length in Q8
@@ -265,17 +280,17 @@ func NewSILKPLCState() *SILKPLCState {
 		FsKHz:       16,
 		LPCOrder:    16,
 
-		// Initial random scale (1.0 in Q14)
-		RandScaleQ14: 1 << 14,
+		// silk_PLC_Reset leaves randScale_Q14 at the zero-initialized decoder value.
+		RandScaleQ14: 0,
 
 		// Match libopus zero-initialized PLC rand_seed cadence.
 		RandSeed: 0,
 	}
 }
 
-// Reset clears the PLC state for a new stream, mirroring libopus silk_PLC_Reset:
-// the pitch lag is set to half the frame length in Q8, gains and random scale
-// to unity, and the cached LTP/LPC coefficients and loss flag are zeroed.
+// Reset clears the PLC state for a new stream, matching the zero-initialized
+// decoder state followed by libopus silk_PLC_Reset. That C reset sets pitch,
+// gains, and geometry; randScale_Q14 remains zero until concealment updates it.
 func (s *SILKPLCState) Reset(frameLength int) {
 	s.PitchLQ8 = int32(frameLength) << 7 // Half frame length in Q8
 
@@ -294,7 +309,7 @@ func (s *SILKPLCState) Reset(frameLength int) {
 	}
 
 	s.PrevLTPScaleQ14 = 0
-	s.RandScaleQ14 = 1 << 14
+	s.RandScaleQ14 = 0
 	s.RandSeed = 0
 	s.LastFrameLost = false
 }
@@ -318,6 +333,10 @@ func (s *SILKPLCState) UpdateFromGoodFrame(
 	nbSubfr int,
 	subfrLength int,
 ) {
+	// silk_PLC checks the sample rate and resets rate-dependent concealment
+	// history before silk_PLC_update, including when this frame is a good LBRR
+	// frame that changes the rate.
+	s.resetForRateChange(fsKHz, nbSubfr*subfrLength)
 	s.FsKHz = int32(fsKHz)
 	s.SubfrLength = int32(subfrLength)
 	s.NbSubfr = int32(nbSubfr)
@@ -528,7 +547,6 @@ func ConcealSILKWithLTPInto(dec SILKDecoderStateExtended, plcState *SILKPLCState
 	if fsKHz <= 0 {
 		fsKHz = 16
 	}
-
 	nbSubfr := dec.GetNumSubframes()
 	if nbSubfr <= 0 {
 		nbSubfr = 4
@@ -538,6 +556,10 @@ func ConcealSILKWithLTPInto(dec SILKDecoderStateExtended, plcState *SILKPLCState
 	if subfrLength <= 0 {
 		subfrLength = 80
 	}
+	// silk_PLC() resets rate-dependent state on the first good or lost frame at
+	// a new rate. UpdateFromGoodFrame performs the same check for decoded frames;
+	// the loss path reaches it here.
+	plcState.resetForRateChange(fsKHz, nbSubfr*subfrLength)
 
 	// libopus LPC_order is always in [10, MAX_LPC_ORDER]. Clamp degenerate
 	// decoder reports so the fixed-size PrevLPCQ12 / sLPC_Q14 buffers and the
