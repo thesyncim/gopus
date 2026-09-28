@@ -3,10 +3,11 @@
 Pure-Go Opus codec — RFC 6716 / RFC 8251, targeting byte and quality parity
 with pinned libopus 1.6.1, with no cgo.
 
-Encoder, decoder, multistream, projection/ambisonics, Ogg, and RTP RED — all in
-plain Go, with caller-owned, zero-allocation encode and decode hot paths. Codec
-math and bitstream decisions follow the pinned reference and are checked with a
-live C oracle (see [Parity & testing](#parity--testing)).
+Encoder, decoder, multistream, projection/ambisonics, Ogg, and RTP RED are
+implemented in Go. Caller-buffer encode and decode paths are designed for
+allocation-free steady-state use. Codec math and bitstream decisions follow the
+pinned reference and are checked with a live C oracle (see
+[Parity & testing](#parity--testing)).
 
 ## Install
 
@@ -18,8 +19,8 @@ Requires Go 1.27 or newer.
 
 ## Quick start
 
-The hot-path API takes caller-owned buffers and returns the number of bytes /
-samples written, so the encode and decode loops allocate nothing:
+The caller-buffer API returns the number of bytes or samples written. Covered
+steady-state encode and decode paths reuse the supplied buffers:
 
 ```go
 func (e *Encoder) Encode(pcm []float32, data []byte) (int, error)
@@ -100,7 +101,7 @@ WebRTC control, and benchmarks.
 | Area | gopus |
 | --- | --- |
 | Coding modes | SILK, CELT, Hybrid, with automatic mode selection |
-| Sample rates | 8, 12, 16, 24, 48 kHz (native sub-48 kHz encode, no upsampling) |
+| Sample rates | 8, 12, 16, 24, 48 kHz by default; native 96 kHz CELT with `gopus_qext` |
 | Channels | Mono, stereo, multistream, projection / ambisonics |
 | Frame sizes | 2.5–120 ms |
 | Bitrate control | CBR, VBR, CVBR, low-delay, DTX |
@@ -111,7 +112,7 @@ WebRTC control, and benchmarks.
 
 ## Public API
 
-The importable surface is four packages. Everything else lives under `internal/`
+The importable surface is five packages. Everything else lives under `internal/`
 and is not importable.
 
 | Package | Use it for |
@@ -160,19 +161,18 @@ here. The default build links ZERO of their code (enforced by
 
 Feature oracles use the pinned libopus build with the matching flags:
 
-- **`gopus_dred`** — DRED (RDOVAE), control + standalone surfaces.
+- **`gopus_dred`** — DRED (RDOVAE), control and standalone surfaces.
 - **`gopus_osce`** — OSCE BWE / LACE / NoLACE plus the deep-PLC family
-  (PitchDNN / FARGAN), exactly as `--enable-osce`.
-- **`gopus_qext`** — QEXT framing and native 96 kHz (Opus HD): decode is
-  sample-exact, and the public `Encode` at `Fs=96000` is byte-exact (TOC, padding,
-  main CELT payload, reserved QEXT extension) vs libopus `--enable-qext`. 96 kHz is
-  CELT-only fullband (mirroring libopus) and accepted only under this tag;
-  default-build API rates stay 8/12/16/24/48 kHz.
+  (PitchDNN / FARGAN), matching the `--enable-osce` feature set.
+- **`gopus_qext`** — QEXT framing and native 96 kHz (Opus HD). Native 96 kHz is
+  CELT-only fullband and is available only under this tag; default-build API
+  rates stay 8/12/16/24/48 kHz. Paired C tests cover selected encoder, decoder,
+  and loss cases; the complete QEXT feature/build matrix is still under review.
 - **`gopus_custom_modes`** — Opus Custom standard modes.
-- **`gopus_fixed_point`** — integer CELT/SILK pipeline (libopus `FIXED_POINT`);
-  paired scalar/SIMD oracles check integer kernels, SILK packet encoding, and
-  stateful float32/int16/int24 decode. Full public encoder, FEC, and mode-transition
-  parity remains under validation.
+- **`gopus_fixed_point`** — integer CELT/SILK pipeline (libopus `FIXED_POINT`).
+  Paired scalar/SIMD oracles cover integer kernels, packet encoding, public
+  decode formats, multistream, and mode transitions. The full feature and
+  architecture matrix is still being validated.
 
 One more tag is orthogonal to the feature flags above and has no libopus
 equivalent:
@@ -190,20 +190,20 @@ compiled; gopus keeps those packages out of the default import graph. DNN blob
 loading (USE_WEIGHTS_FILE model loading) requires `-tags gopus_dred` or
 `-tags gopus_osce`; QEXT requires `-tags gopus_qext`; DRED
 control/standalone surfaces require `-tags gopus_dred`; OSCE BWE/LACE/NoLACE
-require `-tags gopus_osce`. Under their build tag these are
-parity-complete and supported, exactly as libopus exposes them behind the
-corresponding compile flag.
+require `-tags gopus_osce`. A build tag enables its API and implementation; it
+does not imply that every feature, architecture, control sequence, and packet
+combination has completed parity validation.
 
-| Extension | Status | Probe |
+| Extension | Availability | Probe |
 | --- | --- | --- |
-| DNN blob loading | Supported under `gopus_dred` / `gopus_osce` | `OptionalExtensionDNNBlob` |
-| QEXT | Supported under `gopus_qext` | `OptionalExtensionQEXT` |
-| DRED | Supported under `gopus_dred` (control + standalone) | `OptionalExtensionDRED` |
-| OSCE BWE | Supported under `gopus_osce` | `OptionalExtensionOSCEBWE` |
+| DNN blob loading | Available under `gopus_dred` / `gopus_osce` | `OptionalExtensionDNNBlob` |
+| QEXT | Available under `gopus_qext` | `OptionalExtensionQEXT` |
+| DRED | Available under `gopus_dred` (control + standalone) | `OptionalExtensionDRED` |
+| OSCE BWE | Available under `gopus_osce` | `OptionalExtensionOSCEBWE` |
 
-The `gopus_osce` tag enables the OSCE and deep-PLC family exactly as
-libopus's `--enable-osce` does. These features are supported under the tag and
-link zero code into the default build.
+The `gopus_osce` tag enables the OSCE and deep-PLC family exposed by
+libopus's `--enable-osce`. The tagged implementation is excluded from the
+default build.
 
 ```sh
 go test -tags gopus_qext ./...
@@ -223,10 +223,9 @@ make test-custom-parity
 
 gopus is built for real-time use, where steady allocation is the enemy:
 
-- **Zero-allocation hot paths.** `Encode` / `Decode` (and their `int16` / `int24`
-  variants) reuse caller-owned buffers; all scratch is pre-allocated at
-  construction, so a steady-state encode or decode loop performs no heap
-  allocations.
+- **Zero-allocation hot paths.** Caller-buffer `Encode` / `Decode` (and their
+  `int16` / `int24` variants) reuse caller-owned buffers. Focused warm-path tests
+  assert zero allocations for the covered codec modes and feature builds.
 - **Allocation-free containers too.** `container/ogg` (`Reader.ReadPacketInto` /
   `Writer.WritePacket`) and `container/red` (`Decoder.Parse` / `Encoder.Encode`)
   own their buffers and the redundant-frame history, so steady-state demux/mux and
@@ -238,30 +237,41 @@ gopus is built for real-time use, where steady allocation is the enemy:
   replacements, same-host assembly comparisons, allocations, and unresolved
   parity differences.
 
-The required `perf-linux` CI lane publishes both steady-state Go benchmark
-guardrails and libopus-relative ratios. This table comes from `perf-linux` run
-`28648782556` on a GitHub linux/amd64 runner (`go1.25.0`, AMD EPYC 7763):
+The latest recorded AMD64 end-to-end run compares Go with the previous assembly
+baseline on the same workload, using an AMD EPYC 7763, Go 1.27.1, GCC 13.3,
+GOAMD64=v1, and PGO. Four interleaved 500 ms samples report zero allocations
+for all rows. Values are median ns/op.
 
-| Benchmark | CI result |
-| --- | ---: |
-| `BenchmarkEncoderEncode_CallerBuffer` | 94,064 ns/op, 0 B/op, 0 allocs/op |
-| `BenchmarkEncoderEncodeInt16` | 94,773 ns/op, 0 B/op, 0 allocs/op |
-| `BenchmarkDecoderDecode_CELT` | 20,832 ns/op, 0 B/op, 0 allocs/op |
-| `BenchmarkDecoderDecodeInt16` | 22,504 ns/op, 0 B/op, 0 allocs/op |
+| Workload | Old assembly | Go SIMD | `nosimd` |
+| --- | ---: | ---: | ---: |
+| CELT decode | 20,281.5 | 13,545 | 16,668 |
+| Hybrid decode | 28,442.5 | 24,367 | 30,701 |
+| SILK decode | 22,479 | 16,460 | 21,222.5 |
+| Caller-buffer encode | 92,144.5 | 64,915.5 | 100,802 |
+| VoIP encode | 98,179.5 | 70,047 | 106,786 |
+| Low-delay encode | 91,436.5 | 64,768.5 | 100,178 |
 
-The same lane compares gopus against libopus 1.6.1 on the same runner; lower
-ratios are closer to libopus, and every gopus path below reports 0 allocs/op:
+The separate paired C comparison uses identical inputs and controls, pairing
+scalar Go with scalar C and SIMD Go with SIMD C. It comes from [run
+36444790749](https://github.com/thesyncim/gopus/actions/runs/36444790749) at
+revision `d9d2c07a`, on the same runner and toolchain. Each case has three 250 ms
+minimum runs. Times are µs per packet. Go rows report zero allocations; C
+allocation counts are not measured.
 
-| Path | gopus/libopus |
-| --- | ---: |
-| Decode vectors, Float32 | 1.334x |
-| Decode vectors, Int16 | 1.326x |
-| Encode, all Float32 cases | 1.489x |
-| Encode, CELT-FB-20ms-stereo-128k | 1.556x |
-| Encode, CELT-FB-5ms-mono-64k | 1.471x |
-| Encode, Hybrid-FB-20ms-mono-64k | 1.504x |
-| Encode, Hybrid-FB-20ms-stereo-96k | 1.685x |
-| Encode, SILK-WB-20ms-mono-32k | 1.395x |
+| Workload | C scalar | Go scalar | C SIMD | Go SIMD |
+| --- | ---: | ---: | ---: | ---: |
+| CELT-FB-20ms-stereo-128k encode | 179.80 | 191.93 | 134.29 | 130.40 |
+| CELT-FB-5ms-mono-64k encode | 19.92 | 23.62 | 18.71 | 19.98 |
+| Hybrid-FB-20ms-mono-64k encode | 358.50 | 358.10 | 254.68 | 281.42 |
+| Hybrid-FB-20ms-stereo-96k encode | 203.08 | 219.22 | 151.69 | 142.33 |
+| SILK-WB-20ms-mono-32k encode | 687.66 | 615.31 | 449.19 | 387.32 |
+| RFC vectors Float32 decode | 30.78 | 32.98 | 28.97 | 27.88 |
+| RFC vectors Int16 decode | 33.97 | 36.42 | 31.47 | 31.29 |
+
+These measurements are workload-specific. The early artifact reports BWE mono
+and stereo passing, with five LACE/NoLACE sample cases still mismatching across
+OSCE feature builds. Those exactness issues are under investigation; these
+base-codec performance measurements do not establish OSCE parity.
 
 Run the benchmarks for numbers on your machine:
 
@@ -274,31 +284,31 @@ go run ./examples/bench-decode
 
 ## Parity & testing
 
-gopus is codec-complete against libopus 1.6.1: the full public API and CTL
-surface, plus the optional surface mirrored tag-for-flag (above). The pinned
-`tmp_check/opus-1.6.1/` is the reference — when behavior is uncertain, gopus
-matches libopus unless fixture evidence says otherwise.
+gopus implements the core public API and the optional surfaces mirrored by the
+build tags above. Full byte- and sample-parity across every feature,
+architecture, input format, control sequence, and packet mode is not yet
+proven. The pinned `tmp_check/opus-1.6.1/` is the reference; when behavior is
+uncertain, gopus matches libopus unless fixture evidence says otherwise.
 
 Validation uses two tiers against a live libopus C oracle:
 
-- **Bit-exact kernel oracles.** Isolated kernels (range coder, NLSF/LPC/gain,
-  PVQ/bands, MDCT/KISS-FFT, resamplers, DNN matmuls) are compared bit-for-bit
-  against C. Every public decode entry point is two-sided differential-fuzzed
-  against the same oracle.
-- **`opus_compare` quality on real audio.** End-to-end audio is judged by
-  libopus's own `opus_compare` (RFC 8251's conformance metric), tier-matched so
-  gopus tracks the reference at least as closely as libopus tracks itself across
-  builds. SILK decode is bit-exact; CELT/Hybrid sit inside the near-exact
-  envelope. The encoder precision guard runs on representative real recordings,
-  where `opus_compare` Q is a genuine quality measure.
+- **Bit-exact kernel and public-path oracles.** Covered kernels (range coder,
+  NLSF/LPC/gain, PVQ/bands, MDCT/KISS-FFT, resamplers, and DNN math) are checked
+  against C. Public encoder and decoder tests compare packet, range, or PCM
+  results for explicit input and state matrices. This coverage is broad but does
+  not prove every possible input and state sequence.
+- **`opus_compare` quality on real audio.** End-to-end audio is also measured
+  with libopus's `opus_compare` (RFC 8251's conformance metric). This quality
+  check complements exact packet, range, and PCM tests; it does not replace them.
 
-Live paired oracles require Go SIMD with native SIMD libopus and scalar Go
-with scalar libopus, using identical inputs and controls. Exact packet parity remains
-incomplete; the [kernel evidence report](reports/go-simd-kernel-evidence.md)
-records packet and final-range differences, skipped oracle coverage, and
-remaining reference-dispatch audits. The strict CBR oracle treats every packet
-or final-range difference as a failure. A cross-instruction-set comparison does
-not establish correctness for either path.
+Parity tests pair Go and C by feature configuration and instruction lane, using
+identical inputs and controls. Strict packet gates fail on every byte or
+final-range difference. Five LACE/NoLACE sample mismatches remain in the early
+native AMD64 OSCE artifact, and the complete feature/build/input matrix remains
+under validation; the
+[kernel evidence report](reports/go-simd-kernel-evidence.md) records tested
+revisions, measurements, and remaining work. Comparing Go SIMD with scalar C,
+or scalar Go with SIMD C, does not establish parity for either lane.
 
 Pre-v1: latest release is `v0.1.1` (see [Trust And Verification](#trust-and-verification)).
 
@@ -342,15 +352,13 @@ Required branch checks:
 <!-- required-checks:end -->
 
 These aggregate gates make the libopus C-oracle parity suites mandatory across
-Linux, macOS, and Windows; each lane builds the pinned libopus C reference first
-under `GOWORK=off GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1` and compares
-against committed arch-matched fixtures. They are the authoritative codec gate:
+Linux, macOS, and Windows; each lane builds the pinned libopus C reference under
+`GOWORK=off GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1` with matching
+feature flags and instruction support, then compares identical inputs and
+controls. They are the authoritative codec gate:
 `release.yml` publishes a tag only after verifying these checks are green on the
 tagged commit. `make release-evidence` then captures the supplementary safety and
-performance gates that are not in the required CI set, plus build provenance; it
-does not re-run the codec suites, since doing so against a live native libopus
-reference compares gopus's single portable float order against another toolchain's
-rounding rather than measuring a defect.
+performance gates that are not in the required CI set, plus build provenance.
 
 Security policy: [SECURITY.md](SECURITY.md). Consumer smoke test:
 [examples/external-consumer-smoke/smoke_test.go](examples/external-consumer-smoke/smoke_test.go).

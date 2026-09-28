@@ -1,8 +1,9 @@
 # Go 1.27 SIMD compiler audit
 
 Scope: the Go SIMD codec paths on PR #505, Go 1.27.0/1.27.1, ARM64 and AMD64.
-The [shared monitoring discussion](https://chatgpt.com/share/6aba293b-d7d4-83ed-9c75-5804702ad672)
-is checked against upstream issues and the actual codec call sites.
+The audit checks upstream SIMD issues against the actual codec call sites.
+The [shared discussion](https://chatgpt.com/share/6aba293b-d7d4-83ed-9c75-5804702ad672)
+is inaccessible from this environment; its contents are not used as evidence.
 
 | Upstream issue | Exposure in gopus | Check or correction |
 |---|---|---|
@@ -25,22 +26,16 @@ This checks CPU compatibility; it does not replace native performance or the
 matched-ISA C oracle. C helper subprocesses are excluded from emulation tests
 because those subprocesses would execute on the host CPU.
 
-Run [36406435844](https://github.com/thesyncim/gopus/actions/runs/36406435844)
-used Go 1.27.1 with `GOAMD64=v1` (the early evidence is artifact
-10963392184). Sandy Bridge passed the CELT dispatch selector, including the
-AVX-only sign-bit kernel checks, AVX2 correlation fallback checks, and public
-smoke. Penryn passed the CELT fallback math checks, raw-extrema NaN checks,
-AVX2 correlation fallback checks, and public smoke; its selector failed only
-the aggregate zero-allocation assertion, which reported 10 allocations. The
-allocation probe used a 32-coefficient MDCT with overlap 8, which builds dynamic
-trig, FFT, and window tables per call. The follow-up keeps that small-size
-determinism/finite-output check and measures allocations with a separate
-standard 120-coefficient frame and overlap 120, which use the pinned tables.
 Run [36412029034](https://github.com/thesyncim/gopus/actions/runs/36412029034/job/108894625360)
-at `2b8615ba` reports all five Penryn phases and all five Sandy Bridge phases
-passing, including the corrected CELT allocation selector, analysis, DNN,
-SILK and public encode/decode smoke checks. The run's overall conclusion is
-cancelled, so these phase results do not establish a complete CI pass.
+at `2b8615ba` uses Go 1.27.1 and `GOAMD64=v1`. All five Penryn phases and
+all five Sandy Bridge phases pass: CELT dispatch/allocation, analysis, DNN,
+SILK, and public encode/decode smoke. The run's overall conclusion is cancelled,
+so these phase results do not establish a complete CI pass.
+
+The CELT allocation probe uses a standard 120-coefficient frame with overlap
+120 and pinned tables. A separate 32-coefficient / overlap-8 case checks
+determinism and finite output; that custom geometry constructs tables and is
+outside the steady-state allocation probe.
 
 Local validation cross-compiles Linux AMD64 and ARM64 SIMD test binaries with
 Go 1.27.1; AMD64 uses `GOAMD64=v1`. Selected CELT scale/rotation/inner-product/comb/stereo, analysis and DNN

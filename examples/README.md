@@ -2,7 +2,11 @@
 
 Runnable programs that exercise the public gopus API.
 
-These examples target the supported default build. QEXT examples require `-tags gopus_qext`; DRED examples require `-tags gopus_dred`; OSCE BWE remains extra-controls parity only.
+Most examples use the default build. Optional APIs require their matching build
+tag: QEXT uses `-tags gopus_qext`, DRED uses `-tags gopus_dred`, and OSCE uses
+`-tags gopus_osce`. These runnable examples demonstrate API usage; they do not
+imply that every optional feature and architecture has completed parity
+validation. See the main README's [parity status](../README.md#parity--testing).
 
 Most examples run from the repository root. `external-consumer-smoke`,
 `webrtc-control`, and `webrtc-dred-loopback` are separate Go modules (run them
@@ -28,7 +32,7 @@ Small, single-purpose programs covering one public API area each.
 
 | Example | What it shows | Run |
 | --- | --- | --- |
-| `sample-rates` | Encode/decode the int16 PCM API at 8/12/16/24/48 kHz. | `go run ./examples/sample-rates` |
+| `sample-rates` | Encode/decode the int16 PCM API at the default 8/12/16/24/48 kHz rates. | `go run ./examples/sample-rates` |
 | `low-delay` | CELT-only `ApplicationLowDelay` with short frames; reports algorithmic delay. | `go run ./examples/low-delay` |
 | `repacketizer` | Merge/split frames with `Repacketizer`, inspect with `ParsePacket`, pad/unpad. | `go run ./examples/repacketizer` |
 | `surround` | Multistream 5.1 encode/decode via the default Vorbis-order mapping. | `go run ./examples/surround` |

@@ -114,8 +114,9 @@ The Gio stats panel and `-headless` JSON report include:
 
 ## Notes
 
-- The example uses mono 48 kHz, 20 ms frames to stay on the strongest DRED
-  parity seams.
+- The example defaults to mono 48 kHz, 20 ms frames for its DRED scenarios.
+  Those demo settings do not represent the full feature or architecture parity
+  matrix; see the main README for the current validation scope.
 - Live playback is off by default to avoid a microphone feedback loop.
 - WAV recording is on by default so loss-recovery comparisons can be replayed
   after capture.

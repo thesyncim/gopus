@@ -15,7 +15,7 @@ Maintainer triage is best effort. Small, reproducible reports and narrowly scope
 
 Please keep the project priorities in mind:
 
-1. Parity with libopus in quality and features
+1. Parity with libopus in observable behavior, packet output, and quality
 2. Performance
 3. Maintainability
 4. Documentation
@@ -24,6 +24,13 @@ Please keep the project priorities in mind:
 When a change touches codec behavior:
 
 - Cross-check codec math and bitstream decisions against libopus 1.6.1 before changing behavior.
+- Pair each C oracle with the same libopus feature flags and instruction lane as
+  the Go build; use identical inputs and controls. Do not compare SIMD Go with
+  scalar C or scalar Go with SIMD C as a parity result.
+- Keep packet, final-range, and PCM gates strict. If a mismatch appears to be a
+  platform or floating-point residual, reproduce it with a matched C build and
+  fix the differing operation. Document a behavior boundary only when the
+  matching C source has undefined behavior, with the source and reproducer.
 - Prefer matching libopus over heuristic fixes unless fixture evidence justifies a divergence.
 - Match libopus scalar widths for runtime state, signal buffers, and scratch buffers. Run `make test-type-parity`; do not refresh the baseline to hide new `float64`/`complex128` debt.
 - Preserve zero allocations in the real-time encode/decode hot paths.
