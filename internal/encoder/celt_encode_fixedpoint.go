@@ -641,6 +641,7 @@ func (e *Encoder) ensureFixedCELTRate(channels, modeFs int) *fixedCELTState {
 		e.setFixedCELTEnergyMask(e.fixedCELT.enc)
 		e.fixedMaskPending = false
 	}
+	e.fixedCELT.enc.SetPacketLoss(int(e.packetLoss))
 	return e.fixedCELT
 }
 
