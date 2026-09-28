@@ -42,3 +42,20 @@ func (d *Decoder) fireNativePostfilterHook(channel int, st *decoderState, ctrl *
 	}
 	return d.nativePostfilter.hook(channel, frameOut, latestDecoderControlFromFrame(st, ctrl))
 }
+
+// processNativePostfilterFrame mirrors the call to osce_enhance_frame in
+// silk_decode_frame. That C function clamps its copied input back to int16 even
+// when no OSCE model is loaded and OSCE_METHOD_NONE copies input to output.
+func (d *Decoder) processNativePostfilterFrame(channel int, st *decoderState, ctrl *decoderControl, frameOut []int16) {
+	if d.fireNativePostfilterHook(channel, st, ctrl, frameOut) {
+		return
+	}
+	if st == nil || st.fsKHz != 16 || st.nbSubfr != 4 || len(frameOut) < 320 {
+		return
+	}
+	for i := 0; i < 320; i++ {
+		if frameOut[i] == -32768 {
+			frameOut[i] = -32767
+		}
+	}
+}

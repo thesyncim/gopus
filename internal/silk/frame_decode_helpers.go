@@ -240,7 +240,7 @@ func (d *Decoder) finalizeDecodedChannelFrame(channel int, st *decoderState, ctr
 	}
 	silkUpdateOutBuf(st, frameOut)
 	if nativePostfilterEnabled {
-		d.fireNativePostfilterHook(channel, st, ctrl, frameOut)
+		d.processNativePostfilterFrame(channel, st, ctrl, frameOut)
 	}
 	d.updateSILKPLCStateFromCtrl(channel, st, ctrl)
 	if dredHooksEnabled {
