@@ -709,10 +709,12 @@ func (d *Decoder) SetPrevStereoWeights(weights [2]int16) {
 	d.prevStereoWeights = weights
 }
 
-// GetLastSignalType returns the signal type from the last decoded frame.
-// Returns: 0=inactive, 1=unvoiced, 2=voiced
+// GetLastSignalType returns the signal type libopus uses for pitch reporting.
+// Returns: 0=inactive, 1=unvoiced, 2=voiced. silk/dec_API.c computes
+// prevPitchLag from prevSignalType, which rate changes reset independently of
+// indices.signalType.
 func (d *Decoder) GetLastSignalType() int {
-	return int(d.state[0].indices.signalType)
+	return int(d.state[0].prevSignalType)
 }
 
 // IsFirstFrameAfterReset reports whether the mono synthesis history is reset.
