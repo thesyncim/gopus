@@ -9,7 +9,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -243,7 +242,7 @@ func quantizeOpusDemoFloatInputToInt24(pcm []float32) []int32 {
 	return pcm24
 }
 
-func encodeVBRCVBRWithGopusInt24(
+func encodeOpusDemoInt24(
 	application gopus.Application,
 	sampleRate, channels, frameSize, bitrate int,
 	bandwidth types.Bandwidth,
@@ -670,25 +669,24 @@ func runCVBRParityCase(t *testing.T, tc vbrCVBRCase, helperPath string) {
 
 // ---- VBR parity via opus_demo (exhaustive tier) --------------------------------
 
-// TestVBRByteParityViaOpusDemoExhaustive cross-validates gopus VBR output
-// against opus_demo (the libopus reference encoder CLI) at the exhaustive tier.
-// This is a second opinion on top of the C oracle test.
+// TestVBRByteParityViaOpusDemoExhaustive compares public gopus VBR packets and
+// final ranges with the feature/ISA-matched public opus_demo. Both sides use
+// the int24 samples that opus_demo derives from its -f32 input.
 func TestVBRByteParityViaOpusDemoExhaustive(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
+	libopustest.RequireOracle(t)
 
-	opusDemo := requireFixtureOpusDemo(t)
-
-	tmpDir, err := os.MkdirTemp("", "gopus-vbr-demo-*")
+	opusDemo, err := libopustest.PublicAPIOpusDemoPath()
 	if err != nil {
-		t.Fatalf("create temp dir: %v", err)
+		libopustest.HelperUnavailable(t, "public API opus_demo", err)
+		return
 	}
-	defer os.RemoveAll(tmpDir)
 
 	for _, tc := range vbrTestCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			runVBRParityCaseViaOpusDemo(t, tc, opusDemo, tmpDir)
+			runVBRParityCaseViaOpusDemo(t, tc, opusDemo, t.TempDir())
 		})
 	}
 }
@@ -743,11 +741,13 @@ func runVBRParityCaseViaOpusDemo(t *testing.T, tc vbrCVBRCase, opusDemo, tmpDir 
 		t.Fatalf("parse bitstream: %v", err)
 	}
 
-	goResults, err := encodeVBRCVBRWithGopus(
+	goPCM := make([]float32, len(pcm)+tc.frameSize*tc.channels)
+	copy(goPCM, pcm)
+	goResults, err := encodeOpusDemoInt24(
 		tc.application,
 		48000, tc.channels, tc.frameSize, tc.bitrate,
-		tc.bandwidth, tc.setBandwidth, tc.signal,
-		false, pcm, tc.nFrames,
+		tc.bandwidth, tc.setBandwidth,
+		false, goPCM, tc.nFrames+1,
 	)
 	if err != nil {
 		t.Fatalf("gopus encode: %v", err)
@@ -757,22 +757,33 @@ func runVBRParityCaseViaOpusDemo(t *testing.T, tc vbrCVBRCase, opusDemo, tmpDir 
 		t.Fatalf("packet count mismatch: gopus=%d opusdemo=%d", len(goResults), len(refPackets))
 	}
 	var lenMismatch, bytesMismatch, rangeMismatch int
+	firstLenMismatch, firstBytesMismatch, firstRangeMismatch := -1, -1, -1
 	for i := range refPackets {
 		if len(goResults[i].data) != len(refPackets[i]) {
 			lenMismatch++
+			if firstLenMismatch < 0 {
+				firstLenMismatch = i
+			}
 		} else if !bytes.Equal(goResults[i].data, refPackets[i]) {
 			bytesMismatch++
+			if firstBytesMismatch < 0 {
+				firstBytesMismatch = i
+			}
 		}
 		if goResults[i].finalRange != refRanges[i] {
 			rangeMismatch++
+			if firstRangeMismatch < 0 {
+				firstRangeMismatch = i
+			}
 		}
 	}
 
-	t.Logf("opus_demo VBR: len_mismatch=%d bytes_mismatch=%d range_mismatch=%d / %d frames",
-		lenMismatch, bytesMismatch, rangeMismatch, len(refPackets))
-
-	if lenMismatch > 0 {
-		t.Errorf("VBR size mismatch via opus_demo: %d/%d frames", lenMismatch, len(refPackets))
+	t.Logf("opus_demo VBR: inputFrames=%d encodedFrames=%d lenMismatch=%d bytesMismatch=%d rangeMismatch=%d",
+		tc.nFrames, len(refPackets), lenMismatch, bytesMismatch, rangeMismatch)
+	if lenMismatch > 0 || bytesMismatch > 0 || rangeMismatch > 0 {
+		t.Errorf("VBR exact parity failed: size=%d/%d first=%d bytes=%d/%d first=%d finalRange=%d/%d first=%d",
+			lenMismatch, len(refPackets), firstLenMismatch, bytesMismatch, len(refPackets), firstBytesMismatch,
+			rangeMismatch, len(refPackets), firstRangeMismatch)
 	}
 }
 
@@ -854,7 +865,7 @@ func runCVBRParityCaseViaOpusDemo(t *testing.T, tc vbrCVBRCase, opusDemo, tmpDir
 		t.Fatalf("parse bitstream: %v", err)
 	}
 
-	goResults, err := encodeVBRCVBRWithGopusInt24(
+	goResults, err := encodeOpusDemoInt24(
 		tc.application,
 		48000, tc.channels, tc.frameSize, tc.bitrate,
 		tc.bandwidth, tc.setBandwidth,
