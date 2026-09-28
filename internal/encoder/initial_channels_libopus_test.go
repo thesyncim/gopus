@@ -12,9 +12,6 @@ import (
 // against the live C encoder. A new encoder starts with stream_channels=2 and
 // prev_channels=0, so choosing mono at low rate does not arm toMono.
 func TestInitialStereoToMonoMatchesLibopus(t *testing.T) {
-	if fixedPointBuild {
-		t.Skip("the encode-diff oracle is the float libopus encoder; FIXED_POINT opus_encode runs dc_reject and the SILK resampler in integer, so full packets pair only with the float build")
-	}
 	libopustest.RequireOracle(t)
 	const (
 		frameSize  = 480

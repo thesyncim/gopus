@@ -31,13 +31,14 @@ import (
 var dtxSeqHelperOnce libopustest.HelperCache
 
 func getDTXSeqHelperPath() (string, error) {
-	return dtxSeqHelperOnce.CHelperPath(libopustest.CHelperConfig{
-		Label:       "dtx sequence",
-		OutputBase:  "gopus_dtx_emit_packets",
-		SourceFile:  "libopus_dtx_emit_packets.c",
-		RefIncludes: []string{"src", "celt", "silk"},
-		CFlags:      []string{"-DHAVE_CONFIG_H"},
-		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+	return dtxSeqHelperOnce.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:       "dtx sequence",
+			OutputBase:  "gopus_dtx_emit_packets",
+			SourceFile:  "libopus_dtx_emit_packets.c",
+			RefIncludes: []string{"src", "celt", "silk"},
+			CFlags:      []string{"-DHAVE_CONFIG_H"},
+		})
 	})
 }
 
