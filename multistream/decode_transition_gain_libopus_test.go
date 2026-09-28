@@ -96,7 +96,7 @@ func firstTransitionStreamPackets(t *testing.T, packets [][]byte) ([]byte, []byt
 func decodeTransitionStageWithLibopus(t *testing.T, channels, gainQ8, maxFrameSize int, steps []transitionStageStep) []float32 {
 	t.Helper()
 	binPath, err := transitionStageRefHelper.Path(func() (string, error) {
-		return buildMultistreamReferenceHelper(libopustest.CHelperConfig{
+		return buildMultistreamFloatShadowReferenceHelper(libopustest.CHelperConfig{
 			Label:      "multistream transition PLC stage reference",
 			OutputBase: "gopus_multistream_transition_plc_stage",
 			SourceFile: "libopus_refdecode_single.c",
@@ -281,16 +281,19 @@ func TestCELTTransitionFadeReplaysMatchedLibopus(t *testing.T) {
 	if nextTOC.mode != streamModeHybrid {
 		t.Fatalf("target mode=%d, want Hybrid", nextTOC.mode)
 	}
-	want, err := decodeWithLibopusReferencePackets(
-		1, transitionStageSampleRate, channels, ref.streams, ref.coupledStreams,
-		spec.frameSize, ref.mapping, nil, ref.packets[:2],
-	)
-	if err != nil {
-		libopustest.HelperUnavailable(t, "transition fade replay", err)
-	}
+	want := decodeTransitionSequenceWithLibopus(t, transitionStageSampleRate, channels, 0, spec.frameSize, []transitionDecodeStep{
+		{packet: prevPacket, frameSize: spec.frameSize},
+		{packet: nextPacket, frameSize: spec.frameSize},
+	})
 	perFrame := spec.frameSize * channels
-	if len(want) != 2*perFrame {
-		t.Fatalf("C returned %d samples, want %d", len(want), 2*perFrame)
+	if len(want) != 2 {
+		t.Fatalf("C returned %d steps, want two", len(want))
+	}
+	for i := range want {
+		if want[i].samples != spec.frameSize || len(want[i].pcm) != perFrame {
+			t.Fatalf("C frame %d returned %d samples and %d PCM values, want %d and %d",
+				i, want[i].samples, len(want[i].pcm), spec.frameSize, perFrame)
+		}
 	}
 	state := newStreamDecoder(transitionStageSampleRate, channels)
 	if _, err := state.Decode(prevPacket, spec.frameSize); err != nil {
@@ -334,7 +337,7 @@ func TestCELTTransitionFadeReplaysMatchedLibopus(t *testing.T) {
 			rounded[idx] = streamSmoothFadeMul(w, main[idx]) + other
 		}
 	}
-	cFrame := want[perFrame:]
+	cFrame := want[1].pcm
 	assertTransitionStagePCMExact(t, fused[:transitionStageF5*channels], cFrame[:transitionStageF5*channels], "actual-buffer fused transition window")
 	roundedDifferences := 0
 	for i := f2_5 * channels; i < transitionStageF5*channels; i++ {

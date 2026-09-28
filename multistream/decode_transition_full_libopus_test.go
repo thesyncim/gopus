@@ -27,7 +27,7 @@ type transitionDecodeResult struct {
 func decodeTransitionSequenceWithLibopus(t *testing.T, sampleRate, channels, gainQ8, maxFrameSize int, steps []transitionDecodeStep) []transitionDecodeResult {
 	t.Helper()
 	path, err := transitionSequenceRefHelper.Path(func() (string, error) {
-		return buildMultistreamReferenceHelper(libopustest.CHelperConfig{
+		return buildMultistreamFloatShadowReferenceHelper(libopustest.CHelperConfig{
 			Label:      "single-stream transition sequence reference",
 			OutputBase: "gopus_transition_sequence_ref",
 			SourceFile: "libopus_refdecode_single.c",
