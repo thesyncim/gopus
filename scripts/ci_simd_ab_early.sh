@@ -302,13 +302,17 @@ for mode in simd nosimd; do
   # Each phase shares package setup and emits evidence into this existing job.
   for osce_features in gopus_osce gopus_osce,gopus_qext gopus_dred,gopus_osce,gopus_qext; do
     osce_phase="osce-exact-pcm"
+    osce_extra_selector=""
     if [[ "$osce_features" == gopus_osce,gopus_qext ]]; then osce_phase="osce-qext-exact-pcm"; fi
-    if [[ "$osce_features" == gopus_dred,gopus_osce,gopus_qext ]]; then osce_phase="dred-osce-qext-exact-pcm"; fi
+    if [[ "$osce_features" == gopus_dred,gopus_osce,gopus_qext ]]; then
+      osce_phase="dred-osce-qext-exact-pcm"
+      osce_extra_selector="|DecoderExplicitDREDWarmup48kStateMatchesLibopus|DecoderDREDTripleReferenceArchiveMatchesGoFeatures"
+    fi
     run_json_phase "candidate-$mode-$osce_phase" \
       run_in_checkout "$candidate_root" \
       "${run_env[@]}" go test -json -tags "${osce_features}${feature_scalar_tag}" \
       . ./internal/osce/... ./multistream ./internal/libopustest ./internal/celt ./internal/dnnmath \
-      -run '^Test(OSCE(EndToEndSampleParity|BWE(RawSignalNet|ForwardPass|CrossFade))|BWE(FeatureFFTMatchesLibopus|VariableSequenceStateMatchesSelectedLibopus|ProcessDoesNotAllocateAfterWarmup)|FNetConv1UsesSelectedDNNLinearKernel|LACEAndNoLACEFeatureStateMatchesLibopusRawBits|X86SGEMVScalarRemainderMatchesSelectedLibopus|MultistreamDecoderOSCE|StreamOSCE|MultistreamReferenceFeaturePairing|CurrentPublicAPIHelperConfig|DNNFeatureBuild|DNNCompilerTarget|DNNVectorActivationsMatchSelectedLibopusOracle|DNNVectorActivationSweepMatchesSelectedLibopusOracle|CGEMV8x4MatchesSelectedLibopus|ComputeLinearInt8MatchesSelectedLibopus|AntiCollapseVsLibopus)' \
+      -run "^Test(OSCE(EndToEndSampleParity|BWE(RawSignalNet|ForwardPass|CrossFade))|BWE(FeatureFFTMatchesLibopus|VariableSequenceStateMatchesSelectedLibopus|ProcessDoesNotAllocateAfterWarmup)|FNetConv1UsesSelectedDNNLinearKernel|LACEAndNoLACEFeatureStateMatchesLibopusRawBits|X86SGEMVScalarRemainderMatchesSelectedLibopus|MultistreamDecoderOSCE|StreamOSCE|MultistreamReferenceFeaturePairing|CurrentPublicAPIHelperConfig|DNNFeatureBuild|DNNCompilerTarget|DNNVectorActivationsMatchSelectedLibopusOracle|DNNVectorActivationSweepMatchesSelectedLibopusOracle|CGEMV8x4MatchesSelectedLibopus|ComputeLinearInt8MatchesSelectedLibopus|AntiCollapseVsLibopus${osce_extra_selector})" \
       -count=1 -timeout=10m
   done
 

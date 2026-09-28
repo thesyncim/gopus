@@ -26,8 +26,14 @@ fixed+QEXT in default, SIMD, and nosimd builds with zero warm allocations.
 The fixed projection encoder Q15 stereo-width and integer mode threshold fix
 at `1e862928` passes the full projection encode sweep in fixed and fixed+QEXT
 scalar/SIMD, with exact state/threshold and zero-allocation oracle checks.
-Remaining investigations include Hybrid-to-CELT transition PCM, loss following
-SILK-to-CELT redundancy, and float-QEXT multistream PCM. These cases remain strict live-C checks.
+Checkpoint `6aefe867` matches Hybrid-to-CELT transition PCM at five rates,
+mono/stereo, and 0/±3 dB in all four fixed build lanes, with zero allocations.
+Loss after CELT redundancy consumes the redundancy flag, retains CELT history
+for consecutive losses, and matches recovery in all eight float/fixed/QEXT
+scalar/SIMD lanes. The combined DRED/OSCE/QEXT C helper includes the QEXT
+history fields in its state mirror; the exact warm-up checks pass both lanes.
+Active float-QEXT multistream PCM remains under investigation. Fresh full-suite
+and native checks are in progress; these are strict live-C comparisons.
 
 The local ARM64 public root suite passes in the default scalar (288.8 s),
 default SIMD (270.9 s), fixed SIMD (538.5 s), and fixed+QEXT SIMD (545.3 s)
