@@ -30,7 +30,9 @@ func TestHybridPrefilterMatchesDisabledTransition(t *testing.T) {
 						e.overlapBuffer[i] = float32(60-i) / 256
 					}
 				}
-				input := make([]float32, frameSize*channels)
+				// runPrefilter reads and updates the planar in buffer: per
+				// channel, the overlap head followed by the frame.
+				input := make([]float32, (frameSize+Overlap)*channels)
 				for i := range input {
 					input[i] = float32((i%37)-18) / 64
 				}

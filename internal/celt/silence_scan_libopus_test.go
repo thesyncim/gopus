@@ -82,7 +82,7 @@ func TestCELTSilenceScanMatchesLibopus(t *testing.T) {
 			for i, sample := range native {
 				core[(i/tc.channels)*tc.upsample*tc.channels+i%tc.channels] = sample
 			}
-			output := make([]float32, len(core))
+			output := make([]float32, tc.channels*(tc.frame+tc.overlap))
 			enc := NewEncoder(tc.channels)
 			enc.streamChannels = int32(tc.coded)
 			enc.upsample = int32(tc.upsample)

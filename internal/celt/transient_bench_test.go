@@ -51,7 +51,7 @@ func TestTransientAnalysisMatchesLegacy(t *testing.T) {
 				}
 			}
 
-			pcm32 := float32Slice(pcm)
+			pcm32 := planarFromInterleaved(float32Slice(pcm), tc.channels)
 			tmp := make([]float32, samplesPerChannel)
 			got := enc.TransientAnalysis(pcm32, samplesPerChannel, tc.allowWeak)
 			want := transientAnalysisLegacyBench(enc, pcm, samplesPerChannel, tc.allowWeak,
@@ -334,7 +334,7 @@ func benchmarkTransientAnalysisChannels(b *testing.B, channels int, legacy bool)
 			pcm[2*i+1] = right
 		}
 	}
-	pcm32 := float32Slice(pcm)
+	pcm32 := planarFromInterleaved(float32Slice(pcm), channels)
 
 	tmp := make([]float32, samplesPerChannel)
 
@@ -408,4 +408,15 @@ func BenchmarkToneLPCRetry48kMono(b *testing.B) {
 			toneBenchSink0, toneBenchSink1, toneBenchSinkOK, toneBenchSinkDelay = toneLPCRetry48kMonoSequential(x, 48000/3000)
 		}
 	})
+}
+
+// planarFromInterleaved lays interleaved samples out like celt_encode_with_ec's
+// planar in buffer, one channel after another.
+func planarFromInterleaved(pcm []float32, channels int) []float32 {
+	n := len(pcm) / channels
+	out := make([]float32, len(pcm))
+	for i, v := range pcm {
+		out[(i%channels)*n+i/channels] = v
+	}
+	return out
 }

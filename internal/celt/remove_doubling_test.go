@@ -115,6 +115,10 @@ func TestRemoveDoublingMatchesLegacyYYLookup(t *testing.T) {
 
 	for iter := range 500 {
 		maxPeriod := combFilterMinPeriod + 8 + rng.Intn(320)
+		if iter%4 == 0 {
+			// run_prefilter's COMBFILTER_MAXPERIOD search range.
+			maxPeriod = combFilterMaxPeriod
+		}
 		if maxPeriod%2 != 0 {
 			maxPeriod++
 		}

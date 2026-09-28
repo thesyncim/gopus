@@ -7,8 +7,15 @@ func rawMaxMinScan(x []float32, maxVal, minVal float32) (float32, float32) {
 	return rawMaxMinScanScalar(x, maxVal, minVal)
 }
 
-// preemphInterleaved applies celt_preemphasis's single-tap filter to
-// channels-interleaved pcm and returns the updated per-channel state.
-func preemphInterleaved(pcm, out []float32, total, channels int, coef float32, state [2]float32) [2]float32 {
-	return preemphInterleavedScalar(pcm, out, total, channels, coef, state)
+// preemphMono applies celt_preemphasis's single-tap filter to mono pcm and
+// returns the updated m.
+func preemphMono(pcm, out []float32, coef, m float32) float32 {
+	return preemphMonoScalar(pcm, out, coef, m)
+}
+
+// preemphStereoPlanar applies celt_preemphasis's single-tap filter to
+// interleaved stereo pcm, writing planar outputs, and returns the updated
+// per-channel m.
+func preemphStereoPlanar(pcm, outL, outR []float32, coef float32, state [2]float32) [2]float32 {
+	return preemphStereoPlanarScalar(pcm, outL, outR, coef, state)
 }

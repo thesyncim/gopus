@@ -113,10 +113,10 @@ func TestRawMaxMinScanMatchesSequential(t *testing.T) {
 	}
 }
 
-// TestPreemphInterleavedMatchesScalar requires the selected pre-emphasis
-// kernel to match the scalar celt_preemphasis loop in every output bit and
-// in the carried state.
-func TestPreemphInterleavedMatchesScalar(t *testing.T) {
+// TestPreemphPlanarMatchesScalar requires the selected mono and planar-stereo
+// pre-emphasis kernels to match celt_preemphasis's per-channel loop in every
+// output bit and in the carried state.
+func TestPreemphPlanarMatchesScalar(t *testing.T) {
 	rng := rand.New(rand.NewSource(0x9e39))
 	coef := float32(PreemphCoef)
 	for trial := range 300 {
@@ -130,10 +130,27 @@ func TestPreemphInterleavedMatchesScalar(t *testing.T) {
 		if channels == 1 {
 			state[1] = 0
 		}
-		got := make([]float32, total)
+		// Reference: celt_preemphasis's per-channel loop over the interleaved
+		// input, one channel at a time.
+		n := total / channels
 		want := make([]float32, total)
-		gotState := preemphInterleaved(pcm, got, total, channels, coef, state)
-		wantState := preemphInterleavedScalar(pcm, want, total, channels, coef, state)
+		var wantState [2]float32
+		for c := range channels {
+			m := state[c]
+			for i := range n {
+				x := pcm[i*channels+c] * float32(CELTSigScale)
+				want[c*n+i] = x - m
+				m = coef * x
+			}
+			wantState[c] = m
+		}
+		got := make([]float32, total)
+		var gotState [2]float32
+		if channels == 1 {
+			gotState[0] = preemphMono(pcm, got, coef, state[0])
+		} else {
+			gotState = preemphStereoPlanar(pcm, got[:n], got[n:], coef, state)
+		}
 		for i := range want {
 			if !sameFloatBits(got[i], want[i]) {
 				t.Fatalf("trial %d channels %d total %d sample %d: got %v want %v", trial, channels, total, i, got[i], want[i])

@@ -231,15 +231,15 @@ func TestTfEstimateStereo(t *testing.T) {
 	frameSize := 960
 
 	// Create stereo signal with different content per channel
-	pcm := make([]float64, frameSize*2) // Interleaved stereo
+	pcm := make([]float64, frameSize*2) // Planar stereo
 
 	// Left channel: steady sine
 	// Right channel: attack
 	for i := range frameSize {
-		pcm[i*2] = 0.3 * math.Sin(2*math.Pi*440*float64(i)/48000) // Left
+		pcm[i] = 0.3 * math.Sin(2*math.Pi*440*float64(i)/48000) // Left
 
 		if i >= frameSize/2 {
-			pcm[i*2+1] = 0.8 * math.Sin(2*math.Pi*1000*float64(i)/48000) // Right (attack)
+			pcm[frameSize+i] = 0.8 * math.Sin(2*math.Pi*1000*float64(i)/48000) // Right (attack)
 		}
 	}
 

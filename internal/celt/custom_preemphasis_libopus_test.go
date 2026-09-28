@@ -67,9 +67,22 @@ func TestCustomPreemphasisMatchesLibopus(t *testing.T) {
 					if err := rd.ExpectConsumed(); err != nil {
 						t.Fatal(err)
 					}
-					out := make([]float32, len(pcm))
-					run := func() { enc.applyPreemphasis2TapAndSilenceCore(pcm, out, len(pcm), len(pcm)-20*channels, channels) }
+					// The encoder writes each channel to its planar in buffer; the
+					// oracle returns channel-interleaved output.
+					perChannel := len(pcm) / channels
+					planar := make([]float32, len(pcm))
+					run := func() {
+						var right []float32
+						if channels == 2 {
+							right = planar[perChannel:]
+						}
+						enc.applyPreemphasis2Tap(pcm, planar[:perChannel], right)
+					}
 					run()
+					out := make([]float32, len(pcm))
+					for i := range out {
+						out[i] = planar[(i%channels)*perChannel+i/channels]
+					}
 					assertCELTFilterFloat32Bits(t, fmt.Sprintf("frame%d output", frame), out, want)
 					assertCELTFilterFloat32Bits(t, fmt.Sprintf("frame%d memory", frame), enc.preemphState, mem)
 					if allocs := testing.AllocsPerRun(20, run); allocs != 0 {

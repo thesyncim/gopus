@@ -40,11 +40,21 @@ func TestCELTCPUFeatureFallbackMath(t *testing.T) {
 	pcm := values[:17]
 	gotPreemph, wantPreemph := make([]float32, len(pcm)), make([]float32, len(pcm))
 	state := [2]float32{0.25, -0.5}
-	gotState := preemphInterleaved(pcm, gotPreemph, len(pcm), 1, float32(PreemphCoef), state)
-	wantState := preemphInterleavedScalar(pcm, wantPreemph, len(pcm), 1, float32(PreemphCoef), state)
+	gotMem := preemphMono(pcm, gotPreemph, float32(PreemphCoef), state[0])
+	wantMem := preemphMonoScalar(pcm, wantPreemph, float32(PreemphCoef), state[0])
 	assertCELTFloat32SlicesEqual(t, "preemphasis", gotPreemph, wantPreemph)
+	if math.Float32bits(gotMem) != math.Float32bits(wantMem) {
+		t.Fatalf("preemphasis state got %v, want %v", gotMem, wantMem)
+	}
+	stereoPCM := values[:16]
+	gotL, gotR := make([]float32, len(stereoPCM)/2), make([]float32, len(stereoPCM)/2)
+	wantL, wantR := make([]float32, len(stereoPCM)/2), make([]float32, len(stereoPCM)/2)
+	gotState := preemphStereoPlanar(stereoPCM, gotL, gotR, float32(PreemphCoef), state)
+	wantState := preemphStereoPlanarScalar(stereoPCM, wantL, wantR, float32(PreemphCoef), state)
+	assertCELTFloat32SlicesEqual(t, "stereo preemphasis left", gotL, wantL)
+	assertCELTFloat32SlicesEqual(t, "stereo preemphasis right", gotR, wantR)
 	if gotState != wantState {
-		t.Fatalf("preemphasis state got %v, want %v", gotState, wantState)
+		t.Fatalf("stereo preemphasis state got %v, want %v", gotState, wantState)
 	}
 
 	rotation, rotationWant := make([]celtNorm, 23), make([]celtNorm, 23)
@@ -180,7 +190,8 @@ func TestCELTCPUFeatureFallbackMath(t *testing.T) {
 	mdctScratch.ForwardWithOverlapFloat32Into(mdctAllocInput, mdctOverlap, mdctAllocOut)
 	allocs := testing.AllocsPerRun(20, func() {
 		hi, lo := rawMaxMinScan(values, 0, 0)
-		state := preemphInterleaved(pcm, gotPreemph, len(pcm), 1, float32(PreemphCoef), state)
+		mem := preemphMono(pcm, gotPreemph, float32(PreemphCoef), state[0])
+		state := preemphStereoPlanar(stereoPCM, gotL, gotR, float32(PreemphCoef), state)
 		expRotation1Norm(rotation, len(rotation), 4, opusVal16(0.8125), opusVal16(-0.375))
 		stereoSplitInto(left, right)
 		s0, s1 := absSumPair(a, b)
@@ -192,7 +203,7 @@ func TestCELTCPUFeatureFallbackMath(t *testing.T) {
 		combFilterOverlap(combOverlapGot, combD0, combD1, combWindow, 0.125, -0.0625, 0.03125, 0.25, -0.125, 0.0625)
 		t0, t1, t2 := spreadCountThresholds(gotPulses, len(gotPulses), 0.375)
 		mdctScratch.ForwardWithOverlapFloat32Into(mdctAllocInput, mdctOverlap, mdctAllocOut)
-		celtCPUFeatureSink = hi + lo + state[0] + state[1] + s0 + s1 + float32(t0+t1+t2) + mdctAllocOut[0] + scaleGot[0] + mergeLeft[0] + combWant[0] + combOverlapGot[0]
+		celtCPUFeatureSink = hi + lo + mem + state[0] + state[1] + s0 + s1 + float32(t0+t1+t2) + mdctAllocOut[0] + scaleGot[0] + mergeLeft[0] + combWant[0] + combOverlapGot[0]
 	})
 	if allocs != 0 {
 		t.Fatalf("no-AVX selected kernels allocated %v times", allocs)

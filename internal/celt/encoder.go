@@ -1139,14 +1139,12 @@ type encoderScratch struct {
 	// Combined delay buffer + PCM
 	combinedBufF32 []float32
 
-	// Pre-emphasized signal buffer
-	preemph []float32
-
 	// Sub-48 kHz API-rate zero-stuffed core input (frameSize*upsample).
 	upsampleStuff []float32
 
-	// Transient analysis input buffer (overlap + frame)
-	transientInput []float32
+	// celt_encode_with_ec's planar in buffer: per channel, the overlap head
+	// followed by the pre-emphasized frame.
+	planarIn []float32
 
 	// Prefilter (comb filter) scratch buffers
 	prefilterPre      []celtSig
@@ -1169,15 +1167,6 @@ type encoderScratch struct {
 	bandAmp   []celtEner
 	bandEL    []celtEner
 	bandER    []celtEner
-
-	// History buffers for MDCT
-	leftHist  []float32
-	rightHist []float32
-
-	// MDCT overlap-history snapshots (sized to the active analysis overlap:
-	// Overlap at 48 kHz, 240 in the native 96 kHz HD mode).
-	mdctPrevL []float32
-	mdctPrevR []float32
 
 	// Range encoder buffer
 	reBuf []byte
@@ -1210,10 +1199,6 @@ type encoderScratch struct {
 	pvqAbsX  []float32
 	pvqIy    []int32
 
-	// Deinterleave buffers
-	deintLeft  []float32
-	deintRight []float32
-
 	// MDCT forward transform scratch (float32)
 	mdctF           []float32
 	mdctFFTIn       []complex64
@@ -1242,9 +1227,6 @@ type encoderScratch struct {
 	allocCaps         []int32
 	allocResult       AllocationResult // Pre-allocated result struct
 	encoderQEXTScratchFields
-
-	// MDCT input buffer for ComputeMDCTWithHistory
-	mdctInput []float32
 
 	// Range encoder (reused between frames)
 	rangeEncoder rangecoding.Encoder
@@ -1317,20 +1299,19 @@ func (s *encoderScratch) ensureEncodeFloatArena(frameSize, channels, overlap, ma
 	spc := frameSize + overlap
 	const maxPVQN = maxBandWidth * 2
 
-	total := expectedLen*3 + combinedLen + transientLen + prefilterLen*2 +
+	total := expectedLen*2 + combinedLen + transientLen + prefilterLen*2 +
 		pitchBufLen + xcorrLen + xlp4Len + ylp4Len + yyLookupLen +
-		frameSize*2 + frameSize*2 + bandCount*9 + modeBands*2 + overlap*2 +
-		frameSize*2 + frameSize*2 + frameSize*2 + frameSize + frameSize/2 +
-		sp2*2 + spc + frameSize*2 + spc + maxPVQN*2
+		frameSize*2 + frameSize*2 + bandCount*9 + modeBands*2 +
+		frameSize*2 + frameSize*2 + frameSize + frameSize/2 +
+		sp2*2 + spc + frameSize*2 + maxPVQN*2
 	if s.f32.Cap() >= total {
 		return
 	}
 	s.f32.Ensure(total)
 	s.quantizedInputF32 = s.f32.Alloc(expectedLen)
 	s.dcRejectedF32 = s.f32.Alloc(expectedLen)
-	s.preemph = s.f32.Alloc(expectedLen)
 	s.combinedBufF32 = s.f32.Alloc(combinedLen)
-	s.transientInput = s.f32.Alloc(transientLen)
+	s.planarIn = s.f32.Alloc(transientLen)
 	s.prefilterPre = s.f32.Alloc(prefilterLen)
 	s.prefilterOut = s.f32.Alloc(prefilterLen)
 	s.prefilterPitchBuf = s.f32.Alloc(pitchBufLen)
@@ -1352,13 +1333,9 @@ func (s *encoderScratch) ensureEncodeFloatArena(frameSize, channels, overlap, ma
 	s.allocTrimBandLogE = s.f32.Alloc(bandCount)
 	s.bandEL = s.f32.Alloc(modeBands)
 	s.bandER = s.f32.Alloc(modeBands)
-	s.leftHist = s.f32.Alloc(overlap)
-	s.rightHist = s.f32.Alloc(overlap)
 	s.normL = s.f32.Alloc(frameSize)
 	s.normR = s.f32.Alloc(frameSize)
 	s.normStereo = s.f32.Alloc(frameSize * 2)
-	s.deintLeft = s.f32.Alloc(frameSize)
-	s.deintRight = s.f32.Alloc(frameSize)
 	s.mdctF = s.f32.Alloc(frameSize)
 	s.mdctBlockCoeffs = s.f32.Alloc(frameSize / 2)
 	s.transientEnergy = s.f32.Alloc(sp2)
@@ -1366,7 +1343,6 @@ func (s *encoderScratch) ensureEncodeFloatArena(frameSize, channels, overlap, ma
 	s.transientX = s.f32.Alloc(spc)
 	s.allocTrimNormL = s.f32.Alloc(frameSize)
 	s.allocTrimNormR = s.f32.Alloc(frameSize)
-	s.mdctInput = s.f32.Alloc(spc)
 	s.pvqY = s.f32.Alloc(maxPVQN)
 	s.pvqAbsX = s.f32.Alloc(maxPVQN)
 }
@@ -1396,12 +1372,9 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	combinedLen := delayComp + expectedLen
 	s.combinedBufF32 = ensureFloat32Slice(&s.combinedBufF32, combinedLen)
 
-	// Pre-emphasis buffer
-	s.preemph = ensureFloat32Slice(&s.preemph, expectedLen)
-
 	// Transient analysis input (overlap + frameSize) * channels
 	transientLen := (overlap + frameSize) * channels
-	s.transientInput = ensureFloat32Slice(&s.transientInput, transientLen)
+	s.planarIn = ensureFloat32Slice(&s.planarIn, transientLen)
 
 	// Prefilter scratch buffers
 	prefilterLen := (maxPeriod + frameSize) * channels
@@ -1434,8 +1407,6 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.bandER = ensureEnerSlice(&s.bandER, modeBands)
 
 	// History buffers
-	s.leftHist = ensureFloat32Slice(&s.leftHist, overlap)
-	s.rightHist = ensureFloat32Slice(&s.rightHist, overlap)
 
 	// Range encoder buffer
 	bufSize := 256
@@ -1477,8 +1448,6 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.tfRes = ensureInt32Slice(&s.tfRes, modeBands)
 
 	// Deinterleave buffers
-	s.deintLeft = ensureFloat32Slice(&s.deintLeft, frameSize)
-	s.deintRight = ensureFloat32Slice(&s.deintRight, frameSize)
 
 	// MDCT forward transform scratch (float32)
 	n4 := frameSize / 2 // n4 = frameSize/2 for N=2*frameSize MDCT
@@ -1525,9 +1494,6 @@ func (e *Encoder) ensureScratch(frameSize int) {
 		qs.normL = ensureNormSliceNoClear(&qs.normL, frameSize)
 		qs.normR = ensureNormSliceNoClear(&qs.normR, frameSize)
 	}
-
-	// MDCT input buffer for ComputeMDCTWithHistory
-	s.mdctInput = ensureFloat32Slice(&s.mdctInput, frameSize+overlap)
 
 	// PVQ search buffers
 	maxPVQN := maxBandWidth * 2 // Max band width with stereo doubling
