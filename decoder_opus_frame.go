@@ -762,7 +762,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		// Hybrid and captured SILK frames run the equivalent opus_res-domain
 		// redundancy decode + smooth_fade below. Other frames use the float
 		// conversion for this packet.
-		if !fixedHybridFrame && !(mode == ModeSILK && fixedSILKFrame) {
+		if !fixedHybridFrame && (mode != ModeSILK || !fixedSILKFrame) {
 			d.markFixedUnhandled()
 		}
 		transition = false
