@@ -122,11 +122,15 @@ func qextBandLogEGLogMax32(bandLogE []celtGLog, nbBands, channels, band int) flo
 	return v
 }
 
-func qextExtraBandWidth(edges []int, band, lm int) int {
+type qextBandEdge interface {
+	~int | ~int16
+}
+
+func qextExtraBandWidth[E qextBandEdge](edges []E, band, lm int) int {
 	if band < 0 || band+1 >= len(edges) {
 		return 0
 	}
-	return (edges[band+1] - edges[band]) << lm
+	return (int(edges[band+1]) - int(edges[band])) << lm
 }
 
 // computeQEXTExtraAllocationEncode mirrors libopus clt_compute_extra_allocation()
@@ -286,11 +290,20 @@ func computeQEXTExtraAllocationEncode(start, end, qextEnd, totalQ3 int, channels
 	}
 }
 
+const qextMaxBaseBands = 25
+
 // computeQEXTExtraAllocationDecodeWithMode mirrors the decode-side
 // clt_compute_extra_allocation() path for the main bands in [start,end) and,
 // when qextMode != nil, the QEXT extra bands in [MaxBands, MaxBands+qextEnd).
 func computeQEXTExtraAllocationDecodeWithMode(start, end, qextEnd, totalQ3 int, channels, lm int,
 	dec *rangecoding.Decoder, extraPulses, extraQuant []int32, qextMode *qextModeConfig,
+) {
+	computeQEXTExtraAllocationDecodeWithEdges(start, end, qextEnd, totalQ3, channels, lm,
+		dec, extraPulses, extraQuant, EBands[:], MaxBands, qextMode)
+}
+
+func computeQEXTExtraAllocationDecodeWithEdges[E qextBandEdge](start, end, qextEnd, totalQ3 int, channels, lm int,
+	dec *rangecoding.Decoder, extraPulses, extraQuant []int32, mainEdges []E, mainBands int, qextMode *qextModeConfig,
 ) {
 	limit := min(len(extraPulses), len(extraQuant))
 	if limit > 0 {
@@ -301,8 +314,8 @@ func computeQEXTExtraAllocationDecodeWithMode(start, end, qextEnd, totalQ3 int, 
 		return
 	}
 
-	var depth [MaxBands + nbQEXTBands]int32
-	var capVals [MaxBands + nbQEXTBands]int32
+	var depth [qextMaxBaseBands + nbQEXTBands]int32
+	var capVals [qextMaxBaseBands + nbQEXTBands]int32
 	last := 0
 	for i := start; i < end; i++ {
 		capVals[i] = 12
@@ -315,12 +328,12 @@ func computeQEXTExtraAllocationDecodeWithMode(start, end, qextEnd, totalQ3 int, 
 			continue
 		}
 		extraQuant[i] = (depth[i] + 3) >> 2
-		width := qextExtraBandWidth(EBands[:], i, lm)
+		width := qextExtraBandWidth(mainEdges, i, lm)
 		extraPulses[i] = int32((((width)-1)*channels*int(depth[i])*(1<<bitRes) + 2) >> 2)
 	}
 	if qextMode != nil {
 		for i := range qextEnd {
-			idx := MaxBands + i
+			idx := mainBands + i
 			if idx >= limit {
 				break
 			}

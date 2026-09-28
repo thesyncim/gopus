@@ -13,7 +13,7 @@ const (
 	qextCELTDecodeBufferSize48 = 2048
 	qextCELTDecodeBufferSize96 = 4096
 	qextCELTMaxQEXTBands       = 14
-	qextCELTOverlapMax         = 240
+	qextCELTOverlapMax         = 320
 )
 
 // QEXTCELTDecoder is the fixed-point ENABLE_QEXT CELT decoder state for the
@@ -26,15 +26,23 @@ type QEXTCELTDecoder struct {
 	shortMDCTSize       int
 	overlap             int
 	decodeBufSize       int
+	maxLM               int
+	nbEBands            int
+	effEBands           int
 	start               int
 	end                 int
 	maxFrameSize        int
 	qextMaxBands        int
+	deemph0             int16
+	deemph1             int16
+	deemph3             int16
 	mdct                *QEXTMDCTLookup
 	window              []int32
 	eBands              []int16
+	logN                []int16
 	qextEdges           []int16
 	qextLogN            []int16
+	customTables        fixedCustomTables
 	decodeMem           []int32
 	oldBandE            []int32
 	oldLogE             []int32
@@ -47,8 +55,8 @@ type QEXTCELTDecoder struct {
 	baseBands           celtDecodeBandsScratch
 	qextBands           celtDecodeBandsScratch
 	decodeAlloc         celt.CELTDecodeAllocation
-	extraPulses         [celt.MaxBands + qextCELTMaxQEXTBands]int32
-	extraQuant          [celt.MaxBands + qextCELTMaxQEXTBands]int32
+	extraPulses         [celt.MaxCustomBands + qextCELTMaxQEXTBands]int32
+	extraQuant          [celt.MaxCustomBands + qextCELTMaxQEXTBands]int32
 	tfZero              [qextCELTMaxQEXTBands]int32
 	postfilterPeriod    int32
 	postfilterPeriodOld int32
@@ -64,7 +72,7 @@ type QEXTCELTDecoder struct {
 	skipPLC             bool
 	prefilterAndFold    bool
 	plcLPC              [2 * celtLPCOrder]int16
-	plcWindow           [qextCELTOverlapMax]int16
+	plcWindow           []int16
 	rng                 uint32
 	lastRes             []int32
 	decodeRows          [2][]int32
@@ -112,33 +120,48 @@ func NewQEXTCELTDecoder(channels, sampleRate int) (*QEXTCELTDecoder, error) {
 	if !ok {
 		return nil, fmt.Errorf("unsupported native QEXT CELT mode %d/%d", sampleRate, shortMDCTSize)
 	}
-	d := &QEXTCELTDecoder{
-		channels:      channels,
-		sampleRate:    coreSampleRate,
-		downsample:    downsample,
-		shortMDCTSize: shortMDCTSize,
-		overlap:       overlap,
-		decodeBufSize: decodeBufSize,
-		start:         0,
-		end:           celt.MaxBands,
-		maxFrameSize:  shortMDCTSize << celtMaxLM,
-		qextMaxBands:  qextMaxBands,
-		disableInv:    channels == 1,
-		mdct:          mdct,
-		window:        window,
-		eBands:        staticMDCT48000EBands[:],
-		qextEdges:     qextEdges,
-		qextLogN:      qextLogN,
+	deemph0, deemph1, deemph3 := int16(27853), int16(0), int16(8192)
+	if coreSampleRate == 96000 {
+		// celt/static_modes_fixed.h mode96000_1920_240 preemph.
+		deemph0, deemph1, deemph3 = 30245, 7209, 5415
 	}
-	for i := 0; i < len(window); i++ {
+	return newQEXTCELTDecoderState(channels, coreSampleRate, downsample,
+		shortMDCTSize, overlap, decodeBufSize, celtMaxLM, celt.MaxBands, celt.MaxBands,
+		staticMDCT48000EBands[:], staticMDCT48000LogN[:], qextEdges, qextLogN,
+		qextMaxBands, mdct, window, nil, deemph0, deemph1, deemph3)
+}
+
+func newQEXTCELTDecoderState(channels, sampleRate, downsample, shortMDCTSize, overlap,
+	decodeBufSize, maxLM, nbEBands, effEBands int, eBands, logN, qextEdges, qextLogN []int16,
+	qextMaxBands int, mdct *QEXTMDCTLookup, window []int32, customTables fixedCustomTables,
+	deemph0, deemph1, deemph3 int16,
+) (*QEXTCELTDecoder, error) {
+	if channels < 1 || channels > 2 || sampleRate <= 0 || downsample < 1 || shortMDCTSize <= 0 ||
+		overlap < 0 || overlap > qextCELTOverlapMax || decodeBufSize < 1 || maxLM < 0 || maxLM > celtMaxLM ||
+		nbEBands < 1 || nbEBands > celt.MaxCustomBands || effEBands < 1 || effEBands > nbEBands ||
+		len(eBands) < nbEBands+1 || len(logN) < nbEBands || len(window) < overlap || mdct == nil ||
+		shortMDCTSize<<maxLM > decodeBufSize || qextMaxBands < 0 || qextMaxBands > qextCELTMaxQEXTBands {
+		return nil, fmt.Errorf("unsupported QEXT CELT geometry %d/%d/%d", sampleRate, shortMDCTSize, nbEBands)
+	}
+	d := &QEXTCELTDecoder{
+		channels: channels, sampleRate: sampleRate, downsample: downsample,
+		shortMDCTSize: shortMDCTSize, overlap: overlap, decodeBufSize: decodeBufSize,
+		maxLM: maxLM, nbEBands: nbEBands, effEBands: effEBands,
+		start: 0, end: effEBands, maxFrameSize: shortMDCTSize << maxLM,
+		qextMaxBands: qextMaxBands, deemph0: deemph0, deemph1: deemph1, deemph3: deemph3,
+		disableInv: channels == 1, mdct: mdct, window: window, eBands: eBands, logN: logN,
+		qextEdges: qextEdges, qextLogN: qextLogN, customTables: customTables,
+		plcWindow: make([]int16, overlap),
+	}
+	for i := 0; i < overlap; i++ {
 		d.plcWindow[i] = int16(window[i] >> 16)
 	}
 	memSize := decodeBufSize + overlap
 	d.decodeMem = make([]int32, channels*memSize)
-	d.oldBandE = make([]int32, 2*celt.MaxBands)
-	d.oldLogE = make([]int32, 2*celt.MaxBands)
-	d.oldLogE2 = make([]int32, 2*celt.MaxBands)
-	d.backgroundLogE = make([]int32, 2*celt.MaxBands)
+	d.oldBandE = make([]int32, 2*nbEBands)
+	d.oldLogE = make([]int32, 2*nbEBands)
+	d.oldLogE2 = make([]int32, 2*nbEBands)
+	d.backgroundLogE = make([]int32, 2*nbEBands)
 	d.qextOldBandE = make([]int32, 2*qextCELTMaxQEXTBands)
 	d.preemphMem = make([]int32, channels)
 	d.freq = make([]int32, d.maxFrameSize)
@@ -147,11 +170,7 @@ func NewQEXTCELTDecoder(channels, sampleRate int) (*QEXTCELTDecoder, error) {
 		d.oldLogE[i] = -gconst(28)
 		d.oldLogE2[i] = -gconst(28)
 	}
-	// Both band workspaces are reusable across the standard and QEXT geometries.
 	for _, bands := range []*celtDecodeBandsScratch{&d.baseBands, &d.qextBands} {
-		// CELT may code stereo and downmix into a mono output decoder. Keep both
-		// coded channels ready from construction so the first such frame does not
-		// grow the reusable band scratch.
 		bands.x = make([]int32, 2*d.maxFrameSize)
 		bands.norm = make([]int32, 2*(d.maxFrameSize+d.maxFrameSize/2))
 		bands.lowband = make([]int32, celtMaxBandWidth)
@@ -238,7 +257,7 @@ func (d *QEXTCELTDecoder) DecodeHybridAccumWithEC(main *rangecoding.Decoder, dat
 }
 
 func (d *QEXTCELTDecoder) decodeFrameWithEC(main *rangecoding.Decoder, dataLen, frameSize, codedChannels int, qextPayload []byte, out []int32, accum bool) int {
-	if dataLen < 0 || d.start < 0 || d.start >= d.end || d.end > celt.MaxBands {
+	if dataLen < 0 || d.start < 0 || d.start >= d.end || d.end > d.nbEBands {
 		return -1
 	}
 	if dataLen <= 1 {
@@ -251,7 +270,7 @@ func (d *QEXTCELTDecoder) decodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 		return -1
 	}
 	lm := -1
-	for candidate := 0; candidate <= celtMaxLM; candidate++ {
+	for candidate := 0; candidate <= d.maxLM; candidate++ {
 		if d.shortMDCTSize<<candidate == frameSize {
 			lm = candidate
 			break
@@ -338,7 +357,7 @@ func (d *QEXTCELTDecoder) decodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 		}
 		for c := 0; c < 2; c++ {
 			for band := d.start; band < d.end; band++ {
-				idx := c*celt.MaxBands + band
+				idx := c*d.nbEBands + band
 				if d.oldBandE[idx] < max32(d.oldLogE[idx], d.oldLogE2[idx]) {
 					E0 := d.oldBandE[idx]
 					E1 := d.oldLogE[idx]
@@ -355,12 +374,16 @@ func (d *QEXTCELTDecoder) decodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 		}
 	}
 
-	UnquantCoarseEnergy(main, d.oldBandE, d.start, d.end, celt.MaxBands, codedChannels, lm, intraEnergy)
-	d.decodeAlloc = celt.DecodeCELTAllocation(main, totalBits, d.start, d.end, lm, codedChannels, transient)
+	UnquantCoarseEnergy(main, d.oldBandE, d.start, d.end, d.nbEBands, codedChannels, lm, intraEnergy)
+	if d.customTables != nil {
+		d.decodeAlloc = d.customTables.DecodeCELTAllocation(main, totalBits, d.start, d.end, lm, codedChannels, transient)
+	} else {
+		d.decodeAlloc = celt.DecodeCELTAllocation(main, totalBits, d.start, d.end, lm, codedChannels, transient)
+	}
 	alloc := &d.decodeAlloc
-	fineQuant := alloc.FineQuant[:celt.MaxBands]
-	finePriority := alloc.FinePriority[:celt.MaxBands]
-	UnquantFineEnergy(main, d.oldBandE, d.start, d.end, celt.MaxBands, codedChannels, nil, fineQuant)
+	fineQuant := alloc.FineQuant[:d.nbEBands]
+	finePriority := alloc.FinePriority[:d.nbEBands]
+	UnquantFineEnergy(main, d.oldBandE, d.start, d.end, d.nbEBands, codedChannels, nil, fineQuant)
 
 	// The side coder exists in every QEXT build, including when runtime QEXT is
 	// absent. Its presence selects Q31 angle gains in the QEXT band kernels.
@@ -369,7 +392,10 @@ func (d *QEXTCELTDecoder) decodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 	qextEnd := 0
 	qextIntensity := 0
 	qextDualStereo := 0
-	qextActive := len(qextPayload) != 0 && d.end == celt.MaxBands
+	qextActive := len(qextPayload) != 0 && d.end == d.effEBands
+	if qextActive && d.qextMaxBands == 0 {
+		return -1
+	}
 	if qextActive {
 		header := celt.QEXTDecodeHeaderExport(&d.extDec, codedChannels, len(qextPayload))
 		qextEnd = imin(header.EndBands, d.qextMaxBands)
@@ -387,12 +413,11 @@ func (d *QEXTCELTDecoder) decodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 	if qextBitsQ3 < 0 {
 		qextBitsQ3 = 0
 	}
-	if !celt.QEXTDecodeExtraAllocationExport(d.start, d.end, qextEnd, qextBitsQ3,
-		codedChannels, lm, &d.extDec, d.extraPulses[:], d.extraQuant[:], d.sampleRate, d.shortMDCTSize) {
+	if !d.decodeQEXTExtraAllocation(qextEnd, qextBitsQ3, codedChannels, lm) {
 		return -1
 	}
 	if len(qextPayload) != 0 {
-		UnquantFineEnergy(&d.extDec, d.oldBandE, d.start, d.end, celt.MaxBands,
+		UnquantFineEnergy(&d.extDec, d.oldBandE, d.start, d.end, d.nbEBands,
 			codedChannels, fineQuant, d.extraQuant[:])
 	}
 
@@ -403,28 +428,29 @@ func (d *QEXTCELTDecoder) decodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 
 	seed := d.rng
 	totalBitsQ3 := dataLen*(8<<bitRes) - alloc.AntiCollapseRsv
-	_, _, collapse := QuantAllBandsDecodeQEXT(main, codedChannels, N, lm, d.start, d.end,
-		alloc.Pulses[:], alloc.TFRes[:], shortBlocks, alloc.Spread, alloc.DualStereo, alloc.Intensity,
+	qextState := QEXTBandDecodeState{Decoder: &d.extDec, ExtraPulses: d.extraPulses[:], TotalBitsQ3: qextTotalBits, Caps: alloc.Caps[:d.nbEBands]}
+	_, _, collapse := quantAllBandsDecodeMode(main, codedChannels, N, lm, d.start, d.end,
+		alloc.Pulses[:d.nbEBands], alloc.TFRes[:d.nbEBands], shortBlocks, alloc.Spread, alloc.DualStereo, alloc.Intensity,
 		totalBitsQ3, alloc.Balance, alloc.CodedBands, d.disableInv, &seed,
-		QEXTBandDecodeState{Decoder: &d.extDec, ExtraPulses: d.extraPulses[:], TotalBitsQ3: qextTotalBits, Caps: alloc.Caps[:]}, &d.baseBands)
+		d.eBands, d.logN, d.nbEBands, false, false, true, &qextState, d.customTables, &d.baseBands)
 	X := d.baseBands.x[:codedChannels*N]
 
 	if qextEnd > 0 {
 		extBalance := qextTotalBits - d.extDec.TellFrac()
 		fineQ3 := 0
 		if qextEnd > 1 {
-			fineQ3 = codedChannels * int(d.extraQuant[celt.MaxBands+1]<<bitRes)
+			fineQ3 = codedChannels * int(d.extraQuant[d.nbEBands+1]<<bitRes)
 		}
 		for i := 0; i < qextEnd; i++ {
-			extBalance -= int(d.extraPulses[celt.MaxBands+i]) + fineQ3
+			extBalance -= int(d.extraPulses[d.nbEBands+i]) + fineQ3
 		}
 		UnquantFineEnergy(&d.extDec, d.qextOldBandE, 0, qextEnd, qextCELTMaxQEXTBands,
-			codedChannels, nil, d.extraQuant[celt.MaxBands:])
+			codedChannels, nil, d.extraQuant[d.nbEBands:d.nbEBands+qextEnd])
 		for i := 0; i < qextEnd; i++ {
 			d.tfZero[i] = 0
 		}
 		_, _, _ = quantAllQEXTExtraBandsDecode(&d.extDec, codedChannels, N, lm, qextEnd,
-			d.extraPulses[celt.MaxBands:], d.tfZero[:], shortBlocks, alloc.Spread,
+			d.extraPulses[d.nbEBands:d.nbEBands+qextEnd], d.tfZero[:], shortBlocks, alloc.Spread,
 			qextDualStereo, qextIntensity, qextTotalBits, extBalance, d.disableInv, &seed,
 			d.qextEdges, d.qextLogN, &d.qextBands)
 		first := int(d.qextEdges[0]) * M
@@ -442,14 +468,14 @@ func (d *QEXTCELTDecoder) decodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 	if len(qextPayload) != 0 {
 		finalBandE = nil
 	}
-	UnquantEnergyFinalise(main, finalBandE, d.start, d.end, celt.MaxBands,
+	UnquantEnergyFinalise(main, finalBandE, d.start, d.end, d.nbEBands,
 		codedChannels, fineQuant, finePriority, totalBits-main.Tell())
 	if antiCollapseOn {
 		AntiCollapse(X, collapse, lm, codedChannels, N, d.start, d.end,
-			d.oldBandE, d.oldLogE, d.oldLogE2, alloc.Pulses[:], d.eBands, celt.MaxBands, seed, false)
+			d.oldBandE, d.oldLogE, d.oldLogE2, alloc.Pulses[:d.nbEBands], d.eBands, d.nbEBands, seed, false)
 	}
 	if silence {
-		for i := 0; i < codedChannels*celt.MaxBands; i++ {
+		for i := 0; i < codedChannels*d.nbEBands; i++ {
 			d.oldBandE[i] = -gconst(28)
 		}
 	}
@@ -471,11 +497,11 @@ func (d *QEXTCELTDecoder) decodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 		d.postfilterTapsetOld = d.postfilterTapset
 	}
 	if codedChannels == 1 {
-		copy(d.oldBandE[celt.MaxBands:2*celt.MaxBands], d.oldBandE[:celt.MaxBands])
+		copy(d.oldBandE[d.nbEBands:2*d.nbEBands], d.oldBandE[:d.nbEBands])
 	}
 	if !transient {
-		copy(d.oldLogE2, d.oldLogE[:2*celt.MaxBands])
-		copy(d.oldLogE, d.oldBandE[:2*celt.MaxBands])
+		copy(d.oldLogE2, d.oldLogE[:2*d.nbEBands])
+		copy(d.oldLogE, d.oldBandE[:2*d.nbEBands])
 	} else {
 		for i := range d.oldLogE {
 			d.oldLogE[i] = min32(d.oldLogE[i], d.oldBandE[i])
@@ -487,14 +513,14 @@ func (d *QEXTCELTDecoder) decodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 	}
 	for c := 0; c < 2; c++ {
 		for i := 0; i < d.start; i++ {
-			d.oldBandE[c*celt.MaxBands+i] = 0
-			d.oldLogE[c*celt.MaxBands+i] = -gconst(28)
-			d.oldLogE2[c*celt.MaxBands+i] = -gconst(28)
+			d.oldBandE[c*d.nbEBands+i] = 0
+			d.oldLogE[c*d.nbEBands+i] = -gconst(28)
+			d.oldLogE2[c*d.nbEBands+i] = -gconst(28)
 		}
-		for i := d.end; i < celt.MaxBands; i++ {
-			d.oldBandE[c*celt.MaxBands+i] = 0
-			d.oldLogE[c*celt.MaxBands+i] = -gconst(28)
-			d.oldLogE2[c*celt.MaxBands+i] = -gconst(28)
+		for i := d.end; i < d.nbEBands; i++ {
+			d.oldBandE[c*d.nbEBands+i] = 0
+			d.oldLogE[c*d.nbEBands+i] = -gconst(28)
+			d.oldLogE2[c*d.nbEBands+i] = -gconst(28)
 		}
 	}
 	if len(qextPayload) != 0 {
@@ -507,7 +533,8 @@ func (d *QEXTCELTDecoder) decodeFrameWithEC(main *rangecoding.Decoder, dataLen, 
 	d.lastFrameType = frameNormal
 	d.prefilterAndFold = false
 	d.lastRes = out[:cc*apiFrameSize]
-	deemphasisQEXT(outSyn, d.lastRes, frameSize, cc, d.sampleRate, d.downsample, d.preemphMem, accum)
+	deemphasisQEXT(outSyn, d.lastRes, frameSize, cc, d.downsample, d.preemphMem, accum,
+		d.deemph0, d.deemph1, d.deemph3)
 	if main.Tell() > totalBits || (len(qextPayload) != 0 && d.extDec.Tell() > qextTotalBits/(1<<bitRes)) {
 		return -3
 	}

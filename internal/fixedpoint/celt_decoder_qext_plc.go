@@ -2,8 +2,6 @@
 
 package fixedpoint
 
-import "github.com/thesyncim/gopus/internal/celt"
-
 const qextPLCPitchBufferSize = celtDecodeBufferSize / 2
 
 // DecodeLost runs the ENABLE_QEXT celt_decode_lost path and fixed deemphasis.
@@ -21,7 +19,7 @@ func (d *QEXTCELTDecoder) DecodeLostAccum(coreFrameSize int, accum []int32) int 
 
 func (d *QEXTCELTDecoder) decodeLost(coreFrameSize int, out []int32, accum bool) int {
 	lm := -1
-	for candidate := 0; candidate <= celtMaxLM; candidate++ {
+	for candidate := 0; candidate <= d.maxLM; candidate++ {
 		if d.shortMDCTSize<<candidate == coreFrameSize {
 			lm = candidate
 			break
@@ -34,7 +32,7 @@ func (d *QEXTCELTDecoder) decodeLost(coreFrameSize int, out []int32, accum bool)
 	if len(out) < d.channels*apiFrameSize {
 		return -2
 	}
-	if d.start < 0 || d.start >= celt.MaxBands || d.end <= d.start || d.end > celt.MaxBands {
+	if d.start < 0 || d.start >= d.nbEBands || d.end <= d.start || d.end > d.nbEBands {
 		return -1
 	}
 
@@ -49,11 +47,14 @@ func (d *QEXTCELTDecoder) decodeLost(coreFrameSize int, out []int32, accum bool)
 	}
 
 	lossDuration := d.lossDuration
-	if d.plcDuration >= 40 || d.start != 0 || d.skipPLC {
+	periodic := d.plcDuration < 40 && d.start == 0 && !d.skipPLC
+	if periodic {
+		periodic = d.decodeLostPeriodicQEXT(N, lm, decodeMem)
+	}
+	if !periodic {
 		d.decodeLostNoiseQEXT(N, lm, lossDuration, decodeMem, outSyn)
 		d.lastFrameType = framePLCNoise
 	} else {
-		d.decodeLostPeriodicQEXT(N, lm, decodeMem)
 		d.prefilterAndFold = true
 		d.lastFrameType = framePLCPeriodic
 	}
@@ -61,12 +62,13 @@ func (d *QEXTCELTDecoder) decodeLost(coreFrameSize int, out []int32, accum bool)
 	d.plcDuration = min32(10000, d.plcDuration+int32(M))
 
 	d.lastRes = out[:cc*apiFrameSize]
-	deemphasisQEXT(outSyn, d.lastRes, N, cc, d.sampleRate, d.downsample, d.preemphMem, accum)
+	deemphasisQEXT(outSyn, d.lastRes, N, cc, d.downsample, d.preemphMem, accum,
+		d.deemph0, d.deemph1, d.deemph3)
 	return apiFrameSize
 }
 
 func (d *QEXTCELTDecoder) decodeLostNoiseQEXT(N, lm int, lossDuration int32, decodeMem, outSyn [][]int32) {
-	effEnd := imax(d.start, imin(d.end, celt.MaxBands))
+	effEnd := imax(d.start, imin(d.end, d.nbEBands))
 	X := d.baseBands.x[:d.channels*N]
 	clear(X)
 	moveLen := d.decodeBufSize - N + d.overlap
@@ -83,7 +85,7 @@ func (d *QEXTCELTDecoder) decodeLostNoiseQEXT(N, lm int, lossDuration int32, dec
 	}
 	for c := 0; c < d.channels; c++ {
 		for band := d.start; band < d.end; band++ {
-			idx := c*celt.MaxBands + band
+			idx := c*d.nbEBands + band
 			d.oldBandE[idx] = max32(d.backgroundLogE[idx], d.oldBandE[idx]-decay)
 		}
 	}
@@ -109,7 +111,7 @@ func (d *QEXTCELTDecoder) decodeLostNoiseQEXT(N, lm int, lossDuration int32, dec
 	d.skipPLC = true
 }
 
-func (d *QEXTCELTDecoder) decodeLostPeriodicQEXT(N, lm int, decodeMem [][]int32) {
+func (d *QEXTCELTDecoder) decodeLostPeriodicQEXT(N, lm int, decodeMem [][]int32) bool {
 	scale := d.decodeBufSize / qextCELTDecodeBufferSize48
 	maxPeriod := celtMaxPeriod * scale
 	var maxPitchLag int
@@ -119,6 +121,12 @@ func (d *QEXTCELTDecoder) decodeLostPeriodicQEXT(N, lm int, decodeMem [][]int32)
 		fade = 26214
 	} else {
 		maxPitchLag = qextPLCPitchSearch(d.decodeRows[:d.channels], d.channels, d.decodeBufSize, scale)
+	}
+	base := d.decodeBufSize - N
+	if base < maxPitchLag || base < celtLPCOrder {
+		return false
+	}
+	if d.lastFrameType != framePLCPeriodic {
 		d.lastPitchIndex = int32(maxPitchLag)
 	}
 	excLength := imin(2*maxPitchLag, maxPeriod)
@@ -222,6 +230,7 @@ func (d *QEXTCELTDecoder) decodeLostPeriodicQEXT(N, lm int, decodeMem [][]int32)
 			}
 		}
 	}
+	return true
 }
 
 func (d *QEXTCELTDecoder) prefilterAndFoldQEXT(N int, decodeMem [][]int32) {
@@ -229,6 +238,9 @@ func (d *QEXTCELTDecoder) prefilterAndFoldQEXT(N int, decodeMem [][]int32) {
 	for c := 0; c < d.channels; c++ {
 		buf := decodeMem[c]
 		base := d.decodeBufSize - N
+		if !qextCombFilterHistoryReady(base, int(d.postfilterPeriodOld), int(d.postfilterPeriod), d.overlap) {
+			continue
+		}
 		CombFilterQEXTPF(tmp[:d.overlap], 0, buf, base,
 			int(d.postfilterPeriodOld), int(d.postfilterPeriod), d.overlap,
 			-d.postfilterGainOld, -d.postfilterGain,

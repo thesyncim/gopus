@@ -13,8 +13,8 @@
 #include "opus_custom.h"
 #include "modes.h"
 
-#if !defined(FIXED_POINT) || !defined(ENABLE_QEXT) || !defined(CUSTOM_MODES)
-#error "custom QEXT presence oracle requires matching fixed/QEXT/custom C features"
+#if !defined(ENABLE_QEXT) || !defined(CUSTOM_MODES)
+#error "custom QEXT presence oracle requires matching QEXT/custom C features"
 #endif
 
 static uint32_t read_u32(void) {

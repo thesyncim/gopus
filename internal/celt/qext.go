@@ -63,10 +63,12 @@ type qextModeConfig struct {
 	CacheCaps     []uint8
 }
 
-// computeQEXTModeConfig mirrors libopus compute_qext_mode() mode selection.
-// It does not enable QEXT by itself; it only prepares the mode/tables that the
-// future encoder/decoder wiring will need.
+// computeQEXTModeConfig mirrors the QEXT side-cache selection in
+// celt/modes.c opus_custom_mode_create() and compute_qext_mode().
 func computeQEXTModeConfig(sampleRate, shortMDCTSize int) (qextModeConfig, bool) {
+	if sampleRate != 48000 && sampleRate != 96000 {
+		return qextModeConfig{}, false
+	}
 	cfg := qextModeConfig{
 		ShortMDCTSize: shortMDCTSize,
 		CacheIndex:    qextCacheIndex50[:],

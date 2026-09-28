@@ -42,7 +42,7 @@ func fixedCustomModeSupported(mode *CustomMode) bool {
 		return mode.Fs == 48000 && mode.ShortMdctSize == 120 &&
 			(mode.FrameSize == 120 || mode.FrameSize == 240 || mode.FrameSize == 480 || mode.FrameSize == 960)
 	}
-	return !customQEXT
+	return true
 }
 
 func fixedCustomModeConfig(mode *CustomMode) fixedpoint.CELTCustomMode {

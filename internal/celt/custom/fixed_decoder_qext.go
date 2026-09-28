@@ -20,7 +20,13 @@ func newFixedCustomDecoder(mode *CustomMode, channels int) (fixedCustomDecoder, 
 	if !fixedCustomModeSupported(mode) {
 		return nil, ErrFixedCustomModeUnsupported
 	}
-	dec, err := fixedpoint.NewQEXTCELTDecoder(channels, 48000)
+	var dec *fixedpoint.QEXTCELTDecoder
+	var err error
+	if mode.isStandard {
+		dec, err = fixedpoint.NewQEXTCELTDecoder(channels, mode.Fs)
+	} else {
+		dec, err = fixedpoint.NewQEXTCELTDecoderCustom(channels, fixedCustomModeConfig(mode))
+	}
 	if err != nil {
 		return nil, err
 	}

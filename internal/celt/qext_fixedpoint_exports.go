@@ -83,6 +83,7 @@ func QEXTDecodeExtraAllocationExport(start, end, qextEnd, totalQ3, channels, lm 
 		cfg.EffBands = min(qextEnd, cfg.EffBands)
 		mode = &cfg
 	}
-	computeQEXTExtraAllocationDecodeWithMode(start, end, qextEnd, totalQ3, channels, lm, dec, extraPulses, extraQuant, mode)
+	computeQEXTExtraAllocationDecodeWithMode(start, end, qextEnd, totalQ3, channels, lm,
+		dec, extraPulses, extraQuant, mode)
 	return true
 }

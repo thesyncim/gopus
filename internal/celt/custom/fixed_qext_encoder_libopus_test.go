@@ -17,7 +17,7 @@ import (
 func TestFixedCustomQEXTEncoderParity(t *testing.T) {
 	for _, spec := range []struct{ fs, frame int }{
 		{32000, 640}, {44100, 1024}, {48000, 640}, {48000, 720},
-		{96000, 600}, {96000, 1440}, {96000, 1920}, {96000, 2048},
+		{96000, 600}, {96000, 1440}, {96000, 1536}, {96000, 1920}, {96000, 2048},
 	} {
 		for _, channels := range []int{1, 2} {
 			tc := customSequenceCase{
