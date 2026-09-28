@@ -32,9 +32,8 @@ type celtSameArchByteExactCase struct {
 }
 
 // celtSameArchByteExactCases are (case, signal-variant) pairs that are byte-exact
-// vs same-arch libopus on arm64. They lock in the established CELT-encode byte
-// parity so a regression in the forward float path (MDCT, band energy, PVQ
-// pre-search rcp/FMA order, allocation) is caught immediately.
+// against the selected same-architecture libopus build. They lock in CELT
+// forward-encode parity across signals, durations, channel counts, and rates.
 func celtSameArchByteExactCases() []celtSameArchByteExactCase {
 	mk := func(name string, fs, ch, br int, variant string) celtSameArchByteExactCase {
 		return celtSameArchByteExactCase{
@@ -66,10 +65,8 @@ func celtSameArchByteExactCases() []celtSameArchByteExactCase {
 	}
 }
 
-// TestEncoderCELTSameArchByteExact drives the native libopus encoder on this
-// host and asserts gopus produces byte-identical CELT packets for the cases in
-// celtSameArchByteExactCases. It demonstrates (not masks) genuine same-arch
-// byte parity for the CELT forward float path.
+// TestEncoderCELTSameArchByteExact drives the selected libopus opus_demo build
+// on this host and asserts byte-identical CELT packets for every case.
 func TestEncoderCELTSameArchByteExact(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
@@ -149,37 +146,6 @@ func TestEncoderCELTSameArchByteExact(t *testing.T) {
 					fi, runtime.GOARCH, len(goPackets[fi]), len(libPackets[fi]), byteDiff, goPackets[fi], libPackets[fi])
 			}
 
-			if fusedFloat {
-				// MODEL A: the default arm64 build fuses a*b+c into FMADD in the
-				// CELT forward float path, so it is quality-gated (opus_compare),
-				// not byte-identical to scalar libopus — the same posture
-				// libopus's own NEON kernels take. See project_arm64_celt_1ulp_drift.md.
-				t.Logf("RESIDUAL (fused CELT FMA): %d/%d packets differ — root cause: "+
-					"CELT float FMA contraction vs scalar libopus (project_arm64_celt_1ulp_drift.md)", len(diffFrames), n)
-				return
-			}
-			if runtime.GOARCH == "amd64" && !gopusBuildIsSIMD {
-				// The pure-Go amd64 build is byte-exact vs scalar libopus for almost
-				// every packet, but the Go amd64 float backend does not reproduce
-				// gcc's scalar CELT forward float path (MDCT/band-energy/pitch
-				// analysis) bit-for-bit, so a handful of packets land one ULP apart in
-				// a raw-coded value and differ in their late raw bits. The pure-Go
-				// arm64 build IS byte-exact here (its float path matches scalar
-				// libopus), so this is the documented per-arch float-composition
-				// boundary on amd64-nosimd, not a logic bug. Hold the bulk byte-exact
-				// (a hard regression flips many packets / changes lengths) and log the
-				// residual. See project_arm64_celt_1ulp_drift.md.
-				for _, fi := range diffFrames {
-					if len(goPackets[fi]) != len(libPackets[fi]) {
-						t.Fatalf("CELT same-arch packet LENGTH mismatch frame %d: gopus=%d libopus=%d (arch=amd64 nosimd)",
-							fi, len(goPackets[fi]), len(libPackets[fi]))
-					}
-				}
-				t.Logf("RESIDUAL (amd64-nosimd CELT float codegen): %d/%d packets differ in late raw bits "+
-					"(equal length) — Go amd64 float vs gcc scalar libopus (project_arm64_celt_1ulp_drift.md)",
-					len(diffFrames), n)
-				return
-			}
 			t.Fatalf("CELT same-arch byte parity FAIL: %d/%d packets differ (arch=%s)",
 				len(diffFrames), n, runtime.GOARCH)
 		})

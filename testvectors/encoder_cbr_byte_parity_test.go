@@ -6,14 +6,8 @@
 // pinned libopus 1.6.1 C encoder oracle built from
 // tools/csrc/libopus_cbr_encode_packets.c.
 //
-// Conformance scope:
-//   - SILK (all cells): hard byte-equality gate — libopus SILK CBR is
-//     deterministic from pure Go integer/fixed-point arithmetic.
-//   - CELT / Hybrid: hard gate on amd64 (integer CELT path is bit-exact on
-//     that arch); on darwin/arm64 the CELT sub-band uses FMA-contracted float
-//     arithmetic that diverges from clang's -ffp-contract=on by ≤1 ULP per
-//     operation (see project_arm64_celt_1ulp_drift.md).  Arm64 cells report
-//     the exact byte-diff count as an honest residual rather than masking.
+// Every packet is compared byte-for-byte against the libopus public API helper
+// linked to the same selected feature and instruction variant as this Go build.
 //
 // Reference:
 //   - libopus src/opus_demo.c: -cbr flag → opus_encoder_ctl(enc, OPUS_SET_VBR(0))
@@ -435,15 +429,10 @@ type cbrTestCase struct {
 	// oracle parameters
 	oracleApp uint32 // application code
 	oracleBW  uint32 // bandwidth constant
-	// behavior flags
-	// byteExact: true on amd64 (CELT integer path exact); false on arm64
-	// (arm64 CELT FMA drift is documented in project_arm64_celt_1ulp_drift.md)
-	strictArm64 bool // if false, arm64 diffs are logged but not fatal
 }
 
 // cbrTestMatrix returns the CBR × mode × rate × frame × channel test matrix.
-// All SILK cells are byte-exact on all platforms.
-// CELT/Hybrid cells on arm64 use the arm64-1ULP-drift residual policy.
+// The selected C helper build supplies the matching scalar or SIMD reference.
 func cbrTestMatrix() []cbrTestCase {
 	return []cbrTestCase{
 		// --- SILK ---
@@ -453,60 +442,49 @@ func cbrTestMatrix() []cbrTestCase {
 			gopusMode: encoder.ModeSILK, bandwidth: types.BandwidthNarrowband,
 			channels: 1, bitrate: 16000, frameSize: 480,
 			oracleApp: cbrOracleAppRestrictedSilk, oracleBW: cbrOracleBWNarrowband,
-			strictArm64: true,
 		},
 		{
 			name:      "SILK-NB-20ms-mono-16k",
 			gopusMode: encoder.ModeSILK, bandwidth: types.BandwidthNarrowband,
 			channels: 1, bitrate: 16000, frameSize: 960,
 			oracleApp: cbrOracleAppRestrictedSilk, oracleBW: cbrOracleBWNarrowband,
-			strictArm64: true,
 		},
 		{
 			name:      "SILK-MB-20ms-mono-24k",
 			gopusMode: encoder.ModeSILK, bandwidth: types.BandwidthMediumband,
 			channels: 1, bitrate: 24000, frameSize: 960,
 			oracleApp: cbrOracleAppRestrictedSilk, oracleBW: cbrOracleBWMediumband,
-			strictArm64: true,
 		},
 		{
 			name:      "SILK-WB-10ms-mono-32k",
 			gopusMode: encoder.ModeSILK, bandwidth: types.BandwidthWideband,
 			channels: 1, bitrate: 32000, frameSize: 480,
 			oracleApp: cbrOracleAppRestrictedSilk, oracleBW: cbrOracleBWWideband,
-			strictArm64: true,
 		},
 		{
 			name:      "SILK-WB-20ms-mono-32k",
 			gopusMode: encoder.ModeSILK, bandwidth: types.BandwidthWideband,
 			channels: 1, bitrate: 32000, frameSize: 960,
 			oracleApp: cbrOracleAppRestrictedSilk, oracleBW: cbrOracleBWWideband,
-			strictArm64: true,
 		},
 		{
 			name:      "SILK-WB-40ms-mono-32k",
 			gopusMode: encoder.ModeSILK, bandwidth: types.BandwidthWideband,
 			channels: 1, bitrate: 32000, frameSize: 1920,
 			oracleApp: cbrOracleAppRestrictedSilk, oracleBW: cbrOracleBWWideband,
-			strictArm64: true,
 		},
 		{
 			name:      "SILK-WB-20ms-stereo-48k",
 			gopusMode: encoder.ModeSILK, bandwidth: types.BandwidthWideband,
 			channels: 2, bitrate: 48000, frameSize: 960,
 			oracleApp: cbrOracleAppRestrictedSilk, oracleBW: cbrOracleBWWideband,
-			strictArm64: true,
 		},
 		// --- CELT ---
-		// CELT uses floating-point arithmetic.  On amd64 (CI) these are byte-exact.
-		// On arm64 the CELT sub-band FMA differs from clang -ffp-contract=on by
-		// at most 1 ULP per operation; diffs are reported as honest residuals.
 		{
 			name:      "CELT-FB-2p5ms-mono-64k",
 			gopusMode: encoder.ModeCELT, bandwidth: types.BandwidthFullband,
 			channels: 1, bitrate: 64000, frameSize: 120,
 			oracleApp: cbrOracleAppRestrictedCELT, oracleBW: cbrOracleBWFullband,
-			strictArm64: false,
 		},
 		// Stereo 2.5/5ms CBR byte parity — covers the variant-byte ratchet surface.
 		{
@@ -514,80 +492,68 @@ func cbrTestMatrix() []cbrTestCase {
 			gopusMode: encoder.ModeCELT, bandwidth: types.BandwidthFullband,
 			channels: 2, bitrate: 128000, frameSize: 120,
 			oracleApp: cbrOracleAppRestrictedCELT, oracleBW: cbrOracleBWFullband,
-			strictArm64: false,
 		},
 		{
 			name:      "CELT-FB-5ms-mono-64k",
 			gopusMode: encoder.ModeCELT, bandwidth: types.BandwidthFullband,
 			channels: 1, bitrate: 64000, frameSize: 240,
 			oracleApp: cbrOracleAppRestrictedCELT, oracleBW: cbrOracleBWFullband,
-			strictArm64: false,
 		},
 		{
 			name:      "CELT-FB-5ms-stereo-128k",
 			gopusMode: encoder.ModeCELT, bandwidth: types.BandwidthFullband,
 			channels: 2, bitrate: 128000, frameSize: 240,
 			oracleApp: cbrOracleAppRestrictedCELT, oracleBW: cbrOracleBWFullband,
-			strictArm64: false,
 		},
 		{
 			name:      "CELT-FB-10ms-mono-64k",
 			gopusMode: encoder.ModeCELT, bandwidth: types.BandwidthFullband,
 			channels: 1, bitrate: 64000, frameSize: 480,
 			oracleApp: cbrOracleAppRestrictedCELT, oracleBW: cbrOracleBWFullband,
-			strictArm64: false,
 		},
 		{
 			name:      "CELT-FB-20ms-mono-64k",
 			gopusMode: encoder.ModeCELT, bandwidth: types.BandwidthFullband,
 			channels: 1, bitrate: 64000, frameSize: 960,
 			oracleApp: cbrOracleAppRestrictedCELT, oracleBW: cbrOracleBWFullband,
-			strictArm64: false,
 		},
 		{
 			name:      "CELT-FB-20ms-stereo-128k",
 			gopusMode: encoder.ModeCELT, bandwidth: types.BandwidthFullband,
 			channels: 2, bitrate: 128000, frameSize: 960,
 			oracleApp: cbrOracleAppRestrictedCELT, oracleBW: cbrOracleBWFullband,
-			strictArm64: false,
 		},
 		// --- Hybrid ---
 		// Hybrid uses ModeAuto (audio application) to match opus_demo -e audio.
-		// The CELT sub-band carries the same arm64 FMA residual as CELT-only.
 		{
 			name:      "Hybrid-SWB-10ms-mono-48k",
 			gopusMode: encoder.ModeHybrid, bandwidth: types.BandwidthSuperwideband,
 			channels: 1, bitrate: 48000, frameSize: 480,
 			oracleApp: cbrOracleAppAudio, oracleBW: cbrOracleBWSuperWideband,
-			strictArm64: false,
 		},
 		{
 			name:      "Hybrid-SWB-20ms-mono-48k",
 			gopusMode: encoder.ModeHybrid, bandwidth: types.BandwidthSuperwideband,
 			channels: 1, bitrate: 48000, frameSize: 960,
 			oracleApp: cbrOracleAppAudio, oracleBW: cbrOracleBWSuperWideband,
-			strictArm64: false,
 		},
 		{
 			name:      "Hybrid-FB-10ms-mono-64k",
 			gopusMode: encoder.ModeHybrid, bandwidth: types.BandwidthFullband,
 			channels: 1, bitrate: 64000, frameSize: 480,
 			oracleApp: cbrOracleAppAudio, oracleBW: cbrOracleBWFullband,
-			strictArm64: false,
 		},
 		{
 			name:      "Hybrid-FB-20ms-mono-64k",
 			gopusMode: encoder.ModeHybrid, bandwidth: types.BandwidthFullband,
 			channels: 1, bitrate: 64000, frameSize: 960,
 			oracleApp: cbrOracleAppAudio, oracleBW: cbrOracleBWFullband,
-			strictArm64: false,
 		},
 		{
 			name:      "Hybrid-FB-20ms-stereo-96k",
 			gopusMode: encoder.ModeHybrid, bandwidth: types.BandwidthFullband,
 			channels: 2, bitrate: 96000, frameSize: 960,
 			oracleApp: cbrOracleAppAudio, oracleBW: cbrOracleBWFullband,
-			strictArm64: false,
 		},
 	}
 }
@@ -883,13 +849,6 @@ func assertCBRByteParityForCase(t *testing.T, tc cbrTestCase, oraclePath string)
 		}
 	}
 
-	// SILK cells (tc.strictArm64) are byte-exact on every build (integer/
-	// range-coded core). CELT/Hybrid cells carry the documented ≤1-ULP CELT
-	// float-analysis boundary on the pure-Go builds (arm64 FMA, amd64-nosimd vs
-	// scalar libopus); only the amd64 asm/SIMD build is held strictly bit-exact.
-	// See encoderCELTFloatBoundaryBuild and project_arm64_celt_1ulp_drift.md.
-	strict := tc.strictArm64 || !encoderCELTFloatBoundaryBuild()
-
 	if len(diffFrames) == 0 {
 		t.Logf("PASS: %d packets byte-exact vs libopus CBR oracle", len(wantPackets))
 		return
@@ -904,27 +863,8 @@ func assertCBRByteParityForCase(t *testing.T, tc cbrTestCase, oraclePath string)
 		reportCBRByteDiff(t, fi, gotPackets[fi], wantPackets[fi])
 	}
 
-	if strict {
-		t.Fatalf("CBR byte parity FAIL: %d/%d packets differ (arch=%s/%s)",
-			len(diffFrames), len(wantPackets), runtime.GOOS, runtime.GOARCH)
-	} else {
-		// Pure-Go CELT/Hybrid residual: documented ≤1-ULP CELT float boundary
-		// (arm64 FMA contraction vs clang -ffp-contract=on; amd64-nosimd Go float
-		// vs gcc scalar libopus). The CBR byte budget is fixed, so a near-tie flip
-		// changes only the late raw bits at an equal length — a structural
-		// regression that changes a packet length still fails hard below.
-		// See project_arm64_celt_1ulp_drift.md.
-		for _, fi := range diffFrames {
-			if len(gotPackets[fi]) != len(wantPackets[fi]) {
-				t.Fatalf("CBR packet LENGTH mismatch frame %d: gopus=%d libopus=%d (arch=%s/%s) — "+
-					"a CBR length divergence is structural, not the ≤1-ULP float boundary",
-					fi, len(gotPackets[fi]), len(wantPackets[fi]), runtime.GOOS, runtime.GOARCH)
-			}
-		}
-		t.Logf("RESIDUAL (pure-Go CELT float boundary): %d/%d packets differ in late raw bits "+
-			"(equal length) — project_arm64_celt_1ulp_drift.md; amd64 asm/CI gate holds",
-			len(diffFrames), len(wantPackets))
-	}
+	t.Fatalf("CBR byte parity FAIL: %d/%d packets differ (arch=%s/%s)",
+		len(diffFrames), len(wantPackets), runtime.GOOS, runtime.GOARCH)
 }
 
 // TestEncoderCBRByteParitySILK asserts byte-exact CBR packets for all SILK cells.
@@ -953,8 +893,6 @@ func TestEncoderCBRByteParitySILK(t *testing.T) {
 }
 
 // TestEncoderCBRByteParityCELT asserts byte-exact CBR packets for CELT cells.
-// On amd64 (CI) all CELT cells must be byte-exact.
-// On arm64 diffs within the CELT float FMA residual budget are reported but not fatal.
 func TestEncoderCBRByteParityCELT(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
@@ -979,8 +917,6 @@ func TestEncoderCBRByteParityCELT(t *testing.T) {
 }
 
 // TestEncoderCBRByteParityHybrid asserts byte-exact CBR packets for Hybrid cells.
-// On amd64 (CI) Hybrid must be byte-exact (SILK part is exact; CELT part is exact on amd64).
-// On arm64 the CELT sub-band may show ≤1 ULP drift.
 func TestEncoderCBRByteParityHybrid(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
@@ -1017,12 +953,10 @@ func TestEncoderCBRByteParitySummary(t *testing.T) {
 	}
 
 	type rowResult struct {
-		name          string
-		total         int
-		diffs         int
-		skipped       bool
-		floatBoundary bool
-		strictArm64   bool
+		name    string
+		total   int
+		diffs   int
+		skipped bool
 	}
 	results := make([]rowResult, len(cbrTestMatrix()))
 
@@ -1064,21 +998,14 @@ func TestEncoderCBRByteParitySummary(t *testing.T) {
 					}
 				}
 
-				floatBoundary := encoderCELTFloatBoundaryBuild()
 				results[i] = rowResult{
-					name:          tc.name,
-					total:         len(wantPackets),
-					diffs:         diffs,
-					floatBoundary: floatBoundary,
-					strictArm64:   tc.strictArm64,
+					name:  tc.name,
+					total: len(wantPackets),
+					diffs: diffs,
 				}
 
-				// SILK (strictArm64) is byte-exact on every build; CELT/Hybrid carry
-				// the documented ≤1-ULP CELT float boundary on the pure-Go builds, so
-				// only the amd64 asm/SIMD build holds them strictly bit-exact.
-				strict := tc.strictArm64 || !floatBoundary
-				if diffs > 0 && strict {
-					t.Errorf("%s: %d/%d packets differ (FAIL)", tc.name, diffs, len(wantPackets))
+				if diffs > 0 {
+					t.Errorf("%s: %d/%d packets differ", tc.name, diffs, len(wantPackets))
 				}
 			})
 		}
@@ -1089,7 +1016,7 @@ func TestEncoderCBRByteParitySummary(t *testing.T) {
 	t.Logf("%-35s %7s %7s %6s", "Case", "Total", "Diffs", "Status")
 	t.Logf("%-35s %7s %7s %6s", "----", "-----", "-----", "------")
 
-	pass, fail, residual, skipped := 0, 0, 0, 0
+	pass, fail, skipped := 0, 0, 0
 	for _, r := range results {
 		switch {
 		case r.skipped:
@@ -1098,15 +1025,12 @@ func TestEncoderCBRByteParitySummary(t *testing.T) {
 		case r.diffs == 0:
 			t.Logf("%-35s %7d %7d %6s", r.name, r.total, 0, "OK")
 			pass++
-		case r.floatBoundary && !r.strictArm64:
-			t.Logf("%-35s %7d %7d %6s (pure-Go CELT float residual)", r.name, r.total, r.diffs, "~")
-			residual++
 		default:
 			t.Logf("%-35s %7d %7d %6s", r.name, r.total, r.diffs, "FAIL")
 			fail++
 		}
 	}
 	t.Logf("---")
-	t.Logf("pass=%d residual=%d fail=%d skip=%d  arch=%s/%s",
-		pass, residual, fail, skipped, runtime.GOOS, runtime.GOARCH)
+	t.Logf("pass=%d fail=%d skip=%d  arch=%s/%s",
+		pass, fail, skipped, runtime.GOOS, runtime.GOARCH)
 }

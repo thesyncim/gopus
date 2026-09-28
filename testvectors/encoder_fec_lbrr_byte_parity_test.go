@@ -1,16 +1,8 @@
-// Package testvectors: in-band FEC (SILK LBRR) byte-parity regression.
+// Package testvectors: in-band FEC (SILK LBRR) packet parity regression.
 //
-// Drives the gopus float Encoder with in-band FEC enabled across SILK
-// NB/MB stereo configurations at 40/60 ms frame sizes — the configuration
-// that formerly produced an out-of-range SILK delta-gain index and panicked
-// the encoder. The fix aligns the side channel's conditional-coding selection
-// with libopus enc_API.c (which selects from the mid channel's post-increment
-// nFramesEncoded), so the LBRR delta-gain index stays in range.
-//
-// The test asserts two things for the formerly-panicking configs:
-//  1. gopus does not panic (and returns a packet) for every frame, and
-//  2. the produced packets are byte-identical to the libopus float reference
-//     encoder configured the same way (OPUS_SET_INBAND_FEC + packet loss).
+// Drives the gopus float Encoder with in-band FEC across SILK NB/MB stereo
+// configurations at 40/60 ms frame sizes and checks every packet against the
+// libopus build selected for the current Go instruction lane.
 //
 // Reference: libopus src/opus_encoder.c opus_encode_float(),
 //
@@ -121,15 +113,6 @@ type fecParityCase struct {
 	oracleApp     uint32
 	oracleBW      uint32
 	forceMode     uint32 // OPUS_SET_FORCE_MODE arg (1000 = SILK)
-	// byteExact gates the hard byte-equality assertion. The LBRR fix is
-	// validated byte-for-byte on the lower-rate CBR cells. Higher-rate and VBR
-	// stereo SILK cells additionally exercise the per-frame stereo width /
-	// mid-only decision (silk_stereo_LR_to_MS mid_only_flags), where gopus
-	// still diverges from libopus on some frames (the TOC stereo bit flips
-	// between mono/stereo). That divergence is independent of the LBRR
-	// delta-gain bug fixed here; those cells are still covered for the
-	// no-panic guarantee.
-	byteExact bool
 }
 
 const opusForceModeSILK = 1000
@@ -155,17 +138,6 @@ func fecParityMatrix() []fecParityCase {
 		{60, 2880},
 	}
 	bitrates := []int{16000, 24000, 32000}
-	// byteExactCells lists the configurations where the per-frame stereo
-	// width / mid-only decision (silk_stereo_LR_to_MS) already matches libopus,
-	// so the full packet — including the formerly-panicking LBRR delta gains —
-	// is byte-identical. Other cells still exercise the LBRR path (no-panic
-	// guarantee) but additionally hit the independent stereo rate-control
-	// divergence; see the byteExact field comment.
-	byteExactCells := map[string]bool{
-		"SILK-NB-40ms-stereo-16k-cbr-fec": true,
-		"SILK-NB-60ms-stereo-16k-cbr-fec": true,
-		"SILK-MB-40ms-stereo-16k-cbr-fec": true,
-	}
 	for _, b := range bws {
 		for _, fr := range frames {
 			for _, br := range bitrates {
@@ -187,7 +159,6 @@ func fecParityMatrix() []fecParityCase {
 						oracleApp:     cbrOracleAppRestrictedSilk,
 						oracleBW:      b.oc,
 						forceMode:     opusForceModeSILK,
-						byteExact:     byteExactCells[name],
 					})
 				}
 			}
@@ -250,8 +221,8 @@ func runFECOracleEncode(oraclePath string, c fecParityCase, pcm []float32) ([][]
 	return parseFECOracleOutput(out)
 }
 
-// TestEncoderFECLBRRByteParitySILK asserts no panic + byte-exact packets for
-// the SILK NB/MB stereo in-band-FEC configurations that formerly panicked.
+// TestEncoderFECLBRRByteParitySILK asserts byte-exact packets for the SILK
+// NB/MB stereo in-band-FEC configurations that exercise long-frame LBRR state.
 func TestEncoderFECLBRRByteParitySILK(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
@@ -305,17 +276,6 @@ func TestEncoderFECLBRRByteParitySILK(t *testing.T) {
 				if len(diffFrames) == 0 {
 					t.Logf("PASS: %d FEC packets byte-exact vs libopus (arch=%s/%s)",
 						len(wantPackets), runtime.GOOS, runtime.GOARCH)
-					return
-				}
-
-				if !c.byteExact {
-					// No-panic + packet-count parity is the guarantee for these
-					// cells; the residual byte diffs are the independent stereo
-					// width / mid-only rate-control divergence, not the LBRR
-					// delta-gain bug fixed here.
-					t.Logf("RESIDUAL (stereo width/mid-only rate-control divergence, "+
-						"independent of LBRR): %d/%d packets differ (arch=%s/%s)",
-						len(diffFrames), len(wantPackets), runtime.GOOS, runtime.GOARCH)
 					return
 				}
 

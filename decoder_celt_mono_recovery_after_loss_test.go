@@ -68,7 +68,7 @@ func TestCELTMonoRecoveryAfterLongGapMatchesLibopus(t *testing.T) {
 
 			want, wantRanges, err := decodeWithLibopusReferenceAPIRateFloat32StepsRanges(sampleRate, sp.channels, sp.frameSamp, steps)
 			if err != nil {
-				t.Skipf("%s: oracle unavailable: %v", sp.name, err)
+				t.Fatalf("%s: oracle unavailable: %v", sp.name, err)
 			}
 
 			dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, sp.channels))
@@ -128,24 +128,24 @@ func encodeCELTMonoRecoveryStream(t *testing.T, bw Bandwidth, channels, bitrate 
 		t.Fatalf("NewEncoder: %v", err)
 	}
 	if err := enc.SetMode(EncoderModeCELT); err != nil {
-		t.Skipf("SetMode CELT: %v", err)
+		t.Fatalf("SetMode CELT: %v", err)
 	}
 	if err := enc.SetFrameSize(frameSamp); err != nil {
-		t.Skipf("SetFrameSize(%d): %v", frameSamp, err)
+		t.Fatalf("SetFrameSize(%d): %v", frameSamp, err)
 	}
 	if err := enc.SetExpertFrameDuration(frameMs); err != nil {
-		t.Skipf("SetExpertFrameDuration: %v", err)
+		t.Fatalf("SetExpertFrameDuration: %v", err)
 	}
 	if err := enc.SetBandwidth(bw); err != nil {
-		t.Skipf("SetBandwidth: %v", err)
+		t.Fatalf("SetBandwidth: %v", err)
 	}
 	if err := enc.SetBitrate(bitrate); err != nil {
-		t.Skipf("SetBitrate: %v", err)
+		t.Fatalf("SetBitrate: %v", err)
 	}
 	_ = enc.SetSignal(SignalMusic)
 	if channels == 2 {
 		if err := enc.SetForceChannels(2); err != nil {
-			t.Skipf("SetForceChannels: %v", err)
+			t.Fatalf("SetForceChannels: %v", err)
 		}
 	}
 
@@ -154,10 +154,10 @@ func encodeCELTMonoRecoveryStream(t *testing.T, bw Bandwidth, channels, bitrate 
 		pcm := celtRecoveryTonePCM(frameSamp, channels, sampleRate, f)
 		pkt, e := encodeOneFrame(enc, pcm)
 		if e != nil {
-			t.Skipf("encode frame %d: %v", f, e)
+			t.Fatalf("encode frame %d: %v", f, e)
 		}
 		if len(pkt) == 0 {
-			t.Skipf("encoder produced empty packet at frame %d", f)
+			t.Fatalf("encoder produced empty packet at frame %d", f)
 		}
 		packets = append(packets, append([]byte(nil), pkt...))
 	}
