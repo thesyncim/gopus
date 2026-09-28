@@ -400,7 +400,15 @@ func (d *Decoder) decodeFECViaSILK(pcm []float32, frameSize int) (int, error) {
 		silkBW = silk.BandwidthWideband
 	}
 
-	needed, err := d.silkDecoder.DecodeFECInto(d.fecData, silkBW, frameSize, d.fecStereo, int(d.channels), pcm)
+	// silk_Decode initializes channel_state[1] and resets the stereo
+	// predictor/resampler when internal channel count grows from mono to stereo.
+	// The regular frame path performs this setup before entering SILK; FEC can
+	// arrive after a PLC prefix, so apply the transition here immediately before
+	// decoding the redundant stereo frame.
+	d.prepareStereoTransition(d.fecStereo, silkBW)
+	stereoToMono := d.silkDecoder.ShouldUseStereoToMonoHistory(silkBW, !d.fecStereo && d.prevPacketStereo)
+
+	needed, err := d.silkDecoder.DecodeFECInto(d.fecData, silkBW, frameSize, d.fecStereo, stereoToMono, int(d.channels), pcm)
 	if err != nil {
 		return 0, err
 	}

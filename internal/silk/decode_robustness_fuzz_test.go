@@ -174,7 +174,7 @@ func FuzzSILKDecodeFECNeverPanics(f *testing.F) {
 		// HasLBRR parses the same header and must never panic.
 		_ = d.HasLBRR(data, bw, fs)
 
-		if out, err := d.DecodeFEC(data, bw, fs, stereo, channels); err == nil {
+		if out, err := d.DecodeFEC(data, bw, fs, stereo, false, channels); err == nil {
 			requireFiniteSILKPCM(t, out)
 		}
 	})

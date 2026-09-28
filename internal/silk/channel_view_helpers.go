@@ -109,7 +109,7 @@ func signalTypeFromState(st *decoderState) int {
 	if st == nil {
 		return 0
 	}
-	return int(st.indices.signalType)
+	return int(st.prevSignalType)
 }
 
 // silkPLCChannelView adapts one channel of a Decoder to the

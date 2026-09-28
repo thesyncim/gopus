@@ -160,11 +160,31 @@ func (d *Decoder) DecodeStereo(
 		d.recordNativeStereoFromFloat32(leftNative, rightNative, bandwidth)
 	}
 
-	// Resample to the decoder API rate using the libopus-compatible resampler.
+	framesPerPacket, nbSubfr, err := frameParams(duration)
+	if err != nil {
+		return nil, err
+	}
+	config := GetBandwidthConfig(bandwidth)
+	frameLength := nbSubfr * subFrameLengthMs * config.SampleRate / 1000
+	if framesPerPacket > 0 && frameLength*framesPerPacket != len(leftNative) {
+		frameLength = len(leftNative) / framesPerPacket
+	}
+
+	// silk_Decode resamples once per decoded SILK frame. Keep that cadence so
+	// the resampler delay buffer at a packet boundary matches libopus.
 	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
 	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
-	left := leftResampler.Process(leftNative)
-	right := rightResampler.Process(rightNative)
+	left := make([]float32, 0, frameSizeSamples)
+	right := make([]float32, 0, frameSizeSamples)
+	for f := range framesPerPacket {
+		start := f * frameLength
+		end := start + frameLength
+		if frameLength <= 0 || end > len(leftNative) || end > len(rightNative) {
+			break
+		}
+		left = append(left, leftResampler.Process(leftNative[start:end])...)
+		right = append(right, rightResampler.Process(rightNative[start:end])...)
+	}
 
 	// Interleave samples [L0, R0, L1, R1, ...]
 	output := make([]float32, len(left)*2)
@@ -557,16 +577,26 @@ func (d *Decoder) DecodeStereoWithDecoderInto(
 		return 0, ErrDecodeFailed
 	}
 
-	nLeft := leftResampler.ProcessInt16Into(leftNative[:nativeSamples], leftScratch)
-	nRight := rightResampler.ProcessInt16Into(rightNative[:nativeSamples], rightScratch)
-	n := min(nRight, nLeft)
-	if n < 0 || n*2 > len(output) {
-		return 0, ErrDecodeFailed
+	frameLength := nbSubfr * subFrameLengthMs * config.SampleRate / 1000
+	outputOffset := 0
+	for f := range framesPerPacket {
+		start := f * frameLength
+		end := start + frameLength
+		if frameLength <= 0 || end > nativeSamples {
+			return 0, ErrDecodeFailed
+		}
+		nLeft := leftResampler.ProcessInt16Into(leftNative[start:end], leftScratch[outputOffset:])
+		nRight := rightResampler.ProcessInt16Into(rightNative[start:end], rightScratch[outputOffset:])
+		n := min(nRight, nLeft)
+		if n < 0 || (outputOffset+n)*2 > len(output) {
+			return 0, ErrDecodeFailed
+		}
+		interleaveStereoFloat32(output[outputOffset*2:(outputOffset+n)*2], leftScratch[outputOffset:outputOffset+n], rightScratch[outputOffset:outputOffset+n])
+		outputOffset += n
 	}
-	interleaveStereoFloat32(output[:2*n], leftScratch[:n], rightScratch[:n])
 
 	d.finalizeSuccessfulDecode(frameSizeSamples, 2)
-	return n, nil
+	return outputOffset, nil
 }
 
 // DecodeStereoWithDecoder decodes a SILK stereo frame using a pre-initialized range decoder.
@@ -593,10 +623,28 @@ func (d *Decoder) DecodeStereoWithDecoder(
 		return nil, err
 	}
 
+	framesPerPacket, nbSubfr, err := frameParams(duration)
+	if err != nil {
+		return nil, err
+	}
+	config := GetBandwidthConfig(bandwidth)
+	frameLength := nbSubfr * subFrameLengthMs * config.SampleRate / 1000
+	if framesPerPacket > 0 && frameLength*framesPerPacket != len(leftNative) {
+		frameLength = len(leftNative) / framesPerPacket
+	}
 	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
 	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
-	left := leftResampler.Process(leftNative)
-	right := rightResampler.Process(rightNative)
+	left := make([]float32, 0, frameSizeSamples)
+	right := make([]float32, 0, frameSizeSamples)
+	for f := range framesPerPacket {
+		start := f * frameLength
+		end := start + frameLength
+		if frameLength <= 0 || end > len(leftNative) || end > len(rightNative) {
+			break
+		}
+		left = append(left, leftResampler.Process(leftNative[start:end])...)
+		right = append(right, rightResampler.Process(rightNative[start:end])...)
+	}
 
 	output := make([]float32, len(left)*2)
 	for i := range left {

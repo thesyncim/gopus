@@ -96,6 +96,12 @@ func (d *Decoder) DecodeFrameWithPacketStereoToFloat32AtAPIRate(data []byte, fra
 // uses it for the 2.5 ms CELT silence frame that fades out the CELT overlap on
 // a Hybrid->SILK transition.
 func (d *Decoder) AccumulateFrameWithPacketStereoAtAPIRate(data []byte, frameSize int, packetStereo bool, out []float32) error {
+	// opus_decode_frame updates CELT's stream_channels control directly before
+	// decoding the Hybrid->SILK fade frame. CELT_SET_CHANNELS only changes that
+	// count in libopus; it does not run the mono-to-stereo history copy used by
+	// the packet adapters. Mark the control value first so the shared adapter
+	// does not synthesize an extra transition while accumulating this frame.
+	d.prevStreamChannels = int32(packetChannelsFromStereoFlag(packetStereo))
 	return d.decodeFrameAtAPIRate(data, frameSize, packetStereo, out, true)
 }
 

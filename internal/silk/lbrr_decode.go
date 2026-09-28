@@ -48,13 +48,14 @@ func (d *Decoder) DecodeFEC(
 	bandwidth Bandwidth,
 	frameSizeSamples int,
 	stereo bool,
+	stereoToMono bool,
 	outputChannels int,
 ) ([]float32, error) {
 	if !d.validFECOutputSize(frameSizeSamples, outputChannels) {
 		return nil, ErrDecodeFailed
 	}
 	output := make([]float32, frameSizeSamples*outputChannels)
-	n, err := d.DecodeFECInto(data, bandwidth, frameSizeSamples, stereo, outputChannels, output)
+	n, err := d.DecodeFECInto(data, bandwidth, frameSizeSamples, stereo, stereoToMono, outputChannels, output)
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +69,7 @@ func (d *Decoder) DecodeFECInto(
 	bandwidth Bandwidth,
 	frameSizeSamples int,
 	stereo bool,
+	stereoToMono bool,
 	outputChannels int,
 	output []float32,
 ) (int, error) {
@@ -143,19 +145,59 @@ func (d *Decoder) DecodeFECInto(
 	// Resample from native rate to 48kHz using the same int16 path as normal decode.
 	resampler := d.GetResampler(bandwidth)
 	outputOffset := 0
+	if outputChannels == 2 && stereoToMono {
+		// libopus silk/dec_API.c resamples the mono frame through channel 1's
+		// retained state when stereo_to_mono is set. This preserves the right
+		// channel's filter history from the preceding coded stereo frames.
+		rightResampler := d.GetResamplerForChannel(bandwidth, 1)
+		leftScratch, rightScratch, ok := d.stereoFloat32Scratch(frameSizeSamples)
+		if !ok {
+			return 0, ErrDecodeFailed
+		}
+		for f := range framesPerPacket {
+			start := f * frameLength
+			end := min(start+frameLength, len(outInt16))
+			frameNative := outInt16[start:end]
+			resamplerInput := d.BuildMonoResamplerInputInt16(frameNative)
+			nLeft := resampler.ProcessInt16Into(resamplerInput, leftScratch)
+			n := nLeft
+			if f == 0 {
+				// opus_decode_frame calls silk_Decode once per 20 ms SILK chunk.
+				// Its first transition call sees nChannelsInternal==2; the call
+				// then stores 1, so later chunks duplicate the left result.
+				nRight := rightResampler.ProcessInt16Into(resamplerInput, rightScratch)
+				if nRight < n {
+					n = nRight
+				}
+			}
+			if n < 0 || (outputOffset+n)*2 > len(output) {
+				return 0, ErrDecodeFailed
+			}
+			for i := range n {
+				output[(outputOffset+i)*2] = leftScratch[i]
+				right := leftScratch[i]
+				if f == 0 {
+					right = rightScratch[i]
+				}
+				output[(outputOffset+i)*2+1] = right
+			}
+			outputOffset += n
+		}
+		outputOffset *= 2
+	} else {
+		for f := range framesPerPacket {
+			start := f * frameLength
+			end := min(start+frameLength, len(outInt16))
+			frameNative := outInt16[start:end]
 
-	for f := range framesPerPacket {
-		start := f * frameLength
-		end := min(start+frameLength, len(outInt16))
-		frameNative := outInt16[start:end]
-
-		// Apply sMid buffering before resampling
-		resamplerInput := d.BuildMonoResamplerInputInt16(frameNative)
-		n := resampler.ProcessInt16Into(resamplerInput, output[outputOffset:])
-		outputOffset += n
+			// Apply sMid buffering before resampling
+			resamplerInput := d.BuildMonoResamplerInputInt16(frameNative)
+			n := resampler.ProcessInt16Into(resamplerInput, output[outputOffset:])
+			outputOffset += n
+		}
 	}
-	// Handle channel expansion/reduction
-	if outputChannels == 2 && !stereo {
+	// Expand mono output when C reuses the left-channel resampler state.
+	if outputChannels == 2 && !stereo && !stereoToMono {
 		// Expand backward so the caller buffer is safe to reuse in place.
 		for i := outputOffset - 1; i >= 0; i-- {
 			s := output[i]
@@ -295,17 +337,23 @@ func (d *Decoder) decodeStereoFECFrames(
 		if !ok {
 			return 0, ErrDecodeFailed
 		}
-		nLeft := leftResampler.ProcessInt16Into(leftNative[:totalLen], leftScratch)
-		nRight := rightResampler.ProcessInt16Into(rightNative[:totalLen], rightScratch)
-		n := min(nRight, nLeft)
-		if n < 0 {
-			return 0, ErrDecodeFailed
+		outputSamples := 0
+		for f := range framesPerPacket {
+			start := f * frameLength
+			end := start + frameLength
+			if frameLength <= 0 || end > totalLen {
+				return 0, ErrDecodeFailed
+			}
+			nLeft := leftResampler.ProcessInt16Into(leftNative[start:end], leftScratch[outputSamples:])
+			nRight := rightResampler.ProcessInt16Into(rightNative[start:end], rightScratch[outputSamples:])
+			n := min(nRight, nLeft)
+			if n < 0 || (outputSamples+n)*2 > len(output) {
+				return 0, ErrDecodeFailed
+			}
+			interleaveStereoFloat32(output[outputSamples*2:(outputSamples+n)*2], leftScratch[outputSamples:outputSamples+n], rightScratch[outputSamples:outputSamples+n])
+			outputSamples += n
 		}
-		outputLen = n * 2
-		for i := range n {
-			output[i*2] = leftScratch[i]
-			output[i*2+1] = rightScratch[i]
-		}
+		outputLen = outputSamples * 2
 	} else {
 		resampler := d.GetResampler(bandwidth)
 		outputOffset := 0
