@@ -8,17 +8,17 @@ reference path.
 
 ## Correctness status
 
-The latest native AMD64 early artifact at `83affdb9` contains 89 command exit
-records: 85 succeed; three SIMD OSCE feature phases and their aggregate status
-fail. BWE feature extraction is exact, while signal-network and public OSCE PCM
-checks differ. Scalar OSCE counterparts pass. Final artifact
-`10968657063` also flags BWE int8 tests whose expected values use scalar
-quantization instead of the selected AVX2 saturating dot product. Independent
-selected-C replacements pass locally on ARM64 in scalar and SIMD; native AMD64
-validation remains pending. Eleven AMD64 kernel rows below
-use the final artifact’s five-sample measurements. These failures are active work;
-the other completed CI jobs and the base-codec performance results do not imply
-complete codec parity.
+Native AMD64 early artifact `10971085261` at `2d319a98` contains 91 command
+exit records: 83 succeed; seven SIMD neural phases and their aggregate status
+fail. The direct 28-case SGEMV oracle proves that C rounds scalar-row products
+before adding, while complete vector blocks use FMA. The Go scalar tail uses
+that separate rounding; native validation of this correction remains pending.
+The original SIMD OSCE mismatch remains under investigation. Scalar counterparts
+pass. BWE int8 expectations model AVX2 quantization and saturating dot products;
+independent selected-C replacements pass locally on ARM64 in scalar and SIMD.
+Eleven AMD64 kernel rows below retain final artifact `10968657063` at `83affdb9`
+and its five-sample measurements. Completed base-codec checks and performance
+results do not imply complete codec parity.
 
 The live oracle comparisons use libopus 1.6.1 with the same effective
 instruction path on the same machine. Go SIMD (`GOEXPERIMENT=simd`) pairs with the SSE/AVX2 RTCD
@@ -172,7 +172,10 @@ all 12 rate/channel allocation checks remain zero. The full public
 CELT/SILK/Hybrid transition witness passes fixed-only and fixed-QEXT in both
 scalar and SIMD builds. Fixed encoder FEC/DTX, fixed-QEXT Hybrid loss and
 multistream decoding, and fixed decoding of accepted corrupt packets remain
-under investigation. These focused results do not establish full public parity.
+under investigation. The focused mono QEXT loss/recovery regression matches
+all three public PCM formats at five API rates in scalar and SIMD, with zero
+warm allocations; removing its energy-history synchronization reproduces the
+original one-unit PCM mismatch. These focused results do not establish full public parity.
 Generated fixed-QEXT transform tables and forward/inverse MDCT results match
 live C across 13 custom geometries, including maxshift zero, all transform
 shifts, contiguous and strided output, and the 2048-sample geometry. Warm
