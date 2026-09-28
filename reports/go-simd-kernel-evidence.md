@@ -51,6 +51,12 @@ SIMD skips at `ba23ba99`; native AMD64 validation of their selected RTCD
 paths is pending. These remain separate from the passing
 matrices below.
 
+The broader subpackage audit closes multistream clipping lifecycle and constructor
+checks at `d69ff3b1`, and rectangular projection decoding at `0694ad51`, in all
+eight local lanes. Native 96 kHz multistream encoding and decoding have confirmed
+timing/output mismatches and remain under correction; the passing single-stream
+96 kHz cases do not cover these subpackage entry points.
+
 The decoder audit requires exact PCM equality alongside waveform-quality
 checks. Each public output format uses its corresponding C API and matching
 feature/ISA build. API-rate, int16 PLC and int24 gates pass the tested scalar
@@ -362,8 +368,7 @@ Finish the open QEXT and strict decoder audit findings, validate the final
 revision on native AMD64 and ARM64, and refresh the PR tables from completed
 artifacts. Preserve all 53 inventory rows and their fixture/compiler provenance.
 Measurements from different CPUs or revisions do not establish a source-change
-speed ratio. The current Hybrid mono SIMD encode row trails matched SIMD C;
-several direct kernels also trail assembly, as recorded in the inventory.
+speed ratio. Several direct kernels trail assembly, as recorded in the inventory.
 
 The [compiler audit](go-simd-compiler-audit.md) records dispatch, instruction
 lowering, and emulated Penryn/Sandy Bridge compatibility checks. Emulation
