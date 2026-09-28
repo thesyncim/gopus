@@ -34,16 +34,18 @@ investigation. The stereo extension-budget correction passes its spectrum,
 synthesis and PCM regression. ARM64 SIMD Q30 stereo-angle arithmetic matches
 the selected C primitive at `3f1f4ab1`.
 
-A 300-frame SILK WB mono CBR soak exposes an encoder packet mismatch starting
-at frame 91 in both scalar and SIMD. Its matching-input/control trace is under
-investigation; decoded PCM for the C packets remains exact. A persistent
+A strict 13-configuration, 2,500-frame encode/decode soak passes in ARM64 scalar
+and SIMD at `34edbf41`: every packet, final range, decoded float bit and per-frame
+sample count matches selected C. The SILK unvoiced SNR calculation preserves
+the C operation order, including the first rounded product; warm encoder
+allocation gates pass. A persistent
 Hybrid-prime → PLC sequence matches after the channel-routing correction at
 `ae6d505a`; the persistent FEC probe retains a separate suffix mismatch.
 Malformed multistream fixed output matches all 9,000 mutations in each of the
 four fixed feature/ISA lanes at `70be920b`, including per-child redundancy
 reconstruction. SILK/Hybrid multistream final ranges include the redundant
-CELT contribution. The open SILK and FEC cases are outside the passing short
-CBR matrix below.
+CELT contribution. The open FEC case and DRED history audit remain separate
+from the passing matrices below.
 
 The decoder audit requires exact PCM equality alongside waveform-quality
 checks. Each public output format uses its corresponding C API and matching

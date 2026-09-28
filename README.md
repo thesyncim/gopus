@@ -291,8 +291,9 @@ architecture, input format, control sequence, and packet mode is not yet
 proven. The pinned `tmp_check/opus-1.6.1/` is the reference; when behavior is
 uncertain, gopus matches libopus unless fixture evidence says otherwise.
 
-Open validation cases include long-running SILK CBR packet equality, mono QEXT
-SIMD reconstruction, and a stateful malformed FEC suffix. The [evidence report](reports/go-simd-kernel-evidence.md)
+Open validation cases include mono QEXT SIMD reconstruction, a stateful malformed
+FEC suffix, and the DRED history audit. The strict long-stream matrix passes
+13 configurations × 2,500 frames in both local ARM64 instruction lanes. The [evidence report](reports/go-simd-kernel-evidence.md)
 records the passing matrices, active investigations, and the documented unsafe
 libopus custom-QEXT boundary. Passing short matrices does not close these cases.
 
