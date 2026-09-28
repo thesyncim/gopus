@@ -39,7 +39,7 @@ func TestBandDecodeWritesEveryCoefficient(t *testing.T) {
 				}
 				for _, band := range [][]celtNorm{got.scratchBands.left, got.scratchBands.right} {
 					for i, v := range band {
-						if v != v {
+						if math.IsNaN(float64(v)) {
 							t.Fatalf("C=%d N=%d frame %d: coefficient %d left unwritten", channels, frameSize, frame, i)
 						}
 					}
