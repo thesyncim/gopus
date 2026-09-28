@@ -1055,8 +1055,11 @@ jobs:
           path: |
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-simd
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-qext-scalar
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-qext-simd
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
-          key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+          key: libopus-arm-simd-plc-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
       - name: Cache pinned fixed-point libopus build
         uses: actions/cache@v5
@@ -1088,6 +1091,30 @@ jobs:
 
       - name: Run core float libopus C-oracle parity gate
         run: make test-core-oracles-parity
+
+      - name: Run ARM SIMD CELT and selected public PLC parity
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          make ensure-libopus-simd
+          LIBOPUS_VERSION="$LIBOPUS_VERSION" LIBOPUS_ENABLE_QEXT_SCALAR=1 ./tools/ensure_libopus.sh
+          LIBOPUS_VERSION="$LIBOPUS_VERSION" LIBOPUS_ENABLE_QEXT_SIMD=1 ./tools/ensure_libopus.sh
+
+          GOEXPERIMENT=simd GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+            go test ./internal/celt -count=1 -timeout=10m
+          GOEXPERIMENT=simd GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+            go test ./multistream \
+              -run '^(TestTransitionFullSequenceMatchesLibopus|TestTransitionPreviousCELTPLCStageMatchesLibopus|TestProjectionDecodeDifferentialFuzz)$' \
+              -count=1 -timeout=10m
+
+          GOPUS_LIBOPUS_REF_SCALAR=1 GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+            go test -tags gopus_qext ./internal/celt . \
+              -run '^(TestQEXTFirstLossPublicPLCMatchesSelectedReference|TestQEXTNative96PLCPitchPeriodMatchesSelectedReference|TestPublicQEXTHybridNative96TransitionsMatchSelectedFloatReference)$' \
+              -count=1 -timeout=10m
+          GOEXPERIMENT=simd GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+            go test -tags gopus_qext ./internal/celt . \
+              -run '^(TestQEXTFirstLossPublicPLCMatchesSelectedReference|TestQEXTNative96PLCPitchPeriodMatchesSelectedReference|TestPublicQEXTHybridNative96TransitionsMatchSelectedFloatReference)$' \
+              -count=1 -timeout=10m
 
       - name: Run supported DRED feature-tag C-oracle parity gate
         run: make test-dred-tag

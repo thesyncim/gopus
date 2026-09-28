@@ -1,6 +1,7 @@
 package celt
 
 import (
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/internal/plc"
 )
@@ -565,10 +566,10 @@ func periodicPLCEnergy(sum float32, samples []celtSig) float32 {
 }
 
 // periodicPLCDecayEnergy matches celt_decode_lost's initial E1/E2 loop. The
-// C loop updates one scalar accumulator per sample; the arm64 CELT SIMD kernels
-// do not change that loop's source-order fused multiply-add behavior.
+// ENABLE_QEXT arm64 build emits source-order scalar FMAs for these sums; the
+// default build follows periodicPLCEnergy's selected reduction.
 func periodicPLCDecayEnergy(sum float32, samples []celtSig) float32 {
-	if libopusFloatInnerProdUsesNeonOrder {
+	if extsupport.QEXT && libopusFloatInnerProdUsesNeonOrder {
 		for _, value := range samples {
 			sample := float32(value)
 			sum = fma32(sample, sample, sum)
@@ -788,16 +789,15 @@ func (d *Decoder) computePLCRawAutocorr(frame []celtSig, window []float32, ac []
 	for lag := 0; lag <= celtPLCLPCOrder; lag++ {
 		tail := float32(0)
 		for i := lag + fastN; i < n; i++ {
-			if pitchXcorrUsesNeonFMA {
+			if extsupport.QEXT && pitchXcorrUsesNeonFMA {
 				// celt/celt_lpc.c accumulates the post-xcorr tail separately
-				// from celt_pitch_xcorr; retain its product and add rounding
-				// boundaries in the paired ARM SIMD build.
+				// from celt_pitch_xcorr in the paired QEXT ARM SIMD build.
 				tail = noFMA32Add(tail, noFMA32Mul(float32(x[i]), float32(x[i-lag])))
 			} else {
 				tail += float32(x[i]) * float32(x[i-lag])
 			}
 		}
-		if pitchXcorrUsesNeonFMA {
+		if extsupport.QEXT && pitchXcorrUsesNeonFMA {
 			ac[lag] = noFMA32Add(ac[lag], tail)
 		} else {
 			ac[lag] += tail

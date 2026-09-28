@@ -70,14 +70,18 @@ The PLC decay E1/E2 loops use scalar source-order accumulation; the S2 energy
 check retains its separate selected reduction. ARM SIMD autocorrelation tails
 preserve the selected C multiply/add rounding boundaries.
 
-Native AMD64 run 36382702573 at `293d9905` has two failing gate families:
-native-96 trace energy reconstruction and one FOA encode-cycle allocation.
-Its other early candidate phases pass. The trace follows target C
-contraction, and extension scratch reserves the per-stream packet envelope
-to accommodate growth after warmup. The framing regression checks the first
-larger extension after a short warmup with exact bytes and zero allocations;
-it passes on ARM64 and Rosetta AMD64. Native Linux confirmation of the fixes
-remains pending; full parity is unproven.
+Native AMD64 early artifact `10955464289` from run 36388744337 at
+`b08e7923` reports zero failing candidate phases across all 29 exit records.
+Both native-96 trace arithmetic and FOA encode-cycle allocation gates pass in
+scalar and SIMD. Extension scratch reserves the per-stream packet envelope;
+the framing regression checks the first larger extension after a short warmup
+with exact bytes and zero allocations.
+
+The ARM64 PLC reductions are selected by both ISA and ENABLE_QEXT build
+configuration. Default SIMD full CELT, public transition/projection selectors,
+and their QEXT counterparts pass locally with this feature scope. The macOS
+job enforces these paths with matched C archives in its existing job. Final
+validation of the complete PR head remains required before a full-matrix claim.
 Pinned libopus rejects fixed-point+DRED in `configure.ac`; requests for that
 unsupported C reference fail explicitly instead of selecting a subset archive.
 
