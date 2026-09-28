@@ -44,6 +44,26 @@ These results do not substitute for native AMD64 execution. The existing native
 feature batches include the exact Hybrid, transition, and recovery selectors;
 no extra CI jobs are required.
 
+## Feature integration checks
+
+The neural PLC unit test enables complexity 5 at `284b9189`; complexity 0
+uses classical PLC, whose retained-history cursor has different semantics.
+LACE remains active across SILK/Hybrid packets, and CELT preserves its SILK
+filter state. Unit checks and an independent four-frame exact C sequence pass
+all eight local OSCE feature/ISA lanes at `2b4e2b23`.
+
+Multistream DRED recovery offsets advance only for active sidecars at
+`90f93ef0`. Main-model PLC still runs for every eligible child. The unchanged
+sidecar isolation/queue assertions and exact C PCM/range/state checks pass six
+focused local feature/ISA lanes. Late OSCE model checks distinguish retained
+feature history from loaded weights.
+
+Reference validation uses each selected builder's actual stamp contract at
+`7b33b0b3`. Wrong-ISA and stale stamps remain errors. DNN helpers include the
+pinned source root after the generated build configuration; the affected CBR
+and QEXT helpers compile and pass their focused exact checks. Native CI
+validation of these follow-up commits remains pending.
+
 ## Open runtime witnesses
 
 The persistent malformed FEC sweep passes 8,000 sequences per lane at
