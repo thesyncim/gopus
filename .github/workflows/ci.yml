@@ -736,6 +736,10 @@ jobs:
             candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-dnnsrc-atomic
             candidate/tmp_check/build-opus-*-linux-amd64
           key: simd-ab-libopus-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.native_c_toolchain.outputs.fingerprint }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('candidate/tools/ensure_libopus.sh', 'candidate/internal/libopustooling/*.go', 'candidate/internal/libopustest/helpers.go') }}
+          # Helper changes reuse archives whose per-build provenance still matches.
+          # The resolvers reject and rebuild incompatible feature or ISA variants.
+          restore-keys: |
+            simd-ab-libopus-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.native_c_toolchain.outputs.fingerprint }}-${{ env.LIBOPUS_VERSION }}-
 
       - name: Install Opus decoder and CPU compatibility emulator
         run: |
