@@ -110,7 +110,7 @@ func TestEncodeCELTDREDQEXTPacketCarriesBothExtensions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-	qextPayload := enc.celtEncoder.LastQEXTPayload()
+	qextPayload := enc.lastQEXTPayload()
 	if len(qextPayload) == 0 {
 		t.Fatal("CELT encoder retained empty QEXT payload")
 	}

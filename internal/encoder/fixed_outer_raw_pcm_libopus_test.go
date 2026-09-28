@@ -87,7 +87,14 @@ func TestFixedOuterOpusEncodeRawInt16MatchesLibopus(t *testing.T) {
 		ForceChannels: 1, FrameSize: frameSize, FrameCount: frames,
 		PCM: fixedOuterRawPCM(frameSize, 1, frames),
 	}
-	want, err := libopustest.ProbeOpusEncodeFixedRecords(p)
+	inputFrames := make([]libopustest.OpusEncodeFixedMixedFrame, frames)
+	for frame := range inputFrames {
+		inputFrames[frame] = libopustest.OpusEncodeFixedMixedFrame{
+			Format:   0,
+			ShortPCM: p.PCM[frame*frameSize : (frame+1)*frameSize],
+		}
+	}
+	want, err := probePublicFixedMixedRecords(p, inputFrames)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,7 +7,6 @@ import (
 	"math"
 	"testing"
 
-	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/types"
 )
@@ -112,7 +111,7 @@ func TestPublicFixedCELTEnergyMaskAndLFEControlsMatchOracle(t *testing.T) {
 				endBand = 13
 			}
 			bitrate, _, lsbDepth := enc.LastFixedCELTControls()
-			want, err := probeFixedExtensionsRawQ8(libopustest.CELTFixedQ8Params{
+			want, err := probePublicFixedCELTQ8(libopustest.CELTFixedQ8Params{
 				SampleRate: 48000, Channels: tc.channels, StreamChannels: tc.channels,
 				FrameSize: frameSize, Start: 0, End: endBand, Bitrate: bitrate,
 				Complexity: 5, LSBDepth: lsbDepth, VBR: true, LFE: tc.lfe, Frames: frames,
@@ -163,7 +162,7 @@ func TestPublicFixedCELTEnergyMaskResetLifetimeMatchesOracle(t *testing.T) {
 	frames[4].Bandwidth = libopustest.OpusBandwidthFullband
 	frames[4].EnergyMaskAction = libopustest.OpusEnergyMaskClear
 
-	want, err := probeFixedExtensionsMixedOracle(libopustest.OpusEncodeFixedParams{
+	want, err := probePublicFixedMixedRecords(libopustest.OpusEncodeFixedParams{
 		SampleRate: 48000, Channels: channels, Application: libopustest.OpusApplicationAudio,
 		Bitrate: 128000, Complexity: 5, Bandwidth: libopustest.OpusBandwidthSuperwideband,
 		ForceChannels: channels, VBR: true, FrameSize: frameSize,
@@ -262,7 +261,7 @@ func TestPublicFixedCELTQ24MaskMatchesOracle(t *testing.T) {
 	frames[0].EnergyMaskAction = libopustest.OpusEnergyMaskSet
 	frames[0].EnergyMask = mask
 	frames[2].EnergyMaskAction = libopustest.OpusEnergyMaskClear
-	want, err := probeFixedExtensionsMixedOracle(libopustest.OpusEncodeFixedParams{
+	want, err := probePublicFixedMixedRecords(libopustest.OpusEncodeFixedParams{
 		SampleRate: 48000, Channels: channels, Application: libopustest.OpusApplicationAudio,
 		ForceMode: libopustest.OpusForceModeCELTOnly, Bandwidth: libopustest.OpusBandwidthFullband,
 		Bitrate: 128000, Complexity: 5, ForceChannels: channels, VBR: false, FrameSize: frameSize,
@@ -274,7 +273,7 @@ func TestPublicFixedCELTQ24MaskMatchesOracle(t *testing.T) {
 	clearFrames := append([]libopustest.OpusEncodeFixedMixedFrame(nil), frames...)
 	clearFrames[0].EnergyMaskAction = libopustest.OpusEnergyMaskClear
 	clearFrames[0].EnergyMask = nil
-	cleared, clearErr := probeFixedExtensionsMixedOracle(libopustest.OpusEncodeFixedParams{
+	cleared, clearErr := probePublicFixedMixedRecords(libopustest.OpusEncodeFixedParams{
 		SampleRate: 48000, Channels: channels, Application: libopustest.OpusApplicationAudio,
 		ForceMode: libopustest.OpusForceModeCELTOnly, Bandwidth: libopustest.OpusBandwidthFullband,
 		Bitrate: 128000, Complexity: 5, ForceChannels: channels, VBR: false, FrameSize: frameSize,
@@ -342,7 +341,7 @@ func TestPublicFixedLFEMatchesOracle(t *testing.T) {
 			frames[0].EnergyMaskAction = libopustest.OpusEnergyMaskSet
 			frames[0].EnergyMask = mask
 			frames[2].EnergyMaskAction = libopustest.OpusEnergyMaskClear
-			want, err := probeFixedExtensionsMixedOracle(libopustest.OpusEncodeFixedParams{
+			want, err := probePublicFixedMixedRecords(libopustest.OpusEncodeFixedParams{
 				SampleRate: 48000, Channels: channels, Application: libopustest.OpusApplicationAudio,
 				ForceMode: tc.forceMode, Bitrate: 64000, Complexity: 5,
 				ForceChannels: channels, VBR: true, LFE: true, FrameSize: frameSize,
@@ -387,7 +386,7 @@ func TestPublicFixedShortFrameSILKRequestFallsBackToCELTOracle(t *testing.T) {
 	)
 	pcm := make([]float32, frameSize*channels)
 	fillFixedExtensionPCM(pcm, 0x53484f52)
-	want, err := probeFixedExtensionsMixedOracle(libopustest.OpusEncodeFixedParams{
+	want, err := probePublicFixedMixedRecords(libopustest.OpusEncodeFixedParams{
 		SampleRate: 48000, Channels: channels, Application: libopustest.OpusApplicationAudio,
 		ForceMode: libopustest.OpusForceModeSILKOnly, Bandwidth: libopustest.OpusBandwidthFullband,
 		Bitrate: 128000, Complexity: 5, ForceChannels: channels, VBR: true, FrameSize: frameSize,
@@ -447,18 +446,4 @@ func fillFixedExtensionPCM(pcm []float32, seed uint32) {
 		state ^= state << 5
 		pcm[i] = float32(int32(state)>>8) * (0.15 / float32(1<<23))
 	}
-}
-
-func probeFixedExtensionsMixedOracle(p libopustest.OpusEncodeFixedParams, frames []libopustest.OpusEncodeFixedMixedFrame) ([]libopustest.OpusEncodeFixedRecord, error) {
-	if extsupport.QEXT {
-		return libopustest.ProbeOpusEncodeFixedQEXTRuntimeOffMixedRecords(p, frames)
-	}
-	return libopustest.ProbeOpusEncodeFixedMixedRecords(p, frames)
-}
-
-func probeFixedExtensionsRawQ8(p libopustest.CELTFixedQ8Params) ([]libopustest.CELTFixedQ8Record, error) {
-	if extsupport.QEXT {
-		return libopustest.ProbeCELTFixedQEXTQ8(p)
-	}
-	return libopustest.ProbeCELTFixedRawQ8(p)
 }

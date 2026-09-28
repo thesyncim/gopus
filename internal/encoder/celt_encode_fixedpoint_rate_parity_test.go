@@ -149,7 +149,7 @@ func TestPublicCELTEncodeFixedRateByteExact(t *testing.T) {
 			vbr := c.mode != ModeCBR
 			cvbr := c.mode == ModeCVBR
 			end := celtFixedEndBand(enc.effectiveBandwidth())
-			want, err := libopustest.ProbeCELTFixedRawQ8(libopustest.CELTFixedQ8Params{
+			want, err := probePublicFixedCELTQ8(libopustest.CELTFixedQ8Params{
 				SampleRate: c.rate, Channels: c.channels,
 				StreamChannels: int(enc.celtEncoder.StreamChannels()), FrameSize: frameSize,
 				Start: 0, End: end, Bitrate: bitrate, Complexity: c.complexity,

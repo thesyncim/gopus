@@ -115,7 +115,7 @@ func TestPublicCELTEncodeFixedByteExact(t *testing.T) {
 
 			vbr := c.mode != ModeCBR
 			cvbr := c.mode == ModeCVBR
-			want, err := libopustest.ProbeCELTFixedRawQ8(libopustest.CELTFixedQ8Params{
+			want, err := probePublicFixedCELTQ8(libopustest.CELTFixedQ8Params{
 				SampleRate: 48000, Channels: c.channels,
 				StreamChannels: int(enc.celtEncoder.StreamChannels()), FrameSize: frameSize,
 				Start: start, End: end, Bitrate: bitrate, Complexity: c.complexity,
@@ -153,7 +153,7 @@ func TestPublicCELTEncodeFixedByteExact(t *testing.T) {
 			// merely repeating a production channel-control mistake.
 			if c.channels == 2 && c.lm == 0 && c.bitrate == 32000 &&
 				c.complexity == 0 && c.mode == ModeCBR && !c.transient {
-				ref, err := libopustest.ProbeOpusEncodeFixedMixedRecords(libopustest.OpusEncodeFixedParams{
+				ref, err := probePublicFixedMixedRecords(libopustest.OpusEncodeFixedParams{
 					SampleRate: 48000, Channels: c.channels,
 					Application:    libopustest.OpusApplicationRestrictedLowDelay,
 					MaxPacketBytes: maxSilkPacketBytes,

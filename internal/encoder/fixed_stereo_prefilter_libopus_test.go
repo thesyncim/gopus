@@ -71,7 +71,7 @@ func assertFixedCapturedSequenceMatchesLibopus(t *testing.T, target string) {
 	}
 	vbr := spec.mode != ModeCBR
 	cvbr := spec.mode == ModeCVBR
-	top, err := libopustest.ProbeOpusEncodeFixedMixedRecords(libopustest.OpusEncodeFixedParams{
+	top, err := probePublicFixedMixedRecords(libopustest.OpusEncodeFixedParams{
 		SampleRate: spec.rate, Channels: spec.channels,
 		Application:    libopustest.OpusApplicationRestrictedLowDelay,
 		MaxPacketBytes: 1276, ForceMode: libopustest.OpusForceModeCELTOnly,
@@ -84,7 +84,7 @@ func assertFixedCapturedSequenceMatchesLibopus(t *testing.T, target string) {
 		libopustest.HelperUnavailable(t, "fixed outer float encode", err)
 		return
 	}
-	inner, err := libopustest.ProbeCELTFixedRawQ8(libopustest.CELTFixedQ8Params{
+	inner, err := probePublicFixedCELTQ8(libopustest.CELTFixedQ8Params{
 		SampleRate: spec.rate, Channels: spec.channels, FrameSize: spec.frameSize,
 		Start: 0, End: celtFixedEndBand(spec.bandwidth),
 		Bitrate: innerBitrate, Complexity: spec.complexity, LSBDepth: lsbDepth,

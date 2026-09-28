@@ -290,7 +290,7 @@ func TestEncodeDifferentialFuzzFixedPoint(t *testing.T) {
 				if len(pkt) < 1 {
 					t.Fatalf("empty packet")
 				}
-				topPackets, err := libopustest.ProbeOpusEncodeFixed(libopustest.OpusEncodeFixedParams{
+				topPackets, err := probePublicFixedMixedRecords(libopustest.OpusEncodeFixedParams{
 					SampleRate:    spec.rate,
 					Channels:      spec.channels,
 					ForceMode:     libopustest.OpusForceModeCELTOnly,
@@ -302,8 +302,7 @@ func TestEncodeDifferentialFuzzFixedPoint(t *testing.T) {
 					ForceChannels: spec.channels,
 					FrameSize:     spec.frameSize,
 					FrameCount:    1,
-					PCM:           make([]int16, spec.frameSize*spec.channels),
-				})
+				}, []libopustest.OpusEncodeFixedMixedFrame{{Format: 0, ShortPCM: make([]int16, spec.frameSize*spec.channels)}})
 				if err != nil {
 					libopustest.HelperUnavailable(t, "opus encode fixed", err)
 					return
@@ -311,13 +310,16 @@ func TestEncodeDifferentialFuzzFixedPoint(t *testing.T) {
 				if len(topPackets) != 1 {
 					t.Fatalf("FIXED opus_encode packet count=%d want 1", len(topPackets))
 				}
-				if !bytes.Equal(pkt, topPackets[0]) {
+				if topPackets[0].Status < 0 {
+					t.Fatalf("FIXED opus_encode status=%d", topPackets[0].Status)
+				}
+				if !bytes.Equal(pkt, topPackets[0].Packet) {
 					payloadFails++
-					fb := firstByteDiffFix(pkt, topPackets[0])
+					fb := firstByteDiffFix(pkt, topPackets[0].Packet)
 					t.Errorf("%s: LOW-RATE PLC MINIMAL-PACKET BYTE MISMATCH at byte %d "+
 						"(len gopus=%d FIXED=%d) br=%d %v — early-exit divergence (HARD FAIL all arch)\n"+
 						" gopus=% x\n FIXED=% x",
-						spec.name, fb, len(pkt), len(topPackets[0]), spec.bitrate, spec.mode, pkt, topPackets[0])
+						spec.name, fb, len(pkt), len(topPackets[0].Packet), spec.bitrate, spec.mode, pkt, topPackets[0].Packet)
 				}
 			})
 			continue
@@ -385,7 +387,7 @@ func TestEncodeDifferentialFuzzFixedPoint(t *testing.T) {
 				stateful48k++
 
 				// Compare TOC against the same raw float input through selected C.
-				topPackets, err := libopustest.ProbeOpusEncodeFixedMixedRecords(libopustest.OpusEncodeFixedParams{
+				topPackets, err := probePublicFixedMixedRecords(libopustest.OpusEncodeFixedParams{
 					SampleRate:     spec.rate,
 					Channels:       spec.channels,
 					Application:    libopustest.OpusApplicationRestrictedLowDelay,
@@ -408,7 +410,7 @@ func TestEncodeDifferentialFuzzFixedPoint(t *testing.T) {
 					t.Fatalf("FIXED opus_encode packet count=%d gopus=%d", len(topPackets), len(caps))
 				}
 
-				wantInner, err := libopustest.ProbeCELTFixedRawQ8(libopustest.CELTFixedQ8Params{
+				wantInner, err := probePublicFixedCELTQ8(libopustest.CELTFixedQ8Params{
 					SampleRate: spec.rate, Channels: spec.channels, FrameSize: spec.frameSize,
 					Start: celtStart, End: end, Bitrate: innerBitrate, Complexity: spec.complexity,
 					LSBDepth: lsbDepth, VBR: vbr, ConstrainedVBR: cvbr, Frames: frames,
@@ -473,7 +475,7 @@ func TestEncodeDifferentialFuzzFixedPoint(t *testing.T) {
 			frame.MaxBytes = maxBytes
 
 			// Compare TOC against the same raw float input through selected C.
-			topPackets, err := libopustest.ProbeOpusEncodeFixedMixedRecords(libopustest.OpusEncodeFixedParams{
+			topPackets, err := probePublicFixedMixedRecords(libopustest.OpusEncodeFixedParams{
 				SampleRate:     spec.rate,
 				Channels:       spec.channels,
 				Application:    libopustest.OpusApplicationRestrictedLowDelay,
@@ -505,7 +507,7 @@ func TestEncodeDifferentialFuzzFixedPoint(t *testing.T) {
 				return
 			}
 
-			want, err := libopustest.ProbeCELTFixedRawQ8(libopustest.CELTFixedQ8Params{
+			want, err := probePublicFixedCELTQ8(libopustest.CELTFixedQ8Params{
 				SampleRate: spec.rate, Channels: spec.channels, FrameSize: spec.frameSize,
 				Start: celtStart, End: end, Bitrate: innerBitrate, Complexity: spec.complexity,
 				LSBDepth: lsbDepth, VBR: vbr, ConstrainedVBR: cvbr,
