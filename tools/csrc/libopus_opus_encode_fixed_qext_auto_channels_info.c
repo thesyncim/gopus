@@ -1,4 +1,4 @@
-/* Public fixed-QEXT 96 kHz auto-channel sequence oracle. */
+/* Public fixed-QEXT 48/96 kHz auto-channel sequence oracle. */
 
 #include <stdint.h>
 #include <stdio.h>
@@ -129,16 +129,20 @@ int main(void) {
   }
 
   char magic[4];
-  uint32_t version, frame_size, frame_count, max_packet_bytes, complexity;
+  uint32_t version, sample_rate, frame_size, frame_count, max_packet_bytes, complexity;
   uint32_t lsb_depth, enable_qext;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0 ||
-      !read_u32(&version) || version != 1 || !read_u32(&frame_size) ||
+      !read_u32(&version) || version != 2 || !read_u32(&sample_rate) ||
+      !read_u32(&frame_size) ||
       !read_u32(&frame_count) || !read_u32(&max_packet_bytes) ||
       !read_u32(&complexity) || !read_u32(&lsb_depth) || !read_u32(&enable_qext)) {
     fprintf(stderr, "invalid auto-channel header\n");
     return 1;
   }
-  if ((frame_size != 240 && frame_size != 480 && frame_size != 960 && frame_size != 1920) ||
+  int valid_frame_size =
+      (sample_rate == 48000 && (frame_size == 120 || frame_size == 240 || frame_size == 480 || frame_size == 960)) ||
+      (sample_rate == 96000 && (frame_size == 240 || frame_size == 480 || frame_size == 960 || frame_size == 1920));
+  if (!valid_frame_size ||
       frame_count == 0 || frame_count > MAX_FRAMES || max_packet_bytes == 0 ||
       max_packet_bytes > MAX_PACKET_BYTES || complexity > 10 ||
       lsb_depth < 8 || lsb_depth > 24 || enable_qext > 1) {
@@ -161,7 +165,7 @@ int main(void) {
   }
 
   int error = OPUS_OK;
-  OpusEncoder *enc = opus_encoder_create(96000, CHANNELS, OPUS_APPLICATION_AUDIO, &error);
+  OpusEncoder *enc = opus_encoder_create((opus_int32)sample_rate, CHANNELS, OPUS_APPLICATION_AUDIO, &error);
   if (enc == NULL || error != OPUS_OK) {
     fprintf(stderr, "opus_encoder_create failed: %d\n", error);
     goto fail;

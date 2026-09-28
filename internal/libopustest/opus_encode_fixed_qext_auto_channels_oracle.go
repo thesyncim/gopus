@@ -26,8 +26,8 @@ var opusEncodeFixedQEXTAutoChannelsHelper HelperCache
 
 func buildOpusEncodeFixedQEXTAutoChannelsHelper() (string, error) {
 	return BuildCHelper(CHelperConfig{
-		Label:        "fixed-QEXT 96 kHz auto-channel sequence",
-		OutputBase:   "gopus_libopus_fixed_qext_96k_auto_channels",
+		Label:        "fixed-QEXT auto-channel sequence",
+		OutputBase:   "gopus_libopus_fixed_qext_auto_channels",
 		SourceFile:   "libopus_opus_encode_fixed_qext_auto_channels_info.c",
 		FixedQEXTRef: true,
 		CFlags:       []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
@@ -40,16 +40,23 @@ func buildOpusEncodeFixedQEXTAutoChannelsHelper() (string, error) {
 // ProbeOpusEncodeFixedQEXTAutoChannelRecords runs one selected FIXED_POINT +
 // ENABLE_QEXT encoder through a per-frame bitrate sequence. ForceChannels is
 // left at libopus's auto default so the packet TOC exposes each channel choice.
-func ProbeOpusEncodeFixedQEXTAutoChannelRecords(frameSize, maxPacketBytes, complexity, lsbDepth int, qext bool, frames []FixedQEXTAutoChannelFrame) ([]FixedQEXTAutoChannelRecord, error) {
-	if frameSize != 240 && frameSize != 480 && frameSize != 960 && frameSize != 1920 {
-		return nil, fmt.Errorf("fixed-QEXT auto-channel oracle: invalid 96 kHz frame size %d", frameSize)
+func ProbeOpusEncodeFixedQEXTAutoChannelRecords(sampleRate, frameSize, maxPacketBytes, complexity, lsbDepth int, qext bool, frames []FixedQEXTAutoChannelFrame) ([]FixedQEXTAutoChannelRecord, error) {
+	validFrameSize := false
+	switch sampleRate {
+	case 48000:
+		validFrameSize = frameSize == 120 || frameSize == 240 || frameSize == 480 || frameSize == 960
+	case 96000:
+		validFrameSize = frameSize == 240 || frameSize == 480 || frameSize == 960 || frameSize == 1920
+	}
+	if !validFrameSize {
+		return nil, fmt.Errorf("fixed-QEXT auto-channel oracle: invalid sample rate/frame size %d/%d", sampleRate, frameSize)
 	}
 	if len(frames) == 0 || maxPacketBytes < 1 || maxPacketBytes > 4000 || complexity < 0 || complexity > 10 || lsbDepth < 8 || lsbDepth > 24 {
 		return nil, fmt.Errorf("fixed-QEXT auto-channel oracle: invalid dimensions or controls")
 	}
 	perFrame := frameSize * 2
-	payload := NewOraclePayloadVersion("GQAI", 1,
-		uint32(frameSize), uint32(len(frames)), uint32(maxPacketBytes),
+	payload := NewOraclePayloadVersion("GQAI", 2,
+		uint32(sampleRate), uint32(frameSize), uint32(len(frames)), uint32(maxPacketBytes),
 		uint32(complexity), uint32(lsbDepth), boolToU32(qext))
 	for i, frame := range frames {
 		if frame.Bitrate <= 0 || frame.Bitrate > 1500000 || len(frame.PCM) != perFrame {
@@ -65,7 +72,7 @@ func ProbeOpusEncodeFixedQEXTAutoChannelRecords(frameSize, maxPacketBytes, compl
 	if err != nil {
 		return nil, err
 	}
-	reader, err := RunOracleVersion(binPath, payload.Bytes(), "fixed-QEXT 96 kHz auto-channel sequence", "GQAO", 2)
+	reader, err := RunOracleVersion(binPath, payload.Bytes(), fmt.Sprintf("fixed-QEXT %d kHz auto-channel sequence", sampleRate/1000), "GQAO", 2)
 	if err != nil {
 		return nil, err
 	}

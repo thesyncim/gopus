@@ -309,6 +309,6 @@ func (e *Encoder) applyFixedStereoWidth(prevWidthQ14 int16) {
 	}
 	widthQ14 := e.hybridStereoWidthQ14
 	if prevWidthQ14 < 1<<14 || widthQ14 < 1<<14 {
-		fixedpoint.StereoFadeRes(e.fixedDelayed, prevWidthQ14, widthQ14, int(e.sampleRate))
+		applyFixedStereoFade(e.fixedDelayed, prevWidthQ14, widthQ14, int(e.sampleRate))
 	}
 }

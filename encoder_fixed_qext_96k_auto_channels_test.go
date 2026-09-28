@@ -11,15 +11,24 @@ import (
 )
 
 func TestPublicFixedQEXT96kAutoChannelTransitionsMatchLibopus(t *testing.T) {
+	testPublicFixedQEXTAutoChannelTransitionsMatchLibopus(t, 96000)
+}
+
+func TestPublicFixedQEXT48kAutoChannelTransitionsMatchLibopus(t *testing.T) {
+	testPublicFixedQEXTAutoChannelTransitionsMatchLibopus(t, 48000)
+}
+
+func testPublicFixedQEXTAutoChannelTransitionsMatchLibopus(t *testing.T, sampleRate int) {
+	t.Helper()
 	libopustest.RequireOracle(t)
 	const (
-		frameSize     = 1920
 		maxPacket     = 4000
 		complexity    = 10
 		configuredLSB = 24
 	)
+	frameSize := sampleRate / 50
 	bitrates := []int{15000, 25000, 14000, 17000, 23000}
-	pcm := makeFixedQEXTInventoryPCM(96000, 2, frameSize, len(bitrates))
+	pcm := makeFixedQEXTInventoryPCM(sampleRate, 2, frameSize, len(bitrates))
 	frames := make([]libopustest.FixedQEXTAutoChannelFrame, len(bitrates))
 	for i, bitrate := range bitrates {
 		lo := i * frameSize * 2
@@ -29,15 +38,14 @@ func TestPublicFixedQEXT96kAutoChannelTransitionsMatchLibopus(t *testing.T) {
 		}
 	}
 	for _, qext := range []bool{false, true} {
-		t.Run(fmt.Sprintf("qext_%t", qext), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%dk/qext_%t", sampleRate/1000, qext), func(t *testing.T) {
 			want, err := libopustest.ProbeOpusEncodeFixedQEXTAutoChannelRecords(
-				frameSize, maxPacket, complexity, configuredLSB, qext, frames)
+				sampleRate, frameSize, maxPacket, complexity, configuredLSB, qext, frames)
 			if err != nil {
-				libopustest.HelperUnavailable(t, "fixed-QEXT 96 kHz auto-channel sequence", err)
+				libopustest.HelperUnavailable(t, fmt.Sprintf("fixed-QEXT %d kHz auto-channel sequence", sampleRate/1000), err)
 				return
 			}
-
-			enc, err := NewEncoder(EncoderConfig{SampleRate: 96000, Channels: 2, Application: ApplicationAudio})
+			enc, err := NewEncoder(EncoderConfig{SampleRate: sampleRate, Channels: 2, Application: ApplicationAudio})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -76,9 +84,9 @@ func TestPublicFixedQEXT96kAutoChannelTransitionsMatchLibopus(t *testing.T) {
 				}
 			}
 
-			// At these VBR rates, the source's 96 kHz audio thresholds select mono,
-			// stereo, mono, mono, then stereo. Check C also exercises both hysteresis
-			// directions before packet equality can pass vacuously.
+			// These 20 ms VBR rates select mono, stereo, mono, mono, then stereo.
+			// Check C also exercises both hysteresis directions before packet
+			// equality can pass vacuously.
 			wantStereo := [...]bool{false, true, false, false, true}
 			for frame, stereo := range wantStereo {
 				if len(want[frame].Packet) == 0 || (want[frame].Packet[0]&0x04 != 0) != stereo {
@@ -86,20 +94,45 @@ func TestPublicFixedQEXT96kAutoChannelTransitionsMatchLibopus(t *testing.T) {
 						frame, frames[frame].Bitrate, len(want[frame].Packet) > 0 && want[frame].Packet[0]&0x04 != 0, stereo)
 				}
 			}
+			if qext {
+				encode := func() {
+					if err := enc.SetBitrate(frames[1].Bitrate); err != nil {
+						panic(err)
+					}
+					if _, err := enc.EncodeInt16(frames[1].PCM, packet); err != nil {
+						panic(err)
+					}
+				}
+				for range 4 {
+					encode()
+				}
+				if allocs := testing.AllocsPerRun(20, encode); allocs != 0 {
+					t.Fatalf("warmed fixed-QEXT auto-channel encode allocated %g objects at %d Hz", allocs, sampleRate)
+				}
+			}
 		})
 	}
 }
 
 func TestPublicFixedQEXT96kAutoChannelTransitionStateMatchesCELT(t *testing.T) {
+	testPublicFixedQEXTAutoChannelTransitionStateMatchesCELT(t, 96000)
+}
+
+func TestPublicFixedQEXT48kAutoChannelTransitionStateMatchesCELT(t *testing.T) {
+	testPublicFixedQEXTAutoChannelTransitionStateMatchesCELT(t, 48000)
+}
+
+func testPublicFixedQEXTAutoChannelTransitionStateMatchesCELT(t *testing.T, sampleRate int) {
+	t.Helper()
 	libopustest.RequireOracle(t)
 	const (
-		frameSize     = 1920
 		maxPacket     = 4000
 		complexity    = 10
 		configuredLSB = 24
 	)
+	frameSize := sampleRate / 50
 	bitrates := []int{15000, 25000, 14000, 17000, 23000}
-	pcm := makeFixedQEXTInventoryPCM(96000, 2, frameSize, len(bitrates))
+	pcm := makeFixedQEXTInventoryPCM(sampleRate, 2, frameSize, len(bitrates))
 	frames := make([]libopustest.FixedQEXTAutoChannelFrame, len(bitrates))
 	for i, bitrate := range bitrates {
 		lo := i * frameSize * 2
@@ -110,14 +143,14 @@ func TestPublicFixedQEXT96kAutoChannelTransitionStateMatchesCELT(t *testing.T) {
 	}
 
 	for _, qext := range []bool{false, true} {
-		t.Run(fmt.Sprintf("qext_%t", qext), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%dk/qext_%t", sampleRate/1000, qext), func(t *testing.T) {
 			cPublic, err := libopustest.ProbeOpusEncodeFixedQEXTAutoChannelRecords(
-				frameSize, maxPacket, complexity, configuredLSB, qext, frames)
+				sampleRate, frameSize, maxPacket, complexity, configuredLSB, qext, frames)
 			if err != nil {
-				libopustest.HelperUnavailable(t, "fixed-QEXT 96 kHz auto-channel sequence", err)
+				libopustest.HelperUnavailable(t, fmt.Sprintf("fixed-QEXT %d kHz auto-channel sequence", sampleRate/1000), err)
 				return
 			}
-			enc, err := NewEncoder(EncoderConfig{SampleRate: 96000, Channels: 2, Application: ApplicationAudio})
+			enc, err := NewEncoder(EncoderConfig{SampleRate: sampleRate, Channels: 2, Application: ApplicationAudio})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -169,7 +202,7 @@ func TestPublicFixedQEXT96kAutoChannelTransitionStateMatchesCELT(t *testing.T) {
 					SetPrediction:  true,
 					Prediction:     2,
 				}
-				goStates[frame] = fixedQEXTGoStateSnapshot(enc, 2, 96000)
+				goStates[frame] = fixedQEXTGoStateSnapshot(enc, 2, sampleRate)
 			}
 
 			cFrames := make([]libopustest.CELTFixedQ8Frame, len(frames))
@@ -217,7 +250,7 @@ func TestPublicFixedQEXT96kAutoChannelTransitionStateMatchesCELT(t *testing.T) {
 			}
 
 			cTrace, err := libopustest.ProbeCELTFixedQEXTQ8State(libopustest.CELTFixedQ8Params{
-				SampleRate: 96000, Channels: 2, StreamChannels: 2, FrameSize: frameSize,
+				SampleRate: sampleRate, Channels: 2, StreamChannels: 2, FrameSize: frameSize,
 				Start: 0, End: 21, Bitrate: int(cFrames[0].Bitrate), Complexity: complexity,
 				LSBDepth: 16, VBR: true, QEXTEnabled: qext, Frames: cFrames,
 			})
