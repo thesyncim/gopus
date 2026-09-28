@@ -7,23 +7,11 @@ package gopus_test
 
 import (
 	"math"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/multistream"
 )
-
-func hybridStereoFloatBudget() float64 {
-	if hybridStereoFixedPointBuild {
-		return 0
-	}
-	if runtime.GOARCH == "amd64" {
-		return 0
-	}
-	// The floating CELT/Hybrid path stays within its documented arm64 ULP budget.
-	return 1e-6
-}
 
 func TestHybridStereoFloatSameArchParity(t *testing.T) {
 	libopustest.RequireOracle(t)
@@ -95,14 +83,15 @@ func TestHybridStereoFloatSameArchParity(t *testing.T) {
 					mapping = []byte{0, 1}
 				}
 
+				compared := 0
 				for fi, rec := range recs {
 					if rec.Ret <= 1 || len(rec.Packet) == 0 {
-						continue
+						t.Fatalf("br=%d frame=%d: invalid oracle packet result=%d bytes=%d", bitrate, fi, rec.Ret, len(rec.Packet))
 					}
 					pkt := rec.Packet
 					cfg := pkt[0] >> 3
 					if cfg < 12 || cfg > 15 {
-						continue // not Hybrid; skip
+						continue // Check required Hybrid coverage for this bitrate below.
 					}
 
 					// Fresh multistream decoder per packet isolates frame state and
@@ -132,19 +121,13 @@ func TestHybridStereoFloatSameArchParity(t *testing.T) {
 						t.Fatalf("length mismatch gopus=%d libopus=%d", len(got), len(want))
 					}
 
-					var maxAbs float64
-					var maxIdx int
 					for j := range want {
-						d := math.Abs(float64(got[j]) - float64(want[j]))
-						if d > maxAbs {
-							maxAbs = d
-							maxIdx = j
+						if math.Float32bits(got[j]) != math.Float32bits(want[j]) {
+							t.Fatalf("br=%d frame=%d TOC=0x%02x sample=%d bits=%08x want=%08x",
+								bitrate, fi, pkt[0], j, math.Float32bits(got[j]), math.Float32bits(want[j]))
 						}
 					}
-					if maxAbs > hybridStereoFloatBudget() {
-						t.Fatalf("br=%d frame=%d TOC=0x%02x cfg=%d: hybrid stereo float decode not sample-exact: maxAbs=%g at idx=%d (gopus=%g libopus=%g, budget=%g)",
-							bitrate, fi, pkt[0], cfg, maxAbs, maxIdx, got[maxIdx], want[maxIdx], hybridStereoFloatBudget())
-					}
+					compared++
 
 					if tc.name == "mono/FB" && bitrate == 24000 && fi == 0 {
 						into := make([]float32, frameSize*tc.channels)
@@ -161,6 +144,9 @@ func TestHybridStereoFloatSameArchParity(t *testing.T) {
 							t.Fatalf("warm DecodeIntoFloat32 allocations=%g want 0", allocs)
 						}
 					}
+				}
+				if compared == 0 {
+					t.Fatalf("br=%d: no Hybrid packets compared among %d oracle records", bitrate, len(recs))
 				}
 			}
 		})

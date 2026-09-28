@@ -252,7 +252,7 @@ func TestMultistreamDecodeFixedPointParity(t *testing.T) {
 						pkt = encodeAPIRateCELTPacketFrameSizeVariant(t, ch, frameSize48, 128000, f*8+s+1)
 					}
 					if toc := ParseTOC(pkt[0]); toc.Mode != mode {
-						t.Skipf("stream %d frame %d: encoder produced mode %v, want %v", s, f, toc.Mode, mode)
+						t.Fatalf("stream %d frame %d: encoder produced mode %v, want %v", s, f, toc.Mode, mode)
 					}
 					streamPackets[s] = pkt
 				}

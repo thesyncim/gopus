@@ -12,6 +12,7 @@
 package multistream
 
 import (
+	"math"
 	"testing"
 
 	internalenc "github.com/thesyncim/gopus/internal/encoder"
@@ -23,7 +24,7 @@ import (
 // runMSRecoveryOracle encodes numFrames frames with the given encoder then
 // feeds the sequence with losses at the provided loss indices to both gopus and
 // the libopus multistream C oracle.  It asserts that the decoded waveforms
-// match at the qualityBarWaveformNearExact level.
+// match bit-for-bit and meet the qualityBarWaveformNearExact level.
 //
 // lossAt is a map[frameIndex]bool; if true the packet sent to the decoder is
 // nil (PLC path).  The libopus oracle receives the same sequence (nil is
@@ -112,6 +113,7 @@ func runMSRecoveryOracle(t *testing.T, label string, channels, sampleRate, bitra
 		t.Fatalf("%s decoded sample count=%d want %d", label, len(got), len(want))
 	}
 
+	assertRecoveryPCMExact(t, got, want)
 	cmp := compareWaveformF32(got, want)
 	qualitycompare.AssertQuality(t, cmp, qualityBarWaveformNearExact, label)
 }
@@ -299,6 +301,7 @@ func runMSFECRecoveryOracle(t *testing.T, label string, channels, sampleRate, bi
 	if len(got) != len(want) {
 		t.Fatalf("%s decoded sample count=%d want %d", label, len(got), len(want))
 	}
+	assertRecoveryPCMExact(t, got, want)
 	cmp := compareWaveformF32(got, want)
 	qualitycompare.AssertQuality(t, cmp, qualityBarWaveformNearExact, label)
 }
@@ -398,6 +401,7 @@ func TestLibopus_MSRecovery_ModeHandoverGap(t *testing.T) {
 	if len(got) != len(want) {
 		t.Fatalf("decoded sample count=%d want %d", len(got), len(want))
 	}
+	assertRecoveryPCMExact(t, got, want)
 	cmp := compareWaveformF32(got, want)
 	qualitycompare.AssertQuality(t, cmp, qualityBarWaveformNearExact, "mode-handover-gap")
 }
@@ -472,6 +476,7 @@ func TestLibopus_MSRecovery_16kSILKGap(t *testing.T) {
 	if len(got) != len(want) {
 		t.Fatalf("decoded sample count=%d want %d", len(got), len(want))
 	}
+	assertRecoveryPCMExact(t, got, want)
 	cmp := compareWaveformF32(got, want)
 	qualitycompare.AssertQuality(t, cmp, qualityBarWaveformNearExact, "16k-SILK-1ch-gap@4")
 }
@@ -554,6 +559,7 @@ func TestLibopus_MSRecovery_PerStreamIsolation(t *testing.T) {
 
 	// Assert full-sequence quality: both the PLC frames AND the resumed
 	// good frames must match libopus.
+	assertRecoveryPCMExact(t, got, want)
 	cmp := compareWaveformF32(got, want)
 	qualitycompare.AssertQuality(t, cmp, qualityBarWaveformNearExact, "5.1-CELT-per-stream-isolation-gap@3,4")
 
@@ -563,5 +569,18 @@ func TestLibopus_MSRecovery_PerStreamIsolation(t *testing.T) {
 	if len(got) > skipSamples && len(want) > skipSamples {
 		cmpTail := compareWaveformF32(got[skipSamples:], want[skipSamples:])
 		qualitycompare.AssertQuality(t, cmpTail, qualityBarWaveformNearExact, "5.1-CELT-per-stream-isolation-resumed-tail")
+	}
+}
+
+// assertRecoveryPCMExact preserves the complete selected-C recovery output.
+func assertRecoveryPCMExact(t *testing.T, got, want []float32) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("PCM length=%d want=%d", len(got), len(want))
+	}
+	for i := range got {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("PCM sample %d bits=%08x want=%08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
+		}
 	}
 }

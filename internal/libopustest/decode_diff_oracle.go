@@ -103,8 +103,8 @@ func DecodeDiffHelperPath() (string, error) {
 // ProbeDecodeDiff decodes every case through a fresh libopus decoder at the given
 // sampleRate/channels and returns the per-case return code and decoded PCM.
 //
-// All cases share sampleRate/channels (one decoder session). Call separately for
-// different stream configurations.
+// All cases share sampleRate/channels but have independent decoder state.
+// Use ProbeDecodeSequence when later calls depend on earlier packets.
 func ProbeDecodeDiff(sampleRate, channels int, cases []DecodeDiffCase) ([]DecodeDiffResult, error) {
 	return probeDecodeDiff(sampleRate, channels, cases, 2)
 }
