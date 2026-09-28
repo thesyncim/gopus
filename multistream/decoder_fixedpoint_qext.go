@@ -309,12 +309,12 @@ func (d *streamState) decodeLostFixed(frameSize int, floatPCM []float32) ([]int3
 	return res, nil
 }
 
-func (d *streamState) decodeFixedHybridAccum(rd *rangecoding.Decoder, coreFrameSize int, packetStereo bool, accum []int32) bool {
+func (d *streamState) decodeFixedHybridAccum(rd *rangecoding.Decoder, dataLen, coreFrameSize int, packetStereo bool, accum []int32) bool {
 	if d.qext.decoder == nil || rd == nil {
 		return false
 	}
 	d.qext.decoder.SetBandRange(celt.HybridCELTStartBand, d.fixedHybridEnd)
-	decoded := d.qext.decoder.DecodeHybridAccumWithEC(rd, rd.StorageBits()/8, coreFrameSize, fixedCELTCodedChannels(packetStereo), nil, accum)
+	decoded := d.qext.decoder.DecodeHybridAccumWithEC(rd, dataLen, coreFrameSize, fixedCELTCodedChannels(packetStereo), nil, accum)
 	downsample := 48000 / int(d.sampleRate)
 	if downsample <= 0 {
 		downsample = 1

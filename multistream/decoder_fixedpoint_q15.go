@@ -299,7 +299,7 @@ func (d *streamState) decodeLostFixed(frameSize int, floatPCM []float32) ([]int3
 	return d.fixedRes, nil
 }
 
-func (d *streamState) decodeFixedHybridAccum(rd *rangecoding.Decoder, coreFrameSize int, packetStereo bool, accum []int32) bool {
+func (d *streamState) decodeFixedHybridAccum(rd *rangecoding.Decoder, dataLen, coreFrameSize int, packetStereo bool, accum []int32) bool {
 	if d.fixedCELT == nil {
 		return false
 	}
@@ -308,7 +308,7 @@ func (d *streamState) decodeFixedHybridAccum(rd *rangecoding.Decoder, coreFrameS
 	if downsample <= 0 {
 		downsample = 1
 	}
-	return d.fixedCELT.DecodeHybridAccumChannels(rd, coreFrameSize, fixedCELTCodedChannels(packetStereo), accum) == coreFrameSize/downsample
+	return d.fixedCELT.DecodeHybridAccumChannels(rd, dataLen, coreFrameSize, fixedCELTCodedChannels(packetStereo), accum) == coreFrameSize/downsample
 }
 
 func (d *streamState) decodeFixedRedundantCELT(reset bool) bool {

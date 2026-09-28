@@ -65,9 +65,9 @@ func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc str
 	var redundantAudio []float32
 	var redundantRange uint32
 
-	afterSilk := func(rd *rangecoding.Decoder) error {
+	afterSilk := func(rd *rangecoding.Decoder) (int, error) {
 		if rd == nil {
-			return nil
+			return mainLen, nil
 		}
 		if rd.Tell()+17+20 <= 8*len(frame) {
 			redundancy = rd.DecodeBit(12) == 1
@@ -103,7 +103,7 @@ func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc str
 		if ts != nil && ts.active && ts.pendingTransSize > 0 && !redundancy && len(ts.pcm) == 0 {
 			pcm, perr := d.transitionPLCToFloat32(ts.pendingTransSize, ts.prevMode, ts.prevBW, ts.prevStereo)
 			if perr != nil {
-				return perr
+				return 0, perr
 			}
 			ts.pcm = pcm
 		}
@@ -117,7 +117,7 @@ func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc str
 			redundantData := frame[mainLen : mainLen+redundancyBytes]
 			redundantAudio = d.redundantPCMFor(f5 * channels)
 			if rerr := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(redundantData, f5, toc.stereo, redundantAudio); rerr != nil {
-				return rerr
+				return 0, rerr
 			}
 			redundantRange = d.celtDec.FinalRange()
 		}
@@ -125,7 +125,7 @@ func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc str
 			d.celtDec.Reset()
 			d.celtDec.SetBandwidth(celtBW)
 		}
-		return nil
+		return mainLen, nil
 	}
 
 	rd := &d.rangeDecoder
@@ -161,6 +161,9 @@ func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc str
 
 	d.prevRedundancy = redundancy && !celtToSilk
 	d.lastHybridRange = d.hybridDec.FinalRange() ^ redundantRange
+	if mainLen <= 1 {
+		d.lastHybridRange = 0
+	}
 	return out, nil
 }
 

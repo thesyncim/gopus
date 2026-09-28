@@ -36,7 +36,7 @@ func (d *Decoder) prepareFixedQEXTHybrid(data []byte, celtBW celt.CELTBandwidth,
 	return true
 }
 
-func (d *Decoder) decodeFixedQEXTHybridHighband(silkInt16 []int16, filled int, main *rangecoding.Decoder, frameSizeAPI, frameSize48 int, packetStereo bool) bool {
+func (d *Decoder) decodeFixedQEXTHybridHighband(silkInt16 []int16, filled int, main *rangecoding.Decoder, dataLen, frameSizeAPI, frameSize48 int, packetStereo bool) bool {
 	if !d.fixedHybridArmed() || !d.fixedQEXT.hybridActive || d.fixedQEXT.decoder == nil || main == nil {
 		return false
 	}
@@ -77,7 +77,6 @@ func (d *Decoder) decodeFixedQEXTHybridHighband(silkInt16 []int16, filled int, m
 	if packetStereo {
 		codedChannels = 2
 	}
-	dataLen := main.StorageBits() / 8
 	decoded := d.fixedQEXT.decoder.DecodeHybridAccumWithEC(main, dataLen, coreFrameSize,
 		codedChannels, d.fixedQEXT.hybridPayload, res)
 	if decoded != frameSizeAPI {

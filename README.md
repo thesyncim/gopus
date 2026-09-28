@@ -292,7 +292,9 @@ proven. The pinned `tmp_check/opus-1.6.1/` is the reference; when behavior is
 uncertain, gopus matches libopus unless fixture evidence says otherwise.
 
 Open validation includes DRED SILK history, the complete malformed FEC sweep,
-native 96 kHz multistream encode/decode, and native AMD64 oracle coverage. QEXT mono/stereo multiframe
+native 96 kHz encode/PLC, multistream loss/extension transitions, and native
+AMD64 oracle coverage. Malformed Hybrid main-length and projection full-output
+gates pass all eight local feature/ISA lanes. QEXT mono/stereo multiframe
 reconstruction passes independent exact C checks. The strict long-stream matrix
 passes 13 configurations × 2,500 frames in both local ARM64 instruction lanes.
 The [evidence report](reports/go-simd-kernel-evidence.md)

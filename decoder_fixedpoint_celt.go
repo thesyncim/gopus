@@ -668,9 +668,9 @@ type fixedHybridHighbandHook Decoder
 // from the cloned shared range decoder, matching libopus celt_decode_with_ec_dred
 // with celt_accum=1. The combined opus_res / int16 output is stashed for the
 // DecodeInt16 / DecodeInt24 wrappers.
-func (h *fixedHybridHighbandHook) DecodeHybridHighband(silkInt16 []int16, filled int, rd *rangecoding.Decoder, frameSizeAPI, frameSize48 int, packetStereo bool) {
+func (h *fixedHybridHighbandHook) DecodeHybridHighband(silkInt16 []int16, filled int, rd *rangecoding.Decoder, dataLen, frameSizeAPI, frameSize48 int, packetStereo bool) {
 	d := (*Decoder)(h)
-	if d.decodeFixedQEXTHybridHighband(silkInt16, filled, rd, frameSizeAPI, frameSize48, packetStereo) {
+	if d.decodeFixedQEXTHybridHighband(silkInt16, filled, rd, dataLen, frameSizeAPI, frameSize48, packetStereo) {
 		return
 	}
 	d.fixedCELT.SetPhaseInversionDisabled(d.celtDecoder.PhaseInversionDisabled())
@@ -705,7 +705,7 @@ func (h *fixedHybridHighbandHook) DecodeHybridHighband(silkInt16 []int16, filled
 	if packetStereo {
 		codedChannels = 2
 	}
-	d.fixedCELT.DecodeHybridAccumChannels(rd, coreFrameSize, codedChannels, res)
+	d.fixedCELT.DecodeHybridAccumChannels(rd, dataLen, coreFrameSize, codedChannels, res)
 
 	if cap(d.fixedHybridInt16) < needed {
 		d.fixedHybridInt16 = make([]int16, needed)

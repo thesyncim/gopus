@@ -477,12 +477,20 @@ func (d *Decoder) decodeFrameHybridWithPacketStereo(rd *rangecoding.Decoder, fra
 }
 
 // AccumulateFrameHybridWithPacketStereo decodes the CELT half of a Hybrid
-// frame (frameSize samples at 48 kHz) from the in-progress range decoder and
+// frame (frameSize samples at the active mode rate) from the in-progress range decoder and
 // adds it onto out, which holds the SILK lowband: libopus
 // celt_decode_with_ec(..., celt_accum=1) from opus_decode_frame. out holds
 // frameSize or frameSize/downsample interleaved frames; in the latter case the
 // de-emphasis downsamples to the API rate.
-func (d *Decoder) AccumulateFrameHybridWithPacketStereo(rd *rangecoding.Decoder, frameSize int, packetStereo bool, out []float32) error {
+func (d *Decoder) AccumulateFrameHybridWithPacketStereo(rd *rangecoding.Decoder, dataLen, frameSize int, packetStereo bool, out []float32) error {
+	if dataLen <= 1 {
+		// opus_decode_frame can discard malformed redundancy and set len=0
+		// without changing entropy storage. Conceal only the CELT highband.
+		if extsupport.QEXT {
+			_ = d.takeQEXTPayload()
+		}
+		return d.DecodeHybridFECPLC(frameSize, out)
+	}
 	d.directOutPCM = out
 	d.directOutAccum = true
 	defer func() {

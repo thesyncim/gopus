@@ -17,7 +17,7 @@ func (d *Decoder) prepareFixedQEXTHybrid(_ []byte, _ celt.CELTBandwidth, _, _ bo
 	return false
 }
 
-func (d *Decoder) decodeFixedQEXTHybridHighband(_ []int16, _ int, _ *rangecoding.Decoder, _, _ int, _ bool) bool {
+func (d *Decoder) decodeFixedQEXTHybridHighband(_ []int16, _ int, _ *rangecoding.Decoder, _, _, _ int, _ bool) bool {
 	return false
 }
 

@@ -525,7 +525,7 @@ type streamFixedHybridHook struct {
 // re-parsing the flag. A redundant frame (recorded by afterSilk in
 // fixedHybridRedundant) drives a distinct decode and crossfade the integer
 // path reconstructs with decodeFixedRedundantCELT and finishFixedRedundancy.
-func (h *streamFixedHybridHook) DecodeHybridHighband(silkInt16 []int16, filled int, rd *rangecoding.Decoder, frameSizeAPI, frameSize48 int, packetStereo bool) {
+func (h *streamFixedHybridHook) DecodeHybridHighband(silkInt16 []int16, filled int, rd *rangecoding.Decoder, dataLen, frameSizeAPI, frameSize48 int, packetStereo bool) {
 	d := h.st
 	channels := int(d.channels)
 	needed := frameSizeAPI * channels
@@ -558,7 +558,7 @@ func (h *streamFixedHybridHook) DecodeHybridHighband(silkInt16 []int16, filled i
 
 	rdClone := &d.fixedHybridRangeDecoder
 	*rdClone = *rd
-	handled := d.decodeFixedHybridAccum(rdClone, coreFrameSize, packetStereo, res)
+	handled := d.decodeFixedHybridAccum(rdClone, dataLen, coreFrameSize, packetStereo, res)
 	*rdClone = rangecoding.Decoder{}
 	if !handled {
 		d.fixedHybridHandled = false

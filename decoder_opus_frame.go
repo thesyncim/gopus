@@ -410,9 +410,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 				d.markFixedUnhandled()
 			}
 			d.hybridDecoder.SetPrevPacketStereo(d.prevPacketStereo)
-			afterSilk := func(rd *rangecoding.Decoder) error {
+			afterSilk := func(rd *rangecoding.Decoder) (int, error) {
 				if rd == nil {
-					return nil
+					return mainLen, nil
 				}
 				if rd.Tell()+17+20 <= 8*len(data) {
 					redundancy = rd.DecodeBit(12) == 1
@@ -444,7 +444,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 					d.fixedDecodeRedundantCELT(redundantData, celtBW, false, codedChannels)
 					decoded, err := decodeRedundantCELT(redundantData)
 					if err != nil {
-						return err
+						return 0, err
 					}
 					redundantAudio = decoded
 				}
@@ -470,7 +470,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 					d.fixedSuppressCELTPLC(suppressed)
 					d.fixedRestoreHandled(handled)
 					if err != nil {
-						return err
+						return 0, err
 					}
 					pcmTransition = d.scratchTransition[:n*channels]
 					// The recursive opus_decode_frame(NULL) applies decode_gain to the
@@ -485,7 +485,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 				if extsupport.QEXT {
 					d.setCELTQEXTPayload(qextPayload)
 				}
-				return nil
+				return mainLen, nil
 			}
 
 			if err := d.hybridDecoder.DecodeWithDecoderHookToFloat32(rd, frameSize, packetStereoLocal, afterSilk, out); err != nil {
@@ -861,7 +861,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	d.prevRedundancy = redundancy && !celtToSilk
 	d.haveDecoded = true
 	d.redundantRng = redundantRng
-	if frameLenLE1 {
+	if mainLen <= 1 {
 		// Mirror opus_decode_frame's `if (len <= 1) st->rangeFinal = 0`: a PLC/DTX
 		// frame contributes a zero final range regardless of any stale range-coder
 		// state left over from the previous frame (the PLC path never re-inits the

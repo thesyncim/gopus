@@ -57,6 +57,14 @@ eight local lanes. Native 96 kHz multistream encoding and decoding have confirme
 timing/output mismatches and remain under correction; the passing single-stream
 96 kHz cases do not cover these subpackage entry points.
 
+Malformed Hybrid main lengths propagate separately from entropy storage.
+Three independent 10/20 ms witnesses, native 96 kHz, recovery and all sample
+formats pass exact C gates in all eight local lanes with zero warm allocations.
+The projection audit passes 4,000 malformed packets and 12,000 random buffers
+per lane, with exact accepted float/int16/int24 output. Adjacent multistream
+long-burst PLC, native crossfade, and Hybrid QEXT routing corrections remain
+under validation.
+
 The decoder audit requires exact PCM equality alongside waveform-quality
 checks. Each public output format uses its corresponding C API and matching
 feature/ISA build. API-rate, int16 PLC and int24 gates pass the tested scalar

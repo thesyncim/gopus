@@ -34,8 +34,9 @@ libopus feature set, CPU dispatch, sample format, controls, and decoder history.
 | P2 | Custom control oracle | Fixed coefficients require their C Q scales, and declared-supported geometries must fail on unexpected oracle rejection. | The full custom package passes all eight local lanes at `00eeb471`; all five scaled-band modes retain mono/stereo coverage. Rejected 44.1 kHz/882-sample geometry has independent C/Go error checks. |
 | P2 | Multistream clipping lifecycle | Projection loss applies clipping, reset retains child clipping memory, and a successful float call leaves ordinary int16 clipping memory stale. | Public float/int16/int24 transition, projection reset, and loss/recovery sequences match selected C PCM and ranges in all eight local lanes at `d69ff3b1`. Clipping state belongs to each elementary decoder. |
 | P2 | Multistream constructors | Zero sample rate panics and unsupported rates pass through; projection channels require validation before allocation. | Rate/channel rejection and supported-rate construction pass all eight local lanes at `d69ff3b1`. Tagged 96 kHz acceptance remains supported; its runtime gap is tracked below. |
+| P1 | Malformed Hybrid main length | Invalid redundancy can leave entropy storage intact while the logical main length becomes zero; decoding CELT from storage consumes invalid payload. | Explicit main-length propagation selects highband-only concealment and zero outer final range. Two 10 ms witnesses and one 20 ms witness, recovery/loss, all three sample formats, and native 96 kHz pass in all eight local lanes with zero warm allocations. Projection checks cover 4,000 malformed packets and 12,000 random buffers per lane; accepted output is exact in float/int16/int24, and oracle infrastructure failures remain errors. |
 | P2 | Rectangular projection | More matrix columns than output channels bypass float/int16 demixing and fail int24 decoding. | Two rectangular layouts, received/lost/recovered packets and all three output formats match selected C in all eight local lanes at `0694ad51`; warmed caller-buffer decoding allocates zero. |
-| P1 | Native 96 kHz multistream | The subpackage initializes elementary codecs at 48 kHz despite accepting 96 kHz in QEXT builds. | A paired QEXT scalar witness emits a 40 ms Go packet for 20 ms input; decoding a shared CELT packet differs in all 1,920 output samples. Encoder and decoder corrections remain in progress. The top-level single-stream native path has separate passing evidence. |
+| P1 | Native 96 kHz multistream | The subpackage initializes elementary codecs at 48 kHz despite accepting 96 kHz in QEXT builds. | A paired QEXT scalar witness emits a 40 ms Go packet for 20 ms input; decoding a shared CELT packet differs in all 1,920 output samples. Encoder and decoder corrections remain in progress. The top-level single-stream native path has separate passing evidence, but a two-packet native 96 kHz SIMD PLC witness also differs and remains under correction. |
 
 Here, eight local lanes means default, fixed-point, QEXT, and fixed-point+QEXT,
 each with scalar and SIMD Go and matching C builds, on ARM64 with Go 1.27.1.
@@ -46,8 +47,9 @@ no extra CI jobs are required.
 ## Open runtime witnesses
 
 The clean FEC transition correction passes its exact matrix. A strict persistent
-malformed FEC sweep still finds additional PCM differences: 48 of 1,000 tested
-default SIMD mutations, with matching prime output, sample counts and ranges. DRED retains a confirmed SILK-history mismatch; its source
+malformed FEC sweep still finds additional PCM differences: two of 8,000 tested
+default scalar and SIMD sequences, with matching prime output, sample counts and ranges.
+Both fixed-point configurations pass 8,000 sequences in both instruction lanes. DRED retains a confirmed SILK-history mismatch; its source
 cadence is under investigation. Mono QEXT SIMD reconstruction passes its
 selected-C primitive and public-sequence gates at `77cb9a9d`. The SILK SNR correction passes the original frame-91 witness
 and the strict 2,500-frame matrix. Native AMD64 validates the selected-correlation
@@ -57,6 +59,11 @@ OSCE, OSCE+QEXT and DRED+OSCE+QEXT at `905eec03`.
 The [kernel and end-to-end evidence report](go-simd-kernel-evidence.md) records
 measured coverage, revisions, and all 53 replacement routines. Complete codec
 byte/sample parity remains unproven.
+
+The adjacent review confirms multistream long-burst PLC state, native 96 kHz
+crossfade stride, and Hybrid QEXT payload routing issues. Their corrections and
+full feature/ISA validation are in progress. A mono-to-stereo recovery witness
+after six losses is also under investigation.
 
 ## Deliberate boundaries
 

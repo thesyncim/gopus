@@ -242,13 +242,13 @@ func (d *Decoder) applyLossEnergySafety(intra bool, start, end, lm int) {
 }
 
 // DecodeHybridFECPLC conceals a lost Hybrid-mode CELT frame of frameSize
-// samples at 48 kHz and accumulates the concealed highband onto out, which
+// samples at the active CELT mode rate and accumulates the concealed highband onto out, which
 // holds the SILK lowband: libopus celt_decode_with_ec(NULL) with celt_accum=1
 // (opus_decode_frame for a lost or FEC-recovered Hybrid frame). out is either
 // frameSize*channels long or sized for the API rate, in which case the
 // de-emphasis downsamples into it.
 func (d *Decoder) DecodeHybridFECPLC(frameSize int, out []float32) error {
-	if frameSize != 240 && frameSize != 480 && frameSize != 960 {
+	if !d.validHybridFrameSize(frameSize) && frameSize != d.synthOverlapLen()*2 {
 		return ErrInvalidFrameSize
 	}
 

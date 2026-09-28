@@ -30,7 +30,7 @@ func (d *Decoder) decodeWithRangeDecoder(
 	rd *rangecoding.Decoder,
 	frameSize int,
 	packetStereo bool,
-	afterSilk func(*rangecoding.Decoder) error,
+	afterSilk func(*rangecoding.Decoder) (int, error),
 ) ([]float32, error) {
 	return d.decodeFrameWithHookFloat32(rd, frameSize, packetStereo, afterSilk, nil)
 }
@@ -65,7 +65,7 @@ func (d *Decoder) decodeAndFinishWithRangeDecoder(
 	frameSize int,
 	packetStereo bool,
 	lastFrameChannels int,
-	afterSilk func(*rangecoding.Decoder) error,
+	afterSilk func(*rangecoding.Decoder) (int, error),
 ) ([]float32, error) {
 	samples, err := d.decodeWithRangeDecoder(rd, frameSize, packetStereo, afterSilk)
 	if err != nil {
@@ -214,8 +214,9 @@ func (d *Decoder) DecodeWithDecoder(rd *rangecoding.Decoder, frameSize int) ([]f
 }
 
 // DecodeWithDecoderHook decodes using a pre-initialized range decoder and an optional hook.
-// The hook runs after SILK decode and before CELT decode, allowing Opus-layer parsing.
-func (d *Decoder) DecodeWithDecoderHook(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error) ([]float32, error) {
+// The hook runs after SILK decode and before CELT decode, returning the logical
+// main-packet length after Opus-layer redundancy parsing.
+func (d *Decoder) DecodeWithDecoderHook(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) (int, error)) ([]float32, error) {
 	return d.decodeAndFinishWithRangeDecoder(rd, frameSize, packetStereo, int(d.channels), afterSilk)
 }
 

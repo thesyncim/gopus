@@ -103,7 +103,7 @@ type FixedHybridHighband interface {
 	// clone of the shared decoder safe to consume independently of the float CELT
 	// decode. frameSizeAPI / frameSize48 are the per-channel API-rate and 48k-core
 	// sample counts.
-	DecodeHybridHighband(silkInt16 []int16, filled int, rd *rangecoding.Decoder, frameSizeAPI, frameSize48 int, packetStereo bool)
+	DecodeHybridHighband(silkInt16 []int16, filled int, rd *rangecoding.Decoder, dataLen, frameSizeAPI, frameSize48 int, packetStereo bool)
 }
 
 // SetFixedHighband installs (or clears, with nil) the integer hybrid highband
@@ -281,13 +281,13 @@ func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, packetSter
 }
 
 // decodeFrameWithHook decodes a single hybrid frame and allows a hook after SILK decode.
-func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error) ([]float32, error) {
+func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) (int, error)) ([]float32, error) {
 	return d.decodeFrameWithHookFloat32(rd, frameSize, packetStereo, afterSilk, nil)
 }
 
 // DecodeWithDecoderHookToFloat32 decodes a hybrid frame and writes the final
 // 48 kHz output directly into out.
-func (d *Decoder) DecodeWithDecoderHookToFloat32(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error, out []float32) error {
+func (d *Decoder) DecodeWithDecoderHookToFloat32(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) (int, error), out []float32) error {
 	channels := int(d.channels)
 	if len(out) < frameSize*channels {
 		return ErrDecodeFailed
@@ -296,7 +296,7 @@ func (d *Decoder) DecodeWithDecoderHookToFloat32(rd *rangecoding.Decoder, frameS
 	return err
 }
 
-func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error, out []float32) ([]float32, error) {
+func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) (int, error), out []float32) ([]float32, error) {
 	if rd == nil {
 		return nil, ErrNilDecoder
 	}
@@ -488,19 +488,24 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 		clear(silkUpsampled[filledSilkSamples:totalSamples])
 	}
 
+	dataLen := rd.StorageBits() / 8
 	if afterSilk != nil {
-		if err := afterSilk(rd); err != nil {
+		var err error
+		dataLen, err = afterSilk(rd)
+		if err != nil {
 			return nil, err
 		}
 	}
 
 	// Drive the FIXED_POINT integer CELT highband from a clone of the shared range
 	// decoder, now positioned at the CELT start band (after any hybrid redundancy
-	// flags and with storage shrunk by afterSilk). The clone lets the integer
+	// flags). The hook supplies the logical main length separately: malformed
+	// redundancy can set it to zero without shrinking entropy storage. The clone
+	// lets the integer
 	// decode consume the bitstream independently of the float CELT decode below.
 	if captureFixed {
 		d.fixedRangeClone = *rd
-		d.fixedHighband.DecodeHybridHighband(d.scratchSilkInt16, d.filledSilkInt16, &d.fixedRangeClone, frameSizeAPI, frameSize48, packetStereo)
+		d.fixedHighband.DecodeHybridHighband(d.scratchSilkInt16, d.filledSilkInt16, &d.fixedRangeClone, dataLen, frameSizeAPI, frameSize48, packetStereo)
 		d.fixedRangeClone = rangecoding.Decoder{}
 	}
 
@@ -522,7 +527,7 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 	if d.apiSampleRate == 96000 {
 		celtFrameSize = frameSizeAPI
 	}
-	if err := d.celtDecoder.AccumulateFrameHybridWithPacketStereo(rd, celtFrameSize, packetStereo, out); err != nil {
+	if err := d.celtDecoder.AccumulateFrameHybridWithPacketStereo(rd, dataLen, celtFrameSize, packetStereo, out); err != nil {
 		return nil, err
 	}
 

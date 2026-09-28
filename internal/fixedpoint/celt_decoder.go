@@ -279,17 +279,19 @@ func (d *CELTDecoder) DecodeWithECChannels(data []byte, frameSize, codedChannels
 // opus_res output (RES2INT24(a)==a, int16 via Res2Int16). It returns the number of
 // per-channel output samples decoded.
 func (d *CELTDecoder) DecodeHybridAccum(dec *rangecoding.Decoder, coreFrameSize int, accumPCM []int32) int {
-	return d.DecodeHybridAccumChannels(dec, coreFrameSize, d.channels, accumPCM)
+	return d.DecodeHybridAccumChannels(dec, dec.StorageBits()/8, coreFrameSize, d.channels, accumPCM)
 }
 
 // DecodeHybridAccumChannels decodes a hybrid frame whose CELT stream channel
 // count can differ from the decoder's output channel count, then accumulates
 // the synthesized CELT signal into accumPCM.
-func (d *CELTDecoder) DecodeHybridAccumChannels(dec *rangecoding.Decoder, coreFrameSize, codedChannels int, accumPCM []int32) int {
+func (d *CELTDecoder) DecodeHybridAccumChannels(dec *rangecoding.Decoder, dataLen, coreFrameSize, codedChannels int, accumPCM []int32) int {
 	if codedChannels < 1 || codedChannels > 2 {
 		return -1
 	}
-	dataLen := dec.StorageBits() / 8
+	if dataLen <= 1 {
+		return d.DecodeLostAccum(coreFrameSize, accumPCM)
+	}
 	outSyn, N := d.decodeReceivedFrame(dec, dataLen, coreFrameSize, codedChannels)
 
 	// deemphasis(out_syn, pcm, N, CC, st->downsample, preemph, preemph_memD, accum=1).
