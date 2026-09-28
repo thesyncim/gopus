@@ -53,17 +53,22 @@ matrices below.
 
 The broader subpackage audit closes multistream clipping lifecycle and constructor
 checks at `d69ff3b1`, and rectangular projection decoding at `0694ad51`, in all
-eight local lanes. Native 96 kHz multistream encoding and decoding have confirmed
-timing/output mismatches and remain under correction; the passing single-stream
-96 kHz cases do not cover these subpackage entry points.
+eight local lanes. Native 96 kHz multistream decoding, all three PCM APIs, long
+loss bursts and recovery pass the paired float/fixed-QEXT scalar/SIMD gates at
+`3885a34d`. Native multistream encoding passes exact packets, durations, ranges
+and zero warm allocations at `5a60c58b`: mono 2.5/5/10/20 ms, plus coupled and
+discrete stereo 20 ms float/int16 input, with QEXT on and off in all four lanes.
 
 Malformed Hybrid main lengths propagate separately from entropy storage.
 Three independent 10/20 ms witnesses, native 96 kHz, recovery and all sample
 formats pass exact C gates in all eight local lanes with zero warm allocations.
 The projection audit passes 4,000 malformed packets and 12,000 random buffers
-per lane, with exact accepted float/int16/int24 output. Adjacent multistream
-long-burst PLC, native crossfade, and Hybrid QEXT routing corrections remain
-under validation.
+per lane, with exact accepted float/int16/int24 output. Multistream long-burst
+PLC, native crossfade, and Hybrid QEXT routing pass all eight applicable local
+lanes at `3885a34d`. Signaled QEXT bands beyond the physical spectrum and mixed
+integer-format clipping pass their exact PCM/range and zero-allocation gates
+at `28cb897e`. Open adjacent cases include non-fullband QEXT SIMD refinement,
+OSCE-selected DRED history, and default signalling in the internal custom API.
 
 The decoder audit requires exact PCM equality alongside waveform-quality
 checks. Each public output format uses its corresponding C API and matching

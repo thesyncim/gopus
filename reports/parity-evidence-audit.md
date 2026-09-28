@@ -36,7 +36,7 @@ libopus feature set, CPU dispatch, sample format, controls, and decoder history.
 | P2 | Multistream constructors | Zero sample rate panics and unsupported rates pass through; projection channels require validation before allocation. | Rate/channel rejection and supported-rate construction pass all eight local lanes at `d69ff3b1`. Tagged 96 kHz acceptance remains supported; its runtime gap is tracked below. |
 | P1 | Malformed Hybrid main length | Invalid redundancy can leave entropy storage intact while the logical main length becomes zero; decoding CELT from storage consumes invalid payload. | Explicit main-length propagation selects highband-only concealment and zero outer final range. Two 10 ms witnesses and one 20 ms witness, recovery/loss, all three sample formats, and native 96 kHz pass in all eight local lanes with zero warm allocations. Projection checks cover 4,000 malformed packets and 12,000 random buffers per lane; accepted output is exact in float/int16/int24, and oracle infrastructure failures remain errors. |
 | P2 | Rectangular projection | More matrix columns than output channels bypass float/int16 demixing and fail int24 decoding. | Two rectangular layouts, received/lost/recovered packets and all three output formats match selected C in all eight local lanes at `0694ad51`; warmed caller-buffer decoding allocates zero. |
-| P1 | Native 96 kHz multistream | The subpackage initializes elementary codecs at 48 kHz despite accepting 96 kHz in QEXT builds. | A paired QEXT scalar witness emits a 40 ms Go packet for 20 ms input; decoding a shared CELT packet differs in all 1,920 output samples. Encoder and decoder corrections remain in progress. The top-level single-stream native path has separate passing evidence, but a two-packet native 96 kHz SIMD PLC witness also differs and remains under correction. |
+| P1 | Native 96 kHz multistream | The subpackage initializes elementary codecs at 48 kHz despite accepting 96 kHz in QEXT builds. | Native geometry and selected-C PLC rounding pass exact float/int16/int24 output, ranges and zero warm allocations at `3885a34d`. Encode packets, durations and ranges pass mono 2.5/5/10/20 ms plus 20 ms coupled/discrete stereo float/int16, QEXT off/on, in all four float/fixed-QEXT scalar/SIMD lanes at `5a60c58b`. |
 
 Here, eight local lanes means default, fixed-point, QEXT, and fixed-point+QEXT,
 each with scalar and SIMD Go and matching C builds, on ARM64 with Go 1.27.1.
@@ -60,10 +60,17 @@ The [kernel and end-to-end evidence report](go-simd-kernel-evidence.md) records
 measured coverage, revisions, and all 53 replacement routines. Complete codec
 byte/sample parity remains unproven.
 
-The adjacent review confirms multistream long-burst PLC state, native 96 kHz
-crossfade stride, and Hybrid QEXT payload routing issues. Their corrections and
-full feature/ISA validation are in progress. A mono-to-stereo recovery witness
-after six losses is also under investigation.
+Multistream long-burst PLC state, native 96 kHz crossfade stride, and Hybrid
+QEXT payload routing pass all eight applicable local lanes at `3885a34d`.
+The wide-band QEXT decoder consumes all signaled bands while rendering only
+the physical spectrum; its exact PCM/range, stereo synthesis-stage and zero
+warm allocation gates pass at `28cb897e`, together with integer-format clipping
+lifecycle checks.
+
+Open adjacent findings are non-fullband QEXT SIMD refinement, automatic OSCE
+selection in DRED history, and default packet signalling in the internal custom
+wrapper. The custom wrapper is not called by root or multistream public APIs.
+A mono-to-stereo recovery witness after six losses is also under investigation.
 
 ## Deliberate boundaries
 

@@ -291,11 +291,13 @@ architecture, input format, control sequence, and packet mode is not yet
 proven. The pinned `tmp_check/opus-1.6.1/` is the reference; when behavior is
 uncertain, gopus matches libopus unless fixture evidence says otherwise.
 
-Open validation includes DRED SILK history, the complete malformed FEC sweep,
-native 96 kHz encode/PLC, multistream loss/extension transitions, and native
-AMD64 oracle coverage. Malformed Hybrid main-length and projection full-output
-gates pass all eight local feature/ISA lanes. QEXT mono/stereo multiframe
-reconstruction passes independent exact C checks. The strict long-stream matrix
+Open validation includes DRED/OSCE history, the complete malformed FEC sweep,
+non-fullband QEXT SIMD refinement, internal custom-mode signalling, and native
+AMD64 oracle coverage. Native 96 kHz multistream encode/decode, long-burst PLC,
+Hybrid QEXT routing, and discarded extension bands pass their matching local
+feature/ISA matrices. Malformed Hybrid main-length and projection full-output
+gates pass all eight local lanes. QEXT mono/stereo multiframe reconstruction
+passes independent exact C checks. The strict long-stream matrix
 passes 13 configurations × 2,500 frames in both local ARM64 instruction lanes.
 The [evidence report](reports/go-simd-kernel-evidence.md)
 records the passing matrices, active investigations, and the documented unsafe
