@@ -62,6 +62,9 @@ fix: all completed jobs pass, including the build matrix and macOS; the native
 SIMD job remains in progress at this checkpoint. It does not include all subsequent local changes.
 Early artifacts do not constitute a full CI pass.
 
+The [codebase parity audit](parity-evidence-audit.md) separates confirmed runtime
+witnesses from oracle and assertion gaps, with validation status for each.
+
 ### Verified local coverage
 
 The following results use live, matching references on ARM64 with Go 1.27.1.
