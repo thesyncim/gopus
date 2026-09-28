@@ -8,14 +8,15 @@ reference path.
 
 ## Correctness status
 
-Native AMD64 early artifact `10971085261` at `2d319a98` contains 91 command
-exit records: 83 succeed; seven SIMD neural phases and their aggregate status
-fail. The direct 28-case SGEMV oracle proves that C rounds scalar-row products
-before adding, while complete vector blocks use FMA. The Go scalar tail uses
-that separate rounding; native validation of this correction remains pending.
-The original SIMD OSCE mismatch remains under investigation. Scalar counterparts
-pass. BWE int8 expectations model AVX2 quantization and saturating dot products;
-independent selected-C replacements pass locally on ARM64 in scalar and SIMD.
+Native AMD64 early artifact `10972069502` at `bcc559d9` contains 91 command
+exit records: 85 succeed; three SIMD OSCE phases, two fixed-QEXT phases and the
+aggregate status fail. The 28-case SGEMV oracle passes natively with separately
+rounded scalar-row products and fused vector blocks. Neural-analysis and the
+other DRED phases pass. The OSCE state oracle localizes the first difference to
+frame 0, state element 677 (`bf32e19b` in Go, `bf32e19c` in C); scalar OSCE passes.
+The fixed-QEXT phases exercise decoder, DTX and multistream fixes listed below
+that require a fresh native run. Independent selected-C BWE int8 expectations
+model AVX2 quantization and saturating dot products.
 Eleven AMD64 kernel rows below retain final artifact `10968657063` at `83affdb9`
 and its five-sample measurements. Completed base-codec checks and performance
 results do not imply complete codec parity.
@@ -170,10 +171,12 @@ The QEXT encoder gain fade uses the mode’s Q31 window converted through
 COEF2VAL16. Its selected-C oracle matches 24 rate/channel/direction cases, and
 all 12 rate/channel allocation checks remain zero. The full public
 CELT/SILK/Hybrid transition witness passes fixed-only and fixed-QEXT in both
-scalar and SIMD builds. The full fixed-QEXT encoder transition sweep covers
-2,988 configurations with 40 frames each in both scalar and SIMD. After matching
-packet-loss and active CELT bandwidth controls, every FEC-only case passes;
-52 DTX configurations still fail. Fixed decoder coded/output-channel and
+scalar and SIMD builds. The full fixed-QEXT encoder transition sweep passes
+2,988 configurations with 40 frames each in both scalar and SIMD, including
+FEC and DTX. Input filtering and the variable high-pass smoother advance once
+per native child frame. These full sweeps precede the planar CELT merge; the
+merged source passes focused filtering tests and the full SIMD CELT package,
+with the full transition sweep being repeated on that source. Fixed decoder coded/output-channel and
 phase-inversion controls match selected C, including control changes and reset.
 Malformed and cross-frame corruption gates pass in fixed-only scalar, SIMD and
 nosimd, and fixed-QEXT scalar/SIMD. The focused mono QEXT loss/recovery regression matches
