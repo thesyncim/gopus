@@ -366,10 +366,6 @@ func makeCrossProductCases() ([]crossProductCase, []crossProductKey) {
 //
 // cross-product, then asserts that the mode label (silk/hybrid/celt) decoded
 // from the TOC byte matches libopus on every frame.
-//
-// A maximum 2% per-stream mode-mismatch budget is allowed to tolerate
-// single-frame hysteresis at decision boundaries; the first-frame decision
-// must be exact.
 func TestEncoderAutoModeCrossProductParity(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
@@ -426,18 +422,20 @@ func TestEncoderAutoModeCrossProductParity(t *testing.T) {
 
 			samplesPerFrame := c.frameSize * c.channels
 			var mismatches []failInfo
+			if len(r.frames) != c.numFrames || len(r.frames) == 0 {
+				t.Fatalf("libopus returned %d frame records, want %d", len(r.frames), c.numFrames)
+			}
 
 			for f, wantFrame := range r.frames {
 				if wantFrame.ret <= 0 {
-					// libopus returned an error for this frame; skip comparison.
-					continue
+					t.Fatalf("libopus encode frame %d returned %d", f, wantFrame.ret)
 				}
 
 				start := f * samplesPerFrame
 				end := start + samplesPerFrame
 				frame32 := c.pcm[start:end]
 
-				gotPacket, err := enc.Encode(frame32, c.frameSize)
+				gotPacket, err := enc.EncodeWithAnalysisMaxBytes(frame32, c.frameSize, frame32, c.maxDataBytes)
 				if err != nil {
 					t.Errorf("frame %d: encode error: %v", f, err)
 					continue
@@ -461,29 +459,13 @@ func TestEncoderAutoModeCrossProductParity(t *testing.T) {
 				}
 			}
 
-			nFrames := len(r.frames)
-			if nFrames == 0 {
-				t.Skip("no valid frames from oracle")
-				return
-			}
-
-			// First-frame mode must be exact (no hysteresis on frame 0).
-			if len(mismatches) > 0 && mismatches[0].frame == 0 {
+			if len(mismatches) > 0 {
 				fi := mismatches[0]
-				t.Errorf("first-frame mode mismatch: got=%s want=%s (go_toc=0x%02x lib_toc=0x%02x)",
-					fi.got, fi.want, fi.gotTOC, fi.wantTOC)
-			}
-
-			// Allow ≤2% mismatch across the stream (hysteresis tolerance).
-			mismatchRatio := float64(len(mismatches)) / float64(nFrames)
-			const maxMismatchRatio = 0.02
-			if mismatchRatio > maxMismatchRatio {
-				fi := mismatches[0]
-				t.Errorf("mode mismatch ratio %.1f%% (%d/%d) exceeds %.0f%% budget; first mismatch frame=%d got=%s want=%s (go_toc=0x%02x lib_toc=0x%02x)",
-					mismatchRatio*100, len(mismatches), nFrames, maxMismatchRatio*100,
+				t.Errorf("mode mismatch in %d/%d frames; first mismatch frame=%d got=%s want=%s (go_toc=0x%02x lib_toc=0x%02x)",
+					len(mismatches), len(r.frames),
 					fi.frame, fi.got, fi.want, fi.gotTOC, fi.wantTOC)
 			}
-			t.Logf("frames=%d mismatches=%d (%.1f%%)", nFrames, len(mismatches), mismatchRatio*100)
+			t.Logf("frames=%d mismatches=%d", len(r.frames), len(mismatches))
 		})
 	}
 }
