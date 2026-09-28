@@ -171,7 +171,6 @@ int main(void) {
     fprintf(stderr, "selected AVX2 DNN dispatch table mismatch\n");
     return 1;
   }
-  arch = opus_select_arch();
   if (st.fec_fill_pos > 0) memcpy(&st.fec[0][0], fec0, NB_FEATURES * sizeof(float));
   if (st.fec_fill_pos > 1) memcpy(&st.fec[1][0], fec1, NB_FEATURES * sizeof(float));
 

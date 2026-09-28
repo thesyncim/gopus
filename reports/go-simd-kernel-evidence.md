@@ -28,7 +28,7 @@ without a comparable per-call replacement.
 
 **Complete codec/extension parity is not yet proven.** QEXT N=2 energy
 at `defe5eb3` and cubic energy at `77cb9a9d` match selected-C contraction.
-Mono and stereo QEXT multiframe decode require independent C output, exact
+Mono and stereo QEXT multiframe decode pass independent C checks for exact
 float bits and final ranges, with zero warm allocations. The cubic boundary
 grid covers 11 vector sizes. ARM64 SIMD Q30 stereo-angle arithmetic matches
 the selected C primitive at `3f1f4ab1`.
@@ -47,8 +47,13 @@ rate-switch witnesses also pass normal recovery and following PLC.
 Malformed multistream fixed output matches all 9,000 mutations in each of the
 four fixed feature/ISA lanes at `70be920b`, including per-child redundancy
 reconstruction. SILK/Hybrid multistream final ranges include the redundant
-CELT contribution. DRED/OSCE history and recovery integration remain under
-validation against identical C/Go priming formats. Sixteen CELT oracle checks pass all eight local lanes without blanket ARM
+CELT contribution. The 132 edited DRED gates pass all eight local feature/ISA
+lanes with identical C/Go priming formats and actual output APIs. Root and
+multistream OSCE automatic-loss/recovery matrices each pass all eight local
+lanes. Durable FEC history passes all eight local DRED feature/ISA lanes at
+`b29fcff7`; mixed LBRR, outer loss prefixes, tiny payloads, model reload and
+complexity changes pass all four combined DRED/OSCE lanes with warm allocation
+guards. Native AMD64 execution of this integration remains pending. Sixteen CELT oracle checks pass all eight local lanes without blanket ARM
 SIMD skips at `ba23ba99`; native AMD64 validation of their selected RTCD
 paths is pending. These remain separate from the passing
 matrices below.
@@ -73,7 +78,8 @@ at `28cb897e`. Non-fullband QEXT parsing and refined-energy body/tail rounding
 match selected C at `4186cbb3`. Public pitch after rate reset matches C at
 `949ca0f3`; comfort-noise excitation retention passes eight exact sequences
 and warm zero-allocation guards in float/fixed scalar/SIMD at `1d99069e`.
-DRED/OSCE integration and native AMD64 neural-stage findings remain open. Custom default signalling, finite
+DRED/OSCE integration passes its exact local matrices at `b29fcff7`; native
+AMD64 validation remains pending. Custom default signalling, finite
 header budgets, control defaults, error state and reset lifetime pass the full
 custom package in all eight local lanes at `17e27246`.
 Mono-to-stereo loss recovery passes all eight local lanes at `a676f2db`, and
@@ -111,7 +117,9 @@ include subsequent local changes.
 Native early artifact `11001601766` at `c6353190` retains seven failing
 phases: six feature/ISA configurations report the same LACE trace NaN-sign
 difference, and SIMD neural analysis reports FARGAN-conditioner and PLC-feature
-differences. These are active AMD64 findings. Its independent performance
+differences. The NaN-sign correction at `b43a303b` and selected-DNN-dispatch oracle
+correction at `24d769dd` pass their local scalar/SIMD checks; native AMD64
+validation of both corrections remains pending. Its independent performance
 samples are recorded below; they do not make this checkpoint fully passing.
 
 The [codebase parity audit](parity-evidence-audit.md) separates confirmed runtime
@@ -404,9 +412,8 @@ Sequential kernel phases retain host-load and frequency risks.
 
 ## Validation and performance follow-up
 
-Finish the open QEXT and strict decoder audit findings, validate the final
-revision on native AMD64 and ARM64, and refresh the PR tables from completed
-artifacts. Preserve all 53 inventory rows and their fixture/compiler provenance.
+Validate the final revision on native AMD64 and ARM64, and refresh the PR
+tables from completed artifacts. Preserve all 53 inventory rows and their fixture/compiler provenance.
 Measurements from different CPUs or revisions do not establish a source-change
 speed ratio. Several direct kernels trail assembly, as recorded in the inventory.
 

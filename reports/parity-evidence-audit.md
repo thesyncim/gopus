@@ -18,7 +18,7 @@ libopus feature set, CPU dispatch, sample format, controls, and decoder history.
 | P1 | Hybrid float output | A cell can compare no Hybrid packets; ARM permits a numerical budget. | Each channel/bandwidth/bitrate cell requires Hybrid coverage and exact output. All eight local lanes pass, including the warm allocation guard. |
 | P2 | FEC packet oracle | The helper requests DRED regardless of the Go feature build and lacks matching private-header configuration. | The public feature selector and configured headers pair the builds. Four packet selectors pass all eight local lanes. |
 | P2 | Broad decoder differential tests | Normalizing int24 output into float32 can erase integer bits; a magnitude cutoff omits comparisons. | Valid and malformed gates compare original int24 integers. All 1,440 encoder configurations, 4,320 packets and 12,960 format decodes pass in each of eight local lanes. The strict long-stream gate is tracked separately below. |
-| P2 | LPCNet/DRED evidence | Predictor/state tests use numerical budgets, and some waveform helpers compare only a common prefix. OSCE-only probes request an extra C DRED feature. | LPCNet helpers use the public feature selector; complete package output/state bit checks pass OSCE, DRED and DRED+OSCE+QEXT scalar/SIMD at `f03fad55`. Public DRED exact gates expose a retained SILK-history mismatch even with identical float priming and int24 DRED output APIs; the fix is under validation. |
+| P2 | LPCNet/DRED evidence | Predictor/state tests use numerical budgets, and some waveform helpers compare only a common prefix. OSCE-only probes request an extra C DRED feature. | LPCNet helpers use the public feature selector; complete package output/state bit checks pass OSCE, DRED and DRED+OSCE+QEXT scalar/SIMD at `f03fad55`. The 132 edited public DRED gates pass all eight local DRED feature/ISA lanes with matching float priming and actual int24 output. Independent nil-FEC, tiny-FEC and complexity-change history witnesses also pass exactly; durable FEC integration passes at `b29fcff7`; native AMD64 validation remains pending. |
 | P2 | Fixture mode transitions | Live matched-C transition output has only quality assertions, including an architecture-specific floor. | Complete packet-sequence PCM passes exact checks in all eight local lanes. Quality scoring remains independent. |
 | P2 | Fixed multistream layout coverage | An unexpected encoder mode can skip a required layout. | Unexpected modes fail. All eight layouts and reset replays execute with exact output in the four fixed local lanes. |
 | P2 | Projection decode | Quality checks alone do not establish complete PCM or aggregate final-range equality. | Four-channel and nine-channel mixed-mode receive, loss and reset sequences pass full float-bit checks and the XOR of independently decoded C child ranges in all eight local lanes at `3d652aeb`. |
@@ -50,9 +50,13 @@ The persistent malformed FEC sweep passes 8,000 sequences per lane at
 `a8cdf338`: default, fixed-point and float-QEXT, each scalar/SIMD. The default
 lanes contain 6,715 matching accepted FEC calls and 1,285 matching rejections,
 with no skipped primes. Coded-channel transitions, per-frame resampling and
-PLC's rate-reset signal type have exact recovery regressions. DRED/OSCE
-history and mixed missing-LBRR neural concealment integration remain under
-validation. Mono QEXT SIMD reconstruction passes its
+PLC's rate-reset signal type have exact recovery regressions. DRED history
+passes 132 edited tests in all eight local feature/ISA lanes. Root and
+multistream OSCE automatic-loss/recovery matrices each pass all eight local
+lanes. Durable FEC history passes all eight local DRED feature/ISA lanes at
+`b29fcff7`. Mixed missing-LBRR, outer PLC prefixes, tiny FEC payloads, model
+reload and complexity-change history pass all four combined DRED/OSCE lanes,
+including warm zero-allocation guards. Native AMD64 validation remains pending. Mono QEXT SIMD reconstruction passes its
 selected-C primitive and public-sequence gates at `77cb9a9d`. The SILK SNR correction passes the original frame-91 witness
 and the strict 2,500-frame matrix. Native AMD64 validates the selected-correlation
 correction: all seven LACE/NoLACE/BWE cases pass both instruction lanes across
@@ -69,8 +73,8 @@ the physical spectrum; its exact PCM/range, stereo synthesis-stage and zero
 warm allocation gates pass at `28cb897e`, together with integer-format clipping
 lifecycle checks.
 
-Open validation covers DRED/OSCE loss history and the native AMD64 neural
-stage diagnostics. Non-fullband QEXT header/refinement matches selected C
+Open validation covers native AMD64 execution of the latest neural corrections. Independent nil-FEC, tiny-FEC and complexity 0→5
+history witnesses pass exact counts, PCM bits and ranges through recovery. Non-fullband QEXT header/refinement matches selected C
 at `4186cbb3`, including the vector body and scalar tail. SILK pitch reporting
 uses rate-reset state at `949ca0f3`; comfort-noise excitation history survives
 rate changes at `1d99069e`, with eight exact public sequences and zero warm

@@ -291,8 +291,11 @@ architecture, input format, control sequence, and packet mode is not yet
 proven. The pinned `tmp_check/opus-1.6.1/` is the reference; when behavior is
 uncertain, gopus matches libopus unless fixture evidence says otherwise.
 
-Open validation includes DRED/OSCE loss history and native AMD64 neural
-stage diagnostics. QEXT non-fullband refinement, SILK comfort-noise history
+Native AMD64 validation of the latest neural corrections remains pending.
+DRED history and root/multistream OSCE automatic loss/recovery matrices pass
+all eight applicable local feature/ISA lanes at `b29fcff7`. Mixed LBRR, outer
+PLC prefixes, tiny FEC payloads, model reload and complexity-change history
+pass exact combined-feature scalar/SIMD checks, including warm allocation gates. QEXT non-fullband refinement, SILK comfort-noise history
 and pitch state across rate changes pass their exact local regressions. The strict 8,000-case malformed-FEC sweep passes six
 local feature/ISA lanes; the full custom package passes all eight. Native 96 kHz encoder mode/budget sequences, including
 40 ms packets and QEXT off/on, pass exact packet/range and warm zero-allocation
