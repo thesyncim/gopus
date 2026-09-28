@@ -39,6 +39,8 @@ type encoderFixedCELTFields struct {
 	fixedInputActive bool
 	fixedFrameReady  bool
 	fixedFrameCursor int
+	fixedWidthMem    fixedStereoWidthMem
+	fixedWidthQ15    int16
 }
 
 // fixedCELTFinalRange returns the integer CELT encoder's final range coder state
@@ -644,6 +646,8 @@ func (e *Encoder) resetFixedCELT() {
 	e.fixedMaskQ24 = false
 	e.fixedEnergyMask = e.fixedEnergyMask[:0]
 	e.fixedHPMem = [4]int32{}
+	e.fixedWidthMem = fixedStereoWidthMem{}
+	e.fixedWidthQ15 = 0
 	clear(e.fixedDelayBuffer)
 	e.fixedInputActive = false
 	e.fixedFrameReady = false

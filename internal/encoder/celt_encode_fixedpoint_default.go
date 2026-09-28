@@ -64,6 +64,9 @@ func (e *Encoder) setFixedCELTLFE(_ bool) {}
 
 func (e *Encoder) fixedSilkSurroundRateOffset(_ int32) (int32, bool) { return 0, false }
 
+func (e *Encoder) fixedStereoWidthForMode(_ int) (opusVal16, bool) { return 0, false }
+func (e *Encoder) fixedModeThreshold(_ int32) (int32, bool)        { return 0, false }
+
 // fixedCELTFinalRange never reports an integer range in the default build.
 func (e *Encoder) fixedCELTFinalRange() (uint32, bool) { return 0, false }
 

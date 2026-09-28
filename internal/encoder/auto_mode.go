@@ -72,6 +72,9 @@ var fecThresholdsTable = [10]int{
 // space" exit, so width_mem advances exactly as in opus_encode_native()
 // (src/opus_encoder.c:1321-1324).
 func (e *Encoder) frameStereoWidth(pcm []opusRes, frameSize int) opusVal16 {
+	if width, ok := e.fixedStereoWidthForMode(frameSize); ok {
+		return width
+	}
 	if e.channels == 2 && e.forceChannels != 1 {
 		return e.computeStereoWidthForMode(pcm, frameSize)
 	}
@@ -378,6 +381,9 @@ func (e *Encoder) autoModeDecision(stereoWidth opusVal16, voiceEst, equivRate in
 	modeMusic := int32(autoModeThresholds[1][1])
 
 	threshold := modeMusic + (voiceEst*voiceEst*(modeVoice-modeMusic))/16384
+	if fixedThreshold, ok := e.fixedModeThreshold(voiceEst); ok {
+		threshold = fixedThreshold
+	}
 
 	if e.voipApp {
 		threshold += 8000
