@@ -46,7 +46,7 @@ var encodeDiffHelper HelperCache
 
 func buildEncodeDiffHelper() (string, error) {
 	return BuildPublicAPIHelper(CHelperConfig{
-		Label:       "opus encode diff float",
+		Label:       "public opus encode diff",
 		OutputBase:  "gopus_libopus_encode_diff",
 		SourceFile:  "libopus_encode_diff_info.c",
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-O2", "-DNDEBUG"},
@@ -59,14 +59,15 @@ func getEncodeDiffHelperPath() (string, error) {
 	return encodeDiffHelper.Path(buildEncodeDiffHelper)
 }
 
-// EncodeDiffHelperPath returns the built float encode-diff oracle path (building
-// it on first use) so tests can detect availability before running the sweep.
+// EncodeDiffHelperPath returns the encode-diff oracle for the active public
+// codec configuration, building it on first use before a test sweep.
 func EncodeDiffHelperPath() (string, error) {
 	return getEncodeDiffHelperPath()
 }
 
-// EncodeDiffParams configures the comprehensive FLOAT opus_encode_float oracle.
-// One encoder is created and driven statefully across all frames (no reset).
+// EncodeDiffParams configures the opus_encode_float input API oracle. The C
+// codec uses the same fixed/float, feature and instruction configuration as Go.
+// One encoder is driven statefully across all frames without a reset.
 type EncodeDiffParams struct {
 	SampleRate         int
 	Channels           int
@@ -101,9 +102,9 @@ type EncodeDiffRecord struct {
 	Packet     []byte
 }
 
-// ProbeEncodeDiff encodes the supplied float PCM frames through the default
-// (float) libopus opus_encode_float() and returns per-frame records. This is the
-// byte-exact oracle for the public float Encoder on the same architecture.
+// ProbeEncodeDiff passes float PCM to libopus opus_encode_float and returns
+// per-frame records. BuildPublicAPIHelper pairs the C codec with the current Go
+// build; float input does not imply a floating-point codec implementation.
 func ProbeEncodeDiff(p EncodeDiffParams) ([]EncodeDiffRecord, error) {
 	binPath, err := getEncodeDiffHelperPath()
 	if err != nil {
