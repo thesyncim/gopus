@@ -68,6 +68,7 @@ func TestCELTDecoderAPIRateToFloat32MatchesLibopus(t *testing.T) {
 							t.Fatalf("DecodeFrameWithPacketStereoToFloat32AtAPIRate: %v", err)
 						}
 						assertAPIRateQualityFloat32(t, got, want, sampleRate, decoderChannels, "low-level CELT API-rate decode")
+						assertAPIRateFloat32BitsExact(t, got, want, "low-level CELT API-rate decode")
 					})
 				}
 			}
@@ -110,6 +111,7 @@ func TestCELTDecoderAPIRatePLCMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame...)
 					assertAPIRateQualityFloat32(t, got, want, sampleRate, decoderChannels, "low-level CELT API-rate PLC")
+					assertAPIRateFloat32BitsExact(t, got, want, "low-level CELT API-rate PLC")
 				})
 			}
 		}

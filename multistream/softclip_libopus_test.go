@@ -67,8 +67,8 @@ func TestFloat32ToInt16SoftClipMatchesLibopus(t *testing.T) {
 
 			gotMem := append([]float32(nil), tc.mem...)
 			got := float32ToInt16SoftClip(tc.samples, tc.n, tc.channels, gotMem)
-			if len(got) < len(want) {
-				t.Fatalf("output len=%d want at least %d", len(got), len(want))
+			if len(got) != len(want) {
+				t.Fatalf("output len=%d want %d", len(got), len(want))
 			}
 			for i := range want {
 				if got[i] != want[i] {
