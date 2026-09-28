@@ -141,7 +141,6 @@ enum {
   TRACE_STAGE_CF1_KERNEL_RAW = 16,
   TRACE_STAGE_CF1_GAINS_RAW = 17,
   TRACE_STAGE_CF1_KERNEL_SCALED = 18,
-  TRACE_STAGE_CF1_GAINS_SCALED = 19,
   /* NoLACE-only stage checkpoints (mode_id == 1). */
   TRACE_STAGE_NL_PREEMPH = 30,
   TRACE_STAGE_NL_LATENT = 31,
@@ -266,16 +265,10 @@ static int trace_lace_adacomb_params(
     const LinearLayer *gain_layer,
     const LinearLayer *global_gain_layer,
     int kernel_size,
-    float filter_gain_a,
-    float filter_gain_b,
-    float log_gain_limit,
     int arch
 ) {
   float kernel_buffer[ADACOMB_MAX_KERNEL_SIZE];
   float gains[2];
-  float norm;
-  float scale;
-  int i;
 
   OPUS_CLEAR(kernel_buffer, ADACOMB_MAX_KERNEL_SIZE);
   OPUS_CLEAR(gains, 2);
@@ -283,23 +276,7 @@ static int trace_lace_adacomb_params(
   compute_generic_dense(gain_layer, &gains[0], features, ACTIVATION_RELU, arch);
   compute_generic_dense(global_gain_layer, &gains[1], features, ACTIVATION_TANH, arch);
   if (!write_trace_record(TRACE_STAGE_CF1_KERNEL_RAW, subframe, 1, kernel_size, kernel_buffer, kernel_size)) return 0;
-  if (!write_trace_record(TRACE_STAGE_CF1_GAINS_RAW, subframe, 1, 2, gains, 2)) return 0;
-
-  gains[0] = exp(log_gain_limit - gains[0]);
-  gains[1] = exp(filter_gain_a * gains[1] + filter_gain_b);
-  norm = 0;
-  for (i = 0; i < kernel_size; i++) {
-    norm += kernel_buffer[i] * kernel_buffer[i];
-  }
-  /* Match nndsp.c:scale_kernel: the inverse norm is stored in a float before
-     multiplying it by the gain, so sqrt's double result is narrowed first. */
-  norm = 1.f / (1e-6f + sqrt(norm));
-  scale = norm * gains[0];
-  for (i = 0; i < kernel_size; i++) {
-    kernel_buffer[i] *= scale;
-  }
-  if (!write_trace_record(TRACE_STAGE_CF1_KERNEL_SCALED, subframe, 1, kernel_size, kernel_buffer, kernel_size)) return 0;
-  return write_trace_record(TRACE_STAGE_CF1_GAINS_SCALED, subframe, 1, 2, gains, 2);
+  return write_trace_record(TRACE_STAGE_CF1_GAINS_RAW, subframe, 1, 2, gains, 2);
 }
 
 static int trace_lace_process_20ms_frame(
@@ -321,7 +298,7 @@ static int trace_lace_process_20ms_frame(
     periods_f[i_subframe] = (float)periods[i_subframe];
   }
 
-  if (!write_trace_header(0, arch, 31)) return 0;
+  if (!write_trace_header(0, arch, 27)) return 0;
   if (!write_trace_record(TRACE_STAGE_INPUT, -1, 1, 4 * LACE_FRAME_SIZE, x_in, 4 * LACE_FRAME_SIZE)) return 0;
   if (!write_trace_record(TRACE_STAGE_FEATURES, -1, 1, 4 * LACE_NUM_FEATURES, features, 4 * LACE_NUM_FEATURES)) return 0;
   if (!write_trace_record(TRACE_STAGE_NUMBITS, -1, 1, 2, numbits, 2)) return 0;
@@ -343,9 +320,6 @@ static int trace_lace_process_20ms_frame(
         &hLACE->layers.lace_cf1_gain,
         &hLACE->layers.lace_cf1_global_gain,
         LACE_CF1_KERNEL_SIZE,
-        LACE_CF1_FILTER_GAIN_A,
-        LACE_CF1_FILTER_GAIN_B,
-        LACE_CF1_LOG_GAIN_LIMIT,
         arch)) return 0;
     adacomb_process_frame(
         &state->cf1_state,
@@ -366,6 +340,9 @@ static int trace_lace_process_20ms_frame(
         LACE_CF1_LOG_GAIN_LIMIT,
         hLACE->window,
         arch);
+    if (!write_trace_record(TRACE_STAGE_CF1_KERNEL_SCALED, i_subframe, 1,
+          LACE_CF1_KERNEL_SIZE, state->cf1_state.last_kernel,
+          LACE_CF1_KERNEL_SIZE)) return 0;
   }
   if (!write_trace_record(TRACE_STAGE_POST_CF1, -1, 1, 4 * LACE_FRAME_SIZE, output_buffer, 4 * LACE_FRAME_SIZE)) return 0;
 

@@ -508,31 +508,16 @@ func TestOSCEBWECrossFade10msMatchesLibopus(t *testing.T) {
 
 	osceBWECrossFade10ms(fadeinF, fadeoutF, 480)
 
-	const (
-		crossfadeAbsTolerance = float32(0)
-		crossfadeRMSTolerance = float64(0)
-	)
-	var maxAbsErr float32
-	var sumSq float64
 	for i := 0; i < 480; i++ {
-		d := fadeinF[i] - refOut[i]
-		ad := d
-		if ad < 0 {
-			ad = -ad
+		if math.IsNaN(float64(fadeinF[i])) || math.IsInf(float64(fadeinF[i]), 0) {
+			t.Fatalf("gopus crossfade output[%d]=%v is not finite", i, fadeinF[i])
 		}
-		if ad > maxAbsErr {
-			maxAbsErr = ad
+		if math.IsNaN(float64(refOut[i])) || math.IsInf(float64(refOut[i]), 0) {
+			t.Fatalf("libopus crossfade output[%d]=%v is not finite", i, refOut[i])
 		}
-		sumSq += float64(d) * float64(d)
-	}
-	rms := math.Sqrt(sumSq / 480)
-	t.Logf("OSCE BWE crossfade parity: maxAbs=%g rms=%g (tolerances: maxAbs<=%g rms<=%g)",
-		maxAbsErr, rms, crossfadeAbsTolerance, crossfadeRMSTolerance)
-	if maxAbsErr > crossfadeAbsTolerance {
-		t.Errorf("OSCE BWE crossfade max-abs error %g exceeds %g", maxAbsErr, crossfadeAbsTolerance)
-	}
-	if rms > crossfadeRMSTolerance {
-		t.Errorf("OSCE BWE crossfade rms error %g exceeds %g", rms, crossfadeRMSTolerance)
+		if gotBits, wantBits := math.Float32bits(fadeinF[i]), math.Float32bits(refOut[i]); gotBits != wantBits {
+			t.Fatalf("OSCE BWE crossfade first difference at sample %d: Go=%08x libopus=%08x", i, gotBits, wantBits)
+		}
 	}
 }
 

@@ -202,7 +202,6 @@ func TestOSCELACEForwardTraceLocatesFirstDivergence(t *testing.T) {
 	if len(gotRecords) != len(refRecords) {
 		t.Fatalf("trace record count: got %d want %d", len(gotRecords), len(refRecords))
 	}
-	firstDivergence := ""
 	for i := range gotRecords {
 		got := gotRecords[i]
 		ref := refRecords[i]
@@ -214,17 +213,15 @@ func TestOSCELACEForwardTraceLocatesFirstDivergence(t *testing.T) {
 				got.Stage, got.Subframe, got.Channels, got.SamplesPerChannel, len(got.Values),
 				ref.Stage, ref.Subframe, ref.Channels, ref.SamplesPerChannel, len(ref.Values))
 		}
-		maxAbs, maxIdx, rms := compareFloat32(got.Values, ref.Values)
-		t.Logf("LACE trace %-22s maxAbs=%g idx=%d rms=%g", traceStageName(got.Stage), maxAbs, maxIdx, rms)
-		if firstDivergence == "" && (maxAbs > 1e-5 || rms > 1e-6) {
-			firstDivergence = traceStageName(got.Stage)
+		for j := range got.Values {
+			gotBits, wantBits := math.Float32bits(got.Values[j]), math.Float32bits(ref.Values[j])
+			if gotBits != wantBits {
+				t.Fatalf("LACE first selected-C stage difference: stage=%s subframe=%d value=%d Go=%08x C=%08x",
+					traceStageName(got.Stage), got.Subframe, j, gotBits, wantBits)
+			}
 		}
 	}
-	if firstDivergence == "" {
-		t.Log("LACE trace is within captured-stage parity thresholds")
-	} else {
-		t.Logf("first captured LACE divergence: %s", firstDivergence)
-	}
+	t.Log("all captured LACE stages match selected libopus bit-for-bit")
 }
 
 func TestOSCENoLACEForwardTraceLocatesFirstDivergence(t *testing.T) {
@@ -282,7 +279,6 @@ func TestOSCENoLACEForwardTraceLocatesFirstDivergence(t *testing.T) {
 	if len(gotRecords) != len(refRecords) {
 		t.Fatalf("trace record count: got %d want %d", len(gotRecords), len(refRecords))
 	}
-	firstDivergence := ""
 	for i := range gotRecords {
 		got := gotRecords[i]
 		ref := refRecords[i]
@@ -290,17 +286,15 @@ func TestOSCENoLACEForwardTraceLocatesFirstDivergence(t *testing.T) {
 			t.Fatalf("trace record %d shape mismatch: got stage=%d len=%d; want stage=%d len=%d",
 				i, got.Stage, len(got.Values), ref.Stage, len(ref.Values))
 		}
-		maxAbs, maxIdx, rms := compareFloat32(got.Values, ref.Values)
-		t.Logf("NoLACE trace %-14s maxAbs=%g idx=%d rms=%g", traceStageName(got.Stage), maxAbs, maxIdx, rms)
-		if firstDivergence == "" && (maxAbs > 1e-6 || rms > 1e-7) {
-			firstDivergence = traceStageName(got.Stage)
+		for j := range got.Values {
+			gotBits, wantBits := math.Float32bits(got.Values[j]), math.Float32bits(ref.Values[j])
+			if gotBits != wantBits {
+				t.Fatalf("NoLACE first selected-C stage difference: stage=%s subframe=%d value=%d Go=%08x C=%08x",
+					traceStageName(got.Stage), got.Subframe, j, gotBits, wantBits)
+			}
 		}
 	}
-	if firstDivergence == "" {
-		t.Log("NoLACE trace is within captured-stage parity thresholds")
-	} else {
-		t.Logf("first captured NoLACE divergence: %s", firstDivergence)
-	}
+	t.Log("all captured NoLACE stages match selected libopus bit-for-bit")
 }
 
 var libopusOSCELACEForwardHelper libopustest.HelperCache
@@ -443,41 +437,6 @@ func verifyLibopusOSCEArch(arch int) error {
 	return nil
 }
 
-func compareFloat32(got, want []float32) (maxAbs float32, maxIdx int, rms float64) {
-	maxIdx = -1
-	var sumSq float64
-	for i := range got {
-		g := got[i]
-		w := want[i]
-		if math.IsNaN(float64(g)) && math.IsNaN(float64(w)) {
-			continue
-		}
-		if math.IsInf(float64(g), 0) || math.IsInf(float64(w), 0) {
-			if math.IsInf(float64(g), 1) && math.IsInf(float64(w), 1) {
-				continue
-			}
-			if math.IsInf(float64(g), -1) && math.IsInf(float64(w), -1) {
-				continue
-			}
-			return float32(math.Inf(1)), i, math.Inf(1)
-		}
-		d := g - w
-		ad := d
-		if ad < 0 {
-			ad = -ad
-		}
-		if ad > maxAbs {
-			maxAbs = ad
-			maxIdx = i
-		}
-		sumSq += float64(d) * float64(d)
-	}
-	if len(got) != 0 {
-		rms = math.Sqrt(sumSq / float64(len(got)))
-	}
-	return maxAbs, maxIdx, rms
-}
-
 func traceStageName(stage osceLACE.TraceStage) string {
 	switch stage {
 	case osceLACE.TraceStageInput:
@@ -516,8 +475,6 @@ func traceStageName(stage osceLACE.TraceStage) string {
 		return "cf1_gains_raw"
 	case osceLACE.TraceStageCF1KernelScaled:
 		return "cf1_kernel_scaled"
-	case osceLACE.TraceStageCF1GainsScaled:
-		return "cf1_gains_scaled"
 	case osceLACE.TraceStageNLPreemph:
 		return "nl_preemph"
 	case osceLACE.TraceStageNLLatent:

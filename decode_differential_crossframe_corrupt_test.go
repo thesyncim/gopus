@@ -19,6 +19,7 @@ package gopus
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"testing"
 
@@ -154,9 +155,19 @@ func runCrossFrameCorruptCases(t *testing.T, cases []crossFrameCorruptCase) {
 					continue
 				}
 				want := oracleResultToFloat32(format, or)
+				if len(gpcm) != len(want) {
+					t.Errorf("%s: PCM length gopus=%d libopus=%d packet=% x", label, len(gpcm), len(want), c.packet)
+					continue
+				}
 				worst := malformedPCMWorst(format, gpcm, want)
 				if worst > malformedPCMGrossTol {
 					t.Errorf("%s: gross PCM divergence (worst |Δ|=%g, tol=%g) on accepted packet=% x", label, worst, malformedPCMGrossTol, c.packet)
+				}
+				if format == libopustest.DecodeDiffFormatInt24 {
+					malformedAssertInt24Raw(t, label, 48000, channels, diffCases[i], or)
+				} else if sample := malformedPCMFirstBitMismatch(gpcm, want); sample >= 0 {
+					t.Errorf("%s: PCM sample %d bits=%08x want=%08x packet=% x", label, sample,
+						math.Float32bits(gpcm[sample]), math.Float32bits(want[sample]), c.packet)
 				}
 			}
 		}
@@ -315,9 +326,17 @@ func TestDecodeDifferentialFECOnCorruptLBRR(t *testing.T) {
 				continue
 			}
 			want := or.Float32()
+			if len(gpcm) != len(want) {
+				t.Errorf("%s: FEC PCM length gopus=%d libopus=%d packet=% x", label, len(gpcm), len(want), pkt)
+				continue
+			}
 			worst := malformedPCMWorst(libopustest.DecodeDiffFormatFloat32, gpcm, want)
 			if worst > malformedPCMGrossTol {
 				t.Errorf("%s: FEC gross PCM divergence (worst |Δ|=%g, tol=%g) packet=% x", label, worst, malformedPCMGrossTol, pkt)
+			}
+			if sample := malformedPCMFirstBitMismatch(gpcm, want); sample >= 0 {
+				t.Errorf("%s: FEC PCM sample %d bits=%08x want=%08x packet=% x", label, sample,
+					math.Float32bits(gpcm[sample]), math.Float32bits(want[sample]), pkt)
 			}
 		}
 	}

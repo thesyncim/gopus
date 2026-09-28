@@ -18,8 +18,8 @@
 package gopus
 
 import (
-	"encoding/hex"
 	"fmt"
+	"math"
 	"math/rand"
 	"testing"
 
@@ -140,30 +140,13 @@ func mutatePacket(rng *rand.Rand, src []byte) []byte {
 	}
 }
 
-// knownMalformedPCMDivergences pins corrupt packets for which gopus and libopus
-// both ACCEPT (same return code, same sample count, no panic) but the decoded
-// PCM values differ by more than malformedPCMGrossTol. These would be byte-value
-// differences on deliberately corrupted input where neither decoder's output is
-// "correct"; they are NOT accept/reject or safety divergences (those are always
-// hard-failed below).
-//
-// The map is empty: every malformed packet in the sweep stays within
-// malformedPCMGrossTol, including mode-crossed payloads whose CELT half starts past the end of the
-// storage and therefore decodes as a silence frame on top of a large carried
-// overlap tail.
-var knownMalformedPCMDivergences = map[string]bool{}
-
-// malformedPCMGrossTol is the float32-scale per-sample bound above which a PCM
-// difference on a corrupt-but-accepted packet is treated as a real decode
-// mistake rather than ULP amplification. Clean (valid) packets are held to the
-// tight per-arch budget by the encode-then-decode sweep; this looser bound is
-// for deliberately corrupted input only, where a 1-ULP predictor difference can
-// be amplified by the unstable filters that garbage drives.
+// malformedPCMGrossTol identifies large differences for an additional
+// diagnostic. Every defined accepted sample also has an exact-bit assertion.
 const malformedPCMGrossTol = 0.05
 
-// malformedPCMWorst returns the worst per-sample |Δ| in float32 scale, skipping
-// int24 conversion-overflow samples (|x|>=256) where both libopus lrintf and Go
-// int32() casts are implementation-defined.
+// malformedPCMWorst returns a coarse waveform diagnostic. The exact int24 gate
+// compares the original integer outputs, including magnitudes this diagnostic
+// excludes.
 func malformedPCMWorst(format uint32, got, want []float32) float32 {
 	if len(got) != len(want) {
 		return float32(1e9)
@@ -181,13 +164,51 @@ func malformedPCMWorst(format uint32, got, want []float32) float32 {
 	return worst
 }
 
+// malformedPCMFirstBitMismatch compares float and int16 normalized outputs.
+// Int24 uses malformedAssertInt24Raw so float32 normalization cannot erase bits.
+func malformedPCMFirstBitMismatch(got, want []float32) int {
+	for i := range got {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			return i
+		}
+	}
+	return -1
+}
+
+func malformedAssertInt24Raw(t *testing.T, label string, sampleRate, channels int, c libopustest.DecodeDiffCase, want libopustest.DecodeDiffResult) {
+	t.Helper()
+	dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+	if err != nil {
+		t.Fatalf("%s: NewDecoder: %v", label, err)
+	}
+	frameSize := int(c.FrameSize)
+	if frameSize == 0 {
+		frameSize = 5760
+	}
+	buf := make([]int32, frameSize*channels)
+	n, err := dec.DecodeInt24(c.Packet, buf)
+	if err != nil || int32(n) != want.Code {
+		t.Fatalf("%s: raw DecodeInt24 samples=%d err=%v, C=%d", label, n, err, want.Code)
+	}
+	gotPCM, wantPCM := buf[:n*channels], want.Int24()
+	if len(gotPCM) != len(wantPCM) {
+		t.Fatalf("%s: raw int24 length=%d want %d", label, len(gotPCM), len(wantPCM))
+	}
+	for i := range gotPCM {
+		if gotPCM[i] != wantPCM[i] {
+			t.Errorf("%s: raw int24 sample %d=%08x want=%08x packet=% x", label, i,
+				uint32(gotPCM[i]), uint32(wantPCM[i]), c.Packet)
+			break
+		}
+	}
+}
+
 // TestDecodeDifferentialMalformed mutates valid packets and asserts gopus and
 // libopus agree on accept-vs-reject and (when both accept) identical PCM.
 //
 // The accept/reject parity, sample-count parity, and no-panic invariants are
 // HARD failures (they are the security-critical robustness contract). PCM-value
-// equality on packets both decoders accept is also enforced, except for the
-// documented knownMalformedPCMDivergences corrupt inputs.
+// equality on packets both decoders accept is enforced for defined output.
 func TestDecodeDifferentialMalformed(t *testing.T) {
 	libopustest.RequireOracle(t)
 	if _, err := libopustest.DecodeDiffHelperPath(); err != nil {
@@ -258,31 +279,29 @@ func TestDecodeDifferentialMalformed(t *testing.T) {
 					continue
 				}
 
-				// ---- PCM-value parity (allowing documented corrupt residuals) ----
-				// On deliberately corrupted input the two decoders may differ by
-				// more than the clean per-arch ULP budget: a 1-ULP difference in a
-				// predictor (e.g. SILK stereo MS->LR, CELT energy) gets amplified by
-				// the unstable filters that garbage drives. That is expected and not
-				// a bug. We therefore gate the malformed PCM only against GROSS
-				// divergence (the signature of a real decode mistake, e.g. the
-				// mode-crossed Hybrid case that produced ~60x full scale), while the
-				// security-critical invariants above stay bit-strict.
+				// Retain the gross-difference diagnostic and compare every defined
+				// accepted sample against the selected C decoder's exact output.
 				want := oracleResultToFloat32(format, or)
+				if len(gpcm) != len(want) {
+					t.Errorf("%s: PCM length gopus=%d libopus=%d packet=% x", label, len(gpcm), len(want), m)
+					continue
+				}
 				worst := malformedPCMWorst(format, gpcm, want)
 				if worst > malformedPCMGrossTol {
 					pcmDiverged++
-					if knownMalformedPCMDivergences[hex.EncodeToString(m)] {
-						t.Logf("%s: known corrupt-input gross PCM residual (allow-listed, worst |Δ|=%g) packet=% x",
-							label, worst, m)
-					} else {
-						t.Errorf("%s: UNEXPECTED gross PCM divergence (worst |Δ|=%g, tol=%g) on accepted packet=% x",
-							label, worst, malformedPCMGrossTol, m)
-					}
+					t.Errorf("%s: gross PCM divergence (worst |Δ|=%g, tol=%g) on accepted packet=% x",
+						label, worst, malformedPCMGrossTol, m)
+				}
+				if format == libopustest.DecodeDiffFormatInt24 {
+					malformedAssertInt24Raw(t, label, 48000, channels, cases[i], or)
+				} else if sample := malformedPCMFirstBitMismatch(gpcm, want); sample >= 0 {
+					t.Errorf("%s: PCM sample %d bits=%08x want=%08x packet=% x", label, sample,
+						math.Float32bits(gpcm[sample]), math.Float32bits(want[sample]), m)
 				}
 			}
 		}
 	}
-	t.Logf("malformed sweep: %d cases, %d PCM-value divergence(s) (all allow-listed corrupt-input residuals)", totalCases, pcmDiverged)
+	t.Logf("malformed sweep: %d cases, %d gross PCM divergence(s)", totalCases, pcmDiverged)
 }
 
 // safeGopusDecode wraps gopusDecodeProbe and converts a panic into an error so a
