@@ -31,6 +31,7 @@ type CustomEncoder struct {
 	mode     *CustomMode
 	channels int
 	enc      *celt.Encoder
+	fixed    fixedCustomEncoder
 
 	// CTL state mirroring libopus encoder_ctl fields.
 	bitrate    int
@@ -40,6 +41,20 @@ type CustomEncoder struct {
 	cvbr       bool
 	prediction int
 	packetLoss int
+}
+
+type fixedCustomEncoder interface {
+	encodeFloat([]float32, int) ([]byte, error)
+	encodeShort([]int16, int) ([]byte, error)
+	reset()
+	finalRange() uint32
+	setComplexity(int)
+	setBitrate(int)
+	setVBR(bool)
+	setConstrainedVBR(bool)
+	setPrediction(int)
+	setLSBDepth(int)
+	setPacketLoss(int)
 }
 
 // NewEncoder creates a new CustomEncoder for the given mode and channel count.
@@ -56,6 +71,17 @@ func NewEncoder(mode *CustomMode, channels int) (*CustomEncoder, error) {
 	}
 	if !mode.nativeSupported() {
 		return nil, ErrInvalidBandCount
+	}
+	fixed, err := newFixedCustomEncoder(mode, channels)
+	if err != nil {
+		return nil, err
+	}
+	if fixed != nil {
+		return &CustomEncoder{
+			mode: mode, channels: channels, fixed: fixed,
+			bitrate: bitrateMax, complexity: 9, lsbDepth: 16,
+			prediction: 2,
+		}, nil
 	}
 
 	enc := celt.NewEncoder(channels)
@@ -114,6 +140,10 @@ func (ce *CustomEncoder) Reset() {
 	if ce == nil {
 		return
 	}
+	if ce.fixed != nil {
+		ce.fixed.reset()
+		return
+	}
 	ce.enc.Reset()
 }
 
@@ -147,6 +177,9 @@ func (ce *CustomEncoder) EncodeFloat(pcm []float32, maxBytes int) ([]byte, error
 	if maxBytes <= 0 {
 		return nil, ErrMaxBytes
 	}
+	if ce.fixed != nil {
+		return ce.fixed.encodeFloat(pcm, maxBytes)
+	}
 	ce.enc.SetMaxPayloadBytes(maxBytes)
 	return ce.enc.EncodeFrame(pcm, frameSize)
 }
@@ -162,6 +195,12 @@ func (ce *CustomEncoder) Encode(pcm []int16, maxBytes int) ([]byte, error) {
 	wantLen := ce.mode.FrameSize * ce.channels
 	if len(pcm) != wantLen {
 		return nil, ErrInputLength
+	}
+	if maxBytes <= 0 {
+		return nil, ErrMaxBytes
+	}
+	if ce.fixed != nil {
+		return ce.fixed.encodeShort(pcm, maxBytes)
 	}
 	f := make([]float32, len(pcm))
 	for i, v := range pcm {
@@ -182,6 +221,10 @@ func (ce *CustomEncoder) SetComplexity(c int) error {
 		return ErrBadArg
 	}
 	ce.complexity = c
+	if ce.fixed != nil {
+		ce.fixed.setComplexity(c)
+		return nil
+	}
 	ce.enc.SetComplexity(c)
 	return nil
 }
@@ -205,6 +248,10 @@ func (ce *CustomEncoder) SetBitrate(bps int) error {
 		return ErrBadArg
 	}
 	ce.bitrate = min(bps, 750000*ce.channels)
+	if ce.fixed != nil {
+		ce.fixed.setBitrate(ce.bitrate)
+		return nil
+	}
 	ce.enc.SetBitrate(ce.bitrate)
 	return nil
 }
@@ -224,6 +271,10 @@ func (ce *CustomEncoder) SetVBR(enabled bool) error {
 		return ErrEncoderNil
 	}
 	ce.vbr = enabled
+	if ce.fixed != nil {
+		ce.fixed.setVBR(enabled)
+		return nil
+	}
 	ce.enc.SetVBR(enabled)
 	return nil
 }
@@ -243,6 +294,10 @@ func (ce *CustomEncoder) SetConstrainedVBR(enabled bool) error {
 		return ErrEncoderNil
 	}
 	ce.cvbr = enabled
+	if ce.fixed != nil {
+		ce.fixed.setConstrainedVBR(enabled)
+		return nil
+	}
 	ce.enc.SetConstrainedVBR(enabled)
 	return nil
 }
@@ -265,6 +320,10 @@ func (ce *CustomEncoder) SetPrediction(mode int) error {
 		return ErrBadArg
 	}
 	ce.prediction = mode
+	if ce.fixed != nil {
+		ce.fixed.setPrediction(mode)
+		return nil
+	}
 	ce.enc.SetPrediction(mode)
 	return nil
 }
@@ -287,6 +346,10 @@ func (ce *CustomEncoder) SetLSBDepth(depth int) error {
 		return ErrBadArg
 	}
 	ce.lsbDepth = depth
+	if ce.fixed != nil {
+		ce.fixed.setLSBDepth(depth)
+		return nil
+	}
 	ce.enc.SetLSBDepth(depth)
 	return nil
 }
@@ -309,6 +372,10 @@ func (ce *CustomEncoder) SetPacketLoss(lossPercent int) error {
 		return ErrBadArg
 	}
 	ce.packetLoss = lossPercent
+	if ce.fixed != nil {
+		ce.fixed.setPacketLoss(lossPercent)
+		return nil
+	}
 	ce.enc.SetPacketLoss(lossPercent)
 	return nil
 }
@@ -326,6 +393,9 @@ func (ce *CustomEncoder) PacketLoss() int {
 func (ce *CustomEncoder) FinalRange() uint32 {
 	if ce == nil {
 		return 0
+	}
+	if ce.fixed != nil {
+		return ce.fixed.finalRange()
 	}
 	return ce.enc.FinalRange()
 }

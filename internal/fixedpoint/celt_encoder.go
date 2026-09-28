@@ -55,6 +55,7 @@ type CELTEncoder struct {
 	// complexity / lsbDepth mirror st->complexity / st->lsb_depth.
 	complexity int
 	lsbDepth   int
+	lossRate   int32
 
 	// SilkInfo and prediction controls mirror CELTEncoder state in
 	// celt/celt_encoder.c. signalType and offset are opus_int32 fields; the
@@ -262,6 +263,10 @@ const opusBitrateMax = -1
 
 // SetComplexity sets st->complexity (OPUS_SET_COMPLEXITY_REQUEST).
 func (e *CELTEncoder) SetComplexity(c int) { e.complexity = c }
+
+// SetPacketLoss mirrors OPUS_SET_PACKET_LOSS_PERC for the CELT prefilter and
+// coarse energy decisions in celt/celt_encoder.c.
+func (e *CELTEncoder) SetPacketLoss(percent int) { e.lossRate = int32(percent) }
 
 // SetBitrate sets st->bitrate in bits/s (OPUS_SET_BITRATE_REQUEST).
 func (e *CELTEncoder) SetBitrate(b int) { e.bitrate = b }

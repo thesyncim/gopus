@@ -362,7 +362,7 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 		}
 	}
 	QuantCoarseEnergy(enc, bandLogE, e.oldBandE, errBuf, start, end, effEnd, nbEBands, C, LM,
-		totalBits, nbAvailableBytes, e.forceIntra, e.complexity >= 4, 0, e.lfe, &e.delayedIntra, sc)
+		totalBits, nbAvailableBytes, e.forceIntra, e.complexity >= 4, int(e.lossRate), e.lfe, &e.delayedIntra, sc)
 
 	TFEncode(start, end, isTransient, tfRes, LM, tfSelect, enc)
 
@@ -836,7 +836,7 @@ func (e *CELTEncoder) runPrefilter(in []int32, CC, N, overlap int, enabled bool,
 		PrefilterTapset:         e.prefilterTapset,
 		Scale:                   e.qextScale,
 		PrefilterTapsetDecision: e.spreading.TapsetDecision,
-		LossRate:                0,
+		LossRate:                int(e.lossRate),
 		AnalysisValid:           e.analysis.Valid,
 		MaxPitchRatio:           e.analysis.MaxPitchRatio,
 	}, sc)

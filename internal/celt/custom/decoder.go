@@ -22,9 +22,17 @@ type CustomDecoder struct {
 	mode     *CustomMode
 	channels int
 	dec      *celt.Decoder
+	fixed    fixedCustomDecoder
 
 	// CTL state.
 	complexity int
+}
+
+type fixedCustomDecoder interface {
+	decodeFloat([]byte, int) ([]float32, error)
+	decodeShort([]byte, int) ([]int16, error)
+	reset()
+	finalRange() uint32
 }
 
 // NewDecoder creates a new CustomDecoder for the given mode and channel count.
@@ -41,6 +49,13 @@ func NewDecoder(mode *CustomMode, channels int) (*CustomDecoder, error) {
 	}
 	if !mode.nativeSupported() {
 		return nil, ErrInvalidBandCount
+	}
+	fixed, err := newFixedCustomDecoder(mode, channels)
+	if err != nil {
+		return nil, err
+	}
+	if fixed != nil {
+		return &CustomDecoder{mode: mode, channels: channels, fixed: fixed, complexity: 9}, nil
 	}
 
 	dec := celt.NewDecoder(channels)
@@ -81,6 +96,10 @@ func (cd *CustomDecoder) Reset() {
 	if cd == nil {
 		return
 	}
+	if cd.fixed != nil {
+		cd.fixed.reset()
+		return
+	}
 	cd.dec.Reset()
 }
 
@@ -113,6 +132,9 @@ func (cd *CustomDecoder) DecodeFloat(data []byte, frameSize int) ([]float32, err
 	if !cd.mode.isValidDecodeSize(frameSize) {
 		return nil, ErrInvalidFrameSize
 	}
+	if cd.fixed != nil {
+		return cd.fixed.decodeFloat(data, frameSize)
+	}
 	return cd.dec.DecodeFrame(data, frameSize)
 }
 
@@ -121,6 +143,15 @@ func (cd *CustomDecoder) DecodeFloat(data []byte, frameSize int) ([]float32, err
 //
 // Reference: libopus include/opus_custom.h opus_custom_decode().
 func (cd *CustomDecoder) Decode(data []byte, frameSize int) ([]int16, error) {
+	if cd == nil {
+		return nil, ErrDecoderNil
+	}
+	if frameSize <= 0 || !cd.mode.isValidDecodeSize(frameSize) {
+		return nil, ErrInvalidFrameSize
+	}
+	if cd.fixed != nil {
+		return cd.fixed.decodeShort(data, frameSize)
+	}
 	f, err := cd.DecodeFloat(data, frameSize)
 	if err != nil {
 		return nil, err
@@ -157,6 +188,9 @@ func (cd *CustomDecoder) SetComplexity(c int) error {
 		return ErrBadArg
 	}
 	cd.complexity = c
+	if cd.fixed != nil {
+		return nil
+	}
 	return cd.dec.SetComplexity(c)
 }
 
@@ -173,6 +207,9 @@ func (cd *CustomDecoder) Complexity() int {
 func (cd *CustomDecoder) FinalRange() uint32 {
 	if cd == nil {
 		return 0
+	}
+	if cd.fixed != nil {
+		return cd.fixed.finalRange()
 	}
 	return cd.dec.FinalRange()
 }
