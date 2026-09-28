@@ -42,7 +42,7 @@ func (d *Decoder) DecodeToInt24(data []byte, frameSize int) ([]int32, error) {
 func (d *Decoder) decodeProjectionInt24FromFloat(data []byte, frameSize int) ([]int32, error) {
 	rows := d.outputChannels
 	cols := d.projectionCols
-	if rows <= 0 || cols <= 0 || cols > rows {
+	if rows <= 0 || cols <= 0 {
 		return nil, ErrInvalidProjectionMatrix
 	}
 	source := d.outputScratchFor(frameSize * rows)

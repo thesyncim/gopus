@@ -47,7 +47,7 @@ func (d *Decoder) SetProjectionDemixingMatrix(matrix []byte) error {
 func (d *Decoder) applyProjectionDemixing32(output []float32, frameSize int) {
 	rows := d.outputChannels
 	cols := d.projectionCols
-	if len(d.projectionDemixing) == 0 || cols <= 0 || rows <= 0 || cols > rows {
+	if len(d.projectionDemixing) == 0 || cols <= 0 || rows <= 0 {
 		return
 	}
 
@@ -60,7 +60,7 @@ func (d *Decoder) applyProjectionDemixing32(output []float32, frameSize int) {
 func (d *Decoder) applyProjectionDemixingInt16(output []int16, input []float32, frameSize int) {
 	rows := d.outputChannels
 	cols := d.projectionCols
-	if len(d.projectionDemixing) == 0 || cols <= 0 || rows <= 0 || cols > rows {
+	if len(d.projectionDemixing) == 0 || cols <= 0 || rows <= 0 {
 		copy(output, float32ToInt16(input))
 		return
 	}

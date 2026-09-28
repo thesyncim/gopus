@@ -7,7 +7,7 @@ func applyProjectionDemixingResInt24(dst []int32, src []int32, matrix []int16, f
 	clear(dst[:frameSize*rows])
 	for sample := range frameSize {
 		base := sample * rows
-		for col := range cols {
+		for col := range min(rows, cols) {
 			input := int64(src[base+col])
 			matrixCol := matrix[col*rows : col*rows+rows]
 			for row, coeff := range matrixCol {

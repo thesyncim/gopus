@@ -132,7 +132,7 @@ func applyProjectionDemixingResFloat32(dst []float32, src []int32, matrix []int1
 	const coeffScale = float32(1.0 / 32768.0)
 	for sample := range frameSize {
 		base := sample * rows
-		for col := range cols {
+		for col := range min(rows, cols) {
 			input := float32(src[base+col]) * projectionFixedResToFloat32
 			matrixCol := matrix[col*rows : col*rows+rows]
 			for row, coeff := range matrixCol {
@@ -153,7 +153,7 @@ func applyProjectionDemixingResInt16(dst []int16, src []int32, matrix []int16, f
 	clear(dst[:frameSize*rows])
 	for sample := range frameSize {
 		base := sample * rows
-		for col := range cols {
+		for col := range min(rows, cols) {
 			input := int32(fixedpoint.Res2Int16(src[base+col]))
 			matrixCol := matrix[col*rows : col*rows+rows]
 			for row, coeff := range matrixCol {
