@@ -1355,6 +1355,12 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	overlap := min(e.analysisOverlap(), frameSize)
 
 	s := &e.scratch
+	if e.complexity >= 4 {
+		// quant_coarse_energy() in celt/quant_bands.c saves the trial's
+		// packet bytes. Reserve the base-packet bound so varying VBR budgets
+		// reuse the snapshot storage throughout the encoder's lifetime.
+		s.coarseIntraState.ReserveBufferCapacity(celtPacketSizeCap)
+	}
 
 	// Carve the frameSize-dependent float-family scratch from one contiguous
 	// arena first; the per-field sizing below reslices/clears within each slot.
