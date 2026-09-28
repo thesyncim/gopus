@@ -5,6 +5,8 @@ package gopus
 import (
 	"math"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestDecoderOSCEFloatToInt16MatchesLibopusScaleOutput(t *testing.T) {
@@ -27,27 +29,33 @@ func TestDecoderOSCEFloatToInt16MatchesLibopusScaleOutput(t *testing.T) {
 	}
 }
 
-// TestDecoderOSCELACECrossFadeTransition exercises the LACE/NoLACE
-// <-> non-LACE transition cross-fade. It decodes a SILK WB packet (LACE
-// active), then a Hybrid SWB packet (LACE inactive), then another SILK WB
-// packet (LACE active again, triggering the cross-fade on the way in), and
-// verifies that:
+// TestDecoderOSCELACECrossFadeTransition exercises LACE state across
+// SILK-containing packets. It verifies that:
 //
 //   - Each decode completes without error and returns the expected sample
 //     count.
-//   - The LACE-active state is tracked across transitions
-//     (entering LACE on the first SILK WB frame, leaving on Hybrid, and
-//     re-entering on the second SILK WB frame so the cross-fade runs).
+//   - The LACE-active state remains set across SILK WB and Hybrid frames,
+//     while the Hybrid frame consumes the pending reset cross-fade.
 //   - The PCM output contains no NaN/Inf samples and stays inside the
 //     [-1.5, 1.5] envelope -- the cross-fade is a weighted sum of two
 //     bounded signals so it cannot produce wild discontinuities.
-//   - The cross-fade boundary at the start of the LACE re-entry frame
-//     does not introduce step discontinuities larger than the in-frame
-//     dynamic range.
-func TestDecoderOSCELACECrossFadeTransition(t *testing.T) {
+//   - The cross-fade boundary at the start of the Hybrid frame does not
+//     introduce a step discontinuity larger than the in-frame dynamic range.
+func osceLACETransitionPackets(t *testing.T) [][]byte {
+	t.Helper()
+	const frameSize = 960
+	return [][]byte{
+		makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband),
+		makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthSuperwideband),
+		makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband),
+		makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband),
+	}
+}
+
+func newOSCELACETransitionTestDecoder(t *testing.T) *Decoder {
+	t.Helper()
 	coreBlob := requireLibopusDecoderNeuralModelBlob(t)
 	laceBlob := requireLibopusOSCELACEModelBlob(t)
-
 	merged := make([]byte, 0, len(coreBlob)+len(laceBlob))
 	merged = append(merged, coreBlob...)
 	merged = append(merged, laceBlob...)
@@ -66,23 +74,25 @@ func TestDecoderOSCELACECrossFadeTransition(t *testing.T) {
 		t.Fatalf("SetDNNBlob(merged core+LACE): %v", err)
 	}
 	if !dec.osceLACEModelLoadedRuntime() {
-		t.Fatalf("decoder did not bind OSCE LACE runtime model after SetDNNBlob")
+		t.Fatal("decoder did not bind OSCE LACE runtime model after SetDNNBlob")
 	}
+	return dec
+}
 
+func TestDecoderOSCELACECrossFadeTransition(t *testing.T) {
 	const frameSize = 960 // 20 ms @ 48 kHz
-	silkWBA := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
-	hybridSWB := makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthSuperwideband)
-	silkWBB := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
-	silkWBC := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
+	packets := osceLACETransitionPackets(t)
+	silkWBA, hybridSWB, silkWBB, silkWBC := packets[0], packets[1], packets[2], packets[3]
+	dec := newOSCELACETransitionTestDecoder(t)
 
 	pcmA := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
 	pcmB := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
 	pcmC := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
 	pcmD := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
 
-	// Step 1: SILK WB -- LACE active. prevLACEActive must transition to
-	// true. libopus keeps this first eligible frame raw after reset and
-	// leaves one reset frame pending for the next eligible frame.
+	// Step 1: SILK WB -- LACE active. prevLACEActive transitions to true.
+	// libopus keeps this first eligible frame raw after reset and leaves one
+	// reset frame pending for the next SILK-containing frame.
 	gotA, err := dec.Decode(silkWBA, pcmA)
 	if err != nil {
 		t.Fatalf("Decode(silk WB #1): %v", err)
@@ -97,8 +107,8 @@ func TestDecoderOSCELACECrossFadeTransition(t *testing.T) {
 		t.Fatalf("reset countdown after first SILK WB=%d want 1", dec.osceLACE.laceResetFrames[0])
 	}
 
-	// Step 2: Hybrid SWB -- LACE inactive. prevLACEActive must clear so
-	// that the next SILK WB packet starts from libopus reset semantics again.
+	// Step 2: Hybrid SWB still decodes a 16 kHz SILK low band. Its LACE
+	// transition consumes the pending 10 ms cross-fade.
 	gotB, err := dec.Decode(hybridSWB, pcmB)
 	if err != nil {
 		t.Fatalf("Decode(hybrid SWB): %v", err)
@@ -106,12 +116,15 @@ func TestDecoderOSCELACECrossFadeTransition(t *testing.T) {
 	if gotB != frameSize {
 		t.Fatalf("Decode(hybrid SWB) returned %d samples, want %d", gotB, frameSize)
 	}
-	if dec.osceLACE != nil && dec.osceLACE.prevLACEActive {
-		t.Fatalf("prevLACEActive=true after Hybrid SWB decode (LACE should be inactive)")
+	if dec.osceLACE == nil || !dec.osceLACE.prevLACEActive {
+		t.Fatal("Hybrid SWB did not retain active LACE state for its SILK low band")
+	}
+	if dec.osceLACE.laceResetFrames[0] != 0 {
+		t.Fatalf("reset countdown after Hybrid SWB=%d want 0 after the LACE cross-fade", dec.osceLACE.laceResetFrames[0])
 	}
 
-	// Step 3: SILK WB again -- LACE active but still raw because reset just
-	// restarted after the Hybrid bypass.
+	// Step 3: SILK WB again continues the same active LACE stream without
+	// restarting the reset/cross-fade sequence.
 	gotC, err := dec.Decode(silkWBB, pcmC)
 	if err != nil {
 		t.Fatalf("Decode(silk WB #2): %v", err)
@@ -122,12 +135,12 @@ func TestDecoderOSCELACECrossFadeTransition(t *testing.T) {
 	if dec.osceLACE == nil || !dec.osceLACE.prevLACEActive {
 		t.Fatalf("prevLACEActive=false after SILK WB transition (LACE should be active)")
 	}
-	if dec.osceLACE.laceResetFrames[0] != 1 {
-		t.Fatalf("reset countdown after SILK re-entry=%d want 1", dec.osceLACE.laceResetFrames[0])
+	if dec.osceLACE.laceResetFrames[0] != 0 {
+		t.Fatalf("reset countdown after SILK continuation=%d want 0", dec.osceLACE.laceResetFrames[0])
 	}
 
-	// Step 4: consecutive SILK WB -- reset reaches the libopus cross-fade
-	// frame and then clears.
+	// Step 4: consecutive SILK WB continues with LACE after the reset
+	// cross-fade was consumed by the Hybrid frame.
 	gotD, err := dec.Decode(silkWBC, pcmD)
 	if err != nil {
 		t.Fatalf("Decode(silk WB #3): %v", err)
@@ -136,7 +149,7 @@ func TestDecoderOSCELACECrossFadeTransition(t *testing.T) {
 		t.Fatalf("Decode(silk WB #3) returned %d samples, want %d", gotD, frameSize)
 	}
 	if dec.osceLACE.laceResetFrames[0] != 0 {
-		t.Fatalf("reset countdown after SILK cross-fade=%d want 0", dec.osceLACE.laceResetFrames[0])
+		t.Fatalf("reset countdown after SILK continuation=%d want 0", dec.osceLACE.laceResetFrames[0])
 	}
 
 	checkPCMSane := func(t *testing.T, name string, pcm []float32, n int) {
@@ -162,12 +175,10 @@ func TestDecoderOSCELACECrossFadeTransition(t *testing.T) {
 	checkPCMSane(t, "silk WB #2", pcmC, gotC)
 	checkPCMSane(t, "silk WB #3", pcmD, gotD)
 
-	// Sanity: the LACE cross-fade region (first 480 samples of the SILK
-	// re-entry frame at 48 kHz, derived from the first 160 samples of the
-	// 16 kHz native lowband which the silk_resampler upsamples) should be
-	// continuous. We measure the maximum absolute sample-to-sample step
-	// in the cross-fade window and compare it against the overall in-frame
-	// max step; the boundary step must not exceed the in-frame maximum.
+	// Sanity: the LACE cross-fade region (first 480 samples of the Hybrid
+	// frame at 48 kHz, derived from the first 160 samples of the 16 kHz
+	// native lowband which the silk_resampler upsamples) should be continuous.
+	// The boundary step must not exceed the in-frame maximum.
 	maxStep := func(pcm []float32, start, end int) float32 {
 		var m float32
 		for i := start + 1; i < end; i++ {
@@ -181,10 +192,70 @@ func TestDecoderOSCELACECrossFadeTransition(t *testing.T) {
 		}
 		return m
 	}
-	xfadeStepC := maxStep(pcmC, 0, 480)
-	fullStepC := maxStep(pcmC, 0, gotC)
-	if xfadeStepC > fullStepC+1e-3 {
-		t.Fatalf("LACE re-entry cross-fade produced step %v exceeding in-frame max %v", xfadeStepC, fullStepC)
+	xfadeStepB := maxStep(pcmB, 0, 480)
+	fullStepB := maxStep(pcmB, 0, gotB)
+	if xfadeStepB > fullStepB+1e-3 {
+		t.Fatalf("Hybrid LACE cross-fade produced step %v exceeding in-frame max %v", xfadeStepB, fullStepB)
+	}
+}
+
+// TestDecoderOSCELACEHybridTransitionMatchesSelectedLibopus checks the
+// transition against the matching OSCE-enabled libopus build. The C
+// silk/decode_frame.c success path calls osce_enhance_frame for Hybrid frames
+// after decoding their 16 kHz SILK low band.
+func TestDecoderOSCELACEHybridTransitionMatchesSelectedLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	binPath, err := getLibopusOSCEDecodeSingleHelperPath()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "OSCE decode single", err)
+	}
+
+	const (
+		sampleRate = 48000
+		frameSize  = 960
+	)
+	packets := osceLACETransitionPackets(t)
+	libopusPCM, err := runLibopusOSCEDecodeSingle(binPath, sampleRate, 1, frameSize, 6, false, packets)
+	if err != nil {
+		t.Fatalf("selected libopus OSCE decode (complexity 6): %v", err)
+	}
+	libopusWithoutLACE, err := runLibopusOSCEDecodeSingle(binPath, sampleRate, 1, frameSize, 5, false, packets)
+	if err != nil {
+		t.Fatalf("selected libopus OSCE decode (complexity 5): %v", err)
+	}
+	wantSamples := frameSize * len(packets)
+	if len(libopusPCM) != wantSamples || len(libopusWithoutLACE) != wantSamples {
+		t.Fatalf("selected libopus samples: LACE=%d NoLACE=%d want %d each", len(libopusPCM), len(libopusWithoutLACE), wantSamples)
+	}
+
+	const hybridFrame = 1
+	changedHybridSamples := 0
+	for i := hybridFrame * frameSize; i < (hybridFrame+1)*frameSize; i++ {
+		if math.Float32bits(libopusPCM[i]) != math.Float32bits(libopusWithoutLACE[i]) {
+			changedHybridSamples++
+		}
+	}
+	if changedHybridSamples == 0 {
+		t.Fatal("selected libopus LACE output did not change any Hybrid SWB samples")
+	}
+	t.Logf("selected libopus LACE changes %d/%d Hybrid SWB samples", changedHybridSamples, frameSize)
+
+	dec := newOSCELACETransitionTestDecoder(t)
+	pcm := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
+	for frame, packet := range packets {
+		got, err := dec.Decode(packet, pcm)
+		if err != nil {
+			t.Fatalf("Decode packet %d: %v", frame, err)
+		}
+		if got != frameSize {
+			t.Fatalf("Decode packet %d returned %d samples, want %d", frame, got, frameSize)
+		}
+		for sample := 0; sample < frameSize; sample++ {
+			index := frame*frameSize + sample
+			if gotBits, wantBits := math.Float32bits(pcm[sample]), math.Float32bits(libopusPCM[index]); gotBits != wantBits {
+				t.Fatalf("packet %d sample %d: Go=%08x selected libopus=%08x", frame, sample, gotBits, wantBits)
+			}
+		}
 	}
 }
 

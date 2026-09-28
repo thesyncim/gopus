@@ -111,7 +111,7 @@ func TestStreamOSCELACEOutputResetMatchesLibopusSequence(t *testing.T) {
 	}
 }
 
-func TestStreamOSCEInactiveMarkClearsNonSILKState(t *testing.T) {
+func TestStreamOSCECELTMarkPreservesSILKState(t *testing.T) {
 	st := &streamState{
 		channels:   2,
 		sampleRate: 48000,
@@ -123,19 +123,27 @@ func TestStreamOSCEInactiveMarkClearsNonSILKState(t *testing.T) {
 			},
 		},
 	}
-	st.osceState.laceResetFrames[0] = 2
+	st.osceState.laceResetFrames[0] = 1
 	st.osceState.laceResetFrames[1] = 2
 
+	// libopus src/opus_decoder.c::opus_decode_frame skips its SILK block for
+	// MODE_CELT_ONLY, so the per-SILK OSCE state remains untouched by this frame.
 	st.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeCELT, bandwidth: 4, stereo: true}, make([]float32, 960*2), 960)
 
-	if st.osceState.prevLACEActive {
-		t.Fatal("CELT transition left LACE active")
+	if !st.osceState.prevLACEActive {
+		t.Fatal("CELT-only frame cleared the retained SILK LACE state")
 	}
 	if st.osceState.prevBWEActive {
 		t.Fatal("CELT transition left BWE active")
 	}
-	if st.osceState.laceMethod != streamOSCELACEModeNone {
-		t.Fatalf("laceMethod=%v want none", st.osceState.laceMethod)
+	if st.osceState.laceMethod != streamOSCELACEModeLACE {
+		t.Fatalf("CELT-only frame changed laceMethod=%v want LACE", st.osceState.laceMethod)
+	}
+	if got, want := st.osceState.laceResetFrames, [2]int{1, 2}; got != want {
+		t.Fatalf("CELT-only frame changed LACE reset countdowns=%v want %v", got, want)
+	}
+	if st.osceState.prevExtendedMode != bweModeCeltOnly {
+		t.Fatalf("previous OSCE extended mode=%v want CELT-only", st.osceState.prevExtendedMode)
 	}
 }
 
