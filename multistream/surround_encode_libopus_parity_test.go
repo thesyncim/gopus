@@ -12,8 +12,8 @@ import (
 var surroundRefencodeHelper libopustest.HelperCache
 
 // surroundEncodeRef holds the result of driving libopus
-// opus_multistream_surround_encoder_create + opus_multistream_encode_float
-// through the refencode_multistream C helper.
+// opus_multistream_surround_encoder_create and the matching float or short
+// encode entry point through the refencode_multistream C helper.
 type surroundEncodeRef struct {
 	streams        int
 	coupledStreams int
@@ -25,6 +25,28 @@ type surroundEncodeRef struct {
 // encodeLibopusSurround runs the libopus surround encoder oracle for the given
 // parameters and PCM (interleaved float32, frameCount frames of frameSize each).
 func encodeLibopusSurround(sampleRate, channels, mappingFamily, application int, bitrate int, vbr, vbrConstraint bool, complexity, bandwidth, frameSize, frameCount, maxPacketBytes int, pcm []float32, dtx bool) (*surroundEncodeRef, error) {
+	return encodeLibopusSurroundFormat(sampleRate, channels, mappingFamily, application,
+		bitrate, vbr, vbrConstraint, complexity, bandwidth, frameSize, frameCount,
+		maxPacketBytes, 0, pcm, nil, dtx)
+}
+
+// encodeLibopusSurroundInt16 calls opus_multistream_encode with the exact short
+// input passed to the Go public EncodeInt16 entry point.
+func encodeLibopusSurroundInt16(sampleRate, channels, mappingFamily, application int, bitrate int, vbr, vbrConstraint bool, complexity, bandwidth, frameSize, frameCount, maxPacketBytes int, pcm []int16, dtx bool) (*surroundEncodeRef, error) {
+	return encodeLibopusSurroundFormat(sampleRate, channels, mappingFamily, application,
+		bitrate, vbr, vbrConstraint, complexity, bandwidth, frameSize, frameCount,
+		maxPacketBytes, 1, nil, pcm, dtx)
+}
+
+func encodeLibopusSurroundFormat(sampleRate, channels, mappingFamily, application int, bitrate int, vbr, vbrConstraint bool, complexity, bandwidth, frameSize, frameCount, maxPacketBytes, sampleFormat int, pcm32 []float32, pcm16 []int16, dtx bool) (*surroundEncodeRef, error) {
+	wantSamples := frameCount * frameSize * channels
+	if frameCount <= 0 || frameSize <= 0 || channels <= 0 ||
+		(sampleFormat == 0 && (len(pcm32) != wantSamples || len(pcm16) != 0)) ||
+		(sampleFormat == 1 && (len(pcm16) != wantSamples || len(pcm32) != 0)) ||
+		(sampleFormat != 0 && sampleFormat != 1) {
+		return nil, fmt.Errorf("surround oracle input format=%d float samples=%d short samples=%d want %d",
+			sampleFormat, len(pcm32), len(pcm16), wantSamples)
+	}
 	binPath, err := surroundRefencodeHelper.Path(func() (string, error) {
 		return buildMultistreamReferenceHelper(libopustest.CHelperConfig{
 			Label:       "multistream surround reference encode",
@@ -61,10 +83,16 @@ func encodeLibopusSurround(sampleRate, channels, mappingFamily, application int,
 		uint32(frameSize),
 		uint32(frameCount),
 		uint32(maxPacketBytes),
-		0, // SAMPLE_FORMAT_FLOAT32
+		uint32(sampleFormat),
 		boolU32(dtx),
 	)
-	payload.Float32s(pcm...)
+	if sampleFormat == 1 {
+		for _, sample := range pcm16 {
+			payload.I16(sample)
+		}
+	} else {
+		payload.Float32s(pcm32...)
+	}
 
 	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "multistream surround reference encode", "GMEO", 3)
 	if err != nil {
