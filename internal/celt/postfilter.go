@@ -11,8 +11,10 @@ const (
 )
 
 func (d *Decoder) qextDecodeScale() int {
-	if d.sampleRate == 96000 && d.synthOverlap == 240 {
-		return 2
+	if extsupport.QEXT && d.sampleRate == 96000 {
+		if d.customScaleBase == 180 || d.customScaleBase == 240 || d.customScaleBase == 0 && d.synthOverlap == 240 {
+			return 2
+		}
 	}
 	return 1
 }

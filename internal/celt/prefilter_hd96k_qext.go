@@ -44,9 +44,15 @@ func combFilterWithInputSigQEXT(dst, src []celtSig, start, t0, t1, n int, g0, g1
 		return
 	}
 
-	newWindow := make([]float32, overlap2)
-	phaseIn := make([]float32, combFilterMaxPeriod+n2)
-	phaseOut := make([]float32, n2)
+	// modes.c caps custom frames at 2048 samples with QEXT; native 96 kHz
+	// CELT frames have at most 1920. Keep the temporary phase arrays on the
+	// stack, as comb_filter_qext does, including the 120-point phase window.
+	var windowStorage [120]float32
+	var inputStorage [combFilterMaxPeriod + 1024]float32
+	var outputStorage [1024]float32
+	newWindow := windowStorage[:overlap2]
+	phaseIn := inputStorage[:combFilterMaxPeriod+n2]
+	phaseOut := outputStorage[:n2]
 
 	for s := 0; s < 2; s++ {
 		for i := 0; i < overlap2; i++ {

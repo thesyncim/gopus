@@ -189,61 +189,66 @@ func TestOracleWideBandStatefulParity(t *testing.T) {
 	refs := runCustomSequenceOracle(t, cases)
 	for caseIndex, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			mode, err := custom.NewMode(tc.fs, tc.frameSize)
-			if err != nil {
-				t.Fatal(err)
-			}
-			enc, err := custom.NewEncoder(mode, tc.channels)
-			if err != nil {
-				t.Fatal(err)
-			}
-			dec, err := custom.NewDecoder(mode, tc.channels)
-			if err != nil {
-				t.Fatal(err)
-			}
-			dec16, err := custom.NewDecoder(mode, tc.channels)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for frame, rec := range tc.records {
-				ref := refs[caseIndex][frame]
-				if rec.op == customResetFrame {
-					enc.Reset()
-					dec.Reset()
-					dec16.Reset()
-				}
-				if rec.op != customLostFrame {
-					packet, err := enc.EncodeFloat(rec.pcm, tc.maxBytes)
-					if err != nil {
-						t.Fatal(err)
-					}
-					if !bytes.Equal(packet, ref.packet) || enc.FinalRange() != ref.encRange {
-						t.Fatalf("frame %d packets/ranges differ: Go=%x/%08x C=%x/%08x", frame, packet, enc.FinalRange(), ref.packet, ref.encRange)
-					}
-				}
-				// C-produced packets isolate decoder behavior from the Go encoder.
-				pcm, err := dec.DecodeFloat(ref.packet, tc.frameSize)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if len(pcm) != len(ref.pcm) || dec.FinalRange() != ref.decRange {
-					t.Fatalf("frame %d float count/range=%d/%08x want %d/%08x", frame, len(pcm), dec.FinalRange(), len(ref.pcm), ref.decRange)
-				}
-				assertCustomDecodeExact(t, fmt.Sprintf("frame %d", frame), pcm, ref.pcm)
-				pcm16, err := dec16.Decode(ref.packet, tc.frameSize)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if len(pcm16) != len(ref.pcm16) || dec16.FinalRange() != ref.intRange {
-					t.Fatalf("frame %d int16 count/range=%d/%08x want %d/%08x", frame, len(pcm16), dec16.FinalRange(), len(ref.pcm16), ref.intRange)
-				}
-				for i, got := range pcm16 {
-					if got != ref.pcm16[i] {
-						t.Fatalf("frame %d int16[%d]=%d want %d", frame, i, got, ref.pcm16[i])
-					}
-				}
-			}
+			assertCustomSequenceParity(t, tc, refs[caseIndex])
 		})
+	}
+}
+
+func assertCustomSequenceParity(t *testing.T, tc customSequenceCase, refs []customSequenceResult) {
+	t.Helper()
+	mode, err := custom.NewMode(tc.fs, tc.frameSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc, err := custom.NewEncoder(mode, tc.channels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec, err := custom.NewDecoder(mode, tc.channels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec16, err := custom.NewDecoder(mode, tc.channels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for frame, rec := range tc.records {
+		ref := refs[frame]
+		if rec.op == customResetFrame {
+			enc.Reset()
+			dec.Reset()
+			dec16.Reset()
+		}
+		if rec.op != customLostFrame {
+			packet, err := enc.EncodeFloat(rec.pcm, tc.maxBytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(packet, ref.packet) || enc.FinalRange() != ref.encRange {
+				t.Fatalf("frame %d packets/ranges differ: Go=%x/%08x C=%x/%08x", frame, packet, enc.FinalRange(), ref.packet, ref.encRange)
+			}
+		}
+		// C-produced packets isolate decoder behavior from the Go encoder.
+		pcm, err := dec.DecodeFloat(ref.packet, tc.frameSize)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(pcm) != len(ref.pcm) || dec.FinalRange() != ref.decRange {
+			t.Fatalf("frame %d float count/range=%d/%08x want %d/%08x", frame, len(pcm), dec.FinalRange(), len(ref.pcm), ref.decRange)
+		}
+		assertCustomDecodeExact(t, fmt.Sprintf("frame %d", frame), pcm, ref.pcm)
+		pcm16, err := dec16.Decode(ref.packet, tc.frameSize)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(pcm16) != len(ref.pcm16) || dec16.FinalRange() != ref.intRange {
+			t.Fatalf("frame %d int16 count/range=%d/%08x want %d/%08x", frame, len(pcm16), dec16.FinalRange(), len(ref.pcm16), ref.intRange)
+		}
+		for i, got := range pcm16 {
+			if got != ref.pcm16[i] {
+				t.Fatalf("frame %d int16[%d]=%d want %d", frame, i, got, ref.pcm16[i])
+			}
+		}
 	}
 }
 

@@ -1270,14 +1270,13 @@ func (e *Encoder) allocationScratch() []int32 {
 	return ensureInt32Slice(&e.scratch.allocWork, nb*4)
 }
 
-// combScale returns the comb-filter period scale for the active mode. It is
-// QEXT_SCALE (2) at the native 96 kHz HD mode and 1 otherwise. In the default
-// build hd96kOverlap is always 0, so this is a constant 1 (zero-cost).
-//
-// C ref: celt_encoder.c run_prefilter() max_period = QEXT_SCALE(COMBFILTER_MAXPERIOD).
+// combScale matches celt_encoder.c opus_custom_encoder_init_arch: QEXT doubles
+// pitch history for 96 kHz modes with 180- or 240-sample short transforms.
 func (e *Encoder) combScale() int {
-	if e.customScaleBase == 0 && e.hd96kOverlap > 0 && e.sampleRate == 96000 {
-		return 2
+	if extsupport.QEXT && e.sampleRate == 96000 {
+		if e.customScaleBase == 180 || e.customScaleBase == 240 || e.customScaleBase == 0 && e.hd96kOverlap == 240 {
+			return 2
+		}
 	}
 	return 1
 }

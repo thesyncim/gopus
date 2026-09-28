@@ -67,6 +67,7 @@ func (d *Decoder) applyHD96kPostfilterMono(samples []float32, frameSize, lm int,
 	if len(qs.hd96kPostMem) < hd96kCombHistory*channels {
 		qs.hd96kPostMem = make([]float32, hd96kCombHistory*channels)
 	}
+	d.syncHD96kPostfilterAfterLoss(qs.hd96kPostMem, channels)
 	hist := qs.hd96kPostMem[:hd96kCombHistory]
 	d.hd96kPostfilterChannel(samples[:frameSize], hist, frameSize, lm, newPeriod, newGain, newTapset)
 	d.commitHD96kPostfilterState(lm, newPeriod, newGain, newTapset)
@@ -79,11 +80,25 @@ func (d *Decoder) applyHD96kPostfilterStereoPlanar(left, right []float32, frameS
 	if len(qs.hd96kPostMem) < hd96kCombHistory*2 {
 		qs.hd96kPostMem = make([]float32, hd96kCombHistory*2)
 	}
+	d.syncHD96kPostfilterAfterLoss(qs.hd96kPostMem, 2)
 	histL := qs.hd96kPostMem[:hd96kCombHistory]
 	histR := qs.hd96kPostMem[hd96kCombHistory : 2*hd96kCombHistory]
 	d.hd96kPostfilterChannel(left[:frameSize], histL, frameSize, lm, newPeriod, newGain, newTapset)
 	d.hd96kPostfilterChannel(right[:frameSize], histR, frameSize, lm, newPeriod, newGain, newTapset)
 	d.commitHD96kPostfilterState(lm, newPeriod, newGain, newTapset)
+}
+
+// CELT uses the same synthesis delay line for concealed and received frames.
+// Copy its concealed tail into the QEXT phase history before recovery filtering.
+func (d *Decoder) syncHD96kPostfilterAfterLoss(hist []float32, channels int) {
+	if d.plcLossDuration == 0 {
+		return
+	}
+	d.materializePLCDecodeHistory()
+	n := d.plcDecodeBufferLen()
+	for ch := range channels {
+		copy(hist[ch*hd96kCombHistory:(ch+1)*hd96kCombHistory], d.plcDecodeMem[(ch+1)*n-hd96kCombHistory:(ch+1)*n])
+	}
 }
 
 func (d *Decoder) commitHD96kPostfilterState(lm int, newPeriod int, newGain float32, newTapset int) {
