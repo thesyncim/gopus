@@ -34,7 +34,8 @@ var ErrInvalidLSBDepth = errors.New("multistream: invalid LSB depth (must be 8-2
 //
 // Reference: RFC 7845 Section 5.1.1
 type Encoder struct {
-	// sampleRate is the input sample rate (8000, 12000, 16000, 24000, or 48000 Hz).
+	// sampleRate is the input sample rate (8000, 12000, 16000, 24000, or 48000 Hz;
+	// 96000 Hz is available in gopus_qext builds).
 	sampleRate int32
 
 	// inputChannels is the total number of input channels (1-255).
@@ -109,9 +110,6 @@ type Encoder struct {
 	// packetParser holds reusable parse/build working buffers for the
 	// self-delimited reframing of the first N-1 stream packets.
 	packetParser packetScratch
-
-	// hd96k owns reusable packet storage for native 96 kHz CELT streams.
-	hd96k encoderHD96kState
 }
 
 const surroundBands = 21
@@ -178,7 +176,8 @@ func inferLFEStream(mappingFamily, channels, streams int) int {
 // NewEncoder creates a new multistream encoder.
 //
 // Parameters:
-//   - sampleRate: input sample rate (8000, 12000, 16000, 24000, or 48000 Hz)
+//   - sampleRate: input sample rate (8000, 12000, 16000, 24000, or 48000 Hz;
+//     96000 Hz is available in gopus_qext builds)
 //   - channels: total input channels (1-255)
 //   - streams: total elementary streams (N, 1-255)
 //   - coupledStreams: number of coupled stereo streams (M, 0 to streams)
@@ -305,7 +304,8 @@ func NewEncoderDefault(sampleRate, channels int) (*Encoder, error) {
 // NewEncoderAmbisonics creates a new multistream encoder for ambisonics audio.
 //
 // Parameters:
-//   - sampleRate: input sample rate (8000, 12000, 16000, 24000, or 48000 Hz)
+//   - sampleRate: input sample rate (8000, 12000, 16000, 24000, or 48000 Hz;
+//     96000 Hz is available in gopus_qext builds)
 //   - channels: total input channels (valid ambisonics count: 1, 4, 6, 9, 11, 16, 18, 25, 27...)
 //   - mappingFamily: 2 for ACN/SN3D (mostly mono), 3 for projection (paired stereo)
 //

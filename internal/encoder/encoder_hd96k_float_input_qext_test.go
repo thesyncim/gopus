@@ -30,7 +30,7 @@ func TestNativeHD96kFloatCELTInputMatchesSelectedLibopus(t *testing.T) {
 				libopustest.HelperUnavailable(t, "native 96 kHz float CELT input", err)
 				return
 			}
-			e := NewEncoder(48000, 2)
+			e := NewEncoder(96000, 2)
 			e.SetMode(ModeCELT)
 			e.SetBandwidth(types.BandwidthFullband)
 			e.SetBitrateMode(ModeVBR)
@@ -58,10 +58,12 @@ func TestNativeHD96kFloatCELTInputMatchesSelectedLibopus(t *testing.T) {
 						frame, e.streamChannels, e.celtEncoder.Bitrate(), e.celtEncoder.LSBDepth(), wantMaxBytes,
 						ref.CELTStream, ref.CELTBitrate, ref.CELTLSBDepth, ref.CELTMaxBytes)
 				}
-				got := e.scratchInputPCM[:frameSize*2]
+				// CELTFrameTrace records the pcm_buf argument to the main CELT call.
+				// delayCompensatedPCM retains that same staged frame in this route.
+				got := e.scratchDelayedPCM[:frameSize*2]
 				for i := range got {
 					if math.Float32bits(got[i]) != math.Float32bits(ref.CELTInput[i]) {
-						t.Fatalf("frame %d CELT input first diff sample=%d Go=%08x C=%08x values=%g/%g",
+						t.Fatalf("frame %d staged CELT input first diff sample=%d Go=%08x C=%08x values=%g/%g",
 							frame, i, math.Float32bits(got[i]), math.Float32bits(ref.CELTInput[i]), got[i], ref.CELTInput[i])
 					}
 				}

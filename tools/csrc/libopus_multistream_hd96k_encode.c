@@ -21,7 +21,7 @@
 
 #define INPUT_MAGIC "GM96"
 #define OUTPUT_MAGIC "GMSO"
-#define FRAME_CAPACITY 1920
+#define FRAME_CAPACITY 11520
 #define CHANNEL_CAPACITY 2
 #define SAMPLE_CAPACITY (FRAME_CAPACITY * CHANNEL_CAPACITY)
 #define PACKET_CAPACITY 3825
@@ -80,9 +80,9 @@ int main(void) {
 
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0 ||
-      !read_u32(&version) || version != 2 || !read_u32(&qext) || qext > 1 ||
+      !read_u32(&version) || version != 3 || !read_u32(&qext) || qext > 1 ||
       !read_u32(&frame_size) || (frame_size != 240 && frame_size != 480 &&
-          frame_size != 960 && frame_size != FRAME_CAPACITY) ||
+          frame_size != 960 && frame_size != 1920 && frame_size != 3840) ||
       !read_u32(&frame_count) || frame_count == 0 || frame_count > 16 ||
       !read_u32(&packet_capacity) || packet_capacity < 3 || packet_capacity > PACKET_CAPACITY ||
       !read_u32(&bitrate_u32) || !read_u32(&complexity) || complexity > 10 ||
@@ -129,6 +129,11 @@ int main(void) {
   }
 
   for (i = 0; i < frame_count; i++) {
+    uint32_t frame_budget;
+    if (!read_u32(&frame_budget) || frame_budget < 2*streams-1 || frame_budget > packet_capacity) {
+      opus_multistream_encoder_destroy(enc);
+      return 6;
+    }
     size_t input_samples = (size_t)frame_size * channels;
     if (format == 0) {
       for (size_t j = 0; j < input_samples; j++) {
@@ -150,9 +155,9 @@ int main(void) {
 
     int n = format == 0 ?
         opus_multistream_encode_float(enc, pcm_f32, (int)frame_size, packet,
-            (opus_int32)packet_capacity) :
+            (opus_int32)frame_budget) :
         opus_multistream_encode(enc, pcm_i16, (int)frame_size, packet,
-            (opus_int32)packet_capacity);
+            (opus_int32)frame_budget);
     opus_uint32 range = 0;
     int packet_samples;
     if (n <= 0) {

@@ -263,6 +263,9 @@ func (e *Encoder) encodeFrameNative(pcm []opusRes, req frameRequest) (codedFrame
 	// CELT controls of every frame.
 	if !e.restrictedSilkApp {
 		e.ensureCELTEncoder()
+		if mode != ModeCELT {
+			e.setCELTQEXTEnabled(false)
+		}
 		e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(currBW))
 		e.celtEncoder.SetStreamChannels(int(streamChannels))
 		e.celtEncoder.SetBitrate(celt.BitrateMax)
@@ -491,6 +494,7 @@ func (e *Encoder) prefillCELTOnModeSwitch(mode, prevMode Mode) bool {
 	if mode == prevMode || !isConcreteMode(prevMode) || e.lowDelay {
 		return false
 	}
+	e.setCELTQEXTEnabled(false)
 	e.celtEncoder.Reset()
 	n4 := int(e.sampleRate) / 400
 	if src := e.celtTransitionPrefillSource(n4 * int(e.channels)); src != nil {
@@ -506,6 +510,7 @@ func (e *Encoder) prefillCELTOnModeSwitch(mode, prevMode Mode) bool {
 // the current CELT controls into its own range coder, redundancyBytes long,
 // and returns a copy that outlives the next CELT encode.
 func (e *Encoder) encodeRedundantCELTFrame(pcm []opusRes, pcmQ8 []int32, n, redundancyBytes int, hybrid, analysis bool) ([]byte, uint32, error) {
+	e.setCELTQEXTEnabled(false)
 	e.celtEncoder.SetMaxPayloadBytes(redundancyBytes)
 	if len(pcmQ8) == n*int(e.channels) {
 		if data, finalRange, ok, err := e.encodeRedundantCELTFrameFixed(pcmQ8, n,
@@ -529,6 +534,7 @@ func (e *Encoder) encodeRedundantCELTFrame(pcm []opusRes, pcmQ8 []int32, n, redu
 // integer CELT encoder under the gopus_fixed_point build, the float one
 // otherwise.
 func (e *Encoder) encodeCELTOnlyFrame(pcm []opusRes, frameSize, nbComprBytes int, prefilled, fixedReady bool) ([]byte, error) {
+	e.setCELTQEXTEnabled(extsupport.QEXT && e.qextActive())
 	e.celtEncoder.SetMaxPayloadBytes(nbComprBytes)
 	defer e.celtEncoder.SetMaxPayloadBytes(0)
 	if fixedReady {
@@ -685,8 +691,12 @@ func (e *Encoder) applyGainFade(samples []opusRes, g1, g2 opusVal16) {
 	channels := int(e.channels)
 	frameSize := len(samples) / channels
 	inc := max(48000/int(e.sampleRate), 1)
-	overlap := min(celt.Overlap/inc, frameSize)
-	window := celt.GetWindowBufferF32(celt.Overlap)
+	overlapSize := celt.Overlap
+	if e.sampleRate == 96000 {
+		overlapSize = 240
+	}
+	overlap := min(overlapSize/inc, frameSize)
+	window := celt.GetWindowBufferF32(overlapSize)
 	for i := range overlap {
 		w := opusVal16(window[i*inc])
 		w = round32(w * w)
@@ -708,8 +718,12 @@ func (e *Encoder) applyStereoFade(samples []opusRes, widthQ14Prev, widthQ14 int1
 	g1 := 1 - opusVal16(widthQ14Prev)*(1.0/16384)
 	g2 := 1 - opusVal16(widthQ14)*(1.0/16384)
 	inc := max(48000/int(e.sampleRate), 1)
-	overlap := min(celt.Overlap/inc, frameSize)
-	window := celt.GetWindowBufferF32(celt.Overlap)
+	overlapSize := celt.Overlap
+	if e.sampleRate == 96000 {
+		overlapSize = 240
+	}
+	overlap := min(overlapSize/inc, frameSize)
+	window := celt.GetWindowBufferF32(overlapSize)
 	for i := range overlap {
 		// opus_encoder.c stereo_fade rounds w*w and the first gain product;
 		// the second product is added with the target's natural contraction.

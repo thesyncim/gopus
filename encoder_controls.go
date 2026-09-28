@@ -176,14 +176,16 @@ func (e *Encoder) ExpertFrameDuration() ExpertFrameDuration {
 	return e.expertFrameDuration
 }
 
-// SetFrameSize sets the frame size in samples at 48kHz.
+// SetFrameSize sets the frame size in samples at the API rate. At 96 kHz the
+// wrapper retains a 48 kHz-equivalent count while the core receives native Fs.
 //
-// Valid sizes depend on the encoding mode:
+// At 48 kHz, valid sizes depend on the encoding mode:
 //   - SILK: 480, 960, 1920, 2880, 3840, 4800, 5760 (10-120 ms)
 //   - CELT: 120, 240, 480, 960, 1920, 2880, 3840, 4800, 5760
 //   - Hybrid: 480, 960, 1920, 2880, 3840, 4800, 5760
 //
-// Default is 960 (20ms).
+// For a 96 kHz API-rate encoder, use twice these sample counts.
+// Default is 960 samples at 48 kHz (20 ms), or 1920 at 96 kHz.
 func (e *Encoder) SetFrameSize(samples int) error {
 	// At 96 kHz API rate, frame sizes are in 96 kHz samples (2x the 48 kHz size).
 	// Convert to the 48 kHz internal frame size before validation. At sub-48 kHz
@@ -196,13 +198,17 @@ func (e *Encoder) SetFrameSize(samples int) error {
 		return err
 	}
 	e.frameSize = int32(internal)
-	e.enc.SetFrameSize(internal)
+	coreFrameSize := internal
+	if e.is96kHz() {
+		coreFrameSize = samples
+	}
+	e.enc.SetFrameSize(coreFrameSize)
 	return nil
 }
 
-// internalSampleRate returns the sample rate of the internal encode pipeline:
-// the native API rate for 8/12/16/24/48 kHz, and 48 kHz for the 96 kHz API
-// (which decimates 2:1 at the input boundary).
+// internalSampleRate returns the sample rate used by the wrapper's frame-size
+// bookkeeping. The 96 kHz API stores a 48 kHz-equivalent count while the core
+// encoder retains native 96 kHz state.
 func (e *Encoder) internalSampleRate() int {
 	if e.is96kHz() {
 		return 48000

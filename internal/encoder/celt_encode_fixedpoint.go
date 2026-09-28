@@ -73,8 +73,6 @@ type fixedCELTState struct {
 	enc          *fixedpoint.CELTEncoder
 	channels     int
 	modeFs       int32
-	hd96Delay    []int32
-	hd96Frame    []int32
 	pcm16        []int16
 	rng          *rangecoding.Encoder
 	lastQ8       []int32
@@ -85,11 +83,11 @@ type fixedCELTState struct {
 }
 
 // celtFixedUpsample mirrors celt_encoder_init's st->upsample =
-// resampling_factor(API sample rate): 1 at 48 kHz and 2/3/4/6 at 24/16/12/8 kHz.
+// resampling_factor(API sample rate): 1 at 48/96 kHz and 2/3/4/6 at 24/16/12/8 kHz.
 // 0 means an unsupported API rate.
 func (e *Encoder) celtFixedUpsample() int {
 	switch e.sampleRate {
-	case 48000:
+	case 96000, 48000:
 		return 1
 	case 24000:
 		return 2
@@ -117,11 +115,15 @@ func (e *Encoder) celtFixedFrameSizeInScope(frameSize int) bool {
 	if upsample == 0 {
 		return false
 	}
-	// The API-rate frameSize must upsample to a valid 48 kHz core block
-	// (shortMdctSize<<LM for LM 0..3, i.e. 120/240/480/960).
-	const shortMdctSize = 120
+	// The API-rate frameSize must upsample to a valid core block
+	// (shortMdctSize<<LM). Native 96 kHz CELT uses shortMdctSize=240 and
+	// supports blocks through 1920 samples; standard modes use 120 and 960.
+	shortMdctSize, maxCore := 120, 960
+	if e.sampleRate == 96000 {
+		shortMdctSize, maxCore = 240, 1920
+	}
 	core := frameSize * upsample
-	if core <= 0 || core > 960 || core%shortMdctSize != 0 {
+	if core <= 0 || core > maxCore || core%shortMdctSize != 0 {
 		return false
 	}
 	c := int(e.channels)
@@ -653,7 +655,6 @@ func (e *Encoder) resetFixedCELT() {
 	e.fixedFrameReady = false
 	e.fixedFrameCursor = 0
 	if e.fixedCELT != nil {
-		clear(e.fixedCELT.hd96Delay)
 		e.fixedCELT.enc = fixedpoint.NewCELTEncoderRate(e.fixedCELT.channels, int(e.fixedCELT.modeFs))
 	}
 }

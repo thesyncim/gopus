@@ -38,10 +38,8 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 	return copyEncodedPacket(packet, data)
 }
 
-// encode96k handles Encode for a 96 kHz API-rate Encoder. In a QEXT build,
-// supported audio CELT durations use the native 96 kHz mode; runtime QEXT
-// selects whether the extension payload is present. Application modes without
-// a native route use the 48 kHz compatibility path.
+// encode96k handles Encode for a 96 kHz API-rate Encoder. The selected QEXT
+// build routes native-rate PCM through the shared mode and history driver.
 func (e *Encoder) encode96k(pcm []float32, data []byte) (int, error) {
 	if len(data) == 0 {
 		return 0, ErrBufferTooSmall
@@ -49,22 +47,7 @@ func (e *Encoder) encode96k(pcm []float32, data []byte) (int, error) {
 	if n, handled, err := e.tryEncodeNative96k(pcm, data); handled {
 		return n, err
 	}
-	pcm48, frameSize48, err := e.checkAndDownsample96k(pcm)
-	if err != nil {
-		return 0, err
-	}
-	frameSize, err := selectExpertFrameSize(frameSize48, e.expertFrameDuration, e.application, 48000)
-	if err != nil {
-		return 0, err
-	}
-	inputSamples := frameSize * int(e.channels)
-
-	packet, err := e.enc.EncodeFloat32WithAnalysisMaxBytes(pcm48[:inputSamples], frameSize, pcm48, len(data))
-	if err != nil {
-		return 0, err
-	}
-
-	return copyEncodedPacket(packet, data)
+	return 0, ErrInvalidSampleRate
 }
 
 // EncodeInt16 encodes int16 PCM samples into an Opus packet.

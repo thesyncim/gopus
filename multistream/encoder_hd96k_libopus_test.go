@@ -47,7 +47,7 @@ func TestMultistreamNativeHD96kEncodeMatchesSelectedLibopus(t *testing.T) {
 		shortFrame = 1920
 	)
 	mono := multistreamHD96kLayout{name: "mono", channels: 1, streams: 1, mapping: []byte{0}}
-	for _, frameSize := range []int{240, 480, 960, 1920} {
+	for _, frameSize := range []int{240, 480, 960, 1920, 3840} {
 		for _, qext := range []bool{false, true} {
 			t.Run(frameSizeName(frameSize)+"/mono_float/qext_"+boolName(qext), func(t *testing.T) {
 				runMultistreamHD96kEncodeCase(t, mono, frameSize, qext, false, frameCount,
@@ -86,7 +86,7 @@ func runMultistreamHD96kEncodeCase(t *testing.T, layout multistreamHD96kLayout,
 		i16Frames = multistreamHD96kInt16Frames(f32Frames)
 	}
 	want, cSampleRate, cChannels, cStreams, cCoupled, cQEXT := encodeMultistreamHD96kWithLibopus(
-		t, layout, qext, int16Input, frameSize, packetCap, bitrate, complexity, f32Frames, i16Frames)
+		t, layout, qext, int16Input, frameSize, packetCap, bitrate, complexity, f32Frames, i16Frames, nil)
 	if cSampleRate != 96000 || cChannels != layout.channels || cStreams != layout.streams ||
 		cCoupled != layout.coupled || cQEXT != qext {
 		t.Fatalf("selected C encoder identity rate/channels/streams/coupled/QEXT=%d/%d/%d/%d/%t want 96000/%d/%d/%d/%t",
@@ -164,7 +164,7 @@ func runMultistreamHD96kEncodeCase(t *testing.T, layout multistreamHD96kLayout,
 
 func encodeMultistreamHD96kWithLibopus(t *testing.T, layout multistreamHD96kLayout,
 	qext, int16Input bool, frameSize, packetCap, bitrate, complexity int,
-	f32Frames [][]float32, i16Frames [][]int16,
+	f32Frames [][]float32, i16Frames [][]int16, budgets []int,
 ) ([]multistreamHD96kEncodedFrame, int, int, int, int, bool) {
 	t.Helper()
 	bin, err := multistreamHD96kEncodeHelper.Path(buildMultistreamHD96kEncodeHelper)
@@ -176,11 +176,16 @@ func encodeMultistreamHD96kWithLibopus(t *testing.T, layout multistreamHD96kLayo
 	if int16Input {
 		format = 1
 	}
-	payload := libopustest.NewOraclePayloadVersion("GM96", 2,
+	payload := libopustest.NewOraclePayloadVersion("GM96", 3,
 		boolU32(qext), uint32(frameSize), uint32(len(f32Frames)), uint32(packetCap),
 		uint32(bitrate), uint32(complexity), uint32(layout.channels),
 		uint32(layout.streams), uint32(layout.coupled), format)
 	for i := range f32Frames {
+		budget := packetCap
+		if budgets != nil {
+			budget = budgets[i]
+		}
+		payload.U32(uint32(budget))
 		if int16Input {
 			for _, sample := range i16Frames[i] {
 				payload.I16(sample)
@@ -280,6 +285,8 @@ func frameSizeName(frameSize int) string {
 		return "10ms"
 	case 1920:
 		return "20ms"
+	case 3840:
+		return "40ms"
 	default:
 		return "invalid"
 	}

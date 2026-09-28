@@ -305,6 +305,10 @@ type Encoder struct {
 func NewEncoder(sampleRate, channels int) *Encoder {
 	switch sampleRate {
 	case 8000, 12000, 16000, 24000, 48000:
+	case 96000:
+		if !extsupport.QEXT {
+			sampleRate = 48000
+		}
 	default:
 		sampleRate = 48000
 	}
@@ -964,7 +968,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		return nil, ErrEncodingFailed
 	}
 	// Just avoid insane packet sizes here; the per-frame caps apply later.
-	packetCapBytes := libopusMaxDataBytesCap * 6
+	packetCapBytes := e.maxOutputPacketBytes()
 	if maxDataBytes > packetCapBytes {
 		maxDataBytes = packetCapBytes
 	}
@@ -1049,7 +1053,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	effBitrate := int(encodingBitrate)
 	if cbrMaxDataBytes < 3 || effBitrate < 3*frameRate*8 ||
 		(frameRate < 50 && (cbrMaxDataBytes*frameRate < 300 || effBitrate < 2400)) {
-		pkt, err := e.emitLowSpacePacket(frameSize, maxDataBytes, cbrMaxDataBytes, effBitrate)
+		pkt, err := e.emitLowSpacePacket(sampleRate, frameSize, maxDataBytes, cbrMaxDataBytes, effBitrate)
 		if err != nil {
 			return nil, err
 		}
@@ -1463,8 +1467,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 // effBitrate is st->bitrate_bps after the CBR cbr_bytes clamp and the DRED
 // reservation; cbrMaxDataBytes is the CBR-clamped max_data_bytes (== outDataBytes
 // for VBR). outDataBytes is the original caller budget (curr_max).
-func (e *Encoder) emitLowSpacePacket(frameSize, outDataBytes, cbrMaxDataBytes, effBitrate int) ([]byte, error) {
-	sampleRate := int(e.sampleRate)
+func (e *Encoder) emitLowSpacePacket(sampleRate, frameSize, outDataBytes, cbrMaxDataBytes, effBitrate int) ([]byte, error) {
 	frameRate := sampleRate / frameSize
 	if frameRate <= 0 {
 		frameRate = 1
@@ -3129,6 +3132,7 @@ func (e *Encoder) celtUpsampleFactor() int {
 func (e *Encoder) ensureCELTEncoder() {
 	if e.celtEncoder == nil {
 		e.celtEncoder = celt.NewEncoder(int(e.channels))
+		configureCELTEncoderForSampleRate(e.celtEncoder, e.sampleRate)
 		e.celtEncoder.SetComplexity(int(e.complexity))
 		// Opus encoder already rounds input to the configured LSB depth.
 		e.celtEncoder.SetLSBQuantizationEnabled(false)
