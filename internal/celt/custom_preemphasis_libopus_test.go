@@ -13,10 +13,12 @@ var customPreemphasisHelper libopustest.HelperCache
 
 func TestCustomPreemphasisMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
-	helper, err := customPreemphasisHelper.CHelperPath(libopustest.CHelperConfig{
-		Label: "custom preemphasis", OutputBase: "gopus_custom_preemphasis", SourceFile: "libopus_celt_preemphasis_info.c",
-		CFlags: []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"}, RefIncludes: []string{"celt", "silk", "src"}, CustomRef: true,
-		Libs: []string{libopustest.CustomRefPath(".libs", "libopus.a"), "-lm"}, DeadStrip: true,
+	helper, err := customPreemphasisHelper.Path(func() (string, error) {
+		return buildCustomFloatKernelHelper(libopustest.CHelperConfig{
+			Label: "custom preemphasis", OutputBase: "gopus_custom_preemphasis", SourceFile: "libopus_celt_preemphasis_info.c",
+			CFlags: []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"}, RefIncludes: []string{"celt", "silk", "src"},
+			Libs: []string{"-lm"}, DeadStrip: true,
+		})
 	})
 	if err != nil {
 		libopustest.HelperUnavailable(t, "custom preemphasis", err)

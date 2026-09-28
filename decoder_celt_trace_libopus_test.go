@@ -37,13 +37,12 @@ type libopusCELTTrace struct {
 }
 
 func buildLibopusCELTTraceHelper() (string, error) {
-	return libopustest.BuildCHelper(libopustest.CHelperConfig{
+	return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
 		Label:       "CELT decode trace",
 		OutputBase:  "gopus_libopus_celt_trace",
 		SourceFile:  "libopus_celt_trace_single.c",
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
 		RefIncludes: []string{"src", "celt", "silk", "silk/float"},
-		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 		DeadStrip:   true,
 	})
 }

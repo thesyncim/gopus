@@ -617,13 +617,10 @@ func applyValinActivation(x []float32) {
 // ----------------------------------------------------------------------------
 
 // computeLinear evaluates a LinearLayer: out = W^T * in + bias. Mirrors
-// libopus `compute_linear_c` (dnn/nnet_arch.h): the float-weight path runs
-// `sgemv` (column-major W[j*N+i]), the int8 path runs `cgemv8x4` -- a packed
-// 8x4 block kernel where weights are laid out as consecutive 32-element
-// (8 rows by 4 cols) tiles iterating rows in groups of 8 then cols in groups
-// of 4. The int8 path quantises the input to signed int8 via
-// floor(0.5 + 127*x), accumulates as float multiplied by the int8 weight,
-// then scales each output row by `scale[i]` (per-row dequantisation).
+// libopus `compute_linear_c` and `dnn/nnet_arch.h`: float weights use the
+// column-major sgemv path; int8 weights use 8x4 tiles of 32 values, then scale
+// each output row. The selected AVX2 path uses fused sgemv, unsigned input
+// quantization and subias; scalar and NEON paths use their matching kernels.
 func computeLinear(layer *LinearLayer, out, in []float32) {
 	n := layer.NbOutputs
 	m := layer.NbInputs
@@ -632,26 +629,31 @@ func computeLinear(layer *LinearLayer, out, in []float32) {
 	case !layer.FloatWeights.Empty():
 		// Weight layout: rows = n outputs, cols = m inputs, col-major:
 		// weight(row, col) = w[col*n + row]. Mirrors libopus sgemv layout.
-		for i := range n {
-			var sum float32
-			if n == 1 {
-				// dnn/nnet_arch.h:compute_linear_c's scalar sgemv
-				// materializes products for the single-output gain layer.
-				for j := range m {
-					sum += roundMul32(layer.FloatWeights.At(j*n+i), in[j])
+		if dnnmath.X86VectorKernels {
+			dnnmath.SGEMVX86(out[:n], layer.FloatWeights, n, m, n, in[:m])
+		} else {
+			for i := range n {
+				var sum float32
+				if n == 1 {
+					// dnn/vec.h:sgemv accumulates each product into the
+					// running output. The selected scalar and NEON builds use
+					// different contraction behavior for this one-row tail.
+					for j := range m {
+						sum = accumulateLinearOne(sum, layer.FloatWeights.At(j*n+i), in[j])
+					}
+				} else {
+					for j := range m {
+						sum += layer.FloatWeights.At(j*n+i) * in[j]
+					}
 				}
-			} else {
-				for j := range m {
-					sum += layer.FloatWeights.At(j*n+i) * in[j]
-				}
+				out[i] = sum
 			}
-			out[i] = sum
 		}
 	case !layer.Weights.Empty():
-		// Quantised int8 path; mirrors libopus `cgemv8x4` from vec.h.
-		// USE_SU_BIAS is only enabled on AVX/AVX2 builds; the pure-Go
-		// reference matches the default scalar libopus build (signed
-		// int8 input quantisation, plain `bias`).
+		if dnnmath.X86VectorKernels {
+			// dnn/vec_avx.h defines USE_SU_BIAS for this path.
+			bias = layer.Subias
+		}
 		cgemv8x4(out[:n], layer.Weights, layer.Scale, n, m, in[:m])
 	default:
 		for i := range n {
@@ -686,18 +688,26 @@ func EvaluateLayerInt8(layer *LinearLayer, out, in []float32) {
 	}
 }
 
-// cgemv8x4 mirrors the scalar fallback in libopus dnn/vec.h. The weight
-// matrix is stored as a sequence of 8-row by 4-col tiles (32 int8 values per
-// tile) iterating cols of 4 within each row-of-8, then rows of 8. After
-// integer accumulation each row is multiplied by `scale[row]` to recover the
-// float-domain product. The input is symmetrically quantised to int8 via
-// floor(0.5 + 127*x) so the dynamic range matches the trained kernel.
+// cgemv8x4 dispatches to the selected AVX2 path when available; otherwise it
+// mirrors libopus's scalar 8x4 kernel. The scalar input uses
+// floor(0.5+127*x), while AVX2 uses its unsigned-byte pack sequence.
 //
 // Requires rows % 8 == 0 and cols % 4 == 0 (verified at model load time by
 // the libopus 1.6.1 BBWENet layer dimensions: every int8 layer satisfies
 // these constraints).
 func cgemv8x4(out []float32, weights dnnblob.Int8View, scale dnnblob.Float32View, rows, cols int, x []float32) {
 	const maxCols = 512
+	if dnnmath.X86VectorKernels {
+		if cols > maxCols {
+			for i := range rows {
+				out[i] = 0
+			}
+			return
+		}
+		var q [maxCols]uint8
+		dnnmath.CGEMV8x4X86(out, weights, scale, rows, cols, x, q[:cols])
+		return
+	}
 	var q [maxCols]int8
 	if cols > maxCols {
 		// Should never happen for BBWENet (max int8 cols is 384).
@@ -707,7 +717,7 @@ func cgemv8x4(out []float32, weights dnnblob.Int8View, scale dnnblob.Float32View
 		return
 	}
 	for i := range cols {
-		q[i] = dnnmath.Cgemv8x4QuantizeInputScalar(x[i])
+		q[i] = dnnmath.Cgemv8x4QuantizeInput(x[i])
 	}
 	for i := range rows {
 		out[i] = 0
@@ -744,9 +754,9 @@ func computeActivation(out, in []float32, n, activation int) {
 			copy(out[:n], in[:n])
 		}
 	case actSigmoid:
-		dnnmath.SigmoidVectorScalarApprox(out, in, n)
+		dnnmath.SigmoidVectorApprox(out, in, n)
 	case actTanh:
-		dnnmath.TanhVectorScalarApprox(out, in, n)
+		dnnmath.TanhVectorApprox(out, in, n)
 	case actRelu:
 		for i := range n {
 			v := in[i]
@@ -758,7 +768,7 @@ func computeActivation(out, in []float32, n, activation int) {
 	case actSoftmax:
 		dnnmath.SoftmaxApprox(out, in, n)
 	case actExp:
-		dnnmath.ExpVectorScalarApprox(out, in, n)
+		dnnmath.ExpVectorApprox(out, in, n)
 	default:
 		copy(out[:n], in[:n])
 	}
@@ -868,9 +878,9 @@ func adaconvProcessFrame(
 			for k := range kernelSize {
 				idx := (o*inChannels+ic)*kernelSize + k
 				v := kernelBuf[idx]
-				// dnn/nndsp.c:scale_kernel materializes squared kernel
-				// values before the ordered reduction.
-				norm += roundMul32(v, v)
+				// dnn/nndsp.c:scale_kernel accumulates kernel[k]*kernel[k]
+				// using the selected C compiler's contraction behavior.
+				norm = accumulateBWENorm(norm, v)
 			}
 		}
 		invNorm := scaleKernelInvNorm(norm)
@@ -994,7 +1004,7 @@ func adashapeProcessFrame(
 	}
 
 	// Apply exp activation in place, then modulate.
-	dnnmath.ExpVectorScalarApprox(outBuf[:frameSize], outBuf[:frameSize], frameSize)
+	dnnmath.ExpVectorApprox(outBuf[:frameSize], outBuf[:frameSize], frameSize)
 	for i := range frameSize {
 		xOut[i] = outBuf[i] * xIn[i]
 	}

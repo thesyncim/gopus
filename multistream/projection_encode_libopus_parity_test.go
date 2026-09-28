@@ -29,13 +29,15 @@ type projectionEncodeRef struct {
 // oracle drives opus_projection_encode; otherwise pcm32 is used with
 // opus_projection_encode_float.
 func encodeLibopusProjection(sampleRate, channels, application, bitrate int, vbr, vbrConstraint bool, complexity, bandwidth, frameSize, frameCount, maxPacketBytes, sampleFormat int, pcm32 []float32, pcm16 []int16) (*projectionEncodeRef, error) {
-	binPath, err := projectionEncodeHelper.CHelperPath(pairMultistreamReference(libopustest.CHelperConfig{
-		Label:      "projection reference encode",
-		OutputBase: "gopus_libopus_projection_encode_oracle",
-		SourceFile: "libopus_projection_encode_oracle.c",
-		CFlags:     []string{"-O3", "-DNDEBUG"},
-		Libs:       []string{"-lm"},
-	}))
+	binPath, err := projectionEncodeHelper.Path(func() (string, error) {
+		return buildMultistreamReferenceHelper(libopustest.CHelperConfig{
+			Label:      "projection reference encode",
+			OutputBase: "gopus_libopus_projection_encode_oracle",
+			SourceFile: "libopus_projection_encode_oracle.c",
+			CFlags:     []string{"-O3", "-DNDEBUG"},
+			Libs:       []string{"-lm"},
+		})
+	})
 	if err != nil {
 		return nil, err
 	}

@@ -3,10 +3,9 @@
 // oracle_test.go provides bit/sample-exact parity tests for the Opus Custom API
 // against a libopus build configured with --enable-custom-modes.
 //
-// The reference tree is built on demand by libopustest.BuildCHelper with
-// CustomRef set, which drives tools/ensure_libopus.sh LIBOPUS_ENABLE_CUSTOM=1
-// (-> tmp_check/opus-1.6.1-custom) and links the oracle against its
-// .libs/libopus.a. The oracle (tools/csrc/libopus_custom_oracle.c) creates an
+// The reference tree is built on demand by libopustest.BuildPublicAPIHelper
+// with the current custom feature and instruction configuration. The oracle
+// (tools/csrc/libopus_custom_oracle.c) creates an
 // OpusCustomMode for each (Fs, frame_size), encodes one frame, decodes the
 // resulting packet, and returns the packet bytes plus decoded PCM.
 //
@@ -34,15 +33,16 @@ var customOracleHelper libopustest.HelperCache
 // customOracleHelperPath builds (once) the C oracle linked against the
 // custom-modes libopus reference tree.
 func customOracleHelperPath() (string, error) {
-	return customOracleHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:       "opus custom",
-		OutputBase:  "gopus_libopus_custom",
-		SourceFile:  "libopus_custom_oracle.c",
-		CFlags:      []string{"-DHAVE_CONFIG_H", "-O2"},
-		RefIncludes: []string{"celt", "silk", "src", "include"},
-		Libs:        []string{libopustest.CustomRefPath(".libs", "libopus.a"), "-lm"},
-		CustomRef:   true,
-		DeadStrip:   true,
+	return customOracleHelper.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:       "opus custom",
+			OutputBase:  "gopus_libopus_custom",
+			SourceFile:  "libopus_custom_oracle.c",
+			CFlags:      []string{"-DHAVE_CONFIG_H", "-O2"},
+			RefIncludes: []string{"celt", "silk", "src", "include"},
+			Libs:        []string{"-lm"},
+			DeadStrip:   true,
+		})
 	})
 }
 

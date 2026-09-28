@@ -326,6 +326,71 @@ func TestValidateCustomReferenceBuildRequiresFeatureAndPairedISA(t *testing.T) {
 	}
 }
 
+func TestValidateCustomCombinedReferenceRequiresEveryFeatureAndPairedISA(t *testing.T) {
+	for _, arch := range []string{"arm64", "amd64"} {
+		for _, tc := range []struct {
+			variant, opposite, subset LibopusReferenceVariant
+			featureMacro, stampField  string
+		}{
+			{LibopusReferenceCustomQEXTScalar, LibopusReferenceCustomQEXTSIMD, LibopusReferenceCustomScalar, "#define ENABLE_QEXT 1\n", "qext=1\n"},
+			{LibopusReferenceCustomQEXTSIMD, LibopusReferenceCustomQEXTScalar, LibopusReferenceCustomSIMD, "#define ENABLE_QEXT 1\n", "qext=1\n"},
+			{LibopusReferenceCustomFixedScalar, LibopusReferenceCustomFixedSIMD, LibopusReferenceCustomScalar, "#define FIXED_POINT 1\n", "fixed=1\n"},
+			{LibopusReferenceCustomFixedSIMD, LibopusReferenceCustomFixedScalar, LibopusReferenceCustomSIMD, "#define FIXED_POINT 1\n", "fixed=1\n"},
+			{LibopusReferenceCustomFixedQEXTScalar, LibopusReferenceCustomFixedQEXTSIMD, LibopusReferenceCustomFixedScalar, "#define ENABLE_QEXT 1\n", "qext=1\n"},
+			{LibopusReferenceCustomFixedQEXTSIMD, LibopusReferenceCustomFixedQEXTScalar, LibopusReferenceCustomFixedSIMD, "#define ENABLE_QEXT 1\n", "qext=1\n"},
+		} {
+			t.Run(arch+"/"+string(tc.variant), func(t *testing.T) {
+				dir := writePairedReferenceTree(t, t.TempDir(), tc.variant, "linux", arch)
+				validate := func(v LibopusReferenceVariant) error {
+					return validateLibopusReferenceBuildForPlatform(dir, v, DefaultVersion, "linux", arch)
+				}
+				if err := validate(tc.variant); err != nil {
+					t.Fatal(err)
+				}
+				if err := validate(tc.opposite); err == nil {
+					t.Fatal("accepted the opposite instruction lane")
+				}
+				if err := validate(tc.subset); err == nil {
+					t.Fatal("accepted the custom-only feature subset")
+				}
+				configPath := filepath.Join(dir, "config.h")
+				config, err := os.ReadFile(configPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				withoutFeature := strings.Replace(string(config), tc.featureMacro, "", 1)
+				if withoutFeature == string(config) {
+					t.Fatalf("synthetic config lacks %q", tc.featureMacro)
+				}
+				if err := os.WriteFile(configPath, []byte(withoutFeature), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := validate(tc.variant); err == nil {
+					t.Fatal("accepted config without the combined feature")
+				}
+				if err := os.WriteFile(configPath, config, 0o644); err != nil {
+					t.Fatal(err)
+				}
+				stampPath := filepath.Join(dir, ".gopus-libopus-build")
+				stamp, err := os.ReadFile(stampPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				withoutFeature = strings.Replace(string(stamp), tc.stampField, strings.Replace(tc.stampField, "=1", "=0", 1), 1)
+				if withoutFeature == string(stamp) {
+					t.Fatalf("synthetic stamp lacks %q", tc.stampField)
+				}
+				if err := os.WriteFile(stampPath, []byte(withoutFeature), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := validate(tc.variant); err == nil {
+					t.Fatal("accepted stamp without the combined feature")
+				}
+			})
+		}
+	}
+}
+
 func TestValidateQEXTReferenceBuildRequiresFeatureAndPairedISA(t *testing.T) {
 	if runtime.GOARCH != "arm64" && runtime.GOARCH != "amd64" {
 		t.Skip("paired SIMD reference is defined for arm64 and amd64")
@@ -863,6 +928,41 @@ func writePairedReferenceTree(t *testing.T, root string, variant LibopusReferenc
 		configure = "--enable-static --disable-shared --enable-custom-modes --enable-rtcd --enable-intrinsics"
 		cflags = LibopusBaseCFLAGS
 		custom = "1"
+	case LibopusReferenceCustomQEXTScalar:
+		config = "#define CUSTOM_MODES 1\n#define ENABLE_QEXT 1\n"
+		configure = "--enable-static --disable-shared --enable-custom-modes --enable-qext --disable-asm --disable-rtcd --disable-intrinsics"
+		custom = "1"
+		qext = "1"
+	case LibopusReferenceCustomQEXTSIMD:
+		config = "#define CUSTOM_MODES 1\n#define ENABLE_QEXT 1\n" + testSIMDConfig(goarch)
+		configure = "--enable-static --disable-shared --enable-custom-modes --enable-qext --enable-rtcd --enable-intrinsics"
+		cflags = LibopusBaseCFLAGS
+		custom = "1"
+		qext = "1"
+	case LibopusReferenceCustomFixedScalar:
+		config = "#define CUSTOM_MODES 1\n#define FIXED_POINT 1\n#define ENABLE_RES24 1\n"
+		configure = "--enable-static --disable-shared --enable-custom-modes --enable-fixed-point --disable-asm --disable-rtcd --disable-intrinsics"
+		custom = "1"
+		fixed = "1"
+	case LibopusReferenceCustomFixedSIMD:
+		config = "#define CUSTOM_MODES 1\n#define FIXED_POINT 1\n#define ENABLE_RES24 1\n" + testSIMDConfig(goarch)
+		configure = "--enable-static --disable-shared --enable-custom-modes --enable-fixed-point --enable-rtcd --enable-intrinsics"
+		cflags = LibopusBaseCFLAGS
+		custom = "1"
+		fixed = "1"
+	case LibopusReferenceCustomFixedQEXTScalar:
+		config = "#define CUSTOM_MODES 1\n#define FIXED_POINT 1\n#define ENABLE_RES24 1\n#define ENABLE_QEXT 1\n"
+		configure = "--enable-static --disable-shared --enable-custom-modes --enable-fixed-point --enable-qext --disable-asm --disable-rtcd --disable-intrinsics"
+		custom = "1"
+		fixed = "1"
+		qext = "1"
+	case LibopusReferenceCustomFixedQEXTSIMD:
+		config = "#define CUSTOM_MODES 1\n#define FIXED_POINT 1\n#define ENABLE_RES24 1\n#define ENABLE_QEXT 1\n" + testSIMDConfig(goarch)
+		configure = "--enable-static --disable-shared --enable-custom-modes --enable-fixed-point --enable-qext --enable-rtcd --enable-intrinsics"
+		cflags = LibopusBaseCFLAGS
+		custom = "1"
+		fixed = "1"
+		qext = "1"
 	}
 	if err := os.WriteFile(filepath.Join(srcDir, "config.h"), []byte(config), 0o644); err != nil {
 		t.Fatal(err)

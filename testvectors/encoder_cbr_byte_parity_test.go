@@ -61,15 +61,13 @@ const (
 var cbrOracleHelperCache libopustest.HelperCache
 
 func cbrEncoderOraclePath() (string, error) {
-	if _, err := libopustooling.ResolveLibopusReferenceVariant(); err != nil {
-		return "", err
-	}
-	return cbrOracleHelperCache.CHelperPath(libopustest.CHelperConfig{
-		Label:      "CBR encode",
-		OutputBase: "gopus_libopus_cbr_encode_packets",
-		SourceFile: "libopus_cbr_encode_packets.c",
-		CFlags:     []string{"-DHAVE_CONFIG_H"},
-		Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+	return cbrOracleHelperCache.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:      "CBR encode",
+			OutputBase: "gopus_libopus_cbr_encode_packets",
+			SourceFile: "libopus_cbr_encode_packets.c",
+			CFlags:     []string{"-DHAVE_CONFIG_H"},
+		})
 	})
 }
 
@@ -199,39 +197,61 @@ func parseCBROracleOutput(data []byte) (cbrOracleOutput, error) {
 }
 
 func cbrReferenceBuildStamp() (cbrReferenceStamp, error) {
-	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	identity, err := libopustest.ResolvePublicAPIReferenceIdentity()
 	if err != nil {
 		return cbrReferenceStamp{}, err
 	}
-	stampPath := libopustest.RefPath(".gopus-libopus-build")
-	refDir := filepath.Dir(stampPath)
-	if err := libopustooling.ValidateLibopusReferenceBuild(refDir, variant, libopustooling.DefaultVersion); err != nil {
+	if err := identity.Validate(); err != nil {
 		return cbrReferenceStamp{}, err
 	}
+	stampName := ".gopus-libopus-build"
+	wantHeader := "gopus libopus helper build v5"
+	fieldNames := map[string]string{
+		"version":    "version",
+		"configure":  "configure",
+		"CFLAGS":     "CFLAGS",
+		"cc_target":  "cc_target",
+		"cc_version": "cc_version",
+	}
+	if identity.DNN {
+		stampName = ".gopus-dnn-feature-build"
+		wantHeader = "gopus libopus DNN feature build v1"
+		fieldNames = map[string]string{
+			"version":    "LIBOPUS_VERSION",
+			"configure":  "CONFIGURE",
+			"CFLAGS":     "CFLAGS",
+			"cc_target":  "CC_TARGET",
+			"cc_version": "CC_VERSION",
+		}
+	}
+	stampPath := filepath.Join(identity.BuildDir, stampName)
 	data, err := os.ReadFile(stampPath)
 	if err != nil {
 		return cbrReferenceStamp{}, fmt.Errorf("read paired libopus build stamp: %w", err)
 	}
 	lines := strings.Split(strings.TrimRight(string(data), "\r\n"), "\n")
-	if len(lines) < 2 || lines[0] != "gopus libopus helper build v5" {
+	if len(lines) < 2 || lines[0] != wantHeader {
 		return cbrReferenceStamp{}, fmt.Errorf("malformed paired libopus build stamp %s", stampPath)
 	}
-	fields := make(map[string]string, len(lines)-1)
+	stampFields := make(map[string]string, len(lines)-1)
 	for _, line := range lines[1:] {
 		key, value, ok := strings.Cut(line, "=")
 		if !ok || key == "" {
 			return cbrReferenceStamp{}, fmt.Errorf("malformed paired libopus build stamp line %q", line)
 		}
-		fields[key] = value
+		stampFields[key] = value
 	}
+	fields := make(map[string]string, len(fieldNames))
 	for _, key := range []string{"version", "configure", "CFLAGS", "cc_target", "cc_version"} {
-		if strings.TrimSpace(fields[key]) == "" {
+		value := stampFields[fieldNames[key]]
+		if strings.TrimSpace(value) == "" {
 			return cbrReferenceStamp{}, fmt.Errorf("paired libopus build stamp has no %s", key)
 		}
+		fields[key] = value
 	}
 	digest := sha256.Sum256(data)
 	return cbrReferenceStamp{
-		Variant: variant,
+		Variant: identity.Variant,
 		Path:    stampPath,
 		Digest:  hex.EncodeToString(digest[:]),
 		Fields:  fields,
@@ -252,13 +272,13 @@ func validateCBROracleDispatch(output cbrOracleOutput, variant libopustooling.Li
 	if output.SelectedArch > output.ArchMask {
 		return fmt.Errorf("C helper selected architecture %d above OPUS_ARCHMASK %d", output.SelectedArch, output.ArchMask)
 	}
-	if variant == libopustooling.LibopusReferenceScalar {
+	if isScalarReferenceVariant(variant) {
 		if output.ArchMask != 0 || output.BuildFeatures != 0 || output.SelectedArch != 0 {
 			return fmt.Errorf("Go scalar build paired with C SIMD metadata: arch_mask=%d features=%s selected_arch=%d", output.ArchMask, cbrFeatureNames(output.BuildFeatures), output.SelectedArch)
 		}
 		return nil
 	}
-	if variant != libopustooling.LibopusReferenceSIMD {
+	if !isSIMDReferenceVariant(variant) {
 		return fmt.Errorf("unsupported paired CBR reference variant %q", variant)
 	}
 	var instructionFeatures uint32
@@ -296,6 +316,14 @@ func validateCBROracleDispatch(output cbrOracleOutput, variant libopustooling.Li
 		return fmt.Errorf("C SIMD config does not select a native runtime path: arch_mask=%d features=%s selected_arch=%d", output.ArchMask, cbrFeatureNames(output.BuildFeatures), output.SelectedArch)
 	}
 	return nil
+}
+
+func isScalarReferenceVariant(variant libopustooling.LibopusReferenceVariant) bool {
+	return variant == libopustooling.LibopusReferenceScalar || strings.HasSuffix(string(variant), "-scalar")
+}
+
+func isSIMDReferenceVariant(variant libopustooling.LibopusReferenceVariant) bool {
+	return variant == libopustooling.LibopusReferenceSIMD || strings.HasSuffix(string(variant), "-simd")
 }
 
 func cbrFeatureNames(bits uint32) []string {
@@ -768,16 +796,20 @@ func TestEncoderCBRPairedOracleExact(t *testing.T) {
 
 			casePacketDiffs, caseRangeDiffs := 0, 0
 			firstPacketFrame, firstPacketByte, firstRangeFrame := -1, -1, -1
+			packetDiffFrames := make([]int, 0, 4)
+			rangeDiffFrames := make([]int, 0, 4)
 			for frame := 0; frame < frameCount; frame++ {
 				totalPackets++
 				if byteDiff := firstCBRByteDifference(got.Packets[frame], want.Packets[frame]); byteDiff >= 0 {
 					casePacketDiffs++
+					packetDiffFrames = append(packetDiffFrames, frame)
 					if firstPacketFrame < 0 {
 						firstPacketFrame, firstPacketByte = frame, byteDiff
 					}
 				}
 				if got.FinalRanges[frame] != want.FinalRanges[frame] {
 					caseRangeDiffs++
+					rangeDiffFrames = append(rangeDiffFrames, frame)
 					if firstRangeFrame < 0 {
 						firstRangeFrame = frame
 					}
@@ -786,8 +818,8 @@ func TestEncoderCBRPairedOracleExact(t *testing.T) {
 			packetDiffs += casePacketDiffs
 			rangeDiffs += caseRangeDiffs
 			if casePacketDiffs != 0 || caseRangeDiffs != 0 {
-				message := fmt.Sprintf("exact paired CBR mismatch: packets=%d/%d ranges=%d/%d input=AMMultisineV1/%s settings=mode:%d bandwidth:%d channels:%d bitrate:%d frame_size:%d complexity:10",
-					casePacketDiffs, frameCount, caseRangeDiffs, frameCount, inputID,
+				message := fmt.Sprintf("exact paired CBR mismatch: packets=%d/%d packet_frames=%v ranges=%d/%d range_frames=%v input=AMMultisineV1/%s settings=mode:%d bandwidth:%d channels:%d bitrate:%d frame_size:%d complexity:10",
+					casePacketDiffs, frameCount, packetDiffFrames, caseRangeDiffs, frameCount, rangeDiffFrames, inputID,
 					tc.gopusMode, tc.bandwidth, tc.channels, tc.bitrate, tc.frameSize)
 				if firstPacketFrame >= 0 {
 					goStart, goSnippet := cbrByteDiffSnippet(got.Packets[firstPacketFrame], firstPacketByte)

@@ -266,7 +266,7 @@ func traceAdaCombParams(
 	gains[1] = opusmath.ExpF32(filterGainA*gains[1] + filterGainB)
 	var norm float32
 	for k := 0; k < kernelSize; k++ {
-		norm += roundMul32(kernel[k], kernel[k])
+		norm = addKernelNormProduct(norm, kernel[k])
 	}
 	invNorm := scaleKernelInvNorm(norm)
 	scale := invNorm * gains[0]

@@ -286,7 +286,10 @@ static int trace_lace_adacomb_params(
   for (i = 0; i < kernel_size; i++) {
     norm += kernel_buffer[i] * kernel_buffer[i];
   }
-  scale = (1.f / (1e-6f + sqrt(norm))) * gains[0];
+  /* Match nndsp.c:scale_kernel: the inverse norm is stored in a float before
+     multiplying it by the gain, so sqrt's double result is narrowed first. */
+  norm = 1.f / (1e-6f + sqrt(norm));
+  scale = norm * gains[0];
   for (i = 0; i < kernel_size; i++) {
     kernel_buffer[i] *= scale;
   }

@@ -42,14 +42,15 @@ var customSequenceHelper libopustest.HelperCache
 func runCustomSequenceOracle(t *testing.T, cases []customSequenceCase) [][]customSequenceResult {
 	t.Helper()
 	libopustest.RequireOracle(t)
-	helper, err := customSequenceHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:       "custom stateful encode/decode",
-		OutputBase:  "gopus_custom_stateful",
-		SourceFile:  "libopus_custom_stateful.c",
-		CFlags:      []string{"-DHAVE_CONFIG_H", "-O2"},
-		RefIncludes: []string{"celt", "silk", "src", "include"},
-		Libs:        []string{libopustest.CustomRefPath(".libs", "libopus.a"), "-lm"},
-		CustomRef:   true,
+	helper, err := customSequenceHelper.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:       "custom stateful encode/decode",
+			OutputBase:  "gopus_custom_stateful",
+			SourceFile:  "libopus_custom_stateful.c",
+			CFlags:      []string{"-DHAVE_CONFIG_H", "-O2"},
+			RefIncludes: []string{"celt", "silk", "src", "include"},
+			Libs:        []string{"-lm"},
+		})
 	})
 	if err != nil {
 		libopustest.HelperUnavailable(t, "custom stateful", err)

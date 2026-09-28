@@ -14,12 +14,12 @@ var customDeemphasisHelper libopustest.HelperCache
 func probeCustomDeemphasis(t *testing.T, planes [][]float32, mem []float32, coef [4]float32, downsample int, seed []float32) libopusDeemphasisResult {
 	t.Helper()
 	helper, err := customDeemphasisHelper.Path(func() (string, error) {
-		return libopustest.BuildCHelper(libopustest.CHelperConfig{
+		return buildCustomFloatKernelHelper(libopustest.CHelperConfig{
 			Label: "custom deemphasis", OutputBase: "gopus_custom_deemphasis", SourceFile: "libopus_celt_filter_info.c",
 			CFlags:      []string{"-DHAVE_CONFIG_H", "-DRESYNTH", "-O3", "-DNDEBUG"},
-			RefIncludes: []string{"src", "celt", "silk", "silk/float"}, CustomRef: true,
-			RefSources: []string{"celt/celt_decoder.c", "celt/celt.c", "celt/x86/pitch_sse.c", "celt/x86/x86_celt_map.c"},
-			Libs:       []string{"-lm"}, DeadStrip: true,
+			RefIncludes: []string{"src", "celt", "silk", "silk/float"},
+			RefSources:  []string{"celt/celt_decoder.c", "celt/celt.c", "celt/x86/pitch_sse.c", "celt/x86/x86_celt_map.c"},
+			Libs:        []string{"-lm"}, DeadStrip: true,
 		})
 	})
 	if err != nil {

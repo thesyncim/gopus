@@ -9,14 +9,14 @@ import (
 
 func TestProjectionShortMixingMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
-	bin, err := libopustest.BuildCHelper(pairMultistreamReference(libopustest.CHelperConfig{
+	bin, err := buildMultistreamReferenceHelper(libopustest.CHelperConfig{
 		Label:       "projection short mixing",
 		OutputBase:  "gopus_libopus_projection_mix_short",
 		SourceFile:  "libopus_projection_mix_short_info.c",
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
 		RefIncludes: []string{"celt", "src"},
 		Libs:        []string{"-lm"},
-	}))
+	})
 	if err != nil {
 		t.Fatalf("build live C short matrix helper: %v", err)
 	}

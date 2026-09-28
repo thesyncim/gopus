@@ -34,14 +34,16 @@ type surroundEncodeRef struct {
 // encodeLibopusSurround runs the libopus surround encoder oracle for the given
 // parameters and PCM (interleaved float32, frameCount frames of frameSize each).
 func encodeLibopusSurround(sampleRate, channels, mappingFamily, application int, bitrate int, vbr, vbrConstraint bool, complexity, bandwidth, frameSize, frameCount, maxPacketBytes int, pcm []float32, dtx bool) (*surroundEncodeRef, error) {
-	binPath, err := surroundRefencodeHelper.CHelperPath(pairMultistreamReference(libopustest.CHelperConfig{
-		Label:       "multistream surround reference encode",
-		OutputBase:  "gopus_libopus_refencode_public_multistream",
-		SourceFile:  "libopus_refencode_multistream.c",
-		CFlags:      []string{"-O3", "-DNDEBUG"},
-		RefIncludes: []string{"celt", "src"},
-		Libs:        []string{"-lm"},
-	}))
+	binPath, err := surroundRefencodeHelper.Path(func() (string, error) {
+		return buildMultistreamReferenceHelper(libopustest.CHelperConfig{
+			Label:       "multistream surround reference encode",
+			OutputBase:  "gopus_libopus_refencode_public_multistream",
+			SourceFile:  "libopus_refencode_multistream.c",
+			CFlags:      []string{"-O3", "-DNDEBUG"},
+			RefIncludes: []string{"celt", "src"},
+			Libs:        []string{"-lm"},
+		})
+	})
 	if err != nil {
 		return nil, err
 	}

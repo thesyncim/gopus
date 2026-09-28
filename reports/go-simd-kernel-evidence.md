@@ -92,14 +92,29 @@ same quality floors. DRED-only references use the existing DNN helper builder
 with ENABLE_DRED and without ENABLE_QEXT.
 Existing AMD64 and macOS CI jobs include these focused oracle gates.
 
-The DRED-only anti-collapse addition still needs native AMD64 validation.
-Correctly selected OSCE SIMD references expose seven public PCM failures;
-LACE/NoLACE fixes pass locally, while BWE diagnosis remains active. A full
-public QEXT SIMD sweep also exposes 15 failing top-level groups whose shared
-reference builders require feature-pairing corrections and reruns. Dormant-control
-comparisons do not establish active combined-feature parity. OSCE remains a
-parity-only surface. These open checks prevent a complete parity claim. Pinned libopus rejects fixed-point+DRED in `configure.ac`; requests for
-that unsupported C reference fail explicitly instead of selecting a subset archive.
+Native AMD64 early evidence at `6b1e24c0` passes DRED-only anti-collapse in
+both SIMD and `nosimd` (`TestAntiCollapseVsLibopus`, no skips).
+All seven public OSCE PCM cases pass on local ARM64 in ordinary, SIMD and
+`nosimd` builds with the selected C reference and zero warm allocations. Scalar
+OSCE uses `-O2 -fno-tree-vectorize -fno-tree-slp-vectorize`. The 12-frame BWE
+state oracle matches features, latent state and AF3 dense stages exactly.
+Native AMD64 confirmation of the corrected reference pairing remains pending.
+The full OSCE+DRED+QEXT scalar root suite exposes received-SILK, FEC and
+Hybrid PCM differences outside those focused gates. A LACE raw-feature case
+also differs by one float32 LSB; both findings remain under diagnosis.
+The full public QEXT SIMD package and the 15 corrected scalar QEXT test
+groups pass with paired helpers. The CELT trace helper uses the selected
+feature archive and its matching decoder-state layout. Public oracle
+constructors in `testvectors` select the matching archive and validate its
+feature/ISA stamp. This exposes three fixed-point CBR failures (SILK NB,
+SILK WB and CELT FB) that reproduce with and without QEXT and remain under
+diagnosis. Custom fixed-point standard modes require the integer backend;
+their strict C oracle exposes the float-backend mismatch. Supported custom-mode
+combinations remain under validation.
+Dormant-control comparisons do not establish active combined-feature parity.
+These open checks prevent a complete parity claim. Pinned libopus rejects
+fixed-point with DRED or OSCE in `configure.ac`; requests for those unsupported
+C references fail explicitly instead of selecting a subset archive.
 
 ### QEXT PVQ refinement byte parity
 
@@ -1616,7 +1631,50 @@ gates pass; the full artifact at this revision supplies direct timings in rows
 | VoIP encode | 76,544 (76,476–76,765) | 56,245 (56,138–56,361) | 94,358 (93,997–100,544) |
 | Low-delay encode | 71,871.5 (71,016–73,470) | 51,228.5 (51,154–51,392) | 89,314 (89,146–89,440) |
 
-### Latest early end-to-end capture at 8aec7796 (AMD EPYC 7763)
+### Native end-to-end capture at 6b1e24c0 (Intel Xeon 8370C)
+
+Early artifact `10960111922` from [run 36398663810](https://github.com/thesyncim/gopus/actions/runs/36398663810)
+compares assembly `8ac93c85` with SIMD/nosimd `6b1e24c0` on Intel Xeon 8370C,
+Go 1.27.1, GCC 13.3.0, GOAMD64=v1, PGO enabled. Four interleaved 500 ms
+samples use `-cpu=1`; all 72 samples report 0 B/op and 0 allocs/op.
+Values are median ns/op; the report retains sample ranges.
+
+| Workload | Old assembly | Go SIMD | `nosimd` |
+|---|---:|---:|---:|
+| CELT decode | 25,134 (25,127–25,181) | 14,381.5 (14,369–14,398) | 17,653 (17,642–17,685) |
+| Hybrid decode | 30,479 (30,459–30,665) | 24,071 (24,024–24,184) | 29,447.5 (29,446–29,723) |
+| SILK decode | 22,640 (22,618–22,775) | 16,385.5 (16,357–16,637) | 19,710 (19,684–19,782) |
+| Caller-buffer encode | 110,252.5 (109,965–110,588) | 66,553.5 (66,402–66,668) | 106,364 (106,337–106,555) |
+| VoIP encode | 116,576.5 (116,021–116,884) | 71,584 (71,378–71,719) | 112,215 (112,102–112,341) |
+| Low-delay encode | 109,286.5 (109,269–110,454) | 66,399.5 (66,354–66,571) | 106,090.5 (105,922–106,238) |
+
+SIMD takes 21.0–42.8% less time than assembly in this run; scalar Go is also
+faster in all six workloads. These E2E results include the SILK/PGO merge.
+The 53 kernel rows retain their own revisions and are not remeasured here.
+
+### Matched libopus 1.6.1 comparison
+
+Same runner/revision; C scalar vs Go scalar and C SIMD vs Go SIMD. Three
+250 ms minimum runs per case. Values are µs/packet (lower is faster).
+All Go rows allocate zero; C allocations are not measured.
+
+| Workload | C scalar | Go scalar | C SIMD | Go SIMD |
+|---|---:|---:|---:|---:|
+| CELT-FB-20ms-stereo-128k | 203.69 | 200.40 | 151.25 | 136.29 |
+| CELT-FB-5ms-mono-64k | 22.01 | 24.34 | 20.57 | 20.36 |
+| Hybrid-FB-20ms-mono-64k | 353.63 | 347.22 | 241.78 | 217.99 |
+| Hybrid-FB-20ms-stereo-96k | 227.81 | 226.23 | 169.09 | 149.46 |
+| SILK-WB-20ms-mono-32k | 674.43 | 602.77 | 386.22 | 322.34 |
+| RFC vectors Float32 | 30.31 | 33.57 | 28.77 | 28.82 |
+| RFC vectors Int16 | 33.88 | 36.09 | 31.67 | 31.07 |
+
+SIMD encode takes 1.0–16.5% less time than SIMD C; vector-set decode is
+within 0.2% for float32 and 1.9% faster for int16. Scalar Go trails scalar C
+by 10.6% for 5 ms CELT encode and 10.8%/6.5% for float32/int16 vector decode.
+Other scalar encode rows take 0.7–10.6% less time than C. Decoder rows aggregate
+20,075 identical packets; encoder rows use identical PCM and controls.
+
+### Early end-to-end capture at 8aec7796 (AMD EPYC 7763)
 
 Early artifact `10957259097` for [run 36392981049](https://github.com/thesyncim/gopus/actions/runs/36392981049)
 compares assembly `8ac93c85` with SIMD/nosimd `8aec7796` on AMD EPYC 7763,

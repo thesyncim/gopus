@@ -21,13 +21,14 @@ type multistreamShortRef struct {
 }
 
 func encodeLibopusMultistreamShort(sampleRate, channels, family, bitrate, frameSize, frameCount, maxBytes int, vbr bool, pcm []int16) (*multistreamShortRef, error) {
-	bin, err := multistreamShortRefHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:       "multistream short reference encode",
-		OutputBase:  "gopus_libopus_refencode_multistream_short",
-		SourceFile:  "libopus_refencode_multistream.c",
-		CFlags:      []string{"-O3", "-DNDEBUG"},
-		RefIncludes: []string{"celt", "src"},
-		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+	bin, err := multistreamShortRefHelper.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:       "multistream short reference encode",
+			OutputBase:  "gopus_libopus_refencode_multistream_short",
+			SourceFile:  "libopus_refencode_multistream.c",
+			CFlags:      []string{"-O3", "-DNDEBUG"},
+			RefIncludes: []string{"celt", "src"},
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -68,12 +69,13 @@ func encodeLibopusMultistreamShort(sampleRate, channels, family, bitrate, frameS
 }
 
 func encodeLibopusExplicitMultistreamShort(sampleRate, channels, streams, coupled, bitrate, frameSize, frameCount, maxBytes int, vbr bool, mapping []byte, pcm []int16) (*multistreamShortRef, error) {
-	bin, err := multistreamExplicitShortRefHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:      "explicit multistream short reference encode",
-		OutputBase: "gopus_libopus_multistream_short_explicit",
-		SourceFile: "libopus_multistream_short_explicit_oracle.c",
-		CFlags:     []string{"-O3", "-DNDEBUG"},
-		Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+	bin, err := multistreamExplicitShortRefHelper.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:      "explicit multistream short reference encode",
+			OutputBase: "gopus_libopus_multistream_short_explicit",
+			SourceFile: "libopus_multistream_short_explicit_oracle.c",
+			CFlags:     []string{"-O3", "-DNDEBUG"},
+		})
 	})
 	if err != nil {
 		return nil, err

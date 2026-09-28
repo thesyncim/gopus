@@ -21,13 +21,13 @@ func getProjectionDemixingCTLPath() (string, error) {
 			projDemixingCTLErr = err
 			return
 		}
-		projDemixingCTLPath, projDemixingCTLErr = libopustest.BuildCHelper(pairMultistreamReference(libopustest.CHelperConfig{
+		projDemixingCTLPath, projDemixingCTLErr = buildMultistreamReferenceHelper(libopustest.CHelperConfig{
 			Label:      "projection demixing CTL",
 			OutputBase: "gopus_libopus_projection_demixing_ctl",
 			SourceFile: "libopus_projection_demixing_ctl.c",
 			CFlags:     []string{"-O2", "-DNDEBUG"},
 			Libs:       []string{"-lm"},
-		}))
+		})
 	})
 	return projDemixingCTLPath, projDemixingCTLErr
 }

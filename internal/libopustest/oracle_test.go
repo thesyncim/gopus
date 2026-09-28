@@ -97,6 +97,39 @@ func TestHelperRefDirSelectsFixedQEXTTree(t *testing.T) {
 	}
 }
 
+func TestHelperRefDirSelectsCustomCombinedTrees(t *testing.T) {
+	for _, tc := range []struct {
+		cfg                CHelperConfig
+		scalar, simd       libopustooling.LibopusReferenceVariant
+		scalarDir, simdDir string
+	}{
+		{CHelperConfig{CustomQEXTRef: true}, libopustooling.LibopusReferenceCustomQEXTScalar, libopustooling.LibopusReferenceCustomQEXTSIMD, "opus-1.6.1-custom-qext-scalar", "opus-1.6.1-custom-qext-simd"},
+		{CHelperConfig{CustomFixedRef: true}, libopustooling.LibopusReferenceCustomFixedScalar, libopustooling.LibopusReferenceCustomFixedSIMD, "opus-1.6.1-custom-fixed-scalar", "opus-1.6.1-custom-fixed-simd"},
+		{CHelperConfig{CustomFixedQEXTRef: true}, libopustooling.LibopusReferenceCustomFixedQEXTScalar, libopustooling.LibopusReferenceCustomFixedQEXTSIMD, "opus-1.6.1-custom-fixed-qext-scalar", "opus-1.6.1-custom-fixed-qext-simd"},
+	} {
+		if err := validateCHelperReferenceSelection(tc.cfg); err != nil {
+			t.Fatal(err)
+		}
+		if got := filepath.Base(helperRefDir(tc.cfg, tc.scalar)); got != tc.scalarDir {
+			t.Errorf("scalar reference directory=%q, want %q", got, tc.scalarDir)
+		}
+		if got := filepath.Base(helperRefDir(tc.cfg, tc.simd)); got != tc.simdDir {
+			t.Errorf("SIMD reference directory=%q, want %q", got, tc.simdDir)
+		}
+	}
+	for _, cfg := range []CHelperConfig{
+		{CustomQEXTRef: true, CustomRef: true},
+		{CustomFixedRef: true, FixedRef: true},
+		{CustomQEXTRef: true, CustomFixedRef: true},
+		{CustomFixedQEXTRef: true, CustomFixedRef: true},
+		{CustomQEXTRef: true, ForceScalarRef: true},
+	} {
+		if err := validateCHelperReferenceSelection(cfg); err == nil {
+			t.Fatalf("accepted conflicting reference selectors: %+v", cfg)
+		}
+	}
+}
+
 func TestHelperRefDirSelectsScalarTreeWhenRequested(t *testing.T) {
 	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "1")
 	defaultDir := helperRefDir(CHelperConfig{}, libopustooling.LibopusReferenceScalar)

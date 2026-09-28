@@ -30,4 +30,4 @@ Go 1.27.1; AMD64 uses `GOAMD64=v1`. Selected CELT scale/rotation/inner-product/c
 activation checks pass locally on ARM64. Disassembly checks the guarded entry points
 and CELT AVX-only broadcast encodings. Native and emulated execution of the safety changes remains
 pending CI. Existing native performance measurements describe their recorded
-revision; they do not measure this working-tree audit.
+revision; they do not measure these CPU safety changes.

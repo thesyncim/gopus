@@ -15,10 +15,10 @@ var customMDCTTablesHelper libopustest.HelperCache
 func TestCustomModeTransformsMatchLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	helper, err := customMDCTTablesHelper.Path(func() (string, error) {
-		return libopustest.BuildCHelper(libopustest.CHelperConfig{
+		return buildCustomFloatKernelHelper(libopustest.CHelperConfig{
 			Label: "custom mode transforms", OutputBase: "gopus_custom_mdct_tables", SourceFile: "libopus_custom_mdct_tables.c",
-			CFlags: []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"}, RefIncludes: []string{"celt"}, CustomRef: true,
-			Libs: []string{libopustest.CustomRefPath(".libs", "libopus.a"), "-lm"}, DeadStrip: true,
+			CFlags: []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"}, RefIncludes: []string{"celt"},
+			Libs: []string{"-lm"}, DeadStrip: true,
 		})
 	})
 	if err != nil {

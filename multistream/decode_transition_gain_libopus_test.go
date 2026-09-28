@@ -95,13 +95,15 @@ func firstTransitionStreamPackets(t *testing.T, packets [][]byte) ([]byte, []byt
 // full-transition comparison verifies the recursive transition context.
 func decodeTransitionStageWithLibopus(t *testing.T, channels, gainQ8, maxFrameSize int, steps []transitionStageStep) []float32 {
 	t.Helper()
-	binPath, err := transitionStageRefHelper.CHelperPath(pairMultistreamReference(libopustest.CHelperConfig{
-		Label:      "multistream transition PLC stage reference",
-		OutputBase: "gopus_multistream_transition_plc_stage",
-		SourceFile: "libopus_refdecode_single.c",
-		CFlags:     []string{"-O3", "-DNDEBUG"},
-		Libs:       []string{"-lm"},
-	}))
+	binPath, err := transitionStageRefHelper.Path(func() (string, error) {
+		return buildMultistreamReferenceHelper(libopustest.CHelperConfig{
+			Label:      "multistream transition PLC stage reference",
+			OutputBase: "gopus_multistream_transition_plc_stage",
+			SourceFile: "libopus_refdecode_single.c",
+			CFlags:     []string{"-O3", "-DNDEBUG"},
+			Libs:       []string{"-lm"},
+		})
+	})
 	if err != nil {
 		libopustest.HelperUnavailable(t, "multistream transition PLC stage reference", err)
 	}

@@ -45,13 +45,12 @@ const (
 var encodeDiffHelper HelperCache
 
 func buildEncodeDiffHelper() (string, error) {
-	return BuildCHelper(CHelperConfig{
+	return BuildPublicAPIHelper(CHelperConfig{
 		Label:       "opus encode diff float",
 		OutputBase:  "gopus_libopus_encode_diff",
 		SourceFile:  "libopus_encode_diff_info.c",
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-O2", "-DNDEBUG"},
 		RefIncludes: []string{"celt", "silk", "src"},
-		Libs:        []string{RefPath(".libs", "libopus.a"), "-lm"},
 		DeadStrip:   true,
 	})
 }

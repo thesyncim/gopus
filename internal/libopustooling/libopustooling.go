@@ -17,18 +17,24 @@ import (
 type LibopusReferenceVariant string
 
 const (
-	LibopusReferenceScalar          LibopusReferenceVariant = "scalar"
-	LibopusReferenceSIMD            LibopusReferenceVariant = "simd"
-	LibopusReferenceFixedScalar     LibopusReferenceVariant = "fixed-scalar"
-	LibopusReferenceFixedSIMD       LibopusReferenceVariant = "fixed-simd"
-	LibopusReferenceFixedQEXTScalar LibopusReferenceVariant = "fixed-qext-scalar"
-	LibopusReferenceFixedQEXTSIMD   LibopusReferenceVariant = "fixed-qext-simd"
-	LibopusReferenceQEXTScalar      LibopusReferenceVariant = "qext-scalar"
-	LibopusReferenceQEXTSIMD        LibopusReferenceVariant = "qext-simd"
-	LibopusReferenceDREDQEXTScalar  LibopusReferenceVariant = "dred-qext-scalar"
-	LibopusReferenceDREDQEXTSIMD    LibopusReferenceVariant = "dred-qext-simd"
-	LibopusReferenceCustomScalar    LibopusReferenceVariant = "custom-scalar"
-	LibopusReferenceCustomSIMD      LibopusReferenceVariant = "custom-simd"
+	LibopusReferenceScalar                LibopusReferenceVariant = "scalar"
+	LibopusReferenceSIMD                  LibopusReferenceVariant = "simd"
+	LibopusReferenceFixedScalar           LibopusReferenceVariant = "fixed-scalar"
+	LibopusReferenceFixedSIMD             LibopusReferenceVariant = "fixed-simd"
+	LibopusReferenceFixedQEXTScalar       LibopusReferenceVariant = "fixed-qext-scalar"
+	LibopusReferenceFixedQEXTSIMD         LibopusReferenceVariant = "fixed-qext-simd"
+	LibopusReferenceQEXTScalar            LibopusReferenceVariant = "qext-scalar"
+	LibopusReferenceQEXTSIMD              LibopusReferenceVariant = "qext-simd"
+	LibopusReferenceDREDQEXTScalar        LibopusReferenceVariant = "dred-qext-scalar"
+	LibopusReferenceDREDQEXTSIMD          LibopusReferenceVariant = "dred-qext-simd"
+	LibopusReferenceCustomScalar          LibopusReferenceVariant = "custom-scalar"
+	LibopusReferenceCustomSIMD            LibopusReferenceVariant = "custom-simd"
+	LibopusReferenceCustomQEXTScalar      LibopusReferenceVariant = "custom-qext-scalar"
+	LibopusReferenceCustomQEXTSIMD        LibopusReferenceVariant = "custom-qext-simd"
+	LibopusReferenceCustomFixedScalar     LibopusReferenceVariant = "custom-fixed-scalar"
+	LibopusReferenceCustomFixedSIMD       LibopusReferenceVariant = "custom-fixed-simd"
+	LibopusReferenceCustomFixedQEXTScalar LibopusReferenceVariant = "custom-fixed-qext-scalar"
+	LibopusReferenceCustomFixedQEXTSIMD   LibopusReferenceVariant = "custom-fixed-qext-simd"
 
 	LibopusBaseCFLAGS = "-O3 -DNDEBUG"
 	// Scalar C references retain the compiler's normal FMA contraction while
@@ -95,6 +101,45 @@ func ResolveLibopusFixedQEXTReferenceVariant() (LibopusReferenceVariant, error) 
 		return LibopusReferenceFixedQEXTSIMD, nil
 	}
 	return LibopusReferenceFixedQEXTScalar, nil
+}
+
+// ResolveLibopusCustomQEXTReferenceVariant selects CUSTOM_MODES and ENABLE_QEXT
+// with the instruction lane paired to the current Go build.
+func ResolveLibopusCustomQEXTReferenceVariant() (LibopusReferenceVariant, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	if variant == LibopusReferenceSIMD {
+		return LibopusReferenceCustomQEXTSIMD, nil
+	}
+	return LibopusReferenceCustomQEXTScalar, nil
+}
+
+// ResolveLibopusCustomFixedReferenceVariant selects CUSTOM_MODES and
+// FIXED_POINT with the instruction lane paired to the current Go build.
+func ResolveLibopusCustomFixedReferenceVariant() (LibopusReferenceVariant, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	if variant == LibopusReferenceSIMD {
+		return LibopusReferenceCustomFixedSIMD, nil
+	}
+	return LibopusReferenceCustomFixedScalar, nil
+}
+
+// ResolveLibopusCustomFixedQEXTReferenceVariant selects CUSTOM_MODES,
+// FIXED_POINT, and ENABLE_QEXT with the current Go instruction lane.
+func ResolveLibopusCustomFixedQEXTReferenceVariant() (LibopusReferenceVariant, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	if variant == LibopusReferenceSIMD {
+		return LibopusReferenceCustomFixedQEXTSIMD, nil
+	}
+	return LibopusReferenceCustomFixedQEXTScalar, nil
 }
 
 // ResolveLibopusDREDQEXTReferenceVariant selects ENABLE_DRED, ENABLE_DEEP_PLC,
@@ -169,6 +214,18 @@ func LibopusReferenceSourceSuffix(variant LibopusReferenceVariant) (string, erro
 		return "-custom-scalar", nil
 	case LibopusReferenceCustomSIMD:
 		return "-custom", nil
+	case LibopusReferenceCustomQEXTScalar:
+		return "-custom-qext-scalar", nil
+	case LibopusReferenceCustomQEXTSIMD:
+		return "-custom-qext-simd", nil
+	case LibopusReferenceCustomFixedScalar:
+		return "-custom-fixed-scalar", nil
+	case LibopusReferenceCustomFixedSIMD:
+		return "-custom-fixed-simd", nil
+	case LibopusReferenceCustomFixedQEXTScalar:
+		return "-custom-fixed-qext-scalar", nil
+	case LibopusReferenceCustomFixedQEXTSIMD:
+		return "-custom-fixed-qext-simd", nil
 	default:
 		return "", referenceConfigErrorf("unknown libopus reference variant %q", variant)
 	}
@@ -218,10 +275,26 @@ func validateLibopusReferenceBuildForPlatform(refDir string, variant LibopusRefe
 		wantConfigure += " --enable-custom-modes"
 		wantCustom = "1"
 	}
+	if variant == LibopusReferenceCustomQEXTScalar || variant == LibopusReferenceCustomQEXTSIMD {
+		wantConfigure += " --enable-custom-modes --enable-qext"
+		wantCustom = "1"
+		wantQEXT = "1"
+	}
+	if variant == LibopusReferenceCustomFixedScalar || variant == LibopusReferenceCustomFixedSIMD {
+		wantConfigure += " --enable-custom-modes --enable-fixed-point"
+		wantCustom = "1"
+		wantFixed = "1"
+	}
+	if variant == LibopusReferenceCustomFixedQEXTScalar || variant == LibopusReferenceCustomFixedQEXTSIMD {
+		wantConfigure += " --enable-custom-modes --enable-fixed-point --enable-qext"
+		wantCustom = "1"
+		wantFixed = "1"
+		wantQEXT = "1"
+	}
 	switch variant {
-	case LibopusReferenceScalar, LibopusReferenceCustomScalar, LibopusReferenceQEXTScalar, LibopusReferenceFixedScalar, LibopusReferenceFixedQEXTScalar, LibopusReferenceDREDQEXTScalar:
+	case LibopusReferenceScalar, LibopusReferenceCustomScalar, LibopusReferenceCustomQEXTScalar, LibopusReferenceCustomFixedScalar, LibopusReferenceCustomFixedQEXTScalar, LibopusReferenceQEXTScalar, LibopusReferenceFixedScalar, LibopusReferenceFixedQEXTScalar, LibopusReferenceDREDQEXTScalar:
 		scalarVariant = true
-	case LibopusReferenceSIMD, LibopusReferenceCustomSIMD, LibopusReferenceQEXTSIMD, LibopusReferenceFixedSIMD, LibopusReferenceFixedQEXTSIMD, LibopusReferenceDREDQEXTSIMD:
+	case LibopusReferenceSIMD, LibopusReferenceCustomSIMD, LibopusReferenceCustomQEXTSIMD, LibopusReferenceCustomFixedSIMD, LibopusReferenceCustomFixedQEXTSIMD, LibopusReferenceQEXTSIMD, LibopusReferenceFixedSIMD, LibopusReferenceFixedQEXTSIMD, LibopusReferenceDREDQEXTSIMD:
 		simdVariant = true
 	}
 	if scalarVariant {
@@ -339,6 +412,18 @@ func validateDREDQEXTModelSources(refDir string) error {
 	return nil
 }
 
+// ValidateDREDModelSources verifies the pinned DRED model source identity in a
+// reference source tree before a feature archive is reused or built.
+func ValidateDREDModelSources(sourceDir string) error {
+	return validateDREDQEXTModelSources(sourceDir)
+}
+
+// DREDModelSourcesStamp identifies the pinned DRED model source contents in a
+// feature build stamp.
+func DREDModelSourcesStamp() string {
+	return dredQEXTModelSourcesStamp
+}
+
 func libopusStampMatchesPlatform(fields map[string]string, goos, goarch string) bool {
 	wantArch := normalizeLibopusStampArch(goarch)
 	if wantArch == "" || normalizeLibopusStampArch(fields["host_arch"]) != wantArch || normalizeLibopusStampArch(fields["cc_target"]) != wantArch {
@@ -377,9 +462,9 @@ func configDefinesMacro(config, macro string) bool {
 
 func validateLibopusConfigSIMD(config string, variant LibopusReferenceVariant, goarch string) error {
 	switch variant {
-	case LibopusReferenceQEXTScalar, LibopusReferenceFixedScalar, LibopusReferenceFixedQEXTScalar, LibopusReferenceDREDQEXTScalar:
+	case LibopusReferenceQEXTScalar, LibopusReferenceFixedScalar, LibopusReferenceFixedQEXTScalar, LibopusReferenceDREDQEXTScalar, LibopusReferenceCustomQEXTScalar, LibopusReferenceCustomFixedScalar, LibopusReferenceCustomFixedQEXTScalar:
 		variant = LibopusReferenceScalar
-	case LibopusReferenceQEXTSIMD, LibopusReferenceCustomSIMD, LibopusReferenceFixedSIMD, LibopusReferenceFixedQEXTSIMD, LibopusReferenceDREDQEXTSIMD:
+	case LibopusReferenceQEXTSIMD, LibopusReferenceCustomSIMD, LibopusReferenceFixedSIMD, LibopusReferenceFixedQEXTSIMD, LibopusReferenceDREDQEXTSIMD, LibopusReferenceCustomQEXTSIMD, LibopusReferenceCustomFixedSIMD, LibopusReferenceCustomFixedQEXTSIMD:
 		variant = LibopusReferenceSIMD
 	}
 	defines := make(map[string]bool)
@@ -955,6 +1040,36 @@ func EnsureLibopusCustomScalar(version string, roots []string) bool {
 	return ensureLibopusVariant(version, roots, "custom-scalar")
 }
 
+// EnsureLibopusCustomQEXTScalar builds the paired CUSTOM_MODES + QEXT scalar reference.
+func EnsureLibopusCustomQEXTScalar(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "custom-qext-scalar")
+}
+
+// EnsureLibopusCustomQEXTSIMD builds the paired CUSTOM_MODES + QEXT SIMD reference.
+func EnsureLibopusCustomQEXTSIMD(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "custom-qext-simd")
+}
+
+// EnsureLibopusCustomFixedScalar builds the paired CUSTOM_MODES + FIXED_POINT scalar reference.
+func EnsureLibopusCustomFixedScalar(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "custom-fixed-scalar")
+}
+
+// EnsureLibopusCustomFixedSIMD builds the paired CUSTOM_MODES + FIXED_POINT SIMD reference.
+func EnsureLibopusCustomFixedSIMD(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "custom-fixed-simd")
+}
+
+// EnsureLibopusCustomFixedQEXTScalar builds the paired CUSTOM_MODES + FIXED_POINT + QEXT scalar reference.
+func EnsureLibopusCustomFixedQEXTScalar(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "custom-fixed-qext-scalar")
+}
+
+// EnsureLibopusCustomFixedQEXTSIMD builds the paired CUSTOM_MODES + FIXED_POINT + QEXT SIMD reference.
+func EnsureLibopusCustomFixedQEXTSIMD(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "custom-fixed-qext-simd")
+}
+
 func ensureLibopus(version string, roots []string, qext bool) bool {
 	variant := "float"
 	if qext {
@@ -1012,6 +1127,18 @@ func ensureLibopusVariant(version string, roots []string, variant string) bool {
 			env = append(env, "LIBOPUS_ENABLE_CUSTOM=1")
 		case "custom-scalar":
 			env = append(env, "LIBOPUS_ENABLE_CUSTOM_SCALAR=1")
+		case "custom-qext-scalar":
+			env = append(env, "LIBOPUS_ENABLE_CUSTOM_QEXT_SCALAR=1")
+		case "custom-qext-simd":
+			env = append(env, "LIBOPUS_ENABLE_CUSTOM_QEXT_SIMD=1")
+		case "custom-fixed-scalar":
+			env = append(env, "LIBOPUS_ENABLE_CUSTOM_FIXED_SCALAR=1")
+		case "custom-fixed-simd":
+			env = append(env, "LIBOPUS_ENABLE_CUSTOM_FIXED_SIMD=1")
+		case "custom-fixed-qext-scalar":
+			env = append(env, "LIBOPUS_ENABLE_CUSTOM_FIXED_QEXT_SCALAR=1")
+		case "custom-fixed-qext-simd":
+			env = append(env, "LIBOPUS_ENABLE_CUSTOM_FIXED_QEXT_SIMD=1")
 		case "simd":
 			env = append(env, "LIBOPUS_ENABLE_SIMD=1")
 		case "scalar":

@@ -83,13 +83,14 @@ var decodeDiffHelper HelperCache
 var decodeSequenceFixedHelper HelperCache
 
 func buildDecodeDiffHelper() (string, error) {
-	return decodeDiffHelper.CHelperPath(CHelperConfig{
-		Label:      "decode diff probe",
-		OutputBase: "gopus_decode_diff_probe",
-		SourceFile: "libopus_decode_error_probe.c",
-		CFlags:     []string{"-DHAVE_CONFIG_H", "-O2"},
-		Libs:       []string{RefPath(".libs", "libopus.a"), "-lm"},
-		DeadStrip:  true,
+	return decodeDiffHelper.Path(func() (string, error) {
+		return BuildPublicAPIHelper(CHelperConfig{
+			Label:      "decode diff probe",
+			OutputBase: "gopus_decode_diff_probe",
+			SourceFile: "libopus_decode_error_probe.c",
+			CFlags:     []string{"-DHAVE_CONFIG_H", "-O2"},
+			DeadStrip:  true,
+		})
 	})
 }
 
@@ -118,14 +119,14 @@ func probeDecodeDiff(sampleRate, channels int, cases []DecodeDiffCase, version u
 	var binPath string
 	var err error
 	if version == 3 && decodeSequenceFixedRef {
-		binPath, err = decodeSequenceFixedHelper.CHelperPath(CHelperConfig{
-			Label:      "fixed decode sequence",
-			OutputBase: "gopus_fixed_decode_sequence",
-			SourceFile: "libopus_decode_error_probe.c",
-			FixedRef:   true,
-			CFlags:     []string{"-DHAVE_CONFIG_H", "-O2"},
-			Libs:       []string{FixedRefPath(".libs", "libopus.a"), "-lm"},
-			DeadStrip:  true,
+		binPath, err = decodeSequenceFixedHelper.Path(func() (string, error) {
+			return BuildPublicAPIHelper(CHelperConfig{
+				Label:      "fixed decode sequence",
+				OutputBase: "gopus_fixed_decode_sequence",
+				SourceFile: "libopus_decode_error_probe.c",
+				CFlags:     []string{"-DHAVE_CONFIG_H", "-O2"},
+				DeadStrip:  true,
+			})
 		})
 	} else {
 		binPath, err = buildDecodeDiffHelper()

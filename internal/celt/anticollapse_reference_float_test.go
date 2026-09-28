@@ -1,4 +1,4 @@
-//go:build !gopus_dred && !gopus_qext && !gopus_fixed_point
+//go:build !gopus_dred && !gopus_qext && !gopus_fixed_point && !gopus_osce
 
 package celt_test
 

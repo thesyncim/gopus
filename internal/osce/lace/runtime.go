@@ -912,33 +912,43 @@ func (s *NoLACEState) featureNet(out, features []float32, numbits []float32, per
 // Generic linear / conv / GRU helpers (mirrors libopus dnn/nnet.c).
 // ----------------------------------------------------------------------------
 
-// computeLinear evaluates a LinearLayer: out = W^T * in + bias. Mirrors
-// libopus `compute_linear_c` (dnn/nnet_arch.h), which routes float weights
-// through `sgemv` (dnn/vec.h).
+// computeLinear evaluates a LinearLayer: out = W^T * in + bias. It mirrors
+// libopus `compute_linear_c` (dnn/nnet_arch.h) and selects the matching AVX2
+// dense kernels when the Go and libopus runtimes select that architecture.
 func computeLinear(layer *LinearLayer, out, in []float32) {
 	n := layer.NbOutputs
 	m := layer.NbInputs
+	bias := layer.Bias
 	switch {
 	case !layer.FloatWeights.Empty():
-		sgemvFloat(out[:n], layer.FloatWeights, n, m, in[:m])
+		if dnnmath.X86VectorKernels {
+			dnnmath.SGEMVX86(out[:n], layer.FloatWeights, n, m, n, in[:m])
+		} else {
+			sgemvFloat(out[:n], layer.FloatWeights, n, m, in[:m])
+		}
 	case !layer.Weights.Empty():
+		if dnnmath.X86VectorKernels {
+			// dnn/vec_avx.h selects the unsigned-input kernel and
+			// dnn/nnet_arch.h selects the subias for integer weights.
+			bias = layer.Subias
+		}
 		cgemv8x4(out[:n], layer.Weights, layer.Scale, n, m, in[:m])
 	default:
 		for i := range n {
 			out[i] = 0
 		}
 	}
-	if !layer.Bias.Empty() {
+	if !bias.Empty() {
 		for i := range n {
-			out[i] += layer.Bias.At(i)
+			out[i] += bias.At(i)
 		}
 	}
 }
 
-// sgemvFloat mirrors libopus `sgemv` (dnn/vec.h), as inlined into
-// `compute_linear_c` (dnn/nnet_arch.h). Whether each `out[i] += w*x` row is
-// contracted into an FMA depends on the row count (see sgemvFused), so the
-// fused vs rounded boundary is pinned to match the prebuilt OSCE object.
+// sgemvFloat mirrors the generic `sgemv` loop in libopus dnn/vec.h, used by
+// scalar and ARM builds. AMD64 AVX2 builds use dnnmath.SGEMVX86 instead.
+// The selected scalar ARM object contracts every row count; ARM SIMD fuses
+// 8-row blocks and the two-row fallback (see sgemvFused).
 func sgemvFloat(out []float32, w dnnblob.Float32View, rows, cols int, x []float32) {
 	fused := sgemvFused(rows)
 	for i := range rows {
@@ -959,32 +969,32 @@ func sgemvFloat(out []float32, w dnnblob.Float32View, rows, cols int, x []float3
 // sgemvFused reports whether libopus' compiled sgemv contracts the
 // `out[i] += w*x` accumulation into an FMA for the given row count.
 //
-//   - rows % 8 == 0 (sgemv16x1 / sgemv8x1): 16/8 register accumulators, fused.
-//   - rows == 1 (AdaComb/AdaConv single-output gain + global-gain layers): the
-//     scalar fallback accumulates through a single `out[0]` cell that the
-//     compiled object does NOT contract -- verified bit-for-bit (LACE stays a
-//     bit-exact oracle only when this row stays rounded).
-//   - rows == 2 (the NoLACE `nolace_af1_gain` 2-output gain layer): the
-//     compiled scalar fallback emits fused FMADD for the two accumulators
-//     (verified by disassembling the prebuilt `compute_linear_c` and against
-//     the reference helper's AF1 gain, which is 2 ULP off without the fuse).
+//   - scalar no-autovec object: every generic row accumulator is fused;
+//   - SIMD object: rows % 8 == 0 uses fused 8/16-row kernels, and rows == 2
+//     uses a fused two-row fallback; other row counts stay rounded.
 func sgemvFused(rows int) bool {
-	return rows%8 == 0 || rows == 2
+	return rows%8 == 0 || rows == 2 || (scalarOSCEGenericFMA && rows%8 != 0)
 }
 
-// cgemv8x4 mirrors the scalar fallback in libopus dnn/vec.h. Requires
-// rows % 8 == 0 and cols % 4 == 0 (verified at model load time).
+// cgemv8x4 selects the AVX2 kernel when active and otherwise mirrors the
+// scalar fallback in libopus dnn/vec.h. LACE model dimensions satisfy
+// rows % 8 == 0 and cols % 4 == 0.
 func cgemv8x4(out []float32, weights dnnblob.Int8View, scale dnnblob.Float32View, rows, cols int, x []float32) {
 	const maxCols = 1024
-	var q [maxCols]int8
 	if cols > maxCols {
 		for i := range rows {
 			out[i] = 0
 		}
 		return
 	}
+	if dnnmath.X86VectorKernels {
+		var q [maxCols]uint8
+		dnnmath.CGEMV8x4X86(out, weights, scale, rows, cols, x, q[:cols])
+		return
+	}
+	var q [maxCols]int8
 	for i := range cols {
-		q[i] = dnnmath.Cgemv8x4QuantizeInputScalar(x[i])
+		q[i] = dnnmath.Cgemv8x4QuantizeInput(x[i])
 	}
 	for i := range rows {
 		out[i] = 0
@@ -1021,9 +1031,9 @@ func computeActivation(out, in []float32, n, activation int) {
 			copy(out[:n], in[:n])
 		}
 	case actSigmoid:
-		dnnmath.SigmoidVectorScalarApprox(out, in, n)
+		dnnmath.SigmoidVectorApprox(out, in, n)
 	case actTanh:
-		dnnmath.TanhVectorScalarApprox(out, in, n)
+		dnnmath.TanhVectorApprox(out, in, n)
 	case actRelu:
 		for i := range n {
 			v := in[i]
@@ -1035,7 +1045,7 @@ func computeActivation(out, in []float32, n, activation int) {
 	case actSoftmax:
 		dnnmath.SoftmaxApprox(out, in, n)
 	case actExp:
-		dnnmath.ExpVectorScalarApprox(out, in, n)
+		dnnmath.ExpVectorApprox(out, in, n)
 	default:
 		copy(out[:n], in[:n])
 	}
@@ -1130,6 +1140,16 @@ func roundMul32(a, b float32) float32 {
 	return round32(a * b)
 }
 
+// addKernelNormProduct matches the contraction in the selected libopus
+// scale_kernel object. Its scalar no-autovec build emits one FMADD per kernel
+// tap; the SIMD build rounds each square before accumulating it.
+func addKernelNormProduct(norm, tap float32) float32 {
+	if scalarOSCEGenericFMA {
+		return fma32(tap, tap, norm)
+	}
+	return norm + roundMul32(tap, tap)
+}
+
 // ----------------------------------------------------------------------------
 // AdaComb (adaptive comb-filter) primitives -- mirrors libopus
 // `adacomb_process_frame` from dnn/nndsp.c.
@@ -1170,18 +1190,12 @@ func adacombProcessFrame(
 	gain = opusmath.ExpF32(logGainLimit - gain)
 	globalGain = opusmath.ExpF32(filterGainA*globalGain + filterGainB)
 
-	// scale_kernel (1 in / 1 out): p-norm normalisation with gain.
-	// libopus dnn/nndsp.c:scale_kernel accumulates `norm += kernel*kernel` in a
-	// single statement, but its prebuilt object squares each tap with a plain
-	// (rounded) multiply -- the compiler emits `fmul.4s` for the square, NOT a
-	// fused multiply-add into the running sum (verified bit-for-bit against the
-	// reference helper's scaled kernel). The Go arm64 backend would otherwise
-	// fuse `norm += k*k` into FMADDS and drift the kernel norm by 1 ULP, which
-	// the CF2/AF gain cascade then amplifies. roundMul32 isolates the square as
-	// a rounded float32 so the running sum matches libopus.
+	// scale_kernel (1 in / 1 out): p-norm normalisation with gain. The selected
+	// scalar no-autovec object contracts each square into the norm accumulator;
+	// the selected SIMD object keeps the square rounded before adding it.
 	var norm float32
 	for k := range kernelSize {
-		norm += roundMul32(kernelBuf[k], kernelBuf[k])
+		norm = addKernelNormProduct(norm, kernelBuf[k])
 	}
 	invNorm := scaleKernelInvNorm(norm)
 	scale := invNorm * gain
@@ -1288,17 +1302,16 @@ func adaconvProcessFrame(
 		gainBuf[i] = opusmath.ExpF32(filterGainA*gainBuf[i] + filterGainB)
 	}
 
-	// scale_kernel. As in the AdaComb path, libopus squares each tap with a
-	// rounded multiply (the prebuilt object emits `fmul`, not a fused MAC into
-	// the running norm), so roundMul32 keeps the Go arm64 backend from fusing
-	// `norm += v*v` into FMADDS and drifting by 1 ULP.
+	// scale_kernel. The selected scalar no-autovec object contracts each square
+	// into the norm accumulator; the selected SIMD object rounds the square
+	// before adding it.
 	for o := range outChannels {
 		var norm float32
 		for ic := range inChannels {
 			for k := range kernelSize {
 				idx := (o*inChannels+ic)*kernelSize + k
 				v := kernelBuf[idx]
-				norm += roundMul32(v, v)
+				norm = addKernelNormProduct(norm, v)
 			}
 		}
 		invNorm := scaleKernelInvNorm(norm)
@@ -1416,7 +1429,7 @@ func adashapeProcessFrame(
 		*interpState = tmpBuf[i]
 	}
 
-	dnnmath.ExpVectorScalarApprox(outBuf[:frameSize], outBuf[:frameSize], frameSize)
+	dnnmath.ExpVectorApprox(outBuf[:frameSize], outBuf[:frameSize], frameSize)
 	for i := range frameSize {
 		xOut[i] = outBuf[i] * xIn[i]
 	}

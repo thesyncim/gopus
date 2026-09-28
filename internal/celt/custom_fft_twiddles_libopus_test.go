@@ -15,14 +15,13 @@ var customFFTTwiddlesHelper libopustest.HelperCache
 func TestCustomFFTTwiddlesMatchLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	helper, err := customFFTTwiddlesHelper.Path(func() (string, error) {
-		return libopustest.BuildCHelper(libopustest.CHelperConfig{
+		return buildCustomFloatKernelHelper(libopustest.CHelperConfig{
 			Label:       "custom FFT twiddles",
 			OutputBase:  "gopus_custom_fft_twiddles",
 			SourceFile:  "libopus_custom_fft_twiddles.c",
 			CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
 			RefIncludes: []string{"celt"},
-			CustomRef:   true,
-			Libs:        []string{libopustest.CustomRefPath(".libs", "libopus.a"), "-lm"},
+			Libs:        []string{"-lm"},
 			DeadStrip:   true,
 		})
 	})

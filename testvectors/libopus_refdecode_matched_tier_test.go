@@ -10,7 +10,6 @@ import (
 	"fmt"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 var libopusRefdecodeMatchedTierHelper libopustest.HelperCache
@@ -19,17 +18,11 @@ var libopusRefdecodeMatchedTierHelper libopustest.HelperCache
 // binary linked against the libopus tier that matches the gopus build under test.
 func getLibopusRefdecodeMatchedTierPath() (string, error) {
 	return libopusRefdecodeMatchedTierHelper.Path(func() (string, error) {
-		if _, err := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); err != nil {
-			return "", err
-		}
-		libArchive := libopustest.RefPath(".libs", "libopus.a")
-		return libopustest.BuildCHelper(libopustest.CHelperConfig{
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
 			Label:      "matched-tier reference decode",
 			OutputBase: "gopus_libopus_refdecode_matched_tier",
 			SourceFile: "libopus_refdecode_single.c",
 			CFlags:     []string{"-O3", "-DNDEBUG"},
-			SIMDRef:    gopusBuildIsSIMD,
-			Libs:       []string{libArchive, "-lm"},
 		})
 	})
 }

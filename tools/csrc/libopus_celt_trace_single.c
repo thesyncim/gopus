@@ -16,6 +16,11 @@
 #include "arch.h"
 #include "celt.h"
 #include "modes.h"
+#ifdef ENABLE_DEEP_PLC
+#include "lpcnet_private.h"
+#define CELT_TRACE_PLC_UPDATE_FRAMES 4
+#define CELT_TRACE_PLC_UPDATE_SAMPLES (CELT_TRACE_PLC_UPDATE_FRAMES * FRAME_SIZE)
+#endif
 
 #define GCTI_MAGIC "GCTI"
 #define GCTO_MAGIC "GCTO"
@@ -54,6 +59,14 @@ typedef struct {
   int postfilter_tapset_old;
   int prefilter_and_fold;
   celt_sig preemph_memD[2];
+#ifdef ENABLE_DEEP_PLC
+  opus_int16 plc_pcm[CELT_TRACE_PLC_UPDATE_SAMPLES];
+  int plc_fill;
+  float plc_preemphasis_mem;
+#endif
+#ifdef ENABLE_QEXT
+  celt_glog qext_oldBandE[2 * NB_QEXT_BANDS];
+#endif
   celt_sig _decode_mem[1];
 } CELTDecoderTraceView;
 

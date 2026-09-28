@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
@@ -33,19 +34,23 @@ var (
 )
 
 type scalarDNNBuildConfig struct {
-	label          string
-	buildFlavor    string
-	configureExtra []string
-	buildCurrent   func(string) bool
-	buildEnv       func() ([]string, error)
-	writeStamp     func(string) error
-	simd           bool
+	label        string
+	buildFlavor  string
+	dred         bool
+	osce         bool
+	qext         bool
+	custom       bool
+	buildCurrent func(string) bool
+	buildEnv     func() ([]string, error)
+	writeStamp   func(string) error
+	simd         bool
 }
 
 var (
 	dredScalarDNNBuild = scalarDNNBuildConfig{
 		label:        "dred",
 		buildFlavor:  "dred",
+		dred:         true,
 		buildCurrent: libopustooling.ScalarDNNBuildIsCurrent,
 		buildEnv:     libopustooling.ScalarDNNBuildEnv,
 		writeStamp:   libopustooling.WriteScalarDNNBuildStamp,
@@ -53,25 +58,24 @@ var (
 	dredSIMDDNNBuild = scalarDNNBuildConfig{
 		label:        "dred",
 		buildFlavor:  "dred-simd",
+		dred:         true,
 		buildCurrent: libopustooling.DREDSIMDBuildIsCurrent,
 		buildEnv:     libopustooling.DREDSIMDBuildEnv,
 		writeStamp:   libopustooling.WriteDREDSIMDBuildStamp,
 		simd:         true,
 	}
-	osceScalarDNNBuild = scalarDNNBuildConfig{
-		label:          "osce",
-		buildFlavor:    "osce",
-		configureExtra: []string{"--enable-osce", "--enable-osce-bwe"},
-		buildCurrent:   libopustooling.OSCEScalarDNNBuildIsCurrent,
-		buildEnv:       libopustooling.OSCEScalarDNNBuildEnv,
-		writeStamp:     libopustooling.WriteOSCEScalarDNNBuildStamp,
-	}
 )
 
 func EnsureDREDBuild(repoRoot string) (sourceDir, buildDir string, err error) {
+	if err := validateDNNFloatReferencePairing(true); err != nil {
+		return "", "", err
+	}
 	variant, err := libopustooling.ResolveLibopusReferenceVariant()
 	if err != nil {
 		return "", "", err
+	}
+	if osceDNNFeatureEnabled || extsupport.QEXT || customModesReferenceEnabled {
+		return ensureScalarDNNBuild(repoRoot, featureDNNBuildConfig(true, osceDNNFeatureEnabled, extsupport.QEXT, customModesReferenceEnabled, variant))
 	}
 	if variant == libopustooling.LibopusReferenceSIMD {
 		return ensureScalarDNNBuild(repoRoot, dredSIMDDNNBuild)
@@ -80,7 +84,196 @@ func EnsureDREDBuild(repoRoot string) (sourceDir, buildDir string, err error) {
 }
 
 func EnsureOSCEBuild(repoRoot string) (sourceDir, buildDir string, err error) {
-	return ensureScalarDNNBuild(repoRoot, osceScalarDNNBuild)
+	if err := validateDNNFloatReferencePairing(extsupport.DRED); err != nil {
+		return "", "", err
+	}
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", "", err
+	}
+	return ensureScalarDNNBuild(repoRoot, featureDNNBuildConfig(extsupport.DRED, true, extsupport.QEXT, customModesReferenceEnabled, variant))
+}
+
+func validateDNNFloatReferencePairing(dred bool) error {
+	if !decodeSequenceFixedRef {
+		return nil
+	}
+	feature := "ENABLE_OSCE"
+	if dred {
+		feature = "ENABLE_DRED"
+	}
+	return &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf(
+		"pinned libopus %s rejects FIXED_POINT with %s; no matching DNN reference archive exists",
+		libopustooling.DefaultVersion, feature,
+	)}
+}
+
+const featureDNNBuildStampFile = ".gopus-dnn-feature-build"
+
+const osceScalarNoVectorCFLAGS = libopustooling.OSCEScalarDNNBuildCFLAGS + " " + libopustooling.LibopusScalarCVectorizationFlags
+
+func osceScalarNoVectorBuildEnv() ([]string, error) {
+	env, err := libopustooling.OSCEScalarDNNBuildEnv()
+	if err != nil {
+		return nil, err
+	}
+	for i, value := range env {
+		if strings.HasPrefix(value, "CFLAGS=") {
+			env[i] = "CFLAGS=" + osceScalarNoVectorCFLAGS
+			return env, nil
+		}
+	}
+	return nil, fmt.Errorf("OSCE build environment is missing CFLAGS")
+}
+
+// featureDNNBuildConfig gives every optional-feature combination its own
+// archive and compiler contract. DRED-only uses its established build paths.
+func featureDNNBuildConfig(dred, osce, qext, custom bool, variant libopustooling.LibopusReferenceVariant) scalarDNNBuildConfig {
+	features := make([]string, 0, 4)
+	if dred {
+		features = append(features, "dred")
+	}
+	if osce {
+		features = append(features, "osce")
+	}
+	if qext {
+		features = append(features, "qext")
+	}
+	if custom {
+		features = append(features, "custom")
+	}
+	flavor := "dnn-" + strings.Join(features, "-")
+	simd := variant == libopustooling.LibopusReferenceSIMD
+	if simd {
+		flavor += "-simd"
+	}
+	cflags := osceScalarNoVectorCFLAGS
+	buildEnv := osceScalarNoVectorBuildEnv
+	if simd {
+		cflags = libopustooling.DREDSIMDBuildCFLAGS
+		buildEnv = libopustooling.DREDSIMDBuildEnv
+	} else if !osce {
+		cflags = libopustooling.ScalarDNNBuildCFLAGS
+		buildEnv = libopustooling.ScalarDNNBuildEnv
+	}
+	cfg := scalarDNNBuildConfig{
+		label:       strings.Join(features, "+"),
+		buildFlavor: flavor,
+		dred:        dred,
+		osce:        osce,
+		qext:        qext,
+		custom:      custom,
+		buildEnv:    buildEnv,
+		simd:        simd,
+	}
+	cfg.buildCurrent = func(buildDir string) bool {
+		data, err := os.ReadFile(filepath.Join(buildDir, featureDNNBuildStampFile))
+		if err != nil {
+			return false
+		}
+		stamp, err := featureDNNBuildStamp(cfg, cflags)
+		return err == nil && string(data) == stamp
+	}
+	cfg.writeStamp = func(buildDir string) error {
+		stamp, err := featureDNNBuildStamp(cfg, cflags)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(buildDir, featureDNNBuildStampFile), []byte(stamp), 0o644)
+	}
+	return cfg
+}
+
+func featureDNNBuildStamp(cfg scalarDNNBuildConfig, cflags string) (string, error) {
+	cc, err := libopustooling.FindCCompiler()
+	if err != nil {
+		return "", err
+	}
+	target, err := compilerFirstLine(cc, "-dumpmachine")
+	if err != nil {
+		return "", err
+	}
+	if err := validateDNNCompilerTarget(target, runtime.GOARCH); err != nil {
+		return "", err
+	}
+	version, err := compilerFirstLine(cc, "--version")
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	b.WriteString("gopus libopus DNN feature build v2\n")
+	for _, item := range []string{
+		"LIBOPUS_VERSION=" + libopustooling.DefaultVersion,
+		"GOOS=" + runtime.GOOS,
+		"GOARCH=" + runtime.GOARCH,
+		"CC=" + cc,
+		"CC_TARGET=" + target,
+		"CC_VERSION=" + version,
+		"CFLAGS=" + cflags,
+		"CPPFLAGS=",
+		"LDFLAGS=",
+		"CONFIGURE=" + strings.Join(dnnConfigureArgs(cfg), " "),
+		fmt.Sprintf("CUSTOM_MODES=%t", cfg.custom),
+	} {
+		b.WriteString(item + "\n")
+	}
+	if cfg.dred {
+		b.WriteString("DRED_MODEL_SOURCES=" + libopustooling.DREDModelSourcesStamp() + "\n")
+	}
+	return b.String(), nil
+}
+
+func validateDNNCompilerTarget(target, goarch string) error {
+	arch, _, _ := strings.Cut(strings.ToLower(target), "-")
+	paired := false
+	switch goarch {
+	case "amd64":
+		paired = arch == "x86_64" || arch == "amd64"
+	case "arm64":
+		paired = arch == "aarch64" || arch == "arm64"
+	case "386":
+		paired = arch == "i386" || arch == "i486" || arch == "i586" || arch == "i686"
+	case "arm":
+		paired = strings.HasPrefix(arch, "arm")
+	default:
+		paired = arch == goarch
+	}
+	if !paired {
+		return &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("DNN C compiler target %q does not match GOARCH=%s", target, goarch)}
+	}
+	return nil
+}
+
+func compilerFirstLine(cc, arg string) (string, error) {
+	output, err := exec.Command(cc, arg).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("identify C compiler %s %s: %w (%s)", cc, arg, err, bytes.TrimSpace(output))
+	}
+	line, _, _ := strings.Cut(strings.TrimSpace(string(output)), "\n")
+	if line == "" {
+		return "", fmt.Errorf("identify C compiler %s %s: empty output", cc, arg)
+	}
+	return line, nil
+}
+
+func dnnConfigureArgs(cfg scalarDNNBuildConfig) []string {
+	args := []string{"--enable-static", "--disable-shared", "--disable-extra-programs"}
+	if cfg.dred {
+		args = append(args, "--enable-dred")
+	}
+	if cfg.osce {
+		args = append(args, "--enable-osce", "--enable-osce-bwe")
+	}
+	if cfg.qext {
+		args = append(args, "--enable-qext")
+	}
+	if cfg.custom {
+		args = append(args, "--enable-custom-modes")
+	}
+	if cfg.simd {
+		return append(args, "--enable-rtcd", "--enable-intrinsics")
+	}
+	return append(args, "--disable-asm", "--disable-rtcd", "--disable-intrinsics")
 }
 
 func ensureScalarDNNBuild(repoRoot string, cfg scalarDNNBuildConfig) (sourceDir, buildDir string, err error) {
@@ -93,6 +286,11 @@ func ensureScalarDNNBuild(repoRoot string, cfg scalarDNNBuildConfig) (sourceDir,
 	sourceDir, err = ensureDNNSource(repoRoot)
 	if err != nil {
 		return "", "", err
+	}
+	if cfg.dred {
+		if err := libopustooling.ValidateDREDModelSources(sourceDir); err != nil {
+			return "", "", fmt.Errorf("validate pinned DNN models for %s build: %w", cfg.label, err)
+		}
 	}
 	buildDir = filepath.Join(repoRoot, "tmp_check", fmt.Sprintf("build-opus-%s-scalar-%s-%s", cfg.buildFlavor, runtime.GOOS, runtime.GOARCH))
 	libopusStatic := filepath.Join(buildDir, ".libs", "libopus.a")
@@ -119,20 +317,7 @@ func ensureScalarDNNBuild(repoRoot string, cfg scalarDNNBuildConfig) (sourceDir,
 	}
 
 	if _, err := os.Stat(filepath.Join(buildDir, "Makefile")); err != nil {
-		configureArgs := []string{
-			"--enable-static",
-			"--disable-shared",
-			"--disable-extra-programs",
-			"--enable-dred",
-		}
-		configureArgs = append(configureArgs, cfg.configureExtra...)
-		if cfg.simd {
-			configureArgs = append(configureArgs, "--enable-rtcd", "--enable-intrinsics")
-		} else {
-			configureArgs = append(configureArgs,
-				"--disable-asm", "--disable-rtcd", "--disable-intrinsics")
-		}
-		cmd := exec.Command(filepath.Join(sourceDir, "configure"), configureArgs...)
+		cmd := exec.Command(filepath.Join(sourceDir, "configure"), dnnConfigureArgs(cfg)...)
 		cmd.Dir = buildDir
 		cmd.Env = buildEnv
 		if output, err := cmd.CombinedOutput(); err != nil {
@@ -206,21 +391,28 @@ func ensureDNNSource(repoRoot string) (string, error) {
 }
 
 func validateDNNSource(sourceDir string) error {
-	for _, name := range []string{"configure", "install-sh", "config.sub", "include/opus.h", "dnn/nnet.c"} {
+	for _, name := range []string{"configure", "install-sh", "config.sub", "include/opus.h", "dnn/nnet.c", "package_version"} {
 		if _, err := os.Stat(filepath.Join(sourceDir, filepath.FromSlash(name))); err != nil {
 			return fmt.Errorf("DNN source is missing %s: %w", name, err)
 		}
+	}
+	version, err := os.ReadFile(filepath.Join(sourceDir, "package_version"))
+	if err != nil {
+		return fmt.Errorf("read DNN source version: %w", err)
+	}
+	versionKey, versionValue, found := strings.Cut(strings.TrimSpace(string(version)), "=")
+	if !found || strings.TrimSpace(versionKey) != "PACKAGE_VERSION" || strings.Trim(strings.TrimSpace(versionValue), `"'`) != libopustooling.DefaultVersion {
+		return &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf(
+			"DNN source version does not match pinned libopus %s", libopustooling.DefaultVersion,
+		)}
 	}
 	return nil
 }
 
 func validateDREDInstructionBuild(buildDir string, cfg scalarDNNBuildConfig) error {
-	if cfg.buildFlavor != "dred" && cfg.buildFlavor != "dred-simd" {
-		return nil
-	}
 	config, err := os.ReadFile(filepath.Join(buildDir, "config.h"))
 	if err != nil {
-		return fmt.Errorf("read DRED %s config: %w", cfg.buildFlavor, err)
+		return &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("read DNN %s config: %w", cfg.buildFlavor, err)}
 	}
 	defined := func(name string) bool {
 		for _, line := range strings.Split(string(config), "\n") {
@@ -231,16 +423,33 @@ func validateDREDInstructionBuild(buildDir string, cfg scalarDNNBuildConfig) err
 		}
 		return false
 	}
-	if !defined("ENABLE_DRED") || !defined("ENABLE_DEEP_PLC") || defined("FIXED_POINT") ||
-		defined("ENABLE_OSCE") || defined("ENABLE_QEXT") || defined("CUSTOM_MODES") {
-		return fmt.Errorf("DRED %s reference has mismatched optional features", cfg.buildFlavor)
+	enabled := func(name string) bool {
+		for _, line := range strings.Split(string(config), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) >= 3 && fields[0] == "#define" && fields[1] == name && fields[2] == "1" {
+				return true
+			}
+		}
+		return false
+	}
+	featureMatches := func(name string, want bool) bool {
+		if want {
+			return enabled(name)
+		}
+		return !defined(name)
+	}
+	if !featureMatches("ENABLE_DRED", cfg.dred) || !featureMatches("ENABLE_OSCE", cfg.osce) ||
+		!featureMatches("ENABLE_OSCE_BWE", cfg.osce) || !featureMatches("ENABLE_QEXT", cfg.qext) ||
+		!enabled("ENABLE_DEEP_PLC") || defined("ENABLE_OSCE_TRAINING_DATA") ||
+		defined("FIXED_POINT") || !featureMatches("CUSTOM_MODES", cfg.custom) {
+		return &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("DNN %s reference has mismatched optional features", cfg.buildFlavor)}
 	}
 	variant := libopustooling.LibopusReferenceScalar
 	if cfg.simd {
 		variant = libopustooling.LibopusReferenceSIMD
 	}
 	if err := libopustooling.ValidateLibopusInstructionConfig(string(config), variant, runtime.GOARCH); err != nil {
-		return fmt.Errorf("DRED %s instruction config: %w", cfg.buildFlavor, err)
+		return &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("DNN %s instruction config: %w", cfg.buildFlavor, err)}
 	}
 	return nil
 }
@@ -251,11 +460,14 @@ type scalarDNNHelperConfig struct {
 	cflags string
 }
 
-func BuildDREDHelper(repoRoot, sourceFile, outputBase string, includeInternal bool) (string, error) {
+func BuildDREDHelper(root, sourceFile, outputBase string, includeInternal bool) (string, error) {
 	if err := validateDREDReferenceBuildPairing(); err != nil {
 		return "", err
 	}
-	if dredQEXTReferenceEnabled {
+	if err := validateDNNFloatReferencePairing(true); err != nil {
+		return "", err
+	}
+	if dredQEXTReferenceEnabled && !customModesReferenceEnabled {
 		includes := []string{"dnn"}
 		if includeInternal {
 			includes = append(includes, "celt", "silk", "src")
@@ -270,26 +482,46 @@ func BuildDREDHelper(repoRoot, sourceFile, outputBase string, includeInternal bo
 			Libs:        []string{DREDQEXTRefPath(".libs", "libopus.a"), "-lm"},
 		})
 	}
+	if root == "" {
+		root = repoRoot()
+	}
 	variant, err := libopustooling.ResolveLibopusReferenceVariant()
 	if err != nil {
 		return "", err
 	}
 	cflags := libopustooling.ScalarDNNBuildCFLAGS
+	if osceDNNFeatureEnabled {
+		cflags = osceScalarNoVectorCFLAGS
+	}
 	if variant == libopustooling.LibopusReferenceSIMD {
 		cflags = libopustooling.DREDSIMDBuildCFLAGS
 	}
-	return buildScalarDNNHelper(repoRoot, sourceFile, outputBase, includeInternal, scalarDNNHelperConfig{
+	return buildScalarDNNHelper(root, sourceFile, outputBase, includeInternal, scalarDNNHelperConfig{
 		label:  "dred",
 		ensure: EnsureDREDBuild,
 		cflags: cflags,
 	})
 }
 
-func BuildOSCEHelper(repoRoot, sourceFile, outputBase string, includeInternal bool) (string, error) {
-	return buildScalarDNNHelper(repoRoot, sourceFile, outputBase, includeInternal, scalarDNNHelperConfig{
+func BuildOSCEHelper(root, sourceFile, outputBase string, includeInternal bool) (string, error) {
+	if err := validateDNNFloatReferencePairing(extsupport.DRED); err != nil {
+		return "", err
+	}
+	if root == "" {
+		root = repoRoot()
+	}
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	cflags := osceScalarNoVectorCFLAGS
+	if variant == libopustooling.LibopusReferenceSIMD {
+		cflags = libopustooling.DREDSIMDBuildCFLAGS
+	}
+	return buildScalarDNNHelper(root, sourceFile, outputBase, includeInternal, scalarDNNHelperConfig{
 		label:  "osce",
 		ensure: EnsureOSCEBuild,
-		cflags: "-O2",
+		cflags: cflags,
 	})
 }
 
@@ -376,6 +608,201 @@ func buildScalarDNNHelper(repoRoot, sourceFile, outputBase string, includeIntern
 		return "", fmt.Errorf("install %s helper %s: %w", cfg.label, sourceFile, err)
 	}
 	return outPath, nil
+}
+
+// BuildDNNCHelper builds a public C oracle against the optional DNN features
+// and instruction lane selected by the current Go build. Its caller supplies
+// the usual helper source options but no libopus archive or reference selector.
+func BuildDNNCHelper(root string, cfg CHelperConfig) (string, error) {
+	if !osceDNNFeatureEnabled && !extsupport.DRED {
+		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("no DNN feature is enabled in the Go build")}
+	}
+	if cfg.OutputBase == "" || cfg.SourceFile == "" {
+		return "", fmt.Errorf("helper output base and source file are required")
+	}
+	linkInputs := make([]string, 0, len(cfg.Libs)+len(cfg.LDFlags)+len(cfg.CFlags))
+	linkInputs = append(linkInputs, cfg.Libs...)
+	linkInputs = append(linkInputs, cfg.LDFlags...)
+	linkInputs = append(linkInputs, cfg.CFlags...)
+	if err := validateNoLibopusLibraryOverride(linkInputs); err != nil {
+		return "", err
+	}
+	if cfg.QEXTRef || cfg.FixedRef || cfg.FixedQEXTRef || cfg.DREDQEXTRef || cfg.CustomRef ||
+		cfg.CustomQEXTRef || cfg.CustomFixedRef || cfg.CustomFixedQEXTRef || cfg.SIMDRef || cfg.ForceScalarRef {
+		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("DNN helper reference selectors conflict with the current Go feature and instruction lane")}
+	}
+	if err := validateDNNFloatReferencePairing(extsupport.DRED); err != nil {
+		return "", err
+	}
+	if dredQEXTReferenceEnabled && !customModesReferenceEnabled {
+		cfg.DREDQEXTRef = true
+		cfg.CFlags = append(cfg.CFlags, "-DHAVE_CONFIG_H")
+		cfg.RefIncludes = append(cfg.RefIncludes, "dnn")
+		if len(cfg.Libs) == 0 {
+			cfg.Libs = []string{"-lm"}
+		}
+		cfg.Libs = append([]string{DREDQEXTRefPath(".libs", "libopus.a")}, cfg.Libs...)
+		return BuildCHelper(cfg)
+	}
+	if root == "" {
+		root = repoRoot()
+	}
+	ccPath, err := libopustooling.FindCCompiler()
+	if err != nil {
+		return "", fmt.Errorf("cc not available: %w", err)
+	}
+	ensure := EnsureDREDBuild
+	if osceDNNFeatureEnabled {
+		ensure = EnsureOSCEBuild
+	}
+	sourceDir, buildDir, err := ensure(root)
+	if err != nil {
+		return "", err
+	}
+	if cfg.ProbeRelPath != "" {
+		if _, err := os.Stat(filepath.Join(sourceDir, filepath.FromSlash(cfg.ProbeRelPath))); err != nil {
+			return "", fmt.Errorf("DNN helper source is missing %s: %w", cfg.ProbeRelPath, err)
+		}
+	}
+	srcPath := cfg.SourceFile
+	if !filepath.IsAbs(srcPath) {
+		srcPath = filepath.Join(root, "tools", "csrc", filepath.FromSlash(srcPath))
+	}
+	if _, err := os.Stat(srcPath); err != nil {
+		return "", fmt.Errorf("DNN helper source not found: %w", err)
+	}
+	archive := filepath.Join(buildDir, ".libs", "libopus.a")
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	cflags := osceScalarNoVectorCFLAGS
+	if !osceDNNFeatureEnabled {
+		cflags = libopustooling.ScalarDNNBuildCFLAGS
+	}
+	if variant == libopustooling.LibopusReferenceSIMD {
+		cflags = libopustooling.DREDSIMDBuildCFLAGS
+	}
+	args := append([]string{"-std=c99"}, strings.Fields(cflags)...)
+	if cfg.DeadStrip {
+		args = append(args, "-ffunction-sections", "-fdata-sections")
+	}
+	args = append(args, cfg.CFlags...)
+	args = append(args, "-DHAVE_CONFIG_H", "-I", buildDir, "-I", filepath.Join(sourceDir, "include"), "-I", filepath.Join(sourceDir, "dnn"))
+	for _, rel := range cfg.RefIncludes {
+		args = append(args, "-I", filepath.Join(sourceDir, filepath.FromSlash(rel)))
+	}
+	for _, dir := range cfg.IncludeDirs {
+		args = append(args, "-I", dir)
+	}
+	args = append(args, srcPath)
+	for _, rel := range cfg.RefSources {
+		args = append(args, filepath.Join(sourceDir, filepath.FromSlash(rel)))
+	}
+	args = append(args, cfg.Sources...)
+	args = append(args, archive)
+	libs := cfg.Libs
+	if len(libs) == 0 {
+		libs = []string{"-lm"}
+	}
+	args = append(args, libs...)
+	if cfg.DeadStrip {
+		if runtime.GOOS == "darwin" {
+			args = append(args, "-Wl,-dead_strip")
+		} else {
+			args = append(args, "-Wl,--gc-sections")
+		}
+	}
+	args = append(args, cfg.LDFlags...)
+	hash := sha256.New()
+	version, _ := exec.Command(ccPath, "--version").Output()
+	for _, part := range [][]byte{[]byte(ccPath), version, []byte(strings.Join(args, "\x00"))} {
+		_, _ = hash.Write(part)
+	}
+	for _, path := range append([]string{srcPath, archive, filepath.Join(buildDir, "config.h")}, append(cfg.Sources, dnnReferenceSourcePaths(sourceDir, cfg.RefSources)...)...) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("read DNN helper input %s: %w", path, err)
+		}
+		_, _ = hash.Write(data)
+	}
+	digest := hex.EncodeToString(hash.Sum(nil))[:16]
+	outPath := helperOutputPathWithDigest(buildDir, cfg.OutputBase, cfg.SourceFile, "dnn", digest)
+	if _, err := os.Stat(outPath); err == nil {
+		return outPath, nil
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	tmpPattern := "." + cfg.OutputBase + "-*.tmp"
+	if runtime.GOOS == "windows" {
+		tmpPattern += ".exe"
+	}
+	tmp, err := os.CreateTemp(buildDir, tmpPattern)
+	if err != nil {
+		return "", err
+	}
+	tmpPath := tmp.Name()
+	_ = tmp.Close()
+	defer func() { _ = os.Remove(tmpPath) }()
+	cmd := exec.Command(ccPath, append(args, "-o", tmpPath)...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("build DNN helper %s: %w (%s)", cfg.SourceFile, err, bytes.TrimSpace(output))
+	}
+	if err := os.Rename(tmpPath, outPath); err != nil {
+		if _, statErr := os.Stat(outPath); statErr == nil {
+			return outPath, nil
+		}
+		return "", fmt.Errorf("install DNN helper %s: %w", cfg.SourceFile, err)
+	}
+	return outPath, nil
+}
+
+func validateNoLibopusLibraryOverride(linkInputs []string) error {
+	for i, input := range linkInputs {
+		name := strings.ToLower(strings.TrimSpace(input))
+		if isLibopusLinkInput(name) {
+			return &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("helper must use its selected libopus archive, not %q", input)}
+		}
+		if (name == "-l" || name == "-framework") && i+1 < len(linkInputs) && isLibopusLibraryName(strings.TrimSpace(linkInputs[i+1])) {
+			return &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("helper must use its selected libopus archive, not %s %s", input, linkInputs[i+1])}
+		}
+		if strings.HasPrefix(name, "-wl,") {
+			parts := strings.Split(name, ",")
+			for j, part := range parts {
+				if isLibopusLinkInput(part) || (part == "-l" || part == "-framework") && j+1 < len(parts) && isLibopusLibraryName(parts[j+1]) {
+					return &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("helper must use its selected libopus archive, not %q", input)}
+				}
+			}
+		}
+		if name == "-xlinker" && i+1 < len(linkInputs) {
+			linkerArg := strings.ToLower(strings.TrimSpace(linkInputs[i+1]))
+			if linkerArg == "-l" || linkerArg == "-framework" {
+				if i+3 < len(linkInputs) && strings.EqualFold(strings.TrimSpace(linkInputs[i+2]), "-Xlinker") && isLibopusLibraryName(strings.TrimSpace(linkInputs[i+3])) {
+					return &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("helper must use its selected libopus archive, not -Xlinker %s -Xlinker opus", linkerArg)}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func isLibopusLinkInput(name string) bool {
+	return name == "-lopus" || (strings.HasPrefix(name, "-l:") && strings.Contains(name, "opus")) ||
+		(strings.Contains(name, "libopus") && (strings.HasSuffix(name, ".a") || strings.HasSuffix(name, ".dylib") || strings.HasSuffix(name, ".so") || strings.Contains(name, ".so."))) ||
+		strings.HasSuffix(name, ".a")
+}
+
+func isLibopusLibraryName(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	return name == "opus" || name == "libopus" || isLibopusLinkInput(name)
+}
+
+func dnnReferenceSourcePaths(sourceDir string, sources []string) []string {
+	paths := make([]string, len(sources))
+	for i, source := range sources {
+		paths[i] = filepath.Join(sourceDir, filepath.FromSlash(source))
+	}
+	return paths
 }
 
 func RunOracle(binPath string, input []byte, label, outputMagic string) (*OracleReader, error) {

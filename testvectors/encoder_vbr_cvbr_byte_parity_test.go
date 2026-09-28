@@ -67,12 +67,13 @@ var vbrCVBREncodeHelper libopustest.HelperCache
 
 func getVBRCVBREncodeHelperPath(t testing.TB) (string, bool) {
 	t.Helper()
-	path, err := vbrCVBREncodeHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:      "vbr-cvbr encode",
-		OutputBase: "gopus_libopus_vbr_cvbr_encode",
-		SourceFile: "libopus_vbr_cvbr_encode_info.c",
-		CFlags:     []string{"-O2", "-DNDEBUG"},
-		Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+	path, err := vbrCVBREncodeHelper.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:      "vbr-cvbr encode",
+			OutputBase: "gopus_libopus_vbr_cvbr_encode",
+			SourceFile: "libopus_vbr_cvbr_encode_info.c",
+			CFlags:     []string{"-O2", "-DNDEBUG"},
+		})
 	})
 	if err != nil {
 		if libopustest.StrictRefRequired() {

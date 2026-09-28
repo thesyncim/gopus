@@ -24,10 +24,14 @@ func TestDNNSourceRejectsPartialPublication(t *testing.T) {
 		gz := gzip.NewWriter(f)
 		tw := tar.NewWriter(gz)
 		for _, name := range names {
-			if err := tw.WriteHeader(&tar.Header{Name: "opus-1.6.1/" + name, Mode: 0o644, Size: 1}); err != nil {
+			data := []byte{'\n'}
+			if name == "package_version" {
+				data = []byte("PACKAGE_VERSION=\"1.6.1\"\n")
+			}
+			if err := tw.WriteHeader(&tar.Header{Name: "opus-1.6.1/" + name, Mode: 0o644, Size: int64(len(data))}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := tw.Write([]byte{'\n'}); err != nil {
+			if _, err := tw.Write(data); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -46,7 +50,7 @@ func TestDNNSourceRejectsPartialPublication(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(tmpDir, "opus-1.6.1-dnnsrc-atomic")); !os.IsNotExist(err) {
 		t.Fatalf("incomplete source is visible: %v", err)
 	}
-	writeSource([]string{"configure", "install-sh", "config.sub", "include/opus.h", "dnn/nnet.c"})
+	writeSource([]string{"configure", "install-sh", "config.sub", "include/opus.h", "dnn/nnet.c", "package_version"})
 	source, err := ensureDNNSource(root)
 	if err != nil {
 		t.Fatal(err)
@@ -57,6 +61,15 @@ func TestDNNSourceRejectsPartialPublication(t *testing.T) {
 	}
 	if got, err := ensureDNNSource(root); err != nil || got != source {
 		t.Fatalf("reuse published source = %q, %v", got, err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "package_version"), []byte("PACKAGE_VERSION=\"0.0.0\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ensureDNNSource(root); err == nil {
+		t.Fatal("published source with the wrong version was accepted")
+	}
+	if err := os.WriteFile(filepath.Join(source, "package_version"), []byte("PACKAGE_VERSION=\"1.6.1\"\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.Remove(filepath.Join(source, "config.sub")); err != nil {
 		t.Fatal(err)

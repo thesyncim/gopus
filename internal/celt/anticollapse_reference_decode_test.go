@@ -42,3 +42,17 @@ func decodeAntiCollapseReferencePCM(t *testing.T, bin string, fixture []float32,
 	}
 	return pcm[preSkip : preSkip+len(fixture)], true
 }
+
+var antiCollapseDNNSelectedRefHelper libopustest.HelperCache
+
+func buildAntiCollapseDNNReferenceHelper() (string, error) {
+	return antiCollapseDNNSelectedRefHelper.Path(func() (string, error) {
+		return libopustest.BuildDNNCHelper("", libopustest.CHelperConfig{
+			Label:      "DNN anti-collapse decode",
+			OutputBase: "gopus_anticollapse_dnn_decode",
+			SourceFile: "libopus_qext_decode96k_info.c",
+			CFlags:     []string{"-O3", "-DNDEBUG", "-ffp-contract=off"},
+			DeadStrip:  true,
+		})
+	})
+}

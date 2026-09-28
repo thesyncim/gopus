@@ -34,12 +34,13 @@ import (
 var fecOracleHelperCache libopustest.HelperCache
 
 func fecEncoderOraclePath() (string, error) {
-	return fecOracleHelperCache.CHelperPath(libopustest.CHelperConfig{
-		Label:       "FEC encode",
-		OutputBase:  "gopus_libopus_fec_encode_packets",
-		SourceFile:  "libopus_fec_encode_packets.c",
-		RefIncludes: []string{"celt", "silk", "src"},
-		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+	return fecOracleHelperCache.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:       "FEC encode",
+			OutputBase:  "gopus_libopus_fec_encode_packets",
+			SourceFile:  "libopus_fec_encode_packets.c",
+			RefIncludes: []string{"celt", "silk", "src"},
+		})
 	})
 }
 

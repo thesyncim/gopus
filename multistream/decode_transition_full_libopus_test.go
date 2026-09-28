@@ -26,13 +26,15 @@ type transitionDecodeResult struct {
 // PCM span. The packet sequence preserves decoder history across transitions.
 func decodeTransitionSequenceWithLibopus(t *testing.T, sampleRate, channels, gainQ8, maxFrameSize int, steps []transitionDecodeStep) []transitionDecodeResult {
 	t.Helper()
-	path, err := transitionSequenceRefHelper.CHelperPath(pairMultistreamReference(libopustest.CHelperConfig{
-		Label:      "single-stream transition sequence reference",
-		OutputBase: "gopus_transition_sequence_ref",
-		SourceFile: "libopus_refdecode_single.c",
-		CFlags:     []string{"-O3", "-DNDEBUG"},
-		Libs:       []string{"-lm"},
-	}))
+	path, err := transitionSequenceRefHelper.Path(func() (string, error) {
+		return buildMultistreamReferenceHelper(libopustest.CHelperConfig{
+			Label:      "single-stream transition sequence reference",
+			OutputBase: "gopus_transition_sequence_ref",
+			SourceFile: "libopus_refdecode_single.c",
+			CFlags:     []string{"-O3", "-DNDEBUG"},
+			Libs:       []string{"-lm"},
+		})
+	})
 	if err != nil {
 		libopustest.HelperUnavailable(t, "single-stream transition sequence reference", err)
 	}

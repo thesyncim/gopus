@@ -45,12 +45,13 @@ var ldOracleHelperCache libopustest.HelperCache
 
 func getLDOracleHelperPath(t testing.TB) (string, bool) {
 	t.Helper()
-	path, err := ldOracleHelperCache.CHelperPath(libopustest.CHelperConfig{
-		Label:      "low-delay encode",
-		OutputBase: "gopus_libopus_lowdelay_encode",
-		SourceFile: "libopus_vbr_cvbr_encode_info.c",
-		CFlags:     []string{"-O2", "-DNDEBUG"},
-		Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+	path, err := ldOracleHelperCache.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:      "low-delay encode",
+			OutputBase: "gopus_libopus_lowdelay_encode",
+			SourceFile: "libopus_vbr_cvbr_encode_info.c",
+			CFlags:     []string{"-O2", "-DNDEBUG"},
+		})
 	})
 	if err != nil {
 		if libopustest.StrictRefRequired() {

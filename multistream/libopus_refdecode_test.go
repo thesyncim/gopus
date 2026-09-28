@@ -25,13 +25,13 @@ func getLibopusRefdecodePath() (string, error) {
 			libopusRefdecodeErr = err
 			return
 		}
-		libopusRefdecodePath, libopusRefdecodeErr = libopustest.BuildCHelper(pairMultistreamReference(libopustest.CHelperConfig{
+		libopusRefdecodePath, libopusRefdecodeErr = buildMultistreamReferenceHelper(libopustest.CHelperConfig{
 			Label:      "multistream reference decode",
 			OutputBase: "gopus_libopus_refdecode",
 			SourceFile: "libopus_refdecode_multistream.c",
 			CFlags:     []string{"-O3", "-DNDEBUG"},
 			Libs:       []string{"-lm"},
-		}))
+		})
 	})
 	if libopusRefdecodeErr != nil {
 		return "", libopusRefdecodeErr

@@ -73,12 +73,11 @@ var crossProductHelperCache libopustest.HelperCache
 
 func getCrossProductHelperPath() (string, error) {
 	return crossProductHelperCache.Path(func() (string, error) {
-		return libopustest.BuildCHelper(libopustest.CHelperConfig{
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
 			Label:      "encoder mode crossproduct",
 			OutputBase: "gopus_libopus_encoder_mode_crossproduct",
 			SourceFile: "libopus_encoder_mode_crossproduct.c",
 			CFlags:     []string{"-DHAVE_CONFIG_H"},
-			Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 		})
 	})
 }

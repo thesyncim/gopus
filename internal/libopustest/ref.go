@@ -128,6 +128,51 @@ func CustomScalarRefPath(elem ...string) string {
 	return filepath.Join(append(base, elem...)...)
 }
 
+// CustomQEXTRefPath returns the CUSTOM_MODES + ENABLE_QEXT reference tree
+// paired with the current Go instruction lane.
+func CustomQEXTRefPath(elem ...string) string {
+	variant, err := libopustooling.ResolveLibopusCustomQEXTReferenceVariant()
+	if err != nil {
+		panic(err)
+	}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
+	return filepath.Join(append(base, elem...)...)
+}
+
+// CustomFixedRefPath returns the CUSTOM_MODES + FIXED_POINT reference tree
+// paired with the current Go instruction lane.
+func CustomFixedRefPath(elem ...string) string {
+	variant, err := libopustooling.ResolveLibopusCustomFixedReferenceVariant()
+	if err != nil {
+		panic(err)
+	}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
+	return filepath.Join(append(base, elem...)...)
+}
+
+// CustomFixedQEXTRefPath returns the CUSTOM_MODES + FIXED_POINT + ENABLE_QEXT
+// reference tree paired with the current Go instruction lane.
+func CustomFixedQEXTRefPath(elem ...string) string {
+	variant, err := libopustooling.ResolveLibopusCustomFixedQEXTReferenceVariant()
+	if err != nil {
+		panic(err)
+	}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
+	return filepath.Join(append(base, elem...)...)
+}
+
 // ReadRefFileOrSkip reads a pinned libopus reference file. Missing references
 // skip local tests unless GOPUS_STRICT_LIBOPUS_REF asks for hard failures.
 func ReadRefFileOrSkip(t testing.TB, label string, elem ...string) []byte {

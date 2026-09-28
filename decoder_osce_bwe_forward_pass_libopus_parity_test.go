@@ -20,7 +20,7 @@ import (
 // sinusoid, and compares their 48 kHz outputs.
 //
 // Feature extraction, the raw signal net, and the delayed int16 wrapper
-// each compare every float bit with the selected scalar OSCE C build.
+// each compare every float bit with the selected OSCE C build.
 func TestOSCEBWEForwardPassMatchesLibopusNumericalParity(t *testing.T) {
 	libopustest.RequireOracle(t)
 	binPath, err := getLibopusOSCEBWEForwardHelperPath()

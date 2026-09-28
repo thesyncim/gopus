@@ -10,12 +10,13 @@ import (
 var multistreamRefdecodeHelper libopustest.HelperCache
 
 func runLibopusMultistreamDecode(sampleRate, channels, streams, coupled, frameSize, gainQ8, sampleFormat int, mapping []byte, packets [][]byte) (*libopustest.OracleReader, error) {
-	binPath, err := multistreamRefdecodeHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:      "multistream reference decode",
-		OutputBase: "gopus_libopus_refdecode_public_multistream",
-		SourceFile: "libopus_refdecode_multistream.c",
-		CFlags:     []string{"-O3", "-DNDEBUG"},
-		Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+	binPath, err := multistreamRefdecodeHelper.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:      "multistream reference decode",
+			OutputBase: "gopus_libopus_refdecode_public_multistream",
+			SourceFile: "libopus_refdecode_multistream.c",
+			CFlags:     []string{"-O3", "-DNDEBUG"},
+		})
 	})
 	if err != nil {
 		return nil, err
