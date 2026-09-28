@@ -581,11 +581,18 @@ func periodicPLCDecayEnergy(sum float32, samples []celtSig) float32 {
 
 func (d *Decoder) plcSynthesisEnergy(sum float32, samples []celtSig) float32 {
 	if d.qextDecodeScale() == 2 {
-		// The native QEXT CELT geometry in celt_decoder.c accumulates its float
-		// energy loops as per-sample MACs, including the QEXT-scaled PLC path.
-		for _, value := range samples {
-			sample := float32(value)
-			sum = fma32(sample, sample, sum)
+		// celt_decode_lost's selected ARM SIMD build rounds each S2 product
+		// before adding it, while its scalar build uses a fused multiply-add.
+		if libopusFloatInnerProdUsesNeonOrder {
+			for _, value := range samples {
+				sample := float32(value)
+				sum = noFMA32Add(sum, noFMA32Mul(sample, sample))
+			}
+		} else {
+			for _, value := range samples {
+				sample := float32(value)
+				sum = fma32(sample, sample, sum)
+			}
 		}
 		return sum
 	}

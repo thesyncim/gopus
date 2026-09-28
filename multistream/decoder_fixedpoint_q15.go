@@ -10,6 +10,14 @@ import (
 
 type streamFixedQEXTFields struct{}
 
+func (d *streamState) fixedCELTDownsample() int {
+	downsample := 48000 / int(d.sampleRate)
+	if downsample <= 0 {
+		return 1
+	}
+	return downsample
+}
+
 func (d *streamState) beginFixedCELTTransition(mode int, gainQ8 int32) {
 	d.fixedTransitionArmed = d.fixedCELT != nil && d.haveDecoded &&
 		((mode != streamModeCELT && d.lastMode == streamModeCELT) ||
@@ -42,10 +50,7 @@ func (d *streamState) captureFixedCELTTransition(main []float32, frameSize, tran
 	if main != nil && len(main) < needed {
 		return
 	}
-	downsample := 48000 / int(d.sampleRate)
-	if downsample <= 0 {
-		downsample = 1
-	}
+	downsample := d.fixedCELTDownsample()
 	coreFrameSize := transSize * downsample
 	if cap(d.fixedCELTPCM) < needed {
 		d.fixedCELTPCM = make([]int16, needed)
@@ -202,10 +207,7 @@ func (d *streamState) celtFixedRes(parsed parsedOpusPacket, frameSize int, toc s
 		d.fixedCELT = fixedpoint.NewCELTDecoderRate(channels, int(d.sampleRate))
 	}
 	codedChannels := fixedCELTCodedChannels(toc.stereo)
-	downsample := 48000 / int(d.sampleRate)
-	if downsample <= 0 {
-		downsample = 1
-	}
+	downsample := d.fixedCELTDownsample()
 	frameSizePerPacketFrame := frameSize / len(parsed.frames)
 	coreFrameSize := frameSizePerPacketFrame * downsample
 	d.fixedCELT.SetBandRange(0, celt.BandwidthFromOpusConfig(toc.bandwidth).EffectiveBands())
@@ -257,10 +259,7 @@ func (d *streamState) decodeLostFixed(frameSize int, floatPCM []float32) ([]int3
 	if cap(d.fixedCELTPCM) < needed {
 		d.fixedCELTPCM = make([]int16, needed)
 	}
-	downsample := 48000 / int(d.sampleRate)
-	if downsample <= 0 {
-		downsample = 1
-	}
+	downsample := d.fixedCELTDownsample()
 	frameSize20ms := int(d.sampleRate) / 50
 	chunkLimit := min(frameSize20ms, int(d.lastTOCFrameSize))
 	if chunkLimit <= 0 {
@@ -304,10 +303,7 @@ func (d *streamState) decodeFixedHybridAccum(rd *rangecoding.Decoder, dataLen, c
 		return false
 	}
 	d.fixedCELT.SetBandRange(celt.HybridCELTStartBand, d.fixedHybridEnd)
-	downsample := 48000 / int(d.sampleRate)
-	if downsample <= 0 {
-		downsample = 1
-	}
+	downsample := d.fixedCELTDownsample()
 	return d.fixedCELT.DecodeHybridAccumChannels(rd, dataLen, coreFrameSize, fixedCELTCodedChannels(packetStereo), accum) == coreFrameSize/downsample
 }
 
@@ -316,10 +312,7 @@ func (d *streamState) decodeFixedRedundantCELT(reset bool) bool {
 		return false
 	}
 	channels := int(d.channels)
-	downsample := 48000 / int(d.sampleRate)
-	if downsample <= 0 {
-		downsample = 1
-	}
+	downsample := d.fixedCELTDownsample()
 	f5 := int(d.sampleRate) / 200
 	needed := f5 * channels
 	coreFrameSize := f5 * downsample
@@ -387,3 +380,5 @@ func (d *streamState) resetFixedDecoderState() {
 		d.fixedCELT.Reset()
 	}
 }
+
+func (d *streamState) prepareFixedHybridQEXTPayload(_ parsedOpusPacket) {}

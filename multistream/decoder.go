@@ -185,7 +185,11 @@ func newStreamDecoder(sampleRate, channels int) *streamState {
 	silkDec := silk.NewDecoder()
 	silkDec.SetAPISampleRate(sampleRate)
 	celtDec := celt.NewDecoder(channels)
-	celtDec.SetDownsample(48000 / sampleRate)
+	if sampleRate == 96000 {
+		configureStreamNative96kCELT(celtDec)
+	} else {
+		celtDec.SetDownsample(48000 / sampleRate)
+	}
 	hybridDec := hybrid.NewDecoderWithSharedDecoders(channels, silkDec, celtDec)
 	hybridDec.SetAPISampleRate(sampleRate)
 	return &streamState{
@@ -567,6 +571,9 @@ func (d *streamState) decodeFramePayloadToFloat32(frame []byte, frameSize int, t
 		if !hybrid.ValidHybridFrameSize(d.frameSize48FromAPI(frameSize)) {
 			return nil, fmt.Errorf("multistream: invalid hybrid frame size %d", frameSize)
 		}
+		if extsupport.QEXT {
+			d.setCELTQEXTPayload(qextPayload)
+		}
 		out, err = d.decodeHybridModeWithTransition(frame, frameSize, transSize, toc)
 	case streamModeCELT:
 		out, err = d.decodeCELTModeWithTransition(frame, frameSize, transSize, toc, qextPayload)
@@ -769,7 +776,7 @@ func (d *streamState) decodePacketToFloat32(data []byte, frameSize int) ([]float
 	d.lastTOCFrameSize = int32(packetFrameSize)
 
 	var qextPayloads streamQEXTPayloads
-	if extsupport.QEXT && !d.ignoreExtensions && toc.mode == streamModeCELT && len(parsed.padding) > 0 {
+	if extsupport.QEXT && !d.ignoreExtensions && (toc.mode == streamModeCELT || toc.mode == streamModeHybrid) && len(parsed.padding) > 0 {
 		qextPayloads.collect(parsed.padding, parsed.paddingFrameCount, qextPacketExtensionID)
 	}
 
@@ -871,7 +878,7 @@ type Decoder struct {
 // NewDecoder creates a new multistream decoder.
 //
 // Parameters:
-//   - sampleRate: output sample rate (8000, 12000, 16000, 24000, or 48000 Hz)
+//   - sampleRate: output sample rate (8–48 kHz, or 96 kHz with gopus_qext)
 //   - channels: total output channels (1-255)
 //   - streams: total elementary streams (N, 1-255)
 //   - coupledStreams: number of coupled stereo streams (M, 0 to streams)

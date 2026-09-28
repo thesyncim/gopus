@@ -14,6 +14,17 @@ type streamFixedQEXTFields struct {
 	payloads     streamQEXTPayloads
 }
 
+func (d *streamState) fixedCELTDownsample() int {
+	if d.sampleRate == 96000 {
+		return 1
+	}
+	downsample := 48000 / int(d.sampleRate)
+	if downsample <= 0 {
+		return 1
+	}
+	return downsample
+}
+
 func (d *streamState) beginFixedCELTTransition(mode int, gainQ8 int32) {
 	d.fixedTransitionArmed = d.qext.decoder != nil && d.haveDecoded &&
 		((mode != streamModeCELT && d.lastMode == streamModeCELT) ||
@@ -46,10 +57,7 @@ func (d *streamState) captureFixedCELTTransition(main []float32, frameSize, tran
 	if main != nil && len(main) < needed {
 		return
 	}
-	downsample := 48000 / int(d.sampleRate)
-	if downsample <= 0 {
-		downsample = 1
-	}
+	downsample := d.fixedCELTDownsample()
 	coreFrameSize := transSize * downsample
 	if cap(d.fixedTransitionRes) < needed {
 		d.fixedTransitionRes = make([]int32, needed)
@@ -219,10 +227,7 @@ func (d *streamState) celtFixedRes(parsed parsedOpusPacket, frameSize int, toc s
 	if len(parsed.frames) == 0 || d.qext.decoder == nil || frameSize%len(parsed.frames) != 0 {
 		return false
 	}
-	downsample := 48000 / int(d.sampleRate)
-	if downsample <= 0 {
-		downsample = 1
-	}
+	downsample := d.fixedCELTDownsample()
 	frameSizePerPacketFrame := frameSize / len(parsed.frames)
 	coreFrameSize := frameSizePerPacketFrame * downsample
 	channels := int(d.channels)
@@ -272,10 +277,7 @@ func (d *streamState) decodeLostFixed(frameSize int, floatPCM []float32) ([]int3
 		return nil, ErrInvalidPacket
 	}
 	res := d.fixedRes
-	downsample := 48000 / int(d.sampleRate)
-	if downsample <= 0 {
-		downsample = 1
-	}
+	downsample := d.fixedCELTDownsample()
 	frameSize20ms := int(d.sampleRate) / 50
 	chunkLimit := min(frameSize20ms, int(d.lastTOCFrameSize))
 	if chunkLimit <= 0 {
@@ -314,11 +316,8 @@ func (d *streamState) decodeFixedHybridAccum(rd *rangecoding.Decoder, dataLen, c
 		return false
 	}
 	d.qext.decoder.SetBandRange(celt.HybridCELTStartBand, d.fixedHybridEnd)
-	decoded := d.qext.decoder.DecodeHybridAccumWithEC(rd, dataLen, coreFrameSize, fixedCELTCodedChannels(packetStereo), nil, accum)
-	downsample := 48000 / int(d.sampleRate)
-	if downsample <= 0 {
-		downsample = 1
-	}
+	decoded := d.qext.decoder.DecodeHybridAccumWithEC(rd, dataLen, coreFrameSize, fixedCELTCodedChannels(packetStereo), d.qext.payloads.frame(0), accum)
+	downsample := d.fixedCELTDownsample()
 	return decoded == coreFrameSize/downsample
 }
 
@@ -327,10 +326,7 @@ func (d *streamState) decodeFixedRedundantCELT(reset bool) bool {
 		return false
 	}
 	channels := int(d.channels)
-	downsample := 48000 / int(d.sampleRate)
-	if downsample <= 0 {
-		downsample = 1
-	}
+	downsample := d.fixedCELTDownsample()
 	f5 := int(d.sampleRate) / 200
 	needed := f5 * channels
 	coreFrameSize := f5 * downsample
@@ -391,4 +387,12 @@ func (d *streamState) resetFixedDecoderState() {
 	if d.qext.decoder != nil {
 		d.qext.decoder.Reset()
 	}
+}
+
+func (d *streamState) prepareFixedHybridQEXTPayload(parsed parsedOpusPacket) {
+	if d.ignoreExtensions || len(parsed.padding) == 0 {
+		d.qext.payloads.collect(nil, 0, qextPacketExtensionID)
+		return
+	}
+	d.qext.payloads.collect(parsed.padding, parsed.paddingFrameCount, qextPacketExtensionID)
 }

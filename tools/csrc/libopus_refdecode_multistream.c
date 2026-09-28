@@ -60,7 +60,7 @@ static int set_binary_stdio(void) {
 
 static int valid_sample_rate(uint32_t sample_rate) {
   return sample_rate == 8000 || sample_rate == 12000 || sample_rate == 16000 || sample_rate == 24000 ||
-         sample_rate == 48000;
+         sample_rate == 48000 || sample_rate == 96000;
 }
 
 static int append_items(void **out, size_t *out_len, size_t *out_cap, const void *src, size_t n, size_t item_size) {

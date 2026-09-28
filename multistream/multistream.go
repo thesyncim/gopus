@@ -269,11 +269,9 @@ func (d *Decoder) decodePLCToFloat32Into(frameSize int, applyProjection bool, ou
 	if len(output) < totalSamples {
 		return 0, ErrBufferTooSmall
 	}
-	fadeFactor := d.plcState.RecordLoss()
-	if fadeFactor < 0.001 {
-		clear(output[:totalSamples])
-		return frameSize, nil
-	}
+	// Each elementary codec owns its concealment decay and history updates.
+	// opus_multistream_decode_native keeps calling it throughout a loss burst.
+	_ = d.plcState.RecordLoss()
 
 	maxChunk := int(d.sampleRate) / 50
 	if maxChunk > 0 && frameSize > maxChunk {

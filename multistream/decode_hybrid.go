@@ -174,10 +174,8 @@ func streamSmoothFade(in1, in2, out []float32, overlap, channels, sampleRate int
 		return
 	}
 	inc := 48000 / sampleRate
-	if inc <= 0 {
-		inc = 1
-	}
-	win := celt.GetWindowBufferF32(overlap * inc)
+	// opus_decoder.c smooth_fade uses a zero window stride at native 96 kHz.
+	win := celt.GetWindowBufferF32(max(overlap, overlap*inc))
 	if len(win) == 0 {
 		return
 	}

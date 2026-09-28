@@ -370,7 +370,9 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 	// opus_decode_native runs each SILK or Hybrid child through
 	// opus_decode_frame. Its redundancy and transition fades apply per child,
 	// before the next child advances the shared decoder state.
-	if toc.mode != streamModeCELT && data[0]&3 != 0 {
+	packetCode := data[0] & 3
+	if toc.mode != streamModeCELT && packetCode != 0 &&
+		(packetCode != 3 || len(data) < 2 || int(data[1]&0x3f) != 1) {
 		return d.decodeMultiframeToResFixed(data, frameSize)
 	}
 	parsed, err := parseOpusPacketInto(&d.packetParser, data, false)
@@ -414,6 +416,7 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 	// the float decode instead.
 	hybridArmed := false
 	if toc.mode == streamModeHybrid {
+		d.prepareFixedHybridQEXTPayload(parsed)
 		var err error
 		hybridArmed, err = d.prepareFixedHybridStream(toc)
 		if err != nil {
@@ -550,10 +553,7 @@ func (h *streamFixedHybridHook) DecodeHybridHighband(silkInt16 []int16, filled i
 		res[i] = int32(s) << 8
 	}
 
-	downsample := 48000 / int(d.sampleRate)
-	if downsample <= 0 {
-		downsample = 1
-	}
+	downsample := d.fixedCELTDownsample()
 	coreFrameSize := frameSizeAPI * downsample
 
 	rdClone := &d.fixedHybridRangeDecoder

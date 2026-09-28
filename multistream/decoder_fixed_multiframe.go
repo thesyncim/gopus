@@ -36,7 +36,8 @@ func (d *streamState) decodeMultiframeToResFixed(data []byte, frameSize int) ([]
 		packet := d.fixedMultiframePacket[:len(payload)+1]
 		packet[0] = data[0] &^ 3
 		copy(packet[1:], payload)
-		if side := d.fixedMultiframeQEXT.frame(i); len(side) > 0 && parseStreamTOC(data[0]).mode == streamModeCELT && !d.ignoreExtensions {
+		mode := parseStreamTOC(data[0]).mode
+		if side := d.fixedMultiframeQEXT.frame(i); len(side) > 0 && (mode == streamModeCELT || mode == streamModeHybrid) && !d.ignoreExtensions {
 			frames := [1][]byte{payload}
 			extensions := [1]packetExtensionData{{ID: qextPacketExtensionID, Frame: 0, Data: side}}
 			n, err := buildOpusPacketFromFramesAndExtensionsInto(&d.fixedMultiframeBuilder,
