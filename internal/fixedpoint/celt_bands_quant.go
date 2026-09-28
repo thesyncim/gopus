@@ -40,18 +40,18 @@ const (
 
 // bandDecCtx mirrors the decode-relevant fields of libopus struct band_ctx.
 type bandDecCtx struct {
-	dec             *rangecoding.Decoder
-	extDec          *rangecoding.Decoder
-	extTotalBits    int
-	extBudget       int
-	extraBands      bool
-	qextMode        bool
-	customCache     fixedCustomTables
-	bandEdges       []int16
-	bandLogN        []int16
-	bandCaps        []int32
-	spread          int
-	tfChange        int
+	dec          *rangecoding.Decoder
+	extDec       *rangecoding.Decoder
+	extTotalBits int
+	extBudget    int
+	extraBands   bool
+	qextMode     bool
+	customCache  fixedCustomTables
+	bandEdges    []int16
+	bandLogN     []int16
+	bandCaps     []int32
+	spread       int
+	tfChange     int
 	// q31Coefficients selects Q31 angle gains independently of QEXT side-band
 	// geometry. CELTDecoder remains Q15 when QEXT is also compiled.
 	q31Coefficients bool
