@@ -388,11 +388,14 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 	if deferFixedCELTPrepare && !d.canCaptureFixedHybridTransition() {
 		return nil, false, nil
 	}
-	if toc.mode == streamModeCELT && !deferFixedCELTPrepare {
-		if err := d.prepareFixedCELTFrame(streamModeCELT, parsed, toc, false); err != nil {
-			return nil, false, err
+	switch toc.mode {
+	case streamModeCELT:
+		if !deferFixedCELTPrepare {
+			if err := d.prepareFixedCELTFrame(streamModeCELT, parsed, toc, false); err != nil {
+				return nil, false, err
+			}
 		}
-	} else if toc.mode == streamModeSILK {
+	case streamModeSILK:
 		if err := d.prepareFixedSILKRedundancy(toc); err != nil {
 			return nil, false, err
 		}
