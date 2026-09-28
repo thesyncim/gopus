@@ -7,7 +7,18 @@ package opusmath
 // [Float32ToInt16Raw], so the result is bit-exact with the reference.
 func Float32ToInt16(x float32) int16 {
 	y := x * 32768.0
-	return Float32ToInt16Raw(y)
+	if y > 32767.0 {
+		return 32767
+	}
+	if y < -32768.0 {
+		return -32768
+	}
+	if y != y {
+		// FLOAT2INT16 applies MAX32(x, -32768) before MIN32(x, 32767).
+		// The comparisons select the lower rail when x is NaN.
+		return -32768
+	}
+	return int16(roundClampedFloat32ToInt32Even(y))
 }
 
 // Float32ToInt24 converts a float32 PCM sample to a signed 24-bit integer
@@ -22,19 +33,34 @@ func Float32ToInt24(x float32) int32 {
 }
 
 // Float32ToInt16Raw rounds and saturates an already-scaled value (i.e. one in
-// 16-bit code units, not normalised [-1, 1)) to int16. It is the inner half of
-// FLOAT2INT16 and of silk_float2short(): clamp to [-32768, 32767] then
-// round-half-to-even. The full negative rail (-32768) is allowed here, unlike
-// the OSCE variant. Comparisons are done in float32 to match the C order of
-// operations.
+// 16-bit code units, not normalised [-1, 1)) to int16. It matches
+// silk_float2short_array in silk/float/SigProc_FLP.h: float2int to int32,
+// followed by SAT16. The full negative rail (-32768) is allowed here, unlike
+// the OSCE variant. The usual finite range uses an early saturation path; NaN
+// and int32 overflow preserve the target float-to-int conversion before SAT16.
 func Float32ToInt16Raw(y float32) int16 {
-	if y > 32767.0 {
+	if y > 32767.0 && y < 2147483648.0 {
 		return 32767
 	}
-	if y < -32768.0 {
+	if y < -32768.0 && y >= -2147483648.0 {
 		return -32768
 	}
+	if y != y || y >= 2147483648.0 || y < -2147483648.0 {
+		// SILK first applies float2int and then SAT16. Preserve the target's
+		// float-to-int result for NaN and int32 overflow before saturating.
+		return saturateInt32ToInt16(roundFloat32ToInt32Even(y))
+	}
 	return int16(roundClampedFloat32ToInt32Even(y))
+}
+
+func saturateInt32ToInt16(value int32) int16 {
+	if value > 32767 {
+		return 32767
+	}
+	if value < -32768 {
+		return -32768
+	}
+	return int16(value)
 }
 
 // Float32ToInt16OSCEOutputScale mirrors libopus OSCE SCALE_OUTPUT quantization.

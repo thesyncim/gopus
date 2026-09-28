@@ -35,6 +35,54 @@ func TestFloat32ToInt16MatchesLibopusFloat2Int16(t *testing.T) {
 	}
 }
 
+func TestFloat32ToInt16NonFiniteMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	samples := []float32{
+		math.Float32frombits(0xff800000), // -Inf
+		math.Float32frombits(0x7f800000), // +Inf
+		math.Float32frombits(0x7fc12345), // quiet NaN
+		math.Float32frombits(0x7f812345), // signaling NaN payload
+		-1e30,
+		1e30,
+	}
+	want, err := libopustest.ProbeFloatQuant(libopustest.FloatQuantModeFloat2Int16, samples)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "FLOAT2INT16 non-finite", err)
+	}
+	for i, sample := range samples {
+		if got := Float32ToInt16(sample); got != want[i] {
+			t.Fatalf("Float32ToInt16(%08x, %0.10g)=%d want C FLOAT2INT16=%d", math.Float32bits(sample), sample, got, want[i])
+		}
+	}
+}
+
+func TestFloat32ToInt16OSCEOutputScaleMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	samples := []float32{
+		math.Float32frombits(0xff800000), // -Inf
+		math.Float32frombits(0x7f800000), // +Inf
+		math.Float32frombits(0x7fc12345), // quiet NaN
+		math.Float32frombits(0x7f812345), // signaling NaN payload
+		-1e30,
+		1e30,
+		math.Nextafter32(1, 0),
+		1,
+		math.Nextafter32(1, float32(math.Inf(1))),
+		math.Nextafter32(-1, 0),
+		-1,
+		math.Nextafter32(-1, float32(math.Inf(-1))),
+	}
+	want, err := libopustest.ProbeFloatQuant(libopustest.FloatQuantModeOSCEOutputScale, samples)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "OSCE output-scale conversion", err)
+	}
+	for i, sample := range samples {
+		if got := Float32ToInt16OSCEOutputScale(sample); got != want[i] {
+			t.Fatalf("Float32ToInt16OSCEOutputScale(%08x, %0.10g)=%d want C output scale=%d", math.Float32bits(sample), sample, got, want[i])
+		}
+	}
+}
+
 func TestFloat32ToInt24MatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	const scale = float32(1 << 23)
@@ -81,6 +129,18 @@ func rawInt16OracleSamples() []float32 {
 		32767.25,
 		32767.5,
 		32768,
+		math.Nextafter32(float32(1<<31), 0),
+		float32(1 << 31),
+		math.Nextafter32(float32(1<<31), float32(math.Inf(1))),
+		math.Nextafter32(float32(-1<<31), float32(math.Inf(-1))),
+		float32(-1 << 31),
+		math.Nextafter32(float32(-1<<31), 0),
+		float32(math.Inf(1)),
+		float32(math.Inf(-1)),
+		math.Float32frombits(0x7fc12345),
+		math.Float32frombits(0x7f812345),
+		1e30,
+		-1e30,
 	}
 	for raw := -2048; raw <= 2048; raw++ {
 		base := float32(raw)
