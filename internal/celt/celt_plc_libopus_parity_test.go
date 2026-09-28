@@ -1,6 +1,7 @@
 package celt
 
 import (
+	"encoding/hex"
 	"math"
 	"strconv"
 	"testing"
@@ -265,6 +266,36 @@ func TestPeriodicPLCSynthesisStagesMatchLibopusBits(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDecodedSeedPeriodicPLCMatchesLibopusBits(t *testing.T) {
+	libopustest.RequireOracle(t)
+	requirePairedCELTOracleMode(t)
+
+	packet, err := hex.DecodeString(seedCELTMonoPacketHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec := NewDecoder(1)
+	if err := dec.SetAPISampleRate(48000); err != nil {
+		t.Fatal(err)
+	}
+	dec.SetBandwidth(CELTFullband)
+	if _, err := dec.DecodeFrame(packet[1:], 960); err != nil {
+		t.Fatalf("decode seed: %v", err)
+	}
+	dec.materializePLCDecodeHistory()
+	hist := append([]celtSig(nil), dec.plcDecodeMem[:plcDecodeBufferSize]...)
+	want := probeLibopusPLCPeriodicConceal(t, hist, 1, 960)
+
+	got := make([]float32, 960+Overlap)
+	if !dec.concealPeriodicPLCWithLimit(got, 960, 1, false, false, true) {
+		t.Fatal("Go periodic PLC declined the seeded history")
+	}
+	if dec.plcLastPitchPeriod != int32(want.period) {
+		t.Fatalf("pitch period=%d want %d", dec.plcLastPitchPeriod, want.period)
+	}
+	assertFloat32BitExact(t, "decoded seed periodic PLC", got, want.out[0])
 }
 
 func probeLibopusPLCPitchSearch(t *testing.T, xLP, y []float32, length, maxPitch int) int {
