@@ -1624,7 +1624,13 @@ func algUnquantInto(shape []celtNorm, rd *rangecoding.Decoder, band, n, k, sprea
 		pulses[n-1] = last
 		sumSq := opusVal16(0)
 		for i := range n {
-			sumSq = opusVal16(float32(sumSq) + float32(pulses[i])*float32(pulses[i]))
+			if celtUseFusedFloatMath && i < n&^3 {
+				// celt/vq.c alg_unquant's paired ARM SIMD object rounds vector-
+				// body terms separately, then contracts the scalar tail.
+				sumSq = opusVal16(noFMA32Add(float32(sumSq), noFMA32Mul(float32(pulses[i]), float32(pulses[i]))))
+			} else {
+				sumSq = opusVal16(float32(sumSq) + float32(pulses[i])*float32(pulses[i]))
+			}
 		}
 		yy = sumSq
 	}
