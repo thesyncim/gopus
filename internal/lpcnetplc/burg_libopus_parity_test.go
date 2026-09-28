@@ -23,5 +23,5 @@ func TestBurgCepstralAnalysisMatchesLibopus(t *testing.T) {
 	if n := analysis.BurgCepstralAnalysis(got[:], frame[:]); n != 2*NumBands {
 		t.Fatalf("BurgCepstralAnalysis()=%d want %d", n, 2*NumBands)
 	}
-	assertFloat32Close(t, got[:], want, 5e-3, "burg cepstrum")
+	assertFloat32BitsMatch(t, got[:], want, "burg cepstrum")
 }

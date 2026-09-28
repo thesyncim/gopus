@@ -4,8 +4,6 @@ package lpcnetplc
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
@@ -40,12 +38,11 @@ var (
 )
 
 func buildLibopusPLCHelper(sourceFile, outputBase string) (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("getwd: %w", err)
-	}
-	repoRoot := filepath.Clean(filepath.Join(cwd, "..", ".."))
-	return libopustest.BuildDREDHelper(repoRoot, sourceFile, outputBase, true)
+	return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+		OutputBase:  outputBase,
+		SourceFile:  sourceFile,
+		RefIncludes: []string{".", "celt", "silk", "src"},
+	})
 }
 
 func cachedLibopusPLCHelperPath(cache *libopustest.HelperCache, sourceFile, outputBase string) (string, error) {

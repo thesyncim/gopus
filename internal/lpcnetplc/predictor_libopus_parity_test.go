@@ -43,9 +43,9 @@ func TestPredictorMatchesLibopusOnRealModel(t *testing.T) {
 	if n := predictor.Predict(out[:], input1[:]); n != NumFeatures {
 		t.Fatalf("Predict(input1)=%d want %d", n, NumFeatures)
 	}
-	assertFloat32Close(t, out[:], want1, 5e-3, "predict output 1")
-	assertFloat32Close(t, predictor.state.gru1[:], wantGRU1, 5e-3, "gru1 state after input1")
-	assertFloat32Close(t, predictor.state.gru2[:], wantGRU2, 5e-3, "gru2 state after input1")
+	assertFloat32BitsMatch(t, out[:], want1, "predict output 1")
+	assertFloat32BitsMatch(t, predictor.state.gru1[:], wantGRU1, "gru1 state after input1")
+	assertFloat32BitsMatch(t, predictor.state.gru2[:], wantGRU2, "gru2 state after input1")
 
 	want2, wantGRU1b, wantGRU2b, err := probeLibopusPLCPredict(input2[:], wantGRU1, wantGRU2)
 	if err != nil {
@@ -54,19 +54,21 @@ func TestPredictorMatchesLibopusOnRealModel(t *testing.T) {
 	if n := predictor.Predict(out[:], input2[:]); n != NumFeatures {
 		t.Fatalf("Predict(input2)=%d want %d", n, NumFeatures)
 	}
-	assertFloat32Close(t, out[:], want2, 5e-2, "predict output 2")
-	assertFloat32Close(t, predictor.state.gru1[:], wantGRU1b, 5e-2, "gru1 state after input2")
-	assertFloat32Close(t, predictor.state.gru2[:], wantGRU2b, 5e-2, "gru2 state after input2")
+	assertFloat32BitsMatch(t, out[:], want2, "predict output 2")
+	assertFloat32BitsMatch(t, predictor.state.gru1[:], wantGRU1b, "gru1 state after input2")
+	assertFloat32BitsMatch(t, predictor.state.gru2[:], wantGRU2b, "gru2 state after input2")
 }
 
-func assertFloat32Close(t *testing.T, got, want []float32, tol float64, label string) {
+// assertFloat32BitsMatch compares float32 outputs and state against the
+// selected libopus helper without a numeric tolerance.
+func assertFloat32BitsMatch(t *testing.T, got, want []float32, label string) {
 	t.Helper()
 	if len(got) != len(want) {
 		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
 	}
 	for i := range got {
-		if math.Abs(float64(got[i]-want[i])) > tol {
-			t.Fatalf("%s[%d]=%v want %v (tol=%g)", label, i, got[i], want[i], tol)
+		if gotBits, wantBits := math.Float32bits(got[i]), math.Float32bits(want[i]); gotBits != wantBits {
+			t.Fatalf("%s[%d] Go=%08x C=%08x", label, i, gotBits, wantBits)
 		}
 	}
 }
