@@ -23,9 +23,11 @@ cases on local ARM64 in fixed scalar and fixed+QEXT scalar/SIMD: 3,024 surround,
 redundancy, multi-frame composition, and degenerate frames match the selected C
 reference. The 8/12 kHz Hybrid received/loss/recovery cases pass fixed and
 fixed+QEXT in default, SIMD, and nosimd builds with zero warm allocations.
+The fixed projection encoder Q15 stereo-width and integer mode threshold fix
+at `1e862928` passes the full projection encode sweep in fixed and fixed+QEXT
+scalar/SIMD, with exact state/threshold and zero-allocation oracle checks.
 Remaining investigations include Hybrid-to-CELT transition PCM, loss following
-SILK-to-CELT redundancy, the fixed projection encoder stereo-width decision,
-and float-QEXT multistream PCM. These cases remain strict live-C checks.
+SILK-to-CELT redundancy, and float-QEXT multistream PCM. These cases remain strict live-C checks.
 
 The local ARM64 public root suite passes in the default scalar (288.8 s),
 default SIMD (270.9 s), fixed SIMD (538.5 s), and fixed+QEXT SIMD (545.3 s)
