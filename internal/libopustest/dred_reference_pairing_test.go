@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 func TestDREDReferenceRejectsFeatureAndInstructionMismatches(t *testing.T) {
@@ -65,6 +67,93 @@ func TestDREDReferenceRejectsFeatureAndInstructionMismatches(t *testing.T) {
 			err := validateDREDInstructionBuild(buildDir, dredSIMDDNNBuild)
 			if (err == nil) != tc.wantOK {
 				t.Fatalf("validateDREDInstructionBuild() error=%v wantOK=%v", err, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestPublicDNNReferenceIdentityUsesBuilderStampContract(t *testing.T) {
+	if _, err := libopustooling.FindCCompiler(); err != nil {
+		t.Skipf("C compiler unavailable: %v", err)
+	}
+	tests := []struct {
+		name     string
+		identity PublicAPIReferenceIdentity
+		flavor   string
+	}{
+		{
+			name: "dred_scalar",
+			identity: PublicAPIReferenceIdentity{
+				DNN: true, DRED: true, Variant: libopustooling.LibopusReferenceScalar,
+			},
+			flavor: "dred",
+		},
+		{
+			name: "dred_simd",
+			identity: PublicAPIReferenceIdentity{
+				DNN: true, DRED: true, Variant: libopustooling.LibopusReferenceSIMD,
+			},
+			flavor: "dred-simd",
+		},
+		{
+			name: "osce_qext",
+			identity: PublicAPIReferenceIdentity{
+				DNN: true, OSCE: true, QEXT: true, Variant: libopustooling.LibopusReferenceScalar,
+			},
+			flavor: "dnn-osce-qext",
+		},
+		{
+			name: "osce_custom",
+			identity: PublicAPIReferenceIdentity{
+				DNN: true, OSCE: true, Custom: true, Variant: libopustooling.LibopusReferenceScalar,
+			},
+			flavor: "dnn-osce-custom",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := tc.identity.dnnBuildConfig()
+			if cfg.buildFlavor != tc.flavor {
+				t.Fatalf("dnnBuildConfig().buildFlavor=%q, want %q", cfg.buildFlavor, tc.flavor)
+			}
+
+			buildDir := t.TempDir()
+			if err := cfg.writeStamp(buildDir); err != nil {
+				t.Fatalf("write matching build stamp: %v", err)
+			}
+			if !cfg.buildCurrent(buildDir) {
+				t.Fatal("matching builder stamp rejected")
+			}
+
+			wrongVariant := tc.identity
+			if wrongVariant.Variant == libopustooling.LibopusReferenceSIMD {
+				wrongVariant.Variant = libopustooling.LibopusReferenceScalar
+			} else {
+				wrongVariant.Variant = libopustooling.LibopusReferenceSIMD
+			}
+			if wrongVariant.dnnBuildConfig().buildCurrent(buildDir) {
+				t.Fatal("build stamp for a different instruction variant accepted")
+			}
+
+			entries, err := os.ReadDir(buildDir)
+			if err != nil {
+				t.Fatalf("read build stamp directory: %v", err)
+			}
+			staleStampFound := false
+			for _, entry := range entries {
+				if !strings.HasPrefix(entry.Name(), ".gopus-") || !strings.Contains(entry.Name(), "build") {
+					continue
+				}
+				staleStampFound = true
+				if err := os.WriteFile(filepath.Join(buildDir, entry.Name()), []byte("stale build identity\n"), 0o644); err != nil {
+					t.Fatalf("write stale build stamp: %v", err)
+				}
+			}
+			if !staleStampFound {
+				t.Fatal("builder did not write a build stamp")
+			}
+			if cfg.buildCurrent(buildDir) {
+				t.Fatal("stale build stamp accepted")
 			}
 		})
 	}

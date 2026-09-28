@@ -3,6 +3,7 @@ package libopustest
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -10,6 +11,44 @@ import (
 
 	"github.com/thesyncim/gopus/internal/libopustooling"
 )
+
+func TestDNNHelperIncludesPinnedSourceRootAfterBuildConfig(t *testing.T) {
+	cc, err := libopustooling.FindCCompiler()
+	if err != nil {
+		t.Skipf("C compiler unavailable: %v", err)
+	}
+	root := t.TempDir()
+	buildDir := filepath.Join(root, "build")
+	sourceDir := filepath.Join(root, "source")
+	for _, dir := range []string{
+		buildDir,
+		filepath.Join(sourceDir, "celt"),
+		filepath.Join(sourceDir, "include"),
+		filepath.Join(sourceDir, "dnn"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(buildDir, "config.h"), []byte("#define DNN_HELPER_CONFIG 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, "config.h"), []byte("#error source-root config must not override build config\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, "celt", "cpu_support.h"), []byte("#include \"config.h\"\n#if !defined(DNN_HELPER_CONFIG)\n#error generated build config was not selected\n#endif\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(root, "helper.c")
+	if err := os.WriteFile(helper, []byte("#include <celt/cpu_support.h>\nint main(void) { return 0; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args := append([]string{"-std=c99", "-fsyntax-only"}, dnnHelperIncludeArgs(buildDir, sourceDir)...)
+	args = append(args, helper)
+	if output, err := exec.Command(cc, args...).CombinedOutput(); err != nil {
+		t.Fatalf("compile DNN helper source-root include probe: %v (%s)", err, output)
+	}
+}
 
 func TestDNNFeatureBuildConfigAndHeaders(t *testing.T) {
 	for _, tc := range []struct {

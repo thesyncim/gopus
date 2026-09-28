@@ -481,6 +481,18 @@ func validateDREDInstructionBuild(buildDir string, cfg scalarDNNBuildConfig) err
 	return nil
 }
 
+// dnnHelperIncludeArgs keeps generated config.h ahead of the source tree while
+// allowing helpers to include libopus headers from its repository root.
+func dnnHelperIncludeArgs(buildDir, sourceDir string) []string {
+	return []string{
+		"-DHAVE_CONFIG_H",
+		"-I", buildDir,
+		"-I", sourceDir,
+		"-I", filepath.Join(sourceDir, "include"),
+		"-I", filepath.Join(sourceDir, "dnn"),
+	}
+}
+
 type scalarDNNHelperConfig struct {
 	label  string
 	ensure func(repoRoot string) (sourceDir, buildDir string, err error)
@@ -745,7 +757,7 @@ func BuildDNNCHelper(root string, cfg CHelperConfig) (string, error) {
 		args = append(args, "-ffunction-sections", "-fdata-sections")
 	}
 	args = append(args, cfg.CFlags...)
-	args = append(args, "-DHAVE_CONFIG_H", "-I", buildDir, "-I", filepath.Join(sourceDir, "include"), "-I", filepath.Join(sourceDir, "dnn"))
+	args = append(args, dnnHelperIncludeArgs(buildDir, sourceDir)...)
 	for _, rel := range cfg.RefIncludes {
 		args = append(args, "-I", filepath.Join(sourceDir, filepath.FromSlash(rel)))
 	}

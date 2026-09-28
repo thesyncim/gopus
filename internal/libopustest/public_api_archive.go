@@ -24,6 +24,16 @@ type PublicAPIReferenceIdentity struct {
 	Custom      bool
 }
 
+func (identity PublicAPIReferenceIdentity) dnnBuildConfig() scalarDNNBuildConfig {
+	if identity.DRED && !identity.OSCE && !identity.QEXT && !identity.Custom {
+		if identity.Variant == libopustooling.LibopusReferenceSIMD {
+			return dredSIMDDNNBuild
+		}
+		return dredScalarDNNBuild
+	}
+	return featureDNNBuildConfig(identity.DRED, identity.OSCE, identity.QEXT, identity.Custom, identity.Variant)
+}
+
 // ResolvePublicAPIReferenceIdentity selects the same archive as
 // BuildPublicAPIHelper, ensures DNN archives exist, and validates the selected
 // archive's source, feature, and instruction identity before returning it.
@@ -118,7 +128,7 @@ func (identity PublicAPIReferenceIdentity) Validate() error {
 			return err
 		}
 	}
-	config := featureDNNBuildConfig(identity.DRED, identity.OSCE, identity.QEXT, identity.Custom, identity.Variant)
+	config := identity.dnnBuildConfig()
 	if !config.buildCurrent(identity.BuildDir) {
 		return &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("selected DNN archive has a stale or missing feature build stamp")}
 	}
