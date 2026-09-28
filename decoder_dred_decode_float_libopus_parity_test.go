@@ -472,13 +472,13 @@ func prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t *testin
 		channels = 2
 	}
 	if channels < 1 || channels > 2 {
-		t.Skipf("explicit DRED decode parity requires mono or stereo packet, got sampleRate=%d channels=%d", packetInfo.sampleRate, channels)
+		t.Fatalf("explicit DRED decode parity requires mono or stereo packet, got sampleRate=%d channels=%d", packetInfo.sampleRate, channels)
 	}
 	if packetCfg.ForceMode != toc.Mode {
-		t.Skipf("explicit DRED decode parity requires mode=%v packet, got mode=%v", packetCfg.ForceMode, toc.Mode)
+		t.Fatalf("explicit DRED decode parity requires mode=%v packet, got mode=%v", packetCfg.ForceMode, toc.Mode)
 	}
 	if packetCfg.Bandwidth != toc.Bandwidth {
-		t.Skipf("explicit DRED decode parity requires bandwidth=%v packet, got bandwidth=%v", packetCfg.Bandwidth, toc.Bandwidth)
+		t.Fatalf("explicit DRED decode parity requires bandwidth=%v packet, got bandwidth=%v", packetCfg.Bandwidth, toc.Bandwidth)
 	}
 	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)
 	seedPacket := makeValidMonoPacketForModeBandwidthFrameSizeForDREDTest(t, toc.Mode, toc.Bandwidth, toc.FrameSize)
@@ -498,7 +498,7 @@ func prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t *testin
 		t.Fatalf("Decode(seed packet) error: %v", err)
 	}
 	if n <= 0 {
-		t.Skip("carrier packet returned no audio")
+		t.Fatal("carrier packet returned no audio")
 	}
 
 	standalone := NewDREDDecoder()

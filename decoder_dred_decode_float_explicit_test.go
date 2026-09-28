@@ -14,7 +14,7 @@ func TestDecoderExplicitDREDWarmup48kStateMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	dec, _, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
 	if packetInfo.sampleRate != 48000 || n <= 0 {
-		t.Skipf("48 kHz warmup parity requires 48 kHz packet, got sampleRate=%d frame=%d", packetInfo.sampleRate, n)
+		t.Fatalf("48 kHz warmup parity requires 48 kHz packet, got sampleRate=%d frame=%d", packetInfo.sampleRate, n)
 	}
 	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 	if err != nil {
@@ -32,15 +32,15 @@ func TestDecoderExplicitDREDWarmup48kStateMatchesLibopus(t *testing.T) {
 }
 
 // The ordinary cached Decode(nil) path follows libopus FRAME_PLC_NEURAL,
-// while the explicit DRED API follows FRAME_DRED. These legacy equality tests
-// remain as disabled scaffolding until they are rewritten against the separate
-// live-sequence and explicit libopus oracles.
+// while the explicit DRED API follows FRAME_DRED. The bootstrap checks below
+// exercise the explicit path; the decode parity tests compare it with the
+// matching live libopus API.
 
 func TestDecoderExplicitDREDFirstConcealFrameBootstraps48kRuntime(t *testing.T) {
 	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, _, n := prepareExplicitDREDDecodeParityState(t)
 	if packetInfo.sampleRate != 48000 || n < lpcnetplc.FrameSize {
-		t.Skipf("48 kHz bootstrap regression requires 48 kHz packet and >=%d samples, got sampleRate=%d frame=%d", lpcnetplc.FrameSize, packetInfo.sampleRate, n)
+		t.Fatalf("48 kHz bootstrap regression requires 48 kHz packet and >=%d samples, got sampleRate=%d frame=%d", lpcnetplc.FrameSize, packetInfo.sampleRate, n)
 	}
 	if got := dec.primeDREDCELTEntryHistory(dec.prevMode, true); got == 0 {
 		t.Fatal("primeDREDCELTEntryHistory() returned 0")
@@ -59,7 +59,7 @@ func TestDecoderExplicitDREDThreeConcealFramesBootstraps48kRuntime(t *testing.T)
 	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, _, n := prepareExplicitDREDDecodeParityState(t)
 	if packetInfo.sampleRate != 48000 || n < 3*lpcnetplc.FrameSize {
-		t.Skipf("48 kHz triple-frame regression requires 48 kHz packet and >=%d samples, got sampleRate=%d frame=%d", 3*lpcnetplc.FrameSize, packetInfo.sampleRate, n)
+		t.Fatalf("48 kHz triple-frame regression requires 48 kHz packet and >=%d samples, got sampleRate=%d frame=%d", 3*lpcnetplc.FrameSize, packetInfo.sampleRate, n)
 	}
 	if got := dec.primeDREDCELTEntryHistory(dec.prevMode, true); got == 0 {
 		t.Fatal("primeDREDCELTEntryHistory() returned 0")
@@ -80,7 +80,7 @@ func TestDecoderExplicitDREDThreeConcealFramesManualStep48kRuntime(t *testing.T)
 	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, _, n := prepareExplicitDREDDecodeParityState(t)
 	if packetInfo.sampleRate != 48000 || n < 3*lpcnetplc.FrameSize {
-		t.Skipf("48 kHz manual-step regression requires 48 kHz packet and >=%d samples, got sampleRate=%d frame=%d", 3*lpcnetplc.FrameSize, packetInfo.sampleRate, n)
+		t.Fatalf("48 kHz manual-step regression requires 48 kHz packet and >=%d samples, got sampleRate=%d frame=%d", 3*lpcnetplc.FrameSize, packetInfo.sampleRate, n)
 	}
 	if got := dec.primeDREDCELTEntryHistory(dec.prevMode, true); got == 0 {
 		t.Fatal("primeDREDCELTEntryHistory() returned 0")
@@ -113,7 +113,7 @@ func TestDecoderExplicitDREDThreeConcealFramesMixedHelpers48kRuntime(t *testing.
 	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, _, n := prepareExplicitDREDDecodeParityState(t)
 	if packetInfo.sampleRate != 48000 || n < 3*lpcnetplc.FrameSize {
-		t.Skipf("48 kHz mixed-helper regression requires 48 kHz packet and >=%d samples, got sampleRate=%d frame=%d", 3*lpcnetplc.FrameSize, packetInfo.sampleRate, n)
+		t.Fatalf("48 kHz mixed-helper regression requires 48 kHz packet and >=%d samples, got sampleRate=%d frame=%d", 3*lpcnetplc.FrameSize, packetInfo.sampleRate, n)
 	}
 	if got := dec.primeDREDCELTEntryHistory(dec.prevMode, true); got == 0 {
 		t.Fatal("primeDREDCELTEntryHistory() returned 0")
@@ -453,7 +453,7 @@ func TestDecoderExplicitDREDCELT48kBridgeMatchesLibopusFirstLoss(t *testing.T) {
 	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
 	if packetInfo.sampleRate != 48000 || n <= 0 {
-		t.Skipf("48 kHz explicit bridge parity requires 48 kHz packet, got sampleRate=%d frame=%d", packetInfo.sampleRate, n)
+		t.Fatalf("48 kHz explicit bridge parity requires 48 kHz packet, got sampleRate=%d frame=%d", packetInfo.sampleRate, n)
 	}
 
 	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
@@ -615,7 +615,7 @@ func TestDecoderExplicitDREDCELT48kBridgeMatchesLibopusSecondLoss(t *testing.T) 
 	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
 	if packetInfo.sampleRate != 48000 || n <= 0 {
-		t.Skipf("48 kHz explicit bridge parity requires 48 kHz packet, got sampleRate=%d frame=%d", packetInfo.sampleRate, n)
+		t.Fatalf("48 kHz explicit bridge parity requires 48 kHz packet, got sampleRate=%d frame=%d", packetInfo.sampleRate, n)
 	}
 	pcm0 := make([]float32, dec.maxPacketSamples)
 	if _, err := dec.decodeExplicitDREDFloat(dred, n, pcm0, n); err != nil {
@@ -642,7 +642,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacketMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
 	if packetInfo.sampleRate != 48000 || n <= 0 {
-		t.Skipf("48 kHz explicit follow-up parity requires 48 kHz packet, got sampleRate=%d frame=%d", packetInfo.sampleRate, n)
+		t.Fatalf("48 kHz explicit follow-up parity requires 48 kHz packet, got sampleRate=%d frame=%d", packetInfo.sampleRate, n)
 	}
 	nextPacket := makeValidMonoCELTPacketForDREDTest(t)
 
@@ -765,7 +765,7 @@ func TestDecoderExplicitSecondLossThenNextPacketMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
 	if packetInfo.sampleRate != 48000 || n <= 0 {
-		t.Skipf("48 kHz explicit second-loss follow-up parity requires 48 kHz packet, got sampleRate=%d frame=%d", packetInfo.sampleRate, n)
+		t.Fatalf("48 kHz explicit second-loss follow-up parity requires 48 kHz packet, got sampleRate=%d frame=%d", packetInfo.sampleRate, n)
 	}
 	nextPacket := makeValidMonoCELTPacketForDREDTest(t)
 

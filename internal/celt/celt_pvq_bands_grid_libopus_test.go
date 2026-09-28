@@ -13,12 +13,8 @@
 //	signals     : tonal (exercises spread/rotation), transient (short-block
 //	              MDCT, tf_select), wideband noise (folding, intra energy)
 //
-// A cell passes when it is byte-exact OR decode-identical (the only byte
-// difference is benign range-coder trailing free bits, so both packets decode to
-// bit-identical PCM). Every cell is byte-exact on amd64 (CI hard gate). On
-// darwin/arm64 a handful of high-K cells byte-differ and decode within the
-// documented CELT float FMA budget (≤1 ULP per op, project_arm64_celt_1ulp_drift.md);
-// any larger decode divergence is a real coding bug and fails on every arch.
+// Every cell must produce exactly the selected libopus packet bytes. Decode
+// differences are diagnostic only; matching PCM does not waive packet parity.
 //
 // Reference paths exercised here:
 //
@@ -346,38 +342,16 @@ func pvqGridDecode(tc pvqGridCase, packet []byte) ([]float32, error) {
 	return dec.DecodeFrame(append([]byte(nil), packet...), tc.frameSize)
 }
 
-// pvqGridArm64FMABudget bounds the decoded-PCM divergence that the documented
-// darwin/arm64 CELT float FMA contraction (project_arm64_celt_1ulp_drift.md) can
-// introduce when the gopus float path contracts a*b+c into FMADD where the scalar
-// libopus reference (clang, no contraction) does not. That sub-ULP-per-op drift
-// can flip a single high-K PVQ pulse bit, so the packet bytes differ and the
-// decoded PCM differs by a tiny amount (<=~1e-3 across the observed grid). On
-// amd64 (the CI hard gate) the float path is bit-exact, so this budget is never
-// consulted there. The budget sits well below any real coding divergence: a
-// genuine encoder/decoder desync (e.g. an allocation or tf_encode mismatch)
-// changes the per-band K and produces structural decode errors an order of
-// magnitude larger, so it still fails on every architecture.
-const pvqGridArm64FMABudget = 2.0e-3
-
-// pvqGridCellOutcome classifies one grid cell against the libopus oracle packet.
-//   - byteExact: gopus and libopus produced identical packet bytes.
-//   - decodeIdentical: bytes differ but both packets decode (through the gopus
-//     decoder) to bit-identical PCM. This covers benign range-coder trailing
-//     free bits (ec_enc_done padding), which never affect the decoded signal.
-//   - arm64FMAResidual: darwin/arm64 only — bytes differ and the decoded PCM
-//     differs only within pvqGridArm64FMABudget (the documented CELT FMA budget).
-//
-// Anything else is a real divergence and fails the cell on every architecture.
+// pvqGridCellOutcome records exact packet equality and diagnostic decode
+// differences for a failed cell. Only byteExact satisfies the parity gate.
 type pvqGridCellOutcome struct {
-	byteExact        bool
-	decodeIdentical  bool
-	arm64FMAResidual bool
-	firstDiff        int
-	gotLen           int
-	wantLen          int
-	pcmMaxDiff       float64
-	pcmDiffAt        int
-	decodeErr        error
+	byteExact  bool
+	firstDiff  int
+	gotLen     int
+	wantLen    int
+	pcmMaxDiff float64
+	pcmDiffAt  int
+	decodeErr  error
 }
 
 func classifyPVQGridCell(tc pvqGridCase, got, ref []byte) pvqGridCellOutcome {
@@ -398,8 +372,7 @@ func classifyPVQGridCell(tc pvqGridCase, got, ref []byte) pvqGridCellOutcome {
 		out.firstDiff = lim // pure length mismatch
 	}
 
-	// Bytes differ: the only acceptable reason is benign trailing free bits, so
-	// require that decoding both packets yields bit-identical PCM.
+	// Decode both packets to describe the impact of the packet mismatch.
 	pcmGot, errGot := pvqGridDecode(tc, got)
 	pcmRef, errRef := pvqGridDecode(tc, ref)
 	if errGot != nil || errRef != nil {
@@ -410,36 +383,18 @@ func classifyPVQGridCell(tc pvqGridCase, got, ref []byte) pvqGridCellOutcome {
 		out.pcmMaxDiff = math.Inf(1)
 		return out
 	}
-	identical := true
 	for j := range pcmGot {
 		d := math.Abs(float64(pcmGot[j]) - float64(pcmRef[j]))
 		if d > out.pcmMaxDiff {
 			out.pcmMaxDiff = d
 			out.pcmDiffAt = j
 		}
-		if pcmGot[j] != pcmRef[j] {
-			identical = false
-		}
-	}
-	out.decodeIdentical = identical
-	if !identical && runtime.GOARCH == "arm64" && out.pcmMaxDiff <= pvqGridArm64FMABudget {
-		out.arm64FMAResidual = true
 	}
 	return out
 }
 
-// TestCELTPVQBandsGridMatchesLibopus drives the full PVQ/bands configuration
-// space through both gopus and the libopus oracle. A cell passes when it is
-// byte-exact, OR decode-identical (the byte difference is only benign range-coder
-// trailing free bits, so both packets decode to bit-identical PCM). There is no
-// per-cell tolerance: a cell whose decoded PCM diverges is a real coding bug and
-// fails on every architecture.
-//
-// The only architecture-specific allowance is the documented darwin/arm64 CELT
-// float FMA contraction (pvqGridArm64FMABudget / project_arm64_celt_1ulp_drift.md):
-// a handful of high-K cells byte-differ and decode with a sub-ULP delta. On amd64
-// (the CI hard gate) the float path is bit-exact, so every cell is byte-exact or
-// decode-identical there with no allowance.
+// TestCELTPVQBandsGridMatchesLibopus requires exact packet bytes from the
+// standalone CELT encoder and the selected libopus oracle on every architecture.
 //
 // Grid dimensions:
 //   - Bandwidth:  NB / MB / WB / SWB / FB (end_band 13/15/17/19/21)
@@ -477,7 +432,6 @@ func TestCELTPVQBandsGridMatchesLibopus(t *testing.T) {
 	type cellResult struct {
 		label   string
 		outcome pvqGridCellOutcome
-		pass    bool
 	}
 
 	results := make([]cellResult, len(grid))
@@ -494,14 +448,9 @@ func TestCELTPVQBandsGridMatchesLibopus(t *testing.T) {
 				}
 
 				outcome := classifyPVQGridCell(tc, got, ref)
-				pass := outcome.byteExact || outcome.decodeIdentical || outcome.arm64FMAResidual
-				results[i] = cellResult{label: tc.label, outcome: outcome, pass: pass}
+				pass := outcome.byteExact
+				results[i] = cellResult{label: tc.label, outcome: outcome}
 				if pass {
-					if outcome.arm64FMAResidual {
-						t.Logf("RESIDUAL arm64 CELT FMA drift: byte[%d] len got=%d want=%d "+
-							"pcmMaxDiff=%g (<= %g budget); project_arm64_celt_1ulp_drift.md",
-							outcome.firstDiff, outcome.gotLen, outcome.wantLen, outcome.pcmMaxDiff, pvqGridArm64FMABudget)
-					}
 					return
 				}
 				if outcome.decodeErr != nil {
@@ -509,43 +458,23 @@ func TestCELTPVQBandsGridMatchesLibopus(t *testing.T) {
 						outcome.firstDiff, outcome.gotLen, outcome.wantLen, outcome.decodeErr)
 					return
 				}
-				t.Errorf("FAIL byte[%d] len got=%d want=%d: decoded PCM diverges (maxDiff=%g at sample %d, budget=%g)",
-					outcome.firstDiff, outcome.gotLen, outcome.wantLen, outcome.pcmMaxDiff, outcome.pcmDiffAt, pvqGridArm64FMABudget)
+				t.Errorf("FAIL byte[%d] len got=%d want=%d: packet bytes differ (decoded maxDiff=%g at sample %d)",
+					outcome.firstDiff, outcome.gotLen, outcome.wantLen, outcome.pcmMaxDiff, outcome.pcmDiffAt)
 			})
 		}
 	})
 
-	// Print per-cell summary table.
-	byteExact, decodeOnly, residual, fail := 0, 0, 0, 0
-	t.Logf("PVQ/Bands parity grid summary (%d cells):", len(grid))
-	t.Logf("%-60s %6s %6s %10s", "Cell", "GotLen", "WntLen", "Status")
+	byteExact := 0
 	for _, r := range results {
-		switch {
-		case r.outcome.byteExact:
-			t.Logf("%-60s %6d %6d %10s", r.label, r.outcome.gotLen, r.outcome.wantLen, "BYTE-EXACT")
+		if r.outcome.byteExact {
 			byteExact++
-		case r.outcome.decodeIdentical:
-			t.Logf("%-60s %6d %6d %10s (trailing free bits @byte %d)",
-				r.label, r.outcome.gotLen, r.outcome.wantLen, "DECODE-EQ", r.outcome.firstDiff)
-			decodeOnly++
-		case r.outcome.arm64FMAResidual:
-			t.Logf("%-60s %6d %6d %10s (arm64 FMA pcmMaxDiff=%g @byte %d)",
-				r.label, r.outcome.gotLen, r.outcome.wantLen, "RESIDUAL", r.outcome.pcmMaxDiff, r.outcome.firstDiff)
-			residual++
-		default:
-			t.Logf("%-60s %6d %6d %10s (@byte %d, pcmMaxDiff=%g)",
-				r.label, r.outcome.gotLen, r.outcome.wantLen, "FAIL", r.outcome.firstDiff, r.outcome.pcmMaxDiff)
-			fail++
+		} else {
+			t.Logf("%s: byte[%d], lengths Go=%d C=%d, decoded maxDiff=%g",
+				r.label, r.outcome.firstDiff, r.outcome.gotLen, r.outcome.wantLen, r.outcome.pcmMaxDiff)
 		}
 	}
-	t.Logf("---")
-	t.Logf("byte-exact=%d decode-identical=%d arm64-fma-residual=%d fail=%d  arch=%s/%s",
-		byteExact, decodeOnly, residual, fail, runtime.GOOS, runtime.GOARCH)
-
-	if fail > 0 {
-		t.Fatalf("PVQ/bands parity grid: %d/%d cells FAIL on %s/%s",
-			fail, len(grid), runtime.GOOS, runtime.GOARCH)
-	}
+	t.Logf("PVQ/Bands parity grid: byte-exact=%d fail=%d total=%d arch=%s/%s",
+		byteExact, len(grid)-byteExact, len(grid), runtime.GOOS, runtime.GOARCH)
 }
 
 // TestCELTPVQBandsGridSummary is a summary-only variant that never fails the
@@ -569,7 +498,7 @@ func TestCELTPVQBandsGridSummary(t *testing.T) {
 		return
 	}
 
-	byteExact, decodeOnly, residual, fail := 0, 0, 0, 0
+	byteExact, fail := 0, 0
 	for i, tc := range grid {
 		enc := newPVQGridEncoder(tc)
 		got, encErr := enc.EncodeFrame(append([]float32(nil), tc.pcm...), tc.frameSize)
@@ -582,14 +511,10 @@ func TestCELTPVQBandsGridSummary(t *testing.T) {
 		switch {
 		case outcome.byteExact:
 			byteExact++
-		case outcome.decodeIdentical:
-			decodeOnly++
-		case outcome.arm64FMAResidual:
-			residual++
 		default:
 			fail++
 		}
 	}
-	t.Logf("arch=%s/%s  byte-exact=%d  decode-identical=%d  arm64-fma-residual=%d  fail=%d  total=%d",
-		runtime.GOOS, runtime.GOARCH, byteExact, decodeOnly, residual, fail, len(grid))
+	t.Logf("arch=%s/%s  byte-exact=%d  fail=%d  total=%d",
+		runtime.GOOS, runtime.GOARCH, byteExact, fail, len(grid))
 }

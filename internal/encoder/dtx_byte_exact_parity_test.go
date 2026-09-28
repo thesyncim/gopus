@@ -5,11 +5,7 @@
 // Where the DTX cadence test (dtx_sequence_parity_test.go) only checks DTX vs
 // normal cadence and the TOC byte of DTX packets, this file hardens the whole
 // stream: every packet (speech frames AND 1-byte DTX continuation packets) must
-// match libopus byte-for-byte. SILK CBR is byte-deterministic from the pure-Go
-// integer path so it is a hard gate on every arch. CELT/Hybrid sub-bands on
-// darwin/arm64 carry the documented ≤1 ULP FMA residual
-// (project_arm64_celt_1ulp_drift.md), so those cells report diffs as a residual
-// on arm64 but stay a hard gate on amd64 (the CI gate).
+// match libopus byte-for-byte on every selected instruction lane.
 //
 // Reference:
 //   decide_dtx_mode():   tmp_check/opus-1.6.1/src/opus_encoder.c:1115-1140
@@ -23,7 +19,6 @@ package encoder
 import (
 	"bytes"
 	"fmt"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -82,8 +77,15 @@ func runDTXOracleCBRApp(t *testing.T, helperPath string, pcm []float32, frameSiz
 
 // runGopusDTXSequenceCBR encodes the PCM with gopus, DTX on, CBR, forced mode.
 func runGopusDTXSequenceCBR(t *testing.T, pcm []float32, frameSize, channels, bitrate int, bw, modeStr string) [][]byte {
+	return runGopusDTXSequenceCBRApp(t, pcm, frameSize, channels, bitrate, bw, modeStr, "audio")
+}
+
+func runGopusDTXSequenceCBRApp(t *testing.T, pcm []float32, frameSize, channels, bitrate int, bw, modeStr, app string) [][]byte {
 	t.Helper()
 	enc := NewEncoder(48000, channels)
+	if app == "rsilk" {
+		enc.SetRestrictedSilkApplication(true)
+	}
 	enc.SetDTX(true)
 	enc.SetVBR(false)
 	enc.SetComplexity(10)
@@ -111,10 +113,8 @@ func runGopusDTXSequenceCBR(t *testing.T, pcm []float32, frameSize, channels, bi
 	return packets
 }
 
-// assertDTXByteExact asserts every packet is byte-identical. For SILK it is a
-// hard gate everywhere. For CELT/Hybrid the diffs are fatal on amd64 (CI gate)
-// and reported as a residual on arm64 (≤1 ULP CELT FMA drift).
-func assertDTXByteExact(t *testing.T, label, mode string, wantPackets []dtxOraclePacket, gotPackets [][]byte) {
+// assertDTXByteExact asserts every packet is byte-identical.
+func assertDTXByteExact(t *testing.T, label string, wantPackets []dtxOraclePacket, gotPackets [][]byte) {
 	t.Helper()
 	if len(gotPackets) != len(wantPackets) {
 		t.Fatalf("%s: packet count gopus=%d libopus=%d", label, len(gotPackets), len(wantPackets))
@@ -147,15 +147,6 @@ func assertDTXByteExact(t *testing.T, label, mode string, wantPackets []dtxOracl
 		return
 	}
 
-	isArm64 := runtime.GOARCH == "arm64"
-	celtPath := mode == "celt" || mode == "hybrid"
-	if isArm64 && celtPath {
-		// Documented ≤1 ULP CELT FMA drift on darwin/arm64; amd64/CI gate holds.
-		t.Logf("RESIDUAL (arm64 CELT FMA drift): %s %d/%d packets differ — %s "+
-			"(project_arm64_celt_1ulp_drift.md); amd64 gate holds",
-			label, diffFrames, len(wantPackets), firstDiff)
-		return
-	}
 	t.Fatalf("%s: %d/%d packets differ (first: %s)", label, diffFrames, len(wantPackets), firstDiff)
 }
 
@@ -202,7 +193,7 @@ func TestDTXByteExactParity_Matrix(t *testing.T) {
 			pcm := dtxSeqPCMSequence(tc.frameSize, tc.channels, tc.speechFrames, tc.silenceFrames, tc.resumeFrames)
 			wantPackets := runDTXOracleCBR(t, helperPath, pcm, tc.frameSize, tc.channels, tc.bitrate, tc.bw, tc.mode)
 			gotPackets := runGopusDTXSequenceCBR(t, pcm, tc.frameSize, tc.channels, tc.bitrate, tc.bw, tc.mode)
-			assertDTXByteExact(t, tc.name, tc.mode, wantPackets, gotPackets)
+			assertDTXByteExact(t, tc.name, wantPackets, gotPackets)
 		})
 	}
 }
@@ -230,27 +221,30 @@ func TestDTXByteExactParity_PureSilence(t *testing.T) {
 	pcm := dtxSeqPCMSequence(frameSize, channels, 0, frames, 0)
 	wantPackets := runDTXOracleCBR(t, helperPath, pcm, frameSize, channels, bitrate, bw, mode)
 	gotPackets := runGopusDTXSequenceCBR(t, pcm, frameSize, channels, bitrate, bw, mode)
-	assertDTXByteExact(t, "silk-wb-mono-pure-silence", mode, wantPackets, gotPackets)
+	assertDTXByteExact(t, "silk-wb-mono-pure-silence", wantPackets, gotPackets)
 }
 
-// TestDTXByteExactParity_RestrictedSilk documents the restricted-silk /
-// analysis-disabled DTX path. When the tonality analysis does NOT run
-// (OPUS_APPLICATION_RESTRICTED_SILK, complexity<7, or out-of-range Fs) libopus
-// routes DTX through SILK-INTERNAL DTX rather than the Opus-level
-// decide_dtx_mode:
-//
-//	st->silk_mode.useDTX = st->use_dtx && !(analysis_info.valid || is_silence);
-//	                                                       (opus_encoder.c:1461)
-//
-// For non-silence speech with analysis invalid this evaluates to use_dtx==1, so
-// the SILK encoder's own noSpeechCounter VAD state machine
-// (silk/float/encode_frame_FLP.c silk_encode_do_VAD_FLP) drives DTX and emits
-// empty (nBytes==0) SILK frames, which opus_encode then turns into a 1-byte TOC
-// (opus_encoder.c:2242). gopus does not yet wire SILK-internal DTX, so the
-// onset frame differs by the SILK VAD hangover. The Opus-level decide_dtx_mode
-// path (default OPUS_APPLICATION_AUDIO, where analysis_info.valid keeps
-// useDTX==0) IS byte-exact and is covered by TestDTXByteExactParity_Matrix.
+// TestDTXByteExactParity_RestrictedSilk compares the SILK-internal DTX path
+// selected when tonality analysis is unavailable in restricted-SILK mode.
+// The Opus-level decide_dtx_mode path is covered by the audio application cases.
 func TestDTXByteExactParity_RestrictedSilk(t *testing.T) {
-	t.Skip("SILK-internal DTX (silk_mode.useDTX, opus_encoder.c:1461) not yet wired; " +
-		"Opus-level DTX for default OPUS_APPLICATION_AUDIO is byte-exact (see TestDTXByteExactParity_Matrix)")
+	libopustest.RequireOracle(t)
+	helperPath, err := getDTXSeqHelperPath()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "restricted SILK DTX", err)
+	}
+	cases := []dtxByteExactCase{
+		{"wb-mono-20ms", 960, 1, 24000, "wb", "silk", 30, 30, 10},
+		{"wb-stereo-20ms", 960, 2, 32000, "wb", "silk", 30, 30, 10},
+		{"wb-mono-10ms", 480, 1, 24000, "wb", "silk", 30, 40, 10},
+		{"wb-mono-40ms", 1920, 1, 24000, "wb", "silk", 12, 16, 6},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pcm := dtxSeqPCMSequence(tc.frameSize, tc.channels, tc.speechFrames, tc.silenceFrames, tc.resumeFrames)
+			wantPackets := runDTXOracleCBRApp(t, helperPath, pcm, tc.frameSize, tc.channels, tc.bitrate, tc.bw, tc.mode, "rsilk")
+			gotPackets := runGopusDTXSequenceCBRApp(t, pcm, tc.frameSize, tc.channels, tc.bitrate, tc.bw, tc.mode, "rsilk")
+			assertDTXByteExact(t, tc.name, wantPackets, gotPackets)
+		})
+	}
 }

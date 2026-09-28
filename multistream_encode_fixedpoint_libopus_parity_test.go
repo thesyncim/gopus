@@ -5,7 +5,6 @@ package gopus_test
 import (
 	"fmt"
 	"math"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus"
@@ -18,14 +17,6 @@ const (
 	msEncodeFormatFloat32 = 0
 	msEncodeFormatInt16   = 1
 )
-
-// armEncodeFixedDrift reports the darwin/arm64-only <=1-ULP CELT drift that can
-// flip a single quantization step and cascade into differing packet bytes. CI
-// runs amd64, where the fixed multistream encode is byte-exact. See
-// project_arm64_celt_1ulp_drift.md.
-func armEncodeFixedDrift() bool {
-	return runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"
-}
 
 // msFixedEncodeRef holds the result of driving the libopus FIXED_POINT
 // multistream surround encoder (opus_multistream_surround_encoder_create +
@@ -44,14 +35,14 @@ type msFixedEncodeRef struct {
 // frameSize each). sampleFormat selects the int16 (opus_multistream_encode) or
 // float32 (opus_multistream_encode_float) public entry point.
 func encodeLibopusMultistreamFixed(sampleRate, channels, mappingFamily, application, bitrate int, vbr, vbrConstraint bool, complexity, bandwidth, frameSize, frameCount, maxPacketBytes, sampleFormat int, floatPCM []float32, int16PCM []int16) (*msFixedEncodeRef, error) {
-	binPath, err := multistreamFixedRefencodeHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:       "multistream fixed reference encode",
-		OutputBase:  "gopus_libopus_refencode_multistream_fixed",
-		SourceFile:  "libopus_refencode_multistream.c",
-		FixedRef:    true,
-		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
-		RefIncludes: []string{"celt", "silk", "src"},
-		Libs:        []string{libopustest.FixedRefPath(".libs", "libopus.a"), "-lm"},
+	binPath, err := multistreamFixedRefencodeHelper.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:       "multistream fixed reference encode",
+			OutputBase:  "gopus_libopus_refencode_multistream_fixed",
+			SourceFile:  "libopus_refencode_multistream.c",
+			CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
+			RefIncludes: []string{"celt", "silk", "src"},
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -152,9 +143,7 @@ func generateMSFixedSweep(channels, frameSize, frameCount int) ([]float32, []int
 
 // runMSFixedEncodeParity drives both gopus (under -tags gopus_fixed_point) and the
 // libopus FIXED_POINT surround encoder with identical parameters and PCM, then
-// asserts byte-exact packet equality for the requested sample format. The
-// darwin/arm64 documented <=1-ULP CELT drift is logged and skipped (CI is amd64,
-// where this is byte-exact).
+// asserts byte-exact packet equality for the requested sample format.
 func runMSFixedEncodeParity(t *testing.T, sampleRate, channels, frameSize, frameCount, bitrate, complexity int, vbr, vbrConstraint bool, sampleFormat int) {
 	t.Helper()
 
@@ -232,11 +221,6 @@ func runMSFixedEncodeParity(t *testing.T, sampleRate, channels, frameSize, frame
 		if !diverged {
 			continue
 		}
-		if armEncodeFixedDrift() {
-			t.Logf("frame %d: documented darwin/arm64 CELT drift (gopus len=%d libopus len=%d firstMismatch=%d)",
-				i, len(got), len(want), mismatch)
-			return
-		}
 		if len(got) != len(want) {
 			t.Fatalf("frame %d: packet length mismatch: gopus=%d libopus=%d", i, len(got), len(want))
 		}
@@ -255,7 +239,7 @@ func runMSFixedEncodeParity(t *testing.T, sampleRate, channels, frameSize, frame
 // Each elementary stream is encoded through the FIXED_POINT single-stream CELT /
 // SILK / Hybrid path (gated under the same tag); the multistream packet assembly
 // and surround channel routing feed each substream the per-stream PCM. Bit-exact
-// on amd64; subject to the documented per-arch 1-ULP CELT drift budget on arm64.
+// on the selected scalar or SIMD libopus instruction lane.
 func TestMultistreamEncodeFixedPointParity(t *testing.T) {
 	libopustest.RequireOracle(t)
 
