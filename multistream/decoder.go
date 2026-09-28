@@ -18,6 +18,9 @@ import (
 
 // Errors for multistream decoder creation and operation.
 var (
+	// ErrInvalidSampleRate indicates a rate outside the selected Opus API build.
+	ErrInvalidSampleRate = errors.New("multistream: invalid sample rate")
+
 	// ErrInvalidChannels indicates channels is not in the valid range (1-255).
 	ErrInvalidChannels = errors.New("multistream: invalid channel count (must be 1-255)")
 
@@ -139,8 +142,8 @@ type streamState struct {
 	// softClipMem is the per-stream soft-clip filter memory (one entry per stream
 	// channel), mirroring the per-decoder softclip_mem[2] in libopus
 	// opus_decode_native. It is used only on the int16 decode path that requests
-	// OPTIONAL_CLIP (the projection int16 demix soft-clips each per-stream output
-	// before the mapping-matrix multiply); the float path leaves it cleared.
+	// OPTIONAL_CLIP before channel mapping or projection demixing. Received float
+	// and int24 packets clear it; loss output preserves it.
 	softClipMem [2]float32
 
 	// Elementary decoder output is consumed by the enclosing multistream call.
@@ -262,6 +265,7 @@ func (d *streamState) Reset() {
 	d.rangeDecoder = rangecoding.Decoder{}
 	d.resetFixedDecoderState()
 	d.resetOSCEPostfilterState()
+	d.clearSoftClipMem()
 }
 
 // SetIgnoreExtensions toggles opaque in-band packet-extension handling for this
@@ -837,7 +841,6 @@ type Decoder struct {
 	projectionCols         int
 	projectionScratch      []float32
 	projectionInt24Scratch []int32
-	softClipMem            []float32
 	ignoreExtensions       bool
 	dnnBlob                *dnnblob.Blob
 	decoderDREDFields
@@ -890,6 +893,9 @@ type Decoder struct {
 //	  Channel 5 (LFE): mapping[5]=5 -> uncoupled stream 3 (2*2+1)
 func NewDecoder(sampleRate, channels, streams, coupledStreams int, mapping []byte) (*Decoder, error) {
 	// Validate parameters
+	if !validSampleRate(sampleRate) {
+		return nil, ErrInvalidSampleRate
+	}
 	if channels < 1 || channels > 255 {
 		return nil, ErrInvalidChannels
 	}
@@ -939,8 +945,18 @@ func NewDecoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 		mapping:        mappingCopy,
 		decoders:       decoders,
 		plcState:       plc.NewState(),
-		softClipMem:    make([]float32, channels),
 	}, nil
+}
+
+func validSampleRate(rate int) bool {
+	switch rate {
+	case 8000, 12000, 16000, 24000, 48000:
+		return true
+	case 96000:
+		return extsupport.QEXT
+	default:
+		return false
+	}
 }
 
 // Reset clears all decoder state for a new stream.
@@ -954,7 +970,6 @@ func (d *Decoder) Reset() {
 		d.plcState = plc.NewState()
 	}
 	d.plcState.Reset()
-	clear(d.softClipMem)
 	d.clearDREDPayloadState()
 	d.resetDREDRuntimeState()
 }

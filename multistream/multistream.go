@@ -119,15 +119,12 @@ func (d *Decoder) DecodeToInt16(data []byte, frameSize int) ([]int16, error) {
 		return pcm, nil
 	}
 
-	samples, err := d.decodeToFloat32(data, frameSize, true, false)
+	samples, err := d.decodeToFloat32(data, frameSize, true, true)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(data) == 0 {
-		return float32ToInt16(samples), nil
-	}
-	return float32ToInt16SoftClip(samples, len(samples)/d.outputChannels, d.outputChannels, d.softClipMem), nil
+	return float32ToInt16(samples), nil
 }
 
 // DecodeToFloat32 decodes a multistream packet and returns float32 PCM.
@@ -193,7 +190,7 @@ func (d *Decoder) decodeToFloat32Into(data []byte, frameSize int, applyProjectio
 	// sets do_plc=1 for len==0 (opus_multistream_decoder.c:213), concealing the
 	// requested frame size exactly as for a NULL packet.
 	if len(data) == 0 {
-		n, err := d.decodePLCToFloat32Into(frameSize, applyProjection, perStreamSoftClip, output)
+		n, err := d.decodePLCToFloat32Into(frameSize, applyProjection, output)
 		if err == nil && extsupport.DREDRuntime && d.dredSidecarActive() {
 			d.markDREDConcealedAll()
 		}
@@ -267,7 +264,7 @@ func (d *Decoder) decodeToFloat32Into(data []byte, frameSize int, applyProjectio
 	return decodeFrameSize, nil
 }
 
-func (d *Decoder) decodePLCToFloat32Into(frameSize int, applyProjection, perStreamSoftClip bool, output []float32) (int, error) {
+func (d *Decoder) decodePLCToFloat32Into(frameSize int, applyProjection bool, output []float32) (int, error) {
 	totalSamples := frameSize * d.outputChannels
 	if len(output) < totalSamples {
 		return 0, ErrBufferTooSmall
@@ -285,7 +282,7 @@ func (d *Decoder) decodePLCToFloat32Into(frameSize int, applyProjection, perStre
 		for remaining > 0 {
 			chunk := min(remaining, maxChunk)
 			total := chunk * d.outputChannels
-			err := d.decodePLCChunkToFloat32Into(chunk, applyProjection, perStreamSoftClip, output[offset:offset+total])
+			err := d.decodePLCChunkToFloat32Into(chunk, applyProjection, output[offset:offset+total])
 			if err != nil {
 				return 0, err
 			}
@@ -295,20 +292,21 @@ func (d *Decoder) decodePLCToFloat32Into(frameSize int, applyProjection, perStre
 		return frameSize, nil
 	}
 
-	if err := d.decodePLCChunkToFloat32Into(frameSize, applyProjection, perStreamSoftClip, output[:totalSamples]); err != nil {
+	if err := d.decodePLCChunkToFloat32Into(frameSize, applyProjection, output[:totalSamples]); err != nil {
 		return 0, err
 	}
 	return frameSize, nil
 }
 
-func (d *Decoder) decodePLCChunkToFloat32Into(frameSize int, applyProjection, perStreamSoftClip bool, output []float32) error {
+func (d *Decoder) decodePLCChunkToFloat32Into(frameSize int, applyProjection bool, output []float32) error {
+	// opus_decode_native returns loss output before its soft-clip step. Keep
+	// each stream's clipping memory intact for the next received packet.
 	decodedStreams := d.ensureDecodedStreamsScratch()
 	for i := 0; i < d.streams; i++ {
 		if extsupport.DREDRuntime {
 			if decoded, ok, err := d.decodeDREDPLCStream(i, frameSize); err != nil {
 				return err
 			} else if ok {
-				d.applyPerStreamSoftClip(i, decoded, frameSize, perStreamSoftClip)
 				decodedStreams[i] = decoded
 				continue
 			}
@@ -318,7 +316,6 @@ func (d *Decoder) decodePLCChunkToFloat32Into(frameSize int, applyProjection, pe
 			channels := streamChannels(i, d.coupledStreams)
 			decoded = d.silenceScratchFor(frameSize * channels)
 		}
-		d.applyPerStreamSoftClip(i, decoded, frameSize, perStreamSoftClip)
 		decodedStreams[i] = decoded
 	}
 
@@ -361,24 +358,6 @@ func float32ToInt16(samples []float32) []int16 {
 	output := make([]int16, len(samples))
 	for i, s := range samples {
 		output[i] = opusmath.Float32ToInt16(s)
-	}
-	return output
-}
-
-func float32ToInt16SoftClip(samples []float32, n, channels int, declipMem []float32) []int16 {
-	output := make([]int16, len(samples))
-	if channels < 1 || n < 1 || len(samples) == 0 || len(declipMem) < channels {
-		return output
-	}
-	total := min(n*channels, len(samples))
-	if total <= 0 {
-		return output
-	}
-
-	tmp := append([]float32(nil), samples[:total]...)
-	opusmath.PCMSoftClip(tmp, n, channels, declipMem)
-	for i := range total {
-		output[i] = opusmath.Float32ToInt16(tmp[i])
 	}
 	return output
 }

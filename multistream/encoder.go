@@ -197,6 +197,9 @@ func inferLFEStream(mappingFamily, channels, streams int) int {
 //	  Input 5 (LFE): mapping[5]=5 -> uncoupled stream 3 (2*2+1)
 func NewEncoder(sampleRate, channels, streams, coupledStreams int, mapping []byte) (*Encoder, error) {
 	// Validation exactly mirrors decoder
+	if !validSampleRate(sampleRate) {
+		return nil, ErrInvalidSampleRate
+	}
 	if channels < 1 || channels > 255 {
 		return nil, ErrInvalidChannels
 	}

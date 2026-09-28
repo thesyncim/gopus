@@ -82,6 +82,9 @@ func NewProjectionEncoder(sampleRate, channels int) (*Encoder, error) {
 //
 // Reference: libopus src/opus_projection_decoder.c:opus_projection_decoder_create
 func NewProjectionDecoder(sampleRate, channels, streams, coupledStreams int, demixingMatrix []byte) (*Decoder, error) {
+	if channels < 1 || channels > 255 {
+		return nil, ErrInvalidChannels
+	}
 	mapping := make([]byte, channels)
 	for i := range mapping {
 		mapping[i] = byte(i)
