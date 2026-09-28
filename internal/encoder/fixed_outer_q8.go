@@ -103,25 +103,30 @@ func (e *Encoder) clearFixedInputRes() {
 }
 
 func (e *Encoder) preprocessFixedInputRes(frameSize int) {
-	if !e.fixedInputActive || len(e.fixedRawRes) != frameSize*int(e.channels) {
+	channels := int(e.channels)
+	frameSamples := frameSize * channels
+	if !e.fixedInputActive || frameSize <= 0 ||
+		e.fixedFrameCursor < 0 || e.fixedFrameCursor+frameSamples > len(e.fixedRawRes) {
 		return
 	}
 	if cap(e.fixedFiltered) < len(e.fixedRawRes) {
 		e.fixedFiltered = make([]int32, len(e.fixedRawRes))
 	}
 	e.fixedFiltered = e.fixedFiltered[:len(e.fixedRawRes)]
+	rawFrame := e.fixedRawRes[e.fixedFrameCursor : e.fixedFrameCursor+frameSamples]
+	filteredFrame := e.fixedFiltered[e.fixedFrameCursor : e.fixedFrameCursor+frameSamples]
 	if e.voipApp {
-		// preprocessInputHP has already advanced variable_HP_smth2_Q15 once
-		// for this frame; hp_cutoff consumes its current integer-Hz value.
+		// hp_cutoff is called once per native frame, after the Opus-level
+		// variable-HP smoother has advanced for that frame.
 		cutoffHz := silk.VariableHPCutoffHz(e.variableHPSmth2Q15)
-		silk.HPCutoffRes24(e.fixedRawRes, e.fixedFiltered, &e.fixedHPMem,
+		silk.HPCutoffRes24(rawFrame, filteredFrame, &e.fixedHPMem,
 			e.sampleRate, e.channels, cutoffHz)
 	} else if extsupport.QEXT && e.qextActive() {
 		// opus_encoder.c:2005-2008 copies the QEXT input directly in non-VoIP
 		// mode, preserving hp_mem instead of advancing dc_reject state.
-		copy(e.fixedFiltered, e.fixedRawRes)
+		copy(filteredFrame, rawFrame)
 	} else {
-		fixedDCRejectRes(e.fixedRawRes, e.fixedFiltered, &e.fixedHPMem, int(e.sampleRate), int(e.channels), 3)
+		fixedDCRejectRes(rawFrame, filteredFrame, &e.fixedHPMem, int(e.sampleRate), channels, 3)
 	}
 }
 
@@ -281,6 +286,15 @@ func (e *Encoder) encodeSILKFrame(pcm []opusRes, frameSize int, re *rangecoding.
 		return e.silk.EncodeResQ8(&e.silkMode, fixedPCM, frameSize, re, 0, activity)
 	}
 	return e.silk.Encode(&e.silkMode, pcm, frameSize, re, 0, activity)
+}
+
+func (e *Encoder) advanceFixedInputCursor(frameSize int) {
+	frameSamples := frameSize * int(e.channels)
+	if !e.fixedFrameReady || len(e.fixedFrameSource) != frameSamples {
+		return
+	}
+	e.fixedFrameCursor += frameSamples
+	e.fixedFrameReady = false
 }
 
 func (e *Encoder) updateFixedDelayBuffer(frameSize int) {

@@ -76,5 +76,6 @@ func (e *Encoder) prepareFixedInputRes(_ []float32) {}
 func (e *Encoder) clearFixedInputRes()              {}
 func (e *Encoder) preprocessFixedInputRes(_ int)    {}
 func (e *Encoder) prepareFixedCELTPCM(_ int)        {}
+func (e *Encoder) advanceFixedInputCursor(_ int)    {}
 func (e *Encoder) updateFixedDelayBuffer(_ int)     {}
 func (e *Encoder) applyFixedStereoWidth(_ int16)    {}

@@ -1059,12 +1059,9 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		}
 		return pkt, nil
 	}
-	// The high-pass runs after the "too little space" exit, so a TOC-only frame
-	// leaves hp_mem untouched (src/opus_encoder.c:1340 returns before
-	// opus_encode_frame_native() filters the input at lines 1968-2009).
-	framePCM := e.preprocessInputHP(rawFramePCM, frameSize)
-	e.preprocessFixedInputRes(frameSize)
-
+	// Keep the source frame unfiltered through mode selection. libopus applies
+	// hp_cutoff()/dc_reject() inside each opus_encode_frame_native call, after
+	// opus_encode_native has split a multi-frame packet.
 	// Allow SILK DTX when DTX is on but the generalized DTX cannot be used,
 	// e.g. because of the complexity setting or the sample rate
 	// (src/opus_encoder.c:1458-1464).
@@ -1122,6 +1119,17 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		}
 	}
 	transitionToCELT := prevModeNext == ModeCELT && actualMode != ModeCELT
+	multiFrame := e.isMultiFramePacket(actualMode, frameSize)
+	framePCM := rawFramePCM
+	if !multiFrame {
+		// A single native frame applies the input filter after mode selection.
+		floatOffset := -1
+		if directFrameInput {
+			floatOffset = 0
+		}
+		framePCM = e.preprocessInputHPFrame(rawFramePCM, frameSize, actualMode, floatOffset)
+		e.preprocessFixedInputRes(frameSize)
+	}
 
 	dredExtraDelay := 0
 	if !e.lowDelay {
@@ -1143,7 +1151,6 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	// decides it per frame. decide_dtx_mode() runs once the frame is coded, so
 	// the encoder state advances before a DTX frame drops the payload
 	// (src/opus_encoder.c:2564-2572).
-	multiFrame := e.isMultiFramePacket(actualMode, frameSize)
 	e.trackPeakSignalEnergy(vadPCM, isSilence)
 	if !multiFrame {
 		e.updateFrameActivity(vadPCM, isSilence, actualMode)
@@ -1174,17 +1181,18 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	}
 	if multiFrame {
 		packet, err = e.encodeMultiFramePacket(framePCM, vadPCM, multiFramePacket{
-			mode:            actualMode,
-			frameSize:       frameSize,
-			originalBitrate: int(primaryBitrate),
-			encodingBitrate: int(encodingBitrate),
-			dredBitrate:     dredBitrate,
-			dredExtraDelay:  dredExtraDelay,
-			outDataBytes:    maxDataBytes,
-			equivRate:       equivRate,
-			redundancy:      redundancy,
-			celtToSILK:      celtToSILK,
-			toCELT:          transitionToCELT,
+			mode:             actualMode,
+			frameSize:        frameSize,
+			originalBitrate:  int(primaryBitrate),
+			encodingBitrate:  int(encodingBitrate),
+			dredBitrate:      dredBitrate,
+			dredExtraDelay:   dredExtraDelay,
+			outDataBytes:     maxDataBytes,
+			equivRate:        equivRate,
+			redundancy:       redundancy,
+			celtToSILK:       celtToSILK,
+			toCELT:           transitionToCELT,
+			floatInputDirect: directFrameInput,
 		})
 	} else {
 		dredNoDecision := actualMode != ModeCELT && e.dredEncodingActive() && !e.lastOpusVADValid
@@ -1690,13 +1698,18 @@ func (e *Encoder) celtInternalChannelsForMode(mode Mode) int {
 // QEXT path copies the input directly. The hp_cutoff frequency follows the
 // SILK variable-HP-cutoff smoother.
 func (e *Encoder) preprocessInputHP(in []opusRes, frameSize int) []opusRes {
+	return e.preprocessInputHPFrame(in, frameSize, e.mode, 0)
+}
+
+func (e *Encoder) preprocessInputHPFrame(in []opusRes, frameSize int, mode Mode, floatOffset int) []opusRes {
+	cutoffHz := e.updateVariableHPCutoff(mode)
 	if !e.voipApp {
 		if extsupport.QEXT && e.qextActive() {
 			return in
 		}
-		return e.dcReject(in, frameSize)
+		return e.dcRejectFrame(in, frameSize, floatOffset)
 	}
-	return e.hpCutoff(in, frameSize)
+	return e.hpCutoffFrameAtCutoff(in, frameSize, floatOffset, cutoffHz)
 }
 
 // hpCutoff applies the adaptive second-order high-pass filter used for VoIP
@@ -1705,6 +1718,33 @@ func (e *Encoder) preprocessInputHP(in []opusRes, frameSize int) []opusRes {
 // variable_HP_smth1_Q15 estimate, smoothed at the Opus level into
 // variable_HP_smth2_Q15.
 func (e *Encoder) hpCutoff(in []opusRes, frameSize int) []opusRes {
+	cutoffHz := e.updateVariableHPCutoff(e.mode)
+	return e.hpCutoffFrameAtCutoff(in, frameSize, 0, cutoffHz)
+}
+
+func (e *Encoder) hpCutoffFrame(in []opusRes, frameSize int, mode Mode, floatOffset int) []opusRes {
+	cutoffHz := e.updateVariableHPCutoff(mode)
+	return e.hpCutoffFrameAtCutoff(in, frameSize, floatOffset, cutoffHz)
+}
+
+func (e *Encoder) updateVariableHPCutoff(mode Mode) int32 {
+	// opus_encoder.c advances this smoother for every native frame, including
+	// non-VoIP frames where the selected filter is dc_reject or QEXT bypass.
+	var hpFreqSmth1 int32
+	if e.silk != nil && mode != ModeCELT {
+		hpFreqSmth1 = e.silk.VariableHPSmth1Q15()
+	} else {
+		hpFreqSmth1 = silk.MinCutoffLogSmth2Q15()
+	}
+	if !e.variableHPSmth2Inited {
+		e.variableHPSmth2Q15 = silk.InitVariableHPSmth2Q15()
+		e.variableHPSmth2Inited = true
+	}
+	e.variableHPSmth2Q15 = silk.SmoothVariableHPSmth2Q15(e.variableHPSmth2Q15, hpFreqSmth1)
+	return silk.VariableHPCutoffHz(e.variableHPSmth2Q15)
+}
+
+func (e *Encoder) hpCutoffFrameAtCutoff(in []opusRes, frameSize int, floatOffset int, cutoffHz int32) []opusRes {
 	channels := int(e.channels)
 	n := frameSize * channels
 	out := e.ensureDCPCM(n)
@@ -1712,22 +1752,6 @@ func (e *Encoder) hpCutoff(in []opusRes, frameSize int) []opusRes {
 	if fs <= 0 {
 		fs = 48000
 	}
-
-	// Determine hp_freq_smth1: in CELT-only mode libopus uses the min-cutoff
-	// floor; otherwise it reads the SILK encoder's variable_HP_smth1_Q15.
-	var hpFreqSmth1 int32
-	if e.silk != nil && e.mode != ModeCELT {
-		hpFreqSmth1 = e.silk.VariableHPSmth1Q15()
-	} else {
-		hpFreqSmth1 = silk.MinCutoffLogSmth2Q15()
-	}
-
-	if !e.variableHPSmth2Inited {
-		e.variableHPSmth2Q15 = silk.InitVariableHPSmth2Q15()
-		e.variableHPSmth2Inited = true
-	}
-	e.variableHPSmth2Q15 = silk.SmoothVariableHPSmth2Q15(e.variableHPSmth2Q15, hpFreqSmth1)
-	cutoffHz := silk.VariableHPCutoffHz(e.variableHPSmth2Q15)
 
 	bQ28, aQ28 := silk.HPCutoffCoefsQ28(cutoffHz, int32(fs))
 	var b [3]float32
@@ -1741,8 +1765,10 @@ func (e *Encoder) hpCutoff(in []opusRes, frameSize int) []opusRes {
 	const verySmall = float32(1e-30)
 
 	src32 := e.floatInputFrame
-	if !e.floatInputExact || len(src32) < n {
+	if !e.floatInputExact || floatOffset < 0 || floatOffset+n > len(src32) {
 		src32 = nil
+	} else {
+		src32 = src32[floatOffset : floatOffset+n]
 	}
 
 	// silk_biquad_res contracts the negative feedback product with the rounded
@@ -1817,6 +1843,10 @@ func (e *Encoder) hpCutoff(in []opusRes, frameSize int) []opusRes {
 
 // dcReject applies a DC rejection filter (1st-order high-pass filter at 3Hz).
 func (e *Encoder) dcReject(in []opusRes, frameSize int) []opusRes {
+	return e.dcRejectFrame(in, frameSize, 0)
+}
+
+func (e *Encoder) dcRejectFrame(in []opusRes, frameSize int, floatOffset int) []opusRes {
 	channels := int(e.channels)
 	n := frameSize * channels
 	out := e.ensureDCPCM(n)
@@ -1827,10 +1857,11 @@ func (e *Encoder) dcReject(in []opusRes, frameSize int) []opusRes {
 	coef := float32(6.3) * float32(3) / float32(fs)
 	coef2 := float32(1.0) - coef
 	src := in
-	if e.floatInputExact && len(e.floatInputFrame) >= n {
-		src = e.floatInputFrame
+	if e.floatInputExact && floatOffset >= 0 && floatOffset+n <= len(e.floatInputFrame) {
+		src = e.floatInputFrame[floatOffset : floatOffset+n]
+	} else {
+		src = src[:n]
 	}
-	src = src[:n]
 	out = out[:len(src)]
 	verySmall := dcRejectVerySmall[0]
 	if channels == 2 {
@@ -2725,17 +2756,18 @@ func (e *Encoder) keepQEXTPayload(payload []byte) []byte {
 // multiFramePacket carries the packet-level arguments of the multi-frame
 // branch of opus_encode_native (src/opus_encoder.c:1697-1838).
 type multiFramePacket struct {
-	mode            Mode
-	frameSize       int
-	originalBitrate int // st->bitrate_bps before the DRED reservation
-	encodingBitrate int // st->bitrate_bps after the DRED reservation
-	dredBitrate     int
-	dredExtraDelay  int
-	outDataBytes    int
-	equivRate       int32
-	redundancy      bool
-	celtToSILK      bool
-	toCELT          bool
+	mode             Mode
+	frameSize        int
+	originalBitrate  int // st->bitrate_bps before the DRED reservation
+	encodingBitrate  int // st->bitrate_bps after the DRED reservation
+	dredBitrate      int
+	dredExtraDelay   int
+	outDataBytes     int
+	equivRate        int32
+	redundancy       bool
+	celtToSILK       bool
+	toCELT           bool
+	floatInputDirect bool
 }
 
 // encodeMultiFramePacket codes a packet longer than one Opus frame the way
@@ -2825,7 +2857,13 @@ func (e *Encoder) encodeMultiFramePacket(pcm, vadPCM []opusRes, p multiFramePack
 	for i := range frameCount {
 		e.primeSubframeAnalysis(encFrameSize)
 		start := i * frameStride
-		subPCM := pcm[start : start+frameStride]
+		rawSubPCM := pcm[start : start+frameStride]
+		floatOffset := -1
+		if p.floatInputDirect {
+			floatOffset = start
+		}
+		subPCM := e.preprocessInputHPFrame(rawSubPCM, encFrameSize, mode, floatOffset)
+		e.preprocessFixedInputRes(encFrameSize)
 		subVADPCM := vadPCM[start : start+frameStride]
 		e.nonfinalFrame = i < frameCount-1
 		if mode != ModeCELT && i > 0 {
@@ -2874,6 +2912,11 @@ func (e *Encoder) encodeMultiFramePacket(pcm, vadPCM []opusRes, p multiFramePack
 		})
 		if err != nil {
 			return nil, err
+		}
+		if frame.dtx {
+			// SILK DTX still consumes and high-pass filters this child input,
+			// but libopus returns before advancing the delay buffer.
+			e.advanceFixedInputCursor(encFrameSize)
 		}
 		// The repacketizer only joins frames with the same TOC.
 		if i == 0 {
