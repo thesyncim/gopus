@@ -42,7 +42,7 @@ func (e *Encoder) fixedHighBandGainQ15(celtRate int32) int16 {
 func (e *Encoder) fadeFixedHighBand(gainQ15 int16) {
 	if !e.restrictedSilkApp && e.fixedFrameReady &&
 		(e.fixedPrevHBGainQ15 < 1<<15-1 || gainQ15 < 1<<15-1) {
-		fixedpoint.GainFadeRes24(e.fixedDelayed, int(e.channels), e.fixedPrevHBGainQ15, gainQ15, int(e.sampleRate))
+		applyFixedGainFade(e.fixedDelayed, int(e.channels), e.fixedPrevHBGainQ15, gainQ15, int(e.sampleRate))
 	}
 	e.fixedPrevHBGainQ15 = gainQ15
 }
@@ -209,7 +209,7 @@ func (e *Encoder) stageFixedSILKPrefill(captureCELTPrefill bool) {
 	clear(e.fixedSilkPrefillQ8[:rampStart*channels])
 	if prefillSamples > 0 && rampStart < frameSize {
 		end := min(frameSize, rampStart+prefillSamples)
-		fixedpoint.GainFadeRes24(e.fixedSilkPrefillQ8[rampStart*channels:end*channels], channels, 0, 1<<15-1, int(e.sampleRate))
+		applyFixedGainFade(e.fixedSilkPrefillQ8[rampStart*channels:end*channels], channels, 0, 1<<15-1, int(e.sampleRate))
 	}
 	e.fixedSilkPrefillOK = true
 	e.fixedCELTPrefillOK = false

@@ -77,6 +77,40 @@ func StereoFadeResQEXT(pcm []int32, prevWidthQ14, widthQ14 int16, sampleRate int
 	}
 }
 
+// GainFadeResQEXT ports src/opus_encoder.c:gain_fade for fixed ENABLE_QEXT
+// CELT modes. The mode window is Q31, but gain_fade converts each coefficient
+// through COEF2VAL16 before its Q15 window and gain products.
+func GainFadeResQEXT(samples []int32, channels int, g1, g2 int16, sampleRate int) {
+	if channels < 1 || channels > 2 || len(samples)%channels != 0 || sampleRate <= 0 {
+		return
+	}
+	window := staticQEXTMDCT48000Window[:]
+	if sampleRate == 96000 {
+		window = staticQEXTMDCT96000Window[:]
+	}
+	inc := 48000 / sampleRate
+	if inc < 1 {
+		inc = 1
+	}
+	frameSize := len(samples) / channels
+	overlap := len(window) / inc
+	if overlap > frameSize {
+		overlap = frameSize
+	}
+	for i := 0; i < overlap; i++ {
+		w := int16(window[i*inc] >> 16) // COEF2VAL16(celt_coef).
+		w = mult16x16q15(w, w)
+		gain := int16((int32(w)*int32(g2) + int32(q15One-w)*int32(g1)) >> 15)
+		for c := 0; c < channels; c++ {
+			idx := i*channels + c
+			samples[idx] = mult16x32Q15(gain, samples[idx])
+		}
+	}
+	for i := overlap * channels; i < len(samples); i++ {
+		samples[i] = mult16x32Q15(g2, samples[i])
+	}
+}
+
 func qextMulCoef32P31(a, b int32) int32 {
 	return int32((int64(a)*int64(b) + 1<<30) >> 31)
 }
