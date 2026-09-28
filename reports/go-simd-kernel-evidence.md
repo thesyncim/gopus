@@ -9,8 +9,9 @@ without a comparable per-call replacement.
 
 - Ordinary builds and `-tags nosimd` use scalar Go. `GOEXPERIMENT=simd`
   selects `simd/archsimd` kernels where implemented, with scalar fallbacks.
-- Each oracle pairs Go with libopus 1.6.1 on the same CPU, using the same
-  scalar/SIMD dispatch, feature flags, input, controls, and scalar widths.
+- The required oracle contract pairs Go with libopus 1.6.1 on the same CPU,
+  using the same scalar/SIMD dispatch, feature flags, input, controls, and scalar
+  widths. The codebase audit tracks remaining gaps in legacy test coverage.
   Exact gates compare packets, counts, final ranges, and PCM bits without
   architecture-based numerical allowances.
 - AMD64 SIMD references use SSE/AVX2 RTCD; the recorded native helper reports
@@ -32,6 +33,14 @@ its spectrum, synthesis and PCM regression, while the mono witness remains
 under investigation. ARM64 SIMD Q30 stereo-angle arithmetic matches the
 selected C primitive after the product-rounding correction at `3f1f4ab1`.
 
+A 300-frame SILK WB mono CBR soak exposes an encoder packet mismatch starting
+at frame 91 in both scalar and SIMD. Its matching-input/control trace is under
+investigation; decoded PCM for the C packets remains exact. A persistent
+Hybrid-prime → PLC sequence also differs at sample 1 despite identical prime
+PCM and final range. A strict malformed multistream sweep exposes fixed-point
+PCM differences where a feature-based bypass omits comparison. These cases are
+not covered by the passing short CBR matrix below.
+
 The decoder audit requires exact PCM equality alongside waveform-quality
 checks. Each public output format uses its corresponding C API and matching
 feature/ISA build. API-rate, int16 PLC and int24 gates pass the tested scalar
@@ -46,11 +55,12 @@ the aggregate status fail. BWE mono/stereo pass. Five LACE/NoLACE sample cases
 fail in OSCE, OSCE+QEXT and DRED+OSCE+QEXT; their native SIMD arithmetic is under
 investigation. The selected-correlation fix at `31903086` passes local ARM64
 exact forward/public-output and zero-allocation gates; native AMD64 validation
-is pending. That run is superseded by
-[run 36451619623](https://github.com/thesyncim/gopus/actions/runs/36451619623)
-at `a8283fd7`: every completed job passes, and the full SIMD job is still running.
-These CI revisions do not contain the subsequent local strict-gate and FEC
-changes. Early artifacts do not constitute a full CI pass.
+is pending. Runs at `a8283fd7` and `949cfc32` are superseded. The current
+[run 36456014367](https://github.com/thesyncim/gopus/actions/runs/36456014367)
+at `905eec03` includes the correlation correction and the documentation contract
+fix: all completed jobs pass, including the build matrix and macOS; the native
+SIMD job remains in progress at this checkpoint. It does not include all subsequent local changes.
+Early artifacts do not constitute a full CI pass.
 
 ### Verified local coverage
 
@@ -62,6 +72,10 @@ They describe their explicit cases and revisions, not all possible inputs.
 | Fixed multistream decode | 3,024 surround, 400 discrete, 144 projection and 72 Go-encoded cases; integer Hybrid PLC, redundancy, multi-frame and degenerate packets | All 3,640 cases pass at `1e3edd99` in fixed scalar and fixed+QEXT scalar/SIMD |
 | Fixed projection encode | Q15 stereo width, integer mode thresholds, five rates, full projection packet sweep | Exact state, packets and ranges in fixed/fixed+QEXT scalar/SIMD; zero warm allocations at `1e862928` |
 | Hybrid-to-CELT transitions | Five API rates, mono/stereo, 0/±3 dB | All 30 cases exact in four fixed lanes; zero allocations at `6aefe867` |
+| Multistream mode transitions and recovery | Every sample including 5 ms crossfades; 17 PLC/FEC/handover cases | Exact in all eight default/fixed/QEXT scalar/SIMD lanes at `eee85f70` |
+| Hybrid public float decode | Mono/stereo, FB/SWB, six bitrates; at least one Hybrid packet required per cell | Exact in all eight default/fixed/QEXT scalar/SIMD lanes at `eee85f70`; warm caller-buffer allocation check passes |
+| Malformed single-stream decode | All accepted float32/int16 samples and raw int24 outputs; no magnitude carve-out in exact comparison | Six focused feature/ISA lanes and the full default scalar public suite pass at `c0d68c52` |
+| FEC packet oracle identity | Public feature archive and matching private-header configuration | Four exact packet selectors pass all eight default/fixed/QEXT scalar/SIMD lanes at `79685ce8` |
 | Loss after CELT redundancy | 24/48 kHz, 10/20 ms, mono/stereo, three output formats, gains, consecutive loss and recovery | Exact in all eight float/fixed/QEXT scalar/SIMD lanes at `f7453894` |
 | Low-rate fixed Hybrid | 8/12 kHz received, loss and recovery | Exact fixed/fixed+QEXT scalar/SIMD output with zero warm allocations |
 | Strict encoder packets | CELT 19 case/signal pairs; CBR 19 cases / 2,175 packets; FEC 24 configurations × 3 signals | Scalar/SIMD pass without residual waivers at `4cb8015c` |
@@ -86,6 +100,16 @@ package passes scalar (90.343 s) and SIMD (86.055 s) at the `6aefe867`
 transition checkpoint. Later `f7453894` transition coverage is focused; a fresh
 final revision run is still required. A full suite pass does not convert its
 quality-only assertions into exactness proof.
+
+### Correctness cost outside the assembly inventory
+
+The ARM64 transient-analysis recurrence uses the selected C two-state update.
+An algebraically reduced recurrence changes float32 rounding. On M4 Max,
+Go 1.27.1 SIMD, five 750 ms samples compare the two forms: median 5 ms-frame
+analysis is 2,046 → 2,327 ns, and 20 ms analysis is 6,192 → 7,013 ns
+(13.7% and 13.3% more time). Both allocate zero bytes. This is a focused
+primitive comparison; it does not establish an end-to-end regression. Full CELT,
+selected-C CBR and short-frame packet gates pass both scalar/SIMD builds.
 
 ### C reference boundary
 

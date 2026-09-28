@@ -183,7 +183,7 @@ func TestDTXByteExactParity_Matrix(t *testing.T) {
 		{"silk-wb-mono-40ms", 1920, 1, 24000, "wb", "silk", 12, 16, 6},
 		// Long silence run to exercise the MAX_CONSECUTIVE_DTX overflow reset.
 		{"silk-wb-mono-maxreset", 960, 1, 24000, "wb", "silk", 15, 40, 5},
-		// Hybrid SWB: hard gate on amd64, arm64 CELT FMA residual budget.
+		// Hybrid SWB: exact selected-C packets on every architecture.
 		{"hybrid-swb-mono-20ms", 960, 1, 48000, "swb", "hybrid", 30, 30, 10},
 	}
 

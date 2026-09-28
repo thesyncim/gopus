@@ -138,8 +138,7 @@ func advanceMainTell(mainStorage, mainConsumed int) *rangecoding.Decoder {
 // mode, then replays the *decode* path through gopus's prepareQEXTDecode +
 // decodeQEXTBands against the same coded bytes and main-coder tell state. The
 // decoded extension X coefficients and qext band energies must match the C
-// reference. These are float MDCT-derived quantities, so the comparison follows
-// the documented amd64-strict / arm64-1e-6 budget.
+// reference bit-for-bit with matching feature and scalar/SIMD builds.
 func TestQEXTExtensionBandsContentMatchesLibopusOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 
