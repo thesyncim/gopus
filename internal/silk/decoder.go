@@ -39,6 +39,11 @@ type Decoder struct {
 	// Needs at least max_pitch_lag + LTP_taps/2 + margin samples
 	outputHistory []float32 // Ring buffer for pitch prediction
 	historyIndex  int       // Current write position in ring buffer
+	// historyQ0 holds the decoded int16 samples of the same ring; the
+	// historyPending newest of them are not yet converted into outputHistory
+	// (see syncOutputHistory).
+	historyQ0      []int16
+	historyPending int
 
 	// Stereo state (for stereo unmixing)
 	prevStereoWeights [2]int16 // Previous w0, w1 stereo weights (Q13)
@@ -258,6 +263,7 @@ func NewDecoder() *Decoder {
 		prevLPCValues: make([]float32, 16),  // Max for WB (d_LPC = 16)
 		prevLSFQ15:    make([]int16, 16),    // Max for WB (d_LPC = 16)
 		outputHistory: make([]float32, 322), // Max pitch lag (288) + LTP taps (5) + margin
+		historyQ0:     make([]int16, 322),
 
 		// scratchPredQ8 is the only fixed scratch kept standalone (uint8); the rest
 		// are carved from the per-type arenas below.
@@ -376,10 +382,9 @@ func (d *Decoder) Reset() {
 	}
 
 	// Clear output history
-	for i := range d.outputHistory {
-		d.outputHistory[i] = 0
-	}
+	clear(d.outputHistory)
 	d.historyIndex = 0
+	d.historyPending = 0
 
 	// Clear stereo state
 	d.prevStereoWeights = [2]int16{0, 0}
@@ -679,6 +684,7 @@ func (d *Decoder) SetPrevLSFQ15(lsf []int16) {
 
 // OutputHistory returns the output buffer for LTP lookback.
 func (d *Decoder) OutputHistory() []float32 {
+	d.syncOutputHistory()
 	return d.outputHistory
 }
 
@@ -689,6 +695,7 @@ func (d *Decoder) HistoryIndex() int {
 
 // SetHistoryIndex sets the write position in the history buffer.
 func (d *Decoder) SetHistoryIndex(idx int) {
+	d.syncOutputHistory()
 	d.historyIndex = idx
 }
 
@@ -957,7 +964,7 @@ func (d *Decoder) SnapshotDeepPLCLowbandMono() *DeepPLCLowbandSnapshot {
 		stereo:        d.stereo,
 		state:         d.state[0],
 		resampler:     resampler.snapshot(),
-		outputHistory: append([]float32(nil), d.outputHistory...),
+		outputHistory: append([]float32(nil), d.OutputHistory()...),
 		historyIndex:  d.historyIndex,
 		prevLPCValues: append([]float32(nil), d.prevLPCValues...),
 	}
@@ -975,6 +982,7 @@ func (d *Decoder) RestoreDeepPLCLowbandMono(s *DeepPLCLowbandSnapshot) {
 	if d == nil || s == nil {
 		return
 	}
+	d.syncOutputHistory()
 	d.stereo = s.stereo
 	if resampler := d.GetResampler(BandwidthWideband); resampler != nil {
 		resampler.restore(s.resampler)
