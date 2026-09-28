@@ -17,6 +17,12 @@ type streamFixedFields struct {
 	fixedCELT    *fixedpoint.CELTDecoder
 	fixedCELTPCM []int16
 	fixedRes     []int32
+	// Capture the integer SILK body before the float redundancy and mode
+	// transition fades rewrite it. opus_decode_frame applies those fades to
+	// opus_res after silk_Decode fills the main output.
+	fixedSILKCaptureActive bool
+	fixedSILKCaptureValid  bool
+	fixedSILKCaptureCursor int
 
 	// fixedTransitionRes and fixedTransitionMain hold the integer-domain
 	// previous-CELT PLC and raw target frame for an in-flight CELT-boundary
@@ -72,4 +78,26 @@ func (d *streamState) setFixedRedundancy(redundant, celtToSilk bool, data []byte
 	if redundant {
 		d.fixedHybridRedundantData = data
 	}
+}
+
+func (d *streamState) captureFixedSILKMain(samples []float32) {
+	if !d.fixedSILKCaptureActive || !d.fixedSILKCaptureValid {
+		return
+	}
+	end := d.fixedSILKCaptureCursor + len(samples)
+	if end > len(d.fixedRes) {
+		d.fixedSILKCaptureValid = false
+		return
+	}
+	for _, sample := range samples {
+		scaled := sample * 32768
+		if scaled < -32768 || scaled > 32767 || float32(int16(scaled)) != scaled {
+			d.fixedSILKCaptureValid = false
+			return
+		}
+	}
+	for i, sample := range samples {
+		d.fixedRes[d.fixedSILKCaptureCursor+i] = int32(int16(sample*32768)) << 8
+	}
+	d.fixedSILKCaptureCursor = end
 }

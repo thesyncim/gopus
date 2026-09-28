@@ -130,6 +130,8 @@ type streamState struct {
 	lastTOCFrameSize   int32
 	lastPacketDuration int32
 	lastDataLen        int32
+	lastSILKRange      uint32
+	lastHybridRange    uint32
 	decodeGainQ8       int32
 	ignoreExtensions   bool
 	complexity         int32
@@ -255,6 +257,8 @@ func (d *streamState) Reset() {
 	d.lastTOCFrameSize = d.sampleRate / 400
 	d.lastPacketDuration = 0
 	d.lastDataLen = 0
+	d.lastSILKRange = 0
+	d.lastHybridRange = 0
 	d.rangeDecoder = rangecoding.Decoder{}
 	d.resetFixedDecoderState()
 	d.resetOSCEPostfilterState()
@@ -368,9 +372,9 @@ func (d *streamState) FinalRange() uint32 {
 
 	switch d.lastMode {
 	case streamModeSILK:
-		return d.silkDec.FinalRange()
+		return d.lastSILKRange
 	case streamModeHybrid:
-		return d.hybridDec.FinalRange()
+		return d.lastHybridRange
 	case streamModeCELT:
 		return d.celtDec.FinalRange()
 	default:

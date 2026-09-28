@@ -14,6 +14,8 @@ type decoderFixedFields struct{}
 // decoder handles redundancy directly.
 func (*streamState) setFixedRedundancy(bool, bool, []byte, int) {}
 
+func (*streamState) captureFixedSILKMain([]float32) {}
+
 func fixedCELTCodedChannels(packetStereo bool) int {
 	if packetStereo {
 		return 2

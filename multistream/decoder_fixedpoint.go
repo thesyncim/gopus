@@ -367,7 +367,10 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 	channels := int(d.channels)
 
 	toc := parseStreamTOC(data[0])
-	if toc.mode == streamModeHybrid && data[0]&3 != 0 {
+	// opus_decode_native runs each SILK or Hybrid child through
+	// opus_decode_frame. Its redundancy and transition fades apply per child,
+	// before the next child advances the shared decoder state.
+	if toc.mode != streamModeCELT && data[0]&3 != 0 {
 		return d.decodeMultiframeToResFixed(data, frameSize)
 	}
 	parsed, err := parseOpusPacketInto(&d.packetParser, data, false)
@@ -418,6 +421,19 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 		}
 	}
 
+	needed := frameSize * channels
+	if cap(d.fixedRes) < needed {
+		d.fixedRes = make([]int32, needed)
+	}
+	res := d.fixedRes[:needed]
+	d.fixedSILKCaptureActive = toc.mode == streamModeSILK
+	d.fixedSILKCaptureValid = d.fixedSILKCaptureActive
+	d.fixedSILKCaptureCursor = 0
+	defer func() {
+		d.fixedSILKCaptureActive = false
+		d.fixedSILKCaptureValid = false
+		d.fixedSILKCaptureCursor = 0
+	}()
 	floatOut, err := d.decodePacketToFloat32Unscaled(data, frameSize)
 	if hybridArmed {
 		d.finishFixedHybridStream()
@@ -431,16 +447,12 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 		}
 	}
 
-	needed := frameSize * channels
-	if cap(d.fixedRes) < needed {
-		d.fixedRes = make([]int32, needed)
-	}
-	res := d.fixedRes[:needed]
-
 	var handled bool
 	switch toc.mode {
 	case streamModeSILK:
-		floatToRes(res, floatOut)
+		if !d.fixedSILKCaptureValid || d.fixedSILKCaptureCursor != needed {
+			floatToRes(res, floatOut)
+		}
 		handled = true
 		if d.fixedHybridRedundant {
 			handled = d.finishFixedRedundancy(res, frameSize)

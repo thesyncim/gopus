@@ -144,6 +144,7 @@ func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, tran
 	redundancyBytes := 0
 	mainLen := len(frame)
 	var redundantAudio []float32
+	var redundantRange uint32
 	if rd.Tell()+17 <= 8*len(frame) {
 		redundancy = true
 		celtToSilk = rd.DecodeBit(1) == 1
@@ -165,6 +166,9 @@ func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, tran
 		fixedRedundantData = frame[mainLen : mainLen+redundancyBytes]
 	}
 	d.setFixedRedundancy(redundancyValid, celtToSilk, fixedRedundantData, fixedCELTCodedChannels(toc.stereo))
+	// The FIXED_POINT opus_res path needs the integer SILK body before the
+	// float redundancy and transition fades modify this output buffer.
+	d.captureFixedSILKMain(out)
 
 	// A CELT->SILK redundant frame is decoded BEFORE the Hybrid->SILK fade-out so
 	// the fade-out gate sees the redundancy decision (opus_decode_frame ordering).
@@ -179,6 +183,7 @@ func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, tran
 		if err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(redundantData, f5, toc.stereo, redundantAudio); err != nil {
 			return nil, err
 		}
+		redundantRange = d.celtDec.FinalRange()
 	}
 
 	// Hybrid->SILK fade-out: decode a 2.5 ms CELT silence frame and add it so the
@@ -200,6 +205,7 @@ func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, tran
 		if err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(redundantData, f5, toc.stereo, redundantAudio); err != nil {
 			return nil, err
 		}
+		redundantRange = d.celtDec.FinalRange()
 		start := (frameSize - f2_5) * channels
 		if start >= 0 && start < len(out) && len(redundantAudio) >= f5*channels {
 			streamSmoothFade(out[start:], redundantAudio[f2_5*channels:], out[start:], f2_5, channels, fs)
@@ -230,6 +236,9 @@ func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, tran
 	}
 	d.applyModeTransition(&ts, out, frameSize)
 	d.prevRedundancy = redundancy && !celtToSilk
+	// opus_decode_frame reports the main range decoder after its redundancy
+	// flag, XORed with the range of the separately decoded CELT side frame.
+	d.lastSILKRange = rd.Range() ^ redundantRange
 	return out, nil
 }
 

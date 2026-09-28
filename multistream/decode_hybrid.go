@@ -63,6 +63,7 @@ func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc str
 	redundancyBytes := 0
 	mainLen := len(frame)
 	var redundantAudio []float32
+	var redundantRange uint32
 
 	afterSilk := func(rd *rangecoding.Decoder) error {
 		if rd == nil {
@@ -118,6 +119,7 @@ func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc str
 			if rerr := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(redundantData, f5, toc.stereo, redundantAudio); rerr != nil {
 				return rerr
 			}
+			redundantRange = d.celtDec.FinalRange()
 		}
 		if needCeltReset {
 			d.celtDec.Reset()
@@ -145,6 +147,7 @@ func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc str
 			if err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(redundantData, f5, toc.stereo, redundantAudio); err != nil {
 				return nil, err
 			}
+			redundantRange = d.celtDec.FinalRange()
 			start := (frameSize - f2_5) * channels
 			if start >= 0 && start < len(out) && len(redundantAudio) >= f5*channels {
 				streamSmoothFade(out[start:], redundantAudio[f2_5*channels:], out[start:], f2_5, channels, fs)
@@ -157,6 +160,7 @@ func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc str
 	}
 
 	d.prevRedundancy = redundancy && !celtToSilk
+	d.lastHybridRange = d.hybridDec.FinalRange() ^ redundantRange
 	return out, nil
 }
 
