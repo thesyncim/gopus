@@ -1071,11 +1071,10 @@ func pitchXCorrSig(x, y []celtSig, xcorr []float32, length, maxPitch int) {
 }
 
 // pitchXCorrFloat32PLC is the loss-concealment pitch cross-correlation. It is
-// pitchXCorrFloat32 without the encoder NEON branch: PLC output is held to
-// a tight libopus PCM tolerance, so the arm64 decode path keeps the
-// scalar-order kernel (whose contracted FMAs are bit-identical to the
-// single-chain NEON accumulation libopus uses). The amd64 SSE/AVX2 branches
-// match libopus' own x86 PLC kernels and stay as-is. Encoder pitch search
+// pitchXCorrFloat32 without the encoder NEON branch: the arm64 decode path uses
+// a scalar-order kernel whose contracted FMAs match the single-chain NEON
+// accumulation in libopus. The amd64 SSE/AVX2 branches match libopus's x86
+// PLC kernels. Encoder pitch search
 // uses its selected-C matched correlation path.
 func pitchXCorrFloat32PLC(x, y, xcorr []float32, length, maxPitch int) {
 	if length <= 0 || maxPitch <= 0 {

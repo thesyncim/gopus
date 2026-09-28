@@ -11,11 +11,8 @@ import (
 // seedCELTStereoPacket is the exact Opus packet produced by the root-package
 // helper encodeAPIRateCELTPacket(t, 2) (decoder_api_rate_test.go): a single
 // 20 ms fullband stereo CELT-only frame (TOC 0xfc) encoding 1200 Hz / 1900 Hz
-// sines at 128 kbit/s. Its first decoded frame is the documented seed of the
-// host-only float parity cluster: gopus vs libopus float output differs at
-// ~510/1920 samples by ~1 ULP. The byte sequence is deterministic; it is pinned
-// here so the celt-package oracle can replay the real failing payload without
-// importing the root package.
+// sines at 128 kbit/s. The pinned packet exercises exact synthesis-stage and
+// public PCM comparisons without importing the root package.
 const seedCELTStereoPacketHex = "fcb52acea9460bf0f037b801bba616f25e64ee93308b76ffafd560323e000da7fc11f90f02bbeb74b0d323bb3757a80b07ff6a3662530a2a7684031612213febb0f406cc33a605d2c3f771e110c36e4465d5b3450c5362c186b6fa9ca5361e7906af2e832d47e7b284654db214e11a63889b5930ce1561cae5bac9a04dec4158f6092fd4f42abd3b41f175937f3b7caab8c6a41eb8ae300ce0ce5c1a4f48742a424acc462db116a3b0d996bb727ebe70f572eb2b1853dc88d09a725a0c4e5a71f6d18e88e0336b4aa90398377ebb8000000000000000000000000000000000000000000001bb81415651f9678f5488f0053852650da0867f176a95a558f7ea62decbc67f1bea95a54b4ac562decbc59e87de2c53de9de4daa728c6d9636f1629ef4ef26d53946037628da0b8c17781bb146d05c60bbd65537be253da9aeb12b0da74aa8982d3a55450808631ae70ef8b4d12cd9235c3a36efc8721e9ea0367180473b5230efd4724043dc30a33816adb22d9f3b585e45f6b2011838efc60006400d03149fc0298238a76b558c4210e49afe5e366b5d6a9e2e10c"
 
 var libopusCELTSynthesisTraceHelper libopustest.HelperCache
@@ -99,9 +96,7 @@ func traceLibopusCELTSynthesis(t *testing.T, sampleRate, channels, frameSize, ta
 }
 
 // assertFloat32BitExact fails on the first sample whose IEEE-754 bits differ,
-// reporting the index, both bit patterns, decimal values, and magnitude. The
-// host-only parity drift this test localises is ~1 ULP, so the comparison must
-// be strictly bit-exact rather than tolerance-based.
+// reporting the index, both bit patterns, decimal values, and magnitude.
 func assertFloat32BitExact(t *testing.T, label string, got, want []float32) (firstDiff int, ok bool) {
 	t.Helper()
 	if len(got) != len(want) {
@@ -177,9 +172,8 @@ func TestCELTSynthesisStagesMatchLibopusC(t *testing.T) {
 
 	// Stage 2: post-IMDCT / overlap-add raw CELT_SIG buffer, per channel,
 	// captured from the comb_filter input before the (non-zero gain) postfilter
-	// rewrites it in place. The seed frame is transient (8 short blocks); this is
-	// the stage that diverged by ~1 ULP before the IMDCT pre-rotation and TDAC
-	// windowing were aligned with the libopus clang -ffp-contract=on float path.
+	// rewrites it in place. The seed frame is transient (8 short blocks) and checks
+	// the IMDCT pre-rotation and TDAC windowing against the selected C float path.
 	for ch := range channels {
 		assertFloat32BitExact(t, "imdct/ch"+itoaCh(ch), stage.IMDCT(ch), trace.imdct[ch])
 	}

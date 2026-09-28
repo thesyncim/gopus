@@ -8,7 +8,7 @@ import (
 )
 
 // celtAbsSumUsesNeon selects the archsimd float abs-sum on the arm64 experiment
-// build, exactly as the asm build does.
+// build.
 const celtAbsSumUsesNeon = true
 
 // l1AbsSumNeon returns the sum of absolute values of the first n elements with a
@@ -16,8 +16,8 @@ const celtAbsSumUsesNeon = true
 // (loadF32x4) to drop the per-load slice bounds check. Lane k sums |tmp[k]|,
 // |tmp[k+4]|, … and the reduction is (a0+a1)+(a2+a3)+tail — the exact order of
 // l1AbsSumNeonReference, so it is bit-exact with the NEON kernel it replaces
-// (TestL1AbsSumNeonBitExact). That order diverges from the scalar L1 sum by a few
-// ULP — the arm64 quality-gated regime — so amd64 and nosimd keep the scalar sum.
+// (TestL1AbsSumNeonBitExact). Scalar and SIMD reductions have distinct operation
+// orders; parity comparisons use the corresponding reference instruction path.
 func l1AbsSumNeon(tmp []float32, n int) float32 {
 	if n <= 0 {
 		return 0

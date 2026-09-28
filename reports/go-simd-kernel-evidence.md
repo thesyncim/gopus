@@ -25,27 +25,32 @@ without a comparable per-call replacement.
 
 ## Current correctness status
 
-**Complete codec/extension parity is not yet proven.** The active float-QEXT
-multistream witness differs in main-band extension-bit decoding: pre-quantizer
-header, coarse energy, allocation and fine-energy state match C, while band 20
-produces a different extension range and spectrum. A matched ARM64 SIMD Q30
-stereo-angle primitive also differs by one float32 ULP; that difference remains
-an open exactness issue. Both are under investigation.
+**Complete codec/extension parity is not yet proven.** The remaining local
+float-QEXT witness is a mono multi-frame packet: the second frame differs by
+one float32 bit at sample 50. The stereo extension-budget correction passes
+its spectrum, synthesis and PCM regression, while the mono witness remains
+under investigation. ARM64 SIMD Q30 stereo-angle arithmetic matches the
+selected C primitive after the product-rounding correction at `3f1f4ab1`.
 
-The decoder audit also checks whether tests using waveform-quality helpers
-meet exact PCM equality. Passing their existing quality bars is not counted as
-exactness evidence. Each fixed output format is compared with its corresponding
-C API; converting C float output to int16 is not an equivalent rounding contract.
+The decoder audit requires exact PCM equality alongside waveform-quality
+checks. Each public output format uses its corresponding C API and matching
+feature/ISA build. API-rate, int16 PLC and int24 gates pass the tested scalar
+and SIMD lanes; fixed output is not inferred by converting C float output.
+The no-LBRR FEC correction at `31119cba` preserves packet-driven SILK state
+and passes exact loss/recovery and warm zero-allocation regressions.
 
 Native early artifact `10983122541` from
 [run 36444790749](https://github.com/thesyncim/gopus/actions/runs/36444790749)
 at `d9d2c07a` contains 94 exit records: 90 succeed; three SIMD OSCE phases and
 the aggregate status fail. BWE mono/stereo pass. Five LACE/NoLACE sample cases
 fail in OSCE, OSCE+QEXT and DRED+OSCE+QEXT; their native SIMD arithmetic is under
-investigation. Lint, the build-config matrix, core oracles, conformance,
-fixed-point, QEXT, custom modes, macOS and Windows jobs pass. The full SIMD job
-is still running. This revision does not contain every local strict-gate and
-transition change, and the early artifact does not constitute a full CI pass.
+investigation. The selected-correlation fix at `31903086` passes local ARM64
+exact forward/public-output and zero-allocation gates; native AMD64 validation
+is pending. That run is superseded by
+[run 36451619623](https://github.com/thesyncim/gopus/actions/runs/36451619623)
+at `a8283fd7`: every completed job passes, and the full SIMD job is still running.
+These CI revisions do not contain the subsequent local strict-gate and FEC
+changes. Early artifacts do not constitute a full CI pass.
 
 ### Verified local coverage
 
@@ -60,6 +65,10 @@ They describe their explicit cases and revisions, not all possible inputs.
 | Loss after CELT redundancy | 24/48 kHz, 10/20 ms, mono/stereo, three output formats, gains, consecutive loss and recovery | Exact in all eight float/fixed/QEXT scalar/SIMD lanes at `f7453894` |
 | Low-rate fixed Hybrid | 8/12 kHz received, loss and recovery | Exact fixed/fixed+QEXT scalar/SIMD output with zero warm allocations |
 | Strict encoder packets | CELT 19 case/signal pairs; CBR 19 cases / 2,175 packets; FEC 24 configurations × 3 signals | Scalar/SIMD pass without residual waivers at `4cb8015c` |
+| CVBR public/CLI encode | Matching float API and CLI int24 input, including zero-padded EOF frame | Packet bytes, sizes and ranges pass scalar/SIMD; fixed+QEXT SIMD also passes at `84d1aa38` |
+| CLI decode conformance | Matching opus_decode_float and opus_decode24 APIs across the CLI configuration matrix | Every decoded float bit matches in scalar, SIMD and fixed+QEXT SIMD at `af0c9198` |
+| Multi-frame DTX encode | 945 speech/fade/duration configurations, silence and recovery | All packet bytes match selected C in scalar/SIMD at `af0c9198` |
+| DRED latent traces | Initial mono/stereo 20/40/60 ms, long-frame cadence and model reload | Exact state and latent bits pass DRED and combined DRED+OSCE+QEXT scalar/SIMD at `036cc257` |
 | Fixed-QEXT encoder transitions | 2,988 configurations × 40 frames | Scalar/SIMD packet/range gates pass |
 | CELT/QEXT primitives | PVQ grid, QEXT extension-band content, native 96 kHz MDCT | Exact packet/float-bit gates pass scalar/SIMD at `e250d4af` |
 | Native 96 kHz QEXT | CELT 2.5/5/10/20 ms; mono/stereo; float32/int16/int24; reset, PLC and Hybrid transitions | Focused paired float/fixed-QEXT gates pass scalar/SIMD |
