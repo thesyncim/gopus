@@ -101,21 +101,11 @@ func (e *Encoder) celtFixedUpsample() int {
 	return 0
 }
 
-// celtFixedEndBand maps the (already-clamped) effective bandwidth to the CELT
-// end band, matching the endband switch in opus_encoder.c celt_encode_with_ec
-// setup: NB=13, MB/WB=17, SWB=19, FB=21.
-func celtFixedEndBand(bw types.Bandwidth) int {
-	switch bw {
-	case types.BandwidthNarrowband:
-		return 13
-	case types.BandwidthMediumband, types.BandwidthWideband:
-		return 17
-	case types.BandwidthSuperwideband:
-		return 19
-	case types.BandwidthFullband:
-		return 21
-	}
-	return 21
+// activeFixedCELTEndBand follows the CELT control set after SILK reports its
+// internal sample rate. During a SILK bandwidth switch, this can differ from
+// the requested bandwidth (src/opus_encoder.c, opus_encode_frame_native).
+func (e *Encoder) activeFixedCELTEndBand() int {
+	return e.celtEncoder.Bandwidth().EffectiveBands()
 }
 
 // celtFixedFrameSizeInScope reports whether the integer CELT encoder supports
@@ -369,7 +359,7 @@ func (e *Encoder) encodeCELTFrameFixed(pcm []opusRes, frameSize, bitrate, maxPay
 	// redundancy calls set it off at their own fixed-CELT entry points.
 	st.enc.SetQEXTEnabled(extsupport.QEXT && e.qextActive())
 	st.enc.SetLFE(e.lfe)
-	st.enc.SetBandRange(0, celtFixedEndBand(e.effectiveBandwidth()))
+	st.enc.SetBandRange(0, e.activeFixedCELTEndBand())
 	st.enc.SetStreamChannels(int32(e.celtEncoder.StreamChannels()))
 	st.enc.SetComplexity(int(e.complexity))
 	st.enc.SetBitrate(bitrate)
@@ -470,7 +460,7 @@ func (e *Encoder) encodeHybridCELTFrameFixed(pcmQ8 []int32, frameSize, bitrate, 
 	st := e.ensureFixedCELT(channels)
 	st.enc.SetQEXTEnabled(false)
 	st.enc.SetLFE(e.lfe)
-	st.enc.SetBandRange(17, celtFixedEndBand(e.effectiveBandwidth()))
+	st.enc.SetBandRange(17, e.activeFixedCELTEndBand())
 	st.enc.SetStreamChannels(int32(e.celtEncoder.StreamChannels()))
 	st.enc.SetComplexity(int(e.complexity))
 	st.enc.SetBitrate(bitrate)
@@ -521,7 +511,7 @@ func (e *Encoder) encodeRedundantCELTFrameFixed(pcmQ8 []int32, frameSize, bitrat
 	st := e.ensureFixedCELT(int(e.channels))
 	st.enc.SetQEXTEnabled(false)
 	st.enc.SetLFE(e.lfe)
-	st.enc.SetBandRange(0, celtFixedEndBand(e.effectiveBandwidth()))
+	st.enc.SetBandRange(0, e.activeFixedCELTEndBand())
 	st.enc.SetStreamChannels(int32(e.celtEncoder.StreamChannels()))
 	st.enc.SetComplexity(int(e.complexity))
 	st.enc.SetBitrate(bitrate)
@@ -574,7 +564,7 @@ func (e *Encoder) prefillCELTFrameFixed(pcmQ8 []int32, frameSize, startBand, bit
 	st := e.ensureFixedCELT(int(e.channels))
 	st.enc.SetQEXTEnabled(false)
 	st.enc.SetLFE(e.lfe)
-	st.enc.SetBandRange(startBand, celtFixedEndBand(e.effectiveBandwidth()))
+	st.enc.SetBandRange(startBand, e.activeFixedCELTEndBand())
 	st.enc.SetStreamChannels(int32(e.celtEncoder.StreamChannels()))
 	st.enc.SetComplexity(int(e.complexity))
 	st.enc.SetBitrate(bitrate)

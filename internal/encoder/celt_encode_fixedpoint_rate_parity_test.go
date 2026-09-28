@@ -11,6 +11,22 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
+// celtFixedEndBand maps the requested bandwidth to the CELT end band expected
+// by the direct fixed-CELT rate oracle.
+func celtFixedEndBand(bw types.Bandwidth) int {
+	switch bw {
+	case types.BandwidthNarrowband:
+		return 13
+	case types.BandwidthMediumband, types.BandwidthWideband:
+		return 17
+	case types.BandwidthSuperwideband:
+		return 19
+	case types.BandwidthFullband:
+		return 21
+	}
+	return 21
+}
+
 // TestPublicCELTEncodeFixedRateByteExact drives the PUBLIC Encoder API in
 // CELT-only mode at the sub-48 kHz API sample rates (24000/16000/12000/8000 Hz)
 // under the gopus_fixed_point build and asserts the produced packet payload is
