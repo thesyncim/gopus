@@ -123,7 +123,7 @@ func TestDecodeFinalRangePLCDTXMatchesLibopus(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				src := mc.make(t, channels)
 				if len(src) <= 2 {
-					t.Skipf("encoded %s packet too small (len=%d) to build multi-frame variants", mc.name, len(src))
+					t.Fatalf("encoded %s packet too small (len=%d) to build multi-frame variants", mc.name, len(src))
 				}
 
 				tocDTX := makeTOCOnlyDTX(src)
@@ -131,7 +131,7 @@ func TestDecodeFinalRangePLCDTXMatchesLibopus(t *testing.T) {
 				firstDTX := makeCode2FirstDTX(src)
 				code1 := makeCode1Dup(src)
 				if tocDTX == nil || lastDTX == nil || firstDTX == nil || code1 == nil {
-					t.Skipf("could not construct multi-frame variants for %s (src len=%d)", mc.name, len(src))
+					t.Fatalf("could not construct multi-frame variants for %s (src len=%d)", mc.name, len(src))
 				}
 
 				// Requested frame_size (uniform for every step in the oracle's v6
@@ -155,7 +155,7 @@ func TestDecodeFinalRangePLCDTXMatchesLibopus(t *testing.T) {
 					{packet: src},
 				}
 
-				_, ranges, err := decodeWithLibopusReferenceAPIRateFloat32StepsRanges(sampleRate, channels, reqFrame, steps)
+				wantPCM, ranges, err := decodeWithLibopusReferenceAPIRateFloat32StepsRanges(sampleRate, channels, reqFrame, steps)
 				if err != nil {
 					libopustest.HelperUnavailable(t, "api-rate final range reference decode", err)
 				}
@@ -168,6 +168,7 @@ func TestDecodeFinalRangePLCDTXMatchesLibopus(t *testing.T) {
 					t.Fatalf("NewDecoder: %v", err)
 				}
 				buf := make([]float32, reqFrame*channels)
+				gotPCM := make([]float32, 0, len(wantPCM))
 
 				labels := []string{
 					"normal", "PLC(nil)", "DTX-TOC-only", "recovery",
@@ -177,15 +178,17 @@ func TestDecodeFinalRangePLCDTXMatchesLibopus(t *testing.T) {
 
 				for i, s := range steps {
 					clear(buf)
+					var n int
 					var derr error
 					if s.packet == nil {
-						_, derr = dec.Decode(nil, buf)
+						n, derr = dec.Decode(nil, buf)
 					} else {
-						_, derr = dec.Decode(s.packet, buf)
+						n, derr = dec.Decode(s.packet, buf)
 					}
 					if derr != nil {
 						t.Fatalf("step %d (%s) gopus decode: %v", i, labels[i], derr)
 					}
+					gotPCM = append(gotPCM, buf[:n*channels]...)
 					got := dec.FinalRange()
 					want := ranges[i]
 					if got != want {
@@ -193,6 +196,7 @@ func TestDecodeFinalRangePLCDTXMatchesLibopus(t *testing.T) {
 							i, labels[i], got, want, packetStepLen(s))
 					}
 				}
+				assertAPIRateFloat32BitsExact(t, gotPCM, wantPCM, "PLC/DTX final-range sequence")
 
 				// Sanity: the inner-DTX-last step must be 0 (regression for the
 				// stale-range bug), and a normal recovery step must be non-zero.
