@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
@@ -286,27 +285,18 @@ func TestOSCEFECFallbackPreservesClassicalLossHistory(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "selected C reference variant", err)
 	}
-	switch variant {
-	case libopustooling.LibopusReferenceSIMD:
-		switch runtime.GOARCH {
-		case "amd64":
-			if !rtcdEnabled || arch == 0 || presumeNEON {
-				t.Fatalf("selected C SIMD identity: RTCD=%t arch=%d presumeNEON=%t", rtcdEnabled, arch, presumeNEON)
-			}
-		case "arm64":
-			if rtcdEnabled || arch != 0 || !presumeNEON {
-				t.Fatalf("selected C NEON identity: RTCD=%t arch=%d presumeNEON=%t", rtcdEnabled, arch, presumeNEON)
-			}
-		default:
-			t.Fatalf("no selected SIMD oracle identity contract for %s", runtime.GOARCH)
-		}
-	case libopustooling.LibopusReferenceScalar:
-		if rtcdEnabled || arch != 0 || presumeNEON {
-			t.Fatalf("selected C scalar identity: RTCD=%t arch=%d presumeNEON=%t", rtcdEnabled, arch, presumeNEON)
-		}
-	default:
+	if variant != libopustooling.LibopusReferenceSIMD && variant != libopustooling.LibopusReferenceScalar {
 		t.Fatalf("unsupported selected C variant %q", variant)
 	}
+	if err := libopustest.ValidateDNNDispatchArch(arch); err != nil {
+		t.Fatalf("selected C DNN dispatch: %v", err)
+	}
+	if variant == libopustooling.LibopusReferenceScalar && (rtcdEnabled || presumeNEON) {
+		t.Fatalf("selected C scalar flags: RTCD=%t presumeNEON=%t", rtcdEnabled, presumeNEON)
+	}
+	// BuildDREDWeightsFileHelper pairs the dynamic-weight archive and helper
+	// with ResolveLibopusReferenceVariant; retain the C dispatch fields as
+	// diagnostics without assuming platform-specific ARM RTCD details.
 	t.Logf("selected C variant=%s arch=%d RTCD=%t presumeNEON=%t features=%03b",
 		variant, arch, rtcdEnabled, presumeNEON, features)
 	oracle.Count(4)
