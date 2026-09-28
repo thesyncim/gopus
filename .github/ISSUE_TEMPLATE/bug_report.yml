@@ -20,7 +20,7 @@ body:
     id: go_version
     attributes:
       label: Go version
-      placeholder: go1.25.0
+      placeholder: go1.27.1
     validations:
       required: true
   - type: dropdown
