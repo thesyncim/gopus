@@ -2,9 +2,11 @@ package celt
 
 import (
 	"math"
+	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 func TestCELTLog2MatchesLibopusFloatApprox(t *testing.T) {
@@ -174,6 +176,7 @@ func TestCELTAngleMathMatchesLibopusFloatPath(t *testing.T) {
 
 func TestCELTStereoIthetaQ30MatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
+	variant := requirePairedCELTOracleMode(t)
 	cases := []libopustest.CELTStereoIthetaCase{
 		{Stereo: false, X: []float32{1}, Y: []float32{0}},
 		{Stereo: false, X: []float32{0}, Y: []float32{1}},
@@ -209,15 +212,34 @@ func TestCELTStereoIthetaQ30MatchesLibopus(t *testing.T) {
 		}
 	}
 
-	want, err := libopustest.ProbeCELTStereoIthetaQ30(cases)
+	oracle, err := libopustest.ProbeCELTStereoIthetaQ30(cases)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "celt math", err)
 	}
+	if variant == libopustooling.LibopusReferenceSIMD {
+		switch runtime.GOARCH {
+		case "amd64":
+			if !oracle.RTCDEnabled || oracle.SelectedArch == 0 || oracle.PresumeNEON {
+				t.Fatalf("CELT stereo itheta helper SIMD identity: RTCD=%t arch=%d presumeNEON=%t",
+					oracle.RTCDEnabled, oracle.SelectedArch, oracle.PresumeNEON)
+			}
+		case "arm64":
+			if oracle.RTCDEnabled || oracle.SelectedArch != 0 || !oracle.PresumeNEON {
+				t.Fatalf("CELT stereo itheta helper NEON identity: RTCD=%t arch=%d presumeNEON=%t",
+					oracle.RTCDEnabled, oracle.SelectedArch, oracle.PresumeNEON)
+			}
+		default:
+			t.Fatalf("CELT stereo itheta has no selected SIMD oracle contract for %s", runtime.GOARCH)
+		}
+	} else if oracle.RTCDEnabled || oracle.SelectedArch != 0 || oracle.PresumeNEON {
+		t.Fatalf("CELT stereo itheta helper scalar identity: RTCD=%t arch=%d presumeNEON=%t",
+			oracle.RTCDEnabled, oracle.SelectedArch, oracle.PresumeNEON)
+	}
 	for i, tc := range cases {
 		got := stereoIthetaQ30(float32SliceToNorm(tc.X), float32SliceToNorm(tc.Y), tc.Stereo)
-		if int32(got) != int32(want[i]) {
+		if int32(got) != int32(oracle.Values[i]) {
 			t.Fatalf("case %d stereo=%v n=%d stereoIthetaQ30=%d want %d x=%08x y=%08x",
-				i, tc.Stereo, len(tc.X), got, int32(want[i]), float32SliceBits(tc.X), float32SliceBits(tc.Y))
+				i, tc.Stereo, len(tc.X), got, int32(oracle.Values[i]), float32SliceBits(tc.X), float32SliceBits(tc.Y))
 		}
 	}
 }
