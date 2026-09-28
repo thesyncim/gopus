@@ -1305,6 +1305,7 @@ func (d *Decoder) syncLegacyPLCState(st *decoderState, recent []int16) {
 		return
 	}
 
+	d.syncOutputHistory()
 	historyLen := len(d.outputHistory)
 	if historyLen == 0 {
 		return

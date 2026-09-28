@@ -157,7 +157,7 @@ func (v *silkPLCChannelView) IsPreviousFrameVoiced() bool {
 }
 
 func (v *silkPLCChannelView) OutputHistory() []float32 {
-	return v.d.outputHistory
+	return v.d.OutputHistory()
 }
 
 func (v *silkPLCChannelView) HistoryIndex() int {

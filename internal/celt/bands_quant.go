@@ -79,6 +79,13 @@ type bandCtx struct {
 	// encScratch holds pre-allocated buffers for the encode hot path.
 	// This eliminates per-call allocations in algQuant, PVQ search, etc.
 	encScratch *bandEncodeScratch
+	// stdEnc selects the bands_quant_encode.go functions: an encoder with
+	// the standard mode tables, a bandEncodeScratch and no extension coder.
+	stdEnc bool
+	// rdoItheta is the stereo_itheta() of the band a theta_rdo pair codes,
+	// kept from the first trial for the second while rdoIthetaSet.
+	rdoItheta    int
+	rdoIthetaSet bool
 }
 
 type splitCtx struct {
@@ -4422,6 +4429,9 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 	updateLowband := true
 	extraBands := extEnc != nil && extraBits != nil && start == 0 && len(edges) >= 2 && edges[0] > 0 && (end == nbQEXTBands || end == 2)
 	thetaRDOEnabled := channels == 2 && dualStereo == 0 && complexity >= 8 && !extraBands
+	// The standard-mode encoder with no extension coder takes the
+	// bands_quant_encode.go functions.
+	stdEnc := extEnc == nil && scratch != nil && len(bandLogN) == 0 && len(cacheIndex) == 0 && len(cacheBits) == 0
 	var bandCaps [MaxBands]int32
 	bandCapsSlice := []int32(nil)
 	if channels == 2 && extEnc != nil && !extraBands {
@@ -4453,6 +4463,7 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 		avoidSplitNoise: B > 1,
 		tapset:          tapset,
 		encScratch:      scratch,
+		stdEnc:          stdEnc,
 	}
 	if seed != nil {
 		ctx.seed = *seed
@@ -4593,7 +4604,37 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 			}
 		}
 
-		if dualStereo != 0 {
+		if stdEnc {
+			switch {
+			case dualStereo != 0:
+				xCM = quantBandEnc(&ctx, xBand, nBand, b/2, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM)
+				if yBand != nil {
+					yCM = quantBandEnc(&ctx, yBand, nBand, b/2, B, lowbandY, lm, lowbandOutY, 1.0, lowbandScratch, yCM)
+				}
+			case yBand != nil && thetaRDOEnabled && i < intensity:
+				var leftE, rightE celtEner
+				if bandE != nil && len(bandE) > ctx.nbBands+i {
+					leftE = bandE[i]
+					rightE = bandE[ctx.nbBands+i]
+				}
+				if i == start+1 {
+					// The rounded-up trial of this band runs on a refolded norm.
+					refold := func() { specialHybridFoldingWithEdges(norm, norm2, edges, start, M, dualStereo != 0) }
+					xCM = quantBandStereoThetaRDO(&ctx, re, scratch, xBand, yBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch,
+						xCM|yCM, leftE, rightE, refold)
+				} else {
+					xCM = quantBandStereoThetaRDOEnc(&ctx, re, scratch, xBand, yBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch,
+						xCM|yCM, leftE, rightE)
+				}
+				yCM = xCM
+			case yBand != nil:
+				xCM = quantBandStereoEnc(&ctx, xBand, yBand, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, xCM|yCM)
+				yCM = xCM
+			default:
+				xCM = quantBandEnc(&ctx, xBand, nBand, b, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM|yCM)
+				yCM = xCM
+			}
+		} else if dualStereo != 0 {
 			xCM = quantBandWithExtBudget(&ctx, xBand, nBand, b/2, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM, ctx.extBudget/2)
 			if channels == 2 && yBand != nil {
 				yCM = quantBandWithExtBudget(&ctx, yBand, nBand, b/2, B, lowbandY, lm, lowbandOutY, 1.0, lowbandScratch, yCM, ctx.extBudget/2)
@@ -4672,7 +4713,12 @@ func quantBandStereoThetaRDO(ctx *bandCtx, re *rangecoding.Encoder, scratch *ban
 	remainingSave, seedSave := ctx.remainingBits, ctx.seed
 
 	ctx.thetaRound = -1
-	cm0 := quantBandStereoWithExtBudget(ctx, x, y, n, b, B, lowband, lm, lowbandOut, lowbandScratch, fill, ctx.extBudget)
+	var cm0 int
+	if ctx.stdEnc {
+		cm0 = quantBandStereoEnc(ctx, x, y, n, b, B, lowband, lm, lowbandOut, lowbandScratch, fill)
+	} else {
+		cm0 = quantBandStereoWithExtBudget(ctx, x, y, n, b, B, lowband, lm, lowbandOut, lowbandScratch, fill, ctx.extBudget)
+	}
 	dist0 := thetaRDODistortion(w0, w1, xSave, x, ySave, y)
 
 	// Keep the first trial: coder state and the bytes written since ecSave,
@@ -4704,7 +4750,12 @@ func quantBandStereoThetaRDO(ctx *bandCtx, re *rangecoding.Encoder, scratch *ban
 	}
 
 	ctx.thetaRound = 1
-	cm := quantBandStereoWithExtBudget(ctx, x, y, n, b, B, lowband, lm, lowbandOut, lowbandScratch, fill, ctx.extBudget)
+	var cm int
+	if ctx.stdEnc {
+		cm = quantBandStereoEnc(ctx, x, y, n, b, B, lowband, lm, lowbandOut, lowbandScratch, fill)
+	} else {
+		cm = quantBandStereoWithExtBudget(ctx, x, y, n, b, B, lowband, lm, lowbandOut, lowbandScratch, fill, ctx.extBudget)
+	}
 	dist1 := thetaRDODistortion(w0, w1, xSave, x, ySave, y)
 	if dist0 >= dist1 {
 		cm = cm0
@@ -4720,5 +4771,6 @@ func quantBandStereoThetaRDO(ctx *bandCtx, re *rangecoding.Encoder, scratch *ban
 		}
 	}
 	ctx.thetaRound = 0
+	ctx.rdoIthetaSet = false
 	return cm
 }

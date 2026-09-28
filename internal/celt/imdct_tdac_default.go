@@ -14,9 +14,9 @@ package celt
 //	out[xOut0-i] = mdctMulAddMix(x2, x1, w1, w2)
 //
 // The mix helpers select the fused shape on arm64 and the separately rounded
-// products elsewhere. The SIMD arm64 build supplies a Go vector version. Each
+// products elsewhere. The SIMD builds supply Go vector versions. Each
 // iteration reads its x1 and x2 before writing, so xsrc may alias out.
-func imdctTDACWindow(out, xsrc, window []float32, yOut0, xOut0, xSrc0, wBwd0, count int) {
+func imdctTDACWindowScalar(out, xsrc, window []float32, yOut0, xOut0, xSrc0, wBwd0, count int) {
 	yp := yOut0
 	xpOut := xOut0
 	xpSrc := xSrc0
