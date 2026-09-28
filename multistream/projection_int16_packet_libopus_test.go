@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
@@ -15,62 +16,69 @@ import (
 func TestProjectionInt16PacketRangeMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	const frameCount = 24
-	for _, tc := range []struct {
-		channels  int
-		frameSize int
-		bitrate   int
-		vbr       bool
-	}{
-		{4, 960, 256000, true},
-		{9, 960, 256000, true},
-		{16, 960, 384000, true},
-		{4, 240, 128000, false},
-	} {
-		t.Run(fmt.Sprintf("ch%d_fs%d_br%d_vbr%t", tc.channels, tc.frameSize, tc.bitrate, tc.vbr), func(t *testing.T) {
-			pcm := floatToInt16(generateAmbisonicsSweep(tc.channels, tc.frameSize, frameCount))
-			ref, err := encodeLibopusProjection(48000, tc.channels, 2049, tc.bitrate, tc.vbr, true,
-				10, -1000, tc.frameSize, frameCount, 4000, 1, nil, pcm)
-			if err != nil {
-				t.Fatalf("live C projection encode: %v", err)
-			}
-			enc, err := NewProjectionEncoder(48000, tc.channels)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if enc.Streams() != ref.streams || enc.CoupledStreams() != ref.coupledStreams {
-				t.Fatalf("layout Go=(%d,%d) C=(%d,%d)", enc.Streams(), enc.CoupledStreams(), ref.streams, ref.coupledStreams)
-			}
-			enc.SetBitrate(tc.bitrate)
-			enc.SetVBR(tc.vbr)
-			enc.SetVBRConstraint(true)
-			enc.SetComplexity(10)
-			enc.SetBandwidthAuto()
-			out := make([]byte, 4000)
-			for frame := range frameCount {
-				start := frame * tc.frameSize * tc.channels
-				input := pcm[start : start+tc.frameSize*tc.channels]
-				n, err := enc.EncodeInt16WithAnalysis(input, tc.frameSize, input, out)
+	rates := []int{48000}
+	if extsupport.QEXT {
+		rates = append(rates, 96000)
+	}
+	for _, rate := range rates {
+		for _, tc := range []struct {
+			channels  int
+			frameSize int
+			bitrate   int
+			vbr       bool
+		}{
+			{4, 960, 256000, true},
+			{9, 960, 256000, true},
+			{16, 960, 384000, true},
+			{4, 240, 128000, false},
+		} {
+			t.Run(fmt.Sprintf("rate%d/ch%d_fs%d_br%d_vbr%t", rate, tc.channels, tc.frameSize, tc.bitrate, tc.vbr), func(t *testing.T) {
+				tc.frameSize = tc.frameSize * rate / 48000
+				pcm := floatToInt16(generateAmbisonicsSweep(tc.channels, tc.frameSize, frameCount))
+				ref, err := encodeLibopusProjection(rate, tc.channels, 2049, tc.bitrate, tc.vbr, true,
+					10, -1000, tc.frameSize, frameCount, 4000, 1, nil, pcm)
 				if err != nil {
-					t.Fatalf("frame %d: %v", frame, err)
+					t.Fatalf("live C projection encode: %v", err)
 				}
-				if !bytes.Equal(out[:n], ref.packets[frame]) || enc.GetFinalRange() != ref.ranges[frame] {
-					t.Errorf("frame %d: firstByte=%d GoLen=%d CLen=%d GoRange=%08x CRange=%08x GoCfg=%v CCfg=%v", frame,
-						firstByteMismatch(out[:n], ref.packets[frame]), n, len(ref.packets[frame]), enc.GetFinalRange(), ref.ranges[frame],
-						perStreamConfigs(out[:n], enc.Streams()), perStreamConfigs(ref.packets[frame], ref.streams))
+				enc, err := NewProjectionEncoder(rate, tc.channels)
+				if err != nil {
+					t.Fatal(err)
 				}
-			}
-			last := pcm[(frameCount-1)*tc.frameSize*tc.channels:]
-			if _, err := enc.EncodeInt16WithAnalysis(last, tc.frameSize, last, out); err != nil {
-				t.Fatalf("warm short encode: %v", err)
-			}
-			if allocs := testing.AllocsPerRun(20, func() {
+				if enc.Streams() != ref.streams || enc.CoupledStreams() != ref.coupledStreams {
+					t.Fatalf("layout Go=(%d,%d) C=(%d,%d)", enc.Streams(), enc.CoupledStreams(), ref.streams, ref.coupledStreams)
+				}
+				enc.SetBitrate(tc.bitrate)
+				enc.SetVBR(tc.vbr)
+				enc.SetVBRConstraint(true)
+				enc.SetComplexity(10)
+				enc.SetBandwidthAuto()
+				out := make([]byte, 4000)
+				for frame := range frameCount {
+					start := frame * tc.frameSize * tc.channels
+					input := pcm[start : start+tc.frameSize*tc.channels]
+					n, err := enc.EncodeInt16WithAnalysis(input, tc.frameSize, input, out)
+					if err != nil {
+						t.Fatalf("frame %d: %v", frame, err)
+					}
+					if !bytes.Equal(out[:n], ref.packets[frame]) || enc.GetFinalRange() != ref.ranges[frame] {
+						t.Errorf("frame %d: firstByte=%d GoLen=%d CLen=%d GoRange=%08x CRange=%08x GoCfg=%v CCfg=%v", frame,
+							firstByteMismatch(out[:n], ref.packets[frame]), n, len(ref.packets[frame]), enc.GetFinalRange(), ref.ranges[frame],
+							perStreamConfigs(out[:n], enc.Streams()), perStreamConfigs(ref.packets[frame], ref.streams))
+					}
+				}
+				last := pcm[(frameCount-1)*tc.frameSize*tc.channels:]
 				if _, err := enc.EncodeInt16WithAnalysis(last, tc.frameSize, last, out); err != nil {
-					t.Fatalf("short encode: %v", err)
+					t.Fatalf("warm short encode: %v", err)
 				}
-			}); allocs != 0 {
-				t.Fatalf("warm short caller-buffer allocations=%g want 0", allocs)
-			}
-		})
+				if allocs := testing.AllocsPerRun(20, func() {
+					if _, err := enc.EncodeInt16WithAnalysis(last, tc.frameSize, last, out); err != nil {
+						t.Fatalf("short encode: %v", err)
+					}
+				}); allocs != 0 {
+					t.Fatalf("warm short caller-buffer allocations=%g want 0", allocs)
+				}
+			})
+		}
 	}
 }
 

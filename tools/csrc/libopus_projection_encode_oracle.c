@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "config.h"
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
@@ -57,8 +58,12 @@ static int set_binary_stdio(void) {
 }
 
 static int valid_sample_rate(uint32_t sample_rate) {
-  return sample_rate == 8000 || sample_rate == 12000 || sample_rate == 16000 || sample_rate == 24000 ||
-         sample_rate == 48000;
+  if (sample_rate == 8000 || sample_rate == 12000 || sample_rate == 16000 ||
+      sample_rate == 24000 || sample_rate == 48000) return 1;
+#ifdef ENABLE_QEXT
+  if (sample_rate == 96000) return 1;
+#endif
+  return 0;
 }
 
 /*

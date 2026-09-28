@@ -3,6 +3,7 @@
 package encoder
 
 import (
+	"bytes"
 	"math"
 	"testing"
 
@@ -37,10 +38,9 @@ func TestNativeHD96kFloatCELTInputMatchesSelectedLibopus(t *testing.T) {
 			e.SetComplexity(10)
 			e.SetLSBDepth(24)
 			e.SetQEXT(qext)
-			packet := make([]byte, maxBytes)
 			for frame := range frames {
 				e.SetBitrate(bitrates[frame])
-				n, err := e.EncodeNativeHD96k(frames[frame].PCM, frameSize, packet)
+				packet, err := e.EncodeFloat32WithAnalysisMaxBytes(frames[frame].PCM, frameSize, frames[frame].PCM, maxBytes)
 				if err != nil {
 					t.Fatalf("frame %d encode: %v", frame, err)
 				}
@@ -67,9 +67,9 @@ func TestNativeHD96kFloatCELTInputMatchesSelectedLibopus(t *testing.T) {
 							frame, i, math.Float32bits(got[i]), math.Float32bits(ref.CELTInput[i]), got[i], ref.CELTInput[i])
 					}
 				}
-				if n != len(ref.Packet) || e.FinalRange() != ref.FinalRange {
+				if !bytes.Equal(packet, ref.Packet) || e.FinalRange() != ref.FinalRange {
 					t.Fatalf("frame %d packet/range len=%d/%d range=%08x/%08x",
-						frame, n, len(ref.Packet), e.FinalRange(), ref.FinalRange)
+						frame, len(packet), len(ref.Packet), e.FinalRange(), ref.FinalRange)
 				}
 			}
 		})

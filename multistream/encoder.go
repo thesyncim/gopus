@@ -1110,9 +1110,6 @@ func (e *Encoder) encodeNative(in encodeInput, frameSize int, analysisPCM []floa
 // points pass lsb_depth 16, which libopus applies as IMIN(16, st->lsb_depth)
 // for this call only; the float entry points pass MAX_ENCODING_DEPTH.
 func (e *Encoder) encodeStream(enc *encoder.Encoder, stream int, pcm []float32, frameSize int, analysisPCM []float32, maxDataBytes int, shortInput bool) ([]byte, error) {
-	if e.sampleRate == 96000 {
-		return e.encodeNativeHD96kStream(enc, pcm, frameSize, maxDataBytes, shortInput)
-	}
 	if shortInput {
 		if e.mappingFamily == 3 && len(e.projectionMixing) > 0 {
 			return e.encodeProjectionShortStream(enc, stream, pcm, frameSize, analysisPCM, maxDataBytes)
