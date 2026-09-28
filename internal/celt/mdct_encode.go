@@ -17,9 +17,8 @@ func mdctMulAddMix(a, b, c, d float32) float32 {
 	// Mirror the clang -ffp-contract=on float path of libopus celt/mdct.c
 	// clt_mdct_backward_c() TDAC mix (S_MUL(x2,*wp1)+S_MUL(x1,*wp2)): the second
 	// product is rounded on its own and the first multiply is fused into the
-	// add. The fully non-fused form drifts by ~1 ULP once the overlap-add region
-	// carries non-zero history (transient short-block boundaries), which seeds
-	// the host-only parity cluster.
+	// add. The rounding order matters when the overlap carries history across
+	// transient short-block boundaries.
 	if mdctUseFMALikeMixEnabled {
 		return opusmath.FMA32(a, c, mdctMul(b, d))
 	}
@@ -50,13 +49,9 @@ func mdctStoreDirectStageFMALike(dst []kissCpx, idx int, scale, re, im, t0, t1 f
 	dst[idx].i = yi * scale
 }
 
-// mdctMulAddMixEncode and mdctMulSubMixEncode are the encoder-only variants
-// of the TDAC windowed-fold mix. They mirror mdctMulAddMix / mdctMulSubMix
-// exactly on every build (same mdctUseFMALikeMixEnabled gating, same
-// non-FMA path on amd64), so the amd64 bit-exact libopus oracle stays
-// byte-parity. The win on arm64 nosimd is just that mdctEncodeFMA32 uses the
-// Go backend's FMADDS contraction instead of opusmath.FMA32's wider helper, which
-// the encoder pitch-search is free to use because that path is quality-gated.
+// mdctMulAddMixEncode and mdctMulSubMixEncode apply the forward MDCT window
+// fold with the same contraction gate as the decoder's TDAC mix. On arm64
+// nosimd, mdctEncodeFMA32 uses the Go backend's float32 FMADDS contraction.
 func mdctMulAddMixEncode(a, b, c, d float32) float32 {
 	if mdctUseFMALikeMixEnabled {
 		return mdctEncodeFMA32(a, c, mdctMul(b, d))

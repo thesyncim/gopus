@@ -15,9 +15,8 @@ func imdctPostRotateF32FromKissScalar(buf []float32, fft []kissCpx, trig []float
 	// Match libopus celt/mdct.c clt_mdct_backward_c() post-rotation. On arm64
 	// the float path contracts re*t0 + im*t1 into single-rounding FMADDS;
 	// mdctMulAddMix/mdctMulSubMix reproduce that fused shape when
-	// mdctUseFMALikeMixEnabled is set (arm64) and stay split elsewhere, so this
-	// portable path matches the assembly rotation on nosimd/arm64 and the
-	// scalar reference on other targets.
+	// mdctUseFMALikeMixEnabled is set (arm64) and stay split elsewhere to match
+	// the corresponding scalar C expression on each target.
 	//
 	// The rotation reads each fft[] entry exactly once and writes only buf[]
 	// (the two are distinct, non-aliasing buffers), so it folds the libopus
