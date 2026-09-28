@@ -69,12 +69,17 @@ func roundClampedFloat32ToInt32Even(y float32) int32 {
 }
 
 // roundFloat32ToInt32Even rounds y to the nearest integer with ties to even,
-// reproducing the float2int()/lrintf() round-to-nearest-even behaviour libopus
-// relies on under the default IEEE rounding mode. It truncates toward zero, then
-// adjusts by inspecting the float32 fractional remainder: a half-way fraction
-// only rounds away from the truncated value when that value is odd. The fraction
-// is computed in float32 so the exact-0.5 tie test matches the C result.
+// reproducing the float2int()/lrintf() behavior libopus relies on under the
+// default IEEE rounding mode. It truncates toward zero, then adjusts by
+// inspecting the float32 fractional remainder: a half-way fraction only rounds
+// away from the truncated value when that value is odd. Values outside int32
+// range use the target architecture's float-to-int conversion result, matching
+// libopus' x86 cvtss2si and arm64 vcvtns_s32_f32 paths. Avoid applying the
+// fractional correction to those architecture-defined overflow results.
 func roundFloat32ToInt32Even(y float32) int32 {
+	if y < -2147483648.0 || y >= 2147483648.0 || y != y {
+		return int32(y)
+	}
 	i := int32(y)
 	frac := y - float32(i)
 	if frac > 0.5 || (frac == 0.5 && (i&1) != 0) {

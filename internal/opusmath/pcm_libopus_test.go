@@ -1,6 +1,7 @@
 package opusmath
 
 import (
+	"math"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -30,6 +31,37 @@ func TestFloat32ToInt16MatchesLibopusFloat2Int16(t *testing.T) {
 	for i, sample := range samples {
 		if got := Float32ToInt16(sample); got != want[i] {
 			t.Fatalf("Float32ToInt16(%0.10g)=%d want %d", sample, got, want[i])
+		}
+	}
+}
+
+func TestFloat32ToInt24MatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const scale = float32(1 << 23)
+	samples := []float32{
+		math.Float32frombits(0xff800000), // -Inf
+		math.Float32frombits(0x7f800000), // +Inf
+		math.Float32frombits(0x7fc12345), // quiet NaN
+		math.Float32frombits(0x7f812345), // signaling NaN payload
+		math.Nextafter32(256, 0),
+		256,
+		math.Nextafter32(256, float32(math.Inf(1))),
+		math.Nextafter32(-256, 0),
+		-256,
+		math.Nextafter32(-256, float32(math.Inf(-1))),
+		1e30,
+		-1e30,
+	}
+	for _, raw := range []float32{-2.5, -1.5, -0.5, 0.5, 1.5, 2.5, 3.5} {
+		samples = append(samples, raw/scale)
+	}
+	want, err := libopustest.ProbeFloat2Int24(samples)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "float2int24", err)
+	}
+	for i, sample := range samples {
+		if got := Float32ToInt24(sample); got != want[i] {
+			t.Fatalf("Float32ToInt24(%08x, %0.10g)=%d want C float2int=%d", math.Float32bits(sample), sample, got, want[i])
 		}
 	}
 }

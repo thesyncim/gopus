@@ -25,6 +25,7 @@ const (
 	FloatQuantModeSILKFloat2Short    = uint32(5)
 	FloatQuantModeSILKFloat2IntScale = uint32(6)
 	FloatQuantModeSILKShort2Float    = uint32(7)
+	FloatQuantModeFloat2Int24        = uint32(8)
 )
 
 var (
@@ -872,6 +873,36 @@ func ProbeFloatQuantScaledInt32(scale float32, samples []float32) ([]int32, erro
 	}
 
 	reader, err := RunOracle(helperPath, payload.Bytes(), "float quant", "GFQO")
+	if err != nil {
+		return nil, err
+	}
+	count := reader.Count(len(samples))
+	reader.ExpectRemaining(4 * count)
+	out := make([]int32, count)
+	for i := range out {
+		out[i] = reader.I32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ProbeFloat2Int24 returns libopus float2int(8388608.f*sample) results from
+// the selected target C implementation. It preserves that target's behavior
+// for int32 overflow, infinities, NaNs, and tie rounding.
+func ProbeFloat2Int24(samples []float32) ([]int32, error) {
+	helperPath, err := floatQuantHelper()
+	if err != nil {
+		return nil, err
+	}
+
+	payload := NewOraclePayload("GFQI", FloatQuantModeFloat2Int24, uint32(len(samples)))
+	for _, sample := range samples {
+		payload.Float32(sample)
+	}
+
+	reader, err := RunOracle(helperPath, payload.Bytes(), "float2int24", "GFQO")
 	if err != nil {
 		return nil, err
 	}

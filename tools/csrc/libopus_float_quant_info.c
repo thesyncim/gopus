@@ -26,7 +26,8 @@ enum {
   MODE_CELT_FLOAT2INT16_DISPATCH = 4,
   MODE_SILK_FLOAT2SHORT_ARRAY = 5,
   MODE_SILK_FLOAT2INT_SCALE = 6,
-  MODE_SILK_SHORT2FLOAT_ARRAY = 7
+  MODE_SILK_SHORT2FLOAT_ARRAY = 7,
+  MODE_FLOAT2INT24 = 8
 };
 
 static int set_binary_stdio(void) {
@@ -149,6 +150,20 @@ static int convert_scaled_float2int(uint32_t count) {
   return 1;
 }
 
+static int convert_float2int24(uint32_t count) {
+  uint32_t i;
+  for (i = 0; i < count; i++) {
+    uint32_t bits;
+    float x;
+    int32_t y;
+    if (!read_u32(&bits)) return 0;
+    memcpy(&x, &bits, sizeof(x));
+    y = float2int(8388608.f * x);
+    if (!write_exact(&y, sizeof(y))) return 0;
+  }
+  return 1;
+}
+
 static int convert_short2float(uint32_t count) {
   int16_t *in = NULL;
   float *out = NULL;
@@ -203,7 +218,7 @@ int main(void) {
     fprintf(stderr, "failed to read header\n");
     return 1;
   }
-  if (mode > MODE_SILK_SHORT2FLOAT_ARRAY) {
+  if (mode > MODE_FLOAT2INT24) {
     fprintf(stderr, "invalid mode\n");
     return 1;
   }
@@ -222,6 +237,13 @@ int main(void) {
   if (mode == MODE_SILK_FLOAT2INT_SCALE) {
     if (!convert_scaled_float2int(count)) {
       fprintf(stderr, "failed to convert scaled float2int vector\n");
+      return 1;
+    }
+    return 0;
+  }
+  if (mode == MODE_FLOAT2INT24) {
+    if (!convert_float2int24(count)) {
+      fprintf(stderr, "failed to convert float2int24 vector\n");
       return 1;
     }
     return 0;
