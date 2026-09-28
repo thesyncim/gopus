@@ -1,28 +1,9 @@
 package gopus_test
 
-// Same-arch sample-exact gate for the coupled-stereo Hybrid (SILK+CELT) FLOAT
-// decode path in the multistream per-stream decoder.
-//
-// A projection-decode bisection found that a coupled-stereo Hybrid FB/SWB 20 ms
-// per-stream frame, decoded standalone on a fresh multistream stereo decoder,
-// diverged from same-arch libopus opus_decode_float by maxAbs ~3.8e-3 on frame 0
-// (and ~0.1-0.4 across a 6-frame projection sequence) -- far above the documented
-// arm64 <=1-ULP CELT float drift budget.
-//
-// Root cause: the multistream per-stream Hybrid decode skipped the libopus
-// opus_decode_frame redundancy-flag read (ec_dec_bit_logp(&dec,12) and the
-// celt_to_silk / redundancy_bytes reads) that runs after SILK and before the CELT
-// highband. Skipping it left the shared range decoder mis-positioned, so the CELT
-// highband (start band 17, celt_accum) decoded from the wrong bits. The CELT->SILK
-// redundant 5 ms frame was also not decoded on the shared CELT decoder before the
-// main highband, leaving the main decode reading stale CELT state. The top-level
-// gopus.Decoder already mirrors opus_decode_frame here and is sample-exact; the
-// multistream streamState had a parallel Hybrid path that did not.
-//
-// This gate drives libopus (same arch, FLOAT build) to encode coupled-stereo and
-// mono Hybrid FB/SWB packets, decodes each standalone on a fresh multistream
-// decoder, and requires sample-exact agreement with libopus opus_decode_float
-// (amd64-exact; arm64 absorbs only the documented <=1-ULP CELT drift).
+// Same-architecture parity gate for public multistream float-output decoding of
+// mono and coupled-stereo Hybrid FB/SWB packets. The selected C reference matches
+// the active feature and ISA build. FIXED_POINT converts mapped opus_res through
+// RES2FLOAT; floating builds use opus_decode_float arithmetic.
 
 import (
 	"math"
@@ -34,11 +15,13 @@ import (
 )
 
 func hybridStereoFloatBudget() float64 {
+	if hybridStereoFixedPointBuild {
+		return 0
+	}
 	if runtime.GOARCH == "amd64" {
 		return 0
 	}
-	// Documented darwin/arm64 <=1-ULP CELT/Hybrid float drift; three orders of
-	// magnitude below the ~3.8e-3 real divergence this gate guards against.
+	// The floating CELT/Hybrid path stays within its documented arm64 ULP budget.
 	return 1e-6
 }
 
@@ -122,8 +105,8 @@ func TestHybridStereoFloatSameArchParity(t *testing.T) {
 						continue // not Hybrid; skip
 					}
 
-					// Fresh multistream decoder per packet (frame-0 isolation),
-					// mirroring the oracle's fresh-decoder-per-case decode.
+					// Fresh multistream decoder per packet isolates frame state and
+					// matches the oracle's fresh decoder for each case.
 					dec, err := multistream.NewDecoder(sampleRate, tc.channels, 1, coupled, mapping)
 					if err != nil {
 						t.Fatalf("NewDecoder: %v", err)
@@ -161,6 +144,22 @@ func TestHybridStereoFloatSameArchParity(t *testing.T) {
 					if maxAbs > hybridStereoFloatBudget() {
 						t.Fatalf("br=%d frame=%d TOC=0x%02x cfg=%d: hybrid stereo float decode not sample-exact: maxAbs=%g at idx=%d (gopus=%g libopus=%g, budget=%g)",
 							bitrate, fi, pkt[0], cfg, maxAbs, maxIdx, got[maxIdx], want[maxIdx], hybridStereoFloatBudget())
+					}
+
+					if tc.name == "mono/FB" && bitrate == 24000 && fi == 0 {
+						into := make([]float32, frameSize*tc.channels)
+						for range 2 {
+							if n, err := dec.DecodeIntoFloat32(pkt, into, frameSize); err != nil || n != frameSize {
+								t.Fatalf("warm DecodeIntoFloat32=(%d,%v), want (%d,nil)", n, err, frameSize)
+							}
+						}
+						if allocs := testing.AllocsPerRun(100, func() {
+							if n, err := dec.DecodeIntoFloat32(pkt, into, frameSize); err != nil || n != frameSize {
+								t.Fatalf("warm DecodeIntoFloat32=(%d,%v), want (%d,nil)", n, err, frameSize)
+							}
+						}); allocs != 0 {
+							t.Fatalf("warm DecodeIntoFloat32 allocations=%g want 0", allocs)
+						}
 					}
 				}
 			}

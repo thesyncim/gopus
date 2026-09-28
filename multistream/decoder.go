@@ -610,7 +610,7 @@ func (d *streamState) decodeCELTModeWithTransition(frame []byte, frameSize, tran
 func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
 	f20 := int(d.sampleRate) / 50
 	chunkLimit := min(f20, int(d.lastTOCFrameSize))
-	if chunkLimit <= 0 || frameSize <= chunkLimit {
+	if chunkLimit <= 0 {
 		return d.decodePLCChunkToFloat32(frameSize)
 	}
 
@@ -619,6 +619,9 @@ func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
 	remaining := frameSize
 	for remaining > 0 {
 		chunk := min(remaining, chunkLimit)
+		if d.lastMode == streamModeCELT {
+			chunk = nextCELTPLCChunk(remaining, chunkLimit, f20)
+		}
 		decoded, err := d.decodePLCChunkToFloat32(chunk)
 		if err != nil {
 			return nil, err
@@ -628,6 +631,24 @@ func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
 	}
 	d.lastPacketDuration = int32(frameSize)
 	return out, nil
+}
+
+// nextCELTPLCChunk mirrors opus_decode_frame's NULL-frame size rounding.
+// Requests larger than 10 ms but smaller than 20 ms decode as 10 ms, and
+// requests between 5 and 10 ms decode as 5 ms; opus_decode_native repeats
+// until the caller's requested duration is filled. maxChunk carries the
+// preceding packet-duration cap applied by opus_decode_native.
+func nextCELTPLCChunk(remaining, maxChunk, frameSize20ms int) int {
+	chunk := min(remaining, maxChunk)
+	frameSize10ms := frameSize20ms / 2
+	frameSize5ms := frameSize20ms / 4
+	if chunk > frameSize10ms && chunk < frameSize20ms {
+		return frameSize10ms
+	}
+	if chunk > frameSize5ms && chunk < frameSize10ms {
+		return frameSize5ms
+	}
+	return chunk
 }
 
 // decodePLCChunkToFloat32 conceals a single <=F20 frame in the stream's last
@@ -773,12 +794,13 @@ type Decoder struct {
 	plcState *plc.State
 
 	// Optional projection demixing matrix in column-major S16 layout.
-	projectionDemixing []int16
-	projectionCols     int
-	projectionScratch  []float32
-	softClipMem        []float32
-	ignoreExtensions   bool
-	dnnBlob            *dnnblob.Blob
+	projectionDemixing     []int16
+	projectionCols         int
+	projectionScratch      []float32
+	projectionInt24Scratch []int32
+	softClipMem            []float32
+	ignoreExtensions       bool
+	dnnBlob                *dnnblob.Blob
 	decoderDREDFields
 	decoderOSCEFields
 	decoderFixedFields

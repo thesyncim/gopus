@@ -82,7 +82,7 @@ func (d *Decoder) decodeStreamToFloat32(stream int, packet []byte, frameSize int
 // All elementary streams within the packet must have the same frame duration.
 // If durations differ, ErrDurationMismatch is returned.
 func (d *Decoder) Decode(data []byte, frameSize int) ([]float32, error) {
-	return d.decodeToFloat32(data, frameSize, true, false)
+	return d.DecodeToFloat32(data, frameSize)
 }
 
 // DecodeToInt16 decodes a multistream packet and converts to int16 PCM.
@@ -96,6 +96,11 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float32, error) {
 // The output format is: [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ch1_s1, ...]
 func (d *Decoder) DecodeToInt16(data []byte, frameSize int) ([]int16, error) {
 	if len(d.projectionDemixing) != 0 && d.projectionCols > 0 {
+		if pcm, handled, err := d.decodeFixedProjectionInt16(data, frameSize); err != nil {
+			return nil, err
+		} else if handled {
+			return pcm, nil
+		}
 		// libopus opus_projection_decode passes OPTIONAL_CLIP, so each per-stream
 		// decoded buffer is soft-clipped before the int16 mapping-matrix multiply.
 		// Request that here (the float demix path in DecodeToFloat32 does not).
@@ -108,7 +113,13 @@ func (d *Decoder) DecodeToInt16(data []byte, frameSize int) ([]int16, error) {
 		return output, nil
 	}
 
-	samples, err := d.DecodeToFloat32(data, frameSize)
+	if pcm, handled, err := d.decodeFixedOutputInt16(data, frameSize); err != nil {
+		return nil, err
+	} else if handled {
+		return pcm, nil
+	}
+
+	samples, err := d.decodeToFloat32(data, frameSize, true, false)
 	if err != nil {
 		return nil, err
 	}
@@ -129,12 +140,26 @@ func (d *Decoder) DecodeToInt16(data []byte, frameSize int) ([]int16, error) {
 // Returns sample-interleaved float32 samples in approximate range [-1, 1].
 // The output format is: [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ch1_s1, ...]
 func (d *Decoder) DecodeToFloat32(data []byte, frameSize int) ([]float32, error) {
-	return d.decodeToFloat32(data, frameSize, true, false)
+	if frameSize <= 0 {
+		return nil, ErrInvalidPacket
+	}
+	frameSize = min(frameSize, int(d.sampleRate)*3/25)
+	output := d.outputScratchFor(frameSize * d.outputChannels)
+	n, err := d.DecodeIntoFloat32(data, output, frameSize)
+	if err != nil {
+		return nil, err
+	}
+	return append([]float32(nil), output[:n*d.outputChannels]...), nil
 }
 
 // DecodeIntoFloat32 decodes into caller-owned PCM and returns samples per
 // channel. The output buffer may be larger than the packet's actual duration.
 func (d *Decoder) DecodeIntoFloat32(data []byte, output []float32, frameSize int) (int, error) {
+	if n, handled, err := d.decodeFixedOutputFloat32(data, output, frameSize); err != nil {
+		return 0, err
+	} else if handled {
+		return n, nil
+	}
 	return d.decodeToFloat32Into(data, frameSize, true, false, output)
 }
 

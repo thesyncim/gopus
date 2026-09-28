@@ -112,7 +112,7 @@ func TestFixedQEXTMultistreamDecodeUsesSidePayload(t *testing.T) {
 		t.Fatalf("warm fixed+QEXT multistream DecodeInt24 allocations=%g want 0", allocs)
 	}
 
-	for _, gainQ8 := range []int{512, -512, 2048, -2048, 32767, -32768} {
+	for _, gainQ8 := range []int{512, -512, 2048, -2048, 8192, -8192, 32767, -32768} {
 		t.Run(fmt.Sprintf("decode_gain_%d", gainQ8), func(t *testing.T) {
 			wantGain16, err := decodeLibopusMultistreamFixedInt16WithGain(sampleRate, channels, streams, coupled, frameSize, gainQ8, mapping, packets)
 			if err != nil {

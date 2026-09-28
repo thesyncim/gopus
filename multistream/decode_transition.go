@@ -23,6 +23,7 @@ type transitionState struct {
 	prevMode   int
 	prevBW     int
 	prevStereo bool
+	targetMode int
 	// pendingTransSize is the 5 ms transition span for a non-CELT target whose
 	// transition PLC frame is decoded later (after the redundancy flags are read).
 	pendingTransSize int
@@ -47,6 +48,7 @@ func (d *streamState) beginModeTransition(toc streamTOC, transSize int) (transit
 		return ts, nil
 	}
 	ts.active = true
+	ts.targetMode = mode
 	ts.prevMode = prevMode
 	ts.prevBW = int(d.lastBandwidth)
 	ts.prevStereo = d.lastPacketStereo
@@ -67,6 +69,12 @@ func (d *streamState) beginModeTransition(toc streamTOC, transSize int) (transit
 func (d *streamState) applyModeTransition(ts *transitionState, out []float32, frameSize int) {
 	if !ts.active || len(ts.pcm) == 0 {
 		return
+	}
+	transSize := len(ts.pcm) / int(d.channels)
+	if ts.targetMode == streamModeSILK && ts.prevMode == streamModeCELT {
+		d.captureFixedCELTTransition(out, frameSize, transSize, true)
+	} else if ts.targetMode == streamModeCELT && ts.prevMode == streamModeSILK {
+		d.captureFixedSILKTransition(ts.pcm, transSize, true)
 	}
 	channels := int(d.channels)
 	fs := int(d.sampleRate)
@@ -215,7 +223,6 @@ func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, tran
 		}
 		ts.pcm = pcm
 	}
-
 	d.applyModeTransition(&ts, out, frameSize)
 	d.prevRedundancy = redundancy && !celtToSilk
 	return out, nil

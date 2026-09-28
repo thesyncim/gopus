@@ -20,14 +20,18 @@ import (
 //
 // The second return value reports whether every stream frame was produced by
 // the integer path or is integer-exact through the SILK round-trip. When it is
-// false the packet contains a frame the integer path does not cover (projection,
-// unsupported Hybrid redundancy, or a concealment frame); the caller must fall
-// back to the float conversion for that packet.
+// false the packet contains a frame the integer path does not cover (for
+// example projection or unsupported Hybrid redundancy); the caller falls back
+// to the float conversion for that packet. CELT loss frames use the integer
+// PLC path when all streams have matching CELT history.
 //
 // The output opus_res values feed RES2INT16 (int16) or RES2INT24==identity
 // (int24) per the libopus copy_channel_out routines.
 func (d *Decoder) DecodeToResFixed(data []byte, frameSize int) ([]int32, bool, error) {
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
+		return d.DecodePLCToResFixed(frameSize)
+	}
+	if frameSize <= 0 {
 		return nil, false, nil
 	}
 	if len(d.projectionDemixing) != 0 && d.projectionCols > 0 {
@@ -100,6 +104,79 @@ func (d *Decoder) DecodeToResFixed(data []byte, frameSize int) ([]int32, bool, e
 	d.plcState.SetLastFrameParams(plc.ModeHybrid, decodeFrameSize, d.outputChannels)
 
 	return d.fixedOutput, true, nil
+}
+
+// DecodePLCToResFixed conceals one public multistream loss request in the
+// fixed-point domain when every elementary stream is in CELT mode. Hybrid and
+// SILK PLC retain their existing paths until their multistream composition is
+// available in integer form. The request is split into the same 20 ms chunks
+// as the public wrappers, and each stream's float decoder advances once per
+// chunk so switching back to float output preserves its history. Per-mode
+// CELT PLC state advances even when the outer bookkeeping fade reaches zero.
+func (d *Decoder) DecodePLCToResFixed(frameSize int) ([]int32, bool, error) {
+	f2_5 := int(d.sampleRate) / 400
+	if frameSize <= 0 || f2_5 <= 0 || frameSize%f2_5 != 0 || frameSize > int(d.sampleRate)*3/25 {
+		return nil, false, nil
+	}
+	if len(d.projectionDemixing) != 0 && d.projectionCols > 0 {
+		return nil, false, nil
+	}
+	if extsupport.DREDRuntime && d.dredSidecarActive() {
+		return nil, false, nil
+	}
+	for _, decoder := range d.decoders {
+		st, ok := decoder.(*streamState)
+		if !ok || !st.haveDecoded || st.lastMode != streamModeCELT || !st.canDecodeLostFixed() {
+			return nil, false, nil
+		}
+	}
+
+	needed := frameSize * d.outputChannels
+	if cap(d.fixedOutput) < needed {
+		d.fixedOutput = make([]int32, needed)
+	} else {
+		d.fixedOutput = d.fixedOutput[:needed]
+		clear(d.fixedOutput)
+	}
+	if cap(d.fixedStreamRes) < d.streams {
+		d.fixedStreamRes = make([][]int32, d.streams)
+	}
+	streamRes := d.fixedStreamRes[:d.streams]
+	maxChunk := int(d.sampleRate) / 50
+	if maxChunk <= 0 {
+		return nil, false, nil
+	}
+	d.plcState.RecordLoss()
+
+	for offset := 0; offset < frameSize; {
+		chunk := nextCELTPLCChunk(frameSize-offset, maxChunk, maxChunk)
+		outOffset := offset * d.outputChannels
+		outEnd := outOffset + chunk*d.outputChannels
+		for i := 0; i < d.streams; i++ {
+			st := d.decoders[i].(*streamState)
+			if _, err := st.decodePacketToFloat32Unscaled(nil, chunk); err != nil {
+				return nil, false, err
+			}
+			res, err := st.decodeLostFixed(chunk)
+			if err != nil {
+				return nil, false, err
+			}
+			if st.decodeGainQ8 != 0 {
+				fixedpoint.ApplyDecodeGainRes(res, fixedpoint.DecodeGainQ16(int(st.decodeGainQ8)))
+			}
+			streamRes[i] = res
+		}
+		applyChannelMappingResInto(d.fixedOutput[outOffset:outEnd], streamRes, d.mapping, d.coupledStreams, chunk, d.outputChannels)
+		offset += chunk
+	}
+	return d.fixedOutput, true, nil
+}
+
+func fixedCELTCodedChannels(packetStereo bool) int {
+	if packetStereo {
+		return 2
+	}
+	return 1
 }
 
 // applyChannelMappingRes routes per-stream opus_res samples to output channels,
@@ -200,10 +277,12 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 		return nil, false, nil
 	}
 	if toc.mode == streamModeCELT {
-		if err := d.prepareFixedQEXTCELTFrame(parsed, toc); err != nil {
+		if err := d.prepareFixedCELTFrame(streamModeCELT, parsed, toc); err != nil {
 			return nil, false, err
 		}
 	}
+	d.beginFixedCELTTransition(toc.mode, d.decodeGainQ8)
+	defer d.endFixedCELTTransition()
 
 	// A Hybrid frame must arm the integer highband hook on the stream's hybrid
 	// decoder before the float decode runs, so the float hybrid decode also drives
@@ -238,9 +317,13 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 	switch toc.mode {
 	case streamModeSILK:
 		floatToRes(res, floatOut)
+		d.applyFixedCELTTransition(res, frameSize)
 		handled = true
 	case streamModeCELT:
 		handled = d.celtFixedRes(parsed, frameSize, toc, res)
+		if handled {
+			d.applyFixedCELTTransition(res, frameSize)
+		}
 	case streamModeHybrid:
 		if hybridArmed && d.fixedHybridHandled && len(d.fixedHybridRes) >= needed {
 			copy(res, d.fixedHybridRes[:needed])
@@ -324,8 +407,11 @@ func (h *streamFixedHybridHook) DecodeHybridHighband(silkInt16 []int16, filled i
 	}
 	coreFrameSize := frameSizeAPI * downsample
 
-	rdClone := *rd
-	if !d.decodeFixedHybridAccum(&rdClone, coreFrameSize, packetStereo, res) {
+	rdClone := &d.fixedHybridRangeDecoder
+	*rdClone = *rd
+	handled := d.decodeFixedHybridAccum(rdClone, coreFrameSize, packetStereo, res)
+	*rdClone = rangecoding.Decoder{}
+	if !handled {
 		d.fixedHybridHandled = false
 		return
 	}

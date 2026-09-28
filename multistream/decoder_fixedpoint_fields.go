@@ -2,7 +2,10 @@
 
 package multistream
 
-import "github.com/thesyncim/gopus/internal/fixedpoint"
+import (
+	"github.com/thesyncim/gopus/internal/fixedpoint"
+	"github.com/thesyncim/gopus/internal/rangecoding"
+)
 
 // streamFixedFields carries the FIXED_POINT integer CELT decoder used by the
 // gopus_fixed_point build to produce integer-exact opus_res output for a single
@@ -13,15 +16,27 @@ type streamFixedFields struct {
 	fixedCELT    *fixedpoint.CELTDecoder
 	fixedCELTPCM []int16
 	fixedRes     []int32
-	qext         streamFixedQEXTFields
+
+	// fixedTransitionRes and fixedTransitionMain hold the integer-domain
+	// previous-CELT PLC and raw target frame for an in-flight CELT-boundary
+	// transition. The float decoder still advances its own PLC state; the fixed
+	// output bridge uses these buffers to reproduce opus_res smooth_fade.
+	fixedTransitionRes     []int32
+	fixedTransitionMain    []int32
+	fixedTransitionReady   bool
+	fixedTransitionArmed   bool
+	fixedTransitionHasMain bool
+	fixedTransitionGainQ8  int32
+	qext                   streamFixedQEXTFields
 
 	// fixedHybridHook implements hybrid.FixedHybridHighband for the integer
 	// Hybrid highband decode (start band 17, celt_accum onto the SILK opus_res
 	// lowband). It is armed on the stream's hybrid decoder only while an integer
 	// Hybrid frame is in flight and shares fixedCELT with the CELT-only path.
-	fixedHybridHook *streamFixedHybridHook
-	fixedHybridRes  []int32
-	fixedHybridEnd  int
+	fixedHybridHook         *streamFixedHybridHook
+	fixedHybridRes          []int32
+	fixedHybridEnd          int
+	fixedHybridRangeDecoder rangecoding.Decoder
 	// fixedHybridRedundant records the Opus-layer redundancy decision the float
 	// Hybrid afterSilk callback already read from the shared range decoder. The
 	// integer highband hook reads it (rather than re-parsing the flag, which the
