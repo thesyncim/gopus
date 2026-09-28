@@ -39,6 +39,7 @@ type celtEncodeScratch struct {
 	tfRes            []int32 // nbEBands TF resolution decisions
 	qextTFRes        []int32 // QEXT geometry's zero TF decisions
 	offsets32        []int32 // nbEBands dynalloc boosts (int32 view)
+	caps             []int32 // nbEBands allocation caps
 	fineQuant        []int32 // nbEBands fine-energy bit counts
 	finePriority     []int32 // nbEBands fine-energy priorities
 	pulses           []int32 // nbEBands pulse allocation

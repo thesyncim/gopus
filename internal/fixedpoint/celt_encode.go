@@ -42,7 +42,7 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 	e.clearQEXTPayload()
 	e.finalRange = 0
 	enableQEXT := e.qextEnabled()
-	nbEBands := celtNbEBands
+	nbEBands := len(e.eBands) - 1
 	overlap := e.overlap
 	shortMdctSize := e.shortMdctSize
 	modeFs := e.modeFs
@@ -142,8 +142,8 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 	totalBits := nbCompressedBytes * 8
 
 	effEnd := end
-	if effEnd > nbEBands {
-		effEnd = nbEBands
+	if effEnd > e.effEBands {
+		effEnd = e.effEBands
 	}
 
 	// in buffer (CC*(N+overlap)): overlap prefix from prefilter_mem, body from
@@ -400,7 +400,8 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 		offsets[0] = imin(8, effectiveBytes/3)
 	}
 
-	cap := celt.InitCaps(nbEBands, LM, C)
+	cap := ensureInt32(&sc.caps, nbEBands)
+	celt.InitCapsInto(cap, nbEBands, LM, C)
 
 	// Dynalloc boost coding.
 	dynallocLogp := 6

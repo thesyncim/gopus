@@ -41,8 +41,17 @@ type CELTDecoder struct {
 	// 1 for 48k, 2 for 24k, 3 for 16k, 4 for 12k, 6 for 8k.
 	downsample int
 
-	start int
-	end   int
+	start                int
+	end                  int
+	shortMdctSize        int
+	overlap              int
+	maxLM                int
+	effEBands            int
+	preemph0             int16
+	preemph1             int16
+	preemph3             int16
+	deemphasisScratch    []int32
+	prefilterFoldScratch []int32
 
 	rng          uint32
 	lossDuration int
@@ -118,13 +127,18 @@ func NewCELTDecoder(channels int) *CELTDecoder {
 // 8000), matching celt_decoder_init: st->downsample = resampling_factor(rate).
 func NewCELTDecoderRate(channels, sampleRate int) *CELTDecoder {
 	d := &CELTDecoder{
-		channels:   channels,
-		downsample: resamplingFactor(sampleRate),
-		start:      0,
-		end:        celtNbEBands,
-		mdct:       NewStaticMDCTLookup48000(),
-		window:     staticMDCT48000Window[:],
-		eBands:     staticMDCT48000EBands[:],
+		channels:      channels,
+		downsample:    resamplingFactor(sampleRate),
+		start:         0,
+		end:           celtNbEBands,
+		shortMdctSize: celtShortMdctSize,
+		overlap:       celtOverlap,
+		maxLM:         celtMaxLM,
+		effEBands:     celtNbEBands,
+		preemph0:      staticMDCT48000Preemph0,
+		mdct:          NewStaticMDCTLookup48000(),
+		window:        staticMDCT48000Window[:],
+		eBands:        staticMDCT48000EBands[:],
 	}
 	d.decodeMem = make([]int32, channels*(celtDecodeBufferSize+celtOverlap))
 	d.oldBandE = make([]int32, 2*celtNbEBands)
@@ -132,6 +146,7 @@ func NewCELTDecoderRate(channels, sampleRate int) *CELTDecoder {
 	d.oldLogE2 = make([]int32, 2*celtNbEBands)
 	d.backgroundLogE = make([]int32, 2*celtNbEBands)
 	d.preemphMemD = make([]int32, channels)
+	d.prefilterFoldScratch = make([]int32, celtOverlap)
 	for i := range d.oldLogE {
 		d.oldLogE[i] = -gconst(28)
 		d.oldLogE2[i] = -gconst(28)
@@ -206,7 +221,7 @@ func (d *CELTDecoder) DecodeWithEC(data []byte, frameSize int, out []int16) int 
 	// deemphasis(out_syn, pcm, N, CC, st->downsample, preemph, preemph_memD, accum=0).
 	outSamples := N / d.downsample
 	resPCM := d.resScratch(d.channels * outSamples)
-	Deemphasis(outSyn, resPCM, staticMDCT48000Preemph0, d.preemphMemD, N, d.downsample, false)
+	d.deemphasisMode(outSyn, resPCM, N, false)
 	for i := range resPCM {
 		out[i] = Res2Int16(resPCM[i])
 	}
@@ -231,7 +246,7 @@ func (d *CELTDecoder) DecodeHybridAccum(dec *rangecoding.Decoder, coreFrameSize 
 	outSyn, N := d.decodeReceivedFrame(dec, dataLen, coreFrameSize)
 
 	// deemphasis(out_syn, pcm, N, CC, st->downsample, preemph, preemph_memD, accum=1).
-	Deemphasis(outSyn, accumPCM, staticMDCT48000Preemph0, d.preemphMemD, N, d.downsample, true)
+	d.deemphasisMode(outSyn, accumPCM, N, true)
 	return N / d.downsample
 }
 
@@ -243,16 +258,16 @@ func (d *CELTDecoder) DecodeHybridAccum(dec *rangecoding.Decoder, coreFrameSize 
 // count. It returns the per-channel synthesis buffers and N; the caller applies
 // deemphasis (with or without accumulation).
 func (d *CELTDecoder) decodeReceivedFrame(dec *rangecoding.Decoder, dataLen, frameSize int) ([][]int32, int) {
-	nbEBands := celtNbEBands
-	overlap := celtOverlap
-	shortMdctSize := celtShortMdctSize
+	nbEBands := len(d.eBands) - 1
+	overlap := d.overlap
+	shortMdctSize := d.shortMdctSize
 	start := d.start
 	end := d.end
 	CC := d.channels
 	C := d.channels
 
 	LM := 0
-	for LM = 0; LM <= celtMaxLM; LM++ {
+	for LM = 0; LM <= d.maxLM; LM++ {
 		if shortMdctSize<<LM == frameSize {
 			break
 		}
@@ -269,8 +284,8 @@ func (d *CELTDecoder) decodeReceivedFrame(dec *rangecoding.Decoder, dataLen, fra
 	}
 
 	effEnd := end
-	if effEnd > nbEBands {
-		effEnd = nbEBands
+	if effEnd > d.effEBands {
+		effEnd = d.effEBands
 	}
 
 	// Two consecutive received packets are required before the pitch-based
@@ -422,7 +437,7 @@ func (d *CELTDecoder) decodeReceivedFrame(dec *rangecoding.Decoder, dataLen, fra
 	}
 
 	CeltSynthesis(d.mdct, d.window, d.eBands,
-		nbEBands, shortMdctSize, celtMaxLM, overlap,
+		nbEBands, shortMdctSize, d.maxLM, overlap,
 		X, outSyn, d.oldBandE,
 		start, effEnd, C, CC, LM, d.downsample, isTransient, silence)
 

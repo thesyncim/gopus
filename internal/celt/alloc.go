@@ -524,6 +524,13 @@ func InitCaps(nbBands, lm, channels int) []int32 {
 	return initCaps(nbBands, lm, channels)
 }
 
+// InitCapsInto computes the same per-band caps into caller-owned storage.
+// CELT's fixed encoder keeps this slice across frames to avoid a per-packet
+// allocation in the custom mode path.
+func InitCapsInto(caps []int32, nbBands, lm, channels int) {
+	initCapsInto(caps, nbBands, lm, channels)
+}
+
 func initCaps(nbBands, lm, channels int) []int32 {
 	caps := make([]int32, nbBands)
 	initCapsInto(caps, nbBands, lm, channels)

@@ -109,6 +109,33 @@ func TestFixedCustomStandardStatefulParity(t *testing.T) {
 	}
 }
 
+func TestFixedCustomScaledStatefulParity(t *testing.T) {
+	var cases []customSequenceCase
+	for _, mode := range []struct{ fs, frame int }{{32000, 640}, {16000, 320}} {
+		for _, channels := range []int{1, 2} {
+			tc := customSequenceCase{
+				name: fmt.Sprintf("fs%d_n%d_ch%d", mode.fs, mode.frame, channels),
+				fs:   mode.fs, frameSize: mode.frame, channels: channels, maxBytes: 200,
+			}
+			for frame := range 9 {
+				op := customEncodeFrame
+				if frame == 3 || frame == 4 {
+					op = customLostFrame
+				}
+				if frame == 6 {
+					op = customResetFrame
+				}
+				tc.records = append(tc.records, customSequenceRecord{op: op, pcm: customSequenceInput(mode.frame, channels, frame)})
+			}
+			cases = append(cases, tc)
+		}
+	}
+	refs := runCustomSequenceOracle(t, cases)
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) { assertCustomSequenceParity(t, tc, refs[i]) })
+	}
+}
+
 func TestFixedCustomStandardZeroAlloc(t *testing.T) {
 	mode, err := custom.NewMode(48000, 960)
 	if err != nil {
@@ -146,5 +173,46 @@ func TestFixedCustomStandardZeroAlloc(t *testing.T) {
 	}
 	if allocs != 0 {
 		t.Fatalf("steady-state custom fixed encode/decode allocated %g times", allocs)
+	}
+}
+
+func TestFixedCustomScaledZeroAlloc(t *testing.T) {
+	mode, err := custom.NewMode(32000, 640)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc, err := custom.NewEncoder(mode, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec, err := custom.NewDecoder(mode, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pcm := customSequenceInput(640, 2, 1)
+	run := func() {
+		packet, err := enc.EncodeFloat(pcm, 200)
+		if err != nil {
+			panic(err)
+		}
+		if _, err := dec.DecodeFloat(packet, 640); err != nil {
+			panic(err)
+		}
+	}
+	for range 5 {
+		run()
+	}
+	if got := testing.AllocsPerRun(100, run); got != 0 {
+		t.Fatalf("scaled fixed encode/decode allocated %g times", got)
+	}
+	lossAndRecover := func() {
+		if _, err := dec.DecodeFloat(nil, 640); err != nil {
+			panic(err)
+		}
+		run()
+	}
+	lossAndRecover()
+	if got := testing.AllocsPerRun(10, lossAndRecover); got != 0 {
+		t.Fatalf("scaled fixed PLC/recovery allocated %g times", got)
 	}
 }

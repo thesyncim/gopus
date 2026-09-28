@@ -654,10 +654,10 @@ func celtPLCPitchSearch(decodeMem [][]int32, C int) int {
 // pre-filter to the MDCT overlap of the concealed audio and folds it (TDAC) so it
 // blends with the next frame's MDCT.
 func (d *CELTDecoder) prefilterAndFoldImpl(N int) {
-	overlap := celtOverlap
+	overlap := d.overlap
 	CC := d.channels
 	decodeMemSize := celtDecodeBufferSize + overlap
-	etmp := make([]int32, overlap)
+	etmp := d.prefilterFoldScratch[:overlap]
 	for c := 0; c < CC; c++ {
 		buf := d.decodeMem[c*decodeMemSize : (c+1)*decodeMemSize]
 		// comb_filter(etmp, decode_mem[c]+decode_buffer_size-N, ...,
@@ -732,13 +732,13 @@ func combFilterPrefold(dst, src []int32, base, t0, t1, n int, g0, g1 int16, taps
 // deemphasis on the data==NULL path (the hybrid CELT layer accumulates onto the
 // SILK opus_res lowband).
 func (d *CELTDecoder) concealLost(frameSize int) ([][]int32, int) {
-	overlap := celtOverlap
-	shortMdctSize := celtShortMdctSize
+	overlap := d.overlap
+	shortMdctSize := d.shortMdctSize
 	C := d.channels
 	start := d.start
 
 	LM := 0
-	for LM = 0; LM <= celtMaxLM; LM++ {
+	for LM = 0; LM <= d.maxLM; LM++ {
 		if shortMdctSize<<LM == frameSize {
 			break
 		}
@@ -788,7 +788,7 @@ func (d *CELTDecoder) DecodeLost(coreFrameSize int, out []int16) int {
 
 	outSamples := N / d.downsample
 	resPCM := d.resScratch(C * outSamples)
-	Deemphasis(outSyn, resPCM, staticMDCT48000Preemph0, d.preemphMemD, N, d.downsample, false)
+	d.deemphasisMode(outSyn, resPCM, N, false)
 	for i := range resPCM {
 		out[i] = Res2Int16(resPCM[i])
 	}
@@ -807,20 +807,20 @@ func (d *CELTDecoder) DecodeLost(coreFrameSize int, out []int16) int {
 func (d *CELTDecoder) DecodeLostAccum(coreFrameSize int, accumPCM []int32) int {
 	outSyn, N := d.concealLost(coreFrameSize)
 	// deemphasis(out_syn, pcm, N, CC, st->downsample, preemph, preemph_memD, accum=1).
-	Deemphasis(outSyn, accumPCM, staticMDCT48000Preemph0, d.preemphMemD, N, d.downsample, true)
+	d.deemphasisMode(outSyn, accumPCM, N, true)
 	return N / d.downsample
 }
 
 // decodeLostNoise ports the FRAME_PLC_NOISE branch of celt_decode_lost.
 func (d *CELTDecoder) decodeLostNoise(N, LM, lossDuration int, decodeMem, outSyn [][]int32) {
-	nbEBands := celtNbEBands
-	overlap := celtOverlap
+	nbEBands := len(d.eBands) - 1
+	overlap := d.overlap
 	C := d.channels
 	start := d.start
 	end := d.end
 	// effEnd = IMAX(start, IMIN(end, mode->effEBands)); effEBands == nbEBands
 	// for the static 48000/960 mode.
-	effEnd := imax(start, imin(end, nbEBands))
+	effEnd := imax(start, imin(end, d.effEBands))
 
 	X := ensureInt32(&d.bandScratch.x, C*N)
 	clear(X)
@@ -858,7 +858,7 @@ func (d *CELTDecoder) decodeLostNoise(N, LM, lossDuration int, decodeMem, outSyn
 	d.rng = seed
 
 	CeltSynthesis(d.mdct, d.window, d.eBands,
-		nbEBands, celtShortMdctSize, celtMaxLM, overlap,
+		nbEBands, d.shortMdctSize, d.maxLM, overlap,
 		X, outSyn, d.oldBandE,
 		start, effEnd, C, C, LM, d.downsample, false, false)
 
@@ -868,11 +868,11 @@ func (d *CELTDecoder) decodeLostNoise(N, LM, lossDuration int, decodeMem, outSyn
 		d.postfilterPeriod = pp
 		d.postfilterPeriodOld = ppOld
 		base := celtDecodeBufferSize - N
-		CombFilter(decodeMem[c], decodeMem[c], base, ppOld, pp, celtShortMdctSize,
+		CombFilter(decodeMem[c], decodeMem[c], base, ppOld, pp, d.shortMdctSize,
 			d.postfilterGainOld, d.postfilterGain, d.postfilterTapsetOld, d.postfilterTapset,
 			d.window, overlap)
 		if LM != 0 {
-			CombFilter(decodeMem[c], decodeMem[c], base+celtShortMdctSize, pp, pp, N-celtShortMdctSize,
+			CombFilter(decodeMem[c], decodeMem[c], base+d.shortMdctSize, pp, pp, N-d.shortMdctSize,
 				d.postfilterGain, d.postfilterGain, d.postfilterTapset, d.postfilterTapset,
 				d.window, overlap)
 		}
@@ -887,7 +887,7 @@ func (d *CELTDecoder) decodeLostNoise(N, LM, lossDuration int, decodeMem, outSyn
 
 // decodeLostPeriodic ports the FRAME_PLC_PERIODIC branch of celt_decode_lost.
 func (d *CELTDecoder) decodeLostPeriodic(N, LM int, decodeMem [][]int32) {
-	overlap := celtOverlap
+	overlap := d.overlap
 	C := d.channels
 	maxPeriod := celtMaxPeriod
 	window := d.window

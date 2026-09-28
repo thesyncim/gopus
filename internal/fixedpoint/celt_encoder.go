@@ -37,10 +37,12 @@ type CELTEncoder struct {
 	shortMdctSize int
 	overlap       int
 	maxLM         int
+	effEBands     int
 	maxPeriod     int
 	qextScale     int
 	preemph0      int16
 	preemph1      int16
+	preemph2      int16
 	preemph2Q30   int32
 
 	// upsample mirrors st->upsample = resampling_factor(API sample rate): 1 at
@@ -224,6 +226,7 @@ func NewCELTEncoderRate(channels, sampleRate int) *CELTEncoder {
 		shortMdctSize:  shortMdctSize,
 		overlap:        overlap,
 		maxLM:          celtMaxLM,
+		effEBands:      celtNbEBands,
 		maxPeriod:      maxPeriod,
 		qextScale:      qextScale,
 		preemph0:       preemph0,
@@ -428,7 +431,14 @@ func (e *CELTEncoder) preemphasis(pcmp []int32, inp []int32, N, CC, c int) {
 	for i := 0; i < N; i++ {
 		x := inp[i]
 		if e.preemph1 != 0 {
-			tmp := shl32(mult32x32q31(e.preemph2Q30, x), 1)
+			var tmp int32
+			if fixedQEXTBuild {
+				tmp = shl32(mult32x32q31(e.preemph2Q30, x), 1)
+			} else {
+				// celt/celt_encoder.c celt_preemphasis() uses the Q15
+				// MULT16_32 path without ENABLE_QEXT.
+				tmp = shl32(mult16x32q15(e.preemph2, x), 15-sigShift)
+			}
 			inp[i] = tmp + m
 			m = mult16x32q15(e.preemph1, inp[i]) - mult16x32q15(coef0, tmp)
 		} else {

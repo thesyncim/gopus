@@ -9,7 +9,7 @@ import (
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
-var ErrFixedCustomModeUnsupported = errors.New("opus custom: fixed-point custom mode requires the static 48 kHz mode")
+var ErrFixedCustomModeUnsupported = errors.New("opus custom: fixed-point custom mode geometry is unsupported")
 
 type fixedCustomEncoderState struct {
 	enc      *fixedpoint.CELTEncoder
@@ -24,6 +24,12 @@ func newFixedCustomEncoder(mode *CustomMode, channels int) (fixedCustomEncoder, 
 		return nil, ErrFixedCustomModeUnsupported
 	}
 	enc := fixedpoint.NewCELTEncoder(channels)
+	if mode.InScaledBandFamily() {
+		enc = fixedpoint.NewCELTEncoderCustom(channels, fixedCustomModeConfig(mode))
+		if enc == nil {
+			return nil, ErrFixedCustomModeUnsupported
+		}
+	}
 	enc.SetComplexity(9)
 	enc.SetLSBDepth(16)
 	enc.SetVBR(false)
@@ -32,8 +38,17 @@ func newFixedCustomEncoder(mode *CustomMode, channels int) (fixedCustomEncoder, 
 }
 
 func fixedCustomModeSupported(mode *CustomMode) bool {
-	return mode.isStandard && mode.Fs == 48000 && mode.ShortMdctSize == 120 &&
-		(mode.FrameSize == 120 || mode.FrameSize == 240 || mode.FrameSize == 480 || mode.FrameSize == 960)
+	return !customQEXT && mode.InScaledBandFamily() ||
+		mode.isStandard && mode.Fs == 48000 && mode.ShortMdctSize == 120 &&
+			(mode.FrameSize == 120 || mode.FrameSize == 240 || mode.FrameSize == 480 || mode.FrameSize == 960)
+}
+
+func fixedCustomModeConfig(mode *CustomMode) fixedpoint.CELTCustomMode {
+	return fixedpoint.CELTCustomMode{
+		Fs: mode.Fs, FrameSize: mode.FrameSize,
+		ShortMdctSize: mode.ShortMdctSize, Overlap: mode.Overlap,
+		MaxLM: mode.MaxLM, EffEBands: mode.EffEBands,
+	}
 }
 
 func (s *fixedCustomEncoderState) reset() { s.enc.Reset() }
