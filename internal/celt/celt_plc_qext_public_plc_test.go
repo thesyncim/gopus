@@ -16,6 +16,11 @@ const (
 	qextPLCStrictStereoPacket = "f47f0c05f9d878630b5cdad1f21379984583f0579186a73674bd1c5ec5f1f40996d9855652726afa"
 )
 
+// This regression exercises the float32 internal/celt decoder, including when
+// gopus_fixed_point is also enabled. That tag adds the separate
+// internal/fixedpoint implementation; it does not replace internal/celt.Decoder.
+// The build-specific helper uses QEXTRef or DREDQEXTRef to match this package's
+// floating-point implementation and selected Go ISA lane.
 func TestQEXTFirstLossPublicPLCMatchesSelectedReference(t *testing.T) {
 	libopustest.RequireOracle(t)
 	for _, tc := range []struct {

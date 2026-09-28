@@ -292,6 +292,54 @@ func TestSelfDelimitedPacketPreservesPacketExtensions(t *testing.T) {
 	}
 }
 
+func TestSelfDelimitedGrowingExtensionsZeroAllocAndByteExact(t *testing.T) {
+	// A long-running DRED encoder can produce a slightly larger extension
+	// after the first packet has warmed the reusable framing scratch.
+	lengths := []int{120, 148, 150}
+	raw := make([][]byte, len(lengths))
+	want := make([][]byte, len(lengths))
+	for i, length := range lengths {
+		payload := make([]byte, length)
+		for j := range payload {
+			payload[j] = byte(j*7 + 3)
+		}
+		buf := make([]byte, 512)
+		n, err := buildOpusPacketFromFramesAndExtensions(0x78, [][]byte{{1, 2, 3}}, []packetExtensionData{{ID: qextPacketExtensionID, Frame: 0, Data: payload}}, false, buf)
+		if err != nil {
+			t.Fatalf("build length=%d: %v", length, err)
+		}
+		raw[i] = buf[:n]
+		want[i], err = makeSelfDelimitedPacket(raw[i])
+		if err != nil {
+			t.Fatalf("reference length=%d: %v", length, err)
+		}
+	}
+
+	var scratch packetScratch
+	dst := make([]byte, 512)
+	if _, err := makeSelfDelimitedPacketInto(&scratch, dst, raw[0]); err != nil {
+		t.Fatalf("warm short extension: %v", err)
+	}
+	for i := 1; i < len(raw); i++ {
+		// AllocsPerRun calls its closure once for warmup. Skip that call so
+		// the first larger extension is the measured operation.
+		measured := false
+		allocs := testing.AllocsPerRun(1, func() {
+			if !measured {
+				measured = true
+				return
+			}
+			n, err := makeSelfDelimitedPacketInto(&scratch, dst, raw[i])
+			if err != nil || !bytes.Equal(dst[:n], want[i]) {
+				t.Fatalf("length=%d framed=%x want=%x error=%v", lengths[i], dst[:n], want[i], err)
+			}
+		})
+		if allocs != 0 {
+			t.Fatalf("extension growth %d->%d allocated %.0f objects", lengths[i-1], lengths[i], allocs)
+		}
+	}
+}
+
 func TestDecodeSelfDelimitedPacketPreservesOpaqueMalformedPadding(t *testing.T) {
 	packet := mustDecodeHex(t, "4b4102112233ffff")
 	selfDelimited := mustDecodeHex(t, "4b410203112233ffff")

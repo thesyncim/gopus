@@ -859,7 +859,11 @@ func buildOpusPacketFromFramesAndExtensionsInto(scratch *packetScratch, tocBase 
 	if scratch == nil {
 		padding = make([]byte, extLen)
 	} else if cap(scratch.extensionBuffer) < extLen {
-		scratch.extensionBuffer = make([]byte, extLen)
+		// An encoder's child packet is bounded by MS_FRAME_TMP. Reserve that
+		// envelope when the first extension arrives so later DRED/QEXT payload
+		// growth does not allocate in the warmed encode path.
+		reserve := max(extLen, msFrameTmp)
+		scratch.extensionBuffer = make([]byte, extLen, reserve)
 		padding = scratch.extensionBuffer
 	} else {
 		scratch.extensionBuffer = scratch.extensionBuffer[:extLen]

@@ -62,15 +62,24 @@ combined DRED+QEXT duration-transition cases pass the paired scalar and SIMD
 oracles locally. Multistream helper archives, headers and feature flags match
 the active build, and the archive precedes trailing math linker flags.
 
-The broader local combined DRED+QEXT SIMD suite has three remaining strict
-PCM failures: stereo surround `fs480/br32000/vbrfalse/cfalse/g0/f32`, and
-TOA 16-channel projection `fs480/br256000` in float32 and int16. The stereo
-case differs in 164/960 samples (maximum absolute difference 9.31e-8); the
-projection cases differ in 3221/7680 float samples (1.11e-5 maximum) and
-212/7680 int16 samples (maximum 1). These cases remain enabled. Pinned libopus rejects
-fixed-point+DRED in `configure.ac`; that tag intersection has no supported C
-reference and is not covered by the paired parity claim. Full codec/extension parity remains
-unproven until the remaining failures and native validation are resolved.
+The full combined DRED+QEXT multistream package passes on local ARM64 in
+scalar and SIMD builds, including all 3,024 surround differential cases and
+the complete projection sweep. A public libopus decoder oracle locks the
+strict stereo and two projection PLC packet histories with exact output bits.
+The PLC decay E1/E2 loops use scalar source-order accumulation; the S2 energy
+check retains its separate selected reduction. ARM SIMD autocorrelation tails
+preserve the selected C multiply/add rounding boundaries.
+
+Native AMD64 run 36382702573 at `293d9905` has two failing gate families:
+native-96 trace energy reconstruction and one FOA encode-cycle allocation.
+Its other early candidate phases pass. The trace follows target C
+contraction, and extension scratch reserves the per-stream packet envelope
+to accommodate growth after warmup. The framing regression checks the first
+larger extension after a short warmup with exact bytes and zero allocations;
+it passes on ARM64 and Rosetta AMD64. Native Linux confirmation of the fixes
+remains pending; full parity is unproven.
+Pinned libopus rejects fixed-point+DRED in `configure.ac`; requests for that
+unsupported C reference fail explicitly instead of selecting a subset archive.
 
 ### QEXT PVQ refinement byte parity
 

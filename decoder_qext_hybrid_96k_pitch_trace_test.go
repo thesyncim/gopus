@@ -5,6 +5,7 @@ package gopus
 import (
 	"math"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/benchutil"
@@ -165,7 +166,16 @@ func qextPLCTraceEnergy(values reflect.Value, start, length int) float32 {
 	sum := float32(1)
 	for i := range length {
 		x := float32(values.Index(start + i).Float())
-		sum = float32(math.FMA(float64(x), float64(x), float64(sum)))
+		if runtime.GOARCH == "arm64" {
+			// The helper compiles celt_decode_lost's scalar E1/E2 loop with
+			// the host C compiler's default target flags. On arm64, that target
+			// contracts the source multiply-add; on amd64's baseline target, it
+			// rounds the product before adding it.
+			sum = float32(math.FMA(float64(x), float64(x), float64(sum)))
+		} else {
+			product := float32(x * x)
+			sum = float32(sum + product)
+		}
 	}
 	return sum
 }
