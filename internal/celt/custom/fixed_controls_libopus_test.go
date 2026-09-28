@@ -54,6 +54,9 @@ func TestFixedCustomStandardControlsParity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if err := enc.SetSignalling(false); err != nil {
+				t.Fatal(err)
+			}
 			if err := enc.SetComplexity(tc.complexity); err != nil {
 				t.Fatal(err)
 			}

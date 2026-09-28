@@ -30,10 +30,10 @@ func newFixedCustomEncoder(mode *CustomMode, channels int) (fixedCustomEncoder, 
 			return nil, ErrFixedCustomModeUnsupported
 		}
 	}
-	enc.SetComplexity(9)
-	enc.SetLSBDepth(16)
+	enc.SetComplexity(5)
+	enc.SetLSBDepth(24)
 	enc.SetVBR(false)
-	enc.SetConstrainedVBR(false)
+	enc.SetConstrainedVBR(true)
 	return &fixedCustomEncoderState{enc: enc, channels: channels}, nil
 }
 
@@ -67,6 +67,8 @@ func (s *fixedCustomEncoderState) setBitrate(b int) { s.enc.SetBitrate(b) }
 func (s *fixedCustomEncoderState) setVBR(v bool) { s.enc.SetVBR(v) }
 
 func (s *fixedCustomEncoderState) setConstrainedVBR(v bool) { s.enc.SetConstrainedVBR(v) }
+
+func (s *fixedCustomEncoderState) setSignalling(v bool) { s.enc.SetCustomSignalling(v) }
 
 func (s *fixedCustomEncoderState) setPrediction(mode int) { s.enc.SetPrediction(int32(mode)) }
 

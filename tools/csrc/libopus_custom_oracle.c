@@ -77,10 +77,10 @@
 
 #include "opus_custom.h"
 #include "opus_defines.h"
-/* celt.h provides CELT_SET_SIGNALLING, which is an internal (non-public) CTL.
- * modes.h provides the full OpusCustomMode (CELTMode) struct so the oracle can
- * report the mode geometry opus_custom_mode_create() derives.
- * The helper build adds -I <ref>/celt via CHelperConfig.RefIncludes. */
+/* modes.h provides the full OpusCustomMode (CELTMode) struct so the oracle can
+ * report the mode geometry opus_custom_mode_create() derives. It includes
+ * celt.h for the internal mode definitions. The helper build adds -I
+ * <ref>/celt via CHelperConfig.RefIncludes. */
 #include "celt.h"
 #include "modes.h"
 
@@ -194,13 +194,12 @@ int main(void) {
             continue;
         }
 
-        /* Configure to match gopus celt/custom encoder defaults: CBR,
-         * complexity 9, LSB depth 16, no implicit signalling. */
+        /* Configure CBR, complexity, and LSB depth to the Go wrapper values;
+         * keep libopus's default custom signalling enabled. */
         opus_custom_encoder_ctl(enc, OPUS_SET_VBR(0));
         opus_custom_encoder_ctl(enc, OPUS_SET_VBR_CONSTRAINT(0));
         opus_custom_encoder_ctl(enc, OPUS_SET_COMPLEXITY(9));
         opus_custom_encoder_ctl(enc, OPUS_SET_LSB_DEPTH(16));
-        opus_custom_encoder_ctl(enc, CELT_SET_SIGNALLING(0));
 
         unsigned char packet[MAX_PACKET];
         int sz = opus_custom_encode_float(enc, pcm, (int)frame_size,
@@ -224,9 +223,6 @@ int main(void) {
         if (!dec || err != OPUS_OK) {
             fprintf(stderr, "case %u: decoder create error %d\n", c, err);
         } else {
-            /* The encoder disabled implicit frame-size signalling, so the
-             * decoder must too, otherwise it infers the wrong frame size. */
-            opus_custom_decoder_ctl(dec, CELT_SET_SIGNALLING(0));
             int dn = opus_custom_decode_float(dec, packet, sz, decoded, (int)frame_size);
             opus_custom_decoder_ctl(dec, OPUS_GET_FINAL_RANGE(&decRange));
             opus_custom_decoder_destroy(dec);
@@ -241,10 +237,6 @@ int main(void) {
         dec = opus_custom_decoder_create(mode, (int)channels, &err);
         if (!dec || err != OPUS_OK) {
             fprintf(stderr, "case %u: short decoder create error %d\n", c, err);
-            return 1;
-        }
-        if (opus_custom_decoder_ctl(dec, CELT_SET_SIGNALLING(0)) != OPUS_OK) {
-            fprintf(stderr, "case %u: short decoder signalling control failed\n", c);
             return 1;
         }
         int shortSamples = opus_custom_decode(dec, packet, sz, decodedShort, (int)frame_size);

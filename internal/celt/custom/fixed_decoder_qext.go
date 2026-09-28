@@ -8,12 +8,13 @@ import (
 )
 
 type fixedCustomDecoderState struct {
-	dec      *fixedpoint.QEXTCELTDecoder
-	channels int
-	reader   rangecoding.Decoder
-	res      []int32
-	floatPCM []float32
-	shortPCM []int16
+	dec         *fixedpoint.QEXTCELTDecoder
+	channels    int
+	reader      rangecoding.Decoder
+	res         []int32
+	floatPCM    []float32
+	shortPCM    []int16
+	qextPayload []byte
 }
 
 func newFixedCustomDecoder(mode *CustomMode, channels int) (fixedCustomDecoder, error) {
@@ -35,9 +36,15 @@ func newFixedCustomDecoder(mode *CustomMode, channels int) (fixedCustomDecoder, 
 
 func (s *fixedCustomDecoderState) reset() { s.dec.Reset() }
 
+func (s *fixedCustomDecoderState) setEndBand(end int) { s.dec.SetBandRange(0, end) }
+
+func (s *fixedCustomDecoderState) setQEXTPayload(payload []byte) {
+	s.qextPayload = payload
+}
+
 func (s *fixedCustomDecoderState) finalRange() uint32 { return s.dec.FinalRange() }
 
-func (s *fixedCustomDecoderState) decodeRes(data []byte, frameSize int) ([]int32, error) {
+func (s *fixedCustomDecoderState) decodeRes(data []byte, frameSize, codedChannels int) ([]int32, error) {
 	n := frameSize * s.channels
 	if cap(s.res) < n {
 		s.res = make([]int32, n)
@@ -48,14 +55,16 @@ func (s *fixedCustomDecoderState) decodeRes(data []byte, frameSize int) ([]int32
 		s.reader.Init(data)
 		reader = &s.reader
 	}
-	if got := s.dec.DecodeFrameWithEC(reader, len(data), frameSize, s.channels, nil, s.res); got != frameSize {
+	qextPayload := s.qextPayload
+	s.qextPayload = nil
+	if got := s.dec.DecodeFrameWithEC(reader, len(data), frameSize, codedChannels, qextPayload, s.res); got != frameSize {
 		return nil, ErrBadArg
 	}
 	return s.res, nil
 }
 
-func (s *fixedCustomDecoderState) decodeFloat(data []byte, frameSize int) ([]float32, error) {
-	res, err := s.decodeRes(data, frameSize)
+func (s *fixedCustomDecoderState) decodeFloat(data []byte, frameSize, codedChannels int) ([]float32, error) {
+	res, err := s.decodeRes(data, frameSize, codedChannels)
 	if err != nil {
 		return nil, err
 	}
@@ -69,8 +78,8 @@ func (s *fixedCustomDecoderState) decodeFloat(data []byte, frameSize int) ([]flo
 	return s.floatPCM, nil
 }
 
-func (s *fixedCustomDecoderState) decodeShort(data []byte, frameSize int) ([]int16, error) {
-	res, err := s.decodeRes(data, frameSize)
+func (s *fixedCustomDecoderState) decodeShort(data []byte, frameSize, codedChannels int) ([]int16, error) {
+	res, err := s.decodeRes(data, frameSize, codedChannels)
 	if err != nil {
 		return nil, err
 	}

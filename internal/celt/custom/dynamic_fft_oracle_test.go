@@ -29,6 +29,7 @@ func TestOracleCustomDynamicFFTExact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	configureCustomOracleEncoder(t, enc)
 	packet, err := enc.EncodeFloat(pcm, maxBytes)
 	if err != nil {
 		t.Fatal(err)

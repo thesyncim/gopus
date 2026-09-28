@@ -145,6 +145,7 @@ func newQEXTCELTDecoderState(channels, sampleRate, downsample, shortMDCTSize, ov
 	}
 	d := &QEXTCELTDecoder{
 		channels: channels, sampleRate: sampleRate, downsample: downsample,
+		skipPLC:       true,
 		shortMDCTSize: shortMDCTSize, overlap: overlap, decodeBufSize: decodeBufSize,
 		maxLM: maxLM, nbEBands: nbEBands, effEBands: effEBands,
 		start: 0, end: effEBands, maxFrameSize: shortMDCTSize << maxLM,
@@ -228,7 +229,7 @@ func (d *QEXTCELTDecoder) Reset() {
 	d.plcDuration = 0
 	d.lastFrameType = frameNone
 	d.lastPitchIndex = 0
-	d.skipPLC = false
+	d.skipPLC = true
 	d.prefilterAndFold = false
 	clear(d.plcLPC[:])
 	d.rng = 0

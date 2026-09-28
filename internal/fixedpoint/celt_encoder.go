@@ -74,6 +74,7 @@ type CELTEncoder struct {
 	// defaults to 1 (the celt_encoder_init default).
 	vbr            bool
 	constrainedVBR bool
+	customSignalling bool // celt_encode_with_ec st->signalling for opus_custom_encode.
 
 	// lfe mirrors st->lfe: the low-frequency-effects encode path (forces the
 	// energy clamp above band 0, disables transient/pitch/TF/surround analysis
@@ -291,6 +292,13 @@ func (e *CELTEncoder) SetVBR(v bool) { e.vbr = v }
 
 // SetConstrainedVBR sets st->constrained_vbr (OPUS_SET_VBR_CONSTRAINT_REQUEST).
 func (e *CELTEncoder) SetConstrainedVBR(v bool) { e.constrainedVBR = v }
+
+// SetCustomSignalling mirrors st->signalling for opus_custom_encode. The
+// signalled header consumes one byte from finite bitrate accounting while the
+// caller-provided range-coder buffer already excludes the header.
+func (e *CELTEncoder) SetCustomSignalling(enabled bool) {
+	e.customSignalling = enabled
+}
 
 // SetBandRange sets the active band range (st->start / st->end), matching the
 // CELT_SET_START_BAND_REQUEST / CELT_SET_END_BAND_REQUEST controls.

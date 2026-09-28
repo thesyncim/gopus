@@ -135,6 +135,11 @@ func (e *Encoder) initFrameBudget(frameSize, lm, c int, nbCompressedBytes int32,
 	nbCompressedBytes = min(nbCompressedBytes, e.packetSizeCap())
 	if e.vbr && bitrate != BitrateMax {
 		b.vbrRate = bitrateToBits(bitrate, fs, n) << bitRes
+		if e.customSignalling {
+			// C ref: celt/celt_encoder.c celt_encode_with_ec() subtracts the
+			// custom header byte from the finite VBR target.
+			b.vbrRate -= 8 << bitRes
+		}
 		b.effectiveBytes = b.vbrRate >> (3 + bitRes)
 	} else {
 		if bitrate != BitrateMax {
@@ -142,7 +147,13 @@ func (e *Encoder) initFrameBudget(frameSize, lm, c int, nbCompressedBytes int32,
 			if tell > 1 {
 				tmp += tell * fs
 			}
-			nbCompressedBytes = max(2, min(nbCompressedBytes, (tmp+4*fs)/(8*fs)))
+			rateBytes := (tmp + 4*fs) / (8 * fs)
+			if e.customSignalling {
+				// celt_encode_with_ec() also excludes the custom header from
+				// its finite CBR target.
+				rateBytes--
+			}
+			nbCompressedBytes = max(2, min(nbCompressedBytes, rateBytes))
 		}
 		b.effectiveBytes = nbCompressedBytes - b.nbFilledBytes
 	}

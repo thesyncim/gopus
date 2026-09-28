@@ -22,6 +22,16 @@
 //	dec.DecodeFloat(data []byte, frameSize int) ([]float32, error)
 //	dec.Decode(data []byte, frameSize int) ([]int16, error)
 //
+// Custom encoders and decoders use the one-byte custom frame header by default,
+// matching opus_custom_encoder_create() and opus_custom_decoder_create(). The
+// header carries frame size, channel count, and end band. SetSignalling(false)
+// selects raw CELT payloads for callers that carry those values out of band.
+// Encoder defaults match opus_custom_encoder_init_arch: CBR, constrained-VBR
+// enabled for callers that turn VBR on, complexity 5, and 24-bit input depth.
+// The decoder complexity default is 0. Signalled packets can carry a shorter
+// frame than the supplied decode output capacity. QEXT builds also decode the
+// QEXT extension when it appears in code-3 packet padding.
+//
 // CTLs mirror the libopus opus_custom_encoder_ctl / opus_custom_decoder_ctl
 // generic CTL constants (OPUS_SET_COMPLEXITY, OPUS_SET_BITRATE, etc.).
 //

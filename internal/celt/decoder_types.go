@@ -155,6 +155,7 @@ type Decoder struct {
 
 	// Bandwidth (Opus TOC-derived)
 	bandwidth              CELTBandwidth
+	customEndBand          int32
 	phaseInversionDisabled bool
 	complexity             int32
 	redundancyActive       bool
@@ -183,6 +184,7 @@ type Decoder struct {
 	scratchPrevEnergy       []celtGLog
 	scratchPrevEnergyGLog   []celtGLog
 	scratchEnergies         []celtGLog
+	scratchStereoEnergies   []celtGLog
 	scratchTFRes            []int32
 	scratchOffsets          []int32
 	scratchPulses           []int32

@@ -137,6 +137,7 @@ func NewCELTDecoder(channels int) *CELTDecoder {
 func NewCELTDecoderRate(channels, sampleRate int) *CELTDecoder {
 	d := &CELTDecoder{
 		channels:      channels,
+		skipPLC:       true,
 		downsample:    resamplingFactor(sampleRate),
 		start:         0,
 		end:           celtNbEBands,
@@ -212,7 +213,7 @@ func (d *CELTDecoder) Reset() {
 	d.lastPitchIndex = 0
 	d.plcDuration = 0
 	d.lastFrameType = 0
-	d.skipPLC = false
+	d.skipPLC = true
 	d.prefilterAndFold = false
 	clear(d.lpc)
 	d.postfilterPeriod = 0

@@ -163,13 +163,14 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 	end := d.effectiveEndBand(frameSize)
 	start := 0
 
-	prev1Energy := ensureGLogSlice(&d.scratchPrevEnergyGLog, MaxBands)
+	bandStride := d.predStride()
+	prev1Energy := ensureGLogSlice(&d.scratchPrevEnergyGLog, bandStride)
 	prev1LogE := d.prevLogE
 	prev2LogE := d.prevLogE2
-	for i := range MaxBands {
+	for i := range bandStride {
 		left := d.prevEnergy[i]
-		if origChannels > 1 && len(d.prevEnergy) >= MaxBands*2 {
-			right := d.prevEnergy[MaxBands+i]
+		if origChannels > 1 && len(d.prevEnergy) >= bandStride*2 {
+			right := d.prevEnergy[bandStride+i]
 			if right > left {
 				left = right
 			}
@@ -226,9 +227,17 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 		extPulses = qext.extraPulses[:end]
 		extTotalBitsQ3 = qext.totalBitsQ3
 	}
-	coeffsMono, _, collapse := quantAllBandsDecodeWithScratch(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng, &d.scratchBands,
-		extDec, extPulses, extTotalBitsQ3)
+	var coeffsMono []celtNorm
+	var collapse []byte
+	if pm := d.perMode; pm != nil {
+		coeffsMono, _, collapse = quantAllBandsDecodeWithScratchWithMode(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
+			dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng, &d.scratchBands,
+			extDec, extPulses, extTotalBitsQ3, pm.eBands, pm.logN, pm.cacheIndex, pm.cacheBits)
+	} else {
+		coeffsMono, _, collapse = quantAllBandsDecodeWithScratch(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
+			dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng, &d.scratchBands,
+			extDec, extPulses, extTotalBitsQ3)
+	}
 	if extsupport.QEXT && qext != nil {
 		d.decodeQEXTBands(frameSize, lm, shortBlocks, spread, false, qext)
 	}
@@ -246,7 +255,11 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 	}
 
 	if antiCollapseOn {
-		antiCollapseGLog(coeffsMono, nil, collapse, lm, 1, start, end, monoEnergies, prev1LogE, prev2LogE, pulses, d.rng)
+		if pm := d.perMode; pm != nil {
+			antiCollapseGLogMode(coeffsMono, nil, collapse, lm, 1, start, end, monoEnergies, prev1LogE, prev2LogE, pulses, d.rng, pm.eBands, pm.nbEBands)
+		} else {
+			antiCollapseGLog(coeffsMono, nil, collapse, lm, 1, start, end, monoEnergies, prev1LogE, prev2LogE, pulses, d.rng)
+		}
 	}
 	if silence {
 		applyDecodedSilence(monoEnergies, coeffsMono, nil, qext)
@@ -256,12 +269,12 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 	specMono := ensureFloat32Slice(&d.scratchMonoMixF32, len(coeffsMono))
 	if extsupport.QEXT && qext != nil && qext.end > 0 {
 		specMono = ensureFloat32Slice(&d.scratchStereoF32, len(coeffsMono))
-		denormalizeBandsPackedDownsampleIntoFloat32(specMono, coeffsMono, monoEnergies, 0, end, lm, EBands[:], downsample)
+		denormalizeBandsPackedDownsampleIntoFloat32(specMono, coeffsMono, monoEnergies, 0, end, lm, d.modeEdges(), downsample)
 		if qext.coeffsL != nil {
 			denormalizeBandsPackedDownsampleIntoFloat32(specMono, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands, downsample)
 		}
 	} else {
-		denormalizeBandsPackedDownsampleIntoFloat32(specMono, coeffsMono, monoEnergies, 0, end, lm, EBands[:], downsample)
+		denormalizeBandsPackedDownsampleIntoFloat32(specMono, coeffsMono, monoEnergies, 0, end, lm, d.modeEdges(), downsample)
 	}
 
 	d.channels = int32(origChannels)
@@ -289,21 +302,20 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 		samples = d.deemphasisInterleaved(samples, frameSize)
 	}
 
-	var stereoEnergiesArr [MaxBands * 2]celtGLog
-	stereoEnergies := stereoEnergiesArr[:]
+	stereoEnergies := ensureGLogSlice(&d.scratchStereoEnergies, bandStride*2)
 	for i := 0; i < end; i++ {
 		stereoEnergies[i] = monoEnergies[i]
-		stereoEnergies[MaxBands+i] = monoEnergies[i]
+		stereoEnergies[bandStride+i] = monoEnergies[i]
 	}
-	for i := end; i < MaxBands; i++ {
+	for i := end; i < bandStride; i++ {
 		stereoEnergies[i] = -28.0
-		stereoEnergies[MaxBands+i] = -28.0
+		stereoEnergies[bandStride+i] = -28.0
 	}
 
 	d.updateLogEGLog(stereoEnergies, end, transient)
-	for i := range MaxBands {
+	for i := range bandStride {
 		d.prevEnergy[i] = stereoEnergies[i]
-		d.prevEnergy[MaxBands+i] = stereoEnergies[MaxBands+i]
+		d.prevEnergy[bandStride+i] = stereoEnergies[bandStride+i]
 	}
 	d.updateBackgroundEnergy(lm)
 	d.clearFrameHistoryOutsideRange(start, end, origChannels)
@@ -395,9 +407,17 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 		extTotalBitsQ3 = qext.totalBitsQ3
 	}
 	channels := int(d.channels)
-	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.phaseInversionDisabled, &d.rng, &d.scratchBands,
-		extDec, extPulses, extTotalBitsQ3)
+	var coeffsL, coeffsR []celtNorm
+	var collapse []byte
+	if pm := d.perMode; pm != nil {
+		coeffsL, coeffsR, collapse = quantAllBandsDecodeWithScratchWithMode(rd, channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
+			dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.phaseInversionDisabled, &d.rng, &d.scratchBands,
+			extDec, extPulses, extTotalBitsQ3, pm.eBands, pm.logN, pm.cacheIndex, pm.cacheBits)
+	} else {
+		coeffsL, coeffsR, collapse = quantAllBandsDecodeWithScratch(rd, channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
+			dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.phaseInversionDisabled, &d.rng, &d.scratchBands,
+			extDec, extPulses, extTotalBitsQ3)
+	}
 	if extsupport.QEXT && qext != nil {
 		d.decodeQEXTBands(frameSize, lm, shortBlocks, spread, d.phaseInversionDisabled, qext)
 	}
@@ -415,7 +435,11 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 	}
 
 	if antiCollapseOn {
-		antiCollapseGLog(coeffsL, coeffsR, collapse, lm, channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
+		if pm := d.perMode; pm != nil {
+			antiCollapseGLogMode(coeffsL, coeffsR, collapse, lm, channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng, pm.eBands, pm.nbEBands)
+		} else {
+			antiCollapseGLog(coeffsL, coeffsR, collapse, lm, channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
+		}
 	}
 	if silence {
 		applyDecodedSilence(energies, coeffsL, coeffsR, qext)
@@ -429,8 +453,8 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 	if extsupport.QEXT && qext != nil && qext.end > 0 {
 		specL = ensureFloat32Slice(&d.scratchStereoF32, len(coeffsL))
 		specR = ensureFloat32Slice(&d.scratchSpecRF32, len(coeffsR))
-		denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energiesL, 0, end, lm, EBands[:], downsample)
-		denormalizeBandsPackedDownsampleIntoFloat32(specR, coeffsR, energiesR, 0, end, lm, EBands[:], downsample)
+		denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energiesL, 0, end, lm, d.modeEdges(), downsample)
+		denormalizeBandsPackedDownsampleIntoFloat32(specR, coeffsR, energiesR, 0, end, lm, d.modeEdges(), downsample)
 		if qext.coeffsL != nil {
 			denormalizeBandsPackedDownsampleIntoFloat32(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands, downsample)
 		}
@@ -440,8 +464,8 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 	} else {
 		specL = ensureFloat32Slice(&d.scratchStereoF32, len(coeffsL))
 		specR = ensureFloat32Slice(&d.scratchMonoToStereoRF32, len(coeffsR))
-		denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energiesL, 0, end, lm, EBands[:], downsample)
-		denormalizeBandsPackedDownsampleIntoFloat32(specR, coeffsR, energiesR, 0, end, lm, EBands[:], downsample)
+		denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energiesL, 0, end, lm, d.modeEdges(), downsample)
+		denormalizeBandsPackedDownsampleIntoFloat32(specR, coeffsR, energiesR, 0, end, lm, d.modeEdges(), downsample)
 	}
 	coeffsMono := ensureFloat32Slice(&d.scratchMonoMixF32, len(specL))
 	for i := range coeffsMono {

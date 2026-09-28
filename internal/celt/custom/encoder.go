@@ -21,6 +21,7 @@ var (
 	ErrInputLength      = errors.New("opus custom: input PCM length does not match frameSize*channels")
 	ErrMaxBytes         = errors.New("opus custom: maxBytes must be positive")
 	ErrInvalidBandCount = errors.New("opus custom: invalid mode band count")
+	ErrInvalidPacket    = errors.New("opus custom: invalid signalled packet")
 )
 
 // CustomEncoder holds per-stream encoding state for a CustomMode.
@@ -28,10 +29,13 @@ var (
 // Created via NewEncoder; must not be shared across concurrent goroutines.
 // Mirror of libopus OpusCustomEncoder.
 type CustomEncoder struct {
-	mode     *CustomMode
-	channels int
-	enc      *celt.Encoder
-	fixed    fixedCustomEncoder
+	mode       *CustomMode
+	channels   int
+	enc        *celt.Encoder
+	fixed      fixedCustomEncoder
+	packet     []byte
+	int16PCM   []float32
+	signalling bool
 
 	// CTL state mirroring libopus encoder_ctl fields.
 	bitrate    int
@@ -52,6 +56,7 @@ type fixedCustomEncoder interface {
 	setBitrate(int)
 	setVBR(bool)
 	setConstrainedVBR(bool)
+	setSignalling(bool)
 	setPrediction(int)
 	setLSBDepth(int)
 	setPacketLoss(int)
@@ -77,9 +82,12 @@ func NewEncoder(mode *CustomMode, channels int) (*CustomEncoder, error) {
 		return nil, err
 	}
 	if fixed != nil {
+		fixed.setSignalling(true)
 		return &CustomEncoder{
 			mode: mode, channels: channels, fixed: fixed,
-			bitrate: bitrateMax, complexity: 9, lsbDepth: 16,
+			signalling: true,
+			bitrate:    bitrateMax, complexity: 5, lsbDepth: 24,
+			cvbr:       true,
 			prediction: 2,
 		}, nil
 	}
@@ -92,8 +100,11 @@ func NewEncoder(mode *CustomMode, channels int) (*CustomEncoder, error) {
 	enc.SetDCRejectEnabled(false)
 	enc.SetLSBQuantizationEnabled(false)
 	enc.SetDelayCompensationEnabled(false)
-	// Disable VBR by default (opus_custom defaults to CBR).
+	enc.SetCustomSignalling(true)
+	// opus_custom_encoder_init_arch starts in CBR mode with constrained VBR
+	// enabled for when a caller turns VBR on.
 	enc.SetVBR(false)
+	enc.SetConstrainedVBR(true)
 
 	ce := &CustomEncoder{
 		mode:     mode,
@@ -104,14 +115,15 @@ func NewEncoder(mode *CustomMode, channels int) (*CustomEncoder, error) {
 		// opus_custom_encode then becomes the per-frame budget that the encoder
 		// fills, rather than a bitrate-derived size. Mirror that with -1.
 		bitrate:    bitrateMax,
-		complexity: 9,
-		lsbDepth:   16,
+		complexity: 5,
+		lsbDepth:   24,
 		vbr:        false,
-		cvbr:       false,
+		cvbr:       true,
 		prediction: 2,
 		packetLoss: 0,
+		signalling: true,
 	}
-	// Apply defaults to the inner encoder.
+	// Apply opus_custom_encoder_init_arch defaults to the inner encoder.
 	ce.enc.SetComplexity(ce.complexity)
 	ce.enc.SetBitrate(ce.bitrate)
 	ce.enc.SetLSBDepth(ce.lsbDepth)
@@ -153,6 +165,29 @@ func (ce *CustomEncoder) Mode() *CustomMode { return ce.mode }
 // Channels returns the channel count.
 func (ce *CustomEncoder) Channels() int { return ce.channels }
 
+// SetSignalling enables or disables the one-byte custom frame header.
+// NewEncoder enables it by default, matching opus_custom_encoder_create().
+// Disable it only when encoding a raw CELT payload for a caller that supplies
+// frame size and channel count out of band.
+func (ce *CustomEncoder) SetSignalling(enabled bool) error {
+	if ce == nil {
+		return ErrEncoderNil
+	}
+	ce.signalling = enabled
+	if ce.fixed != nil {
+		ce.fixed.setSignalling(enabled)
+	} else {
+		ce.enc.SetCustomSignalling(enabled)
+	}
+	return nil
+}
+
+// Signalling reports whether EncodeFloat and Encode prepend the custom frame
+// header.
+func (ce *CustomEncoder) Signalling() bool {
+	return ce != nil && ce.signalling
+}
+
 // EncodeFloat encodes frameSize samples per channel from pcm (float32, range
 // −1.0…+1.0, interleaved for stereo) and writes at most maxBytes of compressed
 // data. Returns the encoded packet.
@@ -177,11 +212,48 @@ func (ce *CustomEncoder) EncodeFloat(pcm []float32, maxBytes int) ([]byte, error
 	if maxBytes <= 0 {
 		return nil, ErrMaxBytes
 	}
-	if ce.fixed != nil {
-		return ce.fixed.encodeFloat(pcm, maxBytes)
+	payloadBytes := maxBytes
+	if ce.signalling {
+		payloadBytes--
+		if payloadBytes <= 0 {
+			return nil, ErrMaxBytes
+		}
+		ce.reserveSignallingPacket(maxBytes)
 	}
-	ce.enc.SetMaxPayloadBytes(maxBytes)
-	return ce.enc.EncodeFrame(pcm, frameSize)
+	if ce.fixed != nil {
+		packet, err := ce.fixed.encodeFloat(pcm, payloadBytes)
+		if err != nil || !ce.signalling {
+			return packet, err
+		}
+		return ce.prependSignallingHeader(packet)
+	}
+	ce.enc.SetMaxPayloadBytes(payloadBytes)
+	packet, err := ce.enc.EncodeFrame(pcm, frameSize)
+	if err != nil || !ce.signalling {
+		return packet, err
+	}
+	return ce.prependSignallingHeader(packet)
+}
+
+func (ce *CustomEncoder) prependSignallingHeader(payload []byte) ([]byte, error) {
+	header, err := customSignallingHeader(ce.mode, ce.channels, ce.mode.FrameSize)
+	if err != nil {
+		return nil, err
+	}
+	if cap(ce.packet) < len(payload)+1 {
+		ce.packet = make([]byte, len(payload)+1)
+	}
+	ce.packet = ce.packet[:len(payload)+1]
+	ce.packet[0] = header
+	copy(ce.packet[1:], payload)
+	return ce.packet, nil
+}
+
+func (ce *CustomEncoder) reserveSignallingPacket(maxBytes int) {
+	capacity := min(maxBytes, customSignallingPacketLimit())
+	if cap(ce.packet) < capacity {
+		ce.packet = make([]byte, 0, capacity)
+	}
 }
 
 // Encode encodes frameSize samples per channel from pcm (int16, native-endian,
@@ -200,9 +272,24 @@ func (ce *CustomEncoder) Encode(pcm []int16, maxBytes int) ([]byte, error) {
 		return nil, ErrMaxBytes
 	}
 	if ce.fixed != nil {
-		return ce.fixed.encodeShort(pcm, maxBytes)
+		payloadBytes := maxBytes
+		if ce.signalling {
+			payloadBytes--
+			if payloadBytes <= 0 {
+				return nil, ErrMaxBytes
+			}
+			ce.reserveSignallingPacket(maxBytes)
+		}
+		packet, err := ce.fixed.encodeShort(pcm, payloadBytes)
+		if err != nil || !ce.signalling {
+			return packet, err
+		}
+		return ce.prependSignallingHeader(packet)
 	}
-	f := make([]float32, len(pcm))
+	if cap(ce.int16PCM) < len(pcm) {
+		ce.int16PCM = make([]float32, len(pcm))
+	}
+	f := ce.int16PCM[:len(pcm)]
 	for i, v := range pcm {
 		f[i] = float32(v) * (1.0 / 32768.0)
 	}

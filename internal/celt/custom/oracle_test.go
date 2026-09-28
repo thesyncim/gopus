@@ -36,7 +36,7 @@ func customOracleHelperPath() (string, error) {
 	return customOracleHelper.Path(func() (string, error) {
 		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
 			Label:       "opus custom",
-			OutputBase:  "gopus_libopus_custom",
+			OutputBase:  "gopus_libopus_custom_signalled",
 			SourceFile:  "libopus_custom_oracle.c",
 			CFlags:      []string{"-DHAVE_CONFIG_H", "-O2"},
 			RefIncludes: []string{"celt", "silk", "src", "include"},
@@ -227,15 +227,31 @@ func gopusEncode(t *testing.T, tc oracleCase) ([]byte, *custom.CustomEncoder) {
 	if err != nil {
 		t.Fatalf("NewEncoder: %v", err)
 	}
-	_ = enc.SetVBR(false)
-	_ = enc.SetConstrainedVBR(false)
-	_ = enc.SetComplexity(9)
-	_ = enc.SetLSBDepth(16)
+	configureCustomOracleEncoder(t, enc)
 	got, err := enc.EncodeFloat(tc.pcm, tc.maxBytes)
 	if err != nil {
 		t.Fatalf("EncodeFloat: %v", err)
 	}
 	return got, enc
+}
+
+// configureCustomOracleEncoder matches the explicit controls in
+// libopus_custom_oracle.c and libopus_custom_stateful.c. Tests that exercise
+// constructor defaults use their dedicated defaults oracle instead.
+func configureCustomOracleEncoder(t *testing.T, enc *custom.CustomEncoder) {
+	t.Helper()
+	if err := enc.SetVBR(false); err != nil {
+		t.Fatalf("SetVBR: %v", err)
+	}
+	if err := enc.SetConstrainedVBR(false); err != nil {
+		t.Fatalf("SetConstrainedVBR: %v", err)
+	}
+	if err := enc.SetComplexity(9); err != nil {
+		t.Fatalf("SetComplexity: %v", err)
+	}
+	if err := enc.SetLSBDepth(16); err != nil {
+		t.Fatalf("SetLSBDepth: %v", err)
+	}
 }
 
 // TestOracleParityStandardModes checks that the four standard 48 kHz frame
@@ -320,6 +336,7 @@ func TestOracleParityNonStandardModes(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewEncoder: %v", err)
 			}
+			configureCustomOracleEncoder(t, enc)
 			packet, err := enc.EncodeFloat(tc.pcm, tc.maxBytes)
 			if err != nil {
 				t.Fatalf("EncodeFloat: %v", err)

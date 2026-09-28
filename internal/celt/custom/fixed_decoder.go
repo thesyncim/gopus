@@ -27,22 +27,26 @@ func newFixedCustomDecoder(mode *CustomMode, channels int) (fixedCustomDecoder, 
 
 func (s *fixedCustomDecoderState) reset() { s.dec.Reset() }
 
+func (s *fixedCustomDecoderState) setEndBand(end int) { s.dec.SetBandRange(0, end) }
+
+func (s *fixedCustomDecoderState) setQEXTPayload([]byte) {}
+
 func (s *fixedCustomDecoderState) finalRange() uint32 { return s.dec.FinalRange() }
 
-func (s *fixedCustomDecoderState) decodeRes(data []byte, frameSize int) ([]int32, error) {
+func (s *fixedCustomDecoderState) decodeRes(data []byte, frameSize, codedChannels int) ([]int32, error) {
 	n := frameSize * s.channels
 	if cap(s.shortPCM) < n {
 		s.shortPCM = make([]int16, n)
 	}
 	s.shortPCM = s.shortPCM[:n]
-	if got := s.dec.DecodeWithEC(data, frameSize, s.shortPCM); got != frameSize {
+	if got := s.dec.DecodeWithECChannels(data, frameSize, codedChannels, s.shortPCM); got != frameSize {
 		return nil, ErrBadArg
 	}
 	return s.dec.LastRes(), nil
 }
 
-func (s *fixedCustomDecoderState) decodeFloat(data []byte, frameSize int) ([]float32, error) {
-	res, err := s.decodeRes(data, frameSize)
+func (s *fixedCustomDecoderState) decodeFloat(data []byte, frameSize, codedChannels int) ([]float32, error) {
+	res, err := s.decodeRes(data, frameSize, codedChannels)
 	if err != nil {
 		return nil, err
 	}
@@ -56,8 +60,8 @@ func (s *fixedCustomDecoderState) decodeFloat(data []byte, frameSize int) ([]flo
 	return s.floatPCM, nil
 }
 
-func (s *fixedCustomDecoderState) decodeShort(data []byte, frameSize int) ([]int16, error) {
-	if _, err := s.decodeRes(data, frameSize); err != nil {
+func (s *fixedCustomDecoderState) decodeShort(data []byte, frameSize, codedChannels int) ([]int16, error) {
+	if _, err := s.decodeRes(data, frameSize, codedChannels); err != nil {
 		return nil, err
 	}
 	return s.shortPCM, nil

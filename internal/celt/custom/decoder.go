@@ -19,18 +19,21 @@ var (
 // Created via NewDecoder; must not be shared across concurrent goroutines.
 // Mirror of libopus OpusCustomDecoder.
 type CustomDecoder struct {
-	mode     *CustomMode
-	channels int
-	dec      *celt.Decoder
-	fixed    fixedCustomDecoder
+	mode       *CustomMode
+	channels   int
+	dec        *celt.Decoder
+	fixed      fixedCustomDecoder
+	signalling bool
 
 	// CTL state.
 	complexity int
 }
 
 type fixedCustomDecoder interface {
-	decodeFloat([]byte, int) ([]float32, error)
-	decodeShort([]byte, int) ([]int16, error)
+	decodeFloat([]byte, int, int) ([]float32, error)
+	decodeShort([]byte, int, int) ([]int16, error)
+	setEndBand(int)
+	setQEXTPayload([]byte)
 	reset()
 	finalRange() uint32
 }
@@ -55,7 +58,7 @@ func NewDecoder(mode *CustomMode, channels int) (*CustomDecoder, error) {
 		return nil, err
 	}
 	if fixed != nil {
-		return &CustomDecoder{mode: mode, channels: channels, fixed: fixed, complexity: 9}, nil
+		return &CustomDecoder{mode: mode, channels: channels, fixed: fixed, signalling: true}, nil
 	}
 
 	dec := celt.NewDecoder(channels)
@@ -70,7 +73,7 @@ func NewDecoder(mode *CustomMode, channels int) (*CustomDecoder, error) {
 		mode:       mode,
 		channels:   channels,
 		dec:        dec,
-		complexity: 9,
+		signalling: true,
 	}
 	// Non-standard modes in the Fs==400*shortMdctSize family drive the native
 	// CELT decode data plane parameterized by the mode overlap, short-MDCT
@@ -109,12 +112,34 @@ func (cd *CustomDecoder) Mode() *CustomMode { return cd.mode }
 // Channels returns the channel count.
 func (cd *CustomDecoder) Channels() int { return cd.channels }
 
+// SetSignalling enables or disables parsing the one-byte custom frame header.
+// NewDecoder enables it by default, matching opus_custom_decoder_create().
+// Disable it only when decoding a raw CELT payload whose frame size and
+// channel count are supplied out of band.
+func (cd *CustomDecoder) SetSignalling(enabled bool) error {
+	if cd == nil {
+		return ErrDecoderNil
+	}
+	cd.signalling = enabled
+	return nil
+}
+
+// Signalling reports whether DecodeFloat and Decode parse the custom frame
+// header.
+func (cd *CustomDecoder) Signalling() bool {
+	return cd != nil && cd.signalling
+}
+
 // DecodeFloat decodes a compressed frame and returns float32 PCM samples.
-// data is the compressed payload (nil or len ≤ 1 triggers PLC).
-// frameSize is the expected number of output samples per channel; it must equal
-// the mode's FrameSize (or a valid on-the-fly smaller multiple).
+// data is a signalled custom packet by default; nil or len ≤ 1 triggers PLC.
+// SetSignalling(false) selects raw CELT payloads instead. For signalled packets,
+// frameSize is the output capacity per channel and the header selects the
+// decoded frame size. For raw payloads, frameSize must be the mode's FrameSize
+// or a valid on-the-fly smaller multiple.
 //
-// Returns frameSize*channels float32 samples, interleaved for stereo.
+// Returns the decoded frame's samples, interleaved for stereo. A signalled
+// frame can be shorter than frameSize, which is the output capacity per
+// channel.
 //
 // Decoding and concealment use the mode's band edges, window, and history
 // stride. The returned samples borrow decoder scratch and remain valid until
@@ -126,14 +151,33 @@ func (cd *CustomDecoder) DecodeFloat(data []byte, frameSize int) ([]float32, err
 	if cd == nil {
 		return nil, ErrDecoderNil
 	}
-	if frameSize <= 0 {
-		return nil, ErrInvalidFrameSize
-	}
-	if !cd.mode.isValidDecodeSize(frameSize) {
+	if (!cd.signalling || len(data) == 0) && !cd.mode.isValidDecodeSize(frameSize) {
 		return nil, ErrInvalidFrameSize
 	}
 	if cd.fixed != nil {
-		return cd.fixed.decodeFloat(data, frameSize)
+		if cd.signalling && len(data) > 0 {
+			frame, err := parseCustomSignallingPacket(cd.mode, data, frameSize)
+			if frame.endBand > 0 {
+				cd.fixed.setEndBand(frame.endBand)
+			}
+			if err != nil {
+				return nil, err
+			}
+			cd.fixed.setQEXTPayload(frame.qextPayload(data))
+			return cd.fixed.decodeFloat(frame.payload(data), frame.frameSize, frame.channels)
+		}
+		return cd.fixed.decodeFloat(data, frameSize, cd.channels)
+	}
+	if cd.signalling && len(data) > 0 {
+		frame, err := parseCustomSignallingPacket(cd.mode, data, frameSize)
+		if frame.endBand > 0 {
+			cd.dec.SetCustomEndBand(frame.endBand)
+		}
+		if err != nil {
+			return nil, err
+		}
+		setCustomQEXTPayload(cd.dec, frame.qextPayload(data))
+		return cd.dec.DecodeFrameWithPacketStereo(frame.payload(data), frame.frameSize, frame.channels == 2)
 	}
 	return cd.dec.DecodeFrame(data, frameSize)
 }
@@ -146,11 +190,22 @@ func (cd *CustomDecoder) Decode(data []byte, frameSize int) ([]int16, error) {
 	if cd == nil {
 		return nil, ErrDecoderNil
 	}
-	if frameSize <= 0 || !cd.mode.isValidDecodeSize(frameSize) {
+	if (!cd.signalling || len(data) == 0) && !cd.mode.isValidDecodeSize(frameSize) {
 		return nil, ErrInvalidFrameSize
 	}
 	if cd.fixed != nil {
-		return cd.fixed.decodeShort(data, frameSize)
+		if cd.signalling && len(data) > 0 {
+			frame, err := parseCustomSignallingPacket(cd.mode, data, frameSize)
+			if frame.endBand > 0 {
+				cd.fixed.setEndBand(frame.endBand)
+			}
+			if err != nil {
+				return nil, err
+			}
+			cd.fixed.setQEXTPayload(frame.qextPayload(data))
+			return cd.fixed.decodeShort(frame.payload(data), frame.frameSize, frame.channels)
+		}
+		return cd.fixed.decodeShort(data, frameSize, cd.channels)
 	}
 	f, err := cd.DecodeFloat(data, frameSize)
 	if err != nil {

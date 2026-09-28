@@ -108,6 +108,7 @@ type Encoder struct {
 	// them instead of encoding the pass again.
 	coarsePassKept  bool
 	maxPayloadBytes int32 // Optional per-frame payload cap (excludes TOC byte)
+	customSignalling bool  // celt_encode_with_ec st->signalling: custom header is in packet.
 	vbr             bool
 	constrainedVBR  bool
 	// Constrained-VBR state mirrors libopus CELT encoder cadence.
@@ -812,6 +813,13 @@ func (e *Encoder) SetMaxPayloadBytes(maxPayloadBytes int) {
 		maxPayloadBytes = 0
 	}
 	e.maxPayloadBytes = int32(maxPayloadBytes)
+}
+
+// SetCustomSignalling mirrors st->signalling for opus_custom_encode. The
+// signalled header consumes one byte from finite bitrate accounting; the
+// caller still supplies the payload cap after removing that byte.
+func (e *Encoder) SetCustomSignalling(enabled bool) {
+	e.customSignalling = enabled
 }
 
 // SetPacketLoss sets the expected packet loss percentage (0-100).

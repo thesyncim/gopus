@@ -89,6 +89,7 @@ func (d *Decoder) Reset() {
 	}
 	phaseInversionDisabled := d.phaseInversionDisabled
 	complexity := d.complexity
+	customEndBand := d.customEndBand
 
 	// Energy-prediction history is always two channels wide (libopus 2*nbEBands),
 	// even for mono, so the right-channel shadow survives a concealed loss gap.
@@ -136,6 +137,7 @@ func (d *Decoder) Reset() {
 	d.sampleRate = int32(sampleRate)
 	d.downsample = int32(downsample)
 	d.bandwidth = CELTFullband
+	d.customEndBand = customEndBand
 	d.phaseInversionDisabled = phaseInversionDisabled
 	d.complexity = complexity
 	d.plcState = plcState

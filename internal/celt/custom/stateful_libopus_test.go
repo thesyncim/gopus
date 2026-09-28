@@ -204,12 +204,22 @@ func assertCustomSequenceParity(t *testing.T, tc customSequenceCase, refs []cust
 	if err != nil {
 		t.Fatal(err)
 	}
+	configureCustomOracleEncoder(t, enc)
+	if err := enc.SetSignalling(false); err != nil {
+		t.Fatal(err)
+	}
 	dec, err := custom.NewDecoder(mode, tc.channels)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := dec.SetSignalling(false); err != nil {
+		t.Fatal(err)
+	}
 	dec16, err := custom.NewDecoder(mode, tc.channels)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dec16.SetSignalling(false); err != nil {
 		t.Fatal(err)
 	}
 	for frame, rec := range tc.records {

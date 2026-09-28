@@ -95,6 +95,9 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 	var effectiveBytes int
 	if e.vbr && e.bitrate != opusBitrateMax {
 		vbrRate = bitrateToBits(e.bitrate, modeFs, frameSize) << bitRes
+		if e.customSignalling {
+			vbrRate -= 8 << bitRes
+		}
 		effectiveBytes = vbrRate >> (3 + bitRes)
 	} else {
 		vbrRate = 0
@@ -104,6 +107,9 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 		}
 		if e.bitrate != opusBitrateMax {
 			v := (tmp + 4*modeFs) / (8 * modeFs)
+			if e.customSignalling {
+				v--
+			}
 			if v < nbCompressedBytes {
 				nbCompressedBytes = v
 			}
