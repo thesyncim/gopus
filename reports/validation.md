@@ -219,20 +219,27 @@ CELT/Hybrid have unresolved same-packet PCM differences. FFT/MDCT and SILK
 primitive suites pass. The CELT encoder trace rejects inconsistent quantization
 dimensions, so it does not yet establish a runtime divergence location.
 
-The [native audit at `6fb767cf`](https://github.com/thesyncim/gopus/actions/runs/36618419822)
-on Intel Xeon Platinum 8573C with Go 1.27.1 and GCC 13.3 passes 58/60 scalar
-and 60/60 SIMD encoder checks, 15/24 scalar and 24/24 SIMD decoder checks, and
+The [native audit at `d092f93f`](https://github.com/thesyncim/gopus/actions/runs/36620315923)
+on Intel Xeon Platinum 8573C with Go 1.27.1 and GCC 13.3 passes 59/60 scalar
+and 59/60 SIMD encoder checks, 15/24 scalar and 24/24 SIMD decoder checks, and
 all 15 warm-allocation checks in each lane, with no skipped cases. CBR exact
 cases are 14/19 scalar (70 packet/61 range differences) and 15/19 SIMD (75
 packet/72 range differences) out of 2,175 packets per lane. These counts are
 separate gates, not an overall byte-parity percentage. Haar and the
 constant/ramped comb history seams, scalar stereo tails and SIMD exp2
 approximation match the paired C references. The comb fallback, DC rejection
-and high-pass filter match C; stereo fade and scalar decoder PCM still expose
-differences. The long CBR streams also expose same-packet PCM differences in
-both lanes, including short CELT and 10 ms Hybrid frames; the 24-case SIMD
-decoder pass does not establish long-stream decoder parity. The corrected DC
-oracle verifies all ten sample-rate/channel cases in each lane.
+and high-pass filter match C. Stereo fade matches scalar C but differs in five
+SIMD cases; its SIMD operation order remains unresolved. The long CBR streams
+expose same-packet PCM differences in both lanes, including short CELT and
+10 ms Hybrid frames; the 24-case SIMD decoder pass does not establish
+long-stream decoder parity. The transparent persistent short-frame witness
+first differs at frame 12, sample 40 in both lanes, with an earlier base-energy
+state difference at band 7. Ordinary/traced C and traced/untraced Go agree
+within each implementation before the witness reports the cross-implementation
+difference. The corrected DC oracle verifies all ten sample-rate/channel cases
+in each lane. The CBR quality gate also rejects both SILK encoder
+cases in each lane and CELT 2.5 ms mono in SIMD; these remain correctness
+blockers, independent of the bit-exact counters.
 
 The SILK replay sends the actual Go LPC input/state to the linked C FindLPC
 implementation. Both select the same interpolation factors at the first

@@ -7,7 +7,7 @@
  * drives NSQ + rate control, plus the chosen per-SILK-frame payload size.
  *
  * The dump is produced by linking tools/csrc/silk_encode_frame_FLP_dump.c (a
- * verbatim copy of silk/float/encode_frame_FLP.c with three callbacks) BEFORE
+ * verbatim copy of silk/float/encode_frame_FLP.c with oracle callbacks) BEFORE
  * libopus.a, so this oracle's silk_encode_frame_FLP overrides the archived one
  * and all other libopus code is reused unchanged.
  *
@@ -23,7 +23,7 @@
  *
  * Output wire format:
  *
- *   magic "GSCO" + u32(version=3) + u32(n_frames)
+ *   magic "GSCO" + u32(version=4) + u32(n_frames)
  *   then n_frames packet records: u32(packet_len) u32(final_range) bytes[len]
  *   then u32(n_ctrl)
  *   then n_ctrl control records, each:
@@ -69,6 +69,14 @@
  *     u32(input_count), f32(input[input_count])
  *     i32(NLSFInterpCoef_Q2 after the call), i32(NLSF_Q15[16] after the call)
  *   then i32(lpc_trace_overflow).
+ *   then u32(n_ltp_contexts), followed in Linux wrapped builds by records
+ *   for bounded target frames 6 and 13, one record per SILK channel:
+ *     i32(opus_frame), i32(channel), i32(signalType), i32(filterCalled)
+ *     i32(subfr_length), i32(nb_subfr), i32(pre_length), u32(output_count)
+ *     when filterCalled: for each subframe, i32(pitchL), f32(invGain),
+ *       f32(B[LTP_ORDER]); then for each output sample in subframe order,
+ *       f32(x), f32(lag[LTP_ORDER]), f32(actual LTP_res output).
+ *   then i32(ltp_trace_overflow).
  *
  * Reference: libopus src/opus_encoder.c opus_encode_float(); the dumped struct
  * is silk/float/structs_FLP.h silk_encoder_control_FLP, captured in
@@ -96,6 +104,7 @@
 #define MAX_TRACE_RECORDS 512
 #define MAX_LPC_TRACE_RECORDS 8
 #define MAX_LPC_INPUT (MAX_FRAME_LENGTH + MAX_NB_SUBFR * MAX_LPC_ORDER)
+#define MAX_LTP_TRACE_RECORDS 8
 
 static int set_binary_stdio(void) {
 #ifdef _WIN32
@@ -218,6 +227,23 @@ typedef struct {
   int32_t NLSF_Q15[MAX_LPC_ORDER];
 } lpc_call_record;
 
+typedef struct {
+  int32_t opus_frame_index;
+  int32_t channel;
+  int32_t signalType;
+  int32_t filterCalled;
+  int32_t subfr_length;
+  int32_t nb_subfr;
+  int32_t pre_length;
+  uint32_t output_count;
+  int32_t pitchL[MAX_NB_SUBFR];
+  float invGains[MAX_NB_SUBFR];
+  float B[LTP_ORDER * MAX_NB_SUBFR];
+  float x[MAX_LPC_INPUT];
+  float lag[MAX_LPC_INPUT * LTP_ORDER];
+  float result[MAX_LPC_INPUT];
+} ltp_trace_record;
+
 static ctrl_record g_ctrl[MAX_CTRL_RECORDS];
 static int         g_ctrl_count = 0;
 static encode_stage_record g_stage[MAX_TRACE_RECORDS];
@@ -226,9 +252,118 @@ static int         g_stage_overflow = 0;
 static lpc_call_record g_lpc_call[MAX_LPC_TRACE_RECORDS];
 static int         g_lpc_call_count = 0;
 static int         g_lpc_call_overflow = 0;
+static ltp_trace_record g_ltp_trace[MAX_LTP_TRACE_RECORDS];
+static int         g_ltp_trace_count = 0;
+static int         g_ltp_trace_overflow = 0;
 static int32_t     g_cur_opus_frame = 0;
 /* The two state_Fxx encoder pointers, used to recover the channel index. */
 static const void *g_state_ptr[2] = { NULL, NULL };
+
+#ifdef __linux__
+static int g_ltp_context_index = -1;
+
+/* The copied encode-frame wrapper sets this immediately around the actual
+ * silk_find_pred_coefs_FLP call. Creating a context before the call also makes
+ * an unvoiced/no-filter branch explicit in the trace output. */
+void gopus_silk_ltp_set_context(const silk_encoder_state_FLP *psEnc) {
+  ltp_trace_record *r;
+  g_ltp_context_index = -1;
+  if (g_cur_opus_frame != 6 && g_cur_opus_frame != 13) return;
+  if (g_ltp_trace_count >= MAX_LTP_TRACE_RECORDS) {
+    g_ltp_trace_overflow = 1;
+    return;
+  }
+  r = &g_ltp_trace[g_ltp_trace_count];
+  memset(r, 0, sizeof(*r));
+  r->opus_frame_index = g_cur_opus_frame;
+  r->channel = psEnc->sCmn.channelNb;
+  r->signalType = psEnc->sCmn.indices.signalType;
+  r->subfr_length = psEnc->sCmn.subfr_length;
+  r->nb_subfr = psEnc->sCmn.nb_subfr;
+  r->pre_length = psEnc->sCmn.predictLPCOrder;
+  g_ltp_context_index = g_ltp_trace_count++;
+}
+
+void gopus_silk_ltp_clear_context(void) {
+  g_ltp_context_index = -1;
+}
+#else
+void gopus_silk_ltp_set_context(const silk_encoder_state_FLP *psEnc) {
+  (void)psEnc;
+}
+
+void gopus_silk_ltp_clear_context(void) {
+}
+#endif
+
+#ifdef __linux__
+extern void __real_silk_LTP_analysis_filter_FLP(
+    silk_float                      *LTP_res,
+    const silk_float                *x,
+    const silk_float                B[ LTP_ORDER * MAX_NB_SUBFR ],
+    const opus_int                  pitchL[ MAX_NB_SUBFR ],
+    const silk_float                invGains[ MAX_NB_SUBFR ],
+    const opus_int                  subfr_length,
+    const opus_int                  nb_subfr,
+    const opus_int                  pre_length );
+
+void __wrap_silk_LTP_analysis_filter_FLP(
+    silk_float                      *LTP_res,
+    const silk_float                *x,
+    const silk_float                B[ LTP_ORDER * MAX_NB_SUBFR ],
+    const opus_int                  pitchL[ MAX_NB_SUBFR ],
+    const silk_float                invGains[ MAX_NB_SUBFR ],
+    const opus_int                  subfr_length,
+    const opus_int                  nb_subfr,
+    const opus_int                  pre_length )
+{
+  ltp_trace_record *r = NULL;
+  uint64_t output_count = 0;
+  if (g_ltp_context_index >= 0) {
+    r = &g_ltp_trace[g_ltp_context_index];
+    r->filterCalled = 1;
+    if (subfr_length > 0 && nb_subfr > 0 && pre_length >= 0) {
+      output_count = (uint64_t)(uint32_t)nb_subfr *
+          ((uint64_t)(uint32_t)subfr_length + (uint64_t)(uint32_t)pre_length);
+    }
+    if (subfr_length <= 0 || subfr_length > MAX_FRAME_LENGTH ||
+        nb_subfr <= 0 || nb_subfr > MAX_NB_SUBFR ||
+        pre_length < 0 || pre_length > MAX_LPC_ORDER ||
+        subfr_length != r->subfr_length || nb_subfr != r->nb_subfr ||
+        pre_length != r->pre_length || output_count == 0 ||
+        output_count > MAX_LPC_INPUT) {
+      g_ltp_trace_overflow = 1;
+      r = NULL;
+    } else {
+      int k, i, j, offset = 0;
+      r->output_count = (uint32_t)output_count;
+      for (k = 0; k < nb_subfr; k++) {
+        const silk_float *x_ptr = x + k * subfr_length;
+        const silk_float *x_lag_ptr = x_ptr - pitchL[k];
+        r->pitchL[k] = pitchL[k];
+        r->invGains[k] = invGains[k];
+        for (j = 0; j < LTP_ORDER; j++)
+          r->B[k * LTP_ORDER + j] = B[k * LTP_ORDER + j];
+        for (i = 0; i < subfr_length + pre_length; i++, offset++) {
+          r->x[offset] = x_ptr[i];
+          for (j = 0; j < LTP_ORDER; j++) {
+            r->lag[offset * LTP_ORDER + j] =
+                x_lag_ptr[i + LTP_ORDER / 2 - j];
+          }
+        }
+      }
+    }
+  }
+
+  __real_silk_LTP_analysis_filter_FLP(
+      LTP_res, x, B, pitchL, invGains, subfr_length, nb_subfr, pre_length);
+
+  if (r != NULL) {
+    uint32_t i;
+    for (i = 0; i < r->output_count; i++) r->result[i] = LTP_res[i];
+  }
+}
+#endif
 
 #ifdef __linux__
 extern void __real_silk_find_LPC_FLP(
@@ -475,7 +610,7 @@ int main(void) {
    * Rather than depend on opaque offsets, derive the pointers lazily inside the
    * hook by remembering the first two distinct psEnc values seen. */
 
-  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(3) || !write_u32(n_frames)) {
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(4) || !write_u32(n_frames)) {
     fprintf(stderr, "write output header failed\n");
     opus_encoder_destroy(enc); free(pcm); free(packet); return 1;
   }
@@ -581,6 +716,29 @@ int main(void) {
       for (j = 0; j < MAX_LPC_ORDER; j++) if (!write_i32(r->NLSF_Q15[j])) return 1;
     }
     if (!write_i32(g_lpc_call_overflow)) return 1;
+    if (!write_u32((uint32_t)g_ltp_trace_count)) return 1;
+    for (i = 0; i < (uint32_t)g_ltp_trace_count; i++) {
+      ltp_trace_record *r = &g_ltp_trace[i];
+      int k, j;
+      if (!write_i32(r->opus_frame_index) || !write_i32(r->channel) ||
+          !write_i32(r->signalType) || !write_i32(r->filterCalled) ||
+          !write_i32(r->subfr_length) || !write_i32(r->nb_subfr) ||
+          !write_i32(r->pre_length) || !write_u32(r->output_count)) return 1;
+      if (r->filterCalled) {
+        for (k = 0; k < r->nb_subfr; k++) {
+          if (!write_i32(r->pitchL[k]) || !write_f32(r->invGains[k])) return 1;
+          for (j = 0; j < LTP_ORDER; j++)
+            if (!write_f32(r->B[k * LTP_ORDER + j])) return 1;
+        }
+        for (j = 0; j < (int)r->output_count; j++) {
+          if (!write_f32(r->x[j])) return 1;
+          for (k = 0; k < LTP_ORDER; k++)
+            if (!write_f32(r->lag[j * LTP_ORDER + k])) return 1;
+          if (!write_f32(r->result[j])) return 1;
+        }
+      }
+    }
+    if (!write_i32(g_ltp_trace_overflow)) return 1;
   }
 
   opus_encoder_destroy(enc);

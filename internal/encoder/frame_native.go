@@ -745,10 +745,13 @@ func (e *Encoder) applyStereoFade(samples []opusRes, widthQ14Prev, widthQ14 int1
 	}
 	for i := overlap; i < frameSize; i++ {
 		diff := round32(opusVal32(0.5) * (samples[i*2] - samples[i*2+1]))
-		if outerTargetV3FMA {
+		if outerTargetV3FMA && !outerTargetV3SIMDFadeTail {
+			// The scalar v3 archive contracts each channel update with g2*diff.
 			samples[i*2] = opusRes(fma32(-g2, diff, float32(samples[i*2])))
 			samples[i*2+1] = opusRes(fma32(g2, diff, float32(samples[i*2+1])))
 		} else {
+			// The ordinary SIMD archive rounds the gain product before updating
+			// either channel in the vectorized steady-width loop.
 			diff = round32(g2 * diff)
 			samples[i*2] -= diff
 			samples[i*2+1] += diff

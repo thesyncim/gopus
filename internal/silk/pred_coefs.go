@@ -138,6 +138,31 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 			}
 		}
 	}
+	if ltpAnalysisTraceEnabled && ltpAnalysisTraceActive() {
+		var trace SILKLTPAnalysisTraceSnapshot
+		trace.FrameInPacket = e.nFramesEncoded
+		trace.FrameStart = frameStart
+		trace.SignalType = int32(signalType)
+		trace.Order = int32(preLen)
+		trace.SubframeSamples = int32(subframeSamples)
+		trace.NumSubframes = int32(numSubframes)
+		trace.Scale = scale
+		trace.PitchBuffer = pitchBuf
+		trace.Residual = ltpRes
+		for k := 0; k < numSubframes && k < maxNbSubfr; k++ {
+			trace.InvGains[k] = 1.0
+			if k < len(gains) && gains[k] > 0 {
+				trace.InvGains[k] = 1.0 / gains[k]
+			}
+			if k < len(pitchLags) {
+				trace.PitchLags[k] = pitchLags[k]
+			}
+			for j := 0; j < ltpOrderConst; j++ {
+				trace.Taps[k][j] = float32(ltpCoeffs[k][j]) / 128.0
+			}
+		}
+		recordSILKLTPAnalysisTrace(e, trace)
+	}
 
 	return ltpRes
 }

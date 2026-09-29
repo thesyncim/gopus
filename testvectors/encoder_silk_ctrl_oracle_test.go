@@ -25,6 +25,7 @@ import (
 	gopus "github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/encoder"
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/internal/silk"
 	"github.com/thesyncim/gopus/internal/testsignal"
 	"github.com/thesyncim/gopus/types"
@@ -54,7 +55,10 @@ func getSILKCtrlHelperPath(t testing.TB) (string, bool) {
 	path, err := silkCtrlHelper.Path(func() (string, error) {
 		cFlags := []string{"-DHAVE_CONFIG_H", "-O2", "-DNDEBUG"}
 		if runtime.GOOS == "linux" {
-			cFlags = append(cFlags, "-Wl,--wrap=silk_find_LPC_FLP")
+			cFlags = append(cFlags,
+				"-Wl,--wrap=silk_find_LPC_FLP",
+				"-Wl,--wrap=silk_LTP_analysis_filter_FLP",
+			)
 		}
 		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
 			Label:      "silk ctrl",
@@ -113,6 +117,7 @@ type silkCtrlOracleOut struct {
 	ctrl     []silkCtrlRecord
 	stages   []silkEncodeStageRecord
 	lpcCalls []silkFindLPCRecord
+	ltpCalls []silkLTPCallRecord
 }
 
 type silkEncodeStageRecord struct {
@@ -141,9 +146,34 @@ type silkFindLPCRecord struct {
 	nlsf                            [silkCtrlMaxLPC]int32
 }
 
+type silkLTPCallRecord struct {
+	frame, channel, signalType, filterCalled int32
+	subfrLength, nbSubfr, preLength          int32
+	outputCount                              int
+	subframes                                []silkLTPSubframeRecord
+}
+
+type silkLTPSubframeRecord struct {
+	pitchL  int32
+	invGain float32
+	taps    [silkCtrlLTPOrder]float32
+	samples []silkLTPOutputSampleRecord
+}
+
+type silkLTPOutputSampleRecord struct {
+	x      float32
+	lags   [silkCtrlLTPOrder]float32
+	result float32
+}
+
 type goSILKFindLPCRecord struct {
 	frame, channel int32
 	snapshot       silk.SILKNLSFInterpolationSnapshot
+}
+
+type goSILKLTPCallRecord struct {
+	frame, channel int32
+	snapshot       silk.SILKLTPAnalysisTraceSnapshot
 }
 
 func runSILKCtrlOracle(helperPath string, req []byte, nFrames int) (*silkCtrlOracleOut, error) {
@@ -155,7 +185,7 @@ func runSILKCtrlOracle(helperPath string, req []byte, nFrames int) (*silkCtrlOra
 		return nil, fmt.Errorf("bad oracle response magic")
 	}
 	version := binary.LittleEndian.Uint32(raw[4:8])
-	if version != 3 {
+	if version != 4 {
 		return nil, fmt.Errorf("bad oracle version")
 	}
 	gotN := int(binary.LittleEndian.Uint32(raw[8:12]))
@@ -302,6 +332,62 @@ func runSILKCtrlOracle(helperPath string, req []byte, nFrames int) (*silkCtrlOra
 	if overflow := ri(); overflow != 0 {
 		return nil, fmt.Errorf("C FindLPC trace overflowed its bounded record buffer")
 	}
+	nLTP := int(rd())
+	if nLTP < 0 || nLTP > 8 {
+		return nil, fmt.Errorf("invalid C LTP trace count %d", nLTP)
+	}
+	for i := 0; i < nLTP; i++ {
+		var r silkLTPCallRecord
+		r.frame, r.channel, r.signalType, r.filterCalled = ri(), ri(), ri(), ri()
+		r.subfrLength, r.nbSubfr, r.preLength = ri(), ri(), ri()
+		r.outputCount = int(rd())
+		if r.frame < 0 || (r.frame != 6 && r.frame != 13) || r.channel < 0 || r.channel > 1 ||
+			r.signalType < 0 || r.signalType > 2 || (r.filterCalled != 0 && r.filterCalled != 1) ||
+			r.subfrLength <= 0 || r.nbSubfr <= 0 || r.nbSubfr > silkCtrlMaxNbSubfr ||
+			r.preLength <= 0 || r.preLength > silkCtrlMaxLPC {
+			return nil, fmt.Errorf("invalid C LTP trace dimensions frame=%d channel=%d type=%d called=%d subframe=%d subframes=%d pre=%d",
+				r.frame, r.channel, r.signalType, r.filterCalled, r.subfrLength, r.nbSubfr, r.preLength)
+		}
+		wantOutputCount := int(r.nbSubfr) * (int(r.subfrLength) + int(r.preLength))
+		if r.filterCalled == 0 {
+			if r.outputCount != 0 {
+				return nil, fmt.Errorf("unvoiced C LTP context frame=%d/channel=%d has output count %d", r.frame, r.channel, r.outputCount)
+			}
+		} else {
+			perSubframeHeaderBytes := int(r.nbSubfr) * 7 * 4
+			remaining := len(raw) - off
+			if r.outputCount != wantOutputCount || r.outputCount > 1024 || remaining < perSubframeHeaderBytes ||
+				r.outputCount > (remaining-perSubframeHeaderBytes)/28 {
+				return nil, fmt.Errorf("invalid C LTP output count %d, want %d (remaining=%d)", r.outputCount, wantOutputCount, remaining)
+			}
+		}
+		if r.filterCalled == 1 {
+			r.subframes = make([]silkLTPSubframeRecord, r.nbSubfr)
+			for k := range r.subframes {
+				sf := &r.subframes[k]
+				sf.pitchL = ri()
+				sf.invGain = rf()
+				for j := range sf.taps {
+					sf.taps[j] = rf()
+				}
+				sf.samples = make([]silkLTPOutputSampleRecord, int(r.subfrLength)+int(r.preLength))
+			}
+			for k := range r.subframes {
+				for j := range r.subframes[k].samples {
+					sample := &r.subframes[k].samples[j]
+					sample.x = rf()
+					for tap := range sample.lags {
+						sample.lags[tap] = rf()
+					}
+					sample.result = rf()
+				}
+			}
+		}
+		out.ltpCalls = append(out.ltpCalls, r)
+	}
+	if overflow := ri(); overflow != 0 {
+		return nil, fmt.Errorf("C LTP trace overflowed its bounded record buffer")
+	}
 	if off != len(raw) {
 		return nil, fmt.Errorf("trailing oracle bytes: consumed %d of %d", off, len(raw))
 	}
@@ -434,6 +520,7 @@ func TestSILKCBRControlOracle(t *testing.T) {
 			var snapshots []silk.SILKCtrlSnapshot
 			var goStages []silkEncodeStageRecord
 			var goLPCCalls []goSILKFindLPCRecord
+			var goLTPCalls []goSILKLTPCallRecord
 			channelByEncoder := make(map[*silk.Encoder]int, tc.channels)
 			nextChannel := 0
 			currentFrame := -1
@@ -447,60 +534,110 @@ func TestSILKCBRControlOracle(t *testing.T) {
 				}
 				return channel
 			}
-			silk.WithSILKNLSFInterpolationTraceHook(func(e *silk.Encoder, s silk.SILKNLSFInterpolationSnapshot) {
+			silk.WithSILKLTPAnalysisTraceHook(func(e *silk.Encoder, s silk.SILKLTPAnalysisTraceSnapshot) {
 				channel := channelForEncoder(e)
 				if (currentFrame != 6 && currentFrame != 13) || channel != 0 {
 					return
 				}
-				s.Input = append([]float32(nil), s.Input...)
-				goLPCCalls = append(goLPCCalls, goSILKFindLPCRecord{
+				s.PitchBuffer = append([]float32(nil), s.PitchBuffer...)
+				s.Residual = append([]float32(nil), s.Residual...)
+				goLTPCalls = append(goLTPCalls, goSILKLTPCallRecord{
 					frame: int32(currentFrame), channel: int32(channel), snapshot: s,
 				})
 			}, func() {
-				silk.WithSILKEncodeTraceSnapshotHooks(func(s silk.SILKCtrlSnapshot) {
-					snapshots = append(snapshots, s)
-				}, func(e *silk.Encoder, s silk.SILKEncodeStageSnapshot) {
+				silk.WithSILKNLSFInterpolationTraceHook(func(e *silk.Encoder, s silk.SILKNLSFInterpolationSnapshot) {
 					channel := channelForEncoder(e)
-					if currentFrame != 6 && currentFrame != 13 {
+					if (currentFrame != 6 && currentFrame != 13) || channel != 0 {
 						return
 					}
-					r := silkEncodeStageRecord{
-						frame: int32(currentFrame), channel: int32(channel), iter: int32(s.Iteration),
-						stage: int32(s.Stage - 1), tell: int32(s.Tell), rangeValue: s.Range,
-						signalType: int32(s.SignalType), quantOffset: int32(s.QuantOffsetType), seed: int32(s.Seed),
-						lagIndex: int32(s.LagIndex), contour: int32(s.ContourIndex),
-						nlsfInterp: int32(s.NLSFInterpCoefQ2), perIndex: int32(s.PERIndex),
-						ltpScale: int32(s.LTPScaleIndex),
-					}
-					for i := range r.gains {
-						r.gains[i] = int32(s.GainIndices[i])
-						r.ltp[i] = int32(s.LTPIndices[i])
-					}
-					for i := range r.nlsf {
-						r.nlsf[i] = int32(s.NLSFIndices[i])
-					}
-					if s.Stage == silk.SILKEncodeAfterNSQ {
-						r.pulses = append([]int8(nil), s.Pulses...)
-					}
-					goStages = append(goStages, r)
+					s.Input = append([]float32(nil), s.Input...)
+					goLPCCalls = append(goLPCCalls, goSILKFindLPCRecord{
+						frame: int32(currentFrame), channel: int32(channel), snapshot: s,
+					})
 				}, func() {
-					for frame := 0; frame < frameCount; frame++ {
-						currentFrame = frame
-						start := frame * tc.frameSize * tc.channels
-						end := start + tc.frameSize*tc.channels
-						packet, err := enc.Encode(oraclePCM[start:end], tc.frameSize)
-						if err != nil {
-							encodeErr = fmt.Errorf("frame %d: %w", frame, err)
+					silk.WithSILKEncodeTraceSnapshotHooks(func(s silk.SILKCtrlSnapshot) {
+						snapshots = append(snapshots, s)
+					}, func(e *silk.Encoder, s silk.SILKEncodeStageSnapshot) {
+						channel := channelForEncoder(e)
+						if currentFrame != 6 && currentFrame != 13 {
 							return
 						}
-						goOutput.Packets = append(goOutput.Packets, append([]byte(nil), packet...))
-						goOutput.FinalRanges = append(goOutput.FinalRanges, enc.FinalRange())
-					}
+						r := silkEncodeStageRecord{
+							frame: int32(currentFrame), channel: int32(channel), iter: int32(s.Iteration),
+							stage: int32(s.Stage - 1), tell: int32(s.Tell), rangeValue: s.Range,
+							signalType: int32(s.SignalType), quantOffset: int32(s.QuantOffsetType), seed: int32(s.Seed),
+							lagIndex: int32(s.LagIndex), contour: int32(s.ContourIndex),
+							nlsfInterp: int32(s.NLSFInterpCoefQ2), perIndex: int32(s.PERIndex),
+							ltpScale: int32(s.LTPScaleIndex),
+						}
+						for i := range r.gains {
+							r.gains[i] = int32(s.GainIndices[i])
+							r.ltp[i] = int32(s.LTPIndices[i])
+						}
+						for i := range r.nlsf {
+							r.nlsf[i] = int32(s.NLSFIndices[i])
+						}
+						if s.Stage == silk.SILKEncodeAfterNSQ {
+							r.pulses = append([]int8(nil), s.Pulses...)
+						}
+						goStages = append(goStages, r)
+					}, func() {
+						for frame := 0; frame < frameCount; frame++ {
+							currentFrame = frame
+							start := frame * tc.frameSize * tc.channels
+							end := start + tc.frameSize*tc.channels
+							packet, err := enc.Encode(oraclePCM[start:end], tc.frameSize)
+							if err != nil {
+								encodeErr = fmt.Errorf("frame %d: %w", frame, err)
+								return
+							}
+							goOutput.Packets = append(goOutput.Packets, append([]byte(nil), packet...))
+							goOutput.FinalRanges = append(goOutput.FinalRanges, enc.FinalRange())
+						}
+					})
 				})
 			})
 			if encodeErr != nil {
 				t.Fatal(encodeErr)
 			}
+			plainEnc := encoder.NewEncoder(48000, tc.channels)
+			plainEnc.SetMode(tc.gopusMode)
+			plainEnc.SetRestrictedSilkApplication(true)
+			plainEnc.SetLowDelay(false)
+			plainEnc.SetBandwidth(tc.bandwidth)
+			plainEnc.SetBitrate(tc.bitrate)
+			plainEnc.SetBitrateMode(encoder.ModeCBR)
+			plainEnc.SetComplexity(10)
+			plainOutput := cbrEncodedOutput{
+				Packets:     make([][]byte, 0, frameCount),
+				FinalRanges: make([]uint32, 0, frameCount),
+			}
+			for frame := 0; frame < frameCount; frame++ {
+				start := frame * tc.frameSize * tc.channels
+				end := start + tc.frameSize*tc.channels
+				packet, err := plainEnc.Encode(oraclePCM[start:end], tc.frameSize)
+				if err != nil {
+					t.Fatalf("untraced Go frame %d: %v", frame, err)
+				}
+				plainOutput.Packets = append(plainOutput.Packets, append([]byte(nil), packet...))
+				plainOutput.FinalRanges = append(plainOutput.FinalRanges, plainEnc.FinalRange())
+			}
+			firstHookPacketFrame, firstHookPacketByte, firstHookRangeFrame := -1, -1, -1
+			for frame := 0; frame < frameCount; frame++ {
+				if firstHookPacketFrame < 0 {
+					if at := firstCBRByteDifference(goOutput.Packets[frame], plainOutput.Packets[frame]); at >= 0 {
+						firstHookPacketFrame, firstHookPacketByte = frame, at
+					}
+				}
+				if firstHookRangeFrame < 0 && goOutput.FinalRanges[frame] != plainOutput.FinalRanges[frame] {
+					firstHookRangeFrame = frame
+				}
+			}
+			if firstHookPacketFrame >= 0 || firstHookRangeFrame >= 0 {
+				t.Fatalf("Go trace hook changes output: first packet difference frame=%d byte=%d; first final-range difference frame=%d",
+					firstHookPacketFrame, firstHookPacketByte, firstHookRangeFrame)
+			}
+			t.Logf("traced/untraced Go packet and range output matches across %d frames", frameCount)
 			if len(snapshots) != len(oracle.ctrl) {
 				t.Fatalf("Go control snapshots=%d, C records=%d (input=%s)", len(snapshots), len(oracle.ctrl), inputID)
 			}
@@ -532,8 +669,45 @@ func TestSILKCBRControlOracle(t *testing.T) {
 						t.Logf("actual C/Go FindLPC inputs and state match at frame%d/channel%d", g.frame, g.channel)
 					}
 				}
+				if len(oracle.ltpCalls) != wantCalls {
+					t.Fatalf("actual C LTP snapshots=%d, want %d for frames 6/13 across %d channels",
+						len(oracle.ltpCalls), wantCalls, tc.channels)
+				}
+				if len(goLTPCalls) != 2 {
+					t.Fatalf("Go LTP snapshots=%d, want 2 for frames 6/13 channel 0", len(goLTPCalls))
+				}
+				for _, g := range goLTPCalls {
+					var c *silkLTPCallRecord
+					for i := range oracle.ltpCalls {
+						candidate := &oracle.ltpCalls[i]
+						if candidate.frame == g.frame && candidate.channel == g.channel {
+							c = candidate
+							break
+						}
+					}
+					if c == nil {
+						t.Fatalf("missing actual C LTP snapshot for frame%d/channel%d", g.frame, g.channel)
+					}
+					inputDiff, resultDiff, goModelDiff, fmaModelDiff := compareSILKLTPActual(*c, g)
+					if inputDiff != "" {
+						t.Logf("actual C/Go LTP operand difference input=%s frame%d/channel%d: %s",
+							inputID, g.frame, g.channel, inputDiff)
+					} else {
+						t.Logf("actual C/Go LTP operands match at frame%d/channel%d", g.frame, g.channel)
+					}
+					if resultDiff != "" {
+						t.Logf("actual C/Go LTP output difference input=%s frame%d/channel%d: %s",
+							inputID, g.frame, g.channel, resultDiff)
+					}
+					if goModelDiff != "" {
+						t.Logf("Go source-order LTP model difference frame%d/channel%d: %s", g.frame, g.channel, goModelDiff)
+					}
+					if fmaModelDiff != "" {
+						t.Logf("ordered float32 FMA LTP model difference frame%d/channel%d: %s", g.frame, g.channel, fmaModelDiff)
+					}
+				}
 			} else {
-				t.Log("actual C FindLPC call snapshots are available on Linux builds with linker wrapping")
+				t.Log("actual C FindLPC/LTP call snapshots are available on Linux builds with linker wrapping")
 			}
 
 			t.Logf("CBR trace input=AMMultisineV1/%s frames=%d channels=%d controls=%d", inputID, frameCount, tc.channels, len(oracle.ctrl))
@@ -696,6 +870,131 @@ func firstSILKFindLPCActualDifference(c silkFindLPCRecord, g goSILKFindLPCRecord
 	}
 	return ""
 }
+
+func compareSILKLTPActual(c silkLTPCallRecord, g goSILKLTPCallRecord) (inputDiff, resultDiff, goModelDiff, fmaModelDiff string) {
+	s := g.snapshot
+	where := fmt.Sprintf("C frame%d/channel%d Go packetFrame=%d", c.frame, c.channel, s.FrameInPacket)
+	if c.frame != g.frame || c.channel != g.channel {
+		return fmt.Sprintf("%s ordering Go frame%d/channel%d", where, g.frame, g.channel), "", "", ""
+	}
+	if c.signalType != 2 || c.filterCalled != 1 || s.SignalType != 2 {
+		return fmt.Sprintf("expected voiced LTP filter call: C signal/called=%d/%d Go signal=%d", c.signalType, c.filterCalled, s.SignalType), "", "", ""
+	}
+	if c.subfrLength != s.SubframeSamples || c.nbSubfr != s.NumSubframes || c.preLength != s.Order {
+		return fmt.Sprintf("geometry C=(subframe=%d subframes=%d pre=%d) Go=(subframe=%d subframes=%d order=%d)",
+			c.subfrLength, c.nbSubfr, c.preLength, s.SubframeSamples, s.NumSubframes, s.Order), "", "", ""
+	}
+	wantCount := int(s.NumSubframes) * (int(s.SubframeSamples) + int(s.Order))
+	if c.outputCount != wantCount || len(s.Residual) != wantCount || len(c.subframes) != int(s.NumSubframes) {
+		return fmt.Sprintf("output geometry C count/subframes=%d/%d Go residual/subframes=%d/%d want count=%d",
+			c.outputCount, len(c.subframes), len(s.Residual), s.NumSubframes, wantCount), "", "", ""
+	}
+	for k := 0; k < int(s.NumSubframes); k++ {
+		csf := c.subframes[k]
+		if csf.pitchL != s.PitchLags[k] {
+			return fmt.Sprintf("subframe%d pitchL C=%d Go=%d", k, csf.pitchL, s.PitchLags[k]), "", "", ""
+		}
+		if math.Float32bits(csf.invGain) != math.Float32bits(s.InvGains[k]) {
+			return fmt.Sprintf("subframe%d invGain C=%08x Go=%08x", k, math.Float32bits(csf.invGain), math.Float32bits(s.InvGains[k])), "", "", ""
+		}
+		for j := 0; j < silkCtrlLTPOrder; j++ {
+			if math.Float32bits(csf.taps[j]) != math.Float32bits(s.Taps[k][j]) {
+				return fmt.Sprintf("subframe%d B[%d] C=%08x Go=%08x", k, j,
+					math.Float32bits(csf.taps[j]), math.Float32bits(s.Taps[k][j])), "", "", ""
+			}
+		}
+	}
+	if len(s.PitchBuffer) == 0 || s.Scale == 0 {
+		return "Go pitch buffer or scale is empty", "", "", ""
+	}
+	allInputsMatch := true
+	allResultsMatch := true
+	for k := 0; k < int(s.NumSubframes); k++ {
+		csf := c.subframes[k]
+		segmentSamples := int(s.SubframeSamples + s.Order)
+		for i := 0; i < segmentSamples; i++ {
+			sampleIndex := k*segmentSamples + i
+			xIndex := s.FrameStart - int(s.Order) + k*int(s.SubframeSamples) + i
+			if xIndex < 0 || xIndex >= len(s.PitchBuffer) {
+				return fmt.Sprintf("subframe%d sample%d Go x index %d outside pitch buffer length %d", k, i, xIndex, len(s.PitchBuffer)), "", "", ""
+			}
+			goX := s.PitchBuffer[xIndex] * s.Scale
+			if math.Float32bits(csf.samples[i].x) != math.Float32bits(goX) {
+				if inputDiff == "" {
+					inputDiff = fmt.Sprintf("subframe%d sample%d x C=%08x Go=%08x", k, i, math.Float32bits(csf.samples[i].x), math.Float32bits(goX))
+				}
+				allInputsMatch = false
+			}
+			for j := 0; j < silkCtrlLTPOrder; j++ {
+				lagIndex := xIndex - int(s.PitchLags[k]) + silkCtrlLTPOrder/2 - j
+				if lagIndex < 0 || lagIndex >= len(s.PitchBuffer) {
+					return fmt.Sprintf("subframe%d sample%d lag%d index %d outside pitch buffer length %d", k, i, j, lagIndex, len(s.PitchBuffer)), "", "", ""
+				}
+				goLag := s.PitchBuffer[lagIndex] * s.Scale
+				if math.Float32bits(csf.samples[i].lags[j]) != math.Float32bits(goLag) {
+					if inputDiff == "" {
+						inputDiff = fmt.Sprintf("subframe%d sample%d lag%d C=%08x Go=%08x", k, i, j,
+							math.Float32bits(csf.samples[i].lags[j]), math.Float32bits(goLag))
+					}
+					allInputsMatch = false
+				}
+			}
+			goResult := s.Residual[sampleIndex]
+			if math.Float32bits(csf.samples[i].result) != math.Float32bits(goResult) {
+				if resultDiff == "" {
+					resultDiff = fmt.Sprintf("subframe%d sample%d C=%08x Go=%08x", k, i,
+						math.Float32bits(csf.samples[i].result), math.Float32bits(goResult))
+				}
+				allResultsMatch = false
+			}
+		}
+	}
+	if allInputsMatch {
+		for k := 0; k < int(s.NumSubframes); k++ {
+			csf := c.subframes[k]
+			segmentSamples := int(s.SubframeSamples + s.Order)
+			for i := 0; i < segmentSamples; i++ {
+				sampleIndex := k*segmentSamples + i
+				xIndex := s.FrameStart - int(s.Order) + k*int(s.SubframeSamples) + i
+				accSeparate := csf.samples[i].x
+				accFMA := csf.samples[i].x
+				for j := 0; j < silkCtrlLTPOrder; j++ {
+					lagIndex := xIndex - int(s.PitchLags[k]) + silkCtrlLTPOrder/2 - j
+					normalizedLag := s.PitchBuffer[lagIndex]
+					product := ltpSeparateMul(s.Taps[k][j], normalizedLag)
+					product = ltpSeparateMul(product, s.Scale)
+					accSeparate = ltpSeparateSub(accSeparate, product)
+					accFMA = opusmath.FMA32(-s.Taps[k][j], csf.samples[i].lags[j], accFMA)
+				}
+				accSeparate = accSeparate * s.InvGains[k]
+				accFMA = accFMA * csf.invGain
+				goActual := s.Residual[sampleIndex]
+				cActual := csf.samples[i].result
+				if math.Float32bits(accSeparate) != math.Float32bits(goActual) && goModelDiff == "" {
+					goModelDiff = fmt.Sprintf("subframe%d sample%d source-order=%08x Go=%08x", k, i,
+						math.Float32bits(accSeparate), math.Float32bits(goActual))
+				}
+				if math.Float32bits(accFMA) != math.Float32bits(cActual) && fmaModelDiff == "" {
+					fmaModelDiff = fmt.Sprintf("subframe%d sample%d ordered-FMA=%08x C=%08x", k, i,
+						math.Float32bits(accFMA), math.Float32bits(cActual))
+				}
+			}
+		}
+	}
+	if !allInputsMatch && inputDiff == "" {
+		inputDiff = "unclassified operand mismatch"
+	}
+	if !allResultsMatch && resultDiff == "" {
+		resultDiff = "unclassified output mismatch"
+	}
+	return inputDiff, resultDiff, goModelDiff, fmaModelDiff
+}
+
+//go:noinline
+func ltpSeparateMul(a, b float32) float32 { return a * b }
+
+//go:noinline
+func ltpSeparateSub(a, b float32) float32 { return a - b }
 
 func silkCBRControlDifference(r silkCtrlRecord, s silk.SILKCtrlSnapshot) string {
 	if int(r.signalType) != s.SignalType {
