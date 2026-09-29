@@ -37,19 +37,10 @@ var (
 	ErrInvalidComplexity = errors.New("celt: invalid complexity (must be 0-10)")
 )
 
-// Decoder decodes CELT frames from an Opus packet.
-// It maintains state across frames for proper audio continuity via overlap-add
-// synthesis and energy prediction.
-//
-// CELT is the transform-based layer of Opus, using the Modified Discrete Cosine
-// Transform (MDCT) for music and general audio. The decoder reconstructs audio by:
-// 1. Decoding energy envelope (coarse + fine quantization)
-// 2. Decoding normalized band shapes via PVQ
-// 3. Applying denormalization (scaling by energy)
-// 4. Performing IMDCT synthesis with overlap-add
-// 5. Applying de-emphasis filter
-//
-// Reference: RFC 6716 Section 4.3
+// Decoder decodes CELT frame data and synthesizes PCM. It retains band-energy
+// prediction, overlap, de-emphasis, postfilter, and loss history across frames.
+// Its scratch and history are mutable, so use one decoder per stream and
+// serialize access. See RFC 6716 Section 4.3.
 type Decoder struct {
 	// Configuration
 	channels   int32 // libopus CELTDecoder.channels
@@ -73,11 +64,10 @@ type Decoder struct {
 	overlapBuffer []celtSig // Previous frame overlap tail [overlap * channels]
 	preemphState  []celtSig // De-emphasis filter state [channels]
 
-	// Mode dimensions for the synthesis/deemphasis tail. Zero selects the
-	// 48 kHz fullband defaults (Overlap=120, PreemphCoef). The native 96 kHz
-	// HD mode (gopus_qext) sets synthOverlap=240 and deemphCoef to the HD
-	// preemphasis coefficient. Keeping them zero leaves the 48 kHz path
-	// byte-identical to before this field existed.
+	// Mode dimensions for synthesis and de-emphasis. Zero selects the standard
+	// 48 kHz overlap and pre-emphasis coefficient. Native 96 kHz HD mode
+	// (gopus_qext) sets synthOverlap=240 and deemphCoef to its pre-emphasis
+	// coefficient.
 	//
 	// deemphCoef1/deemphCoef3 are the additional de-emphasis taps libopus uses
 	// when mode->preemph[1] != 0 (the custom/QEXT 2-tap deemphasis path,
@@ -88,23 +78,18 @@ type Decoder struct {
 	deemphCoef1  float32
 	deemphCoef3  float32
 
-	// customScaleBase / customEffBands parameterize a non-standard Opus Custom
-	// mode in the Fs==400*shortMdctSize family. Zero selects the 48 kHz base
-	// (Overlap=120) and the standard effEBands clamp, keeping the default and
-	// 48 kHz paths byte-identical. When set the band-bin scale is
+	// customScaleBase / customEffBands parameterize an Opus Custom mode in the
+	// Fs==400*shortMdctSize family. Zero selects the standard 48 kHz band scale
+	// and effective-band limit. When set the band-bin scale is
 	// frameSize/customScaleBase == 1<<LM (libopus eBands[i]<<LM) and the decode
 	// end band is customEffBands.
 	customScaleBase int
 	customEffBands  int
 
-	// perMode carries the per-mode CELT tables (band edges, widths, logN,
-	// allocation matrix, pulse cache) for a non-standard Opus Custom mode whose
-	// band layout differs from the static 21-band 48 kHz tables (e.g. 48000/640
-	// with nbEBands=19). It is nil for the default build, the standard 48 kHz
-	// modes, the Fs==400*shortMdctSize family (which reuse the 21-band tables)
-	// and hybrid/QEXT, leaving every one of those paths byte-identical. When
-	// non-nil the decode data plane (energy stride, allocation, band core,
-	// anti-collapse, denormalisation) is driven by these tables.
+	// perMode carries band edges, widths, logN, allocation vectors, and pulse
+	// cache for an Opus Custom mode whose layout differs from the static CELT
+	// tables. The standard-table path leaves it nil; when non-nil, band decoding
+	// uses these tables for energy stride, allocation, PVQ, and anti-collapse.
 	perMode *perModeTables
 
 	// Postfilter state (pitch-based comb filter)

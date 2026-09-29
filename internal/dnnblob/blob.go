@@ -1,11 +1,12 @@
-// Package dnnblob parses and validates the libopus USE_WEIGHTS_FILE neural
-// weights blob and exposes typed views over its records.
+// Package dnnblob parses the USE_WEIGHTS_FILE format read by libopus
+// `dnn/parse_lpcnet_weights.c`. A blob contains named records with a type tag,
+// payload byte size, and weight data. [Clone] validates the record framing and
+// retains a copy of the input; each record's data view refers to that copy.
 //
-// A blob is the on-disk WeightArray container libopus loads with
-// parse_weights() (dnn/parse_lpcnet_weights.c): a sequence of named records,
-// each carrying a type tag and a payload of float32, int32 or int8 weights. The
-// DRED, OSCE and LPCNet model loaders bind their layers from these records, so
-// this package mirrors the libopus blob format and record types exactly.
+// The package checks required record names for known DRED, OSCE, and LPCNet
+// model families and exposes typed float32, int32, and int8 views. Model loaders
+// bind those views to layers and validate layer dimensions; this package does
+// not execute the networks.
 package dnnblob
 
 import (

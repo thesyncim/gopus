@@ -10,22 +10,10 @@ import (
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
-// DecodeToResFixed decodes a multistream packet and returns the libopus
-// FIXED_POINT per-output-channel opus_res samples, interleaved by output
-// channel ([ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ...]). It mirrors
-// opus_multistream_decode_native built FIXED_POINT: each elementary stream is
-// decoded to opus_res, then the surround channel mapping
-// (copy_channel_out_short / copy_channel_out_int24) routes each stream channel
-// to its output channel(s) in the integer domain.
-//
-// The second return value reports whether every stream frame was produced by
-// the integer path or is integer-exact through the SILK round-trip. When it is
-// false the decoder configuration needs another path, such as projection
-// demixing or an active DRED sidecar. SILK, Hybrid, CELT, redundancy, and
-// concealment samples are composed in the integer domain.
-//
-// The output opus_res values feed RES2INT16 (int16) or RES2INT24==identity
-// (int24) per the libopus copy_channel_out routines.
+// DecodeToResFixed decodes a packet to interleaved opus_res samples in
+// gopus_fixed_point builds. The returned slice aliases decoder scratch and is
+// overwritten by the next successful DecodeToResFixed or DecodePLCToResFixed
+// call. handled is false when this decoder or packet needs another decode path.
 func (d *Decoder) DecodeToResFixed(data []byte, frameSize int) ([]int32, bool, error) {
 	if len(data) == 0 {
 		return d.DecodePLCToResFixed(frameSize)
@@ -104,12 +92,11 @@ func (d *Decoder) DecodeToResFixed(data []byte, frameSize int) ([]int32, bool, e
 	return d.fixedOutput, true, nil
 }
 
-// DecodePLCToResFixed conceals one public multistream loss request in the
-// fixed-point domain for SILK, Hybrid, and CELT history. The request is split
-// into the same 20 ms chunks as the public wrappers, and each stream's float
-// decoder advances once per chunk so switching back to float output preserves
-// its history. Per-mode CELT PLC state advances even when the outer
-// bookkeeping fade reaches zero.
+// DecodePLCToResFixed conceals a loss request in the fixed-point domain and
+// returns interleaved opus_res samples. frameSize must be a positive multiple
+// of 2.5 ms and at most 120 ms; otherwise handled is false. The returned slice
+// aliases decoder scratch and is overwritten by the next successful call to
+// DecodeToResFixed or DecodePLCToResFixed.
 func (d *Decoder) DecodePLCToResFixed(frameSize int) ([]int32, bool, error) {
 	f2_5 := int(d.sampleRate) / 400
 	if frameSize <= 0 || f2_5 <= 0 || frameSize%f2_5 != 0 || frameSize > int(d.sampleRate)*3/25 {

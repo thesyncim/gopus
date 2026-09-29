@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-// WriterConfig configures the OggWriter.
+// WriterConfig configures a Writer.
 type WriterConfig struct {
-	// SampleRate is the original input sample rate (informational only).
-	// Opus always operates at 48kHz internally.
+	// SampleRate records the original input rate in hertz. Ogg Opus granule
+	// positions use 48 kHz sample units.
 	SampleRate uint32
 
 	// Channels is the output channel count (1-255).
@@ -54,8 +54,8 @@ type WriterConfig struct {
 // to a one-off heap buffer.
 const oggPageScratchSize = 4096
 
-// Writer writes Opus packets to an Ogg container.
-// Files created by Writer are playable by standard players (VLC, FFmpeg, browsers).
+// Writer writes Opus packets to an Ogg stream. It retains page and granule
+// state and is not safe for concurrent use.
 type Writer struct {
 	w           io.Writer
 	config      WriterConfig
@@ -70,10 +70,10 @@ type Writer struct {
 	pageScratch [oggPageScratchSize]byte
 }
 
-// NewWriter creates a new OggWriter with default configuration.
-// sampleRate is the original input sample rate (informational only).
-// channels is 1 for mono or 2 for stereo.
-// Returns an error if channels is 0 or greater than 2 (use NewWriterWithConfig for multistream).
+// NewWriter returns a Writer with the default mapping family for mono or
+// stereo Opus. sampleRate is the original input rate in hertz and is
+// informational; channels must be 1 or 2. It returns ErrNilWriter for a nil
+// writer and ErrInvalidHeader for an unsupported channel count.
 func NewWriter(w io.Writer, sampleRate uint32, channels uint8) (*Writer, error) {
 	if w == nil {
 		return nil, ErrNilWriter
@@ -99,8 +99,12 @@ func NewWriter(w io.Writer, sampleRate uint32, channels uint8) (*Writer, error) 
 	return NewWriterWithConfig(w, config)
 }
 
-// NewWriterWithConfig creates a new OggWriter with explicit configuration.
-// This supports all multistream mapping families (1/2/3/255).
+// NewWriterWithConfig returns a Writer configured by config and writes its
+// OpusHead and OpusTags pages before returning. It supports mapping families 0,
+// 1, 2, 3, and 255. Nonzero mapping families require a nonzero stream count,
+// coupled streams no greater than streams, and at most 255 decoded stream
+// channels. A family-3 demixing matrix must have 2*Channels*(StreamCount+
+// CoupledCount) bytes when supplied.
 func NewWriterWithConfig(w io.Writer, config WriterConfig) (*Writer, error) {
 	if w == nil {
 		return nil, ErrNilWriter
@@ -124,6 +128,10 @@ func NewWriterWithConfig(w io.Writer, config WriterConfig) (*Writer, error) {
 		if int(config.CoupledCount) > int(config.StreamCount) {
 			return nil, ErrInvalidHeader
 		}
+		decodedChannels := decodedChannelCount(config.StreamCount, config.CoupledCount)
+		if decodedChannels > maxDecodedChannelCount {
+			return nil, ErrInvalidHeader
+		}
 
 		if config.MappingFamily == MappingFamilyProjection {
 			expected := expectedDemixingMatrixSize(config.Channels, config.StreamCount, config.CoupledCount)
@@ -144,9 +152,9 @@ func NewWriterWithConfig(w io.Writer, config WriterConfig) (*Writer, error) {
 				return nil, ErrInvalidHeader
 			}
 			// Validate mapping values.
-			maxStream := config.StreamCount + config.CoupledCount
+			maxStream := decodedChannels
 			for _, m := range config.ChannelMapping {
-				if m >= maxStream && m != 255 { // 255 = silence
+				if int(m) >= maxStream && m != 255 { // 255 = silence
 					return nil, ErrInvalidHeader
 				}
 			}
@@ -286,10 +294,8 @@ func (ow *Writer) writePage(payload []byte, headerType byte) error {
 	return nil
 }
 
-// WritePacket writes an Opus packet to the stream.
-// samples is the number of PCM samples at 48kHz represented by this packet
-// (typically 960 for 20ms frames).
-// Updates the granule position accordingly.
+// WritePacket writes packet and advances the granule position by samples, the
+// packet duration in samples per channel at 48 kHz (960 for a 20 ms frame).
 func (ow *Writer) WritePacket(packet []byte, samples int) error {
 	if ow.closed {
 		return ErrUnexpectedEOS
@@ -316,8 +322,8 @@ func (ow *Writer) WritePacket(packet []byte, samples int) error {
 	return nil
 }
 
-// Close writes the EOS page and marks the stream as closed.
-// The writer should not be used after Close.
+// Close writes an end-of-stream page and marks the Writer closed. It does not
+// close the underlying io.Writer. A closed Writer cannot write more packets.
 func (ow *Writer) Close() error {
 	if ow.closed {
 		return nil

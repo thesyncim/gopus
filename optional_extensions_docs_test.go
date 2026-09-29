@@ -47,25 +47,25 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		}
 	}
 
+	// The matrix above locks feature availability; these checks preserve the
+	// default-build error and the validation boundary without fixing prose layout.
 	for _, needle := range []string{
-		"Default builds expose no optional extensions; `SetDNNBlob(...)` is a no-op returning `ErrOptionalExtensionUnavailable`.",
-		"DNN blob loading (USE_WEIGHTS_FILE model loading) requires `-tags gopus_dred` or",
-		"`-tags gopus_osce`; QEXT requires `-tags gopus_qext`; DRED",
-		"control/standalone surfaces require `-tags gopus_dred`; OSCE BWE/LACE/NoLACE",
-		"require `-tags gopus_osce`.",
-		"A build tag enables its API and implementation; it",
-		"does not imply that every feature, architecture, control sequence, and packet",
-		"combination has completed parity validation.",
-		"make test-dnn-blob-parity",
-		"make test-qext-parity",
-		"make test-dred-tag",
-		"make test-extra-controls-parity",
-		"enables the OSCE and deep-PLC family exposed by",
-		"implementation is excluded from the default build.",
-		"`SupportsOptionalExtension(OptionalExtensionOSCEBWE)` reports false.",
+		"`SetDNNBlob(...)`", "`ErrOptionalExtensionUnavailable`",
+		"`USE_WEIGHTS_FILE`", "deep PLC", "excluded from the default",
+		"does not establish parity", "reports/validation.md#coverage",
+		"`SupportsOptionalExtension(OptionalExtensionOSCEBWE)` reports false",
 	} {
 		if !containsDocText(optionalDoc, needle) {
 			t.Fatalf("README.md missing %q", needle)
+		}
+	}
+	contributing := mustReadDocForTest(t, "CONTRIBUTING.md")
+	for _, command := range []string{
+		"make test-dnn-blob-parity", "make test-qext-parity",
+		"make test-dred-tag", "make test-extra-controls-parity",
+	} {
+		if !strings.Contains(contributing, command) {
+			t.Fatalf("CONTRIBUTING.md missing %q", command)
 		}
 	}
 	assertOptionalExtensionDocsMatchSupport(t, optionalDoc)

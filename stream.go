@@ -18,65 +18,6 @@ var hostIsLittleEndian = func() bool {
 	return *(*byte)(unsafe.Pointer(&x)) == 1
 }()
 
-// Streaming API
-//
-// The Reader and Writer types provide io.Reader and io.WriteCloser interfaces
-// for streaming Opus encode/decode operations. They handle frame boundaries
-// internally, allowing integration with Go's standard io patterns.
-//
-// # Streaming Decode
-//
-// To decode a stream of Opus packets:
-//
-//	source := &MyPacketReader{} // implements PacketReader
-//	reader, err := gopus.NewReader(gopus.DefaultDecoderConfig(48000, 2), source, gopus.FormatFloat32LE)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//
-//	// Read decoded PCM bytes
-//	buf := make([]byte, 4096)
-//	for {
-//	    n, err := reader.Read(buf)
-//	    if err == io.EOF {
-//	        break
-//	    }
-//	    if err != nil {
-//	        log.Fatal(err)
-//	    }
-//	    processAudio(buf[:n])
-//	}
-//
-// # Streaming Encode
-//
-// To encode PCM audio to a stream of Opus packets:
-//
-//	sink := &MyPacketSink{} // implements PacketSink
-//	writer, err := gopus.NewWriter(48000, 2, sink, gopus.FormatFloat32LE, gopus.ApplicationAudio)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//
-//	// Write PCM bytes
-//	pcmBytes := getPCMData() // float32 little-endian bytes
-//	_, err = writer.Write(pcmBytes)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//
-//	// Flush remaining buffered samples and close the sink when supported.
-//	if err := writer.Close(); err != nil {
-//	    log.Fatal(err)
-//	}
-//
-// # Sample Format
-//
-// Both Reader and Writer support two sample formats:
-//   - FormatFloat32LE: 32-bit float, little-endian (4 bytes per sample)
-//   - FormatInt16LE: 16-bit signed integer, little-endian (2 bytes per sample)
-//
-// Samples are interleaved for stereo: [L0, R0, L1, R1, ...]
-
 // SampleFormat specifies the PCM sample format for streaming.
 type SampleFormat int
 
@@ -131,16 +72,9 @@ type PacketSink interface {
 	WritePacket(packet []byte) (int, error)
 }
 
-// Reader decodes an Opus stream, implementing io.Reader.
-// Output is PCM samples in the configured format.
-//
-// The Reader handles frame boundaries internally, buffering decoded
-// PCM samples and serving byte-oriented reads.
-//
-// Example:
-//
-//	reader, err := gopus.NewReader(gopus.DefaultDecoderConfig(48000, 2), source, gopus.FormatFloat32LE)
-//	io.Copy(audioOutput, reader)
+// Reader decodes packets from a PacketReader and exposes PCM as an io.Reader.
+// Read returns little-endian samples in the configured format. A Reader is not
+// safe for concurrent use.
 type Reader struct {
 	dec    *Decoder
 	source PacketReader
@@ -156,12 +90,7 @@ type Reader struct {
 	eof bool // Source exhausted
 }
 
-// NewReader creates a streaming decoder.
-//
-// Parameters:
-//   - cfg: decoder configuration
-//   - source: provides Opus packets for decoding
-//   - format: output sample format (FormatFloat32LE or FormatInt16LE)
+// NewReader returns a Reader that decodes packets from source into format.
 func NewReader(cfg DecoderConfig, source PacketReader, format SampleFormat) (*Reader, error) {
 	if source == nil {
 		return nil, ErrNilPacketReader
@@ -299,17 +228,8 @@ func (r *Reader) Reset() {
 	r.eof = false
 }
 
-// Writer encodes PCM samples to an Opus stream, implementing io.WriteCloser.
-// Input is PCM samples in the configured format.
-//
-// The Writer buffers input samples until a complete frame is accumulated,
-// then encodes and sends the packet to the sink.
-//
-// Example:
-//
-//	writer, err := gopus.NewWriter(48000, 2, sink, gopus.FormatFloat32LE, gopus.ApplicationAudio)
-//	io.Copy(writer, audioInput)
-//	writer.Close() // flush remaining buffered samples
+// Writer encodes PCM bytes from io.Writer calls into Opus packets for a
+// PacketSink. It buffers incomplete frames and is not safe for concurrent use.
 type Writer struct {
 	enc    *Encoder
 	sink   PacketSink
@@ -325,14 +245,9 @@ type Writer struct {
 	closed     bool
 }
 
-// NewWriter creates a streaming encoder.
-//
-// Parameters:
-//   - sampleRate: input sample rate (8000, 12000, 16000, 24000, or 48000)
-//   - channels: number of audio channels (1 or 2)
-//   - sink: receives encoded Opus packets
-//   - format: input sample format (FormatFloat32LE or FormatInt16LE)
-//   - application: encoder application hint
+// NewWriter returns a Writer that encodes PCM at sampleRate with channels,
+// writing packets to sink. format selects the little-endian input sample
+// format, and application selects the encoder's intended use.
 func NewWriter(sampleRate, channels int, sink PacketSink, format SampleFormat, application Application) (*Writer, error) {
 	if sink == nil {
 		return nil, ErrNilPacketSink
@@ -516,8 +431,10 @@ func (w *Writer) Close() error {
 	return nil
 }
 
-// SetBitrate sets the target bitrate in bits per second.
-// Valid range is 6000 to 510000 (6 kbps to 510 kbps).
+// SetBitrate sets the target bitrate in bits per second. Positive values are
+// clamped to the encoder's supported range. BitrateAuto and BitrateMax select
+// automatic and output-buffer-limited bitrates; other nonpositive values return
+// ErrInvalidBitrate.
 func (w *Writer) SetBitrate(bitrate int) error {
 	return w.enc.SetBitrate(bitrate)
 }

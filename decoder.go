@@ -16,7 +16,8 @@ const (
 	defaultMaxPacketBytes   = 1500
 )
 
-// DecoderConfig configures a Decoder instance.
+// DecoderConfig sets the sample rate, channel count, and packet limits for a
+// Decoder.
 type DecoderConfig struct {
 	// SampleRate must be 8000, 12000, 16000, 24000, or 48000 Hz.
 	// Builds with gopus_qext also accept 96000 Hz.
@@ -31,7 +32,10 @@ type DecoderConfig struct {
 	MaxPacketBytes int
 }
 
-// DefaultDecoderConfig returns a config with default caps for the given stream format.
+// DefaultDecoderConfig returns a DecoderConfig with default packet limits for
+// the given stream format. It allows up to 5,760 decoded samples per channel
+// and 1,500 packet bytes; set MaxPacketSamples or MaxPacketBytes to raise a
+// limit.
 func DefaultDecoderConfig(sampleRate, channels int) DecoderConfig {
 	return DecoderConfig{
 		SampleRate:       sampleRate,
@@ -41,13 +45,8 @@ func DefaultDecoderConfig(sampleRate, channels int) DecoderConfig {
 	}
 }
 
-// Decoder decodes Opus packets into PCM audio samples.
-//
-// A Decoder instance maintains internal state and is NOT safe for concurrent use.
-// Each goroutine should create its own Decoder instance.
-//
-// The decoder supports all Opus modes (SILK, Hybrid, CELT) and automatically
-// detects the mode from the TOC byte in each packet.
+// Decoder decodes Opus packets into PCM samples. It retains stream state and is
+// not safe for concurrent use; use one Decoder per stream.
 type Decoder struct {
 	silkDecoder      *silk.Decoder   // SILK-only mode decoder
 	celtDecoder      *celt.Decoder   // CELT-only mode decoder
@@ -109,7 +108,8 @@ type Decoder struct {
 	farganModelLoaded bool
 }
 
-// NewDecoder creates a new Opus decoder.
+// NewDecoder returns a Decoder configured by cfg. It returns an error if the
+// sample rate, channel count, or packet limits are invalid.
 func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	if !validSampleRate(cfg.SampleRate) {
 		return nil, ErrInvalidSampleRate

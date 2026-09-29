@@ -1,151 +1,270 @@
-# Go kernel replacement evidence
+# Validation reference
 
-All 53 symbols from the 41 assembly files at baseline `8ac93c85` have Go
-replacements. No tracked `.s` or `.S` files remain. Go 1.27.0 is the minimum.
-The inventory below covers every symbol, including two startup CPU helpers
-without a comparable per-call replacement.
+This reference records the correctness contract, tested configurations, upstream
+boundaries and performance evidence for the Go codec kernels. Results apply to
+the named revisions and build lanes; they are not a universal byte-parity claim.
 
-## Reference contract
+- [Parity contract](#parity-contract)
+- [Coverage](#coverage)
+- [Reference boundary](#reference-boundary)
+- [Performance](#performance)
+- [Compiler code generation](#compiler-code-generation)
 
-- The [parity target](parity-target.md) requires exact protocol/integer behavior
-  and preserves established exact coverage. A compiler rounding difference can
-  use a reviewed numerical bound only with independent quality/recovery proof.
-  Unresolved v3 differences are not validated numerical allowances.
-- Ordinary builds and `-tags nosimd` use scalar Go. `GOEXPERIMENT=simd`
-  selects `simd/archsimd` kernels where implemented, with scalar fallbacks.
-- The required oracle contract pairs Go with libopus 1.6.1 on the same CPU,
-  using the same scalar/SIMD dispatch, feature flags, input, controls, and scalar
-  widths. The codebase audit tracks remaining gaps in legacy test coverage.
-  Exact gates compare packets, counts, final ranges, and PCM bits without
-  architecture-based numerical allowances.
-- AMD64 SIMD references use SSE/AVX2 RTCD; the recorded native helper reports
-  `opus_select_arch=4` (AVX2). ARM64 SIMD references bind NEON at compile time;
-  their zero runtime arch value does not indicate scalar arithmetic.
-- Scalar references disable assembly, intrinsics, and compiler vectorization.
-  Native measurements use GCC 13.3.0; local ARM64 uses Apple clang 21.0.0.
-  Archive/header/compiler stamps and effective dispatch are checked.
-- Quality gates remain separate from exact gates. A quality-only pass does not
-  establish byte or sample equality. Frozen fixtures retain their producer
-  provenance; live expectations use the selected C build.
+## Parity contract
 
-## Current correctness status
+gopus targets strong behavioral and audio-quality parity with pinned libopus
+1.6.1, with byte-exact guarantees scoped to recorded build configurations and
+tests. Universal packet or float-bit identity across compiler targets is not a
+release requirement. This contract governs correctness work and review.
 
-The [native v3 audit at `743867aa`](https://github.com/thesyncim/gopus/actions/runs/36563006244)
-passes the scaled-float-to-int16 regression and live-C conversion check in both
-instruction lanes. SILK packet traces pass C instrumentation transparency but
-still report earlier packet differences than their first control differences.
-These and the comb/encoder differences remain unresolved, with no accepted
-numerical allowance; the [audit](parity-evidence-audit.md) records their scope.
+### Required guarantees
 
-The [public API boundary audit](parity-evidence-audit.md#public-api-boundary-audit)
-covers seven additional state, validation and fixed-point analysis mismatches.
-Its integrated boundary/control/allocation checks pass all eight local ARM64
-feature/ISA lanes; native AMD64 validation of that patch is pending. The
-performance tables retain the revisions actually measured.
+| Surface | Required result |
+|---|---|
+| API and packet handling | Matching supported controls, errors, sample counts, durations, framing, reset and recovery behavior, including malformed input. Document intentional Go API mappings. |
+| Integer and fixed-point primitives | Exact arithmetic, conversions, rounding, saturation, bitstream syntax and entropy operations for identical inputs and state. |
+| Decoder entropy | Exact final range for identical packets, controls and entropy history. Different encoder packets do not imply equal final ranges. Successful normal decoding must agree with the corresponding encoder range; FEC, PLC, reset and malformed-input ranges must match the corresponding C operation. |
+| Established exact coverage | Preserve passing packet, range and PCM regressions on their recorded configurations. A failure needs investigation, not a broader tolerance. |
+| Floating-point paths | Source-equivalent codec logic and strict quality checks. A demonstrated compiler contraction or reduction-order difference may have a narrow, tested numerical allowance. |
+| Runtime | Zero steady-state allocations in the caller-buffer hot paths, bounded memory access, and no panic or corruption on malformed input. |
 
-**All recorded exactness gates pass at `c6dfb561`.** The [complete native CI
-run](https://github.com/thesyncim/gopus/actions/runs/36506668630) passes, including the
-full SIMD package sweep and the 96-record scalar/SIMD feature matrix. Claims
-are scoped to the configurations and cases below, with the documented
-[upstream undefined-behavior boundary](libopus-custom-qext-boundaries.md).
+Both references use the same input, controls, features, scalar widths, compiler
+target and effective instruction dispatch: C scalar versus Go scalar, C SIMD
+versus Go SIMD. A cross-ISA comparison cannot justify an allowance.
 
-QEXT N=2 energy
-at `defe5eb3` and cubic energy at `77cb9a9d` match selected-C contraction.
-Mono and stereo QEXT multiframe decode pass independent C checks for exact
-float bits and final ranges, with zero warm allocations. The cubic boundary
-grid covers 11 vector sizes. ARM64 SIMD Q30 stereo-angle arithmetic matches
-the selected C primitive at `3f1f4ab1`.
+Integer PCM or encoder decisions downstream of an accepted floating-point
+difference may differ only within that documented scope. This does not excuse
+incorrect integer arithmetic or conversions on identical primitive inputs.
 
-A strict 13-configuration, 2,500-frame encode/decode soak passes in ARM64 scalar
-and SIMD at `34edbf41`: every packet, final range, decoded float bit and per-frame
-sample count matches selected C. The SILK unvoiced SNR calculation preserves
-the C operation order, including the first rounded product; warm encoder
-allocation gates pass. A persistent
-Hybrid-prime → PLC sequence matches after the channel-routing correction at
-`ae6d505a`; the clean FEC Hybrid-to-SILK overlap correction passes 16 rate/channel/gain/
-LBRR cases in all eight local lanes at `2f334bed`. Strict persistent malformed
-FEC passes 8,000 sequences in each of six local float/fixed/QEXT scalar/SIMD
-lanes at `a8cdf338`, with exact PCM/ranges and no skipped primes. Both
-rate-switch witnesses also pass normal recovery and following PLC.
-Malformed multistream fixed output matches all 9,000 mutations in each of the
-four fixed feature/ISA lanes at `70be920b`, including per-child redundancy
-reconstruction. SILK/Hybrid multistream final ranges include the redundant
-CELT contribution. The 132 edited DRED gates pass all eight local feature/ISA
-lanes with identical C/Go priming formats and actual output APIs. Root and
-multistream OSCE automatic-loss/recovery matrices each pass all eight local
-lanes. Durable FEC history passes all eight local DRED feature/ISA lanes at
-`b29fcff7`; mixed LBRR, outer loss prefixes, tiny payloads, model reload and
-complexity changes pass all four combined DRED/OSCE lanes with warm allocation
-guards. The native c6 feature matrix validates the listed neural and no-sidecar
-checks. Sixteen CELT oracle checks pass all eight local lanes without blanket
-ARM SIMD skips at `ba23ba99`; all sixteen also pass in the complete native
-AMD64 SIMD suite at `c6dfb561`, using their selected RTCD paths.
+### Accepting a floating-point difference
 
-The broader subpackage audit closes multistream clipping lifecycle and constructor
-checks at `d69ff3b1`, and rectangular projection decoding at `0694ad51`, in all
-eight local lanes. Native 96 kHz multistream decoding, all three PCM APIs, long
-loss bursts and recovery pass the paired float/fixed-QEXT scalar/SIMD gates at
-`3885a34d`. Native multistream encoding passes exact packets, durations, ranges
-and zero warm allocations at `5a60c58b`: mono 2.5/5/10/20 ms, plus coupled and
-discrete stereo 20 ms float/int16 input, with QEXT on and off in all four lanes.
+An unexplained mismatch remains a failure. Acceptance requires:
 
-Malformed Hybrid main lengths propagate separately from entropy storage.
-Three independent 10/20 ms witnesses, native 96 kHz, recovery and all sample
-formats pass exact C gates in all eight local lanes with zero warm allocations.
-The projection audit passes 4,000 malformed packets and 12,000 random buffers
-per lane, with exact accepted float/int16/int24 output. Multistream long-burst
-PLC, native crossfade, and Hybrid QEXT routing pass all eight applicable local
-lanes at `3885a34d`. Signaled QEXT bands beyond the physical spectrum and mixed
-integer-format clipping pass their exact PCM/range and zero-allocation gates
-at `28cb897e`. Non-fullband QEXT parsing and refined-energy body/tail rounding
-match selected C at `4186cbb3`. Public pitch after rate reset matches C at
-`949ca0f3`; comfort-noise excitation retention passes eight exact sequences
-and warm zero-allocation guards in float/fixed scalar/SIMD at `1d99069e`.
-DRED/OSCE integration passes its exact local matrices at `b29fcff7` and
-the selected native AMD64 feature matrix at `c6dfb561`. Custom default signalling, finite
-header budgets, control defaults, error state and reset lifetime pass the full
-custom package in all eight local lanes at `17e27246`.
-Mono-to-stereo loss recovery passes all eight local lanes at `a676f2db`, and
-multistream QEXT after empty extension-repeat markers passes all four QEXT
-feature/ISA lanes at `e404dcf6`.
+1. A reproducible first-divergence case tied to the C and Go expressions and
+   their actual rounding or reduction order. Rule out wrong widths, casts,
+   indexing, initialization, state updates and oracle configuration.
+2. A kernel-specific error bound justified by that arithmetic, checked on
+   representative and boundary inputs. There is no blanket architecture ULP
+   waiver or common-prefix comparison.
+3. End-to-end quality and interoperability evidence over the affected modes,
+   including repeated frames, transitions, loss and recovery where applicable.
+   Decode the same packets with both implementations; when encoder packets
+   differ, cross-decode both streams and check their individual ranges. Require
+   finite output for valid finite input and no growing history/recovery error
+   beyond the documented bound.
+4. A reviewed, narrowly scoped regression and an evidence entry naming the
+   kernel, build configuration, bound and measured results. Tests must still
+   fail outside that scope; no skips or log-only assertions replace checks.
 
-Native 96 kHz encoding uses the shared mode/history driver at `a86354c6`.
-Root and multistream budget sequences cover QEXT off/on, fresh and primed
-state, packets through 40 ms, exact bytes/ranges and zero warm allocations in
-all four local float/fixed-QEXT scalar/SIMD lanes. The internal staged CELT
-input also matches C. Energy-trial snapshot storage remains allocation-free
-as budgets increase (`f093c171`, `2eaeab92`). The independent SILK PLC
-rate-change reset regression passes float/fixed scalar/SIMD at `170fd3b9`;
-the persistent malformed-FEC witnesses pass at `a8cdf338`. Multistream
-96 kHz input uses shared analysis and projection routing at `cb821a49`,
-with exact 48/96 kHz projection packets/ranges and zero warm allocations.
+The existing quality floors stay unchanged. `IntentNearExact` requires
+`opus_compare` Q >= 20 where applicable, correlation >= 0.997, and RMS ratio
+0.98–1.02; waveform-only regions retain the correlation/RMS requirements.
+Any stricter case-specific requirement also applies. These are minimum quality
+floors, not permission to introduce errors up to those limits. Passing them
+alone does not establish a rounding-only cause or byte equality.
 
-The decoder audit requires exact PCM equality alongside waveform-quality
-checks. Each public output format uses its corresponding C API and matching
-feature/ISA build. API-rate, int16 PLC and int24 gates pass the tested scalar
-and SIMD lanes; fixed output is not inferred by converting C float output.
-The no-LBRR FEC correction at `31119cba` preserves packet-driven SILK state
-and passes exact loss/recovery and warm zero-allocation regressions.
+### Work and performance priorities
 
-Native early artifact `10987206160` from
-[run 36456014367](https://github.com/thesyncim/gopus/actions/runs/36456014367)
-at `905eec03` contains 94 successful exit records, including the aggregate
-status. All seven LACE/NoLACE/BWE end-to-end cases pass in scalar and SIMD
-across OSCE, OSCE+QEXT and DRED+OSCE+QEXT. This validates the selected-correlation
-correction at `31903086` on AMD64. The complete CI run passes, including native A/B and the candidate full parity
-sweep. Full artifact `10989480229` retains baseline failures and the deliberate
-fixture-generation nonzero exit as diagnostic evidence. The run does not
-include subsequent local changes.
+Fix semantic bugs, unsafe behavior, wrong conversions, state divergence and
+quality regressions first. Preserve cheap, clear rounding boundaries that match
+the source. Avoid additional compiler-specific helpers or hot-loop function
+calls solely to reproduce a C compiler's last bit when the allowance above is
+proven. Existing fixes need evidence before removal.
 
-Native artifact `11001601766` at `c6353190` retains seven failing phases: six
-feature/ISA configurations report the same LACE trace NaN-sign difference, and
-SIMD neural analysis reports FARGAN-conditioner and PLC-feature differences.
-Artifact `11006418166` at `55b13f5f` passes its PCM, range, and exactness checks,
-including neural checks on both Go instruction lanes and all eight LACE/NoLACE
-feature/ISA combinations. Its 96 exit records contain 93 zero exits, two
-nonzero warm-allocation phase exits, and aggregate exit 1. The two failures
-come from `TestDecoderNoSidecarDeepPLCWarmZeroAllocs` at 16 kHz and complexity
-5, with one allocation in each of two feature lanes.
+Measure correctness fixes and optimizations on matched native builds. A measured
+1–2% end-to-end difference is acceptable; do not spend repeated iterations chasing
+it. A larger slowdown solely for float-bit identity is not a default tradeoff.
+Essential correctness fixes still take priority and their cost is reported.
+Diagnostic timings may investigate that cost, but published comparison tables
+require the stated correctness contract and retain exact revision/ISA provenance.
+
+### Evidence and enforcement
+
+Reports distinguish **exact**, **validated numerical difference**, **unresolved**,
+and **upstream undefined behavior**. A percentage of equal packets measures only
+that test corpus; it is not a percentage of codec correctness.
+
+No floating-point allowance is accepted by this document alone. Current v3
+packet and PCM mismatches remain unresolved until the evidence above classifies
+them. Exact audit tests retain their assertions; a reviewed numerical case needs
+an executable bounded check before its exact diagnostic can become non-blocking.
+The documented custom-QEXT C history bug remains a separate upstream-UB exception.
+
+#### Executable gates
+
+- `TestEncoderCBRPairedOracleContract` runs all 19 CBR cases through independent
+  Go/C encoders and persistent decoders. It checks complete output, same-packet
+  ranges and quality before rejecting unresolved packet or PCM differences.
+  A quality pass alone does not accept a case.
+- The manual AMD64 benchmark validator requires all 19 cases, 2,175 encoded
+  packets and 76 decode paths per target/instruction lane, with no unresolved,
+  failed, skipped or missing contract cases. It runs the contract even when
+  exact diagnostics fail.
+- v1/v2 exact gates remain mandatory. The v3 CBR exact result is a separately
+  recorded diagnostic backed by the contract. The broader 60-case encoder and
+  24-case decoder exact selections remain blocking until contract checks cover
+  those same VBR, automatic-mode and public-format cases.
+- Quality gates reject incomplete or non-finite PCM, invalid profiles and
+  failed quality-tool execution. Numerical thresholds retain their values.
+
+## Coverage
+
+The subsequent [native audit at `cd2c6c15`](https://github.com/thesyncim/gopus/actions/runs/36567216398)
+finishes with a failure. Its status does not accept or classify the remaining v3
+packet and PCM differences. No validated numerical allowance is recorded here.
+
+
+The [parity target](#parity-contract) defines required behavior, scoped exactness
+and the evidence needed to accept a numerical difference. No current v3 mismatch
+is accepted solely because it appears small or originates in floating-point code.
+
+This audit examines public encode/decode, multistream, optional extensions,
+oracle construction, CI selectors, and exactness claims. Its scope is test
+validity and coverage: a numerical allowance or omitted assertion is an
+**evidence gap**, not proof of a runtime defect. Exact checks require the same
+libopus feature set, CPU dispatch, sample format, controls, and decoder history.
+
+### Public API boundary audit
+
+The additional public-boundary checks cover ten concrete mismatches against
+selected libopus 1.6.1. Scalar Go uses scalar C; SIMD Go uses the matching C
+instruction lane. Each failure sequence includes following state or recovery
+output so matching rejection alone cannot hide a state divergence.
+
+| Surface | Required behavior | Independent regression |
+|---|---|---|
+| Multistream int24 at 96 kHz | Both constructors reserve 120 ms of native-rate conversion storage. | Mono/stereo, 80/100/120 ms, silence and signed 24-bit input compare packets/ranges and warm allocations. |
+| Failed forced-stereo broadcast | Controls apply to children in order; an earlier coupled child retains its update when a mono child rejects. | Per-child controls, packets/ranges, reset and recovery at complexities 7/9/10. |
+| Multistream application after minimal packets | Application remains mutable while no child has committed its first frame. | Mono and coupled-plus-mono low-budget packets, subsequent controls and full packets/ranges. |
+| Native 96 kHz frame sizes | Validate the API-rate duration before converting wrapper bookkeeping to 48 kHz. | All nine legal durations and adjacent invalid sizes, unchanged state and following packets/ranges. |
+| Malformed framing with short decode output | Structural packet errors precede insufficient output capacity. | Stateful float/int16/int24 rejection and recovery at standard rates and native 96 kHz. |
+| Malformed framing with zero or partial-channel output | C rejects zero complete samples per channel before parsing; the Go facade returns `ErrBufferTooSmall` when output has fewer than one complete channel tuple. | Float/int16/int24 malformed and valid packets check error mapping, final range and recovery at standard rates and native 96 kHz. |
+| Encoder final range after rejection | The selected float/fixed public input wrapper determines whether an invalid frame clears the range. | All three input APIs, invalid duration, empty output, combined errors and re-primed recovery at 48/96 kHz. |
+| 100 ms encoder packet budget | A one-byte budget returns `OPUS_BUFFER_TOO_SMALL`; a two-byte budget may produce the short packet, and selected duration controls the guard. | Strict C comparisons cover mono/stereo float32/int16/int24 sequences, one-byte rejection recovery, two-byte output and selected 100/20 ms durations; QEXT covers 96 kHz. |
+| Multistream invalid frame sizes | Reject unsupported or overflowing frame sizes before budget checks and int16 conversion scratch. | Live-C comparisons cover legal/invalid sizes across API rates and restricted-SILK mode; local checks verify early errors leave output and conversion scratch untouched. |
+| Fixed-point tonality analysis | Analysis starts at complexity 10 in fixed builds and 7 in float builds. | Initial packets and following control sequences at complexities 7, 9 and 10. |
+
+The existing integrated boundary/control/allocation selection passes all
+eight local ARM64 lanes: float/fixed × QEXT off/on × scalar/SIMD. The combined
+zero/partial-channel decode, 100 ms encode-budget and multistream frame-size
+regressions also pass all eight strict-oracle lanes, with no failed or skipped
+cases. The root package and internal encoder pass their broader default suites;
+the internal encoder also passes nosimd/SIMD, multistream passes default/SIMD,
+and the root fast suite passes SIMD. Root, internal encoder and multistream SIMD lint report no issues. The encode differential gate additionally requires every supported
+configuration and every frame's return, packet and final range, including empty
+output. Its 1,788 configurations
+× eight frames × eight lanes yield 114,432 passing frame comparisons. The CTL
+sequence gate compares PROCESS/RESET results and all selected GET values,
+including final range and DTX, with explicit matching initial bitrate controls.
+Analysis-reuse tests explicitly select complexity 10; undersized-budget and
+DTX cadence oracles also apply the same complexity to Go and C. All six DTX
+cadence cases pass across the eight feature/ISA lanes. The existing native
+feature batches include these boundary and DTX tests; native AMD64 validation
+of this audit is pending. Earlier native results below retain their
+measured revisions and do not stand in for this patch.
+
+### Ogg container validation
+
+The reader reports checksum and capture-pattern errors without reading an
+unbounded malformed tail. Nonempty truncated pages return their parse error;
+a clean end of stream returns EOF. `TestReaderReadPageReturnsPermanentErrorsPromptly`,
+`TestReaderReadPageDistinguishesTruncationFromEOF` and `TestReaderReadPageAcceptsFragmentedPages`
+check these states, bytes consumed and fragmented valid input.
+
+Header parsing and writer construction widen stream/coupled counts before
+validating the 255-channel limit, including projection layouts. The layout
+boundary regressions (`TestParseOpusHeadDecodedChannelBudget` and
+`TestNewWriterWithConfigDecodedChannelBudget`) cover totals 255, 256 and 300, the silence sentinel,
+projection matrix framing and rejection before writer output. These are
+container validation checks, not additional C codec byte-parity evidence.
+
+### Findings and verification
+
+Exact equality to a configured libopus build is a stronger requirement than
+[Opus conformance](https://www.rfc-editor.org/rfc/rfc6716.html#section-6).
+Encoder packet choices and small decoder numerical differences can satisfy
+the standard. This report tracks exact-reference failures separately from
+conformance and audio-quality evidence; a byte mismatch alone does not establish
+invalid Opus output or audible degradation.
+
+The opt-in [compiler-target audit](#amd64-compiler-targets)
+at `bc5ddaeb` passes all selected default-float v1/v2 scalar/SIMD checks. At v3,
+scalar encode/decode cases pass 40/60 and 8/24; SIMD cases pass 24/60 and 6/24.
+CBR exact cases are 8/19 scalar and 1/19 SIMD, with 432/382 and 681/517
+packet/range differences out of 2,175 respectively. All warm allocation checks
+pass. At `834221f9`, all six FFT/MDCT live-C suites pass in both v3 modes,
+as do the strengthened SILK LPC/window/gain and CELT log2/angle-math checks.
+Scalar and SIMD pitch, band energy, rotation and unquantization checks pass.
+CBR cases in that focused run pass 14/19 scalar (68 packet/61 range differences)
+and 6/19 SIMD (321 packet/196 range differences), each out of 2,175 packets.
+Encoder packet/range and public decoder PCM differences remain open. Both
+decoder traces first differ after comb filtering. The merged SILK optimization
+tests also expose a scalar v3 scaled-float-to-int16 rounding mismatch.
+Full byte parity across compiler targets is not established.
+
+The [focused native audit at `743867aa`](https://github.com/thesyncim/gopus/actions/runs/36563006244)
+passes both the scaled-float conversion regression and independent C conversion
+oracle in v3 scalar/SIMD builds. Its SILK control traces verify instrumented C
+against ordinary C before reporting packet differences at frame 6 (MB mono)
+and frame 13 (WB stereo). Their first reported control differences occur later,
+so those controls do not yet identify the root cause. These cases remain
+unresolved under the parity target; they have no numerical allowance.
+
+| Priority | Surface | Finding | Current evidence |
+|---|---|---|---|
+| P1 | Public FEC robustness | Independent decoder sessions cannot prove persistent FEC history; accept/count checks omit PCM. | The stereo-coded/mono-API concealment correction passes 128 channel/duration/API cases with exact PCM, ranges, recovery and zero warm allocations in eight local lanes. The 2.5 ms Hybrid-to-SILK CELT overlap correction passes 16 transition cases in all eight lanes at `2f334bed`. The strict persistent mutation sweep passes all 8,000 sequences in six local float/fixed/QEXT scalar/SIMD lanes at `a8cdf338`, with exact prime/FEC PCM and ranges and no skipped primes. Both rate-switch witnesses also pass normal recovery and following PLC. |
+| P1 | Malformed fixed multistream | A feature-based bypass omits accepted fixed-point PCM; float gates use a coarse tolerance. | Pre-fade SILK capture and per-child integer reconstruction pass all 9,000 mutations in each of the four fixed scalar/SIMD lanes. Zero warm allocations and full PCM/range/PLC/reset regressions pass. SILK and Hybrid multistream final ranges include the redundant CELT contribution at `70be920b`. |
+| P1 | Multistream oracle errors | Infrastructure failures can be mistaken for C packet rejection. | The test requires the typed child exit and complete negative decode diagnostic. Build, launch, protocol and forged-marker failures remain errors; classification and mutation gates pass. |
+| P1 | Multistream mode changes | A 5 ms window has a gross-error budget and the rest has a numerical tolerance. | Every float bit, including the transition window, matches in all eight local feature/ISA lanes. Exact assertions apply to the full output. |
+| P1 | Multistream recovery queue | Correlation and RMS alone do not prove sample equality. | All 17 PLC, FEC, and handover scenarios pass exact full-output checks in all eight local lanes. Quality diagnostics remain additional checks. |
+| P1 | Hybrid float output | A cell can compare no Hybrid packets; ARM permits a numerical budget. | Each channel/bandwidth/bitrate cell requires Hybrid coverage and exact output. All eight local lanes pass, including the warm allocation guard. |
+| P2 | FEC packet oracle | The helper requests DRED regardless of the Go feature build and lacks matching private-header configuration. | The public feature selector and configured headers pair the builds. Four packet selectors pass all eight local lanes. |
+| P2 | Broad decoder differential tests | Normalizing int24 output into float32 can erase integer bits; a magnitude cutoff omits comparisons. | Valid and malformed gates compare original int24 integers. All 1,440 encoder configurations, 4,320 packets and 12,960 format decodes pass in each of eight local lanes. The strict long-stream gate is tracked separately below. |
+| P2 | LPCNet/DRED evidence | Predictor/state tests use numerical budgets, and some waveform helpers compare only a common prefix. OSCE-only probes request an extra C DRED feature. | LPCNet helpers use the public feature selector; complete package output/state bit checks pass OSCE, DRED and DRED+OSCE+QEXT scalar/SIMD at `f03fad55`. The 132 edited public DRED gates pass all eight local DRED feature/ISA lanes with matching float priming and actual int24 output. Independent nil-FEC, tiny-FEC and complexity-change history witnesses also pass exactly; durable FEC integration passes at `b29fcff7`. All 96 c6 early phase exit records at `11009635111`/`c6dfb561` have status 0, with no JSON test failures. No-sidecar warm zero-allocation passes all 12 feature/ISA phases; FARGAN/PLC-feature checks pass both instruction lanes, `SinF32` passes standard/fixed/fixed+QEXT in both lanes, and all eight LACE/NoLACE feature/ISA combinations pass. Artifact `11006418166` at `55b13f5f` preserves the one-allocation failure in two 16 kHz/complexity-5 phases; profiling attributes it to a 48-byte Go interface-assertion cache allocation, addressed by PLC capability changes at `a6081168`. Full A/B run `36506668630` passes at `c6dfb561`. |
+| P2 | Fixture mode transitions | Live matched-C transition output has only quality assertions, including an architecture-specific floor. | Complete packet-sequence PCM passes exact checks in all eight local lanes. Quality scoring remains independent. |
+| P2 | Fixed multistream layout coverage | An unexpected encoder mode can skip a required layout. | Unexpected modes fail. All eight layouts and reset replays execute with exact output in the four fixed local lanes. |
+| P2 | Projection decode | Quality checks alone do not establish complete PCM or aggregate final-range equality. | Four-channel and nine-channel mixed-mode receive, loss and reset sequences pass full float-bit checks and the XOR of independently decoded C child ranges in all eight local lanes at `3d652aeb`. |
+| P2 | Multistream API rates and gain controls | Live same-format comparisons use numerical allowances. | Receive, requested/overlong/empty PLC, high-gain int16 and three gain-control cases require complete exact output. All eight local lanes pass at `b3488edb` and `4f19e553`. |
+| P2 | Private CELT API rates and soft clipping | CELT receive/PLC uses quality-only checks; soft clipping can accept an output prefix. | CELT receive/PLC compares every float bit against the matching private float C API in all eight local lanes. Soft clipping requires equal lengths and exact samples in both default instruction lanes at `0756bfc4`. |
+| P2 | SILK CBR floor encode | Packet-byte checks omit the oracle's final range. | All 70 frames require packet and final-range equality; all eight local lanes pass at `38ace4a9`. |
+| P1 | CELT encoder sequence | A common-prefix comparison omits packet counts and final ranges; fixed Go builds use a float C reference. | The selected feature/ISA `opus_demo` and public Go int24 API receive identical quantized input and controls. All packets, including the EOF flush, and all ranges match across 19 cases in all eight local lanes at `e359ec6d`; empty streams and records fail. |
+| P1 | Long-stream encode/decode | ARM architecture waivers can accept packet, range or PCM mismatches. | The unvoiced SILK SNR source-order correction at `34edbf41` passes 13 configurations × 2,500 frames in both local default instruction lanes: exact packets, ranges, PCM bits and C-reported per-step counts. Empty decode streams fail, and warm encoder allocation guards pass. |
+| P1 | QEXT multiframe decode | Go-generated expected output cannot establish independent C equality; mono SIMD cubic reduction must match selected C rounding. | Independent selected-C combined/separate packet sequences match every float bit and range for mono/stereo. The cubic correction and 11-size boundary grid pass exact and zero-allocation gates at `77cb9a9d`. |
+| P2 | Automatic encoder modes | Mode-only comparisons omit packet bytes and final ranges. | The C helper records every packet/range for 432 configurations × 10 frames. All eight local lanes pass at `a0a9c877`. |
+| P2 | Multistream short-input encode | Float-input packet evidence does not cover the public int16 API. | Five layouts × six stateful frames compare actual C short-input packets/ranges; all eight local lanes pass at `73347769`. |
+| P2 | Legacy ARM CELT gates | A shared architecture skip omits exact kernel and self-equivalence checks; two private C helpers omit QEXT feature selection. | Sixteen focused checks pass all eight local lanes without skips at `ba23ba99`. VQ/partition helpers use the selected float feature archive and `opus_select_arch()` for RTCD calls. All sixteen checks also pass in the native AMD64 SIMD full suite at `c6dfb561`. |
+| P2 | Custom control oracle | Fixed coefficients require their C Q scales, and declared-supported geometries must fail on unexpected oracle rejection. | The full custom package passes all eight local lanes at `00eeb471`; all five scaled-band modes retain mono/stereo coverage. Rejected 44.1 kHz/882-sample geometry has independent C/Go error checks. |
+| P2 | Multistream clipping lifecycle | Projection loss applies clipping, reset retains child clipping memory, and a successful float call leaves ordinary int16 clipping memory stale. | Public float/int16/int24 transition, projection reset, and loss/recovery sequences match selected C PCM and ranges in all eight local lanes at `d69ff3b1`. Clipping state belongs to each elementary decoder. |
+| P2 | Multistream constructors | Zero sample rate panics and unsupported rates pass through; projection channels require validation before allocation. | Rate/channel rejection and supported-rate construction pass all eight local lanes at `d69ff3b1`. Tagged 96 kHz acceptance remains supported; its runtime gap is tracked below. |
+| P1 | Malformed Hybrid main length | Invalid redundancy can leave entropy storage intact while the logical main length becomes zero; decoding CELT from storage consumes invalid payload. | Explicit main-length propagation selects highband-only concealment and zero outer final range. Two 10 ms witnesses and one 20 ms witness, recovery/loss, all three sample formats, and native 96 kHz pass in all eight local lanes with zero warm allocations. Projection checks cover 4,000 malformed packets and 12,000 random buffers per lane; accepted output is exact in float/int16/int24, and oracle infrastructure failures remain errors. |
+| P2 | Rectangular projection | More matrix columns than output channels bypass float/int16 demixing and fail int24 decoding. | Two rectangular layouts, received/lost/recovered packets and all three output formats match selected C in all eight local lanes at `0694ad51`; warmed caller-buffer decoding allocates zero. |
+| P1 | Native 96 kHz multistream | The subpackage initializes elementary codecs at 48 kHz despite accepting 96 kHz in QEXT builds. | Native geometry and selected-C PLC rounding pass exact float/int16/int24 output, ranges and zero warm allocations at `3885a34d`. Encode packets, durations and ranges pass mono 2.5/5/10/20 ms plus 20 ms coupled/discrete stereo float/int16, QEXT off/on, in all four float/fixed-QEXT scalar/SIMD lanes at `5a60c58b`. |
+
+Here, eight local lanes means default, fixed-point, QEXT, and fixed-point+QEXT,
+each with scalar and SIMD Go and matching C builds, on ARM64 with Go 1.27.1.
+These results do not substitute for native AMD64 execution. The existing native
+feature batches include the exact Hybrid, transition, and recovery selectors;
+no extra CI jobs are required.
+
+### Feature integration checks
+
+The neural PLC unit test enables complexity 5 at `284b9189`; complexity 0
+uses classical PLC, whose retained-history cursor has different semantics.
+LACE remains active across SILK/Hybrid packets, and CELT preserves its SILK
+filter state. Unit checks and an independent four-frame exact C sequence pass
+all eight local OSCE feature/ISA lanes at `2b4e2b23`.
+
+Multistream DRED recovery offsets advance only for active sidecars at
+`90f93ef0`. Main-model PLC still runs for every eligible child. The unchanged
+sidecar isolation/queue assertions and exact C PCM/range/state checks pass six
+focused local feature/ISA lanes. Late OSCE model checks distinguish retained
+feature history from loaded weights.
+
+Reference validation uses each selected builder's actual stamp contract at
+`7b33b0b3`. Wrong-ISA and stale stamps remain errors. DNN helpers include the
+pinned source root after the generated build configuration; the affected CBR
+and QEXT helpers compile and pass their focused exact checks. Native CI
+checks in artifact `11006418166` at `55b13f5f` pass their exactness cases.
 
 PLC state interfaces require their history and filter methods at
 `a6081168`. Go 1.27.1 can lazily allocate an interface-assertion cache;
@@ -153,24 +272,107 @@ allocation profiling records a 48-byte cache allocation inside SILK
 concealment. The five PLC capability assertions are absent from the hot
 paths, and compiled AMD64 concealment has no `runtime.typeAssert` calls.
 The unchanged single-call zero-allocation and exact-output tests pass local
-scalar DRED and scalar/SIMD DRED+OSCE+QEXT. The 55 artifact preserves the
-native failure; the c6 early matrix below validates the
-capability change on AMD64.
+scalar DRED and scalar/SIMD DRED+OSCE+QEXT. Artifact `11006418166` at
+`55b13f5f` preserves the native allocation failure; the
+c6 early matrix below validates the capability change on AMD64.
 
-Native early artifact `11009635111` at `c6dfb561` has 96 phase exit records
-with status 0 and no JSON test failures. The no-sidecar warm zero-allocation guard
-passes all 12 feature/ISA phases. FARGAN-conditioner and PLC-feature checks pass
-both instruction lanes; `SinF32` passes standard, fixed, and fixed+QEXT builds
-in both lanes; all eight LACE/NoLACE feature/ISA combinations pass. The full
-A/B run [36506668630](https://github.com/thesyncim/gopus/actions/runs/36506668630)
-passes. Full artifact `11009623177` records 23 successful candidate gate exits
-and the intentional fixture-generation nonzero exit. The latter writes the
-reviewable cross-validation fixture; it does not replace the fixture used by
-the preceding passing gate. The artifact also retains four baseline-only
-failures. Candidate JSON test logs contain no failing events.
+### Runtime parity evidence
 
-The [codebase parity audit](parity-evidence-audit.md) separates confirmed runtime
-witnesses from oracle and assertion gaps, with validation status for each.
+The persistent malformed FEC sweep passes 8,000 sequences per lane at
+`a8cdf338`: default, fixed-point and float-QEXT, each scalar/SIMD. The default
+lanes contain 6,715 matching accepted FEC calls and 1,285 matching rejections,
+with no skipped primes. Coded-channel transitions, per-frame resampling and
+PLC's rate-reset signal type have exact recovery regressions. DRED history
+passes 132 edited tests in all eight local feature/ISA lanes. Root and
+multistream OSCE automatic-loss/recovery matrices each pass all eight local
+lanes. Durable FEC history passes all eight local DRED feature/ISA lanes at
+`b29fcff7`. Mixed missing-LBRR, outer PLC prefixes, tiny FEC payloads, model
+reload and complexity-change history pass all four combined DRED/OSCE lanes,
+including warm zero-allocation guards. Native AMD64 artifact `11006418166` at `55b13f5f` passes the included exactness cases. Mono QEXT SIMD reconstruction passes its
+selected-C primitive and public-sequence gates at `77cb9a9d`. The SILK SNR correction passes the original frame-91 witness
+and the strict 2,500-frame matrix. Native AMD64 validates the selected-correlation
+correction: all seven LACE/NoLACE/BWE cases pass both instruction lanes across
+OSCE, OSCE+QEXT and DRED+OSCE+QEXT at `905eec03`.
+
+The [kernel and end-to-end evidence report](#performance) records
+measured coverage, revisions, and all 53 replacement routines. All recorded
+exactness gates pass at `c6dfb561`; claims remain scoped to the listed
+configurations and cases.
+
+Multistream long-burst PLC state, native 96 kHz crossfade stride, and Hybrid
+QEXT payload routing pass all eight applicable local lanes at `3885a34d`.
+The wide-band QEXT decoder consumes all signaled bands while rendering only
+the physical spectrum; its exact PCM/range, stereo synthesis-stage and zero
+warm allocation gates pass at `28cb897e`, together with integer-format clipping
+lifecycle checks.
+
+Artifact `11006418166` at `55b13f5f` records 93 zero phase exits, two
+nonzero warm-allocation phase exits, and aggregate exit 1. The two failures
+are the one-allocation no-sidecar PLC guard at 16 kHz/complexity 5. Profiling
+attributes 48 bytes to Go 1.27.1's lazy interface-assertion cache inside SILK
+concealment; capability changes at `a6081168` remove the five optional PLC
+assertions from hot paths. Native early artifact `11009635111` at `c6dfb561`
+records 96 zero phase exits and no JSON test failures. It passes all 12
+no-sidecar warm zero-allocation feature/ISA phases, both-instruction-lane
+FARGAN/PLC-feature checks, `SinF32` standard/fixed/fixed+QEXT checks in both
+lanes, and all eight LACE/NoLACE feature/ISA combinations. Full A/B run
+[36506668630](https://github.com/thesyncim/gopus/actions/runs/36506668630)
+passes, including the full native SIMD package sweep in artifact `11009623177`.
+Independent nil-FEC, tiny-FEC and complexity 0→5 history witnesses pass exact
+counts, PCM bits and ranges through recovery. Non-fullband
+QEXT header/refinement matches selected C at `4186cbb3`, including the vector
+body and scalar tail. SILK pitch reporting
+uses rate-reset state at `949ca0f3`; comfort-noise excitation history survives
+rate changes at `1d99069e`, with eight exact public sequences and zero warm
+allocations in float/fixed scalar/SIMD. The custom wrapper matches default packet
+signalling, finite header budgets, constructor controls, and error/reset state
+at `17e27246`; its complete package passes all eight local lanes. It is not
+called by root or multistream public APIs.
+Mono-to-stereo recovery preserves independent channel history at `a676f2db`: root
+and multistream pass all eight local lanes, all three output formats, 0/1/2/6/15
+losses and every supported API rate, with zero warm caller-buffer allocations.
+Empty repeat markers preserve following multistream QEXT payloads at `e404dcf6`;
+CELT/Hybrid mono/stereo recovery sequences pass all four QEXT feature/ISA lanes.
+
+CELT coarse-energy trial snapshots reserve the base-packet capacity at
+`f093c171`. Increasing packet budgets reuse that storage without allocations;
+the focused allocation guard and full CELT package pass scalar and SIMD.
+The native 96 kHz variable-budget reproducer also passes exact packet/range
+and zero warm allocation checks in both instruction lanes. This storage fix
+has separate mode-selection evidence below.
+
+Fixed-point CELT energy trials reserve both range-coder snapshots to the mode
+packet capacity at `2eaeab92`. Increasing-budget allocation, coarse-energy,
+CBR/VBR encode and native 96 kHz QEXT oracle checks pass all four applicable
+local feature/ISA lanes. The native 96 kHz multistream variable-budget witness
+matches C packets/ranges and allocates zero after warmup. These checks cover
+storage ownership; shared encoder mode selection is validated separately below.
+
+SILK PLC checks the internal rate before both decoded-frame updates and
+concealment at `170fd3b9`, and starts random-scale state at the C decoder
+initialization value. The Hybrid-to-SILK FEC rate-change regression compares
+exact PCM, counts and ranges for narrow/medium/wide bands and short/long loss
+requests. It and the zero-allocation guard pass local float/fixed scalar/SIMD
+lanes. The persistent malformed-FEC witnesses and their recovery sequences
+pass at `a8cdf338`.
+
+Native 96 kHz root and multistream encoding share mode selection, input
+history and the SILK/Hybrid/CELT frame driver at `a86354c6`. Four local
+float/fixed-QEXT scalar/SIMD lanes pass C packet/range and warm allocation
+checks for QEXT off/on, fresh/primed low-budget sequences and packets through
+40 ms. The internal CELT gate compares the actual staged input with C.
+Multistream uses the shared analysis and short-input projection route at
+`cb821a49`; 48/96 kHz projection packet/range and zero-allocation checks pass
+the applicable float/fixed-QEXT scalar/SIMD lanes. Native AMD64 artifact `11006418166` at `55b13f5f` passes these included
+exactness cases.
+
+### Deliberate boundaries
+
+Real-audio quality and perceptual loss tests remain useful independent evidence;
+they do not count as exactness proof. Synthetic decay checks also have a distinct
+purpose from a live C output comparison. The only documented unsafe C-reference
+boundary is the [custom-QEXT history access](#reference-boundary);
+malformed packets alone do not justify excluding supported, defined C output.
 
 ### Verified local coverage
 
@@ -232,21 +434,93 @@ analysis is 2,046 → 2,327 ns, and 20 ms analysis is 6,192 → 7,013 ns
 primitive comparison; it does not establish an end-to-end regression. Full CELT,
 selected-C CBR and short-frame packet gates pass both scalar/SIMD builds.
 
-### C reference boundary
 
-Libopus 1.6.1 accepts a 96 kHz / 2048-sample custom-QEXT geometry whose
-stateful history access is invalid under AddressSanitizer. Go retains bounded
-history access and safe concealment. Defined first-frame behavior remains
-compared with C; subsequent unsafe C behavior is excluded explicitly, with Go
-loss/recovery/reset and zero-allocation checks retained. The upstream source
-check dated 2026-09-28 finds the same invalid history expression.
-See [the reproducer and upstream evidence](libopus-custom-qext-boundaries.md).
-The upstream build also rejects fixed-point combined with DRED/OSCE; those
-combinations are outside the supported reference configuration.
+## Reference boundary
 
-## End-to-end codec throughput
+### Reproduced invalid read
 
-### Native AMD64 end-to-end measurements
+Pinned libopus 1.6.1, float scalar, `CUSTOM_MODES` and `ENABLE_QEXT`,
+accepts a 96 kHz, 2048-sample custom mode. Its stateful loss path reads before
+the synthesis buffer. AddressSanitizer reports a read fault in
+`celt_decode_lost`, `celt/celt_decoder.c:957`.
+
+The mode has a 256-sample short transform, so `qext_scale` is 1 and
+`decode_buffer_size` is 2048. With a 2048-sample frame, the source expression
+`decode_buffer_size - max_period - N + extrapolation_offset + j` can be
+negative. This is an invalid C reference result, not a portable PCM target.
+The Go PLC path checks its history bounds and uses noise concealment when
+periodic concealment cannot access the required history.
+
+The received-frame comb filter also has no preceding sample history at
+`out_syn = decode_mem + decode_buffer_size - N` for this geometry. The observed
+2048-sample mono sequence differs on received frame 1 before its first loss;
+the loss case has the independently confirmed sanitizer failure. No universal
+byte-parity claim covers these results.
+
+### Reproduction
+
+The unmodified source is extracted from `tmp_check/opus-1.6.1.tar.gz` into
+`/private/tmp/gopus-custom-qext-asan/opus-1.6.1`. The extracted and repository
+`celt_decoder.c` both have SHA-256
+`a53393c70ae917d39229f34bce2c16ada535807e095cad00a4580aee48c9bfdb`.
+
+Configure with Clang and:
+
+```sh
+CFLAGS='-O1 -g -fsanitize=address -fno-omit-frame-pointer -ffp-contract=off -fno-vectorize -fno-slp-vectorize'
+LDFLAGS='-fsanitize=address'
+./configure --enable-custom-modes --enable-qext --disable-asm \
+  --disable-rtcd --disable-intrinsics --enable-static --disable-shared
+make -j4
+```
+
+Compile `tools/csrc/libopus_custom_stateful.c` against that instrumented
+archive with `-DHAVE_CONFIG_H -fsanitize=address` and its matching headers.
+Input uses `customSequenceInput` from the stateful Go oracle, mono, 200-byte
+CBR frames, and loss at frames 3 and 4. The Go safety regression is
+`TestQEXTFloatCustom2048SafeSequence`; the exact C sequence oracle covers the
+other frame geometries.
+
+Local evidence:
+
+- Request: `/private/tmp/gopus-custom-qext-asan/request.bin`.
+- Sanitizer output: `/private/tmp/gopus-custom-qext-asan/runtime.log`.
+- Symbolized location: `celt_decode_lost (celt_decoder.c:957)`.
+
+### Upstream status and parity scope
+
+Checked on 2026-09-28 against upstream `main`, commit
+[`503d81b138d76621aae4b12786e90de48aa8db3a`](https://github.com/xiph/opus/commit/503d81b138d76621aae4b12786e90de48aa8db3a),
+dated 2026-09-11. The latest source retains the same
+[history read](https://github.com/xiph/opus/blob/503d81b138d76621aae4b12786e90de48aa8db3a/celt/celt_decoder.c#L983),
+2048-sample buffer, frame-size acceptance and scale selection. No fix is present
+in these paths. The sanitizer reproduction above uses pinned 1.6.1, not a build
+of current upstream.
+
+Undefined C reads in this stateful 2048-sample geometry are an explicit
+exception to byte/sample parity. Go preserves bounded history access and safe
+concealment. First-frame encode/decode and steady-state allocation checks remain
+covered; `TestQEXTFloatCustom2048SafeSequence` checks received frames, a loss
+burst and recovery for both channel counts. The other custom-mode comparisons
+retain exact packet, range, float PCM and int16 PCM checks.
+
+The upstream build rejects fixed-point combined with DRED/OSCE; those neural
+feature combinations do not have a matching supported C reference lane.
+
+## Performance
+
+All 53 symbols from the 41 assembly files at baseline `8ac93c85` have Go
+replacements. No tracked `.s` or `.S` files remain. Go 1.27 is the minimum.
+Ordinary builds and `-tags nosimd` use scalar Go. `GOEXPERIMENT=simd` enables
+`simd/archsimd` kernels with CPU checks and scalar fallbacks.
+AMD64 references select SSE/AVX2 RTCD (`opus_select_arch=4` for the measured AVX2
+lane); ARM64 references bind NEON at compile time. Scalar C disables assembly,
+intrinsics and compiler vectorization. Archive, header, compiler and dispatch
+stamps are checked before comparison.
+
+### End-to-end codec throughput
+
+#### Native AMD64 end-to-end measurements
 
 Native early artifact `11009635111` compares assembly `8ac93c85` with
 SIMD/`nosimd` `c6dfb561` on AMD EPYC 9V74, Go 1.27.1, GCC 13.3.0,
@@ -271,7 +545,7 @@ as source changes; use only the within-run variants shown here. The 11 AMD64
 kernel rows use complete artifact `11009623177` at `c6dfb561` on EPYC 9V74;
 ARM64 rows retain their own measured revisions.
 
-### Matched libopus 1.6.1 comparison
+#### Matched libopus 1.6.1 comparison
 
 Same candidate revision and runner; C scalar vs Go scalar and C SIMD vs Go
 SIMD. Early artifact `11009635111` uses candidate `c6dfb561` on AMD EPYC 9V74.
@@ -298,7 +572,7 @@ and controls. Encoder timings do not establish long-stream packet parity.
 The throughput table describes the early artifact; the full A/B gate also
 passes at the same revision.
 
-## AMD64 compiler targets
+### AMD64 compiler targets
 
 The compiler-target benchmark is an opt-in script for performance-table refreshes;
 routine PR CI does not run this matrix or add jobs for it. Go binaries and C
@@ -399,7 +673,7 @@ The existing **Verify Production Exhaustive** manual workflow accepts
 evidence task; routine PR CI has no compiler-target benchmark step.
 `task=goamd64-kernel-audit` selects focused v3 kernel, dispatch and CBR checks.
 
-## Per-symbol inventory
+### Per-symbol inventory
 
 Former symbols identify the pre-port assembly entry points. `0` in the
 allocation column is limited to directly measured kernels.
@@ -464,7 +738,7 @@ comparable per-call Go operation and are marked n/a with the reason.
 | 52 | `convertFloat32ToInt16UnitBlocks` | arm64 | `pcm_convert_simd_arm64.go`; `pcm_convert_arm64_nosimd.go` | archsimd / scalar | N=480, b36c1c20 M4/Go 1.27.0: scalar 424.7 / exact Go SIMD 131.5 (131.3–132.7); recorded old asm 63.13 (62.17–63.76) | 0 | five 300 ms samples per build; exact C tie/tail/invalid-lane checks and zero allocations pass; assembly timing is an earlier run with different rounding semantics and does not establish an exact-output speed ratio |
 | 53 | `convertFloat32ToInt16SaturatingBlocks` | arm64 | `pcm_convert_simd_arm64.go`; `pcm_convert_arm64_nosimd.go` | archsimd / scalar | N=480, b36c1c20 M4/Go 1.27.0: scalar 422.4 / exact Go SIMD 106.9 (106.7–107.0); recorded old asm 52.31 (52.15–52.60) | 0 | five 300 ms samples per build; exact C tie/tail/invalid-lane checks and zero allocations pass; assembly timing is an earlier run with different rounding semantics and does not establish an exact-output speed ratio |
 
-## Measurement method
+### Measurement method
 
 M4 Max (`darwin/arm64`) A/B measurements use the same host and Go version for
 each old-assembly/candidate pair. Initial rows use Go 1.27.1; ARM64 tone LPC
@@ -561,7 +835,7 @@ completes successfully. The direct xcorr rows retain their separate shapes;
 the pulse and best-ID helpers differ from the live finite-input PVQ search.
 Sequential kernel phases retain host-load and frequency risks.
 
-## Validation and performance follow-up
+### Validation and performance follow-up
 
 Native AMD64 CI passes at `c6dfb561`; local ARM64 exactness and allocation
 results are recorded above. All 53 inventory rows retain their fixture/compiler
@@ -569,6 +843,53 @@ provenance, including current native measurements for all 11 AMD64 symbols.
 Measurements from different CPUs or revisions do not establish a source-change
 speed ratio. Several direct kernels trail assembly, as recorded in the inventory.
 
-The [compiler audit](go-simd-compiler-audit.md) records dispatch, instruction
+The [compiler audit](#compiler-code-generation) records dispatch, instruction
 lowering, and emulated Penryn/Sandy Bridge compatibility checks. Emulation
 provides CPU-compatibility evidence, not native SIMD performance evidence.
+
+## Compiler code generation
+
+Scope: the Go SIMD codec paths on PR #505, Go 1.27.0/1.27.1, ARM64 and AMD64.
+The audit checks upstream SIMD issues against the actual codec call sites.
+The [shared discussion](https://chatgpt.com/share/6aba293b-d7d4-83ed-9c75-5804702ad672)
+is inaccessible from this environment; its contents are not used as evidence.
+
+| Upstream issue | Exposure in gopus | Check or correction |
+|---|---|---|
+| [Partial loads cross a protected page (#81692)](https://github.com/golang/go/issues/81692) | No `Load*Part` or `Store*Part` calls. | Full vector loads require a complete vector; tails use scalar code or explicitly padded scratch. No dependency on the unreleased partial-load fix. |
+| [AVX-only `Abs`/`Neg` can emit AVX2 (#81405)](https://github.com/golang/go/issues/81405) | The Go 1.27 lowering affects float sign operations and some 128-bit broadcasts. | Analysis and affected SILK kernels require AVX2. CELT uses loaded sign masks and AVX-compatible shuffle broadcasts, with scalar fallbacks when AVX is absent. Disassembly confirms `VMOVSS`/`VSHUFPS` for the float broadcast helper. |
+| [AVX-only preemption corrupts 256-bit vectors (#81209)](https://github.com/golang/go/issues/81209) | 256-bit SILK and CELT paths require a runtime feature boundary. | Rewhitening, LPC analysis and warped autocorrelation have AVX2 wrappers with scalar fallbacks. All eight-lane CELT correlation entry points require AVX2 and FMA. |
+| [Feature-dependent zero vectors can move above guards (#81571)](https://github.com/golang/go/issues/81571) | A source-level branch alone is insufficient on affected compilers. | Guard wrappers call separate `//go:noinline` vector bodies. Cross-compiled analysis dispatch has no SIMD instructions before its AVX2 check. |
+| [Floating Min/Max is incorrectly commutative (#81468)](https://github.com/golang/go/issues/81468) | CELT uses float extrema; DNN activation clamps also need ordered x86 semantics. | Exact PVQ and DNN clamps use compare/select. Finite-only PVQ observes comparisons, not the sign of equal zero. Preemphasis falls back for NaN samples or initial extrema, with a sequential-equivalence regression test. Integer Min/Max is unaffected. |
+| [Legacy SSE/AVX transition overhead (#80835)](https://github.com/golang/go/issues/80835) | Go 1.27.1 emits legacy `MOVUPS` spills/reloads in the compiled AVX2 NSQ kernel. | Code-generation exposure is confirmed; its performance cost is not isolated. The upstream [VEX fix](https://github.com/golang/go/commit/5763a306d2d31111a2ac58b4f67cf5678a17f24e) requires a separate compiler comparison. The reported upstream 65× slowdown is not a measured gopus slowdown. |
+| [Portable SIMD export/import failure (#81614)](https://github.com/golang/go/issues/81614) | No portable `simd` import and no SIMD types in public API signatures. | No matching call surface. Internal `archsimd` kernels build with normal public scalar/slice APIs. |
+| [AVX-512 mask-register eviction (#81767)](https://github.com/golang/go/issues/81767) | No AVX-512 vector or mask kernels. | No matching register-allocation surface. |
+| [ARM64 carryless-multiply dispatch (#80991)](https://github.com/golang/go/issues/80991), [portable shift operands (#81099)](https://github.com/golang/go/issues/81099) | No carryless-multiply intrinsic or portable SIMD operation. | These reported paths are unused. CI uses Go 1.27.1. |
+
+### Validation
+
+The existing native SIMD A/B CI job also runs the same Go binaries under QEMU
+with Penryn (no AVX) and Sandy Bridge (AVX without AVX2). It runs selected
+scalar-equivalence/allocation checks and short public encode/decode workloads.
+This checks CPU compatibility; it does not replace native performance or the
+matched-ISA C oracle. C helper subprocesses are excluded from emulation tests
+because those subprocesses would execute on the host CPU.
+
+Run [36412029034](https://github.com/thesyncim/gopus/actions/runs/36412029034/job/108894625360)
+at `2b8615ba` uses Go 1.27.1 and `GOAMD64=v1`. All five Penryn phases and
+all five Sandy Bridge phases pass: CELT dispatch/allocation, analysis, DNN,
+SILK, and public encode/decode smoke. The run's overall conclusion is cancelled,
+so these phase results do not establish a complete CI pass.
+
+The CELT allocation probe uses a standard 120-coefficient frame with overlap
+120 and pinned tables. A separate 32-coefficient / overlap-8 case checks
+determinism and finite output; that custom geometry constructs tables and is
+outside the steady-state allocation probe.
+
+Local validation cross-compiles Linux AMD64 and ARM64 SIMD test binaries with
+Go 1.27.1; AMD64 uses `GOAMD64=v1`. Selected CELT scale/rotation/inner-product/comb/stereo, analysis and DNN
+activation checks pass locally on ARM64. Disassembly checks the guarded entry points
+and CELT AVX-only broadcast encodings. Native execution is represented by the
+existing A/B evidence, and both emulated CPU feature configurations pass their
+compatibility phases. Existing native performance measurements
+describe their recorded revision; they do not measure these CPU safety changes.

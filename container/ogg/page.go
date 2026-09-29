@@ -170,13 +170,8 @@ func (p *Page) Packets() [][]byte {
 	return packets
 }
 
-// Encode serializes the page to bytes with proper CRC.
-// The output format is:
-//   - 27-byte header
-//   - Segment table
-//   - Payload
-//
-// The CRC is computed over the entire page (with CRC field zeroed).
+// Encode returns a serialized copy of the page with its CRC-32 field computed
+// over the page bytes.
 func (p *Page) Encode() []byte {
 	// Calculate total page size.
 	headerSize := pageHeaderSize + len(p.Segments)
@@ -206,26 +201,11 @@ func (p *Page) Encode() []byte {
 	return data
 }
 
-// ParsePage parses a single Ogg page (RFC 3533 §6) from the front of data.
-// It returns the parsed page, the number of bytes consumed (the full page
-// length, header plus segment table plus payload), and any error.
-//
-// data may contain more than one page or trailing bytes; only the first page
-// is consumed and callers should advance by the returned count. The returned
-// Page owns copies of its segment table and payload, so the input slice may be
-// reused or overwritten afterwards.
-//
-// Errors:
-//
-//   - ErrInvalidPage if data is shorter than a page header, the "OggS" capture
-//     pattern is missing, or the declared segment table or payload extends past
-//     the end of data (a truncated or incomplete page).
-//   - ErrBadCRC if the page CRC-32 does not match the bytes on the wire,
-//     indicating corruption.
-//
-// A truncated page yields ErrInvalidPage with a zero consumed count; the caller
-// can distinguish "need more data" from genuine corruption by buffering more
-// input and retrying.
+// ParsePage parses the first Ogg page in data and returns the number of bytes
+// consumed. The returned Page owns copies of its segment table and payload, so
+// data may be reused after the call. It returns ErrInvalidPage for a truncated
+// or malformed page and ErrBadCRC when the checksum does not match. On error,
+// the consumed count is zero.
 func ParsePage(data []byte) (*Page, int, error) {
 	p := &Page{}
 	consumed, err := parsePageInto(data, p)

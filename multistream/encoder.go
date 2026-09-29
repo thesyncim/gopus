@@ -29,14 +29,9 @@ var ErrInvalidLayout = errors.New("multistream: invalid layout - coupled stream 
 // ErrInvalidLSBDepth indicates the LSB depth is outside the valid range (8-24).
 var ErrInvalidLSBDepth = errors.New("multistream: invalid LSB depth (must be 8-24)")
 
-// Encoder encodes multi-channel audio into Opus multistream packets.
-// Each elementary stream is encoded independently using a Phase 8 unified Encoder,
-// then combined with self-delimiting framing per RFC 6716 Appendix B.
-//
-// Multistream packets are used for surround sound configurations (5.1, 7.1, etc.)
-// where multiple coupled (stereo) and uncoupled (mono) streams are combined.
-//
-// Reference: RFC 7845 Section 5.1.1
+// Encoder encodes interleaved PCM as an Opus packet containing multiple streams.
+// It routes input channels through its mapping table and is not safe for
+// concurrent use.
 type Encoder struct {
 	// sampleRate is the input sample rate (8000, 12000, 16000, 24000, or 48000 Hz;
 	// 96000 Hz is available in gopus_qext builds).
@@ -177,30 +172,15 @@ func inferLFEStream(mappingFamily, channels, streams int) int {
 	return -1
 }
 
-// NewEncoder creates a new multistream encoder.
-//
-// Parameters:
-//   - sampleRate: input sample rate (8000, 12000, 16000, 24000, or 48000 Hz;
-//     96000 Hz is available in gopus_qext builds)
-//   - channels: total input channels (1-255)
-//   - streams: total elementary streams (N, 1-255)
-//   - coupledStreams: number of coupled stereo streams (M, 0 to streams)
-//   - mapping: channel mapping table (length must equal channels)
-//
-// The mapping table determines how input audio is routed to stream encoders:
-//   - Values 0 to 2*M-1: to coupled streams (even=left, odd=right of stereo pair)
-//   - Values 2*M to N+M-1: to uncoupled (mono) streams
-//   - Value 255: silent channel (input ignored)
-//
-// Example for 5.1 surround (6 channels, 4 streams, 2 coupled):
-//
-//	mapping = [0, 4, 1, 2, 3, 5]
-//	  Input 0 (FL): mapping[0]=0 -> coupled stream 0, left
-//	  Input 1 (C):  mapping[1]=4 -> uncoupled stream 2 (2*2+0)
-//	  Input 2 (FR): mapping[2]=1 -> coupled stream 0, right
-//	  Input 3 (RL): mapping[3]=2 -> coupled stream 1, left
-//	  Input 4 (RR): mapping[4]=3 -> coupled stream 1, right
-//	  Input 5 (LFE): mapping[5]=5 -> uncoupled stream 3 (2*2+1)
+// NewEncoder returns a multistream encoder for channels of interleaved PCM.
+// sampleRate must be 8, 12, 16, 24, or 48 kHz; 96 kHz is available with
+// gopus_qext. channels and streams must be in 1..255, coupledStreams in
+// 0..streams, and streams+coupledStreams at most 255. mapping has one entry per
+// input channel: 0..2*coupledStreams-1 selects a coupled stream channel,
+// 2*coupledStreams..streams+coupledStreams-1 selects a mono stream, and 255
+// leaves that input channel unused. Each coupled stream must map both channels,
+// and each mono stream must be mapped at least once. The mapping is copied. The
+// initial total bitrate is 256000 bits per second.
 func NewEncoder(sampleRate, channels, streams, coupledStreams int, mapping []byte) (*Encoder, error) {
 	// Validation exactly mirrors decoder
 	if !validSampleRate(sampleRate) {
@@ -275,21 +255,7 @@ func NewEncoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 	return enc, nil
 }
 
-// NewEncoderDefault creates a multistream encoder with default Vorbis-style mapping
-// for standard channel configurations (1-8 channels).
-//
-// This is a convenience function that calls DefaultMapping() to get the appropriate
-// streams, coupledStreams, and mapping for the given channel count.
-//
-// Supported channel counts:
-//   - 1: mono (1 stream, 0 coupled)
-//   - 2: stereo (1 stream, 1 coupled)
-//   - 3: 3.0 (2 streams, 1 coupled)
-//   - 4: quad (2 streams, 2 coupled)
-//   - 5: 5.0 (3 streams, 2 coupled)
-//   - 6: 5.1 surround (4 streams, 2 coupled)
-//   - 7: 6.1 surround (4 streams, 3 coupled)
-//   - 8: 7.1 surround (5 streams, 3 coupled)
+// NewEncoderDefault returns an encoder with the Vorbis mapping for 1–8 channels.
 func NewEncoderDefault(sampleRate, channels int) (*Encoder, error) {
 	streams, coupledStreams, mapping, err := DefaultMapping(channels)
 	if err != nil {
@@ -305,33 +271,11 @@ func NewEncoderDefault(sampleRate, channels int) (*Encoder, error) {
 	return enc, nil
 }
 
-// NewEncoderAmbisonics creates a new multistream encoder for ambisonics audio.
-//
-// Parameters:
-//   - sampleRate: input sample rate (8000, 12000, 16000, 24000, or 48000 Hz;
-//     96000 Hz is available in gopus_qext builds)
-//   - channels: total input channels (valid ambisonics count: 1, 4, 6, 9, 11, 16, 18, 25, 27...)
-//   - mappingFamily: 2 for ACN/SN3D (mostly mono), 3 for projection (paired stereo)
-//
-// Valid ambisonics channel counts are (order+1)^2 or (order+1)^2 + 2:
-//   - Order 0: 1 channel (or 3 with non-diegetic)
-//   - Order 1 (FOA): 4 channels (or 6 with non-diegetic)
-//   - Order 2 (SOA): 9 channels (or 11 with non-diegetic)
-//   - Order 3 (TOA): 16 channels (or 18 with non-diegetic)
-//
-// For mapping family 2:
-//   - ACN channel ordering with SN3D normalization
-//   - All ambisonics channels are mono streams
-//   - Optional non-diegetic stereo pair as one coupled stream
-//
-// For mapping family 3:
-//   - Projection-based encoding
-//   - Channels are paired into stereo coupled streams
-//   - streams = (channels+1)/2, coupled = channels/2
-//   - libopus parity support is limited to orders 1..5
-//     (valid channels: 4, 6, 9, 11, 16, 18, 25, 27, 36, 38)
-//
-// Reference: RFC 7845 Section 5.1.1.2, libopus opus_multistream_encoder.c
+// NewEncoderAmbisonics returns a multistream encoder with ACN/SN3D mapping.
+// Family 2 accepts valid ambisonics counts through 227 channels; family 3
+// projection supports 4, 6, 9, 11, 16, 18, 25, 27, 36, or 38 channels. Other
+// families return ErrInvalidMappingFamily, and unsupported family 3 orders
+// return ErrProjectionOrderUnsupported.
 func NewEncoderAmbisonics(sampleRate, channels, mappingFamily int) (*Encoder, error) {
 	var streams, coupledStreams int
 	var mapping []byte
@@ -870,18 +814,10 @@ func (e *Encoder) initProjectionMixingDefaults() error {
 	return nil
 }
 
-// GetDemixingMatrix returns the serialized demixing matrix for this projection encoder,
-// matching the output of OPUS_PROJECTION_GET_DEMIXING_MATRIX_REQUEST.
-//
-// The returned bytes are S16LE-encoded, row-major over:
-//   - rows = streams + coupled_streams  (nb_input_streams)
-//   - cols = channels                   (nb_output_streams)
-//
-// Returns nil if this encoder is not mapping family 3, or if no defaults are
-// available for the configured channel count.
-//
-// Reference: libopus src/opus_projection_encoder.c:opus_projection_encoder_ctl
-// OPUS_PROJECTION_GET_DEMIXING_MATRIX_REQUEST
+// GetDemixingMatrix returns a copy of this projection encoder's demixing matrix
+// as S16LE bytes in column-major order. Each column contains one input stream
+// channel's coefficients for all output channels. It returns nil when this is
+// not a family 3 encoder or no matrix is available.
 func (e *Encoder) GetDemixingMatrix() []byte {
 	if e.mappingFamily != 3 {
 		return nil
@@ -907,13 +843,8 @@ func (e *Encoder) DemixingMatrixGain() int {
 	return e.projectionDemixingGain
 }
 
-// DemixingMatrixSize returns the byte size of the demixing matrix,
-// matching OPUS_PROJECTION_GET_DEMIXING_MATRIX_SIZE_REQUEST.
-//
-// Returns 0 if this encoder is not mapping family 3.
-//
-// Reference: libopus src/opus_projection_encoder.c:opus_projection_encoder_ctl
-// OPUS_PROJECTION_GET_DEMIXING_MATRIX_SIZE_REQUEST
+// DemixingMatrixSize returns the serialized demixing matrix size in bytes, or
+// zero when this is not a family 3 encoder.
 func (e *Encoder) DemixingMatrixSize() int {
 	if e.mappingFamily != 3 {
 		return 0
@@ -921,33 +852,33 @@ func (e *Encoder) DemixingMatrixSize() int {
 	return ProjectionDemixingMatrixSize(e.inputChannels, e.streams, e.coupledStreams)
 }
 
-// Encode encodes one frame of interleaved float PCM into out and returns the
-// packet length, like libopus opus_multistream_encode_float(): len(out) is
-// max_data_bytes, which bounds every stream's budget.
-//
-// pcm holds frameSize samples per input channel. The steady-state path is
-// allocation-free.
+// Encode encodes frameSize samples per channel of interleaved float32 PCM into
+// out and returns the packet length. len(out) is the maximum packet size in
+// bytes. pcm must contain exactly frameSize*Channels() samples. A too-small
+// output buffer returns ErrBufferTooSmall.
 func (e *Encoder) Encode(pcm []float32, frameSize int, out []byte) (int, error) {
 	return e.EncodeWithAnalysis(pcm, frameSize, pcm, out)
 }
 
-// EncodeWithAnalysis encodes the first frameSize samples per channel of the
-// caller frame while each stream's tonality analysis reads all of analysisPCM,
-// as opus_multistream_encode_native() does when frame_size_select() codes a
-// shorter frame than analysis_frame_size.
+// EncodeWithAnalysis encodes frameSize samples per channel from pcm while
+// analysisPCM supplies the samples used for tonality analysis. pcm must contain
+// exactly frameSize*Channels() samples; analysisPCM must contain at least that
+// many whole interleaved samples.
 func (e *Encoder) EncodeWithAnalysis(pcm []float32, frameSize int, analysisPCM []float32, out []byte) (int, error) {
 	return e.encodeNative(encodeInput{f32: pcm}, frameSize, analysisPCM, out)
 }
 
-// EncodeInt16 encodes one frame of interleaved 16-bit PCM into out, like
-// libopus opus_multistream_encode() and opus_projection_encode(): lsb_depth is
-// 16 and the projection mixing multiplies the integer samples.
+// EncodeInt16 encodes frameSize samples per channel of interleaved int16 PCM
+// into out and returns the packet length. pcm must contain exactly
+// frameSize*Channels() samples; len(out) is the maximum packet size in bytes.
 func (e *Encoder) EncodeInt16(pcm []int16, frameSize int, out []byte) (int, error) {
 	return e.EncodeInt16WithAnalysis(pcm, frameSize, pcm, out)
 }
 
-// EncodeInt16WithAnalysis is EncodeInt16 with a caller analysis frame longer
-// than the coded frame (see EncodeWithAnalysis).
+// EncodeInt16WithAnalysis encodes pcm while analysisPCM supplies the interleaved
+// samples used for tonality analysis. pcm must contain exactly
+// frameSize*Channels() samples, and analysisPCM must contain at least that many
+// whole samples.
 func (e *Encoder) EncodeInt16WithAnalysis(pcm []int16, frameSize int, analysisPCM []int16, out []byte) (int, error) {
 	if err := e.validateNativeFrameSize(frameSize); err != nil {
 		return 0, err

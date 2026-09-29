@@ -76,23 +76,18 @@ func (d *Decoder) decodeAndFinishWithRangeDecoder(
 	return samples, nil
 }
 
-// Decode decodes a Hybrid mono frame and returns 48kHz PCM samples.
-// If data is nil, performs Packet Loss Concealment (PLC) instead of decoding.
-//
-// Parameters:
-//   - data: raw Opus frame data (without TOC byte), or nil for PLC
-//   - frameSize: frame size in samples at 48kHz (480 for 10ms, 960 for 20ms)
-//
-// Returns float32 samples at 48kHz.
-//
-// Hybrid mode combines SILK (0-8kHz) and CELT (8-20kHz) for high-quality
-// wideband speech at medium bitrates. Only 10ms and 20ms frames are supported.
+// Decode decodes a Hybrid frame with the packet stereo flag clear. An empty
+// data slice requests PLC. frameSize is the per-channel sample count at the
+// configured API rate; at the default 48 kHz rate, encoded Hybrid frames use
+// 480 samples for 10 ms or 960 for 20 ms. The result is float32 PCM at that
+// rate.
 func (d *Decoder) Decode(data []byte, frameSize int) ([]float32, error) {
 	return d.decodeAndFinishPacket(data, frameSize, false, 1)
 }
 
-// DecodeWithPacketStereo decodes a Hybrid frame and honors the packet stereo flag.
-// This is used when the output channels (decoder configuration) differ from the packet channels.
+// DecodeWithPacketStereo decodes a Hybrid frame using packetStereo to select
+// the packet's channel layout. frameSize is measured per channel at the
+// configured API rate. An empty data slice requests PLC.
 func (d *Decoder) DecodeWithPacketStereo(data []byte, frameSize int, packetStereo bool) ([]float32, error) {
 	return d.decodeAndFinishPacket(data, frameSize, packetStereo, int(d.channels))
 }
@@ -143,15 +138,10 @@ func (d *Decoder) FixedPLCLowbandCaptured() int {
 	return d.silkDecoder.PLCLowbandCaptured()
 }
 
-// DecodeStereo decodes a Hybrid stereo frame and returns 48kHz PCM samples.
-// If data is nil, performs Packet Loss Concealment (PLC) instead of decoding.
-// Returns interleaved stereo samples [L0, R0, L1, R1, ...] at 48kHz.
-//
-// Parameters:
-//   - data: raw Opus frame data (without TOC byte), or nil for PLC
-//   - frameSize: frame size in samples at 48kHz (480 for 10ms, 960 for 20ms)
-//
-// Returns interleaved float32 samples at 48kHz.
+// DecodeStereo decodes a stereo Hybrid frame and returns interleaved float32
+// PCM at the configured API rate. An empty data slice requests PLC. The
+// decoder must be configured for two channels. frameSize is the per-channel
+// sample count; at 48 kHz, encoded Hybrid frames use 480 or 960 samples.
 func (d *Decoder) DecodeStereo(data []byte, frameSize int) ([]float32, error) {
 	if err := d.requireStereoDecoder(); err != nil {
 		return nil, err
@@ -160,20 +150,16 @@ func (d *Decoder) DecodeStereo(data []byte, frameSize int) ([]float32, error) {
 	return d.decodeAndFinishPacket(data, frameSize, true, 2)
 }
 
-// DecodeToInt16 decodes and converts to int16 PCM.
-// This is a convenience wrapper for common audio output formats.
-//
-// Parameters:
-//   - data: raw Opus frame data (without TOC byte)
-//   - frameSize: frame size in samples at 48kHz (480 for 10ms, 960 for 20ms)
-//
-// Returns int16 samples at 48kHz in range [-32768, 32767].
+// DecodeToInt16 decodes a Hybrid frame and converts the float32 output to
+// interleaved int16 PCM at the configured API rate. frameSize is the per-channel
+// sample count; an empty data slice requests PLC.
 func (d *Decoder) DecodeToInt16(data []byte, frameSize int) ([]int16, error) {
 	return decodedInt16FromFloat32(d.decodeAndFinishPacket(data, frameSize, false, 1))
 }
 
-// DecodeStereoToInt16 decodes stereo and converts to int16 PCM.
-// Returns interleaved stereo samples [L0, R0, L1, R1, ...] as int16.
+// DecodeStereoToInt16 decodes a stereo Hybrid frame and converts it to
+// interleaved int16 PCM at the configured API rate. The decoder must be
+// configured for two channels.
 func (d *Decoder) DecodeStereoToInt16(data []byte, frameSize int) ([]int16, error) {
 	if err := d.requireStereoDecoder(); err != nil {
 		return nil, err
@@ -182,25 +168,23 @@ func (d *Decoder) DecodeStereoToInt16(data []byte, frameSize int) ([]int16, erro
 	return decodedInt16FromFloat32(d.decodeAndFinishPacket(data, frameSize, true, 2))
 }
 
-// DecodeToFloat32 decodes and converts to float32 PCM.
-// This is a convenience wrapper for audio APIs expecting float32.
-//
-// Parameters:
-//   - data: raw Opus frame data (without TOC byte)
-//   - frameSize: frame size in samples at 48kHz (480 for 10ms, 960 for 20ms)
-//
-// Returns float32 samples at 48kHz in approximate range [-1, 1].
+// DecodeToFloat32 decodes a Hybrid frame and returns float32 PCM at the
+// configured API rate. frameSize is the per-channel sample count; an empty
+// data slice requests PLC.
 func (d *Decoder) DecodeToFloat32(data []byte, frameSize int) ([]float32, error) {
 	return d.decodeAndFinishPacket(data, frameSize, false, 1)
 }
 
-// DecodeToFloat32WithPacketStereo decodes with packet stereo flag and converts to float32.
+// DecodeToFloat32WithPacketStereo decodes using packetStereo and returns
+// float32 PCM at the configured API rate. frameSize is the per-channel sample
+// count; an empty data slice requests PLC.
 func (d *Decoder) DecodeToFloat32WithPacketStereo(data []byte, frameSize int, packetStereo bool) ([]float32, error) {
 	return d.decodeAndFinishPacket(data, frameSize, packetStereo, int(d.channels))
 }
 
-// DecodeStereoToFloat32 decodes stereo and converts to float32 PCM.
-// Returns interleaved stereo samples [L0, R0, L1, R1, ...] as float32.
+// DecodeStereoToFloat32 decodes a stereo Hybrid frame and returns interleaved
+// float32 PCM at the configured API rate. The decoder must be configured for
+// two channels.
 func (d *Decoder) DecodeStereoToFloat32(data []byte, frameSize int) ([]float32, error) {
 	if err := d.requireStereoDecoder(); err != nil {
 		return nil, err
@@ -209,27 +193,24 @@ func (d *Decoder) DecodeStereoToFloat32(data []byte, frameSize int) ([]float32, 
 	return d.decodeAndFinishPacket(data, frameSize, true, 2)
 }
 
-// DecodeWithDecoder decodes using a pre-initialized range decoder.
-// This is useful when the range decoder state needs to be preserved or
-// when decoding multiple frames from a single buffer.
-//
-// Parameters:
-//   - rd: Pre-initialized range decoder
-//   - frameSize: frame size in samples at 48kHz (480 for 10ms, 960 for 20ms)
-//
-// Returns float32 samples at 48kHz.
+// DecodeWithDecoder decodes a Hybrid frame from a pre-initialized range decoder
+// and returns float32 PCM at the configured API rate. frameSize is the
+// per-channel sample count. The caller owns rd and controls its packet lifetime.
 func (d *Decoder) DecodeWithDecoder(rd *rangecoding.Decoder, frameSize int) ([]float32, error) {
 	return d.decodeWithRangeDecoder(rd, frameSize, false, nil)
 }
 
-// DecodeWithDecoderHook decodes using a pre-initialized range decoder and an optional hook.
-// The hook runs after SILK decode and before CELT decode, returning the logical
-// main-packet length after Opus-layer redundancy parsing.
+// DecodeWithDecoderHook decodes from a pre-initialized range decoder.
+// afterSilk runs after SILK decodes its symbols and returns the logical packet
+// length after any Opus-layer redundancy parsing. frameSize is the per-channel
+// sample count at the configured API rate.
 func (d *Decoder) DecodeWithDecoderHook(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) (int, error)) ([]float32, error) {
 	return d.decodeAndFinishWithRangeDecoder(rd, frameSize, packetStereo, int(d.channels), afterSilk)
 }
 
-// DecodeStereoWithDecoder decodes stereo using a pre-initialized range decoder.
+// DecodeStereoWithDecoder decodes stereo from a pre-initialized range decoder
+// and returns interleaved float32 PCM at the configured API rate. The decoder
+// must be configured for two channels.
 func (d *Decoder) DecodeStereoWithDecoder(rd *rangecoding.Decoder, frameSize int) ([]float32, error) {
 	if err := d.requireStereoDecoder(); err != nil {
 		return nil, err

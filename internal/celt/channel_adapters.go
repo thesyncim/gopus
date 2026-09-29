@@ -506,12 +506,14 @@ func (d *Decoder) decodeFrameHybridWithPacketStereo(rd *rangecoding.Decoder, fra
 	return d.decodeStereoPacketToMonoHybrid(rd, frameSize)
 }
 
-// AccumulateFrameHybridWithPacketStereo decodes the CELT half of a Hybrid
-// frame (frameSize samples at the active mode rate) from the in-progress range decoder and
-// adds it onto out, which holds the SILK lowband: libopus
-// celt_decode_with_ec(..., celt_accum=1) from opus_decode_frame. out holds
-// frameSize or frameSize/downsample interleaved frames; in the latter case the
-// de-emphasis downsamples to the API rate.
+// AccumulateFrameHybridWithPacketStereo decodes CELT bands starting at band 17
+// from the range decoder positioned at the CELT payload, then accumulates the
+// decoded signal onto out, which contains the SILK low band. dataLen is the
+// main-payload length in bytes after redundancy parsing; frameSize is the
+// per-channel CELT sample count at the active mode rate. out uses the decoder's
+// configured API rate and channel layout. A payload length of at most one byte
+// conceals only the CELT high band. This follows libopus
+// opus_decoder.c:opus_decode_frame with celt_accum=1.
 func (d *Decoder) AccumulateFrameHybridWithPacketStereo(rd *rangecoding.Decoder, dataLen, frameSize int, packetStereo bool, out []float32) error {
 	if dataLen <= 1 {
 		// opus_decode_frame can discard malformed redundancy and set len=0

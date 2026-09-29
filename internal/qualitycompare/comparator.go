@@ -127,7 +127,7 @@ type QualityBar struct {
 // Quality bars measure decoded-waveform agreement with libopus. They complement
 // exact packet and sample comparisons; a quality pass does not establish bit
 // equality or classify an unexplained difference as acceptable. A validated
-// rounding allowance also requires the evidence in reports/parity-target.md.
+// rounding allowance also requires the evidence in reports/validation.md#parity-contract.
 var (
 	QualityBarNearExact = QualityBar{MinQ: 20.0, MinCorr: 0.997, RMSLo: 0.98, RMSHi: 1.02, Desc: "near-exact vs libopus (SILK/CELT/Hybrid bar)"}
 	QualityBarRFC       = QualityBar{MinQ: 0.0, MinCorr: 0.985, RMSLo: 0.97, RMSHi: 1.03, Desc: "RFC 8251 conformance floor"}

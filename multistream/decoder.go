@@ -809,13 +809,9 @@ func (d *streamState) decodePacketToFloat32(data []byte, frameSize int) ([]float
 	return d.finishDecode32(out, nil)
 }
 
-// Decoder decodes Opus multistream packets containing multiple elementary streams.
-// Each stream is decoded independently and routed to output channels via a mapping table.
-//
-// Multistream packets are used for surround sound configurations (5.1, 7.1, etc.)
-// where multiple coupled (stereo) and uncoupled (mono) streams are combined.
-//
-// Reference: RFC 7845 Section 5.1.1
+// Decoder decodes multistream Opus packets and maps decoded stream channels to
+// interleaved output channels. It retains decoding state and is not safe for
+// concurrent use.
 type Decoder struct {
 	// sampleRate is the output sample rate (8000, 12000, 16000, 24000, or 48000 Hz).
 	sampleRate int32
@@ -877,29 +873,13 @@ type Decoder struct {
 	reframeArena arena.Bump[byte]
 }
 
-// NewDecoder creates a new multistream decoder.
-//
-// Parameters:
-//   - sampleRate: output sample rate (8–48 kHz, or 96 kHz with gopus_qext)
-//   - channels: total output channels (1-255)
-//   - streams: total elementary streams (N, 1-255)
-//   - coupledStreams: number of coupled stereo streams (M, 0 to streams)
-//   - mapping: channel mapping table (length must equal channels)
-//
-// The mapping table determines how decoded audio is routed to output channels:
-//   - Values 0 to 2*M-1: from coupled streams (even=left, odd=right of stereo pair)
-//   - Values 2*M to N+M-1: from uncoupled (mono) streams
-//   - Value 255: silent channel (output zeros)
-//
-// Example for 5.1 surround (6 channels, 4 streams, 2 coupled):
-//
-//	mapping = [0, 4, 1, 2, 3, 5]
-//	  Channel 0 (FL): mapping[0]=0 -> coupled stream 0, left
-//	  Channel 1 (C):  mapping[1]=4 -> uncoupled stream 2 (2*2+0)
-//	  Channel 2 (FR): mapping[2]=1 -> coupled stream 0, right
-//	  Channel 3 (RL): mapping[3]=2 -> coupled stream 1, left
-//	  Channel 4 (RR): mapping[4]=3 -> coupled stream 1, right
-//	  Channel 5 (LFE): mapping[5]=5 -> uncoupled stream 3 (2*2+1)
+// NewDecoder returns a multistream decoder for channels of interleaved PCM.
+// sampleRate must be 8, 12, 16, 24, or 48 kHz; 96 kHz is available with
+// gopus_qext. channels and streams must be in 1..255, coupledStreams in
+// 0..streams, and streams+coupledStreams at most 255. mapping has one entry per
+// output channel: 0..2*coupledStreams-1 selects a coupled stream channel,
+// 2*coupledStreams..streams+coupledStreams-1 selects a mono stream, and 255
+// produces silence. The mapping is copied.
 func NewDecoder(sampleRate, channels, streams, coupledStreams int, mapping []byte) (*Decoder, error) {
 	// Validate parameters
 	if !validSampleRate(sampleRate) {
@@ -1133,21 +1113,7 @@ func (d *Decoder) CoupledStreams() int {
 	return d.coupledStreams
 }
 
-// NewDecoderDefault creates a multistream decoder with default Vorbis-style mapping
-// for standard channel configurations (1-8 channels).
-//
-// This is a convenience function that calls DefaultMapping() to get the appropriate
-// streams, coupledStreams, and mapping for the given channel count.
-//
-// Supported channel counts:
-//   - 1: mono (1 stream, 0 coupled)
-//   - 2: stereo (1 stream, 1 coupled)
-//   - 3: 3.0 (2 streams, 1 coupled)
-//   - 4: quad (2 streams, 2 coupled)
-//   - 5: 5.0 (3 streams, 2 coupled)
-//   - 6: 5.1 surround (4 streams, 2 coupled)
-//   - 7: 6.1 surround (4 streams, 3 coupled)
-//   - 8: 7.1 surround (5 streams, 3 coupled)
+// NewDecoderDefault returns a decoder with the Vorbis mapping for 1–8 channels.
 func NewDecoderDefault(sampleRate, channels int) (*Decoder, error) {
 	streams, coupledStreams, mapping, err := DefaultMapping(channels)
 	if err != nil {

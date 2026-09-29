@@ -2,5 +2,6 @@
 .github/workflows/* @thesyncim
 SECURITY.md @thesyncim
 README.md @thesyncim
+reports/validation.md @thesyncim
 tools/ensure_libopus.sh @thesyncim
 Makefile @thesyncim

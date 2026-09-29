@@ -116,7 +116,7 @@ func (d *DRED) Clear() {
 	d.processStage = 0
 }
 
-// Empty reports whether any DRED payload is currently retained.
+// Empty reports whether this DRED state is nil or retains no payload.
 func (d *DRED) Empty() bool {
 	return d == nil || d.cache.Empty()
 }

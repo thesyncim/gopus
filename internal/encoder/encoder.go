@@ -1,40 +1,20 @@
-// Package encoder implements the unified Opus encoder defined by RFC 6716. Its
-// orchestration follows libopus 1.6.1 (src/opus_encoder.c): it owns the SILK and
-// CELT sub-encoders, selects a coding mode for each frame, runs the
-// rate/bandwidth control loop, and assembles the final Opus packet.
+// Package encoder implements the stateful Opus encoder described by RFC 6716.
+// It coordinates SILK, CELT, and Hybrid coding, selects a mode and bandwidth
+// for each frame, applies bitrate control, and assembles the packet.
 //
-// # Coding modes
+// A frame uses SILK for predictive speech coding, CELT for transform coding, or
+// both in Hybrid mode. [ModeAuto] selects among them from the configured rate
+// and the encoder's signal analysis. The frame path follows libopus 1.6.1's
+// `src/opus_encoder.c` and `src/analysis.c`.
 //
-// Every Opus frame is coded in exactly one mode (RFC 6716 Section 2):
+// [Encoder] retains analysis, sub-encoder, and transition history across calls.
+// Keep one encoder per stream and serialize access. [Encoder.FinalRange] exposes the
+// entropy coder's final range for paired comparisons; packet and range claims
+// apply to the matching reference configuration and tested cases. See the
+// coverage summary in `reports/validation.md#coverage`.
 //
-//   - SILK-only (configs 0-11): linear-prediction speech coder for narrowband
-//     through wideband, the lowest-rate VoIP path.
-//   - Hybrid (configs 12-15): SILK codes the 0-8kHz core while CELT codes the
-//     8-20kHz high band, for super-wideband and fullband speech.
-//   - CELT-only (configs 16-31): transform coder for music and low-latency audio.
-//
-// ModeAuto lets the encoder choose per frame from signal type, bitrate and the
-// tonality analyzer, mirroring the decision chain in opus_encoder.c.
-//
-// # Pipeline
-//
-// Encode and its variants run the libopus opus_encode_native pipeline for one
-// frame: optional variable high-pass / DC rejection on the input, the tonality
-// analysis ("the brain", see TonalityAnalysisState), mode and bandwidth
-// selection, delay compensation and mode-transition prefill, the SILK/CELT/Hybrid
-// bridge, the VBR/CBR/CVBR rate controller, DTX activity detection, and packet
-// assembly (see BuildPacket). Sub-encoders and large scratch buffers are created
-// lazily and reused across frames so steady-state encoding is allocation-free.
-//
-// # Determinism and parity
-//
-// The implementation uses libopus-matching numeric types (opus_val16,
-// opus_val32, and opus_res). FinalRange exposes the range-coder state for oracle
-// comparisons. Exact packet and range coverage is scoped to the configurations
-// and cases recorded in reports/go-simd-kernel-evidence.md. Matching libopus
-// output also requires the same controls and input sequence.
-//
-// References: RFC 6716; libopus 1.6.1 src/opus_encoder.c, src/analysis.c.
+// Most applications should use the top-level gopus API, which owns this
+// implementation state and packet framing.
 package encoder
 
 import (

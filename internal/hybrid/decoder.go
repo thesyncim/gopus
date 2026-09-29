@@ -1,8 +1,3 @@
-// Package hybrid implements the Hybrid decoder for Opus.
-// Hybrid mode combines SILK (low frequencies, 0-8kHz) with CELT (high frequencies, 8-20kHz)
-// for super-wideband and fullband speech at medium bitrates.
-//
-// Reference: RFC 6716 Section 3.2 (Hybrid mode)
 package hybrid
 
 import (
@@ -38,14 +33,11 @@ var (
 	ErrNilDecoder = errors.New("hybrid: nil range decoder")
 )
 
-// Decoder decodes Hybrid-mode Opus frames (SILK + CELT combined).
-// Hybrid mode uses SILK for 0-8kHz and CELT for 8-20kHz.
-//
-// The decoder coordinates two sub-decoders:
-// - SILK: Decodes low-frequency content at WB (16kHz), upsampled to 48kHz
-// - CELT: Decodes high-frequency content (bands 17-21) at 48kHz
-//
-// SILK alignment is handled by the shared SILK resampler state before summing with CELT.
+// Decoder decodes Hybrid frames with a SILK low band and CELT high bands.
+// It keeps separate child decoder state, passes the packet's shared range
+// decoder through both layers, and combines their PCM at the configured API
+// rate. A Decoder and its child state belong to one stream; it is not safe for
+// concurrent calls.
 type Decoder struct {
 	// Sub-decoders
 	silkDecoder *silk.Decoder
@@ -113,12 +105,9 @@ func (d *Decoder) SetFixedHighband(h FixedHybridHighband) {
 	d.fixedHighband = h
 }
 
-// NewDecoder creates a new Hybrid decoder with the given number of channels.
-// Valid channel counts are 1 (mono) or 2 (stereo).
-//
-// The decoder initializes:
-// - SILK decoder in WB (wideband, 16kHz) mode (always WB for hybrid)
-// - CELT decoder for high-frequency bands
+// NewDecoder creates a Hybrid decoder for one or two channels. Values below one
+// select mono; values above two select stereo. The API sample rate defaults to
+// 48 kHz, and Hybrid frames use the wideband SILK decoder plus CELT high bands.
 func NewDecoder(channels int) *Decoder {
 	if channels < 1 {
 		channels = 1
@@ -143,8 +132,10 @@ func NewDecoder(channels int) *Decoder {
 	}
 }
 
-// NewDecoderWithSharedDecoders creates a Hybrid decoder that reuses external SILK/CELT decoders.
-// This is useful for sharing decoder state across Opus modes.
+// NewDecoderWithSharedDecoders creates a Hybrid decoder using the supplied SILK
+// and CELT decoders where non-nil. The caller configures those child decoders
+// for the same channel count and stream, then shares them across mode decoders
+// to preserve their histories.
 func NewDecoderWithSharedDecoders(channels int, silkDec *silk.Decoder, celtDec *celt.Decoder) *Decoder {
 	d := NewDecoder(channels)
 	if silkDec != nil {
@@ -156,7 +147,11 @@ func NewDecoderWithSharedDecoders(channels int, silkDec *silk.Decoder, celtDec *
 	return d
 }
 
-// SetAPISampleRate sets the public decoder rate used for hybrid PCM output.
+// SetAPISampleRate sets the output rate for Hybrid PCM. Rates of 8, 12, 16, 24,
+// and 48 kHz update the SILK resampler and CELT downsample factor. With QEXT,
+// 96 kHz selects native CELT mode, which the parent decoder configures. Without
+// QEXT, a 96 kHz request leaves the current rate unchanged. Other values select
+// 48 kHz.
 func (d *Decoder) SetAPISampleRate(sampleRate int) {
 	switch sampleRate {
 	case 8000, 12000, 16000, 24000, 48000:
@@ -246,15 +241,14 @@ func (d *Decoder) RecordPLCLoss() float32 {
 	return d.plcState.RecordLoss()
 }
 
-// FinalRange returns the final range coder state after decoding.
-// This matches libopus OPUS_GET_FINAL_RANGE and is used for bitstream verification.
-// For hybrid mode, this returns the CELT decoder's final range since CELT encodes last.
+// FinalRange returns the final range coder state after decoding a Hybrid frame.
+// It reports the CELT range because CELT consumes the range decoder after SILK.
 func (d *Decoder) FinalRange() uint32 {
 	return d.celtDecoder.FinalRange()
 }
 
-// ValidHybridFrameSize returns true if the frame size is valid for hybrid mode.
-// Hybrid only supports 10ms (480 samples) and 20ms (960 samples) at 48kHz.
+// ValidHybridFrameSize reports whether frameSize is 480 or 960 samples at
+// 48 kHz, the supported 10 ms and 20 ms encoded Hybrid frame sizes.
 func ValidHybridFrameSize(frameSize int) bool {
 	return frameSize == 480 || frameSize == 960
 }
@@ -267,15 +261,9 @@ func (d *Decoder) frameSize48FromAPI(frameSize int) int {
 	return frameSize * 48000 / apiSampleRate
 }
 
-// decodeFrame decodes a single hybrid frame using a shared range decoder.
-// This is the core decoding function that coordinates SILK and CELT.
-//
-// Parameters:
-//   - rd: Range decoder (shared between SILK and CELT)
-//   - frameSize: Expected output samples at 48kHz (480 or 960)
-//   - stereo: True for stereo decoding
-//
-// Returns: PCM samples as float32 slice at 48kHz
+// decodeFrame decodes one Hybrid frame from a range decoder shared by SILK and
+// CELT. frameSize is per-channel samples at the configured API rate; the frame
+// must represent 10 ms or 20 ms in the 48 kHz codec domain.
 func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, packetStereo bool) ([]float32, error) {
 	return d.decodeFrameWithHook(rd, frameSize, packetStereo, nil)
 }
@@ -285,8 +273,9 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 	return d.decodeFrameWithHookFloat32(rd, frameSize, packetStereo, afterSilk, nil)
 }
 
-// DecodeWithDecoderHookToFloat32 decodes a hybrid frame and writes the final
-// 48 kHz output directly into out.
+// DecodeWithDecoderHookToFloat32 decodes a Hybrid frame and writes its
+// interleaved float32 output at the configured API rate into out. frameSize is
+// the per-channel sample count; out must hold frameSize times Channels samples.
 func (d *Decoder) DecodeWithDecoderHookToFloat32(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) (int, error), out []float32) error {
 	channels := int(d.channels)
 	if len(out) < frameSize*channels {

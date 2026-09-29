@@ -1,50 +1,8 @@
-// Package red implements RFC 2198 RTP Payload for Redundant Audio Data.
+// Package red implements RFC 2198 redundancy for RTP payloads.
 //
-// RED wraps one or more Opus payloads in a single RTP packet. The primary
-// block carries the most recent frame; zero or more redundant blocks carry
-// earlier frames whose original RTP packets may have been lost. A receiver
-// that detects a gap in the sequence can recover missing frames directly from
-// the redundant blocks, avoiding PLC or FEC decode overhead.
-//
-// Wire format (RFC 2198 §2):
-//
-//	+-------+-------+-------+-------+
-//	|F|  PT |     timestamp offset  |
-//	+-------+-------+-------+-------+
-//	|             length            |
-//	+-------+-------+-------+-------+
-//	     ... repeated for each redundant block ...
-//	+-------+-------+-------+-------+
-//	|0|  PT |   (primary block)     |
-//	+-------+-------+-------+-------+
-//	     redundant payloads in order, then primary payload
-//
-// The F bit (0x80) is set for every header except the last (primary) one.
-// Timestamp offsets are unsigned, measured backwards from the primary
-// timestamp (i.e. primary_ts − redundant_ts). Block lengths are 10-bit
-// values fitting in two bytes together with the lower 2 bits of the offset.
-//
-// Encoder and Decoder are the high-level, allocation-free API; they own their
-// buffers and the redundant-frame history so callers do not manage them. Parse,
-// Build, AppendHistory and FindRecovery remain as the underlying stateless
-// primitives.
-//
-// Typical send path:
-//
-//	enc := red.NewEncoder(opusPT, frameSamples, depth)
-//	for each frame:
-//	    payload, _ := enc.Encode(primary, timestamp)
-//	    send(payload) // valid until the next Encode
-//
-// Typical receive path:
-//
-//	dec := red.NewDecoder(opusPT)
-//	primary, blocks, err := dec.Parse(pkt.Payload)
-//	for lostAgo := missing; lostAgo >= 1; lostAgo-- {
-//	    if b := red.FindRecovery(blocks, lostAgo, frameSamples, pkt.Timestamp, missingTS); b != nil {
-//	        // decode b as Opus
-//	    }
-//	}
+// A RED payload carries a primary packet and may include older packets as
+// redundant blocks. Parse and Build provide stateless helpers; Decoder and
+// Encoder retain reusable buffers and packet history for stream processing.
 package red
 
 import "errors"
@@ -93,24 +51,13 @@ type Frame struct {
 	Payload []byte
 }
 
-// ParseInto decodes an RFC 2198 RED payload, appending the redundant blocks
-// into dst[:0] and returning the primary Opus payload alongside them. Reusing a
-// dst slice with capacity >= the block count (at most MaxDepth) across packets
-// makes parsing allocation-free; passing a nil dst allocates a fresh slice.
-//
-// blocks are ordered oldest-first (the order they appear on the wire).
-// primaryPayloadType is the expected RTP payload type for both the primary and
-// all redundant blocks (e.g. 111 for Opus in WebRTC). ParseInto returns one of
-// the package sentinel errors for any condition defined in RFC 2198:
-//
-//   - empty input
-//   - truncated header or payload region
-//   - a redundant block with zero timestamp offset or zero length
-//   - more than MaxDepth redundant blocks
-//   - a payload type that does not match primaryPayloadType
-//
-// ParseInto does not copy payload bytes; the returned primary slice and Block
-// Payload fields reference the input buf directly.
+// ParseInto parses a RED payload into dst[:0] and returns the primary payload
+// and redundant blocks in wire order. It reuses dst when its capacity is
+// sufficient; it does not append after dst's existing elements. The returned
+// payload slices alias buf; copy them if they must outlive or remain independent
+// of that input buffer. It returns an error for empty or truncated input,
+// invalid blocks, unexpected payload types, a missing primary block, or more
+// than MaxDepth blocks.
 func ParseInto(buf []byte, primaryPayloadType byte, dst []Block) (primary []byte, blocks []Block, err error) {
 	if len(buf) == 0 {
 		return nil, nil, errEmptyPayload
@@ -185,23 +132,16 @@ func Parse(buf []byte, primaryPayloadType byte) (primary []byte, blocks []Block,
 	return ParseInto(buf, primaryPayloadType, nil)
 }
 
-// BuildAppend constructs an RFC 2198 RED payload into dst[:0], returning the
-// encoded payload and the total number of redundant payload bytes included.
-// Reusing a dst buffer across calls makes building allocation-free; passing a
-// nil dst allocates a fresh buffer.
-//
-// The payload contains the primary Opus payload and up to depth redundant copies
-// drawn from history, which must be ordered newest-first (as returned by
-// AppendHistory). frameSamples is the number of RTP timestamp ticks per Opus
-// frame (960 for 20 ms at 48 kHz). Only history entries whose timestamp
-// difference from primaryTimestamp is an exact multiple of frameSamples and fits
-// in 14 bits are eligible as redundant blocks.
-//
-// Special cases:
-//   - If primary is empty, the result is empty with 0 redundant bytes.
-//   - If depth ≤ 0, the result is a raw copy of primary (no RED envelope).
-//   - If frameSamples ≤ 0, primary is wrapped in a minimal RED envelope with no
-//     redundant blocks (one primary header + payload).
+// BuildAppend writes a RED payload to dst[:0], returning the payload and the
+// total number of redundant payload bytes. It replaces the previous contents of
+// dst; history must be ordered newest-first, as returned by AppendHistory. depth
+// is clamped to MaxDepth. frameSamples is the RTP timestamp increment per Opus
+// frame; eligible history entries must be at an exact multiple of that interval,
+// have a 14-bit timestamp offset, and fit the 10-bit block-length field. A nil
+// dst may allocate; reusing a sufficiently large dst avoids allocation. An
+// empty primary produces an empty result. A nonpositive depth copies primary
+// without a RED header, while nonpositive frameSamples emits only the primary
+// RED header and payload.
 func BuildAppend(dst []byte, primary []byte, primaryTimestamp uint32, history []Frame, depth, frameSamples int, primaryPayloadType byte) (out []byte, redundantBytes int) {
 	if len(primary) == 0 || depth <= 0 {
 		return append(dst[:0], primary...), 0
@@ -270,15 +210,11 @@ func Build(primary []byte, primaryTimestamp uint32, history []Frame, depth, fram
 	return BuildAppend(nil, primary, primaryTimestamp, history, depth, frameSamples, primaryPayloadType)
 }
 
-// FindRecovery searches blocks for a redundant entry whose timestamp matches
-// the given missingTimestamp. lostAgo is the number of frames back the missing
-// packet is relative to the packet that carried blocks (e.g. 1 means it is the
-// immediately preceding frame). frameSamples is the RTP timestamp increment per
-// frame.
-//
-// The expected timestamp offset is lostAgo*frameSamples. If currentTimestamp −
-// missingTimestamp does not equal that value, or no block carries a matching
-// offset, FindRecovery returns nil.
+// FindRecovery returns the redundant payload for the missing timestamp, if it
+// is present in blocks. lostAgo is the number of frames between the current and
+// missing packets; frameSamples is the RTP timestamp increment per frame. It
+// returns nil when the timestamp difference does not match or no block covers
+// that offset.
 func FindRecovery(blocks []Block, lostAgo, frameSamples int, currentTimestamp, missingTimestamp uint32) []byte {
 	if lostAgo <= 0 || frameSamples <= 0 {
 		return nil
@@ -295,15 +231,11 @@ func FindRecovery(blocks []Block, lostAgo, frameSamples int, currentTimestamp, m
 	return nil
 }
 
-// AppendHistory inserts payload as the newest (front) Frame of history, trims to
-// at most maxDepth entries, and returns the updated slice — store it as your new
-// history. The input payload is copied so the caller may reuse its buffer.
-//
-// To stay allocation-free once the window is full, AppendHistory shifts the
-// slice in place and recycles the payload buffer of the entry it evicts. A
-// Frame's Payload is therefore only valid while that Frame remains within the
-// maxDepth window; do not retain it after it falls out. If payload is empty or
-// maxDepth <= 0, history is returned unchanged.
+// AppendHistory copies payload into the front of history, trims the result to
+// maxDepth entries, and returns the updated slice. When history is full, it
+// reuses the evicted payload buffer if its capacity is sufficient; otherwise it
+// allocates a new buffer. A Frame.Payload remains valid only while that frame is
+// retained. Empty payloads and nonpositive maxDepth leave history unchanged.
 func AppendHistory(history []Frame, payload []byte, timestamp uint32, maxDepth int) []Frame {
 	if len(payload) == 0 || maxDepth <= 0 {
 		return history

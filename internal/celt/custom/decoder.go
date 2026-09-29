@@ -112,7 +112,8 @@ func (cd *CustomDecoder) Mode() *CustomMode { return cd.mode }
 // Channels returns the channel count.
 func (cd *CustomDecoder) Channels() int { return cd.channels }
 
-// SetSignalling enables or disables parsing the one-byte custom frame header.
+// SetSignalling enables or disables parsing the one-byte frame header. The
+// header form depends on the build and mode.
 // NewDecoder enables it by default, matching opus_custom_decoder_create().
 // Disable it only when decoding a raw CELT payload whose frame size and
 // channel count are supplied out of band.

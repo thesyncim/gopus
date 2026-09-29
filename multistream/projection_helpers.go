@@ -1,14 +1,9 @@
 package multistream
 
-// SetProjectionDemixingMatrix sets optional projection demixing coefficients.
-// Matrix data is S16LE, column-major, with dimensions:
-//
-//	rows = output channels
-//	cols = streams + coupledStreams
-//
-// This method is intended for mapping-family-3 projection flows where
-// decoded stream channels are routed with trivial mapping and then demixed
-// to output channels.
+// SetProjectionDemixingMatrix sets the optional S16LE projection matrix in
+// column-major order. It expects outputChannels rows and streams+coupledStreams
+// columns, and requires identity channel mapping. The matrix is copied; an
+// empty slice clears demixing.
 func (d *Decoder) SetProjectionDemixingMatrix(matrix []byte) error {
 	if len(matrix) == 0 {
 		d.projectionDemixing = nil

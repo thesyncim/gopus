@@ -165,7 +165,8 @@ func (ce *CustomEncoder) Mode() *CustomMode { return ce.mode }
 // Channels returns the channel count.
 func (ce *CustomEncoder) Channels() int { return ce.channels }
 
-// SetSignalling enables or disables the one-byte custom frame header.
+// SetSignalling enables or disables the one-byte frame header. The header form
+// depends on the build and mode.
 // NewEncoder enables it by default, matching opus_custom_encoder_create().
 // Disable it only when encoding a raw CELT payload for a caller that supplies
 // frame size and channel count out of band.

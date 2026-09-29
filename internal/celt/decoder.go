@@ -5,13 +5,9 @@ import (
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
-// DecodeFrame decodes a complete CELT frame from raw bytes.
-// If data is nil, empty, or a single byte, performs Packet Loss Concealment (PLC) instead of decoding.
-// data: raw CELT frame bytes (without Opus framing), or len <= 1 for PLC
-// frameSize: expected output samples (120, 240, 480, or 960)
-// Returns: PCM samples as float32 slice, interleaved if stereo
-//
-// Reference: RFC 6716 Section 4.3, libopus celt/celt_decoder.c celt_decode_with_ec()
+// DecodeFrame decodes a CELT payload without Opus framing. frameSize is the
+// per-channel sample count. Payloads of at most one byte request packet-loss
+// concealment. The result is interleaved float32 PCM for stereo decoders.
 func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float32, error) {
 	d.handleChannelTransition(int(d.channels))
 	var qextPayload []byte
@@ -31,8 +27,9 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float32, error) {
 	return d.decodeFrame(rd, frameSize, qextPayload)
 }
 
-// DecodeFrameWithDecoder decodes a frame using a pre-initialized range decoder.
-// This is useful when the range decoder is shared with other layers (e.g., SILK in hybrid mode).
+// DecodeFrameWithDecoder decodes a CELT frame from an initialized range
+// decoder, starting at band 0. Callers that need Hybrid band accumulation use
+// [Decoder.AccumulateFrameHybridWithPacketStereo].
 func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int) ([]float32, error) {
 	if rd == nil {
 		return nil, ErrNilDecoder

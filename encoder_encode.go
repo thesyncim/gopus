@@ -13,17 +13,10 @@ func translateEncoderError(err error) error {
 	return err
 }
 
-// Encode encodes float32 PCM samples into an Opus packet.
-//
-// pcm: Input samples (interleaved if stereo). Length must be frameSize * channels.
-// data: Output buffer for the encoded packet. Recommended size is 4000 bytes.
-//
-// Returns the number of bytes written to data, or an error.
-// When DTX is active during silence, returns a 1-byte TOC-only packet.
-// Returns 0 bytes only when buffering (internal lookahead not yet filled).
-//
-// The output buffer length is the packet byte budget. Longer packets and
-// optional extensions can require more than the recommended 4000 bytes.
+// Encode encodes interleaved float32 PCM into data. pcm must contain the
+// configured frame size times Channels samples. len(data) is the packet byte
+// budget; Encode returns the number of bytes written or an error. The returned
+// packet may be a one-byte DTX packet during silence.
 func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 	if e.is96kHz() {
 		return e.encode96k(pcm, data, encoder.EncodeInputFloat32)
@@ -61,14 +54,9 @@ func (e *Encoder) encode96k(pcm []float32, data []byte, input encoder.EncodeInpu
 	return 0, ErrInvalidSampleRate
 }
 
-// EncodeInt16 encodes int16 PCM samples into an Opus packet.
-//
-// pcm: Input samples (interleaved if stereo). Length must be frameSize * channels.
-// data: Output buffer for the encoded packet.
-//
-// Returns the number of bytes written to data, or an error.
-//
-// The samples are converted from int16 by dividing by 32768.
+// EncodeInt16 encodes interleaved signed 16-bit PCM into data. pcm must contain
+// the configured frame size times Channels samples. len(data) is the packet
+// byte budget. Input samples are scaled by 1/32768.
 func (e *Encoder) EncodeInt16(pcm []int16, data []byte) (int, error) {
 	expected := e.apiFrameSize() * int(e.channels)
 	if len(pcm) != expected {
@@ -110,17 +98,10 @@ func (e *Encoder) encodeInt16Packet(pcm32 []float32, data []byte) (int, error) {
 	return copyEncodedPacket(packet, data)
 }
 
-// EncodeInt24 encodes 24-bit PCM samples stored in int32 values into an Opus packet.
-//
-// pcm: Input samples (interleaved if stereo). Length must be frameSize * channels.
-// data: Output buffer for the encoded packet.
-//
-// Returns the number of bytes written to data, or an error.
-//
-// The input values are interpreted with the same semantics as libopus
-// opus_encode24(): right-justified signed 24-bit PCM carried in int32
-// containers with numeric range [-8388608, 8388607]. Left-shifted 24-in-32
-// input will be mis-scaled.
+// EncodeInt24 encodes interleaved signed 24-bit PCM into data. Each int32 in
+// pcm must be right-justified in the range [-8388608, 8388607], and pcm must
+// contain the configured frame size times Channels samples. len(data) is the
+// packet byte budget.
 func (e *Encoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
 	channels := int(e.channels)
 	expected := e.apiFrameSize() * channels
@@ -160,38 +141,24 @@ func (e *Encoder) convertInt24ToFloat32(pcm []int32) []float32 {
 	return pcm32
 }
 
-// EncodeFloat32 encodes float32 PCM samples and returns a new byte slice.
-//
-// This is a convenience method that allocates the output buffer.
-// For performance-critical code, use Encode with a pre-allocated buffer.
-//
-// pcm: Input samples (interleaved if stereo).
-//
-// Returns the encoded packet or an error.
+// EncodeFloat32 encodes interleaved float32 PCM and returns an owned packet
+// slice.
 func (e *Encoder) EncodeFloat32(pcm []float32) ([]byte, error) {
 	return encodeToOwnedPacket(maxPacketBytesPerStream, func(data []byte) (int, error) {
 		return e.Encode(pcm, data)
 	})
 }
 
-// EncodeInt16Slice encodes int16 PCM samples and returns a new byte slice.
-//
-// This is a convenience method that allocates the output buffer.
-// For performance-critical code, use EncodeInt16 with a pre-allocated buffer.
-//
-// pcm: Input samples (interleaved if stereo).
-//
-// Returns the encoded packet or an error.
+// EncodeInt16Slice encodes interleaved signed 16-bit PCM and returns an owned
+// packet slice.
 func (e *Encoder) EncodeInt16Slice(pcm []int16) ([]byte, error) {
 	return encodeToOwnedPacket(maxPacketBytesPerStream, func(data []byte) (int, error) {
 		return e.EncodeInt16(pcm, data)
 	})
 }
 
-// EncodeInt24Slice encodes 24-bit PCM samples stored in int32 values and returns a new byte slice.
-//
-// This is a convenience method that allocates the output buffer.
-// For performance-critical code, use EncodeInt24 with a pre-allocated buffer.
+// EncodeInt24Slice encodes interleaved right-justified signed 24-bit PCM stored
+// in int32 values and returns an owned packet slice.
 func (e *Encoder) EncodeInt24Slice(pcm []int32) ([]byte, error) {
 	return encodeToOwnedPacket(maxPacketBytesPerStream, func(data []byte) (int, error) {
 		return e.EncodeInt24(pcm, data)

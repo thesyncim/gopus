@@ -2,7 +2,7 @@
 
 gopus is a pure-Go, no-cgo implementation of the Opus audio codec (RFC 6716 /
 RFC 8251) that targets **strong behavioral and quality parity with libopus 1.6.1**,
-with scoped byte-exact guarantees under `reports/parity-target.md`. The
+with scoped byte-exact guarantees under `reports/validation.md#parity-contract`. The
 pinned reference lives in `tmp_check/opus-1.6.1/`; when behavior is uncertain,
 gopus matches libopus unless fixture evidence says otherwise.
 
@@ -12,7 +12,7 @@ uses…", "removed…"); describe what the code does today.
 
 ## Prime directive: parity, proven against a live C oracle
 
-- Follow `reports/parity-target.md`: exact API/protocol behavior, integer
+- Follow `reports/validation.md#parity-contract`: exact API/protocol behavior, integer
   primitives and conversions on identical inputs, and
   same-packet entropy ranges; preserve established byte-exact coverage. Universal
   floating-point or encoder packet identity across compiler targets is not a
@@ -46,7 +46,7 @@ uses…", "removed…"); describe what the code does today.
   compiler-specific hot-loop calls solely for last-bit identity once a numerical
   difference is validated. A measured 1–2% end-to-end variation is acceptable.
 - Validated coverage, reference exceptions, and measured performance are recorded
-  in `reports/go-simd-kernel-evidence.md`. Passing a subset of tests does not
+  in `reports/validation.md#performance`. Passing a subset of tests does not
   prove complete parity.
 
 ## Libopus type parity

@@ -8,7 +8,7 @@ func (e *Encoder) SetQEXT(enabled bool) error {
 	return nil
 }
 
-// QEXT reports whether the optional extended-precision theta path is enabled.
+// QEXT reports whether the optional CELT QEXT encoder extension is enabled.
 func (e *Encoder) QEXT() (bool, error) {
 	return e.enc.QEXT(), nil
 }

@@ -13,12 +13,9 @@ func (d *Decoder) OSCEBWEModelLoaded() bool {
 	return d.osceBWEModelLoaded
 }
 
-// SetOSCEBWE stores tag-gated OSCE_BWE enable state and fans it out to every
-// child stream decoder. libopus exposes the matching control via
-// `OPUS_SET_DNN_BLOB` + `OPUS_SET_OSCE_METHOD` semantics by toggling
-// `DecControl.enable_osce_bwe` on each per-stream decoder; the gopus
-// multistream wiring mirrors that so an enabled control applies to every
-// SILK-WB stream in the multistream packet.
+// SetOSCEBWE stores the OSCE_BWE enable setting and propagates it to every
+// child stream decoder, matching libopus OPUS_SET_OSCE_BWE. It does not load
+// the OSCE_BWE model; SetDNNBlob handles model loading separately.
 func (d *Decoder) SetOSCEBWE(enabled bool) {
 	d.osceBWEEnabled = enabled
 	for _, dec := range d.decoders {

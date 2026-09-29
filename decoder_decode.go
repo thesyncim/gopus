@@ -5,28 +5,17 @@ import (
 	"github.com/thesyncim/gopus/internal/silk"
 )
 
-// Decode decodes an Opus packet into float32 PCM samples.
+// Decode decodes data into interleaved float32 PCM in pcm. The buffer must hold
+// at least the decoded samples per channel multiplied by Channels. The returned
+// sample count is per channel.
 //
-// data: Opus packet data, or nil for Packet Loss Concealment (PLC).
-// pcm: Output buffer for decoded samples. Must be large enough to hold
-// frameSize * frameCount * channels samples, where frameSize and frameCount
-// are determined from the packet TOC and frame code.
-//
-// Returns the number of samples per channel decoded, or an error.
-//
-// When data is nil, the decoder performs packet loss concealment using
-// the last successfully decoded frame parameters. Before the first packet has
-// been decoded, cold PLC returns zeroed audio and a nil error.
-//
-// Buffer sizing: For 60ms frames at 48kHz stereo, pcm must have at least
-// 2880 * 2 = 5760 elements. For multi-frame packets (code 1/2/3), the buffer
-// must be large enough for all frames combined.
-//
-// Multi-frame packets (RFC 6716 Section 3.2):
-//   - Code 0: 1 frame (most common)
-//   - Code 1: 2 equal-sized frames
-//   - Code 2: 2 different-sized frames
-//   - Code 3: Arbitrary number of frames (1-48)
+// An empty data slice performs packet loss concealment. pcm requests the
+// per-channel duration and must contain a multiple of 2.5 ms for every channel.
+// If pcm has exactly DecoderConfig.MaxPacketSamples*Channels elements and a
+// packet has already been decoded, Decode uses the last packet duration. Before
+// the first packet, concealment returns zeroed PCM. Decode returns an error for
+// malformed packets, configured packet-limit violations, or a short output
+// buffer.
 func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	if len(pcm) < int(d.channels) {
 		// The public libopus wrappers reject frame_size <= 0 before packet parsing
@@ -420,11 +409,12 @@ func (d *Decoder) decodeMultiFrameFloat32(pcm []float32, data []byte, toc *TOC, 
 	return offsetSamples, nil
 }
 
-// DecodeWithFEC decodes an Opus packet, optionally recovering a lost frame using FEC.
-//
-// This mirrors libopus decode_fec semantics: when fec is true, the decoder
-// uses in-band LBRR data if present and otherwise falls back to packet loss
-// concealment instead of returning a missing-FEC error.
+// DecodeWithFEC decodes data into interleaved float32 PCM. When fec is true,
+// data is the packet received after a loss, and len(pcm)/Channels requests the
+// missing duration in samples per channel. The duration must be a multiple of
+// 2.5 ms. The decoder uses in-band FEC when available and otherwise performs
+// packet loss concealment. It returns samples per channel. Call Decode with the
+// same packet afterward to decode that packet's primary frame.
 func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, error) {
 	if len(pcm) < int(d.channels) {
 		return 0, ErrBufferTooSmall
@@ -518,7 +508,9 @@ func (d *Decoder) decodeWithFECFloat32(data []byte, pcm []float32) (int, error) 
 	return d.decodePLCForFEC(pcm, frameSize)
 }
 
-// DecodeInt16 decodes an Opus packet into int16 PCM samples.
+// DecodeInt16 decodes data into interleaved signed 16-bit PCM in pcm. The
+// returned sample count is per channel; pcm must hold the decoded samples for
+// every channel. An empty data slice performs packet loss concealment.
 func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	if len(pcm) < int(d.channels) {
 		return 0, ErrBufferTooSmall
@@ -598,14 +590,10 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	return n, nil
 }
 
-// DecodeInt24 decodes an Opus packet into 24-bit PCM samples stored in int32.
-//
-// data: Opus packet data, or nil for Packet Loss Concealment (PLC).
-// pcm: Output buffer for decoded samples. Each element carries a signed
-// 24-bit value in the range [-8388608, 8388607] (= ±2^23), right-justified
-// in int32 — the same convention as libopus opus_decode24().
-//
-// Returns the number of samples per channel decoded, or an error.
+// DecodeInt24 decodes data into interleaved signed 24-bit PCM stored in pcm.
+// Each int32 holds a right-justified value in [-8388608, 8388607]. The returned
+// sample count is per channel; pcm must hold the decoded samples for every
+// channel. An empty data slice performs packet loss concealment.
 func (d *Decoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
 	if len(pcm) < int(d.channels) {
 		return 0, ErrBufferTooSmall
@@ -684,11 +672,9 @@ func (d *Decoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
 	return n, nil
 }
 
-// DecodeInt24Slice decodes an Opus packet into 24-bit PCM samples and returns a
-// new int32 slice. Each element carries a right-justified signed 24-bit value.
-//
-// This is a convenience method that allocates the output buffer.
-// For performance-critical code, use DecodeInt24 with a pre-allocated buffer.
+// DecodeInt24Slice decodes data into a newly allocated interleaved PCM slice.
+// Each int32 holds a right-justified signed 24-bit value. The returned slice is
+// owned by the caller.
 func (d *Decoder) DecodeInt24Slice(data []byte) ([]int32, error) {
 	channels := int(d.channels)
 	var frameSize int

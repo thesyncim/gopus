@@ -79,7 +79,7 @@ func TestOracleQEXTFloatCustomSequence(t *testing.T) {
 	var cases []customSequenceCase
 	// libopus reads outside its synthesis history at n=2048. That geometry
 	// has a safe-Go regression below; it is not a valid stateful C oracle.
-	// See reports/libopus-custom-qext-boundaries.md for the sanitizer evidence.
+	// See reports/validation.md#reference-boundary for the sanitizer evidence.
 	for _, n := range []int{240, 600, 1024, 1440, 1920} {
 		for _, channels := range []int{1, 2} {
 			tc := customSequenceCase{name: fmt.Sprintf("n%d_ch%d", n, channels), fs: 96000, frameSize: n, channels: channels, maxBytes: 200}

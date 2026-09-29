@@ -8,20 +8,17 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
-// Application hints the encoder for optimization.
+// Application selects the encoder's intended use.
 type Application int
 
 const (
-	// ApplicationVoIP optimizes for speech transmission with low latency.
-	// Prefers SILK mode for speech frequencies.
+	// ApplicationVoIP tunes the encoder for interactive speech.
 	ApplicationVoIP Application = iota
 
-	// ApplicationAudio optimizes for music and high-quality audio.
-	// Prefers CELT/Hybrid mode for full-bandwidth audio.
+	// ApplicationAudio tunes the encoder for general audio.
 	ApplicationAudio
 
 	// ApplicationLowDelay minimizes algorithmic delay.
-	// Uses CELT mode exclusively with small frame sizes.
 	ApplicationLowDelay
 
 	// ApplicationRestrictedSilk forces SILK-only encoding.
@@ -33,8 +30,7 @@ const (
 	ApplicationRestrictedCelt
 )
 
-// Signal represents a hint about the input signal type.
-// This helps the encoder optimize for speech or music content.
+// Signal is a hint about the input signal type.
 type Signal = types.Signal
 
 const (
@@ -46,7 +42,7 @@ const (
 	SignalMusic = types.SignalMusic
 )
 
-// BitrateMode controls how the encoder sizes packets.
+// BitrateMode selects variable, constrained-variable, or constant bitrate.
 type BitrateMode = encoder.BitrateMode
 
 const (
@@ -58,7 +54,7 @@ const (
 	BitrateModeCBR = encoder.ModeCBR
 )
 
-// EncoderMode controls the encoder's forced coding mode.
+// EncoderMode selects automatic coding-mode selection or forces a coding mode.
 type EncoderMode = encoder.Mode
 
 const (
@@ -73,16 +69,15 @@ const (
 )
 
 const (
-	// BitrateAuto lets the encoder pick the bitrate from the sample rate,
-	// channel count, and application (libopus OPUS_AUTO). It is the default.
+	// BitrateAuto asks the encoder to choose a bitrate from the stream format and
+	// application (libopus OPUS_AUTO).
 	BitrateAuto = encoder.BitrateAuto
 	// BitrateMax tells the encoder to use as many bits as the output buffer
 	// allows for each frame (libopus OPUS_BITRATE_MAX).
 	BitrateMax = encoder.BitrateMax
 )
 
-// In-band FEC modes for SetInBandFEC. These mirror the libopus
-// OPUS_SET_INBAND_FEC values.
+// In-band FEC modes accepted by SetInBandFEC.
 const (
 	// InBandFECDisabled turns in-band forward error correction off (value 0).
 	InBandFECDisabled = encoder.InBandFECDisabled
@@ -93,7 +88,8 @@ const (
 	InBandFECMusicSafe = encoder.InBandFECMusicSafe
 )
 
-// EncoderConfig configures an Encoder instance.
+// EncoderConfig sets the sample rate, channel count, and application for an
+// Encoder.
 type EncoderConfig struct {
 	// SampleRate must be 8000, 12000, 16000, 24000, or 48000 Hz.
 	// Builds with gopus_qext also accept 96000 Hz.
@@ -104,21 +100,9 @@ type EncoderConfig struct {
 	Application Application
 }
 
-// Encoder encodes PCM audio samples into Opus packets.
-//
-// An Encoder instance maintains internal state and is NOT safe for concurrent use.
-// Each goroutine should create its own Encoder instance.
-//
-// The encoder supports three modes:
-//   - SILK: optimized for speech at lower bitrates
-//   - CELT: optimized for music and high-quality audio
-//   - Hybrid: combines SILK and CELT for wideband speech
-//
-// The mode is automatically selected based on the Application hint and bandwidth settings.
-//
-// Encode, EncodeInt16 and EncodeInt24 reuse internal scratch and caller-owned
-// output buffers. Supported hot paths perform zero heap allocations after
-// warm-up for the active configuration.
+// Encoder encodes interleaved PCM into Opus packets. It retains stream state and
+// is not safe for concurrent use; use one Encoder per stream. Encode and its
+// integer variants write packet data into the caller's buffer.
 type Encoder struct {
 	enc                 *encoder.Encoder
 	sampleRate          int32
@@ -134,9 +118,9 @@ type Encoder struct {
 	encoderHD96kFields
 }
 
-// NewEncoder creates a new Opus encoder.
-//
-// Returns an error if the config is invalid.
+// NewEncoder returns an Encoder configured by cfg. The initial target bitrate
+// is 64,000 bits per second. It returns an error if the sample rate, channel
+// count, or application is invalid.
 func NewEncoder(cfg EncoderConfig) (*Encoder, error) {
 	if !validSampleRate(cfg.SampleRate) {
 		return nil, ErrInvalidSampleRate

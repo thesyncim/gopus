@@ -67,33 +67,21 @@ func (d *Decoder) decodeStreamToFloat32(stream int, packet []byte, frameSize int
 	return d.decoders[stream].Decode(packet, frameSize)
 }
 
-// Decode decodes a multistream Opus packet and returns PCM samples.
-//
-// If data is nil, performs Packet Loss Concealment (PLC) by generating
-// concealment audio based on the previous frames' state.
-//
-// Parameters:
-//   - data: raw multistream packet data, or nil for PLC
-//   - frameSize: frame size in samples at the decoder sample rate
-//
-// Returns sample-interleaved float32 samples: [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ch1_s1, ...]
-// where N is the number of output channels.
-//
-// All elementary streams within the packet must have the same frame duration.
-// If durations differ, ErrDurationMismatch is returned.
+// Decode decodes a multistream packet into caller-owned, interleaved float32
+// PCM. frameSize is the maximum number of samples per channel at SampleRate;
+// requests above 120 ms are capped. Packets may decode to fewer samples. A nil
+// or empty data slice requests PLC for the capped frameSize. All streams in a
+// packet must have the same duration, and the packet duration must not exceed
+// frameSize.
 func (d *Decoder) Decode(data []byte, frameSize int) ([]float32, error) {
 	return d.DecodeToFloat32(data, frameSize)
 }
 
-// DecodeToInt16 decodes a multistream packet and converts to int16 PCM.
-// This is a convenience wrapper for common audio output formats.
-//
-// Parameters:
-//   - data: raw multistream packet data, or nil for PLC
-//   - frameSize: frame size in samples at the decoder sample rate
-//
-// Returns sample-interleaved int16 samples in range [-32768, 32767].
-// The output format is: [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ch1_s1, ...]
+// DecodeToInt16 decodes a packet into caller-owned interleaved signed 16-bit
+// PCM. frameSize is the maximum number of samples per channel at SampleRate;
+// requests above 120 ms are capped, and nil or empty data requests PLC. The
+// returned slice contains the packet's actual duration or the capped request
+// duration for PLC.
 func (d *Decoder) DecodeToInt16(data []byte, frameSize int) ([]int16, error) {
 	if len(d.projectionDemixing) != 0 && d.projectionCols > 0 {
 		if pcm, handled, err := d.decodeFixedProjectionInt16(data, frameSize); err != nil {
@@ -127,15 +115,10 @@ func (d *Decoder) DecodeToInt16(data []byte, frameSize int) ([]int16, error) {
 	return float32ToInt16(samples), nil
 }
 
-// DecodeToFloat32 decodes a multistream packet and returns float32 PCM.
-// This is a convenience wrapper for audio APIs expecting float32.
-//
-// Parameters:
-//   - data: raw multistream packet data, or nil for PLC
-//   - frameSize: frame size in samples at the decoder sample rate
-//
-// Returns sample-interleaved float32 samples in approximate range [-1, 1].
-// The output format is: [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ch1_s1, ...]
+// DecodeToFloat32 decodes a packet into caller-owned interleaved float32 PCM.
+// Values are approximately in [-1, 1]. frameSize is the maximum number of
+// samples per channel at SampleRate; requests above 120 ms are capped, and nil
+// or empty data requests PLC.
 func (d *Decoder) DecodeToFloat32(data []byte, frameSize int) ([]float32, error) {
 	if frameSize <= 0 {
 		return nil, ErrInvalidPacket
@@ -149,8 +132,11 @@ func (d *Decoder) DecodeToFloat32(data []byte, frameSize int) ([]float32, error)
 	return append([]float32(nil), output[:n*d.outputChannels]...), nil
 }
 
-// DecodeIntoFloat32 decodes into caller-owned PCM and returns samples per
-// channel. The output buffer may be larger than the packet's actual duration.
+// DecodeIntoFloat32 decodes into output and returns the number of samples per
+// channel written. frameSize is the maximum number of samples per channel at
+// SampleRate; requests above 120 ms are capped. output must hold the decoded
+// interleaved samples. It returns ErrBufferTooSmall when the packet exceeds
+// frameSize or output is too short.
 func (d *Decoder) DecodeIntoFloat32(data []byte, output []float32, frameSize int) (int, error) {
 	if n, handled, err := d.decodeFixedOutputFloat32(data, output, frameSize); err != nil {
 		return 0, err

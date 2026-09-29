@@ -4,10 +4,11 @@ package gopus
 
 import "errors"
 
-// Public error types for encoding and decoding operations.
+// Errors returned by the public encoding, decoding, and streaming APIs.
 var (
 	// ErrInvalidSampleRate indicates a sample rate outside the Opus API set.
-	// Valid sample rates are: 8000, 12000, 16000, 24000, 48000.
+	// Rates are 8000, 12000, 16000, 24000, or 48000 Hz; builds with gopus_qext
+	// also accept 96000 Hz.
 	ErrInvalidSampleRate = errors.New("gopus: invalid sample rate (must be 8000, 12000, 16000, 24000, or 48000)")
 
 	// ErrInvalidChannels indicates an invalid channel count.
@@ -107,7 +108,7 @@ var (
 	// build-time extension is not enabled in the current gopus build.
 	ErrOptionalExtensionUnavailable = errors.New("gopus: optional extension unavailable in this build")
 
-	// ErrUnimplemented indicates the requested functionality is not implemented yet.
+	// ErrUnimplemented indicates that the requested functionality is unsupported.
 	ErrUnimplemented = errors.New("gopus: feature not implemented")
 )
 
