@@ -14,7 +14,7 @@ func floatToInt16Scaled(out []int16, in []float32, scale float32, n int) {
 		floatToInt16ScaledCore(out, in, scale, n8)
 	}
 	for i := n8; i < n; i++ {
-		out[i] = floatToInt16Round(in[i] * scale)
+		out[i] = floatToInt16Round(noFMA32(in[i], scale))
 	}
 }
 

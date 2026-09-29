@@ -130,7 +130,10 @@ func resamplerDown2_3(state *[6]int32, out []int16, in []int16, scratch []int32)
 func floatToInt16ScaledScalar(out []int16, in []float32, scale float32) {
 	in = in[:len(out)]
 	for i, v := range in {
-		y := v * scale
+		// libopus's silk_float2short_array (silk/float/SigProc_FLP.h) calls
+		// silk_float2int on a silk_float value. Materialize the float32 product
+		// so amd64.v3 cannot contract it with the magic rounding addition below.
+		y := noFMA32(v, scale)
 		if y >= -32768 && y <= 32767 {
 			out[i] = int16(opusmath.RoundClampedFloat32ToInt32Even(y))
 		} else {
