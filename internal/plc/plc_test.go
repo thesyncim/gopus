@@ -152,6 +152,7 @@ func (m *mockSILKDecoder) LPCOrder() int               { return m.lpcOrder }
 func (m *mockSILKDecoder) IsPreviousFrameVoiced() bool { return m.wasVoiced }
 func (m *mockSILKDecoder) OutputHistory() []float32    { return m.history }
 func (m *mockSILKDecoder) HistoryIndex() int           { return m.histIdx }
+func (m *mockSILKDecoder) GetLagPrev() int             { return 0 }
 
 type mockSILKExtendedDecoder struct {
 	mockSILKDecoder
@@ -189,7 +190,10 @@ func (m *mockSILKExtendedDecoder) GetLTPMemoryLength() int {
 	return m.ltpMemLength
 }
 func (m *mockSILKExtendedDecoder) GetSLPCQ14HistoryQ14() []int32 { return m.slpcQ14 }
-func (m *mockSILKExtendedDecoder) GetOutBufHistoryQ0() []int16   { return m.outBufQ0 }
+func (m *mockSILKExtendedDecoder) SetSLPCQ14HistoryQ14(history []int32) {
+	copy(m.slpcQ14, history)
+}
+func (m *mockSILKExtendedDecoder) GetOutBufHistoryQ0() []int16 { return m.outBufQ0 }
 
 func TestConcealSILKWithLTPLongFrameNoPanic(t *testing.T) {
 	dec := &mockSILKExtendedDecoder{
@@ -533,12 +537,15 @@ type mockCELTDecoder struct {
 	overlapBuf   []float32
 }
 
-func (m *mockCELTDecoder) Channels() int                { return m.channels }
-func (m *mockCELTDecoder) PrevEnergy() []float32        { return m.prevEnergy }
-func (m *mockCELTDecoder) SetPrevEnergy(e []float32)    { copy(m.prevEnergy, e) }
-func (m *mockCELTDecoder) RNG() uint32                  { return m.rng }
-func (m *mockCELTDecoder) SetRNG(r uint32)              { m.rng = r }
-func (m *mockCELTDecoder) PreemphState() []float32      { return m.preemphState }
+func (m *mockCELTDecoder) Channels() int             { return m.channels }
+func (m *mockCELTDecoder) PrevEnergy() []float32     { return m.prevEnergy }
+func (m *mockCELTDecoder) SetPrevEnergy(e []float32) { copy(m.prevEnergy, e) }
+func (m *mockCELTDecoder) RNG() uint32               { return m.rng }
+func (m *mockCELTDecoder) SetRNG(r uint32)           { m.rng = r }
+func (m *mockCELTDecoder) PreemphState() []float32   { return m.preemphState }
+func (m *mockCELTDecoder) SetPreemphState(samples []float32) {
+	copy(m.preemphState, samples)
+}
 func (m *mockCELTDecoder) OverlapBuffer() []float32     { return m.overlapBuf }
 func (m *mockCELTDecoder) SetOverlapBuffer(s []float32) { copy(m.overlapBuf, s) }
 

@@ -104,41 +104,8 @@ type SILKDecoderState interface {
 	OutputHistory() []float32
 	// HistoryIndex returns the current position in the history buffer.
 	HistoryIndex() int
-}
-
-// SILKPitchLagProvider optionally exposes the decoder's most recent pitch lag
-// (libopus lagPrev), letting the float fallback concealer use the tracked lag
-// instead of re-estimating it by autocorrelation.
-type SILKPitchLagProvider interface {
+	// GetLagPrev returns the most recently tracked pitch lag (libopus lagPrev).
 	GetLagPrev() int
-}
-
-// SILKSignalTypeProvider optionally exposes the libopus prevSignalType tracking:
-// 0=inactive, 1=unvoiced, 2=voiced.
-type SILKSignalTypeProvider interface {
-	GetLastSignalType() int
-}
-
-// SILKSLPCQ14Provider optionally exposes the decoder's LPC synthesis history in
-// Q14 (libopus sLPC_Q14_buf, the most recent lpcOrder samples) so concealment
-// can seed LPC synthesis from real decoder state rather than the float envelope.
-type SILKSLPCQ14Provider interface {
-	GetSLPCQ14HistoryQ14() []int32
-}
-
-// SILKSLPCQ14Setter optionally lets concealment write the advanced LPC
-// synthesis history (Q14) back to the decoder's sLPC_Q14_buf, matching the
-// state cadence libopus silk_PLC_conceal applies after each concealed frame.
-type SILKSLPCQ14Setter interface {
-	SetSLPCQ14HistoryQ14(history []int32)
-}
-
-// SILKOutBufProvider optionally exposes the decoder's output history in Q0
-// (libopus outBuf, the last ltp_mem_length samples) used for the LPC-analysis
-// rewhitening step of silk_PLC_conceal. Preferred over the float OutputHistory
-// because it is the exact integer input libopus rewhitens.
-type SILKOutBufProvider interface {
-	GetOutBufHistoryQ0() []int16
 }
 
 // SILKDecoderStateExtended is the full SILK decoder view consumed by the
@@ -147,8 +114,22 @@ type SILKOutBufProvider interface {
 // libopus: LTP coefficients and scale, pitch lag, subframe gains, LPC
 // coefficients, the excitation history (exc_Q14), and the frame geometry
 // (sample rate, subframe length, subframe count, LTP memory length).
+// Its PLC history methods are required so the concealment hot path avoids
+// lazy runtime interface-assertion cache allocations.
 type SILKDecoderStateExtended interface {
 	SILKDecoderState
+
+	// GetOutBufHistoryQ0 returns libopus outBuf, the last ltp_mem_length
+	// samples used by the PLC LPC-analysis rewhitening step.
+	GetOutBufHistoryQ0() []int16
+
+	// GetSLPCQ14HistoryQ14 returns the most recent lpcOrder samples from the
+	// synthesis history used to seed the PLC LPC filter.
+	GetSLPCQ14HistoryQ14() []int32
+
+	// SetSLPCQ14HistoryQ14 stores the advanced PLC LPC synthesis history back
+	// into the decoder state after a concealed frame.
+	SetSLPCQ14HistoryQ14(history []int32)
 
 	// IsFirstFrameAfterReset reports whether synthesis history is reset.
 	IsFirstFrameAfterReset() bool
@@ -500,10 +481,9 @@ func ConcealSILK(dec SILKDecoderState, frameSize int, fadeFactor float32) []floa
 //     attenuating gains and drifting the pitch lag each subframe.
 //  6. Run LPC synthesis, scale by the previous gain, and saturate to int16.
 //
-// When the decoder implements the optional SILKOutBufProvider /
-// SILKSLPCQ14Provider / SILKSLPCQ14Setter interfaces, the integer outBuf and
-// LPC synthesis history are used and written back, which is what makes the
-// output byte-exact with libopus rather than approximate.
+// The decoder exposes integer outBuf and LPC synthesis history directly,
+// which keeps the loss path byte-exact with libopus without runtime capability
+// checks.
 //
 // Parameters:
 //   - dec: extended SILK decoder state from the last good frame
@@ -690,18 +670,16 @@ func ConcealSILKWithLTPInto(dec SILKDecoderStateExtended, plcState *SILKPLCState
 		sLTP := scratch.sLTP[:ltpMemLength]
 		clear(sLTP)
 		haveOutBufQ0 := false
-		if provider, ok := dec.(SILKOutBufProvider); ok {
-			outBufQ0 := provider.GetOutBufHistoryQ0()
-			if len(outBufQ0) >= ltpMemLength && startIdx < ltpMemLength {
-				lpcAnalysisFilterInt16(
-					sLTP[startIdx:],
-					outBufQ0[startIdx:ltpMemLength],
-					lpcQ12,
-					ltpMemLength-startIdx,
-					lpcOrder,
-				)
-				haveOutBufQ0 = true
-			}
+		outBufQ0 := dec.GetOutBufHistoryQ0()
+		if len(outBufQ0) >= ltpMemLength && startIdx < ltpMemLength {
+			lpcAnalysisFilterInt16(
+				sLTP[startIdx:],
+				outBufQ0[startIdx:ltpMemLength],
+				lpcQ12,
+				ltpMemLength-startIdx,
+				lpcOrder,
+			)
+			haveOutBufQ0 = true
 		}
 		if !haveOutBufQ0 {
 			// Fallback for decoders that don't expose outBuf history.
@@ -732,13 +710,11 @@ func ConcealSILKWithLTPInto(dec SILKDecoderStateExtended, plcState *SILKPLCState
 	sLPCQ14 := scratch.sLPCQ14[:frameSize+maxLPCOrder]
 	clear(sLPCQ14)
 	haveSLPCHistory := false
-	if provider, ok := dec.(SILKSLPCQ14Provider); ok {
-		historyQ14 := provider.GetSLPCQ14HistoryQ14()
-		if len(historyQ14) >= lpcOrder {
-			start := maxLPCOrder - lpcOrder
-			copy(sLPCQ14[start:maxLPCOrder], historyQ14[:lpcOrder])
-			haveSLPCHistory = true
-		}
+	historyQ14 := dec.GetSLPCQ14HistoryQ14()
+	if len(historyQ14) >= lpcOrder {
+		start := maxLPCOrder - lpcOrder
+		copy(sLPCQ14[start:maxLPCOrder], historyQ14[:lpcOrder])
+		haveSLPCHistory = true
 	}
 	if !haveSLPCHistory {
 		prev := dec.PrevLPCValues()
@@ -821,11 +797,11 @@ func ConcealSILKWithLTPInto(dec SILKDecoderStateExtended, plcState *SILKPLCState
 	plcState.LastFrameLost = true
 
 	// Match libopus PLC.c cadence: persist LPC synthesis history after conceal.
-	if setter, ok := dec.(SILKSLPCQ14Setter); ok && lpcOrder > 0 {
+	if lpcOrder > 0 {
 		end := min(maxLPCOrder+frameSize, len(sLPCQ14))
 		start := max(end-lpcOrder, 0)
 		if start < end {
-			setter.SetSLPCQ14HistoryQ14(sLPCQ14[start:end])
+			dec.SetSLPCQ14HistoryQ14(sLPCQ14[start:end])
 		}
 	}
 
@@ -859,11 +835,8 @@ func concealVoicedSILK(dec SILKDecoderState, output []float32, prevLPC []float32
 		return
 	}
 
-	// Prefer decoder-tracked pitch lag (lagPrev) when available.
-	pitchLag := 0
-	if p, ok := dec.(SILKPitchLagProvider); ok {
-		pitchLag = p.GetLagPrev()
-	}
+	// Prefer decoder-tracked pitch lag (lagPrev) over re-estimating it.
+	pitchLag := dec.GetLagPrev()
 	if pitchLag <= 0 {
 		// Fallback to autocorrelation estimate.
 		pitchLag = estimatePitchFromHistory(history, histIdx, histLen)

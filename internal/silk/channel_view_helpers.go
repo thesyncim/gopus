@@ -164,6 +164,14 @@ func (v *silkPLCChannelView) HistoryIndex() int {
 	return v.d.historyIndex
 }
 
+func (v *silkPLCChannelView) GetLagPrev() int {
+	st := v.state()
+	if st == nil {
+		return 0
+	}
+	return int(st.lagPrev)
+}
+
 func (v *silkPLCChannelView) GetLastSignalType() int {
 	return signalTypeFromState(v.state())
 }
