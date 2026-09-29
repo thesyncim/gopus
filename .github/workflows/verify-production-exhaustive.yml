@@ -93,18 +93,23 @@ jobs:
             env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
               GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
               go test ./internal/celt -count=1 -v -timeout=15m \
-              -run '^Test(KissMulSource.*|KfBfly.*|KissFFTBoundedFastPathMatchesScalar|MDCTFMALikeMixUsesFusedSourceShape|MDCTNegativeForwardFoldUsesTargetContractionOrder|IMDCTRotateAMD64MatchesScalar|IMDCTTDACWindowFMA32MatchesScalar|IMDCTTDACWindowScalarRandomMatchesReference|MDCTForwardRotationsMatchScalar)$' \
+              -run '^Test(KissMulSource.*|KfBfly.*|KissFFTBoundedFastPathMatchesScalar|MDCTFMALikeMixUsesFusedSourceShape|MDCTNegativeForwardFoldUsesTargetContractionOrder|IMDCTRotateAMD64MatchesScalar|IMDCTTDACWindowFMA32MatchesScalar|IMDCTTDACWindowScalarRandomMatchesReference|MDCTForwardRotationsMatchScalar|ExpRotation1StrideSIMDBitExact)$' \
               > "$RUNNER_TEMP/goamd64-evidence/$mode-units.log" 2>&1 || status=1
             env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
               GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
               go test ./internal/celt -count=1 -v -timeout=15m \
-              -run '^Test(ApplyPreemphasisWithScalingMatchesLibopus|CELTBandEnergyMatchesLiveLibopus|LibopusCELTDynallocAnalysisMatchesReference|LibopusCELTEnergy(QuantFine|Finalise)MatchesReference|CELTLog2MatchesLibopusFloatApprox|CELTExp2MatchesLibopusFloatApprox|CELTAngleMathMatchesLibopusFloatPath|OPPVQSearchMatchesLibopusFloatPath|AlgUnquantMatchesLibopusFloatPath|ExpRotationMatchesLibopusFloatPath|CELTDecodeV3FirstDivergenceMatchesLibopusC)$' \
+              -run '^Test(ApplyPreemphasisWithScalingMatchesLibopus|CELTBandEnergyMatchesLiveLibopus|LibopusCELTDynallocAnalysisMatchesReference|LibopusCELTEnergy(QuantFine|Finalise)MatchesReference|CELTLog2MatchesLibopusFloatApprox|CELTExp2MatchesLibopusFloatApprox|CELTAngleMathMatchesLibopusFloatPath|OPPVQSearchMatchesLibopusFloatPath|AlgUnquantMatchesLibopusFloatPath|ExpRotationMatchesLibopusFloatPath|CombFilterWithSquareMatchesLibopus|CombFilterWithInputF32MatchesLibopus|CombFilterConstantBodyHistorySeamMatchesLibopus|CombFilterRampedHistorySeamMatchesLibopus|CELTPostfilterStagesMatchLibopusC|CELTDecodeV3FirstDivergenceMatchesLibopusC)$' \
               > "$RUNNER_TEMP/goamd64-evidence/$mode-celt-stages.log" 2>&1 || status=1
             env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
               GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
               go test ./internal/silk -count=1 -v -timeout=15m \
-              -run '^TestSILK(PitchAnalysisCoreMatchesLibopus|PitchXcorrMatchesLibopusOracle|WarpedAutocorrelationFLPMatchesLibopusOracle|ApplySineWindowFLPMatchesLibopusOracle|ProcessGainsFLPMatchesLibopusOracle|BurgModifiedFLPMatchesLibopusOracle|LPCAnalysisFilterFLPMatchesLibopusOracle|InnerProductFLPMatchesLibopusOracle|EnergyFLPMatchesLibopusOracle|AutocorrelationF32MatchesLibopusOracle|FindLPCFLPMatchesLibopusOracle)$|^Test(LPCAnalysisFilterF32V3ScalarZeroAlloc|FloatToInt16ScaledMatchesRaw|SchurF32MatchesReference|SILKVQWMatECMatchesReference|SILKNLSFDelDecQuantMatchesReference|SILKNLSFVQMatchesReference|DownsamplingFIRInterpolateMatchesReference|RewhitenLTPMatchesGuardedScalar)$' \
+              -run '^TestSILK(PitchAnalysisCoreMatchesLibopus|PitchXcorrMatchesLibopusOracle|WarpedAutocorrelationFLPMatchesLibopusOracle|ApplySineWindowFLPMatchesLibopusOracle|ProcessGainsFLPMatchesLibopusOracle|BurgModifiedFLPMatchesLibopusOracle|LPCAnalysisFilterFLPMatchesLibopusOracle|InnerProductFLPMatchesLibopusOracle|EnergyFLPMatchesLibopusOracle|FloatToInt16SliceScaledMatchesLibopusFloat2ShortArray|AutocorrelationF32MatchesLibopusOracle|FindLPCFLPMatchesLibopusOracle)$|^Test(LPCAnalysisFilterF32V3ScalarZeroAlloc|FloatToInt16ScaledMatchesRaw|SchurF32MatchesReference|SILKVQWMatECMatchesReference|SILKNLSFDelDecQuantMatchesReference|SILKNLSFVQMatchesReference|DownsamplingFIRInterpolateMatchesReference|RewhitenLTPMatchesGuardedScalar)$' \
               > "$RUNNER_TEMP/goamd64-evidence/$mode-silk-primitives.log" 2>&1 || status=1
+            env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
+              GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
+              go test ./testvectors -tags gopus_silk_trace -count=1 -v -timeout=15m \
+              -run '^TestSILKCBRControlOracle$' \
+              > "$RUNNER_TEMP/goamd64-evidence/$mode-silk-controls.log" 2>&1 || status=1
             env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
               GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
               go test ./testvectors -count=1 -v -timeout=15m -run '^TestEncoderCBRPairedOracleExact$' \
