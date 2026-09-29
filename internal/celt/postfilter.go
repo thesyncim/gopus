@@ -700,6 +700,14 @@ func (d *Decoder) applyPostfilterFloat32(samples []float32, frameSize, lm int, n
 			d.postfilterMemFromPLC = false
 			d.postfilterMemPLCBacked = false
 		}
+		trace := d.synthTrace
+		var rawPeriodOld, rawPeriod, rawTapsetOld, rawTapset int32
+		var rawGainOld, rawGain float32
+		if trace != nil {
+			rawPeriodOld, rawPeriod = d.postfilterPeriodOld, d.postfilterPeriod
+			rawGainOld, rawGain = d.postfilterGainOld, d.postfilterGain
+			rawTapsetOld, rawTapset = d.postfilterTapsetOld, d.postfilterTapset
+		}
 		d.clampDecodePostfilterPeriods()
 		t0 := int(d.postfilterPeriodOld)
 		t1 := int(d.postfilterPeriod)
@@ -712,11 +720,26 @@ func (d *Decoder) applyPostfilterFloat32(samples []float32, frameSize, lm int, n
 		tap2 := newTapset
 		t0, t1, tap0, tap1 = sanitizePostfilterParams(t0, t1, g0, g1, tap0, tap1)
 		t1b, t2, tap1b, tap2 := sanitizePostfilterParams(t1, t2, g1, g2, tap1, tap2)
-		d.materializePostfilterHistorySuffixFromPLC(postfilterHistoryNeed(t0, t1, t1b, t2))
+		historyNeed := postfilterHistoryNeed(t0, t1, t1b, t2)
+		d.materializePostfilterHistorySuffixFromPLC(historyNeed)
 		overlap := d.synthOverlapLen()
 		window := d.scratchIMDCTF32.modeWindow(overlap)
 		windowSq := d.postfilterWindowSquareF32(overlap)
+		if trace != nil {
+			trace.captureMonoCombFilterInputs(
+				frameSize, lm, overlap, history, historyNeed,
+				rawPeriodOld, rawPeriod, rawGainOld, rawGain, rawTapsetOld, rawTapset,
+				newPeriod, newGain, newTapset,
+				t0, t1, t1b, t2, tap0, tap1, tap1b, tap2,
+				g0, g1, g2, samples[:frameSize], d.postfilterMem[:history], d.plcDecodeMem,
+				d.plcDecodeMemRingActive, d.plcDecodeMemRingStart,
+				d.postfilterMemFromPLC, d.postfilterMemPLCBacked, window, windowSq,
+			)
+		}
 		applyPostfilterChannelInPlaceFloat32(samples[:frameSize], d.postfilterMem[:history], frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq, overlap)
+		if trace != nil {
+			trace.captureMonoCombFilterOutput(samples[:frameSize])
+		}
 		d.updatePLCDecodeHistoryMonoFromFloat32(samples[:frameSize], frameSize, d.plcDecodeBufferLen())
 		d.markPostfilterHistoryFromPLC()
 		d.postfilterPeriodOld = d.postfilterPeriod

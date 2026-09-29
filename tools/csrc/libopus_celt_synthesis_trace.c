@@ -57,6 +57,35 @@
 #define GOPUS_TRACE_QEXT_BANDS 14
 #endif
 
+#define GOPUS_TRACE_COMB_HISTORY 1026
+#define GOPUS_TRACE_COMB_MAX_CALLS 4
+#define GOPUS_TRACE_COMB_MAX_N 2048
+#define GOPUS_TRACE_COMB_MAX_OVERLAP 240
+
+typedef struct {
+   uint32_t call_index;
+   uint32_t channel;
+   uint32_t n;
+   uint32_t T0;
+   uint32_t T1;
+   uint32_t tapset0;
+   uint32_t tapset1;
+   uint32_t overlap;
+   uint32_t arch;
+   uint32_t history_count;
+   uint32_t input_count;
+   uint32_t window_count;
+   uint32_t output_count;
+   float g0;
+   float g1;
+   float tap_coefficients[6];
+   float history[GOPUS_TRACE_COMB_HISTORY];
+   float input[GOPUS_TRACE_COMB_MAX_N];
+   float window[GOPUS_TRACE_COMB_MAX_OVERLAP];
+   float window_sq[GOPUS_TRACE_COMB_MAX_OVERLAP];
+   float output[GOPUS_TRACE_COMB_MAX_N];
+} gopus_comb_trace_call;
+
 /* Capture state, armed for the target frame only. */
 static int g_capture_armed = 0;
 static int g_capture_N = 0;
@@ -82,10 +111,24 @@ static unsigned char g_anti_collapse_mask_pre[128];
 static unsigned char g_anti_collapse_mask_post[128];
 static int g_imdct_captured[2] = {0, 0};
 static int g_comb_calls[2] = {0, 0};
+static int g_comb_trace_count = 0;
+static int g_comb_trace_calls_by_channel[2] = {0, 0};
+static int g_comb_trace_error = 0;
+static gopus_comb_trace_call g_comb_trace[GOPUS_TRACE_COMB_MAX_CALLS];
 static celt_sig *g_freq_capture[2] = {NULL, NULL};
 static celt_sig *g_imdct_capture[2] = {NULL, NULL};
 static celt_sig *g_postcomb_capture[2] = {NULL, NULL};
 static opus_val32 *g_comb_base[2] = {NULL, NULL};
+
+/* This table and MULT_COEF_TAPS expression match celt/celt.c's comb_filter
+ * coefficient construction in the float build. The call records retain the
+ * raw gains and tapsets too, so the computed values are independently
+ * inspectable without changing the archive implementation. */
+static const celt_coef gopus_trace_comb_gains[3][3] = {
+   {0.3066406250f, 0.2170410156f, 0.1296386719f},
+   {0.4638671875f, 0.2680664062f, 0.0000000000f},
+   {0.7998046875f, 0.1000976562f, 0.0000000000f}
+};
 
 /* Wrapper around anti_collapse(): copy the actual normalized CELT spectrum and
  * collapse masks before and after the unmodified implementation runs. X_ is
@@ -136,13 +179,60 @@ static void gopus_capture_comb_filter(opus_val32 *y, opus_val32 *x, int T0, int 
       opus_val16 g0, opus_val16 g1, int tapset0, int tapset1,
       const celt_coef *window, int overlap, int arch, int ch)
 {
+   gopus_comb_trace_call *trace_call = NULL;
+   int i;
    if (g_capture_armed && ch >= 0 && ch < 2 && !g_imdct_captured[ch] &&
        g_imdct_capture[ch] && g_capture_N > 0) {
       OPUS_COPY(g_imdct_capture[ch], x, g_capture_N);
       g_imdct_captured[ch] = 1;
       g_comb_base[ch] = y;
    }
+   /* comb_filter() also runs from prefilter_and_fold() with window == NULL.
+    * The synthesis-stage witness records only the postfilter call. */
+   if (g_capture_armed && window != NULL) {
+      if (ch < 0 || ch >= 2 || g_comb_trace_count >= GOPUS_TRACE_COMB_MAX_CALLS ||
+          N <= 0 || N > GOPUS_TRACE_COMB_MAX_N || overlap < 0 ||
+          overlap > GOPUS_TRACE_COMB_MAX_OVERLAP || tapset0 < 0 || tapset0 >= 3 ||
+          tapset1 < 0 || tapset1 >= 3) {
+         g_comb_trace_error = 1;
+      } else {
+         trace_call = &g_comb_trace[g_comb_trace_count++];
+         trace_call->call_index = (uint32_t)g_comb_trace_calls_by_channel[ch]++;
+         trace_call->channel = (uint32_t)ch;
+         trace_call->n = (uint32_t)N;
+         trace_call->T0 = (uint32_t)T0;
+         trace_call->T1 = (uint32_t)T1;
+         trace_call->tapset0 = (uint32_t)tapset0;
+         trace_call->tapset1 = (uint32_t)tapset1;
+         trace_call->overlap = (uint32_t)overlap;
+         trace_call->arch = (uint32_t)arch;
+         trace_call->history_count = GOPUS_TRACE_COMB_HISTORY;
+         trace_call->input_count = (uint32_t)N;
+         trace_call->window_count = (uint32_t)overlap;
+         trace_call->output_count = (uint32_t)N;
+         trace_call->g0 = (float)g0;
+         trace_call->g1 = (float)g1;
+         trace_call->tap_coefficients[0] = (float)MULT_COEF_TAPS(g0, gopus_trace_comb_gains[tapset0][0]);
+         trace_call->tap_coefficients[1] = (float)MULT_COEF_TAPS(g0, gopus_trace_comb_gains[tapset0][1]);
+         trace_call->tap_coefficients[2] = (float)MULT_COEF_TAPS(g0, gopus_trace_comb_gains[tapset0][2]);
+         trace_call->tap_coefficients[3] = (float)MULT_COEF_TAPS(g1, gopus_trace_comb_gains[tapset1][0]);
+         trace_call->tap_coefficients[4] = (float)MULT_COEF_TAPS(g1, gopus_trace_comb_gains[tapset1][1]);
+         trace_call->tap_coefficients[5] = (float)MULT_COEF_TAPS(g1, gopus_trace_comb_gains[tapset1][2]);
+         for (i = 0; i < GOPUS_TRACE_COMB_HISTORY; i++)
+            trace_call->history[i] = (float)x[i-GOPUS_TRACE_COMB_HISTORY];
+         for (i = 0; i < N; i++)
+            trace_call->input[i] = (float)x[i];
+         for (i = 0; i < overlap; i++) {
+            celt_coef f = MULT_COEF(window[i], window[i]);
+            trace_call->window[i] = (float)window[i];
+            trace_call->window_sq[i] = (float)f;
+         }
+      }
+   }
    comb_filter(y, x, T0, T1, N, g0, g1, tapset0, tapset1, window, overlap, arch);
+   if (trace_call != NULL)
+      for (i = 0; i < N; i++)
+         trace_call->output[i] = (float)y[i];
    if (g_capture_armed && ch >= 0 && ch < 2 && g_postcomb_capture[ch] && g_comb_base[ch]) {
       g_comb_calls[ch]++;
       if (N == g_capture_N || g_comb_calls[ch] == 2)
@@ -281,6 +371,7 @@ int main(void) {
   int err = OPUS_OK;
   uint32_t i;
   int max_N;
+  int comb_index;
 
   if (!set_binary_stdio()) {
     fprintf(stderr, "failed to set binary stdio mode\n");
@@ -371,6 +462,10 @@ int main(void) {
       g_imdct_captured[1] = 0;
       g_comb_calls[0] = 0;
       g_comb_calls[1] = 0;
+      g_comb_trace_count = 0;
+      g_comb_trace_calls_by_channel[0] = 0;
+      g_comb_trace_calls_by_channel[1] = 0;
+      g_comb_trace_error = 0;
       g_comb_base[0] = NULL;
       g_comb_base[1] = NULL;
     }
@@ -402,8 +497,14 @@ int main(void) {
         fprintf(stderr, "post-comb capture did not run for target step\n");
         return 1;
       }
+      if (g_comb_trace_error || g_comb_trace_count < CC ||
+          g_comb_trace_count > CC*2) {
+        fprintf(stderr, "comb trace call shape is invalid (error=%d calls=%d channels=%d)\n",
+                g_comb_trace_error, g_comb_trace_count, CC);
+        return 1;
+      }
 
-      if (!write_exact(GCSO_MAGIC, 4) || !write_u32(3) ||
+      if (!write_exact(GCSO_MAGIC, 4) || !write_u32(4) ||
           !write_u32((uint32_t)N) || !write_u32((uint32_t)CC) ||
           !write_u32((uint32_t)frame_size)) {
         fprintf(stderr, "failed to write output header\n");
@@ -521,6 +622,64 @@ int main(void) {
           !write_exact(g_anti_collapse_mask_post, (size_t)g_anti_collapse_mask_count)) {
         fprintf(stderr, "failed to write anti-collapse masks\n");
         return 1;
+      }
+
+      /* GCSO v4 appends actual comb_filter inputs and outputs after the
+       * anti-collapse tail. The history capture is a bounded 1026-sample
+       * window; QEXT calls can use longer periods. */
+      if (!write_u32((uint32_t)g_comb_trace_count)) {
+        fprintf(stderr, "failed to write comb trace count\n");
+        return 1;
+      }
+      for (comb_index = 0; comb_index < g_comb_trace_count; comb_index++) {
+        const gopus_comb_trace_call *call = &g_comb_trace[comb_index];
+        int k;
+        if (!write_u32(call->call_index) || !write_u32(call->channel) ||
+            !write_u32(call->n) || !write_u32(call->T0) || !write_u32(call->T1) ||
+            !write_u32(call->tapset0) || !write_u32(call->tapset1) ||
+            !write_u32(call->overlap) || !write_u32(call->arch) ||
+            !write_u32(call->history_count) || !write_u32(call->input_count) ||
+            !write_u32(call->window_count) || !write_u32(call->output_count) ||
+            !write_float(call->g0) || !write_float(call->g1)) {
+          fprintf(stderr, "failed to write comb trace metadata\n");
+          return 1;
+        }
+        for (k = 0; k < 6; k++) {
+          if (!write_float(call->tap_coefficients[k])) {
+            fprintf(stderr, "failed to write comb tap coefficient\n");
+            return 1;
+          }
+        }
+        for (k = 0; k < (int)call->history_count; k++) {
+          if (!write_float(call->history[k])) {
+            fprintf(stderr, "failed to write comb history\n");
+            return 1;
+          }
+        }
+        for (k = 0; k < (int)call->input_count; k++) {
+          if (!write_float(call->input[k])) {
+            fprintf(stderr, "failed to write comb input\n");
+            return 1;
+          }
+        }
+        for (k = 0; k < (int)call->window_count; k++) {
+          if (!write_float(call->window[k])) {
+            fprintf(stderr, "failed to write comb window\n");
+            return 1;
+          }
+        }
+        for (k = 0; k < (int)call->window_count; k++) {
+          if (!write_float(call->window_sq[k])) {
+            fprintf(stderr, "failed to write comb window square\n");
+            return 1;
+          }
+        }
+        for (k = 0; k < (int)call->output_count; k++) {
+          if (!write_float(call->output[k])) {
+            fprintf(stderr, "failed to write comb output\n");
+            return 1;
+          }
+        }
       }
 
       opus_decoder_destroy(dec);

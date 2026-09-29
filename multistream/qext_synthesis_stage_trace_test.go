@@ -48,7 +48,7 @@ func traceQEXTCELTSynthesisSequence(t *testing.T, packets [][]byte, targetStep, 
 		payload.U32(uint32(len(packet)))
 		payload.Raw(packet)
 	}
-	reader, err := libopustest.RunOracleVersion(bin, payload.Bytes(), "QEXT CELT synthesis trace", "GCSO", 3)
+	reader, err := libopustest.RunOracleVersion(bin, payload.Bytes(), "QEXT CELT synthesis trace", "GCSO", 4)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "QEXT CELT synthesis trace", err)
 	}
@@ -132,10 +132,74 @@ func traceQEXTCELTSynthesisSequence(t *testing.T, packets [][]byte, targetStep, 
 		}
 	}
 	skipCELTSynthesisAntiCollapseTrace(t, reader, n, gotChannels)
+	skipCELTSynthesisCombTrace(t, reader, n, gotChannels)
 	if err := reader.ExpectConsumed(); err != nil {
 		t.Fatal(err)
 	}
 	return trace
+}
+
+// skipCELTSynthesisCombTrace validates the bounded v4 comb-filter capture.
+// QEXT scales COMBFILTER_MAXPERIOD by at most two; the trace carries only the
+// standard 1026-sample history window, even when a QEXT period is longer.
+func skipCELTSynthesisCombTrace(t *testing.T, reader *libopustest.OracleReader, n, channels int) {
+	t.Helper()
+	const maxPeriod = 2 * 1024 // QEXT_SCALE(COMBFILTER_MAXPERIOD), with COMBFILTER_MAXPERIOD=1024.
+	countValue := reader.U32()
+	if err := reader.Err(); err != nil {
+		t.Fatalf("selected C comb trace count: %v", err)
+	}
+	if countValue < uint32(channels) || countValue > uint32(channels*2) {
+		t.Fatalf("selected C comb trace has %d calls for %d channels; want 1..2 per channel", countValue, channels)
+	}
+	perChannel := make([]int, channels)
+	for i := range int(countValue) {
+		callIndex := int(reader.U32())
+		channel := int(reader.U32())
+		callN := int(reader.U32())
+		t0 := int(reader.U32())
+		t1 := int(reader.U32())
+		tapset0 := int(reader.U32())
+		tapset1 := int(reader.U32())
+		overlap := int(reader.U32())
+		_ = reader.U32() // C arch selector
+		historyCount := int(reader.U32())
+		inputCount := int(reader.U32())
+		windowCount := int(reader.U32())
+		outputCount := int(reader.U32())
+		_ = reader.Float32() // g0
+		_ = reader.Float32() // g1
+		if err := reader.Err(); err != nil {
+			t.Fatalf("selected C comb trace call %d header: %v", i, err)
+		}
+		if channel < 0 || channel >= channels {
+			t.Fatalf("selected C comb trace call %d channel=%d, want [0,%d)", i, channel, channels)
+		}
+		if callIndex != perChannel[channel] {
+			t.Fatalf("selected C comb trace call %d channel=%d index=%d, want %d", i, channel, callIndex, perChannel[channel])
+		}
+		perChannel[channel]++
+		if callN <= 0 || callN > n || t0 < 0 || t0 > maxPeriod || t1 < 0 || t1 > maxPeriod ||
+			tapset0 < 0 || tapset0 >= 3 || tapset1 < 0 || tapset1 >= 3 || overlap < 0 || overlap > 240 ||
+			historyCount != 1026 || inputCount != callN || windowCount != overlap || outputCount != callN {
+			t.Fatalf("selected C comb trace call %d has invalid shape/params: N=%d T=%d/%d tap=%d/%d overlap=%d counts history/input/window/output=%d/%d/%d/%d",
+				i, callN, t0, t1, tapset0, tapset1, overlap, historyCount, inputCount, windowCount, outputCount)
+		}
+		for range 6 + historyCount + inputCount + 2*windowCount + outputCount {
+			_ = reader.Float32()
+		}
+		if err := reader.Err(); err != nil {
+			t.Fatalf("selected C comb trace call %d arrays: %v", i, err)
+		}
+	}
+	for ch, calls := range perChannel {
+		if calls < 1 || calls > 2 {
+			t.Fatalf("selected C comb trace channel %d has %d calls, want 1..2", ch, calls)
+		}
+		if ch > 0 && calls != perChannel[0] {
+			t.Fatalf("selected C comb trace channel %d has %d calls, channel 0 has %d", ch, calls, perChannel[0])
+		}
+	}
 }
 
 // skipCELTSynthesisAntiCollapseTrace validates and consumes the helper's

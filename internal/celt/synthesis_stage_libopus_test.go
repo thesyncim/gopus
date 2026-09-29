@@ -5,6 +5,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
@@ -50,6 +51,21 @@ type libopusCELTSynthesisTrace struct {
 	antiCollapseMaskBands int
 	antiCollapseMaskPre   []byte
 	antiCollapseMaskPost  []byte
+	combCalls             []libopusCELTCombFilterTraceCall
+}
+
+type libopusCELTCombFilterTraceCall struct {
+	callIndex, channel int
+	n, t0, t1          int
+	tapset0, tapset1   int
+	overlap, arch      int
+	g0, g1             float32
+	tapCoefficients    [6]float32
+	history            []float32
+	input              []float32
+	window             []float32
+	windowSq           []float32
+	output             []float32
 }
 
 func consumeCELTSynthesisTraceV3Tail(t *testing.T, reader *libopustest.OracleReader, trace *libopusCELTSynthesisTrace) {
@@ -140,6 +156,96 @@ func consumeCELTSynthesisTraceV3Tail(t *testing.T, reader *libopustest.OracleRea
 	}
 }
 
+func consumeCELTSynthesisTraceCombV4(t *testing.T, reader *libopustest.OracleReader, trace *libopusCELTSynthesisTrace) {
+	t.Helper()
+	countValue := reader.U32()
+	if err := reader.Err(); err != nil {
+		t.Fatalf("selected C comb trace count: %v", err)
+	}
+	if countValue < uint32(trace.channels) || countValue > uint32(trace.channels*2) {
+		t.Fatalf("selected C comb trace has %d calls for %d channels; want 1..2 per channel", countValue, trace.channels)
+	}
+	count := int(countValue)
+	trace.combCalls = make([]libopusCELTCombFilterTraceCall, count)
+	perChannel := [2]int{}
+	maxPeriod := combFilterMaxPeriod
+	if extsupport.QEXT {
+		maxPeriod *= 2 // libopus QEXT_SCALE(COMBFILTER_MAXPERIOD).
+	}
+	for i := range count {
+		call := &trace.combCalls[i]
+		call.callIndex = int(reader.U32())
+		call.channel = int(reader.U32())
+		call.n = int(reader.U32())
+		call.t0 = int(reader.U32())
+		call.t1 = int(reader.U32())
+		call.tapset0 = int(reader.U32())
+		call.tapset1 = int(reader.U32())
+		call.overlap = int(reader.U32())
+		call.arch = int(reader.U32())
+		historyCount := int(reader.U32())
+		inputCount := int(reader.U32())
+		windowCount := int(reader.U32())
+		outputCount := int(reader.U32())
+		call.g0 = reader.Float32()
+		call.g1 = reader.Float32()
+		if err := reader.Err(); err != nil {
+			t.Fatalf("selected C comb trace record %d header: %v", i, err)
+		}
+		if call.channel < 0 || call.channel >= trace.channels {
+			t.Fatalf("selected C comb trace call %d channel=%d, want [0,%d)", i, call.channel, trace.channels)
+		}
+		if call.callIndex != perChannel[call.channel] {
+			t.Fatalf("selected C comb trace call %d channel=%d index=%d, want %d", i, call.channel, call.callIndex, perChannel[call.channel])
+		}
+		perChannel[call.channel]++
+		if call.n <= 0 || call.n > trace.n || call.t0 < 0 || call.t0 > maxPeriod ||
+			call.t1 < 0 || call.t1 > maxPeriod ||
+			call.tapset0 < 0 || call.tapset0 >= len(combFilterGains) ||
+			call.tapset1 < 0 || call.tapset1 >= len(combFilterGains) ||
+			call.overlap < 0 || call.overlap > 240 || historyCount != combFilterHistory ||
+			inputCount != call.n || windowCount != call.overlap || outputCount != call.n {
+			t.Fatalf("selected C comb trace call %d has invalid shape/params: N=%d T=%d/%d tap=%d/%d overlap=%d counts history/input/window/output=%d/%d/%d/%d",
+				i, call.n, call.t0, call.t1, call.tapset0, call.tapset1, call.overlap,
+				historyCount, inputCount, windowCount, outputCount)
+		}
+		for tap := range call.tapCoefficients {
+			call.tapCoefficients[tap] = reader.Float32()
+		}
+		call.history = make([]float32, historyCount)
+		for j := range call.history {
+			call.history[j] = reader.Float32()
+		}
+		call.input = make([]float32, inputCount)
+		for j := range call.input {
+			call.input[j] = reader.Float32()
+		}
+		call.window = make([]float32, windowCount)
+		for j := range call.window {
+			call.window[j] = reader.Float32()
+		}
+		call.windowSq = make([]float32, windowCount)
+		for j := range call.windowSq {
+			call.windowSq[j] = reader.Float32()
+		}
+		call.output = make([]float32, outputCount)
+		for j := range call.output {
+			call.output[j] = reader.Float32()
+		}
+		if err := reader.Err(); err != nil {
+			t.Fatalf("selected C comb trace call %d arrays: %v", i, err)
+		}
+	}
+	for ch := range trace.channels {
+		if perChannel[ch] < 1 || perChannel[ch] > 2 {
+			t.Fatalf("selected C comb trace channel %d has %d calls, want 1..2", ch, perChannel[ch])
+		}
+		if ch > 0 && perChannel[ch] != perChannel[0] {
+			t.Fatalf("selected C comb trace channel %d has %d calls, channel 0 has %d", ch, perChannel[ch], perChannel[0])
+		}
+	}
+}
+
 func traceLibopusCELTSynthesis(t *testing.T, sampleRate, channels, frameSize, targetStep int, packets [][]byte) *libopusCELTSynthesisTrace {
 	t.Helper()
 	binPath, err := libopusCELTSynthesisTraceHelper.Path(buildLibopusCELTSynthesisTraceHelper)
@@ -154,7 +260,7 @@ func traceLibopusCELTSynthesis(t *testing.T, sampleRate, channels, frameSize, ta
 		payload.U32(uint32(len(pkt)))
 		payload.Raw(pkt)
 	}
-	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "CELT synthesis stage trace", "GCSO", 3)
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "CELT synthesis stage trace", "GCSO", 4)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "CELT synthesis stage trace", err)
 	}
@@ -195,6 +301,7 @@ func traceLibopusCELTSynthesis(t *testing.T, sampleRate, channels, frameSize, ta
 		trace.final[i] = reader.Float32()
 	}
 	consumeCELTSynthesisTraceV3Tail(t, reader, trace)
+	consumeCELTSynthesisTraceCombV4(t, reader, trace)
 	if err := reader.ExpectConsumed(); err != nil {
 		t.Fatal(err)
 	}

@@ -150,9 +150,67 @@ func TestCELTV3CBRLongStreamFirstDecodeDivergence(t *testing.T) {
 	assertCELTV3LongstreamStageEqual(t, targetFrame, firstSample, "base normalized coefficients", stage.BaseNorm(0)[:activeNormCount], cTrace.baseNorm[0][:activeNormCount])
 	assertCELTV3LongstreamStageEqual(t, targetFrame, firstSample, "post-denormalise spectrum", stage.Spec(0), cTrace.freq[0])
 	assertCELTV3LongstreamStageEqual(t, targetFrame, firstSample, "post-IMDCT", stage.IMDCT(0), cTrace.imdct[0])
+	assertCELTV3LongstreamCombInputs(t, targetFrame, firstSample, stage.combFilter, cTrace.combCalls)
 	assertCELTV3LongstreamStageEqual(t, targetFrame, firstSample, "post-comb-filter", stage.PostComb(0), cTrace.postComb[0])
 	assertCELTV3LongstreamStageEqual(t, targetFrame, firstSample, "post-deemphasis PCM", goFrame, cTrace.final)
 	t.Fatalf("expected the known longstream PCM divergence at frame %d sample %d to be localized", targetFrame, firstSample)
+}
+
+func assertCELTV3LongstreamCombInputs(t *testing.T, frame, firstPCM int, goTrace synthesisCombFilterTrace, cCalls []libopusCELTCombFilterTraceCall) {
+	t.Helper()
+	if !goTrace.captured || goTrace.invalid || goTrace.callCount != 1 || goTrace.lm != 0 ||
+		goTrace.frameSize != celtLongstreamFrameSize || goTrace.history != combFilterHistory || len(goTrace.output) != goTrace.frameSize {
+		t.Fatalf("longstream frame %d comb Go capture shape captured=%t invalid=%t calls=%d LM=%d frame/history/output=%d/%d/%d",
+			frame, goTrace.captured, goTrace.invalid, goTrace.callCount, goTrace.lm,
+			goTrace.frameSize, goTrace.history, len(goTrace.output))
+	}
+	if len(cCalls) != 1 {
+		t.Fatalf("longstream frame %d C comb calls=%d, want exactly one for mono LM=0", frame, len(cCalls))
+	}
+	cCall := cCalls[0]
+	if cCall.channel != 0 || cCall.callIndex != 0 || cCall.n != goTrace.frameSize ||
+		cCall.overlap != goTrace.overlap || cCall.t0 != goTrace.t0 || cCall.t1 != goTrace.t1 ||
+		cCall.tapset0 != goTrace.tap0 || cCall.tapset1 != goTrace.tap1 ||
+		math.Float32bits(cCall.g0) != math.Float32bits(goTrace.g0) ||
+		math.Float32bits(cCall.g1) != math.Float32bits(goTrace.g1) {
+		t.Fatalf("longstream frame %d comb params differ: C N/T/tap=%d/%d,%d/%d,%d overlap=%d gains=%08x/%08x; Go raw period/gain/tap=%d,%d/%08x,%08x/%d,%d new=%d/%08x/%d effective T/tap=%d,%d/%d,%d overlap=%d",
+			frame, cCall.n, cCall.t0, cCall.t1, cCall.tapset0, cCall.tapset1, cCall.overlap,
+			math.Float32bits(cCall.g0), math.Float32bits(cCall.g1),
+			goTrace.rawPeriodOld, goTrace.rawPeriod, math.Float32bits(goTrace.rawGainOld), math.Float32bits(goTrace.rawGain),
+			goTrace.rawTapsetOld, goTrace.rawTapset, goTrace.newPeriod, math.Float32bits(goTrace.newGain), goTrace.newTapset,
+			goTrace.t0, goTrace.t1, goTrace.tap0, goTrace.tap1, goTrace.overlap)
+	}
+	t.Logf("frame %d comb call: C arch=%d N=%d T=%d/%d gain=%08x/%08x tap=%d/%d overlap=%d; Go raw state period=%d/%d gain=%08x/%08x tap=%d/%d new=%d/%08x/%d sanitized T=%d/%d/%d/%d tap=%d/%d/%d/%d historyNeed=%d postfilterPLC=%t PLCBacked=%t ring=%t/%d",
+		frame, cCall.arch, cCall.n, cCall.t0, cCall.t1, math.Float32bits(cCall.g0), math.Float32bits(cCall.g1),
+		cCall.tapset0, cCall.tapset1, cCall.overlap,
+		goTrace.rawPeriodOld, goTrace.rawPeriod, math.Float32bits(goTrace.rawGainOld), math.Float32bits(goTrace.rawGain),
+		goTrace.rawTapsetOld, goTrace.rawTapset, goTrace.newPeriod, math.Float32bits(goTrace.newGain), goTrace.newTapset,
+		goTrace.t0, goTrace.t1, goTrace.t1b, goTrace.t2, goTrace.tap0, goTrace.tap1, goTrace.tap1b, goTrace.tap2,
+		goTrace.historyNeed, goTrace.postfilterMemFromPLC, goTrace.postfilterMemPLCBacked, goTrace.plcRingActive, goTrace.plcRingStart)
+	if len(cCall.history) != combFilterHistory || len(goTrace.logicalHistory) != combFilterHistory ||
+		len(goTrace.backingHistory) != combFilterHistory || len(cCall.input) != goTrace.frameSize ||
+		len(goTrace.input) != goTrace.frameSize || len(cCall.window) != goTrace.overlap ||
+		len(cCall.windowSq) != goTrace.overlap || len(goTrace.window) != goTrace.overlap ||
+		len(goTrace.windowSq) != goTrace.overlap {
+		t.Fatalf("longstream frame %d comb input shape mismatch: C history/input/window=%d/%d/%d Go logical/backing/input/window/windowSq=%d/%d/%d/%d/%d",
+			frame, len(cCall.history), len(cCall.input), len(cCall.window), len(goTrace.logicalHistory),
+			len(goTrace.backingHistory), len(goTrace.input), len(goTrace.window), len(goTrace.windowSq))
+	}
+	usedHistory := max(cCall.t0, cCall.t1) + 2
+	if usedHistory > combFilterHistory {
+		t.Fatalf("longstream frame %d comb uses %d history samples, exceeds %d", frame, usedHistory, combFilterHistory)
+	}
+	assertCELTV3LongstreamStageEqual(t, frame, firstPCM, "comb current input", cCall.input, goTrace.input)
+	usedHistoryStart := combFilterHistory - usedHistory
+	cHistoryUsed := cCall.history[usedHistoryStart:]
+	assertCELTV3LongstreamStageEqual(t, frame, firstPCM, "comb materialized history suffix",
+		cHistoryUsed, goTrace.backingHistory[usedHistoryStart:])
+	assertCELTV3LongstreamStageEqual(t, frame, firstPCM, "comb logical PLC history suffix",
+		cHistoryUsed, goTrace.logicalHistory[usedHistoryStart:])
+	assertCELTV3LongstreamStageEqual(t, frame, firstPCM, "comb window", cCall.window, goTrace.window)
+	assertCELTV3LongstreamStageEqual(t, frame, firstPCM, "comb window square", cCall.windowSq, goTrace.windowSq)
+	assertCELTV3LongstreamStageEqual(t, frame, firstPCM, "comb tap coefficients", cCall.tapCoefficients[:], goTrace.tapCoefficients[:])
+	assertCELTV3LongstreamStageEqual(t, frame, firstPCM, "comb per-call output", cCall.output, goTrace.output)
 }
 
 func newCELTV3LongstreamDecoder(t *testing.T) *Decoder {

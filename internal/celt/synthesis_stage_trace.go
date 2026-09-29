@@ -30,6 +30,42 @@ type synthesisStageTrace struct {
 	antiCollapseNormPost [2][]float32
 	collapseMasks        []byte
 	antiCollapseSeed     uint32
+	combFilter           synthesisCombFilterTrace
+}
+
+// synthesisCombFilterTrace records a mono LM=0 postfilter call when synthesis
+// tracing is enabled. The longstream oracle uses one such call per frame.
+type synthesisCombFilterTrace struct {
+	captured  bool
+	invalid   bool
+	callCount int
+
+	frameSize   int
+	lm          int
+	overlap     int
+	history     int
+	historyNeed int
+
+	rawPeriodOld int32
+	rawPeriod    int32
+	rawGainOld   float32
+	rawGain      float32
+	rawTapsetOld int32
+	rawTapset    int32
+	newPeriod    int
+	newGain      float32
+	newTapset    int
+
+	t0, t1, t1b, t2                 int
+	tap0, tap1, tap1b, tap2         int
+	g0, g1, g2                      float32
+	postfilterMemFromPLC            bool
+	postfilterMemPLCBacked          bool
+	plcRingActive                   bool
+	plcRingStart                    int
+	logicalHistory, backingHistory  []float32
+	input, window, windowSq, output []float32
+	tapCoefficients                 [6]float32
 }
 
 // EnableSynthesisStageTrace arms intermediate-stage capture for the next decoded
@@ -230,4 +266,98 @@ func (t *synthesisStageTrace) capturePostComb(ch int, samples []float32) {
 	buf := make([]float32, len(samples))
 	copy(buf, samples)
 	t.postComb[ch] = buf
+}
+
+func (t *synthesisStageTrace) captureMonoCombFilterInputs(
+	frameSize, lm, overlap, history, historyNeed int,
+	rawPeriodOld, rawPeriod int32, rawGainOld, rawGain float32,
+	rawTapsetOld, rawTapset int32, newPeriod int, newGain float32, newTapset int,
+	t0, t1, t1b, t2, tap0, tap1, tap1b, tap2 int,
+	g0, g1, g2 float32, samples []float32, postfilterMem, plcDecodeMem []celtSig,
+	plcRingActive bool, plcRingStart int, postfilterMemFromPLC, postfilterMemPLCBacked bool,
+	window, windowSq []float32,
+) {
+	if t == nil || lm != 0 {
+		return
+	}
+	trace := &t.combFilter
+	trace.callCount++
+	if trace.captured || trace.invalid {
+		return
+	}
+	if frameSize <= 0 || overlap < 0 || history != combFilterHistory ||
+		len(samples) < frameSize || len(postfilterMem) < history ||
+		len(plcDecodeMem) < history || len(window) < overlap || len(windowSq) < overlap {
+		trace.invalid = true
+		return
+	}
+	trace.frameSize = frameSize
+	trace.lm = lm
+	trace.overlap = overlap
+	trace.history = history
+	trace.historyNeed = historyNeed
+	trace.rawPeriodOld = rawPeriodOld
+	trace.rawPeriod = rawPeriod
+	trace.rawGainOld = rawGainOld
+	trace.rawGain = rawGain
+	trace.rawTapsetOld = rawTapsetOld
+	trace.rawTapset = rawTapset
+	trace.newPeriod = newPeriod
+	trace.newGain = newGain
+	trace.newTapset = newTapset
+	trace.t0, trace.t1, trace.t1b, trace.t2 = t0, t1, t1b, t2
+	trace.tap0, trace.tap1, trace.tap1b, trace.tap2 = tap0, tap1, tap1b, tap2
+	trace.g0, trace.g1, trace.g2 = g0, g1, g2
+	trace.postfilterMemFromPLC = postfilterMemFromPLC
+	trace.postfilterMemPLCBacked = postfilterMemPLCBacked
+	trace.plcRingActive = plcRingActive
+	trace.plcRingStart = plcRingStart
+	trace.logicalHistory = make([]float32, history)
+	trace.backingHistory = make([]float32, history)
+	trace.input = make([]float32, frameSize)
+	trace.window = make([]float32, overlap)
+	trace.windowSq = make([]float32, overlap)
+	for i := range history {
+		trace.backingHistory[i] = float32(postfilterMem[i])
+	}
+	if plcRingActive && (plcRingStart < 0 || plcRingStart >= len(plcDecodeMem)) {
+		trace.invalid = true
+		return
+	}
+	plcStart := 0
+	if plcRingActive {
+		plcStart = plcRingStart
+	}
+	logicalStart := plcStart + len(plcDecodeMem) - history
+	if logicalStart >= len(plcDecodeMem) {
+		logicalStart -= len(plcDecodeMem)
+	}
+	for i := range history {
+		idx := logicalStart + i
+		if idx >= len(plcDecodeMem) {
+			idx -= len(plcDecodeMem)
+		}
+		trace.logicalHistory[i] = float32(plcDecodeMem[idx])
+	}
+	for i := range frameSize {
+		trace.input[i] = samples[i]
+	}
+	for i := range overlap {
+		trace.window[i] = window[i]
+		trace.windowSq[i] = windowSq[i]
+	}
+	for tap := range 3 {
+		trace.tapCoefficients[tap] = combGain32(g0, tap0, tap)
+		trace.tapCoefficients[3+tap] = combGain32(g1, tap1, tap)
+	}
+	trace.captured = true
+}
+
+func (t *synthesisStageTrace) captureMonoCombFilterOutput(samples []float32) {
+	if t == nil || !t.combFilter.captured || len(samples) < t.combFilter.frameSize {
+		return
+	}
+	trace := &t.combFilter
+	trace.output = make([]float32, trace.frameSize)
+	copy(trace.output, samples[:trace.frameSize])
 }
