@@ -14,8 +14,9 @@ import sys
 from typing import Any
 
 from validate_goamd64_targets import (
-    ARMS, E2E_NAMES, MODES, TARGETS, exact_suite_specs, extract_go_toolchain, parse_e2e,
-    validate_binary_build_info, validate_cbr_summary, validate_go_test_json, write_summary,
+    ARMS, E2E_NAMES, MODES, TARGETS, exact_suite_role, exact_suite_specs, extract_go_toolchain,
+    parity_contract_spec, parse_e2e, validate_binary_build_info, validate_cbr_summary,
+    validate_go_test_json, validate_parity_contract_json, write_summary,
 )
 
 
@@ -88,6 +89,7 @@ class Runner:
             "binaries": {},
             "phase_records": [],
             "exactness": [],
+            "parity_contracts": [],
             "startup_checks": [],
             "e2e_samples": [],
             "c_benchmarks": [],
@@ -382,6 +384,7 @@ class Runner:
                         "target": target, "mode": mode, "name": spec["name"],
                         "package": spec["package"], "selector": spec["selector"],
                         "expected_leaves": spec["expected_leaves"], "strict_cbr": spec.get("strict_cbr", False),
+                        "role": exact_suite_role(target, spec["name"]),
                         "exit": code, "stdout": rel(self.artifact, stdout), "stderr": rel(self.artifact, stderr),
                     }
                     self.manifest["exactness"].append(entry)
@@ -396,9 +399,48 @@ class Runner:
                         c_variant = "scalar" if mode == "nosimd" else "simd"
                         errors.extend(validate_cbr_summary(output, c_variant))
                     if errors:
-                        gate_failed = True
-                        self.manifest["errors"].extend(f"{target}/{mode}/{spec['name']}: {error}" for error in errors)
+                        if entry["role"] == "diagnostic":
+                            entry["diagnostic_errors"] = errors
+                        else:
+                            gate_failed = True
+                            self.manifest["errors"].extend(
+                                f"{target}/{mode}/exact/{spec['name']}: {error}" for error in errors
+                            )
                     self.save()
+        return not gate_failed
+
+    def run_parity_contracts(self) -> bool:
+        gate_failed = False
+        spec = parity_contract_spec()
+        for target in TARGETS:
+            for mode in MODES:
+                env = self.mode_env(target, mode, oracle=True)
+                tags = ["-tags", "nosimd"] if mode == "nosimd" else []
+                out = f"{target}/contract/{mode}/{spec['name']}.jsonl"
+                cmd = self.go_command(self.candidate, [
+                    "test", "-json", "-count=1", "-timeout=10m", *tags,
+                    "-run", spec["selector"], spec["package"],
+                ])
+                code, stdout, stderr = self.run(
+                    f"parity-contract-{target}-{mode}", self.candidate, cmd, env, out,
+                )
+                entry = {
+                    "target": target,
+                    "mode": mode,
+                    **spec,
+                    "gate": "blocking",
+                    "exit": code,
+                    "stdout": rel(self.artifact, stdout),
+                    "stderr": rel(self.artifact, stderr),
+                }
+                self.manifest["parity_contracts"].append(entry)
+                errors = validate_parity_contract_json(stdout.read_text(errors="replace"), code)
+                if errors:
+                    gate_failed = True
+                    self.manifest["errors"].extend(
+                        f"{target}/{mode}/parity-contract: {error}" for error in errors
+                    )
+                self.save()
         return not gate_failed
 
     def vectors(self) -> None:
@@ -463,7 +505,9 @@ class Runner:
                     self.build_reference(target, variant)
             self.build_binaries()
             self.check_startup()
-            if not self.run_exactness():
+            exactness_ok = self.run_exactness()
+            parity_contracts_ok = self.run_parity_contracts()
+            if not exactness_ok or not parity_contracts_ok:
                 self.manifest["status"] = "failed"
                 self.save()
                 return self.finish()

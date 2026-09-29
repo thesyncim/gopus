@@ -35,6 +35,10 @@ CBR_RE = re.compile(
     r"strict paired CBR summary: variant=(\S+) cases=(\d+) exact_cases=(\d+) "
     r"packets=(\d+) packet_diffs=(\d+) range_diffs=(\d+)"
 )
+CBR_CONTRACT_RE = re.compile(
+    r"CBR_CONTRACT cases=(0|[1-9][0-9]*) packets=(0|[1-9][0-9]*) "
+    r"decode_paths=(0|[1-9][0-9]*) unresolved_cases=(0|[1-9][0-9]*)"
+)
 BENCH_RE = re.compile(
     r"^(Benchmark[A-Za-z0-9_]+)(?:-(\d+))?\s+(\d+)\s+([0-9.eE+-]+)\s+ns/op\s+"
     r"(\d+)\s+B/op\s+(\d+)\s+allocs/op\s*$"
@@ -132,6 +136,52 @@ def exact_suite_specs(mode: str) -> list[dict[str, Any]]:
             "expected_leaves": {"TestPVQSearchSIMDDispatchUsesAVX": 1},
         })
     return specs
+
+
+def exact_suite_role(target: str, name: str) -> str:
+    """Return whether one exactness record gates or diagnoses the target."""
+    if target == "v3" and name == "testvectors-cbr-packet-range-oracle":
+        return "diagnostic"
+    return "blocking"
+
+
+def parity_contract_spec() -> dict[str, Any]:
+    return {
+        "name": "encoder-cbr-paired-contract",
+        "package": "./testvectors",
+        "selector": r"^TestEncoderCBRPairedOracleContract$",
+        "expected_leaves": {"TestEncoderCBRPairedOracleContract": 19},
+    }
+
+
+def validate_parity_contract_summary(text: str) -> list[str]:
+    markers = [line.strip() for line in text.splitlines() if line.strip().startswith("CBR_CONTRACT")]
+    if len(markers) != 1:
+        return [f"expected one canonical CBR contract summary, found {len(markers)}"]
+    summary = CBR_CONTRACT_RE.fullmatch(markers[0])
+    if summary is None:
+        return ["CBR contract summary is not canonical"]
+    got = tuple(map(int, summary.groups()))
+    if got[:3] != (19, 2175, 76):
+        return [f"CBR contract summary counts={got[:3]}, want cases/packets/decode_paths=(19,2175,76)"]
+    if got[3] != 0:
+        return [f"CBR contract has {got[3]} unresolved packet/PCM cases, want 0"]
+    return []
+
+
+def validate_parity_contract_json(text: str, exit_code: int) -> list[str]:
+    spec = parity_contract_spec()
+    errors = validate_go_test_json(text, spec["expected_leaves"], exit_code)
+    output = []
+    try:
+        for line in text.splitlines():
+            if line.strip():
+                event = json.loads(line)
+                output.append(event.get("Output", ""))
+    except json.JSONDecodeError:
+        return errors + ["invalid go test JSON while reading CBR contract output"]
+    errors.extend(validate_parity_contract_summary("".join(output)))
+    return errors
 
 
 def validate_go_test_json(text: str, expected_leaves: dict[str, int], exit_code: int) -> list[str]:
@@ -330,13 +380,90 @@ def _input_hashes(text: str, target: str) -> tuple[dict[str, str], list[str]]:
     return hashes, errors
 
 
+def validate_parity_contract_records(manifest: dict[str, Any], artifact_root: pathlib.Path) -> tuple[list[dict[str, Any]], list[str]]:
+    spec = parity_contract_spec()
+    errors: list[str] = []
+    records: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in manifest.get("parity_contracts", []):
+        key = (item.get("target"), item.get("mode"))
+        if key in records:
+            errors.append(f"duplicate parity contract record: {key}")
+        records[key] = item
+
+    expected = {(target, mode) for target in TARGETS for mode in MODES}
+    if set(records) != expected:
+        errors.append(f"parity contract records incomplete: missing={sorted(expected-set(records))}")
+
+    results: list[dict[str, Any]] = []
+    for (target, mode), item in sorted(records.items()):
+        prefix = f"{target}/{mode}/parity-contract"
+        result: dict[str, Any] = {
+            "target": target,
+            "mode": mode,
+            "name": item.get("name"),
+            "status": "failed",
+        }
+        for field in ("name", "package", "selector", "expected_leaves"):
+            if item.get(field) != spec[field]:
+                errors.append(f"{prefix} {field} differs from the required contract")
+        if item.get("gate") != "blocking":
+            errors.append(f"{prefix} is not marked as a blocking result")
+        try:
+            text = _read(artifact_root, item["stdout"])
+        except (KeyError, OSError) as exc:
+            errors.append(f"{prefix} result output is missing: {exc}")
+            results.append(result)
+            continue
+
+        result_errors = validate_parity_contract_json(text, item.get("exit", -1))
+        if result_errors:
+            errors.extend(f"{prefix}: {error}" for error in result_errors)
+        else:
+            result["status"] = "passed"
+        outputs: list[str] = []
+        for line in text.splitlines():
+            try:
+                outputs.append(json.loads(line).get("Output", ""))
+            except json.JSONDecodeError:
+                continue
+        summary_markers = [
+            line.strip() for line in "".join(outputs).splitlines()
+            if line.strip().startswith("CBR_CONTRACT")
+        ]
+        if len(summary_markers) == 1:
+            summary_match = CBR_CONTRACT_RE.fullmatch(summary_markers[0])
+            if summary_match is not None:
+                cases, packets, decode_paths, unresolved = map(int, summary_match.groups())
+                result.update({
+                    "cases": cases,
+                    "packets": packets,
+                    "decode_paths": decode_paths,
+                    "unresolved_cases": unresolved,
+                })
+        results.append(result)
+    return results, errors
+
+
 def validate_manifest(manifest: dict[str, Any], artifact_root: pathlib.Path) -> dict[str, Any]:
     errors = list(manifest.get("errors", []))
+    parity_contracts, contract_errors = validate_parity_contract_records(manifest, artifact_root)
+    errors.extend(contract_errors)
+    summary = {
+        "schema_version": 1,
+        "valid": False,
+        "errors": errors,
+        "metadata": manifest.get("metadata", {}),
+        "references": manifest.get("references", {}),
+        "binaries": manifest.get("binaries", {}),
+        "go_benchmarks": [],
+        "matched_c_benchmarks": [],
+        "parity_contracts": parity_contracts,
+        "exact_diagnostics": [],
+    }
     if manifest.get("status") != "complete":
         errors.append(f"run status is {manifest.get('status', 'missing')}, expected complete")
-        return {"schema_version": 1, "valid": False, "errors": errors,
-                "metadata": manifest.get("metadata", {}), "references": manifest.get("references", {}),
-                "binaries": manifest.get("binaries", {}), "go_benchmarks": [], "matched_c_benchmarks": []}
+        summary["errors"] = errors
+        return summary
 
     # Validate references recorded by the runner, including the exact target flags.
     references = manifest.get("references", {})
@@ -377,17 +504,28 @@ def validate_manifest(manifest: dict[str, Any], artifact_root: pathlib.Path) -> 
         if spec is None:
             errors.append(f"unknown exactness suite: {mode}/{name}")
             continue
+        role = exact_suite_role(target, name)
+        if item.get("role") != role:
+            errors.append(f"{target}/{mode}/exact-diagnostic/{name} role differs from the required {role} policy")
         for field in ("package", "selector", "expected_leaves"):
             if item.get(field) != spec.get(field):
                 errors.append(f"{target}/{mode}/{name} {field} differs from the reviewed expectation")
         if bool(item.get("strict_cbr")) != bool(spec.get("strict_cbr")):
             errors.append(f"{target}/{mode}/{name} CBR policy differs from the reviewed expectation")
+        suite_errors: list[str] = []
         try:
             text = _read(artifact_root, item["stdout"])
         except (KeyError, OSError) as exc:
-            errors.append(f"missing {target}/{mode}/{name} JSONL: {exc}")
+            suite_errors.append(f"missing JSONL: {exc}")
+            if role == "diagnostic":
+                summary["exact_diagnostics"].append({
+                    "target": target, "mode": mode, "name": name,
+                    "status": "unavailable", "errors": suite_errors,
+                })
+            else:
+                errors.extend(f"{target}/{mode}/exact/{name}: {error}" for error in suite_errors)
             continue
-        errors.extend(f"{target}/{mode}/{name}: {err}" for err in validate_go_test_json(text, spec["expected_leaves"], item.get("exit", -1)))
+        suite_errors.extend(validate_go_test_json(text, spec["expected_leaves"], item.get("exit", -1)))
         if spec.get("strict_cbr"):
             outputs = []
             for line in text.splitlines():
@@ -397,7 +535,14 @@ def validate_manifest(manifest: dict[str, Any], artifact_root: pathlib.Path) -> 
                     continue
                 outputs.append(event.get("Output", ""))
             c_variant = "scalar" if mode == "nosimd" else "simd"
-            errors.extend(f"{target}/{mode}/{name}: {err}" for err in validate_cbr_summary("".join(outputs), c_variant))
+            suite_errors.extend(validate_cbr_summary("".join(outputs), c_variant))
+        if role == "diagnostic":
+            summary["exact_diagnostics"].append({
+                "target": target, "mode": mode, "name": name,
+                "status": "mismatch" if suite_errors else "pass", "errors": suite_errors,
+            })
+        else:
+            errors.extend(f"{target}/{mode}/exact/{name}: {error}" for error in suite_errors)
 
     expected_binary_keys = {f"{target}/{arm}/root" for target in TARGETS for arm in ARMS} | {
         f"{target}/{mode}/{tool}" for target in TARGETS for mode in MODES
@@ -523,11 +668,15 @@ def validate_manifest(manifest: dict[str, Any], artifact_root: pathlib.Path) -> 
         if len(hashes) != 1 or None in hashes:
             errors.append(f"encoder PCM input hash differs across target/mode cells for {workload}")
 
-    summary: dict[str, Any] = {
-        "schema_version": 1, "valid": not errors, "errors": errors,
-        "metadata": manifest.get("metadata", {}), "go_benchmarks": [], "matched_c_benchmarks": [],
-        "references": manifest.get("references", {}), "binaries": manifest.get("binaries", {}),
-    }
+    summary.update({
+        "valid": not errors,
+        "errors": errors,
+        "metadata": manifest.get("metadata", {}),
+        "go_benchmarks": [],
+        "matched_c_benchmarks": [],
+        "references": manifest.get("references", {}),
+        "binaries": manifest.get("binaries", {}),
+    })
     if errors:
         return summary
     for target in TARGETS:
@@ -553,11 +702,16 @@ def render_markdown(summary: dict[str, Any]) -> str:
     if not summary["valid"]:
         lines.extend(["**Invalid or incomplete evidence. No timing matrices are published.**", "", "## Validation errors", ""])
         lines.extend(f"- {error}" for error in summary["errors"])
+        _append_gate_evidence(lines, summary)
         return "\n".join(lines) + "\n"
     lines.extend([
         "Values are medians. GOAMD64 is the compiler target level and does not identify the active SIMD ISA.",
         "E2E values are ns/op from four rotated rounds; all Go allocation counts are zero.",
         "Decode differential leaves compare fresh-state packets across three output formats; they do not measure streaming transitions.",
+        "",
+    ])
+    _append_gate_evidence(lines, summary)
+    lines.extend([
         "", "## End-to-end Go workloads", "",
         "| Target | Workload | Old ASM (ns/op) | Candidate nosimd (ns/op) | Candidate SIMD (ns/op) |",
         "| --- | --- | ---: | ---: | ---: |",
@@ -579,6 +733,31 @@ def render_markdown(summary: dict[str, Any]) -> str:
                   f"- Candidate commit: `{metadata.get('candidate_commit', 'unknown')}`",
         "- Per-binary Go build info and C archive/config/stamp hashes are recorded in `manifest.json` and target artifacts.", ""])
     return "\n".join(lines)
+
+
+def _append_gate_evidence(lines: list[str], summary: dict[str, Any]) -> None:
+    contracts = summary.get("parity_contracts", [])
+    if contracts:
+        lines.extend([
+            "## Blocking parity contract results", "",
+            "| Target | Mode | Status | Cases | Packets | Decode paths | Unresolved |",
+            "| --- | --- | --- | ---: | ---: | ---: | ---: |",
+        ])
+        for result in contracts:
+            lines.append(
+                f"| {result['target']} | {result['mode']} | {result['status']} | "
+                f"{result.get('cases', '—')} | {result.get('packets', '—')} | "
+                f"{result.get('decode_paths', '—')} | {result.get('unresolved_cases', '—')} |"
+            )
+        lines.append("")
+    diagnostics = summary.get("exact_diagnostics", [])
+    if diagnostics:
+        lines.extend(["## Exact packet/range diagnostics", ""])
+        for result in diagnostics:
+            detail = "; ".join(result.get("errors", []))
+            suffix = f": {detail}" if detail else ""
+            lines.append(f"- {result['target']}/{result['mode']}: {result['status']}{suffix}")
+        lines.append("")
 
 
 def write_summary(root: pathlib.Path, manifest: dict[str, Any]) -> dict[str, Any]:

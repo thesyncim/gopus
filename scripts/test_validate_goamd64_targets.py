@@ -2,19 +2,27 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from benchmark_goamd64 import Runner  # noqa: E402
 from validate_goamd64_targets import (  # noqa: E402
     E2E_NAMES,
     ENCODE_CASES,
     DECODE_PATHS,
     extract_go_toolchain,
+    exact_suite_role,
     exact_suite_specs,
+    parity_contract_spec,
     parse_e2e,
     validate_cbr_summary,
     validate_binary_build_info,
     validate_go_test_json,
+    validate_parity_contract_json,
+    validate_parity_contract_records,
+    validate_parity_contract_summary,
     validate_tool_tsv,
     _input_hashes,
     write_summary,
@@ -37,6 +45,44 @@ def paired_test_log():
         test_event("pass", "TestFixture/case-two"),
         test_event("pass", "TestFixture"),
     ])
+
+
+def parity_contract_test_log(case_count=19, leaf_action="pass", unresolved=0):
+    root = "TestEncoderCBRPairedOracleContract"
+    events = [test_event("run", root)]
+    for index in range(case_count):
+        leaf = f"{root}/case-{index + 1:02d}"
+        events.append(test_event("run", leaf))
+        events.append(test_event(leaf_action, leaf))
+    events.extend([
+        test_event("output", root, Output=(
+            "    CBR_CONTRACT cases=19 packets=2175 decode_paths=76 "
+            f"unresolved_cases={unresolved}\n"
+        )),
+        test_event("output", root, Output=f"--- PASS: {root} (0.25s)\nPASS\n"),
+        test_event("pass" if leaf_action == "pass" else "fail", root),
+    ])
+    return "\n".join(events)
+
+
+def parity_contract_manifest(artifact_root, broken=None):
+    spec = parity_contract_spec()
+    records = []
+    for target in ("v1", "v2", "v3"):
+        for mode in ("nosimd", "simd"):
+            key = (target, mode)
+            action = broken[1] if broken is not None and key == broken[0] else "pass"
+            path = artifact_root / f"{target}-{mode}.jsonl"
+            path.write_text(parity_contract_test_log(leaf_action=action))
+            records.append({
+                "target": target,
+                "mode": mode,
+                **spec,
+                "gate": "blocking",
+                "exit": 1 if action == "fail" else 0,
+                "stdout": path.name,
+            })
+    return {"parity_contracts": records}
 
 
 def tsv_row(implementation, path, vector):
@@ -83,6 +129,75 @@ class GoTestJSONValidationTests(unittest.TestCase):
         errors = validate_go_test_json(events, {"TestFixture": 1}, 0)
         self.assertTrue(any("status=skip" in error for error in errors))
         self.assertTrue(any("package-level" in error for error in errors))
+
+
+class ParityContractValidationTests(unittest.TestCase):
+    def test_contract_uses_nineteen_case_leaves(self):
+        spec = parity_contract_spec()
+        self.assertEqual(spec["package"], "./testvectors")
+        self.assertEqual(spec["selector"], r"^TestEncoderCBRPairedOracleContract$")
+        self.assertEqual(spec["expected_leaves"], {"TestEncoderCBRPairedOracleContract": 19})
+        self.assertEqual(validate_parity_contract_json(parity_contract_test_log(), 0), [])
+
+    def test_contract_requires_every_leaf_to_pass(self):
+        missing = validate_parity_contract_json(parity_contract_test_log(case_count=18), 0)
+        self.assertTrue(any("ran 18 leaf tests, want 19" in error for error in missing))
+
+        failed = validate_parity_contract_json(parity_contract_test_log(leaf_action="fail"), 1)
+        self.assertTrue(any("status=fail" in error for error in failed))
+
+        skipped = validate_parity_contract_json(parity_contract_test_log(leaf_action="skip"), 0)
+        self.assertTrue(any("status=skip" in error for error in skipped))
+
+    def test_contract_summary_requires_canonical_counts_and_no_unresolved_cases(self):
+        good = "    CBR_CONTRACT cases=19 packets=2175 decode_paths=76 unresolved_cases=0\n"
+        self.assertEqual(validate_parity_contract_summary(good + "--- PASS: contract\nPASS\n"), [])
+        self.assertTrue(validate_parity_contract_summary(good.replace("packets=2175", "packets=2174")))
+        self.assertTrue(validate_parity_contract_summary(good.replace("unresolved_cases=0", "unresolved_cases=1")))
+        self.assertTrue(validate_parity_contract_summary(good + good))
+
+    def test_contract_records_are_required_for_every_target_and_mode(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _, errors = validate_parity_contract_records({"parity_contracts": []}, root)
+            self.assertTrue(any("parity contract records incomplete" in error for error in errors))
+
+            manifest = parity_contract_manifest(root)
+            results, errors = validate_parity_contract_records(manifest, root)
+            self.assertEqual(errors, [])
+            self.assertEqual(len(results), 6)
+            self.assertTrue(all(result["status"] == "passed" for result in results))
+
+            for action in ("fail", "skip"):
+                manifest = parity_contract_manifest(root, ( ("v3", "simd"), action ))
+                _, errors = validate_parity_contract_records(manifest, root)
+                self.assertTrue(any("v3/simd/parity-contract" in error for error in errors))
+
+    def test_v3_packet_range_exactness_is_diagnostic_but_other_exact_gates_remain(self):
+        name = "testvectors-cbr-packet-range-oracle"
+        self.assertEqual(exact_suite_role("v1", name), "blocking")
+        self.assertEqual(exact_suite_role("v2", name), "blocking")
+        self.assertEqual(exact_suite_role("v3", name), "diagnostic")
+        self.assertEqual(exact_suite_role("v3", "root-encode-differential"), "blocking")
+        self.assertEqual(exact_suite_role("v3", "root-decode-differential"), "blocking")
+        self.assertEqual(exact_suite_role("v3", "root-hotpath-allocation-guards"), "blocking")
+        self.assertEqual(exact_suite_role("v3", "celt-native-avx2-fma-dispatch-witness"), "blocking")
+
+    def test_parity_contract_runs_after_exact_diagnostics_fail(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runner = Runner(root, root, root / "artifact")
+            with (
+                patch.object(runner, "preflight"),
+                patch.object(runner, "build_reference"),
+                patch.object(runner, "build_binaries"),
+                patch.object(runner, "check_startup"),
+                patch.object(runner, "run_exactness", return_value=False),
+                patch.object(runner, "run_parity_contracts", return_value=True) as contract_run,
+                patch.object(runner, "finish", return_value=1),
+            ):
+                self.assertEqual(runner.run_all(), 1)
+            contract_run.assert_called_once_with()
 
 
 class BenchmarkValidationTests(unittest.TestCase):
