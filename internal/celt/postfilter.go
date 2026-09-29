@@ -1027,14 +1027,48 @@ func combFilterWithSquarePlanarFloat32(samples []float32, hist []celtSig, histor
 			}
 			f := windowSqView[i]
 			oneMinus := float32(1.0) - f
-			sum := samples[frameOffset+i] +
-				(oneMinus*g00)*combPlanarAtFloat32(samples, hist, history, base0+i+2) +
-				(oneMinus*g01)*(combPlanarAtFloat32(samples, hist, history, base0+i+3)+combPlanarAtFloat32(samples, hist, history, base0+i+1)) +
-				(oneMinus*g02)*(combPlanarAtFloat32(samples, hist, history, base0+i+4)+combPlanarAtFloat32(samples, hist, history, base0+i)) +
-				(f*g10)*combPlanarAtFloat32(samples, hist, history, base1+i+2) +
-				(f*g11)*(combPlanarAtFloat32(samples, hist, history, base1+i+3)+combPlanarAtFloat32(samples, hist, history, base1+i+1)) +
-				(f*g12)*(combPlanarAtFloat32(samples, hist, history, base1+i+4)+combPlanarAtFloat32(samples, hist, history, base1+i))
-			samples[frameOffset+i] = sum
+			if combTargetV3FMA {
+				// The scalar history seam follows celt/celt.c's v3 FMA chain,
+				// just like the contiguous overlap kernel. Cross-fade coefficients
+				// and tap-pair sums are rounded before the sequential FMAs.
+				c00 := noFMA32Mul(oneMinus, g00)
+				c01 := noFMA32Mul(oneMinus, g01)
+				c02 := noFMA32Mul(oneMinus, g02)
+				c10 := noFMA32Mul(f, g10)
+				c11 := noFMA32Mul(f, g11)
+				c12 := noFMA32Mul(f, g12)
+				t00 := combPlanarAtFloat32(samples, hist, history, base0+i+2)
+				p01 := noFMA32Add(
+					combPlanarAtFloat32(samples, hist, history, base0+i+3),
+					combPlanarAtFloat32(samples, hist, history, base0+i+1),
+				)
+				p02 := noFMA32Add(
+					combPlanarAtFloat32(samples, hist, history, base0+i+4),
+					combPlanarAtFloat32(samples, hist, history, base0+i),
+				)
+				t10 := combPlanarAtFloat32(samples, hist, history, base1+i+2)
+				p11 := noFMA32Add(
+					combPlanarAtFloat32(samples, hist, history, base1+i+3),
+					combPlanarAtFloat32(samples, hist, history, base1+i+1),
+				)
+				p12 := noFMA32Add(
+					combPlanarAtFloat32(samples, hist, history, base1+i+4),
+					combPlanarAtFloat32(samples, hist, history, base1+i),
+				)
+				samples[frameOffset+i] = combFilterOverlapV3Accumulate(
+					samples[frameOffset+i],
+					c00, t00, c01, p01, c02, p02, c10, t10, c11, p11, c12, p12,
+				)
+			} else {
+				sum := samples[frameOffset+i] +
+					(oneMinus*g00)*combPlanarAtFloat32(samples, hist, history, base0+i+2) +
+					(oneMinus*g01)*(combPlanarAtFloat32(samples, hist, history, base0+i+3)+combPlanarAtFloat32(samples, hist, history, base0+i+1)) +
+					(oneMinus*g02)*(combPlanarAtFloat32(samples, hist, history, base0+i+4)+combPlanarAtFloat32(samples, hist, history, base0+i)) +
+					(f*g10)*combPlanarAtFloat32(samples, hist, history, base1+i+2) +
+					(f*g11)*(combPlanarAtFloat32(samples, hist, history, base1+i+3)+combPlanarAtFloat32(samples, hist, history, base1+i+1)) +
+					(f*g12)*(combPlanarAtFloat32(samples, hist, history, base1+i+4)+combPlanarAtFloat32(samples, hist, history, base1+i))
+				samples[frameOffset+i] = sum
+			}
 			i++
 		}
 	} else {

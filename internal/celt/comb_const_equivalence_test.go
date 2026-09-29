@@ -77,6 +77,7 @@ func TestCombFilterKernelsZeroAllocs(t *testing.T) {
 		squareHistory[i] = celtSig(float32((i*47)%197-98) / 64)
 	}
 	squareWindow := GetWindowBufferF32(Overlap)
+	squareWindowSq := GetWindowSquareBufferF32(Overlap)
 	squareRun := func() {
 		combFilterWithSquarePlanarFloat32(squareSamples, squareHistory, combFilterHistory, 0,
 			37, 40, n, 0.28125, 0.65625, 0, 0, squareWindow, nil, Overlap)
@@ -84,6 +85,14 @@ func TestCombFilterKernelsZeroAllocs(t *testing.T) {
 	squareRun()
 	if allocs := testing.AllocsPerRun(100, squareRun); allocs != 0 {
 		t.Fatalf("comb square fallback allocated: %g allocs/run", allocs)
+	}
+	squarePrecomputedRun := func() {
+		combFilterWithSquarePlanarFloat32(squareSamples, squareHistory, combFilterHistory, 0,
+			37, 40, n, 0.28125, 0.65625, 0, 0, squareWindow, squareWindowSq, Overlap)
+	}
+	squarePrecomputedRun()
+	if allocs := testing.AllocsPerRun(100, squarePrecomputedRun); allocs != 0 {
+		t.Fatalf("comb precomputed-window seam allocated: %g allocs/run", allocs)
 	}
 
 	constBody := make([]float32, n)

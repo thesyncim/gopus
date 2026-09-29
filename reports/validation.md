@@ -219,8 +219,8 @@ CELT/Hybrid have unresolved same-packet PCM differences. FFT/MDCT and SILK
 primitive suites pass. The CELT encoder trace rejects inconsistent quantization
 dimensions, so it does not yet establish a runtime divergence location.
 
-The [native v3 audit at `e6e3f944`](https://github.com/thesyncim/gopus/actions/runs/36630543684)
-on AMD EPYC 9V74 with Go 1.27.1 and GCC 13.3 passes the following matched
+The [native v3 audit at `5b435e02`](https://github.com/thesyncim/gopus/actions/runs/36632270766)
+on AMD EPYC 7763 with Go 1.27.1 and GCC 13.3 passes the following matched
 scalar and SIMD selections. No cases are skipped.
 
 | Gate | Scalar | SIMD |
@@ -272,13 +272,16 @@ at frame 95. The SIMD trace first differs in actual MDCT input at index 120
 identify an MDCT arithmetic defect. Preemphasis and prefilter tracing follows
 that upstream boundary.
 
-The remaining scalar public constrained-VBR differential case differs at
-frame 1, packet byte 59, with matching final range `3e290e00`. Its `vbr1`
-selector means `ModeCVBR`. The separate two-frame trace selects unconstrained
-VBR, uses equal 4000-byte output capacities and matches C packets/ranges; it
-does not reproduce the failing case. Trace schema, caller state, capacity and
-transparency checks remain strict. No numerical allowance is accepted for any
-unresolved difference.
+The scalar public constrained-VBR witness reproduces frame 1's packet byte-59
+mismatch with matching final range `3e290e00` and 102-byte packets. Both traces
+use constrained VBR, matching frame geometry and 4000-byte output capacities;
+ordinary/traced output agrees within each implementation. C classifies byte
+59 as range-coded, inside packet bytes [1,67), rather than the raw-bit tail.
+All captured stages match through quantizer input; reconstructed coefficient
+98 first differs (Go `be2eb546`, C `be2eb545`). The SIMD lane matches the
+complete packet, range and captured stages. The scalar reconstruction and
+subsequent coding decisions remain unresolved. No numerical allowance is
+accepted.
 
 | Priority | Surface | Finding | Current evidence |
 |---|---|---|---|
