@@ -32,14 +32,15 @@ import (
 )
 
 const (
-	silkCtrlMaxNbSubfr   = 4
-	silkCtrlMaxShapeLPC  = 24
-	silkCtrlMaxShapeWin  = 240 // SHAPE_LPC_WIN_MAX = 15*MAX_FS_KHZ in silk/define.h.
-	silkCtrlMaxLPC       = 16
-	silkCtrlLTPOrder     = 5
-	silkCtrlMaxNoiseRows = 32
-	silkCtrlInputMagic   = "GSCI"
-	silkCtrlOutputMagic  = "GSCO"
+	silkCtrlMaxNbSubfr    = 4
+	silkCtrlMaxShapeLPC   = 24
+	silkCtrlMaxShapeWin   = 240   // SHAPE_LPC_WIN_MAX = 15*MAX_FS_KHZ in silk/define.h.
+	silkCtrlMaxWarpingQ16 = 32767 // silk/control_codec.c bounds warping_Q16.
+	silkCtrlMaxLPC        = 16
+	silkCtrlLTPOrder      = 5
+	silkCtrlMaxNoiseRows  = 32
+	silkCtrlInputMagic    = "GSCI"
+	silkCtrlOutputMagic   = "GSCO"
 )
 
 var silkCBRTraceFrameCandidates = [...]int{6, 13, 50}
@@ -88,6 +89,7 @@ func getSILKCtrlHelperPath(t testing.TB) (string, bool) {
 				"-Wl,--wrap=silk_bwexpander_FLP",
 				"-Wl,--wrap=silk_noise_shape_analysis_FLP",
 				"-Wl,--wrap=silk_autocorrelation_FLP",
+				"-Wl,--wrap=silk_warped_autocorrelation_FLP",
 				"-Wl,--wrap=silk_schur_FLP",
 				"-Wl,--wrap=pow",
 			)
@@ -211,6 +213,7 @@ type silkGainTweakRecord struct {
 type silkNoiseAnalysisTraceRecord struct {
 	frame, channel, subframe, numSubfr, order, windowLength int32
 	warpingQ16, autoCorrCalls, schurCalls                   int32
+	effectiveWarping                                        float32
 	window, autoCorrRaw, autoCorrAdjusted, reflection       []float32
 	energy                                                  float32
 }
@@ -235,8 +238,8 @@ type goSILKNoiseAnalysisTraceRecord struct {
 	snapshot       silk.SILKNoiseAnalysisTraceSnapshot
 }
 
-func TestParseSILKCtrlOracleOutputGSCO7NoiseAnalysis(t *testing.T) {
-	makeOutput := func(ltpFrame, gainFrame int32, frameCount, ltpGainCount int, truncateGainHeader bool) []byte {
+func TestParseSILKCtrlOracleOutputGSCO8NoiseAnalysis(t *testing.T) {
+	makeOutput := func(ltpFrame, gainFrame int32, frameCount, ltpGainCount int, truncateGainHeader bool, warpingQ16 int32, effectiveWarping float32) []byte {
 		var raw []byte
 		putU32 := func(value uint32) {
 			var b [4]byte
@@ -246,7 +249,7 @@ func TestParseSILKCtrlOracleOutputGSCO7NoiseAnalysis(t *testing.T) {
 		putI32 := func(value int32) { putU32(uint32(value)) }
 		putF32 := func(value float32) { putU32(math.Float32bits(value)) }
 		raw = append(raw, silkCtrlOutputMagic...)
-		putU32(7) // GSCO v7
+		putU32(8) // GSCO v8
 		putU32(uint32(frameCount))
 		for i := 0; i < frameCount; i++ {
 			putU32(0) // empty packet
@@ -292,17 +295,17 @@ func TestParseSILKCtrlOracleOutputGSCO7NoiseAnalysis(t *testing.T) {
 			putI32(gainFrame) // partial gain-tweak header
 			return raw
 		}
-		putU32(1)         // one gain-tweak context
-		putI32(gainFrame) // frame
-		putI32(0)         // channel
-		putI32(4)         // four subframes
-		putI32(12)        // shaping order
-		putI32(0)         // warping Q16
-		putI32(1)         // one pow call
-		putU32(15)        // all four pre-gain rows captured
-		putF32(-0.5)      // gain-mult exponent
-		putF32(0.75)      // gain multiplier
-		putF32(1.25)      // gain add
+		putU32(1)          // one gain-tweak context
+		putI32(gainFrame)  // frame
+		putI32(0)          // channel
+		putI32(4)          // four subframes
+		putI32(12)         // shaping order
+		putI32(warpingQ16) // warping Q16
+		putI32(1)          // one pow call
+		putU32(15)         // all four pre-gain rows captured
+		putF32(-0.5)       // gain-mult exponent
+		putF32(0.75)       // gain multiplier
+		putF32(1.25)       // gain add
 		for i := 0; i < 4; i++ {
 			putF32(float32(i+1) * 0.5) // pre-tweak gain
 			putF32(float32(i + 1))     // post-tweak gain
@@ -316,9 +319,10 @@ func TestParseSILKCtrlOracleOutputGSCO7NoiseAnalysis(t *testing.T) {
 			putI32(4)
 			putI32(12)
 			putI32(13)
-			putI32(0)
+			putI32(warpingQ16)
 			putI32(1)
 			putI32(1)
+			putF32(effectiveWarping)
 			for i := 0; i < 13; i++ {
 				putF32(float32(i+1) * 0.25)
 			}
@@ -337,9 +341,9 @@ func TestParseSILKCtrlOracleOutputGSCO7NoiseAnalysis(t *testing.T) {
 		return raw
 	}
 
-	parsed, err := parseSILKCtrlOracleOutput(makeOutput(50, 50, 51, 4, false), 51)
+	parsed, err := parseSILKCtrlOracleOutput(makeOutput(50, 50, 51, 4, false, 0, 0), 51)
 	if err != nil {
-		t.Fatalf("parse valid GSCO v7 four-subframe context: %v", err)
+		t.Fatalf("parse valid GSCO v8 four-subframe context: %v", err)
 	}
 	if len(parsed.ltpCalls) != 1 || len(parsed.ltpCalls[0].subframes) != 4 {
 		t.Fatalf("parsed LTP context/subframes=%d/%d, want 1/4", len(parsed.ltpCalls), len(parsed.ltpCalls[0].subframes))
@@ -349,11 +353,11 @@ func TestParseSILKCtrlOracleOutputGSCO7NoiseAnalysis(t *testing.T) {
 			t.Fatalf("raw gain[%d]=%08x, want %08x", i, math.Float32bits(got), math.Float32bits(want))
 		}
 	}
-	if _, err := parseSILKCtrlOracleOutput(makeOutput(50, 50, 51, 2, false), 51); err == nil {
-		t.Fatal("truncated GSCO v7 LTP gain header was accepted")
+	if _, err := parseSILKCtrlOracleOutput(makeOutput(50, 50, 51, 2, false, 0, 0), 51); err == nil {
+		t.Fatal("truncated GSCO v8 LTP gain header was accepted")
 	}
-	if _, err := parseSILKCtrlOracleOutput(makeOutput(51, 50, 51, 4, false), 51); err == nil {
-		t.Fatal("out-of-range GSCO v7 LTP frame was accepted")
+	if _, err := parseSILKCtrlOracleOutput(makeOutput(51, 50, 51, 4, false, 0, 0), 51); err == nil {
+		t.Fatal("out-of-range GSCO v8 LTP frame was accepted")
 	}
 	if len(parsed.gainTweaks) != 1 {
 		t.Fatalf("parsed gain-tweak records=%d, want 1", len(parsed.gainTweaks))
@@ -370,11 +374,11 @@ func TestParseSILKCtrlOracleOutputGSCO7NoiseAnalysis(t *testing.T) {
 		math.Float32bits(gain.postGain[3]) != math.Float32bits(4) {
 		t.Fatalf("parsed gain-tweak values=%+v", gain)
 	}
-	if _, err := parseSILKCtrlOracleOutput(makeOutput(50, 50, 51, 4, true), 51); err == nil {
-		t.Fatal("truncated GSCO v7 gain-tweak header was accepted")
+	if _, err := parseSILKCtrlOracleOutput(makeOutput(50, 50, 51, 4, true, 0, 0), 51); err == nil {
+		t.Fatal("truncated GSCO v8 gain-tweak header was accepted")
 	}
-	if _, err := parseSILKCtrlOracleOutput(makeOutput(50, 51, 51, 4, false), 51); err == nil {
-		t.Fatal("out-of-range GSCO v7 gain-tweak frame was accepted")
+	if _, err := parseSILKCtrlOracleOutput(makeOutput(50, 51, 51, 4, false, 0, 0), 51); err == nil {
+		t.Fatal("out-of-range GSCO v8 gain-tweak frame was accepted")
 	}
 	if len(parsed.noiseRows) != 4 {
 		t.Fatalf("parsed noise-analysis rows=%d, want 4", len(parsed.noiseRows))
@@ -386,6 +390,7 @@ func TestParseSILKCtrlOracleOutputGSCO7NoiseAnalysis(t *testing.T) {
 		t.Fatalf("parsed noise-analysis metadata=%+v", noise)
 	}
 	if len(noise.window) != 13 || len(noise.autoCorrRaw) != 13 || len(noise.autoCorrAdjusted) != 13 || len(noise.reflection) != 12 ||
+		math.Float32bits(noise.effectiveWarping) != 0 ||
 		math.Float32bits(noise.window[12]) != math.Float32bits(3.25) ||
 		math.Float32bits(noise.autoCorrRaw[12]) != math.Float32bits(13) ||
 		math.Float32bits(noise.autoCorrAdjusted[0]) != math.Float32bits(2) ||
@@ -396,10 +401,35 @@ func TestParseSILKCtrlOracleOutputGSCO7NoiseAnalysis(t *testing.T) {
 	if parsed.noiseRows[3].subframe != 3 {
 		t.Fatalf("last parsed noise-analysis subframe=%d, want 3", parsed.noiseRows[3].subframe)
 	}
-	truncatedNoise := makeOutput(50, 50, 51, 4, false)
+	truncatedNoise := makeOutput(50, 50, 51, 4, false, 0, 0)
 	truncatedNoise = truncatedNoise[:len(truncatedNoise)-4]
 	if _, err := parseSILKCtrlOracleOutput(truncatedNoise, 51); err == nil {
-		t.Fatal("truncated GSCO v7 noise-analysis overflow word was accepted")
+		t.Fatal("truncated GSCO v8 noise-analysis overflow word was accepted")
+	}
+	warped, err := parseSILKCtrlOracleOutput(makeOutput(50, 50, 51, 4, false, 16384, 0.25), 51)
+	if err != nil {
+		t.Fatalf("parse valid GSCO v8 warped-autocorrelation context: %v", err)
+	}
+	if got := warped.noiseRows[0].effectiveWarping; math.Float32bits(got) != math.Float32bits(0.25) {
+		t.Fatalf("effective warped-autocorrelation argument=%08x, want %08x", math.Float32bits(got), math.Float32bits(0.25))
+	}
+	if _, err := parseSILKCtrlOracleOutput(makeOutput(50, 50, 51, 4, false, 16384, 0), 51); err == nil {
+		t.Fatal("warped GSCO v8 context without an effective warp argument was accepted")
+	}
+	if _, err := parseSILKCtrlOracleOutput(makeOutput(50, 50, 51, 4, false, 0, 0.25), 51); err == nil {
+		t.Fatal("regular GSCO v8 context with a warped-autocorrelation argument was accepted")
+	}
+	if _, err := parseSILKCtrlOracleOutput(makeOutput(50, 50, 51, 4, false, 16384, 0.6), 51); err == nil {
+		t.Fatal("out-of-range GSCO v8 effective warping argument was accepted")
+	}
+	if _, err := parseSILKCtrlOracleOutput(makeOutput(50, 50, 51, 4, false, 16384, math.Float32frombits(0x7fc00000)), 51); err == nil {
+		t.Fatal("non-finite GSCO v8 effective warping argument was accepted")
+	}
+	overflowOutput := makeOutput(50, 50, 51, 4, false, 0, 0)
+	binary.LittleEndian.PutUint32(overflowOutput[len(overflowOutput)-4:], 0x04)
+	if _, err := parseSILKCtrlOracleOutput(overflowOutput, 51); err == nil ||
+		err.Error() != "C noise-analysis trace overflow reason mask 0x00000004" {
+		t.Fatalf("GSCO v8 overflow reason mask error=%v", err)
 	}
 }
 
@@ -416,7 +446,7 @@ func parseSILKCtrlOracleOutput(raw []byte, nFrames int) (*silkCtrlOracleOut, err
 		return nil, fmt.Errorf("bad oracle response magic")
 	}
 	version := binary.LittleEndian.Uint32(raw[4:8])
-	if version != 7 {
+	if version != 8 {
 		return nil, fmt.Errorf("bad oracle version")
 	}
 	gotN := int(binary.LittleEndian.Uint32(raw[8:12]))
@@ -681,26 +711,32 @@ func parseSILKCtrlOracleOutput(raw []byte, nFrames int) (*silkCtrlOracleOut, err
 	noiseRowsByContext := make(map[[2]int32]silkNoiseAnalysisTraceRecord)
 	noiseSubframes := make(map[[3]int32]struct{}, nNoiseRowsU)
 	for i := uint32(0); i < nNoiseRowsU; i++ {
-		if len(raw)-off < 9*4 {
+		if len(raw)-off < 9*4+4 {
 			return nil, fmt.Errorf("truncated C noise-analysis header record %d", i)
 		}
 		var r silkNoiseAnalysisTraceRecord
 		r.frame, r.channel, r.subframe, r.numSubfr = ri(), ri(), ri(), ri()
 		r.order, r.windowLength, r.warpingQ16 = ri(), ri(), ri()
 		r.autoCorrCalls, r.schurCalls = ri(), ri()
+		r.effectiveWarping = rf()
 		if r.frame < 0 || int(r.frame) >= nFrames || !isSILKCtrlTraceFrame(r.frame) ||
 			r.channel < 0 || r.channel > 1 || r.numSubfr <= 0 || r.numSubfr > silkCtrlMaxNbSubfr ||
 			r.subframe < 0 || r.subframe >= r.numSubfr || r.order <= 0 || r.order > silkCtrlMaxShapeLPC ||
-			r.windowLength <= r.order || r.windowLength > silkCtrlMaxShapeWin || r.warpingQ16 != 0 ||
+			r.windowLength <= r.order || r.windowLength > silkCtrlMaxShapeWin ||
+			r.warpingQ16 < 0 || r.warpingQ16 > silkCtrlMaxWarpingQ16 ||
+			!finiteSILKTraceFloat(r.effectiveWarping) || r.effectiveWarping < 0 || r.effectiveWarping > 0.51 ||
+			((r.warpingQ16 == 0) != (math.Float32bits(r.effectiveWarping) == 0)) ||
 			r.autoCorrCalls != 1 || r.schurCalls != 1 {
-			return nil, fmt.Errorf("invalid C noise-analysis metadata frame=%d channel=%d subframe=%d/%d order=%d window=%d warp=%d calls=%d/%d",
+			return nil, fmt.Errorf("invalid C noise-analysis metadata frame=%d channel=%d subframe=%d/%d order=%d window=%d warpQ16=%d effectiveWarp=%08x calls=%d/%d",
 				r.frame, r.channel, r.subframe, r.numSubfr, r.order, r.windowLength, r.warpingQ16,
+				math.Float32bits(r.effectiveWarping),
 				r.autoCorrCalls, r.schurCalls)
 		}
 		contextKey := [2]int32{r.frame, r.channel}
 		if previous, ok := noiseRowsByContext[contextKey]; ok {
 			if previous.numSubfr != r.numSubfr || previous.order != r.order ||
-				previous.windowLength != r.windowLength || previous.warpingQ16 != r.warpingQ16 {
+				previous.windowLength != r.windowLength || previous.warpingQ16 != r.warpingQ16 ||
+				math.Float32bits(previous.effectiveWarping) != math.Float32bits(r.effectiveWarping) {
 				return nil, fmt.Errorf("inconsistent C noise-analysis context dimensions frame=%d/channel=%d", r.frame, r.channel)
 			}
 		} else {
@@ -771,7 +807,7 @@ func parseSILKCtrlOracleOutput(raw []byte, nFrames int) (*silkCtrlOracleOut, err
 		return nil, fmt.Errorf("truncated C noise-analysis overflow flag")
 	}
 	if overflow := ri(); overflow != 0 {
-		return nil, fmt.Errorf("C noise-analysis trace overflowed its bounded record buffer")
+		return nil, fmt.Errorf("C noise-analysis trace overflow reason mask 0x%08x", uint32(overflow))
 	}
 	if off != len(raw) {
 		return nil, fmt.Errorf("trailing oracle bytes: consumed %d of %d", off, len(raw))
@@ -830,6 +866,10 @@ func firstSILKNoiseAnalysisDifference(
 			c.subframe, c.numSubfr, c.order, c.windowLength, c.warpingQ16,
 			g.Subframe, g.NumSubframes, g.Order, g.WindowLength, g.WarpingQ16)
 	}
+	if math.Float32bits(g.EffectiveWarping) != math.Float32bits(c.effectiveWarping) {
+		return fmt.Sprintf("effective warped-autocorrelation argument C=%08x Go=%08x",
+			math.Float32bits(c.effectiveWarping), math.Float32bits(g.EffectiveWarping))
+	}
 	compareVector := func(name string, cValues []float32, goValues []float32) string {
 		if len(cValues) != len(goValues) {
 			return fmt.Sprintf("%s dimensions C=%d Go=%d", name, len(cValues), len(goValues))
@@ -857,16 +897,28 @@ func firstSILKNoiseAnalysisDifference(
 	if math.Float32bits(c.energy) != math.Float32bits(g.Energy) {
 		return fmt.Sprintf("Schur residual energy C=%08x Go=%08x", math.Float32bits(c.energy), math.Float32bits(g.Energy))
 	}
-	if math.Float32bits(g.SqrtGain) != math.Float32bits(cGain.preGain[c.subframe]) {
-		// C noise_shape_analysis_FLP.c:267 stores (silk_float)sqrt(nrg) in
-		// Gains; the first AR bandwidth-expander callback snapshots that value
-		// before the gain-tweak loop on this unwarped path.
-		return fmt.Sprintf("sqrt(Schur energy) C actual pre-gain=%08x Go=%08x",
-			math.Float32bits(cGain.preGain[c.subframe]), math.Float32bits(g.SqrtGain))
+	if math.Float32bits(g.PostWarpGain) != math.Float32bits(cGain.preGain[c.subframe]) {
+		return fmt.Sprintf("post-warp pre-tweak gain C=%08x Go=%08x",
+			math.Float32bits(cGain.preGain[c.subframe]), math.Float32bits(g.PostWarpGain))
 	}
-	if math.Float32bits(g.SqrtGain) != math.Float32bits(goGain.PreGain) {
-		return fmt.Sprintf("Go sqrt(Schur energy)=%08x Go pre-tweak gain=%08x",
-			math.Float32bits(g.SqrtGain), math.Float32bits(goGain.PreGain))
+	if math.Float32bits(g.PostWarpGain) != math.Float32bits(goGain.PreGain) {
+		return fmt.Sprintf("Go post-warp gain=%08x Go pre-tweak gain=%08x",
+			math.Float32bits(g.PostWarpGain), math.Float32bits(goGain.PreGain))
+	}
+	return ""
+}
+
+func silkNoiseSqrtModelDifference(c silkNoiseAnalysisTraceRecord, g silk.SILKNoiseAnalysisTraceSnapshot) string {
+	if c.energy <= 0 {
+		return fmt.Sprintf("captured C Schur energy %08x is nonpositive; sqrt model is unavailable",
+			math.Float32bits(c.energy))
+	}
+	// This diagnostic derives C's source expression `(silk_float)sqrt(nrg)`
+	// from the captured energy; the helper does not capture the sqrt call itself.
+	cSqrtGain := float32(math.Sqrt(float64(c.energy)))
+	if math.Float32bits(g.SqrtGain) != math.Float32bits(cSqrtGain) {
+		return fmt.Sprintf("pre-warp sqrt model (derived from C energy)=%08x Go actual sqrt=%08x",
+			math.Float32bits(cSqrtGain), math.Float32bits(g.SqrtGain))
 	}
 	return ""
 }
@@ -893,6 +945,7 @@ func compareSILKNoiseAnalysisTrace(
 		t.Fatalf("Go noise-analysis rows=%d, want %d selected subframes", len(goNoiseRows), wantRows)
 	}
 	divergence := ""
+	sqrtModelDifference := ""
 	for _, c := range oracle.noiseRows {
 		var goRow *goSILKNoiseAnalysisTraceRecord
 		for i := range goNoiseRows {
@@ -930,11 +983,19 @@ func compareSILKNoiseAnalysisTrace(
 			divergence = fmt.Sprintf("frame%d/channel%d/subframe%d: %s", c.frame, c.channel, c.subframe, diff)
 			break
 		}
+		if sqrtModelDifference == "" {
+			if diff := silkNoiseSqrtModelDifference(c, goRow.snapshot); diff != "" {
+				sqrtModelDifference = fmt.Sprintf("frame%d/channel%d/subframe%d: %s", c.frame, c.channel, c.subframe, diff)
+			}
+		}
 	}
 	if divergence != "" {
 		t.Logf("first actual C/Go noise-analysis divergence input=%s %s", inputID, divergence)
+	} else if sqrtModelDifference != "" {
+		t.Logf("actual C/Go window, autocorrelation, Schur, and post-warp gain match; ancillary source-derived sqrt diagnostic input=%s %s",
+			inputID, sqrtModelDifference)
 	} else {
-		t.Logf("actual C/Go shaping window, autocorrelation, Schur, and sqrt gain match across %d subframes", wantRows)
+		t.Logf("actual C/Go shaping window, autocorrelation, Schur, and post-warp gain match across %d subframes; source-derived sqrt diagnostic also matches", wantRows)
 	}
 }
 

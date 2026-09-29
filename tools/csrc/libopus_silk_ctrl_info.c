@@ -23,7 +23,7 @@
  *
  * Output wire format:
  *
- *   magic "GSCO" + u32(version=7) + u32(n_frames)
+ *   magic "GSCO" + u32(version=8) + u32(n_frames)
  *   then n_frames packet records: u32(packet_len) u32(final_range) bytes[len]
  *   then u32(n_ctrl)
  *   then n_ctrl control records, each:
@@ -87,20 +87,27 @@
  *   The pre-tweak gains come from the first actual silk_bwexpander_FLP call
  *   for each control AR row; the active power call returns gain_mult and the
  *   gain_add bits match the pinned C expression's constant-folded literal.
- *   then u32(n_noise_shape_records), followed by actual unwarped noise-shape
- *   analysis records for frames 6, 13, and 50 when present, one per subframe
- *   and SILK channel:
+ *   then u32(n_noise_shape_records), followed by actual noise-shape analysis
+ *   records for frames 6, 13, and 50 when present, one per subframe and SILK
+ *   channel. The record captures the regular or warped autocorrelation branch
+ *   selected by the real noise-shape call:
  *     i32(frame), i32(channel), i32(subframe), i32(numSubframes), i32(order),
  *     i32(windowLength), i32(warping_Q16), i32(autoCorrCalls), i32(schurCalls),
+ *     f32(autoCorrWarping),
  *     f32(window[windowLength]), f32(rawAutoCorr[order+1]),
  *     f32(adjustedAutoCorr[order+1]), f32(rc[order]), f32(nrg)
- *   then i32(noise_shape_overflow). Windows are copied from the real
- *   silk_autocorrelation_FLP input, raw correlations from its real output,
- *   adjusted correlations from the real silk_schur_FLP input after the pinned
- *   white-noise addition, and rc/nrg from that real Schur call. Warped or
- *   incomplete/duplicated selected contexts fail closed through overflow.
- *   The sequence follows silk/float/noise_shape_analysis_FLP.c's window,
- *   autocorrelation, white-noise, and Schur operations.
+ *   then i32(noise_shape_failure_flags). Windows are copied from the input to the
+ *   real autocorrelation function selected by noise_shape_analysis_FLP.c;
+ *   raw correlations come from that function's real output, adjusted
+ *   correlations from the real silk_schur_FLP input after the pinned
+ *   white-noise addition, and rc/nrg from that real Schur call. The
+ *   warping_Q16 field identifies whether the regular or warped autocorrelation
+ *   branch ran. Incomplete, duplicated, or unsupported selected contexts fail
+ *   closed with a nonzero flag. Bit 0 marks an invalid context lifecycle, bit 1
+ *   invalid dimensions, bit 2 autocorrelation branch/argument/cardinality
+ *   failure, and bit 3 Schur pairing/cardinality failure. The sequence follows
+ *   silk/float/noise_shape_analysis_FLP.c's window, autocorrelation,
+ *   white-noise, and Schur operations.
  *
  * Reference: libopus src/opus_encoder.c opus_encode_float(); the dumped struct
  * is silk/float/structs_FLP.h silk_encoder_control_FLP, captured in
@@ -134,6 +141,13 @@
 /* Bounds from silk/define.h: MAX_SHAPE_LPC_ORDER and SHAPE_LPC_WIN_MAX. */
 #define MAX_SHAPE_WINDOW SHAPE_LPC_WIN_MAX
 #define MAX_SHAPE_ORDER MAX_SHAPE_LPC_ORDER
+
+enum {
+  NOISE_SHAPE_FAILURE_CONTEXT = 1 << 0,
+  NOISE_SHAPE_FAILURE_GEOMETRY = 1 << 1,
+  NOISE_SHAPE_FAILURE_AUTOCORR = 1 << 2,
+  NOISE_SHAPE_FAILURE_SCHUR = 1 << 3
+};
 
 static int set_binary_stdio(void) {
 #ifdef _WIN32
@@ -299,6 +313,7 @@ typedef struct {
   int32_t warping_Q16;
   int32_t autoCorrCalls;
   int32_t schurCalls;
+  float autoCorrWarping;
   float window[MAX_SHAPE_WINDOW];
   float rawAutoCorr[MAX_SHAPE_ORDER + 1];
   float adjustedAutoCorr[MAX_SHAPE_ORDER + 1];
@@ -357,7 +372,8 @@ void gopus_silk_gain_tweak_set_context(const silk_encoder_state_FLP *psEnc,
   g_gain_tweak_context_index = -1;
   g_gain_tweak_ctrl = NULL;
   if (!gopus_silk_trace_frame_selected(g_cur_opus_frame)) return;
-  if (g_noise_shape_context_open) g_noise_shape_trace_overflow = 1;
+  if (g_noise_shape_context_open)
+    g_noise_shape_trace_overflow |= NOISE_SHAPE_FAILURE_CONTEXT;
   g_noise_shape_context_open = 1;
   g_noise_shape_context_seen = 0;
   g_noise_shape_context_frame = g_cur_opus_frame;
@@ -398,7 +414,7 @@ void gopus_silk_gain_tweak_finish_context(
   if (g_noise_shape_context_open) {
     if (!g_noise_shape_context_seen ||
         g_noise_shape_context_frame != g_cur_opus_frame) {
-      g_noise_shape_trace_overflow = 1;
+      g_noise_shape_trace_overflow |= NOISE_SHAPE_FAILURE_CONTEXT;
     }
     g_noise_shape_context_open = 0;
     g_noise_shape_context_seen = 0;
@@ -472,6 +488,66 @@ static int g_noise_shape_first_record = 0;
 static int g_noise_shape_current_record = -1;
 static const silk_float *g_noise_shape_corr_results = NULL;
 
+static int silk_float_is_finite(silk_float value) {
+  uint32_t bits;
+  memcpy(&bits, &value, sizeof(bits));
+  return (bits & UINT32_C(0x7f800000)) != UINT32_C(0x7f800000);
+}
+
+static noise_shape_trace_record *gopus_silk_noise_shape_autocorr_begin(
+    const silk_float *input,
+    opus_int input_length,
+    opus_int order,
+    int warped,
+    silk_float effective_warping) {
+  noise_shape_trace_record *r;
+  int subframe;
+  int expected_warped;
+  int record_index;
+
+  if (!g_noise_shape_active) return NULL;
+  subframe = g_noise_shape_auto_calls++;
+  expected_warped = g_noise_shape_warping_Q16 > 0;
+  if (g_noise_shape_current_record >= 0 ||
+      subframe >= g_noise_shape_num_subframes ||
+      warped != expected_warped ||
+      input_length != g_noise_shape_window_length ||
+      order != g_noise_shape_order || input_length <= order ||
+      input_length > MAX_SHAPE_WINDOW ||
+      !silk_float_is_finite(effective_warping) ||
+      g_noise_shape_trace_count >= MAX_NOISE_SHAPE_TRACE_RECORDS) {
+    g_noise_shape_trace_overflow |= NOISE_SHAPE_FAILURE_AUTOCORR;
+    return NULL;
+  }
+
+  record_index = g_noise_shape_trace_count++;
+  r = &g_noise_shape_trace[record_index];
+  memset(r, 0, sizeof(*r));
+  r->opus_frame_index = g_noise_shape_frame;
+  r->channel = g_noise_shape_channel;
+  r->subframe = subframe;
+  r->num_subframes = g_noise_shape_num_subframes;
+  r->order = g_noise_shape_order;
+  r->window_length = input_length;
+  r->warping_Q16 = g_noise_shape_warping_Q16;
+  r->autoCorrCalls = 1;
+  r->autoCorrWarping = effective_warping;
+  memcpy(r->window, input, (size_t)input_length * sizeof(r->window[0]));
+  g_noise_shape_current_record = record_index;
+  g_noise_shape_corr_results = NULL;
+  return r;
+}
+
+static void gopus_silk_noise_shape_autocorr_finish(
+    noise_shape_trace_record *r,
+    const silk_float *corr,
+    opus_int order) {
+  int k;
+  if (r == NULL) return;
+  g_noise_shape_corr_results = corr;
+  for (k = 0; k <= order; k++) r->rawAutoCorr[k] = corr[k];
+}
+
 extern void __real_silk_noise_shape_analysis_FLP(
     silk_encoder_state_FLP *psEnc,
     silk_encoder_control_FLP *psEncCtrl,
@@ -493,13 +569,13 @@ void __wrap_silk_noise_shape_analysis_FLP(
   if (!g_noise_shape_context_open || g_noise_shape_context_seen ||
       g_noise_shape_context_frame != g_cur_opus_frame ||
       g_noise_shape_context_channel != psEnc->sCmn.channelNb) {
-    g_noise_shape_trace_overflow = 1;
+    g_noise_shape_trace_overflow |= NOISE_SHAPE_FAILURE_CONTEXT;
     __real_silk_noise_shape_analysis_FLP(psEnc, psEncCtrl, pitch_res, x);
     return;
   }
   g_noise_shape_context_seen = 1;
   if (g_noise_shape_active) {
-    g_noise_shape_trace_overflow = 1;
+    g_noise_shape_trace_overflow |= NOISE_SHAPE_FAILURE_CONTEXT;
     __real_silk_noise_shape_analysis_FLP(psEnc, psEncCtrl, pitch_res, x);
     return;
   }
@@ -511,8 +587,9 @@ void __wrap_silk_noise_shape_analysis_FLP(
   if (psEnc->sCmn.channelNb < 0 || psEnc->sCmn.channelNb > 1 ||
       num_subframes < 1 || num_subframes > MAX_NB_SUBFR ||
       order < 1 || order > MAX_SHAPE_ORDER ||
-      window_length <= order || window_length > MAX_SHAPE_WINDOW) {
-    g_noise_shape_trace_overflow = 1;
+      window_length <= order || window_length > MAX_SHAPE_WINDOW ||
+      warping_Q16 < 0 || warping_Q16 > 32767) {
+    g_noise_shape_trace_overflow |= NOISE_SHAPE_FAILURE_GEOMETRY;
     __real_silk_noise_shape_analysis_FLP(psEnc, psEncCtrl, pitch_res, x);
     return;
   }
@@ -529,16 +606,15 @@ void __wrap_silk_noise_shape_analysis_FLP(
   g_noise_shape_first_record = g_noise_shape_trace_count;
   g_noise_shape_current_record = -1;
   g_noise_shape_corr_results = NULL;
-  if (warping_Q16 != 0) g_noise_shape_trace_overflow = 1;
 
   __real_silk_noise_shape_analysis_FLP(psEnc, psEncCtrl, pitch_res, x);
 
   if (g_noise_shape_auto_calls != num_subframes ||
-      g_noise_shape_schur_calls != num_subframes ||
       g_noise_shape_trace_count - g_noise_shape_first_record != num_subframes ||
-      g_noise_shape_current_record >= 0) {
-    g_noise_shape_trace_overflow = 1;
-  }
+      g_noise_shape_current_record >= 0)
+    g_noise_shape_trace_overflow |= NOISE_SHAPE_FAILURE_AUTOCORR;
+  if (g_noise_shape_schur_calls != num_subframes)
+    g_noise_shape_trace_overflow |= NOISE_SHAPE_FAILURE_SCHUR;
   g_noise_shape_active = 0;
   g_noise_shape_frame = -1;
   g_noise_shape_channel = -1;
@@ -559,42 +635,40 @@ void __wrap_silk_autocorrelation_FLP(
     opus_int inputDataSize,
     opus_int correlationCount,
     int arch) {
-  noise_shape_trace_record *r = NULL;
-  int record_index = -1;
-
-  if (g_noise_shape_active) {
-    int subframe = g_noise_shape_auto_calls++;
-    if (g_noise_shape_current_record >= 0 || subframe >= g_noise_shape_num_subframes ||
-        inputDataSize != g_noise_shape_window_length ||
-        correlationCount != g_noise_shape_order + 1 ||
-        inputDataSize <= g_noise_shape_order || inputDataSize > MAX_SHAPE_WINDOW ||
-        g_noise_shape_trace_count >= MAX_NOISE_SHAPE_TRACE_RECORDS) {
-      g_noise_shape_trace_overflow = 1;
-    } else {
-      record_index = g_noise_shape_trace_count++;
-      r = &g_noise_shape_trace[record_index];
-      memset(r, 0, sizeof(*r));
-      r->opus_frame_index = g_noise_shape_frame;
-      r->channel = g_noise_shape_channel;
-      r->subframe = subframe;
-      r->num_subframes = g_noise_shape_num_subframes;
-      r->order = g_noise_shape_order;
-      r->window_length = inputDataSize;
-      r->warping_Q16 = g_noise_shape_warping_Q16;
-      r->autoCorrCalls = 1;
-      memcpy(r->window, inputData, (size_t)inputDataSize * sizeof(r->window[0]));
-      g_noise_shape_current_record = record_index;
-      g_noise_shape_corr_results = results;
-    }
+  opus_int order = g_noise_shape_order;
+  noise_shape_trace_record *r;
+  if (g_noise_shape_active && correlationCount != order + 1) {
+    g_noise_shape_trace_overflow |= NOISE_SHAPE_FAILURE_AUTOCORR;
+    order = -1;
   }
+  r = gopus_silk_noise_shape_autocorr_begin(
+      inputData, inputDataSize, order, 0, 0.0f);
 
   __real_silk_autocorrelation_FLP(results, inputData, inputDataSize,
       correlationCount, arch);
 
-  if (r != NULL) {
-    int k;
-    for (k = 0; k <= g_noise_shape_order; k++) r->rawAutoCorr[k] = results[k];
-  }
+  gopus_silk_noise_shape_autocorr_finish(r, results, order);
+}
+
+extern void __real_silk_warped_autocorrelation_FLP(
+    silk_float *corr,
+    const silk_float *input,
+    const silk_float warping,
+    const opus_int length,
+    const opus_int order);
+
+void __wrap_silk_warped_autocorrelation_FLP(
+    silk_float *corr,
+    const silk_float *input,
+    const silk_float warping,
+    const opus_int length,
+    const opus_int order) {
+  noise_shape_trace_record *r = gopus_silk_noise_shape_autocorr_begin(
+      input, length, order, 1, warping);
+
+  __real_silk_warped_autocorrelation_FLP(corr, input, warping, length, order);
+
+  gopus_silk_noise_shape_autocorr_finish(r, corr, order);
 }
 
 extern silk_float __real_silk_schur_FLP(
@@ -613,7 +687,7 @@ silk_float __wrap_silk_schur_FLP(
     g_noise_shape_schur_calls++;
     if (g_noise_shape_current_record < 0 || order != g_noise_shape_order ||
         auto_corr != g_noise_shape_corr_results) {
-      g_noise_shape_trace_overflow = 1;
+      g_noise_shape_trace_overflow |= NOISE_SHAPE_FAILURE_SCHUR;
       g_noise_shape_current_record = -1;
       g_noise_shape_corr_results = NULL;
     } else {
@@ -999,7 +1073,7 @@ int main(void) {
    * Rather than depend on opaque offsets, derive the pointers lazily inside the
    * hook by remembering the first two distinct psEnc values seen. */
 
-  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(7) || !write_u32(n_frames)) {
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(8) || !write_u32(n_frames)) {
     fprintf(stderr, "write output header failed\n");
     opus_encoder_destroy(enc); free(pcm); free(packet); return 1;
   }
@@ -1152,7 +1226,7 @@ int main(void) {
           !write_i32(r->subframe) || !write_i32(r->num_subframes) ||
           !write_i32(r->order) || !write_i32(r->window_length) ||
           !write_i32(r->warping_Q16) || !write_i32(r->autoCorrCalls) ||
-          !write_i32(r->schurCalls)) return 1;
+          !write_i32(r->schurCalls) || !write_f32(r->autoCorrWarping)) return 1;
       for (j = 0; j < r->window_length; j++)
         if (!write_f32(r->window[j])) return 1;
       for (j = 0; j <= r->order; j++)

@@ -253,8 +253,12 @@ func (e *Encoder) computeShapingARAndGains(
 		if silkNoiseAnalysisTraceEnabled {
 			traceNoise = wantsSILKNoiseAnalysisTrace(e, int32(k))
 			if traceNoise {
+				effectiveWarping := float32(0)
+				if e.warpingQ16 > 0 {
+					effectiveWarping = warping
+				}
 				beginSILKNoiseAnalysisTrace(e, int32(k), int32(numSubframes), int32(shapeOrder),
-					int32(shapeWinLength), e.warpingQ16, win)
+					int32(shapeWinLength), e.warpingQ16, effectiveWarping, win)
 			}
 		}
 
@@ -282,12 +286,12 @@ func (e *Encoder) computeShapingARAndGains(
 		if nrg > 0 {
 			g = sqrt32(nrg)
 		}
-		if traceNoise {
-			finishSILKNoiseAnalysisTrace(e, rc, nrg, g)
-		}
-
+		sqrtGain := g
 		if e.warpingQ16 > 0 {
 			g *= warpedGainF32(ar, warping, shapeOrder)
+		}
+		if silkNoiseAnalysisTraceEnabled {
+			finishSILKNoiseAnalysisTrace(e, rc, nrg, sqrtGain, g)
 		}
 
 		bwexpanderF32(ar, shapeOrder, BWExp)
