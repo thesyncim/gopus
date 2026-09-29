@@ -301,12 +301,18 @@ recorded targets. See [compiler-target methodology](reports/go-simd-kernel-evide
 The recorded v1/v2 selection passes; v3 has open packet and PCM mismatches,
 so v3 exactness and performance are not claimed.
 
-Run the benchmarks for numbers on your machine:
+AMD64 SIMD benchmarks use `GOAMD64=v3` on a CPU that supports that target.
+The published tables above retain their measured v1 provenance; replacement
+v3 tables require a passing exactness matrix and fresh matched-C measurements.
 
 ```sh
-go run ./examples/bench-encode
-go run ./examples/bench-decode
+GOAMD64=v3 GOEXPERIMENT=simd go run ./examples/bench-encode
+GOAMD64=v3 GOEXPERIMENT=simd go run ./examples/bench-decode
 ```
+
+For a matching scalar comparison, keep `GOAMD64=v3` and use
+`GOEXPERIMENT=nosimd`. On ARM64, omit `GOAMD64` and select the same SIMD or
+scalar experiment for both benchmark commands.
 
 `make bench-guard` runs the benchmark guardrails used in CI.
 

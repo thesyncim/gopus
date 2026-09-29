@@ -334,14 +334,24 @@ uses Go 1.27.1 and GCC 13.3. Its bounded default-float selection records:
 | v3 / scalar | 20/60 | 6/24 | 0/19 | 652 | 485 | Pass |
 | v3 / SIMD | 20/60 | 6/24 | 0/19 | 746 | 552 | Pass |
 
-The [focused v3 kernel audit](https://github.com/thesyncim/gopus/actions/runs/36549248323)
-also detects FFT/MDCT float-bit differences against the compiler-matched C
-helpers. The v3 SIMD dispatch witness rejects a compile-time AVX2 selection
-with architecture index zero despite reporting the required effective dispatch;
-that harness issue is separate from the packet and PCM differences. These
-failures block v3 exactness and timing claims. No performance table is emitted
-from this failed matrix. Passing v1/v2 selections establish only the listed
-coverage, not universal byte parity.
+The [native follow-up at `ede43639`](https://github.com/thesyncim/gopus/actions/runs/36553888841)
+passes all six FFT/MDCT live-C suites in each v3 lane (64 leaf cases per lane,
+no failed or skipped oracle cases) and the selected FFT/MDCT unit checks.
+The dispatch proof accepts presumed AVX2 only with matching compiler metadata
+and the required CPU features. Exact pitch comparisons still expose scalar
+contraction and SIMD underflow, signed-zero and NaN-tail differences. The SILK
+LPC analysis filter, sine window and gain-processing oracles also fail.
+
+| v3 lane at `ede43639` | CBR cases exact | Packet differences / 2,175 | Range differences / 2,175 |
+|---|---:|---:|---:|
+| scalar | 8/19 | 432 | 382 |
+| SIMD | 1/19 | 681 | 517 |
+
+This focused run does not repeat the public encode/decode matrix or produce
+performance measurements. The table at `f972c57f` retains that revision's
+results; the FFT/MDCT proof does not establish complete packet or PCM parity.
+Open exact failures block v3 exactness and timing claims. Passing v1/v2
+selections establish only the listed coverage, not universal byte parity.
 
 Each candidate target/mode must pass exact CBR packets/ranges, selected stateful
 encode and fresh-state decode cases, dispatch and warm allocation checks.
@@ -367,7 +377,7 @@ The existing **Verify Production Exhaustive** manual workflow accepts
 `task=goamd64-benchmark` to run this command instead of release evidence, using
 `benchmark_baseline` as the assembly revision. Scheduled runs retain the release
 evidence task; routine PR CI has no compiler-target benchmark step.
-`task=goamd64-kernel-audit` selects the focused v3 FFT/MDCT oracle run.
+`task=goamd64-kernel-audit` selects focused v3 kernel, dispatch and CBR checks.
 
 ## Per-symbol inventory
 

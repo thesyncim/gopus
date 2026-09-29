@@ -8,7 +8,7 @@ libopus feature set, CPU dispatch, sample format, controls, and decoder history.
 
 ## Public API boundary audit
 
-The additional public-boundary checks cover seven concrete mismatches against
+The additional public-boundary checks cover ten concrete mismatches against
 selected libopus 1.6.1. Scalar Go uses scalar C; SIMD Go uses the matching C
 instruction lane. Each failure sequence includes following state or recovery
 output so matching rejection alone cannot hide a state divergence.
@@ -20,13 +20,21 @@ output so matching rejection alone cannot hide a state divergence.
 | Multistream application after minimal packets | Application remains mutable while no child has committed its first frame. | Mono and coupled-plus-mono low-budget packets, subsequent controls and full packets/ranges. |
 | Native 96 kHz frame sizes | Validate the API-rate duration before converting wrapper bookkeeping to 48 kHz. | All nine legal durations and adjacent invalid sizes, unchanged state and following packets/ranges. |
 | Malformed framing with short decode output | Structural packet errors precede insufficient output capacity. | Stateful float/int16/int24 rejection and recovery at standard rates and native 96 kHz. |
+| Malformed framing with zero or partial-channel output | C rejects zero complete samples per channel before parsing; the Go facade returns `ErrBufferTooSmall` when output has fewer than one complete channel tuple. | Float/int16/int24 malformed and valid packets check error mapping, final range and recovery at standard rates and native 96 kHz. |
 | Encoder final range after rejection | The selected float/fixed public input wrapper determines whether an invalid frame clears the range. | All three input APIs, invalid duration, empty output, combined errors and re-primed recovery at 48/96 kHz. |
+| 100 ms encoder packet budget | A one-byte budget returns `OPUS_BUFFER_TOO_SMALL`; a two-byte budget may produce the short packet, and selected duration controls the guard. | Strict C comparisons cover mono/stereo float32/int16/int24 sequences, one-byte rejection recovery, two-byte output and selected 100/20 ms durations; QEXT covers 96 kHz. |
+| Multistream invalid frame sizes | Reject unsupported or overflowing frame sizes before budget checks and int16 conversion scratch. | Live-C comparisons cover legal/invalid sizes across API rates and restricted-SILK mode; local checks verify early errors leave output and conversion scratch untouched. |
 | Fixed-point tonality analysis | Analysis starts at complexity 10 in fixed builds and 7 in float builds. | Initial packets and following control sequences at complexities 7, 9 and 10. |
 
-The integrated boundary/control/allocation selection passes all eight local
-ARM64 lanes: float/fixed × QEXT off/on × scalar/SIMD. The encode differential
-gate additionally requires every supported configuration and every frame's
-return, packet and final range, including empty output. Its 1,788 configurations
+The existing integrated boundary/control/allocation selection passes all
+eight local ARM64 lanes: float/fixed × QEXT off/on × scalar/SIMD. The combined
+zero/partial-channel decode, 100 ms encode-budget and multistream frame-size
+regressions also pass all eight strict-oracle lanes, with no failed or skipped
+cases. The root package and internal encoder pass their broader default suites;
+the internal encoder also passes nosimd/SIMD, multistream passes default/SIMD,
+and the root fast suite passes SIMD. Root, internal encoder and multistream SIMD lint report no issues. The encode differential gate additionally requires every supported
+configuration and every frame's return, packet and final range, including empty
+output. Its 1,788 configurations
 × eight frames × eight lanes yield 114,432 passing frame comparisons. The CTL
 sequence gate compares PROCESS/RESET results and all selected GET values,
 including final range and DTX, with explicit matching initial bitrate controls.
@@ -40,9 +48,13 @@ measured revisions and do not stand in for this patch.
 ## Findings and verification
 
 The opt-in [compiler-target audit](go-simd-kernel-evidence.md#amd64-compiler-targets)
-at `f972c57f` passes its selected default-float v1/v2 scalar/SIMD checks. Both
-v3 lanes have packet, range and PCM mismatches; compiler-matched FFT/MDCT
-oracles also fail. Full byte parity across compiler targets is not established.
+at `ede43639` (native run `36553888841`) passes the six FFT/MDCT C suites and
+their unit checks in both v3 modes. Exact SILK LPC/window/gain checks and
+scalar and SIMD pitch checks still fail. In the 2,175-packet CBR matrix, scalar
+matches all packets and ranges in 8 of 19 cases, with 432 packet and 382 range
+differences overall; SIMD is exact in 1 of 19 cases, with 681 packet and 517
+range differences. The full encode/decode matrix has not been rerun, so byte
+parity across compiler targets is not established.
 
 | Priority | Surface | Finding | Current evidence |
 |---|---|---|---|
