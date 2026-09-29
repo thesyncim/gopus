@@ -219,7 +219,7 @@ CELT/Hybrid have unresolved same-packet PCM differences. FFT/MDCT and SILK
 primitive suites pass. The CELT encoder trace rejects inconsistent quantization
 dimensions, so it does not yet establish a runtime divergence location.
 
-The [native v3 audit at `5b435e02`](https://github.com/thesyncim/gopus/actions/runs/36632270766)
+The [native v3 audit at `74f6bea2`](https://github.com/thesyncim/gopus/actions/runs/36633489623)
 on AMD EPYC 7763 with Go 1.27.1 and GCC 13.3 passes the following matched
 scalar and SIMD selections. No cases are skipped.
 
@@ -231,7 +231,7 @@ scalar and SIMD selections. No cases are skipped.
 | CBR exact cases | 13/19 | 14/19 |
 | CBR packet differences / 2,175 packets | 90 | 95 |
 | CBR final-range differences / 2,175 packets | 81 | 92 |
-| Contract same-packet PCM sample differences | 430 | 412 |
+| Contract same-packet PCM sample differences | 0 | 0 |
 
 These are separate gates, not an overall codec correctness percentage. The
 24-case decoder selection does not establish long-stream decoder parity.
@@ -242,24 +242,33 @@ oracles match energy, error, bit count and explicit final range in both lanes;
 encoder coverage also compares packets across the applicable four Go entry
 paths with matching intra-flag state.
 
-The persistent short-frame decoder witness first differs at frame 41, sample
-49 inside comb filtering: Go `45640b40`, C `45640b3f` in both lanes. Actual
-per-call input, history, window, tap coefficients, periods and gains match.
-Base energies, normalized coefficients, frequency buffers and IMDCT output
-also match. Ordinary/traced C and traced/untraced Go agree within each
-implementation before this cross-implementation assertion. The remaining
-postfilter rounding difference is unresolved.
+The persistent short-frame decoder witness and its independent C history-seam
+regression pass in both instruction lanes. The precomputed-window fallback
+rounds crossfade coefficients and tap-pair sums before the same six-FMA chain
+as the ordinary C function. Its warm allocation guard passes. All 19 contract
+cases have exact same-packet PCM in both lanes, including the long streams;
+encoder packet and range differences remain separate unresolved failures.
 
 The isolated SILK gain oracle passes both lanes. Its candidate uses native
 FMA; the separate-operation witness is isolated to prevent compiler
-common-subexpression reuse from changing candidate rounding. Actual gains
-still differ before LTP filtering: MB frame 6 subframe 2 has C `43088249`
-versus Go `43088248`; WB frame 13 subframe 0 has C `42c869a2` versus Go
-`42c869a3`. The linked C FindLPC replay matches Go on identical input/state.
-MB frame 6 selects factor 3 in both replay paths versus 2 in the ordinary C
-encoder; WB frame 13 selects factor 1 in all three paths. Actual LPC input
-already differs at MB frame 6 sample 140 and WB frame 13 sample 0. Unequal
-operands do not establish a defect in LTP or FindLPC arithmetic.
+common-subexpression reuse from changing candidate rounding. Actual gain
+adjustment geometry, exponent, multiplier and additive term match. Gains
+already differ before that adjustment: MB frame 6 subframe 2 has C
+`45245686` versus Go `45245685`; WB frame 6 channel 0 subframe 0 has C
+`44958a5a` versus Go `44958a59`. Work follows the earlier gain producer.
+The linked C FindLPC replay matches Go on identical input/state. MB frame 6
+selects factor 3 in both replay paths versus 2 in the ordinary C encoder;
+WB frame 13 selects factor 1 in all three paths. Actual LPC input already
+differs at MB frame 6 sample 140 and WB frame 13 sample 0.
+
+The independent linked LTP diagnostic compares identical float32 operands in
+two synthetic cases. Go matches the separate-product model but differs from
+C in 86/280 MB and 102/384 WB outputs, in both instruction lanes. First MB
+output is Go `c5b40065`, C `c5b40064`; first WB output is Go `440cec64`, C
+`440cec66`. The ordinary C kernel uses five negative FMAs. This is standalone
+kernel evidence, not proof of the cause of packet failures whose operands
+already differ. Protocol geometry, echoed operands and complete consumption
+remain strict; native exact kernel validation follows the arithmetic fix.
 
 The unchanged CBR quality gate rejects SILK NB 10 ms mono (Q -458.03,
 correlation 0.972870) and SILK WB stereo (Q -157.52) in both lanes, plus
