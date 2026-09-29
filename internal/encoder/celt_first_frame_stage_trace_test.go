@@ -102,6 +102,9 @@ func TestCELTFirstFrameStageDiagnostic(t *testing.T) {
 	if cTrace.BandCalls == 0 || cTrace.LogCalls == 0 || cTrace.NormalizationCalls == 0 || cTrace.CoarseCalls == 0 || cTrace.QuantCalls == 0 {
 		t.Fatalf("C wrappers did not cover every target boundary: %+v", cTrace.counts())
 	}
+	if cTrace.MDCTCalls == 0 {
+		t.Fatalf("C MDCT wrapper did not capture the selected first frame: %s", cTrace.counts())
+	}
 
 	goEncoder := newCELTTraceEncoder()
 	goEncoder.ensureCELTEncoder()
@@ -125,7 +128,7 @@ func TestCELTFirstFrameStageDiagnostic(t *testing.T) {
 		len(goPacket), len(ordinary.Packets[0]), firstCELTTraceByteDifference(goPacket, ordinary.Packets[0]), goEncoder.FinalRange(), ordinary.FinalRanges[0])
 	if len(goTrace.BandStages) != cTrace.BandCalls || len(goTrace.BandStages) != cTrace.LogCalls ||
 		len(goTrace.Normalizations) != cTrace.NormalizationCalls || len(goTrace.CoarseEnergy) != cTrace.CoarseCalls ||
-		len(goTrace.BandQuantize) != cTrace.QuantCalls {
+		len(goTrace.BandQuantize) != cTrace.QuantCalls || len(goTrace.MDCTCalls) != cTrace.MDCTCalls {
 		t.Fatalf("Go/C stage call counts differ: Go bands=%d normalize=%d coarse=%d quant=%d; C %s",
 			len(goTrace.BandStages), len(goTrace.Normalizations), len(goTrace.CoarseEnergy), len(goTrace.BandQuantize), cTrace.counts())
 	}
@@ -214,6 +217,9 @@ func TestCELTLateCBRFrameStageDiagnostic(t *testing.T) {
 	if cTrace.BandCalls == 0 || cTrace.LogCalls == 0 || cTrace.NormalizationCalls == 0 || cTrace.CoarseCalls == 0 || cTrace.QuantCalls == 0 {
 		t.Fatalf("C wrappers did not cover every late-frame target boundary: %+v", cTrace.counts())
 	}
+	if cTrace.MDCTCalls == 0 {
+		t.Fatalf("C MDCT wrapper did not capture the selected late frame: %s", cTrace.counts())
+	}
 
 	goEncoder := newCELTTraceEncoderConfig(celtLateChannels, celtLateBitrate)
 	plainEncoder := newCELTTraceEncoderConfig(celtLateChannels, celtLateBitrate)
@@ -240,7 +246,7 @@ func TestCELTLateCBRFrameStageDiagnostic(t *testing.T) {
 	goTrace := goEncoder.celtEncoder.EncodeStageTraceForTesting()
 	if len(goTrace.BandStages) != cTrace.BandCalls || len(goTrace.BandStages) != cTrace.LogCalls ||
 		len(goTrace.Normalizations) != cTrace.NormalizationCalls || len(goTrace.CoarseEnergy) != cTrace.CoarseCalls ||
-		len(goTrace.BandQuantize) != cTrace.QuantCalls {
+		len(goTrace.BandQuantize) != cTrace.QuantCalls || len(goTrace.MDCTCalls) != cTrace.MDCTCalls {
 		t.Fatalf("late-frame Go/C stage call counts differ: Go bands=%d normalize=%d coarse=%d quant=%d; C %s",
 			len(goTrace.BandStages), len(goTrace.Normalizations), len(goTrace.CoarseEnergy), len(goTrace.BandQuantize), cTrace.counts())
 	}
@@ -249,6 +255,9 @@ func TestCELTLateCBRFrameStageDiagnostic(t *testing.T) {
 	}
 	if err := validateCELTTraceExpectedDimensions(goTrace, cTrace, celtLateFrameSize, celtTraceBandCount, celtLateChannels, celtTraceActive/2, 0); err != nil {
 		t.Fatalf("unexpected late-frame Go/C CELT trace dimensions: %v", err)
+	}
+	if err := validateCELTMDCTTraceExpectedDimensions(goTrace, cTrace, celtLateFrameSize, celtLateChannels, 240, 3, 3); err != nil {
+		t.Fatalf("unexpected late-frame Go/C MDCT trace dimensions: %v", err)
 	}
 	t.Logf("late-frame result: frame=%d Go packet bytes=%d C bytes=%d first packet byte diff=%d Go range=%08x C range=%08x",
 		celtLateTraceFrame, len(goPacket), len(ordinary.Packets[celtLateTraceFrame]), firstCELTTraceByteDifference(goPacket, ordinary.Packets[celtLateTraceFrame]), goEncoder.FinalRange(), ordinary.FinalRanges[celtLateTraceFrame])
@@ -309,6 +318,7 @@ func buildCELTTraceOracleAtFrame(t *testing.T, trace bool, traceFrame int) strin
 			"-Wl,--wrap=normalise_bands",
 			"-Wl,--wrap=quant_coarse_energy",
 			"-Wl,--wrap=quant_all_bands",
+			"-Wl,--wrap=clt_mdct_forward_c",
 		}
 	}
 	cache := &celtTraceOracleCache
@@ -503,15 +513,31 @@ type celtCBRStageQuant struct {
 	Output       []float32
 }
 
+type celtCBRStageMDCT struct {
+	LookupN    int
+	MaxShift   int
+	TransformN int
+	Shift      int
+	Stride     int
+	Overlap    int
+	Arch       int
+	FFTSize    int
+	FFTScale   float32
+	Input      []float32
+	Window     []float32
+	Trig       []float32
+}
+
 type celtCBRStageTrace struct {
-	TraceFrame                                                       uint32
-	Overflow                                                         uint32
-	BandCalls, LogCalls, NormalizationCalls, CoarseCalls, QuantCalls int
-	Bands                                                            []celtCBRStageBand
-	Logs                                                             []celtCBRStageLog
-	Normalizations                                                   []celtCBRStageNorm
-	Coarse                                                           []celtCBRStageCoarse
-	Quant                                                            []celtCBRStageQuant
+	TraceFrame                                                                  uint32
+	Overflow                                                                    uint32
+	BandCalls, LogCalls, NormalizationCalls, CoarseCalls, QuantCalls, MDCTCalls int
+	Bands                                                                       []celtCBRStageBand
+	Logs                                                                        []celtCBRStageLog
+	Normalizations                                                              []celtCBRStageNorm
+	Coarse                                                                      []celtCBRStageCoarse
+	Quant                                                                       []celtCBRStageQuant
+	MDCT                                                                        []celtCBRStageMDCT
 }
 
 type celtCBRStageLog struct {
@@ -587,6 +613,54 @@ func validateCELTTraceShapes(goTrace celt.EncodeStageTrace, cTrace celtCBRStageT
 			return fmt.Errorf("quantization stage %d has malformed Go/C payload lengths", i)
 		}
 	}
+	return validateCELTMDCTTraceShapes(goTrace, cTrace)
+}
+
+func validateCELTMDCTTraceShapes(goTrace celt.EncodeStageTrace, cTrace celtCBRStageTrace) error {
+	if goTrace.MDCTOverflow {
+		return fmt.Errorf("Go MDCT trace exceeded its bounded capture")
+	}
+	if len(goTrace.MDCTCalls) != cTrace.MDCTCalls || len(goTrace.MDCTCalls) != len(cTrace.MDCT) {
+		return fmt.Errorf("MDCT call counts differ: Go=%d C=%d/%d", len(goTrace.MDCTCalls), cTrace.MDCTCalls, len(cTrace.MDCT))
+	}
+	for i, got := range goTrace.MDCTCalls {
+		want := cTrace.MDCT[i]
+		if got.TransformN != want.TransformN || got.Shift != want.Shift || got.LookupN != want.LookupN ||
+			got.MaxShift != want.MaxShift || got.Stride != want.Stride || got.Overlap != want.Overlap || got.FFTSize != want.FFTSize {
+			return fmt.Errorf("MDCT call %d geometry differs: Go=(lookup=%d maxshift=%d n=%d shift=%d stride=%d overlap=%d fft=%d) C=(lookup=%d maxshift=%d n=%d shift=%d stride=%d overlap=%d fft=%d)",
+				i, got.LookupN, got.MaxShift, got.TransformN, got.Shift, got.Stride, got.Overlap, got.FFTSize,
+				want.LookupN, want.MaxShift, want.TransformN, want.Shift, want.Stride, want.Overlap, want.FFTSize)
+		}
+		if got.TransformN <= 0 || got.TransformN%4 != 0 || got.FFTSize != got.TransformN/4 ||
+			got.LookupN != got.TransformN<<got.Shift || got.Shift < 0 || got.Shift > got.MaxShift || got.Stride <= 0 || got.Overlap < 0 {
+			return fmt.Errorf("MDCT call %d has invalid Go geometry: %+v", i, got)
+		}
+		if len(got.Input) != got.TransformN/2+got.Overlap || len(want.Input) != want.TransformN/2+want.Overlap ||
+			len(got.Window) != got.Overlap || len(want.Window) != want.Overlap ||
+			len(got.Trig) != got.TransformN/2 || len(want.Trig) != want.TransformN/2 {
+			return fmt.Errorf("MDCT call %d payload lengths differ from transform shape: Go input/window/trig=%d/%d/%d C=%d/%d/%d",
+				i, len(got.Input), len(got.Window), len(got.Trig), len(want.Input), len(want.Window), len(want.Trig))
+		}
+	}
+	return nil
+}
+
+func validateCELTMDCTTraceExpectedDimensions(goTrace celt.EncodeStageTrace, cTrace celtCBRStageTrace, overlap, channels, transformN, maxShift, shift int) error {
+	if err := validateCELTMDCTTraceShapes(goTrace, cTrace); err != nil {
+		return err
+	}
+	if len(goTrace.MDCTCalls) != channels {
+		return fmt.Errorf("captured %d MDCT calls, want %d channels", len(goTrace.MDCTCalls), channels)
+	}
+	for i, got := range goTrace.MDCTCalls {
+		want := cTrace.MDCT[i]
+		if got.Channel != i || got.Block != 0 || got.TransformN != transformN || got.MaxShift != maxShift || got.Shift != shift ||
+			got.Stride != 1 || got.Overlap != overlap || got.FFTSize != transformN/4 || got.LookupN != transformN<<shift {
+			return fmt.Errorf("MDCT call %d is Go=(channel=%d block=%d lookup=%d maxshift=%d n=%d shift=%d stride=%d overlap=%d fft=%d) C=(lookup=%d maxshift=%d n=%d shift=%d stride=%d overlap=%d fft=%d)",
+				i, got.Channel, got.Block, got.LookupN, got.MaxShift, got.TransformN, got.Shift, got.Stride, got.Overlap, got.FFTSize,
+				want.LookupN, want.MaxShift, want.TransformN, want.Shift, want.Stride, want.Overlap, want.FFTSize)
+		}
+	}
 	return nil
 }
 
@@ -637,10 +711,10 @@ func validateCELTTraceExpectedDimensions(goTrace celt.EncodeStageTrace, cTrace c
 }
 
 func (trace celtCBRStageTrace) counts() string {
-	return fmt.Sprintf("bands=%d/%d logs=%d/%d normalize=%d/%d coarse=%d/%d quant=%d/%d overflow=%d",
+	return fmt.Sprintf("bands=%d/%d logs=%d/%d normalize=%d/%d coarse=%d/%d quant=%d/%d mdct=%d/%d overflow=%d",
 		trace.BandCalls, len(trace.Bands), trace.LogCalls, len(trace.Logs),
 		trace.NormalizationCalls, len(trace.Normalizations), trace.CoarseCalls, len(trace.Coarse),
-		trace.QuantCalls, len(trace.Quant), trace.Overflow)
+		trace.QuantCalls, len(trace.Quant), trace.MDCTCalls, len(trace.MDCT), trace.Overflow)
 }
 
 type celtTraceReader struct {
@@ -670,8 +744,11 @@ func (reader *celtTraceReader) floats(count int) ([]float32, error) {
 
 func parseCELTEncodeTrace(data []byte) (celtCBRStageTrace, error) {
 	var result celtCBRStageTrace
-	if len(data) < 12 || string(data[:4]) != "GCET" || binary.LittleEndian.Uint32(data[4:8]) != 2 {
-		return result, fmt.Errorf("invalid GCET v2 stage trace")
+	if len(data) < 12 || string(data[:4]) != "GCET" {
+		return result, fmt.Errorf("invalid GCET stage trace header")
+	}
+	if version := binary.LittleEndian.Uint32(data[4:8]); version != 3 {
+		return result, fmt.Errorf("invalid GCET v3 stage trace version %d", version)
 	}
 	reader := celtTraceReader{data: data, off: 8}
 	var err error
@@ -889,6 +966,35 @@ func parseCELTEncodeTrace(data []byte) (celtCBRStageTrace, error) {
 			BandEnergy: bandEnergy, Input: input, Output: output,
 		})
 	}
+	if result.MDCTCalls, _, err = readCounts(); err != nil {
+		return result, err
+	}
+	result.MDCT = make([]celtCBRStageMDCT, 0, result.MDCTCalls)
+	for range result.MDCTCalls {
+		values := make([]uint32, 12)
+		for i := range values {
+			if values[i], err = reader.u32(); err != nil {
+				return result, err
+			}
+		}
+		input, readErr := reader.floats(int(values[9]))
+		if readErr != nil {
+			return result, readErr
+		}
+		window, readErr := reader.floats(int(values[10]))
+		if readErr != nil {
+			return result, readErr
+		}
+		trig, readErr := reader.floats(int(values[11]))
+		if readErr != nil {
+			return result, readErr
+		}
+		result.MDCT = append(result.MDCT, celtCBRStageMDCT{
+			LookupN: int(values[0]), MaxShift: int(values[1]), TransformN: int(values[2]), Shift: int(values[3]),
+			Stride: int(values[4]), Overlap: int(values[5]), Arch: int(values[6]), FFTSize: int(values[7]),
+			FFTScale: math.Float32frombits(values[8]), Input: input, Window: window, Trig: trig,
+		})
+	}
 	if reader.off != len(reader.data) {
 		return result, fmt.Errorf("CELT stage trace has %d trailing bytes", len(reader.data)-reader.off)
 	}
@@ -935,6 +1041,19 @@ func logCELTTraceDifferences(t *testing.T, goTrace celt.EncodeStageTrace, cTrace
 			first = label
 		}
 		t.Logf("%s: first difference at %d Go=0x%08x C=0x%08x lengths Go=%d C=%d", label, index, gotBits, wantBits, len(got), len(want))
+	}
+	if len(goTrace.MDCTCalls) != len(cTrace.MDCT) {
+		t.Logf("MDCT diagnostic call counts Go=%d C=%d", len(goTrace.MDCTCalls), len(cTrace.MDCT))
+	}
+	for i := 0; i < min(len(goTrace.MDCTCalls), len(cTrace.MDCT)); i++ {
+		got, want := goTrace.MDCTCalls[i], cTrace.MDCT[i]
+		if got.FFTScale != want.FFTScale {
+			t.Logf("MDCT call %d scale Go=0x%08x C=0x%08x; Go channel=%d block=%d C arch=%d",
+				i, math.Float32bits(got.FFTScale), math.Float32bits(want.FFTScale), got.Channel, got.Block, want.Arch)
+		}
+		compare(fmt.Sprintf("MDCT input call %d channel %d block %d", i, got.Channel, got.Block), got.Input, want.Input)
+		compare(fmt.Sprintf("MDCT window call %d channel %d block %d", i, got.Channel, got.Block), got.Window, want.Window)
+		compare(fmt.Sprintf("MDCT trig call %d channel %d block %d", i, got.Channel, got.Block), got.Trig, want.Trig)
 	}
 	for i := range goTrace.BandStages {
 		got, want := goTrace.BandStages[i], cTrace.Bands[i]

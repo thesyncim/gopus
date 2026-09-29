@@ -26,3 +26,5 @@ func (*encodeStageTraceState) recordQuantInput([]CeltNorm, []CeltNorm, []CeltEne
 func (*Encoder) recordEncodeQuantInputTrace([]CeltNorm, []CeltNorm, []CeltEner, int, int, int) {}
 
 func (*encodeStageTraceState) recordQuantOutput([]CeltNorm, []CeltNorm) {}
+
+func (*Encoder) recordEncodeMDCTTrace([]float32, int, int, int) {}

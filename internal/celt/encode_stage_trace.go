@@ -9,6 +9,26 @@ type EncodeStageTrace struct {
 	Normalizations []EncodeNormalizationTrace
 	CoarseEnergy   []EncodeCoarseEnergyTrace
 	BandQuantize   []EncodeBandQuantizeTrace
+	MDCTCalls      []EncodeMDCTCallTrace
+	MDCTOverflow   bool
+}
+
+// EncodeMDCTCallTrace captures the exact pre-transform inputs and tables for
+// one clt_mdct_forward call. Calls are ordered by channel, then block.
+type EncodeMDCTCallTrace struct {
+	Channel    int
+	Block      int
+	LookupN    int
+	MaxShift   int
+	TransformN int
+	Shift      int
+	Stride     int
+	Overlap    int
+	FFTSize    int
+	FFTScale   float32
+	Input      []float32
+	Window     []float32
+	Trig       []float32
 }
 
 type EncodeBandStageTrace struct {
@@ -72,6 +92,82 @@ func (s *encodeStageTraceState) reset() {
 		Normalizations: make([]EncodeNormalizationTrace, 0, 2),
 		CoarseEnergy:   make([]EncodeCoarseEnergyTrace, 0, 2),
 		BandQuantize:   make([]EncodeBandQuantizeTrace, 0, 2),
+		MDCTCalls:      make([]EncodeMDCTCallTrace, 0, 4),
+	}
+}
+
+func (s *encodeStageTraceState) recordMDCTCall(call EncodeMDCTCallTrace) {
+	if !s.enabled {
+		return
+	}
+	if len(s.trace.MDCTCalls) >= 8 {
+		s.trace.MDCTOverflow = true
+		return
+	}
+	call.Input = copyStageFloat32(call.Input)
+	call.Window = copyStageFloat32(call.Window)
+	call.Trig = copyStageFloat32(call.Trig)
+	s.trace.MDCTCalls = append(s.trace.MDCTCalls, call)
+}
+
+func (e *Encoder) recordEncodeMDCTTrace(in []float32, frameSize, overlap, shortBlocks int) {
+	if !e.encodeStageTrace.enabled {
+		return
+	}
+	blockCount := max(shortBlocks, 1)
+	if frameSize <= 0 || frameSize%blockCount != 0 {
+		e.encodeStageTrace.trace.MDCTOverflow = true
+		return
+	}
+	blockSize := frameSize / blockCount
+	n2 := blockSize
+	n4 := n2 / 2
+	transformN := 2 * n2
+	mode := e.modeConfig(frameSize)
+	maxShift := e.modeMaxLM(mode.LM)
+	shift := maxShift - mode.LM
+	if blockCount > 1 {
+		shift = maxShift
+	}
+	stride := frameSize + overlap
+	if stride <= 0 || len(in) < stride*int(e.channels) {
+		e.encodeStageTrace.trace.MDCTOverflow = true
+		return
+	}
+	fftSize := n4
+	// Use the same lookup/table selection as mdctForwardOverlapF32Scratch.
+	lookup := e.scratch.mdctLookup(transformN)
+	var trig, window []float32
+	var fft *kissFFTState
+	if lookup != nil {
+		trig, window, fft = lookup.trig, lookup.window, lookup.fft
+	} else {
+		trig = getMDCTTrigF32(transformN)
+		window = GetWindowBufferF32(overlap)
+		fft = getKissFFTState(fftSize)
+	}
+	if fft == nil {
+		e.encodeStageTrace.trace.MDCTOverflow = true
+		return
+	}
+	for channel := range int(e.channels) {
+		channelInput := in[channel*stride : (channel+1)*stride]
+		for block := range blockCount {
+			start := block * blockSize
+			end := start + blockSize + overlap
+			if end > len(channelInput) {
+				e.encodeStageTrace.trace.MDCTOverflow = true
+				return
+			}
+			e.encodeStageTrace.recordMDCTCall(EncodeMDCTCallTrace{
+				Channel: channel, Block: block, LookupN: transformN << shift,
+				MaxShift: maxShift, TransformN: transformN, Shift: shift,
+				Stride: blockCount, Overlap: overlap, FFTSize: fftSize,
+				// mdctForwardOverlapF32Scratch scales by float32(1)/float32(n4).
+				FFTScale: float32(1) / float32(n4),
+				Input:    channelInput[start:end], Window: window, Trig: trig,
+			})
+		}
 	}
 }
 

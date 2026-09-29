@@ -1561,6 +1561,7 @@ func ComputeMDCTWithHistory(samples, history []float32, shortBlocks int) []float
 // folds the two channel spectra, and the upsample scaling then applies to each
 // coded channel.
 func (e *Encoder) computeFrameMDCT(in []float32, frameSize, overlap, shortBlocks, codedChannels, upsample int) []float32 {
+	e.recordEncodeMDCTTrace(in, frameSize, overlap, shortBlocks)
 	scratch := &e.scratch
 	stride := frameSize + overlap
 	var coeffs []float32

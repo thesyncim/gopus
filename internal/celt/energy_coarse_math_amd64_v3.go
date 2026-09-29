@@ -16,6 +16,9 @@ func decodeCoarseEnergyUpdate(prev, q, beta float32) float32 {
 	return fma32(-beta, q, prevPlusQ)
 }
 
+// coarseEnergyFMADD32 keeps the predictor multiply-add in a native FMA,
+// separate from the caller's following q addition.
+//
 //go:noinline
 func coarseEnergyFMADD32(a, b, c float32) float32 {
 	return a*b + c

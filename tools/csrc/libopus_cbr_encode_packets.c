@@ -45,6 +45,7 @@
 #include "celt/cpu_support.h"
 #ifdef GOPUS_CELT_TRACE
 #include "celt/bands.h"
+#include "celt/mdct.h"
 #include "celt/quant_bands.h"
 #endif
 
@@ -201,15 +202,25 @@ typedef struct {
   float output[CELT_TRACE_MAX_FLOATS];
 } celt_trace_quant_call;
 
+typedef struct {
+  uint32_t lookup_n, maxshift, transform_n, shift, stride, overlap, arch;
+  uint32_t fft_n, input_count, window_count, trig_count;
+  float fft_scale;
+  float input[CELT_TRACE_MAX_FLOATS];
+  float window[CELT_TRACE_MAX_FLOATS];
+  float trig[CELT_TRACE_MAX_FLOATS];
+} celt_trace_mdct_call;
+
 static struct {
-  uint32_t band_calls, log_calls, normalization_calls, coarse_calls, quant_calls;
+  uint32_t band_calls, log_calls, normalization_calls, coarse_calls, quant_calls, mdct_calls;
   uint32_t stored_band_calls, stored_log_calls, stored_normalization_calls;
-  uint32_t stored_coarse_calls, stored_quant_calls, overflow;
+  uint32_t stored_coarse_calls, stored_quant_calls, stored_mdct_calls, overflow;
   celt_trace_band_call bands[CELT_TRACE_MAX_CALLS];
   celt_trace_log_call logs[CELT_TRACE_MAX_CALLS];
   celt_trace_normalization_call normalizations[CELT_TRACE_MAX_CALLS];
   celt_trace_coarse_call coarse[CELT_TRACE_MAX_CALLS];
   celt_trace_quant_call quant[CELT_TRACE_MAX_CALLS];
+  celt_trace_mdct_call mdct[CELT_TRACE_MAX_CALLS];
 } celt_encode_trace;
 
 static uint32_t celt_encode_active_frame;
@@ -228,6 +239,64 @@ static int trace_dimensions(int values, int limit) {
     return 0;
   }
   return 1;
+}
+
+extern void __real_clt_mdct_forward_c(const mdct_lookup *l, kiss_fft_scalar *in,
+    kiss_fft_scalar *out, const celt_coef *window, int overlap, int shift,
+    int stride, int arch);
+void __wrap_clt_mdct_forward_c(const mdct_lookup *l, kiss_fft_scalar *in,
+    kiss_fft_scalar *out, const celt_coef *window, int overlap, int shift,
+    int stride, int arch) {
+  if (!celt_trace_selected_frame()) {
+    __real_clt_mdct_forward_c(l, in, out, window, overlap, shift, stride, arch);
+    return;
+  }
+
+  uint32_t call = celt_encode_trace.mdct_calls++;
+  if (call >= CELT_TRACE_MAX_CALLS) {
+    celt_encode_trace.overflow = 1;
+  } else if (l == NULL || shift < 0 || shift >= 4 || shift > l->maxshift ||
+             l->n <= 0 || l->kfft[shift] == NULL || overlap < 0 ||
+             in == NULL || (overlap > 0 && window == NULL) || l->trig == NULL) {
+    celt_encode_trace.overflow = 1;
+  } else {
+    int n = l->n;
+    const kiss_twiddle_scalar *trig = l->trig;
+    for (int i = 0; i < shift; i++) {
+      n >>= 1;
+      trig += n;
+    }
+    int n2 = n >> 1;
+    int input_count = n2 + overlap;
+    int window_count = overlap;
+    int trig_count = n2;
+    if (n <= 0 || n2 <= 0 || !trace_dimensions(input_count, CELT_TRACE_MAX_FLOATS) ||
+        !trace_dimensions(window_count, CELT_TRACE_MAX_FLOATS) ||
+        !trace_dimensions(trig_count, CELT_TRACE_MAX_FLOATS)) {
+      celt_encode_trace.overflow = 1;
+    } else {
+      celt_trace_mdct_call *trace = &celt_encode_trace.mdct[call];
+      trace->lookup_n = (uint32_t)l->n;
+      trace->maxshift = (uint32_t)l->maxshift;
+      trace->transform_n = (uint32_t)n;
+      trace->shift = (uint32_t)shift;
+      trace->stride = (uint32_t)stride;
+      trace->overlap = (uint32_t)overlap;
+      trace->arch = (uint32_t)arch;
+      trace->fft_n = (uint32_t)l->kfft[shift]->nfft;
+      trace->fft_scale = (float)l->kfft[shift]->scale;
+      trace->input_count = (uint32_t)input_count;
+      trace->window_count = (uint32_t)window_count;
+      trace->trig_count = (uint32_t)trig_count;
+      memcpy(trace->input, in, (size_t)input_count * sizeof(float));
+      if (window_count > 0)
+        memcpy(trace->window, window, (size_t)window_count * sizeof(float));
+      memcpy(trace->trig, trig, (size_t)trig_count * sizeof(float));
+      celt_encode_trace.stored_mdct_calls++;
+    }
+  }
+
+  __real_clt_mdct_forward_c(l, in, out, window, overlap, shift, stride, arch);
 }
 
 static void trace_copy_bands(float *dst, const float *src, int bands, int channels, int stride) {
@@ -408,7 +477,7 @@ void __wrap_quant_all_bands(int encode, const CELTMode *m, int start, int end,
 }
 
 static int write_celt_encode_trace(void) {
-  if (!write_exact("GCET", 4) || !write_u32(2) ||
+  if (!write_exact("GCET", 4) || !write_u32(3) ||
       !write_u32(celt_encode_captured_frame) || !write_u32(celt_encode_trace.overflow)) return 0;
   if (!write_u32(celt_encode_trace.band_calls) || !write_u32(celt_encode_trace.stored_band_calls)) return 0;
   for (uint32_t i = 0; i < celt_encode_trace.stored_band_calls; i++) {
@@ -451,6 +520,21 @@ static int write_celt_encode_trace(void) {
     if (!write_u32(trace->active_coeffs) || !write_u32(trace->bands) || !write_u32(trace->channels) ||
         !trace_write_float32(trace->band_energy, band_count) || !trace_write_float32(trace->input, coeff_count) ||
         !trace_write_float32(trace->output, coeff_count)) return 0;
+  }
+  if (!write_u32(celt_encode_trace.mdct_calls) || !write_u32(celt_encode_trace.stored_mdct_calls)) return 0;
+  for (uint32_t i = 0; i < celt_encode_trace.stored_mdct_calls; i++) {
+    const celt_trace_mdct_call *trace = &celt_encode_trace.mdct[i];
+    if (!write_u32(trace->lookup_n) || !write_u32(trace->maxshift) ||
+        !write_u32(trace->transform_n) || !write_u32(trace->shift) ||
+        !write_u32(trace->stride) || !write_u32(trace->overlap) ||
+        !write_u32(trace->arch) || !write_u32(trace->fft_n)) return 0;
+    uint32_t scale_bits;
+    memcpy(&scale_bits, &trace->fft_scale, sizeof(scale_bits));
+    if (!write_u32(scale_bits) || !write_u32(trace->input_count) ||
+        !write_u32(trace->window_count) || !write_u32(trace->trig_count) ||
+        !trace_write_float32(trace->input, trace->input_count) ||
+        !trace_write_float32(trace->window, trace->window_count) ||
+        !trace_write_float32(trace->trig, trace->trig_count)) return 0;
   }
   return 1;
 }

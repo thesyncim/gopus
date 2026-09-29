@@ -219,8 +219,8 @@ CELT/Hybrid have unresolved same-packet PCM differences. FFT/MDCT and SILK
 primitive suites pass. The CELT encoder trace rejects inconsistent quantization
 dimensions, so it does not yet establish a runtime divergence location.
 
-The [native audit at `c6262315`](https://github.com/thesyncim/gopus/actions/runs/36622479382)
-on AMD EPYC 9V74 with Go 1.27.1 and GCC 13.3 passes 59/60 scalar
+The [native audit at `0efb122d`](https://github.com/thesyncim/gopus/actions/runs/36623845161)
+on AMD EPYC 7763 with Go 1.27.1 and GCC 13.3 passes 59/60 scalar
 and 60/60 SIMD encoder checks, 15/24 scalar and 24/24 SIMD decoder checks, and
 all 15 warm-allocation checks in each lane, with no skipped cases. CBR exact
 cases are 14/19 scalar (70 packet/61 range differences) and 15/19 SIMD (75
@@ -229,16 +229,22 @@ separate gates, not an overall byte-parity percentage. Haar and the
 constant/ramped comb history seams, scalar stereo tails and SIMD exp2
 approximation match the paired C references. The comb fallback, DC rejection
 and high-pass filter match C. All nine stereo-fade oracle cases match in each
-lane. The long CBR streams
-expose same-packet PCM differences in both lanes, including short CELT and
+lane. The long CBR streams expose same-packet PCM differences in both lanes,
+including short CELT and
 10 ms Hybrid frames; the 24-case SIMD decoder pass does not establish
 long-stream decoder parity. The transparent persistent short-frame witness
-first differs at frame 12, sample 40 in both lanes, with an earlier base-energy
-state difference at band 7. Ordinary/traced C and traced/untraced Go agree
-within each implementation before the witness reports the cross-implementation
-difference. The corrected DC oracle verifies all ten sample-rate/channel cases
-in each lane. The CBR quality gate also rejects both SILK encoder
-cases in each lane and CELT 2.5 ms mono in SIMD; these remain correctness
+first differs at frame 41, sample 49 in both lanes, in post-comb-filter output
+(Go `45640b3f`, C `45640b40`). Base energies, normalized coefficients,
+frequency buffers and IMDCT output match at that frame. The 16-case coarse-energy
+oracle passes all LM/intra/channel combinations and its warm-allocation guard
+in each lane; the executed helper and ordinary archive use the same FMA,
+separate q-addition and negative-FMA recurrence. The CBR contract reports 4,912
+scalar and 412 SIMD same-packet PCM sample differences across its cases.
+Ordinary/traced C and traced/untraced Go agree within each implementation
+before the witness reports the cross-implementation difference. The corrected
+DC oracle verifies all ten sample-rate/channel cases in each lane. The CBR
+quality gate also rejects both SILK encoder cases in each lane and CELT 2.5 ms
+mono in SIMD; these remain correctness
 blockers, independent of the bit-exact counters.
 
 The SILK replay sends the actual Go LPC input/state to the linked C FindLPC
@@ -246,14 +252,14 @@ implementation. Both select the same interpolation factors at the first
 failing frames (3 for MB mono frame 6; 0 for WB stereo frame 13), while the
 ordinary C encoder selects 2 and 1. The original C call snapshots match the Go
 decision state but differ in the LPC residual input: MB mono frame 6 first
-differs at sample 140, WB stereo frame 13 at sample 192. The actual LTP call snapshots first differ in inverse gains: MB mono frame 6
-subframe 2 has C `3bf00afc` versus Go `3bf00afe`; WB stereo frame 13 subframe 2
+differs at sample 140, WB stereo frame 13 at sample 192. The actual LTP call
+snapshots first differ in inverse gains: MB mono frame 6 subframe 2 has C `3bf00afc` versus Go `3bf00afe`; WB stereo frame 13 subframe 2
 has C `3c5a6d59` versus Go `3c5a6d5a`, in both lanes. Work follows the gain
 producer; the unequal operands do not establish an LTP arithmetic defect.
 Traced/untraced Go packets and ranges agree across all 50 frames per case. The
-scalar decoder witness first differs in normalized coefficients before
-synthesis. The transparent CELT frame-95 trace first differs at the SIMD MDCT
-spectrum and scalar coarse-energy decisions. No numerical allowance is
+scalar decoder witness has matching normalized coefficients before anti-collapse
+and first differs after it at coefficient 24 (Go `3f78e905`, C `3f78e907`). The
+transparent CELT frame-95 trace first differs at the SIMD MDCT spectrum and scalar coarse-energy decisions. No numerical allowance is
 accepted for these unresolved differences.
 
 | Priority | Surface | Finding | Current evidence |
