@@ -1,4 +1,4 @@
-//go:build linux && amd64 && gopus_celt_trace && !gopus_fixed_point && !gopus_qext && !goexperiment.simd
+//go:build linux && amd64 && gopus_celt_trace && !gopus_fixed_point && !gopus_qext
 
 package encoder
 

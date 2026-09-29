@@ -338,7 +338,7 @@ extern void __real_quant_all_bands(int encode, const CELTMode *m, int start, int
     celt_norm *X, celt_norm *Y, unsigned char *collapse_masks,
     const celt_ener *bandE, int *pulses, int shortBlocks, int spread,
     int dual_stereo, int intensity, int *tf_res, opus_int32 total_bits,
-    opus_int32 balance, ec_ctx *ec, int M, int codedBands, opus_uint32 *seed,
+    opus_int32 balance, ec_ctx *ec, int LM, int codedBands, opus_uint32 *seed,
     int complexity, int arch, int disable_inv
     ARG_QEXT(ec_ctx *ext_ec) ARG_QEXT(int *extra_pulses)
     ARG_QEXT(opus_int32 total_ext_bits) ARG_QEXT(const int *cap));
@@ -346,12 +346,13 @@ void __wrap_quant_all_bands(int encode, const CELTMode *m, int start, int end,
     celt_norm *X, celt_norm *Y, unsigned char *collapse_masks,
     const celt_ener *bandE, int *pulses, int shortBlocks, int spread,
     int dual_stereo, int intensity, int *tf_res, opus_int32 total_bits,
-    opus_int32 balance, ec_ctx *ec, int M, int codedBands, opus_uint32 *seed,
+    opus_int32 balance, ec_ctx *ec, int LM, int codedBands, opus_uint32 *seed,
     int complexity, int arch, int disable_inv
     ARG_QEXT(ec_ctx *ext_ec) ARG_QEXT(int *extra_pulses)
     ARG_QEXT(opus_int32 total_ext_bits) ARG_QEXT(const int *cap)) {
   uint32_t call = celt_encode_trace.quant_calls++;
-  int active = M * m->eBands[end];
+  /* quant_all_bands receives LM and expands M = 1 << LM before indexing X/Y. */
+  int active = (1 << LM) * m->eBands[end];
   int channels = Y != NULL ? 2 : 1;
   if (call < CELT_TRACE_MAX_CALLS && trace_dimensions(active * channels, CELT_TRACE_MAX_FLOATS) &&
       trace_dimensions((end - start) * channels, CELT_TRACE_MAX_BANDS * 2)) {
@@ -368,7 +369,7 @@ void __wrap_quant_all_bands(int encode, const CELTMode *m, int start, int end,
   }
   __real_quant_all_bands(encode, m, start, end, X, Y, collapse_masks, bandE,
       pulses, shortBlocks, spread, dual_stereo, intensity, tf_res, total_bits,
-      balance, ec, M, codedBands, seed, complexity, arch, disable_inv
+      balance, ec, LM, codedBands, seed, complexity, arch, disable_inv
       ARG_QEXT(ext_ec) ARG_QEXT(extra_pulses) ARG_QEXT(total_ext_bits) ARG_QEXT(cap));
   if (call < CELT_TRACE_MAX_CALLS && call < celt_encode_trace.stored_quant_calls) {
     celt_trace_quant_call *trace = &celt_encode_trace.quant[call];
