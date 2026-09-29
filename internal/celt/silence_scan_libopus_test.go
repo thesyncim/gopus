@@ -105,6 +105,28 @@ func TestCELTSilenceScanMatchesLibopus(t *testing.T) {
 			}); allocs != 0 {
 				t.Fatalf("warm allocations=%g want 0", allocs)
 			}
+			if tc.upsample == 1 || tc.twoTap {
+				return
+			}
+			// The encoder's single-tap sub-48 kHz path scans and filters the
+			// native-rate input directly; it must reach the same decision and
+			// overlap state as the zero-stuffed core frame.
+			native2 := NewEncoder(tc.channels)
+			native2.streamChannels = int32(tc.coded)
+			native2.upsample = int32(tc.upsample)
+			native2.overlapMax = tc.previous
+			nativeOut := make([]float32, len(output))
+			gotSilence = native2.applyPreemphasisUpsampled(native, nativeOut, tc.frame, tc.overlap)
+			if gotSilence != wantSilence || math.Float32bits(native2.overlapMax) != wantOverlap {
+				t.Fatalf("native-rate silence Go/C=%t/%t overlap bits Go/C=%08x/%08x",
+					gotSilence, wantSilence, math.Float32bits(native2.overlapMax), wantOverlap)
+			}
+			if allocs := testing.AllocsPerRun(50, func() {
+				native2.overlapMax = tc.previous
+				native2.applyPreemphasisUpsampled(native, nativeOut, tc.frame, tc.overlap)
+			}); allocs != 0 {
+				t.Fatalf("native-rate warm allocations=%g want 0", allocs)
+			}
 		})
 	}
 	if err := reader.ExpectConsumed(); err != nil {

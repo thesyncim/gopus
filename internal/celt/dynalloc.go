@@ -131,6 +131,46 @@ func medianOf5f(x []float32) float32 {
 	return t4
 }
 
+// median5f is median_of_5 (celt/celt_encoder.c) on five values, with
+// medianOf5f's comparisons.
+func median5f(x0, x1, x2, x3, x4 float32) float32 {
+	t0, t1 := x0, x1
+	if x0 > x1 {
+		t0, t1 = x1, x0
+	}
+	t3, t4 := x3, x4
+	if x3 > x4 {
+		t3, t4 = x4, x3
+	}
+	if t0 > t3 {
+		t3 = t0
+		t1, t4 = t4, t1
+	}
+	t2 := x2
+	if t2 > t1 {
+		if t1 < t3 {
+			if t2 < t3 {
+				return t2
+			}
+			return t3
+		}
+		if t4 < t1 {
+			return t4
+		}
+		return t1
+	}
+	if t2 < t3 {
+		if t1 < t3 {
+			return t1
+		}
+		return t3
+	}
+	if t2 < t4 {
+		return t2
+	}
+	return t4
+}
+
 func computeNoiseFloor32(i, lsbDepth int, logN int16) float32 {
 	eMean := float32(0.0)
 	if i < len(EMeans) {
@@ -674,7 +714,7 @@ func DynallocAnalysisWithScratch(
 	e0 := bandLogE[:end]
 	var e1 []celtGLog
 	if channels == 2 {
-		e1 = bandLogE[nbBands : nbBands+end]
+		e1 = bandLogE[nbBands:][:end]
 	}
 
 	noiseFloor := scratch.NoiseFloor[:end]
@@ -688,7 +728,7 @@ func DynallocAnalysisWithScratch(
 
 	maxDepth := float32(result.MaxDepth)
 	for c := range channels {
-		ec := bandLogE[c*nbBands : c*nbBands+end]
+		ec := bandLogE[c*nbBands:][:end]
 		for i, v := range ec {
 			maxDepth = opusmath.MaxF32(maxDepth, v-noiseFloor[i])
 		}
@@ -703,7 +743,7 @@ func DynallocAnalysisWithScratch(
 		mask[i] = v - noiseFloor[i]
 	}
 	if channels == 2 {
-		for i, v := range e1 {
+		for i, v := range e1[:len(mask)] {
 			mask[i] = opusmath.MaxF32(mask[i], v-noiseFloor[i])
 		}
 	}
@@ -711,8 +751,9 @@ func DynallocAnalysisWithScratch(
 	for i := 1; i < end; i++ {
 		mask[i] = opusmath.MaxF32(mask[i], mask[i-1]-2.0)
 	}
-	for i := end - 2; i >= 0; i-- {
-		mask[i] = opusmath.MaxF32(mask[i], mask[i+1]-3.0)
+	for i, next := end-2, mask[end-1]; i >= 0; i-- {
+		next = opusmath.MaxF32(mask[i], next-3.0)
+		mask[i] = next
 	}
 	floorDepth := opusmath.MaxF32(0, maxDepth-12.0)
 	spreadWeight := result.SpreadWeight[:end]
@@ -735,7 +776,7 @@ func DynallocAnalysisWithScratch(
 	last := 0
 	bandLogE3 := scratch.BandLogE3[:end]
 	for c := range channels {
-		copy(bandLogE3, bandLogE2[c*nbBands:c*nbBands+end])
+		copy(bandLogE3, bandLogE2[c*nbBands:][:end])
 		if lm == 0 {
 			// 2.5 ms frames: the first 8 bands have one bin each, so their
 			// energy takes the max with the previous frame's.
@@ -746,21 +787,39 @@ func DynallocAnalysisWithScratch(
 			}
 		}
 
-		f := follower[c*nbBands : c*nbBands+end]
-		f[0] = bandLogE3[0]
-		for i := 1; i < end; i++ {
-			if bandLogE3[i] > bandLogE3[i-1]+0.5 {
+		// The forward and backward follower passes carry the neighbouring
+		// value in a register; each step keeps libopus's operand order.
+		f := follower[c*nbBands:][:end]
+		prevE, prevF := bandLogE3[0], bandLogE3[0]
+		f[0] = prevF
+		for i := 1; i < len(f); i++ {
+			cur := bandLogE3[i]
+			if cur > prevE+0.5 {
 				last = i
 			}
-			f[i] = opusmath.MinF32(f[i-1]+1.5, bandLogE3[i])
+			prevF = opusmath.MinF32(prevF+1.5, cur)
+			f[i] = prevF
+			prevE = cur
 		}
-		for i := last - 1; i >= 0; i-- {
-			f[i] = opusmath.MinF32(f[i], opusmath.MinF32(f[i+1]+2.0, bandLogE3[i]))
+		if last > 0 {
+			fl, el := f[:last+1], bandLogE3[:last+1]
+			next := fl[last]
+			for i := last - 1; i >= 0; i-- {
+				next = opusmath.MinF32(fl[i], opusmath.MinF32(next+2.0, el[i]))
+				fl[i] = next
+			}
 		}
 
 		const offset = float32(1.0)
-		for i := 2; i < end-2; i++ {
-			f[i] = opusmath.MaxF32(f[i], medianOf5f(bandLogE3[i-2:])-offset)
+		if end >= 5 {
+			// median_of_5 over the sliding window bandLogE3[i-2..i+2].
+			x0, x1, x2, x3 := bandLogE3[0], bandLogE3[1], bandLogE3[2], bandLogE3[3]
+			ahead := bandLogE3[4:]
+			fm := f[2:][:len(ahead)]
+			for j, x4 := range ahead {
+				fm[j] = opusmath.MaxF32(fm[j], median5f(x0, x1, x2, x3, x4)-offset)
+				x0, x1, x2, x3 = x1, x2, x3, x4
+			}
 		}
 		if end >= 3 {
 			tmp := medianOf3f(bandLogE3[0:3]) - offset
@@ -786,8 +845,8 @@ func DynallocAnalysisWithScratch(
 	f0 := follower[start:end]
 	if channels == 2 {
 		// Consider 24 dB cross-talk between the channels.
-		f1 := follower[nbBands+start : nbBands+end]
-		l, r := e0[start:], e1[start:len(f0)+start]
+		f1 := follower[nbBands:][start:end]
+		l, r := e0[start:end], e1[start:end]
 		for i := range f0 {
 			ch0, ch1 := f0[i], f1[i]
 			if ch0-4.0 > ch1 {
@@ -808,7 +867,7 @@ func DynallocAnalysisWithScratch(
 			f0[i] = (boost0 + boost1) / 2.0
 		}
 	} else {
-		l := e0[start:]
+		l := e0[start:end]
 		for i := range f0 {
 			v := l[i] - f0[i]
 			if v < 0 {
@@ -835,12 +894,12 @@ func DynallocAnalysisWithScratch(
 			f0[i] *= 0.5
 		}
 	}
-	for i := start; i < end; i++ {
-		if i < 8 {
-			follower[i] *= 2.0
+	for j := range f0 {
+		if start+j < 8 {
+			f0[j] *= 2.0
 		}
-		if i >= 12 {
-			follower[i] /= 2.0
+		if start+j >= 12 {
+			f0[j] /= 2.0
 		}
 	}
 
@@ -871,20 +930,26 @@ func DynallocAnalysisWithScratch(
 
 	if analysisValid {
 		// follower += analysis->leak_boost/64 on the first LEAK_BANDS.
-		for i := start; i < min(end, leakBands, len(analysisLeakBoost)); i++ {
-			follower[i] += float32(analysisLeakBoost[i]) * (1.0 / 64.0)
+		if stop := min(end, leakBands, len(analysisLeakBoost)); stop > start {
+			fl, lb := follower[start:stop], analysisLeakBoost[start:stop]
+			for j := range fl {
+				fl[j] += float32(lb[j]) * (1.0 / 64.0)
+			}
 		}
 	}
 
 	totBoost := 0
 	bandEdges := edges[start : end+1]
-	for i := range f0 {
+	offsets := result.Offsets[start:end]
+	lo := bandEdges[0]
+	for i, hi := range bandEdges[1:][:len(f0)] {
 		followerVal := f0[i]
 		if followerVal > 4.0 {
 			followerVal = 4.0
 			f0[i] = followerVal
 		}
-		width := max(channels*((bandEdges[i+1]-bandEdges[i])<<lm), 1)
+		width := max(channels*((hi-lo)<<lm), 1)
+		lo = hi
 
 		var boost, boostBits int
 		if width < 6 {
@@ -902,12 +967,12 @@ func DynallocAnalysisWithScratch(
 		if (!vbr || (constrainedVBR && !isTransient)) &&
 			(totBoost+boostBits)>>bitRes>>3 > 2*effectiveBytes/3 {
 			cap := (2 * effectiveBytes / 3) << bitRes << 3
-			result.Offsets[start+i] = int32(cap - totBoost)
+			offsets[i] = int32(cap - totBoost)
 			totBoost = cap
 			break
 		}
 
-		result.Offsets[start+i] = int32(boost)
+		offsets[i] = int32(boost)
 		totBoost += boostBits
 	}
 	result.TotBoost = totBoost

@@ -1,6 +1,9 @@
 package celt
 
-import "testing"
+import (
+	"math/rand"
+	"testing"
+)
 
 func icwrsLookupChecked(n, k int, y []int) (uint32, bool) {
 	if n < 2 || k <= 0 || len(y) < n {
@@ -107,5 +110,37 @@ func BenchmarkICWRSLookupCheckedCovered(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = icwrsLookupChecked(48, 5, y)
+	}
+}
+
+// TestICWRSLookupFast32MatchesRecurrence pins the table walk to the
+// u-row recurrence of icwrs32 for random pulse vectors at every covered
+// (n, k), including signs on every position.
+func TestICWRSLookupFast32MatchesRecurrence(t *testing.T) {
+	rng := rand.New(rand.NewSource(1))
+	y := make([]int32, 176)
+	u := make([]uint32, 180)
+	for n := 2; n <= 176; n++ {
+		for k := 1; k <= 176; k++ {
+			if !canUseICWRSLookupFast(n, k) {
+				continue
+			}
+			for trial := 0; trial < 12; trial++ {
+				clear(y[:n])
+				for range k {
+					y[rng.Intn(n)]++
+				}
+				for i := range y[:n] {
+					if rng.Intn(2) == 0 {
+						y[i] = -y[i]
+					}
+				}
+				got, ok := icwrsLookupFast32(n, k, y)
+				want, _ := icwrs32(n, k, y, u)
+				if !ok || got != want {
+					t.Fatalf("n=%d k=%d y=%v: got (%d,%v) want %d", n, k, y[:n], got, ok, want)
+				}
+			}
+		}
 	}
 }

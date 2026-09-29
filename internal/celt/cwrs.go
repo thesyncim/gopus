@@ -891,29 +891,37 @@ func icwrsLookupFast(n, k int, y []int) (uint32, bool) {
 	return i, true
 }
 
+// icwrsLookupFast32 is libopus celt/cwrs.c icwrs over a fixed-width pulse
+// vector, reading U(n,k) from the static table. Walking the dimensions from the
+// end, U(remDims, *) for remDims < len(pvqUSym) comes from one row of pvqUSym;
+// larger dimension counts only occur with fewer pulses than table rows, where
+// U(*, remDims) is one row of pvqUCol. The U(remDims, k1+1) term of a negative
+// pulse is added through a sign mask instead of a branch; k1+1 never exceeds
+// the k+1 the coverage check admits. The index sum is the same wrapping uint32
+// sum as icwrs.
 func icwrsLookupFast32(n, k int, y []int32) (uint32, bool) {
 	if len(y) < n || !canUseICWRSLookupFast(n, k) {
 		return 0, false
 	}
-
-	i, k1 := icwrs1(int(y[n-1]))
-	i += pvqUTableLookupFast(2, k1)
-
-	j := n - 2
-	k1 += int(absInt32(y[j]))
-	if y[j] < 0 {
-		i += pvqUTableLookupFast(2, k1+1)
+	y = y[:n]
+	last := y[n-1]
+	i := uint32(last) >> 31
+	k1 := int(absInt32(last))
+	remDims := 2
+	for ; remDims <= min(n, len(pvqUSym)-1); remDims++ {
+		v := y[n-remDims]
+		row := &pvqUSym[remDims]
+		i += row[k1]
+		k1 += int(absInt32(v))
+		i += row[k1+1] & uint32(v>>31)
 	}
-
-	for j--; j >= 0; j-- {
-		remDims := n - j
-		i += pvqUTableLookupFast(remDims, k1)
-		k1 += int(absInt32(y[j]))
-		if y[j] < 0 {
-			i += pvqUTableLookupFast(remDims, k1+1)
-		}
+	for ; remDims <= n; remDims++ {
+		v := y[n-remDims]
+		col := &pvqUCol[remDims]
+		i += col[k1]
+		k1 += int(absInt32(v))
+		i += col[k1+1] & uint32(v>>31)
 	}
-
 	return i, true
 }
 
