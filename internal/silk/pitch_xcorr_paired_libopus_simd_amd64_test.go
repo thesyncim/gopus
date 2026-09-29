@@ -26,6 +26,18 @@ func TestSilkPitchXCorrPairedLibopusSIMDRawBits(t *testing.T) {
 	runSilkPitchXcorrSIMDOracle(t, silkPitchXcorrSIMDCases())
 }
 
+// TestSILKPitchXcorrMatchesLibopusOracle runs the shared SILK pitch xcorr
+// cases against the paired libopus SIMD archive; the scalar lane runs the same
+// cases against the compiler-matched scalar helper.
+func TestSILKPitchXcorrMatchesLibopusOracle(t *testing.T) {
+	shared := silkPitchXcorrLibopusCases()
+	cases := make([]silkPitchXcorrSIMDCase, len(shared))
+	for i, tc := range shared {
+		cases[i] = silkPitchXcorrSIMDCase{name: tc.name, x: tc.x[:tc.length], y: tc.y[:tc.length+tc.maxPitch-1], maxPitch: tc.maxPitch}
+	}
+	runSilkPitchXcorrSIMDOracle(t, cases)
+}
+
 func runSilkPitchXcorrSIMDOracle(t *testing.T, cases []silkPitchXcorrSIMDCase) {
 	t.Helper()
 	requireNative := os.Getenv("GOPUS_REQUIRE_NATIVE_AVX2_FMA") == "1"
@@ -96,6 +108,10 @@ func runSilkPitchXcorrSIMDOracle(t *testing.T, cases []silkPitchXcorrSIMDCase) {
 			got := make([]float32, tc.maxPitch)
 			celtPitchXcorrFloatImpl(tc.x, tc.y, got, len(tc.x), tc.maxPitch)
 			t.Run("production", func(t *testing.T) { assertSilkPitchXcorrRawBits(t, got, want) })
+			if tc.maxPitch < 8 {
+				// The 8-lane kernels read eight correlations past each x sample.
+				return
+			}
 			var direct, split, onePass [8]float32
 			xcorrKernelAVX8(&tc.x[0], &tc.y[0], &direct, len(tc.x))
 			xcorrKernelAVX8SplitForTest(&tc.x[0], &tc.y[0], &split, len(tc.x))

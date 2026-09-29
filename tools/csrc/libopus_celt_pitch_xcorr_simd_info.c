@@ -106,10 +106,10 @@ static int eval_record(void) {
   uint32_t i;
   float x[256];
   float y[512];
-  float out[32];
+  float out[64];
 
   if (!read_u32(&length) || !read_u32(&max_pitch)) return 0;
-  if (length == 0 || length > 256 || max_pitch == 0 || max_pitch > 32) return 0;
+  if (length == 0 || length > 256 || max_pitch == 0 || max_pitch > 64) return 0;
   for (i = 0; i < length; i++) {
     if (!read_u32(&raw)) return 0;
     memcpy(&x[i], &raw, sizeof(x[i]));
