@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 const (
@@ -59,7 +60,29 @@ func probeSILKGainTweakOracle(cases []silkGainTweakCase) ([]float32, error) {
 	return out, nil
 }
 
+// silkGainTweakCandidateForOracle keeps the FMA result independent from the
+// separate-operation witness in the test loop. Without this boundary, the
+// compiler can share the rounded product with that witness and decontract the
+// candidate expression while compiling the test.
+//go:noinline
+func silkGainTweakCandidateForOracle(gain, gainMult, gainAdd float32) float32 {
+	return silkGainTweak32(gain, gainMult, gainAdd)
+}
+
 func TestSILKGainTweakFMA32MatchesLibopus(t *testing.T) {
+	target, err := libopustooling.ResolveLibopusAMD64Target()
+	if err != nil || target != "v3" {
+		message := "SILK gain tweak oracle requires GOPUS_LIBOPUS_AMD64_TARGET=v3"
+		if err != nil {
+			message += ": " + err.Error()
+		} else {
+			message += ", got " + target
+		}
+		if libopustest.StrictRefRequired() {
+			t.Fatal(message)
+		}
+		t.Skip(message)
+	}
 	libopustest.RequireOracle(t)
 	rng := rand.New(rand.NewSource(0x53494c4b))
 	cases := make([]silkGainTweakCase, 260)
@@ -86,7 +109,7 @@ func TestSILKGainTweakFMA32MatchesLibopus(t *testing.T) {
 	}
 	separateWitness := false
 	for i, tc := range cases {
-		got := silkGainTweak32(tc.gain, tc.gainMult, tc.gainAdd)
+		got := silkGainTweakCandidateForOracle(tc.gain, tc.gainMult, tc.gainAdd)
 		if math.Float32bits(got) != math.Float32bits(want[i]) {
 			t.Fatalf("case%d gain tweak=%08x C=%08x", i, math.Float32bits(got), math.Float32bits(want[i]))
 		}

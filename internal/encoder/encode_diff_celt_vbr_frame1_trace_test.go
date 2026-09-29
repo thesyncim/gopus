@@ -164,10 +164,11 @@ func TestEncodeDiffCELTVBRFrame1Trace(t *testing.T) {
 func buildCELTVBREntropyTraceOracle(t *testing.T) string {
 	t.Helper()
 	config := libopustest.CHelperConfig{
-		Label:      "public VBR CELT stage and entropy trace",
-		OutputBase: "gopus_libopus_public_vbr_celt_entropy_trace",
-		SourceFile: "libopus_encode_diff_celt_entropy_trace.c",
-		CFlags:     []string{"-DHAVE_CONFIG_H", "-O2", "-DNDEBUG"},
+		Label:       "public VBR CELT stage and entropy trace",
+		OutputBase:  "gopus_libopus_public_vbr_celt_entropy_trace",
+		SourceFile:  "libopus_encode_diff_celt_entropy_trace.c",
+		CFlags:      []string{"-DHAVE_CONFIG_H", "-O2", "-DNDEBUG"},
+		RefIncludes: []string{"celt", "silk", "src"},
 		LDFlags: []string{
 			"-Wl,--wrap=opus_encode_float",
 			"-Wl,--wrap=compute_band_energies",
