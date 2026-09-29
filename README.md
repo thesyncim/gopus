@@ -238,41 +238,44 @@ gopus is built for real-time use, where steady allocation is the enemy:
   replacements, same-host assembly comparisons, allocations, and unresolved
   parity differences.
 
-The recorded AMD64 end-to-end run compares assembly `8ac93c85` with Go
-`c6353190` on an AMD EPYC 7763, Go 1.27.1, GCC 13.3, GOAMD64=v1, and PGO.
-Four interleaved 500 ms samples report zero allocations for all rows.
-Values are median ns/op; this revision predates the current local fixes.
+Native AMD64 end-to-end measurements in early artifact `11006418166` compare
+assembly `8ac93c85` with Go `55b13f5f` on an AMD EPYC 9V74, Go 1.27.1, GCC
+13.3.0, GOAMD64=v1, and PGO. Four interleaved 500 ms samples use `-cpu=1`;
+all 72 benchmark samples report zero allocations. Values are median ns/op. The
+early artifact passes its PCM/range exactness checks but records two neural
+PLC warm-allocation failures. The [evidence report](reports/go-simd-kernel-evidence.md)
+tracks those failures and subsequent validation.
 
 | Workload | Old assembly | Go SIMD | `nosimd` |
 |---|---:|---:|---:|
-| CELT decode | 20,292 | 13,626 | 17,142 |
-| Hybrid decode | 28,371 | 24,119 | 30,528.5 |
-| SILK decode | 22,627.5 | 16,375 | 20,975.5 |
-| Caller-buffer encode | 91,864.5 | 63,522 | 99,694.5 |
-| VoIP encode | 98,276 | 68,427.5 | 105,616 |
-| Low-delay encode | 91,068.5 | 63,300.5 | 99,360.5 |
+| CELT decode | 15,683.5 | 10,453 | 13,020 |
+| Hybrid decode | 23,115.5 | 19,884 | 25,406 |
+| SILK decode | 18,344.5 | 13,267.5 | 17,174 |
+| Caller-buffer encode | 71,829 | 48,576.5 | 80,129.5 |
+| VoIP encode | 76,700 | 52,557 | 84,363.5 |
+| Low-delay encode | 71,150 | 48,493 | 79,927 |
 
 The paired C comparison uses identical inputs and controls, pairing scalar Go
-with scalar C and SIMD Go with SIMD C. Both tables come from [run
-36486700048](https://github.com/thesyncim/gopus/actions/runs/36486700048),
-artifact `11001601766`, on the same runner and toolchain. Each C/Go case has
-three 250 ms minimum runs. Times are µs per packet. Go rows report zero
-allocations; C allocation counts are not measured.
+with scalar C and SIMD Go with SIMD C. The paired results use early artifact
+`11006418166`, candidate `55b13f5f`, and the same EPYC 9V74 runner and
+toolchain. Each C/Go case has three 250 ms minimum runs. Times are µs per
+packet. Each paired Go benchmark row reports zero allocations; C allocation
+counts are not measured.
 
 | Workload | C scalar | Go scalar | C SIMD | Go SIMD |
 |---|---:|---:|---:|---:|
-| CELT-FB-20ms-stereo-128k | 178.20 | 184.37 | 133.61 | 123.14 |
-| CELT-FB-5ms-mono-64k | 19.90 | 23.13 | 18.60 | 19.29 |
-| Hybrid-FB-20ms-mono-64k | 358.64 | 355.29 | 253.52 | 278.83 |
-| Hybrid-FB-20ms-stereo-96k | 201.85 | 212.33 | 151.04 | 134.97 |
-| SILK-WB-20ms-mono-32k | 691.19 | 615.66 | 448.37 | 387.50 |
-| RFC vectors Float32 | 30.69 | 33.02 | 29.03 | 27.47 |
-| RFC vectors Int16 | 33.86 | 35.94 | 31.48 | 31.14 |
+| CELT-FB-20ms-stereo-128k | 153.75 | 147.67 | 113.32 | 96.90 |
+| CELT-FB-5ms-mono-64k | 16.86 | 18.17 | 15.62 | 15.21 |
+| Hybrid-FB-20ms-mono-64k | 307.93 | 291.35 | 196.75 | 170.33 |
+| Hybrid-FB-20ms-stereo-96k | 176.07 | 171.87 | 130.00 | 108.64 |
+| SILK-WB-20ms-mono-32k | 592.31 | 515.37 | 318.86 | 249.72 |
+| RFC vectors Float32 | 25.55 | 26.62 | 24.32 | 22.05 |
+| RFC vectors Int16 | 28.62 | 29.16 | 26.45 | 24.87 |
 
 These measurements are workload-specific. Decoder rows aggregate 20,075
 identical packets; encoder timings do not establish long-stream packet parity.
-The artifact retains failing neural-stage exactness diagnostics, tracked in the
-[evidence report](reports/go-simd-kernel-evidence.md).
+The [evidence report](reports/go-simd-kernel-evidence.md) records the early
+artifact's allocation blocker and the separate full-CI status.
 
 Run the benchmarks for numbers on your machine:
 

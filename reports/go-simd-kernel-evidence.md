@@ -114,13 +114,27 @@ sweep. Full artifact `10989480229` retains baseline failures and the deliberate
 fixture-generation nonzero exit as diagnostic evidence. The run does not
 include subsequent local changes.
 
-Native early artifact `11001601766` at `c6353190` retains seven failing
+Earlier native artifact `11001601766` at `c6353190` retains seven failing
 phases: six feature/ISA configurations report the same LACE trace NaN-sign
 difference, and SIMD neural analysis reports FARGAN-conditioner and PLC-feature
-differences. The NaN-sign correction at `b43a303b` and selected-DNN-dispatch oracle
-correction at `24d769dd` pass their local scalar/SIMD checks; native AMD64
-validation of both corrections remains pending. Its independent performance
-samples are recorded below; they do not make this checkpoint fully passing.
+differences. Native early artifact `11006418166` at `55b13f5f` passes the
+corresponding PCM, range, and exactness checks, including neural checks on both
+Go instruction lanes and all eight LACE/NoLACE feature and ISA combinations.
+It records 93 successful phase exits, two nonzero warm-allocation phase exits,
+and aggregate exit 1. Both failures come from
+`TestDecoderNoSidecarDeepPLCWarmZeroAllocs` at 16 kHz and complexity 5, with
+one allocation in each of two feature lanes. Full run 36500305019 is canceled;
+its completed candidate phases pass, but its full sweep and kernel benchmark
+set are incomplete. The early artifact does not establish complete CI success.
+
+PLC state interfaces require their history and filter methods at
+`a6081168`. Go 1.27.1 can lazily allocate an interface-assertion cache;
+allocation profiling records a 48-byte cache allocation inside SILK
+concealment. The five PLC capability assertions are absent from the hot
+paths, and compiled AMD64 concealment has no `runtime.typeAssert` calls.
+The unchanged single-call zero-allocation and exact-output tests pass local
+scalar DRED and scalar/SIMD DRED+OSCE+QEXT. Native execution of this fix is
+pending; the failing `55b13f5f` artifact remains part of the evidence.
 
 The [codebase parity audit](parity-evidence-audit.md) separates confirmed runtime
 witnesses from oracle and assertion gaps, with validation status for each.
@@ -201,52 +215,57 @@ combinations are outside the supported reference configuration.
 
 ### Native AMD64 end-to-end measurements
 
-Early artifact `11001601766` from [run 36486700048](https://github.com/thesyncim/gopus/actions/runs/36486700048)
-compares assembly `8ac93c85` with SIMD/nosimd `c6353190` on AMD EPYC 7763,
-Go 1.27.1, GCC 13.3.0, GOAMD64=v1, PGO enabled. Four interleaved 500 ms
-samples use `-cpu=1`; all 72 samples report 0 B/op and 0 allocs/op.
-Values are median ns/op. This revision predates the current local fixes.
+Native early artifact `11006418166` compares assembly `8ac93c85` with
+SIMD/`nosimd` `55b13f5f` on AMD EPYC 9V74, Go 1.27.1, GCC 13.3.0,
+GOAMD64=v1, and PGO enabled. Four interleaved 500 ms samples use `-cpu=1`;
+all 72 benchmark samples report 0 B/op and 0 allocs/op. Values are median ns/op.
+The [native run](https://github.com/thesyncim/gopus/actions/runs/36500305019)
+provides the underlying benchmark logs in artifact `11006418166`.
 
 | Workload | Old assembly | Go SIMD | `nosimd` |
 |---|---:|---:|---:|
-| CELT decode | 20,292 | 13,626 | 17,142 |
-| Hybrid decode | 28,371 | 24,119 | 30,528.5 |
-| SILK decode | 22,627.5 | 16,375 | 20,975.5 |
-| Caller-buffer encode | 91,864.5 | 63,522 | 99,694.5 |
-| VoIP encode | 98,276 | 68,427.5 | 105,616 |
-| Low-delay encode | 91,068.5 | 63,300.5 | 99,360.5 |
+| CELT decode | 15,683.5 | 10,453 | 13,020 |
+| Hybrid decode | 23,115.5 | 19,884 | 25,406 |
+| SILK decode | 18,344.5 | 13,267.5 | 17,174 |
+| Caller-buffer encode | 71,829 | 48,576.5 | 80,129.5 |
+| VoIP encode | 76,700 | 52,557 | 84,363.5 |
+| Low-delay encode | 71,150 | 48,493 | 79,927 |
 
-SIMD takes 15.0–32.9% less time than assembly in these six workloads.
-Scalar takes less time for CELT/SILK decode and more for Hybrid decode and encode.
-The 11 AMD64 kernel rows use `c6353190` / EPYC 7763 measurements in
-artifact `11002254830`; ARM64 rows retain their own measured revisions.
-Absolute timings across different CPU models are not revision comparisons.
+SIMD takes 14.0–33.4% less time than assembly in these six workloads.
+`nosimd` is faster than assembly for CELT and SILK decode and slower for the
+other four workloads. The 11 AMD64 kernel rows continue to use `c6353190` /
+EPYC 7763 measurements in artifact `11002254830`; ARM64 rows retain their own
+measured revisions. The canceled run has an incomplete kernel benchmark set, so its early EPYC
+9V74 measurements do not replace those kernel rows. Absolute timings across CPU
+models are not revision comparisons.
 
 ### Matched libopus 1.6.1 comparison
 
-Same runner/revision; C scalar vs Go scalar and C SIMD vs Go SIMD. Three
-250 ms minimum runs per case. Values are µs/packet (lower is faster).
-All Go rows allocate zero; C allocations are not measured.
+Same candidate revision and runner; C scalar vs Go scalar and C SIMD vs Go
+SIMD. Early artifact `11006418166` uses candidate `55b13f5f` on AMD EPYC 9V74.
+Each case has three 250 ms minimum runs. Values are µs/packet (lower is faster).
+Every paired Go benchmark row allocates zero; C allocations are not measured.
 
 | Workload | C scalar | Go scalar | C SIMD | Go SIMD |
 |---|---:|---:|---:|---:|
-| CELT-FB-20ms-stereo-128k | 178.20 | 184.37 | 133.61 | 123.14 |
-| CELT-FB-5ms-mono-64k | 19.90 | 23.13 | 18.60 | 19.29 |
-| Hybrid-FB-20ms-mono-64k | 358.64 | 355.29 | 253.52 | 278.83 |
-| Hybrid-FB-20ms-stereo-96k | 201.85 | 212.33 | 151.04 | 134.97 |
-| SILK-WB-20ms-mono-32k | 691.19 | 615.66 | 448.37 | 387.50 |
-| RFC vectors Float32 | 30.69 | 33.02 | 29.03 | 27.47 |
-| RFC vectors Int16 | 33.86 | 35.94 | 31.48 | 31.14 |
+| CELT-FB-20ms-stereo-128k | 153.75 | 147.67 | 113.32 | 96.90 |
+| CELT-FB-5ms-mono-64k | 16.86 | 18.17 | 15.62 | 15.21 |
+| Hybrid-FB-20ms-mono-64k | 307.93 | 291.35 | 196.75 | 170.33 |
+| Hybrid-FB-20ms-stereo-96k | 176.07 | 171.87 | 130.00 | 108.64 |
+| SILK-WB-20ms-mono-32k | 592.31 | 515.37 | 318.86 | 249.72 |
+| RFC vectors Float32 | 25.55 | 26.62 | 24.32 | 22.05 |
+| RFC vectors Int16 | 28.62 | 29.16 | 26.45 | 24.87 |
 
-SIMD Go takes 3.8% more time than SIMD C for short CELT and 10.0% more for
-mono Hybrid; the other three encode rows take 7.8–13.6% less time. SIMD vector
-decode takes 5.4%/1.1% less time for float32/int16. Scalar Go trails C by
-3.5–16.2% in three encode rows and 7.6%/6.1% in vector decode; mono Hybrid
-and SILK take less time. These are workload-specific results from this runner.
+Go SIMD takes 2.6–21.7% less time than matched C in these seven workloads.
+Scalar Go takes 1.9–7.8% more time for 5 ms CELT and the two vector-decode
+cases, and 2.4–13.0% less time for the other four encode cases. These are
+workload-specific results from this runner.
+
 Decoder rows aggregate 20,075 identical packets; encoder rows use identical PCM
 and controls. Encoder timings do not establish long-stream packet parity.
-The artifact retains failing neural-stage exactness diagnostics; performance
-results do not establish complete correctness.
+The early artifact's exactness checks pass; its remaining reported blocker is
+the warm no-sidecar PLC allocation test described above. Performance results
+do not establish complete correctness.
 
 ## Per-symbol inventory
 
@@ -413,7 +432,9 @@ Sequential kernel phases retain host-load and frequency risks.
 ## Validation and performance follow-up
 
 Validate the final revision on native AMD64 and ARM64, and refresh the PR
-tables from completed artifacts. Preserve all 53 inventory rows and their fixture/compiler provenance.
+tables from completed artifacts. The 11 AMD64 kernel rows remain measured at
+`c6353190` on EPYC 7763 until the full artifact lands; preserve all 53 inventory
+rows and their fixture/compiler provenance.
 Measurements from different CPUs or revisions do not establish a source-change
 speed ratio. Several direct kernels trail assembly, as recorded in the inventory.
 
