@@ -219,7 +219,7 @@ CELT/Hybrid have unresolved same-packet PCM differences. FFT/MDCT and SILK
 primitive suites pass. The CELT encoder trace rejects inconsistent quantization
 dimensions, so it does not yet establish a runtime divergence location.
 
-The [native v3 audit at `74f6bea2`](https://github.com/thesyncim/gopus/actions/runs/36633489623)
+The [native v3 audit at `81049d8a`](https://github.com/thesyncim/gopus/actions/runs/36636133108)
 on AMD EPYC 7763 with Go 1.27.1 and GCC 13.3 passes the following matched
 scalar and SIMD selections. No cases are skipped.
 
@@ -261,14 +261,25 @@ selects factor 3 in both replay paths versus 2 in the ordinary C encoder;
 WB frame 13 selects factor 1 in all three paths. Actual LPC input already
 differs at MB frame 6 sample 140 and WB frame 13 sample 0.
 
-The independent linked LTP diagnostic compares identical float32 operands in
-two synthetic cases. Go matches the separate-product model but differs from
-C in 86/280 MB and 102/384 WB outputs, in both instruction lanes. First MB
-output is Go `c5b40065`, C `c5b40064`; first WB output is Go `440cec64`, C
-`440cec66`. The ordinary C kernel uses five negative FMAs. This is standalone
-kernel evidence, not proof of the cause of packet failures whose operands
-already differ. Protocol geometry, echoed operands and complete consumption
-remain strict; native exact kernel validation follows the arithmetic fix.
+The linked LTP diagnostic at `74f6bea2` exposes 86/280 MB and 102/384 WB
+differences on identical synthetic float32 operands. The ordinary C kernel
+uses five negative FMAs. The [integrated audit at `7bc9d731`](https://github.com/thesyncim/gopus/actions/runs/36635999671)
+confirms the production MB residual matches C in both lanes. Its test-only
+fused model unexpectedly uses separate products and fails before the WB and
+allocation assertions. The model needs an explicit contraction boundary;
+the candidate's exact C assertion remains required. This standalone kernel
+evidence does not establish the cause of packet failures with unequal inputs.
+
+The scalar stereo-split C oracle and warm allocation guard pass at `81049d8a`.
+Its SIMD oracle exposes a short-tail mismatch: length 3, Y[0] is Go
+`bf343cae`, C `bf343caf`. Both selected C kernels round `c*y` before fusing
+`c*x` into each output. The v3 SIMD body and tails use that same sequence;
+native validation of that candidate is pending. Packet differences remain.
+
+The live prefilter wrappers capture their expected calls, but same-translation-unit
+preemphasis calls bypass linker wrapping. The narrowband FindLPC hook also
+needs to cover calls without an interpolation search. Those coverage checks
+fail explicitly; neither trace establishes the corresponding divergence yet.
 
 The unchanged CBR quality gate rejects SILK NB 10 ms mono (Q -458.03,
 correlation 0.972870) and SILK WB stereo (Q -157.52) in both lanes, plus

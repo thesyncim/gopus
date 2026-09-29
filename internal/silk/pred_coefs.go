@@ -209,7 +209,7 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 
 	interpIdx := 4
 	useInterp := e.complexity >= 4 && !e.firstFrameAfterReset && numSubframes == maxNbSubfr
-	traceInterpolation := silkNLSFInterpolationTraceEnabled && useInterp && silkNLSFInterpolationTraceActive()
+	traceInterpolation := silkNLSFInterpolationTraceEnabled && silkNLSFInterpolationTraceActive()
 	var interpolationTrace SILKNLSFInterpolationSnapshot
 	if traceInterpolation {
 		interpolationTrace.FrameInPacket = e.nFramesEncoded
@@ -292,15 +292,14 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 					resNrg2nd = resNrgInterp
 				}
 			}
-			if traceInterpolation {
-				interpolationTrace.SelectedIndex = int32(interpIdx)
-				recordSILKNLSFInterpolationTrace(e, interpolationTrace)
-			}
-
 			if interpIdx < 4 {
 				copy(lsfQ15, lsfLast)
 			}
 		}
+	}
+	if traceInterpolation {
+		interpolationTrace.SelectedIndex = int32(interpIdx)
+		recordSILKNLSFInterpolationTrace(e, interpolationTrace)
 	}
 
 	return lpcQ12, lsfQ15, interpIdx
