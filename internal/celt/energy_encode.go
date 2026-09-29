@@ -367,11 +367,7 @@ func celtInnerProdF32LibopusOrder(x []float32) float32 {
 	if celtUseSSEFloatMath {
 		return celtInnerProdSSEStyleNorm(x, x)
 	}
-	var sum float32
-	for i := range x {
-		sum = celtFloatMulAdd(x[i], x[i], sum)
-	}
-	return sum
+	return celtScalarSumSquares(x)
 }
 
 func celtAbsInt(v int) int {
