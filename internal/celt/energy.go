@@ -159,7 +159,7 @@ func (d *Decoder) decodeCoarseEnergyGLogInto(dst []celtGLog, nbBands int, intra 
 
 			// Compute energy: pred + qi * DB6 (6 dB per step)
 			q := float32(qi) * float32(DB6)
-			energy := alpha*prevFrameEnergy + prevBandEnergy[c] + q
+			energy := decodeCoarseEnergyPredict(alpha, prevFrameEnergy, prevBandEnergy[c], q)
 
 			// Store result
 			dst[c*nbBands+band] = celtGLog(energy)
@@ -167,7 +167,7 @@ func (d *Decoder) decodeCoarseEnergyGLogInto(dst []celtGLog, nbBands int, intra 
 			// Update prev band energy for next band's inter-band prediction.
 			// Per libopus: prev is filtered by the quantized delta.
 			// Formula: prev = prev + q - beta*q, where q = qi*DB6
-			prevBandEnergy[c] = prevBandEnergy[c] + q - beta*q
+			prevBandEnergy[c] = decodeCoarseEnergyUpdate(prevBandEnergy[c], q, beta)
 		}
 	}
 
@@ -250,10 +250,10 @@ func (d *Decoder) decodeCoarseEnergyRangeGLog(start, end int, intra bool, lm int
 			}
 
 			q := float32(qi) * float32(DB6)
-			energy := alpha*prevFrameEnergy + prevBandEnergy[c] + q
+			energy := decodeCoarseEnergyPredict(alpha, prevFrameEnergy, prevBandEnergy[c], q)
 
 			energies[c*end+band] = celtGLog(energy)
-			prevBandEnergy[c] = prevBandEnergy[c] + q - beta*q
+			prevBandEnergy[c] = decodeCoarseEnergyUpdate(prevBandEnergy[c], q, beta)
 		}
 	}
 }
