@@ -48,8 +48,18 @@ func combFilterConstSSEAVX(dst, src, delay []celtSig, from, to int, g10, g11, g1
 		x2 := x0.ConcatPermuteScalars(2, 3, 4, 5, x4)
 		x1 := x0.ConcatPermuteScalars(1, 2, 5, 6, x2)
 		x3 := x2.ConcatPermuteScalars(1, 2, 5, 6, x4)
-		yi := loadF32x4(unsafe.Add(sp, 4*i)).Add(g10v.Mul(x2))
-		yi2 := g11v.Mul(x3.Add(x1)).Add(g12v.Mul(x4.Add(x0)))
+		base := loadF32x4(unsafe.Add(sp, 4*i))
+		var yi, yi2 archsimd.Float32x4
+		if combTargetV3FMA {
+			// GCC 13.3 contracts celt/x86/pitch_sse.c's intrinsic chain for
+			// -march=x86-64-v3: the center tap is fused with the base, and the
+			// outer side tap is fused with the inner side product.
+			yi = x2.MulAdd(g10v, base)
+			yi2 = x4.Add(x0).MulAdd(g12v, g11v.Mul(x3.Add(x1)))
+		} else {
+			yi = base.Add(g10v.Mul(x2))
+			yi2 = g11v.Mul(x3.Add(x1)).Add(g12v.Mul(x4.Add(x0)))
+		}
 		storeF32x4(unsafe.Add(dp, 4*i), yi.Add(yi2))
 		x0 = x4
 	}

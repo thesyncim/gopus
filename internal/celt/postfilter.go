@@ -803,9 +803,14 @@ func combFilterConstValue(base, g10, g11, g12, center, plus1, minus1, plus2, min
 
 // combFilterConstSSEValue matches libopus celt/x86/pitch_sse.c:
 // comb_filter_const_sse() groups the outer tap products before the final add.
+// The AMD64 v3 C build contracts the center product and the outer side product.
 func combFilterConstSSEValue(base, g10, g11, g12, center, plus1, minus1, plus2, minus2 float32) float32 {
 	main := add32(base, mul32(g10, center))
 	sides := add32(mul32(g11, add32(minus1, plus1)), mul32(g12, add32(plus2, minus2)))
+	if combTargetV3FMA {
+		main = fma32(g10, center, base)
+		sides = fma32(g12, add32(plus2, minus2), mul32(g11, add32(minus1, plus1)))
+	}
 	return add32(main, sides)
 }
 
