@@ -606,10 +606,8 @@ func encodeGopusCBR(tc cbrTestCase, pcm []float32) (cbrEncodedOutput, error) {
 	return result, nil
 }
 
-// runCBROracleEncode calls the libopus CBR encoder oracle.
-// PCM must be float32 LE samples with no -f32 quantization applied —
-// the oracle reads raw float32 values directly via fread() and passes
-// them to opus_encode_float() without quantization.
+// quantizeCBRPCM rounds PCM to the 24-bit grid used by opus_demo's -f32
+// reader. Both CBR encoders receive these same float32 samples.
 func quantizeCBRPCM(pcm []float32) []float32 {
 	quantized := make([]float32, len(pcm))
 	for i, s := range pcm {
@@ -630,12 +628,11 @@ func cbrPCMIdentity(pcm []float32) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// runCBROracleEncode calls the libopus CBR encoder oracle with the same
+// quantized PCM as the Go encoder. The helper passes its input float32 values
+// directly to opus_encode_float without applying another quantization step.
 func runCBROracleEncode(oraclePath string, tc cbrTestCase, pcm []float32) (cbrOracleOutput, error) {
 	numFrames := uint32(len(pcm) / (tc.frameSize * tc.channels))
-	// The oracle receives the raw float32 PCM (not quantized).
-	// gopus encodes with float32ToFloat64OpusDemoF32 quantization applied;
-	// to stay aligned we must feed the oracle the SAME post-quantization samples.
-	// The oracle calls opus_encode_float() which accepts float32; convert back:
 	quantPCM := quantizeCBRPCM(pcm)
 	input := cbrOracleInput(
 		tc.oracleApp, tc.oracleBW,

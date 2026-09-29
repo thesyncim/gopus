@@ -133,7 +133,7 @@ jobs:
             env -u GOPUS_LIBOPUS_REF_SCALAR "${trace_native[@]}" GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
               GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
               "${go_cmd[@]}" test ./internal/encoder -tags gopus_celt_trace -count=1 -v -timeout=15m \
-              -run '^Test(CELT(FirstFrame|LateCBRFrame)StageDiagnostic|EncodeDiffCELTVBRFrame1Trace)$' \
+              -run '^Test(CELT(FirstFrame|LateCBRFrame)StageDiagnostic|EncodeDiffCELTVBRFrame1Trace|CELTQuantBandTraceWireValidation)$' \
               > "$RUNNER_TEMP/goamd64-evidence/$mode-celt-encode-trace.log" 2>&1 || status=1
             if [[ "$mode" == nosimd ]]; then
               env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT=nosimd GOPUS_LIBOPUS_AMD64_TARGET=v3 \

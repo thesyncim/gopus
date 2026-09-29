@@ -2040,8 +2040,8 @@ func stereoSplit(x, y []celtNorm) {
 // float build.
 const stereoSplitInvSqrt2 float32 = 0.70710678
 
-// stereoSplitScalar is libopus stereo_split(): x, y become the rotated
-// (l+r, r-l) pair with l and r the rounded 1/sqrt(2) products.
+// stereoSplitScalar is the explicitly uncontracted reference loop for
+// stereo_split(): it rounds both 1/sqrt(2) products before forming l+r and r-l.
 func stereoSplitScalar(x, y []celtNorm) {
 	y = y[:len(x)]
 	for i, xv := range x {
@@ -2096,9 +2096,9 @@ func innerProductNorm(x, y []celtNorm) float32 {
 	return celtInnerProdLibopusOrder(x, y)
 }
 
-// thetaRDODistortion is quant_all_bands' dist0/dist1. clang contracts
-// w0*ip0 + w1*ip1 into one fmadd of the left product with the rounded right
-// product; fma32 does the same on arm64 and stays unfused on amd64, like gcc.
+// thetaRDODistortion computes quant_all_bands' weighted pair of normalized
+// inner products. The right weighted product is rounded separately; fma32
+// follows the selected target's contraction behavior for the left term.
 func thetaRDODistortion(w0, w1 float32, xSave, xBand, ySave, yBand []celtNorm) float32 {
 	ipx, ipy := celtInnerProdPairLibopusOrder(xSave, xBand, ySave, yBand)
 	return fma32(w0, ipx, noFMA32Mul(w1, ipy))
@@ -2324,6 +2324,10 @@ func computeThetaDecode(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b 
 // it also encodes additional Q30 precision bits to the extension bitstream.
 // Reference: libopus bands.c compute_theta() with ENABLE_QEXT path (lines 863-885)
 func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b *int, extB *int, B, B0, lm int, stereo bool, fill *int) {
+	var traceState quantBandTraceState
+	if celtQuantBandTraceEnabled {
+		traceState = beginQuantThetaTrace(ctx, x, y, n, *b, B, B0, lm, stereo, *fill)
+	}
 	bIn := *b
 	pulseCap := ctx.modeLogN(ctx.band) + lm*(1<<bitRes)
 	offset := (pulseCap >> 1) - qthetaOffset
@@ -2346,11 +2350,15 @@ func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b *in
 	itheta := 0
 	ithetaQ30 := 0
 	rawItheta := 0
+	rawIthetaQ30 := 0
 	inv := 0
 	if ctx.encode {
 		// Match libopus: derive raw theta before qn decisions so qn==1
 		// can still drive phase inversion signaling.
 		ithetaQ30 = stereoIthetaQ30Norm(x, y, stereo)
+		if celtQuantBandTraceEnabled {
+			rawIthetaQ30 = ithetaQ30
+		}
 		itheta = ithetaQ30 >> 16
 		rawItheta = itheta
 	}
@@ -2600,6 +2608,9 @@ func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b *in
 	sctx.delta = delta
 	sctx.itheta = itheta
 	sctx.ithetaQ30 = ithetaQ30
+	if celtQuantBandTraceEnabled {
+		finishQuantThetaTrace(&traceState, ctx, sctx, x, y, n, *b, *fill, qn, pulseCap, offset, rawIthetaQ30)
+	}
 	_, _ = bIn, rawItheta
 }
 
@@ -2751,7 +2762,14 @@ func quantPartitionEncodeWithExtBudget(ctx *bandCtx, x []celtNorm, n, b, B int, 
 			if extBudget > 0 && ctx.extEnc != nil {
 				pvqExtraBits = computeQEXTPVQRefineBits(ctx, extBudget, n)
 			}
+			var traceState quantBandTraceState
+			if celtQuantBandTraceEnabled {
+				traceState = beginQuantPVQTrace(ctx, x, n, k, ctx.spread, B, lm, gain, ctx.resynth)
+			}
 			cm := algQuantScratch(ctx.re, ctx.band, x, n, k, ctx.spread, B, gain, ctx.resynth, ctx.extEnc, pvqExtraBits, ctx.encScratch)
+			if celtQuantBandTraceEnabled {
+				finishQuantPVQTrace(&traceState, ctx, x, n, cm)
+			}
 			return cm, x
 		}
 		// Use scratch-aware version to avoid allocations in decode hot path
@@ -3646,6 +3664,10 @@ func quantBandStereoPreparedLowbandWithExtBudget(ctx *bandCtx, x, y []celtNorm, 
 			_ = y[n-1]
 		}
 	}
+	var bandTrace quantBandTraceState
+	if celtQuantBandTraceEnabled {
+		bandTrace = beginQuantBandOutputTrace(ctx, x, y, n, b, B, lm)
+	}
 
 	origFill := fill
 
@@ -3667,6 +3689,11 @@ func quantBandStereoPreparedLowbandWithExtBudget(ctx *bandCtx, x, y []celtNorm, 
 		extB = &extBudget
 	}
 	computeThetaWithExtBudget(ctx, &sctx, x, y, n, &b, extB, B, B, lm, true, &fill)
+	var topThetaTraceContext quantBandTraceContext
+	if celtQuantBandTraceEnabled {
+		topThetaTraceContext = quantBandTraceCurrentContext()
+		setQuantBandOutputTraceContext(&bandTrace, topThetaTraceContext)
+	}
 	mid, side := thetaSplitGains(&sctx, celtQEXTFloatMath)
 
 	if n == 2 {
@@ -3727,6 +3754,9 @@ func quantBandStereoPreparedLowbandWithExtBudget(ctx *bandCtx, x, y []celtNorm, 
 				y[1] = -y[1]
 			}
 		}
+		if celtQuantBandTraceEnabled {
+			finishQuantBandOutputTrace(&bandTrace, ctx, x, y, n, cm)
+		}
 		return cm
 	}
 
@@ -3769,13 +3799,23 @@ func quantBandStereoPreparedLowbandWithExtBudget(ctx *bandCtx, x, y []celtNorm, 
 
 	if ctx.resynth {
 		if n != 2 {
+			var mergeTrace quantBandTraceState
+			if celtQuantBandTraceEnabled {
+				mergeTrace = beginQuantStereoMergeTrace(ctx, x, y, n, B, lm, opusVal16(mid), topThetaTraceContext)
+			}
 			stereoMerge(x, y, opusVal16(mid))
+			if celtQuantBandTraceEnabled {
+				finishQuantStereoMergeTrace(&mergeTrace, ctx, x, y, n)
+			}
 		}
 		if sctx.inv != 0 {
 			for i := range n {
 				y[i] = -y[i]
 			}
 		}
+	}
+	if celtQuantBandTraceEnabled {
+		finishQuantBandOutputTrace(&bandTrace, ctx, x, y, n, cm)
 	}
 	return cm
 }
@@ -4809,6 +4849,10 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 func quantBandStereoThetaRDO(ctx *bandCtx, re *rangecoding.Encoder, scratch *bandEncodeScratch,
 	x, y []celtNorm, b, B int, lowband []celtNorm, lm int, lowbandOut, lowbandScratch []celtNorm,
 	fill int, leftE, rightE celtEner, refold func()) int {
+	var rdoTrace quantBandTraceState
+	if celtQuantBandTraceEnabled {
+		rdoTrace = beginQuantRDOTrace(ctx, x, y, len(x), b, B, lm)
+	}
 	if scratch == nil {
 		scratch = &bandEncodeScratch{}
 	}
@@ -4836,6 +4880,10 @@ func quantBandStereoThetaRDO(ctx *bandCtx, re *rangecoding.Encoder, scratch *ban
 		cm0 = quantBandStereoWithExtBudget(ctx, x, y, n, b, B, lowband, lm, lowbandOut, lowbandScratch, fill, ctx.extBudget)
 	}
 	dist0 := thetaRDODistortion(w0, w1, xSave, x, ySave, y)
+	var thetaContext0 quantBandTraceContext
+	if celtQuantBandTraceEnabled {
+		thetaContext0 = quantBandTraceLastBandOutputContext()
+	}
 
 	// Keep the first trial: coder state and the bytes written since ecSave,
 	// band output and folding output.
@@ -4873,6 +4921,10 @@ func quantBandStereoThetaRDO(ctx *bandCtx, re *rangecoding.Encoder, scratch *ban
 		cm = quantBandStereoWithExtBudget(ctx, x, y, n, b, B, lowband, lm, lowbandOut, lowbandScratch, fill, ctx.extBudget)
 	}
 	dist1 := thetaRDODistortion(w0, w1, xSave, x, ySave, y)
+	var thetaContext1 quantBandTraceContext
+	if celtQuantBandTraceEnabled {
+		thetaContext1 = quantBandTraceLastBandOutputContext()
+	}
 	if dist0 >= dist1 {
 		cm = cm0
 		re.RestoreState(&scratch.ecSave0)
@@ -4885,6 +4937,15 @@ func quantBandStereoThetaRDO(ctx *bandCtx, re *rangecoding.Encoder, scratch *ban
 		if normSave0 != nil {
 			copy(lowbandOut, normSave0)
 		}
+	}
+	if celtQuantBandTraceEnabled {
+		selectedRound := 1
+		selectedContext := thetaContext1
+		if dist0 >= dist1 {
+			selectedRound = -1
+			selectedContext = thetaContext0
+		}
+		finishQuantRDOTrace(&rdoTrace, ctx, x, y, n, selectedRound, dist0, dist1, selectedContext)
 	}
 	ctx.thetaRound = 0
 	ctx.rdoIthetaSet = false

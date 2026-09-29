@@ -219,7 +219,7 @@ CELT/Hybrid have unresolved same-packet PCM differences. FFT/MDCT and SILK
 primitive suites pass. The CELT encoder trace rejects inconsistent quantization
 dimensions, so it does not yet establish a runtime divergence location.
 
-The [native v3 audit at `c3cfbeb6`](https://github.com/thesyncim/gopus/actions/runs/36642541090)
+The [native v3 audit at `b18d8ae9`](https://github.com/thesyncim/gopus/actions/runs/36644065214)
 on AMD EPYC 9V74 with Go 1.27.1 and GCC 13.3 passes the following matched
 scalar and SIMD selections. No cases are skipped.
 
@@ -275,11 +275,13 @@ arithmetic. Encoder packet differences remain.
 
 Source-bound preemphasis instrumentation captures both expected stereo calls.
 The scalar late-frame trace matches actual PCM, preemphasis state/output,
-prefilter history/input/output, MDCT, energies and quantization. Stereo trace
-shape validation still rejects its capture counts. The SIMD late-frame trace
-finds different prefilter period controls (`48/96` in Go, `48/48` in C) before
-comparing arithmetic. These diagnostic failures require correction or earlier
-state localization; they do not identify a floating-point allowance.
+prefilter history/input/output, MDCT, energies and quantization. Strict stereo
+trace validation accepts Go's actual zero-gain copy boundary against every C
+identity comb call. The SIMD late-frame trace matches preemphasis, all 1,024
+prefilter-history values, all 120 frame-input values and the window before
+finding different period controls (`48/96` in Go, `48/48` in C). The ensuing
+filter and transform output differs. Work follows the pitch-period producer;
+this does not identify an MDCT defect or a floating-point allowance.
 
 The narrowband FindLPC hook captures all three selected calls: frames 6 and
 13 match; frame 50 already has different LPC input and gains. Independent
@@ -299,15 +301,21 @@ and final ranges match within each implementation in all three cases on this
 native audit. Default-off callers retain their generated instructions. These
 diagnostic changes do not alter codec arithmetic.
 
-The focused native SILK witnesses compare linked k2a and warped-autocorrelation
-outputs on identical deterministic inputs with strict v3 reference selection.
-Their native execution is pending. The zero-gain prefilter adapter captures
-Go's actual copy boundary and checks every C identity comb call against it,
-including call counts, cancellation thresholds, controls, history, windows,
-input and output. Malformed evidence, subnormal thresholds and finite-input
-sum overflow have local validation coverage. Both tagged v3 cross-builds pass;
-ordinary caller instruction checks find no trace work. Its native trace
-validation is pending.
+The focused native SILK witnesses match linked k2a on all 660 cases and
+warped autocorrelation on all 640 cases in both instruction lanes, without
+skips. These are identical-input kernel tests, separate from actual caller
+operand capture. The zero-gain prefilter adapter passes strict native first-frame
+and constrained-VBR trace validation in both lanes. It checks every C identity
+comb call against Go's actual copy boundary, including call counts,
+cancellation thresholds, controls, history, windows, input and output.
+Malformed evidence, subnormal thresholds and finite-input sum overflow have
+validation coverage. Ordinary caller instruction checks find no trace work.
+
+The band-17 quantization trace captures actual theta, PVQ, stereo merge,
+reconstructed output and RDO-selection boundaries in the existing two-frame
+constrained-VBR witness. Parsing requires bounded geometry, valid trial linkage,
+complete selection events and exact EOF. Trace transparency and matched native
+execution are pending; default-off caller instruction checks pass.
 
 The unchanged CBR quality gate rejects SILK NB 10 ms mono (Q -458.03,
 correlation 0.972870) and SILK WB stereo (Q -157.52) in both lanes, plus

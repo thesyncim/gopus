@@ -6,9 +6,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"path/filepath"
 	"testing"
 
+	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/testsignal"
 	"github.com/thesyncim/gopus/types"
@@ -20,8 +20,6 @@ const (
 	vbrTraceFrames    = 2
 	vbrTraceBitrate   = 128000
 )
-
-var encodeDiffCELTVBREntropyTraceOracle libopustest.HelperCache
 
 // TestEncodeDiffCELTVBRFrame1Trace records the first divergence for the exact
 // scalar public VBR fuzz case while proving that C and Go tracing leave both
@@ -66,7 +64,7 @@ func TestEncodeDiffCELTVBRFrame1Trace(t *testing.T) {
 		t.Fatalf("ordinary public C oracle returned %d records, want %d", len(ordinaryC), vbrTraceFrames)
 	}
 
-	tracePath := buildCELTVBREntropyTraceOracle(t)
+	tracePath := buildCELTVBRQuantTraceOracle(t)
 	traceBytes, err := libopustest.RunHelper(tracePath, encodeDiffCELTVBRInput(params))
 	if err != nil {
 		t.Fatalf("run traced public VBR oracle: %v", err)
@@ -108,6 +106,8 @@ func TestEncodeDiffCELTVBRFrame1Trace(t *testing.T) {
 	goPlain := newCELTVBRTraceEncoder()
 	tracedGo := make([]libopustest.EncodeDiffRecord, vbrTraceFrames)
 	plainGo := make([]libopustest.EncodeDiffRecord, vbrTraceFrames)
+	goQuantEvents := make([]celt.CELTQuantBandTraceSnapshot, 0, celtQuantTraceWireMaxEvents)
+	var goQuantOverflow bool
 	for frame := range vbrTraceFrames {
 		framePCM := pcm[frame*vbrTraceFrameSize*vbrTraceChannels : (frame+1)*vbrTraceFrameSize*vbrTraceChannels]
 		if frame == 1 {
@@ -116,7 +116,21 @@ func TestEncodeDiffCELTVBRFrame1Trace(t *testing.T) {
 			}
 			goTraced.celtEncoder.EnableEncodeStageTraceForTesting()
 		}
-		tracedPacket, tracedErr := goTraced.EncodeFloat32WithAnalysisMaxBytes(framePCM, vbrTraceFrameSize, framePCM, 4000)
+		var tracedPacket []byte
+		var tracedErr error
+		encodeTracedFrame := func() {
+			tracedPacket, tracedErr = goTraced.EncodeFloat32WithAnalysisMaxBytes(framePCM, vbrTraceFrameSize, framePCM, 4000)
+		}
+		if frame == 1 {
+			goQuantOverflow = celt.WithCELTQuantBandTraceHookForTesting(17, func(event *celt.CELTQuantBandTraceSnapshot) {
+				goQuantEvents = append(goQuantEvents, *event)
+			}, encodeTracedFrame)
+		} else {
+			encodeTracedFrame()
+		}
+		if goQuantOverflow {
+			t.Fatal("Go quant-band trace exceeded its bounded event capture")
+		}
 		if tracedErr != nil {
 			t.Fatalf("encode traced Go VBR frame %d: %v", frame, tracedErr)
 		}
@@ -141,12 +155,35 @@ func TestEncodeDiffCELTVBRFrame1Trace(t *testing.T) {
 	}
 
 	entropyOffset := trailerOffset + stageBytes
-	entropyTrace, err := parseCELTVBREntropyTrace(traceBytes[entropyOffset:])
+	entropyBytes, err := scanCELTVBREntropyTrace(traceBytes[entropyOffset:])
+	if err != nil {
+		t.Fatalf("scan C frame-1 entropy trace: %v", err)
+	}
+	entropyTrace, err := parseCELTVBREntropyTrace(traceBytes[entropyOffset : entropyOffset+entropyBytes])
 	if err != nil {
 		t.Fatalf("parse C frame-1 entropy trace: %v", err)
 	}
 	if entropyTrace.Frame != 1 || entropyTrace.Overflow != 0 || entropyTrace.RawCalls == 0 || entropyTrace.DoneCalls == 0 {
 		t.Fatalf("C entropy trace incomplete: %+v", entropyTrace.summary())
+	}
+	gqtrData := traceBytes[entropyOffset+entropyBytes:]
+	cQuantTrace, gqtrBytes, err := parseCELTQuantBandTrace(gqtrData)
+	if err != nil {
+		t.Fatalf("parse C frame-1 quant-band trace: %v", err)
+	}
+	if gqtrBytes != len(gqtrData) {
+		t.Fatalf("GQTR trailer has %d trailing bytes", len(gqtrData)-gqtrBytes)
+	}
+	if len(goQuantEvents) == 0 {
+		t.Fatal("Go quant-band trace captured no frame-1 band-17 events")
+	}
+	if err := validateCELTQuantBandTraceEvents(goQuantEvents); err != nil {
+		t.Fatalf("invalid Go frame-1 quant-band trace: %v", err)
+	}
+	if difference := compareCELTQuantBandTrace(goQuantEvents, cQuantTrace); difference != "" {
+		t.Logf("first band-17 quant-stage difference: %s", difference)
+	} else {
+		t.Logf("band-17 quant-stage trace: all %d bounded events match bit-for-bit", len(goQuantEvents))
 	}
 
 	t.Logf("public VBR frame 0: Go bytes=%d C bytes=%d first byte diff=%d Go range=%08x C range=%08x",
@@ -160,46 +197,6 @@ func TestEncodeDiffCELTVBRFrame1Trace(t *testing.T) {
 	}
 	t.Log("CELT stage-bit comparisons are diagnostic; packet/range transparency checks are strict")
 	logCELTTraceDifferences(t, goTrace, cTrace)
-}
-
-func buildCELTVBREntropyTraceOracle(t *testing.T) string {
-	t.Helper()
-	config := libopustest.CHelperConfig{
-		Label:       "public VBR CELT stage and entropy trace",
-		OutputBase:  "gopus_libopus_public_vbr_celt_entropy_trace",
-		SourceFile:  "libopus_encode_diff_celt_entropy_trace.c",
-		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
-		RefIncludes: []string{"celt", "silk", "src"},
-		LDFlags: []string{
-			"-Wl,--wrap=opus_encode_float",
-			"-Wl,--wrap=comb_filter",
-			"-Wl,--wrap=compute_band_energies",
-			"-Wl,--wrap=amp2Log2",
-			"-Wl,--wrap=normalise_bands",
-			"-Wl,--wrap=quant_coarse_energy",
-			"-Wl,--wrap=quant_all_bands",
-			"-Wl,--wrap=clt_mdct_forward_c",
-			"-Wl,--wrap=ec_enc_bits",
-			"-Wl,--wrap=ec_enc_done",
-		},
-	}
-	config.Sources = []string{writeCELTPreemphasisTraceSource(t)}
-	linkMapPath := filepath.Join(t.TempDir(), config.OutputBase+".map")
-	config.LDFlags = append(config.LDFlags, "-Wl,-Map,"+linkMapPath)
-	path, err := encodeDiffCELTVBREntropyTraceOracle.Path(func() (string, error) {
-		helperPath, err := libopustest.BuildPublicAPIHelper(config)
-		if err != nil {
-			return "", err
-		}
-		if err := validateCELTTraceLinkMap(linkMapPath); err != nil {
-			return "", err
-		}
-		return helperPath, nil
-	})
-	if err != nil {
-		libopustest.HelperUnavailable(t, config.Label, err)
-	}
-	return path
 }
 
 func newCELTVBRTraceEncoder() *Encoder {
@@ -500,6 +497,27 @@ func scanCELTVBRStageTrace(data []byte) (int, error) {
 		}
 	}
 	return off, nil
+}
+
+func scanCELTVBREntropyTrace(data []byte) (int, error) {
+	if len(data) < 32 || string(data[:4]) != "GENT" || binary.LittleEndian.Uint32(data[4:8]) != 1 {
+		return 0, fmt.Errorf("invalid GENT v1 header")
+	}
+	rawCalls := binary.LittleEndian.Uint32(data[16:20])
+	storedRaw := binary.LittleEndian.Uint32(data[20:24])
+	doneCalls := binary.LittleEndian.Uint32(data[24:28])
+	storedDone := binary.LittleEndian.Uint32(data[28:32])
+	if rawCalls > 4096 || storedRaw != rawCalls || doneCalls > 4 || storedDone != doneCalls {
+		return 0, fmt.Errorf("invalid GENT call counts raw=%d/%d done=%d/%d", rawCalls, storedRaw, doneCalls, storedDone)
+	}
+	// A raw record contains value/bits and two 11-word coder snapshots; a
+	// done record contains its before/after snapshots. The full parser validates
+	// every field after this exact section boundary is established.
+	length := uint64(32) + uint64(storedRaw)*96 + uint64(storedDone)*88
+	if length > uint64(len(data)) {
+		return 0, fmt.Errorf("truncated GENT section: have %d bytes, need %d", len(data), length)
+	}
+	return int(length), nil
 }
 
 const celtVBRTraceMaxCalls = 8
