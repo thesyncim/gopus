@@ -297,7 +297,24 @@ func (e *Encoder) computeShapingARAndGains(
 	for k := range numSubframes {
 		// Match the float contraction emitted for these two statements in
 		// silk/float/noise_shape_analysis_FLP.c on AMD64 v3.
-		gains[k] = silkGainTweak32(gains[k], gainMult, gainAdd)
+		if silkGainTweakTraceEnabled {
+			preGain := gains[k]
+			postGain := silkGainTweak32(preGain, gainMult, gainAdd)
+			gains[k] = postGain
+			recordSILKGainTweakTrace(e, SILKGainTweakSnapshot{
+				Subframe:         int32(k),
+				NumSubframes:     int32(numSubframes),
+				ShapingLPCOrder:  int32(shapeOrder),
+				WarpingQ16:       e.warpingQ16,
+				GainMultExponent: float32(-0.16 * SNRAdjDB),
+				GainMult:         gainMult,
+				GainAdd:          gainAdd,
+				PreGain:          preGain,
+				PostGain:         postGain,
+			})
+		} else {
+			gains[k] = silkGainTweak32(gains[k], gainMult, gainAdd)
+		}
 	}
 
 	return gains, arShpQ13

@@ -23,7 +23,7 @@
  *
  * Output wire format:
  *
- *   magic "GSCO" + u32(version=5) + u32(n_frames)
+ *   magic "GSCO" + u32(version=6) + u32(n_frames)
  *   then n_frames packet records: u32(packet_len) u32(final_range) bytes[len]
  *   then u32(n_ctrl)
  *   then n_ctrl control records, each:
@@ -78,6 +78,15 @@
  *       f32(B[LTP_ORDER]); then for each output sample in subframe order,
  *       f32(x), f32(lag[LTP_ORDER]), f32(actual LTP_res output).
  *   then i32(ltp_trace_overflow).
+ *   then u32(n_gain_tweak_records), followed by actual noise-shape gain-tweak
+ *   records for bounded frames 6 and 13, one record per SILK channel:
+ *     i32(frame), i32(channel), i32(nb_subfr), i32(shapingLPCOrder),
+ *     i32(warping_Q16), i32(pow_call_count), u32(pre_gain_mask),
+ *     f32(gain_mult_exponent), f32(gain_mult), f32(gain_add), then for each
+ *     subframe f32(pre-tweak gain), f32(post-tweak gain); final i32 overflow.
+ *   The pre-tweak gains come from the first actual silk_bwexpander_FLP call
+ *   for each control AR row; the active power call returns gain_mult and the
+ *   gain_add bits match the pinned C expression's constant-folded literal.
  *
  * Reference: libopus src/opus_encoder.c opus_encode_float(); the dumped struct
  * is silk/float/structs_FLP.h silk_encoder_control_FLP, captured in
@@ -106,6 +115,7 @@
 #define MAX_LPC_TRACE_RECORDS 8
 #define MAX_LPC_INPUT (MAX_FRAME_LENGTH + MAX_NB_SUBFR * MAX_LPC_ORDER)
 #define MAX_LTP_TRACE_RECORDS 8
+#define MAX_GAIN_TWEAK_TRACE_RECORDS 8
 
 static int set_binary_stdio(void) {
 #ifdef _WIN32
@@ -246,6 +256,21 @@ typedef struct {
   float result[MAX_LPC_INPUT];
 } ltp_trace_record;
 
+typedef struct {
+  int32_t opus_frame_index;
+  int32_t channel;
+  int32_t nb_subfr;
+  int32_t shaping_lpc_order;
+  int32_t warping_Q16;
+  int32_t pow_call_count;
+  uint32_t pre_gain_mask;
+  float gain_mult_exponent;
+  float gain_mult;
+  float gain_add;
+  float pre_gain[MAX_NB_SUBFR];
+  float post_gain[MAX_NB_SUBFR];
+} gain_tweak_trace_record;
+
 static ctrl_record g_ctrl[MAX_CTRL_RECORDS];
 static int         g_ctrl_count = 0;
 static encode_stage_record g_stage[MAX_TRACE_RECORDS];
@@ -257,9 +282,119 @@ static int         g_lpc_call_overflow = 0;
 static ltp_trace_record g_ltp_trace[MAX_LTP_TRACE_RECORDS];
 static int         g_ltp_trace_count = 0;
 static int         g_ltp_trace_overflow = 0;
+static gain_tweak_trace_record g_gain_tweak_trace[MAX_GAIN_TWEAK_TRACE_RECORDS];
+static int         g_gain_tweak_trace_count = 0;
+static int         g_gain_tweak_trace_overflow = 0;
 static int32_t     g_cur_opus_frame = 0;
 /* The two state_Fxx encoder pointers, used to recover the channel index. */
 static const void *g_state_ptr[2] = { NULL, NULL };
+
+#ifdef __linux__
+static int g_gain_tweak_context_index = -1;
+static const silk_encoder_control_FLP *g_gain_tweak_ctrl = NULL;
+
+static silk_float silk_gain_add_arch_literal(void) {
+  /* Pinned GCC 13.3 AMD64 v3 scalar/SIMD archives fold
+   * noise_shape_analysis_FLP.c:291, with MIN_QGAIN_DB=2 from define.h:119,
+   * to this binary32 literal. */
+  const uint32_t bits = UINT32_C(0x3f9fc94c);
+  silk_float value;
+  memcpy(&value, &bits, sizeof(value));
+  return value;
+}
+
+/* The copied frame wrapper brackets the real noise-shape function. */
+void gopus_silk_gain_tweak_set_context(const silk_encoder_state_FLP *psEnc,
+    const silk_encoder_control_FLP *psEncCtrl) {
+  gain_tweak_trace_record *r;
+  g_gain_tweak_context_index = -1;
+  g_gain_tweak_ctrl = NULL;
+  if (g_cur_opus_frame != 6 && g_cur_opus_frame != 13) return;
+  if (g_gain_tweak_trace_count >= MAX_GAIN_TWEAK_TRACE_RECORDS) {
+    g_gain_tweak_trace_overflow = 1;
+    return;
+  }
+  if (psEnc->sCmn.nb_subfr <= 0 || psEnc->sCmn.nb_subfr > MAX_NB_SUBFR ||
+      psEnc->sCmn.shapingLPCOrder <= 0 ||
+      psEnc->sCmn.shapingLPCOrder > MAX_SHAPE_LPC_ORDER) {
+    g_gain_tweak_trace_overflow = 1;
+    return;
+  }
+  r = &g_gain_tweak_trace[g_gain_tweak_trace_count];
+  memset(r, 0, sizeof(*r));
+  r->opus_frame_index = g_cur_opus_frame;
+  r->channel = psEnc->sCmn.channelNb;
+  r->nb_subfr = psEnc->sCmn.nb_subfr;
+  r->shaping_lpc_order = psEnc->sCmn.shapingLPCOrder;
+  r->warping_Q16 = psEnc->sCmn.warping_Q16;
+  r->gain_add = silk_gain_add_arch_literal();
+  g_gain_tweak_ctrl = psEncCtrl;
+  g_gain_tweak_context_index = g_gain_tweak_trace_count++;
+}
+
+void gopus_silk_gain_tweak_finish_context(
+    const silk_encoder_control_FLP *psEncCtrl) {
+  if (g_gain_tweak_context_index >= 0) {
+    gain_tweak_trace_record *r = &g_gain_tweak_trace[g_gain_tweak_context_index];
+    int k;
+    for (k = 0; k < r->nb_subfr; k++) r->post_gain[k] = psEncCtrl->Gains[k];
+    if (r->pow_call_count != 1 ||
+        r->pre_gain_mask != ((UINT32_C(1) << r->nb_subfr) - 1)) {
+      g_gain_tweak_trace_overflow = 1;
+    }
+  }
+  g_gain_tweak_context_index = -1;
+  g_gain_tweak_ctrl = NULL;
+}
+
+extern double __real_pow(double x, double y);
+double __wrap_pow(double x, double y) {
+  double result = __real_pow(x, y);
+  if (g_gain_tweak_context_index >= 0) {
+    gain_tweak_trace_record *r = &g_gain_tweak_trace[g_gain_tweak_context_index];
+    r->pow_call_count++;
+    if (x == 2.0 && r->pow_call_count == 1) {
+      /* pow has a C double interface; SILK stores the result as silk_float. */
+      r->gain_mult_exponent = (float)y;
+      r->gain_mult = (float)result;
+    } else {
+      g_gain_tweak_trace_overflow = 1;
+    }
+  }
+  return result;
+}
+
+extern void __real_silk_bwexpander_FLP(
+    silk_float *ar, const opus_int d, const silk_float chirp);
+void __wrap_silk_bwexpander_FLP(
+    silk_float *ar, const opus_int d, const silk_float chirp) {
+  if (g_gain_tweak_context_index >= 0) {
+    gain_tweak_trace_record *r = &g_gain_tweak_trace[g_gain_tweak_context_index];
+    /* The active row pointer is the call site's stable subframe identifier. */
+    int k;
+    for (k = 0; k < r->nb_subfr; k++) {
+      uint32_t bit = UINT32_C(1) << k;
+      if (ar == &g_gain_tweak_ctrl->AR[k * MAX_SHAPE_LPC_ORDER] &&
+          (r->pre_gain_mask & bit) == 0) {
+        r->pre_gain[k] = g_gain_tweak_ctrl->Gains[k];
+        r->pre_gain_mask |= bit;
+        break;
+      }
+    }
+  }
+  __real_silk_bwexpander_FLP(ar, d, chirp);
+}
+#else
+void gopus_silk_gain_tweak_set_context(const silk_encoder_state_FLP *psEnc,
+    const silk_encoder_control_FLP *psEncCtrl) {
+  (void)psEnc;
+  (void)psEncCtrl;
+}
+void gopus_silk_gain_tweak_finish_context(
+    const silk_encoder_control_FLP *psEncCtrl) {
+  (void)psEncCtrl;
+}
+#endif
 
 #ifdef __linux__
 static int g_ltp_context_index = -1;
@@ -623,7 +758,7 @@ int main(void) {
    * Rather than depend on opaque offsets, derive the pointers lazily inside the
    * hook by remembering the first two distinct psEnc values seen. */
 
-  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(5) || !write_u32(n_frames)) {
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(6) || !write_u32(n_frames)) {
     fprintf(stderr, "write output header failed\n");
     opus_encoder_destroy(enc); free(pcm); free(packet); return 1;
   }
@@ -753,6 +888,21 @@ int main(void) {
       }
     }
     if (!write_i32(g_ltp_trace_overflow)) return 1;
+    if (!write_u32((uint32_t)g_gain_tweak_trace_count)) return 1;
+    for (i = 0; i < (uint32_t)g_gain_tweak_trace_count; i++) {
+      gain_tweak_trace_record *r = &g_gain_tweak_trace[i];
+      int k;
+      if (!write_i32(r->opus_frame_index) || !write_i32(r->channel) ||
+          !write_i32(r->nb_subfr) || !write_i32(r->shaping_lpc_order) ||
+          !write_i32(r->warping_Q16) || !write_i32(r->pow_call_count) ||
+          !write_u32(r->pre_gain_mask) ||
+          !write_f32(r->gain_mult_exponent) || !write_f32(r->gain_mult) ||
+          !write_f32(r->gain_add)) return 1;
+      for (k = 0; k < r->nb_subfr; k++) {
+        if (!write_f32(r->pre_gain[k]) || !write_f32(r->post_gain[k])) return 1;
+      }
+    }
+    if (!write_i32(g_gain_tweak_trace_overflow)) return 1;
   }
 
   opus_encoder_destroy(enc);
