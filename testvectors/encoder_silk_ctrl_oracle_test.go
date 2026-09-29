@@ -150,6 +150,7 @@ type silkLTPCallRecord struct {
 	frame, channel, signalType, filterCalled int32
 	subfrLength, nbSubfr, preLength          int32
 	outputCount                              int
+	gains                                    [silkCtrlMaxNbSubfr]float32
 	subframes                                []silkLTPSubframeRecord
 }
 
@@ -176,16 +177,90 @@ type goSILKLTPCallRecord struct {
 	snapshot       silk.SILKLTPAnalysisTraceSnapshot
 }
 
+func TestParseSILKCtrlOracleOutputGSCO5LTPGains(t *testing.T) {
+	makeOutput := func(gainCount int) []byte {
+		var raw []byte
+		putU32 := func(value uint32) {
+			var b [4]byte
+			binary.LittleEndian.PutUint32(b[:], value)
+			raw = append(raw, b[:]...)
+		}
+		putI32 := func(value int32) { putU32(uint32(value)) }
+		putF32 := func(value float32) { putU32(math.Float32bits(value)) }
+		raw = append(raw, silkCtrlOutputMagic...)
+		putU32(5) // GSCO v5
+		putU32(1) // one packet
+		putU32(0) // empty packet
+		putU32(0) // final range
+		putU32(0) // control records
+		putU32(0) // stage records
+		putI32(0) // stage overflow
+		putU32(0) // FindLPC records
+		putI32(0) // FindLPC overflow
+		putU32(1) // one LTP context
+		putI32(6) // frame
+		putI32(0) // channel
+		putI32(2) // voiced
+		putI32(1) // filter called
+		putI32(1) // subframe length
+		putI32(4) // four subframes
+		putI32(1) // pre length
+		putU32(8) // 4 * (subframe + pre)
+		for i := 0; i < gainCount; i++ {
+			putF32(float32(i+1) * 0.25)
+		}
+		if gainCount != 4 {
+			return raw
+		}
+		for k := 0; k < 4; k++ {
+			putI32(20 + int32(k)) // pitch lag
+			putF32(0.5)           // inverse gain
+			for j := 0; j < silkCtrlLTPOrder; j++ {
+				putF32(float32(j) / 16)
+			}
+		}
+		for i := 0; i < 8; i++ {
+			putF32(float32(i) / 8) // x
+			for j := 0; j < silkCtrlLTPOrder; j++ {
+				putF32(float32(j) / 32) // lag
+			}
+			putF32(float32(i) / 16) // result
+		}
+		putI32(0) // LTP overflow
+		return raw
+	}
+
+	parsed, err := parseSILKCtrlOracleOutput(makeOutput(4), 1)
+	if err != nil {
+		t.Fatalf("parse valid GSCO v5 four-subframe context: %v", err)
+	}
+	if len(parsed.ltpCalls) != 1 || len(parsed.ltpCalls[0].subframes) != 4 {
+		t.Fatalf("parsed LTP context/subframes=%d/%d, want 1/4", len(parsed.ltpCalls), len(parsed.ltpCalls[0].subframes))
+	}
+	for i, want := range [4]float32{0.25, 0.5, 0.75, 1.0} {
+		if got := parsed.ltpCalls[0].gains[i]; math.Float32bits(got) != math.Float32bits(want) {
+			t.Fatalf("raw gain[%d]=%08x, want %08x", i, math.Float32bits(got), math.Float32bits(want))
+		}
+	}
+	if _, err := parseSILKCtrlOracleOutput(makeOutput(2), 1); err == nil {
+		t.Fatal("truncated GSCO v5 gain header was accepted")
+	}
+}
+
 func runSILKCtrlOracle(helperPath string, req []byte, nFrames int) (*silkCtrlOracleOut, error) {
 	raw, err := libopustest.RunHelper(helperPath, req)
 	if err != nil {
 		return nil, fmt.Errorf("run silk ctrl oracle: %w", err)
 	}
+	return parseSILKCtrlOracleOutput(raw, nFrames)
+}
+
+func parseSILKCtrlOracleOutput(raw []byte, nFrames int) (*silkCtrlOracleOut, error) {
 	if len(raw) < 12 || string(raw[0:4]) != silkCtrlOutputMagic {
 		return nil, fmt.Errorf("bad oracle response magic")
 	}
 	version := binary.LittleEndian.Uint32(raw[4:8])
-	if version != 4 {
+	if version != 5 {
 		return nil, fmt.Errorf("bad oracle version")
 	}
 	gotN := int(binary.LittleEndian.Uint32(raw[8:12]))
@@ -349,6 +424,13 @@ func runSILKCtrlOracle(helperPath string, req []byte, nFrames int) (*silkCtrlOra
 				r.frame, r.channel, r.signalType, r.filterCalled, r.subfrLength, r.nbSubfr, r.preLength)
 		}
 		wantOutputCount := int(r.nbSubfr) * (int(r.subfrLength) + int(r.preLength))
+		gainBytes := int(r.nbSubfr) * 4
+		if len(raw)-off < gainBytes {
+			return nil, fmt.Errorf("truncated C LTP gains for frame=%d/channel=%d", r.frame, r.channel)
+		}
+		for k := 0; k < int(r.nbSubfr); k++ {
+			r.gains[k] = rf()
+		}
 		if r.filterCalled == 0 {
 			if r.outputCount != 0 {
 				return nil, fmt.Errorf("unvoiced C LTP context frame=%d/channel=%d has output count %d", r.frame, r.channel, r.outputCount)
@@ -891,6 +973,18 @@ func compareSILKLTPActual(c silkLTPCallRecord, g goSILKLTPCallRecord) (inputDiff
 	}
 	for k := 0; k < int(s.NumSubframes); k++ {
 		csf := c.subframes[k]
+		if math.Float32bits(c.gains[k]) != math.Float32bits(s.Gains[k]) {
+			return fmt.Sprintf("subframe%d raw gain C=%08x Go=%08x", k,
+				math.Float32bits(c.gains[k]), math.Float32bits(s.Gains[k])), "", "", ""
+		}
+		cInvGain := float32(1.0) / c.gains[k]
+		goInvGain := float32(1.0) / s.Gains[k]
+		if math.Float32bits(csf.invGain) != math.Float32bits(cInvGain) ||
+			math.Float32bits(s.InvGains[k]) != math.Float32bits(goInvGain) {
+			return fmt.Sprintf("subframe%d reciprocal from matching raw gain C=%08x Go=%08x; stored invGain C=%08x Go=%08x",
+				k, math.Float32bits(cInvGain), math.Float32bits(goInvGain),
+				math.Float32bits(csf.invGain), math.Float32bits(s.InvGains[k])), "", "", ""
+		}
 		if csf.pitchL != s.PitchLags[k] {
 			return fmt.Sprintf("subframe%d pitchL C=%d Go=%d", k, csf.pitchL, s.PitchLags[k]), "", "", ""
 		}

@@ -12,6 +12,7 @@ type SILKLTPAnalysisTraceSnapshot struct {
 	NumSubframes    int32
 	Scale           float32
 	PitchBuffer     []float32
+	Gains           [maxNbSubfr]float32
 	InvGains        [maxNbSubfr]float32
 	PitchLags       [maxNbSubfr]int32
 	Taps            [maxNbSubfr][ltpOrderConst]float32

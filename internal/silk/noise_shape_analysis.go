@@ -295,14 +295,9 @@ func (e *Encoder) computeShapingARAndGains(
 	gainAdd := exp2F32(0.16 * float32(minQGainDb))
 
 	for k := range numSubframes {
-		// Match libopus two-step operation:
-		//   psEncCtrl->Gains[k] *= gain_mult;   // step 1: multiply with intermediate rounding
-		//   psEncCtrl->Gains[k] += gain_add;     // step 2: add
-		// Go's compiler can fuse sequential *= then += into a single FMADDS
-		// instruction (one rounding), but clang compiles these as separate
-		// FMUL + FADD (two roundings). Use noFMA32 to force intermediate
-		// rounding and match the C behavior exactly.
-		gains[k] = noFMA32(gains[k], gainMult) + gainAdd
+		// Match the float contraction emitted for these two statements in
+		// silk/float/noise_shape_analysis_FLP.c on AMD64 v3.
+		gains[k] = silkGainTweak32(gains[k], gainMult, gainAdd)
 	}
 
 	return gains, arShpQ13

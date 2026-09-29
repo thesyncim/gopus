@@ -23,7 +23,7 @@
  *
  * Output wire format:
  *
- *   magic "GSCO" + u32(version=4) + u32(n_frames)
+ *   magic "GSCO" + u32(version=5) + u32(n_frames)
  *   then n_frames packet records: u32(packet_len) u32(final_range) bytes[len]
  *   then u32(n_ctrl)
  *   then n_ctrl control records, each:
@@ -73,6 +73,7 @@
  *   for bounded target frames 6 and 13, one record per SILK channel:
  *     i32(opus_frame), i32(channel), i32(signalType), i32(filterCalled)
  *     i32(subfr_length), i32(nb_subfr), i32(pre_length), u32(output_count)
+ *     f32(Gains[nb_subfr]) captured before the LTP-filter reciprocal;
  *     when filterCalled: for each subframe, i32(pitchL), f32(invGain),
  *       f32(B[LTP_ORDER]); then for each output sample in subframe order,
  *       f32(x), f32(lag[LTP_ORDER]), f32(actual LTP_res output).
@@ -237,6 +238,7 @@ typedef struct {
   int32_t pre_length;
   uint32_t output_count;
   int32_t pitchL[MAX_NB_SUBFR];
+  float Gains[MAX_NB_SUBFR];
   float invGains[MAX_NB_SUBFR];
   float B[LTP_ORDER * MAX_NB_SUBFR];
   float x[MAX_LPC_INPUT];
@@ -265,7 +267,8 @@ static int g_ltp_context_index = -1;
 /* The copied encode-frame wrapper sets this immediately around the actual
  * silk_find_pred_coefs_FLP call. Creating a context before the call also makes
  * an unvoiced/no-filter branch explicit in the trace output. */
-void gopus_silk_ltp_set_context(const silk_encoder_state_FLP *psEnc) {
+void gopus_silk_ltp_set_context(const silk_encoder_state_FLP *psEnc,
+    const silk_encoder_control_FLP *psEncCtrl) {
   ltp_trace_record *r;
   g_ltp_context_index = -1;
   if (g_cur_opus_frame != 6 && g_cur_opus_frame != 13) return;
@@ -281,6 +284,14 @@ void gopus_silk_ltp_set_context(const silk_encoder_state_FLP *psEnc) {
   r->subfr_length = psEnc->sCmn.subfr_length;
   r->nb_subfr = psEnc->sCmn.nb_subfr;
   r->pre_length = psEnc->sCmn.predictLPCOrder;
+  if (r->nb_subfr <= 0 || r->nb_subfr > MAX_NB_SUBFR) {
+    g_ltp_trace_overflow = 1;
+    return;
+  }
+  {
+    int k;
+    for (k = 0; k < r->nb_subfr; k++) r->Gains[k] = psEncCtrl->Gains[k];
+  }
   g_ltp_context_index = g_ltp_trace_count++;
 }
 
@@ -288,8 +299,10 @@ void gopus_silk_ltp_clear_context(void) {
   g_ltp_context_index = -1;
 }
 #else
-void gopus_silk_ltp_set_context(const silk_encoder_state_FLP *psEnc) {
+void gopus_silk_ltp_set_context(const silk_encoder_state_FLP *psEnc,
+    const silk_encoder_control_FLP *psEncCtrl) {
   (void)psEnc;
+  (void)psEncCtrl;
 }
 
 void gopus_silk_ltp_clear_context(void) {
@@ -610,7 +623,7 @@ int main(void) {
    * Rather than depend on opaque offsets, derive the pointers lazily inside the
    * hook by remembering the first two distinct psEnc values seen. */
 
-  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(4) || !write_u32(n_frames)) {
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(5) || !write_u32(n_frames)) {
     fprintf(stderr, "write output header failed\n");
     opus_encoder_destroy(enc); free(pcm); free(packet); return 1;
   }
@@ -724,6 +737,7 @@ int main(void) {
           !write_i32(r->signalType) || !write_i32(r->filterCalled) ||
           !write_i32(r->subfr_length) || !write_i32(r->nb_subfr) ||
           !write_i32(r->pre_length) || !write_u32(r->output_count)) return 1;
+      for (k = 0; k < r->nb_subfr; k++) if (!write_f32(r->Gains[k])) return 1;
       if (r->filterCalled) {
         for (k = 0; k < r->nb_subfr; k++) {
           if (!write_i32(r->pitchL[k]) || !write_f32(r->invGains[k])) return 1;

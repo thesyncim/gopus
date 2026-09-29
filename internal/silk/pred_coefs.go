@@ -150,6 +150,9 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 		trace.PitchBuffer = pitchBuf
 		trace.Residual = ltpRes
 		for k := 0; k < numSubframes && k < maxNbSubfr; k++ {
+			if k < len(gains) {
+				trace.Gains[k] = gains[k]
+			}
 			trace.InvGains[k] = 1.0
 			if k < len(gains) && gains[k] > 0 {
 				trace.InvGains[k] = 1.0 / gains[k]

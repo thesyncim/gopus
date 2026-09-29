@@ -56,7 +56,8 @@ extern void gopus_silk_encode_stage_dump(
     opus_int                        iter,
     opus_int                        stage );
 extern void gopus_silk_ltp_set_context(
-    const silk_encoder_state_FLP   *psEnc );
+    const silk_encoder_state_FLP   *psEnc,
+    const silk_encoder_control_FLP *psEncCtrl );
 extern void gopus_silk_ltp_clear_context(void);
 
 /* Low Bitrate Redundancy (LBRR) encoding. Reuse all parameters but encode with lower bitrate */
@@ -183,7 +184,7 @@ opus_int silk_encode_frame_FLP(
         /***************************************************/
         /* Find linear prediction coefficients (LPC + LTP) */
         /***************************************************/
-        gopus_silk_ltp_set_context( psEnc );
+        gopus_silk_ltp_set_context( psEnc, &sEncCtrl );
         silk_find_pred_coefs_FLP( psEnc, &sEncCtrl, res_pitch_frame, x_frame, condCoding );
         gopus_silk_ltp_clear_context();
 
