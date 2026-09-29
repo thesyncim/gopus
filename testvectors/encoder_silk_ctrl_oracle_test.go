@@ -22,8 +22,10 @@ import (
 	"testing"
 
 	gopus "github.com/thesyncim/gopus"
+	"github.com/thesyncim/gopus/internal/encoder"
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/silk"
+	"github.com/thesyncim/gopus/internal/testsignal"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -226,6 +228,231 @@ func TestSILKCtrlOracle(t *testing.T) {
 			runSILKCtrlBisect(t, helperPath, k.channels, k.frameSize, k.bitrate, k.bandwidth, k.opusBW, k.nFrames, k.cvbr)
 		})
 	}
+}
+
+// TestSILKCBRControlOracle traces CBR matrix inputs with packet or range
+// differences under the native v3 build. The C helper uses the selected scalar
+// or SIMD libopus build and captures each channel's SILK control state before
+// the rate-control loop.
+func TestSILKCBRControlOracle(t *testing.T) {
+	requireTestTier(t, testTierParity)
+	libopustest.RequireOracle(t)
+	helperPath, ok := getSILKCtrlHelperPath(t)
+	if !ok {
+		return
+	}
+
+	selectedCases := 0
+	for _, tc := range cbrTestMatrix() {
+		if tc.name != "SILK-MB-20ms-mono-24k" && tc.name != "SILK-WB-20ms-stereo-48k" {
+			continue
+		}
+		selectedCases++
+		t.Run(tc.name, func(t *testing.T) {
+			frameCount := 48000 / tc.frameSize
+			pcm, err := testsignal.GenerateEncoderSignalVariant(
+				testsignal.EncoderVariantAMMultisineV1,
+				48000,
+				frameCount*tc.frameSize*tc.channels,
+				tc.channels,
+			)
+			if err != nil {
+				t.Fatalf("generate CBR matrix signal: %v", err)
+			}
+			inputID := cbrPCMIdentity(pcm)
+			oraclePCM := quantizeCBRPCM(pcm)
+			req := buildVBRCVBRRequest(
+				2, 2052, // OPUS_APPLICATION_RESTRICTED_SILK
+				48000, tc.channels, tc.frameSize, tc.bitrate,
+				tc.oracleBW, opusSignalAuto, oraclePCM, frameCount,
+			)
+			copy(req[:4], []byte(silkCtrlInputMagic))
+			oracle, err := runSILKCtrlOracle(helperPath, req, frameCount)
+			if err != nil {
+				t.Fatalf("CBR control oracle: %v", err)
+			}
+			normalHelperPath, err := cbrEncoderOraclePath()
+			if err != nil {
+				t.Fatalf("build standard CBR packet oracle: %v", err)
+			}
+			normalC, err := runCBROracleEncode(normalHelperPath, tc, pcm)
+			if err != nil {
+				t.Fatalf("run standard CBR packet oracle: %v", err)
+			}
+			if len(oracle.packets) != frameCount || len(oracle.ranges) != frameCount ||
+				len(normalC.Packets) != frameCount || len(normalC.FinalRanges) != frameCount {
+				t.Fatalf("C packet counts differ from input frames: trace=(%d packets,%d ranges), standard=(%d packets,%d ranges), want %d",
+					len(oracle.packets), len(oracle.ranges), len(normalC.Packets), len(normalC.FinalRanges), frameCount)
+			}
+			firstTracePacketFrame, firstTracePacketByte, firstTraceRangeFrame := -1, -1, -1
+			for frame := 0; frame < frameCount; frame++ {
+				if firstTracePacketFrame < 0 {
+					if at := firstCBRByteDifference(oracle.packets[frame], normalC.Packets[frame]); at >= 0 {
+						firstTracePacketFrame, firstTracePacketByte = frame, at
+					}
+				}
+				if firstTraceRangeFrame < 0 && oracle.ranges[frame] != normalC.FinalRanges[frame] {
+					firstTraceRangeFrame = frame
+				}
+			}
+			if firstTracePacketFrame >= 0 || firstTraceRangeFrame >= 0 {
+				t.Fatalf("instrumented C helper changes standard CBR output: first packet difference frame=%d byte=%d; first final-range difference frame=%d",
+					firstTracePacketFrame, firstTracePacketByte, firstTraceRangeFrame)
+			}
+			if len(oracle.ctrl) != frameCount*tc.channels {
+				t.Fatalf("C control records=%d, want %d for %d frames × %d channels", len(oracle.ctrl), frameCount*tc.channels, frameCount, tc.channels)
+			}
+
+			enc := encoder.NewEncoder(48000, tc.channels)
+			enc.SetMode(tc.gopusMode)
+			enc.SetRestrictedSilkApplication(true)
+			enc.SetLowDelay(false)
+			enc.SetBandwidth(tc.bandwidth)
+			enc.SetBitrate(tc.bitrate)
+			enc.SetBitrateMode(encoder.ModeCBR)
+			enc.SetComplexity(10)
+
+			goOutput := cbrEncodedOutput{
+				Packets:     make([][]byte, 0, frameCount),
+				FinalRanges: make([]uint32, 0, frameCount),
+			}
+			var snapshots []silk.SILKCtrlSnapshot
+			var encodeErr error
+			silk.WithSILKCtrlSnapshotHook(func(s silk.SILKCtrlSnapshot) {
+				snapshots = append(snapshots, s)
+			}, func() {
+				for frame := 0; frame < frameCount; frame++ {
+					start := frame * tc.frameSize * tc.channels
+					end := start + tc.frameSize*tc.channels
+					packet, err := enc.Encode(oraclePCM[start:end], tc.frameSize)
+					if err != nil {
+						encodeErr = fmt.Errorf("frame %d: %w", frame, err)
+						return
+					}
+					goOutput.Packets = append(goOutput.Packets, append([]byte(nil), packet...))
+					goOutput.FinalRanges = append(goOutput.FinalRanges, enc.FinalRange())
+				}
+			})
+			if encodeErr != nil {
+				t.Fatal(encodeErr)
+			}
+			if len(snapshots) != len(oracle.ctrl) {
+				t.Fatalf("Go control snapshots=%d, C records=%d (input=%s)", len(snapshots), len(oracle.ctrl), inputID)
+			}
+
+			t.Logf("CBR trace input=AMMultisineV1/%s frames=%d channels=%d controls=%d", inputID, frameCount, tc.channels, len(oracle.ctrl))
+			controlDivergence := false
+			for i, r := range oracle.ctrl {
+				wantFrame := int32(i / tc.channels)
+				wantChannel := int32(i % tc.channels)
+				if r.opusFrame != wantFrame || r.channel != wantChannel {
+					t.Fatalf("C trace order record%d=(frame%d/channel%d), want frame%d/channel%d", i, r.opusFrame, r.channel, wantFrame, wantChannel)
+				}
+				wantUseCBR := int32(1)
+				if tc.channels == 2 && r.channel == 0 {
+					wantUseCBR = 0
+				}
+				if r.useCBR != wantUseCBR {
+					t.Fatalf("C frame%d/channel%d useCBR=%d, want %d for this SILK stream", r.opusFrame, r.channel, r.useCBR, wantUseCBR)
+				}
+				if diff := silkCBRControlDifference(r, snapshots[i]); diff != "" {
+					t.Errorf("first CBR control divergence frame%d/channel%d input=%s: %s", r.opusFrame, r.channel, inputID, diff)
+					controlDivergence = true
+					break
+				}
+			}
+			if !controlDivergence {
+				t.Logf("SILK control snapshots match exactly across %d channel-frames", len(snapshots))
+			}
+
+			firstPacketFrame, firstPacketByte, firstRangeFrame := -1, -1, -1
+			for frame := 0; frame < frameCount; frame++ {
+				if firstPacketFrame < 0 {
+					if at := firstCBRByteDifference(goOutput.Packets[frame], oracle.packets[frame]); at >= 0 {
+						firstPacketFrame, firstPacketByte = frame, at
+					}
+				}
+				if firstRangeFrame < 0 && goOutput.FinalRanges[frame] != oracle.ranges[frame] {
+					firstRangeFrame = frame
+				}
+			}
+			if firstPacketFrame >= 0 || firstRangeFrame >= 0 {
+				t.Errorf("CBR output first packet difference frame=%d byte=%d; first final-range difference frame=%d", firstPacketFrame, firstPacketByte, firstRangeFrame)
+			} else {
+				t.Logf("CBR packet/range output matches across %d frames", frameCount)
+			}
+		})
+	}
+	if selectedCases != 2 {
+		t.Fatalf("selected %d CBR trace witnesses, want exactly 2", selectedCases)
+	}
+}
+
+func silkCBRControlDifference(r silkCtrlRecord, s silk.SILKCtrlSnapshot) string {
+	if int(r.signalType) != s.SignalType {
+		return fmt.Sprintf("signalType C=%d Go=%d", r.signalType, s.SignalType)
+	}
+	if int(r.quantOffset) != s.QuantOffset {
+		return fmt.Sprintf("quantOffset C=%d Go=%d", r.quantOffset, s.QuantOffset)
+	}
+	if int(r.nbSubfr) != s.NbSubfr {
+		return fmt.Sprintf("nbSubfr C=%d Go=%d", r.nbSubfr, s.NbSubfr)
+	}
+	if r.snrDBQ7 != s.SNRdBQ7 {
+		return fmt.Sprintf("SNR_dB_Q7 C=%d Go=%d", r.snrDBQ7, s.SNRdBQ7)
+	}
+	if r.speechActQ8 != s.SpeechActivQ8 {
+		return fmt.Sprintf("speech_activity_Q8 C=%d Go=%d", r.speechActQ8, s.SpeechActivQ8)
+	}
+	if math.Float32bits(r.codingQuality) != math.Float32bits(s.CodingQuality) {
+		return fmt.Sprintf("coding_quality C=%08x Go=%08x", math.Float32bits(r.codingQuality), math.Float32bits(s.CodingQuality))
+	}
+	if math.Float32bits(r.inputQuality) != math.Float32bits(s.InputQuality) {
+		return fmt.Sprintf("input_quality C=%08x Go=%08x", math.Float32bits(r.inputQuality), math.Float32bits(s.InputQuality))
+	}
+	if silkFloat2intRound(r.lambda*1024.0) != s.LambdaQ10 {
+		return fmt.Sprintf("Lambda_Q10 C=%d Go=%d (C float=%08x)", silkFloat2intRound(r.lambda*1024.0), s.LambdaQ10, math.Float32bits(r.lambda))
+	}
+	for i := range r.inQBandsQ15 {
+		if r.inQBandsQ15[i] != s.InQBandsQ15[i] {
+			return fmt.Sprintf("input_quality_bands_Q15[%d] C=%d Go=%d", i, r.inQBandsQ15[i], s.InQBandsQ15[i])
+		}
+	}
+	for i := 0; i < int(r.nbSubfr); i++ {
+		// wrappers_FLP.c:silk_NSQ_wrapper_FLP multiplies in silk_float (float32)
+		// and calls silk_float2int; float_cast.h rounds that float to nearest-even
+		// on the supported SSE and AArch64 paths. Keep the Go conversion in range
+		// because the C wrapper does not clamp Gains_Q16 before conversion.
+		scaledGainQ16 := r.gains[i] * 65536.0
+		int32Limit := float32(1 << 31)
+		if scaledGainQ16 >= int32Limit || scaledGainQ16 < -int32Limit {
+			return fmt.Sprintf("Gains_Q16[%d] source value is outside int32 conversion range: float=%08x", i, math.Float32bits(r.gains[i]))
+		}
+		refGainQ16 := silkFloat2intRound(scaledGainQ16)
+		if refGainQ16 != s.GainsQ16[i] {
+			return fmt.Sprintf("Gains_Q16[%d] C=%d Go=%d (C float=%08x)", i, refGainQ16, s.GainsQ16[i], math.Float32bits(r.gains[i]))
+		}
+		if got := silkFloat2intRound(r.tilt[i] * 16384.0); got != s.TiltQ14[i] {
+			return fmt.Sprintf("Tilt_Q14[%d] C=%d Go=%d", i, got, s.TiltQ14[i])
+		}
+		if got := silkFloat2intRound(r.harmShapeGain[i] * 16384.0); got != s.HarmShapeQ14[i] {
+			return fmt.Sprintf("HarmShapeGain_Q14[%d] C=%d Go=%d", i, got, s.HarmShapeQ14[i])
+		}
+		refLF := (silkFloat2intRound(r.lfAR[i]*16384.0) << 16) | int32(uint16(silkFloat2intRound(r.lfMA[i]*16384.0)))
+		if refLF != s.LFShpQ14[i] {
+			return fmt.Sprintf("LF_shp_Q14[%d] C=%08x Go=%08x", i, refLF, s.LFShpQ14[i])
+		}
+		if r.pitchL[i] != s.PitchL[i] {
+			return fmt.Sprintf("pitchL[%d] C=%d Go=%d", i, r.pitchL[i], s.PitchL[i])
+		}
+		for j := 0; j < silkCtrlMaxShapeLPC; j++ {
+			got := int16(silkFloat2intRound(r.ar[i*silkCtrlMaxShapeLPC+j] * 8192.0))
+			if got != s.ARShpQ13[i*silkCtrlMaxShapeLPC+j] {
+				return fmt.Sprintf("AR_Q13[%d][%d] C=%d Go=%d", i, j, got, s.ARShpQ13[i*silkCtrlMaxShapeLPC+j])
+			}
+		}
+	}
+	return ""
 }
 
 func runSILKCtrlBisect(t *testing.T, helperPath string, channels, frameSize, bitrate int, bandwidth types.Bandwidth, opusBW uint32, nFrames int, cvbr bool) {

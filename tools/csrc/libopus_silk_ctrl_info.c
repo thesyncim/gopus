@@ -2,7 +2,7 @@
  *
  * Frame-level SILK encoder-control oracle.
  *
- * Encodes a PCM stream with libopus 1.6.1 (VBR or CVBR) and, for every internal
+ * Encodes a PCM stream with libopus 1.6.1 (VBR, CVBR, or CBR) and, for every internal
  * SILK frame, dumps the fully-populated silk_encoder_control_FLP state that
  * drives NSQ + rate control, plus the chosen per-SILK-frame payload size.
  *
@@ -18,7 +18,8 @@
  *        + u32(bitrate) + u32(bandwidth) + u32(signal) + u32(n_frames)
  *        then n_frames * frame_size * channels float32 samples.
  *
- *   mode: 0 = VBR, 1 = CVBR. Other fields match libopus_vbr_cvbr_encode_info.c.
+ *   mode: 0 = VBR, 1 = CVBR, 2 = CBR. Other fields match
+ *   libopus_vbr_cvbr_encode_info.c.
  *
  * Output wire format:
  *
@@ -242,7 +243,7 @@ int main(void) {
     fprintf(stderr, "bad input magic\n"); return 1;
   }
   if (!read_u32(&version) || version != 1) { fprintf(stderr, "unsupported version\n"); return 1; }
-  if (!read_u32(&mode)        || mode > 1     ||
+  if (!read_u32(&mode)        || mode > 2     ||
       !read_u32(&application) ||
       !read_u32(&sample_rate) || sample_rate == 0 ||
       !read_u32(&channels)    || channels < 1 || channels > 2 ||
@@ -264,8 +265,9 @@ int main(void) {
     free(pcm); free(packet); return 1;
   }
 
-  if (opus_encoder_ctl(enc, OPUS_SET_VBR(1)) != OPUS_OK ||
-      opus_encoder_ctl(enc, OPUS_SET_VBR_CONSTRAINT((int)mode)) != OPUS_OK ||
+  if ((mode == 2 ? opus_encoder_ctl(enc, OPUS_SET_VBR(0)) :
+                   (opus_encoder_ctl(enc, OPUS_SET_VBR(1)) != OPUS_OK ||
+                    opus_encoder_ctl(enc, OPUS_SET_VBR_CONSTRAINT((int)mode)) != OPUS_OK)) ||
       opus_encoder_ctl(enc, OPUS_SET_BITRATE((opus_int32)bitrate)) != OPUS_OK ||
       opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH((int)bandwidth)) != OPUS_OK ||
       opus_encoder_ctl(enc, OPUS_SET_SIGNAL((int)signal)) != OPUS_OK ||
@@ -276,7 +278,7 @@ int main(void) {
     fprintf(stderr, "opus_encoder_ctl setup failed\n");
     opus_encoder_destroy(enc); free(pcm); free(packet); return 1;
   }
-  if (channels == 2) {
+  if (channels == 2 && mode != 2) {
     if (opus_encoder_ctl(enc, OPUS_SET_FORCE_CHANNELS(2)) != OPUS_OK) {
       fprintf(stderr, "OPUS_SET_FORCE_CHANNELS failed\n");
       opus_encoder_destroy(enc); free(pcm); free(packet); return 1;
