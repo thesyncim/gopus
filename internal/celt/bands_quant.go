@@ -1878,17 +1878,6 @@ func stereoIthetaQ30Norm(x, y []celtNorm, stereo bool) int {
 	return floor32ToInt(theta)
 }
 
-// celtAtan2pNormF32 matches libopus float-path arithmetic more closely.
-func celtAtan2pNormF32(y, x float32) float32 {
-	if x*x+y*y < 1e-18 {
-		return 0
-	}
-	if y < x {
-		return celtAtanNormF32(y / x)
-	}
-	return 1 - celtAtanNormF32(x/y)
-}
-
 const celtUseFusedFloatMath = celtFusedFloat
 const celtUseSSEFloatMath = libopusFloatInnerProdUsesSSEOrder
 
