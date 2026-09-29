@@ -48,7 +48,22 @@ func TestCELTDecodeV3FirstDivergenceMatchesLibopusC(t *testing.T) {
 	}
 
 	assertCELTDecodeStageEqual(t, "base energy", stage.BaseEnergy(0), trace.baseEnergy[0])
-	assertCELTDecodeStageEqual(t, "base normalized coefficients", stage.BaseNorm(0), trace.baseNorm[0])
+	// C's X scratch vector is an uninitialised stack allocation, and
+	// quant_all_bands only writes through the end of the final CELT band. The
+	// standard 48 kHz band-edge table ends at bin 100; this 5 ms frame has M=2, so
+	// coefficients at and beyond bin 200 are unspecified in C. They do not feed
+	// synthesis: denormalise_bands clears the corresponding frequency tail.
+	edges := dec.modeEdges()
+	endBand := len(trace.baseEnergy[0])
+	if endBand >= len(edges) {
+		t.Fatalf("C base energy count %d exceeds CELT band edges %d", endBand, len(edges)-1)
+	}
+	activeNormCount := (frameSize / 120) * edges[endBand]
+	if activeNormCount > len(stage.BaseNorm(0)) || activeNormCount > len(trace.baseNorm[0]) {
+		t.Fatalf("active base norm length %d exceeds Go/C buffers %d/%d", activeNormCount,
+			len(stage.BaseNorm(0)), len(trace.baseNorm[0]))
+	}
+	assertCELTDecodeStageEqual(t, "base normalized coefficients", stage.BaseNorm(0)[:activeNormCount], trace.baseNorm[0][:activeNormCount])
 	assertCELTDecodeStageEqual(t, "post-denormalise spectrum", stage.Spec(0), trace.freq[0])
 	assertCELTDecodeStageEqual(t, "post-IMDCT", stage.IMDCT(0), trace.imdct[0])
 	assertCELTDecodeStageEqual(t, "post-comb-filter", stage.PostComb(0), trace.postComb[0])

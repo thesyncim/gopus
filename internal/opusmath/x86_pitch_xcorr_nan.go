@@ -88,8 +88,9 @@ func PitchXcorrAVX2NaNReplay(x, y []float32, length int) float32 {
 
 // PitchXcorrSSENaNReplay follows celt/x86/pitch_sse.c:celt_inner_prod_sse.
 // MULPS and ADDPS keep their destination as the first NaN operand. The high
-// lane pair is the first operand in the horizontal sum. The third scalar tail
-// multiplies y*x in the linked libopus 1.6.1 compiler output.
+// lane pair is the first operand in the horizontal sum. The non-v3 split tail
+// multiplies y*x for its third sample in the linked libopus 1.6.1 output; the
+// v3 tail uses a fused multiply-add with x and y in source order.
 func PitchXcorrSSENaNReplay(x, y []float32, length int) float32 {
 	var lanes [4]float32
 	i := 0
