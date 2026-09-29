@@ -49,6 +49,116 @@ func TestDecodeMalformedFramingPrecedesSmallOutput(t *testing.T) {
 	}
 }
 
+func TestDecodeEmptyAndPartialChannelBuffersPrecedePacketParsing(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, channels := range []int{1, 2} {
+		for _, format := range []uint32{
+			libopustest.DecodeDiffFormatFloat32,
+			libopustest.DecodeDiffFormatInt16,
+			libopustest.DecodeDiffFormatInt24,
+		} {
+			formatName := [...]string{"float32", "int16", "int24"}[format]
+			t.Run(fmt.Sprintf("%dch/%s", channels, formatName), func(t *testing.T) {
+				packet := encodeAPIRateSILKPacket(t, channels)
+				assertDecodeEmptyAndPartialChannelBuffers(
+					t, 48000, channels, format, packet, 960)
+			})
+		}
+	}
+}
+
+type decodeBufferBoundaryCall struct {
+	packet    []byte
+	outputLen int
+	fec       bool
+}
+
+func assertDecodeEmptyAndPartialChannelBuffers(t *testing.T, sampleRate, channels int, format uint32, validPacket []byte, frameSize int) {
+	t.Helper()
+
+	malformed := []byte{0x01, 0x00}
+	steps := []libopustest.DecodeDiffCase{{Packet: validPacket, Format: format, FrameSize: uint32(frameSize)}}
+	calls := []decodeBufferBoundaryCall{{packet: validPacket, outputLen: frameSize * channels}}
+	for outputLen := 0; outputLen < channels; outputLen++ {
+		fecModes := []bool{false}
+		if format == libopustest.DecodeDiffFormatFloat32 {
+			fecModes = append(fecModes, true)
+		}
+		for _, fec := range fecModes {
+			for _, packet := range [][]byte{malformed, validPacket} {
+				steps = append(steps, libopustest.DecodeDiffCase{
+					Packet: packet, Format: format, LiteralFrameSize: true, DecodeFEC: fec,
+				})
+				calls = append(calls, decodeBufferBoundaryCall{
+					packet: packet, outputLen: outputLen, fec: fec,
+				})
+			}
+		}
+	}
+	steps = append(steps, libopustest.DecodeDiffCase{Packet: validPacket, Format: format, FrameSize: uint32(frameSize)})
+	calls = append(calls, decodeBufferBoundaryCall{packet: validPacket, outputLen: frameSize * channels})
+
+	want, err := libopustest.ProbeDecodeSequence(sampleRate, channels, steps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(want) != len(steps) {
+		t.Fatalf("C returned %d decode results, want %d", len(want), len(steps))
+	}
+
+	dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+	if err != nil {
+		t.Fatalf("NewDecoder(%d, %d): %v", sampleRate, channels, err)
+	}
+	pcmF32 := make([]float32, frameSize*channels)
+	pcmI16 := make([]int16, frameSize*channels)
+	pcmI24 := make([]int32, frameSize*channels)
+	previousRange := dec.FinalRange()
+	for i, call := range calls {
+		var n int
+		var decodeErr error
+		switch format {
+		case libopustest.DecodeDiffFormatInt16:
+			n, decodeErr = dec.DecodeInt16(call.packet, pcmI16[:call.outputLen])
+		case libopustest.DecodeDiffFormatInt24:
+			n, decodeErr = dec.DecodeInt24(call.packet, pcmI24[:call.outputLen])
+		default:
+			if call.fec {
+				n, decodeErr = dec.DecodeWithFEC(call.packet, pcmF32[:call.outputLen], true)
+			} else {
+				n, decodeErr = dec.Decode(call.packet, pcmF32[:call.outputLen])
+			}
+		}
+		if want[i].Code > 0 {
+			if decodeErr != nil || int32(n) != want[i].Code {
+				t.Fatalf("step%d decode=(%d,%v), C=%d", i, n, decodeErr, want[i].Code)
+			}
+			if err := assertDecodeMalformedFramingPCM(format, n, channels, want[i].PCM, pcmF32, pcmI16, pcmI24); err != nil {
+				t.Fatalf("step%d: %v", i, err)
+			}
+		} else {
+			// The public Go facade maps a zero-samples-per-channel buffer to
+			// ErrBufferTooSmall, while all three C wrappers return OPUS_BAD_ARG.
+			if want[i].Code != -1 || n != 0 || decodeErr != ErrBufferTooSmall {
+				t.Fatalf("step%d decode=(%d,%v), C=%d; want zero-capacity bad-argument mapping", i, n, decodeErr, want[i].Code)
+			}
+			if len(want[i].PCM) != 0 {
+				t.Fatalf("step%d C emitted %d PCM bytes for rejected call", i, len(want[i].PCM))
+			}
+			if want[i].FinalRange != previousRange {
+				t.Fatalf("step%d C error changed final range to %08x, preceding range %08x", i, want[i].FinalRange, previousRange)
+			}
+		}
+		if got := dec.FinalRange(); got != want[i].FinalRange {
+			t.Fatalf("step%d range=%08x C=%08x", i, got, want[i].FinalRange)
+		}
+		if want[i].Code < 0 && dec.FinalRange() != previousRange {
+			t.Fatalf("step%d failed call changed Go range to %08x, preceding range %08x", i, dec.FinalRange(), previousRange)
+		}
+		previousRange = want[i].FinalRange
+	}
+}
+
 func assertDecodeMalformedFramingPrecedesSmallOutput(t *testing.T, sampleRate, channels int, format uint32, validPacket []byte, frameSize int) {
 	t.Helper()
 

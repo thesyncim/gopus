@@ -28,6 +28,13 @@ import (
 //   - Code 2: 2 different-sized frames
 //   - Code 3: Arbitrary number of frames (1-48)
 func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
+	if len(pcm) < int(d.channels) {
+		// The public libopus wrappers reject frame_size <= 0 before packet parsing
+		// (src/opus_decoder.c: opus_decode, opus_decode24, opus_decode_float).
+		// gopus keeps ErrBufferTooSmall as its
+		// empty-output facade result and returns before touching decoder state.
+		return 0, ErrBufferTooSmall
+	}
 	if d.is96kHz() {
 		return d.decode96kFloat32(data, pcm)
 	}
@@ -419,6 +426,9 @@ func (d *Decoder) decodeMultiFrameFloat32(pcm []float32, data []byte, toc *TOC, 
 // uses in-band LBRR data if present and otherwise falls back to packet loss
 // concealment instead of returning a missing-FEC error.
 func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, error) {
+	if len(pcm) < int(d.channels) {
+		return 0, ErrBufferTooSmall
+	}
 	if !fec {
 		return d.Decode(data, pcm)
 	}
@@ -510,6 +520,9 @@ func (d *Decoder) decodeWithFECFloat32(data []byte, pcm []float32) (int, error) 
 
 // DecodeInt16 decodes an Opus packet into int16 PCM samples.
 func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
+	if len(pcm) < int(d.channels) {
+		return 0, ErrBufferTooSmall
+	}
 	if d.is96kHz() {
 		return d.decodeInt1696k(data, pcm)
 	}
@@ -594,6 +607,9 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 //
 // Returns the number of samples per channel decoded, or an error.
 func (d *Decoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
+	if len(pcm) < int(d.channels) {
+		return 0, ErrBufferTooSmall
+	}
 	if d.is96kHz() {
 		return d.decodeInt2496k(data, pcm)
 	}

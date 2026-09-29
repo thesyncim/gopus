@@ -4,15 +4,13 @@ import "fmt"
 
 // Decode-side differential oracle.
 //
-// This wraps the version-2 wire protocol of libopus_decode_error_probe.c, which
-// decodes each packet through a FRESH libopus decoder and returns, per case,
-// the raw opus_decode* return code AND (on success) the decoded PCM bytes.
+// This wraps versions 2–4 of the wire protocol of libopus_decode_error_probe.c,
+// which returns the raw opus_decode* code and, on success, decoded PCM bytes.
 //
 // It is the C side of the differential decode fuzzer: gopus decodes the same
 // packets independently and the two results are asserted identical (or both
-// rejected with the same error class). Per-case isolation (fresh decoder) makes
-// every probe reproducible from the packet bytes alone, which is what lets the
-// fuzzer minimise a failing case down to a single packet.
+// rejected with the same error class). ProbeDecodeDiff provides per-case
+// isolation; ProbeDecodeSequence retains state for recovery comparisons.
 
 const (
 	decodeDiffInputMagic  = "GDEI"
@@ -28,10 +26,11 @@ const (
 
 // DecodeDiffCase is one packet to decode through the libopus oracle.
 type DecodeDiffCase struct {
-	Packet    []byte // nil/empty → NULL packet (PLC path)
-	Format    uint32 // DecodeDiffFormat*
-	FrameSize uint32 // PCM buffer capacity in samples/channel
-	DecodeFEC bool
+	Packet           []byte // nil/empty → NULL packet (PLC path)
+	Format           uint32 // DecodeDiffFormat*
+	FrameSize        uint32 // PCM capacity in samples/channel; zero selects 5760 by default.
+	LiteralFrameSize bool   // Preserve FrameSize literally in ProbeDecodeSequence, including zero.
+	DecodeFEC        bool
 }
 
 // DecodeDiffResult is the libopus oracle output for one DecodeDiffCase.
@@ -39,7 +38,7 @@ type DecodeDiffResult struct {
 	// Code is the raw opus_decode* return value: negative libopus error, or the
 	// positive decoded sample count per channel on success.
 	Code int32
-	// FinalRange is populated by the stateful version-3 oracle.
+	// FinalRange is populated by the stateful version-3/4 oracle.
 	FinalRange uint32
 	// PCM holds the raw decoded sample bytes on success (Code > 0), little-endian
 	// in the requested Format. Empty when Code <= 0.
@@ -110,15 +109,30 @@ func ProbeDecodeDiff(sampleRate, channels int, cases []DecodeDiffCase) ([]Decode
 }
 
 // ProbeDecodeSequence retains one C decoder across all calls, including errors,
-// and returns each status, final range, and successful PCM output.
+// and returns each status, final range, and successful PCM output. Cases with
+// LiteralFrameSize use the version-4 wire protocol to pass frame_size=0 exactly.
 func ProbeDecodeSequence(sampleRate, channels int, cases []DecodeDiffCase) ([]DecodeDiffResult, error) {
-	return probeDecodeDiff(sampleRate, channels, cases, 3)
+	version := uint32(3)
+	for _, c := range cases {
+		if c.LiteralFrameSize {
+			version = 4
+			break
+		}
+	}
+	return probeDecodeDiff(sampleRate, channels, cases, version)
 }
 
 func probeDecodeDiff(sampleRate, channels int, cases []DecodeDiffCase, version uint32) ([]DecodeDiffResult, error) {
+	if version < 3 {
+		for i, c := range cases {
+			if c.LiteralFrameSize {
+				return nil, fmt.Errorf("decode diff case %d requests a literal frame size; use ProbeDecodeSequence", i)
+			}
+		}
+	}
 	var binPath string
 	var err error
-	if version == 3 && decodeSequenceFixedRef {
+	if version >= 3 && decodeSequenceFixedRef {
 		binPath, err = decodeSequenceFixedHelper.Path(func() (string, error) {
 			return BuildPublicAPIHelper(CHelperConfig{
 				Label:      "fixed decode sequence",
@@ -145,7 +159,7 @@ func probeDecodeDiff(sampleRate, channels int, cases []DecodeDiffCase, version u
 	)
 	for _, c := range cases {
 		fs := c.FrameSize
-		if fs == 0 {
+		if fs == 0 && !c.LiteralFrameSize {
 			fs = 5760
 		}
 		fec := uint32(0)
@@ -167,7 +181,7 @@ func probeDecodeDiff(sampleRate, channels int, cases []DecodeDiffCase, version u
 	out := make([]DecodeDiffResult, n)
 	for i := range out {
 		out[i].Code = reader.I32()
-		if version == 3 {
+		if version >= 3 {
 			out[i].FinalRange = reader.U32()
 		}
 		pcmBytes := int(reader.U32())
