@@ -2,7 +2,7 @@
 
 package celt
 
-// celtFusedFloat is false on the builds paired with sequential C reductions:
-// every amd64 build, and the arm64 ordinary and nosimd builds, which pair with
-// the scalar libopus build.
+// celtFusedFloat is false outside the arm64 Go SIMD build. The amd64 kernels
+// use their separate x86 dispatch, and arm64 ordinary and nosimd builds pair
+// with the scalar libopus reference.
 const celtFusedFloat = false

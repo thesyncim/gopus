@@ -7,14 +7,11 @@
 //
 // # Relationship to libopus
 //
-// This package is a behaviour-for-behaviour Go port of the reference SILK
-// implementation in libopus 1.6.1 (the silk/ directory of the libopus source
-// tree). The fixed-point decode path is bit-exact with libopus: identical
-// range-coded input produces identical PCM, including the saturating
-// fixed-point arithmetic, Q-format scaling and per-subframe state carried
-// across frames. Where a Go file mirrors a specific libopus translation unit,
-// its doc comments name that source file (for example silk/decode_core.c or
-// silk/NLSF2A.c) so the two can be diffed.
+// This package implements the SILK decoder and encoder against libopus 1.6.1
+// (the silk/ directory of the libopus source tree). Fixed-point state and
+// arithmetic follow the reference Q-format operations. Exact decode coverage
+// is recorded by the package's oracle tests and reports/go-simd-kernel-evidence.md;
+// Go comments name the matching C translation unit where a helper mirrors one.
 //
 // # Decoder
 //
@@ -38,9 +35,7 @@
 //     data for a lost packet.
 //   - Resampler (resample_libopus.go) — ports silk/resampler*.c.
 //
-// All public decode entry points are written to tolerate malformed, truncated
-// or otherwise hostile input without panicking: the range decoder keeps
-// returning symbols past the end of the buffer, so out-of-range indices are
-// bounded inside the SILK decoder. Valid input remains bit-exact with libopus;
-// the decode-path fuzz targets in this package assert the no-panic contract.
+// Packet-facing decode paths bound symbol-derived indices before they select
+// state or buffers. The package's malformed-input fuzz targets exercise this
+// behavior, and its oracle tests record exactness for their tested valid inputs.
 package silk

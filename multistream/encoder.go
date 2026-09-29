@@ -18,6 +18,10 @@ import (
 // ErrInvalidInput indicates the input samples have incorrect length.
 var ErrInvalidInput = errors.New("multistream: invalid input length")
 
+// ErrInvalidForceChannels indicates that a forced channel count is invalid for
+// the stream where the control is applied.
+var ErrInvalidForceChannels = errors.New("multistream: invalid force channels")
+
 // ErrInvalidLayout indicates the channel mapping has an invalid layout.
 // For coupled streams, both left and right channels must be mapped.
 var ErrInvalidLayout = errors.New("multistream: invalid layout - coupled stream missing left or right channel")
@@ -434,7 +438,9 @@ func (e *Encoder) SetBitrate(totalBitrate int) {
 	}
 }
 
-// Bitrate returns the total bitrate in bits per second.
+// Bitrate returns the configured aggregate target, retaining the automatic
+// and maximum bitrate sentinels. Libopus OPUS_GET_BITRATE sums the current
+// per-stream targets instead.
 func (e *Encoder) Bitrate() int {
 	return e.bitrate
 }
@@ -1270,11 +1276,21 @@ func (e *Encoder) Bandwidth() types.Bandwidth {
 	return types.BandwidthFullband
 }
 
-// SetForceChannels sets forced channel count on all stream encoders.
-func (e *Encoder) SetForceChannels(channels int) {
-	for _, enc := range e.encoders {
+// SetForceChannels applies the forced channel count to stream encoders in
+// order. A mono stream rejects a value of 2 after earlier coupled streams have
+// already accepted it, matching opus_multistream_encoder_ctl.
+func (e *Encoder) SetForceChannels(channels int) error {
+	for i, enc := range e.encoders {
+		streamChannels := 1
+		if i < e.coupledStreams {
+			streamChannels = 2
+		}
+		if channels != -1 && (channels < 1 || channels > streamChannels) {
+			return ErrInvalidForceChannels
+		}
 		enc.SetForceChannels(channels)
 	}
+	return nil
 }
 
 // ForceChannels returns forced channel count from the first stream encoder.

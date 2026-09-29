@@ -1,8 +1,7 @@
-// Package encoder implements the unified Opus encoder defined by RFC 6716. It is
-// a behavior-for-behavior Go port of the orchestration layer in libopus 1.6.1
-// (src/opus_encoder.c): it owns the SILK and CELT sub-encoders, decides which of
-// the three coding modes to use for each frame, runs the rate/bandwidth control
-// loop, and assembles the final Opus packet.
+// Package encoder implements the unified Opus encoder defined by RFC 6716. Its
+// orchestration follows libopus 1.6.1 (src/opus_encoder.c): it owns the SILK and
+// CELT sub-encoders, selects a coding mode for each frame, runs the
+// rate/bandwidth control loop, and assembles the final Opus packet.
 //
 // # Coding modes
 //
@@ -29,11 +28,11 @@
 //
 // # Determinism and parity
 //
-// The package is written to match libopus output frame-for-frame: the internal
-// numeric types deliberately mirror the C types (opus_val16/opus_val32/opus_res),
-// and FinalRange exposes the range-coder state so output can be checked against a
-// reference encoder. Set the same controls (bitrate, complexity, VBR, FEC, DTX,
-// bandwidth) in the same order as libopus to reproduce its bitstream.
+// The implementation uses libopus-matching numeric types (opus_val16,
+// opus_val32, and opus_res). FinalRange exposes the range-coder state for oracle
+// comparisons. Exact packet and range coverage is scoped to the configurations
+// and cases recorded in reports/go-simd-kernel-evidence.md. Matching libopus
+// output also requires the same controls and input sequence.
 //
 // References: RFC 6716; libopus 1.6.1 src/opus_encoder.c, src/analysis.c.
 package encoder
@@ -1936,7 +1935,9 @@ func (e *Encoder) refreshFrameAnalysisF32(pcm32 []float32, frameSize int) {
 }
 
 func (e *Encoder) analysisEnabled() bool {
-	return !e.restrictedSilkApp && e.complexity >= 7 && e.sampleRate >= 16000 && e.sampleRate <= 48000
+	// Match src/opus_encoder.c opus_encode_native(): fixed-point builds require
+	// complexity 10; float builds require complexity 7.
+	return !e.restrictedSilkApp && e.complexity >= 7 && (!fixedPointBuild || e.complexity >= 10) && e.sampleRate >= 16000 && e.sampleRate <= 48000
 }
 
 // primeSubframeAnalysis advances tonality_get_info() for long packets and keeps

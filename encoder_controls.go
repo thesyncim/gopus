@@ -12,7 +12,8 @@ func (e *Encoder) SetBitrate(bitrate int) error {
 	return nil
 }
 
-// Bitrate returns the current target bitrate in bits per second.
+// Bitrate returns the configured target bitrate, retaining BitrateAuto and
+// BitrateMax. Libopus OPUS_GET_BITRATE reports a resolved target instead.
 func (e *Encoder) Bitrate() int {
 	return e.enc.Bitrate()
 }
@@ -187,15 +188,15 @@ func (e *Encoder) ExpertFrameDuration() ExpertFrameDuration {
 // For a 96 kHz API-rate encoder, use twice these sample counts.
 // Default is 960 samples at 48 kHz (20 ms), or 1920 at 96 kHz.
 func (e *Encoder) SetFrameSize(samples int) error {
-	// At 96 kHz API rate, frame sizes are in 96 kHz samples (2x the 48 kHz size).
-	// Convert to the 48 kHz internal frame size before validation. At sub-48 kHz
-	// native rates the frame size is already in native (internal) samples.
+	// Validate at the API rate before converting the wrapper's bookkeeping.
+	// libopus src/opus_encoder.c:frame_size_select requires an exact duration;
+	// dividing an odd 96 kHz count first would silently round it down.
+	if err := validateFrameSize(samples, int(e.sampleRate), e.application); err != nil {
+		return err
+	}
 	internal := samples
 	if e.is96kHz() {
 		internal = samples / 2
-	}
-	if err := validateFrameSize(internal, e.internalSampleRate(), e.application); err != nil {
-		return err
 	}
 	e.frameSize = int32(internal)
 	coreFrameSize := internal

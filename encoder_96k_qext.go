@@ -2,6 +2,8 @@
 
 package gopus
 
+import "github.com/thesyncim/gopus/internal/encoder"
+
 type encoderHD96kFields struct {
 	apiIs96kHz bool
 }
@@ -17,17 +19,21 @@ func (e *Encoder) apiFrameSize() int {
 	return int(e.frameSize)
 }
 
-func (e *Encoder) tryEncodeNative96k(pcm []float32, data []byte) (int, bool, error) {
+func (e *Encoder) tryEncodeNative96k(pcm []float32, data []byte, input encoder.EncodeInputFormat) (int, bool, error) {
 	frameSize := e.apiFrameSize()
 	if len(pcm) != frameSize*int(e.channels) {
 		return 0, true, ErrInvalidFrameSize
 	}
 	frameSize, err := selectExpertFrameSize(frameSize, e.expertFrameDuration, e.application, 96000)
+	e.enc.BeginEncodeCall(input, frameSize)
+	if len(data) == 0 {
+		return 0, true, ErrBufferTooSmall
+	}
 	if err != nil {
 		return 0, true, err
 	}
-	input := pcm[:frameSize*int(e.channels)]
-	packet, err := e.enc.EncodeFloat32WithAnalysisMaxBytes(input, frameSize, input, len(data))
+	encodePCM := pcm[:frameSize*int(e.channels)]
+	packet, err := e.enc.EncodeFloat32WithAnalysisMaxBytes(encodePCM, frameSize, encodePCM, len(data))
 	if err != nil {
 		return 0, true, err
 	}

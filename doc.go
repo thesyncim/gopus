@@ -46,11 +46,12 @@
 // expose the corresponding integer sample formats. Stereo and multichannel PCM
 // is interleaved.
 //
-// Decode output needs room for up to 5760 samples per channel, the default
-// 120 ms cap at 48 kHz. DecoderConfig controls the accepted packet size and
-// decoded duration. A 4000-byte encode buffer suits the example above; longer
-// packets and optional extensions can require more space. Encode uses the
-// output buffer length as its packet byte budget.
+// Decode output needs room for up to 5760 samples per channel with the default
+// configuration (120 ms at 48 kHz). For longer packets, including 96 kHz QEXT
+// frames, set DecoderConfig.MaxPacketSamples and size the output buffer for that
+// limit. A 4000-byte encode buffer suits the example above; longer packets and
+// optional extensions can require more space. Encode uses the output buffer
+// length as its packet byte budget.
 //
 // # Packet Loss
 //
@@ -66,7 +67,9 @@
 //
 // Standard Opus controls such as bitrate, complexity, bandwidth, FEC, DTX,
 // gain, frame size, packet parsing, and multistream helpers are exposed on the
-// top-level types.
+// top-level types. NewEncoder starts at 64 kbps. Set matching controls explicitly
+// when comparing with libopus, whose initial bitrate is automatic. Bitrate
+// reports the configured target and retains the automatic/maximum sentinels.
 //
 // Optional extension support is build dependent. Use SupportsOptionalExtension
 // before relying on an extension surface, and treat README.md as the support
@@ -93,6 +96,13 @@
 //
 // The SILK, CELT, Hybrid, range-coder, PLC, and DNN building blocks live under
 // internal/ and are not importable; depend on the packages above instead.
+//
+// # Build
+//
+// Go 1.27 or newer is required. Ordinary builds use scalar Go kernels.
+// Setting GOEXPERIMENT=simd enables Go archsimd kernels where implemented;
+// the -tags nosimd build selects scalar kernels even with that experiment set.
+// The purego build tag does not control this dispatch.
 //
 // Encoder and Decoder instances are not safe for concurrent use.
 package gopus

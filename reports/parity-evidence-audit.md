@@ -6,6 +6,34 @@ validity and coverage: a numerical allowance or omitted assertion is an
 **evidence gap**, not proof of a runtime defect. Exact checks require the same
 libopus feature set, CPU dispatch, sample format, controls, and decoder history.
 
+## Public API boundary audit
+
+The additional public-boundary checks cover seven concrete mismatches against
+selected libopus 1.6.1. Scalar Go uses scalar C; SIMD Go uses the matching C
+instruction lane. Each failure sequence includes following state or recovery
+output so matching rejection alone cannot hide a state divergence.
+
+| Surface | Required behavior | Independent regression |
+|---|---|---|
+| Multistream int24 at 96 kHz | Both constructors reserve 120 ms of native-rate conversion storage. | Mono/stereo, 80/100/120 ms, silence and signed 24-bit input compare packets/ranges and warm allocations. |
+| Failed forced-stereo broadcast | Controls apply to children in order; an earlier coupled child retains its update when a mono child rejects. | Per-child controls, packets/ranges, reset and recovery at complexities 7/9/10. |
+| Multistream application after minimal packets | Application remains mutable while no child has committed its first frame. | Mono and coupled-plus-mono low-budget packets, subsequent controls and full packets/ranges. |
+| Native 96 kHz frame sizes | Validate the API-rate duration before converting wrapper bookkeeping to 48 kHz. | All nine legal durations and adjacent invalid sizes, unchanged state and following packets/ranges. |
+| Malformed framing with short decode output | Structural packet errors precede insufficient output capacity. | Stateful float/int16/int24 rejection and recovery at standard rates and native 96 kHz. |
+| Encoder final range after rejection | The selected float/fixed public input wrapper determines whether an invalid frame clears the range. | All three input APIs, invalid duration, empty output, combined errors and re-primed recovery at 48/96 kHz. |
+| Fixed-point tonality analysis | Analysis starts at complexity 10 in fixed builds and 7 in float builds. | Initial packets and following control sequences at complexities 7, 9 and 10. |
+
+The integrated boundary/control/allocation selection passes all eight local
+ARM64 lanes: float/fixed × QEXT off/on × scalar/SIMD. The encode differential
+gate additionally requires every supported configuration and every frame's
+return, packet and final range, including empty output. Its 1,788 configurations
+× eight frames × eight lanes yield 114,432 passing frame comparisons. The CTL
+sequence gate compares PROCESS/RESET results and all selected GET values,
+including final range and DTX, with explicit matching initial bitrate controls.
+The existing native feature batches include these boundary tests; native AMD64
+validation of this audit is pending. Earlier native results below retain their
+measured revisions and do not stand in for this patch.
+
 ## Findings and verification
 
 | Priority | Surface | Finding | Current evidence |

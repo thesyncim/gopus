@@ -16,13 +16,12 @@ import (
 //   - opus_compare Q (0..100, higher == closer) is the primary, trusted metric,
 //     delay-searched against the reference (libopus-decoded PCM or packets).
 //   - Waveform correlation and RMS ratio are reported as secondary diagnostics.
-//   - Bit-exact numeric oracles for isolated kernels are NOT replaced by this —
-//     they remain hard gates. This comparator governs end-to-end audio quality,
-//     where bit-exactness is bounded by transcendental/libm/platform rounding.
-//   - Trusted bars (QualityBar) are anchored to RFC 8251 conformance and to
-//     libopus's own cross-build self-variation: gopus must track the libopus
-//     reference at least as closely as libopus tracks itself across builds, never
-//     to a higher bar than libopus holds itself.
+//   - Exact packet, range, and sample checks remain separate gates wherever the
+//     paired reference supports them. This comparator measures waveform quality
+//     and cannot establish exact equality.
+//   - QualityBar thresholds are calibrated against RFC 8251 criteria and
+//     recorded libopus comparisons. See the parity reports for their tested
+//     scope; a threshold does not permit mismatch against a matching C build.
 
 // QualityComparison is the result of a trusted opus_compare-based comparison.
 type QualityComparison struct {
@@ -82,8 +81,8 @@ func waveformCorrelationRMS(a, b []float32) (corr, rmsRatio float64) {
 	return corr, rmsRatio
 }
 
-// QualityBar is a trusted parity threshold, anchored to RFC 8251 conformance and
-// libopus's own cross-build self-variation. A zero value means "unchecked".
+// QualityBar holds waveform-quality thresholds for comparisons with libopus.
+// A zero value means "unchecked".
 type QualityBar struct {
 	MinQ    float64 // absolute opus_compare floor vs the libopus reference.
 	MinCorr float64 // waveform correlation floor.

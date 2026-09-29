@@ -93,6 +93,11 @@ Tune the encoder through libopus-style CTL methods (`SetBitrate`, `SetVBR`,
 `SetComplexity`, `SetInBandFEC`, `SetDTX`, …). Pass a nil packet to `Decode` to
 run packet-loss concealment for a dropped frame.
 
+`NewEncoder` starts at 64 kbps; libopus starts with automatic bitrate selection.
+Set matching controls explicitly when comparing their output. `Bitrate()`
+returns the configured target, retaining `BitrateAuto` and `BitrateMax`;
+libopus's bitrate getter reports an effective target instead.
+
 See [examples/](examples/) for Ogg files, ffmpeg interop, RED loss recovery,
 WebRTC control, and benchmarks.
 
@@ -108,7 +113,7 @@ WebRTC control, and benchmarks.
 | Resilience | Packet loss concealment, in-band FEC / LBRR |
 | PCM formats | `float32`, `int16`, `int24` (single-stream and multistream) |
 | Containers | `container/ogg` (Ogg read/write), `container/red` (RFC 2198 RTP RED parse/build/recover) |
-| libopus surface | Full public API: the libopus CTL surface, packet parsing, soft clipping, and matching error codes |
+| libopus compatibility | CTL methods, packet parsing, soft clipping, and error-code helpers |
 
 ## Public API
 
@@ -145,10 +150,10 @@ if err := w.WritePacket(packet[:n], frameSize); err != nil {
 
 ## Optional features behind build tags
 
-The default build is core encode/decode/multistream/Ogg/RED — matching a default
-libopus `./configure`. Optional features are exposed exactly the way libopus
-exposes them: behind a compile flag in libopus, behind the matching Go build tag
-here. The default build links ZERO of their code (enforced by
+The default build includes core encode/decode/multistream/Ogg/RED and matches a
+default libopus `./configure` feature set. Optional features follow libopus's
+compile flags, with matching Go build tags. The default build links ZERO of their
+code (enforced by
 `TestDefaultBuildIsZeroCostForGatedFeatures`).
 
 | gopus build tag | libopus flag |
@@ -178,10 +183,11 @@ One more tag is orthogonal to the feature flags above and has no libopus
 equivalent:
 
 - **`nosimd`** — forces the scalar Go reference path, including when
-  `GOEXPERIMENT=simd` is set. Ordinary builds use this scalar path. Set
-  `GOEXPERIMENT=simd` to select Go `archsimd` kernels where they are implemented;
-  other kernels keep the scalar fallback. Compare this path with scalar libopus
-  and the SIMD path with libopus using matching CPU instructions.
+  `GOEXPERIMENT=simd` is set. Ordinary builds use scalar Go kernels. Set
+  `GOEXPERIMENT=simd` to compile Go `archsimd` kernels where they are implemented;
+  runtime CPU checks select supported kernels and the rest use scalar code. The
+  `purego` tag has no effect in this repository. Compare scalar Go with scalar
+  libopus and SIMD Go with libopus using matching CPU instructions.
 
 Default builds expose no optional extensions; `SetDNNBlob(...)` is a no-op
 returning `ErrOptionalExtensionUnavailable`. This matches a default libopus build,
@@ -232,8 +238,10 @@ gopus is built for real-time use, where steady allocation is the enemy:
   own their buffers and the redundant-frame history, so steady-state demux/mux and
   RED packetization allocate nothing once warm — each locked by an
   `AllocsPerRun == 0` test.
-- **Go SIMD.** `GOEXPERIMENT=simd` enables `simd/archsimd` kernels with CPU
-  feature dispatch. All codec kernels are Go code. The
+- **Go SIMD.** `GOEXPERIMENT=simd` opts into `simd/archsimd` kernels where they
+  are implemented; runtime CPU checks select supported kernels and other kernels
+  use scalar code. Ordinary builds stay scalar, and `-tags nosimd` forces the
+  scalar path. All codec kernels are Go code. The
   [kernel evidence report](reports/go-simd-kernel-evidence.md) tracks all 53
   replacements, same-host assembly comparisons, allocations, and validated
   parity coverage.
@@ -296,12 +304,21 @@ go run ./examples/bench-decode
 gopus implements the core public API and the optional surfaces mirrored by the
 build tags above. Exact gates compare packets, final ranges, sample counts and
 PCM bits against pinned libopus 1.6.1 with matching feature flags, CPU dispatch,
-inputs and controls. Parity claims refer to the [recorded test coverage](reports/parity-evidence-audit.md),
-including the documented upstream undefined-behavior exception.
+inputs and controls. Parity claims refer to the [recorded test coverage](reports/parity-evidence-audit.md).
+The documented oracle exception is libopus's undefined stateful custom-QEXT
+history access at 96 kHz / 2048 samples. gopus keeps history access bounded and
+uses safe concealment; defined first-frame behavior remains compared with C, and
+the subsequent unsafe C output is excluded. See the [boundary report](reports/libopus-custom-qext-boundaries.md).
 
-The [complete native CI run](https://github.com/thesyncim/gopus/actions/runs/36506668630)
-passes at `c6dfb561`. Early artifact `11009635111` has 96 successful exit records;
-full artifact `11009623177` includes the passing SIMD package sweep. The neural
+The [public API boundary audit](reports/parity-evidence-audit.md#public-api-boundary-audit)
+covers control failure state, native 96 kHz limits, malformed packet errors and
+fixed-point analysis thresholds. Its eight local ARM64 feature/ISA lanes pass;
+native AMD64 validation of this additional patch is pending.
+
+The latest recorded [required-CI pass](https://github.com/thesyncim/gopus/actions/runs/36514746209)
+completed on snapshot `d9fba62b`. The measured runtime snapshot at `c6dfb561` has 96
+successful exit records in early artifact `11009635111`; full artifact
+`11009623177` includes its passing SIMD package sweep. The neural
 allocation guard passes all 12 feature/ISA combinations; FARGAN, PLC-feature,
 `SinF32`, and LACE/NoLACE exactness checks pass their paired matrices.
 
@@ -341,7 +358,8 @@ under validation; the
 revisions, measurements, and remaining work. Comparing Go SIMD with scalar C,
 or scalar Go with SIMD C, does not establish parity for either lane.
 
-Pre-v1: latest release is `v0.1.1` (see [Trust And Verification](#trust-and-verification)).
+Pre-v1: latest release is [v0.1.2](https://github.com/thesyncim/gopus/releases/tag/v0.1.2)
+(see [Trust And Verification](#trust-and-verification)).
 
 ## Verification
 
@@ -366,11 +384,11 @@ checks (below), and `make release-evidence` must produce a PASS summary.
 
 ## Trust And Verification
 
-Released version: `v0.1.1`.
+Released version: `v0.1.2`.
 
 `v0.1.0` was retracted: it was tagged but its GitHub Release never published.
 
-Latest release evidence: attached to the [`v0.1.1` release](https://github.com/thesyncim/gopus/releases/tag/v0.1.1).
+Latest release evidence: attached to the [v0.1.2 release](https://github.com/thesyncim/gopus/releases/tag/v0.1.2).
 
 Required branch checks:
 

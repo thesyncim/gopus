@@ -50,13 +50,12 @@ type CTLSequenceParams struct {
 var ctlSequenceHelper HelperCache
 
 func buildCTLSequenceHelper() (string, error) {
-	return BuildCHelper(CHelperConfig{
+	return BuildPublicAPIHelper(CHelperConfig{
 		Label:       "opus ctl sequence",
 		OutputBase:  "gopus_libopus_ctl_sequence",
 		SourceFile:  "libopus_ctl_sequence_info.c",
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-O2", "-DNDEBUG"},
 		RefIncludes: []string{"celt", "silk", "src"},
-		Libs:        []string{RefPath(".libs", "libopus.a"), "-lm"},
 		DeadStrip:   true,
 	})
 }

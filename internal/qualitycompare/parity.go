@@ -16,12 +16,11 @@ import (
 // derives the only valid metric from an objective SignalProfile and never lets Q
 // score concealed or sub-rate samples.
 //
-// Why this is build-invariant where bit-exact comparison is not: Q, correlation,
-// and RMS ratio are statistical/perceptual measures, so a 1-ULP FMA-contraction
-// difference between build configs (arm64 vs amd64 vs nosimd) moves them far
-// below their bars. Bit-exact oracles, which do break on such differences, are a
-// separate tier reserved for isolated algorithmic kernels and are enforced across
-// the whole build-config matrix (see Makefile test-build-config-matrix).
+// Quality metrics complement exact comparisons; they do not excuse differences
+// against a matching libopus build. Tests that require exactness select the same
+// scalar or SIMD instruction lane for Go and libopus and compare the relevant
+// packets, ranges, or PCM samples directly. See the parity reports for the tested
+// configurations and coverage.
 
 // opus_compare validity thresholds (RFC 8251 / libopus opus_compare.c): the tool
 // is defined for 48 kHz input and needs enough content for its per-band model.
@@ -86,10 +85,9 @@ const (
 	IntentRFCConformance
 )
 
-// Bars for the waveform tier, anchored to the same external references as the
-// opus_compare bars: the near-exact envelope is libopus's own cross-build
-// waveform agreement (corr >= 0.997, RMS within +/-2%), well inside which gopus
-// sits on every covered case; the RFC envelope is the looser conformance floor.
+// Bars for the waveform tier use the correlation and RMS thresholds recorded
+// for the corresponding libopus comparisons. The reports describe the tested
+// cases; these thresholds measure waveform similarity rather than exactness.
 var (
 	waveformBarNearExact = QualityBar{MinQ: math.Inf(-1), MinCorr: 0.997, RMSLo: 0.98, RMSHi: 1.02, Desc: "near-exact waveform vs libopus (opus_compare N/A here)"}
 	waveformBarRFC       = QualityBar{MinQ: math.Inf(-1), MinCorr: 0.985, RMSLo: 0.97, RMSHi: 1.03, Desc: "RFC-floor waveform vs libopus (opus_compare N/A here)"}

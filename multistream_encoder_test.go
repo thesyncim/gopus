@@ -319,11 +319,14 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	if err := enc.SetForceChannels(2); err != ErrInvalidForceChannels {
 		t.Errorf("SetForceChannels(2) on layout with mono streams error = %v, want %v", err, ErrInvalidForceChannels)
 	}
-	if got := enc.ForceChannels(); got != -1 {
-		t.Errorf("ForceChannels() after rejected stereo force = %d, want -1", got)
+	if got := enc.ForceChannels(); got != 2 {
+		t.Errorf("ForceChannels() after rejected stereo force = %d, want 2 from the first coupled stream", got)
 	}
 	if err := enc.SetForceChannels(0); err != ErrInvalidForceChannels {
 		t.Errorf("SetForceChannels(0) error = %v, want %v", err, ErrInvalidForceChannels)
+	}
+	if got := enc.ForceChannels(); got != 2 {
+		t.Errorf("ForceChannels() after invalid value = %d, want 2", got)
 	}
 
 	// Test prediction and phase inversion controls

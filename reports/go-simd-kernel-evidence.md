@@ -26,6 +26,12 @@ without a comparable per-call replacement.
 
 ## Current correctness status
 
+The [public API boundary audit](parity-evidence-audit.md#public-api-boundary-audit)
+covers seven additional state, validation and fixed-point analysis mismatches.
+Its integrated boundary/control/allocation checks pass all eight local ARM64
+feature/ISA lanes; native AMD64 validation of that patch is pending. The
+performance tables retain the revisions actually measured.
+
 **All recorded exactness gates pass at `c6dfb561`.** The [complete native CI
 run](https://github.com/thesyncim/gopus/actions/runs/36506668630) passes, including the
 full SIMD package sweep and the 96-record scalar/SIMD feature matrix. Claims

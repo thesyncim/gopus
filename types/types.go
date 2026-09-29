@@ -4,8 +4,9 @@
 // bandwidth, and signal hint without importing one another. Keeping these in a
 // leaf package with no internal imports lets every layer depend on it freely.
 //
-// The values here mirror the corresponding libopus enumerations so that gopus
-// stays bit-exact and behavior-compatible with the reference implementation.
+// The constant values match the corresponding libopus enumerations. These
+// shared names identify codec modes and controls; codec parity is verified by
+// the packages that encode and decode Opus data.
 package types
 
 // Mode represents the Opus coding mode in effect for a frame, selecting which
@@ -45,11 +46,9 @@ const (
 // OPUS_SET_SIGNAL. It biases the SILK/CELT mode decision toward speech or music
 // but does not by itself force a mode.
 //
-// Signal is a plain int so the constant values match libopus exactly: the
-// magic numbers below are the OPUS_AUTO / OPUS_SIGNAL_VOICE / OPUS_SIGNAL_MUSIC
-// values from include/opus_defines.h. The exact integers matter because the
-// public encoder control API compares against them directly; the constants are
-// part of the ABI rather than arbitrary tags.
+// Signal uses the OPUS_AUTO, OPUS_SIGNAL_VOICE, and OPUS_SIGNAL_MUSIC values
+// from libopus include/opus_defines.h. Encoder controls accept these values
+// directly, so their numeric values are part of the Go API contract.
 type Signal int
 
 const (

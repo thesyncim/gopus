@@ -20,18 +20,12 @@ import (
 // 48 kHz (the identical upsampler on both sides, so any interpolation artifact is
 // common-mode) before opus_compare.
 //
-// The measured Q is always LOGGED (per task: confirm no quality divergence), but
-// the binding gate here is the comparator's waveform correlation / RMS ratio.
-// Reason: opus_compare's psychoacoustic Q is unreliable on these very short
-// pure-tone frames -- measured cases show waveform corr 0.99996 and RMS 0.9997
-// (max abs sample diff 3.1e-3, i.e. the old sub-perceptual tolerance) yet Q
-// collapses to ~1.7 for the 20 ms carrier while the 10 ms carrier scores Q~99.
-// The near-identical corr/RMS prove there is NO real divergence; only the Q metric
-// is content/length-sensitive here. So Q is unchecked (MinQ -Inf) and the trusted
-// near-exact gate is the comparator's waveform corr >= 0.9995 with the RMS ratio
-// held to the repo's documented near-exact band (+/-2%, the same envelope
-// QualityBarNearExact uses). A genuine concealment regression would move corr/RMS,
-// not just Q.
+// The comparator's Q score is logged, while the binding gate checks waveform
+// correlation and RMS ratio. Short pure-tone carriers can produce a low Q score
+// despite close waveforms (measured correlation 0.99996 and RMS ratio 0.9997;
+// the 20 ms case scores about 1.7 while the 10 ms case scores about 99). The
+// checked near-exact bar therefore uses correlation >= 0.9995 and an RMS ratio
+// from 0.98 through 1.02, the documented QualityBarNearExact envelope.
 //
 // Internal-state oracles (PLC/FARGAN/CELT bridge snapshots, ret/length checks)
 // stay bit-exact and are NOT governed by this bar.
@@ -187,8 +181,8 @@ func TestDecoderFirstLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
 	if gotN != n {
 		t.Fatalf("Decode(nil)=%d want %d", gotN, n)
 	}
-	// END-TO-END audio gate (was a sub-perceptual PCM tolerance): trusted
-	// quality comparator at the 16 kHz decode rate, with the 48 kHz Q logged.
+	// End-to-end audio gate: the quality comparator checks the 16 kHz decode
+	// rate and logs the 48 kHz Q score.
 	assertConcealedAudioMatchesLibopus(t, pcm[:n], want.step0.pcm[:n], dec.Channels(), "first-loss live-sequence pcm")
 
 	nextPCM := make([]float32, dec.maxPacketSamples)

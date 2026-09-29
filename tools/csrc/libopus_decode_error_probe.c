@@ -10,7 +10,7 @@
  *   magic[4]       "GDEI"
  *   version        u32 = 1, 2 or 3
  *   channels       u32 (1 or 2)
- *   sample_rate    u32 (8000/12000/16000/24000/48000)
+ *   sample_rate    u32 (8000/12000/16000/24000/48000; also 96000 with QEXT)
  *   count          u32  -- number of probe cases
  *   For each case:
  *     sample_format  u32  (0=float32, 1=int16, 2=int24)

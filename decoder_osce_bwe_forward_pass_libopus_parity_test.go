@@ -87,11 +87,9 @@ func TestOSCEBWEForwardPassMatchesLibopusNumericalParity(t *testing.T) {
 			gopusFeatures := make([]float32, tc.numFrames*osceBWE.FeatureDim)
 			feat.CalculateFeatures(gopusFeatures, xq16)
 
-			// Compare features (within tolerance). We track the maximum
-			// per-element error inside the lmspec block (first 32 floats
-			// of each 114-vector) and the instafreq block (remaining 82)
-			// separately because the instafreq and lmspec paths have
-			// different sources of residual float drift.
+			// Compare feature bits, then track maximum absolute error in the
+			// lmspec block (first 32 floats of each 114-vector) and the
+			// instafreq block (remaining 82) for diagnostics.
 			maxFeatErrLM := float32(0)
 			maxIdxLM := -1
 			maxFeatErrIF := float32(0)
@@ -296,9 +294,8 @@ func TestOSCEBWERawSignalNetMatchesLibopus(t *testing.T) {
 // continuity scenario the PLC path exercises: a good SILK WB frame is
 // followed by a concealed SILK WB frame and both invoke the same per-channel
 // `osce_bwe` state). The second-frame output is the one the listener hears
-// during PLC; the parity contract is therefore that the gopus second-frame
-// output stays within the same numerical comparator envelope as the single-
-// frame forward pass.
+// during PLC. The test compares its feature and output bits with the matching
+// libopus helper; the error measurements are diagnostics.
 func TestOSCEBWEForwardPassPLCContinuityMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	binPath, err := getLibopusOSCEBWEForwardHelperPath()

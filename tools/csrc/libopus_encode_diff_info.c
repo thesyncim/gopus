@@ -1,12 +1,10 @@
-/* libopus_encode_diff_info.c — comprehensive FLOAT opus_encode_float oracle for
- * the encode-side differential fuzz harness.
+/* libopus_encode_diff_info.c — opus_encode_float oracle for the encode-side
+ * differential fuzz harness.
  *
- * Built against the default (float) reference tree so opus_encode_float() runs
- * the same float SILK/CELT/Hybrid + float Opus API wrapper (dc_reject,
- * resampler, stereo analysis) that the default gopus build mirrors. This is the
- * byte-exact oracle for the public float Encoder: unlike the FIXED_POINT
- * opus_encode oracle, there is no float-vs-integer wrapper boundary, so the
- * produced full Opus packets must be byte-identical to gopus on the same arch.
+ * BuildPublicAPIHelper selects the same float/fixed-point codec, optional
+ * features, and instruction lane as the Go build. Both APIs receive identical
+ * float PCM; a float-input API does not imply a floating-point codec build.
+ * Packets and final ranges must match the corresponding Go EncodeFloat32 call.
  *
  * One encoder is created per case and driven STATEFULLY across all frames (no
  * reset), so cross-frame state (VBR reservoir, energy histories, mode hysteresis,

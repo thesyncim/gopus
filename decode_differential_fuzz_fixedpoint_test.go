@@ -118,7 +118,8 @@ func assertFixedDecodeSequenceWithGain(t *testing.T, sampleRate, channels, frame
 // TestDecodeDifferentialFixedPointEncodeThenDecode sweeps the full encoder config
 // space, decodes each multi-frame stateful sequence through the gopus_fixed_point
 // Decode / DecodeInt16 / DecodeInt24 and the libopus FIXED_POINT reference, and
-// asserts bit-exact equality on every architecture.
+// asserts bit-exact equality for the swept sequences against the selected
+// FIXED_POINT reference build.
 func TestDecodeDifferentialFixedPointEncodeThenDecode(t *testing.T) {
 	libopustest.RequireOracle(t)
 	if _, err := getFixedRefdecodeHelperPath(); err != nil {

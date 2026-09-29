@@ -88,9 +88,8 @@ func assertInt24ParitySelectedCExact(t *testing.T, got, want []int32, sampleRate
 }
 
 // TestDecodeInt24SILKAPIRatePCMMatchesLibopus verifies that Decoder.DecodeInt24
-// produces bit-exact output vs libopus opus_decode24() for SILK packets.
-// SILK float32 decode is bit-exact vs libopus on all architectures, so the
-// int24 conversion is also bit-exact.
+// produces bit-exact output vs the selected libopus opus_decode24() reference
+// for the tested SILK packets and API rates.
 func TestDecodeInt24SILKAPIRatePCMMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	for _, channels := range []int{1, 2} {
@@ -121,7 +120,7 @@ func TestDecodeInt24SILKAPIRatePCMMatchesLibopus(t *testing.T) {
 					t.Fatalf("DecodeInt24 samples=%d want %d", n, frameSize)
 				}
 				got = got[:n*channels]
-				// SILK: bit-exact on all architectures.
+				// SILK output is bit-exact for this selected-reference case.
 				if len(got) != len(want) {
 					t.Fatalf("DecodeInt24 len=%d want %d", len(got), len(want))
 				}

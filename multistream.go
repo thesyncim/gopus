@@ -45,7 +45,6 @@ type MultistreamEncoder struct {
 	frameSize           int32
 	expertFrameDuration ExpertFrameDuration
 	application         Application
-	encodedOnce         bool
 	modeSet             bool
 	scratchPCM32        []float32
 	dnnBlob             *dnnblob.Blob
@@ -54,7 +53,8 @@ type MultistreamEncoder struct {
 // NewMultistreamEncoder creates a new multistream encoder with explicit configuration.
 //
 // Parameters:
-//   - sampleRate: input sample rate (8000, 12000, 16000, 24000, or 48000 Hz)
+//   - sampleRate: input sample rate (8000, 12000, 16000, 24000, or 48000 Hz;
+//     gopus_qext builds also support 96000 Hz)
 //   - channels: total input channels (1-255)
 //   - streams: total elementary streams (N, 1-255)
 //   - coupledStreams: number of coupled stereo streams (M, 0 to streams)
@@ -106,6 +106,7 @@ func NewMultistreamEncoder(sampleRate, channels, streams, coupledStreams int, ma
 	if err != nil {
 		return nil, err
 	}
+	maxSamples := sampleRate * 120 / 1000 * channels
 
 	mse := &MultistreamEncoder{
 		enc:                 enc,
@@ -114,7 +115,7 @@ func NewMultistreamEncoder(sampleRate, channels, streams, coupledStreams int, ma
 		frameSize:           int32(sampleRate / 50), // Default 20ms at the native rate
 		expertFrameDuration: ExpertFrameDurationArg,
 		application:         application,
-		scratchPCM32:        make([]float32, 5760*channels),
+		scratchPCM32:        make([]float32, maxSamples),
 	}
 
 	// Apply application hint
@@ -157,6 +158,7 @@ func NewMultistreamEncoderDefault(sampleRate, channels int, application Applicat
 	if err != nil {
 		return nil, err
 	}
+	maxSamples := sampleRate * 120 / 1000 * channels
 
 	mse := &MultistreamEncoder{
 		enc:                 enc,
@@ -165,7 +167,7 @@ func NewMultistreamEncoderDefault(sampleRate, channels int, application Applicat
 		frameSize:           int32(sampleRate / 50), // Default 20ms at the native rate
 		expertFrameDuration: ExpertFrameDurationArg,
 		application:         application,
-		scratchPCM32:        make([]float32, 5760*channels),
+		scratchPCM32:        make([]float32, maxSamples),
 	}
 
 	// Apply application hints
@@ -199,7 +201,8 @@ type MultistreamDecoder struct {
 // NewMultistreamDecoder creates a new multistream decoder with explicit configuration.
 //
 // Parameters:
-//   - sampleRate: output sample rate (8000, 12000, 16000, 24000, or 48000 Hz)
+//   - sampleRate: output sample rate (8000, 12000, 16000, 24000, or 48000 Hz;
+//     gopus_qext builds also support 96000 Hz)
 //   - channels: total output channels (1-255)
 //   - streams: total elementary streams (N, 1-255)
 //   - coupledStreams: number of coupled stereo streams (M, 0 to streams)

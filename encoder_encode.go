@@ -1,5 +1,7 @@
 package gopus
 
+import "github.com/thesyncim/gopus/internal/encoder"
+
 // Encode encodes float32 PCM samples into an Opus packet.
 //
 // pcm: Input samples (interleaved if stereo). Length must be frameSize * channels.
@@ -13,7 +15,7 @@ package gopus
 // optional extensions can require more than the recommended 4000 bytes.
 func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 	if e.is96kHz() {
-		return e.encode96k(pcm, data)
+		return e.encode96k(pcm, data, encoder.EncodeInputFloat32)
 	}
 	frameSizeArg := int(e.frameSize)
 	channels := int(e.channels)
@@ -21,10 +23,11 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 	if len(pcm) != expected {
 		return 0, ErrInvalidFrameSize
 	}
+	frameSize, err := selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application, e.internalSampleRate())
+	e.enc.BeginEncodeCall(encoder.EncodeInputFloat32, frameSize)
 	if len(data) == 0 {
 		return 0, ErrBufferTooSmall
 	}
-	frameSize, err := selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application, e.internalSampleRate())
 	if err != nil {
 		return 0, err
 	}
@@ -40,11 +43,8 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 
 // encode96k handles Encode for a 96 kHz API-rate Encoder. The selected QEXT
 // build routes native-rate PCM through the shared mode and history driver.
-func (e *Encoder) encode96k(pcm []float32, data []byte) (int, error) {
-	if len(data) == 0 {
-		return 0, ErrBufferTooSmall
-	}
-	if n, handled, err := e.tryEncodeNative96k(pcm, data); handled {
+func (e *Encoder) encode96k(pcm []float32, data []byte, input encoder.EncodeInputFormat) (int, error) {
+	if n, handled, err := e.tryEncodeNative96k(pcm, data, input); handled {
 		return n, err
 	}
 	return 0, ErrInvalidSampleRate
@@ -82,12 +82,13 @@ func (e *Encoder) encodeInt16Packet(pcm32 []float32, data []byte) (int, error) {
 			e.enc.SetLSBDepth(16)
 		}
 		defer e.enc.SetLSBDepth(configuredDepth)
-		return e.Encode(pcm32, data)
+		return e.encode96k(pcm32, data, encoder.EncodeInputInt16)
 	}
+	frameSize, err := selectExpertFrameSize(int(e.frameSize), e.expertFrameDuration, e.application, e.internalSampleRate())
+	e.enc.BeginEncodeCall(encoder.EncodeInputInt16, frameSize)
 	if len(data) == 0 {
 		return 0, ErrBufferTooSmall
 	}
-	frameSize, err := selectExpertFrameSize(int(e.frameSize), e.expertFrameDuration, e.application, e.internalSampleRate())
 	if err != nil {
 		return 0, err
 	}
@@ -115,24 +116,21 @@ func (e *Encoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
 	if len(pcm) != expected {
 		return 0, ErrInvalidFrameSize
 	}
-	if len(data) == 0 {
-		return 0, ErrBufferTooSmall
-	}
-
-	pcm32 := e.scratchPCM32[:len(pcm)]
-	for i, v := range pcm {
-		pcm32[i] = float32(v) / 8388608.0
-	}
-
 	if e.is96kHz() {
-		return e.encode96k(pcm32, data)
+		pcm32 := e.convertInt24ToFloat32(pcm)
+		return e.encode96k(pcm32, data, encoder.EncodeInputInt24)
 	}
 
 	frameSizeArg := int(e.frameSize)
 	frameSize, err := selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application, e.internalSampleRate())
+	e.enc.BeginEncodeCall(encoder.EncodeInputInt24, frameSize)
+	if len(data) == 0 {
+		return 0, ErrBufferTooSmall
+	}
 	if err != nil {
 		return 0, err
 	}
+	pcm32 := e.convertInt24ToFloat32(pcm)
 	inputSamples := frameSize * channels
 
 	packet, err := e.enc.EncodeFloat32WithAnalysisMaxBytes(pcm32[:inputSamples], frameSize, pcm32, len(data))
@@ -141,6 +139,14 @@ func (e *Encoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
 	}
 
 	return copyEncodedPacket(packet, data)
+}
+
+func (e *Encoder) convertInt24ToFloat32(pcm []int32) []float32 {
+	pcm32 := e.scratchPCM32[:len(pcm)]
+	for i, v := range pcm {
+		pcm32[i] = float32(v) / 8388608.0
+	}
+	return pcm32
 }
 
 // EncodeFloat32 encodes float32 PCM samples and returns a new byte slice.

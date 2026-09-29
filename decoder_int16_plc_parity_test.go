@@ -4,9 +4,9 @@ package gopus
 //
 // Two complementary assertions for DecodeInt16 packet-loss concealment:
 //
-//  1. libopus oracle assertion: DecodeInt16(nil,...) output matches
-//     libopus opus_decode(NULL,...) (int16) sample for sample. The reference
-//     archive matches the active float or fixed build and instruction lane.
+//  1. Libopus oracle assertion: the tested DecodeInt16(nil,...) output matches
+//     opus_decode(NULL,...) sample for sample against the selected matching
+//     float or fixed reference build.
 //
 //  2. Float-build self-consistency assertion:
 //     DecodeInt16(nil,...) == float32ToInt16(Decode(nil,...)). Fixed CELT and
@@ -245,11 +245,10 @@ func TestDecodeInt16PLCModeChannelLossMatrixMatchesLibopus(t *testing.T) {
 // output before FLOAT2INT16 conversion (opus_decoder.c).
 //
 // The test uses two fresh independent decoders with the same warm-up sequence so
-// both decoders hold identical state before the PLC step.  The float32 PLC output
-// is converted to int16 using float32ToInt16NoSoftClip — the same function that
-// DecodeInt16 uses internally — so the comparison is sample-for-sample exact
-// on float builds including darwin/arm64 where the NEON VCVT rounding and the
-// scalar roundFloat32ToInt32Even can differ by ±1 LSB on half-integer inputs.
+// both decoders hold identical state before the PLC step. The float32 PLC output
+// is converted to int16 using float32ToInt16NoSoftClip, the same function that
+// DecodeInt16 uses internally, so the tested outputs match sample for sample in
+// each selected float build.
 func TestDecodeInt16PLCEqualsFloat32PLCQuantized(t *testing.T) {
 	const sampleRate = 48000
 
@@ -298,9 +297,7 @@ func TestDecodeInt16PLCEqualsFloat32PLCQuantized(t *testing.T) {
 						}
 
 						// PLC frame: int16 must equal float32ToInt16NoSoftClip(float32 PLC).
-						// This uses the same quantization path as DecodeInt16 internally,
-						// giving exact equality on all platforms including arm64 where the
-						// NEON VCVT and scalar banker's rounding may differ by ±1 LSB.
+						// This uses the same quantization path as DecodeInt16 internally.
 						float32ToInt16NoSoftClip(wantBuf, bufF, nF, channels)
 						for j := 0; j < n16*channels; j++ {
 							if buf16[j] != wantBuf[j] {
@@ -598,8 +595,8 @@ func TestDecodeInt16PLCResetBoundaryNoLeak(t *testing.T) {
 // exactly with selected C. Each warmup length exercises a different decoder state.
 //
 // The float32 PLC output is converted to int16 using float32ToInt16NoSoftClip,
-// the same function float-build DecodeInt16 uses, ensuring exact equality on
-// all platforms including arm64.
+// the same function float-build DecodeInt16 uses, ensuring exact equality for
+// each tested sequence in the selected build.
 func TestDecodeInt16PLCSelfConsistencyWarmupN(t *testing.T) {
 	const (
 		sampleRate = 48000

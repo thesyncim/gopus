@@ -148,6 +148,12 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 
 	needed := totalSamples * channels
 	if len(pcm) < needed {
+		// libopus parses the complete packet before it checks the output
+		// capacity. Keep malformed framing ahead of ErrBufferTooSmall while
+		// limiting this extra parse to the rejected-buffer path.
+		if err := validatePacketFraming(data); err != nil {
+			return 0, err
+		}
 		return 0, ErrBufferTooSmall
 	}
 
@@ -563,6 +569,9 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	}
 	needed := totalSamples * channels
 	if len(pcm) < needed {
+		if err := validatePacketFraming(data); err != nil {
+			return 0, err
+		}
 		return 0, ErrBufferTooSmall
 	}
 
@@ -643,6 +652,9 @@ func (d *Decoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
 	}
 	needed := totalSamples * channels
 	if len(pcm) < needed {
+		if err := validatePacketFraming(data); err != nil {
+			return 0, err
+		}
 		return 0, ErrBufferTooSmall
 	}
 

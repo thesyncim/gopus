@@ -83,8 +83,9 @@ if receiver-side cached DRED recovery should be exercised.
   compared together in `-headless -compare` runs. `DREDFrames` reports explicit
   DRED recovery frames; `DREDPackets` only reports carrier payload coverage.
 - `-profile voice`: uses the speech-oriented SILK wideband profile for ordinary
-  Opus/FEC checks. In the current decoder, 48 kHz SILK packets can carry DRED
-  payloads, but their loss path falls back to ordinary PLC.
+  Opus/FEC checks. SILK packets can carry DRED payloads, but public
+  `Decode(nil)` does not consume those cached features; it uses the normal,
+  model-gated PLC path.
 - `Live monitor`: plays decoded receiver audio through the speakers. Leave this
   off when speakers are near the microphone.
 - `Record WAV`: writes decoded receiver audio under `recordings/`.

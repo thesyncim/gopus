@@ -28,10 +28,8 @@ func (d *Decoder) finalizeSuccessfulDecode(frameSizeSamples, channels int) {
 // instead of decoding. Mirrors the mono path of libopus silk/dec_API.c
 // silk_Decode followed by the SILK resampler.
 //
-// The function never panics on malformed or truncated data: the range decoder
-// keeps producing symbols past the end of the buffer, and the resulting
-// out-of-range indices are bounded inside the SILK decoder. Valid input is
-// bit-exact with libopus.
+// The decoder bounds symbol-derived indices before they select state or
+// buffers. Oracle tests record exact output for their tested valid inputs.
 //
 // Parameters:
 //   - data: raw SILK frame data (without TOC byte), or nil for PLC
@@ -113,8 +111,9 @@ func (d *Decoder) Decode(
 // API rate. If data is nil it performs Packet Loss Concealment (PLC) for a lost
 // packet instead of decoding. Mirrors the stereo path of libopus
 // silk/dec_API.c silk_Decode (mid/side decode plus silk/stereo_MS_to_LR.c)
-// followed by the SILK resampler. Like Decode it never panics on malformed
-// input and is bit-exact with libopus on valid input.
+// followed by the SILK resampler. Oracle tests compare exact output for their
+// tested valid inputs; malformed-input handling follows the public decoder's
+// packet validation and bounded decode behavior.
 //
 // Returns interleaved stereo samples [L0, R0, L1, R1, ...] at the decoder API rate.
 func (d *Decoder) DecodeStereo(

@@ -12,13 +12,13 @@ import (
 // This test checks the SILK-MB/NB mono 10 ms, 8000 bps path, including active
 // decode, padded empty frames, concealment, and recovery.
 //
-// Root cause (verified): at SILK low bitrate the encoder emits code-3 padded
-// packets whose single inner frame is 1 byte (an empty/DTX frame). libopus
-// opus_decode_frame routes any per-frame len<=1 to data=NULL → lost_flag=1
-// (src/opus_decoder.c:315-321, 469), i.e. SILK loss concealment. gopus mirrors
-// that routing (decoder_opus_frame.go's len(data)<=1 → PLC). Both therefore run
-// silk_PLC_conceal for that frame. Active, concealed, and recovered PCM and
-// final ranges match the selected C decoder exactly on every architecture.
+// At the tested SILK low bitrate, the encoder emits code-3 padded packets whose
+// single inner frame is one byte (an empty/DTX frame). libopus
+// opus_decode_frame routes per-frame payloads of length at most one to
+// data=NULL and lost_flag=1 (src/opus_decoder.c:315-321, 469), which selects
+// SILK concealment. gopus applies the same rule in decoder_opus_frame.go. The
+// active, concealed, and recovered outputs and final ranges match the selected
+// C reference for the tested sequence.
 func TestSILKLowBitrateDTXConcealmentSharedPathParity(t *testing.T) {
 	libopustest.RequireOracle(t)
 	const sampleRate = 48000

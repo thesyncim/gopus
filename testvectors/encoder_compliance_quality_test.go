@@ -10,8 +10,7 @@ import "fmt"
 // parity suite uses.
 //
 // Candidate (decoded) and reference (original) are truncated to their common
-// prefix before scoring, matching the long-standing compliance behavior; this
-// keeps measured Q identical to the previous ad-hoc helpers it replaces.
+// prefix before scoring, matching the compliance comparison's defined input.
 func qualityOfPackets(packets [][]byte, original []float32, channels, frameSize int) (QualityComparison, []float32, error) {
 	decoded, err := decodeCompliancePackets(packets, channels, frameSize)
 	if err != nil {

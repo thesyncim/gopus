@@ -11,7 +11,7 @@ func TestTrustDocsContract(t *testing.T) {
 	readme := mustReadDocForTest(t, "README.md")
 	for _, needle := range []string{
 		"## Trust And Verification",
-		"Released version: `v0.1.1`.",
+		"Released version: `v0.1.2`.",
 		"`v0.1.0` was retracted",
 		"Latest release evidence:",
 		"Required branch checks:",
@@ -80,7 +80,7 @@ func TestTrustSensitiveFilesHaveCodeOwners(t *testing.T) {
 func TestReleaseNotesSourceIsReadme(t *testing.T) {
 	readme := mustReadDocForTest(t, "README.md")
 	for _, needle := range []string{
-		"Released version: `v0.1.1`.",
+		"Released version: `v0.1.2`.",
 		"`v0.1.0` was retracted",
 		"make release-evidence",
 	} {

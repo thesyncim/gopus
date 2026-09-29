@@ -17,7 +17,6 @@ func (e *MultistreamEncoder) Encode(pcm []float32, data []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	e.encodedOnce = true
 	return n, nil
 }
 
@@ -48,7 +47,6 @@ func (e *MultistreamEncoder) EncodeInt16(pcm []int16, data []byte) (int, error) 
 	if err != nil {
 		return 0, err
 	}
-	e.encodedOnce = true
 	return n, nil
 }
 

@@ -117,8 +117,7 @@ type fecParityCase struct {
 
 const opusForceModeSILK = 1000
 
-// fecParityMatrix returns the SILK NB/MB stereo FEC configurations that
-// formerly panicked: 40 ms (1920 samples) and 60 ms (2880 samples).
+// fecParityMatrix returns SILK NB/MB stereo FEC cases at 20, 40, and 60 ms.
 func fecParityMatrix() []fecParityCase {
 	var cases []fecParityCase
 	type bw struct {

@@ -1,9 +1,9 @@
 // encode_differential_fuzz_test.go — ENCODE-side differential fuzz harness
-// comparing gopus encode against the SAME-ARCH libopus float opus_encode_float
-// oracle across the full configuration space, asserting BYTE-EXACT packets.
+// comparing gopus EncodeFloat32 with the matched libopus opus_encode_float
+// oracle across the configuration matrix, asserting byte-exact packets.
 //
 // This is the encode analog of decode_differential_fuzz_test.go. It drives both
-// the gopus public Encoder and the libopus float oracle
+// the gopus public Encoder and the selected libopus oracle
 // (internal/libopustest.ProbeEncodeDiff →
 // tools/csrc/libopus_encode_diff_info.c) with the IDENTICAL float PCM, the same
 // controls (mode/bandwidth/bitrate/channels/VBR-CBR-CVBR/FEC/DTX/signal/
@@ -322,7 +322,7 @@ func configureEncDiff(t *testing.T, spec encDiffSpec) (*Encoder, bool) {
 	return enc, true
 }
 
-// TestEncodeDifferentialFuzz drives gopus and the libopus float oracle with the
+// TestEncodeDifferentialFuzz drives gopus and the matched libopus oracle with the
 // same PCM across the config space and asserts byte-exact packets, classifying
 // every divergence. See the file header for the classification policy.
 func TestEncodeDifferentialFuzz(t *testing.T) {
@@ -370,8 +370,6 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 				fecCfg = 1
 				pl = packetLoss
 			}
-			dtxv := 0
-			_ = dtxv
 			recs, err := libopustest.ProbeEncodeDiff(libopustest.EncodeDiffParams{
 				SampleRate:    sampleRate,
 				Channels:      spec.channels,
@@ -397,9 +395,13 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 				return
 			}
 
+			if len(recs) != framesPerSpec {
+				t.Fatalf("%s: oracle returned %d frames, want %d", spec.name, len(recs), framesPerSpec)
+			}
+
 			enc, ok := configureEncDiff(t, spec)
 			if !ok {
-				t.Skipf("gopus rejected config %s", spec.name)
+				t.Fatalf("gopus rejected required config %s", spec.name)
 			}
 
 			gotRecs := make([]libopustest.EncodeDiffRecord, framesPerSpec)
@@ -421,10 +423,17 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 				o := recs[f]
 				label := fmt.Sprintf("%s/frame%d", spec.name, f)
 
-				// DTX no-output: libopus returns ret==0 (no packet emitted). gopus
-				// EncodeFloat32 returns a (possibly 1-byte) packet; reconcile via the
-				// emitted bytes. Treat 0-length and 1-byte DTX as the same cadence
-				// signal and compare bytes when both present.
+				if g.Ret != o.Ret {
+					t.Errorf("%s: return count differs gopus=%d libopus=%d", label, g.Ret, o.Ret)
+				}
+				if g.FinalRange != o.FinalRange {
+					rangeMismatches++
+					t.Errorf("%s: final_range differs gopus=%08x libopus=%08x",
+						label, g.FinalRange, o.FinalRange)
+				}
+
+				// Empty output and a one-byte DTX packet are distinct results.
+				// Compare return counts and final ranges even for empty output.
 				gHas := len(g.Packet) > 0
 				oHas := o.Ret > 0
 
@@ -442,13 +451,6 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 				}
 
 				if bytes.Equal(g.Packet, o.Packet) {
-					// Packet bytes and range-coder state are both part of the parity
-					// contract, even when a range difference does not change a byte.
-					if g.FinalRange != o.FinalRange {
-						rangeMismatches++
-						t.Errorf("%s: packets byte-equal but final_range differs gopus=%08x libopus=%08x",
-							label, g.FinalRange, o.FinalRange)
-					}
 					continue
 				}
 

@@ -69,22 +69,26 @@
 // # Buffer ownership
 //
 // Constructors copy the caller's mapping (and demixing matrix) defensively, so
-// the caller may reuse or mutate those slices afterwards. The Encode* methods
-// write the packet into the caller's buffer, whose length is the packet budget,
-// and return its length without allocating. The Decode* methods allocate and
-// return a fresh output slice on every call that the caller fully owns; input
-// slices are read-only and never retained past the call.
+// the caller may reuse or mutate those slices afterwards. The Encode methods
+// write into the caller's packet buffer, whose length sets the packet budget.
+// DecodeIntoFloat32 writes into the caller's PCM buffer and returns the number
+// of samples per channel. The float, int16, and int24 Decode methods return
+// fresh PCM slices that the caller owns. In gopus_fixed_point builds,
+// DecodeToResFixed returns decoder-owned scratch that remains valid until the
+// next decode call. Packet input is read-only during the call; decoder state
+// retains decoded history, not the input slice.
 //
 // # Error conditions
 //
-// Constructor and CTL errors (ErrInvalidChannels, ErrInvalidStreams,
+// Constructor and control errors (ErrInvalidChannels, ErrInvalidStreams,
 // ErrInvalidCoupledStreams, ErrTooManyChannels, ErrInvalidMapping,
 // ErrInvalidProjectionMatrix, ErrInvalidGain, ErrInvalidComplexity, ...) report
-// out-of-range layout or control parameters. Decode-path errors
+// rejected layout or control parameters. Decode-path errors
 // (ErrPacketTooShort, ErrInvalidPacket, ErrDurationMismatch, ErrBufferTooSmall,
-// ErrInvalidStreamCount) report malformed or inconsistent input packets; the
-// decode path is hardened so that no malformed input causes a panic or
-// out-of-bounds access — every defect surfaces as one of these errors.
+// ErrInvalidStreamCount) report input conditions the decoder rejects. The
+// malformed-input fuzz tests exercise bounds safety for the tested packet
+// corpus; malformed input may also be handled by bounded decode behavior rather
+// than rejected with an error.
 //
 // # Build tags
 //

@@ -1,12 +1,14 @@
 // Multistream encoder/decoder CTL surface parity.
 //
-// Asserts that the gopus multistream Encoder and Decoder CTL surface matches
-// the libopus opus_multistream_encoder_ctl / opus_multistream_decoder_ctl
-// broadcast semantics documented in opus_multistream.h (libopus 1.6.1).
+// Compares the gopus multistream Encoder and Decoder CTL surface with the
+// libopus opus_multistream_encoder_ctl / opus_multistream_decoder_ctl behavior
+// documented in opus_multistream.h (libopus 1.6.1). Most stream-local SET
+// controls broadcast to each child; aggregate controls such as bitrate have
+// control-specific storage and getter semantics.
 //
 // Key CTL broadcast rules (from opus_multistream.c libopus 1.6.1):
-//   - SET CTLs are applied to every per-stream encoder/decoder.
-//   - GET CTLs read back from the first stream (stream 0).
+//   - Stream-local SET CTLs are applied to every per-stream encoder/decoder.
+//   - GET behavior is control-specific; many stream-local GET CTLs read stream 0.
 //   - OPUS_GET_FINAL_RANGE XORs all per-stream final range values.
 //   - Per-stream state access via OPUS_MULTISTREAM_GET_ENCODER_STATE /
 //     OPUS_MULTISTREAM_GET_DECODER_STATE allows stream-individual CTLs.
@@ -428,9 +430,12 @@ func TestMSDecoderCTL_IgnoreExtensionsBroadcast(t *testing.T) {
 // Encoder CTL broadcast parity
 // ---------------------------------------------------------------------------
 
-// TestMSEncoderCTL_BitrateBroadcast asserts that SetBitrate distributes
-// rate to all stream encoders and that the per-stream rates are positive.
-// C ref: opus_multistream_encoder_ctl OPUS_SET_BITRATE, opus_multistream.c libopus 1.6.1
+// TestMSEncoderCTL_BitrateBroadcast checks that SetBitrate retains the
+// configured aggregate bitrate and that Go's per-stream allocator produces
+// positive child targets. The Go facade stores the configured total and
+// assigns initial child rates and recalculates them for each encode.
+// In libopus 1.6.1, SET_BITRATE
+// stores an aggregate target; its getter sums the current child targets.
 func TestMSEncoderCTL_BitrateBroadcast(t *testing.T) {
 	const (
 		channels = 6

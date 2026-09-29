@@ -62,7 +62,7 @@ func TestEncoderControls_BroadcastRoundTrips(t *testing.T) {
 	})
 
 	t.Run("ForceChannels", func(t *testing.T) {
-		for _, want := range []int{1, 2, -1} {
+		for _, want := range []int{1, -1} {
 			enc.SetForceChannels(want)
 			if got := enc.ForceChannels(); got != want {
 				t.Fatalf("ForceChannels()=%d want %d", got, want)
@@ -71,6 +71,42 @@ func TestEncoderControls_BroadcastRoundTrips(t *testing.T) {
 				if got := e.ForceChannels(); got != want {
 					t.Fatalf("stream %d ForceChannels()=%d want %d (broadcast)", i, got, want)
 				}
+			}
+		}
+		if err := enc.SetForceChannels(2); err != ErrInvalidForceChannels {
+			t.Fatalf("SetForceChannels(2) on mixed layout error=%v want %v", err, ErrInvalidForceChannels)
+		}
+		if got := enc.ForceChannels(); got != 2 {
+			t.Fatalf("ForceChannels() after partial broadcast=%d want 2", got)
+		}
+		for i, e := range enc.encoders {
+			want := 2
+			if i >= enc.CoupledStreams() {
+				want = -1
+			}
+			if got := e.ForceChannels(); got != want {
+				t.Fatalf("stream %d ForceChannels()=%d after partial broadcast, want %d", i, got, want)
+			}
+		}
+		enc.Reset()
+		if got := enc.ForceChannels(); got != 2 {
+			t.Fatalf("ForceChannels() after reset=%d, want 2", got)
+		}
+		for i, e := range enc.encoders {
+			want := 2
+			if i >= enc.CoupledStreams() {
+				want = -1
+			}
+			if got := e.ForceChannels(); got != want {
+				t.Fatalf("stream %d ForceChannels()=%d after reset, want %d", i, got, want)
+			}
+		}
+		if err := enc.SetForceChannels(-1); err != nil {
+			t.Fatalf("SetForceChannels(-1) recovery: %v", err)
+		}
+		for i, e := range enc.encoders {
+			if got := e.ForceChannels(); got != -1 {
+				t.Fatalf("stream %d ForceChannels()=%d after recovery, want -1", i, got)
 			}
 		}
 	})

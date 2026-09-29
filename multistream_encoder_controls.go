@@ -44,7 +44,9 @@ func (e *MultistreamEncoder) SetBitrate(bitrate int) error {
 	return nil
 }
 
-// Bitrate returns the current total target bitrate in bits per second.
+// Bitrate returns the configured total target, including BitrateAuto or
+// BitrateMax when selected. Libopus OPUS_GET_BITRATE instead sums the effective
+// targets of its child encoders.
 func (e *MultistreamEncoder) Bitrate() int {
 	return e.enc.Bitrate()
 }
@@ -198,17 +200,18 @@ func (e *MultistreamEncoder) Bandwidth() Bandwidth {
 	return Bandwidth(e.enc.Bandwidth())
 }
 
-// SetForceChannels forces channel count on all stream encoders.
+// SetForceChannels forces the channel count on stream encoders in order.
 //
-// channels must be -1 (auto), 1 (mono), or 2 (stereo).
+// channels must be -1 (auto), 1 (mono), or 2 (stereo). A mixed layout returns
+// ErrInvalidForceChannels when its first mono stream rejects 2; earlier coupled
+// streams retain the stereo setting, matching libopus.
 func (e *MultistreamEncoder) SetForceChannels(channels int) error {
 	if err := validateForceChannels(channels); err != nil {
 		return err
 	}
-	if channels == 2 && e.enc.Streams() > e.enc.CoupledStreams() {
+	if err := e.enc.SetForceChannels(channels); err != nil {
 		return ErrInvalidForceChannels
 	}
-	e.enc.SetForceChannels(channels)
 	return nil
 }
 
@@ -241,7 +244,6 @@ func (e *MultistreamEncoder) PhaseInversionDisabled() bool {
 // Call this when starting to encode a new audio stream.
 func (e *MultistreamEncoder) Reset() {
 	e.enc.Reset()
-	e.encodedOnce = false
 }
 
 // Channels returns the number of audio channels.

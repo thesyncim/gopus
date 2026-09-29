@@ -622,9 +622,8 @@ func parseCarrierDREDForExplicitDecode(t *testing.T, decoderSampleRate int, pack
 
 // decodeCachedCarrierDREDViaExplicit drives the explicit DRED-decode path with a
 // standalone *DRED parsed from the carrier packet, recovering one lost frame at
-// the given decoder-rate dred offset. This replaces the removed auto-on-loss
-// cached-DRED application (a libopus feature opus_decode lacks); the explicit
-// path matches the SourceCarrierDRED oracle (opus_decoder_dred_decode_float).
+// the given decoder-rate DRED offset. The result is compared with the
+// SourceCarrierDRED oracle (opus_decoder_dred_decode_float).
 func decodeCachedCarrierDREDViaExplicit(t *testing.T, dec *Decoder, dred *DRED, dredOffsetSamples int, pcm []float32, frameSizeSamples int) int {
 	t.Helper()
 	got, err := dec.decodeExplicitDREDFloat(dred, dredOffsetSamples, pcm, frameSizeSamples)

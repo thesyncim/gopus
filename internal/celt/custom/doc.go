@@ -44,8 +44,9 @@
 // tmp_check/opus-1.6.1-custom) and linked through
 // libopustest.CHelperConfig{CustomRef: true}.
 //
-//   - Standard 48 kHz modes (120/240/480/960) are byte- and sample-exact against
-//     the libopus custom-modes encoder/decoder.
+//   - TestOracleParityStandardModes compares packet bytes and decoded samples
+//     against libopus for mono sine inputs at 48 kHz with 120/240/480/960-sample
+//     frames.
 //   - The control plane of the Fs==400*shortMdctSize family (e.g. 8k/160,
 //     12k/240, 16k/320, 24k/480, 32k/640) uses parameterized mode geometry:
 //     CustomMode.InScaledBandFamily reports membership, and
