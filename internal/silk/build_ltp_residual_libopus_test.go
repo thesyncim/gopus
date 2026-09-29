@@ -347,11 +347,19 @@ func makeLTPResidualFusedModel(input ltpResidualOracleInput) []float32 {
 			for tap := range ltpOrderConst {
 				lagIndex := xIndex - int(input.pitchLags[subframe]) + ltpOrderConst/2 - tap
 				coefficient := input.taps[subframe*ltpOrderConst+tap]
-				residual = silkLTPFNMADD32(coefficient, input.pitchBuffer[lagIndex], 1, residual)
+				residual = ltpResidualTestFMA32(-coefficient, input.pitchBuffer[lagIndex], residual)
 			}
 			output[index] = residual * input.invGains[subframe]
 			index++
 		}
 	}
 	return output
+}
+
+// ltpResidualTestFMA32 keeps the model's operands in registers so compiler
+// specialization cannot replace the fused operation with a rounded product.
+//
+//go:noinline
+func ltpResidualTestFMA32(a, b, c float32) float32 {
+	return a*b + c
 }
