@@ -228,8 +228,10 @@ cases are 14/19 scalar (70 packet/61 range differences) and 15/19 SIMD
 are separate gates, not an overall byte-parity percentage. Haar and the
 constant/ramped comb history seams, scalar stereo tails and SIMD exp2
 approximation match the paired C references. The comb fallback without
-precomputed window squares, outer encoder filters and scalar same-packet
-decoder PCM still expose differences. The DC oracle request fails its input
+precomputed window squares, outer encoder filters and scalar decoder PCM
+still expose differences. The long CBR streams also expose same-packet PCM
+differences in both lanes, including short CELT and 10 ms Hybrid frames; the
+24-case SIMD decoder pass does not establish long-stream decoder parity. The DC oracle request fails its input
 protocol validation at this revision; it does not establish a codec difference.
 
 The SILK replay sends the actual Go LPC input/state to the linked C FindLPC

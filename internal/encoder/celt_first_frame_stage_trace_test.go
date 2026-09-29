@@ -26,18 +26,22 @@ const (
 	celtTraceBWFULL    = 1105
 	celtTraceBandCount = 21
 	celtTraceActive    = 200
+	celtLateTraceFrame = 95
+	celtLateFrameSize  = 120
+	celtLateChannels   = 1
+	celtLateBitrate    = 64000
+	celtLateFrames     = 400
 )
 
 var (
 	celtTraceOracleCache        libopustest.HelperCache
 	celtTraceWrappedOracleCache libopustest.HelperCache
+	celtLateTraceOracleCache    libopustest.HelperCache
 )
 
 func TestCELTFirstFrameStageDiagnostic(t *testing.T) {
 	libopustest.RequireOracle(t)
-	if target := os.Getenv("GOPUS_LIBOPUS_AMD64_TARGET"); target != "v3" {
-		t.Skipf("first-frame CELT trace requires GOPUS_LIBOPUS_AMD64_TARGET=v3, got %q", target)
-	}
+	requireCELTTraceV3(t, "first-frame")
 
 	pcm, err := testsignal.GenerateEncoderSignalVariant(
 		testsignal.EncoderVariantAMMultisineV1,
@@ -92,6 +96,9 @@ func TestCELTFirstFrameStageDiagnostic(t *testing.T) {
 	if cTrace.Overflow != 0 {
 		t.Fatalf("C stage trace overflowed its bounded capture: flags=%d", cTrace.Overflow)
 	}
+	if cTrace.TraceFrame != 0 {
+		t.Fatalf("C stage trace captured frame %d, want frame 0", cTrace.TraceFrame)
+	}
 	if cTrace.BandCalls == 0 || cTrace.LogCalls == 0 || cTrace.NormalizationCalls == 0 || cTrace.CoarseCalls == 0 || cTrace.QuantCalls == 0 {
 		t.Fatalf("C wrappers did not cover every target boundary: %+v", cTrace.counts())
 	}
@@ -125,34 +132,177 @@ func TestCELTFirstFrameStageDiagnostic(t *testing.T) {
 	if err := validateCELTTraceShapes(goTrace, cTrace); err != nil {
 		t.Fatalf("invalid Go/C CELT trace shapes: %v", err)
 	}
+	if err := validateCELTTraceExpectedDimensions(goTrace, cTrace, celtTraceFrameSize, celtTraceBandCount, celtTraceChannels, celtTraceActive, 1); err != nil {
+		t.Fatalf("unexpected first-frame Go/C CELT trace dimensions: %v", err)
+	}
 	t.Log("stage-bit comparisons are diagnostic and do not establish packet parity")
 	logCELTTraceDifferences(t, goTrace, cTrace)
 }
 
+func TestCELTLateCBRFrameStageDiagnostic(t *testing.T) {
+	libopustest.RequireOracle(t)
+	requireCELTTraceV3(t, "late-frame")
+
+	pcm, err := testsignal.GenerateEncoderSignalVariant(
+		testsignal.EncoderVariantAMMultisineV1,
+		48000,
+		celtLateFrameSize*celtLateChannels*celtLateFrames,
+		celtLateChannels,
+	)
+	if err != nil {
+		t.Fatalf("generate late-frame CBR parity signal: %v", err)
+	}
+	pcm = quantizeCELTTracePCM(pcm)
+	input := celtTraceCBRInputFor(pcm, celtTraceAppCELT, celtTraceBWFULL, celtLateChannels,
+		celtLateBitrate, celtLateFrameSize, celtLateFrames, 10)
+
+	ordinaryPath := buildCELTTraceOracle(t, false)
+	ordinaryBytes, err := libopustest.RunHelper(ordinaryPath, input)
+	if err != nil {
+		t.Fatalf("run ordinary full-stream CBR oracle: %v", err)
+	}
+	ordinary, err := parseCELTTraceCBRPrefix(ordinaryBytes)
+	if err != nil {
+		t.Fatalf("parse ordinary full-stream CBR oracle: %v", err)
+	}
+	if len(ordinary.Packets) != celtLateFrames || len(ordinary.FinalRanges) != celtLateFrames {
+		t.Fatalf("ordinary C oracle returned packets=%d ranges=%d, want %d frames", len(ordinary.Packets), len(ordinary.FinalRanges), celtLateFrames)
+	}
+	if !strings.Contains(ordinary.LibopusVersion, libopustooling.DefaultVersion) {
+		t.Fatalf("ordinary C oracle reports version %q, want %s", ordinary.LibopusVersion, libopustooling.DefaultVersion)
+	}
+	t.Logf("late-frame C oracle: version=%q archmask=0x%x features=0x%x selected_arch=%d frames=%d",
+		ordinary.LibopusVersion, ordinary.ArchMask, ordinary.BuildFeatures, ordinary.SelectedArch, len(ordinary.Packets))
+
+	tracePath := buildCELTTraceOracleAtFrame(t, true, celtLateTraceFrame)
+	traceBytes, err := libopustest.RunHelper(tracePath, input)
+	if err != nil {
+		t.Fatalf("run late-frame traced CBR oracle: %v", err)
+	}
+	tracePrefix, tracePayload, err := splitCELTTraceOutput(traceBytes)
+	if err != nil {
+		t.Fatalf("split late-frame traced CBR oracle output: %v", err)
+	}
+	traced, err := parseCELTTraceCBRPrefix(tracePrefix)
+	if err != nil {
+		t.Fatalf("parse late-frame traced CBR oracle: %v", err)
+	}
+	if len(traced.Packets) != celtLateFrames || len(traced.FinalRanges) != celtLateFrames {
+		t.Fatalf("traced C oracle returned packets=%d ranges=%d, want %d frames", len(traced.Packets), len(traced.FinalRanges), celtLateFrames)
+	}
+	if !sameCELTTraceCBROutput(ordinary, traced) {
+		for frame := range min(len(ordinary.Packets), len(traced.Packets)) {
+			byteDiff := firstCELTTraceByteDifference(ordinary.Packets[frame], traced.Packets[frame])
+			if byteDiff >= 0 || ordinary.FinalRanges[frame] != traced.FinalRanges[frame] {
+				t.Fatalf("C stage wrappers changed full-stream output at frame %d: packet byte diff=%d ordinary range=%08x traced range=%08x",
+					frame, byteDiff, ordinary.FinalRanges[frame], traced.FinalRanges[frame])
+			}
+		}
+		t.Fatal("C stage wrappers changed CBR stream metadata or frame count")
+	}
+
+	cTrace, err := parseCELTEncodeTrace(tracePayload)
+	if err != nil {
+		t.Fatalf("parse late-frame C stage trace: %v", err)
+	}
+	if cTrace.TraceFrame != celtLateTraceFrame {
+		t.Fatalf("C stage trace captured frame %d, want %d", cTrace.TraceFrame, celtLateTraceFrame)
+	}
+	if cTrace.Overflow != 0 {
+		t.Fatalf("late-frame C stage trace overflowed its bounded capture: flags=%d", cTrace.Overflow)
+	}
+	if cTrace.BandCalls == 0 || cTrace.LogCalls == 0 || cTrace.NormalizationCalls == 0 || cTrace.CoarseCalls == 0 || cTrace.QuantCalls == 0 {
+		t.Fatalf("C wrappers did not cover every late-frame target boundary: %+v", cTrace.counts())
+	}
+
+	goEncoder := newCELTTraceEncoderConfig(celtLateChannels, celtLateBitrate)
+	plainEncoder := newCELTTraceEncoderConfig(celtLateChannels, celtLateBitrate)
+	frameSamples := celtLateFrameSize * celtLateChannels
+	var goPacket []byte
+	for frame := range celtLateTraceFrame + 1 {
+		framePCM := pcm[frame*frameSamples : (frame+1)*frameSamples]
+		if frame == celtLateTraceFrame {
+			goEncoder.celtEncoder.EnableEncodeStageTraceForTesting()
+		}
+		goPacket, err = goEncoder.Encode(framePCM, celtLateFrameSize)
+		if err != nil {
+			t.Fatalf("encode Go CELT frame %d: %v", frame, err)
+		}
+		plainPacket, plainErr := plainEncoder.Encode(framePCM, celtLateFrameSize)
+		if plainErr != nil {
+			t.Fatalf("encode untraced Go CELT frame %d: %v", frame, plainErr)
+		}
+		if !bytes.Equal(goPacket, plainPacket) || goEncoder.FinalRange() != plainEncoder.FinalRange() {
+			t.Fatalf("Go trace altered encoding at frame %d: traced packet=%x range=%08x plain packet=%x range=%08x",
+				frame, goPacket, goEncoder.FinalRange(), plainPacket, plainEncoder.FinalRange())
+		}
+	}
+	goTrace := goEncoder.celtEncoder.EncodeStageTraceForTesting()
+	if len(goTrace.BandStages) != cTrace.BandCalls || len(goTrace.BandStages) != cTrace.LogCalls ||
+		len(goTrace.Normalizations) != cTrace.NormalizationCalls || len(goTrace.CoarseEnergy) != cTrace.CoarseCalls ||
+		len(goTrace.BandQuantize) != cTrace.QuantCalls {
+		t.Fatalf("late-frame Go/C stage call counts differ: Go bands=%d normalize=%d coarse=%d quant=%d; C %s",
+			len(goTrace.BandStages), len(goTrace.Normalizations), len(goTrace.CoarseEnergy), len(goTrace.BandQuantize), cTrace.counts())
+	}
+	if err := validateCELTTraceShapes(goTrace, cTrace); err != nil {
+		t.Fatalf("invalid late-frame Go/C CELT trace shapes: %v", err)
+	}
+	if err := validateCELTTraceExpectedDimensions(goTrace, cTrace, celtLateFrameSize, celtTraceBandCount, celtLateChannels, celtTraceActive/2, 0); err != nil {
+		t.Fatalf("unexpected late-frame Go/C CELT trace dimensions: %v", err)
+	}
+	t.Logf("late-frame result: frame=%d Go packet bytes=%d C bytes=%d first packet byte diff=%d Go range=%08x C range=%08x",
+		celtLateTraceFrame, len(goPacket), len(ordinary.Packets[celtLateTraceFrame]), firstCELTTraceByteDifference(goPacket, ordinary.Packets[celtLateTraceFrame]), goEncoder.FinalRange(), ordinary.FinalRanges[celtLateTraceFrame])
+	t.Log("late-frame stage-bit comparisons are diagnostic and do not establish packet parity")
+	logCELTTraceDifferences(t, goTrace, cTrace)
+}
+
+func requireCELTTraceV3(t *testing.T, label string) {
+	t.Helper()
+	if target := os.Getenv("GOPUS_LIBOPUS_AMD64_TARGET"); target != "v3" {
+		message := fmt.Sprintf("%s CELT trace requires GOPUS_LIBOPUS_AMD64_TARGET=v3, got %q", label, target)
+		if libopustest.StrictRefRequired() {
+			t.Fatal(message)
+		}
+		t.Skip(message)
+	}
+}
+
 func newCELTTraceEncoder() *Encoder {
-	encoder := NewEncoder(48000, celtTraceChannels)
+	return newCELTTraceEncoderConfig(celtTraceChannels, celtTraceBitrate)
+}
+
+func newCELTTraceEncoderConfig(channels int, bitrate int) *Encoder {
+	encoder := NewEncoder(48000, channels)
 	encoder.SetMode(ModeCELT)
 	encoder.SetRestrictedSilkApplication(false)
 	encoder.SetLowDelay(true)
 	encoder.SetBandwidth(types.BandwidthFullband)
-	encoder.SetBitrate(celtTraceBitrate)
+	encoder.SetBitrate(bitrate)
 	encoder.SetBitrateMode(ModeCBR)
 	encoder.SetComplexity(10)
 	return encoder
 }
 
 func buildCELTTraceOracle(t *testing.T, trace bool) string {
+	return buildCELTTraceOracleAtFrame(t, trace, 0)
+}
+
+func buildCELTTraceOracleAtFrame(t *testing.T, trace bool, traceFrame int) string {
 	t.Helper()
 	flags := []string{"-DHAVE_CONFIG_H"}
 	config := libopustest.CHelperConfig{
-		Label:      "first-frame CELT CBR trace",
-		OutputBase: "gopus_libopus_cbr_celt_first_frame_trace",
+		Label:      fmt.Sprintf("CELT CBR stage trace frame %d", traceFrame),
+		OutputBase: fmt.Sprintf("gopus_libopus_cbr_celt_stage_trace_frame_%d", traceFrame),
 		SourceFile: "libopus_cbr_encode_packets.c",
 		CFlags:     flags,
 	}
 	if trace {
-		config.OutputBase = "gopus_libopus_cbr_celt_first_frame_trace_wrapped"
-		config.CFlags = append(config.CFlags, "-DGOPUS_CELT_TRACE")
+		if traceFrame == 0 {
+			config.OutputBase = "gopus_libopus_cbr_celt_first_frame_trace_wrapped"
+		} else {
+			config.OutputBase = fmt.Sprintf("gopus_libopus_cbr_celt_late_frame_%d_trace_wrapped", traceFrame)
+		}
+		config.CFlags = append(config.CFlags, "-DGOPUS_CELT_TRACE", fmt.Sprintf("-DGOPUS_CELT_TRACE_FRAME=%d", traceFrame))
 		config.LDFlags = []string{
 			"-Wl,--wrap=compute_band_energies",
 			"-Wl,--wrap=amp2Log2",
@@ -162,14 +312,16 @@ func buildCELTTraceOracle(t *testing.T, trace bool) string {
 		}
 	}
 	cache := &celtTraceOracleCache
-	if trace {
+	if trace && traceFrame == 0 {
 		cache = &celtTraceWrappedOracleCache
+	} else if trace {
+		cache = &celtLateTraceOracleCache
 	}
 	path, err := cache.Path(func() (string, error) {
 		return libopustest.BuildPublicAPIHelper(config)
 	})
 	if err != nil {
-		libopustest.HelperUnavailable(t, "first-frame CELT CBR trace", err)
+		libopustest.HelperUnavailable(t, config.Label, err)
 	}
 	return path
 }
@@ -183,12 +335,17 @@ func quantizeCELTTracePCM(pcm []float32) []float32 {
 }
 
 func celtTraceCBRInput(pcm []float32) []byte {
+	return celtTraceCBRInputFor(pcm, celtTraceAppCELT, celtTraceBWFULL, celtTraceChannels,
+		celtTraceBitrate, celtTraceFrameSize, 1, 10)
+}
+
+func celtTraceCBRInputFor(pcm []float32, app, bandwidth, channels int, bitrate, frameSize, numFrames, complexity uint32) []byte {
 	const headerBytes = 4 + 8*4
 	data := make([]byte, headerBytes+len(pcm)*4)
 	copy(data, "GCBR")
 	values := [...]uint32{
-		1, celtTraceAppCELT, celtTraceBWFULL, celtTraceChannels,
-		celtTraceBitrate, celtTraceFrameSize, 10, 1,
+		1, uint32(app), uint32(bandwidth), uint32(channels),
+		bitrate, frameSize, complexity, numFrames,
 	}
 	for i, value := range values {
 		binary.LittleEndian.PutUint32(data[4+i*4:], value)
@@ -228,7 +385,7 @@ func parseCELTTraceCBRPrefix(data []byte) (celtTraceCBROutput, error) {
 	result.SelectedArch = binary.LittleEndian.Uint32(data[off+8:])
 	frames := int(binary.LittleEndian.Uint32(data[off+12:]))
 	off += 16
-	if frames < 0 || frames > 8 {
+	if frames < 0 || frames > 4096 {
 		return result, fmt.Errorf("invalid CBR frame count %d", frames)
 	}
 	result.Packets = make([][]byte, 0, frames)
@@ -268,7 +425,7 @@ func splitCELTTraceOutput(data []byte) ([]byte, []byte, error) {
 	}
 	frames := int(binary.LittleEndian.Uint32(data[off+12:]))
 	off += 16
-	if frames < 0 || frames > 8 {
+	if frames < 0 || frames > 4096 {
 		return nil, nil, fmt.Errorf("invalid traced CBR frame count %d", frames)
 	}
 	for frame := range frames {
@@ -347,6 +504,7 @@ type celtCBRStageQuant struct {
 }
 
 type celtCBRStageTrace struct {
+	TraceFrame                                                       uint32
 	Overflow                                                         uint32
 	BandCalls, LogCalls, NormalizationCalls, CoarseCalls, QuantCalls int
 	Bands                                                            []celtCBRStageBand
@@ -374,10 +532,6 @@ func validateCELTTraceShapes(goTrace celt.EncodeStageTrace, cTrace celtCBRStageT
 	}
 	for i, got := range goTrace.BandStages {
 		want, log := cTrace.Bands[i], cTrace.Logs[i]
-		if got.FrameCoeffs != celtTraceFrameSize || got.Bands != celtTraceBandCount || got.Channels != celtTraceChannels || got.LM != 1 {
-			return fmt.Errorf("Go band stage %d has unexpected dimensions frame=%d bands=%d channels=%d LM=%d",
-				i, got.FrameCoeffs, got.Bands, got.Channels, got.LM)
-		}
 		if got.FrameCoeffs != want.FrameCoeffs || got.Bands != want.Bands || got.Channels != want.Channels || got.LM != want.LM ||
 			log.Bands != got.Bands || log.Channels != got.Channels {
 			return fmt.Errorf("band/log stage %d dimensions differ: Go=(%d,%d,%d,LM%d) C-band=(%d,%d,%d,LM%d) C-log=(%d,%d)",
@@ -400,8 +554,7 @@ func validateCELTTraceShapes(goTrace celt.EncodeStageTrace, cTrace celtCBRStageT
 	}
 	for i, got := range goTrace.Normalizations {
 		want := cTrace.Normalizations[i]
-		if got.ActiveCoeffs != celtTraceActive || got.Bands != celtTraceBandCount || got.Channels != celtTraceChannels ||
-			got.ActiveCoeffs != want.ActiveCoeffs || got.Bands != want.Bands || got.Channels != want.Channels {
+		if got.ActiveCoeffs != want.ActiveCoeffs || got.Bands != want.Bands || got.Channels != want.Channels {
 			return fmt.Errorf("normalization stage %d dimensions differ: Go=(%d,%d,%d) C=(%d,%d,%d)",
 				i, got.ActiveCoeffs, got.Bands, got.Channels, want.ActiveCoeffs, want.Bands, want.Channels)
 		}
@@ -412,8 +565,7 @@ func validateCELTTraceShapes(goTrace celt.EncodeStageTrace, cTrace celtCBRStageT
 	}
 	for i, got := range goTrace.CoarseEnergy {
 		want := cTrace.Coarse[i]
-		if got.Bands != celtTraceBandCount || got.Channels != celtTraceChannels ||
-			got.Bands != want.Bands || got.Channels != want.Channels || got.BudgetBytes != want.BudgetBytes {
+		if got.Bands != want.Bands || got.Channels != want.Channels || got.BudgetBytes != want.BudgetBytes {
 			return fmt.Errorf("coarse stage %d dimensions/budget differ: Go=(%d,%d,%d) C=(%d,%d,%d)",
 				i, got.Bands, got.Channels, got.BudgetBytes, want.Bands, want.Channels, want.BudgetBytes)
 		}
@@ -425,8 +577,7 @@ func validateCELTTraceShapes(goTrace celt.EncodeStageTrace, cTrace celtCBRStageT
 	}
 	for i, got := range goTrace.BandQuantize {
 		want := cTrace.Quant[i]
-		if got.ActiveCoeffs != celtTraceActive || got.Bands != celtTraceBandCount || got.Channels != celtTraceChannels ||
-			got.ActiveCoeffs != want.ActiveCoeffs || got.Bands != want.Bands || got.Channels != want.Channels {
+		if got.ActiveCoeffs != want.ActiveCoeffs || got.Bands != want.Bands || got.Channels != want.Channels {
 			return fmt.Errorf("quantization stage %d dimensions differ: Go=(%d,%d,%d) C=(%d,%d,%d)",
 				i, got.ActiveCoeffs, got.Bands, got.Channels, want.ActiveCoeffs, want.Bands, want.Channels)
 		}
@@ -434,6 +585,52 @@ func validateCELTTraceShapes(goTrace celt.EncodeStageTrace, cTrace celtCBRStageT
 			len(got.Input) != got.ActiveCoeffs*got.Channels || len(got.Output) != got.ActiveCoeffs*got.Channels ||
 			len(want.Input) != got.ActiveCoeffs*got.Channels || len(want.Output) != got.ActiveCoeffs*got.Channels {
 			return fmt.Errorf("quantization stage %d has malformed Go/C payload lengths", i)
+		}
+	}
+	return nil
+}
+
+func validateCELTTraceExpectedDimensions(goTrace celt.EncodeStageTrace, cTrace celtCBRStageTrace, frameCoeffs, bands, channels, active, lm int) error {
+	for i, got := range goTrace.BandStages {
+		if got.FrameCoeffs != frameCoeffs || got.Bands != bands || got.Channels != channels || got.LM != lm {
+			return fmt.Errorf("Go band stage %d dimensions are frame=%d bands=%d channels=%d LM=%d, want %d/%d/%d/LM%d",
+				i, got.FrameCoeffs, got.Bands, got.Channels, got.LM, frameCoeffs, bands, channels, lm)
+		}
+		want := cTrace.Bands[i]
+		if want.FrameCoeffs != frameCoeffs || want.Bands != bands || want.Channels != channels || want.LM != lm {
+			return fmt.Errorf("C band stage %d dimensions are frame=%d bands=%d channels=%d LM=%d, want %d/%d/%d/LM%d",
+				i, want.FrameCoeffs, want.Bands, want.Channels, want.LM, frameCoeffs, bands, channels, lm)
+		}
+	}
+	for i, got := range goTrace.Normalizations {
+		if got.ActiveCoeffs != active || got.Bands != bands || got.Channels != channels {
+			return fmt.Errorf("Go normalization stage %d dimensions are active=%d bands=%d channels=%d, want %d/%d/%d",
+				i, got.ActiveCoeffs, got.Bands, got.Channels, active, bands, channels)
+		}
+		want := cTrace.Normalizations[i]
+		if want.ActiveCoeffs != active || want.Bands != bands || want.Channels != channels {
+			return fmt.Errorf("C normalization stage %d dimensions are active=%d bands=%d channels=%d, want %d/%d/%d",
+				i, want.ActiveCoeffs, want.Bands, want.Channels, active, bands, channels)
+		}
+	}
+	for i, got := range goTrace.CoarseEnergy {
+		if got.Bands != bands || got.Channels != channels {
+			return fmt.Errorf("Go coarse stage %d dimensions are bands=%d channels=%d, want %d/%d", i, got.Bands, got.Channels, bands, channels)
+		}
+		want := cTrace.Coarse[i]
+		if want.Bands != bands || want.Channels != channels {
+			return fmt.Errorf("C coarse stage %d dimensions are bands=%d channels=%d, want %d/%d", i, want.Bands, want.Channels, bands, channels)
+		}
+	}
+	for i, got := range goTrace.BandQuantize {
+		if got.ActiveCoeffs != active || got.Bands != bands || got.Channels != channels {
+			return fmt.Errorf("Go quantization stage %d dimensions are active=%d bands=%d channels=%d, want %d/%d/%d",
+				i, got.ActiveCoeffs, got.Bands, got.Channels, active, bands, channels)
+		}
+		want := cTrace.Quant[i]
+		if want.ActiveCoeffs != active || want.Bands != bands || want.Channels != channels {
+			return fmt.Errorf("C quantization stage %d dimensions are active=%d bands=%d channels=%d, want %d/%d/%d",
+				i, want.ActiveCoeffs, want.Bands, want.Channels, active, bands, channels)
 		}
 	}
 	return nil
@@ -473,11 +670,14 @@ func (reader *celtTraceReader) floats(count int) ([]float32, error) {
 
 func parseCELTEncodeTrace(data []byte) (celtCBRStageTrace, error) {
 	var result celtCBRStageTrace
-	if len(data) < 8 || string(data[:4]) != "GCET" || binary.LittleEndian.Uint32(data[4:8]) != 1 {
-		return result, fmt.Errorf("invalid GCET v1 stage trace")
+	if len(data) < 12 || string(data[:4]) != "GCET" || binary.LittleEndian.Uint32(data[4:8]) != 2 {
+		return result, fmt.Errorf("invalid GCET v2 stage trace")
 	}
 	reader := celtTraceReader{data: data, off: 8}
 	var err error
+	if result.TraceFrame, err = reader.u32(); err != nil {
+		return result, err
+	}
 	if result.Overflow, err = reader.u32(); err != nil {
 		return result, err
 	}

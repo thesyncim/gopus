@@ -162,6 +162,9 @@ static int write_u32(uint32_t v) {
 }
 
 #ifdef GOPUS_CELT_TRACE
+#ifndef GOPUS_CELT_TRACE_FRAME
+#define GOPUS_CELT_TRACE_FRAME 0
+#endif
 #define CELT_TRACE_MAX_CALLS 8
 #define CELT_TRACE_MAX_FLOATS 4096
 #define CELT_TRACE_MAX_BANDS 64
@@ -209,6 +212,16 @@ static struct {
   celt_trace_quant_call quant[CELT_TRACE_MAX_CALLS];
 } celt_encode_trace;
 
+static uint32_t celt_encode_active_frame;
+static uint32_t celt_encode_captured_frame = UINT32_MAX;
+
+static int celt_trace_selected_frame(void) {
+  if (celt_encode_active_frame != GOPUS_CELT_TRACE_FRAME) return 0;
+  if (celt_encode_captured_frame == UINT32_MAX)
+    celt_encode_captured_frame = celt_encode_active_frame;
+  return 1;
+}
+
 static int trace_dimensions(int values, int limit) {
   if (values < 0 || values > limit) {
     celt_encode_trace.overflow = 1;
@@ -239,8 +252,9 @@ extern void __real_compute_band_energies(const CELTMode *m, const celt_sig *X,
     celt_ener *bandE, int end, int C, int LM, int arch);
 void __wrap_compute_band_energies(const CELTMode *m, const celt_sig *X,
     celt_ener *bandE, int end, int C, int LM, int arch) {
-  uint32_t call = celt_encode_trace.band_calls++;
   __real_compute_band_energies(m, X, bandE, end, C, LM, arch);
+  if (!celt_trace_selected_frame()) return;
+  uint32_t call = celt_encode_trace.band_calls++;
   if (call >= CELT_TRACE_MAX_CALLS) {
     celt_encode_trace.overflow = 1;
     return;
@@ -264,8 +278,9 @@ extern void __real_amp2Log2(const CELTMode *m, int effEnd, int end,
     celt_ener *bandE, celt_glog *bandLogE, int C);
 void __wrap_amp2Log2(const CELTMode *m, int effEnd, int end,
     celt_ener *bandE, celt_glog *bandLogE, int C) {
-  uint32_t call = celt_encode_trace.log_calls++;
   __real_amp2Log2(m, effEnd, end, bandE, bandLogE, C);
+  if (!celt_trace_selected_frame()) return;
+  uint32_t call = celt_encode_trace.log_calls++;
   if (call >= CELT_TRACE_MAX_CALLS) {
     celt_encode_trace.overflow = 1;
     return;
@@ -283,8 +298,9 @@ extern void __real_normalise_bands(const CELTMode *m, const celt_sig *freq,
     celt_norm *X, const celt_ener *bandE, int end, int C, int M);
 void __wrap_normalise_bands(const CELTMode *m, const celt_sig *freq,
     celt_norm *X, const celt_ener *bandE, int end, int C, int M) {
-  uint32_t call = celt_encode_trace.normalization_calls++;
   __real_normalise_bands(m, freq, X, bandE, end, C, M);
+  if (!celt_trace_selected_frame()) return;
+  uint32_t call = celt_encode_trace.normalization_calls++;
   if (call >= CELT_TRACE_MAX_CALLS) {
     celt_encode_trace.overflow = 1;
     return;
@@ -313,6 +329,12 @@ void __wrap_quant_coarse_energy(const CELTMode *m, int start, int end,
     opus_uint32 budget, celt_glog *error, ec_enc *enc, int C, int LM,
     int nbAvailableBytes, int force_intra, opus_val32 *delayedIntra,
     int two_pass, int loss_rate, int lfe) {
+  if (!celt_trace_selected_frame()) {
+    __real_quant_coarse_energy(m, start, end, effEnd, eBands, oldEBands, budget,
+        error, enc, C, LM, nbAvailableBytes, force_intra, delayedIntra,
+        two_pass, loss_rate, lfe);
+    return;
+  }
   uint32_t call = celt_encode_trace.coarse_calls++;
   if (call < CELT_TRACE_MAX_CALLS && trace_dimensions((end - start) * C, CELT_TRACE_MAX_BANDS * 2)) {
     celt_trace_coarse_call *trace = &celt_encode_trace.coarse[call];
@@ -350,6 +372,13 @@ void __wrap_quant_all_bands(int encode, const CELTMode *m, int start, int end,
     int complexity, int arch, int disable_inv
     ARG_QEXT(ec_ctx *ext_ec) ARG_QEXT(int *extra_pulses)
     ARG_QEXT(opus_int32 total_ext_bits) ARG_QEXT(const int *cap)) {
+  if (!celt_trace_selected_frame()) {
+    __real_quant_all_bands(encode, m, start, end, X, Y, collapse_masks, bandE,
+        pulses, shortBlocks, spread, dual_stereo, intensity, tf_res, total_bits,
+        balance, ec, LM, codedBands, seed, complexity, arch, disable_inv
+        ARG_QEXT(ext_ec) ARG_QEXT(extra_pulses) ARG_QEXT(total_ext_bits) ARG_QEXT(cap));
+    return;
+  }
   uint32_t call = celt_encode_trace.quant_calls++;
   /* quant_all_bands receives LM and expands M = 1 << LM before indexing X/Y. */
   int active = (1 << LM) * m->eBands[end];
@@ -379,7 +408,8 @@ void __wrap_quant_all_bands(int encode, const CELTMode *m, int start, int end,
 }
 
 static int write_celt_encode_trace(void) {
-  if (!write_exact("GCET", 4) || !write_u32(1) || !write_u32(celt_encode_trace.overflow)) return 0;
+  if (!write_exact("GCET", 4) || !write_u32(2) ||
+      !write_u32(celt_encode_captured_frame) || !write_u32(celt_encode_trace.overflow)) return 0;
   if (!write_u32(celt_encode_trace.band_calls) || !write_u32(celt_encode_trace.stored_band_calls)) return 0;
   for (uint32_t i = 0; i < celt_encode_trace.stored_band_calls; i++) {
     const celt_trace_band_call *trace = &celt_encode_trace.bands[i];
@@ -566,6 +596,9 @@ int main(void) {
       memcpy(&pcm[s], &bits, sizeof(float));
     }
 
+#ifdef GOPUS_CELT_TRACE
+    celt_encode_active_frame = f;
+#endif
     int n = opus_encode_float(enc, pcm, (int)frame_size, pkt_buf, MAX_PACKET_BYTES);
     if (n < 0) {
       fprintf(stderr, "opus_encode_float frame %u failed: %d\n", f, n);

@@ -23,7 +23,7 @@
  *
  * Output wire format:
  *
- *   magic "GSCO" + u32(version=2) + u32(n_frames)
+ *   magic "GSCO" + u32(version=3) + u32(n_frames)
  *   then n_frames packet records: u32(packet_len) u32(final_range) bytes[len]
  *   then u32(n_ctrl)
  *   then n_ctrl control records, each:
@@ -61,6 +61,14 @@
  *     pulse coding. Pulses are present only at stage 0. Records cover request
  *     frames 6 and 13; the final i32 is nonzero if the trace buffer overflows
  *     or a traced frame exceeds MAX_FRAME_LENGTH.
+ *   then u32(n_lpc_calls), followed by actual Linux silk_find_LPC_FLP call records:
+ *     i32(opus_frame), i32(channel), i32(nFramesEncoded), i32(API_fs_Hz)
+ *     i32(fs_kHz), i32(frame_length), i32(subfr_length), i32(nb_subfr)
+ *     i32(predictLPCOrder), i32(useInterpolatedNLSFs), i32(first_frame_after_reset)
+ *     i32(arch), f32(minInvGain), i32(prev_NLSFq_Q15[16])
+ *     u32(input_count), f32(input[input_count])
+ *     i32(NLSFInterpCoef_Q2 after the call), i32(NLSF_Q15[16] after the call)
+ *   then i32(lpc_trace_overflow).
  *
  * Reference: libopus src/opus_encoder.c opus_encode_float(); the dumped struct
  * is silk/float/structs_FLP.h silk_encoder_control_FLP, captured in
@@ -86,6 +94,8 @@
 #define MAX_PACKET_BYTES 4000
 #define MAX_CTRL_RECORDS 4096
 #define MAX_TRACE_RECORDS 512
+#define MAX_LPC_TRACE_RECORDS 8
+#define MAX_LPC_INPUT (MAX_FRAME_LENGTH + MAX_NB_SUBFR * MAX_LPC_ORDER)
 
 static int set_binary_stdio(void) {
 #ifdef _WIN32
@@ -187,14 +197,102 @@ typedef struct {
   opus_int8 pulses[MAX_FRAME_LENGTH];
 } encode_stage_record;
 
+typedef struct {
+  int32_t opus_frame_index;
+  int32_t channel;
+  int32_t nFramesEncoded;
+  int32_t API_fs_Hz;
+  int32_t fs_kHz;
+  int32_t frame_length;
+  int32_t subfr_length;
+  int32_t nb_subfr;
+  int32_t predictLPCOrder;
+  int32_t useInterpolatedNLSFs;
+  int32_t first_frame_after_reset;
+  int32_t arch;
+  float minInvGain;
+  int32_t prev_NLSFq_Q15[MAX_LPC_ORDER];
+  uint32_t input_count;
+  float input[MAX_LPC_INPUT];
+  int32_t selected_interp;
+  int32_t NLSF_Q15[MAX_LPC_ORDER];
+} lpc_call_record;
+
 static ctrl_record g_ctrl[MAX_CTRL_RECORDS];
 static int         g_ctrl_count = 0;
 static encode_stage_record g_stage[MAX_TRACE_RECORDS];
 static int         g_stage_count = 0;
 static int         g_stage_overflow = 0;
+static lpc_call_record g_lpc_call[MAX_LPC_TRACE_RECORDS];
+static int         g_lpc_call_count = 0;
+static int         g_lpc_call_overflow = 0;
 static int32_t     g_cur_opus_frame = 0;
 /* The two state_Fxx encoder pointers, used to recover the channel index. */
 static const void *g_state_ptr[2] = { NULL, NULL };
+
+#ifdef __linux__
+extern void __real_silk_find_LPC_FLP(
+    silk_encoder_state *psEncC,
+    opus_int16 NLSF_Q15[],
+    const silk_float x[],
+    const silk_float minInvGain,
+    int arch );
+
+void __wrap_silk_find_LPC_FLP(
+    silk_encoder_state *psEncC,
+    opus_int16 NLSF_Q15[],
+    const silk_float x[],
+    const silk_float minInvGain,
+    int arch )
+{
+  lpc_call_record *r = NULL;
+  opus_int input_count = 0;
+  if( g_cur_opus_frame == 6 || g_cur_opus_frame == 13 ) {
+    if( psEncC->predictLPCOrder <= 0 || psEncC->predictLPCOrder > MAX_LPC_ORDER ||
+        psEncC->nb_subfr <= 0 || psEncC->nb_subfr > MAX_NB_SUBFR || psEncC->subfr_length <= 0 ) {
+      g_lpc_call_overflow = 1;
+    } else {
+      input_count = psEncC->nb_subfr *
+          ( psEncC->subfr_length + psEncC->predictLPCOrder );
+    }
+    if( g_lpc_call_count >= MAX_LPC_TRACE_RECORDS || input_count <= 0 || input_count > MAX_LPC_INPUT ) {
+      g_lpc_call_overflow = 1;
+    } else {
+      int i;
+      r = &g_lpc_call[ g_lpc_call_count++ ];
+      memset( r, 0, sizeof( *r ) );
+      r->opus_frame_index = g_cur_opus_frame;
+      r->channel = psEncC->channelNb;
+      r->nFramesEncoded = psEncC->nFramesEncoded;
+      r->API_fs_Hz = psEncC->API_fs_Hz;
+      r->fs_kHz = psEncC->fs_kHz;
+      r->frame_length = psEncC->frame_length;
+      r->subfr_length = psEncC->subfr_length;
+      r->nb_subfr = psEncC->nb_subfr;
+      r->predictLPCOrder = psEncC->predictLPCOrder;
+      r->useInterpolatedNLSFs = psEncC->useInterpolatedNLSFs;
+      r->first_frame_after_reset = psEncC->first_frame_after_reset;
+      r->arch = arch;
+      r->minInvGain = minInvGain;
+      r->input_count = (uint32_t)input_count;
+      for( i = 0; i < psEncC->predictLPCOrder; i++ ) {
+        r->prev_NLSFq_Q15[i] = psEncC->prev_NLSFq_Q15[i];
+      }
+      memcpy( r->input, x, (size_t)input_count * sizeof( r->input[0] ) );
+    }
+  }
+
+  __real_silk_find_LPC_FLP( psEncC, NLSF_Q15, x, minInvGain, arch );
+
+  if( r != NULL ) {
+    int i;
+    r->selected_interp = psEncC->indices.NLSFInterpCoef_Q2;
+    for( i = 0; i < psEncC->predictLPCOrder; i++ ) {
+      r->NLSF_Q15[i] = NLSF_Q15[i];
+    }
+  }
+}
+#endif
 
 void gopus_silk_ctrl_dump(
     const silk_encoder_state_FLP   *psEnc,
@@ -377,7 +475,7 @@ int main(void) {
    * Rather than depend on opaque offsets, derive the pointers lazily inside the
    * hook by remembering the first two distinct psEnc values seen. */
 
-  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(2) || !write_u32(n_frames)) {
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(3) || !write_u32(n_frames)) {
     fprintf(stderr, "write output header failed\n");
     opus_encoder_destroy(enc); free(pcm); free(packet); return 1;
   }
@@ -465,6 +563,24 @@ int main(void) {
           !write_exact(r->pulses, (size_t)r->n_pulses * sizeof(r->pulses[0]))) return 1;
     }
     if (!write_i32(g_stage_overflow)) return 1;
+    if (!write_u32((uint32_t)g_lpc_call_count)) return 1;
+    for (i = 0; i < (uint32_t)g_lpc_call_count; i++) {
+      lpc_call_record *r = &g_lpc_call[i];
+      uint32_t j;
+      if (!write_i32(r->opus_frame_index) || !write_i32(r->channel) ||
+          !write_i32(r->nFramesEncoded) || !write_i32(r->API_fs_Hz) ||
+          !write_i32(r->fs_kHz) || !write_i32(r->frame_length) ||
+          !write_i32(r->subfr_length) || !write_i32(r->nb_subfr) ||
+          !write_i32(r->predictLPCOrder) || !write_i32(r->useInterpolatedNLSFs) ||
+          !write_i32(r->first_frame_after_reset) || !write_i32(r->arch) ||
+          !write_f32(r->minInvGain)) return 1;
+      for (j = 0; j < MAX_LPC_ORDER; j++) if (!write_i32(r->prev_NLSFq_Q15[j])) return 1;
+      if (!write_u32(r->input_count)) return 1;
+      for (j = 0; j < r->input_count; j++) if (!write_f32(r->input[j])) return 1;
+      if (!write_i32(r->selected_interp)) return 1;
+      for (j = 0; j < MAX_LPC_ORDER; j++) if (!write_i32(r->NLSF_Q15[j])) return 1;
+    }
+    if (!write_i32(g_lpc_call_overflow)) return 1;
   }
 
   opus_encoder_destroy(enc);

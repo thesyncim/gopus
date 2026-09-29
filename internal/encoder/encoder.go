@@ -1758,8 +1758,10 @@ func (e *Encoder) hpCutoffFrameAtCutoff(in []opusRes, frameSize int, floatOffset
 		src32 = src32[floatOffset : floatOffset+n]
 	}
 
-	// silk_biquad_res contracts the negative feedback product with the rounded
-	// input product, then adds VERY_SMALL in a separate operation.
+	// silk_biquad_res follows the selected target's contraction order. AMD64 v3
+	// fuses vout and both S[0] terms, then rounds -vout*A[1] before fusing
+	// B[2]*inval into S[1]. Keep that chain target-gated; older targets retain
+	// their existing recurrence. VERY_SMALL is added to S[1] separately.
 	// The src32 branch is
 	// hoisted out of the inner loop, and stereo runs both channels' independent
 	// recurrences in one interleaved pass so the OoO engine overlaps the two
@@ -1771,17 +1773,31 @@ func (e *Encoder) hpCutoffFrameAtCutoff(in []opusRes, frameSize int, floatOffset
 		if src32 != nil {
 			for i := range frameSize {
 				inval := src32[i]
-				vout := s0 + b[0]*inval
-				s0 = s1 - vout*a[0] + b[1]*inval
-				s1 = fma32(-vout, a[1], round32(b[2]*inval)) + verySmall
+				var vout float32
+				if outerTargetV3FMA {
+					vout = fma32(b[0], inval, s0)
+					s0 = fma32(b[1], inval, fma32(-vout, a[0], s1))
+					s1 = fma32(b[2], inval, round32(-vout*a[1])) + verySmall
+				} else {
+					vout = s0 + b[0]*inval
+					s0 = s1 - vout*a[0] + b[1]*inval
+					s1 = fma32(-vout, a[1], round32(b[2]*inval)) + verySmall
+				}
 				out[i] = opusRes(vout)
 			}
 		} else {
 			for i := range frameSize {
 				inval := float32(in[i])
-				vout := s0 + b[0]*inval
-				s0 = s1 - vout*a[0] + b[1]*inval
-				s1 = fma32(-vout, a[1], round32(b[2]*inval)) + verySmall
+				var vout float32
+				if outerTargetV3FMA {
+					vout = fma32(b[0], inval, s0)
+					s0 = fma32(b[1], inval, fma32(-vout, a[0], s1))
+					s1 = fma32(b[2], inval, round32(-vout*a[1])) + verySmall
+				} else {
+					vout = s0 + b[0]*inval
+					s0 = s1 - vout*a[0] + b[1]*inval
+					s1 = fma32(-vout, a[1], round32(b[2]*inval)) + verySmall
+				}
 				out[i] = opusRes(vout)
 			}
 		}
@@ -1797,27 +1813,55 @@ func (e *Encoder) hpCutoffFrameAtCutoff(in []opusRes, frameSize int, floatOffset
 	if src32 != nil {
 		for i := range frameSize {
 			l := src32[2*i]
-			voutL := s0L + b[0]*l
-			s0L = s1L - voutL*a[0] + b[1]*l
-			s1L = fma32(-voutL, a[1], round32(b[2]*l)) + verySmall
+			var voutL float32
+			if outerTargetV3FMA {
+				voutL = fma32(b[0], l, s0L)
+				s0L = fma32(b[1], l, fma32(-voutL, a[0], s1L))
+				s1L = fma32(b[2], l, round32(-voutL*a[1])) + verySmall
+			} else {
+				voutL = s0L + b[0]*l
+				s0L = s1L - voutL*a[0] + b[1]*l
+				s1L = fma32(-voutL, a[1], round32(b[2]*l)) + verySmall
+			}
 			out[2*i] = opusRes(voutL)
 			r := src32[2*i+1]
-			voutR := s0R + b[0]*r
-			s0R = s1R - voutR*a[0] + b[1]*r
-			s1R = fma32(-voutR, a[1], round32(b[2]*r)) + verySmall
+			var voutR float32
+			if outerTargetV3FMA {
+				voutR = fma32(b[0], r, s0R)
+				s0R = fma32(b[1], r, fma32(-voutR, a[0], s1R))
+				s1R = fma32(b[2], r, round32(-voutR*a[1])) + verySmall
+			} else {
+				voutR = s0R + b[0]*r
+				s0R = s1R - voutR*a[0] + b[1]*r
+				s1R = fma32(-voutR, a[1], round32(b[2]*r)) + verySmall
+			}
 			out[2*i+1] = opusRes(voutR)
 		}
 	} else {
 		for i := range frameSize {
 			l := float32(in[2*i])
-			voutL := s0L + b[0]*l
-			s0L = s1L - voutL*a[0] + b[1]*l
-			s1L = fma32(-voutL, a[1], round32(b[2]*l)) + verySmall
+			var voutL float32
+			if outerTargetV3FMA {
+				voutL = fma32(b[0], l, s0L)
+				s0L = fma32(b[1], l, fma32(-voutL, a[0], s1L))
+				s1L = fma32(b[2], l, round32(-voutL*a[1])) + verySmall
+			} else {
+				voutL = s0L + b[0]*l
+				s0L = s1L - voutL*a[0] + b[1]*l
+				s1L = fma32(-voutL, a[1], round32(b[2]*l)) + verySmall
+			}
 			out[2*i] = opusRes(voutL)
 			r := float32(in[2*i+1])
-			voutR := s0R + b[0]*r
-			s0R = s1R - voutR*a[0] + b[1]*r
-			s1R = fma32(-voutR, a[1], round32(b[2]*r)) + verySmall
+			var voutR float32
+			if outerTargetV3FMA {
+				voutR = fma32(b[0], r, s0R)
+				s0R = fma32(b[1], r, fma32(-voutR, a[0], s1R))
+				s1R = fma32(b[2], r, round32(-voutR*a[1])) + verySmall
+			} else {
+				voutR = s0R + b[0]*r
+				s0R = s1R - voutR*a[0] + b[1]*r
+				s1R = fma32(-voutR, a[1], round32(b[2]*r)) + verySmall
+			}
 			out[2*i+1] = opusRes(voutR)
 		}
 	}
