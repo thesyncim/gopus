@@ -176,11 +176,19 @@ func TestSILKWarpedAutocorrelationFLPMatchesLibopusOracle(t *testing.T) {
 // TestSILKApplySineWindowFLPMatchesLibopusOracle verifies the float sine-window
 // kernel matches libopus silk_apply_sine_window_FLP
 // (silk/float/apply_sine_window_FLP.c) bit-for-bit. The recurrence
-// S0 = c*S1 - S0 (and S1 = c*S0 - S1) and the windowing products are
-// single-statement multiply-adds that arm64 clang may contract into FMA.
+// S0 = c*S1 - S0 (and S1 = c*S0 - S1) follows the selected compiler
+// target's contraction order.
 func TestSILKApplySineWindowFLPMatchesLibopusOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 	cases := []libopusSILKSineWindowCase{
+		// The shaping window's 15 ms length and 3 ms flat section leave
+		// 6 ms slopes: 48, 72 and 96 samples at 8, 12 and 16 kHz.
+		{name: "type1_shape_nb", winType: 1, x: silkWarpedAutocorrSignal(48, 0x48ab1020, 32768.0)},
+		{name: "type2_shape_nb", winType: 2, x: silkWarpedAutocorrSignal(48, 0x48ab3040, 32768.0)},
+		{name: "type1_shape_mb", winType: 1, x: silkWarpedAutocorrSignal(72, 0x72ab1020, 32768.0)},
+		{name: "type2_shape_mb", winType: 2, x: silkWarpedAutocorrSignal(72, 0x72ab3040, 32768.0)},
+		{name: "type1_shape_wb", winType: 1, x: silkWarpedAutocorrSignal(96, 0x96ab1020, 32768.0)},
+		{name: "type2_shape_wb", winType: 2, x: silkWarpedAutocorrSignal(96, 0x96ab3040, 32768.0)},
 		{name: "type1_len64", winType: 1, x: silkWarpedAutocorrSignal(64, 0x10203040, 1.0)},
 		{name: "type2_len64", winType: 2, x: silkWarpedAutocorrSignal(64, 0x50607080, 1.0)},
 		{name: "type1_len192", winType: 1, x: silkWarpedAutocorrSignal(192, 0x11223344, 0.5)},
