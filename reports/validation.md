@@ -219,17 +219,25 @@ CELT/Hybrid have unresolved same-packet PCM differences. FFT/MDCT and SILK
 primitive suites pass. The CELT encoder trace rejects inconsistent quantization
 dimensions, so it does not yet establish a runtime divergence location.
 
-The [native audit at `6eb02f0a`](https://github.com/thesyncim/gopus/actions/runs/36612082840)
-on AMD EPYC 9V74 passes 57/60 scalar and 50/60 SIMD encoder cases, 8/24
-scalar and 6/24 SIMD decoder cases, and all 15 warm-allocation checks in each
-lane, with no skipped cases. CBR exact cases are 14/19 scalar (68 packet/61
-range differences) and 10/19 SIMD (128 packet/100 range differences) out of
-2,175 packets per lane. SIMD constant-comb history seams match C. Transition
-comb filtering, decoder PCM and encoder differences remain unresolved.
-The transparent SILK trace identifies differing NLSF interpolation factors
-at the first failing frames, before index coding; the CELT trace first differs
-in reconstructed quantizer coefficients after matching transform and quantizer
-inputs. These findings locate further work; they do not grant numerical allowances.
+The [native audit at `c1dc76b9`](https://github.com/thesyncim/gopus/actions/runs/36615446142)
+on Intel Xeon Platinum 8370C with Go 1.27.1 and GCC 13.3 passes 58/60 scalar
+and 60/60 SIMD encoder checks, 13/24 scalar and 6/24 SIMD decoder checks, and
+all 15 warm-allocation checks in each lane, with no skipped cases. CBR exact
+cases are 14/19 scalar (70 packet/61 range differences) and 15/19 SIMD
+(75 packet/72 range differences) out of 2,175 packets per lane. These counts
+are separate gates, not an overall byte-parity percentage. Haar and the
+constant/ramped comb history seams match the paired C references. The comb
+fallback without precomputed window squares, scalar stereo tail, outer encoder
+filters and same-packet decoder PCM still expose differences.
+
+The SILK replay sends the actual Go LPC input/state to the linked C FindLPC
+implementation. Both select the same interpolation factors at the first failing
+frames (3 for MB mono frame 6; 0 for WB stereo frame 13), while the ordinary
+C encoder selects 2 and 1. The mismatch therefore starts before this selection;
+it does not justify changing FindLPC arithmetic or its decision gate. The
+transparent CELT trace first differs in reconstructed quantizer coefficients
+after matching transform and quantizer inputs. No numerical allowance is
+accepted for these unresolved differences.
 
 | Priority | Surface | Finding | Current evidence |
 |---|---|---|---|

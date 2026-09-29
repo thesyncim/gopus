@@ -15,7 +15,7 @@ var denormBelowLimitI32x4 = [4]int32{-50, -50, -50, -50}
 // denormalizeBandGains sets gains[band] to the denormalise_bands gain
 // celt_exp2_db(MIN32(32, bandLogE[band] + eMeans[band])) for band in
 // [start, end), four bands per vector. Each lane runs the scalar celt_exp2
-// steps: floor, the unfused Horner polynomial, and the exponent-field add.
+// steps: floor, the target's Horner polynomial, and the exponent-field add.
 func denormalizeBandGains(gains []float32, energies []celtGLog, start, end int) {
 	band := start
 	if denormGainsUseAVX && end <= len(eMeans) && end <= len(energies) {
@@ -44,11 +44,21 @@ func denormalizeBandGainsAVX(gains []float32, energies []celtGLog, start, end in
 func celtExp2x4(x archsimd.Float32x4) archsimd.Float32x4 {
 	integer := x.Floor().ConvertToInt32()
 	frac := x.Sub(integer.ConvertToFloat32())
-	res := frac.Mul(broadcastF32x4Arch(opusmath.CeltExp2CoeffA5)).Add(broadcastF32x4Arch(opusmath.CeltExp2CoeffA4))
-	res = frac.Mul(res).Add(broadcastF32x4Arch(opusmath.CeltExp2CoeffA3))
-	res = frac.Mul(res).Add(broadcastF32x4Arch(opusmath.CeltExp2CoeffA2))
-	res = frac.Mul(res).Add(broadcastF32x4Arch(opusmath.CeltExp2CoeffA1))
-	res = frac.Mul(res).Add(broadcastF32x4Arch(opusmath.CeltExp2CoeffA0))
+	var res archsimd.Float32x4
+	if denormTargetV3FMA {
+		// GCC contracts the scalar libopus Horner polynomial on x86-64-v3.
+		res = frac.MulAdd(broadcastF32x4Arch(opusmath.CeltExp2CoeffA5), broadcastF32x4Arch(opusmath.CeltExp2CoeffA4))
+		res = frac.MulAdd(res, broadcastF32x4Arch(opusmath.CeltExp2CoeffA3))
+		res = frac.MulAdd(res, broadcastF32x4Arch(opusmath.CeltExp2CoeffA2))
+		res = frac.MulAdd(res, broadcastF32x4Arch(opusmath.CeltExp2CoeffA1))
+		res = frac.MulAdd(res, broadcastF32x4Arch(opusmath.CeltExp2CoeffA0))
+	} else {
+		res = frac.Mul(broadcastF32x4Arch(opusmath.CeltExp2CoeffA5)).Add(broadcastF32x4Arch(opusmath.CeltExp2CoeffA4))
+		res = frac.Mul(res).Add(broadcastF32x4Arch(opusmath.CeltExp2CoeffA3))
+		res = frac.Mul(res).Add(broadcastF32x4Arch(opusmath.CeltExp2CoeffA2))
+		res = frac.Mul(res).Add(broadcastF32x4Arch(opusmath.CeltExp2CoeffA1))
+		res = frac.Mul(res).Add(broadcastF32x4Arch(opusmath.CeltExp2CoeffA0))
+	}
 	bits := res.AsInt32x4().Add(integer.ShiftAllLeft(23)).And(archsimd.LoadInt32x4Array(&denormAbsMaskI32x4))
 	var zero archsimd.Float32x4
 	return zero.IfElse(integer.Less(archsimd.LoadInt32x4Array(&denormBelowLimitI32x4)), bits.AsFloat32x4())

@@ -1430,8 +1430,8 @@ func stereoMerge(x, y []celtNorm, mid opusVal16) {
 		for i := range n {
 			xv := float32(x[i])
 			yv := float32(y[i])
-			xp = celtFloatMulAdd(yv, xv, xp)
-			side = celtFloatMulAdd(yv, yv, side)
+			xp = stereoMergeScalarMAC(yv, xv, xp)
+			side = stereoMergeScalarMAC(yv, yv, side)
 		}
 	}
 	if stereoMergeUsesFMA {
