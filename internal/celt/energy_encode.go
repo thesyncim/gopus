@@ -516,10 +516,9 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []celtGLog, startBand, nbBands
 				oldE = minEnergy
 			}
 
-			// clang contracts f, the quantized energy and the predictor update
-			// below (quant_coarse_energy_impl) and gcc does not; the plain
-			// expressions compile the same way on each architecture.
-			f := x - coef32*oldE - prevBandEnergy[c]
+			// The amd64.v3 helper reuses rounded coef*oldE for reconstruction,
+			// matching GCC's v3 kernel; other targets preserve source expressions.
+			f, oldProduct := quantCoarseEnergyResidual32(x, coef32, oldE, prevBandEnergy[c])
 			qi := floor32ToInt(f/float32(DB6) + 0.5)
 
 			decayBound := oldEBand
@@ -585,8 +584,8 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []celtGLog, startBand, nbBands
 
 			q := float32(qi) * float32(DB6)
 			coarseError[idx] = celtGLog(f - q)
-			quantizedEnergies[idx] = celtGLog(coef32*oldE + prevBandEnergy[c] + q)
-			prevBandEnergy[c] = prevBandEnergy[c] + q - beta32*q
+			quantizedEnergies[idx] = celtGLog(quantCoarseEnergyReconstruct32(oldProduct, coef32, oldE, prevBandEnergy[c], q))
+			prevBandEnergy[c] = quantCoarseEnergyUpdate32(prevBandEnergy[c], q, beta32)
 		}
 	}
 
@@ -1028,8 +1027,9 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []celtGLog, start, end int, i
 				oldE = minEnergy
 			}
 
-			// Contracted like encodeCoarseEnergyPass.
-			f := x - coef32*oldE - prevBandEnergy[c]
+			// The amd64.v3 helper reuses rounded coef*oldE for reconstruction,
+			// matching GCC's v3 kernel; other targets preserve source expressions.
+			f, oldProduct := quantCoarseEnergyResidual32(x, coef32, oldE, prevBandEnergy[c])
 			qi := floor32ToInt(f/float32(DB6) + 0.5)
 
 			decayBound := oldEBand
@@ -1090,8 +1090,8 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []celtGLog, start, end int, i
 
 			q := float32(qi) * float32(DB6)
 			coarseError[idx] = celtGLog(f - q)
-			quantizedEnergies[idx] = celtGLog(coef32*oldE + prevBandEnergy[c] + q)
-			prevBandEnergy[c] = prevBandEnergy[c] + q - beta32*q
+			quantizedEnergies[idx] = celtGLog(quantCoarseEnergyReconstruct32(oldProduct, coef32, oldE, prevBandEnergy[c], q))
+			prevBandEnergy[c] = quantCoarseEnergyUpdate32(prevBandEnergy[c], q, beta32)
 		}
 	}
 

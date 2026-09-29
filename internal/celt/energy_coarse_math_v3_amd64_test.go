@@ -92,6 +92,7 @@ func buildCELTCoarseEnergyV3Helper() (string, error) {
 }
 
 func TestCELTV3CoarseEnergyMatchesLibopusKernel(t *testing.T) {
+	requireCELTV3OracleTarget(t)
 	if got := requirePairedCELTOracleMode(t); got != libopustooling.LibopusReferenceScalar && got != libopustooling.LibopusReferenceSIMD {
 		t.Fatalf("paired CELT oracle variant=%s, want scalar or SIMD", got)
 	}

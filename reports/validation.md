@@ -219,33 +219,44 @@ CELT/Hybrid have unresolved same-packet PCM differences. FFT/MDCT and SILK
 primitive suites pass. The CELT encoder trace rejects inconsistent quantization
 dimensions, so it does not yet establish a runtime divergence location.
 
-The [native audit at `0efb122d`](https://github.com/thesyncim/gopus/actions/runs/36623845161)
-on AMD EPYC 7763 with Go 1.27.1 and GCC 13.3 passes 59/60 scalar
+The [native audit at `2f296b12`](https://github.com/thesyncim/gopus/actions/runs/36627309409)
+on AMD EPYC 9V45 with Go 1.27.1 and GCC 13.3 passes 59/60 scalar
 and 60/60 SIMD encoder checks, 15/24 scalar and 24/24 SIMD decoder checks, and
 all 15 warm-allocation checks in each lane, with no skipped cases. CBR exact
-cases are 14/19 scalar (70 packet/61 range differences) and 15/19 SIMD (75
-packet/72 range differences) out of 2,175 packets per lane. These counts are
-separate gates, not an overall byte-parity percentage. Haar and the
-constant/ramped comb history seams, scalar stereo tails and SIMD exp2
-approximation match the paired C references. The comb fallback, DC rejection
-and high-pass filter match C. All nine stereo-fade oracle cases match in each
-lane. The long CBR streams expose same-packet PCM differences in both lanes,
-including short CELT and
-10 ms Hybrid frames; the 24-case SIMD decoder pass does not establish
-long-stream decoder parity. The transparent persistent short-frame witness
-first differs at frame 41, sample 49 in both lanes, in post-comb-filter output
-(Go `45640b3f`, C `45640b40`). Base energies, normalized coefficients,
-frequency buffers and IMDCT output match at that frame. The 16-case coarse-energy
-oracle passes all LM/intra/channel combinations and its warm-allocation guard
-in each lane; the executed helper and ordinary archive use the same FMA,
-separate q-addition and negative-FMA recurrence. The CBR contract reports 4,912
-scalar and 412 SIMD same-packet PCM sample differences across its cases.
+cases are 13/19 scalar (90 packet/81 range differences) and 14/19 SIMD (95
+packet/92 range differences) out of 2,175 packets per lane. These counts are
+separate gates, not an overall byte-parity percentage. Haar, constant/ramped
+comb history seams, DC rejection, high-pass filtering and all nine stereo-fade
+oracle cases match the paired C references. The 24-case SIMD decoder pass does
+not establish long-stream decoder parity.
+
+The persistent short-frame witness first differs at frame 41, sample 49 in
+both lanes, in post-comb-filter output (Go `45640b3f`, C `45640b40`). Base
+energies, normalized coefficients, frequency buffers and IMDCT output match at
+that frame. The 16-case decoder coarse-energy oracle and its warm-allocation
+guard pass in each lane; its executed helper and ordinary archive use the
+same FMA, separate q-addition and negative-FMA recurrence. The CBR contract
+reports 4,912 scalar and 412 SIMD same-packet PCM sample differences across
+its 19 cases. The scalar 20 ms witness first differs across anti-collapse.
 Ordinary/traced C and traced/untraced Go agree within each implementation
-before the witness reports the cross-implementation difference. The corrected
-DC oracle verifies all ten sample-rate/channel cases in each lane. The CBR
-quality gate also rejects both SILK encoder cases in each lane and CELT 2.5 ms
-mono in SIMD; these remain correctness
-blockers, independent of the bit-exact counters.
+before these witnesses report cross-implementation differences.
+
+The v3 SILK gain oracle fails in both lanes at case 5 (Go `426925c7`, C
+`426925c8`). The executed C helper emits FMA; the Go source expression alone
+does not establish matching contraction in its callers. Raw gains also differ
+before the actual LTP call. The CBR quality gate rejects SILK NB 10 ms mono
+(Q -458.03, correlation 0.972870) and SILK WB stereo (Q -157.52) in both
+lanes, and CELT 2.5 ms mono (Q -61.97) in SIMD. The narrowband case differs
+in 50/100 packets from frame 50. The gain change remains unvalidated; these
+quality failures are correctness blockers, independent of bit-exact counters.
+
+The late scalar encoder trace matches actual MDCT input, window, trig and FFT
+metadata before its coarse reconstructed-energy difference at band 6 (Go
+`bee8e8fe`, C `bee8e900`). The SIMD trace first differs in actual MDCT input at
+index 120 (Go `c2970e44`, C `c2970e40`), while the window and trig match; it does
+not identify an MDCT arithmetic defect. The VBR entropy witness cannot build
+because its public C helper lacks the `src` include directory. Its native
+transparency evidence is pending. No numerical allowance is accepted.
 
 The SILK replay sends the actual Go LPC input/state to the linked C FindLPC
 implementation. Both select the same interpolation factors at the first
