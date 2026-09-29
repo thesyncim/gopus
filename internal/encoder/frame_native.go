@@ -730,17 +730,29 @@ func (e *Encoder) applyStereoFade(samples []opusRes, widthQ14Prev, widthQ14 int1
 		w := opusVal16(window[i*inc])
 		w = round32(w * w)
 		g := fma32(w, g2, round32((1-w)*g1))
-		// C rounds the scaled side signal before updating either channel.
 		diff := round32(opusVal32(0.5) * (samples[i*2] - samples[i*2+1]))
-		diff = round32(g * diff)
-		samples[i*2] -= diff
-		samples[i*2+1] += diff
+		if outerTargetV3FMA {
+			// GCC contracts each channel update with g*diff in stereo_fade
+			// (src/opus_encoder.c) for AMD64 v3. Keep the shared half-difference
+			// rounded before both fused updates.
+			samples[i*2] = opusRes(fma32(-g, diff, float32(samples[i*2])))
+			samples[i*2+1] = opusRes(fma32(g, diff, float32(samples[i*2+1])))
+		} else {
+			diff = round32(g * diff)
+			samples[i*2] -= diff
+			samples[i*2+1] += diff
+		}
 	}
 	for i := overlap; i < frameSize; i++ {
 		diff := round32(opusVal32(0.5) * (samples[i*2] - samples[i*2+1]))
-		diff = round32(g2 * diff)
-		samples[i*2] -= diff
-		samples[i*2+1] += diff
+		if outerTargetV3FMA {
+			samples[i*2] = opusRes(fma32(-g2, diff, float32(samples[i*2])))
+			samples[i*2+1] = opusRes(fma32(g2, diff, float32(samples[i*2+1])))
+		} else {
+			diff = round32(g2 * diff)
+			samples[i*2] -= diff
+			samples[i*2+1] += diff
+		}
 	}
 }
 
