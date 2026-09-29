@@ -338,15 +338,9 @@ func applyGainProcessing(gains []float32, resNrg []float32, predGainQ7 int32, sn
 			quantOffsetType = 1
 		}
 
-		// Match libopus process_gains_FLP.c sigmoid path for voiced gain reduction.
-		// libopus: s = 1.0f - 0.5f * silk_sigmoid( 0.25f * ( LTPredCodGain - 12.0f ) )
-		// silk_sigmoid(x) = (silk_float)(1.0 / (1.0 + exp(-x)))
-		// Step 1: arg = 0.25f * (LTPredCodGain - 12.0f) — float32 arithmetic
-		// Step 2: sigmoid = (float)(1.0 / (1.0 + exp((double)(-arg)))) — double internally, cast to float
-		// Step 3: s = 1.0f - 0.5f * sigmoid — float32 arithmetic
+		// Match silk_sigmoid's double exp and reciprocal, rounded once to float32.
 		arg := float32(0.25) * (predGainDB - float32(12.0))
-		sigmoid := 1.0 / (1.0 + expF32(-arg))
-		s := float32(1.0) - float32(0.5)*sigmoid
+		s := float32(1.0) - float32(0.5)*Sigmoid(arg)
 		for k := range gains {
 			gains[k] *= s
 		}
@@ -361,7 +355,7 @@ func applyGainProcessing(gains []float32, resNrg []float32, predGainQ7 int32, sn
 	for k := range gains {
 		energy := gains[k] * gains[k]
 		if k < len(resNrg) {
-			energy += resNrg[k] * invMaxSqrVal
+			energy = silkSoftLimitEnergy(gains[k], resNrg[k], invMaxSqrVal)
 		}
 		g := sqrt32(energy)
 		if g > 32767.0 {

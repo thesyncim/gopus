@@ -325,6 +325,14 @@ func TestSILKProcessGainsFLPMatchesLibopusOracle(t *testing.T) {
 			resNrg: []float32{15000.0, 22000.0, 8000.0, 30000.0},
 		},
 		{
+			name: "voiced_2db", signalType: typeVoiced, nbSubfr: 4, subfrLength: 80,
+			condCoding: codeIndependently, snrDBQ7: 25 * 128, speechActQ8: 200,
+			inputTiltQ15: -4000, nStatesDD: 4, quantOffsetType: 0, lastGainIndex: 40,
+			predGainQ7: 2 * 128, inputQuality: 0.8, codingQuality: 0.6,
+			gains:  []float32{120.5, 88.25, 200.0, 64.0},
+			resNrg: []float32{15000.0, 22000.0, 8000.0, 30000.0},
+		},
+		{
 			name: "unvoiced_4sf", signalType: typeUnvoiced, nbSubfr: 4, subfrLength: 80,
 			condCoding: codeConditionally, snrDBQ7: 18 * 128, speechActQ8: 50,
 			inputTiltQ15: 1000, nStatesDD: 1, quantOffsetType: 1, lastGainIndex: 20,

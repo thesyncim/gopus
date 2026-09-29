@@ -172,7 +172,9 @@ static int eval_lpc_analysis_filter(void) {
   silk_float s[512];
   silk_float r[512];
   if (!read_u32(&length) || !read_u32(&order)) return 0;
-  if (length == 0 || length > 512 || (order != 10 && order != 16) || length < order) return 0;
+  if (length == 0 || length > 512 ||
+      (order != 6 && order != 8 && order != 10 && order != 12 && order != 16) ||
+      length < order) return 0;
   for (i = 0; i < order; i++) {
     if (!read_u32(&raw)) return 0;
     memcpy(&pred[i], &raw, sizeof(pred[i]));

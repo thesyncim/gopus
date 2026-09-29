@@ -90,6 +90,10 @@ func lpcAnalysisFilterF32Scalar(rLPC, predCoef, s []float32, length, order int) 
 	if order > length {
 		return
 	}
+	if lpcAnalysisUsesV3FMA && (order == 6 || order == 8 || order == 10 || order == 12 || order == 16) {
+		lpcAnalysisFilterF32ScalarV3(rLPC, predCoef, s, length, order)
+		return
+	}
 	// BCE hints: ensure all slice accesses in the unrolled loops are in-bounds.
 	_ = rLPC[length-1]
 	_ = s[length-1]
@@ -159,6 +163,22 @@ func lpcAnalysisFilterF32Scalar(rLPC, predCoef, s []float32, length, order int) 
 	}
 }
 
+func lpcAnalysisFilterF32ScalarV3(rLPC, predCoef, s []float32, length, order int) {
+	for ix := order; ix < length; ix++ {
+		// GCC's v3 SILK kernel starts with a rounded tap-1 product, then fuses
+		// tap 0 and the remaining taps into that accumulator.
+		pred := round32(s[ix-2] * predCoef[1])
+		pred = silkLPCFMA32(s[ix-1], predCoef[0], pred)
+		for k := 2; k < order; k++ {
+			pred = silkLPCFMA32(s[ix-1-k], predCoef[k], pred)
+		}
+		rLPC[ix] = s[ix] - pred
+	}
+	for i := range order {
+		rLPC[i] = 0
+	}
+}
+
 func applySineWindowFLP32(pxWin, px []float32, winType, length int) {
 	if length == 0 || length&3 != 0 {
 		return
@@ -168,7 +188,7 @@ func applySineWindowFLP32(pxWin, px []float32, winType, length int) {
 	const piF32 = float32(3.1415926536)
 	freq := piF32 / float32(length+1)
 	// Approximation of 2 * cos(f)
-	c := float32(2.0) - freq*freq
+	c := silkFMA32(-freq, freq, 2.0)
 
 	var S0, S1 float32
 	if winType < 2 {
@@ -182,10 +202,10 @@ func applySineWindowFLP32(pxWin, px []float32, winType, length int) {
 	for k := 0; k < length; k += 4 {
 		pxWin[k+0] = px[k+0] * 0.5 * (S0 + S1)
 		pxWin[k+1] = px[k+1] * S1
-		S0 = c*S1 - S0
+		S0 = silkFMSUB32(c, S1, S0)
 		pxWin[k+2] = px[k+2] * 0.5 * (S1 + S0)
 		pxWin[k+3] = px[k+3] * S0
-		S1 = c*S0 - S1
+		S1 = silkFMSUB32(c, S0, S1)
 	}
 }
 

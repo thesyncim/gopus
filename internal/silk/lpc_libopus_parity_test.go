@@ -384,6 +384,17 @@ func TestSILKLPCAnalysisFilterFLPMatchesLibopusOracle(t *testing.T) {
 		{name: "order16", order: 16, pred: silkLPCOraclePred(16, 0.38), x: silkBurgOracleSignal(224, 0x50607080)},
 		{name: "order16_short", order: 16, pred: silkLPCOraclePred(16, 0.25), x: silkBurgOracleSignal(64, 0xa0b0c0d0)},
 	}
+	for _, order := range [...]int{6, 8, 12} {
+		for _, outputCount := range [...]int{1, 3, 4, 7, 8, 9} {
+			length := order + outputCount
+			cases = append(cases, libopusSILKLPCFilterCase{
+				name:  fmt.Sprintf("order%d_output%d", order, outputCount),
+				order: order,
+				pred:  silkLPCOraclePred(order, 0.29),
+				x:     silkBurgOracleSignal(length, uint32(0x6a00+order*16+outputCount)),
+			})
+		}
+	}
 	want, err := probeLibopusSILKLPCAnalysisFilter(cases)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "silk lpc analysis filter", err)
