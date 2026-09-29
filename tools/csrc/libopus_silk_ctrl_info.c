@@ -7,7 +7,7 @@
  * drives NSQ + rate control, plus the chosen per-SILK-frame payload size.
  *
  * The dump is produced by linking tools/csrc/silk_encode_frame_FLP_dump.c (a
- * verbatim copy of silk/float/encode_frame_FLP.c with two callbacks) BEFORE
+ * verbatim copy of silk/float/encode_frame_FLP.c with three callbacks) BEFORE
  * libopus.a, so this oracle's silk_encode_frame_FLP overrides the archived one
  * and all other libopus code is reused unchanged.
  *
@@ -23,7 +23,7 @@
  *
  * Output wire format:
  *
- *   magic "GSCO" + u32(version=1) + u32(n_frames)
+ *   magic "GSCO" + u32(version=2) + u32(n_frames)
  *   then n_frames packet records: u32(packet_len) u32(final_range) bytes[len]
  *   then u32(n_ctrl)
  *   then n_ctrl control records, each:
@@ -50,6 +50,17 @@
  *     f32 LTPCoef[5*4]
  *     f32 LTP_scale
  *     i32 pitchL[4]
+ *   then u32(n_stage)
+ *   then n_stage rate-control stage records, each:
+ *     i32(frame), i32(channel), i32(iteration), i32(stage), i32(tell), u32(range)
+ *     i32(signalType), i32(quantOffsetType), i32(seed), i32(lagIndex)
+ *     i32(contourIndex), i32(NLSFInterpCoef_Q2), i32(PERIndex), i32(LTP_scaleIndex)
+ *     i32 GainsIndices[4], i32 LTPIndex[4], i32 NLSFIndices[17]
+ *     i32(pulse_count), i8 pulses[pulse_count]
+ *     stage 0 is immediately after NSQ, 1 is after index coding, and 2 is after
+ *     pulse coding. Pulses are present only at stage 0. Records cover request
+ *     frames 6 and 13; the final i32 is nonzero if the trace buffer overflows
+ *     or a traced frame exceeds MAX_FRAME_LENGTH.
  *
  * Reference: libopus src/opus_encoder.c opus_encode_float(); the dumped struct
  * is silk/float/structs_FLP.h silk_encoder_control_FLP, captured in
@@ -74,6 +85,7 @@
 #define OUTPUT_MAGIC "GSCO"
 #define MAX_PACKET_BYTES 4000
 #define MAX_CTRL_RECORDS 4096
+#define MAX_TRACE_RECORDS 512
 
 static int set_binary_stdio(void) {
 #ifdef _WIN32
@@ -153,8 +165,33 @@ typedef struct {
   int32_t  pitchL[MAX_NB_SUBFR];
 } ctrl_record;
 
+typedef struct {
+  int32_t opus_frame_index;
+  int32_t channel;
+  int32_t iter;
+  int32_t stage;
+  int32_t tell;
+  uint32_t range;
+  int32_t signalType;
+  int32_t quantOffsetType;
+  int32_t seed;
+  int32_t lagIndex;
+  int32_t contourIndex;
+  int32_t nlsfInterp;
+  int32_t perIndex;
+  int32_t ltpScaleIndex;
+  int32_t gains[MAX_NB_SUBFR];
+  int32_t ltp[MAX_NB_SUBFR];
+  int32_t nlsf[MAX_LPC_ORDER + 1];
+  int32_t n_pulses;
+  opus_int8 pulses[MAX_FRAME_LENGTH];
+} encode_stage_record;
+
 static ctrl_record g_ctrl[MAX_CTRL_RECORDS];
 static int         g_ctrl_count = 0;
+static encode_stage_record g_stage[MAX_TRACE_RECORDS];
+static int         g_stage_count = 0;
+static int         g_stage_overflow = 0;
 static int32_t     g_cur_opus_frame = 0;
 /* The two state_Fxx encoder pointers, used to recover the channel index. */
 static const void *g_state_ptr[2] = { NULL, NULL };
@@ -227,6 +264,55 @@ void gopus_silk_nbytes_dump(
   }
 }
 
+/* Keep frame-level stage diagnostics bounded to the first packet/range
+ * witnesses in the native CBR matrix. stage=0 is immediately after NSQ,
+ * stage=1 is after side-info coding, and stage=2 is after pulse coding. */
+void gopus_silk_encode_stage_dump(
+    const silk_encoder_state_FLP *psEnc,
+    const ec_enc                  *psRangeEnc,
+    opus_int                       iter,
+    opus_int                       stage )
+{
+  encode_stage_record *r;
+  int i, ch = 0;
+  if (g_cur_opus_frame != 6 && g_cur_opus_frame != 13) return;
+  if (psEnc->sCmn.frame_length < 0 || psEnc->sCmn.frame_length > MAX_FRAME_LENGTH) {
+    g_stage_overflow = 1;
+    return;
+  }
+  if (g_stage_count >= MAX_TRACE_RECORDS) {
+    g_stage_overflow = 1;
+    return;
+  }
+  r = &g_stage[g_stage_count++];
+  memset(r, 0, sizeof(*r));
+  if ((const void *)psEnc == g_state_ptr[1]) ch = 1;
+  r->opus_frame_index = g_cur_opus_frame;
+  r->channel = ch;
+  r->iter = iter;
+  r->stage = stage;
+  r->tell = ec_tell((ec_ctx *)psRangeEnc);
+  r->range = psRangeEnc->rng;
+  r->signalType = psEnc->sCmn.indices.signalType;
+  r->quantOffsetType = psEnc->sCmn.indices.quantOffsetType;
+  r->seed = psEnc->sCmn.indices.Seed;
+  r->lagIndex = psEnc->sCmn.indices.lagIndex;
+  r->contourIndex = psEnc->sCmn.indices.contourIndex;
+  r->nlsfInterp = psEnc->sCmn.indices.NLSFInterpCoef_Q2;
+  r->perIndex = psEnc->sCmn.indices.PERIndex;
+  r->ltpScaleIndex = psEnc->sCmn.indices.LTP_scaleIndex;
+  for (i = 0; i < MAX_NB_SUBFR; i++) {
+    r->gains[i] = psEnc->sCmn.indices.GainsIndices[i];
+    r->ltp[i] = psEnc->sCmn.indices.LTPIndex[i];
+  }
+  for (i = 0; i < MAX_LPC_ORDER + 1; i++)
+    r->nlsf[i] = psEnc->sCmn.indices.NLSFIndices[i];
+  if (stage == 0) {
+    r->n_pulses = psEnc->sCmn.frame_length;
+    memcpy(r->pulses, psEnc->sCmn.pulses, (size_t)r->n_pulses * sizeof(r->pulses[0]));
+  }
+}
+
 int main(void) {
   char magic[4];
   uint32_t version, mode, application, sample_rate, channels, frame_size;
@@ -291,7 +377,7 @@ int main(void) {
    * Rather than depend on opaque offsets, derive the pointers lazily inside the
    * hook by remembering the first two distinct psEnc values seen. */
 
-  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) || !write_u32(n_frames)) {
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(2) || !write_u32(n_frames)) {
     fprintf(stderr, "write output header failed\n");
     opus_encoder_destroy(enc); free(pcm); free(packet); return 1;
   }
@@ -360,6 +446,25 @@ int main(void) {
       if (!write_f32(r->LTP_scale)) return 1;
       for (k = 0; k < MAX_NB_SUBFR; k++) if (!write_i32(r->pitchL[k])) return 1;
     }
+
+    if (!write_u32((uint32_t)g_stage_count)) return 1;
+    for (i = 0; i < (uint32_t)g_stage_count; i++) {
+      encode_stage_record *r = &g_stage[i];
+      int k;
+      if (!write_i32(r->opus_frame_index) || !write_i32(r->channel) ||
+          !write_i32(r->iter) || !write_i32(r->stage) || !write_i32(r->tell) ||
+          !write_u32(r->range) || !write_i32(r->signalType) ||
+          !write_i32(r->quantOffsetType) || !write_i32(r->seed) ||
+          !write_i32(r->lagIndex) || !write_i32(r->contourIndex) ||
+          !write_i32(r->nlsfInterp) || !write_i32(r->perIndex) ||
+          !write_i32(r->ltpScaleIndex)) return 1;
+      for (k = 0; k < MAX_NB_SUBFR; k++) if (!write_i32(r->gains[k])) return 1;
+      for (k = 0; k < MAX_NB_SUBFR; k++) if (!write_i32(r->ltp[k])) return 1;
+      for (k = 0; k < MAX_LPC_ORDER + 1; k++) if (!write_i32(r->nlsf[k])) return 1;
+      if (!write_i32(r->n_pulses) ||
+          !write_exact(r->pulses, (size_t)r->n_pulses * sizeof(r->pulses[0]))) return 1;
+    }
+    if (!write_i32(g_stage_overflow)) return 1;
   }
 
   opus_encoder_destroy(enc);

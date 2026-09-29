@@ -3,7 +3,8 @@ package silk
 type encodeFrameTraceStage uint8
 
 const (
-	encodeFrameTraceAfterIndices encodeFrameTraceStage = iota + 1
+	encodeFrameTraceAfterNSQ encodeFrameTraceStage = iota + 1
+	encodeFrameTraceAfterIndices
 	encodeFrameTraceAfterPulses
 )
 

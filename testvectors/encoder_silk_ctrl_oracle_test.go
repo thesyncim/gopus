@@ -32,6 +32,7 @@ import (
 const (
 	silkCtrlMaxNbSubfr  = 4
 	silkCtrlMaxShapeLPC = 24
+	silkCtrlMaxLPC      = 16
 	silkCtrlLTPOrder    = 5
 	silkCtrlInputMagic  = "GSCI"
 	silkCtrlOutputMagic = "GSCO"
@@ -105,6 +106,19 @@ type silkCtrlOracleOut struct {
 	packets [][]byte
 	ranges  []uint32
 	ctrl    []silkCtrlRecord
+	stages  []silkEncodeStageRecord
+}
+
+type silkEncodeStageRecord struct {
+	frame, channel, iter, stage, tell int32
+	rangeValue                        uint32
+	signalType, quantOffset, seed     int32
+	lagIndex, contour, nlsfInterp     int32
+	perIndex, ltpScale                int32
+	gains                             [silkCtrlMaxNbSubfr]int32
+	ltp                               [silkCtrlMaxNbSubfr]int32
+	nlsf                              [silkCtrlMaxLPC + 1]int32
+	pulses                            []int8
 }
 
 func runSILKCtrlOracle(helperPath string, req []byte, nFrames int) (*silkCtrlOracleOut, error) {
@@ -115,7 +129,8 @@ func runSILKCtrlOracle(helperPath string, req []byte, nFrames int) (*silkCtrlOra
 	if len(raw) < 12 || string(raw[0:4]) != silkCtrlOutputMagic {
 		return nil, fmt.Errorf("bad oracle response magic")
 	}
-	if binary.LittleEndian.Uint32(raw[4:8]) != 1 {
+	version := binary.LittleEndian.Uint32(raw[4:8])
+	if version != 2 {
 		return nil, fmt.Errorf("bad oracle version")
 	}
 	gotN := int(binary.LittleEndian.Uint32(raw[8:12]))
@@ -186,6 +201,39 @@ func runSILKCtrlOracle(helperPath string, req []byte, nFrames int) (*silkCtrlOra
 			r.pitchL[k] = ri()
 		}
 		out.ctrl = append(out.ctrl, r)
+	}
+	if version >= 2 {
+		nStages := int(rd())
+		for i := 0; i < nStages; i++ {
+			var r silkEncodeStageRecord
+			r.frame, r.channel, r.iter, r.stage, r.tell = ri(), ri(), ri(), ri(), ri()
+			r.rangeValue = rd()
+			r.signalType, r.quantOffset, r.seed = ri(), ri(), ri()
+			r.lagIndex, r.contour, r.nlsfInterp = ri(), ri(), ri()
+			r.perIndex, r.ltpScale = ri(), ri()
+			for k := range r.gains {
+				r.gains[k] = ri()
+			}
+			for k := range r.ltp {
+				r.ltp[k] = ri()
+			}
+			for k := range r.nlsf {
+				r.nlsf[k] = ri()
+			}
+			nPulses := int(ri())
+			if nPulses < 0 || nPulses > len(raw)-off {
+				return nil, fmt.Errorf("invalid stage pulse length %d (record %d/%d offset=%d remain=%d)", nPulses, i, nStages, off, len(raw)-off)
+			}
+			r.pulses = make([]int8, nPulses)
+			for k := range r.pulses {
+				r.pulses[k] = int8(raw[off])
+				off++
+			}
+			out.stages = append(out.stages, r)
+		}
+		if overflow := ri(); overflow != 0 {
+			return nil, fmt.Errorf("C stage trace overflowed its bounded record buffer")
+		}
 	}
 	if off != len(raw) {
 		return nil, fmt.Errorf("trailing oracle bytes: consumed %d of %d", off, len(raw))
@@ -317,11 +365,45 @@ func TestSILKCBRControlOracle(t *testing.T) {
 				FinalRanges: make([]uint32, 0, frameCount),
 			}
 			var snapshots []silk.SILKCtrlSnapshot
+			var goStages []silkEncodeStageRecord
+			channelByEncoder := make(map[*silk.Encoder]int, tc.channels)
+			nextChannel := 0
+			currentFrame := -1
 			var encodeErr error
-			silk.WithSILKCtrlSnapshotHook(func(s silk.SILKCtrlSnapshot) {
+			silk.WithSILKEncodeTraceSnapshotHooks(func(s silk.SILKCtrlSnapshot) {
 				snapshots = append(snapshots, s)
+			}, func(e *silk.Encoder, s silk.SILKEncodeStageSnapshot) {
+				channel, ok := channelByEncoder[e]
+				if !ok {
+					channel = nextChannel
+					channelByEncoder[e] = channel
+					nextChannel++
+				}
+				if currentFrame != 6 && currentFrame != 13 {
+					return
+				}
+				r := silkEncodeStageRecord{
+					frame: int32(currentFrame), channel: int32(channel), iter: int32(s.Iteration),
+					stage: int32(s.Stage - 1), tell: int32(s.Tell), rangeValue: s.Range,
+					signalType: int32(s.SignalType), quantOffset: int32(s.QuantOffsetType), seed: int32(s.Seed),
+					lagIndex: int32(s.LagIndex), contour: int32(s.ContourIndex),
+					nlsfInterp: int32(s.NLSFInterpCoefQ2), perIndex: int32(s.PERIndex),
+					ltpScale: int32(s.LTPScaleIndex),
+				}
+				for i := range r.gains {
+					r.gains[i] = int32(s.GainIndices[i])
+					r.ltp[i] = int32(s.LTPIndices[i])
+				}
+				for i := range r.nlsf {
+					r.nlsf[i] = int32(s.NLSFIndices[i])
+				}
+				if s.Stage == silk.SILKEncodeAfterNSQ {
+					r.pulses = append([]int8(nil), s.Pulses...)
+				}
+				goStages = append(goStages, r)
 			}, func() {
 				for frame := 0; frame < frameCount; frame++ {
+					currentFrame = frame
 					start := frame * tc.frameSize * tc.channels
 					end := start + tc.frameSize*tc.channels
 					packet, err := enc.Encode(oraclePCM[start:end], tc.frameSize)
@@ -364,6 +446,13 @@ func TestSILKCBRControlOracle(t *testing.T) {
 			if !controlDivergence {
 				t.Logf("SILK control snapshots match exactly across %d channel-frames", len(snapshots))
 			}
+			if len(oracle.stages) == 0 {
+				t.Errorf("C SILK stage trace is empty for frames 6 and 13")
+			} else if diff := firstSILKEncodeStageDifference(oracle.stages, goStages); diff != "" {
+				t.Errorf("first SILK NSQ/index/pulse stage divergence input=%s: %s", inputID, diff)
+			} else {
+				t.Logf("SILK NSQ/index/pulse stages match across %d witness events", len(goStages))
+			}
 
 			firstPacketFrame, firstPacketByte, firstRangeFrame := -1, -1, -1
 			for frame := 0; frame < frameCount; frame++ {
@@ -386,6 +475,54 @@ func TestSILKCBRControlOracle(t *testing.T) {
 	if selectedCases != 2 {
 		t.Fatalf("selected %d CBR trace witnesses, want exactly 2", selectedCases)
 	}
+}
+
+func firstSILKEncodeStageDifference(cRecords, goRecords []silkEncodeStageRecord) string {
+	limit := min(len(cRecords), len(goRecords))
+	for i := 0; i < limit; i++ {
+		c, g := cRecords[i], goRecords[i]
+		where := fmt.Sprintf("record=%d frame=%d channel=%d iter=%d stage=%d", i, c.frame, c.channel, c.iter, c.stage)
+		if c.frame != g.frame || c.channel != g.channel || c.iter != g.iter || c.stage != g.stage {
+			return fmt.Sprintf("%s ordering C=(frame%d/channel%d/iter%d/stage%d) Go=(frame%d/channel%d/iter%d/stage%d)",
+				where, c.frame, c.channel, c.iter, c.stage, g.frame, g.channel, g.iter, g.stage)
+		}
+		if c.tell != g.tell || c.rangeValue != g.rangeValue {
+			return fmt.Sprintf("%s tell/range C=%d/%08x Go=%d/%08x", where, c.tell, c.rangeValue, g.tell, g.rangeValue)
+		}
+		if c.signalType != g.signalType || c.quantOffset != g.quantOffset || c.seed != g.seed ||
+			c.lagIndex != g.lagIndex || c.contour != g.contour || c.nlsfInterp != g.nlsfInterp ||
+			c.perIndex != g.perIndex || c.ltpScale != g.ltpScale {
+			return fmt.Sprintf("%s core indices C=(sig%d qoff%d seed%d lag%d contour%d interp%d per%d scale%d) Go=(sig%d qoff%d seed%d lag%d contour%d interp%d per%d scale%d)",
+				where,
+				c.signalType, c.quantOffset, c.seed, c.lagIndex, c.contour, c.nlsfInterp, c.perIndex, c.ltpScale,
+				g.signalType, g.quantOffset, g.seed, g.lagIndex, g.contour, g.nlsfInterp, g.perIndex, g.ltpScale)
+		}
+		for j := range c.gains {
+			if c.gains[j] != g.gains[j] {
+				return fmt.Sprintf("%s GainsIndices[%d] C=%d Go=%d", where, j, c.gains[j], g.gains[j])
+			}
+			if c.ltp[j] != g.ltp[j] {
+				return fmt.Sprintf("%s LTPIndex[%d] C=%d Go=%d", where, j, c.ltp[j], g.ltp[j])
+			}
+		}
+		for j := range c.nlsf {
+			if c.nlsf[j] != g.nlsf[j] {
+				return fmt.Sprintf("%s NLSFIndices[%d] C=%d Go=%d", where, j, c.nlsf[j], g.nlsf[j])
+			}
+		}
+		for j := 0; j < min(len(c.pulses), len(g.pulses)); j++ {
+			if c.pulses[j] != g.pulses[j] {
+				return fmt.Sprintf("%s pulses[%d] C=%d Go=%d (lengths %d/%d)", where, j, c.pulses[j], g.pulses[j], len(c.pulses), len(g.pulses))
+			}
+		}
+		if len(c.pulses) != len(g.pulses) {
+			return fmt.Sprintf("%s pulse lengths C=%d Go=%d", where, len(c.pulses), len(g.pulses))
+		}
+	}
+	if len(cRecords) != len(goRecords) {
+		return fmt.Sprintf("stage record counts C=%d Go=%d", len(cRecords), len(goRecords))
+	}
+	return ""
 }
 
 func silkCBRControlDifference(r silkCtrlRecord, s silk.SILKCtrlSnapshot) string {

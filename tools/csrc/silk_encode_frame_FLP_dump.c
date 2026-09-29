@@ -50,6 +50,11 @@ extern void gopus_silk_ctrl_dump(
 extern void gopus_silk_nbytes_dump(
     const silk_encoder_state_FLP   *psEnc,
     opus_int32                      nBytesOut );
+extern void gopus_silk_encode_stage_dump(
+    const silk_encoder_state_FLP   *psEnc,
+    const ec_enc                   *psRangeEnc,
+    opus_int                        iter,
+    opus_int                        stage );
 
 /* Low Bitrate Redundancy (LBRR) encoding. Reuse all parameters but encode with lower bitrate */
 static OPUS_INLINE void silk_LBRR_encode_FLP(
@@ -226,6 +231,7 @@ opus_int silk_encode_frame_FLP(
                 /* Noise shaping quantization            */
                 /*****************************************/
                 silk_NSQ_wrapper_FLP( psEnc, &sEncCtrl, &psEnc->sCmn.indices, &psEnc->sCmn.sNSQ, psEnc->sCmn.pulses, x_frame );
+                gopus_silk_encode_stage_dump( psEnc, psRangeEnc, iter, 0 );
 
                 if ( iter == maxIter && !found_lower ) {
                     silk_memcpy( &sRangeEnc_copy2, psRangeEnc, sizeof( ec_enc ) );
@@ -235,12 +241,14 @@ opus_int silk_encode_frame_FLP(
                 /* Encode Parameters                    */
                 /****************************************/
                 silk_encode_indices( &psEnc->sCmn, psRangeEnc, psEnc->sCmn.nFramesEncoded, 0, condCoding );
+                gopus_silk_encode_stage_dump( psEnc, psRangeEnc, iter, 1 );
 
                 /****************************************/
                 /* Encode Excitation Signal             */
                 /****************************************/
                 silk_encode_pulses( psRangeEnc, psEnc->sCmn.indices.signalType, psEnc->sCmn.indices.quantOffsetType,
                       psEnc->sCmn.pulses, psEnc->sCmn.frame_length );
+                gopus_silk_encode_stage_dump( psEnc, psRangeEnc, iter, 2 );
 
                 nBits = ec_tell( psRangeEnc );
 
@@ -264,9 +272,11 @@ opus_int silk_encode_frame_FLP(
                     }
 
                     silk_encode_indices( &psEnc->sCmn, psRangeEnc, psEnc->sCmn.nFramesEncoded, 0, condCoding );
+                    gopus_silk_encode_stage_dump( psEnc, psRangeEnc, iter, 1 );
 
                     silk_encode_pulses( psRangeEnc, psEnc->sCmn.indices.signalType, psEnc->sCmn.indices.quantOffsetType,
                         psEnc->sCmn.pulses, psEnc->sCmn.frame_length );
+                    gopus_silk_encode_stage_dump( psEnc, psRangeEnc, iter, 2 );
 
                     nBits = ec_tell( psRangeEnc );
                 }

@@ -210,6 +210,15 @@ and frame 13 (WB stereo). Their first reported control differences occur later,
 so those controls do not yet identify the root cause. These cases remain
 unresolved under the parity target; they have no numerical allowance.
 
+The [native v3 audit at `29211b7c`](https://github.com/thesyncim/gopus/actions/runs/36610118795)
+uses Go 1.27.1 and GCC 13.3 on AMD EPYC 7763 with matching scalar/SIMD C
+references. CBR exact cases are 14/19 scalar (68 packet/61 range differences)
+and 6/19 SIMD (321 packet/196 range differences), out of 2,175 packets per
+lane. The two SILK encoder cases also fail the unchanged quality gate;
+CELT/Hybrid have unresolved same-packet PCM differences. FFT/MDCT and SILK
+primitive suites pass. The CELT encoder trace rejects inconsistent quantization
+dimensions, so it does not yet establish a runtime divergence location.
+
 | Priority | Surface | Finding | Current evidence |
 |---|---|---|---|
 | P1 | Public FEC robustness | Independent decoder sessions cannot prove persistent FEC history; accept/count checks omit PCM. | The stereo-coded/mono-API concealment correction passes 128 channel/duration/API cases with exact PCM, ranges, recovery and zero warm allocations in eight local lanes. The 2.5 ms Hybrid-to-SILK CELT overlap correction passes 16 transition cases in all eight lanes at `2f334bed`. The strict persistent mutation sweep passes all 8,000 sequences in six local float/fixed/QEXT scalar/SIMD lanes at `a8cdf338`, with exact prime/FEC PCM and ranges and no skipped primes. Both rate-switch witnesses also pass normal recovery and following PLC. |

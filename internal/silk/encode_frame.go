@@ -284,6 +284,16 @@ gainSearch:
 			pulses, seedOut = e.computeNSQExcitation(framePCM, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, int(speechActivityQ8), noiseParams, int(frameIndices.Seed), numSubframes, subframeSamples, frameSamples, e.nsqState)
 			frameIndices.Seed = int8(seedOut)
 			frameIndices.quantOffsetType = int8(quantOffset)
+			if encodeFrameTraceEnabled {
+				recordEncodeFrameTrace(e, encodeFrameTrace{
+					stage:   encodeFrameTraceAfterNSQ,
+					iter:    iter,
+					tell:    e.rangeEncoder.Tell(),
+					rng:     e.rangeEncoder.Range(),
+					indices: frameIndices,
+					pulses:  pulses,
+				})
+			}
 
 			if iter == maxIter && !foundLower {
 				rangeCopy2 = *e.rangeEncoder
