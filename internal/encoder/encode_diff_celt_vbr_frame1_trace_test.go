@@ -49,7 +49,7 @@ func TestEncodeDiffCELTVBRFrame1Trace(t *testing.T) {
 		Complexity:    10,
 		Signal:        libopustest.EncodeDiffSignalMusic,
 		VBR:           true,
-		VBRConstraint: false,
+		VBRConstraint: true,
 		ForceChannels: vbrTraceChannels,
 		FrameSize:     vbrTraceFrameSize,
 		FrameCount:    vbrTraceFrames,
@@ -192,11 +192,12 @@ func buildCELTVBREntropyTraceOracle(t *testing.T) string {
 
 func newCELTVBRTraceEncoder() *Encoder {
 	e := NewEncoder(48000, vbrTraceChannels)
+	e.SetFrameSize(vbrTraceFrameSize)
 	e.SetMode(ModeCELT)
 	e.SetBandwidth(types.BandwidthFullband)
 	e.SetMaxBandwidth(types.BandwidthFullband)
 	e.SetBitrate(vbrTraceBitrate)
-	e.SetBitrateMode(ModeVBR)
+	e.SetBitrateMode(ModeCVBR)
 	e.SetComplexity(10)
 	e.SetSignalType(types.SignalMusic)
 	e.SetForceChannels(vbrTraceChannels)

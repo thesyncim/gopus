@@ -272,13 +272,13 @@ at frame 95. The SIMD trace first differs in actual MDCT input at index 120
 identify an MDCT arithmetic defect. Preemphasis and prefilter tracing follows
 that upstream boundary.
 
-The remaining scalar public VBR differential case differs at frame 1, packet
-byte 59, with matching final range `3e290e00`. A separate two-frame trace
-uses equal 4000-byte output capacities and matches C packets/ranges, but its
-packet lengths differ from the eight-frame corpus witness. It cannot explain
-the failure until the exact corpus input and controls match. Trace schema,
-caller state, capacity and transparency checks remain strict. No numerical
-allowance is accepted for any unresolved difference.
+The remaining scalar public constrained-VBR differential case differs at
+frame 1, packet byte 59, with matching final range `3e290e00`. Its `vbr1`
+selector means `ModeCVBR`. The separate two-frame trace selects unconstrained
+VBR, uses equal 4000-byte output capacities and matches C packets/ranges; it
+does not reproduce the failing case. Trace schema, caller state, capacity and
+transparency checks remain strict. No numerical allowance is accepted for any
+unresolved difference.
 
 | Priority | Surface | Finding | Current evidence |
 |---|---|---|---|
