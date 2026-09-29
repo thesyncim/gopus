@@ -15,7 +15,7 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
-// ErrInvalidInput indicates the input samples have incorrect length.
+// ErrInvalidInput indicates an unsupported frame size or malformed PCM shape.
 var ErrInvalidInput = errors.New("multistream: invalid input length")
 
 // ErrInvalidForceChannels indicates that a forced channel count is invalid for
@@ -949,6 +949,9 @@ func (e *Encoder) EncodeInt16(pcm []int16, frameSize int, out []byte) (int, erro
 // EncodeInt16WithAnalysis is EncodeInt16 with a caller analysis frame longer
 // than the coded frame (see EncodeWithAnalysis).
 func (e *Encoder) EncodeInt16WithAnalysis(pcm []int16, frameSize int, analysisPCM []int16, out []byte) (int, error) {
+	if err := e.validateNativeFrameSize(frameSize); err != nil {
+		return 0, err
+	}
 	if len(analysisPCM) < len(pcm) {
 		return 0, fmt.Errorf("%w: got %d analysis samples for %d samples", ErrInvalidInput, len(analysisPCM), len(pcm))
 	}
@@ -991,8 +994,11 @@ type encodeInput struct {
 // encodeNative ports opus_multistream_encode_native()
 // (src/opus_multistream_encoder.c:846-1053).
 func (e *Encoder) encodeNative(in encodeInput, frameSize int, analysisPCM []float32, out []byte) (int, error) {
-	expectedLen := frameSize * e.inputChannels
-	if frameSize <= 0 || len(in.f32) != expectedLen {
+	if err := e.validateNativeFrameSize(frameSize); err != nil {
+		return 0, err
+	}
+	expectedLen, ok := checkedInterleavedSampleCount(frameSize, e.inputChannels)
+	if !ok || len(in.f32) != expectedLen {
 		return 0, fmt.Errorf("%w: got %d samples, expected %d (frameSize=%d, channels=%d)",
 			ErrInvalidInput, len(in.f32), expectedLen, frameSize, e.inputChannels)
 	}
@@ -1110,6 +1116,57 @@ func (e *Encoder) encodeNative(in encodeInput, frameSize int, analysisPCM []floa
 		totSize += n
 	}
 	return totSize, nil
+}
+
+// validateNativeFrameSize matches libopus frame_size_select() with
+// OPUS_FRAMESIZE_ARG. Multistream encoding rejects unsupported durations
+// before checking the output budget or entering stream analysis.
+func (e *Encoder) validateNativeFrameSize(frameSize int) error {
+	if !validNativeFrameSize(int(e.sampleRate), frameSize, e.restrictedSilk) {
+		return fmt.Errorf("%w: unsupported frame size %d at %d Hz", ErrInvalidInput, frameSize, e.sampleRate)
+	}
+	return nil
+}
+
+// validNativeFrameSize follows src/opus_encoder.c frame_size_select() for the
+// multistream encoder's OPUS_FRAMESIZE_ARG setting.
+func validNativeFrameSize(sampleRate, frameSize int, restrictedSilk bool) bool {
+	if sampleRate <= 0 || frameSize < sampleRate/400 {
+		return false
+	}
+	if restrictedSilk && frameSize < sampleRate/100 {
+		return false
+	}
+
+	for _, supported := range [...]int{
+		sampleRate / 400,
+		sampleRate / 200,
+		sampleRate / 100,
+		sampleRate / 50,
+		sampleRate / 25,
+		3 * sampleRate / 50,
+		4 * sampleRate / 50,
+		5 * sampleRate / 50,
+		6 * sampleRate / 50,
+	} {
+		if frameSize == supported {
+			return true
+		}
+	}
+	return false
+}
+
+// checkedInterleavedSampleCount guards the public frameSize*channels shape
+// before the Go API multiplies dimensions that arrive as machine-sized ints.
+func checkedInterleavedSampleCount(frameSize, channels int) (int, bool) {
+	if frameSize < 0 || channels <= 0 {
+		return 0, false
+	}
+	maxInt := int(^uint(0) >> 1)
+	if frameSize > maxInt/channels {
+		return 0, false
+	}
+	return frameSize * channels, true
 }
 
 // encodeStream runs one elementary opus_encode_native() call. The 16-bit entry
