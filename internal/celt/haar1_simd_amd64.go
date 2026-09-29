@@ -12,8 +12,8 @@ import (
 const haar1Scale = float32(0.7071067811865476)
 
 // haar1Stride1 runs haar1's stride-1 butterfly over n0 (even, odd) pairs,
-// four pairs per step. Each lane scales both inputs before the sum and the
-// difference, exactly as the scalar loop does.
+// four pairs per step. The target-selected vector helper preserves libopus'
+// per-target contraction order.
 func haar1Stride1(x []float32, n0 int) {
 	if !archsimd.X86.AVX() {
 		haar1StrideScalarAMD64(x, n0, 1)
@@ -35,18 +35,16 @@ func haar1Stride1AVX(x []float32, n0 int) {
 		off := unsafe.Add(p, i*8)
 		a := loadF32x4(off)
 		b := loadF32x4(unsafe.Add(off, 16))
-		even := a.ConcatPermuteScalars(0, 2, 4, 6, b).Mul(scale)
-		odd := a.ConcatPermuteScalars(1, 3, 5, 7, b).Mul(scale)
-		sum := even.Add(odd).ToBits()
-		diff := even.Sub(odd).ToBits()
-		storeF32x4(off, sum.InterleaveLo(diff).BitsToFloat32())
-		storeF32x4(unsafe.Add(off, 16), sum.InterleaveHi(diff).BitsToFloat32())
+		even := a.ConcatPermuteScalars(0, 2, 4, 6, b)
+		odd := a.ConcatPermuteScalars(1, 3, 5, 7, b)
+		sum, diff := haar1ScaledPairVectors(even, odd, scale)
+		sumBits := sum.ToBits()
+		diffBits := diff.ToBits()
+		storeF32x4(off, sumBits.InterleaveLo(diffBits).BitsToFloat32())
+		storeF32x4(unsafe.Add(off, 16), sumBits.InterleaveHi(diffBits).BitsToFloat32())
 	}
 	for ; i < n0; i++ {
-		t0 := noFMA32Mul(haar1Scale, x[2*i])
-		t1 := noFMA32Mul(haar1Scale, x[2*i+1])
-		x[2*i] = noFMA32Add(t0, t1)
-		x[2*i+1] = noFMA32Sub(t0, t1)
+		haar1PairNorm(x, 2*i, 2*i+1, haar1Scale)
 	}
 }
 
@@ -73,23 +71,16 @@ func haar1Stride2AVX(x []float32, n0 int) {
 		off := unsafe.Add(p, i*16)
 		a := loadF32x4(off)
 		b := loadF32x4(unsafe.Add(off, 16))
-		lo := a.ConcatPermuteScalars(0, 1, 4, 5, b).Mul(scale)
-		hi := a.ConcatPermuteScalars(2, 3, 6, 7, b).Mul(scale)
-		sum := lo.Add(hi)
-		diff := lo.Sub(hi)
+		lo := a.ConcatPermuteScalars(0, 1, 4, 5, b)
+		hi := a.ConcatPermuteScalars(2, 3, 6, 7, b)
+		sum, diff := haar1ScaledPairVectors(lo, hi, scale)
 		storeF32x4(off, sum.ConcatPermuteScalars(0, 1, 4, 5, diff))
 		storeF32x4(unsafe.Add(off, 16), sum.ConcatPermuteScalars(2, 3, 6, 7, diff))
 	}
 	for ; i < n0; i++ {
 		off := 4 * i
-		t0 := noFMA32Mul(haar1Scale, x[off])
-		t1 := noFMA32Mul(haar1Scale, x[off+1])
-		t2 := noFMA32Mul(haar1Scale, x[off+2])
-		t3 := noFMA32Mul(haar1Scale, x[off+3])
-		x[off] = noFMA32Add(t0, t2)
-		x[off+1] = noFMA32Add(t1, t3)
-		x[off+2] = noFMA32Sub(t0, t2)
-		x[off+3] = noFMA32Sub(t1, t3)
+		haar1PairNorm(x, off, off+2, haar1Scale)
+		haar1PairNorm(x, off+1, off+3, haar1Scale)
 	}
 }
 
@@ -113,15 +104,16 @@ func haar1Stride4AVX(x []float32, n0 int) {
 	scale := broadcastF32x4Arch(haar1Scale)
 	for i := range n0 {
 		off := unsafe.Add(p, i*32)
-		lo := loadF32x4(off).Mul(scale)
-		hi := loadF32x4(unsafe.Add(off, 16)).Mul(scale)
-		storeF32x4(off, lo.Add(hi))
-		storeF32x4(unsafe.Add(off, 16), lo.Sub(hi))
+		lo := loadF32x4(off)
+		hi := loadF32x4(unsafe.Add(off, 16))
+		sum, diff := haar1ScaledPairVectors(lo, hi, scale)
+		storeF32x4(off, sum)
+		storeF32x4(unsafe.Add(off, 16), diff)
 	}
 }
 
-// haar1StrideScalarAMD64 keeps the vector kernels' per-pair operation order
-// when the host does not support AVX.
+// haar1StrideScalarAMD64 keeps the selected per-pair operation order when the
+// host does not support AVX.
 func haar1StrideScalarAMD64(x []float32, n0, stride int) {
 	for i := 0; i < n0; i++ {
 		base := 2 * stride * i
@@ -129,4 +121,14 @@ func haar1StrideScalarAMD64(x []float32, n0, stride int) {
 			haar1PairNorm(x, base+j, base+stride+j, haar1Scale)
 		}
 	}
+}
+
+func haar1ScaledPairVectors(first, second, scale archsimd.Float32x4) (sum, diff archsimd.Float32x4) {
+	if haar1UsesFMA {
+		roundedSecond := second.Mul(scale)
+		return first.MulAdd(scale, roundedSecond), first.MulAdd(scale, roundedSecond.Neg())
+	}
+	first = first.Mul(scale)
+	second = second.Mul(scale)
+	return first.Add(second), first.Sub(second)
 }

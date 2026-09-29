@@ -181,16 +181,36 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 
 	interpIdx := 4
 	useInterp := e.complexity >= 4 && !e.firstFrameAfterReset && numSubframes == maxNbSubfr
+	traceInterpolation := silkNLSFInterpolationTraceEnabled && useInterp && silkNLSFInterpolationTraceActive()
+	var interpolationTrace SILKNLSFInterpolationSnapshot
+	if traceInterpolation {
+		interpolationTrace.FrameInPacket = e.nFramesEncoded
+		interpolationTrace.Order = order
+		interpolationTrace.SubframeLen = subfrLen
+		interpolationTrace.NumSubframes = numSubframes
+		interpolationTrace.MinInvGain = minInvGainVal
+		interpolationTrace.Input = ltpRes[:totalLen]
+		copy(interpolationTrace.PrevNLSFQ15[:], e.prevLSFQ15[:order])
+		copy(interpolationTrace.FullBurgCoefficients[:], aFull[:order])
+		interpolationTrace.FullResidualEnergy = resNrg32
+	}
 	if useInterp {
 		halfOffset := (maxNbSubfr / 2) * subfrLen
 		if halfOffset+subfrLen*(maxNbSubfr/2) <= totalLen {
 			aLast, resNrgLast := e.burgModifiedFLPZeroAllocF32(ltpRes[halfOffset:], minInvGainVal, subfrLen, maxNbSubfr/2, order)
+			if traceInterpolation {
+				copy(interpolationTrace.LastBurgCoefficients[:], aLast[:order])
+				interpolationTrace.LastResidualEnergy = resNrgLast
+			}
 			lsfLast := ensureInt16Slice(&e.scratchNLSFTempQ15, order)
 			for i := range order {
 				a32 := float32(aLast[i])
 				lpcQ16[i] = float32ToInt32RoundEven(a32 * 65536.0)
 			}
 			silkA2NLSFInto(lsfLast, lpcQ16, order, e.scratchA2nlsfP[:], e.scratchA2nlsfQ[:])
+			if traceInterpolation {
+				copy(interpolationTrace.LastNLSFQ15[:], lsfLast[:order])
+			}
 
 			// Restore full-frame energy stats for gain processing.
 			e.lastTotalEnergy = fullTotalEnergy
@@ -221,10 +241,19 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 					// Match libopus find_LPC_FLP.c exactly:
 					// res_nrg_interp = (silk_float)( energy(seg0) + energy(seg1) );
 					// Sum in double precision, cast once to float32.
-					resNrgInterp := float32(
-						energyF32Libopus(lpcRes[order:], subframeSamples) +
-							energyF32Libopus(lpcRes[order+subfrLen:], subframeSamples),
-					)
+					energyFirst := energyF32Libopus(lpcRes[order:], subframeSamples)
+					energySecond := energyF32Libopus(lpcRes[order+subfrLen:], subframeSamples)
+					resNrgInterp := float32(energyFirst + energySecond)
+					if traceInterpolation && interpolationTrace.CandidateCount < len(interpolationTrace.Candidates) {
+						candidate := &interpolationTrace.Candidates[interpolationTrace.CandidateCount]
+						candidate.InterpIndex = int32(k)
+						candidate.EnergyFirst = energyFirst
+						candidate.EnergySecond = energySecond
+						candidate.ResidualEnergy = resNrgInterp
+						copy(candidate.NLSFQ15[:], interpNLSF[:order])
+						copy(candidate.LPCQ12[:], lpcTmpQ12[:order])
+						interpolationTrace.CandidateCount++
+					}
 
 					if resNrgInterp < resNrg32 {
 						resNrg32 = resNrgInterp
@@ -234,6 +263,10 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 					}
 					resNrg2nd = resNrgInterp
 				}
+			}
+			if traceInterpolation {
+				interpolationTrace.SelectedIndex = int32(interpIdx)
+				recordSILKNLSFInterpolationTrace(e, interpolationTrace)
 			}
 
 			if interpIdx < 4 {

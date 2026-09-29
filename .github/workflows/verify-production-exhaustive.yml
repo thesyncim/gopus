@@ -108,7 +108,7 @@ jobs:
             env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
               GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
               "${go_cmd[@]}" test ./internal/celt ./internal/encoder -count=1 -v -timeout=15m \
-              -run '^Test(ApplyPreemphasisWithScalingMatchesLibopus|CELTBandEnergyMatchesLiveLibopus|LibopusCELTDynallocAnalysisMatchesReference|LibopusCELTEnergy(QuantFine|Finalise)MatchesReference|CELTLog2MatchesLibopusFloatApprox|CELTExp2MatchesLibopusFloatApprox|CELTAngleMathMatchesLibopusFloatPath|OPPVQSearchMatchesLibopusFloatPath|AlgUnquantMatchesLibopusFloatPath|ExpRotationMatchesLibopusFloatPath|CombFilterWithSquareMatchesLibopus|CombFilterConstSSEOrderZeroAllocs|CombFilterWithInputF32MatchesLibopus|CombFilterConstantBodyHistorySeamMatchesLibopus|CombFilterRampedHistorySeamMatchesLibopus|CELTPostfilterStagesMatchLibopusC|CELTDecodeV3FirstDivergenceMatchesLibopusC|StereoMergeRescaleBitExact|StereoMergeRescaleNoAllocs|StereoMergeVsLibopus|Haar1MatchesLibopus|Haar1NormMatchesLibopus|HPCutoffMatchesLibopus|GainFadeMatchesLibopus|StereoFadeMatchesLibopus)$' \
+              -run '^Test(ApplyPreemphasisWithScalingMatchesLibopus|CELTBandEnergyMatchesLiveLibopus|LibopusCELTDynallocAnalysisMatchesReference|LibopusCELTEnergy(QuantFine|Finalise)MatchesReference|CELTLog2MatchesLibopusFloatApprox|CELTExp2MatchesLibopusFloatApprox|CELTAngleMathMatchesLibopusFloatPath|OPPVQSearchMatchesLibopusFloatPath|AlgUnquantMatchesLibopusFloatPath|ExpRotationMatchesLibopusFloatPath|CombFilterWithSquareMatchesLibopus|CombFilterConstSSEOrderZeroAllocs|CombFilterKernelsZeroAllocs|CombFilterWithInputF32MatchesLibopus|CombFilterConstantBodyHistorySeamMatchesLibopus|CombFilterRampedHistorySeamMatchesLibopus|CELTPostfilterStagesMatchLibopusC|CELTDecodeV3FirstDivergenceMatchesLibopusC|StereoMergeRescaleBitExact|StereoMergeRescaleNoAllocs|StereoMergeVsLibopus|Haar1MatchesLibopus|Haar1NormMatchesLibopus|Haar1NoAllocs|HPCutoffMatchesLibopus|GainFadeMatchesLibopus|StereoFadeMatchesLibopus)$' \
               > "$RUNNER_TEMP/goamd64-evidence/$mode-celt-stages.log" 2>&1 || status=1
             env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
               GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
@@ -117,8 +117,8 @@ jobs:
               > "$RUNNER_TEMP/goamd64-evidence/$mode-silk-primitives.log" 2>&1 || status=1
             env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
               GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
-              "${go_cmd[@]}" test ./testvectors -tags gopus_silk_trace -count=1 -v -timeout=15m \
-              -run '^TestSILKCBRControlOracle$' \
+              "${go_cmd[@]}" test ./testvectors ./internal/silk -tags gopus_silk_trace -count=1 -v -timeout=15m \
+              -run '^Test(SILKCBRControlOracle|SILKFindLPCInterpolationTraceAgainstLibopus)$' \
               > "$RUNNER_TEMP/goamd64-evidence/$mode-silk-controls.log" 2>&1 || status=1
             env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
               GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
@@ -156,7 +156,7 @@ jobs:
           done
           shopt -s nullglob
           helper_count=0
-          for helper in "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_celt_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_silk_*; do
+          for helper in "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_celt_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_silk_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_hp_cutoff_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_gain_fade_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_stereo_fade_*; do
             if [[ ! -x "$helper" ]]; then continue; fi
             name="$(basename "$helper")"
             cp "$helper" "$RUNNER_TEMP/goamd64-evidence/helpers/$name"

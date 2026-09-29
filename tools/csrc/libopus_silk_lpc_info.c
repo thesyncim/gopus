@@ -66,7 +66,8 @@ enum {
   MODE_INNER_PRODUCT_FLP = 2,
   MODE_ENERGY_FLP = 3,
   MODE_FIND_LPC_FLP = 4,
-  MODE_AUTOCORRELATION_FLP = 5
+  MODE_AUTOCORRELATION_FLP = 5,
+  MODE_FIND_LPC_TRACE_FLP = 6
 };
 
 static int set_binary_stdio(void) {
@@ -285,6 +286,151 @@ static int eval_find_lpc(void) {
   return 1;
 }
 
+/*
+ * Trace the live C primitives used by silk_find_LPC_FLP on one supplied input.
+ * The candidate loop mirrors silk/float/find_LPC_FLP.c, but each Burg pass,
+ * interpolation, NLSF-to-LPC conversion, analysis filter, and energy call is
+ * the linked libopus implementation. The final selected index is obtained by
+ * a separate call to silk_find_LPC_FLP itself.
+ */
+static int eval_find_lpc_trace(void) {
+  uint32_t raw;
+  uint32_t subfr_samples;
+  uint32_t nb_subfr;
+  uint32_t order;
+  uint32_t use_interp;
+  uint32_t first_frame_after_reset;
+  uint32_t total;
+  uint32_t i;
+  silk_encoder_state st;
+  silk_encoder_state actual_st;
+  opus_int16 nlsf[16] = {0};
+  opus_int16 last_nlsf[16] = {0};
+  opus_int16 interp_nlsf[16] = {0};
+  silk_float min_inv_gain;
+  silk_float x[384];
+  silk_float full_a[16] = {0};
+  silk_float last_a[16] = {0};
+  silk_float interp_a[16] = {0};
+  silk_float lpc_res[512];
+  silk_float full_res_nrg;
+  silk_float last_res_nrg;
+  silk_float best_res_nrg;
+  silk_float second_res_nrg;
+  opus_int subfr_length;
+  opus_int candidate_count = 0;
+  opus_int candidate_indices[4] = {0};
+  opus_int traced_selected = 4;
+  silk_float candidate_res_nrg[4] = {0};
+  double candidate_energy_first[4] = {0};
+  double candidate_energy_second[4] = {0};
+  opus_int16 candidate_nlsf[4][16] = {{0}};
+  silk_float candidate_a[4][16] = {{0}};
+  opus_int actual_selected;
+
+  if (!read_u32(&subfr_samples) || !read_u32(&nb_subfr) || !read_u32(&order) ||
+      !read_u32(&use_interp) || !read_u32(&first_frame_after_reset) || !read_u32(&raw)) {
+    return 0;
+  }
+  if (subfr_samples == 0 || nb_subfr != 4 || (order != 10 && order != 16) ||
+      use_interp != 1 || first_frame_after_reset != 0) {
+    return 0;
+  }
+  if (subfr_samples > 384 / 4 - order) return 0;
+  subfr_length = (opus_int)(subfr_samples + order);
+  total = nb_subfr * (uint32_t)subfr_length;
+  if (total > 384 || subfr_length * 2 > (opus_int)(sizeof(lpc_res) / sizeof(lpc_res[0]))) return 0;
+
+  memcpy(&min_inv_gain, &raw, sizeof(min_inv_gain));
+  memset(&st, 0, sizeof(st));
+  st.subfr_length = (opus_int)subfr_samples;
+  st.nb_subfr = (opus_int)nb_subfr;
+  st.predictLPCOrder = (opus_int)order;
+  st.useInterpolatedNLSFs = (opus_int)use_interp;
+  st.first_frame_after_reset = (opus_int)first_frame_after_reset;
+  st.arch = selected_arch;
+  for (i = 0; i < 16; i++) {
+    if (!read_u32(&raw)) return 0;
+    if (i < order) st.prev_NLSFq_Q15[i] = (opus_int16)(int32_t)raw;
+  }
+  for (i = 0; i < total; i++) {
+    if (!read_u32(&raw)) return 0;
+    memcpy(&x[i], &raw, sizeof(x[i]));
+  }
+
+  /* Exact setup and candidate operations from silk_find_LPC_FLP. */
+  full_res_nrg = silk_burg_modified_FLP(full_a, x, min_inv_gain, subfr_length,
+      (opus_int)nb_subfr, (opus_int)order, selected_arch);
+  last_res_nrg = silk_burg_modified_FLP(last_a, x + (nb_subfr / 2) * subfr_length,
+      min_inv_gain, subfr_length, (opus_int)(nb_subfr / 2), (opus_int)order, selected_arch);
+  best_res_nrg = full_res_nrg - last_res_nrg;
+  second_res_nrg = silk_float_MAX;
+  silk_A2NLSF_FLP(last_nlsf, last_a, (opus_int)order);
+  for (opus_int k = 3; k >= 0; k--) {
+    double energy_first;
+    double energy_second;
+    silk_float residual_energy;
+    opus_int slot = candidate_count;
+    silk_interpolate(interp_nlsf, st.prev_NLSFq_Q15, last_nlsf, k, (opus_int)order);
+    silk_NLSF2A_FLP(interp_a, interp_nlsf, (opus_int)order, st.arch);
+    silk_LPC_analysis_filter_FLP(lpc_res, interp_a, x, 2 * subfr_length, (opus_int)order);
+    energy_first = silk_energy_FLP(lpc_res + order, subfr_length - (opus_int)order);
+    energy_second = silk_energy_FLP(lpc_res + order + subfr_length,
+        subfr_length - (opus_int)order);
+    residual_energy = (silk_float)(energy_first + energy_second);
+
+    candidate_indices[slot] = k;
+    candidate_energy_first[slot] = energy_first;
+    candidate_energy_second[slot] = energy_second;
+    candidate_res_nrg[slot] = residual_energy;
+    memcpy(candidate_nlsf[slot], interp_nlsf, order * sizeof(interp_nlsf[0]));
+    memcpy(candidate_a[slot], interp_a, order * sizeof(interp_a[0]));
+    candidate_count++;
+
+    if (residual_energy < best_res_nrg) {
+      best_res_nrg = residual_energy;
+      traced_selected = k;
+    } else if (residual_energy > second_res_nrg) {
+      break;
+    }
+    second_res_nrg = residual_energy;
+  }
+
+  actual_st = st;
+  silk_find_LPC_FLP(&actual_st, nlsf, x, min_inv_gain, selected_arch);
+  actual_selected = actual_st.indices.NLSFInterpCoef_Q2;
+  if (actual_selected != traced_selected) {
+    fprintf(stderr, "FindLPC trace loop selected %d, silk_find_LPC_FLP selected %d\n",
+        (int)traced_selected, (int)actual_selected);
+    return 0;
+  }
+  if (!write_u32(order) || !write_u32((uint32_t)(int32_t)actual_selected) ||
+      !write_float(full_res_nrg) || !write_float(last_res_nrg)) return 0;
+  for (i = 0; i < 16; i++) {
+    if (!write_float(i < order ? full_a[i] : 0)) return 0;
+  }
+  for (i = 0; i < 16; i++) {
+    if (!write_float(i < order ? last_a[i] : 0)) return 0;
+  }
+  for (i = 0; i < 16; i++) {
+    if (!write_u32(i < order ? (uint32_t)(int32_t)last_nlsf[i] : 0)) return 0;
+  }
+  if (!write_u32((uint32_t)candidate_count)) return 0;
+  for (i = 0; i < (uint32_t)candidate_count; i++) {
+    uint32_t j;
+    if (!write_u32((uint32_t)candidate_indices[i])) return 0;
+    for (j = 0; j < 16; j++) {
+      if (!write_u32(j < order ? (uint32_t)(int32_t)candidate_nlsf[i][j] : 0)) return 0;
+    }
+    for (j = 0; j < 16; j++) {
+      if (!write_float(j < order ? candidate_a[i][j] : 0)) return 0;
+    }
+    if (!write_double(candidate_energy_first[i]) || !write_double(candidate_energy_second[i]) ||
+        !write_float(candidate_res_nrg[i])) return 0;
+  }
+  return 1;
+}
+
 static int eval_autocorrelation(void) {
   uint32_t raw;
   uint32_t length;
@@ -315,6 +461,7 @@ static int eval_record(uint32_t mode) {
     case MODE_ENERGY_FLP: return eval_energy();
     case MODE_FIND_LPC_FLP: return eval_find_lpc();
     case MODE_AUTOCORRELATION_FLP: return eval_autocorrelation();
+    case MODE_FIND_LPC_TRACE_FLP: return eval_find_lpc_trace();
   }
   return 0;
 }
@@ -338,7 +485,7 @@ int main(void) {
 #endif
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_AUTOCORRELATION_FLP) return 1;
+  if (mode > MODE_FIND_LPC_TRACE_FLP) return 1;
 
   inner_product_impl = inner_product_impl_selected(selected_arch);
   inner_product_is_presumed = inner_product_presumed();

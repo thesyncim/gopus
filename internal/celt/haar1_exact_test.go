@@ -44,7 +44,10 @@ func TestHaar1MatchesLibopus(t *testing.T) {
 	}
 	cases := []haar1OracleCase{
 		{nameHaarCase(4, 1), makeInput(4, 0x1001), 4, 1},
+		// These exercise the one-pair scalar tails after the AMD64 SIMD blocks.
+		{nameHaarCase(10, 1), makeInput(10, 0x1010), 10, 1},
 		{nameHaarCase(8, 2), makeInput(16, 0x1002), 8, 2},
+		{nameHaarCase(6, 2), makeInput(12, 0x1006), 6, 2},
 		{nameHaarCase(16, 4), makeInput(64, 0x1004), 16, 4},
 		{nameHaarCase(48, 6), makeInput(288, 0x1006), 48, 6},
 		{nameHaarCase(120, 8), makeInput(960, 0x1008), 120, 8},
@@ -78,7 +81,9 @@ func TestHaar1NormMatchesLibopus(t *testing.T) {
 	requirePairedCELTOracleMode(t)
 	cases := []haar1OracleCase{
 		{nameHaarCase(8, 1), []float32{0.25, -0.5, 0.75, -1, 0.125, -0.25, 0.5, -0.75}, 8, 1},
+		{nameHaarCase(10, 1), makeHaarNormInput(10, 0x5010), 10, 1},
 		{nameHaarCase(16, 2), makeHaarNormInput(32, 0x5012), 16, 2},
+		{nameHaarCase(6, 2), makeHaarNormInput(12, 0x5006), 6, 2},
 		{nameHaarCase(48, 6), makeHaarNormInput(288, 0x5016), 48, 6},
 		{nameHaarCase(120, 12), makeHaarNormInput(1440, 0x5020), 120, 12},
 	}
@@ -201,6 +206,24 @@ func TestHaar1StrideFastPathsMatchGenericExact(t *testing.T) {
 
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("exact mismatch: got %v want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestHaar1NoAllocs(t *testing.T) {
+	for _, stride := range []int{1, 2, 4, 6} {
+		t.Run(fmt.Sprintf("stride_%d", stride), func(t *testing.T) {
+			const n0 = 120
+			x := make([]celtNorm, 2*n0*stride)
+			for i := range x {
+				x[i] = celtNorm(float32((i%31)-15) / 16)
+			}
+			haar1(x, 2*n0, stride)
+			if got := testing.AllocsPerRun(100, func() {
+				haar1(x, 2*n0, stride)
+			}); got != 0 {
+				t.Fatalf("haar1 allocated %g times per run", got)
 			}
 		})
 	}

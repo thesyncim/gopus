@@ -259,10 +259,9 @@ func haar1Norm(x []celtNorm, n0, stride int) {
 		idx0 := i
 		idx1 := i + stride
 		for j := 0; j < n0; j++ {
-			tmp1 := noFMA32Mul(invSqrt2, float32(x[idx0]))
-			tmp2 := noFMA32Mul(invSqrt2, float32(x[idx1]))
-			x[idx0] = celtNorm(noFMA32Add(tmp1, tmp2))
-			x[idx1] = celtNorm(noFMA32Sub(tmp1, tmp2))
+			sum, diff := haar1PairValues(invSqrt2, float32(x[idx0]), float32(x[idx1]))
+			x[idx0] = celtNorm(sum)
+			x[idx1] = celtNorm(diff)
 			idx0 += step
 			idx1 += step
 		}

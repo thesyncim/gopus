@@ -675,10 +675,9 @@ func haar1(x []celtNorm, n0, stride int) {
 }
 
 func haar1PairNorm(x []celtNorm, idx0, idx1 int, invSqrt2 float32) {
-	tmp1 := noFMA32Mul(invSqrt2, float32(x[idx0]))
-	tmp2 := noFMA32Mul(invSqrt2, float32(x[idx1]))
-	x[idx0] = celtNorm(noFMA32Add(tmp1, tmp2))
-	x[idx1] = celtNorm(noFMA32Sub(tmp1, tmp2))
+	sum, diff := haar1PairValues(invSqrt2, float32(x[idx0]), float32(x[idx1]))
+	x[idx0] = celtNorm(sum)
+	x[idx1] = celtNorm(diff)
 }
 
 func expRotation1(x []celtNorm, length, stride int, c, s opusVal16) {
