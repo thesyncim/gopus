@@ -104,3 +104,40 @@ func TestDecodeBitMatchesLogpReference(t *testing.T) {
 		}
 	}
 }
+
+// TestPositiveMask4MatchesPerEntryCompare checks the packed-lane positive
+// mask against v > 0 for every combination of boundary magnitudes and for
+// random non-negative magnitudes.
+func TestPositiveMask4MatchesPerEntryCompare(t *testing.T) {
+	check := func(v [4]int16) {
+		var want uint32
+		for j, x := range v {
+			if x > 0 {
+				want |= 1 << j
+			}
+		}
+		if got := positiveMask4(v[0], v[1], v[2], v[3]); got != want {
+			t.Fatalf("positiveMask4(%v) = %04b, want %04b", v, got, want)
+		}
+	}
+	edges := []int16{0, 1, 2, 0x7ffe, 0x7fff, 0x4000, 0x3fff}
+	for _, a := range edges {
+		for _, b := range edges {
+			for _, c := range edges {
+				for _, d := range edges {
+					check([4]int16{a, b, c, d})
+				}
+			}
+		}
+	}
+	rng := rand.New(rand.NewSource(0x4d45))
+	for range 200000 {
+		var v [4]int16
+		for j := range v {
+			if rng.Intn(3) != 0 {
+				v[j] = int16(rng.Intn(32768))
+			}
+		}
+		check(v)
+	}
+}
