@@ -40,6 +40,31 @@ const (
 	silkCtrlOutputMagic = "GSCO"
 )
 
+var silkCBRTraceFrameCandidates = [...]int{6, 13, 50}
+
+func isSILKCtrlTraceFrame(frame int32) bool {
+	return frame == 6 || frame == 13 || frame == 50
+}
+
+func selectedSILKCBRTraceFrames(frameCount int) []int {
+	frames := make([]int, 0, len(silkCBRTraceFrameCandidates))
+	for _, frame := range silkCBRTraceFrameCandidates {
+		if frame < frameCount {
+			frames = append(frames, frame)
+		}
+	}
+	return frames
+}
+
+func hasSILKCBRTraceFrame(frames []int, frame int) bool {
+	for _, candidate := range frames {
+		if frame == candidate {
+			return true
+		}
+	}
+	return false
+}
+
 var silkCtrlHelper libopustest.HelperCache
 
 // silkEncodeFrameDumpSource returns the absolute path to the instrumented
@@ -193,7 +218,7 @@ type goSILKGainTweakRecord struct {
 }
 
 func TestParseSILKCtrlOracleOutputGSCO6GainTweaks(t *testing.T) {
-	makeOutput := func(ltpGainCount int, truncateGainHeader bool) []byte {
+	makeOutput := func(ltpFrame, gainFrame int32, frameCount, ltpGainCount int, truncateGainHeader bool) []byte {
 		var raw []byte
 		putU32 := func(value uint32) {
 			var b [4]byte
@@ -204,23 +229,25 @@ func TestParseSILKCtrlOracleOutputGSCO6GainTweaks(t *testing.T) {
 		putF32 := func(value float32) { putU32(math.Float32bits(value)) }
 		raw = append(raw, silkCtrlOutputMagic...)
 		putU32(6) // GSCO v6
-		putU32(1) // one packet
-		putU32(0) // empty packet
-		putU32(0) // final range
-		putU32(0) // control records
-		putU32(0) // stage records
-		putI32(0) // stage overflow
-		putU32(0) // FindLPC records
-		putI32(0) // FindLPC overflow
-		putU32(1) // one LTP context
-		putI32(6) // frame
-		putI32(0) // channel
-		putI32(2) // voiced
-		putI32(1) // filter called
-		putI32(1) // subframe length
-		putI32(4) // four subframes
-		putI32(1) // pre length
-		putU32(8) // 4 * (subframe + pre)
+		putU32(uint32(frameCount))
+		for i := 0; i < frameCount; i++ {
+			putU32(0) // empty packet
+			putU32(0) // final range
+		}
+		putU32(0)        // control records
+		putU32(0)        // stage records
+		putI32(0)        // stage overflow
+		putU32(0)        // FindLPC records
+		putI32(0)        // FindLPC overflow
+		putU32(1)        // one LTP context
+		putI32(ltpFrame) // frame
+		putI32(0)        // channel
+		putI32(2)        // voiced
+		putI32(1)        // filter called
+		putI32(1)        // subframe length
+		putI32(4)        // four subframes
+		putI32(1)        // pre length
+		putU32(8)        // 4 * (subframe + pre)
 		for i := 0; i < ltpGainCount; i++ {
 			putF32(float32(i+1) * 0.25)
 		}
@@ -243,21 +270,21 @@ func TestParseSILKCtrlOracleOutputGSCO6GainTweaks(t *testing.T) {
 		}
 		putI32(0) // LTP overflow
 		if truncateGainHeader {
-			putU32(1) // one gain-tweak context
-			putI32(6) // partial gain-tweak header
+			putU32(1)         // one gain-tweak context
+			putI32(gainFrame) // partial gain-tweak header
 			return raw
 		}
-		putU32(1)    // one gain-tweak context
-		putI32(6)    // frame
-		putI32(0)    // channel
-		putI32(4)    // four subframes
-		putI32(12)   // shaping order
-		putI32(0)    // warping Q16
-		putI32(1)    // one pow call
-		putU32(15)   // all four pre-gain rows captured
-		putF32(-0.5) // gain-mult exponent
-		putF32(0.75) // gain multiplier
-		putF32(1.25) // gain add
+		putU32(1)         // one gain-tweak context
+		putI32(gainFrame) // frame
+		putI32(0)         // channel
+		putI32(4)         // four subframes
+		putI32(12)        // shaping order
+		putI32(0)         // warping Q16
+		putI32(1)         // one pow call
+		putU32(15)        // all four pre-gain rows captured
+		putF32(-0.5)      // gain-mult exponent
+		putF32(0.75)      // gain multiplier
+		putF32(1.25)      // gain add
 		for i := 0; i < 4; i++ {
 			putF32(float32(i+1) * 0.5) // pre-tweak gain
 			putF32(float32(i + 1))     // post-tweak gain
@@ -266,7 +293,7 @@ func TestParseSILKCtrlOracleOutputGSCO6GainTweaks(t *testing.T) {
 		return raw
 	}
 
-	parsed, err := parseSILKCtrlOracleOutput(makeOutput(4, false), 1)
+	parsed, err := parseSILKCtrlOracleOutput(makeOutput(50, 50, 51, 4, false), 51)
 	if err != nil {
 		t.Fatalf("parse valid GSCO v6 four-subframe context: %v", err)
 	}
@@ -278,14 +305,17 @@ func TestParseSILKCtrlOracleOutputGSCO6GainTweaks(t *testing.T) {
 			t.Fatalf("raw gain[%d]=%08x, want %08x", i, math.Float32bits(got), math.Float32bits(want))
 		}
 	}
-	if _, err := parseSILKCtrlOracleOutput(makeOutput(2, false), 1); err == nil {
+	if _, err := parseSILKCtrlOracleOutput(makeOutput(50, 50, 51, 2, false), 51); err == nil {
 		t.Fatal("truncated GSCO v6 LTP gain header was accepted")
+	}
+	if _, err := parseSILKCtrlOracleOutput(makeOutput(51, 50, 51, 4, false), 51); err == nil {
+		t.Fatal("out-of-range GSCO v6 LTP frame was accepted")
 	}
 	if len(parsed.gainTweaks) != 1 {
 		t.Fatalf("parsed gain-tweak records=%d, want 1", len(parsed.gainTweaks))
 	}
 	gain := parsed.gainTweaks[0]
-	if gain.frame != 6 || gain.channel != 0 || gain.nbSubfr != 4 || gain.shapeOrder != 12 ||
+	if gain.frame != 50 || gain.channel != 0 || gain.nbSubfr != 4 || gain.shapeOrder != 12 ||
 		gain.warpingQ16 != 0 || gain.powCallCount != 1 || gain.preGainMask != 15 {
 		t.Fatalf("parsed gain-tweak metadata=%+v", gain)
 	}
@@ -296,8 +326,11 @@ func TestParseSILKCtrlOracleOutputGSCO6GainTweaks(t *testing.T) {
 		math.Float32bits(gain.postGain[3]) != math.Float32bits(4) {
 		t.Fatalf("parsed gain-tweak values=%+v", gain)
 	}
-	if _, err := parseSILKCtrlOracleOutput(makeOutput(4, true), 1); err == nil {
+	if _, err := parseSILKCtrlOracleOutput(makeOutput(50, 50, 51, 4, true), 51); err == nil {
 		t.Fatal("truncated GSCO v6 gain-tweak header was accepted")
+	}
+	if _, err := parseSILKCtrlOracleOutput(makeOutput(50, 51, 51, 4, false), 51); err == nil {
+		t.Fatal("out-of-range GSCO v6 gain-tweak frame was accepted")
 	}
 }
 
@@ -470,7 +503,7 @@ func parseSILKCtrlOracleOutput(raw []byte, nFrames int) (*silkCtrlOracleOut, err
 		r.frame, r.channel, r.signalType, r.filterCalled = ri(), ri(), ri(), ri()
 		r.subfrLength, r.nbSubfr, r.preLength = ri(), ri(), ri()
 		r.outputCount = int(rd())
-		if r.frame < 0 || (r.frame != 6 && r.frame != 13) || r.channel < 0 || r.channel > 1 ||
+		if r.frame < 0 || int(r.frame) >= nFrames || !isSILKCtrlTraceFrame(r.frame) || r.channel < 0 || r.channel > 1 ||
 			r.signalType < 0 || r.signalType > 2 || (r.filterCalled != 0 && r.filterCalled != 1) ||
 			r.subfrLength <= 0 || r.nbSubfr <= 0 || r.nbSubfr > silkCtrlMaxNbSubfr ||
 			r.preLength <= 0 || r.preLength > silkCtrlMaxLPC {
@@ -540,7 +573,7 @@ func parseSILKCtrlOracleOutput(raw []byte, nFrames int) (*silkCtrlOracleOut, err
 		r.warpingQ16, r.powCallCount = ri(), ri()
 		r.preGainMask = rd()
 		r.exponent, r.gainMult, r.gainAdd = rf(), rf(), rf()
-		if (r.frame != 6 && r.frame != 13) || r.channel < 0 || r.channel > 1 ||
+		if r.frame < 0 || int(r.frame) >= nFrames || !isSILKCtrlTraceFrame(r.frame) || r.channel < 0 || r.channel > 1 ||
 			r.nbSubfr <= 0 || r.nbSubfr > silkCtrlMaxNbSubfr ||
 			r.shapeOrder <= 0 || r.shapeOrder > silkCtrlMaxShapeLPC || r.warpingQ16 < 0 ||
 			r.powCallCount != 1 || r.preGainMask != (uint32(1)<<r.nbSubfr)-1 {
@@ -659,12 +692,14 @@ func TestSILKCBRControlOracle(t *testing.T) {
 
 	selectedCases := 0
 	for _, tc := range cbrTestMatrix() {
-		if tc.name != "SILK-MB-20ms-mono-24k" && tc.name != "SILK-WB-20ms-stereo-48k" {
+		if tc.name != "SILK-NB-10ms-mono-16k" &&
+			tc.name != "SILK-MB-20ms-mono-24k" && tc.name != "SILK-WB-20ms-stereo-48k" {
 			continue
 		}
 		selectedCases++
 		t.Run(tc.name, func(t *testing.T) {
 			frameCount := 48000 / tc.frameSize
+			traceFrames := selectedSILKCBRTraceFrames(frameCount)
 			pcm, err := testsignal.GenerateEncoderSignalVariant(
 				testsignal.EncoderVariantAMMultisineV1,
 				48000,
@@ -751,7 +786,7 @@ func TestSILKCBRControlOracle(t *testing.T) {
 			}
 			silk.WithSILKGainTweakTraceHook(func(e *silk.Encoder, s silk.SILKGainTweakSnapshot) {
 				channel := channelForEncoder(e)
-				if currentFrame != 6 && currentFrame != 13 {
+				if !hasSILKCBRTraceFrame(traceFrames, currentFrame) {
 					return
 				}
 				goGainTweaks = append(goGainTweaks, goSILKGainTweakRecord{
@@ -760,7 +795,7 @@ func TestSILKCBRControlOracle(t *testing.T) {
 			}, func() {
 				silk.WithSILKLTPAnalysisTraceHook(func(e *silk.Encoder, s silk.SILKLTPAnalysisTraceSnapshot) {
 					channel := channelForEncoder(e)
-					if (currentFrame != 6 && currentFrame != 13) || channel != 0 {
+					if !hasSILKCBRTraceFrame(traceFrames, currentFrame) || channel != 0 {
 						return
 					}
 					s.PitchBuffer = append([]float32(nil), s.PitchBuffer...)
@@ -771,7 +806,7 @@ func TestSILKCBRControlOracle(t *testing.T) {
 				}, func() {
 					silk.WithSILKNLSFInterpolationTraceHook(func(e *silk.Encoder, s silk.SILKNLSFInterpolationSnapshot) {
 						channel := channelForEncoder(e)
-						if (currentFrame != 6 && currentFrame != 13) || channel != 0 {
+						if !hasSILKCBRTraceFrame(traceFrames, currentFrame) || channel != 0 {
 							return
 						}
 						s.Input = append([]float32(nil), s.Input...)
@@ -783,7 +818,7 @@ func TestSILKCBRControlOracle(t *testing.T) {
 							snapshots = append(snapshots, s)
 						}, func(e *silk.Encoder, s silk.SILKEncodeStageSnapshot) {
 							channel := channelForEncoder(e)
-							if currentFrame != 6 && currentFrame != 13 {
+							if !hasSILKCBRTraceFrame(traceFrames, currentFrame) {
 								return
 							}
 							r := silkEncodeStageRecord{
@@ -867,13 +902,13 @@ func TestSILKCBRControlOracle(t *testing.T) {
 				t.Fatalf("Go control snapshots=%d, C records=%d (input=%s)", len(snapshots), len(oracle.ctrl), inputID)
 			}
 			if runtime.GOOS == "linux" {
-				wantCalls := 2 * tc.channels
+				wantCalls := len(traceFrames) * tc.channels
 				if len(oracle.lpcCalls) != wantCalls {
-					t.Fatalf("actual C FindLPC snapshots=%d, want %d for frames 6/13 across %d channels",
-						len(oracle.lpcCalls), wantCalls, tc.channels)
+					t.Fatalf("actual C FindLPC snapshots=%d, want %d for frames %v across %d channels",
+						len(oracle.lpcCalls), wantCalls, traceFrames, tc.channels)
 				}
-				if len(goLPCCalls) != 2 {
-					t.Fatalf("Go FindLPC snapshots=%d, want 2 for frames 6/13 channel 0", len(goLPCCalls))
+				if len(goLPCCalls) != len(traceFrames) {
+					t.Fatalf("Go FindLPC snapshots=%d, want %d for frames %v channel 0", len(goLPCCalls), len(traceFrames), traceFrames)
 				}
 				for _, g := range goLPCCalls {
 					var c *silkFindLPCRecord
@@ -895,11 +930,11 @@ func TestSILKCBRControlOracle(t *testing.T) {
 					}
 				}
 				if len(oracle.ltpCalls) != wantCalls {
-					t.Fatalf("actual C LTP snapshots=%d, want %d for frames 6/13 across %d channels",
-						len(oracle.ltpCalls), wantCalls, tc.channels)
+					t.Fatalf("actual C LTP snapshots=%d, want %d for frames %v across %d channels",
+						len(oracle.ltpCalls), wantCalls, traceFrames, tc.channels)
 				}
-				if len(goLTPCalls) != 2 {
-					t.Fatalf("Go LTP snapshots=%d, want 2 for frames 6/13 channel 0", len(goLTPCalls))
+				if len(goLTPCalls) != len(traceFrames) {
+					t.Fatalf("Go LTP snapshots=%d, want %d for frames %v channel 0", len(goLTPCalls), len(traceFrames), traceFrames)
 				}
 				for _, g := range goLTPCalls {
 					var c *silkLTPCallRecord
@@ -932,8 +967,8 @@ func TestSILKCBRControlOracle(t *testing.T) {
 					}
 				}
 				if len(oracle.gainTweaks) != wantCalls {
-					t.Fatalf("actual C gain-tweak snapshots=%d, want %d for frames 6/13 across %d channels",
-						len(oracle.gainTweaks), wantCalls, tc.channels)
+					t.Fatalf("actual C gain-tweak snapshots=%d, want %d for frames %v across %d channels",
+						len(oracle.gainTweaks), wantCalls, traceFrames, tc.channels)
 				}
 				wantGoGainSamples := 0
 				for _, c := range oracle.gainTweaks {
@@ -993,7 +1028,7 @@ func TestSILKCBRControlOracle(t *testing.T) {
 				t.Logf("SILK control snapshots match exactly across %d channel-frames", len(snapshots))
 			}
 			if len(oracle.stages) == 0 {
-				t.Errorf("C SILK stage trace is empty for frames 6 and 13")
+				t.Errorf("C SILK stage trace is empty for selected frames %v", traceFrames)
 			} else if diff := firstSILKEncodeStageDifference(oracle.stages, goStages); diff != "" {
 				t.Errorf("first SILK NSQ/index/pulse stage divergence input=%s: %s", inputID, diff)
 			} else {
@@ -1018,8 +1053,8 @@ func TestSILKCBRControlOracle(t *testing.T) {
 			}
 		})
 	}
-	if selectedCases != 2 {
-		t.Fatalf("selected %d CBR trace witnesses, want exactly 2", selectedCases)
+	if selectedCases != 3 {
+		t.Fatalf("selected %d CBR trace witnesses, want exactly 3", selectedCases)
 	}
 }
 

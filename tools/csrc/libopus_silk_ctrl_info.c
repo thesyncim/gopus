@@ -59,8 +59,8 @@
  *     i32(pulse_count), i8 pulses[pulse_count]
  *     stage 0 is immediately after NSQ, 1 is after index coding, and 2 is after
  *     pulse coding. Pulses are present only at stage 0. Records cover request
- *     frames 6 and 13; the final i32 is nonzero if the trace buffer overflows
- *     or a traced frame exceeds MAX_FRAME_LENGTH.
+ *     frames 6, 13, and 50 when present. The final i32 is nonzero if the trace
+ *     buffer overflows or a traced frame exceeds MAX_FRAME_LENGTH.
  *   then u32(n_lpc_calls), followed by actual Linux silk_find_LPC_FLP call records:
  *     i32(opus_frame), i32(channel), i32(nFramesEncoded), i32(API_fs_Hz)
  *     i32(fs_kHz), i32(frame_length), i32(subfr_length), i32(nb_subfr)
@@ -70,7 +70,7 @@
  *     i32(NLSFInterpCoef_Q2 after the call), i32(NLSF_Q15[16] after the call)
  *   then i32(lpc_trace_overflow).
  *   then u32(n_ltp_contexts), followed in Linux wrapped builds by records
- *   for bounded target frames 6 and 13, one record per SILK channel:
+ *   for bounded target frames 6, 13, and 50 when present, one per SILK channel:
  *     i32(opus_frame), i32(channel), i32(signalType), i32(filterCalled)
  *     i32(subfr_length), i32(nb_subfr), i32(pre_length), u32(output_count)
  *     f32(Gains[nb_subfr]) captured before the LTP-filter reciprocal;
@@ -79,7 +79,7 @@
  *       f32(x), f32(lag[LTP_ORDER]), f32(actual LTP_res output).
  *   then i32(ltp_trace_overflow).
  *   then u32(n_gain_tweak_records), followed by actual noise-shape gain-tweak
- *   records for bounded frames 6 and 13, one record per SILK channel:
+ *   records for bounded frames 6, 13, and 50 when present, one per SILK channel:
  *     i32(frame), i32(channel), i32(nb_subfr), i32(shapingLPCOrder),
  *     i32(warping_Q16), i32(pow_call_count), u32(pre_gain_mask),
  *     f32(gain_mult_exponent), f32(gain_mult), f32(gain_add), then for each
@@ -286,6 +286,11 @@ static gain_tweak_trace_record g_gain_tweak_trace[MAX_GAIN_TWEAK_TRACE_RECORDS];
 static int         g_gain_tweak_trace_count = 0;
 static int         g_gain_tweak_trace_overflow = 0;
 static int32_t     g_cur_opus_frame = 0;
+
+static int gopus_silk_trace_frame_selected(int32_t frame) {
+  return frame == 6 || frame == 13 || frame == 50;
+}
+
 /* The two state_Fxx encoder pointers, used to recover the channel index. */
 static const void *g_state_ptr[2] = { NULL, NULL };
 
@@ -309,7 +314,7 @@ void gopus_silk_gain_tweak_set_context(const silk_encoder_state_FLP *psEnc,
   gain_tweak_trace_record *r;
   g_gain_tweak_context_index = -1;
   g_gain_tweak_ctrl = NULL;
-  if (g_cur_opus_frame != 6 && g_cur_opus_frame != 13) return;
+  if (!gopus_silk_trace_frame_selected(g_cur_opus_frame)) return;
   if (g_gain_tweak_trace_count >= MAX_GAIN_TWEAK_TRACE_RECORDS) {
     g_gain_tweak_trace_overflow = 1;
     return;
@@ -406,7 +411,7 @@ void gopus_silk_ltp_set_context(const silk_encoder_state_FLP *psEnc,
     const silk_encoder_control_FLP *psEncCtrl) {
   ltp_trace_record *r;
   g_ltp_context_index = -1;
-  if (g_cur_opus_frame != 6 && g_cur_opus_frame != 13) return;
+  if (!gopus_silk_trace_frame_selected(g_cur_opus_frame)) return;
   if (g_ltp_trace_count >= MAX_LTP_TRACE_RECORDS) {
     g_ltp_trace_overflow = 1;
     return;
@@ -530,7 +535,7 @@ void __wrap_silk_find_LPC_FLP(
 {
   lpc_call_record *r = NULL;
   opus_int input_count = 0;
-  if( g_cur_opus_frame == 6 || g_cur_opus_frame == 13 ) {
+  if( gopus_silk_trace_frame_selected(g_cur_opus_frame) ) {
     if( psEncC->predictLPCOrder <= 0 || psEncC->predictLPCOrder > MAX_LPC_ORDER ||
         psEncC->nb_subfr <= 0 || psEncC->nb_subfr > MAX_NB_SUBFR || psEncC->subfr_length <= 0 ) {
       g_lpc_call_overflow = 1;
@@ -656,7 +661,7 @@ void gopus_silk_encode_stage_dump(
 {
   encode_stage_record *r;
   int i, ch = 0;
-  if (g_cur_opus_frame != 6 && g_cur_opus_frame != 13) return;
+  if (!gopus_silk_trace_frame_selected(g_cur_opus_frame)) return;
   if (psEnc->sCmn.frame_length < 0 || psEnc->sCmn.frame_length > MAX_FRAME_LENGTH) {
     g_stage_overflow = 1;
     return;
