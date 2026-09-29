@@ -23,7 +23,7 @@
  *
  * Output wire format:
  *
- *   magic "GSCO" + u32(version=6) + u32(n_frames)
+ *   magic "GSCO" + u32(version=7) + u32(n_frames)
  *   then n_frames packet records: u32(packet_len) u32(final_range) bytes[len]
  *   then u32(n_ctrl)
  *   then n_ctrl control records, each:
@@ -87,6 +87,20 @@
  *   The pre-tweak gains come from the first actual silk_bwexpander_FLP call
  *   for each control AR row; the active power call returns gain_mult and the
  *   gain_add bits match the pinned C expression's constant-folded literal.
+ *   then u32(n_noise_shape_records), followed by actual unwarped noise-shape
+ *   analysis records for frames 6, 13, and 50 when present, one per subframe
+ *   and SILK channel:
+ *     i32(frame), i32(channel), i32(subframe), i32(numSubframes), i32(order),
+ *     i32(windowLength), i32(warping_Q16), i32(autoCorrCalls), i32(schurCalls),
+ *     f32(window[windowLength]), f32(rawAutoCorr[order+1]),
+ *     f32(adjustedAutoCorr[order+1]), f32(rc[order]), f32(nrg)
+ *   then i32(noise_shape_overflow). Windows are copied from the real
+ *   silk_autocorrelation_FLP input, raw correlations from its real output,
+ *   adjusted correlations from the real silk_schur_FLP input after the pinned
+ *   white-noise addition, and rc/nrg from that real Schur call. Warped or
+ *   incomplete/duplicated selected contexts fail closed through overflow.
+ *   The sequence follows silk/float/noise_shape_analysis_FLP.c's window,
+ *   autocorrelation, white-noise, and Schur operations.
  *
  * Reference: libopus src/opus_encoder.c opus_encode_float(); the dumped struct
  * is silk/float/structs_FLP.h silk_encoder_control_FLP, captured in
@@ -116,6 +130,10 @@
 #define MAX_LPC_INPUT (MAX_FRAME_LENGTH + MAX_NB_SUBFR * MAX_LPC_ORDER)
 #define MAX_LTP_TRACE_RECORDS 8
 #define MAX_GAIN_TWEAK_TRACE_RECORDS 8
+#define MAX_NOISE_SHAPE_TRACE_RECORDS 32
+/* Bounds from silk/define.h: MAX_SHAPE_LPC_ORDER and SHAPE_LPC_WIN_MAX. */
+#define MAX_SHAPE_WINDOW SHAPE_LPC_WIN_MAX
+#define MAX_SHAPE_ORDER MAX_SHAPE_LPC_ORDER
 
 static int set_binary_stdio(void) {
 #ifdef _WIN32
@@ -271,6 +289,23 @@ typedef struct {
   float post_gain[MAX_NB_SUBFR];
 } gain_tweak_trace_record;
 
+typedef struct {
+  int32_t opus_frame_index;
+  int32_t channel;
+  int32_t subframe;
+  int32_t num_subframes;
+  int32_t order;
+  int32_t window_length;
+  int32_t warping_Q16;
+  int32_t autoCorrCalls;
+  int32_t schurCalls;
+  float window[MAX_SHAPE_WINDOW];
+  float rawAutoCorr[MAX_SHAPE_ORDER + 1];
+  float adjustedAutoCorr[MAX_SHAPE_ORDER + 1];
+  float rc[MAX_SHAPE_ORDER];
+  float nrg;
+} noise_shape_trace_record;
+
 static ctrl_record g_ctrl[MAX_CTRL_RECORDS];
 static int         g_ctrl_count = 0;
 static encode_stage_record g_stage[MAX_TRACE_RECORDS];
@@ -285,6 +320,9 @@ static int         g_ltp_trace_overflow = 0;
 static gain_tweak_trace_record g_gain_tweak_trace[MAX_GAIN_TWEAK_TRACE_RECORDS];
 static int         g_gain_tweak_trace_count = 0;
 static int         g_gain_tweak_trace_overflow = 0;
+static noise_shape_trace_record g_noise_shape_trace[MAX_NOISE_SHAPE_TRACE_RECORDS];
+static int         g_noise_shape_trace_count = 0;
+static int         g_noise_shape_trace_overflow = 0;
 static int32_t     g_cur_opus_frame = 0;
 
 static int gopus_silk_trace_frame_selected(int32_t frame) {
@@ -297,6 +335,10 @@ static const void *g_state_ptr[2] = { NULL, NULL };
 #ifdef __linux__
 static int g_gain_tweak_context_index = -1;
 static const silk_encoder_control_FLP *g_gain_tweak_ctrl = NULL;
+static int g_noise_shape_context_open = 0;
+static int g_noise_shape_context_seen = 0;
+static int32_t g_noise_shape_context_frame = -1;
+static int32_t g_noise_shape_context_channel = -1;
 
 static silk_float silk_gain_add_arch_literal(void) {
   /* Pinned GCC 13.3 AMD64 v3 scalar/SIMD archives fold
@@ -315,6 +357,11 @@ void gopus_silk_gain_tweak_set_context(const silk_encoder_state_FLP *psEnc,
   g_gain_tweak_context_index = -1;
   g_gain_tweak_ctrl = NULL;
   if (!gopus_silk_trace_frame_selected(g_cur_opus_frame)) return;
+  if (g_noise_shape_context_open) g_noise_shape_trace_overflow = 1;
+  g_noise_shape_context_open = 1;
+  g_noise_shape_context_seen = 0;
+  g_noise_shape_context_frame = g_cur_opus_frame;
+  g_noise_shape_context_channel = psEnc->sCmn.channelNb;
   if (g_gain_tweak_trace_count >= MAX_GAIN_TWEAK_TRACE_RECORDS) {
     g_gain_tweak_trace_overflow = 1;
     return;
@@ -347,6 +394,16 @@ void gopus_silk_gain_tweak_finish_context(
         r->pre_gain_mask != ((UINT32_C(1) << r->nb_subfr) - 1)) {
       g_gain_tweak_trace_overflow = 1;
     }
+  }
+  if (g_noise_shape_context_open) {
+    if (!g_noise_shape_context_seen ||
+        g_noise_shape_context_frame != g_cur_opus_frame) {
+      g_noise_shape_trace_overflow = 1;
+    }
+    g_noise_shape_context_open = 0;
+    g_noise_shape_context_seen = 0;
+    g_noise_shape_context_frame = -1;
+    g_noise_shape_context_channel = -1;
   }
   g_gain_tweak_context_index = -1;
   g_gain_tweak_ctrl = NULL;
@@ -398,6 +455,185 @@ void gopus_silk_gain_tweak_set_context(const silk_encoder_state_FLP *psEnc,
 void gopus_silk_gain_tweak_finish_context(
     const silk_encoder_control_FLP *psEncCtrl) {
   (void)psEncCtrl;
+}
+#endif
+
+#ifdef __linux__
+static int g_noise_shape_active = 0;
+static int g_noise_shape_frame = -1;
+static int g_noise_shape_channel = -1;
+static int g_noise_shape_num_subframes = 0;
+static int g_noise_shape_order = 0;
+static int g_noise_shape_window_length = 0;
+static int g_noise_shape_warping_Q16 = 0;
+static int g_noise_shape_auto_calls = 0;
+static int g_noise_shape_schur_calls = 0;
+static int g_noise_shape_first_record = 0;
+static int g_noise_shape_current_record = -1;
+static const silk_float *g_noise_shape_corr_results = NULL;
+
+extern void __real_silk_noise_shape_analysis_FLP(
+    silk_encoder_state_FLP *psEnc,
+    silk_encoder_control_FLP *psEncCtrl,
+    const silk_float *pitch_res,
+    const silk_float *x);
+
+void __wrap_silk_noise_shape_analysis_FLP(
+    silk_encoder_state_FLP *psEnc,
+    silk_encoder_control_FLP *psEncCtrl,
+    const silk_float *pitch_res,
+    const silk_float *x) {
+  int selected = gopus_silk_trace_frame_selected(g_cur_opus_frame);
+  int num_subframes, order, window_length, warping_Q16;
+
+  if (!selected) {
+    __real_silk_noise_shape_analysis_FLP(psEnc, psEncCtrl, pitch_res, x);
+    return;
+  }
+  if (!g_noise_shape_context_open || g_noise_shape_context_seen ||
+      g_noise_shape_context_frame != g_cur_opus_frame ||
+      g_noise_shape_context_channel != psEnc->sCmn.channelNb) {
+    g_noise_shape_trace_overflow = 1;
+    __real_silk_noise_shape_analysis_FLP(psEnc, psEncCtrl, pitch_res, x);
+    return;
+  }
+  g_noise_shape_context_seen = 1;
+  if (g_noise_shape_active) {
+    g_noise_shape_trace_overflow = 1;
+    __real_silk_noise_shape_analysis_FLP(psEnc, psEncCtrl, pitch_res, x);
+    return;
+  }
+
+  num_subframes = psEnc->sCmn.nb_subfr;
+  order = psEnc->sCmn.shapingLPCOrder;
+  window_length = psEnc->sCmn.shapeWinLength;
+  warping_Q16 = psEnc->sCmn.warping_Q16;
+  if (psEnc->sCmn.channelNb < 0 || psEnc->sCmn.channelNb > 1 ||
+      num_subframes < 1 || num_subframes > MAX_NB_SUBFR ||
+      order < 1 || order > MAX_SHAPE_ORDER ||
+      window_length <= order || window_length > MAX_SHAPE_WINDOW) {
+    g_noise_shape_trace_overflow = 1;
+    __real_silk_noise_shape_analysis_FLP(psEnc, psEncCtrl, pitch_res, x);
+    return;
+  }
+
+  g_noise_shape_active = 1;
+  g_noise_shape_frame = g_cur_opus_frame;
+  g_noise_shape_channel = psEnc->sCmn.channelNb;
+  g_noise_shape_num_subframes = num_subframes;
+  g_noise_shape_order = order;
+  g_noise_shape_window_length = window_length;
+  g_noise_shape_warping_Q16 = warping_Q16;
+  g_noise_shape_auto_calls = 0;
+  g_noise_shape_schur_calls = 0;
+  g_noise_shape_first_record = g_noise_shape_trace_count;
+  g_noise_shape_current_record = -1;
+  g_noise_shape_corr_results = NULL;
+  if (warping_Q16 != 0) g_noise_shape_trace_overflow = 1;
+
+  __real_silk_noise_shape_analysis_FLP(psEnc, psEncCtrl, pitch_res, x);
+
+  if (g_noise_shape_auto_calls != num_subframes ||
+      g_noise_shape_schur_calls != num_subframes ||
+      g_noise_shape_trace_count - g_noise_shape_first_record != num_subframes ||
+      g_noise_shape_current_record >= 0) {
+    g_noise_shape_trace_overflow = 1;
+  }
+  g_noise_shape_active = 0;
+  g_noise_shape_frame = -1;
+  g_noise_shape_channel = -1;
+  g_noise_shape_current_record = -1;
+  g_noise_shape_corr_results = NULL;
+}
+
+extern void __real_silk_autocorrelation_FLP(
+    silk_float *results,
+    const silk_float *inputData,
+    opus_int inputDataSize,
+    opus_int correlationCount,
+    int arch);
+
+void __wrap_silk_autocorrelation_FLP(
+    silk_float *results,
+    const silk_float *inputData,
+    opus_int inputDataSize,
+    opus_int correlationCount,
+    int arch) {
+  noise_shape_trace_record *r = NULL;
+  int record_index = -1;
+
+  if (g_noise_shape_active) {
+    int subframe = g_noise_shape_auto_calls++;
+    if (g_noise_shape_current_record >= 0 || subframe >= g_noise_shape_num_subframes ||
+        inputDataSize != g_noise_shape_window_length ||
+        correlationCount != g_noise_shape_order + 1 ||
+        inputDataSize <= g_noise_shape_order || inputDataSize > MAX_SHAPE_WINDOW ||
+        g_noise_shape_trace_count >= MAX_NOISE_SHAPE_TRACE_RECORDS) {
+      g_noise_shape_trace_overflow = 1;
+    } else {
+      record_index = g_noise_shape_trace_count++;
+      r = &g_noise_shape_trace[record_index];
+      memset(r, 0, sizeof(*r));
+      r->opus_frame_index = g_noise_shape_frame;
+      r->channel = g_noise_shape_channel;
+      r->subframe = subframe;
+      r->num_subframes = g_noise_shape_num_subframes;
+      r->order = g_noise_shape_order;
+      r->window_length = inputDataSize;
+      r->warping_Q16 = g_noise_shape_warping_Q16;
+      r->autoCorrCalls = 1;
+      memcpy(r->window, inputData, (size_t)inputDataSize * sizeof(r->window[0]));
+      g_noise_shape_current_record = record_index;
+      g_noise_shape_corr_results = results;
+    }
+  }
+
+  __real_silk_autocorrelation_FLP(results, inputData, inputDataSize,
+      correlationCount, arch);
+
+  if (r != NULL) {
+    int k;
+    for (k = 0; k <= g_noise_shape_order; k++) r->rawAutoCorr[k] = results[k];
+  }
+}
+
+extern silk_float __real_silk_schur_FLP(
+    silk_float refl_coef[],
+    const silk_float auto_corr[],
+    opus_int order);
+
+silk_float __wrap_silk_schur_FLP(
+    silk_float refl_coef[],
+    const silk_float auto_corr[],
+    opus_int order) {
+  noise_shape_trace_record *r = NULL;
+  silk_float nrg;
+
+  if (g_noise_shape_active) {
+    g_noise_shape_schur_calls++;
+    if (g_noise_shape_current_record < 0 || order != g_noise_shape_order ||
+        auto_corr != g_noise_shape_corr_results) {
+      g_noise_shape_trace_overflow = 1;
+      g_noise_shape_current_record = -1;
+      g_noise_shape_corr_results = NULL;
+    } else {
+      r = &g_noise_shape_trace[g_noise_shape_current_record];
+      r->schurCalls = 1;
+      memcpy(r->adjustedAutoCorr, auto_corr,
+          (size_t)(order + 1) * sizeof(r->adjustedAutoCorr[0]));
+      g_noise_shape_current_record = -1;
+      g_noise_shape_corr_results = NULL;
+    }
+  }
+
+  nrg = __real_silk_schur_FLP(refl_coef, auto_corr, order);
+
+  if (r != NULL) {
+    int k;
+    for (k = 0; k < order; k++) r->rc[k] = refl_coef[k];
+    r->nrg = nrg;
+  }
+  return nrg;
 }
 #endif
 
@@ -763,7 +999,7 @@ int main(void) {
    * Rather than depend on opaque offsets, derive the pointers lazily inside the
    * hook by remembering the first two distinct psEnc values seen. */
 
-  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(6) || !write_u32(n_frames)) {
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(7) || !write_u32(n_frames)) {
     fprintf(stderr, "write output header failed\n");
     opus_encoder_destroy(enc); free(pcm); free(packet); return 1;
   }
@@ -908,6 +1144,26 @@ int main(void) {
       }
     }
     if (!write_i32(g_gain_tweak_trace_overflow)) return 1;
+    if (!write_u32((uint32_t)g_noise_shape_trace_count)) return 1;
+    for (i = 0; i < (uint32_t)g_noise_shape_trace_count; i++) {
+      noise_shape_trace_record *r = &g_noise_shape_trace[i];
+      int j;
+      if (!write_i32(r->opus_frame_index) || !write_i32(r->channel) ||
+          !write_i32(r->subframe) || !write_i32(r->num_subframes) ||
+          !write_i32(r->order) || !write_i32(r->window_length) ||
+          !write_i32(r->warping_Q16) || !write_i32(r->autoCorrCalls) ||
+          !write_i32(r->schurCalls)) return 1;
+      for (j = 0; j < r->window_length; j++)
+        if (!write_f32(r->window[j])) return 1;
+      for (j = 0; j <= r->order; j++)
+        if (!write_f32(r->rawAutoCorr[j])) return 1;
+      for (j = 0; j <= r->order; j++)
+        if (!write_f32(r->adjustedAutoCorr[j])) return 1;
+      for (j = 0; j < r->order; j++)
+        if (!write_f32(r->rc[j])) return 1;
+      if (!write_f32(r->nrg)) return 1;
+    }
+    if (!write_i32(g_noise_shape_trace_overflow)) return 1;
   }
 
   opus_encoder_destroy(enc);

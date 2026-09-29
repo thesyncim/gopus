@@ -32,12 +32,14 @@ import (
 )
 
 const (
-	silkCtrlMaxNbSubfr  = 4
-	silkCtrlMaxShapeLPC = 24
-	silkCtrlMaxLPC      = 16
-	silkCtrlLTPOrder    = 5
-	silkCtrlInputMagic  = "GSCI"
-	silkCtrlOutputMagic = "GSCO"
+	silkCtrlMaxNbSubfr   = 4
+	silkCtrlMaxShapeLPC  = 24
+	silkCtrlMaxShapeWin  = 240 // SHAPE_LPC_WIN_MAX = 15*MAX_FS_KHZ in silk/define.h.
+	silkCtrlMaxLPC       = 16
+	silkCtrlLTPOrder     = 5
+	silkCtrlMaxNoiseRows = 32
+	silkCtrlInputMagic   = "GSCI"
+	silkCtrlOutputMagic  = "GSCO"
 )
 
 var silkCBRTraceFrameCandidates = [...]int{6, 13, 50}
@@ -84,6 +86,9 @@ func getSILKCtrlHelperPath(t testing.TB) (string, bool) {
 				"-Wl,--wrap=silk_find_LPC_FLP",
 				"-Wl,--wrap=silk_LTP_analysis_filter_FLP",
 				"-Wl,--wrap=silk_bwexpander_FLP",
+				"-Wl,--wrap=silk_noise_shape_analysis_FLP",
+				"-Wl,--wrap=silk_autocorrelation_FLP",
+				"-Wl,--wrap=silk_schur_FLP",
 				"-Wl,--wrap=pow",
 			)
 		}
@@ -146,6 +151,7 @@ type silkCtrlOracleOut struct {
 	lpcCalls   []silkFindLPCRecord
 	ltpCalls   []silkLTPCallRecord
 	gainTweaks []silkGainTweakRecord
+	noiseRows  []silkNoiseAnalysisTraceRecord
 }
 
 type silkEncodeStageRecord struct {
@@ -202,6 +208,13 @@ type silkGainTweakRecord struct {
 	preGain, postGain                                             [silkCtrlMaxNbSubfr]float32
 }
 
+type silkNoiseAnalysisTraceRecord struct {
+	frame, channel, subframe, numSubfr, order, windowLength int32
+	warpingQ16, autoCorrCalls, schurCalls                   int32
+	window, autoCorrRaw, autoCorrAdjusted, reflection       []float32
+	energy                                                  float32
+}
+
 type goSILKFindLPCRecord struct {
 	frame, channel int32
 	snapshot       silk.SILKNLSFInterpolationSnapshot
@@ -217,7 +230,12 @@ type goSILKGainTweakRecord struct {
 	snapshot       silk.SILKGainTweakSnapshot
 }
 
-func TestParseSILKCtrlOracleOutputGSCO6GainTweaks(t *testing.T) {
+type goSILKNoiseAnalysisTraceRecord struct {
+	frame, channel int32
+	snapshot       silk.SILKNoiseAnalysisTraceSnapshot
+}
+
+func TestParseSILKCtrlOracleOutputGSCO7NoiseAnalysis(t *testing.T) {
 	makeOutput := func(ltpFrame, gainFrame int32, frameCount, ltpGainCount int, truncateGainHeader bool) []byte {
 		var raw []byte
 		putU32 := func(value uint32) {
@@ -228,7 +246,7 @@ func TestParseSILKCtrlOracleOutputGSCO6GainTweaks(t *testing.T) {
 		putI32 := func(value int32) { putU32(uint32(value)) }
 		putF32 := func(value float32) { putU32(math.Float32bits(value)) }
 		raw = append(raw, silkCtrlOutputMagic...)
-		putU32(6) // GSCO v6
+		putU32(7) // GSCO v7
 		putU32(uint32(frameCount))
 		for i := 0; i < frameCount; i++ {
 			putU32(0) // empty packet
@@ -290,12 +308,38 @@ func TestParseSILKCtrlOracleOutputGSCO6GainTweaks(t *testing.T) {
 			putF32(float32(i + 1))     // post-tweak gain
 		}
 		putI32(0) // gain-tweak overflow
+		putU32(4) // four actual noise-analysis subframes
+		for subframe := int32(0); subframe < 4; subframe++ {
+			putI32(50)
+			putI32(0)
+			putI32(subframe)
+			putI32(4)
+			putI32(12)
+			putI32(13)
+			putI32(0)
+			putI32(1)
+			putI32(1)
+			for i := 0; i < 13; i++ {
+				putF32(float32(i+1) * 0.25)
+			}
+			for i := 0; i < 13; i++ {
+				putF32(float32(i + 1))
+			}
+			for i := 0; i < 13; i++ {
+				putF32(float32(i + 2))
+			}
+			for i := 0; i < 12; i++ {
+				putF32(float32(i+1) * 0.03125)
+			}
+			putF32(0.75)
+		}
+		putI32(0) // noise-analysis overflow
 		return raw
 	}
 
 	parsed, err := parseSILKCtrlOracleOutput(makeOutput(50, 50, 51, 4, false), 51)
 	if err != nil {
-		t.Fatalf("parse valid GSCO v6 four-subframe context: %v", err)
+		t.Fatalf("parse valid GSCO v7 four-subframe context: %v", err)
 	}
 	if len(parsed.ltpCalls) != 1 || len(parsed.ltpCalls[0].subframes) != 4 {
 		t.Fatalf("parsed LTP context/subframes=%d/%d, want 1/4", len(parsed.ltpCalls), len(parsed.ltpCalls[0].subframes))
@@ -306,10 +350,10 @@ func TestParseSILKCtrlOracleOutputGSCO6GainTweaks(t *testing.T) {
 		}
 	}
 	if _, err := parseSILKCtrlOracleOutput(makeOutput(50, 50, 51, 2, false), 51); err == nil {
-		t.Fatal("truncated GSCO v6 LTP gain header was accepted")
+		t.Fatal("truncated GSCO v7 LTP gain header was accepted")
 	}
 	if _, err := parseSILKCtrlOracleOutput(makeOutput(51, 50, 51, 4, false), 51); err == nil {
-		t.Fatal("out-of-range GSCO v6 LTP frame was accepted")
+		t.Fatal("out-of-range GSCO v7 LTP frame was accepted")
 	}
 	if len(parsed.gainTweaks) != 1 {
 		t.Fatalf("parsed gain-tweak records=%d, want 1", len(parsed.gainTweaks))
@@ -327,10 +371,35 @@ func TestParseSILKCtrlOracleOutputGSCO6GainTweaks(t *testing.T) {
 		t.Fatalf("parsed gain-tweak values=%+v", gain)
 	}
 	if _, err := parseSILKCtrlOracleOutput(makeOutput(50, 50, 51, 4, true), 51); err == nil {
-		t.Fatal("truncated GSCO v6 gain-tweak header was accepted")
+		t.Fatal("truncated GSCO v7 gain-tweak header was accepted")
 	}
 	if _, err := parseSILKCtrlOracleOutput(makeOutput(50, 51, 51, 4, false), 51); err == nil {
-		t.Fatal("out-of-range GSCO v6 gain-tweak frame was accepted")
+		t.Fatal("out-of-range GSCO v7 gain-tweak frame was accepted")
+	}
+	if len(parsed.noiseRows) != 4 {
+		t.Fatalf("parsed noise-analysis rows=%d, want 4", len(parsed.noiseRows))
+	}
+	noise := parsed.noiseRows[0]
+	if noise.frame != 50 || noise.channel != 0 || noise.subframe != 0 || noise.numSubfr != 4 ||
+		noise.order != 12 || noise.windowLength != 13 || noise.warpingQ16 != 0 ||
+		noise.autoCorrCalls != 1 || noise.schurCalls != 1 {
+		t.Fatalf("parsed noise-analysis metadata=%+v", noise)
+	}
+	if len(noise.window) != 13 || len(noise.autoCorrRaw) != 13 || len(noise.autoCorrAdjusted) != 13 || len(noise.reflection) != 12 ||
+		math.Float32bits(noise.window[12]) != math.Float32bits(3.25) ||
+		math.Float32bits(noise.autoCorrRaw[12]) != math.Float32bits(13) ||
+		math.Float32bits(noise.autoCorrAdjusted[0]) != math.Float32bits(2) ||
+		math.Float32bits(noise.reflection[0]) != math.Float32bits(0.03125) ||
+		math.Float32bits(noise.energy) != math.Float32bits(0.75) {
+		t.Fatalf("parsed noise-analysis values=%+v", noise)
+	}
+	if parsed.noiseRows[3].subframe != 3 {
+		t.Fatalf("last parsed noise-analysis subframe=%d, want 3", parsed.noiseRows[3].subframe)
+	}
+	truncatedNoise := makeOutput(50, 50, 51, 4, false)
+	truncatedNoise = truncatedNoise[:len(truncatedNoise)-4]
+	if _, err := parseSILKCtrlOracleOutput(truncatedNoise, 51); err == nil {
+		t.Fatal("truncated GSCO v7 noise-analysis overflow word was accepted")
 	}
 }
 
@@ -347,7 +416,7 @@ func parseSILKCtrlOracleOutput(raw []byte, nFrames int) (*silkCtrlOracleOut, err
 		return nil, fmt.Errorf("bad oracle response magic")
 	}
 	version := binary.LittleEndian.Uint32(raw[4:8])
-	if version != 6 {
+	if version != 7 {
 		return nil, fmt.Errorf("bad oracle version")
 	}
 	gotN := int(binary.LittleEndian.Uint32(raw[8:12]))
@@ -602,6 +671,108 @@ func parseSILKCtrlOracleOutput(raw []byte, nFrames int) (*silkCtrlOracleOut, err
 	if overflow := ri(); overflow != 0 {
 		return nil, fmt.Errorf("C gain-tweak trace overflowed its bounded record buffer")
 	}
+	if len(raw)-off < 4 {
+		return nil, fmt.Errorf("truncated C noise-analysis trace count")
+	}
+	nNoiseRowsU := rd()
+	if nNoiseRowsU > silkCtrlMaxNoiseRows {
+		return nil, fmt.Errorf("invalid C noise-analysis trace count %d", nNoiseRowsU)
+	}
+	noiseRowsByContext := make(map[[2]int32]silkNoiseAnalysisTraceRecord)
+	noiseSubframes := make(map[[3]int32]struct{}, nNoiseRowsU)
+	for i := uint32(0); i < nNoiseRowsU; i++ {
+		if len(raw)-off < 9*4 {
+			return nil, fmt.Errorf("truncated C noise-analysis header record %d", i)
+		}
+		var r silkNoiseAnalysisTraceRecord
+		r.frame, r.channel, r.subframe, r.numSubfr = ri(), ri(), ri(), ri()
+		r.order, r.windowLength, r.warpingQ16 = ri(), ri(), ri()
+		r.autoCorrCalls, r.schurCalls = ri(), ri()
+		if r.frame < 0 || int(r.frame) >= nFrames || !isSILKCtrlTraceFrame(r.frame) ||
+			r.channel < 0 || r.channel > 1 || r.numSubfr <= 0 || r.numSubfr > silkCtrlMaxNbSubfr ||
+			r.subframe < 0 || r.subframe >= r.numSubfr || r.order <= 0 || r.order > silkCtrlMaxShapeLPC ||
+			r.windowLength <= r.order || r.windowLength > silkCtrlMaxShapeWin || r.warpingQ16 != 0 ||
+			r.autoCorrCalls != 1 || r.schurCalls != 1 {
+			return nil, fmt.Errorf("invalid C noise-analysis metadata frame=%d channel=%d subframe=%d/%d order=%d window=%d warp=%d calls=%d/%d",
+				r.frame, r.channel, r.subframe, r.numSubfr, r.order, r.windowLength, r.warpingQ16,
+				r.autoCorrCalls, r.schurCalls)
+		}
+		contextKey := [2]int32{r.frame, r.channel}
+		if previous, ok := noiseRowsByContext[contextKey]; ok {
+			if previous.numSubfr != r.numSubfr || previous.order != r.order ||
+				previous.windowLength != r.windowLength || previous.warpingQ16 != r.warpingQ16 {
+				return nil, fmt.Errorf("inconsistent C noise-analysis context dimensions frame=%d/channel=%d", r.frame, r.channel)
+			}
+		} else {
+			noiseRowsByContext[contextKey] = r
+		}
+		rowKey := [3]int32{r.frame, r.channel, r.subframe}
+		if _, duplicate := noiseSubframes[rowKey]; duplicate {
+			return nil, fmt.Errorf("duplicate C noise-analysis row frame=%d/channel=%d/subframe=%d", r.frame, r.channel, r.subframe)
+		}
+		noiseSubframes[rowKey] = struct{}{}
+		floatCount := int(r.windowLength) + 2*(int(r.order)+1) + int(r.order) + 1
+		if floatCount < 0 || floatCount > (len(raw)-off)/4 {
+			return nil, fmt.Errorf("truncated C noise-analysis arrays frame=%d/channel=%d/subframe=%d", r.frame, r.channel, r.subframe)
+		}
+		r.window = make([]float32, int(r.windowLength))
+		r.autoCorrRaw = make([]float32, int(r.order)+1)
+		r.autoCorrAdjusted = make([]float32, int(r.order)+1)
+		r.reflection = make([]float32, int(r.order))
+		readFinite := func(dst []float32) error {
+			for j := range dst {
+				dst[j] = rf()
+				if !finiteSILKTraceFloat(dst[j]) {
+					return fmt.Errorf("non-finite C noise-analysis float frame=%d/channel=%d/subframe=%d", r.frame, r.channel, r.subframe)
+				}
+			}
+			return nil
+		}
+		if err := readFinite(r.window); err != nil {
+			return nil, err
+		}
+		if err := readFinite(r.autoCorrRaw); err != nil {
+			return nil, err
+		}
+		if err := readFinite(r.autoCorrAdjusted); err != nil {
+			return nil, err
+		}
+		if err := readFinite(r.reflection); err != nil {
+			return nil, err
+		}
+		r.energy = rf()
+		if !finiteSILKTraceFloat(r.energy) {
+			return nil, fmt.Errorf("non-finite C noise-analysis energy frame=%d/channel=%d/subframe=%d", r.frame, r.channel, r.subframe)
+		}
+		matchedGain := false
+		for _, gain := range out.gainTweaks {
+			if gain.frame == r.frame && gain.channel == r.channel {
+				if gain.nbSubfr != r.numSubfr || gain.shapeOrder != r.order || gain.warpingQ16 != r.warpingQ16 {
+					return nil, fmt.Errorf("C noise-analysis/gain context mismatch frame=%d/channel=%d", r.frame, r.channel)
+				}
+				matchedGain = true
+				break
+			}
+		}
+		if !matchedGain {
+			return nil, fmt.Errorf("C noise-analysis row lacks gain context frame=%d/channel=%d", r.frame, r.channel)
+		}
+		out.noiseRows = append(out.noiseRows, r)
+	}
+	for context, first := range noiseRowsByContext {
+		for subframe := int32(0); subframe < first.numSubfr; subframe++ {
+			if _, ok := noiseSubframes[[3]int32{context[0], context[1], subframe}]; !ok {
+				return nil, fmt.Errorf("missing C noise-analysis row frame=%d/channel=%d/subframe=%d",
+					context[0], context[1], subframe)
+			}
+		}
+	}
+	if len(raw)-off < 4 {
+		return nil, fmt.Errorf("truncated C noise-analysis overflow flag")
+	}
+	if overflow := ri(); overflow != 0 {
+		return nil, fmt.Errorf("C noise-analysis trace overflowed its bounded record buffer")
+	}
 	if off != len(raw) {
 		return nil, fmt.Errorf("trailing oracle bytes: consumed %d of %d", off, len(raw))
 	}
@@ -639,6 +810,132 @@ func firstSILKGainTweakDifference(c silkGainTweakRecord, g silk.SILKGainTweakSna
 		return diff
 	}
 	return compare("post-tweak gain", c.postGain[g.Subframe], g.PostGain)
+}
+
+func firstSILKNoiseAnalysisDifference(
+	c silkNoiseAnalysisTraceRecord,
+	cGain silkGainTweakRecord,
+	g silk.SILKNoiseAnalysisTraceSnapshot,
+	goGain silk.SILKGainTweakSnapshot,
+) string {
+	if !g.Valid {
+		return "Go snapshot has invalid or unsupported geometry"
+	}
+	if c.frame < 0 || c.channel < 0 || c.subframe < 0 || c.subframe >= c.numSubfr {
+		return "C snapshot subframe metadata is out of range"
+	}
+	if g.Subframe != c.subframe || g.NumSubframes != c.numSubfr || g.Order != c.order ||
+		g.WindowLength != c.windowLength || g.WarpingQ16 != c.warpingQ16 {
+		return fmt.Sprintf("geometry C=(subframe=%d/%d order=%d window=%d warp=%d) Go=(subframe=%d/%d order=%d window=%d warp=%d)",
+			c.subframe, c.numSubfr, c.order, c.windowLength, c.warpingQ16,
+			g.Subframe, g.NumSubframes, g.Order, g.WindowLength, g.WarpingQ16)
+	}
+	compareVector := func(name string, cValues []float32, goValues []float32) string {
+		if len(cValues) != len(goValues) {
+			return fmt.Sprintf("%s dimensions C=%d Go=%d", name, len(cValues), len(goValues))
+		}
+		for i := range cValues {
+			if math.Float32bits(cValues[i]) != math.Float32bits(goValues[i]) {
+				return fmt.Sprintf("%s[%d] C=%08x Go=%08x", name, i,
+					math.Float32bits(cValues[i]), math.Float32bits(goValues[i]))
+			}
+		}
+		return ""
+	}
+	if diff := compareVector("window", c.window, g.Window[:c.windowLength]); diff != "" {
+		return diff
+	}
+	if diff := compareVector("raw autocorrelation", c.autoCorrRaw, g.AutoCorrRaw[:c.order+1]); diff != "" {
+		return diff
+	}
+	if diff := compareVector("adjusted autocorrelation", c.autoCorrAdjusted, g.AutoCorrWhite[:c.order+1]); diff != "" {
+		return diff
+	}
+	if diff := compareVector("Schur reflection", c.reflection, g.Reflection[:c.order]); diff != "" {
+		return diff
+	}
+	if math.Float32bits(c.energy) != math.Float32bits(g.Energy) {
+		return fmt.Sprintf("Schur residual energy C=%08x Go=%08x", math.Float32bits(c.energy), math.Float32bits(g.Energy))
+	}
+	if math.Float32bits(g.SqrtGain) != math.Float32bits(cGain.preGain[c.subframe]) {
+		// C noise_shape_analysis_FLP.c:267 stores (silk_float)sqrt(nrg) in
+		// Gains; the first AR bandwidth-expander callback snapshots that value
+		// before the gain-tweak loop on this unwarped path.
+		return fmt.Sprintf("sqrt(Schur energy) C actual pre-gain=%08x Go=%08x",
+			math.Float32bits(cGain.preGain[c.subframe]), math.Float32bits(g.SqrtGain))
+	}
+	if math.Float32bits(g.SqrtGain) != math.Float32bits(goGain.PreGain) {
+		return fmt.Sprintf("Go sqrt(Schur energy)=%08x Go pre-tweak gain=%08x",
+			math.Float32bits(g.SqrtGain), math.Float32bits(goGain.PreGain))
+	}
+	return ""
+}
+
+func compareSILKNoiseAnalysisTrace(
+	t *testing.T,
+	oracle *silkCtrlOracleOut,
+	traceFrames []int,
+	goNoiseRows []goSILKNoiseAnalysisTraceRecord,
+	goGainTweaks []goSILKGainTweakRecord,
+	inputID string,
+) {
+	t.Helper()
+	wantRows := 0
+	for _, control := range oracle.ctrl {
+		if hasSILKCBRTraceFrame(traceFrames, int(control.opusFrame)) {
+			wantRows += int(control.nbSubfr)
+		}
+	}
+	if len(oracle.noiseRows) != wantRows {
+		t.Fatalf("actual C noise-analysis rows=%d, want %d selected subframes", len(oracle.noiseRows), wantRows)
+	}
+	if len(goNoiseRows) != wantRows {
+		t.Fatalf("Go noise-analysis rows=%d, want %d selected subframes", len(goNoiseRows), wantRows)
+	}
+	divergence := ""
+	for _, c := range oracle.noiseRows {
+		var goRow *goSILKNoiseAnalysisTraceRecord
+		for i := range goNoiseRows {
+			candidate := &goNoiseRows[i]
+			if candidate.frame == c.frame && candidate.channel == c.channel &&
+				candidate.snapshot.Subframe == c.subframe {
+				goRow = candidate
+				break
+			}
+		}
+		if goRow == nil {
+			t.Fatalf("missing Go noise-analysis snapshot frame%d/channel%d/subframe%d", c.frame, c.channel, c.subframe)
+		}
+		var cGain *silkGainTweakRecord
+		for i := range oracle.gainTweaks {
+			candidate := &oracle.gainTweaks[i]
+			if candidate.frame == c.frame && candidate.channel == c.channel {
+				cGain = candidate
+				break
+			}
+		}
+		var goGain *goSILKGainTweakRecord
+		for i := range goGainTweaks {
+			candidate := &goGainTweaks[i]
+			if candidate.frame == c.frame && candidate.channel == c.channel &&
+				candidate.snapshot.Subframe == c.subframe {
+				goGain = candidate
+				break
+			}
+		}
+		if cGain == nil || goGain == nil {
+			t.Fatalf("missing gain snapshot for noise-analysis frame%d/channel%d/subframe%d", c.frame, c.channel, c.subframe)
+		}
+		if diff := firstSILKNoiseAnalysisDifference(c, *cGain, goRow.snapshot, goGain.snapshot); diff != "" {
+			divergence = fmt.Sprintf("frame%d/channel%d/subframe%d: %s", c.frame, c.channel, c.subframe, diff)
+			break
+		}
+	}
+	if divergence != "" {
+		t.Logf("first actual C/Go noise-analysis divergence input=%s %s", inputID, divergence)
+	} else {
+		t.Logf("actual C/Go shaping window, autocorrelation, Schur, and sqrt gain match across %d subframes", wantRows)
+	}
 }
 
 // TestSILKCtrlOracle bisects the first diverging SILK control quantity vs
@@ -771,6 +1068,7 @@ func TestSILKCBRControlOracle(t *testing.T) {
 			var goLPCCalls []goSILKFindLPCRecord
 			var goLTPCalls []goSILKLTPCallRecord
 			var goGainTweaks []goSILKGainTweakRecord
+			var goNoiseRows []goSILKNoiseAnalysisTraceRecord
 			channelByEncoder := make(map[*silk.Encoder]int, tc.channels)
 			nextChannel := 0
 			currentFrame := -1
@@ -793,66 +1091,75 @@ func TestSILKCBRControlOracle(t *testing.T) {
 					frame: int32(currentFrame), channel: int32(channel), snapshot: s,
 				})
 			}, func() {
-				silk.WithSILKLTPAnalysisTraceHook(func(e *silk.Encoder, s silk.SILKLTPAnalysisTraceSnapshot) {
+				silk.WithSILKNoiseAnalysisTraceHook(func(_ *silk.Encoder, _ int32) bool {
+					return hasSILKCBRTraceFrame(traceFrames, currentFrame)
+				}, func(e *silk.Encoder, s *silk.SILKNoiseAnalysisTraceSnapshot) {
 					channel := channelForEncoder(e)
-					if !hasSILKCBRTraceFrame(traceFrames, currentFrame) || channel != 0 {
-						return
-					}
-					s.PitchBuffer = append([]float32(nil), s.PitchBuffer...)
-					s.Residual = append([]float32(nil), s.Residual...)
-					goLTPCalls = append(goLTPCalls, goSILKLTPCallRecord{
-						frame: int32(currentFrame), channel: int32(channel), snapshot: s,
+					goNoiseRows = append(goNoiseRows, goSILKNoiseAnalysisTraceRecord{
+						frame: int32(currentFrame), channel: int32(channel), snapshot: *s,
 					})
 				}, func() {
-					silk.WithSILKNLSFInterpolationTraceHook(func(e *silk.Encoder, s silk.SILKNLSFInterpolationSnapshot) {
+					silk.WithSILKLTPAnalysisTraceHook(func(e *silk.Encoder, s silk.SILKLTPAnalysisTraceSnapshot) {
 						channel := channelForEncoder(e)
 						if !hasSILKCBRTraceFrame(traceFrames, currentFrame) || channel != 0 {
 							return
 						}
-						s.Input = append([]float32(nil), s.Input...)
-						goLPCCalls = append(goLPCCalls, goSILKFindLPCRecord{
+						s.PitchBuffer = append([]float32(nil), s.PitchBuffer...)
+						s.Residual = append([]float32(nil), s.Residual...)
+						goLTPCalls = append(goLTPCalls, goSILKLTPCallRecord{
 							frame: int32(currentFrame), channel: int32(channel), snapshot: s,
 						})
 					}, func() {
-						silk.WithSILKEncodeTraceSnapshotHooks(func(s silk.SILKCtrlSnapshot) {
-							snapshots = append(snapshots, s)
-						}, func(e *silk.Encoder, s silk.SILKEncodeStageSnapshot) {
+						silk.WithSILKNLSFInterpolationTraceHook(func(e *silk.Encoder, s silk.SILKNLSFInterpolationSnapshot) {
 							channel := channelForEncoder(e)
-							if !hasSILKCBRTraceFrame(traceFrames, currentFrame) {
+							if !hasSILKCBRTraceFrame(traceFrames, currentFrame) || channel != 0 {
 								return
 							}
-							r := silkEncodeStageRecord{
-								frame: int32(currentFrame), channel: int32(channel), iter: int32(s.Iteration),
-								stage: int32(s.Stage - 1), tell: int32(s.Tell), rangeValue: s.Range,
-								signalType: int32(s.SignalType), quantOffset: int32(s.QuantOffsetType), seed: int32(s.Seed),
-								lagIndex: int32(s.LagIndex), contour: int32(s.ContourIndex),
-								nlsfInterp: int32(s.NLSFInterpCoefQ2), perIndex: int32(s.PERIndex),
-								ltpScale: int32(s.LTPScaleIndex),
-							}
-							for i := range r.gains {
-								r.gains[i] = int32(s.GainIndices[i])
-								r.ltp[i] = int32(s.LTPIndices[i])
-							}
-							for i := range r.nlsf {
-								r.nlsf[i] = int32(s.NLSFIndices[i])
-							}
-							if s.Stage == silk.SILKEncodeAfterNSQ {
-								r.pulses = append([]int8(nil), s.Pulses...)
-							}
-							goStages = append(goStages, r)
+							s.Input = append([]float32(nil), s.Input...)
+							goLPCCalls = append(goLPCCalls, goSILKFindLPCRecord{
+								frame: int32(currentFrame), channel: int32(channel), snapshot: s,
+							})
 						}, func() {
-							for frame := 0; frame < frameCount; frame++ {
-								currentFrame = frame
-								start := frame * tc.frameSize * tc.channels
-								end := start + tc.frameSize*tc.channels
-								packet, err := enc.Encode(oraclePCM[start:end], tc.frameSize)
-								if err != nil {
-									encodeErr = fmt.Errorf("frame %d: %w", frame, err)
+							silk.WithSILKEncodeTraceSnapshotHooks(func(s silk.SILKCtrlSnapshot) {
+								snapshots = append(snapshots, s)
+							}, func(e *silk.Encoder, s silk.SILKEncodeStageSnapshot) {
+								channel := channelForEncoder(e)
+								if !hasSILKCBRTraceFrame(traceFrames, currentFrame) {
 									return
 								}
-								goOutput.Packets = append(goOutput.Packets, append([]byte(nil), packet...))
-								goOutput.FinalRanges = append(goOutput.FinalRanges, enc.FinalRange())
-							}
+								r := silkEncodeStageRecord{
+									frame: int32(currentFrame), channel: int32(channel), iter: int32(s.Iteration),
+									stage: int32(s.Stage - 1), tell: int32(s.Tell), rangeValue: s.Range,
+									signalType: int32(s.SignalType), quantOffset: int32(s.QuantOffsetType), seed: int32(s.Seed),
+									lagIndex: int32(s.LagIndex), contour: int32(s.ContourIndex),
+									nlsfInterp: int32(s.NLSFInterpCoefQ2), perIndex: int32(s.PERIndex),
+									ltpScale: int32(s.LTPScaleIndex),
+								}
+								for i := range r.gains {
+									r.gains[i] = int32(s.GainIndices[i])
+									r.ltp[i] = int32(s.LTPIndices[i])
+								}
+								for i := range r.nlsf {
+									r.nlsf[i] = int32(s.NLSFIndices[i])
+								}
+								if s.Stage == silk.SILKEncodeAfterNSQ {
+									r.pulses = append([]int8(nil), s.Pulses...)
+								}
+								goStages = append(goStages, r)
+							}, func() {
+								for frame := 0; frame < frameCount; frame++ {
+									currentFrame = frame
+									start := frame * tc.frameSize * tc.channels
+									end := start + tc.frameSize*tc.channels
+									packet, err := enc.Encode(oraclePCM[start:end], tc.frameSize)
+									if err != nil {
+										encodeErr = fmt.Errorf("frame %d: %w", frame, err)
+										return
+									}
+									goOutput.Packets = append(goOutput.Packets, append([]byte(nil), packet...))
+									goOutput.FinalRanges = append(goOutput.FinalRanges, enc.FinalRange())
+								}
+							})
 						})
 					})
 				})
@@ -903,6 +1210,7 @@ func TestSILKCBRControlOracle(t *testing.T) {
 			}
 			if runtime.GOOS == "linux" {
 				wantCalls := len(traceFrames) * tc.channels
+				compareSILKNoiseAnalysisTrace(t, oracle, traceFrames, goNoiseRows, goGainTweaks, inputID)
 				if len(oracle.lpcCalls) != wantCalls {
 					t.Fatalf("actual C FindLPC snapshots=%d, want %d for frames %v across %d channels",
 						len(oracle.lpcCalls), wantCalls, traceFrames, tc.channels)
@@ -1000,7 +1308,10 @@ func TestSILKCBRControlOracle(t *testing.T) {
 					}
 				}
 			} else {
-				t.Log("actual C FindLPC/LTP/gain-tweak call snapshots require Linux linker wrapping")
+				if len(oracle.noiseRows) != 0 {
+					t.Fatalf("non-Linux C helper emitted %d Linux-only noise-analysis rows", len(oracle.noiseRows))
+				}
+				t.Log("actual C FindLPC/LTP/gain/noise-analysis snapshots require Linux linker wrapping")
 			}
 
 			t.Logf("CBR trace input=AMMultisineV1/%s frames=%d channels=%d controls=%d", inputID, frameCount, tc.channels, len(oracle.ctrl))

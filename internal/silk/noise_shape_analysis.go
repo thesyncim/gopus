@@ -249,13 +249,28 @@ func (e *Encoder) computeShapingARAndGains(
 			copy(win, segment)
 		}
 
+		traceNoise := false
+		if silkNoiseAnalysisTraceEnabled {
+			traceNoise = wantsSILKNoiseAnalysisTrace(e, int32(k))
+			if traceNoise {
+				beginSILKNoiseAnalysisTrace(e, int32(k), int32(numSubframes), int32(shapeOrder),
+					int32(shapeWinLength), e.warpingQ16, win)
+			}
+		}
+
 		if e.warpingQ16 > 0 {
 			warpedAutocorrelationFLP32(autoCorr, nil, win, warping, shapeWinLength, shapeOrder)
 		} else {
 			autocorrelationF32(autoCorr, win, shapeWinLength, shapeOrder+1)
 		}
+		if traceNoise {
+			captureSILKNoiseAutoCorrTrace(e, autoCorr, false)
+		}
 
 		autoCorr[0] += autoCorr[0]*float32(shapeWhiteNoiseFraction) + 1.0
+		if traceNoise {
+			captureSILKNoiseAutoCorrTrace(e, autoCorr, true)
+		}
 
 		nrg := schurF32(rc, autoCorr, shapeOrder)
 		for i := range ar {
@@ -266,6 +281,9 @@ func (e *Encoder) computeShapingARAndGains(
 		g := float32(0)
 		if nrg > 0 {
 			g = sqrt32(nrg)
+		}
+		if traceNoise {
+			finishSILKNoiseAnalysisTrace(e, rc, nrg, g)
 		}
 
 		if e.warpingQ16 > 0 {
