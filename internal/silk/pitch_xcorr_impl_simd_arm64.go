@@ -150,7 +150,9 @@ func pitchXcorrInnerProductArm64SIMD(x, y []float32, length int) float32 {
 	}
 	sum := (acc.GetElem(0) + acc.GetElem(2)) + (acc.GetElem(1) + acc.GetElem(3))
 	for ; i < length; i++ {
-		sum += noFMA32(x[i], y[i])
+		// celt_inner_prod_neon finishes its scalar remainder with MAC16_16,
+		// which clang lowers to FMADD on arm64.
+		sum = x[i]*y[i] + sum
 	}
 	return sum
 }
