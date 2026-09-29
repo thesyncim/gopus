@@ -1,8 +1,8 @@
-//go:build !amd64 || nosimd || !goexperiment.simd
+//go:build !amd64 || nosimd || !goexperiment.simd || purego
 
 package celt
 
 // stereoSplitInto runs stereo_split() over x and y of equal length.
 func stereoSplitInto(x, y []celtNorm) {
-	stereoSplitScalar(x, y)
+	stereoSplitScalarTarget(x, y)
 }

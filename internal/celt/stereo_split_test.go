@@ -7,7 +7,7 @@ import (
 )
 
 // TestStereoSplitMatchesScalar checks the build-selected stereo_split()
-// against the scalar loop bit for bit.
+// against the matching scalar contraction order bit for bit.
 func TestStereoSplitMatchesScalar(t *testing.T) {
 	rng := rand.New(rand.NewSource(0x5917))
 	for trial := range 1000 {
@@ -20,7 +20,7 @@ func TestStereoSplitMatchesScalar(t *testing.T) {
 		wx := append([]celtNorm(nil), x...)
 		wy := append([]celtNorm(nil), y...)
 		stereoSplit(x, y)
-		stereoSplitScalar(wx, wy)
+		stereoSplitScalarTarget(wx, wy)
 		for i := range wx {
 			if !sameSumBits(x[i], wx[i]) || !sameSumBits(y[i], wy[i]) {
 				t.Fatalf("trial %d n=%d: [%d] got (%08x,%08x) want (%08x,%08x)", trial, n, i,
