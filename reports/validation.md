@@ -314,8 +314,13 @@ validation coverage. Ordinary caller instruction checks find no trace work.
 The band-17 quantization trace captures actual theta, PVQ, stereo merge,
 reconstructed output and RDO-selection boundaries in the existing two-frame
 constrained-VBR witness. Parsing requires bounded geometry, valid trial linkage,
-complete selection events and exact EOF. Trace transparency and matched native
-execution are pending; default-off caller instruction checks pass.
+complete selection events and exact EOF. The [native audit at `b4c72fc5`](https://github.com/thesyncim/gopus/actions/runs/36644914737)
+passes the malformed-payload suite in both lanes, but its link-map validator
+rejects the separate `quant_bands.o` object because its name contains `bands.o`.
+The validator matches complete archive member names; its regression accepts
+`quant_bands.o` while rejecting ordinary/libtool `bands.o`, nested members and
+malformed entries. Actual trace transparency and native quantization capture
+remain pending. Default-off caller instruction checks pass.
 
 The v3 warped-gain correction preserves the selected C Horner FMA sequence
 and fused denominator, followed by separate float32 reciprocal and sqrt-gain

@@ -283,9 +283,48 @@ func validateCELTQuantTraceLinkMap(path string) error {
 		return fmt.Errorf("read CELT quant trace link map %s: %w", path, err)
 	}
 	for _, line := range strings.Split(string(data), "\n") {
-		if strings.Contains(line, "libopus.a") && strings.Contains(line, "bands.o") {
-			return fmt.Errorf("quant trace linked uninstrumented archive bands.c: %s", strings.TrimSpace(line))
+		rest := line
+		for {
+			start := strings.Index(rest, "libopus.a(")
+			if start < 0 {
+				break
+			}
+			member, tail, ok := strings.Cut(rest[start+len("libopus.a("):], ")")
+			if !ok || member == "" {
+				return fmt.Errorf("malformed archive member in quant trace link map: %s", strings.TrimSpace(line))
+			}
+			// quant_bands.o is a separate, required translation unit. Match
+			// the bands.c archive member exactly rather than its name suffix.
+			switch filepath.Base(member) {
+			case "bands.o", "libopus_la-bands.o":
+				return fmt.Errorf("quant trace linked uninstrumented archive bands.c: %s", strings.TrimSpace(line))
+			}
+			rest = tail
 		}
 	}
 	return nil
+}
+
+func TestCELTQuantTraceLinkMapRejectsUninstrumentedBands(t *testing.T) {
+	for _, tc := range []struct {
+		name, text string
+		wantError  bool
+	}{
+		{"quantization kernels", "ref/.libs/libopus.a(quant_bands.o)\nref/.libs/libopus.a(vq.o)\n", false},
+		{"bands", "ref/.libs/libopus.a(bands.o)\n", true},
+		{"libtool bands", "ref/.libs/libopus.a(libopus_la-bands.o)\n", true},
+		{"object directory", "ref/.libs/libopus.a(celt/bands.o)\n", true},
+		{"multiple members", "libopus.a(quant_bands.o) libopus.a(bands.o)\n", true},
+		{"unterminated member", "ref/.libs/libopus.a(bands.o\n", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "quant-trace.map")
+			if err := os.WriteFile(path, []byte(tc.text), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := validateCELTQuantTraceLinkMap(path); (err != nil) != tc.wantError {
+				t.Fatalf("link-map validation error=%v, wantError=%t", err, tc.wantError)
+			}
+		})
+	}
 }
