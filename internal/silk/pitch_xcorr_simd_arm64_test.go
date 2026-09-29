@@ -23,7 +23,7 @@ func buildLibopusSILKPitchXcorrNEONHelper() (string, error) {
 		OutputBase:   "gopus_libopus_silk_pitch_xcorr_neon",
 		SourceFile:   "libopus_silk_pitch_xcorr_neon_info.c",
 		ProbeRelPath: "celt/arm/celt_neon_intr.c",
-		CFlags:       []string{"-DHAVE_CONFIG_H", "-O2", "-ffp-contract=off"},
+		CFlags:       []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
 		RefIncludes:  []string{"celt", "celt/arm"},
 		SIMDRef:      true,
 		RefSources: []string{

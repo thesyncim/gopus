@@ -22,6 +22,17 @@ enum {
   DISPATCH_INNER_PROD_SSE = 2u
 };
 
+static uint32_t presumed_dispatches(void) {
+  uint32_t dispatches = 0;
+#if defined(OPUS_X86_PRESUME_AVX2) && !defined(FIXED_POINT)
+  dispatches |= DISPATCH_XCORR_AVX2;
+#endif
+#if defined(OPUS_X86_PRESUME_SSE) && !defined(FIXED_POINT)
+  dispatches |= DISPATCH_INNER_PROD_SSE;
+#endif
+  return dispatches;
+}
+
 static int selected_arch;
 
 static int set_binary_stdio(void) {
@@ -123,6 +134,7 @@ int main(void) {
   uint32_t count;
   uint32_t features;
   uint32_t dispatches;
+  uint32_t presumed;
   uint32_t i;
 
   if (!set_binary_stdio()) return 1;
@@ -132,19 +144,34 @@ int main(void) {
   selected_arch = opus_select_arch();
   features = cpu_features();
   dispatches = selected_dispatches(selected_arch);
+  presumed = presumed_dispatches();
 #if defined(GOPUS_REQUIRE_NATIVE_AVX2_FMA)
-  if (selected_arch < 4 || (features & (CPU_AVX2 | CPU_FMA)) != (CPU_AVX2 | CPU_FMA) ||
+  if ((presumed & ~(DISPATCH_XCORR_AVX2 | DISPATCH_INNER_PROD_SSE)) != 0 ||
+      (presumed & ~dispatches) != 0) {
+    fprintf(stderr,
+        "paired libopus xcorr has invalid presumed dispatch metadata: arch=%u cpu=%u dispatch=%u presumed=%u\n",
+        (uint32_t)selected_arch, features, dispatches, presumed);
+    return 1;
+  }
+  if (((DISPATCH_XCORR_AVX2 | DISPATCH_INNER_PROD_SSE) & ~presumed) != 0 && selected_arch < 4) {
+    fprintf(stderr,
+        "paired libopus xcorr requires AVX2/FMA RTCD arch or presumed dispatch: arch=%u cpu=%u dispatch=%u presumed=%u\n",
+        (uint32_t)selected_arch, features, dispatches, presumed);
+    return 1;
+  }
+  if ((features & (CPU_AVX2 | CPU_FMA)) != (CPU_AVX2 | CPU_FMA) ||
       (dispatches & (DISPATCH_XCORR_AVX2 | DISPATCH_INNER_PROD_SSE)) !=
           (DISPATCH_XCORR_AVX2 | DISPATCH_INNER_PROD_SSE)) {
     fprintf(stderr,
-        "paired libopus xcorr requires native AVX2/FMA dispatch: arch=%u cpu=%u dispatch=%u\n",
-        (uint32_t)selected_arch, features, dispatches);
+        "paired libopus xcorr requires native AVX2/FMA dispatch: arch=%u cpu=%u dispatch=%u presumed=%u\n",
+        (uint32_t)selected_arch, features, dispatches, presumed);
     return 1;
   }
 #endif
 
-  if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(2) ||
+  if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(3) ||
       !write_u32((uint32_t)selected_arch) || !write_u32(features) || !write_u32(dispatches) ||
+      !write_u32(presumed) ||
       !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {
     if (!eval_record()) return 1;

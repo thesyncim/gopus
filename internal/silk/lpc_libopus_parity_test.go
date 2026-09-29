@@ -45,17 +45,13 @@ func newLibopusSILKOracleReader(label, outputMagic string, data []byte, wantCoun
 	if err != nil {
 		return nil, 0, err
 	}
-	if version != 2 {
-		return nil, 0, fmt.Errorf("%s helper version=%d want 2", label, version)
+	if version != 3 {
+		return nil, 0, fmt.Errorf("%s helper version=%d want 3", label, version)
 	}
-	arch := reader.U32()
-	innerProductImpl := reader.U32()
+	arch, innerProductImpl, presumed := reader.U32(), reader.U32(), reader.U32()
 	wantAVX2 := silkLPCOracleUsesAVX2()
-	if innerProductImpl > 1 || (innerProductImpl == 1) != wantAVX2 {
-		return nil, 0, fmt.Errorf("%s helper SILK_INNER_PRODUCT_FLP_IMPL=%d at arch=%d, Go expects AVX2=%t", label, innerProductImpl, arch, wantAVX2)
-	}
-	if innerProductImpl == 1 && arch < 4 {
-		return nil, 0, fmt.Errorf("%s helper reports AVX2 inner product at unsupported arch=%d", label, arch)
+	if !libopustest.NativeX86SILKInnerProductMetadataValid(arch, innerProductImpl, presumed, wantAVX2) {
+		return nil, 0, fmt.Errorf("%s helper SILK_INNER_PRODUCT_FLP_IMPL=%d at arch=%d presumed=%d, Go expects AVX2=%t", label, innerProductImpl, arch, presumed, wantAVX2)
 	}
 	count := reader.Count(wantCount)
 	return reader, count, nil

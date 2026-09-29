@@ -58,9 +58,18 @@ func TestMDCTNegativeForwardFoldUsesTargetContractionOrder(t *testing.T) {
 	if mdctUseNegFoldSecondProduct {
 		want = v3Want
 	}
-	if got := mdctNegMulAddMixEncode(a, b, c, d); math.Float32bits(got) != math.Float32bits(want) {
+	if got := mdctNegMulAddMixEncodeForTest(a, b, c, d); math.Float32bits(got) != math.Float32bits(want) {
 		t.Fatalf("negative fold=%08x want %08x", math.Float32bits(got), math.Float32bits(want))
 	}
+}
+
+// mdctNegMulAddMixEncodeForTest keeps fixture inputs runtime-opaque so the
+// assertion exercises the contraction order in libopus celt/mdct.c's
+// clt_mdct_forward_c instead of a constant-folded expression.
+//
+//go:noinline
+func mdctNegMulAddMixEncodeForTest(a, b, c, d float32) float32 {
+	return mdctNegMulAddMixEncode(a, b, c, d)
 }
 
 func mdctForwardOverlapLegacyStagedReference(samples []float32, overlap int) []float32 {

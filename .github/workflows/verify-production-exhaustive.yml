@@ -95,6 +95,22 @@ jobs:
               go test ./internal/celt -count=1 -v -timeout=15m \
               -run '^Test(KissMulSource.*|KfBfly.*|KissFFTBoundedFastPathMatchesScalar|MDCTFMALikeMixUsesFusedSourceShape|MDCTNegativeForwardFoldUsesTargetContractionOrder|IMDCTRotateAMD64MatchesScalar|IMDCTTDACWindowFMA32MatchesScalar|MDCTForwardRotationsMatchScalar)$' \
               > "$RUNNER_TEMP/goamd64-evidence/$mode-units.log" 2>&1 || status=1
+            env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
+              GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
+              go test ./internal/silk -count=1 -v -timeout=15m \
+              -run '^TestSILK(PitchAnalysisCoreMatchesLibopus|PitchXcorrMatchesLibopusOracle|WarpedAutocorrelationFLPMatchesLibopusOracle|ApplySineWindowFLPMatchesLibopusOracle|ProcessGainsFLPMatchesLibopusOracle|BurgModifiedFLPMatchesLibopusOracle|LPCAnalysisFilterFLPMatchesLibopusOracle|InnerProductFLPMatchesLibopusOracle|EnergyFLPMatchesLibopusOracle|AutocorrelationF32MatchesLibopusOracle|FindLPCFLPMatchesLibopusOracle)$' \
+              > "$RUNNER_TEMP/goamd64-evidence/$mode-silk-primitives.log" 2>&1 || status=1
+            env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
+              GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
+              go test ./testvectors -count=1 -v -timeout=15m -run '^TestEncoderCBRPairedOracleExact$' \
+              > "$RUNNER_TEMP/goamd64-evidence/$mode-cbr.log" 2>&1 || status=1
+            if [[ "$mode" == simd ]]; then
+              env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 \
+                GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_REQUIRE_NATIVE_AVX2_FMA=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
+                go test ./internal/celt ./internal/silk -count=1 -v -timeout=15m \
+                -run '^Test(PitchXCorrPairedLibopusSIMDRawBits|SilkPitchXCorrPairedLibopusSIMDRawBits)$' \
+                > "$RUNNER_TEMP/goamd64-evidence/simd-pitch-dispatch.log" 2>&1 || status=1
+            fi
             variant="$mode"
             if [[ "$mode" == nosimd ]]; then variant=scalar; fi
             reference="tmp_check/opus-${LIBOPUS_VERSION}-amd64-v3-$variant"

@@ -14,6 +14,7 @@ const (
 )
 
 var libopusSILKPitchXcorrHelper libopustest.HelperCache
+var libopusSILKPitchXcorrScalarHelper libopustest.HelperCache
 
 func getLibopusSILKPitchXcorrHelperPath() (string, error) {
 	return libopusSILKPitchXcorrHelper.CHelperPath(libopustest.CHelperConfig{
@@ -25,6 +26,20 @@ func getLibopusSILKPitchXcorrHelperPath() (string, error) {
 		RefIncludes:  []string{"celt", "silk"},
 		RefSources:   []string{"celt/pitch.c"},
 		DeadStrip:    true,
+	})
+}
+
+func getLibopusSILKPitchXcorrScalarHelperPath() (string, error) {
+	return libopusSILKPitchXcorrScalarHelper.CHelperPath(libopustest.CHelperConfig{
+		Label:          "compiler-matched scalar SILK pitch xcorr",
+		OutputBase:     "gopus_libopus_silk_pitch_xcorr_scalar_matched",
+		SourceFile:     "libopus_silk_pitch_xcorr_info.c",
+		ProbeRelPath:   "celt/pitch.c",
+		CFlags:         []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
+		RefIncludes:    []string{"celt", "silk"},
+		RefSources:     []string{"celt/pitch.c"},
+		ForceScalarRef: true,
+		DeadStrip:      true,
 	})
 }
 
@@ -41,6 +56,18 @@ func probeLibopusSILKPitchXcorr(cases []libopusSILKPitchXcorrCase) ([][]float32,
 	if err != nil {
 		return nil, err
 	}
+	return probeLibopusSILKPitchXcorrHelper(binPath, cases, "silk pitch xcorr non-contracting scalar diagnostic")
+}
+
+func probeLibopusSILKPitchXcorrScalar(cases []libopusSILKPitchXcorrCase) ([][]float32, error) {
+	binPath, err := getLibopusSILKPitchXcorrScalarHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	return probeLibopusSILKPitchXcorrHelper(binPath, cases, "compiler-matched scalar silk pitch xcorr")
+}
+
+func probeLibopusSILKPitchXcorrHelper(binPath string, cases []libopusSILKPitchXcorrCase, label string) ([][]float32, error) {
 	payload := libopustest.NewOraclePayload(libopusSILKPitchXcorrInputMagic, 0, uint32(len(cases)))
 	for _, tc := range cases {
 		payload.U32(uint32(tc.length))
@@ -49,7 +76,7 @@ func probeLibopusSILKPitchXcorr(cases []libopusSILKPitchXcorrCase) ([][]float32,
 		payload.Float32s(tc.y[:tc.length+tc.maxPitch]...)
 	}
 
-	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "silk pitch xcorr", libopusSILKPitchXcorrOutputMagic)
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), label, libopusSILKPitchXcorrOutputMagic)
 	if err != nil {
 		return nil, err
 	}
@@ -71,17 +98,15 @@ func probeLibopusSILKPitchXcorr(cases []libopusSILKPitchXcorrCase) ([][]float32,
 	return out, nil
 }
 
-func TestSILKPitchXcorrMatchesLibopusOracle(t *testing.T) {
+func TestSILKPitchXcorrNonContractingScalarDiagnostic(t *testing.T) {
+	// This helper calls scalar C xcorr with contraction off to diagnose expression
+	// order. Production scalar matching uses TestSILKPitchXcorrMatchesLibopusOracle;
+	// production SIMD and NEON paths use paired architecture-specific references.
 	libopustest.RequireOracle(t)
-	cases := []libopusSILKPitchXcorrCase{
-		{name: "short_tail", length: 7, maxPitch: 5, x: silkPitchXcorrOracleSignal(7, 0x11111111), y: silkPitchXcorrOracleSignal(12, 0x22222222)},
-		{name: "unrolled", length: 32, maxPitch: 9, x: silkPitchXcorrOracleSignal(32, 0x33333333), y: silkPitchXcorrOracleSignal(41, 0x44444444)},
-		{name: "pitch_frame", length: 120, maxPitch: 37, x: silkPitchXcorrOracleSignal(120, 0x55555555), y: silkPitchXcorrOracleSignal(157, 0x66666666)},
-		{name: "odd_frame", length: 119, maxPitch: 31, x: silkPitchXcorrOracleSignal(119, 0x77777777), y: silkPitchXcorrOracleSignal(150, 0x88888888)},
-	}
+	cases := silkPitchXcorrLibopusCases()
 	want, err := probeLibopusSILKPitchXcorr(cases)
 	if err != nil {
-		libopustest.HelperUnavailable(t, "silk pitch xcorr", err)
+		libopustest.HelperUnavailable(t, "silk pitch xcorr non-contracting scalar diagnostic", err)
 	}
 
 	for i, tc := range cases {
@@ -103,11 +128,18 @@ func TestSILKPitchXcorrMatchesLibopusOracle(t *testing.T) {
 	}
 }
 
+func silkPitchXcorrLibopusCases() []libopusSILKPitchXcorrCase {
+	return []libopusSILKPitchXcorrCase{
+		{name: "short_tail", length: 7, maxPitch: 5, x: silkPitchXcorrOracleSignal(7, 0x11111111), y: silkPitchXcorrOracleSignal(12, 0x22222222)},
+		{name: "unrolled", length: 32, maxPitch: 9, x: silkPitchXcorrOracleSignal(32, 0x33333333), y: silkPitchXcorrOracleSignal(41, 0x44444444)},
+		{name: "pitch_frame", length: 120, maxPitch: 37, x: silkPitchXcorrOracleSignal(120, 0x55555555), y: silkPitchXcorrOracleSignal(157, 0x66666666)},
+		{name: "odd_frame", length: 119, maxPitch: 31, x: silkPitchXcorrOracleSignal(119, 0x77777777), y: silkPitchXcorrOracleSignal(150, 0x88888888)},
+	}
+}
+
 func pitchXcorrFloatMatches(got, want float32) bool {
 	// The scalar pitch-xcorr kernels route every product through noFMA32, so the
-	// Go scalar path matches the -ffp-contract=off C oracle bit-for-bit on every
-	// architecture; NEON dispatch exactness is covered by
-	// TestSilkKernelsMatchReference.
+	// Go scalar path matches this non-contracting C diagnostic.
 	return math.Float32bits(got) == math.Float32bits(want)
 }
 

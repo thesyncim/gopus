@@ -68,7 +68,7 @@ func runSilkPitchXcorrSIMDOracle(t *testing.T, cases []silkPitchXcorrSIMDCase) {
 		payload.Float32s(tc.x...)
 		payload.Float32s(tc.y...)
 	}
-	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "SILK paired native SIMD pitch xcorr", "GXCO", 2)
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "SILK paired native SIMD pitch xcorr", "GXCO", 3)
 	if err != nil {
 		if requireNative {
 			t.Fatalf("run required SILK paired native SIMD xcorr oracle: %v", err)
@@ -76,9 +76,9 @@ func runSilkPitchXcorrSIMDOracle(t *testing.T, cases []silkPitchXcorrSIMDCase) {
 		libopustest.HelperUnavailable(t, "SILK paired native SIMD pitch xcorr", err)
 		return
 	}
-	arch, cpu, dispatch := reader.U32(), reader.U32(), reader.U32()
-	if arch < 4 || cpu&6 != 6 || dispatch&3 != 3 {
-		t.Fatalf("paired libopus did not select AVX2/FMA xcorr and SSE remainder: arch=%d cpu=%03b dispatch=%02b", arch, cpu, dispatch)
+	arch, cpu, dispatch, presumed := reader.U32(), reader.U32(), reader.U32(), reader.U32()
+	if !libopustest.NativeX86PitchXCorrMetadataValid(arch, cpu, dispatch, presumed) {
+		t.Fatalf("paired libopus did not select AVX2/FMA xcorr and SSE remainder: arch=%d cpu=%03b dispatch=%02b presumed=%02b", arch, cpu, dispatch, presumed)
 	}
 	if got := reader.Count(len(cases)); got != len(cases) {
 		t.Fatalf("SILK paired xcorr records=%d want %d", got, len(cases))

@@ -15,12 +15,7 @@ import (
 
 const (
 	libopusPitchXcorrOutputMagic   = "GXCO"
-	libopusPitchXcorrOracleVersion = uint32(2)
-
-	libopusPitchXcorrCPUAVX2      = uint32(2)
-	libopusPitchXcorrCPUFMA       = uint32(4)
-	libopusPitchXcorrDispatchAVX2 = uint32(1)
-	libopusPitchXcorrDispatchSSE  = uint32(2)
+	libopusPitchXcorrOracleVersion = uint32(3)
 )
 
 var libopusPitchXcorrSIMDHelper libopustest.HelperCache
@@ -30,6 +25,7 @@ type libopusPitchXcorrMetadata struct {
 	arch     uint32
 	cpu      uint32
 	dispatch uint32
+	presumed uint32
 }
 
 func getLibopusPitchXcorrSIMDHelperPath() (string, error) {
@@ -69,7 +65,7 @@ func probeLibopusPitchXcorrSIMD(cases []libopusPitchXcorrCase) (libopusPitchXcor
 	if version != libopusPitchXcorrOracleVersion {
 		return libopusPitchXcorrMetadata{}, nil, fmt.Errorf("CELT native SIMD pitch xcorr helper version=%d want %d", version, libopusPitchXcorrOracleVersion)
 	}
-	metadata := libopusPitchXcorrMetadata{arch: reader.U32(), cpu: reader.U32(), dispatch: reader.U32()}
+	metadata := libopusPitchXcorrMetadata{arch: reader.U32(), cpu: reader.U32(), dispatch: reader.U32(), presumed: reader.U32()}
 	count := reader.Count(len(cases))
 	want := make([][]float32, count)
 	for i := range want {
@@ -110,16 +106,15 @@ func TestPitchXCorrPairedLibopusSIMDRawBits(t *testing.T) {
 		libopustest.HelperUnavailable(t, "paired native libopus xcorr oracle", err)
 		return
 	}
-	if metadata.arch < 4 || metadata.cpu&(libopusPitchXcorrCPUAVX2|libopusPitchXcorrCPUFMA) != (libopusPitchXcorrCPUAVX2|libopusPitchXcorrCPUFMA) ||
-		metadata.dispatch&(libopusPitchXcorrDispatchAVX2|libopusPitchXcorrDispatchSSE) != (libopusPitchXcorrDispatchAVX2|libopusPitchXcorrDispatchSSE) {
-		t.Fatalf("paired libopus did not select the expected xcorr/tail dispatch: arch=%d cpu=%03b dispatch=%02b", metadata.arch, metadata.cpu, metadata.dispatch)
+	if !libopustest.NativeX86PitchXCorrMetadataValid(metadata.arch, metadata.cpu, metadata.dispatch, metadata.presumed) {
+		t.Fatalf("paired libopus did not select the expected xcorr/tail dispatch: arch=%d cpu=%03b dispatch=%02b presumed=%02b", metadata.arch, metadata.cpu, metadata.dispatch, metadata.presumed)
 	}
 	stampPath := libopustest.SIMDRefPath(".gopus-libopus-build")
 	stamp, err := os.ReadFile(stampPath)
 	if err != nil {
 		t.Fatalf("read paired libopus SIMD build stamp %s: %v", stampPath, err)
 	}
-	t.Logf("paired libopus SIMD stamp=%s\nselected_arch=%d cpu_features=%03b effective_dispatch=%02b", strings.TrimSpace(string(stamp)), metadata.arch, metadata.cpu, metadata.dispatch)
+	t.Logf("paired libopus SIMD stamp=%s\nselected_arch=%d cpu_features=%03b effective_dispatch=%02b presumed_dispatch=%02b", strings.TrimSpace(string(stamp)), metadata.arch, metadata.cpu, metadata.dispatch, metadata.presumed)
 	primitivePath, err := libopusPitchXcorrPrimitiveHelper.CHelperPath(libopustest.CHelperConfig{
 		Label:        "native xcorr primitive probe",
 		OutputBase:   "gopus_libopus_pitch_xcorr_primitives",
