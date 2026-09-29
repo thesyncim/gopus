@@ -1,4 +1,4 @@
-//go:build (!arm64 && !amd64.v3) || (arm64 && !nosimd)
+//go:build (!arm64 && !amd64.v3) || (arm64 && !nosimd && !purego)
 
 package celt
 

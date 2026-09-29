@@ -1,4 +1,4 @@
-//go:build amd64 && goexperiment.simd && linux && !nosimd
+//go:build amd64 && goexperiment.simd && linux && !nosimd && !purego
 
 package silk
 

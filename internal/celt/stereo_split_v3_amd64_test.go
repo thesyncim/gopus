@@ -34,7 +34,7 @@ func buildCELTStereoSplitV3Helper(variant libopustooling.LibopusReferenceVariant
 
 func TestCELTV3StereoSplitMatchesLibopusKernel(t *testing.T) {
 	requireCELTV3OracleTarget(t)
-	variant := requireCELTStereoSplitOracleMode(t)
+	variant := requirePairedCELTOracleMode(t)
 	if variant != libopustooling.LibopusReferenceScalar && variant != libopustooling.LibopusReferenceSIMD {
 		t.Fatalf("paired CELT oracle variant=%s, want scalar or SIMD", variant)
 	}

@@ -1,4 +1,4 @@
-//go:build gopus_osce && amd64 && goexperiment.simd && !nosimd
+//go:build gopus_osce && amd64 && goexperiment.simd && !nosimd && !purego
 
 package lpcnetplc
 

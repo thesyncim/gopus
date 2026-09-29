@@ -1,4 +1,4 @@
-//go:build !goexperiment.simd || nosimd
+//go:build !goexperiment.simd || nosimd || purego
 
 package lpcnetplc
 

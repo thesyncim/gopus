@@ -1,4 +1,4 @@
-//go:build !amd64 || !goexperiment.simd || nosimd
+//go:build !amd64 || !goexperiment.simd || nosimd || purego
 
 package dnnmath
 

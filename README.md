@@ -109,8 +109,8 @@ bitrate instead.
 
 Ordinary builds use scalar Go kernels. `GOEXPERIMENT=simd` compiles
 `simd/archsimd` kernels where implemented; runtime CPU checks select supported
-kernels and the rest use scalar code. `-tags nosimd` forces the scalar path.
-The `purego` tag has no effect.
+kernels and the rest use scalar code. `-tags nosimd` or `-tags purego` forces
+the scalar path, including the matching scalar C reference in oracle tests.
 
 Optional features mirror libopus build flags and are excluded from the default
 build's import graph:
@@ -181,7 +181,7 @@ GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./examples/ben
 
 For scalar comparisons, retain both target settings and use `GOEXPERIMENT=nosimd`.
 On ARM64, omit both AMD64 target settings. The published numbers retain their
-measured v1 provenance: v3 has unresolved packet and PCM differences, so fresh
+measured v1 provenance: v3 encoder packet parity remains unresolved, so fresh
 v3 tables require correctness validation before publication. The optional
 [v1/v2/v3 audit](reports/validation.md#amd64-compiler-targets) runs on one native host;
 routine PR CI does not run that matrix.

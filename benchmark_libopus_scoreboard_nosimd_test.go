@@ -1,4 +1,4 @@
-//go:build gopus_libopus_bench && (!goexperiment.simd || nosimd)
+//go:build gopus_libopus_bench && (!goexperiment.simd || nosimd || purego)
 
 package gopus_test
 

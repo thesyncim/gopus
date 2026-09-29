@@ -1,4 +1,4 @@
-//go:build !arm64 || nosimd || !goexperiment.simd
+//go:build !arm64 || nosimd || purego || !goexperiment.simd
 
 package silk
 

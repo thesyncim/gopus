@@ -1,4 +1,4 @@
-//go:build nosimd
+//go:build nosimd || purego
 
 package gopus
 

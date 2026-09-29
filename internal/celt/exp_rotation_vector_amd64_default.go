@@ -1,4 +1,4 @@
-//go:build amd64 && goexperiment.simd && !nosimd && !amd64.v3
+//go:build amd64 && goexperiment.simd && !nosimd && !purego && !amd64.v3
 
 package celt
 

@@ -1,4 +1,4 @@
-//go:build amd64.v3 && goexperiment.simd && !nosimd && !gopus_fixed_point
+//go:build amd64.v3 && goexperiment.simd && !nosimd && !purego && !gopus_fixed_point
 
 package encoder
 

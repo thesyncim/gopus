@@ -85,7 +85,7 @@ and **upstream undefined behavior**. A percentage of equal packets measures only
 that test corpus; it is not a percentage of codec correctness.
 
 No floating-point allowance is accepted by this document alone. Current v3
-packet and PCM mismatches remain unresolved until the evidence above classifies
+encoder packet mismatches remain unresolved until the evidence above classifies
 them. Exact audit tests retain their assertions; a reviewed numerical case needs
 an executable bounded check before its exact diagnostic can become non-blocking.
 The documented custom-QEXT C history bug remains a separate upstream-UB exception.
@@ -219,8 +219,8 @@ CELT/Hybrid have unresolved same-packet PCM differences. FFT/MDCT and SILK
 primitive suites pass. The CELT encoder trace rejects inconsistent quantization
 dimensions, so it does not yet establish a runtime divergence location.
 
-The [native v3 audit at `ddc6bd72`](https://github.com/thesyncim/gopus/actions/runs/36637484063)
-on AMD EPYC 9V74 with Go 1.27.1 and GCC 13.3 passes the following matched
+The [native v3 audit at `abaabf57`](https://github.com/thesyncim/gopus/actions/runs/36638960343)
+on Intel Xeon Platinum 8573C with Go 1.27.1 and GCC 13.3 passes the following matched
 scalar and SIMD selections. No cases are skipped.
 
 | Gate | Scalar | SIMD |
@@ -273,14 +273,21 @@ lengths and tails. The selected C and Go v3 kernels round `c*y` before fusing
 `c*x` into each output. Scalar, SIMD and `purego` dispatch share that target
 arithmetic. Encoder packet differences remain.
 
-The live prefilter wrappers capture their expected calls, but same-translation-unit
-preemphasis calls bypass linker wrapping, and their coverage checks fail
-explicitly. Source-bound instrumentation is pending native validation.
+Source-bound preemphasis instrumentation captures both expected stereo calls.
+The scalar late-frame trace matches actual PCM, preemphasis state/output,
+prefilter history/input/output, MDCT, energies and quantization. Stereo trace
+shape validation still rejects its capture counts. The SIMD late-frame trace
+finds different prefilter period controls (`48/96` in Go, `48/48` in C) before
+comparing arithmetic. These diagnostic failures require correction or earlier
+state localization; they do not identify a floating-point allowance.
+
 The narrowband FindLPC hook captures all three selected calls: frames 6 and
 13 match; frame 50 already has different LPC input and gains. Its pre-adjustment
 gain is C `4526ed64`, Go `4526ed62` at subframe 0. The shaping-window,
-autocorrelation and Schur trace targets that earlier producer; native record
-validation is pending.
+autocorrelation and Schur trace rejects a C capture-overflow flag in all three
+cases, before reporting the producer boundary. That capture error remains
+unresolved. Independent sine-window checks cover the actual 48-, 72- and
+96-sample segments and pass in both native instruction lanes.
 
 The unchanged CBR quality gate rejects SILK NB 10 ms mono (Q -458.03,
 correlation 0.972870) and SILK WB stereo (Q -157.52) in both lanes, plus
