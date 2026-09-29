@@ -254,7 +254,6 @@ func (e *Encoder) encodeFrame(re *rangecoding.Encoder, condCoding int, maxBits i
 	ecPrevLagIndexCopy := e.ecPrevLagIndex
 	ecPrevSignalTypeCopy := e.ecPrevSignalType
 	rangeCopy2 := *e.rangeEncoder
-	nsqCopy1 := *e.nsqState
 	var lastGainIndexCopy2 int8
 	ecBufCopy := ensureByteSlice(&e.scratchEcBufCopy, len(e.rangeEncoder.Buffer()))
 	var nBits, nBitsLower, nBitsUpper int
@@ -466,7 +465,7 @@ gainSearch:
 				if offs <= len(ecBufCopy) {
 					copy(e.rangeEncoder.Buffer()[:offs], ecBufCopy[:offs])
 				}
-				*e.nsqState = nsqCopy1
+				*e.nsqState = e.nsqLowerCopy
 				currentPrevInd = lastGainIndexCopy2
 			}
 			break
@@ -499,7 +498,7 @@ gainSearch:
 				if offs <= len(ecBufCopy) {
 					copy(ecBufCopy[:offs], e.rangeEncoder.Buffer()[:offs])
 				}
-				nsqCopy1 = *e.nsqState
+				e.nsqLowerCopy = *e.nsqState
 				lastGainIndexCopy2 = currentPrevInd
 			}
 		} else {

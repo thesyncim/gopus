@@ -764,6 +764,66 @@ func rewhitenLTPScalar(sLTP []int16, xq []int16, startIdx, offset int, aQ12 []in
 	}
 }
 
+// rewhitenLTPInRange is rewhitenLTPScalar for the outputs ix in [from, to)
+// whose taps xq[startIdx+offset+ix-order .. startIdx+offset+ix] and output
+// sLTP[startIdx+ix] are all in range; the caller checks that. The prediction
+// is a wrapping int32 sum of silk_SMULBB terms, so its order is free.
+func rewhitenLTPInRange(sLTP []int16, xq []int16, startIdx, offset int, aQ12 []int16, from, to, order int) {
+	if to <= from {
+		return
+	}
+	base := startIdx + offset
+	out := sLTP[startIdx+from : startIdx+to]
+	in := xq[base+from-order : base+to]
+	switch order {
+	case maxLPCOrder:
+		rewhitenLTPOrder16(out, in, (*[maxLPCOrder]int16)(aQ12))
+	case minLPCOrder:
+		rewhitenLTPOrder10(out, in, (*[minLPCOrder]int16)(aQ12))
+	default:
+		a := aQ12[:order]
+		for n := range out {
+			w := in[n : n+order+1]
+			var predQ12 int32
+			for k, c := range a {
+				predQ12 += int32(c) * int32(w[order-1-k])
+			}
+			out[n] = int16(silk_SAT16(silk_RSHIFT_ROUND((int32(w[order])<<12)-predQ12, 12)))
+		}
+	}
+}
+
+// rewhitenLTPOrder16 writes out[n] from the window in[n : n+17]: in[n+16]
+// minus the order-16 prediction from in[n+15] down to in[n].
+func rewhitenLTPOrder16(out []int16, in []int16, a *[maxLPCOrder]int16) {
+	for n := range out {
+		w := (*[maxLPCOrder + 1]int16)(in[n : n+maxLPCOrder+1])
+		predQ12 := int32(a[0])*int32(w[15]) + int32(a[1])*int32(w[14]) +
+			int32(a[2])*int32(w[13]) + int32(a[3])*int32(w[12]) +
+			int32(a[4])*int32(w[11]) + int32(a[5])*int32(w[10]) +
+			int32(a[6])*int32(w[9]) + int32(a[7])*int32(w[8]) +
+			int32(a[8])*int32(w[7]) + int32(a[9])*int32(w[6]) +
+			int32(a[10])*int32(w[5]) + int32(a[11])*int32(w[4]) +
+			int32(a[12])*int32(w[3]) + int32(a[13])*int32(w[2]) +
+			int32(a[14])*int32(w[1]) + int32(a[15])*int32(w[0])
+		out[n] = int16(silk_SAT16(silk_RSHIFT_ROUND((int32(w[16])<<12)-predQ12, 12)))
+	}
+}
+
+// rewhitenLTPOrder10 is rewhitenLTPOrder16 for order 10: out[n] comes from
+// the window in[n : n+11].
+func rewhitenLTPOrder10(out []int16, in []int16, a *[minLPCOrder]int16) {
+	for n := range out {
+		w := (*[minLPCOrder + 1]int16)(in[n : n+minLPCOrder+1])
+		predQ12 := int32(a[0])*int32(w[9]) + int32(a[1])*int32(w[8]) +
+			int32(a[2])*int32(w[7]) + int32(a[3])*int32(w[6]) +
+			int32(a[4])*int32(w[5]) + int32(a[5])*int32(w[4]) +
+			int32(a[6])*int32(w[3]) + int32(a[7])*int32(w[2]) +
+			int32(a[8])*int32(w[1]) + int32(a[9])*int32(w[0])
+		out[n] = int16(silk_SAT16(silk_RSHIFT_ROUND((int32(w[10])<<12)-predQ12, 12)))
+	}
+}
+
 // quantOffsets is a package-level constant table replacing the per-call [][]int literal.
 // Per libopus: silk_Quantization_Offsets_Q10[signalType>>1][quantOffsetType].
 var quantOffsets = [2][2]int{

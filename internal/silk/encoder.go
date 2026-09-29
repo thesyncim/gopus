@@ -185,6 +185,9 @@ type Encoder struct {
 	scratchTiltQ14          []int32 // tilt values (opus_int-width)
 	scratchLfShpQ14         []int32 // low-frequency shaping
 	scratchEcBufCopy        []byte  // range encoder buffer snapshot
+	// nsqLowerCopy is sNSQ_copy[1] of silk_encode_frame_FLP: the NSQ state of
+	// the best under-budget gain pass, written only when that pass is found.
+	nsqLowerCopy NSQState
 
 	// LPC/Burg scratch buffers. The Burg work arrays mirror C double arrays
 	// in libopus silk/float/burg_modified_FLP.c; input/output stay silk_float.

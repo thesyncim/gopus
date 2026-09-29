@@ -18,7 +18,7 @@ func Float32ToInt16(x float32) int16 {
 		// The comparisons select the lower rail when x is NaN.
 		return -32768
 	}
-	return int16(roundClampedFloat32ToInt32Even(y))
+	return int16(RoundClampedFloat32ToInt32Even(y))
 }
 
 // Float32ToInt24 converts a float32 PCM sample to a signed 24-bit integer
@@ -50,7 +50,7 @@ func Float32ToInt16Raw(y float32) int16 {
 		// float-to-int result for NaN and int32 overflow before saturating.
 		return saturateInt32ToInt16(roundFloat32ToInt32Even(y))
 	}
-	return int16(roundClampedFloat32ToInt32Even(y))
+	return int16(RoundClampedFloat32ToInt32Even(y))
 }
 
 func saturateInt32ToInt16(value int32) int16 {
@@ -76,7 +76,7 @@ func Float32ToInt16OSCEOutputScale(x float32) int16 {
 	if y < -32767.0 {
 		return -32767
 	}
-	return int16(roundClampedFloat32ToInt32Even(y))
+	return int16(RoundClampedFloat32ToInt32Even(y))
 }
 
 // roundHalfEvenMagic32 is 1.5 * 2^23. Adding it to a float32 y with |y| < 2^22
@@ -85,12 +85,12 @@ func Float32ToInt16OSCEOutputScale(x float32) int16 {
 // the constant back recovers that integer exactly.
 const roundHalfEvenMagic32 = float32(12582912.0)
 
-// roundClampedFloat32ToInt32Even is the branchless round-to-nearest-even used
+// RoundClampedFloat32ToInt32Even is the branchless round-to-nearest-even used
 // on already-clamped 16-bit-scale values (|y| <= 32768). It is bit-exact with
 // [roundFloat32ToInt32Even] for |y| < 2^22 but avoids that helper's
 // data-dependent branches, which mispredict on roughly every other audio
 // sample.
-func roundClampedFloat32ToInt32Even(y float32) int32 {
+func RoundClampedFloat32ToInt32Even(y float32) int32 {
 	return int32((y + roundHalfEvenMagic32) - roundHalfEvenMagic32)
 }
 
