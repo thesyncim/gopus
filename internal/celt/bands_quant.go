@@ -1289,10 +1289,7 @@ func renormalizeVector(x []celtNorm, gain opusVal16) {
 	} else if celtUseSSEFloatMath {
 		energy = celtInnerProdSSEStyleNorm(x, x)
 	} else {
-		for i := range x {
-			v := float32(x[i])
-			energy = celtFloatMulAdd(v, v, energy)
-		}
+		energy = renormalizeEnergy(x)
 	}
 	energy = float32(1e-15) + energy
 	renormalizeVectorWithEnergy(x, gain, opusVal16(energy))

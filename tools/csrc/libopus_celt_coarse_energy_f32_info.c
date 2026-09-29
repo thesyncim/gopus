@@ -69,7 +69,7 @@ static int run_cases(void) {
   uint32_t case_count;
   uint32_t case_index;
   if (!read_u32(&case_count) || case_count == 0 || case_count > MAX_CASES) return 0;
-  if (!write_exact(GCEO_MAGIC, 4) || !write_u32(1) || !write_u32(case_count)) return 0;
+  if (!write_exact(GCEO_MAGIC, 4) || !write_u32(2) || !write_u32(case_count)) return 0;
 
   for (case_index = 0; case_index < case_count; case_index++) {
     uint32_t channels, bands, lm, intra, storage;
@@ -119,7 +119,7 @@ static int run_cases(void) {
     for (channel = 0; channel < count; channel++) {
       if (!write_float(old_energies[channel])) return 0;
     }
-    if (!write_u32((uint32_t)ec_tell(&dec))) return 0;
+    if (!write_u32((uint32_t)ec_tell(&dec)) || !write_u32(dec.rng)) return 0;
   }
   return 1;
 }
@@ -129,7 +129,7 @@ int main(void) {
   uint32_t version;
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, 4) || memcmp(magic, GCEI_MAGIC, 4) != 0 ||
-      !read_u32(&version) || version != 1) return 1;
+      !read_u32(&version) || version != 2) return 1;
   if (!run_cases()) return 1;
   fflush(stdout);
   return 0;

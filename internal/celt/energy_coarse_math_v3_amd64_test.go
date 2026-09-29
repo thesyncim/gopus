@@ -126,7 +126,7 @@ func TestCELTV3CoarseEnergyMatchesLibopusKernel(t *testing.T) {
 	if fusedPredictionWitnesses == 0 {
 		t.Fatal("oracle inputs do not distinguish the v3 fused prediction from separate MUL+ADD")
 	}
-	payload := libopustest.NewOraclePayload("GCEI", uint32(len(cases)))
+	payload := libopustest.NewOraclePayloadVersion("GCEI", 2, uint32(len(cases)))
 	for _, c := range cases {
 		payload.U32(uint32(c.channels))
 		payload.U32(uint32(c.bands))
@@ -145,7 +145,7 @@ func TestCELTV3CoarseEnergyMatchesLibopusKernel(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "CELT v3 coarse-energy decoder", err)
 	}
-	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "CELT v3 coarse-energy decoder", "GCEO")
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "CELT v3 coarse-energy decoder", "GCEO", 2)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "CELT v3 coarse-energy decoder", err)
 	}
@@ -186,6 +186,7 @@ func TestCELTV3CoarseEnergyMatchesLibopusKernel(t *testing.T) {
 			want[i] = reader.Float32()
 		}
 		wantTell := int(reader.U32())
+		wantRange := reader.U32()
 		if err := reader.Err(); err != nil {
 			t.Fatalf("case %d C result: %v", caseIndex, err)
 		}
@@ -203,6 +204,9 @@ func TestCELTV3CoarseEnergyMatchesLibopusKernel(t *testing.T) {
 		got := dec.decodeCoarseEnergyGLogInto(make([]celtGLog, len(want)), c.bands, c.intra, c.lm)
 		if gotTell := rd.Tell(); gotTell != wantTell {
 			t.Fatalf("case %d range tell=%d want C=%d", caseIndex, gotTell, wantTell)
+		}
+		if gotRange := rd.Range(); gotRange != wantRange {
+			t.Fatalf("case %d range=%08x want C=%08x", caseIndex, gotRange, wantRange)
 		}
 		for i := range want {
 			if gotBits, wantBits := math.Float32bits(float32(got[i])), math.Float32bits(want[i]); gotBits != wantBits {

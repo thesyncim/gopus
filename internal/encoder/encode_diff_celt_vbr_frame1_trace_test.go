@@ -115,11 +115,11 @@ func TestEncodeDiffCELTVBRFrame1Trace(t *testing.T) {
 			}
 			goTraced.celtEncoder.EnableEncodeStageTraceForTesting()
 		}
-		tracedPacket, tracedErr := goTraced.EncodeFloat32(framePCM, vbrTraceFrameSize)
+		tracedPacket, tracedErr := goTraced.EncodeFloat32WithAnalysisMaxBytes(framePCM, vbrTraceFrameSize, framePCM, 4000)
 		if tracedErr != nil {
 			t.Fatalf("encode traced Go VBR frame %d: %v", frame, tracedErr)
 		}
-		plainPacket, plainErr := goPlain.EncodeFloat32(framePCM, vbrTraceFrameSize)
+		plainPacket, plainErr := goPlain.EncodeFloat32WithAnalysisMaxBytes(framePCM, vbrTraceFrameSize, framePCM, 4000)
 		if plainErr != nil {
 			t.Fatalf("encode plain Go VBR frame %d: %v", frame, plainErr)
 		}

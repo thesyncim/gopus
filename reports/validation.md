@@ -219,8 +219,8 @@ CELT/Hybrid have unresolved same-packet PCM differences. FFT/MDCT and SILK
 primitive suites pass. The CELT encoder trace rejects inconsistent quantization
 dimensions, so it does not yet establish a runtime divergence location.
 
-The [native audit at `2f296b12`](https://github.com/thesyncim/gopus/actions/runs/36627309409)
-on AMD EPYC 9V45 with Go 1.27.1 and GCC 13.3 passes 59/60 scalar
+The [native audit at `12dd5c25`](https://github.com/thesyncim/gopus/actions/runs/36628974354)
+on AMD EPYC 7763 with Go 1.27.1 and GCC 13.3 passes 59/60 scalar
 and 60/60 SIMD encoder checks, 15/24 scalar and 24/24 SIMD decoder checks, and
 all 15 warm-allocation checks in each lane, with no skipped cases. CBR exact
 cases are 13/19 scalar (90 packet/81 range differences) and 14/19 SIMD (95
@@ -241,32 +241,47 @@ its 19 cases. The scalar 20 ms witness first differs across anti-collapse.
 Ordinary/traced C and traced/untraced Go agree within each implementation
 before these witnesses report cross-implementation differences.
 
-The v3 SILK gain oracle fails in both lanes at case 5 (Go `426925c7`, C
-`426925c8`). The executed C helper emits FMA; the Go source expression alone
-does not establish matching contraction in its callers. Raw gains also differ
-before the actual LTP call. The CBR quality gate rejects SILK NB 10 ms mono
-(Q -458.03, correlation 0.972870) and SILK WB stereo (Q -157.52) in both
-lanes, and CELT 2.5 ms mono (Q -61.97) in SIMD. The narrowband case differs
-in 50/100 packets from frame 50. The gain change remains unvalidated; these
-quality failures are correctness blockers, independent of bit-exact counters.
+The isolated v3 SILK gain oracle passes in both lanes. Its C helper and Go
+candidate use native FMA; the separate-operation witness lives outside that
+candidate to prevent compiler common-subexpression reuse from changing its
+rounding. Raw gains still differ before the actual LTP call. The CBR quality
+gate rejects SILK NB 10 ms mono (Q -458.03, correlation 0.972870) and SILK WB
+stereo (Q -157.52) in both lanes, and CELT 2.5 ms mono (Q -61.97) in SIMD.
+The narrowband case differs in 50/100 packets from frame 50. These quality
+failures are correctness blockers, independent of bit-exact counters.
 
-The late scalar encoder trace matches actual MDCT input, window, trig and FFT
-metadata before its coarse reconstructed-energy difference at band 6 (Go
-`bee8e8fe`, C `bee8e900`). The SIMD trace first differs in actual MDCT input at
-index 120 (Go `c2970e44`, C `c2970e40`), while the window and trig match; it does
-not identify an MDCT arithmetic defect. The VBR entropy witness cannot build
-because its public C helper lacks the `src` include directory. Its native
-transparency evidence is pending. No numerical allowance is accepted.
+The scalar anti-collapse witness checks the exact C renormalization inputs
+against a Go replay that reproduces the live decoder result. Inputs match at
+call 3, band 3; output coefficient 0 differs (Go `3f78e905`, C `3f78e907`).
+The first difference is inside renormalization, not noise filling. Ordinary
+and traced output match within each implementation before that assertion.
 
-The SILK replay sends the actual Go LPC input/state to the linked C FindLPC
-implementation. Both select the same interpolation factors at the first
-failing frames (3 for MB mono frame 6; 0 for WB stereo frame 13), while the
-ordinary C encoder selects 2 and 1. The original C call snapshots match the Go
-decision state but differ in the LPC residual input: MB mono frame 6 first
-differs at sample 140, WB stereo frame 13 at sample 192. The actual LTP call
-snapshots first differ in inverse gains: MB mono frame 6 subframe 2 has C `3bf00afc` versus Go `3bf00afe`; WB stereo frame 13 subframe 2
-has C `3c5a6d59` versus Go `3c5a6d5a`, in both lanes. Work follows the gain
-producer; the unequal operands do not establish an LTP arithmetic defect.
+The late scalar encoder trace matches every captured stage at frame 95,
+including MDCT input, window, trig, FFT metadata and reconstructed coarse
+energy. Its remaining packet differences lie beyond those captures or in
+uncaptured state. The SIMD trace first differs in actual MDCT input at index
+120 (Go `c2970e44`, C `c2970e40`), while the window and trig match; it does not
+identify an MDCT arithmetic defect.
+
+Two oracle setup failures remain in this audit. The encoder coarse-energy
+helper emits C's intra flag, but the Go test invokes caller-owned flag paths
+without initializing that flag. All eleven cases fail packet or bit-count
+checks; they do not yet validate the new math. The VBR entropy witness uses a
+1275-byte Go output budget against C's 4000-byte budget, unlike the public
+fuzz case's matching 4000-byte buffers. Its strict coarse-stage budget check
+rejects 1274 versus 1275 available bytes, so native trace validity is pending.
+The fixes preserve strict comparisons and match caller state and capacity.
+No numerical allowance is accepted.
+
+The SILK replay sends actual Go LPC input/state to the linked C FindLPC
+implementation. MB mono frame 6 selects factor 3 in both Go and C replay,
+while the ordinary C encoder selects 2. WB stereo frame 13 selects factor 1
+in all three paths. Each replay matches every captured FindLPC stage. Actual
+C encoder LPC input differs from Go at MB frame 6 sample 140 and WB frame 13
+sample 0. Actual LTP snapshots first differ in raw gains: MB frame 6 subframe
+2 has C `43088249` versus Go `43088248`; WB frame 13 subframe 0 has C
+`42c869a2` versus Go `42c869a3`, in both lanes. Work follows the gain producer;
+unequal operands do not establish an LTP arithmetic defect.
 Traced/untraced Go packets and ranges agree across all 50 frames per case. The
 scalar decoder witness has matching normalized coefficients before anti-collapse
 and first differs after it at coefficient 24 (Go `3f78e905`, C `3f78e907`). The

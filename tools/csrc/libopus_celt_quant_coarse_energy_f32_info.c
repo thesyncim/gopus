@@ -107,6 +107,7 @@ static int run_case(void) {
   ec_enc enc;
   int badness;
   uint32_t tell;
+  uint32_t range;
   int enc_error;
 
   if (!read_u32(&channels) || !read_u32(&bands) || !read_u32(&start) ||
@@ -135,6 +136,7 @@ static int run_case(void) {
       e_prob_model[lm][intra], error, &enc, (int)channels, (int)lm,
       (int)intra, max_decay, 0);
   tell = (uint32_t)ec_tell(&enc);
+  range = enc.rng;
   ec_enc_done(&enc);
   enc_error = enc.error;
   packet_len = compact_packet(&enc, compact);
@@ -142,7 +144,7 @@ static int run_case(void) {
   if (!write_u32(channels) || !write_u32(bands) || !write_u32(start) ||
       !write_u32(end) || !write_u32(lm) || !write_u32(intra) ||
       !write_u32(storage) || !write_u32(packet_len) ||
-      !write_i32((int32_t)badness) || !write_u32(tell) ||
+      !write_i32((int32_t)badness) || !write_u32(tell) || !write_u32(range) ||
       !write_i32((int32_t)enc_error) || !write_exact(compact, packet_len)) return 0;
   for (i = 0; i < total; i++) {
     if (!write_float(old_energies[i])) return 0;
@@ -158,9 +160,9 @@ int main(void) {
   uint32_t version, count, i;
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0 ||
-      !read_u32(&version) || version != 1 || !read_u32(&count) ||
+      !read_u32(&version) || version != 2 || !read_u32(&count) ||
       count == 0 || count > MAX_CASES) return 1;
-  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) || !write_u32(count)) return 1;
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(2) || !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {
     if (!run_case()) return 1;
   }

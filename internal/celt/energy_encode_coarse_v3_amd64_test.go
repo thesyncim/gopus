@@ -39,6 +39,7 @@ type celtQuantCoarseOracleResult struct {
 	packet  []byte
 	badness int
 	tell    int
+	rng     uint32
 	err     int32
 	old     []float32
 	error   []float32
@@ -143,7 +144,7 @@ func probeCELTV3QuantCoarseOracle(cases []celtQuantCoarseOracleCase) ([]celtQuan
 	if err != nil {
 		return nil, err
 	}
-	payload := libopustest.NewOraclePayload("GCQI", uint32(len(cases)))
+	payload := libopustest.NewOraclePayloadVersion("GCQI", 2, uint32(len(cases)))
 	for _, c := range cases {
 		payload.U32(uint32(c.channels))
 		payload.U32(uint32(c.bands))
@@ -160,7 +161,7 @@ func probeCELTV3QuantCoarseOracle(cases []celtQuantCoarseOracleCase) ([]celtQuan
 		payload.Float32s(c.energies...)
 		payload.Float32s(c.initial...)
 	}
-	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "CELT v3 coarse-energy encoder", "GCQO")
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "CELT v3 coarse-energy encoder", "GCQO", 2)
 	if err != nil {
 		return nil, err
 	}
@@ -180,6 +181,7 @@ func probeCELTV3QuantCoarseOracle(cases []celtQuantCoarseOracleCase) ([]celtQuan
 		}
 		results[i].badness = int(reader.I32())
 		results[i].tell = int(reader.U32())
+		results[i].rng = reader.U32()
 		results[i].err = reader.I32()
 		results[i].packet = append([]byte(nil), reader.Bytes(packetLen)...)
 		total := c.channels * c.bands
@@ -223,11 +225,19 @@ func TestCELTV3QuantCoarseEnergyEncoderMatchesLibopusKernel(t *testing.T) {
 	for i, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			if c.start == 0 {
-				compareCELTQuantCoarsePass(t, c, results[i])
-				compareCELTQuantCoarseTrial(t, c, results[i])
-				compareCELTQuantCoarseFullRange(t, c, results[i])
+				t.Run("encodeCoarseEnergyPass", func(t *testing.T) {
+					compareCELTQuantCoarsePass(t, c, results[i])
+				})
+				t.Run("quantCoarseEnergyImpl", func(t *testing.T) {
+					compareCELTQuantCoarseTrial(t, c, results[i])
+				})
+				t.Run("EncodeCoarseEnergyRange/full", func(t *testing.T) {
+					compareCELTQuantCoarseFullRange(t, c, results[i])
+				})
 			} else {
-				compareCELTQuantCoarsePartialRange(t, c, results[i])
+				t.Run("EncodeCoarseEnergyRange/partial", func(t *testing.T) {
+					compareCELTQuantCoarsePartialRange(t, c, results[i])
+				})
 			}
 		})
 	}
@@ -245,11 +255,11 @@ func compareCELTQuantCoarsePass(t *testing.T, c celtQuantCoarseOracleCase, want 
 	enc.SetRangeEncoder(re)
 	got, badness := enc.encodeCoarseEnergyPass(
 		float32sToGLogs(c.energies), c.start, c.end, c.intra, c.lm,
-		celtQuantCoarseOracleStorage*8, c.maxDecay, false,
+		celtQuantCoarseOracleStorage*8, c.maxDecay, true,
 	)
-	tell := re.Tell()
+	tell, rng := re.Tell(), re.Range()
 	packet := re.Done()
-	assertCELTQuantCoarseResult(t, c, "encodeCoarseEnergyPass", got, enc.scratch.coarseError, packet, badness, true, tell, int32(re.Error()), want)
+	assertCELTQuantCoarseResult(t, c, "encodeCoarseEnergyPass", got, enc.scratch.coarseError, packet, badness, true, tell, rng, int32(re.Error()), want)
 }
 
 func compareCELTQuantCoarseTrial(t *testing.T, c celtQuantCoarseOracleCase, want celtQuantCoarseOracleResult) {
@@ -260,14 +270,16 @@ func compareCELTQuantCoarseTrial(t *testing.T, c celtQuantCoarseOracleCase, want
 	re := &rangecoding.Encoder{}
 	re.Init(buffer)
 	prob := eProbModel[c.lm][boolInt(c.intra)][:]
+	tell := re.Tell()
+	seedCELTQuantCoarseOracleIntraFlag(re, c)
 	badness := quantCoarseEnergyImpl(
 		re, c.start, c.end, float32sToGLogs(c.energies), old,
-		celtQuantCoarseOracleStorage*8, re.Tell(), prob, errorValues,
+		celtQuantCoarseOracleStorage*8, tell, prob, errorValues,
 		c.channels, c.lm, c.intra, c.maxDecay, false, c.bands,
 	)
-	tell := re.Tell()
+	tell, rng := re.Tell(), re.Range()
 	packet := re.Done()
-	assertCELTQuantCoarseResult(t, c, "quantCoarseEnergyImpl", old, errorValues, packet, badness, true, tell, int32(re.Error()), want)
+	assertCELTQuantCoarseResult(t, c, "quantCoarseEnergyImpl", old, errorValues, packet, badness, true, tell, rng, int32(re.Error()), want)
 }
 
 func compareCELTQuantCoarseFullRange(t *testing.T, c celtQuantCoarseOracleCase, want celtQuantCoarseOracleResult) {
@@ -278,10 +290,11 @@ func compareCELTQuantCoarseFullRange(t *testing.T, c celtQuantCoarseOracleCase, 
 	re := &rangecoding.Encoder{}
 	re.Init(buffer)
 	enc.SetRangeEncoder(re)
+	seedCELTQuantCoarseOracleIntraFlag(re, c)
 	got := enc.EncodeCoarseEnergyRange(float32sToGLogs(c.energies), c.start, c.end, c.intra, c.lm)
-	tell := re.Tell()
+	tell, rng := re.Tell(), re.Range()
 	packet := re.Done()
-	assertCELTQuantCoarseResult(t, c, "EncodeCoarseEnergyRange(full)", got, enc.scratch.coarseError, packet, 0, false, tell, int32(re.Error()), want)
+	assertCELTQuantCoarseResult(t, c, "EncodeCoarseEnergyRange(full)", got, enc.scratch.coarseError, packet, 0, false, tell, rng, int32(re.Error()), want)
 }
 
 func compareCELTQuantCoarsePartialRange(t *testing.T, c celtQuantCoarseOracleCase, want celtQuantCoarseOracleResult) {
@@ -294,13 +307,23 @@ func compareCELTQuantCoarsePartialRange(t *testing.T, c celtQuantCoarseOracleCas
 	re := &rangecoding.Encoder{}
 	re.Init(buffer)
 	enc.SetRangeEncoder(re)
+	seedCELTQuantCoarseOracleIntraFlag(re, c)
 	got := enc.EncodeCoarseEnergyRange(float32sToGLogs(c.energies), c.start, c.end, c.intra, c.lm)
 	if gotLen, wantLen := len(got), c.channels*c.end; gotLen != wantLen {
 		t.Fatalf("EncodeCoarseEnergyRange(partial) compact result length=%d want %d (channels %d x end band %d)", gotLen, wantLen, c.channels, c.end)
 	}
-	tell := re.Tell()
+	tell, rng := re.Tell(), re.Range()
 	packet := re.Done()
-	assertCELTQuantCoarseResult(t, c, "EncodeCoarseEnergyRange(partial)", got, enc.scratch.coarseError, packet, 0, false, tell, int32(re.Error()), want)
+	assertCELTQuantCoarseResult(t, c, "EncodeCoarseEnergyRange(partial)", got, enc.scratch.coarseError, packet, 0, false, tell, rng, int32(re.Error()), want)
+}
+
+// quant_coarse_energy_impl owns this bit in C. The Go frame caller writes the
+// same bit before entering EncodeCoarseEnergyRange, while these direct-kernel
+// tests seed it at that caller boundary.
+func seedCELTQuantCoarseOracleIntraFlag(re *rangecoding.Encoder, c celtQuantCoarseOracleCase) {
+	if re.Tell()+3 <= re.StorageBits() {
+		re.EncodeBit(boolInt(c.intra), 3)
+	}
 }
 
 func copyQuantCoarseInitial(enc *Encoder, c celtQuantCoarseOracleCase) {
@@ -312,13 +335,16 @@ func copyQuantCoarseInitial(enc *Encoder, c celtQuantCoarseOracleCase) {
 	}
 }
 
-func assertCELTQuantCoarseResult(t *testing.T, c celtQuantCoarseOracleCase, path string, gotOld, gotError []celtGLog, packet []byte, badness int, checkBadness bool, tell int, encError int32, want celtQuantCoarseOracleResult) {
+func assertCELTQuantCoarseResult(t *testing.T, c celtQuantCoarseOracleCase, path string, gotOld, gotError []celtGLog, packet []byte, badness int, checkBadness bool, tell int, rng uint32, encError int32, want celtQuantCoarseOracleResult) {
 	t.Helper()
 	if checkBadness && badness != want.badness {
 		t.Fatalf("%s badness=%d want C %d", path, badness, want.badness)
 	}
 	if tell != want.tell {
 		t.Fatalf("%s range tell=%d want C %d", path, tell, want.tell)
+	}
+	if rng != want.rng {
+		t.Fatalf("%s range=%08x want C %08x", path, rng, want.rng)
 	}
 	if encError != want.err {
 		t.Fatalf("%s encoder error=%d want C %d", path, encError, want.err)
