@@ -2,6 +2,11 @@ name: Verify Production Exhaustive
 
 on:
   workflow_dispatch:
+    inputs:
+      goamd64_kernel_audit:
+        description: Run matched v3 FFT/MDCT oracles instead of release evidence
+        type: boolean
+        default: false
   schedule:
     # Weekly on Monday at 07:00 UTC.
     - cron: "0 7 * * 1"
@@ -39,6 +44,8 @@ jobs:
           path: |
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-amd64-*-scalar
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-amd64-*-simd
           key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
       - name: Install codec tools (if missing)
@@ -51,10 +58,46 @@ jobs:
           sudo apt-get install -y --no-install-recommends ffmpeg opus-tools
 
       - name: Generate release evidence bundle
+        if: ${{ !inputs.goamd64_kernel_audit }}
         run: make release-evidence
 
+      - name: Run optional GOAMD64 kernel audit
+        if: inputs.goamd64_kernel_audit
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/goamd64-evidence"
+          { go version; cc --version; lscpu; git rev-parse HEAD; } > "$RUNNER_TEMP/goamd64-evidence/environment.txt"
+          status=0
+          for mode in nosimd simd; do
+            env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
+              GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+              go test ./internal/celt -count=1 -v -timeout=15m \
+              -run '^Test(KissFFT32ToScratchMatchesLibopusC|IMDCTOverlapWithPrevScratchF32MatchesLibopusC|IMDCTTransientInPlaceScratchF32MatchesLibopusC|MDCTForwardOverlapF32MatchesLibopusC|MDCTForwardShortBlocksMatchesLibopusC|MDCTForwardOverlapF32CELTSignalScaleMatchesLibopusC)$' \
+              > "$RUNNER_TEMP/goamd64-evidence/$mode.log" 2>&1 || status=1
+            variant="$mode"
+            if [[ "$mode" == nosimd ]]; then variant=scalar; fi
+            reference="tmp_check/opus-${LIBOPUS_VERSION}-amd64-v3-$variant"
+            if [[ -f "$reference/.libs/libopus.a" ]]; then
+              cp "$reference/.gopus-libopus-build" "$RUNNER_TEMP/goamd64-evidence/$mode-build-stamp.txt"
+              cp "$reference/config.h" "$RUNNER_TEMP/goamd64-evidence/$mode-config.h"
+              sha256sum "$reference/.libs/libopus.a" > "$RUNNER_TEMP/goamd64-evidence/$mode-archive.sha256"
+              objdump -d "$reference/.libs/libopus.a" > "$RUNNER_TEMP/goamd64-evidence/$mode-disassembly.txt"
+            else
+              status=1
+            fi
+          done
+          exit "$status"
+
+      - name: Upload GOAMD64 kernel evidence
+        if: always() && inputs.goamd64_kernel_audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: goamd64-kernels-${{ github.run_id }}
+          path: ${{ runner.temp }}/goamd64-evidence
+          if-no-files-found: error
+
       - name: Upload release evidence artifact
-        if: always()
+        if: always() && !inputs.goamd64_kernel_audit
         uses: actions/upload-artifact@v4
         with:
           name: release-evidence-${{ github.run_id }}

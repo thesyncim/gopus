@@ -30,7 +30,11 @@ func RefPath(elem ...string) string {
 // built without assembly, RTCD, intrinsics, or compiler loop/SLP vectorization.
 // FMA contraction stays enabled to match scalar Go arithmetic.
 func ScalarRefPath(elem ...string) string {
-	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + "-scalar"}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(libopustooling.LibopusReferenceScalar)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
 	return filepath.Join(append(base, elem...)...)
 }
 
@@ -98,7 +102,11 @@ func DREDQEXTRefPath(elem ...string) string {
 // build-wide comparisons, or use it for a kernel test that invokes the matching
 // Go SIMD function directly.
 func SIMDRefPath(elem ...string) string {
-	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + "-simd"}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(libopustooling.LibopusReferenceSIMD)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
 	return filepath.Join(append(base, elem...)...)
 }
 
@@ -113,9 +121,15 @@ func CustomRefPath(elem ...string) string {
 		panic(err)
 	}
 	if variant == libopustooling.LibopusReferenceScalar {
-		return CustomScalarRefPath(elem...)
+		variant = libopustooling.LibopusReferenceCustomScalar
+	} else {
+		variant = libopustooling.LibopusReferenceCustomSIMD
 	}
-	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + "-custom"}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
 	return filepath.Join(append(base, elem...)...)
 }
 
@@ -124,7 +138,11 @@ func CustomRefPath(elem ...string) string {
 // --disable-asm --disable-rtcd --disable-intrinsics). It is the bit-reproducible
 // Opus Custom oracle for the scalar Go celt/custom parity gate.
 func CustomScalarRefPath(elem ...string) string {
-	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + "-custom-scalar"}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(libopustooling.LibopusReferenceCustomScalar)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
 	return filepath.Join(append(base, elem...)...)
 }
 

@@ -563,19 +563,16 @@ func buildLibopusHelper(root, libopusRoot string, variant libopustooling.Libopus
 	if err != nil {
 		return "", err
 	}
+	targetCFlags, err := libopustooling.LibopusAMD64TargetCFlags()
+	if err != nil {
+		return "", err
+	}
 	src := filepath.Join(root, "tools", "csrc", "libopus_testvector_bench.c")
 	out := filepath.Join(libopusRoot, fmt.Sprintf("gopus_libopus_testvector_bench_%s_%s", runtime.GOOS, runtime.GOARCH))
 	if runtime.GOOS == "windows" {
 		out += ".exe"
 	}
-	args := []string{
-		"-std=c99",
-		"-O3",
-		"-DNDEBUG",
-	}
-	if variant == libopustooling.LibopusReferenceScalar {
-		args = append(args, strings.Fields(libopustooling.LibopusScalarCVectorizationFlags)...)
-	}
+	args := libopusHelperCompileFlags(variant, targetCFlags)
 	args = append(args,
 		"-I", filepath.Join(libopusRoot, "include"),
 		src,
@@ -589,6 +586,14 @@ func buildLibopusHelper(root, libopusRoot string, variant libopustooling.Libopus
 		return "", fmt.Errorf("build libopus benchmark helper: %w (%s)", err, bytes.TrimSpace(output))
 	}
 	return out, nil
+}
+
+func libopusHelperCompileFlags(variant libopustooling.LibopusReferenceVariant, targetCFlags []string) []string {
+	args := []string{"-std=c99", "-O3", "-DNDEBUG"}
+	if variant == libopustooling.LibopusReferenceScalar {
+		args = append(args, strings.Fields(libopustooling.LibopusScalarCVectorizationFlags)...)
+	}
+	return append(args, targetCFlags...)
 }
 
 func prepareLibopusReferenceRoot(root, requested string) (string, libopustooling.LibopusReferenceVariant, error) {

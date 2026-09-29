@@ -24,8 +24,13 @@ LIBOPUS_ENABLE_CUSTOM_FIXED_QEXT_SIMD="${LIBOPUS_ENABLE_CUSTOM_FIXED_QEXT_SIMD:-
 LIBOPUS_ENABLE_SIMD="${LIBOPUS_ENABLE_SIMD:-0}"
 LIBOPUS_ENABLE_SCALAR="${LIBOPUS_ENABLE_SCALAR:-0}"
 LIBOPUS_ENABLE_CUSTOM_SCALAR="${LIBOPUS_ENABLE_CUSTOM_SCALAR:-0}"
+LIBOPUS_CFLAGS_WAS_SET=0
+if [[ "${LIBOPUS_CFLAGS+x}" == "x" ]]; then
+  LIBOPUS_CFLAGS_WAS_SET=1
+fi
 LIBOPUS_CFLAGS="${LIBOPUS_CFLAGS:--O3 -DNDEBUG}"
 LIBOPUS_CPPFLAGS="${LIBOPUS_CPPFLAGS:-}"
+GOPUS_LIBOPUS_AMD64_TARGET="${GOPUS_LIBOPUS_AMD64_TARGET:-}"
 
 normalize_bool() {
   case "$1" in
@@ -59,6 +64,37 @@ VARIANT_COUNT=$((ENABLE_QEXT + ENABLE_QEXT_SCALAR + ENABLE_QEXT_SIMD + ENABLE_DR
 if [[ "${VARIANT_COUNT}" -gt 1 ]]; then
   echo "error: libopus build variants are mutually exclusive" >&2
   exit 1
+fi
+
+AMD64_TARGET_SUFFIX=""
+AMD64_TARGET_CFLAGS=""
+if [[ -n "${GOPUS_LIBOPUS_AMD64_TARGET}" ]]; then
+  case "${GOPUS_LIBOPUS_AMD64_TARGET}" in
+    v1) AMD64_TARGET_CFLAGS="-march=x86-64 -mtune=generic" ;;
+    v2) AMD64_TARGET_CFLAGS="-march=x86-64-v2 -mtune=generic" ;;
+    v3) AMD64_TARGET_CFLAGS="-march=x86-64-v3 -mtune=generic" ;;
+    *) echo "error: GOPUS_LIBOPUS_AMD64_TARGET must be v1, v2, or v3" >&2; exit 1 ;;
+  esac
+  if [[ "${ENABLE_QEXT}" == "1" || "${ENABLE_QEXT_SCALAR}" == "1" || "${ENABLE_QEXT_SIMD}" == "1" ||
+        "${ENABLE_DRED_QEXT_SCALAR}" == "1" || "${ENABLE_DRED_QEXT_SIMD}" == "1" ||
+        "${ENABLE_FIXED_SCALAR}" == "1" || "${ENABLE_FIXED_SIMD}" == "1" ||
+        "${ENABLE_FIXED_QEXT_SCALAR}" == "1" || "${ENABLE_FIXED_QEXT_SIMD}" == "1" ||
+        "${ENABLE_CUSTOM}" == "1" || "${ENABLE_CUSTOM_QEXT_SCALAR}" == "1" || "${ENABLE_CUSTOM_QEXT_SIMD}" == "1" ||
+        "${ENABLE_CUSTOM_FIXED_SCALAR}" == "1" || "${ENABLE_CUSTOM_FIXED_SIMD}" == "1" ||
+        "${ENABLE_CUSTOM_FIXED_QEXT_SCALAR}" == "1" || "${ENABLE_CUSTOM_FIXED_QEXT_SIMD}" == "1" ||
+        "${ENABLE_CUSTOM_SCALAR}" == "1" ]]; then
+    echo "error: GOPUS_LIBOPUS_AMD64_TARGET supports only the default float-core scalar or SIMD reference" >&2
+    exit 1
+  fi
+  if [[ "${ENABLE_SCALAR}" != "1" && "${ENABLE_SIMD}" != "1" ]]; then
+    echo "error: GOPUS_LIBOPUS_AMD64_TARGET requires one default float-core scalar or SIMD reference" >&2
+    exit 1
+  fi
+  if [[ "${LIBOPUS_CFLAGS_WAS_SET}" == "1" || -n "${LIBOPUS_CPPFLAGS}" || -n "${LDFLAGS:-}" || -n "${CPPFLAGS:-}" ]]; then
+    echo "error: GOPUS_LIBOPUS_AMD64_TARGET does not allow custom CFLAGS, CPPFLAGS, or LDFLAGS" >&2
+    exit 1
+  fi
+  AMD64_TARGET_SUFFIX="-amd64-${GOPUS_LIBOPUS_AMD64_TARGET}"
 fi
 
 # Force libopus onto its generic-C kernels and disable compiler loop and SLP
@@ -126,13 +162,13 @@ elif [[ "${ENABLE_CUSTOM_FIXED_QEXT_SIMD}" == "1" ]]; then
 elif [[ "${ENABLE_SCALAR}" == "1" ]]; then
   # Scalar (generic-C) parity reference for scalar Go builds. See the
   # SCALAR_CONFIGURE_FLAGS comment above.
-  SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-scalar"
+  SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}${AMD64_TARGET_SUFFIX}-scalar"
   CONFIGURE_FLAGS+=("${SCALAR_CONFIGURE_FLAGS[@]}")
 elif [[ "${ENABLE_SIMD}" == "1" ]]; then
   # Native SIMD/RTCD reference paired with the Go SIMD build: NEON on arm64 and
   # SSE/AVX dispatch on amd64. Enable these explicitly so config.h records the
   # intended instruction path even if autotools defaults change.
-  SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-simd"
+  SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}${AMD64_TARGET_SUFFIX}-simd"
   CONFIGURE_FLAGS+=(--enable-rtcd --enable-intrinsics)
 else
   # Unqualified autotools configuration for tooling that explicitly requests the
@@ -142,6 +178,9 @@ fi
 
 if [[ "${ENABLE_SCALAR}" == "1" || "${ENABLE_CUSTOM_SCALAR}" == "1" || "${ENABLE_CUSTOM_QEXT_SCALAR}" == "1" || "${ENABLE_CUSTOM_FIXED_SCALAR}" == "1" || "${ENABLE_CUSTOM_FIXED_QEXT_SCALAR}" == "1" || "${ENABLE_QEXT_SCALAR}" == "1" || "${ENABLE_FIXED_SCALAR}" == "1" || "${ENABLE_FIXED_QEXT_SCALAR}" == "1" ]]; then
   LIBOPUS_CFLAGS="${LIBOPUS_CFLAGS} ${SCALAR_C_VECTOR_FLAGS[*]}"
+fi
+if [[ -n "${GOPUS_LIBOPUS_AMD64_TARGET}" ]]; then
+  LIBOPUS_CFLAGS="${LIBOPUS_CFLAGS} ${AMD64_TARGET_CFLAGS}"
 fi
 
 BUILD_STAMP_FILE=".gopus-libopus-build"
@@ -171,11 +210,32 @@ LIBOPUS_CC_DRIVER="${LIBOPUS_CC_ARGV[0]:-${LIBOPUS_CC}}"
 CC_PATH="$(command -v "${LIBOPUS_CC_DRIVER}" 2>/dev/null || printf "%s" "${LIBOPUS_CC_DRIVER}")"
 CC_TARGET="$("${LIBOPUS_CC_ARGV[@]}" -dumpmachine 2>/dev/null || true)"
 CC_VERSION="$("${LIBOPUS_CC_ARGV[@]}" --version 2>/dev/null | sed -n '1p' || true)"
+if [[ -n "${GOPUS_LIBOPUS_AMD64_TARGET}" ]]; then
+  case "${HOST_ARCH}" in
+    x86_64|amd64) ;;
+    *) echo "error: GOPUS_LIBOPUS_AMD64_TARGET requires an amd64 host, got ${HOST_ARCH}" >&2; exit 1 ;;
+  esac
+  if [[ "${HOST_OS}" == "Darwin" ]] && command -v sysctl >/dev/null 2>&1 && [[ "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" == "1" ]]; then
+    echo "error: GOPUS_LIBOPUS_AMD64_TARGET requires an amd64 host, not Apple Silicon under translation" >&2
+    exit 1
+  fi
+  if [[ "${HOST_BITS}" != "64" ]]; then
+    echo "error: GOPUS_LIBOPUS_AMD64_TARGET requires a 64-bit amd64 host, got ${HOST_BITS}-bit" >&2
+    exit 1
+  fi
+  case "${CC_TARGET}" in
+    x86_64-*|amd64-*) ;;
+    *) echo "error: GOPUS_LIBOPUS_AMD64_TARGET requires an amd64 C compiler target, got ${CC_TARGET:-unknown}" >&2; exit 1 ;;
+  esac
+fi
 CONFIGURE_STAMP="${CONFIGURE_FLAGS[*]}"
 CUSTOM_STAMP=$((ENABLE_CUSTOM + ENABLE_CUSTOM_SCALAR + ENABLE_CUSTOM_QEXT_SCALAR + ENABLE_CUSTOM_QEXT_SIMD + ENABLE_CUSTOM_FIXED_SCALAR + ENABLE_CUSTOM_FIXED_SIMD + ENABLE_CUSTOM_FIXED_QEXT_SCALAR + ENABLE_CUSTOM_FIXED_QEXT_SIMD))
 QEXT_STAMP=$((ENABLE_QEXT + ENABLE_QEXT_SCALAR + ENABLE_QEXT_SIMD + ENABLE_DRED_QEXT_SCALAR + ENABLE_DRED_QEXT_SIMD + ENABLE_FIXED_QEXT_SCALAR + ENABLE_FIXED_QEXT_SIMD + ENABLE_CUSTOM_QEXT_SCALAR + ENABLE_CUSTOM_QEXT_SIMD + ENABLE_CUSTOM_FIXED_QEXT_SCALAR + ENABLE_CUSTOM_FIXED_QEXT_SIMD))
 FIXED_STAMP=$((ENABLE_FIXED_SCALAR + ENABLE_FIXED_SIMD + ENABLE_FIXED_QEXT_SCALAR + ENABLE_FIXED_QEXT_SIMD + ENABLE_CUSTOM_FIXED_SCALAR + ENABLE_CUSTOM_FIXED_SIMD + ENABLE_CUSTOM_FIXED_QEXT_SCALAR + ENABLE_CUSTOM_FIXED_QEXT_SIMD))
 BUILD_STAMP=$'gopus libopus helper build v5\nversion='"${LIBOPUS_VERSION}"$'\nqext='"${QEXT_STAMP}"$'\nfixed='"${FIXED_STAMP}"$'\ncustom='"${CUSTOM_STAMP}"$'\nhost_os='"${HOST_OS}"$'\nhost_arch='"${HOST_ARCH}"$'\nhost_bits='"${HOST_BITS}"$'\ncc='"${LIBOPUS_CC}"$'\ncc_path='"${CC_PATH}"$'\ncc_target='"${CC_TARGET}"$'\ncc_version='"${CC_VERSION}"$'\nconfigure='"${CONFIGURE_STAMP}"$'\nCFLAGS='"${LIBOPUS_CFLAGS}"$'\nCPPFLAGS='"${LIBOPUS_CPPFLAGS}"$'\nLDFLAGS='"${LIBOPUS_LDFLAGS}"$'\n'
+if [[ -n "${GOPUS_LIBOPUS_AMD64_TARGET}" ]]; then
+  BUILD_STAMP+="amd64_target=${GOPUS_LIBOPUS_AMD64_TARGET}"$'\n'
+fi
 LOCK_DIR="${SRC_DIR}.lock"
 
 sha256_for_version() {

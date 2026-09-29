@@ -216,6 +216,99 @@ func TestResolveLibopusReferenceVariantBuildMatrix(t *testing.T) {
 	}
 }
 
+func TestLibopusAMD64TargetSelectionAndCompilerFlags(t *testing.T) {
+	tests := []struct {
+		target     string
+		wantSuffix string
+		wantCFlags []string
+	}{
+		{target: "v1", wantSuffix: "-amd64-v1-scalar", wantCFlags: []string{"-march=x86-64", "-mtune=generic"}},
+		{target: "v2", wantSuffix: "-amd64-v2-scalar", wantCFlags: []string{"-march=x86-64-v2", "-mtune=generic"}},
+		{target: "v3", wantSuffix: "-amd64-v3-scalar", wantCFlags: []string{"-march=x86-64-v3", "-mtune=generic"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.target, func(t *testing.T) {
+			got, err := resolveLibopusAMD64TargetForPlatform(tc.target, "amd64")
+			if err != nil || got != tc.target {
+				t.Fatalf("target=%q err=%v, want %q", got, err, tc.target)
+			}
+			suffix, err := libopusReferenceSourceSuffixForTarget(LibopusReferenceScalar, got)
+			if err != nil || suffix != tc.wantSuffix {
+				t.Fatalf("suffix=%q err=%v, want %q", suffix, err, tc.wantSuffix)
+			}
+			flags, err := amd64TargetCFlags(got)
+			if err != nil || strings.Join(flags, " ") != strings.Join(tc.wantCFlags, " ") {
+				t.Fatalf("CFLAGS=%v err=%v, want %v", flags, err, tc.wantCFlags)
+			}
+			simdSuffix, err := libopusReferenceSourceSuffixForTarget(LibopusReferenceSIMD, got)
+			if err != nil || simdSuffix != strings.TrimSuffix(tc.wantSuffix, "-scalar")+"-simd" {
+				t.Fatalf("SIMD suffix=%q err=%v", simdSuffix, err)
+			}
+		})
+	}
+	if suffix, err := libopusReferenceSourceSuffixForTarget(LibopusReferenceScalar, ""); err != nil || suffix != "-scalar" {
+		t.Fatalf("unset target suffix=%q err=%v, want legacy -scalar", suffix, err)
+	}
+}
+
+func TestLibopusAMD64TargetRejectsInvalidArchitectureAndFeatureVariants(t *testing.T) {
+	for _, tc := range []struct {
+		value  string
+		goarch string
+	}{
+		{value: "v4", goarch: "amd64"},
+		{value: "v2", goarch: "arm64"},
+	} {
+		if _, err := resolveLibopusAMD64TargetForPlatform(tc.value, tc.goarch); err == nil {
+			t.Errorf("accepted target %q for GOARCH=%s", tc.value, tc.goarch)
+		} else {
+			var configErr *LibopusReferenceConfigError
+			if !errors.As(err, &configErr) {
+				t.Errorf("error=%T %v, want LibopusReferenceConfigError", err, err)
+			}
+		}
+	}
+	for _, variant := range []LibopusReferenceVariant{
+		LibopusReferenceQEXTScalar,
+		LibopusReferenceFixedScalar,
+		LibopusReferenceCustomScalar,
+		LibopusReferenceDREDQEXTScalar,
+	} {
+		if _, err := libopusReferenceSourceSuffixForTarget(variant, "v2"); err == nil {
+			t.Errorf("accepted target v2 with optional variant %q", variant)
+		} else {
+			var configErr *LibopusReferenceConfigError
+			if !errors.As(err, &configErr) {
+				t.Errorf("variant %q error=%T %v, want LibopusReferenceConfigError", variant, err, err)
+			}
+		}
+	}
+}
+
+func TestLibopusAMD64TargetMustMatchCompiledGoLevel(t *testing.T) {
+	for _, target := range []string{"v1", "v2", "v3"} {
+		for _, compiled := range []string{"v1", "v2", "v3"} {
+			got, err := resolveLibopusAMD64TargetForBuild(target, "amd64", compiled)
+			if target == compiled {
+				if err != nil || got != target {
+					t.Errorf("target=%s compiled=%s resolved=%q err=%v", target, compiled, got, err)
+				}
+				continue
+			}
+			var configErr *LibopusReferenceConfigError
+			if !errors.As(err, &configErr) {
+				t.Errorf("target=%s compiled=%s error=%T %v, want LibopusReferenceConfigError", target, compiled, err, err)
+			}
+		}
+	}
+	if _, err := resolveLibopusAMD64TargetForBuild("v3", "amd64", "v4"); err == nil {
+		t.Fatal("accepted v3 reference target for a Go v4 binary")
+	}
+	if target, err := resolveLibopusAMD64TargetForBuild("", "amd64", "v4"); err != nil || target != "" {
+		t.Fatalf("unset opt-in target=%q err=%v, want empty success", target, err)
+	}
+}
+
 func TestResolveLibopusReferenceVariantMatchesBuildTags(t *testing.T) {
 	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "auto")
 	want := LibopusReferenceScalar
@@ -810,6 +903,45 @@ func TestValidateLibopusReferenceBuildRejectsMismatchedArtifacts(t *testing.T) {
 				t.Fatalf("error=%v, want LibopusReferenceConfigError", err)
 			}
 		})
+	}
+}
+
+func TestValidateLibopusAMD64TargetStampAndCompilerFlags(t *testing.T) {
+	t.Setenv(LibopusAMD64TargetEnv, "")
+	root := t.TempDir()
+	legacyDir := writePairedReferenceTree(t, root, LibopusReferenceScalar, "linux", "amd64")
+	targetDir := filepath.Join(filepath.Dir(legacyDir), "opus-"+DefaultVersion+"-amd64-v2-scalar")
+	if err := os.Rename(legacyDir, targetDir); err != nil {
+		t.Fatal(err)
+	}
+	stampPath := filepath.Join(targetDir, ".gopus-libopus-build")
+	stamp, err := os.ReadFile(stampPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseCFlags := "CFLAGS=" + LibopusScalarCFLAGS
+	targetCFlags := baseCFlags + " -march=x86-64-v2 -mtune=generic"
+	updated := strings.Replace(string(stamp), baseCFlags, targetCFlags, 1)
+	updated = strings.Replace(updated, "CPPFLAGS=", "amd64_target=v2\nCPPFLAGS=", 1)
+	if updated == string(stamp) {
+		t.Fatal("target test stamp did not include the expected CFLAGS and target identity")
+	}
+	if err := os.WriteFile(stampPath, []byte(updated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateLibopusReferenceBuildForPlatformAndTarget(targetDir, LibopusReferenceScalar, DefaultVersion, "linux", "amd64", "v2"); err != nil {
+		t.Fatalf("validate v2 target tree: %v", err)
+	}
+	if err := validateLibopusReferenceBuildForPlatformAndTarget(targetDir, LibopusReferenceScalar, DefaultVersion, "linux", "amd64", "v3"); err == nil {
+		t.Fatal("accepted a v2 stamp while selecting v3")
+	} else {
+		var configErr *LibopusReferenceConfigError
+		if !errors.As(err, &configErr) {
+			t.Fatalf("mismatched target error=%T %v, want LibopusReferenceConfigError", err, err)
+		}
+	}
+	if err := validateLibopusReferenceBuildForPlatformAndTarget(targetDir, LibopusReferenceScalar, DefaultVersion, "linux", "amd64", ""); err == nil {
+		t.Fatal("accepted a target-stamped tree when target selection was unset")
 	}
 }
 

@@ -17,6 +17,11 @@ import (
 type LibopusReferenceVariant string
 
 const (
+	// LibopusAMD64TargetEnv selects a separately built amd64 float-core
+	// reference at the requested GOAMD64 level. Empty keeps the established
+	// reference tree selection.
+	LibopusAMD64TargetEnv = "GOPUS_LIBOPUS_AMD64_TARGET"
+
 	LibopusReferenceScalar                LibopusReferenceVariant = "scalar"
 	LibopusReferenceSIMD                  LibopusReferenceVariant = "simd"
 	LibopusReferenceFixedScalar           LibopusReferenceVariant = "fixed-scalar"
@@ -61,7 +66,71 @@ func referenceConfigErrorf(format string, args ...any) error {
 // Empty or "auto" follows the build tags; scalar/1 and simd/0 can only confirm
 // the matching lane and fail when they conflict with the Go build.
 func ResolveLibopusReferenceVariant() (LibopusReferenceVariant, error) {
+	if _, err := ResolveLibopusAMD64Target(); err != nil {
+		return "", err
+	}
 	return resolveLibopusReferenceVariantFor(runtime.GOARCH, goLibopusReferenceSIMD, os.Getenv("GOPUS_LIBOPUS_REF_SCALAR"))
+}
+
+// ResolveLibopusAMD64Target validates the optional GOAMD64-matched reference
+// target. It returns an empty target when the opt-in is unset.
+func ResolveLibopusAMD64Target() (string, error) {
+	return resolveLibopusAMD64TargetForBuild(os.Getenv(LibopusAMD64TargetEnv), runtime.GOARCH, goAMD64TargetLevel)
+}
+
+// CompiledGoAMD64Level reports the GOAMD64 level used to compile this binary.
+// It is empty on non-amd64 builds.
+func CompiledGoAMD64Level() string {
+	return goAMD64TargetLevel
+}
+
+func resolveLibopusAMD64TargetForPlatform(value, goarch string) (string, error) {
+	target := strings.ToLower(strings.TrimSpace(value))
+	if target == "" {
+		return "", nil
+	}
+	switch target {
+	case "v1", "v2", "v3":
+	default:
+		return "", referenceConfigErrorf("invalid %s value %q (want v1, v2, or v3)", LibopusAMD64TargetEnv, value)
+	}
+	if goarch != "amd64" {
+		return "", referenceConfigErrorf("%s=%s requires GOARCH=amd64, got %s", LibopusAMD64TargetEnv, target, goarch)
+	}
+	return target, nil
+}
+
+func resolveLibopusAMD64TargetForBuild(value, goarch, compiledLevel string) (string, error) {
+	target, err := resolveLibopusAMD64TargetForPlatform(value, goarch)
+	if err != nil || target == "" {
+		return target, err
+	}
+	if target != compiledLevel {
+		return "", referenceConfigErrorf("%s=%s requires a Go binary compiled with GOAMD64=%s, got GOAMD64=%s", LibopusAMD64TargetEnv, target, target, compiledLevel)
+	}
+	return target, nil
+}
+
+// LibopusAMD64TargetCFlags returns the exact target flags for directly
+// compiled C helpers, or nil when the amd64 target override is unset.
+func LibopusAMD64TargetCFlags() ([]string, error) {
+	target, err := ResolveLibopusAMD64Target()
+	if err != nil || target == "" {
+		return nil, err
+	}
+	return amd64TargetCFlags(target)
+}
+
+func amd64TargetCFlags(target string) ([]string, error) {
+	arch := map[string]string{
+		"v1": "x86-64",
+		"v2": "x86-64-v2",
+		"v3": "x86-64-v3",
+	}[target]
+	if arch == "" {
+		return nil, referenceConfigErrorf("invalid amd64 compiler target %q", target)
+	}
+	return []string{"-march=" + arch, "-mtune=generic"}, nil
 }
 
 // ResolveLibopusQEXTReferenceVariant selects the same instruction lane with
@@ -187,8 +256,32 @@ func resolveLibopusReferenceVariantFor(goarch string, goSIMD bool, override stri
 }
 
 // LibopusReferenceSourceSuffix returns the mandatory source-tree suffix for a
-// paired reference. The unsuffixed autotools-default tree is never selected.
+// paired reference. The unsuffixed autotools-default tree is never selected;
+// an AMD64 target opt-in adds its target identity to the default float tree.
 func LibopusReferenceSourceSuffix(variant LibopusReferenceVariant) (string, error) {
+	target, err := ResolveLibopusAMD64Target()
+	if err != nil {
+		return "", err
+	}
+	return libopusReferenceSourceSuffixForTarget(variant, target)
+}
+
+func libopusReferenceSourceSuffixForTarget(variant LibopusReferenceVariant, target string) (string, error) {
+	if target != "" && variant != LibopusReferenceScalar && variant != LibopusReferenceSIMD {
+		return "", referenceConfigErrorf("%s only supports the default float-core scalar or SIMD reference; variant %q is unsupported", LibopusAMD64TargetEnv, variant)
+	}
+	if target != "" {
+		if _, err := amd64TargetCFlags(target); err != nil {
+			return "", err
+		}
+		suffix := "-scalar"
+		if variant == LibopusReferenceSIMD {
+			suffix = "-simd"
+		} else if variant != LibopusReferenceScalar {
+			return "", referenceConfigErrorf("unknown libopus reference variant %q", variant)
+		}
+		return "-amd64-" + target + suffix, nil
+	}
 	switch variant {
 	case LibopusReferenceScalar:
 		return "-scalar", nil
@@ -238,10 +331,21 @@ func ValidateLibopusReferenceBuild(refDir string, variant LibopusReferenceVarian
 }
 
 func validateLibopusReferenceBuildForPlatform(refDir string, variant LibopusReferenceVariant, version, goos, goarch string) error {
+	target, err := resolveLibopusAMD64TargetForBuild(os.Getenv(LibopusAMD64TargetEnv), goarch, goAMD64TargetLevel)
+	if err != nil {
+		return err
+	}
+	return validateLibopusReferenceBuildForPlatformAndTarget(refDir, variant, version, goos, goarch, target)
+}
+
+func validateLibopusReferenceBuildForPlatformAndTarget(refDir string, variant LibopusReferenceVariant, version, goos, goarch, target string) error {
+	if _, err := resolveLibopusAMD64TargetForPlatform(target, goarch); err != nil {
+		return err
+	}
 	if version == "" {
 		version = DefaultVersion
 	}
-	suffix, err := LibopusReferenceSourceSuffix(variant)
+	suffix, err := libopusReferenceSourceSuffixForTarget(variant, target)
 	if err != nil {
 		return err
 	}
@@ -308,6 +412,13 @@ func validateLibopusReferenceBuildForPlatform(refDir string, variant LibopusRefe
 	} else {
 		return referenceConfigErrorf("unsupported libopus reference variant %q", variant)
 	}
+	if target != "" {
+		targetFlags, err := amd64TargetCFlags(target)
+		if err != nil {
+			return err
+		}
+		wantCFLAGS += " " + strings.Join(targetFlags, " ")
+	}
 	data, err := os.ReadFile(filepath.Join(refDir, ".gopus-libopus-build"))
 	if err != nil {
 		return referenceConfigErrorf("read libopus %s build stamp in %s: %v", variant, refDir, err)
@@ -320,6 +431,9 @@ func validateLibopusReferenceBuildForPlatform(refDir string, variant LibopusRefe
 		"version": version, "qext": wantQEXT, "fixed": wantFixed, "custom": wantCustom,
 		"configure": wantConfigure, "CFLAGS": wantCFLAGS, "CPPFLAGS": "", "LDFLAGS": "",
 	}
+	if target != "" {
+		wantFields["amd64_target"] = target
+	}
 	if wantDRED {
 		wantFields["dnn_model_sources"] = dredQEXTModelSourcesStamp
 	}
@@ -327,6 +441,9 @@ func validateLibopusReferenceBuildForPlatform(refDir string, variant LibopusRefe
 		if got := fields[key]; got != want {
 			return referenceConfigErrorf("libopus reference %s has %s=%q, want %q (%s tree)", variant, key, got, want, suffix)
 		}
+	}
+	if target == "" && fields["amd64_target"] != "" {
+		return referenceConfigErrorf("libopus reference %s in %s was built for amd64 target %q, but the target override is unset", variant, refDir, fields["amd64_target"])
 	}
 	for _, key := range []string{"host_os", "host_arch", "host_bits", "cc", "cc_path", "cc_target", "cc_version"} {
 		if strings.TrimSpace(fields[key]) == "" {

@@ -1,10 +1,31 @@
 package main
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
+
+func TestLibopusHelperCompileFlagsIncludeAMD64Target(t *testing.T) {
+	target := []string{"-march=x86-64-v3", "-mtune=generic"}
+	got := libopusHelperCompileFlags(libopustooling.LibopusReferenceScalar, target)
+	want := []string{
+		"-std=c99", "-O3", "-DNDEBUG",
+		"-fno-tree-vectorize", "-fno-tree-slp-vectorize",
+		"-march=x86-64-v3", "-mtune=generic",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("scalar helper flags=%v want %v", got, want)
+	}
+	got = libopusHelperCompileFlags(libopustooling.LibopusReferenceSIMD, target)
+	want = []string{"-std=c99", "-O3", "-DNDEBUG", "-march=x86-64-v3", "-mtune=generic"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("SIMD helper flags=%v want %v", got, want)
+	}
+}
 
 func TestEvaluatePerformanceGuardrails(t *testing.T) {
 	allocs := 0.0

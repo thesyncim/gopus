@@ -126,6 +126,18 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	if err := validateCHelperReferenceSelection(cfg); err != nil {
 		return "", err
 	}
+	targetCFlags, err := libopustooling.LibopusAMD64TargetCFlags()
+	if err != nil {
+		return "", err
+	}
+	if len(targetCFlags) != 0 {
+		for _, flag := range append(append([]string(nil), cfg.CFlags...), cfg.LDFlags...) {
+			if flag == "-march" || strings.HasPrefix(flag, "-march=") || flag == "-mtune" || strings.HasPrefix(flag, "-mtune=") {
+				return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("public C helper flags cannot override %s compiler target", libopustooling.LibopusAMD64TargetEnv)}
+			}
+		}
+		cfg.CFlags = append(cfg.CFlags, targetCFlags...)
+	}
 	if cfg.DREDQEXTRef {
 		if err := validateDREDReferenceBuildPairing(); err != nil {
 			return "", err
@@ -207,6 +219,11 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 				refVariant = libopustooling.LibopusReferenceCustomFixedQEXTSIMD
 			}
 		}
+	}
+	if target, err := libopustooling.ResolveLibopusAMD64Target(); err != nil {
+		return "", err
+	} else if err := validateCHelperAMD64TargetReference(target, cfg, refVariant); err != nil {
+		return "", err
 	}
 	refDir := helperRefDir(cfg, refVariant)
 	scalarRef := refVariant == libopustooling.LibopusReferenceScalar || refVariant == libopustooling.LibopusReferenceQEXTScalar || refVariant == libopustooling.LibopusReferenceFixedScalar || refVariant == libopustooling.LibopusReferenceFixedQEXTScalar || refVariant == libopustooling.LibopusReferenceDREDQEXTScalar || refVariant == libopustooling.LibopusReferenceCustomQEXTScalar || refVariant == libopustooling.LibopusReferenceCustomFixedScalar || refVariant == libopustooling.LibopusReferenceCustomFixedQEXTScalar
@@ -425,6 +442,18 @@ func validateCHelperReferenceSelection(cfg CHelperConfig) error {
 	}
 	if cfg.ForceScalarRef && (cfg.SIMDRef || cfg.FixedRef || cfg.FixedQEXTRef || cfg.QEXTRef || cfg.DREDQEXTRef || cfg.CustomQEXTRef || cfg.CustomFixedRef || cfg.CustomFixedQEXTRef) {
 		return &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("ForceScalarRef cannot be combined with SIMD, fixed-point, or QEXT references")}
+	}
+	return nil
+}
+
+func validateCHelperAMD64TargetReference(target string, cfg CHelperConfig, variant libopustooling.LibopusReferenceVariant) error {
+	if target == "" {
+		return nil
+	}
+	if cfg.QEXTRef || cfg.FixedRef || cfg.FixedQEXTRef || cfg.DREDQEXTRef || cfg.CustomRef ||
+		cfg.CustomQEXTRef || cfg.CustomFixedRef || cfg.CustomFixedQEXTRef ||
+		(variant != libopustooling.LibopusReferenceScalar && variant != libopustooling.LibopusReferenceSIMD) {
+		return &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("%s supports only the default float-core scalar or SIMD reference", libopustooling.LibopusAMD64TargetEnv)}
 	}
 	return nil
 }

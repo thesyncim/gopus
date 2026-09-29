@@ -595,6 +595,11 @@ func BuildOSCEHelper(root, sourceFile, outputBase string, includeInternal bool) 
 }
 
 func buildScalarDNNHelper(repoRoot, sourceFile, outputBase string, includeInternal bool, cfg scalarDNNHelperConfig) (string, error) {
+	if target, err := libopustooling.ResolveLibopusAMD64Target(); err != nil {
+		return "", err
+	} else if target != "" {
+		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("%s does not support DNN feature references", libopustooling.LibopusAMD64TargetEnv)}
+	}
 	ccPath, err := libopustooling.FindCCompiler()
 	if err != nil {
 		return "", fmt.Errorf("cc not available: %w", err)
@@ -683,6 +688,11 @@ func buildScalarDNNHelper(repoRoot, sourceFile, outputBase string, includeIntern
 // and instruction lane selected by the current Go build. Its caller supplies
 // the usual helper source options but no libopus archive or reference selector.
 func BuildDNNCHelper(root string, cfg CHelperConfig) (string, error) {
+	if target, err := libopustooling.ResolveLibopusAMD64Target(); err != nil {
+		return "", err
+	} else if target != "" {
+		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("%s does not support DNN feature references", libopustooling.LibopusAMD64TargetEnv)}
+	}
 	if !osceDNNFeatureEnabled && !extsupport.DRED {
 		return "", &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf("no DNN feature is enabled in the Go build")}
 	}

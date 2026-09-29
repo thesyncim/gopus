@@ -37,6 +37,16 @@ func currentPublicAPIHelperConfig(cfg CHelperConfig) (CHelperConfig, bool, error
 	if err := validateNoLibopusLibraryOverride(linkInputs); err != nil {
 		return CHelperConfig{}, false, err
 	}
+	target, err := libopustooling.ResolveLibopusAMD64Target()
+	if err != nil {
+		return CHelperConfig{}, false, err
+	}
+	if err := validatePublicAPIAMD64TargetFeatures(
+		target, decodeSequenceFixedRef, extsupport.QEXT, customModesReferenceEnabled,
+		extsupport.DRED || extsupport.DREDRuntime || osceDNNFeatureEnabled,
+	); err != nil {
+		return CHelperConfig{}, false, err
+	}
 
 	if extsupport.DREDRuntime || osceDNNFeatureEnabled {
 		if decodeSequenceFixedRef {
@@ -77,4 +87,14 @@ func currentPublicAPIHelperConfig(cfg CHelperConfig) (CHelperConfig, bool, error
 		cfg.Libs = append(cfg.Libs, "-lm")
 	}
 	return cfg, false, nil
+}
+
+func validatePublicAPIAMD64TargetFeatures(target string, fixed, qext, custom, dnn bool) error {
+	if target == "" || (!fixed && !qext && !custom && !dnn) {
+		return nil
+	}
+	return &libopustooling.LibopusReferenceConfigError{Err: fmt.Errorf(
+		"%s supports only the default float-core reference; fixed-point, QEXT, custom modes, and DNN features are unsupported",
+		libopustooling.LibopusAMD64TargetEnv,
+	)}
 }

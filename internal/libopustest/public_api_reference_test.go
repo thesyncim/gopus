@@ -120,3 +120,52 @@ func TestCurrentPublicAPIHelperConfigRejectsReferenceOverrides(t *testing.T) {
 		}
 	}
 }
+
+func TestValidatePublicAPIAMD64TargetFeatures(t *testing.T) {
+	tests := []struct {
+		name    string
+		target  string
+		fixed   bool
+		qext    bool
+		custom  bool
+		dnn     bool
+		wantErr bool
+	}{
+		{name: "untargeted feature reference", fixed: true, qext: true, custom: true, dnn: true},
+		{name: "targeted default float core", target: "v2"},
+		{name: "targeted fixed point", target: "v2", fixed: true, wantErr: true},
+		{name: "targeted QEXT", target: "v2", qext: true, wantErr: true},
+		{name: "targeted custom modes", target: "v2", custom: true, wantErr: true},
+		{name: "targeted DNN", target: "v2", dnn: true, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validatePublicAPIAMD64TargetFeatures(tc.target, tc.fixed, tc.qext, tc.custom, tc.dnn)
+			if tc.wantErr {
+				var configErr *libopustooling.LibopusReferenceConfigError
+				if !errors.As(err, &configErr) {
+					t.Fatalf("error=%T %v, want LibopusReferenceConfigError", err, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestBuildCHelperRejectsCustomRefWithAMD64Target(t *testing.T) {
+	cfg := CHelperConfig{Label: "target custom helper", OutputBase: "target_custom", SourceFile: "unused.c", CustomRef: true}
+	err := validateCHelperAMD64TargetReference("v2", cfg, libopustooling.LibopusReferenceScalar)
+	var configErr *libopustooling.LibopusReferenceConfigError
+	if !errors.As(err, &configErr) {
+		t.Fatalf("direct CustomRef selection error=%T %v, want LibopusReferenceConfigError", err, err)
+	}
+
+	t.Setenv(libopustooling.LibopusAMD64TargetEnv, "v2")
+	_, err = BuildCHelper(cfg)
+	if !errors.As(err, &configErr) {
+		t.Fatalf("BuildCHelper error=%T %v, want LibopusReferenceConfigError", err, err)
+	}
+}
