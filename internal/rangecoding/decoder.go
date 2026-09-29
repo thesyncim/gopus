@@ -799,15 +799,15 @@ func (d *Decoder) DecodeICDF9_8Slice(icdf []uint8) int {
 // libopus silk/decode_pulses.c silk_decode_signs:
 // q[j] *= silk_dec_map(ec_dec_icdf(dec, icdf, 8)).
 //
-// The loop visits only the positive entries, found from a bit mask, and
-// updates the range state with masks instead of branching on each sign, whose
-// outcome is unpredictable.
+// Every entry must be non-negative, as the decoded pulse magnitudes are. The
+// loop visits only the positive entries, found from a bit mask built four
+// entries at a time, and updates the range state with masks instead of
+// branching on each sign, whose outcome is unpredictable.
 func (d *Decoder) DecodeICDF2_8SignBlock16(icdf0 uint8, block *[16]int16) {
-	// Pulse magnitudes are non-negative, so the sign bit of -v marks v > 0.
-	var nonzero uint32
-	for j, v := range block {
-		nonzero |= uint32(-int32(v)) >> 31 << j
-	}
+	nonzero := positiveMask4(block[0], block[1], block[2], block[3]) |
+		positiveMask4(block[4], block[5], block[6], block[7])<<4 |
+		positiveMask4(block[8], block[9], block[10], block[11])<<8 |
+		positiveMask4(block[12], block[13], block[14], block[15])<<12
 	if nonzero == 0 {
 		return
 	}
@@ -851,6 +851,17 @@ func (d *Decoder) DecodeICDF2_8SignBlock16(icdf0 uint8, block *[16]int16) {
 	d.rng = rng
 	d.val = val
 	d.rem = rem
+}
+
+// positiveMask4 returns a 4-bit mask with bit j set when the j-th of four
+// non-negative pulse magnitudes is positive. The magnitudes are packed into
+// 16-bit lanes; adding 0x7fff to a lane sets its top bit exactly when the lane
+// is non-zero and never carries into the next lane, and one multiply gathers
+// the four top bits into adjacent positions.
+func positiveMask4(a, b, c, d int16) uint32 {
+	w := uint64(uint16(a)) | uint64(uint16(b))<<16 | uint64(uint16(c))<<32 | uint64(uint16(d))<<48
+	top := ((w + 0x7fff7fff7fff7fff) & 0x8000800080008000) >> 15
+	return uint32((top*0x0000200040008001)>>45) & 0xf
 }
 
 // DecodeICDF16 decodes a symbol using a uint16 ICDF table.
