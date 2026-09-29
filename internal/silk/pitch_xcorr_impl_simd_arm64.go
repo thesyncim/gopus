@@ -140,19 +140,27 @@ func pitchXcorrLoadFloat32x4At(base unsafe.Pointer, index int) archsimd.Float32x
 func pitchXcorrInnerProductArm64SIMD(x, y []float32, length int) float32 {
 	acc := archsimd.BroadcastFloat32x4(0)
 	i := 0
+	// celt_inner_prod_neon calls vmlaq_f32(acc, x, y) at
+	// pitch_neon_intr.c:196. Reversing Go MulAdd operands emits the same
+	// vector FMLA source order and NaN payload precedence.
 	for ; i+8 <= length; i += 8 {
-		acc = archsimd.LoadFloat32x4(x[i:]).MulAdd(archsimd.LoadFloat32x4(y[i:]), acc)
-		acc = archsimd.LoadFloat32x4(x[i+4:]).MulAdd(archsimd.LoadFloat32x4(y[i+4:]), acc)
+		acc = archsimd.LoadFloat32x4(y[i:]).MulAdd(archsimd.LoadFloat32x4(x[i:]), acc)
+		acc = archsimd.LoadFloat32x4(y[i+4:]).MulAdd(archsimd.LoadFloat32x4(x[i+4:]), acc)
 	}
 	if i+4 <= length {
-		acc = archsimd.LoadFloat32x4(x[i:]).MulAdd(archsimd.LoadFloat32x4(y[i:]), acc)
+		acc = archsimd.LoadFloat32x4(y[i:]).MulAdd(archsimd.LoadFloat32x4(x[i:]), acc)
 		i += 4
 	}
-	sum := (acc.GetElem(0) + acc.GetElem(2)) + (acc.GetElem(1) + acc.GetElem(3))
+	// celt_inner_prod_neon reduces low+high pairs with vadd_f32 and then
+	// vpadd_f32. Reversing the Go expression order matches the instruction
+	// operand order and keeps the same NaN payload selection.
+	sum := (acc.GetElem(2) + acc.GetElem(0)) + (acc.GetElem(3) + acc.GetElem(1))
 	for ; i < length; i++ {
-		// celt_inner_prod_neon finishes its scalar remainder with MAC16_16,
-		// which clang lowers to FMADD on arm64.
-		sum = x[i]*y[i] + sum
+		// celt_inner_prod_neon finishes its scalar remainder with
+		// MAC16_16(sum, x[i], y[i]) at pitch_neon_intr.c:214. This operand
+		// order makes Go lower to the same arm64 FMADD source order, including
+		// which NaN payload the scalar tail returns.
+		sum = y[i]*x[i] + sum
 	}
 	return sum
 }

@@ -123,6 +123,125 @@ func TestSILKPitchXcorrARM64SIMDMatchesLibopusNEON(t *testing.T) {
 	}
 }
 
+func TestSILKPitchXcorrARM64SIMDNaNTailMatchesLibopusNEON(t *testing.T) {
+	libopustest.RequireOracle(t)
+	if !usePitchXcorrArm64SIMD {
+		t.Fatal("ARM64 SIMD build does not select the SIMD pitch xcorr implementation")
+	}
+
+	type nanPair struct {
+		name string
+		x    uint32
+		y    uint32
+	}
+	pairs := []nanPair{
+		{name: "quiet_quiet", x: 0x7fc01234, y: 0x7fc05678},
+		{name: "quiet_signaling", x: 0x7fc01234, y: 0x7f805678},
+		{name: "signaling_quiet", x: 0x7f801234, y: 0x7fc05678},
+		{name: "signaling_signaling", x: 0x7f801234, y: 0x7f805678},
+	}
+	lengths := []int{1, 3, 5, 7, 9}
+	cases := make([]libopusSILKPitchXcorrCase, 0, len(lengths)*len(pairs))
+	for _, length := range lengths {
+		for _, pair := range pairs {
+			x := make([]float32, length)
+			y := make([]float32, length)
+			for i := range x {
+				x[i], y[i] = 1, 1
+			}
+			x[length-1] = math.Float32frombits(pair.x)
+			y[length-1] = math.Float32frombits(pair.y)
+			cases = append(cases, libopusSILKPitchXcorrCase{
+				name:     fmt.Sprintf("n%d_%s", length, pair.name),
+				length:   length,
+				maxPitch: 1,
+				x:        x,
+				y:        y,
+			})
+		}
+	}
+	want, err := probeLibopusSILKPitchXcorrNEON(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "SILK pitch xcorr NEON", err)
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got [1]float32
+			celtPitchXcorrFloat(tc.x, tc.y, got[:], tc.length, tc.maxPitch)
+			if gotBits, wantBits := math.Float32bits(got[0]), math.Float32bits(want[i][0]); gotBits != wantBits {
+				t.Fatalf("xcorr[0]=%08x want %08x", gotBits, wantBits)
+			}
+		})
+	}
+}
+
+func TestSILKPitchXcorrARM64SIMDNaNVectorOrderMatchesLibopusNEON(t *testing.T) {
+	libopustest.RequireOracle(t)
+	if !usePitchXcorrArm64SIMD {
+		t.Fatal("ARM64 SIMD build does not select the SIMD pitch xcorr implementation")
+	}
+
+	type nanPair struct {
+		name string
+		x    uint32
+		y    uint32
+	}
+	pairs := []nanPair{
+		{name: "quiet_quiet", x: 0x7fc01234, y: 0x7fc05678},
+		{name: "quiet_signaling", x: 0x7fc01234, y: 0x7f805678},
+		{name: "signaling_quiet", x: 0x7f801234, y: 0x7fc05678},
+		{name: "signaling_signaling", x: 0x7f801234, y: 0x7f805678},
+	}
+	lengths := []int{4, 8, 12}
+	cases := make([]libopusSILKPitchXcorrCase, 0, len(lengths)*(len(pairs)+1))
+	for _, length := range lengths {
+		for _, pair := range pairs {
+			x := make([]float32, length)
+			y := make([]float32, length)
+			for i := range x {
+				x[i], y[i] = 1, 1
+			}
+			x[length-1] = math.Float32frombits(pair.x)
+			y[length-1] = math.Float32frombits(pair.y)
+			cases = append(cases, libopusSILKPitchXcorrCase{
+				name:     fmt.Sprintf("n%d_fma_%s", length, pair.name),
+				length:   length,
+				maxPitch: 1,
+				x:        x,
+				y:        y,
+			})
+		}
+
+		x := make([]float32, length)
+		y := make([]float32, length)
+		for i := range x {
+			x[i], y[i] = 1, 1
+		}
+		x[0] = math.Float32frombits(0x7fc01234)
+		x[2] = math.Float32frombits(0x7fc05678)
+		cases = append(cases, libopusSILKPitchXcorrCase{
+			name:     fmt.Sprintf("n%d_reduction", length),
+			length:   length,
+			maxPitch: 1,
+			x:        x,
+			y:        y,
+		})
+	}
+	want, err := probeLibopusSILKPitchXcorrNEON(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "SILK pitch xcorr NEON", err)
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got [1]float32
+			celtPitchXcorrFloat(tc.x, tc.y, got[:], tc.length, tc.maxPitch)
+			if gotBits, wantBits := math.Float32bits(got[0]), math.Float32bits(want[i][0]); gotBits != wantBits {
+				t.Fatalf("xcorr[0]=%08x want %08x", gotBits, wantBits)
+			}
+		})
+	}
+}
+
 func TestSILKPitchXcorrARM64SIMDBoundsAndTail(t *testing.T) {
 	libopustest.RequireOracle(t)
 	const length, maxPitch = 17, 7
@@ -162,6 +281,18 @@ func TestSILKPitchXcorrARM64SIMDAllocatesZero(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("pitch xcorr allocated %g times per run", allocs)
+	}
+
+	const tailLength, tailPitch = 9, 1
+	tailX := silkPitchXcorrOracleSignal(tailLength, 0xabcdef01)
+	tailY := silkPitchXcorrOracleSignal(tailLength+tailPitch-1, 0x10293847)
+	tailOut := make([]float32, tailPitch)
+	tailAllocs := testing.AllocsPerRun(100, func() {
+		celtPitchXcorrFloatImpl(tailX, tailY, tailOut, tailLength, tailPitch)
+		silkPitchXcorrSIMDAllocSink = tailOut[0]
+	})
+	if tailAllocs != 0 {
+		t.Fatalf("pitch xcorr scalar tail allocated %g times per run", tailAllocs)
 	}
 }
 
