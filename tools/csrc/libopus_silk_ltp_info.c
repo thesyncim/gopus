@@ -49,6 +49,14 @@ static uint32_t inner_product_impl_selected(int arch) {
   return avx2_inner_product_is_selected(arch) ? 1u : 0u;
 }
 
+static uint32_t inner_product_presumed(void) {
+#if defined(OPUS_X86_PRESUME_AVX2)
+  return 1u;
+#else
+  return 0u;
+#endif
+}
+
 static int set_binary_stdio(void) {
 #ifdef _WIN32
   if (_setmode(_fileno(stdin), _O_BINARY) == -1) return 0;
@@ -312,6 +320,7 @@ int main(void) {
   uint32_t mode;
   uint32_t count;
   uint32_t inner_product_impl;
+  uint32_t inner_product_is_presumed;
   uint32_t i;
 
   if (!set_binary_stdio()) return 1;
@@ -331,8 +340,17 @@ int main(void) {
   if (mode > MODE_CORR_MATRIX_VECTOR_FLP) return 1;
 
   inner_product_impl = inner_product_impl_selected(selected_arch);
-  if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(2) ||
-      !write_u32((uint32_t)selected_arch) || !write_u32(inner_product_impl) || !write_u32(count)) return 1;
+  inner_product_is_presumed = inner_product_presumed();
+  if ((inner_product_is_presumed && inner_product_impl != 1u) ||
+      (inner_product_impl == 1u && !inner_product_is_presumed && selected_arch < 4)) {
+    fprintf(stderr,
+        "SILK inner product metadata is inconsistent: arch=%u implementation=%u presumed=%u\n",
+        (uint32_t)selected_arch, inner_product_impl, inner_product_is_presumed);
+    return 1;
+  }
+  if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(3) ||
+      !write_u32((uint32_t)selected_arch) || !write_u32(inner_product_impl) ||
+      !write_u32(inner_product_is_presumed) || !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {
     if (!eval_record(mode)) return 1;
   }
