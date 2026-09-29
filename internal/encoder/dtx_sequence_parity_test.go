@@ -189,6 +189,7 @@ func dtxGopusMode(mode string) Mode {
 func runGopusDTXSequence(t *testing.T, pcm []float32, frameSize, channels, bitrate int, bw, modeStr string) [][]byte {
 	t.Helper()
 	enc := NewEncoder(48000, channels)
+	enc.SetComplexity(10)
 	enc.SetDTX(true)
 	enc.SetMode(dtxGopusMode(modeStr))
 	enc.SetBandwidth(dtxGopusBandwidth(bw))

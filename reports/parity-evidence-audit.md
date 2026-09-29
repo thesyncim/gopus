@@ -30,8 +30,11 @@ return, packet and final range, including empty output. Its 1,788 configurations
 × eight frames × eight lanes yield 114,432 passing frame comparisons. The CTL
 sequence gate compares PROCESS/RESET results and all selected GET values,
 including final range and DTX, with explicit matching initial bitrate controls.
-The existing native feature batches include these boundary tests; native AMD64
-validation of this audit is pending. Earlier native results below retain their
+Analysis-reuse tests explicitly select complexity 10; undersized-budget and
+DTX cadence oracles also apply the same complexity to Go and C. All six DTX
+cadence cases pass across the eight feature/ISA lanes. The existing native
+feature batches include these boundary and DTX tests; native AMD64 validation
+of this audit is pending. Earlier native results below retain their
 measured revisions and do not stand in for this patch.
 
 ## Findings and verification
