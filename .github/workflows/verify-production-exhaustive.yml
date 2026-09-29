@@ -108,7 +108,7 @@ jobs:
             env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
               GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
               "${go_cmd[@]}" test ./internal/celt ./internal/encoder -count=1 -v -timeout=15m \
-              -run '^Test(ApplyPreemphasisWithScalingMatchesLibopus|CELTBandEnergyMatchesLiveLibopus|LibopusCELTDynallocAnalysisMatchesReference|LibopusCELTEnergy(QuantFine|Finalise)MatchesReference|CELTLog2MatchesLibopusFloatApprox|CELTExp2MatchesLibopusFloatApprox|CELTExp2x4MatchesLibopus|CELTAngleMathMatchesLibopusFloatPath|OPPVQSearchMatchesLibopusFloatPath|AlgUnquantMatchesLibopusFloatPath|ExpRotationMatchesLibopusFloatPath|CombFilterWithSquareMatchesLibopus|CombFilterConstSSEOrderZeroAllocs|CombFilterKernelsZeroAllocs|CombFilterWithInputF32MatchesLibopus|CombFilterConstantBodyHistorySeamMatchesLibopus|CombFilterRampedHistorySeamMatchesLibopus|CELTPostfilterStagesMatchLibopusC|CELTDecodeV3FirstDivergenceMatchesLibopusC|StereoMergeRescaleBitExact|StereoMergeRescaleNoAllocs|StereoMergeVsLibopus|Haar1MatchesLibopus|Haar1NormMatchesLibopus|Haar1NoAllocs|HPCutoffMatchesLibopus|DCRejectMatchesLibopus|GainFadeMatchesLibopus|StereoFadeMatchesLibopus)$' \
+              -run '^Test(ApplyPreemphasisWithScalingMatchesLibopus|CELTBandEnergyMatchesLiveLibopus|LibopusCELTDynallocAnalysisMatchesReference|LibopusCELTEnergy(QuantFine|Finalise)MatchesReference|CELTLog2MatchesLibopusFloatApprox|CELTExp2MatchesLibopusFloatApprox|CELTExp2x4MatchesLibopus|CELTAngleMathMatchesLibopusFloatPath|OPPVQSearchMatchesLibopusFloatPath|AlgUnquantMatchesLibopusFloatPath|ExpRotationMatchesLibopusFloatPath|CombFilterWithSquareMatchesLibopus|CombFilterConstSSEOrderZeroAllocs|CombFilterKernelsZeroAllocs|CombFilterWithInputF32MatchesLibopus|CombFilterConstantBodyHistorySeamMatchesLibopus|CombFilterRampedHistorySeamMatchesLibopus|CELTPostfilterStagesMatchLibopusC|CELTDecodeV3FirstDivergenceMatchesLibopusC|CELTV3CBRLongStreamFirstDecodeDivergence|StereoMergeRescaleBitExact|StereoMergeRescaleNoAllocs|StereoMergeVsLibopus|Haar1MatchesLibopus|Haar1NormMatchesLibopus|Haar1NoAllocs|HPCutoffMatchesLibopus|DCRejectMatchesLibopus|GainFadeMatchesLibopus|StereoFadeMatchesLibopus)$' \
               > "$RUNNER_TEMP/goamd64-evidence/$mode-celt-stages.log" 2>&1 || status=1
             env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
               GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
@@ -135,6 +135,11 @@ jobs:
               "${go_cmd[@]}" test ./internal/encoder -tags gopus_celt_trace -count=1 -v -timeout=15m \
               -run '^TestCELT(FirstFrame|LateCBRFrame)StageDiagnostic$' \
               > "$RUNNER_TEMP/goamd64-evidence/$mode-celt-encode-trace.log" 2>&1 || status=1
+            env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
+              GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
+              "${go_cmd[@]}" test ./internal/celt -count=1 -v -timeout=15m \
+              -run '^TestCELTV3CBRLongStreamFirstDecodeDivergence$' \
+              > "$RUNNER_TEMP/goamd64-evidence/$mode-celt-v3-longstream-decode.log" 2>&1 || status=1
             if [[ "$mode" == nosimd ]]; then
               env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT=nosimd GOPUS_LIBOPUS_AMD64_TARGET=v3 \
                 GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \

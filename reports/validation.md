@@ -219,28 +219,31 @@ CELT/Hybrid have unresolved same-packet PCM differences. FFT/MDCT and SILK
 primitive suites pass. The CELT encoder trace rejects inconsistent quantization
 dimensions, so it does not yet establish a runtime divergence location.
 
-The [native audit at `5e1da806`](https://github.com/thesyncim/gopus/actions/runs/36616420085)
-on AMD EPYC 9V74 with Go 1.27.1 and GCC 13.3 passes 58/60 scalar
-and 60/60 SIMD encoder checks, 14/24 scalar and 24/24 SIMD decoder checks, and
+The [native audit at `6fb767cf`](https://github.com/thesyncim/gopus/actions/runs/36618419822)
+on Intel Xeon Platinum 8573C with Go 1.27.1 and GCC 13.3 passes 58/60 scalar
+and 60/60 SIMD encoder checks, 15/24 scalar and 24/24 SIMD decoder checks, and
 all 15 warm-allocation checks in each lane, with no skipped cases. CBR exact
-cases are 14/19 scalar (70 packet/61 range differences) and 15/19 SIMD
-(75 packet/72 range differences) out of 2,175 packets per lane. These counts
-are separate gates, not an overall byte-parity percentage. Haar and the
+cases are 14/19 scalar (70 packet/61 range differences) and 15/19 SIMD (75
+packet/72 range differences) out of 2,175 packets per lane. These counts are
+separate gates, not an overall byte-parity percentage. Haar and the
 constant/ramped comb history seams, scalar stereo tails and SIMD exp2
-approximation match the paired C references. The comb fallback without
-precomputed window squares, outer encoder filters and scalar decoder PCM
-still expose differences. The long CBR streams also expose same-packet PCM
-differences in both lanes, including short CELT and 10 ms Hybrid frames; the
-24-case SIMD decoder pass does not establish long-stream decoder parity. The DC oracle request fails its input
-protocol validation at this revision; it does not establish a codec difference.
+approximation match the paired C references. The comb fallback, DC rejection
+and high-pass filter match C; stereo fade and scalar decoder PCM still expose
+differences. The long CBR streams also expose same-packet PCM differences in
+both lanes, including short CELT and 10 ms Hybrid frames; the 24-case SIMD
+decoder pass does not establish long-stream decoder parity. The corrected DC
+oracle verifies all ten sample-rate/channel cases in each lane.
 
 The SILK replay sends the actual Go LPC input/state to the linked C FindLPC
-implementation. Both select the same interpolation factors at the first failing
-frames (3 for MB mono frame 6; 0 for WB stereo frame 13), while the ordinary
-C encoder selects 2 and 1. The mismatch therefore starts before this selection;
-it does not justify changing FindLPC arithmetic or its decision gate. The
-transparent CELT trace first differs in reconstructed quantizer coefficients
-after matching transform and quantizer inputs. No numerical allowance is
+implementation. Both select the same interpolation factors at the first
+failing frames (3 for MB mono frame 6; 0 for WB stereo frame 13), while the
+ordinary C encoder selects 2 and 1. The original C call snapshots match the Go
+decision state but differ in the LPC residual input: MB mono frame 6 first
+differs at sample 140, WB stereo frame 13 at sample 192. Work therefore
+follows the residual producer rather than altering FindLPC decisions. The
+scalar decoder witness first differs in normalized coefficients before
+synthesis. The transparent CELT frame-95 trace first differs at the SIMD MDCT
+spectrum and scalar coarse-energy decisions. No numerical allowance is
 accepted for these unresolved differences.
 
 | Priority | Surface | Finding | Current evidence |
