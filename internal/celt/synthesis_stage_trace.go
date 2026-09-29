@@ -22,10 +22,14 @@ type synthesisStageTrace struct {
 	postComb [2][]float32
 	// qextEnergy records the decoded QEXT log energies for diagnostic parity
 	// tests. It is populated only when a trace is armed.
-	qextEnergy [2][]float32
-	baseEnergy [2][]float32
-	baseNorm   [2][]float32
-	qextNorm   [2][]float32
+	qextEnergy           [2][]float32
+	baseEnergy           [2][]float32
+	baseNorm             [2][]float32
+	qextNorm             [2][]float32
+	antiCollapseNormPre  [2][]float32
+	antiCollapseNormPost [2][]float32
+	collapseMasks        []byte
+	antiCollapseSeed     uint32
 }
 
 // EnableSynthesisStageTrace arms intermediate-stage capture for the next decoded
@@ -112,6 +116,46 @@ func (t *synthesisStageTrace) captureBaseNorm(ch int, coeffs []celtNorm, n int) 
 		out[i] = float32(coeffs[i])
 	}
 	t.baseNorm[ch] = out
+}
+
+func (t *synthesisStageTrace) captureAntiCollapsePre(coeffsL, coeffsR []celtNorm, channels, n int, collapse []byte, seed uint32) {
+	if t == nil {
+		return
+	}
+	t.captureAntiCollapseNorm(&t.antiCollapseNormPre, coeffsL, coeffsR, channels, n)
+	t.collapseMasks = append(t.collapseMasks[:0], collapse...)
+	t.antiCollapseSeed = seed
+}
+
+func (t *synthesisStageTrace) captureAntiCollapsePost(coeffsL, coeffsR []celtNorm, channels, n int) {
+	if t == nil {
+		return
+	}
+	t.captureAntiCollapseNorm(&t.antiCollapseNormPost, coeffsL, coeffsR, channels, n)
+}
+
+func (t *synthesisStageTrace) captureAntiCollapseNorm(dst *[2][]float32, coeffsL, coeffsR []celtNorm, channels, n int) {
+	if channels <= 0 || channels > len(dst) || n <= 0 {
+		return
+	}
+	for ch := range channels {
+		coeffs := coeffsL
+		if ch == 1 {
+			coeffs = coeffsR
+		}
+		count := n
+		if count > len(coeffs) {
+			count = len(coeffs)
+		}
+		if count <= 0 {
+			return
+		}
+		out := make([]float32, count)
+		for i := range count {
+			out[i] = float32(coeffs[i])
+		}
+		dst[ch] = out
+	}
 }
 
 func (t *synthesisStageTrace) captureQEXTNorm(ch int, coeffs []celtNorm, n int) {

@@ -71,12 +71,20 @@ func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, qextPayloa
 		allocation.fineQuant, allocation.finePriority, allocation.pulses, allocation.tfRes, allocation.intensity, allocation.dualStereo, allocation.balance, allocation.codedBands)
 	coeffsL := spectrum.coeffsL
 	coeffsR := spectrum.coeffsR
+	if d.synthTrace != nil {
+		// decodeFrameSpectrum has finalized band energies; this snapshot is the
+		// exact input to libopus's anti_collapse() boundary.
+		d.synthTrace.captureAntiCollapsePre(coeffsL, coeffsR, channels, frameSize, spectrum.collapse, d.rng)
+	}
 	if spectrum.antiCollapseOn {
 		if pm := d.perMode; pm != nil {
 			antiCollapseGLogMode(coeffsL, coeffsR, spectrum.collapse, lm, channels, start, end, energies, prev1LogE, prev2LogE, allocation.pulses, d.rng, pm.eBands, pm.nbEBands)
 		} else {
 			antiCollapseGLog(coeffsL, coeffsR, spectrum.collapse, lm, channels, start, end, energies, prev1LogE, prev2LogE, allocation.pulses, d.rng)
 		}
+	}
+	if d.synthTrace != nil {
+		d.synthTrace.captureAntiCollapsePost(coeffsL, coeffsR, channels, frameSize)
 	}
 	if silence {
 		applyDecodedSilence(energies, coeffsL, coeffsR, spectrum.qext)

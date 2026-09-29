@@ -3,17 +3,20 @@
  * Captures intermediate CELT synthesis buffers of a real opus_decode_float()
  * for a target frame, so the gopus host-only float parity drift can be
  * localised to a single synthesis stage:
+ *   - anti-collapse input/output : normalized coefficients around the actual
+ *                                  celt_decoder.c anti_collapse() call
  *   - freq[]  : per-channel post-denormalise_bands frequency buffer
  *   - imdct[] : per-channel post-clt_mdct_backward time buffer (pre comb_filter)
  *   - final[] : post-deemphasis interleaved PCM
  *
  * Implementation: this translation unit #includes the pinned
  * celt/celt_decoder.c (libopus 1.6.1) with capturing macro wrappers around the
- * denormalise_bands() calls inside celt_synthesis() (to snapshot freq[]) and the
- * comb_filter() calls inside celt_decode_with_ec() (to snapshot the pre-comb
- * out_syn[], i.e. the post-IMDCT time buffer, before the postfilter rewrites it
- * in place; the seed frame has a non-zero postfilter gain). The wrappers forward
- * to the unmodified archive implementations. Including the .c here means
+ * anti_collapse() call (to snapshot normalized coefficients on both sides of
+ * the call), denormalise_bands() calls inside celt_synthesis() (to snapshot
+ * freq[]) and comb_filter() calls inside celt_decode_with_ec() (to snapshot the
+ * pre-comb out_syn[], i.e. the post-IMDCT time buffer, before the postfilter
+ * rewrites it in place; the seed frame has a non-zero postfilter gain). Each
+ * wrapper forwards to the unmodified archive implementation. Including the .c means
  * celt_decode_with_ec() and friends are provided by this TU, so the archive copy
  * of celt_decoder.o is not pulled and the synthesis math stays byte-identical to
  * libopus.
@@ -68,12 +71,61 @@ static int g_base_energy_idx = 0;
 static float g_base_energy_capture[2][64];
 static int g_base_norm_count = 0;
 static float g_base_norm_capture[2][2048];
+static int g_anti_collapse_calls = 0;
+static uint32_t g_anti_collapse_seed = 0;
+static int g_anti_collapse_norm_count = 0;
+static int g_anti_collapse_mask_bands = 0;
+static int g_anti_collapse_mask_count = 0;
+static float g_anti_collapse_norm_pre[2][2048];
+static float g_anti_collapse_norm_post[2][2048];
+static unsigned char g_anti_collapse_mask_pre[128];
+static unsigned char g_anti_collapse_mask_post[128];
 static int g_imdct_captured[2] = {0, 0};
 static int g_comb_calls[2] = {0, 0};
 static celt_sig *g_freq_capture[2] = {NULL, NULL};
 static celt_sig *g_imdct_capture[2] = {NULL, NULL};
 static celt_sig *g_postcomb_capture[2] = {NULL, NULL};
 static opus_val32 *g_comb_base[2] = {NULL, NULL};
+
+/* Wrapper around anti_collapse(): copy the actual normalized CELT spectrum and
+ * collapse masks before and after the unmodified implementation runs. X_ is
+ * channel-major with size coefficients per channel; collapse_masks is band-
+ * major with C entries per band, matching celt_decoder.c and bands.c. */
+static void gopus_capture_anti_collapse(const CELTMode *m, celt_norm *X_,
+      unsigned char *collapse_masks, int LM, int C, int size, int start, int end,
+      const celt_glog *logE, const celt_glog *prev1logE, const celt_glog *prev2logE,
+      const int *pulses, opus_uint32 seed, int encode, int arch)
+{
+   if (g_capture_armed && g_anti_collapse_calls == 0) {
+      int channel_count = C < 2 ? C : 2;
+      int norm_count = size < 2048 ? size : 2048;
+      int mask_bands = m->nbEBands < 64 ? m->nbEBands : 64;
+      int mask_count = C*mask_bands;
+      int c, i;
+      g_anti_collapse_seed = (uint32_t)seed;
+      g_anti_collapse_norm_count = norm_count;
+      g_anti_collapse_mask_bands = mask_bands;
+      g_anti_collapse_mask_count = mask_count;
+      for (c = 0; c < channel_count; c++)
+         for (i = 0; i < norm_count; i++)
+            g_anti_collapse_norm_pre[c][i] = (float)X_[c*size+i];
+      memcpy(g_anti_collapse_mask_pre, collapse_masks, (size_t)mask_count);
+   }
+
+   anti_collapse(m, X_, collapse_masks, LM, C, size, start, end, logE,
+         prev1logE, prev2logE, pulses, seed, encode, arch);
+
+   if (g_capture_armed && g_anti_collapse_calls == 0) {
+      int channel_count = C < 2 ? C : 2;
+      int c, i;
+      for (c = 0; c < channel_count; c++)
+         for (i = 0; i < g_anti_collapse_norm_count; i++)
+            g_anti_collapse_norm_post[c][i] = (float)X_[c*size+i];
+      memcpy(g_anti_collapse_mask_post, collapse_masks,
+            (size_t)g_anti_collapse_mask_count);
+      g_anti_collapse_calls++;
+   }
+}
 
 /* Wrapper around comb_filter(): the postfilter is applied in place over
  * out_syn[c]. Snapshot the full pre-comb out_syn block (== the post-IMDCT time
@@ -156,6 +208,9 @@ static void gopus_capture_denormalise_bands(const CELTMode *m, const celt_norm *
 #define denormalise_bands(m, X, freq, bandLogE, start, end, M, downsample, silence) \
    gopus_capture_denormalise_bands((m), (X), (freq), (bandLogE), (start), (end), (M), \
          (downsample), (silence), N)
+#define anti_collapse(m, X, collapse_masks, LM, C, size, start, end, logE, prev1logE, prev2logE, pulses, seed, encode, arch) \
+   gopus_capture_anti_collapse((m), (X), (collapse_masks), (LM), (C), (size), (start), (end), \
+         (logE), (prev1logE), (prev2logE), (pulses), (seed), (encode), (arch))
 #define comb_filter(y, x, T0, T1, N, g0, g1, tapset0, tapset1, window, overlap, arch) \
    gopus_capture_comb_filter((y), (x), (T0), (T1), (N), (g0), (g1), (tapset0), (tapset1), \
          (window), (overlap), (arch), c)
@@ -165,6 +220,7 @@ static void gopus_capture_denormalise_bands(const CELTMode *m, const celt_norm *
 #include "celt/celt_decoder.c"
 
 #undef denormalise_bands
+#undef anti_collapse
 #undef comb_filter
 
 #define GCSI_MAGIC "GCSI"
@@ -306,6 +362,11 @@ int main(void) {
       g_base_energy_count = 0;
       g_base_energy_idx = 0;
       g_base_norm_count = 0;
+      g_anti_collapse_calls = 0;
+      g_anti_collapse_seed = 0;
+      g_anti_collapse_norm_count = 0;
+      g_anti_collapse_mask_bands = 0;
+      g_anti_collapse_mask_count = 0;
       g_imdct_captured[0] = 0;
       g_imdct_captured[1] = 0;
       g_comb_calls[0] = 0;
@@ -342,7 +403,7 @@ int main(void) {
         return 1;
       }
 
-      if (!write_exact(GCSO_MAGIC, 4) || !write_u32(2) ||
+      if (!write_exact(GCSO_MAGIC, 4) || !write_u32(3) ||
           !write_u32((uint32_t)N) || !write_u32((uint32_t)CC) ||
           !write_u32((uint32_t)frame_size)) {
         fprintf(stderr, "failed to write output header\n");
@@ -431,6 +492,35 @@ int main(void) {
             return 1;
           }
         }
+      }
+      if (!write_u32((uint32_t)g_anti_collapse_calls) ||
+          !write_u32(g_anti_collapse_seed) ||
+          !write_u32((uint32_t)g_anti_collapse_norm_count)) {
+        fprintf(stderr, "failed to write anti-collapse trace header\n");
+        return 1;
+      }
+      for (ch = 0; ch < (uint32_t)CC; ch++) {
+        for (j = 0; j < g_anti_collapse_norm_count; j++) {
+          if (!write_float(g_anti_collapse_norm_pre[ch][j])) {
+            fprintf(stderr, "failed to write pre anti-collapse coefficient\n");
+            return 1;
+          }
+        }
+      }
+      for (ch = 0; ch < (uint32_t)CC; ch++) {
+        for (j = 0; j < g_anti_collapse_norm_count; j++) {
+          if (!write_float(g_anti_collapse_norm_post[ch][j])) {
+            fprintf(stderr, "failed to write post anti-collapse coefficient\n");
+            return 1;
+          }
+        }
+      }
+      if (!write_u32((uint32_t)g_anti_collapse_mask_bands) ||
+          !write_u32((uint32_t)g_anti_collapse_mask_count) ||
+          !write_exact(g_anti_collapse_mask_pre, (size_t)g_anti_collapse_mask_count) ||
+          !write_exact(g_anti_collapse_mask_post, (size_t)g_anti_collapse_mask_count)) {
+        fprintf(stderr, "failed to write anti-collapse masks\n");
+        return 1;
       }
 
       opus_decoder_destroy(dec);

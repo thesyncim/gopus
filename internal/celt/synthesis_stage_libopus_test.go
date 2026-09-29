@@ -35,17 +35,24 @@ type libopusCELTSynthesisTrace struct {
 	channels int
 	// freq[ch] and imdct[ch] each hold n samples scaled by 1/CELT_SIG_SCALE;
 	// final holds n*channels interleaved post-deemphasis PCM.
-	freq       [][]float32
-	imdct      [][]float32
-	postComb   [][]float32
-	final      []float32
-	qextEnergy [][]float32
-	qextNorm   [][]float32
-	baseEnergy [][]float32
-	baseNorm   [][]float32
+	freq                  [][]float32
+	imdct                 [][]float32
+	postComb              [][]float32
+	final                 []float32
+	qextEnergy            [][]float32
+	qextNorm              [][]float32
+	baseEnergy            [][]float32
+	baseNorm              [][]float32
+	antiCollapseCalls     int
+	antiCollapseSeed      uint32
+	antiCollapseNormPre   [][]float32
+	antiCollapseNormPost  [][]float32
+	antiCollapseMaskBands int
+	antiCollapseMaskPre   []byte
+	antiCollapseMaskPost  []byte
 }
 
-func consumeCELTSynthesisTraceV2Tail(t *testing.T, reader *libopustest.OracleReader, trace *libopusCELTSynthesisTrace) {
+func consumeCELTSynthesisTraceV3Tail(t *testing.T, reader *libopustest.OracleReader, trace *libopusCELTSynthesisTrace) {
 	t.Helper()
 	for _, section := range []struct {
 		name string
@@ -76,6 +83,61 @@ func consumeCELTSynthesisTraceV2Tail(t *testing.T, reader *libopustest.OracleRea
 			t.Fatalf("selected C %s: %v", section.name, err)
 		}
 	}
+	trace.antiCollapseCalls = int(reader.U32())
+	trace.antiCollapseSeed = reader.U32()
+	normCount := reader.U32()
+	if err := reader.Err(); err != nil {
+		t.Fatalf("selected C anti-collapse trace header: %v", err)
+	}
+	if trace.antiCollapseCalls > 1 {
+		t.Fatalf("selected C anti-collapse calls=%d exceeds one frame call", trace.antiCollapseCalls)
+	}
+	if normCount > 2048 {
+		t.Fatalf("selected C anti-collapse norm count=%d exceeds 2048", normCount)
+	}
+	trace.antiCollapseNormPre = make([][]float32, trace.channels)
+	for ch := range trace.channels {
+		values := make([]float32, int(normCount))
+		for i := range values {
+			values[i] = reader.Float32()
+		}
+		trace.antiCollapseNormPre[ch] = values
+	}
+	trace.antiCollapseNormPost = make([][]float32, trace.channels)
+	for ch := range trace.channels {
+		values := make([]float32, int(normCount))
+		for i := range values {
+			values[i] = reader.Float32()
+		}
+		trace.antiCollapseNormPost[ch] = values
+	}
+	trace.antiCollapseMaskBands = int(reader.U32())
+	maskCount := reader.U32()
+	if err := reader.Err(); err != nil {
+		t.Fatalf("selected C anti-collapse norm trace: %v", err)
+	}
+	if maskCount > 128 {
+		t.Fatalf("selected C anti-collapse mask count=%d exceeds 128", maskCount)
+	}
+	if trace.antiCollapseCalls == 0 {
+		if normCount != 0 || trace.antiCollapseMaskBands != 0 || maskCount != 0 || trace.antiCollapseSeed != 0 {
+			t.Fatalf("selected C absent anti-collapse trace has calls/norms/bands/masks/seed=%d/%d/%d/%d/%08x",
+				trace.antiCollapseCalls, normCount, trace.antiCollapseMaskBands, maskCount, trace.antiCollapseSeed)
+		}
+	} else {
+		if normCount != uint32(trace.n) {
+			t.Fatalf("selected C anti-collapse norm count=%d, want trace N=%d", normCount, trace.n)
+		}
+		if trace.antiCollapseMaskBands <= 0 || trace.antiCollapseMaskBands > 64 || maskCount != uint32(trace.channels*trace.antiCollapseMaskBands) {
+			t.Fatalf("selected C anti-collapse mask bands/count=%d/%d, want 1..64 bands and channels*bands=%d",
+				trace.antiCollapseMaskBands, maskCount, trace.channels*trace.antiCollapseMaskBands)
+		}
+	}
+	trace.antiCollapseMaskPre = append([]byte(nil), reader.Bytes(int(maskCount))...)
+	trace.antiCollapseMaskPost = append([]byte(nil), reader.Bytes(int(maskCount))...)
+	if err := reader.Err(); err != nil {
+		t.Fatalf("selected C anti-collapse masks: %v", err)
+	}
 }
 
 func traceLibopusCELTSynthesis(t *testing.T, sampleRate, channels, frameSize, targetStep int, packets [][]byte) *libopusCELTSynthesisTrace {
@@ -92,13 +154,20 @@ func traceLibopusCELTSynthesis(t *testing.T, sampleRate, channels, frameSize, ta
 		payload.U32(uint32(len(pkt)))
 		payload.Raw(pkt)
 	}
-	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "CELT synthesis stage trace", "GCSO", 2)
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "CELT synthesis stage trace", "GCSO", 3)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "CELT synthesis stage trace", err)
 	}
 	n := int(reader.U32())
 	cc := int(reader.U32())
-	_ = reader.U32() // frame_size echo
+	frameEcho := int(reader.U32())
+	if err := reader.Err(); err != nil {
+		t.Fatalf("selected C CELT synthesis trace header: %v", err)
+	}
+	if n <= 0 || n > 2048 || cc < 1 || cc > 2 || frameEcho != frameSize {
+		t.Fatalf("selected C CELT synthesis trace dimensions N/channels/frame=%d/%d/%d, want N 1..2048, channels 1..2, frame=%d",
+			n, cc, frameEcho, frameSize)
+	}
 	trace := &libopusCELTSynthesisTrace{n: n, channels: cc}
 	trace.freq = make([][]float32, cc)
 	trace.imdct = make([][]float32, cc)
@@ -125,7 +194,7 @@ func traceLibopusCELTSynthesis(t *testing.T, sampleRate, channels, frameSize, ta
 	for i := range trace.final {
 		trace.final[i] = reader.Float32()
 	}
-	consumeCELTSynthesisTraceV2Tail(t, reader, trace)
+	consumeCELTSynthesisTraceV3Tail(t, reader, trace)
 	if err := reader.ExpectConsumed(); err != nil {
 		t.Fatal(err)
 	}
