@@ -208,44 +208,51 @@ void __wrap_clt_mdct_forward_c(const mdct_lookup *l, kiss_fft_scalar *in,
   __real_clt_mdct_forward_c(l, in, out, window, overlap, shift, stride, arch);
 }
 
-extern void __real_celt_preemphasis(const opus_res *pcmp, celt_sig *inp,
-    int N, int CC, int upsample, const opus_val16 *coef, celt_sig *mem, int clip);
-void __wrap_celt_preemphasis(const opus_res *pcmp, celt_sig *inp,
-    int N, int CC, int upsample, const opus_val16 *coef, celt_sig *mem, int clip) {
-  if (!trace_selected_frame()) {
-    __real_celt_preemphasis(pcmp, inp, N, CC, upsample, coef, mem, clip);
-    return;
-  }
-
+int gopus_celt_preemphasis_trace_begin(int channel, const opus_res *pcmp,
+    celt_sig *inp, int N, int CC, int upsample, const opus_val16 *coef,
+    celt_sig *mem, int clip) {
+  if (!trace_selected_frame()) return -1;
   uint32_t call = celt_encode_trace.preemphasis_calls++;
-  celt_trace_preemphasis_call *trace = NULL;
+  celt_trace_preemphasis_call *trace;
   int input_count = upsample > 0 ? N / upsample : -1;
-  if (call >= CELT_TRACE_MAX_CALLS || call >= (uint32_t)CC || pcmp == NULL || inp == NULL || mem == NULL ||
-      coef == NULL || N < 0 || CC <= 0 || CC > 2 || upsample <= 0 || input_count < 0 ||
+  if (call >= CELT_TRACE_MAX_CALLS || call != celt_encode_trace.stored_preemphasis_calls ||
+      call >= (uint32_t)CC || channel < 0 || channel >= CC || pcmp == NULL ||
+      inp == NULL || mem == NULL || coef == NULL || N < 0 || CC <= 0 ||
+      CC > 2 || upsample <= 0 || input_count < 0 ||
       !trace_dimensions(input_count, CELT_TRACE_MAX_FLOATS) ||
       !trace_dimensions(N, CELT_TRACE_MAX_FLOATS)) {
     celt_encode_trace.overflow = 1;
-  } else {
-    trace = &celt_encode_trace.preemphasis[call];
-    trace->channel = call;
-    trace->channels = (uint32_t)CC;
-    trace->frame_size = (uint32_t)N;
-    trace->upsample = (uint32_t)upsample;
-    trace->input_count = (uint32_t)input_count;
-    trace->output_count = (uint32_t)N;
-    trace->flags = clip ? 1u : 0u;
-    trace->state_before = (float)*mem;
-    memcpy(trace->coefficients, coef, sizeof(trace->coefficients));
-    for (int i = 0; i < input_count; i++) trace->input[i] = (float)pcmp[i * CC];
-    celt_encode_trace.stored_preemphasis_calls++;
+    return -1;
   }
 
-  __real_celt_preemphasis(pcmp, inp, N, CC, upsample, coef, mem, clip);
+  trace = &celt_encode_trace.preemphasis[call];
+  trace->channel = (uint32_t)channel;
+  trace->channels = (uint32_t)CC;
+  trace->frame_size = (uint32_t)N;
+  trace->upsample = (uint32_t)upsample;
+  trace->input_count = (uint32_t)input_count;
+  trace->output_count = (uint32_t)N;
+  trace->flags = clip ? 1u : 0u;
+  trace->state_before = (float)*mem;
+  memcpy(trace->coefficients, coef, sizeof(trace->coefficients));
+  for (int i = 0; i < input_count; i++) trace->input[i] = (float)pcmp[i * CC];
+  celt_encode_trace.stored_preemphasis_calls++;
+  return (int)call;
+}
 
-  if (trace != NULL) {
-    trace->state_after = (float)*mem;
-    memcpy(trace->output, inp, (size_t)N * sizeof(float));
+void gopus_celt_preemphasis_trace_end(int call, const celt_sig *inp,
+    int N, const celt_sig *mem) {
+  if (call < 0) return;
+  if ((uint32_t)call >= CELT_TRACE_MAX_CALLS ||
+      (uint32_t)call >= celt_encode_trace.stored_preemphasis_calls ||
+      inp == NULL || mem == NULL || N < 0 ||
+      !trace_dimensions(N, CELT_TRACE_MAX_FLOATS)) {
+    celt_encode_trace.overflow = 1;
+    return;
   }
+  celt_trace_preemphasis_call *trace = &celt_encode_trace.preemphasis[call];
+  trace->state_after = (float)*mem;
+  memcpy(trace->output, inp, (size_t)N * sizeof(float));
 }
 
 extern void __real_comb_filter(opus_val32 *y, opus_val32 *x, int T0, int T1, int N,

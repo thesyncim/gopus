@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -305,15 +306,20 @@ func buildCELTTraceOracleAtFrame(t *testing.T, trace bool, traceFrame int) strin
 		SourceFile: "libopus_cbr_encode_packets.c",
 		CFlags:     flags,
 	}
+	linkMapPath := ""
 	if trace {
 		if traceFrame == 0 {
 			config.OutputBase = "gopus_libopus_cbr_celt_first_frame_trace_wrapped"
 		} else {
 			config.OutputBase = fmt.Sprintf("gopus_libopus_cbr_celt_late_frame_%d_trace_wrapped", traceFrame)
 		}
-		config.CFlags = append(config.CFlags, "-DGOPUS_CELT_TRACE", fmt.Sprintf("-DGOPUS_CELT_TRACE_FRAME=%d", traceFrame))
+		instrumentedSource := writeCELTPreemphasisTraceSource(t)
+		config.CFlags = append(config.CFlags,
+			"-O3", "-DNDEBUG", "-DGOPUS_CELT_TRACE", fmt.Sprintf("-DGOPUS_CELT_TRACE_FRAME=%d", traceFrame))
+		config.RefIncludes = []string{"celt", "silk", "src"}
+		config.Sources = []string{instrumentedSource}
+		linkMapPath = filepath.Join(t.TempDir(), config.OutputBase+".map")
 		config.LDFlags = []string{
-			"-Wl,--wrap=celt_preemphasis",
 			"-Wl,--wrap=comb_filter",
 			"-Wl,--wrap=compute_band_energies",
 			"-Wl,--wrap=amp2Log2",
@@ -321,6 +327,7 @@ func buildCELTTraceOracleAtFrame(t *testing.T, trace bool, traceFrame int) strin
 			"-Wl,--wrap=quant_coarse_energy",
 			"-Wl,--wrap=quant_all_bands",
 			"-Wl,--wrap=clt_mdct_forward_c",
+			"-Wl,-Map," + linkMapPath,
 		}
 	}
 	cache := &celtTraceOracleCache
@@ -330,12 +337,72 @@ func buildCELTTraceOracleAtFrame(t *testing.T, trace bool, traceFrame int) strin
 		cache = &celtLateTraceOracleCache
 	}
 	path, err := cache.Path(func() (string, error) {
-		return libopustest.BuildPublicAPIHelper(config)
+		helperPath, err := libopustest.BuildPublicAPIHelper(config)
+		if err != nil {
+			return "", err
+		}
+		if trace {
+			if err := validateCELTTraceLinkMap(linkMapPath); err != nil {
+				return "", err
+			}
+		}
+		return helperPath, nil
 	})
 	if err != nil {
 		libopustest.HelperUnavailable(t, config.Label, err)
 	}
 	return path
+}
+
+func writeCELTPreemphasisTraceSource(t *testing.T) string {
+	t.Helper()
+	// celt_preemphasis is called in the same translation unit that defines it,
+	// so linker --wrap does not observe this call. Build a content-hashed copy of
+	// the paired pinned source with hooks around the one unchanged call site.
+	sourcePath := libopustest.RefPath("celt", "celt_encoder.c")
+	source, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatalf("read pinned libopus CELT encoder source %s: %v", sourcePath, err)
+	}
+	const originalCall = "      celt_preemphasis(pcm+c, in+c*(N+overlap)+overlap, N, CC, st->upsample,\n                  mode->preemph, st->preemph_memE+c, need_clip);"
+	if count := strings.Count(string(source), originalCall); count != 1 {
+		t.Fatalf("pinned CELT source has %d selected preemphasis call sites, want exactly 1", count)
+	}
+	const beforeAndAfter = `      {
+         extern int gopus_celt_preemphasis_trace_begin(int channel, const opus_res *pcmp,
+             celt_sig *inp, int N, int CC, int upsample, const opus_val16 *coef,
+             celt_sig *mem, int clip);
+         extern void gopus_celt_preemphasis_trace_end(int call, const celt_sig *inp,
+             int N, const celt_sig *mem);
+         int gopus_trace_call = gopus_celt_preemphasis_trace_begin(
+             c, pcm+c, in+c*(N+overlap)+overlap, N, CC, st->upsample,
+             mode->preemph, st->preemph_memE+c, need_clip);
+` + originalCall + `
+         gopus_celt_preemphasis_trace_end(gopus_trace_call,
+             in+c*(N+overlap)+overlap, N, st->preemph_memE+c);
+      }`
+	instrumented := strings.Replace(string(source), originalCall, beforeAndAfter, 1)
+	if count := strings.Count(instrumented, originalCall); count != 1 {
+		t.Fatalf("instrumented CELT source retains %d original preemphasis calls, want exactly 1", count)
+	}
+	path := filepath.Join(t.TempDir(), "celt_encoder_preemphasis_trace.c")
+	if err := os.WriteFile(path, []byte(instrumented), 0o600); err != nil {
+		t.Fatalf("write instrumented pinned CELT encoder source: %v", err)
+	}
+	return path
+}
+
+func validateCELTTraceLinkMap(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read CELT trace link map %s: %w", path, err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, "libopus.a(celt_encoder.o)") {
+			return fmt.Errorf("instrumented CELT trace linked the uninstrumented archive member: %s", strings.TrimSpace(line))
+		}
+	}
+	return nil
 }
 
 func quantizeCELTTracePCM(pcm []float32) []float32 {

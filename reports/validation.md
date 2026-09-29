@@ -219,8 +219,8 @@ CELT/Hybrid have unresolved same-packet PCM differences. FFT/MDCT and SILK
 primitive suites pass. The CELT encoder trace rejects inconsistent quantization
 dimensions, so it does not yet establish a runtime divergence location.
 
-The [native v3 audit at `81049d8a`](https://github.com/thesyncim/gopus/actions/runs/36636133108)
-on AMD EPYC 7763 with Go 1.27.1 and GCC 13.3 passes the following matched
+The [native v3 audit at `ddc6bd72`](https://github.com/thesyncim/gopus/actions/runs/36637484063)
+on AMD EPYC 9V74 with Go 1.27.1 and GCC 13.3 passes the following matched
 scalar and SIMD selections. No cases are skipped.
 
 | Gate | Scalar | SIMD |
@@ -261,38 +261,39 @@ selects factor 3 in both replay paths versus 2 in the ordinary C encoder;
 WB frame 13 selects factor 1 in all three paths. Actual LPC input already
 differs at MB frame 6 sample 140 and WB frame 13 sample 0.
 
-The linked LTP diagnostic at `74f6bea2` exposes 86/280 MB and 102/384 WB
-differences on identical synthetic float32 operands. The ordinary C kernel
-uses five negative FMAs. The [integrated audit at `7bc9d731`](https://github.com/thesyncim/gopus/actions/runs/36635999671)
-confirms the production MB residual matches C in both lanes. Its test-only
-fused model unexpectedly uses separate products and fails before the WB and
-allocation assertions. The model needs an explicit contraction boundary;
-the candidate's exact C assertion remains required. This standalone kernel
-evidence does not establish the cause of packet failures with unequal inputs.
+The linked LTP oracle matches all 280 MB and 384 WB outputs on identical
+synthetic float32 operands in both lanes. Its independent fused model matches
+C, and its separate-product model distinguishes the contraction. Both warm
+allocation checks pass. The production kernel uses five sequential negative
+FMAs, as the selected C kernel does. This standalone proof does not establish
+the cause of packet failures with unequal inputs.
 
-The scalar stereo-split C oracle and warm allocation guard pass at `81049d8a`.
-Its SIMD oracle exposes a short-tail mismatch: length 3, Y[0] is Go
-`bf343cae`, C `bf343caf`. Both selected C kernels round `c*y` before fusing
-`c*x` into each output. The v3 SIMD body and tails use that same sequence;
-native validation of that candidate is pending. Packet differences remain.
+Both stereo-split C oracles and warm allocation guards pass, including short
+lengths and tails. The selected C and Go v3 kernels round `c*y` before fusing
+`c*x` into each output. Scalar, SIMD and `purego` dispatch share that target
+arithmetic. Encoder packet differences remain.
 
 The live prefilter wrappers capture their expected calls, but same-translation-unit
-preemphasis calls bypass linker wrapping. The narrowband FindLPC hook also
-needs to cover calls without an interpolation search. Those coverage checks
-fail explicitly; neither trace establishes the corresponding divergence yet.
+preemphasis calls bypass linker wrapping, and their coverage checks fail
+explicitly. Source-bound instrumentation is pending native validation.
+The narrowband FindLPC hook captures all three selected calls: frames 6 and
+13 match; frame 50 already has different LPC input and gains. Its pre-adjustment
+gain is C `4526ed64`, Go `4526ed62` at subframe 0. The shaping-window,
+autocorrelation and Schur trace targets that earlier producer; native record
+validation is pending.
 
 The unchanged CBR quality gate rejects SILK NB 10 ms mono (Q -458.03,
 correlation 0.972870) and SILK WB stereo (Q -157.52) in both lanes, plus
 CELT 2.5 ms mono (Q -61.97) in SIMD. The narrowband case differs in 50/100
 packets from frame 50. These quality failures remain correctness blockers.
 
-The late scalar encoder trace matches every captured stage and the packet
+The encoder trace at `5b435e02` matches every captured scalar stage and the packet
 at frame 95. The SIMD trace first differs in actual MDCT input at index 120
 (Go `c2970e44`, C `c2970e40`), while window and trig match; that does not
 identify an MDCT arithmetic defect. Preemphasis and prefilter tracing follows
 that upstream boundary.
 
-The scalar public constrained-VBR witness reproduces frame 1's packet byte-59
+The constrained-VBR trace at `5b435e02` reproduces frame 1's scalar packet byte-59
 mismatch with matching final range `3e290e00` and 102-byte packets. Both traces
 use constrained VBR, matching frame geometry and 4000-byte output capacities;
 ordinary/traced output agrees within each implementation. C classifies byte

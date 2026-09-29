@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -167,11 +168,10 @@ func buildCELTVBREntropyTraceOracle(t *testing.T) string {
 		Label:       "public VBR CELT stage and entropy trace",
 		OutputBase:  "gopus_libopus_public_vbr_celt_entropy_trace",
 		SourceFile:  "libopus_encode_diff_celt_entropy_trace.c",
-		CFlags:      []string{"-DHAVE_CONFIG_H", "-O2", "-DNDEBUG"},
+		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
 		RefIncludes: []string{"celt", "silk", "src"},
 		LDFlags: []string{
 			"-Wl,--wrap=opus_encode_float",
-			"-Wl,--wrap=celt_preemphasis",
 			"-Wl,--wrap=comb_filter",
 			"-Wl,--wrap=compute_band_energies",
 			"-Wl,--wrap=amp2Log2",
@@ -183,8 +183,18 @@ func buildCELTVBREntropyTraceOracle(t *testing.T) string {
 			"-Wl,--wrap=ec_enc_done",
 		},
 	}
+	config.Sources = []string{writeCELTPreemphasisTraceSource(t)}
+	linkMapPath := filepath.Join(t.TempDir(), config.OutputBase+".map")
+	config.LDFlags = append(config.LDFlags, "-Wl,-Map,"+linkMapPath)
 	path, err := encodeDiffCELTVBREntropyTraceOracle.Path(func() (string, error) {
-		return libopustest.BuildPublicAPIHelper(config)
+		helperPath, err := libopustest.BuildPublicAPIHelper(config)
+		if err != nil {
+			return "", err
+		}
+		if err := validateCELTTraceLinkMap(linkMapPath); err != nil {
+			return "", err
+		}
+		return helperPath, nil
 	})
 	if err != nil {
 		libopustest.HelperUnavailable(t, config.Label, err)
