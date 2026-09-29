@@ -994,7 +994,8 @@ func combFilterWithSquarePlanarFloat32(samples []float32, hist []celtSig, histor
 		windowView := window[:overlap]
 		for ; i < overlap; i++ {
 			w := windowView[i]
-			f := w * w
+			// celt/celt.c: comb_filter rounds the square before computing 1-f.
+			f := noFMA32Mul(w, w)
 			oneMinus := float32(1.0) - f
 			x0 := combPlanarAtFloat32(samples, hist, history, base1+i+4)
 			sum := samples[frameOffset+i] +

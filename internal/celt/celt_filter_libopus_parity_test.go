@@ -441,12 +441,24 @@ func TestCombFilterWithSquareMatchesLibopus(t *testing.T) {
 	for i := range hist {
 		hist[i] = celtSig(buf[i])
 	}
-	got := append([]float32(nil), buf[start:]...)
-	combFilterWithSquarePlanarFloat32(got, hist, start, 0, t0, t1, n, 0.28125, 0.65625, 0, 0, windowF32, windowSq, overlap)
-	for i := range n {
-		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
-			t.Fatalf("sample[%d]=%08x want %08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
-		}
+	for _, tc := range []struct {
+		name     string
+		windowSq []float32
+	}{
+		{name: "precomputed_window_square", windowSq: windowSq},
+		{name: "nil_window_square"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := append([]float32(nil), buf[start:]...)
+			combFilterWithSquarePlanarFloat32(got, hist, start, 0, t0, t1, n,
+				0.28125, 0.65625, 0, 0, windowF32, tc.windowSq, overlap)
+			for i := range n {
+				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+					t.Fatalf("sample[%d]=%08x want %08x", i,
+						math.Float32bits(got[i]), math.Float32bits(want[i]))
+				}
+			}
+		})
 	}
 }
 
