@@ -2747,11 +2747,9 @@ func (e *Encoder) resetPacketFrameScratch() {
 	e.scratchQEXTPayloadBytes = e.scratchQEXTPayloadBytes[:0]
 }
 
-// ensurePacketScratch grows the assembled-packet buffer so a multi-frame packet
-// up to n bytes fits. The default buffer holds a single 1275-byte Opus packet,
-// but a long CELT/SILK/Hybrid packet at a high bitrate (e.g. 120 ms at 128 kb/s,
-// ~1920 bytes) needs the caller's larger out_data_bytes budget, exactly as
-// libopus assembles into the caller's buffer.
+// ensurePacketScratch reserves n bytes for an assembled packet. The default
+// buffer holds a TOC byte and a 1275-byte frame. Longer packets use the caller's
+// larger byte budget, matching libopus's assembly into the caller's buffer.
 func (e *Encoder) ensurePacketScratch(n int) {
 	if cap(e.scratchPacket) >= n {
 		e.scratchPacket = e.scratchPacket[:cap(e.scratchPacket)]

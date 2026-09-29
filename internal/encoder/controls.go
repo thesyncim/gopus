@@ -8,19 +8,16 @@ package encoder
 type BitrateMode int
 
 const (
-	// ModeVBR is variable bitrate mode (default).
-	// Packet size varies based on content complexity.
-	// Provides best quality for a given average bitrate.
+	// ModeVBR enables unconstrained variable bitrate encoding.
+	// Packet sizes vary with the encoded content.
 	ModeVBR BitrateMode = iota
 
-	// ModeCVBR is constrained variable bitrate mode.
-	// Packet size varies but stays within +/-15% of target.
-	// Good balance of quality and bandwidth predictability.
+	// ModeCVBR enables constrained variable bitrate encoding.
+	// NewEncoder selects this mode by default.
 	ModeCVBR
 
-	// ModeCBR is constant bitrate mode.
-	// Every packet is exactly the same size (or within 1 byte).
-	// Required for some streaming protocols.
+	// ModeCBR enables constant bitrate encoding.
+	// The packet byte budget depends on the bitrate and frame duration.
 	ModeCBR
 )
 

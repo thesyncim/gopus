@@ -219,74 +219,66 @@ CELT/Hybrid have unresolved same-packet PCM differences. FFT/MDCT and SILK
 primitive suites pass. The CELT encoder trace rejects inconsistent quantization
 dimensions, so it does not yet establish a runtime divergence location.
 
-The [native audit at `12dd5c25`](https://github.com/thesyncim/gopus/actions/runs/36628974354)
-on AMD EPYC 7763 with Go 1.27.1 and GCC 13.3 passes 59/60 scalar
-and 60/60 SIMD encoder checks, 15/24 scalar and 24/24 SIMD decoder checks, and
-all 15 warm-allocation checks in each lane, with no skipped cases. CBR exact
-cases are 13/19 scalar (90 packet/81 range differences) and 14/19 SIMD (95
-packet/92 range differences) out of 2,175 packets per lane. These counts are
-separate gates, not an overall byte-parity percentage. Haar, constant/ramped
-comb history seams, DC rejection, high-pass filtering and all nine stereo-fade
-oracle cases match the paired C references. The 24-case SIMD decoder pass does
-not establish long-stream decoder parity.
+The [native v3 audit at `e6e3f944`](https://github.com/thesyncim/gopus/actions/runs/36630543684)
+on AMD EPYC 9V74 with Go 1.27.1 and GCC 13.3 passes the following matched
+scalar and SIMD selections. No cases are skipped.
 
-The persistent short-frame witness first differs at frame 41, sample 49 in
-both lanes, in post-comb-filter output (Go `45640b3f`, C `45640b40`). Base
-energies, normalized coefficients, frequency buffers and IMDCT output match at
-that frame. The 16-case decoder coarse-energy oracle and its warm-allocation
-guard pass in each lane; its executed helper and ordinary archive use the
-same FMA, separate q-addition and negative-FMA recurrence. The CBR contract
-reports 4,912 scalar and 412 SIMD same-packet PCM sample differences across
-its 19 cases. The scalar 20 ms witness first differs across anti-collapse.
-Ordinary/traced C and traced/untraced Go agree within each implementation
-before these witnesses report cross-implementation differences.
+| Gate | Scalar | SIMD |
+|---|---:|---:|
+| Encoder packet and final range | 59/60 | 60/60 |
+| Public decoder PCM and final range | 24/24 | 24/24 |
+| Warm allocation cases | 15/15 | 15/15 |
+| CBR exact cases | 13/19 | 14/19 |
+| CBR packet differences / 2,175 packets | 90 | 95 |
+| CBR final-range differences / 2,175 packets | 81 | 92 |
+| Contract same-packet PCM sample differences | 430 | 412 |
 
-The isolated v3 SILK gain oracle passes in both lanes. Its C helper and Go
-candidate use native FMA; the separate-operation witness lives outside that
-candidate to prevent compiler common-subexpression reuse from changing its
-rounding. Raw gains still differ before the actual LTP call. The CBR quality
-gate rejects SILK NB 10 ms mono (Q -458.03, correlation 0.972870) and SILK WB
-stereo (Q -157.52) in both lanes, and CELT 2.5 ms mono (Q -61.97) in SIMD.
-The narrowband case differs in 50/100 packets from frame 50. These quality
-failures are correctness blockers, independent of bit-exact counters.
+These are separate gates, not an overall codec correctness percentage. The
+24-case decoder selection does not establish long-stream decoder parity.
+All nine stereo-fade cases, the scalar anti-collapse witness and its failing
+packet replay pass. Scalar renormalization matches the C kernel and allocates
+zero after warmup. The 16-case decoder and 11-case encoder coarse-energy
+oracles match energy, error, bit count and explicit final range in both lanes;
+encoder coverage also compares packets across the applicable four Go entry
+paths with matching intra-flag state.
 
-The scalar anti-collapse witness checks the exact C renormalization inputs
-against a Go replay that reproduces the live decoder result. Inputs match at
-call 3, band 3; output coefficient 0 differs (Go `3f78e905`, C `3f78e907`).
-The first difference is inside renormalization, not noise filling. Ordinary
-and traced output match within each implementation before that assertion.
+The persistent short-frame decoder witness first differs at frame 41, sample
+49 inside comb filtering: Go `45640b40`, C `45640b3f` in both lanes. Actual
+per-call input, history, window, tap coefficients, periods and gains match.
+Base energies, normalized coefficients, frequency buffers and IMDCT output
+also match. Ordinary/traced C and traced/untraced Go agree within each
+implementation before this cross-implementation assertion. The remaining
+postfilter rounding difference is unresolved.
 
-The late scalar encoder trace matches every captured stage at frame 95,
-including MDCT input, window, trig, FFT metadata and reconstructed coarse
-energy. Its remaining packet differences lie beyond those captures or in
-uncaptured state. The SIMD trace first differs in actual MDCT input at index
-120 (Go `c2970e44`, C `c2970e40`), while the window and trig match; it does not
-identify an MDCT arithmetic defect.
+The isolated SILK gain oracle passes both lanes. Its candidate uses native
+FMA; the separate-operation witness is isolated to prevent compiler
+common-subexpression reuse from changing candidate rounding. Actual gains
+still differ before LTP filtering: MB frame 6 subframe 2 has C `43088249`
+versus Go `43088248`; WB frame 13 subframe 0 has C `42c869a2` versus Go
+`42c869a3`. The linked C FindLPC replay matches Go on identical input/state.
+MB frame 6 selects factor 3 in both replay paths versus 2 in the ordinary C
+encoder; WB frame 13 selects factor 1 in all three paths. Actual LPC input
+already differs at MB frame 6 sample 140 and WB frame 13 sample 0. Unequal
+operands do not establish a defect in LTP or FindLPC arithmetic.
 
-Two oracle setup failures remain in this audit. The encoder coarse-energy
-helper emits C's intra flag, but the Go test invokes caller-owned flag paths
-without initializing that flag. All eleven cases fail packet or bit-count
-checks; they do not yet validate the new math. The VBR entropy witness uses a
-1275-byte Go output budget against C's 4000-byte budget, unlike the public
-fuzz case's matching 4000-byte buffers. Its strict coarse-stage budget check
-rejects 1274 versus 1275 available bytes, so native trace validity is pending.
-The fixes preserve strict comparisons and match caller state and capacity.
-No numerical allowance is accepted.
+The unchanged CBR quality gate rejects SILK NB 10 ms mono (Q -458.03,
+correlation 0.972870) and SILK WB stereo (Q -157.52) in both lanes, plus
+CELT 2.5 ms mono (Q -61.97) in SIMD. The narrowband case differs in 50/100
+packets from frame 50. These quality failures remain correctness blockers.
 
-The SILK replay sends actual Go LPC input/state to the linked C FindLPC
-implementation. MB mono frame 6 selects factor 3 in both Go and C replay,
-while the ordinary C encoder selects 2. WB stereo frame 13 selects factor 1
-in all three paths. Each replay matches every captured FindLPC stage. Actual
-C encoder LPC input differs from Go at MB frame 6 sample 140 and WB frame 13
-sample 0. Actual LTP snapshots first differ in raw gains: MB frame 6 subframe
-2 has C `43088249` versus Go `43088248`; WB frame 13 subframe 0 has C
-`42c869a2` versus Go `42c869a3`, in both lanes. Work follows the gain producer;
-unequal operands do not establish an LTP arithmetic defect.
-Traced/untraced Go packets and ranges agree across all 50 frames per case. The
-scalar decoder witness has matching normalized coefficients before anti-collapse
-and first differs after it at coefficient 24 (Go `3f78e905`, C `3f78e907`). The
-transparent CELT frame-95 trace first differs at the SIMD MDCT spectrum and scalar coarse-energy decisions. No numerical allowance is
-accepted for these unresolved differences.
+The late scalar encoder trace matches every captured stage and the packet
+at frame 95. The SIMD trace first differs in actual MDCT input at index 120
+(Go `c2970e44`, C `c2970e40`), while window and trig match; that does not
+identify an MDCT arithmetic defect. Preemphasis and prefilter tracing follows
+that upstream boundary.
+
+The remaining scalar public VBR differential case differs at frame 1, packet
+byte 59, with matching final range `3e290e00`. A separate two-frame trace
+uses equal 4000-byte output capacities and matches C packets/ranges, but its
+packet lengths differ from the eight-frame corpus witness. It cannot explain
+the failure until the exact corpus input and controls match. Trace schema,
+caller state, capacity and transparency checks remain strict. No numerical
+allowance is accepted for any unresolved difference.
 
 | Priority | Surface | Finding | Current evidence |
 |---|---|---|---|
