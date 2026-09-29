@@ -35,9 +35,9 @@ uses…", "removed…"); describe what the code does today.
 - Same-path exact tests compare float bits, packets, and final ranges without
   architecture-based ULP waivers. A difference between libopus's SIMD and scalar
   paths cannot justify a mismatch against the matching reference.
-- The current unresolved differences and measured performance are recorded in
-  `reports/go-simd-kernel-evidence.md`. Passing a subset of tests does not prove
-  complete parity.
+- Validated coverage, reference exceptions, and measured performance are recorded
+  in `reports/go-simd-kernel-evidence.md`. Passing a subset of tests does not
+  prove complete parity.
 
 ## Libopus type parity
 

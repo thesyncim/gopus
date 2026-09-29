@@ -235,47 +235,52 @@ gopus is built for real-time use, where steady allocation is the enemy:
 - **Go SIMD.** `GOEXPERIMENT=simd` enables `simd/archsimd` kernels with CPU
   feature dispatch. All codec kernels are Go code. The
   [kernel evidence report](reports/go-simd-kernel-evidence.md) tracks all 53
-  replacements, same-host assembly comparisons, allocations, and unresolved
-  parity differences.
+  replacements, same-host assembly comparisons, allocations, and validated
+  parity coverage.
 
-Native AMD64 end-to-end measurements in early artifact `11006418166` compare
-assembly `8ac93c85` with Go `55b13f5f` on an AMD EPYC 9V74, Go 1.27.1, GCC
+Native AMD64 end-to-end measurements in early artifact `11009635111` compare
+assembly `8ac93c85` with Go `c6dfb561` on an AMD EPYC 9V74, Go 1.27.1, GCC
 13.3.0, GOAMD64=v1, and PGO. Four interleaved 500 ms samples use `-cpu=1`;
-all 72 benchmark samples report zero allocations. Values are median ns/op. The
-early artifact passes its PCM/range exactness checks but records two neural
-PLC warm-allocation failures. The [evidence report](reports/go-simd-kernel-evidence.md)
-tracks those failures and subsequent validation.
+all 72 benchmark samples report zero allocations. Values are median ns/op.
+All 96 early phase exit records have status 0, with no JSON test failures.
+The [complete CI run](https://github.com/thesyncim/gopus/actions/runs/36506668630)
+passes, including the full native AMD64 A/B gate. See the
+[evidence report](reports/go-simd-kernel-evidence.md) for coverage and archived
+diagnostic evidence.
 
 | Workload | Old assembly | Go SIMD | `nosimd` |
 |---|---:|---:|---:|
-| CELT decode | 15,683.5 | 10,453 | 13,020 |
-| Hybrid decode | 23,115.5 | 19,884 | 25,406 |
-| SILK decode | 18,344.5 | 13,267.5 | 17,174 |
-| Caller-buffer encode | 71,829 | 48,576.5 | 80,129.5 |
-| VoIP encode | 76,700 | 52,557 | 84,363.5 |
-| Low-delay encode | 71,150 | 48,493 | 79,927 |
+| CELT decode | 20,222.5 | 13,446 | 17,080 |
+| Hybrid decode | 29,924 | 26,080 | 32,961 |
+| SILK decode | 23,579.5 | 16,890 | 21,827.5 |
+| Caller-buffer encode | 93,138 | 61,203 | 104,182.5 |
+| VoIP encode | 99,290.5 | 66,263.5 | 109,582 |
+| Low-delay encode | 92,213 | 61,247.5 | 103,673.5 |
+
+Compare old assembly and Go variants within this artifact. Absolute timings from
+separate early artifacts are not source comparisons.
 
 The paired C comparison uses identical inputs and controls, pairing scalar Go
 with scalar C and SIMD Go with SIMD C. The paired results use early artifact
-`11006418166`, candidate `55b13f5f`, and the same EPYC 9V74 runner and
+`11009635111`, candidate `c6dfb561`, and the same EPYC 9V74 runner and
 toolchain. Each C/Go case has three 250 ms minimum runs. Times are µs per
 packet. Each paired Go benchmark row reports zero allocations; C allocation
 counts are not measured.
 
 | Workload | C scalar | Go scalar | C SIMD | Go SIMD |
 |---|---:|---:|---:|---:|
-| CELT-FB-20ms-stereo-128k | 153.75 | 147.67 | 113.32 | 96.90 |
-| CELT-FB-5ms-mono-64k | 16.86 | 18.17 | 15.62 | 15.21 |
-| Hybrid-FB-20ms-mono-64k | 307.93 | 291.35 | 196.75 | 170.33 |
-| Hybrid-FB-20ms-stereo-96k | 176.07 | 171.87 | 130.00 | 108.64 |
-| SILK-WB-20ms-mono-32k | 592.31 | 515.37 | 318.86 | 249.72 |
-| RFC vectors Float32 | 25.55 | 26.62 | 24.32 | 22.05 |
-| RFC vectors Int16 | 28.62 | 29.16 | 26.45 | 24.87 |
+| CELT-FB-20ms-stereo-128k | 197.34 | 191.63 | 145.71 | 123.58 |
+| CELT-FB-5ms-mono-64k | 21.59 | 23.66 | 20.36 | 19.71 |
+| Hybrid-FB-20ms-mono-64k | 395.42 | 376.56 | 267.38 | 221.67 |
+| Hybrid-FB-20ms-stereo-96k | 226.37 | 223.36 | 170.36 | 139.82 |
+| SILK-WB-20ms-mono-32k | 762.47 | 669.81 | 421.35 | 321.99 |
+| RFC vectors Float32 | 32.85 | 34.01 | 31.01 | 28.27 |
+| RFC vectors Int16 | 36.82 | 37.34 | 33.82 | 32.38 |
 
 These measurements are workload-specific. Decoder rows aggregate 20,075
 identical packets; encoder timings do not establish long-stream packet parity.
 The [evidence report](reports/go-simd-kernel-evidence.md) records the early
-artifact's allocation blocker and the separate full-CI status.
+validation scope and the full A/B status.
 
 Run the benchmarks for numbers on your machine:
 
@@ -289,12 +294,17 @@ go run ./examples/bench-decode
 ## Parity & testing
 
 gopus implements the core public API and the optional surfaces mirrored by the
-build tags above. Full byte- and sample-parity across every feature,
-architecture, input format, control sequence, and packet mode is not yet
-proven. The pinned `tmp_check/opus-1.6.1/` is the reference; when behavior is
-uncertain, gopus matches libopus unless fixture evidence says otherwise.
+build tags above. Exact gates compare packets, final ranges, sample counts and
+PCM bits against pinned libopus 1.6.1 with matching feature flags, CPU dispatch,
+inputs and controls. Parity claims refer to the [recorded test coverage](reports/parity-evidence-audit.md),
+including the documented upstream undefined-behavior exception.
 
-Native AMD64 validation of the latest neural corrections remains pending.
+The [complete native CI run](https://github.com/thesyncim/gopus/actions/runs/36506668630)
+passes at `c6dfb561`. Early artifact `11009635111` has 96 successful exit records;
+full artifact `11009623177` includes the passing SIMD package sweep. The neural
+allocation guard passes all 12 feature/ISA combinations; FARGAN, PLC-feature,
+`SinF32`, and LACE/NoLACE exactness checks pass their paired matrices.
+
 DRED history and root/multistream OSCE automatic loss/recovery matrices pass
 all eight applicable local feature/ISA lanes at `b29fcff7`. Mixed LBRR, outer
 PLC prefixes, tiny FEC payloads, model reload and complexity-change history

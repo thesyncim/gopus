@@ -18,7 +18,7 @@ libopus feature set, CPU dispatch, sample format, controls, and decoder history.
 | P1 | Hybrid float output | A cell can compare no Hybrid packets; ARM permits a numerical budget. | Each channel/bandwidth/bitrate cell requires Hybrid coverage and exact output. All eight local lanes pass, including the warm allocation guard. |
 | P2 | FEC packet oracle | The helper requests DRED regardless of the Go feature build and lacks matching private-header configuration. | The public feature selector and configured headers pair the builds. Four packet selectors pass all eight local lanes. |
 | P2 | Broad decoder differential tests | Normalizing int24 output into float32 can erase integer bits; a magnitude cutoff omits comparisons. | Valid and malformed gates compare original int24 integers. All 1,440 encoder configurations, 4,320 packets and 12,960 format decodes pass in each of eight local lanes. The strict long-stream gate is tracked separately below. |
-| P2 | LPCNet/DRED evidence | Predictor/state tests use numerical budgets, and some waveform helpers compare only a common prefix. OSCE-only probes request an extra C DRED feature. | LPCNet helpers use the public feature selector; complete package output/state bit checks pass OSCE, DRED and DRED+OSCE+QEXT scalar/SIMD at `f03fad55`. The 132 edited public DRED gates pass all eight local DRED feature/ISA lanes with matching float priming and actual int24 output. Independent nil-FEC, tiny-FEC and complexity-change history witnesses also pass exactly; durable FEC integration passes at `b29fcff7`. Native early artifact `11006418166` at `55b13f5f` passes the included neural PCM/range checks on both Go instruction lanes, including all eight LACE/NoLACE feature/ISA combinations. Its only reported blocker is one allocation in `TestDecoderNoSidecarDeepPLCWarmZeroAllocs` at 16 kHz/complexity 5 in two feature lanes; the allocation fix and full CI result are tracked below. |
+| P2 | LPCNet/DRED evidence | Predictor/state tests use numerical budgets, and some waveform helpers compare only a common prefix. OSCE-only probes request an extra C DRED feature. | LPCNet helpers use the public feature selector; complete package output/state bit checks pass OSCE, DRED and DRED+OSCE+QEXT scalar/SIMD at `f03fad55`. The 132 edited public DRED gates pass all eight local DRED feature/ISA lanes with matching float priming and actual int24 output. Independent nil-FEC, tiny-FEC and complexity-change history witnesses also pass exactly; durable FEC integration passes at `b29fcff7`. All 96 c6 early phase exit records at `11009635111`/`c6dfb561` have status 0, with no JSON test failures. No-sidecar warm zero-allocation passes all 12 feature/ISA phases; FARGAN/PLC-feature checks pass both instruction lanes, `SinF32` passes standard/fixed/fixed+QEXT in both lanes, and all eight LACE/NoLACE feature/ISA combinations pass. Artifact `11006418166` at `55b13f5f` preserves the one-allocation failure in two 16 kHz/complexity-5 phases; profiling attributes it to a 48-byte Go interface-assertion cache allocation, addressed by PLC capability changes at `a6081168`. Full A/B run `36506668630` passes at `c6dfb561`. |
 | P2 | Fixture mode transitions | Live matched-C transition output has only quality assertions, including an architecture-specific floor. | Complete packet-sequence PCM passes exact checks in all eight local lanes. Quality scoring remains independent. |
 | P2 | Fixed multistream layout coverage | An unexpected encoder mode can skip a required layout. | Unexpected modes fail. All eight layouts and reset replays execute with exact output in the four fixed local lanes. |
 | P2 | Projection decode | Quality checks alone do not establish complete PCM or aggregate final-range equality. | Four-channel and nine-channel mixed-mode receive, loss and reset sequences pass full float-bit checks and the XOR of independently decoded C child ranges in all eight local lanes at `3d652aeb`. |
@@ -30,7 +30,7 @@ libopus feature set, CPU dispatch, sample format, controls, and decoder history.
 | P1 | QEXT multiframe decode | Go-generated expected output cannot establish independent C equality; mono SIMD cubic reduction must match selected C rounding. | Independent selected-C combined/separate packet sequences match every float bit and range for mono/stereo. The cubic correction and 11-size boundary grid pass exact and zero-allocation gates at `77cb9a9d`. |
 | P2 | Automatic encoder modes | Mode-only comparisons omit packet bytes and final ranges. | The C helper records every packet/range for 432 configurations × 10 frames. All eight local lanes pass at `a0a9c877`. |
 | P2 | Multistream short-input encode | Float-input packet evidence does not cover the public int16 API. | Five layouts × six stateful frames compare actual C short-input packets/ranges; all eight local lanes pass at `73347769`. |
-| P2 | Legacy ARM CELT gates | A shared architecture skip omits exact kernel and self-equivalence checks; two private C helpers omit QEXT feature selection. | Sixteen focused checks pass all eight local lanes without skips at `ba23ba99`. VQ/partition helpers use the selected float feature archive and `opus_select_arch()` for RTCD calls. Native AMD64 validation is pending. |
+| P2 | Legacy ARM CELT gates | A shared architecture skip omits exact kernel and self-equivalence checks; two private C helpers omit QEXT feature selection. | Sixteen focused checks pass all eight local lanes without skips at `ba23ba99`. VQ/partition helpers use the selected float feature archive and `opus_select_arch()` for RTCD calls. All sixteen checks also pass in the native AMD64 SIMD full suite at `c6dfb561`. |
 | P2 | Custom control oracle | Fixed coefficients require their C Q scales, and declared-supported geometries must fail on unexpected oracle rejection. | The full custom package passes all eight local lanes at `00eeb471`; all five scaled-band modes retain mono/stereo coverage. Rejected 44.1 kHz/882-sample geometry has independent C/Go error checks. |
 | P2 | Multistream clipping lifecycle | Projection loss applies clipping, reset retains child clipping memory, and a successful float call leaves ordinary int16 clipping memory stale. | Public float/int16/int24 transition, projection reset, and loss/recovery sequences match selected C PCM and ranges in all eight local lanes at `d69ff3b1`. Clipping state belongs to each elementary decoder. |
 | P2 | Multistream constructors | Zero sample rate panics and unsupported rates pass through; projection channels require validation before allocation. | Rate/channel rejection and supported-rate construction pass all eight local lanes at `d69ff3b1`. Tagged 96 kHz acceptance remains supported; its runtime gap is tracked below. |
@@ -70,8 +70,9 @@ allocation profiling records a 48-byte cache allocation inside SILK
 concealment. The five PLC capability assertions are absent from the hot
 paths, and compiled AMD64 concealment has no `runtime.typeAssert` calls.
 The unchanged single-call zero-allocation and exact-output tests pass local
-scalar DRED and scalar/SIMD DRED+OSCE+QEXT. Native execution of this fix is
-pending; the failing `55b13f5f` artifact remains part of the evidence.
+scalar DRED and scalar/SIMD DRED+OSCE+QEXT. Artifact `11006418166` at
+`55b13f5f` preserves the native allocation failure; the
+c6 early matrix below validates the capability change on AMD64.
 
 ## Runtime parity evidence
 
@@ -92,8 +93,9 @@ correction: all seven LACE/NoLACE/BWE cases pass both instruction lanes across
 OSCE, OSCE+QEXT and DRED+OSCE+QEXT at `905eec03`.
 
 The [kernel and end-to-end evidence report](go-simd-kernel-evidence.md) records
-measured coverage, revisions, and all 53 replacement routines. Complete codec
-byte/sample parity remains unproven.
+measured coverage, revisions, and all 53 replacement routines. All recorded
+exactness gates pass at `c6dfb561`; claims remain scoped to the listed
+configurations and cases.
 
 Multistream long-burst PLC state, native 96 kHz crossfade stride, and Hybrid
 QEXT payload routing pass all eight applicable local lanes at `3885a34d`.
@@ -102,13 +104,20 @@ the physical spectrum; its exact PCM/range, stereo synthesis-stage and zero
 warm allocation gates pass at `28cb897e`, together with integer-format clipping
 lifecycle checks.
 
-Native early artifact `11006418166` at `55b13f5f` records 93 successful phase
-exits, two nonzero warm-allocation phase exits, and aggregate exit 1. The two
-failures are the one-allocation no-sidecar PLC guard described above; the
-artifact's PCM, range, and exactness checks pass. Full run
-[36500305019](https://github.com/thesyncim/gopus/actions/runs/36500305019) is
-canceled; the full A/B sweep remains incomplete. Independent nil-FEC, tiny-FEC and complexity 0→5 history
-witnesses pass exact counts, PCM bits and ranges through recovery. Non-fullband
+Artifact `11006418166` at `55b13f5f` records 93 zero phase exits, two
+nonzero warm-allocation phase exits, and aggregate exit 1. The two failures
+are the one-allocation no-sidecar PLC guard at 16 kHz/complexity 5. Profiling
+attributes 48 bytes to Go 1.27.1's lazy interface-assertion cache inside SILK
+concealment; capability changes at `a6081168` remove the five optional PLC
+assertions from hot paths. Native early artifact `11009635111` at `c6dfb561`
+records 96 zero phase exits and no JSON test failures. It passes all 12
+no-sidecar warm zero-allocation feature/ISA phases, both-instruction-lane
+FARGAN/PLC-feature checks, `SinF32` standard/fixed/fixed+QEXT checks in both
+lanes, and all eight LACE/NoLACE feature/ISA combinations. Full A/B run
+[36506668630](https://github.com/thesyncim/gopus/actions/runs/36506668630)
+passes, including the full native SIMD package sweep in artifact `11009623177`.
+Independent nil-FEC, tiny-FEC and complexity 0→5 history witnesses pass exact
+counts, PCM bits and ranges through recovery. Non-fullband
 QEXT header/refinement matches selected C at `4186cbb3`, including the vector
 body and scalar tail. SILK pitch reporting
 uses rate-reset state at `949ca0f3`; comfort-noise excitation history survives
