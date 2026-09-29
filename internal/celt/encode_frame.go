@@ -449,6 +449,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 		// Use bandLogE2 scratch buffer to avoid aliasing with energies
 		bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*codedChannels)
 		e.computeBandEnergiesGLogActive(mdctLong, nbBands, frameSize, codedChannels, 1<<lm, bandLogE2)
+		e.encodeStageTrace.recordBandStage(mdctLong, nil, bandLogE2, frameSize, codedChannels, nbBands, lm)
 		if bandLogE2 != nil {
 			offset := celtGLog(0.5 * float32(lm))
 			for i := range bandLogE2 {
@@ -466,6 +467,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	// Step 6: Compute band energies
 	energies := ensureGLogSlice(&e.scratch.energies, nbBands*codedChannels)
 	bandAmp := e.computeFrameBandEnergies(mdctCoeffs, nbBands, frameSize, codedChannels, lm, energies)
+	e.encodeStageTrace.recordBandStage(mdctCoeffs, bandAmp, energies, frameSize, codedChannels, nbBands, lm)
 	if e.lfe {
 		applyLFEBandLogEClamp(energies, nbBands, codedChannels)
 	}
@@ -505,6 +507,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 			// Recompute band energies with short block coefficients
 			energies = ensureGLogSlice(&e.scratch.energies, nbBands*codedChannels)
 			bandAmp = e.computeFrameBandEnergies(mdctCoeffs, nbBands, frameSize, codedChannels, lm, energies)
+			e.encodeStageTrace.recordBandStage(mdctCoeffs, bandAmp, energies, frameSize, codedChannels, nbBands, lm)
 			if e.lfe {
 				applyLFEBandLogEClamp(energies, nbBands, codedChannels)
 			}
@@ -602,12 +605,14 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 		intra = false
 	}
 
+	e.encodeStageTrace.recordCoarseInput(energies, nbBands, codedChannels, budget.nbAvailableBytes)
 	var quantizedEnergies []celtGLog
 	if start > 0 {
 		quantizedEnergies = e.EncodeCoarseEnergyRange(energies, start, nbBands, intra, lm)
 	} else {
 		quantizedEnergies = e.EncodeCoarseEnergy(energies, nbBands, intra, lm)
 	}
+	e.encodeStageTrace.recordCoarseOutput(quantizedEnergies, e.scratch.coarseError)
 	// Step 11.0.5: Normalize bands early for TF analysis
 	// TF analysis needs normalized coefficients to determine optimal time-frequency resolution
 	var normL, normR []celtNorm
@@ -635,6 +640,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	} else {
 		normL, normR, bandE = e.normalizeBandsStereoF32(mdctLeft, mdctRight, nbBands, frameSize, bandAmp)
 	}
+	e.recordEncodeNormalizationTrace(normL, normR, bandE, nbBands, lm, codedChannels)
 	_ = normBandEScratch
 	normLCelt := ensureNormSliceNoClear(&e.scratch.allocTrimNormL, len(normL))
 	copy(normLCelt, normL)
@@ -1197,6 +1203,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 		dualStereoVal = 1
 	}
 	tapset := e.TapsetDecision()
+	e.recordEncodeQuantInputTrace(normL, normR, bandE, end, lm, codedChannels)
 	if pm := e.perMode; pm != nil {
 		quantAllBandsEncodeScratchWithMode(
 			re,
@@ -1258,6 +1265,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 			&e.bandEncScratch,
 		)
 	}
+	e.encodeStageTrace.recordQuantOutput(normL, normR)
 	if qextActive {
 		qextBandBits := qextFineBits[MaxBands : MaxBands+qextEnd]
 

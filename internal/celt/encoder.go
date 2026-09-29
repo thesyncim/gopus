@@ -217,6 +217,10 @@ type Encoder struct {
 	// Scratch buffers for hot path to eliminate heap allocations
 	scratch encoderScratch
 
+	// encodeStageTraceState is empty outside the opt-in CELT encoder trace build.
+	// Its capture methods are no-ops there, leaving the encode path unchanged.
+	encodeStageTrace encodeStageTraceState
+
 	// Scratch buffers for band encoding (PVQ, theta RDO, etc.)
 	bandEncScratch bandEncodeScratch
 
