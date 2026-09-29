@@ -1,6 +1,8 @@
-//go:build amd64.v3 && !gopus_fixed_point && (!goexperiment.simd || nosimd || purego)
+//go:build amd64.v3 && !gopus_fixed_point
 
 package celt
+
+const stereoSplitUsesFMA = true
 
 // stereoSplitScalarTarget matches GCC's scalar AMD64 v3 contraction in
 // bands.c:stereo_split: round c*y once, then fuse c*x into each output.
