@@ -39,6 +39,11 @@ measured revisions and do not stand in for this patch.
 
 ## Findings and verification
 
+The opt-in [compiler-target audit](go-simd-kernel-evidence.md#amd64-compiler-targets)
+at `f972c57f` passes its selected default-float v1/v2 scalar/SIMD checks. Both
+v3 lanes have packet, range and PCM mismatches; compiler-matched FFT/MDCT
+oracles also fail. Full byte parity across compiler targets is not established.
+
 | Priority | Surface | Finding | Current evidence |
 |---|---|---|---|
 | P1 | Public FEC robustness | Independent decoder sessions cannot prove persistent FEC history; accept/count checks omit PCM. | The stereo-coded/mono-API concealment correction passes 128 channel/duration/API cases with exact PCM, ranges, recovery and zero warm allocations in eight local lanes. The 2.5 ms Hybrid-to-SILK CELT overlap correction passes 16 transition cases in all eight lanes at `2f334bed`. The strict persistent mutation sweep passes all 8,000 sequences in six local float/fixed/QEXT scalar/SIMD lanes at `a8cdf338`, with exact prime/FEC PCM and ranges and no skipped primes. Both rate-switch witnesses also pass normal recovery and following PLC. |

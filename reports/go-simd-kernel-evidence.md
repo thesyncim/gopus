@@ -322,6 +322,27 @@ strict-C99 helper cannot establish parity with the default-dialect v3 archive.
 The focused native kernel audit captures the executed helper binaries and their
 disassembly as well as the reference archive's code generation.
 
+The [native target audit at `f972c57f`](https://github.com/thesyncim/gopus/actions/runs/36550398052)
+uses Go 1.27.1 and GCC 13.3. Its bounded default-float selection records:
+
+| Target / Go lane | Encode cases exact | Decode cases exact | CBR cases exact | CBR packet differences / 2,175 | CBR range differences / 2,175 | Warm allocation checks |
+|---|---:|---:|---:|---:|---:|---|
+| v1 / scalar | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
+| v1 / SIMD | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
+| v2 / scalar | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
+| v2 / SIMD | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
+| v3 / scalar | 20/60 | 6/24 | 0/19 | 652 | 485 | Pass |
+| v3 / SIMD | 20/60 | 6/24 | 0/19 | 746 | 552 | Pass |
+
+The [focused v3 kernel audit](https://github.com/thesyncim/gopus/actions/runs/36549248323)
+also detects FFT/MDCT float-bit differences against the compiler-matched C
+helpers. The v3 SIMD dispatch witness rejects a compile-time AVX2 selection
+with architecture index zero despite reporting the required effective dispatch;
+that harness issue is separate from the packet and PCM differences. These
+failures block v3 exactness and timing claims. No performance table is emitted
+from this failed matrix. Passing v1/v2 selections establish only the listed
+coverage, not universal byte parity.
+
 Each candidate target/mode must pass exact CBR packets/ranges, selected stateful
 encode and fresh-state decode cases, dispatch and warm allocation checks.
 Compiled binaries verify CPU and OS support at startup; an

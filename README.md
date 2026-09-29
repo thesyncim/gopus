@@ -298,6 +298,8 @@ still uses the runner's supported AVX2/FMA kernels. Exact packet, range, PCM,
 dispatch, and allocation checks precede timings. The matrix covers the default
 float codec; optional-feature evidence and the 53-routine inventory retain their
 recorded targets. See [compiler-target methodology](reports/go-simd-kernel-evidence.md#amd64-compiler-targets).
+The recorded v1/v2 selection passes; v3 has open packet and PCM mismatches,
+so v3 exactness and performance are not claimed.
 
 Run the benchmarks for numbers on your machine:
 
