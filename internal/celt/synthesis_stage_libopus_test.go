@@ -35,22 +35,27 @@ type libopusCELTSynthesisTrace struct {
 	channels int
 	// freq[ch] and imdct[ch] each hold n samples scaled by 1/CELT_SIG_SCALE;
 	// final holds n*channels interleaved post-deemphasis PCM.
-	freq     [][]float32
-	imdct    [][]float32
-	postComb [][]float32
-	final    []float32
+	freq       [][]float32
+	imdct      [][]float32
+	postComb   [][]float32
+	final      []float32
+	qextEnergy [][]float32
+	qextNorm   [][]float32
+	baseEnergy [][]float32
+	baseNorm   [][]float32
 }
 
-func consumeCELTSynthesisTraceV2Tail(t *testing.T, reader *libopustest.OracleReader, channels int) {
+func consumeCELTSynthesisTraceV2Tail(t *testing.T, reader *libopustest.OracleReader, trace *libopusCELTSynthesisTrace) {
 	t.Helper()
 	for _, section := range []struct {
 		name string
 		max  uint32
+		dst  *[][]float32
 	}{
-		{name: "QEXT energy", max: 64},
-		{name: "QEXT normalized coefficients", max: 2048},
-		{name: "base energy", max: 64},
-		{name: "base normalized coefficients", max: 2048},
+		{name: "QEXT energy", max: 64, dst: &trace.qextEnergy},
+		{name: "QEXT normalized coefficients", max: 2048, dst: &trace.qextNorm},
+		{name: "base energy", max: 64, dst: &trace.baseEnergy},
+		{name: "base normalized coefficients", max: 2048, dst: &trace.baseNorm},
 	} {
 		count := reader.U32()
 		if err := reader.Err(); err != nil {
@@ -59,10 +64,13 @@ func consumeCELTSynthesisTraceV2Tail(t *testing.T, reader *libopustest.OracleRea
 		if count > section.max {
 			t.Fatalf("selected C %s count=%d exceeds %d", section.name, count, section.max)
 		}
-		for range channels {
-			for range count {
-				reader.Float32()
+		*section.dst = make([][]float32, trace.channels)
+		for ch := range trace.channels {
+			values := make([]float32, int(count))
+			for i := range values {
+				values[i] = reader.Float32()
 			}
+			(*section.dst)[ch] = values
 		}
 		if err := reader.Err(); err != nil {
 			t.Fatalf("selected C %s: %v", section.name, err)
@@ -117,7 +125,7 @@ func traceLibopusCELTSynthesis(t *testing.T, sampleRate, channels, frameSize, ta
 	for i := range trace.final {
 		trace.final[i] = reader.Float32()
 	}
-	consumeCELTSynthesisTraceV2Tail(t, reader, cc)
+	consumeCELTSynthesisTraceV2Tail(t, reader, trace)
 	if err := reader.ExpectConsumed(); err != nil {
 		t.Fatal(err)
 	}
