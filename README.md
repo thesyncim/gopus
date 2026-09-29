@@ -306,13 +306,14 @@ The published tables above retain their measured v1 provenance; replacement
 v3 tables require a passing exactness matrix and fresh matched-C measurements.
 
 ```sh
-GOAMD64=v3 GOEXPERIMENT=simd go run ./examples/bench-encode
-GOAMD64=v3 GOEXPERIMENT=simd go run ./examples/bench-decode
+GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./examples/bench-encode
+GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./examples/bench-decode
 ```
 
-For a matching scalar comparison, keep `GOAMD64=v3` and use
-`GOEXPERIMENT=nosimd`. On ARM64, omit `GOAMD64` and select the same SIMD or
-scalar experiment for both benchmark commands.
+`GOPUS_LIBOPUS_AMD64_TARGET=v3` selects the matching C compiler target.
+For a matching scalar comparison, keep both target settings and use
+`GOEXPERIMENT=nosimd`. On ARM64, omit both target settings and select the
+same SIMD or scalar experiment for both benchmark commands.
 
 `make bench-guard` runs the benchmark guardrails used in CI.
 
