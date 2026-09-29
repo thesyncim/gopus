@@ -1,7 +1,7 @@
 # gopus
 
-Pure-Go Opus codec — RFC 6716 / RFC 8251, targeting byte and quality parity
-with pinned libopus 1.6.1, with no cgo.
+Pure-Go Opus codec — RFC 6716 / RFC 8251, targeting strong behavioral and
+quality parity with pinned libopus 1.6.1, with no cgo.
 
 Encoder, decoder, multistream, projection/ambisonics, Ogg, and RTP RED are
 implemented in Go. Caller-buffer encode and decode paths are designed for
@@ -303,7 +303,8 @@ so v3 exactness and performance are not claimed.
 
 AMD64 SIMD benchmarks use `GOAMD64=v3` on a CPU that supports that target.
 The published tables above retain their measured v1 provenance; replacement
-v3 tables require a passing exactness matrix and fresh matched-C measurements.
+v3 tables require validation against the [parity target](reports/parity-target.md)
+and fresh matched-C measurements. Unclassified mismatches still block publication.
 
 ```sh
 GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./examples/bench-encode
@@ -318,6 +319,14 @@ same SIMD or scalar experiment for both benchmark commands.
 `make bench-guard` runs the benchmark guardrails used in CI.
 
 ## Parity & testing
+
+The [parity target](reports/parity-target.md) requires exact API/protocol behavior
+and integer primitives on identical inputs, matching decoder entropy ranges for
+identical packets, and zero steady-state allocations. Passing byte-exact coverage remains protected.
+Floating-point differences may be accepted only with a proven rounding cause,
+a narrow tested bound and unchanged quality/recovery gates. Universal packet
+identity across compiler targets is not a release requirement; unexplained
+mismatches remain failures. Current v3 differences are not yet accepted.
 
 gopus implements the core public API and the optional surfaces mirrored by the
 build tags above. Exact gates compare packets, final ranges, sample counts and

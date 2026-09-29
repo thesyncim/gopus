@@ -7,6 +7,10 @@ without a comparable per-call replacement.
 
 ## Reference contract
 
+- The [parity target](parity-target.md) requires exact protocol/integer behavior
+  and preserves established exact coverage. A compiler rounding difference can
+  use a reviewed numerical bound only with independent quality/recovery proof.
+  Unresolved v3 differences are not validated numerical allowances.
 - Ordinary builds and `-tags nosimd` use scalar Go. `GOEXPERIMENT=simd`
   selects `simd/archsimd` kernels where implemented, with scalar fallbacks.
 - The required oracle contract pairs Go with libopus 1.6.1 on the same CPU,
@@ -25,6 +29,13 @@ without a comparable per-call replacement.
   provenance; live expectations use the selected C build.
 
 ## Current correctness status
+
+The [native v3 audit at `743867aa`](https://github.com/thesyncim/gopus/actions/runs/36563006244)
+passes the scaled-float-to-int16 regression and live-C conversion check in both
+instruction lanes. SILK packet traces pass C instrumentation transparency but
+still report earlier packet differences than their first control differences.
+These and the comb/encoder differences remain unresolved, with no accepted
+numerical allowance; the [audit](parity-evidence-audit.md) records their scope.
 
 The [public API boundary audit](parity-evidence-audit.md#public-api-boundary-audit)
 covers seven additional state, validation and fixed-point analysis mismatches.

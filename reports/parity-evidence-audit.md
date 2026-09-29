@@ -1,5 +1,9 @@
 # Codebase parity evidence audit
 
+The [parity target](parity-target.md) defines required behavior, scoped exactness
+and the evidence needed to accept a numerical difference. No current v3 mismatch
+is accepted solely because it appears small or originates in floating-point code.
+
 This audit examines public encode/decode, multistream, optional extensions,
 oracle construction, CI selectors, and exactness claims. Its scope is test
 validity and coverage: a numerical allowance or omitted assertion is an
@@ -47,6 +51,13 @@ measured revisions and do not stand in for this patch.
 
 ## Findings and verification
 
+Exact equality to a configured libopus build is a stronger requirement than
+[Opus conformance](https://www.rfc-editor.org/rfc/rfc6716.html#section-6).
+Encoder packet choices and small decoder numerical differences can satisfy
+the standard. This report tracks exact-reference failures separately from
+conformance and audio-quality evidence; a byte mismatch alone does not establish
+invalid Opus output or audible degradation.
+
 The opt-in [compiler-target audit](go-simd-kernel-evidence.md#amd64-compiler-targets)
 at `bc5ddaeb` passes all selected default-float v1/v2 scalar/SIMD checks. At v3,
 scalar encode/decode cases pass 40/60 and 8/24; SIMD cases pass 24/60 and 6/24.
@@ -61,6 +72,14 @@ Encoder packet/range and public decoder PCM differences remain open. Both
 decoder traces first differ after comb filtering. The merged SILK optimization
 tests also expose a scalar v3 scaled-float-to-int16 rounding mismatch.
 Full byte parity across compiler targets is not established.
+
+The [focused native audit at `743867aa`](https://github.com/thesyncim/gopus/actions/runs/36563006244)
+passes both the scaled-float conversion regression and independent C conversion
+oracle in v3 scalar/SIMD builds. Its SILK control traces verify instrumented C
+against ordinary C before reporting packet differences at frame 6 (MB mono)
+and frame 13 (WB stereo). Their first reported control differences occur later,
+so those controls do not yet identify the root cause. These cases remain
+unresolved under the parity target; they have no numerical allowance.
 
 | Priority | Surface | Finding | Current evidence |
 |---|---|---|---|

@@ -1,7 +1,8 @@
 # Agent Instructions
 
 gopus is a pure-Go, no-cgo implementation of the Opus audio codec (RFC 6716 /
-RFC 8251) that targets **byte- and quality-parity with libopus 1.6.1**. The
+RFC 8251) that targets **strong behavioral and quality parity with libopus 1.6.1**,
+with scoped byte-exact guarantees under `reports/parity-target.md`. The
 pinned reference lives in `tmp_check/opus-1.6.1/`; when behavior is uncertain,
 gopus matches libopus unless fixture evidence says otherwise.
 
@@ -11,12 +12,17 @@ uses…", "removed…"); describe what the code does today.
 
 ## Prime directive: parity, proven against a live C oracle
 
-- Match libopus 1.6.1 exactly — both observable behavior and, on the bit-exact
-  lanes, the emitted bytes and the entropy coder's final range.
+- Follow `reports/parity-target.md`: exact API/protocol behavior, integer
+  primitives and conversions on identical inputs, and
+  same-packet entropy ranges; preserve established byte-exact coverage. Universal
+  floating-point or encoder packet identity across compiler targets is not a
+  release requirement.
 - **Never weaken a gate to make work pass.** Do not relax quality thresholds,
-  edit fixture or baseline files, loosen oracle tolerances, or skip a failing
-  case to go green. Fix the root cause. Fixture/baseline edits are review-visible
-  evidence, not a shortcut.
+  edit fixture or baseline files, or skip a failing case to go green. A numerical
+  allowance requires a localized rounding cause, a justified bound, independent
+  quality/recovery evidence and an executable scoped regression under the parity
+  target. Unknown mismatches remain failures. Fixture/baseline edits are
+  review-visible evidence, not a shortcut.
 - Parity is proven on two tiers (see README "Parity & testing"): bit-exact kernel
   oracles plus differential fuzzing of every public decode entry point, and
   `opus_compare` quality on real audio. Exact packet, range, and sample gates
@@ -32,9 +38,13 @@ uses…", "removed…"); describe what the code does today.
 - Compare Go SIMD with libopus SIMD and Go scalar with libopus scalar on the
   same CPU, using identical input, application, controls, and scalar widths.
   Verify effective kernel dispatch as well as build flags and runtime features.
-- Same-path exact tests compare float bits, packets, and final ranges without
-  architecture-based ULP waivers. A difference between libopus's SIMD and scalar
-  paths cannot justify a mismatch against the matching reference.
+- Same-path exact tests retain their assertions. Validated floating-point
+  differences use explicit per-kernel bounds under the parity target, never
+  architecture-wide ULP waivers. Different libopus SIMD/scalar results cannot
+  justify a mismatch against the matching reference.
+- Prioritize semantic correctness, quality and zero allocations. Do not add
+  compiler-specific hot-loop calls solely for last-bit identity once a numerical
+  difference is validated. A measured 1–2% end-to-end variation is acceptable.
 - Validated coverage, reference exceptions, and measured performance are recorded
   in `reports/go-simd-kernel-evidence.md`. Passing a subset of tests does not
   prove complete parity.
