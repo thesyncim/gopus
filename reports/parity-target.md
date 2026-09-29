@@ -78,6 +78,23 @@ them. Exact audit tests retain their assertions; a reviewed numerical case needs
 an executable bounded check before its exact diagnostic can become non-blocking.
 The documented custom-QEXT C history bug remains a separate upstream-UB exception.
 
+### Executable gates
+
+- `TestEncoderCBRPairedOracleContract` runs all 19 CBR cases through independent
+  Go/C encoders and persistent decoders. It checks complete output, same-packet
+  ranges and quality before rejecting unresolved packet or PCM differences.
+  A quality pass alone does not accept a case.
+- The manual AMD64 benchmark validator requires all 19 cases, 2,175 encoded
+  packets and 76 decode paths per target/instruction lane, with no unresolved,
+  failed, skipped or missing contract cases. It runs the contract even when
+  exact diagnostics fail.
+- v1/v2 exact gates remain mandatory. The v3 CBR exact result is a separately
+  recorded diagnostic backed by the contract. The broader 60-case encoder and
+  24-case decoder exact selections remain blocking until contract checks cover
+  those same VBR, automatic-mode and public-format cases.
+- Quality gates reject incomplete or non-finite PCM, invalid profiles and
+  failed quality-tool execution. Numerical thresholds retain their values.
+
 See [coverage and outstanding findings](parity-evidence-audit.md),
 [kernel/performance evidence](go-simd-kernel-evidence.md), and the
 [upstream C boundary](libopus-custom-qext-boundaries.md).
