@@ -18,6 +18,19 @@ func stereoMergeRescaleNEON(x, y []float32, mid, lgain, rgain float32) {
 	n := len(x)
 	y = y[:n]
 	i := 0
+	if stereoMergeUsesFMA {
+		if stereoMergeUsesAVX && n >= 4 {
+			i = stereoMergeRescaleAVXFMA(x, y, mid, lgain, rgain)
+		}
+		for ; i < n; i++ {
+			xv, yv := x[i], y[i]
+			left := fma32(mid, xv, -yv)
+			right := fma32(mid, xv, yv)
+			x[i] = noFMA32Mul(lgain, left)
+			y[i] = noFMA32Mul(rgain, right)
+		}
+		return
+	}
 	if stereoMergeUsesAVX && n >= 4 {
 		i = stereoMergeRescaleAVX(x, y, mid, lgain, rgain)
 	}
@@ -27,6 +40,25 @@ func stereoMergeRescaleNEON(x, y []float32, mid, lgain, rgain float32) {
 		x[i] = noFMA32Mul(lgain, noFMA32Sub(l, r))
 		y[i] = noFMA32Mul(rgain, noFMA32Add(l, r))
 	}
+}
+
+//go:noinline
+func stereoMergeRescaleAVXFMA(x, y []float32, mid, lgain, rgain float32) int {
+	n := len(x) &^ 3
+	midv := broadcastF32x4Arch(mid)
+	lg := broadcastF32x4Arch(lgain)
+	rg := broadcastF32x4Arch(rgain)
+	xp := unsafe.Pointer(unsafe.SliceData(x))
+	yp := unsafe.Pointer(unsafe.SliceData(y))
+	for i := 0; i < n; i += 4 {
+		xv := loadF32x4(unsafe.Add(xp, 4*i))
+		yv := loadF32x4(unsafe.Add(yp, 4*i))
+		left := midv.MulAdd(xv, yv.Neg())
+		right := midv.MulAdd(xv, yv)
+		storeF32x4(unsafe.Add(xp, 4*i), lg.Mul(left))
+		storeF32x4(unsafe.Add(yp, 4*i), rg.Mul(right))
+	}
+	return n
 }
 
 //go:noinline

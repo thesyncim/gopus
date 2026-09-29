@@ -3,18 +3,26 @@ package celt
 import (
 	"math"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
-// stereoMergeRescaleRef is the scalar reference for the mid/side rescale: each
-// lane is l=mid*x, x=lgain*(l-y), y=rgain*(l+y) with bare noFMA32 ops (the
-// product rounds to float32 before the add/sub, two roundings). Whatever
-// stereoMergeRescaleNEON the build selects must reproduce this bit-for-bit.
+// stereoMergeRescaleRef follows the selected libopus target's mid/side
+// rescale: non-v3 targets round mid*x before add/sub, while AMD64 v3 contracts
+// mid*x±y and then applies each gain as a separate multiply.
 func stereoMergeRescaleRef(x, y []float32, mid, lgain, rgain float32) {
 	for i := range x {
-		l := noFMA32Mul(mid, x[i])
 		r := y[i]
-		x[i] = noFMA32Mul(lgain, noFMA32Sub(l, r))
-		y[i] = noFMA32Mul(rgain, noFMA32Add(l, r))
+		if stereoMergeUsesFMA {
+			left := opusmath.FMA32(mid, x[i], -r)
+			right := opusmath.FMA32(mid, x[i], r)
+			x[i] = noFMA32Mul(lgain, left)
+			y[i] = noFMA32Mul(rgain, right)
+		} else {
+			l := noFMA32Mul(mid, x[i])
+			x[i] = noFMA32Mul(lgain, noFMA32Sub(l, r))
+			y[i] = noFMA32Mul(rgain, noFMA32Add(l, r))
+		}
 	}
 }
 
@@ -53,6 +61,21 @@ func TestStereoMergeRescaleBitExact(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestStereoMergeRescaleNoAllocs(t *testing.T) {
+	x := make([]float32, 64)
+	y := make([]float32, 64)
+	for i := range x {
+		x[i] = float32(i-17) / 31
+		y[i] = float32(23-i) / 29
+	}
+	stereoMergeRescaleNEON(x, y, 0.75, 0.625, 0.875)
+	if got := testing.AllocsPerRun(100, func() {
+		stereoMergeRescaleNEON(x, y, 0.75, 0.625, 0.875)
+	}); got != 0 {
+		t.Fatalf("stereoMergeRescaleNEON allocated %g times per run", got)
 	}
 }
 

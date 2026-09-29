@@ -1435,19 +1435,22 @@ func stereoMerge(x, y []celtNorm, mid opusVal16) {
 			side = celtFloatMulAdd(yv, yv, side)
 		}
 	}
-	xp *= mid32
-	mid2 := mid32 * mid32
-	el := mid2 + side - float32(2)*xp
-	er := mid2 + side + float32(2)*xp
+	if stereoMergeUsesFMA {
+		// C materializes this product before forming the energy sum; keep its
+		// float32 rounding boundary ahead of the following v3 FMAs.
+		xp = noFMA32Mul(xp, mid32)
+	} else {
+		xp *= mid32
+	}
+	el, er := stereoMergeEnergy(mid32, side, xp)
 	if el < float32(6e-4) || er < float32(6e-4) {
 		copy(y, x[:n])
 		return
 	}
 	lgain := celtRSqrt(el)
 	rgain := celtRSqrt(er)
-	// libopus rounds l before ADD32/SUB32; the kernel keeps every op a bare
-	// FMUL/FADD/FSUB (no mid*x +/- r contraction) so it stays bit-exact on the
-	// fused arm64 build too.
+	// The target-selected helper follows libopus contraction for the active
+	// architecture: GCC v3 contracts mid*x±y before the gain multiplies.
 	stereoMergeRescaleNEON(x, y, mid32, lgain, rgain)
 }
 

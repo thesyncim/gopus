@@ -219,6 +219,18 @@ CELT/Hybrid have unresolved same-packet PCM differences. FFT/MDCT and SILK
 primitive suites pass. The CELT encoder trace rejects inconsistent quantization
 dimensions, so it does not yet establish a runtime divergence location.
 
+The [native audit at `6eb02f0a`](https://github.com/thesyncim/gopus/actions/runs/36612082840)
+on AMD EPYC 9V74 passes 57/60 scalar and 50/60 SIMD encoder cases, 8/24
+scalar and 6/24 SIMD decoder cases, and all 15 warm-allocation checks in each
+lane, with no skipped cases. CBR exact cases are 14/19 scalar (68 packet/61
+range differences) and 10/19 SIMD (128 packet/100 range differences) out of
+2,175 packets per lane. SIMD constant-comb history seams match C. Transition
+comb filtering, decoder PCM and encoder differences remain unresolved.
+The transparent SILK trace identifies differing NLSF interpolation factors
+at the first failing frames, before index coding; the CELT trace first differs
+in reconstructed quantizer coefficients after matching transform and quantizer
+inputs. These findings locate further work; they do not grant numerical allowances.
+
 | Priority | Surface | Finding | Current evidence |
 |---|---|---|---|
 | P1 | Public FEC robustness | Independent decoder sessions cannot prove persistent FEC history; accept/count checks omit PCM. | The stereo-coded/mono-API concealment correction passes 128 channel/duration/API cases with exact PCM, ranges, recovery and zero warm allocations in eight local lanes. The 2.5 ms Hybrid-to-SILK CELT overlap correction passes 16 transition cases in all eight lanes at `2f334bed`. The strict persistent mutation sweep passes all 8,000 sequences in six local float/fixed/QEXT scalar/SIMD lanes at `a8cdf338`, with exact prime/FEC PCM and ranges and no skipped primes. Both rate-switch witnesses also pass normal recovery and following PLC. |

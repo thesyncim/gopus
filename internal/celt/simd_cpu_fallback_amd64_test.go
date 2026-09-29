@@ -77,12 +77,7 @@ func TestCELTCPUFeatureFallbackMath(t *testing.T) {
 	wantMergeLeft, wantMergeRight := append([]float32(nil), mergeLeft...), append([]float32(nil), mergeRight...)
 	const mid, leftGain, rightGain = float32(0.75), float32(0.625), float32(0.875)
 	stereoMergeRescaleNEON(mergeLeft, mergeRight, mid, leftGain, rightGain)
-	for i := range wantMergeLeft {
-		l := noFMA32Mul(mid, wantMergeLeft[i])
-		r := wantMergeRight[i]
-		wantMergeLeft[i] = noFMA32Mul(leftGain, noFMA32Sub(l, r))
-		wantMergeRight[i] = noFMA32Mul(rightGain, noFMA32Add(l, r))
-	}
+	stereoMergeRescaleRef(wantMergeLeft, wantMergeRight, mid, leftGain, rightGain)
 	assertCELTFloat32SlicesEqual(t, "stereo merge left", mergeLeft, wantMergeLeft)
 	assertCELTFloat32SlicesEqual(t, "stereo merge right", mergeRight, wantMergeRight)
 
