@@ -417,9 +417,9 @@ func warpedGainF32(coefs []float32, lambda float32, order int) float32 {
 	}
 	gain := coefs[order-1]
 	for i := order - 2; i >= 0; i-- {
-		gain = lambda*gain + coefs[i]
+		gain = warpedGainStep32(lambda, gain, coefs[i])
 	}
-	return 1.0 / (1.0 - lambda*gain)
+	return 1.0 / warpedGainDenominator32(lambda, gain)
 }
 
 // warpedTrue2MonicCoefsF32 matches libopus warped_true2monic_coefs() in silk_float (float32).

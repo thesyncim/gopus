@@ -239,6 +239,9 @@ func (e *Encoder) encodeFrameNative(pcm []opusRes, req frameRequest) (codedFrame
 			return codedFrame{}, err
 		}
 		nBytes, err := e.encodeSILKFrame(pcm, frameSize, re, activity)
+		if hybrid {
+			recordHybridCoderBoundary(re, hybridCoderBoundarySILKExit)
+		}
 		if err != nil {
 			return codedFrame{}, err
 		}
@@ -382,6 +385,9 @@ func (e *Encoder) encodeFrameNative(pcm []opusRes, req frameRequest) (codedFrame
 		if re.Tell() <= 8*nbComprBytes {
 			var err error
 			if hybrid {
+				recordHybridCoderBoundary(re, hybridCoderBoundaryCELTEntry)
+			}
+			if hybrid {
 				if fixedPCM := e.fixedHybridCELTPCMQ8(frameSize); fixedPCM != nil && fixedPrefilled {
 					var ok bool
 					frame, ok, err = e.encodeHybridCELTFrameFixed(fixedPCM, frameSize, e.celtEncoder.Bitrate(), nbComprBytes, re, prefilled)
@@ -394,6 +400,9 @@ func (e *Encoder) encodeFrameNative(pcm []opusRes, req frameRequest) (codedFrame
 			} else {
 				frame, err = e.encodeCELTOnlyFrame(celtPCM, frameSize, nbComprBytes,
 					prefilled, fixedPrefilled)
+			}
+			if hybrid {
+				recordHybridCoderBoundary(re, hybridCoderBoundaryCELTExit)
 			}
 			if err != nil {
 				return codedFrame{}, err

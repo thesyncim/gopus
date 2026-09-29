@@ -317,6 +317,22 @@ constrained-VBR witness. Parsing requires bounded geometry, valid trial linkage,
 complete selection events and exact EOF. Trace transparency and matched native
 execution are pending; default-off caller instruction checks pass.
 
+The v3 warped-gain correction preserves the selected C Horner FMA sequence
+and fused denominator, followed by separate float32 reciprocal and sqrt-gain
+multiplication. A register boundary prevents Go from folding a coefficient
+load into an unfused ADDSS. Other targets retain the direct source expressions;
+ARM64 generated arithmetic matches the reference shape. The independent oracle
+compiles the pinned static C helper with matching production flags and a source
+hash in its cache key. Native same-input oracle, warm-allocation and full encoder
+validation are pending. The extra call per coefficient has no published timing.
+
+The Hybrid diagnostic captures the actual shared range coder after SILK and
+before/after CELT on the existing 50-frame CBR stream (scalar frame 0, SIMD
+frame 25). Capture requires ordered calls, the same coder/buffer identity,
+bounded state and written bytes, complete EOF and ordinary/traced packet/range
+transparency. Tagged and ordinary v3 cross-builds pass in both lanes; ordinary
+caller instruction checks find no diagnostic work. Native validation is pending.
+
 The unchanged CBR quality gate rejects SILK NB 10 ms mono (Q -458.03,
 correlation 0.972870) and SILK WB stereo (Q -157.52) in both lanes, plus
 CELT 2.5 ms mono (Q -61.97) in SIMD. The narrowband case differs in 50/100
