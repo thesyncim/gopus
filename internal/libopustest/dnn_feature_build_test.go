@@ -50,6 +50,22 @@ func TestDNNHelperIncludesPinnedSourceRootAfterBuildConfig(t *testing.T) {
 	}
 }
 
+func TestDNNHelperCompileFlagsPreserveCompilerDefaultDialectAndContraction(t *testing.T) {
+	for _, cflags := range []string{
+		libopustooling.LibopusBaseCFLAGS,
+		libopustooling.LibopusScalarCFLAGS,
+		libopustooling.DREDSIMDBuildCFLAGS,
+		libopustooling.ScalarDNNBuildCFLAGS,
+		libopustooling.OSCEScalarDNNBuildCFLAGS,
+	} {
+		for _, flag := range dnnHelperCompileFlags(cflags) {
+			if strings.HasPrefix(flag, "-std=") || strings.HasPrefix(flag, "-ffp-contract=") {
+				t.Errorf("DNN helper flag %q in CFLAGS %q overrides the compiler's default reference policy", flag, cflags)
+			}
+		}
+	}
+}
+
 func TestDNNFeatureBuildConfigAndHeaders(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

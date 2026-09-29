@@ -290,6 +290,15 @@ identical packets; encoder timings do not establish long-stream packet parity.
 The [evidence report](reports/go-simd-kernel-evidence.md) records the early
 validation scope and the full A/B status.
 
+The opt-in compiler-target benchmark compares `GOAMD64=v1`, `v2`, and `v3` on one
+native host; routine PR CI does not run this matrix. Each target pairs Go with
+separately built scalar/SIMD libopus using the matching C compiler baseline.
+These are compiler targets; SIMD dispatch
+still uses the runner's supported AVX2/FMA kernels. Exact packet, range, PCM,
+dispatch, and allocation checks precede timings. The matrix covers the default
+float codec; optional-feature evidence and the 53-routine inventory retain their
+recorded targets. See [compiler-target methodology](reports/go-simd-kernel-evidence.md#amd64-compiler-targets).
+
 Run the benchmarks for numbers on your machine:
 
 ```sh

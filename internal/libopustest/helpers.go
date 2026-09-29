@@ -618,7 +618,7 @@ func buildScalarDNNHelper(repoRoot, sourceFile, outputBase string, includeIntern
 		return "", fmt.Errorf("%s libopus static library not found: %w", cfg.label, err)
 	}
 
-	args := append([]string{"-std=c99"}, strings.Fields(cfg.cflags)...)
+	args := dnnHelperCompileFlags(cfg.cflags)
 	args = append(args,
 		"-DHAVE_CONFIG_H",
 		"-I", buildDir,
@@ -762,7 +762,7 @@ func BuildDNNCHelper(root string, cfg CHelperConfig) (string, error) {
 	if variant == libopustooling.LibopusReferenceSIMD {
 		cflags = libopustooling.DREDSIMDBuildCFLAGS
 	}
-	args := append([]string{"-std=c99"}, strings.Fields(cflags)...)
+	args := dnnHelperCompileFlags(cflags)
 	if cfg.DeadStrip {
 		args = append(args, "-ffunction-sections", "-fdata-sections")
 	}
@@ -834,6 +834,12 @@ func BuildDNNCHelper(root string, cfg CHelperConfig) (string, error) {
 		return "", fmt.Errorf("install DNN helper %s: %w", cfg.SourceFile, err)
 	}
 	return outPath, nil
+}
+
+// dnnHelperCompileFlags inherits the paired reference's C dialect and FP
+// contraction defaults; cfg.cflags carries the selected archive's flags.
+func dnnHelperCompileFlags(cflags string) []string {
+	return strings.Fields(cflags)
 }
 
 func validateNoLibopusLibraryOverride(linkInputs []string) error {

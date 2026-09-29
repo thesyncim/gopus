@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustooling"
@@ -36,6 +37,20 @@ func TestOracleEnabledEnvironmentMatrix(t *testing.T) {
 				t.Fatalf("OracleEnabled()=%v want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestHelperCCompileFlagsUseCompilerDefaultDialectAndContraction(t *testing.T) {
+	for _, scalarRef := range []bool{false, true} {
+		flags := helperCCompileFlags(CHelperConfig{
+			CFlags:    []string{"-DHAVE_CONFIG_H"},
+			DeadStrip: true,
+		}, scalarRef)
+		for _, flag := range flags {
+			if strings.HasPrefix(flag, "-std=") || strings.HasPrefix(flag, "-ffp-contract=") {
+				t.Errorf("scalarRef=%t helper flag %q overrides the compiler's default reference policy; flags=%v", scalarRef, flag, flags)
+			}
+		}
 	}
 }
 
@@ -208,35 +223,38 @@ func TestHelperConfigDigestTracksBuildInputs(t *testing.T) {
 		CFlags:     []string{"-DHAVE_CONFIG_H"},
 		RefSources: []string{"silk/ref.c"},
 	}
-	base := helperConfigDigest(cfg, refDir, srcPath)
+	base := helperConfigDigest(cfg, refDir, srcPath, false)
+	if got := helperConfigDigest(cfg, refDir, srcPath, true); got == base {
+		t.Fatal("digest did not change when base compile flags changed with the selected scalar reference")
+	}
 	if err := os.WriteFile(stampPath, []byte("CFLAGS=-O3 -DNDEBUG\ncc=clang\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := helperConfigDigest(cfg, refDir, srcPath); got == base {
+	if got := helperConfigDigest(cfg, refDir, srcPath, false); got == base {
 		t.Fatal("digest did not change when libopus build stamp changed")
 	}
-	base = helperConfigDigest(cfg, refDir, srcPath)
+	base = helperConfigDigest(cfg, refDir, srcPath, false)
 	cfg.CFlags = append(cfg.CFlags, "-DNDEBUG")
-	if got := helperConfigDigest(cfg, refDir, srcPath); got == base {
+	if got := helperConfigDigest(cfg, refDir, srcPath, false); got == base {
 		t.Fatal("digest did not change when C flags changed")
 	}
 	cfg.CFlags = []string{"-DHAVE_CONFIG_H"}
-	base = helperConfigDigest(cfg, refDir, srcPath)
+	base = helperConfigDigest(cfg, refDir, srcPath, false)
 	if err := os.WriteFile(srcPath, []byte("int main(void) { return 2; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := helperConfigDigest(cfg, refDir, srcPath); got == base {
+	if got := helperConfigDigest(cfg, refDir, srcPath, false); got == base {
 		t.Fatal("digest did not change when helper source changed")
 	}
-	base = helperConfigDigest(cfg, refDir, srcPath)
+	base = helperConfigDigest(cfg, refDir, srcPath, false)
 	cfg.QEXTRef = true
-	if got := helperConfigDigest(cfg, refDir, srcPath); got == base {
+	if got := helperConfigDigest(cfg, refDir, srcPath, false); got == base {
 		t.Fatal("digest did not change when QEXT reference tree changed")
 	}
 	cfg.QEXTRef = false
-	base = helperConfigDigest(cfg, refDir, srcPath)
+	base = helperConfigDigest(cfg, refDir, srcPath, false)
 	cfg.FixedQEXTRef = true
-	if got := helperConfigDigest(cfg, refDir, srcPath); got == base {
+	if got := helperConfigDigest(cfg, refDir, srcPath, false); got == base {
 		t.Fatal("digest did not change when fixed-QEXT reference tree changed")
 	}
 }

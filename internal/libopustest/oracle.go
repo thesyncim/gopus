@@ -346,7 +346,7 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return "", fmt.Errorf("mkdir helper dir: %w", err)
 	}
-	digest := helperConfigDigest(cfg, refDir, srcPath)
+	digest := helperConfigDigest(cfg, refDir, srcPath, scalarRef)
 	outPath := helperOutputPathWithDigest(outDir, cfg.OutputBase, cfg.SourceFile, flavor, digest)
 	tmpFile, err := os.CreateTemp(outDir, filepath.Base(outPath)+".*.tmp")
 	if err != nil {
@@ -364,14 +364,7 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 		_ = os.Remove(tmpPath)
 	}()
 
-	args := []string{"-std=c99", "-O2"}
-	if cfg.DeadStrip {
-		args = append(args, "-ffunction-sections", "-fdata-sections")
-	}
-	args = append(args, cfg.CFlags...)
-	if scalarRef {
-		args = append(args, strings.Fields(libopustooling.LibopusScalarCVectorizationFlags)...)
-	}
+	args := helperCCompileFlags(cfg, scalarRef)
 	args = append(args, "-I", refDir, "-I", filepath.Join(refDir, "include"))
 	for _, rel := range cfg.RefIncludes {
 		args = append(args, "-I", filepath.Join(refDir, filepath.FromSlash(rel)))
@@ -428,6 +421,20 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 		return "", fmt.Errorf("install %s helper: %w", cfg.Label, err)
 	}
 	return outPath, nil
+}
+
+// helperCCompileFlags keeps the compiler's default C dialect and floating-point
+// contraction policy, matching how the paired libopus reference is built.
+func helperCCompileFlags(cfg CHelperConfig, scalarRef bool) []string {
+	args := []string{"-O2"}
+	if cfg.DeadStrip {
+		args = append(args, "-ffunction-sections", "-fdata-sections")
+	}
+	args = append(args, cfg.CFlags...)
+	if scalarRef {
+		args = append(args, strings.Fields(libopustooling.LibopusScalarCVectorizationFlags)...)
+	}
+	return args
 }
 
 func validateCHelperReferenceSelection(cfg CHelperConfig) error {
@@ -605,9 +612,9 @@ func forceScalarRefDefines() []string {
 	return []string{"-DMAIN_SSE_H=1", "-DVQ_SSE_H=1", "-DPITCH_SSE_H=1", "-DCELT_LPC_SSE_H=1"}
 }
 
-func helperConfigDigest(cfg CHelperConfig, refDir, srcPath string) string {
+func helperConfigDigest(cfg CHelperConfig, refDir, srcPath string, scalarRef bool) string {
 	h := sha256.New()
-	helperHashString(h, "v4")
+	helperHashString(h, "v5")
 	helperHashString(h, cfg.OutputBase)
 	helperHashString(h, cfg.SourceFile)
 	helperHashString(h, fmt.Sprintf("dead-strip=%t", cfg.DeadStrip))
@@ -628,6 +635,7 @@ func helperConfigDigest(cfg CHelperConfig, refDir, srcPath string) string {
 		helperHashString(h, "paired-reference="+string(variant))
 	}
 	helperHashStrings(h, "cflags", cfg.CFlags)
+	helperHashStrings(h, "base-compile-flags", helperCCompileFlags(cfg, scalarRef))
 	helperHashStrings(h, "ref-includes", cfg.RefIncludes)
 	helperHashStrings(h, "include-dirs", cfg.IncludeDirs)
 	helperHashStrings(h, "ref-sources", cfg.RefSources)

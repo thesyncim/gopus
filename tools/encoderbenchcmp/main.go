@@ -607,7 +607,7 @@ func buildLibopusHelper(root, libopusRoot string, variant libopustooling.Libopus
 }
 
 func libopusHelperCompileFlags(variant libopustooling.LibopusReferenceVariant, targetCFlags []string) []string {
-	args := []string{"-std=c99", "-O3", "-DNDEBUG"}
+	args := []string{"-O3", "-DNDEBUG"}
 	if variant == libopustooling.LibopusReferenceScalar {
 		args = append(args, strings.Fields(libopustooling.LibopusScalarCVectorizationFlags)...)
 	}

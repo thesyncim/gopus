@@ -287,6 +287,67 @@ and controls. Encoder timings do not establish long-stream packet parity.
 The throughput table describes the early artifact; the full A/B gate also
 passes at the same revision.
 
+## AMD64 compiler targets
+
+The compiler-target benchmark is an opt-in script for performance-table refreshes;
+routine PR CI does not run this matrix or add jobs for it. Go binaries and C
+archives are built before the timed rounds. C benchmark helpers compile before
+their measurements; builds do not run concurrently with timings. Four rounds
+rotate nine Go binaries: old assembly,
+scalar Go, and SIMD Go, each compiled at v1, v2, and v3. Every row uses the same
+host, controls, Go version, and PGO policy. Within each target, the three Go
+implementations use identical input generators. Comparisons between compiler
+targets can also reflect compiler effects on those generators; they do not
+isolate kernel speed alone. The paired C encoder table verifies identical PCM
+hashes across targets and modes. Binary build information,
+source revisions, profile hashes, compiler flags and C archive hashes accompany
+the results.
+
+| Go compiler target | C compiler baseline |
+|---|---|
+| `GOAMD64=v1` | `-march=x86-64 -mtune=generic` |
+| `GOAMD64=v2` | `-march=x86-64-v2 -mtune=generic` |
+| `GOAMD64=v3` | `-march=x86-64-v3 -mtune=generic` |
+
+Scalar C disables intrinsics, assembly and automatic vectorization while keeping
+normal scalar floating-point contraction. SIMD C and Go select the supported
+native SIMD kernels; a v1 compiler baseline does not restrict runtime dispatch
+to SSE2. The target-specific references have separate directories and validated
+stamps. Direct C oracle helpers receive the matching target flags too. No
+`-march=native` or timing from CPU emulation enters this matrix.
+
+Directly compiled FFT/MDCT oracle sources use the compiler's default C dialect, matching
+the archive build. GCC 13.3 disables default contraction under strict C99, so a
+strict-C99 helper cannot establish parity with the default-dialect v3 archive.
+The focused native kernel audit captures the executed helper binaries and their
+disassembly as well as the reference archive's code generation.
+
+Each candidate target/mode must pass exact CBR packets/ranges, selected stateful
+encode and fresh-state decode cases, dispatch and warm allocation checks.
+Compiled binaries verify CPU and OS support at startup; an
+unsupported target fails the prerequisite. Missing, skipped or failed required
+cases invalidate the corresponding comparison. Six E2E workloads and seven
+paired C workloads require complete rows and zero Go allocations.
+
+This matrix covers the default float core. Optional features and the complete
+53-symbol inventory keep their separately recorded v1 coverage. The tables above
+retain their measured revision and target until a complete compiler-target
+artifact supplies replacement data.
+
+On a native Linux amd64 host with AVX2/FMA, run:
+
+```sh
+bash scripts/benchmark_goamd64.sh /path/to/assembly-baseline /path/to/candidate /tmp/gopus-amd64-evidence
+```
+
+The separate checkouts identify the revisions under comparison. The output
+directory contains validation logs, build provenance, JSON and Markdown tables.
+The existing **Verify Production Exhaustive** manual workflow accepts
+`task=goamd64-benchmark` to run this command instead of release evidence, using
+`benchmark_baseline` as the assembly revision. Scheduled runs retain the release
+evidence task; routine PR CI has no compiler-target benchmark step.
+`task=goamd64-kernel-audit` selects the focused v3 FFT/MDCT oracle run.
+
 ## Per-symbol inventory
 
 Former symbols identify the pre-port assembly entry points. `0` in the

@@ -3,10 +3,18 @@ name: Verify Production Exhaustive
 on:
   workflow_dispatch:
     inputs:
-      goamd64_kernel_audit:
-        description: Run matched v3 FFT/MDCT oracles instead of release evidence
-        type: boolean
-        default: false
+      task:
+        description: Evidence to collect in the existing job
+        type: choice
+        default: release-evidence
+        options:
+          - release-evidence
+          - goamd64-kernel-audit
+          - goamd64-benchmark
+      benchmark_baseline:
+        description: Assembly baseline revision for the optional benchmark
+        type: string
+        default: 8ac93c851facc1146ffe248c943cbe619f13344d
   schedule:
     # Weekly on Monday at 07:00 UTC.
     - cron: "0 7 * * 1"
@@ -32,9 +40,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Checkout benchmark baseline
+        if: inputs.task == 'goamd64-benchmark'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.benchmark_baseline }}
+          path: tmp_check/goamd64-baseline
+
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
+          go-version: ${{ startsWith(inputs.task, 'goamd64-') && '1.27.1' || '' }}
           go-version-file: go.mod
           cache: true
 
@@ -58,19 +74,19 @@ jobs:
           sudo apt-get install -y --no-install-recommends ffmpeg opus-tools
 
       - name: Generate release evidence bundle
-        if: ${{ !inputs.goamd64_kernel_audit }}
+        if: ${{ !inputs.task || inputs.task == 'release-evidence' }}
         run: make release-evidence
 
       - name: Run optional GOAMD64 kernel audit
-        if: inputs.goamd64_kernel_audit
+        if: inputs.task == 'goamd64-kernel-audit'
         shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/goamd64-evidence"
+          mkdir -p "$RUNNER_TEMP/goamd64-evidence/helpers" "$RUNNER_TEMP/goamd64-scratch"
           { go version; cc --version; lscpu; git rev-parse HEAD; } > "$RUNNER_TEMP/goamd64-evidence/environment.txt"
           status=0
           for mode in nosimd simd; do
             env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
-              GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+              GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
               go test ./internal/celt -count=1 -v -timeout=15m \
               -run '^Test(KissFFT32ToScratchMatchesLibopusC|IMDCTOverlapWithPrevScratchF32MatchesLibopusC|IMDCTTransientInPlaceScratchF32MatchesLibopusC|MDCTForwardOverlapF32MatchesLibopusC|MDCTForwardShortBlocksMatchesLibopusC|MDCTForwardOverlapF32CELTSignalScaleMatchesLibopusC)$' \
               > "$RUNNER_TEMP/goamd64-evidence/$mode.log" 2>&1 || status=1
@@ -86,18 +102,42 @@ jobs:
               status=1
             fi
           done
+          shopt -s nullglob
+          helper_count=0
+          for helper in "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_celt_imdct*; do
+            if [[ ! -x "$helper" ]]; then continue; fi
+            name="$(basename "$helper")"
+            cp "$helper" "$RUNNER_TEMP/goamd64-evidence/helpers/$name"
+            objdump -d "$helper" > "$RUNNER_TEMP/goamd64-evidence/helpers/$name.disassembly.txt"
+            helper_count=$((helper_count + 1))
+          done
+          if [[ "$helper_count" -lt 2 ]]; then status=1; fi
           exit "$status"
 
       - name: Upload GOAMD64 kernel evidence
-        if: always() && inputs.goamd64_kernel_audit
+        if: always() && inputs.task == 'goamd64-kernel-audit'
         uses: actions/upload-artifact@v4
         with:
           name: goamd64-kernels-${{ github.run_id }}
           path: ${{ runner.temp }}/goamd64-evidence
           if-no-files-found: error
 
+      - name: Run optional GOAMD64 benchmark
+        if: inputs.task == 'goamd64-benchmark'
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_*goamd64*.py'
+          bash scripts/benchmark_goamd64.sh tmp_check/goamd64-baseline . "$RUNNER_TEMP/goamd64-benchmark"
+
+      - name: Upload GOAMD64 benchmark evidence
+        if: always() && inputs.task == 'goamd64-benchmark'
+        uses: actions/upload-artifact@v4
+        with:
+          name: goamd64-benchmark-${{ github.run_id }}
+          path: ${{ runner.temp }}/goamd64-benchmark
+          if-no-files-found: error
+
       - name: Upload release evidence artifact
-        if: always() && !inputs.goamd64_kernel_audit
+        if: always() && (!inputs.task || inputs.task == 'release-evidence')
         uses: actions/upload-artifact@v4
         with:
           name: release-evidence-${{ github.run_id }}
