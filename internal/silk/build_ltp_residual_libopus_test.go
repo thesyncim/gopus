@@ -91,15 +91,49 @@ func TestBuildLTPResidualLinkedKernelDiagnostic(t *testing.T) {
 		}
 
 		separateModel := makeLTPResidualSeparateModel(tc.oracle)
+		fusedModel := makeLTPResidualFusedModel(tc.oracle)
 		goDiff := firstLTPResidualDifference(goResidual, want.samples)
 		modelDiff := firstLTPResidualDifference(separateModel, want.samples)
+		fusedDiff := firstLTPResidualDifference(fusedModel, want.samples)
 		goModelDiff := firstLTPFloatDifference(goResidual, separateModel)
-		t.Logf("case %s: linked-C vs Go buildLTPResidual differences=%d/%d first=%s; C vs separate-product C-domain model=%d/%d first=%s; Go vs model=%d/%d first=%s",
+		t.Logf("case %s: linked-C vs Go buildLTPResidual differences=%d/%d first=%s; C vs separate-product C-domain model=%d/%d first=%s; C vs fused model=%d/%d first=%s; Go vs separate model=%d/%d first=%s",
 			tc.name,
 			goDiff.count, len(goResidual), goDiff.summary("Go", "C"),
 			modelDiff.count, len(separateModel), modelDiff.summary("model", "C"),
-			goModelDiff.count, len(goResidual), goModelDiff.summary("Go", "model"),
+			fusedDiff.count, len(fusedModel), fusedDiff.summary("model", "C"),
+			goModelDiff.count, len(goResidual), goModelDiff.summary("Go", "separate model"),
 		)
+		if modelDiff.count == 0 {
+			t.Fatalf("case %s did not distinguish the separate-product model from the linked C FMA kernel", tc.name)
+		}
+		if fusedDiff.count != 0 {
+			t.Fatalf("case %s fused model differs from linked C: %d/%d first=%s", tc.name,
+				fusedDiff.count, len(fusedModel), fusedDiff.summary("model", "C"))
+		}
+		if goDiff.count != 0 {
+			t.Fatalf("case %s buildLTPResidual differs from linked C: %d/%d first=%s", tc.name,
+				goDiff.count, len(goResidual), goDiff.summary("Go", "C"))
+		}
+		for i := range goResidual {
+			if !finiteLTPResidual(goResidual[i]) || !finiteLTPResidual(want.samples[i].residual) {
+				t.Fatalf("case %s sample %d is not finite: Go=%08x C=%08x", tc.name, i,
+					math.Float32bits(goResidual[i]), math.Float32bits(want.samples[i].residual))
+			}
+		}
+		if allocs := testing.AllocsPerRun(100, func() {
+			_ = encoder.buildLTPResidual(
+				tc.rawPitchBuffer,
+				tc.oracle.frameStart,
+				tc.gains,
+				tc.oracle.pitchLags,
+				tc.coefficients,
+				tc.oracle.numSubframes,
+				tc.oracle.subframeLength,
+				typeVoiced,
+			)
+		}); allocs != 0 {
+			t.Fatalf("case %s warmed buildLTPResidual allocations=%g, want 0", tc.name, allocs)
+		}
 	}
 }
 
@@ -294,6 +328,28 @@ func makeLTPResidualSeparateModel(input ltpResidualOracleInput) []float32 {
 				residual = round32(residual - product)
 			}
 			output[index] = round32(residual * input.invGains[subframe])
+			index++
+		}
+	}
+	return output
+}
+
+func makeLTPResidualFusedModel(input ltpResidualOracleInput) []float32 {
+	output := make([]float32, input.numSubframes*(input.subframeLength+input.preLength))
+	xStart := input.frameStart - input.preLength
+	outputLength := input.subframeLength + input.preLength
+	index := 0
+	for subframe := range input.numSubframes {
+		xBase := xStart + subframe*input.subframeLength
+		for sample := range outputLength {
+			xIndex := xBase + sample
+			residual := input.pitchBuffer[xIndex]
+			for tap := range ltpOrderConst {
+				lagIndex := xIndex - int(input.pitchLags[subframe]) + ltpOrderConst/2 - tap
+				coefficient := input.taps[subframe*ltpOrderConst+tap]
+				residual = silkLTPFNMADD32(coefficient, input.pitchBuffer[lagIndex], 1, residual)
+			}
+			output[index] = residual * input.invGains[subframe]
 			index++
 		}
 	}

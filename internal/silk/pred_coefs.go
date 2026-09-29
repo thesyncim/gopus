@@ -91,11 +91,11 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 					//   for j: LTP_res[i] -= B[j] * x_lag[...];
 					//   LTP_res[i] *= inv_gain;
 					res := x
-					res -= b0 * pitchBuf[lagBase+ltpOrderConst/2] * scale
-					res -= b1 * pitchBuf[lagBase+ltpOrderConst/2-1] * scale
-					res -= b2 * pitchBuf[lagBase+ltpOrderConst/2-2] * scale
-					res -= b3 * pitchBuf[lagBase+ltpOrderConst/2-3] * scale
-					res -= b4 * pitchBuf[lagBase+ltpOrderConst/2-4] * scale
+					res = silkLTPFNMADD32(b0, pitchBuf[lagBase+ltpOrderConst/2], scale, res)
+					res = silkLTPFNMADD32(b1, pitchBuf[lagBase+ltpOrderConst/2-1], scale, res)
+					res = silkLTPFNMADD32(b2, pitchBuf[lagBase+ltpOrderConst/2-2], scale, res)
+					res = silkLTPFNMADD32(b3, pitchBuf[lagBase+ltpOrderConst/2-3], scale, res)
+					res = silkLTPFNMADD32(b4, pitchBuf[lagBase+ltpOrderConst/2-4], scale, res)
 					ltpRes[outBase+i] = res * invGain
 				}
 			} else {
@@ -112,7 +112,7 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 						lagIdx := lagBase + (ltpOrderConst/2 - j)
 						bj := float32(ltpCoeffs[k][j]) / 128.0
 						if lagIdx >= 0 && lagIdx < pitchBufLen {
-							res -= bj * pitchBuf[lagIdx] * scale
+							res = silkLTPFNMADD32(bj, pitchBuf[lagIdx], scale, res)
 						}
 					}
 					ltpRes[outBase+i] = res * invGain
