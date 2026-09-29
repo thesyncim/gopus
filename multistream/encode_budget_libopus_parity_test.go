@@ -3,9 +3,9 @@ package multistream
 import (
 	"bytes"
 	"errors"
-	"github.com/thesyncim/gopus/internal/encoder"
 	"testing"
 
+	"github.com/thesyncim/gopus/internal/encoder"
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
@@ -152,6 +152,8 @@ func TestMultistreamEncodeTooSmallPreservesState(t *testing.T) {
 	}
 	enc.SetBitrate(384000)
 	enc.SetVBR(true)
+	// Match the explicit complexity passed to the C reference above.
+	enc.SetComplexity(10)
 	enc.SetVBRConstraint(true)
 	for _, capacity := range []int{0, 1, 6} {
 		packet, encodeErr := encodePacketMax(enc, pcm, frameSize, pcm, capacity)

@@ -11,6 +11,7 @@ func TestUpdateFrameActivityReusesFreshAnalysis(t *testing.T) {
 	const frameSize = 1920
 
 	enc := NewEncoder(48000, 1)
+	enc.SetComplexity(10)
 	pcmRes := make([]opusRes, frameSize)
 	for i := range pcmRes {
 		s := 0.25 * math.Sin(2*math.Pi*220*float64(i)/48000.0)
@@ -84,6 +85,7 @@ func TestLongHybridMultiframeReusesAnalysisCadence(t *testing.T) {
 	const frameSize = 1920
 
 	enc := NewEncoder(48000, 1)
+	enc.SetComplexity(10)
 	enc.SetMode(ModeHybrid)
 	enc.SetBandwidth(types.BandwidthSuperwideband)
 	enc.SetBitrate(48000)
