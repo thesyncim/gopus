@@ -116,13 +116,18 @@ class BenchmarkValidationTests(unittest.TestCase):
 
 class ReferenceValidationTests(unittest.TestCase):
     def test_binary_build_info_must_match_the_pinned_compiler(self):
-        info = "./candidate.test: go1.27.1\n\tbuild\tGOAMD64=v3\n\tbuild\tGOEXPERIMENT=simd\n"
+        info = "./candidate.test: go1.27.1-X:simd\n\tbuild\tGOAMD64=v3\n\tbuild\tGOEXPERIMENT=simd\n"
         self.assertEqual(extract_go_toolchain("go version go1.27.1 linux/amd64"), "go1.27.1")
         self.assertEqual(extract_go_toolchain("/tmp/go1.26.4/results/v3/test: go1.27.1"), "go1.27.1")
+        self.assertEqual(extract_go_toolchain("/tmp/test: go1.27.1-X:simd"), "go1.27.1")
         self.assertIsNone(extract_go_toolchain("/tmp/go1.27.1-results/v3/test"))
+        self.assertIsNone(extract_go_toolchain("/tmp/test: go1.27.1-X:unexpected"))
         self.assertEqual(validate_binary_build_info(info, "v3", "simd", "go1.27.1"), [])
         errors = validate_binary_build_info(info, "v3", "simd", "go1.25.0")
         self.assertTrue(any("binary Go toolchain=go1.27.1, want go1.25.0" in error for error in errors))
+        no_simd = info.replace("GOEXPERIMENT=simd", "GOEXPERIMENT=none")
+        errors = validate_binary_build_info(no_simd, "v3", "simd", "go1.27.1")
+        self.assertTrue(any("does not confirm GOEXPERIMENT=simd" in error for error in errors))
 
     def test_cbr_requires_mode_packet_count_and_exact_ranges(self):
         good = "strict paired CBR summary: variant=simd cases=19 exact_cases=19 packets=2175 packet_diffs=0 range_diffs=0"

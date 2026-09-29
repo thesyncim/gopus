@@ -39,7 +39,9 @@ BENCH_RE = re.compile(
     r"^(Benchmark[A-Za-z0-9_]+)(?:-(\d+))?\s+(\d+)\s+([0-9.eE+-]+)\s+ns/op\s+"
     r"(\d+)\s+B/op\s+(\d+)\s+allocs/op\s*$"
 )
-GO_TOOLCHAIN_RE = re.compile(r"\bgo[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:beta[0-9]+|rc[0-9]+)?(?:-[^\s]+)?\b")
+GO_TOOLCHAIN_RE = re.compile(
+    r"(go[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:beta[0-9]+|rc[0-9]+)?)(?:-X:simd)?"
+)
 
 
 def extract_go_toolchain(text: str) -> str | None:
@@ -53,8 +55,9 @@ def extract_go_toolchain(text: str) -> str | None:
             return None
         candidates = [version]
     for candidate in candidates:
-        if GO_TOOLCHAIN_RE.fullmatch(candidate):
-            return candidate
+        match = GO_TOOLCHAIN_RE.fullmatch(candidate)
+        if match:
+            return match.group(1)
     return None
 
 
