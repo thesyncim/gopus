@@ -48,7 +48,7 @@ func traceQEXTCELTSynthesisSequence(t *testing.T, packets [][]byte, targetStep, 
 		payload.U32(uint32(len(packet)))
 		payload.Raw(packet)
 	}
-	reader, err := libopustest.RunOracleVersion(bin, payload.Bytes(), "QEXT CELT synthesis trace", "GCSO", 2)
+	reader, err := libopustest.RunOracleVersion(bin, payload.Bytes(), "QEXT CELT synthesis trace", "GCSO", 3)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "QEXT CELT synthesis trace", err)
 	}
@@ -131,10 +131,48 @@ func traceQEXTCELTSynthesisSequence(t *testing.T, packets [][]byte, targetStep, 
 			trace.baseNorm[ch][i] = reader.Float32()
 		}
 	}
+	skipCELTSynthesisAntiCollapseTrace(t, reader, n, gotChannels)
 	if err := reader.ExpectConsumed(); err != nil {
 		t.Fatal(err)
 	}
 	return trace
+}
+
+// skipCELTSynthesisAntiCollapseTrace validates and consumes the helper's
+// anti-collapse section, which the QEXT stage comparisons do not use.
+func skipCELTSynthesisAntiCollapseTrace(t *testing.T, reader *libopustest.OracleReader, n, channels int) {
+	t.Helper()
+	calls := reader.U32()
+	seed := reader.U32()
+	normCount := reader.U32()
+	if err := reader.Err(); err != nil {
+		t.Fatalf("selected C anti-collapse trace header: %v", err)
+	}
+	if calls > 1 {
+		t.Fatalf("selected C anti-collapse calls=%d exceeds one frame call", calls)
+	}
+	if calls == 1 && normCount != uint32(n) {
+		t.Fatalf("selected C anti-collapse norm count=%d, want trace N=%d", normCount, n)
+	}
+	if calls == 0 && (normCount != 0 || seed != 0) {
+		t.Fatalf("selected C absent anti-collapse trace has norms/seed=%d/%08x", normCount, seed)
+	}
+	for range 2 * channels * int(normCount) {
+		_ = reader.Float32()
+	}
+	maskBands := reader.U32()
+	maskCount := reader.U32()
+	if err := reader.Err(); err != nil {
+		t.Fatalf("selected C anti-collapse norm trace: %v", err)
+	}
+	if calls == 0 && (maskBands != 0 || maskCount != 0) {
+		t.Fatalf("selected C absent anti-collapse trace has bands/masks=%d/%d", maskBands, maskCount)
+	}
+	if calls == 1 && (maskBands == 0 || maskBands > 64 || maskCount != uint32(channels)*maskBands) {
+		t.Fatalf("selected C anti-collapse mask bands/count=%d/%d, want 1..64 bands and channels*bands", maskBands, maskCount)
+	}
+	_ = reader.Bytes(int(maskCount))
+	_ = reader.Bytes(int(maskCount))
 }
 
 func traceQEXTCELTSynthesis(t *testing.T, packet []byte) qextCELTSynthesisTrace {
