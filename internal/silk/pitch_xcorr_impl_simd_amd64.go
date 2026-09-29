@@ -39,7 +39,7 @@ func celtPitchXcorrFloatImpl(x, y []float32, out []float32, length, maxPitch int
 
 // innerProductF32SSEOrder reproduces libopus x86/pitch_sse.c
 // celt_inner_prod_sse: one 4-lane MULPS/ADDPS accumulator, the
-// (a0+a2)+(a1+a3) reduction, and a separate multiply/add scalar tail.
+// (a0+a2)+(a1+a3) reduction, and the target's MAC16_16 scalar tail.
 func innerProductF32SSEOrder(x, y []float32, length int) float32 {
 	x = x[:length]
 	y = y[:length]
@@ -54,7 +54,7 @@ func innerProductF32SSEOrder(x, y []float32, length int) float32 {
 	}
 	sum := (acc.GetElem(0) + acc.GetElem(2)) + (acc.GetElem(1) + acc.GetElem(3))
 	for ; i < length; i++ {
-		sum += noFMA32(x[i], y[i])
+		sum = pitchXcorrMAC32(sum, x[i], y[i])
 	}
 	if sum != sum {
 		return opusmath.PitchXcorrSSENaNReplay(x, y, length)

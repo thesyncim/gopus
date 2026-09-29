@@ -12,7 +12,7 @@ import (
 
 // innerProdFloat32SSEOrder reproduces libopus x86/pitch_sse.c
 // celt_inner_prod_sse: one 4-lane MULPS/ADDPS accumulator, the
-// (a0+a2)+(a1+a3) reduction, and a separate multiply/add scalar tail. The
+// (a0+a2)+(a1+a3) reduction, and the target's MAC16_16 scalar tail. The
 // archsimd lanes run exactly that operation sequence, so the result is
 // bit-identical to innerProdFloat32SSEOrderScalar.
 func innerProdFloat32SSEOrder(x, y []float32, length int) float32 {
@@ -34,7 +34,7 @@ func innerProdFloat32SSEOrder(x, y []float32, length int) float32 {
 	}
 	sum := add32(add32(acc.GetElem(0), acc.GetElem(2)), add32(acc.GetElem(1), acc.GetElem(3)))
 	for ; i < length; i++ {
-		sum = add32(sum, mul32(x[i], y[i]))
+		sum = pitchXcorrSSETailMAC32(sum, x[i], y[i])
 	}
 	if sum != sum {
 		return opusmath.PitchXcorrSSENaNReplay(x, y, length)
@@ -99,7 +99,7 @@ func innerProdSSEOrderFinish(a archsimd.Float32x4, x, y []float32, i int) float3
 	sum := add32(add32(a.GetElem(0), a.GetElem(2)), add32(a.GetElem(1), a.GetElem(3)))
 	y = y[:len(x)]
 	for j := i; j < len(x); j++ {
-		sum = add32(sum, mul32(x[j], y[j]))
+		sum = pitchXcorrSSETailMAC32(sum, x[j], y[j])
 	}
 	if math.Float32bits(sum)&0x7fffffff > 0x7f800000 {
 		sum = opusmath.PitchXcorrSSENaNReplay(x, y, len(x))

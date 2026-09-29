@@ -100,8 +100,8 @@ func probeLibopusSILKPitchXcorrHelper(binPath string, cases []libopusSILKPitchXc
 
 func TestSILKPitchXcorrNonContractingScalarDiagnostic(t *testing.T) {
 	// This helper calls scalar C xcorr with contraction off to diagnose expression
-	// order. Production scalar matching uses TestSILKPitchXcorrMatchesLibopusOracle;
-	// production SIMD and NEON paths use paired architecture-specific references.
+	// order. Keep its Go comparison independent from the target-selected production
+	// MAC so this gate continues to cover the two-rounding source expression.
 	libopustest.RequireOracle(t)
 	cases := silkPitchXcorrLibopusCases()
 	want, err := probeLibopusSILKPitchXcorr(cases)
@@ -111,8 +111,7 @@ func TestSILKPitchXcorrNonContractingScalarDiagnostic(t *testing.T) {
 
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := make([]float32, tc.maxPitch)
-			celtPitchXcorrFloatImplScalar(tc.x, tc.y, got, tc.length, tc.maxPitch)
+			got := silkPitchXcorrNonContractingReference(tc.x, tc.y, tc.length, tc.maxPitch)
 			if len(got) != len(want[i]) {
 				t.Fatalf("xcorr len=%d want %d", len(got), len(want[i]))
 			}
@@ -128,6 +127,18 @@ func TestSILKPitchXcorrNonContractingScalarDiagnostic(t *testing.T) {
 	}
 }
 
+func silkPitchXcorrNonContractingReference(x, y []float32, length, maxPitch int) []float32 {
+	out := make([]float32, maxPitch)
+	for pitch := range maxPitch {
+		var sum float32
+		for i := range length {
+			sum = round32(sum + noFMA32(x[i], y[pitch+i]))
+		}
+		out[pitch] = sum
+	}
+	return out
+}
+
 func silkPitchXcorrLibopusCases() []libopusSILKPitchXcorrCase {
 	return []libopusSILKPitchXcorrCase{
 		{name: "short_tail", length: 7, maxPitch: 5, x: silkPitchXcorrOracleSignal(7, 0x11111111), y: silkPitchXcorrOracleSignal(12, 0x22222222)},
@@ -138,8 +149,7 @@ func silkPitchXcorrLibopusCases() []libopusSILKPitchXcorrCase {
 }
 
 func pitchXcorrFloatMatches(got, want float32) bool {
-	// The scalar pitch-xcorr kernels route every product through noFMA32, so the
-	// Go scalar path matches this non-contracting C diagnostic.
+	// The non-contracting reference and C diagnostic compare every result bit.
 	return math.Float32bits(got) == math.Float32bits(want)
 }
 

@@ -246,8 +246,8 @@ func innerProdFloat32SSEOrder10(xp, yp unsafe.Pointer) float32 {
 	acc2 = noFMA32Add(acc2, noFMA32Mul(x6, y6))
 	acc3 = noFMA32Add(acc3, noFMA32Mul(x7, y7))
 	sum := noFMA32Add(noFMA32Add(acc0, acc2), noFMA32Add(acc1, acc3))
-	sum = noFMA32Add(sum, noFMA32Mul(x8, y8))
-	sum = noFMA32Add(sum, noFMA32Mul(x9, y9))
+	sum = pitchXcorrSSETailMAC32(sum, x8, y8)
+	sum = pitchXcorrSSETailMAC32(sum, x9, y9)
 	if sum != sum {
 		return opusmath.PitchXcorrSSENaNReplay(
 			unsafe.Slice((*float32)(xp), 10), unsafe.Slice((*float32)(yp), 10), 10)

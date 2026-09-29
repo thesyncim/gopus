@@ -100,7 +100,9 @@ func PitchXcorrSSENaNReplay(x, y []float32, length int) float32 {
 	}
 	sum := x86PitchAdd(x86PitchAdd(lanes[2], lanes[0]), x86PitchAdd(lanes[3], lanes[1]))
 	for tail := 0; i < length; i, tail = i+1, tail+1 {
-		if tail == 2 {
+		if x86PitchSSETailUsesFMA {
+			sum = x86PitchFMA231(x[i], y[i], sum)
+		} else if tail == 2 {
 			sum = x86PitchAdd(sum, x86PitchMul(y[i], x[i]))
 		} else {
 			sum = x86PitchAdd(sum, x86PitchMul(x[i], y[i]))

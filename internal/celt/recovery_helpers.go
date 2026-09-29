@@ -1285,10 +1285,10 @@ func innerProdFloat32SSEOrderScalar(x, y []float32, length int) float32 {
 	if length <= 0 {
 		return 0
 	}
-	// Slicing to length, advancing the slices (prove cannot reason about
-	// stride-4 counters), and using scalar accumulators keeps the 4 lanes in
-	// FP registers with no bounds checks; the multiply/add sequence and the
-	// horizontal reduction order are unchanged.
+	// Slicing to length, advancing the slices, and using scalar accumulators
+	// keeps the four SSE lanes in FP registers with no bounds checks. The vector
+	// body and horizontal reduction retain SSE order; the remainder follows the
+	// target's scalar MAC16_16 operation.
 	x = x[:length]
 	y = y[:length]
 	var acc0, acc1, acc2, acc3 float32
@@ -1304,7 +1304,7 @@ func innerProdFloat32SSEOrderScalar(x, y []float32, length int) float32 {
 	xy1 := noFMA32Add(acc1, acc3)
 	sum := noFMA32Add(xy0, xy1)
 	for i := 0; i < len(x) && i < len(y); i++ {
-		sum = noFMA32Add(sum, noFMA32Mul(x[i], y[i]))
+		sum = pitchXcorrSSETailMAC32(sum, x[i], y[i])
 	}
 	return sum
 }
