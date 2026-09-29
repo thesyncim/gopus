@@ -48,13 +48,14 @@ measured revisions and do not stand in for this patch.
 ## Findings and verification
 
 The opt-in [compiler-target audit](go-simd-kernel-evidence.md#amd64-compiler-targets)
-at `ede43639` (native run `36553888841`) passes the six FFT/MDCT C suites and
-their unit checks in both v3 modes. Exact SILK LPC/window/gain checks and
-scalar and SIMD pitch checks still fail. In the 2,175-packet CBR matrix, scalar
-matches all packets and ranges in 8 of 19 cases, with 432 packet and 382 range
-differences overall; SIMD is exact in 1 of 19 cases, with 681 packet and 517
-range differences. The full encode/decode matrix has not been rerun, so byte
-parity across compiler targets is not established.
+at `bc5ddaeb` passes all selected default-float v1/v2 scalar/SIMD checks. At v3,
+scalar encode/decode cases pass 40/60 and 8/24; SIMD cases pass 24/60 and 6/24.
+CBR exact cases are 8/19 scalar and 1/19 SIMD, with 432/382 and 681/517
+packet/range differences out of 2,175 respectively. All warm allocation checks
+pass. At `ede43639`, all six FFT/MDCT live-C suites and selected unit checks
+pass in both v3 modes; SILK LPC/window/gain and scalar/SIMD pitch comparisons
+still expose exact arithmetic differences. Full byte parity across compiler
+targets is not established.
 
 | Priority | Surface | Finding | Current evidence |
 |---|---|---|---|

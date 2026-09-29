@@ -322,7 +322,7 @@ strict-C99 helper cannot establish parity with the default-dialect v3 archive.
 The focused native kernel audit captures the executed helper binaries and their
 disassembly as well as the reference archive's code generation.
 
-The [native target audit at `f972c57f`](https://github.com/thesyncim/gopus/actions/runs/36550398052)
+The [native target audit at `bc5ddaeb`](https://github.com/thesyncim/gopus/actions/runs/36555425559)
 uses Go 1.27.1 and GCC 13.3. Its bounded default-float selection records:
 
 | Target / Go lane | Encode cases exact | Decode cases exact | CBR cases exact | CBR packet differences / 2,175 | CBR range differences / 2,175 | Warm allocation checks |
@@ -331,8 +331,8 @@ uses Go 1.27.1 and GCC 13.3. Its bounded default-float selection records:
 | v1 / SIMD | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
 | v2 / scalar | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
 | v2 / SIMD | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
-| v3 / scalar | 20/60 | 6/24 | 0/19 | 652 | 485 | Pass |
-| v3 / SIMD | 20/60 | 6/24 | 0/19 | 746 | 552 | Pass |
+| v3 / scalar | 40/60 | 8/24 | 8/19 | 432 | 382 | Pass |
+| v3 / SIMD | 24/60 | 6/24 | 1/19 | 681 | 517 | Pass |
 
 The [native follow-up at `ede43639`](https://github.com/thesyncim/gopus/actions/runs/36553888841)
 passes all six FFT/MDCT live-C suites in each v3 lane (64 leaf cases per lane,
@@ -342,14 +342,10 @@ and the required CPU features. Exact pitch comparisons still expose scalar
 contraction and SIMD underflow, signed-zero and NaN-tail differences. The SILK
 LPC analysis filter, sine window and gain-processing oracles also fail.
 
-| v3 lane at `ede43639` | CBR cases exact | Packet differences / 2,175 | Range differences / 2,175 |
-|---|---:|---:|---:|
-| scalar | 8/19 | 432 | 382 |
-| SIMD | 1/19 | 681 | 517 |
-
-This focused run does not repeat the public encode/decode matrix or produce
-performance measurements. The table at `f972c57f` retains that revision's
-results; the FFT/MDCT proof does not establish complete packet or PCM parity.
+The full target matrix at `bc5ddaeb` confirms the packet, PCM and CBR results
+listed above, with all 15 warm allocation checks passing per lane and no
+skipped exactness cases. It emits no timing table because exactness checks
+fail. The FFT/MDCT proof does not establish complete packet or PCM parity.
 Open exact failures block v3 exactness and timing claims. Passing v1/v2
 selections establish only the listed coverage, not universal byte parity.
 

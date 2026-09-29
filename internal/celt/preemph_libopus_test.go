@@ -1,6 +1,7 @@
 package celt
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -55,6 +56,9 @@ func probeLibopusCELTPreemphasis(cases []libopusCELTPreemphasisCase) ([]libopusC
 		return nil, err
 	}
 	count := reader.Count(len(cases))
+	if count != len(cases) {
+		return nil, fmt.Errorf("CELT preemphasis oracle returned %d cases, want %d", count, len(cases))
+	}
 	totalFloats := 0
 	for _, tc := range cases {
 		totalFloats += len(tc.pcm) + tc.channels

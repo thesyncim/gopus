@@ -104,6 +104,9 @@ func TestCELTBandEnergyMatchesLiveLibopus(t *testing.T) {
 		t.Fatalf("libopus CELT inner product dispatch=%d (arch=%d flags=%#x), Go dispatch=%d; oracle lanes must match", dispatch, arch, flags, want)
 	}
 	count := reader.Count(len(cases))
+	if count != len(cases) {
+		t.Fatalf("CELT band-energy oracle returned %d cases, want %d", count, len(cases))
+	}
 	for i := 0; i < count; i++ {
 		tc := cases[i]
 		if got := reader.U32(); got != uint32(tc.frameSize) {
