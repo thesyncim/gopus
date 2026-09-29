@@ -7,8 +7,11 @@ func innerProductF32Acc(a, b []float32, length int) float32 {
 	_ = a[length-1] // BCE hint
 	_ = b[length-1] // BCE hint
 	var result float32
+	// celt_pitch_xcorr_c's non-unrolled path calls celt_inner_prod_c
+	// (celt/pitch.c:291-296; celt/pitch.h:159-166). GCC v3 emits a rounded
+	// product followed by an add here; the four-lag xcorr kernel uses FMAs.
 	for i := range length {
-		result = pitchXcorrMAC32(result, a[i], b[i])
+		result += noFMA32(a[i], b[i])
 	}
 	return result
 }
