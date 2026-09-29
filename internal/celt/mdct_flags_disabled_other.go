@@ -1,8 +1,10 @@
-//go:build !arm64
+//go:build !arm64 && !amd64.v3
 
 package celt
 
 const mdctUseFMALikeMixEnabled = false
+const mdctUseFusedForwardPreRotate = false
+const mdctUseNegFoldSecondProduct = false
 
 // imdctPreRotate is the libopus celt/mdct.c clt_mdct_backward_c() pre-rotation
 // as gcc builds it off arm64: every product is rounded on its own.

@@ -40,6 +40,29 @@ func TestMDCTFMALikeMixUsesFusedSourceShape(t *testing.T) {
 	}
 }
 
+func TestMDCTNegativeForwardFoldUsesTargetContractionOrder(t *testing.T) {
+	if !mdctUseFMALikeMixEnabled {
+		t.Skip("contracted MDCT fold is arch-specific")
+	}
+
+	a := float32(861792.375)
+	b := float32(-8019820.5)
+	c := float32(0.598416567)
+	d := float32(0.441076219)
+	v3Want := float32(math.FMA(float64(b), float64(d), -float64(mdctMul(a, c))))
+	armWant := float32(math.FMA(-float64(a), float64(c), float64(mdctMul(b, d))))
+	if math.Float32bits(v3Want) == math.Float32bits(armWant) {
+		t.Fatal("fixture does not distinguish the AMD64 and arm64 contraction orders")
+	}
+	want := armWant
+	if mdctUseNegFoldSecondProduct {
+		want = v3Want
+	}
+	if got := mdctNegMulAddMixEncode(a, b, c, d); math.Float32bits(got) != math.Float32bits(want) {
+		t.Fatalf("negative fold=%08x want %08x", math.Float32bits(got), math.Float32bits(want))
+	}
+}
+
 func mdctForwardOverlapLegacyStagedReference(samples []float32, overlap int) []float32 {
 	if len(samples) == 0 {
 		return nil

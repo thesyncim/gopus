@@ -5,6 +5,8 @@ package celt
 // Match the pinned libopus arm64 float-path accumulation pattern on long-frame
 // CELT MDCT mixes. This closes real packet-decision drift on parity fixtures.
 const mdctUseFMALikeMixEnabled = true
+const mdctUseFusedForwardPreRotate = true
+const mdctUseNegFoldSecondProduct = false
 
 // imdctPreRotate mirrors the clang -ffp-contract=on float path of libopus
 // celt/mdct.c clt_mdct_backward_c() pre-rotation

@@ -13,8 +13,8 @@ package celt
 //	out[yOut0+i] = mdctMulSubMix(x2, x1, w2, w1)
 //	out[xOut0-i] = mdctMulAddMix(x2, x1, w1, w2)
 //
-// The mix helpers select the fused shape on arm64 and the separately rounded
-// products elsewhere. The SIMD builds supply Go vector versions. Each
+// The mix helpers select the fused shape on arm64 and AMD64 v3 and separately
+// rounded products on other targets. The SIMD builds supply Go vector versions. Each
 // iteration reads its x1 and x2 before writing, so xsrc may alias out.
 func imdctTDACWindowScalar(out, xsrc, window []float32, yOut0, xOut0, xSrc0, wBwd0, count int) {
 	yp := yOut0

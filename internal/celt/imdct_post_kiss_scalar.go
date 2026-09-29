@@ -1,10 +1,10 @@
 package celt
 
 // imdctPostRotateF32FromKissScalar is the clt_mdct_backward_c() post-rotation
-// of libopus celt/mdct.c. On arm64 the float path contracts re*t0 + im*t1 into
-// single-rounding FMADDS; mdctMulAddMix/mdctMulSubMix reproduce that fused
-// shape when mdctUseFMALikeMixEnabled is set (arm64) and stay split elsewhere
-// to match the corresponding scalar C expression on each target.
+// of libopus celt/mdct.c. The float paths on arm64 and AMD64 v3 contract the
+// first source product and round the second; mdctMulAddMix/mdctMulSubMix
+// reproduce that shape when mdctUseFMALikeMixEnabled is set. Other targets
+// keep the separately rounded products.
 //
 // The rotation reads each fft[] entry exactly once and writes only buf[] (the
 // two are distinct, non-aliasing buffers), so it folds the libopus "copy fft

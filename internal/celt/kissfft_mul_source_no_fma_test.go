@@ -10,12 +10,23 @@ import (
 
 //go:noinline
 func kissMulAddSourceBeforeInline(a, b, c, d float32) float32 {
+	if kissFFTTargetV3FMA {
+		return fma32(a, b, noFMA32Mul(c, d))
+	}
 	return a*b + c*d
 }
 
 //go:noinline
 func kissMulSubSourceBeforeInline(a, b, c, d float32) float32 {
+	if kissFFTTargetV3FMA {
+		return fma32(a, b, -noFMA32Mul(c, d))
+	}
 	return a*b - c*d
+}
+
+//go:noinline
+func kissMulSubSourceNoInlineForTest(a, b, c, d float32) (float32, bool) {
+	return kissMulSubSource(a, b, c, d)
 }
 
 func TestKissMulSourceInliningPreservesScalarOrder(t *testing.T) {
@@ -74,6 +85,15 @@ func assertKissMulSubSourceBits(t *testing.T, a, b, c, d float32) {
 func assertKissMulSourceResult(t *testing.T, op string, got float32, needsFallback bool, want float32, fallback func() float32) {
 	t.Helper()
 	gotBits, wantBits := math.Float32bits(got), math.Float32bits(want)
+	if kissFFTTargetV3FMA {
+		if needsFallback {
+			t.Fatalf("%s requested a non-finite fallback on the fused target", op)
+		}
+		if gotBits != wantBits {
+			t.Fatalf("%s fused result=%08x want %08x", op, gotBits, wantBits)
+		}
+		return
+	}
 	wantIsNaN := wantBits&0x7fffffff > 0x7f800000
 	if needsFallback != wantIsNaN {
 		t.Fatalf("%s exceptional flag=%t for result %08x; want %t for %08x", op, needsFallback, gotBits, wantIsNaN, wantBits)
@@ -89,5 +109,23 @@ func assertKissMulSourceResult(t *testing.T, op string, got float32, needsFallba
 	}
 	if fallbackBits := math.Float32bits(fallback()); fallbackBits != wantBits {
 		t.Fatalf("%s exceptional fallback=%08x want exact legacy bits %08x", op, fallbackBits, wantBits)
+	}
+}
+
+func TestKissMulSourceContractionWitness(t *testing.T) {
+	a := math.Float32frombits(0xbf661f26)
+	b := math.Float32frombits(0x3f7ffa63)
+	c := math.Float32frombits(0xbe859cfc)
+	d := math.Float32frombits(0xbc5675bf)
+	got, exceptional := kissMulSubSourceNoInlineForTest(a, b, c, d)
+	if exceptional {
+		t.Fatal("finite C_MUL witness requested a non-finite fallback")
+	}
+	wantBits := uint32(0xbf66f9f8)
+	if !kissFFTTargetV3FMA {
+		wantBits = 0xbf66f9f7
+	}
+	if gotBits := math.Float32bits(got); gotBits != wantBits {
+		t.Fatalf("kissMulSubSource witness=%08x, want %08x", gotBits, wantBits)
 	}
 }

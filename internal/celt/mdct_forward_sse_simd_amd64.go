@@ -92,12 +92,20 @@ func mdctPostTwiddleSSE(coeffs []float32, fftStage []kissCpx, trig []float32, n2
 		t1F := loadF32x4(unsafe.Add(tp, 4*(n4+i)))
 		yrF := imF.Mul(t1F).Sub(reF.Mul(t0F))
 		yiF := reF.Mul(t1F).Add(imF.Mul(t0F))
+		if mdctUseFMALikeMixEnabled {
+			yrF = imF.MulAdd(t1F, reF.Mul(t0F).Neg())
+			yiF = reF.MulAdd(t1F, imF.Mul(t0F))
+		}
 
 		reM, imM := mdctLoadCpx4(unsafe.Add(fp, 8*m))
 		t0M := loadF32x4(unsafe.Add(tp, 4*m))
 		t1M := loadF32x4(unsafe.Add(tp, 4*(n4+m)))
 		yrM := imM.Mul(t1M).Sub(reM.Mul(t0M))
 		yiM := reM.Mul(t1M).Add(imM.Mul(t0M))
+		if mdctUseFMALikeMixEnabled {
+			yrM = imM.MulAdd(t1M, reM.Mul(t0M).Neg())
+			yiM = reM.MulAdd(t1M, imM.Mul(t0M))
+		}
 
 		low := unsafe.Add(cp, 4*2*i)
 		rYiM := yiM.ToBits().PermuteScalars(3, 2, 1, 0)
@@ -146,10 +154,9 @@ func mdctRotateStore(sp unsafe.Pointer, n int, br []int, t0, t1, s4, re, im arch
 }
 
 // mdctLeadFoldSSE is clt_mdct_forward_c's leading windowed fold and
-// pre-rotation for 4*blocks outputs from i0: re = s[xp1+n2+2k]*w[wp2-2k] +
-// s[xp2-2k]*w[wp1+2k] and im = s[xp1+2k]*w[wp1+2k] -
-// s[xp2-n2-2k]*w[wp2-2k], every product rounded before the sum, as
-// mdctMulAddMixEncode and mdctMulSubMixEncode evaluate them on amd64. The
+// pre-rotation for 4*blocks outputs from i0. AMD64 v3 fuses the first source
+// product and rounds the second for each fold output; AMD64 v1/v2 round both
+// products. The SIMD pre-rotation rounds both products on every target. The
 // loads read samples[xp1+n2 : xp1+n2+8*blocks], samples[xp2-n2-8*blocks+1 :
 // xp2+1], window[wp1 : wp1+8*blocks] and window[wp2-8*blocks+1 : wp2+1].
 //
@@ -179,16 +186,22 @@ func mdctLeadFoldSSE(fftStage []kissCpx, bitrev []int, samples, window, trig []f
 		wD := mdctEvenDesc(unsafe.Add(wp, 4*(wp2-d-7)))
 		re := a.Mul(wD).Add(bv.Mul(wC))
 		im := a2.Mul(wC).Sub(b2.Mul(wD))
+		if mdctUseFMALikeMixEnabled {
+			// clt_mdct_forward_c() contracts the first source product and
+			// rounds the second product before the add/subtract.
+			re = a.MulAdd(wD, bv.Mul(wC))
+			im = a2.MulAdd(wC, b2.Mul(wD).Neg())
+		}
 		i := i0 + 4*b
 		mdctRotateStore(fp, n, br[4*b:], loadF32x4(unsafe.Add(tp, 4*i)), loadF32x4(unsafe.Add(tp, 4*(n4+i))), s4, re, im)
 	}
 }
 
 // mdctTailFoldSSE is clt_mdct_forward_c's trailing windowed fold and
-// pre-rotation for 4*blocks outputs from i0: re = s[xp2-2k]*w[wp2-2k] -
-// s[xp1-n2+2k]*w[wp1+2k] and im = s[xp1+2k]*w[wp2-2k] +
-// s[xp2+n2-2k]*w[wp1+2k], every product rounded before the sum, as
-// mdctNegMulAddMixEncode and mdctMulAddMixEncode evaluate them on amd64. The
+// pre-rotation for 4*blocks outputs from i0. AMD64 v3 contracts the second
+// source product for the real fold output and the first for the imaginary
+// output; AMD64 v1/v2 round both fold products. The SIMD pre-rotation rounds
+// both products on every target. The
 // loads read samples[xp1-n2 : xp1+8*blocks], samples[xp2-8*blocks+1 :
 // xp2+n2+1], window[wp1 : wp1+8*blocks] and window[wp2-8*blocks+1 : wp2+1].
 //
@@ -219,6 +232,12 @@ func mdctTailFoldSSE(fftStage []kissCpx, bitrev []int, samples, window, trig []f
 		wD := mdctEvenDesc(unsafe.Add(wp, 4*(wp2-d-7)))
 		re := bv.Mul(wD).Sub(a3.Mul(wC))
 		im := a2.Mul(wD).Add(b4.Mul(wC))
+		if mdctUseFMALikeMixEnabled {
+			// The leading minus in the C expression contracts with the second
+			// product; the other output fuses its first source product.
+			re = bv.MulAdd(wD, a3.Mul(wC).Neg())
+			im = a2.MulAdd(wD, b4.Mul(wC))
+		}
 		i := i0 + 4*b
 		mdctRotateStore(fp, n, br[4*b:], loadF32x4(unsafe.Add(tp, 4*i)), loadF32x4(unsafe.Add(tp, 4*(n4+i))), s4, re, im)
 	}

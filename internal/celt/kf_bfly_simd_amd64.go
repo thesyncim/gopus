@@ -59,17 +59,17 @@ func kfBfly5InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 			s9r, s9i := s2r.Sub(s3r), s2i.Sub(s3i)
 
 			bflyStoreCpx4AMD64(p0, s0r.Add(s7r.Add(s8r)), s0i.Add(s7i.Add(s8i)))
-			s5r := s0r.Add(s7r.Mul(yar).Add(s8r.Mul(ybr)))
-			s5i := s0i.Add(s7i.Mul(yar).Add(s8i.Mul(ybr)))
-			s6r := s10i.Mul(yai).Add(s9i.Mul(ybi))
-			s6i := negF32x4AVX(s10r.Mul(yai).Add(s9r.Mul(ybi)))
+			s5r := s0r.Add(bflyMulAddSource4AMD64(s7r, yar, s8r, ybr))
+			s5i := s0i.Add(bflyMulAddSource4AMD64(s7i, yar, s8i, ybr))
+			s6r := bflyMulAddSource4AMD64(s10i, yai, s9i, ybi)
+			s6i := negF32x4AVX(bflyMulAddSource4AMD64(s10r, yai, s9r, ybi))
 			bflyStoreCpx4AMD64(p1, s5r.Sub(s6r), s5i.Sub(s6i))
 			bflyStoreCpx4AMD64(p4, s5r.Add(s6r), s5i.Add(s6i))
 
-			s11r := s0r.Add(s7r.Mul(ybr).Add(s8r.Mul(yar)))
-			s11i := s0i.Add(s7i.Mul(ybr).Add(s8i.Mul(yar)))
-			s12r := s9i.Mul(yai).Sub(s10i.Mul(ybi))
-			s12i := s10r.Mul(ybi).Sub(s9r.Mul(yai))
+			s11r := s0r.Add(bflyMulAddSource4AMD64(s7r, ybr, s8r, yar))
+			s11i := s0i.Add(bflyMulAddSource4AMD64(s7i, ybr, s8i, yar))
+			s12r := bflyMulSubSource4AMD64(s9i, yai, s10i, ybi)
+			s12i := bflyMulSubSource4AMD64(s10r, ybi, s9r, yai)
 			bflyStoreCpx4AMD64(p2, s11r.Add(s12r), s11i.Add(s12i))
 			bflyStoreCpx4AMD64(p3, s11r.Sub(s12r), s11i.Sub(s12i))
 		}
@@ -102,13 +102,15 @@ func kfBfly4InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 			b2r, b2i := bflyLoadCpx4AMD64(p2)
 			b3r, b3i := bflyLoadCpx4AMD64(p3)
 
-			s0r, s0i := bflyMulSource4AMD64(b1r, b1i, w1r, w1i)
-			s1r, s1i := bflyMulSource4AMD64(b2r, b2i, w2r, w2i)
-			s2r, s2i := bflyMulSource4AMD64(b3r, b3i, w3r, w3i)
+			s0ur, s0ui := bflyMulSource4UnfusedAMD64(b1r, b1i, w1r, w1i)
+			s1r, s1i := bflyMulSource4UnfusedAMD64(b2r, b2i, w2r, w2i)
+			s2ur, s2ui := bflyMulSource4UnfusedAMD64(b3r, b3i, w3r, w3i)
+			s0fr, s0fi := bflyMulSource4FusedAMD64(b1r, b1i, w1r, w1i)
+			s2fr, s2fi := bflyMulSource4FusedAMD64(b3r, b3i, w3r, w3i)
 			s5r, s5i := f0r.Sub(s1r), f0i.Sub(s1i)
 			f0r, f0i = f0r.Add(s1r), f0i.Add(s1i)
-			s3r, s3i := s0r.Add(s2r), s0i.Add(s2i)
-			s4r, s4i := s0r.Sub(s2r), s0i.Sub(s2i)
+			s3r, s3i := s0ur.Add(s2ur), s0ui.Add(s2ui)
+			s4r, s4i := s0fr.Sub(s2fr), s0fi.Sub(s2fi)
 			out2r, out2i := f0r.Sub(s3r), f0i.Sub(s3i)
 			out0r, out0i := f0r.Add(s3r), f0i.Add(s3i)
 			out1r, out1i := s5r.Add(s4i), s5i.Sub(s4r)
@@ -149,7 +151,7 @@ func kfBfly3InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 			s2r, s2i := bflyMulSource4AMD64(b2r, b2i, w2r, w2i)
 			s3r, s3i := s1r.Add(s2r), s1i.Add(s2i)
 			s0r, s0i := s1r.Sub(s2r), s1i.Sub(s2i)
-			f1r, f1i := a0r.Sub(half.Mul(s3r)), a0i.Sub(half.Mul(s3i))
+			f1r, f1i := bflyHalfSub4AMD64(a0r, s3r, half), bflyHalfSub4AMD64(a0i, s3i, half)
 			s0r, s0i = s0r.Mul(epi3i), s0i.Mul(epi3i)
 			bflyStoreCpx4AMD64(p0, a0r.Add(s3r), a0i.Add(s3i))
 			bflyStoreCpx4AMD64(p2, f1r.Add(s0i), f1i.Sub(s0r))
@@ -209,11 +211,5 @@ func bflyGatherTwiddle4AMD64(wBase unsafe.Pointer, start, stride int) (re, im ar
 	t3 := *(*kissCpx)(unsafe.Add(wBase, (start+3*stride)*8))
 	re = broadcastF32x4Arch(t0.r).SetElem(1, t1.r).SetElem(2, t2.r).SetElem(3, t3.r)
 	im = broadcastF32x4Arch(t0.i).SetElem(1, t1.i).SetElem(2, t2.i).SetElem(3, t3.i)
-	return re, im
-}
-
-func bflyMulSource4AMD64(ar, ai, wr, wi archsimd.Float32x4) (re, im archsimd.Float32x4) {
-	re = ar.Mul(wr).Sub(ai.Mul(wi))
-	im = ar.Mul(wi).Add(ai.Mul(wr))
 	return re, im
 }

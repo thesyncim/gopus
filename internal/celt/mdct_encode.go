@@ -14,23 +14,20 @@ func mdctMul(a, b float32) float32 {
 }
 
 func mdctMulAddMix(a, b, c, d float32) float32 {
-	// Mirror the clang -ffp-contract=on float path of libopus celt/mdct.c
-	// clt_mdct_backward_c() TDAC mix (S_MUL(x2,*wp1)+S_MUL(x1,*wp2)): the second
-	// product is rounded on its own and the first multiply is fused into the
-	// add. The rounding order matters when the overlap carries history across
-	// transient short-block boundaries.
+	// libopus celt/mdct.c clt_mdct_backward_c() contracts the first source
+	// product and rounds the second before adding on arm64 and AMD64 v3.
 	if mdctUseFMALikeMixEnabled {
-		return opusmath.FMA32(a, c, mdctMul(b, d))
+		return mdctMixFMA32(a, c, mdctMul(b, d))
 	}
 	return mdctMul(a, c) + mdctMul(b, d)
 }
 
 func mdctMulSubMix(a, b, c, d float32) float32 {
-	// Mirror libopus celt/mdct.c clt_mdct_backward_c() TDAC mix
-	// (S_MUL(x2,*wp2)-S_MUL(x1,*wp1)) under clang -ffp-contract=on: round the
-	// subtracted product, fuse the first multiply into the subtract.
+	// libopus celt/mdct.c clt_mdct_backward_c() contracts the first source
+	// product and rounds the subtracted product before subtracting on arm64
+	// and AMD64 v3.
 	if mdctUseFMALikeMixEnabled {
-		return opusmath.FMA32(a, c, -mdctMul(b, d))
+		return mdctMixFMA32(a, c, -mdctMul(b, d))
 	}
 	return mdctMul(a, c) - mdctMul(b, d)
 }
@@ -43,15 +40,32 @@ func mdctStoreDirectStage(dst []kissCpx, idx int, scale, re, im, t0, t1 float32)
 }
 
 func mdctStoreDirectStageFMALike(dst []kissCpx, idx int, scale, re, im, t0, t1 float32) {
-	yr := mdctEncodeFMA32(re, t0, -mdctMul(im, t1))
-	yi := mdctEncodeFMA32(im, t0, mdctMul(re, t1))
+	yr := mdctForwardPreRotateReal(re, im, t0, t1)
+	yi := mdctForwardPreRotateImag(re, im, t0, t1)
 	dst[idx].r = yr * scale
 	dst[idx].i = yi * scale
 }
 
+// mdctForwardPreRotateReal and mdctForwardPreRotateImag follow the selected
+// libopus forward-rotation path. Scalar AMD64 v3 contracts the first source
+// product; the AMD64 SIMD kernel keeps both products separate.
+func mdctForwardPreRotateReal(re, im, t0, t1 float32) float32 {
+	if mdctUseFusedForwardPreRotate {
+		return mdctEncodeFMA32(re, t0, -mdctMul(im, t1))
+	}
+	return mdctMul(re, t0) - mdctMul(im, t1)
+}
+
+func mdctForwardPreRotateImag(re, im, t0, t1 float32) float32 {
+	if mdctUseFusedForwardPreRotate {
+		return mdctEncodeFMA32(im, t0, mdctMul(re, t1))
+	}
+	return mdctMul(im, t0) + mdctMul(re, t1)
+}
+
 // mdctMulAddMixEncode and mdctMulSubMixEncode apply the forward MDCT window
-// fold with the same contraction gate as the decoder's TDAC mix. On arm64
-// nosimd, mdctEncodeFMA32 uses the Go backend's float32 FMADDS contraction.
+// fold with the same first-product contraction used by the matching libopus
+// scalar build. The AMD64 SIMD build uses the corresponding vector FMA.
 func mdctMulAddMixEncode(a, b, c, d float32) float32 {
 	if mdctUseFMALikeMixEnabled {
 		return mdctEncodeFMA32(a, c, mdctMul(b, d))
@@ -65,13 +79,15 @@ func mdctMulSubMixEncode(a, b, c, d float32) float32 {
 	return mdctMul(a, c) - mdctMul(b, d)
 }
 
-// mdctNegMulAddMixEncode computes the trailing windowed fold of libopus
-// clt_mdct_forward_c(), -S_MUL(a,c) + S_MUL(b,d). clang -ffp-contract=on
-// fuses the negated first product into the add, fma(-a, c, round(b*d)); the
-// unfused form is round(b*d) - round(a*c), which IEEE defines identically to
-// -(a*c) + b*d.
+// mdctNegMulAddMixEncode computes the trailing windowed fold in libopus
+// celt/mdct.c clt_mdct_forward_c(), -S_MUL(a,c)+S_MUL(b,d). AMD64 v3 fuses
+// the second source product with a rounded negated first product; arm64
+// fuses the negated first product with the rounded second product.
 func mdctNegMulAddMixEncode(a, b, c, d float32) float32 {
 	if mdctUseFMALikeMixEnabled {
+		if mdctUseNegFoldSecondProduct {
+			return mdctEncodeFMA32(b, d, -mdctMul(a, c))
+		}
 		return mdctEncodeFMA32(-a, c, mdctMul(b, d))
 	}
 	return mdctMul(b, d) - mdctMul(a, c)
@@ -323,7 +339,19 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 			// the remainder. The kernel's paired loads touch one extra odd
 			// lane above each stream start and run the descending streams
 			// down to start-2*done+2, so gate on those exact bounds.
-			if lead := limit1 - i; mdctUseNeonMidFold && lead >= 4 {
+			if lead := limit1 - i; mdctUseSSEForward && lead >= 4 {
+				blocks := lead >> 2
+				done := blocks * 4
+				if xp1+n2+2*done-1 < len(samples) && xp2 < len(samples) && xp2-n2-2*done+1 >= 0 &&
+					wp1+2*done-1 < len(window) && wp2 < len(window) && wp2-2*done+1 >= 0 {
+					mdctLeadFoldSSE(fftStage, bitrev, samples, window, trig, i, n4, n2, xp1, xp2, wp1, wp2, blocks, preScale)
+					i += done
+					xp1 += 2 * done
+					xp2 -= 2 * done
+					wp1 += 2 * done
+					wp2 -= 2 * done
+				}
+			} else if lead := limit1 - i; mdctUseNeonMidFold && lead >= 4 {
 				blocks := lead >> 2
 				done := blocks * 4
 				if xp2-n2-2*done+2 >= 0 && wp2-2*done+2 >= 0 &&
@@ -343,10 +371,10 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				re1 := mdctMulAddMixEncode(float32(samples[xp1+n2+2]), float32(samples[xp2-2]), window[wp2-2], window[wp1+2])
 				im1 := mdctMulSubMixEncode(float32(samples[xp1+2]), float32(samples[xp2-n2-2]), window[wp1+2], window[wp2-2])
 				t00, t10, t01, t11 := trig[i], trig[n4+i], trig[i+1], trig[n4+i+1]
-				yr0 := mdctEncodeFMA32(re0, t00, -mdctMul(im0, t10))
-				yi0 := mdctEncodeFMA32(im0, t00, mdctMul(re0, t10))
-				yr1 := mdctEncodeFMA32(re1, t01, -mdctMul(im1, t11))
-				yi1 := mdctEncodeFMA32(im1, t01, mdctMul(re1, t11))
+				yr0 := mdctForwardPreRotateReal(re0, im0, t00, t10)
+				yi0 := mdctForwardPreRotateImag(re0, im0, t00, t10)
+				yr1 := mdctForwardPreRotateReal(re1, im1, t01, t11)
+				yi1 := mdctForwardPreRotateImag(re1, im1, t01, t11)
 				b0, b1 := bitrev[i], bitrev[i+1]
 				fftStage[b0].r = yr0 * preScale
 				fftStage[b0].i = yi0 * preScale
@@ -361,8 +389,8 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				re := mdctMulAddMixEncode(float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
 				im := mdctMulSubMixEncode(float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
 				t0, t1 := trig[i], trig[n4+i]
-				yr := mdctEncodeFMA32(re, t0, -mdctMul(im, t1))
-				yi := mdctEncodeFMA32(im, t0, mdctMul(re, t1))
+				yr := mdctForwardPreRotateReal(re, im, t0, t1)
+				yi := mdctForwardPreRotateImag(re, im, t0, t1)
 				b := bitrev[i]
 				fftStage[b].r = yr * preScale
 				fftStage[b].i = yi * preScale
@@ -379,7 +407,16 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 			// the scalar loop finish the remainder. The kernel's paired loads
 			// touch samples[xp2-2*done+2 : xp2+2] and samples[xp1 : xp1+2*done],
 			// so gate on those exact bounds.
-			if mid := n4 - limit1 - i; mdctUseNeonMidFold && mid >= 4 {
+			if mid := n4 - limit1 - i; mdctUseSSEForward && mid >= 4 {
+				blocks := mid >> 2
+				done := blocks * 4
+				if xp1+2*done-1 < len(samples) && xp2-2*done+1 >= 0 && xp2 < len(samples) {
+					mdctMidRotateSSE(fftStage, bitrev, samples, trig, i, n4, xp1, xp2, blocks, preScale)
+					i += done
+					xp1 += 2 * done
+					xp2 -= 2 * done
+				}
+			} else if mid := n4 - limit1 - i; mdctUseNeonMidFold && mid >= 4 {
 				blocks := mid >> 2
 				done := blocks * 4
 				if xp2-2*done+2 >= 0 && xp2+1 < len(samples) && xp1+2*done-1 < len(samples) {
@@ -402,10 +439,10 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				t10 := trig[n4+i]
 				t01 := trig[i+1]
 				t11 := trig[n4+i+1]
-				yr0 := mdctEncodeFMA32(re0, t00, -mdctMul(im0, t10))
-				yi0 := mdctEncodeFMA32(im0, t00, mdctMul(re0, t10))
-				yr1 := mdctEncodeFMA32(re1, t01, -mdctMul(im1, t11))
-				yi1 := mdctEncodeFMA32(im1, t01, mdctMul(re1, t11))
+				yr0 := mdctForwardPreRotateReal(re0, im0, t00, t10)
+				yi0 := mdctForwardPreRotateImag(re0, im0, t00, t10)
+				yr1 := mdctForwardPreRotateReal(re1, im1, t01, t11)
+				yi1 := mdctForwardPreRotateImag(re1, im1, t01, t11)
 				b0, b1 := bitrev[i], bitrev[i+1]
 				fftStage[b0].r = yr0 * preScale
 				fftStage[b0].i = yi0 * preScale
@@ -425,7 +462,19 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 			}
 
 			// Trailing windowed fold, same blocked NEON treatment.
-			if tail := n4 - i; mdctUseNeonMidFold && tail >= 4 {
+			if tail := n4 - i; mdctUseSSEForward && tail >= 4 {
+				blocks := tail >> 2
+				done := blocks * 4
+				if xp1-n2 >= 0 && xp1+2*done-1 < len(samples) && xp2+n2 < len(samples) && xp2-2*done+1 >= 0 &&
+					wp1+2*done-1 < len(window) && wp2 < len(window) && wp2-2*done+1 >= 0 {
+					mdctTailFoldSSE(fftStage, bitrev, samples, window, trig, i, n4, n2, xp1, xp2, wp1, wp2, blocks, preScale)
+					i += done
+					xp1 += 2 * done
+					xp2 -= 2 * done
+					wp1 += 2 * done
+					wp2 -= 2 * done
+				}
+			} else if tail := n4 - i; mdctUseNeonMidFold && tail >= 4 {
 				blocks := tail >> 2
 				done := blocks * 4
 				if xp2-2*done+2 >= 0 && wp2-2*done+2 >= 0 && xp1-n2 >= 0 &&
@@ -445,10 +494,10 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				re1 := mdctNegMulAddMixEncode(float32(samples[xp1-n2+2]), float32(samples[xp2-2]), window[wp1+2], window[wp2-2])
 				im1 := mdctMulAddMixEncode(float32(samples[xp1+2]), float32(samples[xp2+n2-2]), window[wp2-2], window[wp1+2])
 				t00, t10, t01, t11 := trig[i], trig[n4+i], trig[i+1], trig[n4+i+1]
-				yr0 := mdctEncodeFMA32(re0, t00, -mdctMul(im0, t10))
-				yi0 := mdctEncodeFMA32(im0, t00, mdctMul(re0, t10))
-				yr1 := mdctEncodeFMA32(re1, t01, -mdctMul(im1, t11))
-				yi1 := mdctEncodeFMA32(im1, t01, mdctMul(re1, t11))
+				yr0 := mdctForwardPreRotateReal(re0, im0, t00, t10)
+				yi0 := mdctForwardPreRotateImag(re0, im0, t00, t10)
+				yr1 := mdctForwardPreRotateReal(re1, im1, t01, t11)
+				yi1 := mdctForwardPreRotateImag(re1, im1, t01, t11)
 				b0, b1 := bitrev[i], bitrev[i+1]
 				fftStage[b0].r = yr0 * preScale
 				fftStage[b0].i = yi0 * preScale
@@ -463,8 +512,8 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				re := mdctNegMulAddMixEncode(float32(samples[xp1-n2]), float32(samples[xp2]), window[wp1], window[wp2])
 				im := mdctMulAddMixEncode(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
 				t0, t1 := trig[i], trig[n4+i]
-				yr := mdctEncodeFMA32(re, t0, -mdctMul(im, t1))
-				yi := mdctEncodeFMA32(im, t0, mdctMul(re, t1))
+				yr := mdctForwardPreRotateReal(re, im, t0, t1)
+				yi := mdctForwardPreRotateImag(re, im, t0, t1)
 				b := bitrev[i]
 				fftStage[b].r = yr * preScale
 				fftStage[b].i = yi * preScale
@@ -620,8 +669,8 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 			im := f[2*i+1]
 			t0 := trig[i]
 			t1 := trig[n4+i]
-			yr := mdctMulSubMixEncode(re, im, t0, t1)
-			yi := mdctMulAddMixEncode(im, re, t0, t1)
+			yr := mdctForwardPreRotateReal(re, im, t0, t1)
+			yi := mdctForwardPreRotateImag(re, im, t0, t1)
 			fftIn[i] = complex(yr*preScale, yi*preScale)
 		}
 		kissFFT32To(fftOut, fftIn[:n4], fftTmp)

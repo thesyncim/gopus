@@ -173,19 +173,11 @@ func kfBfly3InnerScalar(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 			tw1 += fstride
 			tw2 += fstride2
 
-			fout[idx1].r = kissHalfSub(a0r, s3r)
-			fout[idx1].i = kissHalfSub(a0i, s3i)
-
-			s0r = kissScaleMul(s0r, epi3i)
-			s0i = kissScaleMul(s0i, epi3i)
-
+			f1r := kissHalfSub(a0r, s3r)
+			f1i := kissHalfSub(a0i, s3i)
 			fout[idx0].r = a0r + s3r
 			fout[idx0].i = a0i + s3i
-
-			fout[idx2].r = fout[idx1].r + s0i
-			fout[idx2].i = fout[idx1].i - s0r
-			fout[idx1].r = fout[idx1].r - s0i
-			fout[idx1].i = fout[idx1].i + s0r
+			fout[idx1].r, fout[idx1].i, fout[idx2].r, fout[idx2].i = kissRadix3ScaledOutputs(f1r, f1i, s0r, s0i, epi3i)
 		}
 	}
 }

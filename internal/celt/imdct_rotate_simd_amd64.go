@@ -7,9 +7,9 @@ import (
 	"unsafe"
 )
 
-// The x86 libopus float build compiles the clt_mdct_backward_c rotations with
-// separate multiplies and adds, so these kernels keep that split: each lane
-// runs the exact scalar operation sequence of the ...Scalar reference.
+// The x86 libopus SIMD pre-rotation uses separate multiplies and add/subtract.
+// The post-rotation uses separate products through AMD64 v2 and fuses the
+// first product on AMD64 v3, so the lane kernels follow that target shape.
 
 func evenLanes4(lo, hi archsimd.Float32x4) archsimd.Float32x4 {
 	return lo.ConcatPermuteScalars(0, 2, 4, 6, hi)
@@ -67,6 +67,12 @@ func imdctPostRotateF32FromKiss(buf []float32, fft []kissCpx, trig []float32, n2
 		t1 := loadF32x4(unsafe.Add(tp, (n4+i)*4))
 		yr := re.Mul(t0).Add(im.Mul(t1))
 		yi := re.Mul(t1).Sub(im.Mul(t0))
+		if mdctUseFMALikeMixEnabled {
+			// The libopus SIMD post-rotation fuses the first source product
+			// and rounds the second product before the add/subtract.
+			yr = re.MulAdd(t0, im.Mul(t1))
+			yi = re.MulAdd(t1, im.Mul(t0).Neg())
+		}
 
 		kbase := n4 - 4 - i
 		g0 := loadF32x4(unsafe.Add(ffp, (2*kbase)*4))
@@ -77,6 +83,10 @@ func imdctPostRotateF32FromKiss(buf []float32, fft []kissCpx, trig []float32, n2
 		t1b := reverseLanes4(loadF32x4(unsafe.Add(tp, (n2-4-i)*4)))
 		yr2 := re2.Mul(t0b).Add(im2.Mul(t1b))
 		yi2 := re2.Mul(t1b).Sub(im2.Mul(t0b))
+		if mdctUseFMALikeMixEnabled {
+			yr2 = re2.MulAdd(t0b, im2.Mul(t1b))
+			yi2 = re2.MulAdd(t1b, im2.Mul(t0b).Neg())
+		}
 
 		storeInterleaved4(unsafe.Add(bp, (2*i)*4), yr, yi2)
 		storeInterleaved4(unsafe.Add(bp, (n2-8-2*i)*4), reverseLanes4(yr2), reverseLanes4(yi))

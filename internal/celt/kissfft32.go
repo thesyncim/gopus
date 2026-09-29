@@ -46,22 +46,8 @@ var (
 	kissFFTState480 = newKissFFTState(480)
 )
 
-// kissHalfSub computes a - 0.5*b. Materializing 0.5*b through round32 keeps the
-// product from contracting into a single FMSUB with the subtract (which would
-// diverge from scalar libopus), so the function inlines and sheds its call
-// overhead while staying bit-identical to the reference on every build — the
-// same idiom as kissScaleMul above.
-func kissHalfSub(a, b float32) float32 {
-	return a - round32(0.5*b)
-}
-
-// kissScaleMul, kissAdd, and kissSub are the FFT's float32 multiply/add/subtract
-// primitives. kissScaleMul materializes the product through a Float32bits round-trip
-// so a surrounding butterfly t = w*f followed by f ± t cannot contract into a single
-// FMADD (which would diverge from scalar libopus); with the product materialized the
-// add and subtract have no multiply left to fuse and need no barrier. Unlike a
-// //go:noinline call these inline, shedding the per-operation call overhead while
-// staying bit-identical to the scalar reference on every build.
+// kissScaleMul marks multiply sites that stay rounded before their consumers
+// in the selected libopus target.
 func kissScaleMul(a, b float32) float32 {
 	return round32(a * b)
 }
@@ -360,14 +346,7 @@ func kfBfly3M1(fout []kissCpx, tw []kissCpx, fstride, n, mm int) {
 		f0r := a0r + s3r
 		f0i := a0i + s3i
 
-		// kf_bfly3 materializes C_MULBYSCALAR before the output sums.
-		s0r = kissScaleMul(s0r, epi3i)
-		s0i = kissScaleMul(s0i, epi3i)
-
-		f2r := f1r + s0i
-		f2i := f1i - s0r
-		f1r -= s0i
-		f1i += s0r
+		f1r, f1i, f2r, f2i := kissRadix3ScaledOutputs(f1r, f1i, s0r, s0i, epi3i)
 
 		fout[base].r, fout[base].i = f0r, f0i
 		fout[base+1].r, fout[base+1].i = f1r, f1i
@@ -453,12 +432,11 @@ func kfBfly2M4Scalar(fout []kissCpx, N int) {
 		fout[0].r += t.r
 		fout[0].i += t.i
 
-		t.r = kissScaleMul(kissAdd(fout2[1].r, fout2[1].i), tw)
-		t.i = kissScaleMul(kissSub(fout2[1].i, fout2[1].r), tw)
-		fout2[1].r = kissSub(fout[1].r, t.r)
-		fout2[1].i = kissSub(fout[1].i, t.i)
-		fout[1].r = kissAdd(fout[1].r, t.r)
-		fout[1].i = kissAdd(fout[1].i, t.i)
+		b1 := fout2[1]
+		loR, hiR := kissBfly2M4Outputs(fout[1].r, kissAdd(b1.r, b1.i), tw)
+		loI, hiI := kissBfly2M4Outputs(fout[1].i, kissSub(b1.i, b1.r), tw)
+		fout2[1] = kissCpx{loR, loI}
+		fout[1] = kissCpx{hiR, hiI}
 
 		t.r = fout2[2].i
 		t.i = -fout2[2].r
@@ -467,12 +445,11 @@ func kfBfly2M4Scalar(fout []kissCpx, N int) {
 		fout[2].r = kissAdd(fout[2].r, t.r)
 		fout[2].i = kissAdd(fout[2].i, t.i)
 
-		t.r = kissScaleMul(kissSub(fout2[3].i, fout2[3].r), tw)
-		t.i = -kissScaleMul(kissAdd(fout2[3].i, fout2[3].r), tw)
-		fout2[3].r = kissSub(fout[3].r, t.r)
-		fout2[3].i = kissSub(fout[3].i, t.i)
-		fout[3].r = kissAdd(fout[3].r, t.r)
-		fout[3].i = kissAdd(fout[3].i, t.i)
+		b3 := fout2[3]
+		loR, hiR = kissBfly2M4Outputs(fout[3].r, kissSub(b3.i, b3.r), tw)
+		loI, hiI = kissBfly2M4Outputs(fout[3].i, -kissAdd(b3.i, b3.r), tw)
+		fout2[3] = kissCpx{loR, loI}
+		fout[3] = kissCpx{hiR, hiI}
 
 		fout = fout[8:]
 	}

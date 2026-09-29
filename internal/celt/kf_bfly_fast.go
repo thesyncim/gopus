@@ -183,15 +183,14 @@ func kfBfly3InnerFast(fout []kissCpx, tw [][2]kissCpx, epi3i float32, N, mm int)
 
 			s3r := s1r + s2r
 			s3i := s1i + s2i
-			s0r := kissScaleMul(s1r-s2r, epi3i)
-			s0i := kissScaleMul(s1i-s2i, epi3i)
+			s0r := s1r - s2r
+			s0i := s1i - s2i
 
 			a0r, a0i := f0[r], f0[q]
 			h1r := kissHalfSub(a0r, s3r)
 			h1i := kissHalfSub(a0i, s3i)
 			f0[r], f0[q] = a0r+s3r, a0i+s3i
-			f2[r], f2[q] = h1r+s0i, h1i-s0r
-			f1[r], f1[q] = h1r-s0i, h1i+s0r
+			f1[r], f1[q], f2[r], f2[q] = kissRadix3ScaledOutputs(h1r, h1i, s0r, s0i, epi3i)
 		}
 	}
 }

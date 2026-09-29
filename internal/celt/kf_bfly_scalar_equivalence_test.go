@@ -129,8 +129,9 @@ func TestKissFFTBoundedFastPathMatchesScalar(t *testing.T) {
 	}
 }
 
-// kissFFTStagesForTest mirrors fftImpl's stage loop with the Fast butterflies
-// forced on or off.
+// kissFFTStagesForTest mirrors fftImpl's stage loop while keeping the
+// reference stages scalar on every build. The fast flag selects packed scalar
+// butterflies only; production SIMD stages have separate C-oracle coverage.
 func kissFFTStagesForTest(st *kissFFTState, fout []kissCpx, fast bool) {
 	L := 0
 	for 2*L+1 < len(st.factors) {
@@ -151,13 +152,35 @@ func kissFFTStagesForTest(st *kissFFTState, fout []kissCpx, fast bool) {
 		N := st.fstride[i]
 		switch st.factors[2*i] {
 		case 2:
-			kfBfly2(fout, m, N)
+			if m == 1 {
+				kfBfly2M1(fout, N)
+			} else {
+				kfBfly2M4Scalar(fout, N)
+			}
 		case 4:
-			kfBfly4(fout, twFstride, st, i, m, N, m2, fast)
+			if m == 1 {
+				kfBfly4M1CoreScalar(fout, N)
+			} else if fast {
+				kfBfly4InnerFast(fout, st.stageTw[i].tw4, N, m2)
+			} else {
+				kfBfly4InnerScalar(fout, st.w, m, N, m2, twFstride)
+			}
 		case 3:
-			kfBfly3(fout, twFstride, st, i, m, N, m2, fast)
+			if m == 1 {
+				kfBfly3M1(fout, st.w, twFstride, N, m2)
+			} else if fast {
+				kfBfly3InnerFast(fout, st.stageTw[i].tw3, st.w[twFstride*m].i, N, m2)
+			} else {
+				kfBfly3InnerScalar(fout, st.w, m, N, m2, twFstride)
+			}
 		case 5:
-			kfBfly5(fout, twFstride, st, i, m, N, m2, fast)
+			if m == 1 {
+				kfBfly5M1(fout, st.w, twFstride, N, m2)
+			} else if fast {
+				kfBfly5InnerFast(fout, st.stageTw[i].tw5, st.w[twFstride*m], st.w[2*twFstride*m], N, m2)
+			} else {
+				kfBfly5InnerScalar(fout, st.w, m, N, m2, twFstride)
+			}
 		}
 		m = m2
 	}
