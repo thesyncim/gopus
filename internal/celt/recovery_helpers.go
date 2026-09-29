@@ -1264,7 +1264,7 @@ func innerProdFloat32(x, y []float32, length int) float32 {
 	_ = x[length-1]
 	_ = y[length-1]
 	if libopusFloatInnerProdUsesNeonOrder {
-		return innerProdFloat32NeonOrder(x, y, length)
+		return celtInnerProd8FMA32(x[:length], y[:length], length)
 	}
 	if libopusFloatInnerProdUsesSSEOrder {
 		return innerProdFloat32SSEOrder(x, y, length)
@@ -1305,46 +1305,6 @@ func innerProdFloat32SSEOrderScalar(x, y []float32, length int) float32 {
 	sum := noFMA32Add(xy0, xy1)
 	for i := 0; i < len(x) && i < len(y); i++ {
 		sum = pitchXcorrSSETailMAC32(sum, x[i], y[i])
-	}
-	return sum
-}
-
-func innerProdFloat32NeonOrder(x, y []float32, length int) float32 {
-	if length <= 0 {
-		return 0
-	}
-	// Slicing to length, advancing the slices (prove cannot reason about
-	// stride-8 counters), and using scalar accumulators keeps the 4 lanes in
-	// FP registers with no bounds checks; the FMA sequence and the horizontal
-	// reduction order are unchanged.
-	x = x[:length]
-	y = y[:length]
-	var acc0, acc1, acc2, acc3 float32
-	for len(x) >= 8 && len(y) >= 8 {
-		acc0 = fma32(x[0], y[0], acc0)
-		acc1 = fma32(x[1], y[1], acc1)
-		acc2 = fma32(x[2], y[2], acc2)
-		acc3 = fma32(x[3], y[3], acc3)
-		acc0 = fma32(x[4], y[4], acc0)
-		acc1 = fma32(x[5], y[5], acc1)
-		acc2 = fma32(x[6], y[6], acc2)
-		acc3 = fma32(x[7], y[7], acc3)
-		x = x[8:]
-		y = y[8:]
-	}
-	if len(x) >= 4 && len(y) >= 4 {
-		acc0 = fma32(x[0], y[0], acc0)
-		acc1 = fma32(x[1], y[1], acc1)
-		acc2 = fma32(x[2], y[2], acc2)
-		acc3 = fma32(x[3], y[3], acc3)
-		x = x[4:]
-		y = y[4:]
-	}
-	xy0 := acc0 + acc2
-	xy1 := acc1 + acc3
-	sum := xy0 + xy1
-	for i := 0; i < len(x) && i < len(y); i++ {
-		sum += x[i] * y[i]
 	}
 	return sum
 }

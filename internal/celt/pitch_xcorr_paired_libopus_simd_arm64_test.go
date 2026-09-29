@@ -127,6 +127,40 @@ func pairedARMPitchXCorrCases() []libopusPitchXcorrCase {
 		tc.fill(x, y)
 		cases = append(cases, libopusPitchXcorrCase{name: tc.name, x: x, y: y, maxPitch: tc.maxPitch})
 	}
+	// A one-lag call uses celt_inner_prod_neon in the C oracle and the
+	// corresponding pitch-tail inner product path in Go. Distinct qNaNs expose
+	// the ARM FMLA/FMADD multiplicand order for scalar-only, vector, and tail cases.
+	for _, length := range []int{1, 3, 4, 5, 7, 8, 9, 12} {
+		x := make([]float32, length)
+		y := make([]float32, length)
+		for i := range x {
+			x[i], y[i] = 1, 1
+		}
+		x[length-1] = math.Float32frombits(0x7fc01234)
+		y[length-1] = math.Float32frombits(0xffc05678)
+		cases = append(cases, libopusPitchXcorrCase{
+			name:     fmt.Sprintf("one_lag_nan_operands_len%d", length),
+			x:        x,
+			y:        y,
+			maxPitch: 1,
+		})
+	}
+	// These vectors isolate the low/high lane reduction's NaN payload order.
+	for _, length := range []int{4, 8, 12} {
+		x := make([]float32, length)
+		y := make([]float32, length)
+		for i := range x {
+			x[i], y[i] = 1, 1
+		}
+		x[0] = math.Float32frombits(0x7fc01234)
+		x[2] = math.Float32frombits(0xffc05678)
+		cases = append(cases, libopusPitchXcorrCase{
+			name:     fmt.Sprintf("one_lag_nan_reduction_len%d", length),
+			x:        x,
+			y:        y,
+			maxPitch: 1,
+		})
+	}
 	return cases
 }
 
@@ -173,6 +207,12 @@ func TestPitchXCorrPairedLibopusARMRawBits(t *testing.T) {
 			if err := reader.Err(); err != nil {
 				t.Fatal(err)
 			}
+			if tc.maxPitch == 1 {
+				inner := celtInnerProd8FMA32(tc.x, tc.y, len(tc.x))
+				if gotBits, wantBits := math.Float32bits(inner), math.Float32bits(want[0]); gotBits != wantBits {
+					t.Fatalf("inner product=%08x selected C=%08x", gotBits, wantBits)
+				}
+			}
 			got := make([]float32, tc.maxPitch)
 			pitchXCorrFloat32Quality(tc.x, tc.y, got, len(tc.x), tc.maxPitch)
 			for i := range got {
@@ -189,5 +229,20 @@ func TestPitchXCorrPairedLibopusARMRawBits(t *testing.T) {
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCeltInnerProd8FMA32ARMNoAllocs(t *testing.T) {
+	x := make([]float32, 240)
+	y := make([]float32, len(x))
+	for i := range x {
+		x[i] = float32(i%13) * 0.125
+		y[i] = float32(i%7) * -0.25
+	}
+	_ = celtInnerProd8FMA32(x, y, len(x))
+	if allocs := testing.AllocsPerRun(100, func() {
+		innerProdBenchSink = celtInnerProd8FMA32(x, y, len(x))
+	}); allocs != 0 {
+		t.Fatalf("inner product allocated %g times per run", allocs)
 	}
 }
