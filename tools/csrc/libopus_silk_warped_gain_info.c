@@ -10,10 +10,10 @@
 #include <io.h>
 #endif
 
-/* Keep the included translation unit's public entry point from colliding with
- * the linked archive; the oracle calls its original static warped_gain(). */
+/* Compile warped_gain() from the selected pinned translation unit. Rename its
+ * public encoder entry point so the linked archive supplies encode dependencies. */
 #define silk_noise_shape_analysis_FLP gopus_oracle_unused_noise_shape_analysis_FLP
-#include "../../tmp_check/opus-1.6.1/silk/float/noise_shape_analysis_FLP.c"
+#include "noise_shape_analysis_FLP.c"
 #undef silk_noise_shape_analysis_FLP
 
 #define INPUT_MAGIC "GSWI"

@@ -163,10 +163,11 @@ jobs:
           done
           shopt -s nullglob
           helper_count=0
-          for helper in "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_celt_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_silk_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_public_vbr_celt_entropy_trace_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_hp_cutoff_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_dc_reject_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_gain_fade_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_stereo_fade_*; do
+          for helper in "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_celt_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_silk_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_public_vbr_celt_entropy_trace_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_public_vbr_celt_quant_trace_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_hybrid_coder_boundary_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_hp_cutoff_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_dc_reject_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_gain_fade_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_stereo_fade_*; do
             if [[ ! -x "$helper" ]]; then continue; fi
             name="$(basename "$helper")"
             cp "$helper" "$RUNNER_TEMP/goamd64-evidence/helpers/$name"
+            if [[ -f "$helper.map" ]]; then cp "$helper.map" "$RUNNER_TEMP/goamd64-evidence/helpers/$name.map"; fi
             objdump -d "$helper" > "$RUNNER_TEMP/goamd64-evidence/helpers/$name.disassembly.txt"
             helper_count=$((helper_count + 1))
           done

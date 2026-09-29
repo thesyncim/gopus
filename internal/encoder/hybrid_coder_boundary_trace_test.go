@@ -77,6 +77,11 @@ func TestHybridCBRActualCoderBoundaryDiagnostic(t *testing.T) {
 			t.Fatalf("ordinary C CBR frame %d has %d bytes, want %d", frame, len(packet), hybridBoundaryPacketBytes)
 		}
 	}
+	targetCTOC := ordinary.Packets[hybridCoderBoundaryTraceTargetFrame][0]
+	targetCConfig := targetCTOC >> 3
+	targetCMode := hybridCoderBoundaryTOCMode(targetCConfig)
+	t.Logf("selected ordinary C frame %d TOC=0x%02x config=%d mode=%s",
+		hybridCoderBoundaryTraceTargetFrame, targetCTOC, targetCConfig, targetCMode)
 
 	tracePath := buildHybridCoderBoundaryOracle(t)
 	traceBytes, err := libopustest.RunHelper(tracePath, input)
@@ -98,20 +103,7 @@ func TestHybridCBRActualCoderBoundaryDiagnostic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse C coder-boundary trace: %v", err)
 	}
-	assertHybridCoderBoundaryParserRejectsInvalidState(t, tracePayload)
-	if cTrace.TargetFrame != hybridCoderBoundaryTraceTargetFrame || cTrace.FrameCalls != hybridBoundaryFrames ||
-		cTrace.TargetPublicCalls != 1 || cTrace.TargetSILKCalls < cTrace.TargetSILKRangeCalls ||
-		cTrace.TargetSILKRangeCalls != 1 || cTrace.TargetCELTCalls < cTrace.TargetSharedCELTCalls ||
-		cTrace.TargetSharedCELTCalls != 1 ||
-		len(cTrace.Records) != 3 || cTrace.Overflow != 0 || !cTrace.SameEC || !cTrace.SameBuffer {
-		t.Fatalf("C did not capture the selected live Hybrid calls exactly once: %+v", cTrace.header())
-	}
-	for i, record := range cTrace.Records {
-		if record.Frame != hybridCoderBoundaryTraceTargetFrame || record.Stage != uint32(i+1) || record.CallIndex != 1 {
-			t.Fatalf("C boundary record %d has frame/stage/call=%d/%d/%d, want %d/%d/1",
-				i, record.Frame, record.Stage, record.CallIndex, hybridCoderBoundaryTraceTargetFrame, i+1)
-		}
-	}
+	t.Logf("C GCHB header before record validation: %s", cTrace.header())
 	if !strings.Contains(ordinary.LibopusVersion, libopustooling.DefaultVersion) {
 		t.Fatalf("C oracle version=%q does not identify pinned libopus %q", ordinary.LibopusVersion, libopustooling.DefaultVersion)
 	}
@@ -136,6 +128,33 @@ func TestHybridCBRActualCoderBoundaryDiagnostic(t *testing.T) {
 		tracedRanges = append(tracedRanges, tracedGo.FinalRange())
 	}
 	endHybridCoderBoundaryTraceForTesting(goTrace)
+	if len(tracedPackets[hybridCoderBoundaryTraceTargetFrame]) == 0 {
+		t.Fatalf("traced Go frame %d has no packet", hybridCoderBoundaryTraceTargetFrame)
+	}
+	targetGoTOC := tracedPackets[hybridCoderBoundaryTraceTargetFrame][0]
+	targetGoConfig := targetGoTOC >> 3
+	targetGoMode := hybridCoderBoundaryTOCMode(targetGoConfig)
+	t.Logf("selected traced Go frame %d TOC=0x%02x config=%d mode=%s boundary-records=%d",
+		hybridCoderBoundaryTraceTargetFrame, targetGoTOC, targetGoConfig, targetGoMode, goTrace.recordCount)
+	if targetCMode != "Hybrid" || targetGoMode != "Hybrid" {
+		t.Fatalf("selected frame %d is not an actual Hybrid frame on both paths: C=%s/config=%d Go=%s/config=%d; C GCHB: %s",
+			hybridCoderBoundaryTraceTargetFrame, targetCMode, targetCConfig,
+			targetGoMode, targetGoConfig, cTrace.header())
+	}
+	if cTrace.TargetFrame != hybridCoderBoundaryTraceTargetFrame || cTrace.FrameCalls != hybridBoundaryFrames ||
+		cTrace.TargetPublicCalls != 1 || cTrace.TargetSILKCalls < cTrace.TargetSILKRangeCalls ||
+		cTrace.TargetSILKRangeCalls != 1 || cTrace.TargetCELTCalls < cTrace.TargetSharedCELTCalls ||
+		cTrace.TargetSharedCELTCalls != 1 ||
+		len(cTrace.Records) != 3 || cTrace.Overflow != 0 || !cTrace.SameEC || !cTrace.SameBuffer {
+		t.Fatalf("C did not capture the selected live Hybrid calls exactly once: %+v", cTrace.header())
+	}
+	for i, record := range cTrace.Records {
+		if record.Frame != hybridCoderBoundaryTraceTargetFrame || record.Stage != uint32(i+1) || record.CallIndex != 1 {
+			t.Fatalf("C boundary record %d has frame/stage/call=%d/%d/%d, want %d/%d/1",
+				i, record.Frame, record.Stage, record.CallIndex, hybridCoderBoundaryTraceTargetFrame, i+1)
+		}
+	}
+	assertHybridCoderBoundaryParserRejectsInvalidState(t, tracePayload)
 	if goTrace.overflow || goTrace.recordCount != 3 {
 		t.Fatalf("Go coder-boundary trace overflow=%t records=%d, want three ordered stages", goTrace.overflow, goTrace.recordCount)
 	}
@@ -274,6 +293,9 @@ func buildHybridCoderBoundaryOracle(t *testing.T) string {
 			if !bytes.Contains(data, []byte(symbol)) {
 				return "", fmt.Errorf("Hybrid coder-boundary link map omits wrapper %s", symbol)
 			}
+		}
+		if err := os.WriteFile(helper+".map", data, 0o600); err != nil {
+			return "", fmt.Errorf("preserve Hybrid coder-boundary link map: %w", err)
 		}
 		return helper, nil
 	})
@@ -559,5 +581,16 @@ func hybridCoderBoundaryStageName(stage uint32) string {
 		return "CELT exit"
 	default:
 		return fmt.Sprintf("stage %d", stage)
+	}
+}
+
+func hybridCoderBoundaryTOCMode(config uint8) string {
+	switch {
+	case config <= 11:
+		return "SILK"
+	case config <= 15:
+		return "Hybrid"
+	default:
+		return "CELT"
 	}
 }

@@ -219,7 +219,7 @@ CELT/Hybrid have unresolved same-packet PCM differences. FFT/MDCT and SILK
 primitive suites pass. The CELT encoder trace rejects inconsistent quantization
 dimensions, so it does not yet establish a runtime divergence location.
 
-The [native v3 audit at `b18d8ae9`](https://github.com/thesyncim/gopus/actions/runs/36644065214)
+The [native v3 audit at `b777c24d`](https://github.com/thesyncim/gopus/actions/runs/36645430354)
 on AMD EPYC 9V74 with Go 1.27.1 and GCC 13.3 passes the following matched
 scalar and SIMD selections. No cases are skipped.
 
@@ -228,9 +228,9 @@ scalar and SIMD selections. No cases are skipped.
 | Encoder packet and final range | 59/60 | 60/60 |
 | Public decoder PCM and final range | 24/24 | 24/24 |
 | Warm allocation cases | 15/15 | 15/15 |
-| CBR exact cases | 13/19 | 14/19 |
-| CBR packet differences / 2,175 packets | 90 | 95 |
-| CBR final-range differences / 2,175 packets | 81 | 92 |
+| CBR exact cases | 16/19 | 17/19 |
+| CBR packet differences / 2,175 packets | 10 | 15 |
+| CBR final-range differences / 2,175 packets | 1 | 12 |
 | Contract same-packet PCM sample differences | 0 | 0 |
 
 These are separate gates, not an overall codec correctness percentage. The
@@ -249,17 +249,13 @@ as the ordinary C function. Its warm allocation guard passes. All 19 contract
 cases have exact same-packet PCM in both lanes, including the long streams;
 encoder packet and range differences remain separate unresolved failures.
 
-The isolated SILK gain oracle passes both lanes. Its candidate uses native
-FMA; the separate-operation witness is isolated to prevent compiler
-common-subexpression reuse from changing candidate rounding. Actual gain
-adjustment geometry, exponent, multiplier and additive term match. Gains
-already differ before that adjustment: MB frame 6 subframe 2 has C
-`45245686` versus Go `45245685`; WB frame 6 channel 0 subframe 0 has C
-`44958a5a` versus Go `44958a59`. Work follows the earlier gain producer.
-The linked C FindLPC replay matches Go on identical input/state. MB frame 6
-selects factor 3 in both replay paths versus 2 in the ordinary C encoder;
-WB frame 13 selects factor 1 in all three paths. Actual LPC input already
-differs at MB frame 6 sample 140 and WB frame 13 sample 0.
+All three SILK CBR witnesses match complete packets and final ranges in both
+native lanes: NB 10 ms mono (100 frames), MB 20 ms mono (50 frames) and WB
+20 ms stereo (50 frames). Actual shaping windows, autocorrelation, Schur,
+post-warp gains, FindLPC inputs/state, LTP operands and gain-tweak operands/output
+match at every selected trace boundary. Control snapshots and NSQ/index/pulse
+witness events also match. All four contract quality comparisons in these cases
+report Q 100, correlation 1 and RMS ratio 1; ordinary/traced streams agree.
 
 The linked LTP oracle matches all 280 MB and 384 WB outputs on identical
 synthetic float32 operands in both lanes. Its independent fused model matches
@@ -283,23 +279,11 @@ finding different period controls (`48/96` in Go, `48/48` in C). The ensuing
 filter and transform output differs. Work follows the pitch-period producer;
 this does not identify an MDCT defect or a floating-point allowance.
 
-The narrowband FindLPC hook captures all three selected calls: frames 6 and
-13 match; frame 50 already has different LPC input and gains. Independent
-sine-window checks cover the actual 48-, 72- and 96-sample segments and pass
-in both native instruction lanes.
-
-The gain-producer trace captures both actual autocorrelation branches, their
-float32 warp argument and the actual post-warp gain. Windowed input, raw and
-adjusted autocorrelation, Schur coefficients and residual energy match before
-the first reported post-warp gain difference in both lanes: NB frame 50,
-subframe 0 has C `4526ed64`, Go `4526ed62`; MB frame 6, subframe 2 has C
-`45245686`, Go `45245685`; WB frame 6, channel 0, subframe 0 has C `44958a5a`,
-Go `44958a59`. Actual k2a output and warped-gain arithmetic still require
-independent verification before attributing the cause. The derived sqrt check
-is labelled as a source-expression model. Ordinary/traced Go and C packets
-and final ranges match within each implementation in all three cases on this
-native audit. Default-off callers retain their generated instructions. These
-diagnostic changes do not alter codec arithmetic.
+Independent sine-window checks cover the actual 48-, 72- and 96-sample
+segments and pass in both native instruction lanes. The gain-producer trace
+captures both actual autocorrelation branches, their float32 warp argument and
+post-warp gain. Its derived sqrt check remains explicitly labelled as a
+source-expression model. Default-off callers retain their generated instructions.
 
 The focused native SILK witnesses match linked k2a on all 660 cases and
 warped autocorrelation on all 640 cases in both instruction lanes, without
@@ -314,13 +298,12 @@ validation coverage. Ordinary caller instruction checks find no trace work.
 The band-17 quantization trace captures actual theta, PVQ, stereo merge,
 reconstructed output and RDO-selection boundaries in the existing two-frame
 constrained-VBR witness. Parsing requires bounded geometry, valid trial linkage,
-complete selection events and exact EOF. The [native audit at `b4c72fc5`](https://github.com/thesyncim/gopus/actions/runs/36644914737)
-passes the malformed-payload suite in both lanes, but its link-map validator
-rejects the separate `quant_bands.o` object because its name contains `bands.o`.
-The validator matches complete archive member names; its regression accepts
-`quant_bands.o` while rejecting ordinary/libtool `bands.o`, nested members and
-malformed entries. Actual trace transparency and native quantization capture
-remain pending. Default-off caller instruction checks pass.
+complete selection events and exact EOF. The [native audit at `01592d70`](https://github.com/thesyncim/gopus/actions/runs/36645824081)
+passes malformed-payload validation and exact archive-member binding in both
+lanes. It rejects actual PVQ event 7 at a recursive theta-context boundary;
+producer context and source-derived leaf geometry still require validation
+before this trace can establish the first arithmetic difference. Default-off
+caller instruction checks pass.
 
 The v3 warped-gain correction preserves the selected C Horner FMA sequence
 and fused denominator, followed by separate float32 reciprocal and sqrt-gain
@@ -328,20 +311,27 @@ multiplication. A register boundary prevents Go from folding a coefficient
 load into an unfused ADDSS. Other targets retain the direct source expressions;
 ARM64 generated arithmetic matches the reference shape. The independent oracle
 compiles the pinned static C helper with matching production flags and a source
-hash in its cache key. Native same-input oracle, warm-allocation and full encoder
-validation are pending. The extra call per coefficient has no published timing.
+hash in its cache key. Its native warm-allocation guard passes in both lanes,
+and the three SILK encoder witnesses close as recorded above. The standalone
+source oracle fails preparation because it assumes an unprepared scalar source
+directory; CI has only the selected v3 source trees. Matching reference source
+preparation and oracle execution remain required. The extra call per coefficient
+has no published timing.
 
 The Hybrid diagnostic captures the actual shared range coder after SILK and
 before/after CELT on the existing 50-frame CBR stream (scalar frame 0, SIMD
 frame 25). Capture requires ordered calls, the same coder/buffer identity,
 bounded state and written bytes, complete EOF and ordinary/traced packet/range
 transparency. Tagged and ordinary v3 cross-builds pass in both lanes; ordinary
-caller instruction checks find no diagnostic work. Native validation is pending.
+caller instruction checks find no diagnostic work. Native capture emits no
+boundary records, so it rejects the trace before comparing arithmetic. Actual selected packet mode, wrapper binding and capture validation remain
+unresolved.
 
-The unchanged CBR quality gate rejects SILK NB 10 ms mono (Q -458.03,
-correlation 0.972870) and SILK WB stereo (Q -157.52) in both lanes, plus
-CELT 2.5 ms mono (Q -61.97) in SIMD. The narrowband case differs in 50/100
-packets from frame 50. These quality failures remain correctness blockers.
+The scalar CBR contract reports no hard quality failures. Its three unresolved
+cases are CELT stereo 5 ms, CELT stereo 20 ms and Hybrid stereo 20 ms. SIMD
+retains CELT mono 2.5 ms and Hybrid stereo 20 ms packet differences; the former
+fails the unchanged quality gate (Q -61.97). Unknown differences remain
+correctness blockers, including the separate scalar constrained-VBR witness.
 
 The encoder trace at `5b435e02` matches every captured scalar stage and the packet
 at frame 95. The SIMD trace first differs in actual MDCT input at index 120

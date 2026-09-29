@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"os"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 const (
@@ -25,9 +27,29 @@ type libopusSILKWarpedGainCase struct {
 	coefs  []float32
 }
 
-func getLibopusSILKWarpedGainHelperPath(t testing.TB) (string, error) {
-	pinnedSource := libopustest.ReadPinnedSourceFileOrSkip(t, "SILK warped gain source",
-		"silk", "float", "noise_shape_analysis_FLP.c")
+func getLibopusSILKWarpedGainHelperPath() (string, error) {
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	roots := libopustooling.DefaultSearchRoots()
+	var ensured bool
+	switch variant {
+	case libopustooling.LibopusReferenceScalar:
+		ensured = libopustooling.EnsureLibopusScalar(libopustooling.DefaultVersion, roots)
+	case libopustooling.LibopusReferenceSIMD:
+		ensured = libopustooling.EnsureLibopusSIMD(libopustooling.DefaultVersion, roots)
+	default:
+		return "", fmt.Errorf("SILK warped gain requires the default float-core reference, got %q", variant)
+	}
+	if !ensured {
+		return "", fmt.Errorf("could not ensure paired libopus %s reference", variant)
+	}
+	pinnedSourcePath := libopustest.RefPath("silk", "float", "noise_shape_analysis_FLP.c")
+	pinnedSource, err := os.ReadFile(pinnedSourcePath)
+	if err != nil {
+		return "", fmt.Errorf("read paired SILK warped gain source %q: %w", pinnedSourcePath, err)
+	}
 	sourceHash := sha256.Sum256(pinnedSource)
 	return libopusSILKWarpedGainHelper.CHelperPath(libopustest.CHelperConfig{
 		Label:        "SILK warped gain",
@@ -38,13 +60,13 @@ func getLibopusSILKWarpedGainHelperPath(t testing.TB) (string, error) {
 		// translation unit's source hash invalidates a stale helper binary.
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG", fmt.Sprintf("-DGOPUS_SILK_WARPED_GAIN_SOURCE_SHA256=0x%x", sourceHash)},
 		RefIncludes: []string{"celt", "silk", "silk/float"},
-		SIMDRef:     silkLPCOracleUsesAVX2(),
+		SIMDRef:     variant == libopustooling.LibopusReferenceSIMD,
 		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 	})
 }
 
-func probeLibopusSILKWarpedGain(t testing.TB, cases []libopusSILKWarpedGainCase) ([]float32, error) {
-	path, err := getLibopusSILKWarpedGainHelperPath(t)
+func probeLibopusSILKWarpedGain(cases []libopusSILKWarpedGainCase) ([]float32, error) {
+	path, err := getLibopusSILKWarpedGainHelperPath()
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +153,7 @@ func TestSILKWarpedGainNativeV3MatchesLibopusSource(t *testing.T) {
 	requireLibopusAMD64V3Target(t)
 	libopustest.RequireOracle(t)
 	cases := nativeSILKWarpedGainCases()
-	want, err := probeLibopusSILKWarpedGain(t, cases)
+	want, err := probeLibopusSILKWarpedGain(cases)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "native v3 SILK warped gain", err)
 	}
