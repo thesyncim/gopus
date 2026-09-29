@@ -297,12 +297,18 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	stride := frameSize + overlap
 	in := ensureFloat32Slice(&e.scratch.planarIn, channels*stride)
 	e.fillTransientHistoryFromPrefilterF32(overlap, frameSize, in)
+	preemphasisInput := samplesForFrame
+	if nativeUpsample {
+		preemphasisInput = apiPCM
+	}
+	preemphasisTrace := e.beginEncodePreemphasisTrace(preemphasisInput, frameSize, overlap, nativeUpsample)
 	var isSilence bool
 	if nativeUpsample {
 		isSilence = e.applyPreemphasisUpsampled(apiPCM, in, frameSize, overlap)
 	} else {
 		isSilence = e.applyPreemphasisWithScalingAndSilenceCore(samplesForFrame, in, frameSize, overlap)
 	}
+	e.finishEncodePreemphasisTrace(preemphasisTrace, in, frameSize, overlap)
 
 	// Initialize the range encoder, then the frame budget: byte budget, VBR
 	// rate and equiv_rate (celt_encoder.c:1873-1927). VBR starts from the full

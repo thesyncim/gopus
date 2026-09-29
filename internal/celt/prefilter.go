@@ -187,9 +187,17 @@ func (e *Encoder) runPrefilter(in []float32, frameSize int, tapset int, enabled 
 		preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 		outCh := out[ch*perChanLen : (ch+1)*perChanLen]
 		if offset > 0 {
+			traceCall := e.beginEncodePrefilterCombTrace(ch, outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset,
+				-e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
 			combFilterWithInputSig(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
+			e.finishEncodePrefilterCombTrace(traceCall, outCh, maxPeriod, offset)
 		}
-		combFilterWithInputSig(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
+		start := maxPeriod + offset
+		n := frameSize - offset
+		traceCall := e.beginEncodePrefilterCombTrace(ch, outCh, preCh, start, prevPeriod, pitchIndex, n,
+			-e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
+		combFilterWithInputSig(outCh, preCh, start, prevPeriod, pitchIndex, n, -e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
+		e.finishEncodePrefilterCombTrace(traceCall, outCh, start, n)
 	}
 	// before[c] and after[c] are run_prefilter's serial ABS32 sums over the
 	// input and the comb-filtered output.
@@ -224,7 +232,11 @@ func (e *Encoder) runPrefilter(in []float32, frameSize int, tapset int, enabled 
 			preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 			outCh := out[ch*perChanLen : (ch+1)*perChanLen]
 			copy(outCh[maxPeriod:maxPeriod+frameSize], preCh[maxPeriod:maxPeriod+frameSize])
-			combFilterWithInputSig(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, overlap, -e.prefilterGain, 0, prevTapset, tapset, window, overlap)
+			start := maxPeriod + offset
+			traceCall := e.beginEncodePrefilterCombTrace(ch, outCh, preCh, start, prevPeriod, pitchIndex, overlap,
+				-e.prefilterGain, 0, prevTapset, tapset, window, overlap)
+			combFilterWithInputSig(outCh, preCh, start, prevPeriod, pitchIndex, overlap, -e.prefilterGain, 0, prevTapset, tapset, window, overlap)
+			e.finishEncodePrefilterCombTrace(traceCall, outCh, start, overlap)
 		}
 		gain1 = 0
 		pfOn = false

@@ -99,7 +99,7 @@ func TestCELTFirstFrameStageDiagnostic(t *testing.T) {
 	if cTrace.TraceFrame != 0 {
 		t.Fatalf("C stage trace captured frame %d, want frame 0", cTrace.TraceFrame)
 	}
-	if cTrace.BandCalls == 0 || cTrace.LogCalls == 0 || cTrace.NormalizationCalls == 0 || cTrace.CoarseCalls == 0 || cTrace.QuantCalls == 0 {
+	if cTrace.BandCalls == 0 || cTrace.LogCalls == 0 || cTrace.NormalizationCalls == 0 || cTrace.CoarseCalls == 0 || cTrace.QuantCalls == 0 || cTrace.PreemphasisCalls == 0 {
 		t.Fatalf("C wrappers did not cover every target boundary: %+v", cTrace.counts())
 	}
 	if cTrace.MDCTCalls == 0 {
@@ -214,7 +214,7 @@ func TestCELTLateCBRFrameStageDiagnostic(t *testing.T) {
 	if cTrace.Overflow != 0 {
 		t.Fatalf("late-frame C stage trace overflowed its bounded capture: flags=%d", cTrace.Overflow)
 	}
-	if cTrace.BandCalls == 0 || cTrace.LogCalls == 0 || cTrace.NormalizationCalls == 0 || cTrace.CoarseCalls == 0 || cTrace.QuantCalls == 0 {
+	if cTrace.BandCalls == 0 || cTrace.LogCalls == 0 || cTrace.NormalizationCalls == 0 || cTrace.CoarseCalls == 0 || cTrace.QuantCalls == 0 || cTrace.PreemphasisCalls == 0 {
 		t.Fatalf("C wrappers did not cover every late-frame target boundary: %+v", cTrace.counts())
 	}
 	if cTrace.MDCTCalls == 0 {
@@ -313,6 +313,8 @@ func buildCELTTraceOracleAtFrame(t *testing.T, trace bool, traceFrame int) strin
 		}
 		config.CFlags = append(config.CFlags, "-DGOPUS_CELT_TRACE", fmt.Sprintf("-DGOPUS_CELT_TRACE_FRAME=%d", traceFrame))
 		config.LDFlags = []string{
+			"-Wl,--wrap=celt_preemphasis",
+			"-Wl,--wrap=comb_filter",
 			"-Wl,--wrap=compute_band_energies",
 			"-Wl,--wrap=amp2Log2",
 			"-Wl,--wrap=normalise_bands",
@@ -528,16 +530,49 @@ type celtCBRStageMDCT struct {
 	Trig       []float32
 }
 
+type celtCBRStagePreemphasis struct {
+	Channel      int
+	Channels     int
+	FrameSize    int
+	Upsample     int
+	Flags        uint32
+	StateBefore  float32
+	StateAfter   float32
+	Coefficients [4]float32
+	Input        []float32
+	Output       []float32
+}
+
+type celtCBRStagePrefilter struct {
+	T0        int32
+	T1        int32
+	N         int
+	Tapset0   int32
+	Tapset1   int32
+	Overlap   int
+	Arch      int
+	WindowNil bool
+	Gain0     float32
+	Gain1     float32
+	History   []float32
+	Input     []float32
+	Window    []float32
+	Output    []float32
+}
+
 type celtCBRStageTrace struct {
 	TraceFrame                                                                  uint32
 	Overflow                                                                    uint32
 	BandCalls, LogCalls, NormalizationCalls, CoarseCalls, QuantCalls, MDCTCalls int
+	PreemphasisCalls, PrefilterCalls                                            int
 	Bands                                                                       []celtCBRStageBand
 	Logs                                                                        []celtCBRStageLog
 	Normalizations                                                              []celtCBRStageNorm
 	Coarse                                                                      []celtCBRStageCoarse
 	Quant                                                                       []celtCBRStageQuant
 	MDCT                                                                        []celtCBRStageMDCT
+	Preemphasis                                                                 []celtCBRStagePreemphasis
+	Prefilter                                                                   []celtCBRStagePrefilter
 }
 
 type celtCBRStageLog struct {
@@ -548,11 +583,16 @@ type celtCBRStageLog struct {
 }
 
 func validateCELTTraceShapes(goTrace celt.EncodeStageTrace, cTrace celtCBRStageTrace) error {
+	if goTrace.StageOverflow {
+		return fmt.Errorf("Go preemphasis/prefilter trace exceeded its bounded capture")
+	}
 	if len(goTrace.BandStages) != cTrace.BandCalls || len(goTrace.BandStages) != len(cTrace.Bands) ||
 		len(goTrace.BandStages) != cTrace.LogCalls || len(goTrace.BandStages) != len(cTrace.Logs) ||
 		len(goTrace.Normalizations) != cTrace.NormalizationCalls || len(goTrace.Normalizations) != len(cTrace.Normalizations) ||
 		len(goTrace.CoarseEnergy) != cTrace.CoarseCalls || len(goTrace.CoarseEnergy) != len(cTrace.Coarse) ||
-		len(goTrace.BandQuantize) != cTrace.QuantCalls || len(goTrace.BandQuantize) != len(cTrace.Quant) {
+		len(goTrace.BandQuantize) != cTrace.QuantCalls || len(goTrace.BandQuantize) != len(cTrace.Quant) ||
+		len(goTrace.Preemphasis) != cTrace.PreemphasisCalls || len(goTrace.Preemphasis) != len(cTrace.Preemphasis) ||
+		len(goTrace.PrefilterComb) != cTrace.PrefilterCalls || len(goTrace.PrefilterComb) != len(cTrace.Prefilter) {
 		return fmt.Errorf("stage counts differ: Go bands/logs/norm/coarse/quant=%d/%d/%d/%d/%d, C=%s",
 			len(goTrace.BandStages), len(cTrace.Logs), len(goTrace.Normalizations), len(goTrace.CoarseEnergy), len(goTrace.BandQuantize), cTrace.counts())
 	}
@@ -613,7 +653,45 @@ func validateCELTTraceShapes(goTrace celt.EncodeStageTrace, cTrace celtCBRStageT
 			return fmt.Errorf("quantization stage %d has malformed Go/C payload lengths", i)
 		}
 	}
-	return validateCELTMDCTTraceShapes(goTrace, cTrace)
+	if err := validateCELTMDCTTraceShapes(goTrace, cTrace); err != nil {
+		return err
+	}
+	for i, got := range goTrace.Preemphasis {
+		want := cTrace.Preemphasis[i]
+		if got.Channel != want.Channel || got.Channels != want.Channels || got.FrameSize != want.FrameSize ||
+			got.Upsample != want.Upsample || got.Clip != (want.Flags&1 != 0) ||
+			len(got.Input) != len(want.Input) || len(got.Output) != got.FrameSize || len(want.Output) != want.FrameSize {
+			return fmt.Errorf("preemphasis call %d dimensions differ: Go=(ch%d/%d frame%d up%d clip=%t input/output=%d/%d) C=(ch%d/%d frame%d up%d clip=%t input/output=%d/%d)",
+				i, got.Channel, got.Channels, got.FrameSize, got.Upsample, got.Clip, len(got.Input), len(got.Output),
+				want.Channel, want.Channels, want.FrameSize, want.Upsample, want.Flags&1 != 0, len(want.Input), len(want.Output))
+		}
+	}
+	if len(goTrace.Preemphasis) > 0 {
+		channels := goTrace.Preemphasis[0].Channels
+		if len(goTrace.Preemphasis) != channels {
+			return fmt.Errorf("preemphasis captured %d channel calls, want %d", len(goTrace.Preemphasis), channels)
+		}
+		for channel, got := range goTrace.Preemphasis {
+			if got.Channel != channel || got.Channels != channels || cTrace.Preemphasis[channel].Channel != channel {
+				return fmt.Errorf("preemphasis channel call %d is out of order: Go=%d/%d C=%d", channel, got.Channel, got.Channels, cTrace.Preemphasis[channel].Channel)
+			}
+		}
+	}
+	for i, got := range goTrace.PrefilterComb {
+		want := cTrace.Prefilter[i]
+		if got.T0 != want.T0 || got.T1 != want.T1 || got.N != want.N || got.Tapset0 != want.Tapset0 ||
+			got.Tapset1 != want.Tapset1 || got.Overlap != want.Overlap || got.WindowNil != want.WindowNil ||
+			got.Start < 1024 || len(got.History) != 1024 || len(want.History) != 1024 ||
+			len(got.Input) != got.N || len(want.Input) != got.N || len(got.Output) != got.N || len(want.Output) != got.N ||
+			len(got.Window) != len(want.Window) {
+			return fmt.Errorf("prefilter comb call %d dimensions/controls differ: Go=(ch%d start%d t=%d/%d n%d taps=%d/%d ov%d hist/input/window/output=%d/%d/%d/%d) C=(t=%d/%d n%d taps=%d/%d ov%d hist/input/window/output=%d/%d/%d/%d arch=%d)",
+				i, got.Channel, got.Start, got.T0, got.T1, got.N, got.Tapset0, got.Tapset1, got.Overlap,
+				len(got.History), len(got.Input), len(got.Window), len(got.Output),
+				want.T0, want.T1, want.N, want.Tapset0, want.Tapset1, want.Overlap,
+				len(want.History), len(want.Input), len(want.Window), len(want.Output), want.Arch)
+		}
+	}
+	return nil
 }
 
 func validateCELTMDCTTraceShapes(goTrace celt.EncodeStageTrace, cTrace celtCBRStageTrace) error {
@@ -711,10 +789,11 @@ func validateCELTTraceExpectedDimensions(goTrace celt.EncodeStageTrace, cTrace c
 }
 
 func (trace celtCBRStageTrace) counts() string {
-	return fmt.Sprintf("bands=%d/%d logs=%d/%d normalize=%d/%d coarse=%d/%d quant=%d/%d mdct=%d/%d overflow=%d",
+	return fmt.Sprintf("bands=%d/%d logs=%d/%d normalize=%d/%d coarse=%d/%d quant=%d/%d mdct=%d/%d preemphasis=%d/%d prefilter=%d/%d overflow=%d",
 		trace.BandCalls, len(trace.Bands), trace.LogCalls, len(trace.Logs),
 		trace.NormalizationCalls, len(trace.Normalizations), trace.CoarseCalls, len(trace.Coarse),
-		trace.QuantCalls, len(trace.Quant), trace.MDCTCalls, len(trace.MDCT), trace.Overflow)
+		trace.QuantCalls, len(trace.Quant), trace.MDCTCalls, len(trace.MDCT),
+		trace.PreemphasisCalls, len(trace.Preemphasis), trace.PrefilterCalls, len(trace.Prefilter), trace.Overflow)
 }
 
 type celtTraceReader struct {
@@ -747,8 +826,8 @@ func parseCELTEncodeTrace(data []byte) (celtCBRStageTrace, error) {
 	if len(data) < 12 || string(data[:4]) != "GCET" {
 		return result, fmt.Errorf("invalid GCET stage trace header")
 	}
-	if version := binary.LittleEndian.Uint32(data[4:8]); version != 3 {
-		return result, fmt.Errorf("invalid GCET v3 stage trace version %d", version)
+	if version := binary.LittleEndian.Uint32(data[4:8]); version != 4 {
+		return result, fmt.Errorf("invalid GCET v4 stage trace version %d", version)
 	}
 	reader := celtTraceReader{data: data, off: 8}
 	var err error
@@ -995,6 +1074,123 @@ func parseCELTEncodeTrace(data []byte) (celtCBRStageTrace, error) {
 			FFTScale: math.Float32frombits(values[8]), Input: input, Window: window, Trig: trig,
 		})
 	}
+	if result.PreemphasisCalls, _, err = readCounts(); err != nil {
+		return result, err
+	}
+	result.Preemphasis = make([]celtCBRStagePreemphasis, 0, result.PreemphasisCalls)
+	for range result.PreemphasisCalls {
+		values := make([]uint32, 7)
+		for i := range values {
+			if values[i], err = reader.u32(); err != nil {
+				return result, err
+			}
+		}
+		inputCount, readErr := traceFloatCount(values[4], 1)
+		if readErr != nil {
+			return result, readErr
+		}
+		outputCount, readErr := traceFloatCount(values[5], 1)
+		if readErr != nil {
+			return result, readErr
+		}
+		if values[6]&^uint32(1) != 0 {
+			return result, fmt.Errorf("invalid C preemphasis flags %#x", values[6])
+		}
+		stateBeforeBits, readErr := reader.u32()
+		if readErr != nil {
+			return result, readErr
+		}
+		stateAfterBits, readErr := reader.u32()
+		if readErr != nil {
+			return result, readErr
+		}
+		coefficients, readErr := reader.floats(4)
+		if readErr != nil {
+			return result, readErr
+		}
+		input, readErr := reader.floats(inputCount)
+		if readErr != nil {
+			return result, readErr
+		}
+		output, readErr := reader.floats(outputCount)
+		if readErr != nil {
+			return result, readErr
+		}
+		if values[1] == 0 || values[0] >= values[1] || values[3] == 0 || values[2] != values[5] ||
+			values[2]%values[3] != 0 || values[4] != values[2]/values[3] {
+			return result, fmt.Errorf("invalid C preemphasis dimensions channel=%d channels=%d frame=%d upsample=%d input=%d output=%d",
+				values[0], values[1], values[2], values[3], values[4], values[5])
+		}
+		result.Preemphasis = append(result.Preemphasis, celtCBRStagePreemphasis{
+			Channel: int(values[0]), Channels: int(values[1]), FrameSize: int(values[2]), Upsample: int(values[3]),
+			Flags: values[6], StateBefore: math.Float32frombits(stateBeforeBits), StateAfter: math.Float32frombits(stateAfterBits),
+			Coefficients: [4]float32{coefficients[0], coefficients[1], coefficients[2], coefficients[3]},
+			Input:        input, Output: output,
+		})
+	}
+	if result.PrefilterCalls, _, err = readCounts(); err != nil {
+		return result, err
+	}
+	result.Prefilter = make([]celtCBRStagePrefilter, 0, result.PrefilterCalls)
+	for range result.PrefilterCalls {
+		values := make([]uint32, 12)
+		for i := range values {
+			if values[i], err = reader.u32(); err != nil {
+				return result, err
+			}
+		}
+		gain0Bits, readErr := reader.u32()
+		if readErr != nil {
+			return result, readErr
+		}
+		gain1Bits, readErr := reader.u32()
+		if readErr != nil {
+			return result, readErr
+		}
+		historyCount, readErr := traceFloatCount(values[8], 1)
+		if readErr != nil {
+			return result, readErr
+		}
+		inputCount, readErr := traceFloatCount(values[9], 1)
+		if readErr != nil {
+			return result, readErr
+		}
+		windowCount, readErr := traceFloatCount(values[10], 1)
+		if readErr != nil {
+			return result, readErr
+		}
+		outputCount, readErr := traceFloatCount(values[11], 1)
+		if readErr != nil {
+			return result, readErr
+		}
+		if values[7] > 1 || values[8] != 1024 || values[2] != values[9] || values[2] != values[11] ||
+			(values[7] == 0 && values[10] != values[5]) || (values[7] == 1 && values[10] != 0) {
+			return result, fmt.Errorf("invalid C prefilter dimensions n=%d overlap=%d history/input/window/output=%d/%d/%d/%d",
+				values[2], values[5], values[8], values[9], values[10], values[11])
+		}
+		history, readErr := reader.floats(historyCount)
+		if readErr != nil {
+			return result, readErr
+		}
+		input, readErr := reader.floats(inputCount)
+		if readErr != nil {
+			return result, readErr
+		}
+		window, readErr := reader.floats(windowCount)
+		if readErr != nil {
+			return result, readErr
+		}
+		output, readErr := reader.floats(outputCount)
+		if readErr != nil {
+			return result, readErr
+		}
+		result.Prefilter = append(result.Prefilter, celtCBRStagePrefilter{
+			T0: int32(values[0]), T1: int32(values[1]), N: int(values[2]), Tapset0: int32(values[3]),
+			Tapset1: int32(values[4]), Overlap: int(values[5]), Arch: int(values[6]), WindowNil: values[7] == 1,
+			Gain0: math.Float32frombits(gain0Bits), Gain1: math.Float32frombits(gain1Bits),
+			History: history, Input: input, Window: window, Output: output,
+		})
+	}
 	if reader.off != len(reader.data) {
 		return result, fmt.Errorf("CELT stage trace has %d trailing bytes", len(reader.data)-reader.off)
 	}
@@ -1015,6 +1211,46 @@ func firstCELTTraceFloatDifference(got, want []float32) (index int, gotBits, wan
 	return -1, 0, 0
 }
 
+func celtTraceFloat32Distance(bits uint32) uint32 {
+	if bits&0x80000000 != 0 {
+		return ^bits
+	}
+	return bits | 0x80000000
+}
+
+func celtTraceFloat32Stats(got, want []float32) (first int, gotBits, wantBits uint32, differing int, maxULP uint64) {
+	first = -1
+	limit := min(len(got), len(want))
+	for i := 0; i < limit; i++ {
+		gotBits, wantBits = math.Float32bits(got[i]), math.Float32bits(want[i])
+		if gotBits == wantBits {
+			continue
+		}
+		if first < 0 {
+			first, gotBits, wantBits = i, gotBits, wantBits
+		}
+		differing++
+		gotOrder, wantOrder := uint64(celtTraceFloat32Distance(math.Float32bits(got[i]))), uint64(celtTraceFloat32Distance(math.Float32bits(want[i])))
+		var ulp uint64
+		if gotOrder >= wantOrder {
+			ulp = gotOrder - wantOrder
+		} else {
+			ulp = wantOrder - gotOrder
+		}
+		if ulp > maxULP {
+			maxULP = ulp
+		}
+	}
+	if len(got) != len(want) {
+		differing += max(len(got), len(want)) - limit
+		if first < 0 {
+			first = limit
+			gotBits, wantBits = uint32(len(got)), uint32(len(want))
+		}
+	}
+	return first, gotBits, wantBits, differing, maxULP
+}
+
 func firstCELTTraceByteDifference(got, want []byte) int {
 	limit := min(len(got), len(want))
 	for i := 0; i < limit; i++ {
@@ -1032,7 +1268,7 @@ func logCELTTraceDifferences(t *testing.T, goTrace celt.EncodeStageTrace, cTrace
 	t.Helper()
 	first := ""
 	compare := func(label string, got, want []float32) {
-		index, gotBits, wantBits := firstCELTTraceFloatDifference(got, want)
+		index, gotBits, wantBits, differing, maxULP := celtTraceFloat32Stats(got, want)
 		if index < 0 {
 			t.Logf("%s: match (%d float32 values)", label, len(got))
 			return
@@ -1040,7 +1276,63 @@ func logCELTTraceDifferences(t *testing.T, goTrace celt.EncodeStageTrace, cTrace
 		if first == "" {
 			first = label
 		}
-		t.Logf("%s: first difference at %d Go=0x%08x C=0x%08x lengths Go=%d C=%d", label, index, gotBits, wantBits, len(got), len(want))
+		t.Logf("%s: first difference at %d Go=0x%08x C=0x%08x differing=%d maxULP=%d lengths Go=%d C=%d",
+			label, index, gotBits, wantBits, differing, maxULP, len(got), len(want))
+	}
+	if len(goTrace.Preemphasis) != len(cTrace.Preemphasis) || len(goTrace.PrefilterComb) != len(cTrace.Prefilter) {
+		t.Logf("preemphasis/prefilter call counts Go=%d/%d C=%d/%d",
+			len(goTrace.Preemphasis), len(goTrace.PrefilterComb), len(cTrace.Preemphasis), len(cTrace.Prefilter))
+	}
+	for i := 0; i < min(len(goTrace.Preemphasis), len(cTrace.Preemphasis)); i++ {
+		got, want := goTrace.Preemphasis[i], cTrace.Preemphasis[i]
+		label := fmt.Sprintf("preemphasis call %d channel %d", i, got.Channel)
+		if got.Channel != want.Channel || got.Channels != want.Channels || got.FrameSize != want.FrameSize ||
+			got.Upsample != want.Upsample || got.Clip != (want.Flags&1 != 0) {
+			if first == "" {
+				first = label + " controls"
+			}
+			t.Logf("%s controls Go=(ch%d/%d frame%d up%d clip=%t) C=(ch%d/%d frame%d up%d clip=%t)",
+				label, got.Channel, got.Channels, got.FrameSize, got.Upsample, got.Clip,
+				want.Channel, want.Channels, want.FrameSize, want.Upsample, want.Flags&1 != 0)
+		}
+		compare(label+" raw PCM input", got.Input, want.Input)
+		compare(label+" preemphasis output", got.Output, want.Output)
+		for coefficient := range got.Coefficients {
+			if math.Float32bits(got.Coefficients[coefficient]) != math.Float32bits(want.Coefficients[coefficient]) {
+				if first == "" {
+					first = fmt.Sprintf("%s coefficient %d", label, coefficient)
+				}
+				t.Logf("%s coefficient %d Go=0x%08x C=0x%08x", label, coefficient,
+					math.Float32bits(got.Coefficients[coefficient]), math.Float32bits(want.Coefficients[coefficient]))
+			}
+		}
+		if math.Float32bits(got.StateBefore) != math.Float32bits(want.StateBefore) ||
+			math.Float32bits(got.StateAfter) != math.Float32bits(want.StateAfter) {
+			if first == "" {
+				first = label + " carry"
+			}
+			t.Logf("%s carry Go before/after=%08x/%08x C=%08x/%08x", label,
+				math.Float32bits(got.StateBefore), math.Float32bits(got.StateAfter),
+				math.Float32bits(want.StateBefore), math.Float32bits(want.StateAfter))
+		}
+	}
+	for i := 0; i < min(len(goTrace.PrefilterComb), len(cTrace.Prefilter)); i++ {
+		got, want := goTrace.PrefilterComb[i], cTrace.Prefilter[i]
+		label := fmt.Sprintf("prefilter comb call %d channel %d", i, got.Channel)
+		if got.T0 != want.T0 || got.T1 != want.T1 || got.N != want.N || got.Tapset0 != want.Tapset0 ||
+			got.Tapset1 != want.Tapset1 || got.Overlap != want.Overlap || got.WindowNil != want.WindowNil ||
+			math.Float32bits(got.Gain0) != math.Float32bits(want.Gain0) || math.Float32bits(got.Gain1) != math.Float32bits(want.Gain1) {
+			if first == "" {
+				first = label + " controls"
+			}
+			t.Logf("%s controls Go=(start%d t=%d/%d n%d gain=%08x/%08x taps=%d/%d ov%d nilwindow=%t) C=(t=%d/%d n%d gain=%08x/%08x taps=%d/%d ov%d nilwindow=%t arch=%d)",
+				label, got.Start, got.T0, got.T1, got.N, math.Float32bits(got.Gain0), math.Float32bits(got.Gain1), got.Tapset0, got.Tapset1, got.Overlap, got.WindowNil,
+				want.T0, want.T1, want.N, math.Float32bits(want.Gain0), math.Float32bits(want.Gain1), want.Tapset0, want.Tapset1, want.Overlap, want.WindowNil, want.Arch)
+		}
+		compare(label+" history[-1024:]", got.History, want.History)
+		compare(label+" frame input", got.Input, want.Input)
+		compare(label+" window", got.Window, want.Window)
+		compare(label+" output", got.Output, want.Output)
 	}
 	if len(goTrace.MDCTCalls) != len(cTrace.MDCT) {
 		t.Logf("MDCT diagnostic call counts Go=%d C=%d", len(goTrace.MDCTCalls), len(cTrace.MDCT))

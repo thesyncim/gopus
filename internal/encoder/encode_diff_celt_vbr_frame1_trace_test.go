@@ -90,7 +90,7 @@ func TestEncodeDiffCELTVBRFrame1Trace(t *testing.T) {
 	if cTrace.TraceFrame != 1 || cTrace.Overflow != 0 {
 		t.Fatalf("C stage trace selected frame=%d overflow=%d, want frame 1 and no overflow", cTrace.TraceFrame, cTrace.Overflow)
 	}
-	if cTrace.BandCalls == 0 || cTrace.LogCalls == 0 || cTrace.NormalizationCalls == 0 || cTrace.CoarseCalls == 0 || cTrace.QuantCalls == 0 {
+	if cTrace.BandCalls == 0 || cTrace.LogCalls == 0 || cTrace.NormalizationCalls == 0 || cTrace.CoarseCalls == 0 || cTrace.QuantCalls == 0 || cTrace.PreemphasisCalls != vbrTraceChannels {
 		t.Fatalf("C wrappers did not cover every CELT stage: %s", cTrace.counts())
 	}
 	if cTrace.MDCTCalls == 0 {
@@ -171,6 +171,8 @@ func buildCELTVBREntropyTraceOracle(t *testing.T) string {
 		RefIncludes: []string{"celt", "silk", "src"},
 		LDFlags: []string{
 			"-Wl,--wrap=opus_encode_float",
+			"-Wl,--wrap=celt_preemphasis",
+			"-Wl,--wrap=comb_filter",
 			"-Wl,--wrap=compute_band_energies",
 			"-Wl,--wrap=amp2Log2",
 			"-Wl,--wrap=normalise_bands",
@@ -295,8 +297,8 @@ func formatEncodeDiffRecords(records []libopustest.EncodeDiffRecord) string {
 }
 
 func scanCELTVBRStageTrace(data []byte) (int, error) {
-	if len(data) < 16 || string(data[:4]) != "GCET" || binary.LittleEndian.Uint32(data[4:8]) != 3 {
-		return 0, fmt.Errorf("invalid GCET v3 header")
+	if len(data) < 16 || string(data[:4]) != "GCET" || binary.LittleEndian.Uint32(data[4:8]) != 4 {
+		return 0, fmt.Errorf("invalid GCET v4 header")
 	}
 	off := 8
 	read := func() (uint32, error) {
@@ -446,6 +448,44 @@ func scanCELTVBRStageTrace(data []byte) (int, error) {
 			return 0, err
 		}
 		if err = skipFloats(uint64(counts[11])); err != nil {
+			return 0, err
+		}
+	}
+	preemphasisCalls, err := readCount()
+	if err != nil {
+		return 0, err
+	}
+	for range preemphasisCalls {
+		var values [7]uint32
+		for i := range values {
+			if values[i], err = read(); err != nil {
+				return 0, err
+			}
+		}
+		if values[6]&^uint32(1) != 0 || values[1] == 0 || values[0] >= values[1] || values[2] != values[5] ||
+			values[3] == 0 || values[2]%values[3] != 0 || values[4] != values[2]/values[3] {
+			return 0, fmt.Errorf("invalid GCET preemphasis record")
+		}
+		if err = skipFloats(6 + uint64(values[4]) + uint64(values[5])); err != nil {
+			return 0, err
+		}
+	}
+	prefilterCalls, err := readCount()
+	if err != nil {
+		return 0, err
+	}
+	for range prefilterCalls {
+		var values [14]uint32
+		for i := range values {
+			if values[i], err = read(); err != nil {
+				return 0, err
+			}
+		}
+		if values[7] > 1 || values[8] != 1024 || values[2] != values[9] || values[2] != values[11] ||
+			(values[7] == 0 && values[10] != values[5]) || (values[7] == 1 && values[10] != 0) {
+			return 0, fmt.Errorf("invalid GCET prefilter record")
+		}
+		if err = skipFloats(uint64(values[8]) + uint64(values[9]) + uint64(values[10]) + uint64(values[11])); err != nil {
 			return 0, err
 		}
 	}

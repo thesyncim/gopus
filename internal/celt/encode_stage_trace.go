@@ -9,8 +9,46 @@ type EncodeStageTrace struct {
 	Normalizations []EncodeNormalizationTrace
 	CoarseEnergy   []EncodeCoarseEnergyTrace
 	BandQuantize   []EncodeBandQuantizeTrace
+	Preemphasis    []EncodePreemphasisTrace
+	PrefilterComb  []EncodePrefilterCombTrace
 	MDCTCalls      []EncodeMDCTCallTrace
 	MDCTOverflow   bool
+	StageOverflow  bool
+}
+
+// EncodePreemphasisTrace captures one channel's exact raw input, carry, and
+// output at celt_preemphasis' boundary.
+type EncodePreemphasisTrace struct {
+	Channel      int
+	Channels     int
+	FrameSize    int
+	Upsample     int
+	Clip         bool
+	Coefficients [4]float32
+	Input        []float32
+	Output       []float32
+	StateBefore  float32
+	StateAfter   float32
+}
+
+// EncodePrefilterCombTrace captures the actual materialized history and frame
+// samples passed to one run_prefilter comb-filter call.
+type EncodePrefilterCombTrace struct {
+	Channel   int
+	Start     int
+	T0        int32
+	T1        int32
+	N         int
+	Gain0     float32
+	Gain1     float32
+	Tapset0   int32
+	Tapset1   int32
+	Overlap   int
+	WindowNil bool
+	History   []float32
+	Input     []float32
+	Window    []float32
+	Output    []float32
 }
 
 // EncodeMDCTCallTrace captures the exact pre-transform inputs and tables for
@@ -79,6 +117,26 @@ func (e *Encoder) EnableEncodeStageTraceForTesting() {
 	e.encodeStageTrace.reset()
 }
 
+func (e *Encoder) beginEncodePreemphasisTrace(pcm []float32, frameSize, overlap int, nativeInput bool) int {
+	coefficients := [4]float32{float32(PreemphCoef), 0, 1, 1}
+	if e.hd96kPreemph[1] != 0 {
+		coefficients = e.hd96kPreemph
+	}
+	return e.encodeStageTrace.beginPreemphasis(pcm, frameSize, overlap, int(e.channels), e.effectiveUpsample(), nativeInput, e.preemphState, coefficients)
+}
+
+func (e *Encoder) finishEncodePreemphasisTrace(call int, in []float32, frameSize, overlap int) {
+	e.encodeStageTrace.finishPreemphasis(call, in, frameSize, overlap, e.preemphState)
+}
+
+func (e *Encoder) beginEncodePrefilterCombTrace(channel int, dst, src []celtSig, start, t0, t1, n int, gain0, gain1 float32, tapset0, tapset1 int, window []float32, overlap int) int {
+	return e.encodeStageTrace.beginPrefilterComb(channel, dst, src, start, t0, t1, n, gain0, gain1, tapset0, tapset1, window, overlap)
+}
+
+func (e *Encoder) finishEncodePrefilterCombTrace(call int, dst []celtSig, start, n int) {
+	e.encodeStageTrace.finishPrefilterComb(call, dst, start, n)
+}
+
 // EncodeStageTraceForTesting returns the captured CELT frame-stage values.
 // Slices remain valid until the next encode or trace reset.
 func (e *Encoder) EncodeStageTraceForTesting() EncodeStageTrace {
@@ -92,8 +150,102 @@ func (s *encodeStageTraceState) reset() {
 		Normalizations: make([]EncodeNormalizationTrace, 0, 2),
 		CoarseEnergy:   make([]EncodeCoarseEnergyTrace, 0, 2),
 		BandQuantize:   make([]EncodeBandQuantizeTrace, 0, 2),
+		Preemphasis:    make([]EncodePreemphasisTrace, 0, 2),
+		PrefilterComb:  make([]EncodePrefilterCombTrace, 0, 4),
 		MDCTCalls:      make([]EncodeMDCTCallTrace, 0, 4),
 	}
+}
+
+func (s *encodeStageTraceState) beginPreemphasis(pcm []float32, frameSize, overlap, channels, upsample int, nativeInput bool, state []celtSig, coefficients [4]float32) int {
+	if !s.enabled {
+		return -1
+	}
+	if channels <= 0 || channels > 2 || frameSize < 0 || overlap < 0 || upsample <= 0 || len(pcm)%channels != 0 || len(state) < channels {
+		s.trace.StageOverflow = true
+		return -1
+	}
+	inputPerChannel := frameSize
+	if nativeInput {
+		inputPerChannel = frameSize / upsample
+	}
+	if inputPerChannel < 0 || len(pcm)/channels != inputPerChannel {
+		s.trace.StageOverflow = true
+		return -1
+	}
+	first := len(s.trace.Preemphasis)
+	for channel := range channels {
+		if len(s.trace.Preemphasis) >= 2 {
+			s.trace.StageOverflow = true
+			return -1
+		}
+		input := make([]float32, inputPerChannel)
+		for i := range input {
+			input[i] = pcm[i*channels+channel]
+		}
+		s.trace.Preemphasis = append(s.trace.Preemphasis, EncodePreemphasisTrace{
+			Channel: channel, Channels: channels, FrameSize: frameSize, Upsample: upsample,
+			Coefficients: coefficients, Input: input, StateBefore: float32(state[channel]),
+		})
+	}
+	return first
+}
+
+func (s *encodeStageTraceState) finishPreemphasis(first int, in []float32, frameSize, overlap int, state []celtSig) {
+	if !s.enabled || first < 0 {
+		return
+	}
+	channels := min(len(state), len(s.trace.Preemphasis)-first)
+	stride := frameSize + overlap
+	if channels <= 0 || stride < 0 || frameSize < 0 || overlap < 0 || len(in) < channels*stride {
+		s.trace.StageOverflow = true
+		return
+	}
+	for channel := range channels {
+		trace := &s.trace.Preemphasis[first+channel]
+		if trace.FrameSize > len(in[channel*stride:])-overlap {
+			s.trace.StageOverflow = true
+			return
+		}
+		trace.Output = copyStageFloat32(in[channel*stride+overlap : channel*stride+overlap+trace.FrameSize])
+		trace.StateAfter = float32(state[channel])
+	}
+}
+
+func (s *encodeStageTraceState) beginPrefilterComb(channel int, dst, src []celtSig, start, t0, t1, n int, gain0, gain1 float32, tapset0, tapset1 int, window []float32, overlap int) int {
+	if !s.enabled {
+		return -1
+	}
+	call := len(s.trace.PrefilterComb)
+	if call >= 8 || start < combFilterMaxPeriod || n < 0 || start+n > len(src) || start+n > len(dst) {
+		s.trace.StageOverflow = true
+		return -1
+	}
+	historyStart := start - combFilterMaxPeriod
+	trace := EncodePrefilterCombTrace{
+		Channel: channel, Start: start, T0: int32(t0), T1: int32(t1), N: n, Gain0: gain0, Gain1: gain1,
+		Tapset0: int32(tapset0), Tapset1: int32(tapset1), Overlap: overlap, WindowNil: window == nil,
+		History: copyStageFloat32(src[historyStart:start]), Input: copyStageFloat32(src[start : start+n]),
+	}
+	if window != nil {
+		if overlap < 0 || overlap > len(window) {
+			s.trace.StageOverflow = true
+			return -1
+		}
+		trace.Window = copyStageFloat32(window[:overlap])
+	}
+	s.trace.PrefilterComb = append(s.trace.PrefilterComb, trace)
+	return len(s.trace.PrefilterComb) - 1
+}
+
+func (s *encodeStageTraceState) finishPrefilterComb(call int, dst []celtSig, start, n int) {
+	if !s.enabled || call < 0 {
+		return
+	}
+	if call >= len(s.trace.PrefilterComb) || start < 0 || n < 0 || start+n > len(dst) {
+		s.trace.StageOverflow = true
+		return
+	}
+	s.trace.PrefilterComb[call].Output = copyStageFloat32(dst[start : start+n])
 }
 
 func (s *encodeStageTraceState) recordMDCTCall(call EncodeMDCTCallTrace) {

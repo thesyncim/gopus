@@ -28,3 +28,13 @@ func (*Encoder) recordEncodeQuantInputTrace([]CeltNorm, []CeltNorm, []CeltEner, 
 func (*encodeStageTraceState) recordQuantOutput([]CeltNorm, []CeltNorm) {}
 
 func (*Encoder) recordEncodeMDCTTrace([]float32, int, int, int) {}
+
+func (*Encoder) beginEncodePreemphasisTrace([]float32, int, int, bool) int { return -1 }
+
+func (*Encoder) finishEncodePreemphasisTrace(int, []float32, int, int) {}
+
+func (*Encoder) beginEncodePrefilterCombTrace(int, []celtSig, []celtSig, int, int, int, int, float32, float32, int, int, []float32, int) int {
+	return -1
+}
+
+func (*Encoder) finishEncodePrefilterCombTrace(int, []celtSig, int, int) {}

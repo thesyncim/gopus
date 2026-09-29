@@ -44,6 +44,7 @@
 #include "config.h"
 #include "celt/cpu_support.h"
 #ifdef GOPUS_CELT_TRACE
+#include "celt/celt.h"
 #include "celt/bands.h"
 #include "celt/mdct.h"
 #include "celt/quant_bands.h"
@@ -169,6 +170,7 @@ static int write_u32(uint32_t v) {
 #define CELT_TRACE_MAX_CALLS 8
 #define CELT_TRACE_MAX_FLOATS 4096
 #define CELT_TRACE_MAX_BANDS 64
+#define CELT_TRACE_MAX_HISTORY 1024
 
 typedef struct {
   uint32_t frame_coeffs, bands, channels, lm;
@@ -211,16 +213,39 @@ typedef struct {
   float trig[CELT_TRACE_MAX_FLOATS];
 } celt_trace_mdct_call;
 
+typedef struct {
+  uint32_t channel, channels, frame_size, upsample;
+  uint32_t input_count, output_count, flags;
+  float state_before, state_after;
+  float coefficients[4];
+  float input[CELT_TRACE_MAX_FLOATS];
+  float output[CELT_TRACE_MAX_FLOATS];
+} celt_trace_preemphasis_call;
+
+typedef struct {
+  uint32_t t0, t1, n, tapset0, tapset1, overlap, arch, window_nil;
+  uint32_t history_count, input_count, window_count, output_count;
+  float gain0, gain1;
+  float history[CELT_TRACE_MAX_HISTORY];
+  float input[CELT_TRACE_MAX_FLOATS];
+  float window[CELT_TRACE_MAX_FLOATS];
+  float output[CELT_TRACE_MAX_FLOATS];
+} celt_trace_prefilter_call;
+
 static struct {
   uint32_t band_calls, log_calls, normalization_calls, coarse_calls, quant_calls, mdct_calls;
+  uint32_t preemphasis_calls, prefilter_calls;
   uint32_t stored_band_calls, stored_log_calls, stored_normalization_calls;
-  uint32_t stored_coarse_calls, stored_quant_calls, stored_mdct_calls, overflow;
+  uint32_t stored_coarse_calls, stored_quant_calls, stored_mdct_calls;
+  uint32_t stored_preemphasis_calls, stored_prefilter_calls, overflow;
   celt_trace_band_call bands[CELT_TRACE_MAX_CALLS];
   celt_trace_log_call logs[CELT_TRACE_MAX_CALLS];
   celt_trace_normalization_call normalizations[CELT_TRACE_MAX_CALLS];
   celt_trace_coarse_call coarse[CELT_TRACE_MAX_CALLS];
   celt_trace_quant_call quant[CELT_TRACE_MAX_CALLS];
   celt_trace_mdct_call mdct[CELT_TRACE_MAX_CALLS];
+  celt_trace_preemphasis_call preemphasis[CELT_TRACE_MAX_CALLS];
+  celt_trace_prefilter_call prefilter[CELT_TRACE_MAX_CALLS];
 } celt_encode_trace;
 
 static uint32_t celt_encode_active_frame;
@@ -297,6 +322,91 @@ void __wrap_clt_mdct_forward_c(const mdct_lookup *l, kiss_fft_scalar *in,
   }
 
   __real_clt_mdct_forward_c(l, in, out, window, overlap, shift, stride, arch);
+}
+
+extern void __real_celt_preemphasis(const opus_res *pcmp, celt_sig *inp,
+    int N, int CC, int upsample, const opus_val16 *coef, celt_sig *mem, int clip);
+void __wrap_celt_preemphasis(const opus_res *pcmp, celt_sig *inp,
+    int N, int CC, int upsample, const opus_val16 *coef, celt_sig *mem, int clip) {
+  if (!celt_trace_selected_frame()) {
+    __real_celt_preemphasis(pcmp, inp, N, CC, upsample, coef, mem, clip);
+    return;
+  }
+
+  uint32_t call = celt_encode_trace.preemphasis_calls++;
+  celt_trace_preemphasis_call *trace = NULL;
+  int input_count = upsample > 0 ? N / upsample : -1;
+  if (call >= CELT_TRACE_MAX_CALLS || call >= (uint32_t)CC || pcmp == NULL || inp == NULL || mem == NULL ||
+      coef == NULL || N < 0 || CC <= 0 || CC > 2 || upsample <= 0 || input_count < 0 ||
+      !trace_dimensions(input_count, CELT_TRACE_MAX_FLOATS) ||
+      !trace_dimensions(N, CELT_TRACE_MAX_FLOATS)) {
+    celt_encode_trace.overflow = 1;
+  } else {
+    trace = &celt_encode_trace.preemphasis[call];
+    trace->channel = call;
+    trace->channels = (uint32_t)CC;
+    trace->frame_size = (uint32_t)N;
+    trace->upsample = (uint32_t)upsample;
+    trace->input_count = (uint32_t)input_count;
+    trace->output_count = (uint32_t)N;
+    trace->flags = clip ? 1u : 0u;
+    trace->state_before = (float)*mem;
+    memcpy(trace->coefficients, coef, sizeof(trace->coefficients));
+    for (int i = 0; i < input_count; i++) trace->input[i] = (float)pcmp[i * CC];
+    celt_encode_trace.stored_preemphasis_calls++;
+  }
+
+  __real_celt_preemphasis(pcmp, inp, N, CC, upsample, coef, mem, clip);
+
+  if (trace != NULL) {
+    trace->state_after = (float)*mem;
+    memcpy(trace->output, inp, (size_t)N * sizeof(float));
+  }
+}
+
+extern void __real_comb_filter(opus_val32 *y, opus_val32 *x, int T0, int T1, int N,
+    opus_val16 g0, opus_val16 g1, int tapset0, int tapset1,
+    const celt_coef *window, int overlap, int arch);
+void __wrap_comb_filter(opus_val32 *y, opus_val32 *x, int T0, int T1, int N,
+    opus_val16 g0, opus_val16 g1, int tapset0, int tapset1,
+    const celt_coef *window, int overlap, int arch) {
+  if (!celt_trace_selected_frame()) {
+    __real_comb_filter(y, x, T0, T1, N, g0, g1, tapset0, tapset1, window, overlap, arch);
+    return;
+  }
+
+  uint32_t call = celt_encode_trace.prefilter_calls++;
+  celt_trace_prefilter_call *trace = NULL;
+  int window_count = window != NULL ? overlap : 0;
+  if (call >= CELT_TRACE_MAX_CALLS || y == NULL || x == NULL || N < 0 || overlap < 0 ||
+      !trace_dimensions(N, CELT_TRACE_MAX_FLOATS) ||
+      !trace_dimensions(window_count, CELT_TRACE_MAX_FLOATS)) {
+    celt_encode_trace.overflow = 1;
+  } else {
+    trace = &celt_encode_trace.prefilter[call];
+    trace->t0 = (uint32_t)T0;
+    trace->t1 = (uint32_t)T1;
+    trace->n = (uint32_t)N;
+    trace->tapset0 = (uint32_t)tapset0;
+    trace->tapset1 = (uint32_t)tapset1;
+    trace->overlap = (uint32_t)overlap;
+    trace->arch = (uint32_t)arch;
+    trace->window_nil = window == NULL ? 1u : 0u;
+    trace->history_count = CELT_TRACE_MAX_HISTORY;
+    trace->input_count = (uint32_t)N;
+    trace->window_count = (uint32_t)window_count;
+    trace->output_count = (uint32_t)N;
+    trace->gain0 = (float)g0;
+    trace->gain1 = (float)g1;
+    memcpy(trace->history, x - CELT_TRACE_MAX_HISTORY, sizeof(trace->history));
+    memcpy(trace->input, x, (size_t)N * sizeof(float));
+    if (window_count > 0) memcpy(trace->window, window, (size_t)window_count * sizeof(float));
+    celt_encode_trace.stored_prefilter_calls++;
+  }
+
+  __real_comb_filter(y, x, T0, T1, N, g0, g1, tapset0, tapset1, window, overlap, arch);
+
+  if (trace != NULL) memcpy(trace->output, y, (size_t)N * sizeof(float));
 }
 
 static void trace_copy_bands(float *dst, const float *src, int bands, int channels, int stride) {
@@ -477,7 +587,7 @@ void __wrap_quant_all_bands(int encode, const CELTMode *m, int start, int end,
 }
 
 static int write_celt_encode_trace(void) {
-  if (!write_exact("GCET", 4) || !write_u32(3) ||
+  if (!write_exact("GCET", 4) || !write_u32(4) ||
       !write_u32(celt_encode_captured_frame) || !write_u32(celt_encode_trace.overflow)) return 0;
   if (!write_u32(celt_encode_trace.band_calls) || !write_u32(celt_encode_trace.stored_band_calls)) return 0;
   for (uint32_t i = 0; i < celt_encode_trace.stored_band_calls; i++) {
@@ -535,6 +645,34 @@ static int write_celt_encode_trace(void) {
         !trace_write_float32(trace->input, trace->input_count) ||
         !trace_write_float32(trace->window, trace->window_count) ||
         !trace_write_float32(trace->trig, trace->trig_count)) return 0;
+  }
+  if (!write_u32(celt_encode_trace.preemphasis_calls) ||
+      !write_u32(celt_encode_trace.stored_preemphasis_calls)) return 0;
+  for (uint32_t i = 0; i < celt_encode_trace.stored_preemphasis_calls; i++) {
+    const celt_trace_preemphasis_call *trace = &celt_encode_trace.preemphasis[i];
+    if (!write_u32(trace->channel) || !write_u32(trace->channels) ||
+        !write_u32(trace->frame_size) || !write_u32(trace->upsample) ||
+        !write_u32(trace->input_count) || !write_u32(trace->output_count) ||
+        !write_u32(trace->flags) || !trace_write_float32(&trace->state_before, 1) ||
+        !trace_write_float32(&trace->state_after, 1) ||
+        !trace_write_float32(trace->coefficients, 4) ||
+        !trace_write_float32(trace->input, trace->input_count) ||
+        !trace_write_float32(trace->output, trace->output_count)) return 0;
+  }
+  if (!write_u32(celt_encode_trace.prefilter_calls) ||
+      !write_u32(celt_encode_trace.stored_prefilter_calls)) return 0;
+  for (uint32_t i = 0; i < celt_encode_trace.stored_prefilter_calls; i++) {
+    const celt_trace_prefilter_call *trace = &celt_encode_trace.prefilter[i];
+    if (!write_u32(trace->t0) || !write_u32(trace->t1) || !write_u32(trace->n) ||
+        !write_u32(trace->tapset0) || !write_u32(trace->tapset1) ||
+        !write_u32(trace->overlap) || !write_u32(trace->arch) || !write_u32(trace->window_nil) ||
+        !write_u32(trace->history_count) || !write_u32(trace->input_count) ||
+        !write_u32(trace->window_count) || !write_u32(trace->output_count) ||
+        !trace_write_float32(&trace->gain0, 1) || !trace_write_float32(&trace->gain1, 1) ||
+        !trace_write_float32(trace->history, trace->history_count) ||
+        !trace_write_float32(trace->input, trace->input_count) ||
+        !trace_write_float32(trace->window, trace->window_count) ||
+        !trace_write_float32(trace->output, trace->output_count)) return 0;
   }
   return 1;
 }
