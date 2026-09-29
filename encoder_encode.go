@@ -1,6 +1,17 @@
 package gopus
 
-import "github.com/thesyncim/gopus/internal/encoder"
+import (
+	"errors"
+
+	"github.com/thesyncim/gopus/internal/encoder"
+)
+
+func translateEncoderError(err error) error {
+	if errors.Is(err, encoder.ErrBufferTooSmall) {
+		return ErrBufferTooSmall
+	}
+	return err
+}
 
 // Encode encodes float32 PCM samples into an Opus packet.
 //
@@ -35,7 +46,7 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 
 	packet, err := e.enc.EncodeFloat32WithAnalysisMaxBytes(pcm[:inputSamples], frameSize, pcm, len(data))
 	if err != nil {
-		return 0, err
+		return 0, translateEncoderError(err)
 	}
 
 	return copyEncodedPacket(packet, data)
@@ -45,7 +56,7 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 // build routes native-rate PCM through the shared mode and history driver.
 func (e *Encoder) encode96k(pcm []float32, data []byte, input encoder.EncodeInputFormat) (int, error) {
 	if n, handled, err := e.tryEncodeNative96k(pcm, data, input); handled {
-		return n, err
+		return n, translateEncoderError(err)
 	}
 	return 0, ErrInvalidSampleRate
 }
@@ -94,7 +105,7 @@ func (e *Encoder) encodeInt16Packet(pcm32 []float32, data []byte) (int, error) {
 	}
 	packet, err := e.enc.EncodeShortMixedWithAnalysisMaxBytes(pcm32[:frameSize*int(e.channels)], frameSize, pcm32, len(data))
 	if err != nil {
-		return 0, err
+		return 0, translateEncoderError(err)
 	}
 	return copyEncodedPacket(packet, data)
 }
@@ -135,7 +146,7 @@ func (e *Encoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
 
 	packet, err := e.enc.EncodeFloat32WithAnalysisMaxBytes(pcm32[:inputSamples], frameSize, pcm32, len(data))
 	if err != nil {
-		return 0, err
+		return 0, translateEncoderError(err)
 	}
 
 	return copyEncodedPacket(packet, data)

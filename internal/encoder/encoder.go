@@ -75,6 +75,9 @@ var (
 	// ErrInvalidFrameSize indicates an invalid frame size.
 	ErrInvalidFrameSize = errors.New("encoder: invalid frame size")
 
+	// ErrBufferTooSmall indicates the output budget cannot represent the frame.
+	ErrBufferTooSmall = errors.New("encoder: output buffer too small")
+
 	// ErrEncodingFailed indicates a general encoding failure.
 	ErrEncodingFailed = errors.New("encoder: encoding failed")
 
@@ -944,8 +947,9 @@ func (e *Encoder) prepareOpusResInput(pcm []float32) []opusRes {
 // forced mode), performs delay compensation and mode-transition prefill, drives
 // the SILK/CELT/Hybrid sub-encoders under the active rate-control mode, and
 // returns the assembled packet (or nil when more lookahead input is still
-// buffered). It returns ErrInvalidFrameSize / ErrEncodingFailed for malformed
-// requests and never panics on valid configuration.
+// buffered). It returns ErrInvalidFrameSize / ErrBufferTooSmall /
+// ErrEncodingFailed for malformed or unrepresentable requests and never
+// panics on valid configuration.
 func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSize int, maxDataBytes int, refreshAnalysis func()) ([]byte, error) {
 	channels := int(e.channels)
 	sampleRate := int(e.sampleRate)
@@ -970,6 +974,12 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	packetCapBytes := e.maxOutputPacketBytes()
 	if maxDataBytes > packetCapBytes {
 		maxDataBytes = packetCapBytes
+	}
+	// opus_encode_native rejects a 100 ms frame when the caller provides only a
+	// TOC byte. It clears rangeFinal above, then returns before analysis and
+	// encoder-state updates (src/opus_encoder.c:1232-1238).
+	if maxDataBytes == 1 && sampleRate == frameSize*10 {
+		return nil, ErrBufferTooSmall
 	}
 	// e.bitrate carries st->bitrate_bps for this frame: the user bitrate bounded
 	// by the output budget (user_bitrate_to_bitrate) and, in CBR, rounded to the

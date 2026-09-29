@@ -26,8 +26,9 @@ var (
 	// ErrPacketTooLarge indicates the packet exceeds configured limits.
 	ErrPacketTooLarge = errors.New("gopus: packet exceeds configured limits")
 
-	// ErrBufferTooSmall indicates the output buffer is too small for the decoded frame.
-	// The buffer must be at least frameSize * channels samples.
+	// ErrBufferTooSmall indicates an encode packet budget or decode PCM buffer is
+	// too small for the operation. Decode buffers must hold frameSize * channels
+	// samples; encode buffers must hold the resulting packet.
 	ErrBufferTooSmall = errors.New("gopus: output buffer too small")
 
 	// ErrInvalidFrameSize indicates the input frame size doesn't match expected.
