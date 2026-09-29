@@ -349,19 +349,18 @@ fail. The FFT/MDCT proof does not establish complete packet or PCM parity.
 Open exact failures block v3 exactness and timing claims. Passing v1/v2
 selections establish only the listed coverage, not universal byte parity.
 
-The [focused audit at `47c86086`](https://github.com/thesyncim/gopus/actions/runs/36559119772)
+The [focused audit at `834221f9`](https://github.com/thesyncim/gopus/actions/runs/36560962348)
 passes the strengthened SILK LPC, sine-window and gain-processing checks in
 both modes, including the 2 dB sigmoid witness and scalar LPC allocation guard.
 Its CBR results are 14/19 exact scalar cases (68 packet and 61 range differences
-out of 2,175) and 6/19 exact SIMD cases (315 packet and 196 range differences).
-FFT/MDCT, CELT log2/angle math and both SIMD pitch raw-bit suites pass.
-Scalar SILK pitch remainder lags and CELT band-energy inner products differ;
-SIMD rotation and one unquantization case differ. The decoder trace finds its
-first scalar difference after comb filtering and its first SIMD difference in
-active normalized coefficients. Normalized scratch comparisons cover the
-source-defined active bands; spectrum and PCM comparisons cover the full
-output. This focused audit does not repeat the full public matrix or provide
-performance measurements.
+out of 2,175) and 6/19 exact SIMD cases (321 packet and 196 range differences).
+FFT/MDCT, CELT log2/angle math, scalar and SIMD pitch, band-energy, rotation
+and unquantization oracles pass. The decoder trace finds its first difference
+after comb filtering in both modes. The merged SILK optimization checks expose
+a scalar v3 scaled-float-to-int16 rounding mismatch; their SIMD counterparts
+pass. Normalized scratch comparisons cover the source-defined active bands;
+spectrum and PCM comparisons cover the full output. This focused audit does
+not repeat the full public matrix or provide performance measurements.
 
 Each candidate target/mode must pass exact CBR packets/ranges, selected stateful
 encode and fresh-state decode cases, dispatch and warm allocation checks.

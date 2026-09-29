@@ -52,15 +52,14 @@ at `bc5ddaeb` passes all selected default-float v1/v2 scalar/SIMD checks. At v3,
 scalar encode/decode cases pass 40/60 and 8/24; SIMD cases pass 24/60 and 6/24.
 CBR exact cases are 8/19 scalar and 1/19 SIMD, with 432/382 and 681/517
 packet/range differences out of 2,175 respectively. All warm allocation checks
-pass. At `47c86086`, all six FFT/MDCT live-C suites pass in both v3 modes,
+pass. At `834221f9`, all six FFT/MDCT live-C suites pass in both v3 modes,
 as do the strengthened SILK LPC/window/gain and CELT log2/angle-math checks.
-Both SIMD pitch raw-bit suites pass.
+Scalar and SIMD pitch, band energy, rotation and unquantization checks pass.
 CBR cases in that focused run pass 14/19 scalar (68 packet/61 range differences)
-and 6/19 SIMD (315 packet/196 range differences), each out of 2,175 packets.
-Scalar pitch/energy accumulation, SIMD rotation/unquantization and public
-decoder PCM differences remain open. The decoder probe localizes the first
-scalar difference to comb filtering and the first SIMD difference to active
-normalized coefficients.
+and 6/19 SIMD (321 packet/196 range differences), each out of 2,175 packets.
+Encoder packet/range and public decoder PCM differences remain open. Both
+decoder traces first differ after comb filtering. The merged SILK optimization
+tests also expose a scalar v3 scaled-float-to-int16 rounding mismatch.
 Full byte parity across compiler targets is not established.
 
 | Priority | Surface | Finding | Current evidence |
