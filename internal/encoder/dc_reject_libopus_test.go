@@ -49,7 +49,7 @@ func probeLibopusFloatDCReject(cases []dcRejectOracleCase) ([][]dcRejectOracleFr
 	if err != nil {
 		return nil, err
 	}
-	payload := libopustest.NewOraclePayload(dcRejectOracleInputMagic, 1, uint32(len(cases)))
+	payload := libopustest.NewOraclePayload(dcRejectOracleInputMagic, uint32(len(cases)))
 	for _, tc := range cases {
 		payload.U32(uint32(tc.rate))
 		payload.U32(uint32(tc.channels))

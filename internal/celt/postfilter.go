@@ -1022,14 +1022,42 @@ func combFilterWithSquarePlanarFloat32(samples []float32, hist []celtSig, histor
 			f := noFMA32Mul(w, w)
 			oneMinus := float32(1.0) - f
 			x0 := combPlanarAtFloat32(samples, hist, history, base1+i+4)
-			sum := samples[frameOffset+i] +
-				(oneMinus*g00)*combPlanarAtFloat32(samples, hist, history, base0+i+2) +
-				(oneMinus*g01)*(combPlanarAtFloat32(samples, hist, history, base0+i+3)+combPlanarAtFloat32(samples, hist, history, base0+i+1)) +
-				(oneMinus*g02)*(combPlanarAtFloat32(samples, hist, history, base0+i+4)+combPlanarAtFloat32(samples, hist, history, base0+i)) +
-				(f*g10)*x2 +
-				(f*g11)*(x1+x3) +
-				(f*g12)*(x0+x4)
-			samples[frameOffset+i] = sum
+			if combTargetV3FMA {
+				c00 := noFMA32Mul(oneMinus, g00)
+				c01 := noFMA32Mul(oneMinus, g01)
+				c02 := noFMA32Mul(oneMinus, g02)
+				c10 := noFMA32Mul(f, g10)
+				c11 := noFMA32Mul(f, g11)
+				c12 := noFMA32Mul(f, g12)
+				p01 := noFMA32Add(
+					combPlanarAtFloat32(samples, hist, history, base0+i+3),
+					combPlanarAtFloat32(samples, hist, history, base0+i+1),
+				)
+				p02 := noFMA32Add(
+					combPlanarAtFloat32(samples, hist, history, base0+i+4),
+					combPlanarAtFloat32(samples, hist, history, base0+i),
+				)
+				p11 := noFMA32Add(x1, x3)
+				p12 := noFMA32Add(x0, x4)
+				samples[frameOffset+i] = combFilterOverlapV3Accumulate(
+					samples[frameOffset+i],
+					c00, combPlanarAtFloat32(samples, hist, history, base0+i+2),
+					c01, p01,
+					c02, p02,
+					c10, x2,
+					c11, p11,
+					c12, p12,
+				)
+			} else {
+				sum := samples[frameOffset+i] +
+					(oneMinus*g00)*combPlanarAtFloat32(samples, hist, history, base0+i+2) +
+					(oneMinus*g01)*(combPlanarAtFloat32(samples, hist, history, base0+i+3)+combPlanarAtFloat32(samples, hist, history, base0+i+1)) +
+					(oneMinus*g02)*(combPlanarAtFloat32(samples, hist, history, base0+i+4)+combPlanarAtFloat32(samples, hist, history, base0+i)) +
+					(f*g10)*x2 +
+					(f*g11)*(x1+x3) +
+					(f*g12)*(x0+x4)
+				samples[frameOffset+i] = sum
+			}
 			x4 = x3
 			x3 = x2
 			x2 = x1

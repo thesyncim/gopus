@@ -219,16 +219,18 @@ CELT/Hybrid have unresolved same-packet PCM differences. FFT/MDCT and SILK
 primitive suites pass. The CELT encoder trace rejects inconsistent quantization
 dimensions, so it does not yet establish a runtime divergence location.
 
-The [native audit at `c1dc76b9`](https://github.com/thesyncim/gopus/actions/runs/36615446142)
-on Intel Xeon Platinum 8370C with Go 1.27.1 and GCC 13.3 passes 58/60 scalar
-and 60/60 SIMD encoder checks, 13/24 scalar and 6/24 SIMD decoder checks, and
+The [native audit at `5e1da806`](https://github.com/thesyncim/gopus/actions/runs/36616420085)
+on AMD EPYC 9V74 with Go 1.27.1 and GCC 13.3 passes 58/60 scalar
+and 60/60 SIMD encoder checks, 14/24 scalar and 24/24 SIMD decoder checks, and
 all 15 warm-allocation checks in each lane, with no skipped cases. CBR exact
 cases are 14/19 scalar (70 packet/61 range differences) and 15/19 SIMD
 (75 packet/72 range differences) out of 2,175 packets per lane. These counts
 are separate gates, not an overall byte-parity percentage. Haar and the
-constant/ramped comb history seams match the paired C references. The comb
-fallback without precomputed window squares, scalar stereo tail, outer encoder
-filters and same-packet decoder PCM still expose differences.
+constant/ramped comb history seams, scalar stereo tails and SIMD exp2
+approximation match the paired C references. The comb fallback without
+precomputed window squares, outer encoder filters and scalar same-packet
+decoder PCM still expose differences. The DC oracle request fails its input
+protocol validation at this revision; it does not establish a codec difference.
 
 The SILK replay sends the actual Go LPC input/state to the linked C FindLPC
 implementation. Both select the same interpolation factors at the first failing

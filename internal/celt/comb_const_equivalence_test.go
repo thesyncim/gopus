@@ -71,6 +71,21 @@ func TestCombFilterKernelsZeroAllocs(t *testing.T) {
 		t.Fatalf("comb overlap allocated: %g allocs/run", allocs)
 	}
 
+	squareSamples := make([]float32, n)
+	squareHistory := make([]celtSig, combFilterHistory)
+	for i := range squareHistory {
+		squareHistory[i] = celtSig(float32((i*47)%197-98) / 64)
+	}
+	squareWindow := GetWindowBufferF32(Overlap)
+	squareRun := func() {
+		combFilterWithSquarePlanarFloat32(squareSamples, squareHistory, combFilterHistory, 0,
+			37, 40, n, 0.28125, 0.65625, 0, 0, squareWindow, nil, Overlap)
+	}
+	squareRun()
+	if allocs := testing.AllocsPerRun(100, squareRun); allocs != 0 {
+		t.Fatalf("comb square fallback allocated: %g allocs/run", allocs)
+	}
+
 	constBody := make([]float32, n)
 	delay := make([]float32, n)
 	for i := range delay {
