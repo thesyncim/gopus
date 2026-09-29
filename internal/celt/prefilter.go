@@ -52,6 +52,8 @@ func (e *Encoder) runPrefilter(in []float32, frameSize int, tapset int, enabled 
 		prevTapset = len(combFilterGains) - 1
 	}
 	if !enabled && e.prefilterGain == 0 {
+		e.recordEncodePrefilterNoopTrace(nil, in, frameSize, channels, overlap, 0,
+			prevPeriod, combFilterMinPeriod, 0, 0, prevTapset, tapset)
 		e.updatePrefilterNoopStateFromIn(in, frameSize, channels, overlap)
 		e.prefilterPeriod = combFilterMinPeriod
 		e.prefilterGain = 0
@@ -168,6 +170,8 @@ func (e *Encoder) runPrefilter(in []float32, frameSize int, tapset int, enabled 
 	}
 
 	if gain1 == 0 && e.prefilterGain == 0 {
+		e.recordEncodePrefilterNoopTrace(pre, in, frameSize, channels, overlap, perChanLen,
+			prevPeriod, pitchIndex, -e.prefilterGain, -gain1, prevTapset, tapset)
 		e.updatePrefilterNoopState(pre, in, perChanLen, frameSize, channels, overlap)
 		e.prefilterPeriod = pitchIndex
 		e.prefilterGain = 0

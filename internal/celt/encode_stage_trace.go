@@ -11,6 +11,7 @@ type EncodeStageTrace struct {
 	BandQuantize   []EncodeBandQuantizeTrace
 	Preemphasis    []EncodePreemphasisTrace
 	PrefilterComb  []EncodePrefilterCombTrace
+	PrefilterNoop  []EncodePrefilterNoopTrace
 	MDCTCalls      []EncodeMDCTCallTrace
 	MDCTOverflow   bool
 	StageOverflow  bool
@@ -49,6 +50,27 @@ type EncodePrefilterCombTrace struct {
 	Input     []float32
 	Window    []float32
 	Output    []float32
+}
+
+// EncodePrefilterNoopTrace captures the actual run_prefilter boundary when
+// both comb gains are zero and the Go path copies history without calling the
+// comb kernel. C may execute identity comb calls for the same frame; the
+// oracle checks each such call against this source frame and history.
+type EncodePrefilterNoopTrace struct {
+	Channel   int
+	FrameSize int
+	Overlap   int
+	Offset    int
+	T0        int32
+	T1        int32
+	Gain0     float32
+	Gain1     float32
+	Tapset0   int32
+	Tapset1   int32
+	History   []float32
+	Input     []float32
+	Frame     []float32
+	Window    []float32
 }
 
 // EncodeMDCTCallTrace captures the exact pre-transform inputs and tables for
@@ -133,6 +155,60 @@ func (e *Encoder) beginEncodePrefilterCombTrace(channel int, dst, src []celtSig,
 	return e.encodeStageTrace.beginPrefilterComb(channel, dst, src, start, t0, t1, n, gain0, gain1, tapset0, tapset1, window, overlap)
 }
 
+func (e *Encoder) recordEncodePrefilterNoopTrace(pre []celtSig, in []float32,
+	frameSize, channels, overlap, perChanLen, t0, t1 int, gain0, gain1 float32, tapset0, tapset1 int) {
+	if !e.encodeStageTrace.enabled {
+		return
+	}
+	maxPeriod := e.combMaxPeriod()
+	stride := frameSize + overlap
+	if frameSize <= 0 || channels <= 0 || channels > 2 || overlap < 0 || overlap > frameSize ||
+		len(in) < channels*stride || maxPeriod <= 0 || len(e.prefilterMem) < channels*maxPeriod ||
+		(pre != nil && (perChanLen < maxPeriod+frameSize || len(pre) < channels*perChanLen)) {
+		e.encodeStageTrace.trace.StageOverflow = true
+		return
+	}
+	mode := e.modeConfig(frameSize)
+	if mode.ShortBlocks <= 0 {
+		e.encodeStageTrace.trace.StageOverflow = true
+		return
+	}
+	offset := max(frameSize/mode.ShortBlocks-overlap, 0)
+	if offset > frameSize || offset > maxPeriod || offset+overlap > frameSize {
+		e.encodeStageTrace.trace.StageOverflow = true
+		return
+	}
+	window := e.scratch.modeWindow(overlap)
+	if len(window) < overlap {
+		e.encodeStageTrace.trace.StageOverflow = true
+		return
+	}
+	for channel := range channels {
+		frame := in[channel*stride+overlap : channel*stride+overlap+frameSize]
+		history := e.prefilterMem[channel*maxPeriod : (channel+1)*maxPeriod]
+		var source []celtSig
+		if pre != nil {
+			preCh := pre[channel*perChanLen : (channel+1)*perChanLen]
+			history = preCh[:maxPeriod]
+			source = preCh[maxPeriod : maxPeriod+frameSize]
+		}
+		input := copyStageFloat32(source)
+		if source == nil {
+			input = copyStageFloat32(frame)
+		}
+		windowCopy := window
+		if len(windowCopy) > overlap {
+			windowCopy = windowCopy[:overlap]
+		}
+		e.encodeStageTrace.recordPrefilterNoop(EncodePrefilterNoopTrace{
+			Channel: channel, FrameSize: frameSize, Overlap: overlap, Offset: offset,
+			T0: int32(t0), T1: int32(t1), Gain0: gain0, Gain1: gain1,
+			Tapset0: int32(tapset0), Tapset1: int32(tapset1),
+			History: copyStageFloat32(history), Input: input, Frame: copyStageFloat32(frame), Window: copyStageFloat32(windowCopy),
+		})
+	}
+}
+
 func (e *Encoder) finishEncodePrefilterCombTrace(call int, dst []celtSig, start, n int) {
 	e.encodeStageTrace.finishPrefilterComb(call, dst, start, n)
 }
@@ -152,6 +228,7 @@ func (s *encodeStageTraceState) reset() {
 		BandQuantize:   make([]EncodeBandQuantizeTrace, 0, 2),
 		Preemphasis:    make([]EncodePreemphasisTrace, 0, 2),
 		PrefilterComb:  make([]EncodePrefilterCombTrace, 0, 4),
+		PrefilterNoop:  make([]EncodePrefilterNoopTrace, 0, 2),
 		MDCTCalls:      make([]EncodeMDCTCallTrace, 0, 4),
 	}
 }
@@ -246,6 +323,19 @@ func (s *encodeStageTraceState) finishPrefilterComb(call int, dst []celtSig, sta
 		return
 	}
 	s.trace.PrefilterComb[call].Output = copyStageFloat32(dst[start : start+n])
+}
+
+func (s *encodeStageTraceState) recordPrefilterNoop(trace EncodePrefilterNoopTrace) {
+	if !s.enabled {
+		return
+	}
+	if len(s.trace.PrefilterNoop) >= 2 || trace.Channel < 0 || trace.Channel >= 2 ||
+		trace.FrameSize <= 0 || trace.Overlap < 0 || trace.Offset < 0 ||
+		trace.FrameSize != len(trace.Input) || trace.FrameSize != len(trace.Frame) || len(trace.History) == 0 || len(trace.Window) != trace.Overlap {
+		s.trace.StageOverflow = true
+		return
+	}
+	s.trace.PrefilterNoop = append(s.trace.PrefilterNoop, trace)
 }
 
 func (s *encodeStageTraceState) recordMDCTCall(call EncodeMDCTCallTrace) {

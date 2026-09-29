@@ -219,8 +219,8 @@ CELT/Hybrid have unresolved same-packet PCM differences. FFT/MDCT and SILK
 primitive suites pass. The CELT encoder trace rejects inconsistent quantization
 dimensions, so it does not yet establish a runtime divergence location.
 
-The [native v3 audit at `abaabf57`](https://github.com/thesyncim/gopus/actions/runs/36638960343)
-on Intel Xeon Platinum 8573C with Go 1.27.1 and GCC 13.3 passes the following matched
+The [native v3 audit at `c3cfbeb6`](https://github.com/thesyncim/gopus/actions/runs/36642541090)
+on AMD EPYC 9V74 with Go 1.27.1 and GCC 13.3 passes the following matched
 scalar and SIMD selections. No cases are skipped.
 
 | Gate | Scalar | SIMD |
@@ -282,12 +282,32 @@ comparing arithmetic. These diagnostic failures require correction or earlier
 state localization; they do not identify a floating-point allowance.
 
 The narrowband FindLPC hook captures all three selected calls: frames 6 and
-13 match; frame 50 already has different LPC input and gains. Its pre-adjustment
-gain is C `4526ed64`, Go `4526ed62` at subframe 0. The shaping-window,
-autocorrelation and Schur trace rejects a C capture-overflow flag in all three
-cases, before reporting the producer boundary. That capture error remains
-unresolved. Independent sine-window checks cover the actual 48-, 72- and
-96-sample segments and pass in both native instruction lanes.
+13 match; frame 50 already has different LPC input and gains. Independent
+sine-window checks cover the actual 48-, 72- and 96-sample segments and pass
+in both native instruction lanes.
+
+The gain-producer trace captures both actual autocorrelation branches, their
+float32 warp argument and the actual post-warp gain. Windowed input, raw and
+adjusted autocorrelation, Schur coefficients and residual energy match before
+the first reported post-warp gain difference in both lanes: NB frame 50,
+subframe 0 has C `4526ed64`, Go `4526ed62`; MB frame 6, subframe 2 has C
+`45245686`, Go `45245685`; WB frame 6, channel 0, subframe 0 has C `44958a5a`,
+Go `44958a59`. Actual k2a output and warped-gain arithmetic still require
+independent verification before attributing the cause. The derived sqrt check
+is labelled as a source-expression model. Ordinary/traced Go and C packets
+and final ranges match within each implementation in all three cases on this
+native audit. Default-off callers retain their generated instructions. These
+diagnostic changes do not alter codec arithmetic.
+
+The focused native SILK witnesses compare linked k2a and warped-autocorrelation
+outputs on identical deterministic inputs with strict v3 reference selection.
+Their native execution is pending. The zero-gain prefilter adapter captures
+Go's actual copy boundary and checks every C identity comb call against it,
+including call counts, cancellation thresholds, controls, history, windows,
+input and output. Malformed evidence, subnormal thresholds and finite-input
+sum overflow have local validation coverage. Both tagged v3 cross-builds pass;
+ordinary caller instruction checks find no trace work. Its native trace
+validation is pending.
 
 The unchanged CBR quality gate rejects SILK NB 10 ms mono (Q -458.03,
 correlation 0.972870) and SILK WB stereo (Q -157.52) in both lanes, plus

@@ -37,4 +37,7 @@ func (*Encoder) beginEncodePrefilterCombTrace(int, []celtSig, []celtSig, int, in
 	return -1
 }
 
+func (*Encoder) recordEncodePrefilterNoopTrace([]celtSig, []float32, int, int, int, int, int, int, float32, float32, int, int) {
+}
+
 func (*Encoder) finishEncodePrefilterCombTrace(int, []celtSig, int, int) {}
