@@ -5,7 +5,6 @@ package silk
 import (
 	"math"
 	"simd/archsimd"
-	"unsafe"
 )
 
 var silkUseInnerProductFLPAVX2FMA = archsimd.X86.AVX2() && archsimd.X86.FMA()
@@ -25,20 +24,25 @@ func innerProductFLPAVX2(a, b []float32, length int) silkCReal {
 
 //go:noinline
 func innerProductFLPAVX2Vector(a, b []float32, length int) silkCReal {
+	a = a[:length:length]
+	b = b[:length:length]
 	var acc0, acc1 archsimd.Float64x4
 	i := 0
 	for ; i+8 <= length; i += 8 {
-		a0 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Pointer(&a[i]))).ConvertToFloat64()
-		b0 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Pointer(&b[i]))).ConvertToFloat64()
-		a1 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Pointer(&a[i+4]))).ConvertToFloat64()
-		b1 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Pointer(&b[i+4]))).ConvertToFloat64()
+		x := (*[8]float32)(a[i : i+8])
+		y := (*[8]float32)(b[i : i+8])
+		a0 := archsimd.LoadFloat32x4Array((*[4]float32)(x[:4])).ConvertToFloat64()
+		b0 := archsimd.LoadFloat32x4Array((*[4]float32)(y[:4])).ConvertToFloat64()
+		a1 := archsimd.LoadFloat32x4Array((*[4]float32)(x[4:])).ConvertToFloat64()
+		b1 := archsimd.LoadFloat32x4Array((*[4]float32)(y[4:])).ConvertToFloat64()
 		acc0 = a0.MulAdd(b0, acc0)
 		acc1 = a1.MulAdd(b1, acc1)
 	}
-	for ; i+4 <= length; i += 4 {
-		av := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Pointer(&a[i]))).ConvertToFloat64()
-		bv := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Pointer(&b[i]))).ConvertToFloat64()
+	if i+4 <= length {
+		av := archsimd.LoadFloat32x4Array((*[4]float32)(a[i : i+4])).ConvertToFloat64()
+		bv := archsimd.LoadFloat32x4Array((*[4]float32)(b[i : i+4])).ConvertToFloat64()
 		acc0 = av.MulAdd(bv, acc0)
+		i += 4
 	}
 	acc0 = acc0.Add(acc1)
 	var lanes [4]float64

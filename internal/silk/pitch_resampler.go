@@ -122,3 +122,19 @@ func resamplerDown2_3(state *[6]int32, out []int16, in []int16, scratch []int32)
 	copy(state[:orderFIR], buf[inLen:inLen+orderFIR])
 	return outIdx
 }
+
+// floatToInt16ScaledScalar writes silk_SAT16(silk_float2int(in[i]*scale)) to
+// out[i]. Products inside the int16 range take the branch-free
+// round-to-nearest-even of opusmath; the others take the full conversion,
+// which reproduces the target's result for NaN and int32 overflow.
+func floatToInt16ScaledScalar(out []int16, in []float32, scale float32) {
+	in = in[:len(out)]
+	for i, v := range in {
+		y := v * scale
+		if y >= -32768 && y <= 32767 {
+			out[i] = int16(opusmath.RoundClampedFloat32ToInt32Even(y))
+		} else {
+			out[i] = floatToInt16Round(y)
+		}
+	}
+}

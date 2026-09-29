@@ -34,30 +34,32 @@ func schurF32(refl, autoCorr []float32, order int) float32 {
 		}
 		return 0
 	}
-	// Match libopus silk/float/schur_FLP.c: C is a C double work array.
-	var C [maxShapeLpcOrder + 1][2]silkCReal
+	// Match libopus silk/float/schur_FLP.c: C is a C double work array,
+	// kept here as its two columns c0 = C[.][0] and c1 = C[.][1].
+	var c0, c1 [maxShapeLpcOrder + 1]silkCReal
 	for k := 0; k <= order; k++ {
-		C[k][0] = silkCReal(autoCorr[k])
-		C[k][1] = silkCReal(autoCorr[k])
+		c0[k] = silkCReal(autoCorr[k])
+		c1[k] = silkCReal(autoCorr[k])
 	}
 	// Match libopus silk_max_float(C[0][1], 1e-9f):
 	// compare against float32 literal, then use that exact value in double domain.
 	minDen := silkCReal(float32(1e-9))
 	for k := 0; k < order; k++ {
-		den := C[0][1]
+		den := c1[0]
 		if den < minDen {
 			den = minDen
 		}
-		rc := -C[k+1][0] / den
+		rc := -c0[k+1] / den
 		refl[k] = float32(rc)
-		for n := 0; n < order-k; n++ {
-			c1 := C[n+k+1][0]
-			c2 := C[n][1]
-			C[n+k+1][0] = c1 + c2*rc
-			C[n][1] = c2 + c1*rc
+		hi := c0[k+1 : order+1]
+		lo := c1[:len(hi)]
+		for n, x := range hi {
+			y := lo[n]
+			hi[n] = x + y*rc
+			lo[n] = y + x*rc
 		}
 	}
-	return float32(C[0][1])
+	return float32(c1[0])
 }
 
 func k2aF32(a, rc []float32, order int) {
