@@ -1,6 +1,7 @@
 package qualitycompare
 
 import (
+	"fmt"
 	"math"
 	"testing"
 )
@@ -38,7 +39,7 @@ const (
 type SignalProfile struct {
 	SampleRate   int
 	Channels     int
-	TotalSamples int
+	TotalSamples int // Interleaved sample count; zero infers the nonempty PCM length.
 	CodedSamples int
 }
 
@@ -67,7 +68,7 @@ func (m MetricTier) String() string {
 
 // codedTier returns the only valid metric for the coded portion of p.
 func (p SignalProfile) codedTier() MetricTier {
-	if p.SampleRate == opusCompareRate && p.Channels > 0 && p.CodedSamples/p.Channels >= opusCompareMinPerChan {
+	if p.SampleRate == opusCompareRate && (p.Channels == 1 || p.Channels == 2) && p.CodedSamples/p.Channels >= opusCompareMinPerChan {
 		return TierOpusCompare
 	}
 	return TierWaveform
@@ -128,6 +129,61 @@ func delaySearchWindow(channels int) int {
 	return 240 * channels // 5 ms @ 48 kHz
 }
 
+func validateParityInputs(candidate, reference []float32, p SignalProfile, intent ParityIntent) (SignalProfile, error) {
+	if len(candidate) == 0 || len(reference) == 0 {
+		return p, fmt.Errorf("parity comparison requires nonempty candidate and reference PCM")
+	}
+	if len(candidate) != len(reference) {
+		return p, fmt.Errorf("PCM sample count mismatch: candidate=%d reference=%d", len(candidate), len(reference))
+	}
+	if p.SampleRate <= 0 {
+		return p, fmt.Errorf("profile sample rate must be positive (got %d)", p.SampleRate)
+	}
+	if p.Channels <= 0 {
+		return p, fmt.Errorf("profile channel count must be positive (got %d)", p.Channels)
+	}
+	if len(candidate)%p.Channels != 0 {
+		return p, fmt.Errorf("PCM sample count %d is not aligned to %d channels", len(candidate), p.Channels)
+	}
+	if p.TotalSamples == 0 {
+		p.TotalSamples = len(candidate)
+	} else if p.TotalSamples != len(candidate) {
+		return p, fmt.Errorf("profile total samples=%d does not match PCM length=%d", p.TotalSamples, len(candidate))
+	}
+	if p.CodedSamples < 0 || p.CodedSamples > p.TotalSamples {
+		return p, fmt.Errorf("coded sample count %d is outside [0,%d]", p.CodedSamples, p.TotalSamples)
+	}
+	if p.CodedSamples%p.Channels != 0 {
+		return p, fmt.Errorf("coded sample count %d is not aligned to %d channels", p.CodedSamples, p.Channels)
+	}
+	if intent != IntentNearExact && intent != IntentRFCConformance {
+		return p, fmt.Errorf("unsupported parity intent %d", intent)
+	}
+	for i := range candidate {
+		if math.IsNaN(float64(candidate[i])) || math.IsInf(float64(candidate[i]), 0) {
+			return p, fmt.Errorf("candidate PCM[%d] is non-finite: %v", i, candidate[i])
+		}
+		if math.IsNaN(float64(reference[i])) || math.IsInf(float64(reference[i]), 0) {
+			return p, fmt.Errorf("reference PCM[%d] is non-finite: %v", i, reference[i])
+		}
+	}
+	return p, nil
+}
+
+type parityComparer func(candidate, reference []float32, sampleRate, channels, maxDelay int) (QualityComparison, error)
+
+func scoreParityRegion(candidate, reference []float32, p SignalProfile, tier MetricTier, compare parityComparer) (QualityComparison, error) {
+	switch tier {
+	case TierOpusCompare:
+		return compare(candidate, reference, p.SampleRate, p.Channels, delaySearchWindow(p.Channels))
+	case TierWaveform:
+		corr, rms := waveformCorrelationRMS(candidate, reference)
+		return QualityComparison{Q: 0, Corr: corr, RMSRatio: rms}, nil
+	default:
+		return QualityComparison{}, fmt.Errorf("unsupported metric tier %d", tier)
+	}
+}
+
 // AssertParity is the single self-selecting parity gate for decoded PCM. It
 // splits the stream into its coded prefix and concealed tail (per
 // profile.CodedSamples), scores each region with the only metric valid for it
@@ -137,15 +193,11 @@ func delaySearchWindow(channels int) int {
 // threshold. It fails t on any region miss and returns the full verdict.
 func AssertParity(t *testing.T, candidate, reference []float32, p SignalProfile, intent ParityIntent, label string) ParityVerdict {
 	t.Helper()
-	n := min(len(candidate), len(reference))
-	if p.TotalSamples == 0 || p.TotalSamples > n {
-		p.TotalSamples = n
-	}
-	if p.CodedSamples > p.TotalSamples {
-		p.CodedSamples = p.TotalSamples
-	}
-	if p.CodedSamples < 0 {
-		p.CodedSamples = 0
+	var err error
+	p, err = validateParityInputs(candidate, reference, p, intent)
+	if err != nil {
+		t.Fatalf("%s invalid parity input: %v", label, err)
+		return ParityVerdict{}
 	}
 
 	verdict := ParityVerdict{Profile: p}
@@ -154,21 +206,10 @@ func AssertParity(t *testing.T, candidate, reference []float32, p SignalProfile,
 			return
 		}
 		cand, ref := candidate[lo:hi], reference[lo:hi]
-		var cmp QualityComparison
-		if tier == TierOpusCompare {
-			c, err := CompareDecodedFloat32(cand, ref, p.SampleRate, p.Channels, delaySearchWindow(p.Channels))
-			if err != nil {
-				// opus_compare unavailable for this segment after all; fall back to
-				// the waveform tier rather than skipping the region.
-				tier = TierWaveform
-				corr, rms := waveformCorrelationRMS(cand, ref)
-				cmp = QualityComparison{Q: math.Inf(-1), Corr: corr, RMSRatio: rms}
-			} else {
-				cmp = c
-			}
-		} else {
-			corr, rms := waveformCorrelationRMS(cand, ref)
-			cmp = QualityComparison{Q: 0, Corr: corr, RMSRatio: rms}
+		cmp, err := scoreParityRegion(cand, ref, p, tier, CompareDecodedFloat32)
+		if err != nil {
+			t.Fatalf("%s [%s] required %s metric failed: %v", label, name, tier, err)
+			return
 		}
 		bar := barFor(tier, intent)
 		rv := RegionVerdict{Name: name, Tier: tier, Cmp: cmp, Bar: bar}
@@ -182,5 +223,8 @@ func AssertParity(t *testing.T, candidate, reference []float32, p SignalProfile,
 
 	assertRegion("coded", 0, p.CodedSamples, p.codedTier())
 	assertRegion("concealed", p.CodedSamples, p.TotalSamples, TierWaveform)
+	if len(verdict.Regions) == 0 {
+		t.Fatalf("%s has no nonempty PCM region to compare", label)
+	}
 	return verdict
 }

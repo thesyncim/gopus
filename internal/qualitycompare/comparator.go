@@ -35,12 +35,45 @@ type QualityComparison struct {
 // PCM against a reference (typically libopus-decoded) using delay-searched
 // opus_compare, plus correlation/RMS diagnostics. 48 kHz interleaved PCM.
 func CompareDecodedFloat32(candidate, reference []float32, sampleRate, channels, maxDelay int) (QualityComparison, error) {
+	if err := validateComparablePCM(candidate, reference, sampleRate, channels, maxDelay); err != nil {
+		return QualityComparison{}, err
+	}
 	q, delay, err := ComputeOpusCompareQualityFloat32WithDelay(candidate, reference, sampleRate, channels, maxDelay)
 	if err != nil {
 		return QualityComparison{}, err
 	}
 	corr, rms := waveformCorrelationRMS(candidate, reference)
 	return QualityComparison{Q: q, BestDelay: delay, Corr: corr, RMSRatio: rms}, nil
+}
+
+func validateComparablePCM(candidate, reference []float32, sampleRate, channels, maxDelay int) error {
+	if len(candidate) == 0 || len(reference) == 0 {
+		return fmt.Errorf("PCM comparison requires nonempty candidate and reference")
+	}
+	if len(candidate) != len(reference) {
+		return fmt.Errorf("PCM sample count mismatch: candidate=%d reference=%d", len(candidate), len(reference))
+	}
+	if sampleRate != 48000 {
+		return fmt.Errorf("opus_compare requires 48 kHz PCM (got %d Hz)", sampleRate)
+	}
+	if channels != 1 && channels != 2 {
+		return fmt.Errorf("opus_compare supports mono or stereo PCM (got %d channels)", channels)
+	}
+	if len(candidate)%channels != 0 {
+		return fmt.Errorf("PCM sample count %d is not aligned to %d channels", len(candidate), channels)
+	}
+	if maxDelay < 0 {
+		return fmt.Errorf("maximum delay must be nonnegative (got %d)", maxDelay)
+	}
+	for i := range candidate {
+		if math.IsNaN(float64(candidate[i])) || math.IsInf(float64(candidate[i]), 0) {
+			return fmt.Errorf("candidate PCM[%d] is non-finite: %v", i, candidate[i])
+		}
+		if math.IsNaN(float64(reference[i])) || math.IsInf(float64(reference[i]), 0) {
+			return fmt.Errorf("reference PCM[%d] is non-finite: %v", i, reference[i])
+		}
+	}
+	return nil
 }
 
 // waveformCorrelationRMS computes Pearson correlation and RMS ratio over the
@@ -114,6 +147,30 @@ func QualityBarForMode(mode string, channels int) QualityBar {
 // Check reports the ways cmp fails bar (empty slice == pass).
 func (bar QualityBar) Check(cmp QualityComparison) []string {
 	var fails []string
+	if math.IsNaN(bar.MinQ) || (math.IsInf(bar.MinQ, 0) && !math.IsInf(bar.MinQ, -1)) {
+		fails = append(fails, fmt.Sprintf("invalid minimum Q threshold: %v", bar.MinQ))
+	}
+	if math.IsNaN(bar.MinCorr) || math.IsInf(bar.MinCorr, 0) || bar.MinCorr < 0 || bar.MinCorr > 1 {
+		fails = append(fails, fmt.Sprintf("invalid minimum correlation threshold: %v", bar.MinCorr))
+	}
+	if math.IsNaN(bar.RMSLo) || math.IsInf(bar.RMSLo, 0) || bar.RMSLo < 0 {
+		fails = append(fails, fmt.Sprintf("invalid RMS lower threshold: %v", bar.RMSLo))
+	}
+	if math.IsNaN(bar.RMSHi) || math.IsInf(bar.RMSHi, 0) || bar.RMSHi < 0 {
+		fails = append(fails, fmt.Sprintf("invalid RMS upper threshold: %v", bar.RMSHi))
+	}
+	if bar.RMSLo > 0 && bar.RMSHi > 0 && bar.RMSLo > bar.RMSHi {
+		fails = append(fails, fmt.Sprintf("invalid RMS bounds: %.4f > %.4f", bar.RMSLo, bar.RMSHi))
+	}
+	if math.IsNaN(cmp.Q) || (math.IsInf(cmp.Q, 0) && !(math.IsInf(cmp.Q, -1) && math.IsInf(bar.MinQ, -1))) {
+		fails = append(fails, fmt.Sprintf("Q is non-finite: %v", cmp.Q))
+	}
+	if math.IsNaN(cmp.Corr) || math.IsInf(cmp.Corr, 0) {
+		fails = append(fails, fmt.Sprintf("correlation is non-finite: %v", cmp.Corr))
+	}
+	if math.IsNaN(cmp.RMSRatio) || math.IsInf(cmp.RMSRatio, 0) {
+		fails = append(fails, fmt.Sprintf("RMS ratio is non-finite: %v", cmp.RMSRatio))
+	}
 	if cmp.Q < bar.MinQ {
 		fails = append(fails, fmt.Sprintf("Q=%.2f < %.2f", cmp.Q, bar.MinQ))
 	}
