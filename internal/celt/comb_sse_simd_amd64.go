@@ -108,13 +108,32 @@ func combFilterOverlapAVX(dst, d0, d1, wsq []float32, g00, g01, g02, g10, g11, g
 		a := unsafe.Add(ap, 4*i)
 		b := unsafe.Add(bp, 4*i)
 		oneMinus := one.Sub(f)
-		sum := loadF32x4(unsafe.Add(dp, 4*i)).
-			Add(oneMinus.Mul(vg00).Mul(loadF32x4(unsafe.Add(a, 8)))).
-			Add(oneMinus.Mul(vg01).Mul(loadF32x4(unsafe.Add(a, 12)).Add(loadF32x4(unsafe.Add(a, 4))))).
-			Add(oneMinus.Mul(vg02).Mul(loadF32x4(unsafe.Add(a, 16)).Add(loadF32x4(a)))).
-			Add(f.Mul(vg10).Mul(loadF32x4(unsafe.Add(b, 8)))).
-			Add(f.Mul(vg11).Mul(loadF32x4(unsafe.Add(b, 12)).Add(loadF32x4(unsafe.Add(b, 4))))).
-			Add(f.Mul(vg12).Mul(loadF32x4(unsafe.Add(b, 16)).Add(loadF32x4(b))))
+		c00, c01, c02 := oneMinus.Mul(vg00), oneMinus.Mul(vg01), oneMinus.Mul(vg02)
+		c10, c11, c12 := f.Mul(vg10), f.Mul(vg11), f.Mul(vg12)
+		d0c := loadF32x4(unsafe.Add(a, 8))
+		d01 := loadF32x4(unsafe.Add(a, 12)).Add(loadF32x4(unsafe.Add(a, 4)))
+		d02 := loadF32x4(unsafe.Add(a, 16)).Add(loadF32x4(a))
+		d1c := loadF32x4(unsafe.Add(b, 8))
+		d11 := loadF32x4(unsafe.Add(b, 12)).Add(loadF32x4(unsafe.Add(b, 4)))
+		d12 := loadF32x4(unsafe.Add(b, 16)).Add(loadF32x4(b))
+		sum := loadF32x4(unsafe.Add(dp, 4*i))
+		if combTargetV3FMA {
+			// The x86-64-v3 C overlap path contracts each tap product into its
+			// running sum while keeping tap gains and tap-pair sums rounded.
+			sum = c00.MulAdd(d0c, sum)
+			sum = c01.MulAdd(d01, sum)
+			sum = c02.MulAdd(d02, sum)
+			sum = c10.MulAdd(d1c, sum)
+			sum = c11.MulAdd(d11, sum)
+			sum = c12.MulAdd(d12, sum)
+		} else {
+			sum = sum.Add(c00.Mul(d0c)).
+				Add(c01.Mul(d01)).
+				Add(c02.Mul(d02)).
+				Add(c10.Mul(d1c)).
+				Add(c11.Mul(d11)).
+				Add(c12.Mul(d12))
+		}
 		storeF32x4(unsafe.Add(dp, 4*i), sum)
 	}
 	if i < n {

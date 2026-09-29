@@ -783,6 +783,23 @@ func combFilterOverlapScalar(dst, d0, d1, wsq []float32, g00, g01, g02, g10, g11
 	for i := range dst {
 		f := wsq[i]
 		oneMinus := float32(1.0) - f
+		if combTargetV3FMA {
+			// GCC contracts the six tap products into the running sum for the
+			// x86-64-v3 libopus scalar overlap loop. The cross-fade weights,
+			// tap-pair sums, and per-tap coefficients remain separately rounded.
+			c00 := noFMA32Mul(oneMinus, g00)
+			c01 := noFMA32Mul(oneMinus, g01)
+			c02 := noFMA32Mul(oneMinus, g02)
+			c10 := noFMA32Mul(f, g10)
+			c11 := noFMA32Mul(f, g11)
+			c12 := noFMA32Mul(f, g12)
+			p01 := noFMA32Add(d0[i+3], d0[i+1])
+			p02 := noFMA32Add(d0[i+4], d0[i])
+			p11 := noFMA32Add(d1[i+3], d1[i+1])
+			p12 := noFMA32Add(d1[i+4], d1[i])
+			dst[i] = combFilterOverlapV3Accumulate(dst[i], c00, d0[i+2], c01, p01, c02, p02, c10, d1[i+2], c11, p11, c12, p12)
+			continue
+		}
 		dst[i] = dst[i] +
 			(oneMinus*g00)*d0[i+2] +
 			(oneMinus*g01)*(d0[i+3]+d0[i+1]) +
@@ -793,12 +810,14 @@ func combFilterOverlapScalar(dst, d0, d1, wsq []float32, g00, g01, g02, g10, g11
 	}
 }
 
-func combFilterConstValue(base, g10, g11, g12, center, plus1, minus1, plus2, minus2 float32) float32 {
-	sum := base
-	sum += g10 * center
-	sum += g11 * (plus1 + minus1)
-	sum += g12 * (plus2 + minus2)
-	return sum
+//go:noinline
+func combFilterOverlapV3Accumulate(base, c00, t00, c01, t01, c02, t02, c10, t10, c11, t11, c12, t12 float32) float32 {
+	value := fma32(c00, t00, base)
+	value = fma32(c01, t01, value)
+	value = fma32(c02, t02, value)
+	value = fma32(c10, t10, value)
+	value = fma32(c11, t11, value)
+	return fma32(c12, t12, value)
 }
 
 // combFilterConstSSEValue matches libopus celt/x86/pitch_sse.c:

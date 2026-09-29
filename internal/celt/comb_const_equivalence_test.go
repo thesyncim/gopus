@@ -51,6 +51,38 @@ func TestCombFilterConstMatchesSequentialReference(t *testing.T) {
 	}
 }
 
+func TestCombFilterKernelsZeroAllocs(t *testing.T) {
+	const n = 120
+	dst := make([]float32, n)
+	d0 := make([]float32, n+4)
+	d1 := make([]float32, n+4)
+	wsq := make([]float32, n)
+	for i := range d0 {
+		d0[i] = float32((i*37)%191-95) / 64
+		d1[i] = float32((i*53)%173-86) / 80
+	}
+	for i := range wsq {
+		wsq[i] = float32((i*29)%101) / 100
+		dst[i] = float32((i*17)%89-44) / 32
+	}
+	if allocs := testing.AllocsPerRun(100, func() {
+		combFilterOverlap(dst, d0, d1, wsq, 0.125, -0.0625, 0.03125, 0.25, -0.125, 0.0625)
+	}); allocs != 0 {
+		t.Fatalf("comb overlap allocated: %g allocs/run", allocs)
+	}
+
+	constBody := make([]float32, n)
+	delay := make([]float32, n)
+	for i := range delay {
+		delay[i] = float32((i*43)%211-105) / 64
+	}
+	if allocs := testing.AllocsPerRun(100, func() {
+		combFilterConstFloat32(constBody, delay, 0.25, 0.125, 0.0625, 0, 0, 0, 0, 0)
+	}); allocs != 0 {
+		t.Fatalf("comb constant body allocated: %g allocs/run", allocs)
+	}
+}
+
 // combFilterReference is libopus celt/celt.c comb_filter run in place on one
 // contiguous buffer (y == x), with the constant part in the operation order
 // the build's comb_filter_const uses.
