@@ -479,8 +479,21 @@ const denormGainBands = 32
 // denormalizeBandGainsScalar sets gains[band] = denormalizeBandGain(energies,
 // band) for band in [start, end).
 func denormalizeBandGainsScalar(gains []float32, energies []celtGLog, start, end int) {
+	if end > len(eMeans) {
+		for band := start; band < end; band++ {
+			gains[band] = denormalizeBandGain(energies, band)
+		}
+		return
+	}
+	gains = gains[:end]
+	energies = energies[:end]
+	means := eMeans[:end]
 	for band := start; band < end; band++ {
-		gains[band] = denormalizeBandGain(energies, band)
+		e := float32(energies[band]) + float32(means[band])
+		if e > 32 {
+			e = 32
+		}
+		gains[band] = opusmath.CeltExp2(e)
 	}
 }
 

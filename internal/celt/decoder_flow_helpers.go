@@ -37,6 +37,8 @@ func denormalizeBandsPackedDownsampleIntoFloat32(dst []float32, src []celtNorm, 
 	// offset of dst, as the freq and X cursors of libopus denormalise_bands()
 	// advance together.
 	limit := min(len(src), len(dst))
+	dstL, srcL := dst[:limit], src[:limit]
+	edges = edges[:end+1]
 
 	var gainBuf [denormGainBands]float32
 	var gains []float32
@@ -45,11 +47,11 @@ func denormalizeBandsPackedDownsampleIntoFloat32(dst []float32, src []celtNorm, 
 		denormalizeBandGains(gains, energies, start, end)
 	}
 	for band := start; band < end; band++ {
-		j := edges[band] * M
+		j := edges[band] << lm
 		if j >= limit {
 			break
 		}
-		bandEnd := min(edges[band+1]*M, limit)
+		bandEnd := min(edges[band+1]<<lm, limit)
 		if bandEnd <= j {
 			continue
 		}
@@ -59,15 +61,15 @@ func denormalizeBandsPackedDownsampleIntoFloat32(dst []float32, src []celtNorm, 
 		} else {
 			gain = denormalizeBandGain(energies, band)
 		}
-		out := dst[j:bandEnd]
-		in := src[j:bandEnd][:len(out)]
+		out := dstL[j:bandEnd]
+		in := srcL[j:bandEnd]
 		// Low bands are only a few bins wide; their vector call/setup cost
 		// beats the per-lane win, so keep them on the tight inline loop and
 		// vector only the wide bands. Each product is bare, so the result
 		// matches on every build.
 		if len(out) < 8 {
-			for k, x := range in {
-				out[k] = float32(x) * gain
+			for k := range out {
+				out[k] = float32(in[k]) * gain
 			}
 			continue
 		}

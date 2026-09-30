@@ -26,6 +26,11 @@ func (v Float32View) At(i int) float32 {
 	return math.Float32frombits(binary.LittleEndian.Uint32(v.data[offset : offset+4]))
 }
 
+// Bytes returns the view's little-endian payload without copying.
+func (v Float32View) Bytes() []byte {
+	return v.data
+}
+
 // Fill copies the view into dst and returns the number of values written.
 func (v Float32View) Fill(dst []float32) int {
 	n := min(v.Len(), len(dst))
@@ -83,6 +88,11 @@ func (v Int8View) Empty() bool {
 // At returns the i-th int8 value.
 func (v Int8View) At(i int) int8 {
 	return int8(v.data[i])
+}
+
+// Bytes returns the view's payload without copying.
+func (v Int8View) Bytes() []byte {
+	return v.data
 }
 
 // Fill copies the view into dst and returns the number of values written.

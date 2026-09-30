@@ -21,14 +21,22 @@ func pitchXCorrFloat32AVX2FMAOrderTiny(x, y, xcorr []float32, length, maxPitch i
 		pitchXCorrFloat32AVX2FMAOrderTinyScalar(x, y, xcorr, length, maxPitch)
 		return
 	}
+	if maxPitch < 8 {
+		// No eight-lag block: celt_pitch_xcorr_avx2 runs every lag through
+		// celt_inner_prod. The AVX2 bodies hoist their zero vectors to entry,
+		// so this path stays outside them and runs its SSE code clean.
+		for pitch := range maxPitch {
+			xcorr[pitch] = innerProdFloat32SSEOrder(x, y[pitch:], length)
+		}
+		return
+	}
 	pitchXCorrFloat32AVX2FMAOrderTinyAVX2(x, y, xcorr, length, maxPitch)
 }
 
 //go:noinline
 func pitchXCorrFloat32AVX2FMAOrderTinyAVX2(x, y, xcorr []float32, length, maxPitch int) {
-	// Clear the upper register halves the 256-bit lanes leave dirty, so the
-	// caller's scalar SSE code runs without false dependencies.
-	defer archsimd.ClearAVXUpperBits()
+	// Every path clears the upper register halves the 256-bit lanes leave
+	// dirty before its scalar SSE tail and the return to the caller.
 	if length == 5 {
 		pitchXCorrFloat32AVX2FMAOrderTiny5(x, y, xcorr, maxPitch)
 		return
@@ -118,9 +126,7 @@ func pitchXCorrFloat32AVX2FMAOrderTinyAVX2(x, y, xcorr []float32, length, maxPit
 			copy(out[:], exact[:])
 		}
 	}
-	if avxLimit != 0 {
-		archsimd.ClearAVXUpperBits()
-	}
+	archsimd.ClearAVXUpperBits()
 	for pitch := avxLimit; pitch < maxPitch; pitch++ {
 		xcorr[pitch] = innerProdFloat32SSEOrder(x, y[pitch:], length)
 	}
@@ -172,13 +178,6 @@ func pitchXCorrFloat32AVX2FMAOrderTiny10(x, y, xcorr []float32, maxPitch int) {
 	}
 
 	avxLimit := maxPitch &^ 7
-	if avxLimit == 0 {
-		for pitch := 0; pitch < maxPitch; pitch++ {
-			xcorr[pitch] = innerProdFloat32SSEOrder(x, y[pitch:], 10)
-		}
-		return
-	}
-
 	var zero archsimd.Float32x8
 	for pitch := 0; pitch < avxLimit; pitch += 8 {
 		yp := unsafe.Pointer(unsafe.SliceData(y[pitch : pitch+17]))
@@ -215,9 +214,7 @@ func pitchXCorrFloat32AVX2FMAOrderTiny10(x, y, xcorr []float32, maxPitch int) {
 			copy(out[:], exact[:])
 		}
 	}
-	if avxLimit != 0 {
-		archsimd.ClearAVXUpperBits()
-	}
+	archsimd.ClearAVXUpperBits()
 	for pitch := avxLimit; pitch < maxPitch; pitch++ {
 		xcorr[pitch] = innerProdFloat32SSEOrder(x, y[pitch:], 10)
 	}
@@ -282,9 +279,7 @@ func pitchXCorrFloat32AVX2FMAOrderTiny5(x, y, xcorr []float32, maxPitch int) {
 			copy(out[:], exact[:])
 		}
 	}
-	if avxLimit != 0 {
-		archsimd.ClearAVXUpperBits()
-	}
+	archsimd.ClearAVXUpperBits()
 	for pitch := avxLimit; pitch < maxPitch; pitch++ {
 		xcorr[pitch] = innerProdFloat32SSEOrder(x, y[pitch:], 5)
 	}
