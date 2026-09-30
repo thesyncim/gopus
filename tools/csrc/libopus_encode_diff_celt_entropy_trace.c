@@ -20,6 +20,9 @@
 #undef main
 
 #define CELT_TRACE_MAX_CALLS 8
+/* celt_encoder.c secondMdct emits two long channel transforms before the
+ * sixteen short transforms of a stereo LM=3 transient frame. */
+#define CELT_TRACE_MAX_MDCT_CALLS 18
 #define CELT_TRACE_MAX_FLOATS 4096
 #define CELT_TRACE_MAX_BANDS 64
 #define CELT_TRACE_MAX_HISTORY 1024
@@ -99,7 +102,7 @@ static struct {
   celt_trace_normalization_call normalizations[CELT_TRACE_MAX_CALLS];
   celt_trace_coarse_call coarse[CELT_TRACE_MAX_CALLS];
   celt_trace_quant_call quant[CELT_TRACE_MAX_CALLS];
-  celt_trace_mdct_call mdct[CELT_TRACE_MAX_CALLS];
+  celt_trace_mdct_call mdct[CELT_TRACE_MAX_MDCT_CALLS];
   celt_trace_preemphasis_call preemphasis[CELT_TRACE_MAX_CALLS];
   celt_trace_prefilter_call prefilter[CELT_TRACE_MAX_CALLS];
 } celt_encode_trace = { .captured_frame = UINT32_MAX };
@@ -168,7 +171,7 @@ void __wrap_clt_mdct_forward_c(const mdct_lookup *l, kiss_fft_scalar *in,
     return;
   }
   uint32_t call = celt_encode_trace.mdct_calls++;
-  if (call >= CELT_TRACE_MAX_CALLS || l == NULL || shift < 0 || shift >= 4 ||
+  if (call >= CELT_TRACE_MAX_MDCT_CALLS || l == NULL || shift < 0 || shift >= 4 ||
       shift > l->maxshift || l->n <= 0 || l->kfft[shift] == NULL ||
       overlap < 0 || in == NULL || (overlap > 0 && window == NULL) || l->trig == NULL) {
     celt_encode_trace.overflow = 1;

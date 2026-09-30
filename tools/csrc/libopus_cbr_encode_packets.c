@@ -49,6 +49,7 @@
 #include "celt/mdct.h"
 #ifdef GOPUS_CELT_PITCH_TRACE
 #include "celt/pitch.h"
+#include "celt/celt_lpc.h"
 #endif
 #include "celt/quant_bands.h"
 #endif
@@ -262,6 +263,21 @@ typedef struct {
   float prev_gain, gain;
   float buffer[CELT_TRACE_MAX_FLOATS];
 } celt_trace_remove_doubling_call;
+
+#ifdef GOPUS_CELT_PITCH_KERNEL_TRACE
+typedef struct {
+  uint32_t downsample_ordinal, n, lag, overlap, arch, window_nil, input_count, autocorrelation_count;
+  int32_t result;
+  float input[CELT_TRACE_MAX_FLOATS];
+  float autocorrelation[5];
+} celt_trace_pitch_autocorr_call;
+
+typedef struct {
+  uint32_t downsample_ordinal, order, autocorrelation_count, coefficient_count;
+  float autocorrelation[5];
+  float coefficients[4];
+} celt_trace_pitch_lpc_call;
+#endif
 #endif
 
 static struct {
@@ -275,6 +291,10 @@ static struct {
   uint32_t pitch_downsample_calls, stored_pitch_downsample_calls;
   uint32_t pitch_search_calls, stored_pitch_search_calls;
   uint32_t remove_doubling_calls, stored_remove_doubling_calls;
+#endif
+#ifdef GOPUS_CELT_PITCH_KERNEL_TRACE
+  uint32_t pitch_autocorr_calls, stored_pitch_autocorr_calls;
+  uint32_t pitch_lpc_calls, stored_pitch_lpc_calls;
 #endif
   celt_trace_band_call bands[CELT_TRACE_MAX_CALLS];
   celt_trace_log_call logs[CELT_TRACE_MAX_CALLS];
@@ -290,6 +310,10 @@ static struct {
   celt_trace_pitch_search_call pitch_search[CELT_TRACE_MAX_CALLS];
   celt_trace_remove_doubling_call remove_doubling[CELT_TRACE_MAX_CALLS];
 #endif
+#ifdef GOPUS_CELT_PITCH_KERNEL_TRACE
+  celt_trace_pitch_autocorr_call pitch_autocorr[CELT_TRACE_MAX_CALLS];
+  celt_trace_pitch_lpc_call pitch_lpc[CELT_TRACE_MAX_CALLS];
+#endif
 } celt_encode_trace;
 
 static uint32_t celt_encode_active_frame;
@@ -298,6 +322,13 @@ static uint32_t celt_encode_captured_frame = UINT32_MAX;
 static opus_val16 *celt_trace_pitch_buffer;
 static uint32_t celt_trace_pitch_buffer_count;
 static int celt_trace_selected_frame(void);
+#ifdef GOPUS_CELT_PITCH_KERNEL_TRACE
+static int celt_trace_pitch_kernel_scope_active;
+static uint32_t celt_trace_pitch_kernel_downsample_ordinal;
+static uint32_t celt_trace_pitch_kernel_autocorr_scope_calls;
+static uint32_t celt_trace_pitch_kernel_lpc_scope_calls;
+static opus_val32 *celt_trace_pitch_kernel_autocorrelation;
+#endif
 
 void gopus_celt_pitch_controls_trace(int frame_size, int channels, int enabled, int complexity,
     int arch, opus_val16 tf_estimate, opus_val16 tone_freq, opus_val32 toneishness,
@@ -350,7 +381,8 @@ void __wrap_pitch_downsample(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RES
     int len, int C, int factor, int arch) {
   celt_trace_pitch_downsample_call *trace = NULL;
   uint32_t call = 0;
-  if (celt_trace_selected_frame()) {
+  int selected = celt_trace_selected_frame();
+  if (selected) {
     call = celt_encode_trace.pitch_downsample_calls++;
     if (call >= CELT_TRACE_MAX_CALLS || x == NULL || x_lp == NULL || len <= 0 || C <= 0 || C > 2 ||
         factor <= 0 || len > CELT_TRACE_MAX_FLOATS / factor ||
@@ -379,11 +411,103 @@ void __wrap_pitch_downsample(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RES
     celt_trace_pitch_buffer_count = len > 0 ? (uint32_t)len : 0;
   }
 
+#ifdef GOPUS_CELT_PITCH_KERNEL_TRACE
+  if (selected) {
+    if (celt_trace_pitch_kernel_scope_active) celt_encode_trace.overflow = 1;
+    celt_trace_pitch_kernel_scope_active = 1;
+    celt_trace_pitch_kernel_downsample_ordinal = call;
+    celt_trace_pitch_kernel_autocorr_scope_calls = 0;
+    celt_trace_pitch_kernel_lpc_scope_calls = 0;
+    celt_trace_pitch_kernel_autocorrelation = NULL;
+  }
+#endif
+
   __real_pitch_downsample(x, x_lp, len, C, factor, arch);
 
   if (trace != NULL)
     memcpy(trace->output, x_lp, (size_t)trace->output_count * sizeof(float));
+#ifdef GOPUS_CELT_PITCH_KERNEL_TRACE
+  if (selected) {
+    if (celt_trace_pitch_kernel_autocorr_scope_calls != 1 || celt_trace_pitch_kernel_lpc_scope_calls != 1)
+      celt_encode_trace.overflow = 1;
+    celt_trace_pitch_kernel_scope_active = 0;
+    celt_trace_pitch_kernel_autocorrelation = NULL;
+  }
+#endif
 }
+
+#ifdef GOPUS_CELT_PITCH_KERNEL_TRACE
+extern int __real__celt_autocorr(const opus_val16 *x, opus_val32 *ac,
+    const celt_coef *window, int overlap, int lag, int n, int arch);
+int __wrap__celt_autocorr(const opus_val16 *x, opus_val32 *ac,
+    const celt_coef *window, int overlap, int lag, int n, int arch) {
+  celt_trace_pitch_autocorr_call *trace = NULL;
+  uint32_t downsample_ordinal = celt_trace_pitch_kernel_downsample_ordinal;
+  if (celt_trace_pitch_kernel_scope_active) {
+    celt_trace_pitch_kernel_autocorr_scope_calls++;
+    uint32_t call = celt_encode_trace.pitch_autocorr_calls++;
+    if (call >= CELT_TRACE_MAX_CALLS || downsample_ordinal >= CELT_TRACE_MAX_CALLS ||
+        x == NULL || ac == NULL || x != celt_trace_pitch_buffer ||
+        n <= 0 || n != (int)celt_trace_pitch_buffer_count || lag != 4 || overlap != 0 || window != NULL ||
+        n > CELT_TRACE_MAX_FLOATS) {
+      celt_encode_trace.overflow = 1;
+    } else if (celt_encode_trace.stored_pitch_autocorr_calls >= CELT_TRACE_MAX_CALLS) {
+      celt_encode_trace.overflow = 1;
+    } else {
+      trace = &celt_encode_trace.pitch_autocorr[celt_encode_trace.stored_pitch_autocorr_calls];
+      trace->downsample_ordinal = downsample_ordinal;
+      trace->n = (uint32_t)n;
+      trace->lag = (uint32_t)lag;
+      trace->overlap = (uint32_t)overlap;
+      trace->arch = (uint32_t)arch;
+      trace->window_nil = window == NULL ? 1u : 0u;
+      trace->input_count = (uint32_t)n;
+      trace->autocorrelation_count = (uint32_t)(lag + 1);
+      memcpy(trace->input, x, (size_t)n * sizeof(float));
+      celt_trace_pitch_kernel_autocorrelation = ac;
+    }
+  }
+
+  int result = __real__celt_autocorr(x, ac, window, overlap, lag, n, arch);
+
+  if (trace != NULL) {
+    trace->result = (int32_t)result;
+    memcpy(trace->autocorrelation, ac, (size_t)trace->autocorrelation_count * sizeof(float));
+    celt_encode_trace.stored_pitch_autocorr_calls++;
+  }
+  return result;
+}
+
+extern void __real__celt_lpc(opus_val16 *lpc, const opus_val32 *ac, int order);
+void __wrap__celt_lpc(opus_val16 *lpc, const opus_val32 *ac, int order) {
+  celt_trace_pitch_lpc_call *trace = NULL;
+  uint32_t downsample_ordinal = celt_trace_pitch_kernel_downsample_ordinal;
+  if (celt_trace_pitch_kernel_scope_active) {
+    celt_trace_pitch_kernel_lpc_scope_calls++;
+    uint32_t call = celt_encode_trace.pitch_lpc_calls++;
+    if (call >= CELT_TRACE_MAX_CALLS || downsample_ordinal >= CELT_TRACE_MAX_CALLS ||
+        lpc == NULL || ac == NULL || ac != celt_trace_pitch_kernel_autocorrelation || order != 4) {
+      celt_encode_trace.overflow = 1;
+    } else if (celt_encode_trace.stored_pitch_lpc_calls >= CELT_TRACE_MAX_CALLS) {
+      celt_encode_trace.overflow = 1;
+    } else {
+      trace = &celt_encode_trace.pitch_lpc[celt_encode_trace.stored_pitch_lpc_calls];
+      trace->downsample_ordinal = downsample_ordinal;
+      trace->order = (uint32_t)order;
+      trace->autocorrelation_count = (uint32_t)(order + 1);
+      trace->coefficient_count = (uint32_t)order;
+      memcpy(trace->autocorrelation, ac, (size_t)(order + 1) * sizeof(float));
+    }
+  }
+
+  __real__celt_lpc(lpc, ac, order);
+
+  if (trace != NULL) {
+    memcpy(trace->coefficients, lpc, (size_t)trace->coefficient_count * sizeof(float));
+    celt_encode_trace.stored_pitch_lpc_calls++;
+  }
+}
+#endif
 
 extern void __real_pitch_search(const opus_val16 * OPUS_RESTRICT x_lp, opus_val16 * OPUS_RESTRICT y,
     int len, int max_pitch, int *pitch, int arch);
@@ -788,7 +912,9 @@ void __wrap_quant_all_bands(int encode, const CELTMode *m, int start, int end,
 }
 
 static int write_celt_encode_trace(void) {
-#ifdef GOPUS_CELT_PITCH_TRACE
+#ifdef GOPUS_CELT_PITCH_KERNEL_TRACE
+  if (!write_exact("GCET", 4) || !write_u32(6) ||
+#elif defined(GOPUS_CELT_PITCH_TRACE)
   if (!write_exact("GCET", 4) || !write_u32(5) ||
 #else
   if (!write_exact("GCET", 4) || !write_u32(4) ||
@@ -918,6 +1044,28 @@ static int write_celt_encode_trace(void) {
         !trace_write_float32(&trace->gain, 1) ||
         !trace_write_float32(trace->buffer, trace->buffer_count)) return 0;
   }
+#ifdef GOPUS_CELT_PITCH_KERNEL_TRACE
+  if (!write_u32(celt_encode_trace.pitch_autocorr_calls) ||
+      !write_u32(celt_encode_trace.stored_pitch_autocorr_calls)) return 0;
+  for (uint32_t i = 0; i < celt_encode_trace.stored_pitch_autocorr_calls; i++) {
+    const celt_trace_pitch_autocorr_call *trace = &celt_encode_trace.pitch_autocorr[i];
+    if (!write_u32(trace->downsample_ordinal) || !write_u32(trace->n) ||
+        !write_u32(trace->lag) || !write_u32(trace->overlap) || !write_u32(trace->arch) ||
+        !write_u32(trace->window_nil) || !write_u32(trace->input_count) ||
+        !write_u32(trace->autocorrelation_count) || !write_u32((uint32_t)trace->result) ||
+        !trace_write_float32(trace->input, trace->input_count) ||
+        !trace_write_float32(trace->autocorrelation, trace->autocorrelation_count)) return 0;
+  }
+  if (!write_u32(celt_encode_trace.pitch_lpc_calls) ||
+      !write_u32(celt_encode_trace.stored_pitch_lpc_calls)) return 0;
+  for (uint32_t i = 0; i < celt_encode_trace.stored_pitch_lpc_calls; i++) {
+    const celt_trace_pitch_lpc_call *trace = &celt_encode_trace.pitch_lpc[i];
+    if (!write_u32(trace->downsample_ordinal) || !write_u32(trace->order) ||
+        !write_u32(trace->autocorrelation_count) || !write_u32(trace->coefficient_count) ||
+        !trace_write_float32(trace->autocorrelation, trace->autocorrelation_count) ||
+        !trace_write_float32(trace->coefficients, trace->coefficient_count)) return 0;
+  }
+#endif
 #endif
   return 1;
 }

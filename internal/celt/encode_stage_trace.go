@@ -43,11 +43,15 @@ type EncodePitchControlsTrace struct {
 // EncodePitchDownsampleTrace captures the actual pitch_downsample input and
 // output buffers at runPrefilter's pitch analysis boundary.
 type EncodePitchDownsampleTrace struct {
-	Length   int32
-	Channels int32
-	Factor   int32
-	Input    []float32
-	Output   []float32
+	Length             int32
+	Channels           int32
+	Factor             int32
+	Input              []float32
+	Decimated          []float32
+	RawAutocorrelation [5]float32
+	LPCInput           [5]float32
+	LPC                [4]float32
+	Output             []float32
 }
 
 // EncodePitchSearchTrace captures the pitch buffer and result at the actual

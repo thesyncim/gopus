@@ -2,6 +2,16 @@
 
 package celt
 
+const pitchDownsampleTraceCaptureEnabled = false
+
+func recordPitchDownsampleDecimated([]celtSig, []float32, int, int, int) {}
+
+func recordPitchDownsampleAutocorrelation([]celtSig, []float32, int, int, int, [5]float32) {}
+
+func recordPitchDownsampleLPCInput([]celtSig, []float32, int, int, int, [5]float32) {}
+
+func recordPitchDownsampleLPC([]celtSig, []float32, int, int, int, [4]float32) {}
+
 func (e *Encoder) recordPitchControls(frameSize, channels int, enabled bool, complexity int32, maxPeriod, minPeriod int,
 	tfEstimate, toneFreq, toneishness, maxPitchRatio float32) {
 }

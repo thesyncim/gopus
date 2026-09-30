@@ -15,6 +15,7 @@ import (
 const (
 	celtQuantTraceWireVersion   = 1
 	celtQuantTraceWireFrame     = 1
+	celtQuantTraceWireBand      = 17
 	celtQuantTraceWireMaxEvents = 64
 	celtQuantTraceWireMaxWidth  = 256
 	celtQuantTraceWireEventHead = 64
@@ -74,7 +75,14 @@ func (r *celtQuantTraceWireReader) vector(dst *[celtQuantTraceWireMaxWidth]float
 // lets a caller prove that this trailer consumes the remainder of its helper
 // output after the packet, GCET, and GENT sections.
 func parseCELTQuantBandTrace(data []byte) (celtQuantBandTrace, int, error) {
+	return parseCELTQuantBandTraceForTarget(data, celtQuantTraceWireFrame, celtQuantTraceWireBand)
+}
+
+func parseCELTQuantBandTraceForTarget(data []byte, expectedFrame, expectedBand uint32) (celtQuantBandTrace, int, error) {
 	var result celtQuantBandTrace
+	if expectedBand >= celt.MaxBands {
+		return result, 0, fmt.Errorf("invalid expected GQTR band %d", expectedBand)
+	}
 	if len(data) < 4 || string(data[:4]) != "GQTR" {
 		return result, 0, fmt.Errorf("invalid GQTR magic")
 	}
@@ -105,8 +113,8 @@ func parseCELTQuantBandTrace(data []byte) (celtQuantBandTrace, int, error) {
 	if err != nil {
 		return result, 0, err
 	}
-	if result.Frame != celtQuantTraceWireFrame {
-		return result, 0, fmt.Errorf("GQTR selected frame=%d, want %d", result.Frame, celtQuantTraceWireFrame)
+	if result.Frame != expectedFrame {
+		return result, 0, fmt.Errorf("GQTR selected frame=%d, want %d", result.Frame, expectedFrame)
 	}
 	if count == 0 || count > celtQuantTraceWireMaxEvents {
 		return result, 0, fmt.Errorf("invalid GQTR event count %d", count)
@@ -235,14 +243,18 @@ func parseCELTQuantBandTrace(data []byte) (celtQuantBandTrace, int, error) {
 		}
 		result.Events = append(result.Events, event)
 	}
-	if err := validateCELTQuantBandTraceEvents(result.Events); err != nil {
+	if err := validateCELTQuantBandTraceEventsForBand(result.Events, expectedBand); err != nil {
 		return result, 0, err
 	}
 	return result, reader.off, nil
 }
 
 func validateCELTQuantBandTracePayload(data []byte) error {
-	_, consumed, err := parseCELTQuantBandTrace(data)
+	return validateCELTQuantBandTracePayloadForTarget(data, celtQuantTraceWireFrame, celtQuantTraceWireBand)
+}
+
+func validateCELTQuantBandTracePayloadForTarget(data []byte, expectedFrame, expectedBand uint32) error {
+	_, consumed, err := parseCELTQuantBandTraceForTarget(data, expectedFrame, expectedBand)
 	if err != nil {
 		return err
 	}
@@ -253,6 +265,13 @@ func validateCELTQuantBandTracePayload(data []byte) error {
 }
 
 func validateCELTQuantBandTraceEvents(events []celt.CELTQuantBandTraceSnapshot) error {
+	return validateCELTQuantBandTraceEventsForBand(events, celtQuantTraceWireBand)
+}
+
+func validateCELTQuantBandTraceEventsForBand(events []celt.CELTQuantBandTraceSnapshot, expectedBand uint32) error {
+	if expectedBand >= celt.MaxBands {
+		return fmt.Errorf("invalid expected GQTR band %d", expectedBand)
+	}
 	if len(events) == 0 || len(events) > celtQuantTraceWireMaxEvents {
 		return fmt.Errorf("invalid GQTR event cardinality %d", len(events))
 	}
@@ -267,12 +286,12 @@ func validateCELTQuantBandTraceEvents(events []celt.CELTQuantBandTraceSnapshot) 
 		if event.Ordinal != uint32(index) {
 			return fmt.Errorf("GQTR event %d has ordinal %d", index, event.Ordinal)
 		}
-		if event.Band != 17 || event.N == 0 || event.N > celtQuantTraceWireMaxWidth ||
+		if event.Band != expectedBand || event.N == 0 || event.N > celtQuantTraceWireMaxWidth ||
 			event.B == 0 || event.B0 == 0 || event.LM < -1 || event.LM > 3 ||
 			event.Channels != 2 || event.Encode != 1 || event.Stereo > 1 ||
 			event.ThetaRound < -1 || event.ThetaRound > 1 {
-			return fmt.Errorf("invalid GQTR event %d header: stage=%d band=%d n=%d B=%d B0=%d LM=%d channels=%d encode=%d stereo=%d thetaRound=%d",
-				index, event.Stage, event.Band, event.N, event.B, event.B0, event.LM,
+			return fmt.Errorf("invalid GQTR event %d header: stage=%d band=%d wantBand=%d n=%d B=%d B0=%d LM=%d channels=%d encode=%d stereo=%d thetaRound=%d",
+				index, event.Stage, event.Band, expectedBand, event.N, event.B, event.B0, event.LM,
 				event.Channels, event.Encode, event.Stereo, event.ThetaRound)
 		}
 		if event.RangeBefore == 0 || event.RangeAfter == 0 {
@@ -409,7 +428,7 @@ func validateCELTQuantBandTraceEvents(events []celt.CELTQuantBandTraceSnapshot) 
 	if thetaCount == 0 || pvqCount == 0 {
 		return fmt.Errorf("incomplete GQTR event cardinality: theta=%d pvq=%d", thetaCount, pvqCount)
 	}
-	if topThetaCount != 1 && topThetaCount != 2 {
+	if topThetaCount != 0 && topThetaCount != 1 && topThetaCount != 2 {
 		return fmt.Errorf("invalid GQTR stereo-trial cardinality %d", topThetaCount)
 	}
 	if rdoCount > 1 {
@@ -425,6 +444,38 @@ func validateCELTQuantBandTraceEvents(events []celt.CELTQuantBandTraceSnapshot) 
 	}
 	if mergeCount != uint32(len(mergeTheta)) {
 		return fmt.Errorf("GQTR stereo merge cardinality=%d unique=%d", mergeCount, len(mergeTheta))
+	}
+	if topThetaCount == 0 {
+		// The selected low-band trace has the source-shaped graph emitted by
+		// quant_all_bands' per-channel path: two mono partition contexts and
+		// four linked PVQ calls. This shape supports inferring dual-stereo for
+		// this diagnostic; the branch control itself is not serialized.
+		if rdoCount != 0 || mergeCount != 0 || bandOutputCount != 0 {
+			return fmt.Errorf("invalid GQTR non-stereo trace: RDO=%d merges=%d bandOutputs=%d",
+				rdoCount, mergeCount, bandOutputCount)
+		}
+		if thetaCount != 2 || pvqCount != 4 || len(events) != 6 {
+			return fmt.Errorf("invalid GQTR non-stereo graph: theta=%d pvq=%d events=%d, want 2/4/6",
+				thetaCount, pvqCount, len(events))
+		}
+		for ordinal, theta := range thetaByOrdinal {
+			if theta.Stereo != 0 {
+				return fmt.Errorf("GQTR non-stereo trace has stereo theta %d", ordinal)
+			}
+			if theta.N != 4 || theta.LM != 2 || theta.ThetaRound != 0 {
+				return fmt.Errorf("GQTR non-stereo theta %d has N=%d LM=%d thetaRound=%d, want 4/2/0",
+					ordinal, theta.N, theta.LM, theta.ThetaRound)
+			}
+		}
+		for index := range events {
+			event := &events[index]
+			if event.Stage == uint32(celt.CELTQuantBandTracePVQ) &&
+				(event.Stereo != 0 || event.N != 4 || event.LM != 2 || event.ThetaRound != 0) {
+				return fmt.Errorf("GQTR non-stereo PVQ %d has N=%d LM=%d stereo=%d thetaRound=%d, want 4/2/0/0",
+					event.Ordinal, event.N, event.LM, event.Stereo, event.ThetaRound)
+			}
+		}
+		return nil
 	}
 	if rdoCount == 1 {
 		if topThetaCount != 2 || bandOutputCount != 2 || events[len(events)-1].Stage != uint32(celt.CELTQuantBandTraceRDOSelect) {
@@ -533,10 +584,20 @@ func validateCELTQuantBandTraceFinite(event *celt.CELTQuantBandTraceSnapshot) er
 // compareCELTQuantBandTrace reports the first fine-boundary C/Go difference;
 // an empty result means every captured field and float32 bit matches.
 func compareCELTQuantBandTrace(goEvents []celt.CELTQuantBandTraceSnapshot, cTrace celtQuantBandTrace) string {
-	if err := validateCELTQuantBandTraceEvents(goEvents); err != nil {
+	return compareCELTQuantBandTraceForTarget(goEvents, cTrace, celtQuantTraceWireFrame, celtQuantTraceWireBand)
+}
+
+func compareCELTQuantBandTraceForTarget(goEvents []celt.CELTQuantBandTraceSnapshot, cTrace celtQuantBandTrace, expectedFrame, expectedBand uint32) string {
+	if expectedBand >= celt.MaxBands {
+		return fmt.Sprintf("invalid expected GQTR band %d", expectedBand)
+	}
+	if cTrace.Frame != expectedFrame {
+		return fmt.Sprintf("GQTR selected frame=%d, want %d", cTrace.Frame, expectedFrame)
+	}
+	if err := validateCELTQuantBandTraceEventsForBand(goEvents, expectedBand); err != nil {
 		return "invalid Go GQTR trace: " + err.Error()
 	}
-	if err := validateCELTQuantBandTraceEvents(cTrace.Events); err != nil {
+	if err := validateCELTQuantBandTraceEventsForBand(cTrace.Events, expectedBand); err != nil {
 		return "invalid C GQTR trace: " + err.Error()
 	}
 	if len(goEvents) != len(cTrace.Events) {
@@ -816,8 +877,9 @@ func TestCELTQuantBandTraceNonQEXTQ30StorageDifference(t *testing.T) {
 	cEvents[thetaIndex].Itheta = effectiveQ14
 	goEvents[thetaIndex].IthetaQ30 = effectiveQ14 << 16
 	cEvents[thetaIndex].IthetaQ30 = rawQ30
+	cTrace := celtQuantBandTrace{Frame: celtQuantTraceWireFrame, Events: cEvents}
 
-	if difference := compareCELTQuantBandTrace(goEvents, celtQuantBandTrace{Events: cEvents}); difference != "" {
+	if difference := compareCELTQuantBandTrace(goEvents, cTrace); difference != "" {
 		t.Fatalf("non-QEXT diagnostic Q30 storage difference rejected: %s", difference)
 	}
 	if got := goEvents[thetaIndex].IthetaQ30; got != effectiveQ14<<16 {
@@ -828,12 +890,12 @@ func TestCELTQuantBandTraceNonQEXTQ30StorageDifference(t *testing.T) {
 	}
 
 	cEvents[thetaIndex].RawIthetaQ30++
-	if difference := compareCELTQuantBandTrace(goEvents, celtQuantBandTrace{Events: cEvents}); !strings.Contains(difference, "rawIthetaQ30") {
+	if difference := compareCELTQuantBandTrace(goEvents, cTrace); !strings.Contains(difference, "rawIthetaQ30") {
 		t.Fatalf("raw angle mismatch was not compared exactly: %q", difference)
 	}
 	cEvents[thetaIndex].RawIthetaQ30 = rawQ30
 	cEvents[thetaIndex].Itheta++
-	if difference := compareCELTQuantBandTrace(goEvents, celtQuantBandTrace{Events: cEvents}); !strings.Contains(difference, "itheta") {
+	if difference := compareCELTQuantBandTrace(goEvents, cTrace); !strings.Contains(difference, "itheta") {
 		t.Fatalf("effective Q14 theta mismatch was not compared exactly: %q", difference)
 	}
 }
@@ -856,13 +918,17 @@ func celtQuantTraceStageName(stage uint32) string {
 }
 
 func validCELTQuantBandTraceWireForTesting() []byte {
+	return validCELTQuantBandTraceWireForTargetTesting(celtQuantTraceWireFrame, celtQuantTraceWireBand)
+}
+
+func validCELTQuantBandTraceWireForTargetTesting(frame, band uint32) []byte {
 	data := make([]byte, 0, 1024)
 	data = append(data, "GQTR"...)
-	for _, value := range []uint32{1, 1, 9, 0, 64, 256} {
+	for _, value := range []uint32{celtQuantTraceWireVersion, frame, 9, 0, 64, 256} {
 		data = appendCELTQuantTraceWord(data, value)
 	}
 	appendEvent := func(stage, ordinal, thetaOrdinal uint32, thetaRound int32, payload func([]byte) []byte) {
-		header := []uint32{stage, ordinal, thetaOrdinal, 17, 4, 2, 2, 0, 2, 1, 1, uint32(thetaRound),
+		header := []uint32{stage, ordinal, thetaOrdinal, band, 4, 2, 2, 0, 2, 1, 1, uint32(thetaRound),
 			0x80000000 + ordinal, 0x70000000 + ordinal, 100 + ordinal, 200 + ordinal}
 		for _, value := range header {
 			data = appendCELTQuantTraceWord(data, value)
@@ -1079,6 +1145,54 @@ func TestCELTQuantBandTraceWireValidation(t *testing.T) {
 	}
 }
 
+func TestCELTQuantBandTraceForTargetKeepsFrameAndBandStrict(t *testing.T) {
+	const frame, band = uint32(25), uint32(7)
+	data := validCELTQuantBandTraceWireForTargetTesting(frame, band)
+	trace, consumed, err := parseCELTQuantBandTraceForTarget(data, frame, band)
+	if err != nil || trace.Frame != frame || consumed != len(data) {
+		t.Fatalf("parse selected frame/band: frame=%d consumed=%d/%d err=%v", trace.Frame, consumed, len(data), err)
+	}
+	if err := validateCELTQuantBandTracePayloadForTarget(data, frame, band); err != nil {
+		t.Fatalf("validate selected frame/band payload: %v", err)
+	}
+	if difference := compareCELTQuantBandTraceForTarget(trace.Events, trace, frame, band); difference != "" {
+		t.Fatalf("matching selected trace differs: %s", difference)
+	}
+	if _, _, err := parseCELTQuantBandTraceForTarget(data, frame+1, band); err == nil || !strings.Contains(err.Error(), "selected frame") {
+		t.Fatalf("wrong expected frame accepted: %v", err)
+	}
+	if _, _, err := parseCELTQuantBandTraceForTarget(data, frame, band+1); err == nil || !strings.Contains(err.Error(), "wantBand") {
+		t.Fatalf("wrong expected band accepted: %v", err)
+	}
+	if _, _, err := parseCELTQuantBandTrace(data); err == nil || !strings.Contains(err.Error(), "selected frame") {
+		t.Fatalf("default frame-1 wrapper accepted frame %d: %v", frame, err)
+	}
+	wrongFrame := trace
+	wrongFrame.Frame++
+	if difference := compareCELTQuantBandTraceForTarget(trace.Events, wrongFrame, frame, band); !strings.Contains(difference, "selected frame") {
+		t.Fatalf("compare accepted a mismatched frame: %q", difference)
+	}
+	wrongBand := append([]celt.CELTQuantBandTraceSnapshot(nil), trace.Events...)
+	wrongBand[0].Band++
+	if err := validateCELTQuantBandTraceEventsForBand(wrongBand, band); err == nil || !strings.Contains(err.Error(), "wantBand") {
+		t.Fatalf("event validator accepted a mismatched band: %v", err)
+	}
+}
+
+func TestCELTQuantCoefficient98MapsToFiveMillisecondBand18(t *testing.T) {
+	const frameSize, coefficient = 240, 98
+	mode := celt.GetModeConfig(frameSize)
+	if mode.LM != 1 {
+		t.Fatalf("frame size %d has LM=%d, want LM=1", frameSize, mode.LM)
+	}
+	blocks := 1 << mode.LM
+	start := blocks * celt.EBands[18]
+	end := blocks * celt.EBands[19]
+	if start != 96 || end != 120 || coefficient < start || coefficient >= end {
+		t.Fatalf("coefficient %d maps to [%d,%d), want band 18 [96,120) from the eBand5ms table", coefficient, start, end)
+	}
+}
+
 func TestCELTQuantBandTracePVQUsesActiveThetaGeometry(t *testing.T) {
 	t.Run("resumed recursive parent", func(t *testing.T) {
 		top := celtQuantTraceThetaForTesting(0, 16, 4, 4, 2, 1, 0)
@@ -1151,6 +1265,46 @@ func TestCELTQuantBandTracePVQUsesActiveThetaGeometry(t *testing.T) {
 			t.Fatalf("nondividing leaf B error=%v, want N%%B geometry failure", err)
 		}
 	})
+}
+
+func TestCELTQuantBandTraceAcceptsDualStereoMonoPartitions(t *testing.T) {
+	leftTheta := celtQuantTraceThetaForTesting(0, 4, 2, 2, 2, 0, 0)
+	leftPVQ := celtQuantTracePVQForTesting(1, leftTheta)
+	leftPVQ2 := celtQuantTracePVQForTesting(2, leftTheta)
+	rightTheta := celtQuantTraceThetaForTesting(3, 4, 2, 2, 2, 0, 0)
+	rightPVQ := celtQuantTracePVQForTesting(4, rightTheta)
+	rightPVQ2 := celtQuantTracePVQForTesting(5, rightTheta)
+	events := []celt.CELTQuantBandTraceSnapshot{leftTheta, leftPVQ, leftPVQ2, rightTheta, rightPVQ, rightPVQ2}
+	if err := validateCELTQuantBandTraceEvents(events); err != nil {
+		t.Fatalf("source-shaped non-stereo partition graph should validate: %v", err)
+	}
+
+	if err := validateCELTQuantBandTraceEvents(events[:5]); err == nil {
+		t.Fatal("incomplete non-stereo graph accepted")
+	}
+	wrongN := append([]celt.CELTQuantBandTraceSnapshot(nil), events...)
+	wrongN[0].N = 8
+	if err := validateCELTQuantBandTraceEvents(wrongN); err == nil {
+		t.Fatal("non-stereo graph with wrong N accepted")
+	}
+	wrongLM := append([]celt.CELTQuantBandTraceSnapshot(nil), events...)
+	wrongLM[0].LM = 1
+	if err := validateCELTQuantBandTraceEvents(wrongLM); err == nil {
+		t.Fatal("non-stereo graph with wrong LM accepted")
+	}
+	wrongStereo := append([]celt.CELTQuantBandTraceSnapshot(nil), events...)
+	wrongStereo[3].Stereo = 1
+	if err := validateCELTQuantBandTraceEvents(wrongStereo); err == nil {
+		t.Fatal("non-stereo graph with a stereo theta accepted")
+	}
+
+	withRDO := append([]celt.CELTQuantBandTraceSnapshot(nil), events...)
+	rdo := celtQuantTraceEventForTesting(leftTheta, celt.CELTQuantBandTraceRDOSelect, 6)
+	rdo.SelectedRound = -1
+	withRDO = append(withRDO, rdo)
+	if err := validateCELTQuantBandTraceEvents(withRDO); err == nil {
+		t.Fatal("non-stereo graph accepted an RDO selection")
+	}
 }
 
 func celtQuantTraceThetaForTesting(ordinal, n, blocks, blocksBeforeSplit uint32, lm int32, stereo uint32, thetaRound int32) celt.CELTQuantBandTraceSnapshot {

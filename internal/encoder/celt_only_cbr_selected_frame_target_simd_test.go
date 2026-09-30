@@ -3,3 +3,4 @@
 package encoder
 
 const celtOnlyCBRSelectedFrame = 25
+const celtOnlyCBRQuantTraceBand = 7

@@ -2,7 +2,34 @@
 
 package celt
 
-const encodePitchTraceMaxCalls = 8
+import (
+	"sync"
+	"sync/atomic"
+)
+
+const (
+	encodePitchTraceMaxCalls           = 8
+	pitchDownsampleTraceCaptureEnabled = true
+)
+
+type pitchDownsampleTraceScope struct {
+	input     *celtSig
+	output    *float32
+	inputLen  int
+	outputLen int
+	length    int
+	channels  int
+	factor    int
+	capture   *pitchDownsampleIntermediateCapture
+	invalid   bool
+}
+
+var (
+	pitchDownsampleTraceScopeMu sync.Mutex
+	pitchDownsampleTraceSinkMu  sync.Mutex
+	pitchDownsampleTraceActive  atomic.Bool
+	activePitchDownsampleTrace  *pitchDownsampleTraceScope
+)
 
 // EnablePitchAnalysisTraceForTesting enables the bounded pitch-analysis
 // snapshots used by the late-frame CBR differential diagnostic.
@@ -13,8 +40,125 @@ func (e *Encoder) EnablePitchAnalysisTraceForTesting() {
 }
 
 func (e *Encoder) runPrefilterPitchDownsample(input []celtSig, output []float32, length, channels, perChannelLength, factor int) {
-	pitchDownsampleSig(input, output, length, channels, factor)
-	e.encodeStageTrace.recordPitchDownsample(input, output, length, channels, perChannelLength, factor)
+	if !e.encodeStageTrace.enabled || !e.encodeStageTrace.pitchEnabled {
+		pitchDownsampleSig(input, output, length, channels, factor)
+		return
+	}
+	var capture pitchDownsampleIntermediateCapture
+	scope := beginPitchDownsampleTrace(input, output, length, channels, factor, &capture)
+	complete := false
+	func() {
+		defer func() { complete = finishPitchDownsampleTrace(scope) }()
+		pitchDownsampleSig(input, output, length, channels, factor)
+	}()
+	if !complete {
+		e.encodeStageTrace.trace.StageOverflow = true
+	}
+	e.encodeStageTrace.recordPitchDownsample(input, output, length, channels, perChannelLength, factor, capture)
+}
+
+func beginPitchDownsampleTrace(input []celtSig, output []float32, length, channels, factor int,
+	capture *pitchDownsampleIntermediateCapture) *pitchDownsampleTraceScope {
+	pitchDownsampleTraceScopeMu.Lock()
+	if len(input) == 0 || len(output) == 0 || length <= 0 || channels <= 0 || channels > 2 || factor <= 0 || capture == nil {
+		pitchDownsampleTraceScopeMu.Unlock()
+		return nil
+	}
+	scope := &pitchDownsampleTraceScope{
+		input: &input[0], output: &output[0], inputLen: len(input), outputLen: len(output),
+		length: length, channels: channels, factor: factor, capture: capture,
+	}
+	pitchDownsampleTraceSinkMu.Lock()
+	if activePitchDownsampleTrace != nil {
+		pitchDownsampleTraceSinkMu.Unlock()
+		pitchDownsampleTraceScopeMu.Unlock()
+		return nil
+	}
+	activePitchDownsampleTrace = scope
+	pitchDownsampleTraceActive.Store(true)
+	pitchDownsampleTraceSinkMu.Unlock()
+	return scope
+}
+
+func finishPitchDownsampleTrace(scope *pitchDownsampleTraceScope) bool {
+	if scope == nil {
+		return false
+	}
+	pitchDownsampleTraceSinkMu.Lock()
+	complete := activePitchDownsampleTrace == scope && !scope.invalid && scope.capture != nil && scope.capture.Captured == 15 &&
+		len(scope.capture.Decimated) == scope.length
+	if activePitchDownsampleTrace == scope {
+		pitchDownsampleTraceActive.Store(false)
+		activePitchDownsampleTrace = nil
+	}
+	pitchDownsampleTraceSinkMu.Unlock()
+	pitchDownsampleTraceScopeMu.Unlock()
+	return complete
+}
+
+func recordPitchDownsampleDecimated(input []celtSig, output []float32, length, channels, factor int) {
+	if !pitchDownsampleTraceActive.Load() {
+		return
+	}
+	pitchDownsampleTraceSinkMu.Lock()
+	defer pitchDownsampleTraceSinkMu.Unlock()
+	scope := pitchDownsampleScopeForRecord(input, output, length, channels, factor, 1)
+	if scope != nil {
+		scope.capture.Decimated = append(scope.capture.Decimated[:0], output[:length]...)
+		scope.capture.Captured |= 1
+	}
+}
+
+func recordPitchDownsampleAutocorrelation(input []celtSig, output []float32, length, channels, factor int, ac [5]float32) {
+	if !pitchDownsampleTraceActive.Load() {
+		return
+	}
+	pitchDownsampleTraceSinkMu.Lock()
+	defer pitchDownsampleTraceSinkMu.Unlock()
+	scope := pitchDownsampleScopeForRecord(input, output, length, channels, factor, 2)
+	if scope != nil {
+		scope.capture.RawAutocorrelation = ac
+		scope.capture.Captured |= 2
+	}
+}
+
+func recordPitchDownsampleLPCInput(input []celtSig, output []float32, length, channels, factor int, ac [5]float32) {
+	if !pitchDownsampleTraceActive.Load() {
+		return
+	}
+	pitchDownsampleTraceSinkMu.Lock()
+	defer pitchDownsampleTraceSinkMu.Unlock()
+	scope := pitchDownsampleScopeForRecord(input, output, length, channels, factor, 4)
+	if scope != nil {
+		scope.capture.LPCInput = ac
+		scope.capture.Captured |= 4
+	}
+}
+
+func recordPitchDownsampleLPC(input []celtSig, output []float32, length, channels, factor int, lpc [4]float32) {
+	if !pitchDownsampleTraceActive.Load() {
+		return
+	}
+	pitchDownsampleTraceSinkMu.Lock()
+	defer pitchDownsampleTraceSinkMu.Unlock()
+	scope := pitchDownsampleScopeForRecord(input, output, length, channels, factor, 8)
+	if scope != nil {
+		scope.capture.LPC = lpc
+		scope.capture.Captured |= 8
+	}
+}
+
+func pitchDownsampleScopeForRecord(input []celtSig, output []float32, length, channels, factor int, bit uint32) *pitchDownsampleTraceScope {
+	scope := activePitchDownsampleTrace
+	if scope == nil || len(input) == 0 || len(output) == 0 || &input[0] != scope.input || &output[0] != scope.output {
+		return nil
+	}
+	if len(input) != scope.inputLen || len(output) != scope.outputLen || length != scope.length ||
+		channels != scope.channels || factor != scope.factor || scope.capture == nil || scope.capture.Captured != bit-1 {
+		scope.invalid = true
+		return nil
+	}
+	return scope
 }
 
 func (e *Encoder) recordPitchControls(frameSize, channels int, enabled bool, complexity int32, maxPeriod, minPeriod int,
@@ -54,12 +198,13 @@ func (e *Encoder) runPrefilterRemoveDoubling(buffer []float32, maxPeriod, minPer
 	return gain
 }
 
-func (s *encodeStageTraceState) recordPitchDownsample(input []celtSig, output []float32, length, channels, perChannelLength, factor int) {
+func (s *encodeStageTraceState) recordPitchDownsample(input []celtSig, output []float32, length, channels, perChannelLength, factor int, capture pitchDownsampleIntermediateCapture) {
 	if !s.enabled || !s.pitchEnabled {
 		return
 	}
 	if len(s.trace.PitchDownsample) >= encodePitchTraceMaxCalls || length <= 0 || channels <= 0 || channels > 2 ||
-		factor <= 0 || perChannelLength < length*factor || len(input) < channels*perChannelLength || len(output) < length {
+		factor <= 0 || perChannelLength < length*factor || len(input) < channels*perChannelLength || len(output) < length ||
+		capture.Captured != 15 || len(capture.Decimated) != length {
 		s.trace.StageOverflow = true
 		return
 	}
@@ -71,7 +216,9 @@ func (s *encodeStageTraceState) recordPitchDownsample(input []celtSig, output []
 	}
 	s.trace.PitchDownsample = append(s.trace.PitchDownsample, EncodePitchDownsampleTrace{
 		Length: int32(length), Channels: int32(channels), Factor: int32(factor),
-		Input: inputCopy, Output: copyStageFloat32(output[:length]),
+		Input: inputCopy, Decimated: copyStageFloat32(capture.Decimated),
+		RawAutocorrelation: capture.RawAutocorrelation, LPCInput: capture.LPCInput,
+		LPC: capture.LPC, Output: copyStageFloat32(output[:length]),
 	})
 }
 

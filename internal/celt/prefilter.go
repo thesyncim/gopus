@@ -338,6 +338,14 @@ func (e *Encoder) swapPrefilterInMem(in []float32, frameSize, channels, overlap 
 	}
 }
 
+type pitchDownsampleIntermediateCapture struct {
+	Decimated          []float32
+	RawAutocorrelation [5]float32
+	LPCInput           [5]float32
+	LPC                [4]float32
+	Captured           uint32
+}
+
 func pitchDownsampleSig(x []celtSig, xLP []float32, length, channels, factor int) {
 	if length <= 0 || factor <= 0 || len(xLP) < length {
 		return
@@ -391,13 +399,25 @@ func pitchDownsampleSig(x []celtSig, xLP []float32, length, channels, factor int
 			xLP[0] += v
 		}
 	}
+	if pitchDownsampleTraceCaptureEnabled {
+		recordPitchDownsampleDecimated(x, xLP, length, channels, factor)
+	}
 
 	var ac [5]float32
 	pitchAutocorr5F32(xLP[:length], length, &ac)
+	if pitchDownsampleTraceCaptureEnabled {
+		recordPitchDownsampleAutocorrelation(x, xLP, length, channels, factor, ac)
+	}
 
 	applyCELTPitchLagWindow32(ac[:], 4)
+	if pitchDownsampleTraceCaptureEnabled {
+		recordPitchDownsampleLPCInput(x, xLP, length, channels, factor, ac)
+	}
 
 	lpc := lpcFromAutocorr32(ac)
+	if pitchDownsampleTraceCaptureEnabled {
+		recordPitchDownsampleLPC(x, xLP, length, channels, factor, lpc)
+	}
 	tmp := float32(1.0)
 	for i := range 4 {
 		tmp *= float32(0.9)

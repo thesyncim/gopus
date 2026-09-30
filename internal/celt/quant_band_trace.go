@@ -20,8 +20,8 @@ const (
 	celtQuantBandTraceMaxWidth  = 256
 )
 
-// CELTQuantBandTraceSnapshot is one fixed-width event at an actual band-17
-// encode boundary. Vector arrays are valid only during the callback; copy the
+// CELTQuantBandTraceSnapshot records an actual encoder quantization boundary
+// for the selected band. Vector arrays are valid only during the callback; copy the
 // snapshot value to retain it. Metadata follows libopus codec widths.
 type CELTQuantBandTraceSnapshot struct {
 	Stage          uint32

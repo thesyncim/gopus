@@ -2070,7 +2070,7 @@ func intensityStereoWeighted(x, y []celtNorm, leftEnergy, rightEnergy celtEner) 
 	a1 := left / norm
 	a2 := right / norm
 	for i := 0; i < n; i++ {
-		// clang fuses the left product of a1*l + a2*r (see thetaRDODistortion).
+		// Intensity stereo rounds a2*r before fusing a1*l into that product.
 		x[i] = celtNorm(fma32(a1, float32(x[i]), noFMA32Mul(a2, float32(y[i]))))
 	}
 }
@@ -2094,14 +2094,6 @@ func computeChannelWeights(ex, ey celtEner) (w0, w1 float32) {
 
 func innerProductNorm(x, y []celtNorm) float32 {
 	return celtInnerProdLibopusOrder(x, y)
-}
-
-// thetaRDODistortion computes quant_all_bands' weighted pair of normalized
-// inner products. The right weighted product is rounded separately; fma32
-// follows the selected target's contraction behavior for the left term.
-func thetaRDODistortion(w0, w1 float32, xSave, xBand, ySave, yBand []celtNorm) float32 {
-	ipx, ipy := celtInnerProdPairLibopusOrder(xSave, xBand, ySave, yBand)
-	return fma32(w0, ipx, noFMA32Mul(w1, ipy))
 }
 
 func (ctx *bandCtx) bandEnergy(channel int) celtEner {

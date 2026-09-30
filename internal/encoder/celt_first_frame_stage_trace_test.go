@@ -303,7 +303,7 @@ func TestCELTLateCBRFrameStageDiagnostic(t *testing.T) {
 	if cTrace.TraceFrame != celtLateTraceFrame {
 		t.Fatalf("C stage trace captured frame %d, want %d", cTrace.TraceFrame, celtLateTraceFrame)
 	}
-	if cTrace.Version != 5 || cTrace.PitchControlsCalls != 1 || len(cTrace.PitchControls) != 1 {
+	if cTrace.Version != 6 || cTrace.PitchControlsCalls != 1 || len(cTrace.PitchControls) != 1 {
 		t.Fatalf("C pitch controls did not observe exactly one active late-frame prefilter: version=%d controls=%d/%d",
 			cTrace.Version, cTrace.PitchControlsCalls, len(cTrace.PitchControls))
 	}
@@ -459,7 +459,7 @@ func buildCELTTraceOracleAtFrameWithCache(t *testing.T, trace bool, traceFrame i
 			"-O3", "-DNDEBUG", "-DGOPUS_CELT_TRACE", fmt.Sprintf("-DGOPUS_CELT_TRACE_FRAME=%d", traceFrame))
 		pitchTrace := traceFrame == celtLateTraceFrame
 		if pitchTrace {
-			config.CFlags = append(config.CFlags, "-DGOPUS_CELT_PITCH_TRACE")
+			config.CFlags = append(config.CFlags, "-DGOPUS_CELT_PITCH_TRACE", "-DGOPUS_CELT_PITCH_KERNEL_TRACE")
 		}
 		config.RefIncludes = []string{"celt", "silk", "src"}
 		config.Sources = []string{instrumentedSource}
@@ -477,6 +477,8 @@ func buildCELTTraceOracleAtFrameWithCache(t *testing.T, trace bool, traceFrame i
 		if pitchTrace {
 			config.LDFlags = append(config.LDFlags,
 				"-Wl,--wrap=pitch_downsample",
+				"-Wl,--wrap=_celt_autocorr",
+				"-Wl,--wrap=_celt_lpc",
 				"-Wl,--wrap=pitch_search",
 				"-Wl,--wrap=remove_doubling")
 		}
@@ -576,7 +578,7 @@ func validateCELTTraceLinkMapWithPitch(path string, pitchTrace bool) error {
 		}
 	}
 	if pitchTrace {
-		for _, symbol := range []string{"gopus_celt_pitch_controls_trace", "__wrap_pitch_downsample", "__wrap_pitch_search", "__wrap_remove_doubling"} {
+		for _, symbol := range []string{"gopus_celt_pitch_controls_trace", "__wrap_pitch_downsample", "__wrap__celt_autocorr", "__wrap__celt_lpc", "__wrap_pitch_search", "__wrap_remove_doubling"} {
 			if !strings.Contains(string(data), symbol) {
 				return fmt.Errorf("pitch trace link map has no binding for %s", symbol)
 			}
@@ -816,6 +818,25 @@ type celtCBRStagePitchDownsample struct {
 	Output   []float32
 }
 
+type celtCBRStagePitchAutocorr struct {
+	DownsampleOrdinal int32
+	N                 int32
+	Lag               int32
+	Overlap           int32
+	Arch              int32
+	WindowNil         bool
+	Result            int32
+	Input             []float32
+	Autocorrelation   []float32
+}
+
+type celtCBRStagePitchLPC struct {
+	DownsampleOrdinal int32
+	Order             int32
+	Autocorrelation   []float32
+	Coefficients      []float32
+}
+
 type celtCBRStagePitchControls struct {
 	FrameSize     int32
 	Channels      int32
@@ -860,6 +881,8 @@ type celtCBRStageTrace struct {
 	PreemphasisCalls, PrefilterCalls                                            int
 	PitchControlsCalls                                                          int
 	PitchDownsampleCalls, PitchSearchCalls, RemoveDoublingCalls                 int
+	PitchAutocorrCalls, PitchStoredAutocorrCalls                                int
+	PitchLPCCalls, PitchStoredLPCCalls                                          int
 	Bands                                                                       []celtCBRStageBand
 	Logs                                                                        []celtCBRStageLog
 	Normalizations                                                              []celtCBRStageNorm
@@ -870,6 +893,8 @@ type celtCBRStageTrace struct {
 	Prefilter                                                                   []celtCBRStagePrefilter
 	PitchControls                                                               []celtCBRStagePitchControls
 	PitchDownsample                                                             []celtCBRStagePitchDownsample
+	PitchAutocorr                                                               []celtCBRStagePitchAutocorr
+	PitchLPC                                                                    []celtCBRStagePitchLPC
 	PitchSearch                                                                 []celtCBRStagePitchSearch
 	RemoveDoubling                                                              []celtCBRStageRemoveDoubling
 }
@@ -885,11 +910,14 @@ func validateCELTTraceShapes(goTrace celt.EncodeStageTrace, cTrace celtCBRStageT
 	if goTrace.StageOverflow {
 		return fmt.Errorf("Go preemphasis/prefilter trace exceeded its bounded capture")
 	}
-	if cTrace.Version == 5 {
+	if cTrace.Version >= 5 {
 		if err := validateCELTPitchControls(goTrace, cTrace); err != nil {
 			return err
 		}
 		if err := validateCELTPitchTraceShapes(goTrace, cTrace); err != nil {
+			return err
+		}
+		if err := validateCELTPitchKernelTraceShapes(goTrace, cTrace); err != nil {
 			return err
 		}
 	} else if cTrace.Version != 4 || len(goTrace.PitchControls)+len(goTrace.PitchDownsample)+len(goTrace.PitchSearch)+len(goTrace.RemoveDoubling) != 0 ||
@@ -1022,7 +1050,7 @@ func validateCELTTraceShapes(goTrace celt.EncodeStageTrace, cTrace celtCBRStageT
 }
 
 func validateCELTPitchTraceShapes(goTrace celt.EncodeStageTrace, cTrace celtCBRStageTrace) error {
-	if cTrace.Version != 5 {
+	if cTrace.Version < 5 {
 		return nil
 	}
 	if len(goTrace.PitchControls) != 1 || len(cTrace.PitchControls) != 1 {
@@ -1036,6 +1064,66 @@ func validateCELTPitchTraceShapes(goTrace celt.EncodeStageTrace, cTrace celtCBRS
 	if err := validateCELTPitchSideGeometry("C", celtPitchControlsFromC(cTrace.PitchControls[0]),
 		celtPitchStagesFromC(cTrace)); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateCELTPitchKernelTraceShapes(goTrace celt.EncodeStageTrace, cTrace celtCBRStageTrace) error {
+	if cTrace.Version < 6 {
+		if cTrace.PitchAutocorrCalls+cTrace.PitchStoredAutocorrCalls+cTrace.PitchLPCCalls+cTrace.PitchStoredLPCCalls != 0 ||
+			len(cTrace.PitchAutocorr)+len(cTrace.PitchLPC) != 0 {
+			return fmt.Errorf("GCET v%d unexpectedly contains pitch kernel traces: autocorr=%d/%d LPC=%d/%d",
+				cTrace.Version, cTrace.PitchAutocorrCalls, cTrace.PitchStoredAutocorrCalls,
+				cTrace.PitchLPCCalls, cTrace.PitchStoredLPCCalls)
+		}
+		return nil
+	}
+	wantCalls := len(goTrace.PitchDownsample)
+	if cTrace.PitchAutocorrCalls != wantCalls || cTrace.PitchStoredAutocorrCalls != wantCalls ||
+		cTrace.PitchLPCCalls != wantCalls || cTrace.PitchStoredLPCCalls != wantCalls ||
+		len(cTrace.PitchAutocorr) != wantCalls || len(cTrace.PitchLPC) != wantCalls {
+		return fmt.Errorf("pitch intermediate call counts differ: Go downsample=%d C autocorr=%d/%d LPC=%d/%d stored=%d/%d",
+			wantCalls, cTrace.PitchAutocorrCalls, cTrace.PitchStoredAutocorrCalls,
+			cTrace.PitchLPCCalls, cTrace.PitchStoredLPCCalls, len(cTrace.PitchAutocorr), len(cTrace.PitchLPC))
+	}
+	if len(cTrace.PitchDownsample) != wantCalls {
+		return fmt.Errorf("pitch intermediate captures have %d C downsample records, want %d", len(cTrace.PitchDownsample), wantCalls)
+	}
+	for i, got := range goTrace.PitchDownsample {
+		downsample := cTrace.PitchDownsample[i]
+		autocorr := cTrace.PitchAutocorr[i]
+		lpc := cTrace.PitchLPC[i]
+		if got.Length != downsample.Length || got.Channels != downsample.Channels || got.Factor != downsample.Factor ||
+			len(got.Decimated) != int(got.Length) || len(autocorr.Input) != int(autocorr.N) ||
+			int(autocorr.N) != int(got.Length) || len(autocorr.Autocorrelation) != 5 ||
+			len(lpc.Autocorrelation) != 5 || len(lpc.Coefficients) != 4 ||
+			autocorr.DownsampleOrdinal != int32(i) || lpc.DownsampleOrdinal != int32(i) ||
+			autocorr.Lag != 4 || autocorr.Overlap != 0 || !autocorr.WindowNil || autocorr.Result != 0 ||
+			autocorr.Arch != downsample.Arch || lpc.Order != 4 {
+			return fmt.Errorf("pitch intermediate call %d has invalid Go/C geometry: Go=(len%d decimated%d channels%d factor%d) Cdownsample=(len%d channels%d factor%d arch%d) autocorr=(ordinal%d n%d lag%d overlap%d windowNil%t input%d ac%d arch%d result%d) LPC=(ordinal%d order%d ac%d coeff%d)",
+				i, got.Length, len(got.Decimated), got.Channels, got.Factor,
+				downsample.Length, downsample.Channels, downsample.Factor, downsample.Arch,
+				autocorr.DownsampleOrdinal, autocorr.N, autocorr.Lag, autocorr.Overlap, autocorr.WindowNil,
+				len(autocorr.Input), len(autocorr.Autocorrelation), autocorr.Arch, autocorr.Result,
+				lpc.DownsampleOrdinal, lpc.Order, len(lpc.Autocorrelation), len(lpc.Coefficients))
+		}
+		for _, item := range []struct {
+			side, label string
+			values      []float32
+		}{
+			{"Go", "decimated input", got.Decimated},
+			{"Go", "raw autocorrelation", got.RawAutocorrelation[:]},
+			{"Go", "LPC input", got.LPCInput[:]},
+			{"Go", "LPC coefficients", got.LPC[:]},
+			{"C", "autocorrelation input", autocorr.Input},
+			{"C", "raw autocorrelation", autocorr.Autocorrelation},
+			{"C", "LPC input", lpc.Autocorrelation},
+			{"C", "LPC coefficients", lpc.Coefficients},
+		} {
+			if err := validateCELTPitchFiniteValues(item.side, fmt.Sprintf("pitch call %d %s", i, item.label), item.values); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -1190,7 +1278,7 @@ func validateCELTPitchFiniteValues(side, label string, values []float32) error {
 }
 
 func validateCELTPitchControls(goTrace celt.EncodeStageTrace, cTrace celtCBRStageTrace) error {
-	if cTrace.Version != 5 {
+	if cTrace.Version < 5 {
 		return nil
 	}
 	if cTrace.PitchControlsCalls != 1 || len(cTrace.PitchControls) != 1 || len(goTrace.PitchControls) != 1 {
@@ -1510,13 +1598,15 @@ func validateCELTTraceExpectedDimensions(goTrace celt.EncodeStageTrace, cTrace c
 }
 
 func (trace celtCBRStageTrace) counts() string {
-	return fmt.Sprintf("bands=%d/%d logs=%d/%d normalize=%d/%d coarse=%d/%d quant=%d/%d mdct=%d/%d preemphasis=%d/%d prefilter=%d/%d pitch-controls=%d/%d pitch=%d/%d/%d overflow=%d",
+	return fmt.Sprintf("bands=%d/%d logs=%d/%d normalize=%d/%d coarse=%d/%d quant=%d/%d mdct=%d/%d preemphasis=%d/%d prefilter=%d/%d pitch-controls=%d/%d pitch=%d/%d/%d autocorr=%d/%d LPC=%d/%d overflow=%d",
 		trace.BandCalls, len(trace.Bands), trace.LogCalls, len(trace.Logs),
 		trace.NormalizationCalls, len(trace.Normalizations), trace.CoarseCalls, len(trace.Coarse),
 		trace.QuantCalls, len(trace.Quant), trace.MDCTCalls, len(trace.MDCT),
 		trace.PreemphasisCalls, len(trace.Preemphasis), trace.PrefilterCalls, len(trace.Prefilter),
 		trace.PitchControlsCalls, len(trace.PitchControls),
-		trace.PitchDownsampleCalls, trace.PitchSearchCalls, trace.RemoveDoublingCalls, trace.Overflow)
+		trace.PitchDownsampleCalls, trace.PitchSearchCalls, trace.RemoveDoublingCalls,
+		trace.PitchAutocorrCalls, trace.PitchStoredAutocorrCalls, trace.PitchLPCCalls, trace.PitchStoredLPCCalls,
+		trace.Overflow)
 }
 
 type celtTraceReader struct {
@@ -1550,7 +1640,7 @@ func parseCELTEncodeTrace(data []byte) (celtCBRStageTrace, error) {
 		return result, fmt.Errorf("invalid GCET stage trace header")
 	}
 	version := binary.LittleEndian.Uint32(data[4:8])
-	if version != 4 && version != 5 {
+	if version != 4 && version != 5 && version != 6 {
 		return result, fmt.Errorf("unsupported GCET stage trace version %d", version)
 	}
 	result.Version = version
@@ -2039,6 +2129,68 @@ func parseCELTEncodeTrace(data []byte) (celtCBRStageTrace, error) {
 			})
 		}
 	}
+	if version >= 6 {
+		if result.PitchAutocorrCalls, result.PitchStoredAutocorrCalls, err = readCounts(8); err != nil {
+			return result, err
+		}
+		result.PitchAutocorr = make([]celtCBRStagePitchAutocorr, 0, result.PitchStoredAutocorrCalls)
+		for range result.PitchStoredAutocorrCalls {
+			values := make([]uint32, 9)
+			for i := range values {
+				if values[i], err = reader.u32(); err != nil {
+					return result, err
+				}
+			}
+			if values[0] >= uint32(len(result.PitchDownsample)) || values[1] == 0 || values[1] > 4096 ||
+				values[2] != 4 || values[3] != 0 || values[4] > 0xffff || values[5] != 1 ||
+				values[6] != values[1] || values[7] != values[2]+1 || int(values[1]) != int(result.PitchDownsample[values[0]].Length) {
+				return result, fmt.Errorf("invalid C pitch autocorrelation geometry ordinal/n/lag/overlap/arch/window/input/ac=%d/%d/%d/%d/%d/%d/%d/%d",
+					values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7])
+			}
+			input, readErr := reader.floats(int(values[6]))
+			if readErr != nil {
+				return result, readErr
+			}
+			autocorrelation, readErr := reader.floats(int(values[7]))
+			if readErr != nil {
+				return result, readErr
+			}
+			result.PitchAutocorr = append(result.PitchAutocorr, celtCBRStagePitchAutocorr{
+				DownsampleOrdinal: int32(values[0]), N: int32(values[1]), Lag: int32(values[2]),
+				Overlap: int32(values[3]), Arch: int32(values[4]), WindowNil: values[5] == 1,
+				Result: int32(values[8]), Input: input, Autocorrelation: autocorrelation,
+			})
+		}
+		if result.PitchLPCCalls, result.PitchStoredLPCCalls, err = readCounts(8); err != nil {
+			return result, err
+		}
+		result.PitchLPC = make([]celtCBRStagePitchLPC, 0, result.PitchStoredLPCCalls)
+		for range result.PitchStoredLPCCalls {
+			values := make([]uint32, 4)
+			for i := range values {
+				if values[i], err = reader.u32(); err != nil {
+					return result, err
+				}
+			}
+			if values[0] >= uint32(len(result.PitchDownsample)) || values[1] != 4 ||
+				values[2] != values[1]+1 || values[3] != values[1] {
+				return result, fmt.Errorf("invalid C pitch LPC geometry ordinal/order/ac/coeff=%d/%d/%d/%d",
+					values[0], values[1], values[2], values[3])
+			}
+			autocorrelation, readErr := reader.floats(int(values[2]))
+			if readErr != nil {
+				return result, readErr
+			}
+			coefficients, readErr := reader.floats(int(values[3]))
+			if readErr != nil {
+				return result, readErr
+			}
+			result.PitchLPC = append(result.PitchLPC, celtCBRStagePitchLPC{
+				DownsampleOrdinal: int32(values[0]), Order: int32(values[1]),
+				Autocorrelation: autocorrelation, Coefficients: coefficients,
+			})
+		}
+	}
 	if reader.off != len(reader.data) {
 		return result, fmt.Errorf("CELT stage trace has %d trailing bytes", len(reader.data)-reader.off)
 	}
@@ -2311,7 +2463,7 @@ func logCELTTraceDifferences(t *testing.T, goTrace celt.EncodeStageTrace, cTrace
 		compare(fmt.Sprintf("quant reconstructed coefficients call %d", i), got.Output, want.Output)
 	}
 	if first == "" {
-		t.Log("first-divergence trace: all captured CELT stages match; mismatch lies after the captured stages or in uncaptured state")
+		t.Log("first-divergence trace: all captured CELT stages match")
 	} else {
 		t.Logf("first-divergence trace begins at %s", first)
 	}
@@ -2319,7 +2471,7 @@ func logCELTTraceDifferences(t *testing.T, goTrace celt.EncodeStageTrace, cTrace
 
 func logCELTPitchTraceDifferences(t *testing.T, goTrace celt.EncodeStageTrace, cTrace celtCBRStageTrace) string {
 	t.Helper()
-	if cTrace.Version != 5 {
+	if cTrace.Version < 5 {
 		return ""
 	}
 	first := ""
@@ -2383,6 +2535,16 @@ func logCELTPitchTraceDifferences(t *testing.T, goTrace celt.EncodeStageTrace, c
 				label, got.Length, got.Channels, got.Factor, want.Length, want.Channels, want.Factor, want.Arch)
 		}
 		compare(label+" input", got.Input, want.Input)
+		if cTrace.Version >= 6 && i < len(cTrace.PitchAutocorr) && i < len(cTrace.PitchLPC) {
+			autocorr := cTrace.PitchAutocorr[i]
+			lpc := cTrace.PitchLPC[i]
+			compare(label+" decimated input to autocorr", got.Decimated, autocorr.Input)
+			compare(label+" raw autocorrelation", got.RawAutocorrelation[:], autocorr.Autocorrelation)
+			compare(label+" lag-windowed autocorrelation to LPC", got.LPCInput[:], lpc.Autocorrelation)
+			t.Logf("%s LPC input ACF bits Go=[%s] C=[%s]", label,
+				celtTraceFloat32BitList(got.LPCInput[:]), celtTraceFloat32BitList(lpc.Autocorrelation))
+			compare(label+" LPC coefficients", got.LPC[:], lpc.Coefficients)
+		}
 		compare(label+" output", got.Output, want.Output)
 	}
 	for i := 0; i < min(len(goTrace.PitchSearch), len(cTrace.PitchSearch)); i++ {
@@ -2417,4 +2579,12 @@ func logCELTPitchTraceDifferences(t *testing.T, goTrace celt.EncodeStageTrace, c
 		}
 	}
 	return first
+}
+
+func celtTraceFloat32BitList(values []float32) string {
+	bits := make([]string, len(values))
+	for i, value := range values {
+		bits[i] = fmt.Sprintf("%08x", math.Float32bits(value))
+	}
+	return strings.Join(bits, ",")
 }
