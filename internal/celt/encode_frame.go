@@ -608,6 +608,9 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	// coder held on entry.
 	e.coarseAvailableBytes = budget.nbAvailableBytes
 	e.coarseAvailableSet = true
+	// quant_coarse_energy() receives the coder before its intra decision and
+	// flag, so capture its matching input boundary before Go's trial decision.
+	e.encodeStageTrace.recordCoarseInput(energies, nbBands, codedChannels, budget.nbAvailableBytes, re)
 	intra := false
 	if re.Tell()+3 <= totalBits {
 		var kept bool
@@ -623,14 +626,13 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 		intra = false
 	}
 
-	e.encodeStageTrace.recordCoarseInput(energies, nbBands, codedChannels, budget.nbAvailableBytes)
 	var quantizedEnergies []celtGLog
 	if start > 0 {
 		quantizedEnergies = e.EncodeCoarseEnergyRange(energies, start, nbBands, intra, lm)
 	} else {
 		quantizedEnergies = e.EncodeCoarseEnergy(energies, nbBands, intra, lm)
 	}
-	e.encodeStageTrace.recordCoarseOutput(quantizedEnergies, e.scratch.coarseError)
+	e.encodeStageTrace.recordCoarseOutput(quantizedEnergies, e.scratch.coarseError, re)
 	// Step 11.0.5: Normalize bands early for TF analysis
 	// TF analysis needs normalized coefficients to determine optimal time-frequency resolution
 	var normL, normR []celtNorm
@@ -1221,7 +1223,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 		dualStereoVal = 1
 	}
 	tapset := e.TapsetDecision()
-	e.recordEncodeQuantInputTrace(normL, normR, bandE, end, lm, codedChannels)
+	e.recordEncodeQuantInputTrace(normL, normR, bandE, end, lm, codedChannels, re)
 	if pm := e.perMode; pm != nil {
 		quantAllBandsEncodeScratchWithMode(
 			re,

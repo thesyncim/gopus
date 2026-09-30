@@ -2,9 +2,17 @@
 
 package celt
 
+import "github.com/thesyncim/gopus/internal/rangecoding"
+
 // A stereo LM=3 frame has two long analysis transforms and sixteen short
 // transforms; see celt_encoder.c compute_mdcts and secondMdct.
 const encodeMDCTTraceMaxCalls = 18
+
+const (
+	encodeCoderRangeBeforeCoarse int32 = iota + 1
+	encodeCoderRangeAfterCoarse
+	encodeCoderRangeBeforeQuant
+)
 
 // EncodeStageTrace holds bounded CELT frame intermediates for the opt-in
 // first-divergence oracle test. Values use the codec's float32 storage width.
@@ -12,6 +20,7 @@ type EncodeStageTrace struct {
 	BandStages      []EncodeBandStageTrace
 	Normalizations  []EncodeNormalizationTrace
 	CoarseEnergy    []EncodeCoarseEnergyTrace
+	CoderRanges     []EncodeCoderRangeTrace
 	BandQuantize    []EncodeBandQuantizeTrace
 	Preemphasis     []EncodePreemphasisTrace
 	PrefilterComb   []EncodePrefilterCombTrace
@@ -180,6 +189,15 @@ type EncodeCoarseEnergyTrace struct {
 	Error       []float32
 }
 
+// EncodeCoderRangeTrace records the live range coder at one selected boundary.
+// Coder lets tests prove that the snapshots refer to the same encoder instance.
+type EncodeCoderRangeTrace struct {
+	Stage    int32
+	TellFrac int32
+	Range    uint32
+	Coder    *rangecoding.Encoder
+}
+
 type EncodeBandQuantizeTrace struct {
 	ActiveCoeffs int
 	Bands        int
@@ -190,15 +208,21 @@ type EncodeBandQuantizeTrace struct {
 }
 
 type encodeStageTraceState struct {
-	enabled      bool
-	pitchEnabled bool
-	trace        EncodeStageTrace
+	enabled          bool
+	pitchEnabled     bool
+	coderRangeClosed bool
+	trace            EncodeStageTrace
 }
 
 // EnableEncodeStageTraceForTesting resets and enables frame-stage captures.
 // It is available only with the gopus_celt_trace build tag.
 func (e *Encoder) EnableEncodeStageTraceForTesting() {
 	e.encodeStageTrace.reset()
+}
+
+// DisableEncodeStageTraceForTesting stops collecting after a selected frame.
+func (e *Encoder) DisableEncodeStageTraceForTesting() {
+	e.encodeStageTrace.enabled = false
 }
 
 func (e *Encoder) beginEncodePreemphasisTrace(pcm []float32, frameSize, overlap int, nativeInput bool) int {
@@ -284,10 +308,12 @@ func (e *Encoder) EncodeStageTraceForTesting() EncodeStageTrace {
 func (s *encodeStageTraceState) reset() {
 	s.enabled = true
 	s.pitchEnabled = false
+	s.coderRangeClosed = false
 	s.trace = EncodeStageTrace{
 		BandStages:      make([]EncodeBandStageTrace, 0, 4),
 		Normalizations:  make([]EncodeNormalizationTrace, 0, 2),
 		CoarseEnergy:    make([]EncodeCoarseEnergyTrace, 0, 2),
+		CoderRanges:     make([]EncodeCoderRangeTrace, 0, 3),
 		BandQuantize:    make([]EncodeBandQuantizeTrace, 0, 2),
 		Preemphasis:     make([]EncodePreemphasisTrace, 0, 2),
 		PrefilterComb:   make([]EncodePrefilterCombTrace, 0, 4),
@@ -519,10 +545,11 @@ func (e *Encoder) recordEncodeNormalizationTrace(normL, normR []CeltNorm, bandEn
 	e.encodeStageTrace.recordNormalization(normL, normR, bandEnergy, activeCoeffs, bands, channels)
 }
 
-func (s *encodeStageTraceState) recordCoarseInput(input []CeltGLog, bands, channels int, budgetBytes int32) {
+func (s *encodeStageTraceState) recordCoarseInput(input []CeltGLog, bands, channels int, budgetBytes int32, re *rangecoding.Encoder) {
 	if !s.enabled {
 		return
 	}
+	s.recordCoderRange(encodeCoderRangeBeforeCoarse, re)
 	s.trace.CoarseEnergy = append(s.trace.CoarseEnergy, EncodeCoarseEnergyTrace{
 		Bands:       bands,
 		Channels:    channels,
@@ -531,13 +558,33 @@ func (s *encodeStageTraceState) recordCoarseInput(input []CeltGLog, bands, chann
 	})
 }
 
-func (s *encodeStageTraceState) recordCoarseOutput(quantized, errorValues []CeltGLog) {
+func (s *encodeStageTraceState) recordCoarseOutput(quantized, errorValues []CeltGLog, re *rangecoding.Encoder) {
 	if !s.enabled || len(s.trace.CoarseEnergy) == 0 {
 		return
 	}
+	s.recordCoderRange(encodeCoderRangeAfterCoarse, re)
 	stage := &s.trace.CoarseEnergy[len(s.trace.CoarseEnergy)-1]
 	stage.Quantized = copyStageFloat32(quantized)
 	stage.Error = copyStageFloat32(errorValues[:len(quantized)])
+}
+
+func (s *encodeStageTraceState) recordCoderRange(stage int32, re *rangecoding.Encoder) {
+	if !s.enabled || s.coderRangeClosed {
+		return
+	}
+	if re == nil || len(s.trace.CoderRanges) >= 3 {
+		s.trace.StageOverflow = true
+		return
+	}
+	s.trace.CoderRanges = append(s.trace.CoderRanges, EncodeCoderRangeTrace{
+		Stage:    stage,
+		TellFrac: int32(re.TellFrac()),
+		Range:    re.Range(),
+		Coder:    re,
+	})
+	if len(s.trace.CoderRanges) == 3 {
+		s.coderRangeClosed = true
+	}
 }
 
 func (s *encodeStageTraceState) recordQuantInput(normL, normR []CeltNorm, bandEnergy []CeltEner, activeCoeffs, bands, channels int) {
@@ -558,9 +605,10 @@ func (s *encodeStageTraceState) recordQuantInput(normL, normR []CeltNorm, bandEn
 	})
 }
 
-func (e *Encoder) recordEncodeQuantInputTrace(normL, normR []CeltNorm, bandEnergy []CeltEner, bands, lm, channels int) {
+func (e *Encoder) recordEncodeQuantInputTrace(normL, normR []CeltNorm, bandEnergy []CeltEner, bands, lm, channels int, re *rangecoding.Encoder) {
 	activeCoeffs := e.modeEdges()[bands] * (1 << lm)
 	e.encodeStageTrace.recordQuantInput(normL, normR, bandEnergy, activeCoeffs, bands, channels)
+	e.encodeStageTrace.recordCoderRange(encodeCoderRangeBeforeQuant, re)
 }
 
 func (s *encodeStageTraceState) recordQuantOutput(normL, normR []CeltNorm) {

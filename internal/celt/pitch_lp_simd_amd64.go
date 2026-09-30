@@ -12,11 +12,11 @@ var celtFIR5UsesAVX = archsimd.X86.AVX()
 
 // celtFIR5F32 is libopus celt_fir5() applied in place to x. The filter has no
 // feedback: every output is x[i] plus the five taps on the original inputs
-// x[i-1] ... x[i-5]. The AVX path computes four outputs per vector with the
-// scalar operation order and walks from the end of x, so the inputs a vector
-// reads are not yet overwritten.
+// x[i-1] ... x[i-5]. The AVX path computes four outputs per vector in the
+// selected libopus MAC order and walks from the end of x, so the inputs a
+// vector reads are not yet overwritten.
 func celtFIR5F32(x []float32, num [5]float32) {
-	if !celtFIR5UsesAVX || len(x) < 9 {
+	if !celtFIR5UsesAVX || (len(x) < 9 && !celtFIR5UsesFMA) {
 		celtFIR5Scalar(x, num)
 		return
 	}
@@ -36,26 +36,14 @@ func celtFIR5AVX(x []float32, num [5]float32) {
 	for ; i >= 5; i -= 4 {
 		off := unsafe.Add(p, i*4)
 		s := loadF32x4(off)
-		s = s.Add(n0.Mul(loadF32x4(unsafe.Add(off, -4))))
-		s = s.Add(n1.Mul(loadF32x4(unsafe.Add(off, -8))))
-		s = s.Add(n2.Mul(loadF32x4(unsafe.Add(off, -12))))
-		s = s.Add(n3.Mul(loadF32x4(unsafe.Add(off, -16))))
-		s = s.Add(n4.Mul(loadF32x4(unsafe.Add(off, -20))))
+		s = celtFIR5Accumulate(s, n0, loadF32x4(unsafe.Add(off, -4)))
+		s = celtFIR5Accumulate(s, n1, loadF32x4(unsafe.Add(off, -8)))
+		s = celtFIR5Accumulate(s, n2, loadF32x4(unsafe.Add(off, -12)))
+		s = celtFIR5Accumulate(s, n3, loadF32x4(unsafe.Add(off, -16)))
+		s = celtFIR5Accumulate(s, n4, loadF32x4(unsafe.Add(off, -20)))
 		storeF32x4(off, s)
 	}
 	celtFIR5Head(x[:i+4], num)
-}
-
-// celtFIR5Head filters the first n <= 8 samples of x, whose inputs are still
-// unmodified, from the last one down. The leading outputs read the zero filter
-// memory, which m holds ahead of the inputs: m[k] is x[k-5].
-func celtFIR5Head(x []float32, num [5]float32) {
-	var m [13]float32
-	copy(m[5:], x)
-	for i := len(x) - 1; i >= 0; i-- {
-		w := (*[6]float32)(m[i : i+6])
-		x[i] = w[5] + num[0]*w[4] + num[1]*w[3] + num[2]*w[2] + num[3]*w[1] + num[4]*w[0]
-	}
 }
 
 // pitchDownsample2 is the factor-2 pitch_downsample() decimation of outputs

@@ -200,18 +200,16 @@ func (d *Decoder) celtIIRFloat32(dst []celtSig, hist []celtSig, lpc []float32, l
 		y[i+ord] = -sum[0]
 		dst[i] = celtSig(sum[0])
 
-		sum[1] += y[i+ord] * float32(lpc[0])
+		sum[1], sum[2], sum[3] = celtIIRFeedbackBlock32(
+			sum[1], sum[2], sum[3], y[i+ord],
+			float32(lpc[0]), float32(lpc[1]), float32(lpc[2]),
+		)
 		y[i+ord+1] = -sum[1]
 		dst[i+1] = celtSig(sum[1])
 
-		sum[2] += y[i+ord+1] * float32(lpc[0])
-		sum[2] += y[i+ord] * float32(lpc[1])
 		y[i+ord+2] = -sum[2]
 		dst[i+2] = celtSig(sum[2])
 
-		sum[3] += y[i+ord+2] * float32(lpc[0])
-		sum[3] += y[i+ord+1] * float32(lpc[1])
-		sum[3] += y[i+ord] * float32(lpc[2])
 		y[i+ord+3] = -sum[3]
 		dst[i+3] = celtSig(sum[3])
 	}

@@ -2,6 +2,8 @@
 
 package celt
 
+import "github.com/thesyncim/gopus/internal/rangecoding"
+
 // encodeStageTraceState has no storage in ordinary builds. Keeping its methods
 // empty lets the compiler remove every stage hook from the encode path.
 type encodeStageTraceState struct{}
@@ -16,14 +18,15 @@ func (*encodeStageTraceState) recordNormalization([]CeltNorm, []CeltNorm, []Celt
 
 func (*Encoder) recordEncodeNormalizationTrace([]CeltNorm, []CeltNorm, []CeltEner, int, int, int) {}
 
-func (*encodeStageTraceState) recordCoarseInput([]CeltGLog, int, int, int32) {}
+func (*encodeStageTraceState) recordCoarseInput([]CeltGLog, int, int, int32, *rangecoding.Encoder) {}
 
-func (*encodeStageTraceState) recordCoarseOutput([]CeltGLog, []CeltGLog) {}
+func (*encodeStageTraceState) recordCoarseOutput([]CeltGLog, []CeltGLog, *rangecoding.Encoder) {}
 
 func (*encodeStageTraceState) recordQuantInput([]CeltNorm, []CeltNorm, []CeltEner, int, int, int) {
 }
 
-func (*Encoder) recordEncodeQuantInputTrace([]CeltNorm, []CeltNorm, []CeltEner, int, int, int) {}
+func (*Encoder) recordEncodeQuantInputTrace([]CeltNorm, []CeltNorm, []CeltEner, int, int, int, *rangecoding.Encoder) {
+}
 
 func (*encodeStageTraceState) recordQuantOutput([]CeltNorm, []CeltNorm) {}
 

@@ -15,7 +15,7 @@ import (
 // buildCELTQuantTraceOracleAtFrameBand builds the existing GQTR helper with
 // source-bound frame and band selectors. The caller supplies a cache dedicated
 // to this selector pair so helpers for different frames cannot alias.
-func buildCELTQuantTraceOracleAtFrameBand(t *testing.T, frame, band int, cache *libopustest.HelperCache) string {
+func buildCELTQuantTraceOracleAtFrameBand(t *testing.T, frame, band int, coderRangeTrace bool, cache *libopustest.HelperCache) string {
 	t.Helper()
 	libopustest.RequireOracle(t)
 	if frame < 0 || frame >= celtOnlyCBRFrames {
@@ -74,6 +74,9 @@ func buildCELTQuantTraceOracleAtFrameBand(t *testing.T, frame, band int, cache *
 				"-Wl,--wrap=alg_quant",
 				"-Wl,-Map," + linkMapPath,
 			},
+		}
+		if coderRangeTrace {
+			config.CFlags = append(config.CFlags, "-DGOPUS_CELT_CODER_RANGE_TRACE")
 		}
 		helperPath, err := libopustest.BuildPublicAPIHelper(config)
 		if err != nil {

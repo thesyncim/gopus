@@ -205,7 +205,7 @@ Full byte parity across compiler targets is not established.
 The [scaled-float conversion audit](https://github.com/thesyncim/gopus/actions/runs/36563006244)
 passes the regression and independent C conversion oracle in both v3 lanes.
 
-The [native v3 audit at `19c04fdd`](https://github.com/thesyncim/gopus/actions/runs/36655520841)
+The [native v3 audit at `d13a0acdf`](https://github.com/thesyncim/gopus/actions/runs/36658733624)
 on AMD EPYC 9V74 with Go 1.27.1 and GCC 13.3 passes the following matched
 scalar and SIMD selections. No cases are skipped.
 
@@ -268,19 +268,26 @@ LPC recurrence. The source-bound v3 LPC correction matches linked C for orders
 1–24, actual frame-95 pitch inputs and periodic PLC inputs in both instruction
 lanes. Its error update rounds both products before subtraction; the SIMD
 reflection sum rounds complete four-term groups and fuses its scalar remainder.
-Independent diagnostic-container tests pass the 60 encode, 24 decode and 15
-allocation cases in both modes, with scalar CBR 19/19 and SIMD CBR 17/19.
 Warmed LPC allocations are zero. The ordered input guard also matches C for
 zero, sub-threshold and NaN inputs on arm64 and amd64. The scoped SIMD PLC FIR
 kernel follows the selected C even/odd FMA accumulators. Identical-input C
 oracles pass 13 valid kernel orders, eight FIR lengths, actual periodic PLC
 operands and full periodic synthesis stages, with zero warmed allocations.
-Its independent encode/decode/allocation sweep retains the counts above.
-The pitch FIR producer remains under validation. A separate strict IIR oracle
-fails in both lanes on the baseline too; its feedback arithmetic is under
-source investigation. These private checks establish causality; native
-confirmation of these corrections is pending. They do not identify an MDCT
-defect or justify an allowance.
+The scoped v3 pitch FIR evaluates five ordered native float32 FMAs. Its
+independent long C corpus, 2,000 random scalar comparisons, exact short-kernel
+model and warm allocation checks pass. The frame-95 filtered inputs, pitch
+period, prefilter, MDCT and quantization arrays match; its packet and range
+match C. The integrated private CBR selection is scalar 19/19, SIMD 18/19,
+with five packet and two range differences in the auto-mode stereo stream.
+The independent 60 encode, 24 decode and 15 allocation cases pass both lanes.
+A new valid-short-span stress case exposes a separate raw autocorrelation
+difference before LPC/FIR; that strict case remains under repair. The scoped
+v3 IIR block follows six sequential C feedback FMAs in one register boundary.
+Linked tests cover five full-block lengths and eight remainder lengths, plus
+full periodic synthesis and warmed zero allocation, in both instruction lanes. These private checks establish causality; native
+confirmation of the FIR and angle corrections is pending. The native LPC
+oracles and warm allocation guard pass in both lanes. They do not identify
+an MDCT defect or justify an allowance.
 
 Independent sine-window checks cover the actual 48-, 72- and 96-sample
 segments and pass in both native instruction lanes. The gain-producer trace
@@ -304,7 +311,13 @@ frame and band, bounded geometry, valid recursive/trial linkage, complete
 selection events and exact EOF. Source-bound hooks cover the specialized encode
 functions used by standard modes, preserve ordinary packets and ranges, and
 compile out of default-off callers. The recursive context and archive-member
-binding checks pass in the recorded native audit.
+binding checks pass in the recorded native audit. The private three-boundary
+coder trace validates ordered stages, complete C call counts and one live
+coder in both streams; ordinary/traced packets and ranges agree across all
+50 frames. Scalar states agree at every boundary. SIMD first differs after
+coarse-energy coding and before band quantization, within side-information
+coding. Default-off caller opcode, instruction-length and arithmetic topology
+match the merged baseline; spill slots differ. No runtime trace calls remain.
 
 The constrained-VBR witness selects band 18, whose LM=1 geometry is [96,120);
 local coefficient 2 maps to full-spectrum indices 98 and 298. The default float scalar v3

@@ -74,7 +74,7 @@ func TestEncodeDiffCELTVBRFrame1Trace(t *testing.T) {
 	}
 
 	var quantTraceCache libopustest.HelperCache
-	tracePath := buildCELTQuantTraceOracleAtFrameBand(t, 1, vbrTraceQuantBand, &quantTraceCache)
+	tracePath := buildCELTQuantTraceOracleAtFrameBand(t, 1, vbrTraceQuantBand, false, &quantTraceCache)
 	traceBytes, err := libopustest.RunHelper(tracePath, encodeDiffCELTVBRInput(params))
 	if err != nil {
 		t.Fatalf("run traced public VBR oracle: %v", err)
@@ -198,6 +198,7 @@ func TestEncodeDiffCELTVBRFrame1Trace(t *testing.T) {
 	for _, difference := range compareCELTQuantBandTracePayloads(goQuantEvents, cQuantTrace) {
 		t.Logf("band-18 quant payload sweep: %s", difference)
 	}
+	logCELTVBRBand18RawThetaOracle(t, goQuantEvents, cQuantTrace.Events)
 	logCELTVBRBand18RDO(t, goQuantEvents, cQuantTrace.Events)
 	logCELTVBRBand18CoefficientMapping(t, goTrace, cTrace, goQuantEvents, cQuantTrace.Events)
 
@@ -213,6 +214,95 @@ func TestEncodeDiffCELTVBRFrame1Trace(t *testing.T) {
 	t.Log("CELT stage-bit comparisons are diagnostic; packet/range transparency checks are strict")
 	logCELTTraceDifferences(t, goTrace, cTrace)
 }
+
+func logCELTVBRBand18RawThetaOracle(t *testing.T, goEvents, cEvents []celt.CELTQuantBandTraceSnapshot) {
+	t.Helper()
+	count := min(len(goEvents), len(cEvents))
+	for i := 0; i < count; i++ {
+		goEvent, cEvent := goEvents[i], cEvents[i]
+		if goEvent.Stage != uint32(celt.CELTQuantBandTraceTheta) || goEvent.RawIthetaQ30 == cEvent.RawIthetaQ30 {
+			continue
+		}
+		if goEvent.N == 0 || goEvent.N != cEvent.N || goEvent.N > celtQuantTraceWireMaxWidth {
+			t.Logf("band-18 raw theta event %d cannot replay mismatched widths Go=%d C=%d", i, goEvent.N, cEvent.N)
+			return
+		}
+		n := int(goEvent.N)
+		goInput := libopustest.CELTStereoIthetaCase{
+			Stereo: goEvent.Stereo != 0,
+			X:      append([]float32(nil), goEvent.XBefore[:n]...),
+			Y:      append([]float32(nil), goEvent.YBefore[:n]...),
+		}
+		cInput := libopustest.CELTStereoIthetaCase{
+			Stereo: cEvent.Stereo != 0,
+			X:      append([]float32(nil), cEvent.XBefore[:n]...),
+			Y:      append([]float32(nil), cEvent.YBefore[:n]...),
+		}
+		oracle, err := libopustest.ProbeCELTStereoIthetaQ30([]libopustest.CELTStereoIthetaCase{goInput, cInput})
+		if err != nil {
+			t.Fatalf("replay band-18 raw theta inputs through linked C oracle: %v", err)
+		}
+		if got := int32(oracle.Values[1]); got != cEvent.RawIthetaQ30 {
+			t.Fatalf("linked C replay of captured C theta inputs=%d, want captured value %d", got, cEvent.RawIthetaQ30)
+		}
+		sameInputs := goInput.Stereo == cInput.Stereo && equalFloat32SliceBits(goInput.X, cInput.X) && equalFloat32SliceBits(goInput.Y, cInput.Y)
+		t.Logf("band-18 raw theta event %d round=%d stereo Go/C=%d/%d n=%d operands-bit-identical=%t Go=%d/%#08x C=%d/%#08x direct-C-on-Go=%d/%#08x direct-C-on-C=%d/%#08x oracle-arch=%d rtcd=%t",
+			i, goEvent.ThetaRound, goEvent.Stereo, cEvent.Stereo, n, sameInputs,
+			goEvent.RawIthetaQ30, uint32(goEvent.RawIthetaQ30), cEvent.RawIthetaQ30, uint32(cEvent.RawIthetaQ30),
+			int32(oracle.Values[0]), oracle.Values[0], int32(oracle.Values[1]), oracle.Values[1], oracle.SelectedArch, oracle.RTCDEnabled)
+		t.Logf("band-18 raw theta event %d operands Go X=%s Y=%s C X=%s Y=%s", i,
+			formatCELTQuantTraceVectorBits(&goEvent.XBefore, goEvent.N), formatCELTQuantTraceVectorBits(&goEvent.YBefore, goEvent.N),
+			formatCELTQuantTraceVectorBits(&cEvent.XBefore, cEvent.N), formatCELTQuantTraceVectorBits(&cEvent.YBefore, cEvent.N))
+		if goInput.Stereo == false && cInput.Stereo == false {
+			goSeparateX, goSeparateY := celtTraceSumSquaresSeparate(goInput.X), celtTraceSumSquaresSeparate(goInput.Y)
+			cSeparateX, cSeparateY := celtTraceSumSquaresSeparate(cInput.X), celtTraceSumSquaresSeparate(cInput.Y)
+			goFusedX, goFusedY := celtTraceSumSquaresFused(goInput.X), celtTraceSumSquaresFused(goInput.Y)
+			cFusedX, cFusedY := celtTraceSumSquaresFused(cInput.X), celtTraceSumSquaresFused(cInput.Y)
+			t.Logf("band-18 raw theta event %d scalar non-stereo sum candidates: Go-input separate=(%08x,%08x) fused=(%08x,%08x); C-input separate=(%08x,%08x) fused=(%08x,%08x)",
+				i, math.Float32bits(goSeparateX), math.Float32bits(goSeparateY), math.Float32bits(goFusedX), math.Float32bits(goFusedY),
+				math.Float32bits(cSeparateX), math.Float32bits(cSeparateY), math.Float32bits(cFusedX), math.Float32bits(cFusedY))
+		} else {
+			t.Logf("band-18 raw theta event %d candidate sum models skipped because C/Go stereo=%d/%d", i, cEvent.Stereo, goEvent.Stereo)
+		}
+		return
+	}
+	t.Log("band-18 raw theta oracle replay: no raw theta mismatch in aligned events")
+}
+
+func equalFloat32SliceBits(a, b []float32) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if math.Float32bits(a[i]) != math.Float32bits(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func celtTraceSumSquaresSeparate(values []float32) float32 {
+	var sum float32
+	for _, value := range values {
+		product := celtTraceMul32(value, value)
+		sum = celtTraceAdd32(sum, product)
+	}
+	return sum
+}
+
+func celtTraceSumSquaresFused(values []float32) float32 {
+	var sum float32
+	for _, value := range values {
+		sum = value*value + sum
+	}
+	return sum
+}
+
+//go:noinline
+func celtTraceMul32(a, b float32) float32 { return a * b }
+
+//go:noinline
+func celtTraceAdd32(a, b float32) float32 { return a + b }
 
 func logCELTVBRBand18RDO(t *testing.T, goEvents, cEvents []celt.CELTQuantBandTraceSnapshot) {
 	t.Helper()

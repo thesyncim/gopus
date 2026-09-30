@@ -119,6 +119,37 @@ typedef struct {
   entropy_context_snapshot before, after;
 } entropy_raw_call;
 
+#ifdef GOPUS_CELT_CODER_RANGE_TRACE
+enum {
+  CELT_RANGE_BEFORE_COARSE = 1,
+  CELT_RANGE_AFTER_COARSE = 2,
+  CELT_RANGE_BEFORE_QUANT = 3
+};
+
+typedef struct {
+  uint32_t stage, range, tell_frac;
+} celt_coder_range_point;
+
+typedef struct {
+  uint32_t coarse_calls, quant_calls, count, overflow;
+  ec_enc *coarse_encoder, *quant_encoder;
+  celt_coder_range_point points[3];
+} celt_coder_range_trace_state;
+
+static celt_coder_range_trace_state celt_coder_range_trace;
+
+static void capture_coder_range(uint32_t stage, ec_enc *enc) {
+  if (enc == NULL || celt_coder_range_trace.count >= 3) {
+    celt_coder_range_trace.overflow = 1;
+    return;
+  }
+  celt_coder_range_point *point = &celt_coder_range_trace.points[celt_coder_range_trace.count++];
+  point->stage = stage;
+  point->range = enc->rng;
+  point->tell_frac = (uint32_t)ec_tell_frac(enc);
+}
+#endif
+
 static struct {
   uint32_t raw_calls, stored_raw_calls;
   uint32_t done_calls, stored_done_calls;
@@ -419,6 +450,15 @@ void __wrap_quant_coarse_energy(const CELTMode *m, int start, int end,
     return;
   }
   uint32_t call = celt_encode_trace.coarse_calls++;
+#ifdef GOPUS_CELT_CODER_RANGE_TRACE
+  celt_coder_range_trace.coarse_calls++;
+  if (call == 0) {
+    celt_coder_range_trace.coarse_encoder = enc;
+    capture_coder_range(CELT_RANGE_BEFORE_COARSE, enc);
+  } else {
+    celt_coder_range_trace.overflow = 1;
+  }
+#endif
   if (call < CELT_TRACE_MAX_CALLS && trace_dimensions((end - start) * C, CELT_TRACE_MAX_BANDS * 2)) {
     celt_trace_coarse_call *trace = &celt_encode_trace.coarse[call];
     trace->bands = (uint32_t)(end - start);
@@ -432,6 +472,9 @@ void __wrap_quant_coarse_energy(const CELTMode *m, int start, int end,
   __real_quant_coarse_energy(m, start, end, effEnd, eBands, oldEBands, budget,
       error, enc, C, LM, nbAvailableBytes, force_intra, delayedIntra,
       two_pass, loss_rate, lfe);
+#ifdef GOPUS_CELT_CODER_RANGE_TRACE
+  if (call == 0) capture_coder_range(CELT_RANGE_AFTER_COARSE, enc);
+#endif
   if (call < CELT_TRACE_MAX_CALLS && call < celt_encode_trace.stored_coarse_calls) {
     celt_trace_coarse_call *trace = &celt_encode_trace.coarse[call];
     trace_copy_bands(trace->quantized, oldEBands + start, end - start, C, m->nbEBands);
@@ -463,6 +506,15 @@ void __wrap_quant_all_bands(int encode, const CELTMode *m, int start, int end,
     return;
   }
   uint32_t call = celt_encode_trace.quant_calls++;
+#ifdef GOPUS_CELT_CODER_RANGE_TRACE
+  celt_coder_range_trace.quant_calls++;
+  if (call == 0) {
+    celt_coder_range_trace.quant_encoder = ec;
+    capture_coder_range(CELT_RANGE_BEFORE_QUANT, ec);
+  } else {
+    celt_coder_range_trace.overflow = 1;
+  }
+#endif
   int active = (1 << LM) * m->eBands[end];
   int channels = Y != NULL ? 2 : 1;
   if (call < CELT_TRACE_MAX_CALLS && trace_dimensions(active * channels, CELT_TRACE_MAX_FLOATS) &&
@@ -643,10 +695,34 @@ static int write_entropy_trace(void) {
   return 1;
 }
 
+#ifdef GOPUS_CELT_CODER_RANGE_TRACE
+static int write_coder_range_trace(void) {
+  uint32_t same_coder = celt_coder_range_trace.coarse_encoder != NULL &&
+      celt_coder_range_trace.coarse_encoder == celt_coder_range_trace.quant_encoder;
+  if (celt_coder_range_trace.coarse_calls != 1 || celt_coder_range_trace.quant_calls != 1 ||
+      !same_coder || celt_coder_range_trace.count != 3)
+    celt_coder_range_trace.overflow = 1;
+  if (!write_exact("GCRG", 4) || !write_u32(1) || !write_u32(TRACE_FRAME) ||
+      !write_u32(celt_coder_range_trace.overflow) ||
+      !write_u32(celt_coder_range_trace.coarse_calls) ||
+      !write_u32(celt_coder_range_trace.quant_calls) || !write_u32(same_coder) ||
+      !write_u32(celt_coder_range_trace.count)) return 0;
+  for (uint32_t i = 0; i < celt_coder_range_trace.count; i++) {
+    const celt_coder_range_point *point = &celt_coder_range_trace.points[i];
+    if (!write_u32(point->stage) || !write_u32(point->range) || !write_u32(point->tell_frac)) return 0;
+  }
+  return 1;
+}
+#endif
+
 int main(void) {
   int result = gopus_encode_diff_main();
   if (result != 0) return result;
-  if (!write_celt_encode_trace() || !write_entropy_trace()) {
+  if (!write_celt_encode_trace() || !write_entropy_trace()
+#ifdef GOPUS_CELT_CODER_RANGE_TRACE
+      || !write_coder_range_trace()
+#endif
+      ) {
     fprintf(stderr, "write frame-1 CELT/entropy trace failed\n");
     return 1;
   }
