@@ -36,6 +36,8 @@ type libopusAnalysisPhaseRecord struct {
 	bin                                   uint32
 	x1r, x1i, x2r, x2i, angle, angle2     uint32
 	angleState, dAngleState, d2AngleState uint32
+	avgMod, rawTonality, tonality2        uint32
+	noisiness                             uint32
 }
 
 type libopusAnalysisPhaseTrace struct {
@@ -114,23 +116,73 @@ func TestAnalysisInputFFTStageTrace(t *testing.T) {
 			phaseTrace.frame, phaseTrace.totalCalls, phaseTrace.storedCalls, phaseTrace.overflow, len(phaseTrace.records))
 	}
 
+	plainState := NewTonalityAnalysisState(fs)
+	plainState.SetLSBDepth(lsbDepth)
 	state := NewTonalityAnalysisState(fs)
 	state.SetLSBDepth(lsbDepth)
+	var goMetrics [239]analysisPerBinTraceSnapshot
+	var goMetricCalls int
+	oldPerBinHook := analysisPerBinTraceHook
+	t.Cleanup(func() { analysisPerBinTraceHook = oldPerBinHook })
+	analysisPerBinTraceHook = nil
 	framePCM := samples[:frameSize*channels]
-	_ = state.RunAnalysis(framePCM, frameSize, channels)
-	if state.MemFill != 240 {
-		t.Fatalf("Go post-run mem_fill=%d want 240", state.MemFill)
+	plainInfo := plainState.RunAnalysis(framePCM, frameSize, channels)
+	analysisPerBinTraceHook = func(snapshot analysisPerBinTraceSnapshot) {
+		if snapshot.Bin != int32(goMetricCalls+1) || goMetricCalls >= len(goMetrics) {
+			goMetricCalls = len(goMetrics) + 1
+			return
+		}
+		goMetrics[goMetricCalls] = snapshot
+		goMetricCalls++
 	}
-	compareAnalysisF32Bits(t, "downmix/resampler output ring", trace.inmem, state.InMem[240:720])
-	compareAnalysisComplexBits(t, "windowed FFT input", trace.fftInput, state.scratchFFTIn[:])
-	compareAnalysisComplexBits(t, "FFT output", trace.fftOutput, state.scratchFFTOut[:])
-	compareAnalysisPhaseInputs(t, phaseTrace, state.scratchFFTOut[:])
-	compareAnalysisPhaseState(t, phaseTrace, state)
-	compareAnalysisF32Bits(t, "downmix state", trace.downmixState[:], state.DownmixState[:])
-	if got := math.Float32bits(state.HPEnerAccum); got != trace.hpEnergyAccum {
+	tracedInfo := state.RunAnalysis(framePCM, frameSize, channels)
+	compareAnalysisPerBinGoTransparency(t, 0, tracedInfo, plainInfo, state, plainState)
+	var frame0InMem [480]float32
+	copy(frame0InMem[:], state.InMem[240:720])
+	frame0FFTInput := state.scratchFFTIn
+	frame0FFTOutput := state.scratchFFTOut
+	frame0Angle := state.Angle
+	frame0DAngle := state.DAngle
+	frame0D2Angle := state.D2Angle
+	frame0DownmixState := state.DownmixState
+	frame0HPEnerAccum := state.HPEnerAccum
+	frame0MemFill := state.MemFill
+	analysisPerBinTraceHook = nil
+	for frame := 1; frame < frames; frame++ {
+		start := frame * frameSize * channels
+		framePCM = samples[start : start+frameSize*channels]
+		plainInfo = plainState.RunAnalysis(framePCM, frameSize, channels)
+		tracedInfo = state.RunAnalysis(framePCM, frameSize, channels)
+		compareAnalysisPerBinGoTransparency(t, frame, tracedInfo, plainInfo, state, plainState)
+	}
+	if goMetricCalls != len(goMetrics) {
+		t.Fatalf("Go per-bin metric trace calls=%d want %d", goMetricCalls, len(goMetrics))
+	}
+	if frame0MemFill != 240 {
+		t.Fatalf("Go frame-0 post-run mem_fill=%d want 240", frame0MemFill)
+	}
+	compareAnalysisF32Bits(t, "frame-0 downmix/resampler output ring", trace.inmem, frame0InMem[:])
+	compareAnalysisComplexBits(t, "frame-0 windowed FFT input", trace.fftInput, frame0FFTInput[:])
+	compareAnalysisComplexBits(t, "frame-0 FFT output", trace.fftOutput, frame0FFTOutput[:])
+	compareAnalysisPhaseInputs(t, phaseTrace, frame0FFTOutput[:])
+	compareAnalysisPhaseState(t, phaseTrace, frame0Angle, frame0DAngle, frame0D2Angle)
+	compareAnalysisPerBinMetrics(t, phaseTrace, goMetrics[:])
+	compareAnalysisF32Bits(t, "frame-0 downmix state", trace.downmixState[:], frame0DownmixState[:])
+	if got := math.Float32bits(frame0HPEnerAccum); got != trace.hpEnergyAccum {
 		t.Fatalf("post-run high-pass energy Go=%08x C=%08x", got, trace.hpEnergyAccum)
 	} else {
 		t.Logf("post-run high-pass energy matches: %08x", got)
+	}
+}
+
+func compareAnalysisPerBinGoTransparency(t *testing.T, frame int, tracedInfo, plainInfo AnalysisInfo, traced, plain *TonalityAnalysisState) {
+	t.Helper()
+	if difference := diffAnalysisInfo(analysisInfoToOracle(tracedInfo), analysisInfoToOracle(plainInfo)); difference != "" {
+		t.Fatalf("Go per-bin trace hook changed frame-%d AnalysisInfo: %s", frame, difference)
+	}
+	if analysisStateScalars(traced) != analysisStateScalars(plain) ||
+		analysisStateHashes(traced) != analysisStateHashes(plain) || traced.Info != plain.Info {
+		t.Fatalf("Go per-bin trace hook changed frame-%d analyzer scalar/state hashes or info ring", frame)
 	}
 }
 
@@ -280,7 +332,9 @@ func instrumentLibopusAnalysisSource(source string) (string, error) {
        d2A[i] = mod2;`
 	const phaseReplacement = phaseAnchor + `
        gopus_analysis_stage_capture_phase(i, X1r, X1i, X2r, X2i,
-                                          angle, angle2, A[i], dA[i], d2A[i]);`
+                                          angle, angle2, A[i], dA[i], d2A[i],
+                                          avg_mod, tonality[i], tonality2[i],
+                                          noisiness[i]);`
 	source, err = replaceAnalysisTraceAnchor(source, phaseAnchor, phaseReplacement, "phase analysis output")
 	if err != nil {
 		return "", err
@@ -324,7 +378,7 @@ func parseLibopusAnalysisStageTrace(data []byte) (libopusAnalysisStageTrace, lib
 		fixedHeaderBytes = 7*4 + 64 + 21*4
 		floatArrayWords  = 480 + 2*960 + 3 + 1
 		phaseBins        = 239
-		phaseWords       = 10
+		phaseWords       = 14
 	)
 	gastBytes := 4 + fixedHeaderBytes + 4*floatArrayWords
 	gaphBytes := 4 + 5*4 + phaseBins*phaseWords*4
@@ -388,7 +442,7 @@ func parseLibopusAnalysisPhaseTrace(data []byte) (libopusAnalysisPhaseTrace, err
 	var phase libopusAnalysisPhaseTrace
 	const (
 		phaseBins   = 239
-		phaseWords  = 10
+		phaseWords  = 14
 		headerBytes = 4 + 5*4
 	)
 	wantBytes := headerBytes + phaseBins*phaseWords*4
@@ -405,8 +459,8 @@ func parseLibopusAnalysisPhaseTrace(data []byte) (libopusAnalysisPhaseTrace, err
 		return value
 	}
 	version := readU32()
-	if version != 1 {
-		return phase, fmt.Errorf("GAPH version=%d want 1", version)
+	if version != 2 {
+		return phase, fmt.Errorf("GAPH version=%d want 2", version)
 	}
 	phase.frame = readU32()
 	phase.totalCalls = readU32()
@@ -434,6 +488,7 @@ func parseLibopusAnalysisPhaseTrace(data []byte) (libopusAnalysisPhaseTrace, err
 		fields := []*uint32{
 			&record.x1r, &record.x1i, &record.x2r, &record.x2i, &record.angle, &record.angle2,
 			&record.angleState, &record.dAngleState, &record.d2AngleState,
+			&record.avgMod, &record.rawTonality, &record.tonality2, &record.noisiness,
 		}
 		for _, field := range fields {
 			bits, err := readFloatBits()
@@ -477,16 +532,16 @@ func compareAnalysisPhaseInputs(t *testing.T, trace libopusAnalysisPhaseTrace, f
 	t.Logf("phase-loop inputs exact for bins 1..239, derived from the matched FFT output")
 }
 
-func compareAnalysisPhaseState(t *testing.T, trace libopusAnalysisPhaseTrace, state *TonalityAnalysisState) {
+func compareAnalysisPhaseState(t *testing.T, trace libopusAnalysisPhaseTrace, angle, dAngle, d2Angle [240]float32) {
 	t.Helper()
 	fields := []struct {
 		name string
 		c    func(libopusAnalysisPhaseRecord) uint32
 		goAt func(int) float32
 	}{
-		{"angle", func(r libopusAnalysisPhaseRecord) uint32 { return r.angleState }, func(i int) float32 { return state.Angle[i] }},
-		{"d_angle", func(r libopusAnalysisPhaseRecord) uint32 { return r.dAngleState }, func(i int) float32 { return state.DAngle[i] }},
-		{"d2_angle", func(r libopusAnalysisPhaseRecord) uint32 { return r.d2AngleState }, func(i int) float32 { return state.D2Angle[i] }},
+		{"angle", func(r libopusAnalysisPhaseRecord) uint32 { return r.angleState }, func(i int) float32 { return angle[i] }},
+		{"d_angle", func(r libopusAnalysisPhaseRecord) uint32 { return r.dAngleState }, func(i int) float32 { return dAngle[i] }},
+		{"d2_angle", func(r libopusAnalysisPhaseRecord) uint32 { return r.d2AngleState }, func(i int) float32 { return d2Angle[i] }},
 	}
 	for _, field := range fields {
 		for _, record := range trace.records {
@@ -500,6 +555,44 @@ func compareAnalysisPhaseState(t *testing.T, trace libopusAnalysisPhaseTrace, st
 			}
 		}
 		t.Logf("phase %s exact for bins 1..239", field.name)
+	}
+}
+
+func compareAnalysisPerBinMetrics(t *testing.T, trace libopusAnalysisPhaseTrace, goMetrics []analysisPerBinTraceSnapshot) {
+	t.Helper()
+	if len(trace.records) != len(goMetrics) {
+		t.Fatalf("per-bin metric dimensions C=%d Go=%d", len(trace.records), len(goMetrics))
+	}
+	fields := []struct {
+		name string
+		c    func(libopusAnalysisPhaseRecord) uint32
+		goAt func(analysisPerBinTraceSnapshot) float32
+	}{
+		{"avg_mod", func(r libopusAnalysisPhaseRecord) uint32 { return r.avgMod }, func(s analysisPerBinTraceSnapshot) float32 { return s.AvgMod }},
+		{"raw_tonality", func(r libopusAnalysisPhaseRecord) uint32 { return r.rawTonality }, func(s analysisPerBinTraceSnapshot) float32 { return s.Tonality }},
+		{"tonality2", func(r libopusAnalysisPhaseRecord) uint32 { return r.tonality2 }, func(s analysisPerBinTraceSnapshot) float32 { return s.Tonality2 }},
+		{"noisiness", func(r libopusAnalysisPhaseRecord) uint32 { return r.noisiness }, func(s analysisPerBinTraceSnapshot) float32 { return s.Noisiness }},
+	}
+	for _, field := range fields {
+		firstBin := -1
+		var firstGo, firstC uint32
+		differences := 0
+		for i, record := range trace.records {
+			goBits := math.Float32bits(field.goAt(goMetrics[i]))
+			cBits := field.c(record)
+			if goBits != cBits {
+				if firstBin < 0 {
+					firstBin, firstGo, firstC = int(record.bin), goBits, cBits
+				}
+				differences++
+			}
+		}
+		if differences == 0 {
+			t.Logf("per-bin %s exact for bins 1..239", field.name)
+		} else {
+			t.Fatalf("per-bin %s first difference bin=%d Go=%08x C=%08x differing bins=%d/239",
+				field.name, firstBin, firstGo, firstC, differences)
+		}
 	}
 }
 

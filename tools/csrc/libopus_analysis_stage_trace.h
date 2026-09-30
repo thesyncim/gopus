@@ -17,12 +17,14 @@ void gopus_analysis_stage_capture_fft_input(const void *values,
                                             uint32_t complex_count);
 void gopus_analysis_stage_capture_fft_output(const void *values,
                                              uint32_t complex_count);
-/* Captures the real analysis.c phase-loop operands and assigned angles. */
+/* Captures real per-bin values after analysis.c assigns them and before smoothing. */
 void gopus_analysis_stage_capture_phase(int bin, float x1r, float x1i,
                                         float x2r, float x2i, float angle,
                                         float angle2, float angle_state,
                                         float d_angle_state,
-                                        float d2_angle_state);
+                                        float d2_angle_state, float avg_mod,
+                                        float raw_tonality, float tonality2,
+                                        float noisiness);
 void gopus_analysis_stage_capture_post_run(const float *downmix_state,
                                           float hp_energy_accum);
 

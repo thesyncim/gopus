@@ -1,8 +1,9 @@
 /*
- * Bounded, source-bound GAST v1 plus GAPH v1 capture for the selected float
+ * Bounded, source-bound GAST v1 plus GAPH v2 capture for the selected float
  * run_analysis call. GAST stores the real downmix/resampler output, windowed
  * FFT input, FFT output, and post-call resampler state. GAPH stores the real
- * phase-loop operands and assigned angles from the same analysis.c call.
+ * phase-loop operands, assigned angles, and raw per-bin metrics from the same
+ * analysis.c call.
  */
 
 #include <stdint.h>
@@ -74,6 +75,10 @@ typedef struct {
   float angle_state;
   float d_angle_state;
   float d2_angle_state;
+  float avg_mod;
+  float raw_tonality;
+  float tonality2;
+  float noisiness;
 } gaph_phase_record;
 
 static struct {
@@ -175,7 +180,9 @@ void gopus_analysis_stage_capture_phase(int bin, float x1r, float x1i,
                                         float x2r, float x2i, float angle,
                                         float angle2, float angle_state,
                                         float d_angle_state,
-                                        float d2_angle_state) {
+                                        float d2_angle_state, float avg_mod,
+                                        float raw_tonality, float tonality2,
+                                        float noisiness) {
   gaph_phase_record *record;
   if (!gast_selected_run_active) return;
   if (gast.stage_mask != 7u) gaph.overflow = 1;
@@ -199,6 +206,10 @@ void gopus_analysis_stage_capture_phase(int bin, float x1r, float x1i,
   record->angle_state = angle_state;
   record->d_angle_state = d_angle_state;
   record->d2_angle_state = d2_angle_state;
+  record->avg_mod = avg_mod;
+  record->raw_tonality = raw_tonality;
+  record->tonality2 = tonality2;
+  record->noisiness = noisiness;
 }
 
 void gopus_analysis_stage_capture_post_run(const float *downmix_state,
@@ -245,7 +256,7 @@ static int gaph_write_phase(void) {
   uint32_t i;
   if (gaph.calls != GAPH_PHASE_COUNT || gaph.stored != GAPH_PHASE_COUNT)
     gaph.overflow = 1;
-  if (!gast_write_exact("GAPH", 4) || !gast_write_u32(1) ||
+  if (!gast_write_exact("GAPH", 4) || !gast_write_u32(2) ||
       !gast_write_u32(GOPUS_ANALYSIS_STAGE_TRACE_FRAME) ||
       !gast_write_u32(gaph.calls) || !gast_write_u32(gaph.stored) ||
       !gast_write_u32(gaph.overflow))
@@ -258,7 +269,11 @@ static int gaph_write_phase(void) {
         !gast_write_f32(r->angle2) ||
         !gast_write_f32(r->angle_state) ||
         !gast_write_f32(r->d_angle_state) ||
-        !gast_write_f32(r->d2_angle_state))
+        !gast_write_f32(r->d2_angle_state) ||
+        !gast_write_f32(r->avg_mod) ||
+        !gast_write_f32(r->raw_tonality) ||
+        !gast_write_f32(r->tonality2) ||
+        !gast_write_f32(r->noisiness))
       return 0;
   }
   return 1;

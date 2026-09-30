@@ -327,6 +327,15 @@ func (s *TonalityAnalysisState) analysisBinsScalar(out *[480]complex64, from int
 		s.Angle[i] = angle2
 		s.DAngle[i] = dAngle2
 		s.D2Angle[i] = mod2
+		if analysisPerBinTraceEnabled && analysisPerBinTraceHook != nil {
+			analysisPerBinTraceHook(analysisPerBinTraceSnapshot{
+				Bin:       int32(i),
+				AvgMod:    avgMod,
+				Tonality:  tonality[i],
+				Tonality2: tonality2[i],
+				Noisiness: noisiness[i],
+			})
+		}
 	}
 }
 
@@ -1013,9 +1022,28 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	// Run MLP
 	var layerOut [32]float32
 	var frameProbs [2]float32
-	layer0.ComputeDense(layerOut[:], features[:])
-	layer1.ComputeGRU(s.RNNState[:], layerOut[:])
-	layer2.ComputeDense(frameProbs[:], s.RNNState[:])
+	if analysisMLPTraceEnabled && s.Count == 1 && analysisMLPTraceHook != nil {
+		var mlpTrace analysisMLPTraceSnapshot
+		mlpTrace.Frame = s.Count - 1
+		copy(mlpTrace.Dense0Input[:], features[:])
+		copy(mlpTrace.GRUStateBefore[:], s.RNNState[:len(mlpTrace.GRUStateBefore)])
+		layer0.ComputeDense(layerOut[:], features[:])
+		mlpTrace.Dense0Calls = 1
+		copy(mlpTrace.Dense0Output[:], layerOut[:])
+		copy(mlpTrace.GRUInput[:], layerOut[:])
+		layer1.ComputeGRU(s.RNNState[:], layerOut[:])
+		mlpTrace.GRUCalls = 1
+		copy(mlpTrace.GRUStateAfter[:], s.RNNState[:len(mlpTrace.GRUStateAfter)])
+		copy(mlpTrace.Dense2Input[:], s.RNNState[:len(mlpTrace.Dense2Input)])
+		layer2.ComputeDense(frameProbs[:], s.RNNState[:])
+		mlpTrace.Dense2Calls = 1
+		copy(mlpTrace.Dense2Output[:], frameProbs[:])
+		analysisMLPTraceHook(mlpTrace)
+	} else {
+		layer0.ComputeDense(layerOut[:], features[:])
+		layer1.ComputeGRU(s.RNNState[:], layerOut[:])
+		layer2.ComputeDense(frameProbs[:], s.RNNState[:])
+	}
 	info.MusicProb = frameProbs[0]
 	info.VADProb = frameProbs[1]
 	for b := range NbTBands + 1 {

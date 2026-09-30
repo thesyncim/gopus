@@ -14,7 +14,7 @@ func validAnalysisStageTraceWireFixture() []byte {
 		metadataWords   = 21
 		floatWords      = 480 + 2*960 + 3 + 1
 		phaseBins       = 239
-		phaseWords      = 10
+		phaseWords      = 14
 	)
 	gastBytes := 4 + headerWords*4 + sourceHashBytes + metadataWords*4 + floatWords*4
 	data := make([]byte, gastBytes+4+5*4+phaseBins*phaseWords*4)
@@ -37,7 +37,7 @@ func validAnalysisStageTraceWireFixture() []byte {
 	putPhaseWord := func(offset int, value uint32) {
 		binary.LittleEndian.PutUint32(gaph[offset:], value)
 	}
-	putPhaseWord(4, 1)          // version
+	putPhaseWord(4, 2)          // version
 	putPhaseWord(8, 0)          // selected frame
 	putPhaseWord(12, phaseBins) // actual calls
 	putPhaseWord(16, phaseBins) // stored calls
@@ -110,7 +110,7 @@ func TestAnalysisInputFFTStageTraceParserRejectsMalformedWire(t *testing.T) {
 		{
 			name: "unsupported phase version",
 			mutate: func(data []byte) []byte {
-				binary.LittleEndian.PutUint32(data[analysisGASTPayloadBytes()+4:], 2)
+				binary.LittleEndian.PutUint32(data[analysisGASTPayloadBytes()+4:], 3)
 				return data
 			},
 		},
@@ -154,6 +154,14 @@ func TestAnalysisInputFFTStageTraceParserRejectsMalformedWire(t *testing.T) {
 			mutate: func(data []byte) []byte {
 				// Row word 5 is the first scaled-angle field after the bin and four inputs.
 				binary.LittleEndian.PutUint32(data[analysisGASTPayloadBytes()+24+5*4:], 0x7fc00000)
+				return data
+			},
+		},
+		{
+			name: "non-finite per-bin metric",
+			mutate: func(data []byte) []byte {
+				// Row word 10 is avg_mod, after the bin and nine phase/state floats.
+				binary.LittleEndian.PutUint32(data[analysisGASTPayloadBytes()+24+10*4:], 0x7fc00000)
 				return data
 			},
 		},

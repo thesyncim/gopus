@@ -114,8 +114,7 @@ identity. No tolerance or failing-case exclusion applies to this fix.
 The default float v3 SIMD phase kernel uses three packed FMAs for the
 `p+c*q` terms in `celt/mathops.h:fast_atan2f`, matching the ordinary GCC 13.3
 analysis object. Other targets and optional features keep their selected
-arithmetic. The polynomial helper inlines; the actual phase-loop caller keeps
-its instruction and call topology.
+arithmetic. The polynomial helper inlines and adds no hot-path calls.
 
 Independent translated amd64 checks compare 500 original-C kernel operands,
 including both phase inputs from all 239 active bins. Every phase input and
@@ -123,8 +122,32 @@ angle/velocity/acceleration history entry matches the live C trace. Its full
 50-frame C output agrees with the uninstrumented oracle, and the SIMD kernel
 allocates zero after warmup. Both instruction lanes preserve all 60 encoder,
 24 decoder, 15 allocation and 19 CBR cases. Native confirmation of this phase
-correction is pending. Per-bin tone and recurrent-network comparisons remain
-separate unresolved source checks.
+correction is pending. The classifier and tone checks below cover the first
+analyzer chunk; wider state/history comparisons remain unresolved.
+
+### Analyzer classifier and tone on amd64 v3
+
+The default float v3 classifier rounds each weight/input product before its
+ordered accumulation, matching the original linked `src/mlp.c` dense and GRU
+functions. Its GRU recurrence rounds both state-update products before adding
+them. The v3 SIMD tone kernel uses a fused `1 + K*modulation` denominator,
+matching the selected GCC 13.3 analysis object. Other targets and optional
+features keep their selected arithmetic.
+
+Independent translated amd64 checks require exact outputs from the original
+trained dense/GRU/dense chain for one actual input and eight bounded inputs with
+nonzero recurrent state. They also require all actual first-chunk neural stages
+and all four tone metrics across 239 bins to match, and verify that tracing
+preserves the complete 50-frame C and Go results. The classifier and bin kernels
+allocate zero after warmup. Both matched instruction lanes preserve all 60
+encoder, 24 decoder, 15 warm-allocation and 19 CBR cases, including 2,175 packets
+with zero packet or final-range differences.
+
+These checks cover the tested operands and first analyzer chunk. The full
+180-case audio corpus and 20 encoder-variant analyzer sweeps still expose
+later-history and signal-specific state differences; they remain unresolved.
+Native confirmation and timings for these corrections require a measured run.
+No universal analyzer-state identity is claimed.
 
 #### Executable gates
 
@@ -858,9 +881,10 @@ use Go 1.27.1 and GCC 13.3. Their bounded default-float selections record:
 
 The v3 audit also passes the six FFT/MDCT live-C suites, selected SILK
 LPC/window/gain and CELT kernel oracles, and the complete CBR quality and
-interoperability contract. Analyzer phase and recurrent-state checks remain
-separate unresolved source comparisons. No universal float-state guarantee or
-new timing measurement follows from these selected results.
+interoperability contract. The first-chunk phase, tone and classifier source
+checks above have separate local evidence; wider analyzer histories remain
+unresolved. No universal float-state guarantee or new timing measurement
+follows from these selected results.
 
 Each candidate target/mode must pass exact CBR packets/ranges, selected stateful
 encode and fresh-state decode cases, dispatch and warm allocation checks.

@@ -76,12 +76,26 @@ func (s *TonalityAnalysisState) analysisBinsAVX2(out *[480]complex64, tonality, 
 		mod2 = mod2.Mul(mod2)
 
 		avgMod := quarter.Mul(anLoad4(unsafe.Add(d2P, 4*i)).Add(mod1).Add(two.Mul(mod2)))
-		anStore4(unsafe.Add(tP, 4*i), one.Div(one.Add(k.Mul(avgMod))).Sub(c015))
-		anStore4(unsafe.Add(t2P, 4*i), one.Div(one.Add(k.Mul(mod2))).Sub(c015))
+		anStore4(unsafe.Add(tP, 4*i), one.Div(analysisToneDenominatorSIMD(k, avgMod, one)).Sub(c015))
+		anStore4(unsafe.Add(t2P, 4*i), one.Div(analysisToneDenominatorSIMD(k, mod2, one)).Sub(c015))
 
 		anStore4(unsafe.Add(aP, 4*i), angle2)
 		anStore4(unsafe.Add(daP, 4*i), dAngle2)
 		anStore4(unsafe.Add(d2P, 4*i), mod2)
+		if analysisPerBinTraceEnabled && analysisPerBinTraceHook != nil {
+			var avgModValues [4]float32
+			avgMod.StoreArray(&avgModValues)
+			for lane := range 4 {
+				bin := i + lane
+				analysisPerBinTraceHook(analysisPerBinTraceSnapshot{
+					Bin:       int32(bin),
+					AvgMod:    avgModValues[lane],
+					Tonality:  tonality[bin],
+					Tonality2: tonality2[bin],
+					Noisiness: noisiness[bin],
+				})
+			}
+		}
 	}
 	return i
 }
