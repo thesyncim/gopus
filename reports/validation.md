@@ -205,8 +205,8 @@ Full byte parity across compiler targets is not established.
 The [scaled-float conversion audit](https://github.com/thesyncim/gopus/actions/runs/36563006244)
 passes the regression and independent C conversion oracle in both v3 lanes.
 
-The [native v3 audit at `2bdd85688`](https://github.com/thesyncim/gopus/actions/runs/36661771890)
-on AMD EPYC 9V45 with Go 1.27.1 and GCC 13.3 records the following matched
+The [native v3 audit at `477c40dee`](https://github.com/thesyncim/gopus/actions/runs/36663697120)
+on Intel Xeon Platinum 8573C with Go 1.27.1 and GCC 13.3 records the following matched
 scalar and SIMD selections. No cases in these selections are skipped.
 
 | Gate | Scalar | SIMD |
@@ -284,8 +284,12 @@ The scoped SIMD raw autocorrelation tail follows the ordinary C caller: four
 rounded products and ordered adds for its four-term tail, FMA for the remaining
 one-to-three terms, then a separate prefix addition. All 20 valid short-span
 cases (lengths 7–16, mono/stereo), the actual eight-sample intermediate capture
-and warmed zero allocation pass in private matched-target checks. Scalar
-arithmetic is unchanged; native confirmation of this tail correction is pending.
+and warmed zero allocation pass in the recorded native amd64 audit. The
+Darwin ARM64 SIMD four-term tail also uses four rounded vector products before
+ordered scalar adds, matching the ordinary C caller. Its actual input oracle,
+all 20 short cases, periodic synthesis, warmed zero allocation and the
+independent 60/24/15 plus 19-case CBR selection pass on physical ARM64.
+Scalar arithmetic and other targets are unchanged.
 The scoped v3 IIR block follows six sequential C feedback FMAs in one register boundary.
 Linked tests cover five full-block lengths and eight remainder lengths, plus
 full periodic synthesis and warmed zero allocation, in both instruction lanes.
