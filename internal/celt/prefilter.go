@@ -918,13 +918,13 @@ func prefilterDualInnerProdF32NeonOrder(x, y1, y2 []float32, length int) (float3
 }
 
 func computePitchGain(xy, xx, yy float32) float32 {
-	if xy == 0 || xx == 0 || yy == 0 {
+	if pitchGainZeroInputReturnsZero && (xy == 0 || xx == 0 || yy == 0) {
 		if removeDoublingMathTraceCaptureEnabled {
 			recordRemoveDoublingGain(xy, xx, yy, 0, 0, 0)
 		}
 		return 0
 	}
-	den := noFMA32Add(1, noFMA32Mul(xx, yy))
+	den := pitchGainDenominator32(xx, yy)
 	root := opusmath.SqrtF32(den)
 	gain := xy / root
 	if removeDoublingMathTraceCaptureEnabled {

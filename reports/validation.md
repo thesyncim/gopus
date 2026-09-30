@@ -308,6 +308,12 @@ and two range failures. These correctness checks do not supply timing measuremen
 The shared CELT log2 normalization uses one native float32 FMA on the default
 v3 float path. Its strict independent C log2 and exp2 oracles pass in both
 private instruction lanes; native confirmation of this normalization is pending.
+Float pitch gain evaluates the source expression for zero operands, preserving
+nonzero correlations and signed zero. The fixed-point zero guard applies only
+to fixed-point builds. On default v3 float builds, the denominator uses the
+source-selected float32 FMA. Nine independent original-source operand triples,
+all 15 actual frame-95 gain boundaries, warm allocation checks and 60/24/15
+gates pass in both private lanes; native confirmation of this gain fix is pending.
 
 Independent sine-window checks cover the actual 48-, 72- and 96-sample
 segments and pass in both native instruction lanes. The gain-producer trace
