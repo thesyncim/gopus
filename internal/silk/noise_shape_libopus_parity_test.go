@@ -147,6 +147,9 @@ func TestSILKWarpedAutocorrelationFLPMatchesLibopusOracle(t *testing.T) {
 		{name: "order16_loud", order: 16, warping: 0.21875, x: silkWarpedAutocorrSignal(256, 0xdeadbeef, 4096.0)},
 		{name: "order16_neg_warp", order: 16, warping: -0.125, x: silkWarpedAutocorrSignal(256, 0xcafebabe, 1.0)},
 		{name: "order16_short", order: 16, warping: 0.25, x: silkWarpedAutocorrSignal(48, 0x13579bdf, 0.7)},
+		// A 12 kHz shape window: whole eight-sample groups plus a four-sample tail.
+		{name: "order24_group_tail", order: 24, warping: 0.28125, x: silkWarpedAutocorrSignal(180, 0x2468ace0, 1.5)},
+		{name: "order16_odd_tail", order: 16, warping: 0.1875, x: silkWarpedAutocorrSignal(203, 0x0f1e2d3c, 0.9)},
 	}
 	want, err := probeLibopusSILKWarpedAutocorr(cases)
 	if err != nil {

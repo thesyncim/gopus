@@ -797,6 +797,33 @@ and controls. Encoder timings do not establish long-stream packet parity.
 The throughput table describes the early artifact; the full A/B gate also
 passes at the same revision.
 
+#### Intel SSE/AVX transitions
+
+On an Intel Xeon host with AVX2, FMA and AVX-512 (Go 1.27.0, GCC 13.3,
+`opus_select_arch()` = 4), a legacy SSE instruction that follows a 256-bit
+instruction before `VZEROUPPER` costs a full SSE/AVX state transition. On that
+host the four-lane AVX2 warped autocorrelation with one legacy scalar store
+per four samples takes 48 µs per 480 samples; with pair stores it takes 11 µs,
+the eight-lane wavefront 9.8 µs, and the scalar loop 16 µs. In-process toggle
+A/B runs (20 alternating rounds, A/A 0.999) measure 27% less SILK and Hybrid
+SIMD encode time without the legacy instructions (geomean over 32
+configurations); the table-loaded NSQ constants alone save 4-10%.
+
+`TestScoreboardInterleaved` g/l ratios (GOMAXPROCS=1, 15 rounds, three
+instances, mean of two alternating runs per configuration, 56 configurations
+per row):
+
+| Lane | Mode | `88393f7f` (min / median / max) | Current (min / median / max) |
+|---|---|---|---|
+| SIMD | Encode | 0.756 / 1.092 / 1.285 | 0.754 / 0.901 / 1.008 |
+| SIMD | Decode | 0.794 / 0.922 / 1.250 | 0.804 / 0.920 / 1.253 |
+| `nosimd` | Encode | 0.747 / 0.886 / 1.075 | 0.749 / 0.889 / 1.080 |
+| `nosimd` | Decode | 0.861 / 1.041 / 1.325 | 0.860 / 1.035 / 1.320 |
+
+SIMD SILK and Hybrid encode runs at 0.81-0.94 of libopus, against 1.00-1.29
+at `88393f7f`. The ten slowest configurations are CELT 2.5 ms decodes:
+1.22-1.32 on `nosimd` and 1.22-1.25 on SIMD.
+
 ### AMD64 compiler targets
 
 The compiler-target benchmark is an opt-in script for performance-table refreshes;
@@ -1086,7 +1113,7 @@ is inaccessible from this environment; its contents are not used as evidence.
 | [AVX-only preemption corrupts 256-bit vectors (#81209)](https://github.com/golang/go/issues/81209) | 256-bit SILK and CELT paths require a runtime feature boundary. | Rewhitening, LPC analysis and warped autocorrelation have AVX2 wrappers with scalar fallbacks. All eight-lane CELT correlation entry points require AVX2 and FMA. |
 | [Feature-dependent zero vectors can move above guards (#81571)](https://github.com/golang/go/issues/81571) | A source-level branch alone is insufficient on affected compilers. | Guard wrappers call separate `//go:noinline` vector bodies. Cross-compiled analysis dispatch has no SIMD instructions before its AVX2 check. |
 | [Floating Min/Max is incorrectly commutative (#81468)](https://github.com/golang/go/issues/81468) | CELT uses float extrema; DNN activation clamps also need ordered x86 semantics. | Exact PVQ and DNN clamps use compare/select. Finite-only PVQ observes comparisons, not the sign of equal zero. Preemphasis falls back for NaN samples or initial extrema, with a sequential-equivalence regression test. Integer Min/Max is unaffected. |
-| [Legacy SSE/AVX transition overhead (#80835)](https://github.com/golang/go/issues/80835) | Go 1.27.1 emits legacy `MOVUPS` spills/reloads in the compiled AVX2 NSQ kernel. | Code-generation exposure is confirmed; its performance cost is not isolated. The upstream [VEX fix](https://github.com/golang/go/commit/5763a306d2d31111a2ac58b4f67cf5678a17f24e) requires a separate compiler comparison. The reported upstream 65× slowdown is not a measured gopus slowdown. |
+| [Legacy SSE/AVX transition overhead (#80835)](https://github.com/golang/go/issues/80835) | Go 1.27 emits legacy SSE (`MOVUPS`, `MOVSD`, `MOVSS`, `MOVQ`) for spills, reloads, zeroing and scalar stores inside `archsimd` functions. On the measured Intel Xeon (AVX-512, Go 1.27.0), a legacy SSE instruction that runs after a 256-bit instruction and before `VZEROUPPER` costs a state transition: a 256-bit/legacy SSE round trip takes about 170 ns, against 13 ns with the upper halves cleared. | The 256-bit SILK kernels run no legacy SSE instruction between their first 256-bit instruction and `ClearAVXUpperBits`. The NSQ quantizer loads its broadcast constants from tables and clears before its state copy; the warped autocorrelation stores whole lane pairs and leaves its C double warping argument and scalar tail outside the vector function. A data-flow scan of the SIMD test binary finds no legacy SSE instruction reachable in that state in these kernels; the once-per-frame pitch-resampler conversion keeps one spill, whose removal measures no gain. See [Intel SSE/AVX transitions](#intel-sseavx-transitions) for the measured effect. The upstream [VEX fix](https://github.com/golang/go/commit/5763a306d2d31111a2ac58b4f67cf5678a17f24e) requires a separate compiler comparison. |
 | [Portable SIMD export/import failure (#81614)](https://github.com/golang/go/issues/81614) | No portable `simd` import and no SIMD types in public API signatures. | No matching call surface. Internal `archsimd` kernels build with normal public scalar/slice APIs. |
 | [AVX-512 mask-register eviction (#81767)](https://github.com/golang/go/issues/81767) | No AVX-512 vector or mask kernels. | No matching register-allocation surface. |
 | [ARM64 carryless-multiply dispatch (#80991)](https://github.com/golang/go/issues/80991), [portable shift operands (#81099)](https://github.com/golang/go/issues/81099) | No carryless-multiply intrinsic or portable SIMD operation. | These reported paths are unused. CI uses Go 1.27.1. |

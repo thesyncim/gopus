@@ -78,8 +78,10 @@ func decodeDynallocOffsets(rd *rangecoding.Decoder, offsets, cap []int32, edges 
 	edges = edges[:end+1]
 	dynallocLogp := 6
 	tellFrac := rd.TellFrac()
+	// C<<LM scales a band's bin count to its coded width.
+	scale := channels << uint(lm)
 	for i := start; i < end; i++ {
-		width := channels * (edges[i+1] - edges[i]) << uint(lm)
+		width := scale * (edges[i+1] - edges[i])
 		quanta := min(width<<bitRes, max(6<<bitRes, width))
 		loopLogp := dynallocLogp
 		boost := 0

@@ -67,6 +67,37 @@ var nsqDelDecAVX2RowReset = func() (t [8]struct{ mask, identity [32]uint8 }) {
 	return t
 }()
 
+// nsqDelDecAVX2Consts holds the loop-invariant constants of the quantizer
+// already broadcast to every lane. quantizeSubframe loads them from memory: a
+// register broadcast builds each one from a 128-bit temporary, and the
+// compiler spills and reloads spare temporaries with legacy SSE moves, each of
+// which costs an SSE/AVX state transition while the 256-bit lanes are live.
+var nsqDelDecAVX2Consts = struct {
+	one, lowHalf, int32Max, randMultiplier, randIncrement, rLimitHi, rLimitLo,
+	levelAdjust, stepNearZero, step, expiredPenalty [8]int32
+	// laneIDs numbers the state of each lane; the odd lanes carry no state.
+	laneIDs  [8]int32
+	identity [8]uint32
+}{
+	laneIDs:        [8]int32{0, -1, 1, -1, 2, -1, 3, -1},
+	identity:       [8]uint32{0, 1, 2, 3, 4, 5, 6, 7},
+	one:            nsqDelDecAVX2Splat(1),
+	lowHalf:        nsqDelDecAVX2Splat(0xFFFF),
+	int32Max:       nsqDelDecAVX2Splat(silk_int32_MAX),
+	randMultiplier: nsqDelDecAVX2Splat(196314165),
+	randIncrement:  nsqDelDecAVX2Splat(907633515),
+	rLimitHi:       nsqDelDecAVX2Splat(30 << 10),
+	rLimitLo:       nsqDelDecAVX2Splat(-(31 << 10)),
+	levelAdjust:    nsqDelDecAVX2Splat(quantLevelAdjQ10),
+	stepNearZero:   nsqDelDecAVX2Splat(1024 - quantLevelAdjQ10),
+	step:           nsqDelDecAVX2Splat(1024),
+	expiredPenalty: nsqDelDecAVX2Splat(silk_int32_MAX >> 4),
+}
+
+func nsqDelDecAVX2Splat(v int32) [8]int32 {
+	return [8]int32{v, v, v, v, v, v, v, v}
+}
+
 // nsqDelDecAVX2Tables holds the lane selections of the state replacement:
 // padPerm[d][s] copies state lane s into lane d and keeps the other lanes
 // (Int32x8 Permute), laneBcast[s] copies state lane s into every lane,
@@ -389,8 +420,8 @@ func (st *nsqDelDecAVX2State) quantizeSubframe(
 	localShpBufIdx := nsq.sLTPShpBufIdx
 	localLTPBufIdx := nsq.sLTPBufIdx
 
-	// laneIDs numbers the state of each lane; the odd lanes carry no state.
-	laneIDs := archsimd.LoadInt32x8Array(&[8]int32{0, -1, 1, -1, 2, -1, 3, -1})
+	c := &nsqDelDecAVX2Consts
+	laneIDs := archsimd.LoadInt32x8Array(&c.laneIDs)
 	valid := archsimd.BroadcastInt32x8(int32(f.nStates)).Greater(laneIDs).
 		And(laneIDs.Greater(archsimd.BroadcastInt32x8(-1)))
 	// minFill and maxFill turn every lane without a state into the identity
@@ -399,7 +430,7 @@ func (st *nsqDelDecAVX2State) quantizeSubframe(
 	maxFill := archsimd.BroadcastInt32x8(silk_int32_MAX).IfElse(valid, archsimd.BroadcastInt32x8(silkInt32Min))
 	swapHalves := archsimd.LoadUint32x8Array(&[8]uint32{4, 5, 6, 7, 0, 1, 2, 3})
 
-	one := archsimd.BroadcastInt32x8(1)
+	one := archsimd.LoadInt32x8Array(&c.one)
 	zero := archsimd.Int32x8{}
 	warp := archsimd.BroadcastInt32x8(int32(int16(warpingQ16)) << 16)
 	tilt := archsimd.BroadcastInt32x8(int32(int16(tiltQ14)) << 16)
@@ -407,21 +438,20 @@ func (st *nsqDelDecAVX2State) quantizeSubframe(
 	lfShpHi := archsimd.BroadcastInt32x8((lfShpQ14 >> 16) << 16)
 	offset := archsimd.BroadcastInt32x8(offsetQ10)
 	lambda := archsimd.BroadcastInt32x8(int32(uint16(lambdaQ10))).AsInt16x16()
-	lowHalf := archsimd.BroadcastInt32x8(0xFFFF)
+	lowHalf := archsimd.LoadInt32x8Array(&c.lowHalf)
 	useRDO := lambdaQ10 > 2048
 	rdoOffset := archsimd.BroadcastInt32x8(lambdaQ10/2 - 512)
 	shapeHalf := archsimd.BroadcastInt32x8(int32(shapingLPCOrder >> 1))
 	predHalf := archsimd.BroadcastInt32x8(int32(predictLPCOrder >> 1))
-	// Loop-invariant constants, broadcast once.
-	int32Max := archsimd.BroadcastInt32x8(silk_int32_MAX)
-	randMultiplier := archsimd.BroadcastInt32x8(196314165)
-	randIncrement := archsimd.BroadcastInt32x8(907633515)
-	rLimitHi := archsimd.BroadcastInt32x8(30 << 10)
-	rLimitLo := archsimd.BroadcastInt32x8(-(31 << 10))
-	levelAdjust := archsimd.BroadcastInt32x8(quantLevelAdjQ10)
-	stepNearZero := archsimd.BroadcastInt32x8(1024 - quantLevelAdjQ10)
-	step := archsimd.BroadcastInt32x8(1024)
-	expiredPenalty := archsimd.BroadcastInt32x8(silk_int32_MAX >> 4)
+	int32Max := archsimd.LoadInt32x8Array(&c.int32Max)
+	randMultiplier := archsimd.LoadInt32x8Array(&c.randMultiplier)
+	randIncrement := archsimd.LoadInt32x8Array(&c.randIncrement)
+	rLimitHi := archsimd.LoadInt32x8Array(&c.rLimitHi)
+	rLimitLo := archsimd.LoadInt32x8Array(&c.rLimitLo)
+	levelAdjust := archsimd.LoadInt32x8Array(&c.levelAdjust)
+	stepNearZero := archsimd.LoadInt32x8Array(&c.stepNearZero)
+	step := archsimd.LoadInt32x8Array(&c.step)
+	expiredPenalty := archsimd.LoadInt32x8Array(&c.expiredPenalty)
 
 	seed := archsimd.LoadInt32x8Array(&st.seed)
 	seedInit := archsimd.LoadInt32x8Array(&st.seedInit)
@@ -431,7 +461,7 @@ func (st *nsqDelDecAVX2State) quantizeSubframe(
 
 	sAR := &st.sAR2Q14
 	arQ13 := &st.arQ13
-	identity := archsimd.LoadUint32x8Array(&[8]uint32{0, 1, 2, 3, 4, 5, 6, 7})
+	identity := archsimd.LoadUint32x8Array(&c.identity)
 	sARPerm := identity
 	for i := range length {
 		var ltpPredQ14 int32
@@ -717,10 +747,11 @@ func (st *nsqDelDecAVX2State) quantizeSubframe(
 	lfAR.StoreArray(&st.lfARQ14)
 	diff.StoreArray(&st.diffQ14)
 
+	// The 256-bit lanes leave the upper register halves dirty; clear them
+	// before the copy and the scalar SSE code that follows, so no legacy SSE
+	// instruction runs in the dirty state.
+	archsimd.ClearAVXUpperBits()
+
 	// Update LPC states
 	copy(st.sLPCQ14[:nsqLpcBufLength], st.sLPCQ14[length:length+nsqLpcBufLength])
-
-	// The 256-bit lanes leave the upper register halves dirty; clear them so
-	// the scalar SSE code that follows runs without false dependencies.
-	archsimd.ClearAVXUpperBits()
 }
