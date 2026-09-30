@@ -631,15 +631,23 @@ func applyPostfilterChannelInPlaceFloat32(samples []float32, hist []celtSig, fra
 	}
 }
 
+// postfilterWindowSquareF32 returns the squared mode window the comb-filter
+// cross-fade weights with (celt/celt.c comb_filter's window[i]*window[i]).
+// The squares depend only on the window, so they are computed once per window
+// and kept until the window or a reset changes them.
 func (d *Decoder) postfilterWindowSquareF32(overlap int) []float32 {
 	window := d.scratchIMDCTF32.modeWindow(overlap)
 	if len(window) == 0 {
 		return nil
 	}
+	if d.postfilterWindowSqOf == &window[0] && len(d.postfilterWindowSqF32) == len(window) {
+		return d.postfilterWindowSqF32
+	}
 	windowSq := ensureFloat32Slice(&d.postfilterWindowSqF32, len(window))
 	for i, w := range window {
 		windowSq[i] = noFMA32Mul(w, w)
 	}
+	d.postfilterWindowSqOf = &window[0]
 	return windowSq
 }
 
@@ -827,10 +835,14 @@ func combPlanarRun(samples []float32, hist []celtSig, history, pos int) ([]float
 // combFilterOverlapScalar is the scalar form of combFilterOverlap.
 func combFilterOverlapScalar(dst, d0, d1, wsq []float32, g00, g01, g02, g10, g11, g12 float32) {
 	n := len(dst)
-	d0 = d0[:n+4]
-	d1 = d1[:n+4]
+	d0 = d0[: n+4 : n+4]
+	d1 = d1[: n+4 : n+4]
 	wsq = wsq[:n]
 	for i := range dst {
+		// The five taps of output i, resliced once so the tap loads need no
+		// bounds checks.
+		t0 := d0[i : i+5 : i+5]
+		t1 := d1[i : i+5 : i+5]
 		f := wsq[i]
 		oneMinus := float32(1.0) - f
 		if combTargetV3FMA {
@@ -843,20 +855,20 @@ func combFilterOverlapScalar(dst, d0, d1, wsq []float32, g00, g01, g02, g10, g11
 			c10 := noFMA32Mul(f, g10)
 			c11 := noFMA32Mul(f, g11)
 			c12 := noFMA32Mul(f, g12)
-			p01 := noFMA32Add(d0[i+3], d0[i+1])
-			p02 := noFMA32Add(d0[i+4], d0[i])
-			p11 := noFMA32Add(d1[i+3], d1[i+1])
-			p12 := noFMA32Add(d1[i+4], d1[i])
-			dst[i] = combFilterOverlapV3Accumulate(dst[i], c00, d0[i+2], c01, p01, c02, p02, c10, d1[i+2], c11, p11, c12, p12)
+			p01 := noFMA32Add(t0[3], t0[1])
+			p02 := noFMA32Add(t0[4], t0[0])
+			p11 := noFMA32Add(t1[3], t1[1])
+			p12 := noFMA32Add(t1[4], t1[0])
+			dst[i] = combFilterOverlapV3Accumulate(dst[i], c00, t0[2], c01, p01, c02, p02, c10, t1[2], c11, p11, c12, p12)
 			continue
 		}
 		dst[i] = dst[i] +
-			(oneMinus*g00)*d0[i+2] +
-			(oneMinus*g01)*(d0[i+3]+d0[i+1]) +
-			(oneMinus*g02)*(d0[i+4]+d0[i]) +
-			(f*g10)*d1[i+2] +
-			(f*g11)*(d1[i+3]+d1[i+1]) +
-			(f*g12)*(d1[i+4]+d1[i])
+			(oneMinus*g00)*t0[2] +
+			(oneMinus*g01)*(t0[3]+t0[1]) +
+			(oneMinus*g02)*(t0[4]+t0[0]) +
+			(f*g10)*t1[2] +
+			(f*g11)*(t1[3]+t1[1]) +
+			(f*g12)*(t1[4]+t1[0])
 	}
 }
 

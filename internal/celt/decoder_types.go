@@ -190,6 +190,7 @@ type Decoder struct {
 	scratchMonoMixF32       []float32
 	postfilterScratchF32    []float32
 	postfilterWindowSqF32   []float32
+	postfilterWindowSqOf    *float32  // first element of the window postfilterWindowSqF32 squares
 	scratchPLC              []float32 // Scratch buffer for PLC concealment samples
 	scratchPLCF32           []float32
 	scratchPLCPitchLP       []float32

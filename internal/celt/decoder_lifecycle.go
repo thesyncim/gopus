@@ -203,6 +203,7 @@ func (d *Decoder) clearDecoderScratchForReset() {
 	clearFloat32Cap(d.scratchMonoMixF32)
 	clearFloat32Cap(d.postfilterScratchF32)
 	clearFloat32Cap(d.postfilterWindowSqF32)
+	d.postfilterWindowSqOf = nil
 	clearFloat32Cap(d.scratchPLC)
 	clearFloat32Cap(d.scratchPLCF32)
 	clearFloat32Cap(d.scratchPLCPitchLP)

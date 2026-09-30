@@ -376,10 +376,10 @@ func warpedAutocorrelationFLP32(out, state, in []float32, warping float32, lengt
 
 // warpedAutocorrState holds the allpass state or the correlations of
 // silk_warped_autocorrelation_FLP: C double i of the order+1 lives at index
-// i+1. The vector wavefront loads the element before the first one and
-// entries past order in lanes whose results it discards, so the array is
-// padded on both sides.
-type warpedAutocorrState [1 + maxShapeLpcOrder + 1 + 10]silkCReal
+// i+1. The vector wavefront loads the element before the first one and,
+// for up to seven steps past the last pair, entries past order in lanes
+// whose results it discards, so the array is padded on both sides.
+type warpedAutocorrState [1 + maxShapeLpcOrder + 1 + 18]silkCReal
 
 // warpedAutocorrelationSamples runs the allpass sections of
 // silk_warped_autocorrelation_FLP for each input sample in turn.
