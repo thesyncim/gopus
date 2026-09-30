@@ -421,35 +421,33 @@ func kfBfly2(fout []kissCpx, m, N int) {
 const kfBfly2M4Twiddle = float32(0.7071067812)
 
 // kfBfly2M4Scalar is the kf_bfly2 radix-2 stage with m == 4 (after a radix-4
-// stage): N groups of eight values.
+// stage): N groups of eight values, each addressed through a fixed-size array
+// view.
 func kfBfly2M4Scalar(fout []kissCpx, N int) {
 	tw := kfBfly2M4Twiddle
-	for range N {
-		fout2 := fout[4:]
-		t := fout2[0]
-		fout2[0].r = fout[0].r - t.r
-		fout2[0].i = fout[0].i - t.i
-		fout[0].r += t.r
-		fout[0].i += t.i
+	fout = fout[:8*N]
+	for len(fout) >= 8 {
+		g := (*[8]kissCpx)(fout)
+		t := g[4]
+		g[4].r = g[0].r - t.r
+		g[4].i = g[0].i - t.i
+		g[0].r += t.r
+		g[0].i += t.i
 
-		b1 := fout2[1]
-		loR, hiR := kissBfly2M4Outputs(fout[1].r, kissAdd(b1.r, b1.i), tw)
-		loI, hiI := kissBfly2M4Outputs(fout[1].i, kissSub(b1.i, b1.r), tw)
-		fout2[1] = kissCpx{loR, loI}
-		fout[1] = kissCpx{hiR, hiI}
+		b1 := g[5]
+		g[5].r, g[1].r = kissBfly2M4Outputs(g[1].r, kissAdd(b1.r, b1.i), tw)
+		g[5].i, g[1].i = kissBfly2M4Outputs(g[1].i, kissSub(b1.i, b1.r), tw)
 
-		t.r = fout2[2].i
-		t.i = -fout2[2].r
-		fout2[2].r = kissSub(fout[2].r, t.r)
-		fout2[2].i = kissSub(fout[2].i, t.i)
-		fout[2].r = kissAdd(fout[2].r, t.r)
-		fout[2].i = kissAdd(fout[2].i, t.i)
+		t.r = g[6].i
+		t.i = -g[6].r
+		g[6].r = kissSub(g[2].r, t.r)
+		g[6].i = kissSub(g[2].i, t.i)
+		g[2].r = kissAdd(g[2].r, t.r)
+		g[2].i = kissAdd(g[2].i, t.i)
 
-		b3 := fout2[3]
-		loR, hiR = kissBfly2M4Outputs(fout[3].r, kissSub(b3.i, b3.r), tw)
-		loI, hiI = kissBfly2M4Outputs(fout[3].i, -kissAdd(b3.i, b3.r), tw)
-		fout2[3] = kissCpx{loR, loI}
-		fout[3] = kissCpx{hiR, hiI}
+		b3 := g[7]
+		g[7].r, g[3].r = kissBfly2M4Outputs(g[3].r, kissSub(b3.i, b3.r), tw)
+		g[7].i, g[3].i = kissBfly2M4Outputs(g[3].i, -kissAdd(b3.i, b3.r), tw)
 
 		fout = fout[8:]
 	}

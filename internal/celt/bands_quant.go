@@ -4153,10 +4153,13 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 	N := frameSize
 	normOffset := M * edges[start]
 	normLen := max(M*edges[maxBands-1]-normOffset, 0)
-	maxBand := 0
-	for i := start; i < end; i++ {
-		maxBand = max(maxBand, M*(edges[i+1]-edges[i]))
+	maxWidth := 0
+	prevEdge := edges[start]
+	for _, e := range edges[start+1 : end+1] {
+		maxWidth = max(maxWidth, e-prevEdge)
+		prevEdge = e
 	}
+	maxBand := M * maxWidth
 	if scratch != nil {
 		// Back the band-decode-local float scratch with one contiguous arena
 		// before the inline/getter sizing below reslices within each slot.
@@ -4217,9 +4220,9 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 	lowbandOffset := 0
 	updateLowband := true
 	extraBands := extDec != nil && extraBits != nil && start == 0 && len(edges) >= 2 && edges[0] > 0 && (end == nbQEXTBands || end == 2)
-	var bandCaps [MaxBands]int32
 	bandCapsSlice := []int32(nil)
 	if channels == 2 && extDec != nil && !extraBands {
+		var bandCaps [MaxBands]int32
 		initCapsInto(bandCaps[:end], end, lm, channels)
 		bandCapsSlice = bandCaps[:end]
 	}
@@ -4459,6 +4462,13 @@ func quantAllBandsDecodeStereo(ctx *bandCtx, left, right, norm, norm2, lowbandSc
 	startEdge := M * edges[start]
 	lowbandOffset := 0
 	updateLowband := true
+	// Slicing the per-band tables to end lets the band loop index them
+	// without bounds checks.
+	edges = edges[:end+1]
+	pulses = pulses[:end]
+	tfRes = tfRes[:end]
+	collapse = collapse[:2*end]
+	fullMask := (1 << B) - 1
 	for i := start; i < end; i++ {
 		ctx.band = i
 		last := i == end-1
@@ -4536,7 +4546,7 @@ func quantAllBandsDecodeStereo(ctx *bandCtx, left, right, norm, norm2, lowbandSc
 				yCM |= int(collapse[2*fold+1])
 			}
 		} else {
-			xCM = (1 << B) - 1
+			xCM = fullMask
 			yCM = xCM
 		}
 
@@ -4593,6 +4603,13 @@ func quantAllBandsDecodeMono(ctx *bandCtx, left, norm, lowbandScratch []celtNorm
 	startEdge := M * edges[start]
 	lowbandOffset := 0
 	updateLowband := true
+	// Slicing the per-band tables to end lets the band loop index them
+	// without bounds checks.
+	edges = edges[:end+1]
+	pulses = pulses[:end]
+	tfRes = tfRes[:end]
+	collapse = collapse[:end]
+	fullMask := (1 << B) - 1
 	for i := start; i < end; i++ {
 		ctx.band = i
 		bandStart := edges[i] * M
@@ -4653,7 +4670,7 @@ func quantAllBandsDecodeMono(ctx *bandCtx, left, norm, lowbandScratch []celtNorm
 				lowbandX = norm[effectiveLowband : effectiveLowband+nBand]
 			}
 		} else {
-			xCM = (1 << B) - 1
+			xCM = fullMask
 		}
 
 		var lowbandOutX []celtNorm

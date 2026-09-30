@@ -291,7 +291,7 @@ func firInterpolLibopusRef(out []int16, buf []int16, incr int32) {
 
 func TestFIRInterpolMatchesGeneric(t *testing.T) {
 	rng := rand.New(rand.NewSource(0xf12))
-	incrs := []int32{21846, 32768, 43691, 65536, 87381, 131072, 98304, 49152}
+	incrs := []int32{21846, 32768, 43691, 65536, 87381, 87382, 131072, 98304, 49152}
 	for iter := 0; iter < 5000; iter++ {
 		incr := incrs[rng.Intn(len(incrs))]
 		if rng.Intn(4) == 0 {

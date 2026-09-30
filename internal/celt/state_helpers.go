@@ -88,10 +88,12 @@ func (d *Decoder) prepareMonoEnergyFromStereo() {
 	if d.channels != 1 || len(d.prevEnergy) < stride*2 {
 		return
 	}
-	for i := range stride {
-		right := d.prevEnergy[stride+i]
-		if right > d.prevEnergy[i] {
-			d.prevEnergy[i] = right
+	left := d.prevEnergy[:stride]
+	right := d.prevEnergy[stride : 2*stride]
+	right = right[:len(left)]
+	for i, r := range right {
+		if r > left[i] {
+			left[i] = r
 		}
 	}
 }

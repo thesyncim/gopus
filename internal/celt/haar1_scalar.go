@@ -2,57 +2,81 @@
 
 package celt
 
-// haar1Stride1 is the scalar stride==1 Hadamard butterfly over n0 contiguous
-// (even,odd) pairs, using the target-selected pair math from haar1PairNorm.
+// The scalar haar1 butterflies below round both products before the sum and
+// difference, as haar1PairValues does without FMA; on the AMD64 v3 target
+// (haar1UsesFMA) they call haar1PairValues for its contracted shape. The
+// non-FMA arithmetic is written out rather than calling the helper so the hot
+// loops carry no inlining marks. Each loop steps through fixed-size array
+// views, so no element access needs a bounds check.
+
+// haar1Stride1 is the scalar stride==1 Hadamard butterfly over the n0
+// contiguous (even, odd) pairs of x, which the caller slices to 2*n0.
 func haar1Stride1(x []float32, n0 int) {
-	const invSqrt2 = float32(0.7071067811865476)
-	// Caller slices x to 2*n0, so len(buf)>=2 proves both buf[0] and buf[1] are
-	// in bounds — no per-pair bounds checks. Two pairs per iteration halves loop
-	// overhead and exposes four independent accumulator slots to the pipeline.
-	buf := x
-	for len(buf) >= 4 {
-		sum0, diff0 := haar1PairValues(invSqrt2, buf[0], buf[1])
-		sum1, diff1 := haar1PairValues(invSqrt2, buf[2], buf[3])
-		buf[0], buf[1] = sum0, diff0
-		buf[2], buf[3] = sum1, diff1
-		buf = buf[4:]
+	const s = float32(0.7071067811865476)
+	for len(x) >= 4 {
+		p := (*[4]float32)(x)
+		if haar1UsesFMA {
+			p[0], p[1] = haar1PairValues(s, p[0], p[1])
+			p[2], p[3] = haar1PairValues(s, p[2], p[3])
+		} else {
+			a0, b0 := float32(s*p[0]), float32(s*p[1])
+			a1, b1 := float32(s*p[2]), float32(s*p[3])
+			p[0], p[1] = a0+b0, a0-b0
+			p[2], p[3] = a1+b1, a1-b1
+		}
+		x = x[4:]
 	}
-	if len(buf) >= 2 {
-		buf[0], buf[1] = haar1PairValues(invSqrt2, buf[0], buf[1])
+	if len(x) >= 2 {
+		p := (*[2]float32)(x)
+		if haar1UsesFMA {
+			p[0], p[1] = haar1PairValues(s, p[0], p[1])
+		} else {
+			a, b := float32(s*p[0]), float32(s*p[1])
+			p[0], p[1] = a+b, a-b
+		}
 	}
 }
 
-// haar1Stride2 is the scalar stride==2 butterfly. The two outer passes are fused into a single 4-element stride loop, which is
-// cache-friendlier and eliminates the stride-4 counter that blocked BCE.
+// haar1Stride2 is the scalar stride==2 butterfly. The two outer passes are
+// fused into one loop over groups of four; the caller slices x to 4*n0.
 func haar1Stride2(x []float32, n0 int) {
-	const invSqrt2 = float32(0.7071067811865476)
-	// Each group of 4 = one iteration of the original two outer passes.
-	// Caller ensures len(x) >= 4*n0 via the slice argument.
-	buf := x
-	for len(buf) >= 4 {
-		sum0, diff0 := haar1PairValues(invSqrt2, buf[0], buf[2])
-		sum1, diff1 := haar1PairValues(invSqrt2, buf[1], buf[3])
-		buf[0], buf[2] = sum0, diff0
-		buf[1], buf[3] = sum1, diff1
-		buf = buf[4:]
+	const s = float32(0.7071067811865476)
+	for len(x) >= 4 {
+		p := (*[4]float32)(x)
+		if haar1UsesFMA {
+			p[0], p[2] = haar1PairValues(s, p[0], p[2])
+			p[1], p[3] = haar1PairValues(s, p[1], p[3])
+		} else {
+			a0, b0 := float32(s*p[0]), float32(s*p[2])
+			a1, b1 := float32(s*p[1]), float32(s*p[3])
+			p[0], p[2] = a0+b0, a0-b0
+			p[1], p[3] = a1+b1, a1-b1
+		}
+		x = x[4:]
 	}
 }
 
-// haar1Stride4 is the scalar stride==4 butterfly. The four outer passes are fused into a single 8-element stride loop.
+// haar1Stride4 is the scalar stride==4 butterfly. The four outer passes are
+// fused into one loop over groups of eight; the caller slices x to 8*n0.
 func haar1Stride4(x []float32, n0 int) {
-	const invSqrt2 = float32(0.7071067811865476)
-	// Each group of 8 = one iteration of the original four outer passes.
-	// Caller ensures len(x) >= 8*n0 via the slice argument.
-	buf := x
-	for len(buf) >= 8 {
-		sum0, diff0 := haar1PairValues(invSqrt2, buf[0], buf[4])
-		sum1, diff1 := haar1PairValues(invSqrt2, buf[1], buf[5])
-		sum2, diff2 := haar1PairValues(invSqrt2, buf[2], buf[6])
-		sum3, diff3 := haar1PairValues(invSqrt2, buf[3], buf[7])
-		buf[0], buf[4] = sum0, diff0
-		buf[1], buf[5] = sum1, diff1
-		buf[2], buf[6] = sum2, diff2
-		buf[3], buf[7] = sum3, diff3
-		buf = buf[8:]
+	const s = float32(0.7071067811865476)
+	for len(x) >= 8 {
+		p := (*[8]float32)(x)
+		if haar1UsesFMA {
+			p[0], p[4] = haar1PairValues(s, p[0], p[4])
+			p[1], p[5] = haar1PairValues(s, p[1], p[5])
+			p[2], p[6] = haar1PairValues(s, p[2], p[6])
+			p[3], p[7] = haar1PairValues(s, p[3], p[7])
+		} else {
+			a0, b0 := float32(s*p[0]), float32(s*p[4])
+			a1, b1 := float32(s*p[1]), float32(s*p[5])
+			a2, b2 := float32(s*p[2]), float32(s*p[6])
+			a3, b3 := float32(s*p[3]), float32(s*p[7])
+			p[0], p[4] = a0+b0, a0-b0
+			p[1], p[5] = a1+b1, a1-b1
+			p[2], p[6] = a2+b2, a2-b2
+			p[3], p[7] = a3+b3, a3-b3
+		}
+		x = x[8:]
 	}
 }

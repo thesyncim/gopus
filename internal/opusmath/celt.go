@@ -52,7 +52,13 @@ func CeltLog2(x float32) float32 {
 // exactly as libopus short-circuits. The float32 width and the fma32 fusion are
 // load-bearing for bit-exactness.
 func CeltExp2(x float32) float32 {
-	integer := int32(math.Floor(float64(x)))
+	// (int)floor(x): truncate, then step down for negative non-integers.
+	// NaN and out-of-range inputs keep the conversion's own result, as the
+	// float64 floor-then-convert does on each target.
+	integer := int32(x)
+	if float32(integer) > x && integer != math.MinInt32 {
+		integer--
+	}
 	if integer < -50 {
 		return 0
 	}

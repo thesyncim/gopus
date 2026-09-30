@@ -584,6 +584,15 @@ func (d *Decoder) DecodeStereoWithDecoderInto(
 		if frameLength <= 0 || end > nativeSamples {
 			return 0, ErrDecodeFailed
 		}
+		if outL, outR, ok := ResampleStereoInt16(leftResampler, rightResampler, leftNative[start:end], rightNative[start:end]); ok {
+			n := min(len(outL), len(outR), len(leftScratch)-outputOffset)
+			if (outputOffset+n)*2 > len(output) {
+				return 0, ErrDecodeFailed
+			}
+			InterleaveInt16AsFloat32(output[outputOffset*2:(outputOffset+n)*2], outL[:n], outR[:n])
+			outputOffset += n
+			continue
+		}
 		nLeft := leftResampler.ProcessInt16Into(leftNative[start:end], leftScratch[outputOffset:])
 		nRight := rightResampler.ProcessInt16Into(rightNative[start:end], rightScratch[outputOffset:])
 		n := min(nRight, nLeft)

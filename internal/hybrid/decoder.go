@@ -336,10 +336,16 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 	leftResampler := d.silkDecoder.GetResampler(silk.BandwidthWideband)
 	rightResampler := d.silkDecoder.GetResamplerRightChannel(silk.BandwidthWideband)
 
-	// Use scratch buffer for SILK upsampled output
+	// The resampled SILK lowband goes straight into out, which the CELT
+	// highband then accumulates onto.
 	channels := int(d.channels)
 	totalSamples := frameSizeAPI * channels
-	silkUpsampled := d.ensureSilkUpsampled(totalSamples)
+	if len(out) < totalSamples {
+		out = make([]float32, totalSamples)
+	} else {
+		out = out[:totalSamples]
+	}
+	silkUpsampled := out
 
 	// Scratch buffer for resampler output (float32)
 	scratchF32L := d.silkDecoder.GetResamplerScratch(frameSizeAPI)
@@ -372,12 +378,9 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 			resamplerInput := d.silkDecoder.BuildMonoResamplerInput(mid)
 			var nL int
 			if captureFixed {
-				nL = leftResampler.ProcessIntoBoth(resamplerInput, scratchF32L, i16L)
+				nL = leftResampler.ProcessIntoBoth(resamplerInput, silkUpsampled, i16L)
 			} else {
-				nL = leftResampler.ProcessInto(resamplerInput, scratchF32L)
-			}
-			for i := 0; i < nL && i < totalSamples; i++ {
-				silkUpsampled[i] = scratchF32L[i]
+				nL = leftResampler.ProcessInto(resamplerInput, silkUpsampled)
 			}
 			filledSilkSamples = min(nL, totalSamples)
 			if captureFixed {
@@ -399,22 +402,33 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 			if err != nil {
 				return nil, err
 			}
-			var nL, nR int
-			if captureFixed {
-				nL = leftResampler.ProcessInt16IntoBoth(silkOutputL[:nNative], scratchF32L, i16L)
-				nR = rightResampler.ProcessInt16IntoBoth(silkOutputR[:nNative], scratchF32R, i16R)
+			var outL, outR []int16
+			direct := false
+			if !captureFixed {
+				outL, outR, direct = silk.ResampleStereoInt16(leftResampler, rightResampler, silkOutputL[:nNative], silkOutputR[:nNative])
+			}
+			if direct {
+				n := min(len(outL), len(outR), totalSamples/2)
+				silk.InterleaveInt16AsFloat32(silkUpsampled, outL[:n], outR[:n])
+				filledSilkSamples = 2 * n
 			} else {
-				nL = leftResampler.ProcessInt16Into(silkOutputL[:nNative], scratchF32L)
-				nR = rightResampler.ProcessInt16Into(silkOutputR[:nNative], scratchF32R)
-			}
-			n := min(nR, nL)
-			for i := 0; i < n && i*2+1 < totalSamples; i++ {
-				silkUpsampled[i*2] = scratchF32L[i]
-				silkUpsampled[i*2+1] = scratchF32R[i]
-			}
-			filledSilkSamples = min(n*2, totalSamples)
-			if captureFixed {
-				d.filledSilkInt16 = copyInterleaveStereo(d.scratchSilkInt16, i16L, i16R, filledSilkSamples)
+				var nL, nR int
+				if captureFixed {
+					nL = leftResampler.ProcessInt16IntoBoth(silkOutputL[:nNative], scratchF32L, i16L)
+					nR = rightResampler.ProcessInt16IntoBoth(silkOutputR[:nNative], scratchF32R, i16R)
+				} else {
+					nL = leftResampler.ProcessInt16Into(silkOutputL[:nNative], scratchF32L)
+					nR = rightResampler.ProcessInt16Into(silkOutputR[:nNative], scratchF32R)
+				}
+				n := min(nR, nL)
+				for i := 0; i < n && i*2+1 < totalSamples; i++ {
+					silkUpsampled[i*2] = scratchF32L[i]
+					silkUpsampled[i*2+1] = scratchF32R[i]
+				}
+				filledSilkSamples = min(n*2, totalSamples)
+				if captureFixed {
+					d.filledSilkInt16 = copyInterleaveStereo(d.scratchSilkInt16, i16L, i16R, filledSilkSamples)
+				}
 			}
 		}
 	} else {
@@ -429,11 +443,15 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 			return nil, err
 		}
 		resamplerInput := d.silkDecoder.BuildMonoResamplerInputInt16(silkOutput)
+		dst := scratchF32L
+		if d.channels == 1 {
+			dst = silkUpsampled
+		}
 		var nL int
 		if captureFixed {
-			nL = leftResampler.ProcessInt16IntoBoth(resamplerInput, scratchF32L, i16L)
+			nL = leftResampler.ProcessInt16IntoBoth(resamplerInput, dst, i16L)
 		} else {
-			nL = leftResampler.ProcessInt16Into(resamplerInput, scratchF32L)
+			nL = leftResampler.ProcessInt16Into(resamplerInput, dst)
 		}
 		if d.channels == 2 {
 			if stereoToMono {
@@ -464,9 +482,6 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 				}
 			}
 		} else {
-			for i := 0; i < nL && i < totalSamples; i++ {
-				silkUpsampled[i] = scratchF32L[i]
-			}
 			filledSilkSamples = min(nL, totalSamples)
 			if captureFixed {
 				d.filledSilkInt16 = copyInterleaveMono(d.scratchSilkInt16, i16L, filledSilkSamples)
@@ -506,12 +521,6 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 	// CELT reads from the same range decoder (SILK already consumed its portion)
 	// and accumulates its highband onto the SILK lowband inside deemphasis, as
 	// opus_decode_frame's celt_decode_with_ec(..., celt_accum=1) does.
-	if len(out) < totalSamples {
-		out = make([]float32, totalSamples)
-	} else {
-		out = out[:totalSamples]
-	}
-	copy(out, silkUpsampled[:totalSamples])
 	celtFrameSize := frameSize48
 	if d.apiSampleRate == 96000 {
 		celtFrameSize = frameSizeAPI
