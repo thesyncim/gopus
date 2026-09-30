@@ -745,6 +745,9 @@ func removeDoubling(x []float32, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 	T0val := *T0
 	x0 := xBase[maxPeriod:]
 	xx, xy := prefilterDualInnerProdF32(x0, x0, xBase[maxPeriod-T0val:maxPeriod-T0val+N], N)
+	if removeDoublingMathTraceCaptureEnabled {
+		recordRemoveDoublingDual(xx, xy)
+	}
 
 	// yy_lookup[i] is a running sum, and the search below reads it only at
 	// T0, T1 <= T0 and T1b, which is at most T0+T1 for k == 2 and below T0
@@ -764,9 +767,11 @@ func removeDoubling(x []float32, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 	for idx := limit - 1; idx >= 0; idx-- {
 		v1 := v1s[idx]
 		v2 := v2s[idx]
-		yy += v1 * v1
-		yy -= v2 * v2
+		yy = removeDoublingYYUpdate32(yy, v1, v2)
 		yl[limit-idx] = maxFloat32(0, yy)
+		if removeDoublingMathTraceCaptureEnabled {
+			recordRemoveDoublingYY(limit-idx, v1, v2, yy, yl[limit-idx])
+		}
 	}
 
 	yy = yyLookup[T0val]
@@ -792,6 +797,9 @@ func removeDoubling(x []float32, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 			T1b = (2*secondCheck[k]*T0val + k) / (2 * k)
 		}
 		xy1, xy2 := prefilterDualInnerProdF32(x0, xBase[maxPeriod-T1:maxPeriod-T1+N], xBase[maxPeriod-T1b:maxPeriod-T1b+N], N)
+		if removeDoublingMathTraceCaptureEnabled {
+			recordRemoveDoublingDual(xy1, xy2)
+		}
 		xy = float32(0.5) * (xy1 + xy2)
 		yy = float32(0.5) * (yyLookup[T1] + yyLookup[T1b])
 		g1 := computePitchGain(xy, xx, yy)
@@ -911,10 +919,18 @@ func prefilterDualInnerProdF32NeonOrder(x, y1, y2 []float32, length int) (float3
 
 func computePitchGain(xy, xx, yy float32) float32 {
 	if xy == 0 || xx == 0 || yy == 0 {
+		if removeDoublingMathTraceCaptureEnabled {
+			recordRemoveDoublingGain(xy, xx, yy, 0, 0, 0)
+		}
 		return 0
 	}
 	den := noFMA32Add(1, noFMA32Mul(xx, yy))
-	return xy / opusmath.SqrtF32(den)
+	root := opusmath.SqrtF32(den)
+	gain := xy / root
+	if removeDoublingMathTraceCaptureEnabled {
+		recordRemoveDoublingGain(xy, xx, yy, den, root, gain)
+	}
+	return gain
 }
 
 // pitchDownsample2Scalar computes outputs [start, len(dst)) of the factor-2

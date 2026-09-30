@@ -296,9 +296,16 @@ full periodic synthesis and warmed zero allocation, in both instruction lanes.
 The recorded native audit confirms the FIR, angle and IIR corrections, the LPC
 oracles and their warm allocation guards. Its full CBR contract passes all
 quality and same-packet decode checks; only the five stereo packet differences
-remain failures. The unquantized pitch gain differs by one ULP on the matched
-frame-95 operands despite equal quantized controls and packets; its actual
-producer arithmetic remains under review. No allowance replaces either fix.
+remain failures. Private source-bound checks match every frame-95 pitch-energy
+and gain boundary in both lanes: 15 dual products, 512 scalar or 324 SIMD
+running-energy entries, and 15 denominators, square roots and gains. The v3
+running-energy update rounds both products and its add/subtract; the SIMD dual
+inner product uses the original archive's four-lane FMAs and ordered reduction.
+The linked dual-product oracle covers 36 operand cases, including vector tails,
+and both kernels retain zero warm allocations. Independent 60/24/15 gates pass
+in both lanes; CBR remains scalar 19/19 and SIMD 18/19 with the same five packet
+and two range failures. These private correctness checks do not supply native
+timings or replace the recorded native audit.
 
 Independent sine-window checks cover the actual 48-, 72- and 96-sample
 segments and pass in both native instruction lanes. The gain-producer trace
@@ -332,8 +339,11 @@ and coder states through the spread-entry boundary in both native instruction
 lanes. A subsequent private actual-spread capture also matches the ICDF
 symbol, probability table and pre/post coder state in both lanes. The TF
 parser checks the selected frame, bit budget, source-derived probabilities, state continuity, producer identity, bounded counts and exact
-EOF; malformed captures fail. The subsequent dynalloc/allocation
-interval remains under producer review. The Go 1.27.1 TF trace hooks compile
+EOF; malformed captures fail. A private bounded entropy trace compares complete
+coder state and written bytes from spread return to band-quantization entry.
+All 116 scalar calls match; the first SIMD difference is call 168, the allocation
+trim ICDF: Go selects 6 and C selects 7. The allocation-trim producer remains
+under repair. The Go 1.27.1 TF trace hooks compile
 out: semantic instruction and call streams agree, with NOP/link-layout
 differences. No timing claim follows from these diagnostics.
 Default-off caller opcode, instruction-length and arithmetic topology

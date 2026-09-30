@@ -39,6 +39,14 @@ func (e *Encoder) EnablePitchAnalysisTraceForTesting() {
 	}
 }
 
+// EnableRemoveDoublingOperandTraceForTesting enables the bounded arithmetic
+// snapshots for the next remove_doubling call after pitch tracing is enabled.
+func (e *Encoder) EnableRemoveDoublingOperandTraceForTesting() {
+	if e.encodeStageTrace.enabled && e.encodeStageTrace.pitchEnabled && removeDoublingMathTraceCaptureEnabled {
+		e.encodeStageTrace.removeDoublingMathEnabled = true
+	}
+}
+
 func (e *Encoder) runPrefilterPitchDownsample(input []celtSig, output []float32, length, channels, perChannelLength, factor int) {
 	if !e.encodeStageTrace.enabled || !e.encodeStageTrace.pitchEnabled {
 		pitchDownsampleSig(input, output, length, channels, factor)
@@ -193,8 +201,33 @@ func (e *Encoder) runPrefilterPitchSearch(buffer []float32, xOffset, length, max
 func (e *Encoder) runPrefilterRemoveDoubling(buffer []float32, maxPeriod, minPeriod, n int, t0 *int) float32 {
 	t0Before := *t0
 	prevPeriod, prevGain := e.prefilterPeriod, e.prefilterGain
+	captureMath := e.encodeStageTrace.enabled && e.encodeStageTrace.pitchEnabled &&
+		e.encodeStageTrace.removeDoublingMathEnabled && removeDoublingMathTraceCaptureEnabled
+	started := false
+	if captureMath {
+		started = beginRemoveDoublingMathTrace(buffer, maxPeriod, n, t0Before)
+		if !started {
+			e.encodeStageTrace.trace.StageOverflow = true
+		}
+	}
 	gain := removeDoubling(buffer, maxPeriod, minPeriod, n, t0, prevPeriod, prevGain, &e.scratch)
+	var mathTrace EncodeRemoveDoublingMathTrace
+	mathComplete := false
+	if started {
+		mathTrace, mathComplete = finishRemoveDoublingMathTrace()
+		if !mathComplete {
+			e.encodeStageTrace.trace.StageOverflow = true
+		}
+	}
+	traceIndex := len(e.encodeStageTrace.trace.RemoveDoubling)
 	e.encodeStageTrace.recordRemoveDoubling(buffer, maxPeriod, minPeriod, n, t0Before, *t0, prevPeriod, prevGain, gain)
+	if started && mathComplete {
+		if len(e.encodeStageTrace.trace.RemoveDoubling) != traceIndex+1 {
+			e.encodeStageTrace.trace.StageOverflow = true
+		} else {
+			e.encodeStageTrace.trace.RemoveDoubling[traceIndex].Math = mathTrace
+		}
+	}
 	return gain
 }
 

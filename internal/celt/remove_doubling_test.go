@@ -33,8 +33,7 @@ func removeDoublingLegacyYYLookup(x []float32, maxPeriod, minPeriod, N int, T0 *
 	for i := 1; i <= maxPeriod; i++ {
 		v1 := xBase[maxPeriod-i]
 		v2 := xBase[maxPeriod+N-i]
-		yy += v1 * v1
-		yy -= v2 * v2
+		yy = removeDoublingYYUpdate32(yy, v1, v2)
 		yyLookup[i] = maxFloat32(0, yy)
 	}
 
@@ -161,6 +160,29 @@ func TestRemoveDoublingMatchesLegacyYYLookup(t *testing.T) {
 		if math.Float32bits(got) != math.Float32bits(want) {
 			t.Fatalf("iter %d gain mismatch: got=%0.9g want=%0.9g", iter, got, want)
 		}
+	}
+}
+
+func TestRemoveDoublingWarmScratchZeroAllocs(t *testing.T) {
+	const (
+		maxPeriod = combFilterMaxPeriod
+		minPeriod = combFilterMinPeriod
+		n         = 960
+	)
+	x := make([]float32, maxPeriod+n)
+	for i := range x {
+		x[i] = float32((i*37)%101-50)/64 + float32((i*19)%31-15)/128
+	}
+	var scratch encoderScratch
+	t0 := 231
+	_ = removeDoubling(x, maxPeriod, minPeriod, n, &t0, 197, 0.375, &scratch)
+
+	allocs := testing.AllocsPerRun(100, func() {
+		t0 = 231
+		_ = removeDoubling(x, maxPeriod, minPeriod, n, &t0, 197, 0.375, &scratch)
+	})
+	if allocs != 0 {
+		t.Fatalf("warm removeDoubling allocs/run=%g want 0", allocs)
 	}
 }
 

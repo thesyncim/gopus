@@ -85,6 +85,37 @@ type EncodeRemoveDoublingTrace struct {
 	PrevGain   float32
 	Gain       float32
 	Buffer     []float32
+	Math       EncodeRemoveDoublingMathTrace
+}
+
+type EncodeRemoveDoublingYYTrace struct {
+	Index     int32
+	XBefore   float32
+	XAfter    float32
+	UpdatedYY float32
+	LookupYY  float32
+}
+
+type EncodeRemoveDoublingGainTrace struct {
+	XY          float32
+	XX          float32
+	YY          float32
+	Denominator float32
+	Sqrt        float32
+	Gain        float32
+}
+
+// EncodeRemoveDoublingMathTrace records the live correlation, running-energy,
+// and pitch-gain boundaries for one explicitly selected diagnostic call.
+type EncodeRemoveDoublingMathTrace struct {
+	DualCount  int32
+	DualFirst  [16]float32
+	DualSecond [16]float32
+	YYCount    int32
+	YY         [512]EncodeRemoveDoublingYYTrace
+	GainCount  int32
+	Gains      [16]EncodeRemoveDoublingGainTrace
+	Overflow   bool
 }
 
 // EncodePreemphasisTrace captures one channel's exact raw input, carry, and
@@ -208,10 +239,11 @@ type EncodeBandQuantizeTrace struct {
 }
 
 type encodeStageTraceState struct {
-	enabled          bool
-	pitchEnabled     bool
-	coderRangeClosed bool
-	trace            EncodeStageTrace
+	enabled                   bool
+	pitchEnabled              bool
+	removeDoublingMathEnabled bool
+	coderRangeClosed          bool
+	trace                     EncodeStageTrace
 }
 
 // EnableEncodeStageTraceForTesting resets and enables frame-stage captures.
@@ -308,6 +340,7 @@ func (e *Encoder) EncodeStageTraceForTesting() EncodeStageTrace {
 func (s *encodeStageTraceState) reset() {
 	s.enabled = true
 	s.pitchEnabled = false
+	s.removeDoublingMathEnabled = false
 	s.coderRangeClosed = false
 	s.trace = EncodeStageTrace{
 		BandStages:      make([]EncodeBandStageTrace, 0, 4),

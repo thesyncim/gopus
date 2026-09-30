@@ -6,6 +6,8 @@ import (
 	"math"
 	"math/rand"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 func sseOrderTestVec(rng *rand.Rand, n int) []float32 {
@@ -21,6 +23,24 @@ func sseOrderTestVec(rng *rand.Rand, n int) []float32 {
 		}
 	}
 	return v
+}
+
+func prefilterDualInnerProdSSEOrderFMAReference(x, y1, y2 []float32, length int) (float32, float32) {
+	var acc1, acc2 [4]float32
+	i := 0
+	for ; i+4 <= length; i += 4 {
+		for lane := range 4 {
+			acc1[lane] = opusmath.FMA32(x[i+lane], y1[i+lane], acc1[lane])
+			acc2[lane] = opusmath.FMA32(x[i+lane], y2[i+lane], acc2[lane])
+		}
+	}
+	sum1 := add32(add32(acc1[0], acc1[2]), add32(acc1[1], acc1[3]))
+	sum2 := add32(add32(acc2[0], acc2[2]), add32(acc2[1], acc2[3]))
+	for ; i < length; i++ {
+		sum1 = opusmath.FMA32(x[i], y1[i], sum1)
+		sum2 = opusmath.FMA32(x[i], y2[i], sum2)
+	}
+	return sum1, sum2
 }
 
 // TestInnerProdSSEOrderSIMDBitExact pins the archsimd SSE-order inner products
@@ -40,6 +60,9 @@ func TestInnerProdSSEOrderSIMDBitExact(t *testing.T) {
 			}
 			g1, g2 := prefilterDualInnerProdF32SSEOrder(x, y1, y2, n)
 			w1, w2 := prefilterDualInnerProdF32SSEOrderScalar(x, y1, y2, n)
+			if prefilterDualInnerProdSSEUsesFMA {
+				w1, w2 = prefilterDualInnerProdSSEOrderFMAReference(x, y1, y2, n)
+			}
 			if math.Float32bits(g1) != math.Float32bits(w1) || math.Float32bits(g2) != math.Float32bits(w2) {
 				t.Fatalf("dual n=%d trial=%d: got (%08x,%08x) want (%08x,%08x)", n, trial,
 					math.Float32bits(g1), math.Float32bits(g2), math.Float32bits(w1), math.Float32bits(w2))

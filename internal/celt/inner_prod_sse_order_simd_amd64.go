@@ -108,11 +108,14 @@ func innerProdSSEOrderFinish(a archsimd.Float32x4, x, y []float32, i int) float3
 }
 
 // prefilterDualInnerProdF32SSEOrder reproduces libopus x86/pitch_sse.c
-// dual_inner_prod_sse: two 4-lane MULPS/ADDPS accumulators sharing each x
-// load, the (a0+a2)+(a1+a3) reductions, and a separate multiply/add scalar
-// tail. The archsimd lanes run exactly that operation sequence, so the result
-// is bit-identical to prefilterDualInnerProdF32SSEOrderScalar.
+// dual_inner_prod_sse. Most targets use separate vector multiply/add
+// operations. The default float AMD64 v3 SIMD target selects its contracted
+// implementation because GCC emits packed FMA instructions for the C
+// intrinsics in that build.
 func prefilterDualInnerProdF32SSEOrder(x, y1, y2 []float32, length int) (float32, float32) {
+	if prefilterDualInnerProdSSEUsesFMA {
+		return prefilterDualInnerProdF32SSEOrderV3(x, y1, y2, length)
+	}
 	if length <= 0 {
 		return 0, 0
 	}
