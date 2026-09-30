@@ -327,7 +327,15 @@ coder trace validates ordered stages, complete C call counts and one live
 coder in both streams; ordinary/traced packets and ranges agree across all
 50 frames. Scalar states agree at every boundary. SIMD first differs after
 coarse-energy coding and before band quantization, within side-information
-coding. Default-off caller opcode, instruction-length and arithmetic topology
+coding. The actual TF entropy trace matches all 22 calls, raw/effective flags
+and coder states through the spread-entry boundary in both private instruction
+lanes. Its parser checks the selected frame, bit budget, source-derived
+probabilities, state continuity, producer identity, bounded counts and exact
+EOF; malformed captures fail. The subsequent spread/dynalloc/allocation
+interval remains under producer review. The Go 1.27.1 TF trace hooks compile
+out: semantic instruction and call streams agree, with NOP/link-layout
+differences. No timing claim follows from these diagnostics.
+Default-off caller opcode, instruction-length and arithmetic topology
 match the merged baseline; spill slots differ. No runtime trace calls remain.
 
 The constrained-VBR witness selects band 18, whose LM=1 geometry is [96,120);

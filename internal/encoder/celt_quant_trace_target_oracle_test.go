@@ -16,6 +16,16 @@ import (
 // source-bound frame and band selectors. The caller supplies a cache dedicated
 // to this selector pair so helpers for different frames cannot alias.
 func buildCELTQuantTraceOracleAtFrameBand(t *testing.T, frame, band int, coderRangeTrace bool, cache *libopustest.HelperCache) string {
+	return buildCELTQuantTraceOracleAtFrameBandOptions(t, frame, band, coderRangeTrace, false, cache)
+}
+
+// buildCELTQuantTraceOracleAtFrameBandWithTFTrace adds the bounded selected
+// frame TF bit trace to the ordinary GCRG/GQTR helper output.
+func buildCELTQuantTraceOracleAtFrameBandWithTFTrace(t *testing.T, frame, band int, cache *libopustest.HelperCache) string {
+	return buildCELTQuantTraceOracleAtFrameBandOptions(t, frame, band, true, true, cache)
+}
+
+func buildCELTQuantTraceOracleAtFrameBandOptions(t *testing.T, frame, band int, coderRangeTrace, tfTrace bool, cache *libopustest.HelperCache) string {
 	t.Helper()
 	libopustest.RequireOracle(t)
 	if frame < 0 || frame >= celtOnlyCBRFrames {
@@ -26,6 +36,9 @@ func buildCELTQuantTraceOracleAtFrameBand(t *testing.T, frame, band int, coderRa
 	}
 	if cache == nil {
 		t.Fatal("CELT quant trace helper requires an explicit selector-scoped cache")
+	}
+	if tfTrace && !coderRangeTrace {
+		t.Fatal("CELT TF trace requires the same-coder range checkpoints")
 	}
 
 	path, err := cache.Path(func() (string, error) {
@@ -44,6 +57,9 @@ func buildCELTQuantTraceOracleAtFrameBand(t *testing.T, frame, band int, coderRa
 		}
 
 		outputBase := fmt.Sprintf("gopus_libopus_celt_quant_trace_f%d_b%d", frame, band)
+		if tfTrace {
+			outputBase += "_tf"
+		}
 		linkMapPath := filepath.Join(t.TempDir(), outputBase+".map")
 		config := libopustest.CHelperConfig{
 			Label:      fmt.Sprintf("CELT quant trace frame %d band %d", frame, band),
@@ -77,6 +93,13 @@ func buildCELTQuantTraceOracleAtFrameBand(t *testing.T, frame, band int, coderRa
 		}
 		if coderRangeTrace {
 			config.CFlags = append(config.CFlags, "-DGOPUS_CELT_CODER_RANGE_TRACE")
+		}
+		if tfTrace {
+			config.CFlags = append(config.CFlags, "-DGOPUS_CELT_TF_TRACE")
+			config.LDFlags = append(config.LDFlags,
+				"-Wl,--wrap=ec_enc_bit_logp",
+				"-Wl,--wrap=ec_enc_icdf",
+			)
 		}
 		helperPath, err := libopustest.BuildPublicAPIHelper(config)
 		if err != nil {

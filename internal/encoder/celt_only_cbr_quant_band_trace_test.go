@@ -15,6 +15,7 @@ import (
 )
 
 var celtOnlyCBRQuantTraceCache libopustest.HelperCache
+var celtOnlyCBRQuantTraceTFCache libopustest.HelperCache
 
 // TestCELTOnlyCBRQuantBandTraceDiagnostic compares the real selected-band
 // quantization events in the 50-frame Auto CBR stream. The C trace helper uses
@@ -62,8 +63,8 @@ func TestCELTOnlyCBRQuantBandTraceDiagnostic(t *testing.T) {
 		t.Fatalf("C oracle version=%q does not identify pinned libopus %q", ordinary.LibopusVersion, libopustooling.DefaultVersion)
 	}
 
-	tracePath := buildCELTQuantTraceOracleAtFrameBand(t, celtOnlyCBRQuantTraceFrame,
-		celtOnlyCBRQuantTraceBand, true, &celtOnlyCBRQuantTraceCache)
+	tracePath := buildCELTQuantTraceOracleAtFrameBandWithTFTrace(t, celtOnlyCBRQuantTraceFrame,
+		celtOnlyCBRQuantTraceBand, &celtOnlyCBRQuantTraceTFCache)
 	tracedBytes, err := libopustest.RunHelper(tracePath, celtOnlyCBRGEDIInput(pcm))
 	if err != nil {
 		t.Fatalf("run selected-frame GEDI/GQTR oracle: %v", err)
@@ -146,7 +147,15 @@ func TestCELTOnlyCBRQuantBandTraceDiagnostic(t *testing.T) {
 			coderRanges.Frame, coderRanges.Overflow, coderRanges.CoarseCalls, coderRanges.QuantCalls,
 			coderRanges.SameCoder, coderRanges.Count)
 	}
-	gqtrData := rangeData[rangeBytes:]
+	tfData := rangeData[rangeBytes:]
+	cTF, tfBytes, err := parseCELTQuantityTFTrace(tfData, uint32(celtOnlyCBRQuantTraceFrame))
+	if err != nil {
+		t.Fatalf("parse selected-frame C TF encoder trace: %v", err)
+	}
+	if tfBytes > len(tfData) {
+		t.Fatalf("GCTF consumed %d bytes from a %d-byte trailer", tfBytes, len(tfData))
+	}
+	gqtrData := tfData[tfBytes:]
 	cQuant, gqtrBytes, err := parseCELTQuantBandTraceForTarget(gqtrData,
 		uint32(celtOnlyCBRQuantTraceFrame), uint32(celtOnlyCBRQuantTraceBand))
 	if err != nil {
@@ -173,6 +182,7 @@ func TestCELTOnlyCBRQuantBandTraceDiagnostic(t *testing.T) {
 	plainRanges := make([]uint32, 0, celtOnlyCBRFrames)
 	goQuant := make([]celt.CELTQuantBandTraceSnapshot, 0, celtQuantTraceWireMaxEvents)
 	var goCoderRanges []celt.EncodeCoderRangeTrace
+	var goTF celt.TFEncodeTraceSnapshot
 	var quantOverflow bool
 	for frame := range celtOnlyCBRFrames {
 		framePCM := pcm[frame*celtOnlyCBRFrameSize*celtOnlyCBRChannels : (frame+1)*celtOnlyCBRFrameSize*celtOnlyCBRChannels]
@@ -193,8 +203,11 @@ func TestCELTOnlyCBRQuantBandTraceDiagnostic(t *testing.T) {
 				t.Fatal("Go CELT encoder is not initialized at the selected frame")
 			}
 			tracedGo.celtEncoder.EnableEncodeStageTraceForTesting()
+			celt.EnableTFEncodeTraceForTesting()
 			quantOverflow = celt.WithCELTQuantBandTraceHookForTesting(celtOnlyCBRQuantTraceBand,
 				func(event *celt.CELTQuantBandTraceSnapshot) { goQuant = append(goQuant, *event) }, encodeTraced)
+			goTF = celt.TFEncodeTraceForTesting()
+			celt.DisableTFEncodeTraceForTesting()
 			goStageTrace := tracedGo.celtEncoder.EncodeStageTraceForTesting()
 			if goStageTrace.StageOverflow {
 				t.Fatal("Go coder-range trace exceeded its bounded frame capture")
@@ -258,6 +271,36 @@ func TestCELTOnlyCBRQuantBandTraceDiagnostic(t *testing.T) {
 	}
 	if len(goQuant) == 0 {
 		t.Fatalf("Go captured no quant events for frame %d band %d", celtOnlyCBRQuantTraceFrame, celtOnlyCBRQuantTraceBand)
+	}
+	if err := validateGoCELTQuantityTFTrace(goTF); err != nil {
+		t.Fatalf("invalid Go selected-frame TF encoder trace: %v", err)
+	}
+	if len(goCoderRanges) != 3 || goTF.Coder != goCoderRanges[0].Coder ||
+		goCoderRanges[0].Coder != goCoderRanges[2].Coder {
+		t.Fatalf("Go TF trace coder identity differs from the coarse/quant range coder: TF=%p ranges=%v",
+			goTF.Coder, goCoderRanges)
+	}
+	t.Logf("C spread ICDF symbol=%d logp=%d range/tell-frac=%08x/%d→%08x/%d",
+		cTF.SpreadSymbol, cTF.SpreadLogP, cTF.SpreadRangeBefore, cTF.SpreadTellFracBefore,
+		cTF.SpreadRangeAfter, cTF.SpreadTellFracAfter)
+	if len(goTF.Bits) == 0 || len(cTF.Bits) == 0 {
+		t.Fatal("selected-frame TF trace has no actual entropy calls")
+	}
+	goAfterCoarse := goCoderRanges[1]
+	if first := goTF.Bits[0]; first.RangeBefore != goAfterCoarse.Range || first.TellFracBefore != goAfterCoarse.TellFrac {
+		t.Fatalf("Go first TF call is not immediately after coarse energy: TF range/tell-frac=%08x/%d, GCRG after-coarse=%08x/%d",
+			first.RangeBefore, first.TellFracBefore, goAfterCoarse.Range, goAfterCoarse.TellFrac)
+	}
+	cAfterCoarse := coderRanges.Points[1]
+	if first := cTF.Bits[0]; first.RangeBefore != cAfterCoarse.Range || first.TellFracBefore != cAfterCoarse.TellFrac {
+		t.Fatalf("C first TF call is not immediately after coarse energy: TF range/tell-frac=%08x/%d, GCRG after-coarse=%08x/%d",
+			first.RangeBefore, first.TellFracBefore, cAfterCoarse.Range, cAfterCoarse.TellFrac)
+	}
+	if difference := compareCELTQuantityTFTrace(goTF, cTF); difference != "" {
+		t.Logf("first TF encoder difference: %s", difference)
+	} else {
+		t.Logf("selected frame %d TF encode: all %d actual TF entropy calls and raw/effective flags match; coder state before spread ICDF matches bit-for-bit",
+			celtOnlyCBRQuantTraceFrame, len(goTF.Bits))
 	}
 	if err := validateCELTQuantBandTraceEventsForBand(goQuant, uint32(celtOnlyCBRQuantTraceBand)); err != nil {
 		t.Fatalf("invalid Go selected-band quant trace: %v", err)

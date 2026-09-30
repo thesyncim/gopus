@@ -150,6 +150,39 @@ static void capture_coder_range(uint32_t stage, ec_enc *enc) {
 }
 #endif
 
+#ifdef GOPUS_CELT_TF_TRACE
+#define CELT_TF_TRACE_MAX_BITS 64u
+typedef struct {
+  uint32_t ordinal, symbol, logp;
+  uint32_t range_before, tell_frac_before, range_after, tell_frac_after;
+  uint32_t tell_before, tell_after;
+} celt_tf_bit_trace;
+
+typedef struct {
+  uint32_t active, overflow, coarse_calls, bit_calls, stored_bits;
+  uint32_t foreign_calls, icdf_calls, spread_calls, spread_table_match;
+  uint32_t same_coder, quant_calls, start, end, lm, storage_bits, transient;
+  int32_t entry_tell;
+  uint32_t select_encoded, select_symbol, post_count;
+  uint32_t spread_symbol, spread_logp;
+  uint32_t spread_range_before, spread_tell_frac_before;
+  uint32_t spread_range_after, spread_tell_frac_after;
+  ec_enc *encoder, *quant_encoder;
+  int32_t post_tf_res[CELT_TRACE_MAX_BANDS];
+  celt_tf_bit_trace bits[CELT_TF_TRACE_MAX_BITS];
+} celt_tf_trace_state;
+
+static celt_tf_trace_state celt_tf_trace;
+
+static int celt_tf_spread_table_match(int symbol, const unsigned char *icdf, unsigned ftb) {
+  static const unsigned char expected[4] = {25, 23, 2, 0};
+  if (icdf == NULL || ftb != 5 || symbol < 0 || symbol >= 4) return 0;
+  /* Check only entries ec_enc_icdf reads for this symbol. */
+  if (icdf[symbol] != expected[symbol]) return 0;
+  return symbol == 0 || icdf[symbol - 1] == expected[symbol - 1];
+}
+#endif
+
 static struct {
   uint32_t raw_calls, stored_raw_calls;
   uint32_t done_calls, stored_done_calls;
@@ -472,6 +505,18 @@ void __wrap_quant_coarse_energy(const CELTMode *m, int start, int end,
   __real_quant_coarse_energy(m, start, end, effEnd, eBands, oldEBands, budget,
       error, enc, C, LM, nbAvailableBytes, force_intra, delayedIntra,
       two_pass, loss_rate, lfe);
+#ifdef GOPUS_CELT_TF_TRACE
+  if (trace_selected_frame()) {
+    if (celt_tf_trace.coarse_calls++ == 0 && enc != NULL) {
+      celt_tf_trace.encoder = enc;
+      celt_tf_trace.entry_tell = ec_tell(enc);
+      celt_tf_trace.storage_bits = enc->storage * 8;
+      celt_tf_trace.active = 1;
+    } else {
+      celt_tf_trace.overflow = 1;
+    }
+  }
+#endif
 #ifdef GOPUS_CELT_CODER_RANGE_TRACE
   if (call == 0) capture_coder_range(CELT_RANGE_AFTER_COARSE, enc);
 #endif
@@ -515,6 +560,27 @@ void __wrap_quant_all_bands(int encode, const CELTMode *m, int start, int end,
     celt_coder_range_trace.overflow = 1;
   }
 #endif
+#ifdef GOPUS_CELT_TF_TRACE
+  if (trace_selected_frame() && ec == celt_tf_trace.encoder) {
+    celt_tf_trace.quant_calls++;
+    celt_tf_trace.quant_encoder = ec;
+    if (celt_tf_trace.quant_calls != 1 || celt_tf_trace.active != 0 ||
+        celt_tf_trace.spread_calls != 1 || start < 0 || end < start ||
+        end - start > CELT_TRACE_MAX_BANDS || LM < 0 || LM > 3 || tf_res == NULL) {
+      celt_tf_trace.overflow = 1;
+    } else {
+      celt_tf_trace.start = (uint32_t)start;
+      celt_tf_trace.end = (uint32_t)end;
+      celt_tf_trace.lm = (uint32_t)LM;
+      celt_tf_trace.transient = shortBlocks != 0;
+      celt_tf_trace.post_count = (uint32_t)(end - start);
+      for (int i = 0; i < end - start; i++)
+        celt_tf_trace.post_tf_res[i] = (int32_t)tf_res[start + i];
+    }
+  } else if (trace_selected_frame() && celt_tf_trace.encoder != NULL) {
+    celt_tf_trace.foreign_calls++;
+  }
+#endif
   int active = (1 << LM) * m->eBands[end];
   int channels = Y != NULL ? 2 : 1;
   if (call < CELT_TRACE_MAX_CALLS && trace_dimensions(active * channels, CELT_TRACE_MAX_FLOATS) &&
@@ -540,6 +606,70 @@ void __wrap_quant_all_bands(int encode, const CELTMode *m, int start, int end,
     if (Y != NULL) memcpy(trace->output + active, Y, (size_t)active * sizeof(float));
   }
 }
+
+#ifdef GOPUS_CELT_TF_TRACE
+extern void __real_ec_enc_bit_logp(ec_enc *enc, int value, unsigned logp);
+void __wrap_ec_enc_bit_logp(ec_enc *enc, int value, unsigned logp) {
+  celt_tf_bit_trace *trace = NULL;
+  if (celt_tf_trace.active) {
+    if (enc != celt_tf_trace.encoder) {
+      celt_tf_trace.foreign_calls++;
+    } else {
+      uint32_t call = celt_tf_trace.bit_calls++;
+      if (call >= CELT_TF_TRACE_MAX_BITS) {
+        celt_tf_trace.overflow = 1;
+      } else {
+        trace = &celt_tf_trace.bits[call];
+        trace->ordinal = call;
+        trace->symbol = (uint32_t)value;
+        trace->logp = logp;
+        trace->range_before = enc->rng;
+        trace->tell_frac_before = ec_tell_frac(enc);
+        trace->tell_before = ec_tell(enc);
+      }
+    }
+  }
+  __real_ec_enc_bit_logp(enc, value, logp);
+  if (trace != NULL) {
+    trace->range_after = enc->rng;
+    trace->tell_frac_after = ec_tell_frac(enc);
+    trace->tell_after = ec_tell(enc);
+    celt_tf_trace.stored_bits++;
+    if (logp == 1) {
+      celt_tf_trace.select_encoded++;
+      celt_tf_trace.select_symbol = (uint32_t)value;
+      if (celt_tf_trace.select_encoded > 1) celt_tf_trace.overflow = 1;
+    }
+  }
+}
+
+extern void __real_ec_enc_icdf(ec_enc *enc, int symbol, const unsigned char *icdf, unsigned ftb);
+void __wrap_ec_enc_icdf(ec_enc *enc, int symbol, const unsigned char *icdf, unsigned ftb) {
+  int close = 0;
+  if (celt_tf_trace.active) {
+    if (enc != celt_tf_trace.encoder) {
+      celt_tf_trace.foreign_calls++;
+    } else {
+      celt_tf_trace.icdf_calls++;
+      if (celt_tf_spread_table_match(symbol, icdf, ftb)) {
+        celt_tf_trace.spread_calls++;
+        celt_tf_trace.spread_table_match = 1;
+        celt_tf_trace.spread_symbol = (uint32_t)symbol;
+        celt_tf_trace.spread_logp = ftb;
+        celt_tf_trace.spread_range_before = enc->rng;
+        celt_tf_trace.spread_tell_frac_before = ec_tell_frac(enc);
+        close = 1;
+      }
+    }
+  }
+  __real_ec_enc_icdf(enc, symbol, icdf, ftb);
+  if (close) {
+    celt_tf_trace.spread_range_after = enc->rng;
+    celt_tf_trace.spread_tell_frac_after = ec_tell_frac(enc);
+    celt_tf_trace.active = 0;
+  }
+}
+#endif
 
 extern void __real_ec_enc_bits(ec_enc *enc, opus_uint32 fl, unsigned bits);
 void __wrap_ec_enc_bits(ec_enc *enc, opus_uint32 fl, unsigned bits) {
@@ -715,6 +845,49 @@ static int write_coder_range_trace(void) {
 }
 #endif
 
+#ifdef GOPUS_CELT_TF_TRACE
+static int write_celt_tf_trace(void) {
+  if (celt_tf_trace.coarse_calls != 1 || celt_tf_trace.stored_bits != celt_tf_trace.bit_calls ||
+      celt_tf_trace.foreign_calls != 0 || celt_tf_trace.icdf_calls != 1 ||
+      celt_tf_trace.spread_calls != 1 || celt_tf_trace.spread_table_match != 1 ||
+      celt_tf_trace.quant_calls != 1 || celt_tf_trace.active != 0 ||
+      celt_tf_trace.encoder == NULL || celt_tf_trace.end <= celt_tf_trace.start ||
+      celt_tf_trace.end > CELT_TRACE_MAX_BANDS ||
+      celt_tf_trace.lm > 3 || celt_tf_trace.transient > 1 || celt_tf_trace.select_encoded > 1 ||
+      celt_tf_trace.storage_bits == 0 || celt_tf_trace.post_count != celt_tf_trace.end-celt_tf_trace.start)
+    celt_tf_trace.overflow = 1;
+  if (celt_tf_trace.post_count > CELT_TRACE_MAX_BANDS || celt_tf_trace.stored_bits > CELT_TF_TRACE_MAX_BITS)
+    return 0;
+  celt_tf_trace.same_coder = celt_tf_trace.encoder != NULL &&
+      celt_tf_trace.quant_encoder == celt_tf_trace.encoder;
+  if (!celt_tf_trace.same_coder) celt_tf_trace.overflow = 1;
+  if (!write_exact("GCTF", 4) || !write_u32(1) || !write_u32(TRACE_FRAME) ||
+      !write_u32(celt_tf_trace.overflow) || !write_u32(celt_tf_trace.coarse_calls) ||
+      !write_u32(celt_tf_trace.bit_calls) || !write_u32(celt_tf_trace.stored_bits) ||
+      !write_u32(celt_tf_trace.foreign_calls) || !write_u32(celt_tf_trace.icdf_calls) ||
+      !write_u32(celt_tf_trace.spread_calls) || !write_u32(celt_tf_trace.spread_table_match) ||
+      !write_u32(celt_tf_trace.same_coder) || !write_u32(celt_tf_trace.quant_calls) ||
+      !write_u32(celt_tf_trace.start) || !write_u32(celt_tf_trace.end) ||
+      !write_u32(celt_tf_trace.lm) || !write_u32((uint32_t)celt_tf_trace.entry_tell) ||
+      !write_u32(celt_tf_trace.storage_bits) || !write_u32(celt_tf_trace.transient) ||
+      !write_u32(celt_tf_trace.select_encoded) || !write_u32(celt_tf_trace.select_symbol) ||
+      !write_u32(celt_tf_trace.post_count) || !write_u32(celt_tf_trace.spread_symbol) ||
+      !write_u32(celt_tf_trace.spread_logp) || !write_u32(celt_tf_trace.spread_range_before) ||
+      !write_u32(celt_tf_trace.spread_tell_frac_before) || !write_u32(celt_tf_trace.spread_range_after) ||
+      !write_u32(celt_tf_trace.spread_tell_frac_after)) return 0;
+  for (uint32_t i = 0; i < celt_tf_trace.post_count; i++)
+    if (!write_u32((uint32_t)celt_tf_trace.post_tf_res[i])) return 0;
+  for (uint32_t i = 0; i < celt_tf_trace.stored_bits; i++) {
+    const celt_tf_bit_trace *bit = &celt_tf_trace.bits[i];
+    if (!write_u32(bit->ordinal) || !write_u32(bit->symbol) || !write_u32(bit->logp) ||
+        !write_u32(bit->range_before) || !write_u32(bit->tell_frac_before) ||
+        !write_u32(bit->tell_before) || !write_u32(bit->range_after) ||
+        !write_u32(bit->tell_frac_after) || !write_u32(bit->tell_after)) return 0;
+  }
+  return 1;
+}
+#endif
+
 int main(void) {
   int result = gopus_encode_diff_main();
   if (result != 0) return result;
@@ -722,8 +895,11 @@ int main(void) {
 #ifdef GOPUS_CELT_CODER_RANGE_TRACE
       || !write_coder_range_trace()
 #endif
+#ifdef GOPUS_CELT_TF_TRACE
+      || !write_celt_tf_trace()
+#endif
       ) {
-    fprintf(stderr, "write frame-1 CELT/entropy trace failed\n");
+    fprintf(stderr, "write selected-frame CELT/entropy trace failed\n");
     return 1;
   }
   return 0;

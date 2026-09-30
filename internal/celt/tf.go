@@ -792,6 +792,7 @@ func TFEncodeWithSelect(re *rangecoding.Encoder, start, end int, isTransient boo
 	if re == nil {
 		return
 	}
+	trace := beginTFEncodeTrace(re, start, end, isTransient, tfRes, lm, tfSelect)
 
 	budget := re.StorageBits()
 	tell := re.Tell()
@@ -813,7 +814,7 @@ func TFEncodeWithSelect(re *rangecoding.Encoder, start, end int, isTransient boo
 		if tell+logp <= int(budget) {
 			// Encode XOR of current tf_res with previous
 			change := int(tfRes[i]) ^ curr
-			re.EncodeBit(change, uint(logp))
+			tfEncodeTraceBit(trace, re, change, uint(logp), false)
 			tell = re.Tell()
 			curr = int(tfRes[i])
 			tfChanged |= curr
@@ -829,10 +830,12 @@ func TFEncodeWithSelect(re *rangecoding.Encoder, start, end int, isTransient boo
 		}
 	}
 
+	recordTFEncodeBudgeted(trace, re, tfRes)
+
 	// Encode tf_select if reserved and it makes a difference
 	isTransientInt := boolToInt(isTransient)
 	if tfSelectRsv && tfSelectTable[lm][4*isTransientInt+0+tfChanged] != tfSelectTable[lm][4*isTransientInt+2+tfChanged] {
-		re.EncodeBit(tfSelect, 1)
+		tfEncodeTraceBit(trace, re, tfSelect, 1, true)
 	} else {
 		tfSelect = 0
 	}
@@ -842,6 +845,7 @@ func TFEncodeWithSelect(re *rangecoding.Encoder, start, end int, isTransient boo
 		idx := 4*isTransientInt + 2*tfSelect + int(tfRes[i])
 		tfRes[i] = int32(tfSelectTable[lm][idx])
 	}
+	finishTFEncodeTrace(trace, re, tfRes, tfSelect)
 }
 
 // tfEncode encodes time-frequency resolution flags for each band with the
