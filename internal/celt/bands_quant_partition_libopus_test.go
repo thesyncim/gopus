@@ -124,6 +124,7 @@ func TestQuantPartitionZeroPulseMatchesLibopus(t *testing.T) {
 				band:       tc.band,
 				seed:       tc.seed,
 				seedActive: true,
+				stdCache:   true,
 			}
 			x := make([]celtNorm, tc.n)
 			var lowband []celtNorm
@@ -133,7 +134,7 @@ func TestQuantPartitionZeroPulseMatchesLibopus(t *testing.T) {
 					lowband[j] = celtNorm(sample)
 				}
 			}
-			gotCollapse := quantPartitionDecodeNoExt(ctx, x, tc.n, 0, tc.blocks, lowband, tc.lm, opusVal16(tc.gain), tc.fill)
+			gotCollapse := quantPartitionDecodeNoExt(ctx, x, 0, tc.blocks, lowband, tc.lm, opusVal16(tc.gain), tc.fill)
 			if gotCollapse != want[i].collapse {
 				t.Fatalf("collapse=%d want %d", gotCollapse, want[i].collapse)
 			}

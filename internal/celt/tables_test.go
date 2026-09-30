@@ -50,3 +50,17 @@ func TestBetaIntra(t *testing.T) {
 		t.Errorf("BetaIntra = %v, want %v", BetaIntra, expected)
 	}
 }
+
+// TestEBandWidthsMatchEdgesAndNeverDecrease checks the standard band widths
+// against the band edges and that they never decrease, which lets the band
+// decoder take the widest band in [start, end) as band end-1.
+func TestEBandWidthsMatchEdgesAndNeverDecrease(t *testing.T) {
+	for i, w := range eBandWidths {
+		if want := EBands[i+1] - EBands[i]; w != want {
+			t.Fatalf("eBandWidths[%d] = %d, want %d", i, w, want)
+		}
+		if i > 0 && w < eBandWidths[i-1] {
+			t.Fatalf("eBandWidths[%d] = %d is below eBandWidths[%d] = %d", i, w, i-1, eBandWidths[i-1])
+		}
+	}
+}

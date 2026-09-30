@@ -6,7 +6,8 @@ import (
 	"testing"
 )
 
-// TestScalePulsesMatchesScalar checks the build-selected pulse scaling
+// TestScalePulsesMatchesScalar checks the unrolled scalar loop against the
+// literal normalise_residual() product and the build-selected pulse scaling
 // against the scalar loop, bit for bit, on random pulse vectors.
 func TestScalePulsesMatchesScalar(t *testing.T) {
 	rng := rand.New(rand.NewSource(0x9e75))
@@ -24,6 +25,11 @@ func TestScalePulsesMatchesScalar(t *testing.T) {
 		want := make([]celtNorm, n)
 		scalePulsesInto(got, pulses, g)
 		scalePulsesIntoScalar(want, pulses, g)
+		for i, v := range pulses {
+			if ref := float32(v) * g; math.Float32bits(want[i]) != math.Float32bits(ref) {
+				t.Fatalf("trial %d n=%d: scalar out[%d]=%08x want %08x", trial, n, i, math.Float32bits(want[i]), math.Float32bits(ref))
+			}
+		}
 		for i := range want {
 			if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 				t.Fatalf("trial %d n=%d: out[%d]=%08x want %08x", trial, n, i, math.Float32bits(got[i]), math.Float32bits(want[i]))

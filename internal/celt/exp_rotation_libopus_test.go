@@ -1666,7 +1666,7 @@ func TestAlgUnquantMatchesLibopusFloatPath(t *testing.T) {
 					var dec rangecoding.Decoder
 					dec.Init(tc.payload)
 					got := make([]celtNorm, tc.n)
-					gotCollapse := algUnquantNoExtInto(got, &dec, tc.n, tc.k, tc.spread, tc.b, opusVal16(tc.gain), sc.scratch)
+					gotCollapse := algUnquantNoExtInto(got, &dec, tc.k, tc.spread, tc.b, opusVal16(tc.gain), sc.scratch)
 					if gotCollapse != want[ci].collapse {
 						t.Fatalf("collapse=%d want %d", gotCollapse, want[ci].collapse)
 					}
