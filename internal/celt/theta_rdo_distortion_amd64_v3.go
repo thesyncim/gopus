@@ -1,8 +1,8 @@
-//go:build amd64.v3 && !gopus_fixed_point && (!goexperiment.simd || nosimd || purego)
+//go:build amd64.v3 && !gopus_fixed_point && !gopus_qext && !gopus_dred && !gopus_osce && !gopus_custom_modes && (!goexperiment.simd || nosimd || purego)
 
 package celt
 
-// thetaRDODistortion matches the scalar caller in pinned libopus 1.6.1
+// thetaRDODistortion matches the default float scalar caller in libopus 1.6.1
 // celt/bands.c:quant_all_bands when GCC 13.3 targets x86-64-v3: each channel
 // dot accumulates a rounded product and sum, then the left weighted product is
 // rounded before the right weighted product is fused into it.

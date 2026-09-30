@@ -866,7 +866,7 @@ func plcLPCFromAutocorr(ac []float32, lpc []float32) {
 	for i := range lpc {
 		lpc[i] = 0
 	}
-	if len(ac) < len(lpc)+1 || ac[0] <= 1e-10 {
+	if len(ac) < len(lpc)+1 || !(ac[0] > 1e-10) {
 		return
 	}
 
@@ -874,7 +874,7 @@ func plcLPCFromAutocorr(ac []float32, lpc []float32) {
 	base := ac[0]
 	errorPower := base
 	for i := range lpc {
-		rr := plcLPCReflectionSum(lpc32[:], ac, i)
+		rr := plcLPCReflectionSumOrdered(lpc32[:], ac, i)
 		rr += ac[i+1]
 		r := -rr / errorPower
 		lpc32[i] = r
@@ -884,7 +884,7 @@ func plcLPCFromAutocorr(ac []float32, lpc []float32) {
 			lpc32[j] = fma32(r, tmp2, tmp1)
 			lpc32[i-1-j] = fma32(r, tmp1, tmp2)
 		}
-		errorPower = fma32(-(r * r), errorPower, errorPower)
+		errorPower = plcLPCErrorPowerUpdate32(r, errorPower)
 		if errorPower <= float32(0.001)*base {
 			break
 		}

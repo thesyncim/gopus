@@ -205,18 +205,18 @@ Full byte parity across compiler targets is not established.
 The [scaled-float conversion audit](https://github.com/thesyncim/gopus/actions/runs/36563006244)
 passes the regression and independent C conversion oracle in both v3 lanes.
 
-The [native v3 audit at `36a0e0ea`](https://github.com/thesyncim/gopus/actions/runs/36652626932)
+The [native v3 audit at `19c04fdd`](https://github.com/thesyncim/gopus/actions/runs/36655520841)
 on AMD EPYC 9V74 with Go 1.27.1 and GCC 13.3 passes the following matched
 scalar and SIMD selections. No cases are skipped.
 
 | Gate | Scalar | SIMD |
 |---|---:|---:|
-| Encoder packet and final range | 59/60 | 60/60 |
+| Encoder packet and final range | 60/60 | 60/60 |
 | Public decoder PCM and final range | 24/24 | 24/24 |
 | Warm allocation cases | 15/15 | 15/15 |
-| CBR exact cases | 16/19 | 17/19 |
-| CBR packet differences / 2,175 packets | 10 | 15 |
-| CBR final-range differences / 2,175 packets | 1 | 12 |
+| CBR exact cases | 19/19 | 17/19 |
+| CBR packet differences / 2,175 packets | 0 | 15 |
+| CBR final-range differences / 2,175 packets | 0 | 12 |
 | Contract same-packet PCM sample differences | 0 | 0 |
 
 These are separate gates, not an overall codec correctness percentage. The
@@ -233,7 +233,7 @@ regression pass in both instruction lanes. The precomputed-window fallback
 rounds crossfade coefficients and tap-pair sums before the same six-FMA chain
 as the ordinary C function. Its warm allocation guard passes. All 19 contract
 cases have exact same-packet PCM in both lanes, including the long streams;
-encoder packet and range differences remain separate unresolved failures.
+SIMD encoder packet and range differences remain separate unresolved failures.
 
 All three SILK CBR witnesses match complete packets and final ranges in both
 native lanes: NB 10 ms mono (100 frames), MB 20 ms mono (50 frames) and WB
@@ -264,9 +264,17 @@ prefilter-history values, all 120 frame-input values and the window before
 finding different period controls (`48/96` in Go, `48/48` in C). The ensuing
 filter and transform output differs. The live pitch scope compares the exact
 decimated buffer, raw autocorrelation and windowed autocorrelation before the
-first LPC coefficient difference. These intermediate comparisons use the actual
-frame-95 inputs and calls; they do not identify an MDCT defect or justify an
-allowance.
+LPC recurrence. The source-bound v3 LPC correction matches linked C for orders
+1–24, actual frame-95 pitch inputs and periodic PLC inputs in both instruction
+lanes. Its error update rounds both products before subtraction; the SIMD
+reflection sum rounds complete four-term groups and fuses its scalar remainder.
+Independent diagnostic-container tests pass the 60 encode, 24 decode and 15
+allocation cases in both modes, with scalar CBR 19/19 and SIMD CBR 17/19.
+Warmed LPC allocations are zero. The ordered input guard also matches C for
+zero, sub-threshold and NaN inputs on arm64 and amd64. The next actual SIMD
+difference is in FIR filtering with matching LPC coefficients. These private
+checks establish causality; native confirmation of this correction is pending.
+They do not identify an MDCT defect or justify an allowance.
 
 Independent sine-window checks cover the actual 48-, 72- and 96-sample
 segments and pass in both native instruction lanes. The gain-producer trace
@@ -293,16 +301,20 @@ compile out of default-off callers. The recursive context and archive-member
 binding checks pass in the recorded native audit.
 
 The constrained-VBR witness selects band 18, whose LM=1 geometry is [96,120);
-local coefficient 2 maps to full-spectrum indices 98 and 298. The scalar v3
+local coefficient 2 maps to full-spectrum indices 98 and 298. The default float scalar v3
 RDO helper follows the actual GCC 13.3 `bands.c:quant_all_bands` caller: rounded
 channel dot products, a rounded left weighted term, then a fused right term.
-Its two scores tie and select round -1, matching C. Independent Linux amd64
-translated diagnostics pass the original RDO C oracle, zero warmed allocations,
-all 60 encoder and 24 decoder cases in both lanes, and all 15 public allocation
-cases per lane. Scalar CBR passes all 19 cases and all 2,175 packets/ranges;
-SIMD retains the same two unresolved cases as the recorded native audit.
-Native confirmation of this correction is pending. These diagnostic runs supply
-no timing claims. A 64-unit difference in raw theta metadata remains under
+Its two scores tie and select round -1, matching C. The native audit confirms
+all 60 encoder and 24 decoder cases in both lanes, all 15 public allocation
+cases per lane, and scalar CBR identity for all 19 cases and 2,175 packets/ranges.
+The complete scalar CBR contract also passes without skips or quality failures.
+The original RDO kernel oracle and warmed allocation check pass in both relevant
+lanes. Optional feature builds retain their separate source path; matched v3 C
+references currently support only the default float configuration. Scalar-forcing
+`nosimd` and `purego` tags pass the paired RDO oracle and zero-allocation check
+with the SIMD experiment enabled in independent translated diagnostics.
+No performance measurement for this correction is recorded.
+A 64-unit difference in raw theta metadata remains under
 source investigation; the selected effective angle and emitted bytes match in
 this witness, and no numerical allowance is accepted.
 
