@@ -205,8 +205,8 @@ Full byte parity across compiler targets is not established.
 The [scaled-float conversion audit](https://github.com/thesyncim/gopus/actions/runs/36563006244)
 passes the regression and independent C conversion oracle in both v3 lanes.
 
-The [native v3 audit at `a1681f78c`](https://github.com/thesyncim/gopus/actions/runs/36665566960)
-on AMD EPYC 7763 with Go 1.27.1 and GCC 13.3 records the following matched
+The [native v3 audit at `78065fa5e`](https://github.com/thesyncim/gopus/actions/runs/36670210944)
+on AMD EPYC 9V45 with Go 1.27.1 and GCC 13.3 records the following matched
 scalar and SIMD selections. No cases in these selections are skipped.
 
 | Gate | Scalar | SIMD |
@@ -296,7 +296,7 @@ full periodic synthesis and warmed zero allocation, in both instruction lanes.
 The recorded native audit confirms the FIR, angle and IIR corrections, the LPC
 oracles and their warm allocation guards. Its full CBR contract passes all
 quality and same-packet decode checks; only the five stereo packet differences
-remain failures. Private source-bound checks match every frame-95 pitch-energy
+remain failures. Native source-bound checks match every frame-95 pitch-energy
 and gain boundary in both lanes: 15 dual products, 512 scalar or 324 SIMD
 running-energy entries, and 15 denominators, square roots and gains. The v3
 running-energy update rounds both products and its add/subtract; the SIMD dual
@@ -304,8 +304,10 @@ inner product uses the original archive's four-lane FMAs and ordered reduction.
 The linked dual-product oracle covers 36 operand cases, including vector tails,
 and both kernels retain zero warm allocations. Independent 60/24/15 gates pass
 in both lanes; CBR remains scalar 19/19 and SIMD 18/19 with the same five packet
-and two range failures. These private correctness checks do not supply native
-timings or replace the recorded native audit.
+and two range failures. These correctness checks do not supply timing measurements.
+The shared CELT log2 normalization uses one native float32 FMA on the default
+v3 float path. Its strict independent C log2 and exp2 oracles pass in both
+private instruction lanes; native confirmation of this normalization is pending.
 
 Independent sine-window checks cover the actual 48-, 72- and 96-sample
 segments and pass in both native instruction lanes. The gain-producer trace
@@ -342,8 +344,12 @@ parser checks the selected frame, bit budget, source-derived probabilities, stat
 EOF; malformed captures fail. A private bounded entropy trace compares complete
 coder state and written bytes from spread return to band-quantization entry.
 All 116 scalar calls match; the first SIMD difference is call 168, the allocation
-trim ICDF: Go selects 6 and C selects 7. The allocation-trim producer remains
-under repair. The Go 1.27.1 TF trace hooks compile
+trim ICDF: Go selects 6 and C selects 7. An actual allocation-trim capture
+matches all controls, 1,600 normalized samples and 42 log energies except the
+upstream tonality slope: Go `bd0d945c`, C `bd185542`. That input moves the raw
+trim across 6.5. A stateful analyzer oracle reproduces both frame-25 slopes
+with the same quantized stream; the analyzer remains under repair. These
+allocation-trim and analyzer captures are private checks. The Go 1.27.1 TF trace hooks compile
 out: semantic instruction and call streams agree, with NOP/link-layout
 differences. No timing claim follows from these diagnostics.
 Default-off caller opcode, instruction-length and arithmetic topology

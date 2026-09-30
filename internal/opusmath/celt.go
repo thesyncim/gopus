@@ -20,8 +20,8 @@
 //     and saturation exactly, including round-half-to-even and the rail clamps.
 //
 // The package is import-safe from both the default and the gopus_fixed_point
-// builds; it contains no build-tagged variants of its own except the fma32
-// helper, which is split per architecture only to control FMA contraction.
+// builds. Per-target helpers preserve contraction at the matching C rounding
+// boundaries.
 package opusmath
 
 import "math"
@@ -39,7 +39,7 @@ func CeltLog2(x float32) float32 {
 
 	rangeIdx := (bits >> 20) & 0x7
 	f := math.Float32frombits(bits)
-	f = f*celtLog2XNormCoeff[rangeIdx] - 1.0625
+	f = celtLog2NormalizeF32(f, celtLog2XNormCoeff[rangeIdx])
 	f = celtLog2CoeffA0 + f*(celtLog2CoeffA1+f*(celtLog2CoeffA2+f*(celtLog2CoeffA3+f*celtLog2CoeffA4)))
 	return float32(integer) + f + celtLog2YNormCoeff[rangeIdx]
 }
