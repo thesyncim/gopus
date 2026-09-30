@@ -90,6 +90,25 @@ them. Exact audit tests retain their assertions; a reviewed numerical case needs
 an executable bounded check before its exact diagnostic can become non-blocking.
 The documented custom-QEXT C history bug remains a separate upstream-UB exception.
 
+### Analyzer resampling on amd64 v3
+
+The default float v3 analyzer follows the six contracted coefficient/state
+operations in libopus `src/analysis.c:silk_resampler_down2_hp`. The stereo
+caller rounds its downmix `HALF32` result before those operations. Both helpers
+inline into the resampling loops; the output half-scale remains separate.
+
+Independent source checks cover 14 input/state cases and zero warm allocations.
+The live 50-frame analyzer oracle checks unchanged C results under tracing and
+exact first-frame resampler samples, filter state, high-pass energy, windowed
+FFT inputs and FFT outputs. These checks pass in both matched instruction lanes
+in the translated amd64 diagnostic environment. Both lanes also pass all 60
+encoder, 24 decoder and 15 warm-allocation cases, plus all 19 CBR cases:
+2,175 packets with zero packet or final-range differences. Native confirmation
+is pending.
+Analyzer phase and recurrent-network state comparisons remain separate exact
+checks; passing the packet corpus does not establish universal analyzer-state
+identity. No tolerance or failing-case exclusion applies to this fix.
+
 #### Executable gates
 
 - `TestEncoderCBRPairedOracleContract` runs all 19 CBR cases through independent
@@ -205,8 +224,8 @@ Full byte parity across compiler targets is not established.
 The [scaled-float conversion audit](https://github.com/thesyncim/gopus/actions/runs/36563006244)
 passes the regression and independent C conversion oracle in both v3 lanes.
 
-The [native v3 audit at `78065fa5e`](https://github.com/thesyncim/gopus/actions/runs/36670210944)
-on AMD EPYC 9V45 with Go 1.27.1 and GCC 13.3 records the following matched
+The [native v3 audit at `0e98deeb5`](https://github.com/thesyncim/gopus/actions/runs/36672816447)
+on AMD EPYC 7763 with Go 1.27.1 and GCC 13.3 records the following matched
 scalar and SIMD selections. No cases in these selections are skipped.
 
 | Gate | Scalar | SIMD |
@@ -307,13 +326,13 @@ in both lanes; CBR remains scalar 19/19 and SIMD 18/19 with the same five packet
 and two range failures. These correctness checks do not supply timing measurements.
 The shared CELT log2 normalization uses one native float32 FMA on the default
 v3 float path. Its strict independent C log2 and exp2 oracles pass in both
-private instruction lanes; native confirmation of this normalization is pending.
+native instruction lanes on the recorded runner.
 Float pitch gain evaluates the source expression for zero operands, preserving
 nonzero correlations and signed zero. The fixed-point zero guard applies only
 to fixed-point builds. On default v3 float builds, the denominator uses the
 source-selected float32 FMA. Nine independent original-source operand triples,
 all 15 actual frame-95 gain boundaries, warm allocation checks and 60/24/15
-gates pass in both private lanes; native confirmation of this gain fix is pending.
+gates pass in both native lanes on the recorded runner.
 
 Independent sine-window checks cover the actual 48-, 72- and 96-sample
 segments and pass in both native instruction lanes. The gain-producer trace

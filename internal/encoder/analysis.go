@@ -102,18 +102,6 @@ var tbands = [NbTBands + 1]int{
 	4, 8, 12, 16, 20, 24, 28, 32, 40, 48, 56, 64, 80, 96, 112, 136, 160, 192, 240,
 }
 
-// down2HPStep is one output sample of silk_resampler_down2_hp (src/analysis.c,
-// float build): the all-pass pair over the even sample in0 and the odd sample
-// in1, plus the high-pass branch. Each X = coef*Y is rounded in its own
-// statement as in C. It returns the new state, the output sample and the
-// high-pass sample.
-func down2HPStep(s0, s1, s2, in0, in1 float32) (float32, float32, float32, float32, float32) {
-	x0 := float32(0.6074371 * (in0 - s0))
-	x1 := float32(0.15063 * (in1 - s1))
-	x2 := float32(0.15063 * (-in1 - s2))
-	return in0 + x0, in1 + x1, -in1 + x2, 0.5 * (s0 + x0 + s1 + x1), s0 + x0 + s2 + x2
-}
-
 // silkResamplerDown2HP is silk_resampler_down2_hp (src/analysis.c) in the float
 // build: it halves the rate of in into out and returns the high-pass energy.
 func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
@@ -124,9 +112,10 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 	_ = in[2*len2-1]
 	_ = out[len2-1]
 	s0, s1, s2 := s[0], s[1], s[2]
-	var hpEner, hp float32
+	var hpEner, hp, sample float32
 	for k := range len2 {
-		s0, s1, s2, out[k], hp = down2HPStep(s0, s1, s2, in[2*k], in[2*k+1])
+		s0, s1, s2, sample, hp = down2HPStep(s0, s1, s2, in[2*k], in[2*k+1])
+		out[k] = 0.5 * sample
 		hpEner += hp * hp
 	}
 	s[0], s[1], s[2] = s0, s1, s2
@@ -143,11 +132,12 @@ func silkResamplerDown2HPMono(s []float32, out []float32, pcm []float32) float32
 	_ = pcm[2*len2-1]
 	_ = out[len2-1]
 	s0, s1, s2 := s[0], s[1], s[2]
-	var hpEner, hp float32
+	var hpEner, hp, sample float32
 	for k := range len2 {
 		in0 := downmixCap(pcm[2*k] * celtSigScale)
 		in1 := downmixCap(pcm[2*k+1] * celtSigScale)
-		s0, s1, s2, out[k], hp = down2HPStep(s0, s1, s2, in0, in1)
+		s0, s1, s2, sample, hp = down2HPStep(s0, s1, s2, in0, in1)
+		out[k] = 0.5 * sample
 		hpEner += hp * hp
 	}
 	s[0], s[1], s[2] = s0, s1, s2
@@ -165,12 +155,13 @@ func silkResamplerDown2HPStereo(s []float32, out []float32, pcm []float32) float
 	_ = pcm[4*len2-1]
 	_ = out[len2-1]
 	s0, s1, s2 := s[0], s[1], s[2]
-	var hpEner, hp float32
+	var hpEner, hp, sample float32
 	for k := range len2 {
 		p := pcm[4*k : 4*k+4 : 4*k+4]
-		in0 := 0.5 * downmixCap(p[0]*celtSigScale+p[1]*celtSigScale)
-		in1 := 0.5 * downmixCap(p[2]*celtSigScale+p[3]*celtSigScale)
-		s0, s1, s2, out[k], hp = down2HPStep(s0, s1, s2, in0, in1)
+		in0 := analysisDown2HalfInput(downmixCap(p[0]*celtSigScale + p[1]*celtSigScale))
+		in1 := analysisDown2HalfInput(downmixCap(p[2]*celtSigScale + p[3]*celtSigScale))
+		s0, s1, s2, sample, hp = down2HPStep(s0, s1, s2, in0, in1)
+		out[k] = 0.5 * sample
 		hpEner += hp * hp
 	}
 	s[0], s[1], s[2] = s0, s1, s2
