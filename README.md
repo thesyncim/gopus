@@ -150,29 +150,31 @@ go test -tags gopus_osce ./...
 ## Performance
 
 The table pairs **C scalar with Go scalar** and **C SIMD with Go SIMD**, using
-identical inputs and controls. Values are median microseconds per packet on an
-AMD EPYC 9V74, Go 1.27.1, GCC 13.3.0, **GOAMD64=v1**, with PGO, at `c6dfb561`.
-Each case has three runs of at least 250 ms. Go reports zero allocations;
-C allocation counts are not measured.
+identical inputs and controls. Values are median **ns/sample per channel**
+(lower is faster) on AMD EPYC 9V74, Go 1.27.1 and GCC 13.3.0, with
+**GOAMD64=v3**, PGO and candidate `c49e25c77`. Each case has three runs of
+at least 250 ms. Go reports zero allocations; C allocations are not measured.
 
 | Workload | C scalar | Go scalar | C SIMD | Go SIMD |
 |---|---:|---:|---:|---:|
-| Encode CELT, fullband, 20 ms stereo, 128 kbps | 197.34 | 191.63 | 145.71 | 123.58 |
-| Encode CELT, fullband, 5 ms mono, 64 kbps | 21.59 | 23.66 | 20.36 | 19.71 |
-| Encode Hybrid, fullband, 20 ms mono, 64 kbps | 395.42 | 376.56 | 267.38 | 221.67 |
-| Encode Hybrid, fullband, 20 ms stereo, 96 kbps | 226.37 | 223.36 | 170.36 | 139.82 |
-| Encode SILK, wideband, 20 ms mono, 32 kbps | 762.47 | 669.81 | 421.35 | 321.99 |
-| Decode RFC vectors, float32 | 32.85 | 34.01 | 31.01 | 28.27 |
-| Decode RFC vectors, int16 | 36.82 | 37.34 | 33.82 | 32.38 |
+| Encode CELT, fullband, 20 ms stereo, 128 kbps | 152.19 | 158.19 | 108.86 | 99.11 |
+| Encode CELT, fullband, 5 ms mono, 64 kbps | 63.82 | 74.38 | 57.69 | 62.17 |
+| Encode SILK, wideband, 20 ms mono, 32 kbps | 605.21 | 567.00 | 325.60 | 259.31 |
+| Encode Hybrid, fullband, 20 ms mono, 64 kbps | 308.40 | 344.16 | 193.71 | 175.51 |
+| Encode Hybrid, fullband, 20 ms stereo, 96 kbps | 174.48 | 183.49 | 123.95 | 113.08 |
+| Decode RFC vectors, float32 | 31.88 | 37.35 | 29.91 | 28.44 |
+| Decode RFC vectors, int16 | 35.11 | 41.17 | 32.38 | 32.51 |
 
-Decoder rows aggregate 20,075 identical packets. These results are specific to
-the workloads and measured revision. The [performance reference](reports/validation.md#performance)
-contains all **53 replacement routines**, assembly/Go/`nosimd` comparisons,
-allocation results and artifact provenance from the
-[passing native run](https://github.com/thesyncim/gopus/actions/runs/36506668630).
+Decoder rows aggregate 20,075 identical packets. Go SIMD takes 9–20% less time
+than matched C SIMD in four encode workloads and 7.8% more for 5 ms CELT.
+Float32 vector decode takes 4.9% less time; int16 is within 0.4%.
+These results describe the measured revision and workloads. The
+[passing native benchmark](https://github.com/thesyncim/gopus/actions/runs/36684603376) records all targets and raw samples. The
+[performance reference](reports/validation.md#performance) contains all **53
+replacement routines**, assembly/Go/`nosimd` comparisons, allocations and
+per-row provenance.
 
-For new AMD64 SIMD measurements, use **GOAMD64=v3** on a supporting CPU and
-select the same C compiler target:
+Use **GOAMD64=v3** on a supporting CPU and select the same C compiler target:
 
 ```sh
 GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./examples/bench-encode
@@ -180,13 +182,11 @@ GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./examples/ben
 ```
 
 For scalar comparisons, retain both target settings and use `GOEXPERIMENT=nosimd`.
-On ARM64, omit both AMD64 target settings. The published numbers retain their
-measured v1 provenance. The [native v3 audit](https://github.com/thesyncim/gopus/actions/runs/36677186394)
+On ARM64, omit both AMD64 target settings. The [native v3 audit](https://github.com/thesyncim/gopus/actions/runs/36684455645)
 passes all 19 CBR cases and 2,175 packets/ranges in both lanes, plus the selected
-60 encoder, 24 decoder and 15 allocation cases. Analyzer-state differences
-remain under investigation; fresh v3 timings need their own measured evidence. The optional
-[v1/v2/v3 audit](reports/validation.md#amd64-compiler-targets) runs on one native host;
-routine PR CI does not run that matrix.
+60 encoder, 24 decoder and 15 allocation cases. Wider analyzer-state differences
+remain under investigation. The optional [v1/v2/v3 audit](reports/validation.md#amd64-compiler-targets)
+runs on one native host; routine PR CI does not run that matrix.
 
 ## Parity & testing
 

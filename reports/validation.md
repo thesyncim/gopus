@@ -101,8 +101,8 @@ Independent source checks cover 14 input/state cases and zero warm allocations.
 The live 50-frame analyzer oracle checks unchanged C results under tracing and
 exact first-frame resampler samples, filter state, high-pass energy, windowed
 FFT inputs and FFT outputs. These checks pass in both matched instruction lanes
-on AMD EPYC 7763 with Go 1.27.1 and GCC 13.3 in the
-[recorded native audit](https://github.com/thesyncim/gopus/actions/runs/36677186394).
+on AMD EPYC 9V74 with Go 1.27.1 and GCC 13.3 in the
+[recorded native audit](https://github.com/thesyncim/gopus/actions/runs/36684455645).
 Both lanes also pass all 60 encoder, 24 decoder and 15 warm-allocation cases,
 plus all 19 CBR cases: 2,175 packets with zero packet or final-range differences.
 Analyzer phase and recurrent-network state comparisons remain separate exact
@@ -116,13 +116,13 @@ The default float v3 SIMD phase kernel uses three packed FMAs for the
 analysis object. Other targets and optional features keep their selected
 arithmetic. The polynomial helper inlines and adds no hot-path calls.
 
-Independent translated amd64 checks compare 500 original-C kernel operands,
+Independent source checks compare 500 original-C kernel operands,
 including both phase inputs from all 239 active bins. Every phase input and
 angle/velocity/acceleration history entry matches the live C trace. Its full
 50-frame C output agrees with the uninstrumented oracle, and the SIMD kernel
 allocates zero after warmup. Both instruction lanes preserve all 60 encoder,
-24 decoder, 15 allocation and 19 CBR cases. Native confirmation of this phase
-correction is pending. The classifier and tone checks below cover the first
+24 decoder, 15 allocation and 19 CBR cases in the native v3 audit at `c49e25c77`.
+The classifier and tone checks below cover the first
 analyzer chunk; wider state/history comparisons remain unresolved.
 
 ### Analyzer classifier and tone on amd64 v3
@@ -134,7 +134,7 @@ them. The v3 SIMD tone kernel uses a fused `1 + K*modulation` denominator,
 matching the selected GCC 13.3 analysis object. Other targets and optional
 features keep their selected arithmetic.
 
-Independent translated amd64 checks require exact outputs from the original
+Independent source checks require exact outputs from the original
 trained dense/GRU/dense chain for one actual input and eight bounded inputs with
 nonzero recurrent state. They also require all actual first-chunk neural stages
 and all four tone metrics across 239 bins to match, and verify that tracing
@@ -146,7 +146,8 @@ with zero packet or final-range differences.
 These checks cover the tested operands and first analyzer chunk. The full
 180-case audio corpus and 20 encoder-variant analyzer sweeps still expose
 later-history and signal-specific state differences; they remain unresolved.
-Native confirmation and timings for these corrections require a measured run.
+The [native v3 audit](https://github.com/thesyncim/gopus/actions/runs/36684455645) confirms these source checks, and the
+[measured timing matrix](https://github.com/thesyncim/gopus/actions/runs/36684603376) records performance at `c49e25c77`.
 No universal analyzer-state identity is claimed.
 
 #### Executable gates
@@ -244,8 +245,8 @@ invalid Opus output or audible degradation.
 The [scaled-float conversion audit](https://github.com/thesyncim/gopus/actions/runs/36563006244)
 passes the regression and independent C conversion oracle in both v3 lanes.
 
-The [native v3 audit at `d3a4fc9ab`](https://github.com/thesyncim/gopus/actions/runs/36677186394)
-on AMD EPYC 7763 with Go 1.27.1 and GCC 13.3 records the following matched
+The [native v3 audit at `c49e25c77`](https://github.com/thesyncim/gopus/actions/runs/36684455645)
+on AMD EPYC 9V74 with Go 1.27.1 and GCC 13.3 records the following matched
 scalar and SIMD selections. No cases in these selections are skipped.
 
 | Gate | Scalar | SIMD |
@@ -754,55 +755,56 @@ stamps are checked before comparison.
 
 #### Native AMD64 end-to-end measurements
 
-Native early artifact `11009635111` compares assembly `8ac93c85` with
-SIMD/`nosimd` `c6dfb561` on AMD EPYC 9V74, Go 1.27.1, GCC 13.3.0,
-GOAMD64=v1, and PGO enabled. Four interleaved 500 ms samples use `-cpu=1`;
-all 72 benchmark samples report 0 B/op and 0 allocs/op. Values are median ns/op.
-The [native run](https://github.com/thesyncim/gopus/actions/runs/36506668630)
-provides the underlying benchmark logs in artifact `11009635111`.
+The [native benchmark](https://github.com/thesyncim/gopus/actions/runs/36684603376) compares assembly `8ac93c85` with
+SIMD/`nosimd` `c49e25c77` on AMD EPYC 9V74, Go 1.27.1 and GCC 13.3.0,
+**GOAMD64=v3**, with PGO enabled. Four rotated/reversed 500 ms rounds use
+`-cpu=1`. All 72 v3 samples report 0 B/op and 0 allocs/op. Values are median ns/op.
+The artifact `goamd64-benchmark-36684603376` contains the raw samples, compiler
+settings, source revisions and per-binary PGO hashes.
 
 | Workload | Old assembly | Go SIMD | `nosimd` |
 |---|---:|---:|---:|
-| CELT decode | 20,222.5 | 13,446 | 17,080 |
-| Hybrid decode | 29,924 | 26,080 | 32,961 |
-| SILK decode | 23,579.5 | 16,890 | 21,827.5 |
-| Caller-buffer encode | 93,138 | 61,203 | 104,182.5 |
-| VoIP encode | 99,290.5 | 66,263.5 | 109,582 |
-| Low-delay encode | 92,213 | 61,247.5 | 103,673.5 |
+| CELT decode | 15,463 | 10,522.5 | 13,707.5 |
+| Hybrid decode | 23,320.5 | 19,767 | 25,861 |
+| SILK decode | 18,208.5 | 13,093.5 | 17,222.5 |
+| Caller-buffer encode | 71,248.5 | 48,273.5 | 84,688.5 |
+| VoIP encode | 77,270 | 53,028.5 | 90,266.5 |
+| Low-delay encode | 70,653.5 | 48,285.5 | 84,188 |
 
-Go SIMD takes less time than assembly in all six within-artifact workloads.
-`nosimd` is faster than assembly for CELT and SILK decode and slower for the
-other four workloads. Do not compare absolute timings across early artifacts
-as source changes; use only the within-run variants shown here. The 11 AMD64
-kernel rows use complete artifact `11009623177` at `c6dfb561` on EPYC 9V74;
-ARM64 rows retain their own measured revisions.
+Go SIMD takes 15.2–32.2% less time than assembly in these six workloads.
+`nosimd` takes less time for CELT/SILK decode and more for Hybrid decode and
+encode. Comparisons apply to variants within this run. The 11 AMD64 direct
+kernel rows retain artifact `11009623177` at `c6dfb561`, GOAMD64=v1, on EPYC
+9V74; ARM64 rows retain their own measured revisions. End-to-end measurements
+do not refresh those per-routine measurements.
 
 #### Matched libopus 1.6.1 comparison
 
-Same candidate revision and runner; C scalar vs Go scalar and C SIMD vs Go
-SIMD. Early artifact `11009635111` uses candidate `c6dfb561` on AMD EPYC 9V74.
-Each case has three 250 ms minimum runs. Values are µs/packet (lower is faster).
-Every paired Go benchmark row allocates zero; C allocations are not measured.
+Same native runner and candidate revision; C scalar vs Go scalar and C SIMD
+vs Go SIMD. Both compilers target v3. Scalar C disables assembly, intrinsics,
+RTCD and compiler vectorization; SIMD C selects AVX2/FMA. Each case has three
+runs of at least 250 ms. Values are **ns/sample per channel** (lower is faster).
+Go allocations are zero; C allocations are not measured.
 
 | Workload | C scalar | Go scalar | C SIMD | Go SIMD |
 |---|---:|---:|---:|---:|
-| CELT-FB-20ms-stereo-128k | 197.34 | 191.63 | 145.71 | 123.58 |
-| CELT-FB-5ms-mono-64k | 21.59 | 23.66 | 20.36 | 19.71 |
-| Hybrid-FB-20ms-mono-64k | 395.42 | 376.56 | 267.38 | 221.67 |
-| Hybrid-FB-20ms-stereo-96k | 226.37 | 223.36 | 170.36 | 139.82 |
-| SILK-WB-20ms-mono-32k | 762.47 | 669.81 | 421.35 | 321.99 |
-| RFC vectors Float32 | 32.85 | 34.01 | 31.01 | 28.27 |
-| RFC vectors Int16 | 36.82 | 37.34 | 33.82 | 32.38 |
+| CELT-FB-20ms-stereo-128k | 152.19 | 158.19 | 108.86 | 99.11 |
+| CELT-FB-5ms-mono-64k | 63.82 | 74.38 | 57.69 | 62.17 |
+| SILK-WB-20ms-mono-32k | 605.21 | 567.00 | 325.60 | 259.31 |
+| Hybrid-FB-20ms-mono-64k | 308.40 | 344.16 | 193.71 | 175.51 |
+| Hybrid-FB-20ms-stereo-96k | 174.48 | 183.49 | 123.95 | 113.08 |
+| RFC vectors Float32 | 31.88 | 37.35 | 29.91 | 28.44 |
+| RFC vectors Int16 | 35.11 | 41.17 | 32.38 | 32.51 |
 
-Go SIMD takes less time than matched C in all seven within-artifact workloads.
-Scalar Go takes more time for 5 ms CELT and the two vector-decode cases, and
-less time for the other four encode cases. These are workload-specific results
-from this runner.
+Go SIMD takes 9–20.4% less time than matched C SIMD in four encode workloads;
+5 ms CELT takes 7.8% more. Float32 vector decode takes 4.9% less time, and int16
+is within 0.4%. Scalar Go takes 6.3% less time for SILK encode; the other scalar
+rows take 3.9–17.3% more time. These are workload-specific measured results.
 
 Decoder rows aggregate 20,075 identical packets; encoder rows use identical PCM
-and controls. Encoder timings do not establish long-stream packet parity.
-The throughput table describes the early artifact; the full A/B gate also
-passes at the same revision.
+and controls. Each compiler-target/lane passes all 19 contract cases, 2,175
+packet/range comparisons and 76 decode paths with no unresolved results.
+Timing results do not establish universal stream or analyzer-state identity.
 
 #### Intel SSE/AVX transitions
 
@@ -867,7 +869,7 @@ The focused native kernel audit captures the executed helper binaries and their
 disassembly as well as the reference archive's code generation.
 
 The [v1/v2 target audit](https://github.com/thesyncim/gopus/actions/runs/36555425559)
-and [v3 kernel audit](https://github.com/thesyncim/gopus/actions/runs/36677186394)
+and [v3 kernel audit](https://github.com/thesyncim/gopus/actions/runs/36684455645)
 use Go 1.27.1 and GCC 13.3. Their bounded default-float selections record:
 
 | Target / Go lane | Revision | Encode exact | Decode exact | CBR exact | Packet differences / 2,175 | Range differences / 2,175 | Warm allocation checks |
@@ -876,15 +878,15 @@ use Go 1.27.1 and GCC 13.3. Their bounded default-float selections record:
 | v1 / SIMD | `bc5ddaeb` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
 | v2 / scalar | `bc5ddaeb` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
 | v2 / SIMD | `bc5ddaeb` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
-| v3 / scalar | `d3a4fc9ab` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
-| v3 / SIMD | `d3a4fc9ab` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
+| v3 / scalar | `c49e25c77` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
+| v3 / SIMD | `c49e25c77` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
 
 The v3 audit also passes the six FFT/MDCT live-C suites, selected SILK
 LPC/window/gain and CELT kernel oracles, and the complete CBR quality and
 interoperability contract. The first-chunk phase, tone and classifier source
-checks above have separate local evidence; wider analyzer histories remain
-unresolved. No universal float-state guarantee or new timing measurement
-follows from these selected results.
+checks above pass on the same native v3 runner; wider analyzer histories remain
+unresolved. The benchmark at `c49e25c77` also passes the full compiler-target
+contract matrix. These selections do not establish universal float-state identity.
 
 Each candidate target/mode must pass exact CBR packets/ranges, selected stateful
 encode and fresh-state decode cases, dispatch and warm allocation checks.
@@ -894,9 +896,9 @@ cases invalidate the corresponding comparison. Six E2E workloads and seven
 paired C workloads require complete rows and zero Go allocations.
 
 This matrix covers the default float core. Optional features and the complete
-53-symbol inventory keep their separately recorded v1 coverage. The tables above
-retain their measured revision and target until a complete compiler-target
-artifact supplies replacement data.
+53-symbol inventory keep their separately recorded per-row coverage. The native
+benchmark artifact records v1, v2 and v3 on one host; the throughput tables above
+use its v3 measurements. Routine CI does not run the full timing matrix.
 
 On a native Linux amd64 host with AVX2/FMA, run:
 

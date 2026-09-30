@@ -13,8 +13,9 @@ import (
 )
 
 func TestParseAnalysisMLPStageTraceRejectsMalformedGAML(t *testing.T) {
-	valid := validAnalysisMLPStageTraceWire()
-	if _, err := parseAnalysisMLPStageTrace(valid); err != nil {
+	const wantDenseCalls, wantGRUCalls = 100, 50
+	valid := validAnalysisMLPStageTraceWire(wantDenseCalls, wantGRUCalls)
+	if _, err := parseAnalysisMLPStageTrace(valid, wantDenseCalls, wantGRUCalls); err != nil {
 		t.Fatalf("parse valid GAML fixture: %v", err)
 	}
 
@@ -47,7 +48,7 @@ func TestParseAnalysisMLPStageTraceRejectsMalformedGAML(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			malformed := append([]byte(nil), valid...)
 			malformed = tc.mutate(malformed)
-			if _, err := parseAnalysisMLPStageTrace(malformed); err == nil {
+			if _, err := parseAnalysisMLPStageTrace(malformed, wantDenseCalls, wantGRUCalls); err == nil {
 				t.Fatal("malformed GAML payload was accepted")
 			}
 		})
@@ -88,9 +89,9 @@ func TestAnalysisMLPStageTraceDriverAnchorsAreUnique(t *testing.T) {
 	}
 }
 
-func validAnalysisMLPStageTraceWire() []byte {
+func validAnalysisMLPStageTraceWire(denseCalls, gruCalls uint32) []byte {
 	data := []byte("GAML")
-	for _, value := range []uint32{1, 0, 100, 50, 3, 0} {
+	for _, value := range []uint32{1, 0, denseCalls, gruCalls, 3, 0} {
 		data = appendAnalysisMLPTraceU32(data, value)
 	}
 	data = append(data, libopusAnalysisSourceSHA256...)

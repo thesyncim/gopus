@@ -91,14 +91,14 @@ func TestAnalysisMLPStageTrace(t *testing.T) {
 	if !bytes.Equal(traced[:baselineBytes], baseline) {
 		t.Fatal("analysis MLP wrappers changed ordinary 50-frame GANO output")
 	}
-	cTrace, err := parseAnalysisMLPStageTrace(traced[baselineBytes:])
+	cTrace, err := parseAnalysisMLPStageTrace(traced[baselineBytes:], uint32(frames*2), uint32(frames))
 	if err != nil {
 		t.Fatalf("parse GAML: %v", err)
 	}
 	cFrame := parseAnalysisMLPFirstGANOFrame(baseline)
-	if cTrace.dense2Output != [2]uint32{cFrame.ret.musicProb, cFrame.ret.activityProb} {
-		t.Fatalf("C dense2 output %08x/%08x is not linked to frame-0 GANO music/VAD %08x/%08x",
-			cTrace.dense2Output[0], cTrace.dense2Output[1], cFrame.ret.musicProb, cFrame.ret.activityProb)
+	if cTrace.dense2Output != [2]uint32{cFrame.latest.musicProb, cFrame.latest.activityProb} {
+		t.Fatalf("C dense2 output %08x/%08x is not linked to frame-0 raw analyzer-ring music/VAD %08x/%08x",
+			cTrace.dense2Output[0], cTrace.dense2Output[1], cFrame.latest.musicProb, cFrame.latest.activityProb)
 	}
 	if cTrace.dense0Output != cTrace.gruInput {
 		t.Fatal("C dense0 output does not match the actual GRU input")
@@ -113,22 +113,30 @@ func TestAnalysisMLPStageTrace(t *testing.T) {
 	tracedState.SetLSBDepth(lsbDepth)
 	frameSamples := frameSize * channels
 	frame0 := samples[:frameSamples]
-	plainInfo := plain.RunAnalysis(frame0, frameSize, channels)
 	oldHook := analysisMLPTraceHook
 	t.Cleanup(func() { analysisMLPTraceHook = oldHook })
 	var goTrace analysisMLPTraceSnapshot
+	var frame0LatestInfo AnalysisInfo
 	goCalls := 0
-	analysisMLPTraceHook = func(snapshot analysisMLPTraceSnapshot) {
+	traceHook := func(snapshot analysisMLPTraceSnapshot) {
 		goCalls++
 		goTrace = snapshot
 	}
+	analysisMLPTraceHook = nil
+	plainInfo := plain.RunAnalysis(frame0, frameSize, channels)
+	analysisMLPTraceHook = traceHook
 	frame0TraceInfo := tracedState.RunAnalysis(frame0, frameSize, channels)
+	frame0LatestInfo = analysisLatestRawInfo(tracedState)
+	analysisMLPTraceHook = nil
 	compareGoAnalysisFrame(t, 0, frame0TraceInfo, plainInfo, tracedState, plain)
 	for frameIndex := 1; frameIndex < frames; frameIndex++ {
 		start := frameIndex * frameSamples
 		frame := samples[start : start+frameSamples]
+		analysisMLPTraceHook = nil
 		plainInfo = plain.RunAnalysis(frame, frameSize, channels)
+		analysisMLPTraceHook = traceHook
 		traceInfo := tracedState.RunAnalysis(frame, frameSize, channels)
+		analysisMLPTraceHook = nil
 		compareGoAnalysisFrame(t, frameIndex, traceInfo, plainInfo, tracedState, plain)
 	}
 	if goCalls != 1 {
@@ -144,9 +152,9 @@ func TestAnalysisMLPStageTrace(t *testing.T) {
 	if goTrace.GRUStateAfter != goTrace.Dense2Input {
 		t.Fatal("Go GRU output state does not match the actual dense2 input")
 	}
-	if got := [2]uint32{math.Float32bits(goTrace.Dense2Output[0]), math.Float32bits(goTrace.Dense2Output[1])}; got != [2]uint32{math.Float32bits(frame0TraceInfo.MusicProb), math.Float32bits(frame0TraceInfo.VADProb)} {
-		t.Fatalf("Go dense2 output %08x/%08x is not linked to actual frame info %08x/%08x",
-			got[0], got[1], math.Float32bits(frame0TraceInfo.MusicProb), math.Float32bits(frame0TraceInfo.VADProb))
+	if got := [2]uint32{math.Float32bits(goTrace.Dense2Output[0]), math.Float32bits(goTrace.Dense2Output[1])}; got != [2]uint32{math.Float32bits(frame0LatestInfo.MusicProb), math.Float32bits(frame0LatestInfo.VADProb)} {
+		t.Fatalf("Go dense2 output %08x/%08x is not linked to frame-0 raw analyzer-ring music/VAD %08x/%08x",
+			got[0], got[1], math.Float32bits(frame0LatestInfo.MusicProb), math.Float32bits(frame0LatestInfo.VADProb))
 	}
 
 	var firstDifference string
@@ -161,6 +169,14 @@ func TestAnalysisMLPStageTrace(t *testing.T) {
 	if d := diffAnalysisInfo(analysisInfoToOracle(frame0TraceInfo), cFrame.ret); d != "" {
 		t.Fatalf("frame-0 GANI returned info differs: %s", d)
 	}
+}
+
+func analysisLatestRawInfo(s *TonalityAnalysisState) AnalysisInfo {
+	latest := int(s.WritePos) - 1
+	if latest < 0 {
+		latest += len(s.Info)
+	}
+	return s.Info[latest]
 }
 
 func compareGoAnalysisFrame(t *testing.T, frame int, tracedInfo, plainInfo AnalysisInfo, traced, plain *TonalityAnalysisState) {
@@ -264,7 +280,7 @@ func replaceAnalysisMLPStageAnchor(source, old, replacement, label string) (stri
 	return string(bytes.Replace([]byte(source), []byte(old), []byte(replacement), 1)), nil
 }
 
-func parseAnalysisMLPStageTrace(data []byte) (analysisMLPStageTrace, error) {
+func parseAnalysisMLPStageTrace(data []byte, expectedDenseCalls, expectedGRUCalls uint32) (analysisMLPStageTrace, error) {
 	var trace analysisMLPStageTrace
 	const fixedHeaderBytes = 4 + 6*4 + 2*64
 	if len(data) < fixedHeaderBytes {
@@ -289,7 +305,7 @@ func parseAnalysisMLPStageTrace(data []byte) (analysisMLPStageTrace, error) {
 	pos += 64
 	trace.mlpSourceSHA256 = string(data[pos : pos+64])
 	pos += 64
-	if version != 1 || trace.frame != 0 || trace.denseCalls != 100 || trace.gruCalls != 50 || trace.stageCount != 3 || trace.overflow != 0 {
+	if version != 1 || trace.frame != 0 || trace.denseCalls != expectedDenseCalls || trace.gruCalls != expectedGRUCalls || trace.stageCount != 3 || trace.overflow != 0 {
 		return trace, fmt.Errorf("GAML metadata version=%d frame=%d dense=%d GRU=%d stages=%d overflow=%d",
 			version, trace.frame, trace.denseCalls, trace.gruCalls, trace.stageCount, trace.overflow)
 	}
