@@ -18,6 +18,183 @@
 #include "celt/os_support.h"
 #include "celt/pitch.h"
 
+#ifdef GOPUS_CELT_PITCH_KERNEL_TRACE
+#define PITCH_TRACE_MAX 32
+
+static int write_u32(uint32_t value);
+static int write_float_array(const float *src, uint32_t n);
+
+extern int __real__celt_autocorr(const opus_val16 *x, opus_val32 *ac,
+    const celt_coef *window, int overlap, int lag, int n, int arch);
+extern void __real__celt_lpc(opus_val16 *lpc, const opus_val32 *ac, int p);
+extern void __real_celt_pitch_xcorr_avx2(const float *x, const float *y,
+    float *xcorr, int len, int max_pitch, int arch);
+
+static int g_pitch_kernel_trace_enabled;
+static uint32_t g_pitch_xcorr_calls;
+static uint32_t g_pitch_autocorr_calls;
+static uint32_t g_pitch_lpc_calls;
+static uint32_t g_pitch_trace_overflow;
+static uint32_t g_pitch_xcorr_len;
+static uint32_t g_pitch_xcorr_max_pitch;
+static uint32_t g_pitch_xcorr_arch;
+static uint32_t g_pitch_xcorr_x_count;
+static uint32_t g_pitch_xcorr_y_count;
+static uint32_t g_pitch_xcorr_output_count;
+static uint32_t g_pitch_autocorr_n;
+static uint32_t g_pitch_autocorr_lag;
+static uint32_t g_pitch_autocorr_arch;
+static uint32_t g_pitch_autocorr_window_present;
+static uint32_t g_pitch_autocorr_overlap;
+static uint32_t g_pitch_autocorr_ac_count;
+static uint32_t g_pitch_lpc_order;
+static uint32_t g_pitch_lpc_ac_count;
+static float g_pitch_xcorr_x[PITCH_TRACE_MAX];
+static float g_pitch_xcorr_y[PITCH_TRACE_MAX];
+static float g_pitch_xcorr_output[PITCH_TRACE_MAX];
+static float g_pitch_autocorr_input[PITCH_TRACE_MAX];
+static float g_pitch_autocorr_ac[PITCH_TRACE_MAX];
+static float g_pitch_lpc_ac[PITCH_TRACE_MAX];
+static float g_pitch_lpc_output[PITCH_TRACE_MAX];
+
+void __wrap_celt_pitch_xcorr_avx2(const float *x, const float *y,
+    float *xcorr, int len, int max_pitch, int arch) {
+  uint32_t call = 0;
+  if (g_pitch_kernel_trace_enabled) {
+    call = g_pitch_xcorr_calls++;
+    if (call == 0) {
+      g_pitch_xcorr_len = len > 0 ? (uint32_t)len : 0;
+      g_pitch_xcorr_max_pitch = max_pitch > 0 ? (uint32_t)max_pitch : 0;
+      g_pitch_xcorr_arch = (uint32_t)arch;
+      if (len < 0 || max_pitch < 0 || len > PITCH_TRACE_MAX ||
+          max_pitch > PITCH_TRACE_MAX || len + max_pitch - 1 > PITCH_TRACE_MAX) {
+        g_pitch_trace_overflow = 1;
+      } else {
+        uint32_t i;
+        g_pitch_xcorr_x_count = (uint32_t)len;
+        g_pitch_xcorr_y_count = (uint32_t)(len + max_pitch - 1);
+        g_pitch_xcorr_output_count = (uint32_t)max_pitch;
+        for (i = 0; i < g_pitch_xcorr_x_count; i++) g_pitch_xcorr_x[i] = x[i];
+        for (i = 0; i < g_pitch_xcorr_y_count; i++) g_pitch_xcorr_y[i] = y[i];
+      }
+    }
+  }
+
+  __real_celt_pitch_xcorr_avx2(x, y, xcorr, len, max_pitch, arch);
+
+  if (g_pitch_kernel_trace_enabled && call == 0 && !g_pitch_trace_overflow) {
+    uint32_t i;
+    for (i = 0; i < g_pitch_xcorr_output_count; i++) g_pitch_xcorr_output[i] = xcorr[i];
+  }
+}
+
+int __wrap__celt_autocorr(const opus_val16 *x, opus_val32 *ac,
+    const celt_coef *window, int overlap, int lag, int n, int arch) {
+  uint32_t call = 0;
+  if (g_pitch_kernel_trace_enabled) {
+    call = g_pitch_autocorr_calls++;
+    if (call == 0) {
+      g_pitch_autocorr_n = n > 0 ? (uint32_t)n : 0;
+      g_pitch_autocorr_lag = lag >= 0 ? (uint32_t)lag : 0;
+      g_pitch_autocorr_arch = (uint32_t)arch;
+      g_pitch_autocorr_window_present = window != NULL;
+      g_pitch_autocorr_overlap = overlap >= 0 ? (uint32_t)overlap : 0;
+      if (n < 0 || n > PITCH_TRACE_MAX || lag < 0 || lag + 1 > PITCH_TRACE_MAX) {
+        g_pitch_trace_overflow = 1;
+      } else {
+        uint32_t i;
+        for (i = 0; i < (uint32_t)n; i++) g_pitch_autocorr_input[i] = x[i];
+      }
+    }
+  }
+
+  int result = __real__celt_autocorr(x, ac, window, overlap, lag, n, arch);
+
+  if (g_pitch_kernel_trace_enabled && call == 0 && !g_pitch_trace_overflow) {
+    uint32_t i;
+    g_pitch_autocorr_ac_count = (uint32_t)lag + 1;
+    for (i = 0; i < g_pitch_autocorr_ac_count; i++) g_pitch_autocorr_ac[i] = ac[i];
+  }
+  return result;
+}
+
+void __wrap__celt_lpc(opus_val16 *lpc, const opus_val32 *ac, int p) {
+  uint32_t call = 0;
+  if (g_pitch_kernel_trace_enabled) {
+    call = g_pitch_lpc_calls++;
+    if (call == 0) {
+      g_pitch_lpc_order = p > 0 ? (uint32_t)p : 0;
+      if (p < 0 || p + 1 > PITCH_TRACE_MAX) {
+        g_pitch_trace_overflow = 1;
+      } else {
+        uint32_t i;
+        g_pitch_lpc_ac_count = (uint32_t)p + 1;
+        for (i = 0; i < g_pitch_lpc_ac_count; i++) g_pitch_lpc_ac[i] = ac[i];
+      }
+    }
+  }
+
+  __real__celt_lpc(lpc, ac, p);
+
+  if (g_pitch_kernel_trace_enabled && call == 0 && !g_pitch_trace_overflow) {
+    uint32_t i;
+    for (i = 0; i < (uint32_t)p; i++) g_pitch_lpc_output[i] = lpc[i];
+  }
+}
+
+static void reset_pitch_kernel_trace(void) {
+  g_pitch_xcorr_calls = 0;
+  g_pitch_autocorr_calls = 0;
+  g_pitch_lpc_calls = 0;
+  g_pitch_trace_overflow = 0;
+  g_pitch_xcorr_len = 0;
+  g_pitch_xcorr_max_pitch = 0;
+  g_pitch_xcorr_arch = 0;
+  g_pitch_xcorr_x_count = 0;
+  g_pitch_xcorr_y_count = 0;
+  g_pitch_xcorr_output_count = 0;
+  g_pitch_autocorr_n = 0;
+  g_pitch_autocorr_lag = 0;
+  g_pitch_autocorr_arch = 0;
+  g_pitch_autocorr_window_present = 0;
+  g_pitch_autocorr_overlap = 0;
+  g_pitch_autocorr_ac_count = 0;
+  g_pitch_lpc_order = 0;
+  g_pitch_lpc_ac_count = 0;
+}
+
+static int write_pitch_kernel_trace(void) {
+  if (g_pitch_trace_overflow || g_pitch_autocorr_n > PITCH_TRACE_MAX ||
+      g_pitch_autocorr_ac_count > PITCH_TRACE_MAX ||
+      g_pitch_lpc_order > PITCH_TRACE_MAX || g_pitch_lpc_ac_count > PITCH_TRACE_MAX) return 0;
+  return write_u32(g_pitch_xcorr_calls) &&
+      write_u32(g_pitch_xcorr_len) &&
+      write_u32(g_pitch_xcorr_max_pitch) &&
+      write_u32(g_pitch_xcorr_arch) &&
+      write_u32(g_pitch_xcorr_x_count) &&
+      write_u32(g_pitch_xcorr_y_count) &&
+      write_u32(g_pitch_xcorr_output_count) &&
+      write_float_array(g_pitch_xcorr_x, g_pitch_xcorr_x_count) &&
+      write_float_array(g_pitch_xcorr_y, g_pitch_xcorr_y_count) &&
+      write_float_array(g_pitch_xcorr_output, g_pitch_xcorr_output_count) &&
+      write_u32(g_pitch_autocorr_calls) &&
+      write_u32(g_pitch_lpc_calls) &&
+      write_u32(g_pitch_trace_overflow) &&
+      write_u32(g_pitch_autocorr_n) &&
+      write_u32(g_pitch_autocorr_lag) &&
+      write_u32(g_pitch_autocorr_arch) &&
+      write_u32(g_pitch_autocorr_window_present) &&
+      write_u32(g_pitch_autocorr_overlap) &&
+      write_u32(g_pitch_autocorr_ac_count) &&
+      write_float_array(g_pitch_autocorr_input, g_pitch_autocorr_n) &&
+      write_float_array(g_pitch_autocorr_ac, g_pitch_autocorr_ac_count) &&
+      write_u32(g_pitch_lpc_order) &&
+      write_u32(g_pitch_lpc_ac_count) &&
+      write_float_array(g_pitch_lpc_ac, g_pitch_lpc_ac_count) &&
+      write_float_array(g_pitch_lpc_output, g_pitch_lpc_order);
+}
+#endif
+
 #define INPUT_MAGIC "GCPI"
 #define OUTPUT_MAGIC "GCPO"
 #define PLC_LPC_ORDER 24
@@ -74,7 +251,8 @@ enum {
   MODE_REMOVE_DOUBLING = 5,
   MODE_PERIODIC_CONCEAL = 6,
   MODE_RAW_AUTOCORR = 7,
-  MODE_XCORR_KERNEL = 8
+  MODE_XCORR_KERNEL = 8,
+  MODE_PITCH_DOWNSAMPLE_TRACE = 9
 };
 
 static int set_binary_stdio(void) {
@@ -299,7 +477,7 @@ static int run_iir(void) {
   return 1;
 }
 
-static int run_pitch_downsample(void) {
+static int run_pitch_downsample(int capture_kernels) {
   int arch = opus_select_arch();
   uint32_t channels = 0;
   uint32_t len = 0;
@@ -327,12 +505,34 @@ static int run_pitch_downsample(void) {
   planes[0] = input;
   if (channels == 2) planes[1] = input + in_per_channel;
 
+  if (capture_kernels) {
+#ifdef GOPUS_CELT_PITCH_KERNEL_TRACE
+    reset_pitch_kernel_trace();
+    g_pitch_kernel_trace_enabled = 1;
+#else
+    free(input);
+    free(x_lp);
+    return 0;
+#endif
+  }
   pitch_downsample(planes, x_lp, (int)len, (int)channels, (int)factor, arch);
+  if (capture_kernels) {
+#ifdef GOPUS_CELT_PITCH_KERNEL_TRACE
+    g_pitch_kernel_trace_enabled = 0;
+#endif
+  }
   if (!write_u32(len) || !write_float_array((const float *)x_lp, len)) {
     free(input);
     free(x_lp);
     return 0;
   }
+#ifdef GOPUS_CELT_PITCH_KERNEL_TRACE
+  if (capture_kernels && !write_pitch_kernel_trace()) {
+    free(input);
+    free(x_lp);
+    return 0;
+  }
+#endif
   free(input);
   free(x_lp);
   return 1;
@@ -566,7 +766,11 @@ int main(void) {
   } else if (mode == MODE_IIR) {
     ok = run_iir();
   } else if (mode == MODE_PITCH_DOWNSAMPLE) {
-    ok = run_pitch_downsample();
+    ok = run_pitch_downsample(0);
+#ifdef GOPUS_CELT_PITCH_KERNEL_TRACE
+  } else if (mode == MODE_PITCH_DOWNSAMPLE_TRACE) {
+    ok = run_pitch_downsample(1);
+#endif
   } else if (mode == MODE_PITCH_SEARCH) {
     ok = run_pitch_search();
   } else if (mode == MODE_REMOVE_DOUBLING) {

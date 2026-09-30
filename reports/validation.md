@@ -205,18 +205,18 @@ Full byte parity across compiler targets is not established.
 The [scaled-float conversion audit](https://github.com/thesyncim/gopus/actions/runs/36563006244)
 passes the regression and independent C conversion oracle in both v3 lanes.
 
-The [native v3 audit at `d13a0acdf`](https://github.com/thesyncim/gopus/actions/runs/36658733624)
-on AMD EPYC 9V74 with Go 1.27.1 and GCC 13.3 passes the following matched
-scalar and SIMD selections. No cases are skipped.
+The [native v3 audit at `2bdd85688`](https://github.com/thesyncim/gopus/actions/runs/36661771890)
+on AMD EPYC 9V45 with Go 1.27.1 and GCC 13.3 records the following matched
+scalar and SIMD selections. No cases in these selections are skipped.
 
 | Gate | Scalar | SIMD |
 |---|---:|---:|
 | Encoder packet and final range | 60/60 | 60/60 |
 | Public decoder PCM and final range | 24/24 | 24/24 |
 | Warm allocation cases | 15/15 | 15/15 |
-| CBR exact cases | 19/19 | 17/19 |
-| CBR packet differences / 2,175 packets | 0 | 15 |
-| CBR final-range differences / 2,175 packets | 0 | 12 |
+| CBR exact cases | 19/19 | 18/19 |
+| CBR packet differences / 2,175 packets | 0 | 5 |
+| CBR final-range differences / 2,175 packets | 0 | 2 |
 | Contract same-packet PCM sample differences | 0 | 0 |
 
 These are separate gates, not an overall codec correctness percentage. The
@@ -280,14 +280,21 @@ period, prefilter, MDCT and quantization arrays match; its packet and range
 match C. The integrated private CBR selection is scalar 19/19, SIMD 18/19,
 with five packet and two range differences in the auto-mode stereo stream.
 The independent 60 encode, 24 decode and 15 allocation cases pass both lanes.
-A new valid-short-span stress case exposes a separate raw autocorrelation
-difference before LPC/FIR; that strict case remains under repair. The scoped
-v3 IIR block follows six sequential C feedback FMAs in one register boundary.
+The scoped SIMD raw autocorrelation tail follows the ordinary C caller: four
+rounded products and ordered adds for its four-term tail, FMA for the remaining
+one-to-three terms, then a separate prefix addition. All 20 valid short-span
+cases (lengths 7–16, mono/stereo), the actual eight-sample intermediate capture
+and warmed zero allocation pass in private matched-target checks. Scalar
+arithmetic is unchanged; native confirmation of this tail correction is pending.
+The scoped v3 IIR block follows six sequential C feedback FMAs in one register boundary.
 Linked tests cover five full-block lengths and eight remainder lengths, plus
-full periodic synthesis and warmed zero allocation, in both instruction lanes. These private checks establish causality; native
-confirmation of the FIR and angle corrections is pending. The native LPC
-oracles and warm allocation guard pass in both lanes. They do not identify
-an MDCT defect or justify an allowance.
+full periodic synthesis and warmed zero allocation, in both instruction lanes.
+The recorded native audit confirms the FIR, angle and IIR corrections, the LPC
+oracles and their warm allocation guards. Its full CBR contract passes all
+quality and same-packet decode checks; only the five stereo packet differences
+remain failures. The unquantized pitch gain differs by one ULP on the matched
+frame-95 operands despite equal quantized controls and packets; its actual
+producer arithmetic remains under review. No allowance replaces either fix.
 
 Independent sine-window checks cover the actual 48-, 72- and 96-sample
 segments and pass in both native instruction lanes. The gain-producer trace

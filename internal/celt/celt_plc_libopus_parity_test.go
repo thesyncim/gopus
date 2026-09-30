@@ -531,6 +531,24 @@ func TestPitchDownsampleSigMatchesLibopus(t *testing.T) {
 			})
 		}
 	}
+
+	t.Run("short_fir_head_and_tails", func(t *testing.T) {
+		// pitch_downsample calls _celt_autocorr with lag=4. That helper calls
+		// celt_pitch_xcorr with fastN=length-4, whose public C implementation
+		// requires fastN>=3.
+		for length := 7; length <= 16; length++ {
+			for _, channels := range []int{1, 2} {
+				t.Run("len"+strconv.Itoa(length)+"/channels"+strconv.Itoa(channels), func(t *testing.T) {
+					x := makeCELTPLCTestSignal(length*2*channels,
+						uint32(0x5f150000+length*4+channels), 2600)
+					want := probeLibopusPLCPitchDownsample(t, x, length, channels, 2)
+					got := make([]float32, length)
+					pitchDownsampleSig(x, got, length, channels, 2)
+					assertFloat32Bits(t, "short xLP", got, want)
+				})
+			}
+		}
+	})
 }
 
 func TestPitchDownsampleFloatInputMatchesLibopus(t *testing.T) {

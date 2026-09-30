@@ -1026,8 +1026,20 @@ func pitchAutocorr5F32(lp []float32, length int, ac *[5]float32) {
 	pitchXCorrFloat32(lp, lp, ac[:], fastN, 5)
 	for lag := 0; lag <= 4; lag++ {
 		tail := float32(0)
-		for i := lag + fastN; i < length; i++ {
-			tail += lp[i] * lp[i-lag]
+		tailStart := lag + fastN
+		// The paired ordinary GCC 13.3 x86-v3 SIMD
+		// celt/celt_lpc.c::_celt_autocorr caller vectorizes four products as
+		// rounded products plus ordered adds, then contracts scalar residual
+		// MAC16_16 updates. This branch selects only the residual when its
+		// length is below four; the four-term case stays on separate products.
+		if pitchAutocorrUsesFMA32 && length-tailStart < 4 {
+			for i := tailStart; i < length; i++ {
+				tail = pitchAutocorrMAC32(lp[i], lp[i-lag], tail)
+			}
+		} else {
+			for i := tailStart; i < length; i++ {
+				tail += lp[i] * lp[i-lag]
+			}
 		}
 		ac[lag] += tail
 	}
