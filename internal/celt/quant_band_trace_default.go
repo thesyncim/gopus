@@ -9,6 +9,12 @@ type quantBandTraceState struct{}
 
 type quantBandTraceContext struct{}
 
+type quantBandTraceRestorePoint struct{}
+
+func saveQuantBandTraceContext() quantBandTraceRestorePoint { return quantBandTraceRestorePoint{} }
+
+func restoreQuantBandTraceContext(quantBandTraceRestorePoint) {}
+
 func beginQuantThetaTrace(*bandCtx, []celtNorm, []celtNorm, int, int, int, int, int, bool, int) quantBandTraceState {
 	return quantBandTraceState{}
 }

@@ -219,7 +219,7 @@ CELT/Hybrid have unresolved same-packet PCM differences. FFT/MDCT and SILK
 primitive suites pass. The CELT encoder trace rejects inconsistent quantization
 dimensions, so it does not yet establish a runtime divergence location.
 
-The [native v3 audit at `b777c24d`](https://github.com/thesyncim/gopus/actions/runs/36645430354)
+The [native v3 audit at `da53eba1`](https://github.com/thesyncim/gopus/actions/runs/36647379207)
 on AMD EPYC 9V74 with Go 1.27.1 and GCC 13.3 passes the following matched
 scalar and SIMD selections. No cases are skipped.
 
@@ -301,9 +301,12 @@ constrained-VBR witness. Parsing requires bounded geometry, valid trial linkage,
 complete selection events and exact EOF. The [native audit at `01592d70`](https://github.com/thesyncim/gopus/actions/runs/36645824081)
 passes malformed-payload validation and exact archive-member binding in both
 lanes. It rejects actual PVQ event 7 at a recursive theta-context boundary;
-producer context and source-derived leaf geometry still require validation
-before this trace can establish the first arithmetic difference. Default-off
-caller instruction checks pass.
+diagnostic producers preserve the enclosing theta at the root call and all
+four recursive child calls. Leaf validation requires source-derived N/LM,
+B<=N, N%B==0 and valid time/frequency block transforms. Positive resumed-context
+and malformed-geometry cases pass; native capture remains required before this
+trace establishes the first arithmetic difference. Default-off partition and
+root-band caller instruction checks pass in both v3 lanes.
 
 The v3 warped-gain correction preserves the selected C Horner FMA sequence
 and fused denominator, followed by separate float32 reciprocal and sqrt-gain
@@ -313,23 +316,27 @@ ARM64 generated arithmetic matches the reference shape. The independent oracle
 compiles the pinned static C helper with matching production flags and a source
 hash in its cache key. Its native warm-allocation guard passes in both lanes,
 and the three SILK encoder witnesses close as recorded above. The standalone
-source oracle fails preparation because it assumes an unprepared scalar source
-directory; CI has only the selected v3 source trees. Matching reference source
-preparation and oracle execution remain required. The extra call per coefficient
-has no published timing.
+source oracle prepares the selected source and fails case 9 (order 12,
+lambda `3e99999a`) in both lanes: Go returns `3df6b7c8`, C `3df6b7c6`.
+Its generated helper loop uses separate multiply/add and denominator subtraction,
+while the ordinary codec caller uses fused operations. This include-site
+contraction difference requires an oracle with the ordinary caller's arithmetic
+before attributing a codec defect. The extra call per coefficient has no
+published timing.
 
-The Hybrid diagnostic captures the actual shared range coder after SILK and
-before/after CELT on the existing 50-frame CBR stream (scalar frame 0, SIMD
-frame 25). Capture requires ordered calls, the same coder/buffer identity,
-bounded state and written bytes, complete EOF and ordinary/traced packet/range
-transparency. Tagged and ordinary v3 cross-builds pass in both lanes; ordinary
-caller instruction checks find no diagnostic work. Native capture emits no
-boundary records, so it rejects the trace before comparing arithmetic. Actual selected packet mode, wrapper binding and capture validation remain
-unresolved.
+The coder-boundary diagnostic uses the existing 50-frame CBR stream labelled
+Hybrid (scalar frame 0, SIMD frame 25). Actual C and Go packets have TOC `fc`,
+configuration 31: CELT in both lanes. The C trace records 50 CELT calls and no
+SILK calls, with zero capture overflow; a shared Hybrid coder is absent. The
+strict diagnostic rejects its Hybrid-stage assumption before comparing
+arithmetic. Work follows the actual CELT coder boundaries on this same stream;
+no forced mode or substitute fixture establishes parity. Tagged and ordinary v3
+cross-builds pass; ordinary caller instruction checks find no diagnostic work.
 
 The scalar CBR contract reports no hard quality failures. Its three unresolved
-cases are CELT stereo 5 ms, CELT stereo 20 ms and Hybrid stereo 20 ms. SIMD
-retains CELT mono 2.5 ms and Hybrid stereo 20 ms packet differences; the former
+cases are CELT stereo 5 ms, CELT stereo 20 ms and auto-mode stereo 20 ms
+(the case labelled Hybrid, which selects CELT). SIMD retains CELT mono 2.5 ms
+and that auto-mode stereo case; the former
 fails the unchanged quality gate (Q -61.97). Unknown differences remain
 correctness blockers, including the separate scalar constrained-VBR witness.
 

@@ -131,6 +131,29 @@ type quantBandTraceContext struct {
 	thetaOrdinal                  uint32
 }
 
+type quantBandTraceRestorePoint struct {
+	thetaOrdinal uint32
+	hasTheta     bool
+	lastTheta    quantBandTraceContext
+}
+
+// Recursive quant_partition siblings resume the enclosing split's local theta
+// after a nested child returns. Save that active diagnostic context before
+// recursion and restore it afterward; descendants remain in the event stream.
+func saveQuantBandTraceContext() quantBandTraceRestorePoint {
+	return quantBandTraceRestorePoint{
+		thetaOrdinal: celtQuantBandTraceThetaOrdinal,
+		hasTheta:     celtQuantBandTraceHasTheta,
+		lastTheta:    celtQuantBandTraceLastTheta,
+	}
+}
+
+func restoreQuantBandTraceContext(state quantBandTraceRestorePoint) {
+	celtQuantBandTraceThetaOrdinal = state.thetaOrdinal
+	celtQuantBandTraceHasTheta = state.hasTheta
+	celtQuantBandTraceLastTheta = state.lastTheta
+}
+
 func beginQuantBandTrace(ctx *bandCtx, stage CELTQuantBandTraceStage, n, B, B0, lm int, stereo bool) quantBandTraceState {
 	var state quantBandTraceState
 	if ctx == nil || !ctx.encode || ctx.band != int(celtQuantBandTraceTarget) || celtQuantBandTraceHook == nil {

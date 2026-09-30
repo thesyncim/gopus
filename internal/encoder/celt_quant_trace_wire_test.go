@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/celt"
@@ -297,18 +298,76 @@ func validateCELTQuantBandTraceEvents(events []celt.CELTQuantBandTraceSnapshot) 
 			}
 		case uint32(celt.CELTQuantBandTracePVQ):
 			pvqCount++
-			if event.ThetaOrdinal != latestTheta {
-				return fmt.Errorf("GQTR PVQ event %d links to theta %d, latest is %d", index, event.ThetaOrdinal, latestTheta)
-			}
 			theta, ok := thetaByOrdinal[event.ThetaOrdinal]
-			if !ok || event.B0 != event.B || event.B != theta.B || event.LM != theta.LM ||
-				event.Channels != theta.Channels || event.Encode != theta.Encode || event.Stereo != theta.Stereo ||
-				event.ThetaRound != theta.ThetaRound || event.K <= 0 || event.Spread < 0 || event.Spread > 3 || event.Resynth < 0 || event.Resynth > 1 {
-				return fmt.Errorf("invalid GQTR PVQ controls at event %d: B=%d B0=%d K=%d spread=%d resynth=%d",
-					index, event.B, event.B0, event.K, event.Spread, event.Resynth)
+			if !ok {
+				return fmt.Errorf("GQTR PVQ event %d references thetaOrdinal=%d, but no earlier theta exists (latestTheta=%d found=%t): leaf N=%d B=%d B0=%d LM=%d K=%d spread=%d resynth=%d",
+					index, event.ThetaOrdinal, latestTheta, ok, event.N, event.B, event.B0, event.LM,
+					event.K, event.Spread, event.Resynth)
 			}
-			if event.B == 0 || event.LM < -1 || event.LM > 3 || theta.Band != event.Band {
-				return fmt.Errorf("invalid GQTR PVQ geometry at event %d", index)
+			var mismatches []string
+			if event.B0 != event.B {
+				mismatches = append(mismatches, "leaf B0 != B")
+			}
+			if theta.Band != event.Band {
+				mismatches = append(mismatches, "band != linked theta band")
+			}
+			if event.Channels != theta.Channels {
+				mismatches = append(mismatches, "channels != linked theta channels")
+			}
+			if event.Encode != theta.Encode {
+				mismatches = append(mismatches, "encode != linked theta encode")
+			}
+			if event.Stereo != theta.Stereo {
+				mismatches = append(mismatches, "stereo != linked theta stereo")
+			}
+			if event.ThetaRound != theta.ThetaRound {
+				mismatches = append(mismatches, "thetaRound != linked theta round")
+			}
+			// quant_band transforms the block count before it enters
+			// quant_partition, but leaves N and LM intact. Recursive
+			// quant_partition splits emit their own theta context with the
+			// geometry passed to both children, so the active theta's N and LM
+			// match the leaf PVQ exactly.
+			if event.N != theta.N {
+				mismatches = append(mismatches, "leaf N != active theta N")
+			}
+			if event.LM != theta.LM {
+				mismatches = append(mismatches, "leaf LM != active theta LM")
+			}
+			if event.B > event.N || event.N%event.B != 0 {
+				mismatches = append(mismatches, "leaf B must divide N with B <= N")
+			}
+			if theta.Stereo == 0 {
+				if event.B != theta.B {
+					mismatches = append(mismatches, "recursive leaf B != active split theta B")
+				}
+			} else {
+				// quant_band can recombine blocks (B >>= recombine) or
+				// time-divide them (B <<= 1). Both changes are powers of
+				// two; theta.B0 is the pre-split count and need not equal the
+				// leaf's B0.
+				var blockRatio uint32
+				if event.B >= theta.B {
+					if event.B%theta.B == 0 {
+						blockRatio = event.B / theta.B
+					}
+				} else if theta.B%event.B == 0 {
+					blockRatio = theta.B / event.B
+				}
+				if blockRatio == 0 || blockRatio&(blockRatio-1) != 0 {
+					mismatches = append(mismatches, "stereo leaf B is not a power-of-two transform of theta B")
+				}
+			}
+			if event.K <= 0 || event.Spread < 0 || event.Spread > 3 || event.Resynth < 0 || event.Resynth > 1 {
+				mismatches = append(mismatches, "invalid alg_quant K/spread/resynth")
+			}
+			if len(mismatches) != 0 {
+				return fmt.Errorf("invalid GQTR PVQ event %d thetaOrdinal=%d latestTheta=%d thetaFound=%t: leaf{band=%d N=%d B=%d B0=%d LM=%d channels=%d encode=%d stereo=%d thetaRound=%d K=%d spread=%d resynth=%d} theta{band=%d N=%d B=%d B0=%d LM=%d channels=%d encode=%d stereo=%d thetaRound=%d} mismatches=%v",
+					index, event.ThetaOrdinal, latestTheta, ok,
+					event.Band, event.N, event.B, event.B0, event.LM, event.Channels, event.Encode,
+					event.Stereo, event.ThetaRound, event.K, event.Spread, event.Resynth,
+					theta.Band, theta.N, theta.B, theta.B0, theta.LM, theta.Channels, theta.Encode,
+					theta.Stereo, theta.ThetaRound, mismatches)
 			}
 		case uint32(celt.CELTQuantBandTraceStereoMerge):
 			mergeCount++
@@ -753,7 +812,7 @@ func validCELTQuantBandTraceWireForTesting() []byte {
 		data = appendCELTQuantTraceWord(data, value)
 	}
 	appendEvent := func(stage, ordinal, thetaOrdinal uint32, thetaRound int32, payload func([]byte) []byte) {
-		header := []uint32{stage, ordinal, thetaOrdinal, 17, 1, 2, 2, 0, 2, 1, 1, uint32(thetaRound),
+		header := []uint32{stage, ordinal, thetaOrdinal, 17, 4, 2, 2, 0, 2, 1, 1, uint32(thetaRound),
 			0x80000000 + ordinal, 0x70000000 + ordinal, 100 + ordinal, 200 + ordinal}
 		for _, value := range header {
 			data = appendCELTQuantTraceWord(data, value)
@@ -765,8 +824,11 @@ func validCELTQuantBandTraceWireForTesting() []byte {
 			for range 17 {
 				dst = appendCELTQuantTraceWord(dst, 0)
 			}
-			for _, value := range []float32{1, 2, 0.25, -0.25, 0.5, -0.5} {
-				dst = appendCELTQuantTraceFloat(dst, value)
+			for _, energy := range []float32{1, 2} {
+				dst = appendCELTQuantTraceFloat(dst, energy)
+			}
+			for i := range 16 {
+				dst = appendCELTQuantTraceFloat(dst, float32(i+1)/16)
 			}
 			return dst
 		})
@@ -776,21 +838,22 @@ func validCELTQuantBandTraceWireForTesting() []byte {
 		for _, value := range []uint32{1, 2, 1, 1} {
 			dst = appendCELTQuantTraceWord(dst, value)
 		}
-		for _, value := range []float32{0.75, 0.25, 0.5} {
-			dst = appendCELTQuantTraceFloat(dst, value)
+		dst = appendCELTQuantTraceFloat(dst, 0.75)
+		for i := range 8 {
+			dst = appendCELTQuantTraceFloat(dst, float32(i+1)/8)
 		}
 		return dst
 	})
 	appendEvent(3, 2, 0, -1, func(dst []byte) []byte {
-		for _, value := range []float32{0.5, 0.25, -0.25, 0.5, -0.5} {
-			dst = appendCELTQuantTraceFloat(dst, value)
+		for i := range 17 {
+			dst = appendCELTQuantTraceFloat(dst, float32(i+1)/16)
 		}
 		return dst
 	})
 	appendEvent(4, 3, 0, -1, func(dst []byte) []byte {
 		dst = appendCELTQuantTraceWord(dst, 1)
-		for _, value := range []float32{0.5, -0.5} {
-			dst = appendCELTQuantTraceFloat(dst, value)
+		for i := range 8 {
+			dst = appendCELTQuantTraceFloat(dst, float32(i+1)/8)
 		}
 		return dst
 	})
@@ -799,21 +862,22 @@ func validCELTQuantBandTraceWireForTesting() []byte {
 		for _, value := range []uint32{1, 2, 1, 1} {
 			dst = appendCELTQuantTraceWord(dst, value)
 		}
-		for _, value := range []float32{0.75, 0.25, 0.5} {
-			dst = appendCELTQuantTraceFloat(dst, value)
+		dst = appendCELTQuantTraceFloat(dst, 0.75)
+		for i := range 8 {
+			dst = appendCELTQuantTraceFloat(dst, float32(i+1)/8)
 		}
 		return dst
 	})
 	appendEvent(3, 6, 4, 1, func(dst []byte) []byte {
-		for _, value := range []float32{0.5, 0.25, -0.25, 0.5, -0.5} {
-			dst = appendCELTQuantTraceFloat(dst, value)
+		for i := range 17 {
+			dst = appendCELTQuantTraceFloat(dst, float32(i+1)/16)
 		}
 		return dst
 	})
 	appendEvent(4, 7, 4, 1, func(dst []byte) []byte {
 		dst = appendCELTQuantTraceWord(dst, 1)
-		for _, value := range []float32{0.5, -0.5} {
-			dst = appendCELTQuantTraceFloat(dst, value)
+		for i := range 8 {
+			dst = appendCELTQuantTraceFloat(dst, float32(i+1)/8)
 		}
 		return dst
 	})
@@ -822,8 +886,8 @@ func validCELTQuantBandTraceWireForTesting() []byte {
 			dst = appendCELTQuantTraceFloat(dst, value)
 		}
 		dst = appendCELTQuantTraceWord(dst, ^uint32(0))
-		for _, value := range []float32{0.5, -0.5} {
-			dst = appendCELTQuantTraceFloat(dst, value)
+		for i := range 8 {
+			dst = appendCELTQuantTraceFloat(dst, float32(i+1)/8)
 		}
 		return dst
 	})
@@ -963,4 +1027,109 @@ func TestCELTQuantBandTraceWireValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCELTQuantBandTracePVQUsesActiveThetaGeometry(t *testing.T) {
+	t.Run("resumed recursive parent", func(t *testing.T) {
+		top := celtQuantTraceThetaForTesting(0, 16, 4, 4, 2, 1, 0)
+		parentSplit := celtQuantTraceThetaForTesting(1, 8, 2, 4, 1, 0, 0)
+		childSplit := celtQuantTraceThetaForTesting(2, 4, 1, 2, 0, 0, 0)
+		leaf := celtQuantTracePVQForTesting(3, parentSplit)
+		merge := celtQuantTraceEventForTesting(top, celt.CELTQuantBandTraceStereoMerge, 4)
+		output := celtQuantTraceEventForTesting(top, celt.CELTQuantBandTraceBandOutput, 5)
+		events := []celt.CELTQuantBandTraceSnapshot{top, parentSplit, childSplit, leaf, merge, output}
+		if err := validateCELTQuantBandTraceEvents(events); err != nil {
+			t.Fatalf("resumed PVQ leaf should link to its earlier active theta: %v", err)
+		}
+
+		badGeometry := append([]celt.CELTQuantBandTraceSnapshot(nil), events...)
+		badGeometry[3].LM = 0
+		err := validateCELTQuantBandTraceEvents(badGeometry)
+		if err == nil || !strings.Contains(err.Error(), "leaf LM != active theta LM") {
+			t.Fatalf("invalid recursive leaf geometry error=%v, want active-theta LM mismatch", err)
+		}
+	})
+
+	t.Run("side leaf resumes outer stereo theta", func(t *testing.T) {
+		topStereo := celtQuantTraceThetaForTesting(0, 16, 4, 4, 2, 1, 0)
+		midDescendant := celtQuantTraceThetaForTesting(1, 8, 2, 4, 1, 0, 0)
+		midLeaf := celtQuantTracePVQForTesting(2, midDescendant)
+		sideLeaf := celtQuantTracePVQForTesting(3, topStereo)
+		merge := celtQuantTraceEventForTesting(topStereo, celt.CELTQuantBandTraceStereoMerge, 4)
+		output := celtQuantTraceEventForTesting(topStereo, celt.CELTQuantBandTraceBandOutput, 5)
+		events := []celt.CELTQuantBandTraceSnapshot{topStereo, midDescendant, midLeaf, sideLeaf, merge, output}
+		if err := validateCELTQuantBandTraceEvents(events); err != nil {
+			t.Fatalf("side PVQ leaf should resume the enclosing stereo theta after its mid descendant: %v", err)
+		}
+	})
+
+	t.Run("time-divided block count", func(t *testing.T) {
+		top := celtQuantTraceThetaForTesting(0, 24, 2, 2, 1, 1, 0)
+		leaf := celtQuantTracePVQForTesting(1, top)
+		leaf.B = 4
+		leaf.B0 = 4
+		merge := celtQuantTraceEventForTesting(top, celt.CELTQuantBandTraceStereoMerge, 2)
+		output := celtQuantTraceEventForTesting(top, celt.CELTQuantBandTraceBandOutput, 3)
+		events := []celt.CELTQuantBandTraceSnapshot{top, leaf, merge, output}
+		if err := validateCELTQuantBandTraceEvents(events); err != nil {
+			t.Fatalf("power-of-two time-divided block count should be valid: %v", err)
+		}
+
+		events[1].B = 3
+		events[1].B0 = 3
+		err := validateCELTQuantBandTraceEvents(events)
+		if err == nil || !strings.Contains(err.Error(), "power-of-two transform") {
+			t.Fatalf("invalid transformed block geometry error=%v, want power-of-two B mismatch", err)
+		}
+
+		events[1].B = 4
+		events[1].B0 = 4
+		if err := validateCELTQuantBandTraceEvents(events); err != nil {
+			t.Fatalf("restored valid transformed block count rejected: %v", err)
+		}
+		events[1].B = 32
+		events[1].B0 = 32
+		err = validateCELTQuantBandTraceEvents(events)
+		if err == nil || !strings.Contains(err.Error(), "leaf B must divide N") {
+			t.Fatalf("oversized leaf B error=%v, want B<=N geometry failure", err)
+		}
+
+		events[1].B = 16
+		events[1].B0 = 16
+		err = validateCELTQuantBandTraceEvents(events)
+		if err == nil || !strings.Contains(err.Error(), "leaf B must divide N") {
+			t.Fatalf("nondividing leaf B error=%v, want N%%B geometry failure", err)
+		}
+	})
+}
+
+func celtQuantTraceThetaForTesting(ordinal, n, blocks, blocksBeforeSplit uint32, lm int32, stereo uint32, thetaRound int32) celt.CELTQuantBandTraceSnapshot {
+	return celt.CELTQuantBandTraceSnapshot{
+		Stage: uint32(celt.CELTQuantBandTraceTheta), Ordinal: ordinal, ThetaOrdinal: ordinal,
+		Band: 17, N: n, B: blocks, B0: blocksBeforeSplit, LM: lm,
+		Channels: 2, Encode: 1, Stereo: stereo, ThetaRound: thetaRound,
+		RangeBefore: 0x80000000 + ordinal, RangeAfter: 0x70000000 + ordinal,
+		TellFracBefore: 100 + ordinal, TellFracAfter: 200 + ordinal,
+	}
+}
+
+func celtQuantTracePVQForTesting(ordinal uint32, theta celt.CELTQuantBandTraceSnapshot) celt.CELTQuantBandTraceSnapshot {
+	event := celtQuantTraceEventForTesting(theta, celt.CELTQuantBandTracePVQ, ordinal)
+	event.B0 = event.B
+	event.K = 12
+	event.Spread = 2
+	event.Resynth = 1
+	return event
+}
+
+func celtQuantTraceEventForTesting(theta celt.CELTQuantBandTraceSnapshot, stage celt.CELTQuantBandTraceStage, ordinal uint32) celt.CELTQuantBandTraceSnapshot {
+	event := theta
+	event.Stage = uint32(stage)
+	event.Ordinal = ordinal
+	event.ThetaOrdinal = theta.Ordinal
+	event.RangeBefore = 0x80000000 + ordinal
+	event.RangeAfter = 0x70000000 + ordinal
+	event.TellFracBefore = 100 + ordinal
+	event.TellFracAfter = 200 + ordinal
+	return event
 }

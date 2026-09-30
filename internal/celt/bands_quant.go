@@ -2702,24 +2702,62 @@ func quantPartitionEncodeWithExtBudget(ctx *bandCtx, x []celtNorm, n, b, B int, 
 		var cm int
 		if mbits >= sbits {
 			midGain := celtMul32(gain, opusVal16(mid))
-			cm, _ = quantPartitionEncodeWithExtBudget(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, midGain, fill, extBudget/2)
+			{
+				var traceContext quantBandTraceRestorePoint
+				if celtQuantBandTraceEnabled {
+					traceContext = saveQuantBandTraceContext()
+				}
+				cm, _ = quantPartitionEncodeWithExtBudget(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, midGain, fill, extBudget/2)
+				if celtQuantBandTraceEnabled {
+					restoreQuantBandTraceContext(traceContext)
+				}
+			}
 			rebalance = mbits - (rebalance - ctx.remainingBits)
 			if rebalance > 3<<bitRes && sctx.itheta != 0 {
 				sbits += rebalance - (3 << bitRes)
 			}
 			sideGain := celtMul32(gain, opusVal16(side))
-			scm, _ := quantPartitionEncodeWithExtBudget(ctx, y, nHalf, sbits, B, lowband2, lm, sideGain, fill>>B, extBudget/2)
+			var scm int
+			{
+				var traceContext quantBandTraceRestorePoint
+				if celtQuantBandTraceEnabled {
+					traceContext = saveQuantBandTraceContext()
+				}
+				scm, _ = quantPartitionEncodeWithExtBudget(ctx, y, nHalf, sbits, B, lowband2, lm, sideGain, fill>>B, extBudget/2)
+				if celtQuantBandTraceEnabled {
+					restoreQuantBandTraceContext(traceContext)
+				}
+			}
 			cm |= scm << (B0 >> 1)
 		} else {
 			sideGain := celtMul32(gain, opusVal16(side))
-			cm, _ = quantPartitionEncodeWithExtBudget(ctx, y, nHalf, sbits, B, lowband2, lm, sideGain, fill>>B, extBudget/2)
+			{
+				var traceContext quantBandTraceRestorePoint
+				if celtQuantBandTraceEnabled {
+					traceContext = saveQuantBandTraceContext()
+				}
+				cm, _ = quantPartitionEncodeWithExtBudget(ctx, y, nHalf, sbits, B, lowband2, lm, sideGain, fill>>B, extBudget/2)
+				if celtQuantBandTraceEnabled {
+					restoreQuantBandTraceContext(traceContext)
+				}
+			}
 			cm <<= B0 >> 1
 			rebalance = sbits - (rebalance - ctx.remainingBits)
 			if rebalance > 3<<bitRes && sctx.itheta != 16384 {
 				mbits += rebalance - (3 << bitRes)
 			}
 			midGain := celtMul32(gain, opusVal16(mid))
-			scm, _ := quantPartitionEncodeWithExtBudget(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, midGain, fill, extBudget/2)
+			var scm int
+			{
+				var traceContext quantBandTraceRestorePoint
+				if celtQuantBandTraceEnabled {
+					traceContext = saveQuantBandTraceContext()
+				}
+				scm, _ = quantPartitionEncodeWithExtBudget(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, midGain, fill, extBudget/2)
+				if celtQuantBandTraceEnabled {
+					restoreQuantBandTraceContext(traceContext)
+				}
+			}
 			cm |= scm
 		}
 		return cm, x
@@ -3375,7 +3413,15 @@ func quantBandPreparedLowbandWithExtBudget(ctx *bandCtx, x []celtNorm, n, b, B i
 	if ctx.extraBands && b > cubicQEXTThresholdQ3(ctx, n, lm) {
 		cm = cubicQuantPartition(ctx, x, n, b, B, lm, gain)
 	} else {
+		// quant_band's enclosing stereo theta remains active for the sibling tree.
+		var traceContext quantBandTraceRestorePoint
+		if celtQuantBandTraceEnabled {
+			traceContext = saveQuantBandTraceContext()
+		}
 		cm, _ = quantPartitionEncodeWithExtBudget(ctx, x, n, b, B, lowband, lm, gain, fill, extBudget)
+		if celtQuantBandTraceEnabled {
+			restoreQuantBandTraceContext(traceContext)
+		}
 	}
 
 	if ctx.resynth {

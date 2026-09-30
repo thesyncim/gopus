@@ -100,6 +100,8 @@ extern void gopus_celt_quant_theta_end(int ordinal, int b, int fill, int itheta,
     int itheta_q30, int inv, int imid, int iside, int delta, int qalloc,
     int remaining, const celt_norm *X, const celt_norm *Y, ec_enc *ec);
 extern int gopus_celt_quant_current_theta_ordinal(void);
+extern int gopus_celt_quant_theta_push(void);
+extern void gopus_celt_quant_theta_pop(int previous_theta);
 extern int gopus_celt_quant_last_band_output_theta_ordinal(void);
 extern void gopus_celt_quant_pvq_context(int B0, int LM);
 extern int gopus_celt_quant_merge_begin(int theta_ordinal, int N, opus_val32 mid,
@@ -115,6 +117,40 @@ extern void gopus_celt_quant_rdo_select(int band, int N, int B, int B0, int LM,
     uint32_t tell_frac_before, ec_enc *ec, const celt_norm *X,
     const celt_norm *Y);
 `)
+
+	text = replaceCELTQuantTraceSource(t, text, `         cm = quant_partition(ctx, X, N, mbits, B, lowband, LM,
+               MULT32_32_Q31(gain,mid), fill ARG_QEXT(ext_b/2));`, `         {
+            int gopus_previous_theta = gopus_celt_quant_theta_push();
+            cm = quant_partition(ctx, X, N, mbits, B, lowband, LM,
+                  MULT32_32_Q31(gain,mid), fill ARG_QEXT(ext_b/2));
+            gopus_celt_quant_theta_pop(gopus_previous_theta);
+         }`)
+	text = replaceCELTQuantTraceSource(t, text, `         cm |= quant_partition(ctx, Y, N, sbits, B, next_lowband2, LM,
+               MULT32_32_Q31(gain,side), fill>>B ARG_QEXT(ext_b/2))<<(B0>>1);`, `         {
+            int gopus_previous_theta = gopus_celt_quant_theta_push();
+            cm |= quant_partition(ctx, Y, N, sbits, B, next_lowband2, LM,
+                  MULT32_32_Q31(gain,side), fill>>B ARG_QEXT(ext_b/2))<<(B0>>1);
+            gopus_celt_quant_theta_pop(gopus_previous_theta);
+         }`)
+	text = replaceCELTQuantTraceSource(t, text, `         cm = quant_partition(ctx, Y, N, sbits, B, next_lowband2, LM,
+               MULT32_32_Q31(gain,side), fill>>B ARG_QEXT(ext_b/2))<<(B0>>1);`, `         {
+            int gopus_previous_theta = gopus_celt_quant_theta_push();
+            cm = quant_partition(ctx, Y, N, sbits, B, next_lowband2, LM,
+                  MULT32_32_Q31(gain,side), fill>>B ARG_QEXT(ext_b/2))<<(B0>>1);
+            gopus_celt_quant_theta_pop(gopus_previous_theta);
+         }`)
+	text = replaceCELTQuantTraceSource(t, text, `         cm |= quant_partition(ctx, X, N, mbits, B, lowband, LM,
+               MULT32_32_Q31(gain,mid), fill ARG_QEXT(ext_b/2));`, `         {
+            int gopus_previous_theta = gopus_celt_quant_theta_push();
+            cm |= quant_partition(ctx, X, N, mbits, B, lowband, LM,
+                  MULT32_32_Q31(gain,mid), fill ARG_QEXT(ext_b/2));
+            gopus_celt_quant_theta_pop(gopus_previous_theta);
+         }`)
+	text = replaceCELTQuantTraceSource(t, text, `      cm = quant_partition(ctx, X, N, b, B, lowband, LM, gain, fill ARG_QEXT(ext_b));`, `      {
+         int gopus_previous_theta = gopus_celt_quant_theta_push();
+         cm = quant_partition(ctx, X, N, b, B, lowband, LM, gain, fill ARG_QEXT(ext_b));
+         gopus_celt_quant_theta_pop(gopus_previous_theta);
+      }`)
 
 	text = replaceCELTQuantTraceSource(t, text, `         /* Finally do the actual quantization */
          if (encode)

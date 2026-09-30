@@ -265,6 +265,29 @@ int gopus_celt_quant_current_theta_ordinal(void) {
   return gqtr.current_theta;
 }
 
+/* A quant_partition split keeps its theta in a local split_ctx. Recursive
+ * children may emit nested theta events, but a sibling resumes with the
+ * enclosing split's local state. The top-level quant_band caller also keeps
+ * its enclosing stereo theta active between the mid and side trees. Save and
+ * restore the diagnostic context at each quant_partition call boundary. */
+int gopus_celt_quant_theta_push(void) {
+  if (!trace_selected_frame()) return -1;
+  return gqtr.current_theta;
+}
+
+void gopus_celt_quant_theta_pop(int previous_theta) {
+  if (!trace_selected_frame()) return;
+  if (previous_theta < -1 ||
+      (previous_theta >= 0 &&
+       ((uint32_t)previous_theta >= gqtr.count ||
+        gqtr.events[previous_theta].header.stage != GQTR_THETA ||
+        gqtr.events[previous_theta].header.band != 17))) {
+    gqtr.overflow = 1;
+    return;
+  }
+  gqtr.current_theta = previous_theta;
+}
+
 int gopus_celt_quant_last_band_output_theta_ordinal(void) {
   if (!trace_selected_frame()) return -1;
   return gqtr.last_band_output_theta;
