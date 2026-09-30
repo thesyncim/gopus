@@ -46,8 +46,8 @@ static int set_binary_stdio(void) {
   return 1;
 }
 
-/* Match the two source statements in silk/float/noise_shape_analysis_FLP.c. */
-static float silk_gain_tweak(float gain, float gain_mult, float gain_add) {
+/* Compile the source-shaped statements from silk/float/noise_shape_analysis_FLP.c. */
+static float silk_gain_tweak_source_expression(float gain, float gain_mult, float gain_add) {
   gain *= gain_mult;
   gain += gain_add;
   return gain;
@@ -71,7 +71,7 @@ int main(void) {
     memcpy(&gain, &raw_gain, sizeof(gain));
     memcpy(&gain_mult, &raw_mult, sizeof(gain_mult));
     memcpy(&gain_add, &raw_add, sizeof(gain_add));
-    result = silk_gain_tweak(gain, gain_mult, gain_add);
+    result = silk_gain_tweak_source_expression(gain, gain_mult, gain_add);
     memcpy(&raw_result, &result, sizeof(raw_result));
     if (!write_u32(raw_result)) return 1;
   }

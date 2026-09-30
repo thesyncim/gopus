@@ -47,6 +47,9 @@
 #include "celt/celt.h"
 #include "celt/bands.h"
 #include "celt/mdct.h"
+#ifdef GOPUS_CELT_PITCH_TRACE
+#include "celt/pitch.h"
+#endif
 #include "celt/quant_bands.h"
 #endif
 
@@ -168,6 +171,9 @@ static int write_u32(uint32_t v) {
 #define GOPUS_CELT_TRACE_FRAME 0
 #endif
 #define CELT_TRACE_MAX_CALLS 8
+/* celt_encoder.c computes two long channel transforms and up to 2*8 short
+ * transforms for a stereo transient at LM=3, including secondMdct analysis. */
+#define CELT_TRACE_MAX_MDCT_CALLS 18
 #define CELT_TRACE_MAX_FLOATS 4096
 #define CELT_TRACE_MAX_BANDS 64
 #define CELT_TRACE_MAX_HISTORY 1024
@@ -232,24 +238,95 @@ typedef struct {
   float output[CELT_TRACE_MAX_FLOATS];
 } celt_trace_prefilter_call;
 
+#ifdef GOPUS_CELT_PITCH_TRACE
+typedef struct {
+  uint32_t frame_size, channels, enabled, complexity, arch, max_period, min_period;
+  float tf_estimate, tone_freq, toneishness, max_pitch_ratio;
+} celt_trace_pitch_controls_call;
+
+typedef struct {
+  uint32_t length, channels, factor, arch, input_count, output_count;
+  float input[CELT_TRACE_MAX_FLOATS];
+  float output[CELT_TRACE_MAX_FLOATS];
+} celt_trace_pitch_downsample_call;
+
+typedef struct {
+  uint32_t length, max_pitch, x_offset, arch, buffer_count;
+  int32_t result;
+  float buffer[CELT_TRACE_MAX_FLOATS];
+} celt_trace_pitch_search_call;
+
+typedef struct {
+  uint32_t max_period, min_period, n, arch, buffer_count;
+  int32_t t0_before, prev_period, t0_after;
+  float prev_gain, gain;
+  float buffer[CELT_TRACE_MAX_FLOATS];
+} celt_trace_remove_doubling_call;
+#endif
+
 static struct {
   uint32_t band_calls, log_calls, normalization_calls, coarse_calls, quant_calls, mdct_calls;
   uint32_t preemphasis_calls, prefilter_calls;
   uint32_t stored_band_calls, stored_log_calls, stored_normalization_calls;
   uint32_t stored_coarse_calls, stored_quant_calls, stored_mdct_calls;
   uint32_t stored_preemphasis_calls, stored_prefilter_calls, overflow;
+#ifdef GOPUS_CELT_PITCH_TRACE
+  uint32_t pitch_controls_calls, stored_pitch_controls_calls;
+  uint32_t pitch_downsample_calls, stored_pitch_downsample_calls;
+  uint32_t pitch_search_calls, stored_pitch_search_calls;
+  uint32_t remove_doubling_calls, stored_remove_doubling_calls;
+#endif
   celt_trace_band_call bands[CELT_TRACE_MAX_CALLS];
   celt_trace_log_call logs[CELT_TRACE_MAX_CALLS];
   celt_trace_normalization_call normalizations[CELT_TRACE_MAX_CALLS];
   celt_trace_coarse_call coarse[CELT_TRACE_MAX_CALLS];
   celt_trace_quant_call quant[CELT_TRACE_MAX_CALLS];
-  celt_trace_mdct_call mdct[CELT_TRACE_MAX_CALLS];
+  celt_trace_mdct_call mdct[CELT_TRACE_MAX_MDCT_CALLS];
   celt_trace_preemphasis_call preemphasis[CELT_TRACE_MAX_CALLS];
   celt_trace_prefilter_call prefilter[CELT_TRACE_MAX_CALLS];
+#ifdef GOPUS_CELT_PITCH_TRACE
+  celt_trace_pitch_controls_call pitch_controls[CELT_TRACE_MAX_CALLS];
+  celt_trace_pitch_downsample_call pitch_downsample[CELT_TRACE_MAX_CALLS];
+  celt_trace_pitch_search_call pitch_search[CELT_TRACE_MAX_CALLS];
+  celt_trace_remove_doubling_call remove_doubling[CELT_TRACE_MAX_CALLS];
+#endif
 } celt_encode_trace;
 
 static uint32_t celt_encode_active_frame;
 static uint32_t celt_encode_captured_frame = UINT32_MAX;
+#ifdef GOPUS_CELT_PITCH_TRACE
+static opus_val16 *celt_trace_pitch_buffer;
+static uint32_t celt_trace_pitch_buffer_count;
+static int celt_trace_selected_frame(void);
+
+void gopus_celt_pitch_controls_trace(int frame_size, int channels, int enabled, int complexity,
+    int arch, opus_val16 tf_estimate, opus_val16 tone_freq, opus_val32 toneishness,
+    float max_pitch_ratio, int max_period, int min_period) {
+  celt_trace_pitch_controls_call *trace = NULL;
+  uint32_t call = 0;
+  if (celt_trace_selected_frame()) {
+    call = celt_encode_trace.pitch_controls_calls++;
+    if (call >= CELT_TRACE_MAX_CALLS || frame_size <= 0 || channels <= 0 || channels > 2 ||
+        enabled < 0 || enabled > 1 || complexity < 0 || max_period <= 0 || min_period <= 0) {
+      celt_encode_trace.overflow = 1;
+    } else {
+      trace = &celt_encode_trace.pitch_controls[call];
+      trace->frame_size = (uint32_t)frame_size;
+      trace->channels = (uint32_t)channels;
+      trace->enabled = (uint32_t)enabled;
+      trace->complexity = (uint32_t)complexity;
+      trace->arch = (uint32_t)arch;
+      trace->max_period = (uint32_t)max_period;
+      trace->min_period = (uint32_t)min_period;
+      trace->tf_estimate = (float)tf_estimate;
+      trace->tone_freq = (float)tone_freq;
+      trace->toneishness = (float)toneishness;
+      trace->max_pitch_ratio = (float)max_pitch_ratio;
+      celt_encode_trace.stored_pitch_controls_calls++;
+    }
+  }
+}
+#endif
 
 static int celt_trace_selected_frame(void) {
   if (celt_encode_active_frame != GOPUS_CELT_TRACE_FRAME) return 0;
@@ -266,6 +343,124 @@ static int trace_dimensions(int values, int limit) {
   return 1;
 }
 
+#ifdef GOPUS_CELT_PITCH_TRACE
+extern void __real_pitch_downsample(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RESTRICT x_lp,
+    int len, int C, int factor, int arch);
+void __wrap_pitch_downsample(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RESTRICT x_lp,
+    int len, int C, int factor, int arch) {
+  celt_trace_pitch_downsample_call *trace = NULL;
+  uint32_t call = 0;
+  if (celt_trace_selected_frame()) {
+    call = celt_encode_trace.pitch_downsample_calls++;
+    if (call >= CELT_TRACE_MAX_CALLS || x == NULL || x_lp == NULL || len <= 0 || C <= 0 || C > 2 ||
+        factor <= 0 || len > CELT_TRACE_MAX_FLOATS / factor ||
+        len * factor > CELT_TRACE_MAX_FLOATS / C) {
+      celt_encode_trace.overflow = 1;
+    } else {
+      trace = &celt_encode_trace.pitch_downsample[call];
+      trace->length = (uint32_t)len;
+      trace->channels = (uint32_t)C;
+      trace->factor = (uint32_t)factor;
+      trace->arch = (uint32_t)arch;
+      trace->input_count = (uint32_t)(len * factor * C);
+      trace->output_count = (uint32_t)len;
+      for (int channel = 0; channel < C; channel++) {
+        if (x[channel] == NULL) {
+          celt_encode_trace.overflow = 1;
+          trace = NULL;
+          break;
+        }
+        memcpy(trace->input + (size_t)channel * (size_t)(len * factor), x[channel],
+            (size_t)(len * factor) * sizeof(float));
+      }
+      if (trace != NULL) celt_encode_trace.stored_pitch_downsample_calls++;
+    }
+    celt_trace_pitch_buffer = x_lp;
+    celt_trace_pitch_buffer_count = len > 0 ? (uint32_t)len : 0;
+  }
+
+  __real_pitch_downsample(x, x_lp, len, C, factor, arch);
+
+  if (trace != NULL)
+    memcpy(trace->output, x_lp, (size_t)trace->output_count * sizeof(float));
+}
+
+extern void __real_pitch_search(const opus_val16 * OPUS_RESTRICT x_lp, opus_val16 * OPUS_RESTRICT y,
+    int len, int max_pitch, int *pitch, int arch);
+void __wrap_pitch_search(const opus_val16 * OPUS_RESTRICT x_lp, opus_val16 * OPUS_RESTRICT y,
+    int len, int max_pitch, int *pitch, int arch) {
+  celt_trace_pitch_search_call *trace = NULL;
+  uint32_t call = 0;
+  if (celt_trace_selected_frame()) {
+    call = celt_encode_trace.pitch_search_calls++;
+    uintptr_t y_address = (uintptr_t)y;
+    uintptr_t x_address = (uintptr_t)x_lp;
+    uint32_t x_offset = UINT32_MAX;
+    if (y != NULL && x_lp != NULL && x_address >= y_address &&
+        (x_address - y_address) % sizeof(*y) == 0 &&
+        (x_address - y_address) / sizeof(*y) <= UINT32_MAX) {
+      x_offset = (uint32_t)((x_address - y_address) / sizeof(*y));
+    }
+    if (call >= CELT_TRACE_MAX_CALLS || x_lp == NULL || y == NULL || pitch == NULL || len <= 0 || max_pitch <= 0 ||
+        y != celt_trace_pitch_buffer || celt_trace_pitch_buffer_count == 0 ||
+        celt_trace_pitch_buffer_count > CELT_TRACE_MAX_FLOATS || x_offset == UINT32_MAX ||
+        x_offset >= celt_trace_pitch_buffer_count) {
+      celt_encode_trace.overflow = 1;
+    } else {
+      trace = &celt_encode_trace.pitch_search[call];
+      trace->length = (uint32_t)len;
+      trace->max_pitch = (uint32_t)max_pitch;
+      trace->x_offset = x_offset;
+      trace->arch = (uint32_t)arch;
+      trace->buffer_count = celt_trace_pitch_buffer_count;
+      memcpy(trace->buffer, y, (size_t)trace->buffer_count * sizeof(float));
+      celt_encode_trace.stored_pitch_search_calls++;
+    }
+  }
+
+  __real_pitch_search(x_lp, y, len, max_pitch, pitch, arch);
+
+  if (trace != NULL) trace->result = (int32_t)*pitch;
+}
+
+extern opus_val16 __real_remove_doubling(opus_val16 *x, int maxperiod, int minperiod,
+    int N, int *T0, int prev_period, opus_val16 prev_gain, int arch);
+opus_val16 __wrap_remove_doubling(opus_val16 *x, int maxperiod, int minperiod,
+    int N, int *T0, int prev_period, opus_val16 prev_gain, int arch) {
+  celt_trace_remove_doubling_call *trace = NULL;
+  uint32_t call = 0;
+  int32_t t0_before = T0 != NULL ? (int32_t)*T0 : 0;
+  if (celt_trace_selected_frame()) {
+    call = celt_encode_trace.remove_doubling_calls++;
+    if (call >= CELT_TRACE_MAX_CALLS || x == NULL || T0 == NULL || maxperiod <= 0 || minperiod <= 0 || N <= 0 ||
+        x != celt_trace_pitch_buffer || celt_trace_pitch_buffer_count == 0 ||
+        celt_trace_pitch_buffer_count > CELT_TRACE_MAX_FLOATS) {
+      celt_encode_trace.overflow = 1;
+    } else {
+      trace = &celt_encode_trace.remove_doubling[call];
+      trace->max_period = (uint32_t)maxperiod;
+      trace->min_period = (uint32_t)minperiod;
+      trace->n = (uint32_t)N;
+      trace->arch = (uint32_t)arch;
+      trace->buffer_count = celt_trace_pitch_buffer_count;
+      trace->t0_before = t0_before;
+      trace->prev_period = (int32_t)prev_period;
+      trace->prev_gain = (float)prev_gain;
+      memcpy(trace->buffer, x, (size_t)trace->buffer_count * sizeof(float));
+      celt_encode_trace.stored_remove_doubling_calls++;
+    }
+  }
+
+  opus_val16 gain = __real_remove_doubling(x, maxperiod, minperiod, N, T0, prev_period, prev_gain, arch);
+
+  if (trace != NULL) {
+    trace->t0_after = (int32_t)*T0;
+    trace->gain = (float)gain;
+  }
+  return gain;
+}
+#endif
+
 extern void __real_clt_mdct_forward_c(const mdct_lookup *l, kiss_fft_scalar *in,
     kiss_fft_scalar *out, const celt_coef *window, int overlap, int shift,
     int stride, int arch);
@@ -278,7 +473,7 @@ void __wrap_clt_mdct_forward_c(const mdct_lookup *l, kiss_fft_scalar *in,
   }
 
   uint32_t call = celt_encode_trace.mdct_calls++;
-  if (call >= CELT_TRACE_MAX_CALLS) {
+  if (call >= CELT_TRACE_MAX_MDCT_CALLS) {
     celt_encode_trace.overflow = 1;
   } else if (l == NULL || shift < 0 || shift >= 4 || shift > l->maxshift ||
              l->n <= 0 || l->kfft[shift] == NULL || overlap < 0 ||
@@ -593,7 +788,11 @@ void __wrap_quant_all_bands(int encode, const CELTMode *m, int start, int end,
 }
 
 static int write_celt_encode_trace(void) {
+#ifdef GOPUS_CELT_PITCH_TRACE
+  if (!write_exact("GCET", 4) || !write_u32(5) ||
+#else
   if (!write_exact("GCET", 4) || !write_u32(4) ||
+#endif
       !write_u32(celt_encode_captured_frame) || !write_u32(celt_encode_trace.overflow)) return 0;
   if (!write_u32(celt_encode_trace.band_calls) || !write_u32(celt_encode_trace.stored_band_calls)) return 0;
   for (uint32_t i = 0; i < celt_encode_trace.stored_band_calls; i++) {
@@ -680,6 +879,46 @@ static int write_celt_encode_trace(void) {
         !trace_write_float32(trace->window, trace->window_count) ||
         !trace_write_float32(trace->output, trace->output_count)) return 0;
   }
+#ifdef GOPUS_CELT_PITCH_TRACE
+  if (!write_u32(celt_encode_trace.pitch_controls_calls) ||
+      !write_u32(celt_encode_trace.stored_pitch_controls_calls)) return 0;
+  for (uint32_t i = 0; i < celt_encode_trace.stored_pitch_controls_calls; i++) {
+    const celt_trace_pitch_controls_call *trace = &celt_encode_trace.pitch_controls[i];
+    if (!write_u32(trace->frame_size) || !write_u32(trace->channels) ||
+        !write_u32(trace->enabled) || !write_u32(trace->complexity) || !write_u32(trace->arch) ||
+        !write_u32(trace->max_period) || !write_u32(trace->min_period) ||
+        !trace_write_float32(&trace->tf_estimate, 1) || !trace_write_float32(&trace->tone_freq, 1) ||
+        !trace_write_float32(&trace->toneishness, 1) || !trace_write_float32(&trace->max_pitch_ratio, 1)) return 0;
+  }
+  if (!write_u32(celt_encode_trace.pitch_downsample_calls) ||
+      !write_u32(celt_encode_trace.stored_pitch_downsample_calls)) return 0;
+  for (uint32_t i = 0; i < celt_encode_trace.stored_pitch_downsample_calls; i++) {
+    const celt_trace_pitch_downsample_call *trace = &celt_encode_trace.pitch_downsample[i];
+    if (!write_u32(trace->length) || !write_u32(trace->channels) || !write_u32(trace->factor) ||
+        !write_u32(trace->arch) || !write_u32(trace->input_count) || !write_u32(trace->output_count) ||
+        !trace_write_float32(trace->input, trace->input_count) ||
+        !trace_write_float32(trace->output, trace->output_count)) return 0;
+  }
+  if (!write_u32(celt_encode_trace.pitch_search_calls) ||
+      !write_u32(celt_encode_trace.stored_pitch_search_calls)) return 0;
+  for (uint32_t i = 0; i < celt_encode_trace.stored_pitch_search_calls; i++) {
+    const celt_trace_pitch_search_call *trace = &celt_encode_trace.pitch_search[i];
+    if (!write_u32(trace->length) || !write_u32(trace->max_pitch) || !write_u32(trace->x_offset) ||
+        !write_u32(trace->arch) || !write_u32(trace->buffer_count) || !write_u32((uint32_t)trace->result) ||
+        !trace_write_float32(trace->buffer, trace->buffer_count)) return 0;
+  }
+  if (!write_u32(celt_encode_trace.remove_doubling_calls) ||
+      !write_u32(celt_encode_trace.stored_remove_doubling_calls)) return 0;
+  for (uint32_t i = 0; i < celt_encode_trace.stored_remove_doubling_calls; i++) {
+    const celt_trace_remove_doubling_call *trace = &celt_encode_trace.remove_doubling[i];
+    if (!write_u32(trace->max_period) || !write_u32(trace->min_period) || !write_u32(trace->n) ||
+        !write_u32(trace->arch) || !write_u32(trace->buffer_count) ||
+        !write_u32((uint32_t)trace->t0_before) || !write_u32((uint32_t)trace->prev_period) ||
+        !write_u32((uint32_t)trace->t0_after) || !trace_write_float32(&trace->prev_gain, 1) ||
+        !trace_write_float32(&trace->gain, 1) ||
+        !trace_write_float32(trace->buffer, trace->buffer_count)) return 0;
+  }
+#endif
   return 1;
 }
 #endif

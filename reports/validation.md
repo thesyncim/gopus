@@ -298,15 +298,22 @@ validation coverage. Ordinary caller instruction checks find no trace work.
 The band-17 quantization trace captures actual theta, PVQ, stereo merge,
 reconstructed output and RDO-selection boundaries in the existing two-frame
 constrained-VBR witness. Parsing requires bounded geometry, valid trial linkage,
-complete selection events and exact EOF. The [native audit at `01592d70`](https://github.com/thesyncim/gopus/actions/runs/36645824081)
-passes malformed-payload validation and exact archive-member binding in both
-lanes. It rejects actual PVQ event 7 at a recursive theta-context boundary;
-diagnostic producers preserve the enclosing theta at the root call and all
-four recursive child calls. Leaf validation requires source-derived N/LM,
-B<=N, N%B==0 and valid time/frequency block transforms. Positive resumed-context
-and malformed-geometry cases pass; native capture remains required before this
-trace establishes the first arithmetic difference. Default-off partition and
-root-band caller instruction checks pass in both v3 lanes.
+complete selection events and exact EOF. The [native audit at `883712c9`](https://github.com/thesyncim/gopus/actions/runs/36648460801)
+passes malformed-payload validation, exact archive-member binding and C recursive
+context validation. Diagnostic producers preserve the enclosing theta at the
+root call and all four recursive child calls. Leaf validation requires
+source-derived N/LM, B<=N, N%B==0 and valid time/frequency block transforms.
+The Go hooks cover the specialized encode functions selected by standard-mode
+frames. Local Linux amd64 v3 captures produce valid events and preserve full
+ordinary/traced packets and ranges in both lanes. The scalar witness matches
+inputs through quantization and differs at reconstructed coefficient 98 by one
+ULP; the SIMD witness matches reconstructed coefficients. Non-QEXT comparison checks raw and effective angles exactly; the retained Q30
+locals have different meanings and remain recorded. Captured band-17 vectors
+match in both lanes; its scalar RDO trial score differs by one ULP. The first
+reconstructed difference at index 98 belongs to band 18, so band-17 evidence
+does not establish that packet difference's cause. No alternate
+dispatch establishes parity. Default-off specialized theta, partition, band,
+stereo and RDO caller instructions match the ordinary build in both v3 lanes.
 
 The v3 warped-gain correction preserves the selected C Horner FMA sequence
 and fused denominator, followed by separate float32 reciprocal and sqrt-gain
@@ -321,17 +328,26 @@ lambda `3e99999a`) in both lanes: Go returns `3df6b7c8`, C `3df6b7c6`.
 Its generated helper loop uses separate multiply/add and denominator subtraction,
 while the ordinary codec caller uses fused operations. This include-site
 contraction difference requires an oracle with the ordinary caller's arithmetic
-before attributing a codec defect. The extra call per coefficient has no
-published timing.
+before attributing a codec defect. A pure noinline wrapper calls the original
+included source helper outside the protocol loop: GCC 13.3 emits the ordinary
+caller's negative Horner FMAs, positive denominator FMA and separate division.
+The full source corpus, compiler-expression probe and warm-allocation checks pass
+in both local Linux amd64 v3 lanes under translation. Native confirmation remains
+required; this environment supplies no performance numbers. The extra runtime
+call per coefficient has no published timing.
 
 The coder-boundary diagnostic uses the existing 50-frame CBR stream labelled
 Hybrid (scalar frame 0, SIMD frame 25). Actual C and Go packets have TOC `fc`,
 configuration 31: CELT in both lanes. The C trace records 50 CELT calls and no
 SILK calls, with zero capture overflow; a shared Hybrid coder is absent. The
 strict diagnostic rejects its Hybrid-stage assumption before comparing
-arithmetic. Work follows the actual CELT coder boundaries on this same stream;
-no forced mode or substitute fixture establishes parity. Tagged and ordinary v3
-cross-builds pass; ordinary caller instruction checks find no diagnostic work.
+arithmetic. The diagnostic captures actual CELT preemphasis, prefilter, MDCT, energy and
+quantization stages on this same stream at frames 0/25, with full ordinary/traced
+packet and range transparency. Explicit fixture caches preserve the selected
+frame; no forced mode or substitute fixture establishes parity. Tagged and
+ordinary v3 cross-builds pass. Local scalar capture includes all 18 actual MDCT
+calls without overflow and first differs at quantized coefficient 334; SIMD
+first differs at coefficient 56. Native numeric confirmation remains pending.
 
 The scalar CBR contract reports no hard quality failures. Its three unresolved
 cases are CELT stereo 5 ms, CELT stereo 20 ms and auto-mode stereo 20 ms

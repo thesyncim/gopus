@@ -303,6 +303,43 @@ func TestCELTLateCBRFrameStageDiagnostic(t *testing.T) {
 	if cTrace.TraceFrame != celtLateTraceFrame {
 		t.Fatalf("C stage trace captured frame %d, want %d", cTrace.TraceFrame, celtLateTraceFrame)
 	}
+	if cTrace.Version != 5 || cTrace.PitchControlsCalls != 1 || len(cTrace.PitchControls) != 1 {
+		t.Fatalf("C pitch controls did not observe exactly one active late-frame prefilter: version=%d controls=%d/%d",
+			cTrace.Version, cTrace.PitchControlsCalls, len(cTrace.PitchControls))
+	}
+	if got := cTrace.PitchControls[0]; got.FrameSize != celtLateFrameSize || got.Channels != 1 ||
+		got.Complexity != 10 || got.MaxPeriod != 1024 || got.MinPeriod != 15 || got.Arch != 0 {
+		t.Fatalf("unexpected C pitch controls: N/ch/enabled/complexity/max/min/arch=%d/%d/%d/%d/%d/%d/%d",
+			got.FrameSize, got.Channels, got.Enabled, got.Complexity, got.MaxPeriod, got.MinPeriod, got.Arch)
+	}
+	wantPitchCalls, err := expectedCELTPitchAnalysisCalls(cTrace.PitchControls[0].Enabled,
+		cTrace.PitchControls[0].Complexity, cTrace.PitchControls[0].Toneishness)
+	if err != nil {
+		t.Fatalf("invalid C pitch controls: %v", err)
+	}
+	if cTrace.PitchDownsampleCalls != wantPitchCalls || len(cTrace.PitchDownsample) != wantPitchCalls ||
+		cTrace.PitchSearchCalls != wantPitchCalls || len(cTrace.PitchSearch) != wantPitchCalls ||
+		cTrace.RemoveDoublingCalls != wantPitchCalls || len(cTrace.RemoveDoubling) != wantPitchCalls {
+		t.Fatalf("C pitch wrappers disagree with the source-selected prefilter branch: want=%d downsample=%d/%d search=%d/%d remove=%d/%d",
+			wantPitchCalls, cTrace.PitchDownsampleCalls, len(cTrace.PitchDownsample),
+			cTrace.PitchSearchCalls, len(cTrace.PitchSearch), cTrace.RemoveDoublingCalls, len(cTrace.RemoveDoubling))
+	}
+	if wantPitchCalls == 1 {
+		if got := cTrace.PitchDownsample[0]; got.Length != 572 || got.Channels != 1 || got.Factor != 2 || len(got.Input) != 1144 || len(got.Output) != 572 || got.Arch != 0 {
+			t.Fatalf("unexpected C pitch_downsample geometry/arch: len/channels/factor/input/output/arch=%d/%d/%d/%d/%d/%d",
+				got.Length, got.Channels, got.Factor, len(got.Input), len(got.Output), got.Arch)
+		}
+		if got := cTrace.PitchSearch[0]; got.Length != celtLateFrameSize || got.MaxPitch != 979 || got.XOffset != 512 ||
+			len(got.Buffer) != 572 || got.Arch != 0 {
+			t.Fatalf("unexpected C pitch_search geometry/arch: len/max/xoff/buffer/arch=%d/%d/%d/%d/%d",
+				got.Length, got.MaxPitch, got.XOffset, len(got.Buffer), got.Arch)
+		}
+		if got := cTrace.RemoveDoubling[0]; got.MaxPeriod != 1024 || got.MinPeriod != 15 || got.N != celtLateFrameSize ||
+			len(got.Buffer) != 572 || got.Arch != 0 {
+			t.Fatalf("unexpected C remove_doubling geometry/arch: max/min/N/buffer/arch=%d/%d/%d/%d/%d",
+				got.MaxPeriod, got.MinPeriod, got.N, len(got.Buffer), got.Arch)
+		}
+	}
 	if cTrace.Overflow != 0 {
 		t.Fatalf("late-frame C stage trace overflowed its bounded capture: flags=%d", cTrace.Overflow)
 	}
@@ -321,6 +358,7 @@ func TestCELTLateCBRFrameStageDiagnostic(t *testing.T) {
 		framePCM := pcm[frame*frameSamples : (frame+1)*frameSamples]
 		if frame == celtLateTraceFrame {
 			goEncoder.celtEncoder.EnableEncodeStageTraceForTesting()
+			goEncoder.celtEncoder.EnablePitchAnalysisTraceForTesting()
 		}
 		goPacket, err = goEncoder.Encode(framePCM, celtLateFrameSize)
 		if err != nil {
@@ -391,7 +429,17 @@ func buildCELTTraceOracle(t *testing.T, trace bool) string {
 }
 
 func buildCELTTraceOracleAtFrame(t *testing.T, trace bool, traceFrame int) string {
+	return buildCELTTraceOracleAtFrameWithCache(t, trace, traceFrame, nil)
+}
+
+// buildCELTTraceOracleAtFrameWithCache uses an explicit cache for a selected
+// frame whose value differs from the shared first/late-frame targets. The
+// selected frame is compiled into the helper, so it belongs in the cache key.
+func buildCELTTraceOracleAtFrameWithCache(t *testing.T, trace bool, traceFrame int, explicitCache *libopustest.HelperCache) string {
 	t.Helper()
+	if explicitCache == nil && traceFrame != 0 && traceFrame != celtLateTraceFrame {
+		t.Fatalf("CELT trace frame %d requires an explicit helper cache", traceFrame)
+	}
 	flags := []string{"-DHAVE_CONFIG_H"}
 	config := libopustest.CHelperConfig{
 		Label:      fmt.Sprintf("CELT CBR stage trace frame %d", traceFrame),
@@ -409,6 +457,10 @@ func buildCELTTraceOracleAtFrame(t *testing.T, trace bool, traceFrame int) strin
 		instrumentedSource := writeCELTPreemphasisTraceSource(t)
 		config.CFlags = append(config.CFlags,
 			"-O3", "-DNDEBUG", "-DGOPUS_CELT_TRACE", fmt.Sprintf("-DGOPUS_CELT_TRACE_FRAME=%d", traceFrame))
+		pitchTrace := traceFrame == celtLateTraceFrame
+		if pitchTrace {
+			config.CFlags = append(config.CFlags, "-DGOPUS_CELT_PITCH_TRACE")
+		}
 		config.RefIncludes = []string{"celt", "silk", "src"}
 		config.Sources = []string{instrumentedSource}
 		linkMapPath = filepath.Join(t.TempDir(), config.OutputBase+".map")
@@ -422,12 +474,21 @@ func buildCELTTraceOracleAtFrame(t *testing.T, trace bool, traceFrame int) strin
 			"-Wl,--wrap=clt_mdct_forward_c",
 			"-Wl,-Map," + linkMapPath,
 		}
+		if pitchTrace {
+			config.LDFlags = append(config.LDFlags,
+				"-Wl,--wrap=pitch_downsample",
+				"-Wl,--wrap=pitch_search",
+				"-Wl,--wrap=remove_doubling")
+		}
 	}
-	cache := &celtTraceOracleCache
-	if trace && traceFrame == 0 {
-		cache = &celtTraceWrappedOracleCache
-	} else if trace {
-		cache = &celtLateTraceOracleCache
+	cache := explicitCache
+	if cache == nil {
+		cache = &celtTraceOracleCache
+		if trace && traceFrame == 0 {
+			cache = &celtTraceWrappedOracleCache
+		} else if trace {
+			cache = &celtLateTraceOracleCache
+		}
 	}
 	path, err := cache.Path(func() (string, error) {
 		helperPath, err := libopustest.BuildPublicAPIHelper(config)
@@ -435,7 +496,7 @@ func buildCELTTraceOracleAtFrame(t *testing.T, trace bool, traceFrame int) strin
 			return "", err
 		}
 		if trace {
-			if err := validateCELTTraceLinkMap(linkMapPath); err != nil {
+			if err := validateCELTTraceLinkMapWithPitch(linkMapPath, traceFrame == celtLateTraceFrame); err != nil {
 				return "", err
 			}
 		}
@@ -478,6 +539,21 @@ func writeCELTPreemphasisTraceSource(t *testing.T) string {
 	if count := strings.Count(instrumented, originalCall); count != 1 {
 		t.Fatalf("instrumented CELT source retains %d original preemphasis calls, want exactly 1", count)
 	}
+	const pitchBranch = "   if (enabled && toneishness > QCONST32(.99f, 29)) {"
+	const pitchControlsHook = `#ifdef GOPUS_CELT_PITCH_TRACE
+   {
+      extern void gopus_celt_pitch_controls_trace(int frame_size, int channels, int enabled,
+          int complexity, int arch, opus_val16 tf_estimate, opus_val16 tone_freq,
+          opus_val32 toneishness, float max_pitch_ratio, int max_period, int min_period);
+      gopus_celt_pitch_controls_trace(N, CC, enabled, complexity, st->arch, tf_estimate,
+          tone_freq, toneishness, analysis->max_pitch_ratio, max_period, min_period);
+   }
+#endif
+` + pitchBranch
+	if count := strings.Count(instrumented, pitchBranch); count != 1 {
+		t.Fatalf("pinned CELT source has %d selected toneishness branches, want exactly 1", count)
+	}
+	instrumented = strings.Replace(instrumented, pitchBranch, pitchControlsHook, 1)
 	path := filepath.Join(t.TempDir(), "celt_encoder_preemphasis_trace.c")
 	if err := os.WriteFile(path, []byte(instrumented), 0o600); err != nil {
 		t.Fatalf("write instrumented pinned CELT encoder source: %v", err)
@@ -486,6 +562,10 @@ func writeCELTPreemphasisTraceSource(t *testing.T) string {
 }
 
 func validateCELTTraceLinkMap(path string) error {
+	return validateCELTTraceLinkMapWithPitch(path, false)
+}
+
+func validateCELTTraceLinkMapWithPitch(path string, pitchTrace bool) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read CELT trace link map %s: %w", path, err)
@@ -493,6 +573,13 @@ func validateCELTTraceLinkMap(path string) error {
 	for _, line := range strings.Split(string(data), "\n") {
 		if strings.Contains(line, "libopus.a(celt_encoder.o)") {
 			return fmt.Errorf("instrumented CELT trace linked the uninstrumented archive member: %s", strings.TrimSpace(line))
+		}
+	}
+	if pitchTrace {
+		for _, symbol := range []string{"gopus_celt_pitch_controls_trace", "__wrap_pitch_downsample", "__wrap_pitch_search", "__wrap_remove_doubling"} {
+			if !strings.Contains(string(data), symbol) {
+				return fmt.Errorf("pitch trace link map has no binding for %s", symbol)
+			}
 		}
 	}
 	return nil
@@ -720,11 +807,59 @@ type celtCBRStagePrefilter struct {
 	Output    []float32
 }
 
+type celtCBRStagePitchDownsample struct {
+	Length   int32
+	Channels int32
+	Factor   int32
+	Arch     int32
+	Input    []float32
+	Output   []float32
+}
+
+type celtCBRStagePitchControls struct {
+	FrameSize     int32
+	Channels      int32
+	Enabled       int32
+	Complexity    int32
+	Arch          int32
+	MaxPeriod     int32
+	MinPeriod     int32
+	TFEstimate    float32
+	ToneFreq      float32
+	Toneishness   float32
+	MaxPitchRatio float32
+}
+
+type celtCBRStagePitchSearch struct {
+	Length   int32
+	MaxPitch int32
+	XOffset  int32
+	Arch     int32
+	Result   int32
+	Buffer   []float32
+}
+
+type celtCBRStageRemoveDoubling struct {
+	MaxPeriod  int32
+	MinPeriod  int32
+	N          int32
+	Arch       int32
+	T0Before   int32
+	PrevPeriod int32
+	T0After    int32
+	PrevGain   float32
+	Gain       float32
+	Buffer     []float32
+}
+
 type celtCBRStageTrace struct {
+	Version                                                                     uint32
 	TraceFrame                                                                  uint32
 	Overflow                                                                    uint32
 	BandCalls, LogCalls, NormalizationCalls, CoarseCalls, QuantCalls, MDCTCalls int
 	PreemphasisCalls, PrefilterCalls                                            int
+	PitchControlsCalls                                                          int
+	PitchDownsampleCalls, PitchSearchCalls, RemoveDoublingCalls                 int
 	Bands                                                                       []celtCBRStageBand
 	Logs                                                                        []celtCBRStageLog
 	Normalizations                                                              []celtCBRStageNorm
@@ -733,6 +868,10 @@ type celtCBRStageTrace struct {
 	MDCT                                                                        []celtCBRStageMDCT
 	Preemphasis                                                                 []celtCBRStagePreemphasis
 	Prefilter                                                                   []celtCBRStagePrefilter
+	PitchControls                                                               []celtCBRStagePitchControls
+	PitchDownsample                                                             []celtCBRStagePitchDownsample
+	PitchSearch                                                                 []celtCBRStagePitchSearch
+	RemoveDoubling                                                              []celtCBRStageRemoveDoubling
 }
 
 type celtCBRStageLog struct {
@@ -745,6 +884,21 @@ type celtCBRStageLog struct {
 func validateCELTTraceShapes(goTrace celt.EncodeStageTrace, cTrace celtCBRStageTrace) error {
 	if goTrace.StageOverflow {
 		return fmt.Errorf("Go preemphasis/prefilter trace exceeded its bounded capture")
+	}
+	if cTrace.Version == 5 {
+		if err := validateCELTPitchControls(goTrace, cTrace); err != nil {
+			return err
+		}
+		if err := validateCELTPitchTraceShapes(goTrace, cTrace); err != nil {
+			return err
+		}
+	} else if cTrace.Version != 4 || len(goTrace.PitchControls)+len(goTrace.PitchDownsample)+len(goTrace.PitchSearch)+len(goTrace.RemoveDoubling) != 0 ||
+		cTrace.PitchControlsCalls+len(cTrace.PitchControls) != 0 ||
+		cTrace.PitchDownsampleCalls+cTrace.PitchSearchCalls+cTrace.RemoveDoublingCalls != 0 {
+		return fmt.Errorf("invalid pitch trace version/cardinality: GCET v%d C controls=%d/%d stages=%d/%d/%d Go controls/stages=%d/%d/%d/%d",
+			cTrace.Version, cTrace.PitchControlsCalls, len(cTrace.PitchControls), cTrace.PitchDownsampleCalls, cTrace.PitchSearchCalls, cTrace.RemoveDoublingCalls,
+			len(goTrace.PitchControls),
+			len(goTrace.PitchDownsample), len(goTrace.PitchSearch), len(goTrace.RemoveDoubling))
 	}
 	if len(goTrace.PrefilterNoop) > 0 {
 		if len(goTrace.PrefilterComb) != 0 {
@@ -865,6 +1019,244 @@ func validateCELTTraceShapes(goTrace celt.EncodeStageTrace, cTrace celtCBRStageT
 		}
 	}
 	return nil
+}
+
+func validateCELTPitchTraceShapes(goTrace celt.EncodeStageTrace, cTrace celtCBRStageTrace) error {
+	if cTrace.Version != 5 {
+		return nil
+	}
+	if len(goTrace.PitchControls) != 1 || len(cTrace.PitchControls) != 1 {
+		return fmt.Errorf("pitch-stage geometry requires one control record per side, Go=%d C=%d",
+			len(goTrace.PitchControls), len(cTrace.PitchControls))
+	}
+	if err := validateCELTPitchSideGeometry("Go", celtPitchControlsFromGo(goTrace.PitchControls[0]),
+		celtPitchStagesFromGo(goTrace)); err != nil {
+		return err
+	}
+	if err := validateCELTPitchSideGeometry("C", celtPitchControlsFromC(cTrace.PitchControls[0]),
+		celtPitchStagesFromC(cTrace)); err != nil {
+		return err
+	}
+	return nil
+}
+
+type celtPitchControlValues struct {
+	frameSize, channels, maxPeriod, minPeriod int32
+}
+
+type celtPitchDownsampleValues struct {
+	length, channels, factor int32
+	input, output            []float32
+}
+
+type celtPitchSearchValues struct {
+	length, maxPitch, xOffset int32
+	buffer                    []float32
+}
+
+type celtPitchRemoveValues struct {
+	maxPeriod, minPeriod, n int32
+	prevGain, gain          float32
+	buffer                  []float32
+}
+
+type celtPitchStageValues struct {
+	downsample []celtPitchDownsampleValues
+	search     []celtPitchSearchValues
+	remove     []celtPitchRemoveValues
+}
+
+func celtPitchControlsFromGo(c celt.EncodePitchControlsTrace) celtPitchControlValues {
+	return celtPitchControlValues{frameSize: c.FrameSize, channels: c.Channels, maxPeriod: c.MaxPeriod, minPeriod: c.MinPeriod}
+}
+
+func celtPitchControlsFromC(c celtCBRStagePitchControls) celtPitchControlValues {
+	return celtPitchControlValues{frameSize: c.FrameSize, channels: c.Channels, maxPeriod: c.MaxPeriod, minPeriod: c.MinPeriod}
+}
+
+func celtPitchStagesFromGo(trace celt.EncodeStageTrace) celtPitchStageValues {
+	values := celtPitchStageValues{
+		downsample: make([]celtPitchDownsampleValues, 0, len(trace.PitchDownsample)),
+		search:     make([]celtPitchSearchValues, 0, len(trace.PitchSearch)),
+		remove:     make([]celtPitchRemoveValues, 0, len(trace.RemoveDoubling)),
+	}
+	for _, call := range trace.PitchDownsample {
+		values.downsample = append(values.downsample, celtPitchDownsampleValues{
+			length: call.Length, channels: call.Channels, factor: call.Factor, input: call.Input, output: call.Output,
+		})
+	}
+	for _, call := range trace.PitchSearch {
+		values.search = append(values.search, celtPitchSearchValues{
+			length: call.Length, maxPitch: call.MaxPitch, xOffset: call.XOffset, buffer: call.Buffer,
+		})
+	}
+	for _, call := range trace.RemoveDoubling {
+		values.remove = append(values.remove, celtPitchRemoveValues{
+			maxPeriod: call.MaxPeriod, minPeriod: call.MinPeriod, n: call.N,
+			prevGain: call.PrevGain, gain: call.Gain, buffer: call.Buffer,
+		})
+	}
+	return values
+}
+
+func celtPitchStagesFromC(trace celtCBRStageTrace) celtPitchStageValues {
+	values := celtPitchStageValues{
+		downsample: make([]celtPitchDownsampleValues, 0, len(trace.PitchDownsample)),
+		search:     make([]celtPitchSearchValues, 0, len(trace.PitchSearch)),
+		remove:     make([]celtPitchRemoveValues, 0, len(trace.RemoveDoubling)),
+	}
+	for _, call := range trace.PitchDownsample {
+		values.downsample = append(values.downsample, celtPitchDownsampleValues{
+			length: call.Length, channels: call.Channels, factor: call.Factor, input: call.Input, output: call.Output,
+		})
+	}
+	for _, call := range trace.PitchSearch {
+		values.search = append(values.search, celtPitchSearchValues{
+			length: call.Length, maxPitch: call.MaxPitch, xOffset: call.XOffset, buffer: call.Buffer,
+		})
+	}
+	for _, call := range trace.RemoveDoubling {
+		values.remove = append(values.remove, celtPitchRemoveValues{
+			maxPeriod: call.MaxPeriod, minPeriod: call.MinPeriod, n: call.N,
+			prevGain: call.PrevGain, gain: call.Gain, buffer: call.Buffer,
+		})
+	}
+	return values
+}
+
+func validateCELTPitchSideGeometry(side string, controls celtPitchControlValues, stages celtPitchStageValues) error {
+	bufferLength := (int64(controls.maxPeriod) + int64(controls.frameSize)) >> 1
+	inputLength := bufferLength * 2 * int64(controls.channels)
+	if bufferLength <= 0 || bufferLength > 4096 || inputLength > 4096 {
+		return fmt.Errorf("%s pitch controls imply out-of-bounds analysis geometry: buffer=%d input=%d",
+			side, bufferLength, inputLength)
+	}
+	wantMaxPitch := int64(controls.maxPeriod) - 3*int64(controls.minPeriod)
+	if wantMaxPitch < 1 {
+		wantMaxPitch = 1
+	}
+	wantXOffset := controls.maxPeriod >> 1
+	for i, call := range stages.downsample {
+		if int64(call.length) != bufferLength || call.channels != controls.channels || call.factor != 2 ||
+			int64(len(call.input)) != inputLength || int64(len(call.output)) != bufferLength {
+			return fmt.Errorf("%s pitch_downsample call %d geometry does not match its controls: length/channels/factor/input/output=%d/%d/%d/%d/%d want=%d/%d/2/%d/%d",
+				side, i, call.length, call.channels, call.factor, len(call.input), len(call.output),
+				bufferLength, controls.channels, inputLength, bufferLength)
+		}
+		if err := validateCELTPitchFiniteValues(side, fmt.Sprintf("pitch_downsample call %d input", i), call.input); err != nil {
+			return err
+		}
+		if err := validateCELTPitchFiniteValues(side, fmt.Sprintf("pitch_downsample call %d output", i), call.output); err != nil {
+			return err
+		}
+	}
+	for i, call := range stages.search {
+		if call.length != controls.frameSize || int64(call.maxPitch) != wantMaxPitch || call.xOffset != wantXOffset ||
+			int64(len(call.buffer)) != bufferLength || call.xOffset < 0 || int64(call.xOffset) >= int64(len(call.buffer)) {
+			return fmt.Errorf("%s pitch_search call %d geometry does not match its controls: length/max/xoff/buffer=%d/%d/%d/%d want=%d/%d/%d/%d",
+				side, i, call.length, call.maxPitch, call.xOffset, len(call.buffer),
+				controls.frameSize, wantMaxPitch, wantXOffset, bufferLength)
+		}
+		if err := validateCELTPitchFiniteValues(side, fmt.Sprintf("pitch_search call %d buffer", i), call.buffer); err != nil {
+			return err
+		}
+	}
+	for i, call := range stages.remove {
+		if call.maxPeriod != controls.maxPeriod || call.minPeriod != controls.minPeriod || call.n != controls.frameSize ||
+			int64(len(call.buffer)) != bufferLength {
+			return fmt.Errorf("%s remove_doubling call %d geometry does not match its controls: max/min/N/buffer=%d/%d/%d/%d want=%d/%d/%d/%d",
+				side, i, call.maxPeriod, call.minPeriod, call.n, len(call.buffer),
+				controls.maxPeriod, controls.minPeriod, controls.frameSize, bufferLength)
+		}
+		if err := validateCELTPitchFiniteValues(side, fmt.Sprintf("remove_doubling call %d buffer", i), call.buffer); err != nil {
+			return err
+		}
+		if math.IsNaN(float64(call.prevGain)) || math.IsInf(float64(call.prevGain), 0) ||
+			math.IsNaN(float64(call.gain)) || math.IsInf(float64(call.gain), 0) {
+			return fmt.Errorf("non-finite %s remove_doubling call %d gains: previous=%08x result=%08x",
+				side, i, math.Float32bits(call.prevGain), math.Float32bits(call.gain))
+		}
+	}
+	return nil
+}
+
+func validateCELTPitchFiniteValues(side, label string, values []float32) error {
+	for i, value := range values {
+		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
+			return fmt.Errorf("non-finite %s %s value at %d: %08x", side, label, i, math.Float32bits(value))
+		}
+	}
+	return nil
+}
+
+func validateCELTPitchControls(goTrace celt.EncodeStageTrace, cTrace celtCBRStageTrace) error {
+	if cTrace.Version != 5 {
+		return nil
+	}
+	if cTrace.PitchControlsCalls != 1 || len(cTrace.PitchControls) != 1 || len(goTrace.PitchControls) != 1 {
+		return fmt.Errorf("pitch prefilter control cardinality differs: Go=%d C raw/stored=%d/%d",
+			len(goTrace.PitchControls), cTrace.PitchControlsCalls, len(cTrace.PitchControls))
+	}
+	got := goTrace.PitchControls[0]
+	want := cTrace.PitchControls[0]
+	if err := validateCELTPitchControlFields("Go", got.FrameSize, got.Channels, got.Enabled, got.Complexity,
+		got.MaxPeriod, got.MinPeriod, got.TFEstimate, got.ToneFreq, got.Toneishness, got.MaxPitchRatio); err != nil {
+		return err
+	}
+	if err := validateCELTPitchControlFields("C", want.FrameSize, want.Channels, want.Enabled, want.Complexity,
+		want.MaxPeriod, want.MinPeriod, want.TFEstimate, want.ToneFreq, want.Toneishness, want.MaxPitchRatio); err != nil {
+		return err
+	}
+	goCalls, err := expectedCELTPitchAnalysisCalls(got.Enabled, got.Complexity, got.Toneishness)
+	if err != nil {
+		return err
+	}
+	cCalls, err := expectedCELTPitchAnalysisCalls(want.Enabled, want.Complexity, want.Toneishness)
+	if err != nil {
+		return err
+	}
+	if len(goTrace.PitchDownsample) != goCalls || len(goTrace.PitchSearch) != goCalls || len(goTrace.RemoveDoubling) != goCalls {
+		return fmt.Errorf("Go pitch-stage cardinality disagrees with its captured run_prefilter controls: expected=%d downsample/search/remove=%d/%d/%d",
+			goCalls, len(goTrace.PitchDownsample), len(goTrace.PitchSearch), len(goTrace.RemoveDoubling))
+	}
+	if cTrace.PitchDownsampleCalls != cCalls || cTrace.PitchSearchCalls != cCalls || cTrace.RemoveDoublingCalls != cCalls ||
+		len(cTrace.PitchDownsample) != cCalls || len(cTrace.PitchSearch) != cCalls || len(cTrace.RemoveDoubling) != cCalls {
+		return fmt.Errorf("C pitch-stage cardinality disagrees with its captured run_prefilter controls: expected=%d raw=%d/%d/%d stored=%d/%d/%d",
+			cCalls, cTrace.PitchDownsampleCalls, cTrace.PitchSearchCalls, cTrace.RemoveDoublingCalls,
+			len(cTrace.PitchDownsample), len(cTrace.PitchSearch), len(cTrace.RemoveDoubling))
+	}
+	return nil
+}
+
+func validateCELTPitchControlFields(side string, frameSize, channels, enabled, complexity, maxPeriod, minPeriod int32,
+	tfEstimate, toneFreq, toneishness, maxPitchRatio float32) error {
+	if frameSize <= 0 || channels <= 0 || channels > 2 || (enabled != 0 && enabled != 1) ||
+		complexity < 0 || complexity > 32 || maxPeriod <= 0 || minPeriod <= 0 || minPeriod > maxPeriod {
+		return fmt.Errorf("invalid %s pitch prefilter controls N/ch/enabled/complexity/max/min=%d/%d/%d/%d/%d/%d",
+			side, frameSize, channels, enabled, complexity, maxPeriod, minPeriod)
+	}
+	for label, value := range map[string]float32{
+		"tf_estimate": tfEstimate, "tone_freq": toneFreq,
+		"toneishness": toneishness, "max_pitch_ratio": maxPitchRatio,
+	} {
+		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
+			return fmt.Errorf("non-finite %s pitch prefilter control %s=%08x", side, label, math.Float32bits(value))
+		}
+	}
+	return nil
+}
+
+func expectedCELTPitchAnalysisCalls(enabled, complexity int32, toneishness float32) (int, error) {
+	if enabled != 0 && enabled != 1 {
+		return 0, fmt.Errorf("invalid pitch prefilter enabled value %d", enabled)
+	}
+	if enabled == 1 && toneishness > float32(0.99) {
+		return 0, nil
+	}
+	if enabled == 1 && complexity >= 5 {
+		return 1, nil
+	}
+	return 0, nil
 }
 
 func validateCELTPrefilterNoop(noops []celt.EncodePrefilterNoopTrace, cTrace celtCBRStageTrace) error {
@@ -1118,11 +1510,13 @@ func validateCELTTraceExpectedDimensions(goTrace celt.EncodeStageTrace, cTrace c
 }
 
 func (trace celtCBRStageTrace) counts() string {
-	return fmt.Sprintf("bands=%d/%d logs=%d/%d normalize=%d/%d coarse=%d/%d quant=%d/%d mdct=%d/%d preemphasis=%d/%d prefilter=%d/%d overflow=%d",
+	return fmt.Sprintf("bands=%d/%d logs=%d/%d normalize=%d/%d coarse=%d/%d quant=%d/%d mdct=%d/%d preemphasis=%d/%d prefilter=%d/%d pitch-controls=%d/%d pitch=%d/%d/%d overflow=%d",
 		trace.BandCalls, len(trace.Bands), trace.LogCalls, len(trace.Logs),
 		trace.NormalizationCalls, len(trace.Normalizations), trace.CoarseCalls, len(trace.Coarse),
 		trace.QuantCalls, len(trace.Quant), trace.MDCTCalls, len(trace.MDCT),
-		trace.PreemphasisCalls, len(trace.Preemphasis), trace.PrefilterCalls, len(trace.Prefilter), trace.Overflow)
+		trace.PreemphasisCalls, len(trace.Preemphasis), trace.PrefilterCalls, len(trace.Prefilter),
+		trace.PitchControlsCalls, len(trace.PitchControls),
+		trace.PitchDownsampleCalls, trace.PitchSearchCalls, trace.RemoveDoublingCalls, trace.Overflow)
 }
 
 type celtTraceReader struct {
@@ -1155,9 +1549,11 @@ func parseCELTEncodeTrace(data []byte) (celtCBRStageTrace, error) {
 	if len(data) < 12 || string(data[:4]) != "GCET" {
 		return result, fmt.Errorf("invalid GCET stage trace header")
 	}
-	if version := binary.LittleEndian.Uint32(data[4:8]); version != 4 {
-		return result, fmt.Errorf("invalid GCET v4 stage trace version %d", version)
+	version := binary.LittleEndian.Uint32(data[4:8])
+	if version != 4 && version != 5 {
+		return result, fmt.Errorf("unsupported GCET stage trace version %d", version)
 	}
+	result.Version = version
 	reader := celtTraceReader{data: data, off: 8}
 	var err error
 	if result.TraceFrame, err = reader.u32(); err != nil {
@@ -1166,7 +1562,7 @@ func parseCELTEncodeTrace(data []byte) (celtCBRStageTrace, error) {
 	if result.Overflow, err = reader.u32(); err != nil {
 		return result, err
 	}
-	readCounts := func() (int, int, error) {
+	readCounts := func(limit uint32) (int, int, error) {
 		total, readErr := reader.u32()
 		if readErr != nil {
 			return 0, 0, readErr
@@ -1175,7 +1571,7 @@ func parseCELTEncodeTrace(data []byte) (celtCBRStageTrace, error) {
 		if readErr != nil {
 			return 0, 0, readErr
 		}
-		if total > 8 || stored > total || stored != total {
+		if total > limit || stored > total || stored != total {
 			return 0, 0, fmt.Errorf("invalid C stage call counts total=%d stored=%d", total, stored)
 		}
 		return int(total), int(stored), nil
@@ -1187,7 +1583,7 @@ func parseCELTEncodeTrace(data []byte) (celtCBRStageTrace, error) {
 		}
 		return int(count), nil
 	}
-	if result.BandCalls, _, err = readCounts(); err != nil {
+	if result.BandCalls, _, err = readCounts(8); err != nil {
 		return result, err
 	}
 	result.Bands = make([]celtCBRStageBand, 0, result.BandCalls)
@@ -1229,7 +1625,7 @@ func parseCELTEncodeTrace(data []byte) (celtCBRStageTrace, error) {
 			Spectrum: spectrum, Amplitudes: amplitudes,
 		})
 	}
-	if result.LogCalls, _, err = readCounts(); err != nil {
+	if result.LogCalls, _, err = readCounts(8); err != nil {
 		return result, err
 	}
 	result.Logs = make([]celtCBRStageLog, 0, result.LogCalls)
@@ -1256,7 +1652,7 @@ func parseCELTEncodeTrace(data []byte) (celtCBRStageTrace, error) {
 		}
 		result.Logs = append(result.Logs, celtCBRStageLog{Bands: int(bands), Channels: int(channels), Amplitudes: amplitudes, LogEnergy: logEnergy})
 	}
-	if result.NormalizationCalls, _, err = readCounts(); err != nil {
+	if result.NormalizationCalls, _, err = readCounts(8); err != nil {
 		return result, err
 	}
 	result.Normalizations = make([]celtCBRStageNorm, 0, result.NormalizationCalls)
@@ -1294,7 +1690,7 @@ func parseCELTEncodeTrace(data []byte) (celtCBRStageTrace, error) {
 			BandEnergy: bandEnergy, Normalized: normalized,
 		})
 	}
-	if result.CoarseCalls, _, err = readCounts(); err != nil {
+	if result.CoarseCalls, _, err = readCounts(8); err != nil {
 		return result, err
 	}
 	result.Coarse = make([]celtCBRStageCoarse, 0, result.CoarseCalls)
@@ -1332,7 +1728,7 @@ func parseCELTEncodeTrace(data []byte) (celtCBRStageTrace, error) {
 			Input: input, Quantized: quantized, Error: errorValues,
 		})
 	}
-	if result.QuantCalls, _, err = readCounts(); err != nil {
+	if result.QuantCalls, _, err = readCounts(8); err != nil {
 		return result, err
 	}
 	result.Quant = make([]celtCBRStageQuant, 0, result.QuantCalls)
@@ -1374,7 +1770,7 @@ func parseCELTEncodeTrace(data []byte) (celtCBRStageTrace, error) {
 			BandEnergy: bandEnergy, Input: input, Output: output,
 		})
 	}
-	if result.MDCTCalls, _, err = readCounts(); err != nil {
+	if result.MDCTCalls, _, err = readCounts(18); err != nil {
 		return result, err
 	}
 	result.MDCT = make([]celtCBRStageMDCT, 0, result.MDCTCalls)
@@ -1403,7 +1799,7 @@ func parseCELTEncodeTrace(data []byte) (celtCBRStageTrace, error) {
 			FFTScale: math.Float32frombits(values[8]), Input: input, Window: window, Trig: trig,
 		})
 	}
-	if result.PreemphasisCalls, _, err = readCounts(); err != nil {
+	if result.PreemphasisCalls, _, err = readCounts(8); err != nil {
 		return result, err
 	}
 	result.Preemphasis = make([]celtCBRStagePreemphasis, 0, result.PreemphasisCalls)
@@ -1457,7 +1853,7 @@ func parseCELTEncodeTrace(data []byte) (celtCBRStageTrace, error) {
 			Input:        input, Output: output,
 		})
 	}
-	if result.PrefilterCalls, _, err = readCounts(); err != nil {
+	if result.PrefilterCalls, _, err = readCounts(8); err != nil {
 		return result, err
 	}
 	result.Prefilter = make([]celtCBRStagePrefilter, 0, result.PrefilterCalls)
@@ -1520,6 +1916,129 @@ func parseCELTEncodeTrace(data []byte) (celtCBRStageTrace, error) {
 			History: history, Input: input, Window: window, Output: output,
 		})
 	}
+	if version >= 5 {
+		if result.PitchControlsCalls, _, err = readCounts(8); err != nil {
+			return result, err
+		}
+		result.PitchControls = make([]celtCBRStagePitchControls, 0, result.PitchControlsCalls)
+		for range result.PitchControlsCalls {
+			values := make([]uint32, 7)
+			for i := range values {
+				if values[i], err = reader.u32(); err != nil {
+					return result, err
+				}
+			}
+			floatValues, readErr := reader.floats(4)
+			if readErr != nil {
+				return result, readErr
+			}
+			if values[0] == 0 || values[1] == 0 || values[1] > 2 || values[2] > 1 || values[3] > 32 ||
+				values[5] == 0 || values[6] == 0 {
+				return result, fmt.Errorf("invalid C pitch controls N/ch/enabled/complexity/max/min=%d/%d/%d/%d/%d/%d",
+					values[0], values[1], values[2], values[3], values[5], values[6])
+			}
+			for _, value := range floatValues {
+				if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
+					return result, fmt.Errorf("non-finite C pitch prefilter control 0x%08x", math.Float32bits(value))
+				}
+			}
+			result.PitchControls = append(result.PitchControls, celtCBRStagePitchControls{
+				FrameSize: int32(values[0]), Channels: int32(values[1]), Enabled: int32(values[2]),
+				Complexity: int32(values[3]), Arch: int32(values[4]), MaxPeriod: int32(values[5]), MinPeriod: int32(values[6]),
+				TFEstimate: floatValues[0], ToneFreq: floatValues[1], Toneishness: floatValues[2], MaxPitchRatio: floatValues[3],
+			})
+		}
+		if result.PitchDownsampleCalls, _, err = readCounts(8); err != nil {
+			return result, err
+		}
+		result.PitchDownsample = make([]celtCBRStagePitchDownsample, 0, result.PitchDownsampleCalls)
+		for range result.PitchDownsampleCalls {
+			values := make([]uint32, 6)
+			for i := range values {
+				if values[i], err = reader.u32(); err != nil {
+					return result, err
+				}
+			}
+			inputCount64 := uint64(values[0]) * uint64(values[1]) * uint64(values[2])
+			if values[0] == 0 || values[1] == 0 || values[1] > 2 || values[2] == 0 ||
+				inputCount64 > 4096 || values[5] == 0 || values[5] > 4096 {
+				return result, fmt.Errorf("invalid C pitch_downsample dimensions length/channels/factor/input/output=%d/%d/%d/%d/%d",
+					values[0], values[1], values[2], values[4], values[5])
+			}
+			inputCount := int(inputCount64)
+			input, readErr := reader.floats(inputCount)
+			if readErr != nil {
+				return result, readErr
+			}
+			output, readErr := reader.floats(int(values[5]))
+			if readErr != nil {
+				return result, readErr
+			}
+			if values[4] != uint32(inputCount) || values[5] != values[0] {
+				return result, fmt.Errorf("invalid C pitch_downsample dimensions length/channels/factor/input/output=%d/%d/%d/%d/%d",
+					values[0], values[1], values[2], values[4], values[5])
+			}
+			result.PitchDownsample = append(result.PitchDownsample, celtCBRStagePitchDownsample{
+				Length: int32(values[0]), Channels: int32(values[1]), Factor: int32(values[2]), Arch: int32(values[3]),
+				Input: input, Output: output,
+			})
+		}
+		if result.PitchSearchCalls, _, err = readCounts(8); err != nil {
+			return result, err
+		}
+		result.PitchSearch = make([]celtCBRStagePitchSearch, 0, result.PitchSearchCalls)
+		for range result.PitchSearchCalls {
+			values := make([]uint32, 6)
+			for i := range values {
+				if values[i], err = reader.u32(); err != nil {
+					return result, err
+				}
+			}
+			if values[4] == 0 || values[4] > 4096 {
+				return result, fmt.Errorf("invalid C pitch_search buffer count %d", values[4])
+			}
+			buffer, readErr := reader.floats(int(values[4]))
+			if readErr != nil {
+				return result, readErr
+			}
+			if values[0] == 0 || values[1] == 0 || values[4] == 0 || values[2] >= values[4] {
+				return result, fmt.Errorf("invalid C pitch_search dimensions length/max_pitch/x_offset/buffer=%d/%d/%d/%d",
+					values[0], values[1], values[2], values[4])
+			}
+			result.PitchSearch = append(result.PitchSearch, celtCBRStagePitchSearch{
+				Length: int32(values[0]), MaxPitch: int32(values[1]), XOffset: int32(values[2]), Arch: int32(values[3]),
+				Result: int32(values[5]), Buffer: buffer,
+			})
+		}
+		if result.RemoveDoublingCalls, _, err = readCounts(8); err != nil {
+			return result, err
+		}
+		result.RemoveDoubling = make([]celtCBRStageRemoveDoubling, 0, result.RemoveDoublingCalls)
+		for range result.RemoveDoublingCalls {
+			values := make([]uint32, 10)
+			for i := range values {
+				if values[i], err = reader.u32(); err != nil {
+					return result, err
+				}
+			}
+			if values[4] == 0 || values[4] > 4096 {
+				return result, fmt.Errorf("invalid C remove_doubling buffer count %d", values[4])
+			}
+			buffer, readErr := reader.floats(int(values[4]))
+			if readErr != nil {
+				return result, readErr
+			}
+			if values[0] == 0 || values[1] == 0 || values[2] == 0 || values[4] == 0 {
+				return result, fmt.Errorf("invalid C remove_doubling dimensions max/min/N/buffer=%d/%d/%d/%d",
+					values[0], values[1], values[2], values[4])
+			}
+			result.RemoveDoubling = append(result.RemoveDoubling, celtCBRStageRemoveDoubling{
+				MaxPeriod: int32(values[0]), MinPeriod: int32(values[1]), N: int32(values[2]), Arch: int32(values[3]),
+				T0Before: int32(values[5]), PrevPeriod: int32(values[6]), T0After: int32(values[7]),
+				PrevGain: math.Float32frombits(values[8]), Gain: math.Float32frombits(values[9]), Buffer: buffer,
+			})
+		}
+	}
 	if reader.off != len(reader.data) {
 		return result, fmt.Errorf("CELT stage trace has %d trailing bytes", len(reader.data)-reader.off)
 	}
@@ -1551,15 +2070,15 @@ func celtTraceFloat32Stats(got, want []float32) (first int, gotBits, wantBits ui
 	first = -1
 	limit := min(len(got), len(want))
 	for i := 0; i < limit; i++ {
-		gotBits, wantBits = math.Float32bits(got[i]), math.Float32bits(want[i])
-		if gotBits == wantBits {
+		gotAt, wantAt := math.Float32bits(got[i]), math.Float32bits(want[i])
+		if gotAt == wantAt {
 			continue
 		}
 		if first < 0 {
-			first, gotBits, wantBits = i, gotBits, wantBits
+			first, gotBits, wantBits = i, gotAt, wantAt
 		}
 		differing++
-		gotOrder, wantOrder := uint64(celtTraceFloat32Distance(math.Float32bits(got[i]))), uint64(celtTraceFloat32Distance(math.Float32bits(want[i])))
+		gotOrder, wantOrder := uint64(celtTraceFloat32Distance(gotAt)), uint64(celtTraceFloat32Distance(wantAt))
 		var ulp uint64
 		if gotOrder >= wantOrder {
 			ulp = gotOrder - wantOrder
@@ -1578,6 +2097,64 @@ func celtTraceFloat32Stats(got, want []float32) (first int, gotBits, wantBits ui
 		}
 	}
 	return first, gotBits, wantBits, differing, maxULP
+}
+
+// TestCELTStageTraceMDCTCallCapacity accepts the two long and sixteen short
+// transforms of a stereo LM=3 frame, and rejects overflow or missing captures.
+func TestCELTStageTraceMDCTCallCapacity(t *testing.T) {
+	makeTrace := func(total, stored uint32) []byte {
+		data := []byte("GCET")
+		word := func(v uint32) { data = binary.LittleEndian.AppendUint32(data, v) }
+		word(4)
+		word(0)
+		word(0)
+		for range 5 { // Empty energy, log, normalization, coarse and quant stages.
+			word(0)
+			word(0)
+		}
+		word(total)
+		word(stored)
+		for range stored {
+			for _, v := range []uint32{1920, 3, 240, 3, 8, 120, 0, 60, math.Float32bits(1.0 / 60), 240, 120, 120} {
+				word(v)
+			}
+			for range 480 {
+				word(0)
+			}
+		}
+		for range 2 { // Empty preemphasis and prefilter stages.
+			word(0)
+			word(0)
+		}
+		return data
+	}
+	trace, err := parseCELTEncodeTrace(makeTrace(18, 18))
+	if err != nil || trace.MDCTCalls != 18 || len(trace.MDCT) != 18 {
+		t.Fatalf("complete stereo transient capture: calls=%d stored=%d err=%v", trace.MDCTCalls, len(trace.MDCT), err)
+	}
+	for _, counts := range [][2]uint32{{19, 19}, {18, 17}} {
+		if _, err := parseCELTEncodeTrace(makeTrace(counts[0], counts[1])); err == nil || !strings.Contains(err.Error(), "stage call counts") {
+			t.Fatalf("invalid MDCT counts %v: got %v", counts, err)
+		}
+	}
+	data := makeTrace(18, 18)
+	binary.LittleEndian.PutUint32(data[16:20], 9)
+	binary.LittleEndian.PutUint32(data[20:24], 9)
+	if _, err := parseCELTEncodeTrace(data); err == nil || !strings.Contains(err.Error(), "stage call counts") {
+		t.Fatalf("non-MDCT stage exceeds its eight-call bound: got %v", err)
+	}
+}
+
+func TestCELTTraceFloat32StatsPreservesFirstDifference(t *testing.T) {
+	got := []float32{1, 2, 3, 4}
+	want := []float32{1, 4, 3, 4}
+	first, gotBits, wantBits, differing, maxULP := celtTraceFloat32Stats(got, want)
+	if first != 1 || gotBits != math.Float32bits(2) || wantBits != math.Float32bits(4) {
+		t.Fatalf("first difference = index %d, got %#08x, want %#08x; expected index 1, got %#08x, want %#08x", first, gotBits, wantBits, math.Float32bits(2), math.Float32bits(4))
+	}
+	if differing != 1 || maxULP != 1<<23 {
+		t.Fatalf("difference stats = %d values, max ULP %d; want 1 value, max ULP %d", differing, maxULP, uint64(1<<23))
+	}
 }
 
 func firstCELTTraceByteDifference(got, want []byte) int {
@@ -1644,6 +2221,9 @@ func logCELTTraceDifferences(t *testing.T, goTrace celt.EncodeStageTrace, cTrace
 				math.Float32bits(got.StateBefore), math.Float32bits(got.StateAfter),
 				math.Float32bits(want.StateBefore), math.Float32bits(want.StateAfter))
 		}
+	}
+	if pitchFirst := logCELTPitchTraceDifferences(t, goTrace, cTrace); first == "" && pitchFirst != "" {
+		first = pitchFirst
 	}
 	for i := 0; i < min(len(goTrace.PrefilterComb), len(cTrace.Prefilter)); i++ {
 		got, want := goTrace.PrefilterComb[i], cTrace.Prefilter[i]
@@ -1735,4 +2315,106 @@ func logCELTTraceDifferences(t *testing.T, goTrace celt.EncodeStageTrace, cTrace
 	} else {
 		t.Logf("first-divergence trace begins at %s", first)
 	}
+}
+
+func logCELTPitchTraceDifferences(t *testing.T, goTrace celt.EncodeStageTrace, cTrace celtCBRStageTrace) string {
+	t.Helper()
+	if cTrace.Version != 5 {
+		return ""
+	}
+	first := ""
+	if len(goTrace.PitchControls) != len(cTrace.PitchControls) || cTrace.PitchControlsCalls != len(cTrace.PitchControls) {
+		first = "pitch prefilter control counts"
+		t.Logf("pitch prefilter control counts Go=%d C raw/stored=%d/%d",
+			len(goTrace.PitchControls), cTrace.PitchControlsCalls, len(cTrace.PitchControls))
+	}
+	for i := 0; i < min(len(goTrace.PitchControls), len(cTrace.PitchControls)); i++ {
+		got, want := goTrace.PitchControls[i], cTrace.PitchControls[i]
+		if got.FrameSize != want.FrameSize || got.Channels != want.Channels || got.Enabled != want.Enabled ||
+			got.Complexity != want.Complexity || got.MaxPeriod != want.MaxPeriod || got.MinPeriod != want.MinPeriod ||
+			math.Float32bits(got.TFEstimate) != math.Float32bits(want.TFEstimate) ||
+			math.Float32bits(got.ToneFreq) != math.Float32bits(want.ToneFreq) ||
+			math.Float32bits(got.Toneishness) != math.Float32bits(want.Toneishness) ||
+			math.Float32bits(got.MaxPitchRatio) != math.Float32bits(want.MaxPitchRatio) {
+			if first == "" {
+				first = "pitch prefilter controls"
+			}
+			t.Logf("pitch prefilter controls Go=(N/ch/enabled/complexity/max/min=%d/%d/%d/%d/%d/%d tf/tone/toneish/maxratio=%08x/%08x/%08x/%08x) C=(%d/%d/%d/%d/%d/%d %08x/%08x/%08x/%08x arch=%d)",
+				got.FrameSize, got.Channels, got.Enabled, got.Complexity, got.MaxPeriod, got.MinPeriod,
+				math.Float32bits(got.TFEstimate), math.Float32bits(got.ToneFreq), math.Float32bits(got.Toneishness), math.Float32bits(got.MaxPitchRatio),
+				want.FrameSize, want.Channels, want.Enabled, want.Complexity, want.MaxPeriod, want.MinPeriod,
+				math.Float32bits(want.TFEstimate), math.Float32bits(want.ToneFreq), math.Float32bits(want.Toneishness), math.Float32bits(want.MaxPitchRatio), want.Arch)
+		} else {
+			calls, _ := expectedCELTPitchAnalysisCalls(got.Enabled, got.Complexity, got.Toneishness)
+			t.Logf("pitch prefilter controls match: N=%d channels=%d enabled=%d complexity=%d periods=%d/%d toneishness=%08x source-selected pitch calls=%d (C arch=%d)",
+				got.FrameSize, got.Channels, got.Enabled, got.Complexity, got.MaxPeriod, got.MinPeriod,
+				math.Float32bits(got.Toneishness), calls, want.Arch)
+		}
+	}
+	if len(goTrace.PitchDownsample) != cTrace.PitchDownsampleCalls || len(goTrace.PitchSearch) != cTrace.PitchSearchCalls ||
+		len(goTrace.RemoveDoubling) != cTrace.RemoveDoublingCalls {
+		if first == "" {
+			first = "pitch analysis call counts"
+		}
+		t.Logf("pitch analysis call counts Go downsample/search/remove=%d/%d/%d C raw=%d/%d/%d",
+			len(goTrace.PitchDownsample), len(goTrace.PitchSearch), len(goTrace.RemoveDoubling),
+			cTrace.PitchDownsampleCalls, cTrace.PitchSearchCalls, cTrace.RemoveDoublingCalls)
+	}
+	compare := func(label string, got, want []float32) {
+		index, gotBits, wantBits, differing, maxULP := celtTraceFloat32Stats(got, want)
+		if index < 0 {
+			t.Logf("%s: match (%d float32 values)", label, len(got))
+			return
+		}
+		if first == "" {
+			first = label
+		}
+		t.Logf("%s: first difference at %d Go=0x%08x C=0x%08x differing=%d maxULP=%d lengths Go=%d C=%d",
+			label, index, gotBits, wantBits, differing, maxULP, len(got), len(want))
+	}
+	for i := 0; i < min(len(goTrace.PitchDownsample), len(cTrace.PitchDownsample)); i++ {
+		got, want := goTrace.PitchDownsample[i], cTrace.PitchDownsample[i]
+		label := fmt.Sprintf("pitch_downsample call %d", i)
+		if got.Length != want.Length || got.Channels != want.Channels || got.Factor != want.Factor {
+			if first == "" {
+				first = label + " controls"
+			}
+			t.Logf("%s controls Go=(len%d channels%d factor%d) C=(len%d channels%d factor%d arch=%d)",
+				label, got.Length, got.Channels, got.Factor, want.Length, want.Channels, want.Factor, want.Arch)
+		}
+		compare(label+" input", got.Input, want.Input)
+		compare(label+" output", got.Output, want.Output)
+	}
+	for i := 0; i < min(len(goTrace.PitchSearch), len(cTrace.PitchSearch)); i++ {
+		got, want := goTrace.PitchSearch[i], cTrace.PitchSearch[i]
+		label := fmt.Sprintf("pitch_search call %d", i)
+		compare(label+" pitch buffer", got.Buffer, want.Buffer)
+		if got.Length != want.Length || got.MaxPitch != want.MaxPitch || got.XOffset != want.XOffset || got.Result != want.Result {
+			if first == "" {
+				first = label + " controls/result"
+			}
+			t.Logf("%s controls/result Go=(len%d max%d xoff%d result%d) C=(len%d max%d xoff%d result%d arch=%d)",
+				label, got.Length, got.MaxPitch, got.XOffset, got.Result,
+				want.Length, want.MaxPitch, want.XOffset, want.Result, want.Arch)
+		}
+	}
+	for i := 0; i < min(len(goTrace.RemoveDoubling), len(cTrace.RemoveDoubling)); i++ {
+		got, want := goTrace.RemoveDoubling[i], cTrace.RemoveDoubling[i]
+		label := fmt.Sprintf("remove_doubling call %d", i)
+		compare(label+" pitch buffer", got.Buffer, want.Buffer)
+		if got.MaxPeriod != want.MaxPeriod || got.MinPeriod != want.MinPeriod || got.N != want.N ||
+			got.T0Before != want.T0Before || got.PrevPeriod != want.PrevPeriod ||
+			math.Float32bits(got.PrevGain) != math.Float32bits(want.PrevGain) ||
+			got.T0After != want.T0After || math.Float32bits(got.Gain) != math.Float32bits(want.Gain) {
+			if first == "" {
+				first = label + " controls/result"
+			}
+			t.Logf("%s inputs/result Go=(max/min/N%d/%d/%d T0=%d->%d prev=%d/%08x gain=%08x) C=(%d/%d/%d T0=%d->%d prev=%d/%08x gain=%08x arch=%d)",
+				label, got.MaxPeriod, got.MinPeriod, got.N, got.T0Before, got.T0After, got.PrevPeriod,
+				math.Float32bits(got.PrevGain), math.Float32bits(got.Gain),
+				want.MaxPeriod, want.MinPeriod, want.N, want.T0Before, want.T0After, want.PrevPeriod,
+				math.Float32bits(want.PrevGain), math.Float32bits(want.Gain), want.Arch)
+		}
+	}
+	return first
 }

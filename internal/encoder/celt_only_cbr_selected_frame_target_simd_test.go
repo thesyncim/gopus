@@ -2,4 +2,4 @@
 
 package encoder
 
-const hybridCoderBoundaryTraceTargetFrame = 25
+const celtOnlyCBRSelectedFrame = 25

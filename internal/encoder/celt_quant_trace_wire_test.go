@@ -655,10 +655,6 @@ func compareCELTQuantBandTraceEvent(goEvent, cEvent celt.CELTQuantBandTraceSnaps
 			struct {
 				name    string
 				goV, cV int32
-			}{"ithetaQ30", goEvent.IthetaQ30, cEvent.IthetaQ30},
-			struct {
-				name    string
-				goV, cV int32
 			}{"inv", goEvent.Inv, cEvent.Inv},
 			struct {
 				name    string
@@ -687,6 +683,12 @@ func compareCELTQuantBandTraceEvent(goEvent, cEvent celt.CELTQuantBandTraceSnaps
 		); difference != "" {
 			return difference
 		}
+		// This file excludes gopus_qext. In pinned celt/bands.c compute_theta,
+		// the quantized itheta_q30 projection and split_ctx storage are guarded
+		// by ENABLE_QEXT. C therefore records its unprojected local value here,
+		// while Go retains its local projection in the snapshot. Keep both
+		// recorded Q30 values intact, but compare RawIthetaQ30 and the effective
+		// Q14 Itheta above as the source-valid values for this non-QEXT build.
 		for _, field := range []struct {
 			name    string
 			goV, cV float32
@@ -786,6 +788,54 @@ func compareCELTQuantBandTraceEvent(goEvent, cEvent celt.CELTQuantBandTraceSnaps
 		return fmt.Sprintf("unknown stage %d", goEvent.Stage)
 	}
 	return ""
+}
+
+func TestCELTQuantBandTraceNonQEXTQ30StorageDifference(t *testing.T) {
+	trace, _, err := parseCELTQuantBandTrace(validCELTQuantBandTraceWireForTesting())
+	if err != nil {
+		t.Fatalf("parse valid trace fixture: %v", err)
+	}
+	goEvents := append([]celt.CELTQuantBandTraceSnapshot(nil), trace.Events...)
+	cEvents := append([]celt.CELTQuantBandTraceSnapshot(nil), trace.Events...)
+	thetaIndex := -1
+	for index := range goEvents {
+		if goEvents[index].Stage == uint32(celt.CELTQuantBandTraceTheta) {
+			thetaIndex = index
+			break
+		}
+	}
+	if thetaIndex < 0 {
+		t.Fatal("trace fixture has no theta event")
+	}
+
+	const rawQ30 = int32(0x23456789)
+	const effectiveQ14 = int32(0x2345)
+	goEvents[thetaIndex].RawIthetaQ30 = rawQ30
+	cEvents[thetaIndex].RawIthetaQ30 = rawQ30
+	goEvents[thetaIndex].Itheta = effectiveQ14
+	cEvents[thetaIndex].Itheta = effectiveQ14
+	goEvents[thetaIndex].IthetaQ30 = effectiveQ14 << 16
+	cEvents[thetaIndex].IthetaQ30 = rawQ30
+
+	if difference := compareCELTQuantBandTrace(goEvents, celtQuantBandTrace{Events: cEvents}); difference != "" {
+		t.Fatalf("non-QEXT diagnostic Q30 storage difference rejected: %s", difference)
+	}
+	if got := goEvents[thetaIndex].IthetaQ30; got != effectiveQ14<<16 {
+		t.Fatalf("Go diagnostic Q30 value was modified: got %#x", got)
+	}
+	if got := cEvents[thetaIndex].IthetaQ30; got != rawQ30 {
+		t.Fatalf("C diagnostic Q30 value was modified: got %#x", got)
+	}
+
+	cEvents[thetaIndex].RawIthetaQ30++
+	if difference := compareCELTQuantBandTrace(goEvents, celtQuantBandTrace{Events: cEvents}); !strings.Contains(difference, "rawIthetaQ30") {
+		t.Fatalf("raw angle mismatch was not compared exactly: %q", difference)
+	}
+	cEvents[thetaIndex].RawIthetaQ30 = rawQ30
+	cEvents[thetaIndex].Itheta++
+	if difference := compareCELTQuantBandTrace(goEvents, celtQuantBandTrace{Events: cEvents}); !strings.Contains(difference, "itheta") {
+		t.Fatalf("effective Q14 theta mismatch was not compared exactly: %q", difference)
+	}
 }
 
 func celtQuantTraceStageName(stage uint32) string {

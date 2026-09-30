@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/celt"
@@ -185,6 +186,9 @@ func TestEncodeDiffCELTVBRFrame1Trace(t *testing.T) {
 	} else {
 		t.Logf("band-17 quant-stage trace: all %d bounded events match bit-for-bit", len(goQuantEvents))
 	}
+	for _, difference := range compareCELTQuantBandTracePayloads(goQuantEvents, cQuantTrace) {
+		t.Logf("band-17 quant payload sweep: %s", difference)
+	}
 
 	t.Logf("public VBR frame 0: Go bytes=%d C bytes=%d first byte diff=%d Go range=%08x C range=%08x",
 		len(tracedGo[0].Packet), len(ordinaryC[0].Packet), firstCELTTraceByteDifference(tracedGo[0].Packet, ordinaryC[0].Packet), tracedGo[0].FinalRange, ordinaryC[0].FinalRange)
@@ -197,6 +201,99 @@ func TestEncodeDiffCELTVBRFrame1Trace(t *testing.T) {
 	}
 	t.Log("CELT stage-bit comparisons are diagnostic; packet/range transparency checks are strict")
 	logCELTTraceDifferences(t, goTrace, cTrace)
+}
+
+// compareCELTQuantBandTracePayloads checks numeric stage payloads separately
+// from integer metadata. A first metadata difference must not hide an earlier
+// input-vector match or a later output-vector divergence. Event geometry must
+// align before the corresponding float arrays are interpreted together.
+func compareCELTQuantBandTracePayloads(goEvents []celt.CELTQuantBandTraceSnapshot, cTrace celtQuantBandTrace) []string {
+	var firstInput, firstOutput, firstScalar string
+	limit := min(len(goEvents), len(cTrace.Events))
+	var alignment string
+
+	floatDiff := func(eventIndex int, stage, name string, goValue, cValue float32) string {
+		if math.Float32bits(goValue) == math.Float32bits(cValue) {
+			return ""
+		}
+		return fmt.Sprintf("event %d (%s) %s Go=%#08x C=%#08x", eventIndex, stage, name, math.Float32bits(goValue), math.Float32bits(cValue))
+	}
+	vectorDiff := func(eventIndex int, stage, name string, goValues, cValues *[celtQuantTraceWireMaxWidth]float32, n uint32) string {
+		for i := uint32(0); i < n; i++ {
+			if difference := floatDiff(eventIndex, stage, fmt.Sprintf("%s[%d]", name, i), goValues[i], cValues[i]); difference != "" {
+				return difference
+			}
+		}
+		return ""
+	}
+	record := func(dst *string, difference string) {
+		if *dst == "" && difference != "" {
+			*dst = difference
+		}
+	}
+	for index := 0; index < limit; index++ {
+		goEvent, cEvent := goEvents[index], cTrace.Events[index]
+		stage := celtQuantTraceStageName(goEvent.Stage)
+		if goEvent.Stage != cEvent.Stage || goEvent.N != cEvent.N || goEvent.Band != cEvent.Band || goEvent.ThetaRound != cEvent.ThetaRound ||
+			goEvent.B != cEvent.B || goEvent.B0 != cEvent.B0 || goEvent.LM != cEvent.LM ||
+			goEvent.Channels != cEvent.Channels || goEvent.Encode != cEvent.Encode || goEvent.Stereo != cEvent.Stereo {
+			alignment = fmt.Sprintf("event %d payload pairing stopped: source geometry differs (Go stage=%s band=%d N=%d B=%d B0=%d LM=%d round=%d; C stage=%s band=%d N=%d B=%d B0=%d LM=%d round=%d)",
+				index, stage, goEvent.Band, goEvent.N, goEvent.B, goEvent.B0, goEvent.LM, goEvent.ThetaRound,
+				celtQuantTraceStageName(cEvent.Stage), cEvent.Band, cEvent.N, cEvent.B, cEvent.B0, cEvent.LM, cEvent.ThetaRound)
+			break
+		}
+
+		switch goEvent.Stage {
+		case uint32(celt.CELTQuantBandTraceTheta):
+			record(&firstScalar, floatDiff(index, stage, "energyL", goEvent.EnergyL, cEvent.EnergyL))
+			record(&firstScalar, floatDiff(index, stage, "energyR", goEvent.EnergyR, cEvent.EnergyR))
+			record(&firstInput, vectorDiff(index, stage, "XBefore", &goEvent.XBefore, &cEvent.XBefore, goEvent.N))
+			record(&firstInput, vectorDiff(index, stage, "YBefore", &goEvent.YBefore, &cEvent.YBefore, goEvent.N))
+			record(&firstOutput, vectorDiff(index, stage, "XAfter", &goEvent.XAfter, &cEvent.XAfter, goEvent.N))
+			record(&firstOutput, vectorDiff(index, stage, "YAfter", &goEvent.YAfter, &cEvent.YAfter, goEvent.N))
+		case uint32(celt.CELTQuantBandTracePVQ):
+			record(&firstScalar, floatDiff(index, stage, "gain", goEvent.Gain, cEvent.Gain))
+			record(&firstInput, vectorDiff(index, stage, "XBefore", &goEvent.XBefore, &cEvent.XBefore, goEvent.N))
+			record(&firstOutput, vectorDiff(index, stage, "XAfter", &goEvent.XAfter, &cEvent.XAfter, goEvent.N))
+		case uint32(celt.CELTQuantBandTraceStereoMerge):
+			record(&firstScalar, floatDiff(index, stage, "mid", goEvent.Mid, cEvent.Mid))
+			record(&firstInput, vectorDiff(index, stage, "XBefore", &goEvent.XBefore, &cEvent.XBefore, goEvent.N))
+			record(&firstInput, vectorDiff(index, stage, "YBefore", &goEvent.YBefore, &cEvent.YBefore, goEvent.N))
+			record(&firstOutput, vectorDiff(index, stage, "XAfter", &goEvent.XAfter, &cEvent.XAfter, goEvent.N))
+			record(&firstOutput, vectorDiff(index, stage, "YAfter", &goEvent.YAfter, &cEvent.YAfter, goEvent.N))
+		case uint32(celt.CELTQuantBandTraceBandOutput):
+			record(&firstOutput, vectorDiff(index, stage, "XAfter", &goEvent.XAfter, &cEvent.XAfter, goEvent.N))
+			record(&firstOutput, vectorDiff(index, stage, "YAfter", &goEvent.YAfter, &cEvent.YAfter, goEvent.N))
+		case uint32(celt.CELTQuantBandTraceRDOSelect):
+			record(&firstScalar, floatDiff(index, stage, "dist0", goEvent.Dist0, cEvent.Dist0))
+			record(&firstScalar, floatDiff(index, stage, "dist1", goEvent.Dist1, cEvent.Dist1))
+			record(&firstOutput, vectorDiff(index, stage, "XAfter", &goEvent.XAfter, &cEvent.XAfter, goEvent.N))
+			record(&firstOutput, vectorDiff(index, stage, "YAfter", &goEvent.YAfter, &cEvent.YAfter, goEvent.N))
+		}
+	}
+	if len(goEvents) != len(cTrace.Events) && alignment == "" {
+		alignment = fmt.Sprintf("event payload pairing stopped at common prefix %d: event counts Go=%d C=%d", limit, len(goEvents), len(cTrace.Events))
+	}
+	results := make([]string, 0, 4)
+	if firstInput == "" {
+		results = append(results, "all aligned pre-stage vectors match bit-for-bit")
+	} else {
+		results = append(results, "first pre-stage vector difference: "+firstInput)
+	}
+	if firstOutput == "" {
+		results = append(results, "all aligned post-stage vectors match bit-for-bit")
+	} else {
+		results = append(results, "first post-stage vector difference: "+firstOutput)
+	}
+	if firstScalar == "" {
+		results = append(results, "all aligned scalar float payloads match bit-for-bit")
+	} else {
+		results = append(results, "first scalar float payload difference: "+firstScalar)
+	}
+	if alignment != "" {
+		results = append(results, alignment)
+	}
+	return results
 }
 
 func newCELTVBRTraceEncoder() *Encoder {

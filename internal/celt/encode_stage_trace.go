@@ -2,19 +2,76 @@
 
 package celt
 
+// A stereo LM=3 frame has two long analysis transforms and sixteen short
+// transforms; see celt_encoder.c compute_mdcts and secondMdct.
+const encodeMDCTTraceMaxCalls = 18
+
 // EncodeStageTrace holds bounded CELT frame intermediates for the opt-in
 // first-divergence oracle test. Values use the codec's float32 storage width.
 type EncodeStageTrace struct {
-	BandStages     []EncodeBandStageTrace
-	Normalizations []EncodeNormalizationTrace
-	CoarseEnergy   []EncodeCoarseEnergyTrace
-	BandQuantize   []EncodeBandQuantizeTrace
-	Preemphasis    []EncodePreemphasisTrace
-	PrefilterComb  []EncodePrefilterCombTrace
-	PrefilterNoop  []EncodePrefilterNoopTrace
-	MDCTCalls      []EncodeMDCTCallTrace
-	MDCTOverflow   bool
-	StageOverflow  bool
+	BandStages      []EncodeBandStageTrace
+	Normalizations  []EncodeNormalizationTrace
+	CoarseEnergy    []EncodeCoarseEnergyTrace
+	BandQuantize    []EncodeBandQuantizeTrace
+	Preemphasis     []EncodePreemphasisTrace
+	PrefilterComb   []EncodePrefilterCombTrace
+	PrefilterNoop   []EncodePrefilterNoopTrace
+	PitchControls   []EncodePitchControlsTrace
+	PitchDownsample []EncodePitchDownsampleTrace
+	PitchSearch     []EncodePitchSearchTrace
+	RemoveDoubling  []EncodeRemoveDoublingTrace
+	MDCTCalls       []EncodeMDCTCallTrace
+	MDCTOverflow    bool
+	StageOverflow   bool
+}
+
+// EncodePitchControlsTrace captures the inputs that select runPrefilter's
+// tone-frequency shortcut or pitch-analysis path.
+type EncodePitchControlsTrace struct {
+	FrameSize     int32
+	Channels      int32
+	Enabled       int32
+	Complexity    int32
+	MaxPeriod     int32
+	MinPeriod     int32
+	TFEstimate    float32
+	ToneFreq      float32
+	Toneishness   float32
+	MaxPitchRatio float32
+}
+
+// EncodePitchDownsampleTrace captures the actual pitch_downsample input and
+// output buffers at runPrefilter's pitch analysis boundary.
+type EncodePitchDownsampleTrace struct {
+	Length   int32
+	Channels int32
+	Factor   int32
+	Input    []float32
+	Output   []float32
+}
+
+// EncodePitchSearchTrace captures the pitch buffer and result at the actual
+// pitch_search call in runPrefilter.
+type EncodePitchSearchTrace struct {
+	Length   int32
+	MaxPitch int32
+	XOffset  int32
+	Buffer   []float32
+	Result   int32
+}
+
+// EncodeRemoveDoublingTrace captures the actual remove_doubling operands,
+// prior state, and result in runPrefilter.
+type EncodeRemoveDoublingTrace struct {
+	MaxPeriod  int32
+	MinPeriod  int32
+	N          int32
+	T0Before   int32
+	T0After    int32
+	PrevPeriod int32
+	PrevGain   float32
+	Gain       float32
+	Buffer     []float32
 }
 
 // EncodePreemphasisTrace captures one channel's exact raw input, carry, and
@@ -129,8 +186,9 @@ type EncodeBandQuantizeTrace struct {
 }
 
 type encodeStageTraceState struct {
-	enabled bool
-	trace   EncodeStageTrace
+	enabled      bool
+	pitchEnabled bool
+	trace        EncodeStageTrace
 }
 
 // EnableEncodeStageTraceForTesting resets and enables frame-stage captures.
@@ -221,15 +279,20 @@ func (e *Encoder) EncodeStageTraceForTesting() EncodeStageTrace {
 
 func (s *encodeStageTraceState) reset() {
 	s.enabled = true
+	s.pitchEnabled = false
 	s.trace = EncodeStageTrace{
-		BandStages:     make([]EncodeBandStageTrace, 0, 4),
-		Normalizations: make([]EncodeNormalizationTrace, 0, 2),
-		CoarseEnergy:   make([]EncodeCoarseEnergyTrace, 0, 2),
-		BandQuantize:   make([]EncodeBandQuantizeTrace, 0, 2),
-		Preemphasis:    make([]EncodePreemphasisTrace, 0, 2),
-		PrefilterComb:  make([]EncodePrefilterCombTrace, 0, 4),
-		PrefilterNoop:  make([]EncodePrefilterNoopTrace, 0, 2),
-		MDCTCalls:      make([]EncodeMDCTCallTrace, 0, 4),
+		BandStages:      make([]EncodeBandStageTrace, 0, 4),
+		Normalizations:  make([]EncodeNormalizationTrace, 0, 2),
+		CoarseEnergy:    make([]EncodeCoarseEnergyTrace, 0, 2),
+		BandQuantize:    make([]EncodeBandQuantizeTrace, 0, 2),
+		Preemphasis:     make([]EncodePreemphasisTrace, 0, 2),
+		PrefilterComb:   make([]EncodePrefilterCombTrace, 0, 4),
+		PrefilterNoop:   make([]EncodePrefilterNoopTrace, 0, 2),
+		PitchControls:   make([]EncodePitchControlsTrace, 0, 1),
+		PitchDownsample: make([]EncodePitchDownsampleTrace, 0, 2),
+		PitchSearch:     make([]EncodePitchSearchTrace, 0, 2),
+		RemoveDoubling:  make([]EncodeRemoveDoublingTrace, 0, 2),
+		MDCTCalls:       make([]EncodeMDCTCallTrace, 0, 4),
 	}
 }
 
@@ -342,7 +405,7 @@ func (s *encodeStageTraceState) recordMDCTCall(call EncodeMDCTCallTrace) {
 	if !s.enabled {
 		return
 	}
-	if len(s.trace.MDCTCalls) >= 8 {
+	if len(s.trace.MDCTCalls) >= encodeMDCTTraceMaxCalls {
 		s.trace.MDCTOverflow = true
 		return
 	}

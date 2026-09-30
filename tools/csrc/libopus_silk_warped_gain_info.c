@@ -16,6 +16,24 @@
 #include "noise_shape_analysis_FLP.c"
 #undef silk_noise_shape_analysis_FLP
 
+#if defined(_MSC_VER)
+#define GOPUS_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+#define GOPUS_NOINLINE __attribute__((noinline))
+#else
+#define GOPUS_NOINLINE
+#endif
+
+/* Keep the static source helper's compiler context separate from the protocol
+ * loop. The ordinary encoder inlines this source helper at its own callsite. */
+static GOPUS_NOINLINE silk_float gopus_test_warped_gain(
+    const silk_float *coefs,
+    silk_float lambda,
+    opus_int order
+) {
+  return warped_gain(coefs, lambda, order);
+}
+
 #define INPUT_MAGIC "GSWI"
 #define OUTPUT_MAGIC "GSWO"
 #define MAX_CASES 4096u
@@ -84,7 +102,7 @@ static int run_case(void) {
     if (!read_float(&coefs[i]) || !isfinite(coefs[i])) return 0;
   }
 
-  result = warped_gain(coefs, lambda, order);
+  result = gopus_test_warped_gain(coefs, lambda, order);
   return write_u32(raw_order) && write_float(result);
 }
 

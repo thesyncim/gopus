@@ -42,6 +42,8 @@ func (e *Encoder) runPrefilter(in []float32, frameSize int, tapset int, enabled 
 	qextScale := e.combScale()
 	maxPeriod := e.combMaxPeriod()
 	minPeriod := e.combMinPeriod()
+	e.recordPitchControls(frameSize, channels, enabled, e.complexity, maxPeriod, minPeriod,
+		tfEstimate, toneFreq, toneishness, maxPitchRatio)
 	// e.prefilterPeriod is stored at the unscaled COMBFILTER range (the comb
 	// filter runs at that scale; only the analysis buffers/search use the
 	// QEXT-scaled period). Clamp it the same way libopus clamps
@@ -98,12 +100,12 @@ func (e *Encoder) runPrefilter(in []float32, frameSize int, tapset int, enabled 
 	} else if enabled && e.complexity >= 5 {
 		pitchBufLen := max((maxPeriod+frameSize)>>1, 1)
 		pitchBuf := ensureFloat32Slice(&e.scratch.prefilterPitchBuf, pitchBufLen)
-		pitchDownsampleSig(pre, pitchBuf, pitchBufLen, channels, 2)
+		e.runPrefilterPitchDownsample(pre, pitchBuf, pitchBufLen, channels, perChanLen, 2)
 		maxPitch := max(maxPeriod-3*minPeriod, 1)
-		searchOut := pitchSearch(pitchBuf[maxPeriod>>1:], pitchBuf, frameSize, maxPitch, &e.scratch)
+		searchOut := e.runPrefilterPitchSearch(pitchBuf, maxPeriod>>1, frameSize, maxPitch)
 		pitchIndex = searchOut
 		pitchIndex = maxPeriod - pitchIndex
-		gain1 = removeDoubling(pitchBuf, maxPeriod, minPeriod, frameSize, &pitchIndex, e.prefilterPeriod, e.prefilterGain, &e.scratch)
+		gain1 = e.runPrefilterRemoveDoubling(pitchBuf, maxPeriod, minPeriod, frameSize, &pitchIndex)
 		if pitchIndex > maxPeriod-2*qextScale {
 			pitchIndex = maxPeriod - 2*qextScale
 		}

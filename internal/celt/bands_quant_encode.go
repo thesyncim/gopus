@@ -48,6 +48,10 @@ func quantBandN1EncChannel(ctx *bandCtx, x []celtNorm) {
 // coder: it measures the split angle, quantizes it with the theta_round bias
 // of the stereo RDO trials, codes it, and applies the stereo mixing.
 func computeThetaEnc(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b *int, B, B0, lm int, stereo bool, fill *int) {
+	var traceState quantBandTraceState
+	if celtQuantBandTraceEnabled {
+		traceState = beginQuantThetaTrace(ctx, x, y, n, *b, B, B0, lm, stereo, *fill)
+	}
 	re := ctx.re
 	pulseCap := LogN[ctx.band] + lm<<bitRes
 	offset := pulseCap>>1 - qthetaOffset
@@ -70,6 +74,7 @@ func computeThetaEnc(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b *in
 			ctx.rdoItheta, ctx.rdoIthetaSet = ithetaQ30, true
 		}
 	}
+	rawIthetaQ30 := ithetaQ30
 	itheta := ithetaQ30 >> 16
 	inv := 0
 	if qn != 1 {
@@ -178,6 +183,9 @@ func computeThetaEnc(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b *in
 		ithetaQ30: ithetaQ30,
 		qalloc:    qalloc,
 	}
+	if celtQuantBandTraceEnabled {
+		finishQuantThetaTrace(&traceState, ctx, sctx, x, y, n, *b, *fill, qn, pulseCap, offset, rawIthetaQ30)
+	}
 }
 
 // algQuantEnc is alg_quant() without refinement bits: spread rotation, PVQ
@@ -254,21 +262,43 @@ func quantPartitionEnc(ctx *bandCtx, x []celtNorm, n, b, B int, lowband []celtNo
 		rebalance := ctx.remainingBits
 		var cm int
 		if mbits >= sbits {
+			var traceContext quantBandTraceRestorePoint
+			if celtQuantBandTraceEnabled {
+				traceContext = saveQuantBandTraceContext()
+			}
 			cm = quantPartitionEnc(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, celtMul32(gain, opusVal16(mid)), fill)
+			if celtQuantBandTraceEnabled {
+				restoreQuantBandTraceContext(traceContext)
+				traceContext = saveQuantBandTraceContext()
+			}
 			rebalance = mbits - (rebalance - ctx.remainingBits)
 			if rebalance > 3<<bitRes && sctx.itheta != 0 {
 				sbits += rebalance - (3 << bitRes)
 			}
 			scm := quantPartitionEnc(ctx, y, nHalf, sbits, B, lowband2, lm, celtMul32(gain, opusVal16(side)), fill>>B)
+			if celtQuantBandTraceEnabled {
+				restoreQuantBandTraceContext(traceContext)
+			}
 			cm |= scm << (B0 >> 1)
 		} else {
+			var traceContext quantBandTraceRestorePoint
+			if celtQuantBandTraceEnabled {
+				traceContext = saveQuantBandTraceContext()
+			}
 			cm = quantPartitionEnc(ctx, y, nHalf, sbits, B, lowband2, lm, celtMul32(gain, opusVal16(side)), fill>>B)
+			if celtQuantBandTraceEnabled {
+				restoreQuantBandTraceContext(traceContext)
+				traceContext = saveQuantBandTraceContext()
+			}
 			cm <<= B0 >> 1
 			rebalance = sbits - (rebalance - ctx.remainingBits)
 			if rebalance > 3<<bitRes && sctx.itheta != 16384 {
 				mbits += rebalance - (3 << bitRes)
 			}
 			cm |= quantPartitionEnc(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, celtMul32(gain, opusVal16(mid)), fill)
+			if celtQuantBandTraceEnabled {
+				restoreQuantBandTraceContext(traceContext)
+			}
 		}
 		return cm
 	}
@@ -305,7 +335,16 @@ func quantPartitionEnc(ctx *bandCtx, x []celtNorm, n, b, B int, lowband []celtNo
 		}
 	}
 	if q != 0 {
-		return algQuantEnc(ctx, x, n, getPulses(q), B, gain)
+		k := getPulses(q)
+		var traceState quantBandTraceState
+		if celtQuantBandTraceEnabled {
+			traceState = beginQuantPVQTrace(ctx, x, n, k, ctx.spread, B, lm, gain, ctx.resynth)
+		}
+		cm := algQuantEnc(ctx, x, n, k, B, gain)
+		if celtQuantBandTraceEnabled {
+			finishQuantPVQTrace(&traceState, ctx, x, n, cm)
+		}
+		return cm
 	}
 	if !ctx.resynth {
 		return fill
@@ -406,7 +445,14 @@ func quantBandEnc(ctx *bandCtx, x []celtNorm, n, b, B int, lowband []celtNorm, l
 		}
 	}
 
+	var traceContext quantBandTraceRestorePoint
+	if celtQuantBandTraceEnabled {
+		traceContext = saveQuantBandTraceContext()
+	}
 	cm := quantPartitionEnc(ctx, x, n, b, B, lowband, lm, gain, fill)
+	if celtQuantBandTraceEnabled {
+		restoreQuantBandTraceContext(traceContext)
+	}
 
 	if !ctx.resynth {
 		return cm
@@ -442,6 +488,10 @@ func quantBandStereoEnc(ctx *bandCtx, x, y []celtNorm, n, b, B int, lowband []ce
 	}
 	x = x[:n:n]
 	y = y[:n:n]
+	var bandTrace quantBandTraceState
+	if celtQuantBandTraceEnabled {
+		bandTrace = beginQuantBandOutputTrace(ctx, x, y, n, b, B, lm)
+	}
 	origFill := fill
 
 	if ctx.bandE != nil {
@@ -458,6 +508,11 @@ func quantBandStereoEnc(ctx *bandCtx, x, y []celtNorm, n, b, B int, lowband []ce
 
 	var sctx splitCtx
 	computeThetaEnc(ctx, &sctx, x, y, n, &b, B, B, lm, true, &fill)
+	var topThetaTraceContext quantBandTraceContext
+	if celtQuantBandTraceEnabled {
+		topThetaTraceContext = quantBandTraceCurrentContext()
+		setQuantBandOutputTraceContext(&bandTrace, topThetaTraceContext)
+	}
 	mid, side := thetaSplitGains(&sctx, celtQEXTFloatMath)
 
 	if n == 2 {
@@ -502,6 +557,9 @@ func quantBandStereoEnc(ctx *bandCtx, x, y []celtNorm, n, b, B int, lowband []ce
 				y[1] = -y[1]
 			}
 		}
+		if celtQuantBandTraceEnabled {
+			finishQuantBandOutputTrace(&bandTrace, ctx, x, y, n, cm)
+		}
 		return cm
 	}
 
@@ -512,28 +570,60 @@ func quantBandStereoEnc(ctx *bandCtx, x, y []celtNorm, n, b, B int, lowband []ce
 	rebalance := ctx.remainingBits
 	var cm int
 	if mbits >= sbits {
+		var traceContext quantBandTraceRestorePoint
+		if celtQuantBandTraceEnabled {
+			traceContext = saveQuantBandTraceContext()
+		}
 		cm = quantBandEnc(ctx, x, n, mbits, B, lowband, lm, lowbandOut, 1.0, lowbandScratch, fill)
+		if celtQuantBandTraceEnabled {
+			restoreQuantBandTraceContext(traceContext)
+			traceContext = saveQuantBandTraceContext()
+		}
 		rebalance = mbits - (rebalance - ctx.remainingBits)
 		if rebalance > 3<<bitRes && sctx.itheta != 0 {
 			sbits += rebalance - (3 << bitRes)
 		}
 		cm |= quantBandEnc(ctx, y, n, sbits, B, nil, lm, nil, opusVal16(side), nil, fill>>B)
+		if celtQuantBandTraceEnabled {
+			restoreQuantBandTraceContext(traceContext)
+		}
 	} else {
+		var traceContext quantBandTraceRestorePoint
+		if celtQuantBandTraceEnabled {
+			traceContext = saveQuantBandTraceContext()
+		}
 		cm = quantBandEnc(ctx, y, n, sbits, B, nil, lm, nil, opusVal16(side), nil, fill>>B)
+		if celtQuantBandTraceEnabled {
+			restoreQuantBandTraceContext(traceContext)
+			traceContext = saveQuantBandTraceContext()
+		}
 		rebalance = sbits - (rebalance - ctx.remainingBits)
 		if rebalance > 3<<bitRes && sctx.itheta != 16384 {
 			mbits += rebalance - (3 << bitRes)
 		}
 		cm |= quantBandEnc(ctx, x, n, mbits, B, lowband, lm, lowbandOut, 1.0, lowbandScratch, fill)
+		if celtQuantBandTraceEnabled {
+			restoreQuantBandTraceContext(traceContext)
+		}
 	}
 
 	if ctx.resynth {
+		var mergeTrace quantBandTraceState
+		if celtQuantBandTraceEnabled {
+			mergeTrace = beginQuantStereoMergeTrace(ctx, x, y, n, B, lm, opusVal16(mid), topThetaTraceContext)
+		}
 		stereoMerge(x, y, opusVal16(mid))
+		if celtQuantBandTraceEnabled {
+			finishQuantStereoMergeTrace(&mergeTrace, ctx, x, y, n)
+		}
 		if sctx.inv != 0 {
 			for i := range y {
 				y[i] = -y[i]
 			}
 		}
+	}
+	if celtQuantBandTraceEnabled {
+		finishQuantBandOutputTrace(&bandTrace, ctx, x, y, n, cm)
 	}
 	return cm
 }
@@ -549,6 +639,10 @@ func quantBandStereoEnc(ctx *bandCtx, x, y []celtNorm, n, b, B int, lowband []ce
 func quantBandStereoThetaRDOEnc(ctx *bandCtx, re *rangecoding.Encoder, scratch *bandEncodeScratch,
 	x, y []celtNorm, b, B int, lowband []celtNorm, lm int, lowbandOut, lowbandScratch []celtNorm,
 	fill int, leftE, rightE celtEner) int {
+	var rdoTrace quantBandTraceState
+	if celtQuantBandTraceEnabled {
+		rdoTrace = beginQuantRDOTrace(ctx, x, y, len(x), b, B, lm)
+	}
 	n := len(x)
 	w0, w1 := computeChannelWeights(leftE, rightE)
 	xSave := scratch.ensureXSave(n)
@@ -562,6 +656,10 @@ func quantBandStereoThetaRDOEnc(ctx *bandCtx, re *rangecoding.Encoder, scratch *
 	ctx.thetaRound = -1
 	cm0 := quantBandStereoEnc(ctx, x, y, n, b, B, lowband, lm, lowbandOut, lowbandScratch, fill)
 	dist0 := thetaRDODistortion(w0, w1, xSave, x, ySave, y)
+	var thetaContext0 quantBandTraceContext
+	if celtQuantBandTraceEnabled {
+		thetaContext0 = quantBandTraceLastBandOutputContext()
+	}
 
 	re.SaveStateSinceInto(&scratch.ecSave0, ecSave)
 	remainingSave0, seedSave0 := ctx.remainingBits, ctx.seed
@@ -579,17 +677,27 @@ func quantBandStereoThetaRDOEnc(ctx *bandCtx, re *rangecoding.Encoder, scratch *
 	ctx.thetaRound = 1
 	cm1 := quantBandStereoEnc(ctx, x1, y1, n, b, B, lowband, lm, out1, lowbandScratch, fill)
 	dist1 := thetaRDODistortion(w0, w1, xSave, x1, ySave, y1)
+	var thetaContext1 quantBandTraceContext
+	if celtQuantBandTraceEnabled {
+		thetaContext1 = quantBandTraceLastBandOutputContext()
+	}
 	ctx.thetaRound = 0
 	ctx.rdoIthetaSet = false
 	if dist0 >= dist1 {
 		re.RestoreState(&scratch.ecSave0)
 		ctx.remainingBits, ctx.seed = remainingSave0, seedSave0
+		if celtQuantBandTraceEnabled {
+			finishQuantRDOTrace(&rdoTrace, ctx, x, y, n, -1, dist0, dist1, thetaContext0)
+		}
 		return cm0
 	}
 	copy(x, x1)
 	copy(y, y1)
 	if out1 != nil {
 		copy(lowbandOut, out1)
+	}
+	if celtQuantBandTraceEnabled {
+		finishQuantRDOTrace(&rdoTrace, ctx, x, y, n, 1, dist0, dist1, thetaContext1)
 	}
 	return cm1
 }

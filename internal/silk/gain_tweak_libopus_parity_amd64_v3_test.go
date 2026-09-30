@@ -20,12 +20,12 @@ type silkGainTweakCase struct {
 	gain, gainMult, gainAdd float32
 }
 
-var silkGainTweakOracleHelper libopustest.HelperCache
+var silkGainTweakCExpressionHelper libopustest.HelperCache
 
-func getSILKGainTweakOraclePath() (string, error) {
-	return silkGainTweakOracleHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:        "silk gain tweak",
-		OutputBase:   "gopus_libopus_silk_gain_tweak",
+func getSILKGainTweakCExpressionPath() (string, error) {
+	return silkGainTweakCExpressionHelper.CHelperPath(libopustest.CHelperConfig{
+		Label:        "SILK gain tweak C expression",
+		OutputBase:   "gopus_libopus_silk_gain_tweak_c_expression",
 		SourceFile:   "libopus_silk_gain_tweak_info.c",
 		ProbeRelPath: "silk/float/main_FLP.h",
 		CFlags:       []string{"-DHAVE_CONFIG_H", "-O2"},
@@ -34,8 +34,8 @@ func getSILKGainTweakOraclePath() (string, error) {
 	})
 }
 
-func probeSILKGainTweakOracle(cases []silkGainTweakCase) ([]float32, error) {
-	path, err := getSILKGainTweakOraclePath()
+func probeSILKGainTweakCExpression(cases []silkGainTweakCase) ([]float32, error) {
+	path, err := getSILKGainTweakCExpressionPath()
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +45,7 @@ func probeSILKGainTweakOracle(cases []silkGainTweakCase) ([]float32, error) {
 		payload.Float32(tc.gainMult)
 		payload.Float32(tc.gainAdd)
 	}
-	reader, err := libopustest.RunOracle(path, payload.Bytes(), "silk gain tweak", silkGainTweakOutputMagic)
+	reader, err := libopustest.RunOracle(path, payload.Bytes(), "SILK gain tweak C expression", silkGainTweakOutputMagic)
 	if err != nil {
 		return nil, err
 	}
@@ -60,19 +60,20 @@ func probeSILKGainTweakOracle(cases []silkGainTweakCase) ([]float32, error) {
 	return out, nil
 }
 
-// silkGainTweakCandidateForOracle keeps the FMA result independent from the
+// silkGainTweakCandidateForCExpression keeps the FMA result independent from the
 // separate-operation witness in the test loop. Without this boundary, the
 // compiler can share the rounded product with that witness and decontract the
 // candidate expression while compiling the test.
+//
 //go:noinline
-func silkGainTweakCandidateForOracle(gain, gainMult, gainAdd float32) float32 {
+func silkGainTweakCandidateForCExpression(gain, gainMult, gainAdd float32) float32 {
 	return silkGainTweak32(gain, gainMult, gainAdd)
 }
 
-func TestSILKGainTweakFMA32MatchesLibopus(t *testing.T) {
+func TestSILKGainTweakFMA32MatchesCExpression(t *testing.T) {
 	target, err := libopustooling.ResolveLibopusAMD64Target()
 	if err != nil || target != "v3" {
-		message := "SILK gain tweak oracle requires GOPUS_LIBOPUS_AMD64_TARGET=v3"
+		message := "SILK gain tweak C-expression probe requires GOPUS_LIBOPUS_AMD64_TARGET=v3"
 		if err != nil {
 			message += ": " + err.Error()
 		} else {
@@ -103,13 +104,13 @@ func TestSILKGainTweakFMA32MatchesLibopus(t *testing.T) {
 			gainAdd:  normal(116, 126),
 		}
 	}
-	want, err := probeSILKGainTweakOracle(cases)
+	want, err := probeSILKGainTweakCExpression(cases)
 	if err != nil {
-		libopustest.HelperUnavailable(t, "silk gain tweak", err)
+		libopustest.HelperUnavailable(t, "SILK gain tweak C expression", err)
 	}
 	separateWitness := false
 	for i, tc := range cases {
-		got := silkGainTweakCandidateForOracle(tc.gain, tc.gainMult, tc.gainAdd)
+		got := silkGainTweakCandidateForCExpression(tc.gain, tc.gainMult, tc.gainAdd)
 		if math.Float32bits(got) != math.Float32bits(want[i]) {
 			t.Fatalf("case%d gain tweak=%08x C=%08x", i, math.Float32bits(got), math.Float32bits(want[i]))
 		}
@@ -118,7 +119,7 @@ func TestSILKGainTweakFMA32MatchesLibopus(t *testing.T) {
 		}
 	}
 	if !separateWitness {
-		t.Fatal("oracle corpus did not distinguish the separate multiply/add from the contracted result")
+		t.Fatal("C-expression corpus did not distinguish the separate multiply/add from the contracted result")
 	}
 }
 
