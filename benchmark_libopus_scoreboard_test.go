@@ -25,11 +25,12 @@
 //     ReportMetric ("libopus_ns/pkt") alongside the ratio ("g/l", gopus/libopus;
 //     <1.00 means gopus is faster). The helper result is computed once and reused
 //     across b.N iterations (it does not depend on b.N).
-//   - The per-config Benchmarks time gopus at the single-packet steady state
-//     (Reset only at batch wrap), so their "g/l" is an APPROXIMATE per-op ratio
-//     (gopus skips most stream resets that the libopus self-timed pass includes).
-//     For the authoritative apples-to-apples ratio use TestScoreboardSummary,
-//     which times a full reset+batch pass on BOTH sides.
+//   - Both sides reset the stream before every batch and keep the reset out of
+//     the timed region; they time the same per-frame calls on the same data.
+//   - The Benchmarks and TestScoreboardSummary time gopus and libopus in
+//     separate windows, so machine drift between the windows lands in "g/l".
+//     TestScoreboardInterleaved alternates the two sides in lockstep and takes
+//     the min over many passes; use it for per-config ratios and A/B decisions.
 //   - Matched work: both sides encode the same number of frames of the same
 //     duration and consume the SAME native-Fs PCM. gopus and libopus now share the
 //     native-Fs input contract (opus_encode(Fs)), so a frame of duration D at rate
@@ -623,6 +624,24 @@ func encodeGopusBatch(tb testing.TB, c scoreboardConfig, pcm []float32, nFrames 
 	return packets, bit.Bytes()
 }
 
+// scoreboardResetClock measures the per-batch stream resets inside a running
+// benchmark timer so the reported gopus ns/packet excludes them, matching the
+// libopus helper, which resets outside its timed region. It avoids
+// b.StopTimer/b.StartTimer, whose runtime.ReadMemStats stop-the-world call would
+// run between batches and disturb the gopus side only.
+type scoreboardResetClock struct{ ns int64 }
+
+func (r *scoreboardResetClock) reset(fn func()) {
+	st := time.Now()
+	fn()
+	r.ns += time.Since(st).Nanoseconds()
+}
+
+// codecNs returns the benchmark's elapsed time minus the reset time.
+func (r *scoreboardResetClock) codecNs(b *testing.B) float64 {
+	return float64(b.Elapsed().Nanoseconds() - r.ns)
+}
+
 // BenchmarkScoreboardEncode times gopus Encode against libopus opus_encode_float
 // for every matched config and records the gopus/libopus ratio.
 func BenchmarkScoreboardEncode(b *testing.B) {
@@ -661,12 +680,11 @@ func BenchmarkScoreboardEncode(b *testing.B) {
 			}
 
 			b.ResetTimer()
+			var resets scoreboardResetClock
 			frame := 0
 			for i := 0; i < b.N; i++ {
 				if frame == 0 {
-					b.StopTimer()
-					enc.Reset()
-					b.StartTimer()
+					resets.reset(enc.Reset)
 				}
 				if _, err := enc.Encode(pcm[frame*samplesPerFrame:(frame+1)*samplesPerFrame], out); err != nil {
 					b.Fatalf("gopus encode: %v", err)
@@ -679,7 +697,7 @@ func BenchmarkScoreboardEncode(b *testing.B) {
 			b.StopTimer()
 
 			if ok {
-				gopusNsPkt := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
+				gopusNsPkt := resets.codecNs(b) / float64(b.N)
 				b.ReportMetric(lib.NsPerPacket, "libopus_ns/pkt")
 				b.ReportMetric(gopusNsPkt/lib.NsPerPacket, "g/l")
 			}
@@ -730,12 +748,11 @@ func BenchmarkScoreboardDecode(b *testing.B) {
 			}
 
 			b.ResetTimer()
+			var resets scoreboardResetClock
 			idx := 0
 			for i := 0; i < b.N; i++ {
 				if idx == 0 {
-					b.StopTimer()
-					dec.Reset()
-					b.StartTimer()
+					resets.reset(dec.Reset)
 				}
 				if _, err := dec.Decode(packets[idx], pcmOut); err != nil {
 					b.Fatalf("gopus decode: %v", err)
@@ -748,7 +765,7 @@ func BenchmarkScoreboardDecode(b *testing.B) {
 			b.StopTimer()
 
 			if ok {
-				gopusNsPkt := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
+				gopusNsPkt := resets.codecNs(b) / float64(b.N)
 				b.ReportMetric(lib.NsPerPacket, "libopus_ns/pkt")
 				b.ReportMetric(gopusNsPkt/lib.NsPerPacket, "g/l")
 			}
@@ -829,8 +846,7 @@ func TestScoreboardSummary(t *testing.T) {
 		}
 		samplesPerFrame := c.nativeFrame() * c.Channels
 		out := make([]byte, scoreboardMaxPacketBytes)
-		encGopusNs := timeGopus(func() {
-			enc.Reset()
+		encGopusNs := timeGopus(enc.Reset, func() {
 			for f := 0; f < nFrames; f++ {
 				if _, err := enc.Encode(pcm[f*samplesPerFrame:(f+1)*samplesPerFrame], out); err != nil {
 					t.Fatalf("gopus encode (%s): %v", c.name(), err)
@@ -847,8 +863,7 @@ func TestScoreboardSummary(t *testing.T) {
 		}
 		maxOut := c.nativeFrame() * c.Channels
 		pcmOut := make([]float32, maxOut)
-		decGopusNs := timeGopus(func() {
-			dec.Reset()
+		decGopusNs := timeGopus(dec.Reset, func() {
 			for _, pkt := range packets {
 				if _, err := dec.Decode(pkt, pcmOut); err != nil {
 					t.Fatalf("gopus decode (%s): %v", c.name(), err)
@@ -895,22 +910,22 @@ func TestScoreboardSummary(t *testing.T) {
 	t.Log(sb.String())
 }
 
-// timeGopus runs fn repeatedly for a short window and returns ns per unit (frame
-// or packet). It mirrors the self-timed loop the libopus helper uses so both
-// sides exclude warmup and report a comparable per-packet cost.
-func timeGopus(fn func(), unitsPerPass int) float64 {
-	// Warm pass.
-	fn()
+// timeGopus runs reset+pass repeatedly until the timed pass time reaches a short
+// window and returns ns per unit (frame or packet). It mirrors the self-timed
+// loop the libopus helper uses: a warm pass first, and the reset outside the
+// timed region.
+func timeGopus(reset, pass func(), unitsPerPass int) float64 {
+	reset()
+	pass()
 	const minDur = 150 * time.Millisecond
-	start := time.Now()
+	var elapsed time.Duration
 	passes := 0
-	for {
-		fn()
+	for elapsed < minDur {
+		reset()
+		start := time.Now()
+		pass()
+		elapsed += time.Since(start)
 		passes++
-		if time.Since(start) >= minDur {
-			break
-		}
 	}
-	elapsed := time.Since(start)
 	return float64(elapsed.Nanoseconds()) / float64(int64(passes)*int64(unitsPerPass))
 }

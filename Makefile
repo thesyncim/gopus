@@ -324,6 +324,25 @@ perf-nosimd: ensure-libopus-scalar
 
 perf-fair: perf-simd perf-nosimd
 
+# Low-noise per-config ratios: gopus and a serve-mode libopus helper run their
+# passes in lockstep (min-of-N per instance, median over instances, A/A spread
+# per config). Pin the run to one CPU (e.g. prefix with taskset -c 2) for the
+# tightest numbers. PERF_INTERLEAVED_FILTER selects configs by name.
+.PHONY: perf-interleaved perf-interleaved-simd perf-interleaved-nosimd
+PERF_INTERLEAVED_FILTER ?=
+
+perf-interleaved-simd: ensure-libopus-simd
+	$(GO_WORK_ENV) GOEXPERIMENT=simd GOPUS_BENCH_TIER=simd GOPUS_SCOREBOARD_INTERLEAVED=1 \
+		GOPUS_SCOREBOARD_FILTER='$(PERF_INTERLEAVED_FILTER)' GOMAXPROCS=1 \
+		$(GO) test $(PGO_FLAG) -tags gopus_libopus_bench -run TestScoreboardInterleaved -v -count=1 -timeout=120m .
+
+perf-interleaved-nosimd: ensure-libopus-scalar
+	$(GO_WORK_ENV) GOPUS_BENCH_TIER=nosimd GOPUS_SCOREBOARD_INTERLEAVED=1 \
+		GOPUS_SCOREBOARD_FILTER='$(PERF_INTERLEAVED_FILTER)' GOMAXPROCS=1 \
+		$(GO) test $(PGO_FLAG) -tags 'gopus_libopus_bench nosimd' -run TestScoreboardInterleaved -v -count=1 -timeout=120m .
+
+perf-interleaved: perf-interleaved-simd perf-interleaved-nosimd
+
 # Default production verification gate.
 verify-production: ensure-libopus
 	$(MAKE) test-type-parity

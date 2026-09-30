@@ -383,12 +383,20 @@ func (s *bandDecodeScratch) ensureCWRSU(n int) []uint32 {
 }
 
 func (s *bandDecodeScratch) ensureHadamardTmpNorm(n int) []celtNorm {
-	return ensureNormSlice(&s.hadamardTmpNorm, n)
+	// (de)interleaveHadamardInto writes all n elements before any read, so the zero-fill is dead work.
+	return ensureNormSliceNoClear(&s.hadamardTmpNorm, n)
 }
 
 // ensureQuantWork returns a pre-allocated deinterleaved working buffer.
 func (s *bandDecodeScratch) ensureQuantWork(n int) []celtNorm {
 	return ensureNormSlice(&s.quantWork, n)
+}
+
+// ensureQuantWorkNoClear returns the deinterleaved working buffer without
+// zeroing it, for decodes whose quant_partition writes every element before
+// reading it.
+func (s *bandDecodeScratch) ensureQuantWorkNoClear(n int) []celtNorm {
+	return ensureNormSliceNoClear(&s.quantWork, n)
 }
 
 type imdctScratch = imdctScratchF32

@@ -7,9 +7,11 @@
  * 2.5/10/20/60 ms). The benchmarked work runs inside one process: process
  * startup, file I/O, decoder/encoder construction, and the priming decode are all
  * excluded from the timed loop, so the reported ns/op is a clean codec cost with
- * no subprocess-spawn pollution. The encoder/decoder is reset once per timed pass
+ * no subprocess-spawn pollution. The encoder/decoder is reset before every pass
  * and the whole frame batch is driven statefully (one stream), matching how the
- * gopus benchmark drives its native Encoder/Decoder.
+ * gopus benchmark drives its native Encoder/Decoder. The reset runs outside the
+ * timed region: only the per-frame opus_encode_float/opus_decode_float calls are
+ * timed, exactly the work the gopus side times.
  *
  * Invocation (all flags required unless noted):
  *   --mode encode|decode
@@ -25,6 +27,7 @@
  *   --vbr 0|1           (encode only; default 0 = CBR)
  *   --min-ns N          (minimum wall time per measured pass)
  *   --count N           (number of passes; the median by ns_per_sample is printed)
+ *   --serve             (optional; interleaved mode, see below)
  *   --in PATH           (encode: raw interleaved float32 LE PCM;
  *                        decode: opus_demo .bit stream = BE u32 len + BE u32 range
  *                                + payload, repeated)
@@ -36,6 +39,15 @@
  * samples_per_op counts per-channel samples (so x_realtime = audio_seconds /
  * wall_seconds is channel-independent). ns_per_packet is the headline metric the
  * Go scoreboard pairs against gopus ns/op (gopus times one packet per b.N op).
+ *
+ * Serve mode (--serve): after construction and one priming pass the helper
+ * prints "ready" and then reads commands from stdin, one per line:
+ *   pass N   run one untimed warm pass, then N timed passes (reset untimed
+ *            before each), and print "ns" followed by the N per-pass
+ *            ns_per_packet values;
+ *   quit     exit.
+ * The Go interleaved scoreboard drives it so gopus and libopus passes alternate
+ * in lockstep on the same machine state.
  *
  * Reference: libopus src/opus_encoder.c opus_encode_float(),
  *            src/opus_decoder.c opus_decode_float().
@@ -75,7 +87,7 @@ typedef struct {
 static void usage(const char *argv0) {
   fprintf(stderr,
           "usage: %s --mode encode|decode --rate N --channels N [encode opts] "
-          "--min-ns N --count N --in PATH\n",
+          "--min-ns N --count N [--serve] --in PATH\n",
           argv0);
 }
 
@@ -181,34 +193,156 @@ typedef struct {
   int vbr;
 } EncodeConfig;
 
-/* encode_pass drives one stateful encode of the whole PCM batch. The encoder is
- * reset at the start so each pass is independent. Returns total per-channel
- * samples consumed, or -1 on error. */
-static int64_t encode_pass(OpusEncoder *enc, const EncodeConfig *cfg, const float *pcm,
-                           int frame_count, unsigned char *packet) {
-  if (opus_encoder_ctl(enc, OPUS_RESET_STATE) != OPUS_OK) {
-    fprintf(stderr, "OPUS_RESET_STATE failed\n");
+/* Workload is one prepared encode or decode batch. Exactly one of enc/dec is
+ * set. */
+typedef struct {
+  OpusEncoder *enc;
+  OpusDecoder *dec;
+  const EncodeConfig *cfg;
+  const float *pcm_in;     /* encode input */
+  unsigned char *packet;   /* encode output */
+  Packet *packets;         /* decode input */
+  float *pcm_out;          /* decode output */
+  int packet_count;        /* frames per pass */
+  int64_t samples_per_op;  /* per-channel samples per pass */
+} Workload;
+
+/* workload_reset resets the codec before a pass. OPUS_RESET_STATE leaves the
+ * encoder's user-forced mode in place (it lives before
+ * OPUS_ENCODER_RESET_START), so the forced mode is set once at construction. */
+static int workload_reset(Workload *w) {
+  int ret = w->enc != NULL ? opus_encoder_ctl(w->enc, OPUS_RESET_STATE)
+                           : opus_decoder_ctl(w->dec, OPUS_RESET_STATE);
+  if (ret != OPUS_OK) {
+    fprintf(stderr, "OPUS_RESET_STATE failed: %d\n", ret);
     return -1;
   }
-  int samples_per_frame = cfg->frame_size * cfg->channels;
+  return 0;
+}
+
+/* workload_pass drives one stateful encode or decode of the whole batch from
+ * the current codec state. Returns total per-channel samples, or -1 on error. */
+static int64_t workload_pass(Workload *w) {
   int64_t samples = 0;
-  for (int i = 0; i < frame_count; i++) {
-    if (cfg->force_mode != 0) {
-      /* opus_encode clears OPUS_SET_FORCE_MODE each call; reassert it. */
-      opus_encoder_ctl(enc, OPUS_SET_FORCE_MODE(cfg->force_mode));
+  if (w->enc != NULL) {
+    const EncodeConfig *cfg = w->cfg;
+    int samples_per_frame = cfg->frame_size * cfg->channels;
+    for (int i = 0; i < w->packet_count; i++) {
+      int n = opus_encode_float(w->enc, w->pcm_in + (int64_t)i * samples_per_frame,
+                                cfg->frame_size, w->packet, MAX_PACKET_BYTES);
+      if (n < 0) {
+        fprintf(stderr, "opus_encode_float frame %d failed: %d\n", i, n);
+        return -1;
+      }
+      samples += cfg->frame_size;
     }
-    int n = opus_encode_float(enc, pcm + (int64_t)i * samples_per_frame, cfg->frame_size,
-                              packet, MAX_PACKET_BYTES);
+    return samples;
+  }
+  for (int i = 0; i < w->packet_count; i++) {
+    Packet *p = &w->packets[i];
+    int n = opus_decode_float(w->dec, p->data, p->len, w->pcm_out, MAX_FRAME_SAMPLES, 0);
     if (n < 0) {
-      fprintf(stderr, "opus_encode_float frame %d failed: %d\n", i, n);
+      fprintf(stderr, "opus_decode_float packet %d failed: %d\n", i, n);
       return -1;
     }
-    samples += cfg->frame_size;
+    samples += n;
   }
   return samples;
 }
 
-static int run_encode(const EncodeConfig *cfg, const char *in_path, uint64_t min_ns, int count) {
+/* timed_pass resets the codec (untimed) and returns the wall time of one pass,
+ * or 0 on error. */
+static uint64_t timed_pass(Workload *w) {
+  if (workload_reset(w) < 0) return 0;
+  uint64_t start = now_ns();
+  int64_t got = workload_pass(w);
+  uint64_t elapsed = now_ns() - start;
+  if (got != w->samples_per_op) {
+    fprintf(stderr, "pass samples mismatch: got %" PRId64 " want %" PRId64 "\n", got,
+            w->samples_per_op);
+    return 0;
+  }
+  return elapsed > 0 ? elapsed : 1;
+}
+
+/* run_timed runs count measurement windows of at least min_ns of timed pass
+ * time each and prints the median window. */
+static int run_timed(Workload *w, const char *mode, int rate, int channels, uint64_t min_ns,
+                     int count) {
+  BenchRun *runs = (BenchRun *)calloc((size_t)count, sizeof(BenchRun));
+  if (runs == NULL) return 1;
+  for (int r = 0; r < count; r++) {
+    uint64_t elapsed = 0;
+    uint64_t iterations = 0;
+    do {
+      uint64_t ns = timed_pass(w);
+      if (ns == 0) {
+        free(runs);
+        return 1;
+      }
+      elapsed += ns;
+      iterations++;
+    } while (elapsed < min_ns);
+    runs[r].elapsed_ns = elapsed;
+    runs[r].iterations = iterations;
+    runs[r].packets_per_op = w->packet_count;
+    runs[r].samples_per_op = w->samples_per_op;
+    double total_packets = (double)w->packet_count * (double)iterations;
+    double total_samples = (double)w->samples_per_op * (double)iterations;
+    runs[r].ns_per_packet = (double)elapsed / total_packets;
+    runs[r].ns_per_sample = (double)elapsed / total_samples;
+    runs[r].x_realtime = (total_samples / (double)rate) / ((double)elapsed / 1e9);
+  }
+  qsort(runs, (size_t)count, sizeof(BenchRun), compare_run);
+  BenchRun m = runs[count / 2];
+  printf("libopus\t%s\t%d\t%d\t%d\t%" PRIu64 "\t%" PRIu64 "\t%" PRId64 "\t%" PRId64
+         "\t%.6f\t%.6f\t%.6f\n",
+         mode, rate, channels, count, m.iterations, m.elapsed_ns, m.packets_per_op,
+         m.samples_per_op, m.ns_per_packet, m.ns_per_sample, m.x_realtime);
+  free(runs);
+  return 0;
+}
+
+/* serve answers "pass N" commands on stdin until "quit" or EOF. */
+static int serve(Workload *w) {
+  char line[64];
+  printf("ready\n");
+  fflush(stdout);
+  while (fgets(line, sizeof(line), stdin) != NULL) {
+    int n = 0;
+    if (strncmp(line, "quit", 4) == 0) return 0;
+    if (sscanf(line, "pass %d", &n) != 1 || n < 1) {
+      fprintf(stderr, "bad serve command: %s", line);
+      return 1;
+    }
+    if (workload_reset(w) < 0 || workload_pass(w) != w->samples_per_op) return 1;
+    printf("ns");
+    for (int i = 0; i < n; i++) {
+      uint64_t ns = timed_pass(w);
+      if (ns == 0) return 1;
+      printf(" %.3f", (double)ns / (double)w->packet_count);
+    }
+    printf("\n");
+    fflush(stdout);
+  }
+  return 0;
+}
+
+/* run_workload primes the codec with one untimed pass and then either serves
+ * interleaved commands or runs the self-timed measurement. */
+static int run_workload(Workload *w, const char *mode, int rate, int channels, uint64_t min_ns,
+                        int count, int serve_mode) {
+  if (workload_reset(w) < 0) return 1;
+  w->samples_per_op = workload_pass(w);
+  if (w->samples_per_op <= 0) return 1;
+  if (serve_mode) return serve(w);
+  printf("implementation\tmode\trate\tchannels\tcount\titerations\telapsed_ns\tpackets_per_op\t"
+         "samples_per_op\tns_per_packet\tns_per_sample\tx_realtime\n");
+  return run_timed(w, mode, rate, channels, min_ns, count);
+}
+
+static int run_encode(const EncodeConfig *cfg, const char *in_path, uint64_t min_ns, int count,
+                      int serve_mode) {
   int64_t size = 0;
   unsigned char *raw = read_file(in_path, &size);
   if (raw == NULL) return 1;
@@ -217,7 +351,6 @@ static int run_encode(const EncodeConfig *cfg, const char *in_path, uint64_t min
     free(raw);
     return 1;
   }
-  const float *pcm = (const float *)raw;
   int64_t sample_count = size / 4;
   int samples_per_frame = cfg->frame_size * cfg->channels;
   if (samples_per_frame <= 0 || sample_count % samples_per_frame != 0) {
@@ -254,6 +387,9 @@ static int run_encode(const EncodeConfig *cfg, const char *in_path, uint64_t min
   if (cfg->signal != OPUS_AUTO) {
     opus_encoder_ctl(enc, OPUS_SET_SIGNAL(cfg->signal));
   }
+  if (cfg->force_mode != 0) {
+    opus_encoder_ctl(enc, OPUS_SET_FORCE_MODE(cfg->force_mode));
+  }
 
   unsigned char *packet = (unsigned char *)malloc(MAX_PACKET_BYTES);
   if (packet == NULL) {
@@ -262,86 +398,23 @@ static int run_encode(const EncodeConfig *cfg, const char *in_path, uint64_t min
     return 1;
   }
 
-  /* Prime once outside the timed loop so first-frame allocations / mode
-   * hysteresis warmup are not charged to the measurement. */
-  if (encode_pass(enc, cfg, pcm, frame_count, packet) < 0) {
-    free(packet);
-    opus_encoder_destroy(enc);
-    free(raw);
-    return 1;
-  }
+  Workload w;
+  memset(&w, 0, sizeof(w));
+  w.enc = enc;
+  w.cfg = cfg;
+  w.pcm_in = (const float *)raw;
+  w.packet = packet;
+  w.packet_count = frame_count;
+  int ret = run_workload(&w, "encode", cfg->rate, cfg->channels, min_ns, count, serve_mode);
 
-  BenchRun *runs = (BenchRun *)calloc((size_t)count, sizeof(BenchRun));
-  if (runs == NULL) {
-    free(packet);
-    opus_encoder_destroy(enc);
-    free(raw);
-    return 1;
-  }
-
-  for (int r = 0; r < count; r++) {
-    uint64_t start = now_ns();
-    uint64_t elapsed = 0;
-    uint64_t iterations = 0;
-    do {
-      if (encode_pass(enc, cfg, pcm, frame_count, packet) < 0) {
-        free(runs);
-        free(packet);
-        opus_encoder_destroy(enc);
-        free(raw);
-        return 1;
-      }
-      iterations++;
-      elapsed = now_ns() - start;
-    } while (elapsed < min_ns);
-    runs[r].elapsed_ns = elapsed;
-    runs[r].iterations = iterations;
-    runs[r].packets_per_op = frame_count;
-    runs[r].samples_per_op = (int64_t)frame_count * cfg->frame_size;
-    double total_packets = (double)frame_count * (double)iterations;
-    double total_samples = (double)runs[r].samples_per_op * (double)iterations;
-    runs[r].ns_per_packet = (double)elapsed / total_packets;
-    runs[r].ns_per_sample = (double)elapsed / total_samples;
-    runs[r].x_realtime = (total_samples / (double)cfg->rate) / ((double)elapsed / 1e9);
-  }
-
-  qsort(runs, (size_t)count, sizeof(BenchRun), compare_run);
-  BenchRun m = runs[count / 2];
-  printf("libopus\tencode\t%d\t%d\t%d\t%" PRIu64 "\t%" PRIu64 "\t%" PRId64 "\t%" PRId64
-         "\t%.6f\t%.6f\t%.6f\n",
-         cfg->rate, cfg->channels, count, m.iterations, m.elapsed_ns, m.packets_per_op,
-         m.samples_per_op, m.ns_per_packet, m.ns_per_sample, m.x_realtime);
-
-  free(runs);
   free(packet);
   opus_encoder_destroy(enc);
   free(raw);
-  return 0;
+  return ret;
 }
 
-/* decode_pass streams every packet through one decoder, reset at the start of the
- * pass. Returns total per-channel samples decoded, or -1 on error. */
-static int64_t decode_pass(OpusDecoder *dec, int rate, Packet *packets, int packet_count,
-                           float *pcm) {
-  (void)rate;
-  if (opus_decoder_ctl(dec, OPUS_RESET_STATE) != OPUS_OK) {
-    fprintf(stderr, "decoder OPUS_RESET_STATE failed\n");
-    return -1;
-  }
-  int64_t samples = 0;
-  for (int i = 0; i < packet_count; i++) {
-    Packet *p = &packets[i];
-    int n = opus_decode_float(dec, p->data, p->len, pcm, MAX_FRAME_SAMPLES, 0);
-    if (n < 0) {
-      fprintf(stderr, "opus_decode_float packet %d failed: %d\n", i, n);
-      return -1;
-    }
-    samples += n;
-  }
-  return samples;
-}
-
-static int run_decode(int rate, int channels, const char *in_path, uint64_t min_ns, int count) {
+static int run_decode(int rate, int channels, const char *in_path, uint64_t min_ns, int count,
+                      int serve_mode) {
   int64_t size = 0;
   unsigned char *raw = read_file(in_path, &size);
   if (raw == NULL) return 1;
@@ -350,23 +423,24 @@ static int run_decode(int rate, int channels, const char *in_path, uint64_t min_
   int packet_count = 0;
   int packet_cap = 0;
   int64_t offset = 0;
+  int ret = 1;
   while (offset < size) {
     if (offset + 8 > size) {
       fprintf(stderr, "%s: truncated packet header\n", in_path);
-      goto fail;
+      goto done;
     }
     uint32_t plen = read_be32(raw + offset);
     offset += 8; /* length + final range */
     if ((int64_t)plen > size - offset) {
       fprintf(stderr, "%s: truncated packet payload\n", in_path);
-      goto fail;
+      goto done;
     }
     if (packet_count == packet_cap) {
       int next = packet_cap == 0 ? 1024 : packet_cap * 2;
       Packet *grown = (Packet *)realloc(packets, (size_t)next * sizeof(Packet));
       if (grown == NULL) {
         fprintf(stderr, "packet table realloc failed\n");
-        goto fail;
+        goto done;
       }
       packets = grown;
       packet_cap = next;
@@ -378,81 +452,36 @@ static int run_decode(int rate, int channels, const char *in_path, uint64_t min_
   }
   if (packet_count == 0) {
     fprintf(stderr, "%s: no packets\n", in_path);
-    goto fail;
+    goto done;
   }
 
   int err = OPUS_OK;
   OpusDecoder *dec = opus_decoder_create(rate, channels, &err);
   if (dec == NULL || err != OPUS_OK) {
     fprintf(stderr, "opus_decoder_create failed: %d\n", err);
-    goto fail;
+    goto done;
   }
   float *pcm = (float *)malloc((size_t)MAX_FRAME_SAMPLES * channels * sizeof(float));
   if (pcm == NULL) {
     opus_decoder_destroy(dec);
-    goto fail;
+    goto done;
   }
 
-  int64_t expected = decode_pass(dec, rate, packets, packet_count, pcm);
-  if (expected <= 0) {
-    free(pcm);
-    opus_decoder_destroy(dec);
-    goto fail;
-  }
+  Workload w;
+  memset(&w, 0, sizeof(w));
+  w.dec = dec;
+  w.packets = packets;
+  w.pcm_out = pcm;
+  w.packet_count = packet_count;
+  ret = run_workload(&w, "decode", rate, channels, min_ns, count, serve_mode);
 
-  BenchRun *runs = (BenchRun *)calloc((size_t)count, sizeof(BenchRun));
-  if (runs == NULL) {
-    free(pcm);
-    opus_decoder_destroy(dec);
-    goto fail;
-  }
-
-  for (int r = 0; r < count; r++) {
-    uint64_t start = now_ns();
-    uint64_t elapsed = 0;
-    uint64_t iterations = 0;
-    do {
-      int64_t got = decode_pass(dec, rate, packets, packet_count, pcm);
-      if (got != expected) {
-        fprintf(stderr, "decode samples mismatch: got %" PRId64 " want %" PRId64 "\n", got,
-                expected);
-        free(runs);
-        free(pcm);
-        opus_decoder_destroy(dec);
-        goto fail;
-      }
-      iterations++;
-      elapsed = now_ns() - start;
-    } while (elapsed < min_ns);
-    runs[r].elapsed_ns = elapsed;
-    runs[r].iterations = iterations;
-    runs[r].packets_per_op = packet_count;
-    runs[r].samples_per_op = expected;
-    double total_packets = (double)packet_count * (double)iterations;
-    double total_samples = (double)expected * (double)iterations;
-    runs[r].ns_per_packet = (double)elapsed / total_packets;
-    runs[r].ns_per_sample = (double)elapsed / total_samples;
-    runs[r].x_realtime = (total_samples / (double)rate) / ((double)elapsed / 1e9);
-  }
-
-  qsort(runs, (size_t)count, sizeof(BenchRun), compare_run);
-  BenchRun m = runs[count / 2];
-  printf("libopus\tdecode\t%d\t%d\t%d\t%" PRIu64 "\t%" PRIu64 "\t%" PRId64 "\t%" PRId64
-         "\t%.6f\t%.6f\t%.6f\n",
-         rate, channels, count, m.iterations, m.elapsed_ns, m.packets_per_op, m.samples_per_op,
-         m.ns_per_packet, m.ns_per_sample, m.x_realtime);
-
-  free(runs);
   free(pcm);
   opus_decoder_destroy(dec);
-  free(packets);
-  free(raw);
-  return 0;
 
-fail:
+done:
   free(packets);
   free(raw);
-  return 1;
+  return ret;
 }
 
 int main(int argc, char **argv) {
@@ -467,6 +496,7 @@ int main(int argc, char **argv) {
   cfg.vbr = 0;
   uint64_t min_ns = 200000000ULL;
   int count = 5;
+  int serve_mode = 0;
 
   for (int i = 1; i < argc; i++) {
     const char *a = argv[i];
@@ -498,6 +528,8 @@ int main(int argc, char **argv) {
       count = atoi(argv[++i]);
     } else if (strcmp(a, "--in") == 0 && i + 1 < argc) {
       in_path = argv[++i];
+    } else if (strcmp(a, "--serve") == 0) {
+      serve_mode = 1;
     } else {
       usage(argv[0]);
       return 2;
@@ -511,18 +543,15 @@ int main(int argc, char **argv) {
     return 2;
   }
 
-  printf("implementation\tmode\trate\tchannels\tcount\titerations\telapsed_ns\tpackets_per_op\t"
-         "samples_per_op\tns_per_packet\tns_per_sample\tx_realtime\n");
-
   if (strcmp(mode, "encode") == 0) {
     if (cfg.frame_size <= 0 || cfg.bitrate <= 0) {
       usage(argv[0]);
       return 2;
     }
-    return run_encode(&cfg, in_path, min_ns, count);
+    return run_encode(&cfg, in_path, min_ns, count, serve_mode);
   }
   if (strcmp(mode, "decode") == 0) {
-    return run_decode(cfg.rate, cfg.channels, in_path, min_ns, count);
+    return run_decode(cfg.rate, cfg.channels, in_path, min_ns, count, serve_mode);
   }
   usage(argv[0]);
   return 2;

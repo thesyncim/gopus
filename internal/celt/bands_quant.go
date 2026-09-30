@@ -3535,12 +3535,26 @@ func quantBandDecodeNoExtFast(ctx *bandCtx, x []celtNorm, n, b, B int, lowband [
 	if B0 > 1 {
 		// The decoder's quant_partition writes every element of X before
 		// reading it, so libopus deinterleaves only the lowband here; X is
-		// decoded straight into the work buffer.
+		// decoded straight into the work buffer. With the seeded noise fill
+		// active, no path reads X first, so the buffer needs no zeroing.
 		if ctx.scratch != nil {
-			x = ctx.scratch.ensureQuantWork(n)
+			if ctx.seedActive {
+				x = ctx.scratch.ensureQuantWorkNoClear(n)
+			} else {
+				x = ctx.scratch.ensureQuantWork(n)
+			}
 		}
 		if lowband != nil {
-			deinterleaveHadamardScratchBufNorm(lowband, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
+			if ctx.scratch != nil && lowbandScratch != nil {
+				// lowband is already the lowband_scratch copy, so it is
+				// deinterleaved into the Hadamard scratch and read from there
+				// instead of being copied back.
+				tmp := ctx.scratch.ensureHadamardTmpNorm(n)
+				deinterleaveHadamardIntoNorm(tmp, lowband, N_B>>recombine, B0<<recombine, longBlocks)
+				lowband = tmp
+			} else {
+				deinterleaveHadamardScratchBufNorm(lowband, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
+			}
 		}
 	}
 
@@ -4239,6 +4253,14 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		}
 		return left, right, collapse
 	}
+	if channels == 2 && extDec == nil {
+		quantAllBandsDecodeStereo(&ctx, left, right, norm, norm2, lowbandScratch, collapse, edges, pulses, tfRes,
+			frameSize, lm, B, start, end, normOffset, totalBitsQ3, balance, codedBands, dualStereo)
+		if seed != nil {
+			*seed = ctx.seed
+		}
+		return left, right, collapse
+	}
 	extBalance := 0
 	extTell := 0
 
@@ -4422,6 +4444,141 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 	}
 
 	return left, right, collapse
+}
+
+// quantAllBandsDecodeStereo is the band loop of
+// quantAllBandsDecodeWithScratchWithMode for a stereo frame without QEXT, the
+// libopus quant_all_bands() decode loop with C == 2 and no extension decoder.
+// left and right receive the decoded bands, norm and norm2 hold the folding
+// history of each channel and collapse the interleaved per-band collapse
+// masks.
+func quantAllBandsDecodeStereo(ctx *bandCtx, left, right, norm, norm2, lowbandScratch []celtNorm, collapse []byte, edges []int,
+	pulses, tfRes []int32, frameSize, lm, B, start, end, normOffset, totalBitsQ3, balance, codedBands, dualStereo int) {
+	rd := ctx.rd
+	M := 1 << lm
+	startEdge := M * edges[start]
+	lowbandOffset := 0
+	updateLowband := true
+	for i := start; i < end; i++ {
+		ctx.band = i
+		last := i == end-1
+		bandStart := edges[i] * M
+		bandEnd := edges[i+1] * M
+		nBand := bandEnd - bandStart
+		if nBand <= 0 {
+			continue
+		}
+
+		var x, y []celtNorm
+		if bandEnd > frameSize {
+			// celt/bands.c quant_all_bands routes bands beyond effEBands
+			// into the shared normalization scratch while consuming their bits.
+			x = norm[:nBand]
+			y = norm[:nBand]
+			lowbandScratch = nil
+		} else {
+			x = left[bandStart:bandEnd]
+			y = right[bandStart:bandEnd]
+		}
+
+		tell := rd.TellFrac()
+		if i != start {
+			balance -= tell
+		}
+		remaining := totalBitsQ3 - tell - 1
+		ctx.remainingBits = remaining
+
+		b := 0
+		if i <= codedBands-1 {
+			currBalance := celtSudivBalance(balance, min(3, codedBands-i))
+			b = max(0, min(16383, min(remaining+1, int(pulses[i])+currBalance)))
+		}
+		if (bandStart-nBand >= startEdge || i == start+1) && (updateLowband || lowbandOffset == 0) {
+			lowbandOffset = i
+		}
+		if i == start+1 {
+			specialHybridFoldingWithEdges(norm, norm2, edges, start, M, dualStereo != 0)
+		}
+
+		ctx.tfChange = int(tfRes[i])
+		if last {
+			lowbandScratch = nil
+		}
+
+		effectiveLowband := -1
+		xCM := 0
+		yCM := 0
+		if lowbandOffset != 0 && (ctx.spread != spreadAggressive || B > 1 || ctx.tfChange < 0) {
+			effectiveLowband = max(0, M*edges[lowbandOffset]-normOffset-nBand)
+			foldStart := lowbandOffset
+			for {
+				foldStart--
+				if foldStart <= start {
+					foldStart = start
+					break
+				}
+				if M*edges[foldStart] <= effectiveLowband+normOffset {
+					break
+				}
+			}
+			foldEnd := lowbandOffset - 1
+			for {
+				foldEnd++
+				if foldEnd >= i {
+					break
+				}
+				if M*edges[foldEnd] >= effectiveLowband+normOffset+nBand {
+					break
+				}
+			}
+			for fold := foldStart; fold < foldEnd; fold++ {
+				xCM |= int(collapse[2*fold])
+				yCM |= int(collapse[2*fold+1])
+			}
+		} else {
+			xCM = (1 << B) - 1
+			yCM = xCM
+		}
+
+		if dualStereo != 0 && i == ctx.intensity {
+			dualStereo = 0
+			mergeLimit := min(max(bandStart-normOffset, 0), len(norm), len(norm2))
+			for j := 0; j < mergeLimit; j++ {
+				norm[j] = celtNorm(float32(0.5) * (float32(norm[j]) + float32(norm2[j])))
+			}
+		}
+
+		var lowbandX, lowbandY []celtNorm
+		if effectiveLowband >= 0 && effectiveLowband+nBand <= len(norm) {
+			lowbandX = norm[effectiveLowband : effectiveLowband+nBand]
+			if effectiveLowband+nBand <= len(norm2) {
+				lowbandY = norm2[effectiveLowband : effectiveLowband+nBand]
+			}
+		}
+
+		var lowbandOutX, lowbandOutY []celtNorm
+		if outStart := bandStart - normOffset; !last && outStart >= 0 && outStart+nBand <= len(norm) {
+			lowbandOutX = norm[outStart : outStart+nBand]
+			if outStart+nBand <= len(norm2) {
+				lowbandOutY = norm2[outStart : outStart+nBand]
+			}
+		}
+
+		if dualStereo != 0 {
+			xCM = quantBandDecode(ctx, x, nBand, b/2, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM)
+			yCM = quantBandDecode(ctx, y, nBand, b/2, B, lowbandY, lm, lowbandOutY, 1.0, lowbandScratch, yCM)
+		} else {
+			xCM = quantBandStereoDecode(ctx, x, y, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, xCM|yCM)
+			yCM = xCM
+		}
+
+		collapse[2*i] = byte(xCM)
+		collapse[2*i+1] = byte(yCM)
+		balance += int(pulses[i]) + tell
+
+		updateLowband = b > (nBand << bitRes)
+		ctx.avoidSplitNoise = false
+	}
 }
 
 // quantAllBandsDecodeMono is the band loop of quantAllBandsDecodeWithScratchWithMode
