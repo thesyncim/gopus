@@ -1,7 +1,8 @@
 /*
- * Bounded, source-bound GAST v1 capture for the selected float run_analysis
- * call. The trace stores the real downmix/resampler output, windowed FFT input,
- * FFT output, and post-call resampler state.
+ * Bounded, source-bound GAST v1 plus GAPH v1 capture for the selected float
+ * run_analysis call. GAST stores the real downmix/resampler output, windowed
+ * FFT input, FFT output, and post-call resampler state. GAPH stores the real
+ * phase-loop operands and assigned angles from the same analysis.c call.
  */
 
 #include <stdint.h>
@@ -31,6 +32,9 @@
 #define GAST_FFT_COMPLEX_COUNT 480u
 #define GAST_FFT_WORD_COUNT (2u * GAST_FFT_COMPLEX_COUNT)
 #define GAST_SOURCE_SHA256_LENGTH 64u
+#define GAPH_PHASE_FIRST_BIN 1u
+#define GAPH_PHASE_LAST_BIN 239u
+#define GAPH_PHASE_COUNT (GAPH_PHASE_LAST_BIN - GAPH_PHASE_FIRST_BIN + 1u)
 
 typedef struct {
   uint32_t analysis_frame_size;
@@ -59,6 +63,19 @@ typedef struct {
   float hp_energy_accum;
 } gast_record;
 
+typedef struct {
+  uint32_t bin;
+  float x1r;
+  float x1i;
+  float x2r;
+  float x2i;
+  float angle;
+  float angle2;
+  float angle_state;
+  float d_angle_state;
+  float d2_angle_state;
+} gaph_phase_record;
+
 static struct {
   uint32_t run_calls;
   uint32_t selected_tonality_calls;
@@ -66,6 +83,13 @@ static struct {
   uint32_t stage_mask;
   gast_record record;
 } gast;
+
+static struct {
+  uint32_t calls;
+  uint32_t stored;
+  uint32_t overflow;
+  gaph_phase_record records[GAPH_PHASE_COUNT];
+} gaph;
 
 static int gast_selected_run_active;
 
@@ -82,6 +106,7 @@ void gopus_analysis_stage_run_begin(int analysis_frame_size, int frame_size,
   if (!gast_selected_run_active) return;
 
   memset(&gast.record, 0, sizeof(gast.record));
+  memset(&gaph, 0, sizeof(gaph));
   gast.stage_mask = 0;
   gast.record.analysis_frame_size = (uint32_t)analysis_frame_size;
   gast.record.frame_size = (uint32_t)frame_size;
@@ -146,6 +171,36 @@ void gopus_analysis_stage_capture_fft_output(const void *values,
   gast_capture_fft(values, complex_count, gast.record.fft_output, 4u);
 }
 
+void gopus_analysis_stage_capture_phase(int bin, float x1r, float x1i,
+                                        float x2r, float x2i, float angle,
+                                        float angle2, float angle_state,
+                                        float d_angle_state,
+                                        float d2_angle_state) {
+  gaph_phase_record *record;
+  if (!gast_selected_run_active) return;
+  if (gast.stage_mask != 7u) gaph.overflow = 1;
+  gaph.calls++;
+  if (gaph.stored >= GAPH_PHASE_COUNT) {
+    gaph.overflow = 1;
+    return;
+  }
+  if (bin < (int)GAPH_PHASE_FIRST_BIN ||
+      bin > (int)GAPH_PHASE_LAST_BIN ||
+      (uint32_t)bin != GAPH_PHASE_FIRST_BIN + gaph.stored)
+    gaph.overflow = 1;
+  record = &gaph.records[gaph.stored++];
+  record->bin = (uint32_t)bin;
+  record->x1r = x1r;
+  record->x1i = x1i;
+  record->x2r = x2r;
+  record->x2i = x2i;
+  record->angle = angle;
+  record->angle2 = angle2;
+  record->angle_state = angle_state;
+  record->d_angle_state = d_angle_state;
+  record->d2_angle_state = d2_angle_state;
+}
+
 void gopus_analysis_stage_capture_post_run(const float *downmix_state,
                                           float hp_energy_accum) {
   int i;
@@ -186,6 +241,29 @@ static int gast_write_f32_array(const float *values, uint32_t count) {
   return 1;
 }
 
+static int gaph_write_phase(void) {
+  uint32_t i;
+  if (gaph.calls != GAPH_PHASE_COUNT || gaph.stored != GAPH_PHASE_COUNT)
+    gaph.overflow = 1;
+  if (!gast_write_exact("GAPH", 4) || !gast_write_u32(1) ||
+      !gast_write_u32(GOPUS_ANALYSIS_STAGE_TRACE_FRAME) ||
+      !gast_write_u32(gaph.calls) || !gast_write_u32(gaph.stored) ||
+      !gast_write_u32(gaph.overflow))
+    return 0;
+  for (i = 0; i < gaph.stored; i++) {
+    const gaph_phase_record *r = &gaph.records[i];
+    if (!gast_write_u32(r->bin) || !gast_write_f32(r->x1r) ||
+        !gast_write_f32(r->x1i) || !gast_write_f32(r->x2r) ||
+        !gast_write_f32(r->x2i) || !gast_write_f32(r->angle) ||
+        !gast_write_f32(r->angle2) ||
+        !gast_write_f32(r->angle_state) ||
+        !gast_write_f32(r->d_angle_state) ||
+        !gast_write_f32(r->d2_angle_state))
+      return 0;
+  }
+  return 1;
+}
+
 int gopus_analysis_stage_trace_write(void) {
   const gast_record *r = &gast.record;
   static const char source_hash[] = GOPUS_ANALYSIS_STAGE_SOURCE_SHA256;
@@ -221,5 +299,6 @@ int gopus_analysis_stage_trace_write(void) {
       !gast_write_f32_array(r->downmix_state, 3) ||
       !gast_write_f32(r->hp_energy_accum))
     return 0;
+  if (!gaph_write_phase()) return 0;
   return fflush(stdout) == 0;
 }

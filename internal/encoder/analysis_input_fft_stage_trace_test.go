@@ -1,4 +1,4 @@
-//go:build linux && amd64.v3 && gopus_celt_trace && !gopus_fixed_point && !gopus_qext
+//go:build linux && amd64.v3 && gopus_celt_trace && !gopus_fixed_point && !gopus_qext && !gopus_dred && !gopus_osce && !gopus_custom_modes
 
 package encoder
 
@@ -30,6 +30,17 @@ type libopusAnalysisStageTrace struct {
 	inmem, fftInput, fftOutput                          []uint32
 	downmixState                                        [3]uint32
 	hpEnergyAccum                                       uint32
+}
+
+type libopusAnalysisPhaseRecord struct {
+	bin                                   uint32
+	x1r, x1i, x2r, x2i, angle, angle2     uint32
+	angleState, dAngleState, d2AngleState uint32
+}
+
+type libopusAnalysisPhaseTrace struct {
+	frame, totalCalls, storedCalls, overflow uint32
+	records                                  []libopusAnalysisPhaseRecord
 }
 
 func TestAnalysisInputFFTStageTrace(t *testing.T) {
@@ -78,7 +89,7 @@ func TestAnalysisInputFFTStageTrace(t *testing.T) {
 	if len(traced) < len(baseline) || !bytes.Equal(traced[:len(baseline)], baseline) {
 		t.Fatal("GAST source-instrumented analysis helper changed the baseline GANO output")
 	}
-	trace, err := parseLibopusAnalysisStageTrace(traced[len(baseline):])
+	trace, phaseTrace, err := parseLibopusAnalysisStageTrace(traced[len(baseline):])
 	if err != nil {
 		t.Fatalf("parse GAST: %v", err)
 	}
@@ -97,6 +108,11 @@ func TestAnalysisInputFFTStageTrace(t *testing.T) {
 	if trace.metadata != wantMetadata {
 		t.Fatalf("GAST source geometry=%v want %v", trace.metadata, wantMetadata)
 	}
+	if phaseTrace.frame != trace.frame || phaseTrace.totalCalls != 239 ||
+		phaseTrace.storedCalls != 239 || phaseTrace.overflow != 0 || len(phaseTrace.records) != 239 {
+		t.Fatalf("GAPH metadata frame=%d total=%d stored=%d overflow=%d records=%d",
+			phaseTrace.frame, phaseTrace.totalCalls, phaseTrace.storedCalls, phaseTrace.overflow, len(phaseTrace.records))
+	}
 
 	state := NewTonalityAnalysisState(fs)
 	state.SetLSBDepth(lsbDepth)
@@ -108,6 +124,8 @@ func TestAnalysisInputFFTStageTrace(t *testing.T) {
 	compareAnalysisF32Bits(t, "downmix/resampler output ring", trace.inmem, state.InMem[240:720])
 	compareAnalysisComplexBits(t, "windowed FFT input", trace.fftInput, state.scratchFFTIn[:])
 	compareAnalysisComplexBits(t, "FFT output", trace.fftOutput, state.scratchFFTOut[:])
+	compareAnalysisPhaseInputs(t, phaseTrace, state.scratchFFTOut[:])
+	compareAnalysisPhaseState(t, phaseTrace, state)
 	compareAnalysisF32Bits(t, "downmix state", trace.downmixState[:], state.DownmixState[:])
 	if got := math.Float32bits(state.HPEnerAccum); got != trace.hpEnergyAccum {
 		t.Fatalf("post-run high-pass energy Go=%08x C=%08x", got, trace.hpEnergyAccum)
@@ -257,6 +275,17 @@ func instrumentLibopusAnalysisSource(source string) (string, error) {
 		return "", err
 	}
 
+	const phaseAnchor = `       A[i] = angle2;
+       dA[i] = d_angle2;
+       d2A[i] = mod2;`
+	const phaseReplacement = phaseAnchor + `
+       gopus_analysis_stage_capture_phase(i, X1r, X1i, X2r, X2i,
+                                          angle, angle2, A[i], dA[i], d2A[i]);`
+	source, err = replaceAnalysisTraceAnchor(source, phaseAnchor, phaseReplacement, "phase analysis output")
+	if err != nil {
+		return "", err
+	}
+
 	const runEndAnchor = "   tonality_get_info(analysis, analysis_info, frame_size);"
 	source, err = replaceAnalysisTraceAnchor(source, runEndAnchor,
 		runEndAnchor+"\n   gopus_analysis_stage_capture_post_run(analysis->downmix_state, analysis->hp_ener_accum);",
@@ -288,17 +317,22 @@ func replaceAnalysisTraceAnchor(source, anchor, replacement, label string) (stri
 	return strings.Replace(source, anchor, replacement, 1), nil
 }
 
-func parseLibopusAnalysisStageTrace(data []byte) (libopusAnalysisStageTrace, error) {
+func parseLibopusAnalysisStageTrace(data []byte) (libopusAnalysisStageTrace, libopusAnalysisPhaseTrace, error) {
 	var trace libopusAnalysisStageTrace
-	if len(data) < 4 || string(data[:4]) != "GAST" {
-		return trace, fmt.Errorf("missing GAST magic")
-	}
+	var phase libopusAnalysisPhaseTrace
 	const (
 		fixedHeaderBytes = 7*4 + 64 + 21*4
 		floatArrayWords  = 480 + 2*960 + 3 + 1
+		phaseBins        = 239
+		phaseWords       = 10
 	)
-	if len(data) != 4+fixedHeaderBytes+4*floatArrayWords {
-		return trace, fmt.Errorf("GAST byte length=%d want %d", len(data), 4+fixedHeaderBytes+4*floatArrayWords)
+	gastBytes := 4 + fixedHeaderBytes + 4*floatArrayWords
+	gaphBytes := 4 + 5*4 + phaseBins*phaseWords*4
+	if len(data) != gastBytes+gaphBytes {
+		return trace, phase, fmt.Errorf("GAST/GAPH byte length=%d want %d", len(data), gastBytes+gaphBytes)
+	}
+	if string(data[:4]) != "GAST" {
+		return trace, phase, fmt.Errorf("missing GAST magic")
 	}
 	offset := 4
 	readU32 := func() uint32 {
@@ -308,7 +342,7 @@ func parseLibopusAnalysisStageTrace(data []byte) (libopusAnalysisStageTrace, err
 	}
 	version := readU32()
 	if version != 1 {
-		return trace, fmt.Errorf("GAST version=%d want 1", version)
+		return trace, phase, fmt.Errorf("GAST version=%d want 1", version)
 	}
 	trace.frame = readU32()
 	trace.runCalls = readU32()
@@ -316,12 +350,12 @@ func parseLibopusAnalysisStageTrace(data []byte) (libopusAnalysisStageTrace, err
 	trace.overflow = readU32()
 	trace.stageMask = readU32()
 	hashLen := readU32()
-	if hashLen != 64 || offset+int(hashLen) > len(data) {
-		return trace, fmt.Errorf("GAST source hash length=%d want 64", hashLen)
+	if hashLen != 64 || offset+int(hashLen) > gastBytes {
+		return trace, phase, fmt.Errorf("GAST source hash length=%d want 64", hashLen)
 	}
 	trace.sourceHash = string(data[offset : offset+int(hashLen)])
 	if _, err := hex.DecodeString(trace.sourceHash); err != nil {
-		return trace, fmt.Errorf("GAST source hash is malformed: %w", err)
+		return trace, phase, fmt.Errorf("GAST source hash is malformed: %w", err)
 	}
 	offset += int(hashLen)
 	for i := range trace.metadata {
@@ -340,7 +374,133 @@ func parseLibopusAnalysisStageTrace(data []byte) (libopusAnalysisStageTrace, err
 	state := readFloatBits(3)
 	copy(trace.downmixState[:], state)
 	trace.hpEnergyAccum = readU32()
-	return trace, nil
+	if offset != gastBytes {
+		return trace, phase, fmt.Errorf("GAST parser consumed %d bytes want %d", offset, gastBytes)
+	}
+	phase, err := parseLibopusAnalysisPhaseTrace(data[gastBytes:])
+	if err != nil {
+		return trace, phase, err
+	}
+	return trace, phase, nil
+}
+
+func parseLibopusAnalysisPhaseTrace(data []byte) (libopusAnalysisPhaseTrace, error) {
+	var phase libopusAnalysisPhaseTrace
+	const (
+		phaseBins   = 239
+		phaseWords  = 10
+		headerBytes = 4 + 5*4
+	)
+	wantBytes := headerBytes + phaseBins*phaseWords*4
+	if len(data) != wantBytes {
+		return phase, fmt.Errorf("GAPH byte length=%d want %d", len(data), wantBytes)
+	}
+	if string(data[:4]) != "GAPH" {
+		return phase, fmt.Errorf("missing GAPH magic")
+	}
+	offset := 4
+	readU32 := func() uint32 {
+		value := binary.LittleEndian.Uint32(data[offset:])
+		offset += 4
+		return value
+	}
+	version := readU32()
+	if version != 1 {
+		return phase, fmt.Errorf("GAPH version=%d want 1", version)
+	}
+	phase.frame = readU32()
+	phase.totalCalls = readU32()
+	phase.storedCalls = readU32()
+	phase.overflow = readU32()
+	if phase.frame != 0 || phase.totalCalls != phaseBins || phase.storedCalls != phaseBins || phase.overflow != 0 {
+		return phase, fmt.Errorf("GAPH frame=%d calls=%d stored=%d overflow=%d", phase.frame,
+			phase.totalCalls, phase.storedCalls, phase.overflow)
+	}
+	phase.records = make([]libopusAnalysisPhaseRecord, phaseBins)
+	readFloatBits := func() (uint32, error) {
+		bits := readU32()
+		value := math.Float32frombits(bits)
+		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
+			return bits, fmt.Errorf("GAPH contains non-finite float at byte %d", offset-4)
+		}
+		return bits, nil
+	}
+	for i := range phase.records {
+		record := &phase.records[i]
+		record.bin = readU32()
+		if record.bin != uint32(i+1) {
+			return phase, fmt.Errorf("GAPH record %d bin=%d want %d", i, record.bin, i+1)
+		}
+		fields := []*uint32{
+			&record.x1r, &record.x1i, &record.x2r, &record.x2i, &record.angle, &record.angle2,
+			&record.angleState, &record.dAngleState, &record.d2AngleState,
+		}
+		for _, field := range fields {
+			bits, err := readFloatBits()
+			if err != nil {
+				return phase, err
+			}
+			*field = bits
+		}
+		if record.angle2 != record.angleState {
+			return phase, fmt.Errorf("GAPH bin %d assigned A=%08x differs from angle2=%08x", record.bin,
+				record.angleState, record.angle2)
+		}
+	}
+	if offset != len(data) {
+		return phase, fmt.Errorf("GAPH parser consumed %d bytes want %d", offset, len(data))
+	}
+	return phase, nil
+}
+
+func compareAnalysisPhaseInputs(t *testing.T, trace libopusAnalysisPhaseTrace, fft []complex64) {
+	t.Helper()
+	if len(fft) != 480 || len(trace.records) != 239 {
+		t.Fatalf("phase input dimensions FFT=%d records=%d", len(fft), len(trace.records))
+	}
+	for _, record := range trace.records {
+		i := int(record.bin)
+		lower, mirrored := fft[i], fft[480-i]
+		got := [4]uint32{
+			math.Float32bits(real(lower) + real(mirrored)),
+			math.Float32bits(imag(lower) - imag(mirrored)),
+			math.Float32bits(imag(lower) + imag(mirrored)),
+			math.Float32bits(real(mirrored) - real(lower)),
+		}
+		want := [4]uint32{record.x1r, record.x1i, record.x2r, record.x2i}
+		for field := range got {
+			if got[field] != want[field] {
+				t.Fatalf("phase input bin=%d field=%d GoFFT=%08x Cactual=%08x", i, field, got[field], want[field])
+			}
+		}
+	}
+	t.Logf("phase-loop inputs exact for bins 1..239, derived from the matched FFT output")
+}
+
+func compareAnalysisPhaseState(t *testing.T, trace libopusAnalysisPhaseTrace, state *TonalityAnalysisState) {
+	t.Helper()
+	fields := []struct {
+		name string
+		c    func(libopusAnalysisPhaseRecord) uint32
+		goAt func(int) float32
+	}{
+		{"angle", func(r libopusAnalysisPhaseRecord) uint32 { return r.angleState }, func(i int) float32 { return state.Angle[i] }},
+		{"d_angle", func(r libopusAnalysisPhaseRecord) uint32 { return r.dAngleState }, func(i int) float32 { return state.DAngle[i] }},
+		{"d2_angle", func(r libopusAnalysisPhaseRecord) uint32 { return r.d2AngleState }, func(i int) float32 { return state.D2Angle[i] }},
+	}
+	for _, field := range fields {
+		for _, record := range trace.records {
+			bin := int(record.bin)
+			goBits := math.Float32bits(field.goAt(bin))
+			cBits := field.c(record)
+			if goBits != cBits {
+				t.Fatalf("phase %s bin=%d Go=%08x C=%08x (C x1=%08x,%08x x2=%08x,%08x angle=%08x angle2=%08x)",
+					field.name, bin, goBits, cBits, record.x1r, record.x1i, record.x2r, record.x2i,
+					record.angle, record.angle2)
+			}
+		}
+		t.Logf("phase %s exact for bins 1..239", field.name)
+	}
 }
 
 func compareAnalysisF32Bits(t *testing.T, stage string, cBits []uint32, goValues []float32) {

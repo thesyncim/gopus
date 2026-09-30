@@ -109,6 +109,23 @@ Analyzer phase and recurrent-network state comparisons remain separate exact
 checks; passing the packet corpus does not establish universal analyzer-state
 identity. No tolerance or failing-case exclusion applies to this fix.
 
+### Analyzer phase on amd64 v3
+
+The default float v3 SIMD phase kernel uses three packed FMAs for the
+`p+c*q` terms in `celt/mathops.h:fast_atan2f`, matching the ordinary GCC 13.3
+analysis object. Other targets and optional features keep their selected
+arithmetic. The polynomial helper inlines; the actual phase-loop caller keeps
+its instruction and call topology.
+
+Independent translated amd64 checks compare 500 original-C kernel operands,
+including both phase inputs from all 239 active bins. Every phase input and
+angle/velocity/acceleration history entry matches the live C trace. Its full
+50-frame C output agrees with the uninstrumented oracle, and the SIMD kernel
+allocates zero after warmup. Both instruction lanes preserve all 60 encoder,
+24 decoder, 15 allocation and 19 CBR cases. Native confirmation of this phase
+correction is pending. Per-bin tone and recurrent-network comparisons remain
+separate unresolved source checks.
+
 #### Executable gates
 
 - `TestEncoderCBRPairedOracleContract` runs all 19 CBR cases through independent
@@ -396,7 +413,7 @@ and traced streams agree. No substitute frame or forced codec mode establishes
 parity.
 
 The recorded v3 packet and decoder selections are exact in both instruction
-lanes. Separate analyzer-state checks still expose phase-history differences
+lanes. Separate analyzer-state checks still expose per-bin tone differences
 in the SIMD lane and recurrent-network differences in both lanes. These checks
 retain exact assertions; no numerical allowance classifies those differences.
 Passing the packet corpus does not establish equality for every input or

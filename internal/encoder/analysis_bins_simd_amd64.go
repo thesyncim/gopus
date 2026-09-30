@@ -95,8 +95,9 @@ func analysisAtan2x4(y, x archsimd.Float32x4) archsimd.Float32x4 {
 	swap := x2.Less(y2)
 	p := y2.IfElse(swap, x2)
 	q := x2.IfElse(swap, y2)
-	num := xy.Neg().IfElse(swap, xy).Mul(p.Add(archsimd.BroadcastFloat32x4(analysisAtanCA).Mul(q)))
-	den := p.Add(archsimd.BroadcastFloat32x4(analysisAtanCB).Mul(q)).Mul(p.Add(archsimd.BroadcastFloat32x4(analysisAtanCC).Mul(q)))
+	num := xy.Neg().IfElse(swap, xy).Mul(analysisAtan2PolyTermSIMD(p, q, archsimd.BroadcastFloat32x4(analysisAtanCA)))
+	den := analysisAtan2PolyTermSIMD(p, q, archsimd.BroadcastFloat32x4(analysisAtanCB)).Mul(
+		analysisAtan2PolyTermSIMD(p, q, archsimd.BroadcastFloat32x4(analysisAtanCC)))
 	cE := archsimd.BroadcastFloat32x4(analysisAtanCE)
 	negCE := archsimd.BroadcastFloat32x4(-analysisAtanCE)
 	s1 := negCE.IfElse(y.Less(zero), cE)
