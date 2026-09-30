@@ -1,6 +1,3 @@
-// Package celt implements the CELT encoder per RFC 6716 Section 4.3.
-// This file provides allocation trim analysis for optimal bit allocation.
-
 package celt
 
 import "github.com/thesyncim/gopus/internal/opusmath"
@@ -15,33 +12,19 @@ type allocTrimDetail struct {
 	raw      opusVal16
 }
 
-// AllocTrimAnalysis computes the optimal allocation trim value for a CELT frame.
-// The trim value biases bit allocation between lower and higher frequency bands.
-// A higher trim value allocates more bits to lower frequencies.
+// AllocTrimAnalysis returns the CELT allocation trim index in [0, 10]. Higher
+// values favor lower frequency bands. It follows alloc_trim_analysis in
+// libopus celt/celt_encoder.c.
 //
-// The algorithm considers:
-// - Equivalent bitrate (lower bitrates favor lower trim)
-// - Spectral tilt (energy distribution across bands)
-// - TF estimate (transient characteristic)
-// - Stereo correlation (for stereo signals)
-// - Tonality slope (optional, from analysis)
+// normCoeffs contains normalized mono or left-channel MDCT coefficients;
+// normCoeffsRight contains the right channel, or is nil for mono. bandLogE
+// contains nbBands log energies per channel. intensity is the first band that
+// uses intensity stereo, or nbBands when intensity stereo is disabled. lm is
+// the log2 multiplier of the short-transform size.
 //
-// Parameters:
-//   - normCoeffs: normalized MDCT coefficients (left channel for stereo, or mono)
-//   - bandLogE: band log-energies [nbBands * channels]
-//   - nbBands: number of frequency bands
-//   - lm: log mode (frame size index)
-//   - channels: 1 for mono, 2 for stereo
-//   - normCoeffsRight: normalized right channel coefficients (nil for mono)
-//   - intensity: intensity stereo band threshold (nbBands for no intensity stereo)
-//   - tfEstimate: TF estimate from transient analysis (0.0-1.0)
-//   - equivRate: equivalent bitrate in bits per second
-//   - surroundTrim: surround mix trim adjustment (0 for non-surround)
-//   - tonalitySlope: tonality slope from analysis (-1 to 1, 0 if not available)
-//
-// Returns: trim index in range [0, 10], where 5 is the neutral default
-//
-// Reference: libopus celt/celt_encoder.c alloc_trim_analysis()
+// equivRate is the equivalent bitrate in bits per second. tfEstimate is the
+// transient-analysis estimate in [0, 1]; surroundTrim is the surround allocation
+// adjustment. A zero tonalitySlope disables the optional analysis adjustment.
 func AllocTrimAnalysis(
 	normCoeffs []celtNorm,
 	bandLogE []celtGLog,
@@ -94,9 +77,8 @@ func allocTrimAnalysisDetailed(
 	trim := opusVal16(5.0)
 	detail.base = trim
 
-	// At low bitrate, reducing the trim seems to help. At higher bitrates, it's less
-	// clear what's best, so we're keeping it as it was before, at least for now.
-	// Reference: libopus lines 877-883
+	// Bitrates below 80 kbit/s reduce the baseline trim according to
+	// celt/celt_encoder.c:alloc_trim_analysis.
 	if equivRate < 64000 {
 		trim = opusVal16(4.0)
 		detail.base = trim
@@ -123,8 +105,8 @@ func allocTrimAnalysisDetailed(
 	// Spectral tilt adjustment
 	// Reference: libopus lines 922-931
 	// The spectral tilt measures whether energy is concentrated in low or high frequencies.
-	// Positive diff = more energy in lower bands (tilted down)
-	// Negative diff = more energy in higher bands (tilted up)
+	// Positive diff indicates a tilt toward higher bands; negative diff
+	// indicates a tilt toward lower bands.
 	var diff opusVal32
 	end := min(nbBands, len(bandLogE)/channels)
 
