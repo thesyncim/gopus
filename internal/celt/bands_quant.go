@@ -3491,6 +3491,16 @@ func quantBandDecodeNoExtFast(ctx *bandCtx, x []celtNorm, n, b, B int, lowband [
 		x = x[:n:n]
 		_ = x[n-1]
 	}
+	if B == 1 && ctx.tfChange == 0 && ctx.resynth {
+		// One long block without a TF change: no recombination, time
+		// division or Hadamard reordering, so quant_band reduces to
+		// quant_partition, the lowband_out scaling and a one-bit mask.
+		cm := quantPartitionDecodeNoExt(ctx, x, n, b, 1, lowband, lm, gain, fill)
+		if lowbandOut != nil && len(lowbandOut) >= n {
+			scaleLowbandOutForFoldingNorm(lowbandOut, x, n)
+		}
+		return cm & 1
+	}
 
 	N0 := n
 	N_B := celtUdivBlocks(n, B)
@@ -4510,6 +4520,35 @@ func quantAllBandsDecodeStereo(ctx *bandCtx, left, right, norm, norm2, lowbandSc
 			specialHybridFoldingWithEdges(norm, norm2, edges, start, M, dualStereo != 0)
 		}
 
+		if nBand == 1 && dualStereo == 0 {
+			// quant_band_n1 for both channels: a raw sign bit each while a
+			// whole bit remains, no lowband, and full collapse masks.
+			v0, v1 := celtNorm(1.0), celtNorm(1.0)
+			if remaining >= 1<<bitRes {
+				if rd.DecodeRawBit() != 0 {
+					v0 = -1.0
+				}
+				remaining -= 1 << bitRes
+			}
+			if remaining >= 1<<bitRes && rd.DecodeRawBit() != 0 {
+				v1 = -1.0
+			}
+			x[0] = v0
+			y[0] = v1
+			if outStart := bandStart - normOffset; !last && outStart >= 0 && outStart < len(norm) {
+				norm[outStart] = x[0]
+			}
+			if last {
+				lowbandScratch = nil
+			}
+			collapse[2*i] = 1
+			collapse[2*i+1] = 1
+			balance += int(pulses[i]) + tell
+			updateLowband = b > (1 << bitRes)
+			ctx.avoidSplitNoise = false
+			continue
+		}
+
 		ctx.tfChange = int(tfRes[i])
 		if last {
 			lowbandScratch = nil
@@ -4574,11 +4613,13 @@ func quantAllBandsDecodeStereo(ctx *bandCtx, left, right, norm, norm2, lowbandSc
 			}
 		}
 
+		// Without an extension decoder every band takes the NoExtFast
+		// paths quantBandDecode and quantBandStereoDecode would pick.
 		if dualStereo != 0 {
-			xCM = quantBandDecode(ctx, x, nBand, b/2, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM)
-			yCM = quantBandDecode(ctx, y, nBand, b/2, B, lowbandY, lm, lowbandOutY, 1.0, lowbandScratch, yCM)
+			xCM = quantBandDecodeNoExtFast(ctx, x, nBand, b/2, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM)
+			yCM = quantBandDecodeNoExtFast(ctx, y, nBand, b/2, B, lowbandY, lm, lowbandOutY, 1.0, lowbandScratch, yCM)
 		} else {
-			xCM = quantBandStereoDecode(ctx, x, y, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, xCM|yCM)
+			xCM = quantBandStereoDecodeNoExtFast(ctx, x, y, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, xCM|yCM)
 			yCM = xCM
 		}
 
@@ -4635,6 +4676,23 @@ func quantAllBandsDecodeMono(ctx *bandCtx, left, norm, lowbandScratch []celtNorm
 		}
 		if i == start+1 {
 			specialHybridFoldingWithEdges(norm, nil, edges, start, M, false)
+		}
+		if nBand == 1 {
+			// quant_band_n1: one raw sign bit when a whole bit remains, no
+			// lowband, and a full collapse mask.
+			v := celtNorm(1.0)
+			if remaining >= 1<<bitRes && rd.DecodeRawBit() != 0 {
+				v = -1.0
+			}
+			x[0] = v
+			if outStart := bandStart - normOffset; i != end-1 && outStart >= 0 && outStart < len(norm) {
+				norm[outStart] = x[0]
+			}
+			collapse[i] = 1
+			balance += int(pulses[i]) + tell
+			updateLowband = b > (1 << bitRes)
+			ctx.avoidSplitNoise = false
+			continue
 		}
 
 		ctx.tfChange = int(tfRes[i])

@@ -2,6 +2,7 @@ package celt
 
 import (
 	"math"
+	"unsafe"
 
 	"github.com/thesyncim/gopus/internal/opusmath"
 )
@@ -30,9 +31,9 @@ type kissFFTState struct {
 	bitrev  []int
 	w       []kissCpx
 	fstride []int // Pre-computed fstride array for fftImpl (avoids per-call allocation)
-	// bitrevFloat holds 2*bitrev[i], the float offset of each bit-reversed
-	// slot in the kissFloats view of the FFT buffer.
-	bitrevFloat []int
+	// bitrevBytes holds 8*bitrev[i], the byte offset of each bit-reversed
+	// slot in the FFT buffer; every entry is below 8*nfft.
+	bitrevBytes []uintptr
 	// stageTw holds each factor stage's twiddles packed for the Fast
 	// butterflies; see kissStageTwiddles.
 	stageTw []kissStageTwiddles
@@ -121,7 +122,7 @@ func newDynamicKissFFTState(nfft int, base *kissFFTState) *kissFFTState {
 	}
 
 	return &kissFFTState{nfft: nfft, shift: shift, factors: factors, bitrev: bitrev, w: w, fstride: fstride,
-		bitrevFloat: kissBitrevFloat(bitrev), stageTw: newKissStageTwiddles(factors, fstride, shift, w)}
+		bitrevBytes: kissBitrevBytes(bitrev), stageTw: newKissStageTwiddles(factors, fstride, shift, w)}
 }
 
 func newStaticKissFFTState(nfft int) *kissFFTState {
@@ -177,17 +178,21 @@ func newStaticKissFFTState(nfft int) *kissFFTState {
 		bitrev:      bitrev,
 		w:           twiddles,
 		fstride:     fstride,
-		bitrevFloat: kissBitrevFloat(bitrev),
+		bitrevBytes: kissBitrevBytes(bitrev),
 		stageTw:     newKissStageTwiddles(factors, fstride, shift, twiddles),
 	}
 }
 
-// kissBitrevFloat returns the float offsets 2*bitrev[i] of the bit-reversed
-// FFT slots.
-func kissBitrevFloat(bitrev []int) []int {
-	off := make([]int, len(bitrev))
+// kissBitrevBytes returns the byte offsets 8*bitrev[i] of the bit-reversed
+// FFT slots. It panics unless every slot is inside the len(bitrev)-point
+// buffer, which lets the offset stores skip their per-element checks.
+func kissBitrevBytes(bitrev []int) []uintptr {
+	off := make([]uintptr, len(bitrev))
 	for i, rev := range bitrev {
-		off[i] = 2 * rev
+		if uint(rev) >= uint(len(bitrev)) {
+			panic("celt: kiss FFT bit-reversal slot out of range")
+		}
+		off[i] = uintptr(rev) * 8
 	}
 	return off
 }
@@ -422,12 +427,16 @@ const kfBfly2M4Twiddle = float32(0.7071067812)
 
 // kfBfly2M4Scalar is the kf_bfly2 radix-2 stage with m == 4 (after a radix-4
 // stage): N groups of eight values, each addressed through a fixed-size array
-// view.
+// view at a byte offset.
 func kfBfly2M4Scalar(fout []kissCpx, N int) {
 	tw := kfBfly2M4Twiddle
-	fout = fout[:8*N]
-	for len(fout) >= 8 {
-		g := (*[8]kissCpx)(fout)
+	if N <= 0 {
+		return
+	}
+	// Group i sits at byte offset 64*i of the checked fout[:8*N].
+	base := unsafe.Pointer(unsafe.SliceData(fout[:8*N]))
+	for off := uintptr(0); off < uintptr(N)*64; off += 64 {
+		g := (*[8]kissCpx)(unsafe.Add(base, off))
 		t := g[4]
 		g[4].r = g[0].r - t.r
 		g[4].i = g[0].i - t.i
@@ -448,8 +457,6 @@ func kfBfly2M4Scalar(fout []kissCpx, N int) {
 		b3 := g[7]
 		g[7].r, g[3].r = kissBfly2M4Outputs(g[3].r, kissSub(b3.i, b3.r), tw)
 		g[7].i, g[3].i = kissBfly2M4Outputs(g[3].i, -kissAdd(b3.i, b3.r), tw)
-
-		fout = fout[8:]
 	}
 }
 

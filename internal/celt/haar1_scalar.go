@@ -2,19 +2,27 @@
 
 package celt
 
+import "unsafe"
+
 // The scalar haar1 butterflies below round both products before the sum and
 // difference, as haar1PairValues does without FMA; on the AMD64 v3 target
 // (haar1UsesFMA) they call haar1PairValues for its contracted shape. The
 // non-FMA arithmetic is written out rather than calling the helper so the hot
-// loops carry no inlining marks. Each loop steps through fixed-size array
-// views, so no element access needs a bounds check.
+// loops carry no inlining marks. Each loop steps a byte offset through
+// fixed-size array views of x, so no element access needs a bounds check.
+
+// haar1Scale holds the haar1 butterfly scale as a variable, so the loops load
+// it once into a register instead of rereading the constant every group.
+var haar1Scale = [1]float32{0.7071067811865476}
 
 // haar1Stride1 is the scalar stride==1 Hadamard butterfly over the n0
 // contiguous (even, odd) pairs of x, which the caller slices to 2*n0.
 func haar1Stride1(x []float32, n0 int) {
-	const s = float32(0.7071067811865476)
-	for len(x) >= 4 {
-		p := (*[4]float32)(x)
+	s := haar1Scale[0]
+	n := len(x) &^ 3
+	base := unsafe.Pointer(unsafe.SliceData(x))
+	for off := uintptr(0); off < uintptr(n)*4; off += 16 {
+		p := (*[4]float32)(unsafe.Add(base, off))
 		if haar1UsesFMA {
 			p[0], p[1] = haar1PairValues(s, p[0], p[1])
 			p[2], p[3] = haar1PairValues(s, p[2], p[3])
@@ -24,10 +32,9 @@ func haar1Stride1(x []float32, n0 int) {
 			p[0], p[1] = a0+b0, a0-b0
 			p[2], p[3] = a1+b1, a1-b1
 		}
-		x = x[4:]
 	}
-	if len(x) >= 2 {
-		p := (*[2]float32)(x)
+	if len(x)-n >= 2 {
+		p := (*[2]float32)(x[n : n+2])
 		if haar1UsesFMA {
 			p[0], p[1] = haar1PairValues(s, p[0], p[1])
 		} else {
@@ -40,9 +47,11 @@ func haar1Stride1(x []float32, n0 int) {
 // haar1Stride2 is the scalar stride==2 butterfly. The two outer passes are
 // fused into one loop over groups of four; the caller slices x to 4*n0.
 func haar1Stride2(x []float32, n0 int) {
-	const s = float32(0.7071067811865476)
-	for len(x) >= 4 {
-		p := (*[4]float32)(x)
+	s := haar1Scale[0]
+	n := len(x) &^ 3
+	base := unsafe.Pointer(unsafe.SliceData(x))
+	for off := uintptr(0); off < uintptr(n)*4; off += 16 {
+		p := (*[4]float32)(unsafe.Add(base, off))
 		if haar1UsesFMA {
 			p[0], p[2] = haar1PairValues(s, p[0], p[2])
 			p[1], p[3] = haar1PairValues(s, p[1], p[3])
@@ -52,16 +61,17 @@ func haar1Stride2(x []float32, n0 int) {
 			p[0], p[2] = a0+b0, a0-b0
 			p[1], p[3] = a1+b1, a1-b1
 		}
-		x = x[4:]
 	}
 }
 
 // haar1Stride4 is the scalar stride==4 butterfly. The four outer passes are
 // fused into one loop over groups of eight; the caller slices x to 8*n0.
 func haar1Stride4(x []float32, n0 int) {
-	const s = float32(0.7071067811865476)
-	for len(x) >= 8 {
-		p := (*[8]float32)(x)
+	s := haar1Scale[0]
+	n := len(x) &^ 7
+	base := unsafe.Pointer(unsafe.SliceData(x))
+	for off := uintptr(0); off < uintptr(n)*4; off += 32 {
+		p := (*[8]float32)(unsafe.Add(base, off))
 		if haar1UsesFMA {
 			p[0], p[4] = haar1PairValues(s, p[0], p[4])
 			p[1], p[5] = haar1PairValues(s, p[1], p[5])
@@ -77,6 +87,5 @@ func haar1Stride4(x []float32, n0 int) {
 			p[2], p[6] = a2+b2, a2-b2
 			p[3], p[7] = a3+b3, a3-b3
 		}
-		x = x[8:]
 	}
 }

@@ -76,12 +76,8 @@ func (d *Decoder) synthesizeHybridDecodedFrame(frameSize, modeLM, end, hybridBin
 			specR = ensureFloat32Slice(&d.scratchSpecRF32, len(coeffsR))
 			denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energiesL, HybridCELTStartBand, end, modeLM, EBands[:], downsample)
 			denormalizeBandsPackedDownsampleIntoFloat32(specR, coeffsR, energiesR, HybridCELTStartBand, end, modeLM, EBands[:], downsample)
-			for i := 0; i < hybridBinStart && i < len(specL); i++ {
-				specL[i] = 0
-			}
-			for i := 0; i < hybridBinStart && i < len(specR); i++ {
-				specR[i] = 0
-			}
+			clear(specL[:min(hybridBinStart, len(specL))])
+			clear(specR[:min(hybridBinStart, len(specR))])
 		}
 		if !transient && d.directOutPCM != nil {
 			samplesL, samplesR := d.synthesizeStereoPlanarLongToFloat32(specL, specR)
@@ -105,9 +101,7 @@ func (d *Decoder) synthesizeHybridDecodedFrame(frameSize, modeLM, end, hybridBin
 		} else {
 			specL = ensureFloat32Slice(&d.scratchStereoF32, len(coeffsL))
 			denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energies, HybridCELTStartBand, end, modeLM, EBands[:], downsample)
-			for i := 0; i < hybridBinStart && i < len(specL); i++ {
-				specL[i] = 0
-			}
+			clear(specL[:min(hybridBinStart, len(specL))])
 		}
 		if !transient &&
 			d.directOutPCM != nil &&

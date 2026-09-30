@@ -83,142 +83,138 @@ func packKissTwiddles5(w []kissCpx, m, fstride int) [][4]kissCpx {
 	return tw
 }
 
-// kissFloats views x as its interleaved float32 components, so the Fast
-// butterflies address both halves of element u as [2u] and [2u+1] with a
-// scaled index instead of recomputing each element address.
-func kissFloats(x []kissCpx) []float32 {
-	if len(x) == 0 {
-		return nil
-	}
-	return unsafe.Slice(&x[0].r, 2*len(x))
-}
-
-// floatPairs views the even-length x as consecutive (x[2k], x[2k+1]) pairs.
-func floatPairs(x []float32) []kissCpx {
-	if len(x) < 2 {
-		return nil
-	}
-	return unsafe.Slice((*kissCpx)(unsafe.Pointer(&x[0])), len(x)/2)
-}
-
 // kfBfly5InnerFast is kfBfly5InnerScalar for a stage whose FFT input passed
 // kissFFTInputBounded, with the stage twiddles packed per butterfly and
 // ya = w[fstride*m], yb = w[2*fstride*m]. No product can be NaN, so the
 // per-product non-finite handling is dropped, and every output keeps the
-// scalar operation order.
+// scalar operation order. Each butterfly's five complex inputs are addressed
+// by one byte offset into the checked fout[i*mm : i*mm+5*m] span, so the loop
+// carries no per-element bounds checks.
 func kfBfly5InnerFast(fout []kissCpx, tw [][4]kissCpx, ya, yb kissCpx, N, mm int) {
 	m := len(tw)
 	// y lives in memory so the loop reads its components as multiply
 	// operands instead of pinning four registers.
 	y := [4]float32{ya.r, ya.i, yb.r, yb.i}
+	stride := uintptr(m) * 8
+	if m == 0 {
+		return
+	}
+	twBase := unsafe.Pointer(unsafe.SliceData(tw))
 	for i := 0; i < N; i++ {
-		f := kissFloats(fout[i*mm : i*mm+5*m])
-		f0 := f[:2*m]
-		f1 := f[2*m : 4*m]
-		f2 := f[4*m : 6*m]
-		f3 := f[6*m : 8*m]
-		f4 := f[8*m : 10*m]
-		f1 = f1[:len(f0)]
-		f2 = f2[:len(f0)]
-		f3 = f3[:len(f0)]
-		f4 = f4[:len(f0)]
-		for r := 0; r+1 < len(f0); r += 2 {
-			t := &tw[uint(r)/2]
-			q := r + 1
-			s1r := kissMulSubFast(f1[r], t[0].r, f1[q], t[0].i)
-			s1i := kissMulAddFast(f1[r], t[0].i, f1[q], t[0].r)
-			s4r := kissMulSubFast(f4[r], t[3].r, f4[q], t[3].i)
-			s4i := kissMulAddFast(f4[r], t[3].i, f4[q], t[3].r)
+		f0 := unsafe.Pointer(unsafe.SliceData(fout[i*mm : i*mm+5*m]))
+		f1 := unsafe.Add(f0, stride)
+		f2 := unsafe.Add(f1, stride)
+		f3 := unsafe.Add(f2, stride)
+		f4 := unsafe.Add(f3, stride)
+		for off := uintptr(0); off < stride; off += 8 {
+			t := (*[4]kissCpx)(unsafe.Add(twBase, 4*off))
+			q := off + 4
+			s1r := kissMulSubFast(*(*float32)(unsafe.Add(f1, off)), t[0].r, *(*float32)(unsafe.Add(f1, q)), t[0].i)
+			s1i := kissMulAddFast(*(*float32)(unsafe.Add(f1, off)), t[0].i, *(*float32)(unsafe.Add(f1, q)), t[0].r)
+			s4r := kissMulSubFast(*(*float32)(unsafe.Add(f4, off)), t[3].r, *(*float32)(unsafe.Add(f4, q)), t[3].i)
+			s4i := kissMulAddFast(*(*float32)(unsafe.Add(f4, off)), t[3].i, *(*float32)(unsafe.Add(f4, q)), t[3].r)
 			s7r, s7i := s1r+s4r, s1i+s4i
 			s10r, s10i := s1r-s4r, s1i-s4i
-			s2r := kissMulSubFast(f2[r], t[1].r, f2[q], t[1].i)
-			s2i := kissMulAddFast(f2[r], t[1].i, f2[q], t[1].r)
-			s3r := kissMulSubFast(f3[r], t[2].r, f3[q], t[2].i)
-			s3i := kissMulAddFast(f3[r], t[2].i, f3[q], t[2].r)
+			s2r := kissMulSubFast(*(*float32)(unsafe.Add(f2, off)), t[1].r, *(*float32)(unsafe.Add(f2, q)), t[1].i)
+			s2i := kissMulAddFast(*(*float32)(unsafe.Add(f2, off)), t[1].i, *(*float32)(unsafe.Add(f2, q)), t[1].r)
+			s3r := kissMulSubFast(*(*float32)(unsafe.Add(f3, off)), t[2].r, *(*float32)(unsafe.Add(f3, q)), t[2].i)
+			s3i := kissMulAddFast(*(*float32)(unsafe.Add(f3, off)), t[2].i, *(*float32)(unsafe.Add(f3, q)), t[2].r)
 			s8r, s8i := s2r+s3r, s2i+s3i
 			s9r, s9i := s2r-s3r, s2i-s3i
 
 			// Real outputs, then imaginary outputs. s6i holds the negation
 			// of the scalar kernel's scratch[6].i, so its sign moves into
 			// the two sums that use it.
-			s0r := f0[r]
-			f0[r] = s0r + (s7r + s8r)
+			s0r := *(*float32)(unsafe.Add(f0, off))
+			*(*float32)(unsafe.Add(f0, off)) = s0r + (s7r + s8r)
 			s5r := s0r + kissMulAddFast(s7r, y[0], s8r, y[2])
 			s6r := kissMulAddFast(s10i, y[1], s9i, y[3])
-			f1[r], f4[r] = s5r-s6r, s5r+s6r
+			*(*float32)(unsafe.Add(f1, off)) = s5r - s6r
+			*(*float32)(unsafe.Add(f4, off)) = s5r + s6r
 			s11r := s0r + kissMulAddFast(s7r, y[2], s8r, y[0])
 			s12r := kissMulSubFast(s9i, y[1], s10i, y[3])
-			f2[r], f3[r] = s11r+s12r, s11r-s12r
+			*(*float32)(unsafe.Add(f2, off)) = s11r + s12r
+			*(*float32)(unsafe.Add(f3, off)) = s11r - s12r
 
-			s0i := f0[q]
-			f0[q] = s0i + (s7i + s8i)
+			s0i := *(*float32)(unsafe.Add(f0, q))
+			*(*float32)(unsafe.Add(f0, q)) = s0i + (s7i + s8i)
 			s5i := s0i + kissMulAddFast(s7i, y[0], s8i, y[2])
 			s6i := kissMulAddFast(s10r, y[1], s9r, y[3])
-			f1[q], f4[q] = s5i+s6i, s5i-s6i
+			*(*float32)(unsafe.Add(f1, q)) = s5i + s6i
+			*(*float32)(unsafe.Add(f4, q)) = s5i - s6i
 			s11i := s0i + kissMulAddFast(s7i, y[2], s8i, y[0])
 			s12i := kissMulSubFast(s10r, y[3], s9r, y[1])
-			f2[q], f3[q] = s11i+s12i, s11i-s12i
+			*(*float32)(unsafe.Add(f2, q)) = s11i + s12i
+			*(*float32)(unsafe.Add(f3, q)) = s11i - s12i
 		}
 	}
 }
 
 // kfBfly3InnerFast is kfBfly3InnerScalar for bounded FFT input with packed
-// stage twiddles and epi3i = w[fstride*m].i (see kfBfly5InnerFast).
+// stage twiddles and epi3i = w[fstride*m].i, addressed like kfBfly5InnerFast.
 func kfBfly3InnerFast(fout []kissCpx, tw [][2]kissCpx, epi3i float32, N, mm int) {
 	m := len(tw)
+	stride := uintptr(m) * 8
+	if m == 0 {
+		return
+	}
+	twBase := unsafe.Pointer(unsafe.SliceData(tw))
 	for i := 0; i < N; i++ {
-		f := kissFloats(fout[i*mm : i*mm+3*m])
-		f0 := f[:2*m]
-		f1 := f[2*m : 4*m]
-		f2 := f[4*m : 6*m]
-		f1 = f1[:len(f0)]
-		f2 = f2[:len(f0)]
-		for r := 0; r+1 < len(f0); r += 2 {
-			t := &tw[uint(r)/2]
-			q := r + 1
-			s1r := kissMulSubFast(f1[r], t[0].r, f1[q], t[0].i)
-			s1i := kissMulAddFast(f1[r], t[0].i, f1[q], t[0].r)
-			s2r := kissMulSubFast(f2[r], t[1].r, f2[q], t[1].i)
-			s2i := kissMulAddFast(f2[r], t[1].i, f2[q], t[1].r)
+		f0 := unsafe.Pointer(unsafe.SliceData(fout[i*mm : i*mm+3*m]))
+		f1 := unsafe.Add(f0, stride)
+		f2 := unsafe.Add(f1, stride)
+		for off := uintptr(0); off < stride; off += 8 {
+			t := (*[2]kissCpx)(unsafe.Add(twBase, 2*off))
+			q := off + 4
+			s1r := kissMulSubFast(*(*float32)(unsafe.Add(f1, off)), t[0].r, *(*float32)(unsafe.Add(f1, q)), t[0].i)
+			s1i := kissMulAddFast(*(*float32)(unsafe.Add(f1, off)), t[0].i, *(*float32)(unsafe.Add(f1, q)), t[0].r)
+			s2r := kissMulSubFast(*(*float32)(unsafe.Add(f2, off)), t[1].r, *(*float32)(unsafe.Add(f2, q)), t[1].i)
+			s2i := kissMulAddFast(*(*float32)(unsafe.Add(f2, off)), t[1].i, *(*float32)(unsafe.Add(f2, q)), t[1].r)
 
 			s3r := s1r + s2r
 			s3i := s1i + s2i
 			s0r := s1r - s2r
 			s0i := s1i - s2i
 
-			a0r, a0i := f0[r], f0[q]
+			a0r, a0i := *(*float32)(unsafe.Add(f0, off)), *(*float32)(unsafe.Add(f0, q))
 			h1r := kissHalfSub(a0r, s3r)
 			h1i := kissHalfSub(a0i, s3i)
-			f0[r], f0[q] = a0r+s3r, a0i+s3i
-			f1[r], f1[q], f2[r], f2[q] = kissRadix3ScaledOutputs(h1r, h1i, s0r, s0i, epi3i)
+			*(*float32)(unsafe.Add(f0, off)) = a0r + s3r
+			*(*float32)(unsafe.Add(f0, q)) = a0i + s3i
+			o1r, o1i, o2r, o2i := kissRadix3ScaledOutputs(h1r, h1i, s0r, s0i, epi3i)
+			*(*float32)(unsafe.Add(f1, off)) = o1r
+			*(*float32)(unsafe.Add(f1, q)) = o1i
+			*(*float32)(unsafe.Add(f2, off)) = o2r
+			*(*float32)(unsafe.Add(f2, q)) = o2i
 		}
 	}
 }
 
 // kfBfly4InnerFast is kfBfly4InnerScalar for bounded FFT input with packed
-// stage twiddles (see kfBfly5InnerFast).
+// stage twiddles, addressed like kfBfly5InnerFast.
 func kfBfly4InnerFast(fout []kissCpx, tw [][4]kissCpx, N, mm int) {
 	m := len(tw)
+	stride := uintptr(m) * 8
+	if m == 0 {
+		return
+	}
+	twBase := unsafe.Pointer(unsafe.SliceData(tw))
 	for i := 0; i < N; i++ {
-		f := kissFloats(fout[i*mm : i*mm+4*m])
-		f0 := f[:2*m]
-		f1 := f[2*m : 4*m]
-		f2 := f[4*m : 6*m]
-		f3 := f[6*m : 8*m]
-		f1 = f1[:len(f0)]
-		f2 = f2[:len(f0)]
-		f3 = f3[:len(f0)]
-		for r := 0; r+1 < len(f0); r += 2 {
-			t := &tw[uint(r)/2]
-			q := r + 1
-			s0r := kissMulSubFast(f1[r], t[0].r, f1[q], t[0].i)
-			s0i := kissMulAddFast(f1[r], t[0].i, f1[q], t[0].r)
-			s1r := kissMulSubFast(f2[r], t[1].r, f2[q], t[1].i)
-			s1i := kissMulAddFast(f2[r], t[1].i, f2[q], t[1].r)
-			s2r := kissMulSubFast(f3[r], t[2].r, f3[q], t[2].i)
-			s2i := kissMulAddFast(f3[r], t[2].i, f3[q], t[2].r)
+		f0 := unsafe.Pointer(unsafe.SliceData(fout[i*mm : i*mm+4*m]))
+		f1 := unsafe.Add(f0, stride)
+		f2 := unsafe.Add(f1, stride)
+		f3 := unsafe.Add(f2, stride)
+		for off := uintptr(0); off < stride; off += 8 {
+			t := (*[4]kissCpx)(unsafe.Add(twBase, 4*off))
+			q := off + 4
+			s0r := kissMulSubFast(*(*float32)(unsafe.Add(f1, off)), t[0].r, *(*float32)(unsafe.Add(f1, q)), t[0].i)
+			s0i := kissMulAddFast(*(*float32)(unsafe.Add(f1, off)), t[0].i, *(*float32)(unsafe.Add(f1, q)), t[0].r)
+			s1r := kissMulSubFast(*(*float32)(unsafe.Add(f2, off)), t[1].r, *(*float32)(unsafe.Add(f2, q)), t[1].i)
+			s1i := kissMulAddFast(*(*float32)(unsafe.Add(f2, off)), t[1].i, *(*float32)(unsafe.Add(f2, q)), t[1].r)
+			s2r := kissMulSubFast(*(*float32)(unsafe.Add(f3, off)), t[2].r, *(*float32)(unsafe.Add(f3, q)), t[2].i)
+			s2i := kissMulAddFast(*(*float32)(unsafe.Add(f3, off)), t[2].i, *(*float32)(unsafe.Add(f3, q)), t[2].r)
 
-			a0r, a0i := f0[r], f0[q]
+			a0r, a0i := *(*float32)(unsafe.Add(f0, off)), *(*float32)(unsafe.Add(f0, q))
 			s5r := a0r - s1r
 			s5i := a0i - s1i
 			f0r := a0r + s1r
@@ -227,10 +223,14 @@ func kfBfly4InnerFast(fout []kissCpx, tw [][4]kissCpx, N, mm int) {
 			s3i := s0i + s2i
 			s4r := s0r - s2r
 			s4i := s0i - s2i
-			f2[r], f2[q] = f0r-s3r, f0i-s3i
-			f0[r], f0[q] = f0r+s3r, f0i+s3i
-			f1[r], f1[q] = s5r+s4i, s5i-s4r
-			f3[r], f3[q] = s5r-s4i, s5i+s4r
+			*(*float32)(unsafe.Add(f2, off)) = f0r - s3r
+			*(*float32)(unsafe.Add(f2, q)) = f0i - s3i
+			*(*float32)(unsafe.Add(f0, off)) = f0r + s3r
+			*(*float32)(unsafe.Add(f0, q)) = f0i + s3i
+			*(*float32)(unsafe.Add(f1, off)) = s5r + s4i
+			*(*float32)(unsafe.Add(f1, q)) = s5i - s4r
+			*(*float32)(unsafe.Add(f3, off)) = s5r - s4i
+			*(*float32)(unsafe.Add(f3, q)) = s5i + s4r
 		}
 	}
 }

@@ -42,85 +42,7 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 	}
 
 	if len(data) == 0 {
-		frameSize, err := d.plcOutputFrameSize(len(pcm))
-		if err != nil {
-			return 0, err
-		}
-		// libopus opus_demo (src/opus_demo.c, lost branch ~L1142) always drives
-		// PLC with OPUS_GET_LAST_PACKET_DURATION as frame_size, never the
-		// maximum decode buffer. gopus derives the requested PLC duration from
-		// the output buffer length, so a caller that hands over a full
-		// maxPacketSamples buffer (the conventional "size unknown, give me
-		// room" sentinel documented on Decode) would otherwise conceal the
-		// whole buffer instead of one packet. When the buffer is exactly the
-		// max-packet size and a real packet has already been decoded, fall back
-		// to the cached last-packet duration to match opus_demo. Deliberately
-		// sized requests -- including overlong ones larger than the max buffer
-		// -- are still honored verbatim (see the API-rate overlong PLC tests).
-		if frameSize == d.maxPacketSamples && int(d.lastPacketDuration) > 0 {
-			frameSize = int(d.lastPacketDuration)
-		}
-		packetFrameSize := int(d.lastFrameSize)
-		if packetFrameSize <= 0 {
-			packetFrameSize = frameSize
-		}
-		if d.prevMode == ModeSILK || d.prevMode == ModeHybrid {
-			if d.beginDREDRawMonoFrameCapture(d.prevMode) {
-				defer d.endDREDRawMonoFrameCapture()
-			}
-		}
-		// The public loss path passes no DRED feature queue to the codec.
-		// libopus selects main-model neural PLC when deep PLC is enabled at
-		// complexity 5 or higher; sidecar availability does not enable it.
-		state := plcDecodeState{
-			packetFrameSize:    packetFrameSize,
-			mode:               d.prevMode,
-			bandwidth:          d.lastBandwidth,
-			packetStereo:       d.prevPacketStereo,
-			useDecoderPLCState: true,
-		}
-		n, usedNeuralConcealment, err := d.decodeNeuralPLCInto(pcm, frameSize, state, false)
-		if err != nil {
-			return 0, err
-		}
-		// opus_decode(NULL,...) passes no DRED sidecar. Public loss follows the
-		// selected PLC path, including neural concealment when its gates pass.
-		// Cached DRED features are consumed only by explicit DRED decode.
-		if !usedNeuralConcealment {
-			n, err = d.decodePLCChunksInto(pcm, frameSize, state)
-		}
-		if err != nil {
-			return 0, err
-		}
-		frameSize = n
-		// libopus enables OSCE_MODE_SILK_BBWE during PLC whenever the
-		// internal sample rate is 16 kHz and the API sample rate is 48 kHz
-		// (`data == NULL` branch in opus_decoder.c). The gopus equivalent
-		// gate uses the previous packet's mode/bandwidth as the BWE
-		// eligibility signal: only SILK WB carries the 16 kHz internal SR
-		// that BWE expects. Stereo and DRED neural concealment paths are
-		// intentionally excluded so the BWE never overwrites richer
-		// concealment output.
-		//
-		// LACE/NoLACE resets at each internal SILK loss boundary before CNG
-		// and frame gluing. Optional BWE processes the resulting lowband here.
-		if extsupport.OSCERuntime {
-			packetStereoLocal := d.prevPacketStereo
-			if !usedNeuralConcealment && d.lastPacketMode == ModeSILK &&
-				d.lastBandwidth == BandwidthWideband &&
-				sampleRate == 48000 && d.osceBWEActive() {
-				d.maybeApplyOSCEBWEPostSilk(pcm[:frameSize*channels], frameSize, ModeSILK, silk.BandwidthWideband, packetStereoLocal)
-			}
-		}
-		d.applyOutputGain(pcm[:frameSize*channels])
-
-		d.lastFrameSize = int32(packetFrameSize)
-		d.lastPacketDuration = int32(frameSize)
-		d.lastDataLen = 0
-		if dredPossible && !usedNeuralConcealment && d.dredGoodPacketMarkerActive() {
-			d.markDREDConcealed()
-		}
-		return frameSize, nil
+		return d.decodeLossFloat32(pcm, dredPossible)
 	}
 
 	if len(data) > d.maxPacketBytes {
@@ -154,9 +76,23 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 	}
 
 	if d.beginDREDRawMonoFrameCapture(toc.Mode) {
-		defer d.endDREDRawMonoFrameCapture()
+		return d.decodePacketFloat32Captured(data, pcm, toc, frameCode, frameSize, totalSamples, dredPossible, clearSoftClipOnPacket)
 	}
+	return d.decodePacketFloat32(data, pcm, toc, frameCode, frameSize, totalSamples, dredPossible, clearSoftClipOnPacket)
+}
 
+// decodePacketFloat32Captured is decodePacketFloat32 inside a DRED raw mono
+// frame capture, which it ends once the packet is decoded. The capture's defer
+// lives here so decodeFloat32 itself carries no defer.
+func (d *Decoder) decodePacketFloat32Captured(data []byte, pcm []float32, toc *TOC, frameCode byte, frameSize, totalSamples int, dredPossible, clearSoftClipOnPacket bool) (int, error) {
+	defer d.endDREDRawMonoFrameCapture()
+	return d.decodePacketFloat32(data, pcm, toc, frameCode, frameSize, totalSamples, dredPossible, clearSoftClipOnPacket)
+}
+
+// decodePacketFloat32 decodes the frames of a validated packet into pcm and
+// updates the per-packet decoder state.
+func (d *Decoder) decodePacketFloat32(data []byte, pcm []float32, toc *TOC, frameCode byte, frameSize, totalSamples int, dredPossible, clearSoftClipOnPacket bool) (int, error) {
+	channels := int(d.channels)
 	if frameCode == 0 {
 		// libopus opus_packet_parse_impl (src/opus.c): non-self-delimited last
 		// frame must not exceed 1275 bytes ("last_size > 1275 → OPUS_INVALID_PACKET").
@@ -229,6 +165,92 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 		d.clearSoftClipMem()
 	}
 	return totalSamples, nil
+}
+
+// decodeLossFloat32 conceals one lost packet into pcm (decodeFloat32 with no
+// data).
+func (d *Decoder) decodeLossFloat32(pcm []float32, dredPossible bool) (int, error) {
+	channels := int(d.channels)
+	sampleRate := int(d.sampleRate)
+	frameSize, err := d.plcOutputFrameSize(len(pcm))
+	if err != nil {
+		return 0, err
+	}
+	// libopus opus_demo (src/opus_demo.c, lost branch ~L1142) always drives
+	// PLC with OPUS_GET_LAST_PACKET_DURATION as frame_size, never the
+	// maximum decode buffer. gopus derives the requested PLC duration from
+	// the output buffer length, so a caller that hands over a full
+	// maxPacketSamples buffer (the conventional "size unknown, give me
+	// room" sentinel documented on Decode) would otherwise conceal the
+	// whole buffer instead of one packet. When the buffer is exactly the
+	// max-packet size and a real packet has already been decoded, fall back
+	// to the cached last-packet duration to match opus_demo. Deliberately
+	// sized requests -- including overlong ones larger than the max buffer
+	// -- are still honored verbatim (see the API-rate overlong PLC tests).
+	if frameSize == d.maxPacketSamples && int(d.lastPacketDuration) > 0 {
+		frameSize = int(d.lastPacketDuration)
+	}
+	packetFrameSize := int(d.lastFrameSize)
+	if packetFrameSize <= 0 {
+		packetFrameSize = frameSize
+	}
+	if d.prevMode == ModeSILK || d.prevMode == ModeHybrid {
+		if d.beginDREDRawMonoFrameCapture(d.prevMode) {
+			defer d.endDREDRawMonoFrameCapture()
+		}
+	}
+	// The public loss path passes no DRED feature queue to the codec.
+	// libopus selects main-model neural PLC when deep PLC is enabled at
+	// complexity 5 or higher; sidecar availability does not enable it.
+	state := plcDecodeState{
+		packetFrameSize:    packetFrameSize,
+		mode:               d.prevMode,
+		bandwidth:          d.lastBandwidth,
+		packetStereo:       d.prevPacketStereo,
+		useDecoderPLCState: true,
+	}
+	n, usedNeuralConcealment, err := d.decodeNeuralPLCInto(pcm, frameSize, state, false)
+	if err != nil {
+		return 0, err
+	}
+	// opus_decode(NULL,...) passes no DRED sidecar. Public loss follows the
+	// selected PLC path, including neural concealment when its gates pass.
+	// Cached DRED features are consumed only by explicit DRED decode.
+	if !usedNeuralConcealment {
+		n, err = d.decodePLCChunksInto(pcm, frameSize, state)
+	}
+	if err != nil {
+		return 0, err
+	}
+	frameSize = n
+	// libopus enables OSCE_MODE_SILK_BBWE during PLC whenever the
+	// internal sample rate is 16 kHz and the API sample rate is 48 kHz
+	// (`data == NULL` branch in opus_decoder.c). The gopus equivalent
+	// gate uses the previous packet's mode/bandwidth as the BWE
+	// eligibility signal: only SILK WB carries the 16 kHz internal SR
+	// that BWE expects. Stereo and DRED neural concealment paths are
+	// intentionally excluded so the BWE never overwrites richer
+	// concealment output.
+	//
+	// LACE/NoLACE resets at each internal SILK loss boundary before CNG
+	// and frame gluing. Optional BWE processes the resulting lowband here.
+	if extsupport.OSCERuntime {
+		packetStereoLocal := d.prevPacketStereo
+		if !usedNeuralConcealment && d.lastPacketMode == ModeSILK &&
+			d.lastBandwidth == BandwidthWideband &&
+			sampleRate == 48000 && d.osceBWEActive() {
+			d.maybeApplyOSCEBWEPostSilk(pcm[:frameSize*channels], frameSize, ModeSILK, silk.BandwidthWideband, packetStereoLocal)
+		}
+	}
+	d.applyOutputGain(pcm[:frameSize*channels])
+
+	d.lastFrameSize = int32(packetFrameSize)
+	d.lastPacketDuration = int32(frameSize)
+	d.lastDataLen = 0
+	if dredPossible && !usedNeuralConcealment && d.dredGoodPacketMarkerActive() {
+		d.markDREDConcealed()
+	}
+	return frameSize, nil
 }
 
 func (d *Decoder) decodeMultiFrameFloat32(pcm []float32, data []byte, toc *TOC, frameCode byte, frameSize int) (int, error) {

@@ -167,6 +167,22 @@ func synthesizeChannelWithOverlapScratchF32(coeffs []float32, prevOverlap []celt
 		return nil
 	}
 
+	if transient && shortBlocks > 1 && scratchF32 != nil && frameSize%shortBlocks == 0 && overlap%2 == 0 && len(shortCoeffs) >= frameSize/shortBlocks {
+		// Like celt_synthesis, each short block's IMDCT reads its interleaved
+		// coefficients in place and writes straight into out: out[:overlap]
+		// starts as the previous frame's overlap, the blocks fill
+		// out[overlap/2 : frameSize+overlap/2], and the unwritten tail of the
+		// new overlap is zero.
+		for i := range overlap {
+			out[i] = float32(prevOverlap[i])
+		}
+		clear(out[frameSize+overlap/2 : needed])
+		shortSize := frameSize / shortBlocks
+		for b := range shortBlocks {
+			imdctShortBlockInto(coeffs, b, shortBlocks, shortSize, out, b*shortSize, overlap, scratchF32, shortCoeffs)
+		}
+		return out[:needed]
+	}
 	if transient && shortBlocks > 1 {
 		clear(out[:needed])
 		if overlap > 0 {
@@ -206,6 +222,20 @@ func synthesizeChannelWithOverlapScratchF32(coeffs []float32, prevOverlap []celt
 		return out[:needed]
 	}
 
+	if scratchF32 != nil {
+		// Like celt_synthesis, the IMDCT writes straight into out.
+		n := 2 * frameSize
+		tables := scratchF32.mdctLookup(n)
+		var trig []float32
+		var fftState *kissFFTState
+		if tables != nil {
+			trig, fftState = tables.trig, tables.fft
+		} else {
+			trig = getMDCTTrigF32(n)
+		}
+		imdctOverlapWithPrevInto(out[:needed], coeffs, prevOverlap, overlap, scratchF32, tables, trig, fftState)
+		return out[:needed]
+	}
 	output = imdctOverlapWithPrevScratchF32Output32(coeffs, prevOverlap, overlap, scratchF32)
 	if len(output) < needed {
 		return nil

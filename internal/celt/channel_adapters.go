@@ -771,12 +771,8 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 		specR = ensureFloat32Slice(&d.scratchMonoToStereoRF32, len(coeffsR))
 		denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energiesL, HybridCELTStartBand, end, lm, EBands[:], downsample)
 		denormalizeBandsPackedDownsampleIntoFloat32(specR, coeffsR, energiesR, HybridCELTStartBand, end, lm, EBands[:], downsample)
-		for i := 0; i < hybridBinStart && i < len(specL); i++ {
-			specL[i] = 0
-		}
-		for i := 0; i < hybridBinStart && i < len(specR); i++ {
-			specR[i] = 0
-		}
+		clear(specL[:min(hybridBinStart, len(specL))])
+		clear(specR[:min(hybridBinStart, len(specR))])
 	}
 
 	coeffsMono := ensureFloat32Slice(&d.scratchMonoMixF32, len(specL))
