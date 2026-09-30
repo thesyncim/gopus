@@ -360,7 +360,7 @@ func TestAnalysisMatchesLibopusLive(t *testing.T) {
 
 // TestAnalysisMatchesLibopusLiveEncoderVariants runs the encoder signal
 // variants at 48 kHz, quantized to 24 bits as opus_demo reads float input,
-// over 2 s of audio per frame duration.
+// over one second of audio per frame duration.
 func TestAnalysisMatchesLibopusLiveEncoderVariants(t *testing.T) {
 	libopustest.RequireOracle(t)
 	const fs = 48000

@@ -84,9 +84,9 @@ Reports distinguish **exact**, **validated numerical difference**, **unresolved*
 and **upstream undefined behavior**. A percentage of equal packets measures only
 that test corpus; it is not a percentage of codec correctness.
 
-No floating-point allowance is accepted by this document alone. Current v3
-encoder packet mismatches remain unresolved until the evidence above classifies
-them. Exact audit tests retain their assertions; a reviewed numerical case needs
+No floating-point allowance is accepted by this document alone. Unexplained v3
+analyzer-state differences remain failures. Exact audit tests retain their
+assertions; a reviewed numerical case needs
 an executable bounded check before its exact diagnostic can become non-blocking.
 The documented custom-QEXT C history bug remains a separate upstream-UB exception.
 
@@ -101,10 +101,10 @@ Independent source checks cover 14 input/state cases and zero warm allocations.
 The live 50-frame analyzer oracle checks unchanged C results under tracing and
 exact first-frame resampler samples, filter state, high-pass energy, windowed
 FFT inputs and FFT outputs. These checks pass in both matched instruction lanes
-in the translated amd64 diagnostic environment. Both lanes also pass all 60
-encoder, 24 decoder and 15 warm-allocation cases, plus all 19 CBR cases:
-2,175 packets with zero packet or final-range differences. Native confirmation
-is pending.
+on AMD EPYC 7763 with Go 1.27.1 and GCC 13.3 in the
+[recorded native audit](https://github.com/thesyncim/gopus/actions/runs/36677186394).
+Both lanes also pass all 60 encoder, 24 decoder and 15 warm-allocation cases,
+plus all 19 CBR cases: 2,175 packets with zero packet or final-range differences.
 Analyzer phase and recurrent-network state comparisons remain separate exact
 checks; passing the packet corpus does not establish universal analyzer-state
 identity. No tolerance or failing-case exclusion applies to this fix.
@@ -127,11 +127,6 @@ identity. No tolerance or failing-case exclusion applies to this fix.
   failed quality-tool execution. Numerical thresholds retain their values.
 
 ## Coverage
-
-The subsequent [native audit at `cd2c6c15`](https://github.com/thesyncim/gopus/actions/runs/36567216398)
-finishes with a failure. Its status does not accept or classify the remaining v3
-packet and PCM differences. No validated numerical allowance is recorded here.
-
 
 The [parity target](#parity-contract) defines required behavior, scoped exactness
 and the evidence needed to accept a numerical difference. No current v3 mismatch
@@ -206,25 +201,10 @@ the standard. This report tracks exact-reference failures separately from
 conformance and audio-quality evidence; a byte mismatch alone does not establish
 invalid Opus output or audible degradation.
 
-The opt-in [compiler-target audit](#amd64-compiler-targets)
-at `bc5ddaeb` passes all selected default-float v1/v2 scalar/SIMD checks. At v3,
-scalar encode/decode cases pass 40/60 and 8/24; SIMD cases pass 24/60 and 6/24.
-CBR exact cases are 8/19 scalar and 1/19 SIMD, with 432/382 and 681/517
-packet/range differences out of 2,175 respectively. All warm allocation checks
-pass. At `834221f9`, all six FFT/MDCT live-C suites pass in both v3 modes,
-as do the strengthened SILK LPC/window/gain and CELT log2/angle-math checks.
-Scalar and SIMD pitch, band energy, rotation and unquantization checks pass.
-CBR cases in that focused run pass 14/19 scalar (68 packet/61 range differences)
-and 6/19 SIMD (321 packet/196 range differences), each out of 2,175 packets.
-Encoder packet/range and public decoder PCM differences remain open. Both
-decoder traces first differ after comb filtering. The merged SILK optimization
-tests also expose a scalar v3 scaled-float-to-int16 rounding mismatch.
-Full byte parity across compiler targets is not established.
-
 The [scaled-float conversion audit](https://github.com/thesyncim/gopus/actions/runs/36563006244)
 passes the regression and independent C conversion oracle in both v3 lanes.
 
-The [native v3 audit at `0e98deeb5`](https://github.com/thesyncim/gopus/actions/runs/36672816447)
+The [native v3 audit at `d3a4fc9ab`](https://github.com/thesyncim/gopus/actions/runs/36677186394)
 on AMD EPYC 7763 with Go 1.27.1 and GCC 13.3 records the following matched
 scalar and SIMD selections. No cases in these selections are skipped.
 
@@ -233,9 +213,9 @@ scalar and SIMD selections. No cases in these selections are skipped.
 | Encoder packet and final range | 60/60 | 60/60 |
 | Public decoder PCM and final range | 24/24 | 24/24 |
 | Warm allocation cases | 15/15 | 15/15 |
-| CBR exact cases | 19/19 | 18/19 |
-| CBR packet differences / 2,175 packets | 0 | 5 |
-| CBR final-range differences / 2,175 packets | 0 | 2 |
+| CBR exact cases | 19/19 | 19/19 |
+| CBR packet differences / 2,175 packets | 0 | 0 |
+| CBR final-range differences / 2,175 packets | 0 | 0 |
 | Contract same-packet PCM sample differences | 0 | 0 |
 
 These are separate gates, not an overall codec correctness percentage. The
@@ -251,8 +231,8 @@ The persistent short-frame decoder witness and its independent C history-seam
 regression pass in both instruction lanes. The precomputed-window fallback
 rounds crossfade coefficients and tap-pair sums before the same six-FMA chain
 as the ordinary C function. Its warm allocation guard passes. All 19 contract
-cases have exact same-packet PCM in both lanes, including the long streams;
-SIMD encoder packet and range differences remain separate unresolved failures.
+cases have exact same-packet PCM in both lanes, including the long streams.
+All 76 quality comparisons and 76 decode paths pass per lane, with no hard issues.
 
 All three SILK CBR witnesses match complete packets and final ranges in both
 native lanes: NB 10 ms mono (100 frames), MB 20 ms mono (50 frames) and WB
@@ -272,16 +252,13 @@ the cause of packet failures with unequal inputs.
 Both stereo-split C oracles and warm allocation guards pass, including short
 lengths and tails. The selected C and Go v3 kernels round `c*y` before fusing
 `c*x` into each output. Scalar, SIMD and `purego` dispatch share that target
-arithmetic. Encoder packet differences remain.
+arithmetic.
 
 Source-bound preemphasis instrumentation captures both expected stereo calls.
-The scalar late-frame trace matches actual PCM, preemphasis state/output,
-prefilter history/input/output, MDCT, energies and quantization. Strict stereo
-trace validation accepts Go's actual zero-gain copy boundary against every C
-identity comb call. The SIMD late-frame trace matches preemphasis, all 1,024
-prefilter-history values, all 120 frame-input values and the window before
-finding different period controls (`48/96` in Go, `48/48` in C). The ensuing
-filter and transform output differs. The live pitch scope compares the exact
+First- and late-frame traces cover PCM, preemphasis state/output, prefilter
+history/input/output, MDCT, energies and quantization. Strict stereo validation
+compares Go's zero-gain copy boundary with every C identity comb call.
+The live pitch scope compares the exact
 decimated buffer, raw autocorrelation and windowed autocorrelation before the
 LPC recurrence. The source-bound v3 LPC correction matches linked C for orders
 1–24, actual frame-95 pitch inputs and periodic PLC inputs in both instruction
@@ -296,8 +273,7 @@ The scoped v3 pitch FIR evaluates five ordered native float32 FMAs. Its
 independent long C corpus, 2,000 random scalar comparisons, exact short-kernel
 model and warm allocation checks pass. The frame-95 filtered inputs, pitch
 period, prefilter, MDCT and quantization arrays match; its packet and range
-match C. The integrated private CBR selection is scalar 19/19, SIMD 18/19,
-with five packet and two range differences in the auto-mode stereo stream.
+match C. The recorded native CBR selection is exact in both lanes.
 The independent 60 encode, 24 decode and 15 allocation cases pass both lanes.
 The scoped SIMD raw autocorrelation tail follows the ordinary C caller: four
 rounded products and ordered adds for its four-term tail, FMA for the remaining
@@ -314,16 +290,14 @@ Linked tests cover five full-block lengths and eight remainder lengths, plus
 full periodic synthesis and warmed zero allocation, in both instruction lanes.
 The recorded native audit confirms the FIR, angle and IIR corrections, the LPC
 oracles and their warm allocation guards. Its full CBR contract passes all
-quality and same-packet decode checks; only the five stereo packet differences
-remain failures. Native source-bound checks match every frame-95 pitch-energy
+quality and same-packet decode checks. Native source-bound checks match every frame-95 pitch-energy
 and gain boundary in both lanes: 15 dual products, 512 scalar or 324 SIMD
 running-energy entries, and 15 denominators, square roots and gains. The v3
 running-energy update rounds both products and its add/subtract; the SIMD dual
 inner product uses the original archive's four-lane FMAs and ordered reduction.
 The linked dual-product oracle covers 36 operand cases, including vector tails,
 and both kernels retain zero warm allocations. Independent 60/24/15 gates pass
-in both lanes; CBR remains scalar 19/19 and SIMD 18/19 with the same five packet
-and two range failures. These correctness checks do not supply timing measurements.
+in both lanes. These correctness checks do not supply timing measurements.
 The shared CELT log2 normalization uses one native float32 FMA on the default
 v3 float path. Its strict independent C log2 and exp2 oracles pass in both
 native instruction lanes on the recorded runner.
@@ -359,22 +333,13 @@ compile out of default-off callers. The recursive context and archive-member
 binding checks pass in the recorded native audit. The private three-boundary
 coder trace validates ordered stages, complete C call counts and one live
 coder in both streams; ordinary/traced packets and ranges agree across all
-50 frames. Scalar states agree at every boundary. SIMD first differs after
-coarse-energy coding and before band quantization, within side-information
-coding. The actual TF entropy trace matches all 22 calls, raw/effective flags
-and coder states through the spread-entry boundary in both native instruction
-lanes. A subsequent private actual-spread capture also matches the ICDF
-symbol, probability table and pre/post coder state in both lanes. The TF
-parser checks the selected frame, bit budget, source-derived probabilities, state continuity, producer identity, bounded counts and exact
-EOF; malformed captures fail. A private bounded entropy trace compares complete
-coder state and written bytes from spread return to band-quantization entry.
-All 116 scalar calls match; the first SIMD difference is call 168, the allocation
-trim ICDF: Go selects 6 and C selects 7. An actual allocation-trim capture
-matches all controls, 1,600 normalized samples and 42 log energies except the
-upstream tonality slope: Go `bd0d945c`, C `bd185542`. That input moves the raw
-trim across 6.5. A stateful analyzer oracle reproduces both frame-25 slopes
-with the same quantized stream; the analyzer remains under repair. These
-allocation-trim and analyzer captures are private checks. The Go 1.27.1 TF trace hooks compile
+50 frames. The actual TF entropy trace matches all 22 calls, raw/effective
+flags and coder states through the spread-entry boundary in both native lanes.
+Its parser checks the selected frame, bit budget, source-derived probabilities,
+state continuity, producer identity, bounded counts and exact EOF; malformed
+captures fail. Private complete-coder and allocation-trim captures also match
+both streams with the source-equivalent analyzer resampling correction.
+The Go 1.27.1 TF trace hooks compile
 out: semantic instruction and call streams agree, with NOP/link-layout
 differences. No timing claim follows from these diagnostics.
 Default-off caller opcode, instruction-length and arithmetic topology
@@ -398,8 +363,8 @@ The scalar non-stereo theta energy helper rounds each square before adding
 it, matching the actual v3 C caller. The linked C oracle matches the captured
 band-18 operands, all 15 constrained-VBR theta events agree, and traced packets
 and ranges match in both lanes. Its warm allocation guard is zero. SIMD, other
-targets and optional features keep their selected source path. Native
-confirmation of this angle correction is pending; no allowance is accepted.
+targets and optional features keep their selected source path. The native
+source oracle passes in both lanes; no allowance is accepted.
 
 The v3 warped-gain correction preserves the selected C Horner FMA sequence
 and fused denominator, followed by separate float32 reciprocal and sqrt-gain
@@ -426,33 +391,16 @@ arithmetic. The diagnostic captures actual CELT preemphasis, prefilter, MDCT, en
 quantization stages on this same stream at frames 0/25, with full ordinary/traced
 packet and range transparency. Explicit fixture caches preserve the selected
 frame; no forced mode or substitute fixture establishes parity. Tagged and
-ordinary v3 cross-builds pass. Native scalar capture includes all 18 actual MDCT
-calls without overflow and first differs at quantized coefficient 334; SIMD
-first differs at coefficient 56. Both preserve full ordinary/traced streams.
+ordinary v3 cross-builds pass. Native capture includes all selected MDCT calls without overflow; ordinary
+and traced streams agree. No substitute frame or forced codec mode establishes
+parity.
 
-The unresolved SIMD CBR cases are CELT mono 2.5 ms and auto-mode stereo
-20 ms. The short-frame case fails the unchanged quality gate (Q -61.97) in the
-recorded native audit. The selected auto-mode band has matching vectors and
-float fields but unequal incoming entropy state, so work follows earlier
-symbols rather than changing that band's arithmetic. Unknown differences
-remain correctness blockers.
-
-The encoder trace at `5b435e02` matches every captured scalar stage and the packet
-at frame 95. The SIMD trace first differs in actual MDCT input at index 120
-(Go `c2970e44`, C `c2970e40`), while window and trig match; that does not
-identify an MDCT arithmetic defect. Preemphasis and prefilter tracing follows
-that upstream boundary.
-
-The constrained-VBR trace at `5b435e02` reproduces frame 1's scalar packet byte-59
-mismatch with matching final range `3e290e00` and 102-byte packets. Both traces
-use constrained VBR, matching frame geometry and 4000-byte output capacities;
-ordinary/traced output agrees within each implementation. C classifies byte
-59 as range-coded, inside packet bytes [1,67), rather than the raw-bit tail.
-All captured stages match through quantizer input; reconstructed coefficient
-98 first differs (Go `be2eb546`, C `be2eb545`). The SIMD lane matches the
-complete packet, range and captured stages. The scalar reconstruction and
-subsequent coding decisions remain unresolved. No numerical allowance is
-accepted.
+The recorded v3 packet and decoder selections are exact in both instruction
+lanes. Separate analyzer-state checks still expose phase-history differences
+in the SIMD lane and recurrent-network differences in both lanes. These checks
+retain exact assertions; no numerical allowance classifies those differences.
+Passing the packet corpus does not establish equality for every input or
+internal analyzer state.
 
 | Priority | Surface | Finding | Current evidence |
 |---|---|---|---|
@@ -832,7 +780,7 @@ configurations); the table-loaded NSQ constants alone save 4-10%.
 instances, mean of two alternating runs per configuration, 56 configurations
 per row):
 
-| Lane | Mode | `88393f7f` (min / median / max) | Current (min / median / max) |
+| Lane | Mode | `88393f7f` (min / median / max) | `6c0b0640b` (min / median / max) |
 |---|---|---|---|
 | SIMD | Encode | 0.756 / 1.092 / 1.285 | 0.754 / 0.901 / 1.008 |
 | SIMD | Decode | 0.794 / 0.922 / 1.250 | 0.804 / 0.920 / 1.253 |
@@ -878,45 +826,24 @@ strict-C99 helper cannot establish parity with the default-dialect v3 archive.
 The focused native kernel audit captures the executed helper binaries and their
 disassembly as well as the reference archive's code generation.
 
-The [native target audit at `bc5ddaeb`](https://github.com/thesyncim/gopus/actions/runs/36555425559)
-uses Go 1.27.1 and GCC 13.3. Its bounded default-float selection records:
+The [v1/v2 target audit](https://github.com/thesyncim/gopus/actions/runs/36555425559)
+and [v3 kernel audit](https://github.com/thesyncim/gopus/actions/runs/36677186394)
+use Go 1.27.1 and GCC 13.3. Their bounded default-float selections record:
 
-| Target / Go lane | Encode cases exact | Decode cases exact | CBR cases exact | CBR packet differences / 2,175 | CBR range differences / 2,175 | Warm allocation checks |
-|---|---:|---:|---:|---:|---:|---|
-| v1 / scalar | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
-| v1 / SIMD | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
-| v2 / scalar | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
-| v2 / SIMD | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
-| v3 / scalar | 40/60 | 8/24 | 8/19 | 432 | 382 | Pass |
-| v3 / SIMD | 24/60 | 6/24 | 1/19 | 681 | 517 | Pass |
+| Target / Go lane | Revision | Encode exact | Decode exact | CBR exact | Packet differences / 2,175 | Range differences / 2,175 | Warm allocation checks |
+|---|---|---:|---:|---:|---:|---:|---|
+| v1 / scalar | `bc5ddaeb` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
+| v1 / SIMD | `bc5ddaeb` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
+| v2 / scalar | `bc5ddaeb` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
+| v2 / SIMD | `bc5ddaeb` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
+| v3 / scalar | `d3a4fc9ab` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
+| v3 / SIMD | `d3a4fc9ab` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
 
-The [native follow-up at `ede43639`](https://github.com/thesyncim/gopus/actions/runs/36553888841)
-passes all six FFT/MDCT live-C suites in each v3 lane (64 leaf cases per lane,
-no failed or skipped oracle cases) and the selected FFT/MDCT unit checks.
-The dispatch proof accepts presumed AVX2 only with matching compiler metadata
-and the required CPU features. Exact pitch comparisons still expose scalar
-contraction and SIMD underflow, signed-zero and NaN-tail differences. The SILK
-LPC analysis filter, sine window and gain-processing oracles also fail.
-
-The full target matrix at `bc5ddaeb` confirms the packet, PCM and CBR results
-listed above, with all 15 warm allocation checks passing per lane and no
-skipped exactness cases. It emits no timing table because exactness checks
-fail. The FFT/MDCT proof does not establish complete packet or PCM parity.
-Open exact failures block v3 exactness and timing claims. Passing v1/v2
-selections establish only the listed coverage, not universal byte parity.
-
-The [focused audit at `834221f9`](https://github.com/thesyncim/gopus/actions/runs/36560962348)
-passes the strengthened SILK LPC, sine-window and gain-processing checks in
-both modes, including the 2 dB sigmoid witness and scalar LPC allocation guard.
-Its CBR results are 14/19 exact scalar cases (68 packet and 61 range differences
-out of 2,175) and 6/19 exact SIMD cases (321 packet and 196 range differences).
-FFT/MDCT, CELT log2/angle math, scalar and SIMD pitch, band-energy, rotation
-and unquantization oracles pass. The decoder trace finds its first difference
-after comb filtering in both modes. The merged SILK optimization checks expose
-a scalar v3 scaled-float-to-int16 rounding mismatch; their SIMD counterparts
-pass. Normalized scratch comparisons cover the source-defined active bands;
-spectrum and PCM comparisons cover the full output. This focused audit does
-not repeat the full public matrix or provide performance measurements.
+The v3 audit also passes the six FFT/MDCT live-C suites, selected SILK
+LPC/window/gain and CELT kernel oracles, and the complete CBR quality and
+interoperability contract. Analyzer phase and recurrent-state checks remain
+separate unresolved source comparisons. No universal float-state guarantee or
+new timing measurement follows from these selected results.
 
 Each candidate target/mode must pass exact CBR packets/ranges, selected stateful
 encode and fresh-state decode cases, dispatch and warm allocation checks.
