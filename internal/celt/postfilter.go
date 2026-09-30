@@ -529,20 +529,47 @@ func (d *Decoder) updatePLCDecodeHistoryStereoPlanarFromFloat32(left, right []fl
 	d.plcDecodeMemRingActive = start != 0
 }
 
+// updatePLCDecodeHistoryMonoFromFloat32 appends a mono frame to the decode
+// history. Like the stereo planar update, the full-length history is kept as
+// a ring whose oldest sample sits at plcDecodeMemRingStart, so a frame costs
+// one frameSize copy instead of sliding the whole history as libopus
+// celt_decode_with_ec does with decode_mem; readers rotate it back into
+// order with materializePLCDecodeHistory.
 func (d *Decoder) updatePLCDecodeHistoryMonoFromFloat32(samples []float32, frameSize int, history int) {
 	if frameSize <= 0 || history <= 0 {
 		return
 	}
 	d.postfilterMemFromPLC = false
 	d.postfilterMemPLCBacked = false
-	d.materializePLCDecodeHistory()
 	channels := int(d.channels)
 	if len(d.plcDecodeMem) != history*channels {
 		d.plcDecodeMem = make([]celtSig, history*channels)
 		d.plcDecodeMemRingActive = false
 		d.plcDecodeMemRingStart = 0
 	}
-	updateMonoHistoryFromFloat32(d.plcDecodeMem[:history], samples, frameSize, history)
+	hist := d.plcDecodeMem[:history]
+	if channels != 1 || history != d.plcDecodeBufferLen() {
+		d.materializePLCDecodeHistory()
+		updateMonoHistoryFromFloat32(hist, samples, frameSize, history)
+		return
+	}
+	if frameSize >= history {
+		copyFloat32ToSig(hist, samples[frameSize-history:frameSize])
+		d.plcDecodeMemRingActive = false
+		d.plcDecodeMemRingStart = 0
+		return
+	}
+	start := d.plcDecodeMemRingStart
+	if !d.plcDecodeMemRingActive {
+		start = 0
+	}
+	updatePlanarHistoryRingFromFloat32(hist, samples, frameSize, history, start)
+	start += frameSize
+	if start >= history {
+		start %= history
+	}
+	d.plcDecodeMemRingStart = start
+	d.plcDecodeMemRingActive = start != 0
 }
 
 func (d *Decoder) commitPostfilterStateNoGain(lm int, newPeriod int, newGain float32, newTapset int) {

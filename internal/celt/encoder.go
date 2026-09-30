@@ -207,6 +207,10 @@ type Encoder struct {
 	prefilterGain   float32
 	prefilterTapset int
 	prefilterMem    []celtSig
+	// scratchShape is the shape ensureScratch last sized the scratch for;
+	// scratchShapeValid reports whether it may be reused.
+	scratchShape      encodeScratchShape
+	scratchShapeValid bool
 	// Packet loss expectation (0-100) for prefilter gain scaling.
 	packetLoss int32
 
@@ -1361,6 +1365,23 @@ func (s *encoderScratch) ensureEncodeFloatArena(frameSize, channels, overlap, ma
 // ensureScratch ensures all scratch buffers are properly sized for the given frame parameters.
 // Call this at the start of EncodeFrame to prepare buffers for reuse.
 func (e *Encoder) ensureScratch(frameSize int) {
+	shape := encodeScratchShape{
+		frameSize: frameSize,
+		channels:  int(e.channels),
+		overlap:   e.analysisOverlap(),
+		combScale: e.combScale(),
+		perMode:   e.perMode,
+		reserve:   e.complexity >= 4,
+		qext:      extsupport.QEXT && e.qextActive(),
+	}
+	if e.scratchShapeValid && shape == e.scratchShape {
+		e.resetScratchLengths(frameSize)
+		return
+	}
+	// QEXT frames size extra buffers and reassign some of the energy slices, so
+	// they always take the full sizing path.
+	e.scratchShapeValid = !shape.qext
+	e.scratchShape = shape
 	channels := int(e.channels)
 	modeBands := e.predStride()
 	expectedLen := frameSize * channels
@@ -1551,6 +1572,118 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	bandScratch.cwrsU = ensureUint32Slice(&bandScratch.cwrsU, 256)
 	bandScratch.hadamardTmpNorm = ensureNormSliceNoClear(&bandScratch.hadamardTmpNorm, maxBandWidth*16)
 	e.tfScratch.EnsureTFAnalysisScratch(modeBands, maxBandWidth, 3)
+}
+
+// encodeScratchShape is what ensureScratch sizes the per-frame scratch from.
+type encodeScratchShape struct {
+	frameSize, channels, overlap, combScale int
+	perMode                                 *perModeTables
+	reserve                                 bool
+	// qext frames size extra buffers, so a QEXT toggle never reuses a shape.
+	qext bool
+}
+
+// resetScratchLengths is ensureScratch for an unchanged encodeScratchShape:
+// every buffer already has its capacity, so only the frame-start lengths and
+// the zero fills of the clearing ensure helpers are restored. It must mirror
+// the sizing statements of ensureScratch; TestEncoderScratchResetMatchesSizing
+// checks that it does.
+func (e *Encoder) resetScratchLengths(frameSize int) {
+	channels := int(e.channels)
+	modeBands := e.predStride()
+	expectedLen := frameSize * channels
+	overlap := min(e.analysisOverlap(), frameSize)
+	s := &e.scratch
+	maxPeriod := max(e.combMaxPeriod(), e.combMinPeriod())
+	maxPitch := max(maxPeriod-3*e.combMinPeriod(), 1)
+
+	s.quantizedInputF32 = s.quantizedInputF32[:expectedLen]
+	s.dcRejectedF32 = s.dcRejectedF32[:expectedLen]
+	s.combinedBufF32 = s.combinedBufF32[:DelayCompensation*channels+expectedLen]
+	s.planarIn = s.planarIn[:(overlap+frameSize)*channels]
+	prefilterLen := (maxPeriod + frameSize) * channels
+	s.prefilterPre = s.prefilterPre[:prefilterLen]
+	s.prefilterOut = s.prefilterOut[:prefilterLen]
+	s.prefilterPitchBuf = s.prefilterPitchBuf[:max((maxPeriod+frameSize)>>1, 1)]
+	s.prefilterXcorr = s.prefilterXcorr[:maxPitch>>1]
+	s.prefilterXLP4 = s.prefilterXLP4[:max(frameSize>>2, 1)]
+	s.prefilterYLP4 = s.prefilterYLP4[:max((frameSize+maxPitch)>>2, 1)]
+	s.prefilterYYLookup = s.prefilterYYLookup[:max((maxPeriod>>1)+1, 1)]
+	s.mdctCoeffsF32 = s.mdctCoeffsF32[:frameSize*2]
+	s.mdctLeftF32 = s.mdctLeftF32[:frameSize]
+	s.mdctRightF32 = s.mdctRightF32[:frameSize]
+
+	bandCount := modeBands * channels
+	s.energies = clearedSlice(s.energies, bandCount)
+	s.bandLogE2 = clearedSlice(s.bandLogE2, bandCount)
+	s.bandE = clearedSlice(s.bandE, bandCount)
+	s.bandAmp = clearedSlice(s.bandAmp, bandCount)
+	s.coarseError = clearedSlice(s.coarseError, bandCount)
+	s.bandEL = clearedSlice(s.bandEL, modeBands)
+	s.bandER = clearedSlice(s.bandER, modeBands)
+	s.quantizedEnergies = clearedSlice(s.quantizedEnergies, bandCount)
+	s.prev1LogE = clearedSlice(s.prev1LogE, bandCount)
+	s.coarseDecisionE = clearedSlice(s.coarseDecisionE, bandCount)
+	s.normL = s.normL[:frameSize]
+	s.normR = s.normR[:frameSize]
+	s.normStereo = s.normStereo[:frameSize*2]
+
+	s.caps = s.caps[:modeBands]
+	s.offsets = s.offsets[:modeBands]
+	s.allocBits = s.allocBits[:modeBands]
+	s.allocFineBits = s.allocFineBits[:modeBands]
+	s.allocFinePrio = s.allocFinePrio[:modeBands]
+	s.allocCaps = s.allocCaps[:modeBands]
+	s.allocResult.BandBits = s.allocBits
+	s.allocResult.FineBits = s.allocFineBits
+	s.allocResult.FinePriority = s.allocFinePrio
+	s.allocResult.Caps = s.allocCaps
+	s.tfRes = s.tfRes[:modeBands]
+
+	n4 := frameSize / 2
+	s.mdctF = s.mdctF[:frameSize]
+	s.mdctFFTIn = s.mdctFFTIn[:n4]
+	s.mdctFFTOut = s.mdctFFTOut[:n4]
+	s.mdctFFTTmp = s.mdctFFTTmp[:n4]
+	s.mdctBlockCoeffs = s.mdctBlockCoeffs[:frameSize/2]
+	samplesPerChannel := frameSize + overlap
+	s.transientEnergy = s.transientEnergy[:samplesPerChannel/2]
+	s.transientEnergyR = s.transientEnergyR[:samplesPerChannel/2]
+	s.transientX = s.transientX[:samplesPerChannel]
+	s.cwrsU = s.cwrsU[:256]
+	s.allocThresh = s.allocThresh[:modeBands]
+	s.allocTrim = s.allocTrim[:modeBands]
+	s.allocTrimNormL = s.allocTrimNormL[:frameSize]
+	s.allocTrimNormR = s.allocTrimNormR[:frameSize]
+	s.allocTrimBandLogE = clearedSlice(s.allocTrimBandLogE, modeBands*channels)
+
+	const maxPVQN = maxBandWidth * 2
+	s.pvqSignx = s.pvqSignx[:maxPVQN]
+	s.pvqY = s.pvqY[:maxPVQN]
+	s.pvqAbsX = s.pvqAbsX[:maxPVQN]
+	s.pvqIy = s.pvqIy[:maxPVQN]
+
+	bandScratch := &e.bandEncScratch
+	edges := e.modeEdges()
+	bandScratch.collapse = bandScratch.collapse[:channels*modeBands]
+	bandScratch.norm = bandScratch.norm[:channels*8*edges[modeBands-1]]
+	bandScratch.lowbandScratch = bandScratch.lowbandScratch[:8*(edges[modeBands]-edges[modeBands-1])]
+	bandScratch.pvqSignx = bandScratch.pvqSignx[:maxPVQN]
+	bandScratch.pvqY = bandScratch.pvqY[:maxPVQN]
+	bandScratch.pvqAbsX = bandScratch.pvqAbsX[:maxPVQN]
+	bandScratch.pvqIy = bandScratch.pvqIy[:maxPVQN]
+	bandScratch.qextIy = bandScratch.qextIy[:maxPVQN]
+	bandScratch.cwrsU = bandScratch.cwrsU[:256]
+	bandScratch.hadamardTmpNorm = bandScratch.hadamardTmpNorm[:maxBandWidth*16]
+	e.tfScratch.EnsureTFAnalysisScratch(modeBands, maxBandWidth, 3)
+}
+
+// clearedSlice returns buf resliced to n and zero filled, the effect of the
+// clearing ensure helpers when buf already has the capacity.
+func clearedSlice(buf []float32, n int) []float32 {
+	buf = buf[:n]
+	clear(buf)
+	return buf
 }
 
 // computeAllocationScratch computes bit allocation using scratch buffers (zero-alloc).
