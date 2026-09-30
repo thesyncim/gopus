@@ -271,10 +271,16 @@ reflection sum rounds complete four-term groups and fuses its scalar remainder.
 Independent diagnostic-container tests pass the 60 encode, 24 decode and 15
 allocation cases in both modes, with scalar CBR 19/19 and SIMD CBR 17/19.
 Warmed LPC allocations are zero. The ordered input guard also matches C for
-zero, sub-threshold and NaN inputs on arm64 and amd64. The next actual SIMD
-difference is in FIR filtering with matching LPC coefficients. These private
-checks establish causality; native confirmation of this correction is pending.
-They do not identify an MDCT defect or justify an allowance.
+zero, sub-threshold and NaN inputs on arm64 and amd64. The scoped SIMD PLC FIR
+kernel follows the selected C even/odd FMA accumulators. Identical-input C
+oracles pass 13 valid kernel orders, eight FIR lengths, actual periodic PLC
+operands and full periodic synthesis stages, with zero warmed allocations.
+Its independent encode/decode/allocation sweep retains the counts above.
+The pitch FIR producer remains under validation. A separate strict IIR oracle
+fails in both lanes on the baseline too; its feedback arithmetic is under
+source investigation. These private checks establish causality; native
+confirmation of these corrections is pending. They do not identify an MDCT
+defect or justify an allowance.
 
 Independent sine-window checks cover the actual 48-, 72- and 96-sample
 segments and pass in both native instruction lanes. The gain-producer trace
@@ -314,9 +320,12 @@ references currently support only the default float configuration. Scalar-forcin
 `nosimd` and `purego` tags pass the paired RDO oracle and zero-allocation check
 with the SIMD experiment enabled in independent translated diagnostics.
 No performance measurement for this correction is recorded.
-A 64-unit difference in raw theta metadata remains under
-source investigation; the selected effective angle and emitted bytes match in
-this witness, and no numerical allowance is accepted.
+The scalar non-stereo theta energy helper rounds each square before adding
+it, matching the actual v3 C caller. The linked C oracle matches the captured
+band-18 operands, all 15 constrained-VBR theta events agree, and traced packets
+and ranges match in both lanes. Its warm allocation guard is zero. SIMD, other
+targets and optional features keep their selected source path. Native
+confirmation of this angle correction is pending; no allowance is accepted.
 
 The v3 warped-gain correction preserves the selected C Horner FMA sequence
 and fused denominator, followed by separate float32 reciprocal and sqrt-gain

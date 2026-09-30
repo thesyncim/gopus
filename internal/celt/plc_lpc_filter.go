@@ -3,8 +3,9 @@ package celt
 func celtLPCXcorrKernel4Float32(x, y []float32, sum *[4]float32, length int) {
 	if libopusFloatInnerProdUsesSSEOrder {
 		// Float libopus routes celt_fir_c and celt_iir_c through
-		// xcorr_kernel_sse on amd64. Match its even/odd accumulators.
-		xcorrKernel4Float32SSEOrder(x, y, sum, length)
+		// xcorr_kernel_sse on amd64. Match its even/odd accumulators and the
+		// selected compiler's multiply-add behavior.
+		celtPLCXcorrKernel4Float32SSE(x, y, sum, length)
 		return
 	}
 	xcorrKernel4Float32(x, y, sum, length)

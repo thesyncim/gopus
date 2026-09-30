@@ -1863,7 +1863,7 @@ func stereoIthetaQ30Norm(x, y []celtNorm, stereo bool) int {
 			}
 		}
 	} else {
-		emid, eside = celtInnerProdPairLibopusOrder(x, x, y, y)
+		emid, eside = stereoIthetaNonStereoEnergy(x, y)
 	}
 
 	if emid <= 0 && eside <= 0 {

@@ -73,7 +73,8 @@ enum {
   MODE_PITCH_SEARCH = 4,
   MODE_REMOVE_DOUBLING = 5,
   MODE_PERIODIC_CONCEAL = 6,
-  MODE_RAW_AUTOCORR = 7
+  MODE_RAW_AUTOCORR = 7,
+  MODE_XCORR_KERNEL = 8
 };
 
 static int set_binary_stdio(void) {
@@ -239,6 +240,22 @@ static int run_fir(void) {
   free(x);
   free(y);
   return 1;
+}
+
+static int run_xcorr_kernel(void) {
+  int arch = opus_select_arch();
+  uint32_t order = 0;
+  opus_val16 x[PLC_LPC_ORDER];
+  opus_val16 y[PLC_LPC_ORDER + 3];
+  opus_val32 sum[4];
+
+  if (!read_u32(&order) || order == 0 || order > PLC_LPC_ORDER) return 0;
+  if (!read_float_array((float *)sum, 4) ||
+      !read_float_array((float *)x, order) ||
+      !read_float_array((float *)y, order + 3)) return 0;
+
+  xcorr_kernel(x, y, sum, (int)order, arch);
+  return write_u32(4) && write_float_array((const float *)sum, 4);
 }
 
 static int run_iir(void) {
@@ -558,6 +575,8 @@ int main(void) {
     ok = run_periodic_conceal();
   } else if (mode == MODE_RAW_AUTOCORR) {
     ok = run_raw_autocorr();
+  } else if (mode == MODE_XCORR_KERNEL) {
+    ok = run_xcorr_kernel();
   } else {
     return 1;
   }
