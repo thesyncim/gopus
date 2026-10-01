@@ -168,7 +168,10 @@ at least 250 ms. Go reports zero allocations; C allocations are not measured.
 Decoder rows aggregate 20,075 identical packets. Go SIMD takes 2.5–28.7% less time
 than matched C SIMD in four encode workloads and 14.6% more for 5 ms CELT.
 Float32 vector decode takes 7.7% less time; int16 takes 3.1% less time.
-These results describe the measured revision and workloads. The
+These results describe the measured revision and workloads. A same-host
+[incremental benchmark](https://github.com/thesyncim/gopus/actions/runs/36863691307)
+of the analyzer parity fixes (`4b660d668` → `ec9ec8cb2`) changes public encoder
+time by −0.6% to +0.5%, with zero allocations in all 80 timing samples. The
 [passing native benchmark](https://github.com/thesyncim/gopus/actions/runs/36852328909) records all targets and raw samples. The
 [performance reference](reports/validation.md#performance) contains all **53
 replacement routines**, assembly/Go/`nosimd` comparisons, allocations and
@@ -184,9 +187,11 @@ GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./examples/ben
 For scalar comparisons, retain both target settings and use `GOEXPERIMENT=nosimd`.
 On ARM64, omit both AMD64 target settings. The [native v3 audit](https://github.com/thesyncim/gopus/actions/runs/36852325106)
 passes all 19 CBR cases and 2,175 packets/ranges in both lanes, plus the selected
-60 encoder, 24 decoder and 15 allocation cases. The matched local v3 analyzer
-also passes all 200 corpus/variant cases; native confirmation and two further
-encoder test groups remain pending. [Current evidence](reports/validation.md#analyzer-history-and-getter-on-amd64-v3).
+60 encoder, 24 decoder and 15 allocation cases. The matched v3 analyzer
+passes all 200 corpus/variant cases in both lanes in the
+[native analyzer audit](https://github.com/thesyncim/gopus/actions/runs/36863691307)
+at `ec9ec8cb2`. The stereo-width and sidecar regressions also pass locally;
+native confirmation of that final batch is pending. [Current evidence](reports/validation.md#analyzer-history-and-getter-on-amd64-v3).
 The optional [v1/v2/v3 audit](reports/validation.md#amd64-compiler-targets)
 runs on one native host; routine PR CI does not run that matrix.
 

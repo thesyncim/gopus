@@ -48,7 +48,7 @@ class KernelAuditSelectorTests(unittest.TestCase):
                 ]
                 got = audit.audit_specs(mode)
                 self.assertEqual(
-                    [(spec["name"], spec["selector"], spec["expected_leaves"]) for spec in got[:-1]],
+                    [(spec["name"], spec["selector"], spec["expected_leaves"]) for spec in got[:-2]],
                     [(spec["name"], spec["selector"], spec["expected_leaves"]) for spec in expected],
                 )
                 leaf_counts = {
@@ -58,11 +58,18 @@ class KernelAuditSelectorTests(unittest.TestCase):
                 }
                 self.assertEqual(leaf_counts["TestEncodeDifferentialFuzz"], 60)
                 self.assertEqual(leaf_counts["TestDecodeDifferentialEncodeThenDecode"], 24)
-                self.assertEqual(got[-1], {
+                self.assertEqual(got[-2], {
                     "name": "analysis-state-200", "package": "./internal/encoder",
                     "selector": r"^TestAnalysisMatchesLibopusLive(EncoderVariants)?$",
                     "expected_leaves": {"TestAnalysisMatchesLibopusLive": 180,
                                         "TestAnalysisMatchesLibopusLiveEncoderVariants": 20},
+                })
+
+                self.assertEqual(got[-1], {
+                    "name": "encoder-state-regressions", "package": "./internal/encoder",
+                    "selector": r"^Test(StereoWidthComputation|SILKFinalRangeUsesLastPacketModeWithCELTSidecar)$",
+                    "expected_leaves": {"TestStereoWidthComputation": 11,
+                                        "TestSILKFinalRangeUsesLastPacketModeWithCELTSidecar": 1},
                 })
 
     def test_wrong_mode_or_target_fails_before_running_go(self):

@@ -235,7 +235,11 @@ int main(void) {
     int n = opus_encode_float(enc, pcm + (size_t)f * per, (int)frame_size,
                               pkt_buf, MAX_PACKET_BYTES);
     uint32_t final_range = 0;
-    opus_encoder_ctl(enc, OPUS_GET_FINAL_RANGE(&final_range));
+    if (opus_encoder_ctl(enc, OPUS_GET_FINAL_RANGE(&final_range)) != OPUS_OK) {
+      fprintf(stderr, "get final range failed at frame %u\n", f);
+      free(pkt_buf); opus_encoder_destroy(enc); free(pcm);
+      return 1;
+    }
 
     uint32_t plen = (n > 0) ? (uint32_t)n : 0;
     if (!write_u32((uint32_t)(int32_t)n) || !write_u32(final_range) || !write_u32(plen)) {

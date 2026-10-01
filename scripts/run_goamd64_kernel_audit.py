@@ -44,6 +44,14 @@ def audit_specs(mode: str) -> list[dict[str, object]]:
             "TestAnalysisMatchesLibopusLiveEncoderVariants": 20,
         },
     })
+    selected.append({
+        "name": "encoder-state-regressions", "package": "./internal/encoder",
+        "selector": r"^Test(StereoWidthComputation|SILKFinalRangeUsesLastPacketModeWithCELTSidecar)$",
+        "expected_leaves": {
+            "TestStereoWidthComputation": 11,
+            "TestSILKFinalRangeUsesLastPacketModeWithCELTSidecar": 1,
+        },
+    })
     return selected
 
 
@@ -127,6 +135,7 @@ def main(argv: list[str]) -> int:
             "root-decode-differential": "decode-24",
             "root-hotpath-allocation-guards": "allocations",
             "analysis-state-200": "analysis-200",
+            "encoder-state-regressions": "encoder-state-regressions",
         }[spec["name"]]
         suite_output = artifact_prefix.with_name(f"{mode}-{suffix}.jsonl")
         suite_stderr = suite_output.with_suffix(suite_output.suffix + ".stderr")

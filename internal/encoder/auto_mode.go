@@ -81,9 +81,9 @@ func (e *Encoder) frameStereoWidth(pcm []opusRes, frameSize int) opusVal16 {
 	return 0
 }
 
-// computeStereoWidthForMode implements libopus compute_stereo_width() (float-point path).
-// It updates e.widthMem and returns stereo width in [0, 1] range (Q15 scale as float).
-// Reference: opus_encoder.c lines 854-938.
+// computeStereoWidthForMode implements the normalized float stereo width and
+// state history from libopus compute_stereo_width().
+// Reference: src/opus_encoder.c:854-938.
 func (e *Encoder) computeStereoWidthForMode(pcm []opusRes, frameSize int) opusVal16 {
 	if e.channels != 2 || len(pcm) < frameSize*2 {
 		return 0
@@ -101,12 +101,21 @@ func (e *Encoder) computeStereoWidthForMode(pcm []opusRes, frameSize int) opusVa
 		x1, y1 := p[2], p[3]
 		x2, y2 := p[4], p[5]
 		x3, y3 := p[6], p[7]
-		pxx += x0 * x0
-		pxy += x0 * y0
-		pyy += y0 * y0
-		pxx += x1 * x1
-		pxy += x1 * y1
-		pyy += y1 * y1
+		if outerTargetV3FMA {
+			// The pinned AMD64 v3 C object seeds each pair with sample 1, then
+			// contracts sample 0 into that rounded product.
+			pxx, pxy, pyy = x1*x1, x1*y1, y1*y1
+			pxx += x0 * x0
+			pxy += x0 * y0
+			pyy += y0 * y0
+		} else {
+			pxx += x0 * x0
+			pxy += x0 * y0
+			pyy += y0 * y0
+			pxx += x1 * x1
+			pxy += x1 * y1
+			pyy += y1 * y1
+		}
 		pxx += x2 * x2
 		pxy += x2 * y2
 		pyy += y2 * y2
@@ -130,8 +139,9 @@ func (e *Encoder) computeStereoWidthForMode(pcm []opusRes, frameSize int) opusVa
 	// frame rate (opus_encoder.c:compute_stereo_width).
 	// Exponential smoothing.
 	mem.XX += shortAlpha * (xx - mem.XX)
-	// Rewritten to avoid overflow on abrupt sign change (opus_encoder.c line 911).
-	mem.XY = fma32(1-shortAlpha, mem.XY, round32(shortAlpha*xy))
+	// The AMD64 v3 C object rounds alpha*xy, then fuses beta*oldXY with it.
+	// stereoWidthXYUpdate selects that contraction only on the matching target.
+	mem.XY = stereoWidthXYUpdate(1-shortAlpha, mem.XY, round32(shortAlpha*xy))
 	mem.YY += shortAlpha * (yy - mem.YY)
 
 	// Clamp to non-negative.
@@ -166,7 +176,7 @@ func (e *Encoder) computeStereoWidthForMode(pcm []opusRes, frameSize int) opusVa
 		// Approximate loudness difference.
 		ldiff := absOpusVal16(qrrtXX-qrrtYY) / (epsilon + qrrtXX + qrrtYY)
 		// Width = sqrt(1 - corr^2) * ldiff, clamped to [0, 1].
-		decorr := 1.0 - corr*corr
+		decorr := stereoWidthDecorrelation(corr)
 		if decorr < 0 {
 			decorr = 0
 		}
