@@ -9,7 +9,7 @@ import sys
 
 
 CBR_ROW = re.compile(r"^\s+\S+\.go:\d+:\s+(\S+)\s+(\d+)\s+(\d+)\s+(OK|FAIL|RESIDUAL|SKIP|~(?: \([^)]*\))?)\s*$")
-CBR_TOTAL = re.compile(r"pass=(\d+) residual=(\d+) fail=(\d+) skip=(\d+)")
+CBR_TOTAL = re.compile(r"pass=(\d+)(?: residual=(\d+))? fail=(\d+) skip=(\d+)")
 CBR_STRICT_TOTAL = re.compile(
     r"strict paired CBR summary: variant=(\S+) cases=(\d+) exact_cases=(\d+) "
     r"packets=(\d+) packet_diffs=(\d+) range_diffs=(\d+)"
@@ -116,8 +116,27 @@ def cbr_rows(log: str):
     if not rows:
         raise ValueError("no CBR summary rows")
     total = CBR_TOTAL.search(log)
-    if not total or sum(int(value) for value in total.groups()) != len(rows):
+    if not total:
         raise ValueError("CBR summary count does not match parsed rows")
+    pass_count, residual_count, fail_count, skip_count = total.groups()
+    row_counts = {
+        "pass": sum(status == "OK" for _, _, status in rows.values()),
+        "residual": sum(status == "RESIDUAL" for _, _, status in rows.values()),
+        "fail": sum(status == "FAIL" for _, _, status in rows.values()),
+        "skip": sum(status == "SKIP" for _, _, status in rows.values()),
+    }
+    if residual_count is None:
+        # The baseline byte-parity test emits the legacy summary without a
+        # residual bucket. A residual row cannot be represented by that schema.
+        residual_count = "0"
+    summary_counts = {
+        "pass": int(pass_count),
+        "residual": int(residual_count),
+        "fail": int(fail_count),
+        "skip": int(skip_count),
+    }
+    if summary_counts != row_counts:
+        raise ValueError("CBR summary counts do not match parsed row categories")
     return rows
 
 
