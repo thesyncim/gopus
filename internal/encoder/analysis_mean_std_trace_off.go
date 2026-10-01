@@ -16,13 +16,15 @@ type analysisMeanStdTraceSnapshot struct {
 	Mem8      [4]float32
 	Mem16     [4]float32
 	Mem24     [4]float32
-	Feature   [9]float32
+	Feature   [11]float32
 	CMeanNew  [4]float32
 	StdOld    [9]float32
 	StdNew    [9]float32
 }
 
 var analysisMeanStdTraceHook func(analysisMeanStdTraceSnapshot)
+
+var analysisMeanStdTraceMaxCount int32 = 5
 
 var analysisMeanStdTraceFrame int32
 var analysisMeanStdTraceChunk int32

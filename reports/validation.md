@@ -139,6 +139,17 @@ Independent live-C traces compare the actual mean inputs and updates at counts
 update. The complete 16-frame C output is unchanged under tracing. Disabled
 tracing has zero warm `RunAnalysis` allocations.
 
+The nine Std updates round both `alpha*feature*feature` products before the
+fused old-Std term. One array helper preserves that contraction in the default
+float v3 build; other configurations retain their source expression. The live
+later-history regression captures equal C and Go inputs at counts 5–8,
+including all eleven temporary features and sixteen memory operands, and
+requires exact Std outputs. Its complete 240-frame C output is unchanged under
+instrumentation. The 48 kHz mono 5 ms pure-tone analyzer case passes all 240
+frames in both matching local Linux/amd64 lanes. Disabled tracing has zero warm
+allocations, and nine malformed GMSR records are rejected. These local
+diagnostics establish correctness; they provide no native timing evidence.
+
 Spectral variability accumulates 18 squared band differences in order. The
 selected scalar C caller rounds every product; the SIMD caller rounds its first
 16 products and fuses the last two. The Go helpers inline with that arithmetic.
@@ -967,6 +978,15 @@ The existing **Verify Production Exhaustive** manual workflow accepts
 `benchmark_baseline` as the assembly revision. Scheduled runs retain the release
 evidence task; routine PR CI has no compiler-target benchmark step.
 `task=goamd64-kernel-audit` selects focused v3 kernel, dispatch and CBR checks.
+
+`task=goamd64-analyzer-benchmark` runs that audit and measures an incremental
+Go-to-Go change in the same job. Set `benchmark_baseline` to a Go kernel
+revision, such as `4b660d668`; assembly revisions are rejected. Both revisions
+must have identical benchmark sources and PGO profiles. Four rotated/reversed
+rounds compare the three public encoder workloads and mono/stereo analyzer
+workloads within each v3 scalar/SIMD lane. The artifact retains binary build
+settings, hashes, analyzer disassembly and every timing sample; missing
+workloads or any warm allocation fail the run.
 
 ### Per-symbol inventory
 

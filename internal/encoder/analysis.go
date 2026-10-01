@@ -994,7 +994,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			s.CMean[i],
 		)
 	}
-	traceMeanStd := analysisMeanStdTraceEnabled && analysisMeanStdTraceHook != nil && count >= 0 && count <= 5
+	traceMeanStd := analysisMeanStdTraceEnabled && analysisMeanStdTraceHook != nil && count >= 0 && count <= int(analysisMeanStdTraceMaxCount)
 	if traceMeanStd {
 		analysisMeanStdTraceBegin(int32(count), alpha, s.CMean[:4], BFCC[:4])
 	}
@@ -1015,11 +1015,9 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	}
 	if s.Count > 5 {
 		if traceMeanStd {
-			analysisMeanStdTraceSetStdInput(s.Mem[:4], s.Mem[8:12], s.Mem[16:20], s.Mem[24:28], features[:9], s.Std[:])
+			analysisMeanStdTraceSetStdInput(s.Mem[:4], s.Mem[8:12], s.Mem[16:20], s.Mem[24:28], features[:11], s.Std[:])
 		}
-		for i := range 9 {
-			s.Std[i] = fma32(1.0-alpha, s.Std[i], round32(alpha*features[i]*features[i]))
-		}
+		analysisStdUpdate(alpha, &s.Std, &features)
 		if traceMeanStd {
 			analysisMeanStdTraceSetStdNew(s.Std[:])
 		}

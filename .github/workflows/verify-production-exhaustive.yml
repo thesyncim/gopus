@@ -11,8 +11,9 @@ on:
           - release-evidence
           - goamd64-kernel-audit
           - goamd64-benchmark
+          - goamd64-analyzer-benchmark
       benchmark_baseline:
-        description: Assembly baseline revision for the optional benchmark
+        description: Baseline revision (assembly for the full matrix, Go for analyzer comparisons)
         type: string
         default: 8ac93c851facc1146ffe248c943cbe619f13344d
   schedule:
@@ -41,7 +42,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Checkout benchmark baseline
-        if: inputs.task == 'goamd64-benchmark'
+        if: inputs.task == 'goamd64-benchmark' || inputs.task == 'goamd64-analyzer-benchmark'
         uses: actions/checkout@v5
         with:
           ref: ${{ inputs.benchmark_baseline }}
@@ -78,7 +79,7 @@ jobs:
         run: make release-evidence
 
       - name: Run optional GOAMD64 kernel audit
-        if: inputs.task == 'goamd64-kernel-audit'
+        if: inputs.task == 'goamd64-kernel-audit' || inputs.task == 'goamd64-analyzer-benchmark'
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/goamd64-evidence/helpers" "$RUNNER_TEMP/goamd64-scratch"
@@ -133,7 +134,7 @@ jobs:
             env -u GOPUS_LIBOPUS_REF_SCALAR "${trace_native[@]}" GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
               GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
               "${go_cmd[@]}" test ./internal/encoder -tags 'gopus_celt_trace gopus_remove_doubling_trace' -count=1 -v -timeout=15m \
-              -run '^Test(CELT(FirstFrame|LateCBRFrame)StageDiagnostic|EncodeDiffCELTVBRFrame1Trace|CELTStageTraceMDCTCallCapacity|CELTTraceFloat32StatsPreservesFirstDifference|CELTQuantBandTraceNonQEXTQ30StorageDifference|CELTQuantBandTraceWireValidation|CELTQuantBandTracePVQUsesActiveThetaGeometry|CELTQuantBandTraceForTargetKeepsFrameAndBandStrict|CELTQuantCoefficient98MapsToFiveMillisecondBand18|CELTQuantBandTraceAcceptsDualStereoMonoPartitions|CELTQuantTraceLinkMapRejectsUninstrumentedBands|CELTOnlyCBRSelectedFrameStageDiagnostic|CELTOnlyCBRQuantBandTraceDiagnostic|CELTCoderRangeTraceRejectsMalformed|CELTQuantityTFTraceRejectsMalformed|CELTQuantityTFTraceComparisonReportsFirstActualDifference|CELTOnlyCBRMDCTGeometrySequences|CELTRemoveDoublingMathBoundariesAgainstPinnedSource|AnalysisInputFFTStageTrace|AnalysisInputFFTStageTraceParserRejectsMalformedWire|AnalysisDown2HPV3MatchesLibopusSourceKernel|AnalysisAtan2SIMDV3MatchesOriginalLibopusKernel|AnalysisAtan2SIMDV3ZeroAllocs|AnalysisChirpBandSlopeTrace|AnalysisChirpBandSlopeTraceParserRejectsMalformedWire|RunAnalysisSlopeV3ZeroAllocs|AnalysisMeanStdLiveTrace|AnalysisSpecVariabilityCorpusMusicTrace|AnalysisSpecVariabilityZeroAlloc|ParseAnalysisSpecVariabilityTraceRejectsMalformedGVAR|AnalysisMLPGEMMMatchesLibopusV3|AnalysisMLPStageTrace|ParseAnalysisMLPStageTraceRejectsMalformedGAML|AnalysisMLPStageTraceDriverAnchorsAreUnique|GemmAccumF32MatchesGenericReference|GemmAccumF32Rows24PairMatchesSeparatePasses|GemmAccumF32Rows24TripleMatchesSeparatePasses)$' \
+              -run '^Test(CELT(FirstFrame|LateCBRFrame)StageDiagnostic|EncodeDiffCELTVBRFrame1Trace|CELTStageTraceMDCTCallCapacity|CELTTraceFloat32StatsPreservesFirstDifference|CELTQuantBandTraceNonQEXTQ30StorageDifference|CELTQuantBandTraceWireValidation|CELTQuantBandTracePVQUsesActiveThetaGeometry|CELTQuantBandTraceForTargetKeepsFrameAndBandStrict|CELTQuantCoefficient98MapsToFiveMillisecondBand18|CELTQuantBandTraceAcceptsDualStereoMonoPartitions|CELTQuantTraceLinkMapRejectsUninstrumentedBands|CELTOnlyCBRSelectedFrameStageDiagnostic|CELTOnlyCBRQuantBandTraceDiagnostic|CELTCoderRangeTraceRejectsMalformed|CELTQuantityTFTraceRejectsMalformed|CELTQuantityTFTraceComparisonReportsFirstActualDifference|CELTOnlyCBRMDCTGeometrySequences|CELTRemoveDoublingMathBoundariesAgainstPinnedSource|AnalysisInputFFTStageTrace|AnalysisInputFFTStageTraceParserRejectsMalformedWire|AnalysisDown2HPV3MatchesLibopusSourceKernel|AnalysisAtan2SIMDV3MatchesOriginalLibopusKernel|AnalysisAtan2SIMDV3ZeroAllocs|AnalysisChirpBandSlopeTrace|AnalysisChirpBandSlopeTraceParserRejectsMalformedWire|RunAnalysisSlopeV3ZeroAllocs|AnalysisMeanStdLiveTrace|AnalysisStdLaterActualInputsTrace|ParseAnalysisStdLaterTraceRejectsMalformedPackets|AnalysisSpecVariabilityCorpusMusicTrace|AnalysisSpecVariabilityZeroAlloc|ParseAnalysisSpecVariabilityTraceRejectsMalformedGVAR|AnalysisMLPGEMMMatchesLibopusV3|AnalysisMLPStageTrace|ParseAnalysisMLPStageTraceRejectsMalformedGAML|AnalysisMLPStageTraceDriverAnchorsAreUnique|GemmAccumF32MatchesGenericReference|GemmAccumF32Rows24PairMatchesSeparatePasses|GemmAccumF32Rows24TripleMatchesSeparatePasses)$' \
               > "$RUNNER_TEMP/goamd64-evidence/$mode-celt-encode-trace.log" 2>&1 || status=1
             if [[ "$mode" == nosimd ]]; then
               env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT=nosimd GOPUS_LIBOPUS_AMD64_TARGET=v3 \
@@ -175,7 +176,7 @@ jobs:
           exit "$status"
 
       - name: Upload GOAMD64 kernel evidence
-        if: always() && inputs.task == 'goamd64-kernel-audit'
+        if: always() && (inputs.task == 'goamd64-kernel-audit' || inputs.task == 'goamd64-analyzer-benchmark')
         uses: actions/upload-artifact@v4
         with:
           name: goamd64-kernels-${{ github.run_id }}
@@ -194,6 +195,20 @@ jobs:
         with:
           name: goamd64-benchmark-${{ github.run_id }}
           path: ${{ runner.temp }}/goamd64-benchmark
+          if-no-files-found: error
+
+      - name: Measure analyzer changes in matching Go lanes
+        if: inputs.task == 'goamd64-analyzer-benchmark'
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_*goamd64*.py'
+          python3 scripts/benchmark_analysis_parity.py tmp_check/goamd64-baseline . "$RUNNER_TEMP/goamd64-analyzer-benchmark"
+
+      - name: Upload matching-lane analyzer timings
+        if: always() && inputs.task == 'goamd64-analyzer-benchmark'
+        uses: actions/upload-artifact@v4
+        with:
+          name: goamd64-analyzer-benchmark-${{ github.run_id }}
+          path: ${{ runner.temp }}/goamd64-analyzer-benchmark
           if-no-files-found: error
 
       - name: Upload release evidence artifact

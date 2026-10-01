@@ -178,7 +178,7 @@ func TestAnalysisMeanStdLiveTrace(t *testing.T) {
 			compareAnalysisMeanStdBits(t, i, "feature Mem[16:20]", cTrace.rows[i].mem16[:], goRow.Mem16[:])
 			compareAnalysisMeanStdBits(t, i, "feature Mem[24:28]", cTrace.rows[i].mem24[:], goRow.Mem24[:])
 			compareAnalysisMeanStdBits(t, i, "Std old", cTrace.rows[i].stdOld[:], goRow.StdOld[:])
-			compareAnalysisMeanStdBits(t, i, "Std feature", cTrace.rows[i].feature[:], goRow.Feature[:])
+			compareAnalysisMeanStdBits(t, i, "Std feature", cTrace.rows[i].feature[:], goRow.Feature[:9])
 			compareAnalysisMeanStdBits(t, i, "Std new", cTrace.rows[i].stdNew[:], goRow.StdNew[:])
 		}
 		logAnalysisMeanStdDerivedProducts(t, i, goRow)
@@ -428,7 +428,7 @@ func logAnalysisMeanStdDerivedProducts(t *testing.T, row int, snapshot analysisM
 	}
 	if snapshot.StdActive {
 		var stdProducts [9]uint32
-		for i, feature := range snapshot.Feature {
+		for i, feature := range snapshot.Feature[:9] {
 			first := snapshot.Alpha * feature
 			stdProducts[i] = math.Float32bits(first * feature)
 		}
