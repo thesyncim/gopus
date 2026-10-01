@@ -59,16 +59,41 @@ func TestAppendHistoryZeroAlloc(t *testing.T) {
 	}
 }
 
-// TestDecoderZeroAlloc locks the steady-state contract for the high-level
-// Decoder: once warm, Parse reuses its block slice and allocates nothing.
+// TestDecoderZeroAlloc checks storage reuse across successful and failed parses.
 func TestDecoderZeroAlloc(t *testing.T) {
-	p := zaPayload()
-	dec := NewDecoder(111)
-	_, _, _ = dec.Parse(p) // warm
-	if n := testing.AllocsPerRun(200, func() {
-		_, _, _ = dec.Parse(p)
-	}); n != 0 {
-		t.Errorf("Decoder.Parse allocs/op = %v, want 0", n)
+	// One redundant byte at offset 960 followed by one primary byte.
+	packet := []byte{0xef, 0x0f, 0, 1, 111, 0xab, 0xcd}
+	for _, tc := range []struct {
+		name string
+		bad  []byte
+	}{
+		{"valid only", nil},
+		{"truncated header", []byte{0xef}},
+		{"missing primary", packet[:len(packet)-1]},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dec := NewDecoder(111)
+			if _, _, err := dec.Parse(packet); err != nil {
+				t.Fatal(err)
+			}
+			allocs := testing.AllocsPerRun(200, func() {
+				if tc.bad != nil {
+					primary, blocks, err := dec.Parse(tc.bad)
+					if err == nil || primary != nil || blocks != nil {
+						t.Fatal("malformed packet must return an error and no payloads")
+					}
+				}
+				primary, blocks, err := dec.Parse(packet)
+				if err != nil || len(primary) != 1 || primary[0] != 0xcd ||
+					len(blocks) != 1 || blocks[0].TimestampOffset != 960 ||
+					len(blocks[0].Payload) != 1 || blocks[0].Payload[0] != 0xab {
+					t.Fatal("valid packet did not recover its primary and redundant payloads")
+				}
+			})
+			if allocs != 0 {
+				t.Fatalf("Decoder.Parse allocs/op = %g, want 0", allocs)
+			}
+		})
 	}
 }
 

@@ -170,7 +170,7 @@ func BuildAppend(dst []byte, primary []byte, primaryTimestamp uint32, history []
 			break
 		}
 		offset := int(primaryTimestamp - f.Timestamp)
-		if offset <= 0 || offset > 0x3fff || len(f.Payload) > 0x3ff {
+		if offset <= 0 || offset > 0x3fff || len(f.Payload) == 0 || len(f.Payload) > 0x3ff {
 			continue
 		}
 		if offset%frameSamples != 0 {
@@ -291,8 +291,11 @@ func NewDecoder(primaryPayloadType byte) *Decoder {
 // call. Copy any data that must remain independent. Parsing reuses storage after
 // it has enough capacity for the packet's blocks.
 func (d *Decoder) Parse(buf []byte) (primary []byte, blocks []Block, err error) {
-	primary, d.blocks, err = ParseInto(buf, d.pt, d.blocks[:0])
-	return primary, d.blocks, err
+	primary, blocks, err = ParseInto(buf, d.pt, d.blocks[:0])
+	if err == nil {
+		d.blocks = blocks
+	}
+	return primary, blocks, err
 }
 
 // Encoder builds RFC 2198 RED packets and owns its frame history and reusable

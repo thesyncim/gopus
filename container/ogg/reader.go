@@ -9,7 +9,7 @@ type Reader struct {
 	rs          io.ReadSeeker
 	Header      *OpusHead // Parsed ID header (set after NewReader)
 	Tags        *OpusTags // Parsed comment header (set after NewReader)
-	granulePos  uint64    // Granule position of the last returned packet
+	granulePos  uint64    // Granule position of the last consumed packet
 	eos         bool      // End-of-stream page consumed
 	serial      uint32    // Stream serial number
 	audioOffset int64     // Stream offset of the first audio page for seekable inputs
@@ -62,10 +62,13 @@ func NewReader(r io.Reader) (*Reader, error) {
 		return nil, ErrInvalidPage
 	}
 
-	// Parse OpusHead from the first page.
+	// OpusHead is the only packet on the BOS page and must complete there.
 	packets := page.Packets()
 	if len(packets) == 0 {
 		return nil, ErrInvalidHeader
+	}
+	if page.IsContinuation() || len(packets) != 1 || len(page.Segments) == 0 || page.Segments[len(page.Segments)-1] == 255 {
+		return nil, ErrInvalidPage
 	}
 
 	or.Header, err = ParseOpusHead(packets[0])
@@ -78,6 +81,7 @@ func NewReader(r io.Reader) (*Reader, error) {
 	// Read comment page(s) with OpusTags. OpusTags may span multiple pages if
 	// there are many comments.
 	var tagsData []byte
+	lastSequence := page.PageSequence
 	for {
 		page, err = or.readPage()
 		if err != nil {
@@ -86,12 +90,28 @@ func NewReader(r io.Reader) (*Reader, error) {
 		if page.SerialNumber != or.serial {
 			return nil, ErrInvalidPage
 		}
+		if page.PageSequence != lastSequence+1 {
+			return nil, ErrInvalidPage
+		}
+		lastSequence = page.PageSequence
 		if page.IsContinuation() && len(tagsData) == 0 {
 			return nil, ErrInvalidPage // Can't continue from nothing.
 		}
+
+		// Stop at the OpusTags packet terminator, not merely the page's final
+		// lacing value. The comment packet must finish its page.
+		completed := false
+		for i, segment := range page.Segments {
+			if segment < 255 {
+				if i != len(page.Segments)-1 {
+					return nil, ErrInvalidPage
+				}
+				completed = true
+				break
+			}
+		}
 		tagsData = append(tagsData, page.Payload...)
-		// A final lacing value < 255 terminates the packet.
-		if len(page.Segments) > 0 && page.Segments[len(page.Segments)-1] < 255 {
+		if completed {
 			break
 		}
 	}
@@ -114,11 +134,12 @@ func NewReader(r io.Reader) (*Reader, error) {
 // ReadPacket returns the next Opus packet and its granule position, reassembling
 // packets that span pages. The returned packet is an independent copy that the
 // caller may retain or modify. Pages from other logical bitstreams are skipped.
+// Incomplete packets caused by missing pages are discarded.
 // It returns io.EOF when the selected stream is exhausted or no more packet
 // data can be read; an unterminated trailing packet can also end with io.EOF.
 // Page framing, CRC, and underlying read errors are returned to the caller.
 func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
-	out, granule, err := or.nextPacket(or.pktScratch[:0])
+	out, granule, err := or.nextPacket(or.pktScratch[:0], -1)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -128,32 +149,31 @@ func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
 
 // ReadPacketInto writes the next Opus packet into dst and returns its length and
 // granule position. len(dst), rather than cap(dst), is the size limit; the
-// method allocates nothing when dst is large enough. If the packet is larger,
-// it consumes the packet and returns n == 0, granulePos == 0, and
-// ErrPacketTooLarge. Pages from other logical bitstreams are skipped, and
-// io.EOF indicates stream exhaustion.
+// method does not grow dst or write beyond its length. If the packet is larger,
+// it discards the excess without allocating packet storage, consumes the packet,
+// and returns n == 0, granulePos == 0, and ErrPacketTooLarge. Pages from other
+// logical bitstreams are skipped, and io.EOF indicates stream exhaustion.
 func (or *Reader) ReadPacketInto(dst []byte) (n int, granulePos uint64, err error) {
-	limit := len(dst)
-	out, granule, err := or.nextPacket(dst[:0])
+	out, granule, err := or.nextPacket(dst[:0], len(dst))
 	if err != nil {
 		return 0, 0, err
-	}
-	if len(out) > limit {
-		return 0, 0, ErrPacketTooLarge
 	}
 	return len(out), granule, nil
 }
 
 // nextPacket appends the next packet's bytes to dst[:0] and returns the result
-// along with its granule position. dst is grown via append only if the packet
-// exceeds its capacity, so a caller buffer with enough capacity makes this
-// allocation-free. It walks the lacing table across pages, skipping other
+// along with its granule position. A negative limit allows dst to grow; otherwise
+// packets larger than limit are consumed without growing dst and return
+// ErrPacketTooLarge. It walks the lacing table across pages, skipping other
 // logical streams, dropping abandoned continuations, and clamping truncated
 // pages.
-func (or *Reader) nextPacket(dst []byte) ([]byte, uint64, error) {
+func (or *Reader) nextPacket(dst []byte, limit int) ([]byte, uint64, error) {
 	if or.hasPush {
 		or.hasPush = false
 		or.granulePos = or.pushbackG
+		if limit >= 0 && len(or.pushback) > limit {
+			return dst[:0], 0, ErrPacketTooLarge
+		}
 		return append(dst[:0], or.pushback...), or.pushbackG, nil
 	}
 
@@ -163,20 +183,26 @@ func (or *Reader) nextPacket(dst []byte) ([]byte, uint64, error) {
 			if or.eos {
 				return dst[:0], 0, io.EOF
 			}
-			if err := or.advancePage(); err != nil {
+			if _, err := or.advancePage(false); err != nil {
 				return dst[:0], 0, err
 			}
 		}
 
 		dst = dst[:0]
 		dropped := false
+		tooLarge := false
 		for {
 			seg := int(or.page.Segments[or.segIdx])
 			or.segIdx++
 			if avail := len(or.page.Payload) - or.payOff; seg > avail {
 				seg = avail // truncated page: take what is present
 			}
-			dst = append(dst, or.page.Payload[or.payOff:or.payOff+seg]...)
+			if limit >= 0 && seg > limit-len(dst) {
+				tooLarge = true
+			}
+			if !tooLarge {
+				dst = append(dst, or.page.Payload[or.payOff:or.payOff+seg]...)
+			}
 			or.payOff += seg
 			if or.page.Segments[or.segIdx-1] < 255 {
 				break // a lacing value < 255 terminates the packet
@@ -189,10 +215,11 @@ func (or *Reader) nextPacket(dst []byte) ([]byte, uint64, error) {
 				if or.eos {
 					return dst[:0], 0, io.EOF // truncated trailing packet
 				}
-				if err := or.advancePage(); err != nil {
+				continued, err := or.advancePage(true)
+				if err != nil {
 					return dst[:0], 0, err
 				}
-				if !or.page.IsContinuation() {
+				if !continued {
 					dropped = true
 					break
 				}
@@ -201,36 +228,55 @@ func (or *Reader) nextPacket(dst []byte) ([]byte, uint64, error) {
 				break
 			}
 		}
-		if dropped || len(dst) == 0 {
+		if dropped || (len(dst) == 0 && !tooLarge) {
 			continue // restart, or skip an empty packet
 		}
 		granule := or.packetGranule()
 		or.granulePos = granule
+		if tooLarge {
+			return dst[:0], 0, ErrPacketTooLarge
+		}
 		return dst, granule, nil
 	}
 }
 
-// advancePage loads the next page of this logical stream into or.page (skipping
-// other bitstreams), resets the segment cursor, and records the end-of-stream
-// flag.
-func (or *Reader) advancePage() error {
+// advancePage loads the next page of this logical stream and reports whether
+// it continues the packet being assembled. RFC 7845 section 3 requires a
+// continued packet's pages to have consecutive sequence numbers. A leading
+// continuation with no matching prefix is discarded through its first packet
+// terminator; subsequent complete packets on the page remain readable.
+func (or *Reader) advancePage(continuePacket bool) (bool, error) {
+	// Capture this before readPage can replace or.page with another stream's page.
+	expectedSequence := or.page.PageSequence + 1
 	for {
 		if _, err := or.readPage(); err != nil {
 			if err == io.EOF {
 				or.eos = true
 			}
-			return err
+			return false, err
 		}
 		if or.page.SerialNumber != or.serial {
 			continue
 		}
+		continued := continuePacket && or.havePage &&
+			or.page.PageSequence == expectedSequence && or.page.IsContinuation()
 		or.segIdx = 0
 		or.payOff = 0
 		or.havePage = true
 		if or.page.IsEOS() {
 			or.eos = true
 		}
-		return nil
+		if or.page.IsContinuation() && !continued {
+			for or.segIdx < len(or.page.Segments) {
+				seg := or.page.Segments[or.segIdx]
+				or.segIdx++
+				or.payOff += int(seg)
+				if seg < 255 {
+					break
+				}
+			}
+		}
+		return continued, nil
 	}
 }
 
@@ -296,7 +342,7 @@ func (or *Reader) SeekGranule(target uint64) error {
 	or.bufferLen = 0
 
 	for {
-		out, granule, err := or.nextPacket(or.pktScratch[:0])
+		out, granule, err := or.nextPacket(or.pktScratch[:0], -1)
 		if err != nil {
 			return err
 		}

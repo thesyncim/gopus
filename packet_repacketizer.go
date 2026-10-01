@@ -121,14 +121,11 @@ func (r *Repacketizer) Out(data []byte) (int, error) {
 // and have capacity for newLen bytes. If len(data) is shorter, reslice the
 // caller's slice to newLen after success.
 func PacketPad(data []byte, length, newLen int) error {
-	if length < 1 || newLen < length {
+	if length < 1 || length > len(data) || newLen < length {
 		return ErrInvalidArgument
 	}
 	if newLen == length {
 		return nil
-	}
-	if length > len(data) {
-		return ErrInvalidArgument
 	}
 	if newLen > cap(data) {
 		return ErrBufferTooSmall

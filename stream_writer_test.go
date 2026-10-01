@@ -336,7 +336,7 @@ func TestWriter_WriteAfterClose(t *testing.T) {
 }
 
 func TestWriter_ResetAfterCloseReopensWriter(t *testing.T) {
-	sink := &slicePacketSink{}
+	sink := &closablePacketSink{}
 	writer, err := NewWriter(48000, 2, sink, FormatFloat32LE, ApplicationAudio)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
@@ -354,6 +354,15 @@ func TestWriter_ResetAfterCloseReopensWriter(t *testing.T) {
 	}
 	if len(sink.packets) != 1 {
 		t.Fatalf("Write after Reset produced %d packets, want 1", len(sink.packets))
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close after Reset failed: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("repeated Close after Reset failed: %v", err)
+	}
+	if sink.closeCalls != 2 {
+		t.Fatalf("Close should run once per writer lifecycle, got %d calls", sink.closeCalls)
 	}
 }
 
@@ -409,6 +418,78 @@ func TestWriter_SinkErrorAfterPartialWriteReturnsShortWrite(t *testing.T) {
 	pcmBytes := generateFloat32Bytes(48000, 2, 960, 440.0)
 	if n, err := writer.Write(pcmBytes); err != io.ErrShortWrite || n != 0 {
 		t.Fatalf("Write = (%d, %v), want (0, %v)", n, err, io.ErrShortWrite)
+	}
+}
+
+type closableScriptedPacketSink struct {
+	scriptedPacketSink
+	closeCalls int
+	closeErr   error
+}
+
+func (s *closableScriptedPacketSink) Close() error {
+	s.closeCalls++
+	return s.closeErr
+}
+
+func TestWriter_CloseAfterSinkWriteErrorClosesSinkOnce(t *testing.T) {
+	writeErr := errors.New("sink write failed")
+	sink := &closableScriptedPacketSink{
+		scriptedPacketSink: scriptedPacketSink{failAtCall: 1, err: writeErr},
+	}
+	writer, err := NewWriter(48000, 1, sink, FormatFloat32LE, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+	pcmBytes := generateFloat32Bytes(48000, 1, 960, 440.0)
+	if n, err := writer.Write(pcmBytes); n != 0 || !errors.Is(err, writeErr) {
+		t.Fatalf("Write = (%d, %v), want (0, sink write error)", n, err)
+	}
+	if _, err := writer.Write(pcmBytes); err != io.ErrClosedPipe {
+		t.Fatalf("Write after sink error = %v, want %v", err, io.ErrClosedPipe)
+	}
+	if err := writer.Flush(); err != io.ErrClosedPipe {
+		t.Fatalf("Flush after sink error = %v, want %v", err, io.ErrClosedPipe)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close after sink error = %v, want nil", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("repeated Close = %v, want nil", err)
+	}
+	if sink.closeCalls != 1 {
+		t.Fatalf("sink Close calls=%d, want 1", sink.closeCalls)
+	}
+}
+
+func TestWriter_CloseFlushFailureClosesSinkAndJoinsErrors(t *testing.T) {
+	writeErr := errors.New("sink flush write failed")
+	closeErr := errors.New("sink close failed")
+	sink := &closableScriptedPacketSink{
+		scriptedPacketSink: scriptedPacketSink{failAtCall: 1, err: writeErr},
+		closeErr:           closeErr,
+	}
+	writer, err := NewWriter(48000, 1, sink, FormatFloat32LE, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+	partialPCM := generateFloat32Bytes(48000, 1, 480, 440.0)
+	if n, err := writer.Write(partialPCM); err != nil || n != len(partialPCM) {
+		t.Fatalf("Write partial frame = (%d, %v), want (%d, nil)", n, err, len(partialPCM))
+	}
+
+	err = writer.Close()
+	if !errors.Is(err, writeErr) || !errors.Is(err, closeErr) {
+		t.Fatalf("Close error=%v, want both flush error and sink close error", err)
+	}
+	if sink.closeCalls != 1 {
+		t.Fatalf("sink Close calls=%d, want 1 after flush failure", sink.closeCalls)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("repeated Close=%v, want nil", err)
+	}
+	if sink.closeCalls != 1 {
+		t.Fatalf("repeated Close calls=%d, want one sink close attempt", sink.closeCalls)
 	}
 }
 

@@ -201,21 +201,32 @@ func TestWritePacket_Single(t *testing.T) {
 }
 
 func TestWritePacket_ShortWriteRollsBackGranule(t *testing.T) {
-	sink := &shortWriteWriter{shortAt: 3, shortBytes: 1}
-	w, err := NewWriter(sink, 48000, 1)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	packet := []byte{0xF8, 0x01}
-	if err := w.WritePacket(packet, 960); err != io.ErrShortWrite {
-		t.Fatalf("WritePacket error = %v, want %v", err, io.ErrShortWrite)
-	}
-	if got := w.GranulePos(); got != 0 {
-		t.Fatalf("GranulePos() after failed write = %d, want 0", got)
-	}
-	if got := w.PageCount(); got != 2 {
-		t.Fatalf("PageCount() after failed write = %d, want 2", got)
+	for _, tc := range []struct {
+		name      string
+		packetLen int
+		shortAt   int
+		wantPages uint32
+	}{
+		{"single page", 2, 3, 2},
+		{"first continuation page", 65025, 3, 2},
+		{"packet terminator page", 65025, 4, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sink := &shortWriteWriter{shortAt: tc.shortAt, shortBytes: 1}
+			w, err := NewWriter(sink, 48000, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := w.WritePacket(make([]byte, tc.packetLen), 960); err != io.ErrShortWrite {
+				t.Fatalf("WritePacket error = %v, want %v", err, io.ErrShortWrite)
+			}
+			if got := w.GranulePos(); got != 0 {
+				t.Fatalf("GranulePos() after failed write = %d, want 0", got)
+			}
+			if got := w.PageCount(); got != tc.wantPages {
+				t.Fatalf("PageCount() after failed write = %d, want %d", got, tc.wantPages)
+			}
+		})
 	}
 }
 
