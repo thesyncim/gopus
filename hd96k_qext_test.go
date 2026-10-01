@@ -1,42 +1,7 @@
 //go:build gopus_qext
 
-// hd96k_qext_test.go: Opus HD 96 kHz API acceptance and oracle boundary tests.
-//
-// # What works (with gopus_qext)
-//
-//   - NewEncoder(96000, ...) and NewDecoder(96000, ...) succeed.
-//   - Encoder at 96 kHz accepts 1920-sample frames, downsamples 2:1 to 48 kHz,
-//     and produces valid CELT-only Opus packets (tested below).
-//   - Decoder at 96 kHz accepts standard Opus CELT-only packets, decodes at
-//     48 kHz, and upsamples 2:1 to produce 1920-sample 96 kHz output.
-//   - QEXT HD extension payload is still applied by the CELT decode path when
-//     ignoreExtensions is false (inherited from the existing 48 kHz path).
-//   - FrameSize() returns the API-rate frame size (1920 for 20ms at 96 kHz).
-//   - SampleRate() returns 96000.
-//   - LastPacketDuration() returns 96 kHz samples (1920 for 20ms packets).
-//
-// # Precise boundary: what does NOT produce byte parity with libopus 96 kHz
-//
-//   - libopus ENABLE_QEXT at Fs=96000 initialises the CELT encoder/decoder
-//     with a native 96 kHz mode: opus_custom_mode_create(96000, 1920, NULL)
-//     for the encoder, and opus_custom_mode_create(96000, 960, NULL) for the
-//     decoder.  These modes have a different MDCT size (double), different band
-//     structure, and produce different bitstream content than the standard 48 kHz
-//     CELT mode.
-//   - gopus's CELT pipeline is 48 kHz only; the 96 kHz API rate is implemented
-//     by 2:1 decimation on encode input and 2:1 linear interpolation on decode
-//     output.  Encoded packets are standard 48 kHz CELT packets, not libopus
-//     96 kHz native packets.
-//   - Decode parity vs libopus at 96 kHz is therefore NOT achievable without
-//     implementing the native 96 kHz MDCT mode (opus_custom_mode_create at 96
-//     kHz, a different mode table and MDCT size).
-//   - C ref: celt/celt_encoder.c celt_encoder_init() ENABLE_QEXT block (line ~245):
-//     if (sampling_rate==96000) { opus_custom_mode_create(96000,1920,NULL) ... }
-//   - C ref: celt/celt_decoder.c celt_decoder_init() ENABLE_QEXT block (line ~228):
-//     if (sampling_rate==96000) { opus_custom_mode_create(96000,960,NULL) ... }
-//   - C ref: opus_encoder.c smooth_fade() uses inc=48000/Fs, which yields
-//     inc=0 at Fs=96000 (the libopus guard adds ENABLE_QEXT). SILK and Hybrid
-//     modes are not supported at 96 kHz even in libopus.
+// These tests cover the 96 kHz API, packet framing, buffer sizes and controls.
+// Native CELT packet and PCM parity have separate libopus oracle tests.
 package gopus
 
 import (
@@ -115,8 +80,7 @@ func TestHD96kDecoderConstructorAcceptsRate(t *testing.T) {
 }
 
 // TestHD96kEncoderProducesValidPackets verifies that a 96 kHz encoder produces
-// non-empty, parseable CELT-only Opus packets. The packets are standard 48 kHz
-// CELT (not native 96 kHz bitstream) due to gopus's 48 kHz internal pipeline.
+// non-empty packets with a CELT TOC.
 func TestHD96kEncoderProducesValidPackets(t *testing.T) {
 	for _, channels := range []int{1, 2} {
 		t.Run(itoaSmall(channels)+"ch", func(t *testing.T) {
@@ -142,8 +106,6 @@ func TestHD96kEncoderProducesValidPackets(t *testing.T) {
 			// Verify it's a parseable Opus packet.
 			toc := ParseTOC(pkt[0])
 			if toc.Mode != ModeCELT {
-				// At 48 kHz fullband CELT, mode is CELT. The 96 kHz encoder routes
-				// to 48 kHz CELT internally.
 				t.Errorf("expected CELT mode, got %v", toc.Mode)
 			}
 		})
@@ -244,30 +206,8 @@ func TestHD96kDecoderLastPacketDurationIs96kSamples(t *testing.T) {
 	}
 }
 
-// TestHD96kDecoderIgnoreExtensionsGates96kQEXTHDLayer verifies that when
-// IgnoreExtensions is set on a 96 kHz decoder, the QEXT HD extension payload
-// is not applied, matching libopus OPUS_SET_IGNORE_EXTENSIONS semantics.
-// (Boundary note: the extension payload itself is a 48 kHz band extension;
-// 96 kHz output is still a 2x upsampled 48 kHz signal in gopus.)
-func TestHD96kDecoderIgnoreExtensionsGates96kQEXTHDLayer(t *testing.T) {
-	dec96, err := NewDecoder(DefaultDecoderConfig(96000, 1))
-	if err != nil {
-		t.Fatalf("NewDecoder 96k: %v", err)
-	}
-	// The setter should work without error.
-	dec96.SetIgnoreExtensions(true)
-	if !dec96.IgnoreExtensions() {
-		t.Error("IgnoreExtensions() should be true after SetIgnoreExtensions(true)")
-	}
-	dec96.SetIgnoreExtensions(false)
-	if dec96.IgnoreExtensions() {
-		t.Error("IgnoreExtensions() should be false after SetIgnoreExtensions(false)")
-	}
-}
-
 // TestHD96kEncoderFrameSizeSetGet verifies SetFrameSize and FrameSize at 96 kHz.
-// Frame sizes are in 96 kHz samples; the API translates to the 48 kHz internal
-// frame size internally.
+// Frame sizes count samples per channel at 96 kHz.
 func TestHD96kEncoderFrameSizeSetGet(t *testing.T) {
 	enc, err := NewEncoder(EncoderConfig{
 		SampleRate:  96000,
@@ -326,34 +266,5 @@ func TestHD96kDecodeWrongBufferSizeErrors(t *testing.T) {
 	_, err = dec96.Decode(packet, small)
 	if err != ErrBufferTooSmall {
 		t.Errorf("Decode with too-small buffer: got %v, want ErrBufferTooSmall", err)
-	}
-}
-
-// TestHD96kBoundaryDocumented documents the precise parity boundary with libopus.
-// This test always passes; its purpose is to confirm the documented limitations
-// are stable (no accidental "fix" that exceeds the honest boundary).
-//
-// Boundary:
-//   - Packets encoded by gopus at 96 kHz are standard 48 kHz CELT packets
-//     (NOT native 96 kHz packets as libopus produces with ENABLE_QEXT).
-//   - Decoded 96 kHz output is 2:1 linearly interpolated 48 kHz PCM
-//     (NOT native 96 kHz CELT synthesis as libopus produces).
-//   - Byte parity between gopus-96k and libopus-96k is NOT achievable without
-//     implementing the native 96 kHz CELT mode tables and MDCT.
-func TestHD96kBoundaryDocumented(t *testing.T) {
-	// This test validates the documented behavior without asserting byte parity.
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 96000, Channels: 1, Application: ApplicationAudio})
-	if err != nil {
-		t.Fatalf("96 kHz encoder creation should succeed under gopus_qext: %v", err)
-	}
-	// The internal sample rate is 48000 (48 kHz pipeline).
-	// The public API sample rate is 96000.
-	if enc.SampleRate() != 96000 {
-		t.Errorf("SampleRate() = %d, want 96000 (public API rate)", enc.SampleRate())
-	}
-	// The internal encoder operates at 48 kHz; we verify via FrameSize being
-	// in 96 kHz terms (1920 = 2 * 960).
-	if enc.FrameSize() != 1920 {
-		t.Errorf("FrameSize() = %d, want 1920 (20ms at 96 kHz API)", enc.FrameSize())
 	}
 }

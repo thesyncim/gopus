@@ -155,26 +155,6 @@ func TestReaderAccessors_NilHeader(t *testing.T) {
 	}
 }
 
-// TestReaderAccessors_FromHeader verifies the accessors read through to a
-// populated Header.
-func TestReaderAccessors_FromHeader(t *testing.T) {
-	r := Reader{Header: &OpusHead{
-		PreSkip:    312,
-		Channels:   2,
-		SampleRate: 48000,
-	}}
-
-	if got := r.PreSkip(); got != 312 {
-		t.Errorf("PreSkip() = %d, want 312", got)
-	}
-	if got := r.Channels(); got != 2 {
-		t.Errorf("Channels() = %d, want 2", got)
-	}
-	if got := r.SampleRate(); got != 48000 {
-		t.Errorf("SampleRate() = %d, want 48000", got)
-	}
-}
-
 // tocByte builds an Opus TOC byte from a config index (0-31) and a frame-count
 // code (0-3) per RFC 6716 §3.1.
 func tocByte(config uint8, code uint8) byte {

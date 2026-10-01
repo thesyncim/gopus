@@ -1,4 +1,4 @@
-FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-parity test-dred-tag test-qext-parity test-extra-controls-tag test-extra-controls-parity test-quality test-conformance test-exactness test-exhaustive test-provenance
+FOCUS_GATE_TARGETS := test-build-contract test-dnn-blob-parity test-core-oracles-parity test-dred-tag test-qext-parity test-extra-controls-tag test-extra-controls-parity test-quality test-conformance test-exactness test-exhaustive test-provenance
 
 .PHONY: lint lint-fix deadcode test-lint-tags
 .PHONY: test test-fast test-race test-type-parity update-type-parity-baseline
@@ -208,9 +208,8 @@ test-examples-smoke:
 	cd examples/webrtc-dred-loopback && $(GO_WORK_ENV) $(GO) test -tags gopus_webrtc_headless ./... -count=1
 	cd examples/webrtc-dred-loopback && $(GO_WORK_ENV) $(GO) test -tags 'gopus_dred gopus_webrtc_headless' ./... -count=1
 
-# Docs and release-surface contracts stay focused so they do not require
-# heavyweight libopus fixture trees.
-test-doc-contract:
+# Check default-build dependency boundaries and fixture generator build tags.
+test-build-contract:
 
 # DNN blob control parity against libopus USE_WEIGHTS_FILE model blobs. Model
 # loading is compile-gated exactly like libopus (ENABLE_DRED/ENABLE_OSCE/

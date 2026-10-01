@@ -296,7 +296,7 @@ custom-QEXT history read at 96 kHz / 2,048 samples; Go uses bounded concealment
 and compares defined C behavior.
 
 Use `make test-fast` for iteration, `make test` for the live C-oracle suite,
-and `make test-doc-contract` for documentation contracts. See
+and `make test-build-contract` for build boundaries. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the verification and release checklist.
 
 ## Trust And Verification

@@ -51,7 +51,7 @@ SIMD builds and applicable feature tags against their matching C references.
 
 ```sh
 go test ./...
-make test-doc-contract
+make test-build-contract
 make test-type-parity
 make lint
 make test-consumer-smoke

@@ -85,8 +85,8 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run docs contract
-        run: make test-doc-contract
+      - name: Check build boundaries
+        run: make test-build-contract
 
       - name: Run libopus type parity guard
         run: make test-type-parity
