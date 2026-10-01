@@ -255,7 +255,8 @@ func NewEncoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 	return enc, nil
 }
 
-// NewEncoderDefault returns an encoder with the Vorbis mapping for 1–8 channels.
+// NewEncoderDefault returns an encoder with the Vorbis mapping for 1–8 input
+// channels. It returns an error for an unsupported sample rate or channel count.
 func NewEncoderDefault(sampleRate, channels int) (*Encoder, error) {
 	streams, coupledStreams, mapping, err := DefaultMapping(channels)
 	if err != nil {
@@ -319,8 +320,8 @@ func NewEncoderAmbisonics(sampleRate, channels, mappingFamily int) (*Encoder, er
 	return enc, nil
 }
 
-// Reset clears all encoder state for a new stream.
-// Call this when starting to encode a new audio stream.
+// Reset clears codec and surround-analysis history for a new stream. It keeps
+// the encoder's sample rate, channel mapping, and projection matrix.
 func (e *Encoder) Reset() {
 	for i, enc := range e.encoders {
 		enc.Reset()

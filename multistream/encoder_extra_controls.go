@@ -8,6 +8,8 @@ import (
 )
 
 // DREDModelLoaded reports whether all stream encoders have a DRED-capable blob.
+// DRED methods in this file are available in builds tagged gopus_dred or
+// gopus_osce.
 func (e *Encoder) DREDModelLoaded() bool {
 	if len(e.encoders) == 0 {
 		return false

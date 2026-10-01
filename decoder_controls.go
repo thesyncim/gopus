@@ -1,7 +1,10 @@
 package gopus
 
-// Reset clears the decoder state for a new stream.
-// Call this when starting to decode a new audio stream.
+// Reset clears codec, packet, PLC, FEC, soft-clip, and optional recovery history
+// and resets last-packet metadata. It preserves the decoder configuration and
+// controls, including the sample rate, channels, packet limits, output gain,
+// complexity, phase-inversion setting, extension policy, and loaded model blobs.
+// Call it when starting a new audio stream on the same Decoder.
 func (d *Decoder) Reset() {
 	d.silkDecoder.Reset()
 	d.celtDecoder.Reset()
@@ -100,9 +103,10 @@ func (d *Decoder) Complexity() int {
 	return int(d.complexity)
 }
 
-// SetIgnoreExtensions toggles whether unknown packet extensions should be ignored.
-//
-// This mirrors libopus OPUS_SET_IGNORE_EXTENSIONS semantics.
+// SetIgnoreExtensions controls whether packet-extension payloads supported by
+// enabled optional features are used during decoding. Enabling it also clears
+// any cached DRED payload. This mirrors libopus OPUS_SET_IGNORE_EXTENSIONS
+// semantics.
 func (d *Decoder) SetIgnoreExtensions(ignore bool) {
 	d.ignoreExtensions = ignore
 	if ignore {
@@ -110,13 +114,15 @@ func (d *Decoder) SetIgnoreExtensions(ignore bool) {
 	}
 }
 
-// IgnoreExtensions reports whether unknown packet extensions are ignored.
+// IgnoreExtensions reports whether supported packet-extension payloads are
+// ignored during decoding.
 func (d *Decoder) IgnoreExtensions() bool {
 	return d.ignoreExtensions
 }
 
-// Pitch returns the decoded pitch period in samples. It returns zero when no pitch
-// is available.
+// Pitch returns the decoded pitch period in 48 kHz-equivalent samples, matching
+// libopus OPUS_GET_PITCH. CELT reports its postfilter period; SILK reports a lag
+// only for voiced audio. It returns zero when neither decoder has a usable pitch.
 func (d *Decoder) Pitch() int {
 	if d.lastPacketMode == ModeCELT {
 		if d.celtDecoder == nil {
@@ -155,22 +161,27 @@ func (d *Decoder) Bandwidth() Bandwidth {
 	return d.lastBandwidth
 }
 
-// LastPacketDuration returns the duration in samples per channel at the decoder API rate.
+// LastPacketDuration returns the most recent decoded or concealed duration in
+// samples per channel at the decoder API rate. It is zero before the first
+// decode and after Reset.
 func (d *Decoder) LastPacketDuration() int {
 	return int(d.lastPacketDuration)
 }
 
-// InDTX reports whether the most recently decoded packet was a DTX packet.
+// InDTX reports the libopus DTX indication from the recorded decode-data length.
+// It is true for a recorded length of one or two bytes. Normal decoding records
+// the packet length; FEC recovery records the recovered first-frame payload
+// length. It is false before decoding and after packet-loss concealment.
 func (d *Decoder) InDTX() bool {
 	return d.lastDataLen > 0 && d.lastDataLen <= 2
 }
 
-// FinalRange returns the final range coder state after decoding.
-// This matches libopus OPUS_GET_FINAL_RANGE and is used for bitstream verification.
-// Must be called after Decode() to get a meaningful value.
+// FinalRange reports the decoder's captured range state, matching libopus
+// OPUS_GET_FINAL_RANGE. It is useful for bitstream verification.
 //
-// Per libopus, the final range is XORed with any redundancy frame's range.
-// If the packet length was <= 1, FinalRange returns 0.
+// The main decode range is XORed with any redundancy-frame range. The result is
+// zero when the decoded frame is empty or has at most one payload byte, including
+// an empty or one-byte final frame in a multi-frame packet.
 func (d *Decoder) FinalRange() uint32 {
 	// Per libopus: if len <= 1, rangeFinal = 0
 	if d.lastDataLen <= 1 {

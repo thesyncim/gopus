@@ -2,8 +2,10 @@
 
 package gopus
 
-// SetOSCEBWE exposes the extra libopus ENABLE_OSCE_BWE control only
-// when built with -tags gopus_osce.
+// SetOSCEBWE enables or disables the OSCE bandwidth-extension request in
+// builds with -tags gopus_osce. Enabling the request runs BWE only when a
+// compatible model is loaded and the decoded SILK frame is wideband at the
+// 16 kHz internal rate with a 48 kHz API rate and complexity of at least 4.
 //
 // The default gopus build keeps this outside the public API surface.
 func (d *Decoder) SetOSCEBWE(enabled bool) error {
@@ -11,8 +13,9 @@ func (d *Decoder) SetOSCEBWE(enabled bool) error {
 	return nil
 }
 
-// OSCEBWE reports decoder-side OSCE bandwidth-extension state for explicit
-// extra-controls builds.
+// OSCEBWE reports the configured BWE request bit in explicit extra-controls
+// builds. A true result does not mean the most recent frame used BWE; model and
+// frame eligibility still apply.
 func (d *Decoder) OSCEBWE() (bool, error) {
 	return d.osceBWEEnabled, nil
 }
@@ -32,8 +35,10 @@ func (d *Decoder) SetOSCELACE(enabled bool) error {
 	return nil
 }
 
-// OSCELACE reports whether the OSCE LACE/NoLACE gate is enabled by the
-// explicit override or by decoder complexity.
+// OSCELACE reports whether the LACE/NoLACE gate is enabled by the explicit
+// override or decoder complexity. It does not report whether the most recent
+// frame used either filter; compatible models and eligible SILK frames are
+// checked during decoding.
 func (d *Decoder) OSCELACE() (bool, error) {
 	return d.osceLACEEnabledForComplexity(), nil
 }

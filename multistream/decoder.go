@@ -813,7 +813,8 @@ func (d *streamState) decodePacketToFloat32(data []byte, frameSize int) ([]float
 // interleaved output channels. It retains decoding state and is not safe for
 // concurrent use.
 type Decoder struct {
-	// sampleRate is the output sample rate (8000, 12000, 16000, 24000, or 48000 Hz).
+	// sampleRate is the output sample rate (8000, 12000, 16000, 24000, or 48000 Hz;
+	// 96000 Hz is available in gopus_qext builds).
 	sampleRate int32
 
 	// outputChannels is the total number of output channels (1-255).
@@ -879,7 +880,8 @@ type Decoder struct {
 // 0..streams, and streams+coupledStreams at most 255. mapping has one entry per
 // output channel: 0..2*coupledStreams-1 selects a coupled stream channel,
 // 2*coupledStreams..streams+coupledStreams-1 selects a mono stream, and 255
-// produces silence. The mapping is copied.
+// produces silence. Entries may repeat or leave decoded channels unused. The
+// mapping is copied.
 func NewDecoder(sampleRate, channels, streams, coupledStreams int, mapping []byte) (*Decoder, error) {
 	// Validate parameters
 	if !validSampleRate(sampleRate) {
@@ -948,8 +950,9 @@ func validSampleRate(rate int) bool {
 	}
 }
 
-// Reset clears all decoder state for a new stream.
-// Call this when starting to decode a new audio stream.
+// Reset clears codec, concealment, and extension-payload history for a new
+// stream. It retains the channel layout, projection matrix, gain, and extension-
+// handling setting.
 func (d *Decoder) Reset() {
 	for _, dec := range d.decoders {
 		dec.Reset()
@@ -1113,7 +1116,8 @@ func (d *Decoder) CoupledStreams() int {
 	return d.coupledStreams
 }
 
-// NewDecoderDefault returns a decoder with the Vorbis mapping for 1–8 channels.
+// NewDecoderDefault returns a decoder with the Vorbis mapping for 1–8 output
+// channels. It returns an error for an unsupported sample rate or channel count.
 func NewDecoderDefault(sampleRate, channels int) (*Decoder, error) {
 	streams, coupledStreams, mapping, err := DefaultMapping(channels)
 	if err != nil {

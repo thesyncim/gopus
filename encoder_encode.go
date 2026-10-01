@@ -13,10 +13,13 @@ func translateEncoderError(err error) error {
 	return err
 }
 
-// Encode encodes interleaved float32 PCM into data. pcm must contain the
-// configured frame size times Channels samples. len(data) is the packet byte
-// budget; Encode returns the number of bytes written or an error. The returned
-// packet may be a one-byte DTX packet during silence.
+// Encode encodes one interleaved float32 PCM frame. pcm must contain exactly
+// FrameSize()*Channels() samples. A fixed ExpertFrameDuration can select a
+// shorter prefix, but pcm must still contain the configured frame. len(data) is
+// both the packet byte budget and destination; Encode copies the packet there
+// and returns the number of bytes written. It returns ErrInvalidFrameSize for
+// invalid frame geometry and ErrBufferTooSmall when the output budget cannot
+// hold the packet. During DTX, silence can produce a one-byte TOC-only packet.
 func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 	if e.is96kHz() {
 		return e.encode96k(pcm, data, encoder.EncodeInputFloat32)
@@ -54,9 +57,11 @@ func (e *Encoder) encode96k(pcm []float32, data []byte, input encoder.EncodeInpu
 	return 0, ErrInvalidSampleRate
 }
 
-// EncodeInt16 encodes interleaved signed 16-bit PCM into data. pcm must contain
-// the configured frame size times Channels samples. len(data) is the packet
-// byte budget. Input samples are scaled by 1/32768.
+// EncodeInt16 encodes one interleaved signed 16-bit PCM frame. pcm must contain
+// exactly FrameSize()*Channels() samples. Each input sample is scaled by
+// 1/32768. len(data) is both the packet byte budget and destination. It returns
+// the number of bytes written, ErrInvalidFrameSize for an incorrect input
+// length or selected frame, or ErrBufferTooSmall when the packet cannot fit.
 func (e *Encoder) EncodeInt16(pcm []int16, data []byte) (int, error) {
 	expected := e.apiFrameSize() * int(e.channels)
 	if len(pcm) != expected {
@@ -98,10 +103,12 @@ func (e *Encoder) encodeInt16Packet(pcm32 []float32, data []byte) (int, error) {
 	return copyEncodedPacket(packet, data)
 }
 
-// EncodeInt24 encodes interleaved signed 24-bit PCM into data. Each int32 in
-// pcm must be right-justified in the range [-8388608, 8388607], and pcm must
-// contain the configured frame size times Channels samples. len(data) is the
-// packet byte budget.
+// EncodeInt24 encodes one interleaved signed 24-bit PCM frame. Each int32 in
+// pcm must be right-justified in [-8388608, 8388607], and pcm must contain
+// exactly FrameSize()*Channels() samples. len(data) is both the packet byte
+// budget and destination. It returns the number of bytes written,
+// ErrInvalidFrameSize for invalid input geometry, or ErrBufferTooSmall when
+// the packet cannot fit.
 func (e *Encoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
 	channels := int(e.channels)
 	expected := e.apiFrameSize() * channels
@@ -141,24 +148,29 @@ func (e *Encoder) convertInt24ToFloat32(pcm []int32) []float32 {
 	return pcm32
 }
 
-// EncodeFloat32 encodes interleaved float32 PCM and returns an owned packet
-// slice.
+// EncodeFloat32 encodes one interleaved float32 PCM frame and returns a newly
+// allocated packet slice that remains valid across later Encode calls. pcm must
+// contain exactly FrameSize()*Channels() samples.
 func (e *Encoder) EncodeFloat32(pcm []float32) ([]byte, error) {
 	return encodeToOwnedPacket(maxPacketBytesPerStream, func(data []byte) (int, error) {
 		return e.Encode(pcm, data)
 	})
 }
 
-// EncodeInt16Slice encodes interleaved signed 16-bit PCM and returns an owned
-// packet slice.
+// EncodeInt16Slice encodes one interleaved signed 16-bit PCM frame and returns
+// a newly allocated packet slice that remains valid across later Encode calls.
+// pcm must contain exactly FrameSize()*Channels() samples; input is scaled by
+// 1/32768.
 func (e *Encoder) EncodeInt16Slice(pcm []int16) ([]byte, error) {
 	return encodeToOwnedPacket(maxPacketBytesPerStream, func(data []byte) (int, error) {
 		return e.EncodeInt16(pcm, data)
 	})
 }
 
-// EncodeInt24Slice encodes interleaved right-justified signed 24-bit PCM stored
-// in int32 values and returns an owned packet slice.
+// EncodeInt24Slice encodes one interleaved signed 24-bit PCM frame and returns
+// a newly allocated packet slice that remains valid across later Encode calls.
+// Each int32 sample must be right-justified in [-8388608, 8388607], and pcm
+// must contain exactly FrameSize()*Channels() samples.
 func (e *Encoder) EncodeInt24Slice(pcm []int32) ([]byte, error) {
 	return encodeToOwnedPacket(maxPacketBytesPerStream, func(data []byte) (int, error) {
 		return e.EncodeInt24(pcm, data)

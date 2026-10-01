@@ -5,12 +5,11 @@ const (
 	maxRepacketizerDuration48k = 5760 // 120ms at 48kHz
 )
 
-// Repacketizer accumulates Opus packet frames and emits new packets assembled
-// from any contiguous frame range.
-//
-// It mirrors libopus repacketizer behavior:
-//   - all added packets must share TOC bits 7..2,
-//   - total stored duration must not exceed 120ms.
+// Repacketizer copies frames from Opus packets and assembles packets from
+// contiguous frame ranges. Added packets must have the same TOC configuration
+// and channel flag (bits 7 through 2); their frame-count codes may differ. The
+// accumulator accepts at most 48 frames and 120 ms of audio. Repacketizer is not
+// safe for concurrent use.
 type Repacketizer struct {
 	toc       byte
 	frameSize int
@@ -19,7 +18,7 @@ type Repacketizer struct {
 	padFrames []int
 }
 
-// NewRepacketizer creates a new repacketizer state.
+// NewRepacketizer creates an empty repacketizer.
 func NewRepacketizer() *Repacketizer {
 	r := &Repacketizer{
 		frames:    make([][]byte, 0, maxRepacketizerFrames),
@@ -30,7 +29,7 @@ func NewRepacketizer() *Repacketizer {
 	return r
 }
 
-// Reset clears repacketizer state.
+// Reset discards all accumulated frames so the repacketizer can be reused.
 func (r *Repacketizer) Reset() {
 	r.toc = 0
 	r.frameSize = 0
@@ -39,12 +38,16 @@ func (r *Repacketizer) Reset() {
 	r.padFrames = r.padFrames[:0]
 }
 
-// NumFrames returns the number of frames currently accumulated.
+// NumFrames returns the number of accumulated audio frames, not the number of
+// packets passed to Cat.
 func (r *Repacketizer) NumFrames() int {
 	return len(r.frames)
 }
 
-// Cat adds one Opus packet to the repacketizer state.
+// Cat parses packet and copies its encoded frame data into the accumulator.
+// The caller may reuse packet after Cat returns. It returns an error for an
+// invalid packet, incompatible TOC configuration or channel flag, or an
+// accumulator that would exceed its frame-count or duration limits.
 func (r *Repacketizer) Cat(packet []byte) error {
 	if len(packet) < 1 {
 		return ErrInvalidPacket
@@ -91,7 +94,10 @@ func (r *Repacketizer) Cat(packet []byte) error {
 	return nil
 }
 
-// OutRange assembles frames [begin, end) into one Opus packet.
+// OutRange assembles the accumulated frame range [begin, end) into one Opus
+// packet. end is exclusive. data must have enough length for the output; the
+// returned count is the number of bytes written. It returns ErrInvalidArgument
+// for an empty or out-of-range range and ErrBufferTooSmall when data is short.
 func (r *Repacketizer) OutRange(begin, end int, data []byte) (int, error) {
 	if begin < 0 || begin >= end || end > len(r.frames) {
 		return 0, ErrInvalidArgument
@@ -103,15 +109,17 @@ func (r *Repacketizer) OutRange(begin, end int, data []byte) (int, error) {
 	return buildRepacketizedPacketWithOptions(r.toc&0xFC, r.frames[begin:end], data, 0, false, extensions)
 }
 
-// Out assembles all accumulated frames into one Opus packet.
+// Out assembles all accumulated frames into one Opus packet. data must have
+// enough length for the output packet; the returned count is the number of bytes
+// written.
 func (r *Repacketizer) Out(data []byte) (int, error) {
 	return r.OutRange(0, len(r.frames), data)
 }
 
-// PacketPad pads a packet in-place to newLen bytes.
-//
-// data must have capacity for at least newLen bytes.
-// length is the current packet length in data.
+// PacketPad pads a packet in place to exactly newLen bytes.
+// length is the current packet length in bytes. data must contain length bytes
+// and have capacity for newLen bytes. If len(data) is shorter, reslice the
+// caller's slice to newLen after success.
 func PacketPad(data []byte, length, newLen int) error {
 	if length < 1 || newLen < length {
 		return ErrInvalidArgument
@@ -144,7 +152,9 @@ func PacketPad(data []byte, length, newLen int) error {
 	return err
 }
 
-// PacketUnpad removes packet padding in-place and returns the new packet length.
+// PacketUnpad removes packet padding in place and returns the new packet length
+// in bytes. length is the current packet length; data must contain that many
+// bytes. Use data[:n] with the returned length n to access the unpadded packet.
 func PacketUnpad(data []byte, length int) (int, error) {
 	if length < 1 || length > len(data) {
 		return 0, ErrInvalidArgument

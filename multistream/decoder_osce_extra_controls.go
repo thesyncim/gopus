@@ -8,7 +8,9 @@ func (d *Decoder) OSCEModelsLoaded() bool {
 	return d.osceModelsLoaded
 }
 
-// OSCEBWEModelLoaded reports whether the retained blob contains the OSCE_BWE model family.
+// OSCEBWEModelLoaded reports whether the retained blob contains the OSCE_BWE
+// model family. OSCE methods in this file are available in builds tagged
+// gopus_osce.
 func (d *Decoder) OSCEBWEModelLoaded() bool {
 	return d.osceBWEModelLoaded
 }

@@ -8,7 +8,9 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
-// Application selects the encoder's intended use.
+// Application selects the encoder's operating profile. The standard profiles tune
+// encoding for speech, general audio, or low delay; the restricted profiles force
+// SILK-only or CELT-only encoding and can be selected only at construction.
 type Application int
 
 const (
@@ -88,7 +90,7 @@ const (
 	InBandFECMusicSafe = encoder.InBandFECMusicSafe
 )
 
-// EncoderConfig sets the sample rate, channel count, and application for an
+// EncoderConfig describes the input format and application profile for an
 // Encoder.
 type EncoderConfig struct {
 	// SampleRate must be 8000, 12000, 16000, 24000, or 48000 Hz.
@@ -96,13 +98,17 @@ type EncoderConfig struct {
 	SampleRate int
 	// Channels must be 1 (mono) or 2 (stereo).
 	Channels int
-	// Application hints the encoder for optimization.
+	// Application selects the operating profile. Its zero value, ApplicationVoIP,
+	// is used when the field is omitted. Restricted profiles force one coding mode
+	// and can be selected only when NewEncoder creates the encoder.
 	Application Application
 }
 
-// Encoder encodes interleaved PCM into Opus packets. It retains stream state and
-// is not safe for concurrent use; use one Encoder per stream. Encode and its
-// integer variants write packet data into the caller's buffer.
+// Encoder encodes one interleaved PCM stream into Opus packets. Construct it
+// with NewEncoder; the zero value is not ready for use. Encoder retains codec
+// state across calls and is not safe for concurrent use, so use one Encoder per
+// stream. Encode, EncodeInt16, and EncodeInt24 write packets into caller-provided
+// buffers; the Slice methods return owned packet slices.
 type Encoder struct {
 	enc                 *encoder.Encoder
 	sampleRate          int32
@@ -118,9 +124,11 @@ type Encoder struct {
 	encoderHD96kFields
 }
 
-// NewEncoder returns an Encoder configured by cfg. The initial target bitrate
-// is 64,000 bits per second. It returns an error if the sample rate, channel
-// count, or application is invalid.
+// NewEncoder returns an initialized Encoder for cfg. Its configured frame size
+// starts at 20 ms and its target bitrate starts at 64,000 bits per second. A
+// zero-valued Application selects ApplicationVoIP. It returns
+// ErrInvalidSampleRate, ErrInvalidChannels, or ErrInvalidApplication when cfg
+// contains an unsupported value.
 func NewEncoder(cfg EncoderConfig) (*Encoder, error) {
 	if !validSampleRate(cfg.SampleRate) {
 		return nil, ErrInvalidSampleRate

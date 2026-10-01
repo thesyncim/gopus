@@ -54,8 +54,10 @@ type WriterConfig struct {
 // to a one-off heap buffer.
 const oggPageScratchSize = 4096
 
-// Writer writes Opus packets to an Ogg stream. It retains page and granule
-// state and is not safe for concurrent use.
+// Writer writes Opus packets to an Ogg stream, retaining page and granule state.
+// It writes directly to the supplied io.Writer without buffering and is not
+// safe for concurrent use. Close writes the EOS page but does not flush or close
+// the underlying writer.
 type Writer struct {
 	w           io.Writer
 	config      WriterConfig
@@ -100,11 +102,15 @@ func NewWriter(w io.Writer, sampleRate uint32, channels uint8) (*Writer, error) 
 }
 
 // NewWriterWithConfig returns a Writer configured by config and writes its
-// OpusHead and OpusTags pages before returning. It supports mapping families 0,
-// 1, 2, 3, and 255. Nonzero mapping families require a nonzero stream count,
-// coupled streams no greater than streams, and at most 255 decoded stream
-// channels. A family-3 demixing matrix must have 2*Channels*(StreamCount+
-// CoupledCount) bytes when supplied.
+// OpusHead and OpusTags pages before returning. Mapping family 0 permits one or
+// two channels. Nonzero families require a nonzero stream count, no more coupled
+// streams than streams, and at most 255 decoded stream channels. Nonzero
+// families other than 3 require a channel-mapping entry per output channel.
+// Family 3 accepts a demixing matrix of 2*Channels*(StreamCount+CoupledCount)
+// bytes, or emits a default projection matrix when available and an identity
+// matrix otherwise.
+// Errors from the underlying writer are returned; a failed write may already
+// have written part of a header page.
 func NewWriterWithConfig(w io.Writer, config WriterConfig) (*Writer, error) {
 	if w == nil {
 		return nil, ErrNilWriter
@@ -294,8 +300,13 @@ func (ow *Writer) writePage(payload []byte, headerType byte) error {
 	return nil
 }
 
-// WritePacket writes packet and advances the granule position by samples, the
-// packet duration in samples per channel at 48 kHz (960 for a 20 ms frame).
+// WritePacket writes packet as one audio page and advances the granule position
+// by samples, the nonnegative packet duration in samples per channel at 48 kHz
+// (960 for a 20 ms frame). The Writer does not parse packet or validate samples,
+// so callers must supply a valid nonnegative duration. On a page-write error the
+// granule position is restored, but the underlying writer may have received a
+// partial page; a short write without an error is reported as io.ErrShortWrite.
+// Calling WritePacket after Close returns ErrUnexpectedEOS.
 func (ow *Writer) WritePacket(packet []byte, samples int) error {
 	if ow.closed {
 		return ErrUnexpectedEOS
@@ -322,8 +333,11 @@ func (ow *Writer) WritePacket(packet []byte, samples int) error {
 	return nil
 }
 
-// Close writes an end-of-stream page and marks the Writer closed. It does not
-// close the underlying io.Writer. A closed Writer cannot write more packets.
+// Close writes a packetless end-of-stream page and marks the Writer closed. It
+// does not flush or close the underlying io.Writer; callers must flush or close
+// any wrapped buffered writer themselves. A successful repeated Close is a
+// no-op. If writing the EOS page fails, Close returns the error and leaves the
+// Writer open, although the sink may already contain part of that page.
 func (ow *Writer) Close() error {
 	if ow.closed {
 		return nil
@@ -348,7 +362,9 @@ func (ow *Writer) GranulePos() uint64 {
 	return ow.granulePos
 }
 
-// PageCount returns the number of pages written so far.
+// PageCount returns the number of pages successfully written in full. A page
+// that returns a write error is not counted, even if the underlying writer
+// accepted some of its bytes.
 func (ow *Writer) PageCount() uint32 {
 	return ow.pageSeq
 }

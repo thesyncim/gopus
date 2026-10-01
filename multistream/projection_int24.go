@@ -2,10 +2,11 @@ package multistream
 
 import "github.com/thesyncim/gopus/internal/opusmath"
 
-// DecodeToInt24 decodes a packet into caller-owned interleaved signed 24-bit
-// PCM stored right-justified in int32 values. frameSize is the maximum number
-// of samples per channel at SampleRate; requests above 120 ms are capped, and
-// nil or empty data requests PLC.
+// DecodeToInt24 returns newly allocated interleaved signed 24-bit PCM stored
+// right-justified in int32 values. frameSize is the maximum number of samples
+// per channel at SampleRate; requests above 120 ms are capped. A packet returns
+// its actual duration, and nil or empty data requests PLC for the capped
+// frameSize.
 func (d *Decoder) DecodeToInt24(data []byte, frameSize int) ([]int32, error) {
 	if frameSize <= 0 {
 		return nil, ErrInvalidPacket
