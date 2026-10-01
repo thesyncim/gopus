@@ -97,14 +97,15 @@ func (r *Repacketizer) Cat(packet []byte) error {
 // OutRange assembles the accumulated frame range [begin, end) into one Opus
 // packet. end is exclusive. data must have enough length for the output; the
 // returned count is the number of bytes written. It returns ErrInvalidArgument
-// for an empty or out-of-range range and ErrBufferTooSmall when data is short.
+// for an empty or out-of-range range, ErrInternalError for malformed packet
+// extensions, and ErrBufferTooSmall when data is short.
 func (r *Repacketizer) OutRange(begin, end int, data []byte) (int, error) {
 	if begin < 0 || begin >= end || end > len(r.frames) {
 		return 0, ErrInvalidArgument
 	}
 	extensions, err := r.collectExtensions(begin, end)
 	if err != nil {
-		return 0, err
+		return 0, ErrInternalError
 	}
 	return buildRepacketizedPacketWithOptions(r.toc&0xFC, r.frames[begin:end], data, 0, false, extensions)
 }
@@ -119,7 +120,8 @@ func (r *Repacketizer) Out(data []byte) (int, error) {
 // PacketPad pads a packet in place to exactly newLen bytes.
 // length is the current packet length in bytes. data must contain length bytes
 // and have capacity for newLen bytes. If len(data) is shorter, reslice the
-// caller's slice to newLen after success.
+// caller's slice to newLen after success. It returns ErrInternalError when
+// packet extension data cannot be collected.
 func PacketPad(data []byte, length, newLen int) error {
 	if length < 1 || length > len(data) || newLen < length {
 		return ErrInvalidArgument
@@ -142,7 +144,7 @@ func PacketPad(data []byte, length, newLen int) error {
 
 	extensions, err := parsePacketExtensionList(padding, paddingFrameCount)
 	if err != nil {
-		return err
+		return ErrInternalError
 	}
 
 	_, err = buildRepacketizedPacketWithOptions(src[0]&0xFC, frames, data, newLen, true, extensions)

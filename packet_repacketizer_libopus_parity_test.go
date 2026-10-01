@@ -15,6 +15,7 @@ package gopus
 //   - TOC-mismatch and over-duration rejection parity
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
 	"testing"
@@ -248,6 +249,129 @@ func TestRepacketizerByteExactMatchesLibopus(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestMalformedPacketExtensionErrorsMatchLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	malformed := mustDecodeHex(t, "4b4102112233ffff")
+	valid := []byte{0x48, 0x44}
+	cases := []repacketizerOracleCase{
+		{
+			name:      "extension_out_range_adequate_buffer",
+			packets:   [][]byte{malformed},
+			begin:     0,
+			end:       1,
+			maxlen:    64,
+			padNewLen: 16,
+		},
+		{
+			name:      "extension_out_range_short_buffer",
+			packets:   [][]byte{malformed},
+			begin:     0,
+			end:       1,
+			maxlen:    1,
+			padNewLen: 16,
+		},
+		{
+			name:      "extension_out_range_invalid_range",
+			packets:   [][]byte{malformed},
+			begin:     1,
+			end:       1,
+			maxlen:    64,
+			padNewLen: 16,
+		},
+		{
+			name:      "extension_out_range_skips_malformed_frame",
+			packets:   [][]byte{malformed, valid},
+			begin:     1,
+			end:       2,
+			maxlen:    64,
+			padNewLen: 16,
+		},
+	}
+	want, err := probeLibopusRepacketizer(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "repacketizer", err)
+	}
+	for i, tc := range cases {
+		if want[i].catRet != 0 {
+			t.Fatalf("libopus %s cat ret=%d, want 0", tc.name, want[i].catRet)
+		}
+		if want[i].padRet != -3 {
+			t.Errorf("libopus %s PacketPad ret=%d, want OPUS_INTERNAL_ERROR (-3)", tc.name, want[i].padRet)
+		}
+	}
+	if want[0].outRet != -3 || want[1].outRet != -3 {
+		t.Fatalf("libopus OutRange malformed extension: adequate=%d short=%d, want -3 for both", want[0].outRet, want[1].outRet)
+	}
+	if want[2].outRet != -1 {
+		t.Fatalf("libopus OutRange invalid range ret=%d, want OPUS_BAD_ARG (-1)", want[2].outRet)
+	}
+	if want[3].outRet != int32(len(valid)) || !bytes.Equal(want[3].outBytes, valid) {
+		t.Fatalf("libopus OutRange after malformed frame: ret=%d bytes=%x, want %x", want[3].outRet, want[3].outBytes, valid)
+	}
+
+	if _, err := parsePacketExtensionList([]byte{0xff, 0xff}, 1); err != ErrInvalidPacket {
+		t.Fatalf("parsePacketExtensionList malformed data err=%v, want ErrInvalidPacket", err)
+	}
+
+	rp := NewRepacketizer()
+	if err := rp.Cat(malformed); err != nil {
+		t.Fatalf("Cat malformed-extension packet: %v", err)
+	}
+	if got := rp.NumFrames(); got != 1 {
+		t.Fatalf("NumFrames after Cat=%d, want 1", got)
+	}
+
+	for _, tc := range []struct {
+		name      string
+		begin     int
+		end       int
+		outLen    int
+		wantError error
+	}{
+		{name: "adequate output", begin: 0, end: 1, outLen: 64, wantError: ErrInternalError},
+		{name: "short output", begin: 0, end: 1, outLen: 1, wantError: ErrInternalError},
+		{name: "invalid range", begin: 1, end: 1, outLen: 64, wantError: ErrInvalidArgument},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := bytes.Repeat([]byte{0xa5}, tc.outLen)
+			before := append([]byte(nil), out...)
+			n, err := rp.OutRange(tc.begin, tc.end, out)
+			if n != 0 || err != tc.wantError {
+				t.Fatalf("OutRange(%d,%d)=(%d,%v), want (0,%v)", tc.begin, tc.end, n, err, tc.wantError)
+			}
+			if !bytes.Equal(out, before) {
+				t.Fatalf("OutRange(%d,%d) changed output on error: got %x want %x", tc.begin, tc.end, out, before)
+			}
+			if got := rp.NumFrames(); got != 1 {
+				t.Fatalf("OutRange(%d,%d) changed NumFrames to %d, want 1", tc.begin, tc.end, got)
+			}
+		})
+	}
+
+	pad := bytes.Repeat([]byte{0xa5}, 16)
+	copy(pad, malformed)
+	padBefore := append([]byte(nil), pad...)
+	if err := PacketPad(pad, len(malformed), len(pad)); err != ErrInternalError {
+		t.Fatalf("PacketPad malformed extension err=%v, want ErrInternalError", err)
+	}
+	if !bytes.Equal(pad, padBefore) {
+		t.Fatalf("PacketPad changed output on error: got %x want %x", pad, padBefore)
+	}
+
+	if err := rp.Cat(valid); err != nil {
+		t.Fatalf("Cat valid packet after extension errors: %v", err)
+	}
+	out := make([]byte, 64)
+	n, err := rp.OutRange(1, 2, out)
+	if err != nil {
+		t.Fatalf("OutRange valid frame after malformed frame: %v", err)
+	}
+	if !bytes.Equal(out[:n], want[3].outBytes) {
+		t.Fatalf("OutRange valid continuation=%x, want libopus %x", out[:n], want[3].outBytes)
 	}
 }
 

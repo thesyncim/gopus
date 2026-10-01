@@ -1494,5 +1494,27 @@
       "TestLibopus_MSRecovery_FECEnabledPLCSILKGap51"
     ],
     "source_review": "TestLibopus_MSRecovery_FECEnabledPLCSILKGap51 encodes 6-channel SILK packets with in-band FEC enabled, replaces packet 5 with nil, and decodes every entry with decode_fec=0. The live C sequence and Go path compare the resulting PLC-gap PCM; the test retains exact sample and waveform-quality checks."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/examples/ogg-file",
+    "baseline_tests": [
+      "TestCreateOggFileRejectsLessThanOneFrame"
+    ],
+    "required_candidate_tests": [
+      "TestCreateOggFileRejectsInvalidOrSubsampleDurations",
+      "TestCreateOggFilePreservesPartialAndSubframeDurations/shorter_than_one_frame"
+    ],
+    "source_review": "The Opus file example supports subframe input durations by padding through encoder lookahead and trimming the final granule. The rejection replacement requires invalid, nonfinite, and sub-sample durations to fail before creating output. The subframe replacement requires 5 ms of input to produce exactly 240 playable samples after pre-skip. Both replacements must pass."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/examples/ffmpeg-interop",
+    "baseline_tests": [
+      "TestEncodeTestSignalRejectsLessThanOneFrame"
+    ],
+    "required_candidate_tests": [
+      "TestEncodeTestSignalRejectsInvalidOrSubsampleDurations",
+      "TestEncodeTestSignalPreservesPlayableDuration/shorter_than_one_frame"
+    ],
+    "source_review": "The Opus file example supports subframe input durations by padding through encoder lookahead and trimming the final granule. The rejection replacement requires invalid, nonfinite, and sub-sample durations to fail before creating output. The subframe replacement requires 5 ms of input to produce exactly 240 playable samples after pre-skip. Both replacements must pass."
   }
 ]

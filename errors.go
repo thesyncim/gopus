@@ -92,6 +92,11 @@ var (
 	// ErrInvalidArgument indicates one or more function arguments are invalid.
 	ErrInvalidArgument = errors.New("gopus: invalid argument")
 
+	// ErrInternalError indicates malformed packet extensions prevent a packet
+	// operation from collecting extension data. Repacketizer.OutRange and
+	// PacketPad return it for this extension-processing failure.
+	ErrInternalError = errors.New("gopus: internal error")
+
 	// ErrNilPacketReader indicates a nil PacketReader was supplied to NewReader.
 	ErrNilPacketReader = errors.New("gopus: nil packet reader")
 
