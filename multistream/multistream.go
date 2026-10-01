@@ -174,6 +174,11 @@ func (d *Decoder) decodeToFloat32Into(data []byte, frameSize int, applyProjectio
 	// sets do_plc=1 for len==0 (opus_multistream_decoder.c:213), concealing the
 	// requested frame size exactly as for a NULL packet.
 	if len(data) == 0 {
+		// opus_decode_native rejects PLC sizes that are not a multiple of 2.5 ms
+		// before advancing decoder state (opus_decoder.c:733).
+		if frameSize%(int(d.sampleRate)/400) != 0 {
+			return 0, ErrInvalidPacket
+		}
 		n, err := d.decodePLCToFloat32Into(frameSize, applyProjection, output)
 		if err == nil && extsupport.DREDRuntime && d.dredSidecarActive() {
 			d.markDREDConcealedAll()
