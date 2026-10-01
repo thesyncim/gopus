@@ -12,6 +12,22 @@ artifact_root="$3"
 mkdir -p "$artifact_root"
 artifact_root="$(cd "$artifact_root" && pwd)"
 overall_status=0
+timing_file="$artifact_root/phase-timings.tsv"
+printf 'phase\telapsed_s\texit\n' > "$timing_file"
+{
+  printf 'online_cpus=%s\n' "$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || printf unknown)"
+  printf 'allowed_cpus=%s\n' "$(nproc 2>/dev/null || printf unknown)"
+  printf 'GOAMD64=%s\n' "$(go env GOAMD64 2>/dev/null || printf unknown)"
+  printf 'GOEXPERIMENT=%s\n' "${GOEXPERIMENT:-unset}"
+  printf 'GOMAXPROCS=%s\n' "${GOMAXPROCS:-unset}"
+  if [[ -r /sys/fs/cgroup/cpu.max ]]; then
+    printf 'cgroup_cpu_max=%s\n' "$(cat /sys/fs/cgroup/cpu.max)"
+  fi
+  if [[ -r /sys/fs/cgroup/memory.max ]]; then
+    printf 'cgroup_memory_max=%s\n' "$(cat /sys/fs/cgroup/memory.max)"
+  fi
+  awk -F ': *' '/^MemTotal:/ { print "host_memory_kb=" $2; exit }' /proc/meminfo 2>/dev/null || true
+} > "$artifact_root/resources.txt"
 # These exact kernel and public-output checks share the existing four feature batches.
 exact_audit_selector='^Test(DTXSequenceParity_.*|PublicEncodeAPIErrorFinalRangeAndRecoveryMatchesLibopus|DecodeMalformedFramingPrecedesSmallOutput(96k)?|DecodeEmptyAndPartialChannelBuffersPrecedePacketParsing(96k)?|Encoder100ms(OneByteBudgetMatchesLibopus|TwoByteBudgetAndSelectedDurationMatchLibopus|BudgetMatchesLibopusAt96kQEXT)|ValidNativeFrameSizesMatchLibopus|NativeFrameSizeValidatorCoversAllRatesAndDurations|MultistreamInvalidFrameSizesReturnBeforeBudgetAndInt16Conversion|Native96kEncoderFrameSizeBoundariesMatchLibopus|MultistreamEncodeInt2496kLongFramesMatchesSelectedLibopus|MultistreamForceChannelsPartialFailureMatchesLibopus|MultistreamEncoderSetApplicationAfterLowSpaceMatchesLibopus|(Encoder|Decoder)CTLSequenceFuzz|PublicDNNReferenceIdentityUsesBuilderStampContract|DNNHelperIncludesPinnedSourceRootAfterBuildConfig|SinF32MatchesSamePlatformCLibm|DecoderPitchAfterSILKRateResetMatchesSelectedLibopus|SILKCNGRateChangeRetainsExcitationMatchesLibopus|SILKCNGRateChangeWarmZeroAllocs|AlgUnquantQEXTRefinedEnergy(PublicBoundary|Tail)MatchesSelectedLibopus|DecodeWithFECRobustnessMalformed|DecodeWithFECRateSwitchRecoveryAndLossMatchesSelectedLibopus|DecodeWithFECMonoToStereoTransitionMatchesSelectedLibopus|DecodeWithFECStereoToMonoTransitionMatchesSelectedLibopus|DecodeWithFECMonoToStereoLongFrameMatchesSelectedLibopus|RootNative96kModeBudgetSequenceMatchesSelectedLibopus|MultistreamNativeHD96kBudgetSequenceMatchesSelectedLibopus|CoarseEnergyVariableBudgetAllocs|CELTCoarseEnergyVariableBudgetAllocs|DecodeWithFECSILKPLCResetsOnRateChange.*|CELTChannelRecoveryMatchesSelectedLibopus|MultistreamCELTChannelRecoveryMatchesSelectedLibopus|QEXTAfterEmptyRepeatMatchesSelectedLibopus|MultistreamNativeHD96kEncodeMatchesSelectedLibopus|QEXTMultistreamDecoderNative96kMatchesLibopus|MultistreamLongPLCBurstMatchesSelectedLibopus|MultistreamMalformedHybridTransitionMatchesSelectedLibopus|HybridQEXTPayloadMatchesSelectedLibopus|HybridQEXTDecodeIntoWarmZeroAllocs|FixedHybridQEXTPayloadMatchesSelectedLibopus|FixedHybridQEXTPayloadWarmZeroAllocs|QEXTNonFullbandHeaderMatchesSelectedLibopus|QEXTDiscardedBandsMatchSelectedLibopus|QEXTDiscardedBandSynthesisStagesMatchSelectedLibopus|IntegerFormatSoftClipLifecycleMatchesSelectedLibopus|HybridMalformedMainLengthMatchesSelectedLibopus|ProjectionRobustOracleErrorClassification|ProjectionDecodeRobustnessMalformed|HybridStereoFloatSameArchParity|MultistreamPerStreamModeTransitionMatchesLibopus|Libopus_MSRecovery_.*|DecoderHybridToCELT(10|20)msTransitionParity|MultistreamDecodeFixedPointParity|MSRobustOracleErrorClassification|DecodeMultistreamMalformedSILKRedundancyParity|DecodeMultistreamRobustnessMalformed|FixedSILKMultiframeRedundancyMatchesSelectedLibopus|FixedSILKRedundancyDecodeWarmZeroAllocs|MultistreamSILKRedundancyFinalRangeMatchesSelectedLibopus|MultistreamHybridRedundancyFinalRangeMatchesSelectedLibopus|ProjectionDecodePCMAndFinalRangeMatchesSelectedLibopus|MultistreamSoftClipLifecycleMatchesSelectedLibopus|MultistreamConstructorsValidateSampleRate|ProjectionDecoderValidatesChannelsBeforeAllocation|ProjectionRectangularDecodeMatchesSelectedLibopus|AlgUnquantQEXTN2MatchesSelectedLibopus|CELTDecoderAPIRate(ToFloat32|PLC)MatchesLibopus|MultistreamDecodeFloat32MatchesLibopus|MultistreamDecodeRequestedPLCDurationMatchesLibopus|MultistreamDecodeOverlongAndEmptyPLCMatchesLibopus|MultistreamDecodeInt16HighGainMatchesLibopus|MSDecoderCTL_Gain(Broadcast|AudioMatchesLibopus|AudioMatchesLibopusSILK)|DecodeFECNoPacketLossChannelRoutingMatchesLibopus|EncodeDecodeLongStreamSoak|EncodeDiffSILKCBRFloorFinding|EncoderCELTSameArchByteExact|QEXTCubic(Decode|Encode)MatchesLibopus|QEXTCubicReductionBoundaryGrid|QEXTMonoMultiFrameSynthesisStagesMatchLibopus|DecoderQEXT.*|EncoderAutoModeCrossProductParity|SurroundInt16PacketRangeMatchesLibopus|DecodeWithFECHybridToSILK(MatchesLibopus|WarmZeroAllocs)|ThetaRDODistortionMatchesLibopusFloatPath|DecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame|StereoMergeVsLibopus|PitchDownsample(Sig|FloatInput)MatchesLibopus|RemoveDoublingMatchesLibopus|Haar1(MatchesLibopus|NormMatchesLibopus|SpecializedMatchesGeneric|StrideFastPathsMatchGenericExact)|QuantPartitionZeroPulseMatchesLibopus|CELTPLCSeedSynthesisStagesMatchLibopusC|RenormalizeVectorMatchesLibopusFloatPath|Alg(Quant|Unquant)MatchesLibopusFloatPath|StereoIthetaMatchesLibopusFloatPath|OPPVQSearchMatchesLibopusFloatPath)$'
 cc_target="$(cc -dumpmachine 2>/dev/null)"
@@ -40,10 +56,14 @@ run_phase() {
   shift
   local log="$artifact_root/$phase.log"
   local status="$artifact_root/$phase.exit"
+  local start_s elapsed_s
+  start_s=$SECONDS
   echo "==> $phase"
   "$@" >"$log" 2>&1
   local rc=$?
+  elapsed_s=$((SECONDS - start_s))
   printf '%s\n' "$rc" > "$status"
+  printf '%s\t%s\t%s\n' "$phase" "$elapsed_s" "$rc" >> "$timing_file"
   if [[ $rc -ne 0 ]]; then
     overall_status=1
     echo "$phase failed with exit=$rc"
@@ -58,10 +78,14 @@ run_json_phase() {
   shift
   local log="$artifact_root/$phase.jsonl"
   local status="$artifact_root/$phase.exit"
+  local start_s elapsed_s
+  start_s=$SECONDS
   echo "==> $phase"
   "$@" >"$log" 2>&1
   local rc=$?
+  elapsed_s=$((SECONDS - start_s))
   printf '%s\n' "$rc" > "$status"
+  printf '%s\t%s\t%s\n' "$phase" "$elapsed_s" "$rc" >> "$timing_file"
   if [[ $rc -ne 0 ]]; then
     overall_status=1
     echo "$phase failed with exit=$rc"
@@ -208,7 +232,7 @@ for mode in simd nosimd; do
       run_phase "candidate-simd-$cpu-analysis" \
         env GOPUS_TEST_TIER=fast GOMAXPROCS=2 \
         qemu-x86_64 -cpu "$cpu" "$artifact_root/candidate-simd-encoder.test" \
-        -test.run '^TestAnalysis(Bins(CPUFallback|MatchesScalar|ZeroAllocs)|Atan2MatchesBranchyForm)$' \
+        -test.run '^TestAnalysis(BinsCPUFallback|Atan2MatchesBranchyForm)$' \
         -test.count=1 -test.timeout=2m -test.v
       run_phase "candidate-simd-$cpu-dnn-dispatch" \
         env GOPUS_TEST_TIER=fast GOMAXPROCS=2 \

@@ -10,6 +10,22 @@ baseline_root="$(cd "$1" && pwd)"
 candidate_root="$(cd "$2" && pwd)"
 artifact_root="$3"
 mkdir -p "$artifact_root"
+timing_file="$artifact_root/phase-timings.tsv"
+printf 'phase\telapsed_s\texit\n' > "$timing_file"
+{
+  printf 'online_cpus=%s\n' "$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || printf unknown)"
+  printf 'allowed_cpus=%s\n' "$(nproc 2>/dev/null || printf unknown)"
+  printf 'GOAMD64=%s\n' "$(go env GOAMD64 2>/dev/null || printf unknown)"
+  printf 'GOEXPERIMENT=%s\n' "${GOEXPERIMENT:-unset}"
+  printf 'GOMAXPROCS=%s\n' "${GOMAXPROCS:-unset}"
+  if [[ -r /sys/fs/cgroup/cpu.max ]]; then
+    printf 'cgroup_cpu_max=%s\n' "$(cat /sys/fs/cgroup/cpu.max)"
+  fi
+  if [[ -r /sys/fs/cgroup/memory.max ]]; then
+    printf 'cgroup_memory_max=%s\n' "$(cat /sys/fs/cgroup/memory.max)"
+  fi
+  awk -F ': *' '/^MemTotal:/ { print "host_memory_kb=" $2; exit }' /proc/meminfo 2>/dev/null || true
+} > "$artifact_root/resources.txt"
 
 printf 'runner_os=%s\nrunner_arch=%s\ngo=%s\ncc=%s\n' \
   "$(uname -s)" \
@@ -27,11 +43,15 @@ run_phase() {
   shift 3
   local log="$artifact_root/$side-$phase.log"
   local status="$artifact_root/$side-$phase.exit"
+  local start_s elapsed_s
 
+  start_s=$SECONDS
   echo "==> $side: $phase"
   (cd "$root" && "$@") >"$log" 2>&1
   local rc=$?
+  elapsed_s=$((SECONDS - start_s))
   printf '%s\n' "$rc" > "$status"
+  printf '%s\t%s\t%s\n' "$side-$phase" "$elapsed_s" "$rc" >> "$timing_file"
   echo "$side $phase exit=$rc"
   return 0
 }
@@ -158,7 +178,7 @@ run_mode() {
     if [[ "$mode" != nosimd ]]; then
       run_phase "$side" "$root" "$mode-kernel-benchmarks" \
         "${env_args[@]}" \
-        go test "${cbr_tags[@]}" ./internal/celt ./internal/silk \
+        go test "${cbr_tags[@]}" -p=1 ./internal/celt ./internal/silk \
           -run '^$' \
           -bench '^(BenchmarkInnerProd8FMA32|BenchmarkXcorrF32|BenchmarkInnerProductFLP|BenchmarkCeltPitchXcorrFloat|BenchmarkXcorrKernelFloat|BenchmarkXcorrKernelAVX8|BenchmarkPortAMD64)' \
           -benchtime=300ms -benchmem -count=5 -timeout=20m

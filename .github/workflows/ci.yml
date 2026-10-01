@@ -131,7 +131,7 @@ jobs:
     needs:
       - changes
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -149,6 +149,12 @@ jobs:
         env:
           GOPUS_LIBOPUS_REF_SCALAR: "1"
         run: make test-fast
+
+      - name: Run external-consumer smoke gate
+        run: make test-consumer-smoke
+
+      - name: Run examples smoke gate
+        run: make test-examples-smoke
 
   test-linux-parity:
     name: test-linux-parity
@@ -222,12 +228,13 @@ jobs:
 
       - name: Install codec tools (if missing)
         run: |
-          if command -v ffmpeg >/dev/null 2>&1 && command -v opusdec >/dev/null 2>&1; then
-            echo "ffmpeg and opusdec already present; skipping apt install"
-            exit 0
+          if command -v opusdec >/dev/null 2>&1; then
+            echo "opusdec already present; skipping apt install"
+          else
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends opus-tools
           fi
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg opus-tools
+          command -v opusdec
 
       - name: Run opus_demo end-to-end conformance gate
         run: make test-conformance
@@ -406,44 +413,6 @@ jobs:
 
       - name: Run fuzz smoke gate
         run: make test-fuzz-smoke
-
-  test-linux-consumer-smoke:
-    name: test-linux-consumer-smoke
-    needs:
-      - changes
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Run external-consumer smoke gate
-        run: make test-consumer-smoke
-
-  test-linux-examples-smoke:
-    name: test-linux-examples-smoke
-    needs:
-      - changes
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Run examples smoke gate
-        run: make test-examples-smoke
 
   test-linux-dnn-blob-parity:
     name: test-linux-dnn-blob-parity
@@ -944,8 +913,6 @@ jobs:
       - test-linux-provenance
       - test-linux-flake
       - test-linux-fuzz-smoke
-      - test-linux-consumer-smoke
-      - test-linux-examples-smoke
       - test-linux-dnn-blob-parity
       - test-linux-dred-tag
       - test-linux-qext-parity
@@ -968,8 +935,6 @@ jobs:
           echo "test-linux-provenance: ${{ needs.test-linux-provenance.result }} (required on push)"
           echo "test-linux-flake: ${{ needs.test-linux-flake.result }} (required on push)"
           echo "test-linux-fuzz-smoke: ${{ needs.test-linux-fuzz-smoke.result }}"
-          echo "test-linux-consumer-smoke: ${{ needs.test-linux-consumer-smoke.result }}"
-          echo "test-linux-examples-smoke: ${{ needs.test-linux-examples-smoke.result }}"
           echo "test-linux-dnn-blob-parity: ${{ needs.test-linux-dnn-blob-parity.result }}"
           echo "test-linux-dred-tag: ${{ needs.test-linux-dred-tag.result }}"
           echo "test-linux-qext-parity: ${{ needs.test-linux-qext-parity.result }}"
@@ -998,12 +963,6 @@ jobs:
             exit 1
           fi
           if [ "${{ needs.test-linux-fuzz-smoke.result }}" != "success" ]; then
-            exit 1
-          fi
-          if [ "${{ needs.test-linux-consumer-smoke.result }}" != "success" ]; then
-            exit 1
-          fi
-          if [ "${{ needs.test-linux-examples-smoke.result }}" != "success" ]; then
             exit 1
           fi
           if [ "${{ needs.test-linux-dnn-blob-parity.result }}" != "success" ]; then
