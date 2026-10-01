@@ -68,8 +68,8 @@ func encodeDecode(pcm []float32) (packet []byte, decodedSamples int, err error) 
 		return nil, 0, fmt.Errorf("new decoder: %w", err)
 	}
 
-	// The output buffer must have room for the largest packet the decoder may
-	// emit: MaxPacketSamples per channel. Decode returns samples per channel.
+	// Reserve room for the largest decoded frame allowed by cfg:
+	// MaxPacketSamples per channel. Decode returns samples per channel.
 	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 	n, err := dec.Decode(packet, pcmOut)
 	if err != nil {

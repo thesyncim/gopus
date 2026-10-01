@@ -558,13 +558,11 @@ ordinary v3 cross-builds pass. Native capture includes all selected MDCT calls w
 and traced streams agree. No substitute frame or forced codec mode establishes
 parity.
 
-The recorded v3 packet and decoder selections are exact in both instruction
-lanes. The first-chunk phase, tone and recurrent-network source checks are also
-exact. Wider analyzer-history and signal-specific state checks still expose
-differences. These checks retain exact assertions; no numerical allowance
-classifies those differences.
-Passing the packet corpus does not establish equality for every input or
-internal analyzer state.
+The packet, decoder and first-chunk analyzer selections above are exact at
+`c49e25c77`. The complete 200-case analyzer-history sweep, stereo-width state
+and SILK sidecar sequence pass both matched lanes at `bce51d66f`; see
+[analyzer history and getter](#analyzer-history-and-getter-on-amd64-v3).
+These results describe their recorded inputs and configurations.
 
 The following regression risks have executable coverage in the stated lanes.
 They describe what the tests guard against; unresolved results are called out
@@ -784,6 +782,27 @@ transition checkpoint. The complete native AMD64 SIMD package sweep at
 `c6dfb561` passes alongside the targeted scalar/SIMD feature matrix. Quality-only
 assertions remain separate from exactness proof.
 
+### Frozen opusdec inputs
+
+The [frozen Ogg inputs](../internal/celt/testdata/opusdec_frozen_inputs) cover all
+11 scenario names and 11 of the 18 hashes in `expected_pcm.json`; the other
+seven hash aliases are archived expectations without replay inputs.
+`expected_pcm.json` copies `opusdec_crossval_fixture_linux_amd64.json` at
+`9056116d76671601da7a0e7916bd5c2d21880631` byte for byte, with SHA-256
+`61290ea23a385524b31ff43ee289fe94181df4a19712ef0da67788a5760b03c2`.
+The original fixture path is the platform generator's output; the frozen copy
+holds the decoder expectations for these inputs.
+
+The unmodified capture manifest has SHA-256
+`a4ad202c90010efc05c4a138a197b04336b4a8d4766362f04e7623bb4040b3f0`.
+[Recovery run 36274171857](https://github.com/thesyncim/gopus/actions/runs/36274171857)
+uses the recorded encoder revision, Go version and native AMD64 features and
+requires every emitted Ogg hash to match an archived entry. Its producer
+packages are libopus `1.4-1build1`, opus-tools `0.2-1build3` and libopusfile
+`0.12-4build3`. The JSON's hardcoded `libopus_version: 1.6.1` does not identify
+that producer. These inputs establish opusdec compatibility; matched live
+libopus 1.6.1 oracles establish codec parity.
+
 ### Correctness cost outside the assembly inventory
 
 The ARM64 transient-analysis recurrence uses the selected C two-state update.
@@ -827,8 +846,8 @@ The unmodified source is extracted from `tmp_check/opus-1.6.1.tar.gz` into
 Configure with Clang and:
 
 ```sh
-CFLAGS='-O1 -g -fsanitize=address -fno-omit-frame-pointer -ffp-contract=off -fno-vectorize -fno-slp-vectorize'
-LDFLAGS='-fsanitize=address'
+export CFLAGS='-O1 -g -fsanitize=address -fno-omit-frame-pointer -ffp-contract=off -fno-vectorize -fno-slp-vectorize'
+export LDFLAGS='-fsanitize=address'
 ./configure --enable-custom-modes --enable-qext --disable-asm \
   --disable-rtcd --disable-intrinsics --enable-static --disable-shared
 make -j4
@@ -851,7 +870,7 @@ Local evidence:
 
 Checked on 2026-09-28 against upstream `main`, commit
 [`503d81b138d76621aae4b12786e90de48aa8db3a`](https://github.com/xiph/opus/commit/503d81b138d76621aae4b12786e90de48aa8db3a),
-dated 2026-09-11. The latest source retains the same
+dated 2026-09-11. That revision retains the same
 [history read](https://github.com/xiph/opus/blob/503d81b138d76621aae4b12786e90de48aa8db3a/celt/celt_decoder.c#L983),
 2048-sample buffer, frame-size acceptance and scale selection. No fix is present
 in these paths. The sanitizer reproduction above uses pinned 1.6.1, not a build
@@ -1013,9 +1032,10 @@ use Go 1.27.1 and GCC 13.3. Their bounded default-float selections record:
 The v3 audit also passes the six FFT/MDCT live-C suites, selected SILK
 LPC/window/gain and CELT kernel oracles, and the complete CBR quality and
 interoperability contract. The first-chunk phase, tone and classifier source
-checks above pass on the same native v3 runner; wider analyzer histories remain
-unresolved. The benchmark at `4b660d668` also passes the full compiler-target
-contract matrix. These selections do not establish universal float-state identity.
+checks above pass on the same native v3 runner. The benchmark at `4b660d668`
+also passes the full compiler-target contract matrix. The broader 200-case
+analyzer-history sweep passes both v3 lanes at `bce51d66f`, as recorded in
+[analyzer history and getter](#analyzer-history-and-getter-on-amd64-v3).
 
 Each candidate target/mode must pass exact CBR packets/ranges, selected stateful
 encode and fresh-state decode cases, dispatch and warm allocation checks.
@@ -1253,8 +1273,6 @@ provides CPU-compatibility evidence, not native SIMD performance evidence.
 
 Scope: the Go SIMD codec paths on PR #505, Go 1.27.0/1.27.1, ARM64 and AMD64.
 The audit checks upstream SIMD issues against the actual codec call sites.
-The [shared discussion](https://chatgpt.com/share/6aba293b-d7d4-83ed-9c75-5804702ad672)
-is inaccessible from this environment; its contents are not used as evidence.
 
 | Upstream issue | Exposure in gopus | Check or correction |
 |---|---|---|

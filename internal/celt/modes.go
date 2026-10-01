@@ -3,15 +3,18 @@ package celt
 // ModeConfig contains frame-size-dependent configuration for CELT decoding.
 // Parameters vary based on frame duration (2.5ms to 20ms).
 type ModeConfig struct {
-	FrameSize   int // Samples at 48kHz: 120, 240, 480, 960
+	FrameSize   int // Samples per channel for the active mode.
 	ShortBlocks int // Number of short MDCTs if transient: 1, 2, 4, 8
 	LM          int // Log mode index: 0, 1, 2, 3
 	EffBands    int // Effective number of bands for this frame size
 	MDCTSize    int // MDCT window size for long blocks
 }
 
-// GetModeConfig returns the mode configuration for the given frame size.
-// Valid frame sizes are 120, 240, 480, and 960 samples at 48kHz.
+// GetModeConfig returns the mode configuration for a CELT frame size.
+// It recognizes 120, 240, 480, 960, and 1920 samples per channel and returns
+// the 960-sample configuration for any other value. The 1920-sample geometry is
+// used by native 96 kHz HD mode. This lookup does not check the active mode or
+// build configuration; the caller validates those separately.
 func GetModeConfig(frameSize int) ModeConfig {
 	switch frameSize {
 	case 120: // 2.5ms frame
@@ -66,7 +69,8 @@ func GetModeConfig(frameSize int) ModeConfig {
 	}
 }
 
-// ValidFrameSize returns true if the frame size is valid for CELT.
+// ValidFrameSize reports whether frameSize has an entry in GetModeConfig.
+// It does not check the active sample rate, mode, or build configuration.
 func ValidFrameSize(frameSize int) bool {
 	switch frameSize {
 	case 120, 240, 480, 960, 1920:

@@ -15,7 +15,7 @@ var (
 	ErrAllocFail = errors.New("opus custom: allocation failed")
 )
 
-// staticFrameSizes is the set of (Fs, frame_size) pairs that correspond to the
+// staticModes is the set of (Fs, frame_size) pairs that correspond to the
 // standard Opus static modes, in the same check order as libopus modes.c
 // opus_custom_mode_create():
 //
@@ -36,10 +36,9 @@ var staticModes = []staticEntry{
 	{48000, 960}, // 20ms
 }
 
-// isStandardFrame reports whether (Fs, frameSize) is a standard Opus static mode
-// or any of its on-the-fly doubles (up to ×8), matching libopus mode.c detection.
-// When true the existing celt encoder/decoder (hardwired to 48 kHz 120-sample base)
-// can be used directly and will produce byte-identical output to libopus.
+// isStandardFrame reports whether (Fs, frameSize) is a standard 48 kHz Opus
+// static mode or a supported on-the-fly double, matching libopus mode.c.
+// These frames use CELT's 120-sample short-MDCT base and standard tables.
 func isStandardFrame(fs, frameSize int) bool {
 	for _, e := range staticModes {
 		if fs != e.Fs {
@@ -134,11 +133,10 @@ type CustomMode struct {
 }
 
 // NewMode creates a CustomMode for the given sample rate and frame size.
-// It validates the arguments exactly as libopus opus_custom_mode_create() does
-// (Fs in 8000–96000, even frame_size in 40–1024 or 40–2048 with gopus_qext,
-// frame_size*1000 >= Fs, short block ≤ 3.3ms). For standard Opus frame sizes at 48 kHz the returned mode
-// maps to the existing static mode so encode/decode will be byte-identical to
-// libopus.
+// It validates the arguments as libopus opus_custom_mode_create() does (Fs in
+// 8000–96000, even frame_size in 40–1024 or 40–2048 with gopus_qext,
+// frame_size*1000 >= Fs, and short blocks no longer than 3.3 ms). Standard 48 kHz
+// frame sizes map to the existing static modes and preserve byte-exact parity.
 //
 // Reference: libopus celt/modes.c opus_custom_mode_create().
 func NewMode(fs, frameSize int) (*CustomMode, error) {

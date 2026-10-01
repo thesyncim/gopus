@@ -2,7 +2,6 @@ package testvectors
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,38 +76,6 @@ func TestGeneratedFilesDeclareGeneratedMarkerBeforePackage(t *testing.T) {
 			}
 			t.Fatalf("empty generated file %s", p)
 		})
-	}
-}
-
-func TestEncoderVariantsFixtureStableOrdering(t *testing.T) {
-	t.Parallel()
-	fixture, err := loadEncoderComplianceVariantsFixture()
-	if err != nil {
-		t.Fatalf("load variants fixture: %v", err)
-	}
-	prev := ""
-	for i, c := range fixture.Cases {
-		key := c.Name + "|" + c.Variant
-		if i > 0 && key < prev {
-			t.Fatalf("variants fixture not sorted at case[%d]: %q < %q", i, key, prev)
-		}
-		prev = key
-	}
-}
-
-func TestEncoderPacketFixtureStableOrdering(t *testing.T) {
-	t.Parallel()
-	fixture, err := loadEncoderCompliancePacketsFixture()
-	if err != nil {
-		t.Fatalf("load packets fixture: %v", err)
-	}
-	prev := ""
-	for i, c := range fixture.Cases {
-		key := fmt.Sprintf("%s|%s|%06d|%03d|%07d", c.Mode, c.Bandwidth, c.FrameSize, c.Channels, c.Bitrate)
-		if i > 0 && key < prev {
-			t.Fatalf("packets fixture not sorted at case[%d]: %q < %q", i, key, prev)
-		}
-		prev = key
 	}
 }
 

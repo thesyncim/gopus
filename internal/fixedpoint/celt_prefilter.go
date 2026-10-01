@@ -1,11 +1,11 @@
 //go:build gopus_fixed_point
 
-// CELT fixed-point encode-side prefilter ported from libopus celt/celt_encoder.c
+// CELT fixed-point encode-side prefilter from libopus celt/celt_encoder.c
 // run_prefilter and its celt/pitch.c dependencies, under FIXED_POINT (non-QEXT,
-// float API enabled, ENABLE_RES24). This increment covers the value-producing
-// stage: the pitch analysis (pitch_downsample + pitch_search + remove_doubling),
-// the single-tone fallback, the gain/qg quantisation and tapset decision, and
-// the post-filter parameter bitstream emission (octave/period/gain/tapset).
+// float API enabled, ENABLE_RES24). It computes pitch analysis
+// (pitch_downsample + pitch_search + remove_doubling), the single-tone fallback,
+// gain/qg quantisation and tapset selection, and post-filter parameter emission
+// (octave/period/gain/tapset).
 //
 // The comb_filter prefiltering of the time-domain input is wired by the caller
 // using the already-ported CombFilter/CombFilterConst (celt_comb.go); see
@@ -16,11 +16,6 @@
 //	opus_val16          -> int16
 //	opus_val32/celt_sig -> int32
 //	celt_coef           -> int16 (non-QEXT)
-//
-// pitch_downsample/pitch_search/remove_doubling are ported locally here under
-// distinct names; the FIXED_POINT integer variants are not present elsewhere in
-// this package. NOTE(dedup): if a future workstream needs these kernels outside
-// the prefilter, lift them to a shared celt_pitch.go-style file.
 package fixedpoint
 
 import "github.com/thesyncim/gopus/internal/rangecoding"

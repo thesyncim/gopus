@@ -285,8 +285,9 @@ var farganModelLayerSpecs = func() []LinearLayerSpec {
 	return specs
 }()
 
-// FARGANModelLayerSpecs returns the libopus-shaped conditioning and signal
-// layer specs the FARGAN runtime binds from a validated blob.
+// FARGANModelLayerSpecs returns the shared libopus-shaped conditioning and
+// signal layer specs the FARGAN runtime binds from a validated blob. Callers
+// must treat the returned slice as read-only.
 func FARGANModelLayerSpecs() []LinearLayerSpec {
 	return farganModelLayerSpecs
 }
@@ -387,9 +388,10 @@ func (f *FARGAN) Reset() {
 }
 
 // PrimeContinuity seeds the FARGAN recurrent buffers from past PCM and the
-// preceding feature vectors, mirroring libopus fargan_cont() (dnn/fargan.c).
-// It returns the number of warm-up samples consumed so synthesis can continue
-// seamlessly from the decoder history.
+// preceding feature vectors, mirroring libopus fargan_cont() (dnn/fargan.c). It
+// requires at least FARGANContSamples PCM samples and at least
+// ContVectors*NumFeatures feature values, and returns FARGANContSamples on
+// success or 0 otherwise.
 func (f *FARGAN) PrimeContinuity(pcm0, features0 []float32) int {
 	if f == nil || f.model == nil || len(pcm0) < FARGANContSamples || len(features0) < ContVectors*NumFeatures {
 		return 0
@@ -424,8 +426,8 @@ func (f *FARGAN) PrimeContinuity(pcm0, features0 []float32) int {
 // Synthesize generates one FARGAN frame (FARGANFrameSize samples) of PCM into
 // pcm from a single LPCNet feature vector, mirroring libopus fargan_synthesize
 // (dnn/fargan.c). It runs the conditioning network once, then the signal
-// network per subframe, and returns the number of samples written (0 if the
-// runtime is not primed via PrimeContinuity).
+// network per subframe. It returns FARGANFrameSize on success or 0 if the model
+// is unbound, the state is unprimed, or either input/output slice is too short.
 func (f *FARGAN) Synthesize(pcm, features []float32) int {
 	if f == nil || f.model == nil || !f.state.contInitialized || len(pcm) < FARGANFrameSize || len(features) < NumFeatures {
 		return 0

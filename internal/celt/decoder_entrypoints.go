@@ -17,7 +17,8 @@ const HybridCELTStartBand = 17
 //   - rd: Range decoder (SILK has already consumed its portion)
 //   - frameSize: Expected output samples for a valid Hybrid duration in the active mode
 //
-// Returns: PCM samples as float32 slice at 48kHz
+// Returns: float32 PCM samples at the decoded CELT rate (48 kHz for standard
+// modes, 96 kHz for native HD mode).
 //
 // Reference: RFC 6716 Section 3.2 (Hybrid mode), libopus celt/celt_decoder.c
 // celt_decode_with_ec() with st->start = 17.

@@ -97,7 +97,9 @@ func (d *Decoder) SampleRate() int {
 	return int(d.sampleRate)
 }
 
-// SetAPISampleRate sets the Opus API sample rate used by CELT downsampling.
+// SetAPISampleRate selects a standard CELT API output rate: 48, 24, 16, 12, or
+// 8 kHz. Rates below 48 kHz use the corresponding downsample factor from the
+// 48 kHz CELT core; this control does not enable native 96 kHz HD mode.
 func (d *Decoder) SetAPISampleRate(sampleRate int) error {
 	switch sampleRate {
 	case 48000:

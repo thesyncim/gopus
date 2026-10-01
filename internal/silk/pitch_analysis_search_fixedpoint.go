@@ -5,12 +5,11 @@ package silk
 // FIXED_POINT port of the SILK core pitch analyser silk_pitch_analysis_core
 // from silk/fixed/pitch_analysis_core_FIX.c.
 //
-// This covers the STAGE-1 4 kHz decimated cross-correlation search and the
-// STAGE-2 8 kHz normalized-correlation refinement, plus the STAGE-3 fine search
-// (reusing the already-ported silkPAnaCalcCorrSt3Fixed and
-// silkPAnaCalcEnergySt3Fixed kernels). It produces the same outputs as the
-// reference: per-subframe pitch lags, lag/contour indices, the running
-// normalized-correlation LTPCorr_Q15, and the voiced/unvoiced flag.
+// This covers the STAGE-1 4 kHz decimated cross-correlation search, the STAGE-2
+// 8 kHz normalized-correlation refinement, and the STAGE-3 fine search using
+// silkPAnaCalcCorrSt3Fixed and silkPAnaCalcEnergySt3Fixed. It produces the same
+// outputs as the reference: per-subframe pitch lags, lag/contour indices, the
+// running normalized-correlation LTPCorr_Q15, and the voiced/unvoiced flag.
 
 const (
 	// SCRATCH layout / lag bounds at 4 kHz and 8 kHz, mirroring the C macros.

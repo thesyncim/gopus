@@ -2,9 +2,9 @@
 
 package fixedpoint
 
-// This file ports the still-missing FIXED_POINT encode-side glue kernels from
-// libopus celt/celt_encoder.c and celt/bands.c that celt_encode_with_ec needs
-// between the energy quantisers and the bit allocator:
+// This file ports the FIXED_POINT encode-side glue kernels from libopus
+// celt/celt_encoder.c and celt/bands.c that celt_encode_with_ec uses between the
+// energy quantisers and the bit allocator:
 //
 //   - tone_detect / tone_lpc / normalize_tone_input / acos_approx: the pure-tone
 //     detector that produces tone_freq (Q13) and toneishness (Q29), feeding

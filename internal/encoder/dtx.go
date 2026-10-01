@@ -1,6 +1,7 @@
-// This file implements DTX (Discontinuous Transmission) for the Opus encoder.
-// DTX saves bandwidth during silence by emitting 1-byte TOC-only packets,
-// allowing the decoder to activate its internal Comfort Noise Generation (CNG).
+// This file implements the Opus-level DTX activity decision for the encoder.
+// A suppressed single frame becomes a TOC-only packet; multi-frame packets keep
+// their subframe-count framing. The decoder handles TOC-only DTX packets
+// through its concealment path. SILK internal DTX remains a separate decision.
 //
 // Activity detection matches libopus opus_encoder.c:1911-1930:
 //  1. is_digital_silence: max sample below quantization floor
@@ -35,7 +36,7 @@ const (
 
 // dtxState holds state for discontinuous transmission.
 type dtxState struct {
-	// Multi-band VAD state for SILK-mode DTX speech detection
+	// Standalone VAD storage; Opus-level DTX uses the frame activity decision.
 	vad *VADState
 
 	// Counter for consecutive no-activity frames in milliseconds (Q1 format)
@@ -281,9 +282,8 @@ func (e *Encoder) GetVADActivity() int {
 	return int(e.dtx.vad.SpeechActivityQ8)
 }
 
-// classifySignal determines signal type using energy-based detection.
-// This is a legacy function kept for compatibility; new code uses VAD.
-// Returns: 0 = inactive (silence), 1 = unvoiced, 2 = voiced
+// classifySignal compares mean-square PCM energy with its silence threshold.
+// It returns 0 below the threshold and 2 otherwise.
 func classifySignal(pcm []float32) (int, float32) {
 	if len(pcm) == 0 {
 		return 0, 0

@@ -2,14 +2,14 @@
 
 package fixedpoint
 
-// This file ports the FIXED_POINT (ENABLE_RES24) CELT encoder front-end for
-// the static 48000/960 custom mode: forward pre-emphasis (celt_preemphasis),
-// windowed forward MDCT striping (compute_mdcts) for normal and transient
-// blocks, then compute_band_energies and normalise_bands. These stages produce
-// the interleaved post-MDCT signal (freq), per-band energies (bandE) and
-// normalised bands (X) consumed by celt_encode_with_ec before quant_all_bands.
-// The frame driver and its transient, prefilter, allocation and quantisation
-// stages are in celt_encode.go.
+// This file ports the FIXED_POINT (ENABLE_RES24) CELT encoder front-end for the
+// static 48000/960 mode and, with ENABLE_QEXT, the native 96000/1920 mode. It
+// applies forward pre-emphasis (celt_preemphasis), windowed forward MDCTs
+// (compute_mdcts) for normal and transient blocks, then computes band energies
+// and normalises the bands. These stages produce the interleaved post-MDCT
+// signal (freq), per-band energies (bandE) and normalised bands (X) consumed by
+// celt_encode_with_ec before quant_all_bands. The frame driver and its
+// transient, prefilter, allocation and quantisation stages are in celt_encode.go.
 
 // int16ToRes implements libopus INT16TORES(a) for the ENABLE_RES24 build:
 // SHL32(EXTEND32(a), RES_SHIFT) == a << 8.

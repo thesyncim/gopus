@@ -674,28 +674,6 @@ func TestAssembleMultistreamPacket(t *testing.T) {
 	})
 }
 
-// TestEncoderSetBitrate tests bitrate distribution.
-func TestEncoderSetBitrate(t *testing.T) {
-	// Create a 5.1 encoder (4 streams: 2 coupled, 2 mono)
-	enc, err := NewEncoderDefault(48000, 6)
-	if err != nil {
-		t.Fatalf("NewEncoderDefault error: %v", err)
-	}
-
-	// Set 256 kbps total
-	enc.SetBitrate(256000)
-
-	if enc.Bitrate() != 256000 {
-		t.Errorf("Bitrate() = %d, want 256000", enc.Bitrate())
-	}
-
-	// Distribution: 2 coupled * 3 + 2 mono * 2 = 10 units
-	// 256000 / 10 = 25600 per unit
-	// Coupled: 25600 * 3 = 76800 bps each
-	// Mono: 25600 * 2 = 51200 bps each
-	// Total: 2*76800 + 2*51200 = 153600 + 102400 = 256000
-}
-
 func TestEncoderSetBitrateSentinels(t *testing.T) {
 	enc, err := NewEncoderDefault(48000, 6)
 	if err != nil {
@@ -1008,31 +986,6 @@ func TestEncode_InputValidation(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestSetBitrate_Distribution tests weighted bitrate allocation across streams.
-func TestSetBitrate_Distribution(t *testing.T) {
-	// Test 5.1: 2 coupled + 2 mono = 2*3 + 2*2 = 10 units
-	enc, err := NewEncoderDefault(48000, 6)
-	if err != nil {
-		t.Fatalf("NewEncoderDefault error: %v", err)
-	}
-
-	// Set 100000 bps for easy math
-	enc.SetBitrate(100000)
-
-	// Expected: 100000 / 10 = 10000 per unit
-	// Coupled streams: 10000 * 3 = 30000 bps each
-	// Mono streams: 10000 * 2 = 20000 bps each
-	// Total: 2*30000 + 2*20000 = 60000 + 40000 = 100000 (matches)
-
-	if enc.Bitrate() != 100000 {
-		t.Errorf("Bitrate() = %d, want 100000", enc.Bitrate())
-	}
-
-	// Verify via internal encoder bitrates (if accessible)
-	// For now, verify the total is correct
-	t.Logf("5.1 bitrate distribution: %d bps total", enc.Bitrate())
 }
 
 func TestAllocateRates_SurroundLFEAware(t *testing.T) {

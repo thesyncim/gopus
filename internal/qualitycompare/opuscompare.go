@@ -1,8 +1,6 @@
-// Package qualitycompare is the single, canonical quality comparator for
-// gopus-vs-libopus parity tests. It standardizes on opus_compare — the reference
-// quality tool shipped with libopus and the metric RFC 8251 defines conformance
-// with — so the trust in these comparisons does not depend on gopus: it is the
-// same tool and metric the whole Opus ecosystem (and the spec) uses.
+// Package qualitycompare provides the shared quality comparator for gopus and
+// libopus parity tests. It invokes libopus's opus_compare utility to compute
+// the quality metric described by RFC 8251.
 //
 // This package is importable from both the testvectors package and the root
 // gopus package tests. It depends only on the standard library plus

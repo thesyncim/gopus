@@ -2,10 +2,10 @@
 
 package silk
 
-// This file assembles the FIXED_POINT SILK per-frame analysis driver from
-// silk/fixed/encode_frame_FIX.c (silk_encode_frame_FIX). It wires the already
-// ported FIXED_POINT sub-drivers and leaf kernels into the full
-// silk_encoder_state_FIX analysis flow:
+// This file implements the FIXED_POINT SILK per-frame analysis chain from
+// silk/fixed/encode_frame_FIX.c (silk_encode_frame_FIX). It wires the
+// FIXED_POINT sub-drivers and leaf kernels into the silk_encoder_state_FIX
+// analysis flow:
 //
 //   - silk_VAD_GetSA_Q8 (silkVADGetSAQ8) for the speech-activity estimate and
 //     the VAD/DTX signal-type decision (silk_encode_do_VAD_FIX),
@@ -16,26 +16,15 @@ package silk
 //   - silk_find_pred_coefs_FIX (silkFindPredCoefsFIX),
 //   - silk_process_gains_FIX (silkProcessGainsFixed), which also produces
 //     Lambda_Q10,
-//   - silk_NSQ (silkNSQFixed) noise-shaping quantization, producing the
-//     excitation pulses and the updated NSQ state.
+//   - silk_NSQ (silkNSQFixed) noise-shaping quantization for the isolated
+//     non-delayed-decision helper in this file.
 //
-// The bitstream entropy coding (silk_encode_indices / silk_encode_pulses) is
-// NOT re-implemented here: those range-coder kernels are already integer in the
-// default build (encode_frame.go, excitation_encode.go, ...) and are shared,
-// not part of the FIXED_POINT-only surface. This driver carries the analysis
-// from PCM through NSQ, which is the full chain that determines the side-info
-// indices, gains and pulses fed into the (already validated) shared range
-// encoder. The output of this driver is bit-exact against the reference
-// silk_encode_frame_FIX up to the silk_encode_indices call.
-//
-// The delayed-decision NSQ outer driver (silk_NSQ_del_dec_c subframe loop) is
-// not yet ported; only its inner quantizer (silkNoiseShapeQuantizerDelDecFixed)
-// and scale-states (silkNSQDelDecScaleStatesFixed) kernels exist. This driver
-// therefore drives silkNSQFixed (the non-del-dec path), which libopus selects
-// when nStatesDelayedDecision <= 1 and warping_Q16 == 0. When the encoder is
-// configured for delayed decision, the analysis chain (everything up to NSQ)
-// is still bit-exact; only the NSQ outer loop remains to be wired once the
-// del-dec outer driver lands.
+// The production payload and rate-control path is in
+// encode_frame_payload_fixedpoint.go. It reuses the analysis chain here, runs
+// the LBRR and gain/Lambda loops, then selects silk_NSQ or silk_NSQ_del_dec via
+// silkRunNSQFIX. The shared integer range-coder kernels encode indices and
+// pulses in both builds (encode_frame.go, excitation_encode.go, and
+// encode_frame_payload_fixedpoint.go).
 
 // nlsfCBForPredOrder selects the NLSF codebook for the prediction LPC order,
 // matching libopus: WB (order 16) uses silk_NLSF_CB_WB, NB/MB uses
@@ -458,12 +447,11 @@ func (e *Encoder) silkEncodeFrameFIXAnalyze(st *silkEncodeFrameFIXState) sEncCtr
 	return ctrl
 }
 
-// silkEncodeFrameFIX is the bit-exact Go port of the analysis chain of
-// silk_encode_frame_FIX. It runs the VAD, pitch analysis, noise-shape analysis,
-// prediction-coefficient search, gain processing and NSQ in the exact libopus
-// order, mutating st in place (frame counter, VAD/NSQ/shape state, previous
-// NLSFs, etc.) and returning the side-info indices, encoder-control parameters
-// and excitation pulses.
+// silkEncodeFrameFIX runs the isolated non-delayed-decision analysis and NSQ
+// path of silk_encode_frame_FIX. It mutates st in place and returns the
+// side-info indices, encoder-control parameters, and excitation pulses. The
+// production payload path, including rate control and delayed-decision NSQ,
+// uses silkEncodeFramePayloadFIX in encode_frame_payload_fixedpoint.go.
 func (e *Encoder) silkEncodeFrameFIX(st *silkEncodeFrameFIXState) silkEncodeFrameFIXResult {
 	var res silkEncodeFrameFIXResult
 	sc := e.fixedScratch()
@@ -690,8 +678,7 @@ func (e *Encoder) silkEncodeFrameFIX(st *silkEncodeFrameFIXState) silkEncodeFram
 	}
 
 	pulses := make([]int8, st.frameLength)
-	// silk_encode_frame_FIX selects silk_NSQ when nStatesDelayedDecision <= 1
-	// and warping_Q16 == 0. The del-dec outer loop is not yet ported.
+	// This isolated helper follows the non-delayed-decision silk_NSQ path.
 	silkNSQFixed(
 		sc,
 		&st.nsq,

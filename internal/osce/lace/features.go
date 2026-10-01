@@ -440,10 +440,9 @@ func (s *FeatureState) CalculateFeatures(
 			)
 		}
 
-		// Pitch post-processing with hangover (currently a no-op in libopus
-		// because OSCE_PITCH_HANGOVER==0 and OSCE_HANGOVER_BUGFIX is
-		// undefined; we mirror the exact branch logic so a future libopus
-		// bugfix flip just needs the constant change).
+		// Pitch post-processing with hangover. In the pinned libopus build,
+		// OSCE_PITCH_HANGOVER is 0 and OSCE_HANGOVER_BUGFIX is undefined, so
+		// voiced periods pass through and other signal types use noPitchValue.
 		periods[k] = pitchPostprocessing(s, ctrl.PitchL[k], ctrl.SignalType)
 
 		// Auto-correlation around the pitch lag.
@@ -669,13 +668,9 @@ func calculateAcorr(
 }
 
 // pitchPostprocessing mirrors `osce_features.c::pitch_postprocessing`. In
-// libopus 1.6.1, OSCE_HANGOVER_BUGFIX is undefined so the hangover branches
-// are dead code; we still mirror the exact branch structure for future
-// constant flips. With the hangover gate compiled out, the behaviour
-// collapses to:
-//
-//	type == TYPE_VOICED -> return lag (and update last_lag)
-//	otherwise           -> return OSCE_NO_PITCH_VALUE
+// libopus 1.6.1, OSCE_HANGOVER_BUGFIX is undefined, so the hangover branches are
+// inactive. Voiced frames return lag and update lastLag; other frames return
+// noPitchValue.
 func pitchPostprocessing(s *FeatureState, lag, signalType int32) int {
 	const testBit = 0 // OSCE_HANGOVER_BUGFIX is undefined in libopus 1.6.1
 	modulus := int32(pitchHangover)

@@ -28,8 +28,9 @@ const (
 	NumFeatures             = 20
 )
 
-// ValidExperimentalPayload reports whether data matches the temporary libopus
-// DRED extension framing and size bounds accepted by dred_find_payload().
+// ValidExperimentalPayload reports whether data has the experimental DRED
+// prefix (the D marker and supported version) followed by at least one payload
+// byte. It does not parse or validate the encoded payload body.
 func ValidExperimentalPayload(data []byte) bool {
 	if len(data) <= ExperimentalHeaderBytes {
 		return false

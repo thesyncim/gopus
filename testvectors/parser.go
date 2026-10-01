@@ -1,10 +1,5 @@
-// Package testvectors provides utilities for parsing and validating against
-// official RFC 8251 Opus test vectors.
-//
-// The package implements:
-// - opus_demo .bit file parser (proprietary framing format)
-// - Quality metric computation for decoder compliance
-// - Test infrastructure for RFC 8251 validation
+// Package testvectors parses opus_demo bitstreams and supports quality checks
+// against the RFC 8251 Opus test vectors.
 package testvectors
 
 import (
@@ -29,9 +24,7 @@ var (
 
 var bitstreamFileCache sync.Map
 
-// Packet represents a decoded opus_demo packet with metadata.
-// The opus_demo format stores packets with their range coder final state
-// for verification purposes.
+// Packet contains an encoded Opus packet and its recorded encoder final range.
 type Packet struct {
 	// Data is the raw Opus packet data (including TOC byte).
 	Data []byte
@@ -48,7 +41,9 @@ type Packet struct {
 //   - uint32_be: enc_final_range (4 bytes, range coder verification)
 //   - byte[packet_length]: opus_packet_data
 //
-// Returns all packets in the bitstream, or an error if the format is invalid.
+// Packet payloads are copied from data. Empty input returns a nil slice and
+// nil error. Framing errors return an error without partial results; payloads
+// are not validated as Opus packets.
 func ParseOpusDemoBitstream(data []byte) ([]Packet, error) {
 	if len(data) == 0 {
 		return nil, nil // Empty data is valid (no packets)
@@ -92,8 +87,10 @@ func ParseOpusDemoBitstream(data []byte) ([]Packet, error) {
 	return packets, nil
 }
 
-// ReadBitstreamFile reads and parses an opus_demo .bit file from disk.
-// This is a convenience function that combines os.ReadFile with ParseOpusDemoBitstream.
+// ReadBitstreamFile reads an opus_demo .bit file, caching the result by filename.
+// Each call returns its own Packet slice, but Data slices share cached storage
+// and must not be modified. After a successful load is cached, subsequent
+// calls do not observe file changes. Read or parse failures are not cached.
 func ReadBitstreamFile(filename string) ([]Packet, error) {
 	if cached, ok := bitstreamFileCache.Load(filename); ok {
 		return clonePacketViews(cached.([]Packet)), nil
@@ -129,7 +126,8 @@ type BitstreamInfo struct {
 }
 
 // GetBitstreamInfo returns summary information about a parsed bitstream.
-// This is useful for test vector processing reports.
+// Duration assumes one frame per packet and a constant frame duration taken
+// from the first packet's TOC. It is not a full packet-duration calculation.
 func GetBitstreamInfo(packets []Packet) BitstreamInfo {
 	info := BitstreamInfo{
 		PacketCount: len(packets),

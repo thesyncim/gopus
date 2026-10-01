@@ -34,7 +34,7 @@ const (
 	ModeHybrid
 )
 
-// MaxConcealedFrames is the consecutive-loss count past which State.IsExhausted
+// MaxConcealedFrames is the consecutive-loss count at which State.IsExhausted
 // reports the stream as concealed-out and callers should emit silence. Roughly
 // 100ms at 20ms frames (5 frames). This is the gopus-level safety ceiling on
 // top of the per-mode attenuation; libopus has no single equivalent constant
@@ -164,8 +164,9 @@ func (s *State) LastChannels() int {
 	return int(s.lastChannels)
 }
 
-// IsExhausted returns true if PLC has exceeded its maximum concealment.
-// After this, the output should effectively be silence.
+// IsExhausted returns true when the consecutive-loss ceiling is reached or the
+// fade factor falls to 0.001 or lower. Callers can use it to replace further
+// predicted output with silence.
 func (s *State) IsExhausted() bool {
 	return s.lostCount >= MaxConcealedFrames || s.fadeFactor <= 0.001
 }

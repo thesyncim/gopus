@@ -35,7 +35,7 @@ func (d *Decoder) finalizeSuccessfulDecode(frameSizeSamples, channels int) {
 //   - data: raw SILK frame data (without TOC byte), or nil for PLC
 //   - bandwidth: NB, MB, or WB (from TOC)
 //   - frameSizeSamples: frame size in samples at the decoder API rate
-//   - vadFlag: voice activity flag (from bitstream header)
+//   - vadFlag: ignored; VAD flags are decoded from the SILK bitstream
 //
 // Returns float32 samples in range [-1, 1] at the decoder API rate.
 func (d *Decoder) Decode(

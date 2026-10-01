@@ -1,5 +1,3 @@
-// encoder.go implements the public Encoder API for Opus encoding.
-
 package gopus
 
 import (

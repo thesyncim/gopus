@@ -5,17 +5,15 @@ package silk
 // Fixed-point parity surface for SILK's adaptive high-pass biquad path.
 //
 // SILK is inherently fixed-point: the decode-side biquad
-// (silkBiquadAltStride1 in lp_variable_cutoff.go) and the adaptive cutoff
-// adaptation (hpVariableCutoff / HPCutoffCoefsQ28 in
-// hp_variable_cutoff.go) are already integer and byte-exact against the
-// FIXED_POINT libopus reference in the default build.
+// (silkBiquadAltStride1 in lp_variable_cutoff.go) and adaptive cutoff update
+// (hpVariableCutoff / HPCutoffCoefsQ28 in hp_variable_cutoff.go) use integer
+// arithmetic and match the FIXED_POINT libopus reference in the default build.
 //
-// This file completes that surface with silkBiquadAltStride2, the
-// interleaved-stereo variant of silk_biquad_alt (silk/biquad_alt.c
-// silk_biquad_alt_stride2_c), which the default build did not yet expose. It
-// reuses the Q-format macros from libopus_fixed.go and mirrors stride1's
-// arithmetic exactly so both stride variants share the same rounding and
-// saturation behaviour.
+// In gopus_fixed_point builds, this file provides silkBiquadAltStride2, the
+// interleaved-stereo variant of silk_biquad_alt (silk/biquad_alt.c,
+// silk_biquad_alt_stride2_c). It reuses the Q-format macros from
+// libopus_fixed.go and mirrors stride1's arithmetic so both stride variants
+// share the same rounding and saturation behavior.
 
 // updateVariableHPSmth1Q15 is the pure per-frame body of
 // silk_HP_variable_cutoff (silk/HP_variable_cutoff.c) for a voiced frame: given

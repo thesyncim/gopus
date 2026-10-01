@@ -2,27 +2,18 @@
 
 package celt
 
-// Native 96 kHz CELT decode driver (Opus HD / QEXT, increment 2b).
+// Native 96 kHz CELT decoder setup for Opus HD/QEXT.
 //
-// EnableHD96kMode switches a CELT decoder into the native 96 kHz HD mode
-// (libopus mode96000_1920_240): 1920-sample frames, 3840-sample long MDCT,
-// overlap 240, 8 short blocks. The base bands reuse the shared eBand5ms /
-// logN400 layout; the >20 kHz content is carried by the QEXT extension-band
-// decode chain (qextEBands240). Because the CELT decode pipeline is
-// size/LM-driven, enabling the mode is a matter of:
-//   - reporting Fs=96000 so prepareQEXTDecode selects the 96 kHz qext mode,
-//   - threading overlap=240 through synthesis (d.synthOverlap),
-//   - threading the HD preemphasis coefficient through deemphasis (d.deemphCoef),
-//   - sizing the overlap history for overlap=240.
+// EnableHD96kMode selects libopus mode96000_1920_240: 1920-sample frames, a
+// 3840-sample long MDCT, overlap 240, and eight short blocks. The base bands
+// reuse eBand5ms/logN400; content above 20 kHz uses the QEXT extension-band
+// chain (qextEBands240). The outer Opus decoder forwards the extracted QEXT
+// payload to CELT, where DecodeFrame(data, 1920) runs the native decode.
 //
-// DecodeFrame(data, 1920) then runs the full native decode through the existing
-// parametric kernels.
-//
-// The native 96 kHz decode oracle compares every mono/stereo float32 bit and
-// packet final range against selected QEXT libopus. Its packet histories
-// exercise the base and extension bands, 3840-MDCT synthesis (overlap=240),
-// 2-tap HD de-emphasis, and active cross-frame comb_filter_qext. Native 96 kHz
-// encode routing and top-level framing of the reserved extension payload remain.
+// The native decode oracle compares mono/stereo float32 output bits and packet
+// final range with selected QEXT libopus. Its packet histories cover base and
+// extension bands, 3840-MDCT synthesis, two-tap HD de-emphasis, and cross-frame
+// comb_filter_qext state.
 
 // EnableHD96kMode reconfigures the decoder for the native 96 kHz HD mode.
 // It is idempotent and must be called before decoding 96 kHz frames. The

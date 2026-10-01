@@ -1,5 +1,3 @@
-// errors.go defines public error types for the gopus package.
-
 package gopus
 
 import "errors"
