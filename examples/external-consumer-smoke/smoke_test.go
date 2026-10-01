@@ -103,11 +103,14 @@ func TestExternalConsumerRED(t *testing.T) {
 	// The first frame seeds the history; the second carries it as a redundant
 	// block. The Encoder owns the history and output buffer.
 	prev := []byte{0x01, 0x02, 0x03}
-	_, _ = enc.Encode(prev, 0)
+	firstPayload, redundantBytes := enc.Encode(prev, 0)
+	if len(firstPayload) == 0 || redundantBytes != 0 {
+		t.Fatalf("first Encode produced %d bytes with %d redundant bytes", len(firstPayload), redundantBytes)
+	}
 	primary := []byte{0x10, 0x11, 0x12, 0x13}
-	payload, n := enc.Encode(primary, 960)
-	if n == 0 || len(payload) == 0 {
-		t.Fatalf("Encode produced empty RED payload (n=%d)", n)
+	payload, redundantBytes := enc.Encode(primary, 960)
+	if len(payload) == 0 || redundantBytes != len(prev) {
+		t.Fatalf("Encode produced %d bytes with %d redundant bytes, want %d", len(payload), redundantBytes, len(prev))
 	}
 
 	gotPrimary, blocks, err := dec.Parse(payload)

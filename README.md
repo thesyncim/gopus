@@ -206,7 +206,14 @@ effective bitrate.
 
 ## Examples
 
-Run these from the repository root with `go run ./examples/<name>`:
+Start with a complete encode/decode using reusable buffers:
+
+```sh
+go run ./examples/roundtrip-min
+```
+
+Run these from the repository root with `go run ./examples/<name>`.
+Programs with command-line options accept `-h` for help.
 
 | Example | Purpose |
 |---|---|
@@ -228,16 +235,36 @@ tag: QEXT uses `-tags gopus_qext`, DRED uses `-tags gopus_dred`, and OSCE uses
 `-tags gopus_osce`. These runnable examples demonstrate API usage; they do not
 imply that every optional feature and architecture has completed parity
 validation. Build the in-module examples with `go build ./examples/...`.
-Playback and file-conversion examples can require external audio tools; see
-each example's source for its flags and requirements.
+
+For a local file round trip:
+
+```sh
+# Generate an Opus file, then decode it to 16-bit PCM in a WAV file.
+go run ./examples/encode-play -duration 1 -out demo.opus
+go run ./examples/decode-play -in demo.opus -out demo.wav
+```
+
+Playback is opt-in with `-play`; `decode-play -pipe` streams to `ffplay`.
+The file round trip above needs no external audio tools. `ffmpeg-interop`
+requires `ffmpeg` and `ffprobe`. `mix-arrivals` downloads its speech clips on
+first use and caches them; its `-cache-dir` flag selects the cache directory.
 
 Three examples are separate modules; run their commands inside their directories:
 
 | Module | Command | Purpose |
 |---|---|---|
 | [external-consumer-smoke](examples/external-consumer-smoke) | `go test ./...` | Downstream public API checks |
-| [webrtc-control](examples/webrtc-control) | `go run .` | Browser controls over Pion WebRTC |
+| [webrtc-control](examples/webrtc-control) | `go run . -addr 127.0.0.1:8080` | Open `http://127.0.0.1:8080` for browser audio controls |
 | [webrtc-dred-loopback](examples/webrtc-dred-loopback/README.md) | `go run .` | Desktop PLC/FEC/RED/DRED comparison; see its setup guide |
+
+Check the example packages and nested projects without opening an audio device:
+
+```sh
+make test-consumer-smoke test-examples-smoke
+```
+
+The loopback checks use a test-only headless build tag. Running its desktop or
+terminal demo requires the dependencies listed in its setup guide.
 
 ## Packages
 
