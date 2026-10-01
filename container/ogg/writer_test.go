@@ -598,6 +598,16 @@ func TestWriterWithConfig_InvalidConfig(t *testing.T) {
 			},
 		},
 		{
+			name: "family 1 with more than eight channels",
+			config: WriterConfig{
+				SampleRate:     48000,
+				Channels:       9,
+				MappingFamily:  MappingFamilyVorbis,
+				StreamCount:    9,
+				ChannelMapping: []byte{0, 1, 2, 3, 4, 5, 6, 7, 8},
+			},
+		},
+		{
 			name: "family 1 zero streams",
 			config: WriterConfig{
 				SampleRate:     48000,
@@ -660,6 +670,9 @@ func TestWriterWithConfig_InvalidConfig(t *testing.T) {
 			_, err := NewWriterWithConfig(&buf, tc.config)
 			if err == nil {
 				t.Errorf("expected error for %s", tc.name)
+			}
+			if buf.Len() != 0 {
+				t.Errorf("wrote %d bytes before rejecting %s", buf.Len(), tc.name)
 			}
 		})
 	}

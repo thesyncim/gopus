@@ -103,13 +103,13 @@ func NewWriter(w io.Writer, sampleRate uint32, channels uint8) (*Writer, error) 
 
 // NewWriterWithConfig returns a Writer configured by config and writes its
 // OpusHead and OpusTags pages before returning. Mapping family 0 permits one or
-// two channels. Nonzero families require a nonzero stream count, no more coupled
-// streams than streams, and at most 255 decoded stream channels. Nonzero
-// families other than 3 require a channel-mapping entry per output channel.
-// Family 3 accepts a demixing matrix of 2*Channels*(StreamCount+CoupledCount)
-// bytes, or emits a default projection matrix when available and an identity
-// matrix otherwise. The encoded OpusHead must fit on a single Ogg page;
-// an oversized header returns ErrInvalidHeader.
+// two channels; family 1 permits one through eight channels. Nonzero families
+// require a nonzero stream count, no more coupled streams than streams, and at
+// most 255 decoded stream channels. Nonzero families other than 3 require a
+// channel-mapping entry per output channel. Family 3 accepts a demixing matrix
+// of 2*Channels*(StreamCount+CoupledCount) bytes, or emits a default projection
+// matrix when available and an identity matrix otherwise. The encoded OpusHead
+// must fit on a single Ogg page; an oversized header returns ErrInvalidHeader.
 // Errors from the underlying writer are returned; a failed write may already
 // have written part of a header page.
 func NewWriterWithConfig(w io.Writer, config WriterConfig) (*Writer, error) {
@@ -124,6 +124,9 @@ func NewWriterWithConfig(w io.Writer, config WriterConfig) (*Writer, error) {
 
 	// Validate mapping family 0 constraints.
 	if config.MappingFamily == 0 && config.Channels > 2 {
+		return nil, ErrInvalidHeader
+	}
+	if config.MappingFamily == MappingFamilyVorbis && config.Channels > 8 {
 		return nil, ErrInvalidHeader
 	}
 
