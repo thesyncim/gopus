@@ -4,6 +4,7 @@ package gopus
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"math"
 	"unsafe"
@@ -73,8 +74,8 @@ type PacketSink interface {
 	// except that an error returned with zero bytes is preserved. The packet buffer
 	// is reused after this method returns, so copy packet if retaining it.
 	//
-	// If the sink also implements io.Closer, Writer.Close forwards to it after
-	// flushing buffered audio.
+	// If the sink also implements io.Closer, Writer.Close calls it at most once
+	// after attempting a flush, or after an earlier sink write error.
 	WritePacket(packet []byte) (int, error)
 }
 
@@ -249,10 +250,11 @@ type Writer struct {
 	frameBytes   int    // Bytes needed for one frame
 	frameSamples int    // Samples per frame across all channels
 
-	packetBuf  []byte    // Buffer for encoded packet (4000 bytes)
-	pcmScratch []float32 // Reused PCM scratch for byte-to-sample conversion
-	paddedBuf  []byte    // Reused zero-padded frame buffer for Flush
-	closed     bool
+	packetBuf          []byte    // Buffer for encoded packet (4000 bytes)
+	pcmScratch         []float32 // Reused PCM scratch for byte-to-sample conversion
+	paddedBuf          []byte    // Reused zero-padded frame buffer for Flush
+	closed             bool      // Write and Flush reject calls after close or a sink write error.
+	sinkCloseAttempted bool
 }
 
 // NewWriter creates a Writer that encodes interleaved PCM at sampleRate with
@@ -427,22 +429,31 @@ func (w *Writer) Flush() error {
 	return nil
 }
 
-// Close flushes buffered samples and closes the underlying sink when supported.
-//
-// If the sink implements io.Closer, Close forwards to it after a successful
-// flush. Close is idempotent.
+// Close attempts to flush buffered samples and closes the underlying sink when
+// supported, including when flushing fails. If both flushing and closing fail,
+// the returned error matches both. Repeated calls return nil and do not retry
+// the sink close.
 func (w *Writer) Close() error {
-	if w.closed {
+	if w.sinkCloseAttempted {
 		return nil
 	}
-	if err := w.Flush(); err != nil {
-		return err
+	var flushErr error
+	if !w.closed {
+		flushErr = w.Flush()
 	}
 	w.closed = true
+	w.sinkCloseAttempted = true
+	var closeErr error
 	if closer, ok := w.sink.(io.Closer); ok {
-		return closer.Close()
+		closeErr = closer.Close()
 	}
-	return nil
+	if flushErr == nil {
+		return closeErr
+	}
+	if closeErr == nil {
+		return flushErr
+	}
+	return errors.Join(flushErr, closeErr)
 }
 
 // SetBitrate sets the target bitrate in bits per second. Positive values are
@@ -475,6 +486,7 @@ func (w *Writer) Reset() {
 	w.enc.Reset()
 	w.sampleBuf = w.sampleBuf[:0]
 	w.closed = false
+	w.sinkCloseAttempted = false
 }
 
 // SampleRate returns the sample rate in Hz.
