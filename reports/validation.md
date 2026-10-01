@@ -149,7 +149,7 @@ instrumentation. The 48 kHz mono 5 ms pure-tone analyzer case passes all 240
 frames in both matching local Linux/amd64 lanes. Disabled tracing has zero warm
 allocations, and nine malformed GMSR records are rejected. These local
 diagnostics establish correctness. The native audit and incremental timing
-evidence at `ec9ec8cb2` are recorded below.
+evidence at `bce51d66f` are recorded below.
 
 Spectral variability accumulates 18 squared band differences in order. The
 selected scalar C caller rounds every product; the SIMD caller rounds its first
@@ -185,7 +185,7 @@ parsing. The runtime helpers and disabled tracing preserve zero warm allocations
 
 Both matching Linux/amd64 v3 lanes pass every analyzer state and returned
 field in all 180 corpus cases and 20 encoder-variant cases, with no failures or
-skips, in the [native audit at `ec9ec8cb2`](https://github.com/thesyncim/gopus/actions/runs/36863691307).
+skips, in the [native audit at `bce51d66f`](https://github.com/thesyncim/gopus/actions/runs/36870981432).
 The audit validates both exact subtest counts and rejects missing/skipped cases.
 It also passes the later Std, three nonzero-history AvgMod and two getter source
 regressions, all 60 encoder/24 decoder/15 warm-allocation cases, and 19 CBR cases
@@ -207,7 +207,7 @@ and all five state fields across 11 cases and eight frames, including seeded
 history, quiet input, 12 kHz remainders and 40/60/120 ms frames. Both matching
 local v3 lanes pass and allocate zero after warmup. The accumulation loop has
 no helper calls; at most two register-only helpers run per valid stereo frame.
-Native confirmation for this patch is pending.
+The native audit at `bce51d66f` passes all 11 cases in both matched v3 lanes.
 
 ### SILK sidecar final range with a matched reference
 
@@ -225,8 +225,9 @@ use identical SILK/NB, 16 kbps CBR, complexity-10, automatic-signal and LSB-dept
 controls. The Go encoder constructs a CELT sidecar before the SILK sequence. The shared C probe requires a
 successful final-range control query; missing packets or ranges fail the test.
 Both local v3 lanes and the matched fixed-point v1 scalar lane pass all 51
-packets and ranges without skips. No fixture data changes. Native confirmation
-of the integrated patch is pending. The complete local encoder package passes
+packets and ranges without skips. The native audit at `bce51d66f` also passes
+all 51 packets/ranges in both matched v3 lanes. No fixture data changes.
+The complete local encoder package passes
 both v3 lanes under the parity tier; its two fixture tests retain their existing
 exactness/fast-tier prerequisites. All 212 required analyzer/width/sidecar cases pass without skips,
 as do the 60 encoder, 24 decoder, 15 allocation and 19-case CBR/contract gates.
@@ -1053,25 +1054,25 @@ workloads or any warm allocation fail the run.
 
 ### Analyzer parity cost on amd64 v3
 
-The [native incremental benchmark](https://github.com/thesyncim/gopus/actions/runs/36863691307)
-compares Go `4b660d668` with `ec9ec8cb2` on AMD EPYC 7763, Go 1.27.1 and
+The [native incremental benchmark](https://github.com/thesyncim/gopus/actions/runs/36870981432)
+compares Go `4b660d668` with `bce51d66f` on AMD EPYC 9V74, Go 1.27.1 and
 GCC 13.3. Both revisions have identical PGO and benchmark source hashes. Four
 rotated/reversed 500 ms rounds use `-cpu=1`; all 80 samples report zero bytes
 and allocations. Values are median ns/op; percentages describe time changes.
 
 | Workload | Scalar baseline → candidate | Change | SIMD baseline → candidate | Change |
 |---|---:|---:|---:|---:|
-| Caller-buffer encode | 104,453.5 → 104,595.0 | +0.14% | 62,421.0 → 62,313.5 | -0.17% |
-| VoIP encode | 111,300.0 → 111,772.0 | +0.42% | 69,091.5 → 68,685.0 | -0.59% |
-| Low-delay encode | 103,938.5 → 104,465.5 | +0.51% | 62,492.0 → 62,514.5 | +0.04% |
-| Mono analyzer | 18,029.5 → 18,478.5 | +2.49% | 12,195.0 → 12,185.5 | -0.08% |
-| Stereo analyzer | 18,364.0 → 18,764.0 | +2.18% | 12,293.5 → 12,310.5 | +0.14% |
+| Caller-buffer encode | 84,413.0 → 84,769.5 | +0.42% | 48,597.5 → 48,428.5 | -0.35% |
+| VoIP encode | 89,121.5 → 89,385.0 | +0.30% | 53,071.5 → 52,886.5 | -0.35% |
+| Low-delay encode | 83,963.5 → 84,216.5 | +0.30% | 48,319.0 → 48,348.0 | +0.06% |
+| Mono analyzer | 15,606.0 → 15,490.0 | -0.74% | 9,480.5 → 9,473.0 | -0.08% |
+| Stereo analyzer | 16,063.5 → 15,688.5 | -2.33% | 9,640.0 → 9,646.5 | +0.07% |
 
-This measures the combined Std, AvgMod and getter fixes; it does not isolate
-individual helper calls or update the assembly/C comparison tables. Public
-encoder changes remain within 0.6%. Scalar analyzer time increases 2.2–2.5%;
-SIMD analyzer time changes by less than 0.2%. EPYC measurements do not establish
-Intel-specific transition costs.
+This measures the combined Std, AvgMod, getter and stereo-width fixes; it does
+not isolate individual helper calls. Public encoder changes remain within 0.5%.
+Scalar analyzer time decreases 0.7–2.3%; SIMD analyzer time changes by less than
+0.1%. These same-run ratios do not update the assembly/C tables measured on
+EPYC 7763 or establish Intel-specific transition costs.
 
 ### Per-symbol inventory
 
