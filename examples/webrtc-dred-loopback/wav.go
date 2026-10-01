@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -24,14 +23,15 @@ func newWAVRecorder(dir string, channels, sampleRate int) (*wavRecorder, error) 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	path := filepath.Join(dir, "loopback-"+time.Now().Format("20060102-150405")+".wav")
-	f, err := os.Create(path)
+	pattern := "loopback-" + time.Now().Format("20060102-150405") + "-*.wav"
+	f, err := os.CreateTemp(dir, pattern)
 	if err != nil {
 		return nil, err
 	}
-	w := &wavRecorder{file: f, path: path, channels: channels, sampleRate: sampleRate}
+	w := &wavRecorder{file: f, path: f.Name(), channels: channels, sampleRate: sampleRate}
 	if err := w.writeHeader(); err != nil {
 		_ = f.Close()
+		_ = os.Remove(f.Name())
 		return nil, err
 	}
 	return w, nil

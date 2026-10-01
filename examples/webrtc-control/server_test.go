@@ -136,6 +136,7 @@ func TestOfferHandlerPionLoopback(t *testing.T) {
 	type observedRTP struct {
 		sequenceNumber uint16
 		timestamp      uint32
+		frameSamples   int
 	}
 	remoteRTP := make(chan observedRTP, 128)
 	client.OnTrack(func(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
@@ -145,8 +146,12 @@ func TestOfferHandlerPionLoopback(t *testing.T) {
 				if err != nil {
 					return
 				}
+				frameSamples := 0
+				if info, err := gopus.ParsePacket(packet.Payload); err == nil {
+					frameSamples = info.TOC.FrameSize * info.FrameCount
+				}
 				select {
-				case remoteRTP <- observedRTP{sequenceNumber: packet.SequenceNumber, timestamp: packet.Timestamp}:
+				case remoteRTP <- observedRTP{sequenceNumber: packet.SequenceNumber, timestamp: packet.Timestamp, frameSamples: frameSamples}:
 				case <-ctx.Done():
 					return
 				}
@@ -267,40 +272,72 @@ func TestOfferHandlerPionLoopback(t *testing.T) {
 	}()
 	defer close(stopSamples)
 
-	gotControl, gotRemoteRTP, gotLoopback, gotLossSetting, gotFrameSize, gotLossGap := false, false, false, false, false, false
+	gotControl, gotRemoteRTP, gotLoopback, gotLossSetting, gotFrameSize, gotFrameTransition, gotLossGap := false, false, false, false, false, false, false
+	frameChangeRequested, lossRequestSent := false, false
 	var previousRTP observedRTP
 	havePreviousRTP := false
+	requestLossAfterTransition := func() {
+		if !gotControl || !gotLoopback || !gotFrameSize || !gotFrameTransition || lossRequestSent {
+			return
+		}
+		if err := control.SendText(`{"type":"set_param","param":"simLoss","value":50}`); err != nil {
+			t.Fatalf("enable simulated loss: %v", err)
+		}
+		lossRequestSent = true
+	}
 	timer := time.NewTimer(8 * time.Second)
 	defer timer.Stop()
-	for !gotControl || !gotRemoteRTP || !gotLoopback || !gotLossSetting || !gotFrameSize || !gotLossGap {
+	for !gotControl || !gotRemoteRTP || !gotLoopback || !gotLossSetting || !gotFrameSize || !gotFrameTransition || !gotLossGap {
 		select {
 		case <-controlOpened:
 			gotControl = true
 			controlOpened = nil
-			for _, message := range []string{
-				`{"type":"set_param","param":"audioSource","value":"loopback"}`,
-				`{"type":"set_param","param":"frameSize","value":120}`,
-				`{"type":"set_param","param":"simLoss","value":50}`,
-			} {
-				if err := control.SendText(message); err != nil {
-					t.Fatalf("send control message %s: %v", message, err)
-				}
-			}
 		case packet := <-remoteRTP:
 			gotRemoteRTP = true
-			if havePreviousRTP && gotLossSetting && gotFrameSize {
-				if packet.sequenceNumber-previousRTP.sequenceNumber > 1 && packet.timestamp-previousRTP.timestamp > 120 {
-					gotLossGap = true
+			if packet.frameSamples == 0 {
+				t.Fatal("server sent an invalid Opus packet")
+			}
+			if gotControl && !frameChangeRequested {
+				for _, message := range []string{
+					`{"type":"set_param","param":"audioSource","value":"loopback"}`,
+					`{"type":"set_param","param":"frameSize","value":120}`,
+				} {
+					if err := control.SendText(message); err != nil {
+						t.Fatalf("send control message %s: %v", message, err)
+					}
+				}
+				frameChangeRequested = true
+			}
+			if havePreviousRTP {
+				sequenceDelta := packet.sequenceNumber - previousRTP.sequenceNumber
+				timestampDelta := packet.timestamp - previousRTP.timestamp
+				if sequenceDelta == 1 {
+					if timestampDelta != uint32(previousRTP.frameSamples) {
+						t.Fatalf("adjacent RTP timestamp delta=%d, previous Opus duration=%d samples", timestampDelta, previousRTP.frameSamples)
+					}
+					if previousRTP.frameSamples == 120 && packet.frameSamples == 120 {
+						gotFrameTransition = true
+					}
+				} else if lossRequestSent && previousRTP.frameSamples == 120 && packet.frameSamples == 120 {
+					wantDelta := uint32(sequenceDelta) * uint32(previousRTP.frameSamples)
+					if timestampDelta != wantDelta {
+						t.Fatalf("loss-gap RTP timestamp delta=%d, sequence delta=%d and Opus duration=%d imply %d", timestampDelta, sequenceDelta, previousRTP.frameSamples, wantDelta)
+					}
+					if sequenceDelta > 1 {
+						gotLossGap = true
+					}
 				}
 			}
 			previousRTP = packet
 			havePreviousRTP = true
+			requestLossAfterTransition()
 		case stats := <-statsUpdates:
 			gotLoopback = gotLoopback || stats.Loopback
 			gotLossSetting = gotLossSetting || stats.SimLoss == 50
 			gotFrameSize = gotFrameSize || stats.FrameSize == 120
+			requestLossAfterTransition()
 		case <-timer.C:
-			t.Fatalf("loopback smoke timed out: DataChannel=%v serverRTP=%v loopback=%v frameSize=%v lossApplied=%v lossGap=%v", gotControl, gotRemoteRTP, gotLoopback, gotFrameSize, gotLossSetting, gotLossGap)
+			t.Fatalf("loopback smoke timed out: DataChannel=%v serverRTP=%v loopback=%v frameSize=%v transition=%v lossApplied=%v lossGap=%v", gotControl, gotRemoteRTP, gotLoopback, gotFrameSize, gotFrameTransition, gotLossSetting, gotLossGap)
 		case <-ctx.Done():
 			t.Fatalf("loopback smoke ended: %v", ctx.Err())
 		}

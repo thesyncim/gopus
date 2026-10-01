@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math/rand/v2"
 	"strings"
@@ -198,13 +200,14 @@ func (p *pipeline) encodeLoop() {
 		}
 		frameNum++
 
+		// Keep this frame's source, dimensions, and encoder configuration aligned
+		// while controls are applied under the same mutex.
 		p.mu.Lock()
 		curFrameSize := p.frameSize
 		curChannels := p.channels
 		curSimLoss := p.simLoss
 		isLoopback := p.loopback
 		curLoopbackGeneration := p.loopbackGeneration
-		p.mu.Unlock()
 		if curLoopbackGeneration != loopbackGeneration {
 			loopbackPCM.reset()
 			loopbackGeneration = curLoopbackGeneration
@@ -236,10 +239,11 @@ func (p *pipeline) encodeLoop() {
 			}
 		} else {
 			loopbackPCM.reset()
-			p.mu.Lock()
 			p.gen.fillFrame(pcm, frameSize)
-			p.mu.Unlock()
 		}
+
+		n, err := p.enc.Encode(pcm, packet)
+		p.mu.Unlock()
 
 		// Log PCM peak for first few frames to verify signal generation.
 		if frameNum <= 3 {
@@ -255,15 +259,12 @@ func (p *pipeline) encodeLoop() {
 			log.Printf("[frame %d] PCM samples=%d peak=%.4f", frameNum, len(pcm), peak)
 		}
 
-		p.mu.Lock()
-		n, err := p.enc.Encode(pcm, packet)
-		p.mu.Unlock()
 		if err != nil {
 			log.Printf("encode error: %v", err)
 			continue
 		}
 		if n == 0 {
-			// Internal buffering (lookahead not yet filled)
+			// The encoder produced no packet for this frame.
 			continue
 		}
 
@@ -537,170 +538,251 @@ type controlMessage struct {
 	Value any    `json:"value"`
 }
 
+func controlInteger(value any) (int, bool) {
+	number, ok := value.(json.Number)
+	if !ok {
+		return 0, false
+	}
+	i64, err := number.Int64()
+	if err != nil {
+		return 0, false
+	}
+	i := int(i64)
+	if int64(i) != i64 {
+		return 0, false
+	}
+	return i, true
+}
+
 // handleControlMessage processes a JSON control message from the browser.
 func (p *pipeline) handleControlMessage(data []byte) {
 	var msg controlMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&msg); err != nil {
 		log.Printf("bad control message: %v", err)
+		return
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		if err == nil {
+			log.Printf("bad control message: multiple JSON values")
+		} else {
+			log.Printf("bad control message: %v", err)
+		}
 		return
 	}
 	if msg.Type != "set_param" {
 		return
 	}
 
+	var intValue int
+	var boolValue bool
+	var stringValue string
+	var application gopus.Application
+	var bitrateMode gopus.BitrateMode
+	var signal gopus.Signal
+	var bandwidth gopus.Bandwidth
+	valid := false
+	switch msg.Param {
+	case "bitrate", "complexity", "frameSize", "packetLoss", "forceChannels", "lsbDepth", "simLoss":
+		intValue, valid = controlInteger(msg.Value)
+	case "fec", "dtx", "predictionDisabled", "phaseInvDisabled":
+		boolValue, valid = msg.Value.(bool)
+	case "application", "bitrateMode", "signal", "maxBandwidth", "audioSource":
+		stringValue, valid = msg.Value.(string)
+		if !valid {
+			return
+		}
+		switch msg.Param {
+		case "application":
+			switch stringValue {
+			case "voip":
+				application = gopus.ApplicationVoIP
+			case "audio":
+				application = gopus.ApplicationAudio
+			case "lowdelay":
+				application = gopus.ApplicationLowDelay
+			default:
+				return
+			}
+		case "bitrateMode":
+			switch stringValue {
+			case "vbr":
+				bitrateMode = gopus.BitrateModeVBR
+			case "cvbr":
+				bitrateMode = gopus.BitrateModeCVBR
+			case "cbr":
+				bitrateMode = gopus.BitrateModeCBR
+			default:
+				return
+			}
+		case "signal":
+			switch stringValue {
+			case "auto":
+				signal = gopus.SignalAuto
+			case "voice":
+				signal = gopus.SignalVoice
+			case "music":
+				signal = gopus.SignalMusic
+			default:
+				return
+			}
+		case "maxBandwidth":
+			switch stringValue {
+			case "nb":
+				bandwidth = gopus.BandwidthNarrowband
+			case "mb":
+				bandwidth = gopus.BandwidthMediumband
+			case "wb":
+				bandwidth = gopus.BandwidthWideband
+			case "swb":
+				bandwidth = gopus.BandwidthSuperwideband
+			case "fb":
+				bandwidth = gopus.BandwidthFullband
+			default:
+				return
+			}
+		case "audioSource":
+			switch stringValue {
+			case "chord", "sine", "sweep", "noise", "speech", "loopback":
+			default:
+				return
+			}
+		}
+	default:
+		return
+	}
+	if !valid {
+		return
+	}
+	if msg.Param == "simLoss" && (intValue < 0 || intValue > 50) {
+		return
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Helper to get numeric value.
-	numVal := func() int {
-		switch v := msg.Value.(type) {
-		case float64:
-			return int(v)
-		case int:
-			return v
-		default:
-			return 0
-		}
-	}
-	boolVal := func() bool {
-		switch v := msg.Value.(type) {
-		case bool:
-			return v
-		case float64:
-			return v != 0
-		default:
-			return false
-		}
-	}
-	strVal := func() string {
-		s, _ := msg.Value.(string)
-		return s
-	}
-
 	switch msg.Param {
 	case "application":
-		var app gopus.Application
-		switch strVal() {
-		case "voip":
-			app = gopus.ApplicationVoIP
-		case "audio":
-			app = gopus.ApplicationAudio
-		case "lowdelay":
-			app = gopus.ApplicationLowDelay
-		default:
-			return
-		}
 		// Application can only be changed before first encode in gopus,
 		// so we recreate the encoder.
-		newEnc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: sampleRate, Channels: p.channels, Application: app})
+		newEnc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: sampleRate, Channels: p.channels, Application: application})
 		if err != nil {
 			log.Printf("recreate encoder: %v", err)
 			return
 		}
-		// Copy over current settings.
-		_ = newEnc.SetBitrate(p.enc.Bitrate())
-		_ = newEnc.SetComplexity(p.enc.Complexity())
-		_ = newEnc.SetFrameSize(p.frameSize)
-		newEnc.SetFEC(p.enc.FECEnabled())
-		_ = newEnc.SetPacketLoss(p.enc.PacketLoss())
-		_ = newEnc.SetSignal(p.enc.Signal())
-		_ = newEnc.SetMaxBandwidth(p.enc.MaxBandwidth())
-		newEnc.SetDTX(p.enc.DTXEnabled())
-		_ = newEnc.SetLSBDepth(p.enc.LSBDepth())
-		newEnc.SetPredictionDisabled(p.enc.PredictionDisabled())
-		newEnc.SetPhaseInversionDisabled(p.enc.PhaseInversionDisabled())
-		_ = newEnc.SetForceChannels(p.enc.ForceChannels())
-		bm := p.enc.BitrateMode()
-		_ = newEnc.SetBitrateMode(bm)
+		if err := copyEncoderControls(newEnc, p.enc, p.frameSize); err != nil {
+			log.Printf("copy encoder controls: %v", err)
+			return
+		}
 		p.enc = newEnc
-		p.application = app
+		p.application = application
 
 	case "bitrate":
-		_ = p.enc.SetBitrate(numVal())
+		if err := p.enc.SetBitrate(intValue); err != nil {
+			return
+		}
 
 	case "complexity":
-		_ = p.enc.SetComplexity(numVal())
+		if err := p.enc.SetComplexity(intValue); err != nil {
+			return
+		}
 
 	case "frameSize":
-		fs := numVal()
-		if err := p.enc.SetFrameSize(fs); err == nil {
-			p.frameSize = fs
+		if err := p.enc.SetFrameSize(intValue); err == nil {
+			p.frameSize = intValue
 		}
 
 	case "bitrateMode":
-		switch strVal() {
-		case "vbr":
-			_ = p.enc.SetBitrateMode(gopus.BitrateModeVBR)
-		case "cvbr":
-			_ = p.enc.SetBitrateMode(gopus.BitrateModeCVBR)
-		case "cbr":
-			_ = p.enc.SetBitrateMode(gopus.BitrateModeCBR)
+		if err := p.enc.SetBitrateMode(bitrateMode); err != nil {
+			return
 		}
 
 	case "fec":
-		p.enc.SetFEC(boolVal())
+		p.enc.SetFEC(boolValue)
 
 	case "packetLoss":
-		_ = p.enc.SetPacketLoss(numVal())
+		if err := p.enc.SetPacketLoss(intValue); err != nil {
+			return
+		}
 
 	case "dtx":
-		p.enc.SetDTX(boolVal())
+		p.enc.SetDTX(boolValue)
 
 	case "signal":
-		switch strVal() {
-		case "auto":
-			_ = p.enc.SetSignal(gopus.SignalAuto)
-		case "voice":
-			_ = p.enc.SetSignal(gopus.SignalVoice)
-		case "music":
-			_ = p.enc.SetSignal(gopus.SignalMusic)
+		if err := p.enc.SetSignal(signal); err != nil {
+			return
 		}
 
 	case "maxBandwidth":
-		switch strVal() {
-		case "nb":
-			_ = p.enc.SetMaxBandwidth(gopus.BandwidthNarrowband)
-		case "mb":
-			_ = p.enc.SetMaxBandwidth(gopus.BandwidthMediumband)
-		case "wb":
-			_ = p.enc.SetMaxBandwidth(gopus.BandwidthWideband)
-		case "swb":
-			_ = p.enc.SetMaxBandwidth(gopus.BandwidthSuperwideband)
-		case "fb":
-			_ = p.enc.SetMaxBandwidth(gopus.BandwidthFullband)
+		if err := p.enc.SetMaxBandwidth(bandwidth); err != nil {
+			return
 		}
 
 	case "forceChannels":
-		_ = p.enc.SetForceChannels(numVal())
+		if err := p.enc.SetForceChannels(intValue); err != nil {
+			return
+		}
 
 	case "lsbDepth":
-		_ = p.enc.SetLSBDepth(numVal())
+		if err := p.enc.SetLSBDepth(intValue); err != nil {
+			return
+		}
 
 	case "predictionDisabled":
-		p.enc.SetPredictionDisabled(boolVal())
+		p.enc.SetPredictionDisabled(boolValue)
 
 	case "phaseInvDisabled":
-		p.enc.SetPhaseInversionDisabled(boolVal())
+		p.enc.SetPhaseInversionDisabled(boolValue)
 
 	case "simLoss":
-		v := numVal()
-		if v < 0 {
-			v = 0
-		}
-		if v > 50 {
-			v = 50
-		}
-		p.simLoss = v
+		p.simLoss = intValue
 
 	case "audioSource":
-		s := strVal()
 		p.loopbackGeneration++
 		drainLoopbackQueue(p.loopbackCh)
-		if s == "loopback" {
+		if stringValue == "loopback" {
 			p.loopback = true
 		} else {
 			p.loopback = false
-			p.gen.setSignal(s)
+			p.gen.setSignal(stringValue)
 		}
 	}
+}
+
+func copyEncoderControls(dst, src *gopus.Encoder, frameSize int) error {
+	if err := dst.SetBitrate(src.Bitrate()); err != nil {
+		return err
+	}
+	if err := dst.SetComplexity(src.Complexity()); err != nil {
+		return err
+	}
+	if err := dst.SetFrameSize(frameSize); err != nil {
+		return err
+	}
+	if err := dst.SetInBandFEC(src.InBandFEC()); err != nil {
+		return err
+	}
+	if err := dst.SetPacketLoss(src.PacketLoss()); err != nil {
+		return err
+	}
+	if err := dst.SetSignal(src.Signal()); err != nil {
+		return err
+	}
+	if err := dst.SetMaxBandwidth(src.MaxBandwidth()); err != nil {
+		return err
+	}
+	if err := dst.SetLSBDepth(src.LSBDepth()); err != nil {
+		return err
+	}
+	if err := dst.SetForceChannels(src.ForceChannels()); err != nil {
+		return err
+	}
+	if err := dst.SetBitrateMode(src.BitrateMode()); err != nil {
+		return err
+	}
+	dst.SetDTX(src.DTXEnabled())
+	dst.SetPredictionDisabled(src.PredictionDisabled())
+	dst.SetPhaseInversionDisabled(src.PhaseInversionDisabled())
+	return nil
 }

@@ -10,6 +10,162 @@ import (
 
 const incomingTestFrameSamples = 960
 
+func TestHandleControlMessageRejectsInvalidValuesWithoutChangingState(t *testing.T) {
+	p, err := newPipeline(nil)
+	if err != nil {
+		t.Fatalf("create pipeline: %v", err)
+	}
+	if err := p.enc.SetBitrate(128000); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.enc.SetComplexity(8); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.enc.SetInBandFEC(gopus.InBandFECMusicSafe); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.enc.SetPacketLoss(25); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.enc.SetSignal(gopus.SignalVoice); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.enc.SetMaxBandwidth(gopus.BandwidthWideband); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.enc.SetLSBDepth(20); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.enc.SetForceChannels(1); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.enc.SetBitrateMode(gopus.BitrateModeCVBR); err != nil {
+		t.Fatal(err)
+	}
+	p.enc.SetDTX(true)
+	p.enc.SetPredictionDisabled(true)
+	p.enc.SetPhaseInversionDisabled(true)
+	p.loopback = true
+	p.loopbackGeneration = 9
+	p.simLoss = 27
+	p.gen.setSignal("noise")
+	p.loopbackCh = make(chan []float32, 1)
+	queued := []float32{0.25, -0.5}
+	p.loopbackCh <- queued
+
+	enc := p.enc
+	dec := p.dec
+	generator := *p.gen
+	assertUnchanged := func(t *testing.T) {
+		t.Helper()
+		if p.enc != enc || p.dec != dec || p.application != gopus.ApplicationAudio || p.frameSize != 960 {
+			t.Fatal("rejected control replaced codec state or changed the application/frame size")
+		}
+		if p.enc.Bitrate() != 128000 || p.enc.Complexity() != 8 || p.enc.InBandFEC() != gopus.InBandFECMusicSafe ||
+			p.enc.PacketLoss() != 25 || p.enc.Signal() != gopus.SignalVoice || p.enc.MaxBandwidth() != gopus.BandwidthWideband ||
+			!p.enc.DTXEnabled() || p.enc.LSBDepth() != 20 || !p.enc.PredictionDisabled() ||
+			!p.enc.PhaseInversionDisabled() || p.enc.ForceChannels() != 1 || p.enc.BitrateMode() != gopus.BitrateModeCVBR {
+			t.Fatal("rejected control changed encoder settings")
+		}
+		if p.simLoss != 27 || !p.loopback || p.loopbackGeneration != 9 || *p.gen != generator {
+			t.Fatal("rejected control changed source, generation, simulated loss, or generator state")
+		}
+		select {
+		case got := <-p.loopbackCh:
+			if len(got) != len(queued) || &got[0] != &queued[0] {
+				t.Fatal("rejected control changed the queued loopback frame")
+			}
+			p.loopbackCh <- got
+		default:
+			t.Fatal("rejected control drained the loopback queue")
+		}
+	}
+
+	tests := []struct {
+		name    string
+		message string
+	}{
+		{"string bool", `{"type":"set_param","param":"fec","value":"not-a-bool"}`},
+		{"numeric bool", `{"type":"set_param","param":"fec","value":1}`},
+		{"string number", `{"type":"set_param","param":"complexity","value":"not-a-number"}`},
+		{"fractional number", `{"type":"set_param","param":"complexity","value":7.5}`},
+		{"decimal number form", `{"type":"set_param","param":"frameSize","value":960.0}`},
+		{"exponent number form", `{"type":"set_param","param":"frameSize","value":9.6e2}`},
+		{"codec range", `{"type":"set_param","param":"complexity","value":11}`},
+		{"invalid frame size", `{"type":"set_param","param":"frameSize","value":961}`},
+		{"bitrate overflow", `{"type":"set_param","param":"bitrate","value":9223372036854775808}`},
+		{"packet loss range", `{"type":"set_param","param":"packetLoss","value":101}`},
+		{"simulated loss range", `{"type":"set_param","param":"simLoss","value":51}`},
+		{"application type", `{"type":"set_param","param":"application","value":2}`},
+		{"application enum", `{"type":"set_param","param":"application","value":"unknown"}`},
+		{"bitrate mode type", `{"type":"set_param","param":"bitrateMode","value":1}`},
+		{"signal enum", `{"type":"set_param","param":"signal","value":"unknown"}`},
+		{"bandwidth type", `{"type":"set_param","param":"maxBandwidth","value":48000}`},
+		{"source type", `{"type":"set_param","param":"audioSource","value":12}`},
+		{"source enum", `{"type":"set_param","param":"audioSource","value":"unknown"}`},
+		{"trailing json", `{"type":"set_param","param":"audioSource","value":"sine"} {}`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p.handleControlMessage([]byte(tc.message))
+			assertUnchanged(t)
+		})
+	}
+}
+
+func TestHandleControlMessageCopiesEncoderSettingsBeforeApplicationSwap(t *testing.T) {
+	p, err := newPipeline(nil)
+	if err != nil {
+		t.Fatalf("create pipeline: %v", err)
+	}
+	if err := p.enc.SetBitrate(128000); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.enc.SetComplexity(8); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.enc.SetFrameSize(960); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.enc.SetInBandFEC(gopus.InBandFECMusicSafe); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.enc.SetPacketLoss(25); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.enc.SetSignal(gopus.SignalVoice); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.enc.SetMaxBandwidth(gopus.BandwidthWideband); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.enc.SetLSBDepth(20); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.enc.SetForceChannels(1); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.enc.SetBitrateMode(gopus.BitrateModeCVBR); err != nil {
+		t.Fatal(err)
+	}
+	p.enc.SetDTX(true)
+	p.enc.SetPredictionDisabled(true)
+	p.enc.SetPhaseInversionDisabled(true)
+	oldEncoder := p.enc
+
+	p.handleControlMessage([]byte(`{"type":"set_param","param":"application","value":"lowdelay"}`))
+
+	if p.enc == oldEncoder || p.application != gopus.ApplicationLowDelay || p.frameSize != 960 {
+		t.Fatal("application control did not replace encoder and update application")
+	}
+	if p.enc.Bitrate() != 128000 || p.enc.Complexity() != 8 || p.enc.InBandFEC() != gopus.InBandFECMusicSafe ||
+		p.enc.PacketLoss() != 25 || p.enc.Signal() != gopus.SignalVoice || p.enc.MaxBandwidth() != gopus.BandwidthWideband ||
+		!p.enc.DTXEnabled() || p.enc.LSBDepth() != 20 || !p.enc.PredictionDisabled() ||
+		!p.enc.PhaseInversionDisabled() || p.enc.ForceChannels() != 1 || p.enc.BitrateMode() != gopus.BitrateModeCVBR {
+		t.Fatal("application control did not copy every encoder setting")
+	}
+}
+
 func TestIncomingRTPUsesNegotiatedFECAcrossSequenceAndTimestampWrap(t *testing.T) {
 	const (
 		frameCount = 28
