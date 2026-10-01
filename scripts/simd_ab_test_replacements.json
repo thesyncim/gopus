@@ -1462,5 +1462,37 @@
       }
     ],
     "source_review": "737b5232 removes the planar and interleaved stereo postfilter entries; postfilterDecodeMem filters each channel's out_syn in place. The selected-C stage gate compares the stereo IMDCT, postfilter and de-emphasis stages bit-exactly with a non-zero postfilter split across carried history; the in-place comb reference and the stereo no-gain history/state check cover the remaining planar-path assertions."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestHotPathAllocsStreamWriterFloat32"
+    ],
+    "required_candidate_tests": [
+      "TestHotPathAllocsStreamWriter",
+      "TestHotPathAllocsStreamWriter/float32",
+      "TestHotPathAllocsStreamWriter/int16"
+    ],
+    "source_review": "TestHotPathAllocsStreamWriter warms both public PCM formats with five writes and requires zero allocations over 200 steady-state Writer.Write calls. The float32 leaf covers the standalone float32 allocation contract, while the parent and int16 leaf also verify the grouped test and int16 path."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/multistream",
+    "baseline_tests": [
+      "TestLibopus_MSRecovery_FECSILKGap"
+    ],
+    "required_candidate_tests": [
+      "TestLibopus_MSRecovery_FECEnabledPLCSILKGap"
+    ],
+    "source_review": "TestLibopus_MSRecovery_FECEnabledPLCSILKGap encodes 3-channel SILK packets with in-band FEC enabled, replaces packet 3 with nil, and decodes every entry with decode_fec=0. The live C sequence and Go path compare the resulting PLC-gap PCM; the test retains exact sample and waveform-quality checks."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/multistream",
+    "baseline_tests": [
+      "TestLibopus_MSRecovery_FECSILKGap51"
+    ],
+    "required_candidate_tests": [
+      "TestLibopus_MSRecovery_FECEnabledPLCSILKGap51"
+    ],
+    "source_review": "TestLibopus_MSRecovery_FECEnabledPLCSILKGap51 encodes 6-channel SILK packets with in-band FEC enabled, replaces packet 5 with nil, and decodes every entry with decode_fec=0. The live C sequence and Go path compare the resulting PLC-gap PCM; the test retains exact sample and waveform-quality checks."
   }
 ]
