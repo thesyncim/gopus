@@ -7,65 +7,115 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
-// fixtureProducerOpusDemo resolves the pinned C build matching the fixture's
-// recorded compiler and configure settings. Paired Go comparisons use the
-// separate build-aware reference helper.
-func fixtureProducerOpusDemo(t *testing.T, want libopusFixtureProvenance) string {
+// fixtureProducerOpusDemo resolves the C tree recorded by the fixture. If the
+// generator records a source-tree path, that path chooses the tree directly;
+// otherwise complete compiler provenance must identify one candidate.
+func fixtureProducerOpusDemo(t *testing.T, generator string, want libopusFixtureProvenance) string {
 	t.Helper()
 	if want.GOOS != runtime.GOOS || want.GOARCH != runtime.GOARCH {
 		fixtureProducerUnavailable(t, "fixture producer platform %s/%s is unavailable on %s/%s", want.GOOS, want.GOARCH, runtime.GOOS, runtime.GOARCH)
 	}
-	type candidate struct {
-		suffix string
-		ensure func(string, []string) bool
+	version := want.LibopusVersion
+	if version == "" {
+		version = libopustooling.DefaultVersion
 	}
-	candidates := []candidate{
-		{ensure: libopustooling.EnsureLibopus},
-		{suffix: "-scalar", ensure: libopustooling.EnsureLibopusScalar},
-		{suffix: "-simd", ensure: libopustooling.EnsureLibopusSIMD},
-	}
-	pathFor := func(c candidate) string {
-		name := "opus_demo"
-		if runtime.GOOS == "windows" {
-			name += ".exe"
+	if suffix, ok := fixtureProducerSourceSuffix(generator, version); ok {
+		path, err := resolveFixtureProducerOpusDemo(version, suffix)
+		if err != nil {
+			fixtureProducerUnavailable(t, "resolve recorded fixture producer %q: %v", generator, err)
+			return ""
 		}
-		return filepath.Join("..", "tmp_check", "opus-"+libopustooling.DefaultVersion+c.suffix, name)
-	}
-	find := func() string {
-		for _, c := range candidates {
-			path := pathFor(c)
-			if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
-				continue
-			}
-			got, ok := libopustooling.LibopusBuildProvenanceForTool(path)
-			if ok && fixtureProducerSettingsMatch(want, got) {
-				return path
-			}
+		got, ok := libopustooling.LibopusBuildProvenanceForTool(path)
+		settingsMatch := fixtureProducerSettingsMatch(want, got)
+		if fixtureHasBasicProducerProvenance(want) {
+			settingsMatch = fixtureProducerBasicSettingsMatch(want, got)
 		}
-		return ""
-	}
-	if path := find(); path != "" {
+		if !ok || !settingsMatch {
+			fixtureProducerUnavailable(t, "recorded fixture producer %q has mismatched or missing compiler provenance", generator)
+			return ""
+		}
 		return path
 	}
-	for _, c := range candidates {
-		if !c.ensure(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()) {
+	if !fixtureHasCompleteCompilerProvenance(want) {
+		fixtureProducerUnavailable(t, "fixture generator %q does not identify a source tree and its compiler provenance is incomplete", generator)
+		return ""
+	}
+	var matchingPath string
+	for _, suffix := range []string{"", "-scalar", "-simd"} {
+		path, err := resolveFixtureProducerOpusDemo(version, suffix)
+		if err != nil {
 			continue
 		}
-		if path := find(); path != "" {
-			return path
+		got, ok := libopustooling.LibopusBuildProvenanceForTool(path)
+		if ok && fixtureProducerSettingsMatch(want, got) {
+			if matchingPath != "" {
+				fixtureProducerUnavailable(t, "fixture provenance matches multiple opus_demo trees (%s and %s)", matchingPath, path)
+				return ""
+			}
+			matchingPath = path
 		}
+	}
+	if matchingPath != "" {
+		return matchingPath
 	}
 	fixtureProducerUnavailable(t, "no pinned opus_demo matches fixture producer platform/compiler/configuration (%s/%s, %s, %q)",
 		want.GOOS, want.GOARCH, want.CCTarget, want.Configure)
 	return ""
+}
+
+func fixtureProducerSourceSuffix(generator, version string) (string, bool) {
+	name := strings.ReplaceAll(generator, "\\", "/")
+	tool := path.Base(name)
+	if tool != "opus_demo" && tool != "opus_demo.exe" {
+		return "", false
+	}
+	tree := path.Base(path.Dir(name))
+	base := "opus-" + version
+	if tree == base {
+		return "", true
+	}
+	for _, suffix := range []string{"-scalar", "-simd"} {
+		if tree == base+suffix {
+			return suffix, true
+		}
+	}
+	return "", false
+}
+
+func resolveFixtureProducerOpusDemo(version, suffix string) (string, error) {
+	roots := libopustooling.DefaultSearchRoots()
+	switch suffix {
+	case "":
+		return libopustooling.FindOrEnsureDefaultOpusDemo(version, roots)
+	case "-scalar":
+		return libopustooling.FindOrEnsureOpusDemoForVariant(version, roots, libopustooling.LibopusReferenceScalar)
+	case "-simd":
+		return libopustooling.FindOrEnsureOpusDemoForVariant(version, roots, libopustooling.LibopusReferenceSIMD)
+	default:
+		return "", fmt.Errorf("unsupported recorded libopus tree suffix %q", suffix)
+	}
+}
+
+func fixtureHasCompleteCompilerProvenance(p libopusFixtureProvenance) bool {
+	return p.HostOS != "" && p.HostArch != "" && p.HostBits != "" && p.CC != "" && p.CCPath != "" &&
+		p.CCTarget != "" && p.CCVersion != "" && p.Configure != "" && p.CFLAGS != "" && p.LibopusBuildStampSHA256 != ""
+}
+
+func fixtureHasBasicProducerProvenance(p libopusFixtureProvenance) bool {
+	return p.GOOS != "" && p.GOARCH != "" && p.LibopusVersion != "" && p.QEXT != "" &&
+		p.HostOS == "" && p.HostArch == "" && p.HostBits == "" && p.CC == "" && p.CCPath == "" &&
+		p.CCTarget == "" && p.CCVersion == "" && p.Configure == "" && p.CFLAGS == "" && p.CPPFLAGS == "" &&
+		p.LDFLAGS == "" && p.LibopusBuildStampSHA256 == ""
 }
 
 func fixtureProducerUnavailable(t *testing.T, format string, args ...any) {
@@ -86,6 +136,54 @@ func fixtureProducerSettingsMatch(want libopusFixtureProvenance, got libopustool
 		got.CC == want.CC && got.CCPath == want.CCPath && got.CCTarget == want.CCTarget &&
 		got.CCVersion == want.CCVersion && got.Configure == want.Configure &&
 		got.CFLAGS == want.CFLAGS && got.CPPFLAGS == want.CPPFLAGS && got.LDFLAGS == want.LDFLAGS
+}
+
+func fixtureProducerBasicSettingsMatch(want libopusFixtureProvenance, got libopustooling.LibopusBuildProvenance) bool {
+	return got.GOOS == want.GOOS && got.GOARCH == want.GOARCH &&
+		got.LibopusVersion == want.LibopusVersion && got.QEXT == want.QEXT
+}
+
+func TestFixtureProducerSourceSuffixUsesRecordedTree(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		generator string
+		want      string
+		ok        bool
+	}{
+		{name: "default", generator: "tmp_check/opus-1.6.1/opus_demo", want: "", ok: true},
+		{name: "scalar", generator: "/build/gopus/tmp_check/opus-1.6.1-scalar/opus_demo", want: "-scalar", ok: true},
+		{name: "simd windows path", generator: `tmp_check\opus-1.6.1-simd\opus_demo.exe`, want: "-simd", ok: true},
+		{name: "descriptive generator", generator: "gen_corpus_decoder_parity_fixture via opus_demo opus-1.6.1"},
+		{name: "wrong version", generator: "tmp_check/opus-1.6.10/opus_demo"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := fixtureProducerSourceSuffix(tc.generator, libopustooling.DefaultVersion)
+			if got != tc.want || ok != tc.ok {
+				t.Fatalf("fixtureProducerSourceSuffix(%q)=(%q,%t), want (%q,%t)", tc.generator, got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}
+
+func TestFixtureProducerSettingsMatchDoesNotIgnoreIncompleteCompilerFields(t *testing.T) {
+	want := libopusFixtureProvenance{
+		GOOS: "linux", GOARCH: "amd64", LibopusVersion: libopustooling.DefaultVersion, QEXT: "0",
+		HostOS: "Linux", HostArch: "x86_64", HostBits: "64", CC: "cc", CCPath: "/usr/bin/cc",
+		CCTarget: "x86_64-linux-gnu", CCVersion: "gcc test", Configure: "--enable-static --disable-shared",
+		CFLAGS: "-O3 -DNDEBUG", CPPFLAGS: "", LDFLAGS: "",
+	}
+	got := libopustooling.LibopusBuildProvenance{
+		GOOS: "linux", GOARCH: "amd64", LibopusVersion: libopustooling.DefaultVersion, QEXT: "0",
+		HostOS: "Linux", HostArch: "x86_64", HostBits: "64", CC: "cc", CCPath: "/usr/bin/cc",
+		CCTarget: "x86_64-linux-gnu", CCVersion: "gcc test", Configure: "--enable-static --disable-shared",
+		CFLAGS: "-O3 -DNDEBUG", CPPFLAGS: "unexpected", LDFLAGS: "",
+	}
+	if fixtureProducerSettingsMatch(want, got) {
+		t.Fatal("complete fixture provenance accepted a compiler flag mismatch")
+	}
+	if fixtureHasBasicProducerProvenance(want) {
+		t.Fatal("compiler provenance was incorrectly treated as legacy basic provenance")
+	}
 }
 
 func decodeFrozenPacketsWithProducer(t *testing.T, opusDemo string, sampleRate, channels int, packets [][]byte, ranges []uint32) []byte {
@@ -127,7 +225,7 @@ func TestCorpusDecoderFixtureProducerHonesty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	opusDemo := fixtureProducerOpusDemo(t, fixture.Provenance)
+	opusDemo := fixtureProducerOpusDemo(t, fixture.Generator, fixture.Provenance)
 	for _, c := range fixture.Cases {
 		t.Run(c.Name, func(t *testing.T) {
 			ranges := make([]uint32, len(c.Packets))
@@ -152,7 +250,7 @@ func TestDecoderRateFixtureProducerHonesty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	opusDemo := fixtureProducerOpusDemo(t, fixture.Provenance)
+	opusDemo := fixtureProducerOpusDemo(t, fixture.Generator, fixture.Provenance)
 	for _, c := range fixture.Cases {
 		t.Run(fmt.Sprintf("%s/rate%d", c.Name, c.APIRate), func(t *testing.T) {
 			ranges := make([]uint32, len(c.Packets))

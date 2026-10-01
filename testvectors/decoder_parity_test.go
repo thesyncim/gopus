@@ -164,7 +164,7 @@ func TestDecoderParityMatrixFixtureHonestyWithOpusDemo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load decoder matrix fixture: %v", err)
 	}
-	opusDemo := fixtureProducerOpusDemo(t, fixture.Provenance)
+	opusDemo := fixtureProducerOpusDemo(t, fixture.Generator, fixture.Provenance)
 	tmpDir, err := os.MkdirTemp("", "gopus-fixture-honesty-*")
 	if err != nil {
 		t.Fatalf("create temp dir: %v", err)

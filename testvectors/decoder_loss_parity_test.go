@@ -269,7 +269,7 @@ func buildDecoderLossStressPatterns(frames int) []decoderLossPattern {
 func TestDecoderLossParityLibopusFixture(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
-	opusDemo := requireFixtureOpusDemo(t)
+	opusDemo := requirePairedOpusDemo(t)
 	fixture, err := loadLibopusDecoderLossFixture()
 	if err != nil {
 		t.Fatalf("load decoder loss fixture: %v", err)
@@ -373,7 +373,7 @@ func TestDecoderLossStressPatternsAgainstOpusDemo(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
-	opusDemo := requireFixtureOpusDemo(t)
+	opusDemo := requirePairedOpusDemo(t)
 
 	fixture, err := loadLibopusDecoderLossFixture()
 	if err != nil {
@@ -518,7 +518,7 @@ func TestDecoderLossFixtureHonestyWithOpusDemo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load decoder loss fixture: %v", err)
 	}
-	opusDemo := fixtureProducerOpusDemo(t, fixture.Provenance)
+	opusDemo := fixtureProducerOpusDemo(t, fixture.Generator, fixture.Provenance)
 
 	tmpDir, err := os.MkdirTemp("", "gopus-decoder-loss-honesty-*")
 	if err != nil {

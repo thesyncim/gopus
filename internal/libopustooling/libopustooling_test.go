@@ -761,6 +761,62 @@ func TestFindOrEnsureOpusDemoRejectsExistingToolWhenValidationFails(t *testing.T
 	}
 }
 
+func TestFindOrEnsureDefaultOpusDemoIgnoresGoLaneOverride(t *testing.T) {
+	t.Setenv(LibopusAMD64TargetEnv, "")
+	override := "simd"
+	if goLibopusReferenceSIMD {
+		override = "scalar"
+	}
+	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", override)
+	if _, err := ResolveLibopusReferenceVariant(); err == nil {
+		t.Fatalf("conflicting GOPUS_LIBOPUS_REF_SCALAR=%q unexpectedly resolved for this Go build", override)
+	}
+
+	root := t.TempDir()
+	srcDir := writeDefaultReferenceTree(t, root, runtime.GOOS, runtime.GOARCH, "opus_demo")
+	got, err := FindOrEnsureDefaultOpusDemo(DefaultVersion, []string{root})
+	if err != nil {
+		t.Fatalf("find default fixture producer with conflicting Go-lane override: %v", err)
+	}
+	want := filepath.Join(srcDir, "opus_demo")
+	if runtime.GOOS == "windows" {
+		want += ".exe"
+	}
+	if got != want {
+		t.Fatalf("default fixture producer=%q want recorded unsuffixed tool %q", got, want)
+	}
+}
+
+func TestFindOrEnsureOpusDemoForVariantIgnoresGoLaneOverride(t *testing.T) {
+	t.Setenv(LibopusAMD64TargetEnv, "")
+	override := "simd"
+	if goLibopusReferenceSIMD {
+		override = "scalar"
+	}
+	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", override)
+	if _, err := ResolveLibopusReferenceVariant(); err == nil {
+		t.Fatalf("conflicting GOPUS_LIBOPUS_REF_SCALAR=%q unexpectedly resolved for this Go build", override)
+	}
+
+	variant := LibopusReferenceScalar
+	if goLibopusReferenceSIMD {
+		variant = LibopusReferenceSIMD
+	}
+	root := t.TempDir()
+	srcDir := writePairedReferenceTree(t, root, variant, runtime.GOOS, runtime.GOARCH, "opus_demo")
+	got, err := FindOrEnsureOpusDemoForVariant(DefaultVersion, []string{root}, variant)
+	if err != nil {
+		t.Fatalf("find explicit %s fixture producer with conflicting Go-lane override: %v", variant, err)
+	}
+	want := filepath.Join(srcDir, "opus_demo")
+	if runtime.GOOS == "windows" {
+		want += ".exe"
+	}
+	if got != want {
+		t.Fatalf("explicit %s fixture producer=%q want %q", variant, got, want)
+	}
+}
+
 func TestFindOrEnsureOpusCompareRejectsStampedBuildWithForeignFlags(t *testing.T) {
 	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "")
 	variant, err := ResolveLibopusReferenceVariant()
@@ -1147,6 +1203,52 @@ func writePairedReferenceTree(t *testing.T, root string, variant LibopusReferenc
 	stampLines = append(stampLines, "")
 	stamp := strings.Join(stampLines, "\n")
 	if err := os.WriteFile(filepath.Join(srcDir, ".gopus-libopus-build"), []byte(stamp), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return srcDir
+}
+
+func writeDefaultReferenceTree(t *testing.T, root, goos, goarch string, tools ...string) string {
+	t.Helper()
+	srcDir := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion)
+	if err := os.MkdirAll(filepath.Join(srcDir, ".libs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range tools {
+		name := tool
+		if goos == "windows" && !strings.HasSuffix(name, ".exe") {
+			name += ".exe"
+		}
+		if err := os.WriteFile(filepath.Join(srcDir, name), []byte("stub"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, ".libs", "libopus.a"), []byte("archive"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "config.h"), []byte(testSIMDConfig(goarch)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stampLines := []string{
+		"gopus libopus helper build v5",
+		"version=" + DefaultVersion,
+		"qext=0",
+		"fixed=0",
+		"custom=0",
+		"host_os=" + testHostOS(goos),
+		"host_arch=" + testHostArch(goarch),
+		"host_bits=" + testHostBits(goarch),
+		"cc=cc",
+		"cc_path=/usr/bin/cc",
+		"cc_target=" + testTargetTriple(goos, goarch),
+		"cc_version=cc test",
+		"configure=--enable-static --disable-shared",
+		"CFLAGS=" + LibopusBaseCFLAGS,
+		"CPPFLAGS=",
+		"LDFLAGS=",
+		"",
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, ".gopus-libopus-build"), []byte(strings.Join(stampLines, "\n")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return srcDir

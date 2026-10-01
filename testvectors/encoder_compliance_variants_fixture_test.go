@@ -257,11 +257,11 @@ func TestEncoderVariantsFixtureHonestyWithOpusDemo(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
-	opusDemo := requireFixtureOpusDemo(t)
 	fixture, err := loadEncoderComplianceVariantsFixture()
 	if err != nil {
 		t.Fatalf("load encoder variants fixture: %v", err)
 	}
+	opusDemo := fixtureProducerOpusDemo(t, fixture.Generator, fixture.Provenance)
 
 	tmpDir, err := os.MkdirTemp("", "gopus-enc-variants-honesty-*")
 	if err != nil {

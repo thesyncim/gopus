@@ -251,7 +251,7 @@ func TestLongFrameReferenceFixtureHonestyWithLiveOpusDemo(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
-	opusDemo := requireFixtureOpusDemo(t)
+	opusDemo := requireDefaultFixtureProducerOpusDemo(t)
 	if !checkOpusdecAvailableEncoder() {
 		t.Skip("opusdec not available; skipping long-frame fixture honesty")
 	}
