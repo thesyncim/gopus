@@ -330,12 +330,6 @@ func ValidateLibopusReferenceBuild(refDir string, variant LibopusReferenceVarian
 	return validateLibopusReferenceBuildForPlatform(refDir, variant, version, runtime.GOOS, runtime.GOARCH)
 }
 
-// ValidateLibopusDefaultBuild verifies the unsuffixed autotools-default tree
-// used by fixture producers that record tmp_check/opus-<version>/opus_demo.
-func ValidateLibopusDefaultBuild(refDir, version string) error {
-	return validateLibopusDefaultBuildForPlatform(refDir, version, runtime.GOOS, runtime.GOARCH)
-}
-
 func validateLibopusDefaultBuildForPlatform(refDir, version, goos, goarch string) error {
 	if version == "" {
 		version = DefaultVersion
