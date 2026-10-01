@@ -139,16 +139,16 @@ func (d *MultistreamDecoder) decodePLCInt24Into(pcm []int32, frameSize int) erro
 	return nil
 }
 
-// Decode decodes an Opus multistream packet into float32 PCM samples.
+// Decode decodes a packet into interleaved float32 PCM, or performs packet loss
+// concealment (PLC) when data is nil or empty. It returns the number of samples
+// per channel written. For a packet, pcm must have room for that packet's
+// duration; a larger buffer is allowed, and its unused tail is left unchanged.
 //
-// data: Opus multistream packet data, or nil for Packet Loss Concealment (PLC).
-// pcm: Output buffer for decoded samples. Must be large enough to hold
-// frameSize * channels samples.
-//
-// Returns the number of samples per channel decoded, or an error.
-//
-// When data is nil, the decoder performs packet loss concealment using
-// the last successfully decoded frame parameters.
+// For PLC, the per-channel request size is inferred from len(pcm)/Channels(),
+// not from the previous packet. The buffer length must contain whole interleaved
+// frames; requests above 120 ms are capped to 120 ms. A buffer too small for a
+// packet or a PLC frame returns ErrBufferTooSmall. A malformed PLC frame length
+// returns ErrInvalidFrameSize.
 func (d *MultistreamDecoder) Decode(data []byte, pcm []float32) (int, error) {
 	channels := int(d.channels)
 	if len(data) != 0 {
@@ -184,12 +184,11 @@ func (d *MultistreamDecoder) Decode(data []byte, pcm []float32) (int, error) {
 	return frameSize, nil
 }
 
-// DecodeInt16 decodes an Opus multistream packet into int16 PCM samples.
-//
-// data: Opus multistream packet data, or nil for PLC.
-// pcm: Output buffer for decoded samples.
-//
-// Returns the number of samples per channel decoded, or an error.
+// DecodeInt16 decodes a packet into interleaved signed 16-bit PCM, or performs
+// PLC when data is nil or empty. It returns the number of samples per channel
+// written. For a packet, pcm must have room for its duration; for PLC, the
+// per-channel request size is inferred from the whole interleaved frames in
+// pcm and is capped at 120 ms. A short buffer returns ErrBufferTooSmall.
 func (d *MultistreamDecoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	channels := int(d.channels)
 	frameSize, err := d.decodeFrameSize(data, len(pcm))
@@ -238,15 +237,13 @@ func (d *MultistreamDecoder) DecodeInt16(data []byte, pcm []int16) (int, error) 
 	return n, nil
 }
 
-// DecodeInt24 decodes an Opus multistream packet into 24-bit PCM samples
-// stored in int32.
-//
-// data: Opus multistream packet data, or nil for PLC.
-// pcm: Output buffer for decoded samples. Each element carries a right-justified
-// signed 24-bit value in the range [-8388608, 8388607] (= ±2^23), matching
-// libopus opus_multistream_decode24().
-//
-// Returns the number of samples per channel decoded, or an error.
+// DecodeInt24 decodes a packet into interleaved signed 24-bit PCM stored in
+// int32 values, or performs PLC when data is nil or empty. Each value is
+// right-justified in the range [-8388608, 8388607]. The method returns the
+// number of samples per channel written. For a packet, pcm must have room for
+// its duration; for PLC, the per-channel request size is inferred from the whole
+// interleaved frames in pcm and is capped at 120 ms. A short buffer returns
+// ErrBufferTooSmall.
 func (d *MultistreamDecoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
 	channels := int(d.channels)
 	frameSize, err := d.decodeFrameSize(data, len(pcm))
@@ -295,12 +292,10 @@ func (d *MultistreamDecoder) DecodeInt24(data []byte, pcm []int32) (int, error) 
 	return n, nil
 }
 
-// DecodeInt24Slice decodes an Opus multistream packet into 24-bit PCM samples
-// and returns a new int32 slice. Each element carries a right-justified signed
-// 24-bit value.
-//
-// This is a convenience method that allocates the output buffer.
-// For performance-critical code, use DecodeInt24 with a pre-allocated buffer.
+// DecodeInt24Slice decodes a packet into interleaved signed 24-bit PCM stored
+// in a newly allocated int32 slice. Values are right-justified. For nil or empty
+// data it requests 60 ms of PLC. Use DecodeInt24 with a reusable buffer to avoid
+// the output allocation.
 func (d *MultistreamDecoder) DecodeInt24Slice(data []byte) ([]int32, error) {
 	channels := int(d.channels)
 	sampleRate := int(d.sampleRate)

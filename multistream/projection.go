@@ -16,10 +16,13 @@ func NewProjectionEncoder(sampleRate, channels int) (*Encoder, error) {
 }
 
 // NewProjectionDecoder returns a decoder with identity channel mapping and an
-// optional projection demixing matrix. Pass the matrix returned by
-// Encoder.GetDemixingMatrix; it must contain S16LE coefficients in column-major
-// order with channels rows and streams+coupledStreams columns. An empty matrix
-// disables demixing. The matrix is copied, so the caller may reuse its slice.
+// optional projection demixing matrix. The matrix uses signed 16-bit little-
+// endian coefficients in column-major order, with channels rows and
+// streams+coupledStreams columns; its length must be 2*channels*(streams+
+// coupledStreams) bytes. Encoder.GetDemixingMatrix returns a compatible matrix.
+// An empty matrix disables demixing. The matrix is copied. An invalid matrix
+// returns ErrInvalidProjectionMatrix; invalid dimensions return the corresponding
+// constructor error.
 func NewProjectionDecoder(sampleRate, channels, streams, coupledStreams int, demixingMatrix []byte) (*Decoder, error) {
 	if channels < 1 || channels > 255 {
 		return nil, ErrInvalidChannels

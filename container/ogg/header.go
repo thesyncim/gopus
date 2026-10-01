@@ -100,7 +100,9 @@ type OpusHead struct {
 	DemixingMatrix []byte
 }
 
-// Encode returns a serialized copy of the OpusHead.
+// Encode returns a serialized copy of the OpusHead. It copies mapping and
+// demixing bytes into the result but does not validate the fields or their
+// consistency; ParseOpusHead validates serialized headers.
 func (h *OpusHead) Encode() []byte {
 	if h.MappingFamily == 0 {
 		// Mapping family 0: 19 bytes total.
@@ -162,11 +164,12 @@ func (h *OpusHead) Encode() []byte {
 //
 // It returns ErrInvalidHeader when data is too short, lacks the "OpusHead"
 // magic, declares a version other than 1, has a zero channel count, or carries
-// a mapping family whose required fields (stream/coupled counts, channel
-// mapping, or RFC 8486 demixing matrix) are missing, truncated, or internally
-// inconsistent. This includes coupled streams exceeding streams, more than
-// 255 decoded stream channels, a mapping index outside the decoded streams, or
-// more than two channels for mapping family 0.
+// missing, truncated, or inconsistent fields. Checks include coupled streams
+// exceeding streams, more than 255 decoded stream channels, mapping indices
+// outside the decoded streams, more than two channels for mapping family 0, and
+// a truncated RFC 8486 family-3 demixing matrix. For nonzero mapping families
+// other than 3, it parses the generic channel-mapping layout and preserves the
+// family byte; it does not reject unknown family numbers.
 func ParseOpusHead(data []byte) (*OpusHead, error) {
 	if len(data) < opusHeadMinSize {
 		return nil, ErrInvalidHeader
@@ -266,12 +269,16 @@ type OpusTags struct {
 	// Vendor is the encoder name (e.g., "gopus").
 	Vendor string
 
-	// Comments is a map of user comments (key=value pairs).
-	// Common keys: TITLE, ARTIST, ALBUM, DATE, TRACKNUMBER, etc.
+	// Comments is a map of user comments (key=value pairs). Parsing skips entries
+	// without '=', splits on the first '=', and keeps the last value for duplicate
+	// keys; the map does not preserve comment order. Common keys include TITLE,
+	// ARTIST, ALBUM, DATE, and TRACKNUMBER.
 	Comments map[string]string
 }
 
-// Encode returns a serialized copy of the OpusTags.
+// Encode returns a serialized copy of the OpusTags. Comments are emitted in
+// unspecified map iteration order, and the struct is not validated before it is
+// serialized.
 func (t *OpusTags) Encode() []byte {
 	// Calculate size.
 	// 8 bytes: "OpusTags"
@@ -321,9 +328,11 @@ func (t *OpusTags) Encode() []byte {
 // the returned struct, so data may be reused afterwards.
 //
 // Comments are returned as a key=value map split on the first '=' in each
-// entry; an entry with no '=' is skipped. The length fields are unsigned 32-bit
-// and bounds-checked against the remaining input, so an over-long vendor or
-// comment length yields ErrInvalidHeader rather than reading past the buffer.
+// entry; an entry with no '=' is skipped, and a later duplicate key replaces an
+// earlier value. The map does not preserve wire order or duplicate entries. The
+// unsigned 32-bit lengths are bounds-checked against the remaining input, so an
+// over-long vendor or comment length yields ErrInvalidHeader rather than
+// reading past the buffer.
 //
 // It returns ErrInvalidHeader when data is too short, lacks the "OpusTags"
 // magic, or declares a vendor, comment count, or comment length that extends

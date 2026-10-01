@@ -67,21 +67,19 @@ func (d *Decoder) decodeStreamToFloat32(stream int, packet []byte, frameSize int
 	return d.decoders[stream].Decode(packet, frameSize)
 }
 
-// Decode decodes a multistream packet into caller-owned, interleaved float32
-// PCM. frameSize is the maximum number of samples per channel at SampleRate;
-// requests above 120 ms are capped. Packets may decode to fewer samples. A nil
-// or empty data slice requests PLC for the capped frameSize. All streams in a
-// packet must have the same duration, and the packet duration must not exceed
-// frameSize.
+// Decode returns a newly allocated interleaved float32 PCM slice. frameSize is
+// the maximum number of samples per channel at SampleRate; requests above 120 ms
+// are capped. A packet returns its actual duration, which must not exceed
+// frameSize. A nil or empty data slice requests PLC for the capped frameSize.
+// All elementary streams in a packet must have the same duration.
 func (d *Decoder) Decode(data []byte, frameSize int) ([]float32, error) {
 	return d.DecodeToFloat32(data, frameSize)
 }
 
-// DecodeToInt16 decodes a packet into caller-owned interleaved signed 16-bit
-// PCM. frameSize is the maximum number of samples per channel at SampleRate;
-// requests above 120 ms are capped, and nil or empty data requests PLC. The
-// returned slice contains the packet's actual duration or the capped request
-// duration for PLC.
+// DecodeToInt16 returns newly allocated interleaved signed 16-bit PCM.
+// frameSize is the maximum number of samples per channel at SampleRate; requests
+// above 120 ms are capped. A packet returns its actual duration, and nil or empty
+// data requests PLC for the capped frameSize.
 func (d *Decoder) DecodeToInt16(data []byte, frameSize int) ([]int16, error) {
 	if len(d.projectionDemixing) != 0 && d.projectionCols > 0 {
 		if pcm, handled, err := d.decodeFixedProjectionInt16(data, frameSize); err != nil {
@@ -115,10 +113,10 @@ func (d *Decoder) DecodeToInt16(data []byte, frameSize int) ([]int16, error) {
 	return float32ToInt16(samples), nil
 }
 
-// DecodeToFloat32 decodes a packet into caller-owned interleaved float32 PCM.
-// Values are approximately in [-1, 1]. frameSize is the maximum number of
-// samples per channel at SampleRate; requests above 120 ms are capped, and nil
-// or empty data requests PLC.
+// DecodeToFloat32 returns newly allocated interleaved float32 PCM with values
+// approximately in [-1, 1]. frameSize is the maximum number of samples per
+// channel at SampleRate; requests above 120 ms are capped. A packet returns its
+// actual duration, and nil or empty data requests PLC for the capped frameSize.
 func (d *Decoder) DecodeToFloat32(data []byte, frameSize int) ([]float32, error) {
 	if frameSize <= 0 {
 		return nil, ErrInvalidPacket
@@ -134,9 +132,9 @@ func (d *Decoder) DecodeToFloat32(data []byte, frameSize int) ([]float32, error)
 
 // DecodeIntoFloat32 decodes into output and returns the number of samples per
 // channel written. frameSize is the maximum number of samples per channel at
-// SampleRate; requests above 120 ms are capped. output must hold the decoded
-// interleaved samples. It returns ErrBufferTooSmall when the packet exceeds
-// frameSize or output is too short.
+// SampleRate; requests above 120 ms are capped. Only the interleaved prefix for
+// the decoded duration is written. It returns ErrBufferTooSmall when the packet
+// exceeds frameSize or output is too short.
 func (d *Decoder) DecodeIntoFloat32(data []byte, output []float32, frameSize int) (int, error) {
 	if n, handled, err := d.decodeFixedOutputFloat32(data, output, frameSize); err != nil {
 		return 0, err

@@ -1,11 +1,15 @@
 // Package ogg reads and writes Ogg Opus streams.
 //
-// Reader parses OpusHead and OpusTags and returns Opus packets. Writer writes
-// packets with Ogg page framing and CRC checksums. Page, OpusHead, and OpusTags
-// provide lower-level container primitives; codec encoding and decoding remain
-// in package gopus.
+// Reader parses OpusHead and OpusTags from the initial logical bitstream,
+// verifies page framing and CRCs, and returns packets from that stream. Writer
+// writes OpusHead and OpusTags immediately and writes each audio packet on its
+// own Ogg page. Close emits a packetless end-of-stream page; it does not flush
+// or close the underlying writer. Page, OpusHead, and OpusTags provide lower-
+// level container primitives; codec encoding and decoding remain in package
+// gopus.
 //
-// ParsePage and the header parsers copy data they retain. Page.Packets returns
-// slices that alias the page payload, and ReadPacketInto reuses the buffer
-// supplied by the caller.
+// ParsePage and the header parsers return data independent of their input.
+// Page.Packets returns slices that alias Page.Payload. Reader.ReadPacket returns
+// an independently owned packet copy, while Reader.ReadPacketInto writes into
+// the caller's buffer.
 package ogg

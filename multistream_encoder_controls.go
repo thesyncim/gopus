@@ -2,7 +2,8 @@ package gopus
 
 import "github.com/thesyncim/gopus/types"
 
-// SetFrameSize sets the frame size in native-Fs samples.
+// SetFrameSize sets the input frame size in samples per channel at the encoder's
+// native sample rate. Encode methods require this many samples for each channel.
 //
 // Valid sizes are the per-rate Opus frame sizes: (Fs/400)<<n (2.5/5/10 ms) and
 // n*Fs/50 (20/40/60/80/100/120 ms). At 48 kHz these are 120, 240, 480, 960,
@@ -15,7 +16,9 @@ func (e *MultistreamEncoder) SetFrameSize(samples int) error {
 	return nil
 }
 
-// FrameSize returns the current frame size in native-Fs samples.
+// FrameSize returns the configured input frame size in samples per channel at
+// the encoder's native sample rate. ExpertFrameDuration can select a shorter
+// coded frame from each input frame.
 func (e *MultistreamEncoder) FrameSize() int {
 	return int(e.frameSize)
 }
@@ -240,8 +243,9 @@ func (e *MultistreamEncoder) PhaseInversionDisabled() bool {
 	return e.enc.PhaseInversionDisabled()
 }
 
-// Reset clears the encoder state for a new stream.
-// Call this when starting to encode a new audio stream.
+// Reset clears codec and analysis history for a new stream. It preserves the
+// encoder's sample rate, channel layout, frame size, and expert frame-duration
+// policy.
 func (e *MultistreamEncoder) Reset() {
 	e.enc.Reset()
 }

@@ -5,9 +5,13 @@ RFC 8251 and targets strong behavioral and audio-quality parity with libopus
 1.6.1. It includes encoding, decoding, multistream, projection/ambisonics,
 Ogg files and RTP RED recovery.
 
-Caller-buffer APIs reuse storage and have zero steady-state allocations in the
-covered encode, decode and container paths. All codec kernels are Go code;
+The caller-buffer APIs reuse storage and keep the covered encode, decode and
+container hot paths allocation-free after warmup. All codec kernels are Go code;
 Go 1.27's experimental SIMD support is optional.
+
+- [API reference](https://pkg.go.dev/github.com/thesyncim/gopus)
+- [Runnable examples](examples/README.md)
+- [Correctness and performance evidence](reports/validation.md)
 
 ## Install
 
@@ -25,6 +29,7 @@ Encode and decode a 20 ms stereo frame at 48 kHz:
 package main
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/thesyncim/gopus"
@@ -45,14 +50,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(sampleRate, channels))
+	cfg := gopus.DefaultDecoderConfig(sampleRate, channels)
+	dec, err := gopus.NewDecoder(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	pcm := make([]float32, frameSize*channels) // interleaved input, normally [-1, 1]
-	packet := make([]byte, 1500)               // reusable packet storage
-	out := make([]float32, frameSize*channels) // storage for this 20 ms frame
+	packet := make([]byte, cfg.MaxPacketBytes)
+	out := make([]float32, cfg.MaxPacketSamples*channels)
 
 	n, err := enc.Encode(pcm, packet) // bytes written
 	if err != nil {
@@ -62,28 +68,63 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	_ = out[:samples*channels]
+	decoded := out[:samples*channels]
+	fmt.Printf("decoded %d samples per channel (%d total)\n", samples, len(decoded))
 }
 ```
 
-For arbitrary incoming packets, size the output for
-`DecoderConfig.MaxPacketSamples * Channels`. The default reserves 120 ms
-(5,760 samples per channel at 48 kHz) and accepts packets up to 1,500 bytes.
-Reuse codec instances and buffers; construction and initial warmup can allocate.
-Each encoder or decoder maintains stream history and needs external
-synchronization if shared between goroutines.
+### Buffers, frames, and state
 
-`EncodeInt16` / `DecodeInt16` use `[]int16`; `EncodeInt24` / `DecodeInt24`
-use signed 24-bit samples in `[]int32`. All formats use interleaved channels.
-Pass a nil packet to `Decode` for packet-loss concealment. Use `DecodeWithFEC`
-with the following packet for in-band recovery; see the
-[examples](examples/README.md) for loss handling, streaming, Ogg and RED.
+PCM channels are interleaved. A frame size counts samples **per channel**, so
+20 ms at 48 kHz is 960 samples per channel or 1,920 values for stereo. `Encode`
+returns packet bytes; `Decode` returns samples per channel. Use `packet[:n]`
+for the encoded packet and `out[:samples*channels]` for the decoded PCM.
 
-Configure bitrate, VBR, complexity, FEC and DTX with the encoder's control methods.
-`NewEncoder` starts at 64 kbps; libopus starts with automatic bitrate selection.
-Set matching controls when comparing output. `Bitrate()` returns the configured
-target, including `BitrateAuto` and `BitrateMax`; libopus reports an effective
-bitrate instead.
+`Encoder.FrameSize()` determines the required input length. `len(packet)` sets
+the encode byte budget. For arbitrary incoming packets, allocate output for
+`DecoderConfig.MaxPacketSamples * Channels`. The default limits are **5,760
+samples per channel** and **1,500 packet bytes**; 5,760 samples is 120 ms at
+48 kHz. Set those limits explicitly when your stream needs larger buffers,
+including 120 ms packets at native 96 kHz.
+
+Reuse each codec instance and its buffers. Construction and initial warmup can
+allocate. Instances retain stream history and require external synchronization
+if shared between goroutines. Use one instance per independent stream. `Reset`
+clears stream history and retains the stream format and ordinary controls.
+Encoder reset also disables DRED emission in tagged builds.
+
+`EncodeInt16` and `DecodeInt16` use `[]int16`. `EncodeInt24` takes
+right-justified signed 24-bit samples in `[]int32`, in the range
+[-8,388,608, 8,388,607]. `DecodeInt24` writes into a caller-provided `[]int32`
+buffer at the same PCM scale; it does not clamp to that range, so output gain
+can produce larger values.
+All formats use the same interleaved layout.
+
+### Packet loss
+
+Pass an empty or nil packet to `Decode` for packet-loss concealment. To request
+one missing 20 ms stereo frame at 48 kHz, pass `out[:960*2]`. A buffer whose
+length equals `MaxPacketSamples * Channels` instead requests the last decoded
+packet's duration when available.
+
+When the following packet arrives, `DecodeWithFEC(packet, missingPCM, true)`
+recovers the missing audio from in-band FEC when available and otherwise
+conceals the loss. Then call `Decode(packet, out)` on the **same packet** for its
+primary audio. At native 96 kHz, a FEC request always uses concealment and
+ignores the supplied packet. The [packet-loss example](examples/packet-loss) demonstrates this
+ordering. Transport framing, packet timing, and jitter buffering belong to the
+application; the codec processes the packets supplied to it.
+
+### Encoder controls
+
+Configure bitrate, VBR, complexity, FEC, and DTX with the encoder's control
+methods. `NewEncoder` starts at 64 kbps; libopus starts with automatic bitrate
+selection. Set matching controls when comparing output. `Bitrate()` returns the
+configured target, including `BitrateAuto` and `BitrateMax`; libopus reports an
+effective bitrate instead.
+
+DTX can produce a short one- or two-byte packet, or no packet. A zero encode
+byte count with a nil error means there is no packet to send.
 
 ## Packages and features
 
@@ -138,7 +179,9 @@ matching supported C reference lane.
 | OSCE BWE | Extra controls under `gopus_osce`; support probe returns false | `OptionalExtensionOSCEBWE` |
 
 `SupportsOptionalExtension(OptionalExtensionOSCEBWE)` reports false: these
-controls are exposed for parity work. Consult the [validation reference](reports/validation.md#coverage)
+controls are exposed for parity work. DRED controls and standalone recovery
+APIs also compile with `gopus_osce`, while the supported DRED probe follows
+`gopus_dred`. Consult the [validation reference](reports/validation.md#coverage)
 for tested feature combinations. Run tagged tests with the matching reference:
 
 ```sh
@@ -209,8 +252,9 @@ executable regression. Unexplained mismatches remain failures. Exact oracle
 checks and real-audio `opus_compare` quality checks complement each other;
 neither proves every possible input and state sequence.
 
-The [coverage audit](reports/validation.md#coverage) records passing configurations
-and unresolved cases. Universal byte parity is not claimed. The documented
+The [coverage audit](reports/validation.md#coverage) records the build
+configurations, inputs, and state sequences covered by exact comparisons,
+and identifies evidence gaps. The documented
 [C reference boundary](reports/validation.md#reference-boundary) is an unsafe
 custom-QEXT history read at 96 kHz / 2,048 samples; Go uses bounded concealment
 and compares defined C behavior.

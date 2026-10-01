@@ -208,8 +208,10 @@ func extractFirstFramePayload(data []byte, toc TOC) ([]byte, error) {
 	}
 }
 
-// PacketHasLBRR reports whether an Opus packet carries in-band LBRR data for
-// FEC recovery. It mirrors libopus opus_packet_has_lbrr().
+// PacketHasLBRR reports whether the first SILK or Hybrid frame in data carries
+// the LBRR flag for in-band FEC. It returns false for CELT and when the first
+// frame cannot be extracted. This is a payload probe, not full packet framing
+// validation; use ParsePacket to validate the complete packet.
 func PacketHasLBRR(data []byte) bool {
 	if len(data) == 0 {
 		return false

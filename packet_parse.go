@@ -17,17 +17,19 @@ var (
 	ErrInvalidPacket = errors.New("gopus: invalid packet structure")
 )
 
-// PacketInfo contains parsed information about an Opus packet.
+// PacketInfo describes an Opus packet's TOC and frame layout.
 type PacketInfo struct {
-	TOC        TOC   // Parsed TOC byte
-	FrameCount int   // Number of frames (1-48 for code 3)
-	FrameSizes []int // Size in bytes of each frame
-	Padding    int   // Padding bytes (code 3 only)
-	TotalSize  int   // Total packet size
+	TOC        TOC   // Parsed TOC byte.
+	FrameCount int   // Number of frames in the packet.
+	FrameSizes []int // Frame payload sizes in bytes, excluding headers and padding.
+	Padding    int   // Trailing padding bytes; nonzero only for code 3 packets.
+	TotalSize  int   // Complete packet size in bytes, including headers and padding.
 }
 
-// ParsePacket parses an Opus packet and returns information about its structure.
-// It determines the frame boundaries based on the TOC byte's frame code (0-3).
+// ParsePacket parses a complete Opus packet and returns its frame layout.
+// FrameSizes contains payload lengths in packet order; packet headers and
+// trailing padding are reported separately. It returns an error for truncated,
+// malformed, overlong, or over-duration packets.
 func ParsePacket(data []byte) (PacketInfo, error) {
 	if len(data) < 1 {
 		return PacketInfo{}, ErrPacketTooShort

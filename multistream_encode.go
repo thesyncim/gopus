@@ -1,13 +1,12 @@
 package gopus
 
-// Encode encodes float32 PCM samples into an Opus multistream packet.
-//
-// pcm: Input samples (interleaved). Length must be frameSize * channels.
-// data: Output buffer for the encoded packet. Recommended size is 4000 bytes per stream.
-//
-// Returns the number of bytes written to data, or an error. Like libopus
-// opus_multistream_encode_float(), len(data) is the packet budget every
-// stream's allocation is carved from. The steady-state path is allocation-free.
+// Encode encodes interleaved float32 PCM. pcm must contain exactly
+// FrameSize()*Channels() samples; ExpertFrameDuration may select a shorter
+// coded frame from that input. data is the packet buffer, and its length is the
+// total byte budget shared by all elementary streams. A 4,000-byte-per-stream
+// buffer is sufficient for a maximum packet. Encode returns the number of bytes
+// written or an error; a buffer that is too small returns ErrBufferTooSmall.
+// The steady-state path is allocation-free.
 func (e *MultistreamEncoder) Encode(pcm []float32, data []byte) (int, error) {
 	frameSize, err := e.codedFrameSize(len(pcm))
 	if err != nil {
@@ -30,14 +29,13 @@ func (e *MultistreamEncoder) codedFrameSize(samples int) (int, error) {
 	return selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application, int(e.sampleRate))
 }
 
-// EncodeInt16 encodes int16 PCM samples into an Opus multistream packet.
-//
-// pcm: Input samples (interleaved). Length must be frameSize * channels.
-// data: Output buffer for the encoded packet.
-//
-// Returns the number of bytes written to data, or an error. It matches
-// libopus opus_multistream_encode(): the samples are scaled by 1/32768 and the
-// streams code them with a 16-bit LSB depth.
+// EncodeInt16 encodes interleaved signed 16-bit PCM. pcm must contain exactly
+// FrameSize()*Channels() samples; ExpertFrameDuration may select a shorter
+// coded frame from that input. data is the packet buffer, and its length is the
+// total byte budget shared by all elementary streams. It returns the number of
+// bytes written or an error; a buffer that is too small returns
+// ErrBufferTooSmall. Samples are scaled by 1/32768 and coded with a 16-bit LSB
+// depth, matching opus_multistream_encode().
 func (e *MultistreamEncoder) EncodeInt16(pcm []int16, data []byte) (int, error) {
 	frameSize, err := e.codedFrameSize(len(pcm))
 	if err != nil {
@@ -50,18 +48,16 @@ func (e *MultistreamEncoder) EncodeInt16(pcm []int16, data []byte) (int, error) 
 	return n, nil
 }
 
-// EncodeInt24 encodes 24-bit PCM samples stored in int32 values into an Opus multistream packet.
+// EncodeInt24 encodes interleaved signed 24-bit PCM carried in int32 values.
+// pcm must contain exactly FrameSize()*Channels() values; ExpertFrameDuration
+// may select a shorter coded frame from that input. data is the packet buffer,
+// and its length is the total byte budget shared by all elementary streams. It
+// returns the number of bytes written or an error; a buffer that is too small
+// returns ErrBufferTooSmall.
 //
-// pcm: Input samples (interleaved). Length must be frameSize * channels.
-// data: Output buffer for the encoded packet.
-//
-// Returns the number of bytes written to data, or an error.
-//
-// The input values are interpreted as right-justified signed 24-bit PCM
-// carried in int32 containers with numeric range [-8388608, 8388607].
-// Left-shifted 24-in-32 input will be mis-scaled. INT24TORES scales exactly by
-// 1/8388608 and opus_multistream_encode24() codes at the float path's 24-bit
-// LSB depth, so the samples take the float path.
+// Each input value must be right-justified in the range [-8388608, 8388607].
+// Left-shifted 24-in-32 PCM is mis-scaled. Values are converted to float32 by
+// dividing by 8388608 and coded at a 24-bit LSB depth.
 func (e *MultistreamEncoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
 	expected := int(e.frameSize) * int(e.channels)
 	if len(pcm) != expected {
@@ -74,37 +70,33 @@ func (e *MultistreamEncoder) EncodeInt24(pcm []int32, data []byte) (int, error) 
 	return e.Encode(pcm32, data)
 }
 
-// EncodeFloat32 encodes float32 PCM samples and returns a new byte slice.
-//
-// This is a convenience method that allocates the output buffer.
-// For performance-critical code, use Encode with a pre-allocated buffer.
-//
-// pcm: Input samples (interleaved).
-//
-// Returns the encoded packet or an error.
+// EncodeFloat32 encodes interleaved float32 PCM and returns a newly allocated
+// packet slice. The input must contain exactly FrameSize()*Channels() samples;
+// ExpertFrameDuration may select a shorter coded frame from that input.
+// For allocation-free steady-state encoding, use Encode with a reusable packet
+// buffer.
 func (e *MultistreamEncoder) EncodeFloat32(pcm []float32) ([]byte, error) {
 	return encodeToOwnedPacket(maxPacketBytesPerStream*e.enc.Streams(), func(data []byte) (int, error) {
 		return e.Encode(pcm, data)
 	})
 }
 
-// EncodeInt16Slice encodes int16 PCM samples and returns a new byte slice.
-//
-// This is a convenience method that allocates the output buffer.
-// For performance-critical code, use EncodeInt16 with a pre-allocated buffer.
-//
-// pcm: Input samples (interleaved).
-//
-// Returns the encoded packet or an error.
+// EncodeInt16Slice encodes interleaved signed 16-bit PCM and returns a newly
+// allocated packet slice. The input must contain exactly FrameSize()*Channels()
+// samples; ExpertFrameDuration may select a shorter coded frame. For
+// allocation-free steady-state encoding, use EncodeInt16 with a reusable
+// packet buffer.
 func (e *MultistreamEncoder) EncodeInt16Slice(pcm []int16) ([]byte, error) {
 	return encodeToOwnedPacket(maxPacketBytesPerStream*e.enc.Streams(), func(data []byte) (int, error) {
 		return e.EncodeInt16(pcm, data)
 	})
 }
 
-// EncodeInt24Slice encodes 24-bit PCM samples stored in int32 values and returns a new byte slice.
-//
-// This is a convenience method that allocates the output buffer.
+// EncodeInt24Slice encodes interleaved right-justified signed 24-bit PCM stored
+// in int32 values and returns a newly allocated packet slice. The input must
+// contain exactly FrameSize()*Channels() values; ExpertFrameDuration may select
+// a shorter coded frame. For allocation-free steady-state encoding, use
+// EncodeInt24 with a reusable packet buffer.
 func (e *MultistreamEncoder) EncodeInt24Slice(pcm []int32) ([]byte, error) {
 	return encodeToOwnedPacket(maxPacketBytesPerStream*e.enc.Streams(), func(data []byte) (int, error) {
 		return e.EncodeInt24(pcm, data)

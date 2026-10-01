@@ -1,9 +1,11 @@
 package multistream
 
-// SetProjectionDemixingMatrix sets the optional S16LE projection matrix in
-// column-major order. It expects outputChannels rows and streams+coupledStreams
-// columns, and requires identity channel mapping. The matrix is copied; an
-// empty slice clears demixing.
+// SetProjectionDemixingMatrix sets the optional signed 16-bit little-endian
+// projection matrix in column-major order. The matrix has outputChannels rows
+// and streams+coupledStreams columns, so its byte length must be
+// 2*outputChannels*(streams+coupledStreams). It requires identity channel
+// mapping. The matrix is copied; an empty slice clears demixing. Invalid size or
+// mapping returns ErrInvalidProjectionMatrix.
 func (d *Decoder) SetProjectionDemixingMatrix(matrix []byte) error {
 	if len(matrix) == 0 {
 		d.projectionDemixing = nil

@@ -5,17 +5,21 @@ import (
 	"github.com/thesyncim/gopus/internal/silk"
 )
 
-// Decode decodes data into interleaved float32 PCM in pcm. The buffer must hold
-// at least the decoded samples per channel multiplied by Channels. The returned
-// sample count is per channel.
+// Decode decodes data into interleaved float32 PCM in pcm. The buffer length is
+// measured in samples across all channels; the returned sample count is per
+// channel, and the first n*Channels elements contain the output.
 //
-// An empty data slice performs packet loss concealment. pcm requests the
-// per-channel duration and must contain a multiple of 2.5 ms for every channel.
-// If pcm has exactly DecoderConfig.MaxPacketSamples*Channels elements and a
-// packet has already been decoded, Decode uses the last packet duration. Before
-// the first packet, concealment returns zeroed PCM. Decode returns an error for
-// malformed packets, configured packet-limit violations, or a short output
-// buffer.
+// An empty data slice performs packet-loss concealment. Its requested duration
+// comes from len(pcm)/Channels and must be a positive multiple of 2.5 ms. If pcm
+// has exactly DecoderConfig.MaxPacketSamples*Channels elements and a packet has
+// already been decoded or concealed, Decode uses the most recent output
+// duration as the concealment request. Before the first decode, a valid
+// full-buffer request returns zeroed PCM.
+//
+// Deliberately sized PLC requests larger than MaxPacketSamples are honored;
+// MaxPacketSamples and MaxPacketBytes limit coded packets. Decode returns an
+// error for malformed packets, packet-limit violations, invalid PLC durations,
+// or a short output buffer.
 func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	if len(pcm) < int(d.channels) {
 		// The public libopus wrappers reject frame_size <= 0 before packet parsing
@@ -431,12 +435,15 @@ func (d *Decoder) decodeMultiFrameFloat32(pcm []float32, data []byte, toc *TOC, 
 	return offsetSamples, nil
 }
 
-// DecodeWithFEC decodes data into interleaved float32 PCM. When fec is true,
-// data is the packet received after a loss, and len(pcm)/Channels requests the
-// missing duration in samples per channel. The duration must be a multiple of
-// 2.5 ms. The decoder uses in-band FEC when available and otherwise performs
-// packet loss concealment. It returns samples per channel. Call Decode with the
-// same packet afterward to decode that packet's primary frame.
+// DecodeWithFEC decodes data into interleaved float32 PCM and returns samples
+// per channel. When fec is false, it behaves like Decode. When fec is true,
+// data is the packet received after a loss and len(pcm)/Channels requests the
+// missing duration; the request must be a positive multiple of 2.5 ms. The
+// decoder recovers in-band FEC when usable LBRR is present and otherwise
+// performs packet-loss concealment. Empty data also performs concealment. This
+// call does not decode the supplied packet's primary frame: call Decode with
+// the same packet afterward. At 96 kHz, data is ignored and the request uses
+// concealment.
 func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, error) {
 	if len(pcm) < int(d.channels) {
 		return 0, ErrBufferTooSmall
@@ -531,8 +538,10 @@ func (d *Decoder) decodeWithFECFloat32(data []byte, pcm []float32) (int, error) 
 }
 
 // DecodeInt16 decodes data into interleaved signed 16-bit PCM in pcm. The
-// returned sample count is per channel; pcm must hold the decoded samples for
-// every channel. An empty data slice performs packet loss concealment.
+// returned sample count is per channel; pcm must hold n*Channels elements, and
+// the first n*Channels elements contain the output. An empty data slice performs
+// packet-loss concealment, with the requested duration derived from pcm's
+// per-channel length.
 func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	if len(pcm) < int(d.channels) {
 		return 0, ErrBufferTooSmall
@@ -612,10 +621,13 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	return n, nil
 }
 
-// DecodeInt24 decodes data into interleaved signed 24-bit PCM stored in pcm.
-// Each int32 holds a right-justified value in [-8388608, 8388607]. The returned
-// sample count is per channel; pcm must hold the decoded samples for every
-// channel. An empty data slice performs packet loss concealment.
+// DecodeInt24 decodes data into interleaved 24-bit-scale PCM stored in pcm.
+// Each int32 holds a right-justified signed value; the nominal 24-bit range is
+// [-8388608, 8388607]. The libopus RES2INT24 conversion does not soft-clip or
+// clamp to that range: a +1.0 sample maps to 8388608, and output gain can also
+// produce values outside the nominal 24-bit interval. The returned sample count
+// is per channel; pcm must hold n*Channels elements. An empty data slice
+// performs packet-loss concealment.
 func (d *Decoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
 	if len(pcm) < int(d.channels) {
 		return 0, ErrBufferTooSmall
@@ -694,9 +706,11 @@ func (d *Decoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
 	return n, nil
 }
 
-// DecodeInt24Slice decodes data into a newly allocated interleaved PCM slice.
-// Each int32 holds a right-justified signed 24-bit value. The returned slice is
-// owned by the caller.
+// DecodeInt24Slice decodes data into a newly allocated, caller-owned
+// interleaved PCM slice. Each int32 holds a right-justified signed 24-bit-scale
+// value using the same unsaturated conversion as DecodeInt24. The slice contains
+// n*Channels elements for n samples per channel. For empty data, it requests the
+// most recent output duration, or MaxPacketSamples when LastPacketDuration is zero.
 func (d *Decoder) DecodeInt24Slice(data []byte) ([]int32, error) {
 	channels := int(d.channels)
 	var frameSize int

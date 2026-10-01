@@ -50,25 +50,30 @@ func (f SampleFormat) BytesPerSample() int {
 }
 
 // PacketReader provides Opus packets for streaming decode.
-// Implementations should return io.EOF when no more packets are available.
+// ReadPacketInto writes the next packet into dst and returns its byte length;
+// callers may reuse dst after the call. Return io.EOF when the stream ends.
 type PacketReader interface {
-	// ReadPacketInto fills dst with the next Opus packet.
+	// ReadPacketInto writes the next packet into dst and returns its byte length.
+	// The caller may reuse dst after this call returns.
 	//
-	// granulePos is the source packet position in decoded-sample units when the
-	// container provides one (for example Ogg Opus granule positions). Sources
-	// that do not track positions should return 0.
+	// granulePos is the source position in decoded samples at 48 kHz when the
+	// container provides one, as with an Ogg Opus granule position. Return 0
+	// when positions are unavailable.
 	//
-	// Returns io.EOF when stream ends. Return n=0, err=nil to trigger PLC.
+	// Return io.EOF when the stream ends. Return n=0, err=nil to request packet
+	// loss concealment for one frame.
 	ReadPacketInto(dst []byte) (n int, granulePos uint64, err error)
 }
 
 // PacketSink receives encoded Opus packets from streaming encode.
 type PacketSink interface {
-	// WritePacket writes an encoded Opus packet.
-	// Returns number of bytes written and any error.
+	// WritePacket writes one encoded Opus packet and returns the number of bytes
+	// accepted. Writer does not retry; a short count returns io.ErrShortWrite,
+	// except that an error returned with zero bytes is preserved. The packet buffer
+	// is reused after this method returns, so copy packet if retaining it.
 	//
 	// If the sink also implements io.Closer, Writer.Close forwards to it after
-	// flushing any buffered audio.
+	// flushing buffered audio.
 	WritePacket(packet []byte) (int, error)
 }
 
@@ -90,7 +95,9 @@ type Reader struct {
 	eof bool // Source exhausted
 }
 
-// NewReader returns a Reader that decodes packets from source into format.
+// NewReader creates a Reader that decodes packets from source into format.
+// It returns ErrNilPacketReader for a nil source, ErrInvalidSampleFormat for
+// an unsupported format, or the decoder configuration error.
 func NewReader(cfg DecoderConfig, source PacketReader, format SampleFormat) (*Reader, error) {
 	if source == nil {
 		return nil, ErrNilPacketReader
@@ -116,10 +123,10 @@ func NewReader(cfg DecoderConfig, source PacketReader, format SampleFormat) (*Re
 	}, nil
 }
 
-// Read implements io.Reader, reading decoded PCM bytes.
-//
-// The Reader handles frame boundaries internally, fetching and decoding
-// packets as needed to fill the buffer.
+// Read implements io.Reader and returns decoded PCM bytes in the format passed
+// to NewReader. Each call decodes at most one packet, so a short read at a packet
+// boundary is normal. It returns io.EOF after the source ends and buffered PCM
+// has been consumed.
 func (r *Reader) Read(p []byte) (int, error) {
 	// If buffer is exhausted, try to get more data
 	if r.offset >= len(r.byteBuf) {
@@ -217,7 +224,8 @@ func (r *Reader) LastGranulePos() uint64 {
 	return r.lastGranulePos
 }
 
-// Reset clears buffers and decoder state for a new stream.
+// Reset clears buffered PCM and decoder state. It does not reset or replace the
+// PacketReader, so subsequent reads continue from that source's current position.
 func (r *Reader) Reset() {
 	r.dec.Reset()
 	if r.byteBuf != nil {
@@ -245,9 +253,11 @@ type Writer struct {
 	closed     bool
 }
 
-// NewWriter returns a Writer that encodes PCM at sampleRate with channels,
-// writing packets to sink. format selects the little-endian input sample
-// format, and application selects the encoder's intended use.
+// NewWriter creates a Writer that encodes interleaved PCM at sampleRate with
+// channels and sends packets to sink. format selects little-endian float32 or
+// signed int16 input, and application selects the encoder's intended use. The
+// writer uses a 20 ms frame duration by default. It returns an error for a nil
+// sink, unsupported format, or invalid encoder configuration.
 func NewWriter(sampleRate, channels int, sink PacketSink, format SampleFormat, application Application) (*Writer, error) {
 	if sink == nil {
 		return nil, ErrNilPacketSink
@@ -280,10 +290,12 @@ func NewWriter(sampleRate, channels int, sink PacketSink, format SampleFormat, a
 	}, nil
 }
 
-// Write implements io.Writer, encoding PCM bytes to Opus packets.
-//
-// The Writer buffers input samples until a complete frame is accumulated,
-// then encodes and sends the packet to the sink.
+// Write implements io.Writer for interleaved little-endian PCM in the format
+// passed to NewWriter. It buffers incomplete frames and encodes each complete
+// frame; DTX may suppress a packet. On success it consumes all of p. On error,
+// the returned count covers only input bytes in frames handled before the error;
+// packets sent before an error are not rolled back. A sink error closes the
+// Writer.
 func (w *Writer) Write(p []byte) (int, error) {
 	if w.closed {
 		return 0, io.ErrClosedPipe
@@ -376,9 +388,9 @@ func (w *Writer) decodePCMInto(dst []float32, data []byte) {
 	}
 }
 
-// Flush encodes any buffered samples.
-// If samples don't fill a complete frame, they are zero-padded.
-// Call Flush before closing the stream to ensure all audio is encoded.
+// Flush encodes buffered PCM. A partial final frame is zero-padded to the
+// configured frame size, and DTX may suppress its packet. With no buffered PCM,
+// Flush has no effect.
 func (w *Writer) Flush() error {
 	if w.closed {
 		return io.ErrClosedPipe
@@ -454,8 +466,9 @@ func (w *Writer) SetDTX(enabled bool) {
 	w.enc.SetDTX(enabled)
 }
 
-// Reset clears buffers and encoder state for a new stream.
-// It also clears the closed flag so the writer can be reused with a reusable sink.
+// Reset clears buffered PCM and encoder state and clears the closed flag. It
+// retains the PacketSink without resetting or reopening it, so the sink must be
+// reusable if the Writer is reused.
 func (w *Writer) Reset() {
 	w.enc.Reset()
 	w.sampleBuf = w.sampleBuf[:0]

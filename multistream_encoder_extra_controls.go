@@ -13,7 +13,8 @@ func (e *MultistreamEncoder) SetDREDDuration(duration int) error {
 }
 
 // DREDDuration reports the configured DRED redundancy depth in 10 ms frames;
-// zero means DRED emission is disabled.
+// zero means DRED emission is disabled. This control is available in builds
+// tagged gopus_dred or gopus_osce.
 func (e *MultistreamEncoder) DREDDuration() (int, error) {
 	return e.enc.DREDDuration(), nil
 }

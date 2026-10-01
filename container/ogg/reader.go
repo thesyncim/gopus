@@ -32,9 +32,12 @@ type Reader struct {
 // readerBufferSize is the size of the internal read buffer.
 const readerBufferSize = 64 * 1024 // 64KB
 
-// NewReader returns a Reader for r and parses its OpusHead and OpusTags headers.
-// It returns ErrNilReader for a nil reader, ErrInvalidPage or ErrBadCRC for
-// malformed or corrupt pages, and ErrInvalidHeader for invalid Opus headers. If
+// NewReader returns a Reader for r after parsing the OpusHead and OpusTags
+// headers from the initial logical bitstream. It requires a BOS page containing
+// OpusHead followed by OpusTags pages with the same serial number. Page lengths
+// and CRCs are checked while reading. It returns ErrNilReader for a nil reader,
+// ErrInvalidPage or ErrBadCRC for invalid page framing or checksums,
+// ErrInvalidHeader for malformed Opus headers, and propagates errors from r. If
 // r implements io.ReadSeeker, the Reader also supports SeekGranule.
 func NewReader(r io.Reader) (*Reader, error) {
 	if r == nil {
@@ -109,9 +112,11 @@ func NewReader(r io.Reader) (*Reader, error) {
 }
 
 // ReadPacket returns the next Opus packet and its granule position, reassembling
-// packets that span pages. The returned bytes do not alias the Reader's scratch
-// buffer. Pages from other logical bitstreams are skipped; ReadPacket returns
-// io.EOF after the end-of-stream page and reports malformed pages as errors.
+// packets that span pages. The returned packet is an independent copy that the
+// caller may retain or modify. Pages from other logical bitstreams are skipped.
+// It returns io.EOF when the selected stream is exhausted or no more packet
+// data can be read; an unterminated trailing packet can also end with io.EOF.
+// Page framing, CRC, and underlying read errors are returned to the caller.
 func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
 	out, granule, err := or.nextPacket(or.pktScratch[:0])
 	if err != nil {
@@ -122,10 +127,11 @@ func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
 }
 
 // ReadPacketInto writes the next Opus packet into dst and returns its length and
-// granule position. It allocates nothing when len(dst) is large enough. If the
-// packet is larger than dst, it returns ErrPacketTooLarge with n == 0 after
-// consuming the packet. Pages from other logical bitstreams are skipped, and
-// io.EOF indicates the end of the stream.
+// granule position. len(dst), rather than cap(dst), is the size limit; the
+// method allocates nothing when dst is large enough. If the packet is larger,
+// it consumes the packet and returns n == 0, granulePos == 0, and
+// ErrPacketTooLarge. Pages from other logical bitstreams are skipped, and
+// io.EOF indicates stream exhaustion.
 func (or *Reader) ReadPacketInto(dst []byte) (n int, granulePos uint64, err error) {
 	limit := len(dst)
 	out, granule, err := or.nextPacket(dst[:0])
@@ -266,9 +272,12 @@ func (or *Reader) packetGranule() uint64 {
 	return 0
 }
 
-// SeekGranule positions a seekable stream at the first packet whose granule
-// position is at least target. It scans from the first audio page and returns
-// ErrNotSeekable if the underlying reader does not implement io.ReadSeeker.
+// SeekGranule rewinds a seekable stream to its first audio page and scans for
+// the first packet whose computed granule position is at least target. On
+// success, the next ReadPacket or ReadPacketInto returns that packet; repeated
+// calls start the scan again from the first audio page. It returns ErrNotSeekable
+// if the source does not implement io.ReadSeeker, io.EOF if no packet reaches
+// target, and propagates seek or read errors.
 func (or *Reader) SeekGranule(target uint64) error {
 	if or.rs == nil {
 		return ErrNotSeekable
@@ -454,12 +463,17 @@ func (or *Reader) SampleRate() uint32 {
 	return 0
 }
 
-// GranulePos returns the granule position of the last read packet.
+// GranulePos returns the granule position of the most recently assembled
+// packet, in 48 kHz sample units. It is reset to zero by a successful
+// SeekGranule and updated when the selected packet is read; an oversized packet
+// consumed by ReadPacketInto also updates it.
 func (or *Reader) GranulePos() uint64 {
 	return or.granulePos
 }
 
-// EOF returns true if the end of stream has been reached.
+// EOF reports whether the Reader has seen the selected stream's EOS page or
+// has encountered io.EOF while requesting more input. It can be true while
+// packets already loaded from the EOS page remain unread.
 func (or *Reader) EOF() bool {
 	return or.eos
 }

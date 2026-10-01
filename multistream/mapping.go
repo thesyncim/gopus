@@ -11,9 +11,10 @@ import "errors"
 var ErrInvalidDefaultMappingChannels = errors.New("multistream: invalid default mapping channel count (must be 1-8)")
 
 // DefaultMapping returns the Vorbis mapping family configuration for 1–8
-// channels. mapping[i] selects the decoded stream channel for output channel i;
-// the returned slice is newly allocated. It returns ErrInvalidDefaultMappingChannels
-// for other channel counts.
+// channels. In a decoder, mapping[i] selects the decoded stream channel for
+// output channel i; in an encoder, it selects the destination stream channel for
+// input channel i. The returned slice is newly allocated. Other channel counts
+// return ErrInvalidDefaultMappingChannels.
 func DefaultMapping(channels int) (streams, coupledStreams int, mapping []byte, err error) {
 	switch channels {
 	case 1:
