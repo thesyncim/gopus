@@ -502,3 +502,49 @@ func TestReader_io_Reader_Interface(t *testing.T) {
 		t.Error("io.Copy copied 0 bytes")
 	}
 }
+
+type finalPacketSource struct {
+	packet []byte
+	calls  int
+}
+
+func (s *finalPacketSource) ReadPacketInto(dst []byte) (int, uint64, error) {
+	s.calls++
+	if s.calls > 1 {
+		return 0, 0, io.EOF
+	}
+	return copy(dst, s.packet), 960, io.EOF
+}
+
+func TestReaderDrainsFinalPacketReturnedWithEOF(t *testing.T) {
+	packet, err := generateTestPacket(48000, 2, 960)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, format := range []SampleFormat{FormatFloat32LE, FormatInt16LE} {
+		source := &finalPacketSource{packet: packet}
+		r, err := NewReader(DefaultDecoderConfig(48000, 2), source, format)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Small reads must drain the whole final packet before exposing EOF.
+		buf := make([]byte, 17)
+		total := 0
+		for {
+			n, err := r.Read(buf)
+			total += n
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		if want := 960 * 2 * format.BytesPerSample(); total != want {
+			t.Errorf("format %d: decoded %d bytes, want %d", format, total, want)
+		}
+		if source.calls != 1 || r.LastGranulePos() != 960 {
+			t.Errorf("format %d: source calls=%d, granule=%d; want 1, 960", format, source.calls, r.LastGranulePos())
+		}
+	}
+}

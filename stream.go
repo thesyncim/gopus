@@ -60,8 +60,9 @@ type PacketReader interface {
 	// container provides one, as with an Ogg Opus granule position. Return 0
 	// when positions are unavailable.
 	//
-	// Return io.EOF when the stream ends. Return n=0, err=nil to request packet
-	// loss concealment for one frame.
+	// Return io.EOF when the stream ends. A final complete packet may be
+	// returned with n > 0 and io.EOF; Reader drains its PCM before returning EOF.
+	// Return n=0, err=nil to request packet loss concealment for one frame.
 	ReadPacketInto(dst []byte) (n int, granulePos uint64, err error)
 }
 
@@ -138,9 +139,10 @@ func (r *Reader) Read(p []byte) (int, error) {
 		nPacket, granulePos, err := r.source.ReadPacketInto(r.packetBuf)
 		if err == io.EOF {
 			r.eof = true
-			return 0, io.EOF
-		}
-		if err != nil {
+			if nPacket <= 0 {
+				return 0, io.EOF
+			}
+		} else if err != nil {
 			return 0, err
 		}
 		r.lastGranulePos = granulePos
