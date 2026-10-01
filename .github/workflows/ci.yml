@@ -26,53 +26,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  changes:
-    name: detect-change-scope
-    runs-on: ubuntu-latest
-    outputs:
-      docs_only: ${{ steps.scope.outputs.docs_only }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Detect markdown-only change set
-        id: scope
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            base="${{ github.event.pull_request.base.sha }}"
-            head="${{ github.event.pull_request.head.sha }}"
-          else
-            base="${{ github.event.before }}"
-            head="${{ github.sha }}"
-          fi
-
-          # New branch pushes use an all-zero "before" SHA.
-          if [[ "$base" == "0000000000000000000000000000000000000000" ]]; then
-            base="$(git rev-list --max-parents=0 "$head" | tail -n 1)"
-          fi
-
-          git diff --name-only "$base" "$head" | tee /tmp/changed_files.txt
-
-          if [[ ! -s /tmp/changed_files.txt ]]; then
-            docs_only=true
-          elif awk 'BEGIN { docs=1 } $0 !~ /\.md$/ { docs=0 } END { exit docs ? 0 : 1 }' /tmp/changed_files.txt; then
-            docs_only=true
-          else
-            docs_only=false
-          fi
-
-          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
-          echo "docs_only=$docs_only"
 
   lint-static-analysis:
     name: lint-static-analysis
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -104,8 +60,6 @@ jobs:
 
   lint-tag-matrix:
     name: lint-tag-matrix
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -128,8 +82,6 @@ jobs:
 
   test-linux-fast:
     name: test-linux-fast
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -158,8 +110,6 @@ jobs:
 
   test-linux-parity:
     name: test-linux-parity
-    needs:
-      - changes
     # Full libopus quality parity is the slowest regular Linux gate. PRs get
     # the fast package sweep plus focused optional-surface gates; protected
     # branch pushes keep the full quality gate.
@@ -203,8 +153,6 @@ jobs:
 
   test-linux-conformance:
     name: test-linux-conformance
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -253,8 +201,6 @@ jobs:
 
   test-linux-race:
     name: test-linux-race
-    needs:
-      - changes
     # Race sweeps are expensive and duplicate broad PR coverage. Keep them on
     # protected-branch pushes where they still guard integration into master.
     if: github.event_name == 'push'
@@ -294,8 +240,6 @@ jobs:
 
   test-linux-provenance:
     name: test-linux-provenance
-    needs:
-      - changes
     # The provenance lane builds a pinned Docker environment and performs
     # exhaustive fixture-honesty checks. Keep it on protected-branch pushes,
     # while PR CI uses the faster parity/race/feature-tag gates below.
@@ -342,8 +286,6 @@ jobs:
 
   test-linux-flake:
     name: test-linux-flake
-    needs:
-      - changes
     # Shuffle+repeat flake detection is valuable but not needed on every PR
     # attempt; run it once code lands on the protected branch.
     if: github.event_name == 'push'
@@ -397,8 +339,6 @@ jobs:
 
   test-linux-fuzz-smoke:
     name: test-linux-fuzz-smoke
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -416,8 +356,6 @@ jobs:
 
   test-linux-dnn-blob-parity:
     name: test-linux-dnn-blob-parity
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -443,8 +381,6 @@ jobs:
 
   test-linux-extra-controls:
     name: test-linux-extra-controls
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -462,8 +398,6 @@ jobs:
 
   test-linux-dred-tag:
     name: test-linux-dred-tag
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -489,8 +423,6 @@ jobs:
 
   test-linux-qext-parity:
     name: test-linux-qext-parity
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -516,8 +448,6 @@ jobs:
 
   test-linux-custom-parity:
     name: test-linux-custom-parity
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -543,8 +473,6 @@ jobs:
 
   test-linux-corpus-quality:
     name: test-linux-corpus-quality
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -570,8 +498,6 @@ jobs:
 
   test-linux-extra-controls-parity:
     name: test-linux-extra-controls-parity
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -593,8 +519,6 @@ jobs:
 
   test-linux-build-config-matrix:
     name: test-linux-build-config-matrix
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -621,8 +545,6 @@ jobs:
   test-linux-simd:
     name: test-linux-simd
     if: github.event_name == 'push'
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -651,8 +573,6 @@ jobs:
     env:
       GOAMD64: v1
     if: github.event_name == 'pull_request'
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -784,8 +704,6 @@ jobs:
   capture-linux-amd64-opusdec-fixture:
     name: capture-linux-amd64-opusdec-fixture
     if: github.event_name == 'pull_request'
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -835,8 +753,6 @@ jobs:
 
   test-linux-core-oracles:
     name: test-linux-core-oracles
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -876,8 +792,6 @@ jobs:
 
   test-linux-fixedpoint-parity:
     name: test-linux-fixedpoint-parity
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -906,7 +820,6 @@ jobs:
     name: test-linux
     if: always()
     needs:
-      - changes
       - test-linux-fast
       - test-linux-parity
       - test-linux-race
@@ -1004,8 +917,6 @@ jobs:
 
   perf-linux:
     name: perf-linux
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -1034,8 +945,6 @@ jobs:
 
   test-macos:
     name: test-macos
-    needs:
-      - changes
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -1152,8 +1061,6 @@ jobs:
 
   test-linux-arm64-fixtures:
     name: test-linux-arm64-fixtures
-    needs:
-      - changes
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 35
     steps:
@@ -1209,8 +1116,6 @@ jobs:
 
   test-windows:
     name: test-windows
-    needs:
-      - changes
     runs-on: windows-latest
     timeout-minutes: 45
     env:
