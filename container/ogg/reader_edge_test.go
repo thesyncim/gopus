@@ -324,3 +324,78 @@ func buildAudioPageStream(granule uint64, packets [][]byte) []byte {
 	out = append(out, page(0, granule, seg, pay)...)
 	return out
 }
+
+func TestReadPacketIntoOversizedPacketPreservesBufferAndNextPacket(t *testing.T) {
+	large := bytes.Repeat([]byte{0x08}, 511)
+	next := []byte{0x08, 0x42}
+	continued := audioPageStreamPrefix()
+	for i, part := range [][]byte{large[:255], large[255:510], append(append([]byte(nil), large[510:]...), next...)} {
+		page := Page{SerialNumber: 0x1234, PageSequence: uint32(i + 2), Payload: part, Segments: []byte{255}}
+		if i > 0 {
+			page.HeaderType = PageFlagContinuation
+		}
+		if i == 2 {
+			page.Segments = []byte{1, 2}
+			page.GranulePos = 1920
+		}
+		continued = append(continued, page.Encode()...)
+	}
+	for _, tc := range []struct {
+		name string
+		data []byte
+		seek bool
+	}{
+		{"one page", buildAudioPageStream(1920, [][]byte{large, next}), false},
+		{"continued packet", continued, false},
+		{"seek pushback", continued, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := NewReader(bytes.NewReader(tc.data))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.seek {
+				if err := r.SeekGranule(0); err != nil {
+					t.Fatal(err)
+				}
+			}
+			backing := bytes.Repeat([]byte{0xa5}, 1024)
+			dst := backing[:16]
+			if n, granule, err := r.ReadPacketInto(dst); n != 0 || granule != 0 || err != ErrPacketTooLarge {
+				t.Fatalf("oversized read = (%d, %d, %v)", n, granule, err)
+			}
+			if !bytes.Equal(backing[len(dst):], bytes.Repeat([]byte{0xa5}, len(backing)-len(dst))) {
+				t.Error("read overwrote bytes beyond len(dst)")
+			}
+			if r.GranulePos() != 960 {
+				t.Errorf("consumed packet granule = %d, want 960", r.GranulePos())
+			}
+			n, granule, err := r.ReadPacketInto(dst)
+			if err != nil || granule != 1920 || !bytes.Equal(dst[:n], next) {
+				t.Fatalf("following packet = (%x, %d, %v), want (%x, 1920, nil)", dst[:n], granule, err, next)
+			}
+		})
+	}
+}
+
+func TestReadPacketIntoOversizedZeroAlloc(t *testing.T) {
+	// All packets fit in one page so the measurement isolates packet assembly.
+	packets := make([][]byte, 120)
+	for i := range packets {
+		packets[i] = bytes.Repeat([]byte{0x08}, 300)
+	}
+	r, err := NewReader(bytes.NewReader(buildAudioPageStream(120*960, packets)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst := make([]byte, 16)
+	read := func() {
+		if n, _, err := r.ReadPacketInto(dst); n != 0 || err != ErrPacketTooLarge {
+			t.Fatalf("oversized read = (%d, %v)", n, err)
+		}
+	}
+	read() // Warm page parsing before measuring packet rejection.
+	if allocs := testing.AllocsPerRun(100, read); allocs != 0 {
+		t.Fatalf("oversized packet allocs = %g, want 0", allocs)
+	}
+}

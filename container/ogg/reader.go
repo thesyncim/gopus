@@ -118,7 +118,7 @@ func NewReader(r io.Reader) (*Reader, error) {
 // data can be read; an unterminated trailing packet can also end with io.EOF.
 // Page framing, CRC, and underlying read errors are returned to the caller.
 func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
-	out, granule, err := or.nextPacket(or.pktScratch[:0])
+	out, granule, err := or.nextPacket(or.pktScratch[:0], -1)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -128,32 +128,31 @@ func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
 
 // ReadPacketInto writes the next Opus packet into dst and returns its length and
 // granule position. len(dst), rather than cap(dst), is the size limit; the
-// method allocates nothing when dst is large enough. If the packet is larger,
-// it consumes the packet and returns n == 0, granulePos == 0, and
-// ErrPacketTooLarge. Pages from other logical bitstreams are skipped, and
-// io.EOF indicates stream exhaustion.
+// method does not grow dst or write beyond its length. If the packet is larger,
+// it discards the excess without allocating packet storage, consumes the packet,
+// and returns n == 0, granulePos == 0, and ErrPacketTooLarge. Pages from other
+// logical bitstreams are skipped, and io.EOF indicates stream exhaustion.
 func (or *Reader) ReadPacketInto(dst []byte) (n int, granulePos uint64, err error) {
-	limit := len(dst)
-	out, granule, err := or.nextPacket(dst[:0])
+	out, granule, err := or.nextPacket(dst[:0], len(dst))
 	if err != nil {
 		return 0, 0, err
-	}
-	if len(out) > limit {
-		return 0, 0, ErrPacketTooLarge
 	}
 	return len(out), granule, nil
 }
 
 // nextPacket appends the next packet's bytes to dst[:0] and returns the result
-// along with its granule position. dst is grown via append only if the packet
-// exceeds its capacity, so a caller buffer with enough capacity makes this
-// allocation-free. It walks the lacing table across pages, skipping other
+// along with its granule position. A negative limit allows dst to grow; otherwise
+// packets larger than limit are consumed without growing dst and return
+// ErrPacketTooLarge. It walks the lacing table across pages, skipping other
 // logical streams, dropping abandoned continuations, and clamping truncated
 // pages.
-func (or *Reader) nextPacket(dst []byte) ([]byte, uint64, error) {
+func (or *Reader) nextPacket(dst []byte, limit int) ([]byte, uint64, error) {
 	if or.hasPush {
 		or.hasPush = false
 		or.granulePos = or.pushbackG
+		if limit >= 0 && len(or.pushback) > limit {
+			return dst[:0], 0, ErrPacketTooLarge
+		}
 		return append(dst[:0], or.pushback...), or.pushbackG, nil
 	}
 
@@ -170,13 +169,19 @@ func (or *Reader) nextPacket(dst []byte) ([]byte, uint64, error) {
 
 		dst = dst[:0]
 		dropped := false
+		tooLarge := false
 		for {
 			seg := int(or.page.Segments[or.segIdx])
 			or.segIdx++
 			if avail := len(or.page.Payload) - or.payOff; seg > avail {
 				seg = avail // truncated page: take what is present
 			}
-			dst = append(dst, or.page.Payload[or.payOff:or.payOff+seg]...)
+			if limit >= 0 && seg > limit-len(dst) {
+				tooLarge = true
+			}
+			if !tooLarge {
+				dst = append(dst, or.page.Payload[or.payOff:or.payOff+seg]...)
+			}
 			or.payOff += seg
 			if or.page.Segments[or.segIdx-1] < 255 {
 				break // a lacing value < 255 terminates the packet
@@ -201,11 +206,14 @@ func (or *Reader) nextPacket(dst []byte) ([]byte, uint64, error) {
 				break
 			}
 		}
-		if dropped || len(dst) == 0 {
+		if dropped || (len(dst) == 0 && !tooLarge) {
 			continue // restart, or skip an empty packet
 		}
 		granule := or.packetGranule()
 		or.granulePos = granule
+		if tooLarge {
+			return dst[:0], 0, ErrPacketTooLarge
+		}
 		return dst, granule, nil
 	}
 }
@@ -296,7 +304,7 @@ func (or *Reader) SeekGranule(target uint64) error {
 	or.bufferLen = 0
 
 	for {
-		out, granule, err := or.nextPacket(or.pktScratch[:0])
+		out, granule, err := or.nextPacket(or.pktScratch[:0], -1)
 		if err != nil {
 			return err
 		}
