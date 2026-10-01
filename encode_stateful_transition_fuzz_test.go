@@ -306,32 +306,16 @@ func configureEncXfr(spec encXfrSpec) (*Encoder, bool) {
 // and asserts byte-exact packets frame for frame. See the file header for the
 // divergence classification policy.
 func TestEncodeStatefulTransitionFuzz(t *testing.T) {
-	if !encXfrRequireOracle(t) {
-		return
-	}
 	runEncodeStatefulTransitionSweep(t, buildEncXfrSweep(), encXfrBuildTransitionPCM)
 }
 
 // TestEncodeStatefulTransitionFuzzAt48k checks the same transition assertions
 // for each 48 kHz frame-size and channel-count shape with generator rate 48 kHz.
 func TestEncodeStatefulTransitionFuzzAt48k(t *testing.T) {
-	if !encXfrRequireOracle(t) {
-		return
-	}
 	buildPCM := func(fs, channels, totalFrames, segFrames int) ([]float32, error) {
 		return encXfrBuildTransitionPCMAtSampleRate(48000, fs, channels, totalFrames, segFrames)
 	}
 	runEncodeStatefulTransitionSweep(t, buildEncXfrCorrectRateSweep(), buildPCM)
-}
-
-func encXfrRequireOracle(t *testing.T) bool {
-	t.Helper()
-	libopustest.RequireOracle(t)
-	if _, err := libopustest.EncodeDiffHelperPath(); err != nil {
-		libopustest.HelperUnavailable(t, "encode diff oracle", err)
-		return false
-	}
-	return true
 }
 
 // runEncodeStatefulTransitionSweep applies the same packet and final-range
@@ -342,6 +326,10 @@ func runEncodeStatefulTransitionSweep(
 	buildPCM func(fs, channels, totalFrames, segFrames int) ([]float32, error),
 ) {
 	t.Helper()
+	libopustest.RequireOracle(t)
+	if _, err := libopustest.EncodeDiffHelperPath(); err != nil {
+		libopustest.HelperUnavailable(t, "encode diff oracle", err)
+	}
 	const sampleRate = 48000
 	// segFrames frames per segment; framesPerSpec spans every segment at least
 	// once plus a wrap so a transition can recur after the state has settled.
