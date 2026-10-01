@@ -442,19 +442,13 @@ func (d *Decoder) decodeMultiFrameFloat32(pcm []float32, data []byte, toc *TOC, 
 // decoder recovers in-band FEC when usable LBRR is present and otherwise
 // performs packet-loss concealment. Empty data also performs concealment. This
 // call does not decode the supplied packet's primary frame: call Decode with
-// the same packet afterward. At 96 kHz, data is ignored and the request uses
-// concealment.
+// the same packet afterward.
 func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, error) {
 	if len(pcm) < int(d.channels) {
 		return 0, ErrBufferTooSmall
 	}
 	if !fec {
 		return d.Decode(data, pcm)
-	}
-	// At 96 kHz, FEC uses the same routing as regular decode (PLC path).
-	// SILK/Hybrid FEC is not supported at 96 kHz (no SILK resampler path).
-	if d.is96kHz() {
-		return d.decode96kFloat32(nil, pcm)
 	}
 	return d.decodeFECPublicFloat32(data, pcm)
 }

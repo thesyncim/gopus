@@ -202,6 +202,37 @@ func TestRepacketizerPreservesPacketExtensions(t *testing.T) {
 	}
 }
 
+func TestRepacketizerExtensionOutRangeShortBuffers(t *testing.T) {
+	const packetHex = "4b41061122330baa50deadbe"
+	packet := mustDecodeHex(t, packetHex)
+	rp := NewRepacketizer()
+	if err := rp.Cat(packet); err != nil {
+		t.Fatalf("cat(packet with extensions): %v", err)
+	}
+
+	// This one-frame code-3 output needs a two-byte header and three frame
+	// bytes before it can carry the retained extension padding.
+	for size := 0; size < len(packet); size++ {
+		out := make([]byte, size)
+		n, err := rp.OutRange(0, 1, out)
+		if n != 0 || err != ErrBufferTooSmall {
+			t.Fatalf("OutRange buffer length %d: n=%d err=%v, want ErrBufferTooSmall", size, n, err)
+		}
+		if got := rp.NumFrames(); got != 1 {
+			t.Fatalf("OutRange buffer length %d changed repacketizer frame count to %d", size, got)
+		}
+	}
+
+	out := make([]byte, len(packet))
+	n, err := rp.OutRange(0, 1, out)
+	if err != nil {
+		t.Fatalf("OutRange after short buffers: %v", err)
+	}
+	if n != len(packet) || hex.EncodeToString(out[:n]) != packetHex {
+		t.Fatalf("OutRange after short buffers=%s (n=%d), want %s", hex.EncodeToString(out[:n]), n, packetHex)
+	}
+}
+
 func TestPacketPadPreservesPacketExtensions(t *testing.T) {
 	packetAExt := mustDecodeHex(t, "4b41061122330baa50deadbe")
 	wantPadded := "4b410a112233010101010baa50deadbe"

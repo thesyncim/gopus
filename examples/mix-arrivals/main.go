@@ -116,6 +116,10 @@ func encodeMixToOgg(path string, pcm []float32, bitrate int) (encodeStats, error
 	if err := enc.SetFrameSize(frameSize); err != nil {
 		return stats, fmt.Errorf("set frame size: %w", err)
 	}
+	lookahead := enc.Lookahead()
+	if lookahead < 0 || lookahead > int(^uint16(0)) {
+		return stats, fmt.Errorf("encoder lookahead %d cannot be represented in OpusHead", lookahead)
+	}
 
 	f, err := os.Create(path)
 	if err != nil {
@@ -123,14 +127,24 @@ func encodeMixToOgg(path string, pcm []float32, bitrate int) (encodeStats, error
 	}
 	defer examplecleanup.OnReturn("close output file", f.Close)
 
-	ow, err := ogg.NewWriter(f, uint32(sampleRate), uint8(channels))
+	writerConfig := ogg.WriterConfig{
+		SampleRate:    uint32(sampleRate),
+		Channels:      uint8(channels),
+		PreSkip:       uint16(lookahead),
+		MappingFamily: ogg.MappingFamilyRTP,
+		StreamCount:   1,
+	}
+	if channels == 2 {
+		writerConfig.CoupledCount = 1
+	}
+	ow, err := ogg.NewWriterWithConfig(f, writerConfig)
 	if err != nil {
 		return stats, fmt.Errorf("create ogg writer: %w", err)
 	}
 
 	totalSamples := len(pcm) / channels
 	stats.durationSeconds = float64(totalSamples) / sampleRate
-	stats.frames = (totalSamples + frameSize - 1) / frameSize
+	stats.frames = 1 + (totalSamples+lookahead-1)/frameSize
 	framePCM := make([]float32, frameSize*channels)
 	packet := make([]byte, 4000)
 
@@ -150,18 +164,26 @@ func encodeMixToOgg(path string, pcm []float32, bitrate int) (encodeStats, error
 			return stats, fmt.Errorf("encode frame %d: %w", frame, err)
 		}
 		if n == 0 {
-			continue
+			return stats, fmt.Errorf("encode frame %d: empty Opus packet", frame)
 		}
 
-		if err := ow.WritePacket(packet[:n], frameSize); err != nil {
-			return stats, fmt.Errorf("write packet %d: %w", frame, err)
+		var writeErr error
+		if frame == stats.frames-1 {
+			startSample := frame * frameSize
+			finalSamples := totalSamples + lookahead - startSample
+			if finalSamples < 0 || finalSamples > frameSize {
+				return stats, fmt.Errorf("final packet duration %d is outside frame size %d", finalSamples, frameSize)
+			}
+			writeErr = ow.WriteFinalPacket(packet[:n], finalSamples)
+		} else {
+			writeErr = ow.WritePacket(packet[:n], frameSize)
+		}
+		if writeErr != nil {
+			return stats, fmt.Errorf("write packet %d: %w", frame, writeErr)
 		}
 		stats.encodedBytes += n
 	}
 
-	if err := ow.Close(); err != nil {
-		return stats, fmt.Errorf("close ogg writer: %w", err)
-	}
 	if stats.durationSeconds > 0 {
 		stats.avgBitrateKbps = float64(stats.encodedBytes*8) / stats.durationSeconds / 1000
 	}

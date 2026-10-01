@@ -32,11 +32,11 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 	}
 	frameSize, err := selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application, e.internalSampleRate())
 	e.enc.BeginEncodeCall(encoder.EncodeInputFloat32, frameSize)
-	if len(data) == 0 {
-		return 0, ErrBufferTooSmall
-	}
 	if err != nil {
 		return 0, err
+	}
+	if len(data) == 0 {
+		return 0, ErrBufferTooSmall
 	}
 	inputSamples := frameSize * channels
 
@@ -90,11 +90,11 @@ func (e *Encoder) encodeInt16Packet(pcm32 []float32, data []byte) (int, error) {
 	}
 	frameSize, err := selectExpertFrameSize(int(e.frameSize), e.expertFrameDuration, e.application, e.internalSampleRate())
 	e.enc.BeginEncodeCall(encoder.EncodeInputInt16, frameSize)
-	if len(data) == 0 {
-		return 0, ErrBufferTooSmall
-	}
 	if err != nil {
 		return 0, err
+	}
+	if len(data) == 0 {
+		return 0, ErrBufferTooSmall
 	}
 	packet, err := e.enc.EncodeShortMixedWithAnalysisMaxBytes(pcm32[:frameSize*int(e.channels)], frameSize, pcm32, len(data))
 	if err != nil {
@@ -123,11 +123,11 @@ func (e *Encoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
 	frameSizeArg := int(e.frameSize)
 	frameSize, err := selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application, e.internalSampleRate())
 	e.enc.BeginEncodeCall(encoder.EncodeInputInt24, frameSize)
-	if len(data) == 0 {
-		return 0, ErrBufferTooSmall
-	}
 	if err != nil {
 		return 0, err
+	}
+	if len(data) == 0 {
+		return 0, ErrBufferTooSmall
 	}
 	pcm32 := e.convertInt24ToFloat32(pcm)
 	inputSamples := frameSize * channels

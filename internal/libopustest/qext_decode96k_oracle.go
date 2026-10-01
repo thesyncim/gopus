@@ -218,6 +218,23 @@ func ProbeQEXTDecodeFixedSequence(p QEXTDecode96kParams) (QEXTDecode96kResult, e
 	return probeQEXTDecode96k(p, binPath, 6)
 }
 
+// ProbeQEXTDecodeFECSequence decodes a persistent float-QEXT sequence with an
+// explicit decode_fec flag for each packet. Protocol v8 records decode status
+// for rejected packets while continuing with the same C decoder.
+func ProbeQEXTDecodeFECSequence(p QEXTDecode96kParams) (QEXTDecode96kResult, error) {
+	if err := validateQEXTDecodeSampleRate(p.SampleRate); err != nil {
+		return QEXTDecode96kResult{}, fmt.Errorf("qext decode FEC sequence: %w", err)
+	}
+	if len(p.DecodeFEC) != len(p.Packets) {
+		return QEXTDecode96kResult{}, fmt.Errorf("qext decode FEC sequence: %d flags for %d packets", len(p.DecodeFEC), len(p.Packets))
+	}
+	binPath, err := getQEXTDecode96kHelperPath()
+	if err != nil {
+		return QEXTDecode96kResult{}, err
+	}
+	return probeQEXTDecode96k(p, binPath, 8)
+}
+
 // ProbeQEXTDecodeFixedFECSequence decodes a persistent selected fixed-QEXT
 // sequence with an explicit decode_fec flag for each packet. Protocol v8 also
 // records each public decode status so callers can verify recovery behavior.
