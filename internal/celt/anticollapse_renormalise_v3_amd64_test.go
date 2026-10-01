@@ -160,8 +160,8 @@ func TestCELTAntiCollapseRenormaliseBoundaryV3(t *testing.T) {
 	mode := dec.modeConfig(960)
 	end := len(stage.BaseEnergy(0))
 	edges := dec.modeEdges()
-	if end <= 0 || end >= len(edges) || end > len(dec.scratchEnergies) || end > len(dec.scratchPulses) {
-		t.Fatalf("invalid replay dimensions: bands=%d edges=%d energies=%d pulses=%d", end, len(edges), len(dec.scratchEnergies), len(dec.scratchPulses))
+	if end <= 0 || end >= len(edges) || end > len(dec.scratchEnergies) || end > len(stage.antiCollapsePulses) {
+		t.Fatalf("invalid replay dimensions: bands=%d edges=%d energies=%d pulses=%d", end, len(edges), len(dec.scratchEnergies), len(stage.antiCollapsePulses))
 	}
 	if len(stage.collapseMasks) != len(edges)-1 {
 		t.Fatalf("captured Go collapse mask count=%d, want %d", len(stage.collapseMasks), len(edges)-1)
@@ -171,7 +171,7 @@ func TestCELTAntiCollapseRenormaliseBoundaryV3(t *testing.T) {
 		coeffs[i] = celtNorm(value)
 	}
 	logE := append([]celtGLog(nil), dec.scratchEnergies[:end]...)
-	pulses := append([]int32(nil), dec.scratchPulses[:end]...)
+	pulses := append([]int32(nil), stage.antiCollapsePulses[:end]...)
 	collapse := append([]byte(nil), stage.collapseMasks...)
 	goCalls := replayAntiCollapseRenormaliseInputs(coeffs, collapse, mode.LM, 1, 0, end,
 		logE, prev1, prev2, pulses, stage.antiCollapseSeed, edges, len(edges)-1)

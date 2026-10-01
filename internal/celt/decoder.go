@@ -74,7 +74,7 @@ func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, qextPayloa
 	if d.synthTrace != nil {
 		// decodeFrameSpectrum has finalized band energies; this snapshot is the
 		// exact input to libopus's anti_collapse() boundary.
-		d.synthTrace.captureAntiCollapsePre(coeffsL, coeffsR, channels, frameSize, spectrum.collapse, d.rng)
+		d.synthTrace.captureAntiCollapsePre(coeffsL, coeffsR, channels, frameSize, spectrum.collapse, allocation.pulses, d.rng)
 	}
 	if spectrum.antiCollapseOn {
 		if pm := d.perMode; pm != nil {

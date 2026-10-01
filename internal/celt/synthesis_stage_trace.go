@@ -30,6 +30,7 @@ type synthesisStageTrace struct {
 	antiCollapseNormPost [2][]float32
 	collapseMasks        []byte
 	antiCollapseSeed     uint32
+	antiCollapsePulses   []int32
 	combFilter           synthesisCombFilterTrace
 }
 
@@ -152,13 +153,14 @@ func (t *synthesisStageTrace) captureBaseNorm(ch int, coeffs []celtNorm, n int) 
 	t.baseNorm[ch] = out
 }
 
-func (t *synthesisStageTrace) captureAntiCollapsePre(coeffsL, coeffsR []celtNorm, channels, n int, collapse []byte, seed uint32) {
+func (t *synthesisStageTrace) captureAntiCollapsePre(coeffsL, coeffsR []celtNorm, channels, n int, collapse []byte, pulses []int32, seed uint32) {
 	if t == nil {
 		return
 	}
 	t.captureAntiCollapseNorm(&t.antiCollapseNormPre, coeffsL, coeffsR, channels, n)
 	t.collapseMasks = append(t.collapseMasks[:0], collapse...)
 	t.antiCollapseSeed = seed
+	t.antiCollapsePulses = append(t.antiCollapsePulses[:0], pulses...)
 }
 
 func (t *synthesisStageTrace) captureAntiCollapsePost(coeffsL, coeffsR []celtNorm, channels, n int) {

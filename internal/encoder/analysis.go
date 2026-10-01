@@ -28,10 +28,9 @@ const (
 	DetectSize        = 100
 	transitionPenalty = float32(10.0)
 	celtSigScale      = float32(32768.0)
-	// analysisFFTEnergyScale folds the residual factor of libopus' SCALE_ENER
-	// into the band-energy accumulation. The FFT output is normalised by 1/480
-	// inside fft480 (matching libopus opus_fft), so SCALE_ENER reduces to
-	// libopus' (1/32768/32768) and the 1/480^2 is not folded in here.
+	// analysisFFTEnergyScale is unity because fft480 normalizes each output by
+	// analysisFFTScale; analysisEnergyScale applies the codec amplitude scale to
+	// the resulting bin energies.
 	analysisFFTEnergyScale = float32(1.0)
 	analysisAtanScale      = float32(0.5 / math.Pi)
 	analysisPi4            = float32(math.Pi * math.Pi * math.Pi * math.Pi)
@@ -568,14 +567,11 @@ func (s *TonalityAnalysisState) SetLSBDepth(depth int) {
 	s.LSBDepth = int32(depth)
 }
 
-// analysisFFTScale is libopus opus_fft()'s float normalisation: st->scale =
+// analysisFFTScale matches libopus opus_fft() normalization: st->scale =
 // 1.f/nfft, applied per output element (S_MUL2(x, scale)) before the FFT
-// recursion (celt/kiss_fft.c lines 478, 631-632). gopus' analysis must apply
-// the same scale at the same point so the FFT outputs feeding fast_atan2f and
-// the band-energy accumulators round identically to libopus; folding the
-// 1/480^2 into the energy scale instead (the previous approach) squares the
-// raw, unnormalised output and rounds at a different point, which the arm64
-// fused-multiply-add path then amplifies through the scale-sensitive atan2.
+// recursion (celt/kiss_fft.c lines 478, 631-632). Applying the scale at this
+// point keeps the FFT outputs used by fast_atan2f and band-energy accumulation
+// in the same normalized range as libopus.
 const analysisFFTScale = float32(1.0 / 480.0)
 
 // fft480 computes a 480-point complex forward FFT using the shared CELT KISS
@@ -597,41 +593,41 @@ func analysisSpecVariability(logE *[NbFrames][NbTBands]float32) float32 {
 			// NbTBands is fixed at 18; keep the accumulation order but
 			// remove the fixed-trip loop overhead from this hot helper.
 			d0 := rowI[0] - rowJ[0]
-			dist += d0 * d0
+			dist = analysisSpecVariabilityAddSquare(dist, d0)
 			d1 := rowI[1] - rowJ[1]
-			dist += d1 * d1
+			dist = analysisSpecVariabilityAddSquare(dist, d1)
 			d2 := rowI[2] - rowJ[2]
-			dist += d2 * d2
+			dist = analysisSpecVariabilityAddSquare(dist, d2)
 			d3 := rowI[3] - rowJ[3]
-			dist += d3 * d3
+			dist = analysisSpecVariabilityAddSquare(dist, d3)
 			d4 := rowI[4] - rowJ[4]
-			dist += d4 * d4
+			dist = analysisSpecVariabilityAddSquare(dist, d4)
 			d5 := rowI[5] - rowJ[5]
-			dist += d5 * d5
+			dist = analysisSpecVariabilityAddSquare(dist, d5)
 			d6 := rowI[6] - rowJ[6]
-			dist += d6 * d6
+			dist = analysisSpecVariabilityAddSquare(dist, d6)
 			d7 := rowI[7] - rowJ[7]
-			dist += d7 * d7
+			dist = analysisSpecVariabilityAddSquare(dist, d7)
 			d8 := rowI[8] - rowJ[8]
-			dist += d8 * d8
+			dist = analysisSpecVariabilityAddSquare(dist, d8)
 			d9 := rowI[9] - rowJ[9]
-			dist += d9 * d9
+			dist = analysisSpecVariabilityAddSquare(dist, d9)
 			d10 := rowI[10] - rowJ[10]
-			dist += d10 * d10
+			dist = analysisSpecVariabilityAddSquare(dist, d10)
 			d11 := rowI[11] - rowJ[11]
-			dist += d11 * d11
+			dist = analysisSpecVariabilityAddSquare(dist, d11)
 			d12 := rowI[12] - rowJ[12]
-			dist += d12 * d12
+			dist = analysisSpecVariabilityAddSquare(dist, d12)
 			d13 := rowI[13] - rowJ[13]
-			dist += d13 * d13
+			dist = analysisSpecVariabilityAddSquare(dist, d13)
 			d14 := rowI[14] - rowJ[14]
-			dist += d14 * d14
+			dist = analysisSpecVariabilityAddSquare(dist, d14)
 			d15 := rowI[15] - rowJ[15]
-			dist += d15 * d15
+			dist = analysisSpecVariabilityAddSquare(dist, d15)
 			d16 := rowI[16] - rowJ[16]
-			dist += d16 * d16
+			dist = analysisSpecVariabilityAddFinalSquare(dist, d16)
 			d17 := rowI[17] - rowJ[17]
-			dist += d17 * d17
+			dist = analysisSpecVariabilityAddFinalSquare(dist, d17)
 			if dist < mindist[i] {
 				mindist[i] = dist
 			}
@@ -644,7 +640,18 @@ func analysisSpecVariability(logE *[NbFrames][NbTBands]float32) float32 {
 	for i := range NbFrames {
 		specVariability += mindist[i]
 	}
-	return opusmath.SqrtF32(specVariability / float32(NbFrames*NbTBands))
+	normalized := specVariability / float32(NbFrames*NbTBands)
+	result := opusmath.SqrtF32(normalized)
+	if analysisSpecVariabilityTraceEnabled && analysisSpecVariabilityTraceHook != nil {
+		analysisSpecVariabilityTraceHook(analysisSpecVariabilityTraceSnapshot{
+			LogE:       *logE,
+			MinDist:    mindist,
+			Sum:        specVariability,
+			Normalized: normalized,
+			Result:     result,
+		})
+	}
+	return result
 }
 
 func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
@@ -981,24 +988,44 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	info.Loudness = frameLoudness
 
 	for i := range 4 {
-		features[i] = fma32(-0.12299, BFCC[i]+s.Mem[i+24], round32(0.49195*(s.Mem[i]+s.Mem[i+16]))) +
-			0.69693*s.Mem[i+8] -
-			1.4349*s.CMean[i]
+		features[i] = analysisCMeanFeatureTail(
+			fma32(-0.12299, BFCC[i]+s.Mem[i+24], round32(0.49195*(s.Mem[i]+s.Mem[i+16])))+
+				0.69693*s.Mem[i+8],
+			s.CMean[i],
+		)
+	}
+	traceMeanStd := analysisMeanStdTraceEnabled && analysisMeanStdTraceHook != nil && count >= 0 && count <= 5
+	if traceMeanStd {
+		analysisMeanStdTraceBegin(int32(count), alpha, s.CMean[:4], BFCC[:4])
 	}
 	for i := range 4 {
-		s.CMean[i] = fma32(1.0-alpha, s.CMean[i], round32(alpha*BFCC[i]))
+		s.CMean[i] = analysisCMeanUpdate(alpha, s.CMean[i], BFCC[i])
+	}
+	if traceMeanStd {
+		analysisMeanStdTraceSetCMeanNew(s.CMean[:4])
 	}
 	for i := range 4 {
 		features[4+i] = fma32(0.63246, BFCC[i]-s.Mem[i+24], round32(0.31623*(s.Mem[i]-s.Mem[i+16])))
 	}
 	for i := range 3 {
-		features[8+i] = fma32(0.53452, BFCC[i]+s.Mem[i+24], -round32(0.26726*(s.Mem[i]+s.Mem[i+16]))) -
-			0.53452*s.Mem[i+8]
+		features[8+i] = analysisFeatureMemoryTail(
+			fma32(0.53452, BFCC[i]+s.Mem[i+24], -round32(0.26726*(s.Mem[i]+s.Mem[i+16]))),
+			s.Mem[i+8],
+		)
 	}
 	if s.Count > 5 {
+		if traceMeanStd {
+			analysisMeanStdTraceSetStdInput(s.Mem[:4], s.Mem[8:12], s.Mem[16:20], s.Mem[24:28], features[:9], s.Std[:])
+		}
 		for i := range 9 {
 			s.Std[i] = fma32(1.0-alpha, s.Std[i], round32(alpha*features[i]*features[i]))
 		}
+		if traceMeanStd {
+			analysisMeanStdTraceSetStdNew(s.Std[:])
+		}
+	}
+	if traceMeanStd {
+		analysisMeanStdTraceFinish()
 	}
 	for i := range 4 {
 		features[i] = BFCC[i] - midE[i]
@@ -1277,6 +1304,7 @@ func (s *TonalityAnalysisState) RunAnalysis(pcm []float32, frameSize int, channe
 	if analysisFrameSize > 0 {
 		pcmLen := analysisFrameSize - int(s.AnalysisOffset)
 		offset := int(s.AnalysisOffset)
+		traceChunk := int32(0)
 		chunkSize := int(s.Fs) / 50
 		if chunkSize <= 0 {
 			chunkSize = analysisFrameSize
@@ -1303,7 +1331,11 @@ func (s *TonalityAnalysisState) RunAnalysis(pcm []float32, frameSize int, channe
 			}
 			end := min(start+chunk*channels, len(pcm))
 			if end > start {
+				if analysisMeanStdTraceEnabled && analysisMeanStdTraceHook != nil {
+					analysisMeanStdTraceSetChunk(traceChunk)
+				}
 				s.tonalityAnalysis(pcm[start:end], channels)
+				traceChunk++
 			}
 
 			offset += chunkSize

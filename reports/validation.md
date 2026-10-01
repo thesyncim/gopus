@@ -124,6 +124,30 @@ regression, malformed trace protocol checks and zero warm allocations, plus
 19-case/76-path interoperability contract has no unresolved results. Native
 confirmation is pending; published timings retain their measured revision.
 
+### Analyzer mean and spectral variability on amd64 v3
+
+The default float v3 analyzer rounds `alpha*BFCC` before the fused old-mean
+term in `src/analysis.c:tonality_analysis`. Its temporal BFCC features use the
+selected C caller's fused final memory and mean terms. A four-call scalar FMA
+boundary preserves the mean update's contraction; other configurations retain
+their source expressions. Native timings for this revision are pending.
+
+Independent live-C traces compare the actual mean inputs and updates at counts
+0–5, and all nine temporal features, their memory inputs and the first Std
+update. The complete 16-frame C output is unchanged under tracing. Disabled
+tracing has zero warm `RunAnalysis` allocations.
+
+Spectral variability accumulates 18 squared band differences in order. The
+selected scalar C caller rounds every product; the SIMD caller rounds its first
+16 products and fuses the last two. The Go helpers inline with that arithmetic.
+The oracle compares all 144 actual log-energy inputs and the original linked-C
+neural feature endpoint. Intermediate minima and sums are explicitly source
+models. The complete 60-frame C output is unchanged under tracing; the helper
+allocates zero after warmup, and malformed trace payloads are rejected.
+
+These focused checks preserve their exact assertions. Later analyzer history
+and signal-specific differences remain unresolved in the wider 200-case sweep.
+
 ### Analyzer phase on amd64 v3
 
 The default float v3 SIMD phase kernel uses three packed FMAs for the

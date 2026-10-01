@@ -313,8 +313,7 @@ func TestQEXTCBRExtensionSizeExactMatchesLibopus(t *testing.T) {
 // TestQEXTMultistreamEncoderProducesQEXTExtension verifies that the public
 // gopus multistream encoder, when QEXT is enabled, produces packets that
 // contain a QEXT extension and that a multistream decoder can decode them to
-// audio without error.  This covers the multistream QEXT entry in the parity
-// matrix which was previously marked as missing.
+// audio without error.
 func TestQEXTMultistreamEncoderProducesQEXTExtension(t *testing.T) {
 	const sampleRate = 48000
 	const frameSize = 960
