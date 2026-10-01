@@ -184,8 +184,10 @@ GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./examples/ben
 For scalar comparisons, retain both target settings and use `GOEXPERIMENT=nosimd`.
 On ARM64, omit both AMD64 target settings. The [native v3 audit](https://github.com/thesyncim/gopus/actions/runs/36852325106)
 passes all 19 CBR cases and 2,175 packets/ranges in both lanes, plus the selected
-60 encoder, 24 decoder and 15 allocation cases. Wider analyzer-state differences
-remain under investigation. The optional [v1/v2/v3 audit](reports/validation.md#amd64-compiler-targets)
+60 encoder, 24 decoder and 15 allocation cases. The matched local v3 analyzer
+also passes all 200 corpus/variant cases; native confirmation and two further
+encoder test groups remain pending. [Current evidence](reports/validation.md#analyzer-history-and-getter-on-amd64-v3).
+The optional [v1/v2/v3 audit](reports/validation.md#amd64-compiler-targets)
 runs on one native host; routine PR CI does not run that matrix.
 
 ## Parity & testing

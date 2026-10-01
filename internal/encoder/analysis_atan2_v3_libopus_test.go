@@ -191,7 +191,7 @@ func analysisAtan2CapturedPhaseCases(t *testing.T) []analysisAtan2KernelCase {
 	if err := validateAnalysisGANO(baseline, frames); err != nil {
 		t.Fatalf("baseline GANO structure: %v", err)
 	}
-	tracePath, sourceHash := buildLibopusAnalysisStageTraceHelper(t)
+	tracePath, sourceHash := buildLibopusAnalysisStageTraceHelper(t, 0)
 	traced, err := libopustest.RunHelper(tracePath, input)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "analysis phase operand trace", err)
@@ -199,7 +199,7 @@ func analysisAtan2CapturedPhaseCases(t *testing.T) []analysisAtan2KernelCase {
 	if len(traced) < len(baseline) || !bytes.Equal(traced[:len(baseline)], baseline) {
 		t.Fatal("phase-instrumented analysis helper changed baseline GANO output")
 	}
-	trace, phase, err := parseLibopusAnalysisStageTrace(traced[len(baseline):])
+	trace, phase, err := parseLibopusAnalysisStageTrace(traced[len(baseline):], 0)
 	if err != nil {
 		t.Fatalf("parse GAST/GAPH for atan2 operands: %v", err)
 	}

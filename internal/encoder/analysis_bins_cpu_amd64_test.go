@@ -13,6 +13,9 @@ func TestAnalysisBinsCPUFallback(t *testing.T) {
 	if analysisBinsUseAVX2 && !archsimd.X86.AVX2() {
 		t.Fatal("analysis vector dispatch requires AVX2")
 	}
+	if analysisBinsUseAVX2 && analysisAvgModFMAEnabled && !archsimd.X86.FMA() {
+		t.Fatal("analysis vector AvgMod requires FMA")
+	}
 	saved := analysisBinsUseAVX2
 	analysisBinsUseAVX2 = false
 	t.Cleanup(func() { analysisBinsUseAVX2 = saved })

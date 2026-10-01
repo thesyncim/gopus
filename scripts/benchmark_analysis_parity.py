@@ -65,6 +65,11 @@ class AnalyzerRunner(Runner):
             if profiles["baseline"] != profiles["candidate"]:
                 raise RunFailure("baseline and candidate PGO profiles differ")
             for revision, root in (("baseline", self.baseline), ("candidate", self.candidate)):
+                status = self.checked_run(f"source-status-{revision}", root,
+                                          ["git", "status", "--porcelain", "--untracked-files=no"],
+                                          self.go_env(root), f"environment/{revision}-source-status.txt")
+                if status.read_text().strip():
+                    raise RunFailure(f"{revision} has tracked source changes outside its recorded revision")
                 files = self.checked_run(f"assembly-check-{revision}", root,
                                          ["git", "ls-files", "*.s"], self.go_env(root),
                                          f"environment/{revision}-assembly-files.txt")

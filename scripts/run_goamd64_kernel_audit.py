@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run and validate the bounded GOAMD64 v3 root parity audit."""
+"""Run and validate the bounded GOAMD64 v3 public and analyzer parity audit."""
 
 from __future__ import annotations
 
@@ -36,6 +36,14 @@ def audit_specs(mode: str) -> list[dict[str, object]]:
         selected.append(spec)
     if {spec["name"] for spec in selected} != AUDIT_SUITES:
         raise ValueError(f"no root parity suites selected for mode {mode!r}")
+    selected.append({
+        "name": "analysis-state-200", "package": "./internal/encoder",
+        "selector": r"^TestAnalysisMatchesLibopusLive(EncoderVariants)?$",
+        "expected_leaves": {
+            "TestAnalysisMatchesLibopusLive": 180,
+            "TestAnalysisMatchesLibopusLiveEncoderVariants": 20,
+        },
+    })
     return selected
 
 
@@ -118,6 +126,7 @@ def main(argv: list[str]) -> int:
             "root-encode-differential": "encode-60",
             "root-decode-differential": "decode-24",
             "root-hotpath-allocation-guards": "allocations",
+            "analysis-state-200": "analysis-200",
         }[spec["name"]]
         suite_output = artifact_prefix.with_name(f"{mode}-{suffix}.jsonl")
         suite_stderr = suite_output.with_suffix(suite_output.suffix + ".stderr")

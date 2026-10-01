@@ -50,7 +50,7 @@ func validAnalysisStageTraceWireFixture() []byte {
 
 func TestAnalysisInputFFTStageTraceParserRejectsMalformedWire(t *testing.T) {
 	valid := validAnalysisStageTraceWireFixture()
-	if _, phase, err := parseLibopusAnalysisStageTrace(valid); err != nil {
+	if _, phase, err := parseLibopusAnalysisStageTrace(valid, 0); err != nil {
 		t.Fatalf("valid GAST/GAPH fixture rejected: %v", err)
 	} else if len(phase.records) != 239 {
 		t.Fatalf("valid GAPH records=%d want 239", len(phase.records))
@@ -169,7 +169,7 @@ func TestAnalysisInputFFTStageTraceParserRejectsMalformedWire(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			data := append([]byte(nil), valid...)
-			if _, _, err := parseLibopusAnalysisStageTrace(test.mutate(data)); err == nil {
+			if _, _, err := parseLibopusAnalysisStageTrace(test.mutate(data), 0); err == nil {
 				t.Fatal("malformed GAST payload was accepted")
 			}
 		})

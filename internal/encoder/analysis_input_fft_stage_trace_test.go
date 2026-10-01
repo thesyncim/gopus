@@ -21,7 +21,7 @@ import (
 const libopusAnalysisSourceSHA256 = "d2442fc330fc2576d30df080d68be4aca8803df15edcfcfa48078c13ebbc3ff8"
 const libopusAnalysisInfoSourceSHA256 = "68a03d38b330425339597d56b992022d0f21c2b12799aa1853ee4ae93376cd6f"
 
-var libopusAnalysisStageHelper libopustest.HelperCache
+var libopusAnalysisStageHelpers [12]libopustest.HelperCache
 
 type libopusAnalysisStageTrace struct {
 	frame, runCalls, tonalityCalls, overflow, stageMask uint32
@@ -83,7 +83,7 @@ func TestAnalysisInputFFTStageTrace(t *testing.T) {
 	if err := validateAnalysisGANO(baseline, frames); err != nil {
 		t.Fatalf("baseline GANO structure: %v", err)
 	}
-	tracePath, sourceHash := buildLibopusAnalysisStageTraceHelper(t)
+	tracePath, sourceHash := buildLibopusAnalysisStageTraceHelper(t, 0)
 	traced, err := libopustest.RunHelper(tracePath, input)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "analysis input/FFT stage trace", err)
@@ -91,7 +91,7 @@ func TestAnalysisInputFFTStageTrace(t *testing.T) {
 	if len(traced) < len(baseline) || !bytes.Equal(traced[:len(baseline)], baseline) {
 		t.Fatal("GAST source-instrumented analysis helper changed the baseline GANO output")
 	}
-	trace, phaseTrace, err := parseLibopusAnalysisStageTrace(traced[len(baseline):])
+	trace, phaseTrace, err := parseLibopusAnalysisStageTrace(traced[len(baseline):], 0)
 	if err != nil {
 		t.Fatalf("parse GAST: %v", err)
 	}
@@ -186,9 +186,12 @@ func compareAnalysisPerBinGoTransparency(t *testing.T, frame int, tracedInfo, pl
 	}
 }
 
-func buildLibopusAnalysisStageTraceHelper(t *testing.T) (string, string) {
+func buildLibopusAnalysisStageTraceHelper(t *testing.T, targetFrame uint32) (string, string) {
 	t.Helper()
-	path, err := libopusAnalysisStageHelper.Path(func() (string, error) {
+	if targetFrame >= uint32(len(libopusAnalysisStageHelpers)) {
+		t.Fatalf("analysis stage trace target frame=%d outside helper cache range [0,%d)", targetFrame, len(libopusAnalysisStageHelpers))
+	}
+	path, err := libopusAnalysisStageHelpers[targetFrame].Path(func() (string, error) {
 		root := celtQuantTraceRepoRoot(t)
 		pinnedPath := libopustest.RefPath("src", "analysis.c")
 		pinned, err := os.ReadFile(pinnedPath)
@@ -225,11 +228,11 @@ func buildLibopusAnalysisStageTraceHelper(t *testing.T) (string, string) {
 		stageHeaderHash := fmt.Sprintf("%x", sha256.Sum256(stageHeader))
 		config := libopustest.CHelperConfig{
 			Label:      "libopus analysis input/FFT stage trace",
-			OutputBase: "gopus_libopus_analysis_stage_trace_f0",
+			OutputBase: fmt.Sprintf("gopus_libopus_analysis_stage_trace_f%d", targetFrame),
 			SourceFile: filepath.Join(csrc, "libopus_analysis_stage_trace_main.c"),
 			CFlags: []string{
 				"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG",
-				"-DGOPUS_ANALYSIS_STAGE_TRACE_FRAME=0",
+				fmt.Sprintf("-DGOPUS_ANALYSIS_STAGE_TRACE_FRAME=%d", targetFrame),
 				fmt.Sprintf("-DGOPUS_ANALYSIS_STAGE_SOURCE_SHA256=%q", traceHash),
 				fmt.Sprintf("-DGOPUS_ANALYSIS_INFO_SOURCE_SHA256=%q", analysisInfoHash),
 				fmt.Sprintf("-DGOPUS_ANALYSIS_STAGE_HEADER_SHA256=%q", stageHeaderHash),
@@ -371,7 +374,7 @@ func replaceAnalysisTraceAnchor(source, anchor, replacement, label string) (stri
 	return strings.Replace(source, anchor, replacement, 1), nil
 }
 
-func parseLibopusAnalysisStageTrace(data []byte) (libopusAnalysisStageTrace, libopusAnalysisPhaseTrace, error) {
+func parseLibopusAnalysisStageTrace(data []byte, expectedTargetFrame uint32) (libopusAnalysisStageTrace, libopusAnalysisPhaseTrace, error) {
 	var trace libopusAnalysisStageTrace
 	var phase libopusAnalysisPhaseTrace
 	const (
@@ -399,6 +402,9 @@ func parseLibopusAnalysisStageTrace(data []byte) (libopusAnalysisStageTrace, lib
 		return trace, phase, fmt.Errorf("GAST version=%d want 1", version)
 	}
 	trace.frame = readU32()
+	if trace.frame != expectedTargetFrame {
+		return trace, phase, fmt.Errorf("GAST selected frame=%d want %d", trace.frame, expectedTargetFrame)
+	}
 	trace.runCalls = readU32()
 	trace.tonalityCalls = readU32()
 	trace.overflow = readU32()
@@ -431,14 +437,14 @@ func parseLibopusAnalysisStageTrace(data []byte) (libopusAnalysisStageTrace, lib
 	if offset != gastBytes {
 		return trace, phase, fmt.Errorf("GAST parser consumed %d bytes want %d", offset, gastBytes)
 	}
-	phase, err := parseLibopusAnalysisPhaseTrace(data[gastBytes:])
+	phase, err := parseLibopusAnalysisPhaseTrace(data[gastBytes:], expectedTargetFrame)
 	if err != nil {
 		return trace, phase, err
 	}
 	return trace, phase, nil
 }
 
-func parseLibopusAnalysisPhaseTrace(data []byte) (libopusAnalysisPhaseTrace, error) {
+func parseLibopusAnalysisPhaseTrace(data []byte, expectedTargetFrame uint32) (libopusAnalysisPhaseTrace, error) {
 	var phase libopusAnalysisPhaseTrace
 	const (
 		phaseBins   = 239
@@ -466,9 +472,9 @@ func parseLibopusAnalysisPhaseTrace(data []byte) (libopusAnalysisPhaseTrace, err
 	phase.totalCalls = readU32()
 	phase.storedCalls = readU32()
 	phase.overflow = readU32()
-	if phase.frame != 0 || phase.totalCalls != phaseBins || phase.storedCalls != phaseBins || phase.overflow != 0 {
-		return phase, fmt.Errorf("GAPH frame=%d calls=%d stored=%d overflow=%d", phase.frame,
-			phase.totalCalls, phase.storedCalls, phase.overflow)
+	if phase.frame != expectedTargetFrame || phase.totalCalls != phaseBins || phase.storedCalls != phaseBins || phase.overflow != 0 {
+		return phase, fmt.Errorf("GAPH frame=%d want %d calls=%d stored=%d overflow=%d", phase.frame,
+			expectedTargetFrame, phase.totalCalls, phase.storedCalls, phase.overflow)
 	}
 	phase.records = make([]libopusAnalysisPhaseRecord, phaseBins)
 	readFloatBits := func() (uint32, error) {

@@ -311,7 +311,6 @@ func (s *TonalityAnalysisState) analysisBinsScalar(out *[480]complex64, from int
 
 		mod1 := d2Angle - float32(analysisFloat2Int(d2Angle))
 		noisiness[i] = opusmath.AbsF32(mod1)
-		mod1 *= mod1
 		mod1 = round32(mod1 * mod1)
 
 		mod2 := d2Angle2 - float32(analysisFloat2Int(d2Angle2))
@@ -319,7 +318,7 @@ func (s *TonalityAnalysisState) analysisBinsScalar(out *[480]complex64, from int
 		mod2 *= mod2
 		mod2 = round32(mod2 * mod2)
 
-		avgMod := 0.25 * (s.D2Angle[i] + mod1 + 2*mod2)
+		avgMod := analysisAvgMod32(mod1, s.D2Angle[i], mod2)
 		tonality[i] = 1.0/(1.0+40.0*16.0*analysisPi4*avgMod) - 0.015
 		tonality2[i] = 1.0/(1.0+40.0*16.0*analysisPi4*mod2) - 0.015
 
@@ -1236,7 +1235,7 @@ func (s *TonalityAnalysisState) tonalityGetInfo(frameSize int) AnalysisInfo {
 		probMax = maxf((probAvg+transitionPenalty*(vadProb-posVAD))/denom, probMax)
 
 		probCount += posWeight
-		probAvg += posWeight * s.Info[mpos].MusicProb
+		probAvg += analysisWeightedProduct32(posWeight, s.Info[mpos].MusicProb)
 	}
 
 	if probCount < 1e-9 {
@@ -1264,7 +1263,7 @@ func (s *TonalityAnalysisState) tonalityGetInfo(frameSize int) AnalysisInfo {
 		}
 
 		pmin = maxf(0.0, pmin-0.1*vadProb)
-		pmax = minf(1.0, pmax+0.1*vadProb)
+		pmax = minf(1.0, pmax+analysisWeightedProduct32(0.1, vadProb))
 		blend := float32(1.0) - 0.1*float32(currLookahead)
 		probMin += blend * (pmin - probMin)
 		probMax += blend * (pmax - probMax)

@@ -164,8 +164,30 @@ on AMD EPYC 7763 with Go 1.27.1 and GCC 13.3. The anti-collapse replay captures
 the pulse vector passed by the active decoder allocation path and matches the
 original linked C renormalization inputs and output. All 60 encoder, 24 decoder,
 15 warm-allocation and 19 CBR cases pass; the 19-case/76-path interoperability
-contract has no unresolved results. Later analyzer history and signal-specific
-differences remain unresolved in the wider 200-case sweep.
+contract has no unresolved results. The wider analyzer sweep is covered below.
+
+### Analyzer history and getter on amd64 v3
+
+The default float v3 AvgMod kernel fuses the final modulation square with its
+old-history term, matching `src/analysis.c:599`. Scalar Go uses one float32
+helper per bin; SIMD uses packed FMAs and three scalar tail calls. Other
+targets and optional-feature builds retain separate quartic products. Three
+live-C regressions require all 239 bins to match with nonzero phase history,
+identical hashed inputs and unchanged original-C output under instrumentation.
+
+The getter rounds weighted probability products and the VAD bias product
+before their separate additions, matching the linked C getter. Its helper
+inlines. Two live regressions compare the complete 100-entry ring, read cursors,
+same-C-state replay and normal Go endpoint; thirteen malformed records fail
+parsing. The runtime helpers and disabled tracing preserve zero warm allocations.
+
+Both matching local Linux/amd64 v3 lanes pass every analyzer state and returned
+field in all 180 corpus cases and 20 encoder-variant cases, with no failures or
+skips. Native confirmation and incremental timing are pending. The existing
+native audit validates both exact subtest counts and rejects missing/skipped
+cases. The full local v3 encoder package still exposes two test groups under
+investigation: eight stereo-width state cases and the packet-20 SILK sidecar
+fixture. These remain failures; no fixture, gate or tolerance changes apply.
 
 ### Analyzer phase on amd64 v3
 
@@ -180,8 +202,8 @@ angle/velocity/acceleration history entry matches the live C trace. Its full
 50-frame C output agrees with the uninstrumented oracle, and the SIMD kernel
 allocates zero after warmup. Both instruction lanes preserve all 60 encoder,
 24 decoder, 15 allocation and 19 CBR cases in the native v3 audit at `c49e25c77`.
-The classifier and tone checks below cover the first
-analyzer chunk; wider state/history comparisons remain unresolved.
+The classifier and tone source checks below cover the first analyzer chunk;
+the complete history sweep is recorded above.
 
 ### Analyzer classifier and tone on amd64 v3
 
@@ -201,9 +223,8 @@ allocate zero after warmup. Both matched instruction lanes preserve all 60
 encoder, 24 decoder, 15 warm-allocation and 19 CBR cases, including 2,175 packets
 with zero packet or final-range differences.
 
-These checks cover the tested operands and first analyzer chunk. The full
-180-case audio corpus and 20 encoder-variant analyzer sweeps still expose
-later-history and signal-specific state differences; they remain unresolved.
+These source checks cover the tested operands and first analyzer chunk. The
+complete 200-case history sweep is recorded above.
 The [native v3 audit](https://github.com/thesyncim/gopus/actions/runs/36684455645) confirms these source checks, and the
 [measured timing matrix](https://github.com/thesyncim/gopus/actions/runs/36684603376) records performance at `c49e25c77`.
 No universal analyzer-state identity is claimed.
