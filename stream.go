@@ -15,8 +15,8 @@ import (
 // streaming Reader can copy decoded PCM straight to its output buffer instead
 // of re-encoding each sample.
 var hostIsLittleEndian = func() bool {
-	var x uint16 = 1
-	return *(*byte)(unsafe.Pointer(&x)) == 1
+	probe := [2]byte{1, 0}
+	return binary.NativeEndian.Uint16(probe[:]) == 1
 }()
 
 // SampleFormat specifies the PCM sample format for streaming.

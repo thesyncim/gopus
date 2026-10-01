@@ -3,6 +3,7 @@
 package dnnmath
 
 import (
+	"math"
 	"simd/archsimd"
 	"unsafe"
 
@@ -21,12 +22,12 @@ import (
 // loadBlobFloat32x8 loads the eight float32 values starting at element i of a
 // little-endian float32 blob payload.
 func loadBlobFloat32x8(raw []byte, i int) archsimd.Float32x8 {
-	return archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Pointer((*[32]byte)(raw[4*i:]))))
+	return archsimd.LoadUint8x32(raw[4*i:]).AsUint32x8().AsFloat32x8()
 }
 
 // loadBlobFloat32x4 loads the four float32 values starting at element i.
 func loadBlobFloat32x4(raw []byte, i int) archsimd.Float32x4 {
-	return archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Pointer((*[16]byte)(raw[4*i:]))))
+	return archsimd.LoadUint8x16(raw[4*i:]).AsUint32x4().AsFloat32x4()
 }
 
 // SGEMVX86 mirrors dnn/vec_avx.h:sgemv: complete 16-, 8- and 4-row blocks
@@ -178,7 +179,7 @@ func packUS8(v int32) uint8 {
 func dpbusdsX86(acc archsimd.Int32x8, q []uint8, col int, w []byte, wOffset int) archsimd.Int32x8 {
 	packed := uint32(q[col]) | uint32(q[col+1])<<8 | uint32(q[col+2])<<16 | uint32(q[col+3])<<24
 	xj := archsimd.BroadcastUint32x8(packed).AsUint8x32()
-	weights := archsimd.LoadInt8x32Array((*[32]int8)(unsafe.Pointer((*[32]byte)(w[wOffset:]))))
+	weights := archsimd.LoadUint8x32(w[wOffset:]).AsInt8x32()
 	pairs := xj.DotProductPairsSaturated(weights)
 	return acc.Add(pairs.DotProductPairs(archsimd.BroadcastInt16x16(1)))
 }
@@ -205,6 +206,9 @@ func Conv2D3x3X86(out []float32, weights dnnblob.Float32View, inChannels, outCha
 		o := out[i*hstride : i*hstride+height]
 		for m := range inChannels {
 			wBase := (i*inChannels + m) * 9
+			// Conv2D broadcasts each four-byte float directly from the retained
+			// payload. x86 permits unaligned scalar reads, and this slice bounds
+			// the read to one float.
 			for k := range w {
 				w[k] = archsimd.BroadcastFloat32x8(*(*float32)(unsafe.Pointer((*[4]byte)(raw[4*(wBase+k):]))))
 			}
@@ -237,7 +241,7 @@ func Conv2D3x3X86(out []float32, weights dnnblob.Float32View, inChannels, outCha
 				// Add and store lane 0 through vector and integer registers,
 				// since a scalar float add or store would be legacy SSE here.
 				sum := acc.GetLo().Add(archsimd.BroadcastFloat32x4(o[j]))
-				*(*int32)(unsafe.Pointer(&o[j])) = sum.AsInt32x4().GetElem(0)
+				o[j] = math.Float32frombits(uint32(sum.AsInt32x4().GetElem(0)))
 			}
 		}
 	}

@@ -2,7 +2,6 @@ package celt
 
 import (
 	"math"
-	"unsafe"
 
 	"github.com/thesyncim/gopus/internal/opusmath"
 )
@@ -427,16 +426,15 @@ const kfBfly2M4Twiddle = float32(0.7071067812)
 
 // kfBfly2M4Scalar is the kf_bfly2 radix-2 stage with m == 4 (after a radix-4
 // stage): N groups of eight values, each addressed through a fixed-size array
-// view at a byte offset.
+// view.
 func kfBfly2M4Scalar(fout []kissCpx, N int) {
 	tw := kfBfly2M4Twiddle
 	if N <= 0 {
 		return
 	}
-	// Group i sits at byte offset 64*i of the checked fout[:8*N].
-	base := unsafe.Pointer(unsafe.SliceData(fout[:8*N]))
-	for off := uintptr(0); off < uintptr(N)*64; off += 64 {
-		g := (*[8]kissCpx)(unsafe.Add(base, off))
+	groups := fout[:8*N]
+	for i := 0; i < len(groups); i += 8 {
+		g := (*[8]kissCpx)(groups[i : i+8])
 		t := g[4]
 		g[4].r = g[0].r - t.r
 		g[4].i = g[0].i - t.i
