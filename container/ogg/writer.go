@@ -48,11 +48,12 @@ type WriterConfig struct {
 	DemixingMatrix []byte
 }
 
-// oggPageScratchSize is the inline page-serialization buffer carried by each
-// Writer. Audio pages (one Opus packet plus header and lacing) fit comfortably;
-// only unusually large pages such as an OpusTags packet with many comments spill
-// to a one-off heap buffer.
+// oggPageScratchSize covers typical audio pages without a separate allocation.
 const oggPageScratchSize = 4096
+
+// maxPagePayload is the largest payload represented by 255 lacing entries.
+// A packet this large needs another page for its terminating lacing entry.
+const maxPagePayload = 255 * 255
 
 // Writer writes Opus packets to an Ogg stream, retaining page and granule state.
 // It writes directly to the supplied io.Writer without buffering and is not
@@ -67,9 +68,8 @@ type Writer struct {
 	headersDone bool   // Headers written?
 	closed      bool   // Stream closed?
 
-	// pageScratch is reused across writePage calls so steady-state writing
-	// allocates nothing; it is part of the Writer's own allocation.
-	pageScratch [oggPageScratchSize]byte
+	pageScratch [oggPageScratchSize]byte // Inline buffer for typical pages
+	largePage   []byte                   // Reused storage for larger pages
 }
 
 // NewWriter returns a Writer with the default mapping family for mono or
@@ -108,7 +108,8 @@ func NewWriter(w io.Writer, sampleRate uint32, channels uint8) (*Writer, error) 
 // families other than 3 require a channel-mapping entry per output channel.
 // Family 3 accepts a demixing matrix of 2*Channels*(StreamCount+CoupledCount)
 // bytes, or emits a default projection matrix when available and an identity
-// matrix otherwise.
+// matrix otherwise. The encoded OpusHead must fit on a single Ogg page;
+// an oversized header returns ErrInvalidHeader.
 // Errors from the underlying writer are returned; a failed write may already
 // have written part of a header page.
 func NewWriterWithConfig(w io.Writer, config WriterConfig) (*Writer, error) {
@@ -239,16 +240,35 @@ func (ow *Writer) writeHeaders() error {
 	return nil
 }
 
-// writePage writes a single Ogg page.
-// For header pages, granulePos is always 0.
-// For audio pages, granulePos is the current granule position.
+// writePage writes a packet across consecutive pages. Pages without a completed
+// packet have granule position -1 (RFC 7845 section 4); the final page carries
+// the packet's granule position. OpusHead must fit entirely on its BOS page.
 func (ow *Writer) writePage(payload []byte, headerType byte) error {
-	// Lacing: ceil-style segment table for the payload. An EOS page with no
-	// payload is emitted packetless (zero segments) — a zero-length lacing entry
-	// would encode an empty packet, which strict demuxers reject for the EOS
-	// marker page.
-	numSegments := len(payload)/255 + 1
-	if headerType&PageFlagEOS != 0 && len(payload) == 0 {
+	if headerType&PageFlagBOS != 0 && len(payload) >= maxPagePayload {
+		return ErrInvalidHeader
+	}
+	granulePos := ow.granulePos
+	if headerType&PageFlagBOS != 0 || !ow.headersDone {
+		granulePos = 0
+	}
+	for len(payload) >= maxPagePayload {
+		if err := ow.writePageChunk(payload[:maxPagePayload], headerType&^PageFlagEOS, ^uint64(0), false); err != nil {
+			return err
+		}
+		payload = payload[maxPagePayload:]
+		headerType = headerType&^PageFlagBOS | PageFlagContinuation
+	}
+	return ow.writePageChunk(payload, headerType, granulePos, true)
+}
+
+// writePageChunk serializes one page. complete adds the packet terminator;
+// an empty standalone EOS page has no packet or lacing entries.
+func (ow *Writer) writePageChunk(payload []byte, headerType byte, granulePos uint64, complete bool) error {
+	numSegments := len(payload) / 255
+	if complete {
+		numSegments++
+	}
+	if headerType&PageFlagEOS != 0 && headerType&PageFlagContinuation == 0 && len(payload) == 0 {
 		numSegments = 0
 	}
 
@@ -257,13 +277,10 @@ func (ow *Writer) writePage(payload []byte, headerType byte) error {
 	if total <= len(ow.pageScratch) {
 		buf = ow.pageScratch[:total]
 	} else {
-		buf = make([]byte, total)
-	}
-
-	// Header pages (BOS flag set or before headersDone) have granule = 0.
-	granulePos := ow.granulePos
-	if headerType&PageFlagBOS != 0 || !ow.headersDone {
-		granulePos = 0
+		if cap(ow.largePage) < total {
+			ow.largePage = make([]byte, total)
+		}
+		buf = ow.largePage[:total]
 	}
 
 	copy(buf[0:4], oggMagic)
@@ -281,7 +298,10 @@ func (ow *Writer) writePage(payload []byte, headerType byte) error {
 		si++
 	}
 	if numSegments > 0 {
-		buf[si] = byte(len(payload) % 255)
+		buf[si] = 255
+		if complete {
+			buf[si] = byte(len(payload) % 255)
+		}
 		si++
 	}
 	copy(buf[si:], payload)
@@ -300,12 +320,13 @@ func (ow *Writer) writePage(payload []byte, headerType byte) error {
 	return nil
 }
 
-// WritePacket writes packet as one audio page and advances the granule position
-// by samples, the nonnegative packet duration in samples per channel at 48 kHz
-// (960 for a 20 ms frame). The Writer does not parse packet or validate samples,
+// WritePacket writes packet across one or more audio pages and advances the
+// granule position by samples, the nonnegative packet duration in samples per
+// channel at 48 kHz (960 for a 20 ms frame). It does not parse packet or validate samples,
 // so callers must supply a valid nonnegative duration. On a page-write error the
-// granule position is restored, but the underlying writer may have received a
-// partial page; a short write without an error is reported as io.ErrShortWrite.
+// granule position is restored, but the underlying writer may have received
+// earlier pages or part of a page. A short write without an error is reported
+// as io.ErrShortWrite.
 // Calling WritePacket after Close returns ErrUnexpectedEOS.
 func (ow *Writer) WritePacket(packet []byte, samples int) error {
 	if ow.closed {
@@ -324,8 +345,7 @@ func (ow *Writer) WritePacket(packet []byte, samples int) error {
 	prevGranule := ow.granulePos
 	ow.granulePos += uint64(samples)
 
-	// Write audio page.
-	// One packet per page (simple approach per RFC 7845 recommendation).
+	// Each packet starts on a fresh page; large packets use continuation pages.
 	if err := ow.writePage(packet, 0); err != nil {
 		ow.granulePos = prevGranule
 		return err
