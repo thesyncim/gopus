@@ -538,6 +538,34 @@ func TestDecodeWithFECInvalidRequestedFrameSizeMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestDecodeWithFECInvalidRequestedSizePrecedesPacketParsing(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const sampleRate = 48000
+	const channels = 1
+	const frameSize = sampleRate/400 + 1
+	packet := []byte{0x03} // Code-3 packet missing its frame-count byte.
+
+	want, err := libopustest.ProbeDecodeSequence(sampleRate, channels, []libopustest.DecodeDiffCase{{
+		Packet: packet, Format: libopustest.DecodeDiffFormatFloat32,
+		FrameSize: frameSize, DecodeFEC: true,
+	}})
+	if err != nil {
+		t.Fatalf("probe libopus invalid FEC request: %v", err)
+	}
+	if len(want) != 1 || want[0].Code != -1 {
+		t.Fatalf("libopus result=%+v, want OPUS_BAD_ARG (-1) before parsing malformed packet", want)
+	}
+
+	dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	got, err := dec.DecodeWithFEC(packet, make([]float32, frameSize*channels), true)
+	if got != 0 || err != ErrInvalidFrameSize {
+		t.Fatalf("DecodeWithFEC(invalid size, malformed packet)=(%d,%v), want (0,%v)", got, err, ErrInvalidFrameSize)
+	}
+}
+
 func TestDecodeWithFECLBRRAPIRatePCMMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	for _, tc := range []struct {

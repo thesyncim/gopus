@@ -13,10 +13,61 @@ func TestDecodeWithFECRejectsOver120msBeforeCELTPLCFallback(t *testing.T) {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
 
-	pcm := make([]float32, cfg.MaxPacketSamples)
+	// Keep the FEC request itself valid (a multiple of the 2.5 ms quantum) so
+	// this test reaches packet framing instead of returning OPUS_BAD_ARG first.
+	pcm := make([]float32, 6960)
 	_, err = dec.DecodeWithFEC([]byte{GenerateTOC(31, false, 3), 0x07}, pcm, true)
 	if err != ErrInvalidPacket {
 		t.Fatalf("DecodeWithFEC error=%v want %v", err, ErrInvalidPacket)
+	}
+}
+
+func TestDecodeWithFECEnforcesMaxPacketBytesWithoutChangingState(t *testing.T) {
+	packet := encodeAPIRateSILKPacket(t, 1)
+	if len(packet) < 2 {
+		t.Fatalf("test packet length=%d, need a multi-byte packet", len(packet))
+	}
+
+	cfg := DefaultDecoderConfig(48000, 1)
+	cfg.MaxPacketBytes = len(packet) - 1
+	dec, err := NewDecoder(cfg)
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	fresh, err := NewDecoder(cfg)
+	if err != nil {
+		t.Fatalf("NewDecoder fresh: %v", err)
+	}
+	pcm := make([]float32, 960)
+	if n, err := dec.DecodeWithFEC(packet, pcm, true); n != 0 || err != ErrPacketTooLarge {
+		t.Fatalf("DecodeWithFEC oversized packet=(%d,%v), want (0,%v)", n, err, ErrPacketTooLarge)
+	}
+	if dec.lastPacketMode != fresh.lastPacketMode || dec.lastBandwidth != fresh.lastBandwidth ||
+		dec.lastPacketDuration != fresh.lastPacketDuration || dec.lastFrameSize != fresh.lastFrameSize ||
+		dec.FinalRange() != fresh.FinalRange() || dec.hasFEC {
+		t.Fatal("rejected oversized FEC packet changed decoder state")
+	}
+
+	// A one-byte code-0 SILK packet is an empty/DTX frame accepted under this
+	// byte limit. Its PLC output must still match a fresh decoder after rejection.
+	shortPacket := []byte{GenerateTOC(0, false, 0)}
+	got := make([]float32, len(pcm))
+	want := make([]float32, len(pcm))
+	gotN, gotErr := dec.DecodeWithFEC(shortPacket, got, true)
+	wantN, wantErr := fresh.DecodeWithFEC(shortPacket, want, true)
+	if gotN != wantN || gotErr != wantErr {
+		t.Fatalf("post-rejection DecodeWithFEC=(%d,%v), fresh=(%d,%v)", gotN, gotErr, wantN, wantErr)
+	}
+	if gotErr != nil {
+		t.Fatalf("DecodeWithFEC(short packet): %v", gotErr)
+	}
+	for i := 0; i < gotN; i++ {
+		if got[i] != want[i] {
+			t.Fatalf("post-rejection PCM[%d]=%08x, fresh=%08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
+		}
+	}
+	if dec.FinalRange() != fresh.FinalRange() || dec.LastPacketDuration() != fresh.LastPacketDuration() {
+		t.Fatal("post-rejection decoder history differs from fresh decoder")
 	}
 }
 
