@@ -29,7 +29,6 @@ func NewDecoder(channels int) *Decoder {
 		// `if (C==1) OPUS_COPY(&oldBandE[nbEBands], oldBandE, nbEBands)`), which the
 		// loss-recovery prediction folds back in after a concealed gap.
 		prevEnergy:       make([]celtGLog, MaxBands*2),
-		prevEnergy2:      make([]celtGLog, MaxBands*2),
 		prevLogE:         make([]celtGLog, MaxBands*2),
 		prevLogE2:        make([]celtGLog, MaxBands*2),
 		backgroundEnergy: make([]celtGLog, MaxBands*2),
@@ -94,7 +93,6 @@ func (d *Decoder) Reset() {
 	// Energy-prediction history is always two channels wide (libopus 2*nbEBands),
 	// even for mono, so the right-channel shadow survives a concealed loss gap.
 	prevEnergy := ensureGLogSlice(&d.prevEnergy, d.predStride()*2)
-	prevEnergy2 := ensureGLogSlice(&d.prevEnergy2, d.predStride()*2)
 	prevLogE := ensureGLogSlice(&d.prevLogE, d.predStride()*2)
 	prevLogE2 := ensureGLogSlice(&d.prevLogE2, d.predStride()*2)
 	backgroundEnergy := ensureGLogSlice(&d.backgroundEnergy, d.predStride()*2)
@@ -104,7 +102,6 @@ func (d *Decoder) Reset() {
 	plcDecodeMem := ensureSigSlice(&d.plcDecodeMem, d.plcDecodeBufferLen()*channels)
 	plcLPC := ensureFloat32Slice(&d.plcLPC, celtPLCLPCOrder*channels)
 	clear(prevEnergy)
-	clear(prevEnergy2)
 	clear(prevLogE)
 	clear(prevLogE2)
 	clear(backgroundEnergy)
@@ -123,7 +120,6 @@ func (d *Decoder) Reset() {
 	d.clearDecoderScratchForReset()
 
 	d.prevEnergy = prevEnergy
-	d.prevEnergy2 = prevEnergy2
 	d.prevLogE = prevLogE
 	d.prevLogE2 = prevLogE2
 	d.backgroundEnergy = backgroundEnergy
@@ -180,7 +176,6 @@ func (d *Decoder) Reset() {
 }
 
 func (d *Decoder) clearDecoderScratchForReset() {
-	clearGLogCap(d.scratchPrevEnergy)
 	clearGLogCap(d.scratchPrevEnergyGLog)
 	clearGLogCap(d.scratchEnergies)
 	clearInt32Cap(d.scratchTFRes)
@@ -190,6 +185,7 @@ func (d *Decoder) clearDecoderScratchForReset() {
 	clearInt32Cap(d.scratchFinePriority)
 	clearFloat32Cap(d.scratchPrevBandEnergy)
 	clearInt32Cap(d.scratchCaps)
+	d.stdAlloc = stdAllocState{}
 	clearInt32Cap(d.scratchAllocWork)
 	d.scratchBands.clearForReset()
 	d.scratchIMDCTF32.clearForReset()

@@ -218,10 +218,10 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 	return d.deemphasisInterleaved(samples, frameSize)
 }
 
-func (d *Decoder) finalizeDecodedFrameState(frameSize, start, end, lm int, transient bool, energies, prev1Energy []celtGLog, qext *preparedQEXTDecode, rd *rangecoding.Decoder) error {
+func (d *Decoder) finalizeDecodedFrameState(frameSize, start, end, lm int, transient bool, energies []celtGLog, qext *preparedQEXTDecode, rd *rangecoding.Decoder) error {
 	// Update energy state for next frame.
 	d.updateLogEGLog(energies, end, transient)
-	d.setPrevEnergyGLogWithPrev(prev1Energy, energies)
+	d.setPrevEnergyGLog(energies)
 	// libopus mirrors the left channel into the right slot on every mono frame
 	// (`if (C==1) OPUS_COPY(&oldBandE[nbEBands], oldBandE, nbEBands)`), keeping
 	// oldBandE/oldLogE/oldLogE2 two-channel-symmetric. This must happen before the

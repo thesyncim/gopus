@@ -4,8 +4,6 @@ import (
 	"math"
 	"math/rand"
 	"testing"
-
-	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 func equalFloat32Bits(a, b []float32) int {
@@ -114,9 +112,10 @@ func TestSynthesizeChannelDirectMatchesReference(t *testing.T) {
 	}
 }
 
-// TestDecodeBandTablesMatchInitCaps checks the precomputed per-LM caps and
-// dynalloc quanta against init_caps and the celt_decode_with_ec quanta
-// formula.
+// TestDecodeBandTablesMatchInitCaps checks the precomputed per-LM caps,
+// dynalloc quanta, allocation thresholds and scaled allocation vectors
+// against init_caps and the celt_decode_with_ec and clt_compute_allocation
+// formulas.
 func TestDecodeBandTablesMatchInitCaps(t *testing.T) {
 	for lm := range 4 {
 		for c := range 2 {
@@ -130,61 +129,16 @@ func TestDecodeBandTablesMatchInitCaps(t *testing.T) {
 				if tab.caps[i] != caps[i] || tab.quanta[i] != quanta {
 					t.Fatalf("lm=%d C=%d band %d: caps %d quanta %d, want %d %d", lm, channels, i, tab.caps[i], tab.quanta[i], caps[i], quanta)
 				}
+				n := EBands[i+1] - EBands[i]
+				if thresh := int32(max(channels<<bitRes, (3*n<<uint(lm)<<bitRes)>>4)); tab.thresh[i] != thresh {
+					t.Fatalf("lm=%d C=%d band %d: thresh %d, want %d", lm, channels, i, tab.thresh[i], thresh)
+				}
+				for q := range BandAlloc {
+					if alloc := int32(channels * n * BandAlloc[q][i] << uint(lm) >> 2); tab.alloc[q][i] != alloc {
+						t.Fatalf("lm=%d C=%d vector %d band %d: alloc %d, want %d", lm, channels, q, i, tab.alloc[q][i], alloc)
+					}
+				}
 			}
-		}
-	}
-}
-
-// TestDecodeDynallocBoostsMatchesOffsets decodes random dynalloc flag
-// streams with the precomputed-quanta loop and with decodeDynallocOffsets and
-// checks the offsets, the remaining budget, the tell and the decoder state.
-func TestDecodeDynallocBoostsMatchesOffsets(t *testing.T) {
-	rng := rand.New(rand.NewSource(0xd7a1))
-	for iter := range 400 {
-		lm := rng.Intn(4)
-		channels := 1 + rng.Intn(2)
-		start := 0
-		if rng.Intn(4) == 0 {
-			start = 17
-		}
-		end := start + 1 + rng.Intn(MaxBands-start)
-		// Biased random flags: long runs of zeros with occasional boosts.
-		var re rangecoding.Encoder
-		buf := make([]byte, 16+rng.Intn(200))
-		re.Init(buf)
-		for range 400 {
-			bit := 0
-			if rng.Intn(5) == 0 {
-				bit = 1
-			}
-			re.EncodeBit(bit, uint(1+rng.Intn(6)))
-		}
-		data := re.Done()
-		totalBits := len(data) * 8
-		if rng.Intn(3) == 0 {
-			totalBits = rng.Intn(totalBits + 1)
-		}
-		tab := &decodeBandTables[lm][channels-1]
-
-		var rdA, rdB rangecoding.Decoder
-		rdA.Init(data)
-		rdB.Init(data)
-		gotOff := make([]int32, end)
-		wantOff := make([]int32, end)
-		gotTotal, gotTell := decodeDynallocBoosts(&rdA, gotOff[start:end], tab.caps[start:end], tab.quanta[start:end], totalBits<<bitRes)
-		wantTotal, wantTell := decodeDynallocOffsets(&rdB, wantOff, tab.caps[:end], EBands[:], start, end, lm, channels, totalBits<<bitRes)
-		if gotTotal != wantTotal || gotTell != wantTell {
-			t.Fatalf("iter %d: total/tell %d/%d want %d/%d", iter, gotTotal, gotTell, wantTotal, wantTell)
-		}
-		for i := start; i < end; i++ {
-			if gotOff[i] != wantOff[i] {
-				t.Fatalf("iter %d band %d: offset %d want %d", iter, i, gotOff[i], wantOff[i])
-			}
-		}
-		ra, va := rdA.State()
-		rb, vb := rdB.State()
-		if ra != rb || va != vb || rdA.TellFrac() != rdB.TellFrac() {
-			t.Fatalf("iter %d: decoder state differs", iter)
 		}
 	}
 }

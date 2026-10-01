@@ -26,11 +26,6 @@ func (d *Decoder) ensureEnergyState(channels int) {
 		copy(prev, d.prevEnergy)
 		d.prevEnergy = prev
 	}
-	if len(d.prevEnergy2) < needed {
-		prev := make([]celtGLog, needed)
-		copy(prev, d.prevEnergy2)
-		d.prevEnergy2 = prev
-	}
 	if len(d.prevLogE) < needed {
 		prev := make([]celtGLog, needed)
 		copy(prev, d.prevLogE)
@@ -75,12 +70,6 @@ func (d *Decoder) allocationScratch() []int32 {
 	return ensureInt32Slice(&d.scratchAllocWork, d.predStride()*5)
 }
 
-func (d *Decoder) snapshotDecodeHistory() ([]celtGLog, []celtGLog, []celtGLog) {
-	prev1Energy := ensureGLogSlice(&d.scratchPrevEnergy, len(d.prevEnergy))
-	copy(prev1Energy, d.prevEnergy)
-	return prev1Energy, d.prevLogE, d.prevLogE2
-}
-
 // prepareMonoEnergyFromStereo mirrors libopus behavior for mono streams by
 // using the max of L/R energies for prediction when stereo history exists.
 func (d *Decoder) prepareMonoEnergyFromStereo() {
@@ -107,63 +96,17 @@ func (d *Decoder) PrevEnergy() []float32 {
 	return out
 }
 
-// PrevEnergy2 returns the band energies from two frames ago.
-// Used for anti-collapse detection.
-func (d *Decoder) PrevEnergy2() []float32 {
-	out := make([]float32, len(d.prevEnergy2))
-	copy(out, d.prevEnergy2)
-	return out
-}
-
 // SetPrevEnergy copies the given energies to the previous energy buffer.
-// Also shifts current prev to prev2.
 func (d *Decoder) SetPrevEnergy(energies []float32) {
-	// Shift: current prev becomes prev2
-	copy(d.prevEnergy2, d.prevEnergy)
-	// Copy new energies to prev
 	copy(d.prevEnergy, energies)
 }
 
-// SetPrevEnergyWithPrev updates prevEnergy using the provided previous state.
-// This avoids losing the prior frame when prevEnergy is updated during decoding.
-// The energies array uses compact layout [L0..L(n-1), R0..R(n-1)] where n = nbBands.
-// The prevEnergy array uses full layout [L0..L20, R0..R20] where 21 = MaxBands.
-func (d *Decoder) SetPrevEnergyWithPrev(prev, energies []float32) {
-	if len(prev) == len(d.prevEnergy2) {
-		copy(d.prevEnergy2, prev)
-	} else {
-		copy(d.prevEnergy2, d.prevEnergy)
-	}
-
-	// Determine nbBands from the energies array length
-	channels := int(d.channels)
-	nbBands := min(len(energies)/channels, d.predStride())
-
-	// Copy with layout conversion: compact [c*nbBands+band] -> prediction-stride
-	// [c*predStride+band] (predStride == MaxBands for the static codec, the mode's
-	// nbEBands for a per-mode custom layout).
-	stride := d.predStride()
-	for c := range channels {
-		copy(d.prevEnergy[c*stride:c*stride+nbBands], energies[c*nbBands:(c+1)*nbBands])
-	}
-}
-
+// setPrevEnergyGLog stores the decoded band energies, in the compact layout
+// [c*nbBands+band], into the prediction-stride energy history
+// [c*predStride+band] (oldBandE).
 func (d *Decoder) setPrevEnergyGLog(energies []celtGLog) {
-	d.setPrevEnergyGLogWithPrev(nil, energies)
-}
-
-func (d *Decoder) setPrevEnergyGLogWithPrev(prev []celtGLog, energies []celtGLog) {
-	if len(prev) == len(d.prevEnergy2) {
-		copy(d.prevEnergy2, prev)
-	} else {
-		copy(d.prevEnergy2, d.prevEnergy)
-	}
-
-	// Determine nbBands from the energies array length
 	channels := int(d.channels)
 	nbBands := min(len(energies)/channels, d.predStride())
-
-	// Copy with layout conversion: compact [c*nbBands+band] -> prediction-stride.
 	stride := d.predStride()
 	for c := range channels {
 		copy(d.prevEnergy[c*stride:c*stride+nbBands], energies[c*nbBands:(c+1)*nbBands])

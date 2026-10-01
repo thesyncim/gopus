@@ -359,8 +359,6 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 	lm := mode.LM
 	end := d.effectiveEndBand(frameSize)
 	start := 0
-	prev1Energy := ensureGLogSlice(&d.scratchPrevEnergy, len(d.prevEnergy))
-	copy(prev1Energy, d.prevEnergy)
 	prev1LogE := d.prevLogE
 	prev2LogE := d.prevLogE2
 
@@ -473,7 +471,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 	}
 
 	d.updateLogEGLog(energies, end, transient)
-	d.setPrevEnergyGLogWithPrev(prev1Energy, energies)
+	d.setPrevEnergyGLog(energies)
 	d.updateBackgroundEnergy(lm)
 	d.clearFrameHistoryOutsideRange(start, end, 2)
 	if extsupport.QEXT && qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
@@ -547,7 +545,6 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	d.channels = 1
 
 	prev1Energy := ensureGLogSlice(&d.scratchPrevEnergyGLog, MaxBands)
-	prev1EnergyHistory := ensureGLogSlice(&d.scratchPrevEnergy, MaxBands)
 	prev1LogE := d.prevLogE
 	prev2LogE := d.prevLogE2
 	for i := range MaxBands {
@@ -559,7 +556,6 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 			}
 		}
 		prev1Energy[i] = left
-		prev1EnergyHistory[i] = left
 	}
 	origPrevEnergy := d.prevEnergy
 	d.prevEnergy = prev1Energy
@@ -663,7 +659,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	}
 
 	d.updateLogEGLog(stereoEnergies, end, transient)
-	d.setPrevEnergyGLogWithPrev(prev1EnergyHistory, stereoEnergies)
+	d.setPrevEnergyGLog(stereoEnergies)
 	d.updateBackgroundEnergy(lm)
 	d.clearFrameHistoryOutsideRange(start, end, origChannels)
 	var extDec *rangecoding.Decoder
@@ -707,8 +703,6 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	lm := mode.LM
 	end := d.effectiveEndBand(frameSize)
 	start := HybridCELTStartBand
-	prev1Energy := ensureGLogSlice(&d.scratchPrevEnergy, len(d.prevEnergy))
-	copy(prev1Energy, d.prevEnergy)
 	prev1LogE := d.prevLogE
 	prev2LogE := d.prevLogE2
 
@@ -781,7 +775,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	}
 
 	d.updateLogEGLog(energies, end, transient)
-	d.setPrevEnergyGLogWithPrev(prev1Energy, energies)
+	d.setPrevEnergyGLog(energies)
 	d.updateBackgroundEnergy(lm)
 	d.clearFrameHistoryOutsideRange(start, end, 2)
 	var extDec *rangecoding.Decoder

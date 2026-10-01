@@ -969,7 +969,6 @@ func TestDecoderGLogStateMatchesLibopusFloatSize(t *testing.T) {
 		size uintptr
 	}{
 		{"prevEnergy", unsafe.Sizeof(dec.prevEnergy[0])},
-		{"prevEnergy2", unsafe.Sizeof(dec.prevEnergy2[0])},
 		{"prevLogE", unsafe.Sizeof(dec.prevLogE[0])},
 		{"prevLogE2", unsafe.Sizeof(dec.prevLogE2[0])},
 		{"backgroundEnergy", unsafe.Sizeof(dec.backgroundEnergy[0])},

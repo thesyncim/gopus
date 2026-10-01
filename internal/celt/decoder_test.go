@@ -513,12 +513,6 @@ func TestDecoder_ResetState(t *testing.T) {
 		}
 	}
 
-	for i, e := range d.PrevEnergy2() {
-		if e != 0 {
-			t.Errorf("PrevEnergy2[%d] = %v, want 0.0 after reset", i, e)
-		}
-	}
-
 	for i, s := range d.OverlapBuffer() {
 		if s != 0 {
 			t.Errorf("OverlapBuffer[%d] = %v, want 0 after reset", i, s)

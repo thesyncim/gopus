@@ -18,6 +18,11 @@ type decodedBandAllocation struct {
 }
 
 func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start, end, lm int, transient bool) decodedBandAllocation {
+	channels := int(d.channels)
+	pm := d.perMode
+	if pm == nil && lm >= 0 && lm <= 3 && channels >= 1 && channels <= 2 && end <= MaxBands && start >= 0 && start < end {
+		return d.decodeBandAllocationStd(rd, totalBits, start, end, lm, transient, channels)
+	}
 	allocation := decodedBandAllocation{
 		spread: spreadNormal,
 	}
@@ -30,26 +35,14 @@ func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start
 		allocation.spread = rd.DecodeICDF(spreadICDF, 5)
 	}
 
-	channels := int(d.channels)
-	pm := d.perMode
-	var cap []int32
 	offsets := ensureInt32Slice(&d.scratchOffsets, end)
-	var totalBitsQ3, tellFrac int
-	if pm == nil && lm >= 0 && lm <= 3 && channels >= 1 && channels <= 2 && end <= MaxBands && start < end {
-		// The standard mode's caps and dynalloc quanta depend only on LM
-		// and the channel count.
-		t := &decodeBandTables[lm][channels-1]
-		cap = t.caps[:end]
-		totalBitsQ3, tellFrac = decodeDynallocBoosts(rd, offsets[start:end], cap[start:end], t.quanta[start:end], totalBits<<bitRes)
+	cap := ensureInt32Slice(&d.scratchCaps, end)
+	if pm != nil {
+		initCapsIntoMode(cap, end, lm, channels, pm)
 	} else {
-		cap = ensureInt32Slice(&d.scratchCaps, end)
-		if pm != nil {
-			initCapsIntoMode(cap, end, lm, channels, pm)
-		} else {
-			initCapsInto(cap, end, lm, channels)
-		}
-		totalBitsQ3, tellFrac = decodeDynallocOffsets(rd, offsets, cap, d.modeEdges(), start, end, lm, channels, totalBits<<bitRes)
+		initCapsInto(cap, end, lm, channels)
 	}
+	totalBitsQ3, tellFrac := decodeDynallocOffsets(rd, offsets, cap, d.modeEdges(), start, end, lm, channels, totalBits<<bitRes)
 	allocation.offsets = offsets[:end]
 
 	allocTrim := 5
@@ -104,57 +97,6 @@ func decodeDynallocOffsets(rd *rangecoding.Decoder, offsets, cap []int32, edges 
 			}
 			boost += quanta
 			totalBitsQ3 -= quanta
-			loopLogp = 1
-		}
-		offsets[i] = int32(boost)
-		if boost > 0 {
-			dynallocLogp = max(2, dynallocLogp-1)
-		}
-	}
-	return totalBitsQ3, tellFrac
-}
-
-// decodeBandTableSet holds the per-band init_caps() caps and dynalloc boost
-// quanta, IMIN(width<<BITRES, IMAX(6<<BITRES, width)) for the coded width
-// C*N<<LM, of the standard mode at one LM and channel count.
-type decodeBandTableSet struct {
-	caps   [MaxBands]int32
-	quanta [MaxBands]int32
-}
-
-// decodeBandTables is decodeBandTableSet for every LM and channel count.
-var decodeBandTables = func() (t [4][2]decodeBandTableSet) {
-	for lm := range t {
-		for c := range t[lm] {
-			channels := c + 1
-			initCapsInto(t[lm][c].caps[:], MaxBands, lm, channels)
-			for i := range MaxBands {
-				width := channels * eBandWidths[i] << uint(lm)
-				t[lm][c].quanta[i] = int32(min(width<<bitRes, max(6<<bitRes, width)))
-			}
-		}
-	}
-	return t
-}()
-
-// decodeDynallocBoosts is decodeDynallocOffsets over the bands of offsets
-// with each band's boost quanta precomputed in quanta.
-func decodeDynallocBoosts(rd *rangecoding.Decoder, offsets, caps, quanta []int32, totalBitsQ3 int) (int, int) {
-	caps = caps[:len(offsets)]
-	quanta = quanta[:len(offsets)]
-	dynallocLogp := 6
-	tellFrac := rd.TellFrac()
-	for i := range offsets {
-		loopLogp := dynallocLogp
-		boost := 0
-		for tellFrac+(loopLogp<<bitRes) < totalBitsQ3 && boost < int(caps[i]) {
-			flag := rd.DecodeBit(uint(loopLogp))
-			tellFrac = rd.TellFrac()
-			if flag == 0 {
-				break
-			}
-			boost += int(quanta[i])
-			totalBitsQ3 -= int(quanta[i])
 			loopLogp = 1
 		}
 		offsets[i] = int32(boost)

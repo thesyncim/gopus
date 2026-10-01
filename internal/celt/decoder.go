@@ -59,13 +59,13 @@ func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, qextPayloa
 	end := d.effectiveEndBand(frameSize)
 	start := 0
 	channels := int(d.channels)
-	prev1Energy, prev1LogE, prev2LogE := d.snapshotDecodeHistory()
+	prev1LogE, prev2LogE := d.prevLogE, d.prevLogE2
 
 	totalBits := rd.StorageBits()
 	silence := decodeSilenceFlag(rd, totalBits)
 	header := d.decodeFrameHeader(rd, totalBits, frameSize, start, end, lm, mode.ShortBlocks)
 
-	energies := d.decodeCoarseEnergyGLogInto(ensureGLogSlice(&d.scratchEnergies, end*channels), end, header.intra, lm)
+	energies := d.decodeCoarseEnergyGLogInto(ensureGLogSliceNoClear(&d.scratchEnergies, end*channels), end, header.intra, lm)
 	allocation := d.decodeBandAllocation(rd, totalBits, start, end, lm, header.transient)
 	spectrum := d.decodeFrameSpectrum(qextPayload, rd, totalBits, frameSize, start, end, lm, header.shortBlocks, allocation.spread, allocation.antiCollapseRsv, energies,
 		allocation.fineQuant, allocation.finePriority, allocation.pulses, allocation.tfRes, allocation.intensity, allocation.dualStereo, allocation.balance, allocation.codedBands)
@@ -91,7 +91,7 @@ func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, qextPayloa
 	}
 	d.applyPendingPLCPrefilterAndFold()
 	samples := d.synthesizeDecodedFrame(frameSize, mode.LM, end, lm, header.shortBlocks, header.transient, header.postfilterPeriod, header.postfilterGain, header.postfilterTapset, energies, coeffsL, coeffsR, spectrum.qext)
-	if err := d.finalizeDecodedFrameState(frameSize, start, end, lm, header.transient, energies, prev1Energy, spectrum.qext, rd); err != nil {
+	if err := d.finalizeDecodedFrameState(frameSize, start, end, lm, header.transient, energies, spectrum.qext, rd); err != nil {
 		return nil, err
 	}
 	return samples, nil

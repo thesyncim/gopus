@@ -53,10 +53,9 @@ type Decoder struct {
 	rangeDecoderScratch rangecoding.Decoder
 
 	// Energy state (persists across frames for inter-frame prediction)
-	prevEnergy  []celtGLog // Previous frame band energies [MaxBands * channels]
-	prevEnergy2 []celtGLog // Two frames ago energies (for anti-collapse)
-	prevLogE    []celtGLog // Previous log energies (for anti-collapse history)
-	prevLogE2   []celtGLog // Two frames ago log energies (for anti-collapse history)
+	prevEnergy []celtGLog // Previous frame band energies [MaxBands * channels]
+	prevLogE   []celtGLog // Previous log energies (for anti-collapse history)
+	prevLogE2  []celtGLog // Two frames ago log energies (for anti-collapse history)
 	// Slow background floor estimate (libopus backgroundLogE cadence).
 	backgroundEnergy []celtGLog
 
@@ -166,7 +165,6 @@ type Decoder struct {
 	decoderQEXTFields
 
 	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).
-	scratchPrevEnergy       []celtGLog
 	scratchPrevEnergyGLog   []celtGLog
 	scratchEnergies         []celtGLog
 	scratchStereoEnergies   []celtGLog
@@ -177,6 +175,7 @@ type Decoder struct {
 	scratchFinePriority     []int32
 	scratchPrevBandEnergy   []float32
 	scratchCaps             []int32
+	stdAlloc                stdAllocState
 	scratchAllocWork        []int32
 	scratchBands            bandDecodeScratch
 	scratchIMDCTF32         imdctScratchF32
