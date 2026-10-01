@@ -109,6 +109,21 @@ Analyzer phase and recurrent-network state comparisons remain separate exact
 checks; passing the packet corpus does not establish universal analyzer-state
 identity. No tolerance or failing-case exclusion applies to this fix.
 
+### Analyzer band slope on amd64 v3
+
+The default float v3 analyzer rounds each band-tonality/weight product before
+its ordered slope accumulation, matching the selected GCC 13.3 scalar and SIMD
+callers in `src/analysis.c:tonality_analysis`. The helper inlines into both
+callers; other targets and optional features keep their selected arithmetic.
+
+Independent translated-amd64 checks compare all 18 actual band inputs and the
+raw stored slope against the original linked C analyzer. The driver capture
+preserves the complete 50-frame C output. Both lanes pass the strict source
+regression, malformed trace protocol checks and zero warm allocations, plus
+60 encoder cases and all 19 CBR cases: 2,175 packets/ranges match and the
+19-case/76-path interoperability contract has no unresolved results. Native
+confirmation is pending; published timings retain their measured revision.
+
 ### Analyzer phase on amd64 v3
 
 The default float v3 SIMD phase kernel uses three packed FMAs for the
@@ -437,13 +452,18 @@ and traced streams agree. No substitute frame or forced codec mode establishes
 parity.
 
 The recorded v3 packet and decoder selections are exact in both instruction
-lanes. Separate analyzer-state checks still expose per-bin tone differences
-in the SIMD lane and recurrent-network differences in both lanes. These checks
-retain exact assertions; no numerical allowance classifies those differences.
+lanes. The first-chunk phase, tone and recurrent-network source checks are also
+exact. Wider analyzer-history and signal-specific state checks still expose
+differences. These checks retain exact assertions; no numerical allowance
+classifies those differences.
 Passing the packet corpus does not establish equality for every input or
 internal analyzer state.
 
-| Priority | Surface | Finding | Current evidence |
+The following regression risks have executable coverage in the stated lanes.
+They describe what the tests guard against; unresolved results are called out
+separately.
+
+| Priority | Surface | Regression risk | Current evidence |
 |---|---|---|---|
 | P1 | Public FEC robustness | Independent decoder sessions cannot prove persistent FEC history; accept/count checks omit PCM. | The stereo-coded/mono-API concealment correction passes 128 channel/duration/API cases with exact PCM, ranges, recovery and zero warm allocations in eight local lanes. The 2.5 ms Hybrid-to-SILK CELT overlap correction passes 16 transition cases in all eight lanes at `2f334bed`. The strict persistent mutation sweep passes all 8,000 sequences in six local float/fixed/QEXT scalar/SIMD lanes at `a8cdf338`, with exact prime/FEC PCM and ranges and no skipped primes. Both rate-switch witnesses also pass normal recovery and following PLC. |
 | P1 | Malformed fixed multistream | A feature-based bypass omits accepted fixed-point PCM; float gates use a coarse tolerance. | Pre-fade SILK capture and per-child integer reconstruction pass all 9,000 mutations in each of the four fixed scalar/SIMD lanes. Zero warm allocations and full PCM/range/PLC/reset regressions pass. SILK and Hybrid multistream final ranges include the redundant CELT contribution at `70be920b`. |

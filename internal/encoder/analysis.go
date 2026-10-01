@@ -459,9 +459,9 @@ type TonalityAnalysisState struct {
 	MeanE [NbTBands + 1]float32
 	// Mem is the feature smoothing memory feeding the MLP (libopus "mem").
 	Mem [32]float32
-	// CMean is the running mean of the MLP feature vector (libopus "cmean").
+	// CMean is the running mean of the first four BFCC coefficients (libopus "cmean").
 	CMean [8]float32
-	// Std is the running standard deviation of the MLP features (libopus "std").
+	// Std stores running second moments of the temporal BFCC features (libopus "std").
 	Std [9]float32
 	// ETracker is the slow energy follower used for loudness/activity (libopus
 	// "Etracker").
@@ -860,7 +860,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			frameTonality -= bandTonality[b-NbTBands+NbTonalSkipBands]
 		}
 		maxFrameTonality = maxf(maxFrameTonality, (1.0+0.03*float32(b-NbTBands))*frameTonality)
-		slope += bandTonality[b] * float32(b-8)
+		slope = analysisSlopeAccumulate(slope, bandTonality[b], float32(b-8))
 		s.PrevBandTonality[b] = bandTonality[b]
 	}
 
