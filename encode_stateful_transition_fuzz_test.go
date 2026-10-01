@@ -13,14 +13,11 @@
 // mode switches (SILK<->Hybrid<->CELT), bandwidth changes, DTX runs, and
 // FEC/LBRR carried across frames.
 //
-// This harness closes that gap. For each spec it builds a CONCATENATED
-// multi-segment signal (voiced speech -> music -> near-silence -> bandwidth
-// sweep -> transient -> mixed, frame-aligned) that FORCES those transitions,
-// then drives ONE persistent gopus Encoder AND the persistent libopus float
-// oracle (one OpusEncoder, no reset, FORCE_MODE reasserted per frame) with the
-// IDENTICAL per-frame PCM across MANY frames, asserting each emitted packet is
-// BYTE-IDENTICAL frame for frame (TOC + payload) plus the post-encode final
-// range.
+// This harness varies the input across a frame-aligned plan of corpus signals
+// (voiced speech, music, near-silence, bandwidth sweep, transient, silence
+// bursts, and mixed content). It drives one persistent gopus Encoder and one
+// persistent libopus float oracle with identical PCM across many frames,
+// comparing each packet and post-encode final range.
 //
 // Every selected configuration checks the return length, every packet byte,
 // and the post-encode final range against the same-architecture libopus build.
@@ -65,12 +62,11 @@ var encXfrSegmentPlan = []string{
 	testsignal.CorpusMixedV1,
 }
 
-// encXfrBuildTransitionPCM assembles a deterministic frame-aligned stream of
-// totalFrames frames at 48 kHz by tiling encXfrSegmentPlan: segment s occupies a
-// contiguous run of frames, each frame filled from a freshly-generated buffer of
-// that segment's class (the corpus generators are deterministic and stateless
-// across calls, so a per-segment buffer is reproducible). The returned slice is
-// interleaved float32 of length fs*channels*totalFrames.
+// encXfrBuildTransitionPCM assembles totalFrames of interleaved float32 by
+// tiling encXfrSegmentPlan. Each frame copies the matching interval from a
+// freshly generated prefix of its segment, preserving the generator's
+// prefix-length behavior. The generator receives fs as its sampleRate argument.
+// The returned slice has length fs*channels*totalFrames.
 func encXfrBuildTransitionPCM(fs, channels, totalFrames, segFrames int) ([]float32, error) {
 	out := make([]float32, fs*channels*totalFrames)
 	per := fs * channels
@@ -80,9 +76,8 @@ func encXfrBuildTransitionPCM(fs, channels, totalFrames, segFrames int) ([]float
 		// Frame index WITHIN the current segment run, so the generated waveform is
 		// continuous across the frames of a segment (not reset every frame).
 		frameInSeg := f % segFrames
-		// Generate the whole segment once per segment-run start would be cheaper,
-		// but generating (frameInSeg+1) frames and taking the last keeps each
-		// segment self-consistent without caching; segFrames is small.
+		// Generate through this frame's segment-relative position so the copied
+		// samples match the prefix-length behavior of the corpus generator.
 		buf, err := testsignal.GenerateCorpusSignal(class, fs, per*(frameInSeg+1), channels)
 		if err != nil {
 			return nil, err
@@ -288,6 +283,15 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 		stride = len(specs) / budget
 	}
 
+	type transitionPCMKey struct {
+		frameSize int
+		channels  int
+	}
+	// All subtests run synchronously. Reuse each immutable input stream across
+	// specs with the same frame shape; oracle serialization and encoding read
+	// the slice, and the encoder copies it into its own input buffer.
+	transitionPCM := make(map[transitionPCMKey][]float32)
+
 	var (
 		tested            int
 		tocFlips          int
@@ -305,9 +309,15 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 		tested++
 		t.Run(spec.name, func(t *testing.T) {
 			fs := encFrameSamples48k(spec.frameMs)
-			pcm, err := encXfrBuildTransitionPCM(fs, spec.channels, framesPerSpec, segFrames)
-			if err != nil {
-				t.Fatalf("build transition PCM (%s): %v", spec.name, err)
+			key := transitionPCMKey{frameSize: fs, channels: spec.channels}
+			pcm, ok := transitionPCM[key]
+			if !ok {
+				var err error
+				pcm, err = encXfrBuildTransitionPCM(fs, spec.channels, framesPerSpec, segFrames)
+				if err != nil {
+					t.Fatalf("build transition PCM (%s): %v", spec.name, err)
+				}
+				transitionPCM[key] = pcm
 			}
 
 			vbr, constraint := vbrFlags(spec.vbr)
