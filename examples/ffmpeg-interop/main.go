@@ -66,7 +66,7 @@ func main() {
 
 // encodeTestSignal generates a 440Hz stereo sine wave and encodes it to Ogg Opus.
 func encodeTestSignal(filename string, duration float64) error {
-	totalFrames, err := fullFrameCountForDuration(duration)
+	totalSamples, err := sampleCountForDuration(duration)
 	if err != nil {
 		return err
 	}
@@ -81,6 +81,19 @@ func encodeTestSignal(filename string, duration float64) error {
 	if err := enc.SetBitrate(128000); err != nil {
 		return fmt.Errorf("set bitrate: %w", err)
 	}
+	lookahead := enc.Lookahead()
+	if lookahead < 0 || lookahead > int(^uint16(0)) {
+		return fmt.Errorf("encoder lookahead %d cannot be represented in OpusHead", lookahead)
+	}
+	maxInt := int(^uint(0) >> 1)
+	if totalSamples > maxInt-lookahead {
+		return fmt.Errorf("duration exceeds the supported encoded sample count")
+	}
+	encodedSamples := totalSamples + lookahead
+	totalFrames := encodedSamples / frameSize
+	if encodedSamples%frameSize != 0 {
+		totalFrames++
+	}
 
 	// Create output file
 	f, err := os.Create(filename)
@@ -89,8 +102,15 @@ func encodeTestSignal(filename string, duration float64) error {
 	}
 	defer examplecleanup.OnReturn("close output file", f.Close)
 
-	// Create Ogg writer
-	oggWriter, err := ogg.NewWriter(f, uint32(sampleRate), uint8(channels))
+	writerConfig := ogg.WriterConfig{
+		SampleRate:    uint32(sampleRate),
+		Channels:      uint8(channels),
+		PreSkip:       uint16(lookahead),
+		MappingFamily: ogg.MappingFamilyRTP,
+		StreamCount:   1,
+		CoupledCount:  1,
+	}
+	oggWriter, err := ogg.NewWriterWithConfig(f, writerConfig)
 	if err != nil {
 		return fmt.Errorf("create ogg writer: %w", err)
 	}
@@ -98,17 +118,22 @@ func encodeTestSignal(filename string, duration float64) error {
 	// Generate and encode test signal
 	encodedBytes := 0
 
-	fmt.Printf("Generating %.1fs stereo 440Hz sine wave...\n", duration)
+	playableDuration := float64(totalSamples) / sampleRate
+	fmt.Printf("Generating %.6fs stereo 440Hz sine wave...\n", duration)
+	fmt.Printf("  Playable duration: %.6fs (%d samples)\n", playableDuration, totalSamples)
 	fmt.Printf("  Sample rate: %d Hz\n", sampleRate)
 	fmt.Printf("  Channels: %d\n", channels)
 	fmt.Printf("  Frame size: %d samples (%.1f ms)\n", frameSize, float64(frameSize)/float64(sampleRate)*1000)
-	fmt.Printf("  Total frames: %d\n", totalFrames)
+	fmt.Printf("  Encoded frames (including lookahead): %d\n", totalFrames)
 
 	for frame := range totalFrames {
 		// Generate stereo interleaved samples: [L0, R0, L1, R1, ...]
 		pcm := make([]float32, frameSize*channels)
 		for i := range frameSize {
 			sampleIndex := frame*frameSize + i
+			if sampleIndex >= totalSamples {
+				continue
+			}
 			t := float64(sampleIndex) / float64(sampleRate)
 
 			// 440Hz sine wave with slight stereo offset
@@ -125,8 +150,14 @@ func encodeTestSignal(filename string, duration float64) error {
 			return fmt.Errorf("encode frame %d: %w", frame, err)
 		}
 
-		// Write to Ogg container
-		if err := oggWriter.WritePacket(packet, frameSize); err != nil {
+		// The final granule keeps the requested samples after pre-skip and excludes
+		// zero padding after the last input sample.
+		if frame == totalFrames-1 {
+			finalSamples := encodedSamples - frame*frameSize
+			if err := oggWriter.WriteFinalPacket(packet, finalSamples); err != nil {
+				return fmt.Errorf("write final packet %d: %w", frame, err)
+			}
+		} else if err := oggWriter.WritePacket(packet, frameSize); err != nil {
 			return fmt.Errorf("write packet %d: %w", frame, err)
 		}
 
@@ -139,27 +170,25 @@ func encodeTestSignal(filename string, duration float64) error {
 	}
 
 	fmt.Printf("  Encoded %d frames, %d bytes total\n", totalFrames, encodedBytes)
-	actualDuration := float64(totalFrames*frameSize) / sampleRate
-	fmt.Printf("  Average bitrate: %.1f kbps\n", float64(encodedBytes*8)/actualDuration/1000)
+	fmt.Printf("  Input samples: %d\n", totalSamples)
+	fmt.Printf("  Average bitrate: %.1f kbps\n", float64(encodedBytes*8)/playableDuration/1000)
 
 	return nil
 }
 
-func fullFrameCountForDuration(duration float64) (int, error) {
+func sampleCountForDuration(duration float64) (int, error) {
 	if duration <= 0 || math.IsNaN(duration) || math.IsInf(duration, 0) {
 		return 0, fmt.Errorf("duration must be a positive finite number")
 	}
 
-	sampleCount := duration * float64(sampleRate)
+	sampleCount := math.Round(duration * float64(sampleRate))
 	if math.IsInf(sampleCount, 0) || sampleCount >= float64(int(^uint(0)>>1)) {
 		return 0, fmt.Errorf("duration exceeds the supported sample count")
 	}
-	totalSamples := int(sampleCount)
-	totalFrames := totalSamples / frameSize
-	if totalFrames == 0 {
-		return 0, fmt.Errorf("duration %.3f seconds is shorter than one %d ms frame", duration, frameSize*1000/sampleRate)
+	if sampleCount < 1 {
+		return 0, fmt.Errorf("duration is shorter than one sample at %d Hz", sampleRate)
 	}
-	return totalFrames, nil
+	return int(sampleCount), nil
 }
 
 // decodeOpusFile reads and decodes an Ogg Opus file.

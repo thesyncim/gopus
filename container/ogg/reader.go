@@ -36,8 +36,9 @@ const readerBufferSize = 64 * 1024 // 64KB
 // NewReader returns a Reader for r after parsing the OpusHead and OpusTags
 // headers from the initial logical bitstream. It requires a BOS page containing
 // OpusHead followed by OpusTags pages with the same serial number. Page lengths
-// and CRCs are checked while reading. It returns ErrNilReader for a nil reader,
-// ErrInvalidPage or ErrBadCRC for invalid page framing or checksums,
+// and CRCs are checked while reading, and nonzero Ogg page versions return
+// ErrInvalidPage. It returns ErrNilReader for a nil reader, ErrInvalidPage or
+// ErrBadCRC for invalid page framing or checksums,
 // ErrInvalidHeader for malformed Opus headers, and propagates errors from r. If
 // r implements io.ReadSeeker, the Reader also supports SeekGranule.
 func NewReader(r io.Reader) (*Reader, error) {
@@ -413,13 +414,17 @@ func (or *Reader) streamOffset() (int64, error) {
 }
 
 // readPage parses the next Ogg page into the reused or.page, refilling the read
-// buffer as needed, and returns a pointer to it.
+// buffer as needed. It rejects unsupported page versions without consuming the
+// page, and returns a pointer to valid version-0 pages.
 func (or *Reader) readPage() (*Page, error) {
 	for {
 		if or.bufferLen > or.bufferOffset {
 			data := or.pageBuffer[or.bufferOffset:or.bufferLen]
 			consumed, err := parsePageInto(data, &or.page)
 			if err == nil {
+				if or.page.Version != 0 {
+					return nil, ErrInvalidPage
+				}
 				or.bufferOffset += consumed
 				return &or.page, nil
 			}
@@ -464,6 +469,9 @@ func (or *Reader) readPage() (*Page, error) {
 				data := or.pageBuffer[or.bufferOffset:or.bufferLen]
 				consumed, parseErr := parsePageInto(data, &or.page)
 				if parseErr == nil {
+					if or.page.Version != 0 {
+						return nil, ErrInvalidPage
+					}
 					or.bufferOffset += consumed
 					return &or.page, nil
 				}
