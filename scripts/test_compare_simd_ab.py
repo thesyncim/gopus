@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 from compare_simd_ab import (
+    E2E_BENCHMARKS,
     REPLACEMENT_TESTS,
     audited_test_replacements,
     audited_test_retirements,
@@ -13,6 +14,7 @@ from compare_simd_ab import (
     candidate_decode_errors,
     cbr_rows,
     compare_full_parity,
+    e2e_benchmark_errors,
     missing_baseline_tests,
     precision_gap,
     strict_cbr_errors,
@@ -54,7 +56,7 @@ class FullParityComparisonTest(unittest.TestCase):
                 candidate.append(event("pass", test, package=package))
             candidate.append(event("fail"))
             for side, phase, lines in [
-                ("baseline", "default-full-parity", base),
+                ("baseline", "simd-full-parity", base),
                 ("candidate", "simd-full-parity", candidate),
             ]:
                 stem = root / f"{side}-{phase}"
@@ -74,6 +76,19 @@ class FullParityComparisonTest(unittest.TestCase):
     def test_worse_decode_metric_is_rejected(self):
         self.assertTrue(any("sample differences increase" in error
                             for error in self.compare(candidate_sample_count=3)))
+
+    def test_default_scalar_artifact_cannot_stand_in_for_base_simd(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = pathlib.Path(name)
+            for side, phase in [
+                ("baseline", "default-full-parity"),
+                ("candidate", "simd-full-parity"),
+            ]:
+                stem = root / f"{side}-{phase}"
+                stem.with_suffix(".log").write_text(event("pass", "TestModeIdentity") + "\n")
+                stem.with_suffix(".exit").write_text("0\n")
+            with self.assertRaises(FileNotFoundError):
+                compare_full_parity(root)
 
 
 class StrictCBRSummaryTest(unittest.TestCase):
@@ -115,6 +130,24 @@ class StrictCBRSummaryTest(unittest.TestCase):
     def test_nonzero_exit_fails_even_with_zero_summary_diffs(self):
         log = "strict paired CBR summary: variant=scalar cases=19 exact_cases=19 packets=2175 packet_diffs=0 range_diffs=0\n"
         self.assertTrue(any("exit=1" in error for error in strict_cbr_errors(1, log)))
+
+
+class E2EBenchmarkGateTest(unittest.TestCase):
+    def rows(self, allocs="0 allocs/op"):
+        return "\n".join(
+            f"{name}-1 100 10 ns/op 0 B/op {allocs}"
+            for name in sorted(E2E_BENCHMARKS)
+        )
+
+    def test_requires_all_six_zero_allocation_rows(self):
+        self.assertEqual(e2e_benchmark_errors(0, self.rows()), [])
+
+    def test_rejects_missing_or_allocating_rows(self):
+        lines = self.rows().splitlines()
+        self.assertTrue(e2e_benchmark_errors(0, "\n".join(lines[:-1])))
+        allocating = self.rows().replace("0 allocs/op", "1 allocs/op", 1)
+        self.assertTrue(e2e_benchmark_errors(0, allocating))
+        self.assertTrue(e2e_benchmark_errors(1, self.rows()))
 
 
 class IndependentOracleGateTest(unittest.TestCase):
