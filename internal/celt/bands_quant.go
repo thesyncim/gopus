@@ -868,27 +868,19 @@ func extractCollapseMask(pulses []int32, n, b int) int {
 	if b <= 1 || n <= 0 {
 		return 1
 	}
-	pulses = pulses[:n:n]
 	n0 := celtUdivBlocks(n, b)
 	if n0 <= 0 {
 		return 0
 	}
+	pulses = pulses[:n0*b]
 	mask := 0
-	base := 0
 	for i := range b {
-		tmp := int32(0)
-		end := base + n0
-		j := base
-		for ; j+3 < end; j += 4 {
-			tmp |= pulses[j] | pulses[j+1] | pulses[j+2] | pulses[j+3]
+		var tmp int32
+		for _, p := range pulses[i*n0 : (i+1)*n0] {
+			tmp |= p
 		}
-		for ; j < end; j++ {
-			tmp |= pulses[j]
-		}
-		if tmp != 0 {
-			mask |= 1 << i
-		}
-		base = end
+		// tmp|-tmp has its sign bit set exactly when tmp != 0.
+		mask |= int(uint32(tmp|-tmp)>>31) << i
 	}
 	return mask
 }
@@ -4117,6 +4109,10 @@ func quantAllBandsDecodeWithScratch(rd *rangecoding.Decoder, channels, frameSize
 	pulses []int32, shortBlocks int, spread int, dualStereo, intensity int,
 	tfRes []int32, totalBitsQ3 int, balance int, codedBands int, disableInv bool, seed *uint32,
 	scratch *bandDecodeScratch, extDec *rangecoding.Decoder, extraBits []int32, extTotalBits int) (left, right []celtNorm, collapse []byte) {
+	if extDec == nil && scratch != nil && (channels == 2 || dualStereo == 0) {
+		return quantAllBandsDecodeStd(rd, channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
+			dualStereo, intensity, tfRes, totalBitsQ3, balance, codedBands, disableInv, seed, scratch)
+	}
 	return quantAllBandsDecodeWithScratchWithMode(rd, channels, frameSize, lm, start, end,
 		pulses, shortBlocks, spread, dualStereo, intensity, tfRes, totalBitsQ3, balance,
 		codedBands, disableInv, seed, scratch, extDec, extraBits, extTotalBits,
@@ -4138,6 +4134,82 @@ func clearDecodedBandEdges(buf []celtNorm, frameSize, start, end int) {
 	}
 	clear(buf[:start])
 	clear(buf[end:frameSize])
+}
+
+// quantAllBandsDecodeStd is quantAllBandsDecodeWithScratchWithMode for the
+// standard band layout without an extension decoder, the libopus
+// quant_all_bands() decode setup of every CELT and Hybrid frame: it sizes the
+// band scratch, clears the coefficients outside [start, end) and runs the mono
+// or stereo band loop.
+func quantAllBandsDecodeStd(rd *rangecoding.Decoder, channels, frameSize, lm int, start, end int,
+	pulses []int32, shortBlocks int, spread int, dualStereo, intensity int,
+	tfRes []int32, totalBitsQ3 int, balance int, codedBands int, disableInv bool, seed *uint32,
+	scratch *bandDecodeScratch) (left, right []celtNorm, collapse []byte) {
+	start = max(start, 0)
+	end = min(end, MaxBands)
+	if end <= start {
+		return nil, nil, nil
+	}
+	M := 1 << lm
+	B := max(shortBlocks, 1)
+	edges := EBands[:]
+	normOffset := M * edges[start]
+	normLen := max(M*edges[MaxBands-1]-normOffset, 0)
+	// The standard mode's band widths never decrease, so its widest band in
+	// [start, end) is the last.
+	maxBand := M * eBandWidths[end-1]
+	scratch.ensureFloatScratch(channels, frameSize, normLen, maxBand)
+	// The band loop writes every coefficient of bands [start, end), so only
+	// the coefficients outside them need clearing.
+	left = ensureNormSliceNoClear(&scratch.left, frameSize)
+	clearDecodedBandEdges(left, frameSize, M*edges[start], M*edges[end])
+	if channels == 2 {
+		right = ensureNormSliceNoClear(&scratch.right, frameSize)
+		clearDecodedBandEdges(right, frameSize, M*edges[start], M*edges[end])
+	} else if cap(scratch.right) > 0 {
+		scratch.right = scratch.right[:0]
+	}
+	collapse = ensureByteSlice(&scratch.collapse, channels*MaxBands)
+	clear(collapse)
+	norm := ensureNormSliceNoClear(&scratch.norm, channels*normLen)
+	lowbandScratch := ensureNormSliceNoClear(&scratch.lowband, maxBand)
+	if edges[end]*M > frameSize {
+		// The final physical band is the folding scratch.
+		effectiveEnd := end
+		for edges[effectiveEnd]*M > frameSize {
+			effectiveEnd--
+		}
+		lowbandScratch = left[edges[effectiveEnd-1]*M:]
+	}
+	ctx := bandCtx{
+		rd:              rd,
+		spread:          spread,
+		intensity:       intensity,
+		resynth:         true,
+		disableInv:      disableInv,
+		avoidSplitNoise: B > 1,
+		scratch:         scratch,
+		bandEdges:       edges,
+		stdCache:        true,
+		lm:              lm,
+		blocks:          B,
+		lowbandScratch:  lowbandScratch,
+	}
+	if seed != nil {
+		ctx.seed = *seed
+		ctx.seedActive = true
+	}
+	if channels == 1 {
+		quantAllBandsDecodeMono(&ctx, left, norm, collapse, edges, pulses, tfRes,
+			start, end, normOffset, totalBitsQ3, balance, codedBands)
+	} else {
+		quantAllBandsDecodeStereo(&ctx, left, right, norm, norm[normLen:], collapse, edges, pulses, tfRes,
+			frameSize, start, end, normOffset, totalBitsQ3, balance, codedBands, dualStereo)
+	}
+	if seed != nil {
+		*seed = ctx.seed
+	}
+	return left, right, collapse
 }
 
 func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, frameSize, lm int, start, end int,
