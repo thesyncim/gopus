@@ -107,7 +107,7 @@
   <h2>Audio Source</h2>
   <div class="control">
     <label>Source</label>
-    <select id="audioSource" onchange="sendParam('audioSource', this.value)">
+    <select id="audioSource" onchange="selectAudioSource(this.value)">
       <option value="chord" selected>Chord (C Major)</option>
       <option value="sine">Sine (440Hz)</option>
       <option value="sweep">Sweep (100-8kHz)</option>
@@ -317,6 +317,10 @@ let pc = null;
 let dc = null;
 let audioCtx = null;
 let analyser = null;
+let micSender = null;
+let micStream = null;
+let micRequestID = 0;
+let micTrackChange = Promise.resolve();
 let packetHistory = [];
 const MAX_HISTORY = 200;
 
@@ -348,98 +352,220 @@ function setVolume(val) {
   document.getElementById('audioPlayer').volume = val;
 }
 
+function replaceMicrophoneTrack(sender, track) {
+  const change = micTrackChange.catch(() => {}).then(() => sender.replaceTrack(track));
+  micTrackChange = change.catch(() => {});
+  return change;
+}
+
+function stopStream(stream) {
+  if (!stream) return;
+  for (const track of stream.getTracks()) track.stop();
+}
+
+async function enableMicrophone(peer = pc, sender = micSender) {
+  if (!peer || !sender) return false;
+  const requestID = ++micRequestID;
+  const ownsStream = !micStream;
+  let stream = micStream;
+  if (ownsStream) {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('Microphone capture requires a secure browser context');
+    }
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  }
+
+  const isCurrent = () => requestID === micRequestID &&
+    pc === peer && micSender === sender &&
+    document.getElementById('audioSource').value === 'loopback';
+  if (!isCurrent()) {
+    if (ownsStream) stopStream(stream);
+    return false;
+  }
+
+  const track = stream.getAudioTracks()[0];
+  if (!track) {
+    if (ownsStream) stopStream(stream);
+    throw new Error('No microphone audio track is available');
+  }
+  try {
+    await replaceMicrophoneTrack(sender, track);
+  } catch (e) {
+    if (ownsStream) stopStream(stream);
+    else if (micStream === stream) {
+      micStream = null;
+      stopStream(stream);
+    }
+    throw e;
+  }
+  if (!isCurrent()) {
+    if (ownsStream) stopStream(stream);
+    return false;
+  }
+  if (ownsStream) micStream = stream;
+  return true;
+}
+
+function stopMicrophone() {
+  const stream = micStream;
+  micStream = null;
+  stopStream(stream);
+}
+
+async function selectAudioSource(source) {
+  const selector = document.getElementById('audioSource');
+  if (source === 'loopback') {
+    const peer = pc;
+    const sender = micSender;
+    if (!peer || !sender) return;
+    try {
+      const enabled = await enableMicrophone(peer, sender);
+      if (enabled && pc === peer && selector.value === source) {
+        sendParam('audioSource', source);
+      }
+    } catch (e) {
+      if (pc !== peer || micSender !== sender || selector.value !== source) return;
+      console.warn('Microphone loopback unavailable:', e);
+      selector.value = 'chord';
+      ++micRequestID;
+      stopMicrophone();
+      try {
+        await replaceMicrophoneTrack(sender, null);
+      } catch (detachError) {
+        console.warn('Could not detach microphone track:', detachError);
+      }
+      if (pc === peer && selector.value === 'chord') sendParam('audioSource', 'chord');
+    }
+    return;
+  }
+
+  const requestID = ++micRequestID;
+  const sender = micSender;
+  stopMicrophone();
+  if (sender) {
+    try {
+      await replaceMicrophoneTrack(sender, null);
+    } catch (e) {
+      console.warn('Could not detach microphone track:', e);
+    }
+  }
+  if (requestID === micRequestID && selector.value === source) {
+    sendParam('audioSource', source);
+  }
+}
+
 async function connect() {
   document.getElementById('connectBtn').disabled = true;
-
-  // Create AudioContext inside user gesture so the browser allows playback.
-  if (!audioCtx) {
-    audioCtx = new AudioContext();
-  }
-  if (audioCtx.state === 'suspended') {
-    await audioCtx.resume();
-  }
+  let peer = null;
 
   try {
-    pc = new RTCPeerConnection({ iceServers: [] });
+    // Create AudioContext inside the user gesture so the browser allows playback.
+    if (!audioCtx) audioCtx = new AudioContext();
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+    peer = new RTCPeerConnection({ iceServers: [] });
+    pc = peer;
+
+    // The negotiated sender lets the user enable microphone loopback without renegotiation.
+    micSender = peer.addTransceiver('audio', { direction: 'sendrecv' }).sender;
+    if (document.getElementById('audioSource').value === 'loopback') {
+      const enabled = await enableMicrophone(peer, micSender);
+      if (!enabled && pc !== peer) throw new Error('Peer connection closed during microphone setup');
+    }
 
     // Create DataChannel on the browser side so the offer includes SCTP.
-    dc = pc.createDataChannel('control');
-    dc.onopen = () => { console.log('DataChannel open'); };
-    dc.onmessage = (msg) => {
+    const control = peer.createDataChannel('control');
+    dc = control;
+    control.onopen = () => {
+      console.log('DataChannel open');
+      if (dc === control) sendParam('audioSource', document.getElementById('audioSource').value);
+    };
+    control.onmessage = (msg) => {
       try { handleStats(JSON.parse(msg.data)); } catch(e) {}
     };
 
-    // Receive-only transceiver — we only need to hear audio from the server.
-    // Mic loopback is handled server-side; if the user selects loopback later
-    // we can renegotiate.
-    pc.addTransceiver('audio', { direction: 'recvonly' });
-
-    // Use an <audio> element for reliable playback, plus Web Audio for viz.
-    pc.ontrack = (ev) => {
+    peer.ontrack = (ev) => {
       const stream = ev.streams[0] || new MediaStream([ev.track]);
-
-      // Audio element for playback.
       const audio = document.getElementById('audioPlayer');
       audio.srcObject = stream;
       audio.volume = parseFloat(document.getElementById('volume').value);
       audio.play().catch(e => console.warn('autoplay blocked:', e));
 
-      // Web Audio for waveform visualization only (not connected to destination).
-      const source = audioCtx.createMediaStreamSource(stream);
+      const audioSource = audioCtx.createMediaStreamSource(stream);
       analyser = audioCtx.createAnalyser();
       analyser.fftSize = 2048;
-      source.connect(analyser);
+      audioSource.connect(analyser);
       drawWaveform();
     };
 
-    pc.onconnectionstatechange = () => {
-      updateStatus(pc.connectionState);
+    peer.onconnectionstatechange = () => {
+      const state = peer.connectionState;
+      if (state === 'failed' || state === 'closed' || state === 'disconnected') {
+        closePeer(peer, state);
+      } else {
+        updateStatus(state);
+      }
     };
 
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
+    const offer = await peer.createOffer();
+    await peer.setLocalDescription(offer);
 
-    // Wait for ICE gathering to complete.
     await new Promise((resolve) => {
-      if (pc.iceGatheringState === 'complete') {
+      if (peer.iceGatheringState === 'complete') {
         resolve();
-      } else {
-        pc.onicegatheringstatechange = () => {
-          if (pc.iceGatheringState === 'complete') resolve();
-        };
+        return;
       }
+      peer.onicegatheringstatechange = () => {
+        if (peer.iceGatheringState === 'complete') resolve();
+      };
     });
 
     const resp = await fetch('/offer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(pc.localDescription)
+      body: JSON.stringify(peer.localDescription)
     });
-
-    if (!resp.ok) {
-      throw new Error('Signaling failed: ' + resp.status);
-    }
+    if (!resp.ok) throw new Error('Signaling failed: ' + resp.status);
 
     const answer = await resp.json();
-    await pc.setRemoteDescription(answer);
-
-    document.getElementById('disconnectBtn').disabled = false;
+    await peer.setRemoteDescription(answer);
+    if (pc === peer) document.getElementById('disconnectBtn').disabled = false;
   } catch (e) {
     console.error('Connect failed:', e);
+    if (peer) closePeer(peer, 'failed');
     document.getElementById('connectBtn').disabled = false;
+    document.getElementById('disconnectBtn').disabled = true;
     updateStatus('failed');
   }
 }
 
+function closePeer(peer, status = 'disconnected') {
+  if (!peer) return;
+  if (pc !== peer) {
+    if (peer.connectionState !== 'closed') peer.close();
+    return;
+  }
+
+  pc = null;
+  dc = null;
+  micSender = null;
+  ++micRequestID;
+  stopMicrophone();
+  analyser = null;
+  document.getElementById('audioPlayer').srcObject = null;
+  if (peer.connectionState !== 'closed') peer.close();
+  document.getElementById('connectBtn').disabled = false;
+  document.getElementById('disconnectBtn').disabled = true;
+  updateStatus(status);
+}
+
 function disconnect() {
   if (pc) {
-    pc.close();
-    pc = null;
+    closePeer(pc, 'disconnected');
+    return;
   }
-  dc = null;
-  analyser = null;
-  const audio = document.getElementById('audioPlayer');
-  audio.srcObject = null;
+  ++micRequestID;
+  stopMicrophone();
   document.getElementById('connectBtn').disabled = false;
   document.getElementById('disconnectBtn').disabled = true;
   updateStatus('disconnected');
@@ -486,6 +612,7 @@ function handleStats(s) {
 
 function drawWaveform() {
   if (!analyser) return;
+  const waveformAnalyser = analyser;
   const canvas = document.getElementById('waveform');
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
@@ -495,12 +622,13 @@ function drawWaveform() {
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
 
-  const bufLen = analyser.frequencyBinCount;
+  const bufLen = waveformAnalyser.frequencyBinCount;
   const data = new Uint8Array(bufLen);
 
   function draw() {
+    if (analyser !== waveformAnalyser) return;
     requestAnimationFrame(draw);
-    analyser.getByteTimeDomainData(data);
+    waveformAnalyser.getByteTimeDomainData(data);
 
     ctx.fillStyle = '#0d1117';
     ctx.fillRect(0, 0, w, h);

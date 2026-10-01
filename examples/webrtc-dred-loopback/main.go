@@ -367,7 +367,7 @@ func (ui *uiState) dredControls(gtx layout.Context) layout.Dimensions {
 	return ui.panel(gtx, "DRED", func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical, Gap: 8}.Layout(gtx,
 			layout.Rigid(ui.switchRow("Enable DRED", &ui.dredSwitch)),
-			layout.Rigid(ui.sliderRow("Depth", &ui.durationSlider, fmt.Sprintf("%d x 2.5 ms", sliderInt(ui.durationSlider.Value, 0, 104, 1)))),
+			layout.Rigid(ui.sliderRow("DRED duration", &ui.durationSlider, fmt.Sprintf("%d ms", 10*sliderInt(ui.durationSlider.Value, 0, 104, 1)))),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return material.Body2(ui.theme, dredBuildStatus()).Layout(gtx)
 			}),

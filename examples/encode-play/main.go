@@ -36,7 +36,7 @@ func main() {
 	channels := flag.Int("channels", 2, "Number of channels (1 or 2)")
 	signal := flag.String("signal", "chord", "Signal type: sine, sweep, noise, chord, speech")
 	frameSize := flag.Int("frame", 960, "Frame size in samples at 48kHz (e.g., 480, 960, 1920)")
-	play := flag.Bool("play", true, "Play the encoded Opus file with ffplay if available")
+	play := flag.Bool("play", false, "Play the encoded Opus file with ffplay if available")
 	libopus := flag.Bool("libopus", false, "Use external libopus encoder (opusenc/ffmpeg) instead of gopus")
 	flag.Parse()
 
@@ -114,6 +114,22 @@ type encodeStats struct {
 	encoder           string
 }
 
+func sampleCountForDuration(duration float64) (int, error) {
+	if duration <= 0 || math.IsNaN(duration) || math.IsInf(duration, 0) {
+		return 0, fmt.Errorf("duration must be a positive finite number")
+	}
+
+	sampleCount := math.Round(duration * sampleRate)
+	maxSampleCount := float64(int(^uint(0)>>1) - sampleRate*60)
+	if math.IsInf(sampleCount, 0) || sampleCount >= maxSampleCount {
+		return 0, fmt.Errorf("duration exceeds the supported sample count")
+	}
+	if sampleCount < 1 {
+		return 1, nil
+	}
+	return int(sampleCount), nil
+}
+
 func encodeToOgg(path string, duration float64, bitrate int, channels int, frameSize int, app gopus.Application, signal string) (encodeStats, error) {
 	stats := encodeStats{
 		requestedDuration: duration,
@@ -121,6 +137,10 @@ func encodeToOgg(path string, duration float64, bitrate int, channels int, frame
 		bitrate:           bitrate,
 		signal:            signal,
 		encoder:           "gopus",
+	}
+	totalSamples, err := sampleCountForDuration(duration)
+	if err != nil {
+		return stats, err
 	}
 
 	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: sampleRate, Channels: channels, Application: app})
@@ -134,24 +154,34 @@ func encodeToOgg(path string, duration float64, bitrate int, channels int, frame
 		return stats, fmt.Errorf("set frame size: %w", err)
 	}
 
+	lookahead := enc.Lookahead()
+	if lookahead < 0 || lookahead > int(^uint16(0)) {
+		return stats, fmt.Errorf("encoder lookahead %d cannot be represented in OpusHead", lookahead)
+	}
+	frames := 1 + (totalSamples+lookahead-1)/frameSize
+	stats.frames = frames
+	stats.actualDuration = float64(totalSamples) / sampleRate
+
 	f, err := os.Create(path)
 	if err != nil {
 		return stats, fmt.Errorf("create output: %w", err)
 	}
 	defer examplecleanup.OnReturn("close encoded file", f.Close)
 
-	oggWriter, err := ogg.NewWriter(f, uint32(sampleRate), uint8(channels))
+	writerConfig := ogg.WriterConfig{
+		SampleRate:    uint32(sampleRate),
+		Channels:      uint8(channels),
+		PreSkip:       uint16(lookahead),
+		MappingFamily: ogg.MappingFamilyRTP,
+		StreamCount:   1,
+	}
+	if channels == 2 {
+		writerConfig.CoupledCount = 1
+	}
+	oggWriter, err := ogg.NewWriterWithConfig(f, writerConfig)
 	if err != nil {
 		return stats, fmt.Errorf("create ogg writer: %w", err)
 	}
-
-	totalSamples := int(math.Round(duration * float64(sampleRate)))
-	if totalSamples < 1 {
-		totalSamples = frameSize
-	}
-	frames := (totalSamples + frameSize - 1) / frameSize
-	stats.frames = frames
-	stats.actualDuration = float64(frames*frameSize) / float64(sampleRate)
 
 	pcm := make([]float32, frameSize*channels)
 	packet := make([]byte, 4000)
@@ -166,16 +196,22 @@ func encodeToOgg(path string, duration float64, bitrate int, channels int, frame
 			return stats, fmt.Errorf("encode frame %d: %w", frame, err)
 		}
 		if n == 0 {
-			continue
+			return stats, fmt.Errorf("encode frame %d: empty Opus packet", frame)
 		}
-		if err := oggWriter.WritePacket(packet[:n], frameSize); err != nil {
+
+		if frame == frames-1 {
+			finalSamples := totalSamples + lookahead - startSample
+			if finalSamples < 0 || finalSamples > frameSize {
+				return stats, fmt.Errorf("final packet duration %d is outside frame size %d", finalSamples, frameSize)
+			}
+			err = oggWriter.WriteFinalPacket(packet[:n], finalSamples)
+		} else {
+			err = oggWriter.WritePacket(packet[:n], frameSize)
+		}
+		if err != nil {
 			return stats, fmt.Errorf("write packet %d: %w", frame, err)
 		}
 		stats.encodedBytes += n
-	}
-
-	if err := oggWriter.Close(); err != nil {
-		return stats, fmt.Errorf("close ogg writer: %w", err)
 	}
 
 	return stats, nil
@@ -188,6 +224,13 @@ func encodeWithLibopus(path string, duration float64, bitrate int, channels int,
 		bitrate:           bitrate,
 		signal:            signal,
 		encoder:           "libopus",
+	}
+	if _, ok := frameSizeToMs(frameSize); !ok {
+		return stats, fmt.Errorf("unsupported external encoder frame size %d samples", frameSize)
+	}
+	totalSamples, err := sampleCountForDuration(duration)
+	if err != nil {
+		return stats, err
 	}
 
 	tmp, err := os.CreateTemp("", "gopus_encode_src_*.wav")
@@ -203,20 +246,16 @@ func encodeWithLibopus(path string, duration float64, bitrate int, channels int,
 		return stats, fmt.Errorf("create wav: %w", err)
 	}
 
-	totalSamples := int(math.Round(duration * float64(sampleRate)))
-	if totalSamples < 1 {
-		totalSamples = frameSize
-	}
-	frames := (totalSamples + frameSize - 1) / frameSize
-	stats.frames = frames
-	stats.actualDuration = float64(frames*frameSize) / float64(sampleRate)
+	frames := 1 + (totalSamples-1)/frameSize
+	stats.actualDuration = float64(totalSamples) / sampleRate
 
 	pcm := make([]float32, frameSize*channels)
 	gen := newSignalGenerator(signal, totalSamples, channels)
 	for frame := range frames {
 		startSample := frame * frameSize
 		gen.fillFrame(pcm, startSample, frameSize)
-		if err := writer.WriteSamples(pcm); err != nil {
+		samples := min(frameSize, totalSamples-startSample)
+		if err := writer.WriteSamples(pcm[:samples*channels]); err != nil {
 			_ = writer.Close()
 			return stats, fmt.Errorf("write wav: %w", err)
 		}
@@ -229,25 +268,62 @@ func encodeWithLibopus(path string, duration float64, bitrate int, channels int,
 		return stats, err
 	}
 
-	if st, err := os.Stat(path); err == nil {
-		stats.encodedBytes = int(st.Size())
+	stats.frames, stats.encodedBytes, err = countEncodedOggPackets(path)
+	if err != nil {
+		return stats, err
 	}
 
 	return stats, nil
 }
 
-func runLibopusEncoder(inputWav, outputOpus string, bitrate int, frameSize int) error {
-	if opusenc := lookup("opusenc"); opusenc != "" {
-		args := []string{"--bitrate", fmt.Sprintf("%d", bitrate/1000)}
-		if frameMs, ok := frameSizeToMs(frameSize); ok {
-			args = append(args, "--framesize", frameMs)
+func countEncodedOggPackets(path string) (int, int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, 0, fmt.Errorf("open encoded Ogg file: %w", err)
+	}
+	defer examplecleanup.OnReturn("close encoded Opus file", f.Close)
+
+	reader, err := ogg.NewReader(f)
+	if err != nil {
+		return 0, 0, fmt.Errorf("read encoded Ogg headers: %w", err)
+	}
+
+	var packets, payloadBytes int
+	for {
+		packet, _, err := reader.ReadPacket()
+		if errors.Is(err, io.EOF) {
+			break
 		}
+		if err != nil {
+			return 0, 0, fmt.Errorf("read encoded packet %d: %w", packets, err)
+		}
+		packets++
+		payloadBytes += len(packet)
+	}
+	if packets == 0 {
+		return 0, 0, errors.New("encoded Ogg file contains no audio packets")
+	}
+	return packets, payloadBytes, nil
+}
+
+func runLibopusEncoder(inputWav, outputOpus string, bitrate int, frameSize int) error {
+	frameMs, ok := frameSizeToMs(frameSize)
+	if !ok {
+		return fmt.Errorf("unsupported external encoder frame size %d samples", frameSize)
+	}
+
+	if opusenc := lookup("opusenc"); opusenc != "" {
+		args := []string{"--bitrate", fmt.Sprintf("%d", bitrate/1000), "--framesize", frameMs}
 		args = append(args, inputWav, outputOpus)
 		return runCommand(opusenc, args)
 	}
 
 	if ffmpeg := lookup("ffmpeg"); ffmpeg != "" {
-		args := []string{"-y", "-loglevel", "error", "-i", inputWav, "-c:a", "libopus", "-b:a", fmt.Sprintf("%dk", bitrate/1000), outputOpus}
+		args := []string{
+			"-y", "-loglevel", "error", "-i", inputWav,
+			"-c:a", "libopus", "-b:a", fmt.Sprintf("%dk", bitrate/1000),
+			"-frame_duration", frameMs, outputOpus,
+		}
 		return runCommand(ffmpeg, args)
 	}
 

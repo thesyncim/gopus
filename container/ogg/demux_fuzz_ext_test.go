@@ -321,11 +321,11 @@ func extBuildOpusHeadVariants() [][]byte {
 func extBuildOpusTagsManyComments(n int) []byte {
 	tags := &OpusTags{
 		Vendor:   "gopus-fuzz-ext",
-		Comments: make(map[string]string),
+		Comments: make([]string, 0, n),
 	}
 	for i := range n {
 		key := fmt.Sprintf("KEY%d", i)
-		tags.Comments[key] = fmt.Sprintf("value%d", i)
+		tags.Comments = append(tags.Comments, key+"="+fmt.Sprintf("value%d", i))
 	}
 	return tags.Encode()
 }
@@ -338,7 +338,7 @@ func extBuildOpusTagsHugeComment(size int) []byte {
 	}
 	tags := &OpusTags{
 		Vendor:   "gopus-fuzz-ext",
-		Comments: map[string]string{"BIGKEY": string(value)},
+		Comments: []string{"BIGKEY=" + string(value)},
 	}
 	return tags.Encode()
 }
@@ -921,10 +921,10 @@ func FuzzOggExt_OpusTagsEdgeCases(f *testing.F) {
 	f.Add(extBuildOpusTagsHugeComment(1024))
 	f.Add(extBuildOpusTagsHugeComment(4096))
 	// Empty vendor.
-	f.Add((&OpusTags{Vendor: "", Comments: make(map[string]string)}).Encode())
+	f.Add((&OpusTags{Vendor: ""}).Encode())
 	// Comment without '=' separator (no-value comment).
 	{
-		base := (&OpusTags{Vendor: "x", Comments: make(map[string]string)}).Encode()
+		base := (&OpusTags{Vendor: "x"}).Encode()
 		// Append a comment entry with no '='.
 		noEq := []byte("NOKEYVALUE")
 		extra := make([]byte, 4+len(noEq))

@@ -162,7 +162,7 @@ func buildOpusHeadOnly(channels uint8) []byte {
 
 // buildOpusTagsPacket builds a minimal OpusTags packet payload.
 func buildOpusTagsPacket(vendor string) []byte {
-	tags := &OpusTags{Vendor: vendor, Comments: make(map[string]string)}
+	tags := &OpusTags{Vendor: vendor}
 	return tags.Encode()
 }
 
@@ -495,11 +495,11 @@ func FuzzParseOpusTags(f *testing.F) {
 	f.Add(DefaultOpusTags().Encode())
 	tags := &OpusTags{
 		Vendor:   "gopus-fuzz",
-		Comments: map[string]string{"TITLE": "Fuzz", "ARTIST": "Test"},
+		Comments: []string{"TITLE=Fuzz", "ARTIST=Test"},
 	}
 	f.Add(tags.Encode())
 	// Empty vendor.
-	f.Add((&OpusTags{Vendor: "", Comments: make(map[string]string)}).Encode())
+	f.Add((&OpusTags{Vendor: ""}).Encode())
 	// Truncations.
 	full := tags.Encode()
 	for _, cut := range []int{0, 8, 12, 15, len(full) / 2} {

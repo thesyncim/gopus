@@ -14,6 +14,20 @@ type chunkCountingReader struct {
 	bytesRead int
 }
 
+type dataThenErrorReader struct {
+	data []byte
+	err  error
+	done bool
+}
+
+func (r *dataThenErrorReader) Read(p []byte) (int, error) {
+	if !r.done {
+		r.done = true
+		return copy(p, r.data), r.err
+	}
+	return 0, io.EOF
+}
+
 func (r *chunkCountingReader) Read(p []byte) (int, error) {
 	if r.bytesRead == len(r.data) {
 		return 0, io.EOF
@@ -135,6 +149,33 @@ func TestReaderReadPageAcceptsFragmentedPages(t *testing.T) {
 	}
 	if granule != 960 {
 		t.Fatalf("ReadPacket() granule = %d, want 960", granule)
+	}
+}
+
+func TestReaderProcessesBytesReturnedWithReadError(t *testing.T) {
+	const serial = 0x44556677
+	head := DefaultOpusHead(48000, 1).Encode()
+	tags := DefaultOpusTags().Encode()
+	audio := []byte{0xf8, 0x00}
+	var stream []byte
+	for _, page := range [][]byte{
+		readerBoundaryPacketPage(serial, 0, PageFlagBOS, 0, head),
+		readerBoundaryPacketPage(serial, 1, 0, 0, tags),
+		readerBoundaryPacketPage(serial, 2, 0, 960, audio),
+	} {
+		stream = append(stream, page...)
+	}
+	readErr := errors.New("terminal read error")
+	r, err := NewReader(&dataThenErrorReader{data: stream, err: readErr})
+	if err != nil {
+		t.Fatalf("NewReader returned %v before processing buffered headers", err)
+	}
+	packet, granule, err := r.ReadPacket()
+	if err != nil || !bytes.Equal(packet, audio) || granule != 960 {
+		t.Fatalf("ReadPacket = (%x, %d, %v), want (%x, 960, nil)", packet, granule, err, audio)
+	}
+	if _, _, err := r.ReadPacket(); !errors.Is(err, readErr) {
+		t.Fatalf("ReadPacket after buffered page = %v, want terminal read error", err)
 	}
 }
 
@@ -423,7 +464,7 @@ func TestNewReaderRejectsExtraPacketOnHeaderPage(t *testing.T) {
 func TestNewReaderRejectsSequenceGapInContinuedOpusTags(t *testing.T) {
 	const serial = 0x9877
 	head := DefaultOpusHead(48000, 1).Encode()
-	tags := (&OpusTags{Vendor: strings.Repeat("v", 700), Comments: map[string]string{"TITLE": "test"}}).Encode()
+	tags := (&OpusTags{Vendor: strings.Repeat("v", 700), Comments: []string{"TITLE=test"}}).Encode()
 	if len(tags) <= 255 {
 		t.Fatal("test OpusTags packet must span pages")
 	}
@@ -448,7 +489,7 @@ func TestNewReaderAcceptsContiguousMultiPageOpusTags(t *testing.T) {
 	const serial = 0x9878
 	head := DefaultOpusHead(48000, 1).Encode()
 	vendor := strings.Repeat("v", 700)
-	tags := (&OpusTags{Vendor: vendor, Comments: map[string]string{"TITLE": "test"}}).Encode()
+	tags := (&OpusTags{Vendor: vendor, Comments: []string{"TITLE=test"}}).Encode()
 	audio := []byte{0xf8, 0x00}
 
 	pages := [][]byte{
@@ -465,7 +506,7 @@ func TestNewReaderAcceptsContiguousMultiPageOpusTags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewReader returned error: %v", err)
 	}
-	if r.Tags.Vendor != vendor || r.Tags.Comments["TITLE"] != "test" {
+	if value, ok := r.Tags.Value("TITLE"); r.Tags.Vendor != vendor || !ok || value != "test" {
 		t.Fatalf("parsed tags = (%q, %v), want vendor and TITLE comment", r.Tags.Vendor, r.Tags.Comments)
 	}
 	packet, _, err := r.ReadPacket()

@@ -9,8 +9,10 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"os"
@@ -61,6 +63,11 @@ func main() {
 
 // createOggFile creates an Ogg Opus file with a test audio signal.
 func createOggFile(filename string, duration float64, bitrate int) error {
+	totalFrames, err := fullFrameCountForDuration(duration)
+	if err != nil {
+		return err
+	}
+
 	// Create encoder
 	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: sampleRate, Channels: channels, Application: gopus.ApplicationAudio})
 	if err != nil {
@@ -84,9 +91,9 @@ func createOggFile(filename string, duration float64, bitrate int) error {
 	}
 
 	// Generate and encode audio
-	totalSamples := int(duration * sampleRate)
-	totalFrames := totalSamples / frameSize
+	encodedSamples := totalFrames * frameSize
 	encodedBytes := 0
+	progressInterval := max(1, totalFrames/10)
 
 	fmt.Printf("  Duration: %.1f seconds\n", duration)
 	fmt.Printf("  Bitrate: %d kbps\n", bitrate/1000)
@@ -110,8 +117,8 @@ func createOggFile(filename string, duration float64, bitrate int) error {
 		encodedBytes += len(packet)
 
 		// Progress
-		if frame > 0 && frame%(totalFrames/10) == 0 {
-			fmt.Printf("  Progress: %d%%\n", 100*frame/totalFrames)
+		if (frame+1)%progressInterval == 0 || frame+1 == totalFrames {
+			fmt.Printf("  Progress: %d%%\n", 100*(frame+1)/totalFrames)
 		}
 	}
 
@@ -121,18 +128,38 @@ func createOggFile(filename string, duration float64, bitrate int) error {
 	}
 
 	// Report file stats
-	stat, _ := f.Stat()
+	stat, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("stat output: %w", err)
+	}
 	fileSize := stat.Size()
 
-	fmt.Printf("  Total samples: %d\n", totalSamples)
+	fmt.Printf("  Total samples: %d\n", encodedSamples)
 	fmt.Printf("  Encoded size: %d bytes\n", encodedBytes)
 	fmt.Printf("  File size: %d bytes\n", fileSize)
 	fmt.Printf("  Compression: %.1f:1\n",
-		float64(totalSamples*channels*2)/float64(fileSize)) // 2 bytes per int16 sample
+		float64(encodedSamples*channels*2)/float64(fileSize)) // 2 bytes per int16 sample
 	fmt.Printf("  Effective bitrate: %.1f kbps\n",
-		float64(fileSize*8)/duration/1000)
+		float64(fileSize*8)/(float64(encodedSamples)/sampleRate)/1000)
 
 	return nil
+}
+
+func fullFrameCountForDuration(duration float64) (int, error) {
+	if duration <= 0 || math.IsNaN(duration) || math.IsInf(duration, 0) {
+		return 0, fmt.Errorf("duration must be a positive finite number")
+	}
+
+	sampleCount := duration * float64(sampleRate)
+	if math.IsInf(sampleCount, 0) || sampleCount >= float64(int(^uint(0)>>1)) {
+		return 0, fmt.Errorf("duration exceeds the supported sample count")
+	}
+	totalSamples := int(sampleCount)
+	totalFrames := totalSamples / frameSize
+	if totalFrames == 0 {
+		return 0, fmt.Errorf("duration %.3f seconds is shorter than one %d ms frame", duration, frameSize*1000/sampleRate)
+	}
+	return totalFrames, nil
 }
 
 // generateFrame creates an audio frame with pleasant test tones.
@@ -183,7 +210,10 @@ func readOggFile(filename string) error {
 	defer examplecleanup.OnReturn("close input file", f.Close)
 
 	// Get file size
-	stat, _ := f.Stat()
+	stat, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("stat input: %w", err)
+	}
 	fileSize := stat.Size()
 
 	// Create reader
@@ -226,15 +256,17 @@ func readOggFile(filename string) error {
 
 	for {
 		packet, granule, err := oggReader.ReadPacket()
+		if errors.Is(err, io.EOF) {
+			break
+		}
 		if err != nil {
-			break // EOF
+			return fmt.Errorf("read packet %d: %w", totalPackets, err)
 		}
 
 		// Decode packet
 		n, err := dec.Decode(packet, pcmOut)
 		if err != nil {
-			fmt.Printf("  Warning: decode error on packet %d: %v\n", totalPackets, err)
-			continue
+			return fmt.Errorf("decode packet %d: %w", totalPackets, err)
 		}
 
 		totalPackets++
@@ -243,16 +275,20 @@ func readOggFile(filename string) error {
 		lastGranule = granule
 	}
 
+	if totalPackets == 0 {
+		return fmt.Errorf("input contains no decodable Opus packets")
+	}
+
 	// Calculate duration
 	duration := float64(totalSamples) / float64(sampleRate)
 	granuleDuration := float64(lastGranule) / 48000.0 // Granule is always at 48kHz
 
 	fmt.Printf("  Packets decoded: %d\n", totalPackets)
-	fmt.Printf("  Total samples: %d\n", totalSamples)
-	fmt.Printf("  Duration (samples): %.2f seconds\n", duration)
-	fmt.Printf("  Duration (granule): %.2f seconds\n", granuleDuration)
+	fmt.Printf("  Raw packet samples (before pre-skip/EOS trimming): %d\n", totalSamples)
+	fmt.Printf("  Raw packet decode duration (before trimming): %.2f seconds\n", duration)
+	fmt.Printf("  Final Ogg granule: %d samples (%.2f seconds from stream start, including pre-skip)\n", lastGranule, granuleDuration)
 	fmt.Printf("  Average packet size: %d bytes\n", totalPacketBytes/totalPackets)
-	fmt.Printf("  Average bitrate: %.1f kbps\n", float64(totalPacketBytes*8)/duration/1000)
+	fmt.Printf("  Average packet payload rate (using raw decode duration): %.1f kbps\n", float64(totalPacketBytes*8)/duration/1000)
 
 	fmt.Println("\n=== Seeking ===")
 	targetGranule := lastGranule / 2

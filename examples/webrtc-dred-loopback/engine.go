@@ -488,9 +488,9 @@ func (e *engine) UpdateConfig(cfg engineConfig) error {
 	}
 	if cfg.DRED && e.loadedEncBlob != "" && e.loadedDecBlob != "" {
 		if cfg.ExpectedLoss == 0 {
-			status = fmt.Sprintf("DRED armed, expected loss is 0%%, depth=%d", cfg.DREDDuration)
+			status = fmt.Sprintf("DRED armed, expected loss is 0%%, duration=%d ms", cfg.DREDDuration*10)
 		} else {
-			status = fmt.Sprintf("DRED armed, expected loss=%d%%, depth=%d", cfg.ExpectedLoss, cfg.DREDDuration)
+			status = fmt.Sprintf("DRED armed, expected loss=%d%%, duration=%d ms", cfg.ExpectedLoss, cfg.DREDDuration*10)
 		}
 	}
 

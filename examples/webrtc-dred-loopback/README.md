@@ -93,7 +93,7 @@ does not consume cached DRED features. `DREDFrames` counts explicit DRED recover
 | In-band FEC / `-fec` | Recover a missing frame with `DecodeWithFEC(nextPacket, pcm, true)` when available. |
 | RTP RED / `-red` | Carry previous Opus payloads; `-red-depth` sets the number of prior frames. |
 | Enable DRED / `-dred` | Set DRED duration in tagged builds with compatible model blobs. |
-| Depth | Set DRED duration in 2.5 ms units. At zero expected loss, the encoder may omit DRED payloads. |
+| DRED duration | Set a maximum of 0–104 redundant frames in 10 ms increments. At zero expected loss, the encoder may omit DRED payloads. |
 | `-all-recovery` | Enable FEC, RED and DRED; select Hybrid unless `-profile` is explicit. |
 | Live monitor | Play received audio; disabled by default. |
 | Record WAV | Record received audio; enabled by default. `-record-dir` selects the directory. |

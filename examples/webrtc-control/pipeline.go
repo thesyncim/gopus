@@ -29,11 +29,12 @@ type pipeline struct {
 	channels    int
 	frameSize   int
 	application gopus.Application
-	simLoss     int // simulated packet loss 0-100%
+	simLoss     int // simulated packet loss 0-50%
 
 	// Loopback mode: decoded PCM from remote track is sent here.
-	loopbackCh chan []float32
-	loopback   bool
+	loopbackCh         chan []float32
+	loopback           bool
+	loopbackGeneration uint64
 
 	// Stats from last encoded packet.
 	lastPacketSize int
@@ -41,6 +42,54 @@ type pipeline struct {
 	packetCount    uint64 // total packets sent since start
 
 	stopCh chan struct{}
+}
+
+// pcmFIFO preserves decoded samples when input packet sizes and encoder frame
+// sizes differ. The caller drains at most one decoded packet beyond each output
+// frame, so its storage is bounded by one output frame plus one Opus packet.
+type pcmFIFO struct {
+	samples []float32
+	offset  int
+}
+
+func (q *pcmFIFO) available() int {
+	return len(q.samples) - q.offset
+}
+
+func (q *pcmFIFO) append(samples []float32) {
+	if q.offset > 0 {
+		q.samples = append(q.samples[:0], q.samples[q.offset:]...)
+		q.offset = 0
+	}
+	q.samples = append(q.samples, samples...)
+}
+
+func (q *pcmFIFO) readFrame(dst []float32) bool {
+	if q.available() < len(dst) {
+		return false
+	}
+	copy(dst, q.samples[q.offset:q.offset+len(dst)])
+	q.offset += len(dst)
+	if q.offset == len(q.samples) {
+		q.samples = q.samples[:0]
+		q.offset = 0
+	}
+	return true
+}
+
+func (q *pcmFIFO) reset() {
+	q.samples = q.samples[:0]
+	q.offset = 0
+}
+
+func drainLoopbackQueue(ch <-chan []float32) {
+	for {
+		select {
+		case <-ch:
+		default:
+			return
+		}
+	}
 }
 
 func newPipeline(track *webrtc.TrackLocalStaticSample) (*pipeline, error) {
@@ -116,6 +165,8 @@ func (p *pipeline) encodeLoop() {
 	pcm := make([]float32, frameSize*channels)
 	packet := make([]byte, 4000)
 	frameNum := 0
+	var loopbackPCM pcmFIFO
+	var loopbackGeneration uint64
 
 	for {
 		select {
@@ -130,7 +181,12 @@ func (p *pipeline) encodeLoop() {
 		curChannels := p.channels
 		curSimLoss := p.simLoss
 		isLoopback := p.loopback
+		curLoopbackGeneration := p.loopbackGeneration
 		p.mu.Unlock()
+		if curLoopbackGeneration != loopbackGeneration {
+			loopbackPCM.reset()
+			loopbackGeneration = curLoopbackGeneration
+		}
 
 		// Handle frame size or channel changes.
 		if curFrameSize != frameSize || curChannels != channels {
@@ -142,24 +198,22 @@ func (p *pipeline) encodeLoop() {
 		}
 
 		if isLoopback {
-			select {
-			case incoming := <-p.loopbackCh:
-				// Use incoming PCM (may need to resize).
-				if len(incoming) >= frameSize*channels {
-					copy(pcm, incoming[:frameSize*channels])
-				} else {
-					copy(pcm, incoming)
-					for i := len(incoming); i < len(pcm); i++ {
-						pcm[i] = 0
-					}
-				}
-			default:
-				// No data available, send silence.
-				for i := range pcm {
-					pcm[i] = 0
+			frameSamples := frameSize * channels
+		gatherLoopback:
+			for loopbackPCM.available() < frameSamples {
+				select {
+				case incoming := <-p.loopbackCh:
+					loopbackPCM.append(incoming)
+				default:
+					break gatherLoopback
 				}
 			}
+			if !loopbackPCM.readFrame(pcm) {
+				// Keep partial input for the next frame and send silence meanwhile.
+				clear(pcm)
+			}
 		} else {
+			loopbackPCM.reset()
 			p.mu.Lock()
 			p.gen.fillFrame(pcm, frameSize)
 			p.mu.Unlock()
@@ -191,30 +245,12 @@ func (p *pipeline) encodeLoop() {
 			continue
 		}
 
-		// Self-decode check on first few frames.
-		if frameNum <= 3 {
-			decBuf := make([]float32, frameSize*channels)
-			p.mu.Lock()
-			samples, decErr := p.dec.Decode(packet[:n], decBuf)
-			p.mu.Unlock()
-			if decErr != nil {
-				log.Printf("[frame %d] SELF-DECODE FAILED: %v (pkt %d bytes, TOC=0x%02x)", frameNum, decErr, n, packet[0])
-			} else {
-				var decPeak float32
-				for _, s := range decBuf[:samples*channels] {
-					if s > decPeak {
-						decPeak = s
-					}
-					if -s > decPeak {
-						decPeak = -s
-					}
-				}
-				log.Printf("[frame %d] encode=%d bytes, self-decode OK: %d samples, peak=%.4f, TOC=0x%02x", frameNum, n, samples, decPeak, packet[0])
-			}
-		}
-
-		// Simulated packet loss: drop this packet randomly.
+		dur := time.Duration(float64(frameSize) / float64(sampleRate) * float64(time.Second))
+		// Advance RTP sequence and timestamp for a simulated drop without sending payload.
 		if curSimLoss > 0 && rand.IntN(100) < curSimLoss {
+			if err := p.track.WriteSample(media.Sample{Duration: dur, PrevDroppedPackets: 1}); err != nil {
+				log.Printf("advance dropped sample: %v", err)
+			}
 			continue
 		}
 
@@ -226,7 +262,6 @@ func (p *pipeline) encodeLoop() {
 		p.packetCount++
 		p.mu.Unlock()
 
-		dur := time.Duration(float64(frameSize) / float64(sampleRate) * float64(time.Second))
 		if err := p.track.WriteSample(media.Sample{
 			Data:     packet[:n],
 			Duration: dur,
@@ -239,12 +274,7 @@ func (p *pipeline) encodeLoop() {
 // handleIncomingTrack reads RTP from a remote audio track, decodes Opus, and
 // pushes PCM into the loopback channel.
 func (p *pipeline) handleIncomingTrack(remote *webrtc.TrackRemote) {
-	p.mu.Lock()
-	p.loopback = true
-	channels := p.channels
-	p.mu.Unlock()
-
-	pcm := make([]float32, 5760*channels)
+	pcm := make([]float32, 5760*2)
 
 	for {
 		select {
@@ -264,13 +294,15 @@ func (p *pipeline) handleIncomingTrack(remote *webrtc.TrackRemote) {
 		}
 
 		p.mu.Lock()
+		channels := p.channels
 		samples, err := p.dec.Decode(payload, pcm)
-		p.mu.Unlock()
 		if err != nil {
+			p.mu.Unlock()
 			log.Printf("decode error: %v", err)
 			continue
 		}
-		if samples == 0 {
+		if samples == 0 || !p.loopback {
+			p.mu.Unlock()
 			continue
 		}
 
@@ -282,6 +314,7 @@ func (p *pipeline) handleIncomingTrack(remote *webrtc.TrackRemote) {
 		default:
 			// Drop if channel is full.
 		}
+		p.mu.Unlock()
 	}
 }
 
@@ -296,16 +329,21 @@ func (p *pipeline) statsPusher() {
 		case <-ticker.C:
 		}
 
-		if p.dataChannel == nil || p.dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		p.mu.Lock()
+		dc := p.dataChannel
+		p.mu.Unlock()
+		if dc == nil || dc.ReadyState() != webrtc.DataChannelStateOpen {
 			continue
 		}
 
 		p.mu.Lock()
+		packetSize := p.lastPacketSize
+		frameSize := p.frameSize
 		stats := map[string]any{
 			"type":             "stats",
-			"packetSize":       p.lastPacketSize,
+			"packetSize":       packetSize,
 			"packetCount":      p.packetCount,
-			"frameSize":        p.frameSize,
+			"frameSize":        frameSize,
 			"channels":         p.channels,
 			"bitrate":          p.enc.Bitrate(),
 			"complexity":       p.enc.Complexity(),
@@ -319,7 +357,6 @@ func (p *pipeline) statsPusher() {
 			"forceChannels":    p.enc.ForceChannels(),
 			"loopback":         p.loopback,
 		}
-
 		toc := p.lastTOC
 		p.mu.Unlock()
 
@@ -334,31 +371,29 @@ func (p *pipeline) statsPusher() {
 		}
 		stats["lastMode"] = modeName
 
-		var bwName string
+		var bandwidthName string
 		switch toc.Bandwidth {
 		case gopus.BandwidthNarrowband:
-			bwName = "NB"
+			bandwidthName = "NB"
 		case gopus.BandwidthMediumband:
-			bwName = "MB"
+			bandwidthName = "MB"
 		case gopus.BandwidthWideband:
-			bwName = "WB"
+			bandwidthName = "WB"
 		case gopus.BandwidthSuperwideband:
-			bwName = "SWB"
+			bandwidthName = "SWB"
 		case gopus.BandwidthFullband:
-			bwName = "FB"
+			bandwidthName = "FB"
 		}
-		stats["lastBandwidth"] = bwName
+		stats["lastBandwidth"] = bandwidthName
 		stats["tocStereo"] = toc.Stereo
 		stats["tocConfig"] = toc.Config
 
-		// Compute approximate bitrate from last packet.
-		if p.lastPacketSize > 0 && p.frameSize > 0 {
-			bitrateKbps := float64(p.lastPacketSize*8) / (float64(p.frameSize) / float64(sampleRate)) / 1000.0
-			stats["bitrateKbps"] = bitrateKbps
+		if packetSize > 0 && frameSize > 0 {
+			stats["bitrateKbps"] = float64(packetSize*8) / (float64(frameSize) / float64(sampleRate)) / 1000.0
 		}
 
 		data, _ := json.Marshal(stats)
-		if err := p.dataChannel.SendText(string(data)); err != nil {
+		if err := dc.SendText(string(data)); err != nil {
 			log.Printf("send stats error: %v", err)
 		}
 	}
@@ -436,6 +471,8 @@ func (p *pipeline) handleControlMessage(data []byte) {
 		_ = newEnc.SetFrameSize(p.frameSize)
 		newEnc.SetFEC(p.enc.FECEnabled())
 		_ = newEnc.SetPacketLoss(p.enc.PacketLoss())
+		_ = newEnc.SetSignal(p.enc.Signal())
+		_ = newEnc.SetMaxBandwidth(p.enc.MaxBandwidth())
 		newEnc.SetDTX(p.enc.DTXEnabled())
 		_ = newEnc.SetLSBDepth(p.enc.LSBDepth())
 		newEnc.SetPredictionDisabled(p.enc.PredictionDisabled())
@@ -525,6 +562,8 @@ func (p *pipeline) handleControlMessage(data []byte) {
 
 	case "audioSource":
 		s := strVal()
+		p.loopbackGeneration++
+		drainLoopbackQueue(p.loopbackCh)
 		if s == "loopback" {
 			p.loopback = true
 		} else {

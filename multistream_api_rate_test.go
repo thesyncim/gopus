@@ -9,8 +9,8 @@ import (
 
 var multistreamRefdecodeHelper libopustest.HelperCache
 
-func runLibopusMultistreamDecode(sampleRate, channels, streams, coupled, frameSize, gainQ8, sampleFormat int, mapping []byte, packets [][]byte) (*libopustest.OracleReader, error) {
-	binPath, err := multistreamRefdecodeHelper.Path(func() (string, error) {
+func multistreamReferenceDecoderPath() (string, error) {
+	return multistreamRefdecodeHelper.Path(func() (string, error) {
 		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
 			Label:      "multistream reference decode",
 			OutputBase: "gopus_libopus_refdecode_public_multistream",
@@ -18,6 +18,10 @@ func runLibopusMultistreamDecode(sampleRate, channels, streams, coupled, frameSi
 			CFlags:     []string{"-O3", "-DNDEBUG"},
 		})
 	})
+}
+
+func runLibopusMultistreamDecode(sampleRate, channels, streams, coupled, frameSize, gainQ8, sampleFormat int, mapping []byte, packets [][]byte) (*libopustest.OracleReader, error) {
+	binPath, err := multistreamReferenceDecoderPath()
 	if err != nil {
 		return nil, err
 	}

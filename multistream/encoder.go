@@ -1332,7 +1332,7 @@ func (e *Encoder) GetFinalRange() uint32 {
 	return combined
 }
 
-// Lookahead returns the encoder's algorithmic delay in samples at 48kHz.
+// Lookahead returns the encoder's algorithmic delay in samples at SampleRate.
 // This includes both CELT delay compensation and mode-specific delay.
 // For multistream, all stream encoders have the same lookahead.
 // Reference: libopus OPUS_GET_LOOKAHEAD

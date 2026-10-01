@@ -206,7 +206,14 @@ effective bitrate.
 
 ## Examples
 
-Run these from the repository root with `go run ./examples/<name>`:
+Start with a complete encode/decode using reusable buffers:
+
+```sh
+go run ./examples/roundtrip-min
+```
+
+Run these from the repository root with `go run ./examples/<name>`.
+Programs with command-line options accept `-h` for help.
 
 | Example | Purpose |
 |---|---|
@@ -221,23 +228,43 @@ Run these from the repository root with `go run ./examples/<name>`:
 | [encode-play](examples/encode-play), [decode-play](examples/decode-play) | Ogg encoding, WAV decoding and optional playback |
 | [ffmpeg-interop](examples/ffmpeg-interop) | Interoperability with ffmpeg and ffprobe |
 | [mix-arrivals](examples/mix-arrivals) | Timed speech mixing with loss and jitter |
-| [bench-encode](examples/bench-encode), [bench-decode](examples/bench-decode) | Matched libopus throughput; see [Performance](#performance) |
+| [bench-encode](examples/bench-encode), [bench-decode](examples/bench-decode) | File-based throughput estimates; see [Performance](#performance) |
 
 Most examples use the default build. Optional APIs require their matching build
 tag: QEXT uses `-tags gopus_qext`, DRED uses `-tags gopus_dred`, and OSCE uses
 `-tags gopus_osce`. These runnable examples demonstrate API usage; they do not
 imply that every optional feature and architecture has completed parity
 validation. Build the in-module examples with `go build ./examples/...`.
-Playback and file-conversion examples can require external audio tools; see
-each example's source for its flags and requirements.
+
+For a local file round trip:
+
+```sh
+# Generate an Opus file, then decode it to 16-bit PCM in a WAV file.
+go run ./examples/encode-play -duration 1 -out demo.opus
+go run ./examples/decode-play -in demo.opus -out demo.wav
+```
+
+Playback is opt-in with `-play`; `decode-play -pipe` streams to `ffplay`.
+The file round trip above needs no external audio tools. `ffmpeg-interop`
+requires `ffmpeg` and `ffprobe`. `mix-arrivals` downloads its speech clips on
+first use and caches them; its `-cache-dir` flag selects the cache directory.
 
 Three examples are separate modules; run their commands inside their directories:
 
 | Module | Command | Purpose |
 |---|---|---|
 | [external-consumer-smoke](examples/external-consumer-smoke) | `go test ./...` | Downstream public API checks |
-| [webrtc-control](examples/webrtc-control) | `go run .` | Browser controls over Pion WebRTC |
+| [webrtc-control](examples/webrtc-control) | `go run . -addr 127.0.0.1:8080` | Open `http://127.0.0.1:8080` for browser audio controls |
 | [webrtc-dred-loopback](examples/webrtc-dred-loopback/README.md) | `go run .` | Desktop PLC/FEC/RED/DRED comparison; see its setup guide |
+
+Check the example packages and nested projects without opening an audio device:
+
+```sh
+make test-consumer-smoke test-examples-smoke
+```
+
+The loopback checks use a test-only headless build tag. Running its desktop or
+terminal demo requires the dependencies listed in its setup guide.
 
 ## Packages
 
@@ -336,9 +363,13 @@ hosts are kept separate.
 Use **GOAMD64=v3** on a supporting CPU and select the same C compiler target:
 
 ```sh
-GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./examples/bench-encode
-GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./examples/bench-decode
+GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./tools/encoderbenchcmp
+GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./tools/testvectorbenchcmp -cases aggregate
 ```
+
+These tools measure codec work with matched C and Go workloads. The file-based
+`bench-encode` and `bench-decode` examples include `opus_demo` process startup
+and file I/O in C timings, so they provide rough estimates.
 
 For scalar comparisons, retain both target settings and use `GOEXPERIMENT=nosimd`.
 On ARM64, omit both AMD64 target settings. The optional

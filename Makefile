@@ -204,7 +204,7 @@ test-examples-smoke:
 	$(GO_WORK_ENV) $(GO) test ./examples/... -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_dred ./examples/... -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_qext ./examples/... -count=1
-	tmp="$$(mktemp -d)" && trap 'rm -rf "$$tmp"' EXIT && cd examples/webrtc-control && $(GO_WORK_ENV) $(GO) build -o "$$tmp/webrtc-control" .
+	cd examples/webrtc-control && $(GO_WORK_ENV) $(GO) test ./... -count=1
 	cd examples/webrtc-dred-loopback && $(GO_WORK_ENV) $(GO) test -tags gopus_webrtc_headless ./... -count=1
 	cd examples/webrtc-dred-loopback && $(GO_WORK_ENV) $(GO) test -tags 'gopus_dred gopus_webrtc_headless' ./... -count=1
 

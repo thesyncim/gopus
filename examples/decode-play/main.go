@@ -57,7 +57,7 @@ func run() error {
 	sample := flag.String("sample", "stereo", "Preset sample to download: stereo or speech")
 	output := flag.String("out", "", "Output WAV file (16-bit PCM). Defaults to decoded.wav if not set")
 	play := flag.Bool("play", false, "Play the decoded WAV (uses ffplay/afplay/aplay/paplay if available)")
-	pipe := flag.Bool("pipe", true, "Stream raw PCM directly to ffplay (no temp files)")
+	pipe := flag.Bool("pipe", false, "Stream raw PCM directly to ffplay (no temp files)")
 	ffplayFirst := flag.Bool("ffplay-first", false, "Play the source first with ffplay, then decode with gopus")
 	flag.Parse()
 
@@ -196,24 +196,12 @@ func openSource(inputPath, url string) (io.Reader, string, func(), error) {
 func decodeOggToWav(r io.Reader, outputPath string) (decodeStats, error) {
 	var stats decodeStats
 
-	oggReader, err := ogg.NewReader(r)
+	decoder, err := newOggPCMDecoder(r)
 	if err != nil {
-		return stats, fmt.Errorf("create ogg reader: %w", err)
+		return stats, err
 	}
 
-	channels := int(oggReader.Channels())
-	if channels < 1 {
-		return stats, errors.New("invalid channel count in OpusHead")
-	}
-
-	cfg := gopus.DefaultDecoderConfig(sampleRate, channels)
-	dec, err := gopus.NewDecoder(cfg)
-	if err != nil {
-		return stats, fmt.Errorf("create decoder: %w", err)
-	}
-	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
-
-	writer, err := newWavWriter(outputPath, sampleRate, channels)
+	writer, err := newWavWriter(outputPath, sampleRate, decoder.channels)
 	if err != nil {
 		return stats, fmt.Errorf("create wav: %w", err)
 	}
@@ -224,57 +212,9 @@ func decodeOggToWav(r io.Reader, outputPath string) (decodeStats, error) {
 		}
 	}()
 
-	preSkip := int(oggReader.PreSkip())
-	remainingSkip := preSkip
-
-	var totalSamples int
-	var peak float32
-	var totalPackets int
-
-	for {
-		packet, _, err := oggReader.ReadPacket()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return stats, fmt.Errorf("read packet: %w", err)
-		}
-
-		n, err := dec.Decode(packet, pcmOut)
-		if err != nil {
-			log.Printf("Warning: decode error on packet %d: %v", totalPackets, err)
-			continue
-		}
-
-		samples := pcmOut[:n*channels]
-		frameSamples := n
-		if remainingSkip > 0 {
-			if frameSamples <= remainingSkip {
-				remainingSkip -= frameSamples
-				continue
-			}
-			samples = samples[remainingSkip*channels:]
-			remainingSkip = 0
-		}
-
-		if len(samples) == 0 {
-			continue
-		}
-
-		for _, s := range samples {
-			if s > peak {
-				peak = s
-			} else if -s > peak {
-				peak = -s
-			}
-		}
-
-		if err := writer.WriteSamples(samples); err != nil {
-			return stats, fmt.Errorf("write wav: %w", err)
-		}
-
-		totalSamples += len(samples) / channels
-		totalPackets++
+	stats, err = decoder.decode(writer.WriteSamples)
+	if err != nil {
+		return stats, fmt.Errorf("decode WAV samples: %w", err)
 	}
 
 	if err := writer.Close(); err != nil {
@@ -282,80 +222,102 @@ func decodeOggToWav(r io.Reader, outputPath string) (decodeStats, error) {
 	}
 	closed = true
 
-	stats = decodeStats{
-		Packets:     totalPackets,
-		Samples:     totalSamples,
-		Channels:    channels,
-		PreSkip:     preSkip,
-		Peak:        peak,
-		DurationSec: float64(totalSamples) / float64(sampleRate),
-	}
-
 	return stats, nil
 }
 
 func decodeOggToPipe(r io.Reader) (decodeStats, error) {
 	var stats decodeStats
 
+	decoder, err := newOggPCMDecoder(r)
+	if err != nil {
+		return stats, err
+	}
+
+	pipe, err := newPCMPlayer(decoder.channels)
+	if err != nil {
+		return stats, err
+	}
+	closed := false
+	defer func() {
+		if !closed {
+			_ = pipe.Close()
+		}
+	}()
+
+	stats, err = decoder.decode(pipe.WriteSamples)
+	if err != nil {
+		return stats, fmt.Errorf("decode playback samples: %w", err)
+	}
+
+	if err := pipe.Close(); err != nil {
+		return stats, fmt.Errorf("playback finalize: %w", err)
+	}
+	closed = true
+
+	return stats, nil
+}
+
+type oggPCMDecoder struct {
+	reader   *ogg.Reader
+	decoder  *gopus.Decoder
+	pcmOut   []float32
+	channels int
+	preSkip  int
+}
+
+func newOggPCMDecoder(r io.Reader) (*oggPCMDecoder, error) {
 	oggReader, err := ogg.NewReader(r)
 	if err != nil {
-		return stats, fmt.Errorf("create ogg reader: %w", err)
+		return nil, fmt.Errorf("create ogg reader: %w", err)
 	}
 
 	channels := int(oggReader.Channels())
 	if channels < 1 {
-		return stats, errors.New("invalid channel count in OpusHead")
+		return nil, errors.New("invalid channel count in OpusHead")
 	}
 
 	cfg := gopus.DefaultDecoderConfig(sampleRate, channels)
 	dec, err := gopus.NewDecoder(cfg)
 	if err != nil {
-		return stats, fmt.Errorf("create decoder: %w", err)
+		return nil, fmt.Errorf("create decoder: %w", err)
 	}
-	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
-
-	pipe, err := newPCMPlayer(channels)
-	if err != nil {
-		return stats, err
+	if err := dec.SetGain(int(oggReader.Header.OutputGain)); err != nil {
+		return nil, fmt.Errorf("set Opus output gain: %w", err)
 	}
 
-	preSkip := int(oggReader.PreSkip())
-	remainingSkip := preSkip
+	return &oggPCMDecoder{
+		reader:   oggReader,
+		decoder:  dec,
+		pcmOut:   make([]float32, cfg.MaxPacketSamples*channels),
+		channels: channels,
+		preSkip:  int(oggReader.PreSkip()),
+	}, nil
+}
 
+// decode sends valid PCM to writeSamples. The EOS page is held until its final
+// granule position is known so a multi-packet page keeps its audio prefix and
+// trims only the page tail. Pre-skip is applied independently at stream start.
+func (d *oggPCMDecoder) decode(writeSamples func([]float32) error) (decodeStats, error) {
+	var stats decodeStats
+	if writeSamples == nil {
+		return stats, errors.New("nil PCM writer")
+	}
+
+	remainingSkip := d.preSkip
 	var totalSamples int
 	var peak float32
-	var totalPackets int
+	var packetIndex int
+	var lastPageGranule uint64
+	var hasPreviousAudioPage bool
+	var eosPageSeen bool
+	var eosPageStartGranule uint64
+	var eosPageFinalGranule uint64
+	var eosPagePCM []float32
 
-	for {
-		packet, _, err := oggReader.ReadPacket()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return stats, fmt.Errorf("read packet: %w", err)
-		}
-
-		n, err := dec.Decode(packet, pcmOut)
-		if err != nil {
-			log.Printf("Warning: decode error on packet %d: %v", totalPackets, err)
-			continue
-		}
-
-		samples := pcmOut[:n*channels]
-		frameSamples := n
-		if remainingSkip > 0 {
-			if frameSamples <= remainingSkip {
-				remainingSkip -= frameSamples
-				continue
-			}
-			samples = samples[remainingSkip*channels:]
-			remainingSkip = 0
-		}
-
+	write := func(samples []float32) error {
 		if len(samples) == 0 {
-			continue
+			return nil
 		}
-
 		for _, s := range samples {
 			if s > peak {
 				peak = s
@@ -363,28 +325,97 @@ func decodeOggToPipe(r io.Reader) (decodeStats, error) {
 				peak = -s
 			}
 		}
-
-		if err := pipe.WriteSamples(samples); err != nil {
-			return stats, fmt.Errorf("playback write: %w", err)
+		if err := writeSamples(samples); err != nil {
+			return err
 		}
-
-		totalSamples += len(samples) / channels
-		totalPackets++
+		totalSamples += len(samples) / d.channels
+		return nil
 	}
 
-	if err := pipe.Close(); err != nil {
-		return stats, fmt.Errorf("playback finalize: %w", err)
+	for {
+		packet, granule, err := d.reader.ReadPacket()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return stats, fmt.Errorf("read packet: %w", err)
+		}
+
+		inEOSPage := d.reader.EOF()
+		if inEOSPage && !eosPageSeen {
+			eosPageSeen = true
+			eosPageStartGranule = lastPageGranule
+		}
+
+		n, err := d.decoder.Decode(packet, d.pcmOut)
+		if err != nil {
+			return stats, fmt.Errorf("decode packet %d: %w", packetIndex, err)
+		}
+		packetIndex++
+		samples := d.pcmOut[:n*d.channels]
+
+		if inEOSPage {
+			eosPagePCM = append(eosPagePCM, samples...)
+			eosPageFinalGranule = granule
+			continue
+		}
+		hasPreviousAudioPage = true
+
+		frameSamples := n
+		if remainingSkip > 0 {
+			if frameSamples <= remainingSkip {
+				remainingSkip -= frameSamples
+				lastPageGranule = granule
+				continue
+			}
+			samples = samples[remainingSkip*d.channels:]
+			remainingSkip = 0
+		}
+
+		if len(samples) > 0 {
+			if err := write(samples); err != nil {
+				return stats, fmt.Errorf("write PCM: %w", err)
+			}
+		}
+		lastPageGranule = granule
+	}
+
+	if eosPageSeen {
+		available := len(eosPagePCM) / d.channels
+		if eosPageFinalGranule < eosPageStartGranule {
+			return stats, fmt.Errorf("invalid Opus EOS granule %d precedes previous audio granule %d", eosPageFinalGranule, eosPageStartGranule)
+		}
+		if !hasPreviousAudioPage && eosPageFinalGranule < uint64(d.preSkip) {
+			return stats, fmt.Errorf("invalid Opus EOS granule %d is below pre-skip %d", eosPageFinalGranule, d.preSkip)
+		}
+
+		granuleSamples := eosPageFinalGranule - eosPageStartGranule
+		if hasPreviousAudioPage && granuleSamples > uint64(available) {
+			return stats, fmt.Errorf("invalid Opus EOS granule %d exceeds decoded EOS-page samples from %d", eosPageFinalGranule, eosPageStartGranule)
+		}
+		keep := available
+		if granuleSamples < uint64(keep) {
+			keep = int(granuleSamples)
+		}
+
+		skip := remainingSkip
+		if skip > keep {
+			skip = keep
+		}
+		samples := eosPagePCM[skip*d.channels : keep*d.channels]
+		if err := write(samples); err != nil {
+			return stats, fmt.Errorf("write PCM: %w", err)
+		}
 	}
 
 	stats = decodeStats{
-		Packets:     totalPackets,
+		Packets:     packetIndex,
 		Samples:     totalSamples,
-		Channels:    channels,
-		PreSkip:     preSkip,
+		Channels:    d.channels,
+		PreSkip:     d.preSkip,
 		Peak:        peak,
 		DurationSec: float64(totalSamples) / float64(sampleRate),
 	}
-
 	return stats, nil
 }
 

@@ -3,6 +3,8 @@ package ogg
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
+	"reflect"
 	"testing"
 )
 
@@ -715,11 +717,8 @@ func TestOpusTags(t *testing.T) {
 
 	t.Run("with comments", func(t *testing.T) {
 		tags := &OpusTags{
-			Vendor: "gopus 1.0",
-			Comments: map[string]string{
-				"TITLE":  "Test Song",
-				"ARTIST": "Test Artist",
-			},
+			Vendor:   "gopus 1.0",
+			Comments: []string{"TITLE=Test Song", "ARTIST=Test Artist"},
 		}
 
 		encoded := tags.Encode()
@@ -734,17 +733,19 @@ func TestOpusTags(t *testing.T) {
 		if len(parsed.Comments) != len(tags.Comments) {
 			t.Errorf("parsed Comments len = %d, want %d", len(parsed.Comments), len(tags.Comments))
 		}
-		for k, v := range tags.Comments {
-			if parsed.Comments[k] != v {
-				t.Errorf("parsed Comments[%q] = %q, want %q", k, parsed.Comments[k], v)
+		for i, comment := range tags.Comments {
+			if i >= len(parsed.Comments) {
+				t.Fatalf("parsed Comments has no entry %d", i)
+			}
+			if parsed.Comments[i] != comment {
+				t.Errorf("parsed Comments[%d] = %q, want %q", i, parsed.Comments[i], comment)
 			}
 		}
 	})
 
 	t.Run("empty vendor", func(t *testing.T) {
 		tags := &OpusTags{
-			Vendor:   "",
-			Comments: make(map[string]string),
+			Vendor: "",
 		}
 
 		encoded := tags.Encode()
@@ -757,6 +758,42 @@ func TestOpusTags(t *testing.T) {
 			t.Errorf("parsed Vendor = %q, want empty", parsed.Vendor)
 		}
 	})
+}
+
+func TestOpusTagsPreservesCommentVectors(t *testing.T) {
+	comments := []string{
+		"title=first",
+		"TITLE=second",
+		"ARTIST=one",
+		"artist=two",
+		"NO_EQUALS",
+	}
+	extra := []byte{0x01, 0xff, 0x00, 0x80}
+	encoded := (&OpusTags{Vendor: "v", Comments: comments, ExtraData: extra}).Encode()
+	parsed, err := ParseOpusTags(encoded)
+	if err != nil {
+		t.Fatalf("ParseOpusTags: %v", err)
+	}
+	if !bytes.Equal([]byte(parsed.Vendor), []byte("v")) || len(parsed.Comments) != len(comments) {
+		t.Fatalf("parsed OpusTags = (%q, %q), want vendor and %d comments", parsed.Vendor, parsed.Comments, len(comments))
+	}
+	for i, want := range comments {
+		if parsed.Comments[i] != want {
+			t.Fatalf("Comments[%d] = %q, want %q", i, parsed.Comments[i], want)
+		}
+	}
+	if got, ok := parsed.Value("TiTlE"); !ok || got != "first" {
+		t.Fatalf("Value(TiTlE) = (%q, %v), want first match", got, ok)
+	}
+	if got, want := parsed.Values("artist"), []string{"one", "two"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Values(artist) = %q, want %q", got, want)
+	}
+	if !bytes.Equal(parsed.ExtraData, extra) {
+		t.Fatalf("ExtraData = %x, want %x", parsed.ExtraData, extra)
+	}
+	if got := parsed.Encode(); !bytes.Equal(got, encoded) {
+		t.Fatalf("Encode changed comment packet: got %x, want %x", got, encoded)
+	}
 }
 
 // TestOpusHeadErrors tests error cases for ParseOpusHead.
@@ -774,11 +811,11 @@ func TestOpusHeadErrors(t *testing.T) {
 			data: []byte("NotOpusHead12345678"),
 		},
 		{
-			name: "wrong version",
+			name: "incompatible major version",
 			data: func() []byte {
 				h := DefaultOpusHead(48000, 1)
 				d := h.Encode()
-				d[8] = 2 // Invalid version
+				d[8] = 16 // Incompatible major version
 				return d
 			}(),
 		},
@@ -847,6 +884,25 @@ func TestOpusHeadErrors(t *testing.T) {
 				return d
 			}(),
 		},
+		{
+			name: "family 1 more than eight channels",
+			data: func() []byte {
+				d := make([]byte, 21+9)
+				copy(d, "OpusHead")
+				d[8] = 1
+				d[9] = 9
+				d[18] = MappingFamilyVorbis
+				d[19] = 9
+				for i := 0; i < 9; i++ {
+					d[21+i] = byte(i)
+				}
+				return d
+			}(),
+		},
+		{
+			name: "known version with trailing data",
+			data: append(DefaultOpusHead(48000, 1).Encode(), 0xaa),
+		},
 	}
 
 	for _, tc := range tests {
@@ -856,6 +912,35 @@ func TestOpusHeadErrors(t *testing.T) {
 				t.Errorf("ParseOpusHead: got error %v, want ErrInvalidHeader", err)
 			}
 		})
+	}
+}
+
+func TestOpusHeadCompatibleMinorVersions(t *testing.T) {
+	base := DefaultOpusHead(48000, 1).Encode()
+	for _, version := range []uint8{0, 1, 2, 15} {
+		t.Run(fmt.Sprintf("version_%d", version), func(t *testing.T) {
+			data := append([]byte(nil), base...)
+			data[8] = version
+			if version > 1 {
+				data = append(data, 0xaa, 0xbb)
+			}
+			head, err := ParseOpusHead(data)
+			if err != nil {
+				t.Fatalf("ParseOpusHead(version=%d): %v", version, err)
+			}
+			if head.Version != version {
+				t.Fatalf("version = %d, want %d", head.Version, version)
+			}
+			if !bytes.Equal(head.Encode(), data) {
+				t.Fatalf("Encode did not preserve version %d header bytes", version)
+			}
+		})
+	}
+
+	data := append([]byte(nil), base...)
+	data[8] = 16
+	if _, err := ParseOpusHead(data); err != ErrInvalidHeader {
+		t.Fatalf("ParseOpusHead(version=16) error = %v, want ErrInvalidHeader", err)
 	}
 }
 
@@ -904,6 +989,15 @@ func TestOpusTagsErrors(t *testing.T) {
 				binary.LittleEndian.PutUint32(d[8:12], 0)           // vendor len 0
 				binary.LittleEndian.PutUint32(d[12:16], 1)          // 1 comment
 				binary.LittleEndian.PutUint32(d[16:20], 0xFFFFFFFF) // comment len
+				return d
+			}(),
+		},
+		{
+			name: "comment count exceeds remaining length fields",
+			data: func() []byte {
+				d := make([]byte, 16)
+				copy(d, "OpusTags")
+				binary.LittleEndian.PutUint32(d[12:16], 1)
 				return d
 			}(),
 		},

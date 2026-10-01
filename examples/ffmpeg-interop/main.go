@@ -12,8 +12,10 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"os"
@@ -64,6 +66,11 @@ func main() {
 
 // encodeTestSignal generates a 440Hz stereo sine wave and encodes it to Ogg Opus.
 func encodeTestSignal(filename string, duration float64) error {
+	totalFrames, err := fullFrameCountForDuration(duration)
+	if err != nil {
+		return err
+	}
+
 	// Create encoder
 	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: sampleRate, Channels: channels, Application: gopus.ApplicationAudio})
 	if err != nil {
@@ -89,8 +96,6 @@ func encodeTestSignal(filename string, duration float64) error {
 	}
 
 	// Generate and encode test signal
-	totalSamples := int(duration * sampleRate)
-	totalFrames := totalSamples / frameSize
 	encodedBytes := 0
 
 	fmt.Printf("Generating %.1fs stereo 440Hz sine wave...\n", duration)
@@ -134,9 +139,27 @@ func encodeTestSignal(filename string, duration float64) error {
 	}
 
 	fmt.Printf("  Encoded %d frames, %d bytes total\n", totalFrames, encodedBytes)
-	fmt.Printf("  Average bitrate: %.1f kbps\n", float64(encodedBytes*8)/duration/1000)
+	actualDuration := float64(totalFrames*frameSize) / sampleRate
+	fmt.Printf("  Average bitrate: %.1f kbps\n", float64(encodedBytes*8)/actualDuration/1000)
 
 	return nil
+}
+
+func fullFrameCountForDuration(duration float64) (int, error) {
+	if duration <= 0 || math.IsNaN(duration) || math.IsInf(duration, 0) {
+		return 0, fmt.Errorf("duration must be a positive finite number")
+	}
+
+	sampleCount := duration * float64(sampleRate)
+	if math.IsInf(sampleCount, 0) || sampleCount >= float64(int(^uint(0)>>1)) {
+		return 0, fmt.Errorf("duration exceeds the supported sample count")
+	}
+	totalSamples := int(sampleCount)
+	totalFrames := totalSamples / frameSize
+	if totalFrames == 0 {
+		return 0, fmt.Errorf("duration %.3f seconds is shorter than one %d ms frame", duration, frameSize*1000/sampleRate)
+	}
+	return totalFrames, nil
 }
 
 // decodeOpusFile reads and decodes an Ogg Opus file.
@@ -177,22 +200,26 @@ func decodeOpusFile(filename string) error {
 	totalSamples := 0
 	totalPackets := 0
 	var peakSample float32
+	var lastGranule uint64
 
 	for {
-		packet, _, err := oggReader.ReadPacket()
+		packet, granule, err := oggReader.ReadPacket()
+		if errors.Is(err, io.EOF) {
+			break
+		}
 		if err != nil {
-			break // EOF or error
+			return fmt.Errorf("read packet %d: %w", totalPackets, err)
 		}
 
 		// Decode packet
 		n, err := dec.Decode(packet, pcmOut)
 		if err != nil {
-			fmt.Printf("  Warning: decode error on packet %d: %v\n", totalPackets, err)
-			continue
+			return fmt.Errorf("decode packet %d: %w", totalPackets, err)
 		}
 
 		totalPackets++
 		totalSamples += n
+		lastGranule = granule
 
 		// Track peak sample
 		for _, s := range pcmOut[:n*cfg.Channels] {
@@ -204,10 +231,16 @@ func decodeOpusFile(filename string) error {
 		}
 	}
 
+	if totalPackets == 0 {
+		return fmt.Errorf("input contains no decodable Opus packets")
+	}
+
 	duration := float64(totalSamples) / float64(sampleRate)
 	fmt.Printf("\nDecoded:\n")
 	fmt.Printf("  Packets: %d\n", totalPackets)
-	fmt.Printf("  Samples: %d (%.2f seconds)\n", totalSamples, duration)
+	fmt.Printf("  Raw packet samples (before pre-skip/EOS trimming): %d\n", totalSamples)
+	fmt.Printf("  Raw packet decode duration (before trimming): %.2f seconds\n", duration)
+	fmt.Printf("  Final Ogg granule: %d samples (%.2f seconds from stream start, including pre-skip)\n", lastGranule, float64(lastGranule)/sampleRate)
 	fmt.Printf("  Peak level: %.4f (%.1f dBFS)\n", peakSample, 20*math.Log10(float64(peakSample)))
 
 	return nil
