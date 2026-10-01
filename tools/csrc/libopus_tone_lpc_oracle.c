@@ -32,17 +32,20 @@ int main(void) {
   uint32_t version, count;
   if (fread(magic, 1, sizeof(magic), stdin) != sizeof(magic) ||
       memcmp(magic, "GTLC", sizeof(magic)) != 0 ||
-      !read_u32(&version) || version != 2 || !read_u32(&count) || count > 256)
+      !read_u32(&version) || (version != 2 && version != 3) ||
+      !read_u32(&count) || count > 256)
     return 2;
   if (fwrite("GTLC", 1, 4, stdout) != 4 ||
-      !write_u32(2) || !write_u32(count))
+      !write_u32(version) || !write_u32(count))
     return 3;
 
   for (uint32_t case_index = 0; case_index < count; case_index++) {
-    uint32_t length, delay, bits;
+    uint32_t length, delay, sample_rate = 48000, bits;
     float x[4096];
-    if (!read_u32(&length) || !read_u32(&delay) || length > 4096 ||
-        delay == 0 || delay > 256 || length <= 2 * delay)
+    if (!read_u32(&length) || !read_u32(&delay) ||
+        (version >= 3 && !read_u32(&sample_rate)) || length > 4096 ||
+        delay == 0 || delay > 256 || length <= 2 * delay ||
+        sample_rate < 8000 || sample_rate > 96000)
       return 4;
     for (uint32_t i = 0; i < length; i++) {
       if (!read_u32(&bits)) return 5;
@@ -56,7 +59,7 @@ int main(void) {
     opus_val32 toneishness = 0;
     opus_val16 freq = 0;
     if (length > 64)
-      freq = tone_detect(x, 1, (int)length, &toneishness, 48000);
+      freq = tone_detect(x, 1, (int)length, &toneishness, (int)sample_rate);
     if (!write_u32((uint32_t)fail) ||
         !write_u32(float_bits(lpc[0])) || !write_u32(float_bits(lpc[1])) ||
         !write_u32(float_bits(freq)) || !write_u32(float_bits(toneishness)))
