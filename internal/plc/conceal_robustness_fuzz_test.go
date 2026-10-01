@@ -87,15 +87,12 @@ func clampFuzzLen(n int) int {
 // CELT concealment
 // ---------------------------------------------------------------------------
 
-func newFuzzCELTDecoder(channels, energyLen, overlap int, rng uint32, energyFill float32) *mockCELTDecoder {
+func newFuzzCELTDecoder(channels, energyLen int, rng uint32, energyFill float32) *mockCELTDecoder {
 	if channels < 0 {
 		channels = 0
 	}
 	if energyLen < 0 {
 		energyLen = 0
-	}
-	if overlap < 0 {
-		overlap = 0
 	}
 	preLen := max(channels, 0)
 	dec := &mockCELTDecoder{
@@ -103,7 +100,6 @@ func newFuzzCELTDecoder(channels, energyLen, overlap int, rng uint32, energyFill
 		prevEnergy:   make([]float32, energyLen),
 		rng:          rng,
 		preemphState: make([]float32, preLen),
-		overlapBuf:   make([]float32, overlap),
 	}
 	for i := range dec.prevEnergy {
 		dec.prevEnergy[i] = energyFill
@@ -157,7 +153,7 @@ func FuzzConcealCELT(f *testing.F) {
 		eLen := int(energyLen % 256)       // 0..255 bands of energy
 		fs := clampFuzzLen(int(frameSize)) // may be negative
 		fade := fadeFromBits(fadeBits)
-		dec := newFuzzCELTDecoder(ch, eLen, 120, rng, sanitizeBandEnergyDB(energyFill))
+		dec := newFuzzCELTDecoder(ch, eLen, rng, sanitizeBandEnergyDB(energyFill))
 
 		var synth CELTSynthesizer
 		if useSynth {
@@ -187,7 +183,7 @@ func FuzzConcealCELTHybrid(f *testing.F) {
 		eLen := int(energyLen % 256)
 		fs := max(clampFuzzLen(int(frameSize)), 0)
 		fade := fadeFromBits(fadeBits)
-		dec := newFuzzCELTDecoder(ch, eLen, 120, rng, sanitizeBandEnergyDB(energyFill))
+		dec := newFuzzCELTDecoder(ch, eLen, rng, sanitizeBandEnergyDB(energyFill))
 
 		var synth CELTSynthesizer
 		if useSynth {

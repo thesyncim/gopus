@@ -969,7 +969,6 @@ func TestDecoderGLogStateMatchesLibopusFloatSize(t *testing.T) {
 		size uintptr
 	}{
 		{"prevEnergy", unsafe.Sizeof(dec.prevEnergy[0])},
-		{"prevEnergy2", unsafe.Sizeof(dec.prevEnergy2[0])},
 		{"prevLogE", unsafe.Sizeof(dec.prevLogE[0])},
 		{"prevLogE2", unsafe.Sizeof(dec.prevLogE2[0])},
 		{"backgroundEnergy", unsafe.Sizeof(dec.backgroundEnergy[0])},
@@ -992,10 +991,8 @@ func TestDecoderSigStateMatchesLibopusFloatSize(t *testing.T) {
 		name string
 		size uintptr
 	}{
-		{"overlapBuffer", unsafe.Sizeof(dec.overlapBuffer[0])},
+		{"decodeMem", unsafe.Sizeof(dec.decodeMem[0])},
 		{"preemphState", unsafe.Sizeof(dec.preemphState[0])},
-		{"postfilterMem", unsafe.Sizeof(dec.postfilterMem[0])},
-		{"plcDecodeMem", unsafe.Sizeof(dec.plcDecodeMem[0])},
 	}
 	for _, tc := range got {
 		if tc.size != uintptr(sizes.celtSig) {
@@ -1666,7 +1663,7 @@ func TestAlgUnquantMatchesLibopusFloatPath(t *testing.T) {
 					var dec rangecoding.Decoder
 					dec.Init(tc.payload)
 					got := make([]celtNorm, tc.n)
-					gotCollapse := algUnquantNoExtInto(got, &dec, tc.n, tc.k, tc.spread, tc.b, opusVal16(tc.gain), sc.scratch)
+					gotCollapse := algUnquantNoExtInto(got, &dec, tc.k, tc.spread, tc.b, opusVal16(tc.gain), sc.scratch)
 					if gotCollapse != want[ci].collapse {
 						t.Fatalf("collapse=%d want %d", gotCollapse, want[ci].collapse)
 					}

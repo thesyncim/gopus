@@ -2,6 +2,7 @@ package celt
 
 import (
 	"math"
+	"unsafe"
 
 	"github.com/thesyncim/gopus/internal/opusmath"
 )
@@ -30,9 +31,9 @@ type kissFFTState struct {
 	bitrev  []int
 	w       []kissCpx
 	fstride []int // Pre-computed fstride array for fftImpl (avoids per-call allocation)
-	// bitrevFloat holds 2*bitrev[i], the float offset of each bit-reversed
-	// slot in the kissFloats view of the FFT buffer.
-	bitrevFloat []int
+	// bitrevBytes holds 8*bitrev[i], the byte offset of each bit-reversed
+	// slot in the FFT buffer; every entry is below 8*nfft.
+	bitrevBytes []uintptr
 	// stageTw holds each factor stage's twiddles packed for the Fast
 	// butterflies; see kissStageTwiddles.
 	stageTw []kissStageTwiddles
@@ -121,7 +122,7 @@ func newDynamicKissFFTState(nfft int, base *kissFFTState) *kissFFTState {
 	}
 
 	return &kissFFTState{nfft: nfft, shift: shift, factors: factors, bitrev: bitrev, w: w, fstride: fstride,
-		bitrevFloat: kissBitrevFloat(bitrev), stageTw: newKissStageTwiddles(factors, fstride, shift, w)}
+		bitrevBytes: kissBitrevBytes(bitrev), stageTw: newKissStageTwiddles(factors, fstride, shift, w)}
 }
 
 func newStaticKissFFTState(nfft int) *kissFFTState {
@@ -177,17 +178,21 @@ func newStaticKissFFTState(nfft int) *kissFFTState {
 		bitrev:      bitrev,
 		w:           twiddles,
 		fstride:     fstride,
-		bitrevFloat: kissBitrevFloat(bitrev),
+		bitrevBytes: kissBitrevBytes(bitrev),
 		stageTw:     newKissStageTwiddles(factors, fstride, shift, twiddles),
 	}
 }
 
-// kissBitrevFloat returns the float offsets 2*bitrev[i] of the bit-reversed
-// FFT slots.
-func kissBitrevFloat(bitrev []int) []int {
-	off := make([]int, len(bitrev))
+// kissBitrevBytes returns the byte offsets 8*bitrev[i] of the bit-reversed
+// FFT slots. It panics unless every slot is inside the len(bitrev)-point
+// buffer, which lets the offset stores skip their per-element checks.
+func kissBitrevBytes(bitrev []int) []uintptr {
+	off := make([]uintptr, len(bitrev))
 	for i, rev := range bitrev {
-		off[i] = 2 * rev
+		if uint(rev) >= uint(len(bitrev)) {
+			panic("celt: kiss FFT bit-reversal slot out of range")
+		}
+		off[i] = uintptr(rev) * 8
 	}
 	return off
 }
@@ -421,37 +426,37 @@ func kfBfly2(fout []kissCpx, m, N int) {
 const kfBfly2M4Twiddle = float32(0.7071067812)
 
 // kfBfly2M4Scalar is the kf_bfly2 radix-2 stage with m == 4 (after a radix-4
-// stage): N groups of eight values.
+// stage): N groups of eight values, each addressed through a fixed-size array
+// view at a byte offset.
 func kfBfly2M4Scalar(fout []kissCpx, N int) {
 	tw := kfBfly2M4Twiddle
-	for range N {
-		fout2 := fout[4:]
-		t := fout2[0]
-		fout2[0].r = fout[0].r - t.r
-		fout2[0].i = fout[0].i - t.i
-		fout[0].r += t.r
-		fout[0].i += t.i
+	if N <= 0 {
+		return
+	}
+	// Group i sits at byte offset 64*i of the checked fout[:8*N].
+	base := unsafe.Pointer(unsafe.SliceData(fout[:8*N]))
+	for off := uintptr(0); off < uintptr(N)*64; off += 64 {
+		g := (*[8]kissCpx)(unsafe.Add(base, off))
+		t := g[4]
+		g[4].r = g[0].r - t.r
+		g[4].i = g[0].i - t.i
+		g[0].r += t.r
+		g[0].i += t.i
 
-		b1 := fout2[1]
-		loR, hiR := kissBfly2M4Outputs(fout[1].r, kissAdd(b1.r, b1.i), tw)
-		loI, hiI := kissBfly2M4Outputs(fout[1].i, kissSub(b1.i, b1.r), tw)
-		fout2[1] = kissCpx{loR, loI}
-		fout[1] = kissCpx{hiR, hiI}
+		b1 := g[5]
+		g[5].r, g[1].r = kissBfly2M4Outputs(g[1].r, kissAdd(b1.r, b1.i), tw)
+		g[5].i, g[1].i = kissBfly2M4Outputs(g[1].i, kissSub(b1.i, b1.r), tw)
 
-		t.r = fout2[2].i
-		t.i = -fout2[2].r
-		fout2[2].r = kissSub(fout[2].r, t.r)
-		fout2[2].i = kissSub(fout[2].i, t.i)
-		fout[2].r = kissAdd(fout[2].r, t.r)
-		fout[2].i = kissAdd(fout[2].i, t.i)
+		t.r = g[6].i
+		t.i = -g[6].r
+		g[6].r = kissSub(g[2].r, t.r)
+		g[6].i = kissSub(g[2].i, t.i)
+		g[2].r = kissAdd(g[2].r, t.r)
+		g[2].i = kissAdd(g[2].i, t.i)
 
-		b3 := fout2[3]
-		loR, hiR = kissBfly2M4Outputs(fout[3].r, kissSub(b3.i, b3.r), tw)
-		loI, hiI = kissBfly2M4Outputs(fout[3].i, -kissAdd(b3.i, b3.r), tw)
-		fout2[3] = kissCpx{loR, loI}
-		fout[3] = kissCpx{hiR, hiI}
-
-		fout = fout[8:]
+		b3 := g[7]
+		g[7].r, g[3].r = kissBfly2M4Outputs(g[3].r, kissSub(b3.i, b3.r), tw)
+		g[7].i, g[3].i = kissBfly2M4Outputs(g[3].i, -kissAdd(b3.i, b3.r), tw)
 	}
 }
 

@@ -44,7 +44,7 @@ func (d *Decoder) decodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	lm := mode.LM
 	end := d.effectiveEndBand(frameSize)
 	start := HybridCELTStartBand
-	prev1Energy, prev1LogE, prev2LogE := d.snapshotDecodeHistory()
+	prev1LogE, prev2LogE := d.prevLogE, d.prevLogE2
 
 	totalBits := rd.StorageBits()
 	silence := decodeSilenceFlag(rd, totalBits)
@@ -70,7 +70,7 @@ func (d *Decoder) decodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	hybridBinStart := d.hybridBandStart(frameSize)
 	d.applyPendingPLCPrefilterAndFold()
 	samples := d.synthesizeHybridDecodedFrame(frameSize, mode.LM, end, hybridBinStart, header.shortBlocks, header.transient, header.postfilterPeriod, header.postfilterGain, header.postfilterTapset, energies, coeffsL, coeffsR, qext)
-	if err := d.finalizeDecodedFrameState(frameSize, start, end, lm, header.transient, energies, prev1Energy, qext, rd); err != nil {
+	if err := d.finalizeDecodedFrameState(frameSize, start, end, lm, header.transient, energies, qext, rd); err != nil {
 		return nil, err
 	}
 	return samples, nil

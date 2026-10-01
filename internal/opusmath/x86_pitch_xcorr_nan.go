@@ -28,8 +28,10 @@ func x86PitchFMA231(x, y, acc float32) float32 {
 	if bits := math.Float32bits(acc); x86IsNaN32(bits) {
 		return math.Float32frombits(x86QuietNaN32(bits))
 	}
-	result := archsimd.BroadcastFloat32x8(x).MulAdd(
-		archsimd.BroadcastFloat32x8(y), archsimd.BroadcastFloat32x8(acc)).GetLo().GetElem(0)
+	// A 128-bit VFMADD231PS lane rounds as the 256-bit one does and leaves the
+	// upper register halves clean for the legacy-SSE replay around it.
+	result := archsimd.BroadcastFloat32x4(x).MulAdd(
+		archsimd.BroadcastFloat32x4(y), archsimd.BroadcastFloat32x4(acc)).GetElem(0)
 	if result != result {
 		return math.Float32frombits(x86InvalidNaN32)
 	}

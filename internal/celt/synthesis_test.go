@@ -21,7 +21,7 @@ func TestSynthesize_SampleCount(t *testing.T) {
 
 			// IMDCT produces 2*frameSize samples
 			// After 14-02 fix, OverlapAdd produces frameSize samples
-			samples := d.Synthesize(coeffs, false, 1)
+			samples := d.synthesizeTest(coeffs, false, 1)
 
 			// Output should be exactly frameSize samples
 			if len(samples) != frameSize {
@@ -29,7 +29,7 @@ func TestSynthesize_SampleCount(t *testing.T) {
 			}
 
 			// Second frame should also produce frameSize samples
-			samples2 := d.Synthesize(coeffs, false, 1)
+			samples2 := d.synthesizeTest(coeffs, false, 1)
 			if len(samples2) != frameSize {
 				t.Errorf("Second frame: got %d samples, want %d", len(samples2), frameSize)
 			}
@@ -54,7 +54,7 @@ func TestSynthesizeStereo_SampleCount(t *testing.T) {
 			coeffsR := make([]float32, frameSize)
 
 			// Call SynthesizeStereo
-			samples := d.SynthesizeStereo(coeffsL, coeffsR, false, 1)
+			samples := d.synthesizeStereoTest(coeffsL, coeffsR, false, 1)
 
 			// Stereo output is interleaved [L0, R0, L1, R1, ...]
 			// Per channel: frameSize samples (after 14-02 fix)

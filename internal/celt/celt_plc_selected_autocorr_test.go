@@ -124,12 +124,11 @@ func TestSelectedSIMDPLCRawAutocorrMatchesArchive(t *testing.T) {
 		if _, err := dec.DecodeFrame(packet[1:], 480); err != nil {
 			t.Fatalf("decode projection stream 5 CELT seed: %v", err)
 		}
-		dec.materializePLCDecodeHistory()
 		decodeBufferSize := dec.plcDecodeBufferLen()
 		maxPeriod := dec.plcCombFilterMaxPeriod()
 		window := dec.scratchIMDCTF32.modeWindow(Overlap)
 		for ch := range int(dec.channels) {
-			hist := dec.plcDecodeMem[ch*decodeBufferSize : (ch+1)*decodeBufferSize]
+			hist := dec.decodeMemChannel(ch)[:decodeBufferSize]
 			exc := hist[decodeBufferSize-maxPeriod-celtPLCLPCOrder:]
 			frame := exc[celtPLCLPCOrder:]
 			windowed := selectedPLCRawAutocorrWindowedInput(frame, window, dec.synthOverlapLen())

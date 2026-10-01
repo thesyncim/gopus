@@ -2,7 +2,10 @@
 
 package dnnmath
 
-import "simd/archsimd"
+import (
+	"simd/archsimd"
+	"unsafe"
+)
 
 // X86VectorKernels reports whether the SIMD lane selects libopus's AVX2/FMA
 // DNN kernels. The paired libopus build dispatches compute_linear,
@@ -32,7 +35,7 @@ func sigmoidVectorX86AVX2(out, in []float32, n int) {
 		sigmoid8X86(archsimd.LoadFloat32x8(in[i:])).Store(out[i:])
 	}
 	for ; i < n; i++ {
-		out[i] = sigmoid8X86(archsimd.BroadcastFloat32x8(in[i])).GetLo().GetElem(0)
+		storeLane0X86(&out[i], sigmoid8X86(archsimd.BroadcastFloat32x8(in[i])))
 	}
 	archsimd.ClearAVXUpperBits()
 }
@@ -52,7 +55,7 @@ func tanhVectorX86AVX2(out, in []float32, n int) {
 		tanh8X86(archsimd.LoadFloat32x8(in[i:])).Store(out[i:])
 	}
 	for ; i < n; i++ {
-		out[i] = tanhApproxX86(in[i])
+		storeLane0X86(&out[i], tanh8X86(archsimd.BroadcastFloat32x8(in[i])))
 	}
 	archsimd.ClearAVXUpperBits()
 }
@@ -86,9 +89,15 @@ func expVectorX86AVX2(out, in []float32, n int) {
 		exp8X86(archsimd.LoadFloat32x8(in[i:])).Store(out[i:])
 	}
 	for ; i < n; i++ {
-		out[i] = exp8X86(archsimd.BroadcastFloat32x8(in[i])).GetLo().GetElem(0)
+		storeLane0X86(&out[i], exp8X86(archsimd.BroadcastFloat32x8(in[i])))
 	}
 	archsimd.ClearAVXUpperBits()
+}
+
+// storeLane0X86 stores lane 0 of v through an integer register: a scalar
+// float store would be a legacy SSE instruction inside the 256-bit region.
+func storeLane0X86(dst *float32, v archsimd.Float32x8) {
+	*(*int32)(unsafe.Pointer(dst)) = v.GetLo().AsInt32x4().GetElem(0)
 }
 
 // minPS returns _mm256_min_ps(a, b): MINPS yields its second operand when
@@ -124,7 +133,10 @@ func sigmoid8X86(x archsimd.Float32x8) archsimd.Float32x8 {
 	num := archsimd.BroadcastFloat32x8(0.00950985).MulAdd(x2, archsimd.BroadcastFloat32x8(6.02452230)).MulAdd(x2, archsimd.BroadcastFloat32x8(238.13200378))
 	den := archsimd.BroadcastFloat32x8(0.74287558).MulAdd(x2, archsimd.BroadcastFloat32x8(103.34200287)).MulAdd(x2, archsimd.BroadcastFloat32x8(952.72399902))
 	y := num.Mul(x).MulAdd(den.Reciprocal(), archsimd.BroadcastFloat32x8(0.5))
-	return maxPS(archsimd.BroadcastFloat32x8(0), minPS(archsimd.BroadcastFloat32x8(1), y))
+	// A zero vector value, not a broadcast float constant: the constant
+	// would be materialized with a legacy XORPS.
+	var zero archsimd.Float32x8
+	return maxPS(zero, minPS(archsimd.BroadcastFloat32x8(1), y))
 }
 
 func tanh8X86(x archsimd.Float32x8) archsimd.Float32x8 {

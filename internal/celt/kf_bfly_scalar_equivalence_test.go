@@ -233,3 +233,71 @@ func TestKfBfly4M1CoreScalarMatchesReference(t *testing.T) {
 		t.Fatalf("steady-state allocations = %g, want 0", allocs)
 	}
 }
+
+// kfBfly2M4Reference is the kf_bfly2 m == 4 loop of celt/kiss_fft.c written
+// with indexed Fout/Fout2 accesses and the target's output helpers.
+func kfBfly2M4Reference(fout []kissCpx, n int) {
+	tw := kfBfly2M4Twiddle
+	for g := range n {
+		f := fout[8*g : 8*g+8]
+		f2 := f[4:]
+		t := f2[0]
+		f2[0].r = f[0].r - t.r
+		f2[0].i = f[0].i - t.i
+		f[0].r += t.r
+		f[0].i += t.i
+
+		b1 := f2[1]
+		loR, hiR := kissBfly2M4Outputs(f[1].r, kissAdd(b1.r, b1.i), tw)
+		loI, hiI := kissBfly2M4Outputs(f[1].i, kissSub(b1.i, b1.r), tw)
+		f2[1] = kissCpx{loR, loI}
+		f[1] = kissCpx{hiR, hiI}
+
+		t.r = f2[2].i
+		t.i = -f2[2].r
+		f2[2].r = kissSub(f[2].r, t.r)
+		f2[2].i = kissSub(f[2].i, t.i)
+		f[2].r = kissAdd(f[2].r, t.r)
+		f[2].i = kissAdd(f[2].i, t.i)
+
+		b3 := f2[3]
+		loR, hiR = kissBfly2M4Outputs(f[3].r, kissSub(b3.i, b3.r), tw)
+		loI, hiI = kissBfly2M4Outputs(f[3].i, -kissAdd(b3.i, b3.r), tw)
+		f2[3] = kissCpx{loR, loI}
+		f[3] = kissCpx{hiR, hiI}
+	}
+}
+
+// TestKfBfly2M4ScalarMatchesReference checks the array-view radix-2 m == 4
+// stage against kfBfly2M4Reference, including non-finite inputs.
+func TestKfBfly2M4ScalarMatchesReference(t *testing.T) {
+	rng := rand.New(rand.NewSource(0x2b4))
+	pick := func() float32 {
+		switch rng.Intn(16) {
+		case 0:
+			return float32(math.Inf(1 - 2*rng.Intn(2)))
+		case 1:
+			return float32(math.NaN())
+		default:
+			return float32(rng.NormFloat64() * math.Pow(10, float64(rng.Intn(20)-5)))
+		}
+	}
+	for _, n := range []int{1, 2, 3, 15, 30, 60, 120} {
+		got := make([]kissCpx, 8*n)
+		for i := range got {
+			got[i] = kissCpx{pick(), pick()}
+		}
+		want := append([]kissCpx(nil), got...)
+		kfBfly2M4Reference(want, n)
+		kfBfly2M4Scalar(got, n)
+		for i := range got {
+			if math.Float32bits(got[i].r) != math.Float32bits(want[i].r) || math.Float32bits(got[i].i) != math.Float32bits(want[i].i) {
+				t.Fatalf("n=%d: out[%d]=%v want %v", n, i, got[i], want[i])
+			}
+		}
+	}
+	fout := make([]kissCpx, 8*60)
+	if allocs := testing.AllocsPerRun(100, func() { kfBfly2M4Scalar(fout, 60) }); allocs != 0 {
+		t.Fatalf("steady-state allocations = %g, want 0", allocs)
+	}
+}

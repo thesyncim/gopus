@@ -534,7 +534,6 @@ type mockCELTDecoder struct {
 	prevEnergy   []float32
 	rng          uint32
 	preemphState []float32
-	overlapBuf   []float32
 }
 
 func (m *mockCELTDecoder) Channels() int             { return m.channels }
@@ -546,8 +545,6 @@ func (m *mockCELTDecoder) PreemphState() []float32   { return m.preemphState }
 func (m *mockCELTDecoder) SetPreemphState(samples []float32) {
 	copy(m.preemphState, samples)
 }
-func (m *mockCELTDecoder) OverlapBuffer() []float32     { return m.overlapBuf }
-func (m *mockCELTDecoder) SetOverlapBuffer(s []float32) { copy(m.overlapBuf, s) }
 
 // SynthesizeFloat32 performs a simple pass-through for testing.
 func (m *mockCELTDecoder) SynthesizeFloat32(coeffs []float32, transient bool, shortBlocks int) []float32 {
@@ -577,7 +574,6 @@ func TestCELTPLCOutput(t *testing.T) {
 		prevEnergy:   make([]float32, 21), // MaxBands
 		rng:          22222,
 		preemphState: make([]float32, 1),
-		overlapBuf:   make([]float32, 120),
 	}
 
 	// Set some energy values
@@ -615,7 +611,6 @@ func TestCELTPLCEnergyDecay(t *testing.T) {
 		prevEnergy:   make([]float32, 21),
 		rng:          22222,
 		preemphState: make([]float32, 1),
-		overlapBuf:   make([]float32, 120),
 	}
 
 	// Set initial energy
@@ -645,7 +640,6 @@ func TestCELTPLCStereo(t *testing.T) {
 		prevEnergy:   make([]float32, 42), // 21 * 2 channels
 		rng:          22222,
 		preemphState: make([]float32, 2),
-		overlapBuf:   make([]float32, 240), // 120 * 2
 	}
 
 	for i := range dec.prevEnergy {
@@ -671,7 +665,6 @@ func TestCELTHybridPLC(t *testing.T) {
 		prevEnergy:   make([]float32, 21),
 		rng:          22222,
 		preemphState: make([]float32, 1),
-		overlapBuf:   make([]float32, 120),
 	}
 
 	// Set energy - including for high bands (17-21)

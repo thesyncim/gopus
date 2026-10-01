@@ -265,9 +265,33 @@ func TestUp2HQCoreMatchesScalar(t *testing.T) {
 	}
 }
 
+// firInterpolLibopusRef is silk_resampler_private_IIR_FIR_INTERPOL as written
+// in libopus: the phase's four taps from frac_FIR_12 and the mirrored phase's
+// taps in reverse, accumulated in order with int32 wraparound.
+func firInterpolLibopusRef(out []int16, buf []int16, incr int32) {
+	indexQ16 := int32(0)
+	for n := range out {
+		tableIndex := int32((int64(indexQ16&0xFFFF) * 12) >> 16)
+		b := buf[indexQ16>>16:]
+		f := silkResamplerFracFIR12Flat[tableIndex*4:]
+		m := silkResamplerFracFIR12Flat[(11-tableIndex)*4:]
+		res := int32(b[0]) * int32(f[0])
+		res += int32(b[1]) * int32(f[1])
+		res += int32(b[2]) * int32(f[2])
+		res += int32(b[3]) * int32(f[3])
+		res += int32(b[4]) * int32(m[3])
+		res += int32(b[5]) * int32(m[2])
+		res += int32(b[6]) * int32(m[1])
+		res += int32(b[7]) * int32(m[0])
+		res = ((res >> 14) + 1) >> 1
+		out[n] = int16(max(-32768, min(32767, res)))
+		indexQ16 += incr
+	}
+}
+
 func TestFIRInterpolMatchesGeneric(t *testing.T) {
 	rng := rand.New(rand.NewSource(0xf12))
-	incrs := []int32{21846, 32768, 43691, 65536, 87381, 131072, 98304, 49152}
+	incrs := []int32{21846, 32768, 43691, 65536, 87381, 87382, 131072, 98304, 49152}
 	for iter := 0; iter < 5000; iter++ {
 		incr := incrs[rng.Intn(len(incrs))]
 		if rng.Intn(4) == 0 {
@@ -287,6 +311,13 @@ func TestFIRInterpolMatchesGeneric(t *testing.T) {
 			t.Fatalf("iter %d: firInterpol wrote %d, want %d", iter, n, nOut)
 		}
 		firInterpolGeneric(want, buf, 0, incr)
+		ref := make([]int16, nOut)
+		firInterpolLibopusRef(ref, buf, incr)
+		for i := range want {
+			if want[i] != ref[i] {
+				t.Fatalf("iter %d incr %d nIn %d: generic out[%d] = %d, libopus loop %d", iter, incr, nIn, i, want[i], ref[i])
+			}
+		}
 		for i := range want {
 			if got[i] != want[i] {
 				t.Fatalf("iter %d incr %d nIn %d: out[%d] = %d, want %d", iter, incr, nIn, i, got[i], want[i])

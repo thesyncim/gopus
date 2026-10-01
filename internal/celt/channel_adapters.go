@@ -281,26 +281,9 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 	d.prevEnergy = origPrevEnergy
 	d.applyPendingPLCPrefilterAndFold()
 
-	var samples []float32
-	if !transient {
-		outL, outR := d.synthesizeStereoPlanarFromMonoLong(specMono)
-		left := outL[:frameSize]
-		right := outR[:frameSize]
-		d.applyPostfilterStereoPlanarFromFloat32(left, right, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-		if d.directOutPCM != nil {
-			d.deemphasisPlanarToDirectOut(left, right, frameSize)
-		} else {
-			samples = ensureFloat32Slice(&d.scratchStereoF32, frameSize*2)[:frameSize*2]
-			d.deemphasis(samples, left, right, 1, frameSize, 1, false)
-		}
-	} else {
-		coeffsL := specMono
-		coeffsR := ensureFloat32Slice(&d.scratchMonoToStereoRF32, len(coeffsMono))
-		copy(coeffsR, specMono)
-		samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
-		d.applyPostfilterFloat32(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-		samples = d.deemphasisInterleaved(samples, frameSize)
-	}
+	// celt_synthesis with C=1, CC=2 runs the inverse MDCT of the mono
+	// spectrum into both output channels.
+	samples := d.synthesizeFrame(specMono, specMono, frameSize, mode.LM, shortBlocks, transient, postfilterPeriod, postfilterGain, postfilterTapset)
 
 	stereoEnergies := ensureGLogSlice(&d.scratchStereoEnergies, bandStride*2)
 	for i := 0; i < end; i++ {
@@ -359,8 +342,6 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 	lm := mode.LM
 	end := d.effectiveEndBand(frameSize)
 	start := 0
-	prev1Energy := ensureGLogSlice(&d.scratchPrevEnergy, len(d.prevEnergy))
-	copy(prev1Energy, d.prevEnergy)
 	prev1LogE := d.prevLogE
 	prev2LogE := d.prevLogE2
 
@@ -473,7 +454,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 	}
 
 	d.updateLogEGLog(energies, end, transient)
-	d.setPrevEnergyGLogWithPrev(prev1Energy, energies)
+	d.setPrevEnergyGLog(energies)
 	d.updateBackgroundEnergy(lm)
 	d.clearFrameHistoryOutsideRange(start, end, 2)
 	if extsupport.QEXT && qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
@@ -484,9 +465,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 	d.channels = int32(origChannels)
 	d.applyPendingPLCPrefilterAndFold()
 
-	samples := d.Synthesize(coeffsMono, transient, shortBlocks)
-	d.applyPostfilterFloat32(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-	samples = d.deemphasisInterleaved(samples, frameSize)
+	samples := d.synthesizeFrame(coeffsMono, nil, frameSize, mode.LM, shortBlocks, transient, postfilterPeriod, postfilterGain, postfilterTapset)
 	d.resetPLCCadence(frameSize, origChannels)
 
 	return samples, nil
@@ -547,7 +526,6 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	d.channels = 1
 
 	prev1Energy := ensureGLogSlice(&d.scratchPrevEnergyGLog, MaxBands)
-	prev1EnergyHistory := ensureGLogSlice(&d.scratchPrevEnergy, MaxBands)
 	prev1LogE := d.prevLogE
 	prev2LogE := d.prevLogE2
 	for i := range MaxBands {
@@ -559,7 +537,6 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 			}
 		}
 		prev1Energy[i] = left
-		prev1EnergyHistory[i] = left
 	}
 	origPrevEnergy := d.prevEnergy
 	d.prevEnergy = prev1Energy
@@ -630,26 +607,9 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	d.prevEnergy = origPrevEnergy
 	d.applyPendingPLCPrefilterAndFold()
 
-	var samples []float32
-	if !transient {
-		outL, outR := d.synthesizeStereoPlanarFromMonoLong(specMono)
-		left := outL[:frameSize]
-		right := outR[:frameSize]
-		d.applyPostfilterStereoPlanarFromFloat32(left, right, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-		if d.directOutPCM != nil {
-			d.deemphasisPlanarToDirectOut(left, right, frameSize)
-		} else {
-			samples = ensureFloat32Slice(&d.scratchStereoF32, frameSize*2)[:frameSize*2]
-			d.deemphasis(samples, left, right, 1, frameSize, 1, false)
-		}
-	} else {
-		coeffsL := specMono
-		coeffsR := ensureFloat32Slice(&d.scratchMonoToStereoRF32, len(coeffsMono))
-		copy(coeffsR, specMono)
-		samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
-		d.applyPostfilterFloat32(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-		samples = d.deemphasisInterleaved(samples, frameSize)
-	}
+	// celt_synthesis with C=1, CC=2 runs the inverse MDCT of the mono
+	// spectrum into both output channels.
+	samples := d.synthesizeFrame(specMono, specMono, frameSize, mode.LM, shortBlocks, transient, postfilterPeriod, postfilterGain, postfilterTapset)
 
 	var stereoEnergiesArr [MaxBands * 2]celtGLog
 	stereoEnergies := stereoEnergiesArr[:]
@@ -663,7 +623,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	}
 
 	d.updateLogEGLog(stereoEnergies, end, transient)
-	d.setPrevEnergyGLogWithPrev(prev1EnergyHistory, stereoEnergies)
+	d.setPrevEnergyGLog(stereoEnergies)
 	d.updateBackgroundEnergy(lm)
 	d.clearFrameHistoryOutsideRange(start, end, origChannels)
 	var extDec *rangecoding.Decoder
@@ -707,8 +667,6 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	lm := mode.LM
 	end := d.effectiveEndBand(frameSize)
 	start := HybridCELTStartBand
-	prev1Energy := ensureGLogSlice(&d.scratchPrevEnergy, len(d.prevEnergy))
-	copy(prev1Energy, d.prevEnergy)
 	prev1LogE := d.prevLogE
 	prev2LogE := d.prevLogE2
 
@@ -771,12 +729,8 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 		specR = ensureFloat32Slice(&d.scratchMonoToStereoRF32, len(coeffsR))
 		denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energiesL, HybridCELTStartBand, end, lm, EBands[:], downsample)
 		denormalizeBandsPackedDownsampleIntoFloat32(specR, coeffsR, energiesR, HybridCELTStartBand, end, lm, EBands[:], downsample)
-		for i := 0; i < hybridBinStart && i < len(specL); i++ {
-			specL[i] = 0
-		}
-		for i := 0; i < hybridBinStart && i < len(specR); i++ {
-			specR[i] = 0
-		}
+		clear(specL[:min(hybridBinStart, len(specL))])
+		clear(specR[:min(hybridBinStart, len(specR))])
 	}
 
 	coeffsMono := ensureFloat32Slice(&d.scratchMonoMixF32, len(specL))
@@ -785,7 +739,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	}
 
 	d.updateLogEGLog(energies, end, transient)
-	d.setPrevEnergyGLogWithPrev(prev1Energy, energies)
+	d.setPrevEnergyGLog(energies)
 	d.updateBackgroundEnergy(lm)
 	d.clearFrameHistoryOutsideRange(start, end, 2)
 	var extDec *rangecoding.Decoder
@@ -799,9 +753,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	d.channels = int32(origChannels)
 	d.applyPendingPLCPrefilterAndFold()
 
-	samples := d.Synthesize(coeffsMono, transient, shortBlocks)
-	d.applyPostfilterFloat32(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-	samples = d.deemphasisInterleaved(samples, frameSize)
+	samples := d.synthesizeFrame(coeffsMono, nil, frameSize, mode.LM, shortBlocks, transient, postfilterPeriod, postfilterGain, postfilterTapset)
 	d.resetPLCCadence(frameSize, origChannels)
 
 	return samples, nil

@@ -71,28 +71,17 @@ func TestCombFilterKernelsZeroAllocs(t *testing.T) {
 		t.Fatalf("comb overlap allocated: %g allocs/run", allocs)
 	}
 
-	squareSamples := make([]float32, n)
-	squareHistory := make([]celtSig, combFilterHistory)
-	for i := range squareHistory {
-		squareHistory[i] = celtSig(float32((i*47)%197-98) / 64)
+	inPlace := make([]float32, combFilterHistory+n)
+	for i := range inPlace {
+		inPlace[i] = float32((i*47)%197-98) / 64
 	}
-	squareWindow := GetWindowBufferF32(Overlap)
-	squareWindowSq := GetWindowSquareBufferF32(Overlap)
-	squareRun := func() {
-		combFilterWithSquarePlanarFloat32(squareSamples, squareHistory, combFilterHistory, 0,
-			37, 40, n, 0.28125, 0.65625, 0, 0, squareWindow, nil, Overlap)
+	inPlaceWindowSq := GetWindowSquareBufferF32(Overlap)
+	inPlaceRun := func() {
+		combFilterInPlace(inPlace, combFilterHistory, 37, 40, n, 0.28125, 0.65625, 0, 0, inPlaceWindowSq, Overlap)
 	}
-	squareRun()
-	if allocs := testing.AllocsPerRun(100, squareRun); allocs != 0 {
-		t.Fatalf("comb square fallback allocated: %g allocs/run", allocs)
-	}
-	squarePrecomputedRun := func() {
-		combFilterWithSquarePlanarFloat32(squareSamples, squareHistory, combFilterHistory, 0,
-			37, 40, n, 0.28125, 0.65625, 0, 0, squareWindow, squareWindowSq, Overlap)
-	}
-	squarePrecomputedRun()
-	if allocs := testing.AllocsPerRun(100, squarePrecomputedRun); allocs != 0 {
-		t.Fatalf("comb precomputed-window seam allocated: %g allocs/run", allocs)
+	inPlaceRun()
+	if allocs := testing.AllocsPerRun(100, inPlaceRun); allocs != 0 {
+		t.Fatalf("in-place comb filter allocated: %g allocs/run", allocs)
 	}
 
 	constBody := make([]float32, n)
@@ -149,7 +138,9 @@ func combFilterReference(x []float32, at, t0, t1, n int, g0, g1 float32, tapset0
 	}
 }
 
-func TestCombFilterWithSquarePlanarMatchesReference(t *testing.T) {
+// TestCombFilterInPlaceMatchesReference runs the decoder's in-place
+// decode_mem comb filter against the sequential libopus comb_filter reference.
+func TestCombFilterInPlaceMatchesReference(t *testing.T) {
 	rng := rand.New(rand.NewSource(0xc0c))
 	window := GetWindowBufferF32(Overlap)
 	windowSq := make([]float32, len(window))
@@ -168,13 +159,9 @@ func TestCombFilterWithSquarePlanarMatchesReference(t *testing.T) {
 				continue
 			}
 		}
-		hist := make([]celtSig, history)
-		samples := make([]float32, frameSize)
-		for i := range hist {
-			hist[i] = (rng.Float32()*2 - 1) * 1000
-		}
-		for i := range samples {
-			samples[i] = (rng.Float32()*2 - 1) * 1000
+		full := make([]float32, history+frameSize)
+		for i := range full {
+			full[i] = (rng.Float32()*2 - 1) * 1000
 		}
 		pick := func() int { return rng.Intn(combFilterMaxPeriod + 1) }
 		t0, t1 := pick(), pick()
@@ -189,15 +176,12 @@ func TestCombFilterWithSquarePlanarMatchesReference(t *testing.T) {
 			t1, g1, tap1 = t0, g0, tap0
 		}
 
-		full := make([]float32, history+frameSize)
-		copy(full, hist)
-		copy(full[history:], samples)
+		got := append([]float32(nil), full...)
 		combFilterReference(full, history+frameOffset, t0, t1, n, g0, g1, tap0, tap1, windowSq, Overlap)
-
-		combFilterWithSquarePlanarFloat32(samples, hist, history, frameOffset, t0, t1, n, g0, g1, tap0, tap1, window, windowSq, Overlap)
-		for i := range samples {
-			if math.Float32bits(samples[i]) != math.Float32bits(full[history+i]) {
-				t.Fatalf("iter %d T0=%d T1=%d off=%d n=%d: samples[%d] = %v, want %v", iter, t0, t1, frameOffset, n, i, samples[i], full[history+i])
+		combFilterInPlace(got, history+frameOffset, t0, t1, n, g0, g1, tap0, tap1, windowSq, Overlap)
+		for i := range got {
+			if math.Float32bits(got[i]) != math.Float32bits(full[i]) {
+				t.Fatalf("iter %d T0=%d T1=%d off=%d n=%d: x[%d] = %v, want %v", iter, t0, t1, frameOffset, n, i, got[i], full[i])
 			}
 		}
 	}

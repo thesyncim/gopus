@@ -118,9 +118,9 @@ func (d *Decoder) decodeCoarseEnergyGLogInto(dst []celtGLog, nbBands int, intra 
 		beta = float32(BetaCoefInter[lm])
 	}
 
-	prob := eProbModel[lm][0]
+	prob := &eProbModel[lm][0]
 	if intra {
-		prob = eProbModel[lm][1]
+		prob = &eProbModel[lm][1]
 	}
 
 	budget := rd.StorageBits()
@@ -128,55 +128,88 @@ func (d *Decoder) decodeCoarseEnergyGLogInto(dst []celtGLog, nbBands int, intra 
 	prevEnergy := d.prevEnergy
 
 	// Decode band-major to match libopus ordering.
-	var prevBandEnergy [2]float32
-	for band := 0; band < nbBands; band++ {
-		for c := range channels {
-			// Decode Laplace-distributed residual
-			tell := rd.Tell()
-			qi := 0
-			remaining := budget - tell
-			if remaining >= 15 {
-				pi := min(2*band, 40)
-				fs := int(prob[pi]) << 7
-				decay := int(prob[pi+1]) << 6
-				qi = decodeLaplaceWithRangeDecoder(rd, fs, decay)
-			} else if remaining >= 2 {
-				qi = rd.DecodeICDF(smallEnergyICDF, 2)
-				qi = (qi >> 1) ^ -(qi & 1)
-			} else if remaining >= 1 {
-				qi = -rd.DecodeBit(1)
-			} else {
-				qi = -1
-			}
-
-			// Apply prediction
-			// pred = alpha * prevEnergy[band] + prevBandEnergy
-			prevFrameEnergy := float32(prevEnergy[c*stride+band])
-			minEnergy := float32(-9.0 * DB6)
-			if prevFrameEnergy < minEnergy {
-				prevFrameEnergy = minEnergy
-			}
-
-			// Compute energy: pred + qi * DB6 (6 dB per step)
-			q := float32(qi) * float32(DB6)
-			energy := decodeCoarseEnergyPredict(alpha, prevFrameEnergy, prevBandEnergy[c], q)
-
-			// Store result
-			dst[c*nbBands+band] = celtGLog(energy)
-
-			// Update prev band energy for next band's inter-band prediction.
-			// Per libopus: prev is filtered by the quantized delta.
-			// Formula: prev = prev + q - beta*q, where q = qi*DB6
-			prevBandEnergy[c] = decodeCoarseEnergyUpdate(prevBandEnergy[c], q, beta)
-		}
+	if channels == 2 {
+		decodeCoarseEnergyStereo(rd, dst[:nbBands], dst[nbBands:2*nbBands], prevEnergy[:nbBands], prevEnergy[stride:stride+nbBands], prob, budget, alpha, beta)
+	} else {
+		decodeCoarseEnergyMono(rd, dst, prevEnergy[:nbBands], prob, budget, alpha, beta)
 	}
-
-	// Update previous frame energy for next frame's inter-frame prediction
-	for c := range channels {
-		copy(prevEnergy[c*stride:c*stride+nbBands], dst[c*nbBands:(c+1)*nbBands])
-	}
-
 	return dst
+}
+
+// coarseEnergyQITail decodes a band's coarse energy residual once fewer than
+// 15 bits remain, as unquant_coarse_energy (celt/quant_bands.c) does: the
+// small two-bit model, then one bit, then -1.
+func coarseEnergyQITail(rd *rangecoding.Decoder, remaining int) int {
+	switch {
+	case remaining >= 2:
+		qi := rd.DecodeICDF(smallEnergyICDF, 2)
+		return (qi >> 1) ^ -(qi & 1)
+	case remaining >= 1:
+		return -rd.DecodeBit(1)
+	}
+	return -1
+}
+
+// decodeCoarseEnergyMono is the C == 1 band loop of unquant_coarse_energy
+// (celt/quant_bands.c): dst[i] receives band i's energy predicted from
+// prevEnergy[i] (old, also updated in place) and the running inter-band
+// prediction.
+func decodeCoarseEnergyMono(rd *rangecoding.Decoder, dst, prevEnergy []celtGLog, prob *[42]uint8, budget int, alpha, beta float32) {
+	dst = dst[:len(prevEnergy)]
+	var prev float32
+	for band := range dst {
+		var qi int
+		if remaining := budget - rd.Tell(); remaining >= 15 {
+			pi := min(2*band, 40)
+			qi = decodeLaplaceWithRangeDecoder(rd, int(prob[pi])<<7, int(prob[pi+1])<<6)
+		} else {
+			qi = coarseEnergyQITail(rd, remaining)
+		}
+		old := max(float32(prevEnergy[band]), float32(-9.0*DB6))
+		q := float32(qi) * float32(DB6)
+		e := celtGLog(decodeCoarseEnergyPredict(alpha, old, prev, q))
+		dst[band] = e
+		prevEnergy[band] = e
+		prev = decodeCoarseEnergyUpdate(prev, q, beta)
+	}
+}
+
+// decodeCoarseEnergyStereo is the C == 2 band loop of unquant_coarse_energy:
+// each band decodes the left then the right residual, with dst0/prev0 and
+// dst1/prev1 the per-channel energies and previous-frame energies.
+func decodeCoarseEnergyStereo(rd *rangecoding.Decoder, dst0, dst1, prev0, prev1 []celtGLog, prob *[42]uint8, budget int, alpha, beta float32) {
+	dst0 = dst0[:len(prev0)]
+	dst1 = dst1[:len(prev0)]
+	prev1 = prev1[:len(prev0)]
+	var p0, p1 float32
+	for band := range dst0 {
+		pi := min(2*band, 40)
+		fs, decay := int(prob[pi])<<7, int(prob[pi+1])<<6
+		var qi int
+		if remaining := budget - rd.Tell(); remaining >= 15 {
+			qi = decodeLaplaceWithRangeDecoder(rd, fs, decay)
+		} else {
+			qi = coarseEnergyQITail(rd, remaining)
+		}
+		old := max(float32(prev0[band]), float32(-9.0*DB6))
+		q := float32(qi) * float32(DB6)
+		e := celtGLog(decodeCoarseEnergyPredict(alpha, old, p0, q))
+		dst0[band] = e
+		prev0[band] = e
+		p0 = decodeCoarseEnergyUpdate(p0, q, beta)
+
+		if remaining := budget - rd.Tell(); remaining >= 15 {
+			qi = decodeLaplaceWithRangeDecoder(rd, fs, decay)
+		} else {
+			qi = coarseEnergyQITail(rd, remaining)
+		}
+		old = max(float32(prev1[band]), float32(-9.0*DB6))
+		q = float32(qi) * float32(DB6)
+		e = celtGLog(decodeCoarseEnergyPredict(alpha, old, p1, q))
+		dst1[band] = e
+		prev1[band] = e
+		p1 = decodeCoarseEnergyUpdate(p1, q, beta)
+	}
 }
 
 func (d *Decoder) decodeCoarseEnergyRangeGLog(start, end int, intra bool, lm int, energies []celtGLog) {
@@ -326,6 +359,16 @@ func (d *Decoder) decodeFineEnergyGLogRange(energies []celtGLog, start, end int,
 	rd := d.rangeDecoder
 	channels := int(d.channels)
 	storageBits := rd.StorageBits()
+	if prevQuant == nil && channels*end <= len(energies) {
+		if channels == 1 {
+			decodeFineEnergyMono(rd, energies[start:end], extraQuant[start:end], storageBits)
+			return
+		}
+		if channels == 2 {
+			decodeFineEnergyStereo(rd, energies[start:end], energies[end+start:2*end], extraQuant[start:end], storageBits)
+			return
+		}
+	}
 	for band := start; band < end; band++ {
 		extra := extraQuant[band]
 		if extra <= 0 {
@@ -353,6 +396,43 @@ func (d *Decoder) decodeFineEnergyGLogRange(energies []celtGLog, start, end int,
 				energies[idx] = celtGLog(float32(energies[idx]) + offset)
 			}
 		}
+	}
+}
+
+// decodeFineEnergyMono is the C == 1, prev_quant == NULL band loop of
+// unquant_fine_energy (celt/quant_bands.c) over energies[i] with extraQuant[i]
+// fine bits.
+func decodeFineEnergyMono(rd *rangecoding.Decoder, energies []celtGLog, extraQuant []int32, storageBits int) {
+	extraQuant = extraQuant[:len(energies)]
+	for band, extra := range extraQuant {
+		if extra <= 0 || rd.Tell()+int(extra) > storageBits {
+			continue
+		}
+		// The C shift 1<<(14-extra) is an int value; with prev = 0 the
+		// second scale, (1<<14)*(1.f/16384), is exactly 1.
+		extraScale := float32(int32(1) << uint32(14-extra))
+		q2 := rd.DecodeRawBits(uint(extra))
+		offset := (float32(q2)+float32(0.5))*extraScale*float32(1.0/16384.0) - float32(0.5)
+		energies[band] = celtGLog(float32(energies[band]) + offset)
+	}
+}
+
+// decodeFineEnergyStereo is decodeFineEnergyMono for C == 2: each band
+// decodes the left then the right refinement once both fit the budget.
+func decodeFineEnergyStereo(rd *rangecoding.Decoder, left, right []celtGLog, extraQuant []int32, storageBits int) {
+	extraQuant = extraQuant[:len(left)]
+	right = right[:len(left)]
+	for band, extra := range extraQuant {
+		if extra <= 0 || rd.Tell()+2*int(extra) > storageBits {
+			continue
+		}
+		extraScale := float32(int32(1) << uint32(14-extra))
+		q2 := rd.DecodeRawBits(uint(extra))
+		offset := (float32(q2)+float32(0.5))*extraScale*float32(1.0/16384.0) - float32(0.5)
+		left[band] = celtGLog(float32(left[band]) + offset)
+		q2 = rd.DecodeRawBits(uint(extra))
+		offset = (float32(q2)+float32(0.5))*extraScale*float32(1.0/16384.0) - float32(0.5)
+		right[band] = celtGLog(float32(right[band]) + offset)
 	}
 }
 

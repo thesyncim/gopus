@@ -26,14 +26,10 @@ package celt
 
 // EnableHD96kMode reconfigures the decoder for the native 96 kHz HD mode.
 // It is idempotent and must be called before decoding 96 kHz frames. The
-// per-channel overlap history is grown to overlap=240 and cleared the first
-// time the mode is enabled.
+// decode_mem delay line is resized to the native mode's history and
+// overlap=240, and cleared, the first time the mode is enabled.
 func (d *Decoder) EnableHD96kMode() {
 	m := NewHD96kMode()
-	channels := int(d.channels)
-	if channels < 1 {
-		channels = 1
-	}
 
 	d.sampleRate = int32(m.Fs)
 	d.downsample = 1
@@ -44,22 +40,7 @@ func (d *Decoder) EnableHD96kMode() {
 	d.deemphCoef = m.Preemph[0]
 	d.deemphCoef1 = m.Preemph[1]
 	d.deemphCoef3 = m.Preemph[3]
-	plcHistory := d.plcDecodeBufferLen()
-	if len(d.plcDecodeMem) < plcHistory*channels {
-		d.plcDecodeMem = make([]celtSig, plcHistory*channels)
-		d.plcDecodeMemRingActive = false
-		d.plcDecodeMemRingStart = 0
-	}
-	postfilterHistory := d.plcCombFilterHistoryLen()
-	if len(d.postfilterMem) < postfilterHistory*channels {
-		d.postfilterMem = make([]celtSig, postfilterHistory*channels)
-		d.postfilterMemFromPLC = false
-		d.postfilterMemPLCBacked = false
-	}
-
-	if len(d.overlapBuffer) < m.Overlap*channels {
-		d.overlapBuffer = make([]celtSig, m.Overlap*channels)
-	}
+	d.ensureDecodeMem()
 }
 
 // HD96kEnabled reports whether the decoder is in the native 96 kHz HD mode.

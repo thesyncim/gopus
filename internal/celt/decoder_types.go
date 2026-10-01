@@ -53,16 +53,19 @@ type Decoder struct {
 	rangeDecoderScratch rangecoding.Decoder
 
 	// Energy state (persists across frames for inter-frame prediction)
-	prevEnergy  []celtGLog // Previous frame band energies [MaxBands * channels]
-	prevEnergy2 []celtGLog // Two frames ago energies (for anti-collapse)
-	prevLogE    []celtGLog // Previous log energies (for anti-collapse history)
-	prevLogE2   []celtGLog // Two frames ago log energies (for anti-collapse history)
+	prevEnergy []celtGLog // Previous frame band energies [MaxBands * channels]
+	prevLogE   []celtGLog // Previous log energies (for anti-collapse history)
+	prevLogE2  []celtGLog // Two frames ago log energies (for anti-collapse history)
 	// Slow background floor estimate (libopus backgroundLogE cadence).
 	backgroundEnergy []celtGLog
 
-	// Synthesis state (persists for overlap-add)
-	overlapBuffer []celtSig // Previous frame overlap tail [overlap * channels]
-	preemphState  []celtSig // De-emphasis filter state [channels]
+	// decodeMem is libopus CELTDecoder._decode_mem. Each channel reserves
+	// 2*decodeMemLineLen() samples; its line is the decodeMemLineLen() window at
+	// decodeMemOff within that reservation, and decode_mem[c] is the last
+	// decodeMemLen() samples of the line (see decodeMemChannel).
+	decodeMem    []celtSig
+	decodeMemOff int
+	preemphState []celtSig // De-emphasis filter state [channels]
 
 	// Mode dimensions for synthesis and de-emphasis. Zero selects the standard
 	// 48 kHz overlap and pre-emphasis coefficient. Native 96 kHz HD mode
@@ -85,6 +88,10 @@ type Decoder struct {
 	// end band is customEffBands.
 	customScaleBase int
 	customEffBands  int
+	// customFrameSize is the Opus Custom mode frame size (shortMdctSize *
+	// nbShortMdcts), zero for the standard modes. It sizes the comb-filter
+	// headroom before decode_mem (see decodeMemCombHeadroom).
+	customFrameSize int
 
 	// perMode carries band edges, widths, logN, allocation vectors, and pulse
 	// cache for an Opus Custom mode whose layout differs from the static CELT
@@ -100,19 +107,6 @@ type Decoder struct {
 	postfilterPeriodOld int32
 	postfilterGainOld   float32
 	postfilterTapsetOld int32
-	// Postfilter history buffer (per-channel)
-	postfilterMem []celtSig
-	// On no-gain frames, postfilter history can be lazily reconstructed from
-	// the longer PLC decode history, avoiding a duplicate history shift.
-	postfilterMemFromPLC   bool
-	postfilterMemPLCBacked bool
-	// PLC decode history buffer (per-channel), sized to match libopus
-	// DECODE_BUFFER_SIZE cadence used by celt_plc_pitch_search().
-	plcDecodeMem []celtSig
-	// Stereo planar decode keeps PLC history as a ring during good packets and
-	// materializes it only before PLC consumers need contiguous libopus layout.
-	plcDecodeMemRingActive bool
-	plcDecodeMemRingStart  int
 
 	// Error recovery / deterministic randomness
 	rng uint32 // RNG state for PLC and folding
@@ -166,7 +160,6 @@ type Decoder struct {
 	decoderQEXTFields
 
 	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).
-	scratchPrevEnergy       []celtGLog
 	scratchPrevEnergyGLog   []celtGLog
 	scratchEnergies         []celtGLog
 	scratchStereoEnergies   []celtGLog
@@ -177,22 +170,23 @@ type Decoder struct {
 	scratchFinePriority     []int32
 	scratchPrevBandEnergy   []float32
 	scratchCaps             []int32
+	stdAlloc                stdAllocState
 	scratchAllocWork        []int32
 	scratchBands            bandDecodeScratch
 	scratchIMDCTF32         imdctScratchF32
 	scratchIMDCTF32R        imdctScratchF32
-	scratchSynthF32         []float32
-	scratchSynthRF32        []float32
 	scratchSpecRF32         []float32
 	scratchStereoF32        []float32
 	scratchShortCoeffsF32   []float32
+	scratchPCM              []float32
+	scratchSynthF32         []float32
+	scratchSynthRF32        []float32
+	scratchPLCPitchHist     []celtSig
 	scratchMonoToStereoRF32 []float32
 	scratchMonoMixF32       []float32
-	postfilterScratchF32    []float32
 	postfilterWindowSqF32   []float32
 	postfilterWindowSqOf    *float32  // first element of the window postfilterWindowSqF32 squares
 	scratchPLC              []float32 // Scratch buffer for PLC concealment samples
-	scratchPLCF32           []float32
 	scratchPLCPitchLP       []float32
 	scratchPLCPitchSearch   plcPitchSearchScratch
 	scratchPLCFIRTmp        []celtSig
@@ -201,7 +195,6 @@ type Decoder struct {
 	scratchPLCBuf           []celtSig
 	scratchPLCExc           []celtSig
 	decoderDREDState
-	scratchPLCFoldSrc     []celtSig
 	scratchPLCFoldDst     []celtSig
 	scratchPLCHybridNormL []celtNorm
 	scratchPLCHybridNormR []celtNorm

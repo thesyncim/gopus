@@ -151,9 +151,7 @@ func imdctOverlapWithPrevScratchF32Output32(spectrum []float32, prevOverlap []ce
 	}
 
 	n := n2 * 2
-	n4 := n2 / 2
 	needed := n2 + overlap
-	start := overlap / 2
 	var tables *mdctTransformLookup
 	if scratch != nil {
 		tables = scratch.mdctLookup(n)
@@ -166,17 +164,33 @@ func imdctOverlapWithPrevScratchF32Output32(spectrum []float32, prevOverlap []ce
 		trig = getMDCTTrigF32(n)
 	}
 
+	var outF32 []float32
+	if scratch == nil {
+		outF32 = make([]float32, needed)
+	} else {
+		outF32 = ensureFloat32Slice(&scratch.out, needed)
+	}
+	imdctOverlapWithPrevInto(outF32, spectrum, prevOverlap, overlap, scratch, tables, trig, fftState)
+	return outF32[:needed:needed]
+}
+
+// imdctOverlapWithPrevInto is imdctOverlapWithPrevScratchF32Output32 writing
+// its len(spectrum)+overlap samples into outF32 (with tables, trig and
+// fftState already resolved for the transform size), the clt_mdct_backward_c()
+// call celt_synthesis makes straight into the decode memory.
+func imdctOverlapWithPrevInto(outF32, spectrum []float32, prevOverlap []celtSig, overlap int, scratch *imdctScratchF32, tables *mdctTransformLookup, trig []float32, fftState *kissFFTState) {
+	n2 := len(spectrum)
+	n4 := n2 / 2
+	needed := n2 + overlap
+	start := overlap / 2
 	var fftIn []complex64
 	var fftTmp []kissCpx
-	var outF32 []float32
 	if scratch == nil {
 		fftIn = make([]complex64, n4)
 		fftTmp = make([]kissCpx, n4)
-		outF32 = make([]float32, needed)
 	} else {
 		fftIn = ensureComplex64Slice(&scratch.fftIn, n4)
 		fftTmp = ensureKissCpxSlice(&scratch.fftTmp, n4)
-		outF32 = ensureFloat32Slice(&scratch.out, needed)
 	}
 
 	if start+n2 < needed {
@@ -204,8 +218,55 @@ func imdctOverlapWithPrevScratchF32Output32(spectrum []float32, prevOverlap []ce
 		}
 		imdctTDACWindow(outF32, outF32, windowF32, 0, overlap-1, overlap-1, overlap-1, overlap/2)
 	}
+}
 
-	return outF32[:needed:needed]
+// gatherStrided sets dst[i] = src[first+i*stride], the interleaved short
+// block that celt_synthesis hands clt_mdct_backward_c() with stride B.
+func gatherStrided(dst, src []float32, first, stride int) {
+	if len(dst) == 0 {
+		return
+	}
+	src = src[first : first+(len(dst)-1)*stride+1]
+	idx := 0
+	for i := range dst {
+		dst[i] = src[idx]
+		idx += stride
+	}
+}
+
+// imdctShortBlockInto runs the clt_mdct_backward_c() call celt_synthesis
+// makes for short block b of a transient frame: it reads the block's n2
+// coefficients coeffs[b], coeffs[b+shortBlocks], ..., post-rotates straight
+// into out[blockStart+overlap/2 : blockStart+overlap/2+n2], and applies the
+// TDAC window in place against the overlap the previous block left in
+// out[blockStart : blockStart+overlap/2]. gather backs the contiguous copy a
+// lane without a strided pre-rotation needs.
+func imdctShortBlockInto(coeffs []float32, b, shortBlocks, n2 int, out []float32, blockStart, overlap int, scratch *imdctScratchF32, gather []float32) {
+	n := n2 * 2
+	n4 := n2 / 2
+	tables := scratch.mdctLookup(n)
+	var trig []float32
+	var fftState *kissFFTState
+	if tables != nil {
+		trig, fftState = tables.trig, tables.fft
+	} else {
+		trig = getMDCTTrigF32(n)
+	}
+	fftIn := ensureComplex64Slice(&scratch.fftIn, n4)
+	fftTmp := ensureKissCpxSlice(&scratch.fftTmp, n4)
+	fftOut := imdctPreRotateFFTStrided(fftIn, fftTmp, coeffs, b, shortBlocks, trig, n2, n4, fftState, gather)
+	start := blockStart + overlap/2
+	imdctPostRotateF32FromKiss(out[start:start+n2], fftOut, trig, n2, n4)
+	if overlap > 0 {
+		var windowF32 []float32
+		if tables != nil {
+			windowF32 = tables.window
+		} else {
+			windowF32 = GetWindowBufferF32(overlap)
+		}
+		xp1 := blockStart + overlap - 1
+		imdctTDACWindow(out, out, windowF32, blockStart, xp1, xp1, overlap-1, overlap/2)
+	}
 }
 
 func imdctInPlaceScratchF32Spectrum(spectrum []float32, out []float32, blockStart, overlap int, scratch *imdctScratchF32) {

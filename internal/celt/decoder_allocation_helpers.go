@@ -18,6 +18,11 @@ type decodedBandAllocation struct {
 }
 
 func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start, end, lm int, transient bool) decodedBandAllocation {
+	channels := int(d.channels)
+	pm := d.perMode
+	if pm == nil && lm >= 0 && lm <= 3 && channels >= 1 && channels <= 2 && end <= MaxBands && start >= 0 && start < end {
+		return d.decodeBandAllocationStd(rd, totalBits, start, end, lm, transient, channels)
+	}
 	allocation := decodedBandAllocation{
 		spread: spreadNormal,
 	}
@@ -30,15 +35,13 @@ func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start
 		allocation.spread = rd.DecodeICDF(spreadICDF, 5)
 	}
 
+	offsets := ensureInt32Slice(&d.scratchOffsets, end)
 	cap := ensureInt32Slice(&d.scratchCaps, end)
-	channels := int(d.channels)
-	pm := d.perMode
 	if pm != nil {
 		initCapsIntoMode(cap, end, lm, channels, pm)
 	} else {
 		initCapsInto(cap, end, lm, channels)
 	}
-	offsets := ensureInt32Slice(&d.scratchOffsets, end)
 	totalBitsQ3, tellFrac := decodeDynallocOffsets(rd, offsets, cap, d.modeEdges(), start, end, lm, channels, totalBits<<bitRes)
 	allocation.offsets = offsets[:end]
 

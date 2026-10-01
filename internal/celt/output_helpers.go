@@ -79,12 +79,6 @@ func (d *Decoder) deemphasisInterleavedTo(pcm, samples []float32, frameSize int,
 	d.deemphasis(pcm, samples, x1, int(d.channels), frameSize, d.outputDownsample(pcm, frameSize), accum)
 }
 
-// deemphasisPlanarToDirectOut runs deemphasis over planar synthesis output
-// (left/right for stereo, left only for mono) into directOutPCM.
-func (d *Decoder) deemphasisPlanarToDirectOut(left, right []float32, frameSize int) {
-	d.deemphasis(d.directOutPCM, left, right, 1, frameSize, d.outputDownsample(d.directOutPCM, frameSize), d.directOutAccum)
-}
-
 // outputDownsample returns the deemphasis downsampling factor for writing a
 // frameSize-sample internal frame into pcm: 1 when pcm holds the full
 // internal-rate frame, otherwise the decoder's API-rate factor.

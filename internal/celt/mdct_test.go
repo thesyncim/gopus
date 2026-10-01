@@ -684,7 +684,7 @@ func TestSynthesize_Basic(t *testing.T) {
 	coeffs := make([]float32, n)
 	coeffs[0] = 1.0
 
-	samples := dec.Synthesize(coeffs, false, 1)
+	samples := dec.synthesizeTest(coeffs, false, 1)
 
 	// Should produce some output
 	if len(samples) == 0 {
@@ -715,7 +715,7 @@ func TestSynthesize_TransientMode(t *testing.T) {
 		coeffs[i*120] = 1.0
 	}
 
-	samples := dec.Synthesize(coeffs, true, 4)
+	samples := dec.synthesizeTest(coeffs, true, 4)
 
 	if len(samples) == 0 {
 		t.Error("Synthesize (transient) produced no output")

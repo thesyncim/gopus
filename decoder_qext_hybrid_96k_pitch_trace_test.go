@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/benchutil"
+	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
@@ -49,21 +50,24 @@ func TestQEXTNative96PLCPitchPeriodMatchesSelectedReference(t *testing.T) {
 				}
 			}
 			core := reflect.ValueOf(dec.celtDecoder).Elem()
-			goHist := core.FieldByName("plcDecodeMem")
-			if !goHist.IsValid() {
-				t.Fatal("CELT decoder has no PLC decode history")
+			// decode_mem reserves 2*(history+overlap) samples per channel and
+			// decode_mem[c] is the window at decodeMemOff (internal/celt/decode_mem.go).
+			goMem := core.FieldByName("decodeMem")
+			if !goMem.IsValid() {
+				t.Fatal("CELT decoder has no decode_mem")
 			}
-			historyLen := goHist.Len() / channels
-			oldHist := make([]float32, goHist.Len())
-			ringActive := core.FieldByName("plcDecodeMemRingActive").Bool()
-			ringStart := int(core.FieldByName("plcDecodeMemRingStart").Int())
+			overlap := int(core.FieldByName("synthOverlap").Int())
+			if overlap <= 0 {
+				overlap = celt.Overlap
+			}
+			memLen := goMem.Len() / (2 * channels)
+			memOff := int(core.FieldByName("decodeMemOff").Int())
+			historyLen := memLen - overlap
+			oldHist := make([]float32, historyLen*channels)
 			for channel := 0; channel < channels; channel++ {
+				base := channel*2*memLen + memOff
 				for i := 0; i < historyLen; i++ {
-					src := i
-					if ringActive {
-						src = (ringStart + i) % historyLen
-					}
-					oldHist[channel*historyLen+i] = float32(goHist.Index(channel*historyLen + src).Float())
+					oldHist[channel*historyLen+i] = float32(goMem.Index(base + i).Float())
 				}
 			}
 			if _, err := dec.Decode(nil, out); err != nil {

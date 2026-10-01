@@ -20,34 +20,30 @@ func TestNative96ResetClearsActivePostfilterHistory(t *testing.T) {
 	for i := range samples {
 		samples[i] = float32(0.3 * math.Sin(2*math.Pi*330*float64(i)/96000))
 	}
-	d.applyHD96kPostfilterInterleaved(samples, frameSize, 3, 120, 0.5, 0)
-	state := d.qextState()
-	if state == nil {
-		t.Fatal("native96 postfilter state was not created")
-	}
-	if len(state.hd96kPostMem) != hd96kCombHistory {
-		t.Fatalf("native96 postfilter history len=%d, want %d", len(state.hd96kPostMem), hd96kCombHistory)
+	d.postfilterTest(samples, frameSize, 3, 120, 0.5, 0)
+	mem := d.DecodeMem(0)
+	if len(mem) != d.decodeMemHistoryLen()+240 {
+		t.Fatalf("native96 decode_mem len=%d, want %d", len(mem), d.decodeMemHistoryLen()+240)
 	}
 	active := false
-	for _, sample := range state.hd96kPostMem {
+	for _, sample := range mem {
 		active = active || sample != 0
 	}
 	if !active {
-		t.Fatal("native96 postfilter did not populate persistent history")
+		t.Fatal("native96 postfilter did not populate decode_mem")
 	}
 
-	history := state.hd96kPostMem
+	backing := &d.decodeMem[0]
 	d.Reset()
-	state = d.qextState()
-	if state == nil || len(state.hd96kPostMem) != len(history) {
-		t.Fatal("Reset discarded native96 QEXT postfilter scratch")
+	if len(d.DecodeMem(0)) != len(mem) {
+		t.Fatal("Reset resized native96 decode_mem")
 	}
-	if &state.hd96kPostMem[0] != &history[0] {
-		t.Fatal("Reset replaced native96 QEXT postfilter history instead of reusing it")
+	if &d.decodeMem[0] != backing {
+		t.Fatal("Reset replaced native96 decode_mem instead of reusing it")
 	}
-	for i, sample := range state.hd96kPostMem {
+	for i, sample := range d.decodeMem {
 		if sample != 0 {
-			t.Fatalf("Reset retained native96 postfilter history at %d: %g", i, sample)
+			t.Fatalf("Reset retained native96 decode_mem at %d: %g", i, sample)
 		}
 	}
 
@@ -56,7 +52,7 @@ func TestNative96ResetClearsActivePostfilterHistory(t *testing.T) {
 	d.postfilterGainOld = 0.5
 	d.postfilterGain = 0.5
 	allocs := testing.AllocsPerRun(20, func() {
-		d.applyHD96kPostfilterInterleaved(samples, frameSize, 3, 120, 0.5, 0)
+		d.postfilterTest(samples, frameSize, 3, 120, 0.5, 0)
 	})
 	if allocs != 0 {
 		t.Fatalf("warmed native96 postfilter after Reset allocated %g times/call", allocs)

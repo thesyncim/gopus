@@ -32,10 +32,10 @@ func sqrtF32(x float32) float32 {
 
 // CELTDecoderState is the minimal view of a CELT decoder that concealment
 // reads and writes: channel count, per-band energies (oldBandE in libopus
-// celt/celt_decoder.c), the noise-fill RNG seed (st->rng), the de-emphasis
-// filter memory, and the IMDCT overlap buffer. Exposing it as an interface lets
-// the plc package conceal without importing the celt package (avoiding an
-// import cycle), while still mutating the live decoder state across losses.
+// celt/celt_decoder.c), the noise-fill RNG seed (st->rng) and the de-emphasis
+// filter memory. Exposing it as an interface lets the plc package conceal
+// without importing the celt package (avoiding an import cycle), while still
+// mutating the live decoder state across losses.
 // Preemphasis writes are required to avoid a runtime capability assertion in
 // the loss hot path.
 type CELTDecoderState interface {
@@ -53,10 +53,6 @@ type CELTDecoderState interface {
 	PreemphState() []float32
 	// SetPreemphState stores the advanced de-emphasis filter state.
 	SetPreemphState(samples []float32)
-	// OverlapBuffer returns the overlap buffer for synthesis.
-	OverlapBuffer() []float32
-	// SetOverlapBuffer sets the overlap buffer.
-	SetOverlapBuffer(samples []float32)
 }
 
 // CELTBandInfo describes the CELT critical-band layout the concealer needs:

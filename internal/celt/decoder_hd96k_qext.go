@@ -25,11 +25,6 @@ package celt
 // What is NOT yet mode-parametric (the 2b work):
 //   - GetModeConfig / ValidFrameSize reject frameSize=1920 (cap LM at 3, frame
 //     sizes 120/240/480/960). decodeFrame() rejects 1920 outright.
-//   - The public Synthesize/SynthesizeStereo wrappers bake in the Overlap=120
-//     package constant; the HD path must thread overlap=240 (the underlying
-//     synthesizeChannelWithOverlapScratchF32 already takes overlap as a param).
-//   - Decoder synthesis state sizing (overlapBuffer, postfilter/PLC history,
-//     DecodeBufferSize) assumes the 48 kHz overlap; HD needs overlap*channels=240.
 //   - Preemph/deemphasis coefficients differ at 96 kHz (HD96kMode.Preemph).
 //   - Top-level Opus framing must carry the reserved QEXT extension payload and
 //     route Fs=96000 here instead of the 2:1 resample wrapper (decoder_96k_qext.go).

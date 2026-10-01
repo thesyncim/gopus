@@ -224,12 +224,17 @@ var pvqUDense = func() [15][177]uint32 {
 	return dense
 }()
 
-// pvqUSym holds U(n,k) for n < 15 on both sides of the diagonal, so
-// pvqUSym[n] is a full row of U(n, *).
-var pvqUSym = func() [15][177]uint32 {
-	var sym [15][177]uint32
-	for n := range sym {
-		for k := range sym[n] {
+// pvqUSymRows is the number of dimension counts n whose full U(n, *) row
+// pvqUSym holds.
+const pvqUSymRows = 15
+
+// pvqUSym holds U(n,k) for n < pvqUSymRows on both sides of the diagonal, so
+// pvqUSym[n] is a full row of U(n, *). Rows and columns are padded with zeros
+// to powers of two, so masked indexes need no bounds checks.
+var pvqUSym = func() [16][256]uint32 {
+	var sym [16][256]uint32
+	for n := range pvqUSymRows {
+		for k := range 177 {
 			if k >= n {
 				sym[n][k] = pvqUDense[n][k]
 			} else {
@@ -241,11 +246,11 @@ var pvqUSym = func() [15][177]uint32 {
 }()
 
 // pvqUCol is the transpose of pvqUDense, pvqUCol[n][k] == U(k,n) for
-// k <= min(n, 14), so walking U(*, n) reads one contiguous row. The row is
-// padded to 16 entries.
-var pvqUCol = func() [177][16]uint32 {
-	var col [177][16]uint32
-	for n := range col {
+// k <= min(n, 14), so walking U(*, n) reads one contiguous row. Rows are
+// padded to 16 entries and the table to 256 rows.
+var pvqUCol = func() [256][16]uint32 {
+	var col [256][16]uint32
+	for n := range 177 {
 		for k := 0; k <= min(n, 14); k++ {
 			col[n][k] = pvqUDense[k][n]
 		}
@@ -770,24 +775,27 @@ func cwrsiTableLookup32(n, k int, i uint32, y []int32) uint32 {
 			// Lots of pulses: every U(nCur, *) lookup comes from one row
 			// (libopus CELT_PVQ_U_ROW[_n] and, by symmetry, the
 			// CELT_PVQ_U_ROW[--_k][_n] column walk).
-			row := &pvqUSym[nCur]
-			p = row[k+1]
+			// The table covers (n, k), so nCur < pvqUSymRows and k < 176
+			// here; the masks only drop the bounds checks.
+			nc := nCur & 15
+			row := &pvqUSym[nc]
+			p = row[(k+1)&255]
 			if i >= p {
 				s = true
 				i -= p
 			}
-			if row[nCur] > i {
+			if row[nc] > i {
 				k = nCur
 				for {
 					k--
-					p = row[k]
+					p = row[k&255]
 					if p <= i {
 						break
 					}
 				}
 			} else {
 				for {
-					p = row[k]
+					p = row[k&255]
 					if p <= i {
 						break
 					}
@@ -795,10 +803,11 @@ func cwrsiTableLookup32(n, k int, i uint32, y []int32) uint32 {
 				}
 			}
 		} else {
-			// Lots of dimensions: U(*, nCur) lookups walk column nCur.
-			col := &pvqUCol[nCur]
-			p = col[k]
-			q := col[k+1]
+			// Lots of dimensions: U(*, nCur) lookups walk column nCur. The
+			// table covers (n, k), so k+1 < pvqUSymRows here.
+			col := &pvqUCol[nCur&255]
+			p = col[k&15]
+			q := col[(k+1)&15]
 			if p <= i && i < q {
 				i -= p
 				y[j] = 0
@@ -811,7 +820,7 @@ func cwrsiTableLookup32(n, k int, i uint32, y []int32) uint32 {
 			}
 			for {
 				k--
-				p = col[k]
+				p = col[k&15]
 				if p <= i {
 					break
 				}
@@ -908,7 +917,7 @@ func icwrsLookupFast32(n, k int, y []int32) (uint32, bool) {
 	i := uint32(last) >> 31
 	k1 := int(absInt32(last))
 	remDims := 2
-	for ; remDims <= min(n, len(pvqUSym)-1); remDims++ {
+	for ; remDims <= min(n, pvqUSymRows-1); remDims++ {
 		v := y[n-remDims]
 		row := &pvqUSym[remDims]
 		i += row[k1]
@@ -1175,6 +1184,49 @@ func decodePulsesInto(index uint32, n, k int, y []int, scratch *bandDecodeScratc
 	}
 }
 
+// decodePulsesTable32 is libopus cwrsi() for len(y) == n >= 2 and k >= 1
+// where k <= 2, n == 2 or canUseCWRSFast(n, k): it writes the pulse vector
+// of index into y and returns its squared norm.
+func decodePulsesTable32(index uint32, n, k int, y []int32) uint32 {
+	switch {
+	case k == 1:
+		finishCWRSOnePulse32(y, 0, n, index)
+		return 1
+	case k == 2:
+		return finishCWRSTwoPulses32(y, n, index)
+	case n == 2:
+		return cwrsiN2(index, k, y)
+	}
+	return cwrsiTableLookup32(n, k, index, y)
+}
+
+// cwrsiN2 is the two-dimension tail of libopus cwrsi(): it writes the pulse
+// vector of index for k pulses into y[:2] and returns its squared norm.
+func cwrsiN2(index uint32, k int, y []int32) uint32 {
+	_ = y[1]
+	p := uint32(2*k + 1)
+	neg0 := false
+	if index >= p {
+		neg0 = true
+		index -= p
+	}
+	k1 := int((index + 1) >> 1)
+	if k1 != 0 {
+		index -= uint32(2*k1 - 1)
+	}
+	y0 := k - k1
+	if neg0 {
+		y0 = -y0
+	}
+	y1 := k1
+	if index != 0 {
+		y1 = -y1
+	}
+	y[0] = int32(y0)
+	y[1] = int32(y1)
+	return uint32(y0*y0 + y1*y1)
+}
+
 func decodePulsesInto32(index uint32, n, k int, y []int32, scratch *bandDecodeScratch) uint32 {
 	if n <= 0 || k < 0 || len(y) < n {
 		return 0
@@ -1192,39 +1244,8 @@ func decodePulsesInto32(index uint32, n, k int, y []int32, scratch *bandDecodeSc
 		}
 		return uint32(k * k)
 	}
-	if k == 1 {
-		finishCWRSOnePulse32(y, 0, n, index)
-		return 1
-	}
-	if k == 2 {
-		return finishCWRSTwoPulses32(y, n, index)
-	}
-	if n == 2 {
-		_ = y[1]
-		p := uint32(2*k + 1)
-		neg0 := false
-		if index >= p {
-			neg0 = true
-			index -= p
-		}
-		k1 := int((index + 1) >> 1)
-		if k1 != 0 {
-			index -= uint32(2*k1 - 1)
-		}
-		y0 := k - k1
-		if neg0 {
-			y0 = -y0
-		}
-		y1 := k1
-		if index != 0 {
-			y1 = -y1
-		}
-		y[0] = int32(y0)
-		y[1] = int32(y1)
-		return uint32(y0*y0 + y1*y1)
-	}
-	if canUseCWRSFast(n, k) {
-		return cwrsiTableLookup32(n, k, index, y)
+	if k <= 2 || n == 2 || canUseCWRSFast(n, k) {
+		return decodePulsesTable32(index, n, k, y[:n])
 	}
 	var u []uint32
 	if scratch != nil {
