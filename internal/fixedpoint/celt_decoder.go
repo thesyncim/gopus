@@ -8,7 +8,7 @@ import (
 )
 
 // This file ports the FIXED_POINT celt/celt_decoder.c celt_decode_with_ec
-// driver for the static 48000/960 custom mode, orchestrating the already-ported
+// driver for the static 48000/960 mode, orchestrating the already-ported
 // integer kernels (energy unquantizers, quant_all_bands, anti_collapse,
 // celt_synthesis, comb post-filter, deemphasis) into a full mono/stereo
 // non-PLC frame decode that is bit-exact with the reference MODE_DECODE oracle.

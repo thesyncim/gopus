@@ -70,13 +70,13 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	}
 	assertOptionalExtensionDocsMatchSupport(t, optionalDoc)
 
-	examples := mustReadDocForTest(t, "examples/README.md")
+	examples := optionalDoc
 	for _, needle := range []string{
 		"Most examples use the default build. Optional APIs require their matching build tag: QEXT uses `-tags gopus_qext`, DRED uses `-tags gopus_dred`, and OSCE uses `-tags gopus_osce`.",
 		"These runnable examples demonstrate API usage; they do not imply that every optional feature and architecture has completed parity validation.",
 	} {
 		if !containsDocText(examples, needle) {
-			t.Fatalf("examples/README.md missing %q", needle)
+			t.Fatalf("README.md examples section missing %q", needle)
 		}
 	}
 }

@@ -6,7 +6,7 @@ package bwe
 // hop produces:
 //
 //   lmspec[0:32]  -- log-magnitude spectrogram on a 32-band ERB-style
-//                    filterbank computed from a Hann-windowed 320-sample DFT.
+//                    filterbank computed from a sine-windowed 320-sample DFT.
 //   instafreq[32:73]  -- normalised cross-power real parts for the first
 //                        41 DFT bins (instantaneous-frequency cos).
 //   instafreq[73:114] -- normalised cross-power imaginary parts (sin).

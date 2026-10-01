@@ -133,7 +133,7 @@ type Encoder struct {
 	bandwidth         types.Bandwidth
 	sampleRate        int32
 	channels          int32
-	frameSize         int32 // In samples at 48kHz
+	frameSize         int32 // Per-channel samples at the configured sample rate.
 	lowDelay          bool
 	voipApp           bool
 	restrictedSilkApp bool
@@ -207,8 +207,8 @@ type Encoder struct {
 	encoderFixedCELTFields
 	encoderFixedOuterQ8Fields
 
-	// dnnBlob retains a validated USE_WEIGHTS_FILE blob for future optional
-	// extension paths (DRED/OSCE). Keeping it here mirrors libopus ctl lifetime.
+	// dnnBlob retains the validated model blob for encoder neural features,
+	// matching the lifetime of libopus OPUS_SET_DNN_BLOB.
 	dnnBlob *dnnblob.Blob
 	encoderDREDFields
 
@@ -220,7 +220,7 @@ type Encoder struct {
 	variableHPSmth2Q15    int32
 	variableHPSmth2Inited bool
 
-	// Audio scene analyzer (The "Brain")
+	// Tonality and speech/music analysis.
 	analyzer *TonalityAnalysisState
 	// Last frame analysis info from RunAnalysis(), used by mode heuristics.
 	lastAnalysisInfo    AnalysisInfo
@@ -283,7 +283,9 @@ type Encoder struct {
 	floatInputExact          bool      // True when pcm originated from float32 samples
 }
 
-// NewEncoder creates a new unified Opus encoder.
+// NewEncoder creates an Opus encoder for sampleRate and channels. Unsupported
+// sample rates fall back to 48 kHz; 96 kHz is retained when QEXT is enabled.
+// Channel counts below one select mono, and counts above two select stereo.
 func NewEncoder(sampleRate, channels int) *Encoder {
 	switch sampleRate {
 	case 8000, 12000, 16000, 24000, 48000:
@@ -351,7 +353,8 @@ func (e *Encoder) SetMode(mode Mode) {
 	e.mode = mode
 }
 
-// Mode returns the current encoding mode.
+// Mode returns the configured encoding mode. ModeAuto lets the encoder select
+// a coding mode for each frame.
 func (e *Encoder) Mode() Mode {
 	return e.mode
 }
@@ -444,7 +447,7 @@ func (e *Encoder) DNNBlobLoaded() bool {
 // frame20ms returns the number of native-Fs samples in a 20 ms frame (Fs/50).
 // This is the libopus opus_encode_native multi-frame split unit and the upper
 // bound for a single CELT/Hybrid encode (longer frames are split). At 48 kHz it
-// is 960, matching the legacy 48 kHz-relative frame-size convention.
+// is 960 samples, the standard 20 ms frame size.
 func (e *Encoder) frame20ms() int {
 	return int(e.sampleRate) / 50
 }
@@ -496,12 +499,14 @@ func (e *Encoder) multiFrameSubframeCount(mode Mode, frameSize int) int {
 	return 0
 }
 
-// SetFrameSize sets the frame size in samples at 48kHz.
+// SetFrameSize stores the per-channel frame size in samples at the configured
+// input sample rate.
 func (e *Encoder) SetFrameSize(frameSize int) {
 	e.frameSize = int32(frameSize)
 }
 
-// FrameSize returns the current frame size in samples at 48kHz.
+// FrameSize returns the configured per-channel frame size in samples at the
+// input sample rate.
 func (e *Encoder) FrameSize() int {
 	return int(e.frameSize)
 }
@@ -921,15 +926,13 @@ func (e *Encoder) prepareOpusResInput(pcm []float32) []opusRes {
 // refreshAnalysis, if non-nil, runs the tonality analyzer on the untouched input
 // before any high-pass/DC processing, matching libopus run_analysis ordering.
 //
-// The function applies the variable high-pass / DC-reject filters, refreshes the SILK variable-HP-cutoff smoother in the
-// hp_cutoff-before-silk_Encode order libopus uses, handles the "too little
-// space" TOC-only fast path, selects the coding mode and bandwidth (auto chain or
-// forced mode), performs delay compensation and mode-transition prefill, drives
-// the SILK/CELT/Hybrid sub-encoders under the active rate-control mode, and
-// returns the assembled packet (or nil when more lookahead input is still
-// buffered). It returns ErrInvalidFrameSize / ErrBufferTooSmall /
-// ErrEncodingFailed for malformed or unrepresentable requests and never
-// panics on valid configuration.
+// The function applies the input high-pass/DC filters and SILK cutoff update in
+// libopus order, handles the low-space TOC-only path, selects mode and bandwidth,
+// performs delay compensation and transition prefill, runs SILK/CELT/Hybrid, and
+// assembles the packet. It returns nil if the buffered input does not yet contain
+// a complete frame. Invalid frame sizes, insufficient output budgets, and
+// encoding failures return ErrInvalidFrameSize, ErrBufferTooSmall, or
+// ErrEncodingFailed, respectively.
 func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSize int, maxDataBytes int, refreshAnalysis func()) ([]byte, error) {
 	channels := int(e.channels)
 	sampleRate := int(e.sampleRate)
@@ -2538,7 +2541,9 @@ func (e *Encoder) selectLongSWBAutoMode(frameSize int, signalHint types.Signal) 
 	return mode
 }
 
-// autoSignalFromPCM is kept for backward compatibility but RunAnalysis is preferred.
+// autoSignalFromPCM runs analysis when needed and returns a voice or music hint
+// only when a valid long-frame result crosses a confidence threshold. Otherwise
+// it returns SignalAuto.
 func (e *Encoder) autoSignalFromPCM(pcm []opusRes, frameSize int) types.Signal {
 	if len(pcm) == 0 || frameSize <= 0 {
 		return types.SignalAuto
@@ -3270,7 +3275,8 @@ func (e *Encoder) LFE() bool {
 	return e.lfe
 }
 
-// Lookahead returns the encoder's algorithmic delay in samples at 48kHz.
+// Lookahead returns the encoder's algorithmic delay in samples at its
+// configured input sample rate.
 func (e *Encoder) Lookahead() int {
 	baseLookahead := int(e.sampleRate) / 400
 	if e.lowDelay {

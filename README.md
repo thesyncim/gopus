@@ -1,29 +1,34 @@
 # gopus
 
-An Opus audio codec in pure Go, with no cgo. gopus implements RFC 6716 and
-RFC 8251 and targets strong behavioral and audio-quality parity with libopus
-1.6.1. It includes encoding, decoding, multistream, projection/ambisonics,
-Ogg files and RTP RED recovery.
+gopus encodes and decodes Opus audio in pure Go, without cgo or an external
+codec library. It supports voice and music, mono and stereo, multistream and
+ambisonics, Ogg files, and RTP RED recovery.
 
-The caller-buffer APIs reuse storage and keep the covered encode, decode and
-container hot paths allocation-free after warmup. All codec kernels are Go code;
-Go 1.27's experimental SIMD support is optional.
+The packet APIs use caller-owned buffers for allocation-free processing after
+warmup. Ordinary builds use scalar Go; Go 1.27's experimental SIMD support adds
+CPU-specific kernels. Correctness is checked against pinned libopus 1.6.1 and
+the RFC 8251 test vectors; see [parity and testing](#parity--testing) for the
+exact guarantees and tested configurations.
 
-- [API reference](https://pkg.go.dev/github.com/thesyncim/gopus)
-- [Runnable examples](examples/README.md)
-- [Correctness and performance evidence](reports/validation.md)
+[API reference](https://pkg.go.dev/github.com/thesyncim/gopus) ·
+[Quick start](#quick-start) · [Examples](#examples) ·
+[Performance](#performance) · [Contributing](CONTRIBUTING.md)
 
 ## Install
 
-Requires Go 1.27 or newer:
+This README describes `master`, which requires Go 1.27 or newer:
 
 ```sh
-go get github.com/thesyncim/gopus
+go get github.com/thesyncim/gopus@master
 ```
+
+For the published release, use `@v0.1.2` and its
+[versioned documentation](https://github.com/thesyncim/gopus/tree/v0.1.2).
 
 ## Quick start
 
-Encode and decode a 20 ms stereo frame at 48 kHz:
+Encode and decode a 20 ms stereo frame at 48 kHz. This complete program uses
+silence; replace `pcm` with your interleaved audio samples:
 
 ```go
 package main
@@ -73,7 +78,7 @@ func main() {
 }
 ```
 
-### Buffers, frames, and state
+## Working with audio
 
 PCM channels are interleaved. A frame size counts samples **per channel**, so
 20 ms at 48 kHz is 960 samples per channel or 1,920 values for stereo. `Encode`
@@ -98,7 +103,9 @@ right-justified signed 24-bit samples in `[]int32`, in the range
 [-8,388,608, 8,388,607]. `DecodeInt24` writes into a caller-provided `[]int32`
 buffer at the same PCM scale; it does not clamp to that range, so output gain
 can produce larger values.
-All formats use the same interleaved layout.
+All formats use the same interleaved layout. See the
+[API examples](https://pkg.go.dev/github.com/thesyncim/gopus#pkg-examples) for
+controls, streaming, and caller-buffer use.
 
 ### Packet loss
 
@@ -111,8 +118,8 @@ When the following packet arrives, `DecodeWithFEC(packet, missingPCM, true)`
 recovers the missing audio from in-band FEC when available and otherwise
 conceals the loss. Then call `Decode(packet, out)` on the **same packet** for its
 primary audio. At native 96 kHz, a FEC request always uses concealment and
-ignores the supplied packet. The [packet-loss example](examples/packet-loss) demonstrates this
-ordering. Transport framing, packet timing, and jitter buffering belong to the
+ignores the supplied packet. The [packet-loss example](examples/packet-loss)
+demonstrates this ordering. Transport framing, packet timing, and jitter buffering belong to the
 application; the codec processes the packets supplied to it.
 
 ### Encoder controls
@@ -126,7 +133,42 @@ effective bitrate instead.
 DTX can produce a short one- or two-byte packet, or no packet. A zero encode
 byte count with a nil error means there is no packet to send.
 
-## Packages and features
+## Examples
+
+Run these from the repository root with `go run ./examples/<name>`:
+
+| Example | Purpose |
+|---|---|
+| [roundtrip-min](examples/roundtrip-min) | Minimal caller-buffer encode/decode |
+| [packet-loss](examples/packet-loss) | PLC and in-band FEC recovery ordering |
+| [ogg-file](examples/ogg-file) | Ogg Opus reading, writing and seeking |
+| [sample-rates](examples/sample-rates) | Int16 PCM at 8/12/16/24/48 kHz |
+| [low-delay](examples/low-delay) | Short CELT frames and algorithmic delay |
+| [repacketizer](examples/repacketizer) | Frame merging, splitting and padding |
+| [surround](examples/surround) | Multistream 5.1 in Vorbis channel order |
+| [roundtrip](examples/roundtrip) | Encode/decode quality across configurations |
+| [encode-play](examples/encode-play), [decode-play](examples/decode-play) | Ogg encoding, WAV decoding and optional playback |
+| [ffmpeg-interop](examples/ffmpeg-interop) | Interoperability with ffmpeg and ffprobe |
+| [mix-arrivals](examples/mix-arrivals) | Timed speech mixing with loss and jitter |
+| [bench-encode](examples/bench-encode), [bench-decode](examples/bench-decode) | Matched libopus throughput; see [Performance](#performance) |
+
+Most examples use the default build. Optional APIs require their matching build
+tag: QEXT uses `-tags gopus_qext`, DRED uses `-tags gopus_dred`, and OSCE uses
+`-tags gopus_osce`. These runnable examples demonstrate API usage; they do not
+imply that every optional feature and architecture has completed parity
+validation. Build the in-module examples with `go build ./examples/...`.
+Playback and file-conversion examples can require external audio tools; see
+each example's source for its flags and requirements.
+
+Three examples are separate modules; run their commands inside their directories:
+
+| Module | Command | Purpose |
+|---|---|---|
+| [external-consumer-smoke](examples/external-consumer-smoke) | `go test ./...` | Downstream public API checks |
+| [webrtc-control](examples/webrtc-control) | `go run .` | Browser controls over Pion WebRTC |
+| [webrtc-dred-loopback](examples/webrtc-dred-loopback/README.md) | `go run .` | Desktop PLC/FEC/RED/DRED comparison; see its setup guide |
+
+## Packages
 
 | Package | API |
 |---|---|
@@ -136,22 +178,22 @@ byte count with a nil error means there is no packet to send.
 | [container/red](https://pkg.go.dev/github.com/thesyncim/gopus/container/red) | RTP RED payload construction, parsing and recovery (RFC 2198) |
 | [types](https://pkg.go.dev/github.com/thesyncim/gopus/types) | Shared mode, bandwidth and signal enums |
 
-| Feature | Support |
-|---|---|
-| Modes | SILK, CELT and Hybrid, with automatic selection |
-| Sample rates | 8, 12, 16, 24 and 48 kHz; native 96 kHz with `gopus_qext` |
-| Channels | Mono, stereo, multistream and projection/ambisonics |
-| Frame durations | 2.5, 5, 10, 20, 40, 60, 80, 100 and 120 ms, subject to mode constraints |
-| Rate control | CBR, VBR, constrained VBR, low-delay and DTX |
-| Recovery | Packet-loss concealment and in-band FEC/LBRR |
-| PCM | Float32, int16 and int24, including multistream |
+The standard codec supports 8, 12, 16, 24 and 48 kHz PCM; SILK, CELT and Hybrid
+modes; CBR, VBR and constrained VBR; and frame durations from 2.5 to 120 ms,
+subject to mode constraints. Native 96 kHz and neural recovery use optional
+build tags.
 
-### Build configuration
+## Build options
 
 Ordinary builds use scalar Go kernels. `GOEXPERIMENT=simd` compiles
 `simd/archsimd` kernels where implemented; runtime CPU checks select supported
 kernels and the rest use scalar code. `-tags nosimd` or `-tags purego` forces
 the scalar path, including the matching scalar C reference in oracle tests.
+Enable SIMD when building your application; for this repository:
+
+```sh
+GOEXPERIMENT=simd go build ./...
+```
 
 Optional features mirror libopus build flags and are excluded from the default
 build's import graph:
@@ -208,19 +250,17 @@ at least 250 ms. Go reports zero allocations; C allocations are not measured.
 | Decode RFC vectors, float32 | 38.22 | 42.29 | 35.90 | 33.14 |
 | Decode RFC vectors, int16 | 42.23 | 46.80 | 38.83 | 37.64 |
 
-Decoder rows aggregate 20,075 identical packets. Go SIMD takes 2.5–28.7% less time
-than matched C SIMD in four encode workloads and 14.6% more for 5 ms CELT.
-Float32 vector decode takes 7.7% less time; int16 takes 3.1% less time.
-These results describe the measured revision and workloads. A same-host
-[incremental benchmark](https://github.com/thesyncim/gopus/actions/runs/36870981432)
-of the v3 parity fixes (`4b660d668` → `bce51d66f`) on AMD EPYC 9V74 changes
-public encoder time by −0.35% to +0.42%, with zero allocations in all 80 timing
-samples. These are paired measurements on a separate host; they do not rescale
-the EPYC 7763 tables. The
-[passing native benchmark](https://github.com/thesyncim/gopus/actions/runs/36852328909) records all targets and raw samples. The
-[performance reference](reports/validation.md#performance) contains all **53
-replacement routines**, assembly/Go/`nosimd` comparisons, allocations and
-per-row provenance.
+Decoder rows aggregate 20,075 identical packets. Go SIMD takes 2.5–28.7% less
+time than matched C SIMD in four encoder cases and 14.6% more in the 5 ms CELT
+case. Float32 and int16 decode take 7.7% and 3.1% less time, respectively.
+Results apply to these workloads and the stated revision; they are not a speed
+guarantee for every stream or CPU.
+
+The [validation reference](reports/validation.md#performance) contains all
+**53 replacement routines**, assembly/Go/`nosimd` comparisons, raw-run links,
+and measurements of later parity fixes. Its paired incremental measurement
+records public encoder time changes within 0.5%; measurements from different
+hosts are kept separate.
 
 Use **GOAMD64=v3** on a supporting CPU and select the same C compiler target:
 
@@ -230,13 +270,9 @@ GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./examples/ben
 ```
 
 For scalar comparisons, retain both target settings and use `GOEXPERIMENT=nosimd`.
-On ARM64, omit both AMD64 target settings. The [native v3 audit](https://github.com/thesyncim/gopus/actions/runs/36870981432)
-at `bce51d66f` passes both matched lanes: 19 CBR cases and 2,175 packets/ranges,
-60 encoder, 24 decoder, 15 allocation and 200 analyzer corpus/variant cases.
-All 11 stereo-width cases and all 51 sidecar packets/ranges also agree with
-matching live C. [Current evidence](reports/validation.md#analyzer-history-and-getter-on-amd64-v3).
-The optional [v1/v2/v3 audit](reports/validation.md#amd64-compiler-targets)
-runs on one native host; routine PR CI does not run that matrix.
+On ARM64, omit both AMD64 target settings. The optional
+[v1/v2/v3 audit](reports/validation.md#amd64-compiler-targets) compares compiler
+targets on one native host; routine PR CI does not run that timing matrix.
 
 ## Parity & testing
 
@@ -267,7 +303,7 @@ and `make test-doc-contract` for documentation contracts. See
 
 Released version: `v0.1.2`. The API is pre-v1.
 
-`v0.1.0` was retracted: its GitHub Release never published.
+`v0.1.0` is retracted: it has no published GitHub Release.
 Latest release evidence: attached to the
 [v0.1.2 release](https://github.com/thesyncim/gopus/releases/tag/v0.1.2).
 

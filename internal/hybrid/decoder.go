@@ -13,7 +13,8 @@ import (
 // Constants for Hybrid mode
 const (
 	// HybridCELTStartBand is the first CELT band decoded in hybrid mode.
-	// Bands 0-16 are covered by SILK; CELT only decodes bands 17-21.
+	// Bands 0-16 are covered by SILK; CELT starts at band 17 and stops at the
+	// configured bandwidth limit.
 	HybridCELTStartBand = 17
 
 	// SilkCELTDelay is the libopus SILK/CELT delay in samples at 48 kHz.
@@ -22,8 +23,9 @@ const (
 
 // Errors for Hybrid decoding
 var (
-	// ErrInvalidFrameSize indicates a frame size invalid for hybrid mode.
-	// Hybrid only supports 10ms (480 samples) and 20ms (960 samples) frames.
+	// ErrInvalidFrameSize indicates a frame size unsupported by Hybrid decoding.
+	// Encoded Hybrid frames use 10 ms or 20 ms (480 or 960 samples in the 48 kHz
+	// codec domain); PLC also accepts 2.5 ms and 5 ms concealment frames.
 	ErrInvalidFrameSize = errors.New("hybrid: invalid frame size (only 10ms/20ms supported)")
 
 	// ErrDecodeFailed indicates a frame decode error.
@@ -116,7 +118,8 @@ func NewDecoder(channels int) *Decoder {
 		channels = 2
 	}
 
-	// Max frame: 960 samples (20ms at 48kHz) * 2 channels = 1920
+	// Initial scratch covers a 20 ms frame for the configured channel count
+	// at 48 kHz. QEXT 96 kHz output grows it on demand.
 	maxSamples := 960 * channels
 
 	return &Decoder{
@@ -517,7 +520,7 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 	// The delay compensation is handled internally by the SILK resampler,
 	// matching libopus behavior where SILK outputs at API rate with proper alignment.
 
-	// Step 2: Decode CELT layer (8-20kHz, bands 17-21 only)
+	// Step 2: Decode CELT from band 17 (8 kHz) through the active bandwidth.
 	// CELT reads from the same range decoder (SILK already consumed its portion)
 	// and accumulates its highband onto the SILK lowband inside deemphasis, as
 	// opus_decode_frame's celt_decode_with_ec(..., celt_accum=1) does.

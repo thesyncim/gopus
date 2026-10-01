@@ -16,7 +16,7 @@ import (
 //   - rd: Range decoder initialized with the SILK bitstream
 //   - bandwidth: Audio bandwidth (NB/MB/WB)
 //   - duration: Frame duration (10/20/40/60ms)
-//   - vadFlag: Voice Activity Detection flag from header
+//   - vadFlag: ignored; VAD flags are decoded from the SILK bitstream
 //
 // For 40/60ms frames, the frame is decoded as multiple 20ms sub-blocks.
 func (d *Decoder) DecodeFrame(
@@ -70,7 +70,7 @@ func (d *Decoder) DecodeFrame(
 //   - rd: Range decoder initialized with the SILK bitstream
 //   - bandwidth: Audio bandwidth (NB/MB/WB)
 //   - duration: Frame duration (10/20/40/60ms)
-//   - vadFlag: Voice Activity Detection flag from header
+//   - vadFlag: ignored; VAD flags are decoded from the SILK bitstream
 //
 // For 40/60ms frames, the frame is decoded as multiple 20ms sub-blocks.
 func (d *Decoder) DecodeFrameRaw(
@@ -100,6 +100,7 @@ func (d *Decoder) DecodeFrameRaw(
 
 // DecodeFrameRawInt16 decodes a single SILK mono frame at native SILK sample rate as int16.
 // This is an int16-native variant used by hot paths that resample immediately.
+// The vadFlag argument is ignored; VAD flags are decoded from the SILK bitstream.
 func (d *Decoder) DecodeFrameRawInt16(
 	rd *rangecoding.Decoder,
 	bandwidth Bandwidth,
@@ -180,7 +181,8 @@ func (d *Decoder) DecodeStereoFrameToMono(
 //
 // Stereo SILK uses mid-side coding with prediction.
 // The mid channel is decoded first, then the side channel,
-// and finally they are unmixed to left and right.
+// and finally they are unmixed to left and right. The vadFlag argument is
+// ignored; VAD flags are decoded from the SILK bitstream.
 func (d *Decoder) DecodeStereoFrame(
 	rd *rangecoding.Decoder,
 	bandwidth Bandwidth,

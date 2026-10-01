@@ -6,15 +6,13 @@ import (
 	"testing"
 )
 
-// This file is the single, canonical quality comparator for gopus-vs-libopus
-// parity tests. It standardizes on opus_compare — the reference quality tool
-// shipped with libopus and the metric RFC 8251 defines conformance with — so the
-// trust in these comparisons does not depend on gopus: it is the same tool and
-// metric the whole Opus ecosystem (and the spec) uses.
+// The comparison path uses libopus's opus_compare tool to compute the quality
+// metric described by RFC 8251, with waveform diagnostics reported alongside.
 //
 // Quality comparison policy:
-//   - opus_compare Q (0..100, higher == closer) is the primary, trusted metric,
-//     delay-searched against the reference (libopus-decoded PCM or packets).
+//   - opus_compare Q (higher == closer; large errors can produce negative Q) is
+//     the primary, trusted metric, delay-searched against the reference
+//     (libopus-decoded PCM or packets).
 //   - Waveform correlation and RMS ratio are reported as secondary diagnostics.
 //   - Exact packet, range, and sample checks remain separate gates wherever the
 //     paired reference supports them. This comparator measures waveform quality
@@ -115,7 +113,8 @@ func waveformCorrelationRMS(a, b []float32) (corr, rmsRatio float64) {
 }
 
 // QualityBar holds waveform-quality thresholds for comparisons with libopus.
-// A zero value means "unchecked".
+// Zero disables the correlation and RMS bounds; MinQ is always applied, so a
+// zero MinQ requires a nonnegative quality score.
 type QualityBar struct {
 	MinQ    float64 // absolute opus_compare floor vs the libopus reference.
 	MinCorr float64 // waveform correlation floor.
@@ -134,7 +133,8 @@ var (
 )
 
 // QualityBarForMode returns the trusted bar for a decode-parity case by dominant
-// mode. SILK, CELT and Hybrid use the same decoded-waveform quality bar.
+// mode. SILK, CELT and Hybrid use the same decoded-waveform quality bar;
+// channels does not change the selected bar.
 func QualityBarForMode(mode string, channels int) QualityBar {
 	switch mode {
 	case "silk", "celt", "hybrid":

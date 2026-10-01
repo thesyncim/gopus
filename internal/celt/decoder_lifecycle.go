@@ -19,7 +19,7 @@ func NewDecoder(channels int) *Decoder {
 
 	d := &Decoder{
 		channels:   int32(channels),
-		sampleRate: 48000, // CELT always operates at 48kHz internally
+		sampleRate: 48000, // Standard-mode default; EnableHD96kMode selects 96 kHz.
 		downsample: 1,
 
 		// Energy-prediction history is sized to two channels regardless of the
@@ -63,7 +63,9 @@ func (d *Decoder) PhaseInversionDisabled() bool {
 }
 
 // Reset clears decoder state for a new stream.
-// Call this when starting to decode a new audio stream.
+// It clears frame, synthesis, prediction, and PLC history while retaining the
+// channel count, sample rate, and mode geometry. It resets bandwidth to
+// CELTFullband.
 func (d *Decoder) Reset() {
 	channels := int(d.channels)
 	if channels < 1 {

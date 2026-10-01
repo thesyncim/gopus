@@ -411,7 +411,7 @@ func (e *Encoder) encodeCELTFrameFixed(pcm []opusRes, frameSize, bitrate, maxPay
 
 	// The fixed CELT main payload is capped at 1275 bytes. QEXT also reserves an
 	// extension payload, so its frame budget follows the caller's packet capacity
-	// instead of truncating the combined CELT result at the legacy payload limit.
+	// instead of truncating the combined CELT result at the 1275-byte main-payload limit.
 	nbCompressedBytes := celtPacketSizeCap
 	if extsupport.QEXT && e.qextActive() && maxPayloadBytes > nbCompressedBytes {
 		nbCompressedBytes = maxPayloadBytes

@@ -27,8 +27,9 @@ func (d *Decoder) DecodeFrameWithPacketStereo(data []byte, frameSize int, packet
 	return d.decodeStereoPacketToMono(data, frameSize)
 }
 
-// DecodeFrameWithPacketStereoToFloat32 decodes a CELT frame of frameSize
-// samples at the internal 48 kHz rate directly into out.
+// DecodeFrameWithPacketStereoToFloat32 decodes frameSize samples per channel at
+// the decoder's internal rate directly into out. Standard and downsampled modes
+// use a 48 kHz internal rate; native 96 kHz HD mode uses 96 kHz.
 func (d *Decoder) DecodeFrameWithPacketStereoToFloat32(data []byte, frameSize int, packetStereo bool, out []float32) error {
 	outLen := frameSize * int(d.channels)
 	if len(out) < outLen {
@@ -58,9 +59,10 @@ func (d *Decoder) DecodeFrameAtAPIRate(data []byte, frameSize int) ([]float32, e
 	return d.DecodeFrameWithPacketStereoAtAPIRate(data, frameSize, d.channels == 2)
 }
 
-// DecodeFrameWithPacketStereoAtAPIRate decodes a frame at the internal 48 kHz
-// rate and downsamples to the decoder's API rate. frameSize is given at the API
-// rate; the internal block is frameSize*downsampleFactor.
+// DecodeFrameWithPacketStereoAtAPIRate decodes frameSize samples per channel at
+// the decoder's API rate. Standard modes below 48 kHz decode a frameSize times
+// downsampleFactor block at 48 kHz and downsample it; native 96 kHz HD mode
+// decodes at 96 kHz with no downsampling.
 func (d *Decoder) DecodeFrameWithPacketStereoAtAPIRate(data []byte, frameSize int, packetStereo bool) ([]float32, error) {
 	downsample := d.downsampleFactor()
 	if downsample <= 1 {
@@ -84,9 +86,9 @@ func (d *Decoder) DecodeFrameWithPacketStereoAtAPIRate(data []byte, frameSize in
 	return out, nil
 }
 
-// DecodeFrameWithPacketStereoToFloat32AtAPIRate decodes into the caller-provided
-// out slice at the decoder's API sample rate, downsampling from the internal
-// 48 kHz block when required.
+// DecodeFrameWithPacketStereoToFloat32AtAPIRate decodes into out at the
+// decoder's API sample rate, downsampling the 48 kHz internal block when needed.
+// Native 96 kHz HD mode writes its 96 kHz samples without downsampling.
 func (d *Decoder) DecodeFrameWithPacketStereoToFloat32AtAPIRate(data []byte, frameSize int, packetStereo bool, out []float32) error {
 	return d.decodeFrameAtAPIRate(data, frameSize, packetStereo, out, false)
 }

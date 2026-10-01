@@ -19,9 +19,9 @@ package fixedpoint
 //	ADD_RES(a,b)= ADD32(a, b)
 //	VERY_SMALL  = 0
 //
-// The CUSTOM_MODES / ENABLE_OPUS_CUSTOM_API / ENABLE_QEXT branches (coef[1..3])
-// are not part of this build and are therefore not implemented; only coef[0]
-// is consumed, matching the compiled reference.
+// Deemphasis implements the one-tap path that consumes coef[0]. The decoder's
+// deemphasisMode handles the custom two-tap path when coef[1] is nonzero;
+// QEXT decoding uses deemphasisQEXT in celt_synthesis_qext.go.
 
 const (
 	// sigShift is libopus SIG_SHIFT.
@@ -68,9 +68,8 @@ func Res2Int16(a int32) int16 {
 //	accum       accumulate into pcm instead of overwriting
 func Deemphasis(in [][]int32, pcm []int32, coef0 int16, mem []int32, N, downsample int, accum bool) {
 	C := len(in)
-	// Short version for the common stereo, no-downsample, no-accum case. In
-	// this build (no CUSTOM_MODES / CUSTOM_API / QEXT) this shortcut is always
-	// compiled in.
+	// Short version for the one-tap stereo, no-downsample, no-accum case. Custom
+	// two-tap modes use deemphasisMode instead of this helper.
 	if downsample == 1 && C == 2 && !accum {
 		deemphasisStereoSimple(in, pcm, N, coef0, mem)
 		return

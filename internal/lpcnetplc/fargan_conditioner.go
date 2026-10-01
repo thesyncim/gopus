@@ -103,8 +103,9 @@ var farganConditionerLayerSpecs = []LinearLayerSpec{
 	},
 }
 
-// FARGANConditionerLayerSpecs returns the libopus-shaped FARGAN conditioning
-// layer specs the pure-Go loader binds from a validated weights blob.
+// FARGANConditionerLayerSpecs returns the shared libopus-shaped FARGAN
+// conditioning layer specs the pure-Go loader binds from a validated weights
+// blob. Callers must treat the returned slice as read-only.
 func FARGANConditionerLayerSpecs() []LinearLayerSpec {
 	return farganConditionerLayerSpecs
 }

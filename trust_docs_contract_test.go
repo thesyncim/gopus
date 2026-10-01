@@ -12,7 +12,7 @@ func TestTrustDocsContract(t *testing.T) {
 	for _, needle := range []string{
 		"## Trust And Verification",
 		"Released version: `v0.1.2`.",
-		"`v0.1.0` was retracted",
+		"`v0.1.0` is retracted",
 		"Latest release evidence:",
 		"Required branch checks:",
 		"[SECURITY.md](SECURITY.md)",
@@ -83,7 +83,7 @@ func TestReleaseNotesSourceIsReadme(t *testing.T) {
 	readme := mustReadDocForTest(t, "README.md")
 	for _, needle := range []string{
 		"Released version: `v0.1.2`.",
-		"`v0.1.0` was retracted",
+		"`v0.1.0` is retracted",
 		"make release-evidence",
 	} {
 		if !strings.Contains(readme, needle) {

@@ -256,7 +256,7 @@ func NewEncoder(channels int) *Encoder {
 	e := &Encoder{
 		channels:       int32(channels),
 		streamChannels: int32(channels),
-		sampleRate:     48000, // CELT always operates at 48kHz internally
+		sampleRate:     48000, // Standard-mode default; EnableHD96kMode selects 96 kHz.
 		lsbDepth:       24,    // Default to full 24-bit depth
 		bandwidth:      CELTFullband,
 
@@ -423,7 +423,8 @@ func (e *Encoder) dynallocLeakBoost() []uint8 {
 }
 
 // Reset clears encoder state for a new stream.
-// Call this when starting to encode a new audio stream.
+// It clears frame and analysis history while retaining the active channel,
+// sample-rate, and mode configuration.
 func (e *Encoder) Reset() {
 	// Clear energy arrays (match libopus reset: oldBandE=0).
 	for i := range e.prevEnergy {
@@ -679,7 +680,7 @@ func (e *Encoder) codedChannels() int {
 	return channels
 }
 
-// SampleRate returns the operating sample rate (always 48000 for CELT).
+// SampleRate returns the active CELT mode's sample rate in hertz.
 func (e *Encoder) SampleRate() int {
 	return int(e.sampleRate)
 }
@@ -939,11 +940,10 @@ func (e *Encoder) modeConfig(frameSize int) ModeConfig {
 	return GetModeConfig(frameSize)
 }
 
-// toneDetectFs returns the sample rate tone_detect()/transient_analysis() must
-// use (libopus mode->Fs): 48000 for the standard 48 kHz modes, and the custom
-// mode's Fs for the Fs==400*shortMdctSize family (which sets maxDelay=Fs/3000
-// and the tone-frequency normalisation). The default build keeps e.sampleRate
-// at 48000, so this is a constant 48000.
+// toneDetectFs returns the sample rate passed to tone_detect and
+// transient_analysis. Standard and native 96 kHz HD modes use 48000; scaled
+// custom modes use their configured rate, which sets maxDelay and tone-frequency
+// normalization. The default build uses 48000.
 func (e *Encoder) toneDetectFs() int {
 	if e.customScaleBase > 0 && e.sampleRate > 0 {
 		return int(e.sampleRate)

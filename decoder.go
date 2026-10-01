@@ -1,5 +1,3 @@
-// decoder.go implements the public Decoder API for Opus decoding.
-
 package gopus
 
 import (
@@ -25,10 +23,10 @@ type DecoderConfig struct {
 	// Channels must be 1 (mono) or 2 (stereo).
 	Channels int
 	// MaxPacketSamples caps the maximum decoded samples per channel per packet.
-	// If zero, defaultMaxPacketSamples is used.
+	// Zero selects 5,760 samples, or 120 ms at 48 kHz.
 	MaxPacketSamples int
 	// MaxPacketBytes caps the maximum Opus packet size in bytes.
-	// If zero, defaultMaxPacketBytes is used.
+	// Zero selects 1,500 bytes.
 	MaxPacketBytes int
 }
 
@@ -46,7 +44,8 @@ func DefaultDecoderConfig(sampleRate, channels int) DecoderConfig {
 }
 
 // Decoder decodes Opus packets into PCM samples. It retains stream state and is
-// not safe for concurrent use; use one Decoder per stream.
+// not safe for concurrent use; use one Decoder per stream. Construct it with
+// [NewDecoder]; the zero value is not ready for use.
 type Decoder struct {
 	silkDecoder      *silk.Decoder   // SILK-only mode decoder
 	celtDecoder      *celt.Decoder   // CELT-only mode decoder
@@ -79,7 +78,7 @@ type Decoder struct {
 	complexity         int32  // libopus decoder complexity, default 0
 
 	// FEC (Forward Error Correction) state
-	// Stores LBRR data from the current packet for use by the next packet's FEC decode.
+	// Stages the following packet's LBRR payload to recover the missing audio.
 	fecData       []byte    // Stored packet data containing LBRR for FEC recovery
 	fecMode       Mode      // Mode of the packet containing LBRR
 	fecBandwidth  Bandwidth // Bandwidth of the packet containing LBRR
@@ -102,7 +101,7 @@ type Decoder struct {
 	fixedQEXT decoderFixedQEXTFields
 
 	// Decoder-side DNN readiness mirrors the validated model families retained
-	// by OPUS_SET_DNN_BLOB so optional paths can stay dormant until they are real.
+	// by OPUS_SET_DNN_BLOB; optional paths require their corresponding models.
 	pitchDNNLoaded    bool
 	plcModelLoaded    bool
 	farganModelLoaded bool

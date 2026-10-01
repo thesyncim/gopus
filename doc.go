@@ -13,8 +13,8 @@
 // PCM is interleaved: each successive group of samples contains one sample per
 // channel. Float32 methods use normalized full scale; integer input methods use
 // signed 16-bit samples or right-justified 24-bit samples in int32 values.
-// [Decoder.DecodeInt24] returns int32 values at 24-bit PCM scale without clipping to the
-// signed 24-bit range. Frame sizes and decoded sample counts are measured per
+// [Decoder.DecodeInt24] writes int32 values at 24-bit PCM scale without clipping
+// to the signed 24-bit range. Frame sizes and decoded sample counts are measured per
 // channel at the configured sample rate. Encoders return packet byte counts.
 //
 // # Buffers and packet loss

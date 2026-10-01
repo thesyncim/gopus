@@ -185,14 +185,16 @@ var pitchDNNConv2DLayerSpecs = []Conv2DLayerSpec{
 	},
 }
 
-// PitchDNNLinearLayerSpecs returns the libopus-shaped dense/GRU layer specs
-// the pure-Go pitch runtime binds from a validated blob.
+// PitchDNNLinearLayerSpecs returns the shared libopus-shaped dense/GRU layer
+// specs the pure-Go pitch runtime binds from a validated blob. Callers must
+// treat the returned slice as read-only.
 func PitchDNNLinearLayerSpecs() []LinearLayerSpec {
 	return pitchDNNLinearLayerSpecs
 }
 
-// PitchDNNConv2DLayerSpecs returns the libopus-shaped conv layer specs the
-// pure-Go pitch runtime binds from a validated blob.
+// PitchDNNConv2DLayerSpecs returns the shared libopus-shaped convolution layer
+// specs the pure-Go pitch runtime binds from a validated blob. Callers must
+// treat the returned slice as read-only.
 func PitchDNNConv2DLayerSpecs() []Conv2DLayerSpec {
 	return pitchDNNConv2DLayerSpecs
 }

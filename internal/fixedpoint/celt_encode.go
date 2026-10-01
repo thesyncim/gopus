@@ -11,8 +11,8 @@ import (
 // (celt/celt_encoder.c) for the 48000/960 CELT mode and, in combined
 // FIXED_POINT + ENABLE_QEXT builds, the native 96000/1920 mode. It orchestrates
 // integer CELT kernels for fresh and sequential CBR, VBR and constrained-VBR
-// encodes with signalling disabled. The driver handles pure CELT and Hybrid
-// band ranges, optional AnalysisInfo and SILKInfo controls, prediction and
+// encodes. The driver handles custom signalling, pure CELT and Hybrid band
+// ranges, optional AnalysisInfo and SILKInfo controls, prediction and
 // coded-channel controls, LFE, surround energy masks and the QEXT side coder.
 
 // spreadICDFEnc / trimICDFEnc mirror celt/celt.c spread_icdf[4] and trim_icdf[11].

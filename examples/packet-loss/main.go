@@ -6,14 +6,15 @@
 //     Decode(nil, pcm). The decoder synthesizes a replacement frame from its
 //     internal state, keeping the stream continuous instead of inserting a gap.
 //
-//   - FEC (forward error correction): when the encoder is configured with
-//     in-band FEC, each packet carries a low-bitrate copy (LBRR) of the
-//     PREVIOUS frame. If frame N is lost, the next packet (N+1) can reconstruct
-//     it: call DecodeWithFEC(packetN+1, pcm, true) to emit the recovered frame
-//     N, then Decode(packetN+1, pcm) to emit frame N+1 normally.
+//   - FEC (forward error correction): enabling in-band FEC lets the encoder
+//     include a low-bitrate copy (LBRR) of the previous audio. If frame N is
+//     lost, call DecodeWithFEC(packetN+1, pcm, true) to recover it from the next
+//     packet, then Decode(packetN+1, pcm) for that packet's primary audio.
+//     The decoder uses PLC when the packet has no usable redundancy.
 //
-// FEC needs a speech-oriented SILK stream (set up below) and a non-zero
-// expected packet-loss percentage so the encoder spends bits on LBRR.
+// This example selects a speech-oriented SILK stream and a nonzero expected
+// loss percentage to encourage LBRR. Enabling FEC does not guarantee that
+// every packet contains redundancy.
 //
 // Usage:
 //

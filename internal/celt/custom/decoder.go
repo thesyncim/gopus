@@ -62,11 +62,8 @@ func NewDecoder(mode *CustomMode, channels int) (*CustomDecoder, error) {
 	}
 
 	dec := celt.NewDecoder(channels)
-	// Custom decoder always operates at the mode's native sample rate; we tell
-	// the inner celt.Decoder to output at 48 kHz (downsample=1) and let the
-	// caller handle sample-rate conversion if Fs != 48000.
-	// This mirrors libopus behaviour where the custom decoder decodes at the
-	// native rate directly.
+	// Start with the standard CELT output-rate default. Scaled non-standard
+	// modes below install their native Fs and use a unit downsample factor.
 	_ = dec.SetAPISampleRate(48000)
 
 	cd := &CustomDecoder{

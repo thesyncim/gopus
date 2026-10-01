@@ -174,8 +174,8 @@ func (s *State) SetModelPreservingState(blob *dnnblob.Blob) error {
 	return nil
 }
 
-// Model returns the bound BBWENet model, or nil when the runtime has not yet
-// been loaded with a valid weights blob.
+// Model returns the bound BBWENet model, or nil until a valid weights blob is
+// bound.
 func (s *State) Model() *Model {
 	if s == nil {
 		return nil

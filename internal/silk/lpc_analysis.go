@@ -351,12 +351,9 @@ func silkBwExpander32AQ16(ar []int32, order int, chirpQ16 int32) {
 	ar[order-1] = int32((int64(chirpQ16) * int64(ar[order-1])) >> 16)
 }
 
-// applyBandwidthExpansionFloat applies chirp factor to LPC coefficients.
-// This prevents filter instability by pulling poles toward origin.
-// Per decision D02-03-01: chirp factor 0.96.
-//
-// lpcQ12: LPC coefficients in Q12 format (modified in place)
-// chirp: Expansion factor (0.96 recommended per Phase 2)
+// applyBandwidthExpansionFloat applies a caller-selected chirp to the Q12 LPC
+// coefficient slice in place. Successive coefficients are scaled by
+// chirp, chirp^2, and higher powers. This helper is exercised by tests.
 func applyBandwidthExpansionFloat(lpcQ12 []int16, chirp float32) {
 	factor := chirp
 	for i := range lpcQ12 {
