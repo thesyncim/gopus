@@ -170,7 +170,7 @@ func BuildAppend(dst []byte, primary []byte, primaryTimestamp uint32, history []
 			break
 		}
 		offset := int(primaryTimestamp - f.Timestamp)
-		if offset <= 0 || offset > 0x3fff || len(f.Payload) > 0x3ff {
+		if offset <= 0 || offset > 0x3fff || len(f.Payload) == 0 || len(f.Payload) > 0x3ff {
 			continue
 		}
 		if offset%frameSamples != 0 {

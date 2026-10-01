@@ -626,3 +626,35 @@ func TestFindRecovery_FrameMathMatchesButNoBlock(t *testing.T) {
 		t.Fatalf("expected nil when no block carries the matching offset, got %x", got)
 	}
 }
+
+func TestBuildSkipsEmptyHistoryWithoutUsingDepth(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		history []red.Frame
+		want    []byte
+		bytes   int
+	}{
+		{
+			name:    "empty only",
+			history: []red.Frame{{Timestamp: 2880}},
+			want:    []byte{111, 0xff},
+		},
+		{
+			name:    "empty before usable frame",
+			history: []red.Frame{{Timestamp: 2880}, {Timestamp: 1920, Payload: []byte{0xab}}},
+			// One redundant byte at offset 1920, followed by the primary.
+			want:  []byte{0xef, 0x1e, 0x00, 0x01, 111, 0xab, 0xff},
+			bytes: 1,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, n := red.BuildAppend(make([]byte, 0, 32), []byte{0xff}, 3840, tc.history, 1, 960, opusPT)
+			if !bytes.Equal(got, tc.want) || n != tc.bytes {
+				t.Fatalf("BuildAppend = %x, %d redundant bytes; want %x, %d", got, n, tc.want, tc.bytes)
+			}
+			if _, _, err := red.Parse(got, opusPT); err != nil {
+				t.Fatalf("generated RED packet is invalid: %v", err)
+			}
+		})
+	}
+}
