@@ -354,7 +354,6 @@ func (or *Reader) SeekGranule(target uint64) error {
 			or.pushbackG = granule
 			or.hasPush = true
 			or.granulePos = 0
-			or.eos = false
 			return nil
 		}
 	}

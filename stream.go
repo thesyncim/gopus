@@ -221,7 +221,7 @@ func (r *Reader) Channels() int {
 
 // LastGranulePos returns the most recent packet position reported by the source.
 //
-// For Ogg Opus this is the granule position from the underlying page header.
+// For Ogg Opus this is the computed granule position of that packet.
 // Sources that do not track positions may leave this at 0.
 func (r *Reader) LastGranulePos() uint64 {
 	return r.lastGranulePos
@@ -296,7 +296,7 @@ func NewWriter(sampleRate, channels int, sink PacketSink, format SampleFormat, a
 
 // Write implements io.Writer for interleaved little-endian PCM in the format
 // passed to NewWriter. It buffers incomplete frames and encodes each complete
-// frame; DTX may suppress a packet. On success it consumes all of p. On error,
+// frame. On success it consumes all of p. On error,
 // the returned count covers only input bytes in frames handled before the error;
 // packets sent before an error are not rolled back. A sink error closes the
 // Writer.
@@ -315,18 +315,12 @@ func (w *Writer) Write(p []byte) (int, error) {
 		// Extract one frame of bytes
 		frameData := w.sampleBuf[processedBytes : processedBytes+w.frameBytes]
 
-		// Convert bytes to float32 PCM using reusable scratch.
-		pcm := w.pcmScratch[:w.frameSamples]
-		w.decodePCMInto(pcm, frameData)
-
-		// Encode the frame
-		n, err := w.enc.Encode(pcm, w.packetBuf)
+		n, err := w.encodeFrame(frameData)
 		if err != nil {
 			w.discardConsumedPrefix(processedBytes)
 			return consumedInputBytes(initialBuffered, processedBytes, len(p)), err
 		}
 
-		// If n > 0, send packet to sink (n == 0 means DTX suppressed)
 		if n > 0 {
 			if err := w.writePacketToSink(w.packetBuf[:n]); err != nil {
 				w.closed = true
@@ -376,6 +370,16 @@ func (w *Writer) discardConsumedPrefix(consumed int) {
 	w.sampleBuf = w.sampleBuf[:remaining]
 }
 
+func (w *Writer) encodeFrame(data []byte) (int, error) {
+	pcm := w.pcmScratch[:w.frameSamples]
+	w.decodePCMInto(pcm, data)
+	if w.format == FormatInt16LE {
+		// Match opus_encode's short-input analysis and 16-bit precision cap.
+		return w.enc.encodeInt16Packet(pcm, w.packetBuf)
+	}
+	return w.enc.Encode(pcm, w.packetBuf)
+}
+
 // decodePCMInto converts bytes to float32 PCM samples using caller-provided scratch.
 func (w *Writer) decodePCMInto(dst []float32, data []byte) {
 	switch w.format {
@@ -393,7 +397,7 @@ func (w *Writer) decodePCMInto(dst []float32, data []byte) {
 }
 
 // Flush encodes buffered PCM. A partial final frame is zero-padded to the
-// configured frame size, and DTX may suppress its packet. With no buffered PCM,
+// configured frame size. With no buffered PCM,
 // Flush has no effect.
 func (w *Writer) Flush() error {
 	if w.closed {
@@ -406,16 +410,11 @@ func (w *Writer) Flush() error {
 	// Zero-pad to complete frame using reusable scratch.
 	clear(w.paddedBuf)
 	copy(w.paddedBuf, w.sampleBuf)
-	pcm := w.pcmScratch[:w.frameSamples]
-	w.decodePCMInto(pcm, w.paddedBuf)
-
-	// Encode the frame
-	n, err := w.enc.Encode(pcm, w.packetBuf)
+	n, err := w.encodeFrame(w.paddedBuf)
 	if err != nil {
 		return err
 	}
 
-	// If n > 0, send packet to sink
 	if n > 0 {
 		if err := w.writePacketToSink(w.packetBuf[:n]); err != nil {
 			w.closed = true

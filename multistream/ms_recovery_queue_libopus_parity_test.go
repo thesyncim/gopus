@@ -1,9 +1,10 @@
-// Multistream per-stream recovery-queue libopus oracle parity.
+// Multistream packet-loss concealment parity against libopus.
 //
-// Tests feed a multistream sequence with packet-gap patterns and assert that
-// each stream's PLC and FEC recovery tracks the libopus multistream decoder
-// per stream.  Reference: opus_multistream_decoder_create /
-// opus_multistream_decode_float in opus_multistream.c (libopus 1.6.1).
+// Tests feed multistream sequences with packet-gap patterns and compare their
+// per-stream concealment output with opus_multistream_decode_float in libopus
+// 1.6.1. The FEC-enabled encoder cases still call the regular multistream
+// decoder API with decode_fec=0; their nil packet exercises PLC, not explicit
+// LBRR recovery.
 //
 // DRED per-stream recovery is gated under gopus_dred and tested in the
 // separate dred_decoder_test.go / dred_recovery_queue_libopus_parity_test.go
@@ -227,18 +228,15 @@ func TestLibopus_MSRecovery_AutoModeSingleGap(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// FEC / LBRR recovery parity
+// FEC-enabled PLC parity
 // ---------------------------------------------------------------------------
 
-// runMSFECRecoveryOracle validates in-band FEC recovery:  it encodes with FEC
-// enabled, drops a packet in the middle of the sequence, and asks the decoder
-// to recover the lost frame from the redundancy in the next good packet
-// (forward=1 path).  The libopus oracle is asked to do the same: nil packet
-// followed by the redundancy carrier, with no explicit FEC flag needed since
-// libopus always auto-applies LBRR on PLC.
-//
-// The test simply validates that gopus and libopus agree on the recovery audio.
-func runMSFECRecoveryOracle(t *testing.T, label string, channels, sampleRate, bitrate, lossIdx int) {
+// runMSFECEnabledPLCOracle encodes with in-band FEC enabled, replaces one
+// packet with nil, and decodes every sequence entry through the ordinary
+// multistream decode API. The nil entry exercises PLC, and the later packet is
+// decoded with decode_fec=0. The sequence checks PLC parity for FEC-enabled
+// encoded packets; it does not request explicit LBRR recovery.
+func runMSFECEnabledPLCOracle(t *testing.T, label string, channels, sampleRate, bitrate, lossIdx int) {
 	t.Helper()
 	libopustest.RequireOracle(t)
 
@@ -306,16 +304,19 @@ func runMSFECRecoveryOracle(t *testing.T, label string, channels, sampleRate, bi
 	qualitycompare.AssertQuality(t, cmp, qualityBarWaveformNearExact, label)
 }
 
-// TestLibopus_MSRecovery_FECSILKGap validates SILK in-band FEC recovery for a
-// 3-channel multistream.
-// C ref: opus_decode_frame (silk path, FEC decode), opus_decoder.c libopus 1.6.1
-func TestLibopus_MSRecovery_FECSILKGap(t *testing.T) {
-	runMSFECRecoveryOracle(t, "FEC-SILK-3ch-gap@3", 3, 48000, 192000, 3)
+// TestLibopus_MSRecovery_FECEnabledPLCSILKGap validates SILK PLC parity for a
+// 3-channel multistream encoded with in-band FEC enabled. The C helper passes
+// decode_fec=0 for every packet; the missing packet is nil and selects PLC.
+// C ref: opus_multistream_decoder.c and opus_decoder.c, libopus 1.6.1.
+func TestLibopus_MSRecovery_FECEnabledPLCSILKGap(t *testing.T) {
+	runMSFECEnabledPLCOracle(t, "FEC-enabled-SILK-PLC-3ch-gap@3", 3, 48000, 192000, 3)
 }
 
-// TestLibopus_MSRecovery_FECSILKGap51 validates SILK in-band FEC for 5.1.
-func TestLibopus_MSRecovery_FECSILKGap51(t *testing.T) {
-	runMSFECRecoveryOracle(t, "FEC-SILK-6ch-gap@5", 6, 48000, 256000, 5)
+// TestLibopus_MSRecovery_FECEnabledPLCSILKGap51 validates SILK PLC parity for
+// a 5.1 multistream encoded with in-band FEC enabled. The C helper passes
+// decode_fec=0 for every packet; the missing packet is nil and selects PLC.
+func TestLibopus_MSRecovery_FECEnabledPLCSILKGap51(t *testing.T) {
+	runMSFECEnabledPLCOracle(t, "FEC-enabled-SILK-PLC-6ch-gap@5", 6, 48000, 256000, 5)
 }
 
 // ---------------------------------------------------------------------------

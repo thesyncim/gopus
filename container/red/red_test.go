@@ -2,6 +2,7 @@ package red_test
 
 import (
 	"bytes"
+	"strconv"
 	"testing"
 
 	"github.com/thesyncim/gopus/container/red"
@@ -303,6 +304,112 @@ func TestBuildTimestampWrap(t *testing.T) {
 	}
 }
 
+func TestBuildAppendPreservesAliasedInputs(t *testing.T) {
+	redHistory := []red.Frame{{Timestamp: 0, Payload: []byte{0x11}}}
+	wantWithRedundancy := []byte{0xef, 0x0f, 0x00, 0x01, opusPT, 0x11, 0xde, 0xad}
+
+	t.Run("primary_overlaps_destination", func(t *testing.T) {
+		buf := make([]byte, 32)
+		copy(buf, []byte{0xde, 0xad})
+		out, redundantBytes := red.BuildAppend(buf[:0], buf[:2], 960, redHistory, 1, 960, opusPT)
+		if redundantBytes != 1 || !bytes.Equal(out, wantWithRedundancy) {
+			t.Fatalf("BuildAppend = %x, redundantBytes=%d; want %x, 1", out, redundantBytes, wantWithRedundancy)
+		}
+	})
+
+	t.Run("partial_primary_overlap_with_shifted_nonempty_destination", func(t *testing.T) {
+		buf := make([]byte, 64)
+		copy(buf[3:7], []byte{0xde, 0xad, 0xbe, 0xef})
+		dst := buf[4:20]
+		out, redundantBytes := red.BuildAppend(dst, buf[3:7], 960, redHistory, 1, 960, opusPT)
+		want := []byte{0xef, 0x0f, 0x00, 0x01, opusPT, 0x11, 0xde, 0xad, 0xbe, 0xef}
+		if redundantBytes != 1 || !bytes.Equal(out, want) {
+			t.Fatalf("BuildAppend = %x, redundantBytes=%d; want %x, 1", out, redundantBytes, want)
+		}
+	})
+
+	t.Run("redundant_payload_overlaps_destination", func(t *testing.T) {
+		buf := make([]byte, 32)
+		copy(buf[4:6], []byte{0xa1, 0xb2})
+		history := []red.Frame{{Timestamp: 0, Payload: buf[4:6]}}
+		out, redundantBytes := red.BuildAppend(buf[:0], []byte{0xde}, 960, history, 1, 960, opusPT)
+		want := []byte{0xef, 0x0f, 0x00, 0x02, opusPT, 0xa1, 0xb2, 0xde}
+		if redundantBytes != 2 || !bytes.Equal(out, want) {
+			t.Fatalf("BuildAppend = %x, redundantBytes=%d; want %x, 2", out, redundantBytes, want)
+		}
+	})
+
+	t.Run("primary_and_history_payload_overlap_destination", func(t *testing.T) {
+		buf := make([]byte, 32)
+		copy(buf[4:6], []byte{0xa1, 0xb2})
+		copy(buf[6:8], []byte{0xde, 0xad})
+		history := []red.Frame{{Timestamp: 0, Payload: buf[4:6]}}
+		out, redundantBytes := red.BuildAppend(buf[:0], buf[6:8], 960, history, 1, 960, opusPT)
+		want := []byte{0xef, 0x0f, 0x00, 0x02, opusPT, 0xa1, 0xb2, 0xde, 0xad}
+		if redundantBytes != 2 || !bytes.Equal(out, want) {
+			t.Fatalf("BuildAppend = %x, redundantBytes=%d; want %x, 2", out, redundantBytes, want)
+		}
+	})
+
+	t.Run("growing_output_keeps_source_intact", func(t *testing.T) {
+		buf := make([]byte, 5)
+		copy(buf[:2], []byte{0xde, 0xad})
+		dst := buf[:1:5]
+		out, redundantBytes := red.BuildAppend(dst, buf[:2], 960, redHistory, 1, 960, opusPT)
+		if redundantBytes != 1 || !bytes.Equal(out, wantWithRedundancy) {
+			t.Fatalf("BuildAppend = %x, redundantBytes=%d; want %x, 1", out, redundantBytes, wantWithRedundancy)
+		}
+	})
+
+	t.Run("unused_destination_capacity_does_not_allocate", func(t *testing.T) {
+		buf := make([]byte, 64)
+		copy(buf[32:34], []byte{0xde, 0xad})
+		var out []byte
+		allocs := testing.AllocsPerRun(100, func() {
+			out, _ = red.BuildAppend(buf[:0], buf[32:34], 960, redHistory, 1, 960, opusPT)
+		})
+		if allocs != 0 {
+			t.Fatalf("BuildAppend allocations = %g, want 0", allocs)
+		}
+		if !bytes.Equal(out, wantWithRedundancy) {
+			t.Fatalf("BuildAppend = %x, want %x", out, wantWithRedundancy)
+		}
+	})
+}
+
+func TestEncoderPreservesAliasedPrimaryInHistory(t *testing.T) {
+	enc := red.NewEncoder(opusPT, 960, 1)
+	primary := []byte{0xa1, 0xa2, 0xa3}
+	_, _ = enc.Encode(primary, 0)
+
+	second, _ := enc.Encode([]byte{0xb2}, 960)
+	_, blocks, err := red.Parse(second, opusPT)
+	if err != nil || len(blocks) != 1 {
+		t.Fatalf("Parse(second) blocks=%d err=%v, want one block", len(blocks), err)
+	}
+	if !bytes.Equal(blocks[0].Payload, primary) {
+		t.Fatalf("second redundant payload=%x want %x", blocks[0].Payload, primary)
+	}
+
+	third, _ := enc.Encode(blocks[0].Payload, 1920)
+	gotPrimary, _, err := red.Parse(third, opusPT)
+	if err != nil {
+		t.Fatalf("Parse(third): %v", err)
+	}
+	if !bytes.Equal(gotPrimary, primary) {
+		t.Fatalf("third primary=%x want %x", gotPrimary, primary)
+	}
+
+	fourth, _ := enc.Encode([]byte{0xc3}, 2880)
+	_, blocks, err = red.Parse(fourth, opusPT)
+	if err != nil || len(blocks) != 1 {
+		t.Fatalf("Parse(fourth) blocks=%d err=%v, want one block", len(blocks), err)
+	}
+	if blocks[0].TimestampOffset != 960 || !bytes.Equal(blocks[0].Payload, primary) {
+		t.Fatalf("fourth recovery block offset=%d payload=%x, want offset=960 payload=%x", blocks[0].TimestampOffset, blocks[0].Payload, primary)
+	}
+}
+
 // TestBuildDepthCap verifies that Build caps redundancy at MaxDepth even when
 // the caller requests more.
 func TestBuildDepthCap(t *testing.T) {
@@ -387,6 +494,14 @@ func TestFindRecovery_NoMatch(t *testing.T) {
 	got := red.FindRecovery(blocks, 1, 960, 2000, 500)
 	if got != nil {
 		t.Fatalf("expected nil, got %x", got)
+	}
+}
+
+func TestFindRecoveryRejectsOverflowingOffset(t *testing.T) {
+	blocks := []red.Block{{TimestampOffset: 960, Payload: []byte{0xaa}}}
+	lostAgo := int(1<<(strconv.IntSize-2)) + 240
+	if got := red.FindRecovery(blocks, lostAgo, 4, 1000, 40); got != nil {
+		t.Fatalf("FindRecovery returned %x for an offset beyond RFC 2198's 14-bit field", got)
 	}
 }
 

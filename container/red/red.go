@@ -6,7 +6,10 @@
 // processing. Payload-type arguments are 7-bit RTP payload type values.
 package red
 
-import "errors"
+import (
+	"errors"
+	"unsafe"
+)
 
 // MaxDepth is the maximum number of redundant blocks supported per packet.
 // Values above this are rejected by Parse and clamped by Build.
@@ -51,6 +54,26 @@ type Frame struct {
 	// Payload is the encoded Opus payload for this frame. BuildAppend reads it
 	// without copying it into history; AppendHistory stores its own copy.
 	Payload []byte
+}
+
+// byteSlicesOverlap checks slice address ranges without dereferencing them.
+func byteSlicesOverlap(a, b []byte) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	a0 := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	b0 := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	if a0 <= b0 {
+		return b0-a0 < uintptr(len(a))
+	}
+	return a0-b0 < uintptr(len(b))
+}
+
+func snapshotIfOverlapping(dst, src []byte) []byte {
+	if byteSlicesOverlap(dst, src) {
+		return append([]byte(nil), src...)
+	}
+	return src
 }
 
 // ParseInto parses a RED payload into dst[:0] and returns the primary payload
@@ -146,12 +169,20 @@ func Parse(buf []byte, primaryPayloadType byte) (primary []byte, blocks []Block,
 // length field. A nil or undersized dst may allocate. An empty primary produces
 // an empty result. A nonpositive depth copies primary without a RED header;
 // nonpositive frameSamples emits only a primary header and payload, with no
-// redundant blocks.
+// redundant blocks. With sufficient capacity, non-overlapping inputs require no
+// allocation. Input payloads that overlap output bytes are snapshotted before
+// writing.
 func BuildAppend(dst []byte, primary []byte, primaryTimestamp uint32, history []Frame, depth, frameSamples int, primaryPayloadType byte) (out []byte, redundantBytes int) {
 	if len(primary) == 0 || depth <= 0 {
 		return append(dst[:0], primary...), 0
 	}
 	if frameSamples <= 0 {
+		needed := len(primary) + 1
+		if cap(dst) < needed {
+			dst = make([]byte, 0, needed)
+		} else {
+			primary = snapshotIfOverlapping(dst[:needed], primary)
+		}
 		out = append(dst[:0], primaryPayloadType)
 		return append(out, primary...), 0
 	}
@@ -181,8 +212,27 @@ func BuildAppend(dst []byte, primary []byte, primaryTimestamp uint32, history []
 	}
 
 	if nc == 0 {
+		needed := len(primary) + 1
+		if cap(dst) < needed {
+			dst = make([]byte, 0, needed)
+		} else {
+			primary = snapshotIfOverlapping(dst[:needed], primary)
+		}
 		out = append(dst[:0], primaryPayloadType)
 		return append(out, primary...), 0
+	}
+	needed := len(primary) + 1 + 4*nc
+	for i := range nc {
+		needed += len(cands[i].payload)
+	}
+	if cap(dst) < needed {
+		dst = make([]byte, 0, needed)
+	} else {
+		writable := dst[:needed]
+		primary = snapshotIfOverlapping(writable, primary)
+		for i := range nc {
+			cands[i].payload = snapshotIfOverlapping(writable, cands[i].payload)
+		}
 	}
 
 	// Wire order is oldest redundant first; history is newest-first, so reverse.
@@ -220,10 +270,13 @@ func Build(primary []byte, primaryTimestamp uint32, history []Frame, depth, fram
 // is present in blocks. lostAgo is the number of frames between the current and
 // missing packets; frameSamples is the RTP timestamp increment per frame. RTP
 // timestamp subtraction uses uint32 wraparound. The returned slice aliases the
-// matching Block.Payload; it returns nil when the timestamp difference does not
-// match or no block covers that offset.
+// matching Block.Payload; it returns nil when the offset exceeds RFC 2198's
+// 14-bit field, the timestamp difference does not match, or no block covers it.
 func FindRecovery(blocks []Block, lostAgo, frameSamples int, currentTimestamp, missingTimestamp uint32) []byte {
 	if lostAgo <= 0 || frameSamples <= 0 {
+		return nil
+	}
+	if lostAgo > 0x3fff/frameSamples {
 		return nil
 	}
 	wantOffset := lostAgo * frameSamples
@@ -299,9 +352,10 @@ func (d *Decoder) Parse(buf []byte) (primary []byte, blocks []Block, err error) 
 }
 
 // Encoder builds RFC 2198 RED packets and owns its frame history and reusable
-// output buffer. After those buffers have enough capacity for subsequent packet
-// and history sizes, Encode reuses them without allocating. It is the stateful
-// counterpart to Build with managed history and is not safe for concurrent use.
+// output buffer. With sufficient capacity, Encode reuses those buffers without
+// allocating when primary does not overlap its output. Aliased primary input may
+// require a snapshot. It is the stateful counterpart to Build with managed
+// history and is not safe for concurrent use.
 type Encoder struct {
 	pt           byte
 	frameSamples int
@@ -328,8 +382,10 @@ func NewEncoder(primaryPayloadType byte, frameSamples, depth int) *Encoder {
 // primary is copied into the history, so it never escapes and the caller may
 // reuse its buffer immediately.
 func (e *Encoder) Encode(primary []byte, timestamp uint32) (payload []byte, redundantBytes int) {
+	primaryLen := len(primary)
 	e.out, redundantBytes = BuildAppend(e.out[:0], primary, timestamp, e.history, e.depth, e.frameSamples, e.pt)
-	e.history = AppendHistory(e.history, primary, timestamp, e.depth)
+	// The output suffix preserves primary even when its input borrowed from e.out.
+	e.history = AppendHistory(e.history, e.out[len(e.out)-primaryLen:], timestamp, e.depth)
 	return e.out, redundantBytes
 }
 

@@ -545,34 +545,6 @@ func TestWriter_Format_Int16LE(t *testing.T) {
 	t.Logf("Int16LE: %d input bytes -> %d byte packet", len(pcmBytes), len(sink.packets[0]))
 }
 
-// TestWriter_DTX tests that silence produces no packets with DTX enabled.
-func TestWriter_DTX(t *testing.T) {
-	sampleRate := 48000
-	channels := 2
-	frameSize := 960
-
-	sink := &slicePacketSink{}
-	writer, err := NewWriter(sampleRate, channels, sink, FormatFloat32LE, ApplicationVoIP)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	writer.SetDTX(true)
-
-	// Write silence (zeros) for multiple frames
-	// DTX needs multiple frames to activate (DTXFrameThreshold = 20 frames)
-	silentBytes := make([]byte, frameSize*channels*4*25) // 25 frames of silence
-	_, err = writer.Write(silentBytes)
-	if err != nil {
-		t.Fatalf("Write failed: %v", err)
-	}
-
-	// After threshold, some frames should be suppressed
-	// We wrote 25 frames, DTX activates after 20, so at least last few should be suppressed
-	t.Logf("DTX test: wrote 25 silent frames, got %d packets", len(sink.packets))
-	// Just verify no error occurred; exact packet count depends on DTX implementation
-}
-
 // TestWriter_Reset tests resetting the writer.
 func TestWriter_Reset(t *testing.T) {
 	sampleRate := 48000
