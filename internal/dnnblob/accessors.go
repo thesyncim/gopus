@@ -20,8 +20,11 @@ func (v Float32View) Empty() bool {
 	return len(v.data) == 0
 }
 
-// At returns the i-th float32 value.
+// At returns the i-th float32 value. It panics if i is outside [0, Len()).
 func (v Float32View) At(i int) float32 {
+	if uint(i) >= uint(v.Len()) {
+		panic("dnnblob: Float32View.At index out of range")
+	}
 	offset := 4 * i
 	return math.Float32frombits(binary.LittleEndian.Uint32(v.data[offset : offset+4]))
 }
@@ -55,8 +58,11 @@ func (v Int32View) Empty() bool {
 	return len(v.data) == 0
 }
 
-// At returns the i-th int32 value.
+// At returns the i-th int32 value. It panics if i is outside [0, Len()).
 func (v Int32View) At(i int) int32 {
+	if uint(i) >= uint(v.Len()) {
+		panic("dnnblob: Int32View.At index out of range")
+	}
 	offset := 4 * i
 	return int32(binary.LittleEndian.Uint32(v.data[offset : offset+4]))
 }

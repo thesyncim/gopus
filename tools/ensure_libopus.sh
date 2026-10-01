@@ -387,10 +387,35 @@ if build_outputs_are_current; then
   exit 0
 fi
 
-mkdir -p "${TMP_DIR}"
+if setup_error="$(LC_ALL=C mkdir -p "${TMP_DIR}" 2>&1)"; then
+  :
+else
+  echo "error: cannot prepare libopus reference directory ${TMP_DIR}: ${setup_error}" >&2
+  exit 1
+fi
 
-while ! mkdir "${LOCK_DIR}" 2>/dev/null; do
-  sleep 1
+while :; do
+  if lock_error="$(LC_ALL=C mkdir "${LOCK_DIR}" 2>&1)"; then
+    break
+  fi
+  case "${lock_error}" in
+    *": File exists")
+      if [[ -d "${LOCK_DIR}" && ! -L "${LOCK_DIR}" ]]; then
+        sleep 1
+        continue
+      fi
+      if [[ -e "${LOCK_DIR}" || -L "${LOCK_DIR}" ]]; then
+        echo "error: libopus lock path exists but is not a directory: ${LOCK_DIR} (${lock_error})" >&2
+        exit 1
+      fi
+      # The holder can release the lock between mkdir and the directory check.
+      continue
+      ;;
+    *)
+      echo "error: cannot create libopus lock ${LOCK_DIR}: ${lock_error}" >&2
+      exit 1
+      ;;
+  esac
 done
 trap 'rmdir "${LOCK_DIR}" 2>/dev/null || true' EXIT
 
