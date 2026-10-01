@@ -502,10 +502,19 @@ func TestEncodeDecodeLongStreamSoak(t *testing.T) {
 	const sampleRate = 48000
 	frames := soakFrames()
 	specs := buildSoakSweep()
+	// Each config owns its codec state and input buffers, and both selected-C
+	// helper paths are resolved above. Bound concurrent streams to keep the
+	// 2500-frame soak useful in CI without unbounded resource use.
+	const maxParallelSoakConfigs = 4
+	workers := make(chan struct{}, maxParallelSoakConfigs)
 
 	for _, spec := range specs {
 		spec := spec
 		t.Run(spec.name, func(t *testing.T) {
+			t.Parallel()
+			workers <- struct{}{}
+			defer func() { <-workers }()
+
 			fs := encFrameSamples48k(spec.enc.frameMs)
 			ch := spec.enc.channels
 			pcm, err := testsignal.GenerateCorpusSignal(spec.sigClass, sampleRate, fs*frames*ch, ch)
