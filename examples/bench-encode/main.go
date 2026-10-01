@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -63,6 +64,12 @@ func run() error {
 	default:
 		return fmt.Errorf("invalid -mode %q (use gopus, libopus, or both)", *mode)
 	}
+	if *iters < 1 {
+		return errors.New("-iters must be >= 1")
+	}
+	if *warmup < 0 {
+		return errors.New("-warmup must be >= 0")
+	}
 	if *batch < 1 {
 		return errors.New("-batch must be >= 1")
 	}
@@ -78,10 +85,14 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("decode source to PCM: %w", err)
 	}
+	if err := validateEncodeSettings(*bitrate, *complexity, *frameSize, channels); err != nil {
+		return fmt.Errorf("invalid encoder settings: %w", err)
+	}
 
 	durationSec := float64(len(pcm)) / float64(sampleRate*channels)
-	fmt.Printf("Audio duration: %.2fs (%d channels)\n", durationSec, channels)
+	fmt.Printf("Prepared PCM duration (after pre-skip, before Ogg EOS trim): %.2fs (%d channels)\n", durationSec, channels)
 	fmt.Printf("Settings: %d bps, complexity %d, frame size %d, batch %d\n", *bitrate, *complexity, *frameSize, *batch)
+	fmt.Println("Timing note: rough CLI timings; libopus includes opus_demo process and file I/O overhead.")
 
 	if modeValue == "gopus" || modeValue == "both" {
 		times, err := benchGopus(pcm, channels, *bitrate, *complexity, *frameSize, *batch, *iters, *warmup)
@@ -254,6 +265,12 @@ func benchGopus(pcm []float32, channels, bitrate, complexity, frameSize, batch, 
 	if iters < 1 {
 		return nil, errors.New("iters must be >= 1")
 	}
+	if warmup < 0 {
+		return nil, errors.New("warmup must be >= 0")
+	}
+	if batch < 1 {
+		return nil, errors.New("batch must be >= 1")
+	}
 	var times []time.Duration
 	for i := 0; i < iters+warmup; i++ {
 		start := time.Now()
@@ -270,25 +287,117 @@ func benchGopus(pcm []float32, channels, bitrate, complexity, frameSize, batch, 
 }
 
 func encodeGopusOnce(pcm []float32, channels, bitrate, complexity, frameSize, batch int) error {
+	if batch < 1 {
+		return errors.New("batch must be >= 1")
+	}
+	if channels < 1 || channels > 2 {
+		return fmt.Errorf("channels must be 1 or 2, got %d", channels)
+	}
+	if len(pcm)%channels != 0 {
+		return fmt.Errorf("PCM sample count %d is not aligned to %d channels", len(pcm), channels)
+	}
 	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: sampleRate, Channels: channels, Application: gopus.ApplicationAudio})
 	if err != nil {
 		return err
 	}
-	_ = enc.SetBitrate(bitrate)
-	_ = enc.SetComplexity(complexity)
-	_ = enc.SetFrameSize(frameSize)
-
-	packetBuf := make([]byte, 4000)
-	step := frameSize * channels
-	for range batch {
-		for i := 0; i+step <= len(pcm); i += step {
-			_, err := enc.Encode(pcm[i:i+step], packetBuf)
-			if err != nil {
-				return err
-			}
-		}
+	if err := enc.SetBitrate(bitrate); err != nil {
+		return fmt.Errorf("set bitrate: %w", err)
+	}
+	if err := enc.SetComplexity(complexity); err != nil {
+		return fmt.Errorf("set complexity: %w", err)
+	}
+	if err := enc.SetBitrateMode(gopus.BitrateModeVBR); err != nil {
+		return fmt.Errorf("set bitrate mode: %w", err)
+	}
+	if err := enc.SetFrameSize(frameSize); err != nil {
+		return fmt.Errorf("set frame size: %w", err)
 	}
 
+	frameCount, totalSamples, err := repeatedInputFrameCount(len(pcm)/channels, frameSize, batch)
+	if err != nil {
+		return err
+	}
+	frame := make([]int32, frameSize*channels)
+	packetBuf := make([]byte, 15000)
+	for frameIndex := 0; frameIndex < frameCount; frameIndex++ {
+		if err := fillRepeatedInt24Frame(pcm, channels, frameSize, totalSamples, frameIndex, frame); err != nil {
+			return err
+		}
+		if _, err := enc.EncodeInt24(frame, packetBuf); err != nil {
+			return fmt.Errorf("encode frame %d: %w", frameIndex, err)
+		}
+	}
+	return nil
+}
+
+func validateEncodeSettings(bitrate, complexity, frameSize, channels int) error {
+	if _, err := benchutil.FrameSizeArg(frameSize); err != nil {
+		return err
+	}
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: sampleRate, Channels: channels, Application: gopus.ApplicationAudio})
+	if err != nil {
+		return fmt.Errorf("create validation encoder: %w", err)
+	}
+	if err := enc.SetBitrate(bitrate); err != nil {
+		return fmt.Errorf("bitrate: %w", err)
+	}
+	if err := enc.SetComplexity(complexity); err != nil {
+		return fmt.Errorf("complexity: %w", err)
+	}
+	if err := enc.SetBitrateMode(gopus.BitrateModeVBR); err != nil {
+		return fmt.Errorf("bitrate mode: %w", err)
+	}
+	if err := enc.SetFrameSize(frameSize); err != nil {
+		return fmt.Errorf("frame size: %w", err)
+	}
+	return nil
+}
+
+// repeatedInputFrameCount mirrors opus_demo's encode-only EOF behavior: a
+// partial last frame is zero padded, and an exact frame multiple gets one
+// additional all-zero frame when the next read reaches EOF.
+func repeatedInputFrameCount(inputSamples, frameSize, batch int) (int, int, error) {
+	if inputSamples < 0 || frameSize < 1 {
+		return 0, 0, fmt.Errorf("invalid input samples/frame size %d/%d", inputSamples, frameSize)
+	}
+	if batch < 1 {
+		return 0, 0, errors.New("batch must be >= 1")
+	}
+	maxInt := int(^uint(0) >> 1)
+	if inputSamples > maxInt/batch {
+		return 0, 0, errors.New("repeated PCM sample count overflows int")
+	}
+	totalSamples := inputSamples * batch
+	frameCount := totalSamples / frameSize
+	if frameCount == maxInt {
+		return 0, 0, errors.New("encoded frame count overflows int")
+	}
+	return frameCount + 1, totalSamples, nil
+}
+
+// fillRepeatedInt24Frame frames the repeated input as one continuous stream
+// and converts each float sample the way opus_demo's FORMAT_F32_LE path does.
+func fillRepeatedInt24Frame(pcm []float32, channels, frameSize, totalSamples, frameIndex int, dst []int32) error {
+	if channels < 1 || channels > 2 || len(pcm)%channels != 0 {
+		return fmt.Errorf("invalid PCM channel layout: %d channels, %d samples", channels, len(pcm))
+	}
+	if frameSize < 1 || frameSize > int(^uint(0)>>1)/channels || len(dst) != frameSize*channels {
+		return fmt.Errorf("invalid frame buffer for frame size %d and %d channels", frameSize, channels)
+	}
+	inputSamples := len(pcm) / channels
+	if totalSamples < 0 || (totalSamples > 0 && inputSamples == 0) || frameIndex < 0 || frameIndex > totalSamples/frameSize {
+		return errors.New("invalid repeated PCM frame position")
+	}
+	clear(dst)
+	startSample := frameIndex * frameSize
+	available := totalSamples - startSample
+	for i := 0; i < frameSize && i < available; i++ {
+		sourceFrame := ((startSample + i) % inputSamples) * channels
+		for channel := 0; channel < channels; channel++ {
+			sample := pcm[sourceFrame+channel] * 8388608
+			dst[i*channels+channel] = int32(math.Floor(0.5 + float64(sample)))
+		}
+	}
 	return nil
 }
 

@@ -60,6 +60,12 @@ func run() error {
 	default:
 		return fmt.Errorf("invalid -mode %q (use gopus, libopus, or both)", *mode)
 	}
+	if *iters < 1 {
+		return errors.New("-iters must be >= 1")
+	}
+	if *warmup < 0 {
+		return errors.New("-warmup must be >= 0")
+	}
 	if *batch < 1 {
 		return errors.New("-batch must be >= 1")
 	}
@@ -78,6 +84,8 @@ func run() error {
 		return fmt.Errorf("parse packet stream failed: %w", err)
 	}
 	durationSec := float64(baseSamples*(*batch)) / float64(sampleRate)
+	fmt.Printf("Raw packet decode duration (including pre-skip/EOS padding): %.2fs per stream\n", float64(baseSamples)/float64(sampleRate))
+	fmt.Println("Timing note: rough CLI timings; libopus includes opus_demo process and file I/O overhead.")
 
 	var gopusSamples int
 
@@ -118,7 +126,7 @@ func run() error {
 	}
 
 	if gopusSamples > 0 {
-		fmt.Printf("Decoded samples (per channel, batched): %d\n", gopusSamples)
+		fmt.Printf("Raw decoded packet samples (per channel, batched; including pre-skip/EOS padding): %d\n", gopusSamples)
 	}
 	return nil
 }
@@ -234,6 +242,12 @@ func benchGopus(packets [][]byte, channels, batch, iters, warmup int) ([]time.Du
 	if iters < 1 {
 		return nil, 0, errors.New("iters must be >= 1")
 	}
+	if warmup < 0 {
+		return nil, 0, errors.New("warmup must be >= 0")
+	}
+	if batch < 1 {
+		return nil, 0, errors.New("batch must be >= 1")
+	}
 	var times []time.Duration
 	var samples int
 	for i := 0; i < iters+warmup; i++ {
@@ -252,18 +266,21 @@ func benchGopus(packets [][]byte, channels, batch, iters, warmup int) ([]time.Du
 }
 
 func decodeGopusOnce(packets [][]byte, channels, batch int) (int, error) {
+	if batch < 1 {
+		return 0, errors.New("batch must be >= 1")
+	}
 	cfg := gopus.DefaultDecoderConfig(sampleRate, channels)
 	dec, err := gopus.NewDecoder(cfg)
 	if err != nil {
 		return 0, err
 	}
-	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
+	pcmOut := make([]int32, cfg.MaxPacketSamples*cfg.Channels)
 
 	totalSamples := 0
 
 	for range batch {
 		for _, packet := range packets {
-			n, err := dec.Decode(packet, pcmOut)
+			n, err := dec.DecodeInt24(packet, pcmOut)
 			if err != nil {
 				return 0, err
 			}

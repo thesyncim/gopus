@@ -228,7 +228,7 @@ Programs with command-line options accept `-h` for help.
 | [encode-play](examples/encode-play), [decode-play](examples/decode-play) | Ogg encoding, WAV decoding and optional playback |
 | [ffmpeg-interop](examples/ffmpeg-interop) | Interoperability with ffmpeg and ffprobe |
 | [mix-arrivals](examples/mix-arrivals) | Timed speech mixing with loss and jitter |
-| [bench-encode](examples/bench-encode), [bench-decode](examples/bench-decode) | Matched libopus throughput; see [Performance](#performance) |
+| [bench-encode](examples/bench-encode), [bench-decode](examples/bench-decode) | File-based throughput estimates; see [Performance](#performance) |
 
 Most examples use the default build. Optional APIs require their matching build
 tag: QEXT uses `-tags gopus_qext`, DRED uses `-tags gopus_dred`, and OSCE uses
@@ -363,9 +363,13 @@ hosts are kept separate.
 Use **GOAMD64=v3** on a supporting CPU and select the same C compiler target:
 
 ```sh
-GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./examples/bench-encode
-GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./examples/bench-decode
+GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./tools/encoderbenchcmp
+GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./tools/testvectorbenchcmp -cases aggregate
 ```
+
+These tools measure codec work with matched C and Go workloads. The file-based
+`bench-encode` and `bench-decode` examples include `opus_demo` process startup
+and file I/O in C timings, so they provide rough estimates.
 
 For scalar comparisons, retain both target settings and use `GOEXPERIMENT=nosimd`.
 On ARM64, omit both AMD64 target settings. The optional
