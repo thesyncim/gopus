@@ -9,7 +9,7 @@ type Reader struct {
 	rs          io.ReadSeeker
 	Header      *OpusHead // Parsed ID header (set after NewReader)
 	Tags        *OpusTags // Parsed comment header (set after NewReader)
-	granulePos  uint64    // Granule position of the last returned packet
+	granulePos  uint64    // Granule position of the last consumed packet
 	eos         bool      // End-of-stream page consumed
 	serial      uint32    // Stream serial number
 	audioOffset int64     // Stream offset of the first audio page for seekable inputs
@@ -114,6 +114,7 @@ func NewReader(r io.Reader) (*Reader, error) {
 // ReadPacket returns the next Opus packet and its granule position, reassembling
 // packets that span pages. The returned packet is an independent copy that the
 // caller may retain or modify. Pages from other logical bitstreams are skipped.
+// Incomplete packets caused by missing pages are discarded.
 // It returns io.EOF when the selected stream is exhausted or no more packet
 // data can be read; an unterminated trailing packet can also end with io.EOF.
 // Page framing, CRC, and underlying read errors are returned to the caller.
@@ -162,7 +163,7 @@ func (or *Reader) nextPacket(dst []byte, limit int) ([]byte, uint64, error) {
 			if or.eos {
 				return dst[:0], 0, io.EOF
 			}
-			if err := or.advancePage(); err != nil {
+			if _, err := or.advancePage(false); err != nil {
 				return dst[:0], 0, err
 			}
 		}
@@ -194,10 +195,11 @@ func (or *Reader) nextPacket(dst []byte, limit int) ([]byte, uint64, error) {
 				if or.eos {
 					return dst[:0], 0, io.EOF // truncated trailing packet
 				}
-				if err := or.advancePage(); err != nil {
+				continued, err := or.advancePage(true)
+				if err != nil {
 					return dst[:0], 0, err
 				}
-				if !or.page.IsContinuation() {
+				if !continued {
 					dropped = true
 					break
 				}
@@ -218,27 +220,43 @@ func (or *Reader) nextPacket(dst []byte, limit int) ([]byte, uint64, error) {
 	}
 }
 
-// advancePage loads the next page of this logical stream into or.page (skipping
-// other bitstreams), resets the segment cursor, and records the end-of-stream
-// flag.
-func (or *Reader) advancePage() error {
+// advancePage loads the next page of this logical stream and reports whether
+// it continues the packet being assembled. RFC 7845 section 3 requires a
+// continued packet's pages to have consecutive sequence numbers. A leading
+// continuation with no matching prefix is discarded through its first packet
+// terminator; subsequent complete packets on the page remain readable.
+func (or *Reader) advancePage(continuePacket bool) (bool, error) {
+	// Capture this before readPage can replace or.page with another stream's page.
+	expectedSequence := or.page.PageSequence + 1
 	for {
 		if _, err := or.readPage(); err != nil {
 			if err == io.EOF {
 				or.eos = true
 			}
-			return err
+			return false, err
 		}
 		if or.page.SerialNumber != or.serial {
 			continue
 		}
+		continued := continuePacket && or.havePage &&
+			or.page.PageSequence == expectedSequence && or.page.IsContinuation()
 		or.segIdx = 0
 		or.payOff = 0
 		or.havePage = true
 		if or.page.IsEOS() {
 			or.eos = true
 		}
-		return nil
+		if or.page.IsContinuation() && !continued {
+			for or.segIdx < len(or.page.Segments) {
+				seg := or.page.Segments[or.segIdx]
+				or.segIdx++
+				or.payOff += int(seg)
+				if seg < 255 {
+					break
+				}
+			}
+		}
+		return continued, nil
 	}
 }
 

@@ -399,3 +399,60 @@ func TestReadPacketIntoOversizedZeroAlloc(t *testing.T) {
 		t.Fatalf("oversized packet allocs = %g, want 0", allocs)
 	}
 }
+
+func TestReaderDropsPacketsWithMissingContinuationPages(t *testing.T) {
+	first := []byte{0x08, 0x11}
+	spanning := bytes.Repeat([]byte{0x08}, 511)
+	last := []byte{0x08, 0x22}
+	pages := []Page{
+		{SerialNumber: 0x1234, PageSequence: 2, GranulePos: 960, Segments: []byte{2}, Payload: first},
+		{SerialNumber: 0x1234, PageSequence: 3, GranulePos: ^uint64(0), Segments: []byte{255}, Payload: spanning[:255]},
+		{SerialNumber: 0x1234, PageSequence: 4, HeaderType: PageFlagContinuation, GranulePos: ^uint64(0), Segments: []byte{255}, Payload: spanning[255:510]},
+		{SerialNumber: 0x1234, PageSequence: 5, HeaderType: PageFlagContinuation | PageFlagEOS, GranulePos: 2880, Segments: []byte{1, 2}, Payload: append(append([]byte(nil), spanning[510:]...), last...)},
+	}
+	for _, tc := range []struct {
+		name    string
+		keep    []int
+		want    [][]byte
+		granule []uint64
+	}{
+		{"complete", []int{0, 1, 2, 3}, [][]byte{first, spanning, last}, []uint64{960, 1920, 2880}},
+		{"missing prefix", []int{0, 2, 3}, [][]byte{first, last}, []uint64{960, 2880}},
+		{"missing middle", []int{0, 1, 3}, [][]byte{first, last}, []uint64{960, 2880}},
+		{"first audio page continued", []int{2, 3}, [][]byte{last}, []uint64{2880}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := audioPageStreamPrefix()
+			for _, index := range tc.keep {
+				data = append(data, pages[index].Encode()...)
+				// Other serials do not interrupt this stream's page sequence.
+				other := Page{SerialNumber: 0xabcd, PageSequence: 42, Segments: []byte{1}, Payload: []byte{0}}
+				data = append(data, other.Encode()...)
+			}
+			for _, bounded := range []bool{false, true} {
+				r, err := NewReader(bytes.NewReader(data))
+				if err != nil {
+					t.Fatal(err)
+				}
+				dst := make([]byte, 1024)
+				for i, want := range tc.want {
+					var got []byte
+					var granule uint64
+					if bounded {
+						var n int
+						n, granule, err = r.ReadPacketInto(dst)
+						got = dst[:n]
+					} else {
+						got, granule, err = r.ReadPacket()
+					}
+					if err != nil || !bytes.Equal(got, want) || granule != tc.granule[i] {
+						t.Fatalf("bounded=%v packet %d: length=%d granule=%d err=%v; want length=%d granule=%d", bounded, i, len(got), granule, err, len(want), tc.granule[i])
+					}
+				}
+				if _, _, err := r.ReadPacket(); err != io.EOF {
+					t.Fatalf("bounded=%v trailing read = %v, want EOF", bounded, err)
+				}
+			}
+		})
+	}
+}
