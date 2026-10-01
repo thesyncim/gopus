@@ -160,8 +160,10 @@ func (e *Encoder) InDTX() bool {
 	return e.enc.InDTX()
 }
 
-// VADActivity returns the current VAD activity as an unsigned Q8 value in the
-// range 0 through 255; it is not a percentage.
+// VADActivity returns the latest available Opus-level activity estimate in
+// Q8 (0-255), not a percentage or the standalone SILK VAD result. It reads the
+// most recent encoder decision without analyzing new PCM. It returns 0 before
+// the first decision, after Reset, or when no Opus activity decision is available.
 func (e *Encoder) VADActivity() int {
 	return e.enc.GetVADActivity()
 }

@@ -150,6 +150,10 @@ type Encoder struct {
 	lastOpusVADActive bool
 	lastOpusVADValid  bool
 	lastOpusVADProb   float32
+	// Getter-only availability: the Opus decision fields also participate in
+	// coding, so this bit distinguishes a fresh result from retained state after
+	// Reset without changing the encoder's decision state.
+	lastOpusVADActivityObserved bool
 	// multiFrameDTXCount is the number of internal sub-frames the most recent
 	// encode*MultiFramePacket call suppressed via the per-sub-frame DTX decision
 	// (libopus opus_encoder.c dtx_count). It is transient per Encode call.
@@ -564,6 +568,7 @@ func (e *Encoder) Reset() {
 	e.lastAnalysisValid = false
 	e.lastAnalysisFresh = false
 	e.analysisReadBakSet = false
+	e.lastOpusVADActivityObserved = false
 	e.prevMode = ModeAuto
 	e.prevPacketMode = ModeAuto
 	e.prevAutoMode = ModeAuto
@@ -3094,6 +3099,7 @@ func (e *Encoder) trackPeakSignalEnergy(pcm []opusRes, isSilence bool) {
 // the tracked peak; without analysis a CELT-only frame compares its energy
 // with the peak, and any other frame makes no decision (VAD_NO_DECISION).
 func (e *Encoder) updateFrameActivity(pcm []opusRes, isSilence bool, mode Mode) {
+	e.lastOpusVADActivityObserved = true
 	e.lastAnalysisFresh = false
 	peak := opusVal32(0)
 	if e.dtx != nil {
