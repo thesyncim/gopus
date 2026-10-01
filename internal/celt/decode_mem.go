@@ -9,11 +9,12 @@ package celt
 // samples before it, and de-emphasis reads out_syn. Packet-loss concealment,
 // prefilter_and_fold and the neural PLC update read and write the same line.
 //
-// Each channel reserves twice the line. decode_mem[c] is the window of
-// decodeMemLen() samples at decodeMemOff within the reservation, so the
-// per-frame OPUS_MOVE(decode_mem[c], decode_mem[c]+N, ...) advances
-// decodeMemOff by N and copies the retained samples back to the start of the
-// reservation only when the window reaches its end.
+// Each channel reserves twice its line, where the line is decode_mem[c]
+// preceded by decodeMemCombHeadroom() samples of older history. The line is
+// the window of decodeMemLineLen() samples at decodeMemOff within the
+// reservation, so the per-frame OPUS_MOVE(decode_mem[c], decode_mem[c]+N, ...)
+// advances decodeMemOff by N and copies the retained samples back to the start
+// of the reservation only when the window reaches its end.
 
 // decodeMemHistoryLen is libopus QEXT_SCALE(DECODE_BUFFER_SIZE), the decoded
 // history length of decode_mem.
@@ -27,11 +28,30 @@ func (d *Decoder) decodeMemLen() int {
 	return d.decodeMemHistoryLen() + d.synthOverlapLen()
 }
 
+// decodeMemCombHeadroom is the number of samples each channel retains before
+// decode_mem[c]. The comb filter reads up to combFilterHistory samples before
+// out_syn = decode_mem[c]+DECODE_BUFFER_SIZE-N. Every standard geometry keeps
+// that history inside decode_mem, so the headroom is zero and the line is the
+// libopus decode_mem. A 96 kHz QEXT custom mode with 2048-sample frames has
+// qext_scale 1, so out_syn starts at decode_mem[c] itself and libopus reads
+// before its buffer (reports/validation.md#reference-boundary). There the
+// headroom keeps the samples that left decode_mem, and the comb filter reads
+// the continuous synthesis history.
+func (d *Decoder) decodeMemCombHeadroom() int {
+	return max(0, combFilterHistory+d.customFrameSize-d.decodeMemHistoryLen())
+}
+
+// decodeMemLineLen is the length of one channel's line: the comb-filter
+// headroom followed by decode_mem[c].
+func (d *Decoder) decodeMemLineLen() int {
+	return d.decodeMemCombHeadroom() + d.decodeMemLen()
+}
+
 // ensureDecodeMem sizes decode_mem for the active mode and channel count. A
 // size change clears it, as libopus allocates a decoder state per mode.
 func (d *Decoder) ensureDecodeMem() {
 	channels := max(int(d.channels), 1)
-	if n := 2 * d.decodeMemLen() * channels; len(d.decodeMem) != n {
+	if n := 2 * d.decodeMemLineLen() * channels; len(d.decodeMem) != n {
 		d.decodeMem = make([]celtSig, n)
 		d.decodeMemOff = 0
 	}
@@ -46,17 +66,26 @@ func (d *Decoder) clearDecodeMem() {
 
 // decodeMemChannel returns decode_mem[c].
 func (d *Decoder) decodeMemChannel(c int) []celtSig {
-	n := d.decodeMemLen()
-	base := c*2*n + d.decodeMemOff
-	return d.decodeMem[base : base+n : base+n]
+	line := d.decodeMemLineLen()
+	base := c*2*line + d.decodeMemOff
+	return d.decodeMem[base+d.decodeMemCombHeadroom() : base+line : base+line]
 }
 
-// shiftDecodeMem moves every channel's decode_mem n samples to the left,
-// libopus OPUS_MOVE(decode_mem[c], decode_mem[c]+N, DECODE_BUFFER_SIZE-N+overlap).
-// The last n samples of the line are left for the caller to write.
+// decodeMemLine returns channel c's line, decode_mem[c] preceded by the
+// comb-filter headroom.
+func (d *Decoder) decodeMemLine(c int) []celtSig {
+	line := d.decodeMemLineLen()
+	base := c*2*line + d.decodeMemOff
+	return d.decodeMem[base : base+line : base+line]
+}
+
+// shiftDecodeMem moves every channel's line n samples to the left, libopus
+// OPUS_MOVE(decode_mem[c], decode_mem[c]+N, DECODE_BUFFER_SIZE-N+overlap)
+// extended over the comb-filter headroom. The last n samples of the line are
+// left for the caller to write.
 func (d *Decoder) shiftDecodeMem(n int) {
 	d.ensureDecodeMem()
-	size := d.decodeMemLen()
+	size := d.decodeMemLineLen()
 	off := d.decodeMemOff + n
 	if off+size > 2*size {
 		keep := size - n
@@ -180,7 +209,7 @@ func (d *Decoder) commitPostfilterState(lm int, newPeriod int, newGain float32, 
 // place on every channel's out_syn of n samples: the first shortMdctSize
 // samples cross-fade from the previous to the current parameters, the rest
 // from the current to the new ones. The comb filter reads its history from
-// decode_mem before out_syn.
+// the line before out_syn.
 func (d *Decoder) postfilterDecodeMem(n, lm int, newPeriod int, newGain float32, newTapset int) {
 	if d.hd96kPostfilterActive() {
 		d.hd96kPostfilterDecodeMem(n, lm, newPeriod, newGain, newTapset)
@@ -205,9 +234,9 @@ func (d *Decoder) postfilterDecodeMem(n, lm int, newPeriod int, newGain float32,
 		if shortMdctSize <= 0 || shortMdctSize > n {
 			shortMdctSize = n
 		}
-		start := d.decodeMemHistoryLen() - n
+		start := d.decodeMemCombHeadroom() + d.decodeMemHistoryLen() - n
 		for c := range int(d.channels) {
-			x := d.decodeMemChannel(c)
+			x := d.decodeMemLine(c)
 			if trace != nil && c == 0 && d.channels == 1 {
 				trace.captureMonoCombFilterInputs(
 					n, lm, overlap, combFilterHistory, postfilterHistoryNeed(t0, t1, t1b, t2),

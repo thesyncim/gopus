@@ -1,6 +1,7 @@
 package celt
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"testing"
@@ -64,39 +65,165 @@ func (d *Decoder) postfilterTest(samples []float32, frameSize, lm, period int, g
 }
 
 // TestShiftDecodeMemMatchesOpusMove drives decode_mem through random frame
-// sizes and checks every channel's window against a plain buffer moved with
-// libopus OPUS_MOVE semantics each frame, across window compactions.
+// sizes and checks every channel's line against a plain buffer moved with
+// libopus OPUS_MOVE semantics each frame, across window compactions. The
+// 2048-sample custom geometry also checks the comb-filter headroom before
+// decode_mem.
 func TestShiftDecodeMemMatchesOpusMove(t *testing.T) {
-	rng := rand.New(rand.NewSource(0xdec0de))
-	for _, channels := range []int{1, 2} {
-		d := NewDecoder(channels)
-		size := d.decodeMemLen()
-		hist := d.decodeMemHistoryLen()
-		model := make([][]celtSig, channels)
-		for c := range model {
-			model[c] = make([]celtSig, size)
+	for _, tc := range []struct {
+		name            string
+		customFrameSize int
+		frameSizes      []int
+		wantHeadroom    int
+	}{
+		{"standard", 0, []int{120, 240, 480, 960}, 0},
+		{"custom2048", 2048, []int{256, 512, 1024, 2048}, combFilterHistory},
+	} {
+		for _, channels := range []int{1, 2} {
+			t.Run(fmt.Sprintf("%s/ch%d", tc.name, channels), func(t *testing.T) {
+				shiftDecodeMemAgainstOpusMove(t, channels, tc.customFrameSize, tc.frameSizes, tc.wantHeadroom)
+			})
 		}
-		next := float32(1)
-		for frame := range 2000 {
-			n := []int{120, 240, 480, 960}[rng.Intn(4)]
-			d.shiftDecodeMem(n)
-			for c := range channels {
-				m := model[c]
-				copy(m, m[n:])
-				// The caller writes out_syn and the overlap after the move.
-				out := d.outSyn(c, n)
-				for i := range out {
-					out[i] = next
-					m[hist-n+i] = next
-					next++
+	}
+}
+
+// shiftDecodeMemAgainstOpusMove runs one TestShiftDecodeMemMatchesOpusMove
+// geometry.
+func shiftDecodeMemAgainstOpusMove(t *testing.T, channels, customFrameSize int, frameSizes []int, wantHeadroom int) {
+	rng := rand.New(rand.NewSource(0xdec0de))
+	d := NewDecoder(channels)
+	d.customFrameSize = customFrameSize
+	d.ensureDecodeMem()
+	if got := d.decodeMemCombHeadroom(); got != wantHeadroom {
+		t.Fatalf("headroom=%d want %d", got, wantHeadroom)
+	}
+	line := d.decodeMemLineLen()
+	end := d.decodeMemCombHeadroom() + d.decodeMemHistoryLen()
+	model := make([][]celtSig, channels)
+	for c := range model {
+		model[c] = make([]celtSig, line)
+	}
+	next := float32(1)
+	for frame := range 2000 {
+		n := frameSizes[rng.Intn(len(frameSizes))]
+		d.shiftDecodeMem(n)
+		for c := range channels {
+			m := model[c]
+			copy(m, m[n:])
+			// The caller writes out_syn and the overlap after the move.
+			out := d.outSyn(c, n)
+			for i := range out {
+				out[i] = next
+				m[end-n+i] = next
+				next++
+			}
+		}
+		for c := range channels {
+			got := d.decodeMemLine(c)
+			for i := range got {
+				if math.Float32bits(got[i]) != math.Float32bits(model[c][i]) {
+					t.Fatalf("frame %d n=%d: line[%d][%d]=%v want %v", frame, n, c, i, got[i], model[c][i])
 				}
 			}
-			for c := range channels {
-				got := d.decodeMemChannel(c)
-				for i := range got {
-					if math.Float32bits(got[i]) != math.Float32bits(model[c][i]) {
-						t.Fatalf("channels=%d frame %d n=%d: decode_mem[%d][%d]=%v want %v", channels, frame, n, c, i, got[i], model[c][i])
+		}
+	}
+}
+
+// TestPostfilterDecodeMemFullHistoryFrame runs the received-frame comb filter
+// on 2048-sample frames of the 96 kHz QEXT custom geometry, where out_syn
+// starts at decode_mem[c]. With constant postfilter parameters it checks each
+// frame against the in-place comb filter on a contiguous buffer of the previous
+// output followed by the frame, across decode_mem window compactions.
+func TestPostfilterDecodeMemFullHistoryFrame(t *testing.T) {
+	const (
+		n      = 2048
+		lm     = 3
+		short  = n >> lm
+		gain   = float32(0.5)
+		tapset = 1
+	)
+	for _, period := range []int{combFilterMinPeriod, 700, combFilterMaxPeriod - 2} {
+		for _, channels := range []int{1, 2} {
+			d := NewDecoder(channels)
+			d.customFrameSize = n
+			d.Reset()
+			rng := rand.New(rand.NewSource(int64(period*channels + channels)))
+			model := make([][]float32, channels)
+			for c := range model {
+				model[c] = make([]float32, combFilterHistory+n)
+			}
+			overlap := d.synthOverlapLen()
+			windowSq := d.postfilterWindowSquareF32(overlap)
+			samples := make([]float32, n*channels)
+			for frame := range 8 {
+				for i := range samples {
+					samples[i] = rng.Float32()*2 - 1
+				}
+				for c := range channels {
+					m := model[c]
+					copy(m, m[n:])
+					for i := range n {
+						m[combFilterHistory+i] = samples[i*channels+c]
 					}
+				}
+				d.postfilterTest(samples, n, lm, period, gain, tapset)
+				for c := range channels {
+					m := model[c]
+					if frame > 0 {
+						// The previous frame committed (period, gain, tapset) as
+						// both the old and the current parameters.
+						combFilterInPlace(m, combFilterHistory, period, period, short, gain, gain, tapset, tapset, windowSq, overlap)
+						combFilterInPlace(m, combFilterHistory+short, period, period, n-short, gain, gain, tapset, tapset, windowSq, overlap)
+					}
+					for i := range n {
+						got := samples[i*channels+c]
+						if frame == 0 {
+							// The first frame fades in from the reset state;
+							// keep the decoder output as the next frame's history.
+							m[combFilterHistory+i] = got
+							continue
+						}
+						if math.Float32bits(got) != math.Float32bits(m[combFilterHistory+i]) {
+							t.Fatalf("period=%d channels=%d frame %d: out_syn[%d][%d]=%v want %v", period, channels, frame, c, i, got, m[combFilterHistory+i])
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// TestSynthesizeToDecodeMemMonoSpectrumOnStereo synthesizes a mono spectrum
+// on a stereo decoder, as celt_synthesis does for C=1, CC=2, and checks each
+// channel's out_syn and next overlap against a mono decoder carrying that
+// channel's previous overlap.
+func TestSynthesizeToDecodeMemMonoSpectrumOnStereo(t *testing.T) {
+	rng := rand.New(rand.NewSource(0x5ae0))
+	for _, frameSize := range []int{120, 240, 480, 960} {
+		for _, shortBlocks := range []int{1, frameSize / 120} {
+			transient := shortBlocks > 1
+			coeffs := randSpectrum(rng, frameSize)
+			stereo := NewDecoder(2)
+			hist := stereo.decodeMemHistoryLen()
+			overlap := stereo.synthOverlapLen()
+			for c := range 2 {
+				prev := stereo.DecodeMem(c)[hist : hist+overlap]
+				for i := range prev {
+					prev[i] = celtSig(float64((i*(c+3))%23-11) * 0.03125)
+				}
+			}
+			stereo.synthesizeToDecodeMem(coeffs, coeffs, frameSize, shortBlocks, transient)
+			for c := range 2 {
+				mono := NewDecoder(1)
+				prev := mono.DecodeMem(0)[hist : hist+overlap]
+				for i := range prev {
+					prev[i] = celtSig(float64((i*(c+3))%23-11) * 0.03125)
+				}
+				mono.synthesizeToDecodeMem(coeffs, nil, frameSize, shortBlocks, transient)
+				want := mono.outSyn(0, frameSize)
+				got := stereo.outSyn(c, frameSize)
+				if i := equalFloat32Bits(got, want); i >= 0 {
+					t.Fatalf("frame=%d B=%d channel %d: out_syn[%d]=%v want %v", frameSize, shortBlocks, c, i, got[i], want[i])
 				}
 			}
 		}

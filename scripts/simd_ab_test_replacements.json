@@ -1377,5 +1377,90 @@
       }
     ],
     "source_review": "Hybrid lowband accumulation runs inside Decoder.deemphasis. The selected-C replacement checks every output and memory bit with the corresponding tiny or zero SILK lowband and nonzero CELT input."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestApplyPostfilterNoGainMonoFromFloat32MatchesFloat64"
+    ],
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestApplyPostfilterNoGainBypassMono"
+      }
+    ],
+    "source_review": "737b5232 replaces applyPostfilterFloat32 and its applyPostfilterNoGainMonoFromFloat32 specialization with one in-place postfilterDecodeMem on decode_mem, so the legacy-versus-specialized comparison has no second path. The no-gain mono contract it checked (lm=0, zero gains, samples unchanged, history moved by the frame, period/tapset committed with the old state kept) runs through postfilterDecodeMem in the replacement."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestSynthesizeMonoLongToFloat32MatchesSynthesize"
+    ],
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestSynthesizeChannelDirectMatchesReference"
+      }
+    ],
+    "source_review": "737b5232 removes Synthesize, synthesizeMonoLongToFloat32 and the separate overlap buffer; synthesizeToDecodeMem runs one inverse MDCT per channel into out_syn. The replacement checks the long-block synthesis written into out, with a carried overlap and garbage-filled output, bit-exactly against the reference IMDCT and overlap-add, for 120 to 960 samples; selected-C synthesis-stage gates remain separate."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestSynthesizeStereoPlanarFromMonoLongMatchesDuplicatedStereo"
+    ],
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestSynthesizeToDecodeMemMonoSpectrumOnStereo"
+      }
+    ],
+    "source_review": "737b5232 removes synthesizeStereoPlanar and synthesizeStereoPlanarFromMonoLong; a mono stream on a stereo decoder passes its spectrum for both channels to synthesizeToDecodeMem, as celt_synthesis does for C=1, CC=2. The port keeps the frame sizes and distinct per-channel overlaps and requires each stereo channel's out_syn to equal, bit for bit, a mono decoder carrying that channel's overlap, for long and short blocks."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestStereoHistoryHelpersMatchLegacy",
+      "TestStereoHistoryHelpersMatchLegacy/postfilter/120",
+      "TestStereoHistoryHelpersMatchLegacy/postfilter/240",
+      "TestStereoHistoryHelpersMatchLegacy/postfilter/960",
+      "TestStereoHistoryHelpersMatchLegacy/postfilter/2112",
+      "TestStereoHistoryHelpersMatchLegacy/plc/120",
+      "TestStereoHistoryHelpersMatchLegacy/plc/240",
+      "TestStereoHistoryHelpersMatchLegacy/plc/960",
+      "TestStereoHistoryHelpersMatchLegacy/plc/2112"
+    ],
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestShiftDecodeMemMatchesOpusMove/standard/ch2"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestShiftDecodeMemMatchesOpusMove/custom2048/ch2"
+      }
+    ],
+    "source_review": "737b5232 removes the separate postfilterMem and plcDecodeMem histories and their updatePostfilterHistory, updatePLCDecodeHistory and materialize helpers; both histories are the per-channel decode_mem. The replacement drives stereo decode_mem through 2000 random frames, including window compactions and the 2048-sample custom geometry with its comb-filter headroom, and checks every sample of each channel's line against a buffer moved with libopus OPUS_MOVE semantics. A frame longer than the history no longer exists: libopus moves decode_mem by N <= DECODE_BUFFER_SIZE."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestApplyPostfilterStereoPlanarMatchesInterleaved"
+    ],
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestCELTPostfilterStagesMatchLibopusC"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestCombFilterInPlaceMatchesReference"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestApplyPostfilterNoGainBypassStereo"
+      }
+    ],
+    "source_review": "737b5232 removes the planar and interleaved stereo postfilter entries; postfilterDecodeMem filters each channel's out_syn in place. The selected-C stage gate compares the stereo IMDCT, postfilter and de-emphasis stages bit-exactly with a non-zero postfilter split across carried history; the in-place comb reference and the stereo no-gain history/state check cover the remaining planar-path assertions."
   }
 ]

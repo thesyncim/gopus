@@ -13,9 +13,10 @@ package celt
 // CELTMode (opus_custom_mode_create(Fs, frame_size), Fs==400*shortMdctSize).
 
 // EnableScaledCustomMode reconfigures the decoder for a non-standard Opus Custom
-// mode in the Fs==400*shortMdctSize family. It is idempotent; decode_mem is
-// resized to the mode's history and overlap.
-func (d *Decoder) EnableScaledCustomMode(fs, overlap, shortMdctSize, effEBands int, preemph [4]float32, transforms *CustomMDCTTables) {
+// mode in the Fs==400*shortMdctSize family. frameSize is the mode frame size,
+// shortMdctSize*nbShortMdcts. It is idempotent; decode_mem is resized to the
+// mode's history and overlap.
+func (d *Decoder) EnableScaledCustomMode(fs, overlap, shortMdctSize, frameSize, effEBands int, preemph [4]float32, transforms *CustomMDCTTables) {
 
 	d.sampleRate = int32(fs)
 	d.downsample = 1
@@ -26,6 +27,7 @@ func (d *Decoder) EnableScaledCustomMode(fs, overlap, shortMdctSize, effEBands i
 	d.deemphCoef1 = preemph[1]
 	d.deemphCoef3 = preemph[3]
 	d.customScaleBase = shortMdctSize
+	d.customFrameSize = frameSize
 	d.customEffBands = effEBands
 	d.scratchIMDCTF32.customTransforms = transforms
 	d.scratchIMDCTF32R.customTransforms = transforms

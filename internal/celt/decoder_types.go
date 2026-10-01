@@ -60,8 +60,9 @@ type Decoder struct {
 	backgroundEnergy []celtGLog
 
 	// decodeMem is libopus CELTDecoder._decode_mem. Each channel reserves
-	// 2*decodeMemLen() samples; decode_mem[c] is the decodeMemLen() window at
-	// decodeMemOff within that reservation (see decodeMemChannel).
+	// 2*decodeMemLineLen() samples; its line is the decodeMemLineLen() window at
+	// decodeMemOff within that reservation, and decode_mem[c] is the last
+	// decodeMemLen() samples of the line (see decodeMemChannel).
 	decodeMem    []celtSig
 	decodeMemOff int
 	preemphState []celtSig // De-emphasis filter state [channels]
@@ -87,6 +88,10 @@ type Decoder struct {
 	// end band is customEffBands.
 	customScaleBase int
 	customEffBands  int
+	// customFrameSize is the Opus Custom mode frame size (shortMdctSize *
+	// nbShortMdcts), zero for the standard modes. It sizes the comb-filter
+	// headroom before decode_mem (see decodeMemCombHeadroom).
+	customFrameSize int
 
 	// perMode carries band edges, widths, logN, allocation vectors, and pulse
 	// cache for an Opus Custom mode whose layout differs from the static CELT

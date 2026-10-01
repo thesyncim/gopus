@@ -86,9 +86,9 @@ func NewDecoder(mode *CustomMode, channels int) (*CustomDecoder, error) {
 	// machinery PLUS the per-mode band tables (edges, widths, logN, allocVectors,
 	// pulse cache) installed via EnablePerModeTables.
 	if mode.InScaledBandFamily() {
-		dec.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.EffEBands, mode.Preemph, mode.transforms)
+		dec.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.FrameSize, mode.EffEBands, mode.Preemph, mode.transforms)
 	} else if !mode.isStandard {
-		dec.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.EffEBands, mode.Preemph, mode.transforms)
+		dec.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.FrameSize, mode.EffEBands, mode.Preemph, mode.transforms)
 		dec.EnablePerModeTables(mode.NbEBands, mode.ShortMdctSize, mode.EBands, mode.LogN, mode.AllocVectors, mode.CacheIndex, mode.CacheBits, mode.CacheCaps)
 	}
 	return cd, nil
