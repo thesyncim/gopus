@@ -162,6 +162,9 @@ func (d *MultistreamDecoder) Decode(data []byte, pcm []float32) (int, error) {
 		if err != nil {
 			return 0, err
 		}
+		// opus_decode_native clears soft-clip history after a successful
+		// packet decoded without clipping. PLC and errors preserve it.
+		clear(d.softClipMem)
 		d.lastFrameSize = int32(n)
 		return n, nil
 	}
@@ -238,9 +241,10 @@ func (d *MultistreamDecoder) DecodeInt16(data []byte, pcm []int16) (int, error) 
 }
 
 // DecodeInt24 decodes a packet into interleaved signed 24-bit PCM stored in
-// int32 values, or performs PLC when data is nil or empty. Each value is
-// right-justified in the range [-8388608, 8388607]. The method returns the
-// number of samples per channel written. For a packet, pcm must have room for
+// int32 values, or performs PLC when data is nil or empty. Values use the
+// right-justified 24-bit PCM scale; output gain can exceed that range.
+// The method returns the number of samples per channel written. For a packet,
+// pcm must have room for
 // its duration; for PLC, the per-channel request size is inferred from the whole
 // interleaved frames in pcm and is capped at 120 ms. A short buffer returns
 // ErrBufferTooSmall.
@@ -270,6 +274,7 @@ func (d *MultistreamDecoder) DecodeInt24(data []byte, pcm []int32) (int, error) 
 	if handled, err := d.fixedDecodeInt24(data, pcm, frameSize); err != nil {
 		return 0, err
 	} else if handled {
+		clear(d.softClipMem)
 		d.lastFrameSize = int32(frameSize)
 		return frameSize, nil
 	}
@@ -284,6 +289,7 @@ func (d *MultistreamDecoder) DecodeInt24(data []byte, pcm []int32) (int, error) 
 	}
 	total := n * channels
 	float32ToInt24Slice(pcm[:total], samples[:total], n, channels)
+	clear(d.softClipMem)
 
 	if len(data) > 0 {
 		d.lastFrameSize = int32(frameSize)

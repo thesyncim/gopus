@@ -139,7 +139,7 @@ int main(void) {
     return 1;
   }
 
-  if (version == 2 || version == 3 || version == 4 || version == 5) {
+  if (version >= 2 && version <= 6) {
     if (!read_u32(&sample_rate)) {
       fprintf(stderr, "failed to read sample rate\n");
       return 1;
@@ -167,7 +167,7 @@ int main(void) {
     return 1;
   }
 
-  if (version == 5 && !read_u32(&phase_inversion_disabled)) {
+  if (version >= 5 && !read_u32(&phase_inversion_disabled)) {
     fprintf(stderr, "failed to read phase inversion control\n");
     return 1;
   }
@@ -201,14 +201,15 @@ int main(void) {
   item_size = sample_format == SAMPLE_FORMAT_INT16 ? sizeof(opus_int16) :
               sample_format == SAMPLE_FORMAT_INT24 ? sizeof(opus_int32) :
               sizeof(float);
-  if (channels > SIZE_MAX / frame_size || (size_t)channels * (size_t)frame_size > SIZE_MAX / item_size) {
+  if (channels > SIZE_MAX / frame_size || (size_t)channels * (size_t)frame_size > SIZE_MAX / sizeof(float)) {
     fprintf(stderr, "frame buffer overflow\n");
     free(mapping);
     free(demixing);
     return 1;
   }
 
-  frame = malloc((size_t)channels * (size_t)frame_size * item_size);
+  /* Version 6 carries a format before each packet and returns a byte count. */
+  frame = malloc((size_t)channels * (size_t)frame_size * sizeof(float));
   if (frame == NULL) {
     fprintf(stderr, "failed to allocate frame buffer\n");
     free(mapping);
@@ -243,6 +244,18 @@ int main(void) {
       unsigned char *packet = NULL;
       int decoded_samples = 0;
 
+      if (version == 6) {
+        if (!read_u32(&sample_format) || sample_format > SAMPLE_FORMAT_INT24) {
+          fprintf(stderr, "invalid packet sample format\n");
+          free(mapping);
+          free(demixing);
+          free(frame);
+          free(decoded);
+          opus_projection_decoder_destroy(dec);
+          return 1;
+        }
+        item_size = sample_format == SAMPLE_FORMAT_INT16 ? sizeof(opus_int16) : sizeof(float);
+      }
       if (!read_u32(&packet_len)) {
         fprintf(stderr, "failed to read packet length\n");
         opus_projection_decoder_destroy(dec);
@@ -286,7 +299,9 @@ int main(void) {
         return 1;
       }
 
-      if (!append_items(&decoded, &decoded_len, &decoded_cap, frame, (size_t)decoded_samples * (size_t)channels, item_size)) {
+      if (!append_items(&decoded, &decoded_len, &decoded_cap, frame,
+          (size_t)decoded_samples * (size_t)channels * (version == 6 ? item_size : 1),
+          version == 6 ? 1 : item_size)) {
         fprintf(stderr, "failed to append decoded samples\n");
         opus_projection_decoder_destroy(dec);
         free(mapping);
@@ -320,7 +335,7 @@ int main(void) {
         return 1;
       }
     }
-    if (version == 5) {
+    if (version >= 5) {
       err = opus_multistream_decoder_ctl(dec, OPUS_SET_PHASE_INVERSION_DISABLED((int)phase_inversion_disabled));
       if (err != OPUS_OK) {
         fprintf(stderr, "opus_multistream_decoder_ctl(OPUS_SET_PHASE_INVERSION_DISABLED) failed: %d\n", err);
@@ -337,6 +352,18 @@ int main(void) {
       unsigned char *packet = NULL;
       int decoded_samples = 0;
 
+      if (version == 6) {
+        if (!read_u32(&sample_format) || sample_format > SAMPLE_FORMAT_INT24) {
+          fprintf(stderr, "invalid packet sample format\n");
+          free(mapping);
+          free(demixing);
+          free(frame);
+          free(decoded);
+          opus_multistream_decoder_destroy(dec);
+          return 1;
+        }
+        item_size = sample_format == SAMPLE_FORMAT_INT16 ? sizeof(opus_int16) : sizeof(float);
+      }
       if (!read_u32(&packet_len)) {
         fprintf(stderr, "failed to read packet length\n");
         opus_multistream_decoder_destroy(dec);
@@ -380,7 +407,9 @@ int main(void) {
         return 1;
       }
 
-      if (!append_items(&decoded, &decoded_len, &decoded_cap, frame, (size_t)decoded_samples * (size_t)channels, item_size)) {
+      if (!append_items(&decoded, &decoded_len, &decoded_cap, frame,
+          (size_t)decoded_samples * (size_t)channels * (version == 6 ? item_size : 1),
+          version == 6 ? 1 : item_size)) {
         fprintf(stderr, "failed to append decoded samples\n");
         opus_multistream_decoder_destroy(dec);
         free(mapping);
@@ -404,7 +433,7 @@ int main(void) {
   }
 
   if (!write_exact(GMSO_MAGIC, 4) || !write_u32(1) || !write_u32((uint32_t)decoded_len) ||
-      (decoded_len > 0 && !write_exact(decoded, decoded_len * item_size))) {
+      (decoded_len > 0 && !write_exact(decoded, decoded_len * (version == 6 ? 1 : item_size)))) {
     fprintf(stderr, "failed to write output\n");
     free(mapping);
     free(demixing);
