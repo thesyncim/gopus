@@ -274,12 +274,23 @@ func (e *Encoder) InDTX() bool {
 	return e.dtx.noActivityMsQ1 >= NBSpeechFramesBeforeDTX*20*2
 }
 
-// GetVADActivity returns the current VAD speech activity level (0-255).
+// GetVADActivity returns the latest available Opus-level activity estimate in
+// Q8 (0-255). It reads the existing frame decision and does not run another
+// detector. It reports the analyzer or CELT fallback used by Opus activity
+// decisions, not the separate SILK VAD state. It returns 0 before a decision,
+// after Reset, or when the current activity decision is unavailable.
 func (e *Encoder) GetVADActivity() int {
-	if e.dtx == nil || e.dtx.vad == nil {
+	if e == nil || !e.lastOpusVADActivityObserved || !e.lastOpusVADValid {
 		return 0
 	}
-	return int(e.dtx.vad.SpeechActivityQ8)
+	prob := e.lastOpusVADProb
+	if !(prob > 0) {
+		return 0
+	}
+	if prob >= 1 {
+		return 255
+	}
+	return int(prob * 256)
 }
 
 // classifySignal compares mean-square PCM energy with its silence threshold.

@@ -13,14 +13,11 @@
 // mode switches (SILK<->Hybrid<->CELT), bandwidth changes, DTX runs, and
 // FEC/LBRR carried across frames.
 //
-// This harness closes that gap. For each spec it builds a CONCATENATED
-// multi-segment signal (voiced speech -> music -> near-silence -> bandwidth
-// sweep -> transient -> mixed, frame-aligned) that FORCES those transitions,
-// then drives ONE persistent gopus Encoder AND the persistent libopus float
-// oracle (one OpusEncoder, no reset, FORCE_MODE reasserted per frame) with the
-// IDENTICAL per-frame PCM across MANY frames, asserting each emitted packet is
-// BYTE-IDENTICAL frame for frame (TOC + payload) plus the post-encode final
-// range.
+// This harness varies the input across a frame-aligned plan of corpus signals
+// (voiced speech, music, near-silence, bandwidth sweep, transient, silence
+// bursts, and mixed content). It drives one persistent gopus Encoder and one
+// persistent libopus float oracle with identical PCM across many frames,
+// comparing each packet and post-encode final range.
 //
 // Every selected configuration checks the return length, every packet byte,
 // and the post-encode final range against the same-architecture libopus build.
@@ -65,13 +62,20 @@ var encXfrSegmentPlan = []string{
 	testsignal.CorpusMixedV1,
 }
 
-// encXfrBuildTransitionPCM assembles a deterministic frame-aligned stream of
-// totalFrames frames at 48 kHz by tiling encXfrSegmentPlan: segment s occupies a
-// contiguous run of frames, each frame filled from a freshly-generated buffer of
-// that segment's class (the corpus generators are deterministic and stateless
-// across calls, so a per-segment buffer is reproducible). The returned slice is
-// interleaved float32 of length fs*channels*totalFrames.
+// encXfrBuildTransitionPCM assembles the frame-scaled stress transition stream.
+// It passes fs as the corpus generator's sampleRate. Correct-rate coverage uses
+// encXfrBuildTransitionPCMAtSampleRate. The returned interleaved float32 slice
+// has length fs*channels*totalFrames.
 func encXfrBuildTransitionPCM(fs, channels, totalFrames, segFrames int) ([]float32, error) {
+	return encXfrBuildTransitionPCMAtSampleRate(fs, fs, channels, totalFrames, segFrames)
+}
+
+// encXfrBuildTransitionPCMAtSampleRate assembles totalFrames by tiling
+// encXfrSegmentPlan. Each frame copies the matching interval from a freshly
+// generated prefix of its segment, preserving the generator's prefix-length
+// behavior. The returned interleaved float32 slice has length
+// fs*channels*totalFrames.
+func encXfrBuildTransitionPCMAtSampleRate(sampleRate, fs, channels, totalFrames, segFrames int) ([]float32, error) {
 	out := make([]float32, fs*channels*totalFrames)
 	per := fs * channels
 	for f := range totalFrames {
@@ -80,10 +84,9 @@ func encXfrBuildTransitionPCM(fs, channels, totalFrames, segFrames int) ([]float
 		// Frame index WITHIN the current segment run, so the generated waveform is
 		// continuous across the frames of a segment (not reset every frame).
 		frameInSeg := f % segFrames
-		// Generate the whole segment once per segment-run start would be cheaper,
-		// but generating (frameInSeg+1) frames and taking the last keeps each
-		// segment self-consistent without caching; segFrames is small.
-		buf, err := testsignal.GenerateCorpusSignal(class, fs, per*(frameInSeg+1), channels)
+		// Generate through this frame's segment-relative position so the copied
+		// samples match the prefix-length behavior of the corpus generator.
+		buf, err := testsignal.GenerateCorpusSignal(class, sampleRate, per*(frameInSeg+1), channels)
 		if err != nil {
 			return nil, err
 		}
@@ -206,6 +209,39 @@ func buildEncXfrSweep() []encXfrSpec {
 	return specs
 }
 
+// buildEncXfrCorrectRateSweep selects one AUTO-mode, complexity-5, DTX stream
+// for each 48 kHz frame-size/channel shape.
+func buildEncXfrCorrectRateSweep() []encXfrSpec {
+	frameDurations := []ExpertFrameDuration{
+		ExpertFrameDuration10Ms,
+		ExpertFrameDuration20Ms,
+		ExpertFrameDuration40Ms,
+		ExpertFrameDuration60Ms,
+	}
+	var specs []encXfrSpec
+	for _, channels := range []int{1, 2} {
+		for _, frameDuration := range frameDurations {
+			specs = append(specs, encXfrSpec{
+				name:       fmt.Sprintf("xfr_48k_auto_ch%d_%dms_24000bps_cx5_dtxtrue", channels, encMsOf(frameDuration)),
+				forceMode:  libopustest.EncodeDiffForceModeAuto,
+				gmode:      EncoderModeAuto,
+				autoBW:     true,
+				bwCode:     libopustest.EncodeDiffBandwidthAuto,
+				gbw:        BandwidthFullband,
+				frameMs:    frameDuration,
+				bitrate:    24000,
+				channels:   channels,
+				vbr:        BitrateModeVBR,
+				dtx:        true,
+				complexity: 5,
+				signal:     libopustest.EncodeDiffSignalAuto,
+				gsignal:    SignalAuto,
+			})
+		}
+	}
+	return specs
+}
+
 // configureEncXfr builds and configures a gopus Encoder for one transition spec.
 // It mirrors configureEncDiff but takes the per-spec complexity (the sibling
 // helper hardcodes 10).
@@ -270,26 +306,54 @@ func configureEncXfr(spec encXfrSpec) (*Encoder, bool) {
 // and asserts byte-exact packets frame for frame. See the file header for the
 // divergence classification policy.
 func TestEncodeStatefulTransitionFuzz(t *testing.T) {
+	runEncodeStatefulTransitionSweep(t, buildEncXfrSweep(), encXfrBuildTransitionPCM)
+}
+
+// TestEncodeStatefulTransitionFuzzAt48k checks the same transition assertions
+// for each 48 kHz frame-size and channel-count shape with generator rate 48 kHz.
+func TestEncodeStatefulTransitionFuzzAt48k(t *testing.T) {
+	buildPCM := func(fs, channels, totalFrames, segFrames int) ([]float32, error) {
+		return encXfrBuildTransitionPCMAtSampleRate(48000, fs, channels, totalFrames, segFrames)
+	}
+	runEncodeStatefulTransitionSweep(t, buildEncXfrCorrectRateSweep(), buildPCM)
+}
+
+// runEncodeStatefulTransitionSweep applies the same packet and final-range
+// assertions to each selected control spec and PCM builder.
+func runEncodeStatefulTransitionSweep(
+	t *testing.T,
+	specs []encXfrSpec,
+	buildPCM func(fs, channels, totalFrames, segFrames int) ([]float32, error),
+) {
+	t.Helper()
 	libopustest.RequireOracle(t)
 	if _, err := libopustest.EncodeDiffHelperPath(); err != nil {
 		libopustest.HelperUnavailable(t, "encode diff oracle", err)
 	}
-
 	const sampleRate = 48000
 	// segFrames frames per segment; framesPerSpec spans every segment at least
 	// once plus a wrap so a transition can recur after the state has settled.
 	const segFrames = 5
 	framesPerSpec := segFrames*len(encXfrSegmentPlan) + segFrames // 7 segments + wrap = 40
 
-	specs := buildEncXfrSweep()
 	budget := min(diffFuzzBudget(len(specs)), len(specs))
 	stride := 1
 	if budget < len(specs) {
 		stride = len(specs) / budget
 	}
 
+	type transitionPCMKey struct {
+		frameSize int
+		channels  int
+	}
+	// All subtests run synchronously. Reuse each immutable input stream across
+	// specs with the same frame shape; oracle serialization and encoding read
+	// the slice, and the encoder copies it into its own input buffer.
+	transitionPCM := make(map[transitionPCMKey][]float32)
+
 	var (
-		tested            int
+		selected          int
+		executed          int
 		tocFlips          int
 		cadenceMismatch   int
 		byteFails         int
@@ -300,14 +364,21 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 		modeFlipsInStream int // streams that crossed >1 distinct TOC mode class
 	)
 
-	for idx := 0; idx < len(specs) && tested < budget; idx += stride {
+	for idx := 0; idx < len(specs) && selected < budget; idx += stride {
 		spec := specs[idx]
-		tested++
+		selected++
 		t.Run(spec.name, func(t *testing.T) {
+			executed++
 			fs := encFrameSamples48k(spec.frameMs)
-			pcm, err := encXfrBuildTransitionPCM(fs, spec.channels, framesPerSpec, segFrames)
-			if err != nil {
-				t.Fatalf("build transition PCM (%s): %v", spec.name, err)
+			key := transitionPCMKey{frameSize: fs, channels: spec.channels}
+			pcm, ok := transitionPCM[key]
+			if !ok {
+				var err error
+				pcm, err = buildPCM(fs, spec.channels, framesPerSpec, segFrames)
+				if err != nil {
+					t.Fatalf("build transition PCM (%s): %v", spec.name, err)
+				}
+				transitionPCM[key] = pcm
 			}
 
 			vbr, constraint := vbrFlags(spec.vbr)
@@ -446,11 +517,11 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 		})
 	}
 
-	t.Logf("encode stateful-transition sweep: %d/%d specs x %d frames "+
+	t.Logf("encode stateful-transition sweep: selected=%d/%d specs executed=%d x %d frames "+
 		"(seg=%d frames, %d segments); arch=%s; "+
 		"coverage[ libopus-side transitions=%d dtx-no-output-frames=%d multi-mode-streams=%d ]; "+
 		"TOC-mode-flips=%d cadence-mismatch=%d byte-fails=%d framing-fails=%d range-fails=%d",
-		tested, len(specs), framesPerSpec, segFrames, len(encXfrSegmentPlan), runtime.GOARCH,
+		selected, len(specs), executed, framesPerSpec, segFrames, len(encXfrSegmentPlan), runtime.GOARCH,
 		transitionsSeen, dtxRunsSeen, modeFlipsInStream,
 		tocFlips, cadenceMismatch, byteFails, framingFails, rangeFails)
 
@@ -458,9 +529,9 @@ func TestEncodeStatefulTransitionFuzz(t *testing.T) {
 	// future signal/plan change could silently turn it into a single-mode sweep
 	// and hide the very cross-frame bugs it targets. Only enforced on the full
 	// (non-short) sweep where every mode family is reached.
-	if !testing.Short() && tested > 0 && transitionsSeen == 0 {
-		t.Errorf("stateful-transition sweep observed NO cross-frame transitions across %d specs — "+
-			"the transition plan is not exercising mode/bandwidth changes", tested)
+	if !testing.Short() && executed > 0 && executed == selected && transitionsSeen == 0 {
+		t.Errorf("stateful-transition sweep observed NO cross-frame transitions across %d executed specs — "+
+			"the transition plan is not exercising mode/bandwidth changes", executed)
 	}
 }
 

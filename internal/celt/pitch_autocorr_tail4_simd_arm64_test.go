@@ -1,4 +1,4 @@
-//go:build darwin && arm64 && goexperiment.simd && !nosimd && !purego && !gopus_fixed_point && !gopus_qext && !gopus_dred && !gopus_osce && !gopus_custom_modes
+//go:build darwin && arm64 && goexperiment.simd && !nosimd && !purego && !gopus_fixed_point && !gopus_dred && !gopus_osce && !gopus_custom_modes
 
 package celt
 

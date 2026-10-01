@@ -26,53 +26,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  changes:
-    name: detect-change-scope
-    runs-on: ubuntu-latest
-    outputs:
-      docs_only: ${{ steps.scope.outputs.docs_only }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Detect markdown-only change set
-        id: scope
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            base="${{ github.event.pull_request.base.sha }}"
-            head="${{ github.event.pull_request.head.sha }}"
-          else
-            base="${{ github.event.before }}"
-            head="${{ github.sha }}"
-          fi
-
-          # New branch pushes use an all-zero "before" SHA.
-          if [[ "$base" == "0000000000000000000000000000000000000000" ]]; then
-            base="$(git rev-list --max-parents=0 "$head" | tail -n 1)"
-          fi
-
-          git diff --name-only "$base" "$head" | tee /tmp/changed_files.txt
-
-          if [[ ! -s /tmp/changed_files.txt ]]; then
-            docs_only=true
-          elif awk 'BEGIN { docs=1 } $0 !~ /\.md$/ { docs=0 } END { exit docs ? 0 : 1 }' /tmp/changed_files.txt; then
-            docs_only=true
-          else
-            docs_only=false
-          fi
-
-          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
-          echo "docs_only=$docs_only"
 
   lint-static-analysis:
     name: lint-static-analysis
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -104,8 +60,6 @@ jobs:
 
   lint-tag-matrix:
     name: lint-tag-matrix
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -128,10 +82,8 @@ jobs:
 
   test-linux-fast:
     name: test-linux-fast
-    needs:
-      - changes
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -150,10 +102,14 @@ jobs:
           GOPUS_LIBOPUS_REF_SCALAR: "1"
         run: make test-fast
 
+      - name: Run external-consumer smoke gate
+        run: make test-consumer-smoke
+
+      - name: Run examples smoke gate
+        run: make test-examples-smoke
+
   test-linux-parity:
     name: test-linux-parity
-    needs:
-      - changes
     # Full libopus quality parity is the slowest regular Linux gate. PRs get
     # the fast package sweep plus focused optional-surface gates; protected
     # branch pushes keep the full quality gate.
@@ -197,8 +153,6 @@ jobs:
 
   test-linux-conformance:
     name: test-linux-conformance
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -222,15 +176,23 @@ jobs:
 
       - name: Install codec tools (if missing)
         run: |
-          if command -v ffmpeg >/dev/null 2>&1 && command -v opusdec >/dev/null 2>&1; then
-            echo "ffmpeg and opusdec already present; skipping apt install"
-            exit 0
+          if command -v opusdec >/dev/null 2>&1; then
+            echo "opusdec already present; skipping apt install"
+          else
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends opus-tools
           fi
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg opus-tools
+          command -v opusdec
 
       - name: Run opus_demo end-to-end conformance gate
         run: make test-conformance
+
+      - name: Verify committed encoder fixture honesty (native opus_demo)
+        env:
+          GOPUS_TEST_TIER: exhaustive
+          GOPUS_STRICT_LIBOPUS_REF: "1"
+          GOPUS_REQUIRE_PLATFORM_FIXTURES: "1"
+        run: go test ./testvectors -run '^(TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' -count=1 -timeout=10m
 
       # Native same-arch (linux/amd64) precision guard. Regenerate the libopus
       # reference fixtures from the libopus just built on this runner. The
@@ -246,8 +208,6 @@ jobs:
 
   test-linux-race:
     name: test-linux-race
-    needs:
-      - changes
     # Race sweeps are expensive and duplicate broad PR coverage. Keep them on
     # protected-branch pushes where they still guard integration into master.
     if: github.event_name == 'push'
@@ -287,8 +247,6 @@ jobs:
 
   test-linux-provenance:
     name: test-linux-provenance
-    needs:
-      - changes
     # The provenance lane builds a pinned Docker environment and performs
     # exhaustive fixture-honesty checks. Keep it on protected-branch pushes,
     # while PR CI uses the faster parity/race/feature-tag gates below.
@@ -335,8 +293,6 @@ jobs:
 
   test-linux-flake:
     name: test-linux-flake
-    needs:
-      - changes
     # Shuffle+repeat flake detection is valuable but not needed on every PR
     # attempt; run it once code lands on the protected branch.
     if: github.event_name == 'push'
@@ -390,8 +346,6 @@ jobs:
 
   test-linux-fuzz-smoke:
     name: test-linux-fuzz-smoke
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -407,48 +361,8 @@ jobs:
       - name: Run fuzz smoke gate
         run: make test-fuzz-smoke
 
-  test-linux-consumer-smoke:
-    name: test-linux-consumer-smoke
-    needs:
-      - changes
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Run external-consumer smoke gate
-        run: make test-consumer-smoke
-
-  test-linux-examples-smoke:
-    name: test-linux-examples-smoke
-    needs:
-      - changes
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Run examples smoke gate
-        run: make test-examples-smoke
-
   test-linux-dnn-blob-parity:
     name: test-linux-dnn-blob-parity
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -474,8 +388,6 @@ jobs:
 
   test-linux-extra-controls:
     name: test-linux-extra-controls
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -493,8 +405,6 @@ jobs:
 
   test-linux-dred-tag:
     name: test-linux-dred-tag
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -520,8 +430,6 @@ jobs:
 
   test-linux-qext-parity:
     name: test-linux-qext-parity
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -547,8 +455,6 @@ jobs:
 
   test-linux-custom-parity:
     name: test-linux-custom-parity
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -574,8 +480,6 @@ jobs:
 
   test-linux-corpus-quality:
     name: test-linux-corpus-quality
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -601,8 +505,6 @@ jobs:
 
   test-linux-extra-controls-parity:
     name: test-linux-extra-controls-parity
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -624,8 +526,6 @@ jobs:
 
   test-linux-build-config-matrix:
     name: test-linux-build-config-matrix
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -652,8 +552,6 @@ jobs:
   test-linux-simd:
     name: test-linux-simd
     if: github.event_name == 'push'
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -682,8 +580,6 @@ jobs:
     env:
       GOAMD64: v1
     if: github.event_name == 'pull_request'
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -815,8 +711,6 @@ jobs:
   capture-linux-amd64-opusdec-fixture:
     name: capture-linux-amd64-opusdec-fixture
     if: github.event_name == 'pull_request'
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -866,8 +760,6 @@ jobs:
 
   test-linux-core-oracles:
     name: test-linux-core-oracles
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -907,8 +799,6 @@ jobs:
 
   test-linux-fixedpoint-parity:
     name: test-linux-fixedpoint-parity
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -937,15 +827,12 @@ jobs:
     name: test-linux
     if: always()
     needs:
-      - changes
       - test-linux-fast
       - test-linux-parity
       - test-linux-race
       - test-linux-provenance
       - test-linux-flake
       - test-linux-fuzz-smoke
-      - test-linux-consumer-smoke
-      - test-linux-examples-smoke
       - test-linux-dnn-blob-parity
       - test-linux-dred-tag
       - test-linux-qext-parity
@@ -968,8 +855,6 @@ jobs:
           echo "test-linux-provenance: ${{ needs.test-linux-provenance.result }} (required on push)"
           echo "test-linux-flake: ${{ needs.test-linux-flake.result }} (required on push)"
           echo "test-linux-fuzz-smoke: ${{ needs.test-linux-fuzz-smoke.result }}"
-          echo "test-linux-consumer-smoke: ${{ needs.test-linux-consumer-smoke.result }}"
-          echo "test-linux-examples-smoke: ${{ needs.test-linux-examples-smoke.result }}"
           echo "test-linux-dnn-blob-parity: ${{ needs.test-linux-dnn-blob-parity.result }}"
           echo "test-linux-dred-tag: ${{ needs.test-linux-dred-tag.result }}"
           echo "test-linux-qext-parity: ${{ needs.test-linux-qext-parity.result }}"
@@ -998,12 +883,6 @@ jobs:
             exit 1
           fi
           if [ "${{ needs.test-linux-fuzz-smoke.result }}" != "success" ]; then
-            exit 1
-          fi
-          if [ "${{ needs.test-linux-consumer-smoke.result }}" != "success" ]; then
-            exit 1
-          fi
-          if [ "${{ needs.test-linux-examples-smoke.result }}" != "success" ]; then
             exit 1
           fi
           if [ "${{ needs.test-linux-dnn-blob-parity.result }}" != "success" ]; then
@@ -1045,8 +924,6 @@ jobs:
 
   perf-linux:
     name: perf-linux
-    needs:
-      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -1075,8 +952,6 @@ jobs:
 
   test-macos:
     name: test-macos
-    needs:
-      - changes
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -1193,8 +1068,6 @@ jobs:
 
   test-linux-arm64-fixtures:
     name: test-linux-arm64-fixtures
-    needs:
-      - changes
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 35
     steps:
@@ -1250,8 +1123,6 @@ jobs:
 
   test-windows:
     name: test-windows
-    needs:
-      - changes
     runs-on: windows-latest
     timeout-minutes: 45
     env:

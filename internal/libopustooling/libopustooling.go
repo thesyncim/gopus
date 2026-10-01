@@ -330,6 +330,55 @@ func ValidateLibopusReferenceBuild(refDir string, variant LibopusReferenceVarian
 	return validateLibopusReferenceBuildForPlatform(refDir, variant, version, runtime.GOOS, runtime.GOARCH)
 }
 
+func validateLibopusDefaultBuildForPlatform(refDir, version, goos, goarch string) error {
+	if version == "" {
+		version = DefaultVersion
+	}
+	data, err := os.ReadFile(filepath.Join(refDir, ".gopus-libopus-build"))
+	if err != nil {
+		return referenceConfigErrorf("read default libopus build stamp in %s: %v", refDir, err)
+	}
+	fields, ok := parseLibopusBuildStamp(string(data))
+	if !ok {
+		return referenceConfigErrorf("invalid default libopus build stamp in %s", refDir)
+	}
+	wantFields := map[string]string{
+		"version": version, "qext": "0", "fixed": "0", "custom": "0",
+		"configure": "--enable-static --disable-shared", "CFLAGS": LibopusBaseCFLAGS,
+		"CPPFLAGS": "", "LDFLAGS": "",
+	}
+	for key, want := range wantFields {
+		if got := fields[key]; got != want {
+			return referenceConfigErrorf("default libopus build in %s has %s=%q, want %q", refDir, key, got, want)
+		}
+	}
+	if fields["amd64_target"] != "" {
+		return referenceConfigErrorf("default libopus build in %s has unexpected amd64_target=%q", refDir, fields["amd64_target"])
+	}
+	for _, key := range []string{"host_os", "host_arch", "host_bits", "cc", "cc_path", "cc_target", "cc_version"} {
+		if strings.TrimSpace(fields[key]) == "" {
+			return referenceConfigErrorf("default libopus build stamp in %s has no %s", refDir, key)
+		}
+	}
+	if !libopusStampMatchesPlatform(fields, goos, goarch) {
+		return referenceConfigErrorf("default libopus build in %s targets a different host/compiler (%s/%s target=%s)", refDir, fields["host_os"], fields["host_arch"], fields["cc_target"])
+	}
+	config, err := os.ReadFile(filepath.Join(refDir, "config.h"))
+	if err != nil {
+		return referenceConfigErrorf("read default libopus config in %s: %v", refDir, err)
+	}
+	for _, macro := range []string{"ENABLE_QEXT", "FIXED_POINT", "CUSTOM_MODES", "ENABLE_DRED", "ENABLE_DEEP_PLC", "ENABLE_OSCE", "ENABLE_OSCE_BWE", "ENABLE_OSCE_TRAINING_DATA"} {
+		if configDefinesMacro(string(config), macro) {
+			return referenceConfigErrorf("default libopus config in %s unexpectedly defines %s", refDir, macro)
+		}
+	}
+	archive := filepath.Join(refDir, ".libs", "libopus.a")
+	if st, err := os.Stat(archive); err != nil || st.IsDir() || st.Size() == 0 {
+		return referenceConfigErrorf("default libopus archive missing or empty at %s", archive)
+	}
+	return nil
+}
+
 func validateLibopusReferenceBuildForPlatform(refDir string, variant LibopusReferenceVariant, version, goos, goarch string) error {
 	target, err := resolveLibopusAMD64TargetForBuild(os.Getenv(LibopusAMD64TargetEnv), goarch, goAMD64TargetLevel)
 	if err != nil {
@@ -1318,7 +1367,46 @@ func FindOrEnsureOpusDemo(version string, roots []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return FindOrEnsureOpusDemoForVariant(version, roots, variant)
+}
+
+// FindOrEnsureOpusDemoForVariant selects an explicit libopus reference tree
+// without consulting the Go scalar/SIMD lane. Fixture honesty uses this when
+// the fixture records a scalar or SIMD producer.
+func FindOrEnsureOpusDemoForVariant(version string, roots []string, variant LibopusReferenceVariant) (string, error) {
 	return findOrEnsureReferenceTool(version, roots, "opus_demo", variant, runtime.GOOS, runtime.GOARCH)
+}
+
+// FindOrEnsureDefaultOpusDemo selects the unsuffixed autotools-default tree
+// independently of the current Go instruction lane. It is appropriate only
+// for fixtures whose recorded producer path is tmp_check/opus-<version>/opus_demo.
+func FindOrEnsureDefaultOpusDemo(version string, roots []string) (string, error) {
+	if version == "" {
+		version = DefaultVersion
+	}
+	if path, err := findValidatedDefaultReferenceTool(version, roots, "opus_demo", runtime.GOOS, runtime.GOARCH); err == nil {
+		return path, nil
+	}
+	if !EnsureLibopus(version, roots) {
+		return "", fmt.Errorf("ensure default libopus %s failed under roots %v", version, normalizedRoots(roots))
+	}
+	return findValidatedDefaultReferenceTool(version, roots, "opus_demo", runtime.GOOS, runtime.GOARCH)
+}
+
+func findValidatedDefaultReferenceTool(version string, roots []string, tool, goos, goarch string) (string, error) {
+	if version == "" {
+		version = DefaultVersion
+	}
+	for _, root := range normalizedRoots(roots) {
+		refDir := libopusSourceDir(version, root, "")
+		if err := validateLibopusDefaultBuildForPlatform(refDir, version, goos, goarch); err != nil {
+			continue
+		}
+		if path, ok := findLibopusToolInSourceForOS(version, []string{root}, "", tool, goos); ok {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("no validated default libopus %s found under roots %v", tool, normalizedRoots(roots))
 }
 
 func findOrEnsureReferenceTool(version string, roots []string, tool string, variant LibopusReferenceVariant, goos, goarch string) (string, error) {

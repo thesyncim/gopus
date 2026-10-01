@@ -148,7 +148,7 @@ func TestEncoderComplianceReferenceQFixtureHonestyWithLiveOpusdec(t *testing.T) 
 	if !checkOpusdecAvailableEncoder() {
 		t.Skip("opusdec not available; skipping encoder compliance ref-q fixture honesty validation")
 	}
-	opusDemo := requireFixtureOpusDemo(t)
+	opusDemo := requireDefaultFixtureProducerOpusDemo(t)
 
 	updateFixture := os.Getenv(updateEncoderComplianceRefQEnv) == "1"
 	fixture, err := readEncoderComplianceReferenceQFixtureFile()

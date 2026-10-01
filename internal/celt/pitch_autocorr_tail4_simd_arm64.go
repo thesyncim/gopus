@@ -1,4 +1,4 @@
-//go:build darwin && arm64 && goexperiment.simd && !nosimd && !purego && !gopus_fixed_point && !gopus_qext && !gopus_dred && !gopus_osce && !gopus_custom_modes
+//go:build darwin && arm64 && goexperiment.simd && !nosimd && !purego && !gopus_fixed_point && !gopus_dred && !gopus_osce && !gopus_custom_modes
 
 package celt
 
@@ -6,9 +6,9 @@ import "simd/archsimd"
 
 const pitchAutocorrRoundFourTermTail = true
 
-// pitchAutocorrTail4 follows the ordinary Darwin ARM64 C _celt_autocorr
-// caller in celt/celt_lpc.c: four rounded vector products, then ordered scalar
-// additions. Its one-to-three-term residuals use the existing fused path.
+// pitchAutocorrTail4 matches Darwin ARM64 NEON _celt_autocorr in
+// celt/celt_lpc.c: four rounded vector products followed by ordered scalar
+// additions. The matching C compiler fuses one-to-three-term residuals.
 func pitchAutocorrTail4(x, y []float32) float32 {
 	products := archsimd.LoadFloat32x4(x).Mul(archsimd.LoadFloat32x4(y))
 	sum := float32(0) + products.GetElem(0)

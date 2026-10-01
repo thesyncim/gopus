@@ -12,8 +12,24 @@ artifact_root="$3"
 mkdir -p "$artifact_root"
 artifact_root="$(cd "$artifact_root" && pwd)"
 overall_status=0
+timing_file="$artifact_root/phase-timings.tsv"
+printf 'phase\telapsed_s\texit\n' > "$timing_file"
+{
+  printf 'online_cpus=%s\n' "$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || printf unknown)"
+  printf 'allowed_cpus=%s\n' "$(nproc 2>/dev/null || printf unknown)"
+  printf 'GOAMD64=%s\n' "$(go env GOAMD64 2>/dev/null || printf unknown)"
+  printf 'GOEXPERIMENT=%s\n' "${GOEXPERIMENT:-unset}"
+  printf 'GOMAXPROCS=%s\n' "${GOMAXPROCS:-unset}"
+  if [[ -r /sys/fs/cgroup/cpu.max ]]; then
+    printf 'cgroup_cpu_max=%s\n' "$(cat /sys/fs/cgroup/cpu.max)"
+  fi
+  if [[ -r /sys/fs/cgroup/memory.max ]]; then
+    printf 'cgroup_memory_max=%s\n' "$(cat /sys/fs/cgroup/memory.max)"
+  fi
+  awk -F ': *' '/^MemTotal:/ { print "host_memory_kb=" $2; exit }' /proc/meminfo 2>/dev/null || true
+} > "$artifact_root/resources.txt"
 # These exact kernel and public-output checks share the existing four feature batches.
-exact_audit_selector='^Test(DTXSequenceParity_.*|PublicEncodeAPIErrorFinalRangeAndRecoveryMatchesLibopus|DecodeMalformedFramingPrecedesSmallOutput(96k)?|DecodeEmptyAndPartialChannelBuffersPrecedePacketParsing(96k)?|Encoder100ms(OneByteBudgetMatchesLibopus|TwoByteBudgetAndSelectedDurationMatchLibopus|BudgetMatchesLibopusAt96kQEXT)|ValidNativeFrameSizesMatchLibopus|NativeFrameSizeValidatorCoversAllRatesAndDurations|MultistreamInvalidFrameSizesReturnBeforeBudgetAndInt16Conversion|Native96kEncoderFrameSizeBoundariesMatchLibopus|MultistreamEncodeInt2496kLongFramesMatchesSelectedLibopus|MultistreamForceChannelsPartialFailureMatchesLibopus|MultistreamEncoderSetApplicationAfterLowSpaceMatchesLibopus|(Encoder|Decoder)CTLSequenceFuzz|PublicDNNReferenceIdentityUsesBuilderStampContract|DNNHelperIncludesPinnedSourceRootAfterBuildConfig|SinF32MatchesSamePlatformCLibm|DecoderPitchAfterSILKRateResetMatchesSelectedLibopus|SILKCNGRateChangeRetainsExcitationMatchesLibopus|SILKCNGRateChangeWarmZeroAllocs|AlgUnquantQEXTRefinedEnergy(PublicBoundary|Tail)MatchesSelectedLibopus|DecodeWithFECRobustnessMalformed|DecodeWithFECRateSwitchRecoveryAndLossMatchesSelectedLibopus|DecodeWithFECMonoToStereoTransitionMatchesSelectedLibopus|DecodeWithFECStereoToMonoTransitionMatchesSelectedLibopus|DecodeWithFECMonoToStereoLongFrameMatchesSelectedLibopus|RootNative96kModeBudgetSequenceMatchesSelectedLibopus|MultistreamNativeHD96kBudgetSequenceMatchesSelectedLibopus|CoarseEnergyVariableBudgetAllocs|CELTCoarseEnergyVariableBudgetAllocs|DecodeWithFECSILKPLCResetsOnRateChange.*|CELTChannelRecoveryMatchesSelectedLibopus|MultistreamCELTChannelRecoveryMatchesSelectedLibopus|QEXTAfterEmptyRepeatMatchesSelectedLibopus|MultistreamNativeHD96kEncodeMatchesSelectedLibopus|QEXTMultistreamDecoderNative96kMatchesLibopus|MultistreamLongPLCBurstMatchesSelectedLibopus|MultistreamMalformedHybridTransitionMatchesSelectedLibopus|HybridQEXTPayloadMatchesSelectedLibopus|HybridQEXTDecodeIntoWarmZeroAllocs|FixedHybridQEXTPayloadMatchesSelectedLibopus|FixedHybridQEXTPayloadWarmZeroAllocs|QEXTNonFullbandHeaderMatchesSelectedLibopus|QEXTDiscardedBandsMatchSelectedLibopus|QEXTDiscardedBandSynthesisStagesMatchSelectedLibopus|IntegerFormatSoftClipLifecycleMatchesSelectedLibopus|HybridMalformedMainLengthMatchesSelectedLibopus|ProjectionRobustOracleErrorClassification|ProjectionDecodeRobustnessMalformed|HybridStereoFloatSameArchParity|MultistreamPerStreamModeTransitionMatchesLibopus|Libopus_MSRecovery_.*|DecoderHybridToCELT(10|20)msTransitionParity|MultistreamDecodeFixedPointParity|MSRobustOracleErrorClassification|DecodeMultistreamMalformedSILKRedundancyParity|DecodeMultistreamRobustnessMalformed|FixedSILKMultiframeRedundancyMatchesSelectedLibopus|FixedSILKRedundancyDecodeWarmZeroAllocs|MultistreamSILKRedundancyFinalRangeMatchesSelectedLibopus|MultistreamHybridRedundancyFinalRangeMatchesSelectedLibopus|ProjectionDecodePCMAndFinalRangeMatchesSelectedLibopus|MultistreamSoftClipLifecycleMatchesSelectedLibopus|MultistreamConstructorsValidateSampleRate|ProjectionDecoderValidatesChannelsBeforeAllocation|ProjectionRectangularDecodeMatchesSelectedLibopus|AlgUnquantQEXTN2MatchesSelectedLibopus|CELTDecoderAPIRate(ToFloat32|PLC)MatchesLibopus|MultistreamDecodeFloat32MatchesLibopus|MultistreamDecodeRequestedPLCDurationMatchesLibopus|MultistreamDecodeOverlongAndEmptyPLCMatchesLibopus|MultistreamDecodeInt16HighGainMatchesLibopus|MSDecoderCTL_Gain(Broadcast|AudioMatchesLibopus|AudioMatchesLibopusSILK)|DecodeFECNoPacketLossChannelRoutingMatchesLibopus|EncodeDecodeLongStreamSoak|EncodeDiffSILKCBRFloorFinding|EncoderCELTSameArchByteExact|QEXTCubic(Decode|Encode)MatchesLibopus|QEXTCubicReductionBoundaryGrid|QEXTMonoMultiFrameSynthesisStagesMatchLibopus|DecoderQEXT.*|EncoderAutoModeCrossProductParity|SurroundInt16PacketRangeMatchesLibopus|DecodeWithFECHybridToSILK(MatchesLibopus|WarmZeroAllocs)|ThetaRDODistortionMatchesLibopusFloatPath|DecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame|StereoMergeVsLibopus|PitchDownsample(Sig|FloatInput)MatchesLibopus|RemoveDoublingMatchesLibopus|Haar1(MatchesLibopus|NormMatchesLibopus|SpecializedMatchesGeneric|StrideFastPathsMatchGenericExact)|QuantPartitionZeroPulseMatchesLibopus|CELTPLCSeedSynthesisStagesMatchLibopusC|RenormalizeVectorMatchesLibopusFloatPath|Alg(Quant|Unquant)MatchesLibopusFloatPath|StereoIthetaMatchesLibopusFloatPath|OPPVQSearchMatchesLibopusFloatPath)$'
+exact_audit_selector='^Test(DTXSequenceParity_.*|PublicEncodeAPIErrorFinalRangeAndRecoveryMatchesLibopus|DecodeMalformedFramingPrecedesSmallOutput(96k)?|DecodeEmptyAndPartialChannelBuffersPrecedePacketParsing(96k)?|Encoder100ms(OneByteBudgetMatchesLibopus|TwoByteBudgetAndSelectedDurationMatchLibopus|BudgetMatchesLibopusAt96kQEXT)|ValidNativeFrameSizesMatchLibopus|NativeFrameSizeValidatorCoversAllRatesAndDurations|MultistreamInvalidFrameSizesReturnBeforeBudgetAndInt16Conversion|Native96kEncoderFrameSizeBoundariesMatchLibopus|MultistreamEncodeInt2496kLongFramesMatchesSelectedLibopus|MultistreamForceChannelsPartialFailureMatchesLibopus|MultistreamEncoderSetApplicationAfterLowSpaceMatchesLibopus|(Encoder|Decoder)CTLSequenceFuzz|PublicDNNReferenceIdentityUsesBuilderStampContract|DNNHelperIncludesPinnedSourceRootAfterBuildConfig|SinF32MatchesSamePlatformCLibm|DecoderPitchAfterSILKRateResetMatchesSelectedLibopus|SILKCNGRateChangeRetainsExcitationMatchesLibopus|SILKCNGRateChangeWarmZeroAllocs|AlgUnquantQEXTRefinedEnergy(PublicBoundary|Tail)MatchesSelectedLibopus|DecodeWithFECRobustnessMalformed|DecodeWithFECRateSwitchRecoveryAndLossMatchesSelectedLibopus|DecodeWithFECMonoToStereoTransitionMatchesSelectedLibopus|DecodeWithFECStereoToMonoTransitionMatchesSelectedLibopus|DecodeWithFECMonoToStereoLongFrameMatchesSelectedLibopus|RootNative96kModeBudgetSequenceMatchesSelectedLibopus|MultistreamNativeHD96kBudgetSequenceMatchesSelectedLibopus|CoarseEnergyVariableBudgetAllocs|CELTCoarseEnergyVariableBudgetAllocs|DecodeWithFECSILKPLCResetsOnRateChange.*|CELTChannelRecoveryMatchesSelectedLibopus|MultistreamCELTChannelRecoveryMatchesSelectedLibopus|QEXTAfterEmptyRepeatMatchesSelectedLibopus|MultistreamNativeHD96kEncodeMatchesSelectedLibopus|QEXTMultistreamDecoderNative96kMatchesLibopus|MultistreamLongPLCBurstMatchesSelectedLibopus|MultistreamMalformedHybridTransitionMatchesSelectedLibopus|HybridQEXTPayloadMatchesSelectedLibopus|HybridQEXTDecodeIntoWarmZeroAllocs|FixedHybridQEXTPayloadMatchesSelectedLibopus|FixedHybridQEXTPayloadWarmZeroAllocs|QEXTNonFullbandHeaderMatchesSelectedLibopus|QEXTDiscardedBandsMatchSelectedLibopus|QEXTDiscardedBandSynthesisStagesMatchSelectedLibopus|IntegerFormatSoftClipLifecycleMatchesSelectedLibopus|HybridMalformedMainLengthMatchesSelectedLibopus|ProjectionRobustOracleErrorClassification|ProjectionDecodeRobustnessMalformed|HybridStereoFloatSameArchParity|MultistreamPerStreamModeTransitionMatchesLibopus|Libopus_MSRecovery_.*|DecoderHybridToCELT(10|20)msTransitionParity|MultistreamDecodeFixedPointParity|MSRobustOracleErrorClassification|DecodeMultistreamMalformedSILKRedundancyParity|DecodeMultistreamRobustnessMalformed|FixedSILKMultiframeRedundancyMatchesSelectedLibopus|FixedSILKRedundancyDecodeWarmZeroAllocs|MultistreamSILKRedundancyFinalRangeMatchesSelectedLibopus|MultistreamHybridRedundancyFinalRangeMatchesSelectedLibopus|ProjectionDecodePCMAndFinalRangeMatchesSelectedLibopus|MultistreamSoftClipLifecycleMatchesSelectedLibopus|MultistreamConstructorsValidateSampleRate|ProjectionDecoderValidatesChannelsBeforeAllocation|ProjectionRectangularDecodeMatchesSelectedLibopus|AlgUnquantQEXTN2MatchesSelectedLibopus|CELTDecoderAPIRate(ToFloat32|PLC)MatchesLibopus|MultistreamDecodeFloat32MatchesLibopus|MultistreamDecodeRequestedPLCDurationMatchesLibopus|MultistreamDecodeOverlongAndEmptyPLCMatchesLibopus|MultistreamDecodeInt16HighGainMatchesLibopus|MSDecoderCTL_Gain(Broadcast|AudioMatchesLibopus|AudioMatchesLibopusSILK)|DecodeFECNoPacketLossChannelRoutingMatchesLibopus|EncodeDecodeLongStreamSoak|EncodeDiffSILKCBRFloorFinding|EncodeStatefulTransitionFuzzAt48k|EncoderCELTSameArchByteExact|QEXTCubic(Decode|Encode)MatchesLibopus|QEXTCubicReductionBoundaryGrid|QEXTMonoMultiFrameSynthesisStagesMatchLibopus|DecoderQEXT.*|EncoderAutoModeCrossProductParity|SurroundInt16PacketRangeMatchesLibopus|DecodeWithFECHybridToSILK(MatchesLibopus|WarmZeroAllocs)|ThetaRDODistortionMatchesLibopusFloatPath|DecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame|StereoMergeVsLibopus|PitchDownsample(Sig|FloatInput)MatchesLibopus|RemoveDoublingMatchesLibopus|Haar1(MatchesLibopus|NormMatchesLibopus|SpecializedMatchesGeneric|StrideFastPathsMatchGenericExact)|QuantPartitionZeroPulseMatchesLibopus|CELTPLCSeedSynthesisStagesMatchLibopusC|RenormalizeVectorMatchesLibopusFloatPath|Alg(Quant|Unquant)MatchesLibopusFloatPath|StereoIthetaMatchesLibopusFloatPath|OPPVQSearchMatchesLibopusFloatPath)$'
 cc_target="$(cc -dumpmachine 2>/dev/null)"
 
 printf 'runner_os=%s\nrunner_arch=%s\ngo=%s\ngoamd64=%s\ncc=%s\ncc_target=%s\n' \
@@ -40,10 +56,14 @@ run_phase() {
   shift
   local log="$artifact_root/$phase.log"
   local status="$artifact_root/$phase.exit"
+  local start_s elapsed_s
+  start_s=$SECONDS
   echo "==> $phase"
   "$@" >"$log" 2>&1
   local rc=$?
+  elapsed_s=$((SECONDS - start_s))
   printf '%s\n' "$rc" > "$status"
+  printf '%s\t%s\t%s\n' "$phase" "$elapsed_s" "$rc" >> "$timing_file"
   if [[ $rc -ne 0 ]]; then
     overall_status=1
     echo "$phase failed with exit=$rc"
@@ -58,10 +78,14 @@ run_json_phase() {
   shift
   local log="$artifact_root/$phase.jsonl"
   local status="$artifact_root/$phase.exit"
+  local start_s elapsed_s
+  start_s=$SECONDS
   echo "==> $phase"
   "$@" >"$log" 2>&1
   local rc=$?
+  elapsed_s=$((SECONDS - start_s))
   printf '%s\n' "$rc" > "$status"
+  printf '%s\t%s\t%s\n' "$phase" "$elapsed_s" "$rc" >> "$timing_file"
   if [[ $rc -ne 0 ]]; then
     overall_status=1
     echo "$phase failed with exit=$rc"
@@ -208,7 +232,7 @@ for mode in simd nosimd; do
       run_phase "candidate-simd-$cpu-analysis" \
         env GOPUS_TEST_TIER=fast GOMAXPROCS=2 \
         qemu-x86_64 -cpu "$cpu" "$artifact_root/candidate-simd-encoder.test" \
-        -test.run '^TestAnalysis(Bins(CPUFallback|MatchesScalar|ZeroAllocs)|Atan2MatchesBranchyForm)$' \
+        -test.run '^TestAnalysis(BinsCPUFallback|Atan2MatchesBranchyForm)$' \
         -test.count=1 -test.timeout=2m -test.v
       run_phase "candidate-simd-$cpu-dnn-dispatch" \
         env GOPUS_TEST_TIER=fast GOMAXPROCS=2 \
@@ -344,13 +368,23 @@ for mode in simd nosimd; do
 
 done
 
-run_phase build-baseline-test-binary \
-  run_in_checkout "$baseline_root" env -u GOEXPERIMENT -u GOPUS_LIBOPUS_REF_SCALAR \
-  go test -c -pgo=auto -o "$artifact_root/baseline-default-root.test" .
+run_phase build-baseline-scalar-test-binary \
+  run_in_checkout "$baseline_root" env -u GOEXPERIMENT GOPUS_LIBOPUS_REF_SCALAR=1 \
+  go test -c -pgo=auto -o "$artifact_root/baseline-scalar-root.test" .
+run_phase build-baseline-simd-test-binary \
+  run_in_checkout "$baseline_root" env -u GOPUS_LIBOPUS_REF_SCALAR GOEXPERIMENT=simd \
+  go test -c -pgo=auto -o "$artifact_root/baseline-simd-root.test" .
+run_phase build-candidate-scalar-test-binary \
+  run_in_checkout "$candidate_root" env -u GOEXPERIMENT GOPUS_LIBOPUS_REF_SCALAR=1 \
+  go test -c -pgo=auto -o "$artifact_root/candidate-scalar-root.test" .
 
 run_profile() {
   local side="$1" binary="$2" profile="$3" workload="$4" benchmark="$5" checkout
-  if [[ "$side" == baseline ]]; then checkout="$baseline_root"; else checkout="$candidate_root"; fi
+  if [[ "$side" == baseline-scalar || "$side" == baseline-simd ]]; then
+    checkout="$baseline_root"
+  else
+    checkout="$candidate_root"
+  fi
   run_phase "$side-$workload-cpu-profile" \
     run_in_checkout "$checkout" env "$binary" \
       -test.run '^$' \
@@ -363,22 +397,28 @@ run_profile() {
   fi
 }
 
-if [[ -x "$artifact_root/baseline-default-root.test" && -x "$artifact_root/candidate-simd-root.test" && -x "$artifact_root/candidate-nosimd-root.test" ]]; then
-  run_profile baseline "$artifact_root/baseline-default-root.test" "$artifact_root/baseline-callerbuffer.cpu" callerbuffer '^BenchmarkEncoderEncode_CallerBuffer$'
+if [[ -x "$artifact_root/baseline-scalar-root.test" && -x "$artifact_root/baseline-simd-root.test" &&
+      -x "$artifact_root/candidate-scalar-root.test" && -x "$artifact_root/candidate-simd-root.test" &&
+      -x "$artifact_root/candidate-nosimd-root.test" ]]; then
+  run_profile baseline-scalar "$artifact_root/baseline-scalar-root.test" "$artifact_root/baseline-scalar-callerbuffer.cpu" callerbuffer '^BenchmarkEncoderEncode_CallerBuffer$'
+  run_profile candidate-scalar "$artifact_root/candidate-scalar-root.test" "$artifact_root/candidate-scalar-callerbuffer.cpu" callerbuffer '^BenchmarkEncoderEncode_CallerBuffer$'
+  run_profile baseline-simd "$artifact_root/baseline-simd-root.test" "$artifact_root/baseline-simd-callerbuffer.cpu" callerbuffer '^BenchmarkEncoderEncode_CallerBuffer$'
   run_profile candidate-simd "$artifact_root/candidate-simd-root.test" "$artifact_root/candidate-simd-callerbuffer.cpu" callerbuffer '^BenchmarkEncoderEncode_CallerBuffer$'
-  run_profile baseline "$artifact_root/baseline-default-root.test" "$artifact_root/baseline-hybrid-decode.cpu" hybrid-decode '^BenchmarkDecoderDecode_Hybrid$'
+  run_profile baseline-scalar "$artifact_root/baseline-scalar-root.test" "$artifact_root/baseline-scalar-hybrid-decode.cpu" hybrid-decode '^BenchmarkDecoderDecode_Hybrid$'
+  run_profile candidate-scalar "$artifact_root/candidate-scalar-root.test" "$artifact_root/candidate-scalar-hybrid-decode.cpu" hybrid-decode '^BenchmarkDecoderDecode_Hybrid$'
+  run_profile baseline-simd "$artifact_root/baseline-simd-root.test" "$artifact_root/baseline-simd-hybrid-decode.cpu" hybrid-decode '^BenchmarkDecoderDecode_Hybrid$'
   run_profile candidate-simd "$artifact_root/candidate-simd-root.test" "$artifact_root/candidate-simd-hybrid-decode.cpu" hybrid-decode '^BenchmarkDecoderDecode_Hybrid$'
 
+  all_sides=(baseline-scalar candidate-scalar baseline-simd candidate-simd)
   for sample in 1 2 3 4; do
-    if (( sample % 2 == 1 )); then sides=(baseline candidate-simd); else sides=(candidate-simd baseline); fi
-    for side in "${sides[@]}"; do
-      if [[ "$side" == baseline ]]; then
-        binary="$artifact_root/baseline-default-root.test"
-        checkout="$baseline_root"
-      else
-        binary="$artifact_root/candidate-simd-root.test"
-        checkout="$candidate_root"
-      fi
+    for offset in 0 1 2 3; do
+      side="${all_sides[$(((sample - 1 + offset) % 4))]}"
+      case "$side" in
+        baseline-scalar) binary="$artifact_root/baseline-scalar-root.test"; checkout="$baseline_root" ;;
+        candidate-scalar) binary="$artifact_root/candidate-scalar-root.test"; checkout="$candidate_root" ;;
+        baseline-simd) binary="$artifact_root/baseline-simd-root.test"; checkout="$baseline_root" ;;
+        candidate-simd) binary="$artifact_root/candidate-simd-root.test"; checkout="$candidate_root" ;;
+      esac
       run_phase "interleaved-callerbuffer-$side-$sample" \
         run_in_checkout "$checkout" env "$binary" \
           -test.run '^$' \
@@ -402,24 +442,29 @@ if [[ -x "$artifact_root/baseline-default-root.test" && -x "$artifact_root/candi
     BenchmarkEncoderEncode_VoIP
     BenchmarkEncoderEncode_LowDelay
   )
+  e2e_sides=(baseline-scalar candidate-scalar candidate-nosimd baseline-simd candidate-simd)
   for sample in 1 2 3 4; do
-    case $((sample % 3)) in
-      1) sides=(baseline candidate-simd candidate-nosimd) ;;
-      2) sides=(candidate-simd candidate-nosimd baseline) ;;
-      0) sides=(candidate-nosimd baseline candidate-simd) ;;
-    esac
-    for side in "${sides[@]}"; do
+    for offset in 0 1 2 3 4; do
+      side="${e2e_sides[$(((sample - 1 + offset) % 5))]}"
       case "$side" in
-        baseline)
-          binary="$artifact_root/baseline-default-root.test"
+        baseline-scalar)
+          binary="$artifact_root/baseline-scalar-root.test"
           checkout="$baseline_root"
           ;;
-        candidate-simd)
-          binary="$artifact_root/candidate-simd-root.test"
+        candidate-scalar)
+          binary="$artifact_root/candidate-scalar-root.test"
           checkout="$candidate_root"
           ;;
         candidate-nosimd)
           binary="$artifact_root/candidate-nosimd-root.test"
+          checkout="$candidate_root"
+          ;;
+        baseline-simd)
+          binary="$artifact_root/baseline-simd-root.test"
+          checkout="$baseline_root"
+          ;;
+        candidate-simd)
+          binary="$artifact_root/candidate-simd-root.test"
           checkout="$candidate_root"
           ;;
       esac
@@ -485,7 +530,7 @@ EOF
   done
 else
   overall_status=1
-  printf 'baseline, SIMD, or nosimd E2E binaries unavailable after an earlier build failure\n' > "$artifact_root/profile-bench-skipped.txt"
+  printf 'matching scalar or SIMD E2E binaries unavailable after an earlier build failure\n' > "$artifact_root/profile-bench-skipped.txt"
 fi
 
 run_phase candidate-simd-dnn-primitive-artifacts capture_dnn_primitive

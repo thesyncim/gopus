@@ -1,6 +1,8 @@
 package gopus
 
 import (
+	"bytes"
+	"fmt"
 	"math"
 	"testing"
 )
@@ -173,35 +175,103 @@ func TestEncoder_InDTXDelegatesToCoreEncoder(t *testing.T) {
 	}
 }
 
-func TestEncoder_VADActivityDelegatesToCoreEncoder(t *testing.T) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
-	if err != nil {
-		t.Fatalf("NewEncoder error: %v", err)
+func TestEncoder_VADActivityReportsOpusDecisionWithoutChangingPackets(t *testing.T) {
+	modes := []struct {
+		name string
+		mode EncoderMode
+	}{
+		{name: "CELT", mode: EncoderModeCELT},
+		{name: "Hybrid", mode: EncoderModeHybrid},
+		{name: "SILK", mode: EncoderModeSILK},
 	}
-	enc.SetDTX(true)
+	for _, mode := range modes {
+		for _, complexity := range []int{0, 10} {
+			t.Run(fmt.Sprintf("%s/complexity-%d", mode.name, complexity), func(t *testing.T) {
+				newEncoder := func() *Encoder {
+					enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
+					if err != nil {
+						t.Fatalf("NewEncoder error: %v", err)
+					}
+					if err := enc.SetComplexity(complexity); err != nil {
+						t.Fatalf("SetComplexity: %v", err)
+					}
+					if err := enc.SetMode(mode.mode); err != nil {
+						t.Fatalf("SetMode(%v): %v", mode.mode, err)
+					}
+					enc.SetDTX(true)
+					return enc
+				}
+				polling, control := newEncoder(), newEncoder()
 
-	if got, want := enc.VADActivity(), enc.enc.GetVADActivity(); got != want {
-		t.Fatalf("initial VADActivity()=%d want core=%d", got, want)
-	}
+				if got := polling.VADActivity(); got != 0 {
+					t.Fatalf("initial VADActivity()=%d, want unavailable value 0", got)
+				}
 
-	packet := make([]byte, 4000)
-	speech := generateSineWave(48000, 440, enc.FrameSize())
-	for i := range 3 {
-		if _, err := enc.Encode(speech, packet); err != nil {
-			t.Fatalf("Encode(speech) frame %d error: %v", i, err)
+				packetPolling := make([]byte, 4000)
+				packetControl := make([]byte, 4000)
+				frames := [][]float32{
+					make([]float32, polling.FrameSize()),
+					generateSineWave(48000, 440, polling.FrameSize()),
+					generateSineWave(48000, 440, polling.FrameSize()),
+					generateSineWave(48000, 440, polling.FrameSize()),
+				}
+				sawVoicedActivity := false
+				for i, pcm := range frames {
+					gotLen, err := polling.Encode(pcm, packetPolling)
+					if err != nil {
+						t.Fatalf("polling Encode frame %d: %v", i, err)
+					}
+					wantLen, err := control.Encode(pcm, packetControl)
+					if err != nil {
+						t.Fatalf("control Encode frame %d: %v", i, err)
+					}
+					if gotLen != wantLen || !bytes.Equal(packetPolling[:gotLen], packetControl[:wantLen]) {
+						t.Fatalf("polling VADActivity changed frame %d packet", i)
+					}
+					if got, want := polling.FinalRange(), control.FinalRange(); got != want {
+						t.Fatalf("frame %d final range after polling=%08x want %08x", i, got, want)
+					}
+					if got, want := polling.InDTX(), control.InDTX(); got != want {
+						t.Fatalf("frame %d InDTX after polling=%v want %v", i, got, want)
+					}
+
+					activity := polling.VADActivity()
+					if activity < 0 || activity > 255 {
+						t.Fatalf("frame %d VADActivity()=%d out of range", i, activity)
+					}
+					if i == 0 && activity != 0 {
+						t.Fatalf("silence VADActivity()=%d, want 0", activity)
+					}
+					if i > 0 && activity > 0 {
+						sawVoicedActivity = true
+					}
+				}
+				if complexity == 10 && !sawVoicedActivity {
+					t.Fatal("voiced Encode frames never produced nonzero VAD activity")
+				}
+
+				polling.Reset()
+				control.Reset()
+				if got := polling.VADActivity(); got != 0 {
+					t.Fatalf("post-reset VADActivity()=%d, want unavailable value 0", got)
+				}
+				pcm := generateSineWave(48000, 440, polling.FrameSize())
+				gotLen, err := polling.Encode(pcm, packetPolling)
+				if err != nil {
+					t.Fatalf("polling Encode after Reset: %v", err)
+				}
+				wantLen, err := control.Encode(pcm, packetControl)
+				if err != nil {
+					t.Fatalf("control Encode after Reset: %v", err)
+				}
+				if gotLen != wantLen || !bytes.Equal(packetPolling[:gotLen], packetControl[:wantLen]) {
+					t.Fatal("post-reset VADActivity observation changed packet output")
+				}
+				if got, want := polling.FinalRange(), control.FinalRange(); got != want {
+					t.Fatalf("post-reset final range after polling=%08x want %08x", got, want)
+				}
+			})
 		}
-	}
-
-	if got, want := enc.VADActivity(), enc.enc.GetVADActivity(); got != want {
-		t.Fatalf("post-speech VADActivity()=%d want core=%d", got, want)
-	}
-	if got := enc.VADActivity(); got < 0 || got > 255 {
-		t.Fatalf("VADActivity()=%d out of range", got)
-	}
-
-	enc.Reset()
-	if got, want := enc.VADActivity(), enc.enc.GetVADActivity(); got != want {
-		t.Fatalf("post-reset VADActivity()=%d want core=%d", got, want)
 	}
 }
 

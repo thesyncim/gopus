@@ -940,13 +940,12 @@ func (e *Encoder) modeConfig(frameSize int) ModeConfig {
 	return GetModeConfig(frameSize)
 }
 
-// toneDetectFs returns the sample rate passed to tone_detect and
-// transient_analysis. Standard and native 96 kHz HD modes use 48000; scaled
-// custom modes use their configured rate, which sets maxDelay and tone-frequency
-// normalization. The default build uses 48000.
+// toneDetectFs returns the active mode's sample rate for tone_detect and
+// transient_analysis. Standard modes use 48000, native HD mode uses 96000, and
+// scaled custom modes use their configured rate, matching libopus mode->Fs.
 func (e *Encoder) toneDetectFs() int {
-	if e.customScaleBase > 0 && e.sampleRate > 0 {
-		return int(e.sampleRate)
+	if fs := e.celtModeFs(); fs > 0 {
+		return fs
 	}
 	return 48000
 }

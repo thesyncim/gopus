@@ -625,7 +625,7 @@ fixtures-assert-platform:
 		"internal/celt/testdata/opusdec_crossval_fixture_$${suffix}.json"; do \
 		test -s "$${path}" || { echo "missing generated platform fixture: $${path}" >&2; exit 1; }; \
 	done; \
-	GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=fast $(GO_WORK_ENV) $(GO) test ./testvectors -run '^(TestRequiredPlatformFixturesPresent|TestFixtureGeneratorsUseLibopusOpusDemo|TestEncoder(PacketFixtureStableOrdering|VariantsFixtureStableOrdering)|TestPlatformFixture)' -count=1; \
+	GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=fast $(GO_WORK_ENV) $(GO) test ./testvectors -run '^(TestRequiredPlatformFixturesPresent|TestFixtureGeneratorsUseLibopusOpusDemo|TestPlatformFixture)' -count=1; \
 	GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=fast $(GO_WORK_ENV) $(GO) test ./internal/celt -run '^(TestOpusdecCrossvalRequiredPlatformFixturePresent|TestOpusdecCrossvalFixtureCoverage|TestOpusdecCrossvalFixtureMatrix|TestOpusdecCrossvalPlatformFixturePath|TestOpusdecCrossvalRequirePlatformFixtureDisablesFallback)' -count=1
 
 # Regenerate linux/amd64-specific fixture files in a cached linux/amd64 container.

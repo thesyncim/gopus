@@ -10,6 +10,22 @@ baseline_root="$(cd "$1" && pwd)"
 candidate_root="$(cd "$2" && pwd)"
 artifact_root="$3"
 mkdir -p "$artifact_root"
+timing_file="$artifact_root/phase-timings.tsv"
+printf 'phase\telapsed_s\texit\n' > "$timing_file"
+{
+  printf 'online_cpus=%s\n' "$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || printf unknown)"
+  printf 'allowed_cpus=%s\n' "$(nproc 2>/dev/null || printf unknown)"
+  printf 'GOAMD64=%s\n' "$(go env GOAMD64 2>/dev/null || printf unknown)"
+  printf 'GOEXPERIMENT=%s\n' "${GOEXPERIMENT:-unset}"
+  printf 'GOMAXPROCS=%s\n' "${GOMAXPROCS:-unset}"
+  if [[ -r /sys/fs/cgroup/cpu.max ]]; then
+    printf 'cgroup_cpu_max=%s\n' "$(cat /sys/fs/cgroup/cpu.max)"
+  fi
+  if [[ -r /sys/fs/cgroup/memory.max ]]; then
+    printf 'cgroup_memory_max=%s\n' "$(cat /sys/fs/cgroup/memory.max)"
+  fi
+  awk -F ': *' '/^MemTotal:/ { print "host_memory_kb=" $2; exit }' /proc/meminfo 2>/dev/null || true
+} > "$artifact_root/resources.txt"
 
 printf 'runner_os=%s\nrunner_arch=%s\ngo=%s\ncc=%s\n' \
   "$(uname -s)" \
@@ -27,32 +43,31 @@ run_phase() {
   shift 3
   local log="$artifact_root/$side-$phase.log"
   local status="$artifact_root/$side-$phase.exit"
+  local start_s elapsed_s
 
+  start_s=$SECONDS
   echo "==> $side: $phase"
   (cd "$root" && "$@") >"$log" 2>&1
   local rc=$?
+  elapsed_s=$((SECONDS - start_s))
   printf '%s\n' "$rc" > "$status"
+  printf '%s\t%s\t%s\n' "$side-$phase" "$elapsed_s" "$rc" >> "$timing_file"
   echo "$side $phase exit=$rc"
   return 0
 }
 
 install_amd64_kernel_benchmarks() {
-  local side="$1" root="$2"
+  local root="$1"
   case "$(uname -m)" in
     x86_64|amd64) ;;
     *) return 0 ;;
   esac
 
   mkdir -p "$root/internal/celt"
-  if [[ "$side" == baseline ]]; then
-    cp "$candidate_root/scripts/benchmarks/kernel_port_amd64_baseline.go.tmpl" \
-      "$root/internal/celt/kernel_port_bench_ci_amd64_test.go"
-  else
-    cp "$candidate_root/scripts/benchmarks/kernel_port_amd64_candidate.go.tmpl" \
-      "$root/internal/celt/kernel_port_bench_ci_amd64_test.go"
-    cp "$candidate_root/scripts/benchmarks/kernel_port_amd64_candidate_simd.go.tmpl" \
-      "$root/internal/celt/kernel_port_bench_ci_amd64_simd_test.go"
-  fi
+  cp "$candidate_root/scripts/benchmarks/kernel_port_amd64_candidate.go.tmpl" \
+    "$root/internal/celt/kernel_port_bench_ci_amd64_test.go"
+  cp "$candidate_root/scripts/benchmarks/kernel_port_amd64_candidate_simd.go.tmpl" \
+    "$root/internal/celt/kernel_port_bench_ci_amd64_simd_test.go"
 }
 
 run_mode() {
@@ -77,7 +92,7 @@ run_mode() {
       oracle_tags=(-tags purego,gopus_libopus_oracle)
       ;;
     simd)
-      env_args=(env GOEXPERIMENT=simd)
+      env_args=(env -u GOPUS_LIBOPUS_REF_SCALAR GOEXPERIMENT=simd)
       ;;
     *)
       echo "unknown mode: $mode" >&2
@@ -85,10 +100,8 @@ run_mode() {
       ;;
   esac
 
-  # The PR candidate's ordinary and nosimd builds use scalar Go kernels. Keep
-  # their live libopus comparisons on generic C; the retained assembly baseline
-  # and candidate SIMD build use the platform libopus SIMD path.
-  if [[ ( "$side" == candidate && ( "$mode" == default || "$mode" == nosimd ) ) || ( "$side" == baseline && "$mode" == purego ) ]]; then
+  # Match each Go lane to the same libopus C lane on both checkouts.
+  if [[ "$mode" == default || "$mode" == nosimd || "$mode" == purego ]]; then
     ref_env_args=(GOPUS_LIBOPUS_REF_SCALAR=1)
   fi
 
@@ -138,9 +151,9 @@ run_mode() {
         -count=1 -timeout=25m -v
   fi
 
-  if [[ ( "$side" == baseline && "$mode" == default ) || ( "$side" == candidate && "$mode" == simd ) ]]; then
+  if [[ "$mode" == default || "$mode" == simd ]]; then
     run_phase "$side" "$root" "$mode-decode-differential" \
-      "${env_args[@]}" GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+      "${env_args[@]}" "${ref_env_args[@]}" GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
       go test . -run '^TestDecodeDifferentialEncodeThenDecode/hybrid_swb_ch2_10ms_48000bps_vbr0_fectrue_dtxfalse$' \
         -count=1 -timeout=10m -v
   fi
@@ -152,23 +165,18 @@ run_mode() {
       -run '^TestEncoderCompliancePrecisionGuard$/^Hybrid-FB-20ms-stereo-96k$' \
       -count=1 -timeout=20m -v
 
-  # These direct benches compare the retained assembly baseline, the scalar
-  # Go path, and the Go SIMD path on the same native AMD64 runner.
-  if [[ "$side" != baseline || "$mode" == default ]]; then
-    if [[ "$mode" != nosimd ]]; then
-      run_phase "$side" "$root" "$mode-kernel-benchmarks" \
-        "${env_args[@]}" \
-        go test "${cbr_tags[@]}" ./internal/celt ./internal/silk \
-          -run '^$' \
-          -bench '^(BenchmarkInnerProd8FMA32|BenchmarkXcorrF32|BenchmarkInnerProductFLP|BenchmarkCeltPitchXcorrFloat|BenchmarkXcorrKernelFloat|BenchmarkXcorrKernelAVX8|BenchmarkPortAMD64)' \
-          -benchtime=300ms -benchmem -count=5 -timeout=20m
-    fi
+  # Capture matched default-scalar and Go SIMD kernel rows on both checkouts.
+  if [[ "$mode" == default || "$mode" == simd ]]; then
+    run_phase "$side" "$root" "$mode-kernel-benchmarks" \
+      "${env_args[@]}" \
+      go test "${cbr_tags[@]}" -p=1 ./internal/celt ./internal/silk \
+        -run '^$' \
+        -bench '^(BenchmarkInnerProd8FMA32|BenchmarkXcorrF32|BenchmarkInnerProductFLP|BenchmarkCeltPitchXcorrFloat|BenchmarkXcorrKernelFloat|BenchmarkXcorrKernelAVX8|BenchmarkPortAMD64)' \
+        -benchtime=300ms -benchmem -count=5 -timeout=20m
   fi
 
-  # Compare full encode/decode work on the same runner and toolchain. The
-  # candidate's nosimd mode measures the scalar fallback separately.
-  if [[ ( "$side" == baseline && "$mode" == default ) ||
-        ( "$side" == candidate && ( "$mode" == simd || "$mode" == nosimd ) ) ]]; then
+  # Capture both scalar modes and Go SIMD for public encode/decode work.
+  if [[ "$mode" == default || "$mode" == simd || ( "$side" == candidate && "$mode" == nosimd ) ]]; then
     run_phase "$side" "$root" "$mode-e2e-benchmarks" \
       "${env_args[@]}" \
       go test "${cbr_tags[@]}" . -run '^$' \
@@ -179,7 +187,7 @@ run_mode() {
 
 run_side() {
   local side="$1" root="$2"
-  local simd_opusdec_fixture="$artifact_root/candidate-simd-committed-opusdec-fixture.json"
+  local simd_opusdec_fixture="$artifact_root/$side-simd-committed-opusdec-fixture.json"
   run_phase "$side" "$root" ensure-libopus make ensure-libopus
   if [[ "$(cat "$artifact_root/$side-ensure-libopus.exit")" != 0 ]]; then
     return 0
@@ -192,12 +200,20 @@ run_side() {
     fi
   fi
 
-  install_amd64_kernel_benchmarks "$side" "$root"
+  run_phase "$side" "$root" ensure-libopus-simd make ensure-libopus-simd
+  if [[ "$(cat "$artifact_root/$side-ensure-libopus-simd.exit")" != 0 ]]; then
+    return 0
+  fi
 
-  if [[ "$side" == candidate ]]; then
+  install_amd64_kernel_benchmarks "$root"
+
+  run_phase "$side" "$root" save-simd-opusdec-fixture \
     cp "$root/internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json" \
       "$simd_opusdec_fixture"
+  if [[ "$(cat "$artifact_root/$side-save-simd-opusdec-fixture.exit")" != 0 ]]; then
+    return 0
   fi
+
   run_phase "$side" "$root" platform-fixtures make fixtures-gen-platform
   if [[ "$(cat "$artifact_root/$side-platform-fixtures.exit")" != 0 ]]; then
     return 0
@@ -210,28 +226,33 @@ run_side() {
     fi
     run_mode "$side" "$root" default
     run_mode "$side" "$root" purego
+    run_phase "$side" "$root" restore-simd-opusdec-fixture \
+      cp "$simd_opusdec_fixture" "$root/internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json"
+    if [[ "$(cat "$artifact_root/$side-restore-simd-opusdec-fixture.exit")" != 0 ]]; then
+      return 0
+    fi
     run_mode "$side" "$root" simd
   else
-    # Platform fixture generation uses ordinary scalar Go. Restore the reviewed
-    # Go SIMD bitstream fixture before the SIMD parity run.
-    cp "$simd_opusdec_fixture" \
-      "$root/internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json"
-    run_mode "$side" "$root" simd
-    run_mode "$side" "$root" nosimd
     run_mode "$side" "$root" default
+    run_mode "$side" "$root" nosimd
+    run_phase "$side" "$root" restore-simd-opusdec-fixture \
+      cp "$simd_opusdec_fixture" "$root/internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json"
+    if [[ "$(cat "$artifact_root/$side-restore-simd-opusdec-fixture.exit")" != 0 ]]; then
+      return 0
+    fi
+    run_mode "$side" "$root" simd
   fi
 }
 
 run_side baseline "$baseline_root"
 run_side candidate "$candidate_root"
 
-# Capture both sides' kernel and end-to-end measurements before the long
-# package sweeps. Full parity retains the same commands and timeouts.
-run_phase baseline "$baseline_root" default-full-parity \
-  env -u GOEXPERIMENT GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+# Compare the same Go SIMD lane against the same pinned libopus SIMD reference.
+run_phase baseline "$baseline_root" simd-full-parity \
+  env -u GOPUS_LIBOPUS_REF_SCALAR GOEXPERIMENT=simd GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
   bash ./tools/run_go_test_runnable.sh -json -count=1 -timeout=25m
 run_phase candidate "$candidate_root" simd-full-parity \
-  env GOEXPERIMENT=simd GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+  env -u GOPUS_LIBOPUS_REF_SCALAR GOEXPERIMENT=simd GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
   bash ./tools/run_go_test_runnable.sh -json -count=1 -timeout=25m
 
 # On a packet-hash change, capture the exact native opusdec fixture generated
@@ -251,14 +272,14 @@ if [[ -n "$summary_file" ]]; then
   {
     echo '## Native Linux AMD64 mode-matched A/B'
     echo
-    echo 'Both checkouts use this runner, Go 1.27.1, and pinned libopus 1.6.1. Scalar Go modes use scalar C; assembly and Go SIMD modes use native SIMD C. Modes have separate artifacts, and source lists record compile-time dispatch.'
+    echo 'Both checkouts use this runner, Go 1.27.1, and pinned libopus 1.6.1. Default, nosimd, and purego Go builds use scalar C; GOEXPERIMENT=simd builds use native SIMD C. Full parity and benchmark comparisons use the same Go lane on both checkouts.'
     echo
     cat "$artifact_root/environment.txt"
     echo
-    echo 'Full parity exit codes: old assembly / Go SIMD'
+    echo 'Full parity exit codes: base Go SIMD / candidate Go SIMD'
     echo
     printf '%s / %s\n' \
-      "$(cat "$artifact_root/baseline-default-full-parity.exit")" \
+      "$(cat "$artifact_root/baseline-simd-full-parity.exit")" \
       "$(cat "$artifact_root/candidate-simd-full-parity.exit")"
     echo
     echo '| Checkout | Mode | CBR matrix | Hybrid precision | PVQ dispatch | Kernel benchmarks |'
@@ -348,7 +369,7 @@ if [[ -n "$summary_file" ]]; then
     echo '### Native AMD64 end-to-end benchmarks'
     echo
     for side in baseline candidate; do
-      if [[ "$side" == baseline ]]; then modes=(default); else modes=(nosimd simd); fi
+      modes=(default simd)
       for mode in "${modes[@]}"; do
         echo "#### $side / $mode"
         echo
