@@ -62,10 +62,13 @@ func NewReader(r io.Reader) (*Reader, error) {
 		return nil, ErrInvalidPage
 	}
 
-	// Parse OpusHead from the first page.
+	// OpusHead is the only packet on the BOS page and must complete there.
 	packets := page.Packets()
 	if len(packets) == 0 {
 		return nil, ErrInvalidHeader
+	}
+	if page.IsContinuation() || len(packets) != 1 || len(page.Segments) == 0 || page.Segments[len(page.Segments)-1] == 255 {
+		return nil, ErrInvalidPage
 	}
 
 	or.Header, err = ParseOpusHead(packets[0])
@@ -78,6 +81,7 @@ func NewReader(r io.Reader) (*Reader, error) {
 	// Read comment page(s) with OpusTags. OpusTags may span multiple pages if
 	// there are many comments.
 	var tagsData []byte
+	lastSequence := page.PageSequence
 	for {
 		page, err = or.readPage()
 		if err != nil {
@@ -86,12 +90,28 @@ func NewReader(r io.Reader) (*Reader, error) {
 		if page.SerialNumber != or.serial {
 			return nil, ErrInvalidPage
 		}
+		if page.PageSequence != lastSequence+1 {
+			return nil, ErrInvalidPage
+		}
+		lastSequence = page.PageSequence
 		if page.IsContinuation() && len(tagsData) == 0 {
 			return nil, ErrInvalidPage // Can't continue from nothing.
 		}
+
+		// Stop at the OpusTags packet terminator, not merely the page's final
+		// lacing value. The comment packet must finish its page.
+		completed := false
+		for i, segment := range page.Segments {
+			if segment < 255 {
+				if i != len(page.Segments)-1 {
+					return nil, ErrInvalidPage
+				}
+				completed = true
+				break
+			}
+		}
 		tagsData = append(tagsData, page.Payload...)
-		// A final lacing value < 255 terminates the packet.
-		if len(page.Segments) > 0 && page.Segments[len(page.Segments)-1] < 255 {
+		if completed {
 			break
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 )
 
@@ -376,6 +377,115 @@ func TestReadPacketIntoOversizedPacketPreservesBufferAndNextPacket(t *testing.T)
 			}
 		})
 	}
+}
+
+func TestNewReaderRejectsExtraPacketOnHeaderPage(t *testing.T) {
+	const serial = 0x9876
+	head := DefaultOpusHead(48000, 1).Encode()
+	tags := DefaultOpusTags().Encode()
+	audio := []byte{0xf8, 0x00}
+
+	tests := []struct {
+		name  string
+		pages [][]byte
+	}{
+		{
+			name: "OpusHead page",
+			pages: [][]byte{
+				readerBoundaryPacketPage(serial, 0, PageFlagBOS, 0, head, audio),
+				readerBoundaryPacketPage(serial, 1, 0, 0, tags),
+				readerBoundaryPacketPage(serial, 2, PageFlagEOS, 960, audio),
+			},
+		},
+		{
+			name: "OpusTags completion page",
+			pages: [][]byte{
+				readerBoundaryPacketPage(serial, 0, PageFlagBOS, 0, head),
+				readerBoundaryPacketPage(serial, 1, 0, 0, tags, audio),
+				readerBoundaryPacketPage(serial, 2, PageFlagEOS, 960, audio),
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var stream []byte
+			for _, page := range tc.pages {
+				stream = append(stream, page...)
+			}
+			if _, err := NewReader(bytes.NewReader(stream)); !errors.Is(err, ErrInvalidPage) {
+				t.Fatalf("NewReader error = %v, want ErrInvalidPage", err)
+			}
+		})
+	}
+}
+
+func TestNewReaderRejectsSequenceGapInContinuedOpusTags(t *testing.T) {
+	const serial = 0x9877
+	head := DefaultOpusHead(48000, 1).Encode()
+	tags := (&OpusTags{Vendor: strings.Repeat("v", 700), Comments: map[string]string{"TITLE": "test"}}).Encode()
+	if len(tags) <= 255 {
+		t.Fatal("test OpusTags packet must span pages")
+	}
+	audio := []byte{0xf8, 0x00}
+
+	pages := [][]byte{
+		readerBoundaryPacketPage(serial, 0, PageFlagBOS, 0, head),
+		readerBoundaryPage(serial, 1, 0, ^uint64(0), []byte{255}, tags[:255]),
+		readerBoundaryPage(serial, 3, PageFlagContinuation, 0, BuildSegmentTable(len(tags)-255), tags[255:]),
+		readerBoundaryPacketPage(serial, 4, PageFlagEOS, 960, audio),
+	}
+	var stream []byte
+	for _, page := range pages {
+		stream = append(stream, page...)
+	}
+	if _, err := NewReader(bytes.NewReader(stream)); !errors.Is(err, ErrInvalidPage) {
+		t.Fatalf("NewReader error = %v, want ErrInvalidPage", err)
+	}
+}
+
+func TestNewReaderAcceptsContiguousMultiPageOpusTags(t *testing.T) {
+	const serial = 0x9878
+	head := DefaultOpusHead(48000, 1).Encode()
+	vendor := strings.Repeat("v", 700)
+	tags := (&OpusTags{Vendor: vendor, Comments: map[string]string{"TITLE": "test"}}).Encode()
+	audio := []byte{0xf8, 0x00}
+
+	pages := [][]byte{
+		readerBoundaryPacketPage(serial, 0, PageFlagBOS, 0, head),
+		readerBoundaryPage(serial, 1, 0, ^uint64(0), []byte{255}, tags[:255]),
+		readerBoundaryPage(serial, 2, PageFlagContinuation, 0, BuildSegmentTable(len(tags)-255), tags[255:]),
+		readerBoundaryPacketPage(serial, 3, PageFlagEOS, 960, audio),
+	}
+	var stream []byte
+	for _, page := range pages {
+		stream = append(stream, page...)
+	}
+	r, err := NewReader(bytes.NewReader(stream))
+	if err != nil {
+		t.Fatalf("NewReader returned error: %v", err)
+	}
+	if r.Tags.Vendor != vendor || r.Tags.Comments["TITLE"] != "test" {
+		t.Fatalf("parsed tags = (%q, %v), want vendor and TITLE comment", r.Tags.Vendor, r.Tags.Comments)
+	}
+	packet, _, err := r.ReadPacket()
+	if err != nil || !bytes.Equal(packet, audio) {
+		t.Fatalf("ReadPacket = (%x, %v), want (%x, nil)", packet, err, audio)
+	}
+}
+
+func readerBoundaryPacketPage(serial, seq uint32, flags byte, granule uint64, packets ...[]byte) []byte {
+	var segments, payload []byte
+	for _, packet := range packets {
+		segments = append(segments, BuildSegmentTable(len(packet))...)
+		payload = append(payload, packet...)
+	}
+	return readerBoundaryPage(serial, seq, flags, granule, segments, payload)
+}
+
+func readerBoundaryPage(serial, seq uint32, flags byte, granule uint64, segments, payload []byte) []byte {
+	page := Page{HeaderType: flags, GranulePos: granule, SerialNumber: serial, PageSequence: seq, Segments: segments, Payload: payload}
+	return page.Encode()
 }
 
 func TestReadPacketIntoOversizedZeroAlloc(t *testing.T) {
