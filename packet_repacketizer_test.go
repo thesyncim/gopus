@@ -267,3 +267,12 @@ func TestDecodeSelfDelimitedPacketPreservesOpaqueMalformedPadding(t *testing.T) 
 		t.Fatalf("decodeSelfDelimitedPacket(malformed padding)=%s want=%s", got, hex.EncodeToString(packet))
 	}
 }
+
+func TestPacketPadRejectsLengthBeyondInputOnNoOp(t *testing.T) {
+	for _, data := range [][]byte{nil, {0x08}} {
+		length := len(data) + 1
+		if err := PacketPad(data, length, length); err != ErrInvalidArgument {
+			t.Fatalf("PacketPad(len=%d, length=%d, newLen=%d) = %v, want %v", len(data), length, length, err, ErrInvalidArgument)
+		}
+	}
+}
