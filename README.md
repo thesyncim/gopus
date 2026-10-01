@@ -80,58 +80,129 @@ func main() {
 
 ## Working with audio
 
-PCM channels are interleaved. A frame size counts samples **per channel**, so
-20 ms at 48 kHz is 960 samples per channel or 1,920 values for stereo. `Encode`
-returns packet bytes; `Decode` returns samples per channel. Use `packet[:n]`
-for the encoded packet and `out[:samples*channels]` for the decoded PCM.
+### PCM and reusable buffers
 
-`Encoder.FrameSize()` determines the required input length. `len(packet)` sets
-the encode byte budget. For arbitrary incoming packets, allocate output for
-`DecoderConfig.MaxPacketSamples * Channels`. The default limits are **5,760
-samples per channel** and **1,500 packet bytes**; 5,760 samples is 120 ms at
-48 kHz. Set those limits explicitly when your stream needs larger buffers,
-including 120 ms packets at native 96 kHz.
+Use one encoder and decoder per stream, and reuse their buffers. With `enc`,
+`dec`, and `cfg` from the quick start, the same round trip works with `int16` PCM:
 
-Reuse each codec instance and its buffers. Construction and initial warmup can
-allocate. Instances retain stream history and require external synchronization
-if shared between goroutines. Use one instance per independent stream. `Reset`
-clears stream history and retains the stream format and ordinary controls.
-Encoder reset also disables DRED emission in tagged builds.
+```go
+// Allocate once, outside the audio loop. FrameSize counts samples per channel.
+input := make([]int16, enc.FrameSize()*channels) // 960 × 2 for 20 ms stereo
+packetBuf := make([]byte, cfg.MaxPacketBytes)    // length sets the encode byte budget
+output := make([]int16, cfg.MaxPacketSamples*channels)
 
-`EncodeInt16` and `DecodeInt16` use `[]int16`. `EncodeInt24` takes
-right-justified signed 24-bit samples in `[]int32`, in the range
-[-8,388,608, 8,388,607]. `DecodeInt24` writes into a caller-provided `[]int32`
-buffer at the same PCM scale; it does not clamp to that range, so output gain
-can produce larger values.
-All formats use the same interleaved layout. See the
-[API examples](https://pkg.go.dev/github.com/thesyncim/gopus#pkg-examples) for
-controls, streaming, and caller-buffer use.
+// Stereo is interleaved: L0, R0, L1, R1, ... . Fill the rest from your audio source.
+input[0], input[1] = 1200, -1200
+
+bytesWritten, err := enc.EncodeInt16(input, packetBuf)
+if err != nil {
+	log.Fatal(err)
+}
+samples, err := dec.DecodeInt16(packetBuf[:bytesWritten], output)
+if err != nil {
+	log.Fatal(err)
+}
+
+// Decode returns samples per channel, so include both channels in the slice.
+decoded := output[:samples*channels]
+fmt.Printf("decoded %d interleaved values\n", len(decoded))
+// Consume decoded before the next decode overwrites output.
+```
+
+`Encode`/`Decode` use `float32` PCM, normally in [-1, 1]. The `Int24` methods
+use right-justified signed 24-bit PCM in `[]int32`; decode output is not clamped
+to 24 bits, so gain can produce values outside [-8,388,608, 8,388,607]. All formats
+use the same interleaved layout.
+
+The default decoder limits are 5,760 samples per channel and 1,500 packet bytes.
+Configure larger limits before constructing the decoder when needed; for example,
+120 ms at native 96 kHz needs 11,520 samples per channel.
+
+Codec instances retain stream history and are not safe for concurrent calls.
+`Reset` starts a new stream with the same format and ordinary controls; encoder
+reset also disables DRED emission. Construction and initial warmup can allocate.
 
 ### Packet loss
 
-Pass an empty or nil packet to `Decode` for packet-loss concealment. To request
-one missing 20 ms stereo frame at 48 kHz, pass `out[:960*2]`. A buffer whose
-length equals `MaxPacketSamples * Channels` instead requests the last decoded
-packet's duration when available.
+Choose **one** recovery path for each missing frame. Your application decides
+when a packet is lost and how long it can wait for the next one.
 
-When the following packet arrives, `DecodeWithFEC(packet, missingPCM, true)`
-recovers the missing audio from in-band FEC when available and otherwise
-conceals the loss. Then call `Decode(packet, out)` on the **same packet** for its
-primary audio. At native 96 kHz, a FEC request always uses concealment and
-ignores the supplied packet. The [packet-loss example](examples/packet-loss)
-demonstrates this ordering. Transport framing, packet timing, and jitter buffering belong to the
-application; the codec processes the packets supplied to it.
+**Conceal a loss immediately.** Pass `nil` and size the output to the missing
+duration. Using the 48 kHz stereo decoder and `out` buffer from the quick start:
+
+```go
+// Request exactly 20 ms: 960 samples per channel × 2 channels.
+missingPCM := out[:960*channels]
+samples, err := dec.Decode(nil, missingPCM)
+if err != nil {
+	log.Fatal(err)
+}
+concealed := missingPCM[:samples*channels]
+fmt.Printf("concealed %d interleaved values\n", len(concealed))
+// Consume concealed before reusing out for the next packet.
+```
+
+Passing the entire `MaxPacketSamples*Channels` buffer instead reuses the most
+recent output duration, when available.
+
+**Recover from the following packet.** If your jitter buffer can wait one packet,
+use `nextPacket` to recover the loss first, then decode that same packet normally.
+Do this instead of the concealment call above:
+
+```go
+// Allocate this alongside out, before the packet loop.
+missingPCM := make([]float32, 960*channels)
+
+// nextPacket follows the loss. Use its FEC, or PLC if it has no usable FEC.
+recoveredSamples, err := dec.DecodeWithFEC(nextPacket, missingPCM, true)
+if err != nil {
+	log.Fatal(err)
+}
+recovered := missingPCM[:recoveredSamples*channels]
+
+// The FEC call does not decode nextPacket's primary audio.
+currentSamples, err := dec.Decode(nextPacket, out)
+if err != nil {
+	log.Fatal(err)
+}
+current := out[:currentSamples*channels]
+fmt.Printf("play %d recovered values, then %d current values\n", len(recovered), len(current))
+// Deliver recovered before current, and consume both before reusing their buffers.
+```
+
+In-band FEC is available in SILK/Hybrid packets when the sender includes it;
+enabling FEC does not guarantee redundancy in every packet. At native 96 kHz,
+`DecodeWithFEC(..., true)` uses concealment and ignores the supplied packet.
+Run the complete [packet-loss example](examples/packet-loss) with
+`go run ./examples/packet-loss`.
 
 ### Encoder controls
 
-Configure bitrate, VBR, complexity, FEC, and DTX with the encoder's control
-methods. `NewEncoder` starts at 64 kbps; libopus starts with automatic bitrate
-selection. Set matching controls when comparing output. `Bitrate()` returns the
-configured target, including `BitrateAuto` and `BitrateMax`; libopus reports an
-effective bitrate instead.
+Set controls before encoding. For a voice stream, for example:
 
-DTX can produce a short one- or two-byte packet, or no packet. A zero encode
-byte count with a nil error means there is no packet to send.
+```go
+if err := enc.SetBitrate(32000); err != nil { // bits/second across all channels
+	log.Fatal(err)
+}
+if err := enc.SetComplexity(5); err != nil { // 0–10; higher spends more CPU
+	log.Fatal(err)
+}
+enc.SetVBR(true) // let packet sizes vary with the audio
+enc.SetDTX(true) // reduce traffic during silence
+
+enc.SetFEC(true)                              // allow redundancy in SILK/Hybrid packets
+if err := enc.SetPacketLoss(10); err != nil { // estimated loss percentage, 0–100
+	log.Fatal(err)
+}
+```
+
+With DTX, `Encode` can return zero bytes with a nil error: there is no packet to
+send. Send nonempty packets, including short one- or two-byte DTX packets.
+
+The default bitrate is 64 kbps. When comparing with libopus, set the same bitrate
+explicitly: libopus defaults to automatic selection. `Bitrate()` reports the
+configured target, including `BitrateAuto`/`BitrateMax`, rather than libopus's
+effective bitrate.
 
 ## Examples
 

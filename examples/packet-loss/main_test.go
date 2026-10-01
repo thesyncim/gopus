@@ -19,8 +19,8 @@ func TestDemosRun(t *testing.T) {
 	}
 }
 
-// TestFECRecoversRealAudio verifies the FEC path reconstructs real speech-band
-// energy from LBRR rather than silently emitting concealment.
+// TestFECRecoversRealAudio checks that the demo carrier contains LBRR and
+// recovery produces a full frame with audible energy.
 func TestFECRecoversRealAudio(t *testing.T) {
 	frames := speechFrames(40)
 
@@ -59,6 +59,9 @@ func TestFECRecoversRealAudio(t *testing.T) {
 	}
 
 	const lostIndex = 20
+	if !gopus.PacketHasLBRR(packets[lostIndex+1]) {
+		t.Fatal("recovery packet contains no LBRR")
+	}
 	recovered, err := decodeStreamWithLoss(packets, lostIndex)
 	if err != nil {
 		t.Fatalf("decodeStreamWithLoss: %v", err)

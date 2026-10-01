@@ -104,7 +104,7 @@ func demoPLC(frames [][]float32) error {
 }
 
 // demoFEC sets up a SILK voice stream with in-band FEC, drops one packet, and
-// reconstructs it from the LBRR copy carried in the following packet.
+// requests recovery from the following packet.
 func demoFEC(frames [][]float32) error {
 	enc, err := gopus.NewEncoder(gopus.EncoderConfig{
 		SampleRate:  sampleRate,
@@ -114,9 +114,9 @@ func demoFEC(frames [][]float32) error {
 	if err != nil {
 		return fmt.Errorf("new encoder: %w", err)
 	}
-	// FEC carries the previous frame's LBRR data inside each packet. It only
-	// applies to SILK/Hybrid speech frames, and the encoder only spends bits on
-	// LBRR when it expects packet loss.
+	// FEC can carry LBRR data for a previous frame in a SILK/Hybrid packet.
+	// A nonzero expected loss percentage lets the encoder spend bits on LBRR;
+	// individual packets can still omit it.
 	if err := enc.SetMode(gopus.EncoderModeSILK); err != nil {
 		return fmt.Errorf("set mode: %w", err)
 	}
@@ -152,19 +152,17 @@ func demoFEC(frames [][]float32) error {
 		return err
 	}
 
-	// LBRR is a low-bitrate parametric copy, so the recovered waveform is not a
-	// sample-exact match for the original; the meaningful signal that FEC worked
-	// is that the recovered frame carries real speech-band energy rather than the
-	// decaying output of plain concealment.
-	fmt.Printf("dropped frame %d, recovered it from the LBRR in packet %d\n", lostIndex, lostIndex+1)
-	fmt.Printf("recovered frame RMS = %.4f (non-zero means LBRR reconstructed real audio)\n",
-		math.Sqrt(frameEnergy(recovered)))
+	// RMS describes the recovered audio; PLC can also produce nonzero output.
+	// Check the carrier separately to report whether it includes LBRR.
+	fmt.Printf("dropped frame %d; packet %d carries in-band FEC: %t\n",
+		lostIndex, lostIndex+1, gopus.PacketHasLBRR(packets[lostIndex+1]))
+	fmt.Printf("recovered frame RMS = %.4f\n", math.Sqrt(frameEnergy(recovered)))
 	return nil
 }
 
 // decodeStreamWithLoss decodes every packet, dropping packets[lostIndex] and
-// reconstructing it from the LBRR carried in packets[lostIndex+1]. It returns
-// the recovered samples for the dropped frame.
+// requesting recovery from packets[lostIndex+1]. The decoder uses PLC if the
+// packet has no usable LBRR. It returns the recovered samples for the lost frame.
 func decodeStreamWithLoss(packets [][]byte, lostIndex int) ([]float32, error) {
 	cfg := gopus.DefaultDecoderConfig(sampleRate, channels)
 	dec, err := gopus.NewDecoder(cfg)
