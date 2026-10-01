@@ -98,7 +98,7 @@ func TestCELTV3SIMDPLCFIRActualInputsMatchesLibopus(t *testing.T) {
 			history := makeCELTPLCTestSignal(plcDecodeBufferSize*tc.channels,
 				0x9000+uint32(tc.frameSize)+uint32(tc.channels), 2400)
 			dec := NewDecoder(tc.channels)
-			dec.plcDecodeMem = append(dec.plcDecodeMem[:0], history...)
+			dec.setDecodeHistory(history)
 			period := dec.searchPLCPitchPeriod()
 			if period <= 0 {
 				t.Fatal("no PLC pitch period")
