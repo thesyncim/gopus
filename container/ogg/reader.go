@@ -17,6 +17,7 @@ type Reader struct {
 	pageBuffer   []byte // Read buffer; parsed pages alias it
 	bufferOffset int    // Start of unconsumed bytes in pageBuffer
 	bufferLen    int    // End of valid bytes in pageBuffer
+	pendingErr   error  // Error returned with buffered bytes, deferred until they are parsed
 
 	page     Page // Current page, parsed zero-copy over pageBuffer
 	havePage bool // page holds a loaded page of this stream
@@ -340,6 +341,7 @@ func (or *Reader) SeekGranule(target uint64) error {
 	or.payOff = 0
 	or.bufferOffset = 0
 	or.bufferLen = 0
+	or.pendingErr = nil
 
 	for {
 		out, granule, err := or.nextPacket(or.pktScratch[:0], -1)
@@ -438,6 +440,12 @@ func (or *Reader) readPage() (*Page, error) {
 			or.bufferOffset = 0
 		}
 
+		if or.pendingErr != nil {
+			err := or.pendingErr
+			or.pendingErr = nil
+			return nil, err
+		}
+
 		// Grow if a single page exceeds the buffer.
 		if or.bufferLen >= len(or.pageBuffer) {
 			newBuffer := make([]byte, len(or.pageBuffer)*2)
@@ -461,6 +469,10 @@ func (or *Reader) readPage() (*Page, error) {
 					return &or.page, nil
 				}
 				return nil, parseErr
+			}
+			if n > 0 {
+				or.pendingErr = err
+				continue
 			}
 			return nil, err
 		}

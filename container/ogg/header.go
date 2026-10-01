@@ -2,6 +2,7 @@ package ogg
 
 import (
 	"encoding/binary"
+	"strings"
 )
 
 const maxDecodedChannelCount = 255
@@ -34,7 +35,7 @@ const (
 	// opusHeadMinSize is the minimum size of an OpusHead packet (mapping family 0).
 	opusHeadMinSize = 19
 
-	// opusHeadVersion is the required version number for OpusHead.
+	// opusHeadVersion is the version number emitted by this package.
 	opusHeadVersion = 1
 )
 
@@ -58,7 +59,8 @@ const (
 
 // OpusHead stores the identification header fields for an Ogg Opus stream.
 type OpusHead struct {
-	// Version is the format version (must be 1).
+	// Version is the format version. This package emits 1 and parses compatible
+	// minor versions 0 through 15.
 	Version uint8
 
 	// Channels is the output channel count (1-255).
@@ -98,6 +100,10 @@ type OpusHead struct {
 	// DemixingMatrix stores RFC 8486 family-3 demixing metadata.
 	// Size is 2*Channels*(StreamCount+CoupledCount) bytes in S16LE format.
 	DemixingMatrix []byte
+
+	// ExtraData stores opaque trailing fields from a compatible minor version.
+	// ParseOpusHead preserves these bytes so Encode does not discard extensions.
+	ExtraData []byte
 }
 
 // Encode returns a serialized copy of the OpusHead. It copies mapping and
@@ -105,8 +111,7 @@ type OpusHead struct {
 // consistency; ParseOpusHead validates serialized headers.
 func (h *OpusHead) Encode() []byte {
 	if h.MappingFamily == 0 {
-		// Mapping family 0: 19 bytes total.
-		data := make([]byte, 19)
+		data := make([]byte, opusHeadMinSize+len(h.ExtraData))
 		copy(data[0:8], opusHeadMagic)
 		data[8] = h.Version
 		data[9] = h.Channels
@@ -114,6 +119,7 @@ func (h *OpusHead) Encode() []byte {
 		binary.LittleEndian.PutUint32(data[12:16], h.SampleRate)
 		binary.LittleEndian.PutUint16(data[16:18], uint16(h.OutputGain))
 		data[18] = h.MappingFamily
+		copy(data[opusHeadMinSize:], h.ExtraData)
 		return data
 	}
 
@@ -127,7 +133,7 @@ func (h *OpusHead) Encode() []byte {
 			}
 		}
 
-		size := 21 + len(matrix)
+		size := 21 + len(matrix) + len(h.ExtraData)
 		data := make([]byte, size)
 		copy(data[0:8], opusHeadMagic)
 		data[8] = h.Version
@@ -139,11 +145,12 @@ func (h *OpusHead) Encode() []byte {
 		data[19] = h.StreamCount
 		data[20] = h.CoupledCount
 		copy(data[21:], matrix)
+		copy(data[21+len(matrix):], h.ExtraData)
 		return data
 	}
 
-	// Mapping family 1/2/255: 21 + Channels bytes.
-	size := 21 + len(h.ChannelMapping)
+	// Mapping families with a channel table: 21 + Channels bytes.
+	size := 21 + len(h.ChannelMapping) + len(h.ExtraData)
 	data := make([]byte, size)
 	copy(data[0:8], opusHeadMagic)
 	data[8] = h.Version
@@ -155,6 +162,7 @@ func (h *OpusHead) Encode() []byte {
 	data[19] = h.StreamCount
 	data[20] = h.CoupledCount
 	copy(data[21:], h.ChannelMapping)
+	copy(data[21+len(h.ChannelMapping):], h.ExtraData)
 	return data
 }
 
@@ -163,13 +171,16 @@ func (h *OpusHead) Encode() []byte {
 // demixing matrix, so data may be reused afterwards.
 //
 // It returns ErrInvalidHeader when data is too short, lacks the "OpusHead"
-// magic, declares a version other than 1, has a zero channel count, or carries
-// missing, truncated, or inconsistent fields. Checks include coupled streams
-// exceeding streams, more than 255 decoded stream channels, mapping indices
-// outside the decoded streams, more than two channels for mapping family 0, and
-// a truncated RFC 8486 family-3 demixing matrix. For nonzero mapping families
-// other than 3, it parses the generic channel-mapping layout and preserves the
-// family byte; it does not reject unknown family numbers.
+// magic, uses an incompatible version, has a zero channel count, or carries
+// missing, truncated, or inconsistent fields. Compatible minor versions 0
+// through 15 are accepted; versions 0 and 1 require the known header length,
+// while later minor versions may append extension data. Checks include coupled
+// streams exceeding streams, more than 255 decoded stream channels, mapping
+// indices outside the decoded streams, more than two channels for mapping
+// family 0, more than eight channels for family 1, and a truncated RFC 8486
+// family-3 demixing matrix. For nonzero mapping families other than 3, it parses
+// the generic channel-mapping layout and preserves the family byte; it does not
+// reject unknown family numbers.
 func ParseOpusHead(data []byte) (*OpusHead, error) {
 	if len(data) < opusHeadMinSize {
 		return nil, ErrInvalidHeader
@@ -182,7 +193,7 @@ func ParseOpusHead(data []byte) (*OpusHead, error) {
 
 	// Verify version.
 	version := data[8]
-	if version != opusHeadVersion {
+	if version > 15 {
 		return nil, ErrInvalidHeader
 	}
 
@@ -230,6 +241,9 @@ func ParseOpusHead(data []byte) (*OpusHead, error) {
 			h.DemixingMatrix = make([]byte, matrixSize)
 			copy(h.DemixingMatrix, data[21:matrixEnd])
 		} else {
+			if h.MappingFamily == MappingFamilyVorbis && h.Channels > 8 {
+				return nil, ErrInvalidHeader
+			}
 			// Need at least 21 + Channels bytes.
 			minSize := 21 + int(h.Channels)
 			if len(data) < minSize {
@@ -260,25 +274,40 @@ func ParseOpusHead(data []byte) (*OpusHead, error) {
 		}
 	}
 
+	knownSize := opusHeadMinSize
+	if h.MappingFamily != 0 {
+		if h.MappingFamily == MappingFamilyProjection {
+			knownSize = 21 + expectedDemixingMatrixSize(h.Channels, h.StreamCount, h.CoupledCount)
+		} else {
+			knownSize += 2 + int(h.Channels)
+		}
+	}
+	if len(data) < knownSize || (version <= opusHeadVersion && len(data) != knownSize) {
+		return nil, ErrInvalidHeader
+	}
+	if len(data) > knownSize {
+		h.ExtraData = append([]byte(nil), data[knownSize:]...)
+	}
+
 	return h, nil
 }
 
 // OpusTags is the comment header for Opus in Ogg.
-// This appears in the second Ogg page and contains metadata.
 type OpusTags struct {
 	// Vendor is the encoder name (e.g., "gopus").
 	Vendor string
 
-	// Comments is a map of user comments (key=value pairs). Parsing skips entries
-	// without '=', splits on the first '=', and keeps the last value for duplicate
-	// keys; the map does not preserve comment order. Common keys include TITLE,
-	// ARTIST, ALBUM, DATE, and TRACKNUMBER.
-	Comments map[string]string
+	// Comments contains raw comment vectors, usually NAME=value, in wire order.
+	// It preserves duplicate names, original name casing, and entries without '='.
+	Comments []string
+
+	// ExtraData contains opaque bytes after the declared comment vectors.
+	// ParseOpusTags preserves this trailing data so Encode retains it.
+	ExtraData []byte
 }
 
-// Encode returns a serialized copy of the OpusTags. Comments are emitted in
-// unspecified map iteration order, and the struct is not validated before it is
-// serialized.
+// Encode returns a serialized copy of the OpusTags without validating comment
+// syntax.
 func (t *OpusTags) Encode() []byte {
 	// Calculate size.
 	// 8 bytes: "OpusTags"
@@ -290,9 +319,10 @@ func (t *OpusTags) Encode() []byte {
 	//   N bytes: comment string ("KEY=value")
 
 	size := 8 + 4 + len(t.Vendor) + 4
-	for k, v := range t.Comments {
-		size += 4 + len(k) + 1 + len(v) // "KEY=value"
+	for _, comment := range t.Comments {
+		size += 4 + len(comment)
 	}
+	size += len(t.ExtraData)
 
 	data := make([]byte, size)
 	offset := 0
@@ -312,13 +342,13 @@ func (t *OpusTags) Encode() []byte {
 	offset += 4
 
 	// Write comments.
-	for k, v := range t.Comments {
-		comment := k + "=" + v
+	for _, comment := range t.Comments {
 		binary.LittleEndian.PutUint32(data[offset:offset+4], uint32(len(comment)))
 		offset += 4
 		copy(data[offset:offset+len(comment)], comment)
 		offset += len(comment)
 	}
+	copy(data[offset:], t.ExtraData)
 
 	return data
 }
@@ -327,17 +357,16 @@ func (t *OpusTags) Encode() []byte {
 // comment layout) from data. The vendor string and comments are copied into
 // the returned struct, so data may be reused afterwards.
 //
-// Comments are returned as a key=value map split on the first '=' in each
-// entry; an entry with no '=' is skipped, and a later duplicate key replaces an
-// earlier value. The map does not preserve wire order or duplicate entries. The
-// unsigned 32-bit lengths are bounds-checked against the remaining input, so an
-// over-long vendor or comment length yields ErrInvalidHeader rather than
-// reading past the buffer.
+// Comments preserve each raw vector, including duplicate names, original name
+// casing, and entries without '='. The unsigned 32-bit lengths are bounds-
+// checked against the remaining input, so an over-long vendor or comment
+// length yields ErrInvalidHeader rather than reading past the buffer. Opaque
+// trailing data is preserved in ExtraData.
 //
 // It returns ErrInvalidHeader when data is too short, lacks the "OpusTags"
 // magic, or declares a vendor, comment count, or comment length that extends
-// past the end of data. Trailing bytes after the declared comments (RFC 7845
-// framing padding) are ignored.
+// past the end of data. RFC 7845 permits unspecified trailing data after the
+// declared comments; ParseOpusTags preserves it without interpreting it.
 func ParseOpusTags(data []byte) (*OpusTags, error) {
 	// Minimum size: 8 (magic) + 4 (vendor len) + 4 (comment count) = 16
 	if len(data) < 16 {
@@ -364,8 +393,7 @@ func ParseOpusTags(data []byte) (*OpusTags, error) {
 	}
 
 	t := &OpusTags{
-		Vendor:   string(data[offset : offset+int(vendorLen)]),
-		Comments: make(map[string]string),
+		Vendor: string(data[offset : offset+int(vendorLen)]),
 	}
 	offset += int(vendorLen)
 
@@ -375,6 +403,10 @@ func ParseOpusTags(data []byte) (*OpusTags, error) {
 	}
 	commentCount := binary.LittleEndian.Uint32(data[offset : offset+4])
 	offset += 4
+	if uint64(commentCount) > uint64(len(data)-offset)/4 {
+		return nil, ErrInvalidHeader
+	}
+	t.Comments = make([]string, 0, int(commentCount))
 
 	// Read comments.
 	for range commentCount {
@@ -390,18 +422,61 @@ func ParseOpusTags(data []byte) (*OpusTags, error) {
 		comment := string(data[offset : offset+int(commentLen)])
 		offset += int(commentLen)
 
-		// Split on first '=' to get key=value.
-		for j := 0; j < len(comment); j++ {
-			if comment[j] == '=' {
-				key := comment[:j]
-				value := comment[j+1:]
-				t.Comments[key] = value
-				break
-			}
-		}
+		t.Comments = append(t.Comments, comment)
+	}
+	if offset < len(data) {
+		t.ExtraData = append([]byte(nil), data[offset:]...)
 	}
 
 	return t, nil
+}
+
+// Value returns the first value for tag, comparing field names as ASCII
+// case-insensitive strings. The returned value is the text after the first '='.
+func (t *OpusTags) Value(tag string) (string, bool) {
+	if t == nil || tag == "" {
+		return "", false
+	}
+	for _, comment := range t.Comments {
+		if i := strings.IndexByte(comment, '='); i > 0 && equalTagName(comment[:i], tag) {
+			return comment[i+1:], true
+		}
+	}
+	return "", false
+}
+
+// Values returns all values for tag in wire order, comparing field names as
+// ASCII case-insensitive strings.
+func (t *OpusTags) Values(tag string) []string {
+	if t == nil || tag == "" {
+		return nil
+	}
+	var values []string
+	for _, comment := range t.Comments {
+		if i := strings.IndexByte(comment, '='); i > 0 && equalTagName(comment[:i], tag) {
+			values = append(values, comment[i+1:])
+		}
+	}
+	return values
+}
+
+func equalTagName(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		ac, bc := a[i], b[i]
+		if ac >= 'A' && ac <= 'Z' {
+			ac += 'a' - 'A'
+		}
+		if bc >= 'A' && bc <= 'Z' {
+			bc += 'a' - 'A'
+		}
+		if ac != bc {
+			return false
+		}
+	}
+	return true
 }
 
 // DefaultOpusHead returns a mapping-family-0 header with the standard pre-skip.
@@ -458,11 +533,9 @@ func DefaultOpusHeadMultistream(sampleRate uint32, channels uint8, streams, coup
 	return DefaultOpusHeadMultistreamWithFamily(sampleRate, channels, MappingFamilyVorbis, streams, coupled, mapping)
 }
 
-// DefaultOpusTags returns tags with the vendor set to "gopus" and an empty
-// comment map.
+// DefaultOpusTags returns tags with the vendor set to "gopus" and no comments.
 func DefaultOpusTags() *OpusTags {
 	return &OpusTags{
-		Vendor:   "gopus",
-		Comments: make(map[string]string),
+		Vendor: "gopus",
 	}
 }
