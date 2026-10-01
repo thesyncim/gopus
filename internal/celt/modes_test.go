@@ -71,8 +71,8 @@ func TestNewDecoder(t *testing.T) {
 	if dec.Channels() != 1 {
 		t.Errorf("NewDecoder(1).Channels() = %d, want 1", dec.Channels())
 	}
-	if len(dec.OverlapBuffer()) != Overlap {
-		t.Errorf("mono overlap buffer length = %d, want %d", len(dec.OverlapBuffer()), Overlap)
+	if got := dec.decodeMemOverlapLen(); got != Overlap {
+		t.Errorf("mono decode_mem overlap length = %d, want %d", got, Overlap)
 	}
 	// Energy-prediction history is always two channels wide, matching libopus,
 	// which allocates oldBandE/oldLogE/oldLogE2/backgroundLogE as 2*nbEBands
@@ -87,8 +87,11 @@ func TestNewDecoder(t *testing.T) {
 	if decStereo.Channels() != 2 {
 		t.Errorf("NewDecoder(2).Channels() = %d, want 2", decStereo.Channels())
 	}
-	if len(decStereo.OverlapBuffer()) != Overlap*2 {
-		t.Errorf("stereo overlap buffer length = %d, want %d", len(decStereo.OverlapBuffer()), Overlap*2)
+	if got := decStereo.decodeMemOverlapLen(); got != Overlap {
+		t.Errorf("stereo decode_mem overlap length = %d, want %d", got, Overlap)
+	}
+	if got := len(decStereo.DecodeMem(1)); got != len(decStereo.DecodeMem(0)) {
+		t.Errorf("stereo decode_mem[1] length = %d, want %d", got, len(decStereo.DecodeMem(0)))
 	}
 	if len(decStereo.PrevEnergy()) != MaxBands*2 {
 		t.Errorf("stereo prevEnergy length = %d, want %d", len(decStereo.PrevEnergy()), MaxBands*2)
@@ -101,7 +104,7 @@ func TestDecoderReset(t *testing.T) {
 	// Modify state
 	dec.SetPostfilter(100, 0.5, 1)
 	dec.SetRNG(12345)
-	dec.OverlapBuffer()[0] = 1.0
+	dec.DecodeMem(1)[len(dec.DecodeMem(1))-1] = 1.0
 	dec.PrevEnergy()[0] = 10.0
 
 	// Reset
@@ -114,8 +117,8 @@ func TestDecoderReset(t *testing.T) {
 	if dec.RNG() != 0 {
 		t.Errorf("after reset, RNG = %d, want 0", dec.RNG())
 	}
-	if dec.OverlapBuffer()[0] != 0 {
-		t.Errorf("after reset, OverlapBuffer[0] = %f, want 0", dec.OverlapBuffer()[0])
+	if got := dec.DecodeMem(1)[len(dec.DecodeMem(1))-1]; got != 0 {
+		t.Errorf("after reset, decode_mem overlap sample = %f, want 0", got)
 	}
 }
 

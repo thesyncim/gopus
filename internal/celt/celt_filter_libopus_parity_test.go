@@ -437,28 +437,13 @@ func TestCombFilterWithSquareMatchesLibopus(t *testing.T) {
 	}
 	want := probeLibopusCombFilter(t, start, n, t0, t1, 0, 0, overlap, 0.28125, 0.65625, windowF32, buf)
 
-	hist := make([]celtSig, start)
-	for i := range hist {
-		hist[i] = celtSig(buf[i])
-	}
-	for _, tc := range []struct {
-		name     string
-		windowSq []float32
-	}{
-		{name: "precomputed_window_square", windowSq: windowSq},
-		{name: "nil_window_square"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got := append([]float32(nil), buf[start:]...)
-			combFilterWithSquarePlanarFloat32(got, hist, start, 0, t0, t1, n,
-				0.28125, 0.65625, 0, 0, windowF32, tc.windowSq, overlap)
-			for i := range n {
-				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
-					t.Fatalf("sample[%d]=%08x want %08x", i,
-						math.Float32bits(got[i]), math.Float32bits(want[i]))
-				}
-			}
-		})
+	got := append([]float32(nil), buf...)
+	combFilterInPlace(got, start, t0, t1, n, 0.28125, 0.65625, 0, 0, windowSq, overlap)
+	for i := range n {
+		if math.Float32bits(got[start+i]) != math.Float32bits(want[i]) {
+			t.Fatalf("sample[%d]=%08x want %08x", i,
+				math.Float32bits(got[start+i]), math.Float32bits(want[i]))
+		}
 	}
 }
 
@@ -476,21 +461,17 @@ func TestCombFilterConstantBodyHistorySeamMatchesLibopus(t *testing.T) {
 	for i := range buf {
 		buf[i] = float32(math.Sin(float64(i+11)*0.031)*2300 + math.Cos(float64(i+7)*0.017)*170)
 	}
-	hist := make([]celtSig, start)
-	for i := range hist {
-		hist[i] = celtSig(buf[i])
-	}
-	// Equal parameters suppress the overlap ramp. The constant body crosses
-	// the stored-history seam at period-2, at each residue modulo four.
+	// Equal parameters suppress the overlap ramp. The constant body's delay
+	// line moves from decoded history into filtered output at period-2, at
+	// each residue modulo four.
 	for _, period := range []int{73, 74, 75, 76, 117, 118, 119, 120} {
 		t.Run(fmt.Sprintf("period=%d/seam_mod4=%d", period, (period-2)&3), func(t *testing.T) {
 			want := probeLibopusCombFilter(t, start, n, period, period, 0, 0, Overlap, gain, gain, window, buf)
-			got := append([]float32(nil), buf[start:]...)
-			combFilterWithSquarePlanarFloat32(got, hist, start, 0, period, period, n,
-				gain, gain, 0, 0, window, windowSq, Overlap)
+			got := append([]float32(nil), buf...)
+			combFilterInPlace(got, start, period, period, n, gain, gain, 0, 0, windowSq, Overlap)
 			for i := range n {
-				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
-					t.Fatalf("sample[%d]=%08x want %08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
+				if math.Float32bits(got[start+i]) != math.Float32bits(want[i]) {
+					t.Fatalf("sample[%d]=%08x want %08x", i, math.Float32bits(got[start+i]), math.Float32bits(want[i]))
 				}
 			}
 		})
@@ -510,7 +491,7 @@ func TestCombFilterRampedHistorySeamMatchesLibopus(t *testing.T) {
 	for _, frameOffset := range []int{0, 120} {
 		t.Run(fmt.Sprintf("frame_offset=%d", frameOffset), func(t *testing.T) {
 			start := history + frameOffset
-			t1 := frameOffset + 247 // constant body crosses stored history at sample 245
+			t1 := frameOffset + 247 // constant body reaches filtered output at sample 245
 			t0 := t1 + 4
 			buf := make([]float32, start+n+2)
 			for i := range buf {
@@ -518,14 +499,11 @@ func TestCombFilterRampedHistorySeamMatchesLibopus(t *testing.T) {
 			}
 			want := probeLibopusCombFilter(t, start, n, t0, t1, 0, 1, overlap,
 				0.28125, 0.65625, window, buf)
-			hist := make([]celtSig, history)
-			copy(hist, buf[:history])
-			got := append([]float32(nil), buf[history:]...)
-			combFilterWithSquarePlanarFloat32(got, hist, history, frameOffset, t0, t1, n,
-				0.28125, 0.65625, 0, 1, window, windowSq, overlap)
+			got := append([]float32(nil), buf...)
+			combFilterInPlace(got, start, t0, t1, n, 0.28125, 0.65625, 0, 1, windowSq, overlap)
 			for i := range n {
-				if math.Float32bits(got[frameOffset+i]) != math.Float32bits(want[i]) {
-					t.Fatalf("sample[%d]=%08x want %08x", i, math.Float32bits(got[frameOffset+i]), math.Float32bits(want[i]))
+				if math.Float32bits(got[start+i]) != math.Float32bits(want[i]) {
+					t.Fatalf("sample[%d]=%08x want %08x", i, math.Float32bits(got[start+i]), math.Float32bits(want[i]))
 				}
 			}
 		})

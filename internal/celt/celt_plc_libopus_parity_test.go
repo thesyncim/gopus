@@ -284,8 +284,7 @@ func TestDecodedSeedPeriodicPLCMatchesLibopusBits(t *testing.T) {
 	if _, err := dec.DecodeFrame(packet[1:], 960); err != nil {
 		t.Fatalf("decode seed: %v", err)
 	}
-	dec.materializePLCDecodeHistory()
-	hist := append([]celtSig(nil), dec.plcDecodeMem[:plcDecodeBufferSize]...)
+	hist := append([]celtSig(nil), dec.decodeMemChannel(0)[:plcDecodeBufferSize]...)
 	want := probeLibopusPLCPeriodicConceal(t, hist, 1, 960)
 
 	got := make([]float32, 960+Overlap)
@@ -484,7 +483,7 @@ func TestConcealPeriodicPLCMatchesLibopus(t *testing.T) {
 			t.Logf("libopus period=%d excitation_length=%d decay_length=%d", want.period, excLength, excLength>>1)
 
 			dec := NewDecoder(tc.channels)
-			dec.plcDecodeMem = append(dec.plcDecodeMem[:0], hist...)
+			dec.setDecodeHistory(hist)
 			dec.plcLPC = make([]float32, celtPLCLPCOrder*tc.channels)
 			gotInterleaved := make([]float32, (tc.frameSize+Overlap)*tc.channels)
 			if !dec.concealPeriodicPLC(gotInterleaved, tc.frameSize, 1, false, false) {
@@ -744,7 +743,7 @@ func TestCELTPLCFIRActualPeriodicPLCInputsMatchLibopus(t *testing.T) {
 			hist := histAll[:plcDecodeBufferSize]
 
 			dec := NewDecoder(tc.channels)
-			dec.plcDecodeMem = append(dec.plcDecodeMem[:0], histAll...)
+			dec.setDecodeHistory(histAll)
 			period := dec.searchPLCPitchPeriod()
 			if period <= 0 {
 				t.Fatal("no PLC pitch period")

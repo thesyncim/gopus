@@ -217,9 +217,8 @@ func TestEncoderMatchesDecoder(t *testing.T) {
 	}
 
 	// Compare overlap buffer size
-	if len(enc.OverlapBuffer()) != len(dec.OverlapBuffer()) {
-		t.Errorf("OverlapBuffer length: enc=%d, dec=%d",
-			len(enc.OverlapBuffer()), len(dec.OverlapBuffer()))
+	if got, want := len(enc.OverlapBuffer()), dec.decodeMemOverlapLen()*dec.Channels(); got != want {
+		t.Errorf("OverlapBuffer length: enc=%d, dec=%d", got, want)
 	}
 }
 

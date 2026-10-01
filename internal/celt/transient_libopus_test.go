@@ -324,7 +324,7 @@ func TestTransientSynthesisShortBlocks(t *testing.T) {
 
 	// Test synthesis
 	dec := NewDecoder(1)
-	output := dec.Synthesize(coeffs, true, shortBlocks)
+	output := dec.synthesizeTest(coeffs, true, shortBlocks)
 
 	if len(output) != frameSize {
 		t.Errorf("output length mismatch: got %d, want %d", len(output), frameSize)

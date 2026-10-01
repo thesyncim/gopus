@@ -209,16 +209,9 @@ func TestCELTPLCStagesMatchLibopusC(t *testing.T) {
 			assertFloat32BitExact(t, "seedPCM", out, trace.seedPCM)
 			for ch := 0; ch < tc.channels; ch++ {
 				got := make([]float32, combFilterHistory)
-				hist := dec.plcDecodeMem[ch*plcDecodeBufferSize : (ch+1)*plcDecodeBufferSize]
-				if dec.plcDecodeMemRingActive {
-					start := dec.plcDecodeMemRingStart
-					for i := range got {
-						got[i] = float32(hist[(start+plcDecodeBufferSize-combFilterHistory+i)%plcDecodeBufferSize])
-					}
-				} else {
-					for i := range got {
-						got[i] = float32(hist[plcDecodeBufferSize-combFilterHistory+i])
-					}
+				hist := dec.DecodeMem(ch)[:plcDecodeBufferSize]
+				for i := range got {
+					got[i] = float32(hist[plcDecodeBufferSize-combFilterHistory+i])
 				}
 				assertFloat32BitExact(t, "seedHistory/ch"+itoaChN(ch), got, trace.seedHistory[ch])
 			}
@@ -272,8 +265,9 @@ func TestCELTPLCStagesMatchLibopusC(t *testing.T) {
 			assertFloat32BitExact(t, "preemphMem", preemphMem[:tc.channels], trace.preemphMem)
 
 			// A second decoder directs the sixth chunk's deemphasis output to a
-			// separate buffer. Its scratch frame remains the exact postfilter
-			// input to deemphasis, including the short-MDCT/body boundary.
+			// separate buffer. Its out_syn in decode_mem remains the exact
+			// postfilter input to deemphasis, including the short-MDCT/body
+			// boundary.
 			rawDec := NewDecoder(tc.channels)
 			if err := rawDec.SetAPISampleRate(sampleRate); err != nil {
 				t.Fatal(err)
@@ -292,10 +286,7 @@ func TestCELTPLCStagesMatchLibopusC(t *testing.T) {
 				t.Fatal(err)
 			}
 			for ch := range tc.channels {
-				got := make([]float32, frameSize)
-				for i := range got {
-					got[i] = rawDec.scratchPLCF32[i*tc.channels+ch]
-				}
+				got := rawDec.outSyn(ch, frameSize)[:frameSize]
 				assertFloat32BitExact(t, "postfilter/ch"+itoaChN(ch), got, trace.postfilter[ch])
 			}
 			assertFloat32BitExact(t, "directFinal", rawDec.directOutPCM, trace.final)

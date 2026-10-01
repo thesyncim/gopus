@@ -6,9 +6,10 @@ import "testing"
 
 func TestFillPLCUpdate16kMonoDoesNotAllocate(t *testing.T) {
 	d := NewDecoder(2)
+	left, right := d.DecodeMem(0), d.DecodeMem(1)
 	for i := 0; i < plcDecodeBufferSize; i++ {
-		d.plcDecodeMem[i] = celtSig(32768 * (0.6 * float64((i%31)-15) / 31))
-		d.plcDecodeMem[plcDecodeBufferSize+i] = celtSig(32768 * (0.4 * float64((i%19)-9) / 19))
+		left[i] = celtSig(32768 * (0.6 * float64((i%31)-15) / 31))
+		right[i] = celtSig(32768 * (0.4 * float64((i%19)-9) / 19))
 	}
 
 	var dst [plcUpdateSamples]float32

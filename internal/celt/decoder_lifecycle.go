@@ -33,17 +33,10 @@ func NewDecoder(channels int) *Decoder {
 		prevLogE2:        make([]celtGLog, MaxBands*2),
 		backgroundEnergy: make([]celtGLog, MaxBands*2),
 
-		// Overlap buffer for CELT (full overlap per channel)
-		overlapBuffer: make([]celtSig, Overlap*channels),
-
 		// De-emphasis filter state, one per channel
 		preemphState: make([]celtSig, channels),
 
-		// Postfilter history buffer for comb filter
-		postfilterMem: make([]celtSig, combFilterHistory*channels),
-		// PLC decode history sized to libopus DEC_PITCH_BUF_SIZE.
-		plcDecodeMem: make([]celtSig, plcDecodeBufferSize*channels),
-		plcLPC:       make([]float32, celtPLCLPCOrder*channels),
+		plcLPC: make([]float32, celtPLCLPCOrder*channels),
 
 		// RNG state (libopus initializes to zero)
 		rng: 0,
@@ -96,19 +89,13 @@ func (d *Decoder) Reset() {
 	prevLogE := ensureGLogSlice(&d.prevLogE, d.predStride()*2)
 	prevLogE2 := ensureGLogSlice(&d.prevLogE2, d.predStride()*2)
 	backgroundEnergy := ensureGLogSlice(&d.backgroundEnergy, d.predStride()*2)
-	overlapBuffer := ensureSigSlice(&d.overlapBuffer, d.synthOverlapLen()*channels)
 	preemphState := ensureSigSlice(&d.preemphState, channels)
-	postfilterMem := ensureSigSlice(&d.postfilterMem, d.plcCombFilterHistoryLen()*channels)
-	plcDecodeMem := ensureSigSlice(&d.plcDecodeMem, d.plcDecodeBufferLen()*channels)
 	plcLPC := ensureFloat32Slice(&d.plcLPC, celtPLCLPCOrder*channels)
 	clear(prevEnergy)
 	clear(prevLogE)
 	clear(prevLogE2)
 	clear(backgroundEnergy)
-	clear(overlapBuffer)
 	clear(preemphState)
-	clear(postfilterMem)
-	clear(plcDecodeMem)
 	clear(plcLPC)
 	plcState := d.plcState
 	if plcState == nil {
@@ -123,13 +110,11 @@ func (d *Decoder) Reset() {
 	d.prevLogE = prevLogE
 	d.prevLogE2 = prevLogE2
 	d.backgroundEnergy = backgroundEnergy
-	d.overlapBuffer = overlapBuffer
 	d.preemphState = preemphState
-	d.postfilterMem = postfilterMem
-	d.plcDecodeMem = plcDecodeMem
 	d.plcLPC = plcLPC
 
 	d.channels = int32(channels)
+	d.clearDecodeMem()
 	d.sampleRate = int32(sampleRate)
 	d.downsample = int32(downsample)
 	d.bandwidth = CELTFullband
@@ -145,16 +130,12 @@ func (d *Decoder) Reset() {
 	d.decoderDREDState = decoderDREDState{}
 	d.rng = 0
 	d.prevStreamChannels = 0
-	d.postfilterMemFromPLC = false
-	d.postfilterMemPLCBacked = false
 	d.postfilterPeriod = 0
 	d.postfilterGain = 0
 	d.postfilterTapset = 0
 	d.postfilterPeriodOld = 0
 	d.postfilterGainOld = 0
 	d.postfilterTapsetOld = 0
-	d.plcDecodeMemRingActive = false
-	d.plcDecodeMemRingStart = 0
 	d.plcLastPitchPeriod = 0
 	d.plcPrevLossWasPeriodic = false
 	d.plcPrefilterAndFoldPending = false
@@ -190,18 +171,18 @@ func (d *Decoder) clearDecoderScratchForReset() {
 	d.scratchBands.clearForReset()
 	d.scratchIMDCTF32.clearForReset()
 	d.scratchIMDCTF32R.clearForReset()
-	clearFloat32Cap(d.scratchSynthF32)
-	clearFloat32Cap(d.scratchSynthRF32)
 	clearFloat32Cap(d.scratchSpecRF32)
 	clearFloat32Cap(d.scratchStereoF32)
 	clearFloat32Cap(d.scratchShortCoeffsF32)
+	clearFloat32Cap(d.scratchPCM)
+	clearFloat32Cap(d.scratchSynthF32)
+	clearFloat32Cap(d.scratchSynthRF32)
+	clearSigCap(d.scratchPLCPitchHist)
 	clearFloat32Cap(d.scratchMonoToStereoRF32)
 	clearFloat32Cap(d.scratchMonoMixF32)
-	clearFloat32Cap(d.postfilterScratchF32)
 	clearFloat32Cap(d.postfilterWindowSqF32)
 	d.postfilterWindowSqOf = nil
 	clearFloat32Cap(d.scratchPLC)
-	clearFloat32Cap(d.scratchPLCF32)
 	clearFloat32Cap(d.scratchPLCPitchLP)
 	d.scratchPLCPitchSearch.clearForReset()
 	clearSigCap(d.scratchPLCFIRTmp)
@@ -209,7 +190,6 @@ func (d *Decoder) clearDecoderScratchForReset() {
 	clearFloat32Cap(d.scratchPLCIIRY)
 	clearSigCap(d.scratchPLCBuf)
 	clearSigCap(d.scratchPLCExc)
-	clearSigCap(d.scratchPLCFoldSrc)
 	clearSigCap(d.scratchPLCFoldDst)
 	clearNormCap(d.scratchPLCHybridNormL)
 	clearNormCap(d.scratchPLCHybridNormR)

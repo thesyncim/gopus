@@ -237,9 +237,6 @@ func (d *Decoder) runStereoDREDConceal(
 		return false
 	}
 
-	d.materializePLCDecodeHistory()
-	d.materializePostfilterHistoryFromPLC()
-
 	if d.plcState == nil {
 		d.plcState = plc.NewState()
 	}
@@ -335,8 +332,7 @@ func (d *Decoder) runStereoDREDConceal(
 		}
 	}
 
-	d.updateStereoDREDNeuralHistories(d.scratchPLC[:stereoSamples], frameSize)
-	d.updatePLCOverlapBuffer(d.scratchPLC[:stereoSamples], frameSize)
+	d.commitStereoNeuralToDecodeMem(d.scratchPLC[:stereoSamples], frameSize)
 	if out != nil {
 		d.deemphasis(out[:outputSamples], d.scratchPLC, d.scratchPLC[1:], 2, frameSize, downsample, false)
 	} else {
@@ -361,40 +357,16 @@ func (d *Decoder) runStereoDREDConceal(
 	return true
 }
 
-func (d *Decoder) updateStereoDREDNeuralHistories(samples []float32, frameSize int) {
-	d.updateStereoDREDNeuralHistory(d.postfilterMem, frameSize, combFilterHistory, samples)
-	d.updateStereoDREDNeuralHistory(d.plcDecodeMem, frameSize, plcDecodeBufferSize, samples)
-	d.postfilterMemFromPLC = false
-	d.postfilterMemPLCBacked = false
-	d.plcDecodeMemRingActive = false
-	d.plcDecodeMemRingStart = 0
-}
-
-func (d *Decoder) updateStereoDREDNeuralHistory(hist []celtSig, frameSize, history int, samples []float32) {
-	if d == nil || frameSize <= 0 || history <= 0 || len(hist) < history*2 || len(samples) < frameSize*2 {
-		return
-	}
-	histL := hist[:history]
-	histR := hist[history : 2*history]
-	if frameSize >= history {
-		src := (frameSize - history) * 2
-		for i := 0; i < history; i++ {
-			histL[i] = celtSig(samples[src])
-			histR[i] = celtSig(samples[src+1])
-			src += 2
-		}
-		return
-	}
-	copy(histL, histL[frameSize:])
-	dst := history - frameSize
-	// libopus copies channel-0 decode memory over channel 1 before the neural crossfade.
-	copy(histR[:dst], histL[:dst])
-	src := 0
-	for i := 0; i < frameSize; i++ {
-		histL[dst+i] = celtSig(samples[src])
-		histR[dst+i] = celtSig(samples[src+1])
-		src += 2
-	}
+// commitStereoNeuralToDecodeMem stores a stereo neural concealment frame
+// (interleaved, frameSize+overlap samples per channel) in decode_mem. libopus
+// copies channel 0's decode_mem over channel 1 before the neural crossfade, so
+// the retained history of both channels is channel 0's; each channel's new
+// samples come from its own crossfade.
+func (d *Decoder) commitStereoNeuralToDecodeMem(samples []float32, frameSize int) {
+	d.shiftDecodeMem(frameSize)
+	keep := d.decodeMemHistoryLen() - frameSize
+	copy(d.decodeMemChannel(1)[:keep], d.decodeMemChannel(0)[:keep])
+	d.commitInterleavedSamples(samples, frameSize)
 }
 
 func (d *Decoder) advanceDeemphasisStateStereo(samples []float32) {
@@ -558,9 +530,7 @@ func (d *Decoder) concealNeural48kMono(
 		}
 	}
 
-	d.updatePostfilterHistory(d.scratchPLC[:frameSize], frameSize, combFilterHistory)
-	d.updatePLCDecodeHistory(d.scratchPLC[:frameSize], frameSize, plcDecodeBufferSize)
-	d.updatePLCOverlapBuffer(d.scratchPLC[:totalSamples], frameSize)
+	d.commitInterleavedToDecodeMem(d.scratchPLC[:totalSamples], frameSize)
 	if out != nil {
 		d.deemphasis(out[:outputFrameSize], d.scratchPLC, nil, 1, frameSize, downsample, false)
 	} else {
