@@ -612,6 +612,7 @@ function handleStats(s) {
 
 function drawWaveform() {
   if (!analyser) return;
+  const waveformAnalyser = analyser;
   const canvas = document.getElementById('waveform');
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
@@ -621,12 +622,13 @@ function drawWaveform() {
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
 
-  const bufLen = analyser.frequencyBinCount;
+  const bufLen = waveformAnalyser.frequencyBinCount;
   const data = new Uint8Array(bufLen);
 
   function draw() {
+    if (analyser !== waveformAnalyser) return;
     requestAnimationFrame(draw);
-    analyser.getByteTimeDomainData(data);
+    waveformAnalyser.getByteTimeDomainData(data);
 
     ctx.fillStyle = '#0d1117';
     ctx.fillRect(0, 0, w, h);
