@@ -297,8 +297,9 @@ class Runner:
                 or any(fields.get(feature) != "0" for feature in ("qext", "fixed", "custom"))):
             raise RunFailure(f"wrong {target}/{variant} libopus stamp: target={fields.get('amd64_target')} CFLAGS={fields.get('CFLAGS')!r}")
         copied = {}
+        # Visible artifact names keep the compiler stamp in uploaded evidence.
         for name, path in artifacts.items():
-            destination = build_dir / ("libopus.a" if name == "archive" else "config.h" if name == "config" else ".gopus-libopus-build")
+            destination = build_dir / ("libopus.a" if name == "archive" else "config.h" if name == "config" else "build-stamp.txt")
             shutil.copy2(path, destination)
             copied[name] = {"path": rel(self.artifact, destination), "sha256": sha256(destination), "bytes": destination.stat().st_size}
         self.manifest["references"].setdefault(target, {})[variant] = {

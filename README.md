@@ -151,25 +151,25 @@ go test -tags gopus_osce ./...
 
 The table pairs **C scalar with Go scalar** and **C SIMD with Go SIMD**, using
 identical inputs and controls. Values are median **ns/sample per channel**
-(lower is faster) on AMD EPYC 9V74, Go 1.27.1 and GCC 13.3.0, with
-**GOAMD64=v3**, PGO and candidate `c49e25c77`. Each case has three runs of
+(lower is faster) on AMD EPYC 7763, Go 1.27.1 and GCC 13.3.0, with
+**GOAMD64=v3**, PGO and candidate `4b660d668`. Each case has three runs of
 at least 250 ms. Go reports zero allocations; C allocations are not measured.
 
 | Workload | C scalar | Go scalar | C SIMD | Go SIMD |
 |---|---:|---:|---:|---:|
-| Encode CELT, fullband, 20 ms stereo, 128 kbps | 152.19 | 158.19 | 108.86 | 99.11 |
-| Encode CELT, fullband, 5 ms mono, 64 kbps | 63.82 | 74.38 | 57.69 | 62.17 |
-| Encode SILK, wideband, 20 ms mono, 32 kbps | 605.21 | 567.00 | 325.60 | 259.31 |
-| Encode Hybrid, fullband, 20 ms mono, 64 kbps | 308.40 | 344.16 | 193.71 | 175.51 |
-| Encode Hybrid, fullband, 20 ms stereo, 96 kbps | 174.48 | 183.49 | 123.95 | 113.08 |
-| Decode RFC vectors, float32 | 31.88 | 37.35 | 29.91 | 28.44 |
-| Decode RFC vectors, int16 | 35.11 | 41.17 | 32.38 | 32.51 |
+| Encode CELT, fullband, 20 ms stereo, 128 kbps | 176.89 | 197.94 | 129.50 | 126.28 |
+| Encode CELT, fullband, 5 ms mono, 64 kbps | 75.99 | 93.79 | 69.83 | 80.00 |
+| Encode SILK, wideband, 20 ms mono, 32 kbps | 705.61 | 685.98 | 462.01 | 329.21 |
+| Encode Hybrid, fullband, 20 ms mono, 64 kbps | 363.00 | 420.99 | 253.40 | 225.80 |
+| Encode Hybrid, fullband, 20 ms stereo, 96 kbps | 200.37 | 227.97 | 145.10 | 139.57 |
+| Decode RFC vectors, float32 | 38.22 | 42.29 | 35.90 | 33.14 |
+| Decode RFC vectors, int16 | 42.23 | 46.80 | 38.83 | 37.64 |
 
-Decoder rows aggregate 20,075 identical packets. Go SIMD takes 9–20% less time
-than matched C SIMD in four encode workloads and 7.8% more for 5 ms CELT.
-Float32 vector decode takes 4.9% less time; int16 is within 0.4%.
+Decoder rows aggregate 20,075 identical packets. Go SIMD takes 2.5–28.7% less time
+than matched C SIMD in four encode workloads and 14.6% more for 5 ms CELT.
+Float32 vector decode takes 7.7% less time; int16 takes 3.1% less time.
 These results describe the measured revision and workloads. The
-[passing native benchmark](https://github.com/thesyncim/gopus/actions/runs/36684603376) records all targets and raw samples. The
+[passing native benchmark](https://github.com/thesyncim/gopus/actions/runs/36852328909) records all targets and raw samples. The
 [performance reference](reports/validation.md#performance) contains all **53
 replacement routines**, assembly/Go/`nosimd` comparisons, allocations and
 per-row provenance.
@@ -182,7 +182,7 @@ GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./examples/ben
 ```
 
 For scalar comparisons, retain both target settings and use `GOEXPERIMENT=nosimd`.
-On ARM64, omit both AMD64 target settings. The [native v3 audit](https://github.com/thesyncim/gopus/actions/runs/36684455645)
+On ARM64, omit both AMD64 target settings. The [native v3 audit](https://github.com/thesyncim/gopus/actions/runs/36852325106)
 passes all 19 CBR cases and 2,175 packets/ranges in both lanes, plus the selected
 60 encoder, 24 decoder and 15 allocation cases. Wider analyzer-state differences
 remain under investigation. The optional [v1/v2/v3 audit](reports/validation.md#amd64-compiler-targets)

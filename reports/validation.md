@@ -121,8 +121,10 @@ raw stored slope against the original linked C analyzer. The driver capture
 preserves the complete 50-frame C output. Both lanes pass the strict source
 regression, malformed trace protocol checks and zero warm allocations, plus
 60 encoder cases and all 19 CBR cases: 2,175 packets/ranges match and the
-19-case/76-path interoperability contract has no unresolved results. Native
-confirmation is pending; published timings retain their measured revision.
+19-case/76-path interoperability contract has no unresolved results. The
+[native v3 audit at `4b660d668`](https://github.com/thesyncim/gopus/actions/runs/36852325106)
+confirms these checks on AMD EPYC 7763 with Go 1.27.1 and GCC 13.3; published
+timings retain their measured revision.
 
 ### Analyzer mean and spectral variability on amd64 v3
 
@@ -130,7 +132,7 @@ The default float v3 analyzer rounds `alpha*BFCC` before the fused old-mean
 term in `src/analysis.c:tonality_analysis`. Its temporal BFCC features use the
 selected C caller's fused final memory and mean terms. A four-call scalar FMA
 boundary preserves the mean update's contraction; other configurations retain
-their source expressions. Native timings for this revision are pending.
+their source expressions. Native timings for this revision are recorded in the performance matrix.
 
 Independent live-C traces compare the actual mean inputs and updates at counts
 0–5, and all nine temporal features, their memory inputs and the first Std
@@ -145,8 +147,14 @@ neural feature endpoint. Intermediate minima and sums are explicitly source
 models. The complete 60-frame C output is unchanged under tracing; the helper
 allocates zero after warmup, and malformed trace payloads are rejected.
 
-These focused checks preserve their exact assertions. Later analyzer history
-and signal-specific differences remain unresolved in the wider 200-case sweep.
+Both matched lanes pass these source and allocation gates in the
+[native v3 audit at `4b660d668`](https://github.com/thesyncim/gopus/actions/runs/36852325106)
+on AMD EPYC 7763 with Go 1.27.1 and GCC 13.3. The anti-collapse replay captures
+the pulse vector passed by the active decoder allocation path and matches the
+original linked C renormalization inputs and output. All 60 encoder, 24 decoder,
+15 warm-allocation and 19 CBR cases pass; the 19-case/76-path interoperability
+contract has no unresolved results. Later analyzer history and signal-specific
+differences remain unresolved in the wider 200-case sweep.
 
 ### Analyzer phase on amd64 v3
 
@@ -799,23 +807,23 @@ stamps are checked before comparison.
 
 #### Native AMD64 end-to-end measurements
 
-The [native benchmark](https://github.com/thesyncim/gopus/actions/runs/36684603376) compares assembly `8ac93c85` with
-SIMD/`nosimd` `c49e25c77` on AMD EPYC 9V74, Go 1.27.1 and GCC 13.3.0,
+The [native benchmark](https://github.com/thesyncim/gopus/actions/runs/36852328909) compares assembly `8ac93c85` with
+SIMD/`nosimd` `4b660d668` on AMD EPYC 7763, Go 1.27.1 and GCC 13.3.0,
 **GOAMD64=v3**, with PGO enabled. Four rotated/reversed 500 ms rounds use
 `-cpu=1`. All 72 v3 samples report 0 B/op and 0 allocs/op. Values are median ns/op.
-The artifact `goamd64-benchmark-36684603376` contains the raw samples, compiler
+The artifact `goamd64-benchmark-36852328909` contains the raw samples, compiler
 settings, source revisions and per-binary PGO hashes.
 
 | Workload | Old assembly | Go SIMD | `nosimd` |
 |---|---:|---:|---:|
-| CELT decode | 15,463 | 10,522.5 | 13,707.5 |
-| Hybrid decode | 23,320.5 | 19,767 | 25,861 |
-| SILK decode | 18,208.5 | 13,093.5 | 17,222.5 |
-| Caller-buffer encode | 71,248.5 | 48,273.5 | 84,688.5 |
-| VoIP encode | 77,270 | 53,028.5 | 90,266.5 |
-| Low-delay encode | 70,653.5 | 48,285.5 | 84,188 |
+| CELT decode | 19,940.5 | 12,649.5 | 16,353 |
+| Hybrid decode | 28,140 | 22,595 | 29,662.5 |
+| SILK decode | 22,167 | 14,975.5 | 19,571 |
+| Caller-buffer encode | 91,473 | 62,684 | 104,616.5 |
+| VoIP encode | 99,042.5 | 69,128.5 | 111,682.5 |
+| Low-delay encode | 90,660.5 | 62,826.5 | 104,455 |
 
-Go SIMD takes 15.2–32.2% less time than assembly in these six workloads.
+Go SIMD takes 19.7–36.6% less time than assembly in these six workloads.
 `nosimd` takes less time for CELT/SILK decode and more for Hybrid decode and
 encode. Comparisons apply to variants within this run. The 11 AMD64 direct
 kernel rows retain artifact `11009623177` at `c6dfb561`, GOAMD64=v1, on EPYC
@@ -832,18 +840,20 @@ Go allocations are zero; C allocations are not measured.
 
 | Workload | C scalar | Go scalar | C SIMD | Go SIMD |
 |---|---:|---:|---:|---:|
-| CELT-FB-20ms-stereo-128k | 152.19 | 158.19 | 108.86 | 99.11 |
-| CELT-FB-5ms-mono-64k | 63.82 | 74.38 | 57.69 | 62.17 |
-| SILK-WB-20ms-mono-32k | 605.21 | 567.00 | 325.60 | 259.31 |
-| Hybrid-FB-20ms-mono-64k | 308.40 | 344.16 | 193.71 | 175.51 |
-| Hybrid-FB-20ms-stereo-96k | 174.48 | 183.49 | 123.95 | 113.08 |
-| RFC vectors Float32 | 31.88 | 37.35 | 29.91 | 28.44 |
-| RFC vectors Int16 | 35.11 | 41.17 | 32.38 | 32.51 |
+| CELT-FB-20ms-stereo-128k | 176.89 | 197.94 | 129.50 | 126.28 |
+| CELT-FB-5ms-mono-64k | 75.99 | 93.79 | 69.83 | 80.00 |
+| SILK-WB-20ms-mono-32k | 705.61 | 685.98 | 462.01 | 329.21 |
+| Hybrid-FB-20ms-mono-64k | 363.00 | 420.99 | 253.40 | 225.80 |
+| Hybrid-FB-20ms-stereo-96k | 200.37 | 227.97 | 145.10 | 139.57 |
+| RFC vectors Float32 | 38.22 | 42.29 | 35.90 | 33.14 |
+| RFC vectors Int16 | 42.23 | 46.80 | 38.83 | 37.64 |
 
-Go SIMD takes 9–20.4% less time than matched C SIMD in four encode workloads;
-5 ms CELT takes 7.8% more. Float32 vector decode takes 4.9% less time, and int16
-is within 0.4%. Scalar Go takes 6.3% less time for SILK encode; the other scalar
-rows take 3.9–17.3% more time. These are workload-specific measured results.
+Go SIMD takes 2.5–28.7% less time than matched C SIMD in four encode workloads;
+5 ms CELT takes 14.6% more. Float32 vector decode takes 7.7% less time, and
+int16 takes 3.1% less time. Scalar Go takes 2.8% less time for SILK encode; the
+other scalar rows take 10.6–23.4% more time. Comparisons apply to this runner
+and these workloads; the separately recorded EPYC 9V74 timings use a different
+CPU and do not establish a regression between revisions.
 
 Decoder rows aggregate 20,075 identical packets; encoder rows use identical PCM
 and controls. Each compiler-target/lane passes all 19 contract cases, 2,175
@@ -913,7 +923,7 @@ The focused native kernel audit captures the executed helper binaries and their
 disassembly as well as the reference archive's code generation.
 
 The [v1/v2 target audit](https://github.com/thesyncim/gopus/actions/runs/36555425559)
-and [v3 kernel audit](https://github.com/thesyncim/gopus/actions/runs/36684455645)
+and [v3 kernel audit](https://github.com/thesyncim/gopus/actions/runs/36852325106)
 use Go 1.27.1 and GCC 13.3. Their bounded default-float selections record:
 
 | Target / Go lane | Revision | Encode exact | Decode exact | CBR exact | Packet differences / 2,175 | Range differences / 2,175 | Warm allocation checks |
@@ -922,14 +932,14 @@ use Go 1.27.1 and GCC 13.3. Their bounded default-float selections record:
 | v1 / SIMD | `bc5ddaeb` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
 | v2 / scalar | `bc5ddaeb` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
 | v2 / SIMD | `bc5ddaeb` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
-| v3 / scalar | `c49e25c77` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
-| v3 / SIMD | `c49e25c77` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
+| v3 / scalar | `4b660d668` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
+| v3 / SIMD | `4b660d668` | 60/60 | 24/24 | 19/19 | 0 | 0 | Pass |
 
 The v3 audit also passes the six FFT/MDCT live-C suites, selected SILK
 LPC/window/gain and CELT kernel oracles, and the complete CBR quality and
 interoperability contract. The first-chunk phase, tone and classifier source
 checks above pass on the same native v3 runner; wider analyzer histories remain
-unresolved. The benchmark at `c49e25c77` also passes the full compiler-target
+unresolved. The benchmark at `4b660d668` also passes the full compiler-target
 contract matrix. These selections do not establish universal float-state identity.
 
 Each candidate target/mode must pass exact CBR packets/ranges, selected stateful
