@@ -187,6 +187,13 @@ jobs:
       - name: Run opus_demo end-to-end conformance gate
         run: make test-conformance
 
+      - name: Verify committed encoder fixture honesty (native opus_demo)
+        env:
+          GOPUS_TEST_TIER: exhaustive
+          GOPUS_STRICT_LIBOPUS_REF: "1"
+          GOPUS_REQUIRE_PLATFORM_FIXTURES: "1"
+        run: go test ./testvectors -run '^(TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' -count=1 -timeout=10m
+
       # Native same-arch (linux/amd64) precision guard. Regenerate the libopus
       # reference fixtures from the libopus just built on this runner. The
       # ordinary scalar Go encoder is compared with scalar libopus, using this
